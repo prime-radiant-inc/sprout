@@ -41,6 +41,7 @@ export interface AgentResult {
 	success: boolean;
 	stumbles: number;
 	turns: number;
+	timed_out: boolean;
 }
 
 export class Agent {
@@ -151,6 +152,7 @@ export class Agent {
 	/** Run the agent loop with the given goal */
 	async run(goal: string): Promise<AgentResult> {
 		const agentId = this.spec.name;
+		const startTime = performance.now();
 		let stumbles = 0;
 		let turns = 0;
 		let lastOutput = "";
@@ -199,6 +201,17 @@ export class Agent {
 		// Core loop
 		while (turns < this.spec.constraints.max_turns) {
 			turns++;
+
+			// Check timeout
+			if (this.spec.constraints.timeout_ms > 0) {
+				const elapsed = performance.now() - startTime;
+				if (elapsed >= this.spec.constraints.timeout_ms) {
+					this.emitAndLog("warning", agentId, this.depth, {
+						message: `Agent timed out after ${Math.round(elapsed)}ms (limit: ${this.spec.constraints.timeout_ms}ms)`,
+					});
+					break;
+				}
+			}
 
 			// Plan: build request and call LLM
 			this.emitAndLog("plan_start", agentId, this.depth, { turn: turns });
@@ -390,13 +403,17 @@ export class Agent {
 			}
 		}
 
-		// If we exhausted turns, that's a stumble
+		// Check if we hit limits
 		const hitTurnLimit = turns >= this.spec.constraints.max_turns;
-		if (hitTurnLimit) {
+		const timedOut =
+			this.spec.constraints.timeout_ms > 0 &&
+			performance.now() - startTime >= this.spec.constraints.timeout_ms;
+
+		if (hitTurnLimit || timedOut) {
 			stumbles++;
 		}
 
-		const success = !hitTurnLimit;
+		const success = !hitTurnLimit && !timedOut;
 
 		// Emit session_end
 		this.emitAndLog("session_end", agentId, this.depth, {
@@ -404,6 +421,7 @@ export class Agent {
 			success,
 			stumbles,
 			turns,
+			timed_out: timedOut,
 			output: lastOutput,
 		});
 
@@ -414,6 +432,7 @@ export class Agent {
 			success,
 			stumbles,
 			turns,
+			timed_out: timedOut,
 		};
 	}
 }
