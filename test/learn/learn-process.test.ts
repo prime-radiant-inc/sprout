@@ -375,11 +375,7 @@ describe("LearnProcess", () => {
 		});
 
 		test("stopBackground drains remaining signals before returning", async () => {
-			// Use a client with artificial delay to ensure signals are still queued
-			let completeCount = 0;
-			const slowClient = makeMockClient('{"type": "skip"}', () => {
-				completeCount++;
-			});
+			const slowClient = makeMockClient('{"type": "skip"}');
 			const { learn } = await setupGenomeWithClient(tempDir, "bg-drain", slowClient);
 
 			learn.startBackground();
