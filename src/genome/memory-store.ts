@@ -87,7 +87,10 @@ export class MemoryStore {
 	/** Rewrite the entire JSONL file from the in-memory entries. */
 	async save(): Promise<void> {
 		await mkdir(dirname(this.path), { recursive: true });
-		const content = `${this.entries.map((m) => JSON.stringify(m)).join("\n")}\n`;
+		const content =
+			this.entries.length > 0
+				? `${this.entries.map((m) => JSON.stringify(m)).join("\n")}\n`
+				: "";
 		await writeFile(this.path, content);
 	}
 

@@ -316,6 +316,8 @@ describe("Genome", () => {
 			expect(genome2.getAgent("loader-agent")).toBeDefined();
 			expect(genome2.allRoutingRules()).toHaveLength(1);
 			expect(genome2.allRoutingRules()[0]!.id).toBe("loader-rule");
+			expect(genome2.memories.all()).toHaveLength(1);
+			expect(genome2.memories.all()[0]!.id).toBe("loader-mem");
 		});
 
 		test("initFromBootstrap copies 4 bootstrap agents and commits", async () => {

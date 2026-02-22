@@ -179,6 +179,7 @@ export class Genome {
 
 	/** Mark memories as used by id, saving and committing. */
 	async markMemoriesUsed(ids: string[]): Promise<void> {
+		if (ids.length === 0) return;
 		for (const id of ids) {
 			this.memories.markUsed(id);
 		}
