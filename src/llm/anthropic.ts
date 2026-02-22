@@ -139,9 +139,7 @@ function buildAnthropicRequest(
 	};
 
 	if (system) {
-		params.system = [
-			{ type: "text", text: system, cache_control: { type: "ephemeral" } },
-		];
+		params.system = [{ type: "text", text: system, cache_control: { type: "ephemeral" } }];
 	}
 
 	if (request.tools?.length) {
@@ -178,6 +176,19 @@ function buildAnthropicRequest(
 
 	if (request.stop_sequences) {
 		params.stop_sequences = request.stop_sequences;
+	}
+
+	// Extended thinking and beta headers via provider_options
+	const anthropicOpts = request.provider_options?.anthropic as
+		| Record<string, unknown>
+		| undefined;
+	if (anthropicOpts?.thinking) {
+		(params as any).thinking = anthropicOpts.thinking;
+		// Anthropic requires temperature to be unset when thinking is enabled
+		delete (params as any).temperature;
+	}
+	if (anthropicOpts?.betas) {
+		(params as any).betas = anthropicOpts.betas;
 	}
 
 	return params;

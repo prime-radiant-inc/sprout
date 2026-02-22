@@ -189,6 +189,12 @@ function buildGeminiRequest(request: Request): GeminiRequest {
 		];
 	}
 
+	// Thinking config via provider_options
+	const geminiOpts = request.provider_options?.gemini as Record<string, unknown> | undefined;
+	if (geminiOpts?.thinkingConfig) {
+		config.thinkingConfig = geminiOpts.thinkingConfig as any;
+	}
+
 	return { systemInstruction, contents, config };
 }
 

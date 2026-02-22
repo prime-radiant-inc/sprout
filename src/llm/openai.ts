@@ -265,6 +265,11 @@ function buildResponsesParams(
 		}
 	}
 
+	// Reasoning effort passthrough
+	if (request.reasoning_effort) {
+		(params as any).reasoning = { effort: request.reasoning_effort };
+	}
+
 	return params;
 }
 

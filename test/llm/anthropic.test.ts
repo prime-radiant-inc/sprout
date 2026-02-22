@@ -1,7 +1,13 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { config } from "dotenv";
 import { AnthropicAdapter } from "../../src/llm/anthropic.ts";
-import { ContentKind, messageText, messageToolCalls, type Request } from "../../src/llm/types.ts";
+import {
+	ContentKind,
+	messageReasoning,
+	messageText,
+	messageToolCalls,
+	type Request,
+} from "../../src/llm/types.ts";
 
 // Load API keys from serf .env
 config();
@@ -156,11 +162,17 @@ describe("AnthropicAdapter", () => {
 			content: [{ kind: ContentKind.TEXT, text: "What is 2+2?" }],
 		};
 
-		const tools = [{
-			name: "get_weather",
-			description: "Get weather for a location. " + "Detailed description. ".repeat(50),
-			parameters: { type: "object" as const, properties: { city: { type: "string" } }, required: ["city"] },
-		}];
+		const tools = [
+			{
+				name: "get_weather",
+				description: "Get weather for a location. " + "Detailed description. ".repeat(50),
+				parameters: {
+					type: "object" as const,
+					properties: { city: { type: "string" } },
+					required: ["city"],
+				},
+			},
+		];
 
 		// Turn 1 — populates cache (or reads if already cached from a previous run)
 		const r1 = await adapter.complete({
@@ -169,7 +181,8 @@ describe("AnthropicAdapter", () => {
 			tools,
 			max_tokens: 50,
 		});
-		const cacheActive = (r1.usage.cache_write_tokens ?? 0) > 0 || (r1.usage.cache_read_tokens ?? 0) > 0;
+		const cacheActive =
+			(r1.usage.cache_write_tokens ?? 0) > 0 || (r1.usage.cache_read_tokens ?? 0) > 0;
 		expect(cacheActive).toBe(true);
 
 		// Turn 2 — should read from cache
@@ -180,6 +193,32 @@ describe("AnthropicAdapter", () => {
 			max_tokens: 50,
 		});
 		expect(r2.usage.cache_read_tokens).toBeGreaterThan(0);
+	}, 30_000);
+
+	test("extended thinking via provider_options", async () => {
+		const response = await adapter.complete({
+			model: "claude-sonnet-4-6",
+			messages: [
+				{
+					role: "user",
+					content: [
+						{
+							kind: ContentKind.TEXT,
+							text: "What is 15 * 37? Think step by step.",
+						},
+					],
+				},
+			],
+			max_tokens: 16000,
+			provider_options: {
+				anthropic: {
+					thinking: { type: "enabled", budget_tokens: 10000 },
+				},
+			},
+		});
+		const reasoning = messageReasoning(response.message);
+		expect(reasoning).toBeDefined();
+		expect(reasoning!.length).toBeGreaterThan(0);
 	}, 30_000);
 
 	test("stream yields text deltas that match complete response", async () => {
