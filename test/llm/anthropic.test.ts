@@ -4,7 +4,7 @@ import { AnthropicAdapter } from "../../src/llm/anthropic.ts";
 import { ContentKind, messageText, messageToolCalls, type Request } from "../../src/llm/types.ts";
 
 // Load API keys from serf .env
-config({ path: `${process.env.HOME}/prime-radiant/serf/.env` });
+config();
 
 describe("AnthropicAdapter", () => {
 	let adapter: AnthropicAdapter;

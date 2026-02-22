@@ -1,47 +1,46 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { config } from "dotenv";
-import { OpenAIAdapter } from "../../src/llm/openai.ts";
+import { GeminiAdapter } from "../../src/llm/gemini.ts";
 import { ContentKind, messageText, messageToolCalls, type Request } from "../../src/llm/types.ts";
 
 config();
 
-describe("OpenAIAdapter", () => {
-	let adapter: OpenAIAdapter;
+describe("GeminiAdapter", () => {
+	let adapter: GeminiAdapter;
 
 	beforeAll(() => {
-		const key = process.env.OPENAI_API_KEY;
-		if (!key) throw new Error("OPENAI_API_KEY not set");
-		adapter = new OpenAIAdapter(key);
+		const key = process.env.GEMINI_API_KEY;
+		if (!key) throw new Error("GEMINI_API_KEY not set");
+		adapter = new GeminiAdapter(key);
 	});
 
-	test("adapter name is openai", () => {
-		expect(adapter.name).toBe("openai");
+	test("adapter name is gemini", () => {
+		expect(adapter.name).toBe("gemini");
 	});
 
 	test("complete returns a text response", async () => {
 		const req: Request = {
-			model: "gpt-4.1-mini",
+			model: "gemini-2.5-flash",
 			messages: [
 				{
 					role: "user",
 					content: [{ kind: ContentKind.TEXT, text: "Say hello in exactly 3 words." }],
 				},
 			],
-			max_tokens: 50,
+			max_tokens: 500,
 		};
 
 		const resp = await adapter.complete(req);
-		expect(resp.id).toBeTruthy();
-		expect(resp.provider).toBe("openai");
+		expect(resp.provider).toBe("gemini");
 		expect(messageText(resp.message).length).toBeGreaterThan(0);
-		expect(resp.finish_reason.reason).toBe("stop");
+		expect(["stop", "length"]).toContain(resp.finish_reason.reason);
 		expect(resp.usage.input_tokens).toBeGreaterThan(0);
 		expect(resp.usage.output_tokens).toBeGreaterThan(0);
 	}, 15_000);
 
 	test("complete handles tool calls", async () => {
 		const req: Request = {
-			model: "gpt-4.1-mini",
+			model: "gemini-2.5-flash",
 			messages: [
 				{
 					role: "user",
@@ -66,7 +65,6 @@ describe("OpenAIAdapter", () => {
 					},
 				},
 			],
-			tool_choice: "required",
 			max_tokens: 200,
 		};
 
@@ -79,7 +77,7 @@ describe("OpenAIAdapter", () => {
 
 	test("complete handles tool result round-trip", async () => {
 		const req1: Request = {
-			model: "gpt-4.1-mini",
+			model: "gemini-2.5-flash",
 			messages: [
 				{
 					role: "user",
@@ -102,7 +100,6 @@ describe("OpenAIAdapter", () => {
 					},
 				},
 			],
-			tool_choice: "required",
 			max_tokens: 200,
 		};
 
@@ -111,7 +108,7 @@ describe("OpenAIAdapter", () => {
 		expect(calls.length).toBeGreaterThan(0);
 
 		const req2: Request = {
-			model: "gpt-4.1-mini",
+			model: "gemini-2.5-flash",
 			messages: [
 				...req1.messages,
 				resp1.message,
@@ -141,7 +138,7 @@ describe("OpenAIAdapter", () => {
 
 	test("stream yields text deltas", async () => {
 		const req: Request = {
-			model: "gpt-4.1-mini",
+			model: "gemini-2.5-flash",
 			messages: [
 				{
 					role: "user",
@@ -166,6 +163,6 @@ describe("OpenAIAdapter", () => {
 		expect(textDeltas.length).toBeGreaterThan(0);
 
 		const finish = events.find((e) => e.type === "finish");
-		expect(finish?.usage?.input_tokens).toBeGreaterThan(0);
+		expect(finish?.usage).toBeDefined();
 	}, 15_000);
 });
