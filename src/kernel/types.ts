@@ -63,6 +63,7 @@ export interface ActResult {
 	success: boolean;
 	stumbles: number;
 	turns: number;
+	timed_out?: boolean;
 }
 
 /** Result of the Verify phase */

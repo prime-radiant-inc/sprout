@@ -311,6 +311,7 @@ export class Agent {
 							success: subResult.success,
 							stumbles: subResult.stumbles,
 							turns: subResult.turns,
+							timed_out: subResult.timed_out,
 						};
 
 						// Verify the act result
@@ -344,6 +345,7 @@ export class Agent {
 							agent_name: delegation.agent_name,
 							success: subResult.success,
 							turns: subResult.turns,
+							timed_out: subResult.timed_out,
 						});
 
 						// Record action for stumble rate computation
@@ -370,7 +372,12 @@ export class Agent {
 					const result = await this.primitiveRegistry.execute(call.name, call.arguments);
 
 					// Verify primitive result
-					const { stumbled } = verifyPrimitiveResult(result, call.name, goal);
+					const { stumbled, learnSignal: primSignal } = verifyPrimitiveResult(
+						result,
+						call.name,
+						goal,
+						this.sessionId,
+					);
 
 					this.emitAndLog("primitive_end", agentId, this.depth, {
 						name: call.name,
@@ -382,6 +389,15 @@ export class Agent {
 
 					if (stumbled) {
 						stumbles++;
+					}
+
+					if (primSignal) {
+						this.emitAndLog("learn_signal", agentId, this.depth, {
+							signal: primSignal,
+						});
+						if (this.learnProcess && this.spec.constraints.can_learn) {
+							this.learnProcess.push(primSignal);
+						}
 					}
 
 					this.emitAndLog("verify", agentId, this.depth, {
