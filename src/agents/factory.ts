@@ -51,7 +51,10 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 	const rootSpec = genome.getAgent(rootName);
 	if (!rootSpec) {
 		throw new Error(
-			`Root agent '${rootName}' not found in genome. Available: ${genome.allAgents().map((a) => a.name).join(", ")}`,
+			`Root agent '${rootName}' not found in genome. Available: ${genome
+				.allAgents()
+				.map((a) => a.name)
+				.join(", ")}`,
 		);
 	}
 
