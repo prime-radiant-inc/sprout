@@ -307,9 +307,7 @@ describe("Genome", () => {
 			// Add some data
 			await genome.addAgent(makeSpec({ name: "loader-agent" }));
 			await genome.addRoutingRule(makeRule({ id: "loader-rule" }));
-			await genome.addMemory(
-				makeMemory({ id: "loader-mem", content: "loaded memory" }),
-			);
+			await genome.addMemory(makeMemory({ id: "loader-mem", content: "loaded memory" }));
 
 			// Create a fresh Genome pointing at the same dir and load
 			const genome2 = new Genome(root);
@@ -350,7 +348,29 @@ describe("Genome", () => {
 			await genome.addAgent(makeSpec({ name: "existing" }));
 
 			const bootstrapDir = join(import.meta.dir, "../../bootstrap");
-			expect(genome.initFromBootstrap(bootstrapDir)).rejects.toThrow();
+			await expect(genome.initFromBootstrap(bootstrapDir)).rejects.toThrow(
+				/agents already exist/,
+			);
+		});
+	});
+
+	describe("error guards", () => {
+		test("updateAgent throws if agent does not exist", async () => {
+			const root = join(tempDir, "update-guard");
+			const genome = new Genome(root);
+			await genome.init();
+
+			await expect(genome.updateAgent(makeSpec({ name: "ghost" }))).rejects.toThrow(
+				/not found/,
+			);
+		});
+
+		test("removeAgent throws if agent does not exist", async () => {
+			const root = join(tempDir, "remove-guard");
+			const genome = new Genome(root);
+			await genome.init();
+
+			await expect(genome.removeAgent("ghost")).rejects.toThrow(/not found/);
 		});
 	});
 
@@ -366,10 +386,7 @@ describe("Genome", () => {
 			await genome.addMemory(mem);
 
 			// Verify file exists
-			const content = await readFile(
-				join(root, "memories", "memories.jsonl"),
-				"utf-8",
-			);
+			const content = await readFile(join(root, "memories", "memories.jsonl"), "utf-8");
 			expect(content).toContain("genome-mem-1");
 
 			// Git log

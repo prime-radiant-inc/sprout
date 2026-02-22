@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse, stringify } from "yaml";
 import { loadAgentSpec, loadBootstrapAgents } from "../agents/loader.ts";
@@ -96,7 +96,10 @@ export class Genome {
 	/** Update an existing agent, bumping its version. */
 	async updateAgent(spec: AgentSpec): Promise<void> {
 		const existing = this.agents.get(spec.name);
-		const nextVersion = existing ? existing.version + 1 : spec.version + 1;
+		if (!existing) {
+			throw new Error(`Cannot update agent '${spec.name}': not found`);
+		}
+		const nextVersion = existing.version + 1;
 		const updated = { ...spec, version: nextVersion };
 		const yamlPath = join(this.rootPath, "agents", `${spec.name}.yaml`);
 		await writeFile(yamlPath, serializeAgentSpec(updated));
@@ -112,6 +115,9 @@ export class Genome {
 
 	/** Remove an agent, deleting its YAML file and committing. */
 	async removeAgent(name: string): Promise<void> {
+		if (!this.agents.has(name)) {
+			throw new Error(`Cannot remove agent '${name}': not found`);
+		}
 		const yamlPath = join(this.rootPath, "agents", `${name}.yaml`);
 		await rm(yamlPath);
 		this.agents.delete(name);
