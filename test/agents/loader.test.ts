@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadAgentSpec, loadBootstrapAgents } from "../../src/agents/loader.ts";
 
@@ -27,6 +29,12 @@ describe("loadAgentSpec", () => {
 
 	test("throws on missing file", async () => {
 		expect(loadAgentSpec("/nonexistent.yaml")).rejects.toThrow();
+	});
+
+	test("throws on YAML missing required fields", async () => {
+		const badPath = join(tmpdir(), `bad-spec-${Date.now()}.yaml`);
+		await writeFile(badPath, "capabilities:\n  - read_file\n");
+		expect(loadAgentSpec(badPath)).rejects.toThrow(/missing or invalid 'name'/);
 	});
 });
 

@@ -157,4 +157,19 @@ describe("parsePlanResponse", () => {
 		expect(result.delegations).toHaveLength(0);
 		expect(result.primitiveCalls).toHaveLength(0);
 	});
+
+	test("throws when delegation is missing goal argument", () => {
+		const agentNames = new Set(["code-reader"]);
+		const toolCalls = [{ id: "call_1", name: "code-reader", arguments: {} }];
+		expect(() => parsePlanResponse(toolCalls, agentNames)).toThrow(/missing required 'goal'/);
+	});
+
+	test("ignores non-array hints", () => {
+		const agentNames = new Set(["code-reader"]);
+		const toolCalls = [
+			{ id: "call_1", name: "code-reader", arguments: { goal: "find code", hints: "not an array" } },
+		];
+		const result = parsePlanResponse(toolCalls, agentNames);
+		expect(result.delegations[0]!.hints).toBeUndefined();
+	});
 });

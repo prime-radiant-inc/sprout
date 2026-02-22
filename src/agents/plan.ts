@@ -115,10 +115,17 @@ export function parsePlanResponse(
 
 	for (const call of toolCalls) {
 		if (agentNames.has(call.name)) {
+			const goal = call.arguments.goal;
+			if (typeof goal !== "string" || goal.length === 0) {
+				throw new Error(
+					`Agent delegation to '${call.name}' missing required 'goal' argument`,
+				);
+			}
+			const hints = call.arguments.hints;
 			delegations.push({
 				agent_name: call.name,
-				goal: call.arguments.goal as string,
-				hints: call.arguments.hints as string[] | undefined,
+				goal,
+				hints: Array.isArray(hints) ? hints : undefined,
 			});
 		} else {
 			primitiveCalls.push(call);
