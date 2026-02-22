@@ -348,9 +348,7 @@ describe("Genome", () => {
 			await genome.addAgent(makeSpec({ name: "existing" }));
 
 			const bootstrapDir = join(import.meta.dir, "../../bootstrap");
-			await expect(genome.initFromBootstrap(bootstrapDir)).rejects.toThrow(
-				/agents already exist/,
-			);
+			await expect(genome.initFromBootstrap(bootstrapDir)).rejects.toThrow(/agents already exist/);
 		});
 	});
 
@@ -360,9 +358,7 @@ describe("Genome", () => {
 			const genome = new Genome(root);
 			await genome.init();
 
-			await expect(genome.updateAgent(makeSpec({ name: "ghost" }))).rejects.toThrow(
-				/not found/,
-			);
+			await expect(genome.updateAgent(makeSpec({ name: "ghost" }))).rejects.toThrow(/not found/);
 		});
 
 		test("removeAgent throws if agent does not exist", async () => {
