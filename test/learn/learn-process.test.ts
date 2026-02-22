@@ -183,4 +183,13 @@ describe("LearnProcess", () => {
 		expect(mutationEvents.length).toBe(1);
 		expect(mutationEvents[0]!.data.mutation_type).toBe("create_memory");
 	});
+
+	test("recordAction delegates to metrics", async () => {
+		const { learn, metrics } = await setupGenome(tempDir, "record-action");
+		expect(metrics.totalActions("root")).toBe(0);
+
+		learn.recordAction("root");
+		// In-memory increment is synchronous
+		expect(metrics.totalActions("root")).toBe(1);
+	});
 });

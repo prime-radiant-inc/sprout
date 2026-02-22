@@ -50,10 +50,25 @@ export class LearnProcess {
 		}
 	}
 
-	/** Add a signal to the queue and record the stumble in metrics (fire-and-forget). */
+	/** Add a signal to the queue and record the stumble in metrics. */
 	push(signal: LearnSignal): void {
 		this.queue.push(signal);
-		void this.metrics.recordStumble(signal.agent_name, signal.kind);
+		this.metrics.recordStumble(signal.agent_name, signal.kind).catch((err) => {
+			this.events.emit("warning", "learn", 0, {
+				message: "Failed to persist stumble metric",
+				error: String(err),
+			});
+		});
+	}
+
+	/** Record an action for stumble rate computation. */
+	recordAction(agentName: string): void {
+		this.metrics.recordAction(agentName).catch((err) => {
+			this.events.emit("warning", "learn", 0, {
+				message: "Failed to persist action metric",
+				error: String(err),
+			});
+		});
 	}
 
 	/** Return the number of signals waiting in the queue. */

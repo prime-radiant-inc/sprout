@@ -273,7 +273,7 @@ export class Agent {
 							this.events.emit("learn_signal", agentId, this.depth, {
 								signal: learnSignal,
 							});
-							if (this.learnProcess) {
+							if (this.learnProcess && this.spec.constraints.can_learn) {
 								this.learnProcess.push(learnSignal);
 							}
 						}
@@ -292,6 +292,11 @@ export class Agent {
 							success: subResult.success,
 							turns: subResult.turns,
 						});
+
+						// Record action for stumble rate computation
+						if (this.learnProcess) {
+							this.learnProcess.recordAction(agentId);
+						}
 					} catch (err) {
 						const errorMsg = `Subagent '${delegation.agent_name}' failed: ${String(err)}`;
 						history.push(Msg.toolResult(call.id, errorMsg, true));
@@ -329,6 +334,11 @@ export class Agent {
 						success: result.success,
 						stumbled,
 					});
+
+					// Record action for stumble rate computation
+					if (this.learnProcess) {
+						this.learnProcess.recordAction(agentId);
+					}
 
 					// Add tool result to history
 					const content = result.error ? `Error: ${result.error}\n${result.output}` : result.output;
