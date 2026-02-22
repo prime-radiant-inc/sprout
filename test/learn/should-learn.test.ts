@@ -86,6 +86,15 @@ describe("shouldLearn", () => {
 		expect(await shouldLearn(signal, metrics)).toBe(false);
 	});
 
+	test("returns false for errors with exactly 2 prior occurrences", async () => {
+		const signal = makeSignal({ kind: "error" });
+		await metrics.recordStumble("test-agent", "error");
+		await metrics.recordStumble("test-agent", "error");
+
+		// Count 2 is between the one-off skip (< 2) and the repeated threshold (>= 3)
+		expect(await shouldLearn(signal, metrics)).toBe(false);
+	});
+
 	test("checks agent-specific counts", async () => {
 		// agent-a has 3 errors, agent-b has 1
 		await metrics.recordStumble("agent-a", "error");

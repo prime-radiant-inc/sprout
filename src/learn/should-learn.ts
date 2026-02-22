@@ -14,5 +14,7 @@ export async function shouldLearn(signal: LearnSignal, metrics: MetricsStore): P
 	// Repeated stumbles of any kind trigger learning
 	if (count >= 3) return true;
 
+	// Spec 8.3 defaults to true, but that relies on recent_improvements_address()
+	// filtering which is not yet implemented. Conservative: skip until that exists.
 	return false;
 }
