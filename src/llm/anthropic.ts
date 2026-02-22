@@ -179,9 +179,7 @@ function buildAnthropicRequest(
 	}
 
 	// Extended thinking and beta headers via provider_options
-	const anthropicOpts = request.provider_options?.anthropic as
-		| Record<string, unknown>
-		| undefined;
+	const anthropicOpts = request.provider_options?.anthropic as Record<string, unknown> | undefined;
 	if (anthropicOpts?.thinking) {
 		(params as any).thinking = anthropicOpts.thinking;
 		// Anthropic requires temperature to be unset when thinking is enabled
