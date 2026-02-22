@@ -1,7 +1,7 @@
 import type { ExecutionEnvironment } from "../kernel/execution-env.ts";
 import type { PrimitiveRegistry } from "../kernel/primitives.ts";
 import { truncateToolOutput } from "../kernel/truncation.ts";
-import type { ActResult, AgentSpec, LearnSignal } from "../kernel/types.ts";
+import type { ActResult, AgentSpec } from "../kernel/types.ts";
 import type { Client } from "../llm/client.ts";
 import type { Message, ToolDefinition } from "../llm/types.ts";
 import { Msg, messageText, messageToolCalls } from "../llm/types.ts";
@@ -115,7 +115,6 @@ export class Agent {
 		let stumbles = 0;
 		let turns = 0;
 		let lastOutput = "";
-		const learnSignals: LearnSignal[] = [];
 
 		// Emit session_start
 		this.events.emit("session_start", agentId, this.depth, {
@@ -176,10 +175,11 @@ export class Agent {
 
 			// Parse tool calls into delegations and primitive calls
 			const { delegations } = parsePlanResponse(toolCalls, this.agentNames);
+			const delegationByCallId = new Map(delegations.map((d) => [d.call_id, d]));
 
 			// Process each tool call in the order they appeared
 			for (const call of toolCalls) {
-				const delegation = delegations.find((d) => d.agent_name === call.name);
+				const delegation = delegationByCallId.get(call.id);
 
 				if (delegation) {
 					// Act: delegate to subagent
@@ -242,7 +242,6 @@ export class Agent {
 						});
 
 						if (learnSignal) {
-							learnSignals.push(learnSignal);
 							this.events.emit("learn_signal", agentId, this.depth, {
 								signal: learnSignal,
 							});
@@ -314,7 +313,7 @@ export class Agent {
 			stumbles++;
 		}
 
-		const success = !hitTurnLimit && stumbles === 0;
+		const success = !hitTurnLimit;
 
 		// Emit session_end
 		this.events.emit("session_end", agentId, this.depth, {

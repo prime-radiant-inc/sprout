@@ -145,6 +145,7 @@ describe("parsePlanResponse", () => {
 		];
 		const result = parsePlanResponse(toolCalls, agentNames);
 		expect(result.delegations).toHaveLength(1);
+		expect(result.delegations[0]!.call_id).toBe("call_1");
 		expect(result.delegations[0]!.agent_name).toBe("code-reader");
 		expect(result.delegations[0]!.goal).toBe("find auth code");
 		expect(result.delegations[0]!.hints).toEqual(["check src/auth"]);

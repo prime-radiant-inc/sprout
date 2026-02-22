@@ -69,6 +69,7 @@ describe("kernel types", () => {
 
 	test("Delegation captures agent name, goal, and optional hints", () => {
 		const delegation: Delegation = {
+			call_id: "call_1",
 			agent_name: "code-editor",
 			goal: "Fix the null check on line 23",
 			hints: ["The file is src/auth/login.ts"],
@@ -78,6 +79,7 @@ describe("kernel types", () => {
 
 	test("Delegation works without hints", () => {
 		const delegation: Delegation = {
+			call_id: "call_2",
 			agent_name: "code-reader",
 			goal: "Find the auth middleware",
 		};

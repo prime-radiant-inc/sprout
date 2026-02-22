@@ -121,6 +121,7 @@ export function parsePlanResponse(
 			}
 			const hints = call.arguments.hints;
 			delegations.push({
+				call_id: call.id,
 				agent_name: call.name,
 				goal,
 				hints: Array.isArray(hints) ? hints : undefined,
