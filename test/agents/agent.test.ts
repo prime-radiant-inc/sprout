@@ -491,11 +491,9 @@ describe("Agent", () => {
 			usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
 		};
 
-		let callCount = 0;
 		const mockClient = {
 			providers: () => ["anthropic"],
 			complete: async () => {
-				callCount++;
 				// Small delay so timeout can trigger
 				await new Promise((resolve) => setTimeout(resolve, 50));
 				return alwaysCallToolResponse;
