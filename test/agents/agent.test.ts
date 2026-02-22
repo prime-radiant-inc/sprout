@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { config } from "dotenv";
 import { Agent } from "../../src/agents/agent.ts";
+import { Genome } from "../../src/genome/genome.ts";
 import { LocalExecutionEnvironment } from "../../src/kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../../src/kernel/primitives.ts";
 import { type AgentSpec, DEFAULT_CONSTRAINTS } from "../../src/kernel/types.ts";
@@ -188,5 +190,32 @@ describe("Agent", () => {
 			availableAgents: [leafSpec],
 		});
 		expect(agent.resolvedTools().map((t) => t.name)).toContain("leaf");
+	});
+
+	test("constructor accepts genome option", async () => {
+		const tempGenomeDir = await mkdtemp(join(tmpdir(), "sprout-agent-genome-"));
+		try {
+			const genome = new Genome(tempGenomeDir);
+			await genome.init();
+			await genome.initFromBootstrap(join(import.meta.dir, "../../bootstrap"));
+
+			const codeReader = genome.getAgent("code-reader")!;
+			const env = new LocalExecutionEnvironment(tmpdir());
+			const client = Client.fromEnv();
+			const registry = createPrimitiveRegistry(env);
+
+			const agent = new Agent({
+				spec: codeReader,
+				env,
+				client,
+				primitiveRegistry: registry,
+				availableAgents: genome.allAgents(),
+				genome,
+			});
+			expect(agent).toBeDefined();
+			expect(agent.resolvedTools().length).toBeGreaterThan(0);
+		} finally {
+			await rm(tempGenomeDir, { recursive: true, force: true });
+		}
 	});
 });

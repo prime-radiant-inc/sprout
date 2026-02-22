@@ -1,7 +1,9 @@
+import type { Genome } from "../genome/genome.ts";
+import { recall } from "../genome/recall.ts";
 import type { ExecutionEnvironment } from "../kernel/execution-env.ts";
 import type { PrimitiveRegistry } from "../kernel/primitives.ts";
 import { truncateToolOutput } from "../kernel/truncation.ts";
-import type { ActResult, AgentSpec } from "../kernel/types.ts";
+import type { ActResult, AgentSpec, Memory, RoutingRule } from "../kernel/types.ts";
 import type { Client } from "../llm/client.ts";
 import type { Message, ToolDefinition } from "../llm/types.ts";
 import { Msg, messageText, messageToolCalls } from "../llm/types.ts";
@@ -22,6 +24,7 @@ export interface AgentOptions {
 	client: Client;
 	primitiveRegistry: PrimitiveRegistry;
 	availableAgents: AgentSpec[];
+	genome?: Genome;
 	depth?: number;
 	events?: AgentEventEmitter;
 	sessionId?: string;
@@ -40,6 +43,7 @@ export class Agent {
 	private readonly client: Client;
 	private readonly primitiveRegistry: PrimitiveRegistry;
 	private readonly availableAgents: AgentSpec[];
+	private readonly genome?: Genome;
 	private readonly depth: number;
 	private readonly events: AgentEventEmitter;
 	private readonly sessionId: string;
@@ -54,6 +58,7 @@ export class Agent {
 		this.client = options.client;
 		this.primitiveRegistry = options.primitiveRegistry;
 		this.availableAgents = options.availableAgents;
+		this.genome = options.genome;
 		this.depth = options.depth ?? 0;
 		this.events = options.events ?? new AgentEventEmitter();
 		this.sessionId = options.sessionId ?? crypto.randomUUID();
@@ -123,19 +128,35 @@ export class Agent {
 			session_id: this.sessionId,
 		});
 
-		// Build system prompt
-		const systemPrompt = buildSystemPrompt(
-			this.spec,
-			this.env.working_directory(),
-			this.env.platform(),
-			this.env.os_version(),
-		);
-
 		// Initialize history with the goal
 		const history: Message[] = [Msg.user(goal)];
 
 		// Emit perceive
 		this.events.emit("perceive", agentId, this.depth, { goal });
+
+		// Recall: search genome for relevant context
+		let recallContext: { memories?: Memory[]; routingHints?: RoutingRule[] } | undefined;
+		if (this.genome) {
+			const recallResult = await recall(this.genome, goal);
+			recallContext = {
+				memories: recallResult.memories,
+				routingHints: recallResult.routing_hints,
+			};
+			this.events.emit("recall", agentId, this.depth, {
+				agent_count: recallResult.agents.length,
+				memory_count: recallResult.memories.length,
+				routing_hint_count: recallResult.routing_hints.length,
+			});
+		}
+
+		// Build system prompt with recall context (memories and routing hints)
+		const systemPrompt = buildSystemPrompt(
+			this.spec,
+			this.env.working_directory(),
+			this.env.platform(),
+			this.env.os_version(),
+			recallContext,
+		);
 
 		// Core loop
 		while (turns < this.spec.constraints.max_turns) {
@@ -217,6 +238,7 @@ export class Agent {
 							client: this.client,
 							primitiveRegistry: this.primitiveRegistry,
 							availableAgents: this.availableAgents,
+							genome: this.genome,
 							depth: this.depth + 1,
 							events: this.events,
 							sessionId: this.sessionId,
