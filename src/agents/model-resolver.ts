@@ -25,7 +25,8 @@ const PROVIDER_PRIORITY = ["anthropic", "openai", "gemini"];
 
 export function detectProvider(model: string): string | undefined {
 	if (model.startsWith("claude-")) return "anthropic";
-	if (model.startsWith("gpt-") || model.startsWith("o1-") || model.startsWith("o3-")) return "openai";
+	if (model.startsWith("gpt-") || model.startsWith("o1-") || model.startsWith("o3-"))
+		return "openai";
 	if (model.startsWith("gemini-")) return "gemini";
 	return undefined;
 }
@@ -38,7 +39,9 @@ export function resolveModel(model: string, availableProviders: string[]): Resol
 				return { model: tier[provider], provider };
 			}
 		}
-		throw new Error(`No provider available for model tier '${model}'. Available: ${availableProviders.join(", ")}`);
+		throw new Error(
+			`No provider available for model tier '${model}'. Available: ${availableProviders.join(", ")}`,
+		);
 	}
 
 	const provider = detectProvider(model);
@@ -46,7 +49,9 @@ export function resolveModel(model: string, availableProviders: string[]): Resol
 		throw new Error(`Cannot detect provider for model '${model}'`);
 	}
 	if (!availableProviders.includes(provider)) {
-		throw new Error(`Provider '${provider}' for model '${model}' is not available. Available: ${availableProviders.join(", ")}`);
+		throw new Error(
+			`Provider '${provider}' for model '${model}' is not available. Available: ${availableProviders.join(", ")}`,
+		);
 	}
 	return { model, provider };
 }

@@ -14,12 +14,7 @@ export class AgentEventEmitter {
 		};
 	}
 
-	emit(
-		kind: EventKind,
-		agentId: string,
-		depth: number,
-		data: Record<string, unknown> = {},
-	): void {
+	emit(kind: EventKind, agentId: string, depth: number, data: Record<string, unknown> = {}): void {
 		const event: SessionEvent = {
 			kind,
 			timestamp: Date.now(),
