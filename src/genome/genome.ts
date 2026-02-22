@@ -191,6 +191,18 @@ export class Genome {
 		await git(this.rootPath, "commit", "-m", `genome: mark ${ids.length} memories used`);
 	}
 
+	// --- Rollback ---
+
+	/** Rollback the last genome mutation (git revert HEAD). */
+	async rollback(): Promise<void> {
+		await git(this.rootPath, "revert", "--no-edit", "HEAD");
+	}
+
+	/** Rollback a specific commit by hash. */
+	async rollbackCommit(commitHash: string): Promise<void> {
+		await git(this.rootPath, "revert", "--no-edit", commitHash);
+	}
+
 	// --- Load and Bootstrap ---
 
 	/** Load agents, memories, and routing rules from an existing genome directory. */
