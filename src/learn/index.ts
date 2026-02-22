@@ -1,6 +1,6 @@
 export {
-	LearnProcess,
 	type LearnMutation,
+	LearnProcess,
 	type LearnProcessOptions,
 	type ProcessResult,
 } from "./learn-process.ts";

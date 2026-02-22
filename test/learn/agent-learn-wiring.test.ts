@@ -9,9 +9,9 @@ import { createAgent } from "../../src/agents/factory.ts";
 import { Genome } from "../../src/genome/genome.ts";
 import { LocalExecutionEnvironment } from "../../src/kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../../src/kernel/primitives.ts";
-import { Client } from "../../src/llm/client.ts";
 import { LearnProcess } from "../../src/learn/learn-process.ts";
 import { MetricsStore } from "../../src/learn/metrics-store.ts";
+import { Client } from "../../src/llm/client.ts";
 
 config({ path: join(homedir(), "prime-radiant/serf/.env") });
 

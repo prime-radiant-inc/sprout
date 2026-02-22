@@ -4,10 +4,10 @@ import type { ExecutionEnvironment } from "../kernel/execution-env.ts";
 import type { PrimitiveRegistry } from "../kernel/primitives.ts";
 import { truncateToolOutput } from "../kernel/truncation.ts";
 import type { ActResult, AgentSpec, Memory, RoutingRule } from "../kernel/types.ts";
+import type { LearnProcess } from "../learn/learn-process.ts";
 import type { Client } from "../llm/client.ts";
 import type { Message, ToolDefinition } from "../llm/types.ts";
 import { Msg, messageText, messageToolCalls } from "../llm/types.ts";
-import type { LearnProcess } from "../learn/learn-process.ts";
 import { AgentEventEmitter } from "./events.ts";
 import { type ResolvedModel, resolveModel } from "./model-resolver.ts";
 import {
