@@ -5,12 +5,12 @@ export interface ResolvedModel {
 
 const MODEL_TIERS: Record<string, Record<string, string>> = {
 	best: {
-		anthropic: "claude-sonnet-4-5-20250929",
+		anthropic: "claude-sonnet-4-6",
 		openai: "gpt-4.1",
 		gemini: "gemini-2.5-pro",
 	},
 	good: {
-		anthropic: "claude-sonnet-4-5-20250929",
+		anthropic: "claude-sonnet-4-6",
 		openai: "gpt-4.1",
 		gemini: "gemini-2.5-flash",
 	},
