@@ -136,6 +136,52 @@ describe("GeminiAdapter", () => {
 		expect(messageText(resp2.message).length).toBeGreaterThan(0);
 	}, 30_000);
 
+	test("separate adapter instances don't share call ID state", async () => {
+		const key = process.env.GEMINI_API_KEY!;
+		const adapter1 = new GeminiAdapter(key);
+		const adapter2 = new GeminiAdapter(key);
+
+		const toolReq: Request = {
+			model: "gemini-2.5-flash",
+			messages: [
+				{
+					role: "user",
+					content: [
+						{
+							kind: ContentKind.TEXT,
+							text: "What's the weather in San Francisco? You must use the get_weather tool.",
+						},
+					],
+				},
+			],
+			tools: [
+				{
+					name: "get_weather",
+					description: "Get weather for a city",
+					parameters: {
+						type: "object",
+						properties: { city: { type: "string" } },
+						required: ["city"],
+					},
+				},
+			],
+			max_tokens: 200,
+		};
+
+		const resp1 = await adapter1.complete(toolReq);
+		const calls1 = messageToolCalls(resp1.message);
+		expect(calls1.length).toBeGreaterThan(0);
+
+		const resp2 = await adapter2.complete(toolReq);
+		const calls2 = messageToolCalls(resp2.message);
+		expect(calls2.length).toBeGreaterThan(0);
+
+		// Both should produce call_gemini_1 as first ID — independent counters
+		// With shared module-level state, adapter2 would get call_gemini_2+
+		expect(calls1[0]!.id).toBe("call_gemini_1");
+		expect(calls2[0]!.id).toBe("call_gemini_1");
+	}, 30_000);
+
 	test("stream yields text deltas", async () => {
 		const req: Request = {
 			model: "gemini-2.5-flash",
