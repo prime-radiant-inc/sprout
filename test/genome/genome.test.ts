@@ -401,7 +401,7 @@ describe("Genome", () => {
 			expect(log).toContain("genome: add memory 'genome-mem-1'");
 		});
 
-		test("markMemoriesUsed updates and commits", async () => {
+		test("markMemoriesUsed updates use_count and persists to disk", async () => {
 			const root = join(tempDir, "mem-used");
 			const genome = new Genome(root);
 			await genome.init();
@@ -413,8 +413,19 @@ describe("Genome", () => {
 
 			await genome.markMemoriesUsed(["used-1", "used-2"]);
 
-			const log = await git(root, "log", "--oneline");
-			expect(log).toContain("genome: mark 2 memories used");
+			// Verify in-memory state
+			const all = genome.memories.all();
+			const m1 = all.find((m) => m.id === "used-1")!;
+			const m2 = all.find((m) => m.id === "used-2")!;
+			expect(m1.use_count).toBe(1);
+			expect(m2.use_count).toBe(1);
+
+			// Verify persisted to disk by loading a fresh Genome
+			const genome2 = new Genome(root);
+			await genome2.loadFromDisk();
+			const reloaded = genome2.memories.all();
+			expect(reloaded.find((m) => m.id === "used-1")!.use_count).toBe(1);
+			expect(reloaded.find((m) => m.id === "used-2")!.use_count).toBe(1);
 		});
 	});
 

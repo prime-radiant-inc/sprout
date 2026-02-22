@@ -180,15 +180,13 @@ export class Genome {
 		await git(this.rootPath, "commit", "-m", `genome: add memory '${memory.id}'`);
 	}
 
-	/** Mark memories as used by id, saving and committing. */
+	/** Mark memories as used by id, saving to disk. No git commit — this is operational metadata. */
 	async markMemoriesUsed(ids: string[]): Promise<void> {
 		if (ids.length === 0) return;
 		for (const id of ids) {
 			this.memories.markUsed(id);
 		}
 		await this.memories.save();
-		await git(this.rootPath, "add", join(this.rootPath, "memories", "memories.jsonl"));
-		await git(this.rootPath, "commit", "-m", `genome: mark ${ids.length} memories used`);
 	}
 
 	// --- Pruning ---
