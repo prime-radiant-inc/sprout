@@ -1,5 +1,5 @@
-import type { AgentSpec, Delegation, Memory, RoutingRule } from "../kernel/types.ts";
 import { renderMemories, renderRoutingHints } from "../genome/recall.ts";
+import type { AgentSpec, Delegation, Memory, RoutingRule } from "../kernel/types.ts";
 import type { Message, Request, ToolCall, ToolDefinition } from "../llm/types.ts";
 import { Msg } from "../llm/types.ts";
 
