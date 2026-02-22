@@ -11,7 +11,7 @@ export interface SubmitOptions {
 
 /**
  * Wrap Agent.run() as an async generator that yields SessionEvent objects.
- * After the agent completes, drains the learn queue.
+ * Learn processing runs concurrently via the background loop.
  */
 export async function* submitGoal(
 	goal: string,
@@ -32,6 +32,11 @@ export async function* submitGoal(
 			notify = null;
 		}
 	});
+
+	// Start background Learn processing before the agent runs
+	if (learnProcess) {
+		learnProcess.startBackground();
+	}
 
 	// Start agent.run() as a background promise (fire-and-forget side effect)
 	let agentDone = false;
@@ -70,14 +75,12 @@ export async function* submitGoal(
 			throw agentError;
 		}
 
-		// Drain learn queue after agent completes
+		// Stop background Learn and drain remaining signals
 		if (learnProcess) {
-			while (learnProcess.queueSize() > 0) {
-				await learnProcess.processNext();
-				// Yield any events emitted during learn processing
-				while (buffer.length > 0) {
-					yield buffer.shift()!;
-				}
+			await learnProcess.stopBackground();
+			// Yield any events emitted during final drain
+			while (buffer.length > 0) {
+				yield buffer.shift()!;
 			}
 		}
 	} finally {

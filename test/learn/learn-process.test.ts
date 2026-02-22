@@ -4,13 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentEventEmitter } from "../../src/agents/events.ts";
 import { Genome } from "../../src/genome/genome.ts";
-import { DEFAULT_CONSTRAINTS } from "../../src/kernel/types.ts";
 import type { LearnSignal } from "../../src/kernel/types.ts";
-import type { Client } from "../../src/llm/client.ts";
-import type { Request, Response } from "../../src/llm/types.ts";
+import { DEFAULT_CONSTRAINTS } from "../../src/kernel/types.ts";
 import type { LearnMutation } from "../../src/learn/learn-process.ts";
 import { LearnProcess } from "../../src/learn/learn-process.ts";
 import { MetricsStore } from "../../src/learn/metrics-store.ts";
+import type { Client } from "../../src/llm/client.ts";
+import type { Request, Response } from "../../src/llm/types.ts";
 
 function makeSignal(overrides: Partial<LearnSignal> = {}): LearnSignal {
 	return {
@@ -341,5 +341,84 @@ describe("LearnProcess", () => {
 		expect(result).toBe("applied");
 		const memories = genome.memories.all();
 		expect(memories.some((m) => m.content === "bare block insight")).toBe(true);
+	});
+
+	describe("background processing", () => {
+		test("startBackground processes signals pushed to queue", async () => {
+			const { learn } = await setupGenome(tempDir, "bg-process");
+
+			learn.startBackground();
+
+			// Push a failure signal (passes shouldLearn filter)
+			// No client, so processSignal returns "skipped" — but the signal IS dequeued
+			learn.push(makeSignal({ kind: "failure" }));
+
+			// Wait for background loop to pick it up
+			await new Promise((resolve) => setTimeout(resolve, 100));
+
+			expect(learn.queueSize()).toBe(0);
+
+			await learn.stopBackground();
+		});
+
+		test("startBackground is idempotent", async () => {
+			const { learn } = await setupGenome(tempDir, "bg-idempotent");
+
+			learn.startBackground();
+			learn.startBackground(); // second call should be no-op
+
+			learn.push(makeSignal({ kind: "failure" }));
+			await new Promise((resolve) => setTimeout(resolve, 100));
+			expect(learn.queueSize()).toBe(0);
+
+			await learn.stopBackground();
+		});
+
+		test("stopBackground drains remaining signals before returning", async () => {
+			// Use a client with artificial delay to ensure signals are still queued
+			let completeCount = 0;
+			const slowClient = makeMockClient('{"type": "skip"}', () => {
+				completeCount++;
+			});
+			const { learn } = await setupGenomeWithClient(tempDir, "bg-drain", slowClient);
+
+			learn.startBackground();
+
+			// Push multiple failure signals
+			learn.push(makeSignal({ kind: "failure", agent_name: "root" }));
+			learn.push(makeSignal({ kind: "failure", agent_name: "root" }));
+			learn.push(makeSignal({ kind: "failure", agent_name: "root" }));
+
+			// Stop should drain all remaining
+			await learn.stopBackground();
+
+			expect(learn.queueSize()).toBe(0);
+		});
+
+		test("push wakes background loop immediately", async () => {
+			const { learn } = await setupGenome(tempDir, "bg-wake");
+
+			learn.startBackground();
+
+			// Wait for loop to enter sleep (no signals yet)
+			await new Promise((resolve) => setTimeout(resolve, 50));
+
+			// Push a signal — should wake the loop
+			learn.push(makeSignal({ kind: "failure" }));
+
+			// Give it a tick to process
+			await new Promise((resolve) => setTimeout(resolve, 50));
+
+			expect(learn.queueSize()).toBe(0);
+
+			await learn.stopBackground();
+		});
+
+		test("stopBackground resolves when not started", async () => {
+			const { learn } = await setupGenome(tempDir, "bg-stop-noop");
+
+			// Should not hang or throw
+			await learn.stopBackground();
+		});
 	});
 });
