@@ -139,15 +139,24 @@ function buildAnthropicRequest(
 	};
 
 	if (system) {
-		params.system = system;
+		params.system = [
+			{ type: "text", text: system, cache_control: { type: "ephemeral" } },
+		];
 	}
 
 	if (request.tools?.length) {
-		params.tools = request.tools.map((t) => ({
-			name: t.name,
-			description: t.description,
-			input_schema: t.parameters as Anthropic.Tool["input_schema"],
-		}));
+		params.tools = request.tools.map((t, i) => {
+			const tool: Anthropic.Tool = {
+				name: t.name,
+				description: t.description,
+				input_schema: t.parameters as Anthropic.Tool["input_schema"],
+			};
+			// Cache breakpoint on the last tool definition
+			if (i === request.tools!.length - 1) {
+				tool.cache_control = { type: "ephemeral" };
+			}
+			return tool;
+		});
 	}
 
 	if (request.tool_choice) {

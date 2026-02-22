@@ -145,6 +145,43 @@ describe("AnthropicAdapter", () => {
 		expect(text.length).toBeGreaterThan(0);
 	}, 30_000);
 
+	test("prompt caching: cache_write_tokens on turn 1, cache_read_tokens on turn 2", async () => {
+		// Haiku 4.5 requires at least 4096 tokens for caching to activate
+		const systemMsg: import("../../src/llm/types.ts").Message = {
+			role: "system",
+			content: [{ kind: ContentKind.TEXT, text: "You are a helpful assistant. ".repeat(800) }],
+		};
+		const userMsg: import("../../src/llm/types.ts").Message = {
+			role: "user",
+			content: [{ kind: ContentKind.TEXT, text: "What is 2+2?" }],
+		};
+
+		const tools = [{
+			name: "get_weather",
+			description: "Get weather for a location. " + "Detailed description. ".repeat(50),
+			parameters: { type: "object" as const, properties: { city: { type: "string" } }, required: ["city"] },
+		}];
+
+		// Turn 1 — populates cache (or reads if already cached from a previous run)
+		const r1 = await adapter.complete({
+			model: "claude-haiku-4-5-20251001",
+			messages: [systemMsg, userMsg],
+			tools,
+			max_tokens: 50,
+		});
+		const cacheActive = (r1.usage.cache_write_tokens ?? 0) > 0 || (r1.usage.cache_read_tokens ?? 0) > 0;
+		expect(cacheActive).toBe(true);
+
+		// Turn 2 — should read from cache
+		const r2 = await adapter.complete({
+			model: "claude-haiku-4-5-20251001",
+			messages: [systemMsg, userMsg],
+			tools,
+			max_tokens: 50,
+		});
+		expect(r2.usage.cache_read_tokens).toBeGreaterThan(0);
+	}, 30_000);
+
 	test("stream yields text deltas that match complete response", async () => {
 		const req: Request = {
 			model: "claude-haiku-4-5-20251001",
