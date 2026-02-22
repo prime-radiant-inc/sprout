@@ -50,6 +50,27 @@ describe("Agent", () => {
 		).toThrow(/depth/i);
 	});
 
+	test("max_depth 0 does not restrict instantiation depth", () => {
+		const leafOnly: AgentSpec = {
+			...leafSpec,
+			constraints: { ...leafSpec.constraints, max_depth: 0 },
+		};
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const client = Client.fromEnv();
+		const registry = createPrimitiveRegistry(env);
+		expect(
+			() =>
+				new Agent({
+					spec: leafOnly,
+					env,
+					client,
+					primitiveRegistry: registry,
+					availableAgents: [],
+					depth: 3,
+				}),
+		).not.toThrow();
+	});
+
 	test("resolves agent tools from capabilities", () => {
 		const env = new LocalExecutionEnvironment(tmpdir());
 		const client = Client.fromEnv();

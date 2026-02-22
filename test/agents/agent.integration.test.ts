@@ -49,6 +49,8 @@ describe("Agent Integration", () => {
 			`Create a file called hello.py in ${tempDir} that prints "Hello World". Use the write_file tool with the absolute path.`,
 		);
 
+		expect(result.success).toBe(true);
+
 		// The file should exist
 		const content = await readFile(join(tempDir, "hello.py"), "utf-8");
 		expect(content).toContain("Hello");
@@ -77,6 +79,7 @@ describe("Agent Integration", () => {
 			`Create a file called greet.py in ${tempDir} that prints "Hello from Sprout". The file must exist when you're done.`,
 		);
 
+		expect(result.success).toBe(true);
 		expect(result.turns).toBeGreaterThan(0);
 
 		const content = await readFile(join(tempDir, "greet.py"), "utf-8");
