@@ -17,10 +17,12 @@ export class MemoryStore {
 		let raw: string;
 		try {
 			raw = await readFile(this.path, "utf-8");
-		} catch {
-			// File doesn't exist yet — start empty
-			this.entries = [];
-			return;
+		} catch (err: unknown) {
+			if (err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT") {
+				this.entries = [];
+				return;
+			}
+			throw err;
 		}
 		this.entries = raw
 			.split("\n")
@@ -30,6 +32,9 @@ export class MemoryStore {
 
 	/** Append a memory to the in-memory list and to the JSONL file on disk. */
 	async add(memory: Memory): Promise<void> {
+		if (this.entries.some((m) => m.id === memory.id)) {
+			throw new Error(`Memory with id '${memory.id}' already exists`);
+		}
 		this.entries.push(memory);
 		await mkdir(dirname(this.path), { recursive: true });
 		await appendFile(this.path, `${JSON.stringify(memory)}\n`);

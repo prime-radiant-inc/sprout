@@ -201,4 +201,14 @@ describe("MemoryStore", () => {
 		const reloaded = store2.getById("save-1")!;
 		expect(reloaded.use_count).toBe(1);
 	});
+
+	test("add() throws on duplicate id", async () => {
+		const filePath = join(tempDir, `memories-${Date.now()}.jsonl`);
+		const store = new MemoryStore(filePath);
+		await store.load();
+		await store.add(makeMemory({ id: "dup-1", content: "first" }));
+		expect(store.add(makeMemory({ id: "dup-1", content: "second" }))).rejects.toThrow(
+			/already exists/,
+		);
+	});
 });
