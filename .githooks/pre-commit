@@ -1,0 +1,25 @@
+#!/bin/sh
+# Pre-commit hook: lint, typecheck, test
+
+echo "Running biome check..."
+bun run check
+if [ $? -ne 0 ]; then
+  echo "Biome check failed. Fix issues before committing."
+  exit 1
+fi
+
+echo "Running typecheck..."
+bun run typecheck
+if [ $? -ne 0 ]; then
+  echo "Typecheck failed. Fix type errors before committing."
+  exit 1
+fi
+
+echo "Running tests..."
+bun test
+if [ $? -ne 0 ]; then
+  echo "Tests failed. Fix tests before committing."
+  exit 1
+fi
+
+echo "All checks passed."
