@@ -30,7 +30,7 @@ const DIRS = ["agents", "memories", "routing", "embeddings", "metrics"] as const
 export class Genome {
 	private readonly rootPath: string;
 	private readonly agents = new Map<string, AgentSpec>();
-	private readonly memories: MemoryStore;
+	readonly memories: MemoryStore;
 	private routingRules: RoutingRule[] = [];
 
 	constructor(rootPath: string) {
