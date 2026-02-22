@@ -1,6 +1,6 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { stringify } from "yaml";
+import { parse, stringify } from "yaml";
 import { loadAgentSpec, loadBootstrapAgents } from "../agents/loader.ts";
 import type { AgentSpec, Memory, RoutingRule } from "../kernel/types.ts";
 import { MemoryStore } from "./memory-store.ts";
@@ -159,10 +159,7 @@ export class Genome {
 	}
 
 	private async saveRoutingRules(): Promise<void> {
-		await writeFile(
-			join(this.rootPath, "routing", "rules.yaml"),
-			stringify(this.routingRules),
-		);
+		await writeFile(join(this.rootPath, "routing", "rules.yaml"), stringify(this.routingRules));
 	}
 
 	// --- Memory CRUD (delegates to MemoryStore) ---
@@ -181,12 +178,7 @@ export class Genome {
 		}
 		await this.memories.save();
 		await git(this.rootPath, "add", join(this.rootPath, "memories", "memories.jsonl"));
-		await git(
-			this.rootPath,
-			"commit",
-			"-m",
-			`genome: mark ${ids.length} memories used`,
-		);
+		await git(this.rootPath, "commit", "-m", `genome: mark ${ids.length} memories used`);
 	}
 
 	// --- Load and Bootstrap ---
@@ -197,7 +189,6 @@ export class Genome {
 		const agentsDir = join(this.rootPath, "agents");
 		let files: string[];
 		try {
-			const { readdir } = await import("node:fs/promises");
 			files = await readdir(agentsDir);
 		} catch {
 			files = [];
@@ -215,7 +206,6 @@ export class Genome {
 		const rulesPath = join(this.rootPath, "routing", "rules.yaml");
 		try {
 			const content = await readFile(rulesPath, "utf-8");
-			const { parse } = await import("yaml");
 			const parsed = parse(content);
 			this.routingRules = Array.isArray(parsed) ? parsed : [];
 		} catch {
@@ -237,12 +227,7 @@ export class Genome {
 		}
 
 		await git(this.rootPath, "add", ".");
-		await git(
-			this.rootPath,
-			"commit",
-			"-m",
-			"genome: initialize from bootstrap agents",
-		);
+		await git(this.rootPath, "commit", "-m", "genome: initialize from bootstrap agents");
 	}
 }
 
