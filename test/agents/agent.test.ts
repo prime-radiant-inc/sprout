@@ -4,11 +4,14 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { config } from "dotenv";
 import { Agent } from "../../src/agents/agent.ts";
+import { AgentEventEmitter } from "../../src/agents/events.ts";
 import { Genome } from "../../src/genome/genome.ts";
 import { LocalExecutionEnvironment } from "../../src/kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../../src/kernel/primitives.ts";
 import { type AgentSpec, DEFAULT_CONSTRAINTS } from "../../src/kernel/types.ts";
 import { Client } from "../../src/llm/client.ts";
+import { Msg } from "../../src/llm/types.ts";
+import type { Response } from "../../src/llm/types.ts";
 
 config({ path: join(homedir(), "prime-radiant/serf/.env") });
 
@@ -190,6 +193,50 @@ describe("Agent", () => {
 			availableAgents: [leafSpec],
 		});
 		expect(agent.resolvedTools().map((t) => t.name)).toContain("leaf");
+	});
+
+	test("run() emits session_end with correct data", async () => {
+		const mockResponse: Response = {
+			id: "mock-1",
+			model: "claude-haiku-4-5-20251001",
+			provider: "anthropic",
+			message: Msg.assistant("Task complete."),
+			finish_reason: { reason: "stop" },
+			usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+		};
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async () => mockResponse,
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: leafSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+			events,
+		});
+
+		const result = await agent.run("test goal");
+
+		const collected = events.collected();
+		const sessionEnd = collected.find((e) => e.kind === "session_end");
+		expect(sessionEnd).toBeDefined();
+		expect(sessionEnd!.data.success).toBe(true);
+		expect(sessionEnd!.data.stumbles).toBe(0);
+		expect(sessionEnd!.data.turns).toBe(1);
+		expect(sessionEnd!.data.session_id).toBeDefined();
+
+		// Verify result matches event data
+		expect(result.success).toBe(true);
+		expect(result.stumbles).toBe(0);
+		expect(result.turns).toBe(1);
 	});
 
 	test("constructor accepts genome option", async () => {
