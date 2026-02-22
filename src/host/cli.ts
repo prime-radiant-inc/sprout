@@ -11,7 +11,8 @@ export type CliCommand =
 	| { kind: "genome-rollback"; genomePath: string; commit: string }
 	| { kind: "help" };
 
-/** Parse CLI arguments (process.argv.slice(2)) into a typed command. */
+/** Parse CLI arguments (process.argv.slice(2)) into a typed command.
+ * Note: --genome-path must come before --genome subcommands. */
 export function parseArgs(argv: string[]): CliCommand {
 	let genomePath = DEFAULT_GENOME_PATH;
 	const rest: string[] = [];
@@ -125,7 +126,8 @@ export async function runCli(command: CliCommand): Promise<void> {
 			stdout: "inherit",
 			stderr: "inherit",
 		});
-		await proc.exited;
+		const exitCode = await proc.exited;
+		if (exitCode !== 0) process.exitCode = exitCode;
 		return;
 	}
 
@@ -137,7 +139,8 @@ export async function runCli(command: CliCommand): Promise<void> {
 				stderr: "inherit",
 			},
 		);
-		await proc.exited;
+		const exitCode = await proc.exited;
+		if (exitCode !== 0) process.exitCode = exitCode;
 		return;
 	}
 
