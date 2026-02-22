@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp } from "node:fs/promises";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentEventEmitter } from "../../src/agents/events.ts";
@@ -44,6 +44,10 @@ describe("LearnProcess", () => {
 
 	beforeEach(async () => {
 		tempDir = await mkdtemp(join(tmpdir(), "sprout-learn-process-"));
+	});
+
+	afterEach(async () => {
+		await rm(tempDir, { recursive: true, force: true });
 	});
 
 	test("constructor creates a LearnProcess", async () => {
