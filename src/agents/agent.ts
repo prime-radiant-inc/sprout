@@ -58,8 +58,9 @@ export class Agent {
 		this.events = options.events ?? new AgentEventEmitter();
 		this.sessionId = options.sessionId ?? crypto.randomUUID();
 
-		// Validate depth
-		if (this.depth >= this.spec.constraints.max_depth) {
+		// Validate depth: max_depth > 0 means the agent can only exist at depths < max_depth.
+		// max_depth === 0 means "leaf agent, no sub-spawning" — no depth restriction on the agent itself.
+		if (this.spec.constraints.max_depth > 0 && this.depth >= this.spec.constraints.max_depth) {
 			throw new Error(
 				`Agent '${this.spec.name}' exceeds max depth: depth=${this.depth}, max_depth=${this.spec.constraints.max_depth}`,
 			);
