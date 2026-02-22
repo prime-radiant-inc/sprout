@@ -18,7 +18,11 @@ export class MemoryStore {
 		try {
 			raw = await readFile(this.path, "utf-8");
 		} catch (err: unknown) {
-			if (err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT") {
+			if (
+				err instanceof Error &&
+				"code" in err &&
+				(err as NodeJS.ErrnoException).code === "ENOENT"
+			) {
 				this.entries = [];
 				return;
 			}
