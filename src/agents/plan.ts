@@ -117,9 +117,7 @@ export function parsePlanResponse(
 		if (agentNames.has(call.name)) {
 			const goal = call.arguments.goal;
 			if (typeof goal !== "string" || goal.length === 0) {
-				throw new Error(
-					`Agent delegation to '${call.name}' missing required 'goal' argument`,
-				);
+				throw new Error(`Agent delegation to '${call.name}' missing required 'goal' argument`);
 			}
 			const hints = call.arguments.hints;
 			delegations.push({
