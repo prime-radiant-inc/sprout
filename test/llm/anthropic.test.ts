@@ -7,6 +7,7 @@ import {
 	messageText,
 	messageToolCalls,
 	type Request,
+	type StreamEvent,
 } from "../../src/llm/types.ts";
 
 // Load API keys from serf .env
@@ -220,6 +221,22 @@ describe("AnthropicAdapter", () => {
 		expect(reasoning).toBeDefined();
 		expect(reasoning!.length).toBeGreaterThan(0);
 	}, 30_000);
+
+	test("streaming emits text_end after text content", async () => {
+		const events: StreamEvent[] = [];
+		for await (const event of adapter.stream({
+			model: "claude-haiku-4-5-20251001",
+			messages: [{ role: "user", content: [{ kind: ContentKind.TEXT, text: "Say hello" }] }],
+			max_tokens: 50,
+		})) {
+			events.push(event);
+		}
+		const types = events.map(e => e.type);
+		expect(types).toContain("text_start");
+		expect(types).toContain("text_end");
+		// text_end should come after text_start
+		expect(types.indexOf("text_end")).toBeGreaterThan(types.indexOf("text_start"));
+	}, 15_000);
 
 	test("stream yields text deltas that match complete response", async () => {
 		const req: Request = {

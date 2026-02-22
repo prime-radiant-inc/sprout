@@ -45,13 +45,17 @@ export class AnthropicAdapter implements ProviderAdapter {
 
 		yield { type: "stream_start" };
 
+		let activeBlockType: string | null = null;
+
 		for await (const event of stream) {
 			if (event.type === "message_start") {
 				// Token counts will come from the final message
 			} else if (event.type === "content_block_start") {
 				if (event.content_block.type === "text") {
+					activeBlockType = "text";
 					yield { type: "text_start" };
 				} else if (event.content_block.type === "tool_use") {
+					activeBlockType = "tool_call";
 					yield {
 						type: "tool_call_start",
 						tool_call: {
@@ -60,6 +64,7 @@ export class AnthropicAdapter implements ProviderAdapter {
 						},
 					};
 				} else if (event.content_block.type === "thinking") {
+					activeBlockType = "thinking";
 					yield { type: "reasoning_start" };
 				}
 			} else if (event.type === "content_block_delta") {
@@ -77,8 +82,14 @@ export class AnthropicAdapter implements ProviderAdapter {
 					};
 				}
 			} else if (event.type === "content_block_stop") {
-				// We don't know which type stopped without tracking state,
-				// but that's fine — consumers use start/delta/end lifecycle
+				if (activeBlockType === "text") {
+					yield { type: "text_end" };
+				} else if (activeBlockType === "tool_call") {
+					yield { type: "tool_call_end" };
+				} else if (activeBlockType === "thinking") {
+					yield { type: "reasoning_end" };
+				}
+				activeBlockType = null;
 			} else if (event.type === "message_delta") {
 				// Usage will be gathered from finalMessage
 			} else if (event.type === "message_stop") {
