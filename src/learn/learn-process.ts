@@ -122,7 +122,30 @@ export class LearnProcess {
 	private async reasonAboutImprovement(signal: LearnSignal): Promise<LearnMutation | null> {
 		if (!this.client || !this.resolvedModel) return null;
 
+		// Gather genome context for the LLM
+		const agents = this.genome.allAgents();
+		const agentSummary = agents.map((a) => `- ${a.name}: ${a.description} (model: ${a.model})`).join("\n");
+
+		const memories = this.genome.memories.all();
+		const memorySummary = memories.map((m) => `- [${m.tags.join(",")}] ${m.content}`).join("\n");
+
+		const currentAgent = this.genome.getAgent(signal.agent_name);
+		const currentAgentPrompt = currentAgent?.system_prompt;
+
 		const prompt = `You are analyzing a recurring problem in an AI coding agent system.
+
+## Current System State
+
+Existing agents:
+${agentSummary}
+
+Recent memories:
+${memorySummary || "(none)"}
+
+${signal.agent_name}'s current system prompt:
+${currentAgentPrompt || "(not found)"}
+
+## Stumble Signal
 
 A stumble signal has been detected:
 - Agent: ${signal.agent_name}
@@ -133,7 +156,7 @@ A stumble signal has been detected:
 - Stumbles: ${signal.details.stumbles}
 - Turns used: ${signal.details.turns}
 
-Based on this signal, decide what improvement to make. Respond with ONLY a JSON object (no markdown, no explanation) matching one of these formats:
+Based on this signal and the current system state, decide what improvement to make. Respond with ONLY a JSON object (no markdown, no explanation) matching one of these formats:
 
 1. Create a memory (learned fact):
 {"type": "create_memory", "content": "...", "tags": ["...", "..."]}
@@ -161,8 +184,16 @@ Choose the most appropriate improvement. Prefer creating memories for factual le
 		});
 
 		const text = messageText(response.message).trim();
+
+		// Strip markdown code blocks if present
+		let jsonText = text;
+		const codeBlockMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+		if (codeBlockMatch) {
+			jsonText = codeBlockMatch[1]!.trim();
+		}
+
 		try {
-			const parsed = JSON.parse(text);
+			const parsed = JSON.parse(jsonText);
 			if (parsed.type === "skip") return null;
 			if (
 				parsed.type === "create_memory" ||

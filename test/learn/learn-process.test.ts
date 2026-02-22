@@ -4,7 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentEventEmitter } from "../../src/agents/events.ts";
 import { Genome } from "../../src/genome/genome.ts";
+import { DEFAULT_CONSTRAINTS } from "../../src/kernel/types.ts";
 import type { LearnSignal } from "../../src/kernel/types.ts";
+import type { Client } from "../../src/llm/client.ts";
+import type { Request, Response } from "../../src/llm/types.ts";
 import type { LearnMutation } from "../../src/learn/learn-process.ts";
 import { LearnProcess } from "../../src/learn/learn-process.ts";
 import { MetricsStore } from "../../src/learn/metrics-store.ts";
@@ -27,6 +30,27 @@ function makeSignal(overrides: Partial<LearnSignal> = {}): LearnSignal {
 	};
 }
 
+function makeMockResponse(text: string): Response {
+	return {
+		id: "mock",
+		model: "test",
+		provider: "anthropic",
+		message: { role: "assistant", content: [{ kind: "text", text }] },
+		finish_reason: { reason: "stop" },
+		usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+	};
+}
+
+function makeMockClient(responseText: string, onComplete?: (req: Request) => void): Client {
+	return {
+		providers: () => ["anthropic"],
+		complete: async (request: Request) => {
+			onComplete?.(request);
+			return makeMockResponse(responseText);
+		},
+	} as unknown as Client;
+}
+
 async function setupGenome(tempDir: string, name: string) {
 	const genomeDir = join(tempDir, name);
 	const genome = new Genome(genomeDir);
@@ -36,6 +60,18 @@ async function setupGenome(tempDir: string, name: string) {
 	await metrics.load();
 	const events = new AgentEventEmitter();
 	const learn = new LearnProcess({ genome, metrics, events });
+	return { genome, metrics, events, learn };
+}
+
+async function setupGenomeWithClient(tempDir: string, name: string, client: Client) {
+	const genomeDir = join(tempDir, name);
+	const genome = new Genome(genomeDir);
+	await genome.init();
+	await genome.initFromBootstrap(join(import.meta.dir, "../../bootstrap"));
+	const metrics = new MetricsStore(join(genomeDir, "metrics", "metrics.jsonl"));
+	await metrics.load();
+	const events = new AgentEventEmitter();
+	const learn = new LearnProcess({ genome, metrics, events, client });
 	return { genome, metrics, events, learn };
 }
 
@@ -191,5 +227,119 @@ describe("LearnProcess", () => {
 		learn.recordAction("root");
 		// In-memory increment is synchronous
 		expect(metrics.totalActions("root")).toBe(1);
+	});
+
+	test("reasonAboutImprovement prompt includes genome context", async () => {
+		let capturedPrompt = "";
+		const client = makeMockClient('{"type": "skip"}', (req) => {
+			capturedPrompt = (req.messages[0]!.content[0] as { text: string }).text;
+		});
+
+		const { genome, learn } = await setupGenomeWithClient(tempDir, "genome-ctx", client);
+
+		// Add a custom agent
+		await genome.addAgent({
+			name: "test-specialist",
+			description: "A specialist for testing",
+			system_prompt: "You run tests carefully",
+			model: "fast",
+			capabilities: ["exec"],
+			constraints: DEFAULT_CONSTRAINTS,
+			tags: ["testing"],
+			version: 1,
+		});
+
+		// Add a memory
+		await genome.addMemory({
+			id: "mem-ctx-1",
+			content: "Always use --verbose flag",
+			tags: ["testing"],
+			source: "learn",
+			created: Date.now(),
+			last_used: Date.now(),
+			use_count: 0,
+			confidence: 0.8,
+		});
+
+		// Use failure kind to bypass shouldLearn filtering
+		const signal = makeSignal({
+			kind: "failure",
+			agent_name: "test-specialist",
+			goal: "run tests",
+			details: {
+				agent_name: "test-specialist",
+				goal: "run tests",
+				output: "tests failed",
+				success: false,
+				stumbles: 1,
+				turns: 5,
+			},
+		});
+		learn.push(signal);
+		await learn.processNext();
+
+		// Prompt should include existing agent info
+		expect(capturedPrompt).toContain("test-specialist");
+		expect(capturedPrompt).toContain("A specialist for testing");
+		// Prompt should include existing memory content
+		expect(capturedPrompt).toContain("Always use --verbose flag");
+		// Prompt should include the agent's current system prompt
+		expect(capturedPrompt).toContain("You run tests carefully");
+	});
+
+	test("handles markdown-wrapped JSON responses", async () => {
+		const wrappedJson =
+			'```json\n{"type": "create_memory", "content": "test insight", "tags": ["test"]}\n```';
+		const client = makeMockClient(wrappedJson);
+
+		const { genome, learn } = await setupGenomeWithClient(tempDir, "md-json", client);
+
+		const signal = makeSignal({
+			kind: "failure",
+			agent_name: "root",
+			goal: "do something",
+			details: {
+				agent_name: "root",
+				goal: "do something",
+				output: "failed",
+				success: false,
+				stumbles: 1,
+				turns: 3,
+			},
+		});
+		learn.push(signal);
+		const result = await learn.processNext();
+
+		expect(result).toBe("applied");
+		const memories = genome.memories.all();
+		expect(memories.some((m) => m.content === "test insight")).toBe(true);
+	});
+
+	test("handles markdown-wrapped JSON without language tag", async () => {
+		const wrappedJson =
+			'```\n{"type": "create_memory", "content": "bare block insight", "tags": ["test"]}\n```';
+		const client = makeMockClient(wrappedJson);
+
+		const { genome, learn } = await setupGenomeWithClient(tempDir, "md-bare", client);
+
+		const signal = makeSignal({
+			kind: "failure",
+			agent_name: "root",
+			goal: "do something",
+			details: {
+				agent_name: "root",
+				goal: "do something",
+				output: "failed",
+				success: false,
+				stumbles: 1,
+				turns: 3,
+			},
+		});
+		learn.push(signal);
+		const result = await learn.processNext();
+
+		expect(result).toBe("applied");
+		const memories = genome.memories.all();
+		expect(memories.some((m) => m.content === "bare block insight")).toBe(true);
 	});
 });
