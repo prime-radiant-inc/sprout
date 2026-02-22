@@ -49,6 +49,7 @@ export interface RecallResult {
 
 /** A delegation from Plan to Act — goal-directed, not instruction-directed */
 export interface Delegation {
+	call_id: string;
 	agent_name: string;
 	goal: string;
 	hints?: string[];
