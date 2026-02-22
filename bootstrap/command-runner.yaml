@@ -3,13 +3,12 @@ description: "Execute shell commands and interpret their output"
 model: fast
 capabilities:
   - exec
-  - read_file
-  - grep
-  - glob
 constraints:
   max_turns: 20
   max_depth: 0
+  timeout_ms: 120000
   can_spawn: false
+  can_learn: false
 tags:
   - core
   - execution
@@ -23,4 +22,3 @@ system_prompt: |
   3. Interpret the results and report clearly
 
   If a command fails, analyze the error output and report what went wrong.
-  You can use read_file and grep to gather context when needed.
