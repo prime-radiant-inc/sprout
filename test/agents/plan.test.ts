@@ -6,7 +6,7 @@ import {
 	parsePlanResponse,
 	primitivesForAgent,
 } from "../../src/agents/plan.ts";
-import type { AgentSpec } from "../../src/kernel/types.ts";
+import type { AgentSpec, Memory, RoutingRule } from "../../src/kernel/types.ts";
 import { Msg } from "../../src/llm/types.ts";
 
 const testAgent: AgentSpec = {
@@ -93,6 +93,52 @@ describe("buildSystemPrompt", () => {
 		expect(prompt).toContain("Darwin 25.0");
 		expect(prompt).toContain("<environment>");
 		expect(prompt).toContain("</environment>");
+	});
+
+	test("includes rendered memories in system prompt", () => {
+		const memories: Memory[] = [
+			{
+				id: "m1",
+				content: "this project uses vitest",
+				tags: ["testing"],
+				source: "test",
+				created: Date.now(),
+				last_used: Date.now(),
+				use_count: 1,
+				confidence: 1.0,
+			},
+		];
+		const prompt = buildSystemPrompt(testAgent, "/tmp/test", "darwin", "Darwin 25.0", {
+			memories,
+		});
+		expect(prompt).toContain("<memories>");
+		expect(prompt).toContain("this project uses vitest");
+		expect(prompt).toContain("</memories>");
+	});
+
+	test("includes rendered routing hints in system prompt", () => {
+		const routingHints: RoutingRule[] = [
+			{
+				id: "r1",
+				condition: "Go testing",
+				preference: "test-runner-go",
+				strength: 0.8,
+				source: "test",
+			},
+		];
+		const prompt = buildSystemPrompt(testAgent, "/tmp/test", "darwin", "Darwin 25.0", {
+			routingHints,
+		});
+		expect(prompt).toContain("<routing_hints>");
+		expect(prompt).toContain("Go testing");
+		expect(prompt).toContain("test-runner-go");
+		expect(prompt).toContain("</routing_hints>");
+	});
+
+	test("omits memory/routing sections when empty", () => {
+		const prompt = buildSystemPrompt(testAgent, "/tmp/test", "darwin", "Darwin 25.0");
+		expect(prompt).not.toContain("<memories>");
+		expect(prompt).not.toContain("<routing_hints>");
 	});
 });
 

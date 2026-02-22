@@ -1,4 +1,5 @@
-import type { AgentSpec, Delegation } from "../kernel/types.ts";
+import type { AgentSpec, Delegation, Memory, RoutingRule } from "../kernel/types.ts";
+import { renderMemories, renderRoutingHints } from "../genome/recall.ts";
 import type { Message, Request, ToolCall, ToolDefinition } from "../llm/types.ts";
 import { Msg } from "../llm/types.ts";
 
@@ -69,9 +70,10 @@ export function buildSystemPrompt(
 	workDir: string,
 	platform: string,
 	osVersion: string,
+	recallContext?: { memories?: Memory[]; routingHints?: RoutingRule[] },
 ): string {
 	const today = new Date().toISOString().slice(0, 10);
-	return `${spec.system_prompt}
+	let prompt = `${spec.system_prompt}
 
 <environment>
 Working directory: ${workDir}
@@ -79,6 +81,15 @@ Platform: ${platform}
 OS version: ${osVersion}
 Today's date: ${today}
 </environment>`;
+
+	if (recallContext?.memories && recallContext.memories.length > 0) {
+		prompt += renderMemories(recallContext.memories);
+	}
+	if (recallContext?.routingHints && recallContext.routingHints.length > 0) {
+		prompt += renderRoutingHints(recallContext.routingHints);
+	}
+
+	return prompt;
 }
 
 /**
