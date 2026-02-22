@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Genome } from "../../src/genome/genome.ts";
 import { recall, renderMemories, renderRoutingHints } from "../../src/genome/recall.ts";
-import { DEFAULT_CONSTRAINTS, type AgentSpec, type Memory } from "../../src/kernel/types.ts";
+import { type AgentSpec, DEFAULT_CONSTRAINTS, type Memory } from "../../src/kernel/types.ts";
 
 function makeSpec(name: string): AgentSpec {
 	return {
