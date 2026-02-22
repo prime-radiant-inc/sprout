@@ -10,8 +10,8 @@ import { LocalExecutionEnvironment } from "../../src/kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../../src/kernel/primitives.ts";
 import { type AgentSpec, DEFAULT_CONSTRAINTS } from "../../src/kernel/types.ts";
 import { Client } from "../../src/llm/client.ts";
-import { Msg } from "../../src/llm/types.ts";
 import type { Response } from "../../src/llm/types.ts";
+import { Msg } from "../../src/llm/types.ts";
 
 config({ path: join(homedir(), "prime-radiant/serf/.env") });
 
