@@ -1,17 +1,22 @@
 import { describe, expect, test } from "bun:test";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { parseArgs, renderEvent } from "../../src/host/cli.ts";
+import { parseArgs, renderEvent, truncateLines } from "../../src/host/cli.ts";
 import type { SessionEvent } from "../../src/kernel/types.ts";
 
 const defaultGenomePath = join(homedir(), ".local/share/sprout-genome");
 
-function makeEvent(kind: SessionEvent["kind"], data: Record<string, unknown> = {}): SessionEvent {
+function makeEvent(
+	kind: SessionEvent["kind"],
+	data: Record<string, unknown> = {},
+	agentId = "root",
+	depth = 0,
+): SessionEvent {
 	return {
 		kind,
 		timestamp: Date.now(),
-		agent_id: "root",
-		depth: 0,
+		agent_id: agentId,
+		depth,
 		data,
 	};
 }
@@ -71,111 +76,206 @@ describe("parseArgs", () => {
 	});
 });
 
+describe("truncateLines", () => {
+	test("returns text unchanged when under limit", () => {
+		expect(truncateLines("line1\nline2\nline3", 10)).toBe("line1\nline2\nline3");
+	});
+
+	test("truncates to maxLines with ellipsis", () => {
+		const text = "line1\nline2\nline3\nline4\nline5";
+		expect(truncateLines(text, 3)).toBe("line1\nline2\nline3\n... (2 more lines)");
+	});
+
+	test("returns single line unchanged", () => {
+		expect(truncateLines("hello", 10)).toBe("hello");
+	});
+
+	test("handles empty string", () => {
+		expect(truncateLines("", 10)).toBe("");
+	});
+});
+
 describe("renderEvent", () => {
-	test("session_start → 'Starting session...'", () => {
-		const result = renderEvent(makeEvent("session_start"));
-		expect(result).toBe("Starting session...");
+	test("session_start shows agent prefix", () => {
+		const result = renderEvent(makeEvent("session_start", { goal: "Fix bug" }));
+		expect(result).toBe("[root] Starting session...");
 	});
 
-	test("act_start → formatted delegation message", () => {
+	test("plan_start shows turn number", () => {
+		const result = renderEvent(makeEvent("plan_start", { turn: 1 }));
+		expect(result).toBe("[root] Planning (turn 1)...");
+	});
+
+	test("plan_end shows reasoning and text", () => {
 		const result = renderEvent(
-			makeEvent("act_start", { agent_name: "code-editor", goal: "fix the typo" }),
+			makeEvent("plan_end", {
+				reasoning: "I need to create a file.",
+				text: "I'll use the code-editor agent.",
+			}),
 		);
-		expect(result).toBe("\u2192 Delegating to code-editor: fix the typo");
+		expect(result).toContain("[root] I need to create a file.");
+		expect(result).toContain("[root] I'll use the code-editor agent.");
 	});
 
-	test("act_end → formatted completion message", () => {
-		const result = renderEvent(makeEvent("act_end", { agent_name: "code-editor", success: true }));
-		expect(result).toBe("\u2190 code-editor: done");
+	test("plan_end shows only text when no reasoning", () => {
+		const result = renderEvent(makeEvent("plan_end", { text: "Done thinking." }));
+		expect(result).toBe("[root] Done thinking.");
 	});
 
-	test("act_end failure → formatted failure message", () => {
-		const result = renderEvent(makeEvent("act_end", { agent_name: "code-editor", success: false }));
-		expect(result).toBe("\u2190 code-editor: failed");
-	});
-
-	test("session_end → formatted summary", () => {
-		const result = renderEvent(makeEvent("session_end", { turns: 5, stumbles: 2 }));
-		expect(result).toBe("Session complete. 5 turns, 2 stumbles.");
-	});
-
-	test("perceive → null (skipped)", () => {
-		const result = renderEvent(makeEvent("perceive"));
+	test("plan_end returns null when no text or reasoning", () => {
+		const result = renderEvent(makeEvent("plan_end", { turn: 1 }));
 		expect(result).toBeNull();
 	});
 
-	test("recall → null (skipped)", () => {
-		const result = renderEvent(makeEvent("recall"));
-		expect(result).toBeNull();
+	test("primitive_start shows exec command", () => {
+		const result = renderEvent(
+			makeEvent("primitive_start", { name: "exec", args: { command: "ls -la" } }),
+		);
+		expect(result).toBe("[root]   exec `ls -la`");
 	});
 
-	test("plan_start → 'Thinking...'", () => {
-		const result = renderEvent(makeEvent("plan_start"));
-		expect(result).toBe("Thinking...");
+	test("primitive_start shows read_file path", () => {
+		const result = renderEvent(
+			makeEvent("primitive_start", { name: "read_file", args: { path: "/src/main.ts" } }),
+		);
+		expect(result).toBe("[root]   read_file /src/main.ts");
 	});
 
-	test("plan_delta → null (skipped)", () => {
-		const result = renderEvent(makeEvent("plan_delta"));
-		expect(result).toBeNull();
+	test("primitive_start shows write_file path", () => {
+		const result = renderEvent(
+			makeEvent("primitive_start", { name: "write_file", args: { path: "/src/out.ts" } }),
+		);
+		expect(result).toBe("[root]   write_file /src/out.ts");
 	});
 
-	test("plan_end → null (skipped)", () => {
-		const result = renderEvent(makeEvent("plan_end"));
-		expect(result).toBeNull();
+	test("primitive_start shows grep pattern", () => {
+		const result = renderEvent(
+			makeEvent("primitive_start", { name: "grep", args: { pattern: "TODO" } }),
+		);
+		expect(result).toBe("[root]   grep `TODO`");
 	});
 
-	test("primitive_start → formatted running message", () => {
-		const result = renderEvent(makeEvent("primitive_start", { name: "exec" }));
-		expect(result).toBe("  Running exec...");
+	test("primitive_start shows glob pattern", () => {
+		const result = renderEvent(
+			makeEvent("primitive_start", { name: "glob", args: { pattern: "**/*.ts" } }),
+		);
+		expect(result).toBe("[root]   glob `**/*.ts`");
 	});
 
-	test("primitive_end → formatted done message", () => {
-		const result = renderEvent(makeEvent("primitive_end", { name: "exec", success: true }));
-		expect(result).toBe("  exec: done");
+	test("primitive_end shows success with output line count", () => {
+		const result = renderEvent(
+			makeEvent("primitive_end", {
+				name: "exec",
+				success: true,
+				output: "file1.ts\nfile2.ts\nfile3.ts",
+			}),
+		);
+		expect(result).toBe("[root]   exec: done (3 lines)");
 	});
 
-	test("primitive_end failure → formatted failed message", () => {
+	test("primitive_end shows success with no output", () => {
+		const result = renderEvent(
+			makeEvent("primitive_end", { name: "write_file", success: true, output: "" }),
+		);
+		expect(result).toBe("[root]   write_file: done");
+	});
+
+	test("primitive_end shows failure with error", () => {
+		const result = renderEvent(
+			makeEvent("primitive_end", {
+				name: "exec",
+				success: false,
+				error: "command not found",
+			}),
+		);
+		expect(result).toBe("[root]   exec: failed — command not found");
+	});
+
+	test("primitive_end shows failure without error", () => {
 		const result = renderEvent(makeEvent("primitive_end", { name: "exec", success: false }));
-		expect(result).toBe("  exec: failed");
+		expect(result).toBe("[root]   exec: failed");
 	});
 
-	test("verify → null (skipped)", () => {
-		const result = renderEvent(makeEvent("verify"));
-		expect(result).toBeNull();
+	test("act_start shows arrow with agent and goal", () => {
+		const result = renderEvent(
+			makeEvent("act_start", { agent_name: "code-editor", goal: "Create hello.py" }),
+		);
+		expect(result).toBe("[root] \u2192 code-editor: Create hello.py");
 	});
 
-	test("learn_signal → null (skipped)", () => {
-		const result = renderEvent(makeEvent("learn_signal"));
-		expect(result).toBeNull();
+	test("act_end shows return arrow with result", () => {
+		const result = renderEvent(
+			makeEvent("act_end", { agent_name: "code-editor", success: true, turns: 2 }),
+		);
+		expect(result).toBe("[root] \u2190 code-editor: done (2 turns)");
 	});
 
-	test("learn_start → 'Learning from stumble...'", () => {
+	test("act_end shows failure", () => {
+		const result = renderEvent(makeEvent("act_end", { agent_name: "code-editor", success: false }));
+		expect(result).toBe("[root] \u2190 code-editor: failed");
+	});
+
+	test("session_end shows summary", () => {
+		const result = renderEvent(makeEvent("session_end", { turns: 5, stumbles: 2 }));
+		expect(result).toBe("[root] Session complete. 5 turns, 2 stumbles.");
+	});
+
+	test("depth 1 indents by 2 spaces", () => {
+		const result = renderEvent(makeEvent("session_start", { goal: "Fix" }, "code-editor", 1));
+		expect(result).toBe("  [code-editor] Starting session...");
+	});
+
+	test("depth 2 indents by 4 spaces", () => {
+		const result = renderEvent(makeEvent("plan_start", { turn: 1 }, "command-runner", 2));
+		expect(result).toBe("    [command-runner] Planning (turn 1)...");
+	});
+
+	// Events that should be null (skipped)
+	test("perceive → null", () => {
+		expect(renderEvent(makeEvent("perceive"))).toBeNull();
+	});
+
+	test("recall → null", () => {
+		expect(renderEvent(makeEvent("recall"))).toBeNull();
+	});
+
+	test("plan_delta → null", () => {
+		expect(renderEvent(makeEvent("plan_delta"))).toBeNull();
+	});
+
+	test("verify → null", () => {
+		expect(renderEvent(makeEvent("verify"))).toBeNull();
+	});
+
+	test("learn_signal → null", () => {
+		expect(renderEvent(makeEvent("learn_signal"))).toBeNull();
+	});
+
+	test("learn_start shows message", () => {
 		const result = renderEvent(makeEvent("learn_start"));
-		expect(result).toBe("Learning from stumble...");
+		expect(result).toBe("[root] Learning from stumble...");
 	});
 
-	test("learn_mutation → formatted mutation message", () => {
+	test("learn_mutation shows mutation type", () => {
 		const result = renderEvent(makeEvent("learn_mutation", { mutation_type: "add_memory" }));
-		expect(result).toBe("  Genome updated: add_memory");
+		expect(result).toBe("[root]   Genome updated: add_memory");
 	});
 
-	test("learn_end → null (skipped)", () => {
-		const result = renderEvent(makeEvent("learn_end"));
-		expect(result).toBeNull();
+	test("learn_end → null", () => {
+		expect(renderEvent(makeEvent("learn_end"))).toBeNull();
 	});
 
-	test("warning → formatted warning", () => {
+	test("warning shows message", () => {
 		const result = renderEvent(makeEvent("warning", { message: "rate limit approaching" }));
-		expect(result).toBe("\u26a0 rate limit approaching");
+		expect(result).toBe("[root] \u26a0 rate limit approaching");
 	});
 
-	test("error → formatted error", () => {
+	test("error shows message", () => {
 		const result = renderEvent(makeEvent("error", { error: "connection refused" }));
-		expect(result).toBe("\u2717 connection refused");
+		expect(result).toBe("[root] \u2717 connection refused");
 	});
 
-	test("steering → null (skipped)", () => {
-		const result = renderEvent(makeEvent("steering"));
-		expect(result).toBeNull();
+	test("steering → null", () => {
+		expect(renderEvent(makeEvent("steering"))).toBeNull();
 	});
 });

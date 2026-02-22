@@ -71,6 +71,9 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 	await metrics.load();
 	const learnProcess = new LearnProcess({ genome, metrics, events, client });
 
+	const sessionId = crypto.randomUUID();
+	const logBasePath = join(options.genomePath, "logs", sessionId);
+
 	const agent = new Agent({
 		spec: rootSpec,
 		env,
@@ -80,6 +83,8 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 		genome,
 		events,
 		learnProcess,
+		sessionId,
+		logBasePath,
 	});
 
 	return { agent, genome, events, learnProcess };

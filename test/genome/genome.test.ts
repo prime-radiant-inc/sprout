@@ -57,15 +57,24 @@ describe("Genome", () => {
 	// --- Init tests ---
 
 	describe("init", () => {
-		test("creates directory structure", async () => {
+		test("creates directory structure including logs", async () => {
 			const root = join(tempDir, "init-dirs");
 			const genome = new Genome(root);
 			await genome.init();
 
 			const entries = await readdir(root);
-			for (const dir of ["agents", "memories", "routing", "embeddings", "metrics"]) {
+			for (const dir of ["agents", "memories", "routing", "embeddings", "metrics", "logs"]) {
 				expect(entries).toContain(dir);
 			}
+		});
+
+		test("creates .gitignore excluding logs directory", async () => {
+			const root = join(tempDir, "init-gitignore");
+			const genome = new Genome(root);
+			await genome.init();
+
+			const content = await readFile(join(root, ".gitignore"), "utf-8");
+			expect(content).toContain("logs/");
 		});
 
 		test("initializes git repo with initial commit", async () => {

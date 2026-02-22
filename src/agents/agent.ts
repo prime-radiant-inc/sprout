@@ -1,13 +1,15 @@
+import { appendFile, mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
 import type { Genome } from "../genome/genome.ts";
 import { recall } from "../genome/recall.ts";
 import type { ExecutionEnvironment } from "../kernel/execution-env.ts";
 import type { PrimitiveRegistry } from "../kernel/primitives.ts";
 import { truncateToolOutput } from "../kernel/truncation.ts";
-import type { ActResult, AgentSpec, Memory, RoutingRule } from "../kernel/types.ts";
+import type { ActResult, AgentSpec, EventKind, Memory, RoutingRule } from "../kernel/types.ts";
 import type { LearnProcess } from "../learn/learn-process.ts";
 import type { Client } from "../llm/client.ts";
 import type { Message, ToolDefinition } from "../llm/types.ts";
-import { Msg, messageText, messageToolCalls } from "../llm/types.ts";
+import { Msg, messageReasoning, messageText, messageToolCalls } from "../llm/types.ts";
 import { AgentEventEmitter } from "./events.ts";
 import { type ResolvedModel, resolveModel } from "./model-resolver.ts";
 import {
@@ -30,6 +32,8 @@ export interface AgentOptions {
 	events?: AgentEventEmitter;
 	sessionId?: string;
 	learnProcess?: LearnProcess;
+	/** Base path for session log. Events written to ${logBasePath}.jsonl. Subagent logs go in ${logBasePath}/subagents/. */
+	logBasePath?: string;
 }
 
 export interface AgentResult {
@@ -54,6 +58,8 @@ export class Agent {
 	private readonly agentTools: ToolDefinition[];
 	private readonly primitiveTools: ToolDefinition[];
 	private readonly agentNames: Set<string>;
+	private readonly logBasePath?: string;
+	private logWriteChain: Promise<void> = Promise.resolve();
 
 	constructor(options: AgentOptions) {
 		this.spec = options.spec;
@@ -66,6 +72,7 @@ export class Agent {
 		this.events = options.events ?? new AgentEventEmitter();
 		this.sessionId = options.sessionId ?? crypto.randomUUID();
 		this.learnProcess = options.learnProcess;
+		this.logBasePath = options.logBasePath;
 
 		// Validate depth: max_depth > 0 means the agent can only exist at depths < max_depth.
 		// max_depth === 0 means "leaf agent, no sub-spawning" — no depth restriction on the agent itself.
@@ -119,6 +126,28 @@ export class Agent {
 		return [...this.agentTools, ...this.primitiveTools];
 	}
 
+	/** Emit an event and append it to the log file if logging is enabled. */
+	private emitAndLog(
+		kind: EventKind,
+		agentId: string,
+		depth: number,
+		data: Record<string, unknown>,
+	): void {
+		this.events.emit(kind, agentId, depth, data);
+		if (this.logBasePath) {
+			const event = { kind, timestamp: Date.now(), agent_id: agentId, depth, data };
+			const line = `${JSON.stringify(event)}\n`;
+			this.logWriteChain = this.logWriteChain
+				.then(() => appendFile(`${this.logBasePath}.jsonl`, line))
+				.catch(() => {});
+		}
+	}
+
+	/** Wait for all pending log writes to complete. */
+	private async flushLog(): Promise<void> {
+		await this.logWriteChain;
+	}
+
 	/** Run the agent loop with the given goal */
 	async run(goal: string): Promise<AgentResult> {
 		const agentId = this.spec.name;
@@ -126,8 +155,13 @@ export class Agent {
 		let turns = 0;
 		let lastOutput = "";
 
+		// Ensure log directory exists
+		if (this.logBasePath) {
+			await mkdir(dirname(`${this.logBasePath}.jsonl`), { recursive: true });
+		}
+
 		// Emit session_start
-		this.events.emit("session_start", agentId, this.depth, {
+		this.emitAndLog("session_start", agentId, this.depth, {
 			goal,
 			session_id: this.sessionId,
 		});
@@ -136,7 +170,7 @@ export class Agent {
 		const history: Message[] = [Msg.user(goal)];
 
 		// Emit perceive
-		this.events.emit("perceive", agentId, this.depth, { goal });
+		this.emitAndLog("perceive", agentId, this.depth, { goal });
 
 		// Recall: search genome for relevant context
 		let recallContext: { memories?: Memory[]; routingHints?: RoutingRule[] } | undefined;
@@ -146,7 +180,7 @@ export class Agent {
 				memories: recallResult.memories,
 				routingHints: recallResult.routing_hints,
 			};
-			this.events.emit("recall", agentId, this.depth, {
+			this.emitAndLog("recall", agentId, this.depth, {
 				agent_count: recallResult.agents.length,
 				memory_count: recallResult.memories.length,
 				routing_hint_count: recallResult.routing_hints.length,
@@ -167,7 +201,7 @@ export class Agent {
 			turns++;
 
 			// Plan: build request and call LLM
-			this.events.emit("plan_start", agentId, this.depth, { turn: turns });
+			this.emitAndLog("plan_start", agentId, this.depth, { turn: turns });
 
 			const request = buildPlanRequest({
 				systemPrompt,
@@ -184,10 +218,12 @@ export class Agent {
 			// Add assistant message to history
 			history.push(assistantMessage);
 
-			this.events.emit("plan_end", agentId, this.depth, {
+			this.emitAndLog("plan_end", agentId, this.depth, {
 				turn: turns,
 				finish_reason: response.finish_reason.reason,
 				usage: response.usage,
+				text: messageText(assistantMessage),
+				reasoning: messageReasoning(assistantMessage),
 			});
 
 			// Check for tool calls
@@ -209,7 +245,7 @@ export class Agent {
 
 				if (delegation) {
 					// Act: delegate to subagent
-					this.events.emit("act_start", agentId, this.depth, {
+					this.emitAndLog("act_start", agentId, this.depth, {
 						agent_name: delegation.agent_name,
 						goal: delegation.goal,
 					});
@@ -221,7 +257,7 @@ export class Agent {
 						const errorMsg = `Unknown agent: ${delegation.agent_name}`;
 						history.push(Msg.toolResult(call.id, errorMsg, true));
 						stumbles++;
-						this.events.emit("act_end", agentId, this.depth, {
+						this.emitAndLog("act_end", agentId, this.depth, {
 							agent_name: delegation.agent_name,
 							success: false,
 							error: errorMsg,
@@ -236,6 +272,9 @@ export class Agent {
 							subGoal += `\n\nHints:\n${delegation.hints.map((h) => `- ${h}`).join("\n")}`;
 						}
 
+						const subLogBasePath = this.logBasePath
+							? `${this.logBasePath}/subagents/${crypto.randomUUID()}`
+							: undefined;
 						const subagent = new Agent({
 							spec: subagentSpec,
 							env: this.env,
@@ -247,6 +286,7 @@ export class Agent {
 							events: this.events,
 							sessionId: this.sessionId,
 							learnProcess: this.learnProcess,
+							logBasePath: subLogBasePath,
 						});
 
 						const subResult = await subagent.run(subGoal);
@@ -263,14 +303,14 @@ export class Agent {
 						// Verify the act result
 						const { verify, learnSignal } = verifyActResult(actResult, this.sessionId);
 
-						this.events.emit("verify", agentId, this.depth, {
+						this.emitAndLog("verify", agentId, this.depth, {
 							agent_name: delegation.agent_name,
 							success: verify.success,
 							stumbled: verify.stumbled,
 						});
 
 						if (learnSignal) {
-							this.events.emit("learn_signal", agentId, this.depth, {
+							this.emitAndLog("learn_signal", agentId, this.depth, {
 								signal: learnSignal,
 							});
 							if (this.learnProcess && this.spec.constraints.can_learn) {
@@ -287,7 +327,7 @@ export class Agent {
 						history.push(Msg.toolResult(call.id, resultContent));
 						lastOutput = subResult.output;
 
-						this.events.emit("act_end", agentId, this.depth, {
+						this.emitAndLog("act_end", agentId, this.depth, {
 							agent_name: delegation.agent_name,
 							success: subResult.success,
 							turns: subResult.turns,
@@ -301,7 +341,7 @@ export class Agent {
 						const errorMsg = `Subagent '${delegation.agent_name}' failed: ${String(err)}`;
 						history.push(Msg.toolResult(call.id, errorMsg, true));
 						stumbles++;
-						this.events.emit("act_end", agentId, this.depth, {
+						this.emitAndLog("act_end", agentId, this.depth, {
 							agent_name: delegation.agent_name,
 							success: false,
 							error: errorMsg,
@@ -309,7 +349,7 @@ export class Agent {
 					}
 				} else {
 					// Act: execute primitive
-					this.events.emit("primitive_start", agentId, this.depth, {
+					this.emitAndLog("primitive_start", agentId, this.depth, {
 						name: call.name,
 						args: call.arguments,
 					});
@@ -319,17 +359,19 @@ export class Agent {
 					// Verify primitive result
 					const { stumbled } = verifyPrimitiveResult(result, call.name, goal);
 
-					this.events.emit("primitive_end", agentId, this.depth, {
+					this.emitAndLog("primitive_end", agentId, this.depth, {
 						name: call.name,
 						success: result.success,
 						stumbled,
+						output: result.output,
+						error: result.error,
 					});
 
 					if (stumbled) {
 						stumbles++;
 					}
 
-					this.events.emit("verify", agentId, this.depth, {
+					this.emitAndLog("verify", agentId, this.depth, {
 						primitive: call.name,
 						success: result.success,
 						stumbled,
@@ -357,13 +399,15 @@ export class Agent {
 		const success = !hitTurnLimit;
 
 		// Emit session_end
-		this.events.emit("session_end", agentId, this.depth, {
+		this.emitAndLog("session_end", agentId, this.depth, {
 			session_id: this.sessionId,
 			success,
 			stumbles,
 			turns,
 			output: lastOutput,
 		});
+
+		await this.flushLog();
 
 		return {
 			output: lastOutput,
