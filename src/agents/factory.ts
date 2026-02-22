@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { Genome } from "../genome/genome.ts";
 import { LocalExecutionEnvironment } from "../kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../kernel/primitives.ts";
+import { LearnProcess } from "../learn/learn-process.ts";
+import { MetricsStore } from "../learn/metrics-store.ts";
 import { Client } from "../llm/client.ts";
 import { Agent } from "./agent.ts";
 import { AgentEventEmitter } from "./events.ts";
@@ -26,6 +28,7 @@ export interface CreateAgentResult {
 	agent: Agent;
 	genome: Genome;
 	events: AgentEventEmitter;
+	learnProcess: LearnProcess;
 }
 
 /**
@@ -64,6 +67,10 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 	const registry = createPrimitiveRegistry(env);
 	const events = options.events ?? new AgentEventEmitter();
 
+	const metrics = new MetricsStore(join(options.genomePath, "metrics", "metrics.jsonl"));
+	await metrics.load();
+	const learnProcess = new LearnProcess({ genome, metrics, events, client });
+
 	const agent = new Agent({
 		spec: rootSpec,
 		env,
@@ -72,7 +79,8 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 		availableAgents: genome.allAgents(),
 		genome,
 		events,
+		learnProcess,
 	});
 
-	return { agent, genome, events };
+	return { agent, genome, events, learnProcess };
 }

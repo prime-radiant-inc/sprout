@@ -7,6 +7,7 @@ import type { ActResult, AgentSpec, Memory, RoutingRule } from "../kernel/types.
 import type { Client } from "../llm/client.ts";
 import type { Message, ToolDefinition } from "../llm/types.ts";
 import { Msg, messageText, messageToolCalls } from "../llm/types.ts";
+import type { LearnProcess } from "../learn/learn-process.ts";
 import { AgentEventEmitter } from "./events.ts";
 import { type ResolvedModel, resolveModel } from "./model-resolver.ts";
 import {
@@ -28,6 +29,7 @@ export interface AgentOptions {
 	depth?: number;
 	events?: AgentEventEmitter;
 	sessionId?: string;
+	learnProcess?: LearnProcess;
 }
 
 export interface AgentResult {
@@ -47,6 +49,7 @@ export class Agent {
 	private readonly depth: number;
 	private readonly events: AgentEventEmitter;
 	private readonly sessionId: string;
+	private readonly learnProcess?: LearnProcess;
 	private readonly resolved: ResolvedModel;
 	private readonly agentTools: ToolDefinition[];
 	private readonly primitiveTools: ToolDefinition[];
@@ -62,6 +65,7 @@ export class Agent {
 		this.depth = options.depth ?? 0;
 		this.events = options.events ?? new AgentEventEmitter();
 		this.sessionId = options.sessionId ?? crypto.randomUUID();
+		this.learnProcess = options.learnProcess;
 
 		// Validate depth: max_depth > 0 means the agent can only exist at depths < max_depth.
 		// max_depth === 0 means "leaf agent, no sub-spawning" — no depth restriction on the agent itself.
@@ -242,6 +246,7 @@ export class Agent {
 							depth: this.depth + 1,
 							events: this.events,
 							sessionId: this.sessionId,
+							learnProcess: this.learnProcess,
 						});
 
 						const subResult = await subagent.run(subGoal);
@@ -268,6 +273,9 @@ export class Agent {
 							this.events.emit("learn_signal", agentId, this.depth, {
 								signal: learnSignal,
 							});
+							if (this.learnProcess) {
+								this.learnProcess.push(learnSignal);
+							}
 						}
 
 						if (verify.stumbled) {
