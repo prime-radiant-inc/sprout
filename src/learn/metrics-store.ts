@@ -98,6 +98,32 @@ export class MetricsStore {
 		return stumbleTotal / actionCount;
 	}
 
+	/** Return stumble rate for an agent within a time window, scanning the JSONL on disk. */
+	async stumbleRateForPeriod(agentName: string, since: number, until?: number): Promise<number> {
+		const end = until ?? Date.now();
+		let raw: string;
+		try {
+			raw = await readFile(this.path, "utf-8");
+		} catch {
+			return 0;
+		}
+
+		let stumbles = 0;
+		let actions = 0;
+
+		for (const line of raw.split("\n")) {
+			if (line.trim().length === 0) continue;
+			const entry = JSON.parse(line) as MetricsEntry;
+			if (entry.timestamp < since || entry.timestamp > end) continue;
+			if (entry.agent_name !== agentName) continue;
+
+			if (entry.type === "stumble") stumbles++;
+			else if (entry.type === "action") actions++;
+		}
+
+		return actions === 0 ? 0 : stumbles / actions;
+	}
+
 	private incrementStumble(agentName: string, kind: string): void {
 		const key = `${agentName}:${kind}`;
 		this.stumbles.set(key, (this.stumbles.get(key) ?? 0) + 1);

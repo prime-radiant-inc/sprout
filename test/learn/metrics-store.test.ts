@@ -94,6 +94,49 @@ describe("MetricsStore", () => {
 		expect(store.stumbleRate("agent-a")).toBeCloseTo(0.25);
 	});
 
+	test("stumbleRateForPeriod returns rate within time window", async () => {
+		const store = new MetricsStore(join(tempDir, "windowed-rate.jsonl"));
+		await store.load();
+
+		await store.recordStumble("agent-a", "error");
+		await store.recordAction("agent-a");
+
+		// 1 stumble / 1 action = 1.0 all-time
+		expect(store.stumbleRate("agent-a")).toBeCloseTo(1.0);
+
+		// Rate since 1 second ago should include everything we just recorded
+		const rate = await store.stumbleRateForPeriod("agent-a", Date.now() - 1000);
+		expect(rate).toBeCloseTo(1.0);
+
+		// Rate since the future should be 0 (no entries in that window)
+		const futureRate = await store.stumbleRateForPeriod("agent-a", Date.now() + 1000);
+		expect(futureRate).toBe(0);
+	});
+
+	test("stumbleRateForPeriod respects until parameter", async () => {
+		const store = new MetricsStore(join(tempDir, "windowed-until.jsonl"));
+		await store.load();
+
+		await store.recordStumble("agent-b", "error");
+		await store.recordAction("agent-b");
+
+		// With until in the past, nothing should be in range
+		const pastRate = await store.stumbleRateForPeriod("agent-b", 0, 1);
+		expect(pastRate).toBe(0);
+
+		// With until in the future and since=0, everything should be included
+		const allRate = await store.stumbleRateForPeriod("agent-b", 0, Date.now() + 1000);
+		expect(allRate).toBeCloseTo(1.0);
+	});
+
+	test("stumbleRateForPeriod returns 0 for nonexistent file", async () => {
+		const store = new MetricsStore(join(tempDir, "does-not-exist.jsonl"));
+		await store.load();
+
+		const rate = await store.stumbleRateForPeriod("nobody", 0);
+		expect(rate).toBe(0);
+	});
+
 	test("stumbleRate returns 0 when no actions recorded", async () => {
 		const store = new MetricsStore(join(tempDir, "no-actions.jsonl"));
 		await store.load();
