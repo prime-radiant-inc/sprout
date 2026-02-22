@@ -88,9 +88,7 @@ export class MemoryStore {
 	async save(): Promise<void> {
 		await mkdir(dirname(this.path), { recursive: true });
 		const content =
-			this.entries.length > 0
-				? `${this.entries.map((m) => JSON.stringify(m)).join("\n")}\n`
-				: "";
+			this.entries.length > 0 ? `${this.entries.map((m) => JSON.stringify(m)).join("\n")}\n` : "";
 		await writeFile(this.path, content);
 	}
 
