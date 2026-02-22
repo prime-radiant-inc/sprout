@@ -6,10 +6,10 @@ import { config } from "dotenv";
 import { Agent } from "../../src/agents/agent.ts";
 import { AgentEventEmitter } from "../../src/agents/events.ts";
 import { loadBootstrapAgents } from "../../src/agents/loader.ts";
+import { Genome } from "../../src/genome/genome.ts";
 import { LocalExecutionEnvironment } from "../../src/kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../../src/kernel/primitives.ts";
 import type { AgentSpec } from "../../src/kernel/types.ts";
-import { Genome } from "../../src/genome/genome.ts";
 import { Client } from "../../src/llm/client.ts";
 
 config({ path: join(homedir(), "prime-radiant/serf/.env") });
