@@ -133,7 +133,11 @@ export type EventKind =
 	| "learn_end"
 	| "steering"
 	| "warning"
-	| "error";
+	| "error"
+	| "session_resume"
+	| "context_update"
+	| "compaction"
+	| "interrupted";
 
 /** A typed event emitted by the agent for host application consumption */
 export interface SessionEvent {
@@ -141,5 +145,21 @@ export interface SessionEvent {
 	timestamp: number;
 	agent_id: string;
 	depth: number;
+	data: Record<string, unknown>;
+}
+
+/** Command kinds that flow down from frontends to the session controller */
+export type CommandKind =
+	| "submit_goal"
+	| "steer"
+	| "interrupt"
+	| "compact"
+	| "clear"
+	| "switch_model"
+	| "quit";
+
+/** A command published by a frontend (TUI, API, test harness) */
+export interface Command {
+	kind: CommandKind;
 	data: Record<string, unknown>;
 }
