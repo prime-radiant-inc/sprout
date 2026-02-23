@@ -98,6 +98,37 @@ describe("Agent", () => {
 		expect(names).not.toContain("root");
 	});
 
+	test("delegating agent does not get primitive tools", () => {
+		// An agent with both agent and primitive capabilities should only get the delegate tool
+		const mixedSpec: AgentSpec = {
+			name: "mixed",
+			description: "Has both agents and primitives in capabilities",
+			system_prompt: "You do things.",
+			model: "fast",
+			capabilities: ["leaf", "read_file", "grep"],
+			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5 },
+			tags: [],
+			version: 1,
+		};
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const client = Client.fromEnv();
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: mixedSpec,
+			env,
+			client,
+			primitiveRegistry: registry,
+			availableAgents: [mixedSpec, leafSpec],
+			depth: 0,
+		});
+		const tools = agent.resolvedTools();
+		const names = tools.map((t) => t.name);
+		// Should only have delegate tool, no primitives
+		expect(names).toContain("delegate");
+		expect(names).not.toContain("read_file");
+		expect(names).not.toContain("grep");
+	});
+
 	test("resolves primitive tools from capabilities", () => {
 		const env = new LocalExecutionEnvironment(tmpdir());
 		const client = Client.fromEnv();
@@ -633,7 +664,10 @@ describe("Agent", () => {
 					tool_call: {
 						id: "call-root-1",
 						name: "delegate",
-						arguments: JSON.stringify({ agent_name: "leaf", goal: "delegate to the dynamic agent" }),
+						arguments: JSON.stringify({
+							agent_name: "leaf",
+							goal: "delegate to the dynamic agent",
+						}),
 					},
 				},
 			],

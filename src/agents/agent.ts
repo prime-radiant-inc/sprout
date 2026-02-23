@@ -115,22 +115,25 @@ export class Agent {
 			}
 		}
 
-		// Build primitive tool list (provider-aligned)
-		const filteredPrimitiveNames = primitivesForAgent(
-			this.spec.capabilities,
-			this.primitiveRegistry.names(),
-			this.resolved.provider,
-		);
-
+		// Build primitive tool list (provider-aligned).
+		// Agents that delegate don't get primitives — primitives live on subagents only.
 		this.primitiveTools = [];
-		for (const name of filteredPrimitiveNames) {
-			const prim = this.primitiveRegistry.get(name);
-			if (prim) {
-				this.primitiveTools.push({
-					name: prim.name,
-					description: prim.description,
-					parameters: prim.parameters,
-				});
+		if (this.agentTools.length === 0) {
+			const filteredPrimitiveNames = primitivesForAgent(
+				this.spec.capabilities,
+				this.primitiveRegistry.names(),
+				this.resolved.provider,
+			);
+
+			for (const name of filteredPrimitiveNames) {
+				const prim = this.primitiveRegistry.get(name);
+				if (prim) {
+					this.primitiveTools.push({
+						name: prim.name,
+						description: prim.description,
+						parameters: prim.parameters,
+					});
+				}
 			}
 		}
 	}
