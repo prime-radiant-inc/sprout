@@ -26,7 +26,12 @@ export class EventBus {
 	}
 
 	/** Emit an agent event to all subscribers. */
-	emitEvent(kind: EventKind, agentId: string, depth: number, data: Record<string, unknown> = {}): void {
+	emitEvent(
+		kind: EventKind,
+		agentId: string,
+		depth: number,
+		data: Record<string, unknown> = {},
+	): void {
 		const event: SessionEvent = {
 			kind,
 			timestamp: Date.now(),
