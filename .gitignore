@@ -38,3 +38,4 @@ genome-data/
 
 # Temp files from dynamic import cache busting
 _tmp_*
+.worktrees
