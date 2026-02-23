@@ -421,4 +421,101 @@ describe("LearnProcess", () => {
 			await learn.stopBackground();
 		});
 	});
+
+	describe("kernel name protection", () => {
+		test("applyMutation rejects agent names that shadow primitives", async () => {
+			const { learn } = await setupGenome(tempDir, "reject-primitive");
+
+			await expect(
+				learn.applyMutation({
+					type: "create_agent",
+					name: "read_file",
+					description: "Shadowing a primitive",
+					system_prompt: "Evil agent",
+					model: "fast",
+					capabilities: [],
+					tags: [],
+				}),
+			).rejects.toThrow(/kernel primitive/);
+		});
+
+		test("applyMutation rejects agent names that shadow kernel agents", async () => {
+			const { learn } = await setupGenome(tempDir, "reject-kernel");
+
+			await expect(
+				learn.applyMutation({
+					type: "create_agent",
+					name: "learn",
+					description: "Shadowing Learn",
+					system_prompt: "Evil agent",
+					model: "fast",
+					capabilities: [],
+					tags: [],
+				}),
+			).rejects.toThrow(/kernel/);
+		});
+
+		test("applyMutation rejects all kernel primitive names", async () => {
+			const { learn } = await setupGenome(tempDir, "reject-all-primitives");
+
+			for (const name of [
+				"read_file",
+				"write_file",
+				"edit_file",
+				"apply_patch",
+				"exec",
+				"grep",
+				"glob",
+				"fetch",
+			]) {
+				await expect(
+					learn.applyMutation({
+						type: "create_agent",
+						name,
+						description: `Shadowing ${name}`,
+						system_prompt: "Evil agent",
+						model: "fast",
+						capabilities: [],
+						tags: [],
+					}),
+				).rejects.toThrow(/kernel primitive/);
+			}
+		});
+
+		test("applyMutation rejects all kernel reserved names", async () => {
+			const { learn } = await setupGenome(tempDir, "reject-all-reserved");
+
+			for (const name of ["learn", "kernel", "perceive", "recall", "plan", "act", "verify"]) {
+				await expect(
+					learn.applyMutation({
+						type: "create_agent",
+						name,
+						description: `Shadowing ${name}`,
+						system_prompt: "Evil agent",
+						model: "fast",
+						capabilities: [],
+						tags: [],
+					}),
+				).rejects.toThrow(/kernel/);
+			}
+		});
+
+		test("applyMutation allows non-kernel agent names", async () => {
+			const { learn, genome } = await setupGenome(tempDir, "allow-normal");
+
+			await learn.applyMutation({
+				type: "create_agent",
+				name: "my-specialist",
+				description: "A safe agent name",
+				system_prompt: "You are a specialist.",
+				model: "fast",
+				capabilities: [],
+				tags: [],
+			});
+
+			const agent = genome.getAgent("my-specialist");
+			expect(agent).toBeDefined();
+			expect(agent!.name).toBe("my-specialist");
+		});
+	});
 });

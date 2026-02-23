@@ -9,6 +9,40 @@ import { Msg, messageText } from "../llm/types.ts";
 import type { MetricsStore } from "./metrics-store.ts";
 import { shouldLearn } from "./should-learn.ts";
 
+/** Tool primitives that form the kernel's interface — cannot be shadowed by Learn. */
+const KERNEL_PRIMITIVE_NAMES = new Set([
+	"read_file",
+	"write_file",
+	"edit_file",
+	"apply_patch",
+	"exec",
+	"grep",
+	"glob",
+	"fetch",
+]);
+
+/** Core loop phases and the learn process itself — reserved by the kernel. */
+const KERNEL_RESERVED_NAMES = new Set([
+	"learn",
+	"kernel",
+	"perceive",
+	"recall",
+	"plan",
+	"act",
+	"verify",
+]);
+
+function validateAgentName(name: string): void {
+	if (KERNEL_PRIMITIVE_NAMES.has(name)) {
+		throw new Error(
+			`Cannot create agent '${name}': name is a kernel primitive and cannot be shadowed`,
+		);
+	}
+	if (KERNEL_RESERVED_NAMES.has(name)) {
+		throw new Error(`Cannot create agent '${name}': name is reserved by the kernel`);
+	}
+}
+
 export type LearnMutation =
 	| { type: "create_memory"; content: string; tags: string[] }
 	| { type: "update_agent"; agent_name: string; system_prompt: string }
@@ -293,6 +327,7 @@ Choose the most appropriate improvement. Prefer creating memories for factual le
 				break;
 			}
 			case "create_agent": {
+				validateAgentName(mutation.name);
 				await this.genome.addAgent({
 					name: mutation.name,
 					description: mutation.description,
