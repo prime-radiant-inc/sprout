@@ -1,4 +1,10 @@
-import type { ActResult, LearnSignal, LearnSignalKind, PrimitiveResult, VerifyResult } from "../kernel/types.ts";
+import type {
+	ActResult,
+	LearnSignal,
+	LearnSignalKind,
+	PrimitiveResult,
+	VerifyResult,
+} from "../kernel/types.ts";
 
 /** Threshold: successful acts taking more turns than this are "inefficient" */
 const INEFFICIENCY_TURN_THRESHOLD = 10;
@@ -63,6 +69,7 @@ export function verifyPrimitiveResult(
 				success: result.success,
 				stumbles: 1,
 				turns: 1,
+				timed_out: false,
 			},
 			session_id: sessionId,
 			timestamp: Date.now(),

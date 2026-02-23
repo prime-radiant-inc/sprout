@@ -231,7 +231,7 @@ describe("AnthropicAdapter", () => {
 		})) {
 			events.push(event);
 		}
-		const types = events.map(e => e.type);
+		const types = events.map((e) => e.type);
 		expect(types).toContain("text_start");
 		expect(types).toContain("text_end");
 		// text_end should come after text_start

@@ -11,6 +11,7 @@ describe("verifyActResult", () => {
 			success: true,
 			stumbles: 0,
 			turns: 3,
+			timed_out: false,
 		};
 		const result = verifyActResult(actResult, "session-1");
 		expect(result.verify.success).toBe(true);
@@ -27,6 +28,7 @@ describe("verifyActResult", () => {
 			success: false,
 			stumbles: 0,
 			turns: 10,
+			timed_out: false,
 		};
 		const result = verifyActResult(actResult, "session-1");
 		expect(result.verify.success).toBe(false);
@@ -47,6 +49,7 @@ describe("verifyActResult", () => {
 			success: true,
 			stumbles: 3,
 			turns: 8,
+			timed_out: false,
 		};
 		const result = verifyActResult(actResult, "session-1");
 		expect(result.verify.success).toBe(true);
@@ -93,6 +96,7 @@ describe("verifyActResult", () => {
 			success: true,
 			stumbles: 0,
 			turns: 15,
+			timed_out: false,
 		};
 		const result = verifyActResult(actResult, "session-1");
 		expect(result.verify.stumbled).toBe(true);
@@ -108,6 +112,7 @@ describe("verifyActResult", () => {
 			success: true,
 			stumbles: 0,
 			turns: 5,
+			timed_out: false,
 		};
 		const result = verifyActResult(actResult, "session-1");
 		expect(result.verify.stumbled).toBe(false);
@@ -122,6 +127,7 @@ describe("verifyActResult", () => {
 			success: true,
 			stumbles: 2,
 			turns: 15,
+			timed_out: false,
 		};
 		const result = verifyActResult(actResult, "session-1");
 		expect(result.verify.stumbled).toBe(true);

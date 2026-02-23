@@ -105,9 +105,11 @@ export class Client {
 		return chain(request);
 	}
 
-	/** Send a request and return an async iterator of stream events */
+	/** Send a request and return an async iterator of stream events.
+	 * NOTE: Only request-transforming middleware is applied for streaming.
+	 * Middleware that wraps or modifies the response will not take effect here. */
 	async *stream(request: Request): AsyncIterable<StreamEvent> {
-		// Apply middleware to transform the request, then stream with the result
+		// Apply middleware to transform the request, then stream with the result.
 		let finalRequest = request;
 
 		if (this.middlewareChain.length > 0) {
@@ -126,9 +128,10 @@ export class Client {
 				};
 			};
 
-			const chain = this.middlewareChain.reduceRight<
-				(req: Request) => Promise<Response>
-			>((next, mw) => (req) => mw(req, next), captureRequest);
+			const chain = this.middlewareChain.reduceRight<(req: Request) => Promise<Response>>(
+				(next, mw) => (req) => mw(req, next),
+				captureRequest,
+			);
 			await chain(request);
 		}
 

@@ -173,9 +173,7 @@ describe("Client", () => {
 			messages: [
 				{
 					role: "user",
-					content: [
-						{ kind: ContentKind.TEXT, text: "Say hello" },
-					],
+					content: [{ kind: ContentKind.TEXT, text: "Say hello" }],
 				},
 			],
 			provider: "openai",

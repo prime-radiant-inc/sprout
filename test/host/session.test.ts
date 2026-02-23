@@ -57,6 +57,7 @@ function makeSignal(overrides: Partial<LearnSignal> = {}): LearnSignal {
 			output: "error output",
 			success: false,
 			stumbles: 1,
+			timed_out: false,
 			turns: 3,
 		},
 		session_id: overrides.session_id ?? "session-1",
