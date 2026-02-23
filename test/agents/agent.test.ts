@@ -601,6 +601,160 @@ describe("Agent", () => {
 		expect(result.timed_out).toBe(false);
 	});
 
+	test("subagent sees agents added to genome after parent construction", async () => {
+		// A "dynamic-leaf" agent that gets added to the genome AFTER root construction.
+		const dynamicLeafSpec: AgentSpec = {
+			name: "dynamic-leaf",
+			description: "Dynamically added leaf",
+			system_prompt: "You do dynamic things.",
+			model: "fast",
+			capabilities: ["read_file"],
+			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 3, max_depth: 0, can_spawn: false },
+			tags: [],
+			version: 1,
+		};
+
+		// Leaf can delegate to "dynamic-leaf" (it's in its capabilities)
+		const leafWithDynamic: AgentSpec = {
+			...leafSpec,
+			capabilities: ["dynamic-leaf", "read_file"],
+			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5, can_spawn: true },
+		};
+
+		// Root delegates to "leaf"
+		const rootDelegateMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-root-1",
+						name: "leaf",
+						arguments: JSON.stringify({ goal: "delegate to the dynamic agent" }),
+					},
+				},
+			],
+		};
+		// Leaf (subagent) delegates to "dynamic-leaf"
+		const leafDelegateMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-leaf-1",
+						name: "dynamic-leaf",
+						arguments: JSON.stringify({ goal: "do dynamic work" }),
+					},
+				},
+			],
+		};
+		// dynamic-leaf completes
+		const dynamicDoneMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "Dynamic work done." }],
+		};
+		// leaf completes after delegation
+		const leafDoneMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "Leaf done." }],
+		};
+		// root completes
+		const rootDoneMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "All done." }],
+		};
+
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				// Call 1: root delegates to leaf
+				// Call 2: leaf delegates to dynamic-leaf
+				// Call 3: dynamic-leaf completes
+				// Call 4: leaf completes
+				// Call 5: root completes
+				const msg =
+					callCount === 1
+						? rootDelegateMsg
+						: callCount === 2
+							? leafDelegateMsg
+							: callCount === 3
+								? dynamicDoneMsg
+								: callCount === 4
+									? leafDoneMsg
+									: rootDoneMsg;
+				return {
+					id: `mock-dyn-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: msg,
+					finish_reason: {
+						reason: callCount <= 2 ? "tool_calls" : "stop",
+					},
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		// Mock genome: initially has root and leafWithDynamic. After construction,
+		// we add dynamicLeafSpec — simulating Learn adding a new agent mid-session.
+		const genomeAgents = new Map<string, AgentSpec>();
+		genomeAgents.set(rootSpec.name, rootSpec);
+		genomeAgents.set(leafWithDynamic.name, leafWithDynamic);
+		// NOT adding dynamicLeafSpec yet — it will be added after Agent construction
+
+		const mockGenome = {
+			getAgent: (name: string) => genomeAgents.get(name),
+			allAgents: () => [...genomeAgents.values()],
+			memories: { search: () => [] },
+			matchRoutingRules: () => [],
+			markMemoriesUsed: async () => {},
+		} as unknown as Genome;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: rootSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [rootSpec, leafWithDynamic],
+			genome: mockGenome,
+			depth: 0,
+			events,
+		});
+
+		// Simulate Learn adding a new agent to the genome mid-session
+		genomeAgents.set(dynamicLeafSpec.name, dynamicLeafSpec);
+
+		const result = await agent.run("delegate chain");
+
+		// The delegation chain should succeed: root -> leaf -> dynamic-leaf
+		// If the subagent uses stale availableAgents, "dynamic-leaf" won't be found
+		// and the delegation will fail with "Unknown agent" or be treated as a primitive.
+		const collected = events.collected();
+
+		// Verify dynamic-leaf was successfully spawned as a subagent (act_start with its name)
+		const dynamicActStart = collected.find(
+			(e) => e.kind === "act_start" && e.data.agent_name === "dynamic-leaf",
+		);
+		expect(dynamicActStart).toBeDefined();
+
+		// Verify dynamic-leaf completed successfully (act_end with success)
+		const dynamicActEnd = collected.find(
+			(e) => e.kind === "act_end" && e.data.agent_name === "dynamic-leaf",
+		);
+		expect(dynamicActEnd).toBeDefined();
+		expect(dynamicActEnd!.data.success).toBe(true);
+
+		// Overall result should succeed
+		expect(result.success).toBe(true);
+	});
+
 	test("subagent writes log under parent logBasePath/subagents/", async () => {
 		const tempDir = await mkdtemp(join(tmpdir(), "sprout-sublog-"));
 		try {

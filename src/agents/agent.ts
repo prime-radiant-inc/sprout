@@ -267,7 +267,8 @@ export class Agent {
 						goal: delegation.goal,
 					});
 
-					const subagentSpec = this.availableAgents.find((a) => a.name === delegation.agent_name);
+					const subagentSpec = this.genome?.getAgent(delegation.agent_name)
+					?? this.availableAgents.find((a) => a.name === delegation.agent_name);
 
 					if (!subagentSpec) {
 						// Should not happen since we validated in constructor, but handle gracefully
@@ -297,7 +298,7 @@ export class Agent {
 							env: this.env,
 							client: this.client,
 							primitiveRegistry: this.primitiveRegistry,
-							availableAgents: this.availableAgents,
+							availableAgents: this.genome ? this.genome.allAgents() : this.availableAgents,
 							genome: this.genome,
 							depth: this.depth + 1,
 							events: this.events,
