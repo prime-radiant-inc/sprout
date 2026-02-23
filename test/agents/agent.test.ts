@@ -468,6 +468,139 @@ describe("Agent", () => {
 		expect(events.collected().length).toBeGreaterThan(0);
 	});
 
+	test("agent times out after timeout_ms", async () => {
+		// Mock client that always returns tool calls, keeping the loop alive
+		const alwaysCallToolResponse: Response = {
+			id: "mock-timeout",
+			model: "claude-haiku-4-5-20251001",
+			provider: "anthropic",
+			message: {
+				role: "assistant",
+				content: [
+					{
+						kind: ContentKind.TOOL_CALL,
+						tool_call: {
+							id: "call_1",
+							name: "read_file",
+							arguments: JSON.stringify({ path: "/tmp/test.txt" }),
+						},
+					},
+				],
+			},
+			finish_reason: { reason: "tool_calls" },
+			usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+		};
+
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async () => {
+				// Small delay so timeout can trigger
+				await new Promise((resolve) => setTimeout(resolve, 50));
+				return alwaysCallToolResponse;
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const timeoutSpec: AgentSpec = {
+			...leafSpec,
+			constraints: {
+				...DEFAULT_CONSTRAINTS,
+				timeout_ms: 200,
+				max_turns: 1000,
+				max_depth: 0,
+				can_spawn: false,
+			},
+		};
+
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: timeoutSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+		});
+
+		const result = await agent.run("do something forever");
+
+		// Should have timed out, not hit max_turns
+		expect(result.success).toBe(false);
+		expect(result.timed_out).toBe(true);
+		expect(result.turns).toBeLessThan(1000);
+		expect(result.stumbles).toBeGreaterThan(0);
+	});
+
+	test("agent with timeout_ms 0 does not time out", async () => {
+		// Mock client that returns a tool call then completes
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				if (callCount === 1) {
+					return {
+						id: "mock-no-timeout-1",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: {
+							role: "assistant",
+							content: [
+								{
+									kind: ContentKind.TOOL_CALL,
+									tool_call: {
+										id: "call_nt_1",
+										name: "read_file",
+										arguments: JSON.stringify({ path: "/tmp/test.txt" }),
+									},
+								},
+							],
+						},
+						finish_reason: { reason: "tool_calls" },
+						usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+					};
+				}
+				return {
+					id: "mock-no-timeout-2",
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant("Done."),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const noTimeoutSpec: AgentSpec = {
+			...leafSpec,
+			constraints: {
+				...DEFAULT_CONSTRAINTS,
+				timeout_ms: 0,
+				max_turns: 10,
+				max_depth: 0,
+				can_spawn: false,
+			},
+		};
+
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: noTimeoutSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+		});
+
+		const result = await agent.run("do something");
+
+		expect(result.success).toBe(true);
+		expect(result.timed_out).toBe(false);
+	});
+
 	test("subagent writes log under parent logBasePath/subagents/", async () => {
 		const tempDir = await mkdtemp(join(tmpdir(), "sprout-sublog-"));
 		try {

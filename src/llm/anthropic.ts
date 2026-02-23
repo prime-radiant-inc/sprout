@@ -45,13 +45,17 @@ export class AnthropicAdapter implements ProviderAdapter {
 
 		yield { type: "stream_start" };
 
+		let activeBlockType: string | null = null;
+
 		for await (const event of stream) {
 			if (event.type === "message_start") {
 				// Token counts will come from the final message
 			} else if (event.type === "content_block_start") {
 				if (event.content_block.type === "text") {
+					activeBlockType = "text";
 					yield { type: "text_start" };
 				} else if (event.content_block.type === "tool_use") {
+					activeBlockType = "tool_call";
 					yield {
 						type: "tool_call_start",
 						tool_call: {
@@ -60,6 +64,7 @@ export class AnthropicAdapter implements ProviderAdapter {
 						},
 					};
 				} else if (event.content_block.type === "thinking") {
+					activeBlockType = "thinking";
 					yield { type: "reasoning_start" };
 				}
 			} else if (event.type === "content_block_delta") {
@@ -77,8 +82,14 @@ export class AnthropicAdapter implements ProviderAdapter {
 					};
 				}
 			} else if (event.type === "content_block_stop") {
-				// We don't know which type stopped without tracking state,
-				// but that's fine — consumers use start/delta/end lifecycle
+				if (activeBlockType === "text") {
+					yield { type: "text_end" };
+				} else if (activeBlockType === "tool_call") {
+					yield { type: "tool_call_end" };
+				} else if (activeBlockType === "thinking") {
+					yield { type: "reasoning_end" };
+				}
+				activeBlockType = null;
 			} else if (event.type === "message_delta") {
 				// Usage will be gathered from finalMessage
 			} else if (event.type === "message_stop") {
@@ -139,15 +150,22 @@ function buildAnthropicRequest(
 	};
 
 	if (system) {
-		params.system = system;
+		params.system = [{ type: "text", text: system, cache_control: { type: "ephemeral" } }];
 	}
 
 	if (request.tools?.length) {
-		params.tools = request.tools.map((t) => ({
-			name: t.name,
-			description: t.description,
-			input_schema: t.parameters as Anthropic.Tool["input_schema"],
-		}));
+		params.tools = request.tools.map((t, i) => {
+			const tool: Anthropic.Tool = {
+				name: t.name,
+				description: t.description,
+				input_schema: t.parameters as Anthropic.Tool["input_schema"],
+			};
+			// Cache breakpoint on the last tool definition
+			if (i === request.tools!.length - 1) {
+				tool.cache_control = { type: "ephemeral" };
+			}
+			return tool;
+		});
 	}
 
 	if (request.tool_choice) {
@@ -169,6 +187,17 @@ function buildAnthropicRequest(
 
 	if (request.stop_sequences) {
 		params.stop_sequences = request.stop_sequences;
+	}
+
+	// Extended thinking and beta headers via provider_options
+	const anthropicOpts = request.provider_options?.anthropic as Record<string, unknown> | undefined;
+	if (anthropicOpts?.thinking) {
+		(params as any).thinking = anthropicOpts.thinking;
+		// Anthropic requires temperature to be unset when thinking is enabled
+		delete (params as any).temperature;
+	}
+	if (anthropicOpts?.betas) {
+		(params as any).betas = anthropicOpts.betas;
 	}
 
 	return params;

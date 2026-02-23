@@ -4,6 +4,9 @@
   "module": "src/index.ts",
   "type": "module",
   "private": true,
+  "bin": {
+    "sprout": "src/host/cli.ts"
+  },
   "scripts": {
     "check": "biome check --write .",
     "lint": "biome lint .",

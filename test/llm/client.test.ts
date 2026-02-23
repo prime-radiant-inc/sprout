@@ -123,4 +123,66 @@ describe("Client", () => {
 
 		expect(interceptedModel).toBe("claude-haiku-4-5-20251001");
 	}, 15_000);
+
+	test("middleware wraps stream calls", async () => {
+		let interceptedModel = "";
+
+		const clientWithMiddleware = Client.fromEnv({
+			middleware: [
+				async (req, next) => {
+					interceptedModel = req.model;
+					return next(req);
+				},
+			],
+		});
+
+		for await (const _event of clientWithMiddleware.stream({
+			model: "gpt-4.1-mini",
+			messages: [
+				{
+					role: "user",
+					content: [{ kind: ContentKind.TEXT, text: "Hi" }],
+				},
+			],
+			provider: "openai",
+			max_tokens: 20,
+		})) {
+			// consume events
+		}
+
+		expect(interceptedModel).toBe("gpt-4.1-mini");
+	}, 15_000);
+
+	test("middleware can transform requests for streaming", async () => {
+		let transformedMaxTokens = 0;
+
+		const clientWithMiddleware = Client.fromEnv({
+			middleware: [
+				async (req, next) => {
+					// Transform: increase max_tokens
+					const transformed = { ...req, max_tokens: 100 };
+					transformedMaxTokens = transformed.max_tokens;
+					return next(transformed);
+				},
+			],
+		});
+
+		const events = [];
+		for await (const event of clientWithMiddleware.stream({
+			model: "gpt-4.1-mini",
+			messages: [
+				{
+					role: "user",
+					content: [{ kind: ContentKind.TEXT, text: "Say hello" }],
+				},
+			],
+			provider: "openai",
+			max_tokens: 20,
+		})) {
+			events.push(event);
+		}
+
+		expect(transformedMaxTokens).toBe(100);
+		expect(events.some((e) => e.type === "finish")).toBe(true);
+	}, 15_000);
 });

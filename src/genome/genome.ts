@@ -180,15 +180,66 @@ export class Genome {
 		await git(this.rootPath, "commit", "-m", `genome: add memory '${memory.id}'`);
 	}
 
-	/** Mark memories as used by id, saving and committing. */
+	/** Mark memories as used by id, saving to disk. No git commit — this is operational metadata. */
 	async markMemoriesUsed(ids: string[]): Promise<void> {
 		if (ids.length === 0) return;
 		for (const id of ids) {
 			this.memories.markUsed(id);
 		}
 		await this.memories.save();
-		await git(this.rootPath, "add", join(this.rootPath, "memories", "memories.jsonl"));
-		await git(this.rootPath, "commit", "-m", `genome: mark ${ids.length} memories used`);
+	}
+
+	// --- Pruning ---
+
+	/** Remove memories whose effective confidence is below the threshold. */
+	async pruneMemories(minConfidence = 0.2): Promise<string[]> {
+		const pruned = this.memories.pruneByConfidence(minConfidence);
+		if (pruned.length > 0) {
+			await this.memories.save();
+			await git(this.rootPath, "add", join(this.rootPath, "memories", "memories.jsonl"));
+			await git(
+				this.rootPath,
+				"commit",
+				"-m",
+				`genome: prune ${pruned.length} low-confidence memories`,
+			);
+		}
+		return pruned;
+	}
+
+	/** Remove routing rules that have never been triggered (not in the used set). */
+	async pruneUnusedRoutingRules(usedRuleIds: Set<string>): Promise<string[]> {
+		const removed: string[] = [];
+		this.routingRules = this.routingRules.filter((r) => {
+			if (!usedRuleIds.has(r.id)) {
+				removed.push(r.id);
+				return false;
+			}
+			return true;
+		});
+		if (removed.length > 0) {
+			await this.saveRoutingRules();
+			await git(this.rootPath, "add", join(this.rootPath, "routing", "rules.yaml"));
+			await git(
+				this.rootPath,
+				"commit",
+				"-m",
+				`genome: prune ${removed.length} unused routing rules`,
+			);
+		}
+		return removed;
+	}
+
+	// --- Rollback ---
+
+	/** Rollback the last genome mutation (git revert HEAD). */
+	async rollback(): Promise<void> {
+		await git(this.rootPath, "revert", "--no-edit", "HEAD");
+	}
+
+	/** Rollback a specific commit by hash. */
+	async rollbackCommit(commitHash: string): Promise<void> {
+		await git(this.rootPath, "revert", "--no-edit", commitHash);
 	}
 
 	// --- Load and Bootstrap ---

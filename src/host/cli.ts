@@ -218,7 +218,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 	// kind === "run"
 	// Load environment variables from the .env file
 	const { config } = await import("dotenv");
-	config({ path: join(import.meta.dir, "../../../serf/.env") });
+	config(); // loads .env from current working directory
 
 	const { createAgent } = await import("../agents/factory.ts");
 	const { submitGoal } = await import("./session.ts");

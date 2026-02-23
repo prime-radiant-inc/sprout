@@ -1,17 +1,16 @@
 name: code-editor
 description: "Write and edit code files, create new files, and verify changes"
-model: fast
+model: balanced
 capabilities:
   - read_file
   - write_file
   - edit_file
-  - exec
-  - grep
-  - glob
 constraints:
   max_turns: 30
   max_depth: 0
+  timeout_ms: 300000
   can_spawn: false
+  can_learn: false
 tags:
   - core
   - editing
@@ -30,5 +29,3 @@ system_prompt: |
   When creating new files:
   1. Write the complete file content
   2. Verify it was created by reading it back
-
-  You can use exec to run quick verification commands (e.g., syntax checks).

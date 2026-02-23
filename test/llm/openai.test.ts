@@ -139,6 +139,21 @@ describe("OpenAIAdapter", () => {
 		expect(messageText(resp2.message).length).toBeGreaterThan(0);
 	}, 30_000);
 
+	test("reasoning_effort passthrough does not error", async () => {
+		const response = await adapter.complete({
+			model: "o4-mini",
+			messages: [
+				{
+					role: "user",
+					content: [{ kind: ContentKind.TEXT, text: "Say hello" }],
+				},
+			],
+			reasoning_effort: "low",
+			max_tokens: 1000,
+		});
+		expect(response.message).toBeDefined();
+	}, 15_000);
+
 	test("stream yields text deltas", async () => {
 		const req: Request = {
 			model: "gpt-4.1-mini",

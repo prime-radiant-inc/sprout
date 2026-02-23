@@ -98,6 +98,19 @@ export class MemoryStore {
 		return memory.confidence * 0.5 ** (daysSinceLastUse / HALF_LIFE_DAYS);
 	}
 
+	/** Remove entries whose effective confidence is below the threshold, returning their ids. */
+	pruneByConfidence(minConfidence: number): string[] {
+		const pruned: string[] = [];
+		this.entries = this.entries.filter((m) => {
+			if (this.effectiveConfidence(m) < minConfidence) {
+				pruned.push(m.id);
+				return false;
+			}
+			return true;
+		});
+		return pruned;
+	}
+
 	/** Return a shallow copy of all entries. */
 	all(): Memory[] {
 		return [...this.entries];

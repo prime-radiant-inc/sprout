@@ -18,6 +18,7 @@ function makeSignal(overrides: Partial<LearnSignal> = {}): LearnSignal {
 			success: false,
 			stumbles: 1,
 			turns: 3,
+			timed_out: false,
 		},
 		session_id: overrides.session_id ?? "session-1",
 		timestamp: overrides.timestamp ?? Date.now(),

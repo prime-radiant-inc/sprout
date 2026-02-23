@@ -1,7 +1,14 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { config } from "dotenv";
 import { AnthropicAdapter } from "../../src/llm/anthropic.ts";
-import { ContentKind, messageText, messageToolCalls, type Request } from "../../src/llm/types.ts";
+import {
+	ContentKind,
+	messageReasoning,
+	messageText,
+	messageToolCalls,
+	type Request,
+	type StreamEvent,
+} from "../../src/llm/types.ts";
 
 // Load API keys from serf .env
 config();
@@ -144,6 +151,92 @@ describe("AnthropicAdapter", () => {
 		const text = messageText(resp2.message);
 		expect(text.length).toBeGreaterThan(0);
 	}, 30_000);
+
+	test("prompt caching: cache_write_tokens on turn 1, cache_read_tokens on turn 2", async () => {
+		// Haiku 4.5 requires at least 4096 tokens for caching to activate
+		const systemMsg: import("../../src/llm/types.ts").Message = {
+			role: "system",
+			content: [{ kind: ContentKind.TEXT, text: "You are a helpful assistant. ".repeat(800) }],
+		};
+		const userMsg: import("../../src/llm/types.ts").Message = {
+			role: "user",
+			content: [{ kind: ContentKind.TEXT, text: "What is 2+2?" }],
+		};
+
+		const tools = [
+			{
+				name: "get_weather",
+				description: "Get weather for a location. " + "Detailed description. ".repeat(50),
+				parameters: {
+					type: "object" as const,
+					properties: { city: { type: "string" } },
+					required: ["city"],
+				},
+			},
+		];
+
+		// Turn 1 — populates cache (or reads if already cached from a previous run)
+		const r1 = await adapter.complete({
+			model: "claude-haiku-4-5-20251001",
+			messages: [systemMsg, userMsg],
+			tools,
+			max_tokens: 50,
+		});
+		const cacheActive =
+			(r1.usage.cache_write_tokens ?? 0) > 0 || (r1.usage.cache_read_tokens ?? 0) > 0;
+		expect(cacheActive).toBe(true);
+
+		// Turn 2 — should read from cache
+		const r2 = await adapter.complete({
+			model: "claude-haiku-4-5-20251001",
+			messages: [systemMsg, userMsg],
+			tools,
+			max_tokens: 50,
+		});
+		expect(r2.usage.cache_read_tokens).toBeGreaterThan(0);
+	}, 30_000);
+
+	test("extended thinking via provider_options", async () => {
+		const response = await adapter.complete({
+			model: "claude-sonnet-4-6",
+			messages: [
+				{
+					role: "user",
+					content: [
+						{
+							kind: ContentKind.TEXT,
+							text: "What is 15 * 37? Think step by step.",
+						},
+					],
+				},
+			],
+			max_tokens: 16000,
+			provider_options: {
+				anthropic: {
+					thinking: { type: "enabled", budget_tokens: 10000 },
+				},
+			},
+		});
+		const reasoning = messageReasoning(response.message);
+		expect(reasoning).toBeDefined();
+		expect(reasoning!.length).toBeGreaterThan(0);
+	}, 30_000);
+
+	test("streaming emits text_end after text content", async () => {
+		const events: StreamEvent[] = [];
+		for await (const event of adapter.stream({
+			model: "claude-haiku-4-5-20251001",
+			messages: [{ role: "user", content: [{ kind: ContentKind.TEXT, text: "Say hello" }] }],
+			max_tokens: 50,
+		})) {
+			events.push(event);
+		}
+		const types = events.map((e) => e.type);
+		expect(types).toContain("text_start");
+		expect(types).toContain("text_end");
+		// text_end should come after text_start
+		expect(types.indexOf("text_end")).toBeGreaterThan(types.indexOf("text_start"));
+	}, 15_000);
 
 	test("stream yields text deltas that match complete response", async () => {
 		const req: Request = {

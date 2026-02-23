@@ -11,16 +11,6 @@ import {
 	type Usage,
 } from "./types.ts";
 
-// Gemini doesn't assign unique IDs to function calls.
-// We generate synthetic ones and track the mapping.
-let callIdCounter = 0;
-function nextCallId(): string {
-	return `call_gemini_${++callIdCounter}`;
-}
-
-// Map from synthetic call IDs to function names (for tool result round-trips)
-const callIdToName = new Map<string, string>();
-
 /**
  * Gemini adapter using the native Gemini API.
  * Supports tool calling, system instructions, and streaming.
@@ -29,12 +19,21 @@ export class GeminiAdapter implements ProviderAdapter {
 	readonly name = "gemini";
 	private client: GoogleGenAI;
 
+	// Gemini doesn't assign unique IDs to function calls.
+	// We generate synthetic ones and track the mapping per-instance.
+	private callIdCounter = 0;
+	private callIdToName = new Map<string, string>();
+
 	constructor(apiKey: string) {
 		this.client = new GoogleGenAI({ apiKey });
 	}
 
+	private nextCallId(): string {
+		return `call_gemini_${++this.callIdCounter}`;
+	}
+
 	async complete(request: Request): Promise<Response> {
-		const { systemInstruction, contents, config } = buildGeminiRequest(request);
+		const { systemInstruction, contents, config } = buildGeminiRequest(request, this.callIdToName);
 
 		const result = await this.client.models.generateContent({
 			model: request.model,
@@ -45,11 +44,11 @@ export class GeminiAdapter implements ProviderAdapter {
 			},
 		});
 
-		return parseGeminiResponse(result, request.model);
+		return parseGeminiResponse(result, request.model, () => this.nextCallId(), this.callIdToName);
 	}
 
 	async *stream(request: Request): AsyncIterable<StreamEvent> {
-		const { systemInstruction, contents, config } = buildGeminiRequest(request);
+		const { systemInstruction, contents, config } = buildGeminiRequest(request, this.callIdToName);
 
 		const stream = await this.client.models.generateContentStream({
 			model: request.model,
@@ -74,8 +73,8 @@ export class GeminiAdapter implements ProviderAdapter {
 						accumulatedText += part.text;
 					}
 					if (part.functionCall) {
-						const callId = nextCallId();
-						callIdToName.set(callId, part.functionCall.name!);
+						const callId = this.nextCallId();
+						this.callIdToName.set(callId, part.functionCall.name!);
 						toolCalls.push({
 							kind: ContentKind.TOOL_CALL,
 							tool_call: {
@@ -146,7 +145,7 @@ interface GeminiRequest {
 	config: GenerateContentConfig;
 }
 
-function buildGeminiRequest(request: Request): GeminiRequest {
+function buildGeminiRequest(request: Request, callIdToName: Map<string, string>): GeminiRequest {
 	// Extract system instruction
 	const systemParts = request.messages
 		.filter((m) => m.role === "system" || m.role === "developer")
@@ -156,6 +155,7 @@ function buildGeminiRequest(request: Request): GeminiRequest {
 	// Convert non-system messages to Gemini contents
 	const contents = convertToContents(
 		request.messages.filter((m) => m.role !== "system" && m.role !== "developer"),
+		callIdToName,
 	);
 
 	// Build config
@@ -189,15 +189,21 @@ function buildGeminiRequest(request: Request): GeminiRequest {
 		];
 	}
 
+	// Thinking config via provider_options
+	const geminiOpts = request.provider_options?.gemini as Record<string, unknown> | undefined;
+	if (geminiOpts?.thinkingConfig) {
+		config.thinkingConfig = geminiOpts.thinkingConfig as any;
+	}
+
 	return { systemInstruction, contents, config };
 }
 
-function convertToContents(messages: Message[]): Content[] {
+function convertToContents(messages: Message[], callIdToName: Map<string, string>): Content[] {
 	const contents: Content[] = [];
 
 	for (const msg of messages) {
 		const role = msg.role === "assistant" ? "model" : "user";
-		const parts = convertToParts(msg);
+		const parts = convertToParts(msg, callIdToName);
 
 		// Gemini doesn't enforce strict alternation, but merge consecutive same-role
 		if (contents.length > 0 && contents[contents.length - 1]!.role === role) {
@@ -211,7 +217,7 @@ function convertToContents(messages: Message[]): Content[] {
 	return contents;
 }
 
-function convertToParts(msg: Message): Part[] {
+function convertToParts(msg: Message, callIdToName: Map<string, string>): Part[] {
 	const parts: Part[] = [];
 
 	if (msg.role === "tool") {
@@ -266,7 +272,12 @@ function convertToParts(msg: Message): Part[] {
 // Response parsing
 // ---------------------------------------------------------------------------
 
-function parseGeminiResponse(raw: any, model: string): Response {
+function parseGeminiResponse(
+	raw: any,
+	model: string,
+	nextCallId: () => string,
+	callIdToName: Map<string, string>,
+): Response {
 	const contentParts: import("./types.ts").ContentPart[] = [];
 	let hasToolCalls = false;
 

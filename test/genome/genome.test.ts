@@ -401,7 +401,7 @@ describe("Genome", () => {
 			expect(log).toContain("genome: add memory 'genome-mem-1'");
 		});
 
-		test("markMemoriesUsed updates and commits", async () => {
+		test("markMemoriesUsed updates use_count and persists to disk", async () => {
 			const root = join(tempDir, "mem-used");
 			const genome = new Genome(root);
 			await genome.init();
@@ -413,8 +413,65 @@ describe("Genome", () => {
 
 			await genome.markMemoriesUsed(["used-1", "used-2"]);
 
-			const log = await git(root, "log", "--oneline");
-			expect(log).toContain("genome: mark 2 memories used");
+			// Verify in-memory state
+			const all = genome.memories.all();
+			const m1 = all.find((m) => m.id === "used-1")!;
+			const m2 = all.find((m) => m.id === "used-2")!;
+			expect(m1.use_count).toBe(1);
+			expect(m2.use_count).toBe(1);
+
+			// Verify persisted to disk by loading a fresh Genome
+			const genome2 = new Genome(root);
+			await genome2.loadFromDisk();
+			const reloaded = genome2.memories.all();
+			expect(reloaded.find((m) => m.id === "used-1")!.use_count).toBe(1);
+			expect(reloaded.find((m) => m.id === "used-2")!.use_count).toBe(1);
+		});
+	});
+
+	// --- Rollback tests ---
+
+	describe("rollback", () => {
+		test("rollback reverts the last mutation", async () => {
+			const root = join(tempDir, "rollback-last");
+			const genome = new Genome(root);
+			await genome.init();
+
+			const bootstrapDir = join(import.meta.dir, "../../bootstrap");
+			await genome.initFromBootstrap(bootstrapDir);
+
+			const agentCount = genome.agentCount();
+			await genome.addAgent(makeSpec({ name: "extra-agent" }));
+			expect(genome.agentCount()).toBe(agentCount + 1);
+
+			await genome.rollback();
+
+			// Verify disk state with a fresh Genome instance
+			const genome2 = new Genome(root);
+			await genome2.loadFromDisk();
+			expect(genome2.agentCount()).toBe(agentCount);
+			expect(genome2.getAgent("extra-agent")).toBeUndefined();
+		});
+
+		test("rollbackCommit reverts a specific commit", async () => {
+			const root = join(tempDir, "rollback-commit");
+			const genome = new Genome(root);
+			await genome.init();
+
+			await genome.addAgent(makeSpec({ name: "first" }));
+			const commitHash = await git(root, "rev-parse", "HEAD");
+
+			await genome.addAgent(makeSpec({ name: "second" }));
+			expect(genome.agentCount()).toBe(2);
+
+			await genome.rollbackCommit(commitHash);
+
+			// Verify disk state with a fresh Genome instance
+			const genome2 = new Genome(root);
+			await genome2.loadFromDisk();
+			expect(genome2.agentCount()).toBe(1);
+			expect(genome2.getAgent("first")).toBeUndefined();
+			expect(genome2.getAgent("second")).toBeDefined();
 		});
 	});
 });

@@ -94,6 +94,7 @@ describe("kernel types", () => {
 			success: true,
 			stumbles: 0,
 			turns: 3,
+			timed_out: false,
 		};
 		expect(result.success).toBe(true);
 		expect(result.stumbles).toBe(0);
@@ -120,6 +121,7 @@ describe("kernel types", () => {
 				success: false,
 				stumbles: 1,
 				turns: 1,
+				timed_out: false,
 			},
 			session_id: "session-123",
 			timestamp: Date.now(),
