@@ -4,10 +4,12 @@ export { type CreateAgentOptions, type CreateAgentResult, createAgent } from "./
 export { loadAgentSpec, loadBootstrapAgents } from "./loader.ts";
 export { detectProvider, type ResolvedModel, resolveModel } from "./model-resolver.ts";
 export {
-	agentAsTool,
+	DELEGATE_TOOL_NAME,
+	buildDelegateTool,
 	buildPlanRequest,
 	buildSystemPrompt,
 	parsePlanResponse,
 	primitivesForAgent,
+	renderAgentsForPrompt,
 } from "./plan.ts";
 export { verifyActResult, verifyPrimitiveResult } from "./verify.ts";

@@ -77,7 +77,7 @@ describe("Agent", () => {
 		).not.toThrow();
 	});
 
-	test("resolves agent tools from capabilities", () => {
+	test("resolves single delegate tool from capabilities", () => {
 		const env = new LocalExecutionEnvironment(tmpdir());
 		const client = Client.fromEnv();
 		const registry = createPrimitiveRegistry(env);
@@ -92,8 +92,9 @@ describe("Agent", () => {
 		// Root's capabilities include "leaf", which is an agent name
 		const tools = agent.resolvedTools();
 		const names = tools.map((t) => t.name);
-		expect(names).toContain("leaf");
-		// Should NOT include root itself
+		// Should have a single "delegate" tool, not per-agent tools
+		expect(names).toContain("delegate");
+		expect(names).not.toContain("leaf");
 		expect(names).not.toContain("root");
 	});
 
@@ -119,7 +120,7 @@ describe("Agent", () => {
 		expect(names).not.toContain("leaf");
 	});
 
-	test("excludes agent tools when can_spawn is false", () => {
+	test("excludes delegate tool when can_spawn is false", () => {
 		const noSpawnSpec: AgentSpec = {
 			...rootSpec,
 			constraints: { ...rootSpec.constraints, can_spawn: false },
@@ -137,12 +138,12 @@ describe("Agent", () => {
 		});
 		const tools = agent.resolvedTools();
 		const names = tools.map((t) => t.name);
-		// "leaf" is in capabilities but can_spawn is false, so no agent tools
+		// "leaf" is in capabilities but can_spawn is false, so no delegate tool
+		expect(names).not.toContain("delegate");
 		expect(names).not.toContain("leaf");
-		expect(names).not.toContain("root");
 	});
 
-	test("agent tool has goal/hints parameters", () => {
+	test("delegate tool has agent_name/goal/hints parameters", () => {
 		const env = new LocalExecutionEnvironment(tmpdir());
 		const client = Client.fromEnv();
 		const registry = createPrimitiveRegistry(env);
@@ -155,9 +156,11 @@ describe("Agent", () => {
 			depth: 0,
 		});
 		const tools = agent.resolvedTools();
-		const leafTool = tools.find((t) => t.name === "leaf");
-		expect(leafTool).toBeDefined();
-		const props = (leafTool!.parameters as any).properties;
+		const delegateTool = tools.find((t) => t.name === "delegate");
+		expect(delegateTool).toBeDefined();
+		const props = (delegateTool!.parameters as any).properties;
+		expect(props.agent_name).toBeDefined();
+		expect(props.agent_name.enum).toEqual(["leaf"]);
 		expect(props.goal).toBeDefined();
 		expect(props.hints).toBeDefined();
 	});
@@ -193,7 +196,7 @@ describe("Agent", () => {
 			primitiveRegistry: registry,
 			availableAgents: [leafSpec],
 		});
-		expect(agent.resolvedTools().map((t) => t.name)).toContain("leaf");
+		expect(agent.resolvedTools().map((t) => t.name)).toContain("delegate");
 	});
 
 	test("run() emits session_end with correct data", async () => {
@@ -621,7 +624,7 @@ describe("Agent", () => {
 			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5, can_spawn: true },
 		};
 
-		// Root delegates to "leaf"
+		// Root delegates to "leaf" via the delegate tool
 		const rootDelegateMsg: Message = {
 			role: "assistant",
 			content: [
@@ -629,13 +632,13 @@ describe("Agent", () => {
 					kind: ContentKind.TOOL_CALL,
 					tool_call: {
 						id: "call-root-1",
-						name: "leaf",
-						arguments: JSON.stringify({ goal: "delegate to the dynamic agent" }),
+						name: "delegate",
+						arguments: JSON.stringify({ agent_name: "leaf", goal: "delegate to the dynamic agent" }),
 					},
 				},
 			],
 		};
-		// Leaf (subagent) delegates to "dynamic-leaf"
+		// Leaf (subagent) delegates to "dynamic-leaf" via the delegate tool
 		const leafDelegateMsg: Message = {
 			role: "assistant",
 			content: [
@@ -643,8 +646,8 @@ describe("Agent", () => {
 					kind: ContentKind.TOOL_CALL,
 					tool_call: {
 						id: "call-leaf-1",
-						name: "dynamic-leaf",
-						arguments: JSON.stringify({ goal: "do dynamic work" }),
+						name: "delegate",
+						arguments: JSON.stringify({ agent_name: "dynamic-leaf", goal: "do dynamic work" }),
 					},
 				},
 			],
@@ -783,7 +786,7 @@ describe("Agent", () => {
 			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5 },
 		};
 
-		// Root response: two delegations in one message
+		// Root response: two delegations in one message via delegate tool
 		const twoDelegationsMsg: Message = {
 			role: "assistant",
 			content: [
@@ -791,16 +794,16 @@ describe("Agent", () => {
 					kind: ContentKind.TOOL_CALL,
 					tool_call: {
 						id: "call-a",
-						name: "leaf-a",
-						arguments: JSON.stringify({ goal: "do task A" }),
+						name: "delegate",
+						arguments: JSON.stringify({ agent_name: "leaf-a", goal: "do task A" }),
 					},
 				},
 				{
 					kind: ContentKind.TOOL_CALL,
 					tool_call: {
 						id: "call-b",
-						name: "leaf-b",
-						arguments: JSON.stringify({ goal: "do task B" }),
+						name: "delegate",
+						arguments: JSON.stringify({ agent_name: "leaf-b", goal: "do task B" }),
 					},
 				},
 			],
@@ -911,7 +914,7 @@ describe("Agent", () => {
 			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5 },
 		};
 
-		// Root response: two delegations
+		// Root response: two delegations via delegate tool
 		const twoDelegationsMsg: Message = {
 			role: "assistant",
 			content: [
@@ -919,16 +922,16 @@ describe("Agent", () => {
 					kind: ContentKind.TOOL_CALL,
 					tool_call: {
 						id: "call-a",
-						name: "leaf-a",
-						arguments: JSON.stringify({ goal: "task A" }),
+						name: "delegate",
+						arguments: JSON.stringify({ agent_name: "leaf-a", goal: "task A" }),
 					},
 				},
 				{
 					kind: ContentKind.TOOL_CALL,
 					tool_call: {
 						id: "call-b",
-						name: "leaf-b",
-						arguments: JSON.stringify({ goal: "task B" }),
+						name: "delegate",
+						arguments: JSON.stringify({ agent_name: "leaf-b", goal: "task B" }),
 					},
 				},
 			],
@@ -1020,7 +1023,7 @@ describe("Agent", () => {
 		try {
 			const logBasePath = join(tempDir, "parent-session");
 
-			// First response: delegate to leaf agent
+			// First response: delegate to leaf agent via delegate tool
 			const delegateMsg: Message = {
 				role: "assistant",
 				content: [
@@ -1028,8 +1031,8 @@ describe("Agent", () => {
 						kind: ContentKind.TOOL_CALL,
 						tool_call: {
 							id: "call-sub-1",
-							name: "leaf",
-							arguments: JSON.stringify({ goal: "do the thing" }),
+							name: "delegate",
+							arguments: JSON.stringify({ agent_name: "leaf", goal: "do the thing" }),
 						},
 					},
 				],

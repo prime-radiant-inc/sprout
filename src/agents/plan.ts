@@ -3,17 +3,27 @@ import type { AgentSpec, Delegation, Memory, RoutingRule } from "../kernel/types
 import type { Message, Request, ToolCall, ToolDefinition } from "../llm/types.ts";
 import { Msg } from "../llm/types.ts";
 
+export const DELEGATE_TOOL_NAME = "delegate";
+
 /**
- * Convert an AgentSpec into a ToolDefinition the LLM can call.
- * When the LLM calls this tool, the loop interprets it as delegation to that agent.
+ * Build a single "delegate" tool definition that the LLM uses to delegate to any agent.
+ * Agent descriptions are listed in the system prompt; the tool accepts agent_name + goal + hints.
+ * This keeps the tool list stable (preserving prompt cache) when agents are added/removed.
  */
-export function agentAsTool(spec: AgentSpec): ToolDefinition {
+export function buildDelegateTool(agents: AgentSpec[]): ToolDefinition {
+	const agentEnum = agents.map((a) => a.name);
 	return {
-		name: spec.name,
-		description: spec.description,
+		name: DELEGATE_TOOL_NAME,
+		description:
+			"Delegate a task to a specialist agent. See the <agents> section in your instructions for available agents and their descriptions.",
 		parameters: {
 			type: "object",
 			properties: {
+				agent_name: {
+					type: "string",
+					description: "Name of the agent to delegate to",
+					enum: agentEnum.length > 0 ? agentEnum : undefined,
+				},
 				goal: {
 					type: "string",
 					description: "What you want this agent to achieve",
@@ -24,9 +34,20 @@ export function agentAsTool(spec: AgentSpec): ToolDefinition {
 					description: "Optional context that might help",
 				},
 			},
-			required: ["goal"],
+			required: ["agent_name", "goal"],
 		},
 	};
+}
+
+/**
+ * Render available agents as an XML block for injection into the system prompt.
+ */
+export function renderAgentsForPrompt(agents: AgentSpec[]): string {
+	if (agents.length === 0) return "";
+	const entries = agents
+		.map((a) => `  <agent name="${a.name}">${a.description}</agent>`)
+		.join("\n");
+	return `\n\n<agents>\n${entries}\n</agents>`;
 }
 
 /**
@@ -116,24 +137,28 @@ export function buildPlanRequest(opts: {
 
 /**
  * Classify tool calls into agent delegations and primitive calls.
+ * Delegations are identified by the "delegate" tool name.
  */
 export function parsePlanResponse(
 	toolCalls: ToolCall[],
-	agentNames: Set<string>,
 ): { delegations: Delegation[]; primitiveCalls: ToolCall[] } {
 	const delegations: Delegation[] = [];
 	const primitiveCalls: ToolCall[] = [];
 
 	for (const call of toolCalls) {
-		if (agentNames.has(call.name)) {
+		if (call.name === DELEGATE_TOOL_NAME) {
+			const agentName = call.arguments.agent_name;
+			if (typeof agentName !== "string" || agentName.length === 0) {
+				throw new Error("Delegation missing required 'agent_name' argument");
+			}
 			const goal = call.arguments.goal;
 			if (typeof goal !== "string" || goal.length === 0) {
-				throw new Error(`Agent delegation to '${call.name}' missing required 'goal' argument`);
+				throw new Error(`Agent delegation to '${agentName}' missing required 'goal' argument`);
 			}
 			const hints = call.arguments.hints;
 			delegations.push({
 				call_id: call.id,
-				agent_name: call.name,
+				agent_name: agentName,
 				goal,
 				hints: Array.isArray(hints) ? hints : undefined,
 			});

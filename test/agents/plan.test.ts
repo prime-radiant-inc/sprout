@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
-	agentAsTool,
+	buildDelegateTool,
 	buildPlanRequest,
 	buildSystemPrompt,
 	parsePlanResponse,
 	primitivesForAgent,
+	renderAgentsForPrompt,
 } from "../../src/agents/plan.ts";
 import type { AgentSpec, Memory, RoutingRule } from "../../src/kernel/types.ts";
 import { Msg } from "../../src/llm/types.ts";
@@ -26,17 +27,49 @@ const testAgent: AgentSpec = {
 	version: 1,
 };
 
-describe("agentAsTool", () => {
-	test("converts AgentSpec to ToolDefinition with goal/hints params", () => {
-		const tool = agentAsTool(testAgent);
-		expect(tool.name).toBe("code-reader");
-		expect(tool.description).toBe("Find and return relevant code");
+describe("buildDelegateTool", () => {
+	test("creates a single delegate tool with agent_name enum", () => {
+		const agents: AgentSpec[] = [
+			testAgent,
+			{ ...testAgent, name: "code-editor", description: "Edit code files" },
+		];
+		const tool = buildDelegateTool(agents);
+		expect(tool.name).toBe("delegate");
+		expect(tool.description).toContain("Delegate");
 		const props = (tool.parameters as any).properties;
+		expect(props.agent_name).toBeDefined();
+		expect(props.agent_name.enum).toEqual(["code-reader", "code-editor"]);
 		expect(props.goal).toBeDefined();
 		expect(props.goal.type).toBe("string");
 		expect(props.hints).toBeDefined();
 		expect(props.hints.type).toBe("array");
-		expect((tool.parameters as any).required).toEqual(["goal"]);
+		expect((tool.parameters as any).required).toEqual(["agent_name", "goal"]);
+	});
+
+	test("omits enum when no agents provided", () => {
+		const tool = buildDelegateTool([]);
+		const props = (tool.parameters as any).properties;
+		expect(props.agent_name.enum).toBeUndefined();
+	});
+});
+
+describe("renderAgentsForPrompt", () => {
+	test("renders agents as XML block", () => {
+		const agents: AgentSpec[] = [
+			testAgent,
+			{ ...testAgent, name: "code-editor", description: "Edit code files" },
+		];
+		const result = renderAgentsForPrompt(agents);
+		expect(result).toContain("<agents>");
+		expect(result).toContain('name="code-reader"');
+		expect(result).toContain("Find and return relevant code");
+		expect(result).toContain('name="code-editor"');
+		expect(result).toContain("Edit code files");
+		expect(result).toContain("</agents>");
+	});
+
+	test("returns empty string for no agents", () => {
+		expect(renderAgentsForPrompt([])).toBe("");
 	});
 });
 
@@ -144,11 +177,11 @@ describe("buildSystemPrompt", () => {
 
 describe("buildPlanRequest", () => {
 	test("builds a valid LLM Request", () => {
-		const agentTool = agentAsTool(testAgent);
+		const delegateTool = buildDelegateTool([testAgent]);
 		const req = buildPlanRequest({
 			systemPrompt: "You are a test agent.",
 			history: [],
-			agentTools: [agentTool],
+			agentTools: [delegateTool],
 			primitiveTools: [],
 			model: "claude-haiku-4-5-20251001",
 			provider: "anthropic",
@@ -157,7 +190,7 @@ describe("buildPlanRequest", () => {
 		expect(req.provider).toBe("anthropic");
 		expect(req.messages[0]!.role).toBe("system");
 		expect(req.tools).toHaveLength(1);
-		expect(req.tools![0]!.name).toBe("code-reader");
+		expect(req.tools![0]!.name).toBe("delegate");
 		expect(req.tool_choice).toBe("auto");
 		expect(req.max_tokens).toBe(4096);
 	});
@@ -179,17 +212,16 @@ describe("buildPlanRequest", () => {
 });
 
 describe("parsePlanResponse", () => {
-	test("identifies agent delegations vs primitive calls", () => {
-		const agentNames = new Set(["code-reader", "code-editor"]);
+	test("identifies delegate calls vs primitive calls", () => {
 		const toolCalls = [
 			{
 				id: "call_1",
-				name: "code-reader",
-				arguments: { goal: "find auth code", hints: ["check src/auth"] },
+				name: "delegate",
+				arguments: { agent_name: "code-reader", goal: "find auth code", hints: ["check src/auth"] },
 			},
 			{ id: "call_2", name: "exec", arguments: { command: "ls" } },
 		];
-		const result = parsePlanResponse(toolCalls, agentNames);
+		const result = parsePlanResponse(toolCalls);
 		expect(result.delegations).toHaveLength(1);
 		expect(result.delegations[0]!.call_id).toBe("call_1");
 		expect(result.delegations[0]!.agent_name).toBe("code-reader");
@@ -200,27 +232,30 @@ describe("parsePlanResponse", () => {
 	});
 
 	test("returns empty arrays when no tool calls", () => {
-		const result = parsePlanResponse([], new Set(["code-reader"]));
+		const result = parsePlanResponse([]);
 		expect(result.delegations).toHaveLength(0);
 		expect(result.primitiveCalls).toHaveLength(0);
 	});
 
+	test("throws when delegation is missing agent_name", () => {
+		const toolCalls = [{ id: "call_1", name: "delegate", arguments: { goal: "find code" } }];
+		expect(() => parsePlanResponse(toolCalls)).toThrow(/agent_name/);
+	});
+
 	test("throws when delegation is missing goal argument", () => {
-		const agentNames = new Set(["code-reader"]);
-		const toolCalls = [{ id: "call_1", name: "code-reader", arguments: {} }];
-		expect(() => parsePlanResponse(toolCalls, agentNames)).toThrow(/missing required 'goal'/);
+		const toolCalls = [{ id: "call_1", name: "delegate", arguments: { agent_name: "code-reader" } }];
+		expect(() => parsePlanResponse(toolCalls)).toThrow(/missing required 'goal'/);
 	});
 
 	test("ignores non-array hints", () => {
-		const agentNames = new Set(["code-reader"]);
 		const toolCalls = [
 			{
 				id: "call_1",
-				name: "code-reader",
-				arguments: { goal: "find code", hints: "not an array" },
+				name: "delegate",
+				arguments: { agent_name: "code-reader", goal: "find code", hints: "not an array" },
 			},
 		];
-		const result = parsePlanResponse(toolCalls, agentNames);
+		const result = parsePlanResponse(toolCalls);
 		expect(result.delegations[0]!.hints).toBeUndefined();
 	});
 });

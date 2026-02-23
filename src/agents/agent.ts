@@ -5,7 +5,14 @@ import { recall } from "../genome/recall.ts";
 import type { ExecutionEnvironment } from "../kernel/execution-env.ts";
 import type { PrimitiveRegistry } from "../kernel/primitives.ts";
 import { truncateToolOutput } from "../kernel/truncation.ts";
-import type { ActResult, AgentSpec, Delegation, EventKind, Memory, RoutingRule } from "../kernel/types.ts";
+import type {
+	ActResult,
+	AgentSpec,
+	Delegation,
+	EventKind,
+	Memory,
+	RoutingRule,
+} from "../kernel/types.ts";
 import type { LearnProcess } from "../learn/learn-process.ts";
 import type { Client } from "../llm/client.ts";
 import type { Message, ToolDefinition } from "../llm/types.ts";
@@ -13,11 +20,12 @@ import { Msg, messageReasoning, messageText, messageToolCalls } from "../llm/typ
 import { AgentEventEmitter } from "./events.ts";
 import { type ResolvedModel, resolveModel } from "./model-resolver.ts";
 import {
-	agentAsTool,
+	buildDelegateTool,
 	buildPlanRequest,
 	buildSystemPrompt,
 	parsePlanResponse,
 	primitivesForAgent,
+	renderAgentsForPrompt,
 } from "./plan.ts";
 import {
 	type CallRecord,
@@ -63,7 +71,6 @@ export class Agent {
 	private readonly resolved: ResolvedModel;
 	private readonly agentTools: ToolDefinition[];
 	private readonly primitiveTools: ToolDefinition[];
-	private readonly agentNames: Set<string>;
 	private readonly logBasePath?: string;
 	private logWriteChain: Promise<void> = Promise.resolve();
 
@@ -91,19 +98,20 @@ export class Agent {
 		// Resolve model and provider
 		this.resolved = resolveModel(this.spec.model, this.client.providers());
 
-		// Build agent tool list (delegations to other agents)
-		this.agentNames = new Set<string>();
+		// Build delegate tool (single tool for all agent delegations)
 		this.agentTools = [];
 
 		if (this.spec.constraints.can_spawn) {
+			const delegatableAgents: AgentSpec[] = [];
 			for (const cap of this.spec.capabilities) {
-				// Skip self-delegation
 				if (cap === this.spec.name) continue;
 				const agentSpec = this.availableAgents.find((a) => a.name === cap);
 				if (agentSpec) {
-					this.agentNames.add(agentSpec.name);
-					this.agentTools.push(agentAsTool(agentSpec));
+					delegatableAgents.push(agentSpec);
 				}
+			}
+			if (delegatableAgents.length > 0) {
+				this.agentTools.push(buildDelegateTool(delegatableAgents));
 			}
 		}
 
@@ -152,6 +160,18 @@ export class Agent {
 	/** Wait for all pending log writes to complete. */
 	private async flushLog(): Promise<void> {
 		await this.logWriteChain;
+	}
+
+	/** Get the current list of agents this agent can delegate to, preferring genome over static snapshot. */
+	private getDelegatableAgents(): AgentSpec[] {
+		const agents: AgentSpec[] = [];
+		const source = this.genome ? this.genome.allAgents() : this.availableAgents;
+		for (const cap of this.spec.capabilities) {
+			if (cap === this.spec.name) continue;
+			const agentSpec = source.find((a) => a.name === cap);
+			if (agentSpec) agents.push(agentSpec);
+		}
+		return agents;
 	}
 
 	/** Execute a single delegation to a subagent. Returns the tool result message and stumble count. */
@@ -302,13 +322,19 @@ export class Agent {
 		}
 
 		// Build system prompt with recall context (memories and routing hints)
-		const systemPrompt = buildSystemPrompt(
+		let systemPrompt = buildSystemPrompt(
 			this.spec,
 			this.env.working_directory(),
 			this.env.platform(),
 			this.env.os_version(),
 			recallContext,
 		);
+
+		// Append available agent descriptions to system prompt
+		if (this.spec.constraints.can_spawn) {
+			const delegatableAgents = this.getDelegatableAgents();
+			systemPrompt += renderAgentsForPrompt(delegatableAgents);
+		}
 
 		// Core loop
 		while (turns < this.spec.constraints.max_turns) {
@@ -361,7 +387,7 @@ export class Agent {
 			}
 
 			// Parse tool calls into delegations and primitive calls
-			const { delegations } = parsePlanResponse(toolCalls, this.agentNames);
+			const { delegations } = parsePlanResponse(toolCalls);
 			const delegationByCallId = new Map(delegations.map((d) => [d.call_id, d]));
 
 			// Track call history for retry detection
