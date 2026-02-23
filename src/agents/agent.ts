@@ -15,7 +15,7 @@ import type {
 } from "../kernel/types.ts";
 import type { LearnProcess } from "../learn/learn-process.ts";
 import type { Client } from "../llm/client.ts";
-import type { Message, ToolDefinition } from "../llm/types.ts";
+import type { Response as LLMResponse, Message, ToolDefinition } from "../llm/types.ts";
 import { Msg, messageReasoning, messageText, messageToolCalls } from "../llm/types.ts";
 import { AgentEventEmitter } from "./events.ts";
 import { type ResolvedModel, resolveModel } from "./model-resolver.ts";
@@ -73,6 +73,7 @@ export class Agent {
 	private readonly primitiveTools: ToolDefinition[];
 	private readonly logBasePath?: string;
 	private logWriteChain: Promise<void> = Promise.resolve();
+	private steeringQueue: string[] = [];
 
 	constructor(options: AgentOptions) {
 		this.spec = options.spec;
@@ -141,6 +142,17 @@ export class Agent {
 	/** Returns all tools this agent can use (agent tools + primitive tools) */
 	resolvedTools(): ToolDefinition[] {
 		return [...this.agentTools, ...this.primitiveTools];
+	}
+
+	/** Inject a steering message into the agent loop for the next iteration. */
+	steer(text: string): void {
+		this.steeringQueue.push(text);
+	}
+
+	/** Return and clear all queued steering messages. */
+	private drainSteering(): string[] {
+		const queued = this.steeringQueue.splice(0);
+		return queued;
 	}
 
 	/** Emit an event and append it to the log file if logging is enabled. */
@@ -282,7 +294,7 @@ export class Agent {
 	}
 
 	/** Run the agent loop with the given goal */
-	async run(goal: string): Promise<AgentResult> {
+	async run(goal: string, signal?: AbortSignal): Promise<AgentResult> {
 		const agentId = this.spec.name;
 		const startTime = performance.now();
 		let stumbles = 0;
@@ -343,6 +355,13 @@ export class Agent {
 		while (turns < this.spec.constraints.max_turns) {
 			turns++;
 
+			// Drain steering messages and inject as user messages
+			const steered = this.drainSteering();
+			for (const text of steered) {
+				history.push(Msg.user(text));
+				this.emitAndLog("steering", agentId, this.depth, { text });
+			}
+
 			// Check timeout
 			if (this.spec.constraints.timeout_ms > 0) {
 				const elapsed = performance.now() - startTime;
@@ -352,6 +371,15 @@ export class Agent {
 					});
 					break;
 				}
+			}
+
+			// Check abort signal
+			if (signal?.aborted) {
+				this.emitAndLog("interrupted", agentId, this.depth, {
+					message: "Agent interrupted by abort signal",
+					turns,
+				});
+				break;
 			}
 
 			// Plan: build request and call LLM
@@ -366,7 +394,31 @@ export class Agent {
 				provider: this.resolved.provider,
 			});
 
-			const response = await this.client.complete(request);
+			let response: LLMResponse;
+			try {
+				response = signal
+					? await Promise.race([
+							this.client.complete(request),
+							new Promise<never>((_, reject) => {
+								if (signal.aborted) reject(new DOMException("Aborted", "AbortError"));
+								signal.addEventListener(
+									"abort",
+									() => reject(new DOMException("Aborted", "AbortError")),
+									{ once: true },
+								);
+							}),
+						])
+					: await this.client.complete(request);
+			} catch (err) {
+				if (err instanceof DOMException && err.name === "AbortError") {
+					this.emitAndLog("interrupted", agentId, this.depth, {
+						message: "Agent interrupted during LLM call",
+						turns,
+					});
+					break;
+				}
+				throw err;
+			}
 			const assistantMessage = response.message;
 
 			// Add assistant message to history
