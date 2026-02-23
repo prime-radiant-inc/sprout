@@ -329,7 +329,7 @@ describe("Genome", () => {
 			expect(genome2.memories.all()[0]!.id).toBe("loader-mem");
 		});
 
-		test("initFromBootstrap copies 4 bootstrap agents and commits", async () => {
+		test("initFromBootstrap copies 5 bootstrap agents and commits", async () => {
 			const root = join(tempDir, "bootstrap-init");
 			const genome = new Genome(root);
 			await genome.init();
@@ -337,11 +337,12 @@ describe("Genome", () => {
 			const bootstrapDir = join(import.meta.dir, "../../bootstrap");
 			await genome.initFromBootstrap(bootstrapDir);
 
-			expect(genome.agentCount()).toBe(4);
+			expect(genome.agentCount()).toBe(5);
 			expect(genome.getAgent("root")).toBeDefined();
-			expect(genome.getAgent("code-reader")).toBeDefined();
-			expect(genome.getAgent("code-editor")).toBeDefined();
+			expect(genome.getAgent("reader")).toBeDefined();
+			expect(genome.getAgent("editor")).toBeDefined();
 			expect(genome.getAgent("command-runner")).toBeDefined();
+			expect(genome.getAgent("web-reader")).toBeDefined();
 
 			// Verify git commit
 			const log = await git(root, "log", "--oneline");
@@ -349,7 +350,7 @@ describe("Genome", () => {
 
 			// Verify files exist on disk
 			const files = await readdir(join(root, "agents"));
-			expect(files).toHaveLength(4);
+			expect(files).toHaveLength(5);
 		});
 
 		test("initFromBootstrap throws if agents already exist", async () => {

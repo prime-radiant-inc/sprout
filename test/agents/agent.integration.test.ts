@@ -34,7 +34,7 @@ describe("Agent Integration", () => {
 	});
 
 	test("leaf agent creates a file using primitives", async () => {
-		const codeEditor = bootstrapAgents.find((a) => a.name === "code-editor")!;
+		const codeEditor = bootstrapAgents.find((a) => a.name === "editor")!;
 		const events = new AgentEventEmitter();
 		const agent = new Agent({
 			spec: codeEditor,

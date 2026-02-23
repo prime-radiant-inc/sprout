@@ -30,7 +30,7 @@ describe("createAgent", () => {
 		expect(result.agent).toBeDefined();
 		expect(result.agent.spec.name).toBe("root");
 		expect(result.genome).toBeDefined();
-		expect(result.genome.agentCount()).toBe(4);
+		expect(result.genome.agentCount()).toBe(5);
 	});
 
 	test("creates agent with existing genome", async () => {
@@ -47,7 +47,7 @@ describe("createAgent", () => {
 		});
 
 		expect(result.agent).toBeDefined();
-		expect(result.genome.agentCount()).toBe(4);
+		expect(result.genome.agentCount()).toBe(5);
 	});
 
 	test("uses specified root agent name", async () => {
@@ -56,10 +56,10 @@ describe("createAgent", () => {
 			genomePath,
 			bootstrapDir: join(import.meta.dir, "../../bootstrap"),
 			workDir: tempDir,
-			rootAgent: "code-editor",
+			rootAgent: "editor",
 		});
 
-		expect(result.agent.spec.name).toBe("code-editor");
+		expect(result.agent.spec.name).toBe("editor");
 	});
 
 	test("throws if root agent not found", async () => {

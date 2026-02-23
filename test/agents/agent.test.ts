@@ -395,7 +395,7 @@ describe("Agent", () => {
 			await genome.init();
 			await genome.initFromBootstrap(join(import.meta.dir, "../../bootstrap"));
 
-			const codeReader = genome.getAgent("code-reader")!;
+			const codeReader = genome.getAgent("reader")!;
 			const env = new LocalExecutionEnvironment(tmpdir());
 			const client = Client.fromEnv();
 			const registry = createPrimitiveRegistry(env);

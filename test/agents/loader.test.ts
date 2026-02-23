@@ -11,19 +11,19 @@ describe("loadAgentSpec", () => {
 		expect(spec.description).toBeTruthy();
 		expect(spec.system_prompt).toBeTruthy();
 		expect(spec.model).toBe("best");
-		expect(spec.capabilities).toContain("code-reader");
-		expect(spec.capabilities).toContain("code-editor");
+		expect(spec.capabilities).toContain("reader");
+		expect(spec.capabilities).toContain("editor");
 		expect(spec.capabilities).toContain("command-runner");
 		expect(spec.constraints.max_turns).toBe(200);
 		expect(spec.constraints.max_depth).toBe(3);
 		expect(spec.constraints.can_learn).toBe(true);
 		expect(spec.tags).toContain("core");
-		expect(spec.version).toBe(1);
+		expect(spec.version).toBe(2);
 	});
 
 	test("applies default constraints for missing fields", async () => {
-		// code-reader doesn't specify timeout_ms, should get default
-		const spec = await loadAgentSpec(join(import.meta.dir, "../../bootstrap/code-reader.yaml"));
+		// reader doesn't specify timeout_ms, should get default
+		const spec = await loadAgentSpec(join(import.meta.dir, "../../bootstrap/reader.yaml"));
 		expect(spec.constraints.timeout_ms).toBe(300000);
 	});
 
@@ -39,14 +39,15 @@ describe("loadAgentSpec", () => {
 });
 
 describe("loadBootstrapAgents", () => {
-	test("loads all 4 bootstrap agents", async () => {
+	test("loads all 5 bootstrap agents", async () => {
 		const agents = await loadBootstrapAgents(join(import.meta.dir, "../../bootstrap"));
-		expect(agents).toHaveLength(4);
+		expect(agents).toHaveLength(5);
 		const names = agents.map((a) => a.name);
 		expect(names).toContain("root");
-		expect(names).toContain("code-reader");
-		expect(names).toContain("code-editor");
+		expect(names).toContain("reader");
+		expect(names).toContain("editor");
 		expect(names).toContain("command-runner");
+		expect(names).toContain("web-reader");
 	});
 
 	test("all agents have valid constraints", async () => {
