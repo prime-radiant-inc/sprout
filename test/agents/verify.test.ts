@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { verifyActResult, verifyPrimitiveResult } from "../../src/agents/verify.ts";
+import { detectRetries, verifyActResult, verifyPrimitiveResult } from "../../src/agents/verify.ts";
 import type { ActResult } from "../../src/kernel/types.ts";
 
 describe("verifyActResult", () => {
@@ -185,5 +185,50 @@ describe("verifyPrimitiveResult", () => {
 		);
 		expect(result.stumbled).toBe(false);
 		expect(result.learnSignal).toBeUndefined();
+	});
+});
+
+describe("detectRetries", () => {
+	test("finds repeated identical tool calls", () => {
+		const calls = [
+			{ name: "read_file", arguments: { path: "src/foo.ts" } },
+			{ name: "grep", arguments: { pattern: "handleAuth" } },
+			{ name: "read_file", arguments: { path: "src/foo.ts" } }, // retry
+			{ name: "read_file", arguments: { path: "src/foo.ts" } }, // retry
+		];
+		const retries = detectRetries(calls);
+		expect(retries).toBe(2);
+	});
+
+	test("ignores different args", () => {
+		const calls = [
+			{ name: "read_file", arguments: { path: "src/foo.ts" } },
+			{ name: "read_file", arguments: { path: "src/bar.ts" } }, // different file
+		];
+		const retries = detectRetries(calls);
+		expect(retries).toBe(0);
+	});
+
+	test("returns zero for empty call list", () => {
+		expect(detectRetries([])).toBe(0);
+	});
+
+	test("returns zero for all unique calls", () => {
+		const calls = [
+			{ name: "read_file", arguments: { path: "a.ts" } },
+			{ name: "grep", arguments: { pattern: "foo" } },
+			{ name: "write_file", arguments: { path: "b.ts", content: "x" } },
+		];
+		expect(detectRetries(calls)).toBe(0);
+	});
+
+	test("counts retries across multiple different repeated calls", () => {
+		const calls = [
+			{ name: "read_file", arguments: { path: "a.ts" } },
+			{ name: "grep", arguments: { pattern: "foo" } },
+			{ name: "read_file", arguments: { path: "a.ts" } }, // retry of read_file
+			{ name: "grep", arguments: { pattern: "foo" } }, // retry of grep
+		];
+		expect(detectRetries(calls)).toBe(2);
 	});
 });

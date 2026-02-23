@@ -19,7 +19,7 @@ import {
 	parsePlanResponse,
 	primitivesForAgent,
 } from "./plan.ts";
-import { verifyActResult, verifyPrimitiveResult } from "./verify.ts";
+import { type CallRecord, detectRetries, verifyActResult, verifyPrimitiveResult } from "./verify.ts";
 
 export interface AgentOptions {
 	spec: AgentSpec;
@@ -171,6 +171,9 @@ export class Agent {
 		// Initialize history with the goal
 		const history: Message[] = [Msg.user(goal)];
 
+		// Track tool calls for retry detection
+		const callHistory: CallRecord[] = [];
+
 		// Emit perceive
 		this.emitAndLog("perceive", agentId, this.depth, { goal });
 
@@ -254,6 +257,7 @@ export class Agent {
 
 			// Process each tool call in the order they appeared
 			for (const call of toolCalls) {
+				callHistory.push({ name: call.name, arguments: call.arguments });
 				const delegation = delegationByCallId.get(call.id);
 
 				if (delegation) {
@@ -416,6 +420,30 @@ export class Agent {
 					history.push(Msg.toolResult(call.id, content, !result.success));
 					lastOutput = result.output;
 				}
+			}
+		}
+
+		// Detect retry stumbles from repeated identical tool calls
+		const retryCount = detectRetries(callHistory);
+		if (retryCount > 0) {
+			stumbles += retryCount;
+			if (this.learnProcess && this.spec.constraints.can_learn) {
+				this.learnProcess.push({
+					kind: "retry",
+					goal,
+					agent_name: agentId,
+					details: {
+						agent_name: agentId,
+						goal,
+						output: `${retryCount} retried tool calls detected`,
+						success: true,
+						stumbles: retryCount,
+						turns,
+						timed_out: false,
+					},
+					session_id: this.sessionId,
+					timestamp: Date.now(),
+				});
 			}
 		}
 

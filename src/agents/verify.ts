@@ -22,8 +22,6 @@ export function verifyActResult(
 	} else if (actResult.turns > INEFFICIENCY_TURN_THRESHOLD) {
 		kind = "inefficiency";
 	}
-	// TODO: "retry" detection requires observing repeated identical actions across calls
-
 	const stumbled = kind !== undefined;
 
 	let learnSignal: LearnSignal | undefined;
@@ -77,4 +75,30 @@ export function verifyPrimitiveResult(
 	}
 
 	return { stumbled, learnSignal };
+}
+
+export interface CallRecord {
+	name: string;
+	arguments: Record<string, unknown>;
+}
+
+/**
+ * Detect retries: repeated identical tool calls (same name + same args).
+ * Returns the count of redundant calls (i.e., if read_file("foo") is called
+ * 3 times, that's 2 retries).
+ */
+export function detectRetries(calls: CallRecord[]): number {
+	let retries = 0;
+	const seen = new Map<string, number>();
+
+	for (const call of calls) {
+		const sig = JSON.stringify({ name: call.name, args: call.arguments });
+		const prev = seen.get(sig) ?? 0;
+		if (prev > 0) {
+			retries++;
+		}
+		seen.set(sig, prev + 1);
+	}
+
+	return retries;
 }
