@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 export interface SessionMetadataSnapshot {
@@ -40,11 +40,7 @@ export class SessionMetadata {
 		this.createdAt = new Date().toISOString();
 	}
 
-	updateTurn(
-		turns: number,
-		contextTokens: number,
-		contextWindowSize: number,
-	): void {
+	updateTurn(turns: number, contextTokens: number, contextWindowSize: number): void {
 		this.turns = turns;
 		this.contextTokens = contextTokens;
 		this.contextWindowSize = contextWindowSize;
@@ -69,26 +65,19 @@ export class SessionMetadata {
 			updatedAt: new Date().toISOString(),
 		};
 
-		const filePath = join(
-			this.sessionsDir,
-			`${this.sessionId}.meta.json`,
-		);
+		const filePath = join(this.sessionsDir, `${this.sessionId}.meta.json`);
 		await writeFile(filePath, JSON.stringify(snapshot, null, "\t") + "\n");
 	}
 }
 
 /** Read and parse a .meta.json file. */
-export async function loadSessionMetadata(
-	path: string,
-): Promise<SessionMetadataSnapshot> {
+export async function loadSessionMetadata(path: string): Promise<SessionMetadataSnapshot> {
 	const raw = await readFile(path, "utf-8");
 	return JSON.parse(raw) as SessionMetadataSnapshot;
 }
 
 /** Scan a directory for *.meta.json files and return snapshots sorted by filename (ULID order). */
-export async function listSessions(
-	sessionsDir: string,
-): Promise<SessionMetadataSnapshot[]> {
+export async function listSessions(sessionsDir: string): Promise<SessionMetadataSnapshot[]> {
 	let entries: string[];
 	try {
 		entries = await readdir(sessionsDir);
@@ -96,9 +85,7 @@ export async function listSessions(
 		return [];
 	}
 
-	const metaFiles = entries
-		.filter((f) => f.endsWith(".meta.json"))
-		.sort();
+	const metaFiles = entries.filter((f) => f.endsWith(".meta.json")).sort();
 
 	const snapshots: SessionMetadataSnapshot[] = [];
 	for (const file of metaFiles) {

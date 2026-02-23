@@ -1,13 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { readFile, readdir } from "node:fs/promises";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-	SessionMetadata,
-	type SessionMetadataSnapshot,
 	listSessions,
 	loadSessionMetadata,
+	SessionMetadata,
+	type SessionMetadataSnapshot,
 } from "../../src/host/session-metadata.ts";
 
 describe("SessionMetadata", () => {
@@ -106,18 +105,14 @@ describe("SessionMetadata", () => {
 		});
 
 		await meta.save();
-		const first = await loadSessionMetadata(
-			join(tempDir, "01JTEST000000000000000004.meta.json"),
-		);
+		const first = await loadSessionMetadata(join(tempDir, "01JTEST000000000000000004.meta.json"));
 
 		// Small delay to ensure timestamp differs
 		await new Promise((r) => setTimeout(r, 10));
 
 		meta.updateTurn(1, 100, 200000);
 		await meta.save();
-		const second = await loadSessionMetadata(
-			join(tempDir, "01JTEST000000000000000004.meta.json"),
-		);
+		const second = await loadSessionMetadata(join(tempDir, "01JTEST000000000000000004.meta.json"));
 
 		expect(second.updatedAt >= first.updatedAt).toBe(true);
 		expect(second.createdAt).toBe(first.createdAt);
