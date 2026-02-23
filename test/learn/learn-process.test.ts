@@ -518,4 +518,67 @@ describe("LearnProcess", () => {
 			expect(agent!.name).toBe("my-specialist");
 		});
 	});
+
+	describe("evaluateImprovement", () => {
+		test("detects harmful improvement", async () => {
+			const { learn, metrics } = await setupGenome(tempDir, "eval-harmful");
+
+			// Before: 1 stumble / 10 actions = 0.1
+			for (let i = 0; i < 10; i++) await metrics.recordAction("code-reader");
+			await metrics.recordStumble("code-reader", "error");
+
+			// Delay ensures boundary timestamp is strictly after all "before" entries
+			await new Promise((r) => setTimeout(r, 5));
+			const beforeTimestamp = Date.now();
+			await new Promise((r) => setTimeout(r, 5));
+
+			// After: 5 stumbles / 10 actions = 0.5 (worse!)
+			for (let i = 0; i < 10; i++) await metrics.recordAction("code-reader");
+			for (let i = 0; i < 5; i++) await metrics.recordStumble("code-reader", "error");
+
+			const result = await learn.evaluateImprovement("code-reader", beforeTimestamp);
+			expect(result.verdict).toBe("harmful");
+			expect(result.delta).toBeGreaterThan(0); // positive delta = got worse
+			expect(result.after_rate).toBeGreaterThan(result.before_rate);
+		});
+
+		test("detects helpful improvement", async () => {
+			const { learn, metrics } = await setupGenome(tempDir, "eval-helpful");
+
+			// Before: 5 stumbles / 10 actions = 0.5
+			for (let i = 0; i < 10; i++) await metrics.recordAction("code-reader");
+			for (let i = 0; i < 5; i++) await metrics.recordStumble("code-reader", "error");
+
+			await new Promise((r) => setTimeout(r, 5));
+			const beforeTimestamp = Date.now();
+			await new Promise((r) => setTimeout(r, 5));
+
+			// After: 1 stumble / 10 actions = 0.1 (better!)
+			for (let i = 0; i < 10; i++) await metrics.recordAction("code-reader");
+			await metrics.recordStumble("code-reader", "error");
+
+			const result = await learn.evaluateImprovement("code-reader", beforeTimestamp);
+			expect(result.verdict).toBe("helpful");
+			expect(result.delta).toBeLessThan(0); // negative delta = got better
+		});
+
+		test("detects neutral improvement within threshold", async () => {
+			const { learn, metrics } = await setupGenome(tempDir, "eval-neutral");
+
+			// Before: 1 stumble / 10 actions = 0.1
+			for (let i = 0; i < 10; i++) await metrics.recordAction("code-reader");
+			await metrics.recordStumble("code-reader", "error");
+
+			await new Promise((r) => setTimeout(r, 5));
+			const beforeTimestamp = Date.now();
+			await new Promise((r) => setTimeout(r, 5));
+
+			// After: 1 stumble / 10 actions = 0.1 (same — within 0.05 threshold)
+			for (let i = 0; i < 10; i++) await metrics.recordAction("code-reader");
+			await metrics.recordStumble("code-reader", "error");
+
+			const result = await learn.evaluateImprovement("code-reader", beforeTimestamp);
+			expect(result.verdict).toBe("neutral");
+		});
+	});
 });

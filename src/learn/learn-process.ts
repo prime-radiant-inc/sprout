@@ -64,6 +64,14 @@ export interface LearnProcessOptions {
 	client?: Client;
 }
 
+export interface EvaluationResult {
+	verdict: "helpful" | "harmful" | "neutral";
+	/** Positive = got worse (after - before), negative = got better. */
+	delta: number;
+	before_rate: number;
+	after_rate: number;
+}
+
 export type ProcessResult = "applied" | "skipped" | "empty" | "error";
 
 export class LearnProcess {
@@ -109,6 +117,30 @@ export class LearnProcess {
 				error: String(err),
 			});
 		});
+	}
+
+	/** Evaluate whether an improvement helped by comparing stumble rates before and after. */
+	async evaluateImprovement(
+		agentName: string,
+		improvementTimestamp: number,
+	): Promise<EvaluationResult> {
+		// Use improvementTimestamp - 1 for before's end to avoid overlap:
+		// stumbleRateForPeriod uses inclusive boundaries (since <= t <= until).
+		const before = await this.metrics.stumbleRateForPeriod(agentName, 0, improvementTimestamp - 1);
+		const after = await this.metrics.stumbleRateForPeriod(agentName, improvementTimestamp);
+
+		const delta = after - before;
+
+		let verdict: EvaluationResult["verdict"];
+		if (delta > 0.05) {
+			verdict = "harmful";
+		} else if (delta < -0.05) {
+			verdict = "helpful";
+		} else {
+			verdict = "neutral";
+		}
+
+		return { verdict, delta, before_rate: before, after_rate: after };
 	}
 
 	/** Return the number of signals waiting in the queue. */
