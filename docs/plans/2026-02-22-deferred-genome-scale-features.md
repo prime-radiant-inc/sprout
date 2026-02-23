@@ -102,10 +102,36 @@ These features are specified in the self-improving-agent spec but are only neede
 
 ---
 
+## 7. Toolsmith Agent: Dynamic Tool Set Curation (Spec §5.3, §D.11 Q1)
+
+**Trigger:** Genome reaches 20+ agents and the delegate tool's `agent_name` enum becomes unwieldy, or Plan starts selecting the wrong agents because there are too many options.
+
+**The idea:** Instead of exposing all available agents in the delegate tool's enum (which can't grow unbounded), introduce a "toolsmith" agent that acts as a curation step. Before tackling a task, the parent delegates to the toolsmith with the goal description. The toolsmith returns a curated set of agents relevant to that task. The parent then gets a delegate tool scoped to just those agents.
+
+This is essentially Recall (§5.3) implemented as an agent rather than a deterministic retrieval step — the toolsmith can reason about which agents are relevant, combine knowledge of agent capabilities with understanding of the task, and return a focused tool set.
+
+**What to build when triggered:**
+- A `toolsmith` agent with access to the genome's agent catalog
+- Parent delegates to toolsmith first: "what agents do I need for X?"
+- Toolsmith returns agent names + descriptions
+- Parent's delegate tool is scoped to the returned set for that task
+- Could be combined with the embedding-based recall (#1) — toolsmith uses embeddings to narrow candidates, then reasons about the final selection
+
+**Why not now:** With 4-15 agents, putting all of them in the enum is fine. The single delegate tool approach works at this scale. The toolsmith pattern solves a scaling problem we don't have yet.
+
+**Trade-offs to consider:**
+- Adds one extra LLM call per task (the toolsmith consultation)
+- The toolsmith itself needs to know about all agents (it's the one entity that does)
+- Could be a lightweight deterministic step at medium scale, graduating to an LLM-powered agent at large scale
+- Relates to the spec's "retrieval strategy itself is part of the genome" concept (§5.3)
+
+---
+
 ## Review Schedule
 
 Check these thresholds after every 10 sessions:
-- Agent count (triggers #1 at 20, #3 at 15, #4 at 200)
+- Agent count (triggers #1 at 20, #3 at 15, #4 at 200, #7 at 20+)
 - Cross-project usage (triggers #2)
 - Per-stumble learning effectiveness (triggers #6)
 - Overall stability (triggers #5)
+- Agent selection accuracy (triggers #7 — is Plan picking wrong agents?)
