@@ -32,7 +32,7 @@ describe("Learn Integration", () => {
 		await genome.initFromBootstrap(join(import.meta.dir, "../../bootstrap"));
 
 		// Verify starting state
-		expect(genome.agentCount()).toBe(4);
+		expect(genome.agentCount()).toBe(5);
 		expect(genome.memories.all().length).toBe(0);
 		expect(genome.allRoutingRules().length).toBe(0);
 
@@ -113,6 +113,6 @@ describe("Learn Integration", () => {
 		// Verify genome unchanged
 		expect(genome.memories.all().length).toBe(0);
 		expect(genome.allRoutingRules().length).toBe(0);
-		expect(genome.agentCount()).toBe(4);
+		expect(genome.agentCount()).toBe(5);
 	}, 30_000);
 });

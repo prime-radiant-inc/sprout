@@ -1,5 +1,5 @@
-name: code-editor
-description: "Write and edit code files, create new files, and verify changes"
+name: editor
+description: "Write and edit files, create new files, and verify changes"
 model: balanced
 capabilities:
   - read_file
@@ -14,9 +14,9 @@ constraints:
 tags:
   - core
   - editing
-version: 1
+version: 2
 system_prompt: |
-  You write and edit code files.
+  You write and edit files.
 
   Always read a file before editing it. Use edit_file for targeted changes
   to existing files. Use write_file only for creating new files.
