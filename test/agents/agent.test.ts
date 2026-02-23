@@ -755,6 +755,266 @@ describe("Agent", () => {
 		expect(result.success).toBe(true);
 	});
 
+	test("multiple delegations execute concurrently", async () => {
+		// Two leaf agents, each taking 50ms to complete. If sequential: >=100ms. If concurrent: ~50ms.
+		const leafA: AgentSpec = {
+			name: "leaf-a",
+			description: "Leaf A",
+			system_prompt: "You are leaf A.",
+			model: "fast",
+			capabilities: ["read_file"],
+			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 3, max_depth: 0, can_spawn: false },
+			tags: [],
+			version: 1,
+		};
+		const leafB: AgentSpec = {
+			name: "leaf-b",
+			description: "Leaf B",
+			system_prompt: "You are leaf B.",
+			model: "fast",
+			capabilities: ["read_file"],
+			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 3, max_depth: 0, can_spawn: false },
+			tags: [],
+			version: 1,
+		};
+		const rootWithTwoLeaves: AgentSpec = {
+			...rootSpec,
+			capabilities: ["leaf-a", "leaf-b"],
+			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5 },
+		};
+
+		// Root response: two delegations in one message
+		const twoDelegationsMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-a",
+						name: "leaf-a",
+						arguments: JSON.stringify({ goal: "do task A" }),
+					},
+				},
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-b",
+						name: "leaf-b",
+						arguments: JSON.stringify({ goal: "do task B" }),
+					},
+				},
+			],
+		};
+		const rootDoneMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "Both delegations complete." }],
+		};
+
+		const DELAY_MS = 50;
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				if (callCount === 1) {
+					// Root: return two delegations
+					return {
+						id: "mock-conc-1",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: twoDelegationsMsg,
+						finish_reason: { reason: "tool_calls" as const },
+						usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+					};
+				}
+				if (callCount <= 3) {
+					// Subagent calls (2 and 3): each delays then completes
+					await new Promise((resolve) => setTimeout(resolve, DELAY_MS));
+					return {
+						id: `mock-conc-${callCount}`,
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: Msg.assistant(`Done from subagent call ${callCount}.`),
+						finish_reason: { reason: "stop" as const },
+						usage: { input_tokens: 5, output_tokens: 3, total_tokens: 8 },
+					};
+				}
+				// Root: done
+				return {
+					id: `mock-conc-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: rootDoneMsg,
+					finish_reason: { reason: "stop" as const },
+					usage: { input_tokens: 5, output_tokens: 3, total_tokens: 8 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: rootWithTwoLeaves,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [rootWithTwoLeaves, leafA, leafB],
+			depth: 0,
+			events,
+		});
+
+		const start = performance.now();
+		const result = await agent.run("do two tasks");
+		const elapsed = performance.now() - start;
+
+		// Both delegations should complete successfully
+		expect(result.success).toBe(true);
+
+		const collected = events.collected();
+		const actEnds = collected.filter((e) => e.kind === "act_end");
+		expect(actEnds.length).toBe(2);
+		expect(actEnds.every((e) => e.data.success === true)).toBe(true);
+
+		// If concurrent: elapsed should be well under 2*DELAY_MS (allowing margin for overhead)
+		// If sequential: elapsed would be >= 100ms
+		expect(elapsed).toBeLessThan(DELAY_MS * 2 - 10);
+	});
+
+	test("concurrent delegations with different speeds both complete successfully", async () => {
+		// Verify that when delegations with different durations run concurrently,
+		// both complete successfully regardless of finish order.
+		const leafA: AgentSpec = {
+			name: "leaf-a",
+			description: "Leaf A",
+			system_prompt: "You are leaf A.",
+			model: "fast",
+			capabilities: ["read_file"],
+			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 3, max_depth: 0, can_spawn: false },
+			tags: [],
+			version: 1,
+		};
+		const leafB: AgentSpec = {
+			name: "leaf-b",
+			description: "Leaf B",
+			system_prompt: "You are leaf B.",
+			model: "fast",
+			capabilities: ["read_file"],
+			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 3, max_depth: 0, can_spawn: false },
+			tags: [],
+			version: 1,
+		};
+		const rootWithTwoLeaves: AgentSpec = {
+			...rootSpec,
+			capabilities: ["leaf-a", "leaf-b"],
+			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5 },
+		};
+
+		// Root response: two delegations
+		const twoDelegationsMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-a",
+						name: "leaf-a",
+						arguments: JSON.stringify({ goal: "task A" }),
+					},
+				},
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-b",
+						name: "leaf-b",
+						arguments: JSON.stringify({ goal: "task B" }),
+					},
+				},
+			],
+		};
+
+		// leaf-a takes LONGER than leaf-b — so if results were in completion order, B would come first
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				if (callCount === 1) {
+					return {
+						id: "mock-order-1",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: twoDelegationsMsg,
+						finish_reason: { reason: "tool_calls" as const },
+						usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+					};
+				}
+				if (callCount === 2) {
+					// leaf-a: slow
+					await new Promise((resolve) => setTimeout(resolve, 60));
+					return {
+						id: "mock-order-2",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: Msg.assistant("Result A"),
+						finish_reason: { reason: "stop" as const },
+						usage: { input_tokens: 5, output_tokens: 3, total_tokens: 8 },
+					};
+				}
+				if (callCount === 3) {
+					// leaf-b: fast
+					await new Promise((resolve) => setTimeout(resolve, 10));
+					return {
+						id: "mock-order-3",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: Msg.assistant("Result B"),
+						finish_reason: { reason: "stop" as const },
+						usage: { input_tokens: 5, output_tokens: 3, total_tokens: 8 },
+					};
+				}
+				// Root completes — the response text tells us the order it saw
+				return {
+					id: "mock-order-4",
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant("All done."),
+					finish_reason: { reason: "stop" as const },
+					usage: { input_tokens: 5, output_tokens: 3, total_tokens: 8 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: rootWithTwoLeaves,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [rootWithTwoLeaves, leafA, leafB],
+			depth: 0,
+			events,
+		});
+
+		const result = await agent.run("order test");
+		expect(result.success).toBe(true);
+
+		// Both delegations should complete successfully
+		const collected = events.collected();
+		const actEnds = collected.filter((e) => e.kind === "act_end");
+		expect(actEnds.length).toBe(2);
+		const leafAEnd = actEnds.find((e) => e.data.agent_name === "leaf-a");
+		const leafBEnd = actEnds.find((e) => e.data.agent_name === "leaf-b");
+		expect(leafAEnd).toBeDefined();
+		expect(leafBEnd).toBeDefined();
+		expect(leafAEnd!.data.success).toBe(true);
+		expect(leafBEnd!.data.success).toBe(true);
+	});
+
 	test("subagent writes log under parent logBasePath/subagents/", async () => {
 		const tempDir = await mkdtemp(join(tmpdir(), "sprout-sublog-"));
 		try {

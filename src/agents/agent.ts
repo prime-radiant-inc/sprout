@@ -5,7 +5,7 @@ import { recall } from "../genome/recall.ts";
 import type { ExecutionEnvironment } from "../kernel/execution-env.ts";
 import type { PrimitiveRegistry } from "../kernel/primitives.ts";
 import { truncateToolOutput } from "../kernel/truncation.ts";
-import type { ActResult, AgentSpec, EventKind, Memory, RoutingRule } from "../kernel/types.ts";
+import type { ActResult, AgentSpec, Delegation, EventKind, Memory, RoutingRule } from "../kernel/types.ts";
 import type { LearnProcess } from "../learn/learn-process.ts";
 import type { Client } from "../llm/client.ts";
 import type { Message, ToolDefinition } from "../llm/types.ts";
@@ -154,6 +154,110 @@ export class Agent {
 		await this.logWriteChain;
 	}
 
+	/** Execute a single delegation to a subagent. Returns the tool result message and stumble count. */
+	private async executeDelegation(
+		delegation: Delegation,
+		agentId: string,
+	): Promise<{ toolResultMsg: Message; stumbles: number; output?: string }> {
+		this.emitAndLog("act_start", agentId, this.depth, {
+			agent_name: delegation.agent_name,
+			goal: delegation.goal,
+		});
+
+		const subagentSpec =
+			this.genome?.getAgent(delegation.agent_name) ??
+			this.availableAgents.find((a) => a.name === delegation.agent_name);
+
+		if (!subagentSpec) {
+			const errorMsg = `Unknown agent: ${delegation.agent_name}`;
+			this.emitAndLog("act_end", agentId, this.depth, {
+				agent_name: delegation.agent_name,
+				success: false,
+				error: errorMsg,
+			});
+			return { toolResultMsg: Msg.toolResult(delegation.call_id, errorMsg, true), stumbles: 1 };
+		}
+
+		try {
+			let subGoal = delegation.goal;
+			if (delegation.hints && delegation.hints.length > 0) {
+				subGoal += `\n\nHints:\n${delegation.hints.map((h) => `- ${h}`).join("\n")}`;
+			}
+
+			const subLogBasePath = this.logBasePath
+				? `${this.logBasePath}/subagents/${crypto.randomUUID()}`
+				: undefined;
+			const subagent = new Agent({
+				spec: subagentSpec,
+				env: this.env,
+				client: this.client,
+				primitiveRegistry: this.primitiveRegistry,
+				availableAgents: this.genome ? this.genome.allAgents() : this.availableAgents,
+				genome: this.genome,
+				depth: this.depth + 1,
+				events: this.events,
+				sessionId: this.sessionId,
+				learnProcess: this.learnProcess,
+				logBasePath: subLogBasePath,
+			});
+
+			const subResult = await subagent.run(subGoal);
+
+			const actResult: ActResult = {
+				agent_name: delegation.agent_name,
+				goal: delegation.goal,
+				output: subResult.output,
+				success: subResult.success,
+				stumbles: subResult.stumbles,
+				turns: subResult.turns,
+				timed_out: subResult.timed_out,
+			};
+
+			const { verify, learnSignal } = verifyActResult(actResult, this.sessionId);
+
+			this.emitAndLog("verify", agentId, this.depth, {
+				agent_name: delegation.agent_name,
+				success: verify.success,
+				stumbled: verify.stumbled,
+			});
+
+			if (learnSignal) {
+				this.emitAndLog("learn_signal", agentId, this.depth, {
+					signal: learnSignal,
+				});
+				if (this.learnProcess && this.spec.constraints.can_learn) {
+					this.learnProcess.push(learnSignal);
+				}
+			}
+
+			this.emitAndLog("act_end", agentId, this.depth, {
+				agent_name: delegation.agent_name,
+				success: subResult.success,
+				turns: subResult.turns,
+				timed_out: subResult.timed_out,
+			});
+
+			if (this.learnProcess) {
+				this.learnProcess.recordAction(agentId);
+			}
+
+			const resultContent = truncateToolOutput(subResult.output, delegation.agent_name);
+			return {
+				toolResultMsg: Msg.toolResult(delegation.call_id, resultContent),
+				stumbles: verify.stumbled ? 1 : 0,
+				output: subResult.output,
+			};
+		} catch (err) {
+			const errorMsg = `Subagent '${delegation.agent_name}' failed: ${String(err)}`;
+			this.emitAndLog("act_end", agentId, this.depth, {
+				agent_name: delegation.agent_name,
+				success: false,
+				error: errorMsg,
+			});
+			return { toolResultMsg: Msg.toolResult(delegation.call_id, errorMsg, true), stumbles: 1 };
+		}
+	}
+
 	/** Run the agent loop with the given goal */
 	async run(goal: string): Promise<AgentResult> {
 		const agentId = this.spec.name;
@@ -260,173 +364,87 @@ export class Agent {
 			const { delegations } = parsePlanResponse(toolCalls, this.agentNames);
 			const delegationByCallId = new Map(delegations.map((d) => [d.call_id, d]));
 
-			// Process each tool call in the order they appeared
+			// Track call history for retry detection
 			for (const call of toolCalls) {
 				callHistory.push({ name: call.name, arguments: call.arguments });
-				const delegation = delegationByCallId.get(call.id);
+			}
 
-				if (delegation) {
-					// Act: delegate to subagent
-					this.emitAndLog("act_start", agentId, this.depth, {
-						agent_name: delegation.agent_name,
-						goal: delegation.goal,
-					});
+			// Execute all delegations concurrently, primitives sequentially.
+			// Collect results keyed by call ID so we can add them to history in original order.
+			const resultByCallId = new Map<string, Message>();
+			let delegationStumbles = 0;
 
-					const subagentSpec =
-						this.genome?.getAgent(delegation.agent_name) ??
-						this.availableAgents.find((a) => a.name === delegation.agent_name);
+			// Launch all delegations concurrently
+			const delegationPromises = delegations.map((delegation) =>
+				this.executeDelegation(delegation, agentId).then((dr) => {
+					resultByCallId.set(delegation.call_id, dr.toolResultMsg);
+					delegationStumbles += dr.stumbles;
+					if (dr.output !== undefined) lastOutput = dr.output;
+				}),
+			);
+			await Promise.all(delegationPromises);
+			stumbles += delegationStumbles;
 
-					if (!subagentSpec) {
-						// Should not happen since we validated in constructor, but handle gracefully
-						const errorMsg = `Unknown agent: ${delegation.agent_name}`;
-						history.push(Msg.toolResult(call.id, errorMsg, true));
-						stumbles++;
-						this.emitAndLog("act_end", agentId, this.depth, {
-							agent_name: delegation.agent_name,
-							success: false,
-							error: errorMsg,
-						});
-						continue;
-					}
+			// Execute primitives sequentially (they're fast, may depend on each other)
+			for (const call of toolCalls) {
+				if (delegationByCallId.has(call.id)) continue;
 
-					try {
-						// Build subagent goal, appending hints if present
-						let subGoal = delegation.goal;
-						if (delegation.hints && delegation.hints.length > 0) {
-							subGoal += `\n\nHints:\n${delegation.hints.map((h) => `- ${h}`).join("\n")}`;
-						}
+				this.emitAndLog("primitive_start", agentId, this.depth, {
+					name: call.name,
+					args: call.arguments,
+				});
 
-						const subLogBasePath = this.logBasePath
-							? `${this.logBasePath}/subagents/${crypto.randomUUID()}`
-							: undefined;
-						const subagent = new Agent({
-							spec: subagentSpec,
-							env: this.env,
-							client: this.client,
-							primitiveRegistry: this.primitiveRegistry,
-							availableAgents: this.genome ? this.genome.allAgents() : this.availableAgents,
-							genome: this.genome,
-							depth: this.depth + 1,
-							events: this.events,
-							sessionId: this.sessionId,
-							learnProcess: this.learnProcess,
-							logBasePath: subLogBasePath,
-						});
+				const result = await this.primitiveRegistry.execute(call.name, call.arguments);
 
-						const subResult = await subagent.run(subGoal);
+				// Verify primitive result
+				const { stumbled, learnSignal: primSignal } = verifyPrimitiveResult(
+					result,
+					call.name,
+					goal,
+					this.sessionId,
+				);
 
-						const actResult: ActResult = {
-							agent_name: delegation.agent_name,
-							goal: delegation.goal,
-							output: subResult.output,
-							success: subResult.success,
-							stumbles: subResult.stumbles,
-							turns: subResult.turns,
-							timed_out: subResult.timed_out,
-						};
+				this.emitAndLog("primitive_end", agentId, this.depth, {
+					name: call.name,
+					success: result.success,
+					stumbled,
+					output: result.output,
+					error: result.error,
+				});
 
-						// Verify the act result
-						const { verify, learnSignal } = verifyActResult(actResult, this.sessionId);
-
-						this.emitAndLog("verify", agentId, this.depth, {
-							agent_name: delegation.agent_name,
-							success: verify.success,
-							stumbled: verify.stumbled,
-						});
-
-						if (learnSignal) {
-							this.emitAndLog("learn_signal", agentId, this.depth, {
-								signal: learnSignal,
-							});
-							if (this.learnProcess && this.spec.constraints.can_learn) {
-								this.learnProcess.push(learnSignal);
-							}
-						}
-
-						if (verify.stumbled) {
-							stumbles++;
-						}
-
-						// Add tool result to history
-						const resultContent = truncateToolOutput(subResult.output, delegation.agent_name);
-						history.push(Msg.toolResult(call.id, resultContent));
-						lastOutput = subResult.output;
-
-						this.emitAndLog("act_end", agentId, this.depth, {
-							agent_name: delegation.agent_name,
-							success: subResult.success,
-							turns: subResult.turns,
-							timed_out: subResult.timed_out,
-						});
-
-						// Record action for stumble rate computation
-						if (this.learnProcess) {
-							this.learnProcess.recordAction(agentId);
-						}
-					} catch (err) {
-						const errorMsg = `Subagent '${delegation.agent_name}' failed: ${String(err)}`;
-						history.push(Msg.toolResult(call.id, errorMsg, true));
-						stumbles++;
-						this.emitAndLog("act_end", agentId, this.depth, {
-							agent_name: delegation.agent_name,
-							success: false,
-							error: errorMsg,
-						});
-					}
-				} else {
-					// Act: execute primitive
-					this.emitAndLog("primitive_start", agentId, this.depth, {
-						name: call.name,
-						args: call.arguments,
-					});
-
-					const result = await this.primitiveRegistry.execute(call.name, call.arguments);
-
-					// Verify primitive result
-					const { stumbled, learnSignal: primSignal } = verifyPrimitiveResult(
-						result,
-						call.name,
-						goal,
-						this.sessionId,
-					);
-
-					this.emitAndLog("primitive_end", agentId, this.depth, {
-						name: call.name,
-						success: result.success,
-						stumbled,
-						output: result.output,
-						error: result.error,
-					});
-
-					if (stumbled) {
-						stumbles++;
-					}
-
-					if (primSignal) {
-						this.emitAndLog("learn_signal", agentId, this.depth, {
-							signal: primSignal,
-						});
-						if (this.learnProcess && this.spec.constraints.can_learn) {
-							this.learnProcess.push(primSignal);
-						}
-					}
-
-					this.emitAndLog("verify", agentId, this.depth, {
-						primitive: call.name,
-						success: result.success,
-						stumbled,
-					});
-
-					// Record action for stumble rate computation
-					if (this.learnProcess) {
-						this.learnProcess.recordAction(agentId);
-					}
-
-					// Add tool result to history
-					const content = result.error ? `Error: ${result.error}\n${result.output}` : result.output;
-					history.push(Msg.toolResult(call.id, content, !result.success));
-					lastOutput = result.output;
+				if (stumbled) {
+					stumbles++;
 				}
+
+				if (primSignal) {
+					this.emitAndLog("learn_signal", agentId, this.depth, {
+						signal: primSignal,
+					});
+					if (this.learnProcess && this.spec.constraints.can_learn) {
+						this.learnProcess.push(primSignal);
+					}
+				}
+
+				this.emitAndLog("verify", agentId, this.depth, {
+					primitive: call.name,
+					success: result.success,
+					stumbled,
+				});
+
+				// Record action for stumble rate computation
+				if (this.learnProcess) {
+					this.learnProcess.recordAction(agentId);
+				}
+
+				const content = result.error ? `Error: ${result.error}\n${result.output}` : result.output;
+				resultByCallId.set(call.id, Msg.toolResult(call.id, content, !result.success));
+				lastOutput = result.output;
+			}
+
+			// Add all tool results to history in original tool call order
+			for (const call of toolCalls) {
+				const msg = resultByCallId.get(call.id);
+				if (msg) history.push(msg);
 			}
 		}
 
