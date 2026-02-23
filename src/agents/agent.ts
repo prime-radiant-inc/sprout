@@ -19,7 +19,12 @@ import {
 	parsePlanResponse,
 	primitivesForAgent,
 } from "./plan.ts";
-import { type CallRecord, detectRetries, verifyActResult, verifyPrimitiveResult } from "./verify.ts";
+import {
+	type CallRecord,
+	detectRetries,
+	verifyActResult,
+	verifyPrimitiveResult,
+} from "./verify.ts";
 
 export interface AgentOptions {
 	spec: AgentSpec;
@@ -267,8 +272,9 @@ export class Agent {
 						goal: delegation.goal,
 					});
 
-					const subagentSpec = this.genome?.getAgent(delegation.agent_name)
-					?? this.availableAgents.find((a) => a.name === delegation.agent_name);
+					const subagentSpec =
+						this.genome?.getAgent(delegation.agent_name) ??
+						this.availableAgents.find((a) => a.name === delegation.agent_name);
 
 					if (!subagentSpec) {
 						// Should not happen since we validated in constructor, but handle gracefully
