@@ -73,6 +73,7 @@ export class LearnProcess {
 	private readonly client?: Client;
 	private readonly resolvedModel?: ResolvedModel;
 	private readonly queue: LearnSignal[] = [];
+	private readonly recentImprovements = new Set<string>();
 
 	private processing = false;
 	private stopRequested = false;
@@ -166,7 +167,7 @@ export class LearnProcess {
 		const signal = this.queue.shift();
 		if (!signal) return "empty";
 
-		const pass = await shouldLearn(signal, this.metrics);
+		const pass = await shouldLearn(signal, this.metrics, this.recentImprovements);
 		if (!pass) return "skipped";
 
 		return this.processSignal(signal);
@@ -189,6 +190,10 @@ export class LearnProcess {
 			}
 
 			await this.applyMutation(mutation);
+
+			// Mark this agent+kind as recently addressed to prevent redundant improvements
+			this.recentImprovements.add(`${signal.agent_name}:${signal.kind}`);
+
 			this.events.emit("learn_end", signal.agent_name, 0, {
 				result: "applied",
 				mutation_type: mutation.type,

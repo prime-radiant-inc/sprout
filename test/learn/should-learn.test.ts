@@ -96,6 +96,39 @@ describe("shouldLearn", () => {
 		expect(await shouldLearn(signal, metrics)).toBe(false);
 	});
 
+	test("skips if recent improvement addresses this agent+kind", async () => {
+		// Record 5 errors for "code-reader" (normally would trigger learning)
+		for (let i = 0; i < 5; i++) {
+			await metrics.recordStumble("code-reader", "error");
+		}
+
+		// Mark that a recent improvement was applied for code-reader errors
+		const recentImprovements = new Set(["code-reader:error"]);
+
+		const signal = makeSignal({
+			kind: "error",
+			agent_name: "code-reader",
+			details: {
+				agent_name: "code-reader",
+				goal: "find auth code",
+				output: "",
+				success: false,
+				stumbles: 1,
+				turns: 1,
+				timed_out: false,
+			},
+		});
+
+		const result = await shouldLearn(signal, metrics, recentImprovements);
+		expect(result).toBe(false);
+	});
+
+	test("failures still learn even when recent improvement exists", async () => {
+		const recentImprovements = new Set(["test-agent:failure"]);
+		const signal = makeSignal({ kind: "failure" });
+		expect(await shouldLearn(signal, metrics, recentImprovements)).toBe(true);
+	});
+
 	test("checks agent-specific counts", async () => {
 		// agent-a has 3 errors, agent-b has 1
 		await metrics.recordStumble("agent-a", "error");
