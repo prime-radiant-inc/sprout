@@ -139,9 +139,10 @@ export function buildPlanRequest(opts: {
  * Classify tool calls into agent delegations and primitive calls.
  * Delegations are identified by the "delegate" tool name.
  */
-export function parsePlanResponse(
-	toolCalls: ToolCall[],
-): { delegations: Delegation[]; primitiveCalls: ToolCall[] } {
+export function parsePlanResponse(toolCalls: ToolCall[]): {
+	delegations: Delegation[];
+	primitiveCalls: ToolCall[];
+} {
 	const delegations: Delegation[] = [];
 	const primitiveCalls: ToolCall[] = [];
 

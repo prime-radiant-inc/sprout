@@ -243,7 +243,9 @@ describe("parsePlanResponse", () => {
 	});
 
 	test("throws when delegation is missing goal argument", () => {
-		const toolCalls = [{ id: "call_1", name: "delegate", arguments: { agent_name: "code-reader" } }];
+		const toolCalls = [
+			{ id: "call_1", name: "delegate", arguments: { agent_name: "code-reader" } },
+		];
 		expect(() => parsePlanResponse(toolCalls)).toThrow(/missing required 'goal'/);
 	});
 
