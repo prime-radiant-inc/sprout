@@ -40,6 +40,9 @@ export function renderEvent(event: SessionEvent): string | null {
 		case "session_resume":
 			return `${prefix} Resumed session (${data.history_length ?? 0} messages of history)`;
 
+		case "session_clear":
+			return `${prefix} New session started`;
+
 		case "plan_start":
 			return `${prefix} Planning (turn ${data.turn})...`;
 

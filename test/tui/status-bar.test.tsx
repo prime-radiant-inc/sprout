@@ -9,6 +9,12 @@ describe("formatTokens", () => {
 		expect(formatTokens(42)).toBe("42");
 	});
 
+	test("returns M format at 1_000_000 and above", () => {
+		expect(formatTokens(1_500_000)).toBe("1.5M");
+		expect(formatTokens(2_000_000)).toBe("2.0M");
+		expect(formatTokens(1_000_000)).toBe("1.0M");
+	});
+
 	test("returns k format at 1000 and above", () => {
 		expect(formatTokens(1000)).toBe("1.0k");
 		expect(formatTokens(1500)).toBe("1.5k");

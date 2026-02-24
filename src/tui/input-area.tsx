@@ -1,5 +1,5 @@
 import { Box, Text, useInput } from "ink";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { SlashCommand } from "./slash-commands.ts";
 import { parseSlashCommand } from "./slash-commands.ts";
 
@@ -25,11 +25,21 @@ export function InputArea({
 	const [value, setValue] = useState("");
 	const [history] = useState<string[]>(() => (initialHistory ? [...initialHistory] : []));
 	const [historyCursor, setHistoryCursor] = useState(-1);
+	const pendingInterrupt = useRef(false);
+
+	useEffect(() => {
+		if (!isRunning) pendingInterrupt.current = false;
+	}, [isRunning]);
 
 	useInput((input, key) => {
 		if (key.ctrl && input === "c") {
 			if (isRunning) {
-				onInterrupt?.();
+				if (pendingInterrupt.current) {
+					onExit?.();
+				} else {
+					pendingInterrupt.current = true;
+					onInterrupt?.();
+				}
 			} else {
 				onExit?.();
 			}

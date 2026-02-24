@@ -42,6 +42,11 @@ export function ConversationView({ bus, maxHeight }: ConversationViewProps) {
 
 	useEffect(() => {
 		return bus.onEvent((event: SessionEvent) => {
+			if (event.kind === "session_clear") {
+				setLines([]);
+				setScrollOffset(null);
+				return;
+			}
 			const text = renderEvent(event);
 			if (text !== null) {
 				const id = nextId.current++;

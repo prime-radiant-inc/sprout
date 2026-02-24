@@ -264,6 +264,35 @@ describe("InputArea", () => {
 		expect(submitted).toBe("line1\nline2");
 	});
 
+	test("second Ctrl+C while running calls onExit", async () => {
+		let interruptCount = 0;
+		let exited = false;
+		const { stdin } = render(
+			<InputArea
+				onSubmit={() => {}}
+				onSlashCommand={() => {}}
+				isRunning={true}
+				onInterrupt={() => {
+					interruptCount++;
+				}}
+				onExit={() => {
+					exited = true;
+				}}
+			/>,
+		);
+
+		// First Ctrl+C — interrupts
+		stdin.write("\x03");
+		await flush();
+		expect(interruptCount).toBe(1);
+		expect(exited).toBe(false);
+
+		// Second Ctrl+C while still running — should exit
+		stdin.write("\x03");
+		await flush();
+		expect(exited).toBe(true);
+	});
+
 	test("calls onExit when Ctrl+C pressed while idle", async () => {
 		let exited = false;
 		const { stdin } = render(

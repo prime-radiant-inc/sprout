@@ -216,6 +216,20 @@ describe("ConversationView", () => {
 		expect(frame).toContain("Starting session...");
 	});
 
+	test("session_clear event clears all lines", async () => {
+		const bus = new EventBus();
+		const { lastFrame } = render(<ConversationView bus={bus} />);
+
+		bus.emitEvent("session_start", "agent", 0, { model: "test" });
+		await flush();
+		expect(lastFrame()).toContain("Starting session");
+
+		bus.emitEvent("session_clear", "session", 0, { new_session_id: "abc" });
+		await flush();
+		// After clear, old content should be gone
+		expect(lastFrame()).not.toContain("Starting session");
+	});
+
 	test("skips events that render-event returns null for", async () => {
 		const bus = new EventBus();
 		const { lastFrame } = render(<ConversationView bus={bus} />);

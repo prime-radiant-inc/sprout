@@ -12,7 +12,9 @@ export interface StatusBarProps {
 }
 
 export function formatTokens(n: number): string {
-	return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+	if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+	if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+	return String(n);
 }
 
 export function StatusBar(props: StatusBarProps) {
