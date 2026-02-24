@@ -229,6 +229,10 @@ export class SessionController {
 			const contextWindowSize = (event.data.context_window_size as number) ?? 0;
 			this.metadata.updateTurn(turn, contextTokens, contextWindowSize);
 			await this.metadata.save();
+			// Safe to re-emit into the bus from within an event handler: EventBus
+			// delivers events synchronously to all listeners in registration order.
+			// context_update is informational only (no handlers modify controller
+			// state in response), so re-entrancy cannot cause loops or corruption.
 			this.bus.emitEvent("context_update", "session", 0, {
 				context_tokens: contextTokens,
 				context_window_size: contextWindowSize,
@@ -275,6 +279,9 @@ export class SessionController {
 			return;
 		}
 
+		// Emit session_resume on first run when prior history exists (including
+		// compacted single-message history). The TUI uses history_length to show
+		// how much context was carried forward.
 		if (!this.hasRun && this.history.length > 0) {
 			this.bus.emitEvent("session_resume", "session", 0, {
 				history_length: this.history.length,
