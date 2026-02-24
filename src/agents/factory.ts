@@ -76,11 +76,19 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 	const env = new LocalExecutionEnvironment(workDir);
 	const client = options.client ?? Client.fromEnv();
 	const registry = createPrimitiveRegistry(env);
+
 	const events = options.events ?? new AgentEventEmitter();
 
 	const metrics = new MetricsStore(join(options.genomePath, "metrics", "metrics.jsonl"));
 	await metrics.load();
-	const learnProcess = new LearnProcess({ genome, metrics, events, client });
+	const pendingEvaluationsPath = join(options.genomePath, "metrics", "pending-evaluations.json");
+	const learnProcess = new LearnProcess({
+		genome,
+		metrics,
+		events,
+		client,
+		pendingEvaluationsPath,
+	});
 
 	const sessionId = options.sessionId ?? ulid();
 	const logBasePath = join(options.genomePath, "logs", sessionId);

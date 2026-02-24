@@ -39,15 +39,16 @@ describe("loadAgentSpec", () => {
 });
 
 describe("loadBootstrapAgents", () => {
-	test("loads all 5 bootstrap agents", async () => {
+	test("loads all 6 bootstrap agents", async () => {
 		const agents = await loadBootstrapAgents(join(import.meta.dir, "../../bootstrap"));
-		expect(agents).toHaveLength(5);
+		expect(agents).toHaveLength(6);
 		const names = agents.map((a) => a.name);
 		expect(names).toContain("root");
 		expect(names).toContain("reader");
 		expect(names).toContain("editor");
 		expect(names).toContain("command-runner");
 		expect(names).toContain("web-reader");
+		expect(names).toContain("mcp");
 	});
 
 	test("all agents have valid constraints", async () => {
