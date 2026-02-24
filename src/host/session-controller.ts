@@ -84,6 +84,7 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 		events: agentEvents,
 		sessionId: options.sessionId,
 		initialHistory: options.initialHistory,
+		model: options.model,
 	});
 
 	return {

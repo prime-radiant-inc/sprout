@@ -50,6 +50,8 @@ export interface AgentOptions {
 	logBasePath?: string;
 	/** Prior conversation history to prepend (for resume/continuation). */
 	initialHistory?: Message[];
+	/** Override the spec's model for this agent instance. */
+	modelOverride?: string;
 }
 
 export interface AgentResult {
@@ -102,7 +104,7 @@ export class Agent {
 		}
 
 		// Resolve model and provider
-		this.resolved = resolveModel(this.spec.model, this.client.providers());
+		this.resolved = resolveModel(options.modelOverride ?? this.spec.model, this.client.providers());
 
 		// Build delegate tool (single tool for all agent delegations)
 		this.agentTools = [];

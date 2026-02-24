@@ -1354,6 +1354,39 @@ describe("Agent", () => {
 		}
 	});
 
+	test("modelOverride overrides spec model in resolvedModel", () => {
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const client = Client.fromEnv();
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: leafSpec,
+			env,
+			client,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+			modelOverride: "claude-sonnet-4-6",
+		});
+		expect(agent.resolvedModel.model).toBe("claude-sonnet-4-6");
+		expect(agent.resolvedModel.provider).toBe("anthropic");
+	});
+
+	test("without modelOverride uses spec model", () => {
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const client = Client.fromEnv();
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: leafSpec,
+			env,
+			client,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+		});
+		// leafSpec.model is "fast", which resolves to claude-haiku for anthropic
+		expect(agent.resolvedModel.model).toBe("claude-haiku-4-5-20251001");
+	});
+
 	test("abort signal listener cleanup pattern is correct", () => {
 		// Verify the cleanup pattern used in agent.ts signal handling
 		const ac = new AbortController();

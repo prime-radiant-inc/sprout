@@ -28,6 +28,8 @@ export interface CreateAgentOptions {
 	sessionId?: string;
 	/** Prior conversation history for resume/continuation. */
 	initialHistory?: Message[];
+	/** Model override — if provided, overrides the root agent's spec model. */
+	model?: string;
 }
 
 export interface CreateAgentResult {
@@ -95,6 +97,7 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 		sessionId,
 		logBasePath,
 		initialHistory: options.initialHistory,
+		modelOverride: options.model,
 	});
 
 	const resolved = agent.resolvedModel;

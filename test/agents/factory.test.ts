@@ -74,6 +74,20 @@ describe("createAgent", () => {
 		expect(result.agent).toBeDefined();
 	});
 
+	test("model option overrides agent spec model", async () => {
+		const genomePath = join(tempDir, "factory-model-override");
+		const result = await createAgent({
+			genomePath,
+			bootstrapDir: join(import.meta.dir, "../../bootstrap"),
+			workDir: tempDir,
+			model: "claude-sonnet-4-6",
+		});
+
+		// The root agent spec uses "best", but model override should win
+		expect(result.model).toBe("claude-sonnet-4-6");
+		expect(result.provider).toBe("anthropic");
+	});
+
 	test("throws if root agent not found", async () => {
 		const genomePath = join(tempDir, "factory-missing");
 		await expect(
