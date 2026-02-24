@@ -417,7 +417,7 @@ export class Agent {
 			try {
 				if (signal) {
 					const completePromise = this.client.complete(request);
-					let onAbort: () => void;
+					let onAbort: () => void = () => {};
 					const abortPromise = new Promise<never>((_, reject) => {
 						if (signal.aborted) reject(new DOMException("Aborted", "AbortError"));
 						onAbort = () => reject(new DOMException("Aborted", "AbortError"));
@@ -426,7 +426,7 @@ export class Agent {
 					try {
 						response = await Promise.race([completePromise, abortPromise]);
 					} finally {
-						signal.removeEventListener("abort", onAbort!);
+						signal.removeEventListener("abort", onAbort);
 					}
 				} else {
 					response = await this.client.complete(request);
