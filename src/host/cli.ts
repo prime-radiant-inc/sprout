@@ -145,44 +145,129 @@ export async function runCli(command: CliCommand): Promise<void> {
 		return;
 	}
 
-	if (command.kind === "interactive") {
-		// Interactive mode will be wired in Task 13
-		console.log("Interactive mode not yet implemented. Use --prompt for one-shot mode.");
+	if (command.kind === "list") {
+		const { listSessions } = await import("./session-metadata.ts");
+		const sessionsDir = join(command.genomePath, "../sprout-sessions");
+		const sessions = await listSessions(sessionsDir);
+		if (sessions.length === 0) {
+			console.log("No sessions found.");
+		} else {
+			for (const s of sessions) {
+				console.log(
+					`  ${s.sessionId.slice(0, 8)}... | ${s.status} | ${s.turns} turns | ${s.agentSpec} | ${s.createdAt}`,
+				);
+			}
+		}
+		return;
+	}
+
+	// All remaining modes need dotenv + SessionController setup
+	const { config } = await import("dotenv");
+	config();
+
+	const { EventBus } = await import("./event-bus.ts");
+	const { SessionController } = await import("./session-controller.ts");
+
+	const bootstrapDir = join(import.meta.dir, "../../bootstrap");
+	const sessionsDir = join(command.genomePath, "../sprout-sessions");
+
+	if (command.kind === "oneshot") {
+		const bus = new EventBus();
+		const controller = new SessionController({
+			bus,
+			genomePath: command.genomePath,
+			sessionsDir,
+			bootstrapDir,
+		});
+
+		bus.onEvent((event) => {
+			const line = renderEvent(event);
+			if (line !== null) console.log(line);
+		});
+
+		await controller.submitGoal(command.goal);
 		return;
 	}
 
 	if (command.kind === "resume" || command.kind === "resume-last") {
-		// Resume will be wired in Task 13
-		console.log("Resume not yet implemented.");
-		return;
+		const { listSessions } = await import("./session-metadata.ts");
+		const { replayEventLog } = await import("./resume.ts");
+
+		let sessionId: string;
+		if (command.kind === "resume-last") {
+			const sessions = await listSessions(sessionsDir);
+			if (sessions.length === 0) {
+				console.log("No sessions found.");
+				return;
+			}
+			sessionId = sessions[sessions.length - 1]!.sessionId;
+		} else {
+			sessionId = command.sessionId;
+		}
+
+		const logPath = join(sessionsDir, `${sessionId}.jsonl`);
+		const history = await replayEventLog(logPath);
+		console.log(`Resumed session ${sessionId.slice(0, 8)}... with ${history.length} messages of history`);
+
+		// Fall through to interactive loop below (resume enters interactive mode)
 	}
 
-	if (command.kind === "list") {
-		// Session listing will be wired in Task 13
-		console.log("Session listing not yet implemented.");
-		return;
-	}
-
-	// kind === "oneshot"
-	// Load environment variables from the .env file
-	const { config } = await import("dotenv");
-	config(); // loads .env from current working directory
-
-	const { createAgent } = await import("../agents/factory.ts");
-	const { submitGoal } = await import("./session.ts");
-
-	const bootstrapDir = join(import.meta.dir, "../../bootstrap");
-	const { agent, events, learnProcess } = await createAgent({
+	// Interactive mode (also reached via resume fallthrough)
+	const bus = new EventBus();
+	const controller = new SessionController({
+		bus,
 		genomePath: command.genomePath,
+		sessionsDir,
 		bootstrapDir,
 	});
 
-	for await (const event of submitGoal(command.goal, { agent, events, learnProcess })) {
+	const readline = await import("node:readline");
+	const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+
+	bus.onEvent((event) => {
 		const line = renderEvent(event);
-		if (line !== null) {
-			console.log(line);
+		if (line !== null) console.log(line);
+	});
+
+	console.log(`Sprout interactive mode (session: ${controller.sessionId.slice(0, 8)}...)`);
+	console.log("Type a goal, or /help for commands. /quit to exit.\n");
+
+	const { parseSlashCommand } = await import("../tui/slash-commands.ts");
+
+	rl.on("line", (input: string) => {
+		const trimmed = input.trim();
+		if (!trimmed) return;
+
+		const slash = parseSlashCommand(trimmed);
+		if (slash) {
+			if (slash.kind === "quit") {
+				bus.emitCommand({ kind: "quit", data: {} });
+				rl.close();
+				return;
+			}
+			if (slash.kind === "help") {
+				console.log("Commands: /help, /quit, /compact, /clear, /model [name], /status");
+				return;
+			}
+			if (slash.kind === "compact") {
+				bus.emitCommand({ kind: "compact", data: {} });
+				return;
+			}
+			if (slash.kind === "clear") {
+				bus.emitCommand({ kind: "clear", data: {} });
+				return;
+			}
+			if (slash.kind === "unknown") {
+				console.log(`Unknown command: ${slash.raw}`);
+				return;
+			}
+			return;
 		}
-	}
+
+		bus.emitCommand({ kind: "submit_goal", data: { goal: trimmed } });
+	});
+
+	await new Promise<void>((resolve) => rl.on("close", resolve));
 }
 
 if (import.meta.main) {
