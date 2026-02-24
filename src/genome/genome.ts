@@ -295,6 +295,32 @@ export class Genome {
 		await git(this.rootPath, "add", ".");
 		await git(this.rootPath, "commit", "-m", "genome: initialize from bootstrap agents");
 	}
+
+	/**
+	 * Sync missing bootstrap agents into an existing genome.
+	 * Only adds agents that don't already exist — never overwrites learned improvements.
+	 * Returns the names of agents that were added.
+	 */
+	async syncBootstrap(bootstrapDir: string): Promise<string[]> {
+		const specs = await loadBootstrapAgents(bootstrapDir);
+		const added: string[] = [];
+
+		for (const spec of specs) {
+			if (this.agents.has(spec.name)) continue;
+
+			const yamlPath = join(this.rootPath, "agents", `${spec.name}.yaml`);
+			await writeFile(yamlPath, serializeAgentSpec(spec));
+			this.agents.set(spec.name, spec);
+			added.push(spec.name);
+		}
+
+		if (added.length > 0) {
+			await git(this.rootPath, "add", ".");
+			await git(this.rootPath, "commit", "-m", `genome: sync bootstrap agents (${added.join(", ")})`);
+		}
+
+		return added;
+	}
 }
 
 /** Serialize an AgentSpec to YAML with explicit field ordering. */

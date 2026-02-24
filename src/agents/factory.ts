@@ -54,6 +54,13 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 
 	if (isExisting) {
 		await genome.loadFromDisk();
+		// Sync any new bootstrap agents that were added since the genome was initialized
+		if (options.bootstrapDir) {
+			const added = await genome.syncBootstrap(options.bootstrapDir);
+			if (added.length > 0) {
+				console.error(`Synced new bootstrap agents: ${added.join(", ")}`);
+			}
+		}
 	} else {
 		await genome.init();
 		if (options.bootstrapDir) {
