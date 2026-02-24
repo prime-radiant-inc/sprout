@@ -572,18 +572,24 @@ export class Agent {
 			const inputTokens = response.usage?.input_tokens ?? 0;
 			if (this.compactionRequested || shouldCompact(inputTokens, contextWindowSize)) {
 				this.compactionRequested = false;
-				const compactResult = await compactHistory({
-					history,
-					client: this.client,
-					model: this.resolved.model,
-					provider: this.resolved.provider,
-					logPath: this.logBasePath ? `${this.logBasePath}.jsonl` : "",
-				});
-				this.emitAndLog("compaction", agentId, this.depth, {
-					summary: compactResult.summary,
-					beforeCount: compactResult.beforeCount,
-					afterCount: compactResult.afterCount,
-				});
+				try {
+					const compactResult = await compactHistory({
+						history,
+						client: this.client,
+						model: this.resolved.model,
+						provider: this.resolved.provider,
+						logPath: this.logBasePath ? `${this.logBasePath}.jsonl` : "",
+					});
+					this.emitAndLog("compaction", agentId, this.depth, {
+						summary: compactResult.summary,
+						beforeCount: compactResult.beforeCount,
+						afterCount: compactResult.afterCount,
+					});
+				} catch (err) {
+					this.emitAndLog("warning", agentId, this.depth, {
+						message: `Compaction failed, continuing without: ${String(err)}`,
+					});
+				}
 			}
 		}
 

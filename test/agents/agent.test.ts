@@ -2028,4 +2028,99 @@ describe("Agent", () => {
 		expect(summary).toContain("Full conversation log available at:");
 		expect(summary).toContain("Raw summary text.");
 	});
+
+	test("compaction failure does not crash agent and emits warning", async () => {
+		const priorHistory: Message[] = [
+			Msg.user("step 1"),
+			Msg.assistant("did step 1"),
+			Msg.user("step 2"),
+			Msg.assistant("did step 2"),
+			Msg.user("step 3"),
+			Msg.assistant("did step 3"),
+		];
+
+		const toolCallMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-err-compact-1",
+						name: "read_file",
+						arguments: JSON.stringify({ path: "/tmp/test.txt" }),
+					},
+				},
+			],
+		};
+		const doneMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "Done despite error." }],
+		};
+
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				if (callCount === 1) {
+					// High token usage triggers compaction
+					return {
+						id: "mock-cerr-1",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: toolCallMsg,
+						finish_reason: { reason: "tool_calls" },
+						usage: { input_tokens: 170000, output_tokens: 500, total_tokens: 170500 },
+					};
+				}
+				if (callCount === 2) {
+					// Compaction LLM call fails
+					throw new Error("Network error: connection refused");
+				}
+				// Agent continues after failed compaction
+				return {
+					id: `mock-cerr-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: doneMsg,
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 5000, output_tokens: 100, total_tokens: 5100 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: leafSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+			events,
+			initialHistory: priorHistory,
+		});
+
+		// Should NOT throw
+		const result = await agent.run("do something");
+
+		// Agent should complete successfully
+		expect(result.success).toBe(true);
+
+		// A warning event should have been emitted
+		const collected = events.collected();
+		const warnings = collected.filter((e) => e.kind === "warning");
+		const compactionWarning = warnings.find((e) =>
+			(e.data.message as string).includes("Compaction failed"),
+		);
+		expect(compactionWarning).toBeDefined();
+		expect(compactionWarning!.data.message).toContain("Network error: connection refused");
+
+		// No compaction event should have been emitted (it failed)
+		const compactionEvents = collected.filter((e) => e.kind === "compaction");
+		expect(compactionEvents).toHaveLength(0);
+	});
 });
