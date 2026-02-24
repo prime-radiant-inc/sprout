@@ -220,8 +220,10 @@ describe("renderEvent", () => {
 	});
 
 	// Events that should be null (skipped)
-	test("perceive -> null", () => {
-		expect(renderEvent(makeEvent("perceive"))).toBeNull();
+	test("perceive shows goal", () => {
+		expect(renderEvent(makeEvent("perceive", { goal: "Create hello.py" }))).toBe(
+			"\u276F Create hello.py",
+		);
 	});
 
 	test("recall -> null", () => {
@@ -264,9 +266,9 @@ describe("renderEvent", () => {
 		expect(result).toBe("\u2717 connection refused");
 	});
 
-	test("steering shows text", () => {
+	test("steering shows user text", () => {
 		const result = renderEvent(makeEvent("steering", { text: "focus on tests" }));
-		expect(result).toBe("\u21AA focus on tests");
+		expect(result).toBe("\u276F focus on tests");
 	});
 
 	test("renders session_resume event", () => {

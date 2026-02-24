@@ -101,6 +101,22 @@ function indent(depth: number): string {
 // Components
 // ---------------------------------------------------------------------------
 
+interface UserMessageProps {
+	depth: number;
+	text: string;
+}
+
+/** Renders a user message — visually distinct, like a prompt. */
+export function UserMessageLine({ depth, text }: UserMessageProps) {
+	return (
+		<Box>
+			<Text dimColor>{indent(depth)}</Text>
+			<Text color="blue" bold>{"❯ "}</Text>
+			<Text>{text}</Text>
+		</Box>
+	);
+}
+
 interface ToolStartProps {
 	depth: number;
 	toolName: string;
@@ -445,9 +461,10 @@ export function renderEventComponent(event: SessionEvent, durationMs: number | n
 			return <SystemLine depth={depth} kind={kind} message={String(data.error)} />;
 
 		case "steering":
-			return (
-				<SystemLine depth={depth} kind={kind} message={String(data.text ?? "user steering")} />
-			);
+			return <UserMessageLine depth={depth} text={String(data.text ?? "")} />;
+
+		case "perceive":
+			return <UserMessageLine depth={depth} text={String(data.goal ?? "")} />;
 
 		default:
 			return null;

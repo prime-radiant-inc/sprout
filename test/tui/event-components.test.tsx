@@ -498,8 +498,10 @@ describe("renderEventComponent", () => {
 		expect(renderEventComponent(makeEvent("context_update", { pressure: 0.5 }), null)).toBeNull();
 	});
 
-	test("perceive returns null", () => {
-		expect(renderEventComponent(makeEvent("perceive"), null)).toBeNull();
+	test("perceive renders user message with goal", () => {
+		const node = renderEventComponent(makeEvent("perceive", { goal: "Create hello.py" }), null);
+		const { lastFrame } = render(node as any);
+		expect(lastFrame()).toContain("Create hello.py");
 	});
 
 	test("recall returns null", () => {

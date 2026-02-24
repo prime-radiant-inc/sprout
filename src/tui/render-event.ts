@@ -182,7 +182,10 @@ export function renderEvent(event: SessionEvent): string | null {
 			return `${ind}\u2717 ${data.error}`;
 
 		case "steering":
-			return `${ind}\u21AA ${data.text ?? "user steering"}`;
+			return `${ind}\u276F ${data.text}`;
+
+		case "perceive":
+			return `${ind}\u276F ${data.goal}`;
 
 		default:
 			return null;
