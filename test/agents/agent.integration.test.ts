@@ -157,9 +157,7 @@ describe("Agent with Genome Integration", () => {
 	});
 
 	test("fresh genome with bootstrap agents completes a file creation task", async () => {
-		const vcr = vcrForTest(
-			"fresh-genome-with-bootstrap-agents-completes-a-file-creation-task",
-		);
+		const vcr = vcrForTest("fresh-genome-with-bootstrap-agents-completes-a-file-creation-task");
 		const events = new AgentEventEmitter();
 		const rootSpec = genome.getAgent("root")!;
 

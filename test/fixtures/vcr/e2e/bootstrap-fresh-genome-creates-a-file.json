@@ -1,0 +1,1283 @@
+{
+  "recordings": [
+    {
+      "request": {
+        "model": "claude-opus-4-6",
+        "provider": "anthropic",
+        "messages": [
+          {
+            "role": "system",
+            "content": [
+              {
+                "kind": "text",
+                "text": "You are a general-purpose agentic system that decomposes tasks and delegates to specialists.\n\nYou can handle a wide range of tasks: coding, research, writing, file management,\nweb lookups, system administration, data analysis, and more. You are not limited\nto coding — you are capable of learning and growing through experience.\n\nYou NEVER read files, edit files, run commands, or fetch URLs directly.\nYou think at the level of goals: understand, find, edit, test, verify, research.\nYou delegate each goal to the appropriate specialist.\n\nWhen you receive a task:\n1. Break it into clear subgoals\n2. Delegate each subgoal to the right agent\n3. Verify the results\n4. Report completion or iterate if something failed\n\nAvailable specialists will be presented as tools. Each takes a \"goal\"\n(what you want achieved) and optional \"hints\" (context that might help).\n\n\n<environment>\nWorking directory: {{WORK_DIR}}\nPlatform: darwin\nOS version: 25.3.0\nToday's date: 2026-02-24\n</environment>\n\n<agents>\n  <agent name=\"reader\">Find and read files, search codebases, and retrieve content from the filesystem</agent>\n  <agent name=\"editor\">Write and edit files, create new files, and verify changes</agent>\n  <agent name=\"command-runner\">Execute shell commands and interpret their output</agent>\n  <agent name=\"web-reader\">Fetch and read content from the web via HTTP requests</agent>\n</agents>"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "kind": "text",
+                "text": "Create a file called hello.py in the current directory that prints 'Hello World'"
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "name": "delegate",
+            "description": "Delegate a task to a specialist agent. See the <agents> section in your instructions for available agents and their descriptions.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "agent_name": {
+                  "type": "string",
+                  "description": "Name of the agent to delegate to",
+                  "enum": [
+                    "reader",
+                    "editor",
+                    "command-runner",
+                    "web-reader"
+                  ]
+                },
+                "goal": {
+                  "type": "string",
+                  "description": "What you want this agent to achieve"
+                },
+                "hints": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Optional context that might help"
+                }
+              },
+              "required": [
+                "agent_name",
+                "goal"
+              ]
+            }
+          }
+        ],
+        "tool_choice": "auto",
+        "max_tokens": 4096
+      },
+      "response": {
+        "id": "msg_01AztURFGqeLwnQxvYCmCQps",
+        "model": "claude-opus-4-6",
+        "provider": "anthropic",
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "kind": "tool_call",
+              "tool_call": {
+                "id": "toolu_01Ejox547j6u3Vqr3cvpCHS2",
+                "name": "editor",
+                "arguments": {
+                  "goal": "Create a file called hello.py in the current directory that prints 'Hello World'",
+                  "hints": "[\"The file should contain: print('Hello World')\", \"Working directory: {{WORK_DIR}}\"]"
+                }
+              }
+            }
+          ]
+        },
+        "finish_reason": {
+          "reason": "tool_calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "input_tokens": 1068,
+          "output_tokens": 147,
+          "total_tokens": 1215,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0
+        }
+      }
+    },
+    {
+      "request": {
+        "model": "claude-opus-4-6",
+        "provider": "anthropic",
+        "messages": [
+          {
+            "role": "system",
+            "content": [
+              {
+                "kind": "text",
+                "text": "You are a general-purpose agentic system that decomposes tasks and delegates to specialists.\n\nYou can handle a wide range of tasks: coding, research, writing, file management,\nweb lookups, system administration, data analysis, and more. You are not limited\nto coding — you are capable of learning and growing through experience.\n\nYou NEVER read files, edit files, run commands, or fetch URLs directly.\nYou think at the level of goals: understand, find, edit, test, verify, research.\nYou delegate each goal to the appropriate specialist.\n\nWhen you receive a task:\n1. Break it into clear subgoals\n2. Delegate each subgoal to the right agent\n3. Verify the results\n4. Report completion or iterate if something failed\n\nAvailable specialists will be presented as tools. Each takes a \"goal\"\n(what you want achieved) and optional \"hints\" (context that might help).\n\n\n<environment>\nWorking directory: {{WORK_DIR}}\nPlatform: darwin\nOS version: 25.3.0\nToday's date: 2026-02-24\n</environment>\n\n<agents>\n  <agent name=\"reader\">Find and read files, search codebases, and retrieve content from the filesystem</agent>\n  <agent name=\"editor\">Write and edit files, create new files, and verify changes</agent>\n  <agent name=\"command-runner\">Execute shell commands and interpret their output</agent>\n  <agent name=\"web-reader\">Fetch and read content from the web via HTTP requests</agent>\n</agents>"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "kind": "text",
+                "text": "Create a file called hello.py in the current directory that prints 'Hello World'"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "kind": "tool_call",
+                "tool_call": {
+                  "id": "toolu_01Ejox547j6u3Vqr3cvpCHS2",
+                  "name": "editor",
+                  "arguments": {
+                    "goal": "Create a file called hello.py in the current directory that prints 'Hello World'",
+                    "hints": "[\"The file should contain: print('Hello World')\", \"Working directory: {{WORK_DIR}}\"]"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": [
+              {
+                "kind": "tool_result",
+                "tool_result": {
+                  "tool_call_id": "toolu_01Ejox547j6u3Vqr3cvpCHS2",
+                  "content": "Error: Unknown primitive: editor\n",
+                  "is_error": true
+                }
+              }
+            ],
+            "tool_call_id": "toolu_01Ejox547j6u3Vqr3cvpCHS2"
+          }
+        ],
+        "tools": [
+          {
+            "name": "delegate",
+            "description": "Delegate a task to a specialist agent. See the <agents> section in your instructions for available agents and their descriptions.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "agent_name": {
+                  "type": "string",
+                  "description": "Name of the agent to delegate to",
+                  "enum": [
+                    "reader",
+                    "editor",
+                    "command-runner",
+                    "web-reader"
+                  ]
+                },
+                "goal": {
+                  "type": "string",
+                  "description": "What you want this agent to achieve"
+                },
+                "hints": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Optional context that might help"
+                }
+              },
+              "required": [
+                "agent_name",
+                "goal"
+              ]
+            }
+          }
+        ],
+        "tool_choice": "auto",
+        "max_tokens": 4096
+      },
+      "response": {
+        "id": "msg_01FEDnScWq3NCBemrAGaUk1Q",
+        "model": "claude-opus-4-6",
+        "provider": "anthropic",
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "kind": "tool_call",
+              "tool_call": {
+                "id": "toolu_01VJrtC9GEaYGMhbruUGVbjY",
+                "name": "delegate",
+                "arguments": {
+                  "agent_name": "editor",
+                  "goal": "Create a file called hello.py in the current directory that prints 'Hello World'",
+                  "hints": [
+                    "The file should contain: print('Hello World')",
+                    "Working directory: {{WORK_DIR}}"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "finish_reason": {
+          "reason": "tool_calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "input_tokens": 1242,
+          "output_tokens": 165,
+          "total_tokens": 1407,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0
+        }
+      }
+    },
+    {
+      "request": {
+        "model": "claude-sonnet-4-6",
+        "provider": "anthropic",
+        "messages": [
+          {
+            "role": "system",
+            "content": [
+              {
+                "kind": "text",
+                "text": "You write and edit files.\n\nAlways read a file before editing it. Use edit_file for targeted changes\nto existing files. Use write_file only for creating new files.\n\nWhen editing:\n1. Read the file first to understand context\n2. Make the smallest change that achieves the goal\n3. Verify your edit was applied correctly by reading the file again\n\nWhen creating new files:\n1. Write the complete file content\n2. Verify it was created by reading it back\n\n\n<environment>\nWorking directory: {{WORK_DIR}}\nPlatform: darwin\nOS version: 25.3.0\nToday's date: 2026-02-24\n</environment>"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "kind": "text",
+                "text": "Create a file called hello.py in the current directory that prints 'Hello World'\n\nHints:\n- The file should contain: print('Hello World')\n- Working directory: {{WORK_DIR}}"
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "name": "read_file",
+            "description": "Read a file from the filesystem. Returns line-numbered content.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Path to the file"
+                },
+                "offset": {
+                  "type": "integer",
+                  "description": "1-based line number to start from"
+                },
+                "limit": {
+                  "type": "integer",
+                  "description": "Max lines to read"
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          },
+          {
+            "name": "write_file",
+            "description": "Write content to a file. Creates the file and parent directories if needed.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Path to the file"
+                },
+                "content": {
+                  "type": "string",
+                  "description": "The full file content"
+                }
+              },
+              "required": [
+                "path",
+                "content"
+              ]
+            }
+          },
+          {
+            "name": "edit_file",
+            "description": "Replace an exact string occurrence in a file.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Path to the file"
+                },
+                "old_string": {
+                  "type": "string",
+                  "description": "Exact text to find"
+                },
+                "new_string": {
+                  "type": "string",
+                  "description": "Replacement text"
+                },
+                "replace_all": {
+                  "type": "boolean",
+                  "description": "Replace all occurrences (default: false)"
+                }
+              },
+              "required": [
+                "path",
+                "old_string",
+                "new_string"
+              ]
+            }
+          }
+        ],
+        "tool_choice": "auto",
+        "max_tokens": 4096
+      },
+      "response": {
+        "id": "msg_01NMg6d7Zc79csfdnjLT8tjD",
+        "model": "claude-sonnet-4-6",
+        "provider": "anthropic",
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "kind": "tool_call",
+              "tool_call": {
+                "id": "toolu_01CL7wJtMkCitxbeB3cSboPa",
+                "name": "write_file",
+                "arguments": {
+                  "path": "{{WORK_DIR}}/hello.py",
+                  "content": "print('Hello World')\n"
+                }
+              }
+            }
+          ]
+        },
+        "finish_reason": {
+          "reason": "tool_calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "input_tokens": 1123,
+          "output_tokens": 124,
+          "total_tokens": 1247,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0
+        }
+      }
+    },
+    {
+      "request": {
+        "model": "claude-sonnet-4-6",
+        "provider": "anthropic",
+        "messages": [
+          {
+            "role": "system",
+            "content": [
+              {
+                "kind": "text",
+                "text": "You write and edit files.\n\nAlways read a file before editing it. Use edit_file for targeted changes\nto existing files. Use write_file only for creating new files.\n\nWhen editing:\n1. Read the file first to understand context\n2. Make the smallest change that achieves the goal\n3. Verify your edit was applied correctly by reading the file again\n\nWhen creating new files:\n1. Write the complete file content\n2. Verify it was created by reading it back\n\n\n<environment>\nWorking directory: {{WORK_DIR}}\nPlatform: darwin\nOS version: 25.3.0\nToday's date: 2026-02-24\n</environment>"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "kind": "text",
+                "text": "Create a file called hello.py in the current directory that prints 'Hello World'\n\nHints:\n- The file should contain: print('Hello World')\n- Working directory: {{WORK_DIR}}"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "kind": "tool_call",
+                "tool_call": {
+                  "id": "toolu_01CL7wJtMkCitxbeB3cSboPa",
+                  "name": "write_file",
+                  "arguments": {
+                    "path": "{{WORK_DIR}}/hello.py",
+                    "content": "print('Hello World')\n"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": [
+              {
+                "kind": "tool_result",
+                "tool_result": {
+                  "tool_call_id": "toolu_01CL7wJtMkCitxbeB3cSboPa",
+                  "content": "Wrote 21 bytes to {{WORK_DIR}}/hello.py",
+                  "is_error": false
+                }
+              }
+            ],
+            "tool_call_id": "toolu_01CL7wJtMkCitxbeB3cSboPa"
+          }
+        ],
+        "tools": [
+          {
+            "name": "read_file",
+            "description": "Read a file from the filesystem. Returns line-numbered content.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Path to the file"
+                },
+                "offset": {
+                  "type": "integer",
+                  "description": "1-based line number to start from"
+                },
+                "limit": {
+                  "type": "integer",
+                  "description": "Max lines to read"
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          },
+          {
+            "name": "write_file",
+            "description": "Write content to a file. Creates the file and parent directories if needed.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Path to the file"
+                },
+                "content": {
+                  "type": "string",
+                  "description": "The full file content"
+                }
+              },
+              "required": [
+                "path",
+                "content"
+              ]
+            }
+          },
+          {
+            "name": "edit_file",
+            "description": "Replace an exact string occurrence in a file.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Path to the file"
+                },
+                "old_string": {
+                  "type": "string",
+                  "description": "Exact text to find"
+                },
+                "new_string": {
+                  "type": "string",
+                  "description": "Replacement text"
+                },
+                "replace_all": {
+                  "type": "boolean",
+                  "description": "Replace all occurrences (default: false)"
+                }
+              },
+              "required": [
+                "path",
+                "old_string",
+                "new_string"
+              ]
+            }
+          }
+        ],
+        "tool_choice": "auto",
+        "max_tokens": 4096
+      },
+      "response": {
+        "id": "msg_019x9cm4ohzGtHpzXb9M7Zhj",
+        "model": "claude-sonnet-4-6",
+        "provider": "anthropic",
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "kind": "tool_call",
+              "tool_call": {
+                "id": "toolu_01HspX7JpemZQbt5ekRuCJu4",
+                "name": "read_file",
+                "arguments": {
+                  "path": "{{WORK_DIR}}/hello.py"
+                }
+              }
+            }
+          ]
+        },
+        "finish_reason": {
+          "reason": "tool_calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "input_tokens": 1315,
+          "output_tokens": 101,
+          "total_tokens": 1416,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0
+        }
+      }
+    },
+    {
+      "request": {
+        "model": "claude-sonnet-4-6",
+        "provider": "anthropic",
+        "messages": [
+          {
+            "role": "system",
+            "content": [
+              {
+                "kind": "text",
+                "text": "You write and edit files.\n\nAlways read a file before editing it. Use edit_file for targeted changes\nto existing files. Use write_file only for creating new files.\n\nWhen editing:\n1. Read the file first to understand context\n2. Make the smallest change that achieves the goal\n3. Verify your edit was applied correctly by reading the file again\n\nWhen creating new files:\n1. Write the complete file content\n2. Verify it was created by reading it back\n\n\n<environment>\nWorking directory: {{WORK_DIR}}\nPlatform: darwin\nOS version: 25.3.0\nToday's date: 2026-02-24\n</environment>"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "kind": "text",
+                "text": "Create a file called hello.py in the current directory that prints 'Hello World'\n\nHints:\n- The file should contain: print('Hello World')\n- Working directory: {{WORK_DIR}}"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "kind": "tool_call",
+                "tool_call": {
+                  "id": "toolu_01CL7wJtMkCitxbeB3cSboPa",
+                  "name": "write_file",
+                  "arguments": {
+                    "path": "{{WORK_DIR}}/hello.py",
+                    "content": "print('Hello World')\n"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": [
+              {
+                "kind": "tool_result",
+                "tool_result": {
+                  "tool_call_id": "toolu_01CL7wJtMkCitxbeB3cSboPa",
+                  "content": "Wrote 21 bytes to {{WORK_DIR}}/hello.py",
+                  "is_error": false
+                }
+              }
+            ],
+            "tool_call_id": "toolu_01CL7wJtMkCitxbeB3cSboPa"
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "kind": "tool_call",
+                "tool_call": {
+                  "id": "toolu_01HspX7JpemZQbt5ekRuCJu4",
+                  "name": "read_file",
+                  "arguments": {
+                    "path": "{{WORK_DIR}}/hello.py"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": [
+              {
+                "kind": "tool_result",
+                "tool_result": {
+                  "tool_call_id": "toolu_01HspX7JpemZQbt5ekRuCJu4",
+                  "content": "1\tprint('Hello World')\n2\t",
+                  "is_error": false
+                }
+              }
+            ],
+            "tool_call_id": "toolu_01HspX7JpemZQbt5ekRuCJu4"
+          }
+        ],
+        "tools": [
+          {
+            "name": "read_file",
+            "description": "Read a file from the filesystem. Returns line-numbered content.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Path to the file"
+                },
+                "offset": {
+                  "type": "integer",
+                  "description": "1-based line number to start from"
+                },
+                "limit": {
+                  "type": "integer",
+                  "description": "Max lines to read"
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          },
+          {
+            "name": "write_file",
+            "description": "Write content to a file. Creates the file and parent directories if needed.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Path to the file"
+                },
+                "content": {
+                  "type": "string",
+                  "description": "The full file content"
+                }
+              },
+              "required": [
+                "path",
+                "content"
+              ]
+            }
+          },
+          {
+            "name": "edit_file",
+            "description": "Replace an exact string occurrence in a file.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Path to the file"
+                },
+                "old_string": {
+                  "type": "string",
+                  "description": "Exact text to find"
+                },
+                "new_string": {
+                  "type": "string",
+                  "description": "Replacement text"
+                },
+                "replace_all": {
+                  "type": "boolean",
+                  "description": "Replace all occurrences (default: false)"
+                }
+              },
+              "required": [
+                "path",
+                "old_string",
+                "new_string"
+              ]
+            }
+          }
+        ],
+        "tool_choice": "auto",
+        "max_tokens": 4096
+      },
+      "response": {
+        "id": "msg_01TbzgUGrYm9idJMJzgkTHFu",
+        "model": "claude-sonnet-4-6",
+        "provider": "anthropic",
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "kind": "text",
+              "text": "The file `hello.py` has been created successfully in the working directory. It contains a single line:\n\n```python\nprint('Hello World')\n```\n\nWhen run with Python, it will print `Hello World` to the console."
+            }
+          ]
+        },
+        "finish_reason": {
+          "reason": "stop",
+          "raw": "end_turn"
+        },
+        "usage": {
+          "input_tokens": 1438,
+          "output_tokens": 53,
+          "total_tokens": 1491,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0
+        }
+      }
+    },
+    {
+      "request": {
+        "model": "claude-opus-4-6",
+        "provider": "anthropic",
+        "messages": [
+          {
+            "role": "system",
+            "content": [
+              {
+                "kind": "text",
+                "text": "You are a general-purpose agentic system that decomposes tasks and delegates to specialists.\n\nYou can handle a wide range of tasks: coding, research, writing, file management,\nweb lookups, system administration, data analysis, and more. You are not limited\nto coding — you are capable of learning and growing through experience.\n\nYou NEVER read files, edit files, run commands, or fetch URLs directly.\nYou think at the level of goals: understand, find, edit, test, verify, research.\nYou delegate each goal to the appropriate specialist.\n\nWhen you receive a task:\n1. Break it into clear subgoals\n2. Delegate each subgoal to the right agent\n3. Verify the results\n4. Report completion or iterate if something failed\n\nAvailable specialists will be presented as tools. Each takes a \"goal\"\n(what you want achieved) and optional \"hints\" (context that might help).\n\n\n<environment>\nWorking directory: {{WORK_DIR}}\nPlatform: darwin\nOS version: 25.3.0\nToday's date: 2026-02-24\n</environment>\n\n<agents>\n  <agent name=\"reader\">Find and read files, search codebases, and retrieve content from the filesystem</agent>\n  <agent name=\"editor\">Write and edit files, create new files, and verify changes</agent>\n  <agent name=\"command-runner\">Execute shell commands and interpret their output</agent>\n  <agent name=\"web-reader\">Fetch and read content from the web via HTTP requests</agent>\n</agents>"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "kind": "text",
+                "text": "Create a file called hello.py in the current directory that prints 'Hello World'"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "kind": "tool_call",
+                "tool_call": {
+                  "id": "toolu_01Ejox547j6u3Vqr3cvpCHS2",
+                  "name": "editor",
+                  "arguments": {
+                    "goal": "Create a file called hello.py in the current directory that prints 'Hello World'",
+                    "hints": "[\"The file should contain: print('Hello World')\", \"Working directory: {{WORK_DIR}}\"]"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": [
+              {
+                "kind": "tool_result",
+                "tool_result": {
+                  "tool_call_id": "toolu_01Ejox547j6u3Vqr3cvpCHS2",
+                  "content": "Error: Unknown primitive: editor\n",
+                  "is_error": true
+                }
+              }
+            ],
+            "tool_call_id": "toolu_01Ejox547j6u3Vqr3cvpCHS2"
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "kind": "tool_call",
+                "tool_call": {
+                  "id": "toolu_01VJrtC9GEaYGMhbruUGVbjY",
+                  "name": "delegate",
+                  "arguments": {
+                    "agent_name": "editor",
+                    "goal": "Create a file called hello.py in the current directory that prints 'Hello World'",
+                    "hints": [
+                      "The file should contain: print('Hello World')",
+                      "Working directory: {{WORK_DIR}}"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": [
+              {
+                "kind": "tool_result",
+                "tool_result": {
+                  "tool_call_id": "toolu_01VJrtC9GEaYGMhbruUGVbjY",
+                  "content": "The file `hello.py` has been created successfully in the working directory. It contains a single line:\n\n```python\nprint('Hello World')\n```\n\nWhen run with Python, it will print `Hello World` to the console.",
+                  "is_error": false
+                }
+              }
+            ],
+            "tool_call_id": "toolu_01VJrtC9GEaYGMhbruUGVbjY"
+          }
+        ],
+        "tools": [
+          {
+            "name": "delegate",
+            "description": "Delegate a task to a specialist agent. See the <agents> section in your instructions for available agents and their descriptions.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "agent_name": {
+                  "type": "string",
+                  "description": "Name of the agent to delegate to",
+                  "enum": [
+                    "reader",
+                    "editor",
+                    "command-runner",
+                    "web-reader"
+                  ]
+                },
+                "goal": {
+                  "type": "string",
+                  "description": "What you want this agent to achieve"
+                },
+                "hints": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Optional context that might help"
+                }
+              },
+              "required": [
+                "agent_name",
+                "goal"
+              ]
+            }
+          }
+        ],
+        "tool_choice": "auto",
+        "max_tokens": 4096
+      },
+      "response": {
+        "id": "msg_01X6gpusbCSiDavvCLaxkTJX",
+        "model": "claude-opus-4-6",
+        "provider": "anthropic",
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "kind": "text",
+              "text": "Now let me verify the file was created correctly by running it:"
+            },
+            {
+              "kind": "tool_call",
+              "tool_call": {
+                "id": "toolu_01PfaMBRELNopwiJMqCgwapr",
+                "name": "delegate",
+                "arguments": {
+                  "agent_name": "command-runner",
+                  "goal": "Run the file hello.py with Python to verify it prints 'Hello World'",
+                  "hints": [
+                    "Working directory: {{WORK_DIR}}",
+                    "Run: python3 hello.py"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "finish_reason": {
+          "reason": "tool_calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "input_tokens": 1468,
+          "output_tokens": 178,
+          "total_tokens": 1646,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0
+        }
+      }
+    },
+    {
+      "request": {
+        "model": "claude-haiku-4-5-20251001",
+        "provider": "anthropic",
+        "messages": [
+          {
+            "role": "system",
+            "content": [
+              {
+                "kind": "text",
+                "text": "You execute shell commands and interpret their output.\n\nWhen running commands:\n1. Run the command\n2. Check the exit code and output\n3. Interpret the results and report clearly\n\nIf a command fails, analyze the error output and report what went wrong.\n\n\n<environment>\nWorking directory: {{WORK_DIR}}\nPlatform: darwin\nOS version: 25.3.0\nToday's date: 2026-02-24\n</environment>"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "kind": "text",
+                "text": "Run the file hello.py with Python to verify it prints 'Hello World'\n\nHints:\n- Working directory: {{WORK_DIR}}\n- Run: python3 hello.py"
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "name": "exec",
+            "description": "Execute a shell command. Returns stdout, stderr, and exit code.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "command": {
+                  "type": "string",
+                  "description": "The command to run"
+                },
+                "timeout_ms": {
+                  "type": "integer",
+                  "description": "Override default timeout"
+                }
+              },
+              "required": [
+                "command"
+              ]
+            }
+          }
+        ],
+        "tool_choice": "auto",
+        "max_tokens": 4096
+      },
+      "response": {
+        "id": "msg_01KBjn3xTkjyHckjkRDXjRbV",
+        "model": "claude-haiku-4-5-20251001",
+        "provider": "anthropic",
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "kind": "text",
+              "text": "I'll run the hello.py file with Python to verify it prints 'Hello World'."
+            },
+            {
+              "kind": "tool_call",
+              "tool_call": {
+                "id": "toolu_01XSavZa7mGE6M1XkptLeBVD",
+                "name": "exec",
+                "arguments": {
+                  "command": "python3 hello.py"
+                }
+              }
+            }
+          ]
+        },
+        "finish_reason": {
+          "reason": "tool_calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "input_tokens": 811,
+          "output_tokens": 76,
+          "total_tokens": 887,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0
+        }
+      }
+    },
+    {
+      "request": {
+        "model": "claude-haiku-4-5-20251001",
+        "provider": "anthropic",
+        "messages": [
+          {
+            "role": "system",
+            "content": [
+              {
+                "kind": "text",
+                "text": "You execute shell commands and interpret their output.\n\nWhen running commands:\n1. Run the command\n2. Check the exit code and output\n3. Interpret the results and report clearly\n\nIf a command fails, analyze the error output and report what went wrong.\n\n\n<environment>\nWorking directory: {{WORK_DIR}}\nPlatform: darwin\nOS version: 25.3.0\nToday's date: 2026-02-24\n</environment>"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "kind": "text",
+                "text": "Run the file hello.py with Python to verify it prints 'Hello World'\n\nHints:\n- Working directory: {{WORK_DIR}}\n- Run: python3 hello.py"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "kind": "text",
+                "text": "I'll run the hello.py file with Python to verify it prints 'Hello World'."
+              },
+              {
+                "kind": "tool_call",
+                "tool_call": {
+                  "id": "toolu_01XSavZa7mGE6M1XkptLeBVD",
+                  "name": "exec",
+                  "arguments": {
+                    "command": "python3 hello.py"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": [
+              {
+                "kind": "tool_result",
+                "tool_result": {
+                  "tool_call_id": "toolu_01XSavZa7mGE6M1XkptLeBVD",
+                  "content": "Hello World\n\nexit_code: 0\nduration_ms: 39",
+                  "is_error": false
+                }
+              }
+            ],
+            "tool_call_id": "toolu_01XSavZa7mGE6M1XkptLeBVD"
+          }
+        ],
+        "tools": [
+          {
+            "name": "exec",
+            "description": "Execute a shell command. Returns stdout, stderr, and exit code.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "command": {
+                  "type": "string",
+                  "description": "The command to run"
+                },
+                "timeout_ms": {
+                  "type": "integer",
+                  "description": "Override default timeout"
+                }
+              },
+              "required": [
+                "command"
+              ]
+            }
+          }
+        ],
+        "tool_choice": "auto",
+        "max_tokens": 4096
+      },
+      "response": {
+        "id": "msg_01VtipwJWfZFNmrmkC7eLDb8",
+        "model": "claude-haiku-4-5-20251001",
+        "provider": "anthropic",
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "kind": "text",
+              "text": "Perfect! The file hello.py successfully executed and printed **'Hello World'** as expected. The exit code of 0 indicates the script ran without any errors."
+            }
+          ]
+        },
+        "finish_reason": {
+          "reason": "stop",
+          "raw": "end_turn"
+        },
+        "usage": {
+          "input_tokens": 915,
+          "output_tokens": 38,
+          "total_tokens": 953,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0
+        }
+      }
+    },
+    {
+      "request": {
+        "model": "claude-opus-4-6",
+        "provider": "anthropic",
+        "messages": [
+          {
+            "role": "system",
+            "content": [
+              {
+                "kind": "text",
+                "text": "You are a general-purpose agentic system that decomposes tasks and delegates to specialists.\n\nYou can handle a wide range of tasks: coding, research, writing, file management,\nweb lookups, system administration, data analysis, and more. You are not limited\nto coding — you are capable of learning and growing through experience.\n\nYou NEVER read files, edit files, run commands, or fetch URLs directly.\nYou think at the level of goals: understand, find, edit, test, verify, research.\nYou delegate each goal to the appropriate specialist.\n\nWhen you receive a task:\n1. Break it into clear subgoals\n2. Delegate each subgoal to the right agent\n3. Verify the results\n4. Report completion or iterate if something failed\n\nAvailable specialists will be presented as tools. Each takes a \"goal\"\n(what you want achieved) and optional \"hints\" (context that might help).\n\n\n<environment>\nWorking directory: {{WORK_DIR}}\nPlatform: darwin\nOS version: 25.3.0\nToday's date: 2026-02-24\n</environment>\n\n<agents>\n  <agent name=\"reader\">Find and read files, search codebases, and retrieve content from the filesystem</agent>\n  <agent name=\"editor\">Write and edit files, create new files, and verify changes</agent>\n  <agent name=\"command-runner\">Execute shell commands and interpret their output</agent>\n  <agent name=\"web-reader\">Fetch and read content from the web via HTTP requests</agent>\n</agents>"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "kind": "text",
+                "text": "Create a file called hello.py in the current directory that prints 'Hello World'"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "kind": "tool_call",
+                "tool_call": {
+                  "id": "toolu_01Ejox547j6u3Vqr3cvpCHS2",
+                  "name": "editor",
+                  "arguments": {
+                    "goal": "Create a file called hello.py in the current directory that prints 'Hello World'",
+                    "hints": "[\"The file should contain: print('Hello World')\", \"Working directory: {{WORK_DIR}}\"]"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": [
+              {
+                "kind": "tool_result",
+                "tool_result": {
+                  "tool_call_id": "toolu_01Ejox547j6u3Vqr3cvpCHS2",
+                  "content": "Error: Unknown primitive: editor\n",
+                  "is_error": true
+                }
+              }
+            ],
+            "tool_call_id": "toolu_01Ejox547j6u3Vqr3cvpCHS2"
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "kind": "tool_call",
+                "tool_call": {
+                  "id": "toolu_01VJrtC9GEaYGMhbruUGVbjY",
+                  "name": "delegate",
+                  "arguments": {
+                    "agent_name": "editor",
+                    "goal": "Create a file called hello.py in the current directory that prints 'Hello World'",
+                    "hints": [
+                      "The file should contain: print('Hello World')",
+                      "Working directory: {{WORK_DIR}}"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": [
+              {
+                "kind": "tool_result",
+                "tool_result": {
+                  "tool_call_id": "toolu_01VJrtC9GEaYGMhbruUGVbjY",
+                  "content": "The file `hello.py` has been created successfully in the working directory. It contains a single line:\n\n```python\nprint('Hello World')\n```\n\nWhen run with Python, it will print `Hello World` to the console.",
+                  "is_error": false
+                }
+              }
+            ],
+            "tool_call_id": "toolu_01VJrtC9GEaYGMhbruUGVbjY"
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "kind": "text",
+                "text": "Now let me verify the file was created correctly by running it:"
+              },
+              {
+                "kind": "tool_call",
+                "tool_call": {
+                  "id": "toolu_01PfaMBRELNopwiJMqCgwapr",
+                  "name": "delegate",
+                  "arguments": {
+                    "agent_name": "command-runner",
+                    "goal": "Run the file hello.py with Python to verify it prints 'Hello World'",
+                    "hints": [
+                      "Working directory: {{WORK_DIR}}",
+                      "Run: python3 hello.py"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": [
+              {
+                "kind": "tool_result",
+                "tool_result": {
+                  "tool_call_id": "toolu_01PfaMBRELNopwiJMqCgwapr",
+                  "content": "Perfect! The file hello.py successfully executed and printed **'Hello World'** as expected. The exit code of 0 indicates the script ran without any errors.",
+                  "is_error": false
+                }
+              }
+            ],
+            "tool_call_id": "toolu_01PfaMBRELNopwiJMqCgwapr"
+          }
+        ],
+        "tools": [
+          {
+            "name": "delegate",
+            "description": "Delegate a task to a specialist agent. See the <agents> section in your instructions for available agents and their descriptions.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "agent_name": {
+                  "type": "string",
+                  "description": "Name of the agent to delegate to",
+                  "enum": [
+                    "reader",
+                    "editor",
+                    "command-runner",
+                    "web-reader"
+                  ]
+                },
+                "goal": {
+                  "type": "string",
+                  "description": "What you want this agent to achieve"
+                },
+                "hints": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Optional context that might help"
+                }
+              },
+              "required": [
+                "agent_name",
+                "goal"
+              ]
+            }
+          }
+        ],
+        "tool_choice": "auto",
+        "max_tokens": 4096
+      },
+      "response": {
+        "id": "msg_01QZUvpCfNH9RK7HVg4eQTHh",
+        "model": "claude-opus-4-6",
+        "provider": "anthropic",
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "kind": "text",
+              "text": "✅ **Done!** The file `hello.py` has been created in the current directory and verified. It contains:\n\n```python\nprint('Hello World')\n```\n\nWhen executed, it correctly outputs `Hello World` to the console."
+            }
+          ]
+        },
+        "finish_reason": {
+          "reason": "stop",
+          "raw": "end_turn"
+        },
+        "usage": {
+          "input_tokens": 1692,
+          "output_tokens": 56,
+          "total_tokens": 1748,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0
+        }
+      }
+    }
+  ],
+  "metadata": {
+    "recordedAt": "2026-02-24T20:08:44.150Z",
+    "testName": "bootstrap-fresh-genome-creates-a-file",
+    "providers": [
+      "anthropic",
+      "openai",
+      "gemini"
+    ]
+  }
+}

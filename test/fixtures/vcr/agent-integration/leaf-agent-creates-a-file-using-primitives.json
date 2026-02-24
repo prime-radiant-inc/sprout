@@ -1,0 +1,513 @@
+{
+  "recordings": [
+    {
+      "request": {
+        "model": "claude-sonnet-4-6",
+        "provider": "anthropic",
+        "messages": [
+          {
+            "role": "system",
+            "content": [
+              {
+                "kind": "text",
+                "text": "You write and edit files.\n\nAlways read a file before editing it. Use edit_file for targeted changes\nto existing files. Use write_file only for creating new files.\n\nWhen editing:\n1. Read the file first to understand context\n2. Make the smallest change that achieves the goal\n3. Verify your edit was applied correctly by reading the file again\n\nWhen creating new files:\n1. Write the complete file content\n2. Verify it was created by reading it back\n\n\n<environment>\nWorking directory: {{TEMP_DIR}}\nPlatform: darwin\nOS version: 25.3.0\nToday's date: 2026-02-24\n</environment>"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "kind": "text",
+                "text": "Create a file called hello.py in {{TEMP_DIR}} that prints \"Hello World\". Use the write_file tool with the absolute path."
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "name": "read_file",
+            "description": "Read a file from the filesystem. Returns line-numbered content.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Path to the file"
+                },
+                "offset": {
+                  "type": "integer",
+                  "description": "1-based line number to start from"
+                },
+                "limit": {
+                  "type": "integer",
+                  "description": "Max lines to read"
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          },
+          {
+            "name": "write_file",
+            "description": "Write content to a file. Creates the file and parent directories if needed.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Path to the file"
+                },
+                "content": {
+                  "type": "string",
+                  "description": "The full file content"
+                }
+              },
+              "required": [
+                "path",
+                "content"
+              ]
+            }
+          },
+          {
+            "name": "edit_file",
+            "description": "Replace an exact string occurrence in a file.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Path to the file"
+                },
+                "old_string": {
+                  "type": "string",
+                  "description": "Exact text to find"
+                },
+                "new_string": {
+                  "type": "string",
+                  "description": "Replacement text"
+                },
+                "replace_all": {
+                  "type": "boolean",
+                  "description": "Replace all occurrences (default: false)"
+                }
+              },
+              "required": [
+                "path",
+                "old_string",
+                "new_string"
+              ]
+            }
+          }
+        ],
+        "tool_choice": "auto",
+        "max_tokens": 4096
+      },
+      "response": {
+        "id": "msg_01H2uPwyTDQtK4z4msGXK9eF",
+        "model": "claude-sonnet-4-6",
+        "provider": "anthropic",
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "kind": "tool_call",
+              "tool_call": {
+                "id": "toolu_01QkQyS9Js9jJNbdcyK9NZav",
+                "name": "write_file",
+                "arguments": {
+                  "path": "{{TEMP_DIR}}/hello.py",
+                  "content": "print(\"Hello World\")\n"
+                }
+              }
+            }
+          ]
+        },
+        "finish_reason": {
+          "reason": "tool_calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "input_tokens": 1102,
+          "output_tokens": 120,
+          "total_tokens": 1222,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0
+        }
+      }
+    },
+    {
+      "request": {
+        "model": "claude-sonnet-4-6",
+        "provider": "anthropic",
+        "messages": [
+          {
+            "role": "system",
+            "content": [
+              {
+                "kind": "text",
+                "text": "You write and edit files.\n\nAlways read a file before editing it. Use edit_file for targeted changes\nto existing files. Use write_file only for creating new files.\n\nWhen editing:\n1. Read the file first to understand context\n2. Make the smallest change that achieves the goal\n3. Verify your edit was applied correctly by reading the file again\n\nWhen creating new files:\n1. Write the complete file content\n2. Verify it was created by reading it back\n\n\n<environment>\nWorking directory: {{TEMP_DIR}}\nPlatform: darwin\nOS version: 25.3.0\nToday's date: 2026-02-24\n</environment>"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "kind": "text",
+                "text": "Create a file called hello.py in {{TEMP_DIR}} that prints \"Hello World\". Use the write_file tool with the absolute path."
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "kind": "tool_call",
+                "tool_call": {
+                  "id": "toolu_01QkQyS9Js9jJNbdcyK9NZav",
+                  "name": "write_file",
+                  "arguments": {
+                    "path": "{{TEMP_DIR}}/hello.py",
+                    "content": "print(\"Hello World\")\n"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": [
+              {
+                "kind": "tool_result",
+                "tool_result": {
+                  "tool_call_id": "toolu_01QkQyS9Js9jJNbdcyK9NZav",
+                  "content": "Wrote 21 bytes to {{TEMP_DIR}}/hello.py",
+                  "is_error": false
+                }
+              }
+            ],
+            "tool_call_id": "toolu_01QkQyS9Js9jJNbdcyK9NZav"
+          }
+        ],
+        "tools": [
+          {
+            "name": "read_file",
+            "description": "Read a file from the filesystem. Returns line-numbered content.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Path to the file"
+                },
+                "offset": {
+                  "type": "integer",
+                  "description": "1-based line number to start from"
+                },
+                "limit": {
+                  "type": "integer",
+                  "description": "Max lines to read"
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          },
+          {
+            "name": "write_file",
+            "description": "Write content to a file. Creates the file and parent directories if needed.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Path to the file"
+                },
+                "content": {
+                  "type": "string",
+                  "description": "The full file content"
+                }
+              },
+              "required": [
+                "path",
+                "content"
+              ]
+            }
+          },
+          {
+            "name": "edit_file",
+            "description": "Replace an exact string occurrence in a file.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Path to the file"
+                },
+                "old_string": {
+                  "type": "string",
+                  "description": "Exact text to find"
+                },
+                "new_string": {
+                  "type": "string",
+                  "description": "Replacement text"
+                },
+                "replace_all": {
+                  "type": "boolean",
+                  "description": "Replace all occurrences (default: false)"
+                }
+              },
+              "required": [
+                "path",
+                "old_string",
+                "new_string"
+              ]
+            }
+          }
+        ],
+        "tool_choice": "auto",
+        "max_tokens": 4096
+      },
+      "response": {
+        "id": "msg_01HQdB7qH9ZsYmS4ceoJnBnq",
+        "model": "claude-sonnet-4-6",
+        "provider": "anthropic",
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "kind": "text",
+              "text": "Now let me verify the file was created correctly by reading it back:"
+            },
+            {
+              "kind": "tool_call",
+              "tool_call": {
+                "id": "toolu_015yvKNMMKX18bNYthvCP3wu",
+                "name": "read_file",
+                "arguments": {
+                  "path": "{{TEMP_DIR}}/hello.py"
+                }
+              }
+            }
+          ]
+        },
+        "finish_reason": {
+          "reason": "tool_calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "input_tokens": 1286,
+          "output_tokens": 112,
+          "total_tokens": 1398,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0
+        }
+      }
+    },
+    {
+      "request": {
+        "model": "claude-sonnet-4-6",
+        "provider": "anthropic",
+        "messages": [
+          {
+            "role": "system",
+            "content": [
+              {
+                "kind": "text",
+                "text": "You write and edit files.\n\nAlways read a file before editing it. Use edit_file for targeted changes\nto existing files. Use write_file only for creating new files.\n\nWhen editing:\n1. Read the file first to understand context\n2. Make the smallest change that achieves the goal\n3. Verify your edit was applied correctly by reading the file again\n\nWhen creating new files:\n1. Write the complete file content\n2. Verify it was created by reading it back\n\n\n<environment>\nWorking directory: {{TEMP_DIR}}\nPlatform: darwin\nOS version: 25.3.0\nToday's date: 2026-02-24\n</environment>"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "kind": "text",
+                "text": "Create a file called hello.py in {{TEMP_DIR}} that prints \"Hello World\". Use the write_file tool with the absolute path."
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "kind": "tool_call",
+                "tool_call": {
+                  "id": "toolu_01QkQyS9Js9jJNbdcyK9NZav",
+                  "name": "write_file",
+                  "arguments": {
+                    "path": "{{TEMP_DIR}}/hello.py",
+                    "content": "print(\"Hello World\")\n"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": [
+              {
+                "kind": "tool_result",
+                "tool_result": {
+                  "tool_call_id": "toolu_01QkQyS9Js9jJNbdcyK9NZav",
+                  "content": "Wrote 21 bytes to {{TEMP_DIR}}/hello.py",
+                  "is_error": false
+                }
+              }
+            ],
+            "tool_call_id": "toolu_01QkQyS9Js9jJNbdcyK9NZav"
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "kind": "text",
+                "text": "Now let me verify the file was created correctly by reading it back:"
+              },
+              {
+                "kind": "tool_call",
+                "tool_call": {
+                  "id": "toolu_015yvKNMMKX18bNYthvCP3wu",
+                  "name": "read_file",
+                  "arguments": {
+                    "path": "{{TEMP_DIR}}/hello.py"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": [
+              {
+                "kind": "tool_result",
+                "tool_result": {
+                  "tool_call_id": "toolu_015yvKNMMKX18bNYthvCP3wu",
+                  "content": "1\tprint(\"Hello World\")\n2\t",
+                  "is_error": false
+                }
+              }
+            ],
+            "tool_call_id": "toolu_015yvKNMMKX18bNYthvCP3wu"
+          }
+        ],
+        "tools": [
+          {
+            "name": "read_file",
+            "description": "Read a file from the filesystem. Returns line-numbered content.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Path to the file"
+                },
+                "offset": {
+                  "type": "integer",
+                  "description": "1-based line number to start from"
+                },
+                "limit": {
+                  "type": "integer",
+                  "description": "Max lines to read"
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          },
+          {
+            "name": "write_file",
+            "description": "Write content to a file. Creates the file and parent directories if needed.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Path to the file"
+                },
+                "content": {
+                  "type": "string",
+                  "description": "The full file content"
+                }
+              },
+              "required": [
+                "path",
+                "content"
+              ]
+            }
+          },
+          {
+            "name": "edit_file",
+            "description": "Replace an exact string occurrence in a file.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Path to the file"
+                },
+                "old_string": {
+                  "type": "string",
+                  "description": "Exact text to find"
+                },
+                "new_string": {
+                  "type": "string",
+                  "description": "Replacement text"
+                },
+                "replace_all": {
+                  "type": "boolean",
+                  "description": "Replace all occurrences (default: false)"
+                }
+              },
+              "required": [
+                "path",
+                "old_string",
+                "new_string"
+              ]
+            }
+          }
+        ],
+        "tool_choice": "auto",
+        "max_tokens": 4096
+      },
+      "response": {
+        "id": "msg_01PDDNL9m1cKt3Suz5PfVuW9",
+        "model": "claude-sonnet-4-6",
+        "provider": "anthropic",
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "kind": "text",
+              "text": "The file `hello.py` has been successfully created at `{{TEMP_DIR}}/hello.py`. It contains a single line:\n\n```python\nprint(\"Hello World\")\n```\n\nWhen run with Python, it will print `Hello World` to the console."
+            }
+          ]
+        },
+        "finish_reason": {
+          "reason": "stop",
+          "raw": "end_turn"
+        },
+        "usage": {
+          "input_tokens": 1420,
+          "output_tokens": 95,
+          "total_tokens": 1515,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0
+        }
+      }
+    }
+  ],
+  "metadata": {
+    "recordedAt": "2026-02-24T20:09:55.990Z",
+    "testName": "leaf-agent-creates-a-file-using-primitives",
+    "providers": [
+      "anthropic",
+      "openai",
+      "gemini"
+    ]
+  }
+}

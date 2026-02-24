@@ -1,0 +1,12 @@
+{
+  "recordings": [],
+  "metadata": {
+    "recordedAt": "2026-02-24T20:09:38.408Z",
+    "testName": "genome-growth-genome-loads-successfully-after-sessions",
+    "providers": [
+      "anthropic",
+      "openai",
+      "gemini"
+    ]
+  }
+}

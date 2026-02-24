@@ -5,8 +5,8 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { config } from "dotenv";
 import { createAgent } from "../../src/agents/factory.ts";
-import { Client } from "../../src/llm/client.ts";
 import { submitGoal } from "../../src/host/session.ts";
+import { Client } from "../../src/llm/client.ts";
 import { createVcr } from "../helpers/vcr.ts";
 
 config({ path: join(homedir(), "prime-radiant/serf/.env") });

@@ -98,9 +98,7 @@ export function createVcr(opts: VcrOptions): {
 	return createReplayer(opts, subs);
 }
 
-function createPassthrough(
-	opts: VcrOptions,
-): { client: Client; afterTest: () => Promise<void> } {
+function createPassthrough(opts: VcrOptions): { client: Client; afterTest: () => Promise<void> } {
 	const realClient = opts.realClient;
 	if (!realClient) {
 		throw new Error("VCR off mode requires a realClient");
