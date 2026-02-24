@@ -160,9 +160,13 @@ export interface DelegationError {
 /**
  * Classify tool calls into agent delegations and primitive calls.
  * Delegations are identified by the "delegate" tool name.
+ * If an agent name is used directly as a tool name, auto-corrects to a delegation.
  * Malformed delegations are returned as errors (never throws).
  */
-export function parsePlanResponse(toolCalls: ToolCall[]): {
+export function parsePlanResponse(
+	toolCalls: ToolCall[],
+	agentNames?: Set<string>,
+): {
 	delegations: Delegation[];
 	primitiveCalls: ToolCall[];
 	errors: DelegationError[];
@@ -172,6 +176,25 @@ export function parsePlanResponse(toolCalls: ToolCall[]): {
 	const errors: DelegationError[] = [];
 
 	for (const call of toolCalls) {
+		// Auto-correct: LLM used agent name directly as tool name instead of delegate
+		if (call.name !== DELEGATE_TOOL_NAME && agentNames?.has(call.name)) {
+			const goal = call.arguments.goal ?? call.arguments.task ?? call.arguments.command;
+			if (typeof goal === "string" && goal.length > 0) {
+				delegations.push({
+					call_id: call.id,
+					agent_name: call.name,
+					goal,
+					hints: Array.isArray(call.arguments.hints) ? call.arguments.hints : undefined,
+				});
+			} else {
+				errors.push({
+					call_id: call.id,
+					error: `Called agent '${call.name}' directly instead of using delegate tool. Use: delegate(agent_name="${call.name}", goal="...")`,
+				});
+			}
+			continue;
+		}
+
 		if (call.name === DELEGATE_TOOL_NAME) {
 			const agentName = call.arguments.agent_name;
 			if (typeof agentName !== "string" || agentName.length === 0) {

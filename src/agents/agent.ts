@@ -502,7 +502,8 @@ export class Agent {
 			}
 
 			// Parse tool calls into delegations and primitive calls
-			const { delegations, errors: delegationErrors } = parsePlanResponse(toolCalls);
+			const agentNames = new Set(this.availableAgents.map((a) => a.name));
+			const { delegations, errors: delegationErrors } = parsePlanResponse(toolCalls, agentNames);
 			const delegationByCallId = new Map(delegations.map((d) => [d.call_id, d]));
 
 			// Track call history for retry detection
