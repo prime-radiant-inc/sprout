@@ -306,4 +306,26 @@ describe("App", () => {
 		expect(lastFrame()).not.toContain("\u2191"); // Arrows gone
 		expect(lastFrame()).toContain(">"); // Idle prompt
 	});
+
+	test("session_clear updates sessionId in status bar", async () => {
+		const bus = new EventBus();
+		const { lastFrame } = render(
+			<App
+				bus={bus}
+				sessionId="OLDSESS_1234567890123456"
+				onSubmit={() => {}}
+				onSlashCommand={() => {}}
+				onExit={() => {}}
+			/>,
+		);
+
+		expect(lastFrame()).toContain("OLDSESS_");
+
+		bus.emitEvent("session_clear", "session", 0, { new_session_id: "NEWSESS_5678901234567890" });
+		await flush();
+
+		const frame = lastFrame()!;
+		expect(frame).toContain("NEWSESS_");
+		expect(frame).not.toContain("OLDSESS_");
+	});
 });

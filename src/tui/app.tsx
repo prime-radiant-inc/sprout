@@ -51,6 +51,7 @@ export function App({
 	const conversationHeight = Math.max(5, terminalRows - 4);
 
 	const [statusState, setStatusState] = useState<StatusState>(INITIAL_STATUS);
+	const [currentSessionId, setCurrentSessionId] = useState(sessionId);
 
 	useEffect(() => {
 		return bus.onEvent((event: SessionEvent) => {
@@ -69,6 +70,11 @@ export function App({
 
 				case "interrupted":
 					setStatusState((prev) => ({ ...prev, status: "interrupted" }));
+					break;
+
+				case "session_clear":
+					setCurrentSessionId((event.data.new_session_id as string) ?? sessionId);
+					setStatusState(INITIAL_STATUS);
 					break;
 
 				case "context_update":
@@ -93,7 +99,7 @@ export function App({
 				}
 			}
 		});
-	}, [bus]);
+	}, [bus, sessionId]);
 
 	return (
 		<Box flexDirection="column">
@@ -105,7 +111,7 @@ export function App({
 				inputTokens={statusState.inputTokens}
 				outputTokens={statusState.outputTokens}
 				model={statusState.model}
-				sessionId={sessionId}
+				sessionId={currentSessionId}
 				status={statusState.status}
 			/>
 			<InputArea
