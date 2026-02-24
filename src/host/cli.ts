@@ -207,7 +207,9 @@ export async function runCli(command: CliCommand): Promise<void> {
 
 		const logPath = join(sessionsDir, `${sessionId}.jsonl`);
 		const history = await replayEventLog(logPath);
-		console.log(`Resumed session ${sessionId.slice(0, 8)}... with ${history.length} messages of history`);
+		console.log(
+			`Resumed session ${sessionId.slice(0, 8)}... with ${history.length} messages of history`,
+		);
 
 		// Fall through to interactive loop below (resume enters interactive mode)
 	}
