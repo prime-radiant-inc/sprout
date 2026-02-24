@@ -296,9 +296,7 @@ describe("ConversationView", () => {
 			},
 		];
 
-		const { lastFrame } = render(
-			<ConversationView bus={bus} initialEvents={initialEvents} />,
-		);
+		const { lastFrame } = render(<ConversationView bus={bus} initialEvents={initialEvents} />);
 		await flush();
 
 		const frame = lastFrame()!;
@@ -318,9 +316,7 @@ describe("ConversationView", () => {
 			},
 		];
 
-		const { lastFrame } = render(
-			<ConversationView bus={bus} initialEvents={initialEvents} />,
-		);
+		const { lastFrame } = render(<ConversationView bus={bus} initialEvents={initialEvents} />);
 		await flush();
 
 		bus.emitEvent("warning", "cli", 0, { message: "new-event" });
