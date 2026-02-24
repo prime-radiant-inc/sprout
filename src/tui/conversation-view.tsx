@@ -1,13 +1,25 @@
 import { Box, Text, useInput } from "ink";
 import { useEffect, useRef, useState } from "react";
 import type { EventBus } from "../host/event-bus.ts";
-import type { SessionEvent } from "../kernel/types.ts";
+import type { EventKind, SessionEvent } from "../kernel/types.ts";
 import { renderEvent } from "./render-event.ts";
 
 interface Line {
 	id: number;
 	text: string;
+	kind: EventKind;
 }
+
+export const EVENT_COLORS: Partial<Record<EventKind, string>> = {
+	error: "red",
+	warning: "yellow",
+	session_start: "green",
+	session_end: "green",
+	session_resume: "cyan",
+	steering: "magenta",
+	compaction: "cyan",
+	interrupted: "red",
+};
 
 export interface ConversationViewProps {
 	bus: EventBus;
@@ -25,7 +37,7 @@ export function ConversationView({ bus, maxHeight }: ConversationViewProps) {
 			const text = renderEvent(event);
 			if (text !== null) {
 				const id = nextId.current++;
-				setLines((prev) => [...prev, { id, text }]);
+				setLines((prev) => [...prev, { id, text, kind: event.kind }]);
 			}
 		});
 	}, [bus]);
@@ -62,9 +74,14 @@ export function ConversationView({ bus, maxHeight }: ConversationViewProps) {
 
 	return (
 		<Box flexDirection="column" flexGrow={1}>
-			{visible.map((line) => (
-				<Text key={line.id}>{line.text}</Text>
-			))}
+			{visible.map((line) => {
+				const color = EVENT_COLORS[line.kind];
+				return (
+					<Text key={line.id} color={color}>
+						{line.text}
+					</Text>
+				);
+			})}
 		</Box>
 	);
 }

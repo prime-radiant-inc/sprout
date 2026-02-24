@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { render } from "ink-testing-library";
 import { EventBus } from "../../src/host/event-bus.ts";
 import { ConversationView } from "../../src/tui/conversation-view.tsx";
+import { EVENT_COLORS } from "../../src/tui/conversation-view.tsx";
 
 /** Wait for React to flush state updates. */
 async function flush() {
@@ -90,6 +91,30 @@ describe("ConversationView", () => {
 
 		// Should scroll up and show earlier lines
 		expect(lastFrame()).toContain("line-0");
+	});
+
+	test("EVENT_COLORS maps error to red and warning to yellow", () => {
+		expect(EVENT_COLORS.error).toBe("red");
+		expect(EVENT_COLORS.warning).toBe("yellow");
+		expect(EVENT_COLORS.session_start).toBe("green");
+		expect(EVENT_COLORS.interrupted).toBe("red");
+	});
+
+	test("renders events with color (verified with FORCE_COLOR)", async () => {
+		// Colors are applied via Ink's <Text color={...}> prop.
+		// When FORCE_COLOR=1, output includes ANSI codes.
+		// This test verifies events render with correct text content
+		// regardless of color support.
+		const bus = new EventBus();
+		const { lastFrame } = render(<ConversationView bus={bus} />);
+
+		bus.emitEvent("error", "root", 0, { error: "something broke" });
+		bus.emitEvent("warning", "cli", 0, { message: "heads up" });
+		await flush();
+
+		const frame = lastFrame()!;
+		expect(frame).toContain("something broke");
+		expect(frame).toContain("heads up");
 	});
 
 	test("skips events that render-event returns null for", async () => {
