@@ -1387,6 +1387,115 @@ describe("Agent", () => {
 		expect(agent.resolvedModel.model).toBe("claude-haiku-4-5-20251001");
 	});
 
+	test("act_end event includes tool_result_message on delegation error", async () => {
+		// Root agent tries to delegate to "nonexistent" agent.
+		// The mock client returns a delegate tool call on first call, then "Done." on second.
+		const delegateToUnknownMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-err-1",
+						name: "delegate",
+						arguments: JSON.stringify({ agent_name: "nonexistent", goal: "do stuff" }),
+					},
+				},
+			],
+		};
+		const doneMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "Done." }],
+		};
+
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<any> => {
+				callCount++;
+				const msg = callCount === 1 ? delegateToUnknownMsg : doneMsg;
+				return {
+					id: `mock-err-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: msg,
+					finish_reason: { reason: callCount === 1 ? "tool_calls" : "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: rootSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [rootSpec, leafSpec],
+			depth: 0,
+			events,
+		});
+
+		await agent.run("delegate to unknown");
+
+		const collected = events.collected();
+		const actEnd = collected.find((e) => e.kind === "act_end" && e.data.success === false);
+		expect(actEnd).toBeDefined();
+		expect(actEnd!.data.error).toContain("Unknown agent");
+		const toolResultMsg = actEnd!.data.tool_result_message as Message;
+		expect(toolResultMsg).toBeDefined();
+		expect(toolResultMsg.role).toBe("tool");
+	});
+
+	test("initialHistory is defensively copied in constructor", async () => {
+		const history: Message[] = [Msg.user("prior goal"), Msg.assistant("prior response")];
+
+		let capturedMessages: Message[] = [];
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (request: any): Promise<any> => {
+				capturedMessages = request.messages;
+				return {
+					id: "mock-dc-1",
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant("Done."),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: leafSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+			initialHistory: history,
+		});
+
+		// Mutate the original array after construction
+		history.push(Msg.user("injected after construction"));
+
+		await agent.run("new goal");
+
+		// Messages should be: [system, prior user, prior assistant, new user goal]
+		// NOT: [system, prior user, prior assistant, injected, new user goal]
+		const nonSystem = capturedMessages.filter((m) => m.role !== "system");
+		expect(nonSystem).toHaveLength(3);
+		expect(nonSystem[0]!.role).toBe("user");
+		expect(nonSystem[1]!.role).toBe("assistant");
+		expect(nonSystem[2]!.role).toBe("user");
+	});
+
 	test("abort signal listener cleanup pattern is correct", () => {
 		// Verify the cleanup pattern used in agent.ts signal handling
 		const ac = new AbortController();

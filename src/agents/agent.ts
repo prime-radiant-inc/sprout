@@ -93,7 +93,7 @@ export class Agent {
 		this.sessionId = options.sessionId ?? ulid();
 		this.learnProcess = options.learnProcess;
 		this.logBasePath = options.logBasePath;
-		this.initialHistory = options.initialHistory;
+		this.initialHistory = options.initialHistory ? [...options.initialHistory] : undefined;
 
 		// Validate depth: max_depth > 0 means the agent can only exist at depths < max_depth.
 		// max_depth === 0 means "leaf agent, no sub-spawning" — no depth restriction on the agent itself.
