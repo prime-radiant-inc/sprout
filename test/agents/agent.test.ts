@@ -1125,7 +1125,7 @@ describe("Agent", () => {
 			const subagentsDir = join(logBasePath, "subagents");
 			expect(existsSync(subagentsDir)).toBe(true);
 
-			// Find the subagent log file (name is a generated UUID)
+			// Find the subagent log file (name is a generated ULID)
 			const { readdir } = await import("node:fs/promises");
 			const subFiles = await readdir(subagentsDir);
 			const jsonlFiles = subFiles.filter((f) => f.endsWith(".jsonl"));

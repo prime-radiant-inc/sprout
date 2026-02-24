@@ -6,6 +6,7 @@ import { createPrimitiveRegistry } from "../kernel/primitives.ts";
 import { LearnProcess } from "../learn/learn-process.ts";
 import { MetricsStore } from "../learn/metrics-store.ts";
 import { Client } from "../llm/client.ts";
+import { ulid } from "../util/ulid.ts";
 import { Agent } from "./agent.ts";
 import { AgentEventEmitter } from "./events.ts";
 
@@ -71,7 +72,7 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 	await metrics.load();
 	const learnProcess = new LearnProcess({ genome, metrics, events, client });
 
-	const sessionId = crypto.randomUUID();
+	const sessionId = ulid();
 	const logBasePath = join(options.genomePath, "logs", sessionId);
 
 	const agent = new Agent({

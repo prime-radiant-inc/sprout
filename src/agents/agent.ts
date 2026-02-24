@@ -17,6 +17,7 @@ import type { LearnProcess } from "../learn/learn-process.ts";
 import type { Client } from "../llm/client.ts";
 import type { Response as LLMResponse, Message, ToolDefinition } from "../llm/types.ts";
 import { Msg, messageReasoning, messageText, messageToolCalls } from "../llm/types.ts";
+import { ulid } from "../util/ulid.ts";
 import { AgentEventEmitter } from "./events.ts";
 import { type ResolvedModel, resolveModel } from "./model-resolver.ts";
 import {
@@ -84,7 +85,7 @@ export class Agent {
 		this.genome = options.genome;
 		this.depth = options.depth ?? 0;
 		this.events = options.events ?? new AgentEventEmitter();
-		this.sessionId = options.sessionId ?? crypto.randomUUID();
+		this.sessionId = options.sessionId ?? ulid();
 		this.learnProcess = options.learnProcess;
 		this.logBasePath = options.logBasePath;
 
@@ -220,7 +221,7 @@ export class Agent {
 			}
 
 			const subLogBasePath = this.logBasePath
-				? `${this.logBasePath}/subagents/${crypto.randomUUID()}`
+				? `${this.logBasePath}/subagents/${ulid()}`
 				: undefined;
 			const subagent = new Agent({
 				spec: subagentSpec,
