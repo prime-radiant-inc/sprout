@@ -38,7 +38,7 @@ export function renderEvent(event: SessionEvent): string | null {
 			return `${prefix} Starting session...`;
 
 		case "session_resume":
-			return `${prefix} Resumed session (${data.turns ?? 0} turns of history)`;
+			return `${prefix} Resumed session (${data.history_length ?? 0} messages of history)`;
 
 		case "plan_start":
 			return `${prefix} Planning (turn ${data.turn})...`;
