@@ -189,6 +189,9 @@ export async function runCli(command: CliCommand): Promise<void> {
 		return;
 	}
 
+	let resumeSessionId: string | undefined;
+	let resumeHistory: import("../llm/types.ts").Message[] | undefined;
+
 	if (command.kind === "resume" || command.kind === "resume-last") {
 		const { listSessions } = await import("./session-metadata.ts");
 		const { replayEventLog } = await import("./resume.ts");
@@ -211,16 +214,19 @@ export async function runCli(command: CliCommand): Promise<void> {
 			`Resumed session ${sessionId.slice(0, 8)}... with ${history.length} messages of history`,
 		);
 
-		// Fall through to interactive loop below (resume enters interactive mode)
+		resumeSessionId = sessionId;
+		resumeHistory = history;
 	}
 
-	// Interactive mode (also reached via resume fallthrough)
+	// Interactive mode (also reached via resume)
 	const bus = new EventBus();
 	const controller = new SessionController({
 		bus,
 		genomePath: command.genomePath,
 		sessionsDir,
 		bootstrapDir,
+		sessionId: resumeSessionId,
+		initialHistory: resumeHistory,
 	});
 
 	const readline = await import("node:readline");

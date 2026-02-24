@@ -62,6 +62,18 @@ describe("createAgent", () => {
 		expect(result.agent.spec.name).toBe("editor");
 	});
 
+	test("accepts sessionId option without error", async () => {
+		const genomePath = join(tempDir, "factory-sessionid");
+		// This should not throw — sessionId should be a valid option
+		const result = await createAgent({
+			genomePath,
+			bootstrapDir: join(import.meta.dir, "../../bootstrap"),
+			workDir: tempDir,
+			sessionId: "CUSTOM_SESSION_ID_123456",
+		});
+		expect(result.agent).toBeDefined();
+	});
+
 	test("throws if root agent not found", async () => {
 		const genomePath = join(tempDir, "factory-missing");
 		await expect(

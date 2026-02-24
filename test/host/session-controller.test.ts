@@ -84,6 +84,17 @@ describe("SessionController", () => {
 		expect(controller.sessionId).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
 	});
 
+	test("accepts explicit sessionId", () => {
+		const bus = new EventBus();
+		const controller = new SessionController({
+			bus,
+			genomePath: join(tempDir, "genome"),
+			sessionsDir: join(tempDir, "sessions"),
+			sessionId: "01CUSTOM_SESSION_ID_26CH",
+		});
+		expect(controller.sessionId).toBe("01CUSTOM_SESSION_ID_26CH");
+	});
+
 	test("isRunning is false initially", () => {
 		const { controller } = makeController();
 		expect(controller.isRunning).toBe(false);
@@ -428,6 +439,70 @@ describe("SessionController", () => {
 			// Expected
 		}
 		expect(calls).toEqual(["start", "run", "stop"]);
+	});
+
+	test("second submitGoal passes non-empty initialHistory to factory", async () => {
+		let factoryCallCount = 0;
+		let capturedInitialHistory: any[] | undefined;
+
+		const factory: AgentFactory = async (options) => {
+			factoryCallCount++;
+			capturedInitialHistory = options.initialHistory;
+			return {
+				agent: {
+					steer() {},
+					async run(goal: string) {
+						// Simulate the agent emitting events that build history
+						// perceive → plan_end → session_end
+						options.events.emitEvent("perceive", "root", 0, { goal });
+						options.events.emitEvent("plan_end", "root", 0, {
+							turn: 1,
+							assistant_message: { role: "assistant", content: [{ kind: "text", text: "Done." }] },
+						});
+						return { output: "done", success: true, stumbles: 0, turns: 1, timed_out: false };
+					},
+				} as any,
+				learnProcess: null,
+			};
+		};
+
+		const { controller } = makeController({ factory });
+
+		// First submitGoal
+		await controller.submitGoal("first goal");
+		expect(factoryCallCount).toBe(1);
+		// First call should have no initial history (or empty)
+		expect(capturedInitialHistory ?? []).toHaveLength(0);
+
+		// Second submitGoal should pass accumulated history
+		await controller.submitGoal("second goal");
+		expect(factoryCallCount).toBe(2);
+		expect(capturedInitialHistory).toBeDefined();
+		expect(capturedInitialHistory!.length).toBeGreaterThan(0);
+	});
+
+	test("default factory forwards sessionId to createAgent", async () => {
+		// Use a spy factory to capture what options are passed
+		let capturedSessionId: string | undefined;
+		const spyFactory: AgentFactory = async (options) => {
+			capturedSessionId = options.sessionId;
+			return {
+				agent: makeFakeAgent().agent as any,
+				learnProcess: null,
+			};
+		};
+
+		const bus = new EventBus();
+		const controller = new SessionController({
+			bus,
+			genomePath: join(tempDir, "genome"),
+			sessionsDir: join(tempDir, "sessions"),
+			sessionId: "MY_CUSTOM_SESSION",
+			factory: spyFactory,
+		});
+
+		await controller.submitGoal("test");
+		expect(capturedSessionId).toBe("MY_CUSTOM_SESSION");
 	});
 
 	test("compact command is accepted without error", () => {

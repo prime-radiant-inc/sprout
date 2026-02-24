@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { AgentEventEmitter } from "../agents/events.ts";
 import { createAgent } from "../agents/factory.ts";
 import type { Command, SessionEvent } from "../kernel/types.ts";
+import type { Message } from "../llm/types.ts";
+import { Msg } from "../llm/types.ts";
 import { ulid } from "../util/ulid.ts";
 import type { EventBus } from "./event-bus.ts";
 import { SessionMetadata } from "./session-metadata.ts";
@@ -31,6 +33,8 @@ export interface AgentFactoryOptions {
 	sessionId: string;
 	/** EventBus used as the event emitter. Compatible with AgentEventEmitter. */
 	events: EventBus;
+	/** Prior conversation history for resume/continuation. */
+	initialHistory?: Message[];
 }
 
 /** Result returned by the agent factory. */
@@ -49,6 +53,8 @@ export interface SessionControllerOptions {
 	bootstrapDir?: string;
 	rootAgent?: string;
 	factory?: AgentFactory;
+	sessionId?: string;
+	initialHistory?: Message[];
 }
 
 /**
@@ -69,6 +75,8 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 		workDir: options.workDir,
 		rootAgent: options.rootAgent,
 		events: agentEvents,
+		sessionId: options.sessionId,
+		initialHistory: options.initialHistory,
 	});
 
 	return {
@@ -95,10 +103,11 @@ export class SessionController {
 	private readonly rootAgentName?: string;
 	private readonly factory: AgentFactory;
 	private readonly logPath: string;
+	private history: Message[] = [];
 	private running = false;
 
 	constructor(options: SessionControllerOptions) {
-		this.sessionId = ulid();
+		this.sessionId = options.sessionId ?? ulid();
 		this.bus = options.bus;
 		this.genomePath = options.genomePath;
 		this.sessionsDir = options.sessionsDir;
@@ -106,6 +115,7 @@ export class SessionController {
 		this.rootAgentName = options.rootAgent;
 		this.factory = options.factory ?? defaultFactory;
 		this.logPath = join(options.sessionsDir, `${this.sessionId}.jsonl`);
+		this.history = options.initialHistory ? [...options.initialHistory] : [];
 
 		this.metadata = new SessionMetadata({
 			sessionId: this.sessionId,
@@ -142,6 +152,42 @@ export class SessionController {
 
 	private async handleEvent(event: SessionEvent): Promise<void> {
 		await this.appendLog(event);
+
+		// Accumulate history from depth-0 events (mirrors resume.ts logic)
+		if (event.depth === 0) {
+			switch (event.kind) {
+				case "perceive": {
+					const goal = event.data.goal as string | undefined;
+					if (goal) this.history.push(Msg.user(goal));
+					break;
+				}
+				case "steering": {
+					const text = event.data.text as string | undefined;
+					if (text) this.history.push(Msg.user(text));
+					break;
+				}
+				case "plan_end": {
+					const msg = event.data.assistant_message as Message | undefined;
+					if (msg) this.history.push(msg);
+					break;
+				}
+				case "primitive_end": {
+					const msg = event.data.tool_result_message as Message | undefined;
+					if (msg) this.history.push(msg);
+					break;
+				}
+				case "act_end": {
+					const msg = event.data.tool_result_message as Message | undefined;
+					if (msg) this.history.push(msg);
+					break;
+				}
+				case "compaction": {
+					const summary = event.data.summary as string | undefined;
+					if (summary) this.history = [Msg.user(summary)];
+					break;
+				}
+			}
+		}
 
 		if (event.kind === "plan_end" && event.depth === 0) {
 			const turn = (event.data.turn as number) ?? 0;
@@ -182,6 +228,7 @@ export class SessionController {
 				rootAgent: this.rootAgentName,
 				events: this.bus,
 				sessionId: this.sessionId,
+				initialHistory: this.history.length > 0 ? [...this.history] : undefined,
 			});
 
 			this.agent = result.agent;

@@ -6,6 +6,7 @@ import { createPrimitiveRegistry } from "../kernel/primitives.ts";
 import { LearnProcess } from "../learn/learn-process.ts";
 import { MetricsStore } from "../learn/metrics-store.ts";
 import { Client } from "../llm/client.ts";
+import type { Message } from "../llm/types.ts";
 import { ulid } from "../util/ulid.ts";
 import { Agent } from "./agent.ts";
 import { AgentEventEmitter } from "./events.ts";
@@ -23,6 +24,10 @@ export interface CreateAgentOptions {
 	client?: Client;
 	/** Event emitter for observing agent events */
 	events?: AgentEventEmitter;
+	/** Explicit session ID (for resume). If not provided, generates a new ULID. */
+	sessionId?: string;
+	/** Prior conversation history for resume/continuation. */
+	initialHistory?: Message[];
 }
 
 export interface CreateAgentResult {
@@ -72,7 +77,7 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 	await metrics.load();
 	const learnProcess = new LearnProcess({ genome, metrics, events, client });
 
-	const sessionId = ulid();
+	const sessionId = options.sessionId ?? ulid();
 	const logBasePath = join(options.genomePath, "logs", sessionId);
 
 	const agent = new Agent({
@@ -86,6 +91,7 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 		learnProcess,
 		sessionId,
 		logBasePath,
+		initialHistory: options.initialHistory,
 	});
 
 	return { agent, genome, events, learnProcess };

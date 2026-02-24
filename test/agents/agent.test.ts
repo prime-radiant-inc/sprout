@@ -230,6 +230,50 @@ describe("Agent", () => {
 		expect(agent.resolvedTools().map((t) => t.name)).toContain("delegate");
 	});
 
+	test("run() with initialHistory prepends prior messages", async () => {
+		let capturedHistory: Message[] = [];
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (request: any): Promise<Response> => {
+				capturedHistory = request.messages;
+				return {
+					id: "mock-ih-1",
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant("Done."),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const priorHistory: Message[] = [Msg.user("previous goal"), Msg.assistant("previous response")];
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: leafSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+			events,
+			initialHistory: priorHistory,
+		});
+
+		await agent.run("new goal");
+
+		// History should be: [system, prior user, prior assistant, new user goal]
+		expect(capturedHistory.length).toBe(4);
+		expect(capturedHistory[0]!.role).toBe("system");
+		expect(capturedHistory[1]!.role).toBe("user");
+		expect(capturedHistory[2]!.role).toBe("assistant");
+		expect(capturedHistory[3]!.role).toBe("user");
+	});
+
 	test("run() emits session_end with correct data", async () => {
 		const mockResponse: Response = {
 			id: "mock-1",

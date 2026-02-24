@@ -48,6 +48,8 @@ export interface AgentOptions {
 	learnProcess?: LearnProcess;
 	/** Base path for session log. Events written to ${logBasePath}.jsonl. Subagent logs go in ${logBasePath}/subagents/. */
 	logBasePath?: string;
+	/** Prior conversation history to prepend (for resume/continuation). */
+	initialHistory?: Message[];
 }
 
 export interface AgentResult {
@@ -73,6 +75,7 @@ export class Agent {
 	private readonly agentTools: ToolDefinition[];
 	private readonly primitiveTools: ToolDefinition[];
 	private readonly logBasePath?: string;
+	private readonly initialHistory?: Message[];
 	private logWriteChain: Promise<void> = Promise.resolve();
 	private steeringQueue: string[] = [];
 
@@ -88,6 +91,7 @@ export class Agent {
 		this.sessionId = options.sessionId ?? ulid();
 		this.learnProcess = options.learnProcess;
 		this.logBasePath = options.logBasePath;
+		this.initialHistory = options.initialHistory;
 
 		// Validate depth: max_depth > 0 means the agent can only exist at depths < max_depth.
 		// max_depth === 0 means "leaf agent, no sub-spawning" — no depth restriction on the agent itself.
@@ -316,8 +320,8 @@ export class Agent {
 			session_id: this.sessionId,
 		});
 
-		// Initialize history with the goal
-		const history: Message[] = [Msg.user(goal)];
+		// Initialize history with optional prior messages and the goal
+		const history: Message[] = [...(this.initialHistory ?? []), Msg.user(goal)];
 
 		// Track tool calls for retry detection
 		const callHistory: CallRecord[] = [];
