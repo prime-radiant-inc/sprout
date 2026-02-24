@@ -422,6 +422,61 @@ describe("LearnProcess", () => {
 			// Should not hang or throw
 			await learn.stopBackground();
 		});
+
+		test("startBackground evaluates pending improvements on startup", async () => {
+			const { learn, metrics, pendingEvaluationsPath, genome } = await setupGenome(
+				tempDir,
+				"bg-eval-startup",
+			);
+
+			// "Before" data: moderate stumble rate
+			for (let i = 0; i < 10; i++) await metrics.recordAction("root");
+			await metrics.recordStumble("root", "error");
+
+			await new Promise((r) => setTimeout(r, 5));
+
+			// Apply a mutation to create a pending evaluation
+			await learn.applyMutation({
+				type: "update_agent",
+				agent_name: "root",
+				system_prompt: "Startup eval test",
+			});
+			expect(learn.pendingEvaluations()).toHaveLength(1);
+
+			await new Promise((r) => setTimeout(r, 5));
+
+			// "After" data: same stumble rate (neutral)
+			for (let i = 0; i < 10; i++) await metrics.recordAction("root");
+			await metrics.recordStumble("root", "error");
+
+			// Create a new session (simulating restart) with same pending evaluations path
+			const events2 = new AgentEventEmitter();
+			const learn2 = new LearnProcess({
+				genome,
+				metrics,
+				events: events2,
+				pendingEvaluationsPath,
+			});
+
+			// Verify the new instance starts with no pending evaluations in memory
+			expect(learn2.pendingEvaluations()).toHaveLength(0);
+
+			// Start background — should load and evaluate pending improvements
+			learn2.startBackground();
+			await new Promise((r) => setTimeout(r, 200));
+
+			// Pending evaluations should have been loaded AND processed
+			expect(learn2.pendingEvaluations()).toHaveLength(0);
+
+			// Verify evaluation actually ran by checking for the event
+			const collected = events2.collected();
+			const evalEvents = collected.filter(
+				(e) => e.kind === "learn_mutation" && e.data.mutation_type === "evaluation",
+			);
+			expect(evalEvents.length).toBe(1);
+
+			await learn2.stopBackground();
+		});
 	});
 
 	describe("kernel name protection", () => {
@@ -681,10 +736,7 @@ describe("LearnProcess", () => {
 		});
 
 		test("harmful improvement triggers genome rollback", async () => {
-			const { learn, metrics, genome } = await setupGenome(
-				tempDir,
-				"eval-pending-harmful",
-			);
+			const { learn, metrics, genome } = await setupGenome(tempDir, "eval-pending-harmful");
 
 			const originalPrompt = genome.getAgent("root")!.system_prompt;
 
@@ -720,10 +772,7 @@ describe("LearnProcess", () => {
 		});
 
 		test("emits evaluation event for each evaluated improvement", async () => {
-			const { learn, metrics, events } = await setupGenome(
-				tempDir,
-				"eval-pending-events",
-			);
+			const { learn, metrics, events } = await setupGenome(tempDir, "eval-pending-events");
 
 			// "Before" data
 			for (let i = 0; i < 10; i++) await metrics.recordAction("root");
@@ -754,10 +803,7 @@ describe("LearnProcess", () => {
 		});
 
 		test("emits rollback event for harmful improvement", async () => {
-			const { learn, metrics, events } = await setupGenome(
-				tempDir,
-				"eval-pending-rollback-event",
-			);
+			const { learn, metrics, events } = await setupGenome(tempDir, "eval-pending-rollback-event");
 
 			// "Before" data: low stumble rate
 			for (let i = 0; i < 10; i++) await metrics.recordAction("root");

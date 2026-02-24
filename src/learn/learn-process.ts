@@ -172,10 +172,7 @@ export class LearnProcess {
 		const remaining: PendingEvaluation[] = [];
 
 		for (const pending of this._pendingEvaluations) {
-			const actionCount = await this.metrics.actionCountSince(
-				pending.agentName,
-				pending.timestamp,
-			);
+			const actionCount = await this.metrics.actionCountSince(pending.agentName, pending.timestamp);
 
 			if (actionCount < LearnProcess.MIN_ACTIONS_FOR_EVALUATION) {
 				remaining.push(pending);
@@ -265,6 +262,17 @@ export class LearnProcess {
 	}
 
 	private async runBackgroundLoop(): Promise<void> {
+		// Evaluate pending improvements from previous sessions before processing new signals
+		try {
+			await this.loadPendingEvaluations();
+			await this.evaluatePendingImprovements();
+		} catch (err) {
+			this.events.emit("warning", "learn", 0, {
+				message: "Failed to evaluate pending improvements on startup",
+				error: err instanceof Error ? err.message : String(err),
+			});
+		}
+
 		while (!this.stopRequested) {
 			if (this.queue.length > 0) {
 				await this.processNext();
