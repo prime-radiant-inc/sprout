@@ -260,8 +260,7 @@ export class SessionController {
 		// Snapshot history to avoid race with concurrent event accumulation
 		const snapshot = [...this.history];
 		const result = await this.compactFn(snapshot, this.logPath);
-		// Replace history with compacted version
-		this.history = snapshot;
+		// The compaction event handler in handleEvent sets this.history
 		this.bus.emitEvent("compaction", "session", 0, {
 			summary: result.summary,
 			beforeCount: result.beforeCount,

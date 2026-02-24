@@ -885,6 +885,55 @@ describe("SessionController", () => {
 		expect(true).toBe(true);
 	});
 
+	test("after compaction, next submitGoal receives compacted history", async () => {
+		let factoryCallCount = 0;
+		let capturedInitialHistory: any[] | undefined;
+
+		const factory: AgentFactory = async (options) => {
+			factoryCallCount++;
+			capturedInitialHistory = options.initialHistory;
+			return {
+				agent: {
+					steer() {},
+					async run(goal: string) {
+						options.events.emitEvent("perceive", "root", 0, { goal });
+						options.events.emitEvent("plan_end", "root", 0, {
+							turn: 1,
+							assistant_message: {
+								role: "assistant",
+								content: [{ kind: "text", text: "Done." }],
+							},
+						});
+						return { output: "done", success: true, stumbles: 0, turns: 1, timed_out: false };
+					},
+				} as any,
+				learnProcess: null,
+				// compact does NOT mutate the snapshot — only returns the summary
+				compact: async (_history, _logPath) => {
+					return { summary: "compacted summary", beforeCount: 2, afterCount: 1 };
+				},
+			};
+		};
+
+		const { bus, controller } = makeController({ factory });
+
+		// First submitGoal builds up history (perceive + plan_end = 2 messages)
+		await controller.submitGoal("build something");
+		expect(factoryCallCount).toBe(1);
+
+		// Trigger compaction
+		bus.emitCommand({ kind: "compact", data: {} });
+		await new Promise((r) => setTimeout(r, 100));
+
+		// Second submitGoal should receive compacted 1-message history
+		await controller.submitGoal("continue");
+		expect(factoryCallCount).toBe(2);
+		expect(capturedInitialHistory).toBeDefined();
+		expect(capturedInitialHistory).toHaveLength(1);
+		expect(capturedInitialHistory![0].role).toBe("user");
+		expect(capturedInitialHistory![0].content[0].text).toBe("compacted summary");
+	});
+
 	test("resume with stuck running metadata marks it interrupted before running", async () => {
 		const sessionsDir = join(tempDir, "sessions");
 		const sessionId = "01STUCKSESSION_RUNNING";
