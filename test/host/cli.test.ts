@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseArgs } from "../../src/host/cli.ts";
+import { handleSlashCommand, parseArgs } from "../../src/host/cli.ts";
 import { EventBus } from "../../src/host/event-bus.ts";
 import { replayEventLog } from "../../src/host/resume.ts";
 import type { AgentFactory } from "../../src/host/session-controller.ts";
@@ -165,6 +165,70 @@ describe("handleSigint", () => {
 
 		expect(commands).toHaveLength(0);
 		expect(closed).toBe(true);
+	});
+});
+
+describe("handleSlashCommand", () => {
+	function makeBus() {
+		const commands: any[] = [];
+		const events: any[] = [];
+		return {
+			emitCommand: (cmd: any) => commands.push(cmd),
+			emitEvent: (kind: string, agentId: string, depth: number, data: any) =>
+				events.push({ kind, agentId, depth, data }),
+			commands,
+			events,
+		};
+	}
+
+	const controller = { sessionId: "01ABCDEF12345678ABCDEF1234", isRunning: false, currentModel: undefined as string | undefined };
+
+	test("help emits warning event with command list", () => {
+		const bus = makeBus();
+		handleSlashCommand({ kind: "help" }, bus, controller);
+		expect(bus.events).toHaveLength(1);
+		expect(bus.events[0].kind).toBe("warning");
+		expect(bus.events[0].data.message).toContain("/help");
+		expect(bus.events[0].data.message).toContain("/quit");
+	});
+
+	test("compact emits compact command", () => {
+		const bus = makeBus();
+		handleSlashCommand({ kind: "compact" }, bus, controller);
+		expect(bus.commands).toHaveLength(1);
+		expect(bus.commands[0].kind).toBe("compact");
+	});
+
+	test("clear emits clear command", () => {
+		const bus = makeBus();
+		handleSlashCommand({ kind: "clear" }, bus, controller);
+		expect(bus.commands).toHaveLength(1);
+		expect(bus.commands[0].kind).toBe("clear");
+	});
+
+	test("switch_model emits command and warning event", () => {
+		const bus = makeBus();
+		handleSlashCommand({ kind: "switch_model", model: "gpt-4o" }, bus, controller);
+		expect(bus.commands).toHaveLength(1);
+		expect(bus.commands[0].kind).toBe("switch_model");
+		expect(bus.commands[0].data.model).toBe("gpt-4o");
+		expect(bus.events).toHaveLength(1);
+		expect(bus.events[0].data.message).toContain("gpt-4o");
+	});
+
+	test("status emits warning event with session info", () => {
+		const bus = makeBus();
+		handleSlashCommand({ kind: "status" }, bus, controller);
+		expect(bus.events).toHaveLength(1);
+		expect(bus.events[0].data.message).toContain("01ABCDEF...");
+		expect(bus.events[0].data.message).toContain("idle");
+	});
+
+	test("unknown emits warning event", () => {
+		const bus = makeBus();
+		handleSlashCommand({ kind: "unknown", raw: "/foo" }, bus, controller);
+		expect(bus.events).toHaveLength(1);
+		expect(bus.events[0].data.message).toContain("/foo");
 	});
 });
 

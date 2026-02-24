@@ -100,6 +100,47 @@ Options:
   --genome-path <path>   Path to genome directory (default: ~/.local/share/sprout-genome)
   --help                 Show this help message`;
 
+/** Handle a slash command from the TUI input area. */
+export function handleSlashCommand(
+	cmd: import("../tui/slash-commands.ts").SlashCommand,
+	bus: { emitCommand(cmd: import("../kernel/types.ts").Command): void; emitEvent(kind: string, agentId: string, depth: number, data: Record<string, unknown>): void },
+	controller: { sessionId: string; isRunning: boolean; currentModel: string | undefined },
+): void {
+	switch (cmd.kind) {
+		case "quit":
+			bus.emitCommand({ kind: "quit", data: {} });
+			process.exit(0);
+			break;
+		case "help":
+			bus.emitEvent("warning", "cli", 0, {
+				message: "Commands: /help, /quit, /compact, /clear, /model [name], /status",
+			});
+			break;
+		case "compact":
+			bus.emitCommand({ kind: "compact", data: {} });
+			break;
+		case "clear":
+			bus.emitCommand({ kind: "clear", data: {} });
+			break;
+		case "switch_model":
+			bus.emitCommand({ kind: "switch_model", data: { model: cmd.model } });
+			bus.emitEvent("warning", "cli", 0, {
+				message: cmd.model ? `Model set to: ${cmd.model}` : "Model reset to default",
+			});
+			break;
+		case "status":
+			bus.emitEvent("warning", "cli", 0, {
+				message: `Session: ${controller.sessionId.slice(0, 8)}... | ${controller.isRunning ? "running" : "idle"} | model: ${controller.currentModel ?? "default"}`,
+			});
+			break;
+		case "unknown":
+			bus.emitEvent("warning", "cli", 0, {
+				message: `Unknown command: ${cmd.raw}`,
+			});
+			break;
+	}
+}
+
 /** Handle SIGINT: interrupt if running, exit if idle. */
 export function handleSigint(
 	bus: { emitCommand(cmd: import("../kernel/types.ts").Command): void },
@@ -242,80 +283,35 @@ export async function runCli(command: CliCommand): Promise<void> {
 		initialHistory: resumeHistory,
 	});
 
-	const readline = await import("node:readline");
-	const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-
 	const { InputHistory } = await import("../tui/history.ts");
 	const historyPath = join(command.genomePath, "../sprout-history");
 	const inputHistory = new InputHistory(historyPath);
 	await inputHistory.load();
 
-	// Feed saved history into readline for up-arrow support
-	const rlHistory = (rl as any).history;
-	if (Array.isArray(rlHistory)) {
-		for (const entry of inputHistory.all().reverse()) {
-			rlHistory.push(entry);
-		}
-	}
+	const { render } = await import("ink");
+	const React = await import("react");
+	const { App } = await import("../tui/app.tsx");
 
-	process.on("SIGINT", () => handleSigint(bus, controller, rl));
-
-	bus.onEvent((event) => {
-		const line = renderEvent(event);
-		if (line !== null) console.log(line);
-	});
-
-	console.log(`Sprout interactive mode (session: ${controller.sessionId.slice(0, 8)}...)`);
-	console.log("Type a goal, or /help for commands. /quit to exit.\n");
-
-	const { parseSlashCommand } = await import("../tui/slash-commands.ts");
-
-	rl.on("line", (input: string) => {
-		const trimmed = input.trim();
-		if (!trimmed) return;
-
-		const slash = parseSlashCommand(trimmed);
-		if (slash) {
-			if (slash.kind === "quit") {
+	const { waitUntilExit } = render(
+		React.createElement(App, {
+			bus,
+			sessionId: controller.sessionId,
+			initialHistory: inputHistory.all(),
+			onSubmit: (text: string) => {
+				inputHistory.add(text);
+				bus.emitCommand({ kind: "submit_goal", data: { goal: text } });
+			},
+			onSlashCommand: (cmd: import("../tui/slash-commands.ts").SlashCommand) => {
+				handleSlashCommand(cmd, bus, controller);
+			},
+			onExit: () => {
 				bus.emitCommand({ kind: "quit", data: {} });
-				rl.close();
-				return;
-			}
-			if (slash.kind === "help") {
-				console.log("Commands: /help, /quit, /compact, /clear, /model [name], /status");
-				return;
-			}
-			if (slash.kind === "compact") {
-				bus.emitCommand({ kind: "compact", data: {} });
-				return;
-			}
-			if (slash.kind === "clear") {
-				bus.emitCommand({ kind: "clear", data: {} });
-				return;
-			}
-			if (slash.kind === "switch_model") {
-				bus.emitCommand({ kind: "switch_model", data: { model: slash.model } });
-				console.log(slash.model ? `Model set to: ${slash.model}` : "Model reset to default");
-				return;
-			}
-			if (slash.kind === "status") {
-				console.log(
-					`Session: ${controller.sessionId.slice(0, 8)}... | ${controller.isRunning ? "running" : "idle"} | model: ${controller.currentModel ?? "default"}`,
-				);
-				return;
-			}
-			if (slash.kind === "unknown") {
-				console.log(`Unknown command: ${slash.raw}`);
-				return;
-			}
-			return;
-		}
+				process.exit(0);
+			},
+		}),
+	);
 
-		inputHistory.add(trimmed);
-		bus.emitCommand({ kind: "submit_goal", data: { goal: trimmed } });
-	});
-
-	await new Promise<void>((resolve) => rl.on("close", resolve));
+	await waitUntilExit();
 	await inputHistory.save();
 }
 
