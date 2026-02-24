@@ -119,7 +119,9 @@ describe("compactHistory", () => {
 
 		expect(result.beforeCount).toBe(10);
 		expect(result.afterCount).toBe(7);
-		expect(result.summary).toBe("Compacted summary");
+		// summary now includes the prefix with log path reference
+		expect(result.summary).toContain("Compacted summary");
+		expect(result.summary).toContain("Full conversation log available at:");
 
 		// First message should be the summary (as user message)
 		const firstMsg = history[0]!;

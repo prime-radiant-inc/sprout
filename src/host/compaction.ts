@@ -71,5 +71,5 @@ export async function compactHistory(opts: {
 	history.push(summaryMessage, ...recentTurns);
 
 	const afterCount = history.length;
-	return { summary, beforeCount, afterCount };
+	return { summary: fullSummary, beforeCount, afterCount };
 }
