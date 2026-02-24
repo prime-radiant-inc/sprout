@@ -137,6 +137,43 @@ describe("MetricsStore", () => {
 		expect(rate).toBe(0);
 	});
 
+	test("actionCountSince counts actions after a given timestamp", async () => {
+		const store = new MetricsStore(join(tempDir, "action-count-since.jsonl"));
+		await store.load();
+
+		await store.recordAction("agent-x");
+		await store.recordAction("agent-x");
+
+		await new Promise((r) => setTimeout(r, 5));
+		const cutoff = Date.now();
+		await new Promise((r) => setTimeout(r, 5));
+
+		await store.recordAction("agent-x");
+		await store.recordAction("agent-x");
+		await store.recordAction("agent-x");
+
+		const count = await store.actionCountSince("agent-x", cutoff);
+		expect(count).toBe(3);
+	});
+
+	test("actionCountSince returns 0 for nonexistent file", async () => {
+		const store = new MetricsStore(join(tempDir, "no-file-actions.jsonl"));
+		await store.load();
+
+		const count = await store.actionCountSince("nobody", 0);
+		expect(count).toBe(0);
+	});
+
+	test("actionCountSince returns 0 when no actions match", async () => {
+		const store = new MetricsStore(join(tempDir, "no-match-actions.jsonl"));
+		await store.load();
+
+		await store.recordAction("agent-y");
+
+		const count = await store.actionCountSince("agent-y", Date.now() + 1000);
+		expect(count).toBe(0);
+	});
+
 	test("stumbleRate returns 0 when no actions recorded", async () => {
 		const store = new MetricsStore(join(tempDir, "no-actions.jsonl"));
 		await store.load();
