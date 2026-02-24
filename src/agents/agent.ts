@@ -18,6 +18,7 @@ import type { Client } from "../llm/client.ts";
 import type { Response as LLMResponse, Message, ToolDefinition } from "../llm/types.ts";
 import { Msg, messageReasoning, messageText, messageToolCalls } from "../llm/types.ts";
 import { ulid } from "../util/ulid.ts";
+import { getContextWindowSize } from "./context-window.ts";
 import { AgentEventEmitter } from "./events.ts";
 import { type ResolvedModel, resolveModel } from "./model-resolver.ts";
 import {
@@ -329,6 +330,7 @@ export class Agent {
 		this.emitAndLog("session_start", agentId, this.depth, {
 			goal,
 			session_id: this.sessionId,
+			model: this.resolved.model,
 		});
 
 		// Initialize history with optional prior messages and the goal
@@ -453,6 +455,8 @@ export class Agent {
 				text: messageText(assistantMessage),
 				reasoning: messageReasoning(assistantMessage),
 				assistant_message: assistantMessage,
+				context_tokens: response.usage?.input_tokens ?? 0,
+				context_window_size: getContextWindowSize(this.resolved.model),
 			});
 
 			// Check for tool calls
