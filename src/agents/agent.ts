@@ -513,7 +513,7 @@ export class Agent {
 
 			// Execute primitives sequentially (they're fast, may depend on each other)
 			for (const call of toolCalls) {
-				if (delegationByCallId.has(call.id)) continue;
+				if (delegationByCallId.has(call.id) || resultByCallId.has(call.id)) continue;
 
 				this.emitAndLog("primitive_start", agentId, this.depth, {
 					name: call.name,
