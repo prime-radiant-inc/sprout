@@ -489,9 +489,7 @@ describe("SessionController", () => {
 		const factoryCallHistory: any[] = [];
 
 		const factory: AgentFactory = async (options) => {
-			factoryCallHistory.push(
-				options.initialHistory ? [...options.initialHistory] : undefined,
-			);
+			factoryCallHistory.push(options.initialHistory ? [...options.initialHistory] : undefined);
 			return {
 				agent: {
 					steer() {},
@@ -933,7 +931,11 @@ describe("SessionController", () => {
 
 		// Emit a plan_end event that will trigger metadata.save on an impossible path
 		// This should NOT cause an unhandled rejection
-		bus.emitEvent("plan_end", "root", 0, { turn: 1, context_tokens: 100, context_window_size: 200000 });
+		bus.emitEvent("plan_end", "root", 0, {
+			turn: 1,
+			context_tokens: 100,
+			context_window_size: 200000,
+		});
 
 		// Wait for the async handler to settle
 		await new Promise((r) => setTimeout(r, 100));

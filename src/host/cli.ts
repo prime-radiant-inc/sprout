@@ -105,6 +105,8 @@ Options:
   --genome-path <path>   Path to genome directory (default: ~/.local/share/sprout-genome)
   --help                 Show this help message`;
 
+export type SlashCommandResult = { action: "none" } | { action: "show_model_picker" };
+
 /** Handle a slash command from the TUI input area. */
 export function handleSlashCommand(
 	cmd: import("../tui/slash-commands.ts").SlashCommand,
@@ -113,7 +115,7 @@ export function handleSlashCommand(
 		emitEvent(kind: string, agentId: string, depth: number, data: Record<string, unknown>): void;
 	},
 	controller: { sessionId: string; isRunning: boolean; currentModel: string | undefined },
-): void {
+): SlashCommandResult {
 	switch (cmd.kind) {
 		case "quit":
 			bus.emitCommand({ kind: "quit", data: {} });
@@ -137,9 +139,7 @@ export function handleSlashCommand(
 					message: `Model set to: ${cmd.model}`,
 				});
 			} else {
-				bus.emitEvent("warning", "cli", 0, {
-					message: "Usage: /model <name>  (e.g. /model claude-sonnet-4-6, /model gpt-4o)",
-				});
+				return { action: "show_model_picker" };
 			}
 			break;
 		case "status":
@@ -153,6 +153,7 @@ export function handleSlashCommand(
 			});
 			break;
 	}
+	return { action: "none" };
 }
 
 /** Handle SIGINT: interrupt if running, exit if idle. */

@@ -307,6 +307,83 @@ describe("App", () => {
 		expect(lastFrame()).toContain(">"); // Idle prompt
 	});
 
+	test("/model without arg shows ModelPicker", async () => {
+		const { lastFrame, stdin } = setup({
+			knownModels: ["claude-sonnet-4-6", "gpt-4o"],
+		});
+
+		// Type /model and submit
+		stdin.write("/model");
+		await flush();
+		stdin.write("\r");
+		await flush();
+
+		// Model picker should be visible
+		const frame = lastFrame()!;
+		expect(frame).toContain("claude-sonnet-4-6");
+		expect(frame).toContain("gpt-4o");
+		expect(frame).toContain("Select model");
+	});
+
+	test("selecting model from picker emits switch_model and hides picker", async () => {
+		const commands: any[] = [];
+		const bus = new EventBus();
+		bus.onCommand((cmd) => commands.push(cmd));
+
+		const { lastFrame, stdin } = render(
+			<App
+				bus={bus}
+				sessionId="01ABCDEF12345678ABCDEF1234"
+				onSubmit={() => {}}
+				onSlashCommand={() => {}}
+				onExit={() => {}}
+				knownModels={["model-a", "model-b"]}
+			/>,
+		);
+
+		// Open model picker
+		stdin.write("/model");
+		await flush();
+		stdin.write("\r");
+		await flush();
+
+		expect(lastFrame()).toContain("Select model");
+
+		// Press Enter to select first model
+		stdin.write("\r");
+		await flush();
+
+		// switch_model command should have been emitted
+		const switchCmd = commands.find((c) => c.kind === "switch_model");
+		expect(switchCmd).toBeDefined();
+		expect(switchCmd!.data.model).toBe("model-a");
+
+		// Picker should be hidden, input area should be back
+		expect(lastFrame()).not.toContain("Select model");
+		expect(lastFrame()).toContain(">");
+	});
+
+	test("Escape cancels model picker", async () => {
+		const { lastFrame, stdin } = setup({
+			knownModels: ["model-a"],
+		});
+
+		// Open model picker
+		stdin.write("/model");
+		await flush();
+		stdin.write("\r");
+		await flush();
+		expect(lastFrame()).toContain("Select model");
+
+		// Press Escape to cancel
+		stdin.write("\x1B");
+		await flush();
+
+		// Picker should be hidden
+		expect(lastFrame()).not.toContain("Select model");
+		expect(lastFrame()).toContain(">");
+	});
+
 	test("session_clear updates sessionId in status bar", async () => {
 		const bus = new EventBus();
 		const { lastFrame } = render(

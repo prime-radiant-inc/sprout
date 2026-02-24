@@ -4,6 +4,7 @@ import type { EventBus } from "../host/event-bus.ts";
 import type { SessionEvent } from "../kernel/types.ts";
 import { ConversationView } from "./conversation-view.tsx";
 import { InputArea } from "./input-area.tsx";
+import { ModelPicker } from "./model-picker.tsx";
 import type { SlashCommand } from "./slash-commands.ts";
 import { StatusBar } from "./status-bar.tsx";
 
@@ -15,7 +16,16 @@ export interface AppProps {
 	onExit: () => void;
 	initialHistory?: string[];
 	onSteer?: (text: string) => void;
+	/** List of known model names for the /model picker. */
+	knownModels?: string[];
 }
+
+const DEFAULT_MODELS = [
+	"claude-sonnet-4-6",
+	"claude-opus-4-6",
+	"gpt-4o",
+	"gemini-2.5-pro",
+];
 
 interface StatusState {
 	contextTokens: number;
@@ -45,6 +55,7 @@ export function App({
 	onExit,
 	initialHistory,
 	onSteer,
+	knownModels,
 }: AppProps) {
 	const { stdout } = useStdout();
 	const terminalRows = stdout?.rows ?? 40;
@@ -52,6 +63,7 @@ export function App({
 
 	const [statusState, setStatusState] = useState<StatusState>(INITIAL_STATUS);
 	const [currentSessionId, setCurrentSessionId] = useState(sessionId);
+	const [showModelPicker, setShowModelPicker] = useState(false);
 
 	useEffect(() => {
 		return bus.onEvent((event: SessionEvent) => {
@@ -101,6 +113,16 @@ export function App({
 		});
 	}, [bus, sessionId]);
 
+	const models = knownModels ?? DEFAULT_MODELS;
+
+	const handleSlash = (cmd: SlashCommand) => {
+		if (cmd.kind === "switch_model" && !cmd.model) {
+			setShowModelPicker(true);
+			return;
+		}
+		onSlashCommand(cmd);
+	};
+
 	return (
 		<Box flexDirection="column">
 			<ConversationView bus={bus} maxHeight={conversationHeight} />
@@ -114,20 +136,36 @@ export function App({
 				sessionId={currentSessionId}
 				status={statusState.status}
 			/>
-			<InputArea
-				onSubmit={onSubmit}
-				onSlashCommand={onSlashCommand}
-				isRunning={statusState.status === "running"}
-				initialHistory={initialHistory}
-				onInterrupt={() => {
-					bus.emitCommand({ kind: "interrupt", data: {} });
-				}}
-				onSteer={(text) => {
-					onSteer?.(text);
-					bus.emitCommand({ kind: "steer", data: { text } });
-				}}
-				onExit={onExit}
-			/>
+			{showModelPicker ? (
+				<ModelPicker
+					models={models}
+					onSelect={(model) => {
+						setShowModelPicker(false);
+						bus.emitCommand({ kind: "switch_model", data: { model } });
+						bus.emitEvent("warning", "cli", 0, {
+							message: `Model set to: ${model}`,
+						});
+					}}
+					onCancel={() => {
+						setShowModelPicker(false);
+					}}
+				/>
+			) : (
+				<InputArea
+					onSubmit={onSubmit}
+					onSlashCommand={handleSlash}
+					isRunning={statusState.status === "running"}
+					initialHistory={initialHistory}
+					onInterrupt={() => {
+						bus.emitCommand({ kind: "interrupt", data: {} });
+					}}
+					onSteer={(text) => {
+						onSteer?.(text);
+						bus.emitCommand({ kind: "steer", data: { text } });
+					}}
+					onExit={onExit}
+				/>
+			)}
 		</Box>
 	);
 }
