@@ -85,8 +85,8 @@ export function InputArea({
 			return;
 		}
 
-		// Regular character input
-		if (input && !key.ctrl && !key.meta) {
+		// Regular character input (exclude tab — used for tool collapse toggle)
+		if (input && !key.ctrl && !key.meta && !key.tab) {
 			setValue((prev) => prev + input);
 		}
 	});

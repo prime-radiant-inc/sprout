@@ -21,6 +21,8 @@ export const EVENT_COLORS: Partial<Record<EventKind, string>> = {
 	interrupted: "red",
 };
 
+const TOOL_DETAIL_KINDS: Set<EventKind> = new Set(["primitive_end", "act_end"]);
+
 export interface ConversationViewProps {
 	bus: EventBus;
 	/** Maximum number of lines to show. When exceeded, viewport scrolls. */
@@ -30,6 +32,7 @@ export interface ConversationViewProps {
 export function ConversationView({ bus, maxHeight }: ConversationViewProps) {
 	const [lines, setLines] = useState<Line[]>([]);
 	const [scrollOffset, setScrollOffset] = useState<number | null>(null);
+	const [toolsCollapsed, setToolsCollapsed] = useState(false);
 	const nextId = useRef(0);
 
 	useEffect(() => {
@@ -43,6 +46,11 @@ export function ConversationView({ bus, maxHeight }: ConversationViewProps) {
 	}, [bus]);
 
 	useInput((_input, key) => {
+		if (key.tab) {
+			setToolsCollapsed((prev) => !prev);
+			return;
+		}
+
 		if (!maxHeight) return;
 
 		if (key.pageUp) {
@@ -62,14 +70,16 @@ export function ConversationView({ bus, maxHeight }: ConversationViewProps) {
 		}
 	});
 
+	const filtered = toolsCollapsed ? lines.filter((l) => !TOOL_DETAIL_KINDS.has(l.kind)) : lines;
+
 	let visible: Line[];
 	if (!maxHeight) {
-		visible = lines;
+		visible = filtered;
 	} else if (scrollOffset === null) {
-		visible = lines.slice(-maxHeight);
+		visible = filtered.slice(-maxHeight);
 	} else {
 		const start = Math.max(0, scrollOffset - maxHeight);
-		visible = lines.slice(start, scrollOffset);
+		visible = filtered.slice(start, scrollOffset);
 	}
 
 	return (

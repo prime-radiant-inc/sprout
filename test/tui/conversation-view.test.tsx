@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { render } from "ink-testing-library";
 import { EventBus } from "../../src/host/event-bus.ts";
-import { ConversationView } from "../../src/tui/conversation-view.tsx";
-import { EVENT_COLORS } from "../../src/tui/conversation-view.tsx";
+import { ConversationView, EVENT_COLORS } from "../../src/tui/conversation-view.tsx";
 
 /** Wait for React to flush state updates. */
 async function flush() {
@@ -115,6 +114,38 @@ describe("ConversationView", () => {
 		const frame = lastFrame()!;
 		expect(frame).toContain("something broke");
 		expect(frame).toContain("heads up");
+	});
+
+	test("Tab toggles tool call detail visibility", async () => {
+		const bus = new EventBus();
+		const { lastFrame, stdin } = render(<ConversationView bus={bus} />);
+
+		bus.emitEvent("primitive_start", "root", 0, { name: "exec", args: { command: "ls" } });
+		bus.emitEvent("primitive_end", "root", 0, {
+			name: "exec",
+			success: true,
+			result: "file1.txt\nfile2.txt",
+		});
+		await flush();
+
+		// Both lines should be visible by default
+		expect(lastFrame()).toContain("exec");
+		expect(lastFrame()).toContain("exec: ");
+
+		// Press Tab to collapse tool details
+		stdin.write("\t");
+		await flush();
+
+		// primitive_start should still be visible
+		expect(lastFrame()).toContain("exec");
+		// primitive_end detail should be hidden
+		expect(lastFrame()).not.toContain("exec: ");
+
+		// Press Tab again to expand
+		stdin.write("\t");
+		await flush();
+
+		expect(lastFrame()).toContain("exec: ");
 	});
 
 	test("skips events that render-event returns null for", async () => {
