@@ -215,7 +215,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 
 	if (command.kind === "list") {
 		const { listSessions } = await import("./session-metadata.ts");
-		const sessionsDir = join(command.genomePath, "../sprout-sessions");
+		const sessionsDir = join(command.genomePath, "sessions");
 		const sessions = await listSessions(sessionsDir);
 		if (sessions.length === 0) {
 			console.log("No sessions found.");
@@ -261,7 +261,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 	const { SessionController } = await import("./session-controller.ts");
 
 	const bootstrapDir = join(import.meta.dir, "../../bootstrap");
-	const sessionsDir = join(command.genomePath, "../sprout-sessions");
+	const sessionsDir = join(command.genomePath, "sessions");
 
 	if (command.kind === "oneshot") {
 		const bus = new EventBus();
@@ -300,7 +300,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 			sessionId = command.sessionId;
 		}
 
-		const logPath = join(sessionsDir, `${sessionId}.jsonl`);
+		const logPath = join(command.genomePath, "logs", `${sessionId}.jsonl`);
 		const history = await replayEventLog(logPath);
 		console.log(
 			`Resumed session ${sessionId.slice(0, 8)}... with ${history.length} messages of history`,

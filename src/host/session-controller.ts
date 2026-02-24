@@ -1,4 +1,3 @@
-import { appendFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { AgentEventEmitter } from "../agents/events.ts";
 import { createAgent } from "../agents/factory.ts";
@@ -56,7 +55,8 @@ export type AgentFactory = (options: AgentFactoryOptions) => Promise<AgentFactor
 export interface SessionControllerOptions {
 	bus: EventBus;
 	genomePath: string;
-	sessionsDir: string;
+	/** Directory for session metadata. Defaults to genomePath/sessions. */
+	sessionsDir?: string;
 	bootstrapDir?: string;
 	rootAgent?: string;
 	factory?: AgentFactory;
@@ -126,7 +126,6 @@ export class SessionController {
 	private modelOverride?: string;
 	private hasRun = false;
 	private compactFn?: AgentFactoryResult["compact"];
-	private writeQueue: Promise<void> = Promise.resolve();
 
 	get sessionId(): string {
 		return this._sessionId;
@@ -136,11 +135,11 @@ export class SessionController {
 		this._sessionId = options.sessionId ?? ulid();
 		this.bus = options.bus;
 		this.genomePath = options.genomePath;
-		this.sessionsDir = options.sessionsDir;
+		this.sessionsDir = options.sessionsDir ?? join(options.genomePath, "sessions");
 		this.bootstrapDir = options.bootstrapDir;
 		this.rootAgentName = options.rootAgent;
 		this.factory = options.factory ?? defaultFactory;
-		this._logPath = join(options.sessionsDir, `${this._sessionId}.jsonl`);
+		this._logPath = join(options.genomePath, "logs", `${this._sessionId}.jsonl`);
 		this.history = options.initialHistory ? [...options.initialHistory] : [];
 
 		this.metadata = new SessionMetadata({
@@ -175,7 +174,7 @@ export class SessionController {
 				this.history = [];
 				this.hasRun = false;
 				this._sessionId = ulid();
-				this._logPath = join(this.sessionsDir, `${this._sessionId}.jsonl`);
+				this._logPath = join(this.genomePath, "logs", `${this._sessionId}.jsonl`);
 				this.metadata = new SessionMetadata({
 					sessionId: this._sessionId,
 					agentSpec: this.rootAgentName ?? "root",
@@ -238,8 +237,6 @@ export class SessionController {
 			}
 		}
 
-		await this.appendLog(event);
-
 		if (event.kind === "plan_end" && event.depth === 0) {
 			const turn = (event.data.turn as number) ?? 0;
 			const contextTokens = (event.data.context_tokens as number) ?? 0;
@@ -260,15 +257,6 @@ export class SessionController {
 				});
 			}
 		}
-	}
-
-	private appendLog(event: SessionEvent): Promise<void> {
-		const write = this.writeQueue.then(async () => {
-			await mkdir(this.sessionsDir, { recursive: true });
-			await appendFile(this._logPath, JSON.stringify(event) + "\n");
-		});
-		this.writeQueue = write.catch(() => {});
-		return write;
 	}
 
 	private async runCompaction(): Promise<void> {
@@ -307,7 +295,8 @@ export class SessionController {
 
 		// Task 19: If resuming a session with stuck "running" metadata, recover it
 		if (this.history.length > 0) {
-			await this.metadata.loadIfExists(this._logPath.replace(".jsonl", ".meta.json"));
+			const metaPath = join(this.sessionsDir, `${this._sessionId}.meta.json`);
+			await this.metadata.loadIfExists(metaPath);
 		}
 
 		this.running = true;

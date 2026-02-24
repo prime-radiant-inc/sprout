@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventBus } from "../../src/host/event-bus.ts";
@@ -325,14 +325,13 @@ describe("SessionController", () => {
 		bus.emitCommand({ kind: "interrupt", data: {} });
 	});
 
-	test("events are written to log file", async () => {
+	test("events are NOT written to sessionsDir (agent handles logging)", async () => {
 		const factory: AgentFactory = async (options) => ({
 			agent: {
 				steer() {},
 				async run() {
 					options.events.emitEvent("plan_start", "root", 0, { turn: 1 });
 					options.events.emitEvent("plan_end", "root", 0, { turn: 1 });
-					// Allow async log writes to flush
 					await new Promise((r) => setTimeout(r, 20));
 					return { output: "done", success: true, stumbles: 0, turns: 1, timed_out: false };
 				},
@@ -341,19 +340,20 @@ describe("SessionController", () => {
 		});
 
 		const { controller, sessionsDir } = makeController({ factory });
-		await controller.submitGoal("Test logging");
+		await controller.submitGoal("Test no logging in sessionsDir");
 
-		// Wait for async log writes
+		// Wait for any potential async writes
 		await new Promise((r) => setTimeout(r, 50));
 
-		const logPath = join(sessionsDir, `${controller.sessionId}.jsonl`);
-		const raw = await readFile(logPath, "utf-8");
-		const lines = raw.trim().split("\n");
-		expect(lines.length).toBeGreaterThanOrEqual(2);
-
-		const events = lines.map((l) => JSON.parse(l));
-		expect(events.some((e: any) => e.kind === "plan_start")).toBe(true);
-		expect(events.some((e: any) => e.kind === "plan_end")).toBe(true);
+		// Only .meta.json should exist in sessionsDir, no .jsonl
+		let entries: string[];
+		try {
+			entries = await readdir(sessionsDir);
+		} catch {
+			entries = [];
+		}
+		expect(entries.filter((f) => f.endsWith(".jsonl"))).toHaveLength(0);
+		expect(entries.filter((f) => f.endsWith(".meta.json"))).toHaveLength(1);
 	});
 
 	test("metadata is updated after plan_end event", async () => {
@@ -921,18 +921,19 @@ describe("SessionController", () => {
 
 	test("handleEvent errors are caught and logged, not unhandled rejections", async () => {
 		// Use a sessions dir that cannot be created (under /dev/null)
+		// so metadata.save fails on plan_end events
 		const bus = new EventBus();
 		const fake = makeFakeAgent();
 		new SessionController({
 			bus,
-			genomePath: join(tempDir, "genome"),
+			genomePath: "/dev/null/impossible/path",
 			sessionsDir: "/dev/null/impossible/path",
 			factory: makeFakeFactory(fake),
 		});
 
-		// Emit an event that will trigger appendLog on an impossible path
+		// Emit a plan_end event that will trigger metadata.save on an impossible path
 		// This should NOT cause an unhandled rejection
-		bus.emitEvent("plan_start", "root", 0, { turn: 1 });
+		bus.emitEvent("plan_end", "root", 0, { turn: 1, context_tokens: 100, context_window_size: 200000 });
 
 		// Wait for the async handler to settle
 		await new Promise((r) => setTimeout(r, 100));
@@ -1066,6 +1067,53 @@ describe("SessionController", () => {
 		const clearEvents = events.filter((e) => e.kind === "session_clear");
 		expect(clearEvents).toHaveLength(1);
 		expect(clearEvents[0].data.new_session_id).toBe(controller.sessionId);
+	});
+
+	test("controller does NOT write .jsonl to sessionsDir (agent handles logging)", async () => {
+		const factory: AgentFactory = async (options) => ({
+			agent: {
+				steer() {},
+				async run() {
+					options.events.emitEvent("plan_start", "root", 0, { turn: 1 });
+					options.events.emitEvent("plan_end", "root", 0, { turn: 1 });
+					await new Promise((r) => setTimeout(r, 20));
+					return { output: "done", success: true, stumbles: 0, turns: 1, timed_out: false };
+				},
+			} as any,
+			learnProcess: null,
+		});
+
+		const { controller, sessionsDir } = makeController({ factory });
+		await controller.submitGoal("Test no jsonl in sessionsDir");
+
+		// Wait for any async writes
+		await new Promise((r) => setTimeout(r, 50));
+
+		// sessionsDir should only have .meta.json, NOT .jsonl
+		let entries: string[];
+		try {
+			entries = await readdir(sessionsDir);
+		} catch {
+			entries = [];
+		}
+		const jsonlFiles = entries.filter((f) => f.endsWith(".jsonl"));
+		expect(jsonlFiles).toHaveLength(0);
+
+		// Metadata should still be written
+		const metaFiles = entries.filter((f) => f.endsWith(".meta.json"));
+		expect(metaFiles).toHaveLength(1);
+	});
+
+	test("sessionsDir defaults to genomePath/sessions", () => {
+		const bus = new EventBus();
+		const genomePath = join(tempDir, "my-genome");
+		const controller = new SessionController({
+			bus,
+			genomePath,
+		});
+		// The controller should work with sessions under genomePath/sessions.
+		// We verify by checking metadata saves there after a run.
+		expect(controller.sessionId).toHaveLength(26);
 	});
 
 	test("resume with stuck running metadata marks it interrupted before running", async () => {

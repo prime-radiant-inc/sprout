@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventBus } from "../../src/host/event-bus.ts";
@@ -18,16 +18,32 @@ describe("Resume integration", () => {
 		await rm(tempDir, { recursive: true, force: true });
 	});
 
-	test("replayEventLog reconstructs history from SessionController events", async () => {
-		const sessionsDir = join(tempDir, "sessions");
+	test("replayEventLog reconstructs history from agent event log", async () => {
+		const genomePath = join(tempDir, "genome");
+		const logsDir = join(genomePath, "logs");
 
-		// Factory that simulates a real agent: emits perceive, plan_end, primitive_end
+		// Factory that simulates a real agent: emits events and writes log
+		// (mimicking Agent.emitAndLog behavior)
 		const factory: AgentFactory = async (options) => ({
 			agent: {
 				steer() {},
 				async run(goal: string) {
+					const logPath = join(logsDir, `${options.sessionId}.jsonl`);
+					await mkdir(logsDir, { recursive: true });
+
+					async function emitAndLog(
+						kind: string,
+						agentId: string,
+						depth: number,
+						data: Record<string, unknown>,
+					) {
+						const event = { kind, timestamp: Date.now(), agent_id: agentId, depth, data };
+						options.events.emitEvent(kind as any, agentId, depth, data);
+						await appendFile(logPath, JSON.stringify(event) + "\n");
+					}
+
 					// Simulate perceive
-					options.events.emitEvent("perceive", "root", 0, { goal });
+					await emitAndLog("perceive", "root", 0, { goal });
 
 					// Simulate plan_end with assistant message (tool call)
 					const assistantMessage: Message = {
@@ -44,7 +60,7 @@ describe("Resume integration", () => {
 							},
 						],
 					};
-					options.events.emitEvent("plan_end", "root", 0, {
+					await emitAndLog("plan_end", "root", 0, {
 						turn: 1,
 						assistant_message: assistantMessage,
 						context_tokens: 1000,
@@ -65,7 +81,7 @@ describe("Resume integration", () => {
 							},
 						],
 					};
-					options.events.emitEvent("primitive_end", "root", 0, {
+					await emitAndLog("primitive_end", "root", 0, {
 						name: "exec",
 						success: true,
 						output: "hello\n",
@@ -77,7 +93,7 @@ describe("Resume integration", () => {
 						role: "assistant",
 						content: [{ kind: "text", text: "Done! The command output was 'hello'." }],
 					};
-					options.events.emitEvent("plan_end", "root", 0, {
+					await emitAndLog("plan_end", "root", 0, {
 						turn: 2,
 						assistant_message: finalMessage,
 						context_tokens: 2000,
@@ -85,16 +101,13 @@ describe("Resume integration", () => {
 					});
 
 					// Also emit a depth-1 event that should be IGNORED by resume
-					options.events.emitEvent("plan_end", "child", 1, {
+					await emitAndLog("plan_end", "child", 1, {
 						turn: 1,
 						assistant_message: {
 							role: "assistant",
 							content: [{ kind: "text", text: "subagent response" }],
 						},
 					});
-
-					// Allow async log writes to flush
-					await new Promise((r) => setTimeout(r, 100));
 
 					return {
 						output: "Done!",
@@ -111,18 +124,14 @@ describe("Resume integration", () => {
 		const bus = new EventBus();
 		const controller = new SessionController({
 			bus,
-			genomePath: join(tempDir, "genome"),
-			sessionsDir,
+			genomePath,
 			factory,
 		});
 
 		await controller.submitGoal("Run echo hello");
 
-		// Wait for log writes
-		await new Promise((r) => setTimeout(r, 500));
-
-		// Now replay the event log
-		const logPath = join(sessionsDir, `${controller.sessionId}.jsonl`);
+		// Now replay the event log from the agent's log path
+		const logPath = join(logsDir, `${controller.sessionId}.jsonl`);
 		const history = await replayEventLog(logPath);
 
 		// Expected history:
@@ -149,22 +158,39 @@ describe("Resume integration", () => {
 	});
 
 	test("resumed session passes correct history to new agent", async () => {
-		const sessionsDir = join(tempDir, "sessions");
+		const genomePath = join(tempDir, "genome");
+		const logsDir = join(genomePath, "logs");
 
-		// First run: generate events
+		// First run: generate events and write log (like real agent)
 		const firstFactory: AgentFactory = async (options) => ({
 			agent: {
 				steer() {},
 				async run(goal: string) {
-					options.events.emitEvent("perceive", "root", 0, { goal });
-					options.events.emitEvent("plan_end", "root", 0, {
-						turn: 1,
-						assistant_message: {
-							role: "assistant",
-							content: [{ kind: "text", text: "First response" }],
+					const logPath = join(logsDir, `${options.sessionId}.jsonl`);
+					await mkdir(logsDir, { recursive: true });
+
+					const events = [
+						{ kind: "perceive", agent_id: "root", depth: 0, data: { goal } },
+						{
+							kind: "plan_end",
+							agent_id: "root",
+							depth: 0,
+							data: {
+								turn: 1,
+								assistant_message: {
+									role: "assistant",
+									content: [{ kind: "text", text: "First response" }],
+								},
+							},
 						},
-					});
-					await new Promise((r) => setTimeout(r, 200));
+					];
+
+					for (const e of events) {
+						const event = { ...e, timestamp: Date.now() };
+						options.events.emitEvent(event.kind as any, event.agent_id, event.depth, event.data);
+						await appendFile(logPath, JSON.stringify(event) + "\n");
+					}
+
 					return {
 						output: "done",
 						success: true,
@@ -180,16 +206,14 @@ describe("Resume integration", () => {
 		const bus1 = new EventBus();
 		const ctrl1 = new SessionController({
 			bus: bus1,
-			genomePath: join(tempDir, "genome"),
-			sessionsDir,
+			genomePath,
 			factory: firstFactory,
 		});
 
 		await ctrl1.submitGoal("first goal");
-		await new Promise((r) => setTimeout(r, 500));
 
-		// Replay the log
-		const logPath = join(sessionsDir, `${ctrl1.sessionId}.jsonl`);
+		// Replay the log from the agent's log path
+		const logPath = join(logsDir, `${ctrl1.sessionId}.jsonl`);
 		const history = await replayEventLog(logPath);
 
 		// Second run: resume with captured history
@@ -216,8 +240,7 @@ describe("Resume integration", () => {
 		const bus2 = new EventBus();
 		const ctrl2 = new SessionController({
 			bus: bus2,
-			genomePath: join(tempDir, "genome"),
-			sessionsDir,
+			genomePath,
 			sessionId: ctrl1.sessionId,
 			initialHistory: history,
 			factory: secondFactory,

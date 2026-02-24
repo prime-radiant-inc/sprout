@@ -273,10 +273,11 @@ describe("resume flow", () => {
 	});
 
 	test("resumed session passes replayed history and sessionId to factory", async () => {
-		const sessionsDir = join(tempDir, "sessions");
-		await mkdir(sessionsDir, { recursive: true });
+		const genomePath = join(tempDir, "genome");
+		const logsDir = join(genomePath, "logs");
+		await mkdir(logsDir, { recursive: true });
 		const sessionId = "01RESUMETEST_SESSION_ID";
-		const logPath = join(sessionsDir, `${sessionId}.jsonl`);
+		const logPath = join(logsDir, `${sessionId}.jsonl`);
 
 		const events = [
 			{
@@ -332,8 +333,7 @@ describe("resume flow", () => {
 		const bus = new EventBus();
 		const controller = new SessionController({
 			bus,
-			genomePath: join(tempDir, "genome"),
-			sessionsDir,
+			genomePath,
 			sessionId,
 			initialHistory: history,
 			factory,
