@@ -250,6 +250,14 @@ export async function runCli(command: CliCommand): Promise<void> {
 	const inputHistory = new InputHistory(historyPath);
 	await inputHistory.load();
 
+	// Feed saved history into readline for up-arrow support
+	const rlHistory = (rl as any).history;
+	if (Array.isArray(rlHistory)) {
+		for (const entry of inputHistory.all().reverse()) {
+			rlHistory.push(entry);
+		}
+	}
+
 	process.on("SIGINT", () => handleSigint(bus, controller, rl));
 
 	bus.onEvent((event) => {

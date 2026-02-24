@@ -33,6 +33,11 @@ export class InputHistory {
 		return this.entries[this.cursor]!;
 	}
 
+	/** Returns a copy of all history entries. */
+	all(): string[] {
+		return [...this.entries];
+	}
+
 	async save(): Promise<void> {
 		// Escape newlines in entries so each entry is one line in the file
 		const lines = this.entries.map((e) => e.replace(/\n/g, "\\n"));

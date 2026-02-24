@@ -144,6 +144,11 @@ export class Agent {
 		}
 	}
 
+	/** Returns the resolved model and provider for this agent. */
+	get resolvedModel(): ResolvedModel {
+		return this.resolved;
+	}
+
 	/** Returns all tools this agent can use (agent tools + primitive tools) */
 	resolvedTools(): ToolDefinition[] {
 		return [...this.agentTools, ...this.primitiveTools];

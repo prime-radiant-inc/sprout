@@ -68,6 +68,23 @@ export class SessionMetadata {
 		const filePath = join(this.sessionsDir, `${this.sessionId}.meta.json`);
 		await writeFile(filePath, JSON.stringify(snapshot, null, "\t") + "\n");
 	}
+
+	/**
+	 * Load metadata from disk if it exists.
+	 * If the existing status is "running" (crashed session), sets it to "interrupted" and saves.
+	 */
+	async loadIfExists(metaPath: string): Promise<void> {
+		try {
+			const raw = await readFile(metaPath, "utf-8");
+			const snapshot: SessionMetadataSnapshot = JSON.parse(raw);
+			if (snapshot.status === "running") {
+				this.status = "interrupted";
+				await this.save();
+			}
+		} catch {
+			// File doesn't exist or isn't valid JSON — nothing to recover
+		}
+	}
 }
 
 /** Read and parse a .meta.json file. */

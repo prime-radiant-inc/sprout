@@ -89,6 +89,16 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 	return {
 		agent: result.agent,
 		learnProcess: result.learnProcess,
+		compact: async (history, logPath) => {
+			const { compactHistory } = await import("./compaction.ts");
+			return compactHistory({
+				history,
+				client: result.client,
+				model: options.model ?? result.model,
+				provider: result.provider,
+				logPath,
+			});
+		},
 	};
 }
 
@@ -137,8 +147,8 @@ export class SessionController {
 
 		this.bus.onCommand((cmd) => this.handleCommand(cmd));
 		this.bus.onEvent((event) => {
-			this.handleEvent(event).catch(() => {
-				// Swallow event handling errors to prevent unhandled rejections
+			this.handleEvent(event).catch((err) => {
+				console.error("Error handling event:", err);
 			});
 		});
 	}
@@ -241,7 +251,11 @@ export class SessionController {
 
 	private async runCompaction(): Promise<void> {
 		if (!this.compactFn || this.history.length === 0) return;
-		const result = await this.compactFn(this.history, this.logPath);
+		// Snapshot history to avoid race with concurrent event accumulation
+		const snapshot = [...this.history];
+		const result = await this.compactFn(snapshot, this.logPath);
+		// Replace history with compacted version
+		this.history = snapshot;
 		this.bus.emitEvent("compaction", "session", 0, {
 			summary: result.summary,
 			beforeCount: result.beforeCount,
@@ -266,6 +280,11 @@ export class SessionController {
 			});
 		}
 		this.hasRun = true;
+
+		// Task 19: If resuming a session with stuck "running" metadata, recover it
+		if (this.history.length > 0) {
+			await this.metadata.loadIfExists(this.logPath.replace(".jsonl", ".meta.json"));
+		}
 
 		this.running = true;
 		this.metadata.setStatus("running");

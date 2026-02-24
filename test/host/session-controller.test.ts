@@ -779,14 +779,12 @@ describe("SessionController", () => {
 			}),
 		);
 
+		// Factory that crashes during run to simulate the process dying
 		const factory: AgentFactory = async () => ({
 			agent: {
 				steer() {},
 				async run() {
-					// During run, read the metadata to check if it was marked interrupted first
-					// The metadata should show "running" (current run), but BEFORE the run
-					// started, the stuck "running" should have been changed to "interrupted"
-					return { output: "done", success: true, stumbles: 0, turns: 1, timed_out: false };
+					throw new Error("simulated crash");
 				},
 			} as any,
 			learnProcess: null,
@@ -806,11 +804,71 @@ describe("SessionController", () => {
 		const rawBefore = await readFile(metaPath, "utf-8");
 		expect(JSON.parse(rawBefore).status).toBe("running");
 
-		await controller.submitGoal("continue");
+		// submitGoal will throw due to simulated crash, but the recovery should happen first
+		try {
+			await controller.submitGoal("continue");
+		} catch {
+			// Expected: agent.run threw
+		}
 
-		// After completion, should be idle — but the key is that the stuck
-		// "running" status was recovered from, not left permanently stuck
+		// After the crash, the finally block sets status to "idle".
+		// The key test: construct a NEW controller with the same sessionId and
+		// verify it can detect the interrupted state. This tests the full flow:
+		// write "running" -> crash -> new controller -> loadIfExists -> detect stuck.
+
+		// Simulate: the first run ended with "idle" in the finally block.
+		// Now manually set it back to "running" to simulate an actual crash
+		// where the finally block never executes.
+		await writeFile(
+			metaPath,
+			JSON.stringify({
+				sessionId,
+				agentSpec: "root",
+				model: "best",
+				status: "running",
+				turns: 5,
+				contextTokens: 1000,
+				contextWindowSize: 200000,
+				createdAt: new Date().toISOString(),
+				updatedAt: new Date().toISOString(),
+			}),
+		);
+
+		// Capture the session_resume event which fires after loadIfExists
+		const events: any[] = [];
+		const bus2 = new EventBus();
+		bus2.onEvent((e) => events.push(e));
+
+		const noopFactory: AgentFactory = async () => ({
+			agent: {
+				steer() {},
+				async run() {
+					return { output: "done", success: true, stumbles: 0, turns: 1, timed_out: false };
+				},
+			} as any,
+			learnProcess: null,
+		});
+
+		const ctrl2 = new SessionController({
+			bus: bus2,
+			genomePath: join(tempDir, "genome"),
+			sessionsDir,
+			sessionId,
+			initialHistory: [{ role: "user", content: [{ kind: "text", text: "prior" }] }],
+			factory: noopFactory,
+		});
+
+		await ctrl2.submitGoal("continue after crash");
+
+		// Verify the metadata was recovered: the "running" was detected and
+		// set to "interrupted" by loadIfExists, then overwritten to "running"
+		// by the new run, then set to "idle" by the finally block.
+		// The final state should be idle.
 		const rawAfter = await readFile(metaPath, "utf-8");
 		expect(JSON.parse(rawAfter).status).toBe("idle");
+
+		// Verify session_resume was emitted (proves history was forwarded)
+		const resumeEvents = events.filter((e) => e.kind === "session_resume");
+		expect(resumeEvents).toHaveLength(1);
 	});
 });

@@ -35,6 +35,9 @@ export interface CreateAgentResult {
 	genome: Genome;
 	events: AgentEventEmitter;
 	learnProcess: LearnProcess;
+	client: Client;
+	model: string;
+	provider: string;
 }
 
 /**
@@ -94,5 +97,14 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 		initialHistory: options.initialHistory,
 	});
 
-	return { agent, genome, events, learnProcess };
+	const resolved = agent.resolvedModel;
+	return {
+		agent,
+		genome,
+		events,
+		learnProcess,
+		client,
+		model: resolved.model,
+		provider: resolved.provider,
+	};
 }

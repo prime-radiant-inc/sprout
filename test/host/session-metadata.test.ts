@@ -155,6 +155,99 @@ describe("loadSessionMetadata", () => {
 	});
 });
 
+describe("loadIfExists", () => {
+	let tempDir: string;
+
+	beforeEach(async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "sprout-meta-"));
+	});
+
+	afterEach(async () => {
+		await rm(tempDir, { recursive: true, force: true });
+	});
+
+	test("detects stuck running status and sets to interrupted", async () => {
+		const sessionId = "01STUCK_RUNNING_TEST";
+		const metaPath = join(tempDir, `${sessionId}.meta.json`);
+
+		// Create a "running" metadata file (simulating crashed session)
+		const { writeFile } = await import("node:fs/promises");
+		await writeFile(
+			metaPath,
+			JSON.stringify({
+				sessionId,
+				agentSpec: "root",
+				model: "best",
+				status: "running",
+				turns: 5,
+				contextTokens: 1000,
+				contextWindowSize: 200000,
+				createdAt: new Date().toISOString(),
+				updatedAt: new Date().toISOString(),
+			}),
+		);
+
+		const meta = new SessionMetadata({
+			sessionId,
+			agentSpec: "root",
+			model: "best",
+			sessionsDir: tempDir,
+		});
+
+		await meta.loadIfExists(metaPath);
+
+		// Verify file was rewritten with "interrupted"
+		const snapshot = await loadSessionMetadata(metaPath);
+		expect(snapshot.status).toBe("interrupted");
+	});
+
+	test("does nothing for idle or interrupted metadata", async () => {
+		const sessionId = "01IDLE_TEST";
+		const metaPath = join(tempDir, `${sessionId}.meta.json`);
+
+		const { writeFile } = await import("node:fs/promises");
+		await writeFile(
+			metaPath,
+			JSON.stringify({
+				sessionId,
+				agentSpec: "root",
+				model: "best",
+				status: "idle",
+				turns: 3,
+				contextTokens: 500,
+				contextWindowSize: 200000,
+				createdAt: new Date().toISOString(),
+				updatedAt: new Date().toISOString(),
+			}),
+		);
+
+		const meta = new SessionMetadata({
+			sessionId,
+			agentSpec: "root",
+			model: "best",
+			sessionsDir: tempDir,
+		});
+
+		await meta.loadIfExists(metaPath);
+
+		// Status should remain idle
+		const snapshot = await loadSessionMetadata(metaPath);
+		expect(snapshot.status).toBe("idle");
+	});
+
+	test("does nothing if metadata file does not exist", async () => {
+		const meta = new SessionMetadata({
+			sessionId: "01NONEXISTENT",
+			agentSpec: "root",
+			model: "best",
+			sessionsDir: tempDir,
+		});
+
+		// Should not throw
+		await meta.loadIfExists(join(tempDir, "nonexistent.meta.json"));
+	});
+});
+
 describe("listSessions", () => {
 	let tempDir: string;
 
