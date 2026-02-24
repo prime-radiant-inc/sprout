@@ -15,6 +15,7 @@ export interface ExecOptions {
 	timeout_ms?: number;
 	working_dir?: string;
 	env_vars?: Record<string, string>;
+	signal?: AbortSignal;
 }
 
 export interface ReadFileOptions {
@@ -130,6 +131,18 @@ export class LocalExecutionEnvironment implements ExecutionEnvironment {
 	async exec_command(command: string, options?: ExecOptions): Promise<ExecResult> {
 		const cwd = options?.working_dir ? this.resolvePath(options.working_dir) : this.workDir;
 		const timeout = options?.timeout_ms ?? 10_000;
+		const signal = options?.signal;
+
+		// Short-circuit if already aborted
+		if (signal?.aborted) {
+			return {
+				stdout: "",
+				stderr: "Aborted",
+				exit_code: 130,
+				timed_out: false,
+				duration_ms: 0,
+			};
+		}
 
 		// Build environment: start from filtered process env, merge user-provided vars
 		const baseEnv = filterEnvVars(process.env);
@@ -177,10 +190,23 @@ export class LocalExecutionEnvironment implements ExecutionEnvironment {
 				}, 2000);
 			}, timeout);
 
+			// Kill child process on abort signal
+			const onAbort = () => {
+				try {
+					process.kill(-proc.pid!, "SIGTERM");
+				} catch {
+					// Process may have already exited
+				}
+			};
+			if (signal) {
+				signal.addEventListener("abort", onAbort, { once: true });
+			}
+
 			proc.on("close", (code) => {
 				if (settled) return;
 				settled = true;
 				clearTimeout(timer);
+				if (signal) signal.removeEventListener("abort", onAbort);
 				resolve({
 					stdout,
 					stderr,
@@ -194,6 +220,7 @@ export class LocalExecutionEnvironment implements ExecutionEnvironment {
 				if (settled) return;
 				settled = true;
 				clearTimeout(timer);
+				if (signal) signal.removeEventListener("abort", onAbort);
 				resolve({
 					stdout,
 					stderr: stderr + err.message,

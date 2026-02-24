@@ -8,13 +8,21 @@ export interface Primitive {
 	name: string;
 	description: string;
 	parameters: Record<string, unknown>;
-	execute(args: Record<string, unknown>, env: ExecutionEnvironment): Promise<PrimitiveResult>;
+	execute(
+		args: Record<string, unknown>,
+		env: ExecutionEnvironment,
+		signal?: AbortSignal,
+	): Promise<PrimitiveResult>;
 }
 
 export interface PrimitiveRegistry {
 	names(): string[];
 	get(name: string): Primitive | undefined;
-	execute(name: string, args: Record<string, unknown>): Promise<PrimitiveResult>;
+	execute(
+		name: string,
+		args: Record<string, unknown>,
+		signal?: AbortSignal,
+	): Promise<PrimitiveResult>;
 }
 
 export function createPrimitiveRegistry(env: ExecutionEnvironment): PrimitiveRegistry {
@@ -27,12 +35,12 @@ export function createPrimitiveRegistry(env: ExecutionEnvironment): PrimitiveReg
 	return {
 		names: () => [...primitives.keys()],
 		get: (name) => primitives.get(name),
-		execute: async (name, args) => {
+		execute: async (name, args, signal?) => {
 			const prim = primitives.get(name);
 			if (!prim) {
 				return { output: "", success: false, error: `Unknown primitive: ${name}` };
 			}
-			const result = await prim.execute(args, env);
+			const result = await prim.execute(args, env, signal);
 			// Truncate output for LLM consumption
 			return {
 				...result,
@@ -415,10 +423,11 @@ function execPrimitive(): Primitive {
 			},
 			required: ["command"],
 		},
-		async execute(args, env) {
+		async execute(args, env, signal?) {
 			try {
 				const result = await env.exec_command(args.command as string, {
 					timeout_ms: args.timeout_ms as number | undefined,
+					signal,
 				});
 
 				const output = [

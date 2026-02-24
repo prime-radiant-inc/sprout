@@ -504,7 +504,7 @@ export class Agent {
 					args: call.arguments,
 				});
 
-				const result = await this.primitiveRegistry.execute(call.name, call.arguments);
+				const result = await this.primitiveRegistry.execute(call.name, call.arguments, this.signal);
 
 				// Verify primitive result
 				const { stumbled, learnSignal: primSignal } = verifyPrimitiveResult(

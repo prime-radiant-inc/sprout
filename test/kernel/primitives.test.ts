@@ -296,4 +296,50 @@ describe("primitives", () => {
 			expect(result.error).toBeDefined();
 		});
 	});
+
+	// -- abort signal --
+
+	describe("abort signal", () => {
+		test("exec primitive returns failure when signal already aborted", async () => {
+			const controller = new AbortController();
+			controller.abort();
+
+			const result = await registry.execute("exec", { command: "sleep 10" }, controller.signal);
+			expect(result.success).toBe(false);
+		});
+
+		test("exec primitive kills child process when signal fires mid-execution", async () => {
+			const controller = new AbortController();
+
+			// Start a long-running command, then abort after a short delay
+			const resultPromise = registry.execute(
+				"exec",
+				{ command: "sleep 30", timeout_ms: 60_000 },
+				controller.signal,
+			);
+
+			// Abort after 100ms — command should terminate well before 30s
+			setTimeout(() => controller.abort(), 100);
+
+			const start = performance.now();
+			const result = await resultPromise;
+			const elapsed = performance.now() - start;
+
+			expect(result.success).toBe(false);
+			expect(elapsed).toBeLessThan(5_000); // Should complete quickly, not wait 30s
+		});
+
+		test("signal is threaded through to primitive execute method", async () => {
+			const controller = new AbortController();
+
+			// A non-exec primitive should receive the signal without error
+			await env.write_file("signal-test.txt", "hello");
+			const result = await registry.execute(
+				"read_file",
+				{ path: "signal-test.txt" },
+				controller.signal,
+			);
+			expect(result.success).toBe(true);
+		});
+	});
 });
