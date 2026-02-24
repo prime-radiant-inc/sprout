@@ -129,14 +129,18 @@ describe("EventBus", () => {
 			expect(bus.collected()).toHaveLength(0);
 		});
 
-		test("events array is capped at maximum", () => {
+		test("events array is capped and retains newest events", () => {
 			const bus = new EventBus();
-			// Emit more than the cap
-			for (let i = 0; i < 11000; i++) {
+			// Emit more than 2x cap to trigger the amortized trim
+			for (let i = 0; i < 20_050; i++) {
 				bus.emitEvent("plan_start", "root", 0, { turn: i });
 			}
-			// Should be capped, not 11000
-			expect(bus.collected().length).toBeLessThanOrEqual(10000);
+			const collected = bus.collected();
+			// After trimming, should have at most 10_000 + events emitted since trim
+			expect(collected.length).toBeLessThanOrEqual(10_050);
+			// The newest events should be retained
+			const lastEvent = collected[collected.length - 1];
+			expect(lastEvent!.data.turn).toBe(20_049);
 		});
 	});
 });

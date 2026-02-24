@@ -42,8 +42,8 @@ export class EventBus {
 			data,
 		};
 		this.events.push(event);
-		if (this.events.length > EVENT_CAP) {
-			this.events.splice(0, this.events.length - EVENT_CAP);
+		if (this.events.length > EVENT_CAP * 2) {
+			this.events = this.events.slice(-EVENT_CAP);
 		}
 		for (const listener of this.eventListeners) {
 			listener(event);

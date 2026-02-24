@@ -1,7 +1,12 @@
-import { describe, expect, test } from "bun:test";
-import { homedir } from "node:os";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "../../src/host/cli.ts";
+import { EventBus } from "../../src/host/event-bus.ts";
+import { replayEventLog } from "../../src/host/resume.ts";
+import type { AgentFactory } from "../../src/host/session-controller.ts";
+import { SessionController } from "../../src/host/session-controller.ts";
 
 const defaultGenomePath = join(homedir(), ".local/share/sprout-genome");
 
@@ -160,5 +165,93 @@ describe("handleSigint", () => {
 
 		expect(commands).toHaveLength(0);
 		expect(closed).toBe(true);
+	});
+});
+
+describe("resume flow", () => {
+	let tempDir: string;
+
+	beforeEach(async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "sprout-cli-resume-"));
+	});
+
+	afterEach(async () => {
+		await rm(tempDir, { recursive: true, force: true });
+	});
+
+	test("resumed session passes replayed history and sessionId to factory", async () => {
+		const sessionsDir = join(tempDir, "sessions");
+		await mkdir(sessionsDir, { recursive: true });
+		const sessionId = "01RESUMETEST_SESSION_ID";
+		const logPath = join(sessionsDir, `${sessionId}.jsonl`);
+
+		const events = [
+			{
+				kind: "perceive",
+				timestamp: Date.now(),
+				agent_id: "root",
+				depth: 0,
+				data: { goal: "original goal" },
+			},
+			{
+				kind: "plan_end",
+				timestamp: Date.now(),
+				agent_id: "root",
+				depth: 0,
+				data: {
+					turn: 1,
+					assistant_message: {
+						role: "assistant",
+						content: [{ kind: "text", text: "I completed the task." }],
+					},
+				},
+			},
+		];
+		await writeFile(logPath, `${events.map((e) => JSON.stringify(e)).join("\n")}\n`);
+
+		const history = await replayEventLog(logPath);
+		expect(history).toHaveLength(2);
+		expect(history[0]!.role).toBe("user");
+		expect(history[1]!.role).toBe("assistant");
+
+		let capturedSessionId: string | undefined;
+		let capturedHistory: any[] | undefined;
+		const factory: AgentFactory = async (options) => {
+			capturedSessionId = options.sessionId;
+			capturedHistory = options.initialHistory;
+			return {
+				agent: {
+					steer() {},
+					async run() {
+						return {
+							output: "done",
+							success: true,
+							stumbles: 0,
+							turns: 1,
+							timed_out: false,
+						};
+					},
+				} as any,
+				learnProcess: null,
+			};
+		};
+
+		const bus = new EventBus();
+		const controller = new SessionController({
+			bus,
+			genomePath: join(tempDir, "genome"),
+			sessionsDir,
+			sessionId,
+			initialHistory: history,
+			factory,
+		});
+
+		await controller.submitGoal("continue work");
+
+		expect(capturedSessionId).toBe(sessionId);
+		expect(capturedHistory).toBeDefined();
+		expect(capturedHistory).toHaveLength(2);
+		expect(capturedHistory![0].role).toBe("user");
+		expect(capturedHistory![1].role).toBe("assistant");
 	});
 });
