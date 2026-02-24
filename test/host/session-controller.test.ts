@@ -969,6 +969,49 @@ describe("SessionController", () => {
 		expect(snapshot.status).toBe("interrupted");
 	});
 
+	test("clear command resets session identity and emits session_clear", async () => {
+		const factory: AgentFactory = async (options) => ({
+			agent: {
+				steer() {},
+				async run(goal: string) {
+					options.events.emitEvent("perceive", "root", 0, { goal });
+					options.events.emitEvent("plan_end", "root", 0, {
+						turn: 1,
+						assistant_message: {
+							role: "assistant",
+							content: [{ kind: "text", text: "Done." }],
+						},
+					});
+					return { output: "done", success: true, stumbles: 0, turns: 1, timed_out: false };
+				},
+			} as any,
+			learnProcess: null,
+		});
+
+		const { bus, controller } = makeController({ factory });
+
+		const initialId = controller.sessionId;
+
+		// Run a goal to populate some state
+		await controller.submitGoal("first goal");
+
+		const events: any[] = [];
+		bus.onEvent((e) => events.push(e));
+
+		// Clear should reset session identity
+		bus.emitCommand({ kind: "clear", data: {} });
+
+		// sessionId should be different
+		expect(controller.sessionId).not.toBe(initialId);
+		expect(controller.sessionId).toHaveLength(26);
+		expect(controller.sessionId).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
+
+		// session_clear event should have been emitted
+		const clearEvents = events.filter((e) => e.kind === "session_clear");
+		expect(clearEvents).toHaveLength(1);
+		expect(clearEvents[0].data.new_session_id).toBe(controller.sessionId);
+	});
+
 	test("resume with stuck running metadata marks it interrupted before running", async () => {
 		const sessionsDir = join(tempDir, "sessions");
 		const sessionId = "01STUCKSESSION_RUNNING";

@@ -135,6 +135,7 @@ export type EventKind =
 	| "warning"
 	| "error"
 	| "session_resume"
+	| "session_clear"
 	| "context_update"
 	| "compaction"
 	| "interrupted";

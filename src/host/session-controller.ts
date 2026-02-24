@@ -110,7 +110,7 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
  * and relays agent events back through the bus (up).
  */
 export class SessionController {
-	readonly sessionId: string;
+	private _sessionId: string;
 	private agent: RunnableAgent | null = null;
 	private abortController = new AbortController();
 	private metadata: SessionMetadata;
@@ -120,7 +120,7 @@ export class SessionController {
 	private readonly bootstrapDir?: string;
 	private readonly rootAgentName?: string;
 	private readonly factory: AgentFactory;
-	private readonly logPath: string;
+	private _logPath: string;
 	private history: Message[] = [];
 	private running = false;
 	private modelOverride?: string;
@@ -128,19 +128,23 @@ export class SessionController {
 	private compactFn?: AgentFactoryResult["compact"];
 	private writeQueue: Promise<void> = Promise.resolve();
 
+	get sessionId(): string {
+		return this._sessionId;
+	}
+
 	constructor(options: SessionControllerOptions) {
-		this.sessionId = options.sessionId ?? ulid();
+		this._sessionId = options.sessionId ?? ulid();
 		this.bus = options.bus;
 		this.genomePath = options.genomePath;
 		this.sessionsDir = options.sessionsDir;
 		this.bootstrapDir = options.bootstrapDir;
 		this.rootAgentName = options.rootAgent;
 		this.factory = options.factory ?? defaultFactory;
-		this.logPath = join(options.sessionsDir, `${this.sessionId}.jsonl`);
+		this._logPath = join(options.sessionsDir, `${this._sessionId}.jsonl`);
 		this.history = options.initialHistory ? [...options.initialHistory] : [];
 
 		this.metadata = new SessionMetadata({
-			sessionId: this.sessionId,
+			sessionId: this._sessionId,
 			agentSpec: options.rootAgent ?? "root",
 			model: "best",
 			sessionsDir: this.sessionsDir,
@@ -167,10 +171,22 @@ export class SessionController {
 			case "interrupt":
 				this.interrupt();
 				break;
-			case "clear":
+			case "clear": {
 				this.history = [];
 				this.hasRun = false;
+				this._sessionId = ulid();
+				this._logPath = join(this.sessionsDir, `${this._sessionId}.jsonl`);
+				this.metadata = new SessionMetadata({
+					sessionId: this._sessionId,
+					agentSpec: this.rootAgentName ?? "root",
+					model: this.modelOverride ?? "best",
+					sessionsDir: this.sessionsDir,
+				});
+				this.bus.emitEvent("session_clear", "session", 0, {
+					new_session_id: this._sessionId,
+				});
 				break;
+			}
 			case "switch_model":
 				this.modelOverride = cmd.data.model as string | undefined;
 				break;
@@ -249,7 +265,7 @@ export class SessionController {
 	private appendLog(event: SessionEvent): Promise<void> {
 		const write = this.writeQueue.then(async () => {
 			await mkdir(this.sessionsDir, { recursive: true });
-			await appendFile(this.logPath, JSON.stringify(event) + "\n");
+			await appendFile(this._logPath, JSON.stringify(event) + "\n");
 		});
 		this.writeQueue = write.catch(() => {});
 		return write;
@@ -259,7 +275,7 @@ export class SessionController {
 		if (!this.compactFn || this.history.length === 0) return;
 		// Snapshot history to avoid race with concurrent event accumulation
 		const snapshot = [...this.history];
-		const result = await this.compactFn(snapshot, this.logPath);
+		const result = await this.compactFn(snapshot, this._logPath);
 		// The compaction event handler in handleEvent sets this.history
 		this.bus.emitEvent("compaction", "session", 0, {
 			summary: result.summary,
@@ -291,7 +307,7 @@ export class SessionController {
 
 		// Task 19: If resuming a session with stuck "running" metadata, recover it
 		if (this.history.length > 0) {
-			await this.metadata.loadIfExists(this.logPath.replace(".jsonl", ".meta.json"));
+			await this.metadata.loadIfExists(this._logPath.replace(".jsonl", ".meta.json"));
 		}
 
 		this.running = true;
@@ -308,7 +324,7 @@ export class SessionController {
 				workDir: process.cwd(),
 				rootAgent: this.rootAgentName,
 				events: this.bus,
-				sessionId: this.sessionId,
+				sessionId: this._sessionId,
 				initialHistory: this.history.length > 0 ? [...this.history] : undefined,
 				model: this.modelOverride,
 			});
