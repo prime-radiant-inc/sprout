@@ -240,4 +240,51 @@ describe("App", () => {
 		// The latest warnings should still be visible
 		expect(frame).toContain("warn-99");
 	});
+
+	test("Ctrl+C while running emits interrupt command on bus", async () => {
+		const commands: any[] = [];
+		const { bus, stdin } = setup();
+		bus.onCommand((cmd) => commands.push(cmd));
+
+		bus.emitEvent("session_start", "root", 0, { goal: "test" });
+		await flush();
+
+		stdin.write("\x03");
+		await flush();
+
+		const interruptCmd = commands.find((c) => c.kind === "interrupt");
+		expect(interruptCmd).toBeDefined();
+	});
+
+	test("Ctrl+C while idle calls onExit", async () => {
+		let exited = false;
+		const { stdin } = setup({
+			onExit: () => {
+				exited = true;
+			},
+		});
+
+		stdin.write("\x03");
+		await flush();
+
+		expect(exited).toBe(true);
+	});
+
+	test("interrupted event sets status to not running", async () => {
+		const { bus, lastFrame } = setup();
+
+		bus.emitEvent("session_start", "root", 0, { goal: "test" });
+		bus.emitEvent("plan_end", "root", 0, {
+			turn: 1,
+			usage: { input_tokens: 2000, output_tokens: 500 },
+		});
+		await flush();
+		expect(lastFrame()).toContain("\u2191"); // Running arrows visible
+
+		bus.emitEvent("interrupted", "root", 0, { message: "user interrupt" });
+		await flush();
+
+		expect(lastFrame()).not.toContain("\u2191"); // Arrows gone
+		expect(lastFrame()).toContain(">"); // Idle prompt
+	});
 });

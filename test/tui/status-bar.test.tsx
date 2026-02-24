@@ -173,4 +173,22 @@ describe("StatusBar", () => {
 		expect(frame).toContain("0%");
 		expect(frame).toContain("0 to compact");
 	});
+
+	test("hides token usage when interrupted", () => {
+		const { lastFrame } = render(
+			<StatusBar
+				contextTokens={10000}
+				contextWindowSize={200000}
+				turns={2}
+				inputTokens={5000}
+				outputTokens={1200}
+				model="claude-sonnet-4-20250514"
+				sessionId="01ABCDEF12345678ABCDEF1234"
+				status="interrupted"
+			/>,
+		);
+		const frame = lastFrame();
+		expect(frame).not.toContain("\u2191");
+		expect(frame).not.toContain("\u2193");
+	});
 });
