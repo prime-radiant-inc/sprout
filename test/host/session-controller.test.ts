@@ -942,7 +942,11 @@ describe("SessionController", () => {
 					// Wait for abort
 					await new Promise((_resolve, reject) => {
 						if (signal?.aborted) return reject(new DOMException("Aborted", "AbortError"));
-						signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+						signal?.addEventListener(
+							"abort",
+							() => reject(new DOMException("Aborted", "AbortError")),
+							{ once: true },
+						);
 					});
 				},
 			} as any,

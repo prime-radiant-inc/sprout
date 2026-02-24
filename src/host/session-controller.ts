@@ -299,6 +299,7 @@ export class SessionController {
 		await this.metadata.save();
 
 		let learnProcess: AgentFactoryResult["learnProcess"] = null;
+		const signal = this.abortController.signal;
 
 		try {
 			const result = await this.factory({
@@ -320,13 +321,13 @@ export class SessionController {
 				learnProcess.startBackground();
 			}
 
-			await result.agent.run(goal, this.abortController.signal);
+			await result.agent.run(goal, signal);
 		} finally {
 			if (learnProcess) {
 				await learnProcess.stopBackground();
 			}
 			this.running = false;
-			this.metadata.setStatus("idle");
+			this.metadata.setStatus(signal.aborted ? "interrupted" : "idle");
 			await this.metadata.save();
 			this.agent = null;
 		}
