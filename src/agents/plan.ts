@@ -132,7 +132,7 @@ export function buildPlanRequest(opts: {
 		messages: [Msg.system(opts.systemPrompt), ...opts.history],
 		tools: [...opts.agentTools, ...opts.primitiveTools],
 		tool_choice: "auto",
-		max_tokens: opts.maxTokens ?? 4096,
+		max_tokens: opts.maxTokens ?? 16384,
 	};
 
 	if (opts.thinking) {
@@ -175,7 +175,10 @@ export function parsePlanResponse(toolCalls: ToolCall[]): {
 		if (call.name === DELEGATE_TOOL_NAME) {
 			const agentName = call.arguments.agent_name;
 			if (typeof agentName !== "string" || agentName.length === 0) {
-				errors.push({ call_id: call.id, error: "Delegation missing required 'agent_name' argument" });
+				errors.push({
+					call_id: call.id,
+					error: "Delegation missing required 'agent_name' argument",
+				});
 				continue;
 			}
 			const goal = call.arguments.goal;

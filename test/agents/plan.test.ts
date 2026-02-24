@@ -192,7 +192,7 @@ describe("buildPlanRequest", () => {
 		expect(req.tools).toHaveLength(1);
 		expect(req.tools![0]!.name).toBe("delegate");
 		expect(req.tool_choice).toBe("auto");
-		expect(req.max_tokens).toBe(4096);
+		expect(req.max_tokens).toBe(16384);
 	});
 
 	test("includes history messages after system", () => {

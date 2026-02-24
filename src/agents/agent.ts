@@ -473,6 +473,28 @@ export class Agent {
 			// Check for tool calls
 			const toolCalls = messageToolCalls(assistantMessage);
 
+			// If response was truncated (hit max_tokens), tool calls are likely incomplete.
+			// Don't attempt to execute them — tell the LLM to break the task into smaller steps.
+			if (response.finish_reason.reason === "length" && toolCalls.length > 0) {
+				// Add error tool results for all truncated calls so history stays valid
+				for (const call of toolCalls) {
+					history.push(
+						Msg.toolResult(
+							call.id,
+							"Error: Your response was truncated (hit max_tokens limit). " +
+								"Break your task into smaller steps — don't try to write large amounts of code in a single tool call argument.",
+							true,
+						),
+					);
+				}
+				this.emitAndLog("warning", agentId, this.depth, {
+					message: "Response truncated (max_tokens). Asking agent to use smaller steps.",
+				});
+				stumbles++;
+				turns++;
+				continue;
+			}
+
 			// Natural completion: no tool calls means the agent is done
 			if (toolCalls.length === 0) {
 				lastOutput = messageText(assistantMessage);
