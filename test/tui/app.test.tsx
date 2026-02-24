@@ -384,6 +384,32 @@ describe("App", () => {
 		expect(lastFrame()).toContain(">");
 	});
 
+	test("renders initialEvents in conversation view on resume", async () => {
+		const initialEvents = [
+			{
+				kind: "session_start" as const,
+				timestamp: Date.now(),
+				agent_id: "root",
+				depth: 0,
+				data: { goal: "resumed goal" },
+			},
+			{
+				kind: "plan_end" as const,
+				timestamp: Date.now(),
+				agent_id: "root",
+				depth: 0,
+				data: { text: "Prior assistant response." },
+			},
+		];
+
+		const { lastFrame } = setup({ initialEvents } as any);
+		await flush();
+
+		const frame = lastFrame()!;
+		expect(frame).toContain("Starting session...");
+		expect(frame).toContain("Prior assistant response.");
+	});
+
 	test("session_clear updates sessionId in status bar", async () => {
 		const bus = new EventBus();
 		const { lastFrame } = render(

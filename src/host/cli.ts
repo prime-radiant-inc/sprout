@@ -284,10 +284,12 @@ export async function runCli(command: CliCommand): Promise<void> {
 
 	let resumeSessionId: string | undefined;
 	let resumeHistory: import("../llm/types.ts").Message[] | undefined;
+	let resumeEvents: import("../kernel/types.ts").SessionEvent[] | undefined;
 
 	if (command.kind === "resume" || command.kind === "resume-last") {
 		const { listSessions } = await import("./session-metadata.ts");
 		const { replayEventLog } = await import("./resume.ts");
+		const { readFile } = await import("node:fs/promises");
 
 		let sessionId: string;
 		if (command.kind === "resume-last") {
@@ -306,6 +308,24 @@ export async function runCli(command: CliCommand): Promise<void> {
 		console.log(
 			`Resumed session ${sessionId.slice(0, 8)}... with ${history.length} messages of history`,
 		);
+
+		// Read raw events for display in the TUI
+		try {
+			const raw = await readFile(logPath, "utf-8");
+			resumeEvents = raw
+				.split("\n")
+				.filter((line) => line.trim() !== "")
+				.map((line) => {
+					try {
+						return JSON.parse(line);
+					} catch {
+						return null;
+					}
+				})
+				.filter((e): e is import("../kernel/types.ts").SessionEvent => e !== null);
+		} catch {
+			// Log file missing — no events to display
+		}
 
 		resumeSessionId = sessionId;
 		resumeHistory = history;
@@ -336,6 +356,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 			bus,
 			sessionId: controller.sessionId,
 			initialHistory: inputHistory.all(),
+			initialEvents: resumeEvents,
 			onSubmit: (text: string) => {
 				inputHistory.add(text);
 				bus.emitCommand({ kind: "submit_goal", data: { goal: text } });

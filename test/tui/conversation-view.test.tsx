@@ -277,6 +277,62 @@ describe("ConversationView", () => {
 		expect(lastFrame()).not.toContain("SCROLL");
 	});
 
+	test("renders initialEvents on mount", async () => {
+		const bus = new EventBus();
+		const initialEvents = [
+			{
+				kind: "session_start" as const,
+				timestamp: Date.now(),
+				agent_id: "root",
+				depth: 0,
+				data: { goal: "prior goal" },
+			},
+			{
+				kind: "plan_end" as const,
+				timestamp: Date.now(),
+				agent_id: "root",
+				depth: 0,
+				data: { text: "Here is my response from before." },
+			},
+		];
+
+		const { lastFrame } = render(
+			<ConversationView bus={bus} initialEvents={initialEvents} />,
+		);
+		await flush();
+
+		const frame = lastFrame()!;
+		expect(frame).toContain("Starting session...");
+		expect(frame).toContain("Here is my response from before.");
+	});
+
+	test("initialEvents appear before new events", async () => {
+		const bus = new EventBus();
+		const initialEvents = [
+			{
+				kind: "warning" as const,
+				timestamp: Date.now(),
+				agent_id: "cli",
+				depth: 0,
+				data: { message: "old-event" },
+			},
+		];
+
+		const { lastFrame } = render(
+			<ConversationView bus={bus} initialEvents={initialEvents} />,
+		);
+		await flush();
+
+		bus.emitEvent("warning", "cli", 0, { message: "new-event" });
+		await flush();
+
+		const frame = lastFrame()!;
+		const oldIdx = frame.indexOf("old-event");
+		const newIdx = frame.indexOf("new-event");
+		expect(oldIdx).toBeGreaterThanOrEqual(0);
+		expect(newIdx).toBeGreaterThan(oldIdx);
+	});
+
 	test("skips events that render-event returns null for", async () => {
 		const bus = new EventBus();
 		const { lastFrame } = render(<ConversationView bus={bus} />);

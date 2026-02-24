@@ -32,13 +32,27 @@ export interface ConversationViewProps {
 	bus: EventBus;
 	/** Maximum number of lines to show. When exceeded, viewport scrolls. */
 	maxHeight?: number;
+	/** Historical events to display before new events (for resume). */
+	initialEvents?: SessionEvent[];
 }
 
-export function ConversationView({ bus, maxHeight }: ConversationViewProps) {
-	const [lines, setLines] = useState<Line[]>([]);
+export function ConversationView({ bus, maxHeight, initialEvents }: ConversationViewProps) {
+	const nextId = useRef(0);
+
+	// Compute initial lines from initialEvents (runs once via lazy initializer)
+	const [lines, setLines] = useState<Line[]>(() => {
+		if (!initialEvents) return [];
+		const initial: Line[] = [];
+		for (const event of initialEvents) {
+			const text = renderEvent(event);
+			if (text !== null) {
+				initial.push({ id: nextId.current++, text, kind: event.kind });
+			}
+		}
+		return initial;
+	});
 	const [scrollOffset, setScrollOffset] = useState<number | null>(null);
 	const [toolsCollapsed, setToolsCollapsed] = useState(false);
-	const nextId = useRef(0);
 
 	useEffect(() => {
 		return bus.onEvent((event: SessionEvent) => {

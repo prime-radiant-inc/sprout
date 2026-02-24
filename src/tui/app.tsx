@@ -18,14 +18,11 @@ export interface AppProps {
 	onSteer?: (text: string) => void;
 	/** List of known model names for the /model picker. */
 	knownModels?: string[];
+	/** Historical events to display in conversation view on resume. */
+	initialEvents?: SessionEvent[];
 }
 
-const DEFAULT_MODELS = [
-	"claude-sonnet-4-6",
-	"claude-opus-4-6",
-	"gpt-4o",
-	"gemini-2.5-pro",
-];
+const DEFAULT_MODELS = ["claude-sonnet-4-6", "claude-opus-4-6", "gpt-4o", "gemini-2.5-pro"];
 
 interface StatusState {
 	contextTokens: number;
@@ -56,6 +53,7 @@ export function App({
 	initialHistory,
 	onSteer,
 	knownModels,
+	initialEvents,
 }: AppProps) {
 	const { stdout } = useStdout();
 	const terminalRows = stdout?.rows ?? 40;
@@ -125,7 +123,7 @@ export function App({
 
 	return (
 		<Box flexDirection="column">
-			<ConversationView bus={bus} maxHeight={conversationHeight} />
+			<ConversationView bus={bus} maxHeight={conversationHeight} initialEvents={initialEvents} />
 			<StatusBar
 				contextTokens={statusState.contextTokens}
 				contextWindowSize={statusState.contextWindowSize}
