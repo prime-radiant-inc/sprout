@@ -9,109 +9,180 @@ export function truncateLines(text: string, maxLines: number): string {
 	return `${lines.slice(0, maxLines).join("\n")}\n... (${remaining} more lines)`;
 }
 
-/** Extract the key argument for a primitive (the most informative single arg). */
-export function primitiveKeyArg(name: string, args: Record<string, unknown> | undefined): string {
+/** Truncate a string to maxLen, adding ellipsis if truncated. */
+function truncate(str: string, maxLen: number): string {
+	if (str.length <= maxLen) return str;
+	return `${str.slice(0, maxLen - 1)}...`;
+}
+
+/** Count newlines in content to report line count. */
+function lineCount(content: unknown): number | null {
+	if (typeof content !== "string" || content === "") return null;
+	return content.split("\n").length;
+}
+
+/**
+ * Build a smart display string for primitive tool arguments.
+ * Returns the formatted arg string (without leading space — caller adds that).
+ */
+export function smartArgs(name: string, args: Record<string, unknown> | undefined): string {
 	if (!args) return "";
 	switch (name) {
-		case "exec":
-			return args.command ? ` \`${args.command}\`` : "";
-		case "read_file":
-		case "write_file":
-		case "edit_file":
-			return args.path ? ` ${args.path}` : "";
-		case "grep":
-		case "glob":
-			return args.pattern ? ` \`${args.pattern}\`` : "";
-		default:
+		case "exec": {
+			const cmd = args.command;
+			if (typeof cmd !== "string") return "";
+			return `\`${truncate(cmd, 60)}\``;
+		}
+		case "read_file": {
+			const path = args.path;
+			if (typeof path !== "string") return "";
+			const offset = args.offset;
+			const limit = args.limit;
+			if (typeof offset === "number" || typeof limit === "number") {
+				const parts: string[] = [];
+				if (typeof offset === "number") parts.push(String(offset));
+				if (typeof limit === "number") parts.push(`+${limit}`);
+				return `${path}:${parts.join("")}`;
+			}
+			return path;
+		}
+		case "write_file": {
+			const path = args.path;
+			if (typeof path !== "string") return "";
+			const lines = lineCount(args.content);
+			return lines ? `${path} (${lines} lines)` : path;
+		}
+		case "edit_file": {
+			const path = args.path;
+			return typeof path === "string" ? path : "";
+		}
+		case "grep": {
+			const pattern = args.pattern;
+			const path = args.path;
+			if (typeof pattern !== "string") return "";
+			const parts = [`\`${pattern}\``];
+			if (typeof path === "string") parts.push(path);
+			return parts.join(" ");
+		}
+		case "glob": {
+			const pattern = args.pattern;
+			return typeof pattern === "string" ? `\`${pattern}\`` : "";
+		}
+		default: {
+			// Show first key=value pair where value is short enough to display
+			for (const [key, val] of Object.entries(args)) {
+				const str = typeof val === "string" ? val : JSON.stringify(val);
+				if (str !== undefined && str.length <= 40) {
+					return `${key}=${str}`;
+				}
+			}
 			return "";
+		}
 	}
 }
 
-/** Render a SessionEvent as a terminal-friendly string. Returns null for events that shouldn't be shown. */
+/** Extract the key argument for a primitive (the most informative single arg). */
+export function primitiveKeyArg(name: string, args: Record<string, unknown> | undefined): string {
+	const result = smartArgs(name, args);
+	return result ? ` ${result}` : "";
+}
+
+/** Format duration in seconds, showing one decimal place. */
+export function formatDuration(durationMs: number | null): string | null {
+	if (durationMs === null) return null;
+	return `${(durationMs / 1000).toFixed(1)}s`;
+}
+
+/**
+ * Render a SessionEvent as a terminal-friendly plain string.
+ * Used by the one-shot CLI mode (--prompt). The TUI uses renderEventComponent instead.
+ * Returns null for events that shouldn't be shown.
+ */
 export function renderEvent(event: SessionEvent): string | null {
-	const { kind, agent_id, depth, data } = event;
-	const indent = "  ".repeat(depth);
-	const prefix = `${indent}[${agent_id}]`;
+	const { kind, depth, data } = event;
+	const ind = "  ".repeat(depth);
 
 	switch (kind) {
 		case "session_start":
-			return `${prefix} Starting session...`;
+			return `${ind}\u25C6 Starting session...`;
 
 		case "session_resume":
-			return `${prefix} Resumed session (${data.history_length ?? 0} messages of history)`;
+			return `${ind}\u21BB Resumed session (${data.history_length ?? 0} messages of history)`;
 
 		case "session_clear":
-			return `${prefix} New session started`;
+			return `${ind}\u25C6 New session started`;
 
 		case "plan_start":
-			return `${prefix} Planning (turn ${data.turn})...`;
+			return `${ind}\u25CC thinking...`;
 
 		case "plan_end": {
 			const lines: string[] = [];
 			if (data.reasoning) {
 				for (const line of String(data.reasoning).split("\n")) {
-					lines.push(`${prefix} ${line}`);
+					lines.push(`${ind}  ${line}`);
 				}
 			}
 			if (data.text) {
 				for (const line of String(data.text).split("\n")) {
-					lines.push(`${prefix} ${line}`);
+					lines.push(`${ind}${line}`);
 				}
 			}
 			return lines.length > 0 ? lines.join("\n") : null;
 		}
 
 		case "primitive_start": {
-			const keyArg = primitiveKeyArg(data.name as string, data.args as Record<string, unknown>);
-			return `${prefix}   ${data.name}${keyArg}`;
+			const argStr = smartArgs(data.name as string, data.args as Record<string, unknown>);
+			return `${ind}  \u25B8 ${data.name}${argStr ? ` ${argStr}` : ""}`;
 		}
 
 		case "primitive_end": {
 			const name = data.name;
+			const argStr = smartArgs(name as string, data.args as Record<string, unknown>);
+			const argSuffix = argStr ? ` ${argStr}` : "";
 			if (!data.success) {
-				const errMsg = data.error ? ` \u2014 ${data.error}` : "";
-				return `${prefix}   ${name}: failed${errMsg}`;
+				const errMsg = data.error ? ` ${data.error}` : "";
+				return `${ind}  \u25B8 ${name}${argSuffix} \u2717${errMsg}`;
 			}
-			const output = data.output ? String(data.output) : "";
-			const lineCount = output ? output.split("\n").length : 0;
-			const suffix = lineCount > 0 ? ` (${lineCount} lines)` : "";
-			return `${prefix}   ${name}: done${suffix}`;
+			return `${ind}  \u25B8 ${name}${argSuffix} \u2713`;
 		}
 
 		case "act_start":
-			return `${prefix} \u2192 ${data.agent_name}: ${data.goal}`;
+			return `${ind}\u2192 ${data.agent_name}: ${truncate(String(data.goal), 80)}`;
 
 		case "act_end": {
-			if (!data.success) {
-				return `${prefix} \u2190 ${data.agent_name}: failed`;
-			}
 			const turns = data.turns != null ? ` (${data.turns} turns)` : "";
-			return `${prefix} \u2190 ${data.agent_name}: done${turns}`;
+			if (!data.success) {
+				return `${ind}\u2190 ${data.agent_name} \u2717 failed${turns}`;
+			}
+			return `${ind}\u2190 ${data.agent_name} \u2713${turns}`;
 		}
 
 		case "session_end":
-			return `${prefix} Session complete. ${data.turns} turns, ${data.stumbles} stumbles.`;
+			return `${ind}\u25C7 Session complete. ${data.turns} turns, ${data.stumbles} stumbles.`;
 
 		case "interrupted":
-			return `${prefix} Interrupted: ${data.message ?? "user interrupt"}`;
+			return `${ind}\u2298 ${data.message ?? "user interrupt"}`;
 
 		case "context_update":
 			return null;
 
 		case "compaction":
-			return `${prefix} Context compacted: ${data.beforeCount} → ${data.afterCount} messages`;
+			return `${ind}\u2298 Context compacted: ${data.beforeCount} \u2192 ${data.afterCount} messages`;
 
 		case "learn_start":
-			return `${prefix} Learning from stumble...`;
+			return `${ind}\u25CB Learning from stumble...`;
 
 		case "learn_mutation":
-			return `${prefix}   Genome updated: ${data.mutation_type}`;
+			return `${ind}\u25CB Genome updated: ${data.mutation_type}`;
 
 		case "warning":
-			return `${prefix} \u26a0 ${data.message}`;
+			return `${ind}\u26A0 ${data.message}`;
 
 		case "error":
-			return `${prefix} \u2717 ${data.error}`;
+			return `${ind}\u2717 ${data.error}`;
+
+		case "steering":
+			return `${ind}\u21AA ${data.text ?? "user steering"}`;
 
 		default:
 			return null;
