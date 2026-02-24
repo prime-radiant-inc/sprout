@@ -934,6 +934,37 @@ describe("SessionController", () => {
 		expect(capturedInitialHistory![0].content[0].text).toBe("compacted summary");
 	});
 
+	test("interrupted agent sets metadata to interrupted, not idle", async () => {
+		const factory: AgentFactory = async () => ({
+			agent: {
+				steer() {},
+				async run(_goal: string, signal?: AbortSignal) {
+					// Wait for abort
+					await new Promise((_resolve, reject) => {
+						if (signal?.aborted) return reject(new DOMException("Aborted", "AbortError"));
+						signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+					});
+				},
+			} as any,
+			learnProcess: null,
+		});
+
+		const { bus, controller, sessionsDir } = makeController({ factory });
+		const promise = controller.submitGoal("do stuff");
+		await new Promise((r) => setTimeout(r, 10));
+
+		// Interrupt
+		bus.emitCommand({ kind: "interrupt", data: {} });
+
+		// Wait for submitGoal to settle
+		await promise.catch(() => {});
+
+		const metaPath = join(sessionsDir, `${controller.sessionId}.meta.json`);
+		const raw = await readFile(metaPath, "utf-8");
+		const snapshot = JSON.parse(raw);
+		expect(snapshot.status).toBe("interrupted");
+	});
+
 	test("resume with stuck running metadata marks it interrupted before running", async () => {
 		const sessionsDir = join(tempDir, "sessions");
 		const sessionId = "01STUCKSESSION_RUNNING";

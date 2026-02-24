@@ -79,6 +79,7 @@ export class Agent {
 	private readonly primitiveTools: ToolDefinition[];
 	private readonly logBasePath?: string;
 	private readonly initialHistory?: Message[];
+	private signal?: AbortSignal;
 	private logWriteChain: Promise<void> = Promise.resolve();
 	private steeringQueue: string[] = [];
 
@@ -251,7 +252,7 @@ export class Agent {
 				logBasePath: subLogBasePath,
 			});
 
-			const subResult = await subagent.run(subGoal);
+			const subResult = await subagent.run(subGoal, this.signal);
 
 			const actResult: ActResult = {
 				agent_name: delegation.agent_name,
@@ -316,6 +317,7 @@ export class Agent {
 	/** Run the agent loop with the given goal */
 	async run(goal: string, signal?: AbortSignal): Promise<AgentResult> {
 		const agentId = this.spec.name;
+		this.signal = signal;
 		const startTime = performance.now();
 		let stumbles = 0;
 		let turns = 0;
