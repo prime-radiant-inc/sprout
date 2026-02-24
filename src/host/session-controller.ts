@@ -115,6 +115,7 @@ export class SessionController {
 	private modelOverride?: string;
 	private hasRun = false;
 	private compactFn?: AgentFactoryResult["compact"];
+	private writeQueue: Promise<void> = Promise.resolve();
 
 	constructor(options: SessionControllerOptions) {
 		this.sessionId = options.sessionId ?? ulid();
@@ -229,9 +230,13 @@ export class SessionController {
 		}
 	}
 
-	private async appendLog(event: SessionEvent): Promise<void> {
-		await mkdir(this.sessionsDir, { recursive: true });
-		await appendFile(this.logPath, JSON.stringify(event) + "\n");
+	private appendLog(event: SessionEvent): Promise<void> {
+		const write = this.writeQueue.then(async () => {
+			await mkdir(this.sessionsDir, { recursive: true });
+			await appendFile(this.logPath, JSON.stringify(event) + "\n");
+		});
+		this.writeQueue = write.catch(() => {});
+		return write;
 	}
 
 	private async runCompaction(): Promise<void> {
