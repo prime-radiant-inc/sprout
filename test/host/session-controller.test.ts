@@ -478,7 +478,11 @@ describe("SessionController", () => {
 		await controller.submitGoal("second goal");
 		expect(factoryCallCount).toBe(2);
 		expect(capturedInitialHistory).toBeDefined();
-		expect(capturedInitialHistory!.length).toBeGreaterThan(0);
+		expect(capturedInitialHistory).toHaveLength(2);
+		expect(capturedInitialHistory![0].role).toBe("user");
+		expect(capturedInitialHistory![0].content[0].text).toBe("first goal");
+		expect(capturedInitialHistory![1].role).toBe("assistant");
+		expect(capturedInitialHistory![1].content[0].text).toBe("Done.");
 	});
 
 	test("default factory forwards sessionId to createAgent", async () => {
