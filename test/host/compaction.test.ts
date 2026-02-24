@@ -164,6 +164,36 @@ describe("compactHistory", () => {
 		);
 	});
 
+	test("sends empty tools and system to prevent inheritance", async () => {
+		const history = makeHistory(10);
+		let capturedRequest: Request | undefined;
+		const client = {
+			complete: async (req: Request) => {
+				capturedRequest = req;
+				return {
+					id: "mock",
+					model: "test",
+					provider: "test",
+					message: Msg.assistant("Summary"),
+					finish_reason: { reason: "stop" as const },
+					usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+				};
+			},
+		} as unknown as Client;
+
+		await compactHistory({
+			history,
+			client,
+			model: "test-model",
+			provider: "test",
+			logPath: "/tmp/test.log",
+		});
+
+		expect(capturedRequest).toBeDefined();
+		expect(capturedRequest!.tools).toEqual([]);
+		expect(capturedRequest!.system).toBe("");
+	});
+
 	test("buildCompactionPrompt includes older turns content", async () => {
 		const history = makeHistory(10);
 		// Capture what gets sent to client.complete()

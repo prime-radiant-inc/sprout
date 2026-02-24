@@ -58,6 +58,8 @@ export async function compactHistory(opts: {
 		model,
 		provider,
 		messages: summarizationMessages,
+		tools: [],
+		system: "",
 	});
 
 	const summary = messageText(response.message);
