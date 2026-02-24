@@ -505,9 +505,148 @@ describe("SessionController", () => {
 		expect(capturedSessionId).toBe("MY_CUSTOM_SESSION");
 	});
 
+	test("clear command resets history", async () => {
+		let callCount = 0;
+		let capturedHistory: any[] | undefined;
+
+		const factory: AgentFactory = async (options) => {
+			callCount++;
+			capturedHistory = options.initialHistory;
+			return {
+				agent: {
+					steer() {},
+					async run(goal: string) {
+						options.events.emitEvent("perceive", "root", 0, { goal });
+						options.events.emitEvent("plan_end", "root", 0, {
+							turn: 1,
+							assistant_message: {
+								role: "assistant",
+								content: [{ kind: "text", text: "Done." }],
+							},
+						});
+						return {
+							output: "done",
+							success: true,
+							stumbles: 0,
+							turns: 1,
+							timed_out: false,
+						};
+					},
+				} as any,
+				learnProcess: null,
+			};
+		};
+
+		const { bus, controller } = makeController({ factory });
+
+		await controller.submitGoal("first goal");
+		expect(callCount).toBe(1);
+
+		bus.emitCommand({ kind: "clear", data: {} });
+
+		await controller.submitGoal("second goal");
+		expect(callCount).toBe(2);
+		expect(capturedHistory).toBeUndefined();
+	});
+
 	test("compact command is accepted without error", () => {
 		const { bus } = makeController();
 		// Should not throw — compact is routed but not yet implemented
 		bus.emitCommand({ kind: "compact", data: {} });
+	});
+
+	test("switch_model command updates model passed to factory", async () => {
+		let capturedModel: string | undefined;
+		let callCount = 0;
+
+		const factory: AgentFactory = async (options) => {
+			callCount++;
+			capturedModel = options.model;
+			return {
+				agent: {
+					steer() {},
+					async run() {
+						return {
+							output: "done",
+							success: true,
+							stumbles: 0,
+							turns: 1,
+							timed_out: false,
+						};
+					},
+				} as any,
+				learnProcess: null,
+			};
+		};
+
+		const { bus, controller } = makeController({ factory });
+
+		// First run — no model override
+		await controller.submitGoal("first");
+		expect(callCount).toBe(1);
+		expect(capturedModel).toBeUndefined();
+
+		// Switch model
+		bus.emitCommand({ kind: "switch_model", data: { model: "fast" } });
+
+		// Second run — should pass model
+		await controller.submitGoal("second");
+		expect(callCount).toBe(2);
+		expect(capturedModel).toBe("fast");
+	});
+
+	test("session_resume event emitted when initialHistory provided", async () => {
+		const bus = new EventBus();
+		const fake = makeFakeAgent();
+		const factory = makeFakeFactory(fake);
+		const controller = new SessionController({
+			bus,
+			genomePath: join(tempDir, "genome"),
+			sessionsDir: join(tempDir, "sessions"),
+			factory,
+			initialHistory: [
+				{ role: "user", content: [{ kind: "text", text: "prior goal" }] },
+				{ role: "assistant", content: [{ kind: "text", text: "prior response" }] },
+			],
+		});
+
+		const events: any[] = [];
+		bus.onEvent((e) => events.push(e));
+
+		await controller.submitGoal("new goal");
+
+		const resumeEvents = events.filter((e) => e.kind === "session_resume");
+		expect(resumeEvents).toHaveLength(1);
+		expect(resumeEvents[0].data.history_length).toBe(2);
+	});
+
+	test("context_update event emitted after plan_end with context data", async () => {
+		const factory: AgentFactory = async (options) => ({
+			agent: {
+				steer() {},
+				async run() {
+					options.events.emitEvent("plan_end", "root", 0, {
+						turn: 2,
+						context_tokens: 8000,
+						context_window_size: 200000,
+					});
+					// Allow async event handling
+					await new Promise((r) => setTimeout(r, 50));
+					return { output: "done", success: true, stumbles: 0, turns: 2, timed_out: false };
+				},
+			} as any,
+			learnProcess: null,
+		});
+
+		const { bus, controller } = makeController({ factory });
+		const events: any[] = [];
+		bus.onEvent((e) => events.push(e));
+
+		await controller.submitGoal("test context");
+
+		const contextEvents = events.filter((e) => e.kind === "context_update");
+		expect(contextEvents).toHaveLength(1);
+		expect(contextEvents[0].data.context_tokens).toBe(8000);
+		expect(contextEvents[0].data.context_window_size).toBe(200000);
 	});
 });

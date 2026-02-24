@@ -265,6 +265,17 @@ export async function runCli(command: CliCommand): Promise<void> {
 				bus.emitCommand({ kind: "clear", data: {} });
 				return;
 			}
+			if (slash.kind === "switch_model") {
+				bus.emitCommand({ kind: "switch_model", data: { model: slash.model } });
+				console.log(slash.model ? `Model set to: ${slash.model}` : "Model reset to default");
+				return;
+			}
+			if (slash.kind === "status") {
+				console.log(
+					`Session: ${controller.sessionId.slice(0, 8)}... | ${controller.isRunning ? "running" : "idle"}`,
+				);
+				return;
+			}
 			if (slash.kind === "unknown") {
 				console.log(`Unknown command: ${slash.raw}`);
 				return;

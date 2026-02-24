@@ -35,6 +35,8 @@ export interface AgentFactoryOptions {
 	events: EventBus;
 	/** Prior conversation history for resume/continuation. */
 	initialHistory?: Message[];
+	/** Model override from /model command. */
+	model?: string;
 }
 
 /** Result returned by the agent factory. */
@@ -105,6 +107,8 @@ export class SessionController {
 	private readonly logPath: string;
 	private history: Message[] = [];
 	private running = false;
+	private modelOverride?: string;
+	private hasRun = false;
 
 	constructor(options: SessionControllerOptions) {
 		this.sessionId = options.sessionId ?? ulid();
@@ -141,6 +145,12 @@ export class SessionController {
 			case "interrupt":
 				this.interrupt();
 				break;
+			case "clear":
+				this.history = [];
+				break;
+			case "switch_model":
+				this.modelOverride = cmd.data.model as string | undefined;
+				break;
 			case "compact":
 				// Compaction will be implemented in Task 8
 				break;
@@ -151,9 +161,7 @@ export class SessionController {
 	}
 
 	private async handleEvent(event: SessionEvent): Promise<void> {
-		await this.appendLog(event);
-
-		// Accumulate history from depth-0 events (mirrors resume.ts logic)
+		// Accumulate history synchronously before async operations
 		if (event.depth === 0) {
 			switch (event.kind) {
 				case "perceive": {
@@ -189,12 +197,18 @@ export class SessionController {
 			}
 		}
 
+		await this.appendLog(event);
+
 		if (event.kind === "plan_end" && event.depth === 0) {
 			const turn = (event.data.turn as number) ?? 0;
 			const contextTokens = (event.data.context_tokens as number) ?? 0;
 			const contextWindowSize = (event.data.context_window_size as number) ?? 0;
 			this.metadata.updateTurn(turn, contextTokens, contextWindowSize);
 			await this.metadata.save();
+			this.bus.emitEvent("context_update", "session", 0, {
+				context_tokens: contextTokens,
+				context_window_size: contextWindowSize,
+			});
 		}
 	}
 
@@ -214,6 +228,13 @@ export class SessionController {
 			return;
 		}
 
+		if (!this.hasRun && this.history.length > 0) {
+			this.bus.emitEvent("session_resume", "session", 0, {
+				history_length: this.history.length,
+			});
+		}
+		this.hasRun = true;
+
 		this.running = true;
 		this.metadata.setStatus("running");
 		await this.metadata.save();
@@ -229,6 +250,7 @@ export class SessionController {
 				events: this.bus,
 				sessionId: this.sessionId,
 				initialHistory: this.history.length > 0 ? [...this.history] : undefined,
+				model: this.modelOverride,
 			});
 
 			this.agent = result.agent;
