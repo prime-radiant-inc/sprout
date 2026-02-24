@@ -122,7 +122,7 @@ export class SessionController {
 		switch (cmd.kind) {
 			case "submit_goal":
 				this.submitGoal(cmd.data.goal as string).catch((err) => {
-					this.bus.emitEvent("error", "session", 0, { message: String(err) });
+					this.bus.emitEvent("error", "session", 0, { error: String(err) });
 				});
 				break;
 			case "steer":

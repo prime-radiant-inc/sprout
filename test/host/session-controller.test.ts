@@ -278,6 +278,30 @@ describe("SessionController", () => {
 		expect(snapshot.status).toBe("idle");
 	});
 
+	test("submitGoal error emits error event with data.error field", async () => {
+		const fake = makeFakeAgent({ runError: new Error("LLM failed") });
+		const factory = makeFakeFactory(fake);
+		const { bus } = makeController({ factory });
+
+		const errorEvents: any[] = [];
+		bus.onEvent((e) => {
+			if (e.kind === "error") errorEvents.push(e);
+		});
+
+		// Use bus command so the error is caught by handleCommand
+		bus.emitCommand({ kind: "submit_goal", data: { goal: "Fix the bug" } });
+
+		// Give async submitGoal time to run and fail
+		await new Promise((r) => setTimeout(r, 100));
+
+		expect(errorEvents.length).toBeGreaterThanOrEqual(1);
+		expect(errorEvents[0].data.error).toBeDefined();
+		expect(typeof errorEvents[0].data.error).toBe("string");
+		expect(errorEvents[0].data.error).toContain("LLM failed");
+		// Should NOT have a 'message' field (that's the old incorrect field)
+		expect(errorEvents[0].data.message).toBeUndefined();
+	});
+
 	test("steer command with no agent running is a no-op", () => {
 		const { bus } = makeController();
 		// Should not throw

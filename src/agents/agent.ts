@@ -266,20 +266,23 @@ export class Agent {
 				}
 			}
 
+			const resultContent = truncateToolOutput(subResult.output, delegation.agent_name);
+			const toolResultMsg = Msg.toolResult(delegation.call_id, resultContent);
+
 			this.emitAndLog("act_end", agentId, this.depth, {
 				agent_name: delegation.agent_name,
 				success: subResult.success,
 				turns: subResult.turns,
 				timed_out: subResult.timed_out,
+				tool_result_message: toolResultMsg,
 			});
 
 			if (this.learnProcess) {
 				this.learnProcess.recordAction(agentId);
 			}
 
-			const resultContent = truncateToolOutput(subResult.output, delegation.agent_name);
 			return {
-				toolResultMsg: Msg.toolResult(delegation.call_id, resultContent),
+				toolResultMsg,
 				stumbles: verify.stumbled ? 1 : 0,
 				output: subResult.output,
 			};
@@ -431,6 +434,7 @@ export class Agent {
 				usage: response.usage,
 				text: messageText(assistantMessage),
 				reasoning: messageReasoning(assistantMessage),
+				assistant_message: assistantMessage,
 			});
 
 			// Check for tool calls
@@ -486,12 +490,16 @@ export class Agent {
 					this.sessionId,
 				);
 
+				const content = result.error ? `Error: ${result.error}\n${result.output}` : result.output;
+				const toolResultMsg = Msg.toolResult(call.id, content, !result.success);
+
 				this.emitAndLog("primitive_end", agentId, this.depth, {
 					name: call.name,
 					success: result.success,
 					stumbled,
 					output: result.output,
 					error: result.error,
+					tool_result_message: toolResultMsg,
 				});
 
 				if (stumbled) {
@@ -518,8 +526,7 @@ export class Agent {
 					this.learnProcess.recordAction(agentId);
 				}
 
-				const content = result.error ? `Error: ${result.error}\n${result.output}` : result.output;
-				resultByCallId.set(call.id, Msg.toolResult(call.id, content, !result.success));
+				resultByCallId.set(call.id, toolResultMsg);
 				lastOutput = result.output;
 			}
 

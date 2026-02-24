@@ -274,6 +274,44 @@ describe("Agent", () => {
 		expect(result.turns).toBe(1);
 	});
 
+	test("plan_end event includes assistant_message", async () => {
+		const mockResponse: Response = {
+			id: "mock-am-1",
+			model: "claude-haiku-4-5-20251001",
+			provider: "anthropic",
+			message: Msg.assistant("Task complete."),
+			finish_reason: { reason: "stop" },
+			usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+		};
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async () => mockResponse,
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: leafSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+			events,
+		});
+
+		await agent.run("test goal");
+
+		const collected = events.collected();
+		const planEnd = collected.find((e) => e.kind === "plan_end");
+		expect(planEnd).toBeDefined();
+		const assistantMsg = planEnd!.data.assistant_message as Message;
+		expect(assistantMsg).toBeDefined();
+		expect(assistantMsg.role).toBe("assistant");
+	});
+
 	test("plan_end event includes text and reasoning", async () => {
 		const assistantMsg = {
 			role: "assistant" as const,
@@ -322,6 +360,66 @@ describe("Agent", () => {
 		expect(planEnd).toBeDefined();
 		expect(planEnd!.data.text).toBe("I'll create the file now.");
 		expect(planEnd!.data.reasoning).toBe("Let me think about this...");
+	});
+
+	test("primitive_end event includes tool_result_message", async () => {
+		const toolCallMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-trm-1",
+						name: "read_file",
+						arguments: JSON.stringify({ path: "/nonexistent/file.txt" }),
+					},
+				},
+			],
+		};
+		const doneMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "Done." }],
+		};
+
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				const msg = callCount === 1 ? toolCallMsg : doneMsg;
+				return {
+					id: `mock-trm-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: msg,
+					finish_reason: { reason: callCount === 1 ? "tool_calls" : "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: leafSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+			events,
+		});
+
+		await agent.run("read a file");
+
+		const collected = events.collected();
+		const primEnd = collected.find((e) => e.kind === "primitive_end");
+		expect(primEnd).toBeDefined();
+		const toolResultMsg = primEnd!.data.tool_result_message as Message;
+		expect(toolResultMsg).toBeDefined();
+		expect(toolResultMsg.role).toBe("tool");
 	});
 
 	test("primitive_end event includes output and error", async () => {
@@ -386,6 +484,76 @@ describe("Agent", () => {
 		expect(primEnd!.data.success).toBe(false);
 		expect(primEnd!.data.output).toBeDefined();
 		expect(primEnd!.data.error).toBeDefined();
+	});
+
+	test("act_end event includes tool_result_message", async () => {
+		// First response: delegate to leaf via delegate tool
+		const delegateMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-act-1",
+						name: "delegate",
+						arguments: JSON.stringify({ agent_name: "leaf", goal: "do the thing" }),
+					},
+				},
+			],
+		};
+		// Subagent completes immediately
+		const subDoneMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "Thing done." }],
+		};
+		// Root completes
+		const rootDoneMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "All done." }],
+		};
+
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				const msg = callCount === 1 ? delegateMsg : callCount === 2 ? subDoneMsg : rootDoneMsg;
+				return {
+					id: `mock-act-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: msg,
+					finish_reason: { reason: callCount === 1 ? "tool_calls" : "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: rootSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [rootSpec, leafSpec],
+			depth: 0,
+			events,
+		});
+
+		await agent.run("delegate something");
+
+		const collected = events.collected();
+		// Find the act_end at depth 0 for the successful delegation
+		const actEnd = collected.find(
+			(e) => e.kind === "act_end" && e.depth === 0 && e.data.success === true,
+		);
+		expect(actEnd).toBeDefined();
+		const toolResultMsg = actEnd!.data.tool_result_message as Message;
+		expect(toolResultMsg).toBeDefined();
+		expect(toolResultMsg.role).toBe("tool");
 	});
 
 	test("constructor accepts genome option", async () => {
