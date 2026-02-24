@@ -3,17 +3,12 @@
 # Unset git env vars so child git operations in tests target their own repos
 unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES
 
-# --- Biome: check only staged files under biome's include paths ---
-STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM -- 'src/*.ts' 'src/*.tsx' 'test/*.ts' 'test/*.tsx' 'bootstrap/*.ts')
-if [ -n "$STAGED_FILES" ]; then
-  echo "Running biome on staged files..."
-  echo "$STAGED_FILES" | xargs bunx biome check --write
-  if [ $? -ne 0 ]; then
-    echo "Biome check failed. Fix issues before committing."
-    exit 1
-  fi
-  # Re-stage files that biome may have modified
-  echo "$STAGED_FILES" | xargs git add
+# --- Biome: check staged files using biome's native --staged flag ---
+echo "Running biome on staged files..."
+bunx biome check --staged --write --no-errors-on-unmatched
+if [ $? -ne 0 ]; then
+  echo "Biome check failed. Fix issues before committing."
+  exit 1
 fi
 
 # --- Typecheck (incremental) ---
@@ -24,10 +19,9 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-# --- Unit tests only (exclude integration and LLM API tests) ---
+# --- Unit tests (same filter as `bun run test:unit`) ---
 echo "Running unit tests..."
-UNIT_TESTS=$(find test -name '*.test.ts' -o -name '*.test.tsx' | grep -v integration | grep -v 'anthropic\.test' | grep -v 'gemini\.test' | grep -v 'openai\.test' | grep -v 'client\.test')
-bun test $UNIT_TESTS
+bun run test:unit
 if [ $? -ne 0 ]; then
   echo "Tests failed. Fix tests before committing."
   exit 1
