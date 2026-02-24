@@ -142,6 +142,7 @@ describe("ConversationView", () => {
 		const bus = new EventBus();
 		const { lastFrame, stdin } = render(<ConversationView bus={bus} />);
 
+		bus.emitEvent("session_start", "root", 0, { goal: "test" });
 		bus.emitEvent("primitive_start", "root", 0, { name: "exec", args: { command: "ls" } });
 		bus.emitEvent("primitive_end", "root", 0, {
 			name: "exec",
@@ -158,16 +159,61 @@ describe("ConversationView", () => {
 		stdin.write("\t");
 		await flush();
 
-		// primitive_start should still be visible
-		expect(lastFrame()).toContain("exec");
-		// primitive_end detail should be hidden
-		expect(lastFrame()).not.toContain("exec: ");
+		// Both primitive_start and primitive_end should be hidden
+		expect(lastFrame()).not.toContain("exec");
+		// Non-tool events should remain
+		expect(lastFrame()).toContain("Starting session...");
 
 		// Press Tab again to expand
 		stdin.write("\t");
 		await flush();
 
+		expect(lastFrame()).toContain("exec");
 		expect(lastFrame()).toContain("exec: ");
+	});
+
+	test("tool collapse hides start events too", async () => {
+		const bus = new EventBus();
+		const { lastFrame, stdin } = render(<ConversationView bus={bus} />);
+
+		bus.emitEvent("primitive_start", "agent", 0, { name: "exec", args: { command: "ls" } });
+		bus.emitEvent("primitive_end", "agent", 0, { name: "exec", success: true, output: "file.txt" });
+		await flush();
+
+		// Both visible before collapse
+		let frame = lastFrame()!;
+		expect(frame).toContain("exec");
+
+		// Toggle collapse with Tab
+		stdin.write("\t");
+		await flush();
+
+		frame = lastFrame()!;
+		// Neither start nor end should be visible
+		expect(frame).not.toContain("exec");
+	});
+
+	test("tool collapse hides act_start and act_end events", async () => {
+		const bus = new EventBus();
+		const { lastFrame, stdin } = render(<ConversationView bus={bus} />);
+
+		bus.emitEvent("session_start", "root", 0, { goal: "test" });
+		bus.emitEvent("act_start", "root", 0, { agent_name: "helper", goal: "do stuff" });
+		bus.emitEvent("act_end", "root", 0, { agent_name: "helper", success: true, turns: 3 });
+		await flush();
+
+		let frame = lastFrame()!;
+		expect(frame).toContain("helper");
+
+		// Toggle collapse
+		stdin.write("\t");
+		await flush();
+
+		frame = lastFrame()!;
+		// Both act_start and act_end should be hidden
+		expect(frame).not.toContain("helper");
+		// Non-tool events remain
+		expect(frame).toContain("Starting session...");
 	});
 
 	test("skips events that render-event returns null for", async () => {

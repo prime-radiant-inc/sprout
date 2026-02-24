@@ -331,6 +331,9 @@ export async function runCli(command: CliCommand): Promise<void> {
 			onSlashCommand: (cmd: import("../tui/slash-commands.ts").SlashCommand) => {
 				handleSlashCommand(cmd, bus, controller);
 			},
+			onSteer: (text: string) => {
+				inputHistory.add(text);
+			},
 			onExit: () => {
 				bus.emitCommand({ kind: "quit", data: {} });
 				process.exit(0);

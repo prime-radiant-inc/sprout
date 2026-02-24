@@ -206,6 +206,32 @@ describe("InputArea", () => {
 		expect(steered).toBe("try a different approach");
 	});
 
+	test("steer messages are recallable via up-arrow", async () => {
+		let steered = "";
+		const { lastFrame, stdin } = render(
+			<InputArea
+				onSubmit={() => {}}
+				onSlashCommand={() => {}}
+				isRunning={true}
+				onSteer={(text) => {
+					steered = text;
+				}}
+			/>,
+		);
+
+		stdin.write("try a different approach");
+		await flush();
+		stdin.write("\r");
+		await flush();
+
+		expect(steered).toBe("try a different approach");
+
+		// Now press up arrow — should recall the steer message
+		stdin.write("\x1B[A");
+		await flush();
+		expect(lastFrame()).toContain("try a different approach");
+	});
+
 	test("Alt+Enter inserts newline instead of submitting", async () => {
 		let submitted = "";
 		const { lastFrame, stdin } = render(

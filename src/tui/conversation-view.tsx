@@ -21,7 +21,12 @@ export const EVENT_COLORS: Partial<Record<EventKind, string>> = {
 	interrupted: "red",
 };
 
-const TOOL_DETAIL_KINDS: Set<EventKind> = new Set(["primitive_end", "act_end"]);
+const TOOL_DETAIL_KINDS: Set<EventKind> = new Set([
+	"primitive_start",
+	"primitive_end",
+	"act_start",
+	"act_end",
+]);
 
 export interface ConversationViewProps {
 	bus: EventBus;

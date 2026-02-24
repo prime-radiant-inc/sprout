@@ -14,6 +14,7 @@ export interface AppProps {
 	onSlashCommand: (cmd: SlashCommand) => void;
 	onExit: () => void;
 	initialHistory?: string[];
+	onSteer?: (text: string) => void;
 }
 
 interface StatusState {
@@ -43,6 +44,7 @@ export function App({
 	onSlashCommand,
 	onExit,
 	initialHistory,
+	onSteer,
 }: AppProps) {
 	const { stdout } = useStdout();
 	const terminalRows = stdout?.rows ?? 40;
@@ -115,6 +117,7 @@ export function App({
 					bus.emitCommand({ kind: "interrupt", data: {} });
 				}}
 				onSteer={(text) => {
+					onSteer?.(text);
 					bus.emitCommand({ kind: "steer", data: { text } });
 				}}
 				onExit={onExit}

@@ -49,6 +49,7 @@ export function InputArea({
 			if (slash) {
 				onSlashCommand(slash);
 			} else if (isRunning && onSteer) {
+				history.push(trimmed);
 				onSteer(trimmed);
 			} else {
 				onSubmit(trimmed);

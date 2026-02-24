@@ -140,7 +140,9 @@ describe("replayEventLog", () => {
 		const logPath = join(tempDir, "events.jsonl");
 		const validEvent1 = JSON.stringify(event("perceive", { goal: "First goal" }));
 		const corruptLine = "{not valid json!!!";
-		const validEvent2 = JSON.stringify(event("plan_end", { assistant_message: Msg.assistant("Reply") }));
+		const validEvent2 = JSON.stringify(
+			event("plan_end", { assistant_message: Msg.assistant("Reply") }),
+		);
 		await writeFile(logPath, [validEvent1, corruptLine, validEvent2].join("\n") + "\n", "utf-8");
 
 		const history = await replayEventLog(logPath);

@@ -270,6 +270,25 @@ describe("App", () => {
 		expect(exited).toBe(true);
 	});
 
+	test("calls onSteer callback when steer message submitted while running", async () => {
+		let steered = "";
+		const { bus, stdin } = setup({
+			onSteer: (text: string) => {
+				steered = text;
+			},
+		});
+
+		bus.emitEvent("session_start", "root", 0, { model: "test-model" });
+		await flush();
+
+		stdin.write("focus on the edge case");
+		await flush();
+		stdin.write("\r");
+		await flush();
+
+		expect(steered).toBe("focus on the edge case");
+	});
+
 	test("interrupted event sets status to not running", async () => {
 		const { bus, lastFrame } = setup();
 
