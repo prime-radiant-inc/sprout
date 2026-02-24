@@ -2,9 +2,9 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Request, Response } from "../../src/llm/types.ts";
+import type { ProviderAdapter, Request, Response, StreamEvent } from "../../src/llm/types.ts";
 import { ContentKind } from "../../src/llm/types.ts";
-import { createVcr } from "./vcr.ts";
+import { createAdapterVcr, createVcr } from "./vcr.ts";
 
 function makeRequest(text: string): Request {
 	return {
@@ -103,7 +103,7 @@ describe("VCR", () => {
 	});
 
 	test("replay mode throws when fixture is missing", () => {
-		tempDir = join(tmpdir(), "vcr-nonexistent-" + Date.now());
+		tempDir = join(tmpdir(), `vcr-nonexistent-${Date.now()}`);
 
 		expect(() =>
 			createVcr({
@@ -235,7 +235,7 @@ describe("VCR", () => {
 	});
 
 	test("providers() returns configured provider list", () => {
-		tempDir = join(tmpdir(), "vcr-providers-" + Date.now());
+		tempDir = join(tmpdir(), `vcr-providers-${Date.now()}`);
 
 		// Record mode with real client
 		const { client } = createVcr({
@@ -303,5 +303,341 @@ describe("VCR", () => {
 		const raw = await readFile(join(fixtureDir, "strip-raw.json"), "utf-8");
 		expect(raw).not.toContain("sk-abc123");
 		expect(raw).not.toContain("secret_token");
+	});
+
+	test("client VCR records and replays stream calls", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "vcr-test-"));
+		const fixtureDir = join(tempDir, "fixtures");
+
+		const fakeEvents: StreamEvent[] = [
+			{ type: "stream_start" },
+			{ type: "text_delta", delta: "Hello" },
+			{ type: "text_delta", delta: " world" },
+			{ type: "finish", usage: { input_tokens: 5, output_tokens: 3, total_tokens: 8 } },
+		];
+
+		async function* fakeStream(): AsyncIterable<StreamEvent> {
+			for (const event of fakeEvents) {
+				yield event;
+			}
+		}
+
+		const { client: recorder, afterTest: save } = createVcr({
+			fixtureDir,
+			testName: "stream-roundtrip",
+			mode: "record",
+			realClient: {
+				complete: async () => makeResponse("unused"),
+				stream: () => fakeStream(),
+				providers: () => ["anthropic"],
+			},
+		});
+
+		const recordedEvents: StreamEvent[] = [];
+		for await (const event of recorder.stream(makeRequest("Say hello"))) {
+			recordedEvents.push(event);
+		}
+		expect(recordedEvents).toHaveLength(4);
+		await save();
+
+		// Replay
+		const { client: replayer } = createVcr({
+			fixtureDir,
+			testName: "stream-roundtrip",
+			mode: "replay",
+		});
+
+		const replayedEvents: StreamEvent[] = [];
+		for await (const event of replayer.stream(makeRequest("Say hello"))) {
+			replayedEvents.push(event);
+		}
+		expect(replayedEvents).toEqual(recordedEvents);
+	});
+
+	test("client VCR interleaves complete and stream calls", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "vcr-test-"));
+		const fixtureDir = join(tempDir, "fixtures");
+
+		const fakeEvents: StreamEvent[] = [
+			{ type: "stream_start" },
+			{ type: "text_delta", delta: "Streamed" },
+			{ type: "finish" },
+		];
+
+		async function* fakeStream(): AsyncIterable<StreamEvent> {
+			for (const event of fakeEvents) {
+				yield event;
+			}
+		}
+
+		const { client: recorder, afterTest: save } = createVcr({
+			fixtureDir,
+			testName: "interleaved",
+			mode: "record",
+			realClient: {
+				complete: async () => makeResponse("Completed"),
+				stream: () => fakeStream(),
+				providers: () => ["anthropic"],
+			},
+		});
+
+		// Call order: complete, stream, complete
+		await recorder.complete(makeRequest("First"));
+		const events: StreamEvent[] = [];
+		for await (const e of recorder.stream(makeRequest("Second"))) {
+			events.push(e);
+		}
+		await recorder.complete(makeRequest("Third"));
+		await save();
+
+		// Replay should match the same order
+		const { client: replayer } = createVcr({
+			fixtureDir,
+			testName: "interleaved",
+			mode: "replay",
+		});
+
+		const r1 = await replayer.complete(makeRequest("First"));
+		expect(r1.message.content[0]!.text).toBe("Completed");
+
+		const replayedEvents: StreamEvent[] = [];
+		for await (const e of replayer.stream(makeRequest("Second"))) {
+			replayedEvents.push(e);
+		}
+		expect(replayedEvents).toHaveLength(3);
+
+		const r3 = await replayer.complete(makeRequest("Third"));
+		expect(r3.message.content[0]!.text).toBe("Completed");
+	});
+});
+
+// Helper: create a fake adapter
+function makeFakeAdapter(
+	name: string,
+	response: Response,
+	streamEvents: StreamEvent[],
+): ProviderAdapter {
+	return {
+		name,
+		complete: async () => response,
+		stream: async function* () {
+			for (const event of streamEvents) {
+				yield event;
+			}
+		},
+	};
+}
+
+describe("Adapter VCR", () => {
+	let tempDir: string;
+
+	afterEach(async () => {
+		if (tempDir) {
+			await rm(tempDir, { recursive: true, force: true });
+		}
+	});
+
+	test("records and replays adapter complete calls", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "vcr-adapter-"));
+		const fixtureDir = join(tempDir, "fixtures");
+
+		const fakeResponse = makeResponse("Adapter response");
+		const realAdapter = makeFakeAdapter("anthropic", fakeResponse, []);
+
+		// Record
+		const { adapter: recorder, afterTest: save } = createAdapterVcr({
+			fixtureDir,
+			testName: "adapter-complete",
+			mode: "record",
+			realAdapter,
+		});
+		expect(recorder.name).toBe("anthropic");
+
+		const resp = await recorder.complete(makeRequest("Hi"));
+		expect(resp).toEqual(fakeResponse);
+		await save();
+
+		// Replay
+		const { adapter: replayer } = createAdapterVcr({
+			fixtureDir,
+			testName: "adapter-complete",
+			mode: "replay",
+		});
+		expect(replayer.name).toBe("anthropic");
+
+		const replayed = await replayer.complete(makeRequest("Hi"));
+		// raw is stripped, so compare without it
+		expect(replayed.id).toBe(fakeResponse.id);
+		expect(replayed.message).toEqual(fakeResponse.message);
+	});
+
+	test("records and replays adapter stream calls", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "vcr-adapter-"));
+		const fixtureDir = join(tempDir, "fixtures");
+
+		const streamEvents: StreamEvent[] = [
+			{ type: "stream_start" },
+			{ type: "text_delta", delta: "Hello" },
+			{ type: "text_delta", delta: " from" },
+			{ type: "text_delta", delta: " adapter" },
+			{ type: "finish", usage: { input_tokens: 3, output_tokens: 3, total_tokens: 6 } },
+		];
+		const realAdapter = makeFakeAdapter("openai", makeResponse("unused"), streamEvents);
+
+		// Record
+		const { adapter: recorder, afterTest: save } = createAdapterVcr({
+			fixtureDir,
+			testName: "adapter-stream",
+			mode: "record",
+			realAdapter,
+		});
+
+		const recorded: StreamEvent[] = [];
+		for await (const event of recorder.stream(makeRequest("Say hello"))) {
+			recorded.push(event);
+		}
+		expect(recorded).toHaveLength(5);
+		await save();
+
+		// Replay
+		const { adapter: replayer } = createAdapterVcr({
+			fixtureDir,
+			testName: "adapter-stream",
+			mode: "replay",
+		});
+
+		const replayed: StreamEvent[] = [];
+		for await (const event of replayer.stream(makeRequest("Say hello"))) {
+			replayed.push(event);
+		}
+		expect(replayed).toEqual(recorded);
+	});
+
+	test("adapter VCR interleaves complete and stream", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "vcr-adapter-"));
+		const fixtureDir = join(tempDir, "fixtures");
+
+		const streamEvents: StreamEvent[] = [
+			{ type: "stream_start" },
+			{ type: "text_delta", delta: "Streamed" },
+			{ type: "finish" },
+		];
+		const realAdapter = makeFakeAdapter("gemini", makeResponse("Completed"), streamEvents);
+
+		// Record: complete, stream
+		const { adapter: recorder, afterTest: save } = createAdapterVcr({
+			fixtureDir,
+			testName: "adapter-interleaved",
+			mode: "record",
+			realAdapter,
+		});
+
+		await recorder.complete(makeRequest("First"));
+		const events: StreamEvent[] = [];
+		for await (const e of recorder.stream(makeRequest("Second"))) {
+			events.push(e);
+		}
+		await save();
+
+		// Replay
+		const { adapter: replayer } = createAdapterVcr({
+			fixtureDir,
+			testName: "adapter-interleaved",
+			mode: "replay",
+		});
+
+		const r1 = await replayer.complete(makeRequest("First"));
+		expect(r1.message.content[0]!.text).toBe("Completed");
+
+		const replayed: StreamEvent[] = [];
+		for await (const e of replayer.stream(makeRequest("Second"))) {
+			replayed.push(e);
+		}
+		expect(replayed).toHaveLength(3);
+	});
+
+	test("adapter VCR strips raw from recorded responses", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "vcr-adapter-"));
+		const fixtureDir = join(tempDir, "fixtures");
+
+		const responseWithRaw: Response = {
+			...makeResponse("with raw"),
+			raw: { secret: "do-not-record" },
+		};
+		const realAdapter = makeFakeAdapter("anthropic", responseWithRaw, []);
+
+		const { adapter: recorder, afterTest: save } = createAdapterVcr({
+			fixtureDir,
+			testName: "adapter-strip-raw",
+			mode: "record",
+			realAdapter,
+		});
+
+		await recorder.complete(makeRequest("test"));
+		await save();
+
+		const raw = await readFile(join(fixtureDir, "adapter-strip-raw.json"), "utf-8");
+		expect(raw).not.toContain("do-not-record");
+	});
+
+	test("adapter replay throws when recordings exhausted", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "vcr-adapter-"));
+		const fixtureDir = join(tempDir, "fixtures");
+
+		const realAdapter = makeFakeAdapter("anthropic", makeResponse("one"), []);
+
+		const { adapter: recorder, afterTest: save } = createAdapterVcr({
+			fixtureDir,
+			testName: "adapter-exhausted",
+			mode: "record",
+			realAdapter,
+		});
+		await recorder.complete(makeRequest("test"));
+		await save();
+
+		const { adapter: replayer } = createAdapterVcr({
+			fixtureDir,
+			testName: "adapter-exhausted",
+			mode: "replay",
+		});
+		await replayer.complete(makeRequest("test"));
+		await expect(replayer.complete(makeRequest("extra"))).rejects.toThrow(/exhausted/i);
+	});
+
+	test("adapter replay throws on fixture missing", () => {
+		tempDir = join(tmpdir(), `vcr-adapter-missing-${Date.now()}`);
+
+		expect(() =>
+			createAdapterVcr({
+				fixtureDir: tempDir,
+				testName: "missing",
+				mode: "replay",
+			}),
+		).toThrow(/fixture not found/i);
+	});
+
+	test("off mode passes through to real adapter", async () => {
+		tempDir = join(tmpdir(), `vcr-adapter-off-${Date.now()}`);
+
+		const realAdapter = makeFakeAdapter("anthropic", makeResponse("passthrough"), [
+			{ type: "stream_start" },
+			{ type: "finish" },
+		]);
+
+		const { adapter } = createAdapterVcr({
+			fixtureDir: tempDir,
+			testName: "off-test",
+			mode: "off",
+			realAdapter,
+		});
+
+		const resp = await adapter.complete(makeRequest("test"));
+		expect(resp.message.content[0]!.text).toBe("passthrough");
+
+		const events: StreamEvent[] = [];
+		for await (const e of adapter.stream(makeRequest("test"))) {
+			events.push(e);
+		}
+		expect(events).toHaveLength(2);
 	});
 });
