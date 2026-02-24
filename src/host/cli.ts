@@ -245,6 +245,11 @@ export async function runCli(command: CliCommand): Promise<void> {
 	const readline = await import("node:readline");
 	const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
+	const { InputHistory } = await import("../tui/history.ts");
+	const historyPath = join(command.genomePath, "../sprout-history");
+	const inputHistory = new InputHistory(historyPath);
+	await inputHistory.load();
+
 	process.on("SIGINT", () => handleSigint(bus, controller, rl));
 
 	bus.onEvent((event) => {
@@ -298,10 +303,12 @@ export async function runCli(command: CliCommand): Promise<void> {
 			return;
 		}
 
+		inputHistory.add(trimmed);
 		bus.emitCommand({ kind: "submit_goal", data: { goal: trimmed } });
 	});
 
 	await new Promise<void>((resolve) => rl.on("close", resolve));
+	await inputHistory.save();
 }
 
 if (import.meta.main) {

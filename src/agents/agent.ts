@@ -404,19 +404,22 @@ export class Agent {
 
 			let response: LLMResponse;
 			try {
-				response = signal
-					? await Promise.race([
-							this.client.complete(request),
-							new Promise<never>((_, reject) => {
-								if (signal.aborted) reject(new DOMException("Aborted", "AbortError"));
-								signal.addEventListener(
-									"abort",
-									() => reject(new DOMException("Aborted", "AbortError")),
-									{ once: true },
-								);
-							}),
-						])
-					: await this.client.complete(request);
+				if (signal) {
+					const completePromise = this.client.complete(request);
+					let onAbort: () => void;
+					const abortPromise = new Promise<never>((_, reject) => {
+						if (signal.aborted) reject(new DOMException("Aborted", "AbortError"));
+						onAbort = () => reject(new DOMException("Aborted", "AbortError"));
+						signal.addEventListener("abort", onAbort, { once: true });
+					});
+					try {
+						response = await Promise.race([completePromise, abortPromise]);
+					} finally {
+						signal.removeEventListener("abort", onAbort!);
+					}
+				} else {
+					response = await this.client.complete(request);
+				}
 			} catch (err) {
 				if (err instanceof DOMException && err.name === "AbortError") {
 					this.emitAndLog("interrupted", agentId, this.depth, {

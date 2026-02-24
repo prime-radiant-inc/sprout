@@ -117,4 +117,26 @@ describe("EventBus", () => {
 			expect(count).toBe(1);
 		});
 	});
+
+	describe("event collection management", () => {
+		test("clearEvents() empties the collected events", () => {
+			const bus = new EventBus();
+			bus.emitEvent("session_start", "root", 0);
+			bus.emitEvent("plan_start", "root", 0);
+			expect(bus.collected()).toHaveLength(2);
+
+			bus.clearEvents();
+			expect(bus.collected()).toHaveLength(0);
+		});
+
+		test("events array is capped at maximum", () => {
+			const bus = new EventBus();
+			// Emit more than the cap
+			for (let i = 0; i < 11000; i++) {
+				bus.emitEvent("plan_start", "root", 0, { turn: i });
+			}
+			// Should be capped, not 11000
+			expect(bus.collected().length).toBeLessThanOrEqual(10000);
+		});
+	});
 });

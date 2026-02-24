@@ -11,6 +11,8 @@ export type CommandListener = (command: Command) => void;
  *
  * Compatible with AgentEventEmitter interface so Agent doesn't need to change.
  */
+const EVENT_CAP = 10_000;
+
 export class EventBus {
 	private eventListeners: EventListener[] = [];
 	private commandListeners: CommandListener[] = [];
@@ -40,6 +42,9 @@ export class EventBus {
 			data,
 		};
 		this.events.push(event);
+		if (this.events.length > EVENT_CAP) {
+			this.events.splice(0, this.events.length - EVENT_CAP);
+		}
 		for (const listener of this.eventListeners) {
 			listener(event);
 		}
@@ -76,5 +81,10 @@ export class EventBus {
 	/** Return all collected events. */
 	collected(): SessionEvent[] {
 		return [...this.events];
+	}
+
+	/** Clear all collected events. */
+	clearEvents(): void {
+		this.events.length = 0;
 	}
 }

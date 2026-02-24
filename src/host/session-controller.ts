@@ -135,7 +135,11 @@ export class SessionController {
 		});
 
 		this.bus.onCommand((cmd) => this.handleCommand(cmd));
-		this.bus.onEvent((event) => this.handleEvent(event));
+		this.bus.onEvent((event) => {
+			this.handleEvent(event).catch(() => {
+				// Swallow event handling errors to prevent unhandled rejections
+			});
+		});
 	}
 
 	private handleCommand(cmd: Command): void {

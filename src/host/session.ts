@@ -12,6 +12,7 @@ export interface SubmitOptions {
 /**
  * Wrap Agent.run() as an async generator that yields SessionEvent objects.
  * Learn processing runs concurrently via the background loop.
+ * @deprecated Use SessionController.submitGoal() instead.
  */
 export async function* submitGoal(
 	goal: string,

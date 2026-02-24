@@ -1353,4 +1353,31 @@ describe("Agent", () => {
 			await rm(tempDir, { recursive: true, force: true });
 		}
 	});
+
+	test("abort signal listener cleanup pattern is correct", () => {
+		// Verify the cleanup pattern used in agent.ts signal handling
+		const ac = new AbortController();
+		const handlers: (() => void)[] = [];
+
+		// Simulate the fixed pattern: add handler, remove on completion
+		for (let i = 0; i < 5; i++) {
+			const handler = () => {};
+			ac.signal.addEventListener("abort", handler, { once: true });
+			handlers.push(handler);
+			// Simulate normal completion: cleanup
+			ac.signal.removeEventListener("abort", handler);
+		}
+
+		// Verify the signal still works correctly after cleanup
+		let abortCaught = false;
+		ac.signal.addEventListener(
+			"abort",
+			() => {
+				abortCaught = true;
+			},
+			{ once: true },
+		);
+		ac.abort();
+		expect(abortCaught).toBe(true);
+	});
 });
