@@ -5,7 +5,11 @@ import type { SessionEvent } from "../kernel/types.ts";
 const DEFAULT_GENOME_PATH = join(homedir(), ".local/share/sprout-genome");
 
 export type CliCommand =
-	| { kind: "run"; goal: string; genomePath: string }
+	| { kind: "interactive"; genomePath: string }
+	| { kind: "oneshot"; goal: string; genomePath: string }
+	| { kind: "resume"; sessionId: string; genomePath: string }
+	| { kind: "resume-last"; genomePath: string }
+	| { kind: "list"; genomePath: string }
 	| { kind: "genome-list"; genomePath: string }
 	| { kind: "genome-log"; genomePath: string }
 	| { kind: "genome-rollback"; genomePath: string; commit: string }
@@ -29,6 +33,26 @@ export function parseArgs(argv: string[]): CliCommand {
 			continue;
 		}
 
+		if (arg === "--prompt") {
+			const goal = argv.slice(i + 1).join(" ");
+			if (!goal) return { kind: "help" };
+			return { kind: "oneshot", goal, genomePath };
+		}
+
+		if (arg === "--resume") {
+			const sessionId = argv[++i];
+			if (!sessionId) return { kind: "help" };
+			return { kind: "resume", sessionId, genomePath };
+		}
+
+		if (arg === "--resume-last") {
+			return { kind: "resume-last", genomePath };
+		}
+
+		if (arg === "--list") {
+			return { kind: "list", genomePath };
+		}
+
 		if (arg === "--genome") {
 			const sub = argv[++i];
 			if (sub === "list") {
@@ -49,10 +73,10 @@ export function parseArgs(argv: string[]): CliCommand {
 	}
 
 	if (rest.length === 0) {
-		return { kind: "help" };
+		return { kind: "interactive", genomePath };
 	}
 
-	return { kind: "run", goal: rest.join(" "), genomePath };
+	return { kind: "oneshot", goal: rest.join(" "), genomePath };
 }
 
 /** Truncate text to maxLines, appending an ellipsis if truncated. */
@@ -158,10 +182,17 @@ export function renderEvent(event: SessionEvent): string | null {
 	}
 }
 
-const USAGE = `Usage: sprout [options] <goal>
+const USAGE = `Usage: sprout [options] [goal]
 
-Commands:
-  sprout "Fix the bug"                  Run agent with a goal
+Modes:
+  sprout                                Interactive mode (default)
+  sprout --prompt "Fix the bug"         One-shot mode
+  sprout "Fix the bug"                  One-shot mode (bare goal)
+  sprout --resume <session-id>          Resume a session
+  sprout --resume-last                  Resume the most recent session
+  sprout --list                         List all sessions
+
+Genome management:
   sprout --genome list                  List agents in the genome
   sprout --genome log                   Show genome git log
   sprout --genome rollback <commit>     Revert a genome commit
@@ -215,7 +246,25 @@ export async function runCli(command: CliCommand): Promise<void> {
 		return;
 	}
 
-	// kind === "run"
+	if (command.kind === "interactive") {
+		// Interactive mode will be wired in Task 13
+		console.log("Interactive mode not yet implemented. Use --prompt for one-shot mode.");
+		return;
+	}
+
+	if (command.kind === "resume" || command.kind === "resume-last") {
+		// Resume will be wired in Task 13
+		console.log("Resume not yet implemented.");
+		return;
+	}
+
+	if (command.kind === "list") {
+		// Session listing will be wired in Task 13
+		console.log("Session listing not yet implemented.");
+		return;
+	}
+
+	// kind === "oneshot"
 	// Load environment variables from the .env file
 	const { config } = await import("dotenv");
 	config(); // loads .env from current working directory
