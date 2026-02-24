@@ -36,15 +36,16 @@ describe("Client", () => {
 	});
 
 	test("fromEnv creates client with available providers", () => {
-		const vcr = vcrFor("from-env-creates-client-with-providers", realClient);
-		const providers = vcr.client.providers();
-		// At least one should be available since we have keys
+		// No VCR — only tests local provider registration (requires API keys in env)
+		const client = Client.fromEnv();
+		const providers = client.providers();
 		expect(providers.length).toBeGreaterThan(0);
 	});
 
 	test("fromEnv registers all three providers when keys present", () => {
-		const vcr = vcrFor("from-env-registers-all-three-providers", realClient);
-		const providers = vcr.client.providers();
+		// No VCR — only tests local provider registration (requires API keys in env)
+		const client = Client.fromEnv();
+		const providers = client.providers();
 		expect(providers).toContain("anthropic");
 		expect(providers).toContain("openai");
 		expect(providers).toContain("gemini");
@@ -90,8 +91,8 @@ describe("Client", () => {
 	}, 15_000);
 
 	test("complete throws on unknown provider", async () => {
-		// This test doesn't need VCR — it's a local error
-		const vcr = vcrFor("complete-throws-on-unknown-provider", realClient);
+		// No VCR needed — this throws locally before any API call
+		const client = Client.fromEnv();
 		const req: Request = {
 			model: "some-model",
 			messages: [
@@ -103,7 +104,7 @@ describe("Client", () => {
 			provider: "nonexistent",
 		};
 
-		expect(vcr.client.complete(req)).rejects.toThrow();
+		expect(client.complete(req)).rejects.toThrow();
 	});
 
 	test("stream routes to the correct provider", async () => {

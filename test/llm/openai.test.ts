@@ -35,9 +35,10 @@ describe("OpenAIAdapter", () => {
 		}
 	});
 
-	test("adapter name is openai", () => {
-		const { adapter } = vcrFor("adapter-name-is-openai");
-		expect(adapter.name).toBe("openai");
+	test("adapter name is openai", async () => {
+		const vcr = vcrFor("adapter-name-is-openai", realAdapter);
+		expect(vcr.adapter.name).toBe("openai");
+		await vcr.afterTest();
 	});
 
 	test("complete returns a text response", async () => {

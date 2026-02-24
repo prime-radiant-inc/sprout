@@ -42,10 +42,10 @@ describe("AnthropicAdapter", () => {
 		}
 	});
 
-	test("adapter name is anthropic", () => {
-		// Replay-only: VCR adapter returns the recorded name
-		const { adapter } = vcrFor("adapter-name-is-anthropic");
-		expect(adapter.name).toBe("anthropic");
+	test("adapter name is anthropic", async () => {
+		const vcr = vcrFor("adapter-name-is-anthropic", realAdapter);
+		expect(vcr.adapter.name).toBe("anthropic");
+		await vcr.afterTest();
 	});
 
 	test("complete returns a text response", async () => {

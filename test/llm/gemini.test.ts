@@ -35,9 +35,10 @@ describe("GeminiAdapter", () => {
 		}
 	});
 
-	test("adapter name is gemini", () => {
-		const { adapter } = vcrFor("adapter-name-is-gemini");
-		expect(adapter.name).toBe("gemini");
+	test("adapter name is gemini", async () => {
+		const vcr = vcrFor("adapter-name-is-gemini", realAdapter);
+		expect(vcr.adapter.name).toBe("gemini");
+		await vcr.afterTest();
 	});
 
 	test("complete returns a text response", async () => {
