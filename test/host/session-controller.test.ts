@@ -261,8 +261,7 @@ describe("SessionController", () => {
 		const factory = makeFakeFactory(fake);
 		const { controller, sessionsDir } = makeController({ factory });
 
-		// submitGoal should not throw — it catches errors in finally block
-		// Actually it will throw since we don't catch in submitGoal... let me check
+		// submitGoal propagates errors from the agent
 		let thrown = false;
 		try {
 			await controller.submitGoal("Fix the bug");
@@ -351,6 +350,60 @@ describe("SessionController", () => {
 		expect(snapshot.turns).toBe(3);
 		expect(snapshot.contextTokens).toBe(5000);
 		expect(snapshot.contextWindowSize).toBe(200000);
+	});
+
+	test("learnProcess lifecycle is managed", async () => {
+		const calls: string[] = [];
+		const factory: AgentFactory = async () => ({
+			agent: {
+				steer() {},
+				async run() {
+					calls.push("run");
+					return { output: "done", success: true, stumbles: 0, turns: 1, timed_out: false };
+				},
+			} as any,
+			learnProcess: {
+				startBackground() {
+					calls.push("start");
+				},
+				async stopBackground() {
+					calls.push("stop");
+				},
+			},
+		});
+
+		const { controller } = makeController({ factory });
+		await controller.submitGoal("test");
+		expect(calls).toEqual(["start", "run", "stop"]);
+	});
+
+	test("learnProcess is stopped even when agent throws", async () => {
+		const calls: string[] = [];
+		const factory: AgentFactory = async () => ({
+			agent: {
+				steer() {},
+				async run() {
+					calls.push("run");
+					throw new Error("agent failed");
+				},
+			} as any,
+			learnProcess: {
+				startBackground() {
+					calls.push("start");
+				},
+				async stopBackground() {
+					calls.push("stop");
+				},
+			},
+		});
+
+		const { controller } = makeController({ factory });
+		try {
+			await controller.submitGoal("test");
+		} catch {
+			// Expected
+		}
+		expect(calls).toEqual(["start", "run", "stop"]);
 	});
 
 	test("compact command is accepted without error", () => {

@@ -121,7 +121,9 @@ export class SessionController {
 	private handleCommand(cmd: Command): void {
 		switch (cmd.kind) {
 			case "submit_goal":
-				this.submitGoal(cmd.data.goal as string).catch(() => {});
+				this.submitGoal(cmd.data.goal as string).catch((err) => {
+					this.bus.emitEvent("error", "session", 0, { message: String(err) });
+				});
 				break;
 			case "steer":
 				this.agent?.steer(cmd.data.text as string);
@@ -170,8 +172,10 @@ export class SessionController {
 		this.metadata.setStatus("running");
 		await this.metadata.save();
 
+		let learnProcess: AgentFactoryResult["learnProcess"] = null;
+
 		try {
-			const { agent, learnProcess } = await this.factory({
+			const result = await this.factory({
 				genomePath: this.genomePath,
 				bootstrapDir: this.bootstrapDir,
 				workDir: process.cwd(),
@@ -180,18 +184,18 @@ export class SessionController {
 				sessionId: this.sessionId,
 			});
 
-			this.agent = agent;
+			this.agent = result.agent;
+			learnProcess = result.learnProcess;
 
 			if (learnProcess) {
 				learnProcess.startBackground();
 			}
 
-			await agent.run(goal, this.abortController.signal);
-
+			await result.agent.run(goal, this.abortController.signal);
+		} finally {
 			if (learnProcess) {
 				await learnProcess.stopBackground();
 			}
-		} finally {
 			this.running = false;
 			this.metadata.setStatus("idle");
 			await this.metadata.save();
