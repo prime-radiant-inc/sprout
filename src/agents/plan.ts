@@ -124,8 +124,9 @@ export function buildPlanRequest(opts: {
 	model: string;
 	provider: string;
 	maxTokens?: number;
+	thinking?: boolean | { budget_tokens: number };
 }): Request {
-	return {
+	const request: Request = {
 		model: opts.model,
 		provider: opts.provider,
 		messages: [Msg.system(opts.systemPrompt), ...opts.history],
@@ -133,6 +134,22 @@ export function buildPlanRequest(opts: {
 		tool_choice: "auto",
 		max_tokens: opts.maxTokens ?? 4096,
 	};
+
+	if (opts.thinking) {
+		const budgetTokens =
+			typeof opts.thinking === "object" ? opts.thinking.budget_tokens : 10000;
+		request.provider_options = {
+			anthropic: {
+				thinking: { type: "enabled", budget_tokens: budgetTokens },
+			},
+		};
+		// Anthropic requires max_tokens >= budget_tokens + some headroom
+		if (request.max_tokens && request.max_tokens < budgetTokens + 4096) {
+			request.max_tokens = budgetTokens + 4096;
+		}
+	}
+
+	return request;
 }
 
 /**

@@ -9,7 +9,7 @@ import {
 	formatMarkdown,
 	renderEventComponent,
 	SystemLine,
-	ThinkingLine,
+	PlanningLine,
 	ToolEndLine,
 	ToolStartLine,
 } from "../../src/tui/event-components.tsx";
@@ -330,14 +330,19 @@ describe("SystemLine", () => {
 	});
 });
 
-describe("ThinkingLine", () => {
-	test("shows thinking indicator", () => {
-		const { lastFrame } = render(<ThinkingLine depth={0} />);
-		expect(lastFrame()).toContain("thinking...");
+describe("PlanningLine", () => {
+	test("shows planning indicator", () => {
+		const { lastFrame } = render(<PlanningLine depth={0} />);
+		expect(lastFrame()).toContain("planning...");
+	});
+
+	test("shows turn number when provided", () => {
+		const { lastFrame } = render(<PlanningLine depth={0} turn={3} />);
+		expect(lastFrame()).toContain("planning (turn 3)...");
 	});
 
 	test("indents at depth", () => {
-		const { lastFrame } = render(<ThinkingLine depth={1} />);
+		const { lastFrame } = render(<PlanningLine depth={1} />);
 		const frame = lastFrame()!;
 		const stripped = frame.trimStart();
 		expect(frame.length - stripped.length).toBeGreaterThan(0);
@@ -409,10 +414,10 @@ describe("renderEventComponent", () => {
 		expect(lastFrame()).toContain("Starting session...");
 	});
 
-	test("plan_start renders thinking line", () => {
+	test("plan_start renders planning line with turn", () => {
 		const node = renderEventComponent(makeEvent("plan_start", { turn: 1 }), null);
 		const { lastFrame } = render(<Box>{node}</Box>);
-		expect(lastFrame()).toContain("thinking...");
+		expect(lastFrame()).toContain("planning (turn 1)...");
 	});
 
 	test("plan_end renders assistant text", () => {

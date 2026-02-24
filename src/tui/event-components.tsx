@@ -111,7 +111,9 @@ export function UserMessageLine({ depth, text }: UserMessageProps) {
 	return (
 		<Box>
 			<Text dimColor>{indent(depth)}</Text>
-			<Text color="blue" bold>{"❯ "}</Text>
+			<Text color="blue" bold>
+				{"❯ "}
+			</Text>
 			<Text>{text}</Text>
 		</Box>
 	);
@@ -330,16 +332,18 @@ export function SystemLine({ depth, kind, message }: SystemLineProps) {
 	);
 }
 
-interface ThinkingLineProps {
+interface PlanningLineProps {
 	depth: number;
+	turn?: number;
 }
 
-/** Renders a "thinking..." indicator. */
-export function ThinkingLine({ depth }: ThinkingLineProps) {
+/** Renders a planning indicator while waiting for the LLM. */
+export function PlanningLine({ depth, turn }: PlanningLineProps) {
+	const label = turn ? `planning (turn ${turn})...` : "planning...";
 	return (
 		<Box>
 			<Text dimColor>{indent(depth)}</Text>
-			<Text dimColor>{"\u25CC thinking..."}</Text>
+			<Text dimColor>{`\u25CC ${label}`}</Text>
 		</Box>
 	);
 }
@@ -372,7 +376,7 @@ export function renderEventComponent(event: SessionEvent, durationMs: number | n
 			return <SystemLine depth={depth} kind={kind} message="New session started" />;
 
 		case "plan_start":
-			return <ThinkingLine depth={depth} />;
+			return <PlanningLine depth={depth} turn={data.turn as number | undefined} />;
 
 		case "plan_end": {
 			const text = data.text ? String(data.text) : undefined;

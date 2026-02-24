@@ -112,8 +112,10 @@ export function renderEvent(event: SessionEvent): string | null {
 		case "session_clear":
 			return `${ind}\u25C6 New session started`;
 
-		case "plan_start":
-			return `${ind}\u25CC thinking...`;
+		case "plan_start": {
+			const turnLabel = data.turn ? ` (turn ${data.turn})` : "";
+			return `${ind}\u25CC planning${turnLabel}...`;
+		}
 
 		case "plan_end": {
 			const lines: string[] = [];

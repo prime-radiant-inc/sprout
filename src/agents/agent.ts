@@ -423,6 +423,7 @@ export class Agent {
 				primitiveTools: this.primitiveTools,
 				model: this.resolved.model,
 				provider: this.resolved.provider,
+				thinking: this.spec.thinking,
 			});
 
 			let response: LLMResponse;

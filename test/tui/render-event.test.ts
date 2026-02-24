@@ -90,9 +90,9 @@ describe("renderEvent", () => {
 		expect(result).toBe("\u25C6 Starting session...");
 	});
 
-	test("plan_start shows thinking indicator", () => {
+	test("plan_start shows planning indicator with turn", () => {
 		const result = renderEvent(makeEvent("plan_start", { turn: 1 }));
-		expect(result).toBe("\u25CC thinking...");
+		expect(result).toBe("\u25CC planning (turn 1)...");
 	});
 
 	test("plan_end shows reasoning indented and text at base indent", () => {
@@ -216,7 +216,7 @@ describe("renderEvent", () => {
 
 	test("depth 2 indents by 4 spaces", () => {
 		const result = renderEvent(makeEvent("plan_start", { turn: 1 }, "command-runner", 2));
-		expect(result).toBe("    \u25CC thinking...");
+		expect(result).toBe("    \u25CC planning (turn 1)...");
 	});
 
 	// Events that should be null (skipped)

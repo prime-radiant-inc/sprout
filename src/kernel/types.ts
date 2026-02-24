@@ -26,6 +26,8 @@ export interface AgentSpec {
 	constraints: AgentConstraints;
 	tags: string[];
 	version: number;
+	/** Enable extended thinking (Anthropic models). Budget tokens default to 10000. */
+	thinking?: boolean | { budget_tokens: number };
 }
 
 /** Input collected during the Perceive phase */
