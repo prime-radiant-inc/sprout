@@ -2,6 +2,7 @@ import { appendFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { Genome } from "../genome/genome.ts";
 import { recall } from "../genome/recall.ts";
+import { compactHistory, shouldCompact } from "../host/compaction.ts";
 import type { ExecutionEnvironment } from "../kernel/execution-env.ts";
 import type { PrimitiveRegistry } from "../kernel/primitives.ts";
 import { truncateToolOutput } from "../kernel/truncation.ts";
@@ -82,6 +83,7 @@ export class Agent {
 	private signal?: AbortSignal;
 	private logWriteChain: Promise<void> = Promise.resolve();
 	private steeringQueue: string[] = [];
+	private compactionRequested = false;
 
 	constructor(options: AgentOptions) {
 		this.spec = options.spec;
@@ -161,6 +163,11 @@ export class Agent {
 	/** Inject a steering message into the agent loop for the next iteration. */
 	steer(text: string): void {
 		this.steeringQueue.push(text);
+	}
+
+	/** Request compaction on the next iteration (for manual /compact command). */
+	requestCompaction(): void {
+		this.compactionRequested = true;
 	}
 
 	/** Return and clear all queued steering messages. */
@@ -468,6 +475,25 @@ export class Agent {
 			if (toolCalls.length === 0) {
 				lastOutput = messageText(assistantMessage);
 				break;
+			}
+
+			// Compact history if context usage exceeds threshold or manually requested
+			const contextWindowSize = getContextWindowSize(this.resolved.model);
+			const inputTokens = response.usage?.input_tokens ?? 0;
+			if (this.compactionRequested || shouldCompact(inputTokens, contextWindowSize)) {
+				this.compactionRequested = false;
+				const compactResult = await compactHistory({
+					history,
+					client: this.client,
+					model: this.resolved.model,
+					provider: this.resolved.provider,
+					logPath: this.logBasePath ? `${this.logBasePath}.jsonl` : "",
+				});
+				this.emitAndLog("compaction", agentId, this.depth, {
+					summary: compactResult.summary,
+					beforeCount: compactResult.beforeCount,
+					afterCount: compactResult.afterCount,
+				});
 			}
 
 			// Parse tool calls into delegations and primitive calls

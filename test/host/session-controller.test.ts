@@ -12,11 +12,15 @@ function makeFakeAgent(options?: { runDelay?: number; runError?: Error }) {
 	let runCalled = false;
 	let runGoal = "";
 	let runSignal: AbortSignal | undefined;
+	let compactionRequested = false;
 
 	return {
 		agent: {
 			steer(text: string) {
 				steered.push(text);
+			},
+			requestCompaction() {
+				compactionRequested = true;
 			},
 			async run(goal: string, signal?: AbortSignal) {
 				runCalled = true;
@@ -42,6 +46,9 @@ function makeFakeAgent(options?: { runDelay?: number; runError?: Error }) {
 		},
 		get runSignal() {
 			return runSignal;
+		},
+		get compactionRequested() {
+			return compactionRequested;
 		},
 	};
 }
@@ -833,88 +840,53 @@ describe("SessionController", () => {
 		expect(contextEvents[0].data.context_window_size).toBe(200000);
 	});
 
-	test("compact command calls compact callback and emits compaction event", async () => {
-		let compactCalled = false;
-		const factory: AgentFactory = async (options) => ({
-			agent: {
-				steer() {},
-				async run(goal: string) {
-					options.events.emitEvent("perceive", "root", 0, { goal });
-					options.events.emitEvent("plan_end", "root", 0, {
-						turn: 1,
-						assistant_message: { role: "assistant", content: [{ kind: "text", text: "Done." }] },
-					});
-					return { output: "done", success: true, stumbles: 0, turns: 1, timed_out: false };
-				},
-			} as any,
-			learnProcess: null,
-			compact: async (history, _logPath) => {
-				compactCalled = true;
-				const beforeCount = history.length;
-				history.length = 0;
-				history.push({ role: "user", content: [{ kind: "text", text: "compacted summary" }] });
-				return { summary: "compacted summary", beforeCount, afterCount: 1 };
-			},
-		});
-
+	test("compact command calls requestCompaction on the agent", async () => {
+		const fake = makeFakeAgent({ runDelay: 100 });
+		const factory = makeFakeFactory(fake);
 		const { bus, controller } = makeController({ factory });
 
-		// Run first to populate history and get compact callback stored
-		await controller.submitGoal("build something");
+		// Start agent running
+		const promise = controller.submitGoal("build something");
+		await new Promise((r) => setTimeout(r, 10));
 
-		const events: any[] = [];
-		bus.onEvent((e) => events.push(e));
-
-		// Issue compact command
+		// Issue compact command while agent is running
 		bus.emitCommand({ kind: "compact", data: {} });
 
-		// Allow async compact to run
-		await new Promise((r) => setTimeout(r, 100));
+		expect(fake.compactionRequested).toBe(true);
 
-		expect(compactCalled).toBe(true);
-		const compactionEvents = events.filter((e) => e.kind === "compaction");
-		expect(compactionEvents).toHaveLength(1);
-		expect(compactionEvents[0].data.summary).toBe("compacted summary");
-		expect(compactionEvents[0].data.beforeCount).toBeGreaterThan(0);
-		expect(compactionEvents[0].data.afterCount).toBe(1);
+		await promise;
 	});
 
-	test("auto-compaction triggered when context tokens exceed threshold", async () => {
-		let compactCalled = false;
-		const factory: AgentFactory = async (options) => ({
-			agent: {
-				steer() {},
-				async run(goal: string) {
-					options.events.emitEvent("perceive", "root", 0, { goal });
-					// Emit plan_end with context at 90% capacity
-					options.events.emitEvent("plan_end", "root", 0, {
-						turn: 1,
-						context_tokens: 180000,
-						context_window_size: 200000,
-						assistant_message: { role: "assistant", content: [{ kind: "text", text: "Done." }] },
-					});
-					// Allow async event handling
-					await new Promise((r) => setTimeout(r, 100));
-					return { output: "done", success: true, stumbles: 0, turns: 1, timed_out: false };
-				},
-			} as any,
-			learnProcess: null,
-			compact: async (history, _logPath) => {
-				compactCalled = true;
-				const beforeCount = history.length;
-				history.length = 0;
-				history.push({ role: "user", content: [{ kind: "text", text: "summary" }] });
-				return { summary: "summary", beforeCount, afterCount: 1 };
-			},
+	test("controller does not auto-compact on high token usage", async () => {
+		// The controller should NOT trigger compaction — the agent handles it internally.
+		// Verify that plan_end with high token usage does NOT cause the controller
+		// to call requestCompaction.
+		const fake = makeFakeAgent({ runDelay: 200 });
+		const factory: AgentFactory = async (options) => {
+			const result = makeFakeFactory(fake);
+			const factoryResult = await result(options);
+			return factoryResult;
+		};
+		const { bus, controller } = makeController({ factory });
+
+		const promise = controller.submitGoal("build something big");
+		await new Promise((r) => setTimeout(r, 10));
+
+		// Emit plan_end with context at 90% capacity
+		bus.emitEvent("plan_end", "root", 0, {
+			turn: 1,
+			context_tokens: 180000,
+			context_window_size: 200000,
+			assistant_message: { role: "assistant", content: [{ kind: "text", text: "Done." }] },
 		});
 
-		const { controller } = makeController({ factory });
-		await controller.submitGoal("build something big");
+		// Allow event handling
+		await new Promise((r) => setTimeout(r, 50));
 
-		// Allow async operations to complete
-		await new Promise((r) => setTimeout(r, 150));
+		// Controller should NOT have called requestCompaction
+		expect(fake.compactionRequested).toBe(false);
 
-		expect(compactCalled).toBe(true);
+		await promise;
 	});
 
 	test("handleEvent errors are caught and logged, not unhandled rejections", async () => {
@@ -944,7 +916,7 @@ describe("SessionController", () => {
 		expect(true).toBe(true);
 	});
 
-	test("after compaction, next submitGoal receives compacted history", async () => {
+	test("after compaction event, next submitGoal receives compacted history", async () => {
 		let factoryCallCount = 0;
 		let capturedInitialHistory: any[] | undefined;
 
@@ -954,6 +926,7 @@ describe("SessionController", () => {
 			return {
 				agent: {
 					steer() {},
+					requestCompaction() {},
 					async run(goal: string) {
 						options.events.emitEvent("perceive", "root", 0, { goal });
 						options.events.emitEvent("plan_end", "root", 0, {
@@ -967,10 +940,6 @@ describe("SessionController", () => {
 					},
 				} as any,
 				learnProcess: null,
-				// compact does NOT mutate the snapshot — only returns the summary
-				compact: async (_history, _logPath) => {
-					return { summary: "compacted summary", beforeCount: 2, afterCount: 1 };
-				},
 			};
 		};
 
@@ -980,9 +949,15 @@ describe("SessionController", () => {
 		await controller.submitGoal("build something");
 		expect(factoryCallCount).toBe(1);
 
-		// Trigger compaction
-		bus.emitCommand({ kind: "compact", data: {} });
-		await new Promise((r) => setTimeout(r, 100));
+		// Simulate the agent emitting a compaction event (as it would internally)
+		bus.emitEvent("compaction", "root", 0, {
+			summary: "compacted summary",
+			beforeCount: 2,
+			afterCount: 1,
+		});
+
+		// Allow event handling
+		await new Promise((r) => setTimeout(r, 50));
 
 		// Second submitGoal should receive compacted 1-message history
 		await controller.submitGoal("continue");

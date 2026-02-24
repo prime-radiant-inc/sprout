@@ -1522,4 +1522,321 @@ describe("Agent", () => {
 		ac.abort();
 		expect(abortCaught).toBe(true);
 	});
+
+	test("agent compacts history when token threshold exceeded", async () => {
+		// Pad initial history so compactHistory has enough messages to work with
+		// (PRESERVE_RECENT_TURNS = 6, so we need > 6 messages at compaction time)
+		const priorHistory: Message[] = [
+			Msg.user("step 1"),
+			Msg.assistant("did step 1"),
+			Msg.user("step 2"),
+			Msg.assistant("did step 2"),
+			Msg.user("step 3"),
+			Msg.assistant("did step 3"),
+		];
+
+		const toolCallMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-compact-1",
+						name: "read_file",
+						arguments: JSON.stringify({ path: "/tmp/test.txt" }),
+					},
+				},
+			],
+		};
+		const doneMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "Done after compaction." }],
+		};
+
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				if (callCount === 1) {
+					// First LLM call: tool call with high token usage (above 80% of 200k)
+					return {
+						id: "mock-compact-1",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: toolCallMsg,
+						finish_reason: { reason: "tool_calls" },
+						usage: { input_tokens: 170000, output_tokens: 500, total_tokens: 170500 },
+					};
+				}
+				if (callCount === 2) {
+					// Compaction summarization call
+					return {
+						id: "mock-compact-summary",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: Msg.assistant("Summary of prior work."),
+						finish_reason: { reason: "stop" },
+						usage: { input_tokens: 100, output_tokens: 50, total_tokens: 150 },
+					};
+				}
+				// Post-compaction turn: agent continues and completes
+				return {
+					id: `mock-compact-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: doneMsg,
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 5000, output_tokens: 100, total_tokens: 5100 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: leafSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+			events,
+			initialHistory: priorHistory,
+		});
+
+		const result = await agent.run("do something big");
+
+		// Verify compaction event was emitted
+		const collected = events.collected();
+		const compactionEvents = collected.filter((e) => e.kind === "compaction");
+		expect(compactionEvents).toHaveLength(1);
+		expect(compactionEvents[0]!.data.summary).toBe("Summary of prior work.");
+		expect(compactionEvents[0]!.data.beforeCount as number).toBeGreaterThan(
+			compactionEvents[0]!.data.afterCount as number,
+		);
+
+		// Agent should have completed successfully (continued after compaction)
+		expect(result.success).toBe(true);
+	});
+
+	test("agent respects requestCompaction() flag", async () => {
+		// Pad initial history so compactHistory has enough messages to summarize
+		const priorHistory: Message[] = [
+			Msg.user("step 1"),
+			Msg.assistant("did step 1"),
+			Msg.user("step 2"),
+			Msg.assistant("did step 2"),
+			Msg.user("step 3"),
+			Msg.assistant("did step 3"),
+		];
+
+		const toolCallMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-reqcompact-1",
+						name: "read_file",
+						arguments: JSON.stringify({ path: "/tmp/test.txt" }),
+					},
+				},
+			],
+		};
+		const doneMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "Done." }],
+		};
+
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				if (callCount === 1) {
+					// Low token usage — normally wouldn't trigger compaction
+					return {
+						id: "mock-reqcompact-1",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: toolCallMsg,
+						finish_reason: { reason: "tool_calls" },
+						usage: { input_tokens: 5000, output_tokens: 100, total_tokens: 5100 },
+					};
+				}
+				if (callCount === 2) {
+					// Compaction summarization call
+					return {
+						id: "mock-reqcompact-summary",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: Msg.assistant("Manual compaction summary."),
+						finish_reason: { reason: "stop" },
+						usage: { input_tokens: 100, output_tokens: 50, total_tokens: 150 },
+					};
+				}
+				return {
+					id: `mock-reqcompact-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: doneMsg,
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 1000, output_tokens: 50, total_tokens: 1050 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: leafSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+			events,
+			initialHistory: priorHistory,
+		});
+
+		// Request compaction manually BEFORE running
+		agent.requestCompaction();
+
+		await agent.run("do something small");
+
+		// Compaction should still happen despite low token usage
+		const collected = events.collected();
+		const compactionEvents = collected.filter((e) => e.kind === "compaction");
+		expect(compactionEvents).toHaveLength(1);
+		expect(compactionEvents[0]!.data.summary).toBe("Manual compaction summary.");
+	});
+
+	test("agent continues running after compaction", async () => {
+		// Pad initial history so compactHistory has enough messages to summarize
+		const priorHistory: Message[] = [
+			Msg.user("step 1"),
+			Msg.assistant("did step 1"),
+			Msg.user("step 2"),
+			Msg.assistant("did step 2"),
+			Msg.user("step 3"),
+			Msg.assistant("did step 3"),
+		];
+
+		const toolCallMsg1: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-continue-1",
+						name: "read_file",
+						arguments: JSON.stringify({ path: "/tmp/a.txt" }),
+					},
+				},
+			],
+		};
+		const toolCallMsg2: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-continue-2",
+						name: "read_file",
+						arguments: JSON.stringify({ path: "/tmp/b.txt" }),
+					},
+				},
+			],
+		};
+		const doneMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "All finished." }],
+		};
+
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				if (callCount === 1) {
+					// First turn: high token usage triggers compaction
+					return {
+						id: "mock-cont-1",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: toolCallMsg1,
+						finish_reason: { reason: "tool_calls" },
+						usage: { input_tokens: 170000, output_tokens: 500, total_tokens: 170500 },
+					};
+				}
+				if (callCount === 2) {
+					// Compaction summarization call
+					return {
+						id: "mock-cont-summary",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: Msg.assistant("Compacted summary."),
+						finish_reason: { reason: "stop" },
+						usage: { input_tokens: 100, output_tokens: 50, total_tokens: 150 },
+					};
+				}
+				if (callCount === 3) {
+					// Post-compaction: another tool call (proving the loop continues)
+					return {
+						id: "mock-cont-3",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: toolCallMsg2,
+						finish_reason: { reason: "tool_calls" },
+						usage: { input_tokens: 3000, output_tokens: 100, total_tokens: 3100 },
+					};
+				}
+				// Final completion
+				return {
+					id: `mock-cont-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: doneMsg,
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 3000, output_tokens: 100, total_tokens: 3100 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: leafSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+			events,
+			initialHistory: priorHistory,
+		});
+
+		const result = await agent.run("multi-step task");
+
+		// Should have compacted once
+		const collected = events.collected();
+		const compactionEvents = collected.filter((e) => e.kind === "compaction");
+		expect(compactionEvents).toHaveLength(1);
+
+		// Should have continued after compaction (at least 3 plan_end events:
+		// turn 1 triggers compaction, turn 2 does tool call, turn 3 completes)
+		const planEnds = collected.filter((e) => e.kind === "plan_end");
+		expect(planEnds.length).toBeGreaterThanOrEqual(3);
+
+		// Agent should have completed successfully
+		expect(result.success).toBe(true);
+		expect(result.turns).toBeGreaterThanOrEqual(3);
+	});
 });

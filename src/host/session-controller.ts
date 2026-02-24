@@ -5,13 +5,13 @@ import type { Command, SessionEvent } from "../kernel/types.ts";
 import type { Message } from "../llm/types.ts";
 import { Msg } from "../llm/types.ts";
 import { ulid } from "../util/ulid.ts";
-import { shouldCompact } from "./compaction.ts";
 import type { EventBus } from "./event-bus.ts";
 import { SessionMetadata } from "./session-metadata.ts";
 
 /** Minimal agent interface used by the SessionController. */
 interface RunnableAgent {
 	steer(text: string): void;
+	requestCompaction(): void;
 	run(
 		goal: string,
 		signal?: AbortSignal,
@@ -43,10 +43,6 @@ export interface AgentFactoryOptions {
 export interface AgentFactoryResult {
 	agent: RunnableAgent;
 	learnProcess: { startBackground(): void; stopBackground(): Promise<void> } | null;
-	compact?: (
-		history: Message[],
-		logPath: string,
-	) => Promise<{ summary: string; beforeCount: number; afterCount: number }>;
 }
 
 /** Factory function that creates an agent. Injectable for testing. */
@@ -90,16 +86,6 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 	return {
 		agent: result.agent,
 		learnProcess: result.learnProcess,
-		compact: async (history, logPath) => {
-			const { compactHistory } = await import("./compaction.ts");
-			return compactHistory({
-				history,
-				client: result.client,
-				model: options.model ?? result.model,
-				provider: result.provider,
-				logPath,
-			});
-		},
 	};
 }
 
@@ -120,12 +106,10 @@ export class SessionController {
 	private readonly bootstrapDir?: string;
 	private readonly rootAgentName?: string;
 	private readonly factory: AgentFactory;
-	private _logPath: string;
 	private history: Message[] = [];
 	private running = false;
 	private modelOverride?: string;
 	private hasRun = false;
-	private compactFn?: AgentFactoryResult["compact"];
 
 	get sessionId(): string {
 		return this._sessionId;
@@ -139,7 +123,6 @@ export class SessionController {
 		this.bootstrapDir = options.bootstrapDir;
 		this.rootAgentName = options.rootAgent;
 		this.factory = options.factory ?? defaultFactory;
-		this._logPath = join(options.genomePath, "logs", `${this._sessionId}.jsonl`);
 		this.history = options.initialHistory ? [...options.initialHistory] : [];
 
 		this.metadata = new SessionMetadata({
@@ -174,7 +157,6 @@ export class SessionController {
 				this.history = [];
 				this.hasRun = false;
 				this._sessionId = ulid();
-				this._logPath = join(this.genomePath, "logs", `${this._sessionId}.jsonl`);
 				this.metadata = new SessionMetadata({
 					sessionId: this._sessionId,
 					agentSpec: this.rootAgentName ?? "root",
@@ -190,9 +172,7 @@ export class SessionController {
 				this.modelOverride = cmd.data.model as string | undefined;
 				break;
 			case "compact":
-				this.runCompaction().catch((err) => {
-					this.bus.emitEvent("error", "session", 0, { error: String(err) });
-				});
+				this.agent?.requestCompaction();
 				break;
 			case "quit":
 				this.interrupt();
@@ -251,25 +231,7 @@ export class SessionController {
 				context_tokens: contextTokens,
 				context_window_size: contextWindowSize,
 			});
-			if (shouldCompact(contextTokens, contextWindowSize)) {
-				this.runCompaction().catch((err) => {
-					this.bus.emitEvent("error", "session", 0, { error: String(err) });
-				});
-			}
 		}
-	}
-
-	private async runCompaction(): Promise<void> {
-		if (!this.compactFn || this.history.length === 0) return;
-		// Snapshot history to avoid race with concurrent event accumulation
-		const snapshot = [...this.history];
-		const result = await this.compactFn(snapshot, this._logPath);
-		// The compaction event handler in handleEvent sets this.history
-		this.bus.emitEvent("compaction", "session", 0, {
-			summary: result.summary,
-			beforeCount: result.beforeCount,
-			afterCount: result.afterCount,
-		});
 	}
 
 	private interrupt(): void {
@@ -320,7 +282,6 @@ export class SessionController {
 
 			this.agent = result.agent;
 			learnProcess = result.learnProcess;
-			this.compactFn = result.compact;
 
 			if (learnProcess) {
 				learnProcess.startBackground();
