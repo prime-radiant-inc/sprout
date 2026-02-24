@@ -220,6 +220,14 @@ describe("handleSlashCommand", () => {
 		expect(bus.events[0].data.message).toContain("gpt-4o");
 	});
 
+	test("switch_model without arg shows usage hint instead of emitting command", () => {
+		const bus = makeBus();
+		handleSlashCommand({ kind: "switch_model", model: undefined }, bus, controller);
+		expect(bus.commands).toHaveLength(0);
+		expect(bus.events).toHaveLength(1);
+		expect(bus.events[0].data.message).toContain("Usage: /model");
+	});
+
 	test("status emits warning event with session info", () => {
 		const bus = makeBus();
 		handleSlashCommand({ kind: "status" }, bus, controller);

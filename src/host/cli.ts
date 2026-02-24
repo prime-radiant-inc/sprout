@@ -131,10 +131,16 @@ export function handleSlashCommand(
 			bus.emitCommand({ kind: "clear", data: {} });
 			break;
 		case "switch_model":
-			bus.emitCommand({ kind: "switch_model", data: { model: cmd.model } });
-			bus.emitEvent("warning", "cli", 0, {
-				message: cmd.model ? `Model set to: ${cmd.model}` : "Model reset to default",
-			});
+			if (cmd.model) {
+				bus.emitCommand({ kind: "switch_model", data: { model: cmd.model } });
+				bus.emitEvent("warning", "cli", 0, {
+					message: `Model set to: ${cmd.model}`,
+				});
+			} else {
+				bus.emitEvent("warning", "cli", 0, {
+					message: "Usage: /model <name>  (e.g. /model claude-sonnet-4-6, /model gpt-4o)",
+				});
+			}
 			break;
 		case "status":
 			bus.emitEvent("warning", "cli", 0, {
