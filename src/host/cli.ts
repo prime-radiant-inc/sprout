@@ -208,12 +208,36 @@ export async function runCli(command: CliCommand): Promise<void> {
 		const sessions = await listSessions(sessionsDir);
 		if (sessions.length === 0) {
 			console.log("No sessions found.");
-		} else {
-			for (const s of sessions) {
-				console.log(
-					`  ${s.sessionId.slice(0, 8)}... | ${s.status} | ${s.turns} turns | ${s.agentSpec} | ${s.createdAt}`,
-				);
-			}
+			return;
+		}
+
+		const { render } = await import("ink");
+		const React = await import("react");
+		const { SessionPicker } = await import("../tui/session-picker.tsx");
+
+		const selectedId = await new Promise<string | null>((resolve) => {
+			const { unmount } = render(
+				React.createElement(SessionPicker, {
+					sessions,
+					onSelect: (id: string) => {
+						unmount();
+						resolve(id);
+					},
+					onCancel: () => {
+						unmount();
+						resolve(null);
+					},
+				}),
+			);
+		});
+
+		if (selectedId) {
+			// Resume the selected session
+			await runCli({
+				kind: "resume",
+				sessionId: selectedId,
+				genomePath: command.genomePath,
+			});
 		}
 		return;
 	}
