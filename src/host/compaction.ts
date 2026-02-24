@@ -47,7 +47,16 @@ export async function compactHistory(opts: {
 		return { summary: "", beforeCount, afterCount: beforeCount };
 	}
 
-	const splitIndex = beforeCount - PRESERVE_RECENT_TURNS;
+	// Ensure we don't split in the middle of a tool_call/tool_result pair
+	let splitIndex = beforeCount - PRESERVE_RECENT_TURNS;
+	while (splitIndex > 0 && history[splitIndex]?.role === "tool") {
+		splitIndex--;
+	}
+
+	if (splitIndex <= 0) {
+		return { summary: "", beforeCount, afterCount: beforeCount };
+	}
+
 	const olderTurns = history.slice(0, splitIndex);
 	const recentTurns = history.slice(splitIndex);
 
