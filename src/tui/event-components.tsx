@@ -361,7 +361,7 @@ export function renderEventComponent(event: SessionEvent, durationMs: number | n
 
 	switch (kind) {
 		case "session_start":
-			return <SystemLine depth={depth} kind={kind} message="Starting session..." />;
+			return null; // The app opening IS the session start
 
 		case "session_resume":
 			return (
@@ -376,7 +376,7 @@ export function renderEventComponent(event: SessionEvent, durationMs: number | n
 			return <SystemLine depth={depth} kind={kind} message="New session started" />;
 
 		case "plan_start":
-			return <PlanningLine depth={depth} turn={data.turn as number | undefined} />;
+			return null; // The input area shows "..." while running; a text line is clutter
 
 		case "plan_end": {
 			const text = data.text ? String(data.text) : undefined;
@@ -428,13 +428,7 @@ export function renderEventComponent(event: SessionEvent, durationMs: number | n
 			);
 
 		case "session_end":
-			return (
-				<SystemLine
-					depth={depth}
-					kind={kind}
-					message={`Session complete. ${data.turns} turns, ${data.stumbles} stumbles.`}
-				/>
-			);
+			return null; // The prompt returning IS the signal the run finished
 
 		case "interrupted":
 			return (

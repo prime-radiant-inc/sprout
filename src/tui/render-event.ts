@@ -159,8 +159,11 @@ export function renderEvent(event: SessionEvent): string | null {
 			return `${ind}\u2190 ${data.agent_name} \u2713${turns}`;
 		}
 
-		case "session_end":
-			return `${ind}\u25C7 Session complete. ${data.turns} turns, ${data.stumbles} stumbles.`;
+		case "session_end": {
+			const t = data.turns === 1 ? "1 turn" : `${data.turns} turns`;
+			const s = data.stumbles === 1 ? "1 stumble" : `${data.stumbles} stumbles`;
+			return `${ind}\u25C7 Done. ${t}, ${s}.`;
+		}
 
 		case "interrupted":
 			return `${ind}\u2298 ${data.message ?? "user interrupt"}`;

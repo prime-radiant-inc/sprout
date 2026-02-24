@@ -56,7 +56,7 @@ describe("StatusBar", () => {
 				status="idle"
 			/>,
 		);
-		expect(lastFrame()).toContain("turn 7");
+		expect(lastFrame()).toContain("7 turns");
 	});
 
 	test("renders token usage when running", () => {
@@ -177,7 +177,7 @@ describe("StatusBar", () => {
 		);
 		const frame = lastFrame();
 		expect(frame).toContain("0%");
-		expect(frame).toContain("0 to compact");
+		// At 0% context, "to compact" is hidden (below 50% threshold)
 	});
 
 	test("hides token usage when interrupted", () => {

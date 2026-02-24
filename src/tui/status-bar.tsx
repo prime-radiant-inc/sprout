@@ -18,27 +18,24 @@ export function formatTokens(n: number): string {
 }
 
 export function StatusBar(props: StatusBarProps) {
-	const {
-		contextTokens,
-		contextWindowSize,
-		turns,
-		inputTokens,
-		outputTokens,
-		model,
-		sessionId,
-		status,
-	} = props;
+	const { contextTokens, contextWindowSize, turns, inputTokens, outputTokens, model, sessionId, status } = props;
 	const pressure = contextWindowSize > 0 ? contextTokens / contextWindowSize : 0;
 	const percentStr = `${Math.round(pressure * 100)}%`;
-	const compactDistance =
-		contextWindowSize > 0 ? Math.max(0, Math.round(contextWindowSize * 0.8 - contextTokens)) : 0;
+
+	// Only show compact distance when context pressure is above 50%
+	let ctxInfo = `ctx: ${formatTokens(contextTokens)}/${formatTokens(contextWindowSize)} (${percentStr})`;
+	if (pressure >= 0.5) {
+		const compactDistance = Math.max(0, Math.round(contextWindowSize * 0.8 - contextTokens));
+		ctxInfo += ` ${formatTokens(compactDistance)} to compact`;
+	}
+
+	const turnLabel = turns === 1 ? "1 turn" : `${turns} turns`;
 
 	return (
 		<Box borderStyle="single" paddingX={1} justifyContent="space-between">
 			<Text>
-				ctx: {formatTokens(contextTokens)}/{formatTokens(contextWindowSize)} ({percentStr},{" "}
-				{formatTokens(compactDistance)} to compact)
-				{" | "}turn {turns}
+				{ctxInfo}
+				{" | "}{turnLabel}
 				{status === "running" && ` | ↑${formatTokens(inputTokens)} ↓${formatTokens(outputTokens)}`}
 			</Text>
 			<Text dimColor>

@@ -28,7 +28,7 @@ describe("App", () => {
 		const { lastFrame } = setup();
 		const frame = lastFrame();
 		expect(frame).toContain("ctx:");
-		expect(frame).toContain("turn 0");
+		expect(frame).toContain("0 turns");
 		expect(frame).toContain("01ABCDEF...");
 	});
 
@@ -42,7 +42,7 @@ describe("App", () => {
 
 		await flush();
 		const frame = lastFrame();
-		expect(frame).toContain("turn 3");
+		expect(frame).toContain("3 turns");
 	});
 
 	test("updates StatusBar context info on context_update event", async () => {
@@ -220,10 +220,10 @@ describe("App", () => {
 	test("renders conversation lines from events", async () => {
 		const { bus, lastFrame } = setup();
 
-		bus.emitEvent("session_start", "root", 0, { goal: "test" });
+		bus.emitEvent("warning", "root", 0, { message: "test warning" });
 		await flush();
 
-		expect(lastFrame()).toContain("Starting session...");
+		expect(lastFrame()).toContain("test warning");
 	});
 
 	test("caps visible conversation lines via maxHeight", async () => {
@@ -387,7 +387,7 @@ describe("App", () => {
 	test("renders initialEvents in conversation view on resume", async () => {
 		const initialEvents = [
 			{
-				kind: "session_start" as const,
+				kind: "perceive" as const,
 				timestamp: Date.now(),
 				agent_id: "root",
 				depth: 0,
@@ -406,7 +406,7 @@ describe("App", () => {
 		await flush();
 
 		const frame = lastFrame()!;
-		expect(frame).toContain("Starting session...");
+		expect(frame).toContain("resumed goal");
 		expect(frame).toContain("Prior assistant response.");
 	});
 

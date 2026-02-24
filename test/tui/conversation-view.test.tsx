@@ -13,44 +13,44 @@ describe("ConversationView", () => {
 		const bus = new EventBus();
 		const { lastFrame } = render(<ConversationView bus={bus} />);
 
-		bus.emitEvent("session_start", "root", 0, { goal: "test goal" });
+		bus.emitEvent("warning", "cli", 0, { message: "hello world" });
 		await flush();
 
-		expect(lastFrame()).toContain("Starting session...");
+		expect(lastFrame()).toContain("hello world");
 	});
 
 	test("renders multiple events in order", async () => {
 		const bus = new EventBus();
 		const { lastFrame } = render(<ConversationView bus={bus} />);
 
-		bus.emitEvent("session_start", "root", 0, { goal: "test" });
-		bus.emitEvent("warning", "cli", 0, { message: "Commands: /help" });
+		bus.emitEvent("perceive", "root", 0, { goal: "do something" });
+		bus.emitEvent("warning", "cli", 0, { message: "heads up" });
 		await flush();
 
 		const frame = lastFrame()!;
-		const startIdx = frame.indexOf("Starting session...");
-		const warnIdx = frame.indexOf("Commands: /help");
-		expect(startIdx).toBeGreaterThanOrEqual(0);
-		expect(warnIdx).toBeGreaterThan(startIdx);
+		const goalIdx = frame.indexOf("do something");
+		const warnIdx = frame.indexOf("heads up");
+		expect(goalIdx).toBeGreaterThanOrEqual(0);
+		expect(warnIdx).toBeGreaterThan(goalIdx);
 	});
 
 	test("indents subagent events based on depth", async () => {
 		const bus = new EventBus();
 		const { lastFrame } = render(<ConversationView bus={bus} />);
 
-		bus.emitEvent("session_start", "root", 0, { goal: "test" });
-		bus.emitEvent("session_start", "sub-1", 1, { goal: "subtask" });
+		bus.emitEvent("warning", "root", 0, { message: "root-msg" });
+		bus.emitEvent("warning", "sub-1", 1, { message: "sub-msg" });
 		await flush();
 
 		const frame = lastFrame()!;
 		const lines = frame.split("\n");
-		// Both lines contain "Starting session..."
-		// The depth-1 line should have more leading whitespace
-		const sessionLines = lines.filter((l) => l.includes("Starting session"));
-		expect(sessionLines.length).toBe(2);
-		const indent0 = sessionLines[0]!.length - sessionLines[0]!.trimStart().length;
-		const indent1 = sessionLines[1]!.length - sessionLines[1]!.trimStart().length;
-		expect(indent1).toBeGreaterThan(indent0);
+		const rootLine = lines.find((l) => l.includes("root-msg"));
+		const subLine = lines.find((l) => l.includes("sub-msg"));
+		expect(rootLine).toBeDefined();
+		expect(subLine).toBeDefined();
+		const rootIndent = rootLine!.length - rootLine!.trimStart().length;
+		const subIndent = subLine!.length - subLine!.trimStart().length;
+		expect(subIndent).toBeGreaterThan(rootIndent);
 	});
 
 	test("caps visible lines to maxHeight", async () => {
@@ -63,7 +63,6 @@ describe("ConversationView", () => {
 		await flush();
 
 		const frame = lastFrame()!;
-		// Should show only the last 3 lines (auto-scroll to bottom)
 		expect(frame).toContain("line-7");
 		expect(frame).toContain("line-8");
 		expect(frame).toContain("line-9");
@@ -79,14 +78,11 @@ describe("ConversationView", () => {
 		}
 		await flush();
 
-		// Normally auto-scrolled to bottom: line-3, line-4, line-5
 		expect(lastFrame()).toContain("line-5");
 
-		// PgUp = ESC [5~
-		stdin.write("\x1B[5~");
+		stdin.write("\x1B[5~"); // PgUp
 		await flush();
 
-		// Should scroll up and show earlier lines
 		expect(lastFrame()).toContain("line-0");
 	});
 
@@ -98,17 +94,14 @@ describe("ConversationView", () => {
 			bus.emitEvent("warning", "cli", 0, { message: `line-${i}` });
 		}
 		await flush();
-
-		// Auto-scrolled to bottom: line-3, line-4, line-5
 		expect(lastFrame()).toContain("line-5");
 
 		stdin.write("\x1B[5~"); // PgUp
 		await flush();
 		expect(lastFrame()).toContain("line-0");
 
-		stdin.write("\x1B[6~"); // PgDown — should return to auto-scroll (null offset)
+		stdin.write("\x1B[6~"); // PgDown
 		await flush();
-
 		expect(lastFrame()).toContain("line-5");
 	});
 
@@ -129,109 +122,68 @@ describe("ConversationView", () => {
 		const bus = new EventBus();
 		const { lastFrame, stdin } = render(<ConversationView bus={bus} />);
 
-		bus.emitEvent("session_start", "root", 0, { goal: "test" });
+		bus.emitEvent("perceive", "root", 0, { goal: "test goal" });
 		bus.emitEvent("primitive_start", "root", 0, { name: "exec", args: { command: "ls" } });
-		bus.emitEvent("primitive_end", "root", 0, {
-			name: "exec",
-			success: true,
-			result: "file1.txt\nfile2.txt",
-		});
+		bus.emitEvent("primitive_end", "root", 0, { name: "exec", success: true, result: "ok" });
 		await flush();
 
-		// Tool lines should be visible by default
 		expect(lastFrame()).toContain("exec");
 
-		// Press Tab to collapse tool details
 		stdin.write("\t");
 		await flush();
 
-		// Both primitive_start and primitive_end should be hidden
+		// Tool events hidden, user message remains
 		expect(lastFrame()).not.toContain("exec");
-		// Non-tool events should remain
-		expect(lastFrame()).toContain("Starting session...");
+		expect(lastFrame()).toContain("test goal");
 
-		// Press Tab again to expand
 		stdin.write("\t");
 		await flush();
-
 		expect(lastFrame()).toContain("exec");
-	});
-
-	test("tool collapse hides start events too", async () => {
-		const bus = new EventBus();
-		const { lastFrame, stdin } = render(<ConversationView bus={bus} />);
-
-		bus.emitEvent("primitive_start", "agent", 0, { name: "exec", args: { command: "ls" } });
-		bus.emitEvent("primitive_end", "agent", 0, { name: "exec", success: true, output: "file.txt" });
-		await flush();
-
-		// Both visible before collapse
-		let frame = lastFrame()!;
-		expect(frame).toContain("exec");
-
-		// Toggle collapse with Tab
-		stdin.write("\t");
-		await flush();
-
-		frame = lastFrame()!;
-		// Neither start nor end should be visible
-		expect(frame).not.toContain("exec");
 	});
 
 	test("tool collapse hides act_start and act_end events", async () => {
 		const bus = new EventBus();
 		const { lastFrame, stdin } = render(<ConversationView bus={bus} />);
 
-		bus.emitEvent("session_start", "root", 0, { goal: "test" });
+		bus.emitEvent("perceive", "root", 0, { goal: "test" });
 		bus.emitEvent("act_start", "root", 0, { agent_name: "helper", goal: "do stuff" });
 		bus.emitEvent("act_end", "root", 0, { agent_name: "helper", success: true, turns: 3 });
 		await flush();
 
-		let frame = lastFrame()!;
-		expect(frame).toContain("helper");
+		expect(lastFrame()).toContain("helper");
 
-		// Toggle collapse
 		stdin.write("\t");
 		await flush();
 
-		frame = lastFrame()!;
-		// Both act_start and act_end should be hidden
-		expect(frame).not.toContain("helper");
-		// Non-tool events remain
-		expect(frame).toContain("Starting session...");
+		expect(lastFrame()).not.toContain("helper");
+		expect(lastFrame()).toContain("test");
 	});
 
 	test("session_clear event clears all lines", async () => {
 		const bus = new EventBus();
 		const { lastFrame } = render(<ConversationView bus={bus} />);
 
-		bus.emitEvent("session_start", "agent", 0, { model: "test" });
+		bus.emitEvent("warning", "agent", 0, { message: "old content" });
 		await flush();
-		expect(lastFrame()).toContain("Starting session");
+		expect(lastFrame()).toContain("old content");
 
 		bus.emitEvent("session_clear", "session", 0, { new_session_id: "abc" });
 		await flush();
-		// After clear, old content should be gone
-		expect(lastFrame()).not.toContain("Starting session");
+		expect(lastFrame()).not.toContain("old content");
 	});
 
 	test("shows scroll indicator when scrolled up", async () => {
 		const bus = new EventBus();
 		const { lastFrame, stdin } = render(<ConversationView bus={bus} maxHeight={3} />);
 
-		// Add enough lines to enable scrolling
 		for (let i = 0; i < 10; i++) {
 			bus.emitEvent("warning", "agent", 0, { message: `Line ${i}` });
 		}
 		await flush();
-
-		// No scroll indicator initially (at bottom)
 		expect(lastFrame()).not.toContain("SCROLL");
 
-		// Scroll up with PgUp
 		stdin.write("\x1B[5~");
 		await flush();
-
 		expect(lastFrame()).toContain("SCROLL");
 	});
 
@@ -244,20 +196,15 @@ describe("ConversationView", () => {
 		}
 		await flush();
 
-		// Scroll up
 		stdin.write("\x1B[5~");
 		await flush();
 		expect(lastFrame()).toContain("SCROLL");
 
-		// PgDown past end to resume auto-scroll
-		stdin.write("\x1B[6~");
-		await flush();
-		stdin.write("\x1B[6~");
-		await flush();
-		stdin.write("\x1B[6~");
-		await flush();
-		stdin.write("\x1B[6~");
-		await flush();
+		// PgDown past end to resume
+		for (let j = 0; j < 5; j++) {
+			stdin.write("\x1B[6~");
+			await flush();
+		}
 
 		expect(lastFrame()).not.toContain("SCROLL");
 	});
@@ -266,7 +213,7 @@ describe("ConversationView", () => {
 		const bus = new EventBus();
 		const initialEvents = [
 			{
-				kind: "session_start" as const,
+				kind: "perceive" as const,
 				timestamp: Date.now(),
 				agent_id: "root",
 				depth: 0,
@@ -285,7 +232,7 @@ describe("ConversationView", () => {
 		await flush();
 
 		const frame = lastFrame()!;
-		expect(frame).toContain("Starting session...");
+		expect(frame).toContain("prior goal");
 		expect(frame).toContain("Here is my response from before.");
 	});
 
@@ -318,11 +265,11 @@ describe("ConversationView", () => {
 		const bus = new EventBus();
 		const { lastFrame } = render(<ConversationView bus={bus} />);
 
-		// plan_end with no text should return null from renderEventComponent
+		// session_start and plan_end with no text should both return null
+		bus.emitEvent("session_start", "root", 0, {});
 		bus.emitEvent("plan_end", "root", 0, { turn: 1 });
 		await flush();
 
-		// Frame should be empty (no visible lines)
 		const frame = lastFrame()!;
 		expect(frame.trim()).toBe("");
 	});
@@ -331,16 +278,11 @@ describe("ConversationView", () => {
 		const bus = new EventBus();
 		const { lastFrame } = render(<ConversationView bus={bus} />);
 
-		// Emit start, wait a bit, then end
 		bus.emitEvent("primitive_start", "root", 0, { name: "exec", args: { command: "ls" } });
-		// Manually emit an end event with a later timestamp to test duration
-		// The EventBus uses Date.now() which will be very close, so we just check
-		// the end event renders (duration will be ~0.0s)
 		bus.emitEvent("primitive_end", "root", 0, { name: "exec", success: true });
 		await flush();
 
 		const frame = lastFrame()!;
-		// Should contain duration (even if 0.0s)
 		expect(frame).toContain("s");
 		expect(frame).toContain("\u2713");
 	});

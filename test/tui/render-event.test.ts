@@ -204,9 +204,14 @@ describe("renderEvent", () => {
 		expect(result).toBe("\u2190 code-editor \u2717 failed");
 	});
 
-	test("session_end shows summary with empty diamond", () => {
+	test("session_end shows summary with proper grammar", () => {
 		const result = renderEvent(makeEvent("session_end", { turns: 5, stumbles: 2 }));
-		expect(result).toBe("\u25C7 Session complete. 5 turns, 2 stumbles.");
+		expect(result).toBe("\u25C7 Done. 5 turns, 2 stumbles.");
+	});
+
+	test("session_end uses singular when 1 turn/stumble", () => {
+		const result = renderEvent(makeEvent("session_end", { turns: 1, stumbles: 1 }));
+		expect(result).toBe("\u25C7 Done. 1 turn, 1 stumble.");
 	});
 
 	test("depth 1 indents by 2 spaces", () => {

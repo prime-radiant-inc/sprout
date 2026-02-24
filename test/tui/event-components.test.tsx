@@ -7,9 +7,9 @@ import {
 	DelegationEndLine,
 	DelegationStartLine,
 	formatMarkdown,
+	PlanningLine,
 	renderEventComponent,
 	SystemLine,
-	PlanningLine,
 	ToolEndLine,
 	ToolStartLine,
 } from "../../src/tui/event-components.tsx";
@@ -407,17 +407,14 @@ function makeEvent(
 }
 
 describe("renderEventComponent", () => {
-	test("session_start renders system line", () => {
+	test("session_start returns null (suppressed in TUI)", () => {
 		const node = renderEventComponent(makeEvent("session_start"), null);
-		expect(node).not.toBeNull();
-		const { lastFrame } = render(<Box>{node}</Box>);
-		expect(lastFrame()).toContain("Starting session...");
+		expect(node).toBeNull();
 	});
 
-	test("plan_start renders planning line with turn", () => {
+	test("plan_start returns null (suppressed in TUI)", () => {
 		const node = renderEventComponent(makeEvent("plan_start", { turn: 1 }), null);
-		const { lastFrame } = render(<Box>{node}</Box>);
-		expect(lastFrame()).toContain("planning (turn 1)...");
+		expect(node).toBeNull();
 	});
 
 	test("plan_end renders assistant text", () => {
@@ -481,10 +478,9 @@ describe("renderEventComponent", () => {
 		expect(frame).toContain("3.0s");
 	});
 
-	test("session_end renders system line", () => {
+	test("session_end returns null (suppressed in TUI)", () => {
 		const node = renderEventComponent(makeEvent("session_end", { turns: 5, stumbles: 2 }), null);
-		const { lastFrame } = render(<Box>{node}</Box>);
-		expect(lastFrame()).toContain("Session complete. 5 turns, 2 stumbles.");
+		expect(node).toBeNull();
 	});
 
 	test("warning renders with warning icon", () => {
