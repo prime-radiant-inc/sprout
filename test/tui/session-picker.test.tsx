@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { render } from "ink-testing-library";
-import { SessionPicker } from "../../src/tui/session-picker.tsx";
 import type { SessionMetadataSnapshot } from "../../src/host/session-metadata.ts";
+import { SessionPicker } from "../../src/tui/session-picker.tsx";
 
 /** Wait for React to flush state updates. */
 async function flush() {
@@ -101,6 +101,35 @@ describe("SessionPicker", () => {
 		await flush();
 
 		expect(cancelled).toBe(true);
+	});
+
+	test("Up arrow moves selection back", async () => {
+		const { lastFrame, stdin } = render(
+			<SessionPicker sessions={sessions} onSelect={() => {}} onCancel={() => {}} />,
+		);
+
+		stdin.write("\x1B[B"); // Down
+		await flush();
+		let lines = lastFrame()!.split("\n");
+		expect(lines.find((l) => l.includes(">") && l.includes("01BBBB00"))).toBeDefined();
+
+		stdin.write("\x1B[A"); // Up
+		await flush();
+		lines = lastFrame()!.split("\n");
+		expect(lines.find((l) => l.includes(">") && l.includes("01AAAA00"))).toBeDefined();
+	});
+
+	test("renders session details (status, turns, model)", () => {
+		const { lastFrame } = render(
+			<SessionPicker sessions={sessions} onSelect={() => {}} onCancel={() => {}} />,
+		);
+		const frame = lastFrame()!;
+		expect(frame).toContain("idle");
+		expect(frame).toContain("3 turns");
+		expect(frame).toContain("gpt-4o");
+		expect(frame).toContain("running");
+		expect(frame).toContain("7 turns");
+		expect(frame).toContain("claude-sonnet");
 	});
 
 	test("shows 'No sessions' when empty", () => {

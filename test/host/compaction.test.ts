@@ -22,6 +22,12 @@ describe("shouldCompact", () => {
 		expect(shouldCompact(8000, 10000)).toBe(true);
 	});
 
+	test("shouldCompact returns false below 80% and true at 80%", () => {
+		expect(shouldCompact(158000, 200000)).toBe(false);
+		expect(shouldCompact(160000, 200000)).toBe(true);
+		expect(shouldCompact(162000, 200000)).toBe(true);
+	});
+
 	test("returns false for zero context window", () => {
 		expect(shouldCompact(0, 0)).toBe(false);
 		expect(shouldCompact(100, 0)).toBe(false);

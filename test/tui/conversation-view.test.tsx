@@ -92,6 +92,28 @@ describe("ConversationView", () => {
 		expect(lastFrame()).toContain("line-0");
 	});
 
+	test("PgDown returns to auto-scroll after PgUp", async () => {
+		const bus = new EventBus();
+		const { lastFrame, stdin } = render(<ConversationView bus={bus} maxHeight={3} />);
+
+		for (let i = 0; i < 6; i++) {
+			bus.emitEvent("warning", "cli", 0, { message: `line-${i}` });
+		}
+		await flush();
+
+		// Auto-scrolled to bottom: line-3, line-4, line-5
+		expect(lastFrame()).toContain("line-5");
+
+		stdin.write("\x1B[5~"); // PgUp
+		await flush();
+		expect(lastFrame()).toContain("line-0");
+
+		stdin.write("\x1B[6~"); // PgDown — should return to auto-scroll (null offset)
+		await flush();
+
+		expect(lastFrame()).toContain("line-5");
+	});
+
 	test("EVENT_COLORS maps error to red and warning to yellow", () => {
 		expect(EVENT_COLORS.error).toBe("red");
 		expect(EVENT_COLORS.warning).toBe("yellow");
