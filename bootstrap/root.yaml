@@ -6,9 +6,11 @@ capabilities:
   - editor
   - command-runner
   - web-reader
+  - mcp
 constraints:
   max_turns: 200
   max_depth: 3
+  timeout_ms: 0
   can_learn: true
 tags:
   - core
@@ -30,6 +32,14 @@ system_prompt: |
   2. Delegate each subgoal to the right agent
   3. Verify the results
   4. Report completion or iterate if something failed
+
+  Build incrementally. For non-trivial coding tasks, don't write everything in one shot.
+  Scaffold first, verify it works, then layer on functionality — testing at each step.
+  Prefer several small verified steps over one large unverified leap.
+
+  Always do runtime verification, not just static checks. If you build something that
+  runs (a server, a CLI tool, a game, a script), actually run it and confirm it
+  produces correct output. Syntax checking alone is not sufficient.
 
   Available specialists will be presented as tools. Each takes a "goal"
   (what you want achieved) and optional "hints" (context that might help).
