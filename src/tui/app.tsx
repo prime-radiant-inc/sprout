@@ -1,16 +1,11 @@
-import { Box, Text } from "ink";
-import { useEffect, useRef, useState } from "react";
+import { Box } from "ink";
+import { useEffect, useState } from "react";
 import type { EventBus } from "../host/event-bus.ts";
 import type { SessionEvent } from "../kernel/types.ts";
+import { ConversationView } from "./conversation-view.tsx";
 import { InputArea } from "./input-area.tsx";
-import { renderEvent } from "./render-event.ts";
 import type { SlashCommand } from "./slash-commands.ts";
 import { StatusBar } from "./status-bar.tsx";
-
-interface Line {
-	id: number;
-	text: string;
-}
 
 export interface AppProps {
 	bus: EventBus;
@@ -49,18 +44,10 @@ export function App({
 	onExit,
 	initialHistory,
 }: AppProps) {
-	const [lines, setLines] = useState<Line[]>([]);
 	const [statusState, setStatusState] = useState<StatusState>(INITIAL_STATUS);
-	const nextId = useRef(0);
 
 	useEffect(() => {
 		return bus.onEvent((event: SessionEvent) => {
-			const text = renderEvent(event);
-			if (text !== null) {
-				const id = nextId.current++;
-				setLines((prev) => [...prev, { id, text }]);
-			}
-
 			switch (event.kind) {
 				case "session_start":
 					setStatusState((prev) => ({
@@ -104,11 +91,7 @@ export function App({
 
 	return (
 		<Box flexDirection="column">
-			<Box flexDirection="column" flexGrow={1}>
-				{lines.map((line) => (
-					<Text key={line.id}>{line.text}</Text>
-				))}
-			</Box>
+			<ConversationView bus={bus} />
 			<StatusBar
 				contextTokens={statusState.contextTokens}
 				contextWindowSize={statusState.contextWindowSize}
