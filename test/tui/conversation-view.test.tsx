@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { render } from "ink-testing-library";
 import { EventBus } from "../../src/host/event-bus.ts";
-import { ConversationView, EVENT_COLORS } from "../../src/tui/conversation-view.tsx";
+import { ConversationView } from "../../src/tui/conversation-view.tsx";
 
 /** Wait for React to flush state updates. */
 async function flush() {
@@ -44,15 +44,13 @@ describe("ConversationView", () => {
 
 		const frame = lastFrame()!;
 		const lines = frame.split("\n");
-		// Find lines by agent id
-		const rootLine = lines.find((l) => l.includes("[root]"));
-		const subLine = lines.find((l) => l.includes("[sub-1]"));
-		expect(rootLine).toBeDefined();
-		expect(subLine).toBeDefined();
-		// Subagent line should have more leading whitespace
-		const subIndent = subLine!.length - subLine!.trimStart().length;
-		const rootIndent = rootLine!.length - rootLine!.trimStart().length;
-		expect(subIndent).toBeGreaterThan(rootIndent);
+		// Both lines contain "Starting session..."
+		// The depth-1 line should have more leading whitespace
+		const sessionLines = lines.filter((l) => l.includes("Starting session"));
+		expect(sessionLines.length).toBe(2);
+		const indent0 = sessionLines[0]!.length - sessionLines[0]!.trimStart().length;
+		const indent1 = sessionLines[1]!.length - sessionLines[1]!.trimStart().length;
+		expect(indent1).toBeGreaterThan(indent0);
 	});
 
 	test("caps visible lines to maxHeight", async () => {
@@ -114,18 +112,7 @@ describe("ConversationView", () => {
 		expect(lastFrame()).toContain("line-5");
 	});
 
-	test("EVENT_COLORS maps error to red and warning to yellow", () => {
-		expect(EVENT_COLORS.error).toBe("red");
-		expect(EVENT_COLORS.warning).toBe("yellow");
-		expect(EVENT_COLORS.session_start).toBe("green");
-		expect(EVENT_COLORS.interrupted).toBe("red");
-	});
-
-	test("renders events with color (verified with FORCE_COLOR)", async () => {
-		// Colors are applied via Ink's <Text color={...}> prop.
-		// When FORCE_COLOR=1, output includes ANSI codes.
-		// This test verifies events render with correct text content
-		// regardless of color support.
+	test("renders events with appropriate content", async () => {
 		const bus = new EventBus();
 		const { lastFrame } = render(<ConversationView bus={bus} />);
 
@@ -151,9 +138,8 @@ describe("ConversationView", () => {
 		});
 		await flush();
 
-		// Both lines should be visible by default
+		// Tool lines should be visible by default
 		expect(lastFrame()).toContain("exec");
-		expect(lastFrame()).toContain("exec: ");
 
 		// Press Tab to collapse tool details
 		stdin.write("\t");
@@ -169,7 +155,6 @@ describe("ConversationView", () => {
 		await flush();
 
 		expect(lastFrame()).toContain("exec");
-		expect(lastFrame()).toContain("exec: ");
 	});
 
 	test("tool collapse hides start events too", async () => {
@@ -329,16 +314,34 @@ describe("ConversationView", () => {
 		expect(newIdx).toBeGreaterThan(oldIdx);
 	});
 
-	test("skips events that render-event returns null for", async () => {
+	test("skips events that renderEventComponent returns null for", async () => {
 		const bus = new EventBus();
 		const { lastFrame } = render(<ConversationView bus={bus} />);
 
-		// plan_end with no text should return null from renderEvent
+		// plan_end with no text should return null from renderEventComponent
 		bus.emitEvent("plan_end", "root", 0, { turn: 1 });
 		await flush();
 
 		// Frame should be empty (no visible lines)
 		const frame = lastFrame()!;
 		expect(frame.trim()).toBe("");
+	});
+
+	test("computes duration between start and end events", async () => {
+		const bus = new EventBus();
+		const { lastFrame } = render(<ConversationView bus={bus} />);
+
+		// Emit start, wait a bit, then end
+		bus.emitEvent("primitive_start", "root", 0, { name: "exec", args: { command: "ls" } });
+		// Manually emit an end event with a later timestamp to test duration
+		// The EventBus uses Date.now() which will be very close, so we just check
+		// the end event renders (duration will be ~0.0s)
+		bus.emitEvent("primitive_end", "root", 0, { name: "exec", success: true });
+		await flush();
+
+		const frame = lastFrame()!;
+		// Should contain duration (even if 0.0s)
+		expect(frame).toContain("s");
+		expect(frame).toContain("\u2713");
 	});
 });

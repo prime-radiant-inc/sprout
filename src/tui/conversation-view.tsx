@@ -1,25 +1,15 @@
 import { Box, Text, useInput } from "ink";
+import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import type { EventBus } from "../host/event-bus.ts";
 import type { EventKind, SessionEvent } from "../kernel/types.ts";
-import { renderEvent } from "./render-event.ts";
+import { renderEventComponent } from "./event-components.tsx";
 
 interface Line {
 	id: number;
-	text: string;
+	node: ReactNode;
 	kind: EventKind;
 }
-
-export const EVENT_COLORS: Partial<Record<EventKind, string>> = {
-	error: "red",
-	warning: "yellow",
-	session_start: "green",
-	session_end: "green",
-	session_resume: "cyan",
-	steering: "magenta",
-	compaction: "cyan",
-	interrupted: "red",
-};
 
 const TOOL_DETAIL_KINDS: Set<EventKind> = new Set([
 	"primitive_start",
@@ -36,17 +26,57 @@ export interface ConversationViewProps {
 	initialEvents?: SessionEvent[];
 }
 
+/**
+ * Build a key for matching start/end event pairs for duration tracking.
+ * Returns null if the event isn't a start/end pair we track.
+ */
+function durationKey(event: SessionEvent): string | null {
+	const { kind, agent_id, data } = event;
+	switch (kind) {
+		case "plan_start":
+		case "plan_end":
+			return `${agent_id}:plan`;
+		case "primitive_start":
+		case "primitive_end":
+			return `${agent_id}:primitive:${data.name}`;
+		case "act_start":
+		case "act_end":
+			return `${agent_id}:act:${data.agent_name}`;
+		default:
+			return null;
+	}
+}
+
+/**
+ * Track start times and compute duration for end events.
+ * Mutates the provided Map to record start timestamps and remove them on match.
+ */
+function trackDuration(event: SessionEvent, startTimes: Map<string, number>): number | null {
+	const key = durationKey(event);
+	if (!key) return null;
+	const isEnd = event.kind.endsWith("_end");
+	if (!isEnd) {
+		startTimes.set(key, event.timestamp);
+		return null;
+	}
+	const startTime = startTimes.get(key);
+	startTimes.delete(key);
+	return startTime != null ? event.timestamp - startTime : null;
+}
+
 export function ConversationView({ bus, maxHeight, initialEvents }: ConversationViewProps) {
 	const nextId = useRef(0);
+	const startTimes = useRef(new Map<string, number>());
 
 	// Compute initial lines from initialEvents (runs once via lazy initializer)
 	const [lines, setLines] = useState<Line[]>(() => {
 		if (!initialEvents) return [];
 		const initial: Line[] = [];
 		for (const event of initialEvents) {
-			const text = renderEvent(event);
-			if (text !== null) {
-				initial.push({ id: nextId.current++, text, kind: event.kind });
+			const durationMs = trackDuration(event, startTimes.current);
+			const node = renderEventComponent(event, durationMs);
+			if (node !== null) {
+				initial.push({ id: nextId.current++, node, kind: event.kind });
 			}
 		}
 		return initial;
@@ -59,12 +89,14 @@ export function ConversationView({ bus, maxHeight, initialEvents }: Conversation
 			if (event.kind === "session_clear") {
 				setLines([]);
 				setScrollOffset(null);
+				startTimes.current.clear();
 				return;
 			}
-			const text = renderEvent(event);
-			if (text !== null) {
+			const durationMs = trackDuration(event, startTimes.current);
+			const node = renderEventComponent(event, durationMs);
+			if (node !== null) {
 				const id = nextId.current++;
-				setLines((prev) => [...prev, { id, text, kind: event.kind }]);
+				setLines((prev) => [...prev, { id, node, kind: event.kind }]);
 			}
 		});
 	}, [bus]);
@@ -108,14 +140,9 @@ export function ConversationView({ bus, maxHeight, initialEvents }: Conversation
 
 	return (
 		<Box flexDirection="column" flexGrow={1}>
-			{visible.map((line) => {
-				const color = EVENT_COLORS[line.kind];
-				return (
-					<Text key={line.id} color={color}>
-						{line.text}
-					</Text>
-				);
-			})}
+			{visible.map((line) => (
+				<Box key={line.id}>{line.node}</Box>
+			))}
 			{scrollOffset !== null && (
 				<Text dimColor>-- SCROLL (PgDown to continue, PgDown past end to resume) --</Text>
 			)}
