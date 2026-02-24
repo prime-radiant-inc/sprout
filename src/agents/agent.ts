@@ -215,12 +215,14 @@ export class Agent {
 
 		if (!subagentSpec) {
 			const errorMsg = `Unknown agent: ${delegation.agent_name}`;
+			const toolResultMsg = Msg.toolResult(delegation.call_id, errorMsg, true);
 			this.emitAndLog("act_end", agentId, this.depth, {
 				agent_name: delegation.agent_name,
 				success: false,
 				error: errorMsg,
+				tool_result_message: toolResultMsg,
 			});
-			return { toolResultMsg: Msg.toolResult(delegation.call_id, errorMsg, true), stumbles: 1 };
+			return { toolResultMsg, stumbles: 1 };
 		}
 
 		try {
@@ -297,12 +299,14 @@ export class Agent {
 			};
 		} catch (err) {
 			const errorMsg = `Subagent '${delegation.agent_name}' failed: ${String(err)}`;
+			const toolResultMsg = Msg.toolResult(delegation.call_id, errorMsg, true);
 			this.emitAndLog("act_end", agentId, this.depth, {
 				agent_name: delegation.agent_name,
 				success: false,
 				error: errorMsg,
+				tool_result_message: toolResultMsg,
 			});
-			return { toolResultMsg: Msg.toolResult(delegation.call_id, errorMsg, true), stumbles: 1 };
+			return { toolResultMsg, stumbles: 1 };
 		}
 	}
 
