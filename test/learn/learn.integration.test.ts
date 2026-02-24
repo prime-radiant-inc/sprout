@@ -9,16 +9,30 @@ import type { LearnSignal } from "../../src/kernel/types.ts";
 import { LearnProcess } from "../../src/learn/learn-process.ts";
 import { MetricsStore } from "../../src/learn/metrics-store.ts";
 import { Client } from "../../src/llm/client.ts";
+import { createVcr } from "../helpers/vcr.ts";
 
 config({ path: join(homedir(), "prime-radiant/serf/.env") });
 
+const FIXTURE_DIR = join(import.meta.dir, "../fixtures/vcr/learn");
+
+function slug(name: string): string {
+	return name
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "-")
+		.replace(/(^-|-$)/g, "");
+}
+
 describe("Learn Integration", () => {
 	let tempDir: string;
-	let client: Client;
+	let realClient: Client | undefined;
 
 	beforeAll(async () => {
 		tempDir = await mkdtemp(join(tmpdir(), "sprout-learn-int-"));
-		client = Client.fromEnv();
+		try {
+			realClient = Client.fromEnv();
+		} catch {
+			// No API keys — replay only
+		}
 	});
 
 	afterAll(async () => {
@@ -26,6 +40,12 @@ describe("Learn Integration", () => {
 	});
 
 	test("failure signal produces a genome mutation via LLM", async () => {
+		const vcr = createVcr({
+			fixtureDir: FIXTURE_DIR,
+			testName: slug("failure-signal-produces-genome-mutation"),
+			realClient,
+		});
+
 		const genomeDir = join(tempDir, "genome-failure");
 		const genome = new Genome(genomeDir);
 		await genome.init();
@@ -39,7 +59,7 @@ describe("Learn Integration", () => {
 		const metrics = new MetricsStore(join(genomeDir, "metrics", "metrics.jsonl"));
 		await metrics.load();
 		const events = new AgentEventEmitter();
-		const learn = new LearnProcess({ genome, metrics, events, client });
+		const learn = new LearnProcess({ genome, metrics, events, client: vcr.client });
 
 		const signal: LearnSignal = {
 			kind: "failure",
@@ -74,9 +94,18 @@ describe("Learn Integration", () => {
 		const agentCount = genome.agentCount();
 		const grew = memoryCount > 0 || routingCount > 0 || agentCount > 4;
 		expect(grew).toBe(true);
+		await vcr.afterTest();
 	}, 60_000);
 
 	test("skipped signal does not mutate genome", async () => {
+		// This test doesn't make LLM calls (signal is skipped before reaching LLM),
+		// but we wire VCR for consistency — it will just record zero entries.
+		const vcr = createVcr({
+			fixtureDir: FIXTURE_DIR,
+			testName: slug("skipped-signal-does-not-mutate-genome"),
+			realClient,
+		});
+
 		const genomeDir = join(tempDir, "genome-skip");
 		const genome = new Genome(genomeDir);
 		await genome.init();
@@ -85,7 +114,7 @@ describe("Learn Integration", () => {
 		const metrics = new MetricsStore(join(genomeDir, "metrics", "metrics.jsonl"));
 		await metrics.load();
 		const events = new AgentEventEmitter();
-		const learn = new LearnProcess({ genome, metrics, events, client });
+		const learn = new LearnProcess({ genome, metrics, events, client: vcr.client });
 
 		// One-off error signal: kind "error" with 0 prior occurrences should be skipped
 		const signal: LearnSignal = {
@@ -114,5 +143,6 @@ describe("Learn Integration", () => {
 		expect(genome.memories.all().length).toBe(0);
 		expect(genome.allRoutingRules().length).toBe(0);
 		expect(genome.agentCount()).toBe(5);
+		await vcr.afterTest();
 	}, 30_000);
 });

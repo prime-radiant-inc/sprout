@@ -1,6 +1,8 @@
 import { beforeAll, describe, expect, test } from "bun:test";
+import { join } from "node:path";
 import { config } from "dotenv";
 import { AnthropicAdapter } from "../../src/llm/anthropic.ts";
+import type { ProviderAdapter } from "../../src/llm/types.ts";
 import {
 	ContentKind,
 	messageReasoning,
@@ -9,24 +11,45 @@ import {
 	type Request,
 	type StreamEvent,
 } from "../../src/llm/types.ts";
+import { createAdapterVcr } from "../helpers/vcr.ts";
 
-// Load API keys from serf .env
 config();
 
+const FIXTURE_DIR = join(import.meta.dir, "../fixtures/vcr/llm-anthropic");
+
+function slug(name: string): string {
+	return name
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "-")
+		.replace(/(^-|-$)/g, "");
+}
+
+function vcrFor(testName: string, realAdapter?: ProviderAdapter) {
+	return createAdapterVcr({
+		fixtureDir: FIXTURE_DIR,
+		testName: slug(testName),
+		realAdapter,
+	});
+}
+
 describe("AnthropicAdapter", () => {
-	let adapter: AnthropicAdapter;
+	let realAdapter: AnthropicAdapter | undefined;
 
 	beforeAll(() => {
 		const key = process.env.ANTHROPIC_API_KEY;
-		if (!key) throw new Error("ANTHROPIC_API_KEY not set");
-		adapter = new AnthropicAdapter(key);
+		if (key) {
+			realAdapter = new AnthropicAdapter(key);
+		}
 	});
 
 	test("adapter name is anthropic", () => {
+		// Replay-only: VCR adapter returns the recorded name
+		const { adapter } = vcrFor("adapter-name-is-anthropic");
 		expect(adapter.name).toBe("anthropic");
 	});
 
 	test("complete returns a text response", async () => {
+		const vcr = vcrFor("complete-returns-a-text-response", realAdapter);
 		const req: Request = {
 			model: "claude-haiku-4-5-20251001",
 			messages: [
@@ -38,7 +61,7 @@ describe("AnthropicAdapter", () => {
 			max_tokens: 50,
 		};
 
-		const resp = await adapter.complete(req);
+		const resp = await vcr.adapter.complete(req);
 		expect(resp.id).toBeTruthy();
 		expect(resp.provider).toBe("anthropic");
 		expect(resp.model).toContain("haiku");
@@ -46,9 +69,11 @@ describe("AnthropicAdapter", () => {
 		expect(resp.finish_reason.reason).toBe("stop");
 		expect(resp.usage.input_tokens).toBeGreaterThan(0);
 		expect(resp.usage.output_tokens).toBeGreaterThan(0);
+		await vcr.afterTest();
 	}, 15_000);
 
 	test("complete handles tool calls", async () => {
+		const vcr = vcrFor("complete-handles-tool-calls", realAdapter);
 		const req: Request = {
 			model: "claude-haiku-4-5-20251001",
 			messages: [
@@ -79,15 +104,18 @@ describe("AnthropicAdapter", () => {
 			max_tokens: 200,
 		};
 
-		const resp = await adapter.complete(req);
+		const resp = await vcr.adapter.complete(req);
 		expect(resp.finish_reason.reason).toBe("tool_calls");
 		const calls = messageToolCalls(resp.message);
 		expect(calls.length).toBeGreaterThan(0);
 		expect(calls[0]!.name).toBe("get_weather");
 		expect(calls[0]!.id).toBeTruthy();
+		await vcr.afterTest();
 	}, 15_000);
 
 	test("complete handles tool result round-trip", async () => {
+		const vcr = vcrFor("complete-handles-tool-result-round-trip", realAdapter);
+
 		// First turn: model calls tool
 		const req1: Request = {
 			model: "claude-haiku-4-5-20251001",
@@ -117,7 +145,7 @@ describe("AnthropicAdapter", () => {
 			max_tokens: 200,
 		};
 
-		const resp1 = await adapter.complete(req1);
+		const resp1 = await vcr.adapter.complete(req1);
 		const calls = messageToolCalls(resp1.message);
 		expect(calls.length).toBeGreaterThan(0);
 
@@ -146,13 +174,16 @@ describe("AnthropicAdapter", () => {
 			max_tokens: 200,
 		};
 
-		const resp2 = await adapter.complete(req2);
+		const resp2 = await vcr.adapter.complete(req2);
 		expect(resp2.finish_reason.reason).toBe("stop");
 		const text = messageText(resp2.message);
 		expect(text.length).toBeGreaterThan(0);
+		await vcr.afterTest();
 	}, 30_000);
 
 	test("prompt caching: cache_write_tokens on turn 1, cache_read_tokens on turn 2", async () => {
+		const vcr = vcrFor("prompt-caching", realAdapter);
+
 		// Haiku 4.5 requires at least 4096 tokens for caching to activate
 		const systemMsg: import("../../src/llm/types.ts").Message = {
 			role: "system",
@@ -166,7 +197,7 @@ describe("AnthropicAdapter", () => {
 		const tools = [
 			{
 				name: "get_weather",
-				description: "Get weather for a location. " + "Detailed description. ".repeat(50),
+				description: `Get weather for a location. ${"Detailed description. ".repeat(50)}`,
 				parameters: {
 					type: "object" as const,
 					properties: { city: { type: "string" } },
@@ -176,7 +207,7 @@ describe("AnthropicAdapter", () => {
 		];
 
 		// Turn 1 — populates cache (or reads if already cached from a previous run)
-		const r1 = await adapter.complete({
+		const r1 = await vcr.adapter.complete({
 			model: "claude-haiku-4-5-20251001",
 			messages: [systemMsg, userMsg],
 			tools,
@@ -187,17 +218,20 @@ describe("AnthropicAdapter", () => {
 		expect(cacheActive).toBe(true);
 
 		// Turn 2 — should read from cache
-		const r2 = await adapter.complete({
+		const r2 = await vcr.adapter.complete({
 			model: "claude-haiku-4-5-20251001",
 			messages: [systemMsg, userMsg],
 			tools,
 			max_tokens: 50,
 		});
 		expect(r2.usage.cache_read_tokens).toBeGreaterThan(0);
+		await vcr.afterTest();
 	}, 30_000);
 
 	test("extended thinking via provider_options", async () => {
-		const response = await adapter.complete({
+		const vcr = vcrFor("extended-thinking-via-provider-options", realAdapter);
+
+		const response = await vcr.adapter.complete({
 			model: "claude-sonnet-4-6",
 			messages: [
 				{
@@ -220,11 +254,13 @@ describe("AnthropicAdapter", () => {
 		const reasoning = messageReasoning(response.message);
 		expect(reasoning).toBeDefined();
 		expect(reasoning!.length).toBeGreaterThan(0);
+		await vcr.afterTest();
 	}, 30_000);
 
 	test("streaming emits text_end after text content", async () => {
+		const vcr = vcrFor("streaming-emits-text-end-after-text-content", realAdapter);
 		const events: StreamEvent[] = [];
-		for await (const event of adapter.stream({
+		for await (const event of vcr.adapter.stream({
 			model: "claude-haiku-4-5-20251001",
 			messages: [{ role: "user", content: [{ kind: ContentKind.TEXT, text: "Say hello" }] }],
 			max_tokens: 50,
@@ -236,9 +272,11 @@ describe("AnthropicAdapter", () => {
 		expect(types).toContain("text_end");
 		// text_end should come after text_start
 		expect(types.indexOf("text_end")).toBeGreaterThan(types.indexOf("text_start"));
+		await vcr.afterTest();
 	}, 15_000);
 
 	test("stream yields text deltas that match complete response", async () => {
+		const vcr = vcrFor("stream-yields-text-deltas", realAdapter);
 		const req: Request = {
 			model: "claude-haiku-4-5-20251001",
 			messages: [
@@ -250,9 +288,9 @@ describe("AnthropicAdapter", () => {
 			max_tokens: 100,
 		};
 
-		const events = [];
+		const events: StreamEvent[] = [];
 		let textDeltas = "";
-		for await (const event of adapter.stream(req)) {
+		for await (const event of vcr.adapter.stream(req)) {
 			events.push(event);
 			if (event.type === "text_delta" && event.delta) {
 				textDeltas += event.delta;
@@ -268,5 +306,6 @@ describe("AnthropicAdapter", () => {
 		// Finish event should have usage
 		const finish = events.find((e) => e.type === "finish");
 		expect(finish?.usage?.input_tokens).toBeGreaterThan(0);
+		await vcr.afterTest();
 	}, 15_000);
 });

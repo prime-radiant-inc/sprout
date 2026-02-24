@@ -1,24 +1,47 @@
 import { beforeAll, describe, expect, test } from "bun:test";
+import { join } from "node:path";
 import { config } from "dotenv";
 import { OpenAIAdapter } from "../../src/llm/openai.ts";
+import type { ProviderAdapter } from "../../src/llm/types.ts";
 import { ContentKind, messageText, messageToolCalls, type Request } from "../../src/llm/types.ts";
+import { createAdapterVcr } from "../helpers/vcr.ts";
 
 config();
 
+const FIXTURE_DIR = join(import.meta.dir, "../fixtures/vcr/llm-openai");
+
+function slug(name: string): string {
+	return name
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "-")
+		.replace(/(^-|-$)/g, "");
+}
+
+function vcrFor(testName: string, realAdapter?: ProviderAdapter) {
+	return createAdapterVcr({
+		fixtureDir: FIXTURE_DIR,
+		testName: slug(testName),
+		realAdapter,
+	});
+}
+
 describe("OpenAIAdapter", () => {
-	let adapter: OpenAIAdapter;
+	let realAdapter: OpenAIAdapter | undefined;
 
 	beforeAll(() => {
 		const key = process.env.OPENAI_API_KEY;
-		if (!key) throw new Error("OPENAI_API_KEY not set");
-		adapter = new OpenAIAdapter(key);
+		if (key) {
+			realAdapter = new OpenAIAdapter(key);
+		}
 	});
 
 	test("adapter name is openai", () => {
+		const { adapter } = vcrFor("adapter-name-is-openai");
 		expect(adapter.name).toBe("openai");
 	});
 
 	test("complete returns a text response", async () => {
+		const vcr = vcrFor("complete-returns-a-text-response", realAdapter);
 		const req: Request = {
 			model: "gpt-4.1-mini",
 			messages: [
@@ -30,16 +53,18 @@ describe("OpenAIAdapter", () => {
 			max_tokens: 50,
 		};
 
-		const resp = await adapter.complete(req);
+		const resp = await vcr.adapter.complete(req);
 		expect(resp.id).toBeTruthy();
 		expect(resp.provider).toBe("openai");
 		expect(messageText(resp.message).length).toBeGreaterThan(0);
 		expect(resp.finish_reason.reason).toBe("stop");
 		expect(resp.usage.input_tokens).toBeGreaterThan(0);
 		expect(resp.usage.output_tokens).toBeGreaterThan(0);
+		await vcr.afterTest();
 	}, 15_000);
 
 	test("complete handles tool calls", async () => {
+		const vcr = vcrFor("complete-handles-tool-calls", realAdapter);
 		const req: Request = {
 			model: "gpt-4.1-mini",
 			messages: [
@@ -70,14 +95,16 @@ describe("OpenAIAdapter", () => {
 			max_tokens: 200,
 		};
 
-		const resp = await adapter.complete(req);
+		const resp = await vcr.adapter.complete(req);
 		expect(resp.finish_reason.reason).toBe("tool_calls");
 		const calls = messageToolCalls(resp.message);
 		expect(calls.length).toBeGreaterThan(0);
 		expect(calls[0]!.name).toBe("get_weather");
+		await vcr.afterTest();
 	}, 15_000);
 
 	test("complete handles tool result round-trip", async () => {
+		const vcr = vcrFor("complete-handles-tool-result-round-trip", realAdapter);
 		const req1: Request = {
 			model: "gpt-4.1-mini",
 			messages: [
@@ -106,7 +133,7 @@ describe("OpenAIAdapter", () => {
 			max_tokens: 200,
 		};
 
-		const resp1 = await adapter.complete(req1);
+		const resp1 = await vcr.adapter.complete(req1);
 		const calls = messageToolCalls(resp1.message);
 		expect(calls.length).toBeGreaterThan(0);
 
@@ -134,13 +161,15 @@ describe("OpenAIAdapter", () => {
 			max_tokens: 200,
 		};
 
-		const resp2 = await adapter.complete(req2);
+		const resp2 = await vcr.adapter.complete(req2);
 		expect(resp2.finish_reason.reason).toBe("stop");
 		expect(messageText(resp2.message).length).toBeGreaterThan(0);
+		await vcr.afterTest();
 	}, 30_000);
 
 	test("reasoning_effort passthrough does not error", async () => {
-		const response = await adapter.complete({
+		const vcr = vcrFor("reasoning-effort-passthrough", realAdapter);
+		const response = await vcr.adapter.complete({
 			model: "o4-mini",
 			messages: [
 				{
@@ -152,9 +181,11 @@ describe("OpenAIAdapter", () => {
 			max_tokens: 1000,
 		});
 		expect(response.message).toBeDefined();
+		await vcr.afterTest();
 	}, 15_000);
 
 	test("stream yields text deltas", async () => {
+		const vcr = vcrFor("stream-yields-text-deltas", realAdapter);
 		const req: Request = {
 			model: "gpt-4.1-mini",
 			messages: [
@@ -168,7 +199,7 @@ describe("OpenAIAdapter", () => {
 
 		const events = [];
 		let textDeltas = "";
-		for await (const event of adapter.stream(req)) {
+		for await (const event of vcr.adapter.stream(req)) {
 			events.push(event);
 			if (event.type === "text_delta" && event.delta) {
 				textDeltas += event.delta;
@@ -182,5 +213,6 @@ describe("OpenAIAdapter", () => {
 
 		const finish = events.find((e) => e.type === "finish");
 		expect(finish?.usage?.input_tokens).toBeGreaterThan(0);
+		await vcr.afterTest();
 	}, 15_000);
 });
