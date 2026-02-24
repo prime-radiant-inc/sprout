@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { EventBus } from "../host/event-bus.ts";
 import type { SessionEvent } from "../kernel/types.ts";
 import { renderEvent } from "./render-event.ts";
+import { StatusBar } from "./status-bar.tsx";
 
 interface Line {
 	id: number;
@@ -14,8 +15,29 @@ interface AppProps {
 	sessionId: string;
 }
 
-export function App({ bus, sessionId: _sessionId }: AppProps) {
+interface StatusState {
+	contextTokens: number;
+	contextWindowSize: number;
+	turns: number;
+	inputTokens: number;
+	outputTokens: number;
+	model: string;
+	status: "idle" | "running" | "interrupted";
+}
+
+const INITIAL_STATUS: StatusState = {
+	contextTokens: 0,
+	contextWindowSize: 0,
+	turns: 0,
+	inputTokens: 0,
+	outputTokens: 0,
+	model: "",
+	status: "idle",
+};
+
+export function App({ bus, sessionId }: AppProps) {
 	const [lines, setLines] = useState<Line[]>([]);
+	const [statusState, setStatusState] = useState<StatusState>(INITIAL_STATUS);
 	const nextId = useRef(0);
 
 	useEffect(() => {
@@ -24,6 +46,45 @@ export function App({ bus, sessionId: _sessionId }: AppProps) {
 			if (text !== null) {
 				const id = nextId.current++;
 				setLines((prev) => [...prev, { id, text }]);
+			}
+
+			switch (event.kind) {
+				case "session_start":
+					setStatusState((prev) => ({
+						...prev,
+						status: "running",
+						model: (event.data.model as string) ?? prev.model,
+					}));
+					break;
+
+				case "session_end":
+					setStatusState((prev) => ({ ...prev, status: "idle" }));
+					break;
+
+				case "interrupted":
+					setStatusState((prev) => ({ ...prev, status: "interrupted" }));
+					break;
+
+				case "context_update":
+					setStatusState((prev) => ({
+						...prev,
+						contextTokens: (event.data.context_tokens as number) ?? prev.contextTokens,
+						contextWindowSize: (event.data.context_window_size as number) ?? prev.contextWindowSize,
+					}));
+					break;
+
+				case "plan_end": {
+					const usage = event.data.usage as
+						| { input_tokens: number; output_tokens: number }
+						| undefined;
+					setStatusState((prev) => ({
+						...prev,
+						turns: (event.data.turn as number) ?? prev.turns,
+						inputTokens: usage?.input_tokens ?? prev.inputTokens,
+						outputTokens: usage?.output_tokens ?? prev.outputTokens,
+					}));
+					break;
+				}
 			}
 		});
 	}, [bus]);
@@ -35,6 +96,16 @@ export function App({ bus, sessionId: _sessionId }: AppProps) {
 					<Text key={line.id}>{line.text}</Text>
 				))}
 			</Box>
+			<StatusBar
+				contextTokens={statusState.contextTokens}
+				contextWindowSize={statusState.contextWindowSize}
+				turns={statusState.turns}
+				inputTokens={statusState.inputTokens}
+				outputTokens={statusState.outputTokens}
+				model={statusState.model}
+				sessionId={sessionId}
+				status={statusState.status}
+			/>
 		</Box>
 	);
 }
