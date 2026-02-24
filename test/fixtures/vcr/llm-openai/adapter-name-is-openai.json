@@ -1,0 +1,11 @@
+{
+  "recordings": [],
+  "metadata": {
+    "recordedAt": "2026-02-24T20:32:32.389Z",
+    "testName": "adapter-name-is-openai",
+    "providers": [
+      "openai"
+    ],
+    "adapterName": "openai"
+  }
+}

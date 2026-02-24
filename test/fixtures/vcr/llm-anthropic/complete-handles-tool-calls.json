@@ -1,0 +1,80 @@
+{
+  "recordings": [
+    {
+      "type": "complete",
+      "request": {
+        "model": "claude-haiku-4-5-20251001",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "kind": "text",
+                "text": "What's the weather in San Francisco? Use the get_weather tool."
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "name": "get_weather",
+            "description": "Get current weather for a location",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "location": {
+                  "type": "string",
+                  "description": "City name"
+                }
+              },
+              "required": [
+                "location"
+              ]
+            }
+          }
+        ],
+        "tool_choice": "required",
+        "max_tokens": 200
+      },
+      "response": {
+        "id": "msg_01G7S8uGosNjc53ovEav5iqC",
+        "model": "claude-haiku-4-5-20251001",
+        "provider": "anthropic",
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "kind": "tool_call",
+              "tool_call": {
+                "id": "toolu_015kTXHBJqPSq8neK73hwC4G",
+                "name": "get_weather",
+                "arguments": {
+                  "location": "San Francisco"
+                }
+              }
+            }
+          ]
+        },
+        "finish_reason": {
+          "reason": "tool_calls",
+          "raw": "tool_use"
+        },
+        "usage": {
+          "input_tokens": 671,
+          "output_tokens": 39,
+          "total_tokens": 710,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0
+        }
+      }
+    }
+  ],
+  "metadata": {
+    "recordedAt": "2026-02-24T20:32:21.265Z",
+    "testName": "complete-handles-tool-calls",
+    "providers": [
+      "anthropic"
+    ],
+    "adapterName": "anthropic"
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "recordings": [
+    {
+      "type": "complete",
+      "request": {
+        "model": "gemini-2.5-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "kind": "text",
+                "text": "Say hello in exactly 3 words."
+              }
+            ]
+          }
+        ],
+        "max_tokens": 500
+      },
+      "response": {
+        "id": "",
+        "model": "gemini-2.5-flash",
+        "provider": "gemini",
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "kind": "text",
+              "text": "Well, hello there."
+            }
+          ]
+        },
+        "finish_reason": {
+          "reason": "stop",
+          "raw": "STOP"
+        },
+        "usage": {
+          "input_tokens": 9,
+          "output_tokens": 5,
+          "total_tokens": 399,
+          "reasoning_tokens": 385
+        }
+      }
+    }
+  ],
+  "metadata": {
+    "recordedAt": "2026-02-24T20:32:43.768Z",
+    "testName": "complete-returns-a-text-response",
+    "providers": [
+      "gemini"
+    ],
+    "adapterName": "gemini"
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "recordings": [
+    {
+      "type": "complete",
+      "request": {
+        "model": "claude-sonnet-4-6",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "kind": "text",
+                "text": "What is 15 * 37? Think step by step."
+              }
+            ]
+          }
+        ],
+        "max_tokens": 16000,
+        "provider_options": {
+          "anthropic": {
+            "thinking": {
+              "type": "enabled",
+              "budget_tokens": 10000
+            }
+          }
+        }
+      },
+      "response": {
+        "id": "msg_0124J1VQyjnLnWrwSzxXJXYz",
+        "model": "claude-sonnet-4-6",
+        "provider": "anthropic",
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "kind": "thinking",
+              "thinking": {
+                "text": "15 * 37\n\nI'll break this down:\n15 * 37 = 15 * 30 + 15 * 7\n= 450 + 105\n= 555",
+                "signature": "EvMBCkYICxgCKkBqPzDQLkLR20zfi7MdLTOWFwncm+DvRkRwLznYsC9wHJAeBFIB7UhwStMfZRW3E9TM9YDSMYM3lgXt46VRt0Z/EgwRyo/0QNZUdYRzA/AaDFCLlb/VuA2BCkJbBiIwiTMK7CQrDaBhNZZ/N1DjD/lgfvN55U60bs82aW6AeI3TCe+9y8szp12QdHoyWZJqKlu7vYfyzRmAtgbN4ExloJFyZKbjOrs/vsjh4ioIN51Nfz5mAeKW2Ewgf/nXC6Ccjgdnl1NLb5EI22ZQ4TMxzNpIGRgkaBfEZxEW+DGvh5du9YlRvgQbP0fF2Qf3GAE="
+              }
+            },
+            {
+              "kind": "text",
+              "text": "## Calculating 15 × 37\n\nI'll break this into smaller, easier steps.\n\n**Split 37 into 30 + 7:**\n\n- 15 × 30 = **450**\n- 15 × 7 = **105**\n\n**Add the results:**\n\n450 + 105 = **555**\n\n---\n\n**15 × 37 = 555**"
+            }
+          ]
+        },
+        "finish_reason": {
+          "reason": "stop",
+          "raw": "end_turn"
+        },
+        "usage": {
+          "input_tokens": 50,
+          "output_tokens": 148,
+          "total_tokens": 198,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0
+        }
+      }
+    }
+  ],
+  "metadata": {
+    "recordedAt": "2026-02-24T20:32:28.122Z",
+    "testName": "extended-thinking-via-provider-options",
+    "providers": [
+      "anthropic"
+    ],
+    "adapterName": "anthropic"
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "recordings": [
+    {
+      "type": "complete",
+      "request": {
+        "model": "gemini-2.5-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "kind": "text",
+                "text": "What's the weather in San Francisco? You must use the get_weather tool."
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "name": "get_weather",
+            "description": "Get weather for a city",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "city": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "city"
+              ]
+            }
+          }
+        ],
+        "max_tokens": 200
+      },
+      "response": {
+        "id": "",
+        "model": "gemini-2.5-flash",
+        "provider": "gemini",
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "kind": "tool_call",
+              "tool_call": {
+                "id": "call_gemini_1",
+                "name": "get_weather",
+                "arguments": {
+                  "city": "San Francisco"
+                }
+              }
+            }
+          ]
+        },
+        "finish_reason": {
+          "reason": "tool_calls"
+        },
+        "usage": {
+          "input_tokens": 56,
+          "output_tokens": 16,
+          "total_tokens": 134,
+          "reasoning_tokens": 62
+        }
+      }
+    }
+  ],
+  "metadata": {
+    "recordedAt": "2026-02-24T20:32:46.990Z",
+    "testName": "separate-adapters-instance-1",
+    "providers": [
+      "gemini"
+    ],
+    "adapterName": "gemini"
+  }
+}
