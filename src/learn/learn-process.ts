@@ -1,3 +1,5 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import type { AgentEventEmitter } from "../agents/events.ts";
 import type { ResolvedModel } from "../agents/model-resolver.ts";
 import { resolveModel } from "../agents/model-resolver.ts";
@@ -57,11 +59,20 @@ export type LearnMutation =
 	  }
 	| { type: "create_routing_rule"; condition: string; preference: string; strength: number };
 
+export interface PendingEvaluation {
+	agentName: string;
+	mutationType: string;
+	timestamp: number;
+	commitHash: string;
+	description?: string;
+}
+
 export interface LearnProcessOptions {
 	genome: Genome;
 	metrics: MetricsStore;
 	events: AgentEventEmitter;
 	client?: Client;
+	pendingEvaluationsPath?: string;
 }
 
 export interface EvaluationResult {
@@ -82,6 +93,8 @@ export class LearnProcess {
 	private readonly resolvedModel?: ResolvedModel;
 	private readonly queue: LearnSignal[] = [];
 	private readonly recentImprovements = new Set<string>();
+	private readonly pendingEvaluationsPath?: string;
+	private _pendingEvaluations: PendingEvaluation[] = [];
 
 	private processing = false;
 	private stopRequested = false;
@@ -92,6 +105,7 @@ export class LearnProcess {
 		this.metrics = options.metrics;
 		this.events = options.events;
 		this.client = options.client;
+		this.pendingEvaluationsPath = options.pendingEvaluationsPath;
 		if (this.client) {
 			this.resolvedModel = resolveModel("best", this.client.providers());
 		}
@@ -117,6 +131,37 @@ export class LearnProcess {
 				error: String(err),
 			});
 		});
+	}
+
+	/** Return a copy of all pending evaluations. */
+	pendingEvaluations(): PendingEvaluation[] {
+		return [...this._pendingEvaluations];
+	}
+
+	/** Load pending evaluations from disk. */
+	async loadPendingEvaluations(): Promise<void> {
+		if (!this.pendingEvaluationsPath) return;
+		try {
+			const raw = await readFile(this.pendingEvaluationsPath, "utf-8");
+			this._pendingEvaluations = JSON.parse(raw) as PendingEvaluation[];
+		} catch (err: unknown) {
+			if (
+				err instanceof Error &&
+				"code" in err &&
+				(err as NodeJS.ErrnoException).code === "ENOENT"
+			) {
+				this._pendingEvaluations = [];
+				return;
+			}
+			throw err;
+		}
+	}
+
+	/** Save pending evaluations to disk. */
+	private async savePendingEvaluations(): Promise<void> {
+		if (!this.pendingEvaluationsPath) return;
+		await mkdir(dirname(this.pendingEvaluationsPath), { recursive: true });
+		await writeFile(this.pendingEvaluationsPath, JSON.stringify(this._pendingEvaluations, null, 2));
 	}
 
 	/** Evaluate whether an improvement helped by comparing stumble rates before and after. */
@@ -388,6 +433,32 @@ Choose the most appropriate improvement. Prefer creating memories for factual le
 				break;
 			}
 		}
+
+		const commitHash = await this.genome.lastCommitHash();
+
+		// Determine which agent this mutation targets
+		let agentName = "learn";
+		let description: string = mutation.type;
+		if (mutation.type === "update_agent") {
+			agentName = mutation.agent_name;
+			description = `Updated system prompt for ${mutation.agent_name}`;
+		} else if (mutation.type === "create_agent") {
+			agentName = mutation.name;
+			description = `Created agent ${mutation.name}`;
+		} else if (mutation.type === "create_memory") {
+			description = `Created memory: ${mutation.content.slice(0, 80)}`;
+		} else if (mutation.type === "create_routing_rule") {
+			description = `Created routing rule: ${mutation.condition}`;
+		}
+
+		this._pendingEvaluations.push({
+			agentName,
+			mutationType: mutation.type,
+			timestamp: now,
+			commitHash,
+			description,
+		});
+		await this.savePendingEvaluations();
 
 		this.events.emit("learn_mutation", "learn", 0, { mutation_type: mutation.type });
 	}

@@ -232,6 +232,11 @@ export class Genome {
 
 	// --- Rollback ---
 
+	/** Return the SHA of the current HEAD commit. */
+	async lastCommitHash(): Promise<string> {
+		return git(this.rootPath, "rev-parse", "HEAD");
+	}
+
 	/** Rollback the last genome mutation (git revert HEAD). */
 	async rollback(): Promise<void> {
 		await git(this.rootPath, "revert", "--no-edit", "HEAD");

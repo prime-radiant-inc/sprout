@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentEventEmitter } from "../../src/agents/events.ts";
 import { Genome } from "../../src/genome/genome.ts";
 import type { LearnSignal } from "../../src/kernel/types.ts";
 import { DEFAULT_CONSTRAINTS } from "../../src/kernel/types.ts";
-import type { LearnMutation } from "../../src/learn/learn-process.ts";
+import type { LearnMutation, PendingEvaluation } from "../../src/learn/learn-process.ts";
 import { LearnProcess } from "../../src/learn/learn-process.ts";
 import { MetricsStore } from "../../src/learn/metrics-store.ts";
 import type { Client } from "../../src/llm/client.ts";
@@ -60,8 +60,9 @@ async function setupGenome(tempDir: string, name: string) {
 	const metrics = new MetricsStore(join(genomeDir, "metrics", "metrics.jsonl"));
 	await metrics.load();
 	const events = new AgentEventEmitter();
-	const learn = new LearnProcess({ genome, metrics, events });
-	return { genome, metrics, events, learn };
+	const pendingEvaluationsPath = join(genomeDir, "metrics", "pending-evaluations.json");
+	const learn = new LearnProcess({ genome, metrics, events, pendingEvaluationsPath });
+	return { genome, metrics, events, learn, genomeDir, pendingEvaluationsPath };
 }
 
 async function setupGenomeWithClient(tempDir: string, name: string, client: Client) {
@@ -72,8 +73,9 @@ async function setupGenomeWithClient(tempDir: string, name: string, client: Clie
 	const metrics = new MetricsStore(join(genomeDir, "metrics", "metrics.jsonl"));
 	await metrics.load();
 	const events = new AgentEventEmitter();
-	const learn = new LearnProcess({ genome, metrics, events, client });
-	return { genome, metrics, events, learn };
+	const pendingEvaluationsPath = join(genomeDir, "metrics", "pending-evaluations.json");
+	const learn = new LearnProcess({ genome, metrics, events, client, pendingEvaluationsPath });
+	return { genome, metrics, events, learn, genomeDir, pendingEvaluationsPath };
 }
 
 describe("LearnProcess", () => {
@@ -516,6 +518,87 @@ describe("LearnProcess", () => {
 			const agent = genome.getAgent("my-specialist");
 			expect(agent).toBeDefined();
 			expect(agent!.name).toBe("my-specialist");
+		});
+	});
+
+	describe("pending evaluation tracking", () => {
+		test("applyMutation adds a pending evaluation", async () => {
+			const { learn } = await setupGenome(tempDir, "pending-add");
+			const mutation: LearnMutation = {
+				type: "create_memory",
+				content: "test memory",
+				tags: ["test"],
+			};
+			await learn.applyMutation(mutation);
+
+			const pending = learn.pendingEvaluations();
+			expect(pending).toHaveLength(1);
+			expect(pending[0]!.mutationType).toBe("create_memory");
+			expect(pending[0]!.agentName).toBe("learn");
+			expect(typeof pending[0]!.timestamp).toBe("number");
+			expect(typeof pending[0]!.commitHash).toBe("string");
+			expect(pending[0]!.commitHash).toMatch(/^[0-9a-f]{40}$/);
+		});
+
+		test("update_agent mutation records the agent name", async () => {
+			const { learn } = await setupGenome(tempDir, "pending-agent-name");
+			const mutation: LearnMutation = {
+				type: "update_agent",
+				agent_name: "root",
+				system_prompt: "Updated prompt",
+			};
+			await learn.applyMutation(mutation);
+
+			const pending = learn.pendingEvaluations();
+			expect(pending).toHaveLength(1);
+			expect(pending[0]!.agentName).toBe("root");
+		});
+
+		test("pending evaluations persist to disk", async () => {
+			const { learn, pendingEvaluationsPath } = await setupGenome(tempDir, "pending-persist");
+			await learn.applyMutation({
+				type: "create_memory",
+				content: "persisted memory",
+				tags: ["test"],
+			});
+
+			// Verify file exists on disk
+			const raw = await readFile(pendingEvaluationsPath, "utf-8");
+			const parsed = JSON.parse(raw) as PendingEvaluation[];
+			expect(parsed).toHaveLength(1);
+			expect(parsed[0]!.mutationType).toBe("create_memory");
+		});
+
+		test("pending evaluations load across sessions", async () => {
+			const { pendingEvaluationsPath, genome, metrics, events } = await setupGenome(
+				tempDir,
+				"pending-reload",
+			);
+
+			// First session: apply a mutation
+			const learn1 = new LearnProcess({
+				genome,
+				metrics,
+				events,
+				pendingEvaluationsPath,
+			});
+			await learn1.applyMutation({
+				type: "create_memory",
+				content: "cross-session memory",
+				tags: ["test"],
+			});
+			expect(learn1.pendingEvaluations()).toHaveLength(1);
+
+			// Second session: create new LearnProcess, load pending
+			const learn2 = new LearnProcess({
+				genome,
+				metrics,
+				events,
+				pendingEvaluationsPath,
+			});
+			await learn2.loadPendingEvaluations();
+			expect(learn2.pendingEvaluations()).toHaveLength(1);
+			expect(learn2.pendingEvaluations()[0]!.mutationType).toBe("create_memory");
 		});
 	});
 

@@ -454,6 +454,21 @@ describe("Genome", () => {
 			expect(genome2.getAgent("extra-agent")).toBeUndefined();
 		});
 
+		test("lastCommitHash returns the HEAD commit hash", async () => {
+			const root = join(tempDir, "last-commit-hash");
+			const genome = new Genome(root);
+			await genome.init();
+
+			await genome.addAgent(makeSpec({ name: "hash-agent" }));
+
+			const hash = await genome.lastCommitHash();
+			expect(hash).toMatch(/^[0-9a-f]{40}$/);
+
+			// Should match what git rev-parse HEAD returns
+			const expected = await git(root, "rev-parse", "HEAD");
+			expect(hash).toBe(expected);
+		});
+
 		test("rollbackCommit reverts a specific commit", async () => {
 			const root = join(tempDir, "rollback-commit");
 			const genome = new Genome(root);
