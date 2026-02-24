@@ -102,6 +102,9 @@ export function ConversationView({ bus, maxHeight }: ConversationViewProps) {
 					</Text>
 				);
 			})}
+			{scrollOffset !== null && (
+				<Text dimColor>-- SCROLL (PgDown to continue, PgDown past end to resume) --</Text>
+			)}
 		</Box>
 	);
 }

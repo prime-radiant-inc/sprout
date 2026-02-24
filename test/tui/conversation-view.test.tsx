@@ -230,6 +230,53 @@ describe("ConversationView", () => {
 		expect(lastFrame()).not.toContain("Starting session");
 	});
 
+	test("shows scroll indicator when scrolled up", async () => {
+		const bus = new EventBus();
+		const { lastFrame, stdin } = render(<ConversationView bus={bus} maxHeight={3} />);
+
+		// Add enough lines to enable scrolling
+		for (let i = 0; i < 10; i++) {
+			bus.emitEvent("warning", "agent", 0, { message: `Line ${i}` });
+		}
+		await flush();
+
+		// No scroll indicator initially (at bottom)
+		expect(lastFrame()).not.toContain("SCROLL");
+
+		// Scroll up with PgUp
+		stdin.write("\x1B[5~");
+		await flush();
+
+		expect(lastFrame()).toContain("SCROLL");
+	});
+
+	test("scroll indicator disappears when returning to auto-scroll", async () => {
+		const bus = new EventBus();
+		const { lastFrame, stdin } = render(<ConversationView bus={bus} maxHeight={3} />);
+
+		for (let i = 0; i < 10; i++) {
+			bus.emitEvent("warning", "agent", 0, { message: `Line ${i}` });
+		}
+		await flush();
+
+		// Scroll up
+		stdin.write("\x1B[5~");
+		await flush();
+		expect(lastFrame()).toContain("SCROLL");
+
+		// PgDown past end to resume auto-scroll
+		stdin.write("\x1B[6~");
+		await flush();
+		stdin.write("\x1B[6~");
+		await flush();
+		stdin.write("\x1B[6~");
+		await flush();
+		stdin.write("\x1B[6~");
+		await flush();
+
+		expect(lastFrame()).not.toContain("SCROLL");
+	});
+
 	test("skips events that render-event returns null for", async () => {
 		const bus = new EventBus();
 		const { lastFrame } = render(<ConversationView bus={bus} />);
