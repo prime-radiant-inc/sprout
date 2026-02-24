@@ -6,6 +6,11 @@ export { renderEvent, truncateLines } from "../tui/render-event.ts";
 
 const DEFAULT_GENOME_PATH = join(homedir(), ".local/share/sprout-genome");
 
+/** Returns the path to the persistent input history file inside the genome directory. */
+export function inputHistoryPath(genomePath: string): string {
+	return join(genomePath, "input_history.txt");
+}
+
 export type CliCommand =
 	| { kind: "interactive"; genomePath: string }
 	| { kind: "oneshot"; goal: string; genomePath: string }
@@ -311,7 +316,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 	});
 
 	const { InputHistory } = await import("../tui/history.ts");
-	const historyPath = join(command.genomePath, "../sprout-history");
+	const historyPath = inputHistoryPath(command.genomePath);
 	const inputHistory = new InputHistory(historyPath);
 	await inputHistory.load();
 
