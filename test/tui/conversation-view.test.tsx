@@ -55,6 +55,43 @@ describe("ConversationView", () => {
 		expect(subIndent).toBeGreaterThan(rootIndent);
 	});
 
+	test("caps visible lines to maxHeight", async () => {
+		const bus = new EventBus();
+		const { lastFrame } = render(<ConversationView bus={bus} maxHeight={3} />);
+
+		for (let i = 0; i < 10; i++) {
+			bus.emitEvent("warning", "cli", 0, { message: `line-${i}` });
+		}
+		await flush();
+
+		const frame = lastFrame()!;
+		// Should show only the last 3 lines (auto-scroll to bottom)
+		expect(frame).toContain("line-7");
+		expect(frame).toContain("line-8");
+		expect(frame).toContain("line-9");
+		expect(frame).not.toContain("line-0");
+	});
+
+	test("PgUp enters scroll mode preventing auto-scroll", async () => {
+		const bus = new EventBus();
+		const { lastFrame, stdin } = render(<ConversationView bus={bus} maxHeight={3} />);
+
+		for (let i = 0; i < 6; i++) {
+			bus.emitEvent("warning", "cli", 0, { message: `line-${i}` });
+		}
+		await flush();
+
+		// Normally auto-scrolled to bottom: line-3, line-4, line-5
+		expect(lastFrame()).toContain("line-5");
+
+		// PgUp = ESC [5~
+		stdin.write("\x1B[5~");
+		await flush();
+
+		// Should scroll up and show earlier lines
+		expect(lastFrame()).toContain("line-0");
+	});
+
 	test("skips events that render-event returns null for", async () => {
 		const bus = new EventBus();
 		const { lastFrame } = render(<ConversationView bus={bus} />);
