@@ -127,6 +127,9 @@ export function App({
 				onInterrupt={() => {
 					bus.emitCommand({ kind: "interrupt", data: {} });
 				}}
+				onSteer={(text) => {
+					bus.emitCommand({ kind: "steer", data: { text } });
+				}}
 				onExit={onExit}
 			/>
 		</Box>

@@ -181,6 +181,63 @@ describe("InputArea", () => {
 		expect(interrupted).toBe(true);
 	});
 
+	test("calls onSteer instead of onSubmit when running", async () => {
+		let submitted = "";
+		let steered = "";
+		const { stdin } = render(
+			<InputArea
+				onSubmit={(text) => {
+					submitted = text;
+				}}
+				onSlashCommand={() => {}}
+				isRunning={true}
+				onSteer={(text) => {
+					steered = text;
+				}}
+			/>,
+		);
+
+		stdin.write("try a different approach");
+		await flush();
+		stdin.write("\r");
+		await flush();
+
+		expect(submitted).toBe("");
+		expect(steered).toBe("try a different approach");
+	});
+
+	test("Alt+Enter inserts newline instead of submitting", async () => {
+		let submitted = "";
+		const { lastFrame, stdin } = render(
+			<InputArea
+				onSubmit={(text) => {
+					submitted = text;
+				}}
+				onSlashCommand={() => {}}
+				isRunning={false}
+			/>,
+		);
+
+		stdin.write("line1");
+		await flush();
+		// Alt+Enter (meta + return)
+		stdin.write("\x1B\r");
+		await flush();
+		stdin.write("line2");
+		await flush();
+
+		// Should NOT have submitted
+		expect(submitted).toBe("");
+		// Should contain both lines
+		expect(lastFrame()).toContain("line1");
+		expect(lastFrame()).toContain("line2");
+
+		// Now submit with regular Enter
+		stdin.write("\r");
+		await flush();
+		expect(submitted).toBe("line1\nline2");
+	});
+
 	test("calls onExit when Ctrl+C pressed while idle", async () => {
 		let exited = false;
 		const { stdin } = render(

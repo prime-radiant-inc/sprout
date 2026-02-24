@@ -143,6 +143,26 @@ describe("App", () => {
 		expect(lastFrame()).toContain("...");
 	});
 
+	test("emits steer command instead of submit_goal when running", async () => {
+		const commands: any[] = [];
+		const { bus, stdin } = setup();
+		bus.onCommand((cmd) => commands.push(cmd));
+
+		bus.emitEvent("session_start", "root", 0, { goal: "test" });
+		await flush();
+
+		stdin.write("try something else");
+		await flush();
+		stdin.write("\r");
+		await flush();
+
+		const steerCmd = commands.find((c) => c.kind === "steer");
+		const submitCmd = commands.find((c) => c.kind === "submit_goal");
+		expect(steerCmd).toBeDefined();
+		expect(steerCmd!.data.text).toBe("try something else");
+		expect(submitCmd).toBeUndefined();
+	});
+
 	test("renders conversation lines from events", async () => {
 		const { bus, lastFrame } = setup();
 

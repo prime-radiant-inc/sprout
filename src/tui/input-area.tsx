@@ -10,6 +10,7 @@ export interface InputAreaProps {
 	initialHistory?: string[];
 	onInterrupt?: () => void;
 	onExit?: () => void;
+	onSteer?: (text: string) => void;
 }
 
 export function InputArea({
@@ -19,6 +20,7 @@ export function InputArea({
 	initialHistory,
 	onInterrupt,
 	onExit,
+	onSteer,
 }: InputAreaProps) {
 	const [value, setValue] = useState("");
 	const [history] = useState<string[]>(() => (initialHistory ? [...initialHistory] : []));
@@ -34,6 +36,11 @@ export function InputArea({
 			return;
 		}
 
+		if (key.meta && key.return) {
+			setValue((prev) => `${prev}\n`);
+			return;
+		}
+
 		if (key.return) {
 			const trimmed = value.trim();
 			if (!trimmed) return;
@@ -41,6 +48,8 @@ export function InputArea({
 			const slash = parseSlashCommand(trimmed);
 			if (slash) {
 				onSlashCommand(slash);
+			} else if (isRunning && onSteer) {
+				onSteer(trimmed);
 			} else {
 				onSubmit(trimmed);
 				history.push(trimmed);
