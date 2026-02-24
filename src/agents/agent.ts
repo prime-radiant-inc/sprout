@@ -480,7 +480,7 @@ export class Agent {
 			}
 
 			// Parse tool calls into delegations and primitive calls
-			const { delegations } = parsePlanResponse(toolCalls);
+			const { delegations, errors: delegationErrors } = parsePlanResponse(toolCalls);
 			const delegationByCallId = new Map(delegations.map((d) => [d.call_id, d]));
 
 			// Track call history for retry detection
@@ -492,6 +492,13 @@ export class Agent {
 			// Collect results keyed by call ID so we can add them to history in original order.
 			const resultByCallId = new Map<string, Message>();
 			let delegationStumbles = 0;
+
+			// Handle malformed delegations — add error tool results so history stays valid
+			for (const err of delegationErrors) {
+				this.emitAndLog("error", agentId, this.depth, { error: err.error });
+				resultByCallId.set(err.call_id, Msg.toolResult(err.call_id, `Error: ${err.error}`, true));
+				stumbles++;
+			}
 
 			// Launch all delegations concurrently
 			const delegationPromises = delegations.map((delegation) =>

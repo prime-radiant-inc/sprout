@@ -237,16 +237,23 @@ describe("parsePlanResponse", () => {
 		expect(result.primitiveCalls).toHaveLength(0);
 	});
 
-	test("throws when delegation is missing agent_name", () => {
+	test("returns error for delegation missing agent_name", () => {
 		const toolCalls = [{ id: "call_1", name: "delegate", arguments: { goal: "find code" } }];
-		expect(() => parsePlanResponse(toolCalls)).toThrow(/agent_name/);
+		const result = parsePlanResponse(toolCalls);
+		expect(result.delegations).toHaveLength(0);
+		expect(result.errors).toHaveLength(1);
+		expect(result.errors[0]!.call_id).toBe("call_1");
+		expect(result.errors[0]!.error).toContain("agent_name");
 	});
 
-	test("throws when delegation is missing goal argument", () => {
+	test("returns error for delegation missing goal argument", () => {
 		const toolCalls = [
 			{ id: "call_1", name: "delegate", arguments: { agent_name: "code-reader" } },
 		];
-		expect(() => parsePlanResponse(toolCalls)).toThrow(/missing required 'goal'/);
+		const result = parsePlanResponse(toolCalls);
+		expect(result.delegations).toHaveLength(0);
+		expect(result.errors).toHaveLength(1);
+		expect(result.errors[0]!.error).toContain("missing required 'goal'");
 	});
 
 	test("ignores non-array hints", () => {

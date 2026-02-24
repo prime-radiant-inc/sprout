@@ -136,8 +136,7 @@ export function buildPlanRequest(opts: {
 	};
 
 	if (opts.thinking) {
-		const budgetTokens =
-			typeof opts.thinking === "object" ? opts.thinking.budget_tokens : 10000;
+		const budgetTokens = typeof opts.thinking === "object" ? opts.thinking.budget_tokens : 10000;
 		request.provider_options = {
 			anthropic: {
 				thinking: { type: "enabled", budget_tokens: budgetTokens },
@@ -152,26 +151,40 @@ export function buildPlanRequest(opts: {
 	return request;
 }
 
+/** A delegation that failed validation (missing args, etc.) */
+export interface DelegationError {
+	call_id: string;
+	error: string;
+}
+
 /**
  * Classify tool calls into agent delegations and primitive calls.
  * Delegations are identified by the "delegate" tool name.
+ * Malformed delegations are returned as errors (never throws).
  */
 export function parsePlanResponse(toolCalls: ToolCall[]): {
 	delegations: Delegation[];
 	primitiveCalls: ToolCall[];
+	errors: DelegationError[];
 } {
 	const delegations: Delegation[] = [];
 	const primitiveCalls: ToolCall[] = [];
+	const errors: DelegationError[] = [];
 
 	for (const call of toolCalls) {
 		if (call.name === DELEGATE_TOOL_NAME) {
 			const agentName = call.arguments.agent_name;
 			if (typeof agentName !== "string" || agentName.length === 0) {
-				throw new Error("Delegation missing required 'agent_name' argument");
+				errors.push({ call_id: call.id, error: "Delegation missing required 'agent_name' argument" });
+				continue;
 			}
 			const goal = call.arguments.goal;
 			if (typeof goal !== "string" || goal.length === 0) {
-				throw new Error(`Agent delegation to '${agentName}' missing required 'goal' argument`);
+				errors.push({
+					call_id: call.id,
+					error: `Agent delegation to '${agentName}' missing required 'goal' argument`,
+				});
+				continue;
 			}
 			const hints = call.arguments.hints;
 			delegations.push({
@@ -185,5 +198,5 @@ export function parsePlanResponse(toolCalls: ToolCall[]): {
 		}
 	}
 
-	return { delegations, primitiveCalls };
+	return { delegations, primitiveCalls, errors };
 }
