@@ -100,6 +100,19 @@ Options:
   --genome-path <path>   Path to genome directory (default: ~/.local/share/sprout-genome)
   --help                 Show this help message`;
 
+/** Handle SIGINT: interrupt if running, exit if idle. */
+export function handleSigint(
+	bus: { emitCommand(cmd: import("../kernel/types.ts").Command): void },
+	controller: { isRunning: boolean },
+	rl: { close(): void },
+): void {
+	if (controller.isRunning) {
+		bus.emitCommand({ kind: "interrupt", data: {} });
+	} else {
+		rl.close();
+	}
+}
+
 /** Execute a parsed CLI command. */
 export async function runCli(command: CliCommand): Promise<void> {
 	if (command.kind === "help") {
@@ -231,6 +244,8 @@ export async function runCli(command: CliCommand): Promise<void> {
 
 	const readline = await import("node:readline");
 	const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+
+	process.on("SIGINT", () => handleSigint(bus, controller, rl));
 
 	bus.onEvent((event) => {
 		const line = renderEvent(event);

@@ -649,4 +649,88 @@ describe("SessionController", () => {
 		expect(contextEvents[0].data.context_tokens).toBe(8000);
 		expect(contextEvents[0].data.context_window_size).toBe(200000);
 	});
+
+	test("compact command calls compact callback and emits compaction event", async () => {
+		let compactCalled = false;
+		const factory: AgentFactory = async (options) => ({
+			agent: {
+				steer() {},
+				async run(goal: string) {
+					options.events.emitEvent("perceive", "root", 0, { goal });
+					options.events.emitEvent("plan_end", "root", 0, {
+						turn: 1,
+						assistant_message: { role: "assistant", content: [{ kind: "text", text: "Done." }] },
+					});
+					return { output: "done", success: true, stumbles: 0, turns: 1, timed_out: false };
+				},
+			} as any,
+			learnProcess: null,
+			compact: async (history, _logPath) => {
+				compactCalled = true;
+				const beforeCount = history.length;
+				history.length = 0;
+				history.push({ role: "user", content: [{ kind: "text", text: "compacted summary" }] });
+				return { summary: "compacted summary", beforeCount, afterCount: 1 };
+			},
+		});
+
+		const { bus, controller } = makeController({ factory });
+
+		// Run first to populate history and get compact callback stored
+		await controller.submitGoal("build something");
+
+		const events: any[] = [];
+		bus.onEvent((e) => events.push(e));
+
+		// Issue compact command
+		bus.emitCommand({ kind: "compact", data: {} });
+
+		// Allow async compact to run
+		await new Promise((r) => setTimeout(r, 100));
+
+		expect(compactCalled).toBe(true);
+		const compactionEvents = events.filter((e) => e.kind === "compaction");
+		expect(compactionEvents).toHaveLength(1);
+		expect(compactionEvents[0].data.summary).toBe("compacted summary");
+		expect(compactionEvents[0].data.beforeCount).toBeGreaterThan(0);
+		expect(compactionEvents[0].data.afterCount).toBe(1);
+	});
+
+	test("auto-compaction triggered when context tokens exceed threshold", async () => {
+		let compactCalled = false;
+		const factory: AgentFactory = async (options) => ({
+			agent: {
+				steer() {},
+				async run(goal: string) {
+					options.events.emitEvent("perceive", "root", 0, { goal });
+					// Emit plan_end with context at 90% capacity
+					options.events.emitEvent("plan_end", "root", 0, {
+						turn: 1,
+						context_tokens: 180000,
+						context_window_size: 200000,
+						assistant_message: { role: "assistant", content: [{ kind: "text", text: "Done." }] },
+					});
+					// Allow async event handling
+					await new Promise((r) => setTimeout(r, 100));
+					return { output: "done", success: true, stumbles: 0, turns: 1, timed_out: false };
+				},
+			} as any,
+			learnProcess: null,
+			compact: async (history, _logPath) => {
+				compactCalled = true;
+				const beforeCount = history.length;
+				history.length = 0;
+				history.push({ role: "user", content: [{ kind: "text", text: "summary" }] });
+				return { summary: "summary", beforeCount, afterCount: 1 };
+			},
+		});
+
+		const { controller } = makeController({ factory });
+		await controller.submitGoal("build something big");
+
+		// Allow async operations to complete
+		await new Promise((r) => setTimeout(r, 150));
+
+		expect(compactCalled).toBe(true);
+	});
 });

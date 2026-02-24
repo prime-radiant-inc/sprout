@@ -123,3 +123,42 @@ describe("parseArgs", () => {
 		expect(result).toEqual({ kind: "help" });
 	});
 });
+
+describe("handleSigint", () => {
+	test("emits interrupt when controller is running", () => {
+		const { handleSigint } = require("../../src/host/cli.ts");
+		const commands: any[] = [];
+		const bus = { emitCommand: (cmd: any) => commands.push(cmd) };
+		const controller = { isRunning: true };
+		let closed = false;
+		const rl = {
+			close: () => {
+				closed = true;
+			},
+		};
+
+		handleSigint(bus as any, controller as any, rl as any);
+
+		expect(commands).toHaveLength(1);
+		expect(commands[0].kind).toBe("interrupt");
+		expect(closed).toBe(false);
+	});
+
+	test("closes readline when controller is idle", () => {
+		const { handleSigint } = require("../../src/host/cli.ts");
+		const commands: any[] = [];
+		const bus = { emitCommand: (cmd: any) => commands.push(cmd) };
+		const controller = { isRunning: false };
+		let closed = false;
+		const rl = {
+			close: () => {
+				closed = true;
+			},
+		};
+
+		handleSigint(bus as any, controller as any, rl as any);
+
+		expect(commands).toHaveLength(0);
+		expect(closed).toBe(true);
+	});
+});

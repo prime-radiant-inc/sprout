@@ -6,6 +6,7 @@ import type { Command, SessionEvent } from "../kernel/types.ts";
 import type { Message } from "../llm/types.ts";
 import { Msg } from "../llm/types.ts";
 import { ulid } from "../util/ulid.ts";
+import { shouldCompact } from "./compaction.ts";
 import type { EventBus } from "./event-bus.ts";
 import { SessionMetadata } from "./session-metadata.ts";
 
@@ -43,6 +44,10 @@ export interface AgentFactoryOptions {
 export interface AgentFactoryResult {
 	agent: RunnableAgent;
 	learnProcess: { startBackground(): void; stopBackground(): Promise<void> } | null;
+	compact?: (
+		history: Message[],
+		logPath: string,
+	) => Promise<{ summary: string; beforeCount: number; afterCount: number }>;
 }
 
 /** Factory function that creates an agent. Injectable for testing. */
@@ -109,6 +114,7 @@ export class SessionController {
 	private running = false;
 	private modelOverride?: string;
 	private hasRun = false;
+	private compactFn?: AgentFactoryResult["compact"];
 
 	constructor(options: SessionControllerOptions) {
 		this.sessionId = options.sessionId ?? ulid();
@@ -152,7 +158,9 @@ export class SessionController {
 				this.modelOverride = cmd.data.model as string | undefined;
 				break;
 			case "compact":
-				// Compaction will be implemented in Task 8
+				this.runCompaction().catch((err) => {
+					this.bus.emitEvent("error", "session", 0, { error: String(err) });
+				});
 				break;
 			case "quit":
 				this.interrupt();
@@ -209,12 +217,27 @@ export class SessionController {
 				context_tokens: contextTokens,
 				context_window_size: contextWindowSize,
 			});
+			if (shouldCompact(contextTokens, contextWindowSize)) {
+				this.runCompaction().catch((err) => {
+					this.bus.emitEvent("error", "session", 0, { error: String(err) });
+				});
+			}
 		}
 	}
 
 	private async appendLog(event: SessionEvent): Promise<void> {
 		await mkdir(this.sessionsDir, { recursive: true });
 		await appendFile(this.logPath, JSON.stringify(event) + "\n");
+	}
+
+	private async runCompaction(): Promise<void> {
+		if (!this.compactFn || this.history.length === 0) return;
+		const result = await this.compactFn(this.history, this.logPath);
+		this.bus.emitEvent("compaction", "session", 0, {
+			summary: result.summary,
+			beforeCount: result.beforeCount,
+			afterCount: result.afterCount,
+		});
 	}
 
 	private interrupt(): void {
@@ -255,6 +278,7 @@ export class SessionController {
 
 			this.agent = result.agent;
 			learnProcess = result.learnProcess;
+			this.compactFn = result.compact;
 
 			if (learnProcess) {
 				learnProcess.startBackground();
