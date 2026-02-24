@@ -3,9 +3,18 @@ import { render } from "ink-testing-library";
 import { EventBus } from "../../src/host/event-bus.ts";
 import { App } from "../../src/tui/app.tsx";
 
-function setup() {
+function setup(overrides?: Partial<Parameters<typeof App>[0]>) {
 	const bus = new EventBus();
-	const result = render(<App bus={bus} sessionId="01ABCDEF12345678ABCDEF1234" />);
+	const result = render(
+		<App
+			bus={bus}
+			sessionId="01ABCDEF12345678ABCDEF1234"
+			onSubmit={() => {}}
+			onSlashCommand={() => {}}
+			onExit={() => {}}
+			{...overrides}
+		/>,
+	);
 	return { bus, ...result };
 }
 
@@ -84,5 +93,62 @@ describe("App", () => {
 		frame = lastFrame();
 		// When idle, should NOT show token arrows
 		expect(frame).not.toContain("\u2191");
+	});
+
+	test("renders InputArea with prompt", () => {
+		const { lastFrame } = setup();
+		const frame = lastFrame();
+		expect(frame).toContain(">");
+	});
+
+	test("InputArea receives typed input and submits via onSubmit", async () => {
+		let submitted = "";
+		const { stdin } = setup({
+			onSubmit: (text) => {
+				submitted = text;
+			},
+		});
+
+		stdin.write("hello world");
+		await flush();
+		stdin.write("\r");
+		await flush();
+
+		expect(submitted).toBe("hello world");
+	});
+
+	test("InputArea passes slash commands to onSlashCommand", async () => {
+		let slashCmd: any = null;
+		const { stdin } = setup({
+			onSlashCommand: (cmd) => {
+				slashCmd = cmd;
+			},
+		});
+
+		stdin.write("/compact");
+		await flush();
+		stdin.write("\r");
+		await flush();
+
+		expect(slashCmd).toBeDefined();
+		expect(slashCmd.kind).toBe("compact");
+	});
+
+	test("InputArea shows running prompt during session", async () => {
+		const { bus, lastFrame } = setup();
+
+		bus.emitEvent("session_start", "root", 0, { goal: "test" });
+		await flush();
+
+		expect(lastFrame()).toContain("...");
+	});
+
+	test("renders conversation lines from events", async () => {
+		const { bus, lastFrame } = setup();
+
+		bus.emitEvent("session_start", "root", 0, { goal: "test" });
+		await flush();
+
+		expect(lastFrame()).toContain("Starting session...");
 	});
 });
