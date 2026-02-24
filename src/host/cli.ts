@@ -6,6 +6,10 @@ export { renderEvent, truncateLines } from "../tui/render-event.ts";
 
 const DEFAULT_GENOME_PATH = join(homedir(), ".local/share/sprout-genome");
 
+function printResumeHint(sessionId: string): void {
+	console.log(`\nTo resume this session:\n  sprout --resume ${sessionId}\n`);
+}
+
 /** Returns the path to the persistent input history file inside the genome directory. */
 export function inputHistoryPath(genomePath: string): string {
 	return join(genomePath, "input_history.txt");
@@ -119,6 +123,7 @@ export function handleSlashCommand(
 	switch (cmd.kind) {
 		case "quit":
 			bus.emitCommand({ kind: "quit", data: {} });
+			printResumeHint(controller.sessionId);
 			process.exit(0);
 			break;
 		case "help":
@@ -279,6 +284,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 		});
 
 		await controller.submitGoal(command.goal);
+		printResumeHint(controller.sessionId);
 		return;
 	}
 
@@ -369,6 +375,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 			},
 			onExit: () => {
 				bus.emitCommand({ kind: "quit", data: {} });
+				printResumeHint(controller.sessionId);
 				process.exit(0);
 			},
 		}),
