@@ -68,9 +68,10 @@ function fixturePath(fixtureDir: string, testName: string): string {
 }
 
 function resolveMode(opts: VcrOptions): VcrMode {
+	// Explicit mode takes precedence (important for VCR's own unit tests)
+	if (opts.mode) return opts.mode;
 	const envMode = process.env.VCR_MODE;
 	if (envMode) return envMode as VcrMode;
-	if (opts.mode) return opts.mode;
 	// Default: replay if fixture exists, error if not
 	if (existsSync(fixturePath(opts.fixtureDir, opts.testName))) return "replay";
 	return "replay"; // Will error when trying to load
