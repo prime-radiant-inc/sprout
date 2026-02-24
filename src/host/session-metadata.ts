@@ -106,8 +106,12 @@ export async function listSessions(sessionsDir: string): Promise<SessionMetadata
 
 	const snapshots: SessionMetadataSnapshot[] = [];
 	for (const file of metaFiles) {
-		const snapshot = await loadSessionMetadata(join(sessionsDir, file));
-		snapshots.push(snapshot);
+		try {
+			const snapshot = await loadSessionMetadata(join(sessionsDir, file));
+			snapshots.push(snapshot);
+		} catch {
+			// Skip corrupted files
+		}
 	}
 	return snapshots;
 }

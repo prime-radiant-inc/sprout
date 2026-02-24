@@ -287,4 +287,24 @@ describe("listSessions", () => {
 		const sessions = await listSessions(join(tempDir, "nonexistent"));
 		expect(sessions).toEqual([]);
 	});
+
+	test("skips corrupted meta files", async () => {
+		const { writeFile } = await import("node:fs/promises");
+
+		// Create one valid session
+		const meta = new SessionMetadata({
+			sessionId: "01GOOD000000000000000000",
+			agentSpec: "root",
+			model: "claude-haiku",
+			sessionsDir: tempDir,
+		});
+		await meta.save();
+
+		// Create one corrupted .meta.json file
+		await writeFile(join(tempDir, "01BAD0000000000000000000.meta.json"), "not json{{{");
+
+		const sessions = await listSessions(tempDir);
+		expect(sessions).toHaveLength(1);
+		expect(sessions[0]!.sessionId).toBe("01GOOD000000000000000000");
+	});
 });
