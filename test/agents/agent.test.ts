@@ -2123,4 +2123,218 @@ describe("Agent", () => {
 		const compactionEvents = collected.filter((e) => e.kind === "compaction");
 		expect(compactionEvents).toHaveLength(0);
 	});
+
+	test("compaction has cooldown of 3 turns after firing", async () => {
+		// Pad history so compaction has enough messages to work with
+		const priorHistory: Message[] = [
+			Msg.user("step 1"),
+			Msg.assistant("did step 1"),
+			Msg.user("step 2"),
+			Msg.assistant("did step 2"),
+			Msg.user("step 3"),
+			Msg.assistant("did step 3"),
+			Msg.user("step 4"),
+			Msg.assistant("did step 4"),
+			Msg.user("step 5"),
+			Msg.assistant("did step 5"),
+		];
+
+		// Run for 5 turns (tool calls), then done on turn 6.
+		// All turns report high token usage. Compaction should fire on turn 1,
+		// then NOT on turns 2-3 (cooldown), then fire again on turn 4.
+		const maxToolTurns = 5;
+		let callCount = 0;
+		let compactionCallCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (request: any): Promise<Response> => {
+				callCount++;
+				// Compaction summarization calls don't count as "turns"
+				// Detect if this is a compaction call (no tools in request)
+				if (request.tools && request.tools.length === 0) {
+					compactionCallCount++;
+					return {
+						id: `mock-cd-compact-${compactionCallCount}`,
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: Msg.assistant(`Compaction summary ${compactionCallCount}.`),
+						finish_reason: { reason: "stop" },
+						usage: { input_tokens: 100, output_tokens: 50, total_tokens: 150 },
+					};
+				}
+				// Main turn calls
+				const mainCallNum = callCount - compactionCallCount;
+				if (mainCallNum <= maxToolTurns) {
+					return {
+						id: `mock-cd-${mainCallNum}`,
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: {
+							role: "assistant",
+							content: [
+								{
+									kind: ContentKind.TOOL_CALL,
+									tool_call: {
+										id: `call-cd-${mainCallNum}`,
+										name: "read_file",
+										arguments: JSON.stringify({ path: `/tmp/file${mainCallNum}.txt` }),
+									},
+								},
+							],
+						},
+						finish_reason: { reason: "tool_calls" },
+						usage: { input_tokens: 170000, output_tokens: 500, total_tokens: 170500 },
+					};
+				}
+				// Final call: done
+				return {
+					id: `mock-cd-done`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant("All done."),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 170000, output_tokens: 100, total_tokens: 170100 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const spec: AgentSpec = {
+			...leafSpec,
+			constraints: { ...leafSpec.constraints, max_turns: 10 },
+		};
+		const agent = new Agent({
+			spec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+			events,
+			initialHistory: priorHistory,
+		});
+
+		await agent.run("cooldown test");
+
+		const collected = events.collected();
+		const compactionEvents = collected.filter((e) => e.kind === "compaction");
+
+		// With 5 tool turns and cooldown of 3:
+		// Turn 1: compaction fires (turnsSinceCompaction starts high)
+		// Turn 2: cooldown (1 since compaction)
+		// Turn 3: cooldown (2 since compaction)
+		// Turn 4: compaction fires (3 since compaction)
+		// Turn 5: cooldown (1 since compaction)
+		expect(compactionEvents).toHaveLength(2);
+	});
+
+	test("requestCompaction bypasses cooldown", async () => {
+		const priorHistory: Message[] = [
+			Msg.user("step 1"),
+			Msg.assistant("did step 1"),
+			Msg.user("step 2"),
+			Msg.assistant("did step 2"),
+			Msg.user("step 3"),
+			Msg.assistant("did step 3"),
+			Msg.user("step 4"),
+			Msg.assistant("did step 4"),
+			Msg.user("step 5"),
+			Msg.assistant("did step 5"),
+		];
+
+		// Run for 3 tool turns: turn 1 triggers compaction (auto), turn 2 is in
+		// cooldown but we requestCompaction so it should fire anyway.
+		let callCount = 0;
+		let compactionCallCount = 0;
+		let requestedCompactionOnTurn2 = false;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (request: any): Promise<Response> => {
+				callCount++;
+				if (request.tools && request.tools.length === 0) {
+					compactionCallCount++;
+					return {
+						id: `mock-bypass-compact-${compactionCallCount}`,
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: Msg.assistant(`Bypass summary ${compactionCallCount}.`),
+						finish_reason: { reason: "stop" },
+						usage: { input_tokens: 100, output_tokens: 50, total_tokens: 150 },
+					};
+				}
+				const mainCallNum = callCount - compactionCallCount;
+				if (mainCallNum <= 3) {
+					return {
+						id: `mock-bypass-${mainCallNum}`,
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: {
+							role: "assistant",
+							content: [
+								{
+									kind: ContentKind.TOOL_CALL,
+									tool_call: {
+										id: `call-bypass-${mainCallNum}`,
+										name: "read_file",
+										arguments: JSON.stringify({ path: `/tmp/bypass${mainCallNum}.txt` }),
+									},
+								},
+							],
+						},
+						finish_reason: { reason: "tool_calls" },
+						usage: { input_tokens: 170000, output_tokens: 500, total_tokens: 170500 },
+					};
+				}
+				return {
+					id: "mock-bypass-done",
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant("Done."),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 5000, output_tokens: 100, total_tokens: 5100 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		// Use event listener to request compaction after the first compaction fires
+		events.on((ev) => {
+			if (ev.kind === "compaction" && !requestedCompactionOnTurn2) {
+				requestedCompactionOnTurn2 = true;
+				// This runs after turn 1's compaction. Request compaction for next turn.
+				agent.requestCompaction();
+			}
+		});
+
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const spec: AgentSpec = {
+			...leafSpec,
+			constraints: { ...leafSpec.constraints, max_turns: 10 },
+		};
+		const agent = new Agent({
+			spec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+			events,
+			initialHistory: priorHistory,
+		});
+
+		await agent.run("bypass cooldown test");
+
+		const collected = events.collected();
+		const compactionEvents = collected.filter((e) => e.kind === "compaction");
+
+		// Turn 1: auto-compaction fires
+		// Turn 2: would be in cooldown, but requestCompaction() was called — fires anyway
+		// Turn 3: cooldown
+		expect(compactionEvents.length).toBeGreaterThanOrEqual(2);
+	});
 });

@@ -84,6 +84,7 @@ export class Agent {
 	private logWriteChain: Promise<void> = Promise.resolve();
 	private steeringQueue: string[] = [];
 	private compactionRequested = false;
+	private turnsSinceCompaction = Infinity;
 
 	constructor(options: AgentOptions) {
 		this.spec = options.spec;
@@ -568,9 +569,14 @@ export class Agent {
 			}
 
 			// Compact history if context usage exceeds threshold or manually requested
+			this.turnsSinceCompaction++;
 			const contextWindowSize = getContextWindowSize(this.resolved.model);
 			const inputTokens = response.usage?.input_tokens ?? 0;
-			if (this.compactionRequested || shouldCompact(inputTokens, contextWindowSize)) {
+			if (
+				this.compactionRequested ||
+				(this.turnsSinceCompaction >= 3 && shouldCompact(inputTokens, contextWindowSize))
+			) {
+				this.turnsSinceCompaction = 0;
 				this.compactionRequested = false;
 				try {
 					const compactResult = await compactHistory({
