@@ -132,6 +132,18 @@ describe("SessionPicker", () => {
 		expect(frame).toContain("claude-sonnet");
 	});
 
+	test("renders updatedAt instead of createdAt, and includes agentSpec", () => {
+		const { lastFrame } = render(
+			<SessionPicker sessions={sessions} onSelect={() => {}} onCancel={() => {}} />,
+		);
+		const frame = lastFrame()!;
+		// Should show updatedAt, not createdAt
+		expect(frame).toContain("2025-01-01T00:01:00");
+		expect(frame).not.toContain("2025-01-01T00:00:00");
+		// Should include agentSpec
+		expect(frame).toContain("root");
+	});
+
 	test("shows 'No sessions' when empty", () => {
 		const { lastFrame } = render(
 			<SessionPicker sessions={[]} onSelect={() => {}} onCancel={() => {}} />,

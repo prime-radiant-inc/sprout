@@ -42,7 +42,7 @@ export function SessionPicker({ sessions, onSelect, onCancel }: SessionPickerPro
 			{sessions.map((s, i) => {
 				const selected = i === cursor;
 				const marker = selected ? "> " : "  ";
-				const label = `${s.sessionId.slice(0, 8)}... | ${s.status} | ${s.turns} turns | ${s.model} | ${s.createdAt}`;
+				const label = `${s.sessionId.slice(0, 8)}... | ${s.agentSpec} | ${s.status} | ${s.turns} turns | ${s.model} | ${s.updatedAt}`;
 				return (
 					<Text key={s.sessionId} color={selected ? "cyan" : undefined}>
 						{marker}
