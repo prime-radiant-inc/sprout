@@ -1,6 +1,8 @@
+import { appendFile, mkdir } from "node:fs/promises";
+import { join } from "node:path";
 import { AgentEventEmitter } from "../agents/events.ts";
 import { createAgent } from "../agents/factory.ts";
-import type { Command } from "../kernel/types.ts";
+import type { Command, SessionEvent } from "../kernel/types.ts";
 import { ulid } from "../util/ulid.ts";
 import type { EventBus } from "./event-bus.ts";
 import { SessionMetadata } from "./session-metadata.ts";
@@ -92,6 +94,7 @@ export class SessionController {
 	private readonly bootstrapDir?: string;
 	private readonly rootAgentName?: string;
 	private readonly factory: AgentFactory;
+	private readonly logPath: string;
 	private running = false;
 
 	constructor(options: SessionControllerOptions) {
@@ -102,6 +105,7 @@ export class SessionController {
 		this.bootstrapDir = options.bootstrapDir;
 		this.rootAgentName = options.rootAgent;
 		this.factory = options.factory ?? defaultFactory;
+		this.logPath = join(options.sessionsDir, `${this.sessionId}.jsonl`);
 
 		this.metadata = new SessionMetadata({
 			sessionId: this.sessionId,
@@ -111,12 +115,13 @@ export class SessionController {
 		});
 
 		this.bus.onCommand((cmd) => this.handleCommand(cmd));
+		this.bus.onEvent((event) => this.handleEvent(event));
 	}
 
 	private handleCommand(cmd: Command): void {
 		switch (cmd.kind) {
 			case "submit_goal":
-				this.submitGoal(cmd.data.goal as string);
+				this.submitGoal(cmd.data.goal as string).catch(() => {});
 				break;
 			case "steer":
 				this.agent?.steer(cmd.data.text as string);
@@ -124,10 +129,30 @@ export class SessionController {
 			case "interrupt":
 				this.interrupt();
 				break;
+			case "compact":
+				// Compaction will be implemented in Task 8
+				break;
 			case "quit":
 				this.interrupt();
 				break;
 		}
+	}
+
+	private async handleEvent(event: SessionEvent): Promise<void> {
+		await this.appendLog(event);
+
+		if (event.kind === "plan_end" && event.depth === 0) {
+			const turn = (event.data.turn as number) ?? 0;
+			const contextTokens = (event.data.context_tokens as number) ?? 0;
+			const contextWindowSize = (event.data.context_window_size as number) ?? 0;
+			this.metadata.updateTurn(turn, contextTokens, contextWindowSize);
+			await this.metadata.save();
+		}
+	}
+
+	private async appendLog(event: SessionEvent): Promise<void> {
+		await mkdir(this.sessionsDir, { recursive: true });
+		await appendFile(this.logPath, JSON.stringify(event) + "\n");
 	}
 
 	private interrupt(): void {

@@ -290,4 +290,72 @@ describe("SessionController", () => {
 		// Should not throw
 		bus.emitCommand({ kind: "interrupt", data: {} });
 	});
+
+	test("events are written to log file", async () => {
+		const factory: AgentFactory = async (options) => ({
+			agent: {
+				steer() {},
+				async run() {
+					options.events.emitEvent("plan_start", "root", 0, { turn: 1 });
+					options.events.emitEvent("plan_end", "root", 0, { turn: 1 });
+					// Allow async log writes to flush
+					await new Promise((r) => setTimeout(r, 20));
+					return { output: "done", success: true, stumbles: 0, turns: 1, timed_out: false };
+				},
+			} as any,
+			learnProcess: null,
+		});
+
+		const { controller, sessionsDir } = makeController({ factory });
+		await controller.submitGoal("Test logging");
+
+		// Wait for async log writes
+		await new Promise((r) => setTimeout(r, 50));
+
+		const logPath = join(sessionsDir, `${controller.sessionId}.jsonl`);
+		const raw = await readFile(logPath, "utf-8");
+		const lines = raw.trim().split("\n");
+		expect(lines.length).toBeGreaterThanOrEqual(2);
+
+		const events = lines.map((l) => JSON.parse(l));
+		expect(events.some((e: any) => e.kind === "plan_start")).toBe(true);
+		expect(events.some((e: any) => e.kind === "plan_end")).toBe(true);
+	});
+
+	test("metadata is updated after plan_end event", async () => {
+		const factory: AgentFactory = async (options) => ({
+			agent: {
+				steer() {},
+				async run() {
+					options.events.emitEvent("plan_end", "root", 0, {
+						turn: 3,
+						context_tokens: 5000,
+						context_window_size: 200000,
+					});
+					// Allow async metadata save to flush
+					await new Promise((r) => setTimeout(r, 50));
+					return { output: "done", success: true, stumbles: 0, turns: 3, timed_out: false };
+				},
+			} as any,
+			learnProcess: null,
+		});
+
+		const { controller, sessionsDir } = makeController({ factory });
+		await controller.submitGoal("Test metadata updates");
+
+		const metaPath = join(sessionsDir, `${controller.sessionId}.meta.json`);
+		const raw = await readFile(metaPath, "utf-8");
+		const snapshot: SessionMetadataSnapshot = JSON.parse(raw);
+
+		// The final save sets idle, but turns should have been updated by plan_end handler
+		expect(snapshot.turns).toBe(3);
+		expect(snapshot.contextTokens).toBe(5000);
+		expect(snapshot.contextWindowSize).toBe(200000);
+	});
+
+	test("compact command is accepted without error", () => {
+		const { bus } = makeController();
+		// Should not throw — compact is routed but not yet implemented
+		bus.emitCommand({ kind: "compact", data: {} });
+	});
 });
