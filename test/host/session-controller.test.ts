@@ -588,9 +588,7 @@ describe("SessionController", () => {
 			genomePath: join(tempDir, "genome"),
 			sessionsDir: join(tempDir, "sessions"),
 			factory,
-			initialHistory: [
-				{ role: "user", content: [{ kind: "text", text: "prior" }] },
-			],
+			initialHistory: [{ role: "user", content: [{ kind: "text", text: "prior" }] }],
 		});
 
 		const events: any[] = [];
@@ -614,7 +612,15 @@ describe("SessionController", () => {
 			bus,
 			genomePath: join(tempDir, "genome"),
 			sessionsDir: join(tempDir, "sessions"),
-			factory: async () => ({ agent: { steer() {}, async run() { return { output: "", success: true, stumbles: 0, turns: 0, timed_out: false }; } } as any, learnProcess: null }),
+			factory: async () => ({
+				agent: {
+					steer() {},
+					async run() {
+						return { output: "", success: true, stumbles: 0, turns: 0, timed_out: false };
+					},
+				} as any,
+				learnProcess: null,
+			}),
 		});
 		expect(controller.currentModel).toBeUndefined();
 

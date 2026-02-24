@@ -5,11 +5,7 @@ import { InputArea } from "../../src/tui/input-area.tsx";
 describe("InputArea", () => {
 	test("renders prompt symbol", () => {
 		const { lastFrame } = render(
-			<InputArea
-				onSubmit={() => {}}
-				onSlashCommand={() => {}}
-				isRunning={false}
-			/>,
+			<InputArea onSubmit={() => {}} onSlashCommand={() => {}} isRunning={false} />,
 		);
 		const frame = lastFrame();
 		expect(frame).toContain(">");
@@ -17,11 +13,7 @@ describe("InputArea", () => {
 
 	test("accumulates typed characters", async () => {
 		const { lastFrame, stdin } = render(
-			<InputArea
-				onSubmit={() => {}}
-				onSlashCommand={() => {}}
-				isRunning={false}
-			/>,
+			<InputArea onSubmit={() => {}} onSlashCommand={() => {}} isRunning={false} />,
 		);
 
 		stdin.write("hello");
@@ -115,7 +107,7 @@ describe("InputArea", () => {
 	});
 
 	test("navigates history with Up arrow", async () => {
-		let submissions: string[] = [];
+		const submissions: string[] = [];
 		const { lastFrame, stdin } = render(
 			<InputArea
 				onSubmit={(text) => {
@@ -162,11 +154,7 @@ describe("InputArea", () => {
 
 	test("shows different prompt when running", () => {
 		const { lastFrame } = render(
-			<InputArea
-				onSubmit={() => {}}
-				onSlashCommand={() => {}}
-				isRunning={true}
-			/>,
+			<InputArea onSubmit={() => {}} onSlashCommand={() => {}} isRunning={true} />,
 		);
 		const frame = lastFrame();
 		// When running, show a different prompt indicator

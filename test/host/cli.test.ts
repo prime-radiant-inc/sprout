@@ -181,7 +181,11 @@ describe("handleSlashCommand", () => {
 		};
 	}
 
-	const controller = { sessionId: "01ABCDEF12345678ABCDEF1234", isRunning: false, currentModel: undefined as string | undefined };
+	const controller = {
+		sessionId: "01ABCDEF12345678ABCDEF1234",
+		isRunning: false,
+		currentModel: undefined as string | undefined,
+	};
 
 	test("help emits warning event with command list", () => {
 		const bus = makeBus();

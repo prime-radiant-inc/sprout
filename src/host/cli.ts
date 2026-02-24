@@ -103,7 +103,10 @@ Options:
 /** Handle a slash command from the TUI input area. */
 export function handleSlashCommand(
 	cmd: import("../tui/slash-commands.ts").SlashCommand,
-	bus: { emitCommand(cmd: import("../kernel/types.ts").Command): void; emitEvent(kind: string, agentId: string, depth: number, data: Record<string, unknown>): void },
+	bus: {
+		emitCommand(cmd: import("../kernel/types.ts").Command): void;
+		emitEvent(kind: string, agentId: string, depth: number, data: Record<string, unknown>): void;
+	},
 	controller: { sessionId: string; isRunning: boolean; currentModel: string | undefined },
 ): void {
 	switch (cmd.kind) {

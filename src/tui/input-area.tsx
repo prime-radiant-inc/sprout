@@ -21,7 +21,7 @@ export function InputArea({
 	onExit,
 }: InputAreaProps) {
 	const [value, setValue] = useState("");
-	const [history] = useState<string[]>(() => initialHistory ? [...initialHistory] : []);
+	const [history] = useState<string[]>(() => (initialHistory ? [...initialHistory] : []));
 	const [historyCursor, setHistoryCursor] = useState(-1);
 
 	useInput((input, key) => {
@@ -57,10 +57,7 @@ export function InputArea({
 
 		if (key.upArrow) {
 			if (history.length === 0) return;
-			const newCursor =
-				historyCursor === -1
-					? history.length - 1
-					: Math.max(0, historyCursor - 1);
+			const newCursor = historyCursor === -1 ? history.length - 1 : Math.max(0, historyCursor - 1);
 			setHistoryCursor(newCursor);
 			setValue(history[newCursor]!);
 			return;

@@ -41,7 +41,14 @@ const INITIAL_STATUS: StatusState = {
 	status: "idle",
 };
 
-export function App({ bus, sessionId, onSubmit, onSlashCommand, onExit, initialHistory }: AppProps) {
+export function App({
+	bus,
+	sessionId,
+	onSubmit,
+	onSlashCommand,
+	onExit,
+	initialHistory,
+}: AppProps) {
 	const [lines, setLines] = useState<Line[]>([]);
 	const [statusState, setStatusState] = useState<StatusState>(INITIAL_STATUS);
 	const nextId = useRef(0);
