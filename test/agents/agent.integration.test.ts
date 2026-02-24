@@ -11,22 +11,38 @@ import { LocalExecutionEnvironment } from "../../src/kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../../src/kernel/primitives.ts";
 import type { AgentSpec } from "../../src/kernel/types.ts";
 import { Client } from "../../src/llm/client.ts";
+import { createVcr } from "../helpers/vcr.ts";
 
 config({ path: join(homedir(), "prime-radiant/serf/.env") });
+
+const VCR_FIXTURE_DIR = join(import.meta.dir, "../fixtures/vcr/agent-integration");
 
 describe("Agent Integration", () => {
 	let tempDir: string;
 	let env: LocalExecutionEnvironment;
-	let client: Client;
+	let realClient: Client | undefined;
 	let registry: ReturnType<typeof createPrimitiveRegistry>;
 	let bootstrapAgents: AgentSpec[];
+
+	function vcrForTest(testName: string) {
+		return createVcr({
+			fixtureDir: VCR_FIXTURE_DIR,
+			testName,
+			substitutions: { "{{TEMP_DIR}}": tempDir },
+			realClient: realClient ?? undefined,
+		});
+	}
 
 	beforeAll(async () => {
 		tempDir = await mkdtemp(join(tmpdir(), "sprout-test-"));
 		env = new LocalExecutionEnvironment(tempDir);
-		client = Client.fromEnv();
 		registry = createPrimitiveRegistry(env);
 		bootstrapAgents = await loadBootstrapAgents(join(import.meta.dir, "../../bootstrap"));
+
+		const mode = process.env.VCR_MODE;
+		if (mode === "record" || mode === "off") {
+			realClient = Client.fromEnv();
+		}
 	});
 
 	afterAll(async () => {
@@ -34,12 +50,13 @@ describe("Agent Integration", () => {
 	});
 
 	test("leaf agent creates a file using primitives", async () => {
+		const vcr = vcrForTest("leaf-agent-creates-a-file-using-primitives");
 		const codeEditor = bootstrapAgents.find((a) => a.name === "editor")!;
 		const events = new AgentEventEmitter();
 		const agent = new Agent({
 			spec: codeEditor,
 			env,
-			client,
+			client: vcr.client,
 			primitiveRegistry: registry,
 			availableAgents: bootstrapAgents,
 			depth: 1,
@@ -61,15 +78,18 @@ describe("Agent Integration", () => {
 		const collected = events.collected();
 		expect(collected.some((e) => e.kind === "session_start")).toBe(true);
 		expect(collected.some((e) => e.kind === "session_end")).toBe(true);
+
+		await vcr.afterTest();
 	}, 60_000);
 
 	test("root agent delegates to code-editor to create a file", async () => {
+		const vcr = vcrForTest("root-agent-delegates-to-code-editor-to-create-a-file");
 		const rootSpec = bootstrapAgents.find((a) => a.name === "root")!;
 		const events = new AgentEventEmitter();
 		const agent = new Agent({
 			spec: rootSpec,
 			env,
-			client,
+			client: vcr.client,
 			primitiveRegistry: registry,
 			availableAgents: bootstrapAgents,
 			depth: 0,
@@ -90,6 +110,8 @@ describe("Agent Integration", () => {
 		const collected = events.collected();
 		expect(collected.some((e) => e.kind === "act_start")).toBe(true);
 		expect(collected.some((e) => e.kind === "act_end")).toBe(true);
+
+		await vcr.afterTest();
 	}, 120_000);
 });
 
@@ -97,16 +119,32 @@ describe("Agent with Genome Integration", () => {
 	let tempDir: string;
 	let genomeDir: string;
 	let env: LocalExecutionEnvironment;
-	let client: Client;
+	let realClient: Client | undefined;
 	let registry: ReturnType<typeof createPrimitiveRegistry>;
 	let genome: Genome;
+
+	function vcrForTest(testName: string) {
+		return createVcr({
+			fixtureDir: VCR_FIXTURE_DIR,
+			testName,
+			substitutions: {
+				"{{GENOME_DIR}}": genomeDir,
+				"{{TEMP_DIR}}": tempDir,
+			},
+			realClient: realClient ?? undefined,
+		});
+	}
 
 	beforeAll(async () => {
 		tempDir = await mkdtemp(join(tmpdir(), "sprout-genome-int-"));
 		genomeDir = join(tempDir, "genome");
 		env = new LocalExecutionEnvironment(tempDir);
-		client = Client.fromEnv();
 		registry = createPrimitiveRegistry(env);
+
+		const mode = process.env.VCR_MODE;
+		if (mode === "record" || mode === "off") {
+			realClient = Client.fromEnv();
+		}
 
 		// Create fresh genome with bootstrap agents
 		genome = new Genome(genomeDir);
@@ -119,13 +157,16 @@ describe("Agent with Genome Integration", () => {
 	});
 
 	test("fresh genome with bootstrap agents completes a file creation task", async () => {
+		const vcr = vcrForTest(
+			"fresh-genome-with-bootstrap-agents-completes-a-file-creation-task",
+		);
 		const events = new AgentEventEmitter();
 		const rootSpec = genome.getAgent("root")!;
 
 		const agent = new Agent({
 			spec: rootSpec,
 			env,
-			client,
+			client: vcr.client,
 			primitiveRegistry: registry,
 			availableAgents: genome.allAgents(),
 			genome,
@@ -150,9 +191,13 @@ describe("Agent with Genome Integration", () => {
 
 		// Verify delegation happened (root → code-editor)
 		expect(collected.some((e) => e.kind === "act_start")).toBe(true);
+
+		await vcr.afterTest();
 	}, 120_000);
 
 	test("agent with memory in genome gets recall with memory count > 0", async () => {
+		const vcr = vcrForTest("agent-with-memory-in-genome-gets-recall-with-memory-count");
+
 		// Add a memory to the genome
 		await genome.addMemory({
 			id: "int-test-mem",
@@ -171,7 +216,7 @@ describe("Agent with Genome Integration", () => {
 		const agent = new Agent({
 			spec: rootSpec,
 			env,
-			client,
+			client: vcr.client,
 			primitiveRegistry: registry,
 			availableAgents: genome.allAgents(),
 			genome,
@@ -190,5 +235,7 @@ describe("Agent with Genome Integration", () => {
 		const recallEvent = events.collected().find((e) => e.kind === "recall");
 		expect(recallEvent).toBeDefined();
 		expect((recallEvent!.data as any).memory_count).toBeGreaterThan(0);
+
+		await vcr.afterTest();
 	}, 120_000);
 });

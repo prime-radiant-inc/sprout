@@ -89,11 +89,26 @@ export function createVcr(opts: VcrOptions): {
 	const mode = resolveMode(opts);
 	const subs = opts.substitutions ?? {};
 
+	if (mode === "off") {
+		return createPassthrough(opts);
+	}
 	if (mode === "record") {
 		return createRecorder(opts, subs);
 	}
-
 	return createReplayer(opts, subs);
+}
+
+function createPassthrough(
+	opts: VcrOptions,
+): { client: Client; afterTest: () => Promise<void> } {
+	const realClient = opts.realClient;
+	if (!realClient) {
+		throw new Error("VCR off mode requires a realClient");
+	}
+	return {
+		client: realClient as Client,
+		afterTest: async () => {},
+	};
 }
 
 function createRecorder(
@@ -148,9 +163,7 @@ function createReplayer(
 	const path = fixturePath(opts.fixtureDir, opts.testName);
 
 	if (!existsSync(path)) {
-		throw new Error(
-			`VCR fixture not found: ${path}. Run with VCR_MODE=record to create it.`,
-		);
+		throw new Error(`VCR fixture not found: ${path}. Run with VCR_MODE=record to create it.`);
 	}
 
 	const cassette: VcrCassette = JSON.parse(readFileSync(path, "utf-8"));

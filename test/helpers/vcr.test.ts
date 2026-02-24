@@ -159,9 +159,7 @@ describe("VCR", () => {
 			},
 		});
 
-		await client.complete(
-			makeRequest(`Create a file in ${workDir}/hello.py`),
-		);
+		await client.complete(makeRequest(`Create a file in ${workDir}/hello.py`));
 		await afterTest();
 
 		// The fixture should contain placeholders, not real paths
