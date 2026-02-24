@@ -136,6 +136,26 @@ describe("replayEventLog", () => {
 		expect(history).toHaveLength(0);
 	});
 
+	test("skips corrupt JSON lines without crashing", async () => {
+		const logPath = join(tempDir, "events.jsonl");
+		const validEvent1 = JSON.stringify(event("perceive", { goal: "First goal" }));
+		const corruptLine = "{not valid json!!!";
+		const validEvent2 = JSON.stringify(event("plan_end", { assistant_message: Msg.assistant("Reply") }));
+		await writeFile(logPath, [validEvent1, corruptLine, validEvent2].join("\n") + "\n", "utf-8");
+
+		const history = await replayEventLog(logPath);
+
+		expect(history).toHaveLength(2);
+		expect(messageText(history[0]!)).toBe("First goal");
+		expect(messageText(history[1]!)).toBe("Reply");
+	});
+
+	test("returns empty history for missing log file", async () => {
+		const history = await replayEventLog(join(tempDir, "nonexistent.jsonl"));
+
+		expect(history).toEqual([]);
+	});
+
 	test("skips events with depth > 0", async () => {
 		const logPath = join(tempDir, "events.jsonl");
 		await writeEventLog(logPath, [

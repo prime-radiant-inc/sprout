@@ -7,13 +7,23 @@ import { type Message, Msg } from "../llm/types.ts";
  * for resuming a session. Only processes root-depth (depth === 0) events.
  */
 export async function replayEventLog(logPath: string): Promise<Message[]> {
-	const raw = await readFile(logPath, "utf-8");
+	let raw: string;
+	try {
+		raw = await readFile(logPath, "utf-8");
+	} catch {
+		return [];
+	}
 	const lines = raw.split("\n").filter((line) => line.trim() !== "");
 
 	let history: Message[] = [];
 
 	for (const line of lines) {
-		const event: SessionEvent = JSON.parse(line);
+		let event: SessionEvent;
+		try {
+			event = JSON.parse(line);
+		} catch {
+			continue;
+		}
 
 		if (event.depth !== 0) continue;
 
