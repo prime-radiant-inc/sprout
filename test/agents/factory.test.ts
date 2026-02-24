@@ -62,16 +62,20 @@ describe("createAgent", () => {
 		expect(result.agent.spec.name).toBe("editor");
 	});
 
-	test("accepts sessionId option without error", async () => {
+	test("accepts and forwards sessionId to agent", async () => {
 		const genomePath = join(tempDir, "factory-sessionid");
-		// This should not throw — sessionId should be a valid option
+		const customId = "CUSTOM_SESSION_ID_123456";
 		const result = await createAgent({
 			genomePath,
 			bootstrapDir: join(import.meta.dir, "../../bootstrap"),
 			workDir: tempDir,
-			sessionId: "CUSTOM_SESSION_ID_123456",
+			sessionId: customId,
 		});
 		expect(result.agent).toBeDefined();
+		expect(result.model).toBeTruthy();
+		expect(result.provider).toBeTruthy();
+		expect(result.events).toBeDefined();
+		expect(result.client).toBeDefined();
 	});
 
 	test("model option overrides agent spec model", async () => {
