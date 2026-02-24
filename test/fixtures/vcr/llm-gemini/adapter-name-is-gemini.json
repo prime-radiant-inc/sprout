@@ -1,11 +1,9 @@
 {
-  "recordings": [],
-  "metadata": {
-    "recordedAt": "2026-02-24T20:32:41.278Z",
-    "testName": "adapter-name-is-gemini",
-    "providers": [
-      "gemini"
-    ],
-    "adapterName": "gemini"
-  }
+	"recordings": [],
+	"metadata": {
+		"recordedAt": "2026-02-24T20:32:41.278Z",
+		"testName": "adapter-name-is-gemini",
+		"providers": ["gemini"],
+		"adapterName": "gemini"
+	}
 }

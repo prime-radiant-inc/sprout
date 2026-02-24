@@ -1,111 +1,107 @@
 {
-  "recordings": [
-    {
-      "type": "stream",
-      "request": {
-        "model": "gpt-4.1-mini",
-        "messages": [
-          {
-            "role": "user",
-            "content": [
-              {
-                "kind": "text",
-                "text": "Hi"
-              }
-            ]
-          }
-        ],
-        "provider": "openai",
-        "max_tokens": 20
-      },
-      "events": [
-        {
-          "type": "stream_start"
-        },
-        {
-          "type": "text_delta",
-          "delta": "Hello"
-        },
-        {
-          "type": "text_delta",
-          "delta": "!"
-        },
-        {
-          "type": "text_delta",
-          "delta": " How"
-        },
-        {
-          "type": "text_delta",
-          "delta": " can"
-        },
-        {
-          "type": "text_delta",
-          "delta": " I"
-        },
-        {
-          "type": "text_delta",
-          "delta": " assist"
-        },
-        {
-          "type": "text_delta",
-          "delta": " you"
-        },
-        {
-          "type": "text_delta",
-          "delta": " today"
-        },
-        {
-          "type": "text_delta",
-          "delta": "?"
-        },
-        {
-          "type": "text_end"
-        },
-        {
-          "type": "finish",
-          "finish_reason": {
-            "reason": "stop"
-          },
-          "usage": {
-            "input_tokens": 8,
-            "output_tokens": 10,
-            "total_tokens": 18,
-            "reasoning_tokens": 0
-          },
-          "response": {
-            "id": "",
-            "model": "gpt-4.1-mini",
-            "provider": "openai",
-            "message": {
-              "role": "assistant",
-              "content": [
-                {
-                  "kind": "text",
-                  "text": "Hello! How can I assist you today?"
-                }
-              ]
-            },
-            "finish_reason": {
-              "reason": "stop"
-            },
-            "usage": {
-              "input_tokens": 8,
-              "output_tokens": 10,
-              "total_tokens": 18,
-              "reasoning_tokens": 0
-            }
-          }
-        }
-      ]
-    }
-  ],
-  "metadata": {
-    "recordedAt": "2026-02-24T20:32:56.479Z",
-    "testName": "middleware-wraps-stream-calls",
-    "providers": [
-      "anthropic",
-      "openai",
-      "gemini"
-    ]
-  }
+	"recordings": [
+		{
+			"type": "stream",
+			"request": {
+				"model": "gpt-4.1-mini",
+				"messages": [
+					{
+						"role": "user",
+						"content": [
+							{
+								"kind": "text",
+								"text": "Hi"
+							}
+						]
+					}
+				],
+				"provider": "openai",
+				"max_tokens": 20
+			},
+			"events": [
+				{
+					"type": "stream_start"
+				},
+				{
+					"type": "text_delta",
+					"delta": "Hello"
+				},
+				{
+					"type": "text_delta",
+					"delta": "!"
+				},
+				{
+					"type": "text_delta",
+					"delta": " How"
+				},
+				{
+					"type": "text_delta",
+					"delta": " can"
+				},
+				{
+					"type": "text_delta",
+					"delta": " I"
+				},
+				{
+					"type": "text_delta",
+					"delta": " assist"
+				},
+				{
+					"type": "text_delta",
+					"delta": " you"
+				},
+				{
+					"type": "text_delta",
+					"delta": " today"
+				},
+				{
+					"type": "text_delta",
+					"delta": "?"
+				},
+				{
+					"type": "text_end"
+				},
+				{
+					"type": "finish",
+					"finish_reason": {
+						"reason": "stop"
+					},
+					"usage": {
+						"input_tokens": 8,
+						"output_tokens": 10,
+						"total_tokens": 18,
+						"reasoning_tokens": 0
+					},
+					"response": {
+						"id": "",
+						"model": "gpt-4.1-mini",
+						"provider": "openai",
+						"message": {
+							"role": "assistant",
+							"content": [
+								{
+									"kind": "text",
+									"text": "Hello! How can I assist you today?"
+								}
+							]
+						},
+						"finish_reason": {
+							"reason": "stop"
+						},
+						"usage": {
+							"input_tokens": 8,
+							"output_tokens": 10,
+							"total_tokens": 18,
+							"reasoning_tokens": 0
+						}
+					}
+				}
+			]
+		}
+	],
+	"metadata": {
+		"recordedAt": "2026-02-24T20:32:56.479Z",
+		"testName": "middleware-wraps-stream-calls",
+		"providers": ["anthropic", "openai", "gemini"]
+	}
 }

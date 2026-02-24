@@ -1,11 +1,9 @@
 {
-  "recordings": [],
-  "metadata": {
-    "recordedAt": "2026-02-24T20:32:20.105Z",
-    "testName": "adapter-name-is-anthropic",
-    "providers": [
-      "anthropic"
-    ],
-    "adapterName": "anthropic"
-  }
+	"recordings": [],
+	"metadata": {
+		"recordedAt": "2026-02-24T20:32:20.105Z",
+		"testName": "adapter-name-is-anthropic",
+		"providers": ["anthropic"],
+		"adapterName": "anthropic"
+	}
 }

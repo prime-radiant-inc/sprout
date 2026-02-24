@@ -1,54 +1,52 @@
 {
-  "recordings": [
-    {
-      "type": "complete",
-      "request": {
-        "model": "gpt-4.1-mini",
-        "messages": [
-          {
-            "role": "user",
-            "content": [
-              {
-                "kind": "text",
-                "text": "Say hello in exactly 3 words."
-              }
-            ]
-          }
-        ],
-        "max_tokens": 50
-      },
-      "response": {
-        "id": "resp_032a0ec485581bc200699e0ae075f48197bb7c41ecf283d14a",
-        "model": "gpt-4.1-mini-2025-04-14",
-        "provider": "openai",
-        "message": {
-          "role": "assistant",
-          "content": [
-            {
-              "kind": "text",
-              "text": "Hello there friend!"
-            }
-          ]
-        },
-        "finish_reason": {
-          "reason": "stop",
-          "raw": "completed"
-        },
-        "usage": {
-          "input_tokens": 15,
-          "output_tokens": 5,
-          "total_tokens": 20,
-          "reasoning_tokens": 0
-        }
-      }
-    }
-  ],
-  "metadata": {
-    "recordedAt": "2026-02-24T20:32:33.028Z",
-    "testName": "complete-returns-a-text-response",
-    "providers": [
-      "openai"
-    ],
-    "adapterName": "openai"
-  }
+	"recordings": [
+		{
+			"type": "complete",
+			"request": {
+				"model": "gpt-4.1-mini",
+				"messages": [
+					{
+						"role": "user",
+						"content": [
+							{
+								"kind": "text",
+								"text": "Say hello in exactly 3 words."
+							}
+						]
+					}
+				],
+				"max_tokens": 50
+			},
+			"response": {
+				"id": "resp_032a0ec485581bc200699e0ae075f48197bb7c41ecf283d14a",
+				"model": "gpt-4.1-mini-2025-04-14",
+				"provider": "openai",
+				"message": {
+					"role": "assistant",
+					"content": [
+						{
+							"kind": "text",
+							"text": "Hello there friend!"
+						}
+					]
+				},
+				"finish_reason": {
+					"reason": "stop",
+					"raw": "completed"
+				},
+				"usage": {
+					"input_tokens": 15,
+					"output_tokens": 5,
+					"total_tokens": 20,
+					"reasoning_tokens": 0
+				}
+			}
+		}
+	],
+	"metadata": {
+		"recordedAt": "2026-02-24T20:32:33.028Z",
+		"testName": "complete-returns-a-text-response",
+		"providers": ["openai"],
+		"adapterName": "openai"
+	}
 }

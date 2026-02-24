@@ -1,55 +1,53 @@
 {
-  "recordings": [
-    {
-      "type": "complete",
-      "request": {
-        "model": "o4-mini",
-        "messages": [
-          {
-            "role": "user",
-            "content": [
-              {
-                "kind": "text",
-                "text": "Say hello"
-              }
-            ]
-          }
-        ],
-        "reasoning_effort": "low",
-        "max_tokens": 1000
-      },
-      "response": {
-        "id": "resp_038cdfcd1eb4c61900699e0ae39ef08197950f86e40c268333",
-        "model": "o4-mini-2025-04-16",
-        "provider": "openai",
-        "message": {
-          "role": "assistant",
-          "content": [
-            {
-              "kind": "text",
-              "text": "Hello! How can I assist you today?"
-            }
-          ]
-        },
-        "finish_reason": {
-          "reason": "stop",
-          "raw": "completed"
-        },
-        "usage": {
-          "input_tokens": 8,
-          "output_tokens": 53,
-          "total_tokens": 61,
-          "reasoning_tokens": 0
-        }
-      }
-    }
-  ],
-  "metadata": {
-    "recordedAt": "2026-02-24T20:32:37.643Z",
-    "testName": "reasoning-effort-passthrough",
-    "providers": [
-      "openai"
-    ],
-    "adapterName": "openai"
-  }
+	"recordings": [
+		{
+			"type": "complete",
+			"request": {
+				"model": "o4-mini",
+				"messages": [
+					{
+						"role": "user",
+						"content": [
+							{
+								"kind": "text",
+								"text": "Say hello"
+							}
+						]
+					}
+				],
+				"reasoning_effort": "low",
+				"max_tokens": 1000
+			},
+			"response": {
+				"id": "resp_038cdfcd1eb4c61900699e0ae39ef08197950f86e40c268333",
+				"model": "o4-mini-2025-04-16",
+				"provider": "openai",
+				"message": {
+					"role": "assistant",
+					"content": [
+						{
+							"kind": "text",
+							"text": "Hello! How can I assist you today?"
+						}
+					]
+				},
+				"finish_reason": {
+					"reason": "stop",
+					"raw": "completed"
+				},
+				"usage": {
+					"input_tokens": 8,
+					"output_tokens": 53,
+					"total_tokens": 61,
+					"reasoning_tokens": 0
+				}
+			}
+		}
+	],
+	"metadata": {
+		"recordedAt": "2026-02-24T20:32:37.643Z",
+		"testName": "reasoning-effort-passthrough",
+		"providers": ["openai"],
+		"adapterName": "openai"
+	}
 }

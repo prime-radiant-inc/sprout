@@ -1,56 +1,52 @@
 {
-  "recordings": [
-    {
-      "type": "complete",
-      "request": {
-        "model": "claude-haiku-4-5-20251001",
-        "messages": [
-          {
-            "role": "user",
-            "content": [
-              {
-                "kind": "text",
-                "text": "Say hi."
-              }
-            ]
-          }
-        ],
-        "max_tokens": 50
-      },
-      "response": {
-        "id": "msg_013XJsGkxVdJHFZ6WdwRwQN9",
-        "model": "claude-haiku-4-5-20251001",
-        "provider": "anthropic",
-        "message": {
-          "role": "assistant",
-          "content": [
-            {
-              "kind": "text",
-              "text": "Hi! 👋 How can I help you today?"
-            }
-          ]
-        },
-        "finish_reason": {
-          "reason": "stop",
-          "raw": "end_turn"
-        },
-        "usage": {
-          "input_tokens": 10,
-          "output_tokens": 16,
-          "total_tokens": 26,
-          "cache_read_tokens": 0,
-          "cache_write_tokens": 0
-        }
-      }
-    }
-  ],
-  "metadata": {
-    "recordedAt": "2026-02-24T20:32:53.323Z",
-    "testName": "complete-uses-default-provider",
-    "providers": [
-      "anthropic",
-      "openai",
-      "gemini"
-    ]
-  }
+	"recordings": [
+		{
+			"type": "complete",
+			"request": {
+				"model": "claude-haiku-4-5-20251001",
+				"messages": [
+					{
+						"role": "user",
+						"content": [
+							{
+								"kind": "text",
+								"text": "Say hi."
+							}
+						]
+					}
+				],
+				"max_tokens": 50
+			},
+			"response": {
+				"id": "msg_013XJsGkxVdJHFZ6WdwRwQN9",
+				"model": "claude-haiku-4-5-20251001",
+				"provider": "anthropic",
+				"message": {
+					"role": "assistant",
+					"content": [
+						{
+							"kind": "text",
+							"text": "Hi! 👋 How can I help you today?"
+						}
+					]
+				},
+				"finish_reason": {
+					"reason": "stop",
+					"raw": "end_turn"
+				},
+				"usage": {
+					"input_tokens": 10,
+					"output_tokens": 16,
+					"total_tokens": 26,
+					"cache_read_tokens": 0,
+					"cache_write_tokens": 0
+				}
+			}
+		}
+	],
+	"metadata": {
+		"recordedAt": "2026-02-24T20:32:53.323Z",
+		"testName": "complete-uses-default-provider",
+		"providers": ["anthropic", "openai", "gemini"]
+	}
 }
