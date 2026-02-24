@@ -602,6 +602,191 @@ describe("LearnProcess", () => {
 		});
 	});
 
+	describe("evaluatePendingImprovements", () => {
+		test("skips improvements without enough data (< 5 actions)", async () => {
+			const { learn, metrics } = await setupGenome(tempDir, "eval-skip-insufficient");
+
+			// Apply a mutation to create a pending evaluation
+			await learn.applyMutation({
+				type: "update_agent",
+				agent_name: "root",
+				system_prompt: "Updated prompt",
+			});
+			expect(learn.pendingEvaluations()).toHaveLength(1);
+
+			// Record only 3 actions (below the 5-action threshold)
+			for (let i = 0; i < 3; i++) await metrics.recordAction("root");
+
+			await learn.evaluatePendingImprovements();
+
+			// Still pending — not enough data to evaluate
+			expect(learn.pendingEvaluations()).toHaveLength(1);
+		});
+
+		test("evaluates and removes helpful improvement", async () => {
+			const { learn, metrics } = await setupGenome(tempDir, "eval-pending-helpful");
+
+			// Create some "before" data: high stumble rate
+			for (let i = 0; i < 10; i++) await metrics.recordAction("root");
+			for (let i = 0; i < 5; i++) await metrics.recordStumble("root", "error");
+
+			await new Promise((r) => setTimeout(r, 5));
+
+			// Apply a mutation
+			await learn.applyMutation({
+				type: "update_agent",
+				agent_name: "root",
+				system_prompt: "Improved prompt",
+			});
+			expect(learn.pendingEvaluations()).toHaveLength(1);
+
+			await new Promise((r) => setTimeout(r, 5));
+
+			// "After" data: low stumble rate (improved!)
+			for (let i = 0; i < 10; i++) await metrics.recordAction("root");
+			await metrics.recordStumble("root", "error");
+
+			await learn.evaluatePendingImprovements();
+
+			// Should be removed from pending (helpful = evaluated)
+			expect(learn.pendingEvaluations()).toHaveLength(0);
+		});
+
+		test("evaluates and removes neutral improvement", async () => {
+			const { learn, metrics } = await setupGenome(tempDir, "eval-pending-neutral");
+
+			// "Before" data
+			for (let i = 0; i < 10; i++) await metrics.recordAction("root");
+			await metrics.recordStumble("root", "error");
+
+			await new Promise((r) => setTimeout(r, 5));
+
+			// Apply a mutation
+			await learn.applyMutation({
+				type: "update_agent",
+				agent_name: "root",
+				system_prompt: "Slightly different prompt",
+			});
+
+			await new Promise((r) => setTimeout(r, 5));
+
+			// "After" data: same stumble rate
+			for (let i = 0; i < 10; i++) await metrics.recordAction("root");
+			await metrics.recordStumble("root", "error");
+
+			await learn.evaluatePendingImprovements();
+
+			// Neutral = evaluated, removed from pending
+			expect(learn.pendingEvaluations()).toHaveLength(0);
+		});
+
+		test("harmful improvement triggers genome rollback", async () => {
+			const { learn, metrics, genome } = await setupGenome(
+				tempDir,
+				"eval-pending-harmful",
+			);
+
+			const originalPrompt = genome.getAgent("root")!.system_prompt;
+
+			// "Before" data: low stumble rate
+			for (let i = 0; i < 10; i++) await metrics.recordAction("root");
+			await metrics.recordStumble("root", "error");
+
+			await new Promise((r) => setTimeout(r, 5));
+
+			// Apply a harmful mutation
+			await learn.applyMutation({
+				type: "update_agent",
+				agent_name: "root",
+				system_prompt: "Terrible prompt that makes things worse",
+			});
+			expect(learn.pendingEvaluations()).toHaveLength(1);
+
+			await new Promise((r) => setTimeout(r, 5));
+
+			// "After" data: high stumble rate (worse!)
+			for (let i = 0; i < 10; i++) await metrics.recordAction("root");
+			for (let i = 0; i < 5; i++) await metrics.recordStumble("root", "error");
+
+			await learn.evaluatePendingImprovements();
+
+			// Should be removed from pending
+			expect(learn.pendingEvaluations()).toHaveLength(0);
+
+			// Genome should have been rolled back — reload to verify
+			const genome2 = new Genome(join(tempDir, "eval-pending-harmful"));
+			await genome2.loadFromDisk();
+			expect(genome2.getAgent("root")!.system_prompt).toBe(originalPrompt);
+		});
+
+		test("emits evaluation event for each evaluated improvement", async () => {
+			const { learn, metrics, events } = await setupGenome(
+				tempDir,
+				"eval-pending-events",
+			);
+
+			// "Before" data
+			for (let i = 0; i < 10; i++) await metrics.recordAction("root");
+			await metrics.recordStumble("root", "error");
+
+			await new Promise((r) => setTimeout(r, 5));
+
+			await learn.applyMutation({
+				type: "update_agent",
+				agent_name: "root",
+				system_prompt: "Event test prompt",
+			});
+
+			await new Promise((r) => setTimeout(r, 5));
+
+			// "After" data: same stumble rate (neutral)
+			for (let i = 0; i < 10; i++) await metrics.recordAction("root");
+			await metrics.recordStumble("root", "error");
+
+			await learn.evaluatePendingImprovements();
+
+			const collected = events.collected();
+			const evalEvents = collected.filter(
+				(e) => e.kind === "learn_mutation" && e.data.mutation_type === "evaluation",
+			);
+			expect(evalEvents.length).toBe(1);
+			expect(evalEvents[0]!.data.verdict).toBeDefined();
+		});
+
+		test("emits rollback event for harmful improvement", async () => {
+			const { learn, metrics, events } = await setupGenome(
+				tempDir,
+				"eval-pending-rollback-event",
+			);
+
+			// "Before" data: low stumble rate
+			for (let i = 0; i < 10; i++) await metrics.recordAction("root");
+			await metrics.recordStumble("root", "error");
+
+			await new Promise((r) => setTimeout(r, 5));
+
+			await learn.applyMutation({
+				type: "update_agent",
+				agent_name: "root",
+				system_prompt: "Bad prompt",
+			});
+
+			await new Promise((r) => setTimeout(r, 5));
+
+			// "After" data: high stumble rate (worse!)
+			for (let i = 0; i < 10; i++) await metrics.recordAction("root");
+			for (let i = 0; i < 5; i++) await metrics.recordStumble("root", "error");
+
+			await learn.evaluatePendingImprovements();
+
+			const collected = events.collected();
+			const rollbackEvents = collected.filter(
+				(e) => e.kind === "learn_mutation" && e.data.mutation_type === "rollback",
+			);
+			expect(rollbackEvents.length).toBe(1);
+		});
+	});
+
 	describe("evaluateImprovement", () => {
 		test("detects harmful improvement", async () => {
 			const { learn, metrics } = await setupGenome(tempDir, "eval-harmful");

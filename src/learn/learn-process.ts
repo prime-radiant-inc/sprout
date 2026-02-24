@@ -164,6 +164,49 @@ export class LearnProcess {
 		await writeFile(this.pendingEvaluationsPath, JSON.stringify(this._pendingEvaluations, null, 2));
 	}
 
+	/** Minimum number of post-improvement actions required before evaluating. */
+	static readonly MIN_ACTIONS_FOR_EVALUATION = 5;
+
+	/** Evaluate all pending improvements that have enough post-improvement data. */
+	async evaluatePendingImprovements(): Promise<void> {
+		const remaining: PendingEvaluation[] = [];
+
+		for (const pending of this._pendingEvaluations) {
+			const actionCount = await this.metrics.actionCountSince(
+				pending.agentName,
+				pending.timestamp,
+			);
+
+			if (actionCount < LearnProcess.MIN_ACTIONS_FOR_EVALUATION) {
+				remaining.push(pending);
+				continue;
+			}
+
+			const result = await this.evaluateImprovement(pending.agentName, pending.timestamp);
+
+			this.events.emit("learn_mutation", pending.agentName, 0, {
+				mutation_type: "evaluation",
+				verdict: result.verdict,
+				delta: result.delta,
+				description: pending.description,
+			});
+
+			if (result.verdict === "harmful") {
+				await this.genome.rollbackCommit(pending.commitHash);
+				this.events.emit("learn_mutation", pending.agentName, 0, {
+					mutation_type: "rollback",
+					commit_hash: pending.commitHash,
+					description: pending.description,
+				});
+			}
+
+			// All evaluated improvements (helpful, harmful, neutral) are removed from pending
+		}
+
+		this._pendingEvaluations = remaining;
+		await this.savePendingEvaluations();
+	}
+
 	/** Evaluate whether an improvement helped by comparing stumble rates before and after. */
 	async evaluateImprovement(
 		agentName: string,
