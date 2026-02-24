@@ -300,7 +300,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 			}
 			if (slash.kind === "status") {
 				console.log(
-					`Session: ${controller.sessionId.slice(0, 8)}... | ${controller.isRunning ? "running" : "idle"}`,
+					`Session: ${controller.sessionId.slice(0, 8)}... | ${controller.isRunning ? "running" : "idle"} | model: ${controller.currentModel ?? "default"}`,
 				);
 				return;
 			}

@@ -169,6 +169,7 @@ export class SessionController {
 				break;
 			case "clear":
 				this.history = [];
+				this.hasRun = false;
 				break;
 			case "switch_model":
 				this.modelOverride = cmd.data.model as string | undefined;
@@ -334,5 +335,9 @@ export class SessionController {
 
 	get isRunning(): boolean {
 		return this.running;
+	}
+
+	get currentModel(): string | undefined {
+		return this.modelOverride;
 	}
 }

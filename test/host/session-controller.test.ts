@@ -553,6 +553,125 @@ describe("SessionController", () => {
 		expect(capturedHistory).toBeUndefined();
 	});
 
+	test("clear command resets hasRun flag", async () => {
+		let callCount = 0;
+		const factory: AgentFactory = async (options) => {
+			callCount++;
+			return {
+				agent: {
+					steer() {},
+					async run(goal: string) {
+						options.events.emitEvent("perceive", "root", 0, { goal });
+						options.events.emitEvent("plan_end", "root", 0, {
+							turn: 1,
+							assistant_message: {
+								role: "assistant",
+								content: [{ kind: "text", text: "Done." }],
+							},
+						});
+						return {
+							output: "done",
+							success: true,
+							stumbles: 0,
+							turns: 1,
+							timed_out: false,
+						};
+					},
+				} as any,
+				learnProcess: null,
+			};
+		};
+
+		const bus = new EventBus();
+		const controller = new SessionController({
+			bus,
+			genomePath: join(tempDir, "genome"),
+			sessionsDir: join(tempDir, "sessions"),
+			factory,
+			initialHistory: [
+				{ role: "user", content: [{ kind: "text", text: "prior" }] },
+			],
+		});
+
+		const events: any[] = [];
+		bus.onEvent((e) => events.push(e));
+
+		// First submitGoal: hasRun=false, history.length=1 -> session_resume fires
+		await controller.submitGoal("goal 1");
+		expect(events.filter((e: any) => e.kind === "session_resume")).toHaveLength(1);
+
+		// Clear resets both history and hasRun
+		bus.emitCommand({ kind: "clear", data: {} });
+
+		// After clear, history is empty so session_resume won't fire
+		await controller.submitGoal("goal 2");
+		expect(events.filter((e: any) => e.kind === "session_resume")).toHaveLength(1);
+	});
+
+	test("currentModel returns undefined by default and reflects switch_model", () => {
+		const bus = new EventBus();
+		const controller = new SessionController({
+			bus,
+			genomePath: join(tempDir, "genome"),
+			sessionsDir: join(tempDir, "sessions"),
+			factory: async () => ({ agent: { steer() {}, async run() { return { output: "", success: true, stumbles: 0, turns: 0, timed_out: false }; } } as any, learnProcess: null }),
+		});
+		expect(controller.currentModel).toBeUndefined();
+
+		bus.emitCommand({ kind: "switch_model", data: { model: "fast" } });
+		expect(controller.currentModel).toBe("fast");
+
+		bus.emitCommand({ kind: "switch_model", data: { model: undefined } });
+		expect(controller.currentModel).toBeUndefined();
+	});
+
+	test("session_resume is NOT emitted on second submitGoal", async () => {
+		const bus = new EventBus();
+		const factory: AgentFactory = async (options) => ({
+			agent: {
+				steer() {},
+				async run(goal: string) {
+					options.events.emitEvent("perceive", "root", 0, { goal });
+					options.events.emitEvent("plan_end", "root", 0, {
+						turn: 1,
+						assistant_message: {
+							role: "assistant",
+							content: [{ kind: "text", text: "Done." }],
+						},
+					});
+					return {
+						output: "done",
+						success: true,
+						stumbles: 0,
+						turns: 1,
+						timed_out: false,
+					};
+				},
+			} as any,
+			learnProcess: null,
+		});
+
+		const controller = new SessionController({
+			bus,
+			genomePath: join(tempDir, "genome"),
+			sessionsDir: join(tempDir, "sessions"),
+			factory,
+			initialHistory: [
+				{ role: "user", content: [{ kind: "text", text: "prior" }] },
+				{ role: "assistant", content: [{ kind: "text", text: "response" }] },
+			],
+		});
+
+		const events: any[] = [];
+		bus.onEvent((e) => events.push(e));
+
+		await controller.submitGoal("first goal");
+		expect(events.filter((e: any) => e.kind === "session_resume")).toHaveLength(1);
+
+		await controller.submitGoal("second goal");
+		expect(events.filter((e: any) => e.kind === "session_resume")).toHaveLength(1);
+	});
+
 	test("compact command is accepted without error", () => {
 		const { bus } = makeController();
 		// Should not throw — compact is routed but not yet implemented
