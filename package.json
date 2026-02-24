@@ -13,6 +13,9 @@
     "format": "biome format --write .",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
+    "test:unit": "bun test $(find test -name '*.test.ts' -o -name '*.test.tsx' | grep -v integration | grep -v 'anthropic\\.test' | grep -v 'gemini\\.test' | grep -v 'openai\\.test' | grep -v 'client\\.test')",
+    "test:integration": "bun test test/integration/ test/agents/agent.integration.test.ts test/learn/learn.integration.test.ts test/llm/anthropic.test.ts test/llm/gemini.test.ts test/llm/openai.test.ts test/llm/client.test.ts",
+    "test:all": "bun test",
     "test:watch": "bun test --watch",
     "precommit": "bun run check && bun run typecheck && bun test"
   },
