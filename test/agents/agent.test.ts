@@ -1839,4 +1839,99 @@ describe("Agent", () => {
 		expect(result.success).toBe(true);
 		expect(result.turns).toBeGreaterThanOrEqual(3);
 	});
+
+	test("compaction fires after tool results are in history", async () => {
+		// Pad initial history so compactHistory has enough messages
+		const priorHistory: Message[] = [
+			Msg.user("step 1"),
+			Msg.assistant("did step 1"),
+			Msg.user("step 2"),
+			Msg.assistant("did step 2"),
+			Msg.user("step 3"),
+			Msg.assistant("did step 3"),
+		];
+
+		const toolCallMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-timing-1",
+						name: "read_file",
+						arguments: JSON.stringify({ path: "/tmp/test.txt" }),
+					},
+				},
+			],
+		};
+		const doneMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "Done." }],
+		};
+
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				if (callCount === 1) {
+					// High token usage to trigger compaction
+					return {
+						id: "mock-timing-1",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: toolCallMsg,
+						finish_reason: { reason: "tool_calls" },
+						usage: { input_tokens: 170000, output_tokens: 500, total_tokens: 170500 },
+					};
+				}
+				if (callCount === 2) {
+					// Compaction summarization call
+					return {
+						id: "mock-timing-summary",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: Msg.assistant("Summary."),
+						finish_reason: { reason: "stop" },
+						usage: { input_tokens: 100, output_tokens: 50, total_tokens: 150 },
+					};
+				}
+				return {
+					id: `mock-timing-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: doneMsg,
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 5000, output_tokens: 100, total_tokens: 5100 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: leafSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+			events,
+			initialHistory: priorHistory,
+		});
+
+		await agent.run("timing test");
+
+		const collected = events.collected();
+		const compactionEvent = collected.find((e) => e.kind === "compaction");
+		expect(compactionEvent).toBeDefined();
+
+		// beforeCount should include the tool result message.
+		// History at compaction time: 6 prior + 1 goal + 1 assistant(tool_call) + 1 tool_result = 9
+		// If compaction fired before tool results, it would be 8.
+		const beforeCount = compactionEvent!.data.beforeCount as number;
+		expect(beforeCount).toBe(9);
+	});
 });

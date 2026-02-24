@@ -477,25 +477,6 @@ export class Agent {
 				break;
 			}
 
-			// Compact history if context usage exceeds threshold or manually requested
-			const contextWindowSize = getContextWindowSize(this.resolved.model);
-			const inputTokens = response.usage?.input_tokens ?? 0;
-			if (this.compactionRequested || shouldCompact(inputTokens, contextWindowSize)) {
-				this.compactionRequested = false;
-				const compactResult = await compactHistory({
-					history,
-					client: this.client,
-					model: this.resolved.model,
-					provider: this.resolved.provider,
-					logPath: this.logBasePath ? `${this.logBasePath}.jsonl` : "",
-				});
-				this.emitAndLog("compaction", agentId, this.depth, {
-					summary: compactResult.summary,
-					beforeCount: compactResult.beforeCount,
-					afterCount: compactResult.afterCount,
-				});
-			}
-
 			// Parse tool calls into delegations and primitive calls
 			const { delegations } = parsePlanResponse(toolCalls);
 			const delegationByCallId = new Map(delegations.map((d) => [d.call_id, d]));
@@ -584,6 +565,25 @@ export class Agent {
 			for (const call of toolCalls) {
 				const msg = resultByCallId.get(call.id);
 				if (msg) history.push(msg);
+			}
+
+			// Compact history if context usage exceeds threshold or manually requested
+			const contextWindowSize = getContextWindowSize(this.resolved.model);
+			const inputTokens = response.usage?.input_tokens ?? 0;
+			if (this.compactionRequested || shouldCompact(inputTokens, contextWindowSize)) {
+				this.compactionRequested = false;
+				const compactResult = await compactHistory({
+					history,
+					client: this.client,
+					model: this.resolved.model,
+					provider: this.resolved.provider,
+					logPath: this.logBasePath ? `${this.logBasePath}.jsonl` : "",
+				});
+				this.emitAndLog("compaction", agentId, this.depth, {
+					summary: compactResult.summary,
+					beforeCount: compactResult.beforeCount,
+					afterCount: compactResult.afterCount,
+				});
 			}
 		}
 
