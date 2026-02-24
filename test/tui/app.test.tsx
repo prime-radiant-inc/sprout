@@ -163,6 +163,60 @@ describe("App", () => {
 		expect(submitCmd).toBeUndefined();
 	});
 
+	test("accumulates token usage across multiple plan_end events", async () => {
+		const { bus, lastFrame } = setup();
+
+		bus.emitEvent("session_start", "root", 0, { goal: "test" });
+		bus.emitEvent("plan_end", "root", 0, {
+			turn: 1,
+			usage: { input_tokens: 3000, output_tokens: 1000, total_tokens: 4000 },
+		});
+		await flush();
+
+		let frame = lastFrame();
+		expect(frame).toContain("↑3.0k");
+		expect(frame).toContain("↓1.0k");
+
+		bus.emitEvent("plan_end", "root", 0, {
+			turn: 2,
+			usage: { input_tokens: 2000, output_tokens: 500, total_tokens: 2500 },
+		});
+		await flush();
+
+		frame = lastFrame();
+		// Should be cumulative: 3000+2000=5000, 1000+500=1500
+		expect(frame).toContain("↑5.0k");
+		expect(frame).toContain("↓1.5k");
+	});
+
+	test("resets token usage on session_end", async () => {
+		const { bus, lastFrame } = setup();
+
+		bus.emitEvent("session_start", "root", 0, { goal: "test" });
+		bus.emitEvent("plan_end", "root", 0, {
+			turn: 1,
+			usage: { input_tokens: 3000, output_tokens: 1000, total_tokens: 4000 },
+		});
+		await flush();
+
+		bus.emitEvent("session_end", "root", 0, { turns: 1, stumbles: 0 });
+		await flush();
+
+		// After session_end, tokens should be reset to 0
+		// Start a new session to see the token display
+		bus.emitEvent("session_start", "root", 0, { goal: "test2" });
+		bus.emitEvent("plan_end", "root", 0, {
+			turn: 1,
+			usage: { input_tokens: 1000, output_tokens: 500, total_tokens: 1500 },
+		});
+		await flush();
+
+		const frame = lastFrame();
+		// Should show only the new session's tokens, not accumulated from previous
+		expect(frame).toContain("↑1.0k");
+		expect(frame).toContain("↓500");
+	});
+
 	test("renders conversation lines from events", async () => {
 		const { bus, lastFrame } = setup();
 
@@ -170,5 +224,20 @@ describe("App", () => {
 		await flush();
 
 		expect(lastFrame()).toContain("Starting session...");
+	});
+
+	test("caps visible conversation lines via maxHeight", async () => {
+		const { bus, lastFrame } = setup();
+
+		for (let i = 0; i < 100; i++) {
+			bus.emitEvent("warning", "root", 0, { message: `warn-${i}` });
+		}
+		await flush();
+
+		const frame = lastFrame();
+		// The earliest warnings should be scrolled off
+		expect(frame).not.toContain("warn-0");
+		// The latest warnings should still be visible
+		expect(frame).toContain("warn-99");
 	});
 });

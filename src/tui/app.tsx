@@ -1,4 +1,4 @@
-import { Box } from "ink";
+import { Box, useStdout } from "ink";
 import { useEffect, useState } from "react";
 import type { EventBus } from "../host/event-bus.ts";
 import type { SessionEvent } from "../kernel/types.ts";
@@ -44,6 +44,10 @@ export function App({
 	onExit,
 	initialHistory,
 }: AppProps) {
+	const { stdout } = useStdout();
+	const terminalRows = stdout?.rows ?? 40;
+	const conversationHeight = Math.max(5, terminalRows - 4);
+
 	const [statusState, setStatusState] = useState<StatusState>(INITIAL_STATUS);
 
 	useEffect(() => {
@@ -58,7 +62,7 @@ export function App({
 					break;
 
 				case "session_end":
-					setStatusState((prev) => ({ ...prev, status: "idle" }));
+					setStatusState((prev) => ({ ...prev, status: "idle", inputTokens: 0, outputTokens: 0 }));
 					break;
 
 				case "interrupted":
@@ -80,8 +84,8 @@ export function App({
 					setStatusState((prev) => ({
 						...prev,
 						turns: (event.data.turn as number) ?? prev.turns,
-						inputTokens: usage?.input_tokens ?? prev.inputTokens,
-						outputTokens: usage?.output_tokens ?? prev.outputTokens,
+						inputTokens: prev.inputTokens + (usage?.input_tokens ?? 0),
+						outputTokens: prev.outputTokens + (usage?.output_tokens ?? 0),
 					}));
 					break;
 				}
@@ -91,7 +95,7 @@ export function App({
 
 	return (
 		<Box flexDirection="column">
-			<ConversationView bus={bus} />
+			<ConversationView bus={bus} maxHeight={conversationHeight} />
 			<StatusBar
 				contextTokens={statusState.contextTokens}
 				contextWindowSize={statusState.contextWindowSize}
