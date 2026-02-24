@@ -240,4 +240,19 @@ describe("renderEvent", () => {
 		const result = renderEvent(makeEvent("compaction", { beforeCount: 20, afterCount: 7 }));
 		expect(result).toContain("compacted");
 	});
+
+	test("returns null for unknown event kind", () => {
+		const event = makeEvent("totally_unknown" as any, {});
+		expect(renderEvent(event)).toBeNull();
+	});
+
+	test("plan_end with only reasoning (empty text)", () => {
+		const result = renderEvent(makeEvent("plan_end", { reasoning: "I think so", text: "" }));
+		expect(result).toContain("I think so");
+	});
+
+	test("session_clear shows new session message", () => {
+		const result = renderEvent(makeEvent("session_clear", { new_session_id: "abc" }));
+		expect(result).toContain("New session started");
+	});
 });

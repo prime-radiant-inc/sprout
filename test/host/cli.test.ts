@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { handleSlashCommand, parseArgs } from "../../src/host/cli.ts";
+import { handleSlashCommand, inputHistoryPath, parseArgs } from "../../src/host/cli.ts";
 import { EventBus } from "../../src/host/event-bus.ts";
 import { replayEventLog } from "../../src/host/resume.ts";
 import type { AgentFactory } from "../../src/host/session-controller.ts";
@@ -234,6 +234,23 @@ describe("handleSlashCommand", () => {
 		expect(bus.events).toHaveLength(1);
 		expect(bus.events[0].data.message).toContain("/foo");
 	});
+
+	test("quit emits quit command and exits", () => {
+		const bus = makeBus();
+		const origExit = process.exit;
+		let exitCode: number | undefined;
+		process.exit = ((code?: number) => {
+			exitCode = code ?? 0;
+		}) as any;
+
+		try {
+			handleSlashCommand({ kind: "quit" }, bus, controller);
+			expect(bus.commands).toEqual([{ kind: "quit", data: {} }]);
+			expect(exitCode).toBe(0);
+		} finally {
+			process.exit = origExit;
+		}
+	});
 });
 
 describe("resume flow", () => {
@@ -321,5 +338,18 @@ describe("resume flow", () => {
 		expect(capturedHistory).toHaveLength(2);
 		expect(capturedHistory![0].role).toBe("user");
 		expect(capturedHistory![1].role).toBe("assistant");
+	});
+});
+
+describe("inputHistoryPath", () => {
+	test("resolves inside the genome directory", () => {
+		const genomePath = "/home/user/.local/share/sprout-genome";
+		const result = inputHistoryPath(genomePath);
+		expect(result).toBe(join(genomePath, "input_history.txt"));
+	});
+
+	test("works with custom genome path", () => {
+		const result = inputHistoryPath("/custom/genome");
+		expect(result).toBe("/custom/genome/input_history.txt");
 	});
 });

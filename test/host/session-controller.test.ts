@@ -485,6 +485,62 @@ describe("SessionController", () => {
 		expect(capturedInitialHistory![1].content[0].text).toBe("Done.");
 	});
 
+	test("steering events accumulate in history", async () => {
+		const factoryCallHistory: any[] = [];
+
+		const factory: AgentFactory = async (options) => {
+			factoryCallHistory.push(
+				options.initialHistory ? [...options.initialHistory] : undefined,
+			);
+			return {
+				agent: {
+					steer() {},
+					async run(goal: string) {
+						// Emit perceive and plan_end to build history as usual
+						options.events.emitEvent("perceive", "root", 0, { goal });
+						options.events.emitEvent("plan_end", "root", 0, {
+							turn: 1,
+							assistant_message: {
+								role: "assistant",
+								content: [{ kind: "text", text: "Done." }],
+							},
+						});
+						return { output: "done", success: true, stumbles: 0, turns: 1, timed_out: false };
+					},
+				} as any,
+				learnProcess: null,
+			};
+		};
+
+		const bus = new EventBus();
+		const controller = new SessionController({
+			bus,
+			genomePath: join(tempDir, "genome"),
+			sessionsDir: join(tempDir, "sessions"),
+			factory,
+		});
+
+		// First goal
+		await controller.submitGoal("initial");
+
+		// Emit steering event (simulating user steering between runs)
+		bus.emitEvent("steering", "root", 0, { text: "steer msg" });
+
+		// Allow async event handling to flush
+		await new Promise((r) => setTimeout(r, 50));
+
+		// Second goal — factory should get history containing the steer message
+		await controller.submitGoal("second");
+
+		expect(factoryCallHistory.length).toBeGreaterThanOrEqual(2);
+		const secondHistory = factoryCallHistory[1];
+		expect(secondHistory).toBeDefined();
+		const hasSteer = secondHistory.some(
+			(m: any) => m.role === "user" && JSON.stringify(m.content).includes("steer msg"),
+		);
+		expect(hasSteer).toBe(true);
+	});
+
 	test("default factory forwards sessionId to createAgent", async () => {
 		// Use a spy factory to capture what options are passed
 		let capturedSessionId: string | undefined;
