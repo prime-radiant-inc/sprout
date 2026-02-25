@@ -95,6 +95,7 @@ export function buildSystemPrompt(
 	osVersion: string,
 	recallContext?: { memories?: Memory[]; routingHints?: RoutingRule[] },
 	preambles?: Preambles,
+	projectDocs?: string,
 ): string {
 	const today = new Date().toISOString().slice(0, 10);
 
@@ -116,6 +117,10 @@ Platform: ${platform}
 OS version: ${osVersion}
 Today's date: ${today}
 </environment>`;
+
+	if (projectDocs) {
+		prompt += `\n<project-instructions>\n${projectDocs}\n</project-instructions>`;
+	}
 
 	if (recallContext?.memories && recallContext.memories.length > 0) {
 		prompt += renderMemories(recallContext.memories);

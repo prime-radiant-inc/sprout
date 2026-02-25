@@ -11,6 +11,7 @@ import { ulid } from "../util/ulid.ts";
 import { Agent } from "./agent.ts";
 import { AgentEventEmitter } from "./events.ts";
 import { loadPreambles } from "./loader.ts";
+import { loadProjectDocs } from "./project-doc.ts";
 
 export interface CreateAgentOptions {
 	/** Path to the genome directory */
@@ -85,6 +86,7 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 	const client = options.client ?? Client.fromEnv();
 	const registry = createPrimitiveRegistry(env);
 	const preambles = options.bootstrapDir ? await loadPreambles(options.bootstrapDir) : undefined;
+	const projectDocs = await loadProjectDocs({ cwd: workDir });
 
 	const events = options.events ?? new AgentEventEmitter();
 
@@ -116,6 +118,7 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 		initialHistory: options.initialHistory,
 		modelOverride: options.model,
 		preambles,
+		projectDocs,
 	});
 
 	const resolved = agent.resolvedModel;

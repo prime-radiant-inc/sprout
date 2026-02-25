@@ -173,6 +173,26 @@ describe("buildSystemPrompt", () => {
 		expect(prompt).not.toContain("<memories>");
 		expect(prompt).not.toContain("<routing_hints>");
 	});
+
+	test("includes project docs when provided", () => {
+		const prompt = buildSystemPrompt(
+			testAgent,
+			"/tmp/test",
+			"darwin",
+			"Darwin 25.0",
+			undefined,
+			undefined,
+			"Follow the coding standards in this project.",
+		);
+		expect(prompt).toContain("<project-instructions>");
+		expect(prompt).toContain("Follow the coding standards in this project.");
+		expect(prompt).toContain("</project-instructions>");
+	});
+
+	test("omits project docs section when not provided", () => {
+		const prompt = buildSystemPrompt(testAgent, "/tmp/test", "darwin", "Darwin 25.0");
+		expect(prompt).not.toContain("<project-instructions>");
+	});
 });
 
 describe("buildPlanRequest", () => {

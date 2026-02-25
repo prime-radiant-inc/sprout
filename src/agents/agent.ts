@@ -60,6 +60,8 @@ export interface AgentOptions {
 	modelOverride?: string;
 	/** Prompt preambles (global + role-specific) to prepend to system prompt. */
 	preambles?: Preambles;
+	/** AGENTS.md project documentation for top-level agent only. */
+	projectDocs?: string;
 }
 
 export interface AgentResult {
@@ -86,6 +88,7 @@ export class Agent {
 	private readonly primitiveTools: ToolDefinition[];
 	private readonly logBasePath?: string;
 	private readonly preambles?: Preambles;
+	private readonly projectDocs?: string;
 	private readonly initialHistory?: Message[];
 	private signal?: AbortSignal;
 	private logWriteChain: Promise<void> = Promise.resolve();
@@ -106,6 +109,7 @@ export class Agent {
 		this.learnProcess = options.learnProcess;
 		this.logBasePath = options.logBasePath;
 		this.preambles = options.preambles;
+		this.projectDocs = options.projectDocs;
 		this.initialHistory = options.initialHistory ? [...options.initialHistory] : undefined;
 
 		// Validate depth: max_depth > 0 means the agent can only exist at depths < max_depth.
@@ -408,6 +412,7 @@ export class Agent {
 			this.env.os_version(),
 			recallContext,
 			this.preambles,
+			this.projectDocs,
 		);
 
 		// Append available agent descriptions to system prompt
