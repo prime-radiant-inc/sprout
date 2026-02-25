@@ -357,6 +357,25 @@ export async function runCli(command: CliCommand): Promise<void> {
 	const React = await import("react");
 	const { App } = await import("../tui/app.tsx");
 
+	// Register a SIGINT handler BEFORE ink renders. Ink uses signal-exit
+	// which registers its own SIGINT handler. signal-exit's handler checks
+	// if it's the sole listener — if so, it re-kills the process via
+	// process.kill(). By registering our handler first, signal-exit always
+	// sees another listener and defers instead of killing.
+	// This is necessary because Bun's setRawMode may not fully suppress
+	// OS-level SIGINT generation from Ctrl+C (unlike Node which clears
+	// the ISIG termios flag).
+	let unmountFn: (() => void) | undefined;
+	const sigintHandler = () => {
+		if (controller.isRunning) {
+			bus.emitCommand({ kind: "interrupt", data: {} });
+		} else {
+			bus.emitCommand({ kind: "quit", data: {} });
+			unmountFn?.();
+		}
+	};
+	process.on("SIGINT", sigintHandler);
+
 	const { waitUntilExit, unmount } = render(
 		React.createElement(App, {
 			bus,
@@ -381,20 +400,10 @@ export async function runCli(command: CliCommand): Promise<void> {
 		}),
 		{ exitOnCtrlC: false },
 	);
-
-	// Ctrl+C is handled by InputArea via ink's useInput (\x03 keystroke)
-	// with two-stage logic: first press interrupts, second press exits.
-	// Ink's signal-exit dependency registers a SIGINT handler that re-raises
-	// the signal to kill the process. In Bun, setRawMode may not fully
-	// suppress OS-level SIGINT generation from Ctrl+C, so we must remove
-	// signal-exit's listeners and register our own no-op to prevent death.
-	for (const listener of process.listeners("SIGINT")) {
-		process.removeListener("SIGINT", listener);
-	}
-	process.on("SIGINT", () => {});
+	unmountFn = unmount;
 
 	await waitUntilExit();
-	process.removeAllListeners("SIGINT");
+	process.removeListener("SIGINT", sigintHandler);
 	await inputHistory.save();
 	printResumeHint(controller.sessionId);
 }
