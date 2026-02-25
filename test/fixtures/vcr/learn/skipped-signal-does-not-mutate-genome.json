@@ -1,8 +1,12 @@
 {
-	"recordings": [],
-	"metadata": {
-		"recordedAt": "2026-02-24T20:33:04.980Z",
-		"testName": "skipped-signal-does-not-mutate-genome",
-		"providers": ["anthropic", "openai", "gemini"]
-	}
+  "recordings": [],
+  "metadata": {
+    "recordedAt": "2026-02-25T06:05:36.905Z",
+    "testName": "skipped-signal-does-not-mutate-genome",
+    "providers": [
+      "anthropic",
+      "openai",
+      "gemini"
+    ]
+  }
 }

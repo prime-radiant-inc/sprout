@@ -1,113 +1,115 @@
 {
-	"recordings": [
-		{
-			"type": "stream",
-			"request": {
-				"model": "claude-haiku-4-5-20251001",
-				"messages": [
-					{
-						"role": "user",
-						"content": [
-							{
-								"kind": "text",
-								"text": "Count from 1 to 5."
-							}
-						]
-					}
-				],
-				"max_tokens": 100
-			},
-			"events": [
-				{
-					"type": "stream_start"
-				},
-				{
-					"type": "text_start"
-				},
-				{
-					"type": "text_delta",
-					"delta": "1\n2\n3\n4"
-				},
-				{
-					"type": "text_delta",
-					"delta": "\n5"
-				},
-				{
-					"type": "text_end"
-				},
-				{
-					"type": "finish",
-					"finish_reason": {
-						"reason": "stop",
-						"raw": "end_turn"
-					},
-					"usage": {
-						"input_tokens": 16,
-						"output_tokens": 13,
-						"total_tokens": 29,
-						"cache_read_tokens": 0,
-						"cache_write_tokens": 0
-					},
-					"response": {
-						"id": "msg_011255KenhLBjZ7zeagZw2hH",
-						"model": "claude-haiku-4-5-20251001",
-						"provider": "anthropic",
-						"message": {
-							"role": "assistant",
-							"content": [
-								{
-									"kind": "text",
-									"text": "1\n2\n3\n4\n5"
-								}
-							]
-						},
-						"finish_reason": {
-							"reason": "stop",
-							"raw": "end_turn"
-						},
-						"usage": {
-							"input_tokens": 16,
-							"output_tokens": 13,
-							"total_tokens": 29,
-							"cache_read_tokens": 0,
-							"cache_write_tokens": 0
-						},
-						"raw": {
-							"model": "claude-haiku-4-5-20251001",
-							"id": "msg_011255KenhLBjZ7zeagZw2hH",
-							"type": "message",
-							"role": "assistant",
-							"content": [
-								{
-									"type": "text",
-									"text": "1\n2\n3\n4\n5"
-								}
-							],
-							"stop_reason": "end_turn",
-							"stop_sequence": null,
-							"usage": {
-								"input_tokens": 16,
-								"cache_creation_input_tokens": 0,
-								"cache_read_input_tokens": 0,
-								"cache_creation": {
-									"ephemeral_5m_input_tokens": 0,
-									"ephemeral_1h_input_tokens": 0
-								},
-								"output_tokens": 13,
-								"service_tier": "standard",
-								"inference_geo": "not_available"
-							},
-							"parsed_output": null
-						}
-					}
-				}
-			]
-		}
-	],
-	"metadata": {
-		"recordedAt": "2026-02-24T20:32:29.478Z",
-		"testName": "stream-yields-text-deltas",
-		"providers": ["anthropic"],
-		"adapterName": "anthropic"
-	}
+  "recordings": [
+    {
+      "type": "stream",
+      "request": {
+        "model": "claude-haiku-4-5-20251001",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "kind": "text",
+                "text": "Count from 1 to 5."
+              }
+            ]
+          }
+        ],
+        "max_tokens": 100
+      },
+      "events": [
+        {
+          "type": "stream_start"
+        },
+        {
+          "type": "text_start"
+        },
+        {
+          "type": "text_delta",
+          "delta": "1"
+        },
+        {
+          "type": "text_delta",
+          "delta": "\n2\n3\n4\n5"
+        },
+        {
+          "type": "text_end"
+        },
+        {
+          "type": "finish",
+          "finish_reason": {
+            "reason": "stop",
+            "raw": "end_turn"
+          },
+          "usage": {
+            "input_tokens": 16,
+            "output_tokens": 13,
+            "total_tokens": 29,
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0
+          },
+          "response": {
+            "id": "msg_01UUSje7KQVVcE2utznktGPU",
+            "model": "claude-haiku-4-5-20251001",
+            "provider": "anthropic",
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "kind": "text",
+                  "text": "1\n2\n3\n4\n5"
+                }
+              ]
+            },
+            "finish_reason": {
+              "reason": "stop",
+              "raw": "end_turn"
+            },
+            "usage": {
+              "input_tokens": 16,
+              "output_tokens": 13,
+              "total_tokens": 29,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0
+            },
+            "raw": {
+              "model": "claude-haiku-4-5-20251001",
+              "id": "msg_01UUSje7KQVVcE2utznktGPU",
+              "type": "message",
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "1\n2\n3\n4\n5"
+                }
+              ],
+              "stop_reason": "end_turn",
+              "stop_sequence": null,
+              "usage": {
+                "input_tokens": 16,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "cache_creation": {
+                  "ephemeral_5m_input_tokens": 0,
+                  "ephemeral_1h_input_tokens": 0
+                },
+                "output_tokens": 13,
+                "service_tier": "standard",
+                "inference_geo": "not_available"
+              },
+              "parsed_output": null
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "recordedAt": "2026-02-25T06:06:01.844Z",
+    "testName": "stream-yields-text-deltas",
+    "providers": [
+      "anthropic"
+    ],
+    "adapterName": "anthropic"
+  }
 }

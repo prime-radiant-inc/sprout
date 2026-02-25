@@ -1,53 +1,55 @@
 {
-	"recordings": [
-		{
-			"type": "complete",
-			"request": {
-				"model": "claude-haiku-4-5-20251001",
-				"messages": [
-					{
-						"role": "user",
-						"content": [
-							{
-								"kind": "text",
-								"text": "Say hello in exactly 3 words."
-							}
-						]
-					}
-				],
-				"max_tokens": 50
-			},
-			"response": {
-				"id": "msg_01DECaFsQ1VP4f4TwR9WryNs",
-				"model": "claude-haiku-4-5-20251001",
-				"provider": "anthropic",
-				"message": {
-					"role": "assistant",
-					"content": [
-						{
-							"kind": "text",
-							"text": "Hello there, friend."
-						}
-					]
-				},
-				"finish_reason": {
-					"reason": "stop",
-					"raw": "end_turn"
-				},
-				"usage": {
-					"input_tokens": 16,
-					"output_tokens": 8,
-					"total_tokens": 24,
-					"cache_read_tokens": 0,
-					"cache_write_tokens": 0
-				}
-			}
-		}
-	],
-	"metadata": {
-		"recordedAt": "2026-02-24T20:32:20.656Z",
-		"testName": "complete-returns-a-text-response",
-		"providers": ["anthropic"],
-		"adapterName": "anthropic"
-	}
+  "recordings": [
+    {
+      "type": "complete",
+      "request": {
+        "model": "claude-haiku-4-5-20251001",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "kind": "text",
+                "text": "Say hello in exactly 3 words."
+              }
+            ]
+          }
+        ],
+        "max_tokens": 50
+      },
+      "response": {
+        "id": "msg_01HKqTR3MMTq4LM4WLATepx9",
+        "model": "claude-haiku-4-5-20251001",
+        "provider": "anthropic",
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "kind": "text",
+              "text": "Hello, how are you?"
+            }
+          ]
+        },
+        "finish_reason": {
+          "reason": "stop",
+          "raw": "end_turn"
+        },
+        "usage": {
+          "input_tokens": 16,
+          "output_tokens": 9,
+          "total_tokens": 25,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0
+        }
+      }
+    }
+  ],
+  "metadata": {
+    "recordedAt": "2026-02-25T06:05:52.655Z",
+    "testName": "complete-returns-a-text-response",
+    "providers": [
+      "anthropic"
+    ],
+    "adapterName": "anthropic"
+  }
 }

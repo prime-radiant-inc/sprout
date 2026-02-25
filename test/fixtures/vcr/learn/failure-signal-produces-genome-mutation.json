@@ -1,54 +1,58 @@
 {
-	"recordings": [
-		{
-			"type": "complete",
-			"request": {
-				"model": "claude-opus-4-6",
-				"provider": "anthropic",
-				"messages": [
-					{
-						"role": "user",
-						"content": [
-							{
-								"kind": "text",
-								"text": "You are analyzing a recurring problem in an AI coding agent system.\n\n## Current System State\n\nExisting agents:\n- command-runner: Execute shell commands and interpret their output (model: fast)\n- editor: Write and edit files, create new files, and verify changes (model: balanced)\n- reader: Find and read files, search codebases, and retrieve content from the filesystem (model: fast)\n- root: Decompose tasks into subgoals and delegate to specialist agents (model: best)\n- web-reader: Fetch and read content from the web via HTTP requests (model: fast)\n\nRecent memories:\n(none)\n\ncommand-runner's current system prompt:\nYou execute shell commands and interpret their output.\n\nWhen running commands:\n1. Run the command\n2. Check the exit code and output\n3. Interpret the results and report clearly\n\nIf a command fails, analyze the error output and report what went wrong.\n\n\n## Stumble Signal\n\nA stumble signal has been detected:\n- Agent: command-runner\n- Kind: failure\n- Goal: Run the project's test suite\n- Output: Error: command not found: pytest. This project uses vitest.\n- Success: false\n- Stumbles: 1\n- Turns used: 1\n\nBased on this signal and the current system state, decide what improvement to make. Respond with ONLY a JSON object (no markdown, no explanation) matching one of these formats:\n\n1. Create a memory (learned fact):\n{\"type\": \"create_memory\", \"content\": \"...\", \"tags\": [\"...\", \"...\"]}\n\n2. Update an agent's system prompt:\n{\"type\": \"update_agent\", \"agent_name\": \"...\", \"system_prompt\": \"...\"}\n\n3. Create a new specialized agent:\n{\"type\": \"create_agent\", \"name\": \"...\", \"description\": \"...\", \"system_prompt\": \"...\", \"model\": \"fast\", \"capabilities\": [\"...\"], \"tags\": [\"...\"]}\n\n4. Create a routing rule (prefer an agent for certain tasks):\n{\"type\": \"create_routing_rule\", \"condition\": \"...\", \"preference\": \"...\", \"strength\": 0.8}\n\n5. Skip (no improvement needed):\n{\"type\": \"skip\"}\n\nChoose the most appropriate improvement. Prefer creating memories for factual learnings, updating agents for behavioral changes, and routing rules for delegation patterns."
-							}
-						]
-					}
-				],
-				"temperature": 0.3,
-				"max_tokens": 1024
-			},
-			"response": {
-				"id": "msg_016QAi8uSrBp6tYbnJJmgegi",
-				"model": "claude-opus-4-6",
-				"provider": "anthropic",
-				"message": {
-					"role": "assistant",
-					"content": [
-						{
-							"kind": "text",
-							"text": "{\"type\": \"create_memory\", \"content\": \"When running tests, always check the project's package.json or configuration files first to determine the correct test runner. Do not assume pytest - many projects use vitest, jest, mocha, or other JavaScript test frameworks. Look for test scripts in package.json (e.g., `npm test` or `npx vitest`) before running test commands.\", \"tags\": [\"testing\", \"test-runner\", \"vitest\", \"pytest\", \"javascript\", \"command-runner\"]}"
-						}
-					]
-				},
-				"finish_reason": {
-					"reason": "stop",
-					"raw": "end_turn"
-				},
-				"usage": {
-					"input_tokens": 542,
-					"output_tokens": 116,
-					"total_tokens": 658,
-					"cache_read_tokens": 0,
-					"cache_write_tokens": 0
-				}
-			}
-		}
-	],
-	"metadata": {
-		"recordedAt": "2026-02-24T20:33:04.883Z",
-		"testName": "failure-signal-produces-genome-mutation",
-		"providers": ["anthropic", "openai", "gemini"]
-	}
+  "recordings": [
+    {
+      "type": "complete",
+      "request": {
+        "model": "claude-opus-4-6",
+        "provider": "anthropic",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "kind": "text",
+                "text": "You are analyzing a recurring problem in an AI coding agent system.\n\n## Current System State\n\nExisting agents:\n- command-runner: Execute shell commands and report their output (model: fast)\n- editor: Write and edit files, create new files, and verify changes (model: balanced)\n- mcp: Connect to MCP servers and invoke their tools using the sprout-mcp CLI (model: fast)\n- qm-fabricator: Build new specialist agent YAML definitions on the fly (model: best)\n- qm-indexer: Discover and index available capabilities across agents, tools, and MCP servers (model: fast)\n- qm-planner: Plan how to accomplish goals by combining available tools, agents, and MCP capabilities (model: best)\n- quartermaster: Discover capabilities, plan tool combinations, and fabricate specialist agents on demand (model: best)\n- reader: Find and read files, search codebases, and retrieve content from the filesystem (model: fast)\n- root: Decompose tasks into subgoals and delegate to specialist agents (model: best)\n- web-reader: Fetch and read content from the web via HTTP requests (model: fast)\n\nRecent memories:\n(none)\n\ncommand-runner's current system prompt:\nYou execute shell commands and report their output.\n\nWhen running commands:\n1. Run the command\n2. Report the exit code and output\n\nIf a command fails, include the error output.\n\n\n## Stumble Signal\n\nA stumble signal has been detected:\n- Agent: command-runner\n- Kind: failure\n- Goal: Run the project's test suite\n- Output: Error: command not found: pytest. This project uses vitest.\n- Success: false\n- Stumbles: 1\n- Turns used: 1\n\nBased on this signal and the current system state, decide what improvement to make. Respond with ONLY a JSON object (no markdown, no explanation) matching one of these formats:\n\n1. Create a memory (learned fact):\n{\"type\": \"create_memory\", \"content\": \"...\", \"tags\": [\"...\", \"...\"]}\n\n2. Update an agent's system prompt:\n{\"type\": \"update_agent\", \"agent_name\": \"...\", \"system_prompt\": \"...\"}\n\n3. Create a new specialized agent:\n{\"type\": \"create_agent\", \"name\": \"...\", \"description\": \"...\", \"system_prompt\": \"...\", \"model\": \"fast\", \"capabilities\": [\"...\"], \"tags\": [\"...\"]}\n\n4. Create a routing rule (prefer an agent for certain tasks):\n{\"type\": \"create_routing_rule\", \"condition\": \"...\", \"preference\": \"...\", \"strength\": 0.8}\n\n5. Skip (no improvement needed):\n{\"type\": \"skip\"}\n\nChoose the most appropriate improvement. Prefer creating memories for factual learnings, updating agents for behavioral changes, and routing rules for delegation patterns."
+              }
+            ]
+          }
+        ],
+        "temperature": 0.3,
+        "max_tokens": 1024
+      },
+      "response": {
+        "id": "msg_015YU4cP9K8aCMBbNRr8ZH5p",
+        "model": "claude-opus-4-6",
+        "provider": "anthropic",
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "kind": "text",
+              "text": "{\"type\": \"create_memory\", \"content\": \"When asked to run tests, always check the project's package.json or configuration files first to determine the correct test runner. Do not assume pytest - many projects use vitest, jest, mocha, or other JavaScript test frameworks. Look for: package.json scripts.test, vitest.config.*, jest.config.*, .mocharc.*, or similar config files before running any test command.\", \"tags\": [\"testing\", \"test-runner\", \"command-runner\", \"project-detection\", \"vitest\", \"pytest\"]}"
+            }
+          ]
+        },
+        "finish_reason": {
+          "reason": "stop",
+          "raw": "end_turn"
+        },
+        "usage": {
+          "input_tokens": 659,
+          "output_tokens": 128,
+          "total_tokens": 787,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0
+        }
+      }
+    }
+  ],
+  "metadata": {
+    "recordedAt": "2026-02-25T06:05:36.810Z",
+    "testName": "failure-signal-produces-genome-mutation",
+    "providers": [
+      "anthropic",
+      "openai",
+      "gemini"
+    ]
+  }
 }

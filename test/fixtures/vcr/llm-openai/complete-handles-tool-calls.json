@@ -1,75 +1,79 @@
 {
-	"recordings": [
-		{
-			"type": "complete",
-			"request": {
-				"model": "gpt-4.1-mini",
-				"messages": [
-					{
-						"role": "user",
-						"content": [
-							{
-								"kind": "text",
-								"text": "What's the weather in San Francisco? You must use the get_weather tool."
-							}
-						]
-					}
-				],
-				"tools": [
-					{
-						"name": "get_weather",
-						"description": "Get current weather for a location",
-						"parameters": {
-							"type": "object",
-							"properties": {
-								"location": {
-									"type": "string",
-									"description": "City name"
-								}
-							},
-							"required": ["location"]
-						}
-					}
-				],
-				"tool_choice": "required",
-				"max_tokens": 200
-			},
-			"response": {
-				"id": "resp_03c6bb1bf518cc5e00699e0ae1c9848190b59563ad966a1387",
-				"model": "gpt-4.1-mini-2025-04-14",
-				"provider": "openai",
-				"message": {
-					"role": "assistant",
-					"content": [
-						{
-							"kind": "tool_call",
-							"tool_call": {
-								"id": "call_h3ZGCv2IY1vwwIV3F3mHy6kN",
-								"name": "get_weather",
-								"arguments": {
-									"location": "San Francisco"
-								}
-							}
-						}
-					]
-				},
-				"finish_reason": {
-					"reason": "tool_calls",
-					"raw": "completed"
-				},
-				"usage": {
-					"input_tokens": 66,
-					"output_tokens": 7,
-					"total_tokens": 73,
-					"reasoning_tokens": 0
-				}
-			}
-		}
-	],
-	"metadata": {
-		"recordedAt": "2026-02-24T20:32:34.353Z",
-		"testName": "complete-handles-tool-calls",
-		"providers": ["openai"],
-		"adapterName": "openai"
-	}
+  "recordings": [
+    {
+      "type": "complete",
+      "request": {
+        "model": "gpt-4.1-mini",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "kind": "text",
+                "text": "What's the weather in San Francisco? You must use the get_weather tool."
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "name": "get_weather",
+            "description": "Get current weather for a location",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "location": {
+                  "type": "string",
+                  "description": "City name"
+                }
+              },
+              "required": [
+                "location"
+              ]
+            }
+          }
+        ],
+        "tool_choice": "required",
+        "max_tokens": 200
+      },
+      "response": {
+        "id": "resp_00a306f3a61fa4d900699e9131e6a08190a7a2e866c677098b",
+        "model": "gpt-4.1-mini-2025-04-14",
+        "provider": "openai",
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "kind": "tool_call",
+              "tool_call": {
+                "id": "call_vXpIU4RujcDR3vDrf0DUDcaR",
+                "name": "get_weather",
+                "arguments": {
+                  "location": "San Francisco"
+                }
+              }
+            }
+          ]
+        },
+        "finish_reason": {
+          "reason": "tool_calls",
+          "raw": "completed"
+        },
+        "usage": {
+          "input_tokens": 66,
+          "output_tokens": 7,
+          "total_tokens": 73,
+          "reasoning_tokens": 0
+        }
+      }
+    }
+  ],
+  "metadata": {
+    "recordedAt": "2026-02-25T06:05:38.711Z",
+    "testName": "complete-handles-tool-calls",
+    "providers": [
+      "openai"
+    ],
+    "adapterName": "openai"
+  }
 }
