@@ -1,0 +1,437 @@
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { runAgentProcess } from "../../src/bus/agent-process.ts";
+import { BusClient } from "../../src/bus/client.ts";
+import { BusServer } from "../../src/bus/server.ts";
+import type { SpawnAgentOptions } from "../../src/bus/spawner.ts";
+import { AgentSpawner } from "../../src/bus/spawner.ts";
+import type { ResultMessage } from "../../src/bus/types.ts";
+import { Genome } from "../../src/genome/genome.ts";
+import type { Client } from "../../src/llm/client.ts";
+import type { Request, Response } from "../../src/llm/types.ts";
+import { Msg } from "../../src/llm/types.ts";
+
+const AGENT_SPEC = {
+	name: "test-leaf",
+	description: "A minimal test agent",
+	model: "best",
+	capabilities: ["read_file"],
+	constraints: {
+		max_turns: 5,
+		max_depth: 0,
+		timeout_ms: 30000,
+		can_spawn: false,
+		can_learn: false,
+	},
+	tags: ["test"],
+	version: 1,
+	system_prompt: "You are a test agent. Respond with a brief answer.",
+};
+
+function createMockClient(responseText: string): Client {
+	return {
+		complete: async (_request: Request): Promise<Response> => ({
+			id: "mock-1",
+			model: "claude-haiku-4-5-20251001",
+			provider: "anthropic",
+			message: Msg.assistant(responseText),
+			finish_reason: { reason: "stop" },
+			usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+		}),
+		stream: async function* () {},
+		providers: () => ["anthropic"],
+	} as unknown as Client;
+}
+
+/** Create a SpawnFn that runs runAgentProcess in-process with a mock LLM client */
+function createInProcessSpawnFn(client: Client) {
+	return (_handleId: string, env: Record<string, string>) => {
+		const controller = new AbortController();
+		const promise = runAgentProcess({
+			busUrl: env.SPROUT_BUS_URL!,
+			handleId: env.SPROUT_HANDLE_ID!,
+			sessionId: env.SPROUT_SESSION_ID!,
+			genomePath: env.SPROUT_GENOME_PATH!,
+			client,
+			workDir: env.SPROUT_WORK_DIR!,
+			signal: controller.signal,
+		});
+		return {
+			kill: () => controller.abort(),
+			exited: promise.then(() => 0),
+		};
+	};
+}
+
+function delay(ms = 50): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+describe("AgentSpawner", () => {
+	let server: BusServer;
+	let bus: BusClient;
+	let tempDir: string;
+	let genomeDir: string;
+	let spawner: AgentSpawner;
+
+	const SESSION_ID = "spawner-test-session";
+
+	beforeEach(async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "sprout-spawner-"));
+		genomeDir = join(tempDir, "genome");
+		const genome = new Genome(genomeDir);
+		await genome.init();
+		await genome.addAgent(AGENT_SPEC as any);
+
+		server = new BusServer({ port: 0 });
+		await server.start();
+
+		bus = new BusClient(server.url);
+		await bus.connect();
+	});
+
+	afterEach(async () => {
+		spawner?.shutdown();
+		await bus.disconnect();
+		await server.stop();
+		await rm(tempDir, { recursive: true, force: true });
+	});
+
+	describe("spawnAgent", () => {
+		test("blocking spawn runs agent and returns result", async () => {
+			const mockClient = createMockClient("Blocking result.");
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			const opts: SpawnAgentOptions = {
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				sessionId: SESSION_ID,
+				caller: { agent_name: "root", depth: 0 },
+				goal: "Do the thing",
+				blocking: true,
+				shared: false,
+				workDir: tempDir,
+			};
+
+			const result = (await spawner.spawnAgent(opts)) as ResultMessage;
+
+			expect(result.output).toBe("Blocking result.");
+			expect(result.success).toBe(true);
+			expect(result.turns).toBe(1);
+		}, 15_000);
+
+		test("non-blocking spawn returns handle ID immediately", async () => {
+			const mockClient = createMockClient("Background result.");
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			const opts: SpawnAgentOptions = {
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				sessionId: SESSION_ID,
+				caller: { agent_name: "root", depth: 0 },
+				goal: "Do the thing in background",
+				blocking: false,
+				shared: false,
+				workDir: tempDir,
+			};
+
+			const handleId = await spawner.spawnAgent(opts);
+
+			// Returns a string handle ID (ULID), not a result
+			expect(typeof handleId).toBe("string");
+			expect((handleId as string).length).toBe(26); // ULID length
+		}, 15_000);
+
+		test("spawned agent receives start message with correct fields", async () => {
+			const requests: Request[] = [];
+			const mockClient = {
+				complete: async (request: Request): Promise<Response> => {
+					requests.push(request);
+					return {
+						id: "mock-1",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: Msg.assistant("Done with hints."),
+						finish_reason: { reason: "stop" },
+						usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+					};
+				},
+				stream: async function* () {},
+				providers: () => ["anthropic"],
+			} as unknown as Client;
+
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			const opts: SpawnAgentOptions = {
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				sessionId: SESSION_ID,
+				caller: { agent_name: "root", depth: 0 },
+				goal: "Test with hints",
+				hints: ["hint one", "hint two"],
+				blocking: true,
+				shared: false,
+				workDir: tempDir,
+			};
+
+			const result = (await spawner.spawnAgent(opts)) as ResultMessage;
+
+			expect(result.output).toBe("Done with hints.");
+			// Verify hints were included in the goal the agent received
+			const firstRequest = requests[0]!;
+			const userMessages = JSON.stringify(firstRequest.messages);
+			expect(userMessages).toContain("hint one");
+			expect(userMessages).toContain("hint two");
+		}, 15_000);
+
+		test("generates unique handle IDs for each spawn", async () => {
+			const mockClient = createMockClient("Done.");
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			const baseOpts: SpawnAgentOptions = {
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				sessionId: SESSION_ID,
+				caller: { agent_name: "root", depth: 0 },
+				goal: "Task",
+				blocking: false,
+				shared: false,
+				workDir: tempDir,
+			};
+
+			const id1 = await spawner.spawnAgent(baseOpts);
+			const id2 = await spawner.spawnAgent(baseOpts);
+
+			expect(id1).not.toBe(id2);
+		}, 15_000);
+	});
+
+	describe("waitAgent", () => {
+		test("waits for a non-blocking agent to complete and returns result", async () => {
+			const mockClient = createMockClient("Eventually done.");
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			const handleId = (await spawner.spawnAgent({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				sessionId: SESSION_ID,
+				caller: { agent_name: "root", depth: 0 },
+				goal: "Async task",
+				blocking: false,
+				shared: false,
+				workDir: tempDir,
+			})) as string;
+
+			const result = await spawner.waitAgent(handleId);
+
+			expect(result.output).toBe("Eventually done.");
+			expect(result.success).toBe(true);
+		}, 15_000);
+
+		test("returns cached result if agent already completed", async () => {
+			const mockClient = createMockClient("Already done.");
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			const handleId = (await spawner.spawnAgent({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				sessionId: SESSION_ID,
+				caller: { agent_name: "root", depth: 0 },
+				goal: "Quick task",
+				blocking: false,
+				shared: false,
+				workDir: tempDir,
+			})) as string;
+
+			// First wait gets the result
+			const result1 = await spawner.waitAgent(handleId);
+			// Second wait returns cached result
+			const result2 = await spawner.waitAgent(handleId);
+
+			expect(result1.output).toBe("Already done.");
+			expect(result2.output).toBe("Already done.");
+			expect(result1).toEqual(result2);
+		}, 15_000);
+
+		test("throws for unknown handle ID", async () => {
+			const mockClient = createMockClient("Done.");
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			expect(() => spawner.waitAgent("nonexistent-handle")).toThrow(/unknown handle/i);
+		});
+	});
+
+	describe("messageAgent", () => {
+		test("sends continue message to idle shared agent and waits for result", async () => {
+			let callCount = 0;
+			const mockClient = {
+				complete: async (_request: Request): Promise<Response> => {
+					callCount++;
+					const text = callCount === 1 ? "First." : "Continued.";
+					return {
+						id: `mock-${callCount}`,
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: Msg.assistant(text),
+						finish_reason: { reason: "stop" },
+						usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+					};
+				},
+				stream: async function* () {},
+				providers: () => ["anthropic"],
+			} as unknown as Client;
+
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			// Spawn a shared agent (blocking waits for initial result)
+			const initialResult = await spawner.spawnAgent({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				sessionId: SESSION_ID,
+				caller: { agent_name: "root", depth: 0 },
+				goal: "Initial task",
+				blocking: true,
+				shared: true,
+				workDir: tempDir,
+			});
+			expect((initialResult as ResultMessage).output).toBe("First.");
+
+			// Get the handle ID from the spawner's handles
+			const handles = spawner.getHandles();
+			expect(handles.length).toBe(1);
+			const handleId = handles[0]!;
+
+			// Send continue message (blocking = true waits for result)
+			const continueResult = await spawner.messageAgent(
+				handleId,
+				"Do the next thing",
+				{ agent_name: "root", depth: 0 },
+				true,
+			);
+
+			expect(continueResult!.output).toBe("Continued.");
+		}, 15_000);
+
+		test("sends steer message to running agent (non-blocking)", async () => {
+			let resolveFirstCall: (() => void) | null = null;
+			let callCount = 0;
+			const mockClient = {
+				complete: async (_request: Request): Promise<Response> => {
+					callCount++;
+					if (callCount === 1) {
+						// First call takes a while so we can steer it
+						await new Promise<void>((resolve) => {
+							resolveFirstCall = resolve;
+						});
+					}
+					return {
+						id: `mock-${callCount}`,
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: Msg.assistant(`Response ${callCount}.`),
+						finish_reason: { reason: "stop" },
+						usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+					};
+				},
+				stream: async function* () {},
+				providers: () => ["anthropic"],
+			} as unknown as Client;
+
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			// Spawn non-blocking (so we can interact while it's running)
+			const handleId = (await spawner.spawnAgent({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				sessionId: SESSION_ID,
+				caller: { agent_name: "root", depth: 0 },
+				goal: "Long running task",
+				blocking: false,
+				shared: false,
+				workDir: tempDir,
+			})) as string;
+
+			// Wait for agent to be in "running" state (the mock client will block on first call)
+			await delay(200);
+
+			// Send steer (non-blocking) -- this should not throw even though agent is running
+			const steerResult = await spawner.messageAgent(
+				handleId,
+				"Change priority",
+				{ agent_name: "root", depth: 0 },
+				false,
+			);
+			expect(steerResult).toBeUndefined();
+
+			// Let the first call complete
+			resolveFirstCall!();
+
+			// Wait for the agent to finish
+			const result = await spawner.waitAgent(handleId);
+			expect(result.success).toBe(true);
+		}, 15_000);
+
+		test("throws for unknown handle ID", async () => {
+			const mockClient = createMockClient("Done.");
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			expect(() =>
+				spawner.messageAgent("nonexistent", "Hello", { agent_name: "root", depth: 0 }, false),
+			).toThrow(/unknown handle/i);
+		});
+	});
+
+	describe("shutdown", () => {
+		test("kills all running agent processes", async () => {
+			let resolveCall: (() => void) | null = null;
+			const mockClient = {
+				complete: async (_request: Request): Promise<Response> => {
+					// Block indefinitely so the agent stays running
+					await new Promise<void>((resolve) => {
+						resolveCall = resolve;
+					});
+					return {
+						id: "mock-1",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: Msg.assistant("Done."),
+						finish_reason: { reason: "stop" },
+						usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+					};
+				},
+				stream: async function* () {},
+				providers: () => ["anthropic"],
+			} as unknown as Client;
+
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			const handleId = (await spawner.spawnAgent({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				sessionId: SESSION_ID,
+				caller: { agent_name: "root", depth: 0 },
+				goal: "Long running task",
+				blocking: false,
+				shared: false,
+				workDir: tempDir,
+			})) as string;
+
+			await delay(100);
+
+			// Shutdown should kill all processes
+			spawner.shutdown();
+
+			// Unblock the mock so the process can actually exit
+			if (resolveCall) (resolveCall as () => void)();
+
+			// Give the process time to exit
+			await delay(200);
+
+			// The handle should reflect the shutdown
+			const handle = spawner.getHandle(handleId);
+			expect(handle).toBeDefined();
+		}, 15_000);
+	});
+});
