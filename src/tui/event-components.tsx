@@ -364,14 +364,11 @@ export function renderEventComponent(event: SessionEvent, durationMs: number | n
 				<SystemLine depth={depth} kind={kind} message={String(data.message ?? "user interrupt")} />
 			);
 
-		case "compaction":
-			return (
-				<SystemLine
-					depth={depth}
-					kind={kind}
-					message={`Context compacted: ${data.beforeCount} \u2192 ${data.afterCount} messages`}
-				/>
-			);
+		case "compaction": {
+			const compactMsg = `Context compacted: ${data.beforeCount} \u2192 ${data.afterCount} messages`;
+			const logLine = data.logPath ? `\n  Transcript: ${data.logPath}` : "";
+			return <SystemLine depth={depth} kind={kind} message={`${compactMsg}${logLine}`} />;
+		}
 
 		case "learn_start":
 			return <SystemLine depth={depth} kind={kind} message="Learning from stumble..." />;
