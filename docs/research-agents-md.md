@@ -19,6 +19,34 @@ For each directory searched, candidate filenames are checked in this order:
 
 First match per directory wins (stops checking further candidates in that directory).
 
+## Home-Level Instructions
+
+**In addition to project-level AGENTS.md files**, codex loads global user instructions
+from the codex home directory (`~/.codex/` by default, overridable via `CODEX_HOME` env var).
+
+**Function:** `Config::load_instructions(codex_dir)` in `config/mod.rs`
+
+Checks for (in order):
+1. `~/.codex/AGENTS.override.md`
+2. `~/.codex/AGENTS.md`
+
+First non-empty file wins. Content is stored as `config.user_instructions`.
+
+This is loaded at config time, NOT during project doc discovery. It's a separate
+mechanism that feeds into the same assembly pipeline.
+
+### Full Scope Hierarchy (broadest → most specific)
+
+1. `~/.codex/AGENTS.md` — global user preferences (loaded as `config.user_instructions`)
+2. `--- project-doc ---` separator
+3. `{project_root}/AGENTS.md` — repo-wide guidance
+4. `{project_root}/subdir/AGENTS.md` — directory-specific guidance
+5. ... more nested directories ...
+6. `{cwd}/AGENTS.md` — most specific, highest effective priority
+
+Each level appears later in the concatenated output, giving it more LLM attention
+weight through recency bias. Prompt instructions from the user override everything.
+
 ## Discovery Algorithm
 
 **Function:** `discover_project_doc_paths(config) -> Vec<PathBuf>`
