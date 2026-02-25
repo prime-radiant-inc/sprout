@@ -537,18 +537,18 @@ describe("renderEventComponent", () => {
 		expect(lastFrame()).toContain("User interrupted");
 	});
 
-	test("compaction renders with transcript path", () => {
+	test("compaction renders summary to user", () => {
 		const node = renderEventComponent(
 			makeEvent("compaction", {
 				beforeCount: 20,
 				afterCount: 7,
-				logPath: "/genome/logs/01ABC.jsonl",
+				summary: "User asked to refactor the auth module. Completed steps 1-3.",
 			}),
 			null,
 		);
 		const { lastFrame } = render(<Box>{node}</Box>);
 		expect(lastFrame()).toContain("compacted");
-		expect(lastFrame()).toContain("/genome/logs/01ABC.jsonl");
+		expect(lastFrame()).toContain("refactor the auth module");
 	});
 
 	test("learn_start renders", () => {

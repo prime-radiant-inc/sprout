@@ -172,8 +172,8 @@ export function renderEvent(event: SessionEvent): string | null {
 			return null;
 
 		case "compaction": {
-			const logInfo = data.logPath ? `\n${ind}  Transcript: ${data.logPath}` : "";
-			return `${ind}\u2298 Context compacted: ${data.beforeCount} \u2192 ${data.afterCount} messages${logInfo}`;
+			const summary = data.summary ? `\n${data.summary}` : "";
+			return `${ind}\u2298 Context compacted: ${data.beforeCount} \u2192 ${data.afterCount} messages${summary}`;
 		}
 
 		case "learn_start":

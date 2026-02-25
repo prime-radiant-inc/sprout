@@ -365,9 +365,9 @@ export function renderEventComponent(event: SessionEvent, durationMs: number | n
 			);
 
 		case "compaction": {
-			const compactMsg = `Context compacted: ${data.beforeCount} \u2192 ${data.afterCount} messages`;
-			const logLine = data.logPath ? `\n  Transcript: ${data.logPath}` : "";
-			return <SystemLine depth={depth} kind={kind} message={`${compactMsg}${logLine}`} />;
+			const header = `Context compacted: ${data.beforeCount} \u2192 ${data.afterCount} messages`;
+			const summary = data.summary ? `\n${data.summary}` : "";
+			return <SystemLine depth={depth} kind={kind} message={`${header}${summary}`} />;
 		}
 
 		case "learn_start":

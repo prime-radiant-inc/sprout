@@ -291,16 +291,16 @@ describe("renderEvent", () => {
 		expect(result).toBeNull();
 	});
 
-	test("renders compaction event with transcript path", () => {
+	test("renders compaction event with summary", () => {
 		const result = renderEvent(
 			makeEvent("compaction", {
 				beforeCount: 20,
 				afterCount: 7,
-				logPath: "/home/user/.local/share/sprout-genome/logs/01ABC.jsonl",
+				summary: "User asked to refactor the auth module. Completed steps 1-3.",
 			}),
 		);
 		expect(result).toContain("compacted");
-		expect(result).toContain("/home/user/.local/share/sprout-genome/logs/01ABC.jsonl");
+		expect(result).toContain("refactor the auth module");
 	});
 
 	test("returns null for unknown event kind", () => {

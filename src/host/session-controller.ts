@@ -332,7 +332,7 @@ export class SessionController {
 			const result = await this.compactFn(this.history, logPath);
 			if (result.summary) {
 				this.bus.emitEvent("warning", "session", 0, {
-					message: `Compacted: ${result.beforeCount} → ${result.afterCount} messages\nTranscript: ${logPath}`,
+					message: `Compacted: ${result.beforeCount} → ${result.afterCount} messages\n${result.summary}`,
 				});
 			} else {
 				this.bus.emitEvent("warning", "session", 0, {
