@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
+	renderWorkspaceEncouragement,
 	renderWorkspaceFiles,
 	renderWorkspaceTools,
-	renderWorkspaceEncouragement,
 } from "../../src/agents/plan.ts";
 import type { AgentFileInfo, AgentToolDefinition } from "../../src/genome/genome.ts";
 

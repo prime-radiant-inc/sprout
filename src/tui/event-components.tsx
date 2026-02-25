@@ -145,7 +145,7 @@ export function AssistantTextLine({ depth, text, reasoning }: AssistantTextProps
 				<Box>
 					<Text dimColor>{indent(depth)}</Text>
 					{/* markedTerminal forces synchronous parsing; the Promise branch is never taken */}
-				<Text>{(terminalMarkdown.parse(text) as string).trim()}</Text>
+					<Text>{(terminalMarkdown.parse(text) as string).trim()}</Text>
 				</Box>
 			)}
 		</Box>

@@ -18,7 +18,16 @@ export function formatTokens(n: number): string {
 }
 
 export function StatusBar(props: StatusBarProps) {
-	const { contextTokens, contextWindowSize, turns, inputTokens, outputTokens, model, sessionId, status } = props;
+	const {
+		contextTokens,
+		contextWindowSize,
+		turns,
+		inputTokens,
+		outputTokens,
+		model,
+		sessionId,
+		status,
+	} = props;
 	const pressure = contextWindowSize > 0 ? contextTokens / contextWindowSize : 0;
 	const percentStr = `${Math.round(pressure * 100)}%`;
 
@@ -35,7 +44,8 @@ export function StatusBar(props: StatusBarProps) {
 		<Box borderStyle="single" paddingX={1} justifyContent="space-between">
 			<Text>
 				{ctxInfo}
-				{" | "}{turnLabel}
+				{" | "}
+				{turnLabel}
 				{status === "running" && ` | ↑${formatTokens(inputTokens)} ↓${formatTokens(outputTokens)}`}
 			</Text>
 			<Text dimColor>

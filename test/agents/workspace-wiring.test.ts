@@ -175,7 +175,6 @@ describe("workspace wiring", () => {
 		expect(capturedSystemPrompt).toContain("lint");
 		expect(capturedSystemPrompt).toContain("Run linter");
 		expect(capturedSystemPrompt).toContain("</agent_tools>");
-
 	});
 
 	test("agent without genome does not get workspace primitives", async () => {

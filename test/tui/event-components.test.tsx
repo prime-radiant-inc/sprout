@@ -359,18 +359,14 @@ describe("AssistantTextLine markdown rendering", () => {
 	});
 
 	test("renders bold text without asterisks", () => {
-		const { lastFrame } = render(
-			<AssistantTextLine depth={0} text="hello **bold** world" />,
-		);
+		const { lastFrame } = render(<AssistantTextLine depth={0} text="hello **bold** world" />);
 		const frame = lastFrame()!;
 		expect(frame).toContain("bold");
 		expect(frame).not.toContain("**");
 	});
 
 	test("renders inline code", () => {
-		const { lastFrame } = render(
-			<AssistantTextLine depth={0} text="run `npm test` now" />,
-		);
+		const { lastFrame } = render(<AssistantTextLine depth={0} text="run `npm test` now" />);
 		const frame = lastFrame()!;
 		expect(frame).toContain("npm test");
 	});
@@ -383,9 +379,7 @@ describe("AssistantTextLine markdown rendering", () => {
 	});
 
 	test("renders headers", () => {
-		const { lastFrame } = render(
-			<AssistantTextLine depth={0} text="# My Header" />,
-		);
+		const { lastFrame } = render(<AssistantTextLine depth={0} text="# My Header" />);
 		const frame = lastFrame()!;
 		expect(frame).toContain("My Header");
 	});
