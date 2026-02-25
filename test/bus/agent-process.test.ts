@@ -1,0 +1,318 @@
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { BusClient } from "../../src/bus/client.ts";
+import { BusServer } from "../../src/bus/server.ts";
+import { agentEvents, agentInbox, agentResult } from "../../src/bus/topics.ts";
+import type { ResultMessage, StartMessage } from "../../src/bus/types.ts";
+import { Genome } from "../../src/genome/genome.ts";
+import type { Client } from "../../src/llm/client.ts";
+import type { Request, Response } from "../../src/llm/types.ts";
+import { Msg } from "../../src/llm/types.ts";
+import { runAgentProcess } from "../../src/bus/agent-process.ts";
+
+// Minimal agent spec for testing -- leaf agent with no delegation
+const MINIMAL_AGENT_SPEC = {
+	name: "test-leaf",
+	description: "A minimal test agent",
+	model: "best",
+	capabilities: ["read_file"],
+	constraints: {
+		max_turns: 5,
+		max_depth: 0,
+		timeout_ms: 30000,
+		can_spawn: false,
+		can_learn: false,
+	},
+	tags: ["test"],
+	version: 1,
+	system_prompt: "You are a test agent. Respond with a brief answer.",
+};
+
+/** Create a mock LLM client that returns a canned text response */
+function createMockClient(responseText: string): Client {
+	return {
+		complete: async (_request: Request): Promise<Response> => ({
+			id: "mock-1",
+			model: "claude-haiku-4-5-20251001",
+			provider: "anthropic",
+			message: Msg.assistant(responseText),
+			finish_reason: { reason: "stop" },
+			usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+		}),
+		stream: async function* () {},
+		providers: () => ["anthropic"],
+	} as unknown as Client;
+}
+
+function delay(ms = 50): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+describe("runAgentProcess", () => {
+	let server: BusServer;
+	let parentClient: BusClient;
+	let tempDir: string;
+	let genomeDir: string;
+
+	const SESSION_ID = "test-session-001";
+	const HANDLE_ID = "test-handle-001";
+
+	beforeEach(async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "sprout-agent-proc-"));
+		genomeDir = join(tempDir, "genome");
+		const genome = new Genome(genomeDir);
+		await genome.init();
+		await genome.addAgent(MINIMAL_AGENT_SPEC as any);
+
+		server = new BusServer({ port: 0 });
+		await server.start();
+
+		parentClient = new BusClient(server.url);
+		await parentClient.connect();
+	});
+
+	afterEach(async () => {
+		await parentClient.disconnect();
+		await server.stop();
+		await rm(tempDir, { recursive: true, force: true });
+	});
+
+	test("non-shared agent runs to completion and exits", async () => {
+		const mockClient = createMockClient("Task completed successfully.");
+
+		const resultTopic = agentResult(SESSION_ID, HANDLE_ID);
+		const resultPromise = parentClient.waitForMessage(resultTopic, 10_000);
+
+		// Start the agent process -- it returns when the non-shared agent finishes
+		const processPromise = runAgentProcess({
+			busUrl: server.url,
+			handleId: HANDLE_ID,
+			sessionId: SESSION_ID,
+			genomePath: genomeDir,
+			client: mockClient,
+			workDir: tempDir,
+		});
+
+		await delay(100);
+
+		// Send a start message (shared: false)
+		const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
+		const startMsg: StartMessage = {
+			kind: "start",
+			handle_id: HANDLE_ID,
+			agent_name: "test-leaf",
+			genome_path: genomeDir,
+			session_id: SESSION_ID,
+			caller: { agent_name: "root", depth: 0 },
+			goal: "Say hello",
+			shared: false,
+		};
+		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
+
+		// Wait for the result
+		const rawResult = await resultPromise;
+		const result: ResultMessage = JSON.parse(rawResult);
+
+		expect(result.kind).toBe("result");
+		expect(result.handle_id).toBe(HANDLE_ID);
+		expect(result.output).toBe("Task completed successfully.");
+		expect(result.success).toBe(true);
+		expect(result.turns).toBe(1);
+		expect(result.timed_out).toBe(false);
+
+		// Non-shared agent process should exit on its own
+		await processPromise;
+	}, 15_000);
+
+	test("publishes events during agent execution", async () => {
+		const mockClient = createMockClient("Done.");
+
+		const eventsTopic = agentEvents(SESSION_ID, HANDLE_ID);
+		const collectedEvents: string[] = [];
+		await parentClient.subscribe(eventsTopic, (payload) => {
+			collectedEvents.push(payload);
+		});
+
+		const resultTopic = agentResult(SESSION_ID, HANDLE_ID);
+		const resultPromise = parentClient.waitForMessage(resultTopic, 10_000);
+
+		const processPromise = runAgentProcess({
+			busUrl: server.url,
+			handleId: HANDLE_ID,
+			sessionId: SESSION_ID,
+			genomePath: genomeDir,
+			client: mockClient,
+			workDir: tempDir,
+		});
+
+		await delay(100);
+
+		const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
+		const startMsg: StartMessage = {
+			kind: "start",
+			handle_id: HANDLE_ID,
+			agent_name: "test-leaf",
+			genome_path: genomeDir,
+			session_id: SESSION_ID,
+			caller: { agent_name: "root", depth: 0 },
+			goal: "Do something",
+			shared: false,
+		};
+		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
+
+		await resultPromise;
+		await delay(100);
+
+		expect(collectedEvents.length).toBeGreaterThan(0);
+
+		const parsed = collectedEvents.map((e) => JSON.parse(e));
+		const kinds = parsed.map((e) => e.event.kind);
+		expect(kinds).toContain("session_start");
+		expect(kinds).toContain("session_end");
+
+		await processPromise;
+	}, 15_000);
+
+	test("shared agent handles continue message after initial run", async () => {
+		let callCount = 0;
+		const mockClient = {
+			complete: async (_request: Request): Promise<Response> => {
+				callCount++;
+				const text = callCount === 1 ? "First response." : "Continued response.";
+				return {
+					id: `mock-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant(text),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+				};
+			},
+			stream: async function* () {},
+			providers: () => ["anthropic"],
+		} as unknown as Client;
+
+		const controller = new AbortController();
+
+		const resultTopic = agentResult(SESSION_ID, HANDLE_ID);
+		const results: ResultMessage[] = [];
+		await parentClient.subscribe(resultTopic, (payload) => {
+			results.push(JSON.parse(payload));
+		});
+
+		const processPromise = runAgentProcess({
+			busUrl: server.url,
+			handleId: HANDLE_ID,
+			sessionId: SESSION_ID,
+			genomePath: genomeDir,
+			client: mockClient,
+			workDir: tempDir,
+			signal: controller.signal,
+		});
+
+		await delay(100);
+
+		// Send start message (shared: true -- agent stays alive for continue)
+		const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
+		const startMsg: StartMessage = {
+			kind: "start",
+			handle_id: HANDLE_ID,
+			agent_name: "test-leaf",
+			genome_path: genomeDir,
+			session_id: SESSION_ID,
+			caller: { agent_name: "root", depth: 0 },
+			goal: "First task",
+			shared: true,
+		};
+		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
+
+		// Wait for first result
+		await delay(500);
+		expect(results.length).toBe(1);
+		expect(results[0]!.output).toBe("First response.");
+
+		// Send continue message
+		const continueMsg = {
+			kind: "continue",
+			message: "Now do the second thing",
+			caller: { agent_name: "root", depth: 0 },
+		};
+		await parentClient.publish(inboxTopic, JSON.stringify(continueMsg));
+
+		// Wait for second result
+		await delay(500);
+		expect(results.length).toBe(2);
+		expect(results[1]!.output).toBe("Continued response.");
+
+		// Shut down the shared agent
+		controller.abort();
+		await processPromise;
+	}, 15_000);
+
+	test("publishes error result when agent spec not found in genome", async () => {
+		const mockClient = createMockClient("Should not reach here.");
+
+		const resultTopic = agentResult(SESSION_ID, HANDLE_ID);
+		const resultPromise = parentClient.waitForMessage(resultTopic, 10_000);
+
+		const processPromise = runAgentProcess({
+			busUrl: server.url,
+			handleId: HANDLE_ID,
+			sessionId: SESSION_ID,
+			genomePath: genomeDir,
+			client: mockClient,
+			workDir: tempDir,
+		});
+
+		await delay(100);
+
+		// Send start message with a non-existent agent name
+		const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
+		const startMsg: StartMessage = {
+			kind: "start",
+			handle_id: HANDLE_ID,
+			agent_name: "nonexistent-agent",
+			genome_path: genomeDir,
+			session_id: SESSION_ID,
+			caller: { agent_name: "root", depth: 0 },
+			goal: "Do something",
+			shared: false,
+		};
+		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
+
+		const rawResult = await resultPromise;
+		const result: ResultMessage = JSON.parse(rawResult);
+
+		expect(result.kind).toBe("result");
+		expect(result.success).toBe(false);
+		expect(result.output).toContain("nonexistent-agent");
+
+		// Process should exit after error
+		await processPromise;
+	}, 15_000);
+
+	test("exits cleanly on shutdown signal before start", async () => {
+		const mockClient = createMockClient("Done.");
+		const controller = new AbortController();
+
+		const processPromise = runAgentProcess({
+			busUrl: server.url,
+			handleId: HANDLE_ID,
+			sessionId: SESSION_ID,
+			genomePath: genomeDir,
+			client: mockClient,
+			workDir: tempDir,
+			signal: controller.signal,
+		});
+
+		await delay(100);
+
+		// Abort before sending any start message
+		controller.abort();
+
+		// Process should exit cleanly without throwing
+		await processPromise;
+	}, 5_000);
+});
