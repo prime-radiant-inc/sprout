@@ -250,7 +250,7 @@ export function renderWorkspaceFiles(files: AgentFileInfo[], filesDir: string): 
 export function renderWorkspaceTools(tools: AgentToolDefinition[]): string {
 	if (tools.length === 0) return "";
 	const entries = tools.map((t) => `  - ${t.name}: ${t.description}`).join("\n");
-	return `\n\n<agent_tools>\n${entries}\n  These tools are available as primitives. Call them by name.\n</agent_tools>`;
+	return `\n\n<agent_tools>\n${entries}\n  These are tools you created. They are registered as primitives AND on your PATH for shell use.\n</agent_tools>`;
 }
 
 /** Return encouragement text for tool creation. */
