@@ -1,7 +1,8 @@
 import { Box, Text } from "ink";
+import Markdown from "ink-markdown-es";
 import type { ReactNode } from "react";
 import type { SessionEvent } from "../kernel/types.ts";
-import { formatDuration, renderMarkdown, smartArgs } from "./render-event.ts";
+import { formatDuration, smartArgs } from "./render-event.ts";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -152,11 +153,7 @@ export function AssistantTextLine({ depth, text, reasoning }: AssistantTextProps
 						</Text>
 					</Box>
 				)}
-				{text && (
-					<Box>
-						<Text>{renderMarkdown(text)}</Text>
-					</Box>
-				)}
+				{text && <Markdown>{text}</Markdown>}
 			</Box>
 		</DepthBorder>
 	);
