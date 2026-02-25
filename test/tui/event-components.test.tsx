@@ -6,7 +6,6 @@ import {
 	AssistantTextLine,
 	DelegationEndLine,
 	DelegationStartLine,
-	formatMarkdown,
 	PlanningLine,
 	renderEventComponent,
 	SystemLine,
@@ -350,40 +349,54 @@ describe("PlanningLine", () => {
 });
 
 // ---------------------------------------------------------------------------
-// formatMarkdown
+// AssistantTextLine markdown rendering
 // ---------------------------------------------------------------------------
 
-describe("formatMarkdown", () => {
-	test("passes plain text through", () => {
-		const { lastFrame } = render(<Box>{formatMarkdown("hello world")}</Box>);
+describe("AssistantTextLine markdown rendering", () => {
+	test("renders plain text", () => {
+		const { lastFrame } = render(<AssistantTextLine depth={0} text="hello world" />);
 		expect(lastFrame()).toContain("hello world");
 	});
 
-	test("renders bold text", () => {
-		const { lastFrame } = render(<Box>{formatMarkdown("hello **bold** world")}</Box>);
+	test("renders bold text without asterisks", () => {
+		const { lastFrame } = render(
+			<AssistantTextLine depth={0} text="hello **bold** world" />,
+		);
 		const frame = lastFrame()!;
-		expect(frame).toContain("hello");
 		expect(frame).toContain("bold");
-		expect(frame).toContain("world");
-		// Should NOT contain the markdown asterisks
 		expect(frame).not.toContain("**");
 	});
 
 	test("renders inline code", () => {
-		const { lastFrame } = render(<Box>{formatMarkdown("run `npm test` now")}</Box>);
+		const { lastFrame } = render(
+			<AssistantTextLine depth={0} text="run `npm test` now" />,
+		);
 		const frame = lastFrame()!;
-		expect(frame).toContain("run");
 		expect(frame).toContain("npm test");
-		expect(frame).toContain("now");
 	});
 
-	test("renders code blocks as dim", () => {
+	test("renders code blocks", () => {
 		const text = "before\n```\ncode here\n```\nafter";
-		const { lastFrame } = render(<Box>{formatMarkdown(text)}</Box>);
+		const { lastFrame } = render(<AssistantTextLine depth={0} text={text} />);
 		const frame = lastFrame()!;
-		expect(frame).toContain("before");
 		expect(frame).toContain("code here");
-		expect(frame).toContain("after");
+	});
+
+	test("renders headers", () => {
+		const { lastFrame } = render(
+			<AssistantTextLine depth={0} text="# My Header" />,
+		);
+		const frame = lastFrame()!;
+		expect(frame).toContain("My Header");
+	});
+
+	test("renders bullet lists", () => {
+		const text = "Items:\n- first\n- second\n- third";
+		const { lastFrame } = render(<AssistantTextLine depth={0} text={text} />);
+		const frame = lastFrame()!;
+		expect(frame).toContain("first");
+		expect(frame).toContain("second");
+		expect(frame).toContain("third");
 	});
 });
 

@@ -1,7 +1,11 @@
 import { Box, Text } from "ink";
+import { Marked } from "marked";
+import { markedTerminal } from "marked-terminal";
 import type { ReactNode } from "react";
 import type { SessionEvent } from "../kernel/types.ts";
 import { formatDuration, smartArgs } from "./render-event.ts";
+
+const terminalMarkdown = new Marked(markedTerminal());
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -11,82 +15,6 @@ import { formatDuration, smartArgs } from "./render-event.ts";
 function truncate(str: string, maxLen: number): string {
 	if (str.length <= maxLen) return str;
 	return `${str.slice(0, maxLen - 1)}...`;
-}
-
-// ---------------------------------------------------------------------------
-// Simple markdown-lite formatting
-// ---------------------------------------------------------------------------
-
-/**
- * Parse simple markdown into Ink-compatible React nodes.
- * Handles: **bold**, `inline code`, and triple-backtick code blocks.
- */
-export function formatMarkdown(text: string): ReactNode {
-	// Split into code blocks and non-code-block sections
-	const codeBlockRegex = /```(?:\w*)\n?([\s\S]*?)```/g;
-	const parts: ReactNode[] = [];
-	let lastIndex = 0;
-	let key = 0;
-
-	for (const match of text.matchAll(codeBlockRegex)) {
-		const before = text.slice(lastIndex, match.index);
-		if (before) {
-			parts.push(...formatInline(before, key));
-			key += 100;
-		}
-		parts.push(
-			<Text key={`cb-${key++}`} dimColor>
-				{match[1]}
-			</Text>,
-		);
-		lastIndex = match.index! + match[0].length;
-	}
-
-	const remaining = text.slice(lastIndex);
-	if (remaining) {
-		parts.push(...formatInline(remaining, key));
-	}
-
-	return <Text>{parts}</Text>;
-}
-
-/** Format inline markdown: **bold** and `code`. */
-function formatInline(text: string, keyOffset: number): ReactNode[] {
-	const parts: ReactNode[] = [];
-	// Match **bold** or `code` segments
-	const inlineRegex = /(\*\*(.+?)\*\*|`([^`]+?)`)/g;
-	let lastIndex = 0;
-	let key = keyOffset;
-
-	for (const match of text.matchAll(inlineRegex)) {
-		const before = text.slice(lastIndex, match.index);
-		if (before) {
-			parts.push(before);
-		}
-		if (match[2]) {
-			// bold
-			parts.push(
-				<Text key={`b-${key++}`} bold>
-					{match[2]}
-				</Text>,
-			);
-		} else if (match[3]) {
-			// inline code
-			parts.push(
-				<Text key={`c-${key++}`} color="cyan">
-					{match[3]}
-				</Text>,
-			);
-		}
-		lastIndex = match.index! + match[0].length;
-	}
-
-	const remaining = text.slice(lastIndex);
-	if (remaining) {
-		parts.push(remaining);
-	}
-
-	return parts;
 }
 
 // ---------------------------------------------------------------------------
@@ -216,7 +144,7 @@ export function AssistantTextLine({ depth, text, reasoning }: AssistantTextProps
 			{text && (
 				<Box>
 					<Text dimColor>{indent(depth)}</Text>
-					{formatMarkdown(text)}
+					<Text>{(terminalMarkdown.parse(text) as string).trim()}</Text>
 				</Box>
 			)}
 		</Box>
