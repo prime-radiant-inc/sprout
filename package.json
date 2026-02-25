@@ -35,7 +35,8 @@
     "@google/genai": "^1.42.0",
     "dotenv": "^17.3.1",
     "ink": "^6.8.0",
-    "ink-markdown": "^1.0.4",
+    "marked": "^17.0.3",
+    "marked-terminal": "^7.3.0",
     "openai": "^6.22.0",
     "react": "^19.2.4",
     "yaml": "^2.8.2"
