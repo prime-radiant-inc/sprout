@@ -1,4 +1,4 @@
-import { Box, Text } from "ink";
+import { Box, Text, useStdout } from "ink";
 
 export interface StatusBarProps {
 	contextTokens: number;
@@ -40,20 +40,21 @@ export function StatusBar(props: StatusBarProps) {
 
 	const turnLabel = turns === 1 ? "1 turn" : `${turns} turns`;
 
+	const { stdout } = useStdout();
+	const cols = stdout?.columns ?? 100;
+
+	let left = `${ctxInfo} | ${turnLabel}`;
+	if (status === "running") {
+		left += ` | ↑${formatTokens(inputTokens)} ↓${formatTokens(outputTokens)}`;
+	}
+	const right = `${model} | ${sessionId}`;
+	const gap = Math.max(1, cols - left.length - right.length);
+	const line = left + " ".repeat(gap) + right;
+
 	return (
-		<Box paddingX={1} justifyContent="space-between">
+		<Box>
 			<Text backgroundColor="gray" color="white">
-				{" "}
-				{ctxInfo}
-				{" | "}
-				{turnLabel}
-				{status === "running" && ` | ↑${formatTokens(inputTokens)} ↓${formatTokens(outputTokens)}`}
-				{" "}
-			</Text>
-			<Text backgroundColor="gray" color="whiteBright" dimColor>
-				{" "}
-				{model} | {sessionId}
-				{" "}
+				{line}
 			</Text>
 		</Box>
 	);

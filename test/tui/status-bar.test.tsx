@@ -2,6 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { render } from "ink-testing-library";
 import { formatTokens, StatusBar } from "../../src/tui/status-bar.tsx";
 
+// biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape stripping
+const stripAnsi = (s: string) => s.replace(/\x1B\[[0-9;]*m/g, "");
+
 describe("formatTokens", () => {
 	test("returns plain number below 1000", () => {
 		expect(formatTokens(0)).toBe("0");
@@ -198,7 +201,7 @@ describe("StatusBar", () => {
 		expect(frame).not.toContain("\u2193");
 	});
 
-	test("uses colored background instead of box border", () => {
+	test("uses colored background with no border or padding", () => {
 		const { lastFrame } = render(
 			<StatusBar
 				contextTokens={10000}
@@ -212,8 +215,11 @@ describe("StatusBar", () => {
 			/>,
 		);
 		const frame = lastFrame()!;
-		// Should NOT contain box-drawing characters from borderStyle="single"
+		// No box-drawing characters
 		expect(frame).not.toContain("─");
 		expect(frame).not.toContain("│");
+		// Content starts at column 0, no leading padding
+		const stripped = stripAnsi(frame);
+		expect(stripped).toMatch(/^ctx:/);
 	});
 });
