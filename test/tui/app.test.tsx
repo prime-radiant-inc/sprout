@@ -256,7 +256,7 @@ describe("App", () => {
 		expect(interruptCmd).toBeDefined();
 	});
 
-	test("Ctrl+C while idle calls onExit", async () => {
+	test("Ctrl+C while idle requires two presses to exit", async () => {
 		let exited = false;
 		const { stdin } = setup({
 			onExit: () => {
@@ -264,9 +264,14 @@ describe("App", () => {
 			},
 		});
 
+		// First Ctrl+C — warns, does not exit
 		stdin.write("\x03");
 		await flush();
+		expect(exited).toBe(false);
 
+		// Second Ctrl+C — exits
+		stdin.write("\x03");
+		await flush();
 		expect(exited).toBe(true);
 	});
 

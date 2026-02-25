@@ -317,22 +317,32 @@ describe("InputArea", () => {
 		expect(exited).toBe(true);
 	});
 
-	test("calls onExit when Ctrl+C pressed while idle", async () => {
+	test("first Ctrl+C while idle calls onIdleCtrlC, second exits", async () => {
+		let idleCtrlCCount = 0;
 		let exited = false;
 		const { stdin } = render(
 			<InputArea
 				onSubmit={() => {}}
 				onSlashCommand={() => {}}
 				isRunning={false}
+				onIdleCtrlC={() => {
+					idleCtrlCCount++;
+				}}
 				onExit={() => {
 					exited = true;
 				}}
 			/>,
 		);
 
+		// First Ctrl+C — warns, does not exit
 		stdin.write("\x03");
 		await flush();
+		expect(idleCtrlCCount).toBe(1);
+		expect(exited).toBe(false);
 
+		// Second Ctrl+C — exits
+		stdin.write("\x03");
+		await flush();
 		expect(exited).toBe(true);
 	});
 

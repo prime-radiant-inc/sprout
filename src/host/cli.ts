@@ -365,13 +365,27 @@ export async function runCli(command: CliCommand): Promise<void> {
 	// This is necessary because Bun's setRawMode may not fully suppress
 	// OS-level SIGINT generation from Ctrl+C (unlike Node which clears
 	// the ISIG termios flag).
+	//
+	// Two-stage logic: first Ctrl+C interrupts (or warns if idle),
+	// second Ctrl+C exits. The flag resets when a new goal starts running.
 	let unmountFn: (() => void) | undefined;
+	let pendingSigintExit = false;
+	// Reset when a new goal starts running so a stale warn doesn't cause immediate exit
+	bus.onEvent((event) => {
+		if (event.kind === "perceive") pendingSigintExit = false;
+	});
 	const sigintHandler = () => {
+		if (pendingSigintExit) {
+			bus.emitCommand({ kind: "quit", data: {} });
+			unmountFn?.();
+			return;
+		}
+
+		pendingSigintExit = true;
 		if (controller.isRunning) {
 			bus.emitCommand({ kind: "interrupt", data: {} });
 		} else {
-			bus.emitCommand({ kind: "quit", data: {} });
-			unmountFn?.();
+			bus.emitEvent("warning", "cli", 0, { message: "Press Ctrl+C again to exit" });
 		}
 	};
 	process.on("SIGINT", sigintHandler);

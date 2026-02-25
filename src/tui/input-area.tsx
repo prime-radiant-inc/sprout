@@ -22,6 +22,7 @@ export interface InputAreaProps {
 	isRunning: boolean;
 	initialHistory?: string[];
 	onInterrupt?: () => void;
+	onIdleCtrlC?: () => void;
 	onExit?: () => void;
 	onSteer?: (text: string) => void;
 }
@@ -32,6 +33,7 @@ export function InputArea({
 	isRunning,
 	initialHistory,
 	onInterrupt,
+	onIdleCtrlC,
 	onExit,
 	onSteer,
 }: InputAreaProps) {
@@ -46,17 +48,18 @@ export function InputArea({
 	}, [isRunning]);
 
 	useInput((input, key) => {
-		// Ctrl-C: interrupt / exit
+		// Ctrl-C: two-stage exit. First press interrupts (if running) or warns
+		// (if idle). Second press exits.
 		if (key.ctrl && input === "c") {
-			if (isRunning) {
-				if (pendingInterrupt.current) {
-					onExit?.();
-				} else {
-					pendingInterrupt.current = true;
-					onInterrupt?.();
-				}
-			} else {
+			if (pendingInterrupt.current) {
 				onExit?.();
+			} else {
+				pendingInterrupt.current = true;
+				if (isRunning) {
+					onInterrupt?.();
+				} else {
+					onIdleCtrlC?.();
+				}
 			}
 			return;
 		}

@@ -157,6 +157,11 @@ export function App({
 					onInterrupt={() => {
 						bus.emitCommand({ kind: "interrupt", data: {} });
 					}}
+					onIdleCtrlC={() => {
+						bus.emitEvent("warning", "cli", 0, {
+							message: "Press Ctrl+C again to exit",
+						});
+					}}
 					onSteer={(text) => {
 						onSteer?.(text);
 						bus.emitCommand({ kind: "steer", data: { text } });
