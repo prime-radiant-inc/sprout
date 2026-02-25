@@ -1,8 +1,11 @@
 import { Box, Text } from "ink";
 import Markdown from "ink-markdown-es";
+import { createShikiCodeRenderer } from "ink-shiki-code";
 import type { ReactNode } from "react";
 import type { SessionEvent } from "../kernel/types.ts";
 import { formatDuration, smartArgs } from "./render-event.ts";
+
+const codeRenderer = createShikiCodeRenderer({ theme: "one-dark-pro" });
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -153,7 +156,7 @@ export function AssistantTextLine({ depth, text, reasoning }: AssistantTextProps
 						</Text>
 					</Box>
 				)}
-				{text && <Markdown>{text}</Markdown>}
+				{text && <Markdown renderers={{ code: codeRenderer }}>{text}</Markdown>}
 			</Box>
 		</DepthBorder>
 	);
