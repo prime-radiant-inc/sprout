@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse, stringify } from "yaml";
 import { loadAgentSpec, loadBootstrapAgents } from "../agents/loader.ts";
@@ -316,11 +316,157 @@ export class Genome {
 
 		if (added.length > 0) {
 			await git(this.rootPath, "add", ".");
-			await git(this.rootPath, "commit", "-m", `genome: sync bootstrap agents (${added.join(", ")})`);
+			await git(
+				this.rootPath,
+				"commit",
+				"-m",
+				`genome: sync bootstrap agents (${added.join(", ")})`,
+			);
 		}
 
 		return added;
 	}
+
+	// --- Agent Workspace ---
+
+	/** Return the path to an agent's workspace directory. */
+	agentDir(agentName: string): string {
+		return join(this.rootPath, "agents", agentName);
+	}
+
+	/** Save an executable tool script to an agent's workspace. */
+	async saveAgentTool(agentName: string, opts: SaveAgentToolOptions): Promise<void> {
+		const interpreter = opts.interpreter ?? "bash";
+		const toolDir = join(this.agentDir(agentName), "tools");
+		await mkdir(toolDir, { recursive: true });
+
+		const toolPath = join(toolDir, opts.name);
+		const frontmatter = stringify({
+			name: opts.name,
+			description: opts.description,
+			interpreter,
+		});
+		const content = `---\n${frontmatter}---\n${opts.script}`;
+		await writeFile(toolPath, content, "utf-8");
+		await chmod(toolPath, 0o755);
+
+		await git(this.rootPath, "add", toolPath);
+		await git(
+			this.rootPath,
+			"commit",
+			"-m",
+			`genome: save tool '${opts.name}' for agent '${agentName}'`,
+		);
+	}
+
+	/** Save a reference file to an agent's workspace. */
+	async saveAgentFile(agentName: string, opts: SaveAgentFileOptions): Promise<void> {
+		const fileDir = join(this.agentDir(agentName), "files");
+		await mkdir(fileDir, { recursive: true });
+
+		const filePath = join(fileDir, opts.name);
+		await writeFile(filePath, opts.content, "utf-8");
+
+		await git(this.rootPath, "add", filePath);
+		await git(
+			this.rootPath,
+			"commit",
+			"-m",
+			`genome: save file '${opts.name}' for agent '${agentName}'`,
+		);
+	}
+
+	/** Load tool definitions from an agent's tools directory. */
+	async loadAgentTools(agentName: string): Promise<AgentToolDefinition[]> {
+		const toolDir = join(this.agentDir(agentName), "tools");
+		let entries: string[];
+		try {
+			entries = await readdir(toolDir);
+		} catch {
+			return [];
+		}
+
+		const tools: AgentToolDefinition[] = [];
+		for (const entry of entries) {
+			const toolPath = join(toolDir, entry);
+			const content = await readFile(toolPath, "utf-8");
+			const parsed = parseToolFrontmatter(content);
+			if (parsed) {
+				tools.push({
+					name: parsed.name,
+					description: parsed.description,
+					interpreter: parsed.interpreter,
+					scriptPath: toolPath,
+				});
+			}
+		}
+		return tools;
+	}
+
+	/** List files in an agent's files directory with name and size. */
+	async listAgentFiles(agentName: string): Promise<AgentFileInfo[]> {
+		const fileDir = join(this.agentDir(agentName), "files");
+		let entries: string[];
+		try {
+			entries = await readdir(fileDir);
+		} catch {
+			return [];
+		}
+
+		const files: AgentFileInfo[] = [];
+		for (const entry of entries) {
+			const filePath = join(fileDir, entry);
+			const s = await stat(filePath);
+			if (s.isFile()) {
+				files.push({ name: entry, size: s.size, path: filePath });
+			}
+		}
+		return files;
+	}
+}
+
+export interface SaveAgentToolOptions {
+	name: string;
+	description: string;
+	script: string;
+	interpreter?: string;
+}
+
+export interface SaveAgentFileOptions {
+	name: string;
+	content: string;
+}
+
+export interface AgentToolDefinition {
+	name: string;
+	description: string;
+	interpreter: string;
+	scriptPath: string;
+}
+
+export interface AgentFileInfo {
+	name: string;
+	size: number;
+	path: string;
+}
+
+/** Parse YAML frontmatter from a tool file (delimited by ---). */
+function parseToolFrontmatter(
+	content: string,
+): { name: string; description: string; interpreter: string } | null {
+	if (!content.startsWith("---\n")) return null;
+	const endIdx = content.indexOf("\n---\n", 4);
+	if (endIdx === -1) return null;
+
+	const yamlStr = content.slice(4, endIdx);
+	const parsed = parse(yamlStr);
+	if (!parsed?.name || !parsed?.description) return null;
+
+	return {
+		name: parsed.name,
+		description: parsed.description,
+		interpreter: parsed.interpreter ?? "bash",
+	};
 }
 
 /** Serialize an AgentSpec to YAML with explicit field ordering. */
