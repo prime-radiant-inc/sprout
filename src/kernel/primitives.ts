@@ -24,6 +24,7 @@ export interface Primitive {
 export interface PrimitiveRegistry {
 	names(): string[];
 	get(name: string): Primitive | undefined;
+	register(prim: Primitive): void;
 	execute(
 		name: string,
 		args: Record<string, unknown>,
@@ -50,6 +51,7 @@ export function createPrimitiveRegistry(
 	return {
 		names: () => [...primitives.keys()],
 		get: (name) => primitives.get(name),
+		register: (prim) => primitives.set(prim.name, prim),
 		execute: async (name, args, signal?) => {
 			const prim = primitives.get(name);
 			if (!prim) {
@@ -78,7 +80,7 @@ function buildPrimitives(_env: ExecutionEnvironment): Primitive[] {
 	];
 }
 
-function buildWorkspacePrimitives(ctx: GenomeContext): Primitive[] {
+export function buildWorkspacePrimitives(ctx: GenomeContext): Primitive[] {
 	return [saveToolPrimitive(ctx), saveFilePrimitive(ctx)];
 }
 
@@ -613,7 +615,11 @@ function saveToolPrimitive(ctx: GenomeContext): Primitive {
 			const interpreter = args.interpreter as string | undefined;
 
 			if (!name || !description) {
-				return { output: "", success: false, error: "Missing required parameters: name, description" };
+				return {
+					output: "",
+					success: false,
+					error: "Missing required parameters: name, description",
+				};
 			}
 			if (!script) {
 				return { output: "", success: false, error: "Missing required parameter: script" };

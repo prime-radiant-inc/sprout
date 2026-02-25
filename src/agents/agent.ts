@@ -5,6 +5,8 @@ import { recall } from "../genome/recall.ts";
 import { compactHistory, shouldCompact } from "../host/compaction.ts";
 import type { ExecutionEnvironment } from "../kernel/execution-env.ts";
 import type { PrimitiveRegistry } from "../kernel/primitives.ts";
+import { buildWorkspacePrimitives } from "../kernel/primitives.ts";
+import { buildAgentToolPrimitives } from "../kernel/tool-loading.ts";
 import { truncateToolOutput } from "../kernel/truncation.ts";
 import type {
 	ActResult,
@@ -365,6 +367,37 @@ export class Agent {
 				memory_count: recallResult.memories.length,
 				routing_hint_count: recallResult.routing_hints.length,
 			});
+		}
+
+		// Load workspace tools and register save_tool/save_file for this agent
+		if (this.genome && this.primitiveTools.length > 0 && this.genome.loadAgentTools) {
+			// Register save_tool and save_file bound to this agent
+			const wsPrims = buildWorkspacePrimitives({
+				genome: this.genome,
+				agentName: agentId,
+			});
+			for (const prim of wsPrims) {
+				this.primitiveRegistry.register(prim);
+				this.primitiveTools.push({
+					name: prim.name,
+					description: prim.description,
+					parameters: prim.parameters,
+				});
+			}
+
+			// Load saved workspace tools and register them
+			const toolDefs = await this.genome.loadAgentTools(agentId);
+			if (toolDefs.length > 0) {
+				const toolPrims = buildAgentToolPrimitives(toolDefs);
+				for (const prim of toolPrims) {
+					this.primitiveRegistry.register(prim);
+					this.primitiveTools.push({
+						name: prim.name,
+						description: prim.description,
+						parameters: prim.parameters,
+					});
+				}
+			}
 		}
 
 		// Build system prompt with recall context (memories and routing hints)
