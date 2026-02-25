@@ -67,7 +67,9 @@ describe("SessionPicker", () => {
 		const frame = lastFrame()!;
 		const lines = frame.split("\n");
 		// Second session line should be selected
-		const selectedLine = lines.find((l) => l.includes(">") && l.includes("Refactor the database layer"));
+		const selectedLine = lines.find(
+			(l) => l.includes(">") && l.includes("Refactor the database layer"),
+		);
 		expect(selectedLine).toBeDefined();
 	});
 
@@ -115,7 +117,9 @@ describe("SessionPicker", () => {
 		stdin.write("\x1B[B"); // Down
 		await flush();
 		let lines = lastFrame()!.split("\n");
-		expect(lines.find((l) => l.includes(">") && l.includes("Refactor the database layer"))).toBeDefined();
+		expect(
+			lines.find((l) => l.includes(">") && l.includes("Refactor the database layer")),
+		).toBeDefined();
 
 		stdin.write("\x1B[A"); // Up
 		await flush();
@@ -130,6 +134,16 @@ describe("SessionPicker", () => {
 		const frame = lastFrame()!;
 		expect(frame).toContain("3 turns");
 		expect(frame).toContain("7 turns");
+	});
+
+	test("renders updatedAt as a human-readable datestamp", () => {
+		// Fixtures have updatedAt in Jan 2025; tests run in 2026, so year is shown.
+		const { lastFrame } = render(
+			<SessionPicker sessions={sessions} onSelect={() => {}} onCancel={() => {}} />,
+		);
+		const frame = lastFrame()!;
+		expect(frame).toContain("Jan 1, 2025");
+		expect(frame).toContain("Jan 2, 2025");
 	});
 
 	test("uses singular 'turn' when turns is 1", () => {
