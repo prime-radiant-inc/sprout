@@ -264,7 +264,7 @@ describe("InputArea", () => {
 		expect(submitted).toBe("line1\nline2");
 	});
 
-	test.todo("cursor does not insert extra spaces in text", async () => {
+	test("cursor does not insert extra spaces in text", async () => {
 		const { lastFrame, stdin } = render(
 			<InputArea onSubmit={() => {}} onSlashCommand={() => {}} isRunning={false} />,
 		);

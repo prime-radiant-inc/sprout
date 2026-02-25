@@ -1,5 +1,4 @@
 import { Box, Text, useInput } from "ink";
-import { ControlledMultilineInput } from "ink-multiline-input";
 import { useEffect, useRef, useState } from "react";
 import {
 	deleteBackward,
@@ -192,17 +191,22 @@ export function InputArea({
 
 	const prompt = isRunning ? "..." : ">";
 
+	const showCursor = !isRunning;
+	const before = value.slice(0, cursorIndex);
+	const cursorChar = cursorIndex < value.length ? value[cursorIndex]! : " ";
+	const after = value.slice(cursorIndex + 1);
+
 	return (
 		<Box>
 			<Text>{prompt} </Text>
 			<Box flexGrow={1}>
-				<ControlledMultilineInput
-					value={value}
-					cursorIndex={cursorIndex}
-					showCursor={!isRunning}
-					rows={1}
-					maxRows={10}
-				/>
+				<Text>
+					{before}
+					{showCursor ? (
+						<Text inverse>{cursorChar}</Text>
+					) : null}
+					{showCursor ? after : value.slice(cursorIndex)}
+				</Text>
 			</Box>
 		</Box>
 	);
