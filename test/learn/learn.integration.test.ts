@@ -92,7 +92,7 @@ describe("Learn Integration", () => {
 		const memoryCount = genome.memories.all().length;
 		const routingCount = genome.allRoutingRules().length;
 		const agentCount = genome.agentCount();
-		const grew = memoryCount > 0 || routingCount > 0 || agentCount > 4;
+		const grew = memoryCount > 0 || routingCount > 0 || agentCount > 10;
 		expect(grew).toBe(true);
 		await vcr.afterTest();
 	}, 60_000);
