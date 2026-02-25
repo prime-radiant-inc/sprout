@@ -370,18 +370,32 @@ export async function runCli(command: CliCommand): Promise<void> {
 	// second Ctrl+C exits. The flag resets when a new goal starts running.
 	let unmountFn: (() => void) | undefined;
 	let pendingSigintExit = false;
-	// Reset when a new goal starts running so a stale warn doesn't cause immediate exit
+	let pendingSigintTimer: ReturnType<typeof setTimeout> | null = null;
+	const SIGINT_WINDOW = 5000;
+
+	const clearSigintPending = () => {
+		if (pendingSigintTimer) {
+			clearTimeout(pendingSigintTimer);
+			pendingSigintTimer = null;
+		}
+		pendingSigintExit = false;
+	};
+	// Reset when a new goal starts so a stale warn doesn't cause immediate exit
 	bus.onEvent((event) => {
-		if (event.kind === "perceive") pendingSigintExit = false;
+		if (event.kind === "perceive") clearSigintPending();
 	});
+
 	const sigintHandler = () => {
 		if (pendingSigintExit) {
+			clearSigintPending();
 			bus.emitCommand({ kind: "quit", data: {} });
 			unmountFn?.();
 			return;
 		}
 
 		pendingSigintExit = true;
+		pendingSigintTimer = setTimeout(clearSigintPending, SIGINT_WINDOW);
+
 		if (controller.isRunning) {
 			bus.emitCommand({ kind: "interrupt", data: {} });
 		} else {

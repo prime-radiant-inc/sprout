@@ -42,6 +42,7 @@ export function InputArea({
 	const [history] = useState<string[]>(() => (initialHistory ? [...initialHistory] : []));
 	const [historyCursor, setHistoryCursor] = useState(-1);
 	const pendingInterrupt = useRef(false);
+	const pendingInterruptTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 	useEffect(() => {
 		if (!isRunning) pendingInterrupt.current = false;
@@ -52,13 +53,23 @@ export function InputArea({
 		// (if idle). Second press exits.
 		if (key.ctrl && input === "c") {
 			if (pendingInterrupt.current) {
+				if (pendingInterruptTimer.current) {
+					clearTimeout(pendingInterruptTimer.current);
+					pendingInterruptTimer.current = null;
+				}
 				onExit?.();
 			} else {
 				pendingInterrupt.current = true;
 				if (isRunning) {
 					onInterrupt?.();
+					// pendingInterrupt resets when isRunning → false via useEffect
 				} else {
 					onIdleCtrlC?.();
+					// Reset after 5s so it must be pressed again in rapid succession
+					pendingInterruptTimer.current = setTimeout(() => {
+						pendingInterrupt.current = false;
+						pendingInterruptTimer.current = null;
+					}, 5000);
 				}
 			}
 			return;
