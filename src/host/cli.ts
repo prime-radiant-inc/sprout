@@ -379,6 +379,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 				unmount();
 			},
 		}),
+		{ exitOnCtrlC: false },
 	);
 
 	await waitUntilExit();
