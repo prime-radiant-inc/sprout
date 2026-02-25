@@ -675,6 +675,7 @@ export class Agent {
 						summary: compactResult.summary,
 						beforeCount: compactResult.beforeCount,
 						afterCount: compactResult.afterCount,
+						logPath: this.logBasePath ? `${this.logBasePath}.jsonl` : undefined,
 					});
 				} catch (err) {
 					this.emitAndLog("warning", agentId, this.depth, {

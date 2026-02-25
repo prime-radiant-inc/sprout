@@ -968,11 +968,12 @@ describe("SessionController", () => {
 		expect(compactCalled).toBe(true);
 		expect(compactedHistoryLength).toBeGreaterThan(6);
 
-		// Should have emitted a warning about compaction
+		// Should have emitted a warning about compaction with transcript path
 		const compactionWarnings = events.filter(
 			(e: any) => e.kind === "warning" && e.data.message?.includes("Compact"),
 		);
 		expect(compactionWarnings).toHaveLength(1);
+		expect(compactionWarnings[0].data.message).toContain(".jsonl");
 	});
 
 	test("controller does not auto-compact on high token usage", async () => {

@@ -291,9 +291,16 @@ describe("renderEvent", () => {
 		expect(result).toBeNull();
 	});
 
-	test("renders compaction event", () => {
-		const result = renderEvent(makeEvent("compaction", { beforeCount: 20, afterCount: 7 }));
+	test("renders compaction event with transcript path", () => {
+		const result = renderEvent(
+			makeEvent("compaction", {
+				beforeCount: 20,
+				afterCount: 7,
+				logPath: "/home/user/.local/share/sprout-genome/logs/01ABC.jsonl",
+			}),
+		);
 		expect(result).toContain("compacted");
+		expect(result).toContain("/home/user/.local/share/sprout-genome/logs/01ABC.jsonl");
 	});
 
 	test("returns null for unknown event kind", () => {

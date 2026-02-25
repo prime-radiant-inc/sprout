@@ -327,12 +327,12 @@ export class SessionController {
 
 	private async compactWhileIdle(): Promise<void> {
 		if (!this.compactFn) return;
-		const logPath = join(this.genomePath, "logs", this._sessionId);
+		const logPath = join(this.genomePath, "logs", `${this._sessionId}.jsonl`);
 		try {
 			const result = await this.compactFn(this.history, logPath);
 			if (result.summary) {
 				this.bus.emitEvent("warning", "session", 0, {
-					message: `Compacted: ${result.beforeCount} → ${result.afterCount} messages`,
+					message: `Compacted: ${result.beforeCount} → ${result.afterCount} messages\nTranscript: ${logPath}`,
 				});
 			} else {
 				this.bus.emitEvent("warning", "session", 0, {
