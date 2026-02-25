@@ -359,7 +359,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 
 	// Suppress default SIGINT (process kill). Ctrl+C is handled by InputArea
 	// via ink's useInput (\x03 keystroke) with two-stage logic: first press
-	// interrupts the running agent, second press exits the session.
+	// interrupts the running agent, second press exits.
 	const sigintHandler = () => {};
 	process.on("SIGINT", sigintHandler);
 
