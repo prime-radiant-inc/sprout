@@ -243,21 +243,11 @@ describe("handleSlashCommand", () => {
 		expect(bus.events[0].data.message).toContain("/foo");
 	});
 
-	test("quit emits quit command and exits", () => {
+	test("quit emits quit command and returns exit action", () => {
 		const bus = makeBus();
-		const origExit = process.exit;
-		let exitCode: number | undefined;
-		process.exit = ((code?: number) => {
-			exitCode = code ?? 0;
-		}) as any;
-
-		try {
-			handleSlashCommand({ kind: "quit" }, bus, controller);
-			expect(bus.commands).toEqual([{ kind: "quit", data: {} }]);
-			expect(exitCode).toBe(0);
-		} finally {
-			process.exit = origExit;
-		}
+		const result = handleSlashCommand({ kind: "quit" }, bus, controller);
+		expect(bus.commands).toEqual([{ kind: "quit", data: {} }]);
+		expect(result).toEqual({ action: "exit" });
 	});
 });
 

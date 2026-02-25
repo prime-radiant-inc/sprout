@@ -109,7 +109,7 @@ Options:
   --genome-path <path>   Path to genome directory (default: ~/.local/share/sprout-genome)
   --help                 Show this help message`;
 
-export type SlashCommandResult = { action: "none" } | { action: "show_model_picker" };
+export type SlashCommandResult = { action: "none" } | { action: "show_model_picker" } | { action: "exit" };
 
 /** Handle a slash command from the TUI input area. */
 export function handleSlashCommand(
@@ -123,9 +123,7 @@ export function handleSlashCommand(
 	switch (cmd.kind) {
 		case "quit":
 			bus.emitCommand({ kind: "quit", data: {} });
-			printResumeHint(controller.sessionId);
-			process.exit(0);
-			break;
+			return { action: "exit" };
 		case "help":
 			bus.emitEvent("warning", "cli", 0, {
 				message: "Commands: /help, /quit, /compact, /clear, /model [name], /status",
@@ -355,7 +353,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 	const React = await import("react");
 	const { App } = await import("../tui/app.tsx");
 
-	const { waitUntilExit } = render(
+	const { waitUntilExit, unmount } = render(
 		React.createElement(App, {
 			bus,
 			sessionId: controller.sessionId,
@@ -366,21 +364,22 @@ export async function runCli(command: CliCommand): Promise<void> {
 				bus.emitCommand({ kind: "submit_goal", data: { goal: text } });
 			},
 			onSlashCommand: (cmd: import("../tui/slash-commands.ts").SlashCommand) => {
-				handleSlashCommand(cmd, bus, controller);
+				const result = handleSlashCommand(cmd, bus, controller);
+				if (result.action === "exit") unmount();
 			},
 			onSteer: (text: string) => {
 				inputHistory.add(text);
 			},
 			onExit: () => {
 				bus.emitCommand({ kind: "quit", data: {} });
-				printResumeHint(controller.sessionId);
-				process.exit(0);
+				unmount();
 			},
 		}),
 	);
 
 	await waitUntilExit();
 	await inputHistory.save();
+	printResumeHint(controller.sessionId);
 }
 
 if (import.meta.main) {
