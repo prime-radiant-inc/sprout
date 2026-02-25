@@ -46,5 +46,11 @@ system_prompt: |
   Bad: "Read the README" (agent doesn't know what info you need)
   Good: "Read the README and tell me what testing framework this project uses"
 
+  The QUARTERMASTER is your capability expert. Delegate to it when you need to:
+  - Discover what tools, MCP servers, or agents are available
+  - Plan how to accomplish something with existing capabilities
+  - Build a new specialist agent or tool for a recurring task
+  Prefer creating reusable tools and agents over ad-hoc multi-step manual work.
+
   Available specialists will be presented as tools. Each takes a "goal"
   (what you want achieved) and optional "hints" (context that might help).

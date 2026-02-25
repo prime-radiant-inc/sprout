@@ -49,42 +49,6 @@ describe("workspace wiring", () => {
 		await rm(tempDir, { recursive: true, force: true });
 	});
 
-	test("agent gets save_tool and save_file primitives when genome is available", async () => {
-		const root = join(tempDir, "ws-prims");
-		const genome = new Genome(root);
-		await genome.init();
-		await genome.addAgent(makeSpec({ name: "editor" }));
-
-		const env = new LocalExecutionEnvironment(tempDir);
-		const registry = createPrimitiveRegistry(env);
-
-		const mockClient = {
-			providers: () => ["anthropic"],
-			complete: async () => ({
-				message: Msg.assistant("done"),
-				finish_reason: { reason: "stop" },
-				usage: USAGE,
-			}),
-		} as unknown as Client;
-
-		const events = new AgentEventEmitter();
-		const agent = new Agent({
-			spec: makeSpec({ name: "editor" }),
-			env,
-			client: mockClient,
-			primitiveRegistry: registry,
-			availableAgents: [makeSpec({ name: "editor" })],
-			genome,
-			events,
-		});
-
-		await agent.run("test goal");
-
-		// After run, the registry should have save_tool and save_file
-		expect(registry.names()).toContain("save_tool");
-		expect(registry.names()).toContain("save_file");
-	});
-
 	test("agent gets workspace tools loaded at startup", async () => {
 		const root = join(tempDir, "ws-loaded");
 		const genome = new Genome(root);
@@ -206,18 +170,12 @@ describe("workspace wiring", () => {
 
 		await agent.run("test goal");
 
-		// System prompt should contain workspace sections
+		// System prompt should list workspace tools
 		expect(capturedSystemPrompt).toContain("<agent_tools>");
 		expect(capturedSystemPrompt).toContain("lint");
 		expect(capturedSystemPrompt).toContain("Run linter");
 		expect(capturedSystemPrompt).toContain("</agent_tools>");
 
-		expect(capturedSystemPrompt).toContain("<agent_files>");
-		expect(capturedSystemPrompt).toContain("style-guide.md");
-		expect(capturedSystemPrompt).toContain("</agent_files>");
-
-		expect(capturedSystemPrompt).toContain("save_tool");
-		expect(capturedSystemPrompt).toContain("persist");
 	});
 
 	test("agent without genome does not get workspace primitives", async () => {

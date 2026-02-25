@@ -5,7 +5,6 @@ import { recall } from "../genome/recall.ts";
 import { compactHistory, shouldCompact } from "../host/compaction.ts";
 import type { ExecutionEnvironment } from "../kernel/execution-env.ts";
 import type { PrimitiveRegistry } from "../kernel/primitives.ts";
-import { buildWorkspacePrimitives } from "../kernel/primitives.ts";
 import { buildAgentToolPrimitives } from "../kernel/tool-loading.ts";
 import { truncateToolOutput } from "../kernel/truncation.ts";
 import type {
@@ -31,8 +30,6 @@ import {
 	parsePlanResponse,
 	primitivesForAgent,
 	renderAgentsForPrompt,
-	renderWorkspaceEncouragement,
-	renderWorkspaceFiles,
 	renderWorkspaceTools,
 } from "./plan.ts";
 import {
@@ -372,30 +369,9 @@ export class Agent {
 			});
 		}
 
-		// Load workspace tools and register save_tool/save_file for this agent
-		// Only agents that can spawn (orchestrators) get workspace write primitives.
-		// Leaf agents consume tools but don't create them.
+		// Load workspace tools created by the quartermaster for this agent
 		let wsToolDefs: import("../genome/genome.ts").AgentToolDefinition[] = [];
-		let wsFiles: import("../genome/genome.ts").AgentFileInfo[] = [];
-		const canWriteWorkspace = this.spec.constraints.can_spawn || this.spec.constraints.can_learn;
 		if (this.genome && this.primitiveTools.length > 0 && this.genome.loadAgentTools) {
-			// Register save_tool and save_file for agents that should have them
-			if (canWriteWorkspace) {
-				const wsPrims = buildWorkspacePrimitives({
-					genome: this.genome,
-					agentName: agentId,
-				});
-				for (const prim of wsPrims) {
-					this.primitiveRegistry.register(prim);
-					this.primitiveTools.push({
-						name: prim.name,
-						description: prim.description,
-						parameters: prim.parameters,
-					});
-				}
-			}
-
-			// Load saved workspace tools and register them (all agents can use their tools)
 			wsToolDefs = await this.genome.loadAgentTools(agentId);
 			if (wsToolDefs.length > 0) {
 				const toolPrims = buildAgentToolPrimitives(wsToolDefs);
@@ -408,9 +384,6 @@ export class Agent {
 					});
 				}
 			}
-
-			// List workspace files
-			wsFiles = await this.genome.listAgentFiles(agentId);
 
 			// Add agent's tools directory to PATH so saved scripts are directly executable
 			const toolsDir = join(this.genome.agentDir(agentId), "tools");
@@ -432,16 +405,9 @@ export class Agent {
 			systemPrompt += renderAgentsForPrompt(delegatableAgents);
 		}
 
-		// Append workspace sections to system prompt
+		// Append workspace tools to system prompt (tools created by the quartermaster)
 		if (wsToolDefs.length > 0) {
 			systemPrompt += renderWorkspaceTools(wsToolDefs);
-		}
-		if (wsFiles.length > 0) {
-			const filesDir = join(this.genome!.agentDir(agentId), "files");
-			systemPrompt += renderWorkspaceFiles(wsFiles, filesDir);
-		}
-		if (this.genome && this.primitiveTools.length > 0) {
-			systemPrompt += renderWorkspaceEncouragement();
 		}
 
 		// Core loop
