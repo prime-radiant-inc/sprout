@@ -2337,4 +2337,45 @@ describe("Agent", () => {
 		// Turn 3: cooldown
 		expect(compactionEvents.length).toBeGreaterThanOrEqual(2);
 	});
+
+	test("currentHistory() returns shallow copy of conversation history after run()", async () => {
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => ({
+				id: "mock-ch-1",
+				model: "claude-haiku-4-5-20251001",
+				provider: "anthropic",
+				message: Msg.assistant("Done."),
+				finish_reason: { reason: "stop" },
+				usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+			}),
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: leafSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+		});
+
+		// Before run, history should be empty
+		expect(agent.currentHistory()).toEqual([]);
+
+		await agent.run("test goal");
+
+		const history = agent.currentHistory();
+		// Should contain: user("test goal") + assistant("Done.")
+		expect(history).toHaveLength(2);
+		expect(history[0]!.role).toBe("user");
+		expect(history[1]!.role).toBe("assistant");
+
+		// Should be a shallow copy — mutating the returned array must not affect agent state
+		history.push(Msg.user("injected"));
+		expect(agent.currentHistory()).toHaveLength(2);
+	});
 });

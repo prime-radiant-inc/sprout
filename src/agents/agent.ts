@@ -94,6 +94,7 @@ export class Agent {
 	private readonly projectDocs?: string;
 	private readonly genomePostscripts?: { global: string; orchestrator: string; worker: string };
 	private readonly initialHistory?: Message[];
+	private history: Message[] = [];
 	private signal?: AbortSignal;
 	private logWriteChain: Promise<void> = Promise.resolve();
 	private steeringQueue: string[] = [];
@@ -179,6 +180,11 @@ export class Agent {
 	/** Returns all tools this agent can use (agent tools + primitive tools) */
 	resolvedTools(): ToolDefinition[] {
 		return [...this.agentTools, ...this.primitiveTools];
+	}
+
+	/** Returns a shallow copy of the current conversation history. */
+	currentHistory(): Message[] {
+		return [...this.history];
 	}
 
 	/** Inject a steering message into the agent loop for the next iteration. */
@@ -366,7 +372,7 @@ export class Agent {
 		});
 
 		// Initialize history with optional prior messages and the goal
-		const history: Message[] = [...(this.initialHistory ?? []), Msg.user(goal)];
+		this.history = [...(this.initialHistory ?? []), Msg.user(goal)];
 
 		// Track tool calls for retry detection
 		const callHistory: CallRecord[] = [];
@@ -447,7 +453,7 @@ export class Agent {
 			// Drain steering messages and inject as user messages
 			const steered = this.drainSteering();
 			for (const text of steered) {
-				history.push(Msg.user(text));
+				this.history.push(Msg.user(text));
 				this.emitAndLog("steering", agentId, this.depth, { text });
 			}
 
@@ -476,7 +482,7 @@ export class Agent {
 
 			const request = buildPlanRequest({
 				systemPrompt,
-				history,
+				history: this.history,
 				agentTools: this.agentTools,
 				primitiveTools: this.primitiveTools,
 				model: this.resolved.model,
@@ -515,7 +521,7 @@ export class Agent {
 			const assistantMessage = response.message;
 
 			// Add assistant message to history
-			history.push(assistantMessage);
+			this.history.push(assistantMessage);
 
 			this.emitAndLog("plan_end", agentId, this.depth, {
 				turn: turns,
@@ -536,7 +542,7 @@ export class Agent {
 			if (response.finish_reason.reason === "length" && toolCalls.length > 0) {
 				// Add error tool results for all truncated calls so history stays valid
 				for (const call of toolCalls) {
-					history.push(
+					this.history.push(
 						Msg.toolResult(
 							call.id,
 							"Error: Your response was truncated (hit max_tokens limit). " +
@@ -676,7 +682,7 @@ export class Agent {
 			// Add all tool results to history in original tool call order
 			for (const call of toolCalls) {
 				const msg = resultByCallId.get(call.id);
-				if (msg) history.push(msg);
+				if (msg) this.history.push(msg);
 			}
 
 			// Compact history if context usage exceeds threshold or manually requested
@@ -691,7 +697,7 @@ export class Agent {
 				this.compactionRequested = false;
 				try {
 					const compactResult = await compactHistory({
-						history,
+						history: this.history,
 						client: this.client,
 						model: this.resolved.model,
 						provider: this.resolved.provider,
