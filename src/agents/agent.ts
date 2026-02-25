@@ -16,6 +16,7 @@ import type {
 	Memory,
 	RoutingRule,
 } from "../kernel/types.ts";
+import type { Preambles } from "./loader.ts";
 import type { LearnProcess } from "../learn/learn-process.ts";
 import type { Client } from "../llm/client.ts";
 import type { Response as LLMResponse, Message, ToolDefinition } from "../llm/types.ts";
@@ -57,6 +58,8 @@ export interface AgentOptions {
 	initialHistory?: Message[];
 	/** Override the spec's model for this agent instance. */
 	modelOverride?: string;
+	/** Prompt preambles (global + role-specific) to prepend to system prompt. */
+	preambles?: Preambles;
 }
 
 export interface AgentResult {
@@ -82,6 +85,7 @@ export class Agent {
 	private readonly agentTools: ToolDefinition[];
 	private readonly primitiveTools: ToolDefinition[];
 	private readonly logBasePath?: string;
+	private readonly preambles?: Preambles;
 	private readonly initialHistory?: Message[];
 	private signal?: AbortSignal;
 	private logWriteChain: Promise<void> = Promise.resolve();
@@ -101,6 +105,7 @@ export class Agent {
 		this.sessionId = options.sessionId ?? ulid();
 		this.learnProcess = options.learnProcess;
 		this.logBasePath = options.logBasePath;
+		this.preambles = options.preambles;
 		this.initialHistory = options.initialHistory ? [...options.initialHistory] : undefined;
 
 		// Validate depth: max_depth > 0 means the agent can only exist at depths < max_depth.
@@ -264,6 +269,7 @@ export class Agent {
 				sessionId: this.sessionId,
 				learnProcess: this.learnProcess,
 				logBasePath: subLogBasePath,
+				preambles: this.preambles,
 			});
 
 			const subResult = await subagent.run(subGoal, this.signal);
@@ -401,6 +407,7 @@ export class Agent {
 			this.env.platform(),
 			this.env.os_version(),
 			recallContext,
+			this.preambles,
 		);
 
 		// Append available agent descriptions to system prompt

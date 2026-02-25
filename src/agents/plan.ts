@@ -3,6 +3,7 @@ import { renderMemories, renderRoutingHints } from "../genome/recall.ts";
 import type { AgentSpec, Delegation, Memory, RoutingRule } from "../kernel/types.ts";
 import type { Message, Request, ToolCall, ToolDefinition } from "../llm/types.ts";
 import { Msg } from "../llm/types.ts";
+import type { Preambles } from "./loader.ts";
 
 export const DELEGATE_TOOL_NAME = "delegate";
 
@@ -93,9 +94,21 @@ export function buildSystemPrompt(
 	platform: string,
 	osVersion: string,
 	recallContext?: { memories?: Memory[]; routingHints?: RoutingRule[] },
+	preambles?: Preambles,
 ): string {
 	const today = new Date().toISOString().slice(0, 10);
-	let prompt = `${spec.system_prompt}
+
+	// Compose preamble: global + role-specific
+	let preamble = "";
+	if (preambles) {
+		const role = spec.constraints.can_spawn ? preambles.orchestrator : preambles.worker;
+		const parts = [preambles.global, role].filter((p) => p.length > 0);
+		if (parts.length > 0) {
+			preamble = `${parts.join("\n\n")}\n\n`;
+		}
+	}
+
+	let prompt = `${preamble}${spec.system_prompt}
 
 <environment>
 Working directory: ${workDir}

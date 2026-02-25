@@ -30,3 +30,20 @@ export async function loadBootstrapAgents(dir: string): Promise<AgentSpec[]> {
 	const yamlFiles = files.filter((f) => f.endsWith(".yaml") || f.endsWith(".yml")).sort();
 	return Promise.all(yamlFiles.map((f) => loadAgentSpec(join(dir, f))));
 }
+
+export interface Preambles {
+	global: string;
+	orchestrator: string;
+	worker: string;
+}
+
+export async function loadPreambles(bootstrapDir: string): Promise<Preambles> {
+	const dir = join(bootstrapDir, "preambles");
+	const read = (name: string) => readFile(join(dir, name), "utf-8").catch(() => "");
+	const [global, orchestrator, worker] = await Promise.all([
+		read("global.md"),
+		read("orchestrator.md"),
+		read("worker.md"),
+	]);
+	return { global, orchestrator, worker };
+}

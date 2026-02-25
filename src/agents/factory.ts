@@ -10,6 +10,7 @@ import type { Message } from "../llm/types.ts";
 import { ulid } from "../util/ulid.ts";
 import { Agent } from "./agent.ts";
 import { AgentEventEmitter } from "./events.ts";
+import { loadPreambles } from "./loader.ts";
 
 export interface CreateAgentOptions {
 	/** Path to the genome directory */
@@ -83,6 +84,7 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 	const env = new LocalExecutionEnvironment(workDir);
 	const client = options.client ?? Client.fromEnv();
 	const registry = createPrimitiveRegistry(env);
+	const preambles = options.bootstrapDir ? await loadPreambles(options.bootstrapDir) : undefined;
 
 	const events = options.events ?? new AgentEventEmitter();
 
@@ -113,6 +115,7 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 		logBasePath,
 		initialHistory: options.initialHistory,
 		modelOverride: options.model,
+		preambles,
 	});
 
 	const resolved = agent.resolvedModel;
