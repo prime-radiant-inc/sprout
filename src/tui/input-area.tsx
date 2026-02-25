@@ -79,6 +79,7 @@ export function InputArea({
 					pendingInterruptTimer.current = setTimeout(() => {
 						pendingInterrupt.current = false;
 						pendingInterruptTimer.current = null;
+						onCancelExit?.();
 					}, 5000);
 				}
 			}

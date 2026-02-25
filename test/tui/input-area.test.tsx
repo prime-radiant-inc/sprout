@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, jest, test } from "bun:test";
 import { render } from "ink-testing-library";
 import { InputArea } from "../../src/tui/input-area.tsx";
 
@@ -421,6 +421,32 @@ describe("InputArea", () => {
 		stdin.write("\x03");
 		await flush();
 		expect(exited).toBe(true);
+	});
+
+	test("idle Ctrl+C timer calls onCancelExit after 5 seconds", () => {
+		// When idle Ctrl+C fires, InputArea sets up a 5s timer.
+		// After 5 seconds, it should call onCancelExit to hide the exit hint.
+		let cancelCalled = false;
+		const { stdin } = render(
+			<InputArea
+				onSubmit={() => {}}
+				onSlashCommand={() => {}}
+				isRunning={false}
+				onIdleCtrlC={() => {}}
+				onCancelExit={() => {
+					cancelCalled = true;
+				}}
+			/>,
+		);
+
+		jest.useFakeTimers();
+		try {
+			stdin.write("\x03"); // idle Ctrl+C — sets up 5s timer
+			jest.advanceTimersByTime(5000);
+			expect(cancelCalled).toBe(true);
+		} finally {
+			jest.useRealTimers();
+		}
 	});
 
 	test("first Ctrl+C while idle calls onIdleCtrlC, second exits", async () => {

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, jest, test } from "bun:test";
 import { render } from "ink-testing-library";
 import { EventBus } from "../../src/host/event-bus.ts";
 import { App } from "../../src/tui/app.tsx";
@@ -413,6 +413,26 @@ describe("App", () => {
 		const frame = lastFrame()!;
 		expect(frame).toContain("resumed goal");
 		expect(frame).toContain("Prior assistant response.");
+	});
+
+	test("exit hint auto-hides after 5 seconds", () => {
+		// Ink's reconciler doesn't use setTimeout for re-renders, so we can't
+		// check frame content with fake timers. Instead, verify the auto-hide
+		// fires by checking that a `exit_hint { visible: false }` event is
+		// emitted on the bus after 5 seconds.
+		const events: any[] = [];
+		const { bus, stdin } = setup();
+		bus.onEvent((e) => events.push(e));
+
+		jest.useFakeTimers();
+		try {
+			stdin.write("\x03"); // idle Ctrl+C → onIdleCtrlC → shows hint, starts 5s timer
+			jest.advanceTimersByTime(5000); // timer fires → onCancelExit → hides hint
+			const hideEvent = events.find((e) => e.kind === "exit_hint" && e.data.visible === false);
+			expect(hideEvent).toBeDefined();
+		} finally {
+			jest.useRealTimers();
+		}
 	});
 
 	test("exit_hint event shows exit warning overlay", async () => {
