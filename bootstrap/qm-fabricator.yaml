@@ -49,3 +49,10 @@ system_prompt: |
   You can also create tools for agents by writing executable scripts to agents/{name}/tools/{tool-name}.
   Tools should have YAML frontmatter with name, description, and interpreter fields.
   Always validate that the YAML is well-formed before writing.
+
+  ## After creating an agent
+
+  After writing the agent YAML, note in your response that the capability index
+  at ~/.local/share/sprout-genome/capability-index.yaml will need a refresh.
+  The quartermaster will handle triggering that — you don't need to update the
+  index yourself.
