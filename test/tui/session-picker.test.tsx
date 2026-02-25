@@ -43,8 +43,8 @@ describe("SessionPicker", () => {
 			<SessionPicker sessions={sessions} onSelect={() => {}} onCancel={() => {}} />,
 		);
 		const frame = lastFrame()!;
-		expect(frame).toContain("01AAAA00000000000000000001");
-		expect(frame).toContain("01BBBB00000000000000000002");
+		expect(frame).toContain("Fix the login bug in auth middleware");
+		expect(frame).toContain("Refactor the database layer");
 	});
 
 	test("highlights first session by default", () => {
@@ -67,7 +67,7 @@ describe("SessionPicker", () => {
 		const frame = lastFrame()!;
 		const lines = frame.split("\n");
 		// Second session line should be selected
-		const selectedLine = lines.find((l) => l.includes(">") && l.includes("01BBBB00"));
+		const selectedLine = lines.find((l) => l.includes(">") && l.includes("Refactor the database layer"));
 		expect(selectedLine).toBeDefined();
 	});
 
@@ -115,37 +115,44 @@ describe("SessionPicker", () => {
 		stdin.write("\x1B[B"); // Down
 		await flush();
 		let lines = lastFrame()!.split("\n");
-		expect(lines.find((l) => l.includes(">") && l.includes("01BBBB00"))).toBeDefined();
+		expect(lines.find((l) => l.includes(">") && l.includes("Refactor the database layer"))).toBeDefined();
 
 		stdin.write("\x1B[A"); // Up
 		await flush();
 		lines = lastFrame()!.split("\n");
-		expect(lines.find((l) => l.includes(">") && l.includes("01AAAA00"))).toBeDefined();
+		expect(lines.find((l) => l.includes(">") && l.includes("Fix the login bug"))).toBeDefined();
 	});
 
-	test("renders session details (status, turns, model)", () => {
+	test("renders turn count for each session", () => {
 		const { lastFrame } = render(
 			<SessionPicker sessions={sessions} onSelect={() => {}} onCancel={() => {}} />,
 		);
 		const frame = lastFrame()!;
-		expect(frame).toContain("idle");
 		expect(frame).toContain("3 turns");
-		expect(frame).toContain("gpt-4o");
-		expect(frame).toContain("running");
 		expect(frame).toContain("7 turns");
-		expect(frame).toContain("claude-sonnet");
 	});
 
-	test("renders updatedAt instead of createdAt, and includes agentSpec", () => {
+	test("uses singular 'turn' when turns is 1", () => {
+		const one: SessionListEntry[] = [
+			{
+				sessionId: "01ONE000000000000000000001",
+				agentSpec: "root",
+				model: "gpt-4o",
+				status: "idle",
+				turns: 1,
+				contextTokens: 0,
+				contextWindowSize: 0,
+				createdAt: "2025-01-01T00:00:00.000Z",
+				updatedAt: "2025-01-01T00:01:00.000Z",
+				firstPrompt: "Do one thing",
+			},
+		];
 		const { lastFrame } = render(
-			<SessionPicker sessions={sessions} onSelect={() => {}} onCancel={() => {}} />,
+			<SessionPicker sessions={one} onSelect={() => {}} onCancel={() => {}} />,
 		);
 		const frame = lastFrame()!;
-		// Should show updatedAt, not createdAt
-		expect(frame).toContain("2025-01-01T00:01:00");
-		expect(frame).not.toContain("2025-01-01T00:00:00");
-		// Should include agentSpec
-		expect(frame).toContain("root");
+		expect(frame).toContain("1 turn");
+		expect(frame).not.toContain("1 turns");
 	});
 
 	test("shows 'No sessions' when empty", () => {
@@ -268,7 +275,7 @@ describe("SessionPicker", () => {
 		const { lastFrame } = render(
 			<SessionPicker sessions={bare} onSelect={() => {}} onCancel={() => {}} />,
 		);
-		// Should render without crashing, and show the session ID
-		expect(lastFrame()).toContain("01CCCC00");
+		// Should render without crashing and show the fallback prompt text
+		expect(lastFrame()).toContain("(new session)");
 	});
 });

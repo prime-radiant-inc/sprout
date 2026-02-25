@@ -44,11 +44,11 @@ export function SessionPicker({ sessions, onSelect, onCancel }: SessionPickerPro
 	const { stdout } = useStdout();
 
 	// Cap the session list at 2/3 of the terminal height so scrolling is meaningful.
-	// Reserve 1 row for the title bar. Each session takes at most 2 rows (header + detail).
+	// Each session takes exactly 3 rows (2 bold prompt lines + 1 dim agent line).
 	// Using wrap="truncate" on every Text ensures rows never wrap, keeping the count exact.
 	const terminalRows = stdout.rows ?? 24;
-	const maxContainerRows = Math.max(6, Math.floor(terminalRows * 2 / 3));
-	const visibleCount = Math.max(3, Math.floor((maxContainerRows - 1) / 2));
+	const maxContainerRows = Math.max(9, Math.floor((terminalRows * 2) / 3));
+	const visibleCount = Math.max(3, Math.floor((maxContainerRows - 1) / 3));
 	const windowStart = Math.max(
 		0,
 		Math.min(cursor - Math.floor(visibleCount / 2), sessions.length - visibleCount),
@@ -90,31 +90,39 @@ export function SessionPicker({ sessions, onSelect, onCancel }: SessionPickerPro
 				const globalIndex = windowStart + i;
 				const selected = globalIndex === cursor;
 				const marker = selected ? "> " : "  ";
-				const header = `${s.sessionId} | ${s.agentSpec} | ${s.status} | ${s.turns} turns | ${s.model} | ${s.updatedAt}`;
+				const color = selected ? "cyan" : undefined;
 
-				const parts: string[] = [];
-				if (s.firstPrompt) {
-					const line = collapse(s.firstPrompt, 1);
-					if (line) parts.push(line);
-				}
-				if (s.lastMessage) {
-					const line = collapse(s.lastMessage, 3);
-					if (line) parts.push(line);
-				}
-				const details = parts.join(" · ");
+				const promptLines = s.firstPrompt ? summarize(s.firstPrompt, 2) : [];
+				const promptLine1 = promptLines[0] ?? "";
+				const promptLine2 = promptLines[1] ?? "";
+				const agentLine = s.lastMessage ? collapse(s.lastMessage, 3) : "";
+				const turnsLabel = `${s.turns} ${s.turns === 1 ? "turn" : "turns"}`;
 
 				return (
 					<Box key={s.sessionId} flexDirection="column">
-						<Text wrap="truncate" color={selected ? "cyan" : undefined}>
-							{marker}
-							{header}
-						</Text>
-						{details && (
-							<Text wrap="truncate" color={selected ? "cyan" : "gray"}>
-								{"    "}
-								{details}
+						{/* Line 1: first line of user prompt (bold) + turn count right-justified */}
+						<Box flexDirection="row">
+							<Box flexGrow={1}>
+								<Text bold wrap="truncate" color={color}>
+									{marker}
+									{promptLine1 || "(new session)"}
+								</Text>
+							</Box>
+							<Text bold color={selected ? "cyan" : "gray"}>
+								{" "}
+								{turnsLabel}
 							</Text>
-						)}
+						</Box>
+						{/* Line 2: second line of user prompt (bold), may be empty */}
+						<Text bold wrap="truncate" color={color}>
+							{"  "}
+							{promptLine2}
+						</Text>
+						{/* Line 3: agent's final message, dim */}
+						<Text wrap="truncate" color={selected ? "cyan" : "gray"} dimColor={!selected}>
+							{"  "}
+							{agentLine}
+						</Text>
 					</Box>
 				);
 			})}
