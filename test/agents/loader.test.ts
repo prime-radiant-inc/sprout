@@ -36,12 +36,36 @@ describe("loadAgentSpec", () => {
 		await writeFile(badPath, "capabilities:\n  - read_file\n");
 		expect(loadAgentSpec(badPath)).rejects.toThrow(/missing or invalid 'name'/);
 	});
+
+	test("loads path constraints from YAML", async () => {
+		const yamlContent = `
+name: test-agent
+description: test agent with path constraints
+system_prompt: test
+model: fast
+capabilities: []
+constraints:
+  max_turns: 10
+  allowed_read_paths:
+    - "src/**"
+    - "bootstrap/**"
+  allowed_write_paths:
+    - "~/.local/share/sprout-genome/capability-index.yaml"
+`;
+		const tmpPath = join(tmpdir(), "test-path-constraints.yaml");
+		await writeFile(tmpPath, yamlContent);
+		const spec = await loadAgentSpec(tmpPath);
+		expect(spec.constraints.allowed_read_paths).toEqual(["src/**", "bootstrap/**"]);
+		expect(spec.constraints.allowed_write_paths).toEqual([
+			"~/.local/share/sprout-genome/capability-index.yaml",
+		]);
+	});
 });
 
 describe("loadBootstrapAgents", () => {
-	test("loads all 6 bootstrap agents", async () => {
+	test("loads all 10 bootstrap agents", async () => {
 		const agents = await loadBootstrapAgents(join(import.meta.dir, "../../bootstrap"));
-		expect(agents).toHaveLength(6);
+		expect(agents).toHaveLength(10);
 		const names = agents.map((a) => a.name);
 		expect(names).toContain("root");
 		expect(names).toContain("reader");
@@ -49,6 +73,10 @@ describe("loadBootstrapAgents", () => {
 		expect(names).toContain("command-runner");
 		expect(names).toContain("web-reader");
 		expect(names).toContain("mcp");
+		expect(names).toContain("quartermaster");
+		expect(names).toContain("qm-indexer");
+		expect(names).toContain("qm-planner");
+		expect(names).toContain("qm-fabricator");
 	});
 
 	test("all agents have valid constraints", async () => {
@@ -63,9 +91,20 @@ describe("loadBootstrapAgents", () => {
 
 	test("leaf agents cannot spawn subagents", async () => {
 		const agents = await loadBootstrapAgents(join(import.meta.dir, "../../bootstrap"));
-		const leaves = agents.filter((a) => a.name !== "root");
+		const orchestrators = ["root", "quartermaster"];
+		const leaves = agents.filter((a) => !orchestrators.includes(a.name));
 		for (const leaf of leaves) {
 			expect(leaf.constraints.can_spawn).toBe(false);
 		}
+	});
+
+	test("qm-indexer has write path constraints", async () => {
+		const agents = await loadBootstrapAgents(join(import.meta.dir, "../../bootstrap"));
+		const indexer = agents.find((a) => a.name === "qm-indexer");
+		expect(indexer).toBeDefined();
+		expect(indexer!.constraints.allowed_write_paths).toEqual([
+			"~/.local/share/sprout-genome/capability-index.yaml",
+		]);
+		expect(indexer!.constraints.allowed_read_paths).toBeUndefined();
 	});
 });

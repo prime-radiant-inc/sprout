@@ -5,6 +5,10 @@ export interface AgentConstraints {
 	timeout_ms: number;
 	can_spawn: boolean;
 	can_learn: boolean;
+	/** Glob patterns restricting which paths the agent can read from. If omitted, all paths allowed. */
+	allowed_read_paths?: string[];
+	/** Glob patterns restricting which paths the agent can write to. If omitted, all paths allowed. */
+	allowed_write_paths?: string[];
 }
 
 /** Default agent constraints */

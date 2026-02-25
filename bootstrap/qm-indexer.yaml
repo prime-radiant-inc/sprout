@@ -12,6 +12,8 @@ constraints:
   max_depth: 0
   can_spawn: false
   timeout_ms: 120000
+  allowed_write_paths:
+    - "~/.local/share/sprout-genome/capability-index.yaml"
 tags:
   - quartermaster
   - discovery
