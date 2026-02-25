@@ -358,11 +358,12 @@ describe("AssistantTextLine markdown rendering", () => {
 		expect(lastFrame()).toContain("hello world");
 	});
 
-	test("renders bold text without asterisks", () => {
+	test("renders bold text with ANSI bold codes", () => {
 		const { lastFrame } = render(<AssistantTextLine depth={0} text="hello **bold** world" />);
 		const frame = lastFrame()!;
-		expect(frame).toContain("bold");
 		expect(frame).not.toContain("**");
+		// ANSI bold: ESC[1m ... ESC[22m
+		expect(frame).toContain("\x1B[1m");
 	});
 
 	test("renders inline code", () => {

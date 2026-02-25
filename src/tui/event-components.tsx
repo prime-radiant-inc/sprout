@@ -5,7 +5,25 @@ import type { ReactNode } from "react";
 import type { SessionEvent } from "../kernel/types.ts";
 import { formatDuration, smartArgs } from "./render-event.ts";
 
-const terminalMarkdown = new Marked(markedTerminal());
+// marked-terminal uses chalk for styling, but chalk may have level 0 in
+// non-TTY contexts (tests, pipes), stripping all formatting. Override the
+// key style functions with raw ANSI codes so bold/italic always render.
+const ansi = (code: number, reset: number) => (text: string) =>
+	`\x1B[${code}m${text}\x1B[${reset}m`;
+
+const terminalMarkdown = new Marked(
+	markedTerminal({
+		strong: ansi(1, 22),
+		em: ansi(3, 23),
+		codespan: ansi(33, 39), // yellow
+		del: ansi(9, 29),
+	}),
+);
+
+/** Parse markdown to terminal-formatted string with proper bold/italic. */
+export function renderMarkdown(text: string): string {
+	return (terminalMarkdown.parse(text) as string).trim();
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -144,8 +162,7 @@ export function AssistantTextLine({ depth, text, reasoning }: AssistantTextProps
 			{text && (
 				<Box>
 					<Text dimColor>{indent(depth)}</Text>
-					{/* markedTerminal forces synchronous parsing; the Promise branch is never taken */}
-					<Text>{(terminalMarkdown.parse(text) as string).trim()}</Text>
+					<Text>{renderMarkdown(text)}</Text>
 				</Box>
 			)}
 		</Box>
