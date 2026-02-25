@@ -357,12 +357,6 @@ export async function runCli(command: CliCommand): Promise<void> {
 	const React = await import("react");
 	const { App } = await import("../tui/app.tsx");
 
-	// Suppress default SIGINT (process kill). Ctrl+C is handled by InputArea
-	// via ink's useInput (\x03 keystroke) with two-stage logic: first press
-	// interrupts the running agent, second press exits.
-	const sigintHandler = () => {};
-	process.on("SIGINT", sigintHandler);
-
 	const { waitUntilExit, unmount } = render(
 		React.createElement(App, {
 			bus,
@@ -388,8 +382,19 @@ export async function runCli(command: CliCommand): Promise<void> {
 		{ exitOnCtrlC: false },
 	);
 
+	// Ctrl+C is handled by InputArea via ink's useInput (\x03 keystroke)
+	// with two-stage logic: first press interrupts, second press exits.
+	// Ink's signal-exit dependency registers a SIGINT handler that re-raises
+	// the signal to kill the process. In Bun, setRawMode may not fully
+	// suppress OS-level SIGINT generation from Ctrl+C, so we must remove
+	// signal-exit's listeners and register our own no-op to prevent death.
+	for (const listener of process.listeners("SIGINT")) {
+		process.removeListener("SIGINT", listener);
+	}
+	process.on("SIGINT", () => {});
+
 	await waitUntilExit();
-	process.off("SIGINT", sigintHandler);
+	process.removeAllListeners("SIGINT");
 	await inputHistory.save();
 	printResumeHint(controller.sessionId);
 }
