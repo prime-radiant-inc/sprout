@@ -357,6 +357,12 @@ export async function runCli(command: CliCommand): Promise<void> {
 	const React = await import("react");
 	const { App } = await import("../tui/app.tsx");
 
+	// Suppress default SIGINT (process kill). Ctrl+C is handled by InputArea
+	// via ink's useInput (\x03 keystroke) with two-stage logic: first press
+	// interrupts the running agent, second press exits the session.
+	const sigintHandler = () => {};
+	process.on("SIGINT", sigintHandler);
+
 	const { waitUntilExit, unmount } = render(
 		React.createElement(App, {
 			bus,
@@ -383,6 +389,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 	);
 
 	await waitUntilExit();
+	process.off("SIGINT", sigintHandler);
 	await inputHistory.save();
 	printResumeHint(controller.sessionId);
 }
