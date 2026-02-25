@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { runAgentProcess } from "../../src/bus/agent-process.ts";
 import { BusClient } from "../../src/bus/client.ts";
 import { BusServer } from "../../src/bus/server.ts";
 import { agentEvents, agentInbox, agentResult } from "../../src/bus/topics.ts";
@@ -10,7 +11,6 @@ import { Genome } from "../../src/genome/genome.ts";
 import type { Client } from "../../src/llm/client.ts";
 import type { Request, Response } from "../../src/llm/types.ts";
 import { Msg } from "../../src/llm/types.ts";
-import { runAgentProcess } from "../../src/bus/agent-process.ts";
 
 // Minimal agent spec for testing -- leaf agent with no delegation
 const MINIMAL_AGENT_SPEC = {
@@ -247,6 +247,93 @@ describe("runAgentProcess", () => {
 		expect(results[1]!.output).toBe("Continued response.");
 
 		// Shut down the shared agent
+		controller.abort();
+		await processPromise;
+	}, 15_000);
+
+	test("steer messages are queued and applied in next continue cycle", async () => {
+		const requests: Request[] = [];
+		let callCount = 0;
+		const mockClient = {
+			complete: async (request: Request): Promise<Response> => {
+				requests.push(request);
+				callCount++;
+				return {
+					id: `mock-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant(`Response ${callCount}.`),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+				};
+			},
+			stream: async function* () {},
+			providers: () => ["anthropic"],
+		} as unknown as Client;
+
+		const controller = new AbortController();
+
+		const resultTopic = agentResult(SESSION_ID, HANDLE_ID);
+		const results: ResultMessage[] = [];
+		await parentClient.subscribe(resultTopic, (payload) => {
+			results.push(JSON.parse(payload));
+		});
+
+		const processPromise = runAgentProcess({
+			busUrl: server.url,
+			handleId: HANDLE_ID,
+			sessionId: SESSION_ID,
+			genomePath: genomeDir,
+			client: mockClient,
+			workDir: tempDir,
+			signal: controller.signal,
+		});
+
+		await delay(100);
+
+		const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
+		const startMsg: StartMessage = {
+			kind: "start",
+			handle_id: HANDLE_ID,
+			agent_name: "test-leaf",
+			genome_path: genomeDir,
+			session_id: SESSION_ID,
+			caller: { agent_name: "root", depth: 0 },
+			goal: "Initial task",
+			shared: true,
+		};
+		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
+
+		// Wait for first result
+		await delay(500);
+		expect(results.length).toBe(1);
+
+		// Send steer while idle — should be queued for next continue
+		await parentClient.publish(
+			inboxTopic,
+			JSON.stringify({ kind: "steer", message: "Priority change: focus on tests" }),
+		);
+		await delay(100);
+
+		// Send continue — the steer should be injected into the conversation
+		await parentClient.publish(
+			inboxTopic,
+			JSON.stringify({
+				kind: "continue",
+				message: "Continue working",
+				caller: { agent_name: "root", depth: 0 },
+			}),
+		);
+
+		await delay(500);
+		expect(results.length).toBe(2);
+
+		// Verify the steer content was included in the LLM request
+		// The second request should contain the steer text as a user message
+		const secondRequest = requests[1]!;
+		const allContent = JSON.stringify(secondRequest.messages);
+		expect(allContent).toContain("Priority change: focus on tests");
+
 		controller.abort();
 		await processPromise;
 	}, 15_000);

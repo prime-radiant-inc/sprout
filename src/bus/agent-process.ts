@@ -1,5 +1,8 @@
+import { join } from "node:path";
 import { Agent } from "../agents/agent.ts";
 import { AgentEventEmitter } from "../agents/events.ts";
+import { loadPreambles } from "../agents/loader.ts";
+import { loadProjectDocs } from "../agents/project-doc.ts";
 import { Genome } from "../genome/genome.ts";
 import { LocalExecutionEnvironment } from "../kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../kernel/primitives.ts";
@@ -22,6 +25,8 @@ export interface AgentProcessConfig {
 	client: Client;
 	/** Working directory for the agent */
 	workDir: string;
+	/** Path to bootstrap agent YAML files (for preambles). */
+	bootstrapDir?: string;
 	/** Abort signal for clean shutdown */
 	signal?: AbortSignal;
 }
@@ -84,6 +89,12 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 		const env = new LocalExecutionEnvironment(workDir);
 		const registry = createPrimitiveRegistry(env);
 		const events = new AgentEventEmitter();
+		const preambles = config.bootstrapDir
+			? await loadPreambles(config.bootstrapDir)
+			: undefined;
+		const projectDocs = await loadProjectDocs({ cwd: workDir });
+		const genomePostscripts = await genome.loadPostscripts();
+		const logBasePath = join(genomePath, "logs", sessionId);
 
 		// Forward agent events to the bus
 		events.on((event) => {
@@ -104,6 +115,10 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 			genome,
 			events,
 			sessionId,
+			logBasePath,
+			preambles,
+			projectDocs,
+			genomePostscripts,
 		});
 
 		// Build goal with hints
@@ -180,8 +195,10 @@ function waitForStart(
 }
 
 /**
- * Idle loop for shared agents. Waits for continue messages,
- * runs agent.continue(), and publishes results. Exits on abort signal.
+ * Idle loop for shared agents. Waits for continue and steer messages,
+ * runs agent.continue(), and publishes results. Steer messages are
+ * queued via agent.steer() for injection into the next continue cycle.
+ * Exits on abort signal.
  */
 function idleLoop(
 	bus: BusClient,
@@ -205,11 +222,16 @@ function idleLoop(
 		}
 
 		bus.subscribe(inboxTopic, async (payload) => {
-			if (processing) return;
-
 			try {
 				const msg = parseBusMessage(payload);
-				if (msg.kind === "continue") {
+
+				// Steer messages are queued regardless of processing state
+				if (msg.kind === "steer") {
+					agent.steer(msg.message);
+					return;
+				}
+
+				if (msg.kind === "continue" && !processing) {
 					processing = true;
 					const continueMsg = msg as ContinueMessage;
 					const result = await agent.continue(continueMsg.message, signal);
