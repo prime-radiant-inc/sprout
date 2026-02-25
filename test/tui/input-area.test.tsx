@@ -264,6 +264,30 @@ describe("InputArea", () => {
 		expect(submitted).toBe("line1\nline2");
 	});
 
+	test.todo("cursor does not insert extra spaces in text", async () => {
+		const { lastFrame, stdin } = render(
+			<InputArea onSubmit={() => {}} onSlashCommand={() => {}} isRunning={false} />,
+		);
+
+		stdin.write("hello world");
+		await flush();
+
+		// Move cursor to middle (after "hello")
+		stdin.write("\x01"); // Ctrl-A (start)
+		await flush();
+		for (let i = 0; i < 5; i++) {
+			stdin.write("\x1B[C"); // right arrow
+			await flush();
+		}
+
+		const frame = lastFrame()!;
+		// "hello" and "world" should appear WITHOUT extra space between them
+		// (cursor should overlay the space char, not insert a new one)
+		expect(frame).toContain("hello");
+		expect(frame).toContain("world");
+		expect(frame).not.toContain("hello  world"); // no double-space
+	});
+
 	test("second Ctrl+C while running calls onExit", async () => {
 		let interruptCount = 0;
 		let exited = false;

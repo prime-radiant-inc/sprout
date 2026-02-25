@@ -1,11 +1,11 @@
 import { join } from "node:path";
 import { AgentEventEmitter } from "../agents/events.ts";
 import { createAgent } from "../agents/factory.ts";
-import { compactHistory } from "./compaction.ts";
 import type { Command, SessionEvent } from "../kernel/types.ts";
 import type { Message } from "../llm/types.ts";
 import { Msg } from "../llm/types.ts";
 import { ulid } from "../util/ulid.ts";
+import { compactHistory } from "./compaction.ts";
 import type { EventBus } from "./event-bus.ts";
 import { SessionMetadata } from "./session-metadata.ts";
 
@@ -191,6 +191,10 @@ export class SessionController {
 					this.agent.requestCompaction();
 				} else if (this.compactFn && this.history.length > 0) {
 					this.compactWhileIdle();
+				} else {
+					this.bus.emitEvent("warning", "session", 0, {
+						message: "Nothing to compact",
+					});
 				}
 				break;
 			case "quit":
@@ -329,6 +333,10 @@ export class SessionController {
 			if (result.summary) {
 				this.bus.emitEvent("warning", "session", 0, {
 					message: `Compacted: ${result.beforeCount} → ${result.afterCount} messages`,
+				});
+			} else {
+				this.bus.emitEvent("warning", "session", 0, {
+					message: `History too short to compact (${result.beforeCount} messages)`,
 				});
 			}
 		} catch (err) {

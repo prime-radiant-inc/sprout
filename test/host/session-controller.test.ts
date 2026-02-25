@@ -857,11 +857,58 @@ describe("SessionController", () => {
 		await promise;
 	});
 
-	test("compact command while idle with no prior run is a no-op", () => {
+	test("compact command while idle with no prior run emits warning", () => {
 		const { bus } = makeController();
 
-		// Issue compact while idle and no agent has ever run — should not throw
+		const events: any[] = [];
+		bus.onEvent((e) => events.push(e));
+
 		bus.emitCommand({ kind: "compact", data: {} });
+
+		const warnings = events.filter((e: any) => e.kind === "warning");
+		expect(warnings).toHaveLength(1);
+		expect(warnings[0].data.message).toContain("Nothing to compact");
+	});
+
+	test("compact command while idle with short history emits feedback", async () => {
+		// Factory that returns compact but agent only produces 2 history messages
+		const factory: AgentFactory = async (options) => ({
+			agent: {
+				steer() {},
+				requestCompaction() {},
+				async run(goal: string) {
+					options.events.emitEvent("perceive", "root", 0, { goal });
+					options.events.emitEvent("plan_end", "root", 0, {
+						turn: 1,
+						assistant_message: {
+							role: "assistant",
+							content: [{ kind: "text", text: "Done." }],
+						},
+					});
+					return { output: "done", success: true, stumbles: 0, turns: 1, timed_out: false };
+				},
+			} as any,
+			learnProcess: null,
+			compact: async (history: any[], _logPath: string) => {
+				// Short history — returns empty summary (like real compactHistory)
+				return { summary: "", beforeCount: history.length, afterCount: history.length };
+			},
+		});
+
+		const { bus, controller } = makeController({ factory });
+		const events: any[] = [];
+		bus.onEvent((e) => events.push(e));
+
+		await controller.submitGoal("quick task");
+
+		// Issue compact while idle — history is short
+		bus.emitCommand({ kind: "compact", data: {} });
+		await new Promise((r) => setTimeout(r, 100));
+
+		const warnings = events.filter(
+			(e: any) => e.kind === "warning" && e.data.message?.includes("compact"),
+		);
+		expect(warnings).toHaveLength(1);
 	});
 
 	test("compact command while idle runs compaction immediately", async () => {
