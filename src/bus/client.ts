@@ -34,7 +34,10 @@ export class BusClient {
 				ws.onmessage = (ev) => this.handleMessage(ev);
 				resolve();
 			};
-			ws.onerror = (e) => reject(e);
+			ws.onerror = (e) => {
+				ws.close();
+				reject(e);
+			};
 		});
 	}
 
@@ -146,7 +149,11 @@ export class BusClient {
 		if (!cbs) return;
 
 		for (const cb of cbs) {
-			cb(msg.payload);
+			try {
+				cb(msg.payload);
+			} catch {
+				// Don't let one callback failure prevent others from firing
+			}
 		}
 	}
 
