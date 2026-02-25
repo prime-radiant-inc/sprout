@@ -1,5 +1,5 @@
 import { appendFile, mkdir } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import type { Genome } from "../genome/genome.ts";
 import { recall } from "../genome/recall.ts";
 import { compactHistory, shouldCompact } from "../host/compaction.ts";
@@ -31,6 +31,9 @@ import {
 	parsePlanResponse,
 	primitivesForAgent,
 	renderAgentsForPrompt,
+	renderWorkspaceEncouragement,
+	renderWorkspaceFiles,
+	renderWorkspaceTools,
 } from "./plan.ts";
 import {
 	type CallRecord,
@@ -370,6 +373,8 @@ export class Agent {
 		}
 
 		// Load workspace tools and register save_tool/save_file for this agent
+		let wsToolDefs: import("../genome/genome.ts").AgentToolDefinition[] = [];
+		let wsFiles: import("../genome/genome.ts").AgentFileInfo[] = [];
 		if (this.genome && this.primitiveTools.length > 0 && this.genome.loadAgentTools) {
 			// Register save_tool and save_file bound to this agent
 			const wsPrims = buildWorkspacePrimitives({
@@ -386,9 +391,9 @@ export class Agent {
 			}
 
 			// Load saved workspace tools and register them
-			const toolDefs = await this.genome.loadAgentTools(agentId);
-			if (toolDefs.length > 0) {
-				const toolPrims = buildAgentToolPrimitives(toolDefs);
+			wsToolDefs = await this.genome.loadAgentTools(agentId);
+			if (wsToolDefs.length > 0) {
+				const toolPrims = buildAgentToolPrimitives(wsToolDefs);
 				for (const prim of toolPrims) {
 					this.primitiveRegistry.register(prim);
 					this.primitiveTools.push({
@@ -398,6 +403,9 @@ export class Agent {
 					});
 				}
 			}
+
+			// List workspace files
+			wsFiles = await this.genome.listAgentFiles(agentId);
 		}
 
 		// Build system prompt with recall context (memories and routing hints)
@@ -413,6 +421,18 @@ export class Agent {
 		if (this.spec.constraints.can_spawn) {
 			const delegatableAgents = this.getDelegatableAgents();
 			systemPrompt += renderAgentsForPrompt(delegatableAgents);
+		}
+
+		// Append workspace sections to system prompt
+		if (wsToolDefs.length > 0) {
+			systemPrompt += renderWorkspaceTools(wsToolDefs);
+		}
+		if (wsFiles.length > 0) {
+			const filesDir = join(this.genome!.agentDir(agentId), "files");
+			systemPrompt += renderWorkspaceFiles(wsFiles, filesDir);
+		}
+		if (this.genome && this.primitiveTools.length > 0) {
+			systemPrompt += renderWorkspaceEncouragement();
 		}
 
 		// Core loop

@@ -1,3 +1,4 @@
+import type { AgentFileInfo, AgentToolDefinition } from "../genome/genome.ts";
 import { renderMemories, renderRoutingHints } from "../genome/recall.ts";
 import type { AgentSpec, Delegation, Memory, RoutingRule } from "../kernel/types.ts";
 import type { Message, Request, ToolCall, ToolDefinition } from "../llm/types.ts";
@@ -225,4 +226,34 @@ export function parsePlanResponse(
 	}
 
 	return { delegations, primitiveCalls, errors };
+}
+
+// ---------------------------------------------------------------------------
+// Workspace prompt sections
+// ---------------------------------------------------------------------------
+
+/** Format a byte count as a human-readable size string. */
+function formatSize(bytes: number): string {
+	if (bytes < 1024) return `${bytes}B`;
+	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+	return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+/** Render an XML block listing the agent's workspace files. */
+export function renderWorkspaceFiles(files: AgentFileInfo[], filesDir: string): string {
+	if (files.length === 0) return "";
+	const entries = files.map((f) => `  - ${f.name}: ${formatSize(f.size)}`).join("\n");
+	return `\n\n<agent_files>\n${entries}\n  These files are in your workspace at ${filesDir}. Use read_file to access them.\n</agent_files>`;
+}
+
+/** Render an XML block listing the agent's workspace tools. */
+export function renderWorkspaceTools(tools: AgentToolDefinition[]): string {
+	if (tools.length === 0) return "";
+	const entries = tools.map((t) => `  - ${t.name}: ${t.description}`).join("\n");
+	return `\n\n<agent_tools>\n${entries}\n  These tools are available as primitives. Call them by name.\n</agent_tools>`;
+}
+
+/** Return encouragement text for tool creation. */
+export function renderWorkspaceEncouragement(): string {
+	return `\n\nIf you find yourself doing a multi-step task repeatedly, save a tool for it using save_tool.\nTools you create persist across sessions and become part of your capabilities.`;
 }

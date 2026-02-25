@@ -154,6 +154,72 @@ describe("workspace wiring", () => {
 		expect(primEnd!.data.output as string).toContain("formatted");
 	});
 
+	test("system prompt includes workspace tools and files", async () => {
+		const root = join(tempDir, "ws-prompt");
+		const genome = new Genome(root);
+		await genome.init();
+		await genome.addAgent(makeSpec({ name: "editor" }));
+
+		await genome.saveAgentTool("editor", {
+			name: "lint",
+			description: "Run linter",
+			script: "#!/bin/bash\neslint .",
+			interpreter: "bash",
+		});
+		await genome.saveAgentFile("editor", {
+			name: "style-guide.md",
+			content: "# Style\nUse tabs.",
+		});
+
+		const env = new LocalExecutionEnvironment(tempDir);
+		const registry = createPrimitiveRegistry(env);
+
+		// Capture the system prompt from the LLM request
+		let capturedSystemPrompt = "";
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (req: { messages: { role: string; content: { text?: string }[] }[] }) => {
+				const sysMsg = req.messages.find((m: { role: string }) => m.role === "system");
+				if (sysMsg) {
+					capturedSystemPrompt = sysMsg.content
+						.map((c: { text?: string }) => c.text ?? "")
+						.join("");
+				}
+				return {
+					message: Msg.assistant("done"),
+					finish_reason: { reason: "stop" },
+					usage: USAGE,
+				};
+			},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const agent = new Agent({
+			spec: makeSpec({ name: "editor" }),
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [makeSpec({ name: "editor" })],
+			genome,
+			events,
+		});
+
+		await agent.run("test goal");
+
+		// System prompt should contain workspace sections
+		expect(capturedSystemPrompt).toContain("<agent_tools>");
+		expect(capturedSystemPrompt).toContain("lint");
+		expect(capturedSystemPrompt).toContain("Run linter");
+		expect(capturedSystemPrompt).toContain("</agent_tools>");
+
+		expect(capturedSystemPrompt).toContain("<agent_files>");
+		expect(capturedSystemPrompt).toContain("style-guide.md");
+		expect(capturedSystemPrompt).toContain("</agent_files>");
+
+		expect(capturedSystemPrompt).toContain("save_tool");
+		expect(capturedSystemPrompt).toContain("persist");
+	});
+
 	test("agent without genome does not get workspace primitives", async () => {
 		const env = new LocalExecutionEnvironment(tempDir);
 		const registry = createPrimitiveRegistry(env);
