@@ -373,24 +373,29 @@ export class Agent {
 		}
 
 		// Load workspace tools and register save_tool/save_file for this agent
+		// Only agents that can spawn (orchestrators) get workspace write primitives.
+		// Leaf agents consume tools but don't create them.
 		let wsToolDefs: import("../genome/genome.ts").AgentToolDefinition[] = [];
 		let wsFiles: import("../genome/genome.ts").AgentFileInfo[] = [];
+		const canWriteWorkspace = this.spec.constraints.can_spawn || this.spec.constraints.can_learn;
 		if (this.genome && this.primitiveTools.length > 0 && this.genome.loadAgentTools) {
-			// Register save_tool and save_file bound to this agent
-			const wsPrims = buildWorkspacePrimitives({
-				genome: this.genome,
-				agentName: agentId,
-			});
-			for (const prim of wsPrims) {
-				this.primitiveRegistry.register(prim);
-				this.primitiveTools.push({
-					name: prim.name,
-					description: prim.description,
-					parameters: prim.parameters,
+			// Register save_tool and save_file for agents that should have them
+			if (canWriteWorkspace) {
+				const wsPrims = buildWorkspacePrimitives({
+					genome: this.genome,
+					agentName: agentId,
 				});
+				for (const prim of wsPrims) {
+					this.primitiveRegistry.register(prim);
+					this.primitiveTools.push({
+						name: prim.name,
+						description: prim.description,
+						parameters: prim.parameters,
+					});
+				}
 			}
 
-			// Load saved workspace tools and register them
+			// Load saved workspace tools and register them (all agents can use their tools)
 			wsToolDefs = await this.genome.loadAgentTools(agentId);
 			if (wsToolDefs.length > 0) {
 				const toolPrims = buildAgentToolPrimitives(wsToolDefs);

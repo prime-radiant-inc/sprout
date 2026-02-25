@@ -29,7 +29,7 @@ function makeSpec(overrides: Partial<AgentSpec> = {}): AgentSpec {
 		constraints: overrides.constraints ?? {
 			...DEFAULT_CONSTRAINTS,
 			max_turns: 3,
-			can_spawn: false,
+			can_spawn: true,
 		},
 		tags: overrides.tags ?? ["test"],
 		version: overrides.version ?? 1,

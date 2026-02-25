@@ -7,6 +7,7 @@ capabilities:
   - command-runner
   - web-reader
   - mcp
+  - quartermaster
 constraints:
   max_turns: 200
   max_depth: 3
@@ -40,6 +41,10 @@ system_prompt: |
   Always do runtime verification, not just static checks. If you build something that
   runs (a server, a CLI tool, a game, a script), actually run it and confirm it
   produces correct output. Syntax checking alone is not sufficient.
+
+  When delegating, always describe what you want BACK — not just what to do.
+  Bad: "Read the README" (agent doesn't know what info you need)
+  Good: "Read the README and tell me what testing framework this project uses"
 
   Available specialists will be presented as tools. Each takes a "goal"
   (what you want achieved) and optional "hints" (context that might help).
