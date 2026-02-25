@@ -235,6 +235,9 @@ export async function runCli(command: CliCommand): Promise<void> {
 		const React = await import("react");
 		const { SessionPicker } = await import("../tui/session-picker.tsx");
 
+		// Enter alternate screen so the picker doesn't pollute the scrollback buffer.
+		process.stdout.write("\x1b[?1049h\x1b[2J\x1b[H");
+
 		const selectedId = await new Promise<string | null>((resolve) => {
 			const { unmount } = render(
 				React.createElement(SessionPicker, {
@@ -250,6 +253,9 @@ export async function runCli(command: CliCommand): Promise<void> {
 				}),
 			);
 		});
+
+		// Exit alternate screen, restoring the previous terminal content.
+		process.stdout.write("\x1b[?1049l");
 
 		if (selectedId) {
 			// Resume the selected session

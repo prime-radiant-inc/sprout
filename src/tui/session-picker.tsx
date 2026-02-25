@@ -28,6 +28,11 @@ function summarize(text: string, maxLines: number): string[] {
 		.slice(0, maxLines);
 }
 
+/** Collapse summarized lines into a single string joined by " · ". */
+function collapse(text: string, maxLines: number): string {
+	return summarize(text, maxLines).join(" · ");
+}
+
 export interface SessionPickerProps {
 	sessions: SessionListEntry[];
 	onSelect: (sessionId: string) => void;
@@ -36,6 +41,18 @@ export interface SessionPickerProps {
 
 export function SessionPicker({ sessions, onSelect, onCancel }: SessionPickerProps) {
 	const [cursor, setCursor] = useState(0);
+
+	// Show a viewport sized to the terminal, keeping the cursor roughly centered.
+	const terminalRows = process.stdout.rows ?? 24;
+	const visibleCount = Math.max(3, Math.floor((terminalRows - 3) / 2));
+	const windowStart = Math.max(
+		0,
+		Math.min(cursor - Math.floor(visibleCount / 2), sessions.length - visibleCount),
+	);
+	const visibleSessions = sessions.slice(
+		windowStart,
+		Math.min(sessions.length, windowStart + visibleCount),
+	);
 
 	useInput((_input, key) => {
 		if (key.escape) {
@@ -65,29 +82,32 @@ export function SessionPicker({ sessions, onSelect, onCancel }: SessionPickerPro
 	return (
 		<Box flexDirection="column">
 			<Text bold>Sessions (Enter to resume, Esc to cancel):</Text>
-			{sessions.map((s, i) => {
-				const selected = i === cursor;
+			{visibleSessions.map((s, i) => {
+				const globalIndex = windowStart + i;
+				const selected = globalIndex === cursor;
 				const marker = selected ? "> " : "  ";
 				const header = `${s.sessionId} | ${s.agentSpec} | ${s.status} | ${s.turns} turns | ${s.model} | ${s.updatedAt}`;
+
+				const parts: string[] = [];
+				if (s.firstPrompt) {
+					const line = collapse(s.firstPrompt, 1);
+					if (line) parts.push(line);
+				}
+				if (s.lastMessage) {
+					const line = collapse(s.lastMessage, 3);
+					if (line) parts.push(line);
+				}
+				const details = parts.join(" · ");
+
 				return (
 					<Box key={s.sessionId} flexDirection="column">
 						<Text color={selected ? "cyan" : undefined}>
 							{marker}
 							{header}
 						</Text>
-						{s.firstPrompt && (
-							<Text color={selected ? "cyan" : undefined}>
-								{"    "}
-								{s.firstPrompt.split("\n")[0]}
-							</Text>
+						{details && (
+							<Text color={selected ? "cyan" : "gray"}>{"    "}{details}</Text>
 						)}
-						{s.lastMessage &&
-							summarize(s.lastMessage, 3).map((line, idx) => (
-								<Text key={line} color={selected ? "cyan" : "gray"}>
-									{idx === 0 ? "    ← " : "      "}
-									{line}
-								</Text>
-							))}
 					</Box>
 				);
 			})}
