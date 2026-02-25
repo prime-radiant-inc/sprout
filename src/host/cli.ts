@@ -20,7 +20,7 @@ export type CliCommand =
 	| { kind: "oneshot"; goal: string; genomePath: string }
 	| { kind: "resume"; sessionId: string; genomePath: string }
 	| { kind: "resume-last"; genomePath: string }
-	| { kind: "list"; genomePath: string }
+	| { kind: "list"; genomePath: string } // session picker (via --resume with no arg)
 	| { kind: "genome-list"; genomePath: string }
 	| { kind: "genome-log"; genomePath: string }
 	| { kind: "genome-rollback"; genomePath: string; commit: string }
@@ -51,17 +51,17 @@ export function parseArgs(argv: string[]): CliCommand {
 		}
 
 		if (arg === "--resume") {
-			const sessionId = argv[++i];
-			if (!sessionId) return { kind: "help" };
-			return { kind: "resume", sessionId, genomePath };
+			const next = argv[i + 1];
+			if (!next || next.startsWith("-")) {
+				// No session ID provided — show the session picker
+				return { kind: "list", genomePath };
+			}
+			i++;
+			return { kind: "resume", sessionId: next, genomePath };
 		}
 
 		if (arg === "--resume-last") {
 			return { kind: "resume-last", genomePath };
-		}
-
-		if (arg === "--list") {
-			return { kind: "list", genomePath };
 		}
 
 		if (arg === "--genome") {
@@ -96,9 +96,9 @@ Modes:
   sprout                                Interactive mode (default)
   sprout --prompt "Fix the bug"         One-shot mode
   sprout "Fix the bug"                  One-shot mode (bare goal)
-  sprout --resume <session-id>          Resume a session
+  sprout --resume                       List sessions and pick one to resume
+  sprout --resume <session-id>          Resume a specific session
   sprout --resume-last                  Resume the most recent session
-  sprout --list                         List all sessions
 
 Genome management:
   sprout --genome list                  List agents in the genome
@@ -222,9 +222,10 @@ export async function runCli(command: CliCommand): Promise<void> {
 	}
 
 	if (command.kind === "list") {
-		const { listSessions } = await import("./session-metadata.ts");
+		const { loadSessionSummaries } = await import("./session-metadata.ts");
 		const sessionsDir = join(command.genomePath, "sessions");
-		const sessions = await listSessions(sessionsDir);
+		const logsDir = join(command.genomePath, "logs");
+		const sessions = await loadSessionSummaries(sessionsDir, logsDir);
 		if (sessions.length === 0) {
 			console.log("No sessions found.");
 			return;

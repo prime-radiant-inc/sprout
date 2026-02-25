@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
 	listSessions,
 	loadSessionMetadata,
+	loadSessionSummaries,
 	SessionMetadata,
 	type SessionMetadataSnapshot,
 } from "../../src/host/session-metadata.ts";
@@ -306,5 +307,95 @@ describe("listSessions", () => {
 		const sessions = await listSessions(tempDir);
 		expect(sessions).toHaveLength(1);
 		expect(sessions[0]!.sessionId).toBe("01GOOD000000000000000000");
+	});
+});
+
+describe("loadSessionSummaries", () => {
+	let sessionsDir: string;
+	let logsDir: string;
+
+	beforeEach(async () => {
+		const base = await mkdtemp(join(tmpdir(), "sprout-summaries-"));
+		sessionsDir = join(base, "sessions");
+		logsDir = join(base, "logs");
+		await import("node:fs/promises").then((fs) => fs.mkdir(sessionsDir, { recursive: true }));
+		await import("node:fs/promises").then((fs) => fs.mkdir(logsDir, { recursive: true }));
+	});
+
+	afterEach(async () => {
+		const base = sessionsDir.replace(/\/sessions$/, "");
+		await rm(base, { recursive: true, force: true });
+	});
+
+	async function writeSession(id: string): Promise<void> {
+		const meta = new SessionMetadata({ sessionId: id, agentSpec: "root", model: "claude-haiku", sessionsDir });
+		await meta.save();
+	}
+
+	async function writeLog(id: string, events: object[]): Promise<void> {
+		const { writeFile } = await import("node:fs/promises");
+		const lines = events.map((e) => JSON.stringify(e)).join("\n");
+		await writeFile(join(logsDir, `${id}.jsonl`), lines + "\n");
+	}
+
+	test("returns firstPrompt from the first perceive event", async () => {
+		const id = "01AAAA00000000000000000001";
+		await writeSession(id);
+		await writeLog(id, [
+			{ kind: "perceive", depth: 0, data: { goal: "Fix the login bug" } },
+			{ kind: "plan_end", depth: 0, data: { text: "I fixed it" } },
+		]);
+
+		const entries = await loadSessionSummaries(sessionsDir, logsDir);
+		expect(entries).toHaveLength(1);
+		expect(entries[0]!.firstPrompt).toBe("Fix the login bug");
+	});
+
+	test("returns lastMessage from the last plan_end event", async () => {
+		const id = "01AAAA00000000000000000002";
+		await writeSession(id);
+		await writeLog(id, [
+			{ kind: "perceive", depth: 0, data: { goal: "Refactor DB" } },
+			{ kind: "plan_end", depth: 0, data: { text: "First response" } },
+			{ kind: "plan_end", depth: 0, data: { text: "Final response" } },
+		]);
+
+		const entries = await loadSessionSummaries(sessionsDir, logsDir);
+		expect(entries[0]!.lastMessage).toBe("Final response");
+	});
+
+	test("ignores perceive and plan_end events at depth > 0", async () => {
+		const id = "01AAAA00000000000000000003";
+		await writeSession(id);
+		await writeLog(id, [
+			{ kind: "perceive", depth: 1, data: { goal: "Subagent goal" } },
+			{ kind: "perceive", depth: 0, data: { goal: "Root goal" } },
+			{ kind: "plan_end", depth: 1, data: { text: "Subagent response" } },
+			{ kind: "plan_end", depth: 0, data: { text: "Root response" } },
+		]);
+
+		const entries = await loadSessionSummaries(sessionsDir, logsDir);
+		expect(entries[0]!.firstPrompt).toBe("Root goal");
+		expect(entries[0]!.lastMessage).toBe("Root response");
+	});
+
+	test("sets firstPrompt and lastMessage to undefined when log is missing", async () => {
+		const id = "01AAAA00000000000000000004";
+		await writeSession(id);
+		// No log file written
+
+		const entries = await loadSessionSummaries(sessionsDir, logsDir);
+		expect(entries[0]!.firstPrompt).toBeUndefined();
+		expect(entries[0]!.lastMessage).toBeUndefined();
+	});
+
+	test("returns metadata fields alongside summary fields", async () => {
+		const id = "01AAAA00000000000000000005";
+		await writeSession(id);
+		await writeLog(id, [{ kind: "perceive", depth: 0, data: { goal: "Do something" } }]);
+
+		const entries = await loadSessionSummaries(sessionsDir, logsDir);
+		expect(entries[0]!.sessionId).toBe(id);
+		expect(entries[0]!.agentSpec).toBe("root");
 	});
 });

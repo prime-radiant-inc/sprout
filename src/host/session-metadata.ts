@@ -93,6 +93,13 @@ export async function loadSessionMetadata(path: string): Promise<SessionMetadata
 	return JSON.parse(raw) as SessionMetadataSnapshot;
 }
 
+export interface SessionListEntry extends SessionMetadataSnapshot {
+	/** Text of the first user goal submitted in this session. */
+	firstPrompt?: string;
+	/** Text of the last assistant response in this session. */
+	lastMessage?: string;
+}
+
 /** Scan a directory for *.meta.json files and return snapshots sorted by filename (ULID order). */
 export async function listSessions(sessionsDir: string): Promise<SessionMetadataSnapshot[]> {
 	let entries: string[];
@@ -114,4 +121,54 @@ export async function listSessions(sessionsDir: string): Promise<SessionMetadata
 		}
 	}
 	return snapshots;
+}
+
+/**
+ * Load sessions with first-prompt and last-message summaries extracted from
+ * the JSONL event logs.
+ */
+export async function loadSessionSummaries(
+	sessionsDir: string,
+	logsDir: string,
+): Promise<SessionListEntry[]> {
+	const sessions = await listSessions(sessionsDir);
+	return Promise.all(
+		sessions.map(async (session) => {
+			const logPath = join(logsDir, `${session.sessionId}.jsonl`);
+			const { firstPrompt, lastMessage } = await readSessionSummary(logPath);
+			return { ...session, firstPrompt, lastMessage };
+		}),
+	);
+}
+
+async function readSessionSummary(
+	logPath: string,
+): Promise<{ firstPrompt?: string; lastMessage?: string }> {
+	let raw: string;
+	try {
+		raw = await readFile(logPath, "utf-8");
+	} catch {
+		return {};
+	}
+
+	let firstPrompt: string | undefined;
+	let lastMessage: string | undefined;
+
+	for (const line of raw.split("\n")) {
+		if (!line.trim()) continue;
+		try {
+			const event = JSON.parse(line);
+			if (event.depth !== 0) continue;
+			if (!firstPrompt && event.kind === "perceive" && event.data?.goal) {
+				firstPrompt = event.data.goal as string;
+			}
+			if (event.kind === "plan_end" && event.data?.text) {
+				lastMessage = event.data.text as string;
+			}
+		} catch {
+			// skip malformed lines
+		}
+	}
+
+	return { firstPrompt, lastMessage };
 }

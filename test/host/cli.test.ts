@@ -60,23 +60,18 @@ describe("parseArgs", () => {
 		});
 	});
 
-	test("--resume with no session ID returns help", () => {
+	test("--resume with no session ID shows session picker", () => {
 		const result = parseArgs(["--resume"]);
-		expect(result).toEqual({ kind: "help" });
+		expect(result).toEqual({
+			kind: "list",
+			genomePath: defaultGenomePath,
+		});
 	});
 
 	test("--resume-last returns resume-last mode", () => {
 		const result = parseArgs(["--resume-last"]);
 		expect(result).toEqual({
 			kind: "resume-last",
-			genomePath: defaultGenomePath,
-		});
-	});
-
-	test("--list returns list mode", () => {
-		const result = parseArgs(["--list"]);
-		expect(result).toEqual({
-			kind: "list",
 			genomePath: defaultGenomePath,
 		});
 	});

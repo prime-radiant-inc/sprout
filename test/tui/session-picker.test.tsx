@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { render } from "ink-testing-library";
-import type { SessionMetadataSnapshot } from "../../src/host/session-metadata.ts";
+import type { SessionListEntry } from "../../src/host/session-metadata.ts";
 import { SessionPicker } from "../../src/tui/session-picker.tsx";
 
 /** Wait for React to flush state updates. */
@@ -8,7 +8,7 @@ async function flush() {
 	await new Promise((resolve) => setTimeout(resolve, 10));
 }
 
-const sessions: SessionMetadataSnapshot[] = [
+const sessions: SessionListEntry[] = [
 	{
 		sessionId: "01AAAA00000000000000000001",
 		agentSpec: "root",
@@ -19,6 +19,8 @@ const sessions: SessionMetadataSnapshot[] = [
 		contextWindowSize: 200000,
 		createdAt: "2025-01-01T00:00:00.000Z",
 		updatedAt: "2025-01-01T00:01:00.000Z",
+		firstPrompt: "Fix the login bug in auth middleware",
+		lastMessage: "I fixed the bug by adding a null check in auth.ts",
 	},
 	{
 		sessionId: "01BBBB00000000000000000002",
@@ -30,6 +32,8 @@ const sessions: SessionMetadataSnapshot[] = [
 		contextWindowSize: 200000,
 		createdAt: "2025-01-02T00:00:00.000Z",
 		updatedAt: "2025-01-02T00:05:00.000Z",
+		firstPrompt: "Refactor the database layer",
+		lastMessage: "I've completed the DB refactoring with tests passing",
 	},
 ];
 
@@ -149,5 +153,44 @@ describe("SessionPicker", () => {
 			<SessionPicker sessions={[]} onSelect={() => {}} onCancel={() => {}} />,
 		);
 		expect(lastFrame()).toContain("No sessions");
+	});
+
+	test("renders firstPrompt for each session", () => {
+		const { lastFrame } = render(
+			<SessionPicker sessions={sessions} onSelect={() => {}} onCancel={() => {}} />,
+		);
+		const frame = lastFrame()!;
+		expect(frame).toContain("Fix the login bug in auth middleware");
+		expect(frame).toContain("Refactor the database layer");
+	});
+
+	test("renders lastMessage for each session", () => {
+		const { lastFrame } = render(
+			<SessionPicker sessions={sessions} onSelect={() => {}} onCancel={() => {}} />,
+		);
+		const frame = lastFrame()!;
+		expect(frame).toContain("I fixed the bug by adding a null check");
+		expect(frame).toContain("I've completed the DB refactoring");
+	});
+
+	test("renders sessions without firstPrompt or lastMessage gracefully", () => {
+		const bare: SessionListEntry[] = [
+			{
+				sessionId: "01CCCC00000000000000000003",
+				agentSpec: "root",
+				model: "gpt-4o",
+				status: "idle",
+				turns: 0,
+				contextTokens: 0,
+				contextWindowSize: 0,
+				createdAt: "2025-01-03T00:00:00.000Z",
+				updatedAt: "2025-01-03T00:00:00.000Z",
+			},
+		];
+		const { lastFrame } = render(
+			<SessionPicker sessions={bare} onSelect={() => {}} onCancel={() => {}} />,
+		);
+		// Should render without crashing, and show the session ID
+		expect(lastFrame()).toContain("01CCCC00");
 	});
 });

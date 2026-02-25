@@ -1,9 +1,9 @@
 import { Box, Text, useInput } from "ink";
 import { useState } from "react";
-import type { SessionMetadataSnapshot } from "../host/session-metadata.ts";
+import type { SessionListEntry } from "../host/session-metadata.ts";
 
 export interface SessionPickerProps {
-	sessions: SessionMetadataSnapshot[];
+	sessions: SessionListEntry[];
 	onSelect: (sessionId: string) => void;
 	onCancel: () => void;
 }
@@ -42,12 +42,26 @@ export function SessionPicker({ sessions, onSelect, onCancel }: SessionPickerPro
 			{sessions.map((s, i) => {
 				const selected = i === cursor;
 				const marker = selected ? "> " : "  ";
-				const label = `${s.sessionId} | ${s.agentSpec} | ${s.status} | ${s.turns} turns | ${s.model} | ${s.updatedAt}`;
+				const header = `${s.sessionId} | ${s.agentSpec} | ${s.status} | ${s.turns} turns | ${s.model} | ${s.updatedAt}`;
 				return (
-					<Text key={s.sessionId} color={selected ? "cyan" : undefined}>
-						{marker}
-						{label}
-					</Text>
+					<Box key={s.sessionId} flexDirection="column">
+						<Text color={selected ? "cyan" : undefined}>
+							{marker}
+							{header}
+						</Text>
+						{s.firstPrompt && (
+							<Text color={selected ? "cyan" : undefined}>
+								{"    "}
+								{s.firstPrompt}
+							</Text>
+						)}
+						{s.lastMessage && (
+							<Text color={selected ? "cyan" : "gray"}>
+								{"    ← "}
+								{s.lastMessage}
+							</Text>
+						)}
+					</Box>
 				);
 			})}
 		</Box>
