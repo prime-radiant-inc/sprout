@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
 	buildDelegateTool,
+	buildMessageAgentTool,
 	buildPlanRequest,
 	buildSystemPrompt,
+	buildWaitAgentTool,
 	parsePlanResponse,
 	primitivesForAgent,
 	renderAgentsForPrompt,
@@ -50,6 +52,17 @@ describe("buildDelegateTool", () => {
 		const tool = buildDelegateTool([]);
 		const props = (tool.parameters as any).properties;
 		expect(props.agent_name.enum).toBeUndefined();
+	});
+
+	test("includes blocking and shared params", () => {
+		const tool = buildDelegateTool([testAgent]);
+		const props = (tool.parameters as any).properties;
+		expect(props.blocking).toBeDefined();
+		expect(props.blocking.type).toBe("boolean");
+		expect(props.shared).toBeDefined();
+		expect(props.shared.type).toBe("boolean");
+		// They should not be in required (they have defaults)
+		expect((tool.parameters as any).required).toEqual(["agent_name", "goal"]);
 	});
 });
 
@@ -349,5 +362,121 @@ describe("parsePlanResponse", () => {
 		];
 		const result = parsePlanResponse(toolCalls);
 		expect(result.delegations[0]!.hints).toBeUndefined();
+	});
+
+	test("extracts blocking and shared from delegate call", () => {
+		const toolCalls = [
+			{
+				id: "call_1",
+				name: "delegate",
+				arguments: {
+					agent_name: "code-reader",
+					goal: "find code",
+					blocking: false,
+					shared: true,
+				},
+			},
+		];
+		const result = parsePlanResponse(toolCalls);
+		expect(result.delegations[0]!.blocking).toBe(false);
+		expect(result.delegations[0]!.shared).toBe(true);
+	});
+
+	test("delegation defaults blocking/shared when not provided", () => {
+		const toolCalls = [
+			{
+				id: "call_1",
+				name: "delegate",
+				arguments: { agent_name: "code-reader", goal: "find code" },
+			},
+		];
+		const result = parsePlanResponse(toolCalls);
+		expect(result.delegations[0]!.blocking).toBeUndefined();
+		expect(result.delegations[0]!.shared).toBeUndefined();
+	});
+
+	test("classifies wait_agent calls as agentCommands", () => {
+		const toolCalls = [
+			{ id: "call_1", name: "wait_agent", arguments: { handle: "h-abc123" } },
+			{ id: "call_2", name: "exec", arguments: { command: "ls" } },
+		];
+		const result = parsePlanResponse(toolCalls);
+		expect(result.agentCommands).toHaveLength(1);
+		expect(result.agentCommands[0]!.kind).toBe("wait_agent");
+		expect(result.agentCommands[0]!.call_id).toBe("call_1");
+		expect(result.agentCommands[0]!.handle).toBe("h-abc123");
+		expect(result.primitiveCalls).toHaveLength(1);
+	});
+
+	test("classifies message_agent calls as agentCommands", () => {
+		const toolCalls = [
+			{
+				id: "call_1",
+				name: "message_agent",
+				arguments: { handle: "h-abc123", message: "status?", blocking: false },
+			},
+		];
+		const result = parsePlanResponse(toolCalls);
+		expect(result.agentCommands).toHaveLength(1);
+		const cmd = result.agentCommands[0]!;
+		expect(cmd.kind).toBe("message_agent");
+		expect(cmd.call_id).toBe("call_1");
+		expect(cmd.handle).toBe("h-abc123");
+		expect(cmd.kind === "message_agent" && cmd.message).toBe("status?");
+		expect(cmd.kind === "message_agent" && cmd.blocking).toBe(false);
+	});
+
+	test("returns error for wait_agent missing handle", () => {
+		const toolCalls = [{ id: "call_1", name: "wait_agent", arguments: {} }];
+		const result = parsePlanResponse(toolCalls);
+		expect(result.agentCommands).toHaveLength(0);
+		expect(result.errors).toHaveLength(1);
+		expect(result.errors[0]!.error).toContain("handle");
+	});
+
+	test("returns error for message_agent missing handle", () => {
+		const toolCalls = [
+			{ id: "call_1", name: "message_agent", arguments: { message: "hello" } },
+		];
+		const result = parsePlanResponse(toolCalls);
+		expect(result.errors).toHaveLength(1);
+		expect(result.errors[0]!.error).toContain("handle");
+	});
+
+	test("returns error for message_agent missing message", () => {
+		const toolCalls = [
+			{ id: "call_1", name: "message_agent", arguments: { handle: "h-abc" } },
+		];
+		const result = parsePlanResponse(toolCalls);
+		expect(result.errors).toHaveLength(1);
+		expect(result.errors[0]!.error).toContain("message");
+	});
+});
+
+describe("buildWaitAgentTool", () => {
+	test("returns correct schema", () => {
+		const tool = buildWaitAgentTool();
+		expect(tool.name).toBe("wait_agent");
+		expect(tool.description).toBeTruthy();
+		const props = (tool.parameters as any).properties;
+		expect(props.handle).toBeDefined();
+		expect(props.handle.type).toBe("string");
+		expect((tool.parameters as any).required).toEqual(["handle"]);
+	});
+});
+
+describe("buildMessageAgentTool", () => {
+	test("returns correct schema", () => {
+		const tool = buildMessageAgentTool();
+		expect(tool.name).toBe("message_agent");
+		expect(tool.description).toBeTruthy();
+		const props = (tool.parameters as any).properties;
+		expect(props.handle).toBeDefined();
+		expect(props.handle.type).toBe("string");
+		expect(props.message).toBeDefined();
+		expect(props.message.type).toBe("string");
+		expect(props.blocking).toBeDefined();
+		expect(props.blocking.type).toBe("boolean");
+		expect((tool.parameters as any).required).toEqual(["handle", "message"]);
 	});
 });

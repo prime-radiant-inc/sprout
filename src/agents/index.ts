@@ -5,11 +5,15 @@ export { loadAgentSpec, loadBootstrapAgents } from "./loader.ts";
 export { detectProvider, type ResolvedModel, resolveModel } from "./model-resolver.ts";
 export {
 	buildDelegateTool,
+	buildMessageAgentTool,
 	buildPlanRequest,
 	buildSystemPrompt,
+	buildWaitAgentTool,
 	DELEGATE_TOOL_NAME,
+	MESSAGE_AGENT_TOOL_NAME,
 	parsePlanResponse,
 	primitivesForAgent,
 	renderAgentsForPrompt,
+	WAIT_AGENT_TOOL_NAME,
 } from "./plan.ts";
 export { verifyActResult, verifyPrimitiveResult } from "./verify.ts";

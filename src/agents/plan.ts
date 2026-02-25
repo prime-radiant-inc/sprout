@@ -1,11 +1,19 @@
 import type { AgentFileInfo, AgentToolDefinition } from "../genome/genome.ts";
 import { renderMemories, renderRoutingHints } from "../genome/recall.ts";
-import type { AgentSpec, Delegation, Memory, RoutingRule } from "../kernel/types.ts";
+import type {
+	AgentCommand,
+	AgentSpec,
+	Delegation,
+	Memory,
+	RoutingRule,
+} from "../kernel/types.ts";
 import type { Message, Request, ToolCall, ToolDefinition } from "../llm/types.ts";
 import { Msg } from "../llm/types.ts";
 import type { Preambles } from "./loader.ts";
 
 export const DELEGATE_TOOL_NAME = "delegate";
+export const WAIT_AGENT_TOOL_NAME = "wait_agent";
+export const MESSAGE_AGENT_TOOL_NAME = "message_agent";
 
 /**
  * Build a single "delegate" tool definition that the LLM uses to delegate to any agent.
@@ -35,8 +43,68 @@ export function buildDelegateTool(agents: AgentSpec[]): ToolDefinition {
 					items: { type: "string" },
 					description: "Optional context that might help",
 				},
+				blocking: {
+					type: "boolean",
+					description:
+						"If false, run the agent asynchronously and return a handle immediately. Default: true",
+				},
+				shared: {
+					type: "boolean",
+					description:
+						"If true, reuse an existing agent instance instead of spawning a new one. Default: false",
+				},
 			},
 			required: ["agent_name", "goal"],
+		},
+	};
+}
+
+/**
+ * Build the "wait_agent" tool definition — blocks until a non-blocking agent finishes.
+ */
+export function buildWaitAgentTool(): ToolDefinition {
+	return {
+		name: WAIT_AGENT_TOOL_NAME,
+		description: "Wait for a non-blocking agent to finish and return its result.",
+		parameters: {
+			type: "object",
+			properties: {
+				handle: {
+					type: "string",
+					description: "The handle returned by a non-blocking delegate call",
+				},
+			},
+			required: ["handle"],
+		},
+	};
+}
+
+/**
+ * Build the "message_agent" tool definition — sends a follow-up message to a running agent.
+ */
+export function buildMessageAgentTool(): ToolDefinition {
+	return {
+		name: MESSAGE_AGENT_TOOL_NAME,
+		description:
+			"Send a follow-up message to a running shared agent and receive its response.",
+		parameters: {
+			type: "object",
+			properties: {
+				handle: {
+					type: "string",
+					description: "The handle of the running shared agent",
+				},
+				message: {
+					type: "string",
+					description: "The message to send to the agent",
+				},
+				blocking: {
+					type: "boolean",
+					description:
+						"If false, return immediately with an ack instead of waiting for a response. Default: true",
+				},
+			},
+			required: ["handle", "message"],
 		},
 	};
 }
@@ -195,20 +263,23 @@ export interface DelegationError {
 }
 
 /**
- * Classify tool calls into agent delegations and primitive calls.
+ * Classify tool calls into agent delegations, agent commands, and primitive calls.
  * Delegations are identified by the "delegate" tool name.
+ * Agent commands are wait_agent and message_agent tool calls.
  * If an agent name is used directly as a tool name, auto-corrects to a delegation.
- * Malformed delegations are returned as errors (never throws).
+ * Malformed calls are returned as errors (never throws).
  */
 export function parsePlanResponse(
 	toolCalls: ToolCall[],
 	agentNames?: Set<string>,
 ): {
 	delegations: Delegation[];
+	agentCommands: AgentCommand[];
 	primitiveCalls: ToolCall[];
 	errors: DelegationError[];
 } {
 	const delegations: Delegation[] = [];
+	const agentCommands: AgentCommand[] = [];
 	const primitiveCalls: ToolCall[] = [];
 	const errors: DelegationError[] = [];
 
@@ -222,6 +293,14 @@ export function parsePlanResponse(
 					agent_name: call.name,
 					goal,
 					hints: Array.isArray(call.arguments.hints) ? call.arguments.hints : undefined,
+					blocking:
+						typeof call.arguments.blocking === "boolean"
+							? call.arguments.blocking
+							: undefined,
+					shared:
+						typeof call.arguments.shared === "boolean"
+							? call.arguments.shared
+							: undefined,
 				});
 			} else {
 				errors.push({
@@ -255,13 +334,56 @@ export function parsePlanResponse(
 				agent_name: agentName,
 				goal,
 				hints: Array.isArray(hints) ? hints : undefined,
+				blocking:
+					typeof call.arguments.blocking === "boolean"
+						? call.arguments.blocking
+						: undefined,
+				shared:
+					typeof call.arguments.shared === "boolean" ? call.arguments.shared : undefined,
+			});
+		} else if (call.name === WAIT_AGENT_TOOL_NAME) {
+			const handle = call.arguments.handle;
+			if (typeof handle !== "string" || handle.length === 0) {
+				errors.push({
+					call_id: call.id,
+					error: "wait_agent missing required 'handle' argument",
+				});
+				continue;
+			}
+			agentCommands.push({ kind: "wait_agent", call_id: call.id, handle });
+		} else if (call.name === MESSAGE_AGENT_TOOL_NAME) {
+			const handle = call.arguments.handle;
+			if (typeof handle !== "string" || handle.length === 0) {
+				errors.push({
+					call_id: call.id,
+					error: "message_agent missing required 'handle' argument",
+				});
+				continue;
+			}
+			const message = call.arguments.message;
+			if (typeof message !== "string" || message.length === 0) {
+				errors.push({
+					call_id: call.id,
+					error: "message_agent missing required 'message' argument",
+				});
+				continue;
+			}
+			agentCommands.push({
+				kind: "message_agent",
+				call_id: call.id,
+				handle,
+				message,
+				blocking:
+					typeof call.arguments.blocking === "boolean"
+						? call.arguments.blocking
+						: undefined,
 			});
 		} else {
 			primitiveCalls.push(call);
 		}
 	}
 
-	return { delegations, primitiveCalls, errors };
+	return { delegations, agentCommands, primitiveCalls, errors };
 }
 
 // ---------------------------------------------------------------------------

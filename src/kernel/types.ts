@@ -59,7 +59,30 @@ export interface Delegation {
 	agent_name: string;
 	goal: string;
 	hints?: string[];
+	/** If false, delegation runs asynchronously and returns a handle. Default: true */
+	blocking?: boolean;
+	/** If true, reuse an existing agent instance instead of spawning a new one. Default: false */
+	shared?: boolean;
 }
+
+/** Wait for a non-blocking agent to finish and collect its result */
+export interface WaitAgentCommand {
+	kind: "wait_agent";
+	call_id: string;
+	handle: string;
+}
+
+/** Send a follow-up message to a running (shared) agent */
+export interface MessageAgentCommand {
+	kind: "message_agent";
+	call_id: string;
+	handle: string;
+	message: string;
+	/** If false, returns immediately with an ack. Default: true */
+	blocking?: boolean;
+}
+
+export type AgentCommand = WaitAgentCommand | MessageAgentCommand;
 
 /** Result of an Act delegation to a subagent */
 export interface ActResult {
