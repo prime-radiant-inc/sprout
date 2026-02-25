@@ -173,6 +173,84 @@ describe("SessionPicker", () => {
 		expect(frame).toContain("I've completed the DB refactoring");
 	});
 
+	test("caps lastMessage display at 3 lines", () => {
+		const long: SessionListEntry[] = [
+			{
+				sessionId: "01DDDD00000000000000000004",
+				agentSpec: "root",
+				model: "gpt-4o",
+				status: "idle",
+				turns: 1,
+				contextTokens: 0,
+				contextWindowSize: 0,
+				createdAt: "2025-01-04T00:00:00.000Z",
+				updatedAt: "2025-01-04T00:00:00.000Z",
+				lastMessage: "Line one\nLine two\nLine three\nLine four\nLine five",
+			},
+		];
+		const { lastFrame } = render(
+			<SessionPicker sessions={long} onSelect={() => {}} onCancel={() => {}} />,
+		);
+		const frame = lastFrame()!;
+		expect(frame).toContain("Line one");
+		expect(frame).toContain("Line two");
+		expect(frame).toContain("Line three");
+		expect(frame).not.toContain("Line four");
+		expect(frame).not.toContain("Line five");
+	});
+
+	test("strips markdown code blocks from lastMessage", () => {
+		const withCode: SessionListEntry[] = [
+			{
+				sessionId: "01EEEE00000000000000000005",
+				agentSpec: "root",
+				model: "gpt-4o",
+				status: "idle",
+				turns: 1,
+				contextTokens: 0,
+				contextWindowSize: 0,
+				createdAt: "2025-01-05T00:00:00.000Z",
+				updatedAt: "2025-01-05T00:00:00.000Z",
+				lastMessage:
+					"I fixed the bug:\n```typescript\nconst x = 1;\nconst y = 2;\n```\nAll tests pass.",
+			},
+		];
+		const { lastFrame } = render(
+			<SessionPicker sessions={withCode} onSelect={() => {}} onCancel={() => {}} />,
+		);
+		const frame = lastFrame()!;
+		expect(frame).toContain("I fixed the bug");
+		expect(frame).toContain("All tests pass");
+		expect(frame).not.toContain("const x = 1");
+	});
+
+	test("strips markdown formatting (bold, italic, headers, inline code) from lastMessage", () => {
+		const withMarkdown: SessionListEntry[] = [
+			{
+				sessionId: "01FFFF00000000000000000006",
+				agentSpec: "root",
+				model: "gpt-4o",
+				status: "idle",
+				turns: 1,
+				contextTokens: 0,
+				contextWindowSize: 0,
+				createdAt: "2025-01-06T00:00:00.000Z",
+				updatedAt: "2025-01-06T00:00:00.000Z",
+				lastMessage: "## Summary\n**Fixed** the `bug` in _auth.ts_",
+			},
+		];
+		const { lastFrame } = render(
+			<SessionPicker sessions={withMarkdown} onSelect={() => {}} onCancel={() => {}} />,
+		);
+		const frame = lastFrame()!;
+		expect(frame).toContain("Summary");
+		expect(frame).toContain("Fixed the bug in auth.ts");
+		expect(frame).not.toContain("**");
+		expect(frame).not.toContain("##");
+		expect(frame).not.toContain("`");
+		expect(frame).not.toContain("_auth");
+	});
+
 	test("renders sessions without firstPrompt or lastMessage gracefully", () => {
 		const bare: SessionListEntry[] = [
 			{

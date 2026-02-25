@@ -139,9 +139,7 @@ export function App({
 				sessionId={currentSessionId}
 				status={statusState.status}
 			/>
-			{exitHintVisible && (
-				<Text color="yellow">Press Ctrl+C again to exit</Text>
-			)}
+			{exitHintVisible && <Text color="yellow">Press Ctrl+C again to exit</Text>}
 			{showModelPicker ? (
 				<ModelPicker
 					models={models}

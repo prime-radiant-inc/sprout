@@ -2,6 +2,32 @@ import { Box, Text, useInput } from "ink";
 import { useState } from "react";
 import type { SessionListEntry } from "../host/session-metadata.ts";
 
+/** Strip markdown formatting and return up to maxLines non-empty lines. */
+function summarize(text: string, maxLines: number): string[] {
+	const stripped = text
+		// Remove code fences (``` ... ```) and their contents
+		.replace(/```[\s\S]*?```/g, "")
+		// Remove heading markers (## Title → Title)
+		.replace(/^#{1,6}\s+/gm, "")
+		// Remove bold (** and __), must come before italic
+		.replace(/\*{2,3}([^*]*)\*{2,3}/g, "$1")
+		.replace(/_{2,3}([^_]*)_{2,3}/g, "$1")
+		// Remove italic (* and _)
+		.replace(/\*([^*]+)\*/g, "$1")
+		.replace(/_([^_]+)_/g, "$1")
+		// Remove inline code
+		.replace(/`([^`]+)`/g, "$1")
+		// Remove list markers
+		.replace(/^[-*+]\s+/gm, "")
+		.replace(/^\d+\.\s+/gm, "");
+
+	return stripped
+		.split("\n")
+		.map((l) => l.trim())
+		.filter((l) => l.length > 0)
+		.slice(0, maxLines);
+}
+
 export interface SessionPickerProps {
 	sessions: SessionListEntry[];
 	onSelect: (sessionId: string) => void;
@@ -52,15 +78,16 @@ export function SessionPicker({ sessions, onSelect, onCancel }: SessionPickerPro
 						{s.firstPrompt && (
 							<Text color={selected ? "cyan" : undefined}>
 								{"    "}
-								{s.firstPrompt}
+								{s.firstPrompt.split("\n")[0]}
 							</Text>
 						)}
-						{s.lastMessage && (
-							<Text color={selected ? "cyan" : "gray"}>
-								{"    ← "}
-								{s.lastMessage}
-							</Text>
-						)}
+						{s.lastMessage &&
+							summarize(s.lastMessage, 3).map((line, idx) => (
+								<Text key={line} color={selected ? "cyan" : "gray"}>
+									{idx === 0 ? "    ← " : "      "}
+									{line}
+								</Text>
+							))}
 					</Box>
 				);
 			})}

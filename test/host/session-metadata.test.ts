@@ -328,7 +328,12 @@ describe("loadSessionSummaries", () => {
 	});
 
 	async function writeSession(id: string): Promise<void> {
-		const meta = new SessionMetadata({ sessionId: id, agentSpec: "root", model: "claude-haiku", sessionsDir });
+		const meta = new SessionMetadata({
+			sessionId: id,
+			agentSpec: "root",
+			model: "claude-haiku",
+			sessionsDir,
+		});
 		await meta.save();
 	}
 
