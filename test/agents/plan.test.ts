@@ -212,7 +212,12 @@ describe("buildSystemPrompt", () => {
 			...testAgent,
 			constraints: { ...testAgent.constraints, can_spawn: false },
 		};
-		const postscripts = { global: "Be concise.", orchestrator: "", worker: "No fluff.", agent: "Reader-specific." };
+		const postscripts = {
+			global: "Be concise.",
+			orchestrator: "",
+			worker: "No fluff.",
+			agent: "Reader-specific.",
+		};
 		const prompt = buildSystemPrompt(
 			workerSpec,
 			"/tmp/test",
@@ -238,7 +243,12 @@ describe("buildSystemPrompt", () => {
 			name: "root",
 			constraints: { ...testAgent.constraints, can_spawn: true },
 		};
-		const postscripts = { global: "Global.", orchestrator: "Orchestrator rule.", worker: "Worker rule.", agent: "" };
+		const postscripts = {
+			global: "Global.",
+			orchestrator: "Orchestrator rule.",
+			worker: "Worker rule.",
+			agent: "",
+		};
 		const prompt = buildSystemPrompt(
 			orchestratorSpec,
 			"/tmp/test",
@@ -364,6 +374,20 @@ describe("parsePlanResponse", () => {
 		expect(result.delegations[0]!.hints).toBeUndefined();
 	});
 
+	test("auto-corrected agent call preserves blocking/shared", () => {
+		const toolCalls = [
+			{
+				id: "call_1",
+				name: "code-reader",
+				arguments: { goal: "find code", blocking: false, shared: true },
+			},
+		];
+		const result = parsePlanResponse(toolCalls, new Set(["code-reader"]));
+		expect(result.delegations).toHaveLength(1);
+		expect(result.delegations[0]!.blocking).toBe(false);
+		expect(result.delegations[0]!.shared).toBe(true);
+	});
+
 	test("extracts blocking and shared from delegate call", () => {
 		const toolCalls = [
 			{
@@ -419,11 +443,11 @@ describe("parsePlanResponse", () => {
 		const result = parsePlanResponse(toolCalls);
 		expect(result.agentCommands).toHaveLength(1);
 		const cmd = result.agentCommands[0]!;
-		expect(cmd.kind).toBe("message_agent");
+		if (cmd.kind !== "message_agent") throw new Error("unexpected kind");
 		expect(cmd.call_id).toBe("call_1");
 		expect(cmd.handle).toBe("h-abc123");
-		expect(cmd.kind === "message_agent" && cmd.message).toBe("status?");
-		expect(cmd.kind === "message_agent" && cmd.blocking).toBe(false);
+		expect(cmd.message).toBe("status?");
+		expect(cmd.blocking).toBe(false);
 	});
 
 	test("returns error for wait_agent missing handle", () => {
@@ -435,18 +459,14 @@ describe("parsePlanResponse", () => {
 	});
 
 	test("returns error for message_agent missing handle", () => {
-		const toolCalls = [
-			{ id: "call_1", name: "message_agent", arguments: { message: "hello" } },
-		];
+		const toolCalls = [{ id: "call_1", name: "message_agent", arguments: { message: "hello" } }];
 		const result = parsePlanResponse(toolCalls);
 		expect(result.errors).toHaveLength(1);
 		expect(result.errors[0]!.error).toContain("handle");
 	});
 
 	test("returns error for message_agent missing message", () => {
-		const toolCalls = [
-			{ id: "call_1", name: "message_agent", arguments: { handle: "h-abc" } },
-		];
+		const toolCalls = [{ id: "call_1", name: "message_agent", arguments: { handle: "h-abc" } }];
 		const result = parsePlanResponse(toolCalls);
 		expect(result.errors).toHaveLength(1);
 		expect(result.errors[0]!.error).toContain("message");
