@@ -16,7 +16,6 @@ import type {
 	Memory,
 	RoutingRule,
 } from "../kernel/types.ts";
-import type { Preambles } from "./loader.ts";
 import type { LearnProcess } from "../learn/learn-process.ts";
 import type { Client } from "../llm/client.ts";
 import type { Response as LLMResponse, Message, ToolDefinition } from "../llm/types.ts";
@@ -24,6 +23,7 @@ import { Msg, messageReasoning, messageText, messageToolCalls } from "../llm/typ
 import { ulid } from "../util/ulid.ts";
 import { getContextWindowSize } from "./context-window.ts";
 import { AgentEventEmitter } from "./events.ts";
+import type { Preambles } from "./loader.ts";
 import { type ResolvedModel, resolveModel } from "./model-resolver.ts";
 import {
 	buildDelegateTool,
