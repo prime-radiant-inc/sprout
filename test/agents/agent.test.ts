@@ -2503,7 +2503,7 @@ describe("Agent", () => {
 			depth: 0,
 		});
 
-		expect(agent.continue("should fail")).rejects.toThrow(/run\(\)/i);
+		await expect(agent.continue("should fail")).rejects.toThrow(/run\(\)/i);
 	});
 
 	test("currentHistory() returns shallow copy of conversation history after run()", async () => {
