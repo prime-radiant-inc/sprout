@@ -1,8 +1,14 @@
 import { readFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
+import type { Genome } from "../genome/genome.ts";
 import type { ExecutionEnvironment } from "./execution-env.ts";
 import { truncateToolOutput } from "./truncation.ts";
 import type { PrimitiveResult } from "./types.ts";
+
+export interface GenomeContext {
+	genome: Genome;
+	agentName: string;
+}
 
 export interface Primitive {
 	name: string;
@@ -25,11 +31,20 @@ export interface PrimitiveRegistry {
 	): Promise<PrimitiveResult>;
 }
 
-export function createPrimitiveRegistry(env: ExecutionEnvironment): PrimitiveRegistry {
+export function createPrimitiveRegistry(
+	env: ExecutionEnvironment,
+	genomeContext?: GenomeContext,
+): PrimitiveRegistry {
 	const primitives = new Map<string, Primitive>();
 
 	for (const prim of buildPrimitives(env)) {
 		primitives.set(prim.name, prim);
+	}
+
+	if (genomeContext) {
+		for (const prim of buildWorkspacePrimitives(genomeContext)) {
+			primitives.set(prim.name, prim);
+		}
 	}
 
 	return {
@@ -61,6 +76,10 @@ function buildPrimitives(_env: ExecutionEnvironment): Primitive[] {
 		globPrimitive(),
 		fetchPrimitive(),
 	];
+}
+
+function buildWorkspacePrimitives(ctx: GenomeContext): Primitive[] {
+	return [saveToolPrimitive(ctx), saveFilePrimitive(ctx)];
 }
 
 // ---------------------------------------------------------------------------
@@ -557,6 +576,100 @@ function fetchPrimitive(): Primitive {
 					output,
 					success: response.ok,
 					error: response.ok ? undefined : `HTTP ${response.status}: ${response.statusText}`,
+				};
+			} catch (err) {
+				return { output: "", success: false, error: String(err) };
+			}
+		},
+	};
+}
+
+// ---------------------------------------------------------------------------
+// save_tool (workspace)
+// ---------------------------------------------------------------------------
+
+function saveToolPrimitive(ctx: GenomeContext): Primitive {
+	return {
+		name: "save_tool",
+		description:
+			"Save an executable script to your workspace. The tool persists across sessions and becomes part of your capabilities.",
+		parameters: {
+			type: "object",
+			properties: {
+				name: { type: "string", description: "Tool name (used as filename, e.g. 'run-tests')" },
+				description: { type: "string", description: "What this tool does" },
+				script: { type: "string", description: "The script content (bash, python, node, etc.)" },
+				interpreter: {
+					type: "string",
+					description: "Script interpreter (e.g. 'bash', 'python3', 'node'). Default: 'bash'",
+				},
+			},
+			required: ["name", "description", "script"],
+		},
+		async execute(args) {
+			const name = args.name as string;
+			const description = args.description as string;
+			const script = args.script as string | undefined;
+			const interpreter = args.interpreter as string | undefined;
+
+			if (!name || !description) {
+				return { output: "", success: false, error: "Missing required parameters: name, description" };
+			}
+			if (!script) {
+				return { output: "", success: false, error: "Missing required parameter: script" };
+			}
+
+			try {
+				await ctx.genome.saveAgentTool(ctx.agentName, {
+					name,
+					description,
+					script,
+					interpreter,
+				});
+				return {
+					output: `Saved tool '${name}' to workspace. It will be available in future sessions.`,
+					success: true,
+				};
+			} catch (err) {
+				return { output: "", success: false, error: String(err) };
+			}
+		},
+	};
+}
+
+// ---------------------------------------------------------------------------
+// save_file (workspace)
+// ---------------------------------------------------------------------------
+
+function saveFilePrimitive(ctx: GenomeContext): Primitive {
+	return {
+		name: "save_file",
+		description:
+			"Save a reference file to your workspace. Files persist across sessions and can be read with read_file.",
+		parameters: {
+			type: "object",
+			properties: {
+				name: { type: "string", description: "Filename (e.g. 'style-guide.md')" },
+				content: { type: "string", description: "File content" },
+			},
+			required: ["name", "content"],
+		},
+		async execute(args) {
+			const name = args.name as string;
+			const content = args.content as string | undefined;
+
+			if (!name) {
+				return { output: "", success: false, error: "Missing required parameter: name" };
+			}
+			if (content === undefined || content === null) {
+				return { output: "", success: false, error: "Missing required parameter: content" };
+			}
+
+			try {
+				await ctx.genome.saveAgentFile(ctx.agentName, { name, content: content as string });
+				return {
+					output: `Saved file '${name}' to workspace.`,
+					success: true,
 				};
 			} catch (err) {
 				return { output: "", success: false, error: String(err) };
