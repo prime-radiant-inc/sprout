@@ -1,166 +1,160 @@
 {
-  "recordings": [
-    {
-      "type": "complete",
-      "request": {
-        "model": "gpt-4.1-mini",
-        "messages": [
-          {
-            "role": "user",
-            "content": [
-              {
-                "kind": "text",
-                "text": "What's the weather in SF? Use the get_weather tool."
-              }
-            ]
-          }
-        ],
-        "tools": [
-          {
-            "name": "get_weather",
-            "description": "Get current weather",
-            "parameters": {
-              "type": "object",
-              "properties": {
-                "location": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "location"
-              ]
-            }
-          }
-        ],
-        "tool_choice": "required",
-        "max_tokens": 200
-      },
-      "response": {
-        "id": "resp_0e471b37cc359c3b00699e9132c3448193a94db562e4543817",
-        "model": "gpt-4.1-mini-2025-04-14",
-        "provider": "openai",
-        "message": {
-          "role": "assistant",
-          "content": [
-            {
-              "kind": "tool_call",
-              "tool_call": {
-                "id": "call_vEaBC4g5VNySTNlMCJ2HwYR6",
-                "name": "get_weather",
-                "arguments": {
-                  "location": "San Francisco"
-                }
-              }
-            }
-          ]
-        },
-        "finish_reason": {
-          "reason": "tool_calls",
-          "raw": "completed"
-        },
-        "usage": {
-          "input_tokens": 56,
-          "output_tokens": 7,
-          "total_tokens": 63,
-          "reasoning_tokens": 0
-        }
-      }
-    },
-    {
-      "type": "complete",
-      "request": {
-        "model": "gpt-4.1-mini",
-        "messages": [
-          {
-            "role": "user",
-            "content": [
-              {
-                "kind": "text",
-                "text": "What's the weather in SF? Use the get_weather tool."
-              }
-            ]
-          },
-          {
-            "role": "assistant",
-            "content": [
-              {
-                "kind": "tool_call",
-                "tool_call": {
-                  "id": "call_vEaBC4g5VNySTNlMCJ2HwYR6",
-                  "name": "get_weather",
-                  "arguments": {
-                    "location": "San Francisco"
-                  }
-                }
-              }
-            ]
-          },
-          {
-            "role": "tool",
-            "content": [
-              {
-                "kind": "tool_result",
-                "tool_result": {
-                  "tool_call_id": "call_vEaBC4g5VNySTNlMCJ2HwYR6",
-                  "content": "72F and sunny",
-                  "is_error": false
-                }
-              }
-            ],
-            "tool_call_id": "call_vEaBC4g5VNySTNlMCJ2HwYR6"
-          }
-        ],
-        "tools": [
-          {
-            "name": "get_weather",
-            "description": "Get current weather",
-            "parameters": {
-              "type": "object",
-              "properties": {
-                "location": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "location"
-              ]
-            }
-          }
-        ],
-        "max_tokens": 200
-      },
-      "response": {
-        "id": "resp_0ef91a6074cf481000699e913362f88193bc5838b55f14eac0",
-        "model": "gpt-4.1-mini-2025-04-14",
-        "provider": "openai",
-        "message": {
-          "role": "assistant",
-          "content": [
-            {
-              "kind": "text",
-              "text": "The weather in San Francisco is currently 72°F and sunny."
-            }
-          ]
-        },
-        "finish_reason": {
-          "reason": "stop",
-          "raw": "completed"
-        },
-        "usage": {
-          "input_tokens": 72,
-          "output_tokens": 15,
-          "total_tokens": 87,
-          "reasoning_tokens": 0
-        }
-      }
-    }
-  ],
-  "metadata": {
-    "recordedAt": "2026-02-25T06:05:40.195Z",
-    "testName": "complete-handles-tool-result-round-trip",
-    "providers": [
-      "openai"
-    ],
-    "adapterName": "openai"
-  }
+	"recordings": [
+		{
+			"type": "complete",
+			"request": {
+				"model": "gpt-4.1-mini",
+				"messages": [
+					{
+						"role": "user",
+						"content": [
+							{
+								"kind": "text",
+								"text": "What's the weather in SF? Use the get_weather tool."
+							}
+						]
+					}
+				],
+				"tools": [
+					{
+						"name": "get_weather",
+						"description": "Get current weather",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"location": {
+									"type": "string"
+								}
+							},
+							"required": ["location"]
+						}
+					}
+				],
+				"tool_choice": "required",
+				"max_tokens": 200
+			},
+			"response": {
+				"id": "resp_0e471b37cc359c3b00699e9132c3448193a94db562e4543817",
+				"model": "gpt-4.1-mini-2025-04-14",
+				"provider": "openai",
+				"message": {
+					"role": "assistant",
+					"content": [
+						{
+							"kind": "tool_call",
+							"tool_call": {
+								"id": "call_vEaBC4g5VNySTNlMCJ2HwYR6",
+								"name": "get_weather",
+								"arguments": {
+									"location": "San Francisco"
+								}
+							}
+						}
+					]
+				},
+				"finish_reason": {
+					"reason": "tool_calls",
+					"raw": "completed"
+				},
+				"usage": {
+					"input_tokens": 56,
+					"output_tokens": 7,
+					"total_tokens": 63,
+					"reasoning_tokens": 0
+				}
+			}
+		},
+		{
+			"type": "complete",
+			"request": {
+				"model": "gpt-4.1-mini",
+				"messages": [
+					{
+						"role": "user",
+						"content": [
+							{
+								"kind": "text",
+								"text": "What's the weather in SF? Use the get_weather tool."
+							}
+						]
+					},
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"kind": "tool_call",
+								"tool_call": {
+									"id": "call_vEaBC4g5VNySTNlMCJ2HwYR6",
+									"name": "get_weather",
+									"arguments": {
+										"location": "San Francisco"
+									}
+								}
+							}
+						]
+					},
+					{
+						"role": "tool",
+						"content": [
+							{
+								"kind": "tool_result",
+								"tool_result": {
+									"tool_call_id": "call_vEaBC4g5VNySTNlMCJ2HwYR6",
+									"content": "72F and sunny",
+									"is_error": false
+								}
+							}
+						],
+						"tool_call_id": "call_vEaBC4g5VNySTNlMCJ2HwYR6"
+					}
+				],
+				"tools": [
+					{
+						"name": "get_weather",
+						"description": "Get current weather",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"location": {
+									"type": "string"
+								}
+							},
+							"required": ["location"]
+						}
+					}
+				],
+				"max_tokens": 200
+			},
+			"response": {
+				"id": "resp_0ef91a6074cf481000699e913362f88193bc5838b55f14eac0",
+				"model": "gpt-4.1-mini-2025-04-14",
+				"provider": "openai",
+				"message": {
+					"role": "assistant",
+					"content": [
+						{
+							"kind": "text",
+							"text": "The weather in San Francisco is currently 72°F and sunny."
+						}
+					]
+				},
+				"finish_reason": {
+					"reason": "stop",
+					"raw": "completed"
+				},
+				"usage": {
+					"input_tokens": 72,
+					"output_tokens": 15,
+					"total_tokens": 87,
+					"reasoning_tokens": 0
+				}
+			}
+		}
+	],
+	"metadata": {
+		"recordedAt": "2026-02-25T06:05:40.195Z",
+		"testName": "complete-handles-tool-result-round-trip",
+		"providers": ["openai"],
+		"adapterName": "openai"
+	}
 }

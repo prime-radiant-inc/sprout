@@ -1,107 +1,103 @@
 {
-  "recordings": [
-    {
-      "type": "stream",
-      "request": {
-        "model": "gpt-4.1-mini",
-        "messages": [
-          {
-            "role": "user",
-            "content": [
-              {
-                "kind": "text",
-                "text": "Count to 3."
-              }
-            ]
-          }
-        ],
-        "provider": "openai",
-        "max_tokens": 50
-      },
-      "events": [
-        {
-          "type": "stream_start"
-        },
-        {
-          "type": "text_delta",
-          "delta": "1"
-        },
-        {
-          "type": "text_delta",
-          "delta": ","
-        },
-        {
-          "type": "text_delta",
-          "delta": " "
-        },
-        {
-          "type": "text_delta",
-          "delta": "2"
-        },
-        {
-          "type": "text_delta",
-          "delta": ","
-        },
-        {
-          "type": "text_delta",
-          "delta": " "
-        },
-        {
-          "type": "text_delta",
-          "delta": "3"
-        },
-        {
-          "type": "text_delta",
-          "delta": "."
-        },
-        {
-          "type": "text_end"
-        },
-        {
-          "type": "finish",
-          "finish_reason": {
-            "reason": "stop"
-          },
-          "usage": {
-            "input_tokens": 12,
-            "output_tokens": 9,
-            "total_tokens": 21,
-            "reasoning_tokens": 0
-          },
-          "response": {
-            "id": "",
-            "model": "gpt-4.1-mini",
-            "provider": "openai",
-            "message": {
-              "role": "assistant",
-              "content": [
-                {
-                  "kind": "text",
-                  "text": "1, 2, 3."
-                }
-              ]
-            },
-            "finish_reason": {
-              "reason": "stop"
-            },
-            "usage": {
-              "input_tokens": 12,
-              "output_tokens": 9,
-              "total_tokens": 21,
-              "reasoning_tokens": 0
-            }
-          }
-        }
-      ]
-    }
-  ],
-  "metadata": {
-    "recordedAt": "2026-02-25T06:05:44.169Z",
-    "testName": "stream-routes-to-correct-provider",
-    "providers": [
-      "anthropic",
-      "openai",
-      "gemini"
-    ]
-  }
+	"recordings": [
+		{
+			"type": "stream",
+			"request": {
+				"model": "gpt-4.1-mini",
+				"messages": [
+					{
+						"role": "user",
+						"content": [
+							{
+								"kind": "text",
+								"text": "Count to 3."
+							}
+						]
+					}
+				],
+				"provider": "openai",
+				"max_tokens": 50
+			},
+			"events": [
+				{
+					"type": "stream_start"
+				},
+				{
+					"type": "text_delta",
+					"delta": "1"
+				},
+				{
+					"type": "text_delta",
+					"delta": ","
+				},
+				{
+					"type": "text_delta",
+					"delta": " "
+				},
+				{
+					"type": "text_delta",
+					"delta": "2"
+				},
+				{
+					"type": "text_delta",
+					"delta": ","
+				},
+				{
+					"type": "text_delta",
+					"delta": " "
+				},
+				{
+					"type": "text_delta",
+					"delta": "3"
+				},
+				{
+					"type": "text_delta",
+					"delta": "."
+				},
+				{
+					"type": "text_end"
+				},
+				{
+					"type": "finish",
+					"finish_reason": {
+						"reason": "stop"
+					},
+					"usage": {
+						"input_tokens": 12,
+						"output_tokens": 9,
+						"total_tokens": 21,
+						"reasoning_tokens": 0
+					},
+					"response": {
+						"id": "",
+						"model": "gpt-4.1-mini",
+						"provider": "openai",
+						"message": {
+							"role": "assistant",
+							"content": [
+								{
+									"kind": "text",
+									"text": "1, 2, 3."
+								}
+							]
+						},
+						"finish_reason": {
+							"reason": "stop"
+						},
+						"usage": {
+							"input_tokens": 12,
+							"output_tokens": 9,
+							"total_tokens": 21,
+							"reasoning_tokens": 0
+						}
+					}
+				}
+			]
+		}
+	],
+	"metadata": {
+		"recordedAt": "2026-02-25T06:05:44.169Z",
+		"testName": "stream-routes-to-correct-provider",
+		"providers": ["anthropic", "openai", "gemini"]
+	}
 }

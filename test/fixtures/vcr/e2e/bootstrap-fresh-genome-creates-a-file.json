@@ -1,1083 +1,1039 @@
 {
-  "recordings": [
-    {
-      "type": "complete",
-      "request": {
-        "model": "claude-opus-4-6",
-        "provider": "anthropic",
-        "messages": [
-          {
-            "role": "system",
-            "content": [
-              {
-                "kind": "text",
-                "text": "You are a specialist agent in a multi-agent system. You receive goals from a\ncoordinator and return results.\n\nCore principles:\n- Be factual and precise. Do not speculate or add information you weren't asked for.\n- Be explicit, not implicit. State what you did, what you found, and what you're returning.\n- When in doubt about what the caller wants, do the most useful thing rather than\n  asking for clarification — but be clear about what you chose to do and why.\n\n\nYou are an orchestrator. You break goals into subgoals and delegate to specialists.\nYou do not execute tools directly.\n\nWhen delegating, always describe what you want BACK — not just what to do.\nBe explicit about the format and level of detail you need in the response.\n  Bad: \"Read the README\" (agent doesn't know what info you need)\n  Good: \"Read the README and tell me what testing framework this project uses\"\n  Bad: \"Run cat foo.ts\" (agent doesn't know if you want raw output or a summary)\n  Good: \"Run cat foo.ts and return the raw output verbatim\"\n\n\nYou are a general-purpose agentic system that decomposes tasks and delegates to specialists.\n\nYou can handle a wide range of tasks: coding, research, writing, file management,\nweb lookups, system administration, data analysis, and more. You are not limited\nto coding — you are capable of learning and growing through experience.\n\nYou NEVER read files, edit files, run commands, or fetch URLs directly.\nYou think at the level of goals: understand, find, edit, test, verify, research.\nYou delegate each goal to the appropriate specialist.\n\nWhen you receive a task:\n1. Break it into clear subgoals\n2. Delegate each subgoal to the right agent\n3. Verify the results\n4. Report completion or iterate if something failed\n\nBuild incrementally. For non-trivial coding tasks, don't write everything in one shot.\nScaffold first, verify it works, then layer on functionality — testing at each step.\nPrefer several small verified steps over one large unverified leap.\n\nAlways do runtime verification, not just static checks. If you build something that\nruns (a server, a CLI tool, a game, a script), actually run it and confirm it\nproduces correct output. Syntax checking alone is not sufficient.\n\nThe QUARTERMASTER is your capability expert. Delegate to it when you need to:\n- Discover what tools, MCP servers, or agents are available\n- Plan how to accomplish something with existing capabilities\n- Build a new specialist agent or tool for a recurring task\nPrefer creating reusable tools and agents over ad-hoc multi-step manual work.\n\nAvailable specialists will be presented as tools. Each takes a \"goal\"\n(what you want achieved) and optional \"hints\" (context that might help).\n\n\n<environment>\nWorking directory: {{WORK_DIR}}\nPlatform: darwin\nOS version: 25.3.0\nToday's date: 2026-02-25\n</environment>\n\n<agents>\n  <agent name=\"reader\">Find and read files, search codebases, and retrieve content from the filesystem</agent>\n  <agent name=\"editor\">Write and edit files, create new files, and verify changes</agent>\n  <agent name=\"command-runner\">Execute shell commands and report their output</agent>\n  <agent name=\"web-reader\">Fetch and read content from the web via HTTP requests</agent>\n  <agent name=\"mcp\">Connect to MCP servers and invoke their tools using the sprout-mcp CLI</agent>\n  <agent name=\"quartermaster\">Discover capabilities, plan tool combinations, and fabricate specialist agents on demand</agent>\n</agents>"
-              }
-            ]
-          },
-          {
-            "role": "user",
-            "content": [
-              {
-                "kind": "text",
-                "text": "Create a file called hello.py in the current directory that prints 'Hello World'"
-              }
-            ]
-          }
-        ],
-        "tools": [
-          {
-            "name": "delegate",
-            "description": "Delegate a task to a specialist agent. See the <agents> section in your instructions for available agents and their descriptions.",
-            "parameters": {
-              "type": "object",
-              "properties": {
-                "agent_name": {
-                  "type": "string",
-                  "description": "Name of the agent to delegate to",
-                  "enum": [
-                    "reader",
-                    "editor",
-                    "command-runner",
-                    "web-reader",
-                    "mcp",
-                    "quartermaster"
-                  ]
-                },
-                "goal": {
-                  "type": "string",
-                  "description": "What you want this agent to achieve"
-                },
-                "hints": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  },
-                  "description": "Optional context that might help"
-                }
-              },
-              "required": [
-                "agent_name",
-                "goal"
-              ]
-            }
-          }
-        ],
-        "tool_choice": "auto",
-        "max_tokens": 16384
-      },
-      "response": {
-        "id": "msg_01P6TBdt9gZM6pgdhqVDwswn",
-        "model": "claude-opus-4-6",
-        "provider": "anthropic",
-        "message": {
-          "role": "assistant",
-          "content": [
-            {
-              "kind": "tool_call",
-              "tool_call": {
-                "id": "toolu_01Bn2pApfYB2jWGqytwciFfn",
-                "name": "delegate",
-                "arguments": {
-                  "agent_name": "editor",
-                  "goal": "Create a file called hello.py in the current directory ({{WORK_DIR}}) with the following content:\n\nprint('Hello World')\n"
-                }
-              }
-            }
-          ]
-        },
-        "finish_reason": {
-          "reason": "tool_calls",
-          "raw": "tool_use"
-        },
-        "usage": {
-          "input_tokens": 1568,
-          "output_tokens": 140,
-          "total_tokens": 1708,
-          "cache_read_tokens": 0,
-          "cache_write_tokens": 0
-        }
-      }
-    },
-    {
-      "type": "complete",
-      "request": {
-        "model": "claude-sonnet-4-6",
-        "provider": "anthropic",
-        "messages": [
-          {
-            "role": "system",
-            "content": [
-              {
-                "kind": "text",
-                "text": "You are a specialist agent in a multi-agent system. You receive goals from a\ncoordinator and return results.\n\nCore principles:\n- Be factual and precise. Do not speculate or add information you weren't asked for.\n- Be explicit, not implicit. State what you did, what you found, and what you're returning.\n- When in doubt about what the caller wants, do the most useful thing rather than\n  asking for clarification — but be clear about what you chose to do and why.\n\n\nYou are a worker agent. You execute tools directly to accomplish goals.\n\nReturn what was asked for, nothing more. Do not summarize, interpret, or\neditorialize unless the caller explicitly asks for analysis or interpretation.\n\nIf the goal specifies a format or level of detail, match it exactly.\nIf the goal is ambiguous about what to return, return the concrete output\n(file contents, command output, search results) rather than a description of it.\n\n\nYou write and edit files.\n\nAlways read a file before editing it. Use edit_file for targeted changes\nto existing files. Use write_file only for creating new files.\n\nWhen editing:\n1. Read the file first to understand context\n2. Make the smallest change that achieves the goal\n3. Verify your edit was applied correctly by reading the file again\n\nWhen creating new files:\n1. Write the complete file content\n2. Verify it was created by reading it back\n\n\n<environment>\nWorking directory: {{WORK_DIR}}\nPlatform: darwin\nOS version: 25.3.0\nToday's date: 2026-02-25\n</environment>"
-              }
-            ]
-          },
-          {
-            "role": "user",
-            "content": [
-              {
-                "kind": "text",
-                "text": "Create a file called hello.py in the current directory ({{WORK_DIR}}) with the following content:\n\nprint('Hello World')\n"
-              }
-            ]
-          }
-        ],
-        "tools": [
-          {
-            "name": "read_file",
-            "description": "Read a file from the filesystem. Returns line-numbered content.",
-            "parameters": {
-              "type": "object",
-              "properties": {
-                "path": {
-                  "type": "string",
-                  "description": "Path to the file"
-                },
-                "offset": {
-                  "type": "integer",
-                  "description": "1-based line number to start from"
-                },
-                "limit": {
-                  "type": "integer",
-                  "description": "Max lines to read"
-                }
-              },
-              "required": [
-                "path"
-              ]
-            }
-          },
-          {
-            "name": "write_file",
-            "description": "Write content to a file. Creates the file and parent directories if needed.",
-            "parameters": {
-              "type": "object",
-              "properties": {
-                "path": {
-                  "type": "string",
-                  "description": "Path to the file"
-                },
-                "content": {
-                  "type": "string",
-                  "description": "The full file content"
-                }
-              },
-              "required": [
-                "path",
-                "content"
-              ]
-            }
-          },
-          {
-            "name": "edit_file",
-            "description": "Replace an exact string occurrence in a file.",
-            "parameters": {
-              "type": "object",
-              "properties": {
-                "path": {
-                  "type": "string",
-                  "description": "Path to the file"
-                },
-                "old_string": {
-                  "type": "string",
-                  "description": "Exact text to find"
-                },
-                "new_string": {
-                  "type": "string",
-                  "description": "Replacement text"
-                },
-                "replace_all": {
-                  "type": "boolean",
-                  "description": "Replace all occurrences (default: false)"
-                }
-              },
-              "required": [
-                "path",
-                "old_string",
-                "new_string"
-              ]
-            }
-          }
-        ],
-        "tool_choice": "auto",
-        "max_tokens": 16384
-      },
-      "response": {
-        "id": "msg_013YXi1cQ5ZteYqhnUxkjVag",
-        "model": "claude-sonnet-4-6",
-        "provider": "anthropic",
-        "message": {
-          "role": "assistant",
-          "content": [
-            {
-              "kind": "tool_call",
-              "tool_call": {
-                "id": "toolu_01XNH9PppGgtyzLjBdhBVhju",
-                "name": "write_file",
-                "arguments": {
-                  "path": "{{WORK_DIR}}/hello.py",
-                  "content": "print('Hello World')\n"
-                }
-              }
-            }
-          ]
-        },
-        "finish_reason": {
-          "reason": "tool_calls",
-          "raw": "tool_use"
-        },
-        "usage": {
-          "input_tokens": 1315,
-          "output_tokens": 124,
-          "total_tokens": 1439,
-          "cache_read_tokens": 0,
-          "cache_write_tokens": 0
-        }
-      }
-    },
-    {
-      "type": "complete",
-      "request": {
-        "model": "claude-sonnet-4-6",
-        "provider": "anthropic",
-        "messages": [
-          {
-            "role": "system",
-            "content": [
-              {
-                "kind": "text",
-                "text": "You are a specialist agent in a multi-agent system. You receive goals from a\ncoordinator and return results.\n\nCore principles:\n- Be factual and precise. Do not speculate or add information you weren't asked for.\n- Be explicit, not implicit. State what you did, what you found, and what you're returning.\n- When in doubt about what the caller wants, do the most useful thing rather than\n  asking for clarification — but be clear about what you chose to do and why.\n\n\nYou are a worker agent. You execute tools directly to accomplish goals.\n\nReturn what was asked for, nothing more. Do not summarize, interpret, or\neditorialize unless the caller explicitly asks for analysis or interpretation.\n\nIf the goal specifies a format or level of detail, match it exactly.\nIf the goal is ambiguous about what to return, return the concrete output\n(file contents, command output, search results) rather than a description of it.\n\n\nYou write and edit files.\n\nAlways read a file before editing it. Use edit_file for targeted changes\nto existing files. Use write_file only for creating new files.\n\nWhen editing:\n1. Read the file first to understand context\n2. Make the smallest change that achieves the goal\n3. Verify your edit was applied correctly by reading the file again\n\nWhen creating new files:\n1. Write the complete file content\n2. Verify it was created by reading it back\n\n\n<environment>\nWorking directory: {{WORK_DIR}}\nPlatform: darwin\nOS version: 25.3.0\nToday's date: 2026-02-25\n</environment>"
-              }
-            ]
-          },
-          {
-            "role": "user",
-            "content": [
-              {
-                "kind": "text",
-                "text": "Create a file called hello.py in the current directory ({{WORK_DIR}}) with the following content:\n\nprint('Hello World')\n"
-              }
-            ]
-          },
-          {
-            "role": "assistant",
-            "content": [
-              {
-                "kind": "tool_call",
-                "tool_call": {
-                  "id": "toolu_01XNH9PppGgtyzLjBdhBVhju",
-                  "name": "write_file",
-                  "arguments": {
-                    "path": "{{WORK_DIR}}/hello.py",
-                    "content": "print('Hello World')\n"
-                  }
-                }
-              }
-            ]
-          },
-          {
-            "role": "tool",
-            "content": [
-              {
-                "kind": "tool_result",
-                "tool_result": {
-                  "tool_call_id": "toolu_01XNH9PppGgtyzLjBdhBVhju",
-                  "content": "Wrote 21 bytes to {{WORK_DIR}}/hello.py",
-                  "is_error": false
-                }
-              }
-            ],
-            "tool_call_id": "toolu_01XNH9PppGgtyzLjBdhBVhju"
-          }
-        ],
-        "tools": [
-          {
-            "name": "read_file",
-            "description": "Read a file from the filesystem. Returns line-numbered content.",
-            "parameters": {
-              "type": "object",
-              "properties": {
-                "path": {
-                  "type": "string",
-                  "description": "Path to the file"
-                },
-                "offset": {
-                  "type": "integer",
-                  "description": "1-based line number to start from"
-                },
-                "limit": {
-                  "type": "integer",
-                  "description": "Max lines to read"
-                }
-              },
-              "required": [
-                "path"
-              ]
-            }
-          },
-          {
-            "name": "write_file",
-            "description": "Write content to a file. Creates the file and parent directories if needed.",
-            "parameters": {
-              "type": "object",
-              "properties": {
-                "path": {
-                  "type": "string",
-                  "description": "Path to the file"
-                },
-                "content": {
-                  "type": "string",
-                  "description": "The full file content"
-                }
-              },
-              "required": [
-                "path",
-                "content"
-              ]
-            }
-          },
-          {
-            "name": "edit_file",
-            "description": "Replace an exact string occurrence in a file.",
-            "parameters": {
-              "type": "object",
-              "properties": {
-                "path": {
-                  "type": "string",
-                  "description": "Path to the file"
-                },
-                "old_string": {
-                  "type": "string",
-                  "description": "Exact text to find"
-                },
-                "new_string": {
-                  "type": "string",
-                  "description": "Replacement text"
-                },
-                "replace_all": {
-                  "type": "boolean",
-                  "description": "Replace all occurrences (default: false)"
-                }
-              },
-              "required": [
-                "path",
-                "old_string",
-                "new_string"
-              ]
-            }
-          }
-        ],
-        "tool_choice": "auto",
-        "max_tokens": 16384
-      },
-      "response": {
-        "id": "msg_012e73TiAJoucvqEt5pEjJE2",
-        "model": "claude-sonnet-4-6",
-        "provider": "anthropic",
-        "message": {
-          "role": "assistant",
-          "content": [
-            {
-              "kind": "tool_call",
-              "tool_call": {
-                "id": "toolu_013YkwgHmoEBHDmrn6UF827o",
-                "name": "read_file",
-                "arguments": {
-                  "path": "{{WORK_DIR}}/hello.py"
-                }
-              }
-            }
-          ]
-        },
-        "finish_reason": {
-          "reason": "tool_calls",
-          "raw": "tool_use"
-        },
-        "usage": {
-          "input_tokens": 1507,
-          "output_tokens": 101,
-          "total_tokens": 1608,
-          "cache_read_tokens": 0,
-          "cache_write_tokens": 0
-        }
-      }
-    },
-    {
-      "type": "complete",
-      "request": {
-        "model": "claude-sonnet-4-6",
-        "provider": "anthropic",
-        "messages": [
-          {
-            "role": "system",
-            "content": [
-              {
-                "kind": "text",
-                "text": "You are a specialist agent in a multi-agent system. You receive goals from a\ncoordinator and return results.\n\nCore principles:\n- Be factual and precise. Do not speculate or add information you weren't asked for.\n- Be explicit, not implicit. State what you did, what you found, and what you're returning.\n- When in doubt about what the caller wants, do the most useful thing rather than\n  asking for clarification — but be clear about what you chose to do and why.\n\n\nYou are a worker agent. You execute tools directly to accomplish goals.\n\nReturn what was asked for, nothing more. Do not summarize, interpret, or\neditorialize unless the caller explicitly asks for analysis or interpretation.\n\nIf the goal specifies a format or level of detail, match it exactly.\nIf the goal is ambiguous about what to return, return the concrete output\n(file contents, command output, search results) rather than a description of it.\n\n\nYou write and edit files.\n\nAlways read a file before editing it. Use edit_file for targeted changes\nto existing files. Use write_file only for creating new files.\n\nWhen editing:\n1. Read the file first to understand context\n2. Make the smallest change that achieves the goal\n3. Verify your edit was applied correctly by reading the file again\n\nWhen creating new files:\n1. Write the complete file content\n2. Verify it was created by reading it back\n\n\n<environment>\nWorking directory: {{WORK_DIR}}\nPlatform: darwin\nOS version: 25.3.0\nToday's date: 2026-02-25\n</environment>"
-              }
-            ]
-          },
-          {
-            "role": "user",
-            "content": [
-              {
-                "kind": "text",
-                "text": "Create a file called hello.py in the current directory ({{WORK_DIR}}) with the following content:\n\nprint('Hello World')\n"
-              }
-            ]
-          },
-          {
-            "role": "assistant",
-            "content": [
-              {
-                "kind": "tool_call",
-                "tool_call": {
-                  "id": "toolu_01XNH9PppGgtyzLjBdhBVhju",
-                  "name": "write_file",
-                  "arguments": {
-                    "path": "{{WORK_DIR}}/hello.py",
-                    "content": "print('Hello World')\n"
-                  }
-                }
-              }
-            ]
-          },
-          {
-            "role": "tool",
-            "content": [
-              {
-                "kind": "tool_result",
-                "tool_result": {
-                  "tool_call_id": "toolu_01XNH9PppGgtyzLjBdhBVhju",
-                  "content": "Wrote 21 bytes to {{WORK_DIR}}/hello.py",
-                  "is_error": false
-                }
-              }
-            ],
-            "tool_call_id": "toolu_01XNH9PppGgtyzLjBdhBVhju"
-          },
-          {
-            "role": "assistant",
-            "content": [
-              {
-                "kind": "tool_call",
-                "tool_call": {
-                  "id": "toolu_013YkwgHmoEBHDmrn6UF827o",
-                  "name": "read_file",
-                  "arguments": {
-                    "path": "{{WORK_DIR}}/hello.py"
-                  }
-                }
-              }
-            ]
-          },
-          {
-            "role": "tool",
-            "content": [
-              {
-                "kind": "tool_result",
-                "tool_result": {
-                  "tool_call_id": "toolu_013YkwgHmoEBHDmrn6UF827o",
-                  "content": "1\tprint('Hello World')\n2\t",
-                  "is_error": false
-                }
-              }
-            ],
-            "tool_call_id": "toolu_013YkwgHmoEBHDmrn6UF827o"
-          }
-        ],
-        "tools": [
-          {
-            "name": "read_file",
-            "description": "Read a file from the filesystem. Returns line-numbered content.",
-            "parameters": {
-              "type": "object",
-              "properties": {
-                "path": {
-                  "type": "string",
-                  "description": "Path to the file"
-                },
-                "offset": {
-                  "type": "integer",
-                  "description": "1-based line number to start from"
-                },
-                "limit": {
-                  "type": "integer",
-                  "description": "Max lines to read"
-                }
-              },
-              "required": [
-                "path"
-              ]
-            }
-          },
-          {
-            "name": "write_file",
-            "description": "Write content to a file. Creates the file and parent directories if needed.",
-            "parameters": {
-              "type": "object",
-              "properties": {
-                "path": {
-                  "type": "string",
-                  "description": "Path to the file"
-                },
-                "content": {
-                  "type": "string",
-                  "description": "The full file content"
-                }
-              },
-              "required": [
-                "path",
-                "content"
-              ]
-            }
-          },
-          {
-            "name": "edit_file",
-            "description": "Replace an exact string occurrence in a file.",
-            "parameters": {
-              "type": "object",
-              "properties": {
-                "path": {
-                  "type": "string",
-                  "description": "Path to the file"
-                },
-                "old_string": {
-                  "type": "string",
-                  "description": "Exact text to find"
-                },
-                "new_string": {
-                  "type": "string",
-                  "description": "Replacement text"
-                },
-                "replace_all": {
-                  "type": "boolean",
-                  "description": "Replace all occurrences (default: false)"
-                }
-              },
-              "required": [
-                "path",
-                "old_string",
-                "new_string"
-              ]
-            }
-          }
-        ],
-        "tool_choice": "auto",
-        "max_tokens": 16384
-      },
-      "response": {
-        "id": "msg_01TwLUZr7xLX2Ybj8bAUkPBC",
-        "model": "claude-sonnet-4-6",
-        "provider": "anthropic",
-        "message": {
-          "role": "assistant",
-          "content": [
-            {
-              "kind": "text",
-              "text": "The file `hello.py` has been created at `{{WORK_DIR}}/hello.py` with the content `print('Hello World')`."
-            }
-          ]
-        },
-        "finish_reason": {
-          "reason": "stop",
-          "raw": "end_turn"
-        },
-        "usage": {
-          "input_tokens": 1630,
-          "output_tokens": 74,
-          "total_tokens": 1704,
-          "cache_read_tokens": 0,
-          "cache_write_tokens": 0
-        }
-      }
-    },
-    {
-      "type": "complete",
-      "request": {
-        "model": "claude-opus-4-6",
-        "provider": "anthropic",
-        "messages": [
-          {
-            "role": "system",
-            "content": [
-              {
-                "kind": "text",
-                "text": "You are a specialist agent in a multi-agent system. You receive goals from a\ncoordinator and return results.\n\nCore principles:\n- Be factual and precise. Do not speculate or add information you weren't asked for.\n- Be explicit, not implicit. State what you did, what you found, and what you're returning.\n- When in doubt about what the caller wants, do the most useful thing rather than\n  asking for clarification — but be clear about what you chose to do and why.\n\n\nYou are an orchestrator. You break goals into subgoals and delegate to specialists.\nYou do not execute tools directly.\n\nWhen delegating, always describe what you want BACK — not just what to do.\nBe explicit about the format and level of detail you need in the response.\n  Bad: \"Read the README\" (agent doesn't know what info you need)\n  Good: \"Read the README and tell me what testing framework this project uses\"\n  Bad: \"Run cat foo.ts\" (agent doesn't know if you want raw output or a summary)\n  Good: \"Run cat foo.ts and return the raw output verbatim\"\n\n\nYou are a general-purpose agentic system that decomposes tasks and delegates to specialists.\n\nYou can handle a wide range of tasks: coding, research, writing, file management,\nweb lookups, system administration, data analysis, and more. You are not limited\nto coding — you are capable of learning and growing through experience.\n\nYou NEVER read files, edit files, run commands, or fetch URLs directly.\nYou think at the level of goals: understand, find, edit, test, verify, research.\nYou delegate each goal to the appropriate specialist.\n\nWhen you receive a task:\n1. Break it into clear subgoals\n2. Delegate each subgoal to the right agent\n3. Verify the results\n4. Report completion or iterate if something failed\n\nBuild incrementally. For non-trivial coding tasks, don't write everything in one shot.\nScaffold first, verify it works, then layer on functionality — testing at each step.\nPrefer several small verified steps over one large unverified leap.\n\nAlways do runtime verification, not just static checks. If you build something that\nruns (a server, a CLI tool, a game, a script), actually run it and confirm it\nproduces correct output. Syntax checking alone is not sufficient.\n\nThe QUARTERMASTER is your capability expert. Delegate to it when you need to:\n- Discover what tools, MCP servers, or agents are available\n- Plan how to accomplish something with existing capabilities\n- Build a new specialist agent or tool for a recurring task\nPrefer creating reusable tools and agents over ad-hoc multi-step manual work.\n\nAvailable specialists will be presented as tools. Each takes a \"goal\"\n(what you want achieved) and optional \"hints\" (context that might help).\n\n\n<environment>\nWorking directory: {{WORK_DIR}}\nPlatform: darwin\nOS version: 25.3.0\nToday's date: 2026-02-25\n</environment>\n\n<agents>\n  <agent name=\"reader\">Find and read files, search codebases, and retrieve content from the filesystem</agent>\n  <agent name=\"editor\">Write and edit files, create new files, and verify changes</agent>\n  <agent name=\"command-runner\">Execute shell commands and report their output</agent>\n  <agent name=\"web-reader\">Fetch and read content from the web via HTTP requests</agent>\n  <agent name=\"mcp\">Connect to MCP servers and invoke their tools using the sprout-mcp CLI</agent>\n  <agent name=\"quartermaster\">Discover capabilities, plan tool combinations, and fabricate specialist agents on demand</agent>\n</agents>"
-              }
-            ]
-          },
-          {
-            "role": "user",
-            "content": [
-              {
-                "kind": "text",
-                "text": "Create a file called hello.py in the current directory that prints 'Hello World'"
-              }
-            ]
-          },
-          {
-            "role": "assistant",
-            "content": [
-              {
-                "kind": "tool_call",
-                "tool_call": {
-                  "id": "toolu_01Bn2pApfYB2jWGqytwciFfn",
-                  "name": "delegate",
-                  "arguments": {
-                    "agent_name": "editor",
-                    "goal": "Create a file called hello.py in the current directory ({{WORK_DIR}}) with the following content:\n\nprint('Hello World')\n"
-                  }
-                }
-              }
-            ]
-          },
-          {
-            "role": "tool",
-            "content": [
-              {
-                "kind": "tool_result",
-                "tool_result": {
-                  "tool_call_id": "toolu_01Bn2pApfYB2jWGqytwciFfn",
-                  "content": "The file `hello.py` has been created at `{{WORK_DIR}}/hello.py` with the content `print('Hello World')`.",
-                  "is_error": false
-                }
-              }
-            ],
-            "tool_call_id": "toolu_01Bn2pApfYB2jWGqytwciFfn"
-          }
-        ],
-        "tools": [
-          {
-            "name": "delegate",
-            "description": "Delegate a task to a specialist agent. See the <agents> section in your instructions for available agents and their descriptions.",
-            "parameters": {
-              "type": "object",
-              "properties": {
-                "agent_name": {
-                  "type": "string",
-                  "description": "Name of the agent to delegate to",
-                  "enum": [
-                    "reader",
-                    "editor",
-                    "command-runner",
-                    "web-reader",
-                    "mcp",
-                    "quartermaster"
-                  ]
-                },
-                "goal": {
-                  "type": "string",
-                  "description": "What you want this agent to achieve"
-                },
-                "hints": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  },
-                  "description": "Optional context that might help"
-                }
-              },
-              "required": [
-                "agent_name",
-                "goal"
-              ]
-            }
-          }
-        ],
-        "tool_choice": "auto",
-        "max_tokens": 16384
-      },
-      "response": {
-        "id": "msg_01GH5FBZTHPx4j8N5LanZnFb",
-        "model": "claude-opus-4-6",
-        "provider": "anthropic",
-        "message": {
-          "role": "assistant",
-          "content": [
-            {
-              "kind": "text",
-              "text": "Now let me verify it works by running it:"
-            },
-            {
-              "kind": "tool_call",
-              "tool_call": {
-                "id": "toolu_01X8LtD6hPVYsmvMTzGKciXj",
-                "name": "delegate",
-                "arguments": {
-                  "agent_name": "command-runner",
-                  "goal": "Run `python3 hello.py` in {{WORK_DIR}} and return the output."
-                }
-              }
-            }
-          ]
-        },
-        "finish_reason": {
-          "reason": "tool_calls",
-          "raw": "tool_use"
-        },
-        "usage": {
-          "input_tokens": 1791,
-          "output_tokens": 141,
-          "total_tokens": 1932,
-          "cache_read_tokens": 0,
-          "cache_write_tokens": 0
-        }
-      }
-    },
-    {
-      "type": "complete",
-      "request": {
-        "model": "claude-haiku-4-5-20251001",
-        "provider": "anthropic",
-        "messages": [
-          {
-            "role": "system",
-            "content": [
-              {
-                "kind": "text",
-                "text": "You are a specialist agent in a multi-agent system. You receive goals from a\ncoordinator and return results.\n\nCore principles:\n- Be factual and precise. Do not speculate or add information you weren't asked for.\n- Be explicit, not implicit. State what you did, what you found, and what you're returning.\n- When in doubt about what the caller wants, do the most useful thing rather than\n  asking for clarification — but be clear about what you chose to do and why.\n\n\nYou are a worker agent. You execute tools directly to accomplish goals.\n\nReturn what was asked for, nothing more. Do not summarize, interpret, or\neditorialize unless the caller explicitly asks for analysis or interpretation.\n\nIf the goal specifies a format or level of detail, match it exactly.\nIf the goal is ambiguous about what to return, return the concrete output\n(file contents, command output, search results) rather than a description of it.\n\n\nYou execute shell commands and report their output.\n\nWhen running commands:\n1. Run the command\n2. Report the exit code and output\n\nIf a command fails, include the error output.\n\n\n<environment>\nWorking directory: {{WORK_DIR}}\nPlatform: darwin\nOS version: 25.3.0\nToday's date: 2026-02-25\n</environment>"
-              }
-            ]
-          },
-          {
-            "role": "user",
-            "content": [
-              {
-                "kind": "text",
-                "text": "Run `python3 hello.py` in {{WORK_DIR}} and return the output."
-              }
-            ]
-          }
-        ],
-        "tools": [
-          {
-            "name": "exec",
-            "description": "Execute a shell command. Returns stdout, stderr, and exit code.",
-            "parameters": {
-              "type": "object",
-              "properties": {
-                "command": {
-                  "type": "string",
-                  "description": "The command to run"
-                },
-                "timeout_ms": {
-                  "type": "integer",
-                  "description": "Override default timeout"
-                }
-              },
-              "required": [
-                "command"
-              ]
-            }
-          }
-        ],
-        "tool_choice": "auto",
-        "max_tokens": 16384
-      },
-      "response": {
-        "id": "msg_01TcM8ZaV9rNchDw6aqqPBfk",
-        "model": "claude-haiku-4-5-20251001",
-        "provider": "anthropic",
-        "message": {
-          "role": "assistant",
-          "content": [
-            {
-              "kind": "tool_call",
-              "tool_call": {
-                "id": "toolu_017A7pwtpsxrUGtKNdJuD9wi",
-                "name": "exec",
-                "arguments": {
-                  "command": "python3 hello.py"
-                }
-              }
-            }
-          ]
-        },
-        "finish_reason": {
-          "reason": "tool_calls",
-          "raw": "tool_use"
-        },
-        "usage": {
-          "input_tokens": 982,
-          "output_tokens": 57,
-          "total_tokens": 1039,
-          "cache_read_tokens": 0,
-          "cache_write_tokens": 0
-        }
-      }
-    },
-    {
-      "type": "complete",
-      "request": {
-        "model": "claude-haiku-4-5-20251001",
-        "provider": "anthropic",
-        "messages": [
-          {
-            "role": "system",
-            "content": [
-              {
-                "kind": "text",
-                "text": "You are a specialist agent in a multi-agent system. You receive goals from a\ncoordinator and return results.\n\nCore principles:\n- Be factual and precise. Do not speculate or add information you weren't asked for.\n- Be explicit, not implicit. State what you did, what you found, and what you're returning.\n- When in doubt about what the caller wants, do the most useful thing rather than\n  asking for clarification — but be clear about what you chose to do and why.\n\n\nYou are a worker agent. You execute tools directly to accomplish goals.\n\nReturn what was asked for, nothing more. Do not summarize, interpret, or\neditorialize unless the caller explicitly asks for analysis or interpretation.\n\nIf the goal specifies a format or level of detail, match it exactly.\nIf the goal is ambiguous about what to return, return the concrete output\n(file contents, command output, search results) rather than a description of it.\n\n\nYou execute shell commands and report their output.\n\nWhen running commands:\n1. Run the command\n2. Report the exit code and output\n\nIf a command fails, include the error output.\n\n\n<environment>\nWorking directory: {{WORK_DIR}}\nPlatform: darwin\nOS version: 25.3.0\nToday's date: 2026-02-25\n</environment>"
-              }
-            ]
-          },
-          {
-            "role": "user",
-            "content": [
-              {
-                "kind": "text",
-                "text": "Run `python3 hello.py` in {{WORK_DIR}} and return the output."
-              }
-            ]
-          },
-          {
-            "role": "assistant",
-            "content": [
-              {
-                "kind": "tool_call",
-                "tool_call": {
-                  "id": "toolu_017A7pwtpsxrUGtKNdJuD9wi",
-                  "name": "exec",
-                  "arguments": {
-                    "command": "python3 hello.py"
-                  }
-                }
-              }
-            ]
-          },
-          {
-            "role": "tool",
-            "content": [
-              {
-                "kind": "tool_result",
-                "tool_result": {
-                  "tool_call_id": "toolu_017A7pwtpsxrUGtKNdJuD9wi",
-                  "content": "Hello World\n\nexit_code: 0\nduration_ms: 50",
-                  "is_error": false
-                }
-              }
-            ],
-            "tool_call_id": "toolu_017A7pwtpsxrUGtKNdJuD9wi"
-          }
-        ],
-        "tools": [
-          {
-            "name": "exec",
-            "description": "Execute a shell command. Returns stdout, stderr, and exit code.",
-            "parameters": {
-              "type": "object",
-              "properties": {
-                "command": {
-                  "type": "string",
-                  "description": "The command to run"
-                },
-                "timeout_ms": {
-                  "type": "integer",
-                  "description": "Override default timeout"
-                }
-              },
-              "required": [
-                "command"
-              ]
-            }
-          }
-        ],
-        "tool_choice": "auto",
-        "max_tokens": 16384
-      },
-      "response": {
-        "id": "msg_01TTNCRHfRSkrh6JGdpSzqTy",
-        "model": "claude-haiku-4-5-20251001",
-        "provider": "anthropic",
-        "message": {
-          "role": "assistant",
-          "content": [
-            {
-              "kind": "text",
-              "text": "The command `python3 hello.py` executed successfully with exit code 0.\n\n**Output:**\n```\nHello World\n```"
-            }
-          ]
-        },
-        "finish_reason": {
-          "reason": "stop",
-          "raw": "end_turn"
-        },
-        "usage": {
-          "input_tokens": 1067,
-          "output_tokens": 32,
-          "total_tokens": 1099,
-          "cache_read_tokens": 0,
-          "cache_write_tokens": 0
-        }
-      }
-    },
-    {
-      "type": "complete",
-      "request": {
-        "model": "claude-opus-4-6",
-        "provider": "anthropic",
-        "messages": [
-          {
-            "role": "system",
-            "content": [
-              {
-                "kind": "text",
-                "text": "You are a specialist agent in a multi-agent system. You receive goals from a\ncoordinator and return results.\n\nCore principles:\n- Be factual and precise. Do not speculate or add information you weren't asked for.\n- Be explicit, not implicit. State what you did, what you found, and what you're returning.\n- When in doubt about what the caller wants, do the most useful thing rather than\n  asking for clarification — but be clear about what you chose to do and why.\n\n\nYou are an orchestrator. You break goals into subgoals and delegate to specialists.\nYou do not execute tools directly.\n\nWhen delegating, always describe what you want BACK — not just what to do.\nBe explicit about the format and level of detail you need in the response.\n  Bad: \"Read the README\" (agent doesn't know what info you need)\n  Good: \"Read the README and tell me what testing framework this project uses\"\n  Bad: \"Run cat foo.ts\" (agent doesn't know if you want raw output or a summary)\n  Good: \"Run cat foo.ts and return the raw output verbatim\"\n\n\nYou are a general-purpose agentic system that decomposes tasks and delegates to specialists.\n\nYou can handle a wide range of tasks: coding, research, writing, file management,\nweb lookups, system administration, data analysis, and more. You are not limited\nto coding — you are capable of learning and growing through experience.\n\nYou NEVER read files, edit files, run commands, or fetch URLs directly.\nYou think at the level of goals: understand, find, edit, test, verify, research.\nYou delegate each goal to the appropriate specialist.\n\nWhen you receive a task:\n1. Break it into clear subgoals\n2. Delegate each subgoal to the right agent\n3. Verify the results\n4. Report completion or iterate if something failed\n\nBuild incrementally. For non-trivial coding tasks, don't write everything in one shot.\nScaffold first, verify it works, then layer on functionality — testing at each step.\nPrefer several small verified steps over one large unverified leap.\n\nAlways do runtime verification, not just static checks. If you build something that\nruns (a server, a CLI tool, a game, a script), actually run it and confirm it\nproduces correct output. Syntax checking alone is not sufficient.\n\nThe QUARTERMASTER is your capability expert. Delegate to it when you need to:\n- Discover what tools, MCP servers, or agents are available\n- Plan how to accomplish something with existing capabilities\n- Build a new specialist agent or tool for a recurring task\nPrefer creating reusable tools and agents over ad-hoc multi-step manual work.\n\nAvailable specialists will be presented as tools. Each takes a \"goal\"\n(what you want achieved) and optional \"hints\" (context that might help).\n\n\n<environment>\nWorking directory: {{WORK_DIR}}\nPlatform: darwin\nOS version: 25.3.0\nToday's date: 2026-02-25\n</environment>\n\n<agents>\n  <agent name=\"reader\">Find and read files, search codebases, and retrieve content from the filesystem</agent>\n  <agent name=\"editor\">Write and edit files, create new files, and verify changes</agent>\n  <agent name=\"command-runner\">Execute shell commands and report their output</agent>\n  <agent name=\"web-reader\">Fetch and read content from the web via HTTP requests</agent>\n  <agent name=\"mcp\">Connect to MCP servers and invoke their tools using the sprout-mcp CLI</agent>\n  <agent name=\"quartermaster\">Discover capabilities, plan tool combinations, and fabricate specialist agents on demand</agent>\n</agents>"
-              }
-            ]
-          },
-          {
-            "role": "user",
-            "content": [
-              {
-                "kind": "text",
-                "text": "Create a file called hello.py in the current directory that prints 'Hello World'"
-              }
-            ]
-          },
-          {
-            "role": "assistant",
-            "content": [
-              {
-                "kind": "tool_call",
-                "tool_call": {
-                  "id": "toolu_01Bn2pApfYB2jWGqytwciFfn",
-                  "name": "delegate",
-                  "arguments": {
-                    "agent_name": "editor",
-                    "goal": "Create a file called hello.py in the current directory ({{WORK_DIR}}) with the following content:\n\nprint('Hello World')\n"
-                  }
-                }
-              }
-            ]
-          },
-          {
-            "role": "tool",
-            "content": [
-              {
-                "kind": "tool_result",
-                "tool_result": {
-                  "tool_call_id": "toolu_01Bn2pApfYB2jWGqytwciFfn",
-                  "content": "The file `hello.py` has been created at `{{WORK_DIR}}/hello.py` with the content `print('Hello World')`.",
-                  "is_error": false
-                }
-              }
-            ],
-            "tool_call_id": "toolu_01Bn2pApfYB2jWGqytwciFfn"
-          },
-          {
-            "role": "assistant",
-            "content": [
-              {
-                "kind": "text",
-                "text": "Now let me verify it works by running it:"
-              },
-              {
-                "kind": "tool_call",
-                "tool_call": {
-                  "id": "toolu_01X8LtD6hPVYsmvMTzGKciXj",
-                  "name": "delegate",
-                  "arguments": {
-                    "agent_name": "command-runner",
-                    "goal": "Run `python3 hello.py` in {{WORK_DIR}} and return the output."
-                  }
-                }
-              }
-            ]
-          },
-          {
-            "role": "tool",
-            "content": [
-              {
-                "kind": "tool_result",
-                "tool_result": {
-                  "tool_call_id": "toolu_01X8LtD6hPVYsmvMTzGKciXj",
-                  "content": "The command `python3 hello.py` executed successfully with exit code 0.\n\n**Output:**\n```\nHello World\n```",
-                  "is_error": false
-                }
-              }
-            ],
-            "tool_call_id": "toolu_01X8LtD6hPVYsmvMTzGKciXj"
-          }
-        ],
-        "tools": [
-          {
-            "name": "delegate",
-            "description": "Delegate a task to a specialist agent. See the <agents> section in your instructions for available agents and their descriptions.",
-            "parameters": {
-              "type": "object",
-              "properties": {
-                "agent_name": {
-                  "type": "string",
-                  "description": "Name of the agent to delegate to",
-                  "enum": [
-                    "reader",
-                    "editor",
-                    "command-runner",
-                    "web-reader",
-                    "mcp",
-                    "quartermaster"
-                  ]
-                },
-                "goal": {
-                  "type": "string",
-                  "description": "What you want this agent to achieve"
-                },
-                "hints": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  },
-                  "description": "Optional context that might help"
-                }
-              },
-              "required": [
-                "agent_name",
-                "goal"
-              ]
-            }
-          }
-        ],
-        "tool_choice": "auto",
-        "max_tokens": 16384
-      },
-      "response": {
-        "id": "msg_01AnABGFpgoQa1i1sPEEiGGx",
-        "model": "claude-opus-4-6",
-        "provider": "anthropic",
-        "message": {
-          "role": "assistant",
-          "content": [
-            {
-              "kind": "text",
-              "text": "The file `hello.py` has been created in the current directory and verified to work correctly. When run, it outputs:\n\n```\nHello World\n```"
-            }
-          ]
-        },
-        "finish_reason": {
-          "reason": "stop",
-          "raw": "end_turn"
-        },
-        "usage": {
-          "input_tokens": 1973,
-          "output_tokens": 36,
-          "total_tokens": 2009,
-          "cache_read_tokens": 0,
-          "cache_write_tokens": 0
-        }
-      }
-    }
-  ],
-  "metadata": {
-    "recordedAt": "2026-02-25T06:06:18.063Z",
-    "testName": "bootstrap-fresh-genome-creates-a-file",
-    "providers": [
-      "anthropic",
-      "openai",
-      "gemini"
-    ]
-  }
+	"recordings": [
+		{
+			"type": "complete",
+			"request": {
+				"model": "claude-opus-4-6",
+				"provider": "anthropic",
+				"messages": [
+					{
+						"role": "system",
+						"content": [
+							{
+								"kind": "text",
+								"text": "You are a specialist agent in a multi-agent system. You receive goals from a\ncoordinator and return results.\n\nCore principles:\n- Be factual and precise. Do not speculate or add information you weren't asked for.\n- Be explicit, not implicit. State what you did, what you found, and what you're returning.\n- When in doubt about what the caller wants, do the most useful thing rather than\n  asking for clarification — but be clear about what you chose to do and why.\n\n\nYou are an orchestrator. You break goals into subgoals and delegate to specialists.\nYou do not execute tools directly.\n\nWhen delegating, always describe what you want BACK — not just what to do.\nBe explicit about the format and level of detail you need in the response.\n  Bad: \"Read the README\" (agent doesn't know what info you need)\n  Good: \"Read the README and tell me what testing framework this project uses\"\n  Bad: \"Run cat foo.ts\" (agent doesn't know if you want raw output or a summary)\n  Good: \"Run cat foo.ts and return the raw output verbatim\"\n\n\nYou are a general-purpose agentic system that decomposes tasks and delegates to specialists.\n\nYou can handle a wide range of tasks: coding, research, writing, file management,\nweb lookups, system administration, data analysis, and more. You are not limited\nto coding — you are capable of learning and growing through experience.\n\nYou NEVER read files, edit files, run commands, or fetch URLs directly.\nYou think at the level of goals: understand, find, edit, test, verify, research.\nYou delegate each goal to the appropriate specialist.\n\nWhen you receive a task:\n1. Break it into clear subgoals\n2. Delegate each subgoal to the right agent\n3. Verify the results\n4. Report completion or iterate if something failed\n\nBuild incrementally. For non-trivial coding tasks, don't write everything in one shot.\nScaffold first, verify it works, then layer on functionality — testing at each step.\nPrefer several small verified steps over one large unverified leap.\n\nAlways do runtime verification, not just static checks. If you build something that\nruns (a server, a CLI tool, a game, a script), actually run it and confirm it\nproduces correct output. Syntax checking alone is not sufficient.\n\nThe QUARTERMASTER is your capability expert. Delegate to it when you need to:\n- Discover what tools, MCP servers, or agents are available\n- Plan how to accomplish something with existing capabilities\n- Build a new specialist agent or tool for a recurring task\nPrefer creating reusable tools and agents over ad-hoc multi-step manual work.\n\nAvailable specialists will be presented as tools. Each takes a \"goal\"\n(what you want achieved) and optional \"hints\" (context that might help).\n\n\n<environment>\nWorking directory: {{WORK_DIR}}\nPlatform: darwin\nOS version: 25.3.0\nToday's date: 2026-02-25\n</environment>\n\n<agents>\n  <agent name=\"reader\">Find and read files, search codebases, and retrieve content from the filesystem</agent>\n  <agent name=\"editor\">Write and edit files, create new files, and verify changes</agent>\n  <agent name=\"command-runner\">Execute shell commands and report their output</agent>\n  <agent name=\"web-reader\">Fetch and read content from the web via HTTP requests</agent>\n  <agent name=\"mcp\">Connect to MCP servers and invoke their tools using the sprout-mcp CLI</agent>\n  <agent name=\"quartermaster\">Discover capabilities, plan tool combinations, and fabricate specialist agents on demand</agent>\n</agents>"
+							}
+						]
+					},
+					{
+						"role": "user",
+						"content": [
+							{
+								"kind": "text",
+								"text": "Create a file called hello.py in the current directory that prints 'Hello World'"
+							}
+						]
+					}
+				],
+				"tools": [
+					{
+						"name": "delegate",
+						"description": "Delegate a task to a specialist agent. See the <agents> section in your instructions for available agents and their descriptions.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"agent_name": {
+									"type": "string",
+									"description": "Name of the agent to delegate to",
+									"enum": [
+										"reader",
+										"editor",
+										"command-runner",
+										"web-reader",
+										"mcp",
+										"quartermaster"
+									]
+								},
+								"goal": {
+									"type": "string",
+									"description": "What you want this agent to achieve"
+								},
+								"hints": {
+									"type": "array",
+									"items": {
+										"type": "string"
+									},
+									"description": "Optional context that might help"
+								}
+							},
+							"required": ["agent_name", "goal"]
+						}
+					}
+				],
+				"tool_choice": "auto",
+				"max_tokens": 16384
+			},
+			"response": {
+				"id": "msg_01P6TBdt9gZM6pgdhqVDwswn",
+				"model": "claude-opus-4-6",
+				"provider": "anthropic",
+				"message": {
+					"role": "assistant",
+					"content": [
+						{
+							"kind": "tool_call",
+							"tool_call": {
+								"id": "toolu_01Bn2pApfYB2jWGqytwciFfn",
+								"name": "delegate",
+								"arguments": {
+									"agent_name": "editor",
+									"goal": "Create a file called hello.py in the current directory ({{WORK_DIR}}) with the following content:\n\nprint('Hello World')\n"
+								}
+							}
+						}
+					]
+				},
+				"finish_reason": {
+					"reason": "tool_calls",
+					"raw": "tool_use"
+				},
+				"usage": {
+					"input_tokens": 1568,
+					"output_tokens": 140,
+					"total_tokens": 1708,
+					"cache_read_tokens": 0,
+					"cache_write_tokens": 0
+				}
+			}
+		},
+		{
+			"type": "complete",
+			"request": {
+				"model": "claude-sonnet-4-6",
+				"provider": "anthropic",
+				"messages": [
+					{
+						"role": "system",
+						"content": [
+							{
+								"kind": "text",
+								"text": "You are a specialist agent in a multi-agent system. You receive goals from a\ncoordinator and return results.\n\nCore principles:\n- Be factual and precise. Do not speculate or add information you weren't asked for.\n- Be explicit, not implicit. State what you did, what you found, and what you're returning.\n- When in doubt about what the caller wants, do the most useful thing rather than\n  asking for clarification — but be clear about what you chose to do and why.\n\n\nYou are a worker agent. You execute tools directly to accomplish goals.\n\nReturn what was asked for, nothing more. Do not summarize, interpret, or\neditorialize unless the caller explicitly asks for analysis or interpretation.\n\nIf the goal specifies a format or level of detail, match it exactly.\nIf the goal is ambiguous about what to return, return the concrete output\n(file contents, command output, search results) rather than a description of it.\n\n\nYou write and edit files.\n\nAlways read a file before editing it. Use edit_file for targeted changes\nto existing files. Use write_file only for creating new files.\n\nWhen editing:\n1. Read the file first to understand context\n2. Make the smallest change that achieves the goal\n3. Verify your edit was applied correctly by reading the file again\n\nWhen creating new files:\n1. Write the complete file content\n2. Verify it was created by reading it back\n\n\n<environment>\nWorking directory: {{WORK_DIR}}\nPlatform: darwin\nOS version: 25.3.0\nToday's date: 2026-02-25\n</environment>"
+							}
+						]
+					},
+					{
+						"role": "user",
+						"content": [
+							{
+								"kind": "text",
+								"text": "Create a file called hello.py in the current directory ({{WORK_DIR}}) with the following content:\n\nprint('Hello World')\n"
+							}
+						]
+					}
+				],
+				"tools": [
+					{
+						"name": "read_file",
+						"description": "Read a file from the filesystem. Returns line-numbered content.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Path to the file"
+								},
+								"offset": {
+									"type": "integer",
+									"description": "1-based line number to start from"
+								},
+								"limit": {
+									"type": "integer",
+									"description": "Max lines to read"
+								}
+							},
+							"required": ["path"]
+						}
+					},
+					{
+						"name": "write_file",
+						"description": "Write content to a file. Creates the file and parent directories if needed.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Path to the file"
+								},
+								"content": {
+									"type": "string",
+									"description": "The full file content"
+								}
+							},
+							"required": ["path", "content"]
+						}
+					},
+					{
+						"name": "edit_file",
+						"description": "Replace an exact string occurrence in a file.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Path to the file"
+								},
+								"old_string": {
+									"type": "string",
+									"description": "Exact text to find"
+								},
+								"new_string": {
+									"type": "string",
+									"description": "Replacement text"
+								},
+								"replace_all": {
+									"type": "boolean",
+									"description": "Replace all occurrences (default: false)"
+								}
+							},
+							"required": ["path", "old_string", "new_string"]
+						}
+					}
+				],
+				"tool_choice": "auto",
+				"max_tokens": 16384
+			},
+			"response": {
+				"id": "msg_013YXi1cQ5ZteYqhnUxkjVag",
+				"model": "claude-sonnet-4-6",
+				"provider": "anthropic",
+				"message": {
+					"role": "assistant",
+					"content": [
+						{
+							"kind": "tool_call",
+							"tool_call": {
+								"id": "toolu_01XNH9PppGgtyzLjBdhBVhju",
+								"name": "write_file",
+								"arguments": {
+									"path": "{{WORK_DIR}}/hello.py",
+									"content": "print('Hello World')\n"
+								}
+							}
+						}
+					]
+				},
+				"finish_reason": {
+					"reason": "tool_calls",
+					"raw": "tool_use"
+				},
+				"usage": {
+					"input_tokens": 1315,
+					"output_tokens": 124,
+					"total_tokens": 1439,
+					"cache_read_tokens": 0,
+					"cache_write_tokens": 0
+				}
+			}
+		},
+		{
+			"type": "complete",
+			"request": {
+				"model": "claude-sonnet-4-6",
+				"provider": "anthropic",
+				"messages": [
+					{
+						"role": "system",
+						"content": [
+							{
+								"kind": "text",
+								"text": "You are a specialist agent in a multi-agent system. You receive goals from a\ncoordinator and return results.\n\nCore principles:\n- Be factual and precise. Do not speculate or add information you weren't asked for.\n- Be explicit, not implicit. State what you did, what you found, and what you're returning.\n- When in doubt about what the caller wants, do the most useful thing rather than\n  asking for clarification — but be clear about what you chose to do and why.\n\n\nYou are a worker agent. You execute tools directly to accomplish goals.\n\nReturn what was asked for, nothing more. Do not summarize, interpret, or\neditorialize unless the caller explicitly asks for analysis or interpretation.\n\nIf the goal specifies a format or level of detail, match it exactly.\nIf the goal is ambiguous about what to return, return the concrete output\n(file contents, command output, search results) rather than a description of it.\n\n\nYou write and edit files.\n\nAlways read a file before editing it. Use edit_file for targeted changes\nto existing files. Use write_file only for creating new files.\n\nWhen editing:\n1. Read the file first to understand context\n2. Make the smallest change that achieves the goal\n3. Verify your edit was applied correctly by reading the file again\n\nWhen creating new files:\n1. Write the complete file content\n2. Verify it was created by reading it back\n\n\n<environment>\nWorking directory: {{WORK_DIR}}\nPlatform: darwin\nOS version: 25.3.0\nToday's date: 2026-02-25\n</environment>"
+							}
+						]
+					},
+					{
+						"role": "user",
+						"content": [
+							{
+								"kind": "text",
+								"text": "Create a file called hello.py in the current directory ({{WORK_DIR}}) with the following content:\n\nprint('Hello World')\n"
+							}
+						]
+					},
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"kind": "tool_call",
+								"tool_call": {
+									"id": "toolu_01XNH9PppGgtyzLjBdhBVhju",
+									"name": "write_file",
+									"arguments": {
+										"path": "{{WORK_DIR}}/hello.py",
+										"content": "print('Hello World')\n"
+									}
+								}
+							}
+						]
+					},
+					{
+						"role": "tool",
+						"content": [
+							{
+								"kind": "tool_result",
+								"tool_result": {
+									"tool_call_id": "toolu_01XNH9PppGgtyzLjBdhBVhju",
+									"content": "Wrote 21 bytes to {{WORK_DIR}}/hello.py",
+									"is_error": false
+								}
+							}
+						],
+						"tool_call_id": "toolu_01XNH9PppGgtyzLjBdhBVhju"
+					}
+				],
+				"tools": [
+					{
+						"name": "read_file",
+						"description": "Read a file from the filesystem. Returns line-numbered content.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Path to the file"
+								},
+								"offset": {
+									"type": "integer",
+									"description": "1-based line number to start from"
+								},
+								"limit": {
+									"type": "integer",
+									"description": "Max lines to read"
+								}
+							},
+							"required": ["path"]
+						}
+					},
+					{
+						"name": "write_file",
+						"description": "Write content to a file. Creates the file and parent directories if needed.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Path to the file"
+								},
+								"content": {
+									"type": "string",
+									"description": "The full file content"
+								}
+							},
+							"required": ["path", "content"]
+						}
+					},
+					{
+						"name": "edit_file",
+						"description": "Replace an exact string occurrence in a file.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Path to the file"
+								},
+								"old_string": {
+									"type": "string",
+									"description": "Exact text to find"
+								},
+								"new_string": {
+									"type": "string",
+									"description": "Replacement text"
+								},
+								"replace_all": {
+									"type": "boolean",
+									"description": "Replace all occurrences (default: false)"
+								}
+							},
+							"required": ["path", "old_string", "new_string"]
+						}
+					}
+				],
+				"tool_choice": "auto",
+				"max_tokens": 16384
+			},
+			"response": {
+				"id": "msg_012e73TiAJoucvqEt5pEjJE2",
+				"model": "claude-sonnet-4-6",
+				"provider": "anthropic",
+				"message": {
+					"role": "assistant",
+					"content": [
+						{
+							"kind": "tool_call",
+							"tool_call": {
+								"id": "toolu_013YkwgHmoEBHDmrn6UF827o",
+								"name": "read_file",
+								"arguments": {
+									"path": "{{WORK_DIR}}/hello.py"
+								}
+							}
+						}
+					]
+				},
+				"finish_reason": {
+					"reason": "tool_calls",
+					"raw": "tool_use"
+				},
+				"usage": {
+					"input_tokens": 1507,
+					"output_tokens": 101,
+					"total_tokens": 1608,
+					"cache_read_tokens": 0,
+					"cache_write_tokens": 0
+				}
+			}
+		},
+		{
+			"type": "complete",
+			"request": {
+				"model": "claude-sonnet-4-6",
+				"provider": "anthropic",
+				"messages": [
+					{
+						"role": "system",
+						"content": [
+							{
+								"kind": "text",
+								"text": "You are a specialist agent in a multi-agent system. You receive goals from a\ncoordinator and return results.\n\nCore principles:\n- Be factual and precise. Do not speculate or add information you weren't asked for.\n- Be explicit, not implicit. State what you did, what you found, and what you're returning.\n- When in doubt about what the caller wants, do the most useful thing rather than\n  asking for clarification — but be clear about what you chose to do and why.\n\n\nYou are a worker agent. You execute tools directly to accomplish goals.\n\nReturn what was asked for, nothing more. Do not summarize, interpret, or\neditorialize unless the caller explicitly asks for analysis or interpretation.\n\nIf the goal specifies a format or level of detail, match it exactly.\nIf the goal is ambiguous about what to return, return the concrete output\n(file contents, command output, search results) rather than a description of it.\n\n\nYou write and edit files.\n\nAlways read a file before editing it. Use edit_file for targeted changes\nto existing files. Use write_file only for creating new files.\n\nWhen editing:\n1. Read the file first to understand context\n2. Make the smallest change that achieves the goal\n3. Verify your edit was applied correctly by reading the file again\n\nWhen creating new files:\n1. Write the complete file content\n2. Verify it was created by reading it back\n\n\n<environment>\nWorking directory: {{WORK_DIR}}\nPlatform: darwin\nOS version: 25.3.0\nToday's date: 2026-02-25\n</environment>"
+							}
+						]
+					},
+					{
+						"role": "user",
+						"content": [
+							{
+								"kind": "text",
+								"text": "Create a file called hello.py in the current directory ({{WORK_DIR}}) with the following content:\n\nprint('Hello World')\n"
+							}
+						]
+					},
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"kind": "tool_call",
+								"tool_call": {
+									"id": "toolu_01XNH9PppGgtyzLjBdhBVhju",
+									"name": "write_file",
+									"arguments": {
+										"path": "{{WORK_DIR}}/hello.py",
+										"content": "print('Hello World')\n"
+									}
+								}
+							}
+						]
+					},
+					{
+						"role": "tool",
+						"content": [
+							{
+								"kind": "tool_result",
+								"tool_result": {
+									"tool_call_id": "toolu_01XNH9PppGgtyzLjBdhBVhju",
+									"content": "Wrote 21 bytes to {{WORK_DIR}}/hello.py",
+									"is_error": false
+								}
+							}
+						],
+						"tool_call_id": "toolu_01XNH9PppGgtyzLjBdhBVhju"
+					},
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"kind": "tool_call",
+								"tool_call": {
+									"id": "toolu_013YkwgHmoEBHDmrn6UF827o",
+									"name": "read_file",
+									"arguments": {
+										"path": "{{WORK_DIR}}/hello.py"
+									}
+								}
+							}
+						]
+					},
+					{
+						"role": "tool",
+						"content": [
+							{
+								"kind": "tool_result",
+								"tool_result": {
+									"tool_call_id": "toolu_013YkwgHmoEBHDmrn6UF827o",
+									"content": "1\tprint('Hello World')\n2\t",
+									"is_error": false
+								}
+							}
+						],
+						"tool_call_id": "toolu_013YkwgHmoEBHDmrn6UF827o"
+					}
+				],
+				"tools": [
+					{
+						"name": "read_file",
+						"description": "Read a file from the filesystem. Returns line-numbered content.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Path to the file"
+								},
+								"offset": {
+									"type": "integer",
+									"description": "1-based line number to start from"
+								},
+								"limit": {
+									"type": "integer",
+									"description": "Max lines to read"
+								}
+							},
+							"required": ["path"]
+						}
+					},
+					{
+						"name": "write_file",
+						"description": "Write content to a file. Creates the file and parent directories if needed.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Path to the file"
+								},
+								"content": {
+									"type": "string",
+									"description": "The full file content"
+								}
+							},
+							"required": ["path", "content"]
+						}
+					},
+					{
+						"name": "edit_file",
+						"description": "Replace an exact string occurrence in a file.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Path to the file"
+								},
+								"old_string": {
+									"type": "string",
+									"description": "Exact text to find"
+								},
+								"new_string": {
+									"type": "string",
+									"description": "Replacement text"
+								},
+								"replace_all": {
+									"type": "boolean",
+									"description": "Replace all occurrences (default: false)"
+								}
+							},
+							"required": ["path", "old_string", "new_string"]
+						}
+					}
+				],
+				"tool_choice": "auto",
+				"max_tokens": 16384
+			},
+			"response": {
+				"id": "msg_01TwLUZr7xLX2Ybj8bAUkPBC",
+				"model": "claude-sonnet-4-6",
+				"provider": "anthropic",
+				"message": {
+					"role": "assistant",
+					"content": [
+						{
+							"kind": "text",
+							"text": "The file `hello.py` has been created at `{{WORK_DIR}}/hello.py` with the content `print('Hello World')`."
+						}
+					]
+				},
+				"finish_reason": {
+					"reason": "stop",
+					"raw": "end_turn"
+				},
+				"usage": {
+					"input_tokens": 1630,
+					"output_tokens": 74,
+					"total_tokens": 1704,
+					"cache_read_tokens": 0,
+					"cache_write_tokens": 0
+				}
+			}
+		},
+		{
+			"type": "complete",
+			"request": {
+				"model": "claude-opus-4-6",
+				"provider": "anthropic",
+				"messages": [
+					{
+						"role": "system",
+						"content": [
+							{
+								"kind": "text",
+								"text": "You are a specialist agent in a multi-agent system. You receive goals from a\ncoordinator and return results.\n\nCore principles:\n- Be factual and precise. Do not speculate or add information you weren't asked for.\n- Be explicit, not implicit. State what you did, what you found, and what you're returning.\n- When in doubt about what the caller wants, do the most useful thing rather than\n  asking for clarification — but be clear about what you chose to do and why.\n\n\nYou are an orchestrator. You break goals into subgoals and delegate to specialists.\nYou do not execute tools directly.\n\nWhen delegating, always describe what you want BACK — not just what to do.\nBe explicit about the format and level of detail you need in the response.\n  Bad: \"Read the README\" (agent doesn't know what info you need)\n  Good: \"Read the README and tell me what testing framework this project uses\"\n  Bad: \"Run cat foo.ts\" (agent doesn't know if you want raw output or a summary)\n  Good: \"Run cat foo.ts and return the raw output verbatim\"\n\n\nYou are a general-purpose agentic system that decomposes tasks and delegates to specialists.\n\nYou can handle a wide range of tasks: coding, research, writing, file management,\nweb lookups, system administration, data analysis, and more. You are not limited\nto coding — you are capable of learning and growing through experience.\n\nYou NEVER read files, edit files, run commands, or fetch URLs directly.\nYou think at the level of goals: understand, find, edit, test, verify, research.\nYou delegate each goal to the appropriate specialist.\n\nWhen you receive a task:\n1. Break it into clear subgoals\n2. Delegate each subgoal to the right agent\n3. Verify the results\n4. Report completion or iterate if something failed\n\nBuild incrementally. For non-trivial coding tasks, don't write everything in one shot.\nScaffold first, verify it works, then layer on functionality — testing at each step.\nPrefer several small verified steps over one large unverified leap.\n\nAlways do runtime verification, not just static checks. If you build something that\nruns (a server, a CLI tool, a game, a script), actually run it and confirm it\nproduces correct output. Syntax checking alone is not sufficient.\n\nThe QUARTERMASTER is your capability expert. Delegate to it when you need to:\n- Discover what tools, MCP servers, or agents are available\n- Plan how to accomplish something with existing capabilities\n- Build a new specialist agent or tool for a recurring task\nPrefer creating reusable tools and agents over ad-hoc multi-step manual work.\n\nAvailable specialists will be presented as tools. Each takes a \"goal\"\n(what you want achieved) and optional \"hints\" (context that might help).\n\n\n<environment>\nWorking directory: {{WORK_DIR}}\nPlatform: darwin\nOS version: 25.3.0\nToday's date: 2026-02-25\n</environment>\n\n<agents>\n  <agent name=\"reader\">Find and read files, search codebases, and retrieve content from the filesystem</agent>\n  <agent name=\"editor\">Write and edit files, create new files, and verify changes</agent>\n  <agent name=\"command-runner\">Execute shell commands and report their output</agent>\n  <agent name=\"web-reader\">Fetch and read content from the web via HTTP requests</agent>\n  <agent name=\"mcp\">Connect to MCP servers and invoke their tools using the sprout-mcp CLI</agent>\n  <agent name=\"quartermaster\">Discover capabilities, plan tool combinations, and fabricate specialist agents on demand</agent>\n</agents>"
+							}
+						]
+					},
+					{
+						"role": "user",
+						"content": [
+							{
+								"kind": "text",
+								"text": "Create a file called hello.py in the current directory that prints 'Hello World'"
+							}
+						]
+					},
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"kind": "tool_call",
+								"tool_call": {
+									"id": "toolu_01Bn2pApfYB2jWGqytwciFfn",
+									"name": "delegate",
+									"arguments": {
+										"agent_name": "editor",
+										"goal": "Create a file called hello.py in the current directory ({{WORK_DIR}}) with the following content:\n\nprint('Hello World')\n"
+									}
+								}
+							}
+						]
+					},
+					{
+						"role": "tool",
+						"content": [
+							{
+								"kind": "tool_result",
+								"tool_result": {
+									"tool_call_id": "toolu_01Bn2pApfYB2jWGqytwciFfn",
+									"content": "The file `hello.py` has been created at `{{WORK_DIR}}/hello.py` with the content `print('Hello World')`.",
+									"is_error": false
+								}
+							}
+						],
+						"tool_call_id": "toolu_01Bn2pApfYB2jWGqytwciFfn"
+					}
+				],
+				"tools": [
+					{
+						"name": "delegate",
+						"description": "Delegate a task to a specialist agent. See the <agents> section in your instructions for available agents and their descriptions.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"agent_name": {
+									"type": "string",
+									"description": "Name of the agent to delegate to",
+									"enum": [
+										"reader",
+										"editor",
+										"command-runner",
+										"web-reader",
+										"mcp",
+										"quartermaster"
+									]
+								},
+								"goal": {
+									"type": "string",
+									"description": "What you want this agent to achieve"
+								},
+								"hints": {
+									"type": "array",
+									"items": {
+										"type": "string"
+									},
+									"description": "Optional context that might help"
+								}
+							},
+							"required": ["agent_name", "goal"]
+						}
+					}
+				],
+				"tool_choice": "auto",
+				"max_tokens": 16384
+			},
+			"response": {
+				"id": "msg_01GH5FBZTHPx4j8N5LanZnFb",
+				"model": "claude-opus-4-6",
+				"provider": "anthropic",
+				"message": {
+					"role": "assistant",
+					"content": [
+						{
+							"kind": "text",
+							"text": "Now let me verify it works by running it:"
+						},
+						{
+							"kind": "tool_call",
+							"tool_call": {
+								"id": "toolu_01X8LtD6hPVYsmvMTzGKciXj",
+								"name": "delegate",
+								"arguments": {
+									"agent_name": "command-runner",
+									"goal": "Run `python3 hello.py` in {{WORK_DIR}} and return the output."
+								}
+							}
+						}
+					]
+				},
+				"finish_reason": {
+					"reason": "tool_calls",
+					"raw": "tool_use"
+				},
+				"usage": {
+					"input_tokens": 1791,
+					"output_tokens": 141,
+					"total_tokens": 1932,
+					"cache_read_tokens": 0,
+					"cache_write_tokens": 0
+				}
+			}
+		},
+		{
+			"type": "complete",
+			"request": {
+				"model": "claude-haiku-4-5-20251001",
+				"provider": "anthropic",
+				"messages": [
+					{
+						"role": "system",
+						"content": [
+							{
+								"kind": "text",
+								"text": "You are a specialist agent in a multi-agent system. You receive goals from a\ncoordinator and return results.\n\nCore principles:\n- Be factual and precise. Do not speculate or add information you weren't asked for.\n- Be explicit, not implicit. State what you did, what you found, and what you're returning.\n- When in doubt about what the caller wants, do the most useful thing rather than\n  asking for clarification — but be clear about what you chose to do and why.\n\n\nYou are a worker agent. You execute tools directly to accomplish goals.\n\nReturn what was asked for, nothing more. Do not summarize, interpret, or\neditorialize unless the caller explicitly asks for analysis or interpretation.\n\nIf the goal specifies a format or level of detail, match it exactly.\nIf the goal is ambiguous about what to return, return the concrete output\n(file contents, command output, search results) rather than a description of it.\n\n\nYou execute shell commands and report their output.\n\nWhen running commands:\n1. Run the command\n2. Report the exit code and output\n\nIf a command fails, include the error output.\n\n\n<environment>\nWorking directory: {{WORK_DIR}}\nPlatform: darwin\nOS version: 25.3.0\nToday's date: 2026-02-25\n</environment>"
+							}
+						]
+					},
+					{
+						"role": "user",
+						"content": [
+							{
+								"kind": "text",
+								"text": "Run `python3 hello.py` in {{WORK_DIR}} and return the output."
+							}
+						]
+					}
+				],
+				"tools": [
+					{
+						"name": "exec",
+						"description": "Execute a shell command. Returns stdout, stderr, and exit code.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"command": {
+									"type": "string",
+									"description": "The command to run"
+								},
+								"timeout_ms": {
+									"type": "integer",
+									"description": "Override default timeout"
+								}
+							},
+							"required": ["command"]
+						}
+					}
+				],
+				"tool_choice": "auto",
+				"max_tokens": 16384
+			},
+			"response": {
+				"id": "msg_01TcM8ZaV9rNchDw6aqqPBfk",
+				"model": "claude-haiku-4-5-20251001",
+				"provider": "anthropic",
+				"message": {
+					"role": "assistant",
+					"content": [
+						{
+							"kind": "tool_call",
+							"tool_call": {
+								"id": "toolu_017A7pwtpsxrUGtKNdJuD9wi",
+								"name": "exec",
+								"arguments": {
+									"command": "python3 hello.py"
+								}
+							}
+						}
+					]
+				},
+				"finish_reason": {
+					"reason": "tool_calls",
+					"raw": "tool_use"
+				},
+				"usage": {
+					"input_tokens": 982,
+					"output_tokens": 57,
+					"total_tokens": 1039,
+					"cache_read_tokens": 0,
+					"cache_write_tokens": 0
+				}
+			}
+		},
+		{
+			"type": "complete",
+			"request": {
+				"model": "claude-haiku-4-5-20251001",
+				"provider": "anthropic",
+				"messages": [
+					{
+						"role": "system",
+						"content": [
+							{
+								"kind": "text",
+								"text": "You are a specialist agent in a multi-agent system. You receive goals from a\ncoordinator and return results.\n\nCore principles:\n- Be factual and precise. Do not speculate or add information you weren't asked for.\n- Be explicit, not implicit. State what you did, what you found, and what you're returning.\n- When in doubt about what the caller wants, do the most useful thing rather than\n  asking for clarification — but be clear about what you chose to do and why.\n\n\nYou are a worker agent. You execute tools directly to accomplish goals.\n\nReturn what was asked for, nothing more. Do not summarize, interpret, or\neditorialize unless the caller explicitly asks for analysis or interpretation.\n\nIf the goal specifies a format or level of detail, match it exactly.\nIf the goal is ambiguous about what to return, return the concrete output\n(file contents, command output, search results) rather than a description of it.\n\n\nYou execute shell commands and report their output.\n\nWhen running commands:\n1. Run the command\n2. Report the exit code and output\n\nIf a command fails, include the error output.\n\n\n<environment>\nWorking directory: {{WORK_DIR}}\nPlatform: darwin\nOS version: 25.3.0\nToday's date: 2026-02-25\n</environment>"
+							}
+						]
+					},
+					{
+						"role": "user",
+						"content": [
+							{
+								"kind": "text",
+								"text": "Run `python3 hello.py` in {{WORK_DIR}} and return the output."
+							}
+						]
+					},
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"kind": "tool_call",
+								"tool_call": {
+									"id": "toolu_017A7pwtpsxrUGtKNdJuD9wi",
+									"name": "exec",
+									"arguments": {
+										"command": "python3 hello.py"
+									}
+								}
+							}
+						]
+					},
+					{
+						"role": "tool",
+						"content": [
+							{
+								"kind": "tool_result",
+								"tool_result": {
+									"tool_call_id": "toolu_017A7pwtpsxrUGtKNdJuD9wi",
+									"content": "Hello World\n\nexit_code: 0\nduration_ms: 50",
+									"is_error": false
+								}
+							}
+						],
+						"tool_call_id": "toolu_017A7pwtpsxrUGtKNdJuD9wi"
+					}
+				],
+				"tools": [
+					{
+						"name": "exec",
+						"description": "Execute a shell command. Returns stdout, stderr, and exit code.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"command": {
+									"type": "string",
+									"description": "The command to run"
+								},
+								"timeout_ms": {
+									"type": "integer",
+									"description": "Override default timeout"
+								}
+							},
+							"required": ["command"]
+						}
+					}
+				],
+				"tool_choice": "auto",
+				"max_tokens": 16384
+			},
+			"response": {
+				"id": "msg_01TTNCRHfRSkrh6JGdpSzqTy",
+				"model": "claude-haiku-4-5-20251001",
+				"provider": "anthropic",
+				"message": {
+					"role": "assistant",
+					"content": [
+						{
+							"kind": "text",
+							"text": "The command `python3 hello.py` executed successfully with exit code 0.\n\n**Output:**\n```\nHello World\n```"
+						}
+					]
+				},
+				"finish_reason": {
+					"reason": "stop",
+					"raw": "end_turn"
+				},
+				"usage": {
+					"input_tokens": 1067,
+					"output_tokens": 32,
+					"total_tokens": 1099,
+					"cache_read_tokens": 0,
+					"cache_write_tokens": 0
+				}
+			}
+		},
+		{
+			"type": "complete",
+			"request": {
+				"model": "claude-opus-4-6",
+				"provider": "anthropic",
+				"messages": [
+					{
+						"role": "system",
+						"content": [
+							{
+								"kind": "text",
+								"text": "You are a specialist agent in a multi-agent system. You receive goals from a\ncoordinator and return results.\n\nCore principles:\n- Be factual and precise. Do not speculate or add information you weren't asked for.\n- Be explicit, not implicit. State what you did, what you found, and what you're returning.\n- When in doubt about what the caller wants, do the most useful thing rather than\n  asking for clarification — but be clear about what you chose to do and why.\n\n\nYou are an orchestrator. You break goals into subgoals and delegate to specialists.\nYou do not execute tools directly.\n\nWhen delegating, always describe what you want BACK — not just what to do.\nBe explicit about the format and level of detail you need in the response.\n  Bad: \"Read the README\" (agent doesn't know what info you need)\n  Good: \"Read the README and tell me what testing framework this project uses\"\n  Bad: \"Run cat foo.ts\" (agent doesn't know if you want raw output or a summary)\n  Good: \"Run cat foo.ts and return the raw output verbatim\"\n\n\nYou are a general-purpose agentic system that decomposes tasks and delegates to specialists.\n\nYou can handle a wide range of tasks: coding, research, writing, file management,\nweb lookups, system administration, data analysis, and more. You are not limited\nto coding — you are capable of learning and growing through experience.\n\nYou NEVER read files, edit files, run commands, or fetch URLs directly.\nYou think at the level of goals: understand, find, edit, test, verify, research.\nYou delegate each goal to the appropriate specialist.\n\nWhen you receive a task:\n1. Break it into clear subgoals\n2. Delegate each subgoal to the right agent\n3. Verify the results\n4. Report completion or iterate if something failed\n\nBuild incrementally. For non-trivial coding tasks, don't write everything in one shot.\nScaffold first, verify it works, then layer on functionality — testing at each step.\nPrefer several small verified steps over one large unverified leap.\n\nAlways do runtime verification, not just static checks. If you build something that\nruns (a server, a CLI tool, a game, a script), actually run it and confirm it\nproduces correct output. Syntax checking alone is not sufficient.\n\nThe QUARTERMASTER is your capability expert. Delegate to it when you need to:\n- Discover what tools, MCP servers, or agents are available\n- Plan how to accomplish something with existing capabilities\n- Build a new specialist agent or tool for a recurring task\nPrefer creating reusable tools and agents over ad-hoc multi-step manual work.\n\nAvailable specialists will be presented as tools. Each takes a \"goal\"\n(what you want achieved) and optional \"hints\" (context that might help).\n\n\n<environment>\nWorking directory: {{WORK_DIR}}\nPlatform: darwin\nOS version: 25.3.0\nToday's date: 2026-02-25\n</environment>\n\n<agents>\n  <agent name=\"reader\">Find and read files, search codebases, and retrieve content from the filesystem</agent>\n  <agent name=\"editor\">Write and edit files, create new files, and verify changes</agent>\n  <agent name=\"command-runner\">Execute shell commands and report their output</agent>\n  <agent name=\"web-reader\">Fetch and read content from the web via HTTP requests</agent>\n  <agent name=\"mcp\">Connect to MCP servers and invoke their tools using the sprout-mcp CLI</agent>\n  <agent name=\"quartermaster\">Discover capabilities, plan tool combinations, and fabricate specialist agents on demand</agent>\n</agents>"
+							}
+						]
+					},
+					{
+						"role": "user",
+						"content": [
+							{
+								"kind": "text",
+								"text": "Create a file called hello.py in the current directory that prints 'Hello World'"
+							}
+						]
+					},
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"kind": "tool_call",
+								"tool_call": {
+									"id": "toolu_01Bn2pApfYB2jWGqytwciFfn",
+									"name": "delegate",
+									"arguments": {
+										"agent_name": "editor",
+										"goal": "Create a file called hello.py in the current directory ({{WORK_DIR}}) with the following content:\n\nprint('Hello World')\n"
+									}
+								}
+							}
+						]
+					},
+					{
+						"role": "tool",
+						"content": [
+							{
+								"kind": "tool_result",
+								"tool_result": {
+									"tool_call_id": "toolu_01Bn2pApfYB2jWGqytwciFfn",
+									"content": "The file `hello.py` has been created at `{{WORK_DIR}}/hello.py` with the content `print('Hello World')`.",
+									"is_error": false
+								}
+							}
+						],
+						"tool_call_id": "toolu_01Bn2pApfYB2jWGqytwciFfn"
+					},
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"kind": "text",
+								"text": "Now let me verify it works by running it:"
+							},
+							{
+								"kind": "tool_call",
+								"tool_call": {
+									"id": "toolu_01X8LtD6hPVYsmvMTzGKciXj",
+									"name": "delegate",
+									"arguments": {
+										"agent_name": "command-runner",
+										"goal": "Run `python3 hello.py` in {{WORK_DIR}} and return the output."
+									}
+								}
+							}
+						]
+					},
+					{
+						"role": "tool",
+						"content": [
+							{
+								"kind": "tool_result",
+								"tool_result": {
+									"tool_call_id": "toolu_01X8LtD6hPVYsmvMTzGKciXj",
+									"content": "The command `python3 hello.py` executed successfully with exit code 0.\n\n**Output:**\n```\nHello World\n```",
+									"is_error": false
+								}
+							}
+						],
+						"tool_call_id": "toolu_01X8LtD6hPVYsmvMTzGKciXj"
+					}
+				],
+				"tools": [
+					{
+						"name": "delegate",
+						"description": "Delegate a task to a specialist agent. See the <agents> section in your instructions for available agents and their descriptions.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"agent_name": {
+									"type": "string",
+									"description": "Name of the agent to delegate to",
+									"enum": [
+										"reader",
+										"editor",
+										"command-runner",
+										"web-reader",
+										"mcp",
+										"quartermaster"
+									]
+								},
+								"goal": {
+									"type": "string",
+									"description": "What you want this agent to achieve"
+								},
+								"hints": {
+									"type": "array",
+									"items": {
+										"type": "string"
+									},
+									"description": "Optional context that might help"
+								}
+							},
+							"required": ["agent_name", "goal"]
+						}
+					}
+				],
+				"tool_choice": "auto",
+				"max_tokens": 16384
+			},
+			"response": {
+				"id": "msg_01AnABGFpgoQa1i1sPEEiGGx",
+				"model": "claude-opus-4-6",
+				"provider": "anthropic",
+				"message": {
+					"role": "assistant",
+					"content": [
+						{
+							"kind": "text",
+							"text": "The file `hello.py` has been created in the current directory and verified to work correctly. When run, it outputs:\n\n```\nHello World\n```"
+						}
+					]
+				},
+				"finish_reason": {
+					"reason": "stop",
+					"raw": "end_turn"
+				},
+				"usage": {
+					"input_tokens": 1973,
+					"output_tokens": 36,
+					"total_tokens": 2009,
+					"cache_read_tokens": 0,
+					"cache_write_tokens": 0
+				}
+			}
+		}
+	],
+	"metadata": {
+		"recordedAt": "2026-02-25T06:06:18.063Z",
+		"testName": "bootstrap-fresh-genome-creates-a-file",
+		"providers": ["anthropic", "openai", "gemini"]
+	}
 }

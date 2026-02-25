@@ -1,74 +1,72 @@
 {
-  "recordings": [
-    {
-      "type": "stream",
-      "request": {
-        "model": "gemini-2.5-flash",
-        "messages": [
-          {
-            "role": "user",
-            "content": [
-              {
-                "kind": "text",
-                "text": "Count from 1 to 5."
-              }
-            ]
-          }
-        ],
-        "max_tokens": 100
-      },
-      "events": [
-        {
-          "type": "stream_start"
-        },
-        {
-          "type": "text_delta",
-          "delta": "1, 2, 3, 4, 5"
-        },
-        {
-          "type": "finish",
-          "finish_reason": {
-            "reason": "stop"
-          },
-          "usage": {
-            "input_tokens": 9,
-            "output_tokens": 13,
-            "total_tokens": 42,
-            "reasoning_tokens": 20
-          },
-          "response": {
-            "id": "",
-            "model": "gemini-2.5-flash",
-            "provider": "gemini",
-            "message": {
-              "role": "assistant",
-              "content": [
-                {
-                  "kind": "text",
-                  "text": "1, 2, 3, 4, 5"
-                }
-              ]
-            },
-            "finish_reason": {
-              "reason": "stop"
-            },
-            "usage": {
-              "input_tokens": 9,
-              "output_tokens": 13,
-              "total_tokens": 42,
-              "reasoning_tokens": 20
-            }
-          }
-        }
-      ]
-    }
-  ],
-  "metadata": {
-    "recordedAt": "2026-02-25T06:05:52.139Z",
-    "testName": "stream-yields-text-deltas",
-    "providers": [
-      "gemini"
-    ],
-    "adapterName": "gemini"
-  }
+	"recordings": [
+		{
+			"type": "stream",
+			"request": {
+				"model": "gemini-2.5-flash",
+				"messages": [
+					{
+						"role": "user",
+						"content": [
+							{
+								"kind": "text",
+								"text": "Count from 1 to 5."
+							}
+						]
+					}
+				],
+				"max_tokens": 100
+			},
+			"events": [
+				{
+					"type": "stream_start"
+				},
+				{
+					"type": "text_delta",
+					"delta": "1, 2, 3, 4, 5"
+				},
+				{
+					"type": "finish",
+					"finish_reason": {
+						"reason": "stop"
+					},
+					"usage": {
+						"input_tokens": 9,
+						"output_tokens": 13,
+						"total_tokens": 42,
+						"reasoning_tokens": 20
+					},
+					"response": {
+						"id": "",
+						"model": "gemini-2.5-flash",
+						"provider": "gemini",
+						"message": {
+							"role": "assistant",
+							"content": [
+								{
+									"kind": "text",
+									"text": "1, 2, 3, 4, 5"
+								}
+							]
+						},
+						"finish_reason": {
+							"reason": "stop"
+						},
+						"usage": {
+							"input_tokens": 9,
+							"output_tokens": 13,
+							"total_tokens": 42,
+							"reasoning_tokens": 20
+						}
+					}
+				}
+			]
+		}
+	],
+	"metadata": {
+		"recordedAt": "2026-02-25T06:05:52.139Z",
+		"testName": "stream-yields-text-deltas",
+		"providers": ["gemini"],
+		"adapterName": "gemini"
+	}
 }

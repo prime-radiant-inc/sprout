@@ -1,57 +1,53 @@
 {
-  "recordings": [
-    {
-      "type": "complete",
-      "request": {
-        "model": "claude-haiku-4-5-20251001",
-        "messages": [
-          {
-            "role": "user",
-            "content": [
-              {
-                "kind": "text",
-                "text": "Hi"
-              }
-            ]
-          }
-        ],
-        "provider": "anthropic",
-        "max_tokens": 20
-      },
-      "response": {
-        "id": "msg_0167GGBWAzNjN3Bf33Xa5qBi",
-        "model": "claude-haiku-4-5-20251001",
-        "provider": "anthropic",
-        "message": {
-          "role": "assistant",
-          "content": [
-            {
-              "kind": "text",
-              "text": "Hello! How can I help you today?"
-            }
-          ]
-        },
-        "finish_reason": {
-          "reason": "stop",
-          "raw": "end_turn"
-        },
-        "usage": {
-          "input_tokens": 8,
-          "output_tokens": 12,
-          "total_tokens": 20,
-          "cache_read_tokens": 0,
-          "cache_write_tokens": 0
-        }
-      }
-    }
-  ],
-  "metadata": {
-    "recordedAt": "2026-02-25T06:05:44.653Z",
-    "testName": "middleware-wraps-complete-calls",
-    "providers": [
-      "anthropic",
-      "openai",
-      "gemini"
-    ]
-  }
+	"recordings": [
+		{
+			"type": "complete",
+			"request": {
+				"model": "claude-haiku-4-5-20251001",
+				"messages": [
+					{
+						"role": "user",
+						"content": [
+							{
+								"kind": "text",
+								"text": "Hi"
+							}
+						]
+					}
+				],
+				"provider": "anthropic",
+				"max_tokens": 20
+			},
+			"response": {
+				"id": "msg_0167GGBWAzNjN3Bf33Xa5qBi",
+				"model": "claude-haiku-4-5-20251001",
+				"provider": "anthropic",
+				"message": {
+					"role": "assistant",
+					"content": [
+						{
+							"kind": "text",
+							"text": "Hello! How can I help you today?"
+						}
+					]
+				},
+				"finish_reason": {
+					"reason": "stop",
+					"raw": "end_turn"
+				},
+				"usage": {
+					"input_tokens": 8,
+					"output_tokens": 12,
+					"total_tokens": 20,
+					"cache_read_tokens": 0,
+					"cache_write_tokens": 0
+				}
+			}
+		}
+	],
+	"metadata": {
+		"recordedAt": "2026-02-25T06:05:44.653Z",
+		"testName": "middleware-wraps-complete-calls",
+		"providers": ["anthropic", "openai", "gemini"]
+	}
 }

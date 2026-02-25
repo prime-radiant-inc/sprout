@@ -1,55 +1,53 @@
 {
-  "recordings": [
-    {
-      "type": "complete",
-      "request": {
-        "model": "o4-mini",
-        "messages": [
-          {
-            "role": "user",
-            "content": [
-              {
-                "kind": "text",
-                "text": "Say hello"
-              }
-            ]
-          }
-        ],
-        "reasoning_effort": "low",
-        "max_tokens": 1000
-      },
-      "response": {
-        "id": "resp_0291f4189bb3c0ae00699e913455408194a0105e41794a4b41",
-        "model": "o4-mini-2025-04-16",
-        "provider": "openai",
-        "message": {
-          "role": "assistant",
-          "content": [
-            {
-              "kind": "text",
-              "text": "Hello!"
-            }
-          ]
-        },
-        "finish_reason": {
-          "reason": "stop",
-          "raw": "completed"
-        },
-        "usage": {
-          "input_tokens": 8,
-          "output_tokens": 23,
-          "total_tokens": 31,
-          "reasoning_tokens": 0
-        }
-      }
-    }
-  ],
-  "metadata": {
-    "recordedAt": "2026-02-25T06:05:41.249Z",
-    "testName": "reasoning-effort-passthrough",
-    "providers": [
-      "openai"
-    ],
-    "adapterName": "openai"
-  }
+	"recordings": [
+		{
+			"type": "complete",
+			"request": {
+				"model": "o4-mini",
+				"messages": [
+					{
+						"role": "user",
+						"content": [
+							{
+								"kind": "text",
+								"text": "Say hello"
+							}
+						]
+					}
+				],
+				"reasoning_effort": "low",
+				"max_tokens": 1000
+			},
+			"response": {
+				"id": "resp_0291f4189bb3c0ae00699e913455408194a0105e41794a4b41",
+				"model": "o4-mini-2025-04-16",
+				"provider": "openai",
+				"message": {
+					"role": "assistant",
+					"content": [
+						{
+							"kind": "text",
+							"text": "Hello!"
+						}
+					]
+				},
+				"finish_reason": {
+					"reason": "stop",
+					"raw": "completed"
+				},
+				"usage": {
+					"input_tokens": 8,
+					"output_tokens": 23,
+					"total_tokens": 31,
+					"reasoning_tokens": 0
+				}
+			}
+		}
+	],
+	"metadata": {
+		"recordedAt": "2026-02-25T06:05:41.249Z",
+		"testName": "reasoning-effort-passthrough",
+		"providers": ["openai"],
+		"adapterName": "openai"
+	}
 }
