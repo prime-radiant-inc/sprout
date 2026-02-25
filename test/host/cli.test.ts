@@ -187,13 +187,14 @@ describe("handleSlashCommand", () => {
 		currentModel: undefined as string | undefined,
 	};
 
-	test("help emits warning event with command list", () => {
+	test("help emits warning event with command list and key hints", () => {
 		const bus = makeBus();
 		handleSlashCommand({ kind: "help" }, bus, controller);
 		expect(bus.events).toHaveLength(1);
 		expect(bus.events[0].kind).toBe("warning");
 		expect(bus.events[0].data.message).toContain("/help");
 		expect(bus.events[0].data.message).toContain("/quit");
+		expect(bus.events[0].data.message).toContain("Ctrl+J");
 	});
 
 	test("compact emits compact command", () => {

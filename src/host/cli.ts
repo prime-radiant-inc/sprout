@@ -109,7 +109,10 @@ Options:
   --genome-path <path>   Path to genome directory (default: ~/.local/share/sprout-genome)
   --help                 Show this help message`;
 
-export type SlashCommandResult = { action: "none" } | { action: "show_model_picker" } | { action: "exit" };
+export type SlashCommandResult =
+	| { action: "none" }
+	| { action: "show_model_picker" }
+	| { action: "exit" };
 
 /** Handle a slash command from the TUI input area. */
 export function handleSlashCommand(
@@ -126,7 +129,8 @@ export function handleSlashCommand(
 			return { action: "exit" };
 		case "help":
 			bus.emitEvent("warning", "cli", 0, {
-				message: "Commands: /help, /quit, /compact, /clear, /model [name], /status",
+				message:
+					"Commands: /help, /quit, /compact, /clear, /model [name], /status\nKeys: Ctrl+J = newline, Ctrl+C = interrupt/exit",
 			});
 			break;
 		case "compact":
