@@ -67,7 +67,7 @@ describe("loadBootstrapAgents", () => {
 
 	test("leaf agents cannot spawn subagents", async () => {
 		const agents = await loadBootstrapAgents(join(import.meta.dir, "../../bootstrap"));
-		const orchestrators = ["root", "quartermaster"];
+		const orchestrators = ["root", "quartermaster", "qm-indexer"];
 		const leaves = agents.filter((a) => !orchestrators.includes(a.name));
 		for (const leaf of leaves) {
 			expect(leaf.constraints.can_spawn).toBe(false);
@@ -82,7 +82,9 @@ describe("loadBootstrapAgents", () => {
 			"~/.local/share/sprout-genome/capability-index.yaml",
 		]);
 		expect(indexer!.capabilities).not.toContain("exec");
-		expect(indexer!.capabilities).toContain("list_mcp");
+		expect(indexer!.capabilities).toContain("mcp");
 		expect(indexer!.capabilities).toContain("write_file");
+		expect(indexer!.constraints.can_spawn).toBe(true);
+		expect(indexer!.constraints.max_depth).toBe(1);
 	});
 });
