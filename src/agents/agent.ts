@@ -406,6 +406,10 @@ export class Agent {
 
 			// List workspace files
 			wsFiles = await this.genome.listAgentFiles(agentId);
+
+			// Add agent's tools directory to PATH so saved scripts are directly executable
+			const toolsDir = join(this.genome.agentDir(agentId), "tools");
+			this.env.addToPath?.(toolsDir);
 		}
 
 		// Build system prompt with recall context (memories and routing hints)

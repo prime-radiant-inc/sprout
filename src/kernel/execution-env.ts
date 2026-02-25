@@ -67,6 +67,8 @@ export interface ExecutionEnvironment {
 	working_directory(): string;
 	platform(): string;
 	os_version(): string;
+	/** Add a directory to PATH for all exec_command calls. */
+	addToPath?(dir: string): void;
 }
 
 /**
@@ -75,9 +77,17 @@ export interface ExecutionEnvironment {
  */
 export class LocalExecutionEnvironment implements ExecutionEnvironment {
 	private readonly workDir: string;
+	private readonly extraPathDirs: string[] = [];
 
 	constructor(workingDirectory: string) {
 		this.workDir = resolve(workingDirectory);
+	}
+
+	/** Add a directory to PATH for all exec_command calls (e.g., agent tools dir). */
+	addToPath(dir: string): void {
+		if (!this.extraPathDirs.includes(dir)) {
+			this.extraPathDirs.push(dir);
+		}
 	}
 
 	working_directory(): string {
@@ -148,7 +158,12 @@ export class LocalExecutionEnvironment implements ExecutionEnvironment {
 		const baseEnv = filterEnvVars(process.env);
 		const mergedEnv = options?.env_vars
 			? { ...baseEnv, ...filterEnvVars(options.env_vars) }
-			: baseEnv;
+			: { ...baseEnv };
+
+		// Prepend extra PATH directories (agent workspace tools, etc.)
+		if (this.extraPathDirs.length > 0) {
+			mergedEnv.PATH = [...this.extraPathDirs, mergedEnv.PATH ?? ""].join(":");
+		}
 
 		const start = performance.now();
 

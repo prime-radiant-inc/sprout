@@ -255,5 +255,5 @@ export function renderWorkspaceTools(tools: AgentToolDefinition[]): string {
 
 /** Return encouragement text for tool creation. */
 export function renderWorkspaceEncouragement(): string {
-	return `\n\nIf you find yourself doing a multi-step task repeatedly, save a tool for it using save_tool.\nTools you create persist across sessions and become part of your capabilities.`;
+	return `\n\nPrefer writing and saving tools over running ad-hoc commands. When you need to do something non-trivial, save a tool for it using save_tool — even if you'll only use it once this session. Tools persist across sessions and become part of your permanent capabilities. Your saved tools are on PATH and can be called directly from exec.`;
 }
