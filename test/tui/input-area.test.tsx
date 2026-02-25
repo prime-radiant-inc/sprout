@@ -311,6 +311,186 @@ describe("InputArea", () => {
 
 		expect(exited).toBe(true);
 	});
+
+	test("left arrow moves cursor backward", async () => {
+		let submitted = "";
+		const { stdin } = render(
+			<InputArea
+				onSubmit={(text) => {
+					submitted = text;
+				}}
+				onSlashCommand={() => {}}
+				isRunning={false}
+			/>,
+		);
+		stdin.write("abc");
+		await flush();
+		stdin.write("\x1B[D"); // left arrow
+		await flush();
+		stdin.write("X");
+		await flush();
+		stdin.write("\r");
+		await flush();
+		expect(submitted).toBe("abXc");
+	});
+
+	test("Ctrl-A moves to start of line", async () => {
+		let submitted = "";
+		const { stdin } = render(
+			<InputArea
+				onSubmit={(text) => {
+					submitted = text;
+				}}
+				onSlashCommand={() => {}}
+				isRunning={false}
+			/>,
+		);
+		stdin.write("hello");
+		await flush();
+		stdin.write("\x01"); // Ctrl-A
+		await flush();
+		stdin.write("X");
+		await flush();
+		stdin.write("\r");
+		await flush();
+		expect(submitted).toBe("Xhello");
+	});
+
+	test("Ctrl-E moves to end of line", async () => {
+		let submitted = "";
+		const { stdin } = render(
+			<InputArea
+				onSubmit={(text) => {
+					submitted = text;
+				}}
+				onSlashCommand={() => {}}
+				isRunning={false}
+			/>,
+		);
+		stdin.write("hello");
+		await flush();
+		stdin.write("\x01"); // Ctrl-A
+		await flush();
+		stdin.write("\x05"); // Ctrl-E
+		await flush();
+		stdin.write("!");
+		await flush();
+		stdin.write("\r");
+		await flush();
+		expect(submitted).toBe("hello!");
+	});
+
+	test("Ctrl-K kills to end of line", async () => {
+		let submitted = "";
+		const { stdin } = render(
+			<InputArea
+				onSubmit={(text) => {
+					submitted = text;
+				}}
+				onSlashCommand={() => {}}
+				isRunning={false}
+			/>,
+		);
+		stdin.write("hello world");
+		await flush();
+		stdin.write("\x01"); // Ctrl-A
+		await flush();
+		for (let i = 0; i < 5; i++) {
+			stdin.write("\x1B[C"); // right arrow
+			await flush();
+		}
+		stdin.write("\x0B"); // Ctrl-K
+		await flush();
+		stdin.write("\r");
+		await flush();
+		expect(submitted).toBe("hello");
+	});
+
+	test("Ctrl-W kills word backward", async () => {
+		let submitted = "";
+		const { stdin } = render(
+			<InputArea
+				onSubmit={(text) => {
+					submitted = text;
+				}}
+				onSlashCommand={() => {}}
+				isRunning={false}
+			/>,
+		);
+		stdin.write("hello world");
+		await flush();
+		stdin.write("\x17"); // Ctrl-W
+		await flush();
+		stdin.write("\r");
+		await flush();
+		expect(submitted).toBe("hello");
+	});
+
+	test("backspace deletes before cursor, not just from end", async () => {
+		let submitted = "";
+		const { stdin } = render(
+			<InputArea
+				onSubmit={(text) => {
+					submitted = text;
+				}}
+				onSlashCommand={() => {}}
+				isRunning={false}
+			/>,
+		);
+		stdin.write("abcd");
+		await flush();
+		stdin.write("\x1B[D"); // left arrow
+		await flush();
+		stdin.write("\x7F"); // backspace
+		await flush();
+		stdin.write("\r");
+		await flush();
+		expect(submitted).toBe("abd");
+	});
+
+	test("up arrow from first line navigates history", async () => {
+		const { lastFrame, stdin } = render(
+			<InputArea
+				onSubmit={() => {}}
+				onSlashCommand={() => {}}
+				isRunning={false}
+				initialHistory={["prev command"]}
+			/>,
+		);
+		stdin.write("\x1B[A"); // up arrow
+		await flush();
+		expect(lastFrame()).toContain("prev command");
+	});
+
+	test("up arrow within multiline text moves cursor, not history", async () => {
+		let submitted = "";
+		const { stdin } = render(
+			<InputArea
+				onSubmit={(text) => {
+					submitted = text;
+				}}
+				onSlashCommand={() => {}}
+				isRunning={false}
+				initialHistory={["should not appear"]}
+			/>,
+		);
+		stdin.write("line1");
+		await flush();
+		stdin.write("\x1B\r"); // Alt-Enter
+		await flush();
+		stdin.write("line2");
+		await flush();
+		// Up from line 2 → move to line 1, not history
+		stdin.write("\x1B[A");
+		await flush();
+		stdin.write("X");
+		await flush();
+		stdin.write("\r");
+		await flush();
+		expect(submitted).toContain("line1");
+		expect(submitted).toContain("line2");
+		expect(submitted).not.toContain("should not appear");
+	});
 });
 
 async function flush() {
