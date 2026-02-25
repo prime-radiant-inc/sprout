@@ -147,8 +147,7 @@ export function renderEvent(event: SessionEvent): string | null {
 				}
 			}
 			if (data.text) {
-				const rendered = renderMarkdown(String(data.text));
-				for (const line of rendered.split("\n")) {
+				for (const line of String(data.text).split("\n")) {
 					lines.push(`${ind}${line}`);
 				}
 			}
