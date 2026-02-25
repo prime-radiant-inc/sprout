@@ -41,15 +41,19 @@ export function StatusBar(props: StatusBarProps) {
 	const turnLabel = turns === 1 ? "1 turn" : `${turns} turns`;
 
 	return (
-		<Box borderStyle="single" paddingX={1} justifyContent="space-between">
-			<Text>
+		<Box paddingX={1} justifyContent="space-between">
+			<Text backgroundColor="gray" color="white">
+				{" "}
 				{ctxInfo}
 				{" | "}
 				{turnLabel}
 				{status === "running" && ` | ↑${formatTokens(inputTokens)} ↓${formatTokens(outputTokens)}`}
+				{" "}
 			</Text>
-			<Text dimColor>
+			<Text backgroundColor="gray" color="whiteBright" dimColor>
+				{" "}
 				{model} | {sessionId}
+				{" "}
 			</Text>
 		</Box>
 	);

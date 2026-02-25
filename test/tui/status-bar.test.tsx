@@ -197,4 +197,23 @@ describe("StatusBar", () => {
 		expect(frame).not.toContain("\u2191");
 		expect(frame).not.toContain("\u2193");
 	});
+
+	test("uses colored background instead of box border", () => {
+		const { lastFrame } = render(
+			<StatusBar
+				contextTokens={10000}
+				contextWindowSize={200000}
+				turns={2}
+				inputTokens={0}
+				outputTokens={0}
+				model="test-model"
+				sessionId="01ABCDEF12345678ABCDEF1234"
+				status="idle"
+			/>,
+		);
+		const frame = lastFrame()!;
+		// Should NOT contain box-drawing characters from borderStyle="single"
+		expect(frame).not.toContain("─");
+		expect(frame).not.toContain("│");
+	});
 });
