@@ -448,6 +448,79 @@ describe("InputArea", () => {
 		expect(submitted).toBe("abd");
 	});
 
+	test("Ctrl-F moves cursor forward", async () => {
+		let submitted = "";
+		const { stdin } = render(
+			<InputArea
+				onSubmit={(text) => {
+					submitted = text;
+				}}
+				onSlashCommand={() => {}}
+				isRunning={false}
+			/>,
+		);
+		stdin.write("abc");
+		await flush();
+		stdin.write("\x01"); // Ctrl-A (go to start)
+		await flush();
+		stdin.write("\x06"); // Ctrl-F (forward one)
+		await flush();
+		stdin.write("X");
+		await flush();
+		stdin.write("\r");
+		await flush();
+		expect(submitted).toBe("aXbc");
+	});
+
+	test("Ctrl-B moves cursor backward", async () => {
+		let submitted = "";
+		const { stdin } = render(
+			<InputArea
+				onSubmit={(text) => {
+					submitted = text;
+				}}
+				onSlashCommand={() => {}}
+				isRunning={false}
+			/>,
+		);
+		stdin.write("abc");
+		await flush();
+		stdin.write("\x02"); // Ctrl-B (backward one)
+		await flush();
+		stdin.write("X");
+		await flush();
+		stdin.write("\r");
+		await flush();
+		expect(submitted).toBe("abXc");
+	});
+
+	test("Ctrl-U kills to start of line", async () => {
+		let submitted = "";
+		const { stdin } = render(
+			<InputArea
+				onSubmit={(text) => {
+					submitted = text;
+				}}
+				onSlashCommand={() => {}}
+				isRunning={false}
+			/>,
+		);
+		stdin.write("hello world");
+		await flush();
+		// Move to middle: Ctrl-A then 5 rights
+		stdin.write("\x01");
+		await flush();
+		for (let i = 0; i < 5; i++) {
+			stdin.write("\x1B[C");
+			await flush();
+		}
+		stdin.write("\x15"); // Ctrl-U
+		await flush();
+		stdin.write("\r");
+		await flush();
+		expect(submitted).toBe("world");
+	});
+
 	test("up arrow from first line navigates history", async () => {
 		const { lastFrame, stdin } = render(
 			<InputArea
