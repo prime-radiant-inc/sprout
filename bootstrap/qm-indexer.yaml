@@ -2,8 +2,9 @@ name: qm-indexer
 description: "Discover and index available capabilities across MCP servers, agents, and tools"
 model: fast
 capabilities:
-  - exec
+  - list_mcp
   - read_file
+  - write_file
   - grep
   - glob
 constraints:
@@ -11,6 +12,8 @@ constraints:
   max_depth: 0
   can_spawn: false
   timeout_ms: 120000
+  allowed_write_paths:
+    - "~/.local/share/sprout-genome/capability-index.yaml"
 tags:
   - quartermaster
   - discovery
@@ -22,8 +25,8 @@ system_prompt: |
 
   You have access to:
   - read_file / grep / glob to inspect agent YAML files and configuration
-  - exec to run CLI commands (`sprout-mcp list-servers`, `sprout-mcp list-tools <server>`)
-  - exec to write the index file (use a heredoc: `cat > path << 'EOF'`)
+  - list_mcp to discover MCP servers and their tools
+  - write_file to write the index file (ONLY to the path below — other writes will be denied)
 
   ## Persistent index
 
@@ -50,7 +53,7 @@ system_prompt: |
      (compare count + names), re-index that section.
   2. **Genome agents**: Glob ~/.local/share/sprout-genome/agents/*.yaml
      and compare similarly.
-  3. **MCP servers**: Run `sprout-mcp list-servers` and compare the server
+  3. **MCP servers**: Call list_mcp (no arguments) and compare the server
      list to what's in the index. Only re-index servers that are new or
      missing.
 
@@ -59,7 +62,7 @@ system_prompt: |
 
   ## Index file format
 
-  Write the index as YAML:
+  Write the index as YAML using write_file:
 
   ```yaml
   last_indexed: "2025-01-15T10:30:00Z"
@@ -91,9 +94,10 @@ system_prompt: |
 
   Work at summary level — concise, not exhaustive:
 
-  - **MCP Servers**: Run `sprout-mcp list-servers`, then `sprout-mcp list-tools <server>`
-    for each. Record: name, domain summary, tool count, 3-5 representative tool names.
-    Do NOT reproduce every tool's full schema.
+  - **MCP Servers**: Call list_mcp (no args) to get servers, then list_mcp
+    with each server name to get its tools. Record: name, domain summary,
+    tool count, 3-5 representative tool names. Do NOT reproduce every tool's
+    full schema.
   - **Bootstrap Agents**: Glob bootstrap/*.yaml. For each, grep/read to extract
     name, description, model, capabilities, constraints. One entry per agent.
   - **Genome Agents**: Glob ~/.local/share/sprout-genome/agents/*.yaml. Same

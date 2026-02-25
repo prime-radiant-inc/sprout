@@ -73,4 +73,16 @@ describe("loadBootstrapAgents", () => {
 			expect(leaf.constraints.can_spawn).toBe(false);
 		}
 	});
+
+	test("qm-indexer has write path constraints and no exec", async () => {
+		const agents = await loadBootstrapAgents(join(import.meta.dir, "../../bootstrap"));
+		const indexer = agents.find((a) => a.name === "qm-indexer");
+		expect(indexer).toBeDefined();
+		expect(indexer!.constraints.allowed_write_paths).toEqual([
+			"~/.local/share/sprout-genome/capability-index.yaml",
+		]);
+		expect(indexer!.capabilities).not.toContain("exec");
+		expect(indexer!.capabilities).toContain("list_mcp");
+		expect(indexer!.capabilities).toContain("write_file");
+	});
 });

@@ -77,6 +77,7 @@ function buildPrimitives(_env: ExecutionEnvironment): Primitive[] {
 		grepPrimitive(),
 		globPrimitive(),
 		fetchPrimitive(),
+		listMcpPrimitive(),
 	];
 }
 
@@ -461,6 +462,50 @@ function execPrimitive(): Primitive {
 					.filter(Boolean)
 					.join("\n");
 
+				return {
+					output,
+					success: result.exit_code === 0 && !result.timed_out,
+					error:
+						result.exit_code !== 0
+							? `Command exited with code ${result.exit_code}`
+							: result.timed_out
+								? "Command timed out"
+								: undefined,
+				};
+			} catch (err) {
+				return { output: "", success: false, error: String(err) };
+			}
+		},
+	};
+}
+
+function listMcpPrimitive(): Primitive {
+	return {
+		name: "list_mcp",
+		description:
+			"Discover available MCP servers and their tools. Call with no arguments to list servers, or with a server name to list its tools.",
+		parameters: {
+			type: "object",
+			properties: {
+				server: {
+					type: "string",
+					description: "Server name to list tools for. Omit to list all servers.",
+				},
+			},
+		},
+		async execute(args, env, signal?) {
+			try {
+				const server = args.server as string | undefined;
+				const command = server
+					? `sprout-mcp list-tools ${server}`
+					: "sprout-mcp list-servers";
+				const result = await env.exec_command(command, { timeout_ms: 30_000, signal });
+				const output = [
+					result.stdout,
+					result.stderr ? `[stderr]\n${result.stderr}` : "",
+				]
+					.filter(Boolean)
+					.join("\n");
 				return {
 					output,
 					success: result.exit_code === 0 && !result.timed_out,

@@ -7,6 +7,7 @@ import type { ExecutionEnvironment } from "../kernel/execution-env.ts";
 import type { PrimitiveRegistry } from "../kernel/primitives.ts";
 import { buildAgentToolPrimitives } from "../kernel/tool-loading.ts";
 import { truncateToolOutput } from "../kernel/truncation.ts";
+import { checkPathConstraint, validateConstraints } from "../kernel/path-constraints.js";
 import type {
 	ActResult,
 	AgentSpec,
@@ -109,6 +110,9 @@ export class Agent {
 				`Agent '${this.spec.name}' exceeds max depth: depth=${this.depth}, max_depth=${this.spec.constraints.max_depth}`,
 			);
 		}
+
+		// Validate that path constraints are compatible with capabilities
+		validateConstraints(this.spec.name, this.spec.capabilities, this.spec.constraints);
 
 		// Resolve model and provider
 		this.resolved = resolveModel(options.modelOverride ?? this.spec.model, this.client.providers());
@@ -570,6 +574,28 @@ export class Agent {
 					name: call.name,
 					args: call.arguments,
 				});
+
+				// Enforce write path constraints before execution
+				const pathDenied = checkPathConstraint(
+					call.name,
+					call.arguments,
+					this.spec.constraints,
+					this.env.working_directory(),
+				);
+				if (pathDenied) {
+					const content = `Error: ${pathDenied}`;
+					const toolResultMsg = Msg.toolResult(call.id, content, true);
+					resultByCallId.set(call.id, toolResultMsg);
+					this.emitAndLog("primitive_end", agentId, this.depth, {
+						name: call.name,
+						success: false,
+						stumbled: true,
+						output: "",
+						error: pathDenied,
+					});
+					stumbles++;
+					continue;
+				}
 
 				const result = await this.primitiveRegistry.execute(call.name, call.arguments, this.signal);
 

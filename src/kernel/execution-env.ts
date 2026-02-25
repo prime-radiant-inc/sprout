@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { access, mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import { platform as osPlatform, release } from "node:os";
+import { homedir, platform as osPlatform, release } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
 export interface ExecResult {
@@ -107,6 +107,8 @@ export class LocalExecutionEnvironment implements ExecutionEnvironment {
 
 	private resolvePath(path: string): string {
 		if (path.startsWith("/")) return path;
+		if (path.startsWith("~/")) return join(homedir(), path.slice(2));
+		if (path === "~") return homedir();
 		return join(this.workDir, path);
 	}
 
