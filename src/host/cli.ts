@@ -380,9 +380,10 @@ export async function runCli(command: CliCommand): Promise<void> {
 		}
 		pendingSigintExit = false;
 	};
-	// Reset when a new goal starts so a stale warn doesn't cause immediate exit
+	// Reset when a new goal starts or when a keystroke cancels from InputArea
 	bus.onEvent((event) => {
 		if (event.kind === "perceive") clearSigintPending();
+		if (event.kind === "exit_hint" && event.data.visible === false) clearSigintPending();
 	});
 
 	const sigintHandler = () => {
@@ -394,12 +395,15 @@ export async function runCli(command: CliCommand): Promise<void> {
 		}
 
 		pendingSigintExit = true;
-		pendingSigintTimer = setTimeout(clearSigintPending, SIGINT_WINDOW);
+		pendingSigintTimer = setTimeout(() => {
+			clearSigintPending();
+			bus.emitEvent("exit_hint", "cli", 0, { visible: false });
+		}, SIGINT_WINDOW);
 
 		if (controller.isRunning) {
 			bus.emitCommand({ kind: "interrupt", data: {} });
 		} else {
-			bus.emitEvent("warning", "cli", 0, { message: "Press Ctrl+C again to exit" });
+			bus.emitEvent("exit_hint", "cli", 0, { visible: true });
 		}
 	};
 	process.on("SIGINT", sigintHandler);

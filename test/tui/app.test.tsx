@@ -415,6 +415,60 @@ describe("App", () => {
 		expect(frame).toContain("Prior assistant response.");
 	});
 
+	test("exit_hint event shows exit warning overlay", async () => {
+		const { bus, lastFrame } = setup();
+
+		bus.emitEvent("exit_hint", "cli", 0, { visible: true });
+		await flush();
+
+		expect(lastFrame()).toContain("Press Ctrl+C again to exit");
+	});
+
+	test("exit_hint with visible:false hides the warning overlay", async () => {
+		const { bus, lastFrame } = setup();
+
+		bus.emitEvent("exit_hint", "cli", 0, { visible: true });
+		await flush();
+		expect(lastFrame()).toContain("Press Ctrl+C again to exit");
+
+		bus.emitEvent("exit_hint", "cli", 0, { visible: false });
+		await flush();
+		expect(lastFrame()).not.toContain("Press Ctrl+C again to exit");
+	});
+
+	test("exit_hint warning is not added to conversation log", async () => {
+		const { bus, lastFrame } = setup();
+
+		// Show and then hide the hint
+		bus.emitEvent("exit_hint", "cli", 0, { visible: true });
+		await flush();
+		bus.emitEvent("exit_hint", "cli", 0, { visible: false });
+		await flush();
+
+		// The warning should be gone (it was never in the conversation log)
+		expect(lastFrame()).not.toContain("Press Ctrl+C again to exit");
+	});
+
+	test("Ctrl+C while idle shows hint and second Ctrl+C exits", async () => {
+		let exited = false;
+		const { stdin, lastFrame } = setup({
+			onExit: () => {
+				exited = true;
+			},
+		});
+
+		// First Ctrl+C — should show hint
+		stdin.write("\x03");
+		await flush();
+		expect(lastFrame()).toContain("Press Ctrl+C again to exit");
+		expect(exited).toBe(false);
+
+		// Second Ctrl+C — exits
+		stdin.write("\x03");
+		await flush();
+		expect(exited).toBe(true);
+	});
+
 	test("session_clear updates sessionId in status bar", async () => {
 		const bus = new EventBus();
 		const { lastFrame } = render(

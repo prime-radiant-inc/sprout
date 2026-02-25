@@ -25,6 +25,9 @@ export interface InputAreaProps {
 	onIdleCtrlC?: () => void;
 	onExit?: () => void;
 	onSteer?: (text: string) => void;
+	onCancelExit?: () => void;
+	/** True when the SIGINT path (cli.ts) has set exit-pending, so any keystroke should cancel it. */
+	exitPending?: boolean;
 }
 
 export function InputArea({
@@ -36,6 +39,8 @@ export function InputArea({
 	onIdleCtrlC,
 	onExit,
 	onSteer,
+	onCancelExit,
+	exitPending,
 }: InputAreaProps) {
 	const [value, setValue] = useState("");
 	const [cursorIndex, setCursorIndex] = useState(0);
@@ -43,6 +48,11 @@ export function InputArea({
 	const [historyCursor, setHistoryCursor] = useState(-1);
 	const pendingInterrupt = useRef(false);
 	const pendingInterruptTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const exitPendingRef = useRef(exitPending ?? false);
+
+	useEffect(() => {
+		exitPendingRef.current = exitPending ?? false;
+	}, [exitPending]);
 
 	useEffect(() => {
 		if (!isRunning) pendingInterrupt.current = false;
@@ -73,6 +83,16 @@ export function InputArea({
 				}
 			}
 			return;
+		}
+
+		// Any non-Ctrl+C key cancels a pending exit (from either stdin or SIGINT path)
+		if (pendingInterrupt.current || exitPendingRef.current) {
+			pendingInterrupt.current = false;
+			if (pendingInterruptTimer.current) {
+				clearTimeout(pendingInterruptTimer.current);
+				pendingInterruptTimer.current = null;
+			}
+			onCancelExit?.();
 		}
 
 		// Alt-Enter: insert newline

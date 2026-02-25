@@ -144,7 +144,8 @@ export type EventKind =
 	| "session_clear"
 	| "context_update"
 	| "compaction"
-	| "interrupted";
+	| "interrupted"
+	| "exit_hint";
 
 /** A typed event emitted by the agent for host application consumption */
 export interface SessionEvent {

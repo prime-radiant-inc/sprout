@@ -1,4 +1,4 @@
-import { Box, useStdout } from "ink";
+import { Box, Text, useStdout } from "ink";
 import { useEffect, useState } from "react";
 import type { EventBus } from "../host/event-bus.ts";
 import type { SessionEvent } from "../kernel/types.ts";
@@ -62,6 +62,7 @@ export function App({
 	const [statusState, setStatusState] = useState<StatusState>(INITIAL_STATUS);
 	const [currentSessionId, setCurrentSessionId] = useState(sessionId);
 	const [showModelPicker, setShowModelPicker] = useState(false);
+	const [exitHintVisible, setExitHintVisible] = useState(false);
 
 	useEffect(() => {
 		return bus.onEvent((event: SessionEvent) => {
@@ -107,6 +108,10 @@ export function App({
 					}));
 					break;
 				}
+
+				case "exit_hint":
+					setExitHintVisible((event.data.visible as boolean) ?? false);
+					break;
 			}
 		});
 	}, [bus, sessionId]);
@@ -134,6 +139,9 @@ export function App({
 				sessionId={currentSessionId}
 				status={statusState.status}
 			/>
+			{exitHintVisible && (
+				<Text color="yellow">Press Ctrl+C again to exit</Text>
+			)}
 			{showModelPicker ? (
 				<ModelPicker
 					models={models}
@@ -154,13 +162,15 @@ export function App({
 					onSlashCommand={handleSlash}
 					isRunning={statusState.status === "running"}
 					initialHistory={initialHistory}
+					exitPending={exitHintVisible}
 					onInterrupt={() => {
 						bus.emitCommand({ kind: "interrupt", data: {} });
 					}}
 					onIdleCtrlC={() => {
-						bus.emitEvent("warning", "cli", 0, {
-							message: "Press Ctrl+C again to exit",
-						});
+						bus.emitEvent("exit_hint", "cli", 0, { visible: true });
+					}}
+					onCancelExit={() => {
+						bus.emitEvent("exit_hint", "cli", 0, { visible: false });
 					}}
 					onSteer={(text) => {
 						onSteer?.(text);

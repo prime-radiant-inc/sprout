@@ -92,6 +92,7 @@ export function ConversationView({ bus, maxHeight, initialEvents }: Conversation
 				startTimes.current.clear();
 				return;
 			}
+			if (event.kind === "exit_hint") return;
 			const durationMs = trackDuration(event, startTimes.current);
 			const node = renderEventComponent(event, durationMs);
 			if (node !== null) {

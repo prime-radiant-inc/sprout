@@ -288,6 +288,112 @@ describe("InputArea", () => {
 		expect(frame).not.toContain("hello  world"); // no double-space
 	});
 
+	test("onCancelExit called when exitPending changes to true then non-Ctrl+C key pressed", async () => {
+		// Simulates the SIGINT path: App sets exitHintVisible=true (via exit_hint event),
+		// which passes exitPending=true to InputArea, then user presses a key.
+		let cancelled = false;
+
+		// Use a wrapper component so we can update exitPending prop dynamically
+		function Wrapper({ pending }: { pending: boolean }) {
+			return (
+				<InputArea
+					onSubmit={() => {}}
+					onSlashCommand={() => {}}
+					isRunning={false}
+					exitPending={pending}
+					onCancelExit={() => {
+						cancelled = true;
+					}}
+				/>
+			);
+		}
+
+		const { stdin, rerender } = render(<Wrapper pending={false} />);
+
+		// Simulate SIGINT path setting exitPending
+		rerender(<Wrapper pending={true} />);
+		await flush();
+
+		// Press 'a' — should call onCancelExit because exitPending=true
+		stdin.write("a");
+		await flush();
+
+		expect(cancelled).toBe(true);
+	});
+
+	test("onCancelExit called when exitPending prop is true and non-Ctrl+C key pressed", async () => {
+		let cancelled = false;
+		const { stdin } = render(
+			<InputArea
+				onSubmit={() => {}}
+				onSlashCommand={() => {}}
+				isRunning={false}
+				exitPending={true}
+				onCancelExit={() => {
+					cancelled = true;
+				}}
+			/>,
+		);
+
+		// Press 'a' — should call onCancelExit because exitPending=true
+		stdin.write("a");
+		await flush();
+
+		expect(cancelled).toBe(true);
+	});
+
+	test("non-Ctrl+C keystroke calls onCancelExit when exit is pending", async () => {
+		let cancelled = false;
+		const { stdin } = render(
+			<InputArea
+				onSubmit={() => {}}
+				onSlashCommand={() => {}}
+				isRunning={false}
+				onCancelExit={() => {
+					cancelled = true;
+				}}
+			/>,
+		);
+
+		// First Ctrl+C — sets pending
+		stdin.write("\x03");
+		await flush();
+
+		// Press a regular key — should cancel the pending exit
+		stdin.write("a");
+		await flush();
+
+		expect(cancelled).toBe(true);
+	});
+
+	test("non-Ctrl+C keystroke resets pending so second Ctrl+C no longer exits", async () => {
+		let exitCount = 0;
+		const { stdin } = render(
+			<InputArea
+				onSubmit={() => {}}
+				onSlashCommand={() => {}}
+				isRunning={false}
+				onExit={() => {
+					exitCount++;
+				}}
+			/>,
+		);
+
+		// First Ctrl+C — sets pending
+		stdin.write("\x03");
+		await flush();
+
+		// Press a regular key — should cancel
+		stdin.write("a");
+		await flush();
+
+		// Second Ctrl+C — should NOT exit (it's a new first Ctrl+C)
+		stdin.write("\x03");
+		await flush();
+
+		expect(exitCount).toBe(0);
+	});
+
 	test("second Ctrl+C while running calls onExit", async () => {
 		let interruptCount = 0;
 		let exited = false;
