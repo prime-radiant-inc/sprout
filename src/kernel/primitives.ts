@@ -496,14 +496,9 @@ function listMcpPrimitive(): Primitive {
 		async execute(args, env, signal?) {
 			try {
 				const server = args.server as string | undefined;
-				const command = server
-					? `sprout-mcp list-tools ${server}`
-					: "sprout-mcp list-servers";
+				const command = server ? `sprout-mcp list-tools ${server}` : "sprout-mcp list-servers";
 				const result = await env.exec_command(command, { timeout_ms: 30_000, signal });
-				const output = [
-					result.stdout,
-					result.stderr ? `[stderr]\n${result.stderr}` : "",
-				]
+				const output = [result.stdout, result.stderr ? `[stderr]\n${result.stderr}` : ""]
 					.filter(Boolean)
 					.join("\n");
 				return {

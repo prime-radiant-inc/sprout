@@ -6,8 +6,8 @@ import {
 	resolvePath,
 	validateConstraints,
 } from "../../src/kernel/path-constraints.js";
-import { DEFAULT_CONSTRAINTS } from "../../src/kernel/types.js";
 import type { AgentConstraints } from "../../src/kernel/types.js";
+import { DEFAULT_CONSTRAINTS } from "../../src/kernel/types.js";
 
 function constraints(overrides: Partial<AgentConstraints> = {}): AgentConstraints {
 	return { ...DEFAULT_CONSTRAINTS, ...overrides };
@@ -36,7 +36,12 @@ describe("resolvePath", () => {
 describe("checkPathConstraint", () => {
 	describe("when no write constraints are set", () => {
 		test("allows all writes", () => {
-			const result = checkPathConstraint("write_file", { path: "/any/path" }, constraints(), workDir);
+			const result = checkPathConstraint(
+				"write_file",
+				{ path: "/any/path" },
+				constraints(),
+				workDir,
+			);
 			expect(result).toBeNull();
 		});
 	});
@@ -104,12 +109,7 @@ describe("checkPathConstraint", () => {
 		});
 
 		test("denies writes outside the glob", () => {
-			const result = checkPathConstraint(
-				"write_file",
-				{ path: "~/.config/something" },
-				c,
-				workDir,
-			);
+			const result = checkPathConstraint("write_file", { path: "~/.config/something" }, c, workDir);
 			expect(result).toContain("Write access denied");
 		});
 	});
@@ -126,17 +126,27 @@ describe("checkPathConstraint", () => {
 describe("validateConstraints", () => {
 	test("throws if allowed_write_paths is set with exec capability", () => {
 		expect(() =>
-			validateConstraints("test-agent", ["exec", "write_file"], constraints({ allowed_write_paths: ["~/foo"] })),
+			validateConstraints(
+				"test-agent",
+				["exec", "write_file"],
+				constraints({ allowed_write_paths: ["~/foo"] }),
+			),
 		).toThrow(/exec can bypass/);
 	});
 
 	test("does not throw if allowed_write_paths is set without exec", () => {
 		expect(() =>
-			validateConstraints("test-agent", ["read_file", "write_file"], constraints({ allowed_write_paths: ["~/foo"] })),
+			validateConstraints(
+				"test-agent",
+				["read_file", "write_file"],
+				constraints({ allowed_write_paths: ["~/foo"] }),
+			),
 		).not.toThrow();
 	});
 
 	test("does not throw if exec is present but no write path constraints", () => {
-		expect(() => validateConstraints("test-agent", ["exec", "read_file"], constraints())).not.toThrow();
+		expect(() =>
+			validateConstraints("test-agent", ["exec", "read_file"], constraints()),
+		).not.toThrow();
 	});
 });

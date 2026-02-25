@@ -4,10 +4,10 @@ import type { Genome } from "../genome/genome.ts";
 import { recall } from "../genome/recall.ts";
 import { compactHistory, shouldCompact } from "../host/compaction.ts";
 import type { ExecutionEnvironment } from "../kernel/execution-env.ts";
+import { checkPathConstraint, validateConstraints } from "../kernel/path-constraints.js";
 import type { PrimitiveRegistry } from "../kernel/primitives.ts";
 import { buildAgentToolPrimitives } from "../kernel/tool-loading.ts";
 import { truncateToolOutput } from "../kernel/truncation.ts";
-import { checkPathConstraint, validateConstraints } from "../kernel/path-constraints.js";
 import type {
 	ActResult,
 	AgentSpec,
