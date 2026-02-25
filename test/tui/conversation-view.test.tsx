@@ -34,7 +34,7 @@ describe("ConversationView", () => {
 		expect(warnIdx).toBeGreaterThan(goalIdx);
 	});
 
-	test("indents subagent events based on depth", async () => {
+	test("nests subagent events with left border", async () => {
 		const bus = new EventBus();
 		const { lastFrame } = render(<ConversationView bus={bus} />);
 
@@ -43,14 +43,10 @@ describe("ConversationView", () => {
 		await flush();
 
 		const frame = lastFrame()!;
-		const lines = frame.split("\n");
-		const rootLine = lines.find((l) => l.includes("root-msg"));
-		const subLine = lines.find((l) => l.includes("sub-msg"));
-		expect(rootLine).toBeDefined();
-		expect(subLine).toBeDefined();
-		const rootIndent = rootLine!.length - rootLine!.trimStart().length;
-		const subIndent = subLine!.length - subLine!.trimStart().length;
-		expect(subIndent).toBeGreaterThan(rootIndent);
+		expect(frame).toContain("root-msg");
+		expect(frame).toContain("sub-msg");
+		// Depth-1 events get a left box border character
+		expect(frame).toContain("│");
 	});
 
 	test("caps visible lines to maxHeight", async () => {

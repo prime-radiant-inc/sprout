@@ -123,17 +123,11 @@ describe("ToolStartLine", () => {
 		expect(frame).toContain("`ls`");
 	});
 
-	test("indents based on depth", () => {
-		const { lastFrame: frame0 } = render(
-			<ToolStartLine depth={0} toolName="exec" args={{ command: "ls" }} />,
-		);
-		const { lastFrame: frame1 } = render(
+	test("shows left border at depth > 0", () => {
+		const { lastFrame } = render(
 			<ToolStartLine depth={1} toolName="exec" args={{ command: "ls" }} />,
 		);
-		// Depth 1 should have more leading whitespace
-		const indent0 = frame0()!.length - frame0()!.trimStart().length;
-		const indent1 = frame1()!.length - frame1()!.trimStart().length;
-		expect(indent1).toBeGreaterThan(indent0);
+		expect(lastFrame()).toContain("\u2502"); // │
 	});
 
 	test("handles no args", () => {
@@ -262,7 +256,7 @@ describe("DelegationStartLine", () => {
 		const frame = lastFrame()!;
 		expect(frame).toContain("editor");
 		expect(frame).toContain("Create test file");
-		expect(frame).toContain("\u2192");
+		expect(frame).toContain("\u250C\u2500"); // ┌─
 	});
 
 	test("truncates long goals", () => {
@@ -280,8 +274,8 @@ describe("DelegationEndLine", () => {
 			<DelegationEndLine depth={0} agentName="editor" success={true} turns={3} durationMs={3100} />,
 		);
 		const frame = lastFrame()!;
-		expect(frame).toContain("\u2190");
-		expect(frame).toContain("editor");
+		expect(frame).toContain("\u2514\u2500"); // └─
+		expect(frame).not.toContain("editor"); // agent name only on start line
 		expect(frame).toContain("\u2713");
 		expect(frame).toContain("(3 turns)");
 		expect(frame).toContain("3.1s");
@@ -293,6 +287,7 @@ describe("DelegationEndLine", () => {
 		);
 		const frame = lastFrame()!;
 		expect(frame).toContain("\u2717 failed");
+		expect(frame).not.toContain("editor"); // agent name only on start line
 	});
 });
 
@@ -340,11 +335,9 @@ describe("PlanningLine", () => {
 		expect(lastFrame()).toContain("planning (turn 3)...");
 	});
 
-	test("indents at depth", () => {
+	test("shows left border at depth > 0", () => {
 		const { lastFrame } = render(<PlanningLine depth={1} />);
-		const frame = lastFrame()!;
-		const stripped = frame.trimStart();
-		expect(frame.length - stripped.length).toBeGreaterThan(0);
+		expect(lastFrame()).toContain("\u2502"); // │
 	});
 });
 
@@ -473,14 +466,14 @@ describe("renderEventComponent", () => {
 		expect(lastFrame()).toContain("Create hello.py");
 	});
 
-	test("act_end renders delegation end", () => {
+	test("act_end renders delegation end without agent name", () => {
 		const node = renderEventComponent(
 			makeEvent("act_end", { agent_name: "code-editor", success: true, turns: 2 }),
 			3000,
 		);
 		const { lastFrame } = render(<Box>{node}</Box>);
 		const frame = lastFrame()!;
-		expect(frame).toContain("code-editor");
+		expect(frame).not.toContain("code-editor"); // name only on start line
 		expect(frame).toContain("\u2713");
 		expect(frame).toContain("(2 turns)");
 		expect(frame).toContain("3.0s");

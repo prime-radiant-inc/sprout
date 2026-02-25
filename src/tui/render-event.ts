@@ -154,9 +154,9 @@ export function renderEvent(event: SessionEvent): string | null {
 		case "act_end": {
 			const turns = data.turns != null ? ` (${data.turns} turns)` : "";
 			if (!data.success) {
-				return `${ind}\u2190 ${data.agent_name} \u2717 failed${turns}`;
+				return `${ind}\u2190 \u2717 failed${turns}`;
 			}
-			return `${ind}\u2190 ${data.agent_name} \u2713${turns}`;
+			return `${ind}\u2190 \u2713${turns}`;
 		}
 
 		case "session_end": {

@@ -196,12 +196,12 @@ describe("renderEvent", () => {
 		const result = renderEvent(
 			makeEvent("act_end", { agent_name: "code-editor", success: true, turns: 2 }),
 		);
-		expect(result).toBe("\u2190 code-editor \u2713 (2 turns)");
+		expect(result).toBe("\u2190 \u2713 (2 turns)");
 	});
 
 	test("act_end shows failure", () => {
 		const result = renderEvent(makeEvent("act_end", { agent_name: "code-editor", success: false }));
-		expect(result).toBe("\u2190 code-editor \u2717 failed");
+		expect(result).toBe("\u2190 \u2717 failed");
 	});
 
 	test("session_end shows summary with proper grammar", () => {

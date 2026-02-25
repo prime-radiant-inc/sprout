@@ -36,11 +36,29 @@ function truncate(str: string, maxLen: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Indentation helper
+// Depth border wrapper
 // ---------------------------------------------------------------------------
 
-function indent(depth: number): string {
-	return "  ".repeat(depth);
+/** Wraps children with nested left-side box borders for each depth level. */
+function DepthBorder({ depth, children }: { depth: number; children: ReactNode }): ReactNode {
+	if (depth <= 0) return children;
+	let wrapped = children;
+	for (let i = 0; i < depth; i++) {
+		wrapped = (
+			<Box
+				borderStyle="single"
+				borderLeft
+				borderTop={false}
+				borderBottom={false}
+				borderRight={false}
+				borderColor="cyan"
+				paddingLeft={0}
+			>
+				{wrapped}
+			</Box>
+		);
+	}
+	return wrapped;
 }
 
 // ---------------------------------------------------------------------------
@@ -55,13 +73,14 @@ interface UserMessageProps {
 /** Renders a user message — visually distinct, like a prompt. */
 export function UserMessageLine({ depth, text }: UserMessageProps) {
 	return (
-		<Box>
-			<Text dimColor>{indent(depth)}</Text>
-			<Text color="blue" bold>
-				{"❯ "}
-			</Text>
-			<Text>{text}</Text>
-		</Box>
+		<DepthBorder depth={depth}>
+			<Box>
+				<Text color="blue" bold>
+					{"❯ "}
+				</Text>
+				<Text>{text}</Text>
+			</Box>
+		</DepthBorder>
 	);
 }
 
@@ -75,12 +94,13 @@ interface ToolStartProps {
 export function ToolStartLine({ depth, toolName, args }: ToolStartProps) {
 	const argStr = smartArgs(toolName, args);
 	return (
-		<Box>
-			<Text dimColor>{indent(depth)}</Text>
-			<Text dimColor>{"\u25B8 "}</Text>
-			<Text color="yellow">{toolName}</Text>
-			{argStr && <Text dimColor>{` ${argStr}`}</Text>}
-		</Box>
+		<DepthBorder depth={depth}>
+			<Box>
+				<Text dimColor>{"\u25B8 "}</Text>
+				<Text color="yellow">{toolName}</Text>
+				{argStr && <Text dimColor>{` ${argStr}`}</Text>}
+			</Box>
+		</DepthBorder>
 	);
 }
 
@@ -119,25 +139,26 @@ export function ToolEndLine({
 	}
 
 	return (
-		<Box flexDirection="column">
-			<Box>
-				<Text dimColor>{indent(depth)}</Text>
-				<Text dimColor>{"\u25B8 "}</Text>
-				<Text color="yellow">{toolName}</Text>
-				{argStr && <Text dimColor>{` ${argStr}`}</Text>}
-				{success ? (
-					<Text color="green">{" \u2713"}</Text>
-				) : (
-					<Text color="red">{` \u2717${error ? ` ${error}` : ""}`}</Text>
-				)}
-				{dur && <Text dimColor>{` ${dur}`}</Text>}
-			</Box>
-			{preview && (
-				<Box paddingLeft={depth * 2 + 4}>
-					<Text dimColor>{preview}</Text>
+		<DepthBorder depth={depth}>
+			<Box flexDirection="column">
+				<Box>
+					<Text dimColor>{"\u25B8 "}</Text>
+					<Text color="yellow">{toolName}</Text>
+					{argStr && <Text dimColor>{` ${argStr}`}</Text>}
+					{success ? (
+						<Text color="green">{" \u2713"}</Text>
+					) : (
+						<Text color="red">{` \u2717${error ? ` ${error}` : ""}`}</Text>
+					)}
+					{dur && <Text dimColor>{` ${dur}`}</Text>}
 				</Box>
-			)}
-		</Box>
+				{preview && (
+					<Box paddingLeft={4}>
+						<Text dimColor>{preview}</Text>
+					</Box>
+				)}
+			</Box>
+		</DepthBorder>
 	);
 }
 
@@ -150,22 +171,22 @@ interface AssistantTextProps {
 /** Renders assistant text output — the star of the show. */
 export function AssistantTextLine({ depth, text, reasoning }: AssistantTextProps) {
 	return (
-		<Box flexDirection="column">
-			{reasoning && (
-				<Box>
-					<Text dimColor>{indent(depth)}</Text>
-					<Text dimColor italic>
-						{reasoning}
-					</Text>
-				</Box>
-			)}
-			{text && (
-				<Box>
-					<Text dimColor>{indent(depth)}</Text>
-					<Text>{renderMarkdown(text)}</Text>
-				</Box>
-			)}
-		</Box>
+		<DepthBorder depth={depth}>
+			<Box flexDirection="column">
+				{reasoning && (
+					<Box>
+						<Text dimColor italic>
+							{reasoning}
+						</Text>
+					</Box>
+				)}
+				{text && (
+					<Box>
+						<Text>{renderMarkdown(text)}</Text>
+					</Box>
+				)}
+			</Box>
+		</DepthBorder>
 	);
 }
 
@@ -178,14 +199,15 @@ interface DelegationStartProps {
 /** Renders a delegation start: -> agent: goal */
 export function DelegationStartLine({ depth, agentName, goal }: DelegationStartProps) {
 	return (
-		<Box>
-			<Text dimColor>{indent(depth)}</Text>
-			<Text color="cyan">{"\u2192 "}</Text>
-			<Text color="cyan" bold>
-				{agentName}
-			</Text>
-			<Text dimColor>{`: ${truncate(goal, 80)}`}</Text>
-		</Box>
+		<DepthBorder depth={depth}>
+			<Box>
+				<Text color="cyan" bold>
+					{"\u250C\u2500 "}
+					{agentName}
+				</Text>
+				<Text dimColor>{`: ${truncate(goal, 80)}`}</Text>
+			</Box>
+		</DepthBorder>
 	);
 }
 
@@ -197,30 +219,29 @@ interface DelegationEndProps {
 	durationMs: number | null;
 }
 
-/** Renders a delegation end: <- agent ✓ (N turns) duration */
+/** Renders a delegation end: └─ ✓ (N turns) duration */
 export function DelegationEndLine({
 	depth,
-	agentName,
 	success,
 	turns,
 	durationMs,
 }: DelegationEndProps) {
 	const dur = formatDuration(durationMs);
 	return (
-		<Box>
-			<Text dimColor>{indent(depth)}</Text>
-			<Text color="cyan">{"\u2190 "}</Text>
-			<Text color="cyan" bold>
-				{agentName}
-			</Text>
-			{success ? (
-				<Text color="green">{" \u2713"}</Text>
-			) : (
-				<Text color="red">{" \u2717 failed"}</Text>
-			)}
-			{turns != null && <Text dimColor>{` (${turns} turns)`}</Text>}
-			{dur && <Text dimColor>{` ${dur}`}</Text>}
-		</Box>
+		<DepthBorder depth={depth}>
+			<Box>
+				<Text color="cyan" bold>
+					{"\u2514\u2500"}
+				</Text>
+				{success ? (
+					<Text color="green">{" \u2713"}</Text>
+				) : (
+					<Text color="red">{" \u2717 failed"}</Text>
+				)}
+				{turns != null && <Text dimColor>{` (${turns} turns)`}</Text>}
+				{dur && <Text dimColor>{` ${dur}`}</Text>}
+			</Box>
+		</DepthBorder>
 	);
 }
 
@@ -245,36 +266,21 @@ interface SystemLineProps {
 export function SystemLine({ depth, kind, message }: SystemLineProps) {
 	const icon = SYSTEM_ICONS[kind] ?? "\u25CB";
 
+	let content: ReactNode;
 	if (kind === "error") {
-		return (
-			<Box>
-				<Text dimColor>{indent(depth)}</Text>
-				<Text color="red">{`\u2717 ${message}`}</Text>
-			</Box>
-		);
-	}
-	if (kind === "warning") {
-		return (
-			<Box>
-				<Text dimColor>{indent(depth)}</Text>
-				<Text color="yellow">{`\u26A0 ${message}`}</Text>
-			</Box>
-		);
-	}
-	if (kind === "interrupted") {
-		return (
-			<Box>
-				<Text dimColor>{indent(depth)}</Text>
-				<Text color="red">{`\u2298 ${message}`}</Text>
-			</Box>
-		);
+		content = <Text color="red">{`\u2717 ${message}`}</Text>;
+	} else if (kind === "warning") {
+		content = <Text color="yellow">{`\u26A0 ${message}`}</Text>;
+	} else if (kind === "interrupted") {
+		content = <Text color="red">{`\u2298 ${message}`}</Text>;
+	} else {
+		content = <Text dimColor>{`${icon} ${message}`}</Text>;
 	}
 
 	return (
-		<Box>
-			<Text dimColor>{indent(depth)}</Text>
-			<Text dimColor>{`${icon} ${message}`}</Text>
-		</Box>
+		<DepthBorder depth={depth}>
+			<Box>{content}</Box>
+		</DepthBorder>
 	);
 }
 
@@ -287,10 +293,11 @@ interface PlanningLineProps {
 export function PlanningLine({ depth, turn }: PlanningLineProps) {
 	const label = turn ? `planning (turn ${turn})...` : "planning...";
 	return (
-		<Box>
-			<Text dimColor>{indent(depth)}</Text>
-			<Text dimColor>{`\u25CC ${label}`}</Text>
-		</Box>
+		<DepthBorder depth={depth}>
+			<Box>
+				<Text dimColor>{`\u25CC ${label}`}</Text>
+			</Box>
+		</DepthBorder>
 	);
 }
 

@@ -202,9 +202,7 @@ export function InputArea({
 			<Box flexGrow={1}>
 				<Text>
 					{before}
-					{showCursor ? (
-						<Text inverse>{cursorChar}</Text>
-					) : null}
+					{showCursor ? <Text inverse>{cursorChar}</Text> : null}
 					{showCursor ? after : value.slice(cursorIndex)}
 				</Text>
 			</Box>
