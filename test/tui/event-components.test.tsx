@@ -256,15 +256,16 @@ describe("DelegationStartLine", () => {
 		const frame = lastFrame()!;
 		expect(frame).toContain("editor");
 		expect(frame).toContain("Create test file");
-		expect(frame).toContain("\u250C\u2500"); // ┌─
+		expect(frame).toContain("\u256D\u2500"); // ╭─
 	});
 
-	test("truncates long goals", () => {
+	test("does not truncate long goals", () => {
 		const longGoal = "a".repeat(120);
 		const { lastFrame } = render(
 			<DelegationStartLine depth={0} agentName="editor" goal={longGoal} />,
 		);
-		expect(lastFrame()).toContain("...");
+		// No ellipsis — full goal is rendered (ink may wrap across lines)
+		expect(lastFrame()).not.toContain("...");
 	});
 });
 
@@ -274,7 +275,7 @@ describe("DelegationEndLine", () => {
 			<DelegationEndLine depth={0} agentName="editor" success={true} turns={3} durationMs={3100} />,
 		);
 		const frame = lastFrame()!;
-		expect(frame).toContain("\u2514\u2500"); // └─
+		expect(frame).toContain("\u2570\u2500"); // ╰─
 		expect(frame).not.toContain("editor"); // agent name only on start line
 		expect(frame).toContain("\u2713");
 		expect(frame).toContain("(3 turns)");

@@ -29,12 +29,6 @@ export function renderMarkdown(text: string): string {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Truncate a string to maxLen, adding ellipsis if truncated. */
-function truncate(str: string, maxLen: number): string {
-	if (str.length <= maxLen) return str;
-	return `${str.slice(0, maxLen - 1)}...`;
-}
-
 // ---------------------------------------------------------------------------
 // Depth border wrapper
 // ---------------------------------------------------------------------------
@@ -46,12 +40,12 @@ function DepthBorder({ depth, children }: { depth: number; children: ReactNode }
 	for (let i = 0; i < depth; i++) {
 		wrapped = (
 			<Box
-				borderStyle="single"
+				borderStyle="round"
 				borderLeft
 				borderTop={false}
 				borderBottom={false}
 				borderRight={false}
-				borderColor="cyan"
+				borderColor="gray"
 				paddingLeft={0}
 			>
 				{wrapped}
@@ -196,16 +190,16 @@ interface DelegationStartProps {
 	goal: string;
 }
 
-/** Renders a delegation start: -> agent: goal */
+/** Renders a delegation start: ╭─ agent: goal */
 export function DelegationStartLine({ depth, agentName, goal }: DelegationStartProps) {
 	return (
 		<DepthBorder depth={depth}>
 			<Box>
-				<Text color="cyan" bold>
-					{"\u250C\u2500 "}
+				<Text dimColor bold>
+					{"\u256D\u2500 "}
 					{agentName}
 				</Text>
-				<Text dimColor>{`: ${truncate(goal, 80)}`}</Text>
+				<Text dimColor>{`: ${goal}`}</Text>
 			</Box>
 		</DepthBorder>
 	);
@@ -219,19 +213,14 @@ interface DelegationEndProps {
 	durationMs: number | null;
 }
 
-/** Renders a delegation end: └─ ✓ (N turns) duration */
-export function DelegationEndLine({
-	depth,
-	success,
-	turns,
-	durationMs,
-}: DelegationEndProps) {
+/** Renders a delegation end: ╰─ ✓ (N turns) duration */
+export function DelegationEndLine({ depth, success, turns, durationMs }: DelegationEndProps) {
 	const dur = formatDuration(durationMs);
 	return (
 		<DepthBorder depth={depth}>
 			<Box>
-				<Text color="cyan" bold>
-					{"\u2514\u2500"}
+				<Text dimColor bold>
+					{"\u2570\u2500"}
 				</Text>
 				{success ? (
 					<Text color="green">{" \u2713"}</Text>
