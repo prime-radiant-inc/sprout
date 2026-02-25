@@ -15,7 +15,6 @@ import type {
 	Memory,
 	RoutingRule,
 } from "../kernel/types.ts";
-import { checkPathConstraint } from "../kernel/path-constraints.js";
 import type { LearnProcess } from "../learn/learn-process.ts";
 import type { Client } from "../llm/client.ts";
 import type { Response as LLMResponse, Message, ToolDefinition } from "../llm/types.ts";
@@ -571,24 +570,6 @@ export class Agent {
 					name: call.name,
 					args: call.arguments,
 				});
-
-				// Enforce path constraints before execution
-				const pathDenied = checkPathConstraint(call.name, call.arguments, this.spec.constraints);
-				if (pathDenied) {
-					const result = { output: "", success: false, error: pathDenied };
-					const content = `Error: ${result.error}`;
-					const toolResultMsg = Msg.toolResult(call.id, content, true);
-					resultByCallId.set(call.id, toolResultMsg);
-					this.emitAndLog("primitive_end", agentId, this.depth, {
-						name: call.name,
-						success: false,
-						stumbled: true,
-						output: "",
-						error: pathDenied,
-					});
-					stumbles++;
-					continue;
-				}
 
 				const result = await this.primitiveRegistry.execute(call.name, call.arguments, this.signal);
 
