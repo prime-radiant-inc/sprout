@@ -857,18 +857,75 @@ describe("SessionController", () => {
 		await promise;
 	});
 
-	test("compact command while idle applies to next agent run", async () => {
-		const fake = makeFakeAgent();
-		const factory = makeFakeFactory(fake);
+	test("compact command while idle with no prior run is a no-op", () => {
+		const { bus } = makeController();
+
+		// Issue compact while idle and no agent has ever run — should not throw
+		bus.emitCommand({ kind: "compact", data: {} });
+	});
+
+	test("compact command while idle runs compaction immediately", async () => {
+		let compactCalled = false;
+		let compactedHistoryLength = 0;
+
+		const factory: AgentFactory = async (options) => ({
+			agent: {
+				steer() {},
+				requestCompaction() {},
+				async run(goal: string) {
+					// Build up history (>6 messages) by emitting events
+					options.events.emitEvent("perceive", "root", 0, { goal });
+					for (let i = 0; i < 4; i++) {
+						options.events.emitEvent("plan_end", "root", 0, {
+							turn: i + 1,
+							assistant_message: {
+								role: "assistant",
+								content: [{ kind: "text", text: `response ${i}` }],
+							},
+						});
+						options.events.emitEvent("primitive_end", "root", 0, {
+							tool_result_message: {
+								role: "tool",
+								content: [{ kind: "text", text: `result ${i}` }],
+							},
+						});
+					}
+					return { output: "done", success: true, stumbles: 0, turns: 4, timed_out: false };
+				},
+			} as any,
+			learnProcess: null,
+			compact: async (history: any[], _logPath: string) => {
+				compactCalled = true;
+				compactedHistoryLength = history.length;
+				const summary = "compacted summary of prior work";
+				history.length = 0;
+				history.push({ role: "user", content: [{ kind: "text", text: summary }] });
+				return { summary, beforeCount: compactedHistoryLength, afterCount: 1 };
+			},
+		});
+
 		const { bus, controller } = makeController({ factory });
 
-		// Issue compact while no agent is running
+		const events: any[] = [];
+		bus.onEvent((e) => events.push(e));
+
+		// Run a goal to build up history and register compact function
+		await controller.submitGoal("build things");
+
+		// Issue compact while idle
 		bus.emitCommand({ kind: "compact", data: {} });
 
-		// Now start an agent — it should receive the pending compaction
-		await controller.submitGoal("continue work");
+		// Wait for async compaction
+		await new Promise((r) => setTimeout(r, 100));
 
-		expect(fake.compactionRequested).toBe(true);
+		expect(compactCalled).toBe(true);
+		expect(compactedHistoryLength).toBeGreaterThan(6);
+
+		// Should have emitted a warning about compaction
+		const compactionWarnings = events.filter(
+			(e: any) => e.kind === "warning" && e.data.message?.includes("Compact"),
+		);
+		expect(compactionWarnings).toHaveLength(1);
 	});
 
 	test("controller does not auto-compact on high token usage", async () => {

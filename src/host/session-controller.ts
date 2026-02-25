@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { AgentEventEmitter } from "../agents/events.ts";
 import { createAgent } from "../agents/factory.ts";
+import { compactHistory } from "./compaction.ts";
 import type { Command, SessionEvent } from "../kernel/types.ts";
 import type { Message } from "../llm/types.ts";
 import { Msg } from "../llm/types.ts";
@@ -43,6 +44,11 @@ export interface AgentFactoryOptions {
 export interface AgentFactoryResult {
 	agent: RunnableAgent;
 	learnProcess: { startBackground(): void; stopBackground(): Promise<void> } | null;
+	/** Compact conversation history via LLM summarization. Available after agent creation. */
+	compact?: (
+		history: Message[],
+		logPath: string,
+	) => Promise<{ summary: string; beforeCount: number; afterCount: number }>;
 }
 
 /** Factory function that creates an agent. Injectable for testing. */
@@ -86,6 +92,14 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 	return {
 		agent: result.agent,
 		learnProcess: result.learnProcess,
+		compact: (history, logPath) =>
+			compactHistory({
+				history,
+				client: result.client,
+				model: result.model,
+				provider: result.provider,
+				logPath,
+			}),
 	};
 }
 
@@ -110,7 +124,7 @@ export class SessionController {
 	private running = false;
 	private modelOverride?: string;
 	private hasRun = false;
-	private pendingCompaction = false;
+	private compactFn?: AgentFactoryResult["compact"];
 
 	get sessionId(): string {
 		return this._sessionId;
@@ -175,8 +189,8 @@ export class SessionController {
 			case "compact":
 				if (this.agent) {
 					this.agent.requestCompaction();
-				} else {
-					this.pendingCompaction = true;
+				} else if (this.compactFn && this.history.length > 0) {
+					this.compactWhileIdle();
 				}
 				break;
 			case "quit":
@@ -287,10 +301,8 @@ export class SessionController {
 
 			this.agent = result.agent;
 			learnProcess = result.learnProcess;
-
-			if (this.pendingCompaction) {
-				this.agent.requestCompaction();
-				this.pendingCompaction = false;
+			if (result.compact) {
+				this.compactFn = result.compact;
 			}
 
 			if (learnProcess) {
@@ -306,6 +318,21 @@ export class SessionController {
 			this.metadata.setStatus(signal.aborted ? "interrupted" : "idle");
 			await this.metadata.save();
 			this.agent = null;
+		}
+	}
+
+	private async compactWhileIdle(): Promise<void> {
+		if (!this.compactFn) return;
+		const logPath = join(this.genomePath, "logs", this._sessionId);
+		try {
+			const result = await this.compactFn(this.history, logPath);
+			if (result.summary) {
+				this.bus.emitEvent("warning", "session", 0, {
+					message: `Compacted: ${result.beforeCount} → ${result.afterCount} messages`,
+				});
+			}
+		} catch (err) {
+			this.bus.emitEvent("error", "session", 0, { error: String(err) });
 		}
 	}
 
