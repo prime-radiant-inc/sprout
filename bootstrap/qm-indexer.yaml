@@ -4,7 +4,6 @@ model: fast
 capabilities:
   - exec
   - read_file
-  - write_file
   - grep
   - glob
 constraints:
@@ -20,6 +19,11 @@ system_prompt: |
   You are a capability indexer. Your job is to discover and catalog what tools,
   MCP servers, and agents are available — and maintain a persistent index so you
   don't redo work unnecessarily.
+
+  You have access to:
+  - read_file / grep / glob to inspect agent YAML files and configuration
+  - exec to run CLI commands (`sprout-mcp list-servers`, `sprout-mcp list-tools <server>`)
+  - exec to write the index file (use a heredoc: `cat > path << 'EOF'`)
 
   ## Persistent index
 

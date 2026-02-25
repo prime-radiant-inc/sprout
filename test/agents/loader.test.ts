@@ -39,9 +39,9 @@ describe("loadAgentSpec", () => {
 });
 
 describe("loadBootstrapAgents", () => {
-	test("loads all 6 bootstrap agents", async () => {
+	test("loads all 10 bootstrap agents", async () => {
 		const agents = await loadBootstrapAgents(join(import.meta.dir, "../../bootstrap"));
-		expect(agents).toHaveLength(6);
+		expect(agents).toHaveLength(10);
 		const names = agents.map((a) => a.name);
 		expect(names).toContain("root");
 		expect(names).toContain("reader");
@@ -49,6 +49,10 @@ describe("loadBootstrapAgents", () => {
 		expect(names).toContain("command-runner");
 		expect(names).toContain("web-reader");
 		expect(names).toContain("mcp");
+		expect(names).toContain("quartermaster");
+		expect(names).toContain("qm-indexer");
+		expect(names).toContain("qm-planner");
+		expect(names).toContain("qm-fabricator");
 	});
 
 	test("all agents have valid constraints", async () => {
@@ -63,7 +67,8 @@ describe("loadBootstrapAgents", () => {
 
 	test("leaf agents cannot spawn subagents", async () => {
 		const agents = await loadBootstrapAgents(join(import.meta.dir, "../../bootstrap"));
-		const leaves = agents.filter((a) => a.name !== "root");
+		const orchestrators = ["root", "quartermaster"];
+		const leaves = agents.filter((a) => !orchestrators.includes(a.name));
 		for (const leaf of leaves) {
 			expect(leaf.constraints.can_spawn).toBe(false);
 		}

@@ -337,13 +337,17 @@ describe("Genome", () => {
 			const bootstrapDir = join(import.meta.dir, "../../bootstrap");
 			await genome.initFromBootstrap(bootstrapDir);
 
-			expect(genome.agentCount()).toBe(6);
+			expect(genome.agentCount()).toBe(10);
 			expect(genome.getAgent("root")).toBeDefined();
 			expect(genome.getAgent("reader")).toBeDefined();
 			expect(genome.getAgent("editor")).toBeDefined();
 			expect(genome.getAgent("command-runner")).toBeDefined();
 			expect(genome.getAgent("web-reader")).toBeDefined();
 			expect(genome.getAgent("mcp")).toBeDefined();
+			expect(genome.getAgent("quartermaster")).toBeDefined();
+			expect(genome.getAgent("qm-fabricator")).toBeDefined();
+			expect(genome.getAgent("qm-indexer")).toBeDefined();
+			expect(genome.getAgent("qm-planner")).toBeDefined();
 
 			// Verify git commit
 			const log = await git(root, "log", "--oneline");
@@ -351,7 +355,7 @@ describe("Genome", () => {
 
 			// Verify files exist on disk
 			const files = await readdir(join(root, "agents"));
-			expect(files).toHaveLength(6);
+			expect(files).toHaveLength(10);
 		});
 
 		test("initFromBootstrap throws if agents already exist", async () => {
