@@ -378,5 +378,20 @@ describe("text editing", () => {
 		test("no-op on empty string", () => {
 			expect(killWordBackward("", 0)).toEqual({ text: "", cursor: 0 });
 		});
+
+		test("stops at newline boundary", () => {
+			// Cursor right after newline — nothing to kill on this line yet
+			expect(killWordBackward("hello\nworld", 6)).toEqual({
+				text: "hello\nworld",
+				cursor: 6,
+			});
+		});
+
+		test("kills word on second line without crossing newline", () => {
+			expect(killWordBackward("hello\nfoo bar", 13)).toEqual({
+				text: "hello\nfoo ",
+				cursor: 10,
+			});
+		});
 	});
 });

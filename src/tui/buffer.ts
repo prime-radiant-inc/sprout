@@ -120,14 +120,14 @@ export function killToLineStart(text: string, cursorIndex: number): Edit {
 	};
 }
 
-/** Kills one word backward: skip spaces, then skip non-spaces. */
+/** Kills one word backward: skip spaces, then skip non-spaces. Stops at newlines. */
 export function killWordBackward(text: string, cursorIndex: number): Edit {
 	if (cursorIndex === 0) return { text, cursor: 0 };
 	let i = cursorIndex;
-	// Skip spaces backward
+	// Skip spaces backward (stop at newlines)
 	while (i > 0 && text[i - 1] === " ") i--;
-	// Skip non-spaces backward
-	while (i > 0 && text[i - 1] !== " ") i--;
+	// Skip non-spaces backward (stop at spaces and newlines)
+	while (i > 0 && text[i - 1] !== " " && text[i - 1] !== "\n") i--;
 	return {
 		text: text.slice(0, i) + text.slice(cursorIndex),
 		cursor: i,
