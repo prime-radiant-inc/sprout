@@ -232,7 +232,7 @@ describe("handleSlashCommand", () => {
 		const bus = makeBus();
 		handleSlashCommand({ kind: "status" }, bus, controller);
 		expect(bus.events).toHaveLength(1);
-		expect(bus.events[0].data.message).toContain("01ABCDEF...");
+		expect(bus.events[0].data.message).toContain("01ABCDEF12345678ABCDEF1234");
 		expect(bus.events[0].data.message).toContain("idle");
 	});
 

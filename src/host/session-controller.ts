@@ -110,6 +110,7 @@ export class SessionController {
 	private running = false;
 	private modelOverride?: string;
 	private hasRun = false;
+	private pendingCompaction = false;
 
 	get sessionId(): string {
 		return this._sessionId;
@@ -172,7 +173,11 @@ export class SessionController {
 				this.modelOverride = cmd.data.model as string | undefined;
 				break;
 			case "compact":
-				this.agent?.requestCompaction();
+				if (this.agent) {
+					this.agent.requestCompaction();
+				} else {
+					this.pendingCompaction = true;
+				}
 				break;
 			case "quit":
 				this.interrupt();
@@ -282,6 +287,11 @@ export class SessionController {
 
 			this.agent = result.agent;
 			learnProcess = result.learnProcess;
+
+			if (this.pendingCompaction) {
+				this.agent.requestCompaction();
+				this.pendingCompaction = false;
+			}
 
 			if (learnProcess) {
 				learnProcess.startBackground();

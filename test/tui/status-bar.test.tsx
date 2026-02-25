@@ -112,7 +112,7 @@ describe("StatusBar", () => {
 		expect(lastFrame()).toContain("gpt-4o");
 	});
 
-	test("renders truncated session ID", () => {
+	test("renders full session ID", () => {
 		const { lastFrame } = render(
 			<StatusBar
 				contextTokens={0}
@@ -125,7 +125,7 @@ describe("StatusBar", () => {
 				status="idle"
 			/>,
 		);
-		expect(lastFrame()).toContain("01ABCDEF...");
+		expect(lastFrame()).toContain("01ABCDEF12345678ABCDEF1234");
 	});
 
 	test("renders compact distance", () => {

@@ -857,6 +857,20 @@ describe("SessionController", () => {
 		await promise;
 	});
 
+	test("compact command while idle applies to next agent run", async () => {
+		const fake = makeFakeAgent();
+		const factory = makeFakeFactory(fake);
+		const { bus, controller } = makeController({ factory });
+
+		// Issue compact while no agent is running
+		bus.emitCommand({ kind: "compact", data: {} });
+
+		// Now start an agent — it should receive the pending compaction
+		await controller.submitGoal("continue work");
+
+		expect(fake.compactionRequested).toBe(true);
+	});
+
 	test("controller does not auto-compact on high token usage", async () => {
 		// The controller should NOT trigger compaction — the agent handles it internally.
 		// Verify that plan_end with high token usage does NOT cause the controller

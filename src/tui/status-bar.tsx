@@ -49,7 +49,7 @@ export function StatusBar(props: StatusBarProps) {
 				{status === "running" && ` | ↑${formatTokens(inputTokens)} ↓${formatTokens(outputTokens)}`}
 			</Text>
 			<Text dimColor>
-				{model} | {sessionId.slice(0, 8)}...
+				{model} | {sessionId}
 			</Text>
 		</Box>
 	);

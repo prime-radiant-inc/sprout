@@ -7,7 +7,7 @@ export { renderEvent, truncateLines } from "../tui/render-event.ts";
 const DEFAULT_GENOME_PATH = join(homedir(), ".local/share/sprout-genome");
 
 function printResumeHint(sessionId: string): void {
-	console.log(`\nTo resume this session:\n  sprout --resume ${sessionId}\n`);
+	console.error(`\nTo resume this session:\n  sprout --resume ${sessionId}\n`);
 }
 
 /** Returns the path to the persistent input history file inside the genome directory. */
@@ -149,7 +149,7 @@ export function handleSlashCommand(
 			break;
 		case "status":
 			bus.emitEvent("warning", "cli", 0, {
-				message: `Session: ${controller.sessionId.slice(0, 8)}... | ${controller.isRunning ? "running" : "idle"} | model: ${controller.currentModel ?? "default"}`,
+				message: `Session: ${controller.sessionId} | ${controller.isRunning ? "running" : "idle"} | model: ${controller.currentModel ?? "default"}`,
 			});
 			break;
 		case "unknown":
@@ -311,9 +311,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 
 		const logPath = join(command.genomePath, "logs", `${sessionId}.jsonl`);
 		const history = await replayEventLog(logPath);
-		console.log(
-			`Resumed session ${sessionId.slice(0, 8)}... with ${history.length} messages of history`,
-		);
+		console.error(`Resumed session ${sessionId} with ${history.length} messages of history`);
 
 		// Read raw events for display in the TUI
 		try {

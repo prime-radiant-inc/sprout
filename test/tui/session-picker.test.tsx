@@ -39,8 +39,8 @@ describe("SessionPicker", () => {
 			<SessionPicker sessions={sessions} onSelect={() => {}} onCancel={() => {}} />,
 		);
 		const frame = lastFrame()!;
-		expect(frame).toContain("01AAAA00...");
-		expect(frame).toContain("01BBBB00...");
+		expect(frame).toContain("01AAAA00000000000000000001");
+		expect(frame).toContain("01BBBB00000000000000000002");
 	});
 
 	test("highlights first session by default", () => {

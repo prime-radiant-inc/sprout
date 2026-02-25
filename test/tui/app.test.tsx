@@ -29,7 +29,7 @@ describe("App", () => {
 		const frame = lastFrame();
 		expect(frame).toContain("ctx:");
 		expect(frame).toContain("0 turns");
-		expect(frame).toContain("01ABCDEF...");
+		expect(frame).toContain("01ABCDEF12345678ABCDEF1234");
 	});
 
 	test("updates StatusBar on plan_end event with usage data", async () => {
