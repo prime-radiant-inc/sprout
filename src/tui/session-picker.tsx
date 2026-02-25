@@ -1,4 +1,4 @@
-import { Box, Text, useInput } from "ink";
+import { Box, Text, useInput, useStdout } from "ink";
 import { useState } from "react";
 import type { SessionListEntry } from "../host/session-metadata.ts";
 
@@ -41,10 +41,14 @@ export interface SessionPickerProps {
 
 export function SessionPicker({ sessions, onSelect, onCancel }: SessionPickerProps) {
 	const [cursor, setCursor] = useState(0);
+	const { stdout } = useStdout();
 
-	// Show a viewport sized to the terminal, keeping the cursor roughly centered.
-	const terminalRows = process.stdout.rows ?? 24;
-	const visibleCount = Math.max(3, Math.floor((terminalRows - 3) / 2));
+	// Cap the session list at 2/3 of the terminal height so scrolling is meaningful.
+	// Reserve 1 row for the title bar. Each session takes at most 2 rows (header + detail).
+	// Using wrap="truncate" on every Text ensures rows never wrap, keeping the count exact.
+	const terminalRows = stdout.rows ?? 24;
+	const maxContainerRows = Math.max(6, Math.floor(terminalRows * 2 / 3));
+	const visibleCount = Math.max(3, Math.floor((maxContainerRows - 1) / 2));
 	const windowStart = Math.max(
 		0,
 		Math.min(cursor - Math.floor(visibleCount / 2), sessions.length - visibleCount),
@@ -101,12 +105,15 @@ export function SessionPicker({ sessions, onSelect, onCancel }: SessionPickerPro
 
 				return (
 					<Box key={s.sessionId} flexDirection="column">
-						<Text color={selected ? "cyan" : undefined}>
+						<Text wrap="truncate" color={selected ? "cyan" : undefined}>
 							{marker}
 							{header}
 						</Text>
 						{details && (
-							<Text color={selected ? "cyan" : "gray"}>{"    "}{details}</Text>
+							<Text wrap="truncate" color={selected ? "cyan" : "gray"}>
+								{"    "}
+								{details}
+							</Text>
 						)}
 					</Box>
 				);
