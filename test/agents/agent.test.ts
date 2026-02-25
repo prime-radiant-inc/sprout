@@ -2338,6 +2338,174 @@ describe("Agent", () => {
 		expect(compactionEvents.length).toBeGreaterThanOrEqual(2);
 	});
 
+	test("continue() appends message and runs another cycle", async () => {
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				return {
+					id: `mock-cont-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant(`Response ${callCount}.`),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: leafSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+			events,
+		});
+
+		const first = await agent.run("step one");
+		expect(first.success).toBe(true);
+		expect(first.output).toBe("Response 1.");
+
+		const second = await agent.continue("step two");
+		expect(second.success).toBe(true);
+		expect(second.output).toBe("Response 2.");
+
+		// History should have: user("step one"), assistant(resp1), user("step two"), assistant(resp2)
+		const history = agent.currentHistory();
+		expect(history).toHaveLength(4);
+		expect(history[0]!.role).toBe("user");
+		expect(history[1]!.role).toBe("assistant");
+		expect(history[2]!.role).toBe("user");
+		expect(history[3]!.role).toBe("assistant");
+	});
+
+	test("continue() does not emit session_start or recall", async () => {
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				return {
+					id: `mock-noss-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant(`Reply ${callCount}.`),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: leafSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+			events,
+		});
+
+		await agent.run("initial goal");
+		const eventsAfterRun = events.collected().length;
+
+		await agent.continue("follow up");
+
+		const allEvents = events.collected();
+		const continueEvents = allEvents.slice(eventsAfterRun);
+
+		// continue() should emit perceive but NOT session_start or recall
+		const kinds = continueEvents.map((e) => e.kind);
+		expect(kinds).toContain("perceive");
+		expect(kinds).not.toContain("session_start");
+		expect(kinds).not.toContain("recall");
+	});
+
+	test("continue() emits session_end with correct turn count", async () => {
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				return {
+					id: `mock-se-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant(`Done ${callCount}.`),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: leafSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+			events,
+		});
+
+		await agent.run("first");
+		const eventsAfterRun = events.collected().length;
+
+		const result = await agent.continue("second");
+		expect(result.turns).toBe(1);
+		expect(result.success).toBe(true);
+
+		const allEvents = events.collected();
+		const continueEvents = allEvents.slice(eventsAfterRun);
+		const sessionEnd = continueEvents.find((e) => e.kind === "session_end");
+		expect(sessionEnd).toBeDefined();
+		expect(sessionEnd!.data.turns).toBe(1);
+		expect(sessionEnd!.data.success).toBe(true);
+	});
+
+	test("continue() throws if run() has not been called", async () => {
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => ({
+				id: "mock-noop",
+				model: "claude-haiku-4-5-20251001",
+				provider: "anthropic",
+				message: Msg.assistant("Done."),
+				finish_reason: { reason: "stop" },
+				usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+			}),
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: leafSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+		});
+
+		expect(agent.continue("should fail")).rejects.toThrow(/run\(\)/i);
+	});
+
 	test("currentHistory() returns shallow copy of conversation history after run()", async () => {
 		const mockClient = {
 			providers: () => ["anthropic"],

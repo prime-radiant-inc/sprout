@@ -25,6 +25,7 @@ import { getContextWindowSize } from "./context-window.ts";
 import { AgentEventEmitter } from "./events.ts";
 import type { Preambles } from "./loader.ts";
 import { type ResolvedModel, resolveModel } from "./model-resolver.ts";
+import type { Postscripts } from "./plan.ts";
 import {
 	buildDelegateTool,
 	buildPlanRequest,
@@ -34,7 +35,6 @@ import {
 	renderAgentsForPrompt,
 	renderWorkspaceTools,
 } from "./plan.ts";
-import type { Postscripts } from "./plan.ts";
 import {
 	type CallRecord,
 	detectRetries,
@@ -95,6 +95,7 @@ export class Agent {
 	private readonly genomePostscripts?: { global: string; orchestrator: string; worker: string };
 	private readonly initialHistory?: Message[];
 	private history: Message[] = [];
+	private systemPrompt?: string;
 	private signal?: AbortSignal;
 	private logWriteChain: Promise<void> = Promise.resolve();
 	private steeringQueue: string[] = [];
@@ -354,10 +355,6 @@ export class Agent {
 	async run(goal: string, signal?: AbortSignal): Promise<AgentResult> {
 		const agentId = this.spec.name;
 		this.signal = signal;
-		const startTime = performance.now();
-		let stumbles = 0;
-		let turns = 0;
-		let lastOutput = "";
 
 		// Ensure log directory exists
 		if (this.logBasePath) {
@@ -373,9 +370,6 @@ export class Agent {
 
 		// Initialize history with optional prior messages and the goal
 		this.history = [...(this.initialHistory ?? []), Msg.user(goal)];
-
-		// Track tool calls for retry detection
-		const callHistory: CallRecord[] = [];
 
 		// Emit perceive
 		this.emitAndLog("perceive", agentId, this.depth, { goal });
@@ -424,7 +418,7 @@ export class Agent {
 		}
 
 		// Build system prompt with recall context (memories and routing hints)
-		let systemPrompt = buildSystemPrompt(
+		this.systemPrompt = buildSystemPrompt(
 			this.spec,
 			this.env.working_directory(),
 			this.env.platform(),
@@ -438,15 +432,45 @@ export class Agent {
 		// Append available agent descriptions to system prompt
 		if (this.spec.constraints.can_spawn) {
 			const delegatableAgents = this.getDelegatableAgents();
-			systemPrompt += renderAgentsForPrompt(delegatableAgents);
+			this.systemPrompt += renderAgentsForPrompt(delegatableAgents);
 		}
 
 		// Append workspace tools to system prompt (tools created by the quartermaster)
 		if (wsToolDefs.length > 0) {
-			systemPrompt += renderWorkspaceTools(wsToolDefs);
+			this.systemPrompt += renderWorkspaceTools(wsToolDefs);
 		}
 
-		// Core loop
+		return this.runLoop(goal);
+	}
+
+	/** Continue a conversation by appending a new message and running the planning loop again. */
+	async continue(message: string, signal?: AbortSignal): Promise<AgentResult> {
+		if (!this.systemPrompt) {
+			throw new Error("Cannot call continue() before run() has been called");
+		}
+
+		this.signal = signal;
+
+		// Append the new user message
+		this.history.push(Msg.user(message));
+
+		// Emit perceive for the new message
+		this.emitAndLog("perceive", this.spec.name, this.depth, { goal: message });
+
+		return this.runLoop(message);
+	}
+
+	/** Core planning loop shared by run() and continue(). */
+	private async runLoop(goal: string): Promise<AgentResult> {
+		const agentId = this.spec.name;
+		const systemPrompt = this.systemPrompt!;
+		const signal = this.signal;
+		const startTime = performance.now();
+		const callHistory: CallRecord[] = [];
+		let stumbles = 0;
+		let turns = 0;
+		let lastOutput = "";
+
 		while (turns < this.spec.constraints.max_turns) {
 			turns++;
 
