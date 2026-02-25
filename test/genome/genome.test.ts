@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "yaml";
@@ -493,6 +493,83 @@ describe("Genome", () => {
 			expect(genome2.agentCount()).toBe(1);
 			expect(genome2.getAgent("first")).toBeUndefined();
 			expect(genome2.getAgent("second")).toBeDefined();
+		});
+	});
+
+	describe("Postscripts", () => {
+		test("loadPostscripts returns empty strings when no postscripts exist", async () => {
+			const root = join(tempDir, "ps-empty");
+			const genome = new Genome(root);
+			await genome.init();
+
+			const ps = await genome.loadPostscripts();
+			expect(ps.global).toBe("");
+			expect(ps.orchestrator).toBe("");
+			expect(ps.worker).toBe("");
+		});
+
+		test("loadPostscripts reads existing postscript files", async () => {
+			const root = join(tempDir, "ps-read");
+			const genome = new Genome(root);
+			await genome.init();
+
+			await writeFile(join(root, "postscripts", "global.md"), "global rules");
+			await writeFile(join(root, "postscripts", "worker.md"), "worker rules");
+
+			const ps = await genome.loadPostscripts();
+			expect(ps.global).toBe("global rules");
+			expect(ps.orchestrator).toBe("");
+			expect(ps.worker).toBe("worker rules");
+		});
+
+		test("loadAgentPostscript returns empty string when not found", async () => {
+			const root = join(tempDir, "ps-agent-missing");
+			const genome = new Genome(root);
+			await genome.init();
+
+			const content = await genome.loadAgentPostscript("reader");
+			expect(content).toBe("");
+		});
+
+		test("loadAgentPostscript reads agent-specific postscript", async () => {
+			const root = join(tempDir, "ps-agent-read");
+			const genome = new Genome(root);
+			await genome.init();
+
+			const agentsDir = join(root, "postscripts", "agents");
+			await mkdir(agentsDir, { recursive: true });
+			await writeFile(join(agentsDir, "reader.md"), "reader-specific rules");
+
+			const content = await genome.loadAgentPostscript("reader");
+			expect(content).toBe("reader-specific rules");
+		});
+
+		test("savePostscript writes file and commits", async () => {
+			const root = join(tempDir, "ps-save");
+			const genome = new Genome(root);
+			await genome.init();
+
+			await genome.savePostscript("global.md", "saved global rules");
+
+			const content = await readFile(join(root, "postscripts", "global.md"), "utf-8");
+			expect(content).toBe("saved global rules");
+
+			const log = await git(root, "log", "--oneline");
+			expect(log).toContain("genome: save postscript global.md");
+		});
+
+		test("savePostscript creates agents subdirectory if needed", async () => {
+			const root = join(tempDir, "ps-save-agent");
+			const genome = new Genome(root);
+			await genome.init();
+
+			await genome.savePostscript("agents/editor.md", "editor-specific rules");
+
+			const content = await readFile(
+				join(root, "postscripts", "agents", "editor.md"),
+				"utf-8",
+			);
+			expect(content).toBe("editor-specific rules");
 		});
 	});
 });

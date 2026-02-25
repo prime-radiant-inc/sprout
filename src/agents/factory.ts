@@ -87,6 +87,7 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 	const registry = createPrimitiveRegistry(env);
 	const preambles = options.bootstrapDir ? await loadPreambles(options.bootstrapDir) : undefined;
 	const projectDocs = await loadProjectDocs({ cwd: workDir });
+	const genomePostscripts = await genome.loadPostscripts();
 
 	const events = options.events ?? new AgentEventEmitter();
 
@@ -119,6 +120,7 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 		modelOverride: options.model,
 		preambles,
 		projectDocs,
+		genomePostscripts,
 	});
 
 	const resolved = agent.resolvedModel;

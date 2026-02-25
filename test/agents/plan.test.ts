@@ -193,6 +193,69 @@ describe("buildSystemPrompt", () => {
 		const prompt = buildSystemPrompt(testAgent, "/tmp/test", "darwin", "Darwin 25.0");
 		expect(prompt).not.toContain("<project-instructions>");
 	});
+
+	test("includes genome postscripts after agent prompt and before environment", () => {
+		const workerSpec: AgentSpec = {
+			...testAgent,
+			constraints: { ...testAgent.constraints, can_spawn: false },
+		};
+		const postscripts = { global: "Be concise.", orchestrator: "", worker: "No fluff.", agent: "Reader-specific." };
+		const prompt = buildSystemPrompt(
+			workerSpec,
+			"/tmp/test",
+			"darwin",
+			"Darwin 25.0",
+			undefined,
+			undefined,
+			undefined,
+			postscripts,
+		);
+		expect(prompt).toContain("Be concise.");
+		expect(prompt).toContain("No fluff.");
+		expect(prompt).toContain("Reader-specific.");
+		// Postscripts should come before environment
+		const postscriptIdx = prompt.indexOf("Be concise.");
+		const envIdx = prompt.indexOf("<environment>");
+		expect(postscriptIdx).toBeLessThan(envIdx);
+	});
+
+	test("uses orchestrator postscript for agents with can_spawn", () => {
+		const orchestratorSpec: AgentSpec = {
+			...testAgent,
+			name: "root",
+			constraints: { ...testAgent.constraints, can_spawn: true },
+		};
+		const postscripts = { global: "Global.", orchestrator: "Orchestrator rule.", worker: "Worker rule.", agent: "" };
+		const prompt = buildSystemPrompt(
+			orchestratorSpec,
+			"/tmp/test",
+			"darwin",
+			"Darwin 25.0",
+			undefined,
+			undefined,
+			undefined,
+			postscripts,
+		);
+		expect(prompt).toContain("Global.");
+		expect(prompt).toContain("Orchestrator rule.");
+		expect(prompt).not.toContain("Worker rule.");
+	});
+
+	test("omits postscript section when all parts are empty", () => {
+		const postscripts = { global: "", orchestrator: "", worker: "", agent: "" };
+		const prompt = buildSystemPrompt(
+			testAgent,
+			"/tmp/test",
+			"darwin",
+			"Darwin 25.0",
+			undefined,
+			undefined,
+			undefined,
+			postscripts,
+		);
+		// Should not have double newlines between prompt and environment
+		expect(prompt).toContain("You help find code.\n\n<environment>");
+	});
 });
 
 describe("buildPlanRequest", () => {

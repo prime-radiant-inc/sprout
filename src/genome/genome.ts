@@ -25,7 +25,7 @@ export async function git(cwd: string, ...args: string[]): Promise<string> {
 	return stdout.trim();
 }
 
-const DIRS = ["agents", "memories", "routing", "embeddings", "metrics", "logs"] as const;
+const DIRS = ["agents", "memories", "routing", "embeddings", "metrics", "logs", "postscripts"] as const;
 
 export class Genome {
 	private readonly rootPath: string;
@@ -422,6 +422,58 @@ export class Genome {
 			}
 		}
 		return files;
+	}
+
+	// ── Postscripts ──────────────────────────────────────────────
+
+	/**
+	 * Load genome-level postscripts (global, orchestrator, worker).
+	 * Returns empty strings for missing files.
+	 */
+	async loadPostscripts(): Promise<{ global: string; orchestrator: string; worker: string }> {
+		const dir = join(this.rootPath, "postscripts");
+		const read = async (name: string): Promise<string> => {
+			try {
+				const content = await readFile(join(dir, name), "utf-8");
+				return content.trim();
+			} catch {
+				return "";
+			}
+		};
+		const [global, orchestrator, worker] = await Promise.all([
+			read("global.md"),
+			read("orchestrator.md"),
+			read("worker.md"),
+		]);
+		return { global, orchestrator, worker };
+	}
+
+	/**
+	 * Load a per-agent postscript from postscripts/agents/{name}.md.
+	 * Returns empty string if not found.
+	 */
+	async loadAgentPostscript(agentName: string): Promise<string> {
+		try {
+			const content = await readFile(
+				join(this.rootPath, "postscripts", "agents", agentName + ".md"),
+				"utf-8",
+			);
+			return content.trim();
+		} catch {
+			return "";
+		}
+	}
+
+	/**
+	 * Save a postscript file and commit. Path is relative to postscripts/ dir.
+	 * e.g. savePostscript("global.md", "...") or savePostscript("agents/reader.md", "...")
+	 */
+	async savePostscript(relativePath: string, content: string): Promise<void> {
+		const fullPath = join(this.rootPath, "postscripts", relativePath);
+		await mkdir(join(fullPath, ".."), { recursive: true });
+		await writeFile(fullPath, content);
+		await git(this.rootPath, "add", fullPath);
+		await git(this.rootPath, "commit", "-m", `genome: save postscript ${relativePath}`);
 	}
 }
 

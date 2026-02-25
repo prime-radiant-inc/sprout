@@ -34,6 +34,7 @@ import {
 	renderAgentsForPrompt,
 	renderWorkspaceTools,
 } from "./plan.ts";
+import type { Postscripts } from "./plan.ts";
 import {
 	type CallRecord,
 	detectRetries,
@@ -62,6 +63,8 @@ export interface AgentOptions {
 	preambles?: Preambles;
 	/** AGENTS.md project documentation for top-level agent only. */
 	projectDocs?: string;
+	/** Genome postscript data (global + role, without agent-specific). */
+	genomePostscripts?: { global: string; orchestrator: string; worker: string };
 }
 
 export interface AgentResult {
@@ -89,6 +92,7 @@ export class Agent {
 	private readonly logBasePath?: string;
 	private readonly preambles?: Preambles;
 	private readonly projectDocs?: string;
+	private readonly genomePostscripts?: { global: string; orchestrator: string; worker: string };
 	private readonly initialHistory?: Message[];
 	private signal?: AbortSignal;
 	private logWriteChain: Promise<void> = Promise.resolve();
@@ -110,6 +114,7 @@ export class Agent {
 		this.logBasePath = options.logBasePath;
 		this.preambles = options.preambles;
 		this.projectDocs = options.projectDocs;
+		this.genomePostscripts = options.genomePostscripts;
 		this.initialHistory = options.initialHistory ? [...options.initialHistory] : undefined;
 
 		// Validate depth: max_depth > 0 means the agent can only exist at depths < max_depth.
@@ -274,6 +279,7 @@ export class Agent {
 				learnProcess: this.learnProcess,
 				logBasePath: subLogBasePath,
 				preambles: this.preambles,
+				genomePostscripts: this.genomePostscripts,
 			});
 
 			const subResult = await subagent.run(subGoal, this.signal);
@@ -404,6 +410,13 @@ export class Agent {
 			this.env.addToPath?.(toolsDir);
 		}
 
+		// Load agent-specific postscript from genome
+		let postscripts: Postscripts | undefined;
+		if (this.genomePostscripts && this.genome) {
+			const agentPostscript = await this.genome.loadAgentPostscript(this.spec.name);
+			postscripts = { ...this.genomePostscripts, agent: agentPostscript };
+		}
+
 		// Build system prompt with recall context (memories and routing hints)
 		let systemPrompt = buildSystemPrompt(
 			this.spec,
@@ -413,6 +426,7 @@ export class Agent {
 			recallContext,
 			this.preambles,
 			this.projectDocs,
+			postscripts,
 		);
 
 		// Append available agent descriptions to system prompt

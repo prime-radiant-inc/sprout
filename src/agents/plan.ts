@@ -85,6 +85,13 @@ export function primitivesForAgent(
 	return result;
 }
 
+export interface Postscripts {
+	global: string;
+	orchestrator: string;
+	worker: string;
+	agent: string;
+}
+
 /**
  * Combine the agent's system prompt with environment context.
  */
@@ -96,6 +103,7 @@ export function buildSystemPrompt(
 	recallContext?: { memories?: Memory[]; routingHints?: RoutingRule[] },
 	preambles?: Preambles,
 	projectDocs?: string,
+	postscripts?: Postscripts,
 ): string {
 	const today = new Date().toISOString().slice(0, 10);
 
@@ -109,7 +117,17 @@ export function buildSystemPrompt(
 		}
 	}
 
-	let prompt = `${preamble}${spec.system_prompt}
+	// Compose postscript: global + role-specific + agent-specific
+	let postscript = "";
+	if (postscripts) {
+		const role = spec.constraints.can_spawn ? postscripts.orchestrator : postscripts.worker;
+		const parts = [postscripts.global, role, postscripts.agent].filter((p) => p.length > 0);
+		if (parts.length > 0) {
+			postscript = `\n\n${parts.join("\n\n")}`;
+		}
+	}
+
+	let prompt = `${preamble}${spec.system_prompt}${postscript}
 
 <environment>
 Working directory: ${workDir}
