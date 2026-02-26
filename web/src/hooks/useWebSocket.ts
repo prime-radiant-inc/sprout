@@ -18,6 +18,7 @@ export class WebSocketClient {
 	private readonly maxReconnectDelay = 30000;
 	private readonly sendQueue: string[] = [];
 	private listeners: MessageListener[] = [];
+	private stateListeners: Array<(connected: boolean) => void> = [];
 
 	connected = false;
 	lastMessage: ServerMessage | null = null;
@@ -45,6 +46,7 @@ export class WebSocketClient {
 			this.ws = null;
 		}
 		this.connected = false;
+		this.notifyStateChange();
 	}
 
 	/** Send a message. Queues if not connected; sends immediately if connected. */
@@ -66,7 +68,22 @@ export class WebSocketClient {
 		};
 	}
 
+	/** Subscribe to connection state changes. Returns unsubscribe function. */
+	onStateChange(listener: (connected: boolean) => void): () => void {
+		this.stateListeners.push(listener);
+		return () => {
+			const idx = this.stateListeners.indexOf(listener);
+			if (idx >= 0) this.stateListeners.splice(idx, 1);
+		};
+	}
+
 	// --- Private ---
+
+	private notifyStateChange(): void {
+		for (const listener of this.stateListeners) {
+			listener(this.connected);
+		}
+	}
 
 	private openSocket(): void {
 		const ws = new WebSocket(this.url);
@@ -75,6 +92,7 @@ export class WebSocketClient {
 			this.connected = true;
 			this.reconnectDelay = 1000;
 			this.flushQueue();
+			this.notifyStateChange();
 		};
 
 		ws.onmessage = (ev: MessageEvent) => {
@@ -93,6 +111,7 @@ export class WebSocketClient {
 		ws.onclose = () => {
 			this.connected = false;
 			this.ws = null;
+			this.notifyStateChange();
 			if (!this.disposed) {
 				this.scheduleReconnect();
 			}
@@ -159,23 +178,19 @@ export function useWebSocket(url: string) {
 	const stateRef = useRef<WebSocketState>({ connected: false, lastMessage: null });
 
 	const subscribe = (onStoreChange: () => void) => {
-		const unsub = client.onMessage(() => {
+		const unsubMsg = client.onMessage(() => {
 			stateRef.current = { connected: client.connected, lastMessage: client.lastMessage };
 			onStoreChange();
 		});
 
-		// Also poll connected state periodically for reconnect detection
-		const interval = setInterval(() => {
-			const prev = stateRef.current;
-			if (prev.connected !== client.connected || prev.lastMessage !== client.lastMessage) {
-				stateRef.current = { connected: client.connected, lastMessage: client.lastMessage };
-				onStoreChange();
-			}
-		}, 200);
+		const unsubState = client.onStateChange(() => {
+			stateRef.current = { connected: client.connected, lastMessage: client.lastMessage };
+			onStoreChange();
+		});
 
 		return () => {
-			unsub();
-			clearInterval(interval);
+			unsubMsg();
+			unsubState();
 		};
 	};
 

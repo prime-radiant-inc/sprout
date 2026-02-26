@@ -258,6 +258,72 @@ describe("WebSocketClient", () => {
 		});
 	});
 
+	describe("onStateChange callback", () => {
+		test("fires with true on connect", async () => {
+			await server.start();
+			const client = createClient();
+			const states: boolean[] = [];
+			client.onStateChange((connected) => states.push(connected));
+			client.connect();
+
+			await waitFor(() => states.includes(true));
+			expect(states).toContain(true);
+		});
+
+		test("fires with false on dispose", async () => {
+			await server.start();
+			const client = createClient();
+			const states: boolean[] = [];
+			client.onStateChange((connected) => states.push(connected));
+			client.connect();
+
+			await waitFor(() => client.connected);
+			client.dispose();
+			expect(states).toContain(false);
+		});
+
+		test("fires with false on server-initiated close", async () => {
+			await server.start();
+			const client = createClient();
+			const states: boolean[] = [];
+			client.onStateChange((connected) => states.push(connected));
+			client.connect();
+
+			await waitFor(() => client.connected);
+			await server.stop();
+			await waitFor(() => states.includes(false));
+			expect(states).toContain(false);
+		});
+
+		test("unsubscribe stops delivery", async () => {
+			await server.start();
+			const client = createClient();
+			const states: boolean[] = [];
+			const unsub = client.onStateChange((connected) => states.push(connected));
+			unsub();
+
+			client.connect();
+			await waitFor(() => client.connected);
+			await delay(100);
+
+			expect(states).toHaveLength(0);
+		});
+
+		test("multiple listeners all receive state changes", async () => {
+			await server.start();
+			const client = createClient();
+			const states1: boolean[] = [];
+			const states2: boolean[] = [];
+			client.onStateChange((connected) => states1.push(connected));
+			client.onStateChange((connected) => states2.push(connected));
+			client.connect();
+
+			await waitFor(() => states1.includes(true));
+			expect(states1).toContain(true);
+			expect(states2).toContain(true);
+		});
+	});
+
 	describe("onMessage callback", () => {
 		test("multiple onMessage listeners all receive messages", async () => {
 			await server.start();
