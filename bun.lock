@@ -10,7 +10,6 @@
         "dotenv": "^17.3.1",
         "ink": "^6.8.0",
         "ink-markdown-es": "^1.4.0",
-        "ink-multiline-input": "^0.1.0",
         "ink-shiki-code": "^1.0.0",
         "marked": "^15.0.12",
         "openai": "^6.22.0",
@@ -218,8 +217,6 @@
     "ink": ["ink@6.8.0", "", { "dependencies": { "@alcalzone/ansi-tokenize": "^0.2.4", "ansi-escapes": "^7.3.0", "ansi-styles": "^6.2.1", "auto-bind": "^5.0.1", "chalk": "^5.6.0", "cli-boxes": "^3.0.0", "cli-cursor": "^4.0.0", "cli-truncate": "^5.1.1", "code-excerpt": "^4.0.0", "es-toolkit": "^1.39.10", "indent-string": "^5.0.0", "is-in-ci": "^2.0.0", "patch-console": "^2.0.0", "react-reconciler": "^0.33.0", "scheduler": "^0.27.0", "signal-exit": "^3.0.7", "slice-ansi": "^8.0.0", "stack-utils": "^2.0.6", "string-width": "^8.1.1", "terminal-size": "^4.0.1", "type-fest": "^5.4.1", "widest-line": "^6.0.0", "wrap-ansi": "^9.0.0", "ws": "^8.18.0", "yoga-layout": "~3.2.1" }, "peerDependencies": { "@types/react": ">=19.0.0", "react": ">=19.0.0", "react-devtools-core": ">=6.1.2" }, "optionalPeers": ["@types/react", "react-devtools-core"] }, "sha512-sbl1RdLOgkO9isK42WCZlJCFN9hb++sX9dsklOvfd1YQ3bQ2AiFu12Q6tFlr0HvEUvzraJntQCCpfEoUe9DSzA=="],
 
     "ink-markdown-es": ["ink-markdown-es@1.4.0", "", { "dependencies": { "dedent": "^1.7.1", "marked": "^16.4.2" }, "peerDependencies": { "ink": "^6", "react": "^19" } }, "sha512-dM4ptGHwqIo+lpcrcywD/XkI4eHRLHUN8fg82qyYXquwoi+A0FkusVEYa6j3t2yF6TDN1ALcQWIJ558QN+fUig=="],
-
-    "ink-multiline-input": ["ink-multiline-input@0.1.0", "", { "peerDependencies": { "ink": ">=6", "react": ">=19" } }, "sha512-GmIF5YdaxmT5pHwI67yTDe5UDId20WeGJx39zwaYJ6SwMrlioRRMn+BxklsAUYsvA6BJfh2kpHNR1Kan69UTxw=="],
 
     "ink-shiki-code": ["ink-shiki-code@1.0.0", "", { "dependencies": { "shiki": "^3.22.0" }, "peerDependencies": { "ink": "^6", "react": "^19" } }, "sha512-J2ceZbAdrddLfoaIkMk7rhV5Xz/Vvh9Kn+a8acENgPUaMcBrmAyY0ZXSuByJADwD1Qco1sqtW/qoFZmdITu0fw=="],
 
