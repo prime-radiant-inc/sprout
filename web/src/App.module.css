@@ -1,0 +1,108 @@
+.layout {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* Header */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.logo {
+  color: var(--color-cyan);
+  font-weight: bold;
+}
+
+.headerRight {
+  display: flex;
+  gap: 12px;
+}
+
+.model {
+  color: var(--text-secondary);
+}
+
+.sessionId {
+  color: var(--text-dim);
+  font-size: var(--font-size-xs);
+}
+
+/* Body — sidebar + conversation */
+.body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.sidebar {
+  width: var(--sidebar-width);
+  border-right: 1px solid var(--border-color);
+  padding: 8px;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.conversation {
+  flex: 1;
+  padding: 8px 12px;
+  overflow-y: auto;
+  min-width: 0;
+}
+
+.panelTitle {
+  color: var(--text-dim);
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+
+.placeholder {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* Footer — status bar + input */
+.footer {
+  border-top: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.statusBar {
+  display: flex;
+  gap: 16px;
+  padding: 4px 12px;
+  background: var(--statusbar-bg);
+  color: var(--statusbar-text);
+  font-size: var(--font-size-xs);
+}
+
+.inputArea {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  min-height: var(--input-height);
+  background: var(--bg-input);
+}
+
+.prompt {
+  color: var(--color-cyan);
+  margin-right: 4px;
+}
+
+.cursor {
+  color: var(--text-primary);
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}

@@ -1,0 +1,49 @@
+:root {
+  /* Background */
+  --bg-primary: #1a1a2e;
+  --bg-secondary: #16213e;
+  --bg-surface: #0f3460;
+  --bg-input: #12122a;
+
+  /* Text */
+  --text-primary: #e0e0e0;
+  --text-secondary: #808090;
+  --text-dim: #505060;
+
+  /* Accent — matches TUI Ink color names */
+  --color-cyan: #00d4ff;
+  --color-green: #00e676;
+  --color-red: #ff5252;
+  --color-yellow: #ffd740;
+  --color-blue: #448aff;
+  --color-magenta: #e040fb;
+
+  /* Semantic */
+  --color-success: var(--color-green);
+  --color-error: var(--color-red);
+  --color-warning: var(--color-yellow);
+  --color-agent: var(--color-cyan);
+  --color-tool: var(--color-yellow);
+  --color-user: var(--color-blue);
+
+  /* Borders */
+  --border-color: #2a2a4a;
+  --border-active: var(--color-cyan);
+
+  /* Status bar */
+  --statusbar-bg: #2a2a3a;
+  --statusbar-text: #c0c0c0;
+
+  /* Spacing */
+  --sidebar-width: 240px;
+  --statusbar-height: 28px;
+  --input-height: 48px;
+
+  /* Typography */
+  --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", "Menlo",
+    "Consolas", monospace;
+  --font-size-base: 13px;
+  --font-size-sm: 12px;
+  --font-size-xs: 11px;
+  --line-height: 1.5;
+}
