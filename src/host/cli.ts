@@ -341,7 +341,11 @@ async function configureTmux(
 	}
 
 	// Reload tmux config
-	await spawn(["tmux", "source-file", confPath]);
+	const reloadResult = await spawn(["tmux", "source-file", confPath]);
+
+	if (reloadResult.exitCode !== 0) {
+		return `tmux: added ${missing.length} line(s) to ${confPath} but could not reload. Run manually:\n  tmux source-file ${confPath}\nLines added:\n  ${missing.join("\n  ")}`;
+	}
 
 	return `tmux: added ${missing.length} line(s) to ${confPath} and reloaded:\n  ${missing.join("\n  ")}`;
 }

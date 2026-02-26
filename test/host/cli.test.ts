@@ -578,6 +578,35 @@ describe("configureTerminal — tmux", () => {
 		}
 	});
 
+	test("reports reload failure when tmux source-file exits non-zero", async () => {
+		const saved = saveEnv();
+		process.env.TMUX = "/tmp/tmux-501/default,12345,0";
+		delete process.env.TERM_PROGRAM;
+		const confPath = join(tempDir, "tmux.conf");
+		try {
+			const spawn = (args: string[]) => {
+				// tmux source-file fails (e.g. server not running)
+				if (args.includes("tmux")) {
+					return { exitCode: 1, stdout: "" };
+				}
+				return { exitCode: 0, stdout: "" };
+			};
+
+			const result = await configureTerminal({ spawn, tmuxConfPath: confPath });
+
+			// Should mention that config was written
+			expect(result).toContain("added");
+			expect(result).toContain(confPath);
+			// Should NOT say "and reloaded"
+			expect(result).not.toContain("and reloaded");
+			// Should tell user reload failed and how to do it manually
+			expect(result).toContain("could not reload");
+			expect(result).toContain("tmux source-file");
+		} finally {
+			restoreEnv(saved);
+		}
+	});
+
 	test("returns manual instructions when tmux.conf is not writable", async () => {
 		const saved = saveEnv();
 		process.env.TMUX = "/tmp/tmux-501/default,12345,0";
