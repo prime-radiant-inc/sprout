@@ -138,7 +138,10 @@ export function parseArgs(argv: string[]): CliCommand {
 		}
 
 		if (arg === "--port") {
-			webFlags.port = Number(argv[++i]);
+			const raw = argv[++i];
+			const n = Number(raw);
+			if (!raw || Number.isNaN(n) || n <= 0) return { kind: "help" };
+			webFlags.port = n;
 			continue;
 		}
 
@@ -526,15 +529,17 @@ export async function runCli(command: CliCommand): Promise<void> {
 
 	if (command.webOnly) {
 		// Headless mode: no TUI, wait for quit command via web interface
+		const webOnlySigintHandler = () => {
+			bus.emitCommand({ kind: "quit", data: {} });
+		};
 		const quitPromise = new Promise<void>((resolve) => {
 			bus.onCommand((cmd) => {
 				if (cmd.kind === "quit") resolve();
 			});
-			process.on("SIGINT", () => {
-				bus.emitCommand({ kind: "quit", data: {} });
-			});
+			process.on("SIGINT", webOnlySigintHandler);
 		});
 		await quitPromise;
+		process.removeListener("SIGINT", webOnlySigintHandler);
 		await webServer!.stop();
 		await infra.cleanup();
 		printResumeHint(controller.sessionId);

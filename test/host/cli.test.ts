@@ -246,6 +246,16 @@ describe("parseArgs", () => {
 			web: true,
 		});
 	});
+
+	test("--port with no value returns help", () => {
+		const result = parseArgs(["--port"]);
+		expect(result).toEqual({ kind: "help" });
+	});
+
+	test("--port with non-numeric value returns help", () => {
+		const result = parseArgs(["--port", "banana"]);
+		expect(result).toEqual({ kind: "help" });
+	});
 });
 
 describe("handleSigint", () => {
