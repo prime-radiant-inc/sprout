@@ -6,9 +6,9 @@ import { join } from "node:path";
 import { config } from "dotenv";
 import { Agent } from "../../src/agents/agent.ts";
 import { AgentEventEmitter } from "../../src/agents/events.ts";
-import { Genome } from "../../src/genome/genome.ts";
 import type { AgentSpawner, SpawnAgentOptions } from "../../src/bus/spawner.ts";
 import type { CallerIdentity, ResultMessage } from "../../src/bus/types.ts";
+import { Genome } from "../../src/genome/genome.ts";
 import { LocalExecutionEnvironment } from "../../src/kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../../src/kernel/primitives.ts";
 import { type AgentSpec, DEFAULT_CONSTRAINTS } from "../../src/kernel/types.ts";
@@ -2557,7 +2557,12 @@ describe("Agent", () => {
 	function createMockSpawner() {
 		const spawnCalls: SpawnAgentOptions[] = [];
 		const waitCalls: string[] = [];
-		const messageCalls: { handleId: string; message: string; caller: CallerIdentity; blocking: boolean }[] = [];
+		const messageCalls: {
+			handleId: string;
+			message: string;
+			caller: CallerIdentity;
+			blocking: boolean;
+		}[] = [];
 
 		const cannedResult: ResultMessage = {
 			kind: "result",
@@ -2918,9 +2923,7 @@ describe("Agent", () => {
 		const collected = events.collected();
 		const errorEvents = collected.filter((e) => e.kind === "error");
 		expect(errorEvents.length).toBeGreaterThanOrEqual(1);
-		const waitError = errorEvents.find((e) =>
-			(e.data.error as string).includes("wait_agent"),
-		);
+		const waitError = errorEvents.find((e) => (e.data.error as string).includes("wait_agent"));
 		expect(waitError).toBeDefined();
 	});
 
@@ -2981,9 +2984,7 @@ describe("Agent", () => {
 		const collected = events.collected();
 		const errorEvents = collected.filter((e) => e.kind === "error");
 		expect(errorEvents.length).toBeGreaterThanOrEqual(1);
-		const msgError = errorEvents.find((e) =>
-			(e.data.error as string).includes("message_agent"),
-		);
+		const msgError = errorEvents.find((e) => (e.data.error as string).includes("message_agent"));
 		expect(msgError).toBeDefined();
 	});
 
@@ -3048,9 +3049,7 @@ describe("Agent", () => {
 
 		// Verify that in-process delegation actually happened (act_start/act_end events for leaf)
 		const collected = events.collected();
-		const actStart = collected.find(
-			(e) => e.kind === "act_start" && e.data.agent_name === "leaf",
-		);
+		const actStart = collected.find((e) => e.kind === "act_start" && e.data.agent_name === "leaf");
 		expect(actStart).toBeDefined();
 		const actEnd = collected.find(
 			(e) => e.kind === "act_end" && e.data.agent_name === "leaf" && e.data.success === true,
@@ -3119,5 +3118,95 @@ describe("Agent", () => {
 		expect(spawnCalls).toHaveLength(1);
 		expect(spawnCalls[0]!.hints).toEqual(["hint one", "hint two"]);
 		expect(spawnCalls[0]!.shared).toBe(true);
+	});
+
+	test("with spawner, blocking delegation emits verify and learn_signal events on failure", async () => {
+		const delegateMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-learn-1",
+						name: "delegate",
+						arguments: JSON.stringify({ agent_name: "leaf", goal: "fail task", blocking: true }),
+					},
+				},
+			],
+		};
+		const rootDoneMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "Done." }],
+		};
+
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				const msg = callCount === 1 ? delegateMsg : rootDoneMsg;
+				return {
+					id: `mock-learn-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: msg,
+					finish_reason: { reason: callCount === 1 ? "tool_calls" : "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		// Create a spawner that returns a failure result
+		const failResult: ResultMessage = {
+			kind: "result",
+			handle_id: "handle-fail",
+			output: "something went wrong",
+			success: false,
+			stumbles: 1,
+			turns: 3,
+			timed_out: false,
+		};
+		const spawner = {
+			spawnAgent: async (): Promise<ResultMessage | string> => failResult,
+			waitAgent: async (): Promise<ResultMessage> => failResult,
+			messageAgent: async (): Promise<ResultMessage | undefined> => undefined,
+			getHandles: () => [],
+			getHandle: () => undefined,
+			shutdown: () => {},
+		} as unknown as AgentSpawner;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: rootSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [rootSpec, leafSpec],
+			depth: 0,
+			events,
+			spawner,
+			sessionId: "test-session",
+		});
+
+		const result = await agent.run("learn signal test");
+
+		// Should have a stumble from the failed delegation
+		expect(result.stumbles).toBeGreaterThanOrEqual(1);
+
+		// Check emitted events for verify and learn_signal
+		const collected = events.collected();
+		const verifyEvents = collected.filter((e) => e.kind === "verify");
+		expect(verifyEvents).toHaveLength(1);
+		expect(verifyEvents[0]!.data.agent_name).toBe("leaf");
+		expect(verifyEvents[0]!.data.success).toBe(false);
+		expect(verifyEvents[0]!.data.stumbled).toBe(true);
+
+		const learnSignalEvents = collected.filter((e) => e.kind === "learn_signal");
+		expect(learnSignalEvents).toHaveLength(1);
+		expect((learnSignalEvents[0]!.data.signal as any).kind).toBe("failure");
+		expect((learnSignalEvents[0]!.data.signal as any).agent_name).toBe("leaf");
 	});
 });

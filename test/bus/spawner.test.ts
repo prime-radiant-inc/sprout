@@ -294,9 +294,9 @@ describe("AgentSpawner", () => {
 			const wait2 = spawner.waitAgent(handleId);
 			const wait3 = spawner.waitAgent(handleId);
 
-			// Release the mock client so the agent completes
-			await delay(200);
-			resolveFirstCall!();
+			// Wait for the mock client to be entered before releasing it
+			while (!resolveFirstCall) await delay(10);
+			(resolveFirstCall as () => void)();
 
 			const [r1, r2, r3] = await Promise.all([wait1, wait2, wait3]);
 
@@ -394,8 +394,8 @@ describe("AgentSpawner", () => {
 				workDir: tempDir,
 			})) as string;
 
-			// Wait for agent to be in "running" state (the mock client will block on first call)
-			await delay(200);
+			// Wait for agent to enter the mock client (blocking on first call)
+			while (!resolveFirstCall) await delay(10);
 
 			// Send steer (non-blocking) -- this should not throw even though agent is running
 			const steerResult = await spawner.messageAgent(
@@ -407,7 +407,7 @@ describe("AgentSpawner", () => {
 			expect(steerResult).toBeUndefined();
 
 			// Let the first call complete
-			resolveFirstCall!();
+			(resolveFirstCall as () => void)();
 
 			// Wait for the agent to finish
 			const result = await spawner.waitAgent(handleId);
@@ -458,16 +458,14 @@ describe("AgentSpawner", () => {
 				workDir: tempDir,
 			})) as string;
 
-			await delay(100);
+			// Wait for agent to enter the mock client
+			while (!resolveCall) await delay(10);
 
 			// Shutdown should kill all processes
 			spawner.shutdown();
 
 			// Unblock the mock so the process can actually exit
-			if (resolveCall) (resolveCall as () => void)();
-
-			// Give the process time to exit
-			await delay(200);
+			(resolveCall as () => void)();
 
 			// The handle should reflect the shutdown
 			const handle = spawner.getHandle(handleId);

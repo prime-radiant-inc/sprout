@@ -403,6 +403,87 @@ describe("runAgentProcess", () => {
 		await processPromise;
 	}, 5_000);
 
+	test("publishes error result when continue fails in idle loop", async () => {
+		let callCount = 0;
+		const mockClient = {
+			complete: async (_request: Request): Promise<Response> => {
+				callCount++;
+				if (callCount === 1) {
+					return {
+						id: "mock-1",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: Msg.assistant("First response."),
+						finish_reason: { reason: "stop" },
+						usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+					};
+				}
+				throw new Error("LLM provider unavailable");
+			},
+			stream: async function* () {},
+			providers: () => ["anthropic"],
+		} as unknown as Client;
+
+		const controller = new AbortController();
+
+		const resultTopic = agentResult(SESSION_ID, HANDLE_ID);
+		const results: ResultMessage[] = [];
+		await parentClient.subscribe(resultTopic, (payload) => {
+			results.push(JSON.parse(payload));
+		});
+
+		const processPromise = runAgentProcess({
+			busUrl: server.url,
+			handleId: HANDLE_ID,
+			sessionId: SESSION_ID,
+			genomePath: genomeDir,
+			client: mockClient,
+			workDir: tempDir,
+			signal: controller.signal,
+		});
+
+		await delay(100);
+
+		// Send start message (shared: true -- agent stays alive for continue)
+		const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
+		const startMsg: StartMessage = {
+			kind: "start",
+			handle_id: HANDLE_ID,
+			agent_name: "test-leaf",
+			genome_path: genomeDir,
+			session_id: SESSION_ID,
+			caller: { agent_name: "root", depth: 0 },
+			goal: "First task",
+			shared: true,
+		};
+		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
+
+		// Wait for first result (should succeed)
+		await delay(500);
+		expect(results.length).toBe(1);
+		expect(results[0]!.success).toBe(true);
+
+		// Send continue message -- this will trigger the error
+		const continueMsg = {
+			kind: "continue",
+			message: "Now do the second thing",
+			caller: { agent_name: "root", depth: 0 },
+		};
+		await parentClient.publish(inboxTopic, JSON.stringify(continueMsg));
+
+		// Wait for error result
+		await delay(500);
+		expect(results.length).toBe(2);
+		expect(results[1]!.success).toBe(false);
+		expect(results[1]!.output).toContain("LLM provider unavailable");
+		expect(results[1]!.kind).toBe("result");
+		expect(results[1]!.handle_id).toBe(HANDLE_ID);
+
+		// Shut down the shared agent
+		controller.abort();
+		await processPromise;
+	}, 15_000);
+
 	test("writes event log to per-handle path", async () => {
 		const mockClient = createMockClient("Logged response.");
 
@@ -443,7 +524,10 @@ describe("runAgentProcess", () => {
 
 		// Verify it contains expected events
 		const logContent = await readFile(expectedLogPath, "utf-8");
-		const events = logContent.trim().split("\n").map((line) => JSON.parse(line));
+		const events = logContent
+			.trim()
+			.split("\n")
+			.map((line) => JSON.parse(line));
 		const kinds = events.map((e: any) => e.kind);
 		expect(kinds).toContain("session_start");
 		expect(kinds).toContain("session_end");

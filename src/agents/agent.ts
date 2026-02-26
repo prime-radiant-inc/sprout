@@ -372,9 +372,8 @@ export class Agent {
 	/**
 	 * Execute a delegation via the bus-based spawner. Returns the tool result message and stumble count.
 	 *
-	 * Note: Unlike executeDelegation(), this does NOT call verifyActResult() or push learn signals.
-	 * The spawned subprocess handles its own learning. The parent only sees success/failure from the result.
-	 * If parent-level learn signals are needed later, add verifyActResult() here.
+	 * For blocking spawns, calls verifyActResult() and pushes learn signals
+	 * (parity with the in-process executeDelegation() path).
 	 */
 	private async executeSpawnerDelegation(
 		delegation: Delegation,
@@ -419,6 +418,39 @@ export class Agent {
 
 			// Blocking: result is a ResultMessage
 			const resultMsg = result as ResultMessage;
+
+			// Verify and generate learn signals (parity with in-process delegation)
+			const actResult: ActResult = {
+				agent_name: delegation.agent_name,
+				goal: delegation.goal,
+				output: resultMsg.output,
+				success: resultMsg.success,
+				stumbles: resultMsg.stumbles,
+				turns: resultMsg.turns,
+				timed_out: resultMsg.timed_out,
+			};
+
+			const { verify, learnSignal } = verifyActResult(actResult, this.sessionId);
+
+			this.emitAndLog("verify", agentId, this.depth, {
+				agent_name: delegation.agent_name,
+				success: verify.success,
+				stumbled: verify.stumbled,
+			});
+
+			if (learnSignal) {
+				this.emitAndLog("learn_signal", agentId, this.depth, {
+					signal: learnSignal,
+				});
+				if (this.learnProcess && this.spec.constraints.can_learn) {
+					this.learnProcess.push(learnSignal);
+				}
+			}
+
+			if (this.learnProcess) {
+				this.learnProcess.recordAction(agentId);
+			}
+
 			const content = truncateToolOutput(resultMsg.output, delegation.agent_name);
 			const toolResultMsg = Msg.toolResult(delegation.call_id, content);
 
@@ -433,7 +465,7 @@ export class Agent {
 
 			return {
 				toolResultMsg,
-				stumbles: resultMsg.success ? 0 : 1,
+				stumbles: verify.stumbled ? 1 : 0,
 				output: resultMsg.output,
 			};
 		} catch (err) {

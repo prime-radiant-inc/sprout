@@ -195,6 +195,10 @@ async function waitForStartWithReady(
 
 	// Subscribe to inbox (awaits server ack, so subscription is confirmed)
 	await bus.subscribe(inboxTopic, (payload) => {
+		// Note: This callback remains registered after start is received, but
+		// short-circuits via the null resolveStart check. We don't unsubscribe
+		// because the idleLoop (for shared agents) subscribes to the same topic
+		// and unsubscribing would remove its callback too.
 		if (!resolveStart) return;
 		try {
 			const msg = parseBusMessage(payload);
@@ -270,7 +274,17 @@ function idleLoop(
 					await bus.publish(resultTopic, JSON.stringify(resultMsg));
 					processing = false;
 				}
-			} catch {
+			} catch (err) {
+				const errorResult: ResultMessage = {
+					kind: "result",
+					handle_id: handleId,
+					output: `Continue failed: ${err instanceof Error ? err.message : String(err)}`,
+					success: false,
+					stumbles: 0,
+					turns: 0,
+					timed_out: false,
+				};
+				await bus.publish(resultTopic, JSON.stringify(errorResult));
 				processing = false;
 			}
 		});
