@@ -379,9 +379,12 @@ export class Agent {
 		delegation: Delegation,
 		agentId: string,
 	): Promise<{ toolResultMsg: Message; stumbles: number; output?: string }> {
+		const handleId = ulid();
+
 		this.emitAndLog("act_start", agentId, this.depth, {
 			agent_name: delegation.agent_name,
 			goal: delegation.goal,
+			handle_id: handleId,
 		});
 
 		const caller: CallerIdentity = { agent_name: this.spec.name, depth: this.depth };
@@ -398,6 +401,7 @@ export class Agent {
 				blocking,
 				shared,
 				workDir: this.env.working_directory(),
+				handleId,
 			});
 
 			if (!blocking) {

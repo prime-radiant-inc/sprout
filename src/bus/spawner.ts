@@ -21,6 +21,8 @@ export interface SpawnAgentOptions {
 	blocking: boolean;
 	shared: boolean;
 	workDir: string;
+	/** Pre-assigned handle ID. If omitted, a new ULID is generated. */
+	handleId?: string;
 }
 
 /** Internal tracking record for a spawned agent */
@@ -97,7 +99,7 @@ export class AgentSpawner {
 	 * If non-blocking: returns the handle ID string immediately.
 	 */
 	async spawnAgent(opts: SpawnAgentOptions): Promise<ResultMessage | string> {
-		const handleId = ulid();
+		const handleId = opts.handleId ?? ulid();
 
 		const env: Record<string, string> = {
 			SPROUT_BUS_URL: this.busUrl,

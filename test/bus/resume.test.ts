@@ -335,6 +335,102 @@ describe("extractChildHandles", () => {
 		expect(handles).toEqual([]);
 	});
 
+	test("extracts handles from act_start when no act_end exists (in-flight delegation)", async () => {
+		const logPath = join(tempDir, "session.jsonl");
+		await writeEventLog(logPath, [
+			event("perceive", { goal: "Delegate work" }, 0),
+			event(
+				"act_start",
+				{
+					agent_name: "code-editor",
+					goal: "edit something",
+					handle_id: "handle-inflight",
+				},
+				0,
+			),
+			// No act_end — agent died mid-delegation
+		]);
+
+		const handles = await extractChildHandles(logPath);
+
+		expect(handles).toHaveLength(1);
+		expect(handles[0]).toEqual({
+			handleId: "handle-inflight",
+			agentName: "code-editor",
+			completed: false,
+		});
+	});
+
+	test("act_end updates completion status of handle found in act_start", async () => {
+		const logPath = join(tempDir, "session.jsonl");
+		await writeEventLog(logPath, [
+			event(
+				"act_start",
+				{
+					agent_name: "code-editor",
+					goal: "edit something",
+					handle_id: "handle-full",
+				},
+				0,
+			),
+			event(
+				"act_end",
+				{
+					agent_name: "code-editor",
+					success: true,
+					handle_id: "handle-full",
+					turns: 3,
+					tool_result_message: Msg.toolResult("c1", "done"),
+				},
+				0,
+			),
+		]);
+
+		const handles = await extractChildHandles(logPath);
+
+		expect(handles).toHaveLength(1);
+		expect(handles[0]!.handleId).toBe("handle-full");
+		expect(handles[0]!.completed).toBe(true);
+	});
+
+	test("ignores act_start events without handle_id", async () => {
+		const logPath = join(tempDir, "session.jsonl");
+		// In-process delegation: act_start has no handle_id
+		await writeEventLog(logPath, [
+			event(
+				"act_start",
+				{
+					agent_name: "code-reader",
+					goal: "read something",
+				},
+				0,
+			),
+		]);
+
+		const handles = await extractChildHandles(logPath);
+
+		expect(handles).toEqual([]);
+	});
+
+	test("ignores act_start events at non-zero depth", async () => {
+		const logPath = join(tempDir, "session.jsonl");
+		await writeEventLog(logPath, [
+			event(
+				"act_start",
+				{
+					agent_name: "helper",
+					goal: "sub task",
+					handle_id: "handle-sub",
+				},
+				1,
+			),
+		]);
+
+		const handles = await extractChildHandles(logPath);
+
+		expect(handles).toEqual([]);
+	});
+
 	test("marks blocking delegation as completed when turns field is present", async () => {
 		const logPath = join(tempDir, "session.jsonl");
 		await writeEventLog(logPath, [

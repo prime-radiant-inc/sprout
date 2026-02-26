@@ -3265,9 +3265,7 @@ describe("Agent", () => {
 		await agent.run("handle tracking test");
 
 		const collected = events.collected();
-		const actStart = collected.find(
-			(e) => e.kind === "act_start" && e.data.agent_name === "leaf",
-		);
+		const actStart = collected.find((e) => e.kind === "act_start" && e.data.agent_name === "leaf");
 		expect(actStart).toBeDefined();
 		expect(actStart!.data.handle_id).toBeString();
 		expect((actStart!.data.handle_id as string).length).toBe(26); // ULID length

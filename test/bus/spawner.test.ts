@@ -202,6 +202,27 @@ describe("AgentSpawner", () => {
 
 			expect(id1).not.toBe(id2);
 		}, 15_000);
+
+		test("uses pre-assigned handleId when provided", async () => {
+			const mockClient = createMockClient("Pre-assigned.");
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			const preAssignedId = "01PREASSIGNED0000000000000";
+			const result = await spawner.spawnAgent({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: { agent_name: "root", depth: 0 },
+				goal: "Use my handle ID",
+				blocking: true,
+				shared: false,
+				workDir: tempDir,
+				handleId: preAssignedId,
+			});
+
+			const resultMsg = result as ResultMessage;
+			expect(resultMsg.handle_id).toBe(preAssignedId);
+			expect(resultMsg.success).toBe(true);
+		}, 15_000);
 	});
 
 	describe("waitAgent", () => {

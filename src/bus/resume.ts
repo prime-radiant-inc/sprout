@@ -11,9 +11,12 @@ export interface ChildHandleInfo {
 }
 
 /**
- * Scan a root agent's JSONL event log for act_end events at depth 0
- * that contain a handle_id field (spawner-delegated agents).
- * Returns info about each child handle found.
+ * Scan a root agent's JSONL event log for act_start and act_end events
+ * at depth 0 that contain a handle_id field (spawner-delegated agents).
+ *
+ * act_start events record the handle_id at delegation time, so in-flight
+ * delegations (where the agent died before act_end) are still visible.
+ * act_end events update completion status when present.
  */
 export async function extractChildHandles(logPath: string): Promise<ChildHandleInfo[]> {
 	let raw: string;
@@ -24,7 +27,7 @@ export async function extractChildHandles(logPath: string): Promise<ChildHandleI
 	}
 
 	const lines = raw.split("\n").filter((line) => line.trim() !== "");
-	const handles: ChildHandleInfo[] = [];
+	const handleMap = new Map<string, ChildHandleInfo>();
 
 	for (const line of lines) {
 		let event: SessionEvent;
@@ -34,20 +37,38 @@ export async function extractChildHandles(logPath: string): Promise<ChildHandleI
 			continue;
 		}
 
-		if (event.kind !== "act_end" || event.depth !== 0) continue;
+		if (event.depth !== 0) continue;
 
-		const handleId = event.data.handle_id as string | undefined;
-		if (!handleId) continue;
+		if (event.kind === "act_start") {
+			const handleId = event.data.handle_id as string | undefined;
+			if (handleId) {
+				handleMap.set(handleId, {
+					handleId,
+					agentName: (event.data.agent_name as string) ?? "unknown",
+					completed: false,
+				});
+			}
+		}
 
-		const agentName = (event.data.agent_name as string) ?? "unknown";
-		// Blocking spawns include `turns` in the act_end data; non-blocking do not.
-		// If turns is present, the agent ran to completion before the act_end was emitted.
-		const completed = event.data.turns != null;
+		if (event.kind === "act_end") {
+			const handleId = event.data.handle_id as string | undefined;
+			if (!handleId) continue;
 
-		handles.push({ handleId, agentName, completed });
+			const existing = handleMap.get(handleId);
+			if (existing) {
+				existing.completed = event.data.turns != null;
+			} else {
+				// act_end without act_start (shouldn't happen, but handle gracefully)
+				handleMap.set(handleId, {
+					handleId,
+					agentName: (event.data.agent_name as string) ?? "unknown",
+					completed: event.data.turns != null,
+				});
+			}
+		}
 	}
 
-	return handles;
+	return Array.from(handleMap.values());
 }
 
 /**
