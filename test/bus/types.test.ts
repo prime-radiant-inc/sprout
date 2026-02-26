@@ -288,4 +288,41 @@ describe("parseBusMessage", () => {
 		const partial = JSON.stringify({ kind: "event" });
 		expect(() => parseBusMessage(partial)).toThrow();
 	});
+
+	test("throws on start message with non-object caller", () => {
+		const raw = JSON.stringify({
+			kind: "start",
+			handle_id: "H1",
+			agent_name: "editor",
+			genome_path: "/tmp",
+			session_id: "S1",
+			caller: "not-an-object",
+			goal: "fix",
+			shared: false,
+		});
+		expect(() => parseBusMessage(raw)).toThrow(/caller/);
+	});
+
+	test("throws on start message with caller missing agent_name", () => {
+		const raw = JSON.stringify({
+			kind: "start",
+			handle_id: "H1",
+			agent_name: "editor",
+			genome_path: "/tmp",
+			session_id: "S1",
+			caller: { depth: 0 },
+			goal: "fix",
+			shared: false,
+		});
+		expect(() => parseBusMessage(raw)).toThrow(/caller/);
+	});
+
+	test("throws on continue message with invalid caller", () => {
+		const raw = JSON.stringify({
+			kind: "continue",
+			message: "do more",
+			caller: null,
+		});
+		expect(() => parseBusMessage(raw)).toThrow(/caller/);
+	});
 });

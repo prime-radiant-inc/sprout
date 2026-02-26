@@ -92,22 +92,17 @@ export function parseBusMessage(raw: string): BusMessage {
 				"goal",
 				"shared",
 			]);
+			validateCallerIdentity(obj);
 			break;
 		case "continue":
 			requireFields(obj, ["message", "caller"]);
+			validateCallerIdentity(obj);
 			break;
 		case "steer":
 			requireFields(obj, ["message"]);
 			break;
 		case "result":
-			requireFields(obj, [
-				"handle_id",
-				"output",
-				"success",
-				"stumbles",
-				"turns",
-				"timed_out",
-			]);
+			requireFields(obj, ["handle_id", "output", "success", "stumbles", "turns", "timed_out"]);
 			break;
 		case "event":
 			requireFields(obj, ["handle_id", "event"]);
@@ -117,15 +112,21 @@ export function parseBusMessage(raw: string): BusMessage {
 	return obj as unknown as BusMessage;
 }
 
-function requireFields(
-	obj: Record<string, unknown>,
-	fields: string[],
-): void {
+function validateCallerIdentity(obj: Record<string, unknown>): void {
+	const caller = obj.caller;
+	if (caller === null || typeof caller !== "object" || Array.isArray(caller)) {
+		throw new Error("'caller' must be an object with agent_name (string) and depth (number)");
+	}
+	const c = caller as Record<string, unknown>;
+	if (typeof c.agent_name !== "string" || typeof c.depth !== "number") {
+		throw new Error("'caller' must have agent_name (string) and depth (number)");
+	}
+}
+
+function requireFields(obj: Record<string, unknown>, fields: string[]): void {
 	for (const field of fields) {
 		if (!(field in obj) || obj[field] === undefined) {
-			throw new Error(
-				`Missing required field "${field}" for ${obj.kind} message`,
-			);
+			throw new Error(`Missing required field "${field}" for ${obj.kind} message`);
 		}
 	}
 }
