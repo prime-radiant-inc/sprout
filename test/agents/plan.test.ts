@@ -8,6 +8,7 @@ import {
 	parsePlanResponse,
 	primitivesForAgent,
 	renderAgentsForPrompt,
+	renderCallerIdentity,
 } from "../../src/agents/plan.ts";
 import type { AgentSpec, Memory, RoutingRule } from "../../src/kernel/types.ts";
 import { Msg } from "../../src/llm/types.ts";
@@ -498,5 +499,21 @@ describe("buildMessageAgentTool", () => {
 		expect(props.blocking).toBeDefined();
 		expect(props.blocking.type).toBe("boolean");
 		expect((tool.parameters as any).required).toEqual(["handle", "message"]);
+	});
+});
+
+describe("renderCallerIdentity", () => {
+	test("produces XML block with agent name and depth", () => {
+		const result = renderCallerIdentity({ agent_name: "root", depth: 0 });
+		expect(result).toContain("<caller>");
+		expect(result).toContain("Agent: root");
+		expect(result).toContain("Depth: 0");
+		expect(result).toContain("</caller>");
+	});
+
+	test("reflects different caller values", () => {
+		const result = renderCallerIdentity({ agent_name: "code-editor", depth: 2 });
+		expect(result).toContain("Agent: code-editor");
+		expect(result).toContain("Depth: 2");
 	});
 });

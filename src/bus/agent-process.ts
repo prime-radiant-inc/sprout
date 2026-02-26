@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { Agent } from "../agents/agent.ts";
 import { AgentEventEmitter } from "../agents/events.ts";
 import { loadPreambles } from "../agents/loader.ts";
+import { renderCallerIdentity } from "../agents/plan.ts";
 import { loadProjectDocs } from "../agents/project-doc.ts";
 import { Genome } from "../genome/genome.ts";
 import { LocalExecutionEnvironment } from "../kernel/execution-env.ts";
@@ -69,8 +70,8 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 		const genome = new Genome(genomePath);
 		await genome.loadFromDisk();
 
-		const agentSpec = genome.getAgent(startMsg.agent_name);
-		if (!agentSpec) {
+		const loadedSpec = genome.getAgent(startMsg.agent_name);
+		if (!loadedSpec) {
 			// Publish error result and exit
 			const errorResult: ResultMessage = {
 				kind: "result",
@@ -85,13 +86,17 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 			return;
 		}
 
+		// Shallow-copy the spec so we don't mutate the genome's in-memory data
+		const agentSpec = { ...loadedSpec };
+
+		// Inject caller identity into the agent's system prompt
+		agentSpec.system_prompt += renderCallerIdentity(startMsg.caller);
+
 		// Wire up the agent
 		const env = new LocalExecutionEnvironment(workDir);
 		const registry = createPrimitiveRegistry(env);
 		const events = new AgentEventEmitter();
-		const preambles = config.bootstrapDir
-			? await loadPreambles(config.bootstrapDir)
-			: undefined;
+		const preambles = config.bootstrapDir ? await loadPreambles(config.bootstrapDir) : undefined;
 		const projectDocs = await loadProjectDocs({ cwd: workDir });
 		const genomePostscripts = await genome.loadPostscripts();
 		const logBasePath = join(genomePath, "logs", sessionId);

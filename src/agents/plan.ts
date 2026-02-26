@@ -1,12 +1,7 @@
+import type { CallerIdentity } from "../bus/types.ts";
 import type { AgentFileInfo, AgentToolDefinition } from "../genome/genome.ts";
 import { renderMemories, renderRoutingHints } from "../genome/recall.ts";
-import type {
-	AgentCommand,
-	AgentSpec,
-	Delegation,
-	Memory,
-	RoutingRule,
-} from "../kernel/types.ts";
+import type { AgentCommand, AgentSpec, Delegation, Memory, RoutingRule } from "../kernel/types.ts";
 import type { Message, Request, ToolCall, ToolDefinition } from "../llm/types.ts";
 import { Msg } from "../llm/types.ts";
 import type { Preambles } from "./loader.ts";
@@ -85,8 +80,7 @@ export function buildWaitAgentTool(): ToolDefinition {
 export function buildMessageAgentTool(): ToolDefinition {
 	return {
 		name: MESSAGE_AGENT_TOOL_NAME,
-		description:
-			"Send a follow-up message to a running shared agent and receive its response.",
+		description: "Send a follow-up message to a running shared agent and receive its response.",
 		parameters: {
 			type: "object",
 			properties: {
@@ -294,13 +288,8 @@ export function parsePlanResponse(
 					goal,
 					hints: Array.isArray(call.arguments.hints) ? call.arguments.hints : undefined,
 					blocking:
-						typeof call.arguments.blocking === "boolean"
-							? call.arguments.blocking
-							: undefined,
-					shared:
-						typeof call.arguments.shared === "boolean"
-							? call.arguments.shared
-							: undefined,
+						typeof call.arguments.blocking === "boolean" ? call.arguments.blocking : undefined,
+					shared: typeof call.arguments.shared === "boolean" ? call.arguments.shared : undefined,
 				});
 			} else {
 				errors.push({
@@ -335,11 +324,8 @@ export function parsePlanResponse(
 				goal,
 				hints: Array.isArray(hints) ? hints : undefined,
 				blocking:
-					typeof call.arguments.blocking === "boolean"
-						? call.arguments.blocking
-						: undefined,
-				shared:
-					typeof call.arguments.shared === "boolean" ? call.arguments.shared : undefined,
+					typeof call.arguments.blocking === "boolean" ? call.arguments.blocking : undefined,
+				shared: typeof call.arguments.shared === "boolean" ? call.arguments.shared : undefined,
 			});
 		} else if (call.name === WAIT_AGENT_TOOL_NAME) {
 			const handle = call.arguments.handle;
@@ -374,9 +360,7 @@ export function parsePlanResponse(
 				handle,
 				message,
 				blocking:
-					typeof call.arguments.blocking === "boolean"
-						? call.arguments.blocking
-						: undefined,
+					typeof call.arguments.blocking === "boolean" ? call.arguments.blocking : undefined,
 			});
 		} else {
 			primitiveCalls.push(call);
@@ -414,4 +398,9 @@ export function renderWorkspaceTools(tools: AgentToolDefinition[]): string {
 /** Return encouragement text for tool creation. */
 export function renderWorkspaceEncouragement(): string {
 	return `\n\nPrefer writing and saving tools over running ad-hoc commands. When you need to do something non-trivial, save a tool for it using save_tool — even if you'll only use it once this session. Tools persist across sessions and become part of your permanent capabilities. Your saved tools are on PATH and can be called directly from exec.`;
+}
+
+/** Render caller identity as an XML block for injection into a sub-agent's system prompt. */
+export function renderCallerIdentity(caller: CallerIdentity): string {
+	return `\n\n<caller>\nAgent: ${caller.agent_name}\nDepth: ${caller.depth}\n</caller>`;
 }
