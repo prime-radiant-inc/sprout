@@ -10,6 +10,7 @@ import { createPrimitiveRegistry } from "../kernel/primitives.ts";
 import { Client } from "../llm/client.ts";
 import { BusClient } from "./client.ts";
 import { BusLearnForwarder } from "./learn-forwarder.ts";
+import { replayHandleLog } from "./resume.ts";
 import { AgentSpawner } from "./spawner.ts";
 import { agentEvents, agentInbox, agentReady, agentResult } from "./topics.ts";
 import type { ContinueMessage, EventMessage, ResultMessage, StartMessage } from "./types.ts";
@@ -106,6 +107,10 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 		const genomePostscripts = await genome.loadPostscripts();
 		const logBasePath = join(genomePath, "logs", sessionId, handleId);
 
+		// Check for a prior log — if this handle ran before, replay its history
+		const priorLogPath = `${logBasePath}.jsonl`;
+		const initialHistory = await replayHandleLog(priorLogPath);
+
 		// Forward agent events to the bus (best-effort; ignore if disconnected)
 		events.on((event) => {
 			if (!bus.connected) return;
@@ -142,6 +147,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 			spawner: childSpawner,
 			genomePath,
 			learnProcess,
+			initialHistory: initialHistory.length > 0 ? initialHistory : undefined,
 		});
 
 		// Build goal with hints

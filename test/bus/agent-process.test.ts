@@ -868,4 +868,92 @@ describe("runAgentProcess", () => {
 		expect(toolNames).toContain("wait_agent");
 		expect(toolNames).toContain("message_agent");
 	}, 15_000);
+
+	test("re-spawned agent with existing log replays history as initialHistory", async () => {
+		const capturedRequests: Request[] = [];
+		let callCount = 0;
+		const mockClient = {
+			complete: async (request: Request): Promise<Response> => {
+				capturedRequests.push(request);
+				callCount++;
+				return {
+					id: `mock-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant(`Response ${callCount}.`),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+				};
+			},
+			stream: async function* () {},
+			providers: () => ["anthropic"],
+		} as unknown as Client;
+
+		const resultTopic = agentResult(SESSION_ID, HANDLE_ID);
+
+		// --- First run: agent runs to completion, writes log ---
+		const resultPromise1 = parentClient.waitForMessage(resultTopic, 10_000);
+		const processPromise1 = runAgentProcess({
+			busUrl: server.url,
+			handleId: HANDLE_ID,
+			sessionId: SESSION_ID,
+			genomePath: genomeDir,
+			client: mockClient,
+			workDir: tempDir,
+		});
+
+		await delay(100);
+		const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
+		await parentClient.publish(
+			inboxTopic,
+			JSON.stringify({
+				kind: "start",
+				handle_id: HANDLE_ID,
+				agent_name: "test-leaf",
+				genome_path: genomeDir,
+				session_id: SESSION_ID,
+				caller: { agent_name: "root", depth: 0 },
+				goal: "First task",
+				shared: false,
+			} satisfies StartMessage),
+		);
+		await resultPromise1;
+		await processPromise1;
+
+		// --- Second run: same handleId, existing log should be replayed ---
+		const resultPromise2 = parentClient.waitForMessage(resultTopic, 10_000);
+		const processPromise2 = runAgentProcess({
+			busUrl: server.url,
+			handleId: HANDLE_ID,
+			sessionId: SESSION_ID,
+			genomePath: genomeDir,
+			client: mockClient,
+			workDir: tempDir,
+		});
+
+		await delay(100);
+		await parentClient.publish(
+			inboxTopic,
+			JSON.stringify({
+				kind: "start",
+				handle_id: HANDLE_ID,
+				agent_name: "test-leaf",
+				genome_path: genomeDir,
+				session_id: SESSION_ID,
+				caller: { agent_name: "root", depth: 0 },
+				goal: "Follow-up task",
+				shared: false,
+			} satisfies StartMessage),
+		);
+		await resultPromise2;
+		await processPromise2;
+
+		// The second LLM request should contain history from the first run
+		expect(capturedRequests.length).toBe(2);
+		const secondRequest = capturedRequests[1]!;
+		const allContent = JSON.stringify(secondRequest.messages);
+		expect(allContent).toContain("First task");
+		expect(allContent).toContain("Response 1.");
+		expect(allContent).toContain("Follow-up task");
+	}, 30_000);
 });
