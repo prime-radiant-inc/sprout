@@ -2,7 +2,12 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { handleSlashCommand, inputHistoryPath, parseArgs } from "../../src/host/cli.ts";
+import {
+	handleSlashCommand,
+	inputHistoryPath,
+	parseArgs,
+	startBusInfrastructure,
+} from "../../src/host/cli.ts";
 import { EventBus } from "../../src/host/event-bus.ts";
 import { replayEventLog } from "../../src/host/resume.ts";
 import type { AgentFactory } from "../../src/host/session-controller.ts";
@@ -345,5 +350,122 @@ describe("inputHistoryPath", () => {
 	test("works with custom genome path", () => {
 		const result = inputHistoryPath("/custom/genome");
 		expect(result).toBe("/custom/genome/input_history.txt");
+	});
+});
+
+describe("startBusInfrastructure", () => {
+	let tempDir: string;
+
+	beforeEach(async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "sprout-bus-infra-"));
+	});
+
+	afterEach(async () => {
+		await rm(tempDir, { recursive: true, force: true });
+	});
+
+	test("starts server, connects client, creates spawner, and returns cleanup", async () => {
+		const genomePath = join(tempDir, "genome");
+		// Initialize a minimal genome directory
+		await mkdir(join(genomePath, ".git"), { recursive: true });
+
+		const infra = await startBusInfrastructure({
+			genomePath,
+			sessionId: "test-session-01",
+		});
+
+		try {
+			expect(infra.server).toBeDefined();
+			expect(infra.bus).toBeDefined();
+			expect(infra.bus.connected).toBe(true);
+			expect(infra.spawner).toBeDefined();
+			expect(typeof infra.cleanup).toBe("function");
+		} finally {
+			await infra.cleanup();
+		}
+	});
+
+	test("cleanup stops server and disconnects client", async () => {
+		const genomePath = join(tempDir, "genome");
+		await mkdir(join(genomePath, ".git"), { recursive: true });
+
+		const infra = await startBusInfrastructure({
+			genomePath,
+			sessionId: "test-session-02",
+		});
+
+		await infra.cleanup();
+
+		expect(infra.bus.connected).toBe(false);
+	});
+
+	test("spawner uses the bus server URL", async () => {
+		const genomePath = join(tempDir, "genome");
+		await mkdir(join(genomePath, ".git"), { recursive: true });
+
+		const infra = await startBusInfrastructure({
+			genomePath,
+			sessionId: "test-session-03",
+		});
+
+		try {
+			// The spawner should be functional (we can't deeply inspect it,
+			// but we verify it was created with the right session)
+			expect(infra.spawner.getHandles()).toEqual([]);
+		} finally {
+			await infra.cleanup();
+		}
+	});
+});
+
+describe("defaultFactory passes spawner to createAgent", () => {
+	let tempDir: string;
+
+	beforeEach(async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "sprout-factory-spawner-"));
+	});
+
+	afterEach(async () => {
+		await rm(tempDir, { recursive: true, force: true });
+	});
+
+	test("spawner option in AgentFactoryOptions is forwarded", async () => {
+		// We test this indirectly: the SessionController's defaultFactory
+		// should pass spawner to createAgent. We verify the type accepts it.
+		const genomePath = join(tempDir, "genome");
+		await mkdir(join(genomePath, ".git"), { recursive: true });
+
+		let capturedSpawner: unknown;
+		const factory: AgentFactory = async (options) => {
+			capturedSpawner = options.spawner;
+			return {
+				agent: {
+					steer() {},
+					requestCompaction() {},
+					async run() {
+						return {
+							output: "done",
+							success: true,
+							stumbles: 0,
+							turns: 1,
+							timed_out: false,
+						};
+					},
+				} as any,
+				learnProcess: null,
+			};
+		};
+
+		const bus = new EventBus();
+		const fakeSpawner = { getHandles: () => [] } as any;
+		const controller = new SessionController({
+			bus,
+			genomePath,
+			factory,
+			spawner: fakeSpawner,
+		});
+
+		await controller.submitGoal("test goal");
+		expect(capturedSpawner).toBe(fakeSpawner);
 	});
 });

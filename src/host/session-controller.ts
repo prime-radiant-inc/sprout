@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { AgentEventEmitter } from "../agents/events.ts";
 import { createAgent } from "../agents/factory.ts";
+import type { AgentSpawner } from "../bus/spawner.ts";
 import type { Command, SessionEvent } from "../kernel/types.ts";
 import type { Message } from "../llm/types.ts";
 import { Msg } from "../llm/types.ts";
@@ -38,6 +39,8 @@ export interface AgentFactoryOptions {
 	initialHistory?: Message[];
 	/** Model override from /model command. */
 	model?: string;
+	/** Bus-based spawner for running subagents as separate processes. */
+	spawner?: AgentSpawner;
 }
 
 /** Result returned by the agent factory. */
@@ -64,6 +67,8 @@ export interface SessionControllerOptions {
 	factory?: AgentFactory;
 	sessionId?: string;
 	initialHistory?: Message[];
+	/** Bus-based spawner to forward to the agent factory. */
+	spawner?: AgentSpawner;
 }
 
 /**
@@ -87,6 +92,7 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 		sessionId: options.sessionId,
 		initialHistory: options.initialHistory,
 		model: options.model,
+		spawner: options.spawner,
 	});
 
 	return {
@@ -120,6 +126,7 @@ export class SessionController {
 	private readonly bootstrapDir?: string;
 	private readonly rootAgentName?: string;
 	private readonly factory: AgentFactory;
+	private readonly spawner?: AgentSpawner;
 	private history: Message[] = [];
 	private running = false;
 	private modelOverride?: string;
@@ -138,6 +145,7 @@ export class SessionController {
 		this.bootstrapDir = options.bootstrapDir;
 		this.rootAgentName = options.rootAgent;
 		this.factory = options.factory ?? defaultFactory;
+		this.spawner = options.spawner;
 		this.history = options.initialHistory ? [...options.initialHistory] : [];
 
 		this.metadata = new SessionMetadata({
@@ -301,6 +309,7 @@ export class SessionController {
 				sessionId: this._sessionId,
 				initialHistory: this.history.length > 0 ? [...this.history] : undefined,
 				model: this.modelOverride,
+				spawner: this.spawner,
 			});
 
 			this.agent = result.agent;

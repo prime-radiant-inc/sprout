@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import type { AgentSpawner } from "../bus/spawner.ts";
 import { Genome } from "../genome/genome.ts";
 import { LocalExecutionEnvironment } from "../kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../kernel/primitives.ts";
@@ -32,6 +33,8 @@ export interface CreateAgentOptions {
 	initialHistory?: Message[];
 	/** Model override — if provided, overrides the root agent's spec model. */
 	model?: string;
+	/** Bus-based spawner for running subagents as separate processes. */
+	spawner?: AgentSpawner;
 }
 
 export interface CreateAgentResult {
@@ -121,6 +124,8 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 		preambles,
 		projectDocs,
 		genomePostscripts,
+		spawner: options.spawner,
+		genomePath: options.genomePath,
 	});
 
 	const resolved = agent.resolvedModel;

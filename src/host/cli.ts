@@ -1,10 +1,71 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { BusClient } from "../bus/client.ts";
+import type { BusServer } from "../bus/server.ts";
+import type { AgentSpawner } from "../bus/spawner.ts";
 import { renderEvent } from "../tui/render-event.ts";
 
 export { renderEvent, truncateLines } from "../tui/render-event.ts";
 
 const DEFAULT_GENOME_PATH = join(homedir(), ".local/share/sprout-genome");
+
+export interface BusInfrastructureOptions {
+	genomePath: string;
+	sessionId: string;
+}
+
+export interface BusInfrastructure {
+	server: BusServer;
+	bus: BusClient;
+	spawner: AgentSpawner;
+	cleanup: () => Promise<void>;
+}
+
+/**
+ * Start the bus server, a connected client, genome mutation service, and
+ * agent spawner. Returns a cleanup function that tears everything down.
+ */
+export async function startBusInfrastructure(
+	options: BusInfrastructureOptions,
+): Promise<BusInfrastructure> {
+	const { BusServer } = await import("../bus/server.ts");
+	const { BusClient } = await import("../bus/client.ts");
+	const { AgentSpawner } = await import("../bus/spawner.ts");
+	const { GenomeMutationService } = await import("../bus/genome-service.ts");
+	const { Genome } = await import("../genome/genome.ts");
+
+	const server = new BusServer({ port: 0 });
+	await server.start();
+
+	const bus = new BusClient(server.url);
+	await bus.connect();
+
+	// Load the genome for the mutation service
+	const genome = new Genome(options.genomePath);
+	try {
+		await genome.loadFromDisk();
+	} catch {
+		// Genome may not exist yet; init will happen in createAgent
+	}
+
+	const genomeService = new GenomeMutationService({
+		bus,
+		genome,
+		sessionId: options.sessionId,
+	});
+	await genomeService.start();
+
+	const spawner = new AgentSpawner(bus, server.url, options.sessionId);
+
+	const cleanup = async () => {
+		await genomeService.stop();
+		spawner.shutdown();
+		await bus.disconnect();
+		await server.stop();
+	};
+
+	return { server, bus, spawner, cleanup };
+}
 
 function printResumeHint(sessionId: string): void {
 	console.error(`\nTo resume this session:\n  sprout --resume ${sessionId}\n`);
@@ -274,17 +335,26 @@ export async function runCli(command: CliCommand): Promise<void> {
 
 	const { EventBus } = await import("./event-bus.ts");
 	const { SessionController } = await import("./session-controller.ts");
+	const { ulid } = await import("../util/ulid.ts");
 
 	const bootstrapDir = join(import.meta.dir, "../../bootstrap");
 	const sessionsDir = join(command.genomePath, "sessions");
 
 	if (command.kind === "oneshot") {
+		const sessionId = ulid();
+		const infra = await startBusInfrastructure({
+			genomePath: command.genomePath,
+			sessionId,
+		});
+
 		const bus = new EventBus();
 		const controller = new SessionController({
 			bus,
 			genomePath: command.genomePath,
 			sessionsDir,
 			bootstrapDir,
+			sessionId,
+			spawner: infra.spawner,
 		});
 
 		bus.onEvent((event) => {
@@ -292,8 +362,12 @@ export async function runCli(command: CliCommand): Promise<void> {
 			if (line !== null) console.log(line);
 		});
 
-		await controller.submitGoal(command.goal);
-		printResumeHint(controller.sessionId);
+		try {
+			await controller.submitGoal(command.goal);
+			printResumeHint(controller.sessionId);
+		} finally {
+			await infra.cleanup();
+		}
 		return;
 	}
 
@@ -345,14 +419,21 @@ export async function runCli(command: CliCommand): Promise<void> {
 	}
 
 	// Interactive mode (also reached via resume)
+	const sessionId = resumeSessionId ?? ulid();
+	const infra = await startBusInfrastructure({
+		genomePath: command.genomePath,
+		sessionId,
+	});
+
 	const bus = new EventBus();
 	const controller = new SessionController({
 		bus,
 		genomePath: command.genomePath,
 		sessionsDir,
 		bootstrapDir,
-		sessionId: resumeSessionId,
+		sessionId,
 		initialHistory: resumeHistory,
+		spawner: infra.spawner,
 	});
 
 	const { InputHistory } = await import("../tui/history.ts");
@@ -443,6 +524,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 
 	await waitUntilExit();
 	process.removeListener("SIGINT", sigintHandler);
+	await infra.cleanup();
 	await inputHistory.save();
 	printResumeHint(controller.sessionId);
 }
