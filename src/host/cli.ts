@@ -1,3 +1,4 @@
+import { appendFile, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { BusClient } from "../bus/client.ts";
@@ -177,14 +178,14 @@ export type SlashCommandResult =
 	| { action: "exit" };
 
 /** Handle a slash command from the TUI input area. */
-export function handleSlashCommand(
+export async function handleSlashCommand(
 	cmd: import("../tui/slash-commands.ts").SlashCommand,
 	bus: {
 		emitCommand(cmd: import("../kernel/types.ts").Command): void;
 		emitEvent(kind: string, agentId: string, depth: number, data: Record<string, unknown>): void;
 	},
 	controller: { sessionId: string; isRunning: boolean; currentModel: string | undefined },
-): SlashCommandResult {
+): Promise<SlashCommandResult> {
 	switch (cmd.kind) {
 		case "quit":
 			bus.emitCommand({ kind: "quit", data: {} });
@@ -217,8 +218,8 @@ export function handleSlashCommand(
 			});
 			break;
 		case "terminal_setup": {
-			const instructions = getTerminalSetupInstructions();
-			bus.emitEvent("warning", "cli", 0, { message: instructions });
+			const message = await configureTerminal();
+			bus.emitEvent("warning", "cli", 0, { message });
 			break;
 		}
 		case "unknown":
@@ -230,15 +231,104 @@ export function handleSlashCommand(
 	return { action: "none" };
 }
 
-/** Detect terminal environment and return setup instructions for extended keyboard support. */
-export function getTerminalSetupInstructions(): string {
+export interface SpawnResult {
+	exitCode: number;
+	stdout: string;
+}
+
+export interface ConfigureTerminalOptions {
+	spawn?: (args: string[]) => SpawnResult | Promise<SpawnResult>;
+	tmuxConfPath?: string;
+}
+
+async function defaultSpawn(args: string[]): Promise<SpawnResult> {
+	const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
+	const exitCode = await proc.exited;
+	const stdout = await new Response(proc.stdout).text();
+	return { exitCode, stdout };
+}
+
+const PLIST_PATH = `${homedir()}/Library/Preferences/com.apple.Terminal.plist`;
+
+async function configureTerminalApp(
+	spawn: (args: string[]) => SpawnResult | Promise<SpawnResult>,
+): Promise<string> {
+	// Read the active profile name
+	const profileResult = await spawn([
+		"/usr/libexec/PlistBuddy",
+		"-c",
+		"Print :Startup\\ Window\\ Settings",
+		PLIST_PATH,
+	]);
+	const profile = profileResult.stdout.trim();
+	if (profileResult.exitCode !== 0 || !profile) {
+		return "Terminal.app: could not read active profile. Set Option as Meta Key manually:\n  Terminal > Settings > Profiles > Keyboard > Use Option as Meta Key";
+	}
+
+	// Set useOptionAsMetaKey = true
+	await spawn([
+		"/usr/libexec/PlistBuddy",
+		"-c",
+		`Set :Window\\ Settings:${profile}:useOptionAsMetaKey true`,
+		PLIST_PATH,
+	]);
+
+	// Set Bell = false (suppress audible bell)
+	await spawn([
+		"/usr/libexec/PlistBuddy",
+		"-c",
+		`Set :Window\\ Settings:${profile}:Bell false`,
+		PLIST_PATH,
+	]);
+
+	return `Terminal.app (profile "${profile}"): enabled Option as Meta Key and silenced audible bell.\nPlease restart Terminal.app for changes to take effect.`;
+}
+
+const TMUX_REQUIRED_LINES = [
+	"set -s extended-keys on",
+	"set -as terminal-features 'xterm*:extkeys'",
+	"set -s extended-keys-format csi-u",
+];
+
+async function configureTmux(
+	spawn: (args: string[]) => SpawnResult | Promise<SpawnResult>,
+	confPath: string,
+): Promise<string> {
+	// Read existing config (or start fresh)
+	let existing = "";
+	try {
+		existing = await readFile(confPath, "utf-8");
+	} catch {
+		// File doesn't exist yet — will create it
+	}
+
+	const missing = TMUX_REQUIRED_LINES.filter((line) => !existing.includes(line));
+
+	if (missing.length === 0) {
+		return "tmux: extended keyboard support is already configured.";
+	}
+
+	// Append missing lines
+	const suffix =
+		(existing.length > 0 && !existing.endsWith("\n") ? "\n" : "") +
+		missing.map((l) => `${l}\n`).join("");
+	await appendFile(confPath, suffix);
+
+	// Reload tmux config
+	await spawn(["tmux", "source-file", confPath]);
+
+	return `tmux: added ${missing.length} line(s) to ${confPath} and reloaded:\n  ${missing.join("\n  ")}`;
+}
+
+/** Detect terminal environment, auto-configure where possible, and return a status message. */
+export async function configureTerminal(options: ConfigureTerminalOptions = {}): Promise<string> {
+	const spawn = options.spawn ?? defaultSpawn;
 	const inTmux = !!process.env.TMUX;
 	const termProgram = process.env.TERM_PROGRAM ?? "";
 	const term = process.env.TERM ?? "";
 
 	const sections: string[] = [];
 
-	// Detect known terminals that work out of the box
 	const nativeTerminals = ["kitty", "ghostty", "WezTerm", "WarpTerminal"];
 	const isNative = nativeTerminals.some(
 		(t) =>
@@ -247,13 +337,9 @@ export function getTerminalSetupInstructions(): string {
 	);
 
 	if (inTmux) {
-		sections.push(
-			"tmux detected. Add to ~/.tmux.conf:\n" +
-				"  set -s extended-keys on\n" +
-				"  set -as terminal-features 'xterm*:extkeys'\n" +
-				"  set -s extended-keys-format csi-u\n" +
-				"Then run: tmux source ~/.tmux.conf",
-		);
+		const tmuxConfPath = options.tmuxConfPath ?? join(homedir(), ".tmux.conf");
+		const tmuxResult = await configureTmux(spawn, tmuxConfPath);
+		sections.push(tmuxResult);
 	}
 
 	if (termProgram === "iTerm.app") {
@@ -262,11 +348,8 @@ export function getTerminalSetupInstructions(): string {
 				"If not: Preferences > Profiles > Keys > General > Report modifiers using CSI u",
 		);
 	} else if (termProgram === "Apple_Terminal") {
-		sections.push(
-			"macOS Terminal.app detected. Terminal.app does not support the Kitty keyboard protocol.\n" +
-				"Option+Enter may work if you enable: Terminal > Settings > Profiles > Keyboard > Use Option as Meta Key\n" +
-				"For full Shift+Enter support, switch to iTerm2, Kitty, Ghostty, or WezTerm.",
-		);
+		const result = await configureTerminalApp(spawn);
+		sections.push(result);
 	} else if (termProgram === "vscode") {
 		sections.push(
 			'VS Code terminal detected. Add to settings.json:\n  "terminal.integrated.enableKittyKeyboardProtocol": true',
@@ -605,8 +688,8 @@ export async function runCli(command: CliCommand): Promise<void> {
 				inputHistory.add(text);
 				bus.emitCommand({ kind: "submit_goal", data: { goal: text } });
 			},
-			onSlashCommand: (cmd: import("../tui/slash-commands.ts").SlashCommand) => {
-				const result = handleSlashCommand(cmd, bus, controller);
+			onSlashCommand: async (cmd: import("../tui/slash-commands.ts").SlashCommand) => {
+				const result = await handleSlashCommand(cmd, bus, controller);
 				if (result.action === "exit") unmount();
 			},
 			onSteer: (text: string) => {

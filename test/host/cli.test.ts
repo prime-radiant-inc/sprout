@@ -4,6 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { checkHandleCompleted, extractChildHandles } from "../../src/bus/resume.ts";
 import {
+	configureTerminal,
 	handleSlashCommand,
 	inputHistoryPath,
 	parseArgs,
@@ -189,9 +190,9 @@ describe("handleSlashCommand", () => {
 		currentModel: undefined as string | undefined,
 	};
 
-	test("help emits warning event with command list and key hints", () => {
+	test("help emits warning event with command list and key hints", async () => {
 		const bus = makeBus();
-		handleSlashCommand({ kind: "help" }, bus, controller);
+		await handleSlashCommand({ kind: "help" }, bus, controller);
 		expect(bus.events).toHaveLength(1);
 		expect(bus.events[0].kind).toBe("warning");
 		expect(bus.events[0].data.message).toContain("/help");
@@ -201,23 +202,23 @@ describe("handleSlashCommand", () => {
 		expect(bus.events[0].data.message).toContain("Ctrl+J");
 	});
 
-	test("compact emits compact command", () => {
+	test("compact emits compact command", async () => {
 		const bus = makeBus();
-		handleSlashCommand({ kind: "compact" }, bus, controller);
+		await handleSlashCommand({ kind: "compact" }, bus, controller);
 		expect(bus.commands).toHaveLength(1);
 		expect(bus.commands[0].kind).toBe("compact");
 	});
 
-	test("clear emits clear command", () => {
+	test("clear emits clear command", async () => {
 		const bus = makeBus();
-		handleSlashCommand({ kind: "clear" }, bus, controller);
+		await handleSlashCommand({ kind: "clear" }, bus, controller);
 		expect(bus.commands).toHaveLength(1);
 		expect(bus.commands[0].kind).toBe("clear");
 	});
 
-	test("switch_model emits command and warning event", () => {
+	test("switch_model emits command and warning event", async () => {
 		const bus = makeBus();
-		handleSlashCommand({ kind: "switch_model", model: "gpt-4o" }, bus, controller);
+		await handleSlashCommand({ kind: "switch_model", model: "gpt-4o" }, bus, controller);
 		expect(bus.commands).toHaveLength(1);
 		expect(bus.commands[0].kind).toBe("switch_model");
 		expect(bus.commands[0].data.model).toBe("gpt-4o");
@@ -225,39 +226,43 @@ describe("handleSlashCommand", () => {
 		expect(bus.events[0].data.message).toContain("gpt-4o");
 	});
 
-	test("switch_model without arg returns show_model_picker action", () => {
+	test("switch_model without arg returns show_model_picker action", async () => {
 		const bus = makeBus();
-		const result = handleSlashCommand({ kind: "switch_model", model: undefined }, bus, controller);
+		const result = await handleSlashCommand(
+			{ kind: "switch_model", model: undefined },
+			bus,
+			controller,
+		);
 		expect(result).toEqual({ action: "show_model_picker" });
 		expect(bus.commands).toHaveLength(0);
 		expect(bus.events).toHaveLength(0);
 	});
 
-	test("status emits warning event with session info", () => {
+	test("status emits warning event with session info", async () => {
 		const bus = makeBus();
-		handleSlashCommand({ kind: "status" }, bus, controller);
+		await handleSlashCommand({ kind: "status" }, bus, controller);
 		expect(bus.events).toHaveLength(1);
 		expect(bus.events[0].data.message).toContain("01ABCDEF12345678ABCDEF1234");
 		expect(bus.events[0].data.message).toContain("idle");
 	});
 
-	test("unknown emits warning event", () => {
+	test("unknown emits warning event", async () => {
 		const bus = makeBus();
-		handleSlashCommand({ kind: "unknown", raw: "/foo" }, bus, controller);
+		await handleSlashCommand({ kind: "unknown", raw: "/foo" }, bus, controller);
 		expect(bus.events).toHaveLength(1);
 		expect(bus.events[0].data.message).toContain("/foo");
 	});
 
-	test("quit emits quit command and returns exit action", () => {
+	test("quit emits quit command and returns exit action", async () => {
 		const bus = makeBus();
-		const result = handleSlashCommand({ kind: "quit" }, bus, controller);
+		const result = await handleSlashCommand({ kind: "quit" }, bus, controller);
 		expect(bus.commands).toEqual([{ kind: "quit", data: {} }]);
 		expect(result).toEqual({ action: "exit" });
 	});
 
-	test("terminal_setup emits warning with setup instructions", () => {
+	test("terminal_setup emits warning with setup instructions", async () => {
 		const bus = makeBus();
-		handleSlashCommand({ kind: "terminal_setup" }, bus, controller);
+		await handleSlashCommand({ kind: "terminal_setup" }, bus, controller);
 		expect(bus.events).toHaveLength(1);
 		expect(bus.events[0].kind).toBe("warning");
 		expect(bus.events[0].data.message).toBeDefined();
@@ -265,34 +270,232 @@ describe("handleSlashCommand", () => {
 		expect(bus.events[0].data.message).toContain("Ctrl+J");
 	});
 
-	test("terminal_setup detects tmux and shows tmux config", () => {
+	test("terminal_setup detects tmux and triggers tmux config", async () => {
 		const origTmux = process.env.TMUX;
 		process.env.TMUX = "/tmp/tmux-501/default,12345,0";
 		try {
 			const bus = makeBus();
-			handleSlashCommand({ kind: "terminal_setup" }, bus, controller);
-			expect(bus.events[0].data.message).toContain("extended-keys");
-			expect(bus.events[0].data.message).toContain("tmux.conf");
+			await handleSlashCommand({ kind: "terminal_setup" }, bus, controller);
+			expect(bus.events[0].data.message).toContain("tmux");
 		} finally {
 			if (origTmux === undefined) delete process.env.TMUX;
 			else process.env.TMUX = origTmux;
 		}
 	});
 
-	test("terminal_setup detects iTerm2", () => {
+	test("terminal_setup detects iTerm2", async () => {
 		const origTmux = process.env.TMUX;
 		const origTermProgram = process.env.TERM_PROGRAM;
 		delete process.env.TMUX;
 		process.env.TERM_PROGRAM = "iTerm.app";
 		try {
 			const bus = makeBus();
-			handleSlashCommand({ kind: "terminal_setup" }, bus, controller);
+			await handleSlashCommand({ kind: "terminal_setup" }, bus, controller);
 			expect(bus.events[0].data.message).toContain("iTerm2");
 		} finally {
 			if (origTmux === undefined) delete process.env.TMUX;
 			else process.env.TMUX = origTmux;
 			if (origTermProgram === undefined) delete process.env.TERM_PROGRAM;
 			else process.env.TERM_PROGRAM = origTermProgram;
+		}
+	});
+});
+
+describe("configureTerminal — Terminal.app", () => {
+	function saveEnv() {
+		return {
+			TMUX: process.env.TMUX,
+			TERM_PROGRAM: process.env.TERM_PROGRAM,
+			TERM: process.env.TERM,
+		};
+	}
+
+	function restoreEnv(saved: Record<string, string | undefined>) {
+		for (const [key, val] of Object.entries(saved)) {
+			if (val === undefined) delete process.env[key];
+			else process.env[key] = val;
+		}
+	}
+
+	test("reads active profile and sets useOptionAsMetaKey and Bell via PlistBuddy", async () => {
+		const saved = saveEnv();
+		delete process.env.TMUX;
+		process.env.TERM_PROGRAM = "Apple_Terminal";
+		try {
+			const calls: string[][] = [];
+			const spawn = (args: string[]) => {
+				calls.push(args);
+				// First call: Print Startup Window Settings → return profile name
+				if (args.some((a) => a.startsWith("Print"))) {
+					return { exitCode: 0, stdout: "Pro\n" };
+				}
+				// Subsequent calls: setting values
+				return { exitCode: 0, stdout: "" };
+			};
+
+			const result = await configureTerminal({ spawn });
+
+			// Should have 3 PlistBuddy calls: read profile, set useOptionAsMetaKey, set Bell
+			expect(calls).toHaveLength(3);
+
+			// First call reads the active profile name
+			expect(calls[0]!.some((a: string) => a.startsWith("Print"))).toBe(true);
+			expect(calls[0]![0]).toBe("/usr/libexec/PlistBuddy");
+
+			// Second call sets useOptionAsMetaKey on the "Pro" profile
+			expect(calls[1]!.join(" ")).toContain("useOptionAsMetaKey");
+			expect(calls[1]!.join(" ")).toContain("Pro");
+			expect(calls[1]!.join(" ")).toContain("true");
+
+			// Third call sets Bell (visual bell off = silence bell)
+			expect(calls[2]!.join(" ")).toContain("Bell");
+			expect(calls[2]!.join(" ")).toContain("Pro");
+
+			// Result should mention what was configured
+			expect(result).toContain("Option as Meta Key");
+			expect(result).toContain("restart");
+		} finally {
+			restoreEnv(saved);
+		}
+	});
+});
+
+describe("configureTerminal — tmux", () => {
+	let tempDir: string;
+
+	function saveEnv() {
+		return {
+			TMUX: process.env.TMUX,
+			TERM_PROGRAM: process.env.TERM_PROGRAM,
+			TERM: process.env.TERM,
+		};
+	}
+
+	function restoreEnv(saved: Record<string, string | undefined>) {
+		for (const [key, val] of Object.entries(saved)) {
+			if (val === undefined) delete process.env[key];
+			else process.env[key] = val;
+		}
+	}
+
+	beforeEach(async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "sprout-tmux-"));
+	});
+
+	afterEach(async () => {
+		await rm(tempDir, { recursive: true, force: true });
+	});
+
+	test("appends missing lines to tmux.conf and calls tmux source-file", async () => {
+		const saved = saveEnv();
+		process.env.TMUX = "/tmp/tmux-501/default,12345,0";
+		delete process.env.TERM_PROGRAM;
+		const confPath = join(tempDir, "tmux.conf");
+		try {
+			const spawnCalls: string[][] = [];
+			const spawn = (args: string[]) => {
+				spawnCalls.push(args);
+				return { exitCode: 0, stdout: "" };
+			};
+
+			const result = await configureTerminal({ spawn, tmuxConfPath: confPath });
+
+			// Should have written the config file
+			const { readFile } = await import("node:fs/promises");
+			const contents = await readFile(confPath, "utf-8");
+			expect(contents).toContain("set -s extended-keys on");
+			expect(contents).toContain("set -as terminal-features 'xterm*:extkeys'");
+			expect(contents).toContain("set -s extended-keys-format csi-u");
+
+			// Should have called tmux source-file
+			expect(spawnCalls).toHaveLength(1);
+			expect(spawnCalls[0]).toContain("tmux");
+			expect(spawnCalls[0]!.join(" ")).toContain(confPath);
+
+			// Result should report what was added
+			expect(result).toContain("extended-keys");
+		} finally {
+			restoreEnv(saved);
+		}
+	});
+
+	test("only appends lines not already present", async () => {
+		const saved = saveEnv();
+		process.env.TMUX = "/tmp/tmux-501/default,12345,0";
+		delete process.env.TERM_PROGRAM;
+		const confPath = join(tempDir, "tmux.conf");
+		try {
+			// Pre-populate with one of the three lines
+			await writeFile(confPath, "set -s extended-keys on\n");
+
+			const spawn = (_args: string[]) => ({ exitCode: 0, stdout: "" });
+			await configureTerminal({ spawn, tmuxConfPath: confPath });
+
+			const { readFile } = await import("node:fs/promises");
+			const contents = await readFile(confPath, "utf-8");
+
+			// Should have the original line once, plus two new lines
+			const extKeysCount = contents.split("set -s extended-keys on").length - 1;
+			expect(extKeysCount).toBe(1);
+			expect(contents).toContain("set -as terminal-features 'xterm*:extkeys'");
+			expect(contents).toContain("set -s extended-keys-format csi-u");
+		} finally {
+			restoreEnv(saved);
+		}
+	});
+
+	test("idempotent: running twice does not duplicate lines", async () => {
+		const saved = saveEnv();
+		process.env.TMUX = "/tmp/tmux-501/default,12345,0";
+		delete process.env.TERM_PROGRAM;
+		const confPath = join(tempDir, "tmux.conf");
+		try {
+			const spawn = (_args: string[]) => ({ exitCode: 0, stdout: "" });
+
+			await configureTerminal({ spawn, tmuxConfPath: confPath });
+			await configureTerminal({ spawn, tmuxConfPath: confPath });
+
+			const { readFile } = await import("node:fs/promises");
+			const contents = await readFile(confPath, "utf-8");
+
+			// Each line should appear exactly once
+			for (const line of [
+				"set -s extended-keys on",
+				"set -as terminal-features 'xterm*:extkeys'",
+				"set -s extended-keys-format csi-u",
+			]) {
+				const count = contents.split(line).length - 1;
+				expect(count).toBe(1);
+			}
+		} finally {
+			restoreEnv(saved);
+		}
+	});
+
+	test("reports already configured when all lines present", async () => {
+		const saved = saveEnv();
+		process.env.TMUX = "/tmp/tmux-501/default,12345,0";
+		delete process.env.TERM_PROGRAM;
+		const confPath = join(tempDir, "tmux.conf");
+		try {
+			await writeFile(
+				confPath,
+				"set -s extended-keys on\nset -as terminal-features 'xterm*:extkeys'\nset -s extended-keys-format csi-u\n",
+			);
+
+			const spawnCalls: string[][] = [];
+			const spawn = (args: string[]) => {
+				spawnCalls.push(args);
+				return { exitCode: 0, stdout: "" };
+			};
+
+			const result = await configureTerminal({ spawn, tmuxConfPath: confPath });
+
+			// Should NOT call tmux source-file (nothing changed)
+			expect(spawnCalls).toHaveLength(0);
+			expect(result).toContain("already configured");
+		} finally {
+			restoreEnv(saved);
 		}
 	});
 });
