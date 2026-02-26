@@ -142,9 +142,9 @@ export function EventLine({ event, durationMs, streamingText }: EventLineProps) 
 		case "learn_end":
 			return null;
 
-		default: {
-			const _exhaustive: never = kind;
+		default:
+			// Exhaustiveness check: if a new EventKind is added, this line will error
+			kind satisfies never;
 			return null;
-		}
 	}
 }
