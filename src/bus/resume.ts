@@ -15,9 +15,7 @@ export interface ChildHandleInfo {
  * that contain a handle_id field (spawner-delegated agents).
  * Returns info about each child handle found.
  */
-export async function extractChildHandles(
-	logPath: string,
-): Promise<ChildHandleInfo[]> {
+export async function extractChildHandles(logPath: string): Promise<ChildHandleInfo[]> {
 	let raw: string;
 	try {
 		raw = await readFile(logPath, "utf-8");
@@ -54,7 +52,7 @@ export async function extractChildHandles(
 
 /**
  * Check if a specific handle's per-handle log indicates the agent completed.
- * Looks for a line with "kind":"result" in {handleLogDir}/{handleId}.jsonl.
+ * Looks for a "session_end" event in {handleLogDir}/{handleId}.jsonl.
  */
 export async function checkHandleCompleted(
 	handleLogDir: string,
@@ -72,10 +70,8 @@ export async function checkHandleCompleted(
 	for (const line of lines) {
 		try {
 			const parsed = JSON.parse(line);
-			if (parsed.kind === "result") return true;
-		} catch {
-			continue;
-		}
+			if (parsed.kind === "session_end") return true;
+		} catch {}
 	}
 
 	return false;

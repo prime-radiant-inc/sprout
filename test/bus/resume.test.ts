@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { checkHandleCompleted, extractChildHandles, replayHandleLog } from "../../src/bus/resume.ts";
+import {
+	checkHandleCompleted,
+	extractChildHandles,
+	replayHandleLog,
+} from "../../src/bus/resume.ts";
 import type { SessionEvent } from "../../src/kernel/types.ts";
 import { Msg, messageText } from "../../src/llm/types.ts";
 
@@ -195,14 +199,18 @@ describe("extractChildHandles", () => {
 		await writeEventLog(logPath, [
 			event("perceive", { goal: "Delegate work" }, 0),
 			event("plan_end", { assistant_message: Msg.assistant("Delegating.") }, 0),
-			event("act_end", {
-				agent_name: "code-editor",
-				success: true,
-				handle_id: "handle-abc",
-				turns: 5,
-				timed_out: false,
-				tool_result_message: Msg.toolResult("c1", "Agent completed the work"),
-			}, 0),
+			event(
+				"act_end",
+				{
+					agent_name: "code-editor",
+					success: true,
+					handle_id: "handle-abc",
+					turns: 5,
+					timed_out: false,
+					tool_result_message: Msg.toolResult("c1", "Agent completed the work"),
+				},
+				0,
+			),
 		]);
 
 		const handles = await extractChildHandles(logPath);
@@ -221,12 +229,16 @@ describe("extractChildHandles", () => {
 		await writeEventLog(logPath, [
 			event("perceive", { goal: "Spawn background agent" }, 0),
 			event("plan_end", { assistant_message: Msg.assistant("Spawning.") }, 0),
-			event("act_end", {
-				agent_name: "code-editor",
-				success: true,
-				handle_id: "handle-xyz",
-				tool_result_message: Msg.toolResult("c1", "Agent started. Handle: handle-xyz"),
-			}, 0),
+			event(
+				"act_end",
+				{
+					agent_name: "code-editor",
+					success: true,
+					handle_id: "handle-xyz",
+					tool_result_message: Msg.toolResult("c1", "Agent started. Handle: handle-xyz"),
+				},
+				0,
+			),
 		]);
 
 		const handles = await extractChildHandles(logPath);
@@ -242,11 +254,15 @@ describe("extractChildHandles", () => {
 		// In-process delegation: act_end has no handle_id
 		await writeEventLog(logPath, [
 			event("perceive", { goal: "In-process delegation" }, 0),
-			event("act_end", {
-				agent_name: "code-reader",
-				success: true,
-				tool_result_message: Msg.toolResult("c1", "done"),
-			}, 0),
+			event(
+				"act_end",
+				{
+					agent_name: "code-reader",
+					success: true,
+					tool_result_message: Msg.toolResult("c1", "done"),
+				},
+				0,
+			),
 		]);
 
 		const handles = await extractChildHandles(logPath);
@@ -259,12 +275,16 @@ describe("extractChildHandles", () => {
 		await writeEventLog(logPath, [
 			event("perceive", { goal: "Root" }, 0),
 			// This is a sub-agent's act_end, not the root's
-			event("act_end", {
-				agent_name: "helper",
-				success: true,
-				handle_id: "handle-sub",
-				tool_result_message: Msg.toolResult("c2", "sub done"),
-			}, 1),
+			event(
+				"act_end",
+				{
+					agent_name: "helper",
+					success: true,
+					handle_id: "handle-sub",
+					tool_result_message: Msg.toolResult("c2", "sub done"),
+				},
+				1,
+			),
 		]);
 
 		const handles = await extractChildHandles(logPath);
@@ -276,20 +296,28 @@ describe("extractChildHandles", () => {
 		const logPath = join(tempDir, "session.jsonl");
 		await writeEventLog(logPath, [
 			event("perceive", { goal: "Multi-delegation" }, 0),
-			event("act_end", {
-				agent_name: "code-editor",
-				success: true,
-				handle_id: "handle-1",
-				turns: 3,
-				tool_result_message: Msg.toolResult("c1", "done"),
-			}, 0),
-			event("act_end", {
-				agent_name: "code-reader",
-				success: true,
-				handle_id: "handle-2",
-				turns: 2,
-				tool_result_message: Msg.toolResult("c2", "done"),
-			}, 0),
+			event(
+				"act_end",
+				{
+					agent_name: "code-editor",
+					success: true,
+					handle_id: "handle-1",
+					turns: 3,
+					tool_result_message: Msg.toolResult("c1", "done"),
+				},
+				0,
+			),
+			event(
+				"act_end",
+				{
+					agent_name: "code-reader",
+					success: true,
+					handle_id: "handle-2",
+					turns: 2,
+					tool_result_message: Msg.toolResult("c2", "done"),
+				},
+				0,
+			),
 		]);
 
 		const handles = await extractChildHandles(logPath);
@@ -310,14 +338,18 @@ describe("extractChildHandles", () => {
 	test("marks blocking delegation as completed when turns field is present", async () => {
 		const logPath = join(tempDir, "session.jsonl");
 		await writeEventLog(logPath, [
-			event("act_end", {
-				agent_name: "code-editor",
-				success: true,
-				handle_id: "handle-blocking",
-				turns: 4,
-				timed_out: false,
-				tool_result_message: Msg.toolResult("c1", "Task completed successfully"),
-			}, 0),
+			event(
+				"act_end",
+				{
+					agent_name: "code-editor",
+					success: true,
+					handle_id: "handle-blocking",
+					turns: 4,
+					timed_out: false,
+					tool_result_message: Msg.toolResult("c1", "Task completed successfully"),
+				},
+				0,
+			),
 		]);
 
 		const handles = await extractChildHandles(logPath);
@@ -338,34 +370,33 @@ describe("checkHandleCompleted", () => {
 		await rm(tempDir, { recursive: true, force: true });
 	});
 
-	test("returns true when handle log contains result event", async () => {
+	test("returns true when handle log contains session_end event", async () => {
 		const handleLogDir = join(tempDir, "logs", "session-1");
 		await mkdir(handleLogDir, { recursive: true });
 
 		const handleId = "handle-abc";
 		const logPath = join(handleLogDir, `${handleId}.jsonl`);
-		const lines = [
-			JSON.stringify({ kind: "event", handle_id: handleId, event: event("perceive", { goal: "work" }) }),
-			JSON.stringify({ kind: "result", handle_id: handleId, output: "done", success: true, stumbles: 0, turns: 3, timed_out: false }),
-		];
-		await writeFile(logPath, `${lines.join("\n")}\n`, "utf-8");
+		await writeEventLog(logPath, [
+			event("perceive", { goal: "work" }),
+			event("plan_end", { assistant_message: Msg.assistant("working") }),
+			event("session_end", { output: "done", success: true, turns: 3 }),
+		]);
 
 		const completed = await checkHandleCompleted(handleLogDir, handleId);
 
 		expect(completed).toBe(true);
 	});
 
-	test("returns false when handle log has no result event", async () => {
+	test("returns false when handle log has no session_end event", async () => {
 		const handleLogDir = join(tempDir, "logs", "session-1");
 		await mkdir(handleLogDir, { recursive: true });
 
 		const handleId = "handle-abc";
 		const logPath = join(handleLogDir, `${handleId}.jsonl`);
-		const lines = [
-			JSON.stringify({ kind: "event", handle_id: handleId, event: event("perceive", { goal: "work" }) }),
-			JSON.stringify({ kind: "event", handle_id: handleId, event: event("plan_end", { assistant_message: Msg.assistant("working") }) }),
-		];
-		await writeFile(logPath, `${lines.join("\n")}\n`, "utf-8");
+		await writeEventLog(logPath, [
+			event("perceive", { goal: "work" }),
+			event("plan_end", { assistant_message: Msg.assistant("working") }),
+		]);
 
 		const completed = await checkHandleCompleted(handleLogDir, handleId);
 

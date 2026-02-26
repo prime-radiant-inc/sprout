@@ -13,6 +13,7 @@ import { EventBus } from "../../src/host/event-bus.ts";
 import { replayEventLog } from "../../src/host/resume.ts";
 import type { AgentFactory } from "../../src/host/session-controller.ts";
 import { SessionController } from "../../src/host/session-controller.ts";
+import type { SessionEvent } from "../../src/kernel/types.ts";
 
 const defaultGenomePath = join(homedir(), ".local/share/sprout-genome");
 
@@ -383,31 +384,25 @@ describe("resume flow", () => {
 		];
 		await writeFile(logPath, `${events.map((e) => JSON.stringify(e)).join("\n")}\n`);
 
-		// Write the child handle's per-handle log with a result event
+		// Write the child handle's per-handle log with a session_end event
 		const handleLogPath = join(handleLogDir, "handle-001.jsonl");
-		const handleEvents = [
-			JSON.stringify({
-				kind: "event",
-				handle_id: "handle-001",
-				event: {
-					kind: "perceive",
-					timestamp: Date.now(),
-					agent_id: "code-editor",
-					depth: 1,
-					data: { goal: "do work" },
-				},
-			}),
-			JSON.stringify({
-				kind: "result",
-				handle_id: "handle-001",
-				output: "work done",
-				success: true,
-				stumbles: 0,
-				turns: 5,
-				timed_out: false,
-			}),
+		const handleEvents: SessionEvent[] = [
+			{
+				kind: "perceive",
+				timestamp: Date.now(),
+				agent_id: "code-editor",
+				depth: 1,
+				data: { goal: "do work" },
+			},
+			{
+				kind: "session_end",
+				timestamp: Date.now(),
+				agent_id: "code-editor",
+				depth: 1,
+				data: { output: "work done", success: true, turns: 5 },
+			},
 		];
-		await writeFile(handleLogPath, `${handleEvents.join("\n")}\n`);
+		await writeFile(handleLogPath, `${handleEvents.map((e) => JSON.stringify(e)).join("\n")}\n`);
 
 		// Extract child handles (same call cli.ts will make during resume)
 		const handles = await extractChildHandles(logPath);
@@ -467,27 +462,23 @@ describe("resume flow", () => {
 		];
 		await writeFile(logPath, `${events.map((e) => JSON.stringify(e)).join("\n")}\n`);
 
-		// Write per-handle log WITHOUT a result event (agent is still running/crashed)
+		// Write per-handle log WITHOUT a session_end event (agent is still running/crashed)
 		const handleLogPath = join(handleLogDir, "handle-incomplete.jsonl");
-		const handleEvents = [
-			JSON.stringify({
-				kind: "event",
-				handle_id: "handle-incomplete",
-				event: {
-					kind: "perceive",
-					timestamp: Date.now(),
-					agent_id: "code-editor",
-					depth: 1,
-					data: { goal: "do work" },
-				},
-			}),
+		const handleEvents: SessionEvent[] = [
+			{
+				kind: "perceive",
+				timestamp: Date.now(),
+				agent_id: "code-editor",
+				depth: 1,
+				data: { goal: "do work" },
+			},
 		];
-		await writeFile(handleLogPath, `${handleEvents.join("\n")}\n`);
+		await writeFile(handleLogPath, `${handleEvents.map((e) => JSON.stringify(e)).join("\n")}\n`);
 
 		const handles = await extractChildHandles(logPath);
 		expect(handles).toHaveLength(1);
 
-		// checkHandleCompleted should return false — no result in the per-handle log
+		// checkHandleCompleted should return false — no session_end in the per-handle log
 		const completed = await checkHandleCompleted(handleLogDir, "handle-incomplete");
 		expect(completed).toBe(false);
 	});
