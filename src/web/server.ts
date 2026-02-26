@@ -1,5 +1,5 @@
-import type { ServerWebSocket } from "bun";
 import { resolve } from "node:path";
+import type { ServerWebSocket } from "bun";
 import type { SessionBus } from "../host/event-bus.ts";
 import type { SessionEvent } from "../kernel/types.ts";
 import type { ServerMessage } from "./protocol.ts";

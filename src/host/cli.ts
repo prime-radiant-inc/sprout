@@ -77,21 +77,42 @@ export function inputHistoryPath(genomePath: string): string {
 	return join(genomePath, "input_history.txt");
 }
 
+export interface WebFlags {
+	web?: boolean;
+	webOnly?: boolean;
+	port?: number;
+}
+
 export type CliCommand =
-	| { kind: "interactive"; genomePath: string }
+	| ({ kind: "interactive"; genomePath: string } & WebFlags)
 	| { kind: "oneshot"; goal: string; genomePath: string }
-	| { kind: "resume"; sessionId: string; genomePath: string }
-	| { kind: "resume-last"; genomePath: string }
+	| ({ kind: "resume"; sessionId: string; genomePath: string } & WebFlags)
+	| ({ kind: "resume-last"; genomePath: string } & WebFlags)
 	| { kind: "list"; genomePath: string } // session picker (via --resume with no arg)
 	| { kind: "genome-list"; genomePath: string }
 	| { kind: "genome-log"; genomePath: string }
 	| { kind: "genome-rollback"; genomePath: string; commit: string }
 	| { kind: "help" };
 
+/** Collect web flags from the accumulated state into a WebFlags object.
+ * Only includes keys that are set, keeping result objects clean. */
+function collectWebFlags(webFlags: {
+	web: boolean;
+	webOnly: boolean;
+	port: number | undefined;
+}): WebFlags {
+	const flags: WebFlags = {};
+	if (webFlags.web) flags.web = true;
+	if (webFlags.webOnly) flags.webOnly = true;
+	if (webFlags.port !== undefined) flags.port = webFlags.port;
+	return flags;
+}
+
 /** Parse CLI arguments (process.argv.slice(2)) into a typed command.
  * Note: --genome-path must come before --genome subcommands. */
 export function parseArgs(argv: string[]): CliCommand {
 	let genomePath = DEFAULT_GENOME_PATH;
+	const webFlags = { web: false, webOnly: false, port: undefined as number | undefined };
 	const rest: string[] = [];
 
 	for (let i = 0; i < argv.length; i++) {
@@ -103,6 +124,21 @@ export function parseArgs(argv: string[]): CliCommand {
 
 		if (arg === "--genome-path") {
 			genomePath = argv[++i] ?? DEFAULT_GENOME_PATH;
+			continue;
+		}
+
+		if (arg === "--web") {
+			webFlags.web = true;
+			continue;
+		}
+
+		if (arg === "--web-only") {
+			webFlags.webOnly = true;
+			continue;
+		}
+
+		if (arg === "--port") {
+			webFlags.port = Number(argv[++i]);
 			continue;
 		}
 
@@ -119,11 +155,11 @@ export function parseArgs(argv: string[]): CliCommand {
 				return { kind: "list", genomePath };
 			}
 			i++;
-			return { kind: "resume", sessionId: next, genomePath };
+			return { kind: "resume", sessionId: next, genomePath, ...collectWebFlags(webFlags) };
 		}
 
 		if (arg === "--resume-last") {
-			return { kind: "resume-last", genomePath };
+			return { kind: "resume-last", genomePath, ...collectWebFlags(webFlags) };
 		}
 
 		if (arg === "--genome") {
@@ -146,7 +182,7 @@ export function parseArgs(argv: string[]): CliCommand {
 	}
 
 	if (rest.length === 0) {
-		return { kind: "interactive", genomePath };
+		return { kind: "interactive", genomePath, ...collectWebFlags(webFlags) };
 	}
 
 	return { kind: "oneshot", goal: rest.join(" "), genomePath };
@@ -166,6 +202,11 @@ Genome management:
   sprout --genome list                  List agents in the genome
   sprout --genome log                   Show genome git log
   sprout --genome rollback <commit>     Revert a genome commit
+
+Web interface:
+  --web                  Start web server alongside TUI
+  --web-only             Start web server without TUI (headless/remote)
+  --port <port>          Web server port (default: 7777)
 
 Options:
   --genome-path <path>   Path to genome directory (default: ~/.local/share/sprout-genome)
@@ -472,6 +513,34 @@ export async function runCli(command: CliCommand): Promise<void> {
 		completedHandles: resumeCompletedHandles,
 	});
 
+	// Start web server if requested
+	let webServer: import("../web/server.ts").WebServer | null = null;
+	if (command.web || command.webOnly) {
+		const { WebServer } = await import("../web/server.ts");
+		const port = command.port ?? 7777;
+		const staticDir = join(import.meta.dir, "../../web/dist");
+		webServer = new WebServer({ bus, port, staticDir, sessionId });
+		await webServer.start();
+		console.error(`Web UI: http://localhost:${port}`);
+	}
+
+	if (command.webOnly) {
+		// Headless mode: no TUI, wait for quit command via web interface
+		const quitPromise = new Promise<void>((resolve) => {
+			bus.onCommand((cmd) => {
+				if (cmd.kind === "quit") resolve();
+			});
+			process.on("SIGINT", () => {
+				bus.emitCommand({ kind: "quit", data: {} });
+			});
+		});
+		await quitPromise;
+		await webServer!.stop();
+		await infra.cleanup();
+		printResumeHint(controller.sessionId);
+		return;
+	}
+
 	const { InputHistory } = await import("../tui/history.ts");
 	const historyPath = inputHistoryPath(command.genomePath);
 	const inputHistory = new InputHistory(historyPath);
@@ -560,6 +629,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 
 	await waitUntilExit();
 	process.removeListener("SIGINT", sigintHandler);
+	if (webServer) await webServer.stop();
 	await infra.cleanup();
 	await inputHistory.save();
 	printResumeHint(controller.sessionId);
