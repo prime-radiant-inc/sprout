@@ -1,5 +1,6 @@
-import { Box, Text, useInput, useStdout } from "ink";
+import { Box, Text, useInput } from "ink";
 import { useState } from "react";
+import { useWindowSize } from "./use-window-size.ts";
 import type { SessionListEntry } from "../host/session-metadata.ts";
 
 /** Strip markdown formatting and return up to maxLines non-empty lines. */
@@ -63,12 +64,11 @@ export interface SessionPickerProps {
 
 export function SessionPicker({ sessions, onSelect, onCancel }: SessionPickerProps) {
 	const [cursor, setCursor] = useState(0);
-	const { stdout } = useStdout();
+	const { rows: terminalRows } = useWindowSize();
 
 	// Cap the session list at 2/3 of the terminal height so scrolling is meaningful.
 	// Each session takes exactly 3 rows (2 bold prompt lines + 1 dim agent line).
 	// Using wrap="truncate" on every Text ensures rows never wrap, keeping the count exact.
-	const terminalRows = stdout.rows ?? 24;
 	const maxContainerRows = Math.max(9, Math.floor((terminalRows * 2) / 3));
 	const visibleCount = Math.max(3, Math.floor((maxContainerRows - 1) / 3));
 	const windowStart = Math.max(
