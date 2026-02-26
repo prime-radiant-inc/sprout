@@ -6,6 +6,7 @@ import { AssistantMessage } from "../AssistantMessage.tsx";
 import { ConversationView } from "../ConversationView.tsx";
 import { DelegationBlock } from "../DelegationBlock.tsx";
 import { EventLine } from "../EventLine.tsx";
+import { smartArgs } from "../format.ts";
 import { MarkdownBlock } from "../MarkdownBlock.tsx";
 import { SystemMessage } from "../SystemMessage.tsx";
 import { ToolCall } from "../ToolCall.tsx";
@@ -27,6 +28,14 @@ function makeEvent(
 		...overrides,
 	};
 }
+
+// --- format ---
+
+describe("format", () => {
+	test("smartArgs wraps exec command in backticks", () => {
+		expect(smartArgs("exec", { command: "ls -la" })).toBe("`ls -la`");
+	});
+});
 
 // --- MarkdownBlock ---
 

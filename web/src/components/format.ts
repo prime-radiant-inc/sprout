@@ -46,7 +46,7 @@ export function smartArgs(
 		case "exec": {
 			const cmd = args.command;
 			if (typeof cmd !== "string") return "";
-			return truncate(cmd, 60);
+			return `\`${truncate(cmd, 60)}\``;
 		}
 		case "read_file": {
 			const path = args.path;
