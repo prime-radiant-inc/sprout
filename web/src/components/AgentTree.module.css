@@ -1,0 +1,122 @@
+.agentTree {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	margin-bottom: 4px;
+}
+
+.title {
+	color: var(--text-dim);
+	font-size: var(--font-size-xs);
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+}
+
+.toggle {
+	background: none;
+	border: none;
+	color: var(--text-dim);
+	cursor: pointer;
+	font-size: var(--font-size-base);
+	padding: 0 4px;
+}
+
+.toggle:hover {
+	color: var(--text-primary);
+}
+
+.allAgents {
+	display: block;
+	width: 100%;
+	text-align: left;
+	background: none;
+	border: none;
+	color: var(--text-secondary);
+	cursor: pointer;
+	padding: 4px 8px;
+	border-radius: 3px;
+	font: inherit;
+	font-size: var(--font-size-sm);
+}
+
+.allAgents:hover {
+	background: var(--bg-surface);
+}
+
+.treeRoot {
+	list-style: none;
+	padding: 0;
+	margin: 0;
+}
+
+.children {
+	list-style: none;
+	padding-left: 12px;
+	margin: 0;
+}
+
+.node {
+	display: flex;
+	gap: 6px;
+	align-items: baseline;
+	width: 100%;
+	text-align: left;
+	background: none;
+	border: none;
+	color: var(--text-primary);
+	cursor: pointer;
+	padding: 3px 8px;
+	border-radius: 3px;
+	font: inherit;
+	font-size: var(--font-size-sm);
+}
+
+.node:hover {
+	background: var(--bg-surface);
+}
+
+.selected {
+	background: var(--bg-surface);
+}
+
+.agentName {
+	color: var(--color-agent);
+	font-weight: bold;
+	white-space: nowrap;
+}
+
+.goal {
+	color: var(--text-dim);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.statusCompleted {
+	color: var(--color-success);
+}
+
+.statusFailed {
+	color: var(--color-error);
+}
+
+.statusRunning {
+	color: var(--color-cyan);
+	animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+	0%,
+	100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.3;
+	}
+}

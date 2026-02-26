@@ -1,0 +1,17 @@
+.breadcrumb {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	padding: 4px 0;
+	font-size: var(--font-size-sm);
+	color: var(--text-secondary);
+}
+
+.separator {
+	color: var(--text-dim);
+	margin: 0 4px;
+}
+
+.segment {
+	color: var(--color-agent);
+}
