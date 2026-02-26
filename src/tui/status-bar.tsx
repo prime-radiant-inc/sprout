@@ -1,4 +1,5 @@
-import { Box, Text, useStdout } from "ink";
+import { Box, Text } from "ink";
+import { useWindowSize } from "./use-window-size.ts";
 
 export interface StatusBarProps {
 	contextTokens: number;
@@ -40,8 +41,7 @@ export function StatusBar(props: StatusBarProps) {
 
 	const turnLabel = turns === 1 ? "1 turn" : `${turns} turns`;
 
-	const { stdout } = useStdout();
-	const cols = stdout?.columns ?? 100;
+	const { columns: cols } = useWindowSize();
 
 	let left = `${ctxInfo} | ${turnLabel}`;
 	if (status === "running") {

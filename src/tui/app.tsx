@@ -1,4 +1,4 @@
-import { Box, Text, useStdout } from "ink";
+import { Box, Text } from "ink";
 import { useEffect, useState } from "react";
 import type { SessionBus } from "../host/event-bus.ts";
 import type { SessionEvent } from "../kernel/types.ts";
@@ -7,6 +7,7 @@ import { InputArea } from "./input-area.tsx";
 import { ModelPicker } from "./model-picker.tsx";
 import type { SlashCommand } from "./slash-commands.ts";
 import { StatusBar } from "./status-bar.tsx";
+import { useWindowSize } from "./use-window-size.ts";
 
 export interface AppProps {
 	bus: SessionBus;
@@ -55,8 +56,7 @@ export function App({
 	knownModels,
 	initialEvents,
 }: AppProps) {
-	const { stdout } = useStdout();
-	const terminalRows = stdout?.rows ?? 40;
+	const { rows: terminalRows } = useWindowSize();
 	const conversationHeight = Math.max(5, terminalRows - 4);
 
 	const [statusState, setStatusState] = useState<StatusState>(INITIAL_STATUS);
