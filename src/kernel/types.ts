@@ -61,7 +61,7 @@ export interface Delegation {
 	hints?: string[];
 	/** If false, delegation runs asynchronously and returns a handle. Default: true */
 	blocking?: boolean;
-	/** If true, reuse an existing agent instance instead of spawning a new one. Default: false */
+	/** If true, the agent stays alive after completion and can receive follow-up messages. Default: false */
 	shared?: boolean;
 }
 
