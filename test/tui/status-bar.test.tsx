@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { render } from "ink-testing-library";
-import { formatTokens, shortModelName, StatusBar } from "../../src/tui/status-bar.tsx";
+import { formatTokens, StatusBar, shortModelName } from "../../src/tui/status-bar.tsx";
 
 // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape stripping
 const stripAnsi = (s: string) => s.replace(/\x1B\[[0-9;]*m/g, "");

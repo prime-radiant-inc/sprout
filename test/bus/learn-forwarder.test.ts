@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { BusLearnForwarder } from "../../src/bus/learn-forwarder.ts";
 import { BusClient } from "../../src/bus/client.ts";
+import { BusLearnForwarder } from "../../src/bus/learn-forwarder.ts";
 import { BusServer } from "../../src/bus/server.ts";
 import { genomeMutations } from "../../src/bus/topics.ts";
 import type { LearnSignal } from "../../src/kernel/types.ts";
@@ -53,10 +53,7 @@ describe("BusLearnForwarder", () => {
 	test("push() publishes a learn_signal message to genomeMutations topic", async () => {
 		const forwarder = new BusLearnForwarder(publisherBus, SESSION_ID);
 
-		const messagePromise = subscriberBus.waitForMessage(
-			genomeMutations(SESSION_ID),
-			5000,
-		);
+		const messagePromise = subscriberBus.waitForMessage(genomeMutations(SESSION_ID), 5000);
 
 		const signal = makeSignal();
 		forwarder.push(signal);

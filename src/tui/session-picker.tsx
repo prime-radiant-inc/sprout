@@ -1,7 +1,7 @@
 import { Box, Text, useInput } from "ink";
 import { useState } from "react";
-import { useWindowSize } from "./use-window-size.ts";
 import type { SessionListEntry } from "../host/session-metadata.ts";
+import { useWindowSize } from "./use-window-size.ts";
 
 /** Strip markdown formatting and return up to maxLines non-empty lines. */
 function summarize(text: string, maxLines: number): string[] {

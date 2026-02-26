@@ -177,7 +177,13 @@ interface DelegationEndProps {
 }
 
 /** Renders a delegation end: ╰─ agent ✓ (N turns) duration */
-export function DelegationEndLine({ depth, agentName, success, turns, durationMs }: DelegationEndProps) {
+export function DelegationEndLine({
+	depth,
+	agentName,
+	success,
+	turns,
+	durationMs,
+}: DelegationEndProps) {
 	const dur = formatDuration(durationMs);
 	return (
 		<DepthBorder depth={depth}>
