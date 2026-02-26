@@ -719,6 +719,32 @@ describe("InputArea", () => {
 		expect(submitted).toBe("line1\nline2");
 	});
 
+	test("up then down arrow preserves current draft", async () => {
+		const { lastFrame, stdin } = render(
+			<InputArea
+				onSubmit={() => {}}
+				onSlashCommand={() => {}}
+				isRunning={false}
+				initialHistory={["old command"]}
+			/>,
+		);
+
+		// Type something as a draft
+		stdin.write("my draft");
+		await flush();
+		expect(lastFrame()).toContain("my draft");
+
+		// Up arrow into history
+		stdin.write("\x1B[A");
+		await flush();
+		expect(lastFrame()).toContain("old command");
+
+		// Down arrow back past history — should restore draft
+		stdin.write("\x1B[B");
+		await flush();
+		expect(lastFrame()).toContain("my draft");
+	});
+
 	test("up arrow from first line navigates history", async () => {
 		const { lastFrame, stdin } = render(
 			<InputArea

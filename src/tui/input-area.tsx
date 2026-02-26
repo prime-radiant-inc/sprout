@@ -36,6 +36,7 @@ export function InputArea({
 	const [bufferState, bufferOps] = useTextBuffer();
 	const [history] = useState<string[]>(() => (initialHistory ? [...initialHistory] : []));
 	const [historyCursor, setHistoryCursor] = useState(-1);
+	const draftRef = useRef("");
 	const pendingInterrupt = useRef(false);
 	const pendingInterruptTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const exitPendingRef = useRef(exitPending ?? false);
@@ -86,7 +87,11 @@ export function InputArea({
 			onCancelExit?.();
 		}
 
-		// Alt-Enter: insert newline
+		// Ctrl+J / Alt+Enter: insert newline
+		if (key.ctrl && input === "j") {
+			bufferOps.insertText("\n");
+			return;
+		}
 		if (key.meta && key.return) {
 			bufferOps.insertText("\n");
 			return;
@@ -109,6 +114,7 @@ export function InputArea({
 			}
 			bufferOps.reset();
 			setHistoryCursor(-1);
+			draftRef.current = "";
 			return;
 		}
 
@@ -170,6 +176,10 @@ export function InputArea({
 		if (key.upArrow) {
 			if (bufferOps.isOnFirstLine()) {
 				if (history.length === 0) return;
+				// Save current text as draft when first entering history
+				if (historyCursor === -1) {
+					draftRef.current = getText(bufferState);
+				}
 				const newCursor =
 					historyCursor === -1 ? history.length - 1 : Math.max(0, historyCursor - 1);
 				setHistoryCursor(newCursor);
@@ -190,8 +200,12 @@ export function InputArea({
 				if (historyCursor === -1) return;
 				const newCursor = historyCursor + 1;
 				if (newCursor >= history.length) {
+					// Restore draft when navigating past end of history
 					setHistoryCursor(-1);
-					bufferOps.reset();
+					bufferOps.setText(draftRef.current);
+					const lines = draftRef.current.split("\n");
+					const lastLine = lines[lines.length - 1] ?? "";
+					bufferOps.setCursorPosition(lines.length - 1, lastLine.length);
 				} else {
 					setHistoryCursor(newCursor);
 					const entry = history[newCursor]!;
