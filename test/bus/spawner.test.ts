@@ -107,7 +107,7 @@ describe("AgentSpawner", () => {
 			const opts: SpawnAgentOptions = {
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-		caller: { agent_name: "root", depth: 0 },
+				caller: { agent_name: "root", depth: 0 },
 				goal: "Do the thing",
 				blocking: true,
 				shared: false,
@@ -128,7 +128,7 @@ describe("AgentSpawner", () => {
 			const opts: SpawnAgentOptions = {
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-		caller: { agent_name: "root", depth: 0 },
+				caller: { agent_name: "root", depth: 0 },
 				goal: "Do the thing in background",
 				blocking: false,
 				shared: false,
@@ -165,7 +165,7 @@ describe("AgentSpawner", () => {
 			const opts: SpawnAgentOptions = {
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-		caller: { agent_name: "root", depth: 0 },
+				caller: { agent_name: "root", depth: 0 },
 				goal: "Test with hints",
 				hints: ["hint one", "hint two"],
 				blocking: true,
@@ -190,7 +190,7 @@ describe("AgentSpawner", () => {
 			const baseOpts: SpawnAgentOptions = {
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-		caller: { agent_name: "root", depth: 0 },
+				caller: { agent_name: "root", depth: 0 },
 				goal: "Task",
 				blocking: false,
 				shared: false,
@@ -212,7 +212,7 @@ describe("AgentSpawner", () => {
 			const handleId = (await spawner.spawnAgent({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-		caller: { agent_name: "root", depth: 0 },
+				caller: { agent_name: "root", depth: 0 },
 				goal: "Async task",
 				blocking: false,
 				shared: false,
@@ -232,7 +232,7 @@ describe("AgentSpawner", () => {
 			const handleId = (await spawner.spawnAgent({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-		caller: { agent_name: "root", depth: 0 },
+				caller: { agent_name: "root", depth: 0 },
 				goal: "Quick task",
 				blocking: false,
 				shared: false,
@@ -255,6 +255,55 @@ describe("AgentSpawner", () => {
 
 			expect(() => spawner.waitAgent("nonexistent-handle")).toThrow(/unknown handle/i);
 		});
+
+		test("multiple concurrent waitAgent calls all resolve with the same result", async () => {
+			let resolveFirstCall: (() => void) | null = null;
+			const mockClient = {
+				complete: async (_request: Request): Promise<Response> => {
+					// Block until released so we can set up multiple waiters
+					await new Promise<void>((resolve) => {
+						resolveFirstCall = resolve;
+					});
+					return {
+						id: "mock-1",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: Msg.assistant("Shared result."),
+						finish_reason: { reason: "stop" },
+						usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+					};
+				},
+				stream: async function* () {},
+				providers: () => ["anthropic"],
+			} as unknown as Client;
+
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			const handleId = (await spawner.spawnAgent({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: { agent_name: "root", depth: 0 },
+				goal: "Concurrent wait task",
+				blocking: false,
+				shared: false,
+				workDir: tempDir,
+			})) as string;
+
+			// Set up multiple concurrent waiters before the result arrives
+			const wait1 = spawner.waitAgent(handleId);
+			const wait2 = spawner.waitAgent(handleId);
+			const wait3 = spawner.waitAgent(handleId);
+
+			// Release the mock client so the agent completes
+			await delay(200);
+			resolveFirstCall!();
+
+			const [r1, r2, r3] = await Promise.all([wait1, wait2, wait3]);
+
+			expect(r1.output).toBe("Shared result.");
+			expect(r2.output).toBe("Shared result.");
+			expect(r3.output).toBe("Shared result.");
+		}, 15_000);
 	});
 
 	describe("messageAgent", () => {
@@ -283,7 +332,7 @@ describe("AgentSpawner", () => {
 			const initialResult = await spawner.spawnAgent({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-		caller: { agent_name: "root", depth: 0 },
+				caller: { agent_name: "root", depth: 0 },
 				goal: "Initial task",
 				blocking: true,
 				shared: true,
@@ -338,7 +387,7 @@ describe("AgentSpawner", () => {
 			const handleId = (await spawner.spawnAgent({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-		caller: { agent_name: "root", depth: 0 },
+				caller: { agent_name: "root", depth: 0 },
 				goal: "Long running task",
 				blocking: false,
 				shared: false,
@@ -402,7 +451,7 @@ describe("AgentSpawner", () => {
 			const handleId = (await spawner.spawnAgent({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-		caller: { agent_name: "root", depth: 0 },
+				caller: { agent_name: "root", depth: 0 },
 				goal: "Long running task",
 				blocking: false,
 				shared: false,

@@ -72,10 +72,7 @@ describe("GenomeMutationService", () => {
 		await service.start();
 
 		// Subscribe to confirmations before publishing the request
-		const confirmationPromise = testBus.waitForMessage(
-			genomeEvents(SESSION_ID),
-			5000,
-		);
+		const confirmationPromise = testBus.waitForMessage(genomeEvents(SESSION_ID), 5000);
 
 		await testBus.publish(
 			genomeMutations(SESSION_ID),
@@ -160,10 +157,7 @@ describe("GenomeMutationService", () => {
 	test("publishes error for invalid mutation", async () => {
 		await service.start();
 
-		const confirmationPromise = testBus.waitForMessage(
-			genomeEvents(SESSION_ID),
-			5000,
-		);
+		const confirmationPromise = testBus.waitForMessage(genomeEvents(SESSION_ID), 5000);
 
 		// update_agent with nonexistent agent should fail
 		await testBus.publish(
@@ -189,13 +183,29 @@ describe("GenomeMutationService", () => {
 		expect(confirmation.error).toContain("not found");
 	}, 10_000);
 
+	test("stop resolves within timeout even if processing is stuck", async () => {
+		await service.start();
+
+		// Force the processing flag to true so the drain loop would spin forever
+		// without a timeout safeguard
+		(service as any).processing = true;
+
+		const stopPromise = service.stop();
+		const timeout = new Promise<string>((resolve) =>
+			setTimeout(() => resolve("timed_out"), 6_000),
+		);
+
+		const winner = await Promise.race([
+			stopPromise.then(() => "stopped"),
+			timeout,
+		]);
+		expect(winner).toBe("stopped");
+	}, 10_000);
+
 	test("publishes confirmation with request_id", async () => {
 		await service.start();
 
-		const confirmationPromise = testBus.waitForMessage(
-			genomeEvents(SESSION_ID),
-			5000,
-		);
+		const confirmationPromise = testBus.waitForMessage(genomeEvents(SESSION_ID), 5000);
 
 		const requestId = "unique-correlation-id-42";
 		await testBus.publish(
@@ -219,10 +229,7 @@ describe("GenomeMutationService", () => {
 });
 
 /** Poll until a condition is true or timeout. */
-function waitUntil(
-	condition: () => boolean,
-	timeoutMs: number,
-): Promise<void> {
+function waitUntil(condition: () => boolean, timeoutMs: number): Promise<void> {
 	return new Promise((resolve, reject) => {
 		const deadline = Date.now() + timeoutMs;
 		const check = () => {

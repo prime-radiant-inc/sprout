@@ -104,8 +104,9 @@ export class GenomeMutationService {
 
 		await this.bus.unsubscribe(genomeMutations(this.sessionId));
 
-		// Drain remaining items
-		while (this.queue.length > 0 || this.processing) {
+		// Drain remaining items with a safety timeout
+		const deadline = Date.now() + 5_000;
+		while ((this.queue.length > 0 || this.processing) && Date.now() < deadline) {
 			await new Promise((resolve) => setTimeout(resolve, 10));
 		}
 	}

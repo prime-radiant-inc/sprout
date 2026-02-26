@@ -182,6 +182,22 @@ describe("BusClient", () => {
 		await sub.disconnect();
 	});
 
+	test("send() with closed WebSocket throws clear error", async () => {
+		const client = new BusClient(server.url);
+		await client.connect();
+
+		// Force-close the underlying connection
+		// @ts-expect-error -- accessing private field for test
+		client.ws!.close();
+		await delay();
+
+		// Call send() directly to exercise the guard (bypassing requireConnection)
+		// @ts-expect-error -- accessing private method for test
+		expect(() => client.send({ action: "publish", topic: "t", payload: "p" })).toThrow(
+			/not connected/i,
+		);
+	});
+
 	test("disconnect clears all callbacks", async () => {
 		const pub = new BusClient(server.url);
 		const sub = new BusClient(server.url);

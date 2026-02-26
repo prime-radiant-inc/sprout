@@ -201,7 +201,10 @@ export class BusClient {
 	}
 
 	private send(msg: ClientAction): void {
-		this.ws!.send(JSON.stringify(msg));
+		if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+			throw new Error("BusClient is not connected");
+		}
+		this.ws.send(JSON.stringify(msg));
 	}
 
 	private requireConnection(): void {

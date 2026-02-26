@@ -30,6 +30,7 @@ export interface AgentHandle {
 	status: "running" | "idle" | "completed";
 	result?: ResultMessage;
 	shared: boolean;
+	resultResolvers: Array<(result: ResultMessage) => void>;
 }
 
 /**
@@ -106,6 +107,7 @@ export class AgentSpawner {
 			process: proc,
 			status: "running",
 			shared: opts.shared,
+			resultResolvers: [],
 		};
 		this.handles.set(handleId, handle);
 
@@ -117,6 +119,10 @@ export class AgentSpawner {
 				if (msg.kind === "result") {
 					handle.result = msg;
 					handle.status = opts.shared ? "idle" : "completed";
+					for (const resolve of handle.resultResolvers) {
+						resolve(msg);
+					}
+					handle.resultResolvers = [];
 				}
 			} catch {
 				// Ignore malformed messages
@@ -164,21 +170,18 @@ export class AgentSpawner {
 			return Promise.resolve(handle.result);
 		}
 
-		// Poll for the result to arrive via the subscription
 		return new Promise<ResultMessage>((resolve, reject) => {
 			const timeout = setTimeout(() => {
+				const idx = handle.resultResolvers.indexOf(resolver);
+				if (idx !== -1) handle.resultResolvers.splice(idx, 1);
 				reject(new Error(`waitAgent timed out for handle ${handleId}`));
 			}, 30_000);
 
-			const check = () => {
-				if (handle.result) {
-					clearTimeout(timeout);
-					resolve(handle.result);
-					return;
-				}
-				setTimeout(check, 20);
+			const resolver = (result: ResultMessage) => {
+				clearTimeout(timeout);
+				resolve(result);
 			};
-			check();
+			handle.resultResolvers.push(resolver);
 		});
 	}
 
