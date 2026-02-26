@@ -640,7 +640,8 @@ export async function runCli(command: CliCommand): Promise<void> {
 								bus.emitEvent("warning", "cli", 0, {
 									message: `Web UI: http://localhost:${webPort}`,
 								});
-								Bun.spawn(["open", `http://localhost:${webPort}`]);
+								// TODO: macOS-only. On Linux use xdg-open, on Windows use start.
+							Bun.spawn(["open", `http://localhost:${webPort}`]);
 							} catch (err) {
 								bus.emitEvent("error", "cli", 0, { error: String(err) });
 							}
