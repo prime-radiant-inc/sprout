@@ -16,6 +16,21 @@ import type { AgentFactory } from "../../src/host/session-controller.ts";
 import { SessionController } from "../../src/host/session-controller.ts";
 import type { SessionEvent } from "../../src/kernel/types.ts";
 
+function saveEnv() {
+	return {
+		TMUX: process.env.TMUX,
+		TERM_PROGRAM: process.env.TERM_PROGRAM,
+		TERM: process.env.TERM,
+	};
+}
+
+function restoreEnv(saved: Record<string, string | undefined>) {
+	for (const [key, val] of Object.entries(saved)) {
+		if (val === undefined) delete process.env[key];
+		else process.env[key] = val;
+	}
+}
+
 const defaultGenomePath = join(homedir(), ".local/share/sprout-genome");
 
 describe("parseArgs", () => {
@@ -302,21 +317,6 @@ describe("handleSlashCommand", () => {
 });
 
 describe("configureTerminal — Terminal.app", () => {
-	function saveEnv() {
-		return {
-			TMUX: process.env.TMUX,
-			TERM_PROGRAM: process.env.TERM_PROGRAM,
-			TERM: process.env.TERM,
-		};
-	}
-
-	function restoreEnv(saved: Record<string, string | undefined>) {
-		for (const [key, val] of Object.entries(saved)) {
-			if (val === undefined) delete process.env[key];
-			else process.env[key] = val;
-		}
-	}
-
 	test("reads active profile and sets useOptionAsMetaKey and Bell via PlistBuddy", async () => {
 		const saved = saveEnv();
 		delete process.env.TMUX;
@@ -358,25 +358,104 @@ describe("configureTerminal — Terminal.app", () => {
 			restoreEnv(saved);
 		}
 	});
+
+	test("escapes spaces in profile names for PlistBuddy", async () => {
+		const saved = saveEnv();
+		delete process.env.TMUX;
+		process.env.TERM_PROGRAM = "Apple_Terminal";
+		try {
+			const calls: string[][] = [];
+			const spawn = (args: string[]) => {
+				calls.push(args);
+				if (args.some((a) => a.startsWith("Print"))) {
+					return { exitCode: 0, stdout: "Red Sands\n" };
+				}
+				return { exitCode: 0, stdout: "" };
+			};
+
+			await configureTerminal({ spawn });
+
+			// The Set commands should escape spaces in "Red Sands"
+			expect(calls[1]!.join(" ")).toContain("Red\\ Sands");
+			expect(calls[2]!.join(" ")).toContain("Red\\ Sands");
+		} finally {
+			restoreEnv(saved);
+		}
+	});
+
+	test("falls back to Add when Set fails (key does not exist)", async () => {
+		const saved = saveEnv();
+		delete process.env.TMUX;
+		process.env.TERM_PROGRAM = "Apple_Terminal";
+		try {
+			const calls: string[][] = [];
+			const spawn = (args: string[]) => {
+				calls.push(args);
+				if (args.some((a) => a.startsWith("Print"))) {
+					return { exitCode: 0, stdout: "Pro\n" };
+				}
+				// Set fails (key doesn't exist)
+				if (args.some((a) => a.startsWith("Set"))) {
+					return { exitCode: 1, stdout: "" };
+				}
+				// Add succeeds
+				return { exitCode: 0, stdout: "" };
+			};
+
+			const result = await configureTerminal({ spawn });
+
+			// Should have attempted Set, then fallen back to Add for each key
+			const setCalls = calls.filter((c) => c.some((a) => a.startsWith("Set")));
+			const addCalls = calls.filter((c) => c.some((a) => a.startsWith("Add")));
+			expect(setCalls.length).toBe(2);
+			expect(addCalls.length).toBe(2);
+
+			// Should still report success
+			expect(result).toContain("Option as Meta Key");
+		} finally {
+			restoreEnv(saved);
+		}
+	});
+
+	test("reports failure when both Set and Add fail", async () => {
+		const saved = saveEnv();
+		delete process.env.TMUX;
+		process.env.TERM_PROGRAM = "Apple_Terminal";
+		try {
+			const spawn = (args: string[]) => {
+				if (args.some((a) => a.startsWith("Print"))) {
+					return { exitCode: 0, stdout: "Pro\n" };
+				}
+				// Both Set and Add fail
+				return { exitCode: 1, stdout: "" };
+			};
+
+			const result = await configureTerminal({ spawn });
+			expect(result).toContain("failed");
+			expect(result).not.toContain("enabled Option as Meta Key");
+		} finally {
+			restoreEnv(saved);
+		}
+	});
+
+	test("reports failure when profile read fails", async () => {
+		const saved = saveEnv();
+		delete process.env.TMUX;
+		process.env.TERM_PROGRAM = "Apple_Terminal";
+		try {
+			const spawn = (_args: string[]) => ({ exitCode: 1, stdout: "" });
+
+			const result = await configureTerminal({ spawn });
+			expect(result).toContain("could not read active profile");
+			expect(result).toContain("manually");
+		} finally {
+			restoreEnv(saved);
+		}
+	});
 });
 
 describe("configureTerminal — tmux", () => {
 	let tempDir: string;
-
-	function saveEnv() {
-		return {
-			TMUX: process.env.TMUX,
-			TERM_PROGRAM: process.env.TERM_PROGRAM,
-			TERM: process.env.TERM,
-		};
-	}
-
-	function restoreEnv(saved: Record<string, string | undefined>) {
-		for (const [key, val] of Object.entries(saved)) {
-			if (val === undefined) delete process.env[key];
-			else process.env[key] = val;
-		}
-	}
 
 	beforeEach(async () => {
 		tempDir = await mkdtemp(join(tmpdir(), "sprout-tmux-"));

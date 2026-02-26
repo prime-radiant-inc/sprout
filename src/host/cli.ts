@@ -250,6 +250,32 @@ async function defaultSpawn(args: string[]): Promise<SpawnResult> {
 
 const PLIST_PATH = `${homedir()}/Library/Preferences/com.apple.Terminal.plist`;
 
+/** Set or Add a PlistBuddy key. Returns true if the value was applied. */
+async function plistSet(
+	spawn: (args: string[]) => SpawnResult | Promise<SpawnResult>,
+	profilePath: string,
+	key: string,
+	type: string,
+	value: string,
+): Promise<boolean> {
+	const setResult = await spawn([
+		"/usr/libexec/PlistBuddy",
+		"-c",
+		`Set ${profilePath}:${key} ${value}`,
+		PLIST_PATH,
+	]);
+	if (setResult.exitCode === 0) return true;
+
+	// Key may not exist yet — try Add
+	const addResult = await spawn([
+		"/usr/libexec/PlistBuddy",
+		"-c",
+		`Add ${profilePath}:${key} ${type} ${value}`,
+		PLIST_PATH,
+	]);
+	return addResult.exitCode === 0;
+}
+
 async function configureTerminalApp(
 	spawn: (args: string[]) => SpawnResult | Promise<SpawnResult>,
 ): Promise<string> {
@@ -265,21 +291,17 @@ async function configureTerminalApp(
 		return "Terminal.app: could not read active profile. Set Option as Meta Key manually:\n  Terminal > Settings > Profiles > Keyboard > Use Option as Meta Key";
 	}
 
-	// Set useOptionAsMetaKey = true
-	await spawn([
-		"/usr/libexec/PlistBuddy",
-		"-c",
-		`Set :Window\\ Settings:${profile}:useOptionAsMetaKey true`,
-		PLIST_PATH,
-	]);
+	// Escape spaces in profile name for PlistBuddy key paths
+	const escapedProfile = profile.replace(/ /g, "\\ ");
+	const profilePath = `:Window\\ Settings:${escapedProfile}`;
 
-	// Set Bell = false (suppress audible bell)
-	await spawn([
-		"/usr/libexec/PlistBuddy",
-		"-c",
-		`Set :Window\\ Settings:${profile}:Bell false`,
-		PLIST_PATH,
-	]);
+	const metaOk = await plistSet(spawn, profilePath, "useOptionAsMetaKey", "bool", "true");
+	const bellOk = await plistSet(spawn, profilePath, "Bell", "bool", "false");
+
+	if (!metaOk || !bellOk) {
+		const failed = [!metaOk && "Option as Meta Key", !bellOk && "Bell"].filter(Boolean).join(", ");
+		return `Terminal.app: failed to set ${failed} on profile "${profile}". Set Option as Meta Key manually:\n  Terminal > Settings > Profiles > Keyboard > Use Option as Meta Key`;
+	}
 
 	return `Terminal.app (profile "${profile}"): enabled Option as Meta Key and silenced audible bell.\nPlease restart Terminal.app for changes to take effect.`;
 }
