@@ -107,7 +107,8 @@ describe("ConversationView", () => {
 
 		bus.emitEvent("session_clear", "session", 0, { new_session_id: "abc" });
 		await flush();
-		// Static items can't be removed, but session_clear line should appear
+		// Static items can't be removed — old content persists alongside separator
+		expect(lastFrame()).toContain("old content");
 		expect(lastFrame()).toContain("New session");
 	});
 
