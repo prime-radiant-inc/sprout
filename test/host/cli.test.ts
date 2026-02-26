@@ -607,6 +607,80 @@ describe("configureTerminal — tmux", () => {
 		}
 	});
 
+	test("treats commented-out lines as missing and re-adds them", async () => {
+		const saved = saveEnv();
+		process.env.TMUX = "/tmp/tmux-501/default,12345,0";
+		delete process.env.TERM_PROGRAM;
+		const confPath = join(tempDir, "tmux.conf");
+		try {
+			// All three lines are present but commented out
+			await writeFile(
+				confPath,
+				"# set -s extended-keys on\n# set -as terminal-features 'xterm*:extkeys'\n# set -s extended-keys-format csi-u\n",
+			);
+
+			const spawn = (_args: string[]) => ({ exitCode: 0, stdout: "" });
+			const result = await configureTerminal({ spawn, tmuxConfPath: confPath });
+
+			const { readFile } = await import("node:fs/promises");
+			const contents = await readFile(confPath, "utf-8");
+
+			// All three lines should be appended (uncommented)
+			for (const line of [
+				"set -s extended-keys on",
+				"set -as terminal-features 'xterm*:extkeys'",
+				"set -s extended-keys-format csi-u",
+			]) {
+				// Should appear uncommented at least once (the appended copy)
+				const uncommented = contents
+					.split("\n")
+					.filter((l) => l.trim() === line);
+				expect(uncommented.length).toBeGreaterThanOrEqual(1);
+			}
+
+			// Should report lines were added
+			expect(result).toContain("added 3 line(s)");
+		} finally {
+			restoreEnv(saved);
+		}
+	});
+
+	test("does not re-add lines that exist uncommented", async () => {
+		const saved = saveEnv();
+		process.env.TMUX = "/tmp/tmux-501/default,12345,0";
+		delete process.env.TERM_PROGRAM;
+		const confPath = join(tempDir, "tmux.conf");
+		try {
+			// Mix: first line uncommented, second commented, third uncommented
+			await writeFile(
+				confPath,
+				"set -s extended-keys on\n# set -as terminal-features 'xterm*:extkeys'\nset -s extended-keys-format csi-u\n",
+			);
+
+			const spawn = (_args: string[]) => ({ exitCode: 0, stdout: "" });
+			const result = await configureTerminal({ spawn, tmuxConfPath: confPath });
+
+			const { readFile } = await import("node:fs/promises");
+			const contents = await readFile(confPath, "utf-8");
+
+			// The uncommented lines should appear exactly once
+			const extKeysCount = contents.split("\n").filter((l) => l.trim() === "set -s extended-keys on").length;
+			expect(extKeysCount).toBe(1);
+
+			const csiuCount = contents.split("\n").filter((l) => l.trim() === "set -s extended-keys-format csi-u").length;
+			expect(csiuCount).toBe(1);
+
+			// The commented-out line should have been re-added uncommented
+			const featuresCount = contents.split("\n").filter((l) => l.trim() === "set -as terminal-features 'xterm*:extkeys'").length;
+			expect(featuresCount).toBe(1);
+
+			// Should report only 1 line added
+			expect(result).toContain("added 1 line(s)");
+		} finally {
+			restoreEnv(saved);
+		}
+	});
+
 	test("returns manual instructions when tmux.conf is not writable", async () => {
 		const saved = saveEnv();
 		process.env.TMUX = "/tmp/tmux-501/default,12345,0";

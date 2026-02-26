@@ -324,7 +324,10 @@ async function configureTmux(
 		// File doesn't exist yet — will create it
 	}
 
-	const missing = TMUX_REQUIRED_LINES.filter((line) => !existing.includes(line));
+	const activeLines = new Set(
+		existing.split("\n").map((l) => l.trim()).filter((l) => !l.startsWith("#")),
+	);
+	const missing = TMUX_REQUIRED_LINES.filter((line) => !activeLines.has(line));
 
 	if (missing.length === 0) {
 		return "tmux: extended keyboard support is already configured.";
