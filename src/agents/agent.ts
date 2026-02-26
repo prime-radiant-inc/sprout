@@ -503,7 +503,7 @@ export class Agent {
 
 		try {
 			if (cmd.kind === "wait_agent") {
-				const result = await this.spawner.waitAgent(cmd.handle);
+				const result = await this.spawner.waitAgent(cmd.handle, caller);
 				const content = truncateToolOutput(result.output, "wait_agent");
 				const toolResultMsg = Msg.toolResult(cmd.call_id, content);
 				return { toolResultMsg, stumbles: result.success ? 0 : 1, output: result.output };

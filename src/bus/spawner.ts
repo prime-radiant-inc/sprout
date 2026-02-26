@@ -34,6 +34,8 @@ export interface AgentHandle {
 	result?: ResultMessage;
 	shared: boolean;
 	resultResolvers: Array<(result: ResultMessage) => void>;
+	/** agent_name of the parent who spawned this handle */
+	ownerId: string;
 }
 
 /**
@@ -125,6 +127,7 @@ export class AgentSpawner {
 			status: "running",
 			shared: opts.shared,
 			resultResolvers: [],
+			ownerId: opts.caller.agent_name,
 		};
 		this.handles.set(handleId, handle);
 
@@ -190,11 +193,21 @@ export class AgentSpawner {
 	 * Wait for an agent to produce a result.
 	 * Returns immediately if a result is already cached.
 	 * Throws if the handle ID is unknown.
+	 *
+	 * When caller is provided, access control is enforced:
+	 * non-shared handles reject callers other than the owner.
+	 * Internal calls (e.g. the blocking path in spawnAgent) omit caller to skip the check.
 	 */
-	waitAgent(handleId: string): Promise<ResultMessage> {
+	waitAgent(handleId: string, caller?: CallerIdentity): Promise<ResultMessage> {
 		const handle = this.handles.get(handleId);
 		if (!handle) {
 			throw new Error(`Unknown handle: ${handleId}`);
+		}
+
+		if (caller && !handle.shared && caller.agent_name !== handle.ownerId) {
+			throw new Error(
+				`Handle ${handleId} is not shared — only '${handle.ownerId}' can access it`,
+			);
 		}
 
 		if (handle.result) {
@@ -234,6 +247,12 @@ export class AgentSpawner {
 		const handle = this.handles.get(handleId);
 		if (!handle) {
 			throw new Error(`Unknown handle: ${handleId}`);
+		}
+
+		if (!handle.shared && caller.agent_name !== handle.ownerId) {
+			throw new Error(
+				`Handle ${handleId} is not shared — only '${handle.ownerId}' can access it`,
+			);
 		}
 
 		const inboxTopic = agentInbox(this.sessionId, handleId);

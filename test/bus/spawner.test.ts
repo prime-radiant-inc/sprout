@@ -544,6 +544,154 @@ describe("AgentSpawner", () => {
 		}, 15_000);
 	});
 
+	describe("access control", () => {
+		test("waitAgent rejects non-owner on non-shared handle", async () => {
+			const mockClient = createMockClient("Done.");
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			const handleId = (await spawner.spawnAgent({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: { agent_name: "root", depth: 0 },
+				goal: "Work",
+				blocking: false,
+				shared: false,
+				workDir: tempDir,
+			})) as string;
+
+			// Wait for the agent to complete so we have a cached result
+			await spawner.waitAgent(handleId);
+
+			// A different caller should be rejected
+			expect(() =>
+				spawner.waitAgent(handleId, { agent_name: "other-agent", depth: 1 }),
+			).toThrow(/not shared/);
+		}, 15_000);
+
+		test("waitAgent allows owner on non-shared handle", async () => {
+			const mockClient = createMockClient("Owner result.");
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			const handleId = (await spawner.spawnAgent({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: { agent_name: "root", depth: 0 },
+				goal: "Work",
+				blocking: false,
+				shared: false,
+				workDir: tempDir,
+			})) as string;
+
+			// Owner should be allowed
+			const result = await spawner.waitAgent(handleId, { agent_name: "root", depth: 0 });
+			expect(result.output).toBe("Owner result.");
+		}, 15_000);
+
+		test("waitAgent allows non-owner on shared handle", async () => {
+			const mockClient = createMockClient("Shared result.");
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			const handleId = (await spawner.spawnAgent({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: { agent_name: "root", depth: 0 },
+				goal: "Work",
+				blocking: false,
+				shared: true,
+				workDir: tempDir,
+			})) as string;
+
+			// Non-owner should be allowed on shared handle
+			const result = await spawner.waitAgent(handleId, { agent_name: "other-agent", depth: 1 });
+			expect(result.output).toBe("Shared result.");
+		}, 15_000);
+
+		test("messageAgent rejects non-owner on non-shared handle", async () => {
+			const mockClient = createMockClient("Done.");
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			const handleId = (await spawner.spawnAgent({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: { agent_name: "root", depth: 0 },
+				goal: "Work",
+				blocking: false,
+				shared: false,
+				workDir: tempDir,
+			})) as string;
+
+			// Wait for completion so the handle is in a messageable state
+			await spawner.waitAgent(handleId);
+
+			// A different caller should be rejected
+			expect(() =>
+				spawner.messageAgent(handleId, "hello", { agent_name: "other-agent", depth: 1 }, true),
+			).toThrow(/not shared/);
+		}, 15_000);
+
+		test("messageAgent allows non-owner on shared handle", async () => {
+			let callCount = 0;
+			const mockClient = {
+				complete: async (_request: Request): Promise<Response> => {
+					callCount++;
+					return {
+						id: `mock-${callCount}`,
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: Msg.assistant(`Response ${callCount}.`),
+						finish_reason: { reason: "stop" },
+						usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+					};
+				},
+				stream: async function* () {},
+				providers: () => ["anthropic"],
+			} as unknown as Client;
+
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			// Spawn shared, blocking to get initial result
+			await spawner.spawnAgent({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: { agent_name: "root", depth: 0 },
+				goal: "Work",
+				blocking: true,
+				shared: true,
+				workDir: tempDir,
+			});
+
+			const handleId = spawner.getHandles()[0]!;
+
+			// Non-owner should be allowed on shared handle
+			const result = await spawner.messageAgent(
+				handleId,
+				"continue",
+				{ agent_name: "other-agent", depth: 1 },
+				true,
+			);
+			expect(result!.output).toBe("Response 2.");
+		}, 15_000);
+
+		test("ownerId is set on AgentHandle from caller", async () => {
+			const mockClient = createMockClient("Done.");
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			const handleId = (await spawner.spawnAgent({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: { agent_name: "my-parent", depth: 2 },
+				goal: "Work",
+				blocking: false,
+				shared: false,
+				workDir: tempDir,
+			})) as string;
+
+			const handle = spawner.getHandle(handleId);
+			expect(handle).toBeDefined();
+			expect(handle!.ownerId).toBe("my-parent");
+		}, 15_000);
+	});
+
 	describe("shutdown", () => {
 		test("kills all running agent processes", async () => {
 			let resolveCall: (() => void) | null = null;
