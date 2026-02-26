@@ -1,0 +1,165 @@
+import type { ServerWebSocket } from "bun";
+import type { SessionBus } from "../host/event-bus.ts";
+import type { SessionEvent } from "../kernel/types.ts";
+import type { ServerMessage } from "./protocol.ts";
+import { parseCommandMessage } from "./protocol.ts";
+
+const EVENT_CAP = 10_000;
+
+export interface WebServerOptions {
+	bus: SessionBus;
+	port: number;
+	staticDir: string;
+	sessionId: string;
+}
+
+type SessionStatus = "idle" | "running" | "interrupted";
+
+/**
+ * Bun HTTP + WebSocket server that bridges a SessionBus to browser clients.
+ *
+ * HTTP: serves static files and a session API.
+ * WebSocket: sends event snapshots + live streams, receives commands.
+ */
+export class WebServer {
+	private readonly bus: SessionBus;
+	private readonly port: number;
+	private readonly staticDir: string;
+	private readonly sessionId: string;
+
+	private bunServer: ReturnType<typeof Bun.serve> | null = null;
+	private events: SessionEvent[] = [];
+	private status: SessionStatus = "idle";
+	private unsubscribeEvents: (() => void) | null = null;
+
+	constructor(opts: WebServerOptions) {
+		this.bus = opts.bus;
+		this.port = opts.port;
+		this.staticDir = opts.staticDir;
+		this.sessionId = opts.sessionId;
+	}
+
+	async start(): Promise<void> {
+		// Subscribe to bus events — buffer them and track session status
+		this.unsubscribeEvents = this.bus.onEvent((event) => {
+			this.events.push(event);
+			if (this.events.length > EVENT_CAP) {
+				this.events = this.events.slice(-EVENT_CAP);
+			}
+			this.updateStatus(event);
+			this.broadcastEvent(event);
+		});
+
+		const self = this;
+
+		this.bunServer = Bun.serve({
+			port: this.port,
+			fetch(req, server) {
+				const url = new URL(req.url);
+
+				// WebSocket upgrade
+				if (req.headers.get("upgrade") === "websocket") {
+					server.upgrade(req, { data: undefined });
+					return;
+				}
+
+				// API routes
+				if (url.pathname === "/api/session") {
+					return Response.json({ id: self.sessionId, status: self.status });
+				}
+
+				// Static file serving
+				return self.serveStatic(url.pathname);
+			},
+			websocket: {
+				open(ws) {
+					self.handleWsOpen(ws);
+				},
+				message(_ws, message) {
+					self.handleWsMessage(message);
+				},
+				close(ws) {
+					self.handleWsClose(ws);
+				},
+			},
+		});
+	}
+
+	async stop(): Promise<void> {
+		if (this.unsubscribeEvents) {
+			this.unsubscribeEvents();
+			this.unsubscribeEvents = null;
+		}
+		if (this.bunServer) {
+			this.bunServer.stop(true);
+			this.bunServer = null;
+		}
+	}
+
+	// --- Private: HTTP ---
+
+	private async serveStatic(pathname: string): Promise<Response> {
+		// Map / to /index.html
+		const filePath = pathname === "/" ? "/index.html" : pathname;
+		const fullPath = this.staticDir + filePath;
+		const file = Bun.file(fullPath);
+		if (!(await file.exists())) {
+			return new Response("Not Found", { status: 404 });
+		}
+		return new Response(file);
+	}
+
+	// --- Private: WebSocket ---
+
+	/** Track connected clients for broadcasting. */
+	private wsClients = new Set<ServerWebSocket<unknown>>();
+
+	private handleWsOpen(ws: ServerWebSocket<unknown>): void {
+		this.wsClients.add(ws);
+		// Send snapshot of all buffered events
+		const snapshot: ServerMessage = {
+			type: "snapshot",
+			events: [...this.events],
+			session: { id: this.sessionId, status: this.status },
+		};
+		ws.send(JSON.stringify(snapshot));
+	}
+
+	private handleWsMessage(message: string | Buffer): void {
+		const raw = typeof message === "string" ? message : message.toString();
+		try {
+			const cmd = parseCommandMessage(raw);
+			this.bus.emitCommand(cmd.command);
+		} catch {
+			// Invalid command — ignore, don't crash
+		}
+	}
+
+	private handleWsClose(ws: ServerWebSocket<unknown>): void {
+		this.wsClients.delete(ws);
+	}
+
+	private broadcastEvent(event: SessionEvent): void {
+		const msg: ServerMessage = { type: "event", event };
+		const payload = JSON.stringify(msg);
+		for (const ws of this.wsClients) {
+			ws.send(payload);
+		}
+	}
+
+	// --- Private: Status tracking ---
+
+	private updateStatus(event: SessionEvent): void {
+		switch (event.kind) {
+			case "session_start":
+				this.status = "running";
+				break;
+			case "session_end":
+				this.status = "idle";
+				break;
+			case "interrupted":
+				this.status = "interrupted";
+				break;
+		}
+	}
+}
