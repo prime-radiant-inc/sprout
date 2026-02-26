@@ -425,6 +425,7 @@ export class Agent {
 			this.emitAndLog("act_end", agentId, this.depth, {
 				agent_name: delegation.agent_name,
 				success: resultMsg.success,
+				handle_id: resultMsg.handle_id,
 				turns: resultMsg.turns,
 				timed_out: resultMsg.timed_out,
 				tool_result_message: toolResultMsg,
