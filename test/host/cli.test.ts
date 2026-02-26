@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { checkHandleCompleted, extractChildHandles } from "../../src/bus/resume.ts";
 import {
 	handleSlashCommand,
 	inputHistoryPath,
@@ -337,6 +338,116 @@ describe("resume flow", () => {
 		expect(capturedHistory).toHaveLength(2);
 		expect(capturedHistory![0].role).toBe("user");
 		expect(capturedHistory![1].role).toBe("assistant");
+	});
+
+	test("resume extracts child handles from session log with spawned agents", async () => {
+		const genomePath = join(tempDir, "genome");
+		const logsDir = join(genomePath, "logs");
+		const sessionId = "01RESUMETEST_HANDLES";
+		const handleLogDir = join(logsDir, sessionId);
+		await mkdir(handleLogDir, { recursive: true });
+
+		// Write the root agent's session log with a blocking spawned agent act_end
+		const logPath = join(logsDir, `${sessionId}.jsonl`);
+		const events = [
+			{
+				kind: "perceive",
+				timestamp: Date.now(),
+				agent_id: "root",
+				depth: 0,
+				data: { goal: "build a feature" },
+			},
+			{
+				kind: "act_end",
+				timestamp: Date.now(),
+				agent_id: "root",
+				depth: 0,
+				data: {
+					agent_name: "code-editor",
+					success: true,
+					handle_id: "handle-001",
+					turns: 5,
+					timed_out: false,
+					tool_result_message: {
+						role: "tool",
+						content: [{ kind: "tool_result", tool_result: { tool_call_id: "c1", content: "work completed", is_error: false } }],
+						tool_call_id: "c1",
+					},
+				},
+			},
+		];
+		await writeFile(logPath, `${events.map((e) => JSON.stringify(e)).join("\n")}\n`);
+
+		// Write the child handle's per-handle log with a result event
+		const handleLogPath = join(handleLogDir, "handle-001.jsonl");
+		const handleEvents = [
+			JSON.stringify({ kind: "event", handle_id: "handle-001", event: { kind: "perceive", timestamp: Date.now(), agent_id: "code-editor", depth: 1, data: { goal: "do work" } } }),
+			JSON.stringify({ kind: "result", handle_id: "handle-001", output: "work done", success: true, stumbles: 0, turns: 5, timed_out: false }),
+		];
+		await writeFile(handleLogPath, `${handleEvents.join("\n")}\n`);
+
+		// Extract child handles (same call cli.ts will make during resume)
+		const handles = await extractChildHandles(logPath);
+
+		expect(handles).toHaveLength(1);
+		expect(handles[0]!.handleId).toBe("handle-001");
+		expect(handles[0]!.agentName).toBe("code-editor");
+		expect(handles[0]!.completed).toBe(true); // turns present = blocking spawn completed
+
+		// Also verify checkHandleCompleted works with the per-handle log
+		const completed = await checkHandleCompleted(handleLogDir, "handle-001");
+		expect(completed).toBe(true);
+	});
+
+	test("resume detects incomplete child handle from per-handle log", async () => {
+		const genomePath = join(tempDir, "genome");
+		const logsDir = join(genomePath, "logs");
+		const sessionId = "01RESUMETEST_INCOMPLETE";
+		const handleLogDir = join(logsDir, sessionId);
+		await mkdir(handleLogDir, { recursive: true });
+
+		// Write the root agent's session log with a non-blocking spawn
+		const logPath = join(logsDir, `${sessionId}.jsonl`);
+		const events = [
+			{
+				kind: "perceive",
+				timestamp: Date.now(),
+				agent_id: "root",
+				depth: 0,
+				data: { goal: "spawn background work" },
+			},
+			{
+				kind: "act_end",
+				timestamp: Date.now(),
+				agent_id: "root",
+				depth: 0,
+				data: {
+					agent_name: "code-editor",
+					success: true,
+					handle_id: "handle-incomplete",
+					tool_result_message: {
+						role: "tool",
+						content: [{ kind: "tool_result", tool_result: { tool_call_id: "c1", content: "Agent started. Handle: handle-incomplete", is_error: false } }],
+						tool_call_id: "c1",
+					},
+				},
+			},
+		];
+		await writeFile(logPath, `${events.map((e) => JSON.stringify(e)).join("\n")}\n`);
+
+		// Write per-handle log WITHOUT a result event (agent is still running/crashed)
+		const handleLogPath = join(handleLogDir, "handle-incomplete.jsonl");
+		const handleEvents = [
+			JSON.stringify({ kind: "event", handle_id: "handle-incomplete", event: { kind: "perceive", timestamp: Date.now(), agent_id: "code-editor", depth: 1, data: { goal: "do work" } } }),
+		];
+		await writeFile(handleLogPath, `${handleEvents.join("\n")}\n`);
+
+		const handles = await extractChildHandles(logPath);
+		expect(handles).toHaveLength(1);
+
+		// checkHandleCompleted should return false — no result in the per-handle log
+		const completed = await checkHandleCompleted(handleLogDir, "handle-incomplete");
+		expect(completed).toBe(false);
 	});
 });
 

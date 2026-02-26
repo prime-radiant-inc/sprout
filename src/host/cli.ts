@@ -396,6 +396,23 @@ export async function runCli(command: CliCommand): Promise<void> {
 		const history = await replayEventLog(logPath);
 		console.error(`Resumed session ${sessionId} with ${history.length} messages of history`);
 
+		// Extract child handle info from the root log
+		const { extractChildHandles, checkHandleCompleted } = await import("../bus/resume.ts");
+		const childHandles = await extractChildHandles(logPath);
+		if (childHandles.length > 0) {
+			const handleLogDir = join(command.genomePath, "logs", sessionId);
+			for (const handle of childHandles) {
+				if (!handle.completed) {
+					handle.completed = await checkHandleCompleted(handleLogDir, handle.handleId);
+				}
+			}
+			const completedCount = childHandles.filter((h) => h.completed).length;
+			const pendingCount = childHandles.length - completedCount;
+			console.error(
+				`  Child handles: ${childHandles.length} total, ${completedCount} completed, ${pendingCount} pending`,
+			);
+		}
+
 		// Read raw events for display in the TUI
 		try {
 			const raw = await readFile(logPath, "utf-8");

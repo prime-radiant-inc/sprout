@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { replayHandleLog } from "../../src/bus/resume.ts";
+import { checkHandleCompleted, extractChildHandles, replayHandleLog } from "../../src/bus/resume.ts";
 import type { SessionEvent } from "../../src/kernel/types.ts";
 import { Msg, messageText } from "../../src/llm/types.ts";
 
@@ -163,5 +163,221 @@ describe("replayHandleLog", () => {
 		expect(history).toHaveLength(2);
 		expect(messageText(history[0]!)).toBe("Root goal");
 		expect(messageText(history[1]!)).toBe("Root reply");
+	});
+});
+
+describe("extractChildHandles", () => {
+	let tempDir: string;
+
+	beforeEach(async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "sprout-extract-handles-"));
+	});
+
+	afterEach(async () => {
+		await rm(tempDir, { recursive: true, force: true });
+	});
+
+	test("returns empty array for log with no delegations", async () => {
+		const logPath = join(tempDir, "session.jsonl");
+		await writeEventLog(logPath, [
+			event("perceive", { goal: "Do something" }, 0),
+			event("plan_end", { assistant_message: Msg.assistant("On it.") }, 0),
+			event("primitive_end", { tool_result_message: Msg.toolResult("c1", "done") }, 0),
+		]);
+
+		const handles = await extractChildHandles(logPath);
+
+		expect(handles).toEqual([]);
+	});
+
+	test("extracts completed blocking delegation with handle_id", async () => {
+		const logPath = join(tempDir, "session.jsonl");
+		await writeEventLog(logPath, [
+			event("perceive", { goal: "Delegate work" }, 0),
+			event("plan_end", { assistant_message: Msg.assistant("Delegating.") }, 0),
+			event("act_end", {
+				agent_name: "code-editor",
+				success: true,
+				handle_id: "handle-abc",
+				turns: 5,
+				timed_out: false,
+				tool_result_message: Msg.toolResult("c1", "Agent completed the work"),
+			}, 0),
+		]);
+
+		const handles = await extractChildHandles(logPath);
+
+		expect(handles).toHaveLength(1);
+		expect(handles[0]).toEqual({
+			handleId: "handle-abc",
+			agentName: "code-editor",
+			completed: true,
+		});
+	});
+
+	test("extracts non-blocking delegation handle as not completed", async () => {
+		const logPath = join(tempDir, "session.jsonl");
+		// Non-blocking: act_end has handle_id but no turns/timed_out
+		await writeEventLog(logPath, [
+			event("perceive", { goal: "Spawn background agent" }, 0),
+			event("plan_end", { assistant_message: Msg.assistant("Spawning.") }, 0),
+			event("act_end", {
+				agent_name: "code-editor",
+				success: true,
+				handle_id: "handle-xyz",
+				tool_result_message: Msg.toolResult("c1", "Agent started. Handle: handle-xyz"),
+			}, 0),
+		]);
+
+		const handles = await extractChildHandles(logPath);
+
+		expect(handles).toHaveLength(1);
+		expect(handles[0]!.handleId).toBe("handle-xyz");
+		expect(handles[0]!.agentName).toBe("code-editor");
+		expect(handles[0]!.completed).toBe(false);
+	});
+
+	test("ignores act_end events without handle_id", async () => {
+		const logPath = join(tempDir, "session.jsonl");
+		// In-process delegation: act_end has no handle_id
+		await writeEventLog(logPath, [
+			event("perceive", { goal: "In-process delegation" }, 0),
+			event("act_end", {
+				agent_name: "code-reader",
+				success: true,
+				tool_result_message: Msg.toolResult("c1", "done"),
+			}, 0),
+		]);
+
+		const handles = await extractChildHandles(logPath);
+
+		expect(handles).toEqual([]);
+	});
+
+	test("ignores act_end events at non-zero depth", async () => {
+		const logPath = join(tempDir, "session.jsonl");
+		await writeEventLog(logPath, [
+			event("perceive", { goal: "Root" }, 0),
+			// This is a sub-agent's act_end, not the root's
+			event("act_end", {
+				agent_name: "helper",
+				success: true,
+				handle_id: "handle-sub",
+				tool_result_message: Msg.toolResult("c2", "sub done"),
+			}, 1),
+		]);
+
+		const handles = await extractChildHandles(logPath);
+
+		expect(handles).toEqual([]);
+	});
+
+	test("extracts multiple handles from same log", async () => {
+		const logPath = join(tempDir, "session.jsonl");
+		await writeEventLog(logPath, [
+			event("perceive", { goal: "Multi-delegation" }, 0),
+			event("act_end", {
+				agent_name: "code-editor",
+				success: true,
+				handle_id: "handle-1",
+				turns: 3,
+				tool_result_message: Msg.toolResult("c1", "done"),
+			}, 0),
+			event("act_end", {
+				agent_name: "code-reader",
+				success: true,
+				handle_id: "handle-2",
+				turns: 2,
+				tool_result_message: Msg.toolResult("c2", "done"),
+			}, 0),
+		]);
+
+		const handles = await extractChildHandles(logPath);
+
+		expect(handles).toHaveLength(2);
+		expect(handles[0]!.handleId).toBe("handle-1");
+		expect(handles[0]!.agentName).toBe("code-editor");
+		expect(handles[1]!.handleId).toBe("handle-2");
+		expect(handles[1]!.agentName).toBe("code-reader");
+	});
+
+	test("returns empty array for nonexistent log file", async () => {
+		const handles = await extractChildHandles(join(tempDir, "nope.jsonl"));
+
+		expect(handles).toEqual([]);
+	});
+
+	test("marks blocking delegation as completed when turns field is present", async () => {
+		const logPath = join(tempDir, "session.jsonl");
+		await writeEventLog(logPath, [
+			event("act_end", {
+				agent_name: "code-editor",
+				success: true,
+				handle_id: "handle-blocking",
+				turns: 4,
+				timed_out: false,
+				tool_result_message: Msg.toolResult("c1", "Task completed successfully"),
+			}, 0),
+		]);
+
+		const handles = await extractChildHandles(logPath);
+
+		expect(handles).toHaveLength(1);
+		expect(handles[0]!.completed).toBe(true);
+	});
+});
+
+describe("checkHandleCompleted", () => {
+	let tempDir: string;
+
+	beforeEach(async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "sprout-check-handle-"));
+	});
+
+	afterEach(async () => {
+		await rm(tempDir, { recursive: true, force: true });
+	});
+
+	test("returns true when handle log contains result event", async () => {
+		const handleLogDir = join(tempDir, "logs", "session-1");
+		await mkdir(handleLogDir, { recursive: true });
+
+		const handleId = "handle-abc";
+		const logPath = join(handleLogDir, `${handleId}.jsonl`);
+		const lines = [
+			JSON.stringify({ kind: "event", handle_id: handleId, event: event("perceive", { goal: "work" }) }),
+			JSON.stringify({ kind: "result", handle_id: handleId, output: "done", success: true, stumbles: 0, turns: 3, timed_out: false }),
+		];
+		await writeFile(logPath, `${lines.join("\n")}\n`, "utf-8");
+
+		const completed = await checkHandleCompleted(handleLogDir, handleId);
+
+		expect(completed).toBe(true);
+	});
+
+	test("returns false when handle log has no result event", async () => {
+		const handleLogDir = join(tempDir, "logs", "session-1");
+		await mkdir(handleLogDir, { recursive: true });
+
+		const handleId = "handle-abc";
+		const logPath = join(handleLogDir, `${handleId}.jsonl`);
+		const lines = [
+			JSON.stringify({ kind: "event", handle_id: handleId, event: event("perceive", { goal: "work" }) }),
+			JSON.stringify({ kind: "event", handle_id: handleId, event: event("plan_end", { assistant_message: Msg.assistant("working") }) }),
+		];
+		await writeFile(logPath, `${lines.join("\n")}\n`, "utf-8");
+
+		const completed = await checkHandleCompleted(handleLogDir, handleId);
+
+		expect(completed).toBe(false);
+	});
+
+	test("returns false when handle log file does not exist", async () => {
+		const handleLogDir = join(tempDir, "logs", "session-1");
+		await mkdir(handleLogDir, { recursive: true });
+
+		const completed = await checkHandleCompleted(handleLogDir, "nonexistent-handle");
+
+		expect(completed).toBe(false);
 	});
 });

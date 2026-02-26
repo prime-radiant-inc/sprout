@@ -1,6 +1,85 @@
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { SessionEvent } from "../kernel/types.ts";
 import { type Message, Msg } from "../llm/types.ts";
+
+/** Info about a child agent spawned via the bus */
+export interface ChildHandleInfo {
+	handleId: string;
+	agentName: string;
+	completed: boolean;
+}
+
+/**
+ * Scan a root agent's JSONL event log for act_end events at depth 0
+ * that contain a handle_id field (spawner-delegated agents).
+ * Returns info about each child handle found.
+ */
+export async function extractChildHandles(
+	logPath: string,
+): Promise<ChildHandleInfo[]> {
+	let raw: string;
+	try {
+		raw = await readFile(logPath, "utf-8");
+	} catch {
+		return [];
+	}
+
+	const lines = raw.split("\n").filter((line) => line.trim() !== "");
+	const handles: ChildHandleInfo[] = [];
+
+	for (const line of lines) {
+		let event: SessionEvent;
+		try {
+			event = JSON.parse(line);
+		} catch {
+			continue;
+		}
+
+		if (event.kind !== "act_end" || event.depth !== 0) continue;
+
+		const handleId = event.data.handle_id as string | undefined;
+		if (!handleId) continue;
+
+		const agentName = (event.data.agent_name as string) ?? "unknown";
+		// Blocking spawns include `turns` in the act_end data; non-blocking do not.
+		// If turns is present, the agent ran to completion before the act_end was emitted.
+		const completed = event.data.turns != null;
+
+		handles.push({ handleId, agentName, completed });
+	}
+
+	return handles;
+}
+
+/**
+ * Check if a specific handle's per-handle log indicates the agent completed.
+ * Looks for a line with "kind":"result" in {handleLogDir}/{handleId}.jsonl.
+ */
+export async function checkHandleCompleted(
+	handleLogDir: string,
+	handleId: string,
+): Promise<boolean> {
+	const logPath = join(handleLogDir, `${handleId}.jsonl`);
+	let raw: string;
+	try {
+		raw = await readFile(logPath, "utf-8");
+	} catch {
+		return false;
+	}
+
+	const lines = raw.split("\n").filter((line) => line.trim() !== "");
+	for (const line of lines) {
+		try {
+			const parsed = JSON.parse(line);
+			if (parsed.kind === "result") return true;
+		} catch {
+			continue;
+		}
+	}
+
+	return false;
+}
 
 /**
  * Replay a per-handle JSONL event log to reconstruct conversation history
