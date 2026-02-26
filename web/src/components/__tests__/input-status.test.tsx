@@ -171,7 +171,6 @@ describe("InputArea", () => {
 				onSubmit={noop}
 				onSlashCommand={noop}
 				onSteer={noop}
-				sendCommand={noop}
 			/>,
 		);
 		expect(html).toContain("<textarea");
@@ -184,7 +183,6 @@ describe("InputArea", () => {
 				onSubmit={noop}
 				onSlashCommand={noop}
 				onSteer={noop}
-				sendCommand={noop}
 			/>,
 		);
 		expect(html).toContain("<button");
@@ -197,7 +195,6 @@ describe("InputArea", () => {
 				onSubmit={noop}
 				onSlashCommand={noop}
 				onSteer={noop}
-				sendCommand={noop}
 			/>,
 		);
 		expect(html).toContain("&gt;");
@@ -210,7 +207,6 @@ describe("InputArea", () => {
 				onSubmit={noop}
 				onSlashCommand={noop}
 				onSteer={noop}
-				sendCommand={noop}
 			/>,
 		);
 		expect(html).toContain("steer");
@@ -223,7 +219,6 @@ describe("InputArea", () => {
 				onSubmit={noop}
 				onSlashCommand={noop}
 				onSteer={noop}
-				sendCommand={noop}
 			/>,
 		);
 		// Not in steering mode
@@ -237,7 +232,6 @@ describe("InputArea", () => {
 				onSubmit={noop}
 				onSlashCommand={noop}
 				onSteer={noop}
-				sendCommand={noop}
 			/>,
 		);
 		expect(html).toContain("placeholder=");
@@ -250,7 +244,6 @@ describe("InputArea", () => {
 				onSubmit={noop}
 				onSlashCommand={noop}
 				onSteer={noop}
-				sendCommand={noop}
 			/>,
 		);
 		expect(html).toContain('data-running="true"');
@@ -263,7 +256,6 @@ describe("InputArea", () => {
 				onSubmit={noop}
 				onSlashCommand={noop}
 				onSteer={noop}
-				sendCommand={noop}
 			/>,
 		);
 		expect(html).toContain('data-running="false"');

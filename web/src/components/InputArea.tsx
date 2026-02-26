@@ -6,7 +6,6 @@ import {
 	useRef,
 	useState,
 } from "react";
-import type { Command } from "../../../src/kernel/types.ts";
 import { parseSlashCommand, type SlashCommand } from "../../../src/tui/slash-commands.ts";
 import styles from "./InputArea.module.css";
 
@@ -15,7 +14,6 @@ export interface InputAreaProps {
 	onSubmit: (text: string) => void;
 	onSlashCommand: (cmd: SlashCommand) => void;
 	onSteer: (text: string) => void;
-	sendCommand: (cmd: Command) => void;
 }
 
 const HISTORY_KEY = "sprout-input-history";

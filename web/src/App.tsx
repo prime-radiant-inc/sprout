@@ -186,7 +186,6 @@ export function App() {
 					onSubmit={handleSubmit}
 					onSlashCommand={handleSlashCommand}
 					onSteer={handleSteer}
-					sendCommand={sendCommand}
 				/>
 			</footer>
 		</div>
