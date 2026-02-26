@@ -241,9 +241,10 @@ async function waitForStartWithReady(
 
 /**
  * Idle loop for shared agents. Waits for continue and steer messages,
- * runs agent.continue(), and publishes results. Steer messages are
- * queued via agent.steer() for injection into the next continue cycle.
- * Exits on abort signal.
+ * runs agent.continue(), and publishes results. Continue messages that
+ * arrive while a previous continue is processing are queued and
+ * processed sequentially. Steer messages are queued via agent.steer()
+ * for injection into the next continue cycle. Exits on abort signal.
  */
 function idleLoop(
 	bus: BusClient,
@@ -257,6 +258,7 @@ function idleLoop(
 
 	return new Promise((resolve) => {
 		let processing = false;
+		const continueQueue: ContinueMessage[] = [];
 
 		const onAbort = () => {
 			resolve();
@@ -264,6 +266,42 @@ function idleLoop(
 
 		if (signal) {
 			signal.addEventListener("abort", onAbort, { once: true });
+		}
+
+		async function processNext(): Promise<void> {
+			if (continueQueue.length === 0) {
+				processing = false;
+				return;
+			}
+
+			processing = true;
+			const continueMsg = continueQueue.shift()!;
+			try {
+				const result = await agent.continue(continueMsg.message, signal);
+				const resultMsg: ResultMessage = {
+					kind: "result",
+					handle_id: handleId,
+					output: result.output,
+					success: result.success,
+					stumbles: result.stumbles,
+					turns: result.turns,
+					timed_out: result.timed_out,
+				};
+				await bus.publish(resultTopic, JSON.stringify(resultMsg));
+			} catch (err) {
+				const errorResult: ResultMessage = {
+					kind: "result",
+					handle_id: handleId,
+					output: `Continue failed: ${err instanceof Error ? err.message : String(err)}`,
+					success: false,
+					stumbles: 0,
+					turns: 0,
+					timed_out: false,
+				};
+				await bus.publish(resultTopic, JSON.stringify(errorResult));
+			}
+
+			await processNext();
 		}
 
 		bus.subscribe(inboxTopic, async (payload) => {
@@ -276,35 +314,15 @@ function idleLoop(
 					return;
 				}
 
-				if (msg.kind === "continue" && !processing) {
-					processing = true;
-					const continueMsg = msg as ContinueMessage;
-					const result = await agent.continue(continueMsg.message, signal);
-
-					const resultMsg: ResultMessage = {
-						kind: "result",
-						handle_id: handleId,
-						output: result.output,
-						success: result.success,
-						stumbles: result.stumbles,
-						turns: result.turns,
-						timed_out: result.timed_out,
-					};
-					await bus.publish(resultTopic, JSON.stringify(resultMsg));
-					processing = false;
+				if (msg.kind === "continue") {
+					continueQueue.push(msg as ContinueMessage);
+					if (!processing) {
+						await processNext();
+					}
+					return;
 				}
-			} catch (err) {
-				const errorResult: ResultMessage = {
-					kind: "result",
-					handle_id: handleId,
-					output: `Continue failed: ${err instanceof Error ? err.message : String(err)}`,
-					success: false,
-					stumbles: 0,
-					turns: 0,
-					timed_out: false,
-				};
-				await bus.publish(resultTopic, JSON.stringify(errorResult));
-				processing = false;
+			} catch {
+				// Ignore malformed messages
 			}
 		});
 	});

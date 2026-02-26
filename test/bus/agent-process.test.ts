@@ -251,6 +251,105 @@ describe("runAgentProcess", () => {
 		await processPromise;
 	}, 15_000);
 
+	test("queues continue messages that arrive while processing", async () => {
+		let callCount = 0;
+		const mockClient = {
+			complete: async (_request: Request): Promise<Response> => {
+				callCount++;
+				// First call is the initial run. Second is the first continue
+				// (slow so the third arrives while it's still processing).
+				// Third is the queued continue.
+				const responses: Record<number, string> = {
+					1: "Initial response.",
+					2: "Continue-1 response.",
+					3: "Continue-2 response.",
+				};
+				if (callCount === 2) {
+					await delay(300); // Slow enough for second continue to arrive
+				}
+				return {
+					id: `mock-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant(responses[callCount] ?? `Response ${callCount}`),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+				};
+			},
+			stream: async function* () {},
+			providers: () => ["anthropic"],
+		} as unknown as Client;
+
+		const controller = new AbortController();
+
+		const resultTopic = agentResult(SESSION_ID, HANDLE_ID);
+		const results: ResultMessage[] = [];
+		await parentClient.subscribe(resultTopic, (payload) => {
+			results.push(JSON.parse(payload));
+		});
+
+		const processPromise = runAgentProcess({
+			busUrl: server.url,
+			handleId: HANDLE_ID,
+			sessionId: SESSION_ID,
+			genomePath: genomeDir,
+			client: mockClient,
+			workDir: tempDir,
+			signal: controller.signal,
+		});
+
+		await delay(100);
+
+		// Send start message (shared: true)
+		const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
+		const startMsg: StartMessage = {
+			kind: "start",
+			handle_id: HANDLE_ID,
+			agent_name: "test-leaf",
+			genome_path: genomeDir,
+			session_id: SESSION_ID,
+			caller: { agent_name: "root", depth: 0 },
+			goal: "Initial task",
+			shared: true,
+		};
+		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
+
+		// Wait for initial result
+		await delay(500);
+		expect(results.length).toBe(1);
+		expect(results[0]!.output).toBe("Initial response.");
+
+		// Send two continue messages in rapid succession.
+		// The first triggers a 300ms-slow LLM call; the second arrives
+		// while the first is still processing and should be queued.
+		await parentClient.publish(
+			inboxTopic,
+			JSON.stringify({
+				kind: "continue",
+				message: "First continue",
+				caller: { agent_name: "root", depth: 0 },
+			}),
+		);
+		await delay(50); // Small gap to ensure ordering
+		await parentClient.publish(
+			inboxTopic,
+			JSON.stringify({
+				kind: "continue",
+				message: "Second continue",
+				caller: { agent_name: "root", depth: 0 },
+			}),
+		);
+
+		// Wait for both results (300ms for first + processing for second)
+		await delay(1000);
+		expect(results.length).toBe(3); // initial + 2 continues
+		expect(results[1]!.output).toBe("Continue-1 response.");
+		expect(results[2]!.output).toBe("Continue-2 response.");
+
+		controller.abort();
+		await processPromise;
+	}, 15_000);
+
 	test("steer messages are queued and applied in next continue cycle", async () => {
 		const requests: Request[] = [];
 		let callCount = 0;

@@ -3209,4 +3209,71 @@ describe("Agent", () => {
 		expect((learnSignalEvents[0]!.data.signal as any).kind).toBe("failure");
 		expect((learnSignalEvents[0]!.data.signal as any).agent_name).toBe("leaf");
 	});
+
+	test("with spawner, act_start event contains handle_id and spawner receives it", async () => {
+		const delegateMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-handle-1",
+						name: "delegate",
+						arguments: JSON.stringify({ agent_name: "leaf", goal: "track handle", blocking: true }),
+					},
+				},
+			],
+		};
+		const rootDoneMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "Done." }],
+		};
+
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				const msg = callCount === 1 ? delegateMsg : rootDoneMsg;
+				return {
+					id: `mock-handle-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: msg,
+					finish_reason: { reason: callCount === 1 ? "tool_calls" : "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const { spawner, spawnCalls } = createMockSpawner();
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: rootSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [rootSpec, leafSpec],
+			depth: 0,
+			events,
+			spawner,
+		});
+
+		await agent.run("handle tracking test");
+
+		const collected = events.collected();
+		const actStart = collected.find(
+			(e) => e.kind === "act_start" && e.data.agent_name === "leaf",
+		);
+		expect(actStart).toBeDefined();
+		expect(actStart!.data.handle_id).toBeString();
+		expect((actStart!.data.handle_id as string).length).toBe(26); // ULID length
+
+		// The same handle_id should have been passed to the spawner
+		expect(spawnCalls).toHaveLength(1);
+		expect(spawnCalls[0]!.handleId).toBe(actStart!.data.handle_id as string);
+	});
 });
