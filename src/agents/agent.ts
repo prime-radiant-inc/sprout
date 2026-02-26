@@ -2,6 +2,8 @@ import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { Genome } from "../genome/genome.ts";
 import { recall } from "../genome/recall.ts";
+import type { AgentSpawner } from "../bus/spawner.ts";
+import type { CallerIdentity, ResultMessage } from "../bus/types.ts";
 import { compactHistory, shouldCompact } from "../host/compaction.ts";
 import type { ExecutionEnvironment } from "../kernel/execution-env.ts";
 import { checkPathConstraint, validateConstraints } from "../kernel/path-constraints.js";
@@ -10,6 +12,7 @@ import { buildAgentToolPrimitives } from "../kernel/tool-loading.ts";
 import { truncateToolOutput } from "../kernel/truncation.ts";
 import type {
 	ActResult,
+	AgentCommand,
 	AgentSpec,
 	Delegation,
 	EventKind,
@@ -28,8 +31,10 @@ import { type ResolvedModel, resolveModel } from "./model-resolver.ts";
 import type { Postscripts } from "./plan.ts";
 import {
 	buildDelegateTool,
+	buildMessageAgentTool,
 	buildPlanRequest,
 	buildSystemPrompt,
+	buildWaitAgentTool,
 	parsePlanResponse,
 	primitivesForAgent,
 	renderAgentsForPrompt,
@@ -65,6 +70,10 @@ export interface AgentOptions {
 	projectDocs?: string;
 	/** Genome postscript data (global + role, without agent-specific). */
 	genomePostscripts?: { global: string; orchestrator: string; worker: string };
+	/** Bus-based spawner for running subagents as separate processes. */
+	spawner?: AgentSpawner;
+	/** Path to the genome directory (required when using a spawner). */
+	genomePath?: string;
 }
 
 export interface AgentResult {
@@ -93,6 +102,8 @@ export class Agent {
 	private readonly preambles?: Preambles;
 	private readonly projectDocs?: string;
 	private readonly genomePostscripts?: { global: string; orchestrator: string; worker: string };
+	private readonly spawner?: AgentSpawner;
+	private readonly genomePath?: string;
 	private readonly initialHistory?: Message[];
 	private history: Message[] = [];
 	private systemPrompt?: string;
@@ -117,6 +128,8 @@ export class Agent {
 		this.preambles = options.preambles;
 		this.projectDocs = options.projectDocs;
 		this.genomePostscripts = options.genomePostscripts;
+		this.spawner = options.spawner;
+		this.genomePath = options.genomePath;
 		this.initialHistory = options.initialHistory ? [...options.initialHistory] : undefined;
 
 		// Validate depth: max_depth > 0 means the agent can only exist at depths < max_depth.
@@ -147,6 +160,11 @@ export class Agent {
 			}
 			if (delegatableAgents.length > 0) {
 				this.agentTools.push(buildDelegateTool(delegatableAgents));
+				// When a spawner is available, also expose wait_agent and message_agent
+				if (this.spawner) {
+					this.agentTools.push(buildWaitAgentTool());
+					this.agentTools.push(buildMessageAgentTool());
+				}
 			}
 		}
 
@@ -348,6 +366,122 @@ export class Agent {
 				tool_result_message: toolResultMsg,
 			});
 			return { toolResultMsg, stumbles: 1 };
+		}
+	}
+
+	/** Execute a delegation via the bus-based spawner. Returns the tool result message and stumble count. */
+	private async executeSpawnerDelegation(
+		delegation: Delegation,
+		agentId: string,
+	): Promise<{ toolResultMsg: Message; stumbles: number; output?: string }> {
+		this.emitAndLog("act_start", agentId, this.depth, {
+			agent_name: delegation.agent_name,
+			goal: delegation.goal,
+		});
+
+		const caller: CallerIdentity = { agent_name: this.spec.name, depth: this.depth };
+		const blocking = delegation.blocking !== false; // default true
+		const shared = delegation.shared === true; // default false
+
+		try {
+			const result = await this.spawner!.spawnAgent({
+				agentName: delegation.agent_name,
+				genomePath: this.genomePath ?? "",
+				caller,
+				goal: delegation.goal,
+				hints: delegation.hints,
+				blocking,
+				shared,
+				workDir: this.env.working_directory(),
+			});
+
+			if (!blocking) {
+				// Non-blocking: result is a handle ID string
+				const handleId = result as string;
+				const toolResultMsg = Msg.toolResult(delegation.call_id, `Agent started. Handle: ${handleId}`);
+				this.emitAndLog("act_end", agentId, this.depth, {
+					agent_name: delegation.agent_name,
+					success: true,
+					handle_id: handleId,
+					tool_result_message: toolResultMsg,
+				});
+				return { toolResultMsg, stumbles: 0, output: handleId };
+			}
+
+			// Blocking: result is a ResultMessage
+			const resultMsg = result as ResultMessage;
+			const content = truncateToolOutput(resultMsg.output, delegation.agent_name);
+			const toolResultMsg = Msg.toolResult(delegation.call_id, content);
+
+			this.emitAndLog("act_end", agentId, this.depth, {
+				agent_name: delegation.agent_name,
+				success: resultMsg.success,
+				turns: resultMsg.turns,
+				timed_out: resultMsg.timed_out,
+				tool_result_message: toolResultMsg,
+			});
+
+			return {
+				toolResultMsg,
+				stumbles: resultMsg.success ? 0 : 1,
+				output: resultMsg.output,
+			};
+		} catch (err) {
+			const errorMsg = `Spawner delegation to '${delegation.agent_name}' failed: ${String(err)}`;
+			const toolResultMsg = Msg.toolResult(delegation.call_id, errorMsg, true);
+			this.emitAndLog("act_end", agentId, this.depth, {
+				agent_name: delegation.agent_name,
+				success: false,
+				error: errorMsg,
+				tool_result_message: toolResultMsg,
+			});
+			return { toolResultMsg, stumbles: 1 };
+		}
+	}
+
+	/** Execute an agent command (wait_agent, message_agent). Returns the tool result message. */
+	private async executeAgentCommand(
+		cmd: AgentCommand,
+		agentId: string,
+	): Promise<{ toolResultMsg: Message; stumbles: number; output?: string }> {
+		if (!this.spawner) {
+			const errorMsg = `${cmd.kind} requires a bus-based spawner, but none is available`;
+			this.emitAndLog("error", agentId, this.depth, { error: errorMsg });
+			return {
+				toolResultMsg: Msg.toolResult(cmd.call_id, `Error: ${errorMsg}`, true),
+				stumbles: 1,
+			};
+		}
+
+		const caller: CallerIdentity = { agent_name: this.spec.name, depth: this.depth };
+
+		try {
+			if (cmd.kind === "wait_agent") {
+				const result = await this.spawner.waitAgent(cmd.handle);
+				const content = truncateToolOutput(result.output, "wait_agent");
+				const toolResultMsg = Msg.toolResult(cmd.call_id, content);
+				return { toolResultMsg, stumbles: result.success ? 0 : 1, output: result.output };
+			}
+
+			// message_agent
+			const blocking = cmd.blocking !== false; // default true
+			const result = await this.spawner.messageAgent(cmd.handle, cmd.message, caller, blocking);
+
+			if (!blocking || !result) {
+				const toolResultMsg = Msg.toolResult(cmd.call_id, "Message sent.");
+				return { toolResultMsg, stumbles: 0 };
+			}
+
+			const content = truncateToolOutput(result.output, "message_agent");
+			const toolResultMsg = Msg.toolResult(cmd.call_id, content);
+			return { toolResultMsg, stumbles: result.success ? 0 : 1, output: result.output };
+		} catch (err) {
+			const errorMsg = `${cmd.kind} failed: ${String(err)}`;
+			this.emitAndLog("error", agentId, this.depth, { error: errorMsg });
+			return {
+				toolResultMsg: Msg.toolResult(cmd.call_id, `Error: ${errorMsg}`, true),
+				stumbles: 1,
+			};
 		}
 	}
 
@@ -589,10 +723,11 @@ export class Agent {
 				break;
 			}
 
-			// Parse tool calls into delegations and primitive calls
+			// Parse tool calls into delegations, agent commands, and primitive calls
 			const agentNames = new Set(this.availableAgents.map((a) => a.name));
-			const { delegations, errors: delegationErrors } = parsePlanResponse(toolCalls, agentNames);
+			const { delegations, agentCommands, errors: delegationErrors } = parsePlanResponse(toolCalls, agentNames);
 			const delegationByCallId = new Map(delegations.map((d) => [d.call_id, d]));
+			const agentCommandByCallId = new Map(agentCommands.map((c) => [c.call_id, c]));
 
 			// Track call history for retry detection
 			for (const call of toolCalls) {
@@ -612,19 +747,40 @@ export class Agent {
 			}
 
 			// Launch all delegations concurrently
-			const delegationPromises = delegations.map((delegation) =>
-				this.executeDelegation(delegation, agentId).then((dr) => {
-					resultByCallId.set(delegation.call_id, dr.toolResultMsg);
-					delegationStumbles += dr.stumbles;
-					if (dr.output !== undefined) lastOutput = dr.output;
-				}),
-			);
-			await Promise.all(delegationPromises);
+			if (this.spawner) {
+				// Route through bus-based spawner
+				const delegationPromises = delegations.map((delegation) =>
+					this.executeSpawnerDelegation(delegation, agentId).then((dr) => {
+						resultByCallId.set(delegation.call_id, dr.toolResultMsg);
+						delegationStumbles += dr.stumbles;
+						if (dr.output !== undefined) lastOutput = dr.output;
+					}),
+				);
+				await Promise.all(delegationPromises);
+			} else {
+				// Fallback: in-process delegation
+				const delegationPromises = delegations.map((delegation) =>
+					this.executeDelegation(delegation, agentId).then((dr) => {
+						resultByCallId.set(delegation.call_id, dr.toolResultMsg);
+						delegationStumbles += dr.stumbles;
+						if (dr.output !== undefined) lastOutput = dr.output;
+					}),
+				);
+				await Promise.all(delegationPromises);
+			}
 			stumbles += delegationStumbles;
+
+			// Handle agent commands (wait_agent, message_agent)
+			for (const cmd of agentCommands) {
+				const result = await this.executeAgentCommand(cmd, agentId);
+				resultByCallId.set(cmd.call_id, result.toolResultMsg);
+				if (result.stumbles > 0) stumbles += result.stumbles;
+				if (result.output !== undefined) lastOutput = result.output;
+			}
 
 			// Execute primitives sequentially (they're fast, may depend on each other)
 			for (const call of toolCalls) {
-				if (delegationByCallId.has(call.id) || resultByCallId.has(call.id)) continue;
+				if (delegationByCallId.has(call.id) || agentCommandByCallId.has(call.id) || resultByCallId.has(call.id)) continue;
 
 				this.emitAndLog("primitive_start", agentId, this.depth, {
 					name: call.name,
