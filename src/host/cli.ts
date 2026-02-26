@@ -18,6 +18,7 @@ export interface BusInfrastructure {
 	server: BusServer;
 	bus: BusClient;
 	spawner: AgentSpawner;
+	genome: import("../genome/genome.ts").Genome;
 	cleanup: () => Promise<void>;
 }
 
@@ -64,7 +65,7 @@ export async function startBusInfrastructure(
 		await server.stop();
 	};
 
-	return { server, bus, spawner, cleanup };
+	return { server, bus, spawner, genome, cleanup };
 }
 
 function printResumeHint(sessionId: string): void {

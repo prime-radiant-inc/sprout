@@ -370,7 +370,12 @@ describe("resume flow", () => {
 					timed_out: false,
 					tool_result_message: {
 						role: "tool",
-						content: [{ kind: "tool_result", tool_result: { tool_call_id: "c1", content: "work completed", is_error: false } }],
+						content: [
+							{
+								kind: "tool_result",
+								tool_result: { tool_call_id: "c1", content: "work completed", is_error: false },
+							},
+						],
 						tool_call_id: "c1",
 					},
 				},
@@ -381,8 +386,26 @@ describe("resume flow", () => {
 		// Write the child handle's per-handle log with a result event
 		const handleLogPath = join(handleLogDir, "handle-001.jsonl");
 		const handleEvents = [
-			JSON.stringify({ kind: "event", handle_id: "handle-001", event: { kind: "perceive", timestamp: Date.now(), agent_id: "code-editor", depth: 1, data: { goal: "do work" } } }),
-			JSON.stringify({ kind: "result", handle_id: "handle-001", output: "work done", success: true, stumbles: 0, turns: 5, timed_out: false }),
+			JSON.stringify({
+				kind: "event",
+				handle_id: "handle-001",
+				event: {
+					kind: "perceive",
+					timestamp: Date.now(),
+					agent_id: "code-editor",
+					depth: 1,
+					data: { goal: "do work" },
+				},
+			}),
+			JSON.stringify({
+				kind: "result",
+				handle_id: "handle-001",
+				output: "work done",
+				success: true,
+				stumbles: 0,
+				turns: 5,
+				timed_out: false,
+			}),
 		];
 		await writeFile(handleLogPath, `${handleEvents.join("\n")}\n`);
 
@@ -427,7 +450,16 @@ describe("resume flow", () => {
 					handle_id: "handle-incomplete",
 					tool_result_message: {
 						role: "tool",
-						content: [{ kind: "tool_result", tool_result: { tool_call_id: "c1", content: "Agent started. Handle: handle-incomplete", is_error: false } }],
+						content: [
+							{
+								kind: "tool_result",
+								tool_result: {
+									tool_call_id: "c1",
+									content: "Agent started. Handle: handle-incomplete",
+									is_error: false,
+								},
+							},
+						],
 						tool_call_id: "c1",
 					},
 				},
@@ -438,7 +470,17 @@ describe("resume flow", () => {
 		// Write per-handle log WITHOUT a result event (agent is still running/crashed)
 		const handleLogPath = join(handleLogDir, "handle-incomplete.jsonl");
 		const handleEvents = [
-			JSON.stringify({ kind: "event", handle_id: "handle-incomplete", event: { kind: "perceive", timestamp: Date.now(), agent_id: "code-editor", depth: 1, data: { goal: "do work" } } }),
+			JSON.stringify({
+				kind: "event",
+				handle_id: "handle-incomplete",
+				event: {
+					kind: "perceive",
+					timestamp: Date.now(),
+					agent_id: "code-editor",
+					depth: 1,
+					data: { goal: "do work" },
+				},
+			}),
 		];
 		await writeFile(handleLogPath, `${handleEvents.join("\n")}\n`);
 
@@ -508,6 +550,23 @@ describe("startBusInfrastructure", () => {
 		await infra.cleanup();
 
 		expect(infra.bus.connected).toBe(false);
+	});
+
+	test("returns genome instance", async () => {
+		const genomePath = join(tempDir, "genome-ret");
+		await mkdir(join(genomePath, ".git"), { recursive: true });
+
+		const infra = await startBusInfrastructure({
+			genomePath,
+			sessionId: "test-session-genome",
+		});
+
+		try {
+			expect(infra.genome).toBeDefined();
+			expect(typeof infra.genome.allAgents).toBe("function");
+		} finally {
+			await infra.cleanup();
+		}
 	});
 
 	test("spawner uses the bus server URL", async () => {

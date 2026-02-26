@@ -92,6 +92,25 @@ describe("createAgent", () => {
 		expect(result.provider).toBe("anthropic");
 	});
 
+	test("uses pre-loaded genome instead of loading from disk", async () => {
+		const genomePath = join(tempDir, "factory-preloaded");
+		// Pre-load a genome before passing it to createAgent
+		const genome = new Genome(genomePath);
+		await genome.init();
+		await genome.initFromBootstrap(join(import.meta.dir, "../../bootstrap"));
+
+		const result = await createAgent({
+			genomePath,
+			workDir: tempDir,
+			genome,
+		});
+
+		// The returned genome should be the exact same instance we passed in
+		expect(result.genome).toBe(genome);
+		expect(result.agent).toBeDefined();
+		expect(result.genome.agentCount()).toBeGreaterThanOrEqual(5);
+	});
+
 	test("throws if root agent not found", async () => {
 		const genomePath = join(tempDir, "factory-missing");
 		await expect(

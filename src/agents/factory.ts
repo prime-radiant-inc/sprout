@@ -35,6 +35,8 @@ export interface CreateAgentOptions {
 	model?: string;
 	/** Bus-based spawner for running subagents as separate processes. */
 	spawner?: AgentSpawner;
+	/** Pre-loaded Genome instance. If provided, skips loading from disk. */
+	genome?: Genome;
 }
 
 export interface CreateAgentResult {
@@ -52,24 +54,26 @@ export interface CreateAgentResult {
  * Handles genome initialization, bootstrap loading, and full wiring.
  */
 export async function createAgent(options: CreateAgentOptions): Promise<CreateAgentResult> {
-	const genome = new Genome(options.genomePath);
+	const genome = options.genome ?? new Genome(options.genomePath);
 
-	// Check if genome already exists (has a .git directory)
-	const isExisting = existsSync(join(options.genomePath, ".git"));
+	if (!options.genome) {
+		// Check if genome already exists (has a .git directory)
+		const isExisting = existsSync(join(options.genomePath, ".git"));
 
-	if (isExisting) {
-		await genome.loadFromDisk();
-		// Sync any new bootstrap agents that were added since the genome was initialized
-		if (options.bootstrapDir) {
-			const added = await genome.syncBootstrap(options.bootstrapDir);
-			if (added.length > 0) {
-				console.error(`Synced new bootstrap agents: ${added.join(", ")}`);
+		if (isExisting) {
+			await genome.loadFromDisk();
+			// Sync any new bootstrap agents that were added since the genome was initialized
+			if (options.bootstrapDir) {
+				const added = await genome.syncBootstrap(options.bootstrapDir);
+				if (added.length > 0) {
+					console.error(`Synced new bootstrap agents: ${added.join(", ")}`);
+				}
 			}
-		}
-	} else {
-		await genome.init();
-		if (options.bootstrapDir) {
-			await genome.initFromBootstrap(options.bootstrapDir);
+		} else {
+			await genome.init();
+			if (options.bootstrapDir) {
+				await genome.initFromBootstrap(options.bootstrapDir);
+			}
 		}
 	}
 
