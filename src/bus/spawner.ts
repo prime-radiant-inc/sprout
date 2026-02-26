@@ -36,6 +36,11 @@ export interface AgentHandle {
 	resultResolvers: Array<(result: ResultMessage) => void>;
 	/** agent_name of the parent who spawned this handle */
 	ownerId: string;
+	/** Original spawn options needed for re-spawning completed agents */
+	agentName: string;
+	genomePath: string;
+	caller: CallerIdentity;
+	workDir: string;
 }
 
 /**
@@ -128,6 +133,10 @@ export class AgentSpawner {
 			shared: opts.shared,
 			resultResolvers: [],
 			ownerId: opts.caller.agent_name,
+			agentName: opts.agentName,
+			genomePath: opts.genomePath,
+			caller: opts.caller,
+			workDir: opts.workDir,
 		};
 		this.handles.set(handleId, handle);
 
@@ -236,7 +245,7 @@ export class AgentSpawner {
 	 * If blocking: waits for the next result.
 	 * If not blocking: returns immediately (undefined).
 	 */
-	messageAgent(
+	async messageAgent(
 		handleId: string,
 		message: string,
 		caller: CallerIdentity,
@@ -269,17 +278,53 @@ export class AgentSpawner {
 			return Promise.resolve(undefined);
 		}
 
-		// Agent is idle or completed — send continue message
-		// Clear cached result so waitAgent waits for the new one
+		if (handle.status === "idle") {
+			// Agent process is alive — send continue message
+			handle.result = undefined;
+			handle.status = "running";
+
+			const continueMsg: ContinueMessage = {
+				kind: "continue",
+				message,
+				caller,
+			};
+			this.bus.publish(inboxTopic, JSON.stringify(continueMsg));
+
+			if (blocking) {
+				return this.waitAgent(handleId);
+			}
+			return Promise.resolve(undefined);
+		}
+
+		// Agent process has exited — re-spawn with the message as the new goal.
+		// The agent process auto-resumes from its prior event log.
+		const env: Record<string, string> = {
+			SPROUT_BUS_URL: this.busUrl,
+			SPROUT_HANDLE_ID: handleId,
+			SPROUT_SESSION_ID: this.sessionId,
+			SPROUT_GENOME_PATH: handle.genomePath,
+			SPROUT_WORK_DIR: handle.workDir,
+		};
+
+		const proc = this.spawnFn(handleId, env);
+		handle.process = proc;
 		handle.result = undefined;
 		handle.status = "running";
 
-		const continueMsg: ContinueMessage = {
-			kind: "continue",
-			message,
-			caller,
+		const readyTopic = agentReady(this.sessionId, handleId);
+		await this.bus.waitForMessage(readyTopic, 10_000);
+
+		const startMsg: StartMessage = {
+			kind: "start",
+			handle_id: handleId,
+			agent_name: handle.agentName,
+			genome_path: handle.genomePath,
+			session_id: this.sessionId,
+			caller: handle.caller,
+			goal: message,
+			shared: handle.shared,
 		};
-		this.bus.publish(inboxTopic, JSON.stringify(continueMsg));
+		await this.bus.publish(inboxTopic, JSON.stringify(startMsg));
 
 		if (blocking) {
 			return this.waitAgent(handleId);
@@ -292,7 +337,12 @@ export class AgentSpawner {
 	 * Creates a handle entry with status "completed" and the cached result,
 	 * so that waitAgent returns the result immediately on resume.
 	 */
-	registerCompletedHandle(handleId: string, result: ResultMessage, ownerId: string): void {
+	registerCompletedHandle(
+		handleId: string,
+		result: ResultMessage,
+		ownerId: string,
+		spawnInfo?: { agentName: string; genomePath: string; caller: CallerIdentity; workDir: string },
+	): void {
 		const handle: AgentHandle = {
 			handleId,
 			process: { kill: () => {}, exited: Promise.resolve(0) },
@@ -301,6 +351,10 @@ export class AgentSpawner {
 			shared: false,
 			resultResolvers: [],
 			ownerId,
+			agentName: spawnInfo?.agentName ?? "",
+			genomePath: spawnInfo?.genomePath ?? "",
+			caller: spawnInfo?.caller ?? { agent_name: ownerId, depth: 0 },
+			workDir: spawnInfo?.workDir ?? "",
 		};
 		this.handles.set(handleId, handle);
 	}

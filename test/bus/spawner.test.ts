@@ -478,6 +478,65 @@ describe("AgentSpawner", () => {
 			expect(result.success).toBe(true);
 		}, 15_000);
 
+		test("re-spawns completed agent and returns result with history", async () => {
+			const capturedRequests: Request[] = [];
+			let callCount = 0;
+			const mockClient = {
+				complete: async (request: Request): Promise<Response> => {
+					capturedRequests.push(request);
+					callCount++;
+					return {
+						id: `mock-${callCount}`,
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: Msg.assistant(`Response ${callCount}.`),
+						finish_reason: { reason: "stop" },
+						usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+					};
+				},
+				stream: async function* () {},
+				providers: () => ["anthropic"],
+			} as unknown as Client;
+
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			// First: spawn and complete a non-shared blocking agent
+			const initialResult = await spawner.spawnAgent({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: { agent_name: "root", depth: 0 },
+				goal: "Initial task",
+				blocking: true,
+				shared: false,
+				workDir: tempDir,
+			});
+			expect((initialResult as ResultMessage).output).toBe("Response 1.");
+
+			const handleId = spawner.getHandles()[0]!;
+			const handle = spawner.getHandle(handleId)!;
+			// Wait for the process to exit
+			await handle.process.exited;
+			expect(handle.status).toBe("completed");
+
+			// Second: messageAgent on the completed handle should re-spawn
+			const continueResult = await spawner.messageAgent(
+				handleId,
+				"Follow-up message",
+				{ agent_name: "root", depth: 0 },
+				true,
+			);
+
+			expect(continueResult!.output).toBe("Response 2.");
+
+			// The second LLM request should contain history from the first run
+			expect(capturedRequests.length).toBe(2);
+			const secondRequest = capturedRequests[1]!;
+			const allContent = JSON.stringify(secondRequest.messages);
+			expect(allContent).toContain("Initial task");
+			expect(allContent).toContain("Response 1.");
+			expect(allContent).toContain("Follow-up message");
+		}, 30_000);
+
 		test("throws for unknown handle ID", async () => {
 			const mockClient = createMockClient("Done.");
 			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
