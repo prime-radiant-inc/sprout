@@ -1,12 +1,15 @@
 import { useMemo } from "react";
 import type { SessionEvent } from "../../../src/kernel/types.ts";
+import { type AgentTreeNode, getDescendantIds } from "../hooks/useAgentTree.ts";
 import { EventLine } from "./EventLine.tsx";
 import styles from "./ConversationView.module.css";
 
 interface ConversationViewProps {
 	events: SessionEvent[];
-	/** When set, only show events from this agent. */
+	/** When set, only show events from this agent and its descendants. */
 	agentFilter?: string | null;
+	/** Agent tree for descendant resolution. */
+	tree: AgentTreeNode;
 }
 
 /**
@@ -39,8 +42,10 @@ interface ResolvedEvent {
 /** Resolve events with duration tracking. */
 function resolveEvents(
 	events: SessionEvent[],
-	agentFilter?: string | null,
+	agentFilter: string | null | undefined,
+	tree: AgentTreeNode,
 ): ResolvedEvent[] {
+	const allowedIds = agentFilter ? getDescendantIds(tree, agentFilter) : null;
 	const startTimes = new Map<string, number>();
 	const resolved: ResolvedEvent[] = [];
 
@@ -63,8 +68,8 @@ function resolveEvents(
 			}
 		}
 
-		// Apply agent filter
-		if (agentFilter && event.agent_id !== agentFilter) continue;
+		// Apply agent filter (includes descendants)
+		if (allowedIds && !allowedIds.has(event.agent_id)) continue;
 
 		resolved.push({ event, durationMs, key: i });
 	}
@@ -76,10 +81,11 @@ function resolveEvents(
 export function ConversationView({
 	events,
 	agentFilter,
+	tree,
 }: ConversationViewProps) {
 	const resolved = useMemo(
-		() => resolveEvents(events, agentFilter),
-		[events, agentFilter],
+		() => resolveEvents(events, agentFilter, tree),
+		[events, agentFilter, tree],
 	);
 
 	return (

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { SessionEvent } from "../../../../src/kernel/types.ts";
+import { buildAgentTree } from "../../hooks/useAgentTree.ts";
 import { AssistantMessage } from "../AssistantMessage.tsx";
 import { CodeBlock } from "../CodeBlock.tsx";
 import { ConversationView } from "../ConversationView.tsx";
@@ -508,7 +509,8 @@ describe("ConversationView", () => {
 				output: "hi",
 			}),
 		];
-		const html = renderToStaticMarkup(<ConversationView events={events} />);
+		const tree = buildAgentTree(events);
+		const html = renderToStaticMarkup(<ConversationView events={events} tree={tree} />);
 		expect(html).toContain("hello world");
 		expect(html).toContain("I will help you");
 		expect(html).toContain("exec");
@@ -520,7 +522,8 @@ describe("ConversationView", () => {
 			makeEvent("perceive", { goal: "visible" }),
 			makeEvent("context_update", { context_tokens: 500 }),
 		];
-		const html = renderToStaticMarkup(<ConversationView events={events} />);
+		const tree = buildAgentTree(events);
+		const html = renderToStaticMarkup(<ConversationView events={events} tree={tree} />);
 		expect(html).toContain("visible");
 		expect(html).not.toContain("context_tokens");
 	});
@@ -534,24 +537,54 @@ describe("ConversationView", () => {
 				{ timestamp: 2500 },
 			),
 		];
-		const html = renderToStaticMarkup(<ConversationView events={events} />);
+		const tree = buildAgentTree(events);
+		const html = renderToStaticMarkup(<ConversationView events={events} tree={tree} />);
 		expect(html).toContain("1.5s");
 	});
 
 	test("filters events by agentId when provided", () => {
 		const events: SessionEvent[] = [
-			makeEvent("perceive", { goal: "root goal" }, { agent_id: "root" }),
-			makeEvent("perceive", { goal: "sub goal" }, { agent_id: "sub-agent" }),
+			makeEvent("perceive", { goal: "root goal" }, { agent_id: "root-agent", depth: 0 }),
+			makeEvent("act_start", { agent_name: "alpha", goal: "alpha work" }, { agent_id: "alpha-agent", depth: 1, timestamp: 1001 }),
+			makeEvent("perceive", { goal: "alpha goal" }, { agent_id: "alpha-agent", depth: 1 }),
+			makeEvent("act_end", { agent_name: "alpha", success: true }, { agent_id: "alpha-agent", depth: 1, timestamp: 1002 }),
+			makeEvent("act_start", { agent_name: "beta", goal: "beta work" }, { agent_id: "beta-agent", depth: 1, timestamp: 1003 }),
+			makeEvent("perceive", { goal: "beta goal" }, { agent_id: "beta-agent", depth: 1 }),
+			makeEvent("act_end", { agent_name: "beta", success: true }, { agent_id: "beta-agent", depth: 1, timestamp: 1004 }),
 		];
+		const tree = buildAgentTree(events);
 		const html = renderToStaticMarkup(
-			<ConversationView events={events} agentFilter="root" />,
+			<ConversationView events={events} agentFilter="alpha-agent" tree={tree} />,
 		);
-		expect(html).toContain("root goal");
-		expect(html).not.toContain("sub goal");
+		expect(html).toContain("alpha goal");
+		expect(html).not.toContain("beta goal");
+		expect(html).not.toContain("root goal");
+	});
+
+	test("agent filter includes descendant events", () => {
+		const events: SessionEvent[] = [
+			makeEvent("perceive", { goal: "root goal" }, { agent_id: "root-agent", depth: 0 }),
+			makeEvent("act_start", { agent_name: "parent", goal: "parent work" }, { agent_id: "parent-agent", depth: 1 }),
+			makeEvent("perceive", { goal: "parent goal" }, { agent_id: "parent-agent", depth: 1 }),
+			makeEvent("act_start", { agent_name: "child", goal: "child work" }, { agent_id: "child-agent", depth: 2 }),
+			makeEvent("perceive", { goal: "child goal" }, { agent_id: "child-agent", depth: 2 }),
+			makeEvent("act_end", { agent_name: "child", success: true }, { agent_id: "child-agent", depth: 2 }),
+			makeEvent("act_end", { agent_name: "parent", success: true }, { agent_id: "parent-agent", depth: 1 }),
+		];
+		const tree = buildAgentTree(events);
+		const html = renderToStaticMarkup(
+			<ConversationView events={events} agentFilter="parent-agent" tree={tree} />,
+		);
+		// Should include parent and its child
+		expect(html).toContain("parent goal");
+		expect(html).toContain("child goal");
+		// Should exclude root
+		expect(html).not.toContain("root goal");
 	});
 
 	test("renders empty state when no events", () => {
-		const html = renderToStaticMarkup(<ConversationView events={[]} />);
+		const tree = buildAgentTree([]);
+		const html = renderToStaticMarkup(<ConversationView events={[]} tree={tree} />);
 		expect(html).toBeDefined();
 	});
 });

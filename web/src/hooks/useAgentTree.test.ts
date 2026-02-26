@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { SessionEvent } from "../../../src/kernel/types.ts";
-import { buildAgentTree } from "./useAgentTree.ts";
+import { buildAgentTree, getDescendantIds } from "./useAgentTree.ts";
 
 // --- Helpers ---
 
@@ -272,6 +272,43 @@ describe("buildAgentTree", () => {
 
 			expect(tree.children).toHaveLength(1);
 			expect(tree.children[0]!.agentId).toBe("editor-1");
+		});
+	});
+
+	describe("getDescendantIds", () => {
+		test("returns all descendant agent IDs including self", () => {
+			resetTimestamps();
+			const tree = buildAgentTree([
+				makeEvent("perceive", "root-agent", 0, { goal: "Go" }),
+				makeEvent("act_start", "child-1", 1, { agent_name: "editor", goal: "Edit" }),
+				makeEvent("act_start", "grandchild-1", 2, { agent_name: "writer", goal: "Write" }),
+				makeEvent("act_end", "grandchild-1", 2, { agent_name: "writer", success: true }),
+				makeEvent("act_end", "child-1", 1, { agent_name: "editor", success: true }),
+				makeEvent("act_start", "child-2", 1, { agent_name: "runner", goal: "Run" }),
+				makeEvent("act_end", "child-2", 1, { agent_name: "runner", success: true }),
+			]);
+
+			const ids = getDescendantIds(tree, "child-1");
+			expect(ids).toContain("child-1");
+			expect(ids).toContain("grandchild-1");
+			expect(ids).not.toContain("child-2");
+			expect(ids).not.toContain("root-agent");
+		});
+
+		test("returns null when agentId not found", () => {
+			const tree = buildAgentTree([makeEvent("perceive", "root", 0, { goal: "Go" })]);
+			expect(getDescendantIds(tree, "nonexistent")).toBeNull();
+		});
+
+		test("returns just self for leaf agent", () => {
+			resetTimestamps();
+			const tree = buildAgentTree([
+				makeEvent("perceive", "root-agent", 0, { goal: "Go" }),
+				makeEvent("act_start", "leaf", 1, { agent_name: "leaf", goal: "Do" }),
+				makeEvent("act_end", "leaf", 1, { agent_name: "leaf", success: true }),
+			]);
+			const ids = getDescendantIds(tree, "leaf");
+			expect(ids).toEqual(new Set(["leaf"]));
 		});
 	});
 

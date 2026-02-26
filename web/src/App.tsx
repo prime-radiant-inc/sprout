@@ -164,6 +164,7 @@ export function App() {
 						<ConversationView
 							events={events}
 							agentFilter={selectedAgent}
+							tree={tree}
 						/>
 					</div>
 					{userScrolledUp && (

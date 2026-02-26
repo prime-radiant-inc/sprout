@@ -103,6 +103,34 @@ export function buildAgentTree(events: SessionEvent[]): AgentTreeNode {
 	return root;
 }
 
+/**
+ * Given a tree and a target agentId, return a Set of agentIds
+ * for that agent and all its descendants. Returns null if not found.
+ */
+export function getDescendantIds(tree: AgentTreeNode, agentId: string): Set<string> | null {
+	const node = findNode(tree, agentId);
+	if (!node) return null;
+	const ids = new Set<string>();
+	collectIds(node, ids);
+	return ids;
+}
+
+function findNode(node: AgentTreeNode, agentId: string): AgentTreeNode | null {
+	if (node.agentId === agentId) return node;
+	for (const child of node.children) {
+		const found = findNode(child, agentId);
+		if (found) return found;
+	}
+	return null;
+}
+
+function collectIds(node: AgentTreeNode, ids: Set<string>): void {
+	ids.add(node.agentId);
+	for (const child of node.children) {
+		collectIds(child, ids);
+	}
+}
+
 // --- React hook ---
 
 interface UseAgentTreeResult {
