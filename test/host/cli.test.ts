@@ -710,6 +710,40 @@ describe("configureTerminal — tmux", () => {
 		}
 	});
 
+	test("recognizes lines with inline comments as already present", async () => {
+		const saved = saveEnv();
+		process.env.TMUX = "/tmp/tmux-501/default,12345,0";
+		delete process.env.TERM_PROGRAM;
+		const confPath = join(tempDir, "tmux.conf");
+		try {
+			// All three lines present but with inline comments
+			await writeFile(
+				confPath,
+				"set -s extended-keys on  # added by sprout\nset -as terminal-features 'xterm*:extkeys'  # for kitty protocol\nset -s extended-keys-format csi-u  # csi-u mode\n",
+			);
+
+			const spawnCalls: string[][] = [];
+			const spawn = (args: string[]) => {
+				spawnCalls.push(args);
+				return { exitCode: 0, stdout: "" };
+			};
+
+			const result = await configureTerminal({ spawn, tmuxConfPath: confPath });
+
+			// Should NOT call tmux source-file (nothing to add)
+			expect(spawnCalls).toHaveLength(0);
+			expect(result).toContain("already configured");
+
+			// File should be unchanged
+			const { readFile } = await import("node:fs/promises");
+			const contents = await readFile(confPath, "utf-8");
+			const lineCount = contents.split("\n").filter((l) => l.trim() !== "").length;
+			expect(lineCount).toBe(3);
+		} finally {
+			restoreEnv(saved);
+		}
+	});
+
 	test("returns manual instructions when tmux.conf is not writable", async () => {
 		const saved = saveEnv();
 		process.env.TMUX = "/tmp/tmux-501/default,12345,0";

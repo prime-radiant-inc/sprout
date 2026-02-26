@@ -343,7 +343,8 @@ async function configureTmux(
 		existing
 			.split("\n")
 			.map((l) => l.trim())
-			.filter((l) => !l.startsWith("#")),
+			.filter((l) => !l.startsWith("#"))
+			.map((l) => l.replace(/#.*$/, "").trim()),
 	);
 	const missing = TMUX_REQUIRED_LINES.filter((line) => !activeLines.has(line));
 
