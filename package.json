@@ -19,7 +19,9 @@
     "test:integration:live": "VCR_MODE=off bun test test/integration/e2e.test.ts test/agents/agent.integration.test.ts test/llm/anthropic.test.ts test/llm/openai.test.ts test/llm/gemini.test.ts test/llm/client.test.ts test/learn/learn.integration.test.ts",
     "test:all": "bun test",
     "test:watch": "bun test --watch",
-    "precommit": "bun run check && bun run typecheck && bun run test:unit"
+    "precommit": "bun run check && bun run typecheck && bun run test:unit",
+    "web:build": "cd web && bun run build",
+    "web:dev": "cd web && bun run dev"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.4",

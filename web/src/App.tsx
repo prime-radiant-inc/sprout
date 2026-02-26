@@ -11,7 +11,7 @@ import { useAgentTree } from "./hooks/useAgentTree.ts";
 import { useEvents } from "./hooks/useEvents.ts";
 import { useWebSocket } from "./hooks/useWebSocket.ts";
 
-const WS_URL = `ws://${window.location.host}`;
+const WS_URL = import.meta.env.VITE_WS_URL || `ws://${window.location.host}`;
 
 export function App() {
 	const { connected, lastMessage, send } = useWebSocket(WS_URL);

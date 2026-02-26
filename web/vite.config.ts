@@ -9,4 +9,9 @@ export default defineConfig({
       "@kernel": resolve(__dirname, "../src/kernel"),
     },
   },
+  server: {
+    proxy: {
+      "/api": "http://localhost:7777",
+    },
+  },
 });
