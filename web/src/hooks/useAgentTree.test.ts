@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { SessionEvent } from "../../../src/kernel/types.ts";
-import { type AgentTreeNode, buildAgentTree } from "./useAgentTree.ts";
+import { buildAgentTree } from "./useAgentTree.ts";
 
 // --- Helpers ---
 
