@@ -59,9 +59,9 @@ function TreeNode({
 			</button>
 			{node.children.length > 0 && (
 				<ul className={styles.children}>
-					{node.children.map((child) => (
+					{node.children.map((child, idx) => (
 						<TreeNode
-							key={child.agentId}
+							key={`${child.agentId}-${idx}`}
 							node={child}
 							selectedAgent={selectedAgent}
 							onSelectAgent={onSelectAgent}

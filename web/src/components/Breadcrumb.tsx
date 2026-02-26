@@ -36,7 +36,7 @@ export function Breadcrumb({ tree, selectedAgent }: BreadcrumbProps) {
 	return (
 		<nav className={styles.breadcrumb}>
 			{path.map((name, i) => (
-				<span key={name}>
+				<span key={i}>
 					{i > 0 && (
 						<span className={styles.separator}>{"\u203A"}</span>
 					)}
