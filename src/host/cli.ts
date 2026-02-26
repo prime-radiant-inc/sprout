@@ -239,6 +239,7 @@ export interface SpawnResult {
 export interface ConfigureTerminalOptions {
 	spawn?: (args: string[]) => SpawnResult | Promise<SpawnResult>;
 	tmuxConfPath?: string;
+	plistPath?: string;
 }
 
 async function defaultSpawn(args: string[]): Promise<SpawnResult> {
@@ -253,6 +254,7 @@ const PLIST_PATH = `${homedir()}/Library/Preferences/com.apple.Terminal.plist`;
 /** Set or Add a PlistBuddy key. Returns true if the value was applied. */
 async function plistSet(
 	spawn: (args: string[]) => SpawnResult | Promise<SpawnResult>,
+	plistPath: string,
 	profilePath: string,
 	key: string,
 	type: string,
@@ -262,7 +264,7 @@ async function plistSet(
 		"/usr/libexec/PlistBuddy",
 		"-c",
 		`Set ${profilePath}:${key} ${value}`,
-		PLIST_PATH,
+		plistPath,
 	]);
 	if (setResult.exitCode === 0) return true;
 
@@ -271,20 +273,21 @@ async function plistSet(
 		"/usr/libexec/PlistBuddy",
 		"-c",
 		`Add ${profilePath}:${key} ${type} ${value}`,
-		PLIST_PATH,
+		plistPath,
 	]);
 	return addResult.exitCode === 0;
 }
 
 async function configureTerminalApp(
 	spawn: (args: string[]) => SpawnResult | Promise<SpawnResult>,
+	plistPath: string,
 ): Promise<string> {
 	// Read the active profile name
 	const profileResult = await spawn([
 		"/usr/libexec/PlistBuddy",
 		"-c",
 		"Print :Startup\\ Window\\ Settings",
-		PLIST_PATH,
+		plistPath,
 	]);
 	const profile = profileResult.stdout.trim();
 	if (profileResult.exitCode !== 0 || !profile) {
@@ -295,8 +298,8 @@ async function configureTerminalApp(
 	const escapedProfile = profile.replace(/ /g, "\\ ");
 	const profilePath = `:Window\\ Settings:${escapedProfile}`;
 
-	const metaOk = await plistSet(spawn, profilePath, "useOptionAsMetaKey", "bool", "true");
-	const bellOk = await plistSet(spawn, profilePath, "Bell", "bool", "false");
+	const metaOk = await plistSet(spawn, plistPath, profilePath, "useOptionAsMetaKey", "bool", "true");
+	const bellOk = await plistSet(spawn, plistPath, profilePath, "Bell", "bool", "false");
 
 	if (!metaOk || !bellOk) {
 		const failed = [!metaOk && "Option as Meta Key", !bellOk && "Bell"].filter(Boolean).join(", ");
@@ -325,7 +328,10 @@ async function configureTmux(
 	}
 
 	const activeLines = new Set(
-		existing.split("\n").map((l) => l.trim()).filter((l) => !l.startsWith("#")),
+		existing
+			.split("\n")
+			.map((l) => l.trim())
+			.filter((l) => !l.startsWith("#")),
 	);
 	const missing = TMUX_REQUIRED_LINES.filter((line) => !activeLines.has(line));
 
@@ -381,7 +387,8 @@ export async function configureTerminal(options: ConfigureTerminalOptions = {}):
 				"If not: Preferences > Profiles > Keys > General > Report modifiers using CSI u",
 		);
 	} else if (termProgram === "Apple_Terminal") {
-		const result = await configureTerminalApp(spawn);
+		const plistPath = options.plistPath ?? PLIST_PATH;
+		const result = await configureTerminalApp(spawn, plistPath);
 		sections.push(result);
 	} else if (termProgram === "vscode") {
 		sections.push(

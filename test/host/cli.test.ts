@@ -333,7 +333,8 @@ describe("configureTerminal — Terminal.app", () => {
 				return { exitCode: 0, stdout: "" };
 			};
 
-			const result = await configureTerminal({ spawn });
+			const fakePlist = "/tmp/test-terminal.plist";
+			const result = await configureTerminal({ spawn, plistPath: fakePlist });
 
 			// Should have 3 PlistBuddy calls: read profile, set useOptionAsMetaKey, set Bell
 			expect(calls).toHaveLength(3);
@@ -341,6 +342,11 @@ describe("configureTerminal — Terminal.app", () => {
 			// First call reads the active profile name
 			expect(calls[0]!.some((a: string) => a.startsWith("Print"))).toBe(true);
 			expect(calls[0]![0]).toBe("/usr/libexec/PlistBuddy");
+
+			// All calls should use the injected plist path
+			for (const call of calls) {
+				expect(call).toContain(fakePlist);
+			}
 
 			// Second call sets useOptionAsMetaKey on the "Pro" profile
 			expect(calls[1]!.join(" ")).toContain("useOptionAsMetaKey");
@@ -373,11 +379,17 @@ describe("configureTerminal — Terminal.app", () => {
 				return { exitCode: 0, stdout: "" };
 			};
 
-			await configureTerminal({ spawn });
+			const fakePlist = "/tmp/test-terminal.plist";
+			await configureTerminal({ spawn, plistPath: fakePlist });
 
 			// The Set commands should escape spaces in "Red Sands"
 			expect(calls[1]!.join(" ")).toContain("Red\\ Sands");
 			expect(calls[2]!.join(" ")).toContain("Red\\ Sands");
+
+			// All calls should use the injected plist path
+			for (const call of calls) {
+				expect(call).toContain(fakePlist);
+			}
 		} finally {
 			restoreEnv(saved);
 		}
@@ -402,13 +414,19 @@ describe("configureTerminal — Terminal.app", () => {
 				return { exitCode: 0, stdout: "" };
 			};
 
-			const result = await configureTerminal({ spawn });
+			const fakePlist = "/tmp/test-terminal.plist";
+			const result = await configureTerminal({ spawn, plistPath: fakePlist });
 
 			// Should have attempted Set, then fallen back to Add for each key
 			const setCalls = calls.filter((c) => c.some((a) => a.startsWith("Set")));
 			const addCalls = calls.filter((c) => c.some((a) => a.startsWith("Add")));
 			expect(setCalls.length).toBe(2);
 			expect(addCalls.length).toBe(2);
+
+			// All calls should use the injected plist path
+			for (const call of calls) {
+				expect(call).toContain(fakePlist);
+			}
 
 			// Should still report success
 			expect(result).toContain("Option as Meta Key");
@@ -430,7 +448,7 @@ describe("configureTerminal — Terminal.app", () => {
 				return { exitCode: 1, stdout: "" };
 			};
 
-			const result = await configureTerminal({ spawn });
+			const result = await configureTerminal({ spawn, plistPath: "/tmp/test-terminal.plist" });
 			expect(result).toContain("failed");
 			expect(result).not.toContain("enabled Option as Meta Key");
 		} finally {
@@ -445,7 +463,7 @@ describe("configureTerminal — Terminal.app", () => {
 		try {
 			const spawn = (_args: string[]) => ({ exitCode: 1, stdout: "" });
 
-			const result = await configureTerminal({ spawn });
+			const result = await configureTerminal({ spawn, plistPath: "/tmp/test-terminal.plist" });
 			expect(result).toContain("could not read active profile");
 			expect(result).toContain("manually");
 		} finally {
@@ -632,9 +650,7 @@ describe("configureTerminal — tmux", () => {
 				"set -s extended-keys-format csi-u",
 			]) {
 				// Should appear uncommented at least once (the appended copy)
-				const uncommented = contents
-					.split("\n")
-					.filter((l) => l.trim() === line);
+				const uncommented = contents.split("\n").filter((l) => l.trim() === line);
 				expect(uncommented.length).toBeGreaterThanOrEqual(1);
 			}
 
@@ -664,14 +680,20 @@ describe("configureTerminal — tmux", () => {
 			const contents = await readFile(confPath, "utf-8");
 
 			// The uncommented lines should appear exactly once
-			const extKeysCount = contents.split("\n").filter((l) => l.trim() === "set -s extended-keys on").length;
+			const extKeysCount = contents
+				.split("\n")
+				.filter((l) => l.trim() === "set -s extended-keys on").length;
 			expect(extKeysCount).toBe(1);
 
-			const csiuCount = contents.split("\n").filter((l) => l.trim() === "set -s extended-keys-format csi-u").length;
+			const csiuCount = contents
+				.split("\n")
+				.filter((l) => l.trim() === "set -s extended-keys-format csi-u").length;
 			expect(csiuCount).toBe(1);
 
 			// The commented-out line should have been re-added uncommented
-			const featuresCount = contents.split("\n").filter((l) => l.trim() === "set -as terminal-features 'xterm*:extkeys'").length;
+			const featuresCount = contents
+				.split("\n")
+				.filter((l) => l.trim() === "set -as terminal-features 'xterm*:extkeys'").length;
 			expect(featuresCount).toBe(1);
 
 			// Should report only 1 line added
