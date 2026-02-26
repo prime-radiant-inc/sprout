@@ -1,4 +1,5 @@
 import type { ServerWebSocket } from "bun";
+import { resolve } from "node:path";
 import type { SessionBus } from "../host/event-bus.ts";
 import type { SessionEvent } from "../kernel/types.ts";
 import type { ServerMessage } from "./protocol.ts";
@@ -43,7 +44,7 @@ export class WebServer {
 		// Subscribe to bus events — buffer them and track session status
 		this.unsubscribeEvents = this.bus.onEvent((event) => {
 			this.events.push(event);
-			if (this.events.length > EVENT_CAP) {
+			if (this.events.length > EVENT_CAP * 2) {
 				this.events = this.events.slice(-EVENT_CAP);
 			}
 			this.updateStatus(event);
@@ -101,7 +102,10 @@ export class WebServer {
 	private async serveStatic(pathname: string): Promise<Response> {
 		// Map / to /index.html
 		const filePath = pathname === "/" ? "/index.html" : pathname;
-		const fullPath = this.staticDir + filePath;
+		const fullPath = resolve(this.staticDir, `.${filePath}`);
+		if (!fullPath.startsWith(resolve(this.staticDir))) {
+			return new Response("Forbidden", { status: 403 });
+		}
 		const file = Bun.file(fullPath);
 		if (!(await file.exists())) {
 			return new Response("Not Found", { status: 404 });

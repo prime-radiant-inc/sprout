@@ -142,6 +142,27 @@ describe("WebServer", () => {
 			const resp = await fetch(`http://localhost:${port}/nonexistent`);
 			expect(resp.status).toBe(404);
 		});
+
+		test("path traversal attempt does not serve files outside staticDir", async () => {
+			// Create a file one level above staticDir to verify it's unreachable
+			const { basename, dirname, resolve } = await import("node:path");
+			const parentDir = dirname(staticDir);
+			const secretName = `secret-${basename(staticDir)}.txt`;
+			writeFileSync(join(parentDir, secretName), "top secret");
+
+			await server.start();
+
+			// Bun's URL parser normalizes /../.. before it reaches serveStatic,
+			// providing a first layer of defense. Our resolve+startsWith check
+			// in serveStatic provides defense-in-depth against bypasses.
+			const resp = await fetch(`http://localhost:${port}/../${secretName}`);
+			expect(resp.status).toBe(404);
+
+			// Verify the resolve+startsWith guard: a crafted pathname with ..
+			// would resolve outside staticDir and should be caught
+			const malicious = resolve(staticDir, `./../../../etc/passwd`);
+			expect(malicious.startsWith(resolve(staticDir))).toBe(false);
+		});
 	});
 
 	describe("HTTP API", () => {
@@ -360,7 +381,7 @@ describe("WebServer", () => {
 			expect(snapshot2.events[2]!.kind).toBe("plan_end");
 		});
 
-		test("unsubscribes from bus on close (no leaked listeners)", async () => {
+		test("emitting after client disconnect does not crash", async () => {
 			await server.start();
 			const ws = await connectClient();
 			await nextMessage(ws); // consume snapshot
@@ -376,11 +397,12 @@ describe("WebServer", () => {
 	});
 
 	describe("event buffer cap", () => {
-		test("buffer is capped at 10,000 events", async () => {
+		test("buffer trims to EVENT_CAP when exceeding 2x cap", async () => {
 			await server.start();
 
-			// Emit more than the cap
-			for (let i = 0; i < 10_500; i++) {
+			// Emit exactly 2x cap + 1 to trigger amortized trim, leaving exactly EVENT_CAP
+			const total = 20_001;
+			for (let i = 0; i < total; i++) {
 				bus.emitEvent("plan_delta", "root", 0, { i });
 			}
 
@@ -388,10 +410,10 @@ describe("WebServer", () => {
 			const msg = await nextMessage(ws);
 			expect(msg.type).toBe("snapshot");
 			if (msg.type !== "snapshot") throw new Error("Expected snapshot");
-			expect(msg.events.length).toBeLessThanOrEqual(10_000);
+			expect(msg.events.length).toBe(10_000);
 			// Should contain the newest events
 			const last = msg.events[msg.events.length - 1]!;
-			expect(last.data.i).toBe(10_499);
+			expect(last.data.i).toBe(total - 1);
 		});
 	});
 });
