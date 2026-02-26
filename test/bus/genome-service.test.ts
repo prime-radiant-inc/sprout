@@ -191,14 +191,9 @@ describe("GenomeMutationService", () => {
 		(service as any).processing = true;
 
 		const stopPromise = service.stop();
-		const timeout = new Promise<string>((resolve) =>
-			setTimeout(() => resolve("timed_out"), 6_000),
-		);
+		const timeout = new Promise<string>((resolve) => setTimeout(() => resolve("timed_out"), 6_000));
 
-		const winner = await Promise.race([
-			stopPromise.then(() => "stopped"),
-			timeout,
-		]);
+		const winner = await Promise.race([stopPromise.then(() => "stopped"), timeout]);
 		expect(winner).toBe("stopped");
 	}, 10_000);
 
