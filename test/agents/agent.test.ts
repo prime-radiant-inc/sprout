@@ -2670,6 +2670,75 @@ describe("Agent", () => {
 		expect(spawnCalls[0]!.blocking).toBe(true);
 	});
 
+	test("with spawner, blocking delegate includes handle ID in tool result", async () => {
+		// Blocking delegates should include the handle ID so the LLM can
+		// use message_agent to resume the completed agent later.
+		const delegateMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-block-handle-1",
+						name: "delegate",
+						arguments: JSON.stringify({ agent_name: "leaf", goal: "do something", blocking: true }),
+					},
+				},
+			],
+		};
+		const rootDoneMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "Done." }],
+		};
+
+		let callCount = 0;
+		let capturedHistory: Message[] = [];
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (request: any): Promise<Response> => {
+				callCount++;
+				capturedHistory = request.messages;
+				const msg = callCount === 1 ? delegateMsg : rootDoneMsg;
+				return {
+					id: `mock-block-handle-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: msg,
+					finish_reason: { reason: callCount === 1 ? "tool_calls" : "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const { spawner } = createMockSpawner();
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: rootSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [rootSpec, leafSpec],
+			depth: 0,
+			events,
+			spawner,
+		});
+
+		await agent.run("blocking handle test");
+
+		// The tool result sent to the LLM on the second call should contain the handle ID
+		const toolResultMsgs = capturedHistory.filter((m) => m.role === "tool");
+		expect(toolResultMsgs).toHaveLength(1);
+		const toolContent = toolResultMsgs[0]!.content;
+		const resultPart = Array.isArray(toolContent)
+			? toolContent.find((c: any) => c.kind === ContentKind.TOOL_RESULT)
+			: null;
+		const resultText = resultPart ? (resultPart as any).tool_result.content : "";
+		expect(resultText).toContain("handle-123");
+	});
+
 	test("with spawner, non-blocking delegate returns handle ID as tool output", async () => {
 		const delegateMsg: Message = {
 			role: "assistant",

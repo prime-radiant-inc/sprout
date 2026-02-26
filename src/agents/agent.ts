@@ -455,7 +455,8 @@ export class Agent {
 				this.learnProcess.recordAction(agentId);
 			}
 
-			const content = truncateToolOutput(resultMsg.output, delegation.agent_name);
+			const truncated = truncateToolOutput(resultMsg.output, delegation.agent_name);
+			const content = `${truncated}\n\nHandle: ${resultMsg.handle_id}`;
 			const toolResultMsg = Msg.toolResult(delegation.call_id, content);
 
 			this.emitAndLog("act_end", agentId, this.depth, {

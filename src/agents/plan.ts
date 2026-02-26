@@ -80,7 +80,8 @@ export function buildWaitAgentTool(): ToolDefinition {
 export function buildMessageAgentTool(): ToolDefinition {
 	return {
 		name: MESSAGE_AGENT_TOOL_NAME,
-		description: "Send a follow-up message to an agent (running, idle, or completed) and receive its response. Completed agents are automatically resumed with their prior conversation history.",
+		description:
+			"Send a follow-up message to an agent (running, idle, or completed) and receive its response. Completed agents are automatically resumed with their prior conversation history.",
 		parameters: {
 			type: "object",
 			properties: {
