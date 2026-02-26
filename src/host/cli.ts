@@ -356,6 +356,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 			bootstrapDir,
 			sessionId,
 			spawner: infra.spawner,
+			genome: infra.genome,
 		});
 
 		bus.onEvent((event) => {
@@ -452,6 +453,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 		sessionId,
 		initialHistory: resumeHistory,
 		spawner: infra.spawner,
+		genome: infra.genome,
 	});
 
 	const { InputHistory } = await import("../tui/history.ts");

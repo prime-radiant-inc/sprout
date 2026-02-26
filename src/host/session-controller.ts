@@ -41,6 +41,8 @@ export interface AgentFactoryOptions {
 	model?: string;
 	/** Bus-based spawner for running subagents as separate processes. */
 	spawner?: AgentSpawner;
+	/** Pre-loaded Genome instance. If provided, skips loading from disk. */
+	genome?: import("../genome/genome.ts").Genome;
 }
 
 /** Result returned by the agent factory. */
@@ -69,6 +71,8 @@ export interface SessionControllerOptions {
 	initialHistory?: Message[];
 	/** Bus-based spawner to forward to the agent factory. */
 	spawner?: AgentSpawner;
+	/** Pre-loaded Genome instance to forward to the agent factory. */
+	genome?: import("../genome/genome.ts").Genome;
 }
 
 /**
@@ -93,6 +97,7 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 		initialHistory: options.initialHistory,
 		model: options.model,
 		spawner: options.spawner,
+		genome: options.genome,
 	});
 
 	return {
@@ -127,6 +132,7 @@ export class SessionController {
 	private readonly rootAgentName?: string;
 	private readonly factory: AgentFactory;
 	private readonly spawner?: AgentSpawner;
+	private readonly genome?: import("../genome/genome.ts").Genome;
 	private history: Message[] = [];
 	private running = false;
 	private modelOverride?: string;
@@ -146,6 +152,7 @@ export class SessionController {
 		this.rootAgentName = options.rootAgent;
 		this.factory = options.factory ?? defaultFactory;
 		this.spawner = options.spawner;
+		this.genome = options.genome;
 		this.history = options.initialHistory ? [...options.initialHistory] : [];
 
 		this.metadata = new SessionMetadata({
@@ -310,6 +317,7 @@ export class SessionController {
 				initialHistory: this.history.length > 0 ? [...this.history] : undefined,
 				model: this.modelOverride,
 				spawner: this.spawner,
+				genome: this.genome,
 			});
 
 			this.agent = result.agent;
