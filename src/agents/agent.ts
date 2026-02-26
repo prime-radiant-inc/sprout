@@ -1,9 +1,9 @@
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { Genome } from "../genome/genome.ts";
-import { recall } from "../genome/recall.ts";
 import type { AgentSpawner } from "../bus/spawner.ts";
 import type { CallerIdentity, ResultMessage } from "../bus/types.ts";
+import type { Genome } from "../genome/genome.ts";
+import { recall } from "../genome/recall.ts";
 import { compactHistory, shouldCompact } from "../host/compaction.ts";
 import type { ExecutionEnvironment } from "../kernel/execution-env.ts";
 import { checkPathConstraint, validateConstraints } from "../kernel/path-constraints.js";
@@ -369,7 +369,13 @@ export class Agent {
 		}
 	}
 
-	/** Execute a delegation via the bus-based spawner. Returns the tool result message and stumble count. */
+	/**
+	 * Execute a delegation via the bus-based spawner. Returns the tool result message and stumble count.
+	 *
+	 * Note: Unlike executeDelegation(), this does NOT call verifyActResult() or push learn signals.
+	 * The spawned subprocess handles its own learning. The parent only sees success/failure from the result.
+	 * If parent-level learn signals are needed later, add verifyActResult() here.
+	 */
 	private async executeSpawnerDelegation(
 		delegation: Delegation,
 		agentId: string,
@@ -398,7 +404,10 @@ export class Agent {
 			if (!blocking) {
 				// Non-blocking: result is a handle ID string
 				const handleId = result as string;
-				const toolResultMsg = Msg.toolResult(delegation.call_id, `Agent started. Handle: ${handleId}`);
+				const toolResultMsg = Msg.toolResult(
+					delegation.call_id,
+					`Agent started. Handle: ${handleId}`,
+				);
 				this.emitAndLog("act_end", agentId, this.depth, {
 					agent_name: delegation.agent_name,
 					success: true,
@@ -725,7 +734,11 @@ export class Agent {
 
 			// Parse tool calls into delegations, agent commands, and primitive calls
 			const agentNames = new Set(this.availableAgents.map((a) => a.name));
-			const { delegations, agentCommands, errors: delegationErrors } = parsePlanResponse(toolCalls, agentNames);
+			const {
+				delegations,
+				agentCommands,
+				errors: delegationErrors,
+			} = parsePlanResponse(toolCalls, agentNames);
 			const delegationByCallId = new Map(delegations.map((d) => [d.call_id, d]));
 			const agentCommandByCallId = new Map(agentCommands.map((c) => [c.call_id, c]));
 
@@ -746,28 +759,19 @@ export class Agent {
 				stumbles++;
 			}
 
-			// Launch all delegations concurrently
-			if (this.spawner) {
-				// Route through bus-based spawner
-				const delegationPromises = delegations.map((delegation) =>
-					this.executeSpawnerDelegation(delegation, agentId).then((dr) => {
-						resultByCallId.set(delegation.call_id, dr.toolResultMsg);
-						delegationStumbles += dr.stumbles;
-						if (dr.output !== undefined) lastOutput = dr.output;
-					}),
-				);
-				await Promise.all(delegationPromises);
-			} else {
-				// Fallback: in-process delegation
-				const delegationPromises = delegations.map((delegation) =>
-					this.executeDelegation(delegation, agentId).then((dr) => {
-						resultByCallId.set(delegation.call_id, dr.toolResultMsg);
-						delegationStumbles += dr.stumbles;
-						if (dr.output !== undefined) lastOutput = dr.output;
-					}),
-				);
-				await Promise.all(delegationPromises);
-			}
+			// Launch all delegations concurrently (spawner or in-process fallback)
+			const executeDelegationFn = this.spawner
+				? (d: Delegation) => this.executeSpawnerDelegation(d, agentId)
+				: (d: Delegation) => this.executeDelegation(d, agentId);
+
+			const delegationPromises = delegations.map((delegation) =>
+				executeDelegationFn(delegation).then((dr) => {
+					resultByCallId.set(delegation.call_id, dr.toolResultMsg);
+					delegationStumbles += dr.stumbles;
+					if (dr.output !== undefined) lastOutput = dr.output;
+				}),
+			);
+			await Promise.all(delegationPromises);
 			stumbles += delegationStumbles;
 
 			// Handle agent commands (wait_agent, message_agent)
@@ -780,7 +784,12 @@ export class Agent {
 
 			// Execute primitives sequentially (they're fast, may depend on each other)
 			for (const call of toolCalls) {
-				if (delegationByCallId.has(call.id) || agentCommandByCallId.has(call.id) || resultByCallId.has(call.id)) continue;
+				if (
+					delegationByCallId.has(call.id) ||
+					agentCommandByCallId.has(call.id) ||
+					resultByCallId.has(call.id)
+				)
+					continue;
 
 				this.emitAndLog("primitive_start", agentId, this.depth, {
 					name: call.name,
