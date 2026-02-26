@@ -209,6 +209,57 @@ describe("runAgentProcess", () => {
 		await processPromise;
 	}, 15_000);
 
+	test("events carry caller.depth + 1 as their depth", async () => {
+		const mockClient = createMockClient("Done.");
+
+		const eventsTopic = agentEvents(SESSION_ID, HANDLE_ID);
+		const collectedEvents: string[] = [];
+		await parentClient.subscribe(eventsTopic, (payload) => {
+			collectedEvents.push(payload);
+		});
+
+		const resultTopic = agentResult(SESSION_ID, HANDLE_ID);
+		const resultPromise = parentClient.waitForMessage(resultTopic, 10_000);
+
+		const processPromise = runAgentProcess({
+			busUrl: server.url,
+			handleId: HANDLE_ID,
+			sessionId: SESSION_ID,
+			genomePath: genomeDir,
+			client: mockClient,
+			workDir: tempDir,
+		});
+
+		await delay(100);
+
+		// Send start message with caller at depth 0 → agent should be depth 1
+		const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
+		const startMsg: StartMessage = {
+			kind: "start",
+			handle_id: HANDLE_ID,
+			agent_name: "test-leaf",
+			genome_path: genomeDir,
+			session_id: SESSION_ID,
+			caller: { agent_name: "root", depth: 0 },
+			goal: "Do something",
+			shared: false,
+		};
+		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
+
+		await resultPromise;
+		await delay(100);
+
+		expect(collectedEvents.length).toBeGreaterThan(0);
+
+		const parsed = collectedEvents.map((e) => JSON.parse(e));
+		// Every event emitted by a sub-agent spawned by a depth-0 caller should have depth 1
+		for (const evt of parsed) {
+			expect(evt.event.depth).toBe(1);
+		}
+
+		await processPromise;
+	}, 15_000);
+
 	test("shared agent handles continue message after initial run", async () => {
 		let callCount = 0;
 		const mockClient = {

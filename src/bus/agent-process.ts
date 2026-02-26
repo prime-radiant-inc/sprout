@@ -134,6 +134,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 			genome,
 			events,
 			sessionId,
+			depth: startMsg.caller.depth + 1,
 			logBasePath,
 			preambles,
 			projectDocs,
