@@ -256,6 +256,49 @@ describe("AgentSpawner", () => {
 			expect(() => spawner.waitAgent("nonexistent-handle")).toThrow(/unknown handle/i);
 		});
 
+		test("rejects after custom waitTimeoutMs", async () => {
+			// Mock client that blocks forever (agent never completes)
+			const mockClient = {
+				complete: async (_request: Request): Promise<Response> => {
+					await new Promise(() => {}); // never resolves
+					throw new Error("unreachable");
+				},
+				stream: async function* () {},
+				providers: () => ["anthropic"],
+			} as unknown as Client;
+
+			spawner = new AgentSpawner(
+				bus,
+				server.url,
+				SESSION_ID,
+				createInProcessSpawnFn(mockClient),
+				200, // 200ms timeout
+			);
+
+			const handleId = (await spawner.spawnAgent({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: { agent_name: "root", depth: 0 },
+				goal: "Task that never finishes",
+				blocking: false,
+				shared: false,
+				workDir: tempDir,
+			})) as string;
+
+			const start = Date.now();
+			await expect(spawner.waitAgent(handleId)).rejects.toThrow(/timed out/i);
+			const elapsed = Date.now() - start;
+
+			// Should reject close to 200ms, not 30s or 120s
+			expect(elapsed).toBeLessThan(2000);
+			expect(elapsed).toBeGreaterThanOrEqual(150);
+
+			// Kill the forever-blocking agent and wait for it to exit so
+			// afterEach cleanup doesn't race with its internal bus client
+			spawner.shutdown();
+			await spawner.getHandle(handleId)!.process.exited;
+		}, 15_000);
+
 		test("multiple concurrent waitAgent calls all resolve with the same result", async () => {
 			let resolveFirstCall: (() => void) | null = null;
 			const mockClient = {

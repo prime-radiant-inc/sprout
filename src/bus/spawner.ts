@@ -73,13 +73,21 @@ export class AgentSpawner {
 	private readonly busUrl: string;
 	private readonly sessionId: string;
 	private readonly spawnFn: SpawnFn;
+	private readonly waitTimeoutMs: number;
 	private readonly handles = new Map<string, AgentHandle>();
 
-	constructor(bus: BusClient, busUrl: string, sessionId: string, spawnFn?: SpawnFn) {
+	constructor(
+		bus: BusClient,
+		busUrl: string,
+		sessionId: string,
+		spawnFn?: SpawnFn,
+		waitTimeoutMs?: number,
+	) {
 		this.bus = bus;
 		this.busUrl = busUrl;
 		this.sessionId = sessionId;
 		this.spawnFn = spawnFn ?? defaultSpawnFn;
+		this.waitTimeoutMs = waitTimeoutMs ?? 120_000;
 	}
 
 	/**
@@ -175,7 +183,7 @@ export class AgentSpawner {
 				const idx = handle.resultResolvers.indexOf(resolver);
 				if (idx !== -1) handle.resultResolvers.splice(idx, 1);
 				reject(new Error(`waitAgent timed out for handle ${handleId}`));
-			}, 30_000);
+			}, this.waitTimeoutMs);
 
 			const resolver = (result: ResultMessage) => {
 				clearTimeout(timeout);
