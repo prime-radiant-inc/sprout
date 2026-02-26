@@ -57,9 +57,12 @@ export function App() {
 				e.preventDefault();
 				setSidebarOpen((prev) => !prev);
 			}
-			// Escape clears agent filter
+			// Escape clears agent filter (but not when typing in an input)
 			if (e.key === "Escape") {
-				setSelectedAgent(null);
+				const tag = (e.target as HTMLElement).tagName;
+				if (tag !== "INPUT" && tag !== "TEXTAREA") {
+					setSelectedAgent(null);
+				}
 			}
 		};
 		document.addEventListener("keydown", handleKeyDown);
