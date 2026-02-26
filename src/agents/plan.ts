@@ -46,7 +46,7 @@ export function buildDelegateTool(agents: AgentSpec[]): ToolDefinition {
 				shared: {
 					type: "boolean",
 					description:
-						"If true, the agent stays alive after completion and can receive follow-up messages via message_agent. Default: false",
+						"If true, other agents (not just the spawning agent) can message_agent or wait_agent this handle. Default: false",
 				},
 			},
 			required: ["agent_name", "goal"],
@@ -80,13 +80,13 @@ export function buildWaitAgentTool(): ToolDefinition {
 export function buildMessageAgentTool(): ToolDefinition {
 	return {
 		name: MESSAGE_AGENT_TOOL_NAME,
-		description: "Send a follow-up message to a running shared agent and receive its response.",
+		description: "Send a follow-up message to an agent (running, idle, or completed) and receive its response. Completed agents are automatically resumed with their prior conversation history.",
 		parameters: {
 			type: "object",
 			properties: {
 				handle: {
 					type: "string",
-					description: "The handle of the running shared agent",
+					description: "The handle of the agent",
 				},
 				message: {
 					type: "string",
