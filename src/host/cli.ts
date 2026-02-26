@@ -296,7 +296,7 @@ async function configureTerminalApp(
 	]);
 	const profile = profileResult.stdout.trim();
 	if (profileResult.exitCode !== 0 || !profile) {
-		return "Terminal.app: could not read active profile. Set Option as Meta Key manually:\n  Terminal > Settings > Profiles > Keyboard > Use Option as Meta Key";
+		return "Terminal.app: could not read active profile. Set manually:\n  Terminal > Settings > Profiles > Keyboard > Use Option as Meta Key\n  Terminal > Settings > Profiles > Advanced > uncheck Audible bell";
 	}
 
 	// Escape spaces in profile name for PlistBuddy key paths
@@ -315,7 +315,11 @@ async function configureTerminalApp(
 
 	if (!metaOk || !bellOk) {
 		const failed = [!metaOk && "Option as Meta Key", !bellOk && "Bell"].filter(Boolean).join(", ");
-		return `Terminal.app: failed to set ${failed} on profile "${profile}". Set Option as Meta Key manually:\n  Terminal > Settings > Profiles > Keyboard > Use Option as Meta Key`;
+		const instructions = [
+			!metaOk && "Terminal > Settings > Profiles > Keyboard > Use Option as Meta Key",
+			!bellOk && "Terminal > Settings > Profiles > Advanced > uncheck Audible bell",
+		].filter(Boolean);
+		return `Terminal.app: failed to set ${failed} on profile "${profile}". Set manually:\n  ${instructions.join("\n  ")}`;
 	}
 
 	return `Terminal.app (profile "${profile}"): enabled Option as Meta Key and silenced audible bell.\nPlease restart Terminal.app for changes to take effect.`;

@@ -463,6 +463,85 @@ describe("configureTerminal — Terminal.app", () => {
 		}
 	});
 
+	test("partial failure: only Bell fails → instructions mention Bell, not Meta Key", async () => {
+		const saved = saveEnv();
+		delete process.env.TMUX;
+		process.env.TERM_PROGRAM = "Apple_Terminal";
+		try {
+			const spawn = (args: string[]) => {
+				if (args.some((a) => a.startsWith("Print"))) {
+					return { exitCode: 0, stdout: "Pro\n" };
+				}
+				// Bell Set/Add both fail; useOptionAsMetaKey succeeds
+				if (args.some((a) => a.includes("Bell"))) {
+					return { exitCode: 1, stdout: "" };
+				}
+				return { exitCode: 0, stdout: "" };
+			};
+
+			const result = await configureTerminal({ spawn, plistPath: "/tmp/test-terminal.plist" });
+			expect(result).toContain("failed");
+			expect(result).toContain("Bell");
+			// Should NOT include Meta Key manual instructions since Meta Key succeeded
+			expect(result).not.toContain("Use Option as Meta Key");
+			// Should include Bell manual instructions
+			expect(result).toContain("Advanced");
+		} finally {
+			restoreEnv(saved);
+		}
+	});
+
+	test("partial failure: only Meta Key fails → instructions mention Meta Key, not Bell", async () => {
+		const saved = saveEnv();
+		delete process.env.TMUX;
+		process.env.TERM_PROGRAM = "Apple_Terminal";
+		try {
+			const spawn = (args: string[]) => {
+				if (args.some((a) => a.startsWith("Print"))) {
+					return { exitCode: 0, stdout: "Pro\n" };
+				}
+				// useOptionAsMetaKey Set/Add both fail; Bell succeeds
+				if (args.some((a) => a.includes("useOptionAsMetaKey"))) {
+					return { exitCode: 1, stdout: "" };
+				}
+				return { exitCode: 0, stdout: "" };
+			};
+
+			const result = await configureTerminal({ spawn, plistPath: "/tmp/test-terminal.plist" });
+			expect(result).toContain("failed");
+			expect(result).toContain("Option as Meta Key");
+			expect(result).toContain("Use Option as Meta Key");
+			// Should NOT include Bell manual instructions
+			expect(result).not.toContain("Advanced");
+		} finally {
+			restoreEnv(saved);
+		}
+	});
+
+	test("both fail → instructions mention both Meta Key and Bell", async () => {
+		const saved = saveEnv();
+		delete process.env.TMUX;
+		process.env.TERM_PROGRAM = "Apple_Terminal";
+		try {
+			const spawn = (args: string[]) => {
+				if (args.some((a) => a.startsWith("Print"))) {
+					return { exitCode: 0, stdout: "Pro\n" };
+				}
+				return { exitCode: 1, stdout: "" };
+			};
+
+			const result = await configureTerminal({ spawn, plistPath: "/tmp/test-terminal.plist" });
+			expect(result).toContain("failed");
+			expect(result).toContain("Option as Meta Key");
+			expect(result).toContain("Bell");
+			// Should include both manual instructions
+			expect(result).toContain("Use Option as Meta Key");
+			expect(result).toContain("Advanced");
+		} finally {
+			restoreEnv(saved);
+		}
+	});
+
 	test("reports failure when profile read fails", async () => {
 		const saved = saveEnv();
 		delete process.env.TMUX;
