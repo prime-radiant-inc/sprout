@@ -407,6 +407,22 @@ describe("WebServer", () => {
 		});
 	});
 
+	describe("WebSocket origin validation", () => {
+		test("rejects WebSocket upgrade from non-localhost origin", async () => {
+			await server.start();
+			const res = await fetch(`http://localhost:${port}/`, {
+				headers: {
+					upgrade: "websocket",
+					origin: "https://evil.example.com",
+					"sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==",
+					"sec-websocket-version": "13",
+					connection: "upgrade",
+				},
+			});
+			expect(res.status).toBe(403);
+		});
+	});
+
 	describe("event buffer cap", () => {
 		test("buffer trims to EVENT_CAP when exceeding 2x cap", async () => {
 			await server.start();

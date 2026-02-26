@@ -60,6 +60,17 @@ export class WebServer {
 
 				// WebSocket upgrade
 				if (req.headers.get("upgrade") === "websocket") {
+					const origin = req.headers.get("origin");
+					if (origin) {
+						try {
+							const host = new URL(origin).hostname;
+							if (host !== "localhost" && host !== "127.0.0.1" && host !== "::1") {
+								return new Response("Forbidden", { status: 403 });
+							}
+						} catch {
+							return new Response("Forbidden", { status: 403 });
+						}
+					}
 					if (!server.upgrade(req, { data: undefined })) {
 						return new Response("WebSocket upgrade failed", { status: 400 });
 					}
