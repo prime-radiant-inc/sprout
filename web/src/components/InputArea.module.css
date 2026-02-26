@@ -1,0 +1,63 @@
+.inputArea {
+	display: flex;
+	align-items: flex-end;
+	gap: 8px;
+	padding: 8px 12px;
+	min-height: var(--input-height);
+	background: var(--bg-input);
+}
+
+.prompt {
+	color: var(--color-cyan);
+	font-weight: bold;
+	flex-shrink: 0;
+	line-height: 1.5;
+	padding-bottom: 2px;
+}
+
+.steerPrompt {
+	color: var(--color-yellow);
+	font-weight: bold;
+	flex-shrink: 0;
+	line-height: 1.5;
+	padding-bottom: 2px;
+}
+
+.textarea {
+	flex: 1;
+	background: transparent;
+	border: none;
+	outline: none;
+	color: var(--text-primary);
+	font-family: var(--font-mono);
+	font-size: var(--font-size-base);
+	line-height: 1.5;
+	resize: none;
+	overflow-y: auto;
+	max-height: calc(20px * 10);
+}
+
+.textarea::placeholder {
+	color: var(--text-dim);
+}
+
+.submitBtn {
+	background: transparent;
+	border: 1px solid var(--border-color);
+	color: var(--text-secondary);
+	font-size: var(--font-size-base);
+	padding: 2px 8px;
+	border-radius: 3px;
+	cursor: pointer;
+	flex-shrink: 0;
+	line-height: 1.5;
+}
+
+.submitBtn:hover {
+	border-color: var(--color-cyan);
+	color: var(--color-cyan);
+}
+
+.inputArea[data-running="true"] .textarea {
+	color: var(--color-yellow);
+}

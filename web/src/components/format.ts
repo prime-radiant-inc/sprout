@@ -1,7 +1,19 @@
 /**
- * Formatting helpers for event rendering.
- * Ported from src/tui/render-event.ts to avoid depending on Ink/TUI code.
+ * Formatting helpers for event rendering and status display.
+ * Ported from src/tui/ to avoid depending on Ink/TUI code.
  */
+
+/** Format a token count with k/M suffixes. */
+export function formatTokens(n: number): string {
+	if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+	if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+	return String(n);
+}
+
+/** Shorten model names by stripping date suffixes (e.g. "claude-sonnet-4-20250514" -> "claude-sonnet-4"). */
+export function shortModelName(model: string): string {
+	return model.replace(/-\d{8}$/, "");
+}
 
 /** Format duration in seconds, showing one decimal place. */
 export function formatDuration(durationMs: number | null): string | null {

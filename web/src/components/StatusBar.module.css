@@ -1,0 +1,49 @@
+.statusBar {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 4px 12px;
+	background: var(--statusbar-bg);
+	color: var(--statusbar-text);
+	font-size: var(--font-size-xs);
+	white-space: nowrap;
+	overflow: hidden;
+}
+
+.connectionDot {
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	flex-shrink: 0;
+}
+
+.connectionDot[data-connected="true"] {
+	background: var(--color-green);
+}
+
+.connectionDot[data-connected="false"] {
+	background: var(--color-red);
+}
+
+.section {
+	flex-shrink: 0;
+}
+
+.separator {
+	color: var(--text-dim);
+	flex-shrink: 0;
+}
+
+.spacer {
+	flex: 1;
+}
+
+.sessionId {
+	color: var(--text-dim);
+	cursor: pointer;
+	flex-shrink: 0;
+}
+
+.sessionId:hover {
+	color: var(--text-secondary);
+}
