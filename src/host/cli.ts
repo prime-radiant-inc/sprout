@@ -524,10 +524,10 @@ export async function runCli(command: CliCommand): Promise<void> {
 
 	// Start web server if requested (webPort also used by /web slash command)
 	const webPort = command.port ?? 7777;
+	const staticDir = join(import.meta.dir, "../../web/dist");
 	let webServer: import("../web/server.ts").WebServer | null = null;
 	if (command.web || command.webOnly) {
 		const { WebServer } = await import("../web/server.ts");
-		const staticDir = join(import.meta.dir, "../../web/dist");
 		webServer = new WebServer({ bus, port: webPort, staticDir, sessionId });
 		await webServer.start();
 		console.error(`Web UI: http://localhost:${webPort}`);
@@ -622,30 +622,41 @@ export async function runCli(command: CliCommand): Promise<void> {
 				inputHistory.add(text);
 				bus.emitCommand({ kind: "submit_goal", data: { goal: text } });
 			},
-			onSlashCommand: async (cmd: import("../tui/slash-commands.ts").SlashCommand) => {
+			onSlashCommand: (cmd: import("../tui/slash-commands.ts").SlashCommand) => {
 				const result = handleSlashCommand(cmd, bus, controller);
 				if (result.action === "exit") unmount();
-				if (result.action === "start_web") {
+				else if (result.action === "start_web") {
 					if (webServer) {
 						bus.emitEvent("warning", "cli", 0, {
 							message: `Web UI already running at http://localhost:${webPort}`,
 						});
 					} else {
-						const { WebServer } = await import("../web/server.ts");
-						const staticDir = join(import.meta.dir, "../../web/dist");
-						webServer = new WebServer({ bus, port: webPort, staticDir, sessionId });
-						await webServer.start();
-						bus.emitEvent("warning", "cli", 0, {
-							message: `Web UI: http://localhost:${webPort}`,
-						});
-						Bun.spawn(["open", `http://localhost:${webPort}`]);
+						(async () => {
+							try {
+								const { WebServer } = await import("../web/server.ts");
+								webServer = new WebServer({ bus, port: webPort, staticDir, sessionId });
+								await webServer.start();
+								bus.emitEvent("warning", "cli", 0, {
+									message: `Web UI: http://localhost:${webPort}`,
+								});
+								Bun.spawn(["open", `http://localhost:${webPort}`]);
+							} catch (err) {
+								bus.emitEvent("error", "cli", 0, { error: String(err) });
+							}
+						})();
 					}
-				}
-				if (result.action === "stop_web") {
+				} else if (result.action === "stop_web") {
 					if (webServer) {
-						await webServer.stop();
+						const server = webServer;
 						webServer = null;
-						bus.emitEvent("warning", "cli", 0, { message: "Web server stopped." });
+						(async () => {
+							try {
+								await server.stop();
+								bus.emitEvent("warning", "cli", 0, { message: "Web server stopped." });
+							} catch (err) {
+								bus.emitEvent("error", "cli", 0, { error: String(err) });
+							}
+						})();
 					} else {
 						bus.emitEvent("warning", "cli", 0, { message: "Web server is not running." });
 					}
