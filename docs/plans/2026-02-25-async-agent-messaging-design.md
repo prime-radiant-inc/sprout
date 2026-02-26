@@ -23,9 +23,9 @@
 |  Message Bus                                           |
 |  - Topic-based pub/sub                                 |
 |  - Topics: session/{id}/agent/{handle}/{channel}       |
-|  - Channels: inbox, events, ready, result               |
-|  - Technology: WebSocket over TCP (localhost)           |
-|    (Unix sockets not supported by Bun's WS client)     |
+|  - Channels: inbox, events, result                     |
+|  - Technology: implementation detail (Unix socket,     |
+|    WebSocket, NATS, in-process EventEmitter)           |
 +-------------------------------------------------------+
     |         |         |              |
     v         v         v              v
@@ -44,34 +44,13 @@ Every agent is a standalone process. Agents communicate exclusively through the 
 
 All messages are JSON-serializable. The bus routes messages by topic.
 
-### Wire Protocol
-
-Client-to-server actions:
-
-```typescript
-{ action: "subscribe",   topic: string }
-{ action: "unsubscribe", topic: string }
-{ action: "publish",     topic: string, payload: string }
-```
-
-Server-to-client messages:
-
-```typescript
-{ action: "subscribed", topic: string }   // subscribe acknowledgment
-{ topic: string, payload: string }        // message delivery
-```
-
-The subscribe acknowledgment is critical for correctness: the client's `subscribe()` method awaits the `subscribed` ack before resolving, ensuring no messages are missed between subscribing and listening. The `waitForMessage()` helper also awaits this ack.
-
 ### Topics
 
 ```
 session/{session_id}/agent/{handle_id}/inbox    -- messages TO the agent
 session/{session_id}/agent/{handle_id}/events   -- events FROM the agent (broadcast)
-session/{session_id}/agent/{handle_id}/ready    -- agent signals it is ready for start
 session/{session_id}/agent/{handle_id}/result   -- completion result FROM the agent
-session/{session_id}/commands                   -- session-level commands (e.g. from TUI)
-session/{session_id}/genome/mutations           -- mutation requests / learn signals
+session/{session_id}/genome/mutations           -- mutation requests TO genome service
 session/{session_id}/genome/events              -- mutation confirmations FROM genome service
 ```
 
@@ -164,7 +143,6 @@ wait_agent(handle)
 - Subscribes to the agent's result topic and waits for completion.
 - If the agent already completed, returns the cached result immediately.
 - If the original `delegate` was `blocking=true`, the result is already available (no-op).
-- **Access control:** Only the spawning agent (the owner) can call `wait_agent` on a non-shared handle. Shared handles allow any caller.
 
 ### message_agent
 
@@ -176,34 +154,18 @@ message_agent(handle, message, blocking=true)
 - If the agent is idle (completed a previous run): publishes a `continue` message to its inbox. The agent appends the message as a new user turn to its existing conversation history and starts another planning cycle.
 - `blocking=true` (default): waits for the next result from the agent.
 - `blocking=false`: publishes the message and returns immediately (fire-and-forget).
-- **Access control:** Same as `wait_agent` — non-shared handles reject callers other than the owner.
 
 ---
 
 ## Agent Process Lifecycle
 
-### Startup (Ready Handshake)
+### Startup
 
-1. Process starts, reads config from environment variables (see below).
+1. Process starts, receives bus connection info and handle ID.
 2. Connects to the bus.
-3. Subscribes to its inbox topic: `session/{id}/agent/{handle}/inbox` (awaits server subscribe ack).
-4. Publishes `{ kind: "ready", handle_id }` on its ready topic: `session/{id}/agent/{handle}/ready`.
-5. The spawner, which is already listening on the ready topic, receives this signal and sends the `start` message to the agent's inbox.
-6. On `start`: loads agent spec from genome (disk read), resolves model, builds system prompt with `<caller>` identity block, begins planning loop.
-
-The ready handshake prevents a race condition where the spawner sends the `start` message before the agent has subscribed to its inbox.
-
-### Environment Variables
-
-Agent subprocesses receive their configuration via environment variables:
-
-| Variable | Required | Description |
-|---|---|---|
-| `SPROUT_BUS_URL` | yes | WebSocket URL of the bus server (e.g. `ws://localhost:9123`) |
-| `SPROUT_HANDLE_ID` | yes | Unique handle ID (ULID) for this agent process |
-| `SPROUT_SESSION_ID` | yes | Session ID this agent belongs to |
-| `SPROUT_GENOME_PATH` | yes | Path to the genome directory |
-| `SPROUT_WORK_DIR` | no | Working directory (defaults to `cwd`) |
+3. Subscribes to its inbox topic: `session/{id}/agent/{handle}/inbox`.
+4. Waits for a `start` message.
+5. On `start`: loads agent spec from genome (disk read), resolves model, builds system prompt with `<caller>` identity block, begins planning loop.
 
 ### Running
 
@@ -287,8 +249,7 @@ The session host persists the handle-to-log-path mapping in session metadata. On
 1. Load session metadata (existing flow).
 2. Reconstruct the root agent's state from its log.
 3. Identify any sub-agent handles from the root's log.
-4. Pre-register completed child handles in the spawner via `registerCompletedHandle(handleId, result, ownerId)`. This populates the handle map with cached results so that `waitAgent` returns immediately for already-completed children.
-5. Resume in-flight sub-agents by re-spawning them (not yet implemented).
+4. Resume sub-agents as needed (completed ones provide cached results; in-flight ones get re-spawned).
 
 ---
 
@@ -305,8 +266,6 @@ A process on the message bus that owns genome mutations.
 - The genome service processes mutations one at a time: applies the change, commits to git, publishes a confirmation event.
 - This is the current `LearnProcess` promoted to a bus-connected service.
 
-**Learn signal forwarding:** Bus-spawned sub-agents use `BusLearnForwarder` (implements the `LearnSink` interface) to publish learn signals to the `genome/mutations` topic. This replaces the in-process `LearnProcess` pipeline for sub-agents. The root agent (which runs in-process) still uses `LearnProcess` directly.
-
 ---
 
 ## Utility Agents (Task Manager Pattern)
@@ -316,26 +275,6 @@ No special architecture. A utility agent like a task manager is a regular agent 
 Each caller delegates to it independently (separate agent instances, same backing files). The persistence is the file, not the agent's conversation history. `message_agent` is available for multi-turn interaction if needed, but the common case is a single delegation per caller.
 
 For named, long-lived utility agents that persist across sessions: future extension. The current structured-state pattern handles the immediate need.
-
----
-
-## Current State (Hybrid Architecture)
-
-The system currently uses a hybrid of the target bus architecture and the original in-process EventBus:
-
-**Bus (WebSocket pub/sub):**
-- Sub-agents run as separate OS processes, spawned via `AgentSpawner` using `Bun.spawn()`
-- Sub-agents communicate exclusively through the bus (start, result, events, steer, continue)
-- Learn signals from sub-agents are forwarded via `BusLearnForwarder` (publishes to `genome/mutations` topic)
-- Sub-agent events are relayed to the host EventBus by the spawner's `onEvent` callback
-
-**EventBus (in-process):**
-- Root agent runs in-process (created by `createAgent()` factory, not spawned as a subprocess)
-- TUI and session controller subscribe to root agent events via the in-process EventBus
-- Session-level commands (steer, compact) are delivered via EventBus, not the message bus
-- Root agent's learn signals go through the in-process `LearnProcess` pipeline
-
-**Why hybrid:** The full migration (replacing EventBus entirely) is tracked as Task 18 and was deferred. The in-process EventBus is well-tested and handles TUI integration, session controller events, and root agent lifecycle. Migrating these to the bus is planned but not blocking.
 
 ---
 
