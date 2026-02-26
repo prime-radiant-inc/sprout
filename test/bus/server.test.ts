@@ -84,7 +84,7 @@ describe("BusServer", () => {
 		const pub = await connect(server.url);
 
 		send(sub, { action: "subscribe", topic: "test/topic" });
-		await delay();
+		await nextRawMessage(sub); // consume subscribe ack
 
 		send(pub, {
 			action: "publish",
@@ -107,7 +107,7 @@ describe("BusServer", () => {
 		const nonSubMessages = collectMessages(nonSub);
 
 		send(sub, { action: "subscribe", topic: "test/topic" });
-		await delay();
+		await nextRawMessage(sub); // consume subscribe ack
 
 		send(pub, {
 			action: "publish",
@@ -133,7 +133,7 @@ describe("BusServer", () => {
 		const received = collectMessages(pubSub);
 
 		send(pubSub, { action: "subscribe", topic: "test/echo" });
-		await delay();
+		await nextRawMessage(pubSub); // consume subscribe ack
 
 		send(pubSub, {
 			action: "publish",
@@ -154,7 +154,7 @@ describe("BusServer", () => {
 		const received = collectMessages(sub);
 
 		send(sub, { action: "subscribe", topic: "test/unsub" });
-		await delay();
+		await nextRawMessage(sub); // consume subscribe ack
 
 		send(pub, {
 			action: "publish",
@@ -191,7 +191,8 @@ describe("BusServer", () => {
 
 		send(sub, { action: "subscribe", topic: "test/dc" });
 		send(observer, { action: "subscribe", topic: "test/dc" });
-		await delay();
+		await nextRawMessage(sub); // consume subscribe ack
+		await nextRawMessage(observer); // consume subscribe ack
 
 		// Disconnect the first subscriber
 		sub.close();
@@ -221,7 +222,8 @@ describe("BusServer", () => {
 
 		send(subA, { action: "subscribe", topic: "topic/a" });
 		send(subB, { action: "subscribe", topic: "topic/b" });
-		await delay();
+		await nextRawMessage(subA); // consume subscribe ack
+		await nextRawMessage(subB); // consume subscribe ack
 
 		send(pub, { action: "publish", topic: "topic/a", payload: "for-a" });
 		send(pub, { action: "publish", topic: "topic/b", payload: "for-b" });
@@ -242,7 +244,8 @@ describe("BusServer", () => {
 
 		send(sub1, { action: "subscribe", topic: "test/multi" });
 		send(sub2, { action: "subscribe", topic: "test/multi" });
-		await delay();
+		await nextRawMessage(sub1); // consume subscribe ack
+		await nextRawMessage(sub2); // consume subscribe ack
 
 		send(pub, {
 			action: "publish",
