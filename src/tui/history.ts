@@ -41,7 +41,7 @@ export class InputHistory {
 	async save(): Promise<void> {
 		// Escape newlines in entries so each entry is one line in the file
 		const lines = this.entries.map((e) => e.replace(/\n/g, "\\n"));
-		await writeFile(this.path, lines.join("\n") + "\n", "utf-8");
+		await writeFile(this.path, `${lines.join("\n")}\n`, "utf-8");
 	}
 
 	async load(): Promise<void> {

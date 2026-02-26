@@ -25,7 +25,15 @@ export async function git(cwd: string, ...args: string[]): Promise<string> {
 	return stdout.trim();
 }
 
-const DIRS = ["agents", "memories", "routing", "embeddings", "metrics", "logs", "postscripts"] as const;
+const DIRS = [
+	"agents",
+	"memories",
+	"routing",
+	"embeddings",
+	"metrics",
+	"logs",
+	"postscripts",
+] as const;
 
 export class Genome {
 	private readonly rootPath: string;
@@ -455,7 +463,7 @@ export class Genome {
 	async loadAgentPostscript(agentName: string): Promise<string> {
 		try {
 			const content = await readFile(
-				join(this.rootPath, "postscripts", "agents", agentName + ".md"),
+				join(this.rootPath, "postscripts", "agents", `${agentName}.md`),
 				"utf-8",
 			);
 			return content.trim();

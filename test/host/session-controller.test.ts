@@ -615,9 +615,7 @@ describe("SessionController", () => {
 	});
 
 	test("clear command resets hasRun flag", async () => {
-		let callCount = 0;
 		const factory: AgentFactory = async (options) => {
-			callCount++;
 			return {
 				agent: {
 					steer() {},

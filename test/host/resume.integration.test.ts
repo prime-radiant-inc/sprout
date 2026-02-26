@@ -39,7 +39,7 @@ describe("Resume integration", () => {
 					) {
 						const event = { kind, timestamp: Date.now(), agent_id: agentId, depth, data };
 						options.events.emitEvent(kind as any, agentId, depth, data);
-						await appendFile(logPath, JSON.stringify(event) + "\n");
+						await appendFile(logPath, `${JSON.stringify(event)}\n`);
 					}
 
 					// Simulate perceive
@@ -188,7 +188,7 @@ describe("Resume integration", () => {
 					for (const e of events) {
 						const event = { ...e, timestamp: Date.now() };
 						options.events.emitEvent(event.kind as any, event.agent_id, event.depth, event.data);
-						await appendFile(logPath, JSON.stringify(event) + "\n");
+						await appendFile(logPath, `${JSON.stringify(event)}\n`);
 					}
 
 					return {

@@ -340,7 +340,7 @@ describe("loadSessionSummaries", () => {
 	async function writeLog(id: string, events: object[]): Promise<void> {
 		const { writeFile } = await import("node:fs/promises");
 		const lines = events.map((e) => JSON.stringify(e)).join("\n");
-		await writeFile(join(logsDir, `${id}.jsonl`), lines + "\n");
+		await writeFile(join(logsDir, `${id}.jsonl`), `${lines}\n`);
 	}
 
 	test("returns firstPrompt from the first perceive event", async () => {

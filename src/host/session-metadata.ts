@@ -66,7 +66,7 @@ export class SessionMetadata {
 		};
 
 		const filePath = join(this.sessionsDir, `${this.sessionId}.meta.json`);
-		await writeFile(filePath, JSON.stringify(snapshot, null, "\t") + "\n");
+		await writeFile(filePath, `${JSON.stringify(snapshot, null, "\t")}\n`);
 	}
 
 	/**
