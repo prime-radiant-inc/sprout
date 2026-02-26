@@ -136,9 +136,15 @@ export function EventLine({ event, durationMs, streamingText }: EventLineProps) 
 		case "plan_start":
 		case "context_update":
 		case "exit_hint":
+		case "recall":
+		case "verify":
+		case "learn_signal":
+		case "learn_end":
 			return null;
 
-		default:
+		default: {
+			const _exhaustive: never = kind;
 			return null;
+		}
 	}
 }
