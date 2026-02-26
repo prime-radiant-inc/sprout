@@ -30,6 +30,24 @@ const MINIMAL_AGENT_SPEC = {
 	system_prompt: "You are a test agent. Respond with a brief answer.",
 };
 
+// Orchestrator agent spec -- can_spawn, delegates to test-leaf
+const ORCHESTRATOR_AGENT_SPEC = {
+	name: "test-orchestrator",
+	description: "An orchestrator that delegates to test-leaf",
+	model: "best",
+	capabilities: ["test-leaf"],
+	constraints: {
+		max_turns: 5,
+		max_depth: 2,
+		timeout_ms: 30000,
+		can_spawn: true,
+		can_learn: false,
+	},
+	tags: ["test"],
+	version: 1,
+	system_prompt: "You are an orchestrator. Delegate work to test-leaf.",
+};
+
 /** Create a mock LLM client that returns a canned text response */
 function createMockClient(responseText: string): Client {
 	return {
@@ -48,6 +66,24 @@ function createMockClient(responseText: string): Client {
 
 function delay(ms = 50): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Poll until `results` accumulates at least `count` entries, or time out. */
+async function waitForResults(
+	results: ResultMessage[],
+	count: number,
+	timeoutMs = 5000,
+): Promise<void> {
+	if (results.length >= count) return;
+	const deadline = Date.now() + timeoutMs;
+	while (results.length < count && Date.now() < deadline) {
+		await delay(10);
+	}
+	if (results.length < count) {
+		throw new Error(
+			`Timed out waiting for ${count} results (got ${results.length})`,
+		);
+	}
 }
 
 describe("runAgentProcess", () => {
@@ -229,8 +265,7 @@ describe("runAgentProcess", () => {
 		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
 
 		// Wait for first result
-		await delay(500);
-		expect(results.length).toBe(1);
+		await waitForResults(results, 1);
 		expect(results[0]!.output).toBe("First response.");
 
 		// Send continue message
@@ -242,8 +277,7 @@ describe("runAgentProcess", () => {
 		await parentClient.publish(inboxTopic, JSON.stringify(continueMsg));
 
 		// Wait for second result
-		await delay(500);
-		expect(results.length).toBe(2);
+		await waitForResults(results, 2);
 		expect(results[1]!.output).toBe("Continued response.");
 
 		// Shut down the shared agent
@@ -315,8 +349,7 @@ describe("runAgentProcess", () => {
 		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
 
 		// Wait for initial result
-		await delay(500);
-		expect(results.length).toBe(1);
+		await waitForResults(results, 1);
 		expect(results[0]!.output).toBe("Initial response.");
 
 		// Send two continue messages in rapid succession.
@@ -340,9 +373,8 @@ describe("runAgentProcess", () => {
 			}),
 		);
 
-		// Wait for both results (300ms for first + processing for second)
-		await delay(1000);
-		expect(results.length).toBe(3); // initial + 2 continues
+		// Wait for all three results (initial + 2 continues)
+		await waitForResults(results, 3);
 		expect(results[1]!.output).toBe("Continue-1 response.");
 		expect(results[2]!.output).toBe("Continue-2 response.");
 
@@ -404,8 +436,7 @@ describe("runAgentProcess", () => {
 		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
 
 		// Wait for first result
-		await delay(500);
-		expect(results.length).toBe(1);
+		await waitForResults(results, 1);
 
 		// Send steer while idle — should be queued for next continue
 		await parentClient.publish(
@@ -424,8 +455,7 @@ describe("runAgentProcess", () => {
 			}),
 		);
 
-		await delay(500);
-		expect(results.length).toBe(2);
+		await waitForResults(results, 2);
 
 		// Verify the steer content was included in the LLM request
 		// The second request should contain the steer text as a user message
@@ -656,8 +686,7 @@ describe("runAgentProcess", () => {
 		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
 
 		// Wait for first result (should succeed)
-		await delay(500);
-		expect(results.length).toBe(1);
+		await waitForResults(results, 1);
 		expect(results[0]!.success).toBe(true);
 
 		// Send continue message -- this will trigger the error
@@ -669,8 +698,7 @@ describe("runAgentProcess", () => {
 		await parentClient.publish(inboxTopic, JSON.stringify(continueMsg));
 
 		// Wait for error result
-		await delay(500);
-		expect(results.length).toBe(2);
+		await waitForResults(results, 2);
 		expect(results[1]!.success).toBe(false);
 		expect(results[1]!.output).toContain("LLM provider unavailable");
 		expect(results[1]!.kind).toBe("result");
@@ -728,5 +756,67 @@ describe("runAgentProcess", () => {
 		const kinds = events.map((e: any) => e.kind);
 		expect(kinds).toContain("session_start");
 		expect(kinds).toContain("session_end");
+	}, 15_000);
+
+	test("orchestrator agent gets wait_agent and message_agent tools via spawner", async () => {
+		// Add orchestrator spec to the genome alongside the existing leaf spec
+		const genome = new Genome(genomeDir);
+		await genome.loadFromDisk();
+		await genome.addAgent(ORCHESTRATOR_AGENT_SPEC as any);
+
+		const capturedRequests: Request[] = [];
+		const mockClient = {
+			complete: async (request: Request): Promise<Response> => {
+				capturedRequests.push(request);
+				return {
+					id: "mock-1",
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant("Delegated successfully."),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+				};
+			},
+			stream: async function* () {},
+			providers: () => ["anthropic"],
+		} as unknown as Client;
+
+		const resultTopic = agentResult(SESSION_ID, HANDLE_ID);
+		const resultPromise = parentClient.waitForMessage(resultTopic, 10_000);
+
+		const processPromise = runAgentProcess({
+			busUrl: server.url,
+			handleId: HANDLE_ID,
+			sessionId: SESSION_ID,
+			genomePath: genomeDir,
+			client: mockClient,
+			workDir: tempDir,
+		});
+
+		await delay(100);
+
+		// Start the orchestrator (not the leaf)
+		const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
+		const startMsg: StartMessage = {
+			kind: "start",
+			handle_id: HANDLE_ID,
+			agent_name: "test-orchestrator",
+			genome_path: genomeDir,
+			session_id: SESSION_ID,
+			caller: { agent_name: "root", depth: 0 },
+			goal: "Delegate to test-leaf",
+			shared: false,
+		};
+		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
+
+		await resultPromise;
+		await processPromise;
+
+		// Verify the LLM request included wait_agent and message_agent tools
+		expect(capturedRequests.length).toBeGreaterThan(0);
+		const toolNames = capturedRequests[0]!.tools!.map((t) => t.name);
+		expect(toolNames).toContain("delegate");
+		expect(toolNames).toContain("wait_agent");
+		expect(toolNames).toContain("message_agent");
 	}, 15_000);
 });
