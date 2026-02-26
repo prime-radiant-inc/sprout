@@ -244,10 +244,14 @@ export interface ConfigureTerminalOptions {
 }
 
 async function defaultSpawn(args: string[]): Promise<SpawnResult> {
-	const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
-	const exitCode = await proc.exited;
-	const stdout = await new Response(proc.stdout).text();
-	return { exitCode, stdout };
+	try {
+		const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
+		const exitCode = await proc.exited;
+		const stdout = await new Response(proc.stdout).text();
+		return { exitCode, stdout };
+	} catch {
+		return { exitCode: 1, stdout: "" };
+	}
 }
 
 const PLIST_PATH = `${homedir()}/Library/Preferences/com.apple.Terminal.plist`;
