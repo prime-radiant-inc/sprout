@@ -134,8 +134,27 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 			goal += `\n\nHints:\n${startMsg.hints.map((h) => `- ${h}`).join("\n")}`;
 		}
 
+		// Forward steer messages from the inbox to the agent during the initial run.
+		// The idleLoop handles steers for shared agents after run() completes,
+		// but during the initial run() this is the only path for steers.
+		let initialRunActive = true;
+		if (bus.connected) {
+			await bus.subscribe(inboxTopic, (payload) => {
+				if (!initialRunActive) return;
+				try {
+					const msg = parseBusMessage(payload);
+					if (msg.kind === "steer") {
+						agent.steer(msg.message);
+					}
+				} catch {
+					// Ignore malformed messages
+				}
+			});
+		}
+
 		// Run the agent
 		const agentResult_ = await agent.run(goal, signal);
+		initialRunActive = false;
 
 		// Publish result (may fail if bus disconnected during shutdown)
 		const resultMsg: ResultMessage = {

@@ -10,7 +10,7 @@ import type { ResultMessage, StartMessage } from "../../src/bus/types.ts";
 import { Genome } from "../../src/genome/genome.ts";
 import type { Client } from "../../src/llm/client.ts";
 import type { Request, Response } from "../../src/llm/types.ts";
-import { Msg } from "../../src/llm/types.ts";
+import { ContentKind, Msg } from "../../src/llm/types.ts";
 
 // Minimal agent spec for testing -- leaf agent with no delegation
 const MINIMAL_AGENT_SPEC = {
@@ -335,6 +335,104 @@ describe("runAgentProcess", () => {
 		expect(allContent).toContain("Priority change: focus on tests");
 
 		controller.abort();
+		await processPromise;
+	}, 15_000);
+
+	test("steer messages are forwarded to agent during initial run", async () => {
+		const requests: Request[] = [];
+		let callCount = 0;
+		const mockClient = {
+			complete: async (request: Request): Promise<Response> => {
+				requests.push(request);
+				callCount++;
+				if (callCount === 1) {
+					// First turn: return a tool call so the agent loops for a second turn.
+					// Add a delay so the test can inject a steer before the second turn.
+					await delay(200);
+					return {
+						id: "mock-1",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: {
+							role: "assistant" as const,
+							content: [
+								{
+									kind: ContentKind.TOOL_CALL,
+									tool_call: {
+										id: "tc-1",
+										name: "read_file",
+										arguments: { path: "/dev/null" },
+									},
+								},
+							],
+						},
+						finish_reason: { reason: "tool_calls" as const },
+						usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+					};
+				}
+				// Second turn: return a plain text response to finish
+				return {
+					id: "mock-2",
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant("Done with steered task."),
+					finish_reason: { reason: "stop" as const },
+					usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+				};
+			},
+			stream: async function* () {},
+			providers: () => ["anthropic"],
+		} as unknown as Client;
+
+		const resultTopic = agentResult(SESSION_ID, HANDLE_ID);
+		const resultPromise = parentClient.waitForMessage(resultTopic, 10_000);
+
+		const processPromise = runAgentProcess({
+			busUrl: server.url,
+			handleId: HANDLE_ID,
+			sessionId: SESSION_ID,
+			genomePath: genomeDir,
+			client: mockClient,
+			workDir: tempDir,
+		});
+
+		await delay(100);
+
+		// Send start message (non-shared — this tests the initial run path only)
+		const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
+		const startMsg: StartMessage = {
+			kind: "start",
+			handle_id: HANDLE_ID,
+			agent_name: "test-leaf",
+			genome_path: genomeDir,
+			session_id: SESSION_ID,
+			caller: { agent_name: "root", depth: 0 },
+			goal: "Do something multi-turn",
+			shared: false,
+		};
+		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
+
+		// Wait for the first LLM call to be in progress, then send a steer.
+		// The 200ms delay in the mock client gives us time.
+		await delay(150);
+		await parentClient.publish(
+			inboxTopic,
+			JSON.stringify({ kind: "steer", message: "Urgent: pivot to security review" }),
+		);
+
+		// Wait for the result
+		const rawResult = await resultPromise;
+		const result: ResultMessage = JSON.parse(rawResult);
+		expect(result.success).toBe(true);
+		expect(result.turns).toBe(2);
+
+		// The steer should have been drained at the start of the second turn,
+		// so the second LLM request should contain the steer text.
+		expect(requests.length).toBe(2);
+		const secondRequest = requests[1]!;
+		const allContent = JSON.stringify(secondRequest.messages);
+		expect(allContent).toContain("Urgent: pivot to security review");
+
 		await processPromise;
 	}, 15_000);
 
