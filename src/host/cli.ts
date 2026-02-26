@@ -218,6 +218,8 @@ Options:
 export type SlashCommandResult =
 	| { action: "none" }
 	| { action: "show_model_picker" }
+	| { action: "start_web" }
+	| { action: "stop_web" }
 	| { action: "exit" };
 
 /** Handle a slash command from the TUI input area. */
@@ -236,7 +238,7 @@ export function handleSlashCommand(
 		case "help":
 			bus.emitEvent("warning", "cli", 0, {
 				message:
-					"Commands: /help, /quit, /compact, /clear, /model [name], /status\nKeys: Ctrl+J = newline, Ctrl+C = interrupt/exit",
+					"Commands: /help, /quit, /compact, /clear, /model [name], /status, /web, /web stop\nKeys: Ctrl+J = newline, Ctrl+C = interrupt/exit",
 			});
 			break;
 		case "compact":
@@ -260,6 +262,10 @@ export function handleSlashCommand(
 				message: `Session: ${controller.sessionId} | ${controller.isRunning ? "running" : "idle"} | model: ${controller.currentModel ?? "default"}`,
 			});
 			break;
+		case "web":
+			return { action: "start_web" };
+		case "web_stop":
+			return { action: "stop_web" };
 		case "unknown":
 			bus.emitEvent("warning", "cli", 0, {
 				message: `Unknown command: ${cmd.raw}`,
@@ -516,15 +522,15 @@ export async function runCli(command: CliCommand): Promise<void> {
 		completedHandles: resumeCompletedHandles,
 	});
 
-	// Start web server if requested
+	// Start web server if requested (webPort also used by /web slash command)
+	const webPort = command.port ?? 7777;
 	let webServer: import("../web/server.ts").WebServer | null = null;
 	if (command.web || command.webOnly) {
 		const { WebServer } = await import("../web/server.ts");
-		const port = command.port ?? 7777;
 		const staticDir = join(import.meta.dir, "../../web/dist");
-		webServer = new WebServer({ bus, port, staticDir, sessionId });
+		webServer = new WebServer({ bus, port: webPort, staticDir, sessionId });
 		await webServer.start();
-		console.error(`Web UI: http://localhost:${port}`);
+		console.error(`Web UI: http://localhost:${webPort}`);
 	}
 
 	if (command.webOnly) {
@@ -616,9 +622,34 @@ export async function runCli(command: CliCommand): Promise<void> {
 				inputHistory.add(text);
 				bus.emitCommand({ kind: "submit_goal", data: { goal: text } });
 			},
-			onSlashCommand: (cmd: import("../tui/slash-commands.ts").SlashCommand) => {
+			onSlashCommand: async (cmd: import("../tui/slash-commands.ts").SlashCommand) => {
 				const result = handleSlashCommand(cmd, bus, controller);
 				if (result.action === "exit") unmount();
+				if (result.action === "start_web") {
+					if (webServer) {
+						bus.emitEvent("warning", "cli", 0, {
+							message: `Web UI already running at http://localhost:${webPort}`,
+						});
+					} else {
+						const { WebServer } = await import("../web/server.ts");
+						const staticDir = join(import.meta.dir, "../../web/dist");
+						webServer = new WebServer({ bus, port: webPort, staticDir, sessionId });
+						await webServer.start();
+						bus.emitEvent("warning", "cli", 0, {
+							message: `Web UI: http://localhost:${webPort}`,
+						});
+						Bun.spawn(["open", `http://localhost:${webPort}`]);
+					}
+				}
+				if (result.action === "stop_web") {
+					if (webServer) {
+						await webServer.stop();
+						webServer = null;
+						bus.emitEvent("warning", "cli", 0, { message: "Web server stopped." });
+					} else {
+						bus.emitEvent("warning", "cli", 0, { message: "Web server is not running." });
+					}
+				}
 			},
 			onSteer: (text: string) => {
 				inputHistory.add(text);

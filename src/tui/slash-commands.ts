@@ -6,6 +6,8 @@ export type SlashCommand =
 	| { kind: "clear" }
 	| { kind: "status" }
 	| { kind: "collapse_tools" }
+	| { kind: "web" }
+	| { kind: "web_stop" }
 	| { kind: "unknown"; raw: string };
 
 export function parseSlashCommand(input: string): SlashCommand | null {
@@ -31,6 +33,9 @@ export function parseSlashCommand(input: string): SlashCommand | null {
 			return { kind: "status" };
 		case "/collapse-tools":
 			return { kind: "collapse_tools" };
+		case "/web":
+			if (arg === "stop") return { kind: "web_stop" };
+			return { kind: "web" };
 		default:
 			return { kind: "unknown", raw: trimmed };
 	}

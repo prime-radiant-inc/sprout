@@ -41,6 +41,18 @@ describe("parseSlashCommand", () => {
 		expect(parseSlashCommand("/collapse-tools")).toEqual({ kind: "collapse_tools" });
 	});
 
+	test("parses /web", () => {
+		expect(parseSlashCommand("/web")).toEqual({ kind: "web" });
+	});
+
+	test("parses /web stop", () => {
+		expect(parseSlashCommand("/web stop")).toEqual({ kind: "web_stop" });
+	});
+
+	test("parses /web stop with extra whitespace", () => {
+		expect(parseSlashCommand("  /web   stop  ")).toEqual({ kind: "web_stop" });
+	});
+
 	test("returns unknown for unrecognized slash command", () => {
 		expect(parseSlashCommand("/foobar")).toEqual({ kind: "unknown", raw: "/foobar" });
 	});

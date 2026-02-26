@@ -379,6 +379,22 @@ describe("handleSlashCommand", () => {
 		expect(bus.commands).toEqual([{ kind: "quit", data: {} }]);
 		expect(result).toEqual({ action: "exit" });
 	});
+
+	test("web returns start_web action", () => {
+		const bus = makeBus();
+		const result = handleSlashCommand({ kind: "web" }, bus, controller);
+		expect(result).toEqual({ action: "start_web" });
+		expect(bus.commands).toHaveLength(0);
+		expect(bus.events).toHaveLength(0);
+	});
+
+	test("web_stop returns stop_web action", () => {
+		const bus = makeBus();
+		const result = handleSlashCommand({ kind: "web_stop" }, bus, controller);
+		expect(result).toEqual({ action: "stop_web" });
+		expect(bus.commands).toHaveLength(0);
+		expect(bus.events).toHaveLength(0);
+	});
 });
 
 describe("resume flow", () => {
