@@ -60,7 +60,9 @@ export class WebServer {
 
 				// WebSocket upgrade
 				if (req.headers.get("upgrade") === "websocket") {
-					server.upgrade(req, { data: undefined });
+					if (!server.upgrade(req, { data: undefined })) {
+						return new Response("WebSocket upgrade failed", { status: 400 });
+					}
 					return;
 				}
 

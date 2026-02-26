@@ -396,6 +396,17 @@ describe("WebServer", () => {
 		});
 	});
 
+	describe("WebSocket upgrade failure", () => {
+		test("returns 400 when WebSocket upgrade fails", async () => {
+			await server.start();
+			// Send a request with upgrade header but missing required WS headers
+			const res = await fetch(`http://localhost:${port}/`, {
+				headers: { upgrade: "websocket" },
+			});
+			expect(res.status).toBe(400);
+		});
+	});
+
 	describe("event buffer cap", () => {
 		test("buffer trims to EVENT_CAP when exceeding 2x cap", async () => {
 			await server.start();
