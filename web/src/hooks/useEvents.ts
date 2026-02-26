@@ -70,9 +70,9 @@ export class EventStore {
 	}
 
 	/** Create a sendCommand function bound to a specific send callback. */
-	createSendCommand(send: (msg: string) => void): (command: Command) => void {
+	createSendCommand(send: (msg: object) => void): (command: Command) => void {
 		return (command: Command) => {
-			send(JSON.stringify({ type: "command", command }));
+			send({ type: "command", command });
 		};
 	}
 
@@ -147,7 +147,7 @@ interface UseEventsResult {
  */
 export function useEvents(
 	lastMessage: ServerMessage | null,
-	send: (msg: string) => void,
+	send: (msg: object) => void,
 ): UseEventsResult {
 	const storeRef = useRef<EventStore | null>(null);
 	if (!storeRef.current) {

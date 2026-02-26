@@ -246,29 +246,29 @@ describe("EventStore", () => {
 
 	describe("sendCommand helper", () => {
 		test("wraps command in CommandMessage and sends via callback", () => {
-			const sent: string[] = [];
+			const sent: object[] = [];
 			const store = new EventStore();
-			const sendCommand = store.createSendCommand((msg: string) => sent.push(msg));
+			const sendCommand = store.createSendCommand((msg: object) => sent.push(msg));
 
 			sendCommand({ kind: "submit_goal", data: { goal: "hello" } });
 
 			expect(sent).toHaveLength(1);
-			const parsed = JSON.parse(sent[0]!);
-			expect(parsed).toEqual({
+			expect(sent[0]).toEqual({
 				type: "command",
 				command: { kind: "submit_goal", data: { goal: "hello" } },
 			});
 		});
 
 		test("sends interrupt command", () => {
-			const sent: string[] = [];
+			const sent: object[] = [];
 			const store = new EventStore();
-			const sendCommand = store.createSendCommand((msg: string) => sent.push(msg));
+			const sendCommand = store.createSendCommand((msg: object) => sent.push(msg));
 
 			sendCommand({ kind: "interrupt", data: {} });
 
-			const parsed = JSON.parse(sent[0]!);
-			expect(parsed.command.kind).toBe("interrupt");
+			expect((sent[0] as Record<string, unknown>).type).toBe("command");
+			const command = (sent[0] as { command: { kind: string } }).command;
+			expect(command.kind).toBe("interrupt");
 		});
 	});
 
