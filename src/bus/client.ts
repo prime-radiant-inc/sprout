@@ -4,9 +4,6 @@ type ClientAction =
 	| { action: "unsubscribe"; topic: string }
 	| { action: "publish"; topic: string; payload: string };
 
-/** Wire-protocol message received from the bus server */
-type DeliveryMessage = { topic: string; payload: string };
-
 /**
  * WebSocket client for the bus pub/sub server.
  * Provides a clean API over the raw JSON wire protocol.
@@ -15,6 +12,7 @@ export class BusClient {
 	private readonly url: string;
 	private ws: WebSocket | null = null;
 	private callbacks = new Map<string, Set<(payload: string) => void>>();
+	private pendingAcks = new Map<string, (() => void)[]>();
 
 	constructor(url: string) {
 		this.url = url;
@@ -51,6 +49,7 @@ export class BusClient {
 			const ws = this.ws;
 			this.ws = null;
 			this.callbacks.clear();
+			this.pendingAcks.clear();
 
 			if (ws.readyState === WebSocket.CLOSED) {
 				resolve();
@@ -65,6 +64,7 @@ export class BusClient {
 	/**
 	 * Subscribe to a topic. Sends a subscribe action to the server and
 	 * registers a local callback. Multiple callbacks per topic are allowed.
+	 * Resolves only after the server acknowledges the subscription.
 	 */
 	async subscribe(topic: string, callback: (payload: string) => void): Promise<void> {
 		this.requireConnection();
@@ -81,6 +81,7 @@ export class BusClient {
 
 		if (isFirst) {
 			this.send({ action: "subscribe", topic });
+			await this.awaitAck(topic);
 		}
 	}
 
@@ -103,9 +104,26 @@ export class BusClient {
 	/**
 	 * Subscribe to a topic, resolve with the first message received,
 	 * then unsubscribe. Rejects if no message arrives within timeoutMs.
+	 * Awaits the server subscribe ack before listening for messages.
 	 */
-	waitForMessage(topic: string, timeoutMs = 30_000): Promise<string> {
+	async waitForMessage(topic: string, timeoutMs = 30_000): Promise<string> {
 		this.requireConnection();
+
+		let cbs = this.callbacks.get(topic);
+		const isFirst = !cbs || cbs.size === 0;
+		if (!cbs) {
+			cbs = new Set();
+			this.callbacks.set(topic, cbs);
+		}
+
+		if (isFirst) {
+			this.send({ action: "subscribe", topic });
+			// Add a placeholder so the Set is non-empty during ack wait
+			const placeholder = () => {};
+			cbs.add(placeholder);
+			await this.awaitAck(topic);
+			cbs.delete(placeholder);
+		}
 
 		return new Promise((resolve, reject) => {
 			let settled = false;
@@ -125,25 +143,33 @@ export class BusClient {
 				resolve(payload);
 			};
 
-			let cbs = this.callbacks.get(topic);
-			if (!cbs) {
-				cbs = new Set();
-				this.callbacks.set(topic, cbs);
-				this.send({ action: "subscribe", topic });
-			}
-			cbs.add(callback);
+			cbs!.add(callback);
 		});
 	}
 
 	private handleMessage(ev: MessageEvent): void {
-		let msg: DeliveryMessage;
+		let msg: Record<string, unknown>;
 		try {
 			msg = JSON.parse(ev.data as string);
 		} catch {
 			return;
 		}
 
-		if (!msg || typeof msg.topic !== "string") return;
+		if (!msg || typeof msg !== "object") return;
+
+		// Handle subscribe acknowledgment
+		if (msg.action === "subscribed" && typeof msg.topic === "string") {
+			const acks = this.pendingAcks.get(msg.topic);
+			if (acks) {
+				const resolve = acks.shift();
+				if (resolve) resolve();
+				if (acks.length === 0) this.pendingAcks.delete(msg.topic);
+			}
+			return;
+		}
+
+		// Handle normal delivery
+		if (typeof msg.topic !== "string" || typeof msg.payload !== "string") return;
 
 		const cbs = this.callbacks.get(msg.topic);
 		if (!cbs) return;
@@ -155,6 +181,23 @@ export class BusClient {
 				// Don't let one callback failure prevent others from firing
 			}
 		}
+	}
+
+	/** Register an ack resolver for a topic (used by waitForMessage). */
+	private registerAck(topic: string, resolve: () => void): void {
+		let acks = this.pendingAcks.get(topic);
+		if (!acks) {
+			acks = [];
+			this.pendingAcks.set(topic, acks);
+		}
+		acks.push(resolve);
+	}
+
+	/** Wait for the server to acknowledge a subscribe for a topic. */
+	private awaitAck(topic: string): Promise<void> {
+		return new Promise<void>((resolve) => {
+			this.registerAck(topic, resolve);
+		});
 	}
 
 	private send(msg: ClientAction): void {

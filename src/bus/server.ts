@@ -7,7 +7,9 @@ type ClientMessage =
 	| { action: "publish"; topic: string; payload: string };
 
 /** Wire-protocol message from server to client */
-type DeliveryMessage = { topic: string; payload: string };
+type ServerMessage =
+	| { topic: string; payload: string }
+	| { action: "subscribed"; topic: string };
 
 type WSData = { id: number };
 
@@ -128,6 +130,7 @@ export class BusServer {
 			this.clientTopics.set(ws, topics);
 		}
 		topics.add(msg.topic);
+		ws.send(JSON.stringify({ action: "subscribed", topic: msg.topic }));
 	}
 
 	private handleUnsubscribe(ws: ServerWebSocket<WSData>, msg: { topic: string }): void {
@@ -157,7 +160,7 @@ export class BusServer {
 		const subs = this.subscriptions.get(msg.topic);
 		if (!subs) return;
 
-		const delivery: DeliveryMessage = {
+		const delivery: ServerMessage = {
 			topic: msg.topic,
 			payload: msg.payload,
 		};

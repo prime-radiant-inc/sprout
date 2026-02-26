@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { BusClient } from "../../src/bus/client.ts";
 import { BusServer } from "../../src/bus/server.ts";
 
-// Brief delay for message propagation (subscribe is fire-and-forget)
+// Brief delay for message propagation (publish/unsubscribe are fire-and-forget)
 function delay(ms = 50): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -40,7 +40,6 @@ describe("BusClient", () => {
 		await sub.subscribe("test/topic", (payload) => {
 			received.push(payload);
 		});
-		await delay();
 
 		await pub.publish("test/topic", "hello");
 		await delay();
@@ -61,7 +60,6 @@ describe("BusClient", () => {
 		const second: string[] = [];
 		await sub.subscribe("test/multi", (payload) => first.push(payload));
 		await sub.subscribe("test/multi", (payload) => second.push(payload));
-		await delay();
 
 		await pub.publish("test/multi", "broadcast");
 		await delay();
@@ -83,7 +81,6 @@ describe("BusClient", () => {
 		await sub.subscribe("test/unsub", (payload) => {
 			received.push(payload);
 		});
-		await delay();
 
 		await pub.publish("test/unsub", "first");
 		await delay();
@@ -108,7 +105,6 @@ describe("BusClient", () => {
 		await sub.connect();
 
 		const promise = sub.waitForMessage("test/wait", 2000);
-		await delay();
 
 		await pub.publish("test/wait", "got-it");
 
@@ -144,7 +140,6 @@ describe("BusClient", () => {
 
 		// First waitForMessage should resolve
 		const promise = sub.waitForMessage("test/once", 2000);
-		await delay();
 		await pub.publish("test/once", "first");
 		expect(await promise).toBe("first");
 
@@ -156,13 +151,32 @@ describe("BusClient", () => {
 		// Subscribe fresh to verify cleanup happened
 		const received: string[] = [];
 		await sub.subscribe("test/once", (p) => received.push(p));
-		await delay();
 
 		await pub.publish("test/once", "second");
 		await delay();
 
 		// Only the fresh subscribe callback should receive this
 		expect(received).toEqual(["second"]);
+
+		await pub.disconnect();
+		await sub.disconnect();
+	});
+
+	test("subscribe resolves only after server ack", async () => {
+		const pub = new BusClient(server.url);
+		const sub = new BusClient(server.url);
+		await pub.connect();
+		await sub.connect();
+
+		const received: string[] = [];
+		await sub.subscribe("test/ack", (p) => received.push(p));
+
+		// No delay() — subscribe should have awaited the server ack,
+		// so the subscription is guaranteed to be active
+		await pub.publish("test/ack", "instant");
+		await delay(30); // small delay for publish delivery (fire-and-forget)
+
+		expect(received).toEqual(["instant"]);
 
 		await pub.disconnect();
 		await sub.disconnect();
@@ -176,7 +190,6 @@ describe("BusClient", () => {
 
 		const received: string[] = [];
 		await sub.subscribe("test/dc", (payload) => received.push(payload));
-		await delay();
 
 		await sub.disconnect();
 

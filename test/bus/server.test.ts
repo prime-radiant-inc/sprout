@@ -10,8 +10,8 @@ function connect(url: string): Promise<WebSocket> {
 	});
 }
 
-// Helper: wait for next message on a WebSocket
-function nextMessage(ws: WebSocket, timeoutMs = 2000): Promise<unknown> {
+// Helper: wait for next raw message on a WebSocket (includes ack messages)
+function nextRawMessage(ws: WebSocket, timeoutMs = 2000): Promise<unknown> {
 	return new Promise((resolve, reject) => {
 		const timer = setTimeout(() => reject(new Error("Timed out waiting for message")), timeoutMs);
 		ws.addEventListener(
@@ -25,11 +25,28 @@ function nextMessage(ws: WebSocket, timeoutMs = 2000): Promise<unknown> {
 	});
 }
 
-// Helper: collect messages on a WebSocket into an array
+// Helper: wait for next non-ack message on a WebSocket
+function nextMessage(ws: WebSocket, timeoutMs = 2000): Promise<unknown> {
+	return new Promise((resolve, reject) => {
+		const timer = setTimeout(() => reject(new Error("Timed out waiting for message")), timeoutMs);
+		const handler = (ev: MessageEvent) => {
+			const msg = JSON.parse(ev.data as string);
+			if (msg.action === "subscribed") return; // skip acks
+			clearTimeout(timer);
+			ws.removeEventListener("message", handler);
+			resolve(msg);
+		};
+		ws.addEventListener("message", handler);
+	});
+}
+
+// Helper: collect non-ack messages on a WebSocket into an array
 function collectMessages(ws: WebSocket): unknown[] {
 	const messages: unknown[] = [];
 	ws.addEventListener("message", (ev) => {
-		messages.push(JSON.parse(ev.data as string));
+		const msg = JSON.parse(ev.data as string);
+		if (msg.action === "subscribed") return; // skip acks
+		messages.push(msg);
 	});
 	return messages;
 }
@@ -265,5 +282,16 @@ describe("BusServer", () => {
 
 	test("url returns a connectable WebSocket URL", () => {
 		expect(server.url).toMatch(/^ws:\/\/localhost:\d+$/);
+	});
+
+	test("subscribe sends ack back to client", async () => {
+		const ws = await connect(server.url);
+
+		send(ws, { action: "subscribe", topic: "test/ack" });
+
+		const ack = await nextRawMessage(ws);
+		expect(ack).toEqual({ action: "subscribed", topic: "test/ack" });
+
+		ws.close();
 	});
 });
