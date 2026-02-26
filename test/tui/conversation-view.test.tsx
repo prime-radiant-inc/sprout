@@ -46,59 +46,7 @@ describe("ConversationView", () => {
 		expect(frame).toContain("root-msg");
 		expect(frame).toContain("sub-msg");
 		// Depth-1 events get a left box border character
-		expect(frame).toContain("│");
-	});
-
-	test("caps visible lines to maxHeight", async () => {
-		const bus = new EventBus();
-		const { lastFrame } = render(<ConversationView bus={bus} maxHeight={3} />);
-
-		for (let i = 0; i < 10; i++) {
-			bus.emitEvent("warning", "cli", 0, { message: `line-${i}` });
-		}
-		await flush();
-
-		const frame = lastFrame()!;
-		expect(frame).toContain("line-7");
-		expect(frame).toContain("line-8");
-		expect(frame).toContain("line-9");
-		expect(frame).not.toContain("line-0");
-	});
-
-	test("PgUp enters scroll mode preventing auto-scroll", async () => {
-		const bus = new EventBus();
-		const { lastFrame, stdin } = render(<ConversationView bus={bus} maxHeight={3} />);
-
-		for (let i = 0; i < 6; i++) {
-			bus.emitEvent("warning", "cli", 0, { message: `line-${i}` });
-		}
-		await flush();
-
-		expect(lastFrame()).toContain("line-5");
-
-		stdin.write("\x1B[5~"); // PgUp
-		await flush();
-
-		expect(lastFrame()).toContain("line-0");
-	});
-
-	test("PgDown returns to auto-scroll after PgUp", async () => {
-		const bus = new EventBus();
-		const { lastFrame, stdin } = render(<ConversationView bus={bus} maxHeight={3} />);
-
-		for (let i = 0; i < 6; i++) {
-			bus.emitEvent("warning", "cli", 0, { message: `line-${i}` });
-		}
-		await flush();
-		expect(lastFrame()).toContain("line-5");
-
-		stdin.write("\x1B[5~"); // PgUp
-		await flush();
-		expect(lastFrame()).toContain("line-0");
-
-		stdin.write("\x1B[6~"); // PgDown
-		await flush();
-		expect(lastFrame()).toContain("line-5");
+		expect(frame).toContain("\u2502");
 	});
 
 	test("renders events with appropriate content", async () => {
@@ -114,48 +62,42 @@ describe("ConversationView", () => {
 		expect(frame).toContain("heads up");
 	});
 
-	test("Tab toggles tool call detail visibility", async () => {
+	test("Tab hides tool events received after toggle", async () => {
 		const bus = new EventBus();
 		const { lastFrame, stdin } = render(<ConversationView bus={bus} />);
+
+		// Toggle tools collapsed BEFORE emitting tool events
+		stdin.write("\t");
+		await flush();
 
 		bus.emitEvent("perceive", "root", 0, { goal: "test goal" });
 		bus.emitEvent("primitive_start", "root", 0, { name: "exec", args: { command: "ls" } });
 		bus.emitEvent("primitive_end", "root", 0, { name: "exec", success: true, result: "ok" });
 		await flush();
 
-		expect(lastFrame()).toContain("exec");
-
-		stdin.write("\t");
-		await flush();
-
-		// Tool events hidden, user message remains
+		// Tool events should be hidden, user message visible
 		expect(lastFrame()).not.toContain("exec");
 		expect(lastFrame()).toContain("test goal");
-
-		stdin.write("\t");
-		await flush();
-		expect(lastFrame()).toContain("exec");
 	});
 
-	test("tool collapse hides act_start and act_end events", async () => {
+	test("Tab hides act_start and act_end events received after toggle", async () => {
 		const bus = new EventBus();
 		const { lastFrame, stdin } = render(<ConversationView bus={bus} />);
+
+		// Toggle tools collapsed BEFORE emitting events
+		stdin.write("\t");
+		await flush();
 
 		bus.emitEvent("perceive", "root", 0, { goal: "test" });
 		bus.emitEvent("act_start", "root", 0, { agent_name: "helper", goal: "do stuff" });
 		bus.emitEvent("act_end", "root", 0, { agent_name: "helper", success: true, turns: 3 });
 		await flush();
 
-		expect(lastFrame()).toContain("helper");
-
-		stdin.write("\t");
-		await flush();
-
 		expect(lastFrame()).not.toContain("helper");
 		expect(lastFrame()).toContain("test");
 	});
 
-	test("session_clear event clears all lines", async () => {
+	test("session_clear adds separator but previous Static items remain", async () => {
 		const bus = new EventBus();
 		const { lastFrame } = render(<ConversationView bus={bus} />);
 
@@ -165,44 +107,8 @@ describe("ConversationView", () => {
 
 		bus.emitEvent("session_clear", "session", 0, { new_session_id: "abc" });
 		await flush();
-		expect(lastFrame()).not.toContain("old content");
-	});
-
-	test("shows scroll indicator when scrolled up", async () => {
-		const bus = new EventBus();
-		const { lastFrame, stdin } = render(<ConversationView bus={bus} maxHeight={3} />);
-
-		for (let i = 0; i < 10; i++) {
-			bus.emitEvent("warning", "agent", 0, { message: `Line ${i}` });
-		}
-		await flush();
-		expect(lastFrame()).not.toContain("SCROLL");
-
-		stdin.write("\x1B[5~");
-		await flush();
-		expect(lastFrame()).toContain("SCROLL");
-	});
-
-	test("scroll indicator disappears when returning to auto-scroll", async () => {
-		const bus = new EventBus();
-		const { lastFrame, stdin } = render(<ConversationView bus={bus} maxHeight={3} />);
-
-		for (let i = 0; i < 10; i++) {
-			bus.emitEvent("warning", "agent", 0, { message: `Line ${i}` });
-		}
-		await flush();
-
-		stdin.write("\x1B[5~");
-		await flush();
-		expect(lastFrame()).toContain("SCROLL");
-
-		// PgDown past end to resume
-		for (let j = 0; j < 5; j++) {
-			stdin.write("\x1B[6~");
-			await flush();
-		}
-
-		expect(lastFrame()).not.toContain("SCROLL");
+		// Static items can't be removed, but session_clear line should appear
+		expect(lastFrame()).toContain("New session");
 	});
 
 	test("renders initialEvents on mount", async () => {

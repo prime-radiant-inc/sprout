@@ -1,14 +1,13 @@
-import { Box, Text, useInput } from "ink";
+import { Box, Static, useInput } from "ink";
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import type { SessionBus } from "../host/event-bus.ts";
 import type { EventKind, SessionEvent } from "../kernel/types.ts";
 import { renderEventComponent } from "./event-components.tsx";
 
-interface Line {
+interface StaticLine {
 	id: number;
 	node: ReactNode;
-	kind: EventKind;
 }
 
 const TOOL_DETAIL_KINDS: Set<EventKind> = new Set([
@@ -20,7 +19,7 @@ const TOOL_DETAIL_KINDS: Set<EventKind> = new Set([
 
 export interface ConversationViewProps {
 	bus: SessionBus;
-	/** Maximum number of lines to show. When exceeded, viewport scrolls. */
+	/** @deprecated No longer used — Static handles scrollback natively. */
 	maxHeight?: number;
 	/** Historical events to display before new events (for resume). */
 	initialEvents?: SessionEvent[];
@@ -64,40 +63,49 @@ function trackDuration(event: SessionEvent, startTimes: Map<string, number>): nu
 	return startTime != null ? event.timestamp - startTime : null;
 }
 
-export function ConversationView({ bus, maxHeight, initialEvents }: ConversationViewProps) {
+export function ConversationView({ bus, initialEvents }: ConversationViewProps) {
 	const nextId = useRef(0);
 	const startTimes = useRef(new Map<string, number>());
+	const [toolsCollapsed, setToolsCollapsed] = useState(false);
+	const toolsCollapsedRef = useRef(toolsCollapsed);
 
-	// Compute initial lines from initialEvents (runs once via lazy initializer)
-	const [lines, setLines] = useState<Line[]>(() => {
+	// Keep ref in sync for use inside event callback
+	useEffect(() => {
+		toolsCollapsedRef.current = toolsCollapsed;
+	}, [toolsCollapsed]);
+
+	const [committedLines, setCommittedLines] = useState<StaticLine[]>(() => {
 		if (!initialEvents) return [];
-		const initial: Line[] = [];
+		const initial: StaticLine[] = [];
 		for (const event of initialEvents) {
 			const durationMs = trackDuration(event, startTimes.current);
 			const node = renderEventComponent(event, durationMs);
 			if (node !== null) {
-				initial.push({ id: nextId.current++, node, kind: event.kind });
+				initial.push({ id: nextId.current++, node });
 			}
 		}
 		return initial;
 	});
-	const [scrollOffset, setScrollOffset] = useState<number | null>(null);
-	const [toolsCollapsed, setToolsCollapsed] = useState(false);
 
 	useEffect(() => {
 		return bus.onEvent((event: SessionEvent) => {
 			if (event.kind === "session_clear") {
-				setLines([]);
-				setScrollOffset(null);
 				startTimes.current.clear();
+				const node = renderEventComponent(event, null);
+				if (node !== null) {
+					const id = nextId.current++;
+					setCommittedLines((prev) => [...prev, { id, node }]);
+				}
 				return;
 			}
 			if (event.kind === "exit_hint") return;
+
 			const durationMs = trackDuration(event, startTimes.current);
 			const node = renderEventComponent(event, durationMs);
 			if (node !== null) {
+				if (toolsCollapsedRef.current && TOOL_DETAIL_KINDS.has(event.kind)) return;
 				const id = nextId.current++;
-				setLines((prev) => [...prev, { id, node, kind: event.kind }]);
+				setCommittedLines((prev) => [...prev, { id, node }]);
 			}
 		});
 	}, [bus]);
@@ -105,48 +113,8 @@ export function ConversationView({ bus, maxHeight, initialEvents }: Conversation
 	useInput((_input, key) => {
 		if (key.tab) {
 			setToolsCollapsed((prev) => !prev);
-			return;
-		}
-
-		if (!maxHeight) return;
-
-		if (key.pageUp) {
-			setScrollOffset((prev) => {
-				const current = prev ?? lines.length;
-				return Math.max(maxHeight, current - maxHeight);
-			});
-		}
-
-		if (key.pageDown) {
-			setScrollOffset((prev) => {
-				if (prev === null) return null;
-				const next = prev + maxHeight;
-				if (next >= lines.length) return null;
-				return next;
-			});
 		}
 	});
 
-	const filtered = toolsCollapsed ? lines.filter((l) => !TOOL_DETAIL_KINDS.has(l.kind)) : lines;
-
-	let visible: Line[];
-	if (!maxHeight) {
-		visible = filtered;
-	} else if (scrollOffset === null) {
-		visible = filtered.slice(-maxHeight);
-	} else {
-		const start = Math.max(0, scrollOffset - maxHeight);
-		visible = filtered.slice(start, scrollOffset);
-	}
-
-	return (
-		<Box flexDirection="column" flexGrow={1}>
-			{visible.map((line) => (
-				<Box key={line.id}>{line.node}</Box>
-			))}
-			{scrollOffset !== null && (
-				<Text dimColor>-- SCROLL (PgDown to continue, PgDown past end to resume) --</Text>
-			)}
-		</Box>
-	);
+	return <Static items={committedLines}>{(line) => <Box key={line.id}>{line.node}</Box>}</Static>;
 }

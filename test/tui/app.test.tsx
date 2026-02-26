@@ -226,19 +226,18 @@ describe("App", () => {
 		expect(lastFrame()).toContain("test warning");
 	});
 
-	test("caps visible conversation lines via maxHeight", async () => {
+	test("renders all conversation lines (Static handles scrollback)", async () => {
 		const { bus, lastFrame } = setup();
 
-		for (let i = 0; i < 100; i++) {
+		for (let i = 0; i < 10; i++) {
 			bus.emitEvent("warning", "root", 0, { message: `warn-${i}` });
 		}
 		await flush();
 
 		const frame = lastFrame();
-		// The earliest warnings should be scrolled off
-		expect(frame).not.toContain("warn-0");
-		// The latest warnings should still be visible
-		expect(frame).toContain("warn-99");
+		// Static renders all lines — no viewport slicing
+		expect(frame).toContain("warn-0");
+		expect(frame).toContain("warn-9");
 	});
 
 	test("Ctrl+C while running emits interrupt command on bus", async () => {
