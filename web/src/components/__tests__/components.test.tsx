@@ -77,6 +77,14 @@ describe("MarkdownBlock", () => {
 		const html = renderToStaticMarkup(<MarkdownBlock content="" />);
 		expect(html).toBeDefined();
 	});
+
+	test("sanitizes dangerous HTML in markdown", () => {
+		const html = renderToStaticMarkup(
+			<MarkdownBlock content='<img src=x onerror="alert(1)">' />,
+		);
+		expect(html).not.toContain("onerror");
+		expect(html).toContain("<img");
+	});
 });
 
 // --- UserMessage ---

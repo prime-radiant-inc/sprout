@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "isomorphic-dompurify": "^3.0.0",
     "marked": "^17.0.3",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
