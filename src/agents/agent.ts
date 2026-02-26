@@ -492,11 +492,14 @@ export class Agent {
 	): Promise<{ toolResultMsg: Message; stumbles: number; output?: string }> {
 		if (!this.spawner) {
 			const errorMsg = `${cmd.kind} requires a bus-based spawner, but none is available`;
-			this.emitAndLog("error", agentId, this.depth, { error: errorMsg });
-			return {
-				toolResultMsg: Msg.toolResult(cmd.call_id, `Error: ${errorMsg}`, true),
-				stumbles: 1,
-			};
+			const toolResultMsg = Msg.toolResult(cmd.call_id, `Error: ${errorMsg}`, true);
+			this.emitAndLog("act_end", agentId, this.depth, {
+				agent_name: cmd.kind,
+				success: false,
+				error: errorMsg,
+				tool_result_message: toolResultMsg,
+			});
+			return { toolResultMsg, stumbles: 1 };
 		}
 
 		const caller: CallerIdentity = { agent_name: this.spec.name, depth: this.depth };
@@ -506,6 +509,11 @@ export class Agent {
 				const result = await this.spawner.waitAgent(cmd.handle, caller);
 				const content = truncateToolOutput(result.output, "wait_agent");
 				const toolResultMsg = Msg.toolResult(cmd.call_id, content);
+				this.emitAndLog("act_end", agentId, this.depth, {
+					agent_name: cmd.kind,
+					success: result.success,
+					tool_result_message: toolResultMsg,
+				});
 				return { toolResultMsg, stumbles: result.success ? 0 : 1, output: result.output };
 			}
 
@@ -515,19 +523,32 @@ export class Agent {
 
 			if (!blocking || !result) {
 				const toolResultMsg = Msg.toolResult(cmd.call_id, "Message sent.");
+				this.emitAndLog("act_end", agentId, this.depth, {
+					agent_name: cmd.kind,
+					success: true,
+					tool_result_message: toolResultMsg,
+				});
 				return { toolResultMsg, stumbles: 0 };
 			}
 
 			const content = truncateToolOutput(result.output, "message_agent");
 			const toolResultMsg = Msg.toolResult(cmd.call_id, content);
+			this.emitAndLog("act_end", agentId, this.depth, {
+				agent_name: cmd.kind,
+				success: result.success,
+				tool_result_message: toolResultMsg,
+			});
 			return { toolResultMsg, stumbles: result.success ? 0 : 1, output: result.output };
 		} catch (err) {
 			const errorMsg = `${cmd.kind} failed: ${String(err)}`;
-			this.emitAndLog("error", agentId, this.depth, { error: errorMsg });
-			return {
-				toolResultMsg: Msg.toolResult(cmd.call_id, `Error: ${errorMsg}`, true),
-				stumbles: 1,
-			};
+			const toolResultMsg = Msg.toolResult(cmd.call_id, `Error: ${errorMsg}`, true);
+			this.emitAndLog("act_end", agentId, this.depth, {
+				agent_name: cmd.kind,
+				success: false,
+				error: errorMsg,
+				tool_result_message: toolResultMsg,
+			});
+			return { toolResultMsg, stumbles: 1 };
 		}
 	}
 
@@ -746,14 +767,21 @@ export class Agent {
 			if (response.finish_reason.reason === "length" && toolCalls.length > 0) {
 				// Add error tool results for all truncated calls so history stays valid
 				for (const call of toolCalls) {
-					this.history.push(
-						Msg.toolResult(
-							call.id,
-							"Error: Your response was truncated (hit max_tokens limit). " +
-								"Break your task into smaller steps — don't try to write large amounts of code in a single tool call argument.",
-							true,
-						),
+					const toolResultMsg = Msg.toolResult(
+						call.id,
+						"Error: Your response was truncated (hit max_tokens limit). " +
+							"Break your task into smaller steps — don't try to write large amounts of code in a single tool call argument.",
+						true,
 					);
+					this.history.push(toolResultMsg);
+					this.emitAndLog("primitive_end", agentId, this.depth, {
+						name: call.name,
+						success: false,
+						stumbled: true,
+						output: "",
+						error: "Response truncated (max_tokens)",
+						tool_result_message: toolResultMsg,
+					});
 				}
 				this.emitAndLog("warning", agentId, this.depth, {
 					message: "Response truncated (max_tokens). Asking agent to use smaller steps.",
@@ -850,6 +878,7 @@ export class Agent {
 						stumbled: true,
 						output: "",
 						error: pathDenied,
+						tool_result_message: toolResultMsg,
 					});
 					stumbles++;
 					continue;

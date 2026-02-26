@@ -1375,4 +1375,332 @@ describe("SessionController", () => {
 		const resumeEvents = events.filter((e) => e.kind === "session_resume");
 		expect(resumeEvents).toHaveLength(1);
 	});
+
+	test("multi-turn history with delegation preserves tool_result for next run", async () => {
+		// Reproduces: Anthropic 400 "tool_use ids found without tool_result blocks"
+		// when a second submitGoal follows a run that used a delegation tool.
+		//
+		// The factory simulates a real agent that:
+		// Run 1: simple text response
+		// Run 2: uses a delegation (tool_call → tool_result → text response)
+		// Run 3: should have all prior messages including the tool_result
+
+		const capturedHistories: Array<import("../../src/llm/types.ts").Message[] | undefined> = [];
+		let runCount = 0;
+
+		const factory: AgentFactory = async (options) => {
+			capturedHistories.push(options.initialHistory ? [...options.initialHistory] : undefined);
+			const currentRun = ++runCount;
+
+			return {
+				agent: {
+					steer() {},
+					requestCompaction() {},
+					async run(goal: string) {
+						if (currentRun === 1) {
+							// Run 1: simple greeting response
+							options.events.emitEvent("perceive", "root", 0, { goal });
+							const assistantMsg: import("../../src/llm/types.ts").Message = {
+								role: "assistant",
+								content: [{ kind: "text", text: "Hi there!" }],
+							};
+							options.events.emitEvent("plan_end", "root", 0, {
+								turn: 1,
+								finish_reason: "stop",
+								assistant_message: assistantMsg,
+								context_tokens: 100,
+								context_window_size: 200000,
+							});
+						} else if (currentRun === 2) {
+							// Run 2: delegation (tool_call → tool_result → text)
+							options.events.emitEvent("perceive", "root", 0, { goal });
+
+							// Turn 1: assistant calls delegate tool
+							const toolCallMsg: import("../../src/llm/types.ts").Message = {
+								role: "assistant",
+								content: [
+									{
+										kind: "tool_call",
+										tool_call: {
+											id: "toolu_delegate_001",
+											name: "delegate",
+											arguments: { agent_name: "runner", goal: "run ls" },
+										},
+									},
+								],
+							};
+							options.events.emitEvent("plan_end", "root", 0, {
+								turn: 1,
+								finish_reason: "tool_calls",
+								assistant_message: toolCallMsg,
+								context_tokens: 200,
+								context_window_size: 200000,
+							});
+
+							// Delegation result
+							const toolResultMsg: import("../../src/llm/types.ts").Message = {
+								role: "tool",
+								content: [
+									{
+										kind: "tool_result",
+										tool_result: {
+											tool_call_id: "toolu_delegate_001",
+											content: "file1.ts\nfile2.ts",
+											is_error: false,
+										},
+									},
+								],
+								tool_call_id: "toolu_delegate_001",
+							};
+							options.events.emitEvent("act_end", "root", 0, {
+								agent_name: "runner",
+								success: true,
+								tool_result_message: toolResultMsg,
+							});
+
+							// Turn 2: assistant text response
+							const textMsg: import("../../src/llm/types.ts").Message = {
+								role: "assistant",
+								content: [{ kind: "text", text: "Here are the files." }],
+							};
+							options.events.emitEvent("plan_end", "root", 0, {
+								turn: 2,
+								finish_reason: "stop",
+								assistant_message: textMsg,
+								context_tokens: 300,
+								context_window_size: 200000,
+							});
+						} else {
+							// Run 3: just emits perceive (we only care about the initialHistory)
+							options.events.emitEvent("perceive", "root", 0, { goal });
+							const assistantMsg: import("../../src/llm/types.ts").Message = {
+								role: "assistant",
+								content: [{ kind: "text", text: "Sure." }],
+							};
+							options.events.emitEvent("plan_end", "root", 0, {
+								turn: 1,
+								finish_reason: "stop",
+								assistant_message: assistantMsg,
+								context_tokens: 400,
+								context_window_size: 200000,
+							});
+						}
+						return { output: "done", success: true, stumbles: 0, turns: 1, timed_out: false };
+					},
+				} as any,
+				learnProcess: null,
+			};
+		};
+
+		const { controller } = makeController({ factory });
+
+		// Run 1: simple greeting
+		await controller.submitGoal("hi");
+		// Run 2: delegation
+		await controller.submitGoal("can you ls?");
+		// Run 3: follow-up — should have all history including tool_result
+		await controller.submitGoal("tell me about the ls");
+
+		// Verify Run 3 received correct initialHistory
+		const run3History = capturedHistories[2];
+		expect(run3History).toBeDefined();
+
+		// History should contain: user, assistant, user, assistant(tool_call), tool_result, assistant, (goal added by agent)
+		// So initialHistory (before goal) should be 6 messages
+		expect(run3History!.length).toBe(6);
+
+		// Check the tool_call message is present
+		const toolCallMsg = run3History!.find(
+			(m) => m.role === "assistant" && m.content.some((c) => c.kind === "tool_call"),
+		);
+		expect(toolCallMsg).toBeDefined();
+
+		// Check the tool_result message is present
+		const toolResultMsg = run3History!.find(
+			(m) => m.role === "tool" && m.content.some((c) => c.kind === "tool_result"),
+		);
+		expect(toolResultMsg).toBeDefined();
+		expect(toolResultMsg!.content[0]!.tool_result?.tool_call_id).toBe("toolu_delegate_001");
+
+		// Verify correct ordering: tool_call must immediately precede tool_result
+		const toolCallIdx = run3History!.indexOf(toolCallMsg!);
+		const toolResultIdx = run3History!.indexOf(toolResultMsg!);
+		expect(toolResultIdx).toBe(toolCallIdx + 1);
+	});
+
+	test("multi-turn history with agent command error preserves tool_result for next run", async () => {
+		// Reproduces: Anthropic 400 when message_agent fails and its tool_result
+		// is NOT emitted via act_end/primitive_end, so SessionController misses it.
+
+		const capturedHistories: Array<import("../../src/llm/types.ts").Message[] | undefined> = [];
+		let runCount = 0;
+
+		const factory: AgentFactory = async (options) => {
+			capturedHistories.push(options.initialHistory ? [...options.initialHistory] : undefined);
+			const currentRun = ++runCount;
+
+			return {
+				agent: {
+					steer() {},
+					requestCompaction() {},
+					async run(goal: string) {
+						if (currentRun === 1) {
+							// Run 1: delegation + message_agent that fails
+							options.events.emitEvent("perceive", "root", 0, { goal });
+
+							// Turn 1: delegate (shared)
+							const delegateMsg: import("../../src/llm/types.ts").Message = {
+								role: "assistant",
+								content: [
+									{
+										kind: "tool_call",
+										tool_call: {
+											id: "toolu_delegate_002",
+											name: "delegate",
+											arguments: { agent_name: "runner", goal: "run ls", shared: true },
+										},
+									},
+								],
+							};
+							options.events.emitEvent("plan_end", "root", 0, {
+								turn: 1,
+								finish_reason: "tool_calls",
+								assistant_message: delegateMsg,
+								context_tokens: 200,
+								context_window_size: 200000,
+							});
+
+							const delegateResult: import("../../src/llm/types.ts").Message = {
+								role: "tool",
+								content: [
+									{
+										kind: "tool_result",
+										tool_result: {
+											tool_call_id: "toolu_delegate_002",
+											content: "file1.ts\nfile2.ts",
+											is_error: false,
+										},
+									},
+								],
+								tool_call_id: "toolu_delegate_002",
+							};
+							options.events.emitEvent("act_end", "root", 0, {
+								agent_name: "runner",
+								success: true,
+								tool_result_message: delegateResult,
+							});
+
+							// Turn 2: message_agent that FAILS
+							const messageAgentMsg: import("../../src/llm/types.ts").Message = {
+								role: "assistant",
+								content: [
+									{ kind: "text", text: "Let me ask the agent:" },
+									{
+										kind: "tool_call",
+										tool_call: {
+											id: "toolu_msg_agent_003",
+											name: "message_agent",
+											arguments: { handle: "some_handle", message: "how do you feel?" },
+										},
+									},
+								],
+							};
+							options.events.emitEvent("plan_end", "root", 0, {
+								turn: 2,
+								finish_reason: "tool_calls",
+								assistant_message: messageAgentMsg,
+								context_tokens: 300,
+								context_window_size: 200000,
+							});
+
+							// message_agent fails — emit act_end with tool_result_message
+							// (Agent.executeAgentCommand now emits act_end for agent commands)
+							const messageAgentResult: import("../../src/llm/types.ts").Message = {
+								role: "tool",
+								content: [
+									{
+										kind: "tool_result",
+										tool_result: {
+											tool_call_id: "toolu_msg_agent_003",
+											content: "Error: message_agent failed: Unknown handle",
+											is_error: true,
+										},
+									},
+								],
+								tool_call_id: "toolu_msg_agent_003",
+							};
+							options.events.emitEvent("act_end", "root", 0, {
+								agent_name: "message_agent",
+								success: false,
+								error: "message_agent failed: Unknown handle",
+								tool_result_message: messageAgentResult,
+							});
+
+							// Turn 3: text response
+							const textMsg: import("../../src/llm/types.ts").Message = {
+								role: "assistant",
+								content: [{ kind: "text", text: "The agent handle was not found." }],
+							};
+							options.events.emitEvent("plan_end", "root", 0, {
+								turn: 3,
+								finish_reason: "stop",
+								assistant_message: textMsg,
+								context_tokens: 400,
+								context_window_size: 200000,
+							});
+						} else {
+							// Run 2: check initialHistory has all messages
+							options.events.emitEvent("perceive", "root", 0, { goal });
+							const assistantMsg: import("../../src/llm/types.ts").Message = {
+								role: "assistant",
+								content: [{ kind: "text", text: "Sure." }],
+							};
+							options.events.emitEvent("plan_end", "root", 0, {
+								turn: 1,
+								finish_reason: "stop",
+								assistant_message: assistantMsg,
+								context_tokens: 400,
+								context_window_size: 200000,
+							});
+						}
+						return { output: "done", success: true, stumbles: 0, turns: 1, timed_out: false };
+					},
+				} as any,
+				learnProcess: null,
+			};
+		};
+
+		const { controller } = makeController({ factory });
+
+		// Run 1: delegation + failed message_agent
+		await controller.submitGoal("ask the subagent how it feels");
+		// Run 2: follow-up — should have ALL history including message_agent tool_result
+		await controller.submitGoal("please");
+
+		// Verify Run 2 received correct initialHistory
+		const run2History = capturedHistories[1];
+		expect(run2History).toBeDefined();
+
+		// Verify EVERY tool_call has a matching tool_result
+		const toolCalls: string[] = [];
+		const toolResults: string[] = [];
+		for (const msg of run2History!) {
+			for (const part of msg.content) {
+				if (part.kind === "tool_call" && part.tool_call) {
+					toolCalls.push(part.tool_call.id);
+				}
+				if (part.kind === "tool_result" && part.tool_result) {
+					toolResults.push(part.tool_result.tool_call_id);
+				}
+			}
+		}
+
+		// Every tool_call ID must have a corresponding tool_result
+		for (const callId of toolCalls) {
+			expect(toolResults).toContain(callId);
+		}
+
+		// Specifically, message_agent tool_result must be present
+		expect(toolResults).toContain("toolu_msg_agent_003");
+	});
 });

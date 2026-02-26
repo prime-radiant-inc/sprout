@@ -2798,6 +2798,14 @@ describe("Agent", () => {
 		expect(result.success).toBe(true);
 		expect(waitCalls).toHaveLength(1);
 		expect(waitCalls[0]).toBe("handle-abc");
+
+		// Verify act_end was emitted with tool_result_message
+		const collected = events.collected();
+		const actEndEvents = collected.filter(
+			(e) => e.kind === "act_end" && (e.data.agent_name as string) === "wait_agent",
+		);
+		expect(actEndEvents).toHaveLength(1);
+		expect(actEndEvents[0]!.data.tool_result_message).toBeDefined();
 	});
 
 	test("with spawner, message_agent routes through spawner.messageAgent", async () => {
@@ -2862,6 +2870,14 @@ describe("Agent", () => {
 		expect(messageCalls[0]!.handleId).toBe("handle-xyz");
 		expect(messageCalls[0]!.message).toBe("follow up question");
 		expect(messageCalls[0]!.blocking).toBe(true);
+
+		// Verify act_end was emitted with tool_result_message
+		const collected = events.collected();
+		const actEndEvents = collected.filter(
+			(e) => e.kind === "act_end" && (e.data.agent_name as string) === "message_agent",
+		);
+		expect(actEndEvents).toHaveLength(1);
+		expect(actEndEvents[0]!.data.tool_result_message).toBeDefined();
 	});
 
 	test("without spawner, wait_agent returns error tool result", async () => {
@@ -2919,12 +2935,17 @@ describe("Agent", () => {
 		// The agent should still complete (the error tool result lets the LLM recover)
 		expect(result.success).toBe(true);
 
-		// Check that an error tool result was added for the wait_agent call
+		// Check that an act_end with tool_result_message was emitted for the wait_agent call
 		const collected = events.collected();
-		const errorEvents = collected.filter((e) => e.kind === "error");
-		expect(errorEvents.length).toBeGreaterThanOrEqual(1);
-		const waitError = errorEvents.find((e) => (e.data.error as string).includes("wait_agent"));
-		expect(waitError).toBeDefined();
+		const actEndEvents = collected.filter(
+			(e) => e.kind === "act_end" && (e.data.agent_name as string) === "wait_agent",
+		);
+		expect(actEndEvents).toHaveLength(1);
+		expect(actEndEvents[0]!.data.success).toBe(false);
+		expect(actEndEvents[0]!.data.tool_result_message).toBeDefined();
+		const toolResult = actEndEvents[0]!.data.tool_result_message as Message;
+		expect(toolResult.role).toBe("tool");
+		expect(toolResult.content[0]!.tool_result?.tool_call_id).toBe("call-no-spawner-wait");
 	});
 
 	test("without spawner, message_agent returns error tool result", async () => {
@@ -2981,11 +3002,17 @@ describe("Agent", () => {
 		const result = await agent.run("message without spawner");
 		expect(result.success).toBe(true);
 
+		// Check that an act_end with tool_result_message was emitted for the message_agent call
 		const collected = events.collected();
-		const errorEvents = collected.filter((e) => e.kind === "error");
-		expect(errorEvents.length).toBeGreaterThanOrEqual(1);
-		const msgError = errorEvents.find((e) => (e.data.error as string).includes("message_agent"));
-		expect(msgError).toBeDefined();
+		const actEndEvents = collected.filter(
+			(e) => e.kind === "act_end" && (e.data.agent_name as string) === "message_agent",
+		);
+		expect(actEndEvents).toHaveLength(1);
+		expect(actEndEvents[0]!.data.success).toBe(false);
+		expect(actEndEvents[0]!.data.tool_result_message).toBeDefined();
+		const toolResult = actEndEvents[0]!.data.tool_result_message as Message;
+		expect(toolResult.role).toBe("tool");
+		expect(toolResult.content[0]!.tool_result?.tool_call_id).toBe("call-no-spawner-msg");
 	});
 
 	test("without spawner, delegate falls back to executeDelegation", async () => {
