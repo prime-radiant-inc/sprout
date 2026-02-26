@@ -15,14 +15,12 @@ import { parseBusMessage } from "./types.ts";
 export interface SpawnAgentOptions {
 	agentName: string;
 	genomePath: string;
-	sessionId: string;
 	caller: CallerIdentity;
 	goal: string;
 	hints?: string[];
 	blocking: boolean;
 	shared: boolean;
 	workDir: string;
-	bootstrapDir?: string;
 }
 
 /** Internal tracking record for a spawned agent */
@@ -95,7 +93,7 @@ export class AgentSpawner {
 		const env: Record<string, string> = {
 			SPROUT_BUS_URL: this.busUrl,
 			SPROUT_HANDLE_ID: handleId,
-			SPROUT_SESSION_ID: opts.sessionId,
+			SPROUT_SESSION_ID: this.sessionId,
 			SPROUT_GENOME_PATH: opts.genomePath,
 			SPROUT_WORK_DIR: opts.workDir,
 		};
@@ -112,7 +110,7 @@ export class AgentSpawner {
 		this.handles.set(handleId, handle);
 
 		// Subscribe to result topic to track status
-		const resultTopic = agentResult(opts.sessionId, handleId);
+		const resultTopic = agentResult(this.sessionId, handleId);
 		await this.bus.subscribe(resultTopic, (payload) => {
 			try {
 				const msg = parseBusMessage(payload);
@@ -129,13 +127,13 @@ export class AgentSpawner {
 		await delay(50);
 
 		// Publish start message to the agent's inbox
-		const inboxTopic = agentInbox(opts.sessionId, handleId);
+		const inboxTopic = agentInbox(this.sessionId, handleId);
 		const startMsg: StartMessage = {
 			kind: "start",
 			handle_id: handleId,
 			agent_name: opts.agentName,
 			genome_path: opts.genomePath,
-			session_id: opts.sessionId,
+			session_id: this.sessionId,
 			caller: opts.caller,
 			goal: opts.goal,
 			hints: opts.hints,
