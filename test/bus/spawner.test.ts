@@ -7,7 +7,7 @@ import { BusClient } from "../../src/bus/client.ts";
 import { BusServer } from "../../src/bus/server.ts";
 import type { SpawnAgentOptions } from "../../src/bus/spawner.ts";
 import { AgentSpawner } from "../../src/bus/spawner.ts";
-import type { ResultMessage } from "../../src/bus/types.ts";
+import type { EventMessage, ResultMessage } from "../../src/bus/types.ts";
 import { Genome } from "../../src/genome/genome.ts";
 import type { Client } from "../../src/llm/client.ts";
 import type { Request, Response } from "../../src/llm/types.ts";
@@ -486,6 +486,62 @@ describe("AgentSpawner", () => {
 				spawner.messageAgent("nonexistent", "Hello", { agent_name: "root", depth: 0 }, false),
 			).toThrow(/unknown handle/i);
 		});
+	});
+
+	describe("onEvent", () => {
+		test("callback receives sub-agent events during execution", async () => {
+			const mockClient = createMockClient("Event test done.");
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			const events: EventMessage[] = [];
+			spawner.onEvent((event) => events.push(event));
+
+			await spawner.spawnAgent({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: { agent_name: "root", depth: 0 },
+				goal: "Say hello",
+				hints: [],
+				blocking: true,
+				shared: false,
+				workDir: tempDir,
+			});
+
+			// The agent emits at least session_start and session_end
+			expect(events.length).toBeGreaterThan(0);
+			expect(events[0]!.kind).toBe("event");
+			expect(events[0]!.event).toBeDefined();
+
+			// Verify we got session lifecycle events
+			const eventKinds = events.map((e) => e.event.kind);
+			expect(eventKinds).toContain("session_start");
+			expect(eventKinds).toContain("session_end");
+		}, 15_000);
+
+		test("events include correct handle_id", async () => {
+			const mockClient = createMockClient("Handle ID test.");
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			const events: EventMessage[] = [];
+			spawner.onEvent((event) => events.push(event));
+
+			const preAssignedId = "01EVENTHANDLE000000000000A";
+			await spawner.spawnAgent({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: { agent_name: "root", depth: 0 },
+				goal: "Handle ID check",
+				blocking: true,
+				shared: false,
+				workDir: tempDir,
+				handleId: preAssignedId,
+			});
+
+			expect(events.length).toBeGreaterThan(0);
+			for (const event of events) {
+				expect(event.handle_id).toBe(preAssignedId);
+			}
+		}, 15_000);
 	});
 
 	describe("shutdown", () => {

@@ -87,6 +87,14 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 		options.events.emitEvent(event.kind, event.agent_id, event.depth, event.data);
 	});
 
+	// Relay sub-agent bus events to the session bus so the TUI sees them
+	if (options.spawner) {
+		options.spawner.onEvent((eventMsg) => {
+			const ev = eventMsg.event;
+			options.events.emitEvent(ev.kind, ev.agent_id, ev.depth, ev.data);
+		});
+	}
+
 	const result = await createAgent({
 		genomePath: options.genomePath,
 		bootstrapDir: options.bootstrapDir,
