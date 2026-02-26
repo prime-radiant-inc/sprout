@@ -1,0 +1,24 @@
+.userMessage {
+	display: flex;
+	gap: 6px;
+	padding: 4px 0;
+}
+
+.prompt {
+	color: var(--color-user);
+	font-weight: bold;
+	flex-shrink: 0;
+}
+
+.text {
+	color: var(--text-primary);
+}
+
+.steering .prompt {
+	color: var(--color-yellow);
+}
+
+.steering .text {
+	color: var(--text-secondary);
+	font-style: italic;
+}

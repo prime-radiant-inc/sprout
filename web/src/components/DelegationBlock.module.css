@@ -1,0 +1,35 @@
+.delegation {
+	display: flex;
+	gap: 6px;
+	align-items: baseline;
+	padding: 2px 0;
+}
+
+.bracket {
+	color: var(--text-dim);
+}
+
+.agentName {
+	color: var(--color-agent);
+	font-weight: bold;
+}
+
+.goal {
+	color: var(--text-dim);
+}
+
+.success {
+	color: var(--color-success);
+}
+
+.failed {
+	color: var(--color-error);
+}
+
+.turns {
+	color: var(--text-dim);
+}
+
+.duration {
+	color: var(--text-dim);
+}

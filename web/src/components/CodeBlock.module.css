@@ -1,0 +1,11 @@
+.pre {
+	background: var(--bg-secondary);
+	border: 1px solid var(--border-color);
+	border-radius: 4px;
+	padding: 8px 12px;
+	overflow-x: auto;
+	font-family: var(--font-mono);
+	font-size: var(--font-size-sm);
+	line-height: 1.4;
+	margin: 4px 0;
+}

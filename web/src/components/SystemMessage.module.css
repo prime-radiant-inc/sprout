@@ -1,0 +1,25 @@
+.dim,
+.warning,
+.error {
+	display: flex;
+	gap: 4px;
+	align-items: baseline;
+	padding: 2px 0;
+	font-size: var(--font-size-sm);
+}
+
+.dim {
+	color: var(--text-dim);
+}
+
+.warning {
+	color: var(--color-warning);
+}
+
+.error {
+	color: var(--color-error);
+}
+
+.icon {
+	flex-shrink: 0;
+}

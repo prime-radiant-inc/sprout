@@ -1,0 +1,27 @@
+.assistantMessage {
+	padding: 4px 0;
+}
+
+.thinking {
+	margin-bottom: 4px;
+}
+
+.thinkingSummary {
+	color: var(--text-dim);
+	font-size: var(--font-size-sm);
+	cursor: pointer;
+	font-style: italic;
+	user-select: none;
+}
+
+.thinkingSummary:hover {
+	color: var(--text-secondary);
+}
+
+.thinkingContent {
+	color: var(--text-dim);
+	font-style: italic;
+	padding: 4px 0 4px 12px;
+	border-left: 1px solid var(--border-color);
+	white-space: pre-wrap;
+}

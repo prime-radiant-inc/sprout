@@ -1,0 +1,61 @@
+.toolCall {
+	padding: 2px 0;
+}
+
+.summary {
+	cursor: pointer;
+	user-select: none;
+	list-style: none;
+	display: flex;
+	gap: 4px;
+	align-items: baseline;
+}
+
+.summary::-webkit-details-marker {
+	display: none;
+}
+
+.indicator {
+	color: var(--text-dim);
+}
+
+.toolName {
+	color: var(--color-tool);
+}
+
+.args {
+	color: var(--text-dim);
+}
+
+.success {
+	color: var(--color-success);
+}
+
+.error {
+	color: var(--color-error);
+}
+
+.outputHint {
+	color: var(--text-dim);
+}
+
+.duration {
+	color: var(--text-dim);
+	margin-left: 4px;
+}
+
+.output {
+	background: var(--bg-secondary);
+	border: 1px solid var(--border-color);
+	border-radius: 4px;
+	padding: 6px 10px;
+	margin: 4px 0 4px 16px;
+	overflow-x: auto;
+	font-family: var(--font-mono);
+	font-size: var(--font-size-sm);
+	line-height: 1.4;
+	max-height: 300px;
+	overflow-y: auto;
+	white-space: pre-wrap;
+	word-break: break-all;
+}

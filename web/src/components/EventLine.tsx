@@ -1,0 +1,139 @@
+import type { SessionEvent } from "../../../src/kernel/types.ts";
+import { AssistantMessage } from "./AssistantMessage.tsx";
+import { DelegationBlock } from "./DelegationBlock.tsx";
+import { SystemMessage } from "./SystemMessage.tsx";
+import { ToolCall } from "./ToolCall.tsx";
+import { UserMessage } from "./UserMessage.tsx";
+
+interface EventLineProps {
+	event: SessionEvent;
+	durationMs: number | null;
+}
+
+/**
+ * Dispatcher: maps a SessionEvent to the appropriate display component.
+ * Returns null for events that should not be displayed.
+ */
+export function EventLine({ event, durationMs }: EventLineProps) {
+	const { kind, data } = event;
+
+	switch (kind) {
+		case "perceive":
+			return <UserMessage text={String(data.goal ?? "")} />;
+
+		case "steering":
+			return <UserMessage text={String(data.text ?? "")} isSteering />;
+
+		case "plan_end": {
+			const text = data.text ? String(data.text) : undefined;
+			const reasoning = data.reasoning ? String(data.reasoning) : undefined;
+			if (!text && !reasoning) return null;
+			return <AssistantMessage text={text} reasoning={reasoning} />;
+		}
+
+		case "primitive_start":
+			return null;
+
+		case "primitive_end":
+			return (
+				<ToolCall
+					toolName={data.name as string}
+					success={Boolean(data.success)}
+					args={data.args as Record<string, unknown>}
+					error={data.error ? String(data.error) : undefined}
+					output={data.output ? String(data.output) : undefined}
+					durationMs={durationMs}
+				/>
+			);
+
+		case "act_start":
+			return (
+				<DelegationBlock
+					variant="start"
+					agentName={data.agent_name as string}
+					goal={data.goal as string}
+				/>
+			);
+
+		case "act_end":
+			return (
+				<DelegationBlock
+					variant="end"
+					agentName={data.agent_name as string}
+					success={Boolean(data.success)}
+					turns={typeof data.turns === "number" ? data.turns : undefined}
+					durationMs={durationMs}
+				/>
+			);
+
+		case "warning":
+			return (
+				<SystemMessage kind="warning" message={String(data.message)} />
+			);
+
+		case "error":
+			return <SystemMessage kind="error" message={String(data.error)} />;
+
+		case "compaction": {
+			const header = `Context compacted: ${data.beforeCount} \u2192 ${data.afterCount} messages`;
+			const summary = data.summary ? `\n${data.summary}` : "";
+			return (
+				<SystemMessage
+					kind="compaction"
+					message={`${header}${summary}`}
+				/>
+			);
+		}
+
+		case "interrupted":
+			return (
+				<SystemMessage
+					kind="interrupted"
+					message={String(data.message ?? "user interrupt")}
+				/>
+			);
+
+		case "session_resume":
+			return (
+				<SystemMessage
+					kind="session_resume"
+					message={`Resumed session (${data.history_length ?? 0} messages of history)`}
+				/>
+			);
+
+		case "session_clear":
+			return (
+				<SystemMessage
+					kind="session_clear"
+					message="New session started"
+				/>
+			);
+
+		case "learn_start":
+			return (
+				<SystemMessage
+					kind="learn_start"
+					message="Learning from stumble..."
+				/>
+			);
+
+		case "learn_mutation":
+			return (
+				<SystemMessage
+					kind="learn_mutation"
+					message={`Genome updated: ${data.mutation_type}`}
+				/>
+			);
+
+		// Skip these — not displayed in conversation
+		case "session_start":
+		case "session_end":
+		case "plan_start":
+		case "context_update":
+		case "exit_hint":
+			return null;
+
+		default:
+			return null;
+	}
+}
