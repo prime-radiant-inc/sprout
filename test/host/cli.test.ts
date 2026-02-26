@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { checkHandleCompleted, extractChildHandles } from "../../src/bus/resume.ts";
@@ -574,6 +574,40 @@ describe("configureTerminal — tmux", () => {
 			expect(spawnCalls).toHaveLength(0);
 			expect(result).toContain("already configured");
 		} finally {
+			restoreEnv(saved);
+		}
+	});
+
+	test("returns manual instructions when tmux.conf is not writable", async () => {
+		const saved = saveEnv();
+		process.env.TMUX = "/tmp/tmux-501/default,12345,0";
+		delete process.env.TERM_PROGRAM;
+		const confPath = join(tempDir, "tmux.conf");
+		try {
+			// Create a read-only file so appendFile will fail
+			await writeFile(confPath, "# existing config\n");
+			await chmod(confPath, 0o444);
+
+			const spawnCalls: string[][] = [];
+			const spawn = (args: string[]) => {
+				spawnCalls.push(args);
+				return { exitCode: 0, stdout: "" };
+			};
+
+			const result = await configureTerminal({ spawn, tmuxConfPath: confPath });
+
+			// Should NOT have called tmux source-file (write failed)
+			expect(spawnCalls).toHaveLength(0);
+
+			// Should tell the user to add the lines manually
+			expect(result).toContain("Could not write");
+			expect(result).toContain(confPath);
+			expect(result).toContain("set -s extended-keys on");
+			expect(result).toContain("set -as terminal-features 'xterm*:extkeys'");
+			expect(result).toContain("set -s extended-keys-format csi-u");
+		} finally {
+			// Restore write permission so cleanup can delete it
+			await chmod(confPath, 0o644);
 			restoreEnv(saved);
 		}
 	});

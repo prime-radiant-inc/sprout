@@ -334,7 +334,11 @@ async function configureTmux(
 	const suffix =
 		(existing.length > 0 && !existing.endsWith("\n") ? "\n" : "") +
 		missing.map((l) => `${l}\n`).join("");
-	await appendFile(confPath, suffix);
+	try {
+		await appendFile(confPath, suffix);
+	} catch {
+		return `Could not write to ${confPath}. Please add these lines manually:\n  ${missing.join("\n  ")}`;
+	}
 
 	// Reload tmux config
 	await spawn(["tmux", "source-file", confPath]);
