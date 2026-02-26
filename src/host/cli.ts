@@ -185,6 +185,7 @@ export async function handleSlashCommand(
 		emitEvent(kind: string, agentId: string, depth: number, data: Record<string, unknown>): void;
 	},
 	controller: { sessionId: string; isRunning: boolean; currentModel: string | undefined },
+	terminalOptions?: ConfigureTerminalOptions,
 ): Promise<SlashCommandResult> {
 	switch (cmd.kind) {
 		case "quit":
@@ -218,7 +219,7 @@ export async function handleSlashCommand(
 			});
 			break;
 		case "terminal_setup": {
-			const message = await configureTerminal();
+			const message = await configureTerminal(terminalOptions);
 			bus.emitEvent("warning", "cli", 0, { message });
 			break;
 		}
@@ -298,7 +299,14 @@ async function configureTerminalApp(
 	const escapedProfile = profile.replace(/ /g, "\\ ");
 	const profilePath = `:Window\\ Settings:${escapedProfile}`;
 
-	const metaOk = await plistSet(spawn, plistPath, profilePath, "useOptionAsMetaKey", "bool", "true");
+	const metaOk = await plistSet(
+		spawn,
+		plistPath,
+		profilePath,
+		"useOptionAsMetaKey",
+		"bool",
+		"true",
+	);
 	const bellOk = await plistSet(spawn, plistPath, profilePath, "Bell", "bool", "false");
 
 	if (!metaOk || !bellOk) {

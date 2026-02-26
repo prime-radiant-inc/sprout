@@ -277,7 +277,8 @@ describe("handleSlashCommand", () => {
 
 	test("terminal_setup emits warning with setup instructions", async () => {
 		const bus = makeBus();
-		await handleSlashCommand({ kind: "terminal_setup" }, bus, controller);
+		const spawn = (_args: string[]) => ({ exitCode: 0, stdout: "" });
+		await handleSlashCommand({ kind: "terminal_setup" }, bus, controller, { spawn });
 		expect(bus.events).toHaveLength(1);
 		expect(bus.events[0].kind).toBe("warning");
 		expect(bus.events[0].data.message).toBeDefined();
@@ -290,8 +291,14 @@ describe("handleSlashCommand", () => {
 		process.env.TMUX = "/tmp/tmux-501/default,12345,0";
 		try {
 			const bus = makeBus();
-			await handleSlashCommand({ kind: "terminal_setup" }, bus, controller);
+			const tempDir = await mkdtemp(join(tmpdir(), "sprout-slash-tmux-"));
+			const spawn = (_args: string[]) => ({ exitCode: 0, stdout: "" });
+			await handleSlashCommand({ kind: "terminal_setup" }, bus, controller, {
+				spawn,
+				tmuxConfPath: join(tempDir, "tmux.conf"),
+			});
 			expect(bus.events[0].data.message).toContain("tmux");
+			await rm(tempDir, { recursive: true, force: true });
 		} finally {
 			if (origTmux === undefined) delete process.env.TMUX;
 			else process.env.TMUX = origTmux;
