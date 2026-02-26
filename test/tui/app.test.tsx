@@ -493,8 +493,8 @@ describe("App", () => {
 		const { bus, stdin, lastFrame } = setup();
 		bus.onEvent((e) => events.push(e));
 
-		// Emit a tool event first — should be visible
-		bus.emitEvent("primitive_start", "root", 0, { name: "exec", args: { command: "ls" } });
+		// Emit a tool end event first — should be visible
+		bus.emitEvent("primitive_end", "root", 0, { name: "exec", args: { command: "ls" }, success: true });
 		await flush();
 		expect(lastFrame()).toContain("exec");
 
@@ -511,7 +511,7 @@ describe("App", () => {
 		expect(hideWarning).toBeDefined();
 
 		// Now emit another tool event — it should be hidden
-		bus.emitEvent("primitive_start", "root", 0, { name: "grep", args: { pattern: "foo" } });
+		bus.emitEvent("primitive_end", "root", 0, { name: "grep", args: { pattern: "foo" }, success: true });
 		await flush();
 		expect(lastFrame()).not.toContain("grep");
 

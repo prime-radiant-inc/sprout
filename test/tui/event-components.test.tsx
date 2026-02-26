@@ -169,7 +169,7 @@ describe("ToolEndLine", () => {
 		expect(frame).toContain("command not found");
 	});
 
-	test("shows output preview for short output", () => {
+	test("shows short single-line output inline", () => {
 		const { lastFrame } = render(
 			<ToolEndLine
 				depth={0}
@@ -183,7 +183,7 @@ describe("ToolEndLine", () => {
 		expect(lastFrame()).toContain("Hello, World!");
 	});
 
-	test("truncates long output to 3 lines", () => {
+	test("shows line count for multi-line output", () => {
 		const output = "line1\nline2\nline3\nline4\nline5";
 		const { lastFrame } = render(
 			<ToolEndLine
@@ -196,10 +196,8 @@ describe("ToolEndLine", () => {
 			/>,
 		);
 		const frame = lastFrame()!;
-		expect(frame).toContain("line1");
-		expect(frame).toContain("line3");
-		expect(frame).toContain("2 more lines");
-		expect(frame).not.toContain("line4");
+		expect(frame).toContain("5 lines");
+		expect(frame).not.toContain("line1");
 	});
 
 	test("no output preview on failure", () => {
@@ -259,36 +257,36 @@ describe("DelegationStartLine", () => {
 		expect(frame).toContain("\u256D\u2500"); // ╭─
 	});
 
-	test("does not truncate long goals", () => {
+	test("truncates long goals to 80 chars", () => {
 		const longGoal = "a".repeat(120);
 		const { lastFrame } = render(
 			<DelegationStartLine depth={0} agentName="editor" goal={longGoal} />,
 		);
-		// No ellipsis — full goal is rendered (ink may wrap across lines)
-		expect(lastFrame()).not.toContain("...");
+		// Should truncate with ellipsis
+		expect(lastFrame()).toContain("\u2026");
 	});
 });
 
 describe("DelegationEndLine", () => {
-	test("shows success with turns and duration", () => {
+	test("shows success with agent name, turns and duration", () => {
 		const { lastFrame } = render(
 			<DelegationEndLine depth={0} agentName="editor" success={true} turns={3} durationMs={3100} />,
 		);
 		const frame = lastFrame()!;
 		expect(frame).toContain("\u2570\u2500"); // ╰─
-		expect(frame).not.toContain("editor"); // agent name only on start line
+		expect(frame).toContain("editor");
 		expect(frame).toContain("\u2713");
-		expect(frame).toContain("(3 turns)");
+		expect(frame).toContain("3 turns");
 		expect(frame).toContain("3.1s");
 	});
 
-	test("shows failure", () => {
+	test("shows failure with agent name", () => {
 		const { lastFrame } = render(
 			<DelegationEndLine depth={0} agentName="editor" success={false} durationMs={1000} />,
 		);
 		const frame = lastFrame()!;
 		expect(frame).toContain("\u2717 failed");
-		expect(frame).not.toContain("editor"); // agent name only on start line
+		expect(frame).toContain("editor");
 	});
 });
 
@@ -434,14 +432,12 @@ describe("renderEventComponent", () => {
 		expect(node).toBeNull();
 	});
 
-	test("primitive_start renders tool start", () => {
+	test("primitive_start returns null (suppressed — end line has all info)", () => {
 		const node = renderEventComponent(
 			makeEvent("primitive_start", { name: "exec", args: { command: "ls" } }),
 			null,
 		);
-		const { lastFrame } = render(<Box>{node}</Box>);
-		expect(lastFrame()).toContain("exec");
-		expect(lastFrame()).toContain("`ls`");
+		expect(node).toBeNull();
 	});
 
 	test("primitive_end renders tool end with duration", () => {
@@ -466,16 +462,16 @@ describe("renderEventComponent", () => {
 		expect(lastFrame()).toContain("Create hello.py");
 	});
 
-	test("act_end renders delegation end without agent name", () => {
+	test("act_end renders delegation end with agent name", () => {
 		const node = renderEventComponent(
 			makeEvent("act_end", { agent_name: "code-editor", success: true, turns: 2 }),
 			3000,
 		);
 		const { lastFrame } = render(<Box>{node}</Box>);
 		const frame = lastFrame()!;
-		expect(frame).not.toContain("code-editor"); // name only on start line
+		expect(frame).toContain("code-editor");
 		expect(frame).toContain("\u2713");
-		expect(frame).toContain("(2 turns)");
+		expect(frame).toContain("2 turns");
 		expect(frame).toContain("3.0s");
 	});
 

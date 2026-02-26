@@ -15,26 +15,16 @@ const codeRenderer = createShikiCodeRenderer({ theme: "one-dark-pro" });
 // Depth border wrapper
 // ---------------------------------------------------------------------------
 
-/** Wraps children with nested left-side box borders for each depth level. */
+/** Wraps children with a dim left-margin indent showing nesting depth. */
 function DepthBorder({ depth, children }: { depth: number; children: ReactNode }): ReactNode {
 	if (depth <= 0) return children;
-	let wrapped = children;
-	for (let i = 0; i < depth; i++) {
-		wrapped = (
-			<Box
-				borderStyle="round"
-				borderLeft
-				borderTop={false}
-				borderBottom={false}
-				borderRight={false}
-				borderColor="gray"
-				paddingLeft={0}
-			>
-				{wrapped}
-			</Box>
-		);
-	}
-	return wrapped;
+	const prefix = "\u2502 ".repeat(depth);
+	return (
+		<Box>
+			<Text dimColor>{prefix}</Text>
+			<Box flexDirection="column">{children}</Box>
+		</Box>
+	);
 }
 
 // ---------------------------------------------------------------------------
@@ -103,36 +93,30 @@ export function ToolEndLine({
 	const argStr = smartArgs(toolName, args);
 	const dur = formatDuration(durationMs);
 
-	// Truncate output preview to 3 lines
-	let preview: string | null = null;
+	// Compact output summary: single-line output shown inline, multi-line shows count
+	let outputHint: string | null = null;
 	if (success && output) {
 		const outputLines = output.split("\n");
-		if (outputLines.length <= 3) {
-			preview = output;
-		} else {
-			preview = `${outputLines.slice(0, 3).join("\n")}\n... (${outputLines.length - 3} more lines)`;
+		if (outputLines.length === 1 && output.length <= 60) {
+			outputHint = output;
+		} else if (outputLines.length > 1) {
+			outputHint = `${outputLines.length} lines`;
 		}
 	}
 
 	return (
 		<DepthBorder depth={depth}>
-			<Box flexDirection="column">
-				<Box>
-					<Text dimColor>{"\u25B8 "}</Text>
-					<Text color="yellow">{toolName}</Text>
-					{argStr && <Text dimColor>{` ${argStr}`}</Text>}
-					{success ? (
-						<Text color="green">{" \u2713"}</Text>
-					) : (
-						<Text color="red">{` \u2717${error ? ` ${error}` : ""}`}</Text>
-					)}
-					{dur && <Text dimColor>{` ${dur}`}</Text>}
-				</Box>
-				{preview && (
-					<Box paddingLeft={4}>
-						<Text dimColor>{preview}</Text>
-					</Box>
+			<Box>
+				<Text dimColor>{"\u25B8 "}</Text>
+				<Text color="yellow">{toolName}</Text>
+				{argStr && <Text dimColor>{` ${argStr}`}</Text>}
+				{success ? (
+					<Text color="green">{" \u2713"}</Text>
+				) : (
+					<Text color="red">{` \u2717${error ? ` ${error}` : ""}`}</Text>
 				)}
+				{outputHint && <Text dimColor>{` \u2192 ${outputHint}`}</Text>}
+				{dur && <Text dimColor>{` ${dur}`}</Text>}
 			</Box>
 		</DepthBorder>
 	);
@@ -170,14 +154,15 @@ interface DelegationStartProps {
 
 /** Renders a delegation start: ╭─ agent: goal */
 export function DelegationStartLine({ depth, agentName, goal }: DelegationStartProps) {
+	const displayGoal = goal.length > 80 ? `${goal.slice(0, 79)}\u2026` : goal;
 	return (
 		<DepthBorder depth={depth}>
 			<Box>
-				<Text dimColor bold>
-					{"\u256D\u2500 "}
+				<Text dimColor>{"\u256D\u2500 "}</Text>
+				<Text color="cyan" bold>
 					{agentName}
 				</Text>
-				<Text dimColor>{`: ${goal}`}</Text>
+				<Text dimColor>{` ${displayGoal}`}</Text>
 			</Box>
 		</DepthBorder>
 	);
@@ -191,21 +176,22 @@ interface DelegationEndProps {
 	durationMs: number | null;
 }
 
-/** Renders a delegation end: ╰─ ✓ (N turns) duration */
-export function DelegationEndLine({ depth, success, turns, durationMs }: DelegationEndProps) {
+/** Renders a delegation end: ╰─ agent ✓ (N turns) duration */
+export function DelegationEndLine({ depth, agentName, success, turns, durationMs }: DelegationEndProps) {
 	const dur = formatDuration(durationMs);
 	return (
 		<DepthBorder depth={depth}>
 			<Box>
-				<Text dimColor bold>
-					{"\u2570\u2500"}
+				<Text dimColor>{"\u2570\u2500 "}</Text>
+				<Text color="cyan" bold>
+					{agentName}
 				</Text>
 				{success ? (
 					<Text color="green">{" \u2713"}</Text>
 				) : (
 					<Text color="red">{" \u2717 failed"}</Text>
 				)}
-				{turns != null && <Text dimColor>{` (${turns} turns)`}</Text>}
+				{turns != null && <Text dimColor>{` ${turns} turns`}</Text>}
 				{dur && <Text dimColor>{` ${dur}`}</Text>}
 			</Box>
 		</DepthBorder>
@@ -306,13 +292,7 @@ export function renderEventComponent(event: SessionEvent, durationMs: number | n
 		}
 
 		case "primitive_start":
-			return (
-				<ToolStartLine
-					depth={depth}
-					toolName={data.name as string}
-					args={data.args as Record<string, unknown>}
-				/>
-			);
+			return null; // Suppressed — primitive_end shows tool name, args, result, and duration
 
 		case "primitive_end":
 			return (

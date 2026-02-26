@@ -18,6 +18,11 @@ export function formatTokens(n: number): string {
 	return String(n);
 }
 
+/** Shorten model names by stripping date suffixes (e.g. "claude-sonnet-4-20250514" → "claude-sonnet-4"). */
+export function shortModelName(model: string): string {
+	return model.replace(/-\d{8}$/, "");
+}
+
 export function StatusBar(props: StatusBarProps) {
 	const {
 		contextTokens,
@@ -39,15 +44,15 @@ export function StatusBar(props: StatusBarProps) {
 		ctxInfo += ` ${formatTokens(compactDistance)} to compact`;
 	}
 
-	const turnLabel = turns === 1 ? "1 turn" : `${turns} turns`;
+	const turnLabel = `${turns} ${turns === 1 ? "turn" : "turns"}`;
 
 	const { columns: cols } = useWindowSize();
 
-	let left = `${ctxInfo} | ${turnLabel}`;
+	let left = `${ctxInfo} \u2502 ${turnLabel}`;
 	if (status === "running") {
-		left += ` | ↑${formatTokens(inputTokens)} ↓${formatTokens(outputTokens)}`;
+		left += ` \u2502 \u2191${formatTokens(inputTokens)} \u2193${formatTokens(outputTokens)}`;
 	}
-	const right = `${model} | ${sessionId}`;
+	const right = `${shortModelName(model)} \u2502 ${sessionId}`;
 	const gap = Math.max(1, cols - left.length - right.length);
 	const line = left + " ".repeat(gap) + right;
 

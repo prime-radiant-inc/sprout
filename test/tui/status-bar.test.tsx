@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { render } from "ink-testing-library";
-import { formatTokens, StatusBar } from "../../src/tui/status-bar.tsx";
+import { formatTokens, shortModelName, StatusBar } from "../../src/tui/status-bar.tsx";
 
 // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape stripping
 const stripAnsi = (s: string) => s.replace(/\x1B\[[0-9;]*m/g, "");
@@ -23,6 +23,21 @@ describe("formatTokens", () => {
 		expect(formatTokens(1500)).toBe("1.5k");
 		expect(formatTokens(12345)).toBe("12.3k");
 		expect(formatTokens(100000)).toBe("100.0k");
+	});
+});
+
+describe("shortModelName", () => {
+	test("strips date suffix from model name", () => {
+		expect(shortModelName("claude-sonnet-4-20250514")).toBe("claude-sonnet-4");
+	});
+
+	test("leaves model names without date suffix unchanged", () => {
+		expect(shortModelName("gpt-4o")).toBe("gpt-4o");
+		expect(shortModelName("test-model")).toBe("test-model");
+	});
+
+	test("only strips 8-digit date suffix at end", () => {
+		expect(shortModelName("claude-sonnet-4-6")).toBe("claude-sonnet-4-6");
 	});
 });
 
@@ -99,7 +114,7 @@ describe("StatusBar", () => {
 		expect(frame).not.toContain("\u2193");
 	});
 
-	test("renders model name", () => {
+	test("renders model name with date suffix stripped", () => {
 		const { lastFrame } = render(
 			<StatusBar
 				contextTokens={0}
@@ -107,12 +122,14 @@ describe("StatusBar", () => {
 				turns={0}
 				inputTokens={0}
 				outputTokens={0}
-				model="gpt-4o"
+				model="claude-sonnet-4-20250514"
 				sessionId="01ABCDEF12345678ABCDEF1234"
 				status="idle"
 			/>,
 		);
-		expect(lastFrame()).toContain("gpt-4o");
+		const frame = lastFrame()!;
+		expect(frame).toContain("claude-sonnet-4");
+		expect(frame).not.toContain("20250514");
 	});
 
 	test("renders full session ID", () => {
@@ -215,9 +232,8 @@ describe("StatusBar", () => {
 			/>,
 		);
 		const frame = lastFrame()!;
-		// No box-drawing characters
-		expect(frame).not.toContain("─");
-		expect(frame).not.toContain("│");
+		// No box border characters (horizontal rule)
+		expect(frame).not.toContain("\u2500"); // ─
 		// Content starts at column 0, no leading padding
 		const stripped = stripAnsi(frame);
 		expect(stripped).toMatch(/^ctx:/);
