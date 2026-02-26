@@ -7,7 +7,6 @@ import { InputArea } from "./input-area.tsx";
 import { ModelPicker } from "./model-picker.tsx";
 import type { SlashCommand } from "./slash-commands.ts";
 import { StatusBar } from "./status-bar.tsx";
-import { useWindowSize } from "./use-window-size.ts";
 
 export interface AppProps {
 	bus: SessionBus;
@@ -56,9 +55,6 @@ export function App({
 	knownModels,
 	initialEvents,
 }: AppProps) {
-	const { rows: terminalRows } = useWindowSize();
-	const conversationHeight = Math.max(5, terminalRows - 4);
-
 	const [statusState, setStatusState] = useState<StatusState>(INITIAL_STATUS);
 	const [currentSessionId, setCurrentSessionId] = useState(sessionId);
 	const [showModelPicker, setShowModelPicker] = useState(false);
@@ -128,7 +124,7 @@ export function App({
 
 	return (
 		<Box flexDirection="column">
-			<ConversationView bus={bus} maxHeight={conversationHeight} initialEvents={initialEvents} />
+			<ConversationView bus={bus} initialEvents={initialEvents} />
 			<StatusBar
 				contextTokens={statusState.contextTokens}
 				contextWindowSize={statusState.contextWindowSize}
