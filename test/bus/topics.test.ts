@@ -1,16 +1,14 @@
 import { describe, expect, test } from "bun:test";
+import type { ParsedAgentTopic, ParsedSessionTopic } from "../../src/bus/topics.ts";
 import {
-	agentInbox,
 	agentEvents,
+	agentInbox,
+	agentReady,
 	agentResult,
 	commandsTopic,
-	genomeMutations,
 	genomeEvents,
+	genomeMutations,
 	parseTopic,
-} from "../../src/bus/topics.ts";
-import type {
-	ParsedAgentTopic,
-	ParsedSessionTopic,
 } from "../../src/bus/topics.ts";
 
 describe("topic builders", () => {
@@ -20,6 +18,10 @@ describe("topic builders", () => {
 
 	test("agentEvents", () => {
 		expect(agentEvents("S1", "H1")).toBe("session/S1/agent/H1/events");
+	});
+
+	test("agentReady", () => {
+		expect(agentReady("S1", "H1")).toBe("session/S1/agent/H1/ready");
 	});
 
 	test("agentResult", () => {
@@ -56,6 +58,15 @@ describe("parseTopic", () => {
 				session_id: "S1",
 				handle_id: "H1",
 				channel: "events",
+			});
+		});
+
+		test("parses ready topic", () => {
+			const result = parseTopic("session/S1/agent/H1/ready");
+			expect(result).toEqual({
+				session_id: "S1",
+				handle_id: "H1",
+				channel: "ready",
 			});
 		});
 
@@ -124,6 +135,14 @@ describe("parseTopic", () => {
 			expect(parsed.session_id).toBe("sess-42");
 			expect(parsed.handle_id).toBe("handle-7");
 			expect(parsed.channel).toBe("inbox");
+		});
+
+		test("agentReady round-trips", () => {
+			const topic = agentReady("sess-42", "handle-7");
+			const parsed = parseTopic(topic) as ParsedAgentTopic;
+			expect(parsed.session_id).toBe("sess-42");
+			expect(parsed.handle_id).toBe("handle-7");
+			expect(parsed.channel).toBe("ready");
 		});
 
 		test("genomeMutations round-trips", () => {

@@ -9,7 +9,7 @@ import { LocalExecutionEnvironment } from "../kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../kernel/primitives.ts";
 import { Client } from "../llm/client.ts";
 import { BusClient } from "./client.ts";
-import { agentEvents, agentInbox, agentResult } from "./topics.ts";
+import { agentEvents, agentInbox, agentReady, agentResult } from "./topics.ts";
 import type { ContinueMessage, EventMessage, ResultMessage, StartMessage } from "./types.ts";
 import { parseBusMessage } from "./types.ts";
 
@@ -55,10 +55,11 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 	const inboxTopic = agentInbox(sessionId, handleId);
 	const eventsTopic = agentEvents(sessionId, handleId);
 	const resultTopic = agentResult(sessionId, handleId);
+	const readyTopic = agentReady(sessionId, handleId);
 
 	try {
-		// Wait for a start message (or abort)
-		const startPayload = await waitForStart(bus, inboxTopic, signal);
+		// Subscribe to inbox and wait for start (or abort)
+		const startPayload = await waitForStartWithReady(bus, inboxTopic, readyTopic, handleId, signal);
 		if (!startPayload) {
 			// Aborted before receiving start
 			return;
@@ -101,8 +102,9 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 		const genomePostscripts = await genome.loadPostscripts();
 		const logBasePath = join(genomePath, "logs", sessionId, handleId);
 
-		// Forward agent events to the bus
+		// Forward agent events to the bus (best-effort; ignore if disconnected)
 		events.on((event) => {
+			if (!bus.connected) return;
 			const eventMsg: EventMessage = {
 				kind: "event",
 				handle_id: handleId,
@@ -135,7 +137,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 		// Run the agent
 		const agentResult_ = await agent.run(goal, signal);
 
-		// Publish result
+		// Publish result (may fail if bus disconnected during shutdown)
 		const resultMsg: ResultMessage = {
 			kind: "result",
 			handle_id: handleId,
@@ -145,6 +147,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 			turns: agentResult_.turns,
 			timed_out: agentResult_.timed_out,
 		};
+		if (!bus.connected) return;
 		await bus.publish(resultTopic, JSON.stringify(resultMsg));
 
 		// If not shared, we're done
@@ -160,43 +163,57 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 }
 
 /**
- * Wait for a start message on the inbox topic.
+ * Subscribe to inbox (awaiting server ack), publish ready signal,
+ * then wait for a start message.
  * Returns the raw payload, or null if aborted before receiving one.
  */
-function waitForStart(
+async function waitForStartWithReady(
 	bus: BusClient,
 	inboxTopic: string,
+	readyTopic: string,
+	handleId: string,
 	signal?: AbortSignal,
 ): Promise<string | null> {
-	if (signal?.aborted) return Promise.resolve(null);
+	if (signal?.aborted) return null;
 
-	return new Promise((resolve) => {
-		let settled = false;
-
-		const onAbort = () => {
-			if (settled) return;
-			settled = true;
-			resolve(null);
-		};
-
-		if (signal) {
-			signal.addEventListener("abort", onAbort, { once: true });
-		}
-
-		bus.subscribe(inboxTopic, (payload) => {
-			if (settled) return;
-			try {
-				const msg = parseBusMessage(payload);
-				if (msg.kind === "start") {
-					settled = true;
-					if (signal) signal.removeEventListener("abort", onAbort);
-					resolve(payload);
-				}
-			} catch {
-				// Ignore malformed messages
-			}
-		});
+	let resolveStart: ((payload: string | null) => void) | null = null;
+	const startPromise = new Promise<string | null>((resolve) => {
+		resolveStart = resolve;
 	});
+
+	const onAbort = () => {
+		if (resolveStart) {
+			const resolve = resolveStart;
+			resolveStart = null;
+			resolve(null);
+		}
+	};
+
+	if (signal) {
+		signal.addEventListener("abort", onAbort, { once: true });
+	}
+
+	// Subscribe to inbox (awaits server ack, so subscription is confirmed)
+	await bus.subscribe(inboxTopic, (payload) => {
+		if (!resolveStart) return;
+		try {
+			const msg = parseBusMessage(payload);
+			if (msg.kind === "start") {
+				if (signal) signal.removeEventListener("abort", onAbort);
+				const resolve = resolveStart;
+				resolveStart = null;
+				resolve(payload);
+			}
+		} catch {
+			// Ignore malformed messages
+		}
+	});
+
+	// Signal to spawner that inbox subscription is confirmed and we're ready
+	await bus.publish(readyTopic, JSON.stringify({ kind: "ready", handle_id: handleId }));
+
+	// Wait for start message
+	return startPromise;
 }
 
 /**

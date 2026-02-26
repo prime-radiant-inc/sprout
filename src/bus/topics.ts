@@ -24,6 +24,10 @@ export function agentEvents(sessionId: string, handleId: string): string {
 	return `session/${sessionId}/agent/${handleId}/events`;
 }
 
+export function agentReady(sessionId: string, handleId: string): string {
+	return `session/${sessionId}/agent/${handleId}/ready`;
+}
+
 export function agentResult(sessionId: string, handleId: string): string {
 	return `session/${sessionId}/agent/${handleId}/result`;
 }
@@ -42,7 +46,7 @@ export function genomeEvents(sessionId: string): string {
 
 // --- Parser ---
 
-const AGENT_RE = /^session\/([^/]+)\/agent\/([^/]+)\/(inbox|events|result)$/;
+const AGENT_RE = /^session\/([^/]+)\/agent\/([^/]+)\/(inbox|events|ready|result)$/;
 const GENOME_RE = /^session\/([^/]+)\/(genome\/(?:mutations|events))$/;
 const SESSION_RE = /^session\/([^/]+)\/(commands)$/;
 

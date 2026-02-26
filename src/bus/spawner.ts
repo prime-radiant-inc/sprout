@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { ulid } from "../util/ulid.ts";
 import type { BusClient } from "./client.ts";
-import { agentInbox, agentResult } from "./topics.ts";
+import { agentInbox, agentReady, agentResult } from "./topics.ts";
 import type {
 	CallerIdentity,
 	ContinueMessage,
@@ -123,8 +123,9 @@ export class AgentSpawner {
 			}
 		});
 
-		// Wait for the subprocess to connect to the bus
-		await delay(50);
+		// Wait for the agent process to signal it's ready (subscribed to inbox)
+		const readyTopic = agentReady(this.sessionId, handleId);
+		await this.bus.waitForMessage(readyTopic, 10_000);
 
 		// Publish start message to the agent's inbox
 		const inboxTopic = agentInbox(this.sessionId, handleId);
@@ -255,8 +256,4 @@ export class AgentSpawner {
 			}
 		}
 	}
-}
-
-function delay(ms: number): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, ms));
 }
