@@ -3,7 +3,6 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { SessionEvent } from "../../../../src/kernel/types.ts";
 import { buildAgentTree } from "../../hooks/useAgentTree.ts";
 import { AssistantMessage } from "../AssistantMessage.tsx";
-import { CodeBlock } from "../CodeBlock.tsx";
 import { ConversationView } from "../ConversationView.tsx";
 import { DelegationBlock } from "../DelegationBlock.tsx";
 import { EventLine } from "../EventLine.tsx";
@@ -28,29 +27,6 @@ function makeEvent(
 		...overrides,
 	};
 }
-
-// --- CodeBlock ---
-
-describe("CodeBlock", () => {
-	test("renders code in pre > code tags", () => {
-		const html = renderToStaticMarkup(<CodeBlock code="const x = 1;" />);
-		expect(html).toContain("<pre");
-		expect(html).toContain("<code");
-		expect(html).toContain("const x = 1;");
-	});
-
-	test("adds language class when provided", () => {
-		const html = renderToStaticMarkup(
-			<CodeBlock code="fn main() {}" language="rust" />,
-		);
-		expect(html).toContain("language-rust");
-	});
-
-	test("omits language class when not provided", () => {
-		const html = renderToStaticMarkup(<CodeBlock code="hello" />);
-		expect(html).not.toContain("language-");
-	});
-});
 
 // --- MarkdownBlock ---
 
@@ -613,16 +589,16 @@ describe("ConversationView", () => {
 	test("clears plan_delta buffer on plan_end", () => {
 		const events: SessionEvent[] = [
 			makeEvent("plan_start", {}, { timestamp: 1000 }),
-			makeEvent("plan_delta", { text: "first response" }, { timestamp: 1001 }),
-			makeEvent("plan_end", { text: "first response" }, { timestamp: 1002 }),
+			makeEvent("plan_delta", { text: "streaming text" }, { timestamp: 1001 }),
+			makeEvent("plan_end", { text: "final text" }, { timestamp: 1002 }),
 			makeEvent("plan_start", {}, { timestamp: 1003 }),
 			makeEvent("plan_delta", { text: "second" }, { timestamp: 1004 }),
 		];
 		const tree = buildAgentTree(events);
 		const html = renderToStaticMarkup(<ConversationView events={events} tree={tree} />);
-		// The plan_end renders "first response" via AssistantMessage
-		expect(html).toContain("first response");
-		// The second plan_delta should only contain "second", not accumulated from first
+		expect(html).toContain("final text");
 		expect(html).toContain("second");
+		// Buffer from first plan should NOT bleed into second
+		expect(html).not.toContain("streaming textsecond");
 	});
 });
