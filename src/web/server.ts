@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import type { ServerWebSocket } from "bun";
 import type { SessionBus } from "../host/event-bus.ts";
 import type { SessionEvent } from "../kernel/types.ts";
-import type { ServerMessage } from "./protocol.ts";
+import type { CommandMessage, ServerMessage } from "./protocol.ts";
 import { parseCommandMessage } from "./protocol.ts";
 
 const EVENT_CAP = 10_000;
@@ -144,11 +144,18 @@ export class WebServer {
 
 	private handleWsMessage(message: string | Buffer): void {
 		const raw = typeof message === "string" ? message : message.toString();
+		let cmd: CommandMessage;
 		try {
-			const cmd = parseCommandMessage(raw);
-			this.bus.emitCommand(cmd.command);
+			cmd = parseCommandMessage(raw);
 		} catch {
-			// Invalid command — ignore, don't crash
+			// Malformed client message — expected, ignore
+			return;
+		}
+		try {
+			this.bus.emitCommand(cmd.command);
+		} catch (err) {
+			// Bus/listener error — internal bug, log it
+			console.error("[WebServer] command handler error:", err);
 		}
 	}
 
