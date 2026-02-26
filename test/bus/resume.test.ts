@@ -9,7 +9,7 @@ import { Msg, messageText } from "../../src/llm/types.ts";
 /** Helper: write an array of SessionEvents as JSONL */
 async function writeEventLog(path: string, events: SessionEvent[]): Promise<void> {
 	const lines = events.map((e) => JSON.stringify(e)).join("\n");
-	await writeFile(path, lines + "\n", "utf-8");
+	await writeFile(path, `${lines}\n`, "utf-8");
 }
 
 /** Helper: build a SessionEvent with defaults */
@@ -109,7 +109,7 @@ describe("replayHandleLog", () => {
 		const valid1 = JSON.stringify(event("perceive", { goal: "A goal" }));
 		const corrupt = "{totally broken json!!!";
 		const valid2 = JSON.stringify(event("plan_end", { assistant_message: Msg.assistant("Reply") }));
-		await writeFile(logPath, [valid1, corrupt, valid2].join("\n") + "\n", "utf-8");
+		await writeFile(logPath, `${[valid1, corrupt, valid2].join("\n")}\n`, "utf-8");
 
 		const history = await replayHandleLog(logPath);
 
