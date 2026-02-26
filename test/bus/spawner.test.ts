@@ -563,9 +563,9 @@ describe("AgentSpawner", () => {
 			await spawner.waitAgent(handleId);
 
 			// A different caller should be rejected
-			expect(() =>
-				spawner.waitAgent(handleId, { agent_name: "other-agent", depth: 1 }),
-			).toThrow(/not shared/);
+			expect(() => spawner.waitAgent(handleId, { agent_name: "other-agent", depth: 1 })).toThrow(
+				/not shared/,
+			);
 		}, 15_000);
 
 		test("waitAgent allows owner on non-shared handle", async () => {
@@ -690,6 +690,70 @@ describe("AgentSpawner", () => {
 			expect(handle).toBeDefined();
 			expect(handle!.ownerId).toBe("my-parent");
 		}, 15_000);
+	});
+
+	describe("registerCompletedHandle", () => {
+		test("registers a handle with completed status and cached result", () => {
+			const mockClient = createMockClient("Done.");
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			const result: ResultMessage = {
+				kind: "result",
+				handle_id: "01RESUMED00000000000000000",
+				output: "Previously completed output",
+				success: true,
+				stumbles: 0,
+				turns: 3,
+				timed_out: false,
+			};
+
+			spawner.registerCompletedHandle("01RESUMED00000000000000000", result, "root");
+
+			const handle = spawner.getHandle("01RESUMED00000000000000000");
+			expect(handle).toBeDefined();
+			expect(handle!.status).toBe("completed");
+			expect(handle!.result).toEqual(result);
+			expect(handle!.ownerId).toBe("root");
+		});
+
+		test("waitAgent returns pre-registered result immediately", async () => {
+			const mockClient = createMockClient("Done.");
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			const result: ResultMessage = {
+				kind: "result",
+				handle_id: "01WAITRESUME000000000000000",
+				output: "Cached from previous session",
+				success: true,
+				stumbles: 1,
+				turns: 5,
+				timed_out: false,
+			};
+
+			spawner.registerCompletedHandle("01WAITRESUME000000000000000", result, "root");
+
+			const waited = await spawner.waitAgent("01WAITRESUME000000000000000");
+			expect(waited).toEqual(result);
+		});
+
+		test("getHandles includes pre-registered handles", () => {
+			const mockClient = createMockClient("Done.");
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			const result: ResultMessage = {
+				kind: "result",
+				handle_id: "01HANDLELIST0000000000000000",
+				output: "Listed",
+				success: true,
+				stumbles: 0,
+				turns: 1,
+				timed_out: false,
+			};
+
+			spawner.registerCompletedHandle("01HANDLELIST0000000000000000", result, "root");
+
+			expect(spawner.getHandles()).toContain("01HANDLELIST0000000000000000");
+		});
 	});
 
 	describe("shutdown", () => {

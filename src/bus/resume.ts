@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { SessionEvent } from "../kernel/types.ts";
 import { type Message, Msg } from "../llm/types.ts";
+import type { ResultMessage } from "./types.ts";
 
 /** Info about a child agent spawned via the bus */
 export interface ChildHandleInfo {
@@ -170,4 +171,41 @@ export async function replayHandleLog(logPath: string): Promise<Message[]> {
 	}
 
 	return history;
+}
+
+/**
+ * Read a per-handle JSONL log and extract a ResultMessage from the session_end event.
+ * Returns null if the log doesn't exist or has no session_end event.
+ */
+export async function readHandleResult(
+	handleLogDir: string,
+	handleId: string,
+): Promise<ResultMessage | null> {
+	const logPath = join(handleLogDir, `${handleId}.jsonl`);
+	let raw: string;
+	try {
+		raw = await readFile(logPath, "utf-8");
+	} catch {
+		return null;
+	}
+
+	const lines = raw.split("\n").filter((line) => line.trim() !== "");
+	for (const line of lines) {
+		try {
+			const parsed = JSON.parse(line);
+			if (parsed.kind === "session_end") {
+				return {
+					kind: "result",
+					handle_id: handleId,
+					output: (parsed.data.output as string) ?? "",
+					success: parsed.data.success as boolean,
+					stumbles: parsed.data.stumbles as number,
+					turns: parsed.data.turns as number,
+					timed_out: parsed.data.timed_out as boolean,
+				};
+			}
+		} catch {}
+	}
+
+	return null;
 }

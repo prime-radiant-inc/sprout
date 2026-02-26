@@ -43,6 +43,12 @@ export interface AgentFactoryOptions {
 	spawner?: AgentSpawner;
 	/** Pre-loaded Genome instance. If provided, skips loading from disk. */
 	genome?: import("../genome/genome.ts").Genome;
+	/** Completed child handles from a previous session, to pre-register in the spawner. */
+	completedHandles?: Array<{
+		handleId: string;
+		result: import("../bus/types.ts").ResultMessage;
+		ownerId: string;
+	}>;
 }
 
 /** Result returned by the agent factory. */
@@ -73,6 +79,12 @@ export interface SessionControllerOptions {
 	spawner?: AgentSpawner;
 	/** Pre-loaded Genome instance to forward to the agent factory. */
 	genome?: import("../genome/genome.ts").Genome;
+	/** Completed child handles from a previous session, to pre-register in the spawner. */
+	completedHandles?: Array<{
+		handleId: string;
+		result: import("../bus/types.ts").ResultMessage;
+		ownerId: string;
+	}>;
 }
 
 /**
@@ -93,6 +105,13 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 			const ev = eventMsg.event;
 			options.events.emitEvent(ev.kind, ev.agent_id, ev.depth, ev.data);
 		});
+
+		// Pre-register completed child handles from a previous session
+		if (options.completedHandles) {
+			for (const { handleId, result, ownerId } of options.completedHandles) {
+				options.spawner.registerCompletedHandle(handleId, result, ownerId);
+			}
+		}
 	}
 
 	const result = await createAgent({
@@ -141,6 +160,7 @@ export class SessionController {
 	private readonly factory: AgentFactory;
 	private readonly spawner?: AgentSpawner;
 	private readonly genome?: import("../genome/genome.ts").Genome;
+	private readonly completedHandles?: SessionControllerOptions["completedHandles"];
 	private history: Message[] = [];
 	private running = false;
 	private modelOverride?: string;
@@ -161,6 +181,7 @@ export class SessionController {
 		this.factory = options.factory ?? defaultFactory;
 		this.spawner = options.spawner;
 		this.genome = options.genome;
+		this.completedHandles = options.completedHandles;
 		this.history = options.initialHistory ? [...options.initialHistory] : [];
 
 		this.metadata = new SessionMetadata({
@@ -326,6 +347,7 @@ export class SessionController {
 				model: this.modelOverride,
 				spawner: this.spawner,
 				genome: this.genome,
+				completedHandles: this.completedHandles,
 			});
 
 			this.agent = result.agent;

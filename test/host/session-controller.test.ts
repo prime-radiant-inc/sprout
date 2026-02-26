@@ -1210,6 +1210,56 @@ describe("SessionController", () => {
 		expect(controller.sessionId).toHaveLength(26);
 	});
 
+	test("completedHandles are passed through to the agent factory", async () => {
+		let capturedCompletedHandles: any[] | undefined;
+
+		const factory: AgentFactory = async (options) => {
+			capturedCompletedHandles = options.completedHandles;
+			return {
+				agent: {
+					steer() {},
+					requestCompaction() {},
+					async run() {
+						return { output: "done", success: true, stumbles: 0, turns: 1, timed_out: false };
+					},
+				} as any,
+				learnProcess: null,
+			};
+		};
+
+		const bus = new EventBus();
+		const completedHandles = [
+			{
+				handleId: "01HANDLE_FROM_PREV_SESSION",
+				result: {
+					kind: "result" as const,
+					handle_id: "01HANDLE_FROM_PREV_SESSION",
+					output: "Previously completed",
+					success: true,
+					stumbles: 0,
+					turns: 3,
+					timed_out: false,
+				},
+				ownerId: "root",
+			},
+		];
+
+		const controller = new SessionController({
+			bus,
+			genomePath: join(tempDir, "genome"),
+			sessionsDir: join(tempDir, "sessions"),
+			factory,
+			completedHandles,
+		});
+
+		await controller.submitGoal("resume task");
+
+		expect(capturedCompletedHandles).toBeDefined();
+		expect(capturedCompletedHandles).toHaveLength(1);
+		expect(capturedCompletedHandles![0].handleId).toBe("01HANDLE_FROM_PREV_SESSION");
+		expect(capturedCompletedHandles![0].result.output).toBe("Previously completed");
+	});
+
 	test("resume with stuck running metadata marks it interrupted before running", async () => {
 		const sessionsDir = join(tempDir, "sessions");
 		const sessionId = "01STUCKSESSION_RUNNING";

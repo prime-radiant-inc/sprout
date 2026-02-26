@@ -376,6 +376,9 @@ export async function runCli(command: CliCommand): Promise<void> {
 	let resumeSessionId: string | undefined;
 	let resumeHistory: import("../llm/types.ts").Message[] | undefined;
 	let resumeEvents: import("../kernel/types.ts").SessionEvent[] | undefined;
+	let resumeCompletedHandles:
+		| Array<{ handleId: string; result: import("../bus/types.ts").ResultMessage; ownerId: string }>
+		| undefined;
 
 	if (command.kind === "resume" || command.kind === "resume-last") {
 		const { listSessions } = await import("./session-metadata.ts");
@@ -398,15 +401,27 @@ export async function runCli(command: CliCommand): Promise<void> {
 		const history = await replayEventLog(logPath);
 		console.error(`Resumed session ${sessionId} with ${history.length} messages of history`);
 
-		// Extract child handle info from the root log
-		const { extractChildHandles, checkHandleCompleted } = await import("../bus/resume.ts");
+		// Extract child handle info from the root log and reconstruct completed results
+		const { extractChildHandles, checkHandleCompleted, readHandleResult } = await import(
+			"../bus/resume.ts"
+		);
 		const childHandles = await extractChildHandles(logPath);
 		if (childHandles.length > 0) {
 			const handleLogDir = join(command.genomePath, "logs", sessionId);
+			const completed: typeof resumeCompletedHandles = [];
 			for (const handle of childHandles) {
 				if (!handle.completed) {
 					handle.completed = await checkHandleCompleted(handleLogDir, handle.handleId);
 				}
+				if (handle.completed) {
+					const result = await readHandleResult(handleLogDir, handle.handleId);
+					if (result) {
+						completed.push({ handleId: handle.handleId, result, ownerId: "root" });
+					}
+				}
+			}
+			if (completed.length > 0) {
+				resumeCompletedHandles = completed;
 			}
 			const completedCount = childHandles.filter((h) => h.completed).length;
 			const pendingCount = childHandles.length - completedCount;
@@ -454,6 +469,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 		initialHistory: resumeHistory,
 		spawner: infra.spawner,
 		genome: infra.genome,
+		completedHandles: resumeCompletedHandles,
 	});
 
 	const { InputHistory } = await import("../tui/history.ts");

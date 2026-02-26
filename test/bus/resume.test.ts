@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
 	checkHandleCompleted,
 	extractChildHandles,
+	readHandleResult,
 	replayHandleLog,
 } from "../../src/bus/resume.ts";
 import type { SessionEvent } from "../../src/kernel/types.ts";
@@ -506,5 +507,95 @@ describe("checkHandleCompleted", () => {
 		const completed = await checkHandleCompleted(handleLogDir, "nonexistent-handle");
 
 		expect(completed).toBe(false);
+	});
+});
+
+describe("readHandleResult", () => {
+	let tempDir: string;
+
+	beforeEach(async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "sprout-read-handle-result-"));
+	});
+
+	afterEach(async () => {
+		await rm(tempDir, { recursive: true, force: true });
+	});
+
+	test("extracts ResultMessage from per-handle log with session_end", async () => {
+		const handleLogDir = join(tempDir, "logs", "session-1");
+		await mkdir(handleLogDir, { recursive: true });
+
+		const handleId = "handle-abc";
+		const logPath = join(handleLogDir, `${handleId}.jsonl`);
+		await writeEventLog(logPath, [
+			event("perceive", { goal: "work" }),
+			event("plan_end", { assistant_message: Msg.assistant("working") }),
+			event("session_end", {
+				output: "Completed the task successfully",
+				success: true,
+				stumbles: 1,
+				turns: 4,
+				timed_out: false,
+			}),
+		]);
+
+		const result = await readHandleResult(handleLogDir, handleId);
+
+		expect(result).not.toBeNull();
+		expect(result!.kind).toBe("result");
+		expect(result!.handle_id).toBe(handleId);
+		expect(result!.output).toBe("Completed the task successfully");
+		expect(result!.success).toBe(true);
+		expect(result!.stumbles).toBe(1);
+		expect(result!.turns).toBe(4);
+		expect(result!.timed_out).toBe(false);
+	});
+
+	test("returns null when log has no session_end event", async () => {
+		const handleLogDir = join(tempDir, "logs", "session-1");
+		await mkdir(handleLogDir, { recursive: true });
+
+		const handleId = "handle-abc";
+		const logPath = join(handleLogDir, `${handleId}.jsonl`);
+		await writeEventLog(logPath, [
+			event("perceive", { goal: "work" }),
+			event("plan_end", { assistant_message: Msg.assistant("working") }),
+		]);
+
+		const result = await readHandleResult(handleLogDir, handleId);
+
+		expect(result).toBeNull();
+	});
+
+	test("returns null when log file does not exist", async () => {
+		const handleLogDir = join(tempDir, "logs", "session-1");
+		await mkdir(handleLogDir, { recursive: true });
+
+		const result = await readHandleResult(handleLogDir, "nonexistent-handle");
+
+		expect(result).toBeNull();
+	});
+
+	test("defaults output to empty string when session_end has no output field", async () => {
+		const handleLogDir = join(tempDir, "logs", "session-1");
+		await mkdir(handleLogDir, { recursive: true });
+
+		const handleId = "handle-no-output";
+		const logPath = join(handleLogDir, `${handleId}.jsonl`);
+		await writeEventLog(logPath, [
+			event("session_end", {
+				success: false,
+				stumbles: 2,
+				turns: 5,
+				timed_out: true,
+			}),
+		]);
+
+		const result = await readHandleResult(handleLogDir, handleId);
+
+		expect(result).not.toBeNull();
+		expect(result!.output).toBe("");
+		expect(result!.success).toBe(false);
+		expect(result!.timed_out).toBe(true);
 	});
 });

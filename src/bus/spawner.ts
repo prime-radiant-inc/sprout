@@ -205,9 +205,7 @@ export class AgentSpawner {
 		}
 
 		if (caller && !handle.shared && caller.agent_name !== handle.ownerId) {
-			throw new Error(
-				`Handle ${handleId} is not shared — only '${handle.ownerId}' can access it`,
-			);
+			throw new Error(`Handle ${handleId} is not shared — only '${handle.ownerId}' can access it`);
 		}
 
 		if (handle.result) {
@@ -250,9 +248,7 @@ export class AgentSpawner {
 		}
 
 		if (!handle.shared && caller.agent_name !== handle.ownerId) {
-			throw new Error(
-				`Handle ${handleId} is not shared — only '${handle.ownerId}' can access it`,
-			);
+			throw new Error(`Handle ${handleId} is not shared — only '${handle.ownerId}' can access it`);
 		}
 
 		const inboxTopic = agentInbox(this.sessionId, handleId);
@@ -289,6 +285,24 @@ export class AgentSpawner {
 			return this.waitAgent(handleId);
 		}
 		return Promise.resolve(undefined);
+	}
+
+	/**
+	 * Register a handle that completed in a previous session.
+	 * Creates a handle entry with status "completed" and the cached result,
+	 * so that waitAgent returns the result immediately on resume.
+	 */
+	registerCompletedHandle(handleId: string, result: ResultMessage, ownerId: string): void {
+		const handle: AgentHandle = {
+			handleId,
+			process: { kill: () => {}, exited: Promise.resolve(0) },
+			status: "completed",
+			result,
+			shared: false,
+			resultResolvers: [],
+			ownerId,
+		};
+		this.handles.set(handleId, handle);
 	}
 
 	/** Get all tracked handle IDs */
