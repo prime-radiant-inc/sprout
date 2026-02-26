@@ -13,12 +13,7 @@ export type CommandListener = (command: Command) => void;
  */
 export interface SessionBus {
 	onEvent(listener: EventListener): () => void;
-	emitEvent(
-		kind: EventKind,
-		agentId: string,
-		depth: number,
-		data?: Record<string, unknown>,
-	): void;
+	emitEvent(kind: EventKind, agentId: string, depth: number, data?: Record<string, unknown>): void;
 	onCommand(listener: CommandListener): () => void;
 	emitCommand(command: Command): void;
 }

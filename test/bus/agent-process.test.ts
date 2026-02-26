@@ -80,9 +80,7 @@ async function waitForResults(
 		await delay(10);
 	}
 	if (results.length < count) {
-		throw new Error(
-			`Timed out waiting for ${count} results (got ${results.length})`,
-		);
+		throw new Error(`Timed out waiting for ${count} results (got ${results.length})`);
 	}
 }
 

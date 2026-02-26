@@ -46,7 +46,7 @@ export function buildDelegateTool(agents: AgentSpec[]): ToolDefinition {
 				shared: {
 					type: "boolean",
 					description:
-						"If true, reuse an existing agent instance instead of spawning a new one. Default: false",
+						"If true, the agent stays alive after completion and can receive follow-up messages via message_agent. Default: false",
 				},
 			},
 			required: ["agent_name", "goal"],

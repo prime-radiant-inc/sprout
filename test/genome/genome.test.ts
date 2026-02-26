@@ -565,10 +565,7 @@ describe("Genome", () => {
 
 			await genome.savePostscript("agents/editor.md", "editor-specific rules");
 
-			const content = await readFile(
-				join(root, "postscripts", "agents", "editor.md"),
-				"utf-8",
-			);
+			const content = await readFile(join(root, "postscripts", "agents", "editor.md"), "utf-8");
 			expect(content).toBe("editor-specific rules");
 		});
 	});

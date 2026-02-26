@@ -55,6 +55,13 @@ describe("buildDelegateTool", () => {
 		expect(props.agent_name.enum).toBeUndefined();
 	});
 
+	test("delegate tool shared parameter describes keep-alive behavior", () => {
+		const tool = buildDelegateTool([]);
+		const sharedDesc = (tool.parameters as any).properties.shared.description;
+		expect(sharedDesc).toContain("stays alive");
+		expect(sharedDesc).not.toContain("reuse");
+	});
+
 	test("includes blocking and shared params", () => {
 		const tool = buildDelegateTool([testAgent]);
 		const props = (tool.parameters as any).properties;

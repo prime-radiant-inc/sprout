@@ -7,9 +7,7 @@ type ClientMessage =
 	| { action: "publish"; topic: string; payload: string };
 
 /** Wire-protocol message from server to client */
-type ServerMessage =
-	| { topic: string; payload: string }
-	| { action: "subscribed"; topic: string };
+type ServerMessage = { topic: string; payload: string } | { action: "subscribed"; topic: string };
 
 type WSData = { id: number };
 
