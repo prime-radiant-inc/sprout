@@ -777,6 +777,29 @@ describe("InputArea", () => {
 		expect(lastFrame()).toContain("my draft");
 	});
 
+	test("async onSlashCommand is accepted and awaited", async () => {
+		let resolved = false;
+		const { stdin } = render(
+			<InputArea
+				onSubmit={() => {}}
+				onSlashCommand={async () => {
+					await new Promise((r) => setTimeout(r, 5));
+					resolved = true;
+				}}
+				isRunning={false}
+			/>,
+		);
+
+		stdin.write("/help");
+		await flush();
+		stdin.write("\r");
+		await flush();
+		// Wait for the async callback to complete
+		await new Promise((r) => setTimeout(r, 20));
+
+		expect(resolved).toBe(true);
+	});
+
 	test("up arrow from first line navigates history", async () => {
 		const { lastFrame, stdin } = render(
 			<InputArea

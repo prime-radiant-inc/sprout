@@ -134,6 +134,34 @@ describe("App", () => {
 		expect(slashCmd.kind).toBe("compact");
 	});
 
+	test("async onSlashCommand rejection is caught and emitted as warning", async () => {
+		const events: any[] = [];
+		const bus = new EventBus();
+		bus.onEvent((e) => events.push(e));
+
+		const { stdin } = render(
+			<App
+				bus={bus}
+				sessionId="01ABCDEF12345678ABCDEF1234"
+				onSubmit={() => {}}
+				onSlashCommand={async () => {
+					throw new Error("terminal setup failed");
+				}}
+				onExit={() => {}}
+			/>,
+		);
+
+		stdin.write("/compact");
+		await flush();
+		stdin.write("\r");
+		await flush();
+
+		const warning = events.find(
+			(e) => e.kind === "warning" && (e.data.message as string).includes("terminal setup failed"),
+		);
+		expect(warning).toBeDefined();
+	});
+
 	test("InputArea shows running prompt during session", async () => {
 		const { bus, lastFrame } = setup();
 

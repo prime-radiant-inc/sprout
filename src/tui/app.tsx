@@ -12,7 +12,7 @@ export interface AppProps {
 	bus: SessionBus;
 	sessionId: string;
 	onSubmit: (text: string) => void;
-	onSlashCommand: (cmd: SlashCommand) => void;
+	onSlashCommand: (cmd: SlashCommand) => void | Promise<void>;
 	onExit: () => void;
 	initialHistory?: string[];
 	onSteer?: (text: string) => void;
@@ -127,7 +127,10 @@ export function App({
 			setShowModelPicker(true);
 			return;
 		}
-		onSlashCommand(cmd);
+		Promise.resolve(onSlashCommand(cmd)).catch((err: unknown) => {
+			const message = err instanceof Error ? err.message : String(err);
+			bus.emitEvent("warning", "cli", 0, { message: `Slash command error: ${message}` });
+		});
 	};
 
 	return (

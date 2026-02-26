@@ -9,7 +9,7 @@ import { useTextBuffer } from "./use-text-buffer.ts";
 
 export interface InputAreaProps {
 	onSubmit: (text: string) => void;
-	onSlashCommand: (cmd: SlashCommand) => void;
+	onSlashCommand: (cmd: SlashCommand) => void | Promise<void>;
 	isRunning: boolean;
 	initialHistory?: string[];
 	onInterrupt?: () => void;
