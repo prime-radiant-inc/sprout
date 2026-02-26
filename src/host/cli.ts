@@ -210,6 +210,7 @@ Web interface:
   --web                  Start web server alongside TUI
   --web-only             Start web server without TUI (headless/remote)
   --port <port>          Web server port (default: 7777)
+  /web, /web stop        Start/stop web server from interactive mode
 
 Options:
   --genome-path <path>   Path to genome directory (default: ~/.local/share/sprout-genome)
