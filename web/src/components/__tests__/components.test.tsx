@@ -493,6 +493,17 @@ describe("EventLine", () => {
 		);
 		expect(html).toContain("New session");
 	});
+
+	test("renders plan_delta text as streaming assistant message", () => {
+		const html = renderToStaticMarkup(
+			<EventLine
+				event={{ kind: "plan_delta", timestamp: 1, agent_id: "root", depth: 0, data: { text: "Hello " } }}
+				durationMs={null}
+				streamingText="Hello world"
+			/>,
+		);
+		expect(html).toContain("Hello world");
+	});
 });
 
 // --- ConversationView ---
@@ -586,5 +597,32 @@ describe("ConversationView", () => {
 		const tree = buildAgentTree([]);
 		const html = renderToStaticMarkup(<ConversationView events={[]} tree={tree} />);
 		expect(html).toBeDefined();
+	});
+
+	test("accumulates plan_delta text into a single streaming message", () => {
+		const events: SessionEvent[] = [
+			makeEvent("plan_start", {}, { timestamp: 1000 }),
+			makeEvent("plan_delta", { text: "Hello " }, { timestamp: 1001 }),
+			makeEvent("plan_delta", { text: "world" }, { timestamp: 1002 }),
+		];
+		const tree = buildAgentTree(events);
+		const html = renderToStaticMarkup(<ConversationView events={events} tree={tree} />);
+		expect(html).toContain("Hello world");
+	});
+
+	test("clears plan_delta buffer on plan_end", () => {
+		const events: SessionEvent[] = [
+			makeEvent("plan_start", {}, { timestamp: 1000 }),
+			makeEvent("plan_delta", { text: "first response" }, { timestamp: 1001 }),
+			makeEvent("plan_end", { text: "first response" }, { timestamp: 1002 }),
+			makeEvent("plan_start", {}, { timestamp: 1003 }),
+			makeEvent("plan_delta", { text: "second" }, { timestamp: 1004 }),
+		];
+		const tree = buildAgentTree(events);
+		const html = renderToStaticMarkup(<ConversationView events={events} tree={tree} />);
+		// The plan_end renders "first response" via AssistantMessage
+		expect(html).toContain("first response");
+		// The second plan_delta should only contain "second", not accumulated from first
+		expect(html).toContain("second");
 	});
 });

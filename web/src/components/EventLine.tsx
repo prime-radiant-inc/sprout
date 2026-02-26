@@ -8,13 +8,14 @@ import { UserMessage } from "./UserMessage.tsx";
 interface EventLineProps {
 	event: SessionEvent;
 	durationMs: number | null;
+	streamingText?: string;
 }
 
 /**
  * Dispatcher: maps a SessionEvent to the appropriate display component.
  * Returns null for events that should not be displayed.
  */
-export function EventLine({ event, durationMs }: EventLineProps) {
+export function EventLine({ event, durationMs, streamingText }: EventLineProps) {
 	const { kind, data } = event;
 
 	switch (kind) {
@@ -124,6 +125,10 @@ export function EventLine({ event, durationMs }: EventLineProps) {
 					message={`Genome updated: ${data.mutation_type}`}
 				/>
 			);
+
+		case "plan_delta":
+			if (!streamingText) return null;
+			return <AssistantMessage text={streamingText} />;
 
 		// Skip these — not displayed in conversation
 		case "session_start":
