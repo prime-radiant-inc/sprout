@@ -1,4 +1,5 @@
 import type { Command, EventKind, SessionEvent } from "../kernel/types.ts";
+import { EVENT_CAP } from "../kernel/constants.ts";
 
 export type EventListener = (event: SessionEvent) => void;
 export type CommandListener = (command: Command) => void;
@@ -23,8 +24,6 @@ export interface SessionBus {
  *
  * Compatible with AgentEventEmitter interface so Agent doesn't need to change.
  */
-const EVENT_CAP = 10_000;
-
 export class EventBus implements SessionBus {
 	private eventListeners: EventListener[] = [];
 	private commandListeners: CommandListener[] = [];

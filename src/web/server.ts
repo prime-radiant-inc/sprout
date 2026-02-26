@@ -4,8 +4,7 @@ import type { SessionBus } from "../host/event-bus.ts";
 import type { SessionEvent } from "../kernel/types.ts";
 import type { CommandMessage, ServerMessage } from "./protocol.ts";
 import { parseCommandMessage } from "./protocol.ts";
-
-const EVENT_CAP = 10_000;
+import { EVENT_CAP } from "../kernel/constants.ts";
 
 export interface WebServerOptions {
 	bus: SessionBus;
