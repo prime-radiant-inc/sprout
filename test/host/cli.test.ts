@@ -738,6 +738,65 @@ describe("configureTerminal — tmux", () => {
 	});
 });
 
+describe("configureTerminal — combined scenarios", () => {
+	let tempDir: string;
+
+	beforeEach(async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "sprout-combined-"));
+	});
+
+	afterEach(async () => {
+		await rm(tempDir, { recursive: true, force: true });
+	});
+
+	test("tmux + Terminal.app: writes tmux config AND calls PlistBuddy", async () => {
+		const saved = saveEnv();
+		process.env.TMUX = "/tmp/tmux-501/default,12345,0";
+		process.env.TERM_PROGRAM = "Apple_Terminal";
+		const confPath = join(tempDir, "tmux.conf");
+		try {
+			const spawnCalls: string[][] = [];
+			const spawn = (args: string[]) => {
+				spawnCalls.push(args);
+				// tmux source-file
+				if (args.includes("tmux")) {
+					return { exitCode: 0, stdout: "" };
+				}
+				// PlistBuddy: Print profile name
+				if (args.some((a) => a.startsWith("Print"))) {
+					return { exitCode: 0, stdout: "Pro\n" };
+				}
+				// PlistBuddy: Set commands
+				return { exitCode: 0, stdout: "" };
+			};
+
+			const fakePlist = "/tmp/test-combined.plist";
+			const result = await configureTerminal({
+				spawn,
+				tmuxConfPath: confPath,
+				plistPath: fakePlist,
+			});
+
+			// Verify tmux config was written
+			const { readFile } = await import("node:fs/promises");
+			const contents = await readFile(confPath, "utf-8");
+			expect(contents).toContain("set -s extended-keys on");
+			expect(contents).toContain("set -as terminal-features 'xterm*:extkeys'");
+			expect(contents).toContain("set -s extended-keys-format csi-u");
+
+			// Verify PlistBuddy was called
+			const plistCalls = spawnCalls.filter((c) => c[0] === "/usr/libexec/PlistBuddy");
+			expect(plistCalls.length).toBeGreaterThanOrEqual(1);
+
+			// Result should mention both tmux and Terminal.app
+			expect(result).toContain("tmux");
+			expect(result).toContain("Option as Meta Key");
+		} finally {
+			restoreEnv(saved);
+		}
+	});
+});
+
 describe("resume flow", () => {
 	let tempDir: string;
 
