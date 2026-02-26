@@ -19,8 +19,6 @@ const TOOL_DETAIL_KINDS: Set<EventKind> = new Set([
 
 export interface ConversationViewProps {
 	bus: SessionBus;
-	/** @deprecated No longer used — Static handles scrollback natively. */
-	maxHeight?: number;
 	/** Historical events to display before new events (for resume). */
 	initialEvents?: SessionEvent[];
 }
