@@ -838,6 +838,62 @@ describe("configureTerminal — combined scenarios", () => {
 	});
 });
 
+describe("configureTerminal — other terminals", () => {
+	const spawn = (_args: string[]) => ({ exitCode: 0, stdout: "" });
+
+	test("VS Code terminal suggests enableKittyKeyboardProtocol setting", async () => {
+		const saved = saveEnv();
+		delete process.env.TMUX;
+		process.env.TERM_PROGRAM = "vscode";
+		try {
+			const result = await configureTerminal({ spawn });
+			expect(result).toContain("settings.json");
+			expect(result).toContain("enableKittyKeyboardProtocol");
+		} finally {
+			restoreEnv(saved);
+		}
+	});
+
+	test("native terminal (kitty) reports no setup needed", async () => {
+		const saved = saveEnv();
+		delete process.env.TMUX;
+		process.env.TERM_PROGRAM = "kitty";
+		try {
+			const result = await configureTerminal({ spawn });
+			expect(result).toContain("No setup needed");
+			expect(result).toContain("kitty");
+		} finally {
+			restoreEnv(saved);
+		}
+	});
+
+	test("native terminal (ghostty) reports no setup needed", async () => {
+		const saved = saveEnv();
+		delete process.env.TMUX;
+		process.env.TERM_PROGRAM = "ghostty";
+		try {
+			const result = await configureTerminal({ spawn });
+			expect(result).toContain("No setup needed");
+			expect(result).toContain("ghostty");
+		} finally {
+			restoreEnv(saved);
+		}
+	});
+
+	test("unknown terminal suggests checking docs for CSI u", async () => {
+		const saved = saveEnv();
+		delete process.env.TMUX;
+		process.env.TERM_PROGRAM = "some-unknown-terminal";
+		try {
+			const result = await configureTerminal({ spawn });
+			expect(result).toContain("Kitty keyboard protocol");
+			expect(result).toContain("CSI u");
+		} finally {
+			restoreEnv(saved);
+		}
+	});
+});
+
 describe("resume flow", () => {
 	let tempDir: string;
 
