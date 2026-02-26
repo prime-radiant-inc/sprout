@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { exists, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runAgentProcess } from "../../src/bus/agent-process.ts";
@@ -402,4 +402,50 @@ describe("runAgentProcess", () => {
 		// Process should exit cleanly without throwing
 		await processPromise;
 	}, 5_000);
+
+	test("writes event log to per-handle path", async () => {
+		const mockClient = createMockClient("Logged response.");
+
+		const resultTopic = agentResult(SESSION_ID, HANDLE_ID);
+		const resultPromise = parentClient.waitForMessage(resultTopic, 10_000);
+
+		const processPromise = runAgentProcess({
+			busUrl: server.url,
+			handleId: HANDLE_ID,
+			sessionId: SESSION_ID,
+			genomePath: genomeDir,
+			client: mockClient,
+			workDir: tempDir,
+		});
+
+		await delay(100);
+
+		const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
+		const startMsg: StartMessage = {
+			kind: "start",
+			handle_id: HANDLE_ID,
+			agent_name: "test-leaf",
+			genome_path: genomeDir,
+			session_id: SESSION_ID,
+			caller: { agent_name: "root", depth: 0 },
+			goal: "Log this",
+			shared: false,
+		};
+		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
+
+		await resultPromise;
+		await processPromise;
+
+		// Verify the log file is written at the per-handle path
+		const expectedLogPath = join(genomeDir, "logs", SESSION_ID, `${HANDLE_ID}.jsonl`);
+		const logExists = await exists(expectedLogPath);
+		expect(logExists).toBe(true);
+
+		// Verify it contains expected events
+		const logContent = await readFile(expectedLogPath, "utf-8");
+		const events = logContent.trim().split("\n").map((line) => JSON.parse(line));
+		const kinds = events.map((e: any) => e.kind);
+		expect(kinds).toContain("session_start");
+		expect(kinds).toContain("session_end");
+	}, 15_000);
 });

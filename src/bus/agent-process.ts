@@ -99,7 +99,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 		const preambles = config.bootstrapDir ? await loadPreambles(config.bootstrapDir) : undefined;
 		const projectDocs = await loadProjectDocs({ cwd: workDir });
 		const genomePostscripts = await genome.loadPostscripts();
-		const logBasePath = join(genomePath, "logs", sessionId);
+		const logBasePath = join(genomePath, "logs", sessionId, handleId);
 
 		// Forward agent events to the bus
 		events.on((event) => {
