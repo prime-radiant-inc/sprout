@@ -19,7 +19,7 @@ import type {
 	Memory,
 	RoutingRule,
 } from "../kernel/types.ts";
-import type { LearnProcess } from "../learn/learn-process.ts";
+import type { LearnSink } from "../learn/learn-process.ts";
 import type { Client } from "../llm/client.ts";
 import type { Response as LLMResponse, Message, ToolDefinition } from "../llm/types.ts";
 import { Msg, messageReasoning, messageText, messageToolCalls } from "../llm/types.ts";
@@ -57,7 +57,7 @@ export interface AgentOptions {
 	depth?: number;
 	events?: AgentEventEmitter;
 	sessionId?: string;
-	learnProcess?: LearnProcess;
+	learnProcess?: LearnSink;
 	/** Base path for session log. Events written to ${logBasePath}.jsonl. Subagent logs go in ${logBasePath}/subagents/. */
 	logBasePath?: string;
 	/** Prior conversation history to prepend (for resume/continuation). */
@@ -94,7 +94,7 @@ export class Agent {
 	private readonly depth: number;
 	private readonly events: AgentEventEmitter;
 	private readonly sessionId: string;
-	private readonly learnProcess?: LearnProcess;
+	private readonly learnProcess?: LearnSink;
 	private readonly resolved: ResolvedModel;
 	private readonly agentTools: ToolDefinition[];
 	private readonly primitiveTools: ToolDefinition[];

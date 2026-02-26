@@ -11,6 +11,15 @@ import { Msg, messageText } from "../llm/types.ts";
 import type { MetricsStore } from "./metrics-store.ts";
 import { shouldLearn } from "./should-learn.ts";
 
+/**
+ * Minimal interface for consuming learn signals from an Agent.
+ * Implemented by LearnProcess (full pipeline) and BusLearnForwarder (bus relay).
+ */
+export interface LearnSink {
+	push(signal: LearnSignal): void;
+	recordAction(agentName: string): void;
+}
+
 /** Tool primitives that form the kernel's interface — cannot be shadowed by Learn. */
 const KERNEL_PRIMITIVE_NAMES = new Set([
 	"read_file",

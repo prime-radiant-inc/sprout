@@ -9,6 +9,8 @@ import { LocalExecutionEnvironment } from "../kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../kernel/primitives.ts";
 import { Client } from "../llm/client.ts";
 import { BusClient } from "./client.ts";
+import { BusLearnForwarder } from "./learn-forwarder.ts";
+import { AgentSpawner } from "./spawner.ts";
 import { agentEvents, agentInbox, agentReady, agentResult } from "./topics.ts";
 import type { ContinueMessage, EventMessage, ResultMessage, StartMessage } from "./types.ts";
 import { parseBusMessage } from "./types.ts";
@@ -56,6 +58,8 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 	const eventsTopic = agentEvents(sessionId, handleId);
 	const resultTopic = agentResult(sessionId, handleId);
 	const readyTopic = agentReady(sessionId, handleId);
+
+	let childSpawner: AgentSpawner | undefined;
 
 	try {
 		// Subscribe to inbox and wait for start (or abort)
@@ -113,6 +117,14 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 			bus.publish(eventsTopic, JSON.stringify(eventMsg));
 		});
 
+		// Create a spawner so this agent can delegate to other agents via the bus
+		childSpawner = new AgentSpawner(bus, busUrl, sessionId);
+
+		// Wire learn signal forwarding for agents that can learn
+		const learnProcess = agentSpec.constraints.can_learn
+			? new BusLearnForwarder(bus, sessionId)
+			: undefined;
+
 		const agent = new Agent({
 			spec: agentSpec,
 			env,
@@ -126,6 +138,9 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 			preambles,
 			projectDocs,
 			genomePostscripts,
+			spawner: childSpawner,
+			genomePath,
+			learnProcess,
 		});
 
 		// Build goal with hints
@@ -177,6 +192,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 		// Shared agent: enter idle loop, handle continue messages
 		await idleLoop(bus, agent, inboxTopic, resultTopic, handleId, signal);
 	} finally {
+		childSpawner?.shutdown();
 		await bus.disconnect();
 	}
 }
