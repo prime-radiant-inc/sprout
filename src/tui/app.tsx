@@ -1,6 +1,6 @@
 import { Box, Text, useStdout } from "ink";
 import { useEffect, useState } from "react";
-import type { EventBus } from "../host/event-bus.ts";
+import type { SessionBus } from "../host/event-bus.ts";
 import type { SessionEvent } from "../kernel/types.ts";
 import { ConversationView } from "./conversation-view.tsx";
 import { InputArea } from "./input-area.tsx";
@@ -9,7 +9,7 @@ import type { SlashCommand } from "./slash-commands.ts";
 import { StatusBar } from "./status-bar.tsx";
 
 export interface AppProps {
-	bus: EventBus;
+	bus: SessionBus;
 	sessionId: string;
 	onSubmit: (text: string) => void;
 	onSlashCommand: (cmd: SlashCommand) => void;

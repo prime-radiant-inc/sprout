@@ -6,7 +6,7 @@ import type { Message } from "../llm/types.ts";
 import { Msg } from "../llm/types.ts";
 import { ulid } from "../util/ulid.ts";
 import { compactHistory } from "./compaction.ts";
-import type { EventBus } from "./event-bus.ts";
+import type { SessionBus } from "./event-bus.ts";
 import { SessionMetadata } from "./session-metadata.ts";
 
 /** Minimal agent interface used by the SessionController. */
@@ -32,8 +32,8 @@ export interface AgentFactoryOptions {
 	workDir: string;
 	rootAgent?: string;
 	sessionId: string;
-	/** EventBus used as the event emitter. Compatible with AgentEventEmitter. */
-	events: EventBus;
+	/** SessionBus used as the event emitter. Compatible with AgentEventEmitter. */
+	events: SessionBus;
 	/** Prior conversation history for resume/continuation. */
 	initialHistory?: Message[];
 	/** Model override from /model command. */
@@ -55,7 +55,7 @@ export interface AgentFactoryResult {
 export type AgentFactory = (options: AgentFactoryOptions) => Promise<AgentFactoryResult>;
 
 export interface SessionControllerOptions {
-	bus: EventBus;
+	bus: SessionBus;
 	genomePath: string;
 	/** Directory for session metadata. Defaults to genomePath/sessions. */
 	sessionsDir?: string;
@@ -68,7 +68,7 @@ export interface SessionControllerOptions {
 
 /**
  * Default factory that delegates to createAgent from the agents module.
- * Relays events from the agent's AgentEventEmitter to the EventBus.
+ * Relays events from the agent's AgentEventEmitter to the SessionBus.
  */
 async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactoryResult> {
 	const agentEvents = new AgentEventEmitter();
@@ -106,7 +106,7 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 /**
  * Stateful core that owns the agent lifecycle.
  *
- * Subscribes to EventBus commands (down), routes them to the agent,
+ * Subscribes to SessionBus commands (down), routes them to the agent,
  * and relays agent events back through the bus (up).
  */
 export class SessionController {
@@ -114,7 +114,7 @@ export class SessionController {
 	private agent: RunnableAgent | null = null;
 	private abortController = new AbortController();
 	private metadata: SessionMetadata;
-	private readonly bus: EventBus;
+	private readonly bus: SessionBus;
 	private readonly genomePath: string;
 	private readonly sessionsDir: string;
 	private readonly bootstrapDir?: string;
@@ -246,9 +246,9 @@ export class SessionController {
 			const contextWindowSize = (event.data.context_window_size as number) ?? 0;
 			this.metadata.updateTurn(turn, contextTokens, contextWindowSize);
 			await this.metadata.save();
-			// Safe to re-emit into the bus from within an event handler: EventBus
-			// delivers events synchronously to all listeners in registration order.
-			// context_update is informational only (no handlers modify controller
+			// Safe to re-emit into the bus from within an event handler: the in-process
+			// EventBus delivers events synchronously to all listeners in registration
+			// order. context_update is informational only (no handlers modify controller
 			// state in response), so re-entrancy cannot cause loops or corruption.
 			this.bus.emitEvent("context_update", "session", 0, {
 				context_tokens: contextTokens,

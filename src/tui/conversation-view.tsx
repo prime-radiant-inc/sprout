@@ -1,7 +1,7 @@
 import { Box, Text, useInput } from "ink";
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
-import type { EventBus } from "../host/event-bus.ts";
+import type { SessionBus } from "../host/event-bus.ts";
 import type { EventKind, SessionEvent } from "../kernel/types.ts";
 import { renderEventComponent } from "./event-components.tsx";
 
@@ -19,7 +19,7 @@ const TOOL_DETAIL_KINDS: Set<EventKind> = new Set([
 ]);
 
 export interface ConversationViewProps {
-	bus: EventBus;
+	bus: SessionBus;
 	/** Maximum number of lines to show. When exceeded, viewport scrolls. */
 	maxHeight?: number;
 	/** Historical events to display before new events (for resume). */

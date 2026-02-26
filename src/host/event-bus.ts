@@ -4,16 +4,33 @@ export type EventListener = (event: SessionEvent) => void;
 export type CommandListener = (command: Command) => void;
 
 /**
- * Two-channel event bus.
+ * Abstract two-channel bus used by SessionController and frontends.
  *
  * Agent events (up): emitted by agents, consumed by TUI/logger/web bridge.
  * Commands (down): emitted by frontends, consumed by session controller.
+ *
+ * Satisfied by the in-process EventBus and (later) by a WebSocket adapter.
+ */
+export interface SessionBus {
+	onEvent(listener: EventListener): () => void;
+	emitEvent(
+		kind: EventKind,
+		agentId: string,
+		depth: number,
+		data?: Record<string, unknown>,
+	): void;
+	onCommand(listener: CommandListener): () => void;
+	emitCommand(command: Command): void;
+}
+
+/**
+ * In-process implementation of SessionBus.
  *
  * Compatible with AgentEventEmitter interface so Agent doesn't need to change.
  */
 const EVENT_CAP = 10_000;
 
-export class EventBus {
+export class EventBus implements SessionBus {
 	private eventListeners: EventListener[] = [];
 	private commandListeners: CommandListener[] = [];
 	private events: SessionEvent[] = [];
