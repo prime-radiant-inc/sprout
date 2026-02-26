@@ -192,7 +192,7 @@ export function handleSlashCommand(
 		case "help":
 			bus.emitEvent("warning", "cli", 0, {
 				message:
-					"Commands: /help, /quit, /compact, /clear, /model [name], /status\nKeys: Ctrl+J = newline, Ctrl+C = interrupt/exit",
+					"Commands: /help, /quit, /compact, /clear, /model [name], /status, /terminal-setup\nKeys: Shift+Enter = newline, Ctrl+J = newline (fallback), Ctrl+C = interrupt/exit",
 			});
 			break;
 		case "compact":
@@ -216,6 +216,11 @@ export function handleSlashCommand(
 				message: `Session: ${controller.sessionId} | ${controller.isRunning ? "running" : "idle"} | model: ${controller.currentModel ?? "default"}`,
 			});
 			break;
+		case "terminal_setup": {
+			const instructions = getTerminalSetupInstructions();
+			bus.emitEvent("warning", "cli", 0, { message: instructions });
+			break;
+		}
 		case "unknown":
 			bus.emitEvent("warning", "cli", 0, {
 				message: `Unknown command: ${cmd.raw}`,
@@ -223,6 +228,63 @@ export function handleSlashCommand(
 			break;
 	}
 	return { action: "none" };
+}
+
+/** Detect terminal environment and return setup instructions for extended keyboard support. */
+export function getTerminalSetupInstructions(): string {
+	const inTmux = !!process.env.TMUX;
+	const termProgram = process.env.TERM_PROGRAM ?? "";
+	const term = process.env.TERM ?? "";
+
+	const sections: string[] = [];
+
+	// Detect known terminals that work out of the box
+	const nativeTerminals = ["kitty", "ghostty", "WezTerm", "WarpTerminal"];
+	const isNative = nativeTerminals.some(
+		(t) =>
+			termProgram.toLowerCase().includes(t.toLowerCase()) ||
+			term.toLowerCase().includes(t.toLowerCase()),
+	);
+
+	if (inTmux) {
+		sections.push(
+			"tmux detected. Add to ~/.tmux.conf:\n" +
+				"  set -s extended-keys on\n" +
+				"  set -as terminal-features 'xterm*:extkeys'\n" +
+				"  set -s extended-keys-format csi-u\n" +
+				"Then run: tmux source ~/.tmux.conf",
+		);
+	}
+
+	if (termProgram === "iTerm.app") {
+		sections.push(
+			"iTerm2 detected. Shift+Enter should work automatically.\n" +
+				"If not: Preferences > Profiles > Keys > General > Report modifiers using CSI u",
+		);
+	} else if (termProgram === "Apple_Terminal") {
+		sections.push(
+			"macOS Terminal.app detected. Terminal.app does not support the Kitty keyboard protocol.\n" +
+				"Option+Enter may work if you enable: Terminal > Settings > Profiles > Keyboard > Use Option as Meta Key\n" +
+				"For full Shift+Enter support, switch to iTerm2, Kitty, Ghostty, or WezTerm.",
+		);
+	} else if (termProgram === "vscode") {
+		sections.push(
+			'VS Code terminal detected. Add to settings.json:\n  "terminal.integrated.enableKittyKeyboardProtocol": true',
+		);
+	} else if (isNative) {
+		sections.push(
+			`${termProgram || term} detected. Extended keyboard support is built-in. No setup needed.`,
+		);
+	} else if (!inTmux) {
+		sections.push(
+			"Your terminal may need configuration for extended keyboard support.\n" +
+				'Check your terminal\'s docs for "Kitty keyboard protocol" or "CSI u" support.',
+		);
+	}
+
+	sections.push("Newline keys: Shift+Enter (primary), Alt+Enter, Ctrl+J (universal fallback)");
+
+	return sections.join("\n\n");
 }
 
 /** Handle SIGINT: interrupt if running, exit if idle. */
@@ -313,6 +375,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 						resolve(null);
 					},
 				}),
+				{ kittyKeyboard: { mode: "enabled" as const } },
 			);
 		});
 
@@ -554,7 +617,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 				unmount();
 			},
 		}),
-		{ exitOnCtrlC: false },
+		{ exitOnCtrlC: false, kittyKeyboard: { mode: "enabled" as const } },
 	);
 	unmountFn = unmount;
 

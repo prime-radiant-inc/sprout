@@ -719,6 +719,38 @@ describe("InputArea", () => {
 		expect(submitted).toBe("line1\nline2");
 	});
 
+	test("Shift+Enter inserts newline (CSI u encoded)", async () => {
+		let submitted = "";
+		const { lastFrame, stdin } = render(
+			<InputArea
+				onSubmit={(text) => {
+					submitted = text;
+				}}
+				onSlashCommand={() => {}}
+				isRunning={false}
+			/>,
+		);
+
+		stdin.write("line1");
+		await flush();
+		// Shift+Enter in CSI u encoding: ESC[13;2u
+		stdin.write("\x1b[13;2u");
+		await flush();
+		stdin.write("line2");
+		await flush();
+
+		// Should NOT have submitted
+		expect(submitted).toBe("");
+		// Should contain both lines
+		expect(lastFrame()).toContain("line1");
+		expect(lastFrame()).toContain("line2");
+
+		// Now submit with regular Enter
+		stdin.write("\r");
+		await flush();
+		expect(submitted).toBe("line1\nline2");
+	});
+
 	test("up then down arrow preserves current draft", async () => {
 		const { lastFrame, stdin } = render(
 			<InputArea

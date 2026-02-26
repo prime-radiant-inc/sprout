@@ -87,7 +87,11 @@ export function InputArea({
 			onCancelExit?.();
 		}
 
-		// Ctrl+J / Alt+Enter: insert newline
+		// Shift+Enter / Ctrl+J / Alt+Enter: insert newline
+		if (key.shift && key.return) {
+			bufferOps.insertText("\n");
+			return;
+		}
 		if (key.ctrl && input === "j") {
 			bufferOps.insertText("\n");
 			return;

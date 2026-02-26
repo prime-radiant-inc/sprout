@@ -196,6 +196,8 @@ describe("handleSlashCommand", () => {
 		expect(bus.events[0].kind).toBe("warning");
 		expect(bus.events[0].data.message).toContain("/help");
 		expect(bus.events[0].data.message).toContain("/quit");
+		expect(bus.events[0].data.message).toContain("/terminal-setup");
+		expect(bus.events[0].data.message).toContain("Shift+Enter");
 		expect(bus.events[0].data.message).toContain("Ctrl+J");
 	});
 
@@ -251,6 +253,47 @@ describe("handleSlashCommand", () => {
 		const result = handleSlashCommand({ kind: "quit" }, bus, controller);
 		expect(bus.commands).toEqual([{ kind: "quit", data: {} }]);
 		expect(result).toEqual({ action: "exit" });
+	});
+
+	test("terminal_setup emits warning with setup instructions", () => {
+		const bus = makeBus();
+		handleSlashCommand({ kind: "terminal_setup" }, bus, controller);
+		expect(bus.events).toHaveLength(1);
+		expect(bus.events[0].kind).toBe("warning");
+		expect(bus.events[0].data.message).toBeDefined();
+		// Should always mention the universal fallback
+		expect(bus.events[0].data.message).toContain("Ctrl+J");
+	});
+
+	test("terminal_setup detects tmux and shows tmux config", () => {
+		const origTmux = process.env.TMUX;
+		process.env.TMUX = "/tmp/tmux-501/default,12345,0";
+		try {
+			const bus = makeBus();
+			handleSlashCommand({ kind: "terminal_setup" }, bus, controller);
+			expect(bus.events[0].data.message).toContain("extended-keys");
+			expect(bus.events[0].data.message).toContain("tmux.conf");
+		} finally {
+			if (origTmux === undefined) delete process.env.TMUX;
+			else process.env.TMUX = origTmux;
+		}
+	});
+
+	test("terminal_setup detects iTerm2", () => {
+		const origTmux = process.env.TMUX;
+		const origTermProgram = process.env.TERM_PROGRAM;
+		delete process.env.TMUX;
+		process.env.TERM_PROGRAM = "iTerm.app";
+		try {
+			const bus = makeBus();
+			handleSlashCommand({ kind: "terminal_setup" }, bus, controller);
+			expect(bus.events[0].data.message).toContain("iTerm2");
+		} finally {
+			if (origTmux === undefined) delete process.env.TMUX;
+			else process.env.TMUX = origTmux;
+			if (origTermProgram === undefined) delete process.env.TERM_PROGRAM;
+			else process.env.TERM_PROGRAM = origTermProgram;
+		}
 	});
 });
 
