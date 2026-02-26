@@ -5,6 +5,7 @@ export type SlashCommand =
 	| { kind: "compact" }
 	| { kind: "clear" }
 	| { kind: "status" }
+	| { kind: "collapse_tools" }
 	| { kind: "unknown"; raw: string };
 
 export function parseSlashCommand(input: string): SlashCommand | null {
@@ -28,6 +29,8 @@ export function parseSlashCommand(input: string): SlashCommand | null {
 			return { kind: "clear" };
 		case "/status":
 			return { kind: "status" };
+		case "/collapse-tools":
+			return { kind: "collapse_tools" };
 		default:
 			return { kind: "unknown", raw: trimmed };
 	}

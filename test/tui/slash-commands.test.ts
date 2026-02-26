@@ -37,6 +37,10 @@ describe("parseSlashCommand", () => {
 		expect(parseSlashCommand("/status")).toEqual({ kind: "status" });
 	});
 
+	test("parses /collapse-tools", () => {
+		expect(parseSlashCommand("/collapse-tools")).toEqual({ kind: "collapse_tools" });
+	});
+
 	test("returns unknown for unrecognized slash command", () => {
 		expect(parseSlashCommand("/foobar")).toEqual({ kind: "unknown", raw: "/foobar" });
 	});

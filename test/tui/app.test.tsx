@@ -488,6 +488,45 @@ describe("App", () => {
 		expect(exited).toBe(true);
 	});
 
+	test("/collapse-tools toggles tool visibility and emits warning", async () => {
+		const events: any[] = [];
+		const { bus, stdin, lastFrame } = setup();
+		bus.onEvent((e) => events.push(e));
+
+		// Emit a tool event first — should be visible
+		bus.emitEvent("primitive_start", "root", 0, { name: "exec", args: { command: "ls" } });
+		await flush();
+		expect(lastFrame()).toContain("exec");
+
+		// Type /collapse-tools and submit
+		stdin.write("/collapse-tools");
+		await flush();
+		stdin.write("\r");
+		await flush();
+
+		// Should emit a warning event about hiding
+		const hideWarning = events.find(
+			(e) => e.kind === "warning" && e.data.message === "Tool details hidden",
+		);
+		expect(hideWarning).toBeDefined();
+
+		// Now emit another tool event — it should be hidden
+		bus.emitEvent("primitive_start", "root", 0, { name: "grep", args: { pattern: "foo" } });
+		await flush();
+		expect(lastFrame()).not.toContain("grep");
+
+		// Toggle again to show
+		stdin.write("/collapse-tools");
+		await flush();
+		stdin.write("\r");
+		await flush();
+
+		const showWarning = events.find(
+			(e) => e.kind === "warning" && e.data.message === "Tool details visible",
+		);
+		expect(showWarning).toBeDefined();
+	});
+
 	test("session_clear updates sessionId in status bar", async () => {
 		const bus = new EventBus();
 		const { lastFrame } = render(

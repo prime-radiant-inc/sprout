@@ -1,4 +1,4 @@
-import { Box, Static, useInput } from "ink";
+import { Box, Static } from "ink";
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import type { SessionBus } from "../host/event-bus.ts";
@@ -21,6 +21,8 @@ export interface ConversationViewProps {
 	bus: SessionBus;
 	/** Historical events to display before new events (for resume). */
 	initialEvents?: SessionEvent[];
+	/** When true, tool detail events (primitive_start/end, act_start/end) are hidden. */
+	toolsCollapsed?: boolean;
 }
 
 /**
@@ -61,15 +63,14 @@ function trackDuration(event: SessionEvent, startTimes: Map<string, number>): nu
 	return startTime != null ? event.timestamp - startTime : null;
 }
 
-export function ConversationView({ bus, initialEvents }: ConversationViewProps) {
+export function ConversationView({ bus, initialEvents, toolsCollapsed }: ConversationViewProps) {
 	const nextId = useRef(0);
 	const startTimes = useRef(new Map<string, number>());
-	const [toolsCollapsed, setToolsCollapsed] = useState(false);
-	const toolsCollapsedRef = useRef(toolsCollapsed);
+	const toolsCollapsedRef = useRef(toolsCollapsed ?? false);
 
-	// Keep ref in sync for use inside event callback
+	// Keep ref in sync with prop for use inside event callback
 	useEffect(() => {
-		toolsCollapsedRef.current = toolsCollapsed;
+		toolsCollapsedRef.current = toolsCollapsed ?? false;
 	}, [toolsCollapsed]);
 
 	const [committedLines, setCommittedLines] = useState<StaticLine[]>(() => {
@@ -107,12 +108,6 @@ export function ConversationView({ bus, initialEvents }: ConversationViewProps) 
 			}
 		});
 	}, [bus]);
-
-	useInput((_input, key) => {
-		if (key.tab) {
-			setToolsCollapsed((prev) => !prev);
-		}
-	});
 
 	return <Static items={committedLines}>{(line) => <Box key={line.id}>{line.node}</Box>}</Static>;
 }

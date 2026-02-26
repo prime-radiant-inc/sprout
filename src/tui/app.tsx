@@ -59,6 +59,7 @@ export function App({
 	const [currentSessionId, setCurrentSessionId] = useState(sessionId);
 	const [showModelPicker, setShowModelPicker] = useState(false);
 	const [exitHintVisible, setExitHintVisible] = useState(false);
+	const [toolsCollapsed, setToolsCollapsed] = useState(false);
 
 	useEffect(() => {
 		return bus.onEvent((event: SessionEvent) => {
@@ -115,6 +116,13 @@ export function App({
 	const models = knownModels ?? DEFAULT_MODELS;
 
 	const handleSlash = (cmd: SlashCommand) => {
+		if (cmd.kind === "collapse_tools") {
+			setToolsCollapsed((prev) => !prev);
+			bus.emitEvent("warning", "cli", 0, {
+				message: toolsCollapsed ? "Tool details visible" : "Tool details hidden",
+			});
+			return;
+		}
 		if (cmd.kind === "switch_model" && !cmd.model) {
 			setShowModelPicker(true);
 			return;
@@ -124,7 +132,7 @@ export function App({
 
 	return (
 		<Box flexDirection="column">
-			<ConversationView bus={bus} initialEvents={initialEvents} />
+			<ConversationView bus={bus} initialEvents={initialEvents} toolsCollapsed={toolsCollapsed} />
 			<StatusBar
 				contextTokens={statusState.contextTokens}
 				contextWindowSize={statusState.contextWindowSize}

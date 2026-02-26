@@ -62,13 +62,9 @@ describe("ConversationView", () => {
 		expect(frame).toContain("heads up");
 	});
 
-	test("Tab hides tool events received after toggle", async () => {
+	test("hides tool events when toolsCollapsed prop is true", async () => {
 		const bus = new EventBus();
-		const { lastFrame, stdin } = render(<ConversationView bus={bus} />);
-
-		// Toggle tools collapsed BEFORE emitting tool events
-		stdin.write("\t");
-		await flush();
+		const { lastFrame } = render(<ConversationView bus={bus} toolsCollapsed={true} />);
 
 		bus.emitEvent("perceive", "root", 0, { goal: "test goal" });
 		bus.emitEvent("primitive_start", "root", 0, { name: "exec", args: { command: "ls" } });
@@ -80,21 +76,18 @@ describe("ConversationView", () => {
 		expect(lastFrame()).toContain("test goal");
 	});
 
-	test("Tab hides act_start and act_end events received after toggle", async () => {
+	test("shows tool events when toolsCollapsed is false or omitted", async () => {
 		const bus = new EventBus();
-		const { lastFrame, stdin } = render(<ConversationView bus={bus} />);
+		const { lastFrame } = render(<ConversationView bus={bus} />);
 
-		// Toggle tools collapsed BEFORE emitting events
-		stdin.write("\t");
+		bus.emitEvent("perceive", "root", 0, { goal: "test goal" });
+		bus.emitEvent("primitive_start", "root", 0, { name: "exec", args: { command: "ls" } });
+		bus.emitEvent("primitive_end", "root", 0, { name: "exec", success: true, result: "ok" });
 		await flush();
 
-		bus.emitEvent("perceive", "root", 0, { goal: "test" });
-		bus.emitEvent("act_start", "root", 0, { agent_name: "helper", goal: "do stuff" });
-		bus.emitEvent("act_end", "root", 0, { agent_name: "helper", success: true, turns: 3 });
-		await flush();
-
-		expect(lastFrame()).not.toContain("helper");
-		expect(lastFrame()).toContain("test");
+		// All events should be visible
+		expect(lastFrame()).toContain("exec");
+		expect(lastFrame()).toContain("test goal");
 	});
 
 	test("session_clear adds separator but previous Static items remain", async () => {
