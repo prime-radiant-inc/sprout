@@ -20,8 +20,8 @@ body {
   font-family: var(--font-mono);
   font-size: var(--font-size-base);
   line-height: var(--line-height);
-  color: var(--text-primary);
-  background-color: var(--bg-primary);
+  color: var(--color-text-primary);
+  background-color: var(--color-canvas);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -32,20 +32,20 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: var(--color-canvas);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--border-color);
+  background: var(--color-text-tertiary);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--text-dim);
+  background: var(--color-text-secondary);
 }
 
 /* Selection */
 ::selection {
-  background: var(--color-cyan);
-  color: var(--bg-primary);
+  background: var(--color-accent);
+  color: var(--color-surface);
 }
