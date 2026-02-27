@@ -3,6 +3,7 @@ import type { SessionEvent } from "../../../src/kernel/types.ts";
 import type { AgentTreeNode } from "../hooks/useAgentTree.ts";
 import { EventLine } from "./EventLine.tsx";
 import { groupEvents } from "./groupEvents.ts";
+import { StreamingBanner } from "./StreamingBanner.tsx";
 import styles from "./ConversationView.module.css";
 
 interface ConversationViewProps {
@@ -27,18 +28,25 @@ export function ConversationView({
 		[events, agentFilter, tree],
 	);
 
+	const isStreaming = events.length > 0 && events[events.length - 1]?.kind === "plan_delta";
+	const streamingAgentId = isStreaming ? events[events.length - 1]!.agent_id : null;
+
 	return (
 		<div className={styles.conversationView}>
-			{grouped.map(({ event, durationMs, streamingText, isFirstInGroup }, i) => (
+			{grouped.map(({ event, durationMs, streamingText, isFirstInGroup, agentName }, i) => (
 				<EventLine
-					key={i}
+					key={`${event.agent_id}-${event.kind}-${event.timestamp}-${i}`}
 					event={event}
 					durationMs={durationMs}
 					streamingText={streamingText}
 					isFirstInGroup={isFirstInGroup}
+					agentName={agentName}
 					onSelectAgent={onSelectAgent}
 				/>
 			))}
+			{isStreaming && streamingAgentId && (
+				<StreamingBanner agentName={streamingAgentId} />
+			)}
 		</div>
 	);
 }

@@ -7,6 +7,7 @@ export interface GroupedEvent {
 	isLastInGroup: boolean;
 	durationMs: number | null;
 	streamingText?: string;
+	agentName?: string;
 }
 
 /** Event kinds that are never displayed. */
@@ -43,6 +44,17 @@ function durationKey(event: SessionEvent): string | null {
 	}
 }
 
+/** Build a flat agentId-to-agentName map from the agent tree. */
+function buildNameMap(node: AgentTreeNode): Map<string, string> {
+	const map = new Map<string, string>();
+	function walk(n: AgentTreeNode) {
+		map.set(n.agentId, n.agentName);
+		for (const child of n.children) walk(child);
+	}
+	walk(node);
+	return map;
+}
+
 /**
  * Groups consecutive events from the same agent, inserting group boundaries
  * when the agent changes, event kind changes, a non-groupable event intervenes,
@@ -55,6 +67,7 @@ export function groupEvents(
 ): GroupedEvent[] {
 	const allowedIds =
 		agentFilter && tree ? getDescendantIds(tree, agentFilter) : null;
+	const nameMap = tree ? buildNameMap(tree) : new Map<string, string>();
 	const startTimes = new Map<string, number>();
 	const streamBuffers = new Map<string, string>();
 	const lastDeltaIdx = new Map<string, number>();
@@ -112,6 +125,7 @@ export function groupEvents(
 				isFirstInGroup: true,
 				isLastInGroup: true,
 				streamingText: streamBuffers.get(event.agent_id),
+				agentName: nameMap.get(event.agent_id),
 			};
 			if (prevIdx !== undefined) {
 				result[prevIdx] = entry;
@@ -127,6 +141,7 @@ export function groupEvents(
 			durationMs,
 			isFirstInGroup: true,
 			isLastInGroup: true,
+			agentName: nameMap.get(event.agent_id),
 		});
 	}
 

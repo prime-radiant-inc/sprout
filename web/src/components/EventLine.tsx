@@ -10,6 +10,7 @@ interface EventLineProps {
 	durationMs: number | null;
 	streamingText?: string;
 	isFirstInGroup?: boolean;
+	agentName?: string;
 	onSelectAgent?: (agentId: string) => void;
 }
 
@@ -17,7 +18,7 @@ interface EventLineProps {
  * Dispatcher: maps a SessionEvent to the appropriate display component.
  * Returns null for events that should not be displayed.
  */
-export function EventLine({ event, durationMs, streamingText, isFirstInGroup, onSelectAgent }: EventLineProps) {
+export function EventLine({ event, durationMs, streamingText, isFirstInGroup, agentName, onSelectAgent }: EventLineProps) {
 	const { kind, data } = event;
 
 	switch (kind) {
@@ -48,6 +49,7 @@ export function EventLine({ event, durationMs, streamingText, isFirstInGroup, on
 				<AssistantMessage
 					text={text}
 					reasoning={reasoning}
+					agentName={agentName}
 					isFirstInGroup={isFirstInGroup}
 					timestamp={event.timestamp}
 				/>
@@ -155,6 +157,7 @@ export function EventLine({ event, durationMs, streamingText, isFirstInGroup, on
 			return (
 				<AssistantMessage
 					text={streamingText}
+					agentName={agentName}
 					isFirstInGroup={isFirstInGroup}
 					timestamp={event.timestamp}
 				/>

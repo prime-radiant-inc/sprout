@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { SessionEvent } from "../../../../src/kernel/types.ts";
 import { buildAgentTree } from "../../hooks/useAgentTree.ts";
 import { AssistantMessage } from "../AssistantMessage.tsx";
+import { Breadcrumb } from "../Breadcrumb.tsx";
 import { ConversationView } from "../ConversationView.tsx";
 import { DelegationBlock } from "../DelegationBlock.tsx";
 import { EventLine } from "../EventLine.tsx";
@@ -38,6 +39,13 @@ function makeEvent(
 describe("format", () => {
 	test("smartArgs wraps exec command in backticks", () => {
 		expect(smartArgs("exec", { command: "ls -la" })).toBe("`ls -la`");
+	});
+
+	test("smartArgs exec truncation respects maxLen", () => {
+		const longCmd = "a".repeat(100);
+		const result = smartArgs("exec", { command: longCmd });
+		// backticks add 2 chars, inner truncated = 57 chars + "..." = 60, total with backticks = 62
+		expect(result.length).toBeLessThanOrEqual(62);
 	});
 });
 
@@ -856,6 +864,22 @@ describe("EventLine", () => {
 		);
 		expect(html).toContain("12:30");
 	});
+
+	test("passes agentName to AssistantMessage for plan_end", () => {
+		const event = makeEvent("plan_end", { text: "hello" }, { agent_id: "child-1" });
+		const html = renderToStaticMarkup(
+			<EventLine event={event} durationMs={null} isFirstInGroup agentName="test-agent" />,
+		);
+		expect(html).toContain("test-agent");
+	});
+
+	test("passes agentName to AssistantMessage for plan_delta streaming", () => {
+		const event = makeEvent("plan_delta", { text: "..." }, { agent_id: "child-1" });
+		const html = renderToStaticMarkup(
+			<EventLine event={event} durationMs={null} isFirstInGroup streamingText="hello" agentName="streamer" />,
+		);
+		expect(html).toContain("streamer");
+	});
 });
 
 // --- ConversationView ---
@@ -987,8 +1011,9 @@ describe("ConversationView", () => {
 		const html = renderToStaticMarkup(<ConversationView events={events} tree={tree} />);
 		expect(html).toContain("first message");
 		expect(html).toContain("second message");
-		// "Assistant" should appear only once (the header of the first message in the group)
-		const matches = html.match(/Assistant/g);
+		// The agent name header (">root<") should appear only once (first message in the group).
+		// We match ">root<" to avoid counting "root" in key attributes.
+		const matches = html.match(/>root</g);
 		expect(matches).toHaveLength(1);
 	});
 
@@ -1012,5 +1037,43 @@ describe("ConversationView", () => {
 			<ConversationView events={events} tree={tree} onSelectAgent={() => {}} />,
 		);
 		expect(html).toContain("View thread");
+	});
+
+	test("passes onSelectAgent to enable View thread links on act_start", () => {
+		const events: SessionEvent[] = [
+			makeEvent("act_start", { agent_name: "sub-agent", goal: "do stuff" }, { agent_id: "child-1", depth: 1 }),
+		];
+		const tree = buildAgentTree(events);
+		const html = renderToStaticMarkup(
+			<ConversationView events={events} tree={tree} onSelectAgent={() => {}} />,
+		);
+		expect(html).toContain("View thread");
+	});
+
+	test("shows StreamingBanner when last event is plan_delta", () => {
+		const events: SessionEvent[] = [
+			makeEvent("plan_delta", { text: "thinking..." }, { agent_id: "root", timestamp: 1000 }),
+		];
+		const tree = buildAgentTree([]);
+		const html = renderToStaticMarkup(
+			<ConversationView events={events} tree={tree} />,
+		);
+		expect(html).toContain("is responding");
+	});
+});
+
+// --- Breadcrumb ---
+
+describe("Breadcrumb", () => {
+	test("renders segments as buttons", () => {
+		const tree = buildAgentTree([
+			makeEvent("act_start", { agent_name: "child", goal: "g" }, { agent_id: "child-1", depth: 1 }),
+		]);
+		const html = renderToStaticMarkup(
+			<Breadcrumb tree={tree} selectedAgent="child-1" onSelectAgent={() => {}} />,
+		);
+		expect(html).toContain("button");
+		expect(html).toContain("root");
+		expect(html).toContain("child");
 	});
 });
