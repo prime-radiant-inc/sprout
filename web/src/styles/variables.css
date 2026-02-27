@@ -1,15 +1,36 @@
 @import "./themes.css";
 
-/* Layout constants (not theme-dependent) */
+/* Constants (not theme-dependent) */
 :root {
+  /* Layout */
   --sidebar-width: 240px;
   --statusbar-height: 40px;
   --input-height: 48px;
-}
 
-/* Backward-compatibility aliases — existing components reference these
-   old names. Remove as components migrate to theme tokens. */
-:root {
+  /* Typography */
+  --font-ui: "DM Sans", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+  --font-size-base: 15px;
+  --font-size-sm: 13px;
+  --font-size-xs: 12px;
+  --font-size-xxs: 11px;
+  --line-height: 1.5;
+
+  /* Spacing */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 9999px;
+
+  /* Backward-compatibility aliases — existing components reference these
+     old names. Remove as components migrate to theme tokens. */
   --bg-primary: var(--color-canvas);
   --bg-secondary: var(--color-elevated);
   --bg-surface: var(--color-surface);
