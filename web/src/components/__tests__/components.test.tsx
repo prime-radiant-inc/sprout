@@ -318,22 +318,22 @@ describe("DelegationBlock", () => {
 // --- SystemMessage ---
 
 describe("SystemMessage", () => {
-	test("renders warning message", () => {
+	test("renders warning message with data-kind and dot", () => {
 		const html = renderToStaticMarkup(
 			<SystemMessage kind="warning" message="watch out" />,
 		);
 		expect(html).toContain("watch out");
 		expect(html).toContain('data-kind="warning"');
-		expect(html).toContain("\u26A0"); // warning icon
+		expect(html).toContain('data-testid="dot"');
 	});
 
-	test("renders error message", () => {
+	test("renders error message with data-kind and dot", () => {
 		const html = renderToStaticMarkup(
 			<SystemMessage kind="error" message="something broke" />,
 		);
 		expect(html).toContain("something broke");
 		expect(html).toContain('data-kind="error"');
-		expect(html).toContain("\u2717"); // error icon
+		expect(html).toContain('data-testid="dot"');
 	});
 
 	test("renders compaction message", () => {
@@ -348,6 +348,22 @@ describe("SystemMessage", () => {
 			<SystemMessage kind="session_resume" message="Resumed session" />,
 		);
 		expect(html).toContain("Resumed session");
+	});
+
+	test("renders as centered pill with wrapper", () => {
+		const html = renderToStaticMarkup(
+			<SystemMessage kind="compaction" message="Context compacted" />,
+		);
+		expect(html).toContain('data-testid="system-message-wrapper"');
+		expect(html).toContain('data-testid="dot"');
+	});
+
+	test("renders dot element inside pill", () => {
+		const html = renderToStaticMarkup(
+			<SystemMessage kind="session_start" message="Session started" />,
+		);
+		expect(html).toContain('data-testid="dot"');
+		expect(html).toContain('data-kind="session_start"');
 	});
 });
 

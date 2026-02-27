@@ -1,25 +1,37 @@
-.dim,
-.warning,
-.error {
+.wrapper {
 	display: flex;
-	gap: 4px;
-	align-items: baseline;
-	padding: 2px 0;
-	font-size: var(--font-size-sm);
+	justify-content: center;
+	padding: var(--space-xs) 0;
 }
 
-.dim {
-	color: var(--text-dim);
+.pill {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-xs);
+	background: var(--color-surface);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-full);
+	padding: var(--space-xs) var(--space-md);
+	font-size: var(--font-size-xs);
+	color: var(--color-text-tertiary);
 }
 
-.warning {
-	color: var(--color-warning);
-}
-
-.error {
-	color: var(--color-error);
-}
-
-.icon {
+.dot {
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: var(--color-text-tertiary);
 	flex-shrink: 0;
+}
+
+.pill[data-kind="warning"] .dot {
+	background: var(--color-warning);
+}
+
+.pill[data-kind="error"] .dot {
+	background: var(--color-error);
+}
+
+.text {
+	line-height: 1;
 }
