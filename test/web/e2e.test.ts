@@ -290,6 +290,90 @@ describe("Web interface end-to-end", () => {
 		expect(snapshot.session.status).toBe("idle"); // session_end resets to idle
 	});
 
+	test("snapshot includes availableModels and currentModel in session", async () => {
+		const staticDir2 = mkdtempSync(join(tmpdir(), "sprout-e2e-models-"));
+		writeFileSync(join(staticDir2, "index.html"), "<html></html>");
+		const port2 = 10000 + Math.floor(Math.random() * 50000);
+		const server2 = new WebServer({
+			bus,
+			port: port2,
+			staticDir: staticDir2,
+			sessionId: "model-test",
+			availableModels: ["best", "balanced", "fast", "claude-opus-4-6"],
+		});
+		await server2.start();
+
+		const ws = await connect(`ws://localhost:${port2}/ws`);
+		clients.push(ws);
+		const snapshot = await nextMessage(ws);
+		if (snapshot.type !== "snapshot") throw new Error("Expected snapshot");
+		expect(snapshot.session.availableModels).toEqual([
+			"best",
+			"balanced",
+			"fast",
+			"claude-opus-4-6",
+		]);
+		expect(snapshot.session.currentModel).toBeNull();
+		await server2.stop();
+	});
+
+	test("GET /api/models returns available models and current model", async () => {
+		const staticDir2 = mkdtempSync(join(tmpdir(), "sprout-e2e-models-"));
+		writeFileSync(join(staticDir2, "index.html"), "<html></html>");
+		const port2 = 10000 + Math.floor(Math.random() * 50000);
+		const server2 = new WebServer({
+			bus,
+			port: port2,
+			staticDir: staticDir2,
+			sessionId: "model-api-test",
+			availableModels: ["best", "claude-opus-4-6"],
+		});
+		await server2.start();
+
+		const resp = await fetch(`http://localhost:${port2}/api/models`);
+		expect(resp.status).toBe(200);
+		const body = (await resp.json()) as { models: string[]; currentModel: string | null };
+		expect(body.models).toEqual(["best", "claude-opus-4-6"]);
+		expect(body.currentModel).toBeNull();
+		await server2.stop();
+	});
+
+	test("currentModel updates when switch_model command is received", async () => {
+		const staticDir2 = mkdtempSync(join(tmpdir(), "sprout-e2e-models-"));
+		writeFileSync(join(staticDir2, "index.html"), "<html></html>");
+		const port2 = 10000 + Math.floor(Math.random() * 50000);
+		const server2 = new WebServer({
+			bus,
+			port: port2,
+			staticDir: staticDir2,
+			sessionId: "model-switch-test",
+			availableModels: ["best", "claude-opus-4-6"],
+		});
+		await server2.start();
+
+		// Send switch_model command through bus
+		const ws = await connect(`ws://localhost:${port2}/ws`);
+		clients.push(ws);
+		await nextMessage(ws); // consume snapshot
+
+		sendCommand(ws, "switch_model", { model: "claude-opus-4-6" });
+		await delay(100);
+
+		// New connection should see updated currentModel
+		const ws2 = await connect(`ws://localhost:${port2}/ws`);
+		clients.push(ws2);
+		const snapshot = await nextMessage(ws2);
+		if (snapshot.type !== "snapshot") throw new Error("Expected snapshot");
+		expect(snapshot.session.currentModel).toBe("claude-opus-4-6");
+
+		// API should also reflect it
+		const resp = await fetch(`http://localhost:${port2}/api/models`);
+		const body = (await resp.json()) as { currentModel: string | null };
+		expect(body.currentModel).toBe("claude-opus-4-6");
+
+		await server2.stop();
+	});
+
 	test("command handler error does not break event streaming", async () => {
 		await server.start();
 

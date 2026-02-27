@@ -10,7 +10,12 @@ export interface EventServerMessage {
 export interface SnapshotServerMessage {
 	type: "snapshot";
 	events: SessionEvent[];
-	session: { id: string; status: string };
+	session: {
+		id: string;
+		status: string;
+		availableModels: string[];
+		currentModel: string | null;
+	};
 }
 
 /** All message types the server sends to the browser */

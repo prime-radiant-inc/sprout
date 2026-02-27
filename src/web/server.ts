@@ -15,6 +15,8 @@ export interface WebServerOptions {
 	hostname?: string;
 	/** Events from a prior session to pre-populate the snapshot. */
 	initialEvents?: SessionEvent[];
+	/** Available model names for the model selector. */
+	availableModels?: string[];
 }
 
 type SessionStatus = "idle" | "running" | "interrupted";
@@ -32,10 +34,14 @@ export class WebServer {
 	private readonly sessionId: string;
 	private readonly hostname: string | undefined;
 
+	private readonly availableModels: string[];
+
 	private bunServer: ReturnType<typeof Bun.serve> | null = null;
 	private events: SessionEvent[] = [];
 	private status: SessionStatus = "idle";
+	private currentModel: string | null = null;
 	private unsubscribeEvents: (() => void) | null = null;
+	private unsubscribeCommands: (() => void) | null = null;
 
 	constructor(opts: WebServerOptions) {
 		this.bus = opts.bus;
@@ -43,12 +49,20 @@ export class WebServer {
 		this.staticDir = opts.staticDir;
 		this.sessionId = opts.sessionId;
 		this.hostname = opts.hostname;
+		this.availableModels = opts.availableModels ?? [];
 		if (opts.initialEvents) {
 			this.events = [...opts.initialEvents];
 		}
 	}
 
 	async start(): Promise<void> {
+		// Track switch_model commands to update currentModel
+		this.unsubscribeCommands = this.bus.onCommand((cmd) => {
+			if (cmd.kind === "switch_model" && typeof cmd.data.model === "string") {
+				this.currentModel = cmd.data.model;
+			}
+		});
+
 		// Subscribe to bus events — buffer them and track session status
 		this.unsubscribeEvents = this.bus.onEvent((event) => {
 			this.events.push(event);
@@ -94,6 +108,13 @@ export class WebServer {
 					return Response.json({ id: self.sessionId, status: self.status });
 				}
 
+				if (url.pathname === "/api/models") {
+					return Response.json({
+						models: self.availableModels,
+						currentModel: self.currentModel,
+					});
+				}
+
 				// Static file serving
 				return self.serveStatic(url.pathname);
 			},
@@ -112,6 +133,10 @@ export class WebServer {
 	}
 
 	async stop(): Promise<void> {
+		if (this.unsubscribeCommands) {
+			this.unsubscribeCommands();
+			this.unsubscribeCommands = null;
+		}
 		if (this.unsubscribeEvents) {
 			this.unsubscribeEvents();
 			this.unsubscribeEvents = null;
@@ -149,7 +174,12 @@ export class WebServer {
 		const snapshot: ServerMessage = {
 			type: "snapshot",
 			events: [...this.events],
-			session: { id: this.sessionId, status: this.status },
+			session: {
+				id: this.sessionId,
+				status: this.status,
+				availableModels: this.availableModels,
+				currentModel: this.currentModel,
+			},
 		};
 		ws.send(JSON.stringify(snapshot));
 	}

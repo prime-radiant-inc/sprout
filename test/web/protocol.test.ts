@@ -38,7 +38,7 @@ describe("web protocol types", () => {
 		const msg: ServerMessage = {
 			type: "snapshot",
 			events,
-			session: { id: "sess-1", status: "running" },
+			session: { id: "sess-1", status: "running", availableModels: [], currentModel: null },
 		};
 		expect(msg.type).toBe("snapshot");
 		expect(msg.events).toHaveLength(2);

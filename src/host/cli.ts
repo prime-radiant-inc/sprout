@@ -550,6 +550,11 @@ export async function runCli(command: CliCommand): Promise<void> {
 		completedHandles: resumeCompletedHandles,
 	});
 
+	// Compute available models using the LLM Client as source of truth for providers
+	const { getAvailableModels } = await import("../agents/model-resolver.ts");
+	const { Client } = await import("../llm/client.ts");
+	const availableModels = getAvailableModels(Client.fromEnv().providers());
+
 	// Start web server if requested (webPort also used by /web slash command)
 	const webPort = command.port ?? 7777;
 	const webHost = command.host;
@@ -564,6 +569,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 			sessionId,
 			hostname: webHost,
 			initialEvents: resumeEvents,
+			availableModels,
 		});
 		await webServer.start();
 		const displayHost = webHost ?? "localhost";
@@ -671,7 +677,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 						(async () => {
 							try {
 								const { WebServer } = await import("../web/server.ts");
-								webServer = new WebServer({ bus, port: webPort, staticDir, sessionId });
+								webServer = new WebServer({ bus, port: webPort, staticDir, sessionId, availableModels });
 								await webServer.start();
 								bus.emitEvent("warning", "cli", 0, {
 									message: `Web UI: http://localhost:${webPort}`,
