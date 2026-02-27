@@ -1103,4 +1103,31 @@ describe("Breadcrumb", () => {
 		expect(html).toContain("root");
 		expect(html).toContain("child");
 	});
+
+	test("Breadcrumb returns null when selectedAgent is null", () => {
+		const tree = buildAgentTree([]);
+		const html = renderToStaticMarkup(
+			<Breadcrumb tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
+		);
+		expect(html).toBe("");
+	});
+
+	test("Breadcrumb returns null when agent is not in tree", () => {
+		const tree = buildAgentTree([]);
+		const html = renderToStaticMarkup(
+			<Breadcrumb tree={tree} selectedAgent="nonexistent" onSelectAgent={() => {}} />,
+		);
+		expect(html).toBe("");
+	});
+
+	test("Breadcrumb renders separator between segments", () => {
+		const events: SessionEvent[] = [
+			makeEvent("act_start", { agent_name: "child", goal: "g" }, { agent_id: "child-1", depth: 1 }),
+		];
+		const tree = buildAgentTree(events);
+		const html = renderToStaticMarkup(
+			<Breadcrumb tree={tree} selectedAgent="child-1" onSelectAgent={() => {}} />,
+		);
+		expect(html).toContain("\u203A");
+	});
 });
