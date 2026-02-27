@@ -1,0 +1,18 @@
+.indicator {
+	display: inline-flex;
+	align-items: center;
+	gap: 3px;
+}
+
+.dot {
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: var(--color-accent);
+	animation: bounce 1.2s infinite ease-in-out;
+}
+
+@keyframes bounce {
+	0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+	40% { transform: scale(1); opacity: 1; }
+}
