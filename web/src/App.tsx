@@ -69,6 +69,17 @@ export function App() {
 		return () => document.removeEventListener("keydown", handleKeyDown);
 	}, [setSelectedAgent]);
 
+	// Theme detection: follow OS dark/light preference
+	useEffect(() => {
+		const mq = window.matchMedia("(prefers-color-scheme: dark)");
+		const update = (e: MediaQueryListEvent | MediaQueryList) => {
+			document.documentElement.setAttribute("data-theme", e.matches ? "dark" : "light");
+		};
+		update(mq);
+		mq.addEventListener("change", update);
+		return () => mq.removeEventListener("change", update);
+	}, []);
+
 	const toggleSidebar = useCallback(() => {
 		setSidebarOpen((prev) => !prev);
 	}, []);
