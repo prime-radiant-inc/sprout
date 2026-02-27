@@ -64,12 +64,14 @@ describe("shortModelName", () => {
 // --- StatusBar ---
 
 describe("StatusBar", () => {
-	test("renders context tokens", () => {
+	test("renders context tokens and pressure text", () => {
 		const html = renderToStaticMarkup(
 			<StatusBar status={makeStatus()} connected={true} />,
 		);
+		// "42k/200k 23%" style context pressure display
 		expect(html).toContain("45.0k");
 		expect(html).toContain("200.0k");
+		expect(html).toContain("23%");
 	});
 
 	test("renders context pressure percentage", () => {
@@ -80,6 +82,13 @@ describe("StatusBar", () => {
 			/>,
 		);
 		expect(html).toContain("50%");
+	});
+
+	test("renders context pressure bar element", () => {
+		const html = renderToStaticMarkup(
+			<StatusBar status={makeStatus()} connected={true} />,
+		);
+		expect(html).toContain('data-testid="context-pressure-bar"');
 	});
 
 	test("renders turn count", () => {
@@ -97,6 +106,13 @@ describe("StatusBar", () => {
 		expect(html).toContain("1 turn");
 		// Should not say "1 turns"
 		expect(html).not.toContain("1 turns");
+	});
+
+	test("renders cost display", () => {
+		const html = renderToStaticMarkup(
+			<StatusBar status={makeStatus()} connected={true} />,
+		);
+		expect(html).toContain("$0.00");
 	});
 
 	test("renders model name (shortened)", () => {
@@ -159,6 +175,30 @@ describe("StatusBar", () => {
 		);
 		expect(html).toContain('data-action="copy-session-id"');
 	});
+
+	test("renders pause and stop buttons when running", () => {
+		const html = renderToStaticMarkup(
+			<StatusBar
+				status={makeStatus({ status: "running" })}
+				connected={true}
+				onInterrupt={() => {}}
+			/>,
+		);
+		expect(html).toContain("\u23F8");
+		expect(html).toContain("\u23F9");
+	});
+
+	test("does not render pause and stop buttons when idle", () => {
+		const html = renderToStaticMarkup(
+			<StatusBar
+				status={makeStatus({ status: "idle" })}
+				connected={true}
+				onInterrupt={() => {}}
+			/>,
+		);
+		expect(html).not.toContain("\u23F8");
+		expect(html).not.toContain("\u23F9");
+	});
 });
 
 // --- InputArea ---
@@ -188,7 +228,7 @@ describe("InputArea", () => {
 		expect(html).toContain("<button");
 	});
 
-	test("renders prompt indicator", () => {
+	test("renders Send button when idle", () => {
 		const html = renderToStaticMarkup(
 			<InputArea
 				isRunning={false}
@@ -197,10 +237,10 @@ describe("InputArea", () => {
 				onSteer={noop}
 			/>,
 		);
-		expect(html).toContain("&gt;");
+		expect(html).toContain("Send");
 	});
 
-	test("shows steering label when running", () => {
+	test("renders Stop button when running", () => {
 		const html = renderToStaticMarkup(
 			<InputArea
 				isRunning={true}
@@ -209,10 +249,10 @@ describe("InputArea", () => {
 				onSteer={noop}
 			/>,
 		);
-		expect(html).toContain("steer");
+		expect(html).toContain("Stop");
 	});
 
-	test("shows normal prompt when idle", () => {
+	test("shows idle placeholder when not running", () => {
 		const html = renderToStaticMarkup(
 			<InputArea
 				isRunning={false}
@@ -221,20 +261,19 @@ describe("InputArea", () => {
 				onSteer={noop}
 			/>,
 		);
-		// Not in steering mode
-		expect(html).not.toContain("steer");
+		expect(html).toContain("What should I work on?");
 	});
 
-	test("textarea has placeholder text", () => {
+	test("shows steering placeholder when running", () => {
 		const html = renderToStaticMarkup(
 			<InputArea
-				isRunning={false}
+				isRunning={true}
 				onSubmit={noop}
 				onSlashCommand={noop}
 				onSteer={noop}
 			/>,
 		);
-		expect(html).toContain("placeholder=");
+		expect(html).toContain("Steer the agent...");
 	});
 
 	test("renders data-running attribute for styling", () => {
@@ -259,5 +298,18 @@ describe("InputArea", () => {
 			/>,
 		);
 		expect(html).toContain('data-running="false"');
+	});
+
+	test("does not render terminal prompt character", () => {
+		const html = renderToStaticMarkup(
+			<InputArea
+				isRunning={false}
+				onSubmit={noop}
+				onSlashCommand={noop}
+				onSteer={noop}
+			/>,
+		);
+		// No terminal-style > prompt should exist
+		expect(html).not.toContain("&gt;");
 	});
 });

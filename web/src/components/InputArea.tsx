@@ -161,14 +161,11 @@ export function InputArea({
 	};
 
 	const placeholder = isRunning
-		? "Steer the agent... (Enter to send)"
-		: "Enter a goal... (Enter to send, Shift+Enter for newline)";
+		? "Steer the agent..."
+		: "What should I work on?";
 
 	return (
 		<div className={styles.inputArea} data-running={String(isRunning)}>
-			<span className={isRunning ? styles.steerPrompt : styles.prompt}>
-				{isRunning ? "steer >" : ">"}
-			</span>
 			<textarea
 				ref={textareaRef}
 				className={styles.textarea}
@@ -180,11 +177,11 @@ export function InputArea({
 				autoFocus
 			/>
 			<button
-				className={styles.submitBtn}
+				className={isRunning ? styles.stopBtn : styles.sendBtn}
 				onClick={handleSubmitClick}
 				type="button"
 			>
-				{"\u23CE"}
+				{isRunning ? "Stop" : "Send"}
 			</button>
 		</div>
 	);
