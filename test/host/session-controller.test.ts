@@ -321,9 +321,7 @@ describe("SessionController", () => {
 	});
 
 	test("factory error emits error event and logs to console", async () => {
-		const factoryError = new Error(
-			"No provider available for model tier 'best'. Available: ",
-		);
+		const factoryError = new Error("No provider available for model tier 'best'. Available: ");
 		const throwingFactory: AgentFactory = async () => {
 			throw factoryError;
 		};

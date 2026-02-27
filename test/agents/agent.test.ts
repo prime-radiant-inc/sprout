@@ -3430,9 +3430,7 @@ describe("Agent", () => {
 		const collected = events.collected();
 
 		// act_start must have child_id
-		const actStart = collected.find(
-			(e) => e.kind === "act_start" && e.data.agent_name === "leaf",
-		);
+		const actStart = collected.find((e) => e.kind === "act_start" && e.data.agent_name === "leaf");
 		expect(actStart).toBeDefined();
 		const childId = actStart!.data.child_id as string;
 		expect(childId).toBeDefined();
@@ -3446,9 +3444,7 @@ describe("Agent", () => {
 		expect(actEnd!.data.child_id).toBe(childId);
 
 		// Child's own events use child_id as agent_id
-		const childPerceive = collected.find(
-			(e) => e.kind === "perceive" && e.depth === 1,
-		);
+		const childPerceive = collected.find((e) => e.kind === "perceive" && e.depth === 1);
 		expect(childPerceive).toBeDefined();
 		expect(childPerceive!.agent_id).toBe(childId);
 	});

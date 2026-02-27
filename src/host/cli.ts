@@ -557,7 +557,14 @@ export async function runCli(command: CliCommand): Promise<void> {
 	let webServer: import("../web/server.ts").WebServer | null = null;
 	if (command.web || command.webOnly) {
 		const { WebServer } = await import("../web/server.ts");
-		webServer = new WebServer({ bus, port: webPort, staticDir, sessionId, hostname: webHost, initialEvents: resumeEvents });
+		webServer = new WebServer({
+			bus,
+			port: webPort,
+			staticDir,
+			sessionId,
+			hostname: webHost,
+			initialEvents: resumeEvents,
+		});
 		await webServer.start();
 		const displayHost = webHost ?? "localhost";
 		console.error(`Web UI: http://${displayHost}:${webPort}`);
