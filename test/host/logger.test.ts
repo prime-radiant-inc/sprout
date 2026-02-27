@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SessionLogger, type LogEntry } from "../../src/host/logger.ts";
+import { type LogEntry, NullLogger, SessionLogger } from "../../src/host/logger.ts";
 
 async function readLogEntries(path: string): Promise<LogEntry[]> {
 	const raw = await readFile(path, "utf-8");
@@ -123,5 +123,18 @@ describe("SessionLogger", () => {
 		expect(emitted[0]!.kind).toBe("log");
 		expect((emitted[0]!.data as any).level).toBe("info");
 		expect((emitted[1]!.data as any).level).toBe("warn");
+	});
+});
+
+describe("NullLogger", () => {
+	test("NullLogger methods are no-ops", async () => {
+		const logger = new NullLogger();
+		logger.debug("system", "noop");
+		logger.info("system", "noop");
+		logger.warn("system", "noop");
+		logger.error("system", "noop");
+		const child = logger.child({ component: "x" });
+		expect(child).toBe(logger);
+		await logger.flush();
 	});
 });

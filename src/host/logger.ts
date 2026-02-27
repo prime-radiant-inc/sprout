@@ -8,7 +8,14 @@ import type { SessionBus } from "./event-bus.ts";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
-export type LogCategory = "system" | "llm" | "agent" | "web" | "tool";
+export type LogCategory =
+	| "llm"
+	| "agent"
+	| "primitive"
+	| "learn"
+	| "compaction"
+	| "session"
+	| "system";
 
 export interface LogEntry {
 	timestamp: number;
@@ -177,11 +184,11 @@ export class SessionLogger implements Logger {
 // ---------------------------------------------------------------------------
 
 export class NullLogger implements Logger {
-	debug(): void {}
-	info(): void {}
-	warn(): void {}
-	error(): void {}
-	child(): NullLogger {
+	debug(_category: LogCategory, _message: string, _data?: Record<string, unknown>): void {}
+	info(_category: LogCategory, _message: string, _data?: Record<string, unknown>): void {}
+	warn(_category: LogCategory, _message: string, _data?: Record<string, unknown>): void {}
+	error(_category: LogCategory, _message: string, _data?: Record<string, unknown>): void {}
+	child(_context: LogContext): NullLogger {
 		return this;
 	}
 	async flush(): Promise<void> {}
