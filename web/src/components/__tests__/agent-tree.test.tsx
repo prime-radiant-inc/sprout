@@ -211,6 +211,36 @@ describe("AgentTree", () => {
 		);
 		expect(allAgentsSection).toContain('data-selected="true"');
 	});
+
+	test("does not render toggle button when onToggle omitted", () => {
+		const tree = makeTree();
+		const html = renderToStaticMarkup(
+			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
+		);
+		expect(html).not.toContain('data-action="toggle"');
+	});
+
+	test("truncates goal to exactly maxLen-1 characters plus ellipsis", () => {
+		const goal61 = "a".repeat(61);
+		const tree = makeNode({ goal: goal61 });
+		const html = renderToStaticMarkup(
+			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
+		);
+		// truncateGoal: goal.slice(0, 59) + "..." = 59 a's followed by ...
+		const goalMatch = html.match(/(a+)\.\.\./);
+		expect(goalMatch).toBeTruthy();
+		expect(goalMatch![1]!.length).toBe(59);
+	});
+
+	test("does not truncate goal at exactly maxLen characters", () => {
+		const goal60 = "b".repeat(60);
+		const tree = makeNode({ goal: goal60 });
+		const html = renderToStaticMarkup(
+			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
+		);
+		expect(html).toContain(goal60);
+		expect(html).not.toContain("...");
+	});
 });
 
 // --- Breadcrumb ---
