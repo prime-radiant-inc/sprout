@@ -178,18 +178,12 @@ export function useWebSocket(url: string) {
 
 	const subscribe = useCallback(
 		(onStoreChange: () => void) => {
-			const unsubMsg = client.onMessage(() => {
-				stateRef.current = { connected: client.connected };
-				onStoreChange();
-			});
-
 			const unsubState = client.onStateChange(() => {
 				stateRef.current = { connected: client.connected };
 				onStoreChange();
 			});
 
 			return () => {
-				unsubMsg();
 				unsubState();
 			};
 		},
