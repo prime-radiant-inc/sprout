@@ -20,6 +20,10 @@ function resetTimestamps(): void {
 }
 
 // --- Tests ---
+//
+// IMPORTANT: act_start/act_end events are emitted by the PARENT agent.
+// So event.agent_id is the parent, event.depth is the parent's depth,
+// and data.agent_name is the child being spawned.
 
 describe("buildAgentTree", () => {
 	describe("empty / minimal input", () => {
@@ -74,7 +78,8 @@ describe("buildAgentTree", () => {
 			resetTimestamps();
 			const events = [
 				makeEvent("perceive", "root", 0, { goal: "Fix everything" }),
-				makeEvent("act_start", "code-editor-1", 1, {
+				// Parent (root, depth=0) dispatches child "code-editor"
+				makeEvent("act_start", "root", 0, {
 					agent_name: "code-editor",
 					goal: "Edit file.ts",
 				}),
@@ -83,7 +88,7 @@ describe("buildAgentTree", () => {
 
 			expect(tree.children).toHaveLength(1);
 			const child = tree.children[0]!;
-			expect(child.agentId).toBe("code-editor-1");
+			expect(child.agentId).toBe("code-editor");
 			expect(child.agentName).toBe("code-editor");
 			expect(child.depth).toBe(1);
 			expect(child.goal).toBe("Edit file.ts");
@@ -95,11 +100,11 @@ describe("buildAgentTree", () => {
 			resetTimestamps();
 			const events = [
 				makeEvent("perceive", "root", 0, { goal: "Fix everything" }),
-				makeEvent("act_start", "code-editor-1", 1, {
+				makeEvent("act_start", "root", 0, {
 					agent_name: "code-editor",
 					goal: "Edit file.ts",
 				}),
-				makeEvent("act_end", "code-editor-1", 1, {
+				makeEvent("act_end", "root", 0, {
 					agent_name: "code-editor",
 					goal: "Edit file.ts",
 					success: true,
@@ -117,11 +122,11 @@ describe("buildAgentTree", () => {
 			resetTimestamps();
 			const events = [
 				makeEvent("perceive", "root", 0, { goal: "Fix everything" }),
-				makeEvent("act_start", "code-editor-1", 1, {
+				makeEvent("act_start", "root", 0, {
 					agent_name: "code-editor",
 					goal: "Edit file.ts",
 				}),
-				makeEvent("act_end", "code-editor-1", 1, {
+				makeEvent("act_end", "root", 0, {
 					agent_name: "code-editor",
 					goal: "Edit file.ts",
 					success: false,
@@ -136,12 +141,10 @@ describe("buildAgentTree", () => {
 		});
 
 		test("computes durationMs from act_start to act_end timestamps", () => {
-			const startTs = 5000;
-			const endTs = 8500;
 			const events: SessionEvent[] = [
 				makeEvent("perceive", "root", 0, { goal: "Do work" }),
-				{ kind: "act_start", timestamp: startTs, agent_id: "editor-1", depth: 1, data: { agent_name: "editor", goal: "Edit" } },
-				{ kind: "act_end", timestamp: endTs, agent_id: "editor-1", depth: 1, data: { agent_name: "editor", goal: "Edit", success: true, turns: 2 } },
+				{ kind: "act_start", timestamp: 5000, agent_id: "root", depth: 0, data: { agent_name: "editor", goal: "Edit" } },
+				{ kind: "act_end", timestamp: 8500, agent_id: "root", depth: 0, data: { agent_name: "editor", goal: "Edit", success: true, turns: 2 } },
 			];
 			const tree = buildAgentTree(events);
 
@@ -154,17 +157,18 @@ describe("buildAgentTree", () => {
 			resetTimestamps();
 			const events = [
 				makeEvent("perceive", "root", 0, { goal: "Build feature" }),
-				makeEvent("act_start", "reader-1", 1, { agent_name: "code-reader", goal: "Read config" }),
-				makeEvent("act_end", "reader-1", 1, { agent_name: "code-reader", goal: "Read config", success: true, turns: 1 }),
-				makeEvent("act_start", "editor-1", 1, { agent_name: "code-editor", goal: "Write code" }),
-				makeEvent("act_end", "editor-1", 1, { agent_name: "code-editor", goal: "Write code", success: true, turns: 2 }),
+				// Root dispatches code-reader, then code-editor
+				makeEvent("act_start", "root", 0, { agent_name: "code-reader", goal: "Read config" }),
+				makeEvent("act_end", "root", 0, { agent_name: "code-reader", goal: "Read config", success: true, turns: 1 }),
+				makeEvent("act_start", "root", 0, { agent_name: "code-editor", goal: "Write code" }),
+				makeEvent("act_end", "root", 0, { agent_name: "code-editor", goal: "Write code", success: true, turns: 2 }),
 			];
 			const tree = buildAgentTree(events);
 
 			expect(tree.children).toHaveLength(2);
-			expect(tree.children[0]!.agentId).toBe("reader-1");
+			expect(tree.children[0]!.agentId).toBe("code-reader");
 			expect(tree.children[0]!.agentName).toBe("code-reader");
-			expect(tree.children[1]!.agentId).toBe("editor-1");
+			expect(tree.children[1]!.agentId).toBe("code-editor");
 			expect(tree.children[1]!.agentName).toBe("code-editor");
 		});
 	});
@@ -174,20 +178,22 @@ describe("buildAgentTree", () => {
 			resetTimestamps();
 			const events = [
 				makeEvent("perceive", "root", 0, { goal: "Build it" }),
-				makeEvent("act_start", "planner-1", 1, { agent_name: "planner", goal: "Plan work" }),
-				makeEvent("act_start", "editor-1", 2, { agent_name: "editor", goal: "Edit file" }),
-				makeEvent("act_end", "editor-1", 2, { agent_name: "editor", goal: "Edit file", success: true, turns: 1 }),
-				makeEvent("act_end", "planner-1", 1, { agent_name: "planner", goal: "Plan work", success: true, turns: 5 }),
+				// Root (depth 0) dispatches planner
+				makeEvent("act_start", "root", 0, { agent_name: "planner", goal: "Plan work" }),
+				// Planner (depth 1) dispatches editor
+				makeEvent("act_start", "planner", 1, { agent_name: "editor", goal: "Edit file" }),
+				makeEvent("act_end", "planner", 1, { agent_name: "editor", goal: "Edit file", success: true, turns: 1 }),
+				makeEvent("act_end", "root", 0, { agent_name: "planner", goal: "Plan work", success: true, turns: 5 }),
 			];
 			const tree = buildAgentTree(events);
 
 			expect(tree.children).toHaveLength(1);
 			const planner = tree.children[0]!;
-			expect(planner.agentId).toBe("planner-1");
+			expect(planner.agentId).toBe("planner");
 			expect(planner.children).toHaveLength(1);
 
 			const editor = planner.children[0]!;
-			expect(editor.agentId).toBe("editor-1");
+			expect(editor.agentId).toBe("editor");
 			expect(editor.depth).toBe(2);
 			expect(editor.status).toBe("completed");
 		});
@@ -196,25 +202,25 @@ describe("buildAgentTree", () => {
 			resetTimestamps();
 			const events = [
 				makeEvent("perceive", "root", 0, { goal: "Deep work" }),
-				makeEvent("act_start", "d1", 1, { agent_name: "depth-one", goal: "Level 1" }),
-				makeEvent("act_start", "d2", 2, { agent_name: "depth-two", goal: "Level 2" }),
-				makeEvent("act_start", "d3", 3, { agent_name: "depth-three", goal: "Level 3" }),
-				makeEvent("act_end", "d3", 3, { agent_name: "depth-three", goal: "Level 3", success: true, turns: 1 }),
-				makeEvent("act_end", "d2", 2, { agent_name: "depth-two", goal: "Level 2", success: true, turns: 2 }),
-				makeEvent("act_end", "d1", 1, { agent_name: "depth-one", goal: "Level 1", success: true, turns: 3 }),
+				makeEvent("act_start", "root", 0, { agent_name: "depth-one", goal: "Level 1" }),
+				makeEvent("act_start", "depth-one", 1, { agent_name: "depth-two", goal: "Level 2" }),
+				makeEvent("act_start", "depth-two", 2, { agent_name: "depth-three", goal: "Level 3" }),
+				makeEvent("act_end", "depth-two", 2, { agent_name: "depth-three", goal: "Level 3", success: true, turns: 1 }),
+				makeEvent("act_end", "depth-one", 1, { agent_name: "depth-two", goal: "Level 2", success: true, turns: 2 }),
+				makeEvent("act_end", "root", 0, { agent_name: "depth-one", goal: "Level 1", success: true, turns: 3 }),
 			];
 			const tree = buildAgentTree(events);
 
 			const d1 = tree.children[0]!;
-			expect(d1.agentId).toBe("d1");
+			expect(d1.agentId).toBe("depth-one");
 			expect(d1.children).toHaveLength(1);
 
 			const d2 = d1.children[0]!;
-			expect(d2.agentId).toBe("d2");
+			expect(d2.agentId).toBe("depth-two");
 			expect(d2.children).toHaveLength(1);
 
 			const d3 = d2.children[0]!;
-			expect(d3.agentId).toBe("d3");
+			expect(d3.agentId).toBe("depth-three");
 			expect(d3.depth).toBe(3);
 			expect(d3.children).toEqual([]);
 		});
@@ -225,9 +231,9 @@ describe("buildAgentTree", () => {
 			resetTimestamps();
 			const events = [
 				makeEvent("perceive", "root", 0, { goal: "Multi-task" }),
-				makeEvent("act_start", "done-agent", 1, { agent_name: "reader", goal: "Read" }),
-				makeEvent("act_end", "done-agent", 1, { agent_name: "reader", goal: "Read", success: true, turns: 1 }),
-				makeEvent("act_start", "active-agent", 1, { agent_name: "editor", goal: "Edit" }),
+				makeEvent("act_start", "root", 0, { agent_name: "reader", goal: "Read" }),
+				makeEvent("act_end", "root", 0, { agent_name: "reader", goal: "Read", success: true, turns: 1 }),
+				makeEvent("act_start", "root", 0, { agent_name: "editor", goal: "Edit" }),
 			];
 			const tree = buildAgentTree(events);
 
@@ -237,21 +243,23 @@ describe("buildAgentTree", () => {
 		});
 	});
 
-	describe("same agent_id appearing multiple times", () => {
-		test("second act_start with same agent_id creates a new node", () => {
+	describe("same agent_name appearing multiple times", () => {
+		test("second act_start with same agent_name creates a disambiguated node", () => {
 			resetTimestamps();
 			const events = [
 				makeEvent("perceive", "root", 0, { goal: "Retry work" }),
-				makeEvent("act_start", "editor-1", 1, { agent_name: "editor", goal: "First attempt" }),
-				makeEvent("act_end", "editor-1", 1, { agent_name: "editor", goal: "First attempt", success: false, turns: 1 }),
-				makeEvent("act_start", "editor-1", 1, { agent_name: "editor", goal: "Second attempt" }),
-				makeEvent("act_end", "editor-1", 1, { agent_name: "editor", goal: "Second attempt", success: true, turns: 2 }),
+				makeEvent("act_start", "root", 0, { agent_name: "editor", goal: "First attempt" }),
+				makeEvent("act_end", "root", 0, { agent_name: "editor", goal: "First attempt", success: false, turns: 1 }),
+				makeEvent("act_start", "root", 0, { agent_name: "editor", goal: "Second attempt" }),
+				makeEvent("act_end", "root", 0, { agent_name: "editor", goal: "Second attempt", success: true, turns: 2 }),
 			];
 			const tree = buildAgentTree(events);
 
 			expect(tree.children).toHaveLength(2);
+			expect(tree.children[0]!.agentId).toBe("editor");
 			expect(tree.children[0]!.goal).toBe("First attempt");
 			expect(tree.children[0]!.status).toBe("failed");
+			expect(tree.children[1]!.agentId).toBe("editor#2");
 			expect(tree.children[1]!.goal).toBe("Second attempt");
 			expect(tree.children[1]!.status).toBe("completed");
 		});
@@ -265,13 +273,13 @@ describe("buildAgentTree", () => {
 				makeEvent("plan_start", "root", 0, { turn: 1 }),
 				makeEvent("plan_delta", "root", 0, { text: "thinking" }),
 				makeEvent("plan_end", "root", 0, { turn: 1 }),
-				makeEvent("act_start", "editor-1", 1, { agent_name: "editor", goal: "Edit" }),
-				makeEvent("act_end", "editor-1", 1, { agent_name: "editor", goal: "Edit", success: true, turns: 1 }),
+				makeEvent("act_start", "root", 0, { agent_name: "editor", goal: "Edit" }),
+				makeEvent("act_end", "root", 0, { agent_name: "editor", goal: "Edit", success: true, turns: 1 }),
 			];
 			const tree = buildAgentTree(events);
 
 			expect(tree.children).toHaveLength(1);
-			expect(tree.children[0]!.agentId).toBe("editor-1");
+			expect(tree.children[0]!.agentId).toBe("editor");
 		});
 	});
 
@@ -280,18 +288,18 @@ describe("buildAgentTree", () => {
 			resetTimestamps();
 			const tree = buildAgentTree([
 				makeEvent("perceive", "root-agent", 0, { goal: "Go" }),
-				makeEvent("act_start", "child-1", 1, { agent_name: "editor", goal: "Edit" }),
-				makeEvent("act_start", "grandchild-1", 2, { agent_name: "writer", goal: "Write" }),
-				makeEvent("act_end", "grandchild-1", 2, { agent_name: "writer", success: true }),
-				makeEvent("act_end", "child-1", 1, { agent_name: "editor", success: true }),
-				makeEvent("act_start", "child-2", 1, { agent_name: "runner", goal: "Run" }),
-				makeEvent("act_end", "child-2", 1, { agent_name: "runner", success: true }),
+				makeEvent("act_start", "root-agent", 0, { agent_name: "editor", goal: "Edit" }),
+				makeEvent("act_start", "editor", 1, { agent_name: "writer", goal: "Write" }),
+				makeEvent("act_end", "editor", 1, { agent_name: "writer", success: true }),
+				makeEvent("act_end", "root-agent", 0, { agent_name: "editor", success: true }),
+				makeEvent("act_start", "root-agent", 0, { agent_name: "runner", goal: "Run" }),
+				makeEvent("act_end", "root-agent", 0, { agent_name: "runner", success: true }),
 			]);
 
-			const ids = getDescendantIds(tree, "child-1");
-			expect(ids).toContain("child-1");
-			expect(ids).toContain("grandchild-1");
-			expect(ids).not.toContain("child-2");
+			const ids = getDescendantIds(tree, "editor");
+			expect(ids).toContain("editor");
+			expect(ids).toContain("writer");
+			expect(ids).not.toContain("runner");
 			expect(ids).not.toContain("root-agent");
 		});
 
@@ -304,8 +312,8 @@ describe("buildAgentTree", () => {
 			resetTimestamps();
 			const tree = buildAgentTree([
 				makeEvent("perceive", "root-agent", 0, { goal: "Go" }),
-				makeEvent("act_start", "leaf", 1, { agent_name: "leaf", goal: "Do" }),
-				makeEvent("act_end", "leaf", 1, { agent_name: "leaf", success: true }),
+				makeEvent("act_start", "root-agent", 0, { agent_name: "leaf", goal: "Do" }),
+				makeEvent("act_end", "root-agent", 0, { agent_name: "leaf", success: true }),
 			]);
 			const ids = getDescendantIds(tree, "leaf");
 			expect(ids).toEqual(new Set(["leaf"]));
@@ -317,8 +325,8 @@ describe("buildAgentTree", () => {
 			resetTimestamps();
 			const events = [
 				makeEvent("perceive", "root", 0, { goal: "Work" }),
-				makeEvent("act_start", "editor-1", 1, { agent_name: "editor", goal: "Edit" }),
-				makeEvent("act_end", "editor-1", 1, { agent_name: "editor", goal: "Edit", success: true }),
+				makeEvent("act_start", "root", 0, { agent_name: "editor", goal: "Edit" }),
+				makeEvent("act_end", "root", 0, { agent_name: "editor", goal: "Edit", success: true }),
 			];
 			const tree = buildAgentTree(events);
 

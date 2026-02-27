@@ -958,18 +958,20 @@ describe("ConversationView", () => {
 	});
 
 	test("filters events by agentId when provided", () => {
+		// act_start/act_end are emitted by the PARENT at the parent's depth.
+		// The child's own events (perceive) use agent_id = agent_name, depth = parent + 1.
 		const events: SessionEvent[] = [
 			makeEvent("perceive", { goal: "root goal" }, { agent_id: "root-agent", depth: 0 }),
-			makeEvent("act_start", { agent_name: "alpha", goal: "alpha work" }, { agent_id: "alpha-agent", depth: 1, timestamp: 1001 }),
-			makeEvent("perceive", { goal: "alpha goal" }, { agent_id: "alpha-agent", depth: 1 }),
-			makeEvent("act_end", { agent_name: "alpha", success: true }, { agent_id: "alpha-agent", depth: 1, timestamp: 1002 }),
-			makeEvent("act_start", { agent_name: "beta", goal: "beta work" }, { agent_id: "beta-agent", depth: 1, timestamp: 1003 }),
-			makeEvent("perceive", { goal: "beta goal" }, { agent_id: "beta-agent", depth: 1 }),
-			makeEvent("act_end", { agent_name: "beta", success: true }, { agent_id: "beta-agent", depth: 1, timestamp: 1004 }),
+			makeEvent("act_start", { agent_name: "alpha", goal: "alpha work" }, { agent_id: "root-agent", depth: 0, timestamp: 1001 }),
+			makeEvent("perceive", { goal: "alpha goal" }, { agent_id: "alpha", depth: 1 }),
+			makeEvent("act_end", { agent_name: "alpha", success: true }, { agent_id: "root-agent", depth: 0, timestamp: 1002 }),
+			makeEvent("act_start", { agent_name: "beta", goal: "beta work" }, { agent_id: "root-agent", depth: 0, timestamp: 1003 }),
+			makeEvent("perceive", { goal: "beta goal" }, { agent_id: "beta", depth: 1 }),
+			makeEvent("act_end", { agent_name: "beta", success: true }, { agent_id: "root-agent", depth: 0, timestamp: 1004 }),
 		];
 		const tree = buildAgentTree(events);
 		const html = renderToStaticMarkup(
-			<ConversationView events={events} agentFilter="alpha-agent" tree={tree} />,
+			<ConversationView events={events} agentFilter="alpha" tree={tree} />,
 		);
 		expect(html).toContain("alpha goal");
 		expect(html).not.toContain("beta goal");
@@ -979,16 +981,16 @@ describe("ConversationView", () => {
 	test("agent filter includes descendant events", () => {
 		const events: SessionEvent[] = [
 			makeEvent("perceive", { goal: "root goal" }, { agent_id: "root-agent", depth: 0 }),
-			makeEvent("act_start", { agent_name: "parent", goal: "parent work" }, { agent_id: "parent-agent", depth: 1 }),
-			makeEvent("perceive", { goal: "parent goal" }, { agent_id: "parent-agent", depth: 1 }),
-			makeEvent("act_start", { agent_name: "child", goal: "child work" }, { agent_id: "child-agent", depth: 2 }),
-			makeEvent("perceive", { goal: "child goal" }, { agent_id: "child-agent", depth: 2 }),
-			makeEvent("act_end", { agent_name: "child", success: true }, { agent_id: "child-agent", depth: 2 }),
-			makeEvent("act_end", { agent_name: "parent", success: true }, { agent_id: "parent-agent", depth: 1 }),
+			makeEvent("act_start", { agent_name: "parent", goal: "parent work" }, { agent_id: "root-agent", depth: 0 }),
+			makeEvent("perceive", { goal: "parent goal" }, { agent_id: "parent", depth: 1 }),
+			makeEvent("act_start", { agent_name: "child", goal: "child work" }, { agent_id: "parent", depth: 1 }),
+			makeEvent("perceive", { goal: "child goal" }, { agent_id: "child", depth: 2 }),
+			makeEvent("act_end", { agent_name: "child", success: true }, { agent_id: "parent", depth: 1 }),
+			makeEvent("act_end", { agent_name: "parent", success: true }, { agent_id: "root-agent", depth: 0 }),
 		];
 		const tree = buildAgentTree(events);
 		const html = renderToStaticMarkup(
-			<ConversationView events={events} agentFilter="parent-agent" tree={tree} />,
+			<ConversationView events={events} agentFilter="parent" tree={tree} />,
 		);
 		// Should include parent and its child
 		expect(html).toContain("parent goal");
@@ -1062,7 +1064,7 @@ describe("ConversationView", () => {
 
 	test("passes onSelectAgent to delegation blocks as onOpenThread", () => {
 		const events: SessionEvent[] = [
-			makeEvent("act_end", { agent_name: "worker", goal: "do work", success: true }, { agent_id: "worker-agent", timestamp: 1000 }),
+			makeEvent("act_end", { agent_name: "worker", goal: "do work", success: true }, { agent_id: "root", timestamp: 1000 }),
 		];
 		const tree = buildAgentTree(events);
 		const html = renderToStaticMarkup(
@@ -1073,7 +1075,7 @@ describe("ConversationView", () => {
 
 	test("passes onSelectAgent to enable View thread links on act_start", () => {
 		const events: SessionEvent[] = [
-			makeEvent("act_start", { agent_name: "sub-agent", goal: "do stuff" }, { agent_id: "child-1", depth: 1 }),
+			makeEvent("act_start", { agent_name: "sub-agent", goal: "do stuff" }, { agent_id: "root", depth: 0 }),
 		];
 		const tree = buildAgentTree(events);
 		const html = renderToStaticMarkup(
@@ -1093,19 +1095,18 @@ describe("ConversationView", () => {
 		expect(html).toContain("is responding");
 	});
 
-	test("StreamingBanner shows resolved agent name, not raw ID", () => {
+	test("StreamingBanner shows resolved agent name from tree", () => {
+		// Root (depth 0) dispatches code-editor; child streams plan_delta
 		const events: SessionEvent[] = [
-			makeEvent("act_start", { agent_name: "code-editor", goal: "edit" }, { agent_id: "ce-1", depth: 1 }),
-			makeEvent("plan_delta", { text: "thinking..." }, { agent_id: "ce-1", depth: 1, timestamp: 1000 }),
+			makeEvent("act_start", { agent_name: "code-editor", goal: "edit" }, { agent_id: "root", depth: 0 }),
+			makeEvent("plan_delta", { text: "thinking..." }, { agent_id: "code-editor", depth: 1, timestamp: 1000 }),
 		];
 		const tree = buildAgentTree(events);
 		const html = renderToStaticMarkup(
 			<ConversationView events={events} tree={tree} />,
 		);
 		expect(html).toContain("is responding");
-		// Should display the resolved agent name, not the raw ID
 		expect(html).toContain("code-editor");
-		expect(html).not.toContain("ce-1");
 	});
 });
 

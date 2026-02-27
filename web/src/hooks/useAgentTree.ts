@@ -17,7 +17,8 @@ export interface AgentTreeNode {
  *
  * Scans for act_start/act_end pairs to construct parent-child relationships.
  * Root node is derived from depth-0 events. Child nodes come from act_start
- * events at depth > 0.
+ * events, which are emitted by the *parent* agent (so event.agent_id is the
+ * parent and event.depth is the parent's depth).
  */
 export function buildAgentTree(events: SessionEvent[]): AgentTreeNode {
 	const root: AgentTreeNode = {
@@ -30,12 +31,15 @@ export function buildAgentTree(events: SessionEvent[]): AgentTreeNode {
 	};
 
 	// Track the "current path" — the most recently active node at each depth.
-	// path[0] is always root. path[1] is the most recent depth-1 act_start node, etc.
+	// path[0] is always root. path[1] is the most recent depth-1 child, etc.
 	const path: AgentTreeNode[] = [root];
 
 	// Track start timestamps for durationMs computation.
-	// Key: the node object reference (via a parallel array with act_start nodes).
 	const startTimestamps = new Map<AgentTreeNode, number>();
+
+	// Disambiguate child nodes that share the same agent_name.
+	// Key: agent_name, value: count seen so far.
+	const nameCounters = new Map<string, number>();
 
 	for (const event of events) {
 		// Derive root identity from the first depth-0 event
@@ -59,31 +63,42 @@ export function buildAgentTree(events: SessionEvent[]): AgentTreeNode {
 			}
 
 			case "act_start": {
+				// act_start is emitted by the PARENT at the parent's depth.
+				// The child's name is in data.agent_name.
+				const childName = (event.data.agent_name as string) ?? event.agent_id;
+				const count = (nameCounters.get(childName) ?? 0) + 1;
+				nameCounters.set(childName, count);
+				// Use a unique agentId: "name" for first instance, "name#2" for second, etc.
+				const childId = count === 1 ? childName : `${childName}#${count}`;
+
+				const childDepth = event.depth + 1;
 				const node: AgentTreeNode = {
-					agentId: event.agent_id,
-					agentName: (event.data.agent_name as string) ?? event.agent_id,
-					depth: event.depth,
+					agentId: childId,
+					agentName: childName,
+					depth: childDepth,
 					status: "running",
 					goal: (event.data.goal as string) ?? "",
 					children: [],
 				};
 				startTimestamps.set(node, event.timestamp);
 
-				// Parent is at depth - 1 in the current path
-				const parent = path[event.depth - 1];
+				// Parent is at the event's depth in the path
+				const parent = path[event.depth];
 				if (parent) {
 					parent.children.push(node);
 				}
 
-				// Update path at this depth (and clear deeper entries)
-				path[event.depth] = node;
-				path.length = event.depth + 1;
+				// Record this child at its depth (and clear deeper entries)
+				path[childDepth] = node;
+				path.length = childDepth + 1;
 				break;
 			}
 
 			case "act_end": {
-				// Find the matching node — it's the current node at this depth in path
-				const node = path[event.depth];
+				// act_end is also emitted by the parent at the parent's depth.
+				// The matching child node is at depth + 1 in the path.
+				const childDepth = event.depth + 1;
+				const node = path[childDepth];
 				if (node && node !== root) {
 					node.status = (event.data.success as boolean) ? "completed" : "failed";
 					const turns = event.data.turns as number | undefined;
