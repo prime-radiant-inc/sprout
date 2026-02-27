@@ -14,21 +14,21 @@
 .markdown h5,
 .markdown h6 {
 	margin: 8px 0 4px;
-	color: var(--text-primary);
+	color: var(--color-text-primary);
 }
 
 .markdown code {
-	background: var(--bg-secondary);
+	background: var(--color-inset);
 	padding: 1px 4px;
-	border-radius: 3px;
+	border-radius: var(--radius-sm);
 	font-family: var(--font-mono);
 	font-size: var(--font-size-sm);
 }
 
 .markdown pre {
-	background: var(--bg-secondary);
-	border: 1px solid var(--border-color);
-	border-radius: 4px;
+	background: var(--color-inset);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-md);
 	padding: 8px 12px;
 	overflow-x: auto;
 	margin: 4px 0;
@@ -41,6 +41,10 @@
 	line-height: 1.4;
 }
 
+.markdown [data-code-block] {
+	position: relative;
+}
+
 .markdown ul,
 .markdown ol {
 	margin: 4px 0;
@@ -48,14 +52,15 @@
 }
 
 .markdown blockquote {
-	border-left: 2px solid var(--border-color);
+	border-left: 2px solid var(--color-border-strong);
 	padding-left: 8px;
-	color: var(--text-secondary);
+	color: var(--color-text-secondary);
+	font-style: italic;
 	margin: 4px 0;
 }
 
 .markdown a {
-	color: var(--color-blue);
+	color: var(--color-accent);
 	text-decoration: none;
 }
 
@@ -70,16 +75,16 @@
 
 .markdown th,
 .markdown td {
-	border: 1px solid var(--border-color);
+	border: 1px solid var(--color-border);
 	padding: 4px 8px;
 }
 
 .markdown th {
-	background: var(--bg-secondary);
+	background: var(--color-inset);
 }
 
 .markdown hr {
 	border: none;
-	border-top: 1px solid var(--border-color);
+	border-top: 1px solid var(--color-border);
 	margin: 8px 0;
 }

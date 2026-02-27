@@ -75,6 +75,29 @@ describe("MarkdownBlock", () => {
 		expect(html).not.toContain("onerror");
 		expect(html).toContain("<img");
 	});
+
+	test("wraps code blocks in a data-code-block container", () => {
+		const md = "```js\nconst x = 1;\n```";
+		const html = renderToStaticMarkup(<MarkdownBlock content={md} />);
+		expect(html).toContain("data-code-block");
+		expect(html).toContain("<pre");
+		expect(html).toContain("const x = 1;");
+	});
+
+	test("does not wrap inline code in data-code-block container", () => {
+		const html = renderToStaticMarkup(
+			<MarkdownBlock content="use `foo()` here" />,
+		);
+		expect(html).not.toContain("data-code-block");
+		expect(html).toContain("<code>foo()</code>");
+	});
+
+	test("wraps multiple code blocks each in their own container", () => {
+		const md = "```\nfirst\n```\n\ntext\n\n```\nsecond\n```";
+		const html = renderToStaticMarkup(<MarkdownBlock content={md} />);
+		const matches = html.match(/data-code-block/g);
+		expect(matches).toHaveLength(2);
+	});
 });
 
 // --- UserMessage ---
