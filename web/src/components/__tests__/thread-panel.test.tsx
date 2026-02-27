@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import type { SessionEvent } from "../../../../src/kernel/types.ts";
 import type { AgentTreeNode } from "../../hooks/useAgentTree.ts";
 import { ThreadPanel } from "../ThreadPanel.tsx";
 
@@ -96,5 +97,73 @@ describe("ThreadPanel status badge", () => {
 		// The filled circle could appear in ConversationView, so just check
 		// there is no data-status attribute in the header
 		expect(html).not.toContain("data-status");
+	});
+});
+
+// --- ThreadPanel token usage ---
+
+function renderPanelWithEvents(
+	tree: AgentTreeNode,
+	events: SessionEvent[],
+	agentId = "child-1",
+): string {
+	return renderToStaticMarkup(
+		<ThreadPanel
+			agentId={agentId}
+			tree={tree}
+			events={events}
+			onClose={() => {}}
+			onSelectAgent={() => {}}
+		/>,
+	);
+}
+
+describe("ThreadPanel token usage", () => {
+	test("displays token usage when plan_end events have usage data", () => {
+		const tree = makeTree("completed");
+		const events: SessionEvent[] = [
+			{
+				kind: "plan_end",
+				timestamp: 1000,
+				agent_id: "child-1",
+				depth: 1,
+				data: { usage: { input_tokens: 1200, output_tokens: 800, total_tokens: 2000 } },
+			},
+		];
+		const html = renderPanelWithEvents(tree, events);
+		expect(html).toContain("data-testid=\"token-usage\"");
+		expect(html).toContain("1.2k in");
+		expect(html).toContain("800 out");
+	});
+
+	test("does not display token usage when no usage data exists", () => {
+		const tree = makeTree("running");
+		const html = renderPanelWithEvents(tree, []);
+		expect(html).not.toContain("data-testid=\"token-usage\"");
+	});
+
+	test("aggregates tokens across multiple plan_end events", () => {
+		const tree = makeTree("completed");
+		const events: SessionEvent[] = [
+			{
+				kind: "plan_end",
+				timestamp: 1000,
+				agent_id: "child-1",
+				depth: 1,
+				data: { usage: { input_tokens: 5000, output_tokens: 2000, total_tokens: 7000 } },
+			},
+			{
+				kind: "plan_end",
+				timestamp: 2000,
+				agent_id: "child-1",
+				depth: 1,
+				data: { usage: { input_tokens: 7500, output_tokens: 3000, total_tokens: 10500 } },
+			},
+		];
+		const html = renderPanelWithEvents(tree, events);
+		// 5000 + 7500 = 12500 -> "12.5k in"
+		expect(html).toContain("12.5k in");
+		// 2000 + 3000 = 5000 -> "5k out"
+		expect(html).toContain("5k out");
 	});
 });

@@ -1,6 +1,7 @@
 import type { SessionEvent } from "../../../src/kernel/types.ts";
 import { findNode } from "../hooks/useAgentTree.ts";
 import type { AgentTreeNode } from "../hooks/useAgentTree.ts";
+import { formatCompactNumber, useTokenUsage } from "../hooks/useTokenUsage.ts";
 import { ConversationView } from "./ConversationView.tsx";
 import styles from "./ThreadPanel.module.css";
 
@@ -28,6 +29,7 @@ export function ThreadPanel({ agentId, tree, events, onClose, onSelectAgent }: T
 	const node = findNode(tree, agentId);
 	const agentName = node?.agentName ?? agentId;
 	const goal = node?.goal ?? "";
+	const tokenUsage = useTokenUsage(events, tree, agentId);
 
 	return (
 		<div className={styles.panel} data-region="thread-panel">
@@ -38,6 +40,11 @@ export function ThreadPanel({ agentId, tree, events, onClose, onSelectAgent }: T
 						{node && (
 							<span className={statusClasses[node.status]} data-status={node.status}>
 								{statusIcons[node.status]}
+							</span>
+						)}
+						{tokenUsage && (
+							<span className={styles.tokenUsage} data-testid="token-usage">
+								{formatCompactNumber(tokenUsage.inputTokens)} in / {formatCompactNumber(tokenUsage.outputTokens)} out
 							</span>
 						)}
 					</div>

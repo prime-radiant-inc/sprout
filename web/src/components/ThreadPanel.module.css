@@ -37,6 +37,13 @@
 	color: var(--color-text-primary);
 }
 
+.tokenUsage {
+	font-family: var(--font-mono);
+	font-size: var(--font-size-xs);
+	color: var(--color-text-tertiary);
+	white-space: nowrap;
+}
+
 .goal {
 	font-size: var(--font-size-xs);
 	color: var(--color-text-secondary);
