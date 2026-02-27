@@ -2,16 +2,26 @@
 	display: flex;
 	align-items: center;
 	gap: 2px;
-	padding: 4px 0;
+	padding: var(--space-sm) var(--space-md);
 	font-size: var(--font-size-sm);
-	color: var(--text-secondary);
+	color: var(--color-text-secondary);
+	background: var(--color-surface);
+	border-bottom: 1px solid var(--color-border);
 }
 
 .separator {
-	color: var(--text-dim);
+	color: var(--color-text-tertiary);
 	margin: 0 4px;
 }
 
 .segment {
-	color: var(--color-agent);
+	color: var(--color-text-secondary);
+}
+
+.segment:hover {
+	color: var(--color-accent);
+}
+
+.breadcrumb > span:last-child > .segment {
+	color: var(--color-text-primary);
 }
