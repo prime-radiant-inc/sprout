@@ -5,6 +5,8 @@ import type { CallerIdentity, ResultMessage } from "../bus/types.ts";
 import type { Genome } from "../genome/genome.ts";
 import { recall } from "../genome/recall.ts";
 import { compactHistory, shouldCompact } from "../host/compaction.ts";
+import type { Logger } from "../host/logger.ts";
+import { NullLogger } from "../host/logger.ts";
 import type { ExecutionEnvironment } from "../kernel/execution-env.ts";
 import { checkPathConstraint, validateConstraints } from "../kernel/path-constraints.js";
 import type { PrimitiveRegistry } from "../kernel/primitives.ts";
@@ -19,8 +21,6 @@ import type {
 	Memory,
 	RoutingRule,
 } from "../kernel/types.ts";
-import type { Logger } from "../host/logger.ts";
-import { NullLogger } from "../host/logger.ts";
 import type { LearnSink } from "../learn/learn-process.ts";
 import type { Client } from "../llm/client.ts";
 import type { Response as LLMResponse, Message, ToolDefinition } from "../llm/types.ts";
@@ -81,7 +81,7 @@ export interface AgentOptions {
 	/** Pre-fetched model map for tier resolution. */
 	modelsByProvider?: Map<string, string[]>;
 	/** Structured logger for LLM call logging and diagnostics. */
-	logger?: import("../host/logger.ts").Logger;
+	logger?: Logger;
 }
 
 export interface AgentResult {
@@ -327,6 +327,7 @@ export class Agent {
 				preambles: this.preambles,
 				genomePostscripts: this.genomePostscripts,
 				agentId: childId,
+				logger: this.logger,
 			});
 
 			const subResult = await subagent.run(subGoal, this.signal);
