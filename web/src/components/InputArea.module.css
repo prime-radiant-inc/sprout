@@ -35,7 +35,7 @@
 .sendBtn {
 	background: var(--color-accent);
 	border: none;
-	color: #fff;
+	color: var(--color-on-accent);
 	font-family: var(--font-ui);
 	font-size: var(--font-size-sm);
 	font-weight: 500;
@@ -53,7 +53,7 @@
 .stopBtn {
 	background: var(--color-error);
 	border: none;
-	color: #fff;
+	color: var(--color-on-accent);
 	font-family: var(--font-ui);
 	font-size: var(--font-size-sm);
 	font-weight: 500;

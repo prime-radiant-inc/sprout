@@ -55,7 +55,7 @@
 }
 
 /* Responsive: hide sidebar on narrow viewports */
-@media (max-width: 768px) {
+@media (max-width: 1024px) {
 	.body {
 		grid-template-columns: 1fr;
 	}

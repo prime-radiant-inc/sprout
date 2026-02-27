@@ -1,14 +1,14 @@
 .agentTree {
 	display: flex;
 	flex-direction: column;
-	gap: 4px;
+	gap: var(--space-xs);
 }
 
 .header {
 	display: flex;
 	justify-content: space-between;
 	align-items: center;
-	margin-bottom: 4px;
+	margin-bottom: var(--space-xs);
 }
 
 .title {
@@ -24,7 +24,7 @@
 	color: var(--color-text-tertiary);
 	cursor: pointer;
 	font-size: var(--font-size-base);
-	padding: 0 4px;
+	padding: 0 var(--space-xs);
 }
 
 .toggle:hover {
@@ -39,8 +39,8 @@
 	border: none;
 	color: var(--color-text-secondary);
 	cursor: pointer;
-	padding: 4px 8px;
-	border-radius: 3px;
+	padding: var(--space-xs) var(--space-sm);
+	border-radius: var(--radius-sm);
 	font: inherit;
 	font-size: var(--font-size-sm);
 }
@@ -57,13 +57,13 @@
 
 .children {
 	list-style: none;
-	padding-left: 12px;
+	padding-left: var(--space-md);
 	margin: 0;
 }
 
 .node {
 	display: flex;
-	gap: 6px;
+	gap: var(--space-sm);
 	align-items: baseline;
 	width: 100%;
 	text-align: left;
@@ -71,8 +71,8 @@
 	border: none;
 	color: var(--color-text-primary);
 	cursor: pointer;
-	padding: 3px 8px;
-	border-radius: 3px;
+	padding: var(--space-xs) var(--space-sm);
+	border-radius: var(--radius-sm);
 	font: inherit;
 	font-size: var(--font-size-sm);
 }
@@ -87,7 +87,7 @@
 
 .agentName {
 	color: var(--color-accent);
-	font-weight: bold;
+	font-weight: 600;
 	white-space: nowrap;
 }
 

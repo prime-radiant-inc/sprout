@@ -28,6 +28,7 @@
   --color-accent: #8b5cf6;
   --color-accent-hover: #7c3aed;
   --color-accent-subtle: rgba(139, 92, 246, 0.1);
+  --color-on-accent: #ffffff;
 
   /* Semantic */
   --color-success: #22c55e;
@@ -68,6 +69,7 @@
   --color-accent: #8b5cf6;
   --color-accent-hover: #a78bfa;
   --color-accent-subtle: rgba(139, 92, 246, 0.15);
+  --color-on-accent: #ffffff;
 
   /* Semantic */
   --color-success: #22c55e;

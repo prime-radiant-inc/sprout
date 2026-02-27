@@ -45,7 +45,7 @@
 	font-size: var(--font-size-xxs);
 	font-weight: 500;
 	color: var(--color-warning);
-	background: rgba(245, 158, 11, 0.1);
+	background: color-mix(in srgb, var(--color-warning) 10%, transparent);
 	padding: 1px var(--space-xs);
 	border-radius: var(--radius-full);
 	flex-shrink: 0;
