@@ -155,7 +155,7 @@ export class SessionLogger implements Logger {
 		if (this.bus && level !== "debug") {
 			try {
 				this.bus.emitEvent(
-					"log" as any,
+					"log",
 					this.context.agentId ?? "",
 					this.context.depth ?? 0,
 					entry as unknown as Record<string, unknown>,
