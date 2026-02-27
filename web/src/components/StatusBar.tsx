@@ -83,14 +83,15 @@ export function StatusBar({ status, connected, onInterrupt }: StatusBarProps) {
 						{"\u23F9"}
 					</button>
 				)}
-				<span
+				<button
+					type="button"
 					className={styles.sessionId}
 					data-action="copy-session-id"
 					onClick={handleCopySessionId}
 					title="Click to copy session ID"
 				>
 					{sessionId}
-				</span>
+				</button>
 			</div>
 		</div>
 	);

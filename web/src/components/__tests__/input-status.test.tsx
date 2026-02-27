@@ -176,6 +176,15 @@ describe("StatusBar", () => {
 		expect(html).toContain('data-action="copy-session-id"');
 	});
 
+	test("session ID is rendered as a button for keyboard accessibility", () => {
+		const html = renderToStaticMarkup(
+			<StatusBar status={makeStatus()} connected={true} onInterrupt={() => {}} />,
+		);
+		expect(html).toContain('data-action="copy-session-id"');
+		const match = html.match(/(<\w+)[^>]*data-action="copy-session-id"/);
+		expect(match?.[1]).toBe("<button");
+	});
+
 	test("renders single interrupt button when running", () => {
 		const html = renderToStaticMarkup(
 			<StatusBar

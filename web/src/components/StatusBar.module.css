@@ -61,6 +61,10 @@
 	color: var(--color-text-tertiary);
 	cursor: pointer;
 	flex-shrink: 0;
+	background: none;
+	border: none;
+	font: inherit;
+	padding: 0;
 }
 
 .sessionId:hover {
