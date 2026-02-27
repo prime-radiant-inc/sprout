@@ -609,7 +609,7 @@ export class Agent {
 		// Load workspace tools created by the quartermaster for this agent
 		let wsToolDefs: import("../genome/genome.ts").AgentToolDefinition[] = [];
 		if (this.genome && this.primitiveTools.length > 0 && this.genome.loadAgentTools) {
-			wsToolDefs = await this.genome.loadAgentTools(agentId);
+			wsToolDefs = await this.genome.loadAgentTools(this.spec.name);
 			if (wsToolDefs.length > 0) {
 				const toolPrims = buildAgentToolPrimitives(wsToolDefs);
 				for (const prim of toolPrims) {
@@ -623,7 +623,7 @@ export class Agent {
 			}
 
 			// Add agent's tools directory to PATH so saved scripts are directly executable
-			const toolsDir = join(this.genome.agentDir(agentId), "tools");
+			const toolsDir = join(this.genome.agentDir(this.spec.name), "tools");
 			this.env.addToPath?.(toolsDir);
 		}
 
@@ -666,13 +666,14 @@ export class Agent {
 			throw new Error("Cannot call continue() before run() has been called");
 		}
 
+		const agentId = this.agentId ?? this.spec.name;
 		this.signal = signal;
 
 		// Append the new user message
 		this.history.push(Msg.user(message));
 
 		// Emit perceive for the new message
-		this.emitAndLog("perceive", this.agentId ?? this.spec.name, this.depth, { goal: message });
+		this.emitAndLog("perceive", agentId, this.depth, { goal: message });
 
 		return this.runLoop(message);
 	}
@@ -996,9 +997,9 @@ export class Agent {
 				this.learnProcess.push({
 					kind: "retry",
 					goal,
-					agent_name: agentId,
+					agent_name: this.spec.name,
 					details: {
-						agent_name: agentId,
+						agent_name: this.spec.name,
 						goal,
 						output: `${retryCount} retried tool calls detected`,
 						success: true,
