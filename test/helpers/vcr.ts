@@ -232,6 +232,10 @@ function createClientRecorder(
 			});
 		},
 		providers: () => realClient.providers(),
+		listModelsByProvider: async () => {
+			const { defaultModelsByProvider } = await import("../../src/agents/model-resolver.ts");
+			return defaultModelsByProvider(realClient.providers());
+		},
 	} as Client;
 
 	const afterTest = async () => {
@@ -295,6 +299,10 @@ function createClientReplayer(
 			}
 		},
 		providers: () => cassette.metadata.providers,
+		listModelsByProvider: async () => {
+			const { defaultModelsByProvider } = await import("../../src/agents/model-resolver.ts");
+			return defaultModelsByProvider(cassette.metadata.providers);
+		},
 	} as Client;
 
 	const afterTest = async () => {

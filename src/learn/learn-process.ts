@@ -1,8 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { AgentEventEmitter } from "../agents/events.ts";
-import type { ResolvedModel } from "../agents/model-resolver.ts";
-import { resolveModel } from "../agents/model-resolver.ts";
+import { defaultModelsByProvider, type ResolvedModel, resolveModel } from "../agents/model-resolver.ts";
 import type { Genome } from "../genome/genome.ts";
 import type { LearnSignal } from "../kernel/types.ts";
 import { DEFAULT_CONSTRAINTS } from "../kernel/types.ts";
@@ -82,6 +81,7 @@ export interface LearnProcessOptions {
 	events: AgentEventEmitter;
 	client?: Client;
 	pendingEvaluationsPath?: string;
+	modelsByProvider?: Map<string, string[]>;
 }
 
 export interface EvaluationResult {
@@ -116,7 +116,9 @@ export class LearnProcess {
 		this.client = options.client;
 		this.pendingEvaluationsPath = options.pendingEvaluationsPath;
 		if (this.client) {
-			this.resolvedModel = resolveModel("best", this.client.providers());
+			const modelMap =
+				options.modelsByProvider ?? defaultModelsByProvider(this.client.providers());
+			this.resolvedModel = resolveModel("best", modelMap);
 		}
 	}
 

@@ -27,7 +27,7 @@ import { ulid } from "../util/ulid.ts";
 import { getContextWindowSize } from "./context-window.ts";
 import { AgentEventEmitter } from "./events.ts";
 import type { Preambles } from "./loader.ts";
-import { type ResolvedModel, resolveModel } from "./model-resolver.ts";
+import { defaultModelsByProvider, type ResolvedModel, resolveModel } from "./model-resolver.ts";
 import type { Postscripts } from "./plan.ts";
 import {
 	buildDelegateTool,
@@ -76,6 +76,8 @@ export interface AgentOptions {
 	genomePath?: string;
 	/** Override the agent_id used for event emission (used by parent to assign unique child IDs). */
 	agentId?: string;
+	/** Pre-fetched model map for tier resolution. */
+	modelsByProvider?: Map<string, string[]>;
 }
 
 export interface AgentResult {
@@ -148,7 +150,9 @@ export class Agent {
 		validateConstraints(this.spec.name, this.spec.capabilities, this.spec.constraints);
 
 		// Resolve model and provider
-		this.resolved = resolveModel(options.modelOverride ?? this.spec.model, this.client.providers());
+		const modelMap =
+			options.modelsByProvider ?? defaultModelsByProvider(this.client.providers());
+		this.resolved = resolveModel(options.modelOverride ?? this.spec.model, modelMap);
 
 		// Build delegate tool (single tool for all agent delegations)
 		this.agentTools = [];
