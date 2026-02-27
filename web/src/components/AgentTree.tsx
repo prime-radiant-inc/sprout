@@ -63,6 +63,7 @@ function TreeNode({
 						data-disclosure={expanded ? "open" : "closed"}
 						onClick={() => setExpanded((prev) => !prev)}
 						aria-label={expanded ? "Collapse" : "Expand"}
+					aria-expanded={expanded}
 					>
 						{expanded ? "\u25BE" : "\u25B8"}
 					</button>
