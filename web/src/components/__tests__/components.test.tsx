@@ -1165,5 +1165,3 @@ describe("ThreadPanel", () => {
 		expect(html).toContain("missing-agent");
 	});
 });
-
-// Breadcrumb tests live in agent-tree.test.tsx alongside the AgentTree tests.

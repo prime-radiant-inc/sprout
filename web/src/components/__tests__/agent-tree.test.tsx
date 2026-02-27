@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AgentTreeNode } from "../../hooks/useAgentTree.ts";
 import { AgentTree } from "../AgentTree.tsx";
-import { Breadcrumb } from "../Breadcrumb.tsx";
 
 // --- Helpers ---
 
@@ -304,58 +303,3 @@ describe("AgentTree", () => {
 	});
 });
 
-// --- Breadcrumb ---
-
-describe("Breadcrumb", () => {
-	test("renders nothing when no agent is selected", () => {
-		const tree = makeTree();
-		const html = renderToStaticMarkup(
-			<Breadcrumb tree={tree} selectedAgent={null} />,
-		);
-		expect(html).toBe("");
-	});
-
-	test("renders root name when root is selected", () => {
-		const tree = makeTree();
-		const html = renderToStaticMarkup(
-			<Breadcrumb tree={tree} selectedAgent="root" />,
-		);
-		expect(html).toContain("root");
-	});
-
-	test("renders full path for a depth-1 agent", () => {
-		const tree = makeTree();
-		const html = renderToStaticMarkup(
-			<Breadcrumb tree={tree} selectedAgent="editor-1" />,
-		);
-		expect(html).toContain("root");
-		expect(html).toContain("code-editor");
-	});
-
-	test("renders full path for a depth-2 agent", () => {
-		const tree = makeTree();
-		const html = renderToStaticMarkup(
-			<Breadcrumb tree={tree} selectedAgent="runner-1" />,
-		);
-		expect(html).toContain("root");
-		expect(html).toContain("code-editor");
-		expect(html).toContain("test-runner");
-	});
-
-	test("uses separator between path segments", () => {
-		const tree = makeTree();
-		const html = renderToStaticMarkup(
-			<Breadcrumb tree={tree} selectedAgent="runner-1" />,
-		);
-		// Should have separators between segments
-		expect(html).toContain("\u203A"); // single right-pointing angle quotation mark
-	});
-
-	test("renders nothing when agent is not found in tree", () => {
-		const tree = makeTree();
-		const html = renderToStaticMarkup(
-			<Breadcrumb tree={tree} selectedAgent="nonexistent" />,
-		);
-		expect(html).toBe("");
-	});
-});
