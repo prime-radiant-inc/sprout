@@ -13,6 +13,8 @@ export interface WebServerOptions {
 	sessionId: string;
 	/** Bind address (default: localhost). Use "0.0.0.0" for all interfaces. */
 	hostname?: string;
+	/** Events from a prior session to pre-populate the snapshot. */
+	initialEvents?: SessionEvent[];
 }
 
 type SessionStatus = "idle" | "running" | "interrupted";
@@ -41,6 +43,9 @@ export class WebServer {
 		this.staticDir = opts.staticDir;
 		this.sessionId = opts.sessionId;
 		this.hostname = opts.hostname;
+		if (opts.initialEvents) {
+			this.events = [...opts.initialEvents];
+		}
 	}
 
 	async start(): Promise<void> {

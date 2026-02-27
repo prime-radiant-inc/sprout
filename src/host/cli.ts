@@ -400,7 +400,12 @@ export async function runCli(command: CliCommand): Promise<void> {
 	config();
 
 	// Early check: warn if no LLM API keys are available
-	if (!process.env.ANTHROPIC_API_KEY && !process.env.OPENAI_API_KEY && !process.env.GEMINI_API_KEY && !process.env.GOOGLE_API_KEY) {
+	if (
+		!process.env.ANTHROPIC_API_KEY &&
+		!process.env.OPENAI_API_KEY &&
+		!process.env.GEMINI_API_KEY &&
+		!process.env.GOOGLE_API_KEY
+	) {
 		console.error(
 			"[sprout] Warning: No LLM API keys found. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY.\n" +
 				"         Ensure your .env file is in the working directory, or export the variables directly.",
@@ -552,7 +557,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 	let webServer: import("../web/server.ts").WebServer | null = null;
 	if (command.web || command.webOnly) {
 		const { WebServer } = await import("../web/server.ts");
-		webServer = new WebServer({ bus, port: webPort, staticDir, sessionId, hostname: webHost });
+		webServer = new WebServer({ bus, port: webPort, staticDir, sessionId, hostname: webHost, initialEvents: resumeEvents });
 		await webServer.start();
 		const displayHost = webHost ?? "localhost";
 		console.error(`Web UI: http://${displayHost}:${webPort}`);
