@@ -1,7 +1,7 @@
 .breadcrumb {
 	display: flex;
 	align-items: center;
-	gap: 2px;
+	gap: var(--space-xs);
 	padding: var(--space-sm) var(--space-md);
 	font-size: var(--font-size-sm);
 	color: var(--color-text-secondary);
@@ -11,7 +11,7 @@
 
 .separator {
 	color: var(--color-text-tertiary);
-	margin: 0 4px;
+	margin: 0 var(--space-xs);
 }
 
 .segment {

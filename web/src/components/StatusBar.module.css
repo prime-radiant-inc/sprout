@@ -1,8 +1,8 @@
 .statusBar {
 	display: flex;
 	align-items: center;
-	gap: 8px;
-	padding: 0 12px;
+	gap: var(--space-sm);
+	padding: 0 var(--space-md);
 	height: var(--statusbar-height);
 	background: var(--color-surface);
 	border-bottom: 1px solid var(--color-border);
@@ -17,7 +17,7 @@
 .rightGroup {
 	display: flex;
 	align-items: center;
-	gap: 8px;
+	gap: var(--space-sm);
 }
 
 .spacer {

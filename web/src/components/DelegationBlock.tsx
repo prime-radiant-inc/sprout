@@ -15,7 +15,7 @@ export function DelegationBlock(props: DelegationBlockProps) {
 	const { agentName, goal, status, turns, durationMs, onOpenThread } = props;
 
 	const displayGoal =
-		goal.length > 80 ? `${goal.slice(0, 79)}...` : goal;
+		goal.length > 80 ? `${goal.slice(0, 77)}...` : goal;
 
 	const dur = formatDuration(durationMs ?? null);
 

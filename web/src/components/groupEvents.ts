@@ -18,6 +18,8 @@ const INVISIBLE_KINDS = new Set([
 	"session_end",
 	"recall",
 	"verify",
+	"learn_signal",
+	"learn_end",
 ]);
 
 /** Event kinds that can be grouped with consecutive events of the same kind + agent. */

@@ -554,6 +554,17 @@ describe("DelegationBlock", () => {
 		expect(html).toContain("...");
 		expect(html).not.toContain("A".repeat(100));
 	});
+
+	test("DelegationBlock truncates goal to exactly 80 characters", () => {
+		const longGoal = "a".repeat(100);
+		const html = renderToStaticMarkup(
+			<DelegationBlock agentName="agent" goal={longGoal} status="running" />,
+		);
+		// The displayed goal should be at most 80 chars: 77 chars + "..."
+		const goalMatch = html.match(/(a+)\.\.\./);
+		expect(goalMatch).toBeTruthy();
+		expect(goalMatch![1]!.length + 3).toBe(80);
+	});
 });
 
 // --- SystemMessage ---
