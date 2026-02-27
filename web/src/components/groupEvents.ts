@@ -8,6 +8,8 @@ export interface GroupedEvent {
 	durationMs: number | null;
 	streamingText?: string;
 	agentName?: string;
+	/** Live peek summary for running delegations. */
+	livePeek?: string;
 }
 
 /** Event kinds that are never displayed. */
@@ -75,6 +77,12 @@ export function groupEvents(
 	const lastDeltaIdx = new Map<string, number>();
 	const result: GroupedEvent[] = [];
 
+	// Delegation merging: track child_ids for filtering child events from parent view
+	const merging = !agentFilter; // only merge in parent (unfiltered) view
+	const directChildIds = new Set<string>();
+	const childPeek = new Map<string, string>(); // child_id -> latest activity summary
+	const pendingActStarts = new Map<string, number>(); // child_id -> index in result array
+
 	for (let i = 0; i < events.length; i++) {
 		const event = events[i]!;
 
@@ -92,6 +100,26 @@ export function groupEvents(
 				durationMs =
 					startTime != null ? event.timestamp - startTime : null;
 			}
+		}
+
+		// Track child_ids from act_start events with child_id
+		if (merging && event.kind === "act_start" && typeof event.data.child_id === "string") {
+			directChildIds.add(event.data.child_id);
+		}
+
+		// In parent view, filter out events from direct children (but update peek first)
+		if (merging && directChildIds.has(event.agent_id)) {
+			if (event.kind === "primitive_end") {
+				const toolName = String(event.data.name ?? "");
+				const path = typeof event.data.args === "object" && event.data.args != null
+					? String((event.data.args as Record<string, unknown>).path ?? "")
+					: "";
+				childPeek.set(event.agent_id, path ? `${toolName} ${path}` : toolName);
+			} else if (event.kind === "plan_end" && typeof event.data.text === "string") {
+				const text = event.data.text;
+				childPeek.set(event.agent_id, text.length > 60 ? `${text.slice(0, 60)}...` : text);
+			}
+			continue;
 		}
 
 		// Accumulate streaming text for plan_delta events
@@ -117,6 +145,38 @@ export function groupEvents(
 
 		// Skip plan_start (not displayed)
 		if (event.kind === "plan_start") continue;
+
+		// Delegation merging: handle act_start/act_end with child_id
+		if (merging && typeof event.data.child_id === "string") {
+			const childId = event.data.child_id;
+			if (event.kind === "act_start") {
+				const idx = result.length;
+				pendingActStarts.set(childId, idx);
+				result.push({
+					event,
+					durationMs,
+					isFirstInGroup: true,
+					isLastInGroup: true,
+					agentName: nameMap.get(event.agent_id),
+				});
+				continue;
+			}
+			if (event.kind === "act_end") {
+				const startIdx = pendingActStarts.get(childId);
+				if (startIdx !== undefined) {
+					// Replace the act_start entry with the act_end entry
+					result[startIdx] = {
+						event,
+						durationMs,
+						isFirstInGroup: true,
+						isLastInGroup: true,
+						agentName: nameMap.get(event.agent_id),
+					};
+					pendingActStarts.delete(childId);
+					continue;
+				}
+			}
+		}
 
 		// Collapse plan_delta events: replace previous delta with latest accumulated text
 		if (event.kind === "plan_delta") {
@@ -145,6 +205,14 @@ export function groupEvents(
 			isLastInGroup: true,
 			agentName: nameMap.get(event.agent_id),
 		});
+	}
+
+	// Update live peek for still-pending (running) delegations
+	for (const [childId, idx] of pendingActStarts) {
+		const peek = childPeek.get(childId);
+		if (peek) {
+			result[idx] = { ...result[idx]!, livePeek: peek };
+		}
 	}
 
 	// Apply grouping metadata.

@@ -64,6 +64,15 @@
 	color: var(--color-text-tertiary);
 }
 
+.peek {
+	font-size: var(--font-size-xs);
+	font-family: var(--font-mono);
+	color: var(--color-text-tertiary);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
 .footer {
 	margin-top: var(--space-xs);
 }

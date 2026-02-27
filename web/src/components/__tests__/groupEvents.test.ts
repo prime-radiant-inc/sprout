@@ -332,6 +332,134 @@ describe("groupEvents", () => {
 		});
 	});
 
+	describe("delegation merging", () => {
+		/** Helper: builds a tree with a root and one child for delegation tests. */
+		function treePlusChild(childId: string, childName = "worker"): AgentTreeNode {
+			return makeTree({
+				agentId: "root",
+				children: [
+					makeTree({ agentId: childId, agentName: childName, depth: 1 }),
+				],
+			});
+		}
+
+		test("act_start followed by act_end produces single merged event", () => {
+			const childId = "child-abc";
+			const tree = treePlusChild(childId);
+			const events: SessionEvent[] = [
+				makeEvent("act_start", { agent_name: "worker", goal: "do stuff", child_id: childId }, { timestamp: 1000 }),
+				// Child events in between
+				makeEvent("plan_end", { text: "thinking" }, { agent_id: childId, timestamp: 1500, depth: 1 }),
+				makeEvent("primitive_end", { name: "write_file", success: true, args: { path: "foo.ts" } }, { agent_id: childId, timestamp: 2000, depth: 1 }),
+				// act_end for the delegation
+				makeEvent("act_end", { agent_name: "worker", child_id: childId, success: true, turns: 3, goal: "do stuff" }, { timestamp: 3000 }),
+			];
+			// No agentFilter → parent view
+			const result = groupEvents(events, undefined, tree);
+
+			// Should produce a single delegation entry (the act_end, with duration)
+			const delegations = result.filter(
+				(g) => g.event.kind === "act_start" || g.event.kind === "act_end",
+			);
+			expect(delegations).toHaveLength(1);
+			expect(delegations[0]!.event.kind).toBe("act_end");
+			expect(delegations[0]!.durationMs).toBe(2000);
+		});
+
+		test("running delegation appears as act_start with livePeek", () => {
+			const childId = "child-xyz";
+			const tree = treePlusChild(childId);
+			const events: SessionEvent[] = [
+				makeEvent("act_start", { agent_name: "worker", goal: "do stuff", child_id: childId }, { timestamp: 1000 }),
+				makeEvent("primitive_start", { name: "write_file" }, { agent_id: childId, timestamp: 1500, depth: 1 }),
+				makeEvent("primitive_end", { name: "write_file", success: true, args: { path: "foo.ts" } }, { agent_id: childId, timestamp: 2000, depth: 1 }),
+			];
+			// No act_end → delegation is still running
+			const result = groupEvents(events, undefined, tree);
+
+			const delegations = result.filter(
+				(g) => g.event.kind === "act_start" || g.event.kind === "act_end",
+			);
+			expect(delegations).toHaveLength(1);
+			expect(delegations[0]!.event.kind).toBe("act_start");
+			expect(delegations[0]!.livePeek).toBe("write_file foo.ts");
+		});
+
+		test("child events are filtered from parent view", () => {
+			const childId = "child-filter";
+			const tree = treePlusChild(childId);
+			const events: SessionEvent[] = [
+				makeEvent("perceive", { goal: "root goal" }, { agent_id: "root", timestamp: 500 }),
+				makeEvent("act_start", { agent_name: "worker", goal: "child task", child_id: childId }, { timestamp: 1000 }),
+				// These child events should NOT appear in parent view
+				makeEvent("perceive", { goal: "child goal" }, { agent_id: childId, timestamp: 1100, depth: 1 }),
+				makeEvent("plan_end", { text: "child thinking" }, { agent_id: childId, timestamp: 1200, depth: 1 }),
+				makeEvent("primitive_end", { name: "exec", success: true }, { agent_id: childId, timestamp: 1300, depth: 1 }),
+				makeEvent("act_end", { agent_name: "worker", child_id: childId, success: true, turns: 2, goal: "child task" }, { timestamp: 2000 }),
+			];
+			const result = groupEvents(events, undefined, tree);
+
+			// Only root perceive + merged delegation card
+			expect(result).toHaveLength(2);
+			expect(result[0]!.event.kind).toBe("perceive");
+			expect(result[0]!.event.agent_id).toBe("root");
+			expect(result[1]!.event.kind).toBe("act_end");
+		});
+
+		test("child events still appear when agentFilter matches child", () => {
+			const childId = "child-visible";
+			const tree = treePlusChild(childId);
+			const events: SessionEvent[] = [
+				makeEvent("perceive", { goal: "root goal" }, { agent_id: "root", timestamp: 500 }),
+				makeEvent("act_start", { agent_name: "worker", goal: "child task", child_id: childId }, { timestamp: 1000 }),
+				makeEvent("perceive", { goal: "child goal" }, { agent_id: childId, timestamp: 1100, depth: 1 }),
+				makeEvent("plan_end", { text: "child plan" }, { agent_id: childId, timestamp: 1200, depth: 1 }),
+				makeEvent("act_end", { agent_name: "worker", child_id: childId, success: true, turns: 1, goal: "child task" }, { timestamp: 2000 }),
+			];
+			// Filter to child agent → should see child's events normally
+			const result = groupEvents(events, childId, tree);
+
+			// Should see child's perceive and plan_end (not root's perceive or act_start/act_end)
+			expect(result).toHaveLength(2);
+			expect(result[0]!.event.agent_id).toBe(childId);
+			expect(result[0]!.event.kind).toBe("perceive");
+			expect(result[1]!.event.agent_id).toBe(childId);
+			expect(result[1]!.event.kind).toBe("plan_end");
+		});
+
+		test("livePeek from plan_end shows truncated text", () => {
+			const childId = "child-peek-plan";
+			const tree = treePlusChild(childId);
+			const longText = "A".repeat(100);
+			const events: SessionEvent[] = [
+				makeEvent("act_start", { agent_name: "worker", goal: "task", child_id: childId }, { timestamp: 1000 }),
+				makeEvent("plan_end", { text: longText }, { agent_id: childId, timestamp: 1500, depth: 1 }),
+			];
+			const result = groupEvents(events, undefined, tree);
+
+			const delegation = result.find((g) => g.event.kind === "act_start");
+			expect(delegation).toBeTruthy();
+			expect(delegation!.livePeek).toBeTruthy();
+			// Should be truncated to ~60 chars
+			expect(delegation!.livePeek!.length).toBeLessThanOrEqual(63); // 60 + "..."
+			expect(delegation!.livePeek!.endsWith("...")).toBe(true);
+		});
+
+		test("delegation merging preserves duration on act_end", () => {
+			const childId = "child-dur";
+			const tree = treePlusChild(childId);
+			const events: SessionEvent[] = [
+				makeEvent("act_start", { agent_name: "worker", goal: "task", child_id: childId }, { timestamp: 1000 }),
+				makeEvent("act_end", { agent_name: "worker", child_id: childId, success: true, turns: 5, goal: "task" }, { timestamp: 4000 }),
+			];
+			const result = groupEvents(events, undefined, tree);
+
+			expect(result).toHaveLength(1);
+			expect(result[0]!.event.kind).toBe("act_end");
+			expect(result[0]!.durationMs).toBe(3000);
+		});
+	});
+
 	describe("group breaks on kind change", () => {
 		test("breaks group when event kind changes between groupable types", () => {
 			const events: SessionEvent[] = [

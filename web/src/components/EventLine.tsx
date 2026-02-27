@@ -11,6 +11,7 @@ interface EventLineProps {
 	streamingText?: string;
 	isFirstInGroup?: boolean;
 	agentName?: string;
+	livePeek?: string;
 	onSelectAgent?: (agentId: string) => void;
 }
 
@@ -18,7 +19,7 @@ interface EventLineProps {
  * Dispatcher: maps a SessionEvent to the appropriate display component.
  * Returns null for events that should not be displayed.
  */
-export function EventLine({ event, durationMs, streamingText, isFirstInGroup, agentName, onSelectAgent }: EventLineProps) {
+export function EventLine({ event, durationMs, streamingText, isFirstInGroup, agentName, livePeek, onSelectAgent }: EventLineProps) {
 	const { kind, data } = event;
 
 	switch (kind) {
@@ -77,6 +78,7 @@ export function EventLine({ event, durationMs, streamingText, isFirstInGroup, ag
 					agentName={data.agent_name as string}
 					goal={data.goal as string}
 					status="running"
+					livePeek={livePeek}
 					onOpenThread={onSelectAgent ? () => onSelectAgent(
 						typeof data.child_id === "string" ? data.child_id : (data.agent_name as string)
 					) : undefined}

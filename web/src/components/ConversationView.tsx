@@ -37,7 +37,7 @@ export function ConversationView({
 
 	return (
 		<div className={styles.conversationView}>
-			{grouped.map(({ event, durationMs, streamingText, isFirstInGroup, agentName }, i) => (
+			{grouped.map(({ event, durationMs, streamingText, isFirstInGroup, agentName, livePeek }, i) => (
 				<EventLine
 					key={`${event.agent_id}-${event.kind}-${event.timestamp}-${i}`}
 					event={event}
@@ -45,6 +45,7 @@ export function ConversationView({
 					streamingText={streamingText}
 					isFirstInGroup={isFirstInGroup}
 					agentName={agentName}
+					livePeek={livePeek}
 					onSelectAgent={onSelectAgent}
 				/>
 			))}

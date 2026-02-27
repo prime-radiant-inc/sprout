@@ -7,12 +7,13 @@ interface DelegationBlockProps {
 	status: "running" | "completed" | "failed";
 	turns?: number;
 	durationMs?: number | null;
+	livePeek?: string;
 	onOpenThread?: () => void;
 }
 
 /** Delegation block — status card with left accent stripe showing agent activity. */
 export function DelegationBlock(props: DelegationBlockProps) {
-	const { agentName, goal, status, turns, durationMs, onOpenThread } = props;
+	const { agentName, goal, status, turns, durationMs, livePeek, onOpenThread } = props;
 
 	const displayGoal =
 		goal.length > 80 ? `${goal.slice(0, 77)}...` : goal;
@@ -37,6 +38,11 @@ export function DelegationBlock(props: DelegationBlockProps) {
 						<span className={styles.turns}>{turns} turns</span>
 					)}
 					{dur && <span className={styles.duration}>{dur}</span>}
+				</div>
+			)}
+			{livePeek && status === "running" && (
+				<div className={styles.peek}>
+					{livePeek}
 				</div>
 			)}
 			{onOpenThread && (
