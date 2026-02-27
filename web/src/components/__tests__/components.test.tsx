@@ -445,56 +445,104 @@ describe("FallbackRenderer", () => {
 // --- DelegationBlock ---
 
 describe("DelegationBlock", () => {
-	test("renders agent name and goal for start", () => {
+	test("renders agent name and goal", () => {
 		const html = renderToStaticMarkup(
 			<DelegationBlock
-				variant="start"
 				agentName="code-editor"
 				goal="Refactor the parser"
+				status="running"
 			/>,
 		);
 		expect(html).toContain("code-editor");
 		expect(html).toContain("Refactor the parser");
 	});
 
-	test("renders success indicator for end", () => {
+	test("renders running status", () => {
 		const html = renderToStaticMarkup(
 			<DelegationBlock
-				variant="end"
 				agentName="code-editor"
-				success={true}
+				goal="Refactor the parser"
+				status="running"
+			/>,
+		);
+		expect(html).toContain('data-status="running"');
+	});
+
+	test("renders completed status with success check", () => {
+		const html = renderToStaticMarkup(
+			<DelegationBlock
+				agentName="code-editor"
+				goal="Refactor the parser"
+				status="completed"
 				turns={3}
 				durationMs={5000}
 			/>,
 		);
 		expect(html).toContain("code-editor");
-		expect(html).toContain('data-status="success"');
+		expect(html).toContain('data-status="completed"');
 		expect(html).toContain("\u2713");
 		expect(html).toContain("3 turns");
 		expect(html).toContain("5.0s");
 	});
 
-	test("renders failure indicator for end", () => {
+	test("renders failed status with error styling", () => {
 		const html = renderToStaticMarkup(
 			<DelegationBlock
-				variant="end"
 				agentName="code-editor"
-				success={false}
+				goal="Refactor the parser"
+				status="failed"
 			/>,
 		);
+		expect(html).toContain('data-status="failed"');
 		expect(html).toContain("failed");
+	});
+
+	test("renders turns and duration when provided", () => {
+		const html = renderToStaticMarkup(
+			<DelegationBlock
+				agentName="worker"
+				goal="do stuff"
+				status="completed"
+				turns={7}
+				durationMs={12300}
+			/>,
+		);
+		expect(html).toContain("7 turns");
+		expect(html).toContain("12.3s");
+	});
+
+	test("renders View thread link when onOpenThread provided", () => {
+		const html = renderToStaticMarkup(
+			<DelegationBlock
+				agentName="code-editor"
+				goal="Refactor the parser"
+				status="completed"
+				onOpenThread={() => {}}
+			/>,
+		);
+		expect(html).toContain("View thread");
+	});
+
+	test("does not render View thread link when onOpenThread is absent", () => {
+		const html = renderToStaticMarkup(
+			<DelegationBlock
+				agentName="code-editor"
+				goal="Refactor the parser"
+				status="completed"
+			/>,
+		);
+		expect(html).not.toContain("View thread");
 	});
 
 	test("truncates long goals", () => {
 		const longGoal = "A".repeat(100);
 		const html = renderToStaticMarkup(
 			<DelegationBlock
-				variant="start"
 				agentName="test"
 				goal={longGoal}
+				status="running"
 			/>,
 		);
-		// Should truncate to ~80 chars
 		expect(html).toContain("...");
 		expect(html).not.toContain("A".repeat(100));
 	});
@@ -625,7 +673,7 @@ describe("EventLine", () => {
 		expect(html).toContain("ls");
 	});
 
-	test("renders act_start as DelegationBlock start", () => {
+	test("renders act_start as running DelegationBlock", () => {
 		const event = makeEvent("act_start", {
 			agent_name: "code-editor",
 			goal: "write tests",
@@ -635,11 +683,13 @@ describe("EventLine", () => {
 		);
 		expect(html).toContain("code-editor");
 		expect(html).toContain("write tests");
+		expect(html).toContain('data-status="running"');
 	});
 
-	test("renders act_end as DelegationBlock end", () => {
+	test("renders act_end as completed DelegationBlock", () => {
 		const event = makeEvent("act_end", {
 			agent_name: "code-editor",
+			goal: "write tests",
 			success: true,
 			turns: 5,
 		});
@@ -647,7 +697,21 @@ describe("EventLine", () => {
 			<EventLine event={event} durationMs={3000} />,
 		);
 		expect(html).toContain("code-editor");
+		expect(html).toContain('data-status="completed"');
 		expect(html).toContain("5 turns");
+	});
+
+	test("renders act_end as failed DelegationBlock", () => {
+		const event = makeEvent("act_end", {
+			agent_name: "code-editor",
+			goal: "write tests",
+			success: false,
+		});
+		const html = renderToStaticMarkup(
+			<EventLine event={event} durationMs={null} />,
+		);
+		expect(html).toContain("code-editor");
+		expect(html).toContain('data-status="failed"');
 	});
 
 	test("renders warning as SystemMessage", () => {

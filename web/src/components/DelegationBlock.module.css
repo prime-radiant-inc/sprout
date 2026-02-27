@@ -1,35 +1,82 @@
-.delegation {
+.card {
 	display: flex;
-	gap: 6px;
-	align-items: baseline;
-	padding: 2px 0;
+	flex-direction: column;
+	gap: var(--space-xs);
+	padding: var(--space-sm) var(--space-md);
+	border-radius: var(--radius-md);
+	background: var(--color-surface);
+	border: 1px solid var(--color-border);
+	border-left: 3px solid var(--color-border-strong);
+	margin: var(--space-xs) 0;
 }
 
-.bracket {
-	color: var(--text-dim);
+.card[data-status="running"] {
+	border-left-color: var(--color-running);
+}
+
+.card[data-status="completed"] {
+	border-left-color: var(--color-completed);
+}
+
+.card[data-status="failed"] {
+	border-left-color: var(--color-failed);
+}
+
+.header {
+	display: flex;
+	gap: var(--space-sm);
+	align-items: baseline;
+	flex-wrap: wrap;
 }
 
 .agentName {
-	color: var(--color-agent);
-	font-weight: bold;
+	font-family: var(--font-mono);
+	font-size: var(--font-size-sm);
+	font-weight: 600;
+	color: var(--color-text-primary);
 }
 
 .goal {
-	color: var(--text-dim);
+	font-size: var(--font-size-sm);
+	color: var(--color-text-secondary);
 }
 
 .success {
 	color: var(--color-success);
+	font-weight: 600;
 }
 
 .failed {
 	color: var(--color-error);
+	font-size: var(--font-size-xs);
+	font-weight: 600;
 }
 
-.turns {
-	color: var(--text-dim);
+.meta {
+	display: flex;
+	gap: var(--space-sm);
+	font-size: var(--font-size-xs);
+	color: var(--color-text-tertiary);
 }
 
+.turns,
 .duration {
-	color: var(--text-dim);
+	color: var(--color-text-tertiary);
+}
+
+.footer {
+	margin-top: var(--space-xs);
+}
+
+.threadLink {
+	all: unset;
+	cursor: pointer;
+	font-size: var(--font-size-xs);
+	color: var(--color-accent);
+	font-family: var(--font-ui);
+}
+
+.threadLink:hover {
+	color: var(--color-accent-hover);
+	text-decoration: underline;
 }

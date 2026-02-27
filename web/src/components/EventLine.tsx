@@ -50,18 +50,18 @@ export function EventLine({ event, durationMs, streamingText }: EventLineProps) 
 		case "act_start":
 			return (
 				<DelegationBlock
-					variant="start"
 					agentName={data.agent_name as string}
 					goal={data.goal as string}
+					status="running"
 				/>
 			);
 
 		case "act_end":
 			return (
 				<DelegationBlock
-					variant="end"
 					agentName={data.agent_name as string}
-					success={Boolean(data.success)}
+					goal={typeof data.goal === "string" ? data.goal : ""}
+					status={data.success ? "completed" : "failed"}
 					turns={typeof data.turns === "number" ? data.turns : undefined}
 					durationMs={durationMs}
 				/>
