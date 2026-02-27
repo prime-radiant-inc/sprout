@@ -583,6 +583,33 @@ describe("DelegationBlock", () => {
 		expect(html).not.toContain(goal81);
 		expect(html).toContain("...");
 	});
+
+	test("shows spinner indicator when status is running", () => {
+		const html = renderToStaticMarkup(
+			<DelegationBlock agentName="worker" goal="do stuff" status="running" />,
+		);
+		expect(html).toContain('data-testid="spinner"');
+	});
+
+	test("does not show spinner when status is completed", () => {
+		const html = renderToStaticMarkup(
+			<DelegationBlock
+				agentName="worker"
+				goal="do stuff"
+				status="completed"
+				turns={3}
+				durationMs={5000}
+			/>,
+		);
+		expect(html).not.toContain('data-testid="spinner"');
+	});
+
+	test("does not show spinner when status is failed", () => {
+		const html = renderToStaticMarkup(
+			<DelegationBlock agentName="worker" goal="do stuff" status="failed" />,
+		);
+		expect(html).not.toContain('data-testid="spinner"');
+	});
 });
 
 // --- SystemMessage ---

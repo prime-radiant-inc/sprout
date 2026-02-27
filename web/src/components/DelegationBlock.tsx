@@ -23,6 +23,9 @@ export function DelegationBlock(props: DelegationBlockProps) {
 	return (
 		<div className={styles.card} data-status={status}>
 			<div className={styles.header}>
+				{status === "running" && (
+					<span className={styles.spinner} data-testid="spinner">{"\u25CF"}</span>
+				)}
 				<span className={styles.agentName}>{agentName}</span>
 				<span className={styles.goal}>{displayGoal}</span>
 				{status === "completed" && (
