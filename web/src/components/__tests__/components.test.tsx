@@ -812,6 +812,50 @@ describe("EventLine", () => {
 		);
 		expect(html).toContain("Hello world");
 	});
+
+	test("passes isFirstInGroup to UserMessage for perceive events", () => {
+		const event = makeEvent("perceive", { goal: "hello" });
+		const html = renderToStaticMarkup(
+			<EventLine event={event} durationMs={null} isFirstInGroup />,
+		);
+		expect(html).toContain("You");
+	});
+
+	test("passes isFirstInGroup and agentName to AssistantMessage for plan_end", () => {
+		const event = makeEvent("plan_end", { text: "answer" }, { agent_id: "planner-agent" });
+		const html = renderToStaticMarkup(
+			<EventLine event={event} durationMs={null} isFirstInGroup />,
+		);
+		expect(html).toContain("Assistant");
+	});
+
+	test("passes onSelectAgent as onOpenThread to DelegationBlock for act_end", () => {
+		const event = makeEvent("act_end", {
+			agent_name: "code-editor",
+			goal: "write tests",
+			success: true,
+		});
+		const html = renderToStaticMarkup(
+			<EventLine event={event} durationMs={null} onSelectAgent={() => {}} />,
+		);
+		expect(html).toContain("View thread");
+	});
+
+	test("passes timestamp to UserMessage when isFirstInGroup", () => {
+		const event = makeEvent("perceive", { goal: "hello" }, { timestamp: 1736944200000 });
+		const html = renderToStaticMarkup(
+			<EventLine event={event} durationMs={null} isFirstInGroup />,
+		);
+		expect(html).toContain("12:30");
+	});
+
+	test("passes timestamp to AssistantMessage when isFirstInGroup", () => {
+		const event = makeEvent("plan_end", { text: "answer" }, { timestamp: 1736944200000 });
+		const html = renderToStaticMarkup(
+			<EventLine event={event} durationMs={null} isFirstInGroup />,
+		);
+		expect(html).toContain("12:30");
+	});
 });
 
 // --- ConversationView ---
@@ -932,5 +976,41 @@ describe("ConversationView", () => {
 		expect(html).toContain("second");
 		// Buffer from first plan should NOT bleed into second
 		expect(html).not.toContain("streaming textsecond");
+	});
+
+	test("groups consecutive plan_end from same agent — only first gets header", () => {
+		const events: SessionEvent[] = [
+			makeEvent("plan_end", { text: "first message" }, { timestamp: 1000 }),
+			makeEvent("plan_end", { text: "second message" }, { timestamp: 1001 }),
+		];
+		const tree = buildAgentTree(events);
+		const html = renderToStaticMarkup(<ConversationView events={events} tree={tree} />);
+		expect(html).toContain("first message");
+		expect(html).toContain("second message");
+		// "Assistant" should appear only once (the header of the first message in the group)
+		const matches = html.match(/Assistant/g);
+		expect(matches).toHaveLength(1);
+	});
+
+	test("delegation blocks render with data-status attribute", () => {
+		const events: SessionEvent[] = [
+			makeEvent("act_start", { agent_name: "worker", goal: "do work" }, { timestamp: 1000 }),
+			makeEvent("act_end", { agent_name: "worker", goal: "do work", success: true, turns: 2 }, { timestamp: 2000 }),
+		];
+		const tree = buildAgentTree(events);
+		const html = renderToStaticMarkup(<ConversationView events={events} tree={tree} />);
+		expect(html).toContain('data-status="running"');
+		expect(html).toContain('data-status="completed"');
+	});
+
+	test("passes onSelectAgent to delegation blocks as onOpenThread", () => {
+		const events: SessionEvent[] = [
+			makeEvent("act_end", { agent_name: "worker", goal: "do work", success: true }, { agent_id: "worker-agent", timestamp: 1000 }),
+		];
+		const tree = buildAgentTree(events);
+		const html = renderToStaticMarkup(
+			<ConversationView events={events} tree={tree} onSelectAgent={() => {}} />,
+		);
+		expect(html).toContain("View thread");
 	});
 });

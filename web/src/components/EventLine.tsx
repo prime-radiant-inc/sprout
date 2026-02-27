@@ -9,27 +9,49 @@ interface EventLineProps {
 	event: SessionEvent;
 	durationMs: number | null;
 	streamingText?: string;
+	isFirstInGroup?: boolean;
+	onSelectAgent?: (agentId: string) => void;
 }
 
 /**
  * Dispatcher: maps a SessionEvent to the appropriate display component.
  * Returns null for events that should not be displayed.
  */
-export function EventLine({ event, durationMs, streamingText }: EventLineProps) {
+export function EventLine({ event, durationMs, streamingText, isFirstInGroup, onSelectAgent }: EventLineProps) {
 	const { kind, data } = event;
 
 	switch (kind) {
 		case "perceive":
-			return <UserMessage text={String(data.goal ?? "")} />;
+			return (
+				<UserMessage
+					text={String(data.goal ?? "")}
+					isFirstInGroup={isFirstInGroup}
+					timestamp={event.timestamp}
+				/>
+			);
 
 		case "steering":
-			return <UserMessage text={String(data.text ?? "")} isSteering />;
+			return (
+				<UserMessage
+					text={String(data.text ?? "")}
+					isSteering
+					isFirstInGroup={isFirstInGroup}
+					timestamp={event.timestamp}
+				/>
+			);
 
 		case "plan_end": {
 			const text = data.text ? String(data.text) : undefined;
 			const reasoning = data.reasoning ? String(data.reasoning) : undefined;
 			if (!text && !reasoning) return null;
-			return <AssistantMessage text={text} reasoning={reasoning} />;
+			return (
+				<AssistantMessage
+					text={text}
+					reasoning={reasoning}
+					isFirstInGroup={isFirstInGroup}
+					timestamp={event.timestamp}
+				/>
+			);
 		}
 
 		case "primitive_start":
@@ -53,6 +75,7 @@ export function EventLine({ event, durationMs, streamingText }: EventLineProps) 
 					agentName={data.agent_name as string}
 					goal={data.goal as string}
 					status="running"
+					onOpenThread={onSelectAgent ? () => onSelectAgent(event.agent_id) : undefined}
 				/>
 			);
 
@@ -64,6 +87,7 @@ export function EventLine({ event, durationMs, streamingText }: EventLineProps) 
 					status={data.success ? "completed" : "failed"}
 					turns={typeof data.turns === "number" ? data.turns : undefined}
 					durationMs={durationMs}
+					onOpenThread={onSelectAgent ? () => onSelectAgent(event.agent_id) : undefined}
 				/>
 			);
 
@@ -128,7 +152,13 @@ export function EventLine({ event, durationMs, streamingText }: EventLineProps) 
 
 		case "plan_delta":
 			if (!streamingText) return null;
-			return <AssistantMessage text={streamingText} />;
+			return (
+				<AssistantMessage
+					text={streamingText}
+					isFirstInGroup={isFirstInGroup}
+					timestamp={event.timestamp}
+				/>
+			);
 
 		// Skip these — not displayed in conversation
 		case "session_start":
