@@ -86,6 +86,7 @@ export function EventLine({ event, durationMs, streamingText, isFirstInGroup, ag
 			);
 
 		case "act_end":
+			// No livePeek — completed/failed delegations don't show live activity
 			return (
 				<DelegationBlock
 					agentName={data.agent_name as string}
