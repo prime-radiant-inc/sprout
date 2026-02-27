@@ -1,4 +1,4 @@
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 import type { Command, SessionEvent } from "../../../src/kernel/types.ts";
 import type { ServerMessage } from "../../../src/web/protocol.ts";
 
@@ -167,12 +167,15 @@ export function useEvents(
 	// Snapshot for useSyncExternalStore
 	const snapshotRef = useRef({ events: store.events, status: store.status });
 
-	const subscribe = (onStoreChange: () => void) => {
-		return store.subscribe(() => {
-			snapshotRef.current = { events: store.events, status: store.status };
-			onStoreChange();
-		});
-	};
+	const subscribe = useCallback(
+		(onStoreChange: () => void) => {
+			return store.subscribe(() => {
+				snapshotRef.current = { events: store.events, status: store.status };
+				onStoreChange();
+			});
+		},
+		[store],
+	);
 
 	const getSnapshot = () => snapshotRef.current;
 	const state = useSyncExternalStore(subscribe, getSnapshot);

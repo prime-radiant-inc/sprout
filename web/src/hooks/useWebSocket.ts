@@ -177,22 +177,25 @@ export function useWebSocket(url: string) {
 	// Snapshot for useSyncExternalStore
 	const stateRef = useRef<WebSocketState>({ connected: false, lastMessage: null });
 
-	const subscribe = (onStoreChange: () => void) => {
-		const unsubMsg = client.onMessage(() => {
-			stateRef.current = { connected: client.connected, lastMessage: client.lastMessage };
-			onStoreChange();
-		});
+	const subscribe = useCallback(
+		(onStoreChange: () => void) => {
+			const unsubMsg = client.onMessage(() => {
+				stateRef.current = { connected: client.connected, lastMessage: client.lastMessage };
+				onStoreChange();
+			});
 
-		const unsubState = client.onStateChange(() => {
-			stateRef.current = { connected: client.connected, lastMessage: client.lastMessage };
-			onStoreChange();
-		});
+			const unsubState = client.onStateChange(() => {
+				stateRef.current = { connected: client.connected, lastMessage: client.lastMessage };
+				onStoreChange();
+			});
 
-		return () => {
-			unsubMsg();
-			unsubState();
-		};
-	};
+			return () => {
+				unsubMsg();
+				unsubState();
+			};
+		},
+		[client],
+	);
 
 	const getSnapshot = () => stateRef.current;
 
@@ -211,10 +214,12 @@ export function useWebSocket(url: string) {
 		[client],
 	);
 
+	const send = useCallback((msg: object) => client.send(msg), [client]);
+
 	return {
 		connected: state.connected,
 		lastMessage: state.lastMessage,
-		send: (msg: object) => client.send(msg),
+		send,
 		/** Subscribe to every incoming message (no batching/dropping). */
 		onMessage,
 	};

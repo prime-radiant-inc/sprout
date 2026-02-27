@@ -1,3 +1,5 @@
+import { useEffect } from "react";
+
 /** Generate a simple colored circle SVG for the favicon. */
 export function getFaviconSvg(status: string): string {
 	let color: string;
@@ -16,17 +18,19 @@ export function getFaviconSvg(status: string): string {
 
 /** Hook that updates the favicon based on session status. */
 export function useFaviconStatus(status: string): void {
-	// Only run in browser environment
-	if (typeof document === "undefined") return;
+	useEffect(() => {
+		// Only run in browser environment
+		if (typeof document === "undefined") return;
 
-	const svg = getFaviconSvg(status);
-	const dataUrl = `data:image/svg+xml,${encodeURIComponent(svg)}`;
+		const svg = getFaviconSvg(status);
+		const dataUrl = `data:image/svg+xml,${encodeURIComponent(svg)}`;
 
-	let link = document.querySelector('link[rel="icon"]') as HTMLLinkElement | null;
-	if (!link) {
-		link = document.createElement("link");
-		link.rel = "icon";
-		document.head.appendChild(link);
-	}
-	link.href = dataUrl;
+		let link = document.querySelector('link[rel="icon"]') as HTMLLinkElement | null;
+		if (!link) {
+			link = document.createElement("link");
+			link.rel = "icon";
+			document.head.appendChild(link);
+		}
+		link.href = dataUrl;
+	}, [status]);
 }
