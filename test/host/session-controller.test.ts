@@ -320,6 +320,42 @@ describe("SessionController", () => {
 		expect(errorEvents[0].data.message).toBeUndefined();
 	});
 
+	test("factory error emits error event and logs to console", async () => {
+		const factoryError = new Error(
+			"No provider available for model tier 'best'. Available: ",
+		);
+		const throwingFactory: AgentFactory = async () => {
+			throw factoryError;
+		};
+		const { bus } = makeController({ factory: throwingFactory });
+
+		const errorEvents: any[] = [];
+		bus.onEvent((e) => {
+			if (e.kind === "error") errorEvents.push(e);
+		});
+
+		// Capture console.error output
+		const logged: unknown[] = [];
+		const origError = console.error;
+		console.error = (...args: unknown[]) => logged.push(args);
+
+		try {
+			bus.emitCommand({ kind: "submit_goal", data: { goal: "Hello" } });
+			await new Promise((r) => setTimeout(r, 100));
+
+			// Should emit error event
+			expect(errorEvents).toHaveLength(1);
+			expect(errorEvents[0].data.error).toContain("No provider available");
+
+			// Should log to console.error
+			expect(logged.length).toBeGreaterThanOrEqual(1);
+			const logLine = logged.flat().map(String).join(" ");
+			expect(logLine).toContain("No provider available");
+		} finally {
+			console.error = origError;
+		}
+	});
+
 	test("steer command with no agent running is a no-op", () => {
 		const { bus } = makeController();
 		// Should not throw

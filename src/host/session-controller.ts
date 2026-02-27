@@ -203,6 +203,7 @@ export class SessionController {
 		switch (cmd.kind) {
 			case "submit_goal":
 				this.submitGoal(cmd.data.goal as string).catch((err) => {
+					console.error("[SessionController] submitGoal failed:", err);
 					this.bus.emitEvent("error", "session", 0, { error: String(err) });
 				});
 				break;

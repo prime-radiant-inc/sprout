@@ -57,6 +57,14 @@ export class Client {
 			providers.gemini = new GeminiAdapter(geminiKey);
 		}
 
+		if (Object.keys(providers).length === 0) {
+			console.warn(
+				"[LLM] No LLM API keys found in environment. " +
+					"Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY. " +
+					"Check that your .env file is in the working directory or export the variables directly.",
+			);
+		}
+
 		return new Client({
 			providers,
 			middleware: options.middleware,
