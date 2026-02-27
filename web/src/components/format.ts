@@ -32,7 +32,7 @@ export function formatDuration(durationMs: number | null): string | null {
 /** Truncate a string to maxLen, adding ellipsis if truncated. */
 function truncate(str: string, maxLen: number): string {
 	if (str.length <= maxLen) return str;
-	return `${str.slice(0, maxLen - 1)}...`;
+	return `${str.slice(0, maxLen - 3)}...`;
 }
 
 /** Count newlines in content to report line count. */

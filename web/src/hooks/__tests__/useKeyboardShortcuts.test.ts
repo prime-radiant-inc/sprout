@@ -111,6 +111,21 @@ describe("handleKeyboardShortcut", () => {
 		expect(handled).toBe(false);
 	});
 
+	test("Escape in textarea does NOT trigger clearFilter", () => {
+		let cleared = false;
+		const actions: ShortcutActions = {
+			toggleSidebar: () => {},
+			clearFilter: () => { cleared = true; },
+			focusInput: () => {},
+		};
+		const handled = handleKeyboardShortcut(
+			{ key: "Escape", ctrlKey: false, metaKey: false, target: { tagName: "TEXTAREA" } } as unknown as KeyboardEvent,
+			actions,
+		);
+		expect(cleared).toBe(false);
+		expect(handled).toBe(false);
+	});
+
 	test("unrecognized key returns false", () => {
 		const actions: ShortcutActions = {
 			toggleSidebar: () => {},

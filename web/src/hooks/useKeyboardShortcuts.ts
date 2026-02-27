@@ -12,8 +12,12 @@ export function handleKeyboardShortcut(event: KeyboardEvent, actions: ShortcutAc
 		return true;
 	}
 
-	// Escape clears agent filter
+	// Escape clears agent filter (skip when focused on an input element)
 	if (event.key === "Escape") {
+		const tag = (event.target as HTMLElement)?.tagName?.toLowerCase();
+		if (tag === "input" || tag === "textarea" || tag === "select") {
+			return false;
+		}
 		actions.clearFilter();
 		return true;
 	}
