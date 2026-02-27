@@ -1,16 +1,18 @@
 import { resolve } from "node:path";
 import type { ServerWebSocket } from "bun";
 import type { SessionBus } from "../host/event-bus.ts";
+import { EVENT_CAP } from "../kernel/constants.ts";
 import type { SessionEvent } from "../kernel/types.ts";
 import type { CommandMessage, ServerMessage } from "./protocol.ts";
 import { parseCommandMessage } from "./protocol.ts";
-import { EVENT_CAP } from "../kernel/constants.ts";
 
 export interface WebServerOptions {
 	bus: SessionBus;
 	port: number;
 	staticDir: string;
 	sessionId: string;
+	/** Bind address (default: localhost). Use "0.0.0.0" for all interfaces. */
+	hostname?: string;
 }
 
 type SessionStatus = "idle" | "running" | "interrupted";
@@ -26,6 +28,7 @@ export class WebServer {
 	private readonly port: number;
 	private readonly staticDir: string;
 	private readonly sessionId: string;
+	private readonly hostname: string | undefined;
 
 	private bunServer: ReturnType<typeof Bun.serve> | null = null;
 	private events: SessionEvent[] = [];
@@ -37,6 +40,7 @@ export class WebServer {
 		this.port = opts.port;
 		this.staticDir = opts.staticDir;
 		this.sessionId = opts.sessionId;
+		this.hostname = opts.hostname;
 	}
 
 	async start(): Promise<void> {
@@ -54,20 +58,24 @@ export class WebServer {
 
 		this.bunServer = Bun.serve({
 			port: this.port,
+			hostname: this.hostname,
 			fetch(req, server) {
 				const url = new URL(req.url);
 
 				// WebSocket upgrade
 				if (req.headers.get("upgrade") === "websocket") {
-					const origin = req.headers.get("origin");
-					if (origin) {
-						try {
-							const host = new URL(origin).hostname;
-							if (host !== "localhost" && host !== "127.0.0.1" && host !== "::1") {
+					// Skip origin check when explicitly listening on all interfaces
+					if (self.hostname !== "0.0.0.0") {
+						const origin = req.headers.get("origin");
+						if (origin) {
+							try {
+								const host = new URL(origin).hostname;
+								if (host !== "localhost" && host !== "127.0.0.1" && host !== "::1") {
+									return new Response("Forbidden", { status: 403 });
+								}
+							} catch {
 								return new Response("Forbidden", { status: 403 });
 							}
-						} catch {
-							return new Response("Forbidden", { status: 403 });
 						}
 					}
 					if (!server.upgrade(req, { data: undefined })) {

@@ -81,6 +81,7 @@ export interface WebFlags {
 	web?: boolean;
 	webOnly?: boolean;
 	port?: number;
+	host?: string;
 }
 
 export type CliCommand =
@@ -100,11 +101,13 @@ function collectWebFlags(webFlags: {
 	web: boolean;
 	webOnly: boolean;
 	port: number | undefined;
+	host: string | undefined;
 }): WebFlags {
 	const flags: WebFlags = {};
 	if (webFlags.web) flags.web = true;
 	if (webFlags.webOnly) flags.webOnly = true;
 	if (webFlags.port !== undefined) flags.port = webFlags.port;
+	if (webFlags.host !== undefined) flags.host = webFlags.host;
 	return flags;
 }
 
@@ -112,7 +115,7 @@ function collectWebFlags(webFlags: {
  * Note: --genome-path must come before --genome subcommands. */
 export function parseArgs(argv: string[]): CliCommand {
 	let genomePath = DEFAULT_GENOME_PATH;
-	const webFlags = { web: false, webOnly: false, port: undefined as number | undefined };
+	const webFlags = { web: false, webOnly: false, port: undefined as number | undefined, host: undefined as string | undefined };
 	const rest: string[] = [];
 
 	for (let i = 0; i < argv.length; i++) {
@@ -142,6 +145,11 @@ export function parseArgs(argv: string[]): CliCommand {
 			const n = Number(raw);
 			if (!raw || Number.isNaN(n) || n <= 0) return { kind: "help" };
 			webFlags.port = n;
+			continue;
+		}
+
+		if (arg === "--host") {
+			webFlags.host = argv[++i] ?? "0.0.0.0";
 			continue;
 		}
 
@@ -210,6 +218,7 @@ Web interface:
   --web                  Start web server alongside TUI
   --web-only             Start web server without TUI (headless/remote)
   --port <port>          Web server port (default: 7777)
+  --host <addr>          Web server bind address (default: localhost, use 0.0.0.0 for all interfaces)
   /web, /web stop        Start/stop web server from interactive mode
 
 Options:
@@ -525,13 +534,15 @@ export async function runCli(command: CliCommand): Promise<void> {
 
 	// Start web server if requested (webPort also used by /web slash command)
 	const webPort = command.port ?? 7777;
+	const webHost = command.host;
 	const staticDir = join(import.meta.dir, "../../web/dist");
 	let webServer: import("../web/server.ts").WebServer | null = null;
 	if (command.web || command.webOnly) {
 		const { WebServer } = await import("../web/server.ts");
-		webServer = new WebServer({ bus, port: webPort, staticDir, sessionId });
+		webServer = new WebServer({ bus, port: webPort, staticDir, sessionId, hostname: webHost });
 		await webServer.start();
-		console.error(`Web UI: http://localhost:${webPort}`);
+		const displayHost = webHost ?? "localhost";
+		console.error(`Web UI: http://${displayHost}:${webPort}`);
 	}
 
 	if (command.webOnly) {
@@ -641,7 +652,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 									message: `Web UI: http://localhost:${webPort}`,
 								});
 								// TODO: macOS-only. On Linux use xdg-open, on Windows use start.
-							Bun.spawn(["open", `http://localhost:${webPort}`]);
+								Bun.spawn(["open", `http://localhost:${webPort}`]);
 							} catch (err) {
 								bus.emitEvent("error", "cli", 0, { error: String(err) });
 							}
