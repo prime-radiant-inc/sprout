@@ -11,6 +11,10 @@ import { MarkdownBlock } from "../MarkdownBlock.tsx";
 import { SystemMessage } from "../SystemMessage.tsx";
 import { ToolCall } from "../ToolCall.tsx";
 import { UserMessage } from "../UserMessage.tsx";
+import { ReadFileRenderer } from "../tools/ReadFileRenderer.tsx";
+import { EditFileRenderer } from "../tools/EditFileRenderer.tsx";
+import { ExecRenderer } from "../tools/ExecRenderer.tsx";
+import { FallbackRenderer } from "../tools/FallbackRenderer.tsx";
 
 // --- Helpers ---
 
@@ -254,6 +258,164 @@ describe("ToolCall", () => {
 			/>,
 		);
 		expect(html).toContain("file contents here");
+	});
+});
+
+// --- ReadFileRenderer ---
+
+describe("ReadFileRenderer", () => {
+	test("renders filename from args", () => {
+		const html = renderToStaticMarkup(
+			<ReadFileRenderer
+				toolName="read_file"
+				args={{ path: "/src/main.ts" }}
+				output="const x = 1;\nconst y = 2;\nconst z = 3;"
+				success={true}
+			/>,
+		);
+		expect(html).toContain("/src/main.ts");
+	});
+
+	test("previews first 10 lines of output", () => {
+		const lines = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`);
+		const html = renderToStaticMarkup(
+			<ReadFileRenderer
+				toolName="read_file"
+				args={{ path: "/tmp/big.ts" }}
+				output={lines.join("\n")}
+				success={true}
+			/>,
+		);
+		expect(html).toContain("line 1");
+		expect(html).toContain("line 10");
+		expect(html).not.toContain("line 11");
+	});
+
+	test("shows line count", () => {
+		const lines = Array.from({ length: 50 }, (_, i) => `line ${i + 1}`);
+		const html = renderToStaticMarkup(
+			<ReadFileRenderer
+				toolName="read_file"
+				args={{ path: "/tmp/big.ts" }}
+				output={lines.join("\n")}
+				success={true}
+			/>,
+		);
+		expect(html).toContain("50 lines");
+	});
+});
+
+// --- EditFileRenderer ---
+
+describe("EditFileRenderer", () => {
+	test("renders diff lines with added/removed indicators", () => {
+		const diffOutput = [
+			"--- a/file.ts",
+			"+++ b/file.ts",
+			"@@ -1,3 +1,3 @@",
+			" unchanged",
+			"-old line",
+			"+new line",
+			" unchanged",
+		].join("\n");
+		const html = renderToStaticMarkup(
+			<EditFileRenderer
+				toolName="edit_file"
+				args={{ path: "/src/file.ts" }}
+				output={diffOutput}
+				success={true}
+			/>,
+		);
+		expect(html).toContain('data-diff="added"');
+		expect(html).toContain('data-diff="removed"');
+		expect(html).toContain("+new line");
+		expect(html).toContain("-old line");
+	});
+
+	test("renders file path from args", () => {
+		const html = renderToStaticMarkup(
+			<EditFileRenderer
+				toolName="edit_file"
+				args={{ path: "/src/app.tsx" }}
+				output="edited successfully"
+				success={true}
+			/>,
+		);
+		expect(html).toContain("/src/app.tsx");
+	});
+
+	test("falls back to plain output when no diff detected", () => {
+		const html = renderToStaticMarkup(
+			<EditFileRenderer
+				toolName="edit_file"
+				args={{ path: "/src/app.tsx" }}
+				output="file updated"
+				success={true}
+			/>,
+		);
+		expect(html).toContain("file updated");
+	});
+});
+
+// --- ExecRenderer ---
+
+describe("ExecRenderer", () => {
+	test("renders command and output", () => {
+		const html = renderToStaticMarkup(
+			<ExecRenderer
+				toolName="exec"
+				args={{ command: "ls -la" }}
+				output="total 32\ndrwxr-xr-x 5 user staff 160"
+				success={true}
+			/>,
+		);
+		expect(html).toContain("ls -la");
+		expect(html).toContain("total 32");
+	});
+
+	test("shows error when failed", () => {
+		const html = renderToStaticMarkup(
+			<ExecRenderer
+				toolName="exec"
+				args={{ command: "bad-cmd" }}
+				output="command not found"
+				success={false}
+				error="exit code 127"
+			/>,
+		);
+		expect(html).toContain("bad-cmd");
+		expect(html).toContain("exit code 127");
+	});
+});
+
+// --- FallbackRenderer ---
+
+describe("FallbackRenderer", () => {
+	test("renders formatted tool args", () => {
+		const html = renderToStaticMarkup(
+			<FallbackRenderer
+				toolName="custom_tool"
+				args={{ key: "value", count: 42 }}
+				output="some output"
+				success={true}
+			/>,
+		);
+		// renderToStaticMarkup HTML-encodes quotes inside elements
+		expect(html).toContain("&quot;key&quot;");
+		expect(html).toContain("&quot;value&quot;");
+		expect(html).toContain("42");
+	});
+
+	test("renders output", () => {
+		const html = renderToStaticMarkup(
+			<FallbackRenderer
+				toolName="custom_tool"
+				args={{ key: "value" }}
+				output="tool result here"
+				success={true}
+			/>,
+		);
+		expect(html).toContain("tool result here");
 	});
 });
 

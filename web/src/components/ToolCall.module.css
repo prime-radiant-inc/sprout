@@ -16,7 +16,7 @@
 }
 
 .indicator {
-	color: var(--text-dim);
+	color: var(--color-text-tertiary);
 }
 
 .toolName {
@@ -24,7 +24,7 @@
 }
 
 .args {
-	color: var(--text-dim);
+	color: var(--color-text-tertiary);
 }
 
 .success {
@@ -36,26 +36,10 @@
 }
 
 .outputHint {
-	color: var(--text-dim);
+	color: var(--color-text-tertiary);
 }
 
 .duration {
-	color: var(--text-dim);
-	margin-left: 4px;
-}
-
-.output {
-	background: var(--bg-secondary);
-	border: 1px solid var(--border-color);
-	border-radius: 4px;
-	padding: 6px 10px;
-	margin: 4px 0 4px 16px;
-	overflow-x: auto;
-	font-family: var(--font-mono);
-	font-size: var(--font-size-sm);
-	line-height: 1.4;
-	max-height: 300px;
-	overflow-y: auto;
-	white-space: pre-wrap;
-	word-break: break-all;
+	color: var(--color-text-tertiary);
+	margin-left: var(--space-xs);
 }

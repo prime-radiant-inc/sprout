@@ -1,5 +1,6 @@
 import { formatDuration, smartArgs } from "./format.ts";
 import styles from "./ToolCall.module.css";
+import { getRenderer } from "./tools/ToolRendererRegistry.ts";
 
 interface ToolCallProps {
 	toolName: string;
@@ -10,7 +11,7 @@ interface ToolCallProps {
 	durationMs?: number | null;
 }
 
-/** Collapsible tool call with status icon, duration, and output preview. */
+/** Collapsible tool call with status icon, duration, and type-specific expanded renderer. */
 export function ToolCall({
 	toolName,
 	success,
@@ -34,6 +35,7 @@ export function ToolCall({
 	}
 
 	const statusClass = success ? styles.success : styles.error;
+	const Renderer = getRenderer(toolName);
 
 	return (
 		<details className={styles.toolCall} data-status={success ? "success" : "error"}>
@@ -50,7 +52,13 @@ export function ToolCall({
 				{dur && <span className={styles.duration}>{dur}</span>}
 			</summary>
 			{output && (
-				<pre className={styles.output}>{output}</pre>
+				<Renderer
+					toolName={toolName}
+					args={args ?? {}}
+					output={output}
+					success={success}
+					error={error}
+				/>
 			)}
 		</details>
 	);
