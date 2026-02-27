@@ -241,6 +241,67 @@ describe("AgentTree", () => {
 		expect(html).toContain(goal60);
 		expect(html).not.toContain("...");
 	});
+
+	test("renders disclosure triangles for nodes with children", () => {
+		const tree = makeTree();
+		const html = renderToStaticMarkup(
+			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
+		);
+		// Root and editor-1 have children, so they should have disclosure triangles
+		expect(html).toContain("data-disclosure");
+	});
+
+	test("leaf nodes render spacer instead of disclosure triangle", () => {
+		// A tree where root has one child (leaf node with no children)
+		const tree = makeNode({
+			children: [
+				makeNode({
+					agentId: "leaf-1",
+					agentName: "leaf",
+					depth: 1,
+					status: "completed",
+					goal: "Do something",
+					children: [],
+				}),
+			],
+		});
+		const html = renderToStaticMarkup(
+			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
+		);
+		// Root has children => disclosure triangle
+		expect(html).toContain("data-disclosure");
+		// The leaf-1 agent should NOT have a disclosure button
+		// Extract the leaf node's row by finding its data-agent-id
+		const leafIdx = html.indexOf('data-agent-id="leaf-1"');
+		expect(leafIdx).toBeGreaterThan(-1);
+		// The leaf's containing <li> should not have data-disclosure
+		// Look backwards from the leaf's agent-id to find its row start
+		const leafSection = html.slice(Math.max(0, leafIdx - 200), leafIdx);
+		expect(leafSection).not.toContain("data-disclosure");
+	});
+
+	test("disclosure triangles default to expanded", () => {
+		const tree = makeTree();
+		const html = renderToStaticMarkup(
+			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
+		);
+		// Default expanded state should show open disclosure
+		expect(html).toContain('data-disclosure="open"');
+	});
+
+	test("children are rendered inside a nodeRow wrapper", () => {
+		const tree = makeTree();
+		const html = renderToStaticMarkup(
+			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
+		);
+		// Each node should have its disclosure/spacer and button in a row div
+		// The disclosure button and the node button should be siblings in the same container
+		// Verify that data-disclosure and data-agent-id appear close together (same row)
+		const disclosureIdx = html.indexOf("data-disclosure");
+		const nextAgentIdIdx = html.indexOf("data-agent-id", disclosureIdx);
+		// They should be within the same row, not far apart
+		expect(nextAgentIdIdx - disclosureIdx).toBeLessThan(500);
+	});
 });
 
 // --- Breadcrumb ---

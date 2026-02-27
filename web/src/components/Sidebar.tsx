@@ -23,7 +23,7 @@ export function Sidebar({
 	onToggle,
 	events,
 }: SidebarProps) {
-	const showTree = status.status === "running" || status.status === "interrupted";
+	const showTree = tree.children.length > 0 || status.status === "running" || status.status === "interrupted";
 
 	return (
 		<div className={styles.sidebar}>

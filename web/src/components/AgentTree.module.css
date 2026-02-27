@@ -61,6 +61,30 @@
 	margin: 0;
 }
 
+.nodeRow {
+	display: flex;
+	align-items: baseline;
+}
+
+.disclosure {
+	all: unset;
+	cursor: pointer;
+	width: var(--space-md);
+	text-align: center;
+	color: var(--color-text-tertiary);
+	font-size: var(--font-size-xs);
+	flex-shrink: 0;
+}
+
+.disclosure:hover {
+	color: var(--color-text-primary);
+}
+
+.disclosureSpacer {
+	width: var(--space-md);
+	flex-shrink: 0;
+}
+
 .node {
 	display: flex;
 	gap: var(--space-sm);

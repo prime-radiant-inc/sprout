@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { AgentTreeNode } from "../hooks/useAgentTree.ts";
 import styles from "./AgentTree.module.css";
 
@@ -34,30 +35,56 @@ function TreeNode({
 	node,
 	selectedAgent,
 	onSelectAgent,
+	defaultExpanded,
 }: {
 	node: AgentTreeNode;
 	selectedAgent: string | null;
 	onSelectAgent: (agentId: string | null) => void;
+	defaultExpanded?: boolean;
 }) {
+	const hasChildren = node.children.length > 0;
 	const isSelected = selectedAgent === node.agentId;
+	const [expanded, setExpanded] = useState(defaultExpanded ?? true);
+
+	// Auto-expand when a running child appears
+	useEffect(() => {
+		if (node.children.some((c) => c.status === "running")) {
+			setExpanded(true);
+		}
+	}, [node.children]);
 
 	return (
 		<li>
-			<button
-				type="button"
-				className={`${styles.node} ${isSelected ? styles.selected : ""}`}
-				data-agent-id={node.agentId}
-				data-selected={isSelected ? "true" : undefined}
-				data-status={node.status}
-				onClick={() => onSelectAgent(node.agentId)}
-			>
-				<span className={statusClasses[node.status]}>
-					{statusIcon(node.status)}
-				</span>
-				<span className={styles.agentName}>{node.agentName}</span>
-				<span className={styles.goal}>{truncateGoal(node.goal)}</span>
-			</button>
-			{node.children.length > 0 && (
+			<div className={styles.nodeRow}>
+				{hasChildren ? (
+					<button
+						type="button"
+						className={styles.disclosure}
+						data-disclosure={expanded ? "open" : "closed"}
+						onClick={() => setExpanded((prev) => !prev)}
+						aria-label={expanded ? "Collapse" : "Expand"}
+					>
+						{expanded ? "\u25BE" : "\u25B8"}
+					</button>
+				) : (
+					<span className={styles.disclosureSpacer} />
+				)}
+				<button
+					type="button"
+					className={`${styles.node} ${isSelected ? styles.selected : ""}`}
+					data-agent-id={node.agentId}
+					data-selected={isSelected ? "true" : undefined}
+					data-status={node.status}
+					onClick={() => onSelectAgent(node.agentId)}
+				>
+					<span className={statusClasses[node.status]}>
+						{statusIcon(node.status)}
+					</span>
+					<span className={styles.agentName}>{node.agentName}</span>
+					<span className={styles.goal}>{truncateGoal(node.goal)}</span>
+				</button>
+			</div>
+			{hasChildren && expanded && (
 				<ul className={styles.children}>
 					{node.children.map((child, idx) => (
 						<TreeNode

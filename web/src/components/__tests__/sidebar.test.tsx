@@ -99,6 +99,33 @@ describe("Sidebar", () => {
 		expect(html).toContain("5");
 		expect(html).not.toContain('data-agent-id="root"');
 	});
+
+	test("renders AgentTree when idle but tree has children", () => {
+		const tree = makeNode({
+			children: [
+				makeNode({
+					agentId: "child-1",
+					agentName: "editor",
+					depth: 1,
+					status: "completed",
+					goal: "Edit file",
+				}),
+			],
+		});
+		const html = renderToStaticMarkup(
+			<Sidebar
+				status={makeStatus({ status: "idle" })}
+				tree={tree}
+				selectedAgent={null}
+				onSelectAgent={() => {}}
+				onToggle={() => {}}
+				events={[]}
+			/>,
+		);
+		// Should show tree even though idle, because tree has children
+		expect(html).toContain('data-agent-id="root"');
+		expect(html).toContain('data-agent-id="child-1"');
+	});
 });
 
 // --- SidebarSessionSummary ---
