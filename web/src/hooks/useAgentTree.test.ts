@@ -334,4 +334,83 @@ describe("buildAgentTree", () => {
 			expect(tree.children[0]!.turns).toBeUndefined();
 		});
 	});
+
+	describe("child_id based tree building", () => {
+		test("uses child_id from act_start for node agentId", () => {
+			resetTimestamps();
+			const events = [
+				makeEvent("perceive", "root", 0, { goal: "Work" }),
+				makeEvent("act_start", "root", 0, {
+					agent_name: "editor",
+					goal: "Edit file",
+					child_id: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+				}),
+				makeEvent("act_end", "root", 0, {
+					agent_name: "editor",
+					goal: "Edit file",
+					child_id: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+					success: true,
+					turns: 2,
+				}),
+			];
+			const tree = buildAgentTree(events);
+
+			expect(tree.children).toHaveLength(1);
+			const child = tree.children[0]!;
+			expect(child.agentId).toBe("01ARZ3NDEKTSV4RRFFQ69G5FAV");
+			expect(child.agentName).toBe("editor");
+			expect(child.status).toBe("completed");
+			expect(child.turns).toBe(2);
+		});
+
+		test("same agent_name with different child_ids produces distinct nodes", () => {
+			resetTimestamps();
+			const events = [
+				makeEvent("perceive", "root", 0, { goal: "Retry" }),
+				makeEvent("act_start", "root", 0, {
+					agent_name: "editor",
+					goal: "First",
+					child_id: "AAAAAAAAAAAAAAAAAAAAAAAAAA",
+				}),
+				makeEvent("act_end", "root", 0, {
+					agent_name: "editor",
+					child_id: "AAAAAAAAAAAAAAAAAAAAAAAAAA",
+					success: false,
+				}),
+				makeEvent("act_start", "root", 0, {
+					agent_name: "editor",
+					goal: "Second",
+					child_id: "BBBBBBBBBBBBBBBBBBBBBBBBBB",
+				}),
+				makeEvent("act_end", "root", 0, {
+					agent_name: "editor",
+					child_id: "BBBBBBBBBBBBBBBBBBBBBBBBBB",
+					success: true,
+				}),
+			];
+			const tree = buildAgentTree(events);
+
+			expect(tree.children).toHaveLength(2);
+			expect(tree.children[0]!.agentId).toBe("AAAAAAAAAAAAAAAAAAAAAAAAAA");
+			expect(tree.children[1]!.agentId).toBe("BBBBBBBBBBBBBBBBBBBBBBBBBB");
+			expect(tree.children[0]!.agentName).toBe("editor");
+			expect(tree.children[1]!.agentName).toBe("editor");
+		});
+
+		test("falls back to name disambiguation when child_id absent", () => {
+			resetTimestamps();
+			const events = [
+				makeEvent("perceive", "root", 0, { goal: "Legacy" }),
+				makeEvent("act_start", "root", 0, { agent_name: "editor", goal: "First" }),
+				makeEvent("act_end", "root", 0, { agent_name: "editor", success: false }),
+				makeEvent("act_start", "root", 0, { agent_name: "editor", goal: "Second" }),
+				makeEvent("act_end", "root", 0, { agent_name: "editor", success: true }),
+			];
+			const tree = buildAgentTree(events);
+
+			expect(tree.children).toHaveLength(2);
+			expect(tree.children[0]!.agentId).toBe("editor");
+			expect(tree.children[1]!.agentId).toBe("editor#2");
+		});
+	});
 });

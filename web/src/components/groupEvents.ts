@@ -40,7 +40,7 @@ function durationKey(event: SessionEvent): string | null {
 			return `${agent_id}:primitive:${data.name}`;
 		case "act_start":
 		case "act_end":
-			return `${agent_id}:act:${data.agent_name}`;
+			return `${agent_id}:act:${data.child_id ?? data.agent_name}`;
 		default:
 			return null;
 	}

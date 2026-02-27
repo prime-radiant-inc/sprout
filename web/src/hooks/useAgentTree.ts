@@ -41,6 +41,9 @@ export function buildAgentTree(events: SessionEvent[]): AgentTreeNode {
 	// Key: agent_name, value: count seen so far.
 	const nameCounters = new Map<string, number>();
 
+	// Index nodes by child_id for act_end lookup.
+	const nodeById = new Map<string, AgentTreeNode>();
+
 	for (const event of events) {
 		// Derive root identity from the first depth-0 event
 		if (event.depth === 0 && root.agentId === "root" && event.agent_id !== "root") {
@@ -66,10 +69,15 @@ export function buildAgentTree(events: SessionEvent[]): AgentTreeNode {
 				// act_start is emitted by the PARENT at the parent's depth.
 				// The child's name is in data.agent_name.
 				const childName = (event.data.agent_name as string) ?? event.agent_id;
-				const count = (nameCounters.get(childName) ?? 0) + 1;
-				nameCounters.set(childName, count);
-				// Use a unique agentId: "name" for first instance, "name#2" for second, etc.
-				const childId = count === 1 ? childName : `${childName}#${count}`;
+				// Prefer child_id (ULID) if available; fall back to name-based disambiguation
+				let childId: string;
+				if (typeof event.data.child_id === "string") {
+					childId = event.data.child_id;
+				} else {
+					const count = (nameCounters.get(childName) ?? 0) + 1;
+					nameCounters.set(childName, count);
+					childId = count === 1 ? childName : `${childName}#${count}`;
+				}
 
 				const childDepth = event.depth + 1;
 				const node: AgentTreeNode = {
@@ -88,6 +96,9 @@ export function buildAgentTree(events: SessionEvent[]): AgentTreeNode {
 					parent.children.push(node);
 				}
 
+				// Index by childId for act_end lookup
+				nodeById.set(childId, node);
+
 				// Record this child at its depth (and clear deeper entries)
 				path[childDepth] = node;
 				path.length = childDepth + 1;
@@ -95,10 +106,14 @@ export function buildAgentTree(events: SessionEvent[]): AgentTreeNode {
 			}
 
 			case "act_end": {
-				// act_end is also emitted by the parent at the parent's depth.
-				// The matching child node is at depth + 1 in the path.
-				const childDepth = event.depth + 1;
-				const node = path[childDepth];
+				// Find node by child_id if available, otherwise fall back to path lookup
+				let node: AgentTreeNode | undefined;
+				if (typeof event.data.child_id === "string") {
+					node = nodeById.get(event.data.child_id);
+				} else {
+					const childDepth = event.depth + 1;
+					node = path[childDepth];
+				}
 				if (node && node !== root) {
 					node.status = (event.data.success as boolean) ? "completed" : "failed";
 					const turns = event.data.turns as number | undefined;
