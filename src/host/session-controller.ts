@@ -237,6 +237,10 @@ export class SessionController {
 					model: this.modelOverride ?? "best",
 					sessionsDir: this.sessionsDir,
 				});
+				if (this.logger) {
+					const newLogPath = join(this.genomePath, "logs", this._sessionId, "session.log.jsonl");
+					this.logger.reconfigure({ sessionId: this._sessionId, logPath: newLogPath });
+				}
 				this.bus.emitEvent("session_clear", "session", 0, {
 					new_session_id: this._sessionId,
 				});
