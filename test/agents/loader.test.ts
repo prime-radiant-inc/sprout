@@ -39,9 +39,9 @@ describe("loadAgentSpec", () => {
 });
 
 describe("loadBootstrapAgents", () => {
-	test("loads all 10 bootstrap agents", async () => {
+	test("loads all 11 bootstrap agents", async () => {
 		const agents = await loadBootstrapAgents(join(import.meta.dir, "../../bootstrap"));
-		expect(agents).toHaveLength(10);
+		expect(agents).toHaveLength(11);
 		const names = agents.map((a) => a.name);
 		expect(names).toContain("root");
 		expect(names).toContain("reader");
