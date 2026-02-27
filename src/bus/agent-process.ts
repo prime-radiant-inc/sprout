@@ -33,6 +33,8 @@ export interface AgentProcessConfig {
 	bootstrapDir?: string;
 	/** Abort signal for clean shutdown */
 	signal?: AbortSignal;
+	/** Structured logger for LLM call logging and diagnostics. */
+	logger?: import("../host/logger.ts").Logger;
 }
 
 /**
@@ -149,6 +151,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 			learnProcess,
 			initialHistory: initialHistory.length > 0 ? initialHistory : undefined,
 			agentId: startMsg.agent_id,
+			logger: config.logger,
 		});
 
 		// Build goal with hints
@@ -373,7 +376,11 @@ if (import.meta.main) {
 	process.on("SIGTERM", () => controller.abort());
 	process.on("SIGINT", () => controller.abort());
 
-	const client = Client.fromEnv();
+	const logPath = join(genomePath, "logs", sessionId, handleId, "session.log.jsonl");
+	const { SessionLogger } = await import("../host/logger.ts");
+	const { loggingMiddleware } = await import("../llm/logging-middleware.ts");
+	const logger = new SessionLogger({ logPath, component: "agent-process", sessionId });
+	const client = Client.fromEnv({ middleware: [loggingMiddleware(logger)] });
 
 	runAgentProcess({
 		busUrl,
@@ -383,6 +390,7 @@ if (import.meta.main) {
 		client,
 		workDir,
 		signal: controller.signal,
+		logger,
 	})
 		.then(() => process.exit(0))
 		.catch((err) => {
