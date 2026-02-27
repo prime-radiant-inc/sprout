@@ -12,8 +12,13 @@ import { useFaviconStatus } from "./hooks/useFaviconStatus.ts";
 import { handleKeyboardShortcut } from "./hooks/useKeyboardShortcuts.ts";
 import { useWebSocket } from "./hooks/useWebSocket.ts";
 
-const WS_URL = import.meta.env.VITE_WS_URL ||
-	`${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}`;
+import { buildWsUrl } from "./hooks/buildWsUrl.ts";
+
+const WS_URL = buildWsUrl(
+	window.location.protocol,
+	window.location.host,
+	import.meta.env.VITE_WS_URL,
+);
 
 export function App() {
 	const { connected, send, onMessage } = useWebSocket(WS_URL);

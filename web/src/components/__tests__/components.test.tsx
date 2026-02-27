@@ -3,7 +3,6 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { SessionEvent } from "../../../../src/kernel/types.ts";
 import { buildAgentTree } from "../../hooks/useAgentTree.ts";
 import { AssistantMessage } from "../AssistantMessage.tsx";
-import { Breadcrumb } from "../Breadcrumb.tsx";
 import { ConversationView } from "../ConversationView.tsx";
 import { DelegationBlock } from "../DelegationBlock.tsx";
 import { EventLine } from "../EventLine.tsx";
@@ -555,7 +554,7 @@ describe("DelegationBlock", () => {
 		expect(html).not.toContain("A".repeat(100));
 	});
 
-	test("DelegationBlock truncates goal to exactly 80 characters", () => {
+	test("truncates goal to exactly 80 characters (77 + ellipsis)", () => {
 		const longGoal = "a".repeat(100);
 		const html = renderToStaticMarkup(
 			<DelegationBlock agentName="agent" goal={longGoal} status="running" />,
@@ -564,6 +563,24 @@ describe("DelegationBlock", () => {
 		const goalMatch = html.match(/(a+)\.\.\./);
 		expect(goalMatch).toBeTruthy();
 		expect(goalMatch![1]!.length + 3).toBe(80);
+	});
+
+	test("does not truncate goal of exactly 80 characters", () => {
+		const goal80 = "b".repeat(80);
+		const html = renderToStaticMarkup(
+			<DelegationBlock agentName="agent" goal={goal80} status="running" />,
+		);
+		expect(html).toContain(goal80);
+		expect(html).not.toContain("...");
+	});
+
+	test("truncates goal of 81 characters", () => {
+		const goal81 = "c".repeat(81);
+		const html = renderToStaticMarkup(
+			<DelegationBlock agentName="agent" goal={goal81} status="running" />,
+		);
+		expect(html).not.toContain(goal81);
+		expect(html).toContain("...");
 	});
 });
 
@@ -983,9 +1000,11 @@ describe("ConversationView", () => {
 	test("renders empty container when no events", () => {
 		const tree = buildAgentTree([]);
 		const html = renderToStaticMarkup(<ConversationView events={[]} tree={tree} />);
-		// Should render the container div but with no event children or streaming banner
-		expect(html).toContain("div");
+		// Should render the wrapper but with no event content or streaming banner
 		expect(html).not.toContain("is responding");
+		expect(html).not.toContain("fix the bug");
+		// The container itself should be a single empty div
+		expect(html).toMatch(/^<div[^>]*><\/div>$/);
 	});
 
 	test("accumulates plan_delta text into a single streaming message", () => {
@@ -1084,52 +1103,10 @@ describe("ConversationView", () => {
 			<ConversationView events={events} tree={tree} />,
 		);
 		expect(html).toContain("is responding");
-		// The StreamingBanner renders agentName in a span adjacent to "is responding".
-		// It should use the resolved name "code-editor", not the raw agent_id "ce-1".
-		expect(html).not.toMatch(/ce-1<\/span><span[^>]*>is responding/);
-		expect(html).toMatch(/code-editor<\/span><span[^>]*>is responding/);
+		// Should display the resolved agent name, not the raw ID
+		expect(html).toContain("code-editor");
+		expect(html).not.toContain("ce-1");
 	});
 });
 
-// --- Breadcrumb ---
-
-describe("Breadcrumb", () => {
-	test("renders segments as buttons", () => {
-		const tree = buildAgentTree([
-			makeEvent("act_start", { agent_name: "child", goal: "g" }, { agent_id: "child-1", depth: 1 }),
-		]);
-		const html = renderToStaticMarkup(
-			<Breadcrumb tree={tree} selectedAgent="child-1" onSelectAgent={() => {}} />,
-		);
-		expect(html).toContain("button");
-		expect(html).toContain("root");
-		expect(html).toContain("child");
-	});
-
-	test("Breadcrumb returns null when selectedAgent is null", () => {
-		const tree = buildAgentTree([]);
-		const html = renderToStaticMarkup(
-			<Breadcrumb tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
-		);
-		expect(html).toBe("");
-	});
-
-	test("Breadcrumb returns null when agent is not in tree", () => {
-		const tree = buildAgentTree([]);
-		const html = renderToStaticMarkup(
-			<Breadcrumb tree={tree} selectedAgent="nonexistent" onSelectAgent={() => {}} />,
-		);
-		expect(html).toBe("");
-	});
-
-	test("Breadcrumb renders separator between segments", () => {
-		const events: SessionEvent[] = [
-			makeEvent("act_start", { agent_name: "child", goal: "g" }, { agent_id: "child-1", depth: 1 }),
-		];
-		const tree = buildAgentTree(events);
-		const html = renderToStaticMarkup(
-			<Breadcrumb tree={tree} selectedAgent="child-1" onSelectAgent={() => {}} />,
-		);
-		expect(html).toContain("\u203A");
-	});
-});
+// Breadcrumb tests live in agent-tree.test.tsx alongside the AgentTree tests.

@@ -296,7 +296,7 @@ describe("groupEvents", () => {
 	});
 
 	describe("invisible events", () => {
-		test("skips context_update, exit_hint, session_start, session_end, recall, verify", () => {
+		test("skips all invisible event kinds", () => {
 			const events: SessionEvent[] = [
 				makeEvent("context_update", { context_tokens: 500 }),
 				makeEvent("exit_hint", {}),
@@ -304,6 +304,8 @@ describe("groupEvents", () => {
 				makeEvent("session_end", {}),
 				makeEvent("recall", { agents: [] }),
 				makeEvent("verify", { success: true }),
+				makeEvent("learn_signal", { signal: "positive" }),
+				makeEvent("learn_end", {}),
 				makeEvent("perceive", { goal: "visible" }),
 			];
 			const result = groupEvents(events);

@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { SessionEvent } from "../../../src/kernel/types.ts";
+import type { AgentTreeNode } from "../hooks/useAgentTree.ts";
 import { EventLine } from "./EventLine.tsx";
 import { buildNameMap, groupEvents } from "./groupEvents.ts";
 import { StreamingBanner } from "./StreamingBanner.tsx";
