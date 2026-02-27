@@ -20,7 +20,7 @@
 }
 
 .toolName {
-	color: var(--color-tool);
+	color: var(--color-warning);
 }
 
 .args {

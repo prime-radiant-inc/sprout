@@ -1,4 +1,5 @@
 import { MarkdownBlock } from "./MarkdownBlock.tsx";
+import { formatTime } from "./format.ts";
 import styles from "./AssistantMessage.module.css";
 
 interface AssistantMessageProps {
@@ -7,13 +8,6 @@ interface AssistantMessageProps {
 	agentName?: string;
 	isFirstInGroup?: boolean;
 	timestamp?: number;
-}
-
-function formatTime(ts: number): string {
-	const d = new Date(ts);
-	const h = d.getHours().toString().padStart(2, "0");
-	const m = d.getMinutes().toString().padStart(2, "0");
-	return `${h}:${m}`;
 }
 
 /** Assistant message with optional grouped header, collapsible reasoning, and themed styling. */

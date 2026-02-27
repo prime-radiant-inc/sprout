@@ -1,3 +1,4 @@
+import { formatTime } from "./format.ts";
 import styles from "./UserMessage.module.css";
 
 interface UserMessageProps {
@@ -5,13 +6,6 @@ interface UserMessageProps {
 	isSteering?: boolean;
 	isFirstInGroup?: boolean;
 	timestamp?: number;
-}
-
-function formatTime(ts: number): string {
-	const d = new Date(ts);
-	const h = d.getHours().toString().padStart(2, "0");
-	const m = d.getMinutes().toString().padStart(2, "0");
-	return `${h}:${m}`;
 }
 
 /** User message with optional grouped header (name + timestamp) and accent-tinted card. */

@@ -17,6 +17,7 @@ const renderers: Record<string, ComponentType<ToolRendererProps>> = {
 	edit_file: EditFileRenderer,
 	write_file: EditFileRenderer,
 	exec: ExecRenderer,
+	bash: ExecRenderer,
 };
 
 /** Return the appropriate renderer component for a tool, or FallbackRenderer. */

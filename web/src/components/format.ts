@@ -3,6 +3,14 @@
  * Ported from src/tui/ to avoid depending on Ink/TUI code.
  */
 
+/** Format a unix timestamp as HH:MM in local time. */
+export function formatTime(ts: number): string {
+	const d = new Date(ts);
+	const h = d.getHours().toString().padStart(2, "0");
+	const m = d.getMinutes().toString().padStart(2, "0");
+	return `${h}:${m}`;
+}
+
 /** Format a token count with k/M suffixes. */
 export function formatTokens(n: number): string {
 	if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
