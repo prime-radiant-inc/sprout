@@ -1,0 +1,7 @@
+.sidebar {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	padding: var(--space-sm);
+	overflow-y: auto;
+}

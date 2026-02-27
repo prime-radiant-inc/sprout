@@ -12,7 +12,7 @@
 }
 
 .title {
-	color: var(--text-dim);
+	color: var(--color-text-tertiary);
 	font-size: var(--font-size-xs);
 	text-transform: uppercase;
 	letter-spacing: 0.05em;
@@ -21,14 +21,14 @@
 .toggle {
 	background: none;
 	border: none;
-	color: var(--text-dim);
+	color: var(--color-text-tertiary);
 	cursor: pointer;
 	font-size: var(--font-size-base);
 	padding: 0 4px;
 }
 
 .toggle:hover {
-	color: var(--text-primary);
+	color: var(--color-text-primary);
 }
 
 .allAgents {
@@ -37,7 +37,7 @@
 	text-align: left;
 	background: none;
 	border: none;
-	color: var(--text-secondary);
+	color: var(--color-text-secondary);
 	cursor: pointer;
 	padding: 4px 8px;
 	border-radius: 3px;
@@ -46,7 +46,7 @@
 }
 
 .allAgents:hover {
-	background: var(--bg-surface);
+	background: var(--color-surface);
 }
 
 .treeRoot {
@@ -69,7 +69,7 @@
 	text-align: left;
 	background: none;
 	border: none;
-	color: var(--text-primary);
+	color: var(--color-text-primary);
 	cursor: pointer;
 	padding: 3px 8px;
 	border-radius: 3px;
@@ -78,36 +78,36 @@
 }
 
 .node:hover {
-	background: var(--bg-surface);
+	background: var(--color-surface);
 }
 
 .selected {
-	background: var(--bg-surface);
+	background: var(--color-accent-subtle);
 }
 
 .agentName {
-	color: var(--color-agent);
+	color: var(--color-accent);
 	font-weight: bold;
 	white-space: nowrap;
 }
 
 .goal {
-	color: var(--text-dim);
+	color: var(--color-text-secondary);
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 
 .statusCompleted {
-	color: var(--color-success);
+	color: var(--color-completed);
 }
 
 .statusFailed {
-	color: var(--color-error);
+	color: var(--color-failed);
 }
 
 .statusRunning {
-	color: var(--color-cyan);
+	color: var(--color-running);
 	animation: pulse 1.5s ease-in-out infinite;
 }
 

@@ -1,0 +1,311 @@
+import { describe, expect, test } from "bun:test";
+import type { SessionEvent } from "../../../../src/kernel/types.ts";
+import type { AgentTreeNode } from "../../hooks/useAgentTree.ts";
+import { groupEvents } from "../groupEvents.ts";
+
+// --- Helpers ---
+
+function makeEvent(
+	kind: SessionEvent["kind"],
+	data: Record<string, unknown> = {},
+	overrides: Partial<SessionEvent> = {},
+): SessionEvent {
+	return {
+		kind,
+		timestamp: 1000,
+		agent_id: "root",
+		depth: 0,
+		data,
+		...overrides,
+	};
+}
+
+function makeTree(overrides: Partial<AgentTreeNode> = {}): AgentTreeNode {
+	return {
+		agentId: "root",
+		agentName: "root",
+		depth: 0,
+		status: "running",
+		goal: "",
+		children: [],
+		...overrides,
+	};
+}
+
+// --- Grouping ---
+
+describe("groupEvents", () => {
+	describe("grouping consecutive plan_end events", () => {
+		test("groups consecutive plan_end events from same agent", () => {
+			const events: SessionEvent[] = [
+				makeEvent("plan_end", { text: "first" }, { timestamp: 1000 }),
+				makeEvent("plan_end", { text: "second" }, { timestamp: 1001 }),
+				makeEvent("plan_end", { text: "third" }, { timestamp: 1002 }),
+			];
+			const result = groupEvents(events);
+			expect(result).toHaveLength(3);
+			expect(result[0]!.isFirstInGroup).toBe(true);
+			expect(result[0]!.isLastInGroup).toBe(false);
+			expect(result[1]!.isFirstInGroup).toBe(false);
+			expect(result[1]!.isLastInGroup).toBe(false);
+			expect(result[2]!.isFirstInGroup).toBe(false);
+			expect(result[2]!.isLastInGroup).toBe(true);
+		});
+	});
+
+	describe("group breaks on agent_id change", () => {
+		test("breaks group when agent_id changes", () => {
+			const events: SessionEvent[] = [
+				makeEvent("plan_end", { text: "a" }, { agent_id: "agent-1", timestamp: 1000 }),
+				makeEvent("plan_end", { text: "b" }, { agent_id: "agent-1", timestamp: 1001 }),
+				makeEvent("plan_end", { text: "c" }, { agent_id: "agent-2", timestamp: 1002 }),
+			];
+			const result = groupEvents(events);
+			expect(result).toHaveLength(3);
+			// First group: agent-1
+			expect(result[0]!.isFirstInGroup).toBe(true);
+			expect(result[0]!.isLastInGroup).toBe(false);
+			expect(result[1]!.isFirstInGroup).toBe(false);
+			expect(result[1]!.isLastInGroup).toBe(true);
+			// Second group: agent-2
+			expect(result[2]!.isFirstInGroup).toBe(true);
+			expect(result[2]!.isLastInGroup).toBe(true);
+		});
+	});
+
+	describe("group breaks on intervening tool call", () => {
+		test("breaks group when tool call intervenes between plan_end events", () => {
+			const events: SessionEvent[] = [
+				makeEvent("plan_end", { text: "before" }, { timestamp: 1000 }),
+				makeEvent("primitive_start", { name: "exec" }, { timestamp: 1001 }),
+				makeEvent("primitive_end", { name: "exec", success: true }, { timestamp: 1002 }),
+				makeEvent("plan_end", { text: "after" }, { timestamp: 1003 }),
+			];
+			const result = groupEvents(events);
+			// primitive_start is skipped, so we get: plan_end, primitive_end, plan_end
+			expect(result).toHaveLength(3);
+			expect(result[0]!.event.kind).toBe("plan_end");
+			expect(result[0]!.isFirstInGroup).toBe(true);
+			expect(result[0]!.isLastInGroup).toBe(true);
+			expect(result[1]!.event.kind).toBe("primitive_end");
+			expect(result[1]!.isFirstInGroup).toBe(true);
+			expect(result[1]!.isLastInGroup).toBe(true);
+			expect(result[2]!.event.kind).toBe("plan_end");
+			expect(result[2]!.isFirstInGroup).toBe(true);
+			expect(result[2]!.isLastInGroup).toBe(true);
+		});
+	});
+
+	describe("group breaks on >60s gap", () => {
+		test("breaks group when >60 seconds pass between events", () => {
+			const events: SessionEvent[] = [
+				makeEvent("plan_end", { text: "a" }, { timestamp: 1000 }),
+				makeEvent("plan_end", { text: "b" }, { timestamp: 2000 }),
+				makeEvent("plan_end", { text: "c" }, { timestamp: 63000 }), // >60s after b
+			];
+			const result = groupEvents(events);
+			expect(result).toHaveLength(3);
+			// First group: a + b
+			expect(result[0]!.isFirstInGroup).toBe(true);
+			expect(result[0]!.isLastInGroup).toBe(false);
+			expect(result[1]!.isFirstInGroup).toBe(false);
+			expect(result[1]!.isLastInGroup).toBe(true);
+			// Second group: c (time gap)
+			expect(result[2]!.isFirstInGroup).toBe(true);
+			expect(result[2]!.isLastInGroup).toBe(true);
+		});
+	});
+
+	describe("standalone events", () => {
+		test("returns isFirstInGroup=true and isLastInGroup=true for tool calls", () => {
+			const events: SessionEvent[] = [
+				makeEvent("primitive_start", { name: "exec" }, { timestamp: 1000 }),
+				makeEvent("primitive_end", { name: "exec", success: true }, { timestamp: 1001 }),
+				makeEvent("primitive_start", { name: "read" }, { timestamp: 1002 }),
+				makeEvent("primitive_end", { name: "read", success: true }, { timestamp: 1003 }),
+			];
+			const result = groupEvents(events);
+			// primitive_start events are skipped
+			expect(result).toHaveLength(2);
+			expect(result[0]!.event.kind).toBe("primitive_end");
+			expect(result[0]!.isFirstInGroup).toBe(true);
+			expect(result[0]!.isLastInGroup).toBe(true);
+			expect(result[1]!.event.kind).toBe("primitive_end");
+			expect(result[1]!.isFirstInGroup).toBe(true);
+			expect(result[1]!.isLastInGroup).toBe(true);
+		});
+
+		test("act_start and act_end are standalone", () => {
+			const events: SessionEvent[] = [
+				makeEvent("act_start", { agent_name: "child", goal: "work" }, { timestamp: 1000 }),
+				makeEvent("act_end", { agent_name: "child", success: true }, { timestamp: 2000 }),
+			];
+			const result = groupEvents(events);
+			expect(result).toHaveLength(2);
+			expect(result[0]!.isFirstInGroup).toBe(true);
+			expect(result[0]!.isLastInGroup).toBe(true);
+			expect(result[1]!.isFirstInGroup).toBe(true);
+			expect(result[1]!.isLastInGroup).toBe(true);
+		});
+
+		test("plan_delta is standalone", () => {
+			const events: SessionEvent[] = [
+				makeEvent("plan_start", {}, { timestamp: 1000 }),
+				makeEvent("plan_delta", { text: "Hello " }, { timestamp: 1001 }),
+				makeEvent("plan_delta", { text: "world" }, { timestamp: 1002 }),
+			];
+			const result = groupEvents(events);
+			// plan_start is skipped, plan_delta collapses to one entry
+			expect(result).toHaveLength(1);
+			expect(result[0]!.isFirstInGroup).toBe(true);
+			expect(result[0]!.isLastInGroup).toBe(true);
+		});
+	});
+
+	describe("agent filtering", () => {
+		test("filters events by agentFilter + descendants", () => {
+			const tree = makeTree({
+				agentId: "root",
+				children: [
+					makeTree({ agentId: "child-1", children: [makeTree({ agentId: "grandchild" })] }),
+					makeTree({ agentId: "child-2" }),
+				],
+			});
+			const events: SessionEvent[] = [
+				makeEvent("perceive", { goal: "root goal" }, { agent_id: "root" }),
+				makeEvent("perceive", { goal: "child-1 goal" }, { agent_id: "child-1" }),
+				makeEvent("perceive", { goal: "grandchild goal" }, { agent_id: "grandchild" }),
+				makeEvent("perceive", { goal: "child-2 goal" }, { agent_id: "child-2" }),
+			];
+			const result = groupEvents(events, "child-1", tree);
+			expect(result).toHaveLength(2);
+			expect(result[0]!.event.agent_id).toBe("child-1");
+			expect(result[1]!.event.agent_id).toBe("grandchild");
+		});
+	});
+
+	describe("plan_delta accumulation", () => {
+		test("accumulates plan_delta text into streamingText", () => {
+			const events: SessionEvent[] = [
+				makeEvent("plan_start", {}, { timestamp: 1000 }),
+				makeEvent("plan_delta", { text: "Hello " }, { timestamp: 1001 }),
+				makeEvent("plan_delta", { text: "world" }, { timestamp: 1002 }),
+			];
+			const result = groupEvents(events);
+			expect(result).toHaveLength(1);
+			expect(result[0]!.streamingText).toBe("Hello world");
+		});
+
+		test("clears streaming buffer on plan_end", () => {
+			const events: SessionEvent[] = [
+				makeEvent("plan_start", {}, { timestamp: 1000 }),
+				makeEvent("plan_delta", { text: "first stream" }, { timestamp: 1001 }),
+				makeEvent("plan_end", { text: "final" }, { timestamp: 1002 }),
+				makeEvent("plan_start", {}, { timestamp: 1003 }),
+				makeEvent("plan_delta", { text: "second" }, { timestamp: 1004 }),
+			];
+			const result = groupEvents(events);
+			// plan_start events are skipped
+			// Result: plan_delta("first stream"), plan_end("final"), plan_delta("second")
+			const deltas = result.filter((r) => r.event.kind === "plan_delta");
+			expect(deltas).toHaveLength(2);
+			expect(deltas[0]!.streamingText).toBe("first stream");
+			// Buffer cleared on plan_end, so second stream starts fresh
+			expect(deltas[1]!.streamingText).toBe("second");
+		});
+	});
+
+	describe("duration tracking", () => {
+		test("computes duration for primitive_start/end pairs", () => {
+			const events: SessionEvent[] = [
+				makeEvent("primitive_start", { name: "exec" }, { timestamp: 1000 }),
+				makeEvent("primitive_end", { name: "exec", success: true }, { timestamp: 2500 }),
+			];
+			const result = groupEvents(events);
+			expect(result).toHaveLength(1);
+			expect(result[0]!.event.kind).toBe("primitive_end");
+			expect(result[0]!.durationMs).toBe(1500);
+		});
+
+		test("computes duration for act_start/end pairs", () => {
+			const events: SessionEvent[] = [
+				makeEvent("act_start", { agent_name: "alpha" }, { timestamp: 1000 }),
+				makeEvent("act_end", { agent_name: "alpha", success: true }, { timestamp: 4000 }),
+			];
+			const result = groupEvents(events);
+			expect(result).toHaveLength(2);
+			expect(result[1]!.event.kind).toBe("act_end");
+			expect(result[1]!.durationMs).toBe(3000);
+		});
+
+		test("computes duration for plan_start/end pairs", () => {
+			const events: SessionEvent[] = [
+				makeEvent("plan_start", {}, { timestamp: 1000 }),
+				makeEvent("plan_end", { text: "done" }, { timestamp: 1800 }),
+			];
+			const result = groupEvents(events);
+			// plan_start is skipped
+			expect(result).toHaveLength(1);
+			expect(result[0]!.event.kind).toBe("plan_end");
+			expect(result[0]!.durationMs).toBe(800);
+		});
+	});
+
+	describe("invisible events", () => {
+		test("skips context_update, exit_hint, session_start, session_end, recall, verify", () => {
+			const events: SessionEvent[] = [
+				makeEvent("context_update", { context_tokens: 500 }),
+				makeEvent("exit_hint", {}),
+				makeEvent("session_start", { model: "gpt-4o" }),
+				makeEvent("session_end", {}),
+				makeEvent("recall", { agents: [] }),
+				makeEvent("verify", { success: true }),
+				makeEvent("perceive", { goal: "visible" }),
+			];
+			const result = groupEvents(events);
+			expect(result).toHaveLength(1);
+			expect(result[0]!.event.kind).toBe("perceive");
+		});
+	});
+
+	describe("grouping consecutive perceive events", () => {
+		test("groups consecutive perceive events from same agent", () => {
+			const events: SessionEvent[] = [
+				makeEvent("perceive", { goal: "first" }, { timestamp: 1000 }),
+				makeEvent("perceive", { goal: "second" }, { timestamp: 1001 }),
+				makeEvent("perceive", { goal: "third" }, { timestamp: 1002 }),
+			];
+			const result = groupEvents(events);
+			expect(result).toHaveLength(3);
+			expect(result[0]!.isFirstInGroup).toBe(true);
+			expect(result[0]!.isLastInGroup).toBe(false);
+			expect(result[1]!.isFirstInGroup).toBe(false);
+			expect(result[1]!.isLastInGroup).toBe(false);
+			expect(result[2]!.isFirstInGroup).toBe(false);
+			expect(result[2]!.isLastInGroup).toBe(true);
+		});
+	});
+
+	describe("group breaks on kind change", () => {
+		test("breaks group when event kind changes between groupable types", () => {
+			const events: SessionEvent[] = [
+				makeEvent("plan_end", { text: "a" }, { timestamp: 1000 }),
+				makeEvent("plan_end", { text: "b" }, { timestamp: 1001 }),
+				makeEvent("perceive", { goal: "c" }, { timestamp: 1002 }),
+				makeEvent("perceive", { goal: "d" }, { timestamp: 1003 }),
+			];
+			const result = groupEvents(events);
+			expect(result).toHaveLength(4);
+			// First group: plan_end
+			expect(result[0]!.isFirstInGroup).toBe(true);
+			expect(result[0]!.isLastInGroup).toBe(false);
+			expect(result[1]!.isFirstInGroup).toBe(false);
+			expect(result[1]!.isLastInGroup).toBe(true);
+			// Second group: perceive
+			expect(result[2]!.isFirstInGroup).toBe(true);
+			expect(result[2]!.isLastInGroup).toBe(false);
+			expect(result[3]!.isFirstInGroup).toBe(false);
+			expect(result[3]!.isLastInGroup).toBe(true);
+		});
+	});
+});
