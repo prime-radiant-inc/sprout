@@ -115,7 +115,12 @@ function collectWebFlags(webFlags: {
  * Note: --genome-path must come before --genome subcommands. */
 export function parseArgs(argv: string[]): CliCommand {
 	let genomePath = DEFAULT_GENOME_PATH;
-	const webFlags = { web: false, webOnly: false, port: undefined as number | undefined, host: undefined as string | undefined };
+	const webFlags = {
+		web: false,
+		webOnly: false,
+		port: undefined as number | undefined,
+		host: undefined as string | undefined,
+	};
 	const rest: string[] = [];
 
 	for (let i = 0; i < argv.length; i++) {
@@ -393,6 +398,14 @@ export async function runCli(command: CliCommand): Promise<void> {
 	// All remaining modes need dotenv + SessionController setup
 	const { config } = await import("dotenv");
 	config();
+
+	// Early check: warn if no LLM API keys are available
+	if (!process.env.ANTHROPIC_API_KEY && !process.env.OPENAI_API_KEY && !process.env.GEMINI_API_KEY && !process.env.GOOGLE_API_KEY) {
+		console.error(
+			"[sprout] Warning: No LLM API keys found. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY.\n" +
+				"         Ensure your .env file is in the working directory, or export the variables directly.",
+		);
+	}
 
 	const { EventBus } = await import("./event-bus.ts");
 	const { SessionController } = await import("./session-controller.ts");
