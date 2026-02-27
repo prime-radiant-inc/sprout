@@ -56,6 +56,27 @@
 	transition: width 0.3s ease;
 }
 
+/* Model selector */
+.modelSelect {
+	background: transparent;
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-sm);
+	color: var(--color-text-secondary);
+	font: inherit;
+	padding: 1px 4px;
+	cursor: pointer;
+	max-width: 200px;
+}
+
+.modelSelect:hover {
+	border-color: var(--color-text-tertiary);
+}
+
+.modelSelect:focus {
+	outline: none;
+	border-color: var(--color-accent);
+}
+
 /* Session ID */
 .sessionId {
 	color: var(--color-text-tertiary);

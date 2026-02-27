@@ -6,6 +6,7 @@ export interface StatusBarProps {
 	status: SessionStatus;
 	connected: boolean;
 	onInterrupt?: () => void;
+	onSwitchModel?: (model: string) => void;
 }
 
 /** Determine context pressure bar color based on usage percentage. */
@@ -16,7 +17,7 @@ function pressureColor(percent: number): string {
 }
 
 /** Top command bar showing context pressure, cost, model, session controls. */
-export function StatusBar({ status, connected, onInterrupt }: StatusBarProps) {
+export function StatusBar({ status, connected, onInterrupt, onSwitchModel }: StatusBarProps) {
 	const {
 		contextTokens,
 		contextWindowSize,
@@ -26,6 +27,7 @@ export function StatusBar({ status, connected, onInterrupt }: StatusBarProps) {
 		model,
 		sessionId,
 		status: runStatus,
+		availableModels,
 	} = status;
 
 	const pressure =
@@ -72,7 +74,21 @@ export function StatusBar({ status, connected, onInterrupt }: StatusBarProps) {
 
 			{/* Right group */}
 			<div className={styles.rightGroup}>
-				<span>{shortModelName(model)}</span>
+				{availableModels.length > 0 && onSwitchModel ? (
+					<select
+						className={styles.modelSelect}
+						value={model}
+						onChange={(e) => onSwitchModel(e.target.value)}
+					>
+						{availableModels.map((m) => (
+							<option key={m} value={m}>
+								{shortModelName(m)}
+							</option>
+						))}
+					</select>
+				) : (
+					<span>{shortModelName(model)}</span>
+				)}
 				{runStatus === "running" && (
 					<button
 						type="button"

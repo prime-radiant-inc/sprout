@@ -150,8 +150,7 @@ export class Agent {
 		validateConstraints(this.spec.name, this.spec.capabilities, this.spec.constraints);
 
 		// Resolve model and provider
-		const modelMap =
-			options.modelsByProvider ?? defaultModelsByProvider(this.client.providers());
+		const modelMap = options.modelsByProvider ?? defaultModelsByProvider(this.client.providers());
 		this.resolved = resolveModel(options.modelOverride ?? this.spec.model, modelMap);
 
 		// Build delegate tool (single tool for all agent delegations)

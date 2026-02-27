@@ -12,6 +12,7 @@ export interface SessionStatus {
 	contextTokens: number;
 	contextWindowSize: number;
 	sessionId: string;
+	availableModels: string[];
 }
 
 const INITIAL_STATUS: SessionStatus = {
@@ -23,6 +24,7 @@ const INITIAL_STATUS: SessionStatus = {
 	contextTokens: 0,
 	contextWindowSize: 0,
 	sessionId: "",
+	availableModels: [],
 };
 
 /**
@@ -49,7 +51,11 @@ export class EventStore {
 		switch (msg.type) {
 			case "snapshot":
 				this.events = msg.events;
-				this.status = { ...INITIAL_STATUS, sessionId: msg.session.id };
+				this.status = {
+					...INITIAL_STATUS,
+					sessionId: msg.session.id,
+					availableModels: msg.session.availableModels ?? [],
+				};
 				// Replay all events in the snapshot to derive current status
 				for (const event of msg.events) {
 					this.applyEventToStatus(event);

@@ -172,6 +172,14 @@ export function App() {
 		sendCommand({ kind: "interrupt", data: {} });
 	}, [sendCommand]);
 
+	// Model switch
+	const handleSwitchModel = useCallback(
+		(model: string) => {
+			sendCommand({ kind: "switch_model", data: { model } });
+		},
+		[sendCommand],
+	);
+
 	const isRunning = status.status === "running";
 
 	return (
@@ -180,6 +188,7 @@ export function App() {
 				status={status}
 				connected={connected}
 				onInterrupt={handleInterrupt}
+				onSwitchModel={handleSwitchModel}
 			/>
 
 			<div

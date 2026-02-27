@@ -37,7 +37,12 @@ export function defaultModelsByProvider(providers: string[]): Map<string, string
 
 export function detectProvider(model: string): string | undefined {
 	if (model.startsWith("claude-")) return "anthropic";
-	if (model.startsWith("gpt-") || model.startsWith("o1-") || model.startsWith("o3-") || model.startsWith("o4-"))
+	if (
+		model.startsWith("gpt-") ||
+		model.startsWith("o1-") ||
+		model.startsWith("o3-") ||
+		model.startsWith("o4-")
+	)
 		return "openai";
 	if (model.startsWith("gemini-")) return "gemini";
 	return undefined;
@@ -51,7 +56,10 @@ export function detectProvider(model: string): string | undefined {
  *
  * If `model` is a concrete ID, detects its provider and validates it's available.
  */
-export function resolveModel(model: string, modelsByProvider: Map<string, string[]>): ResolvedModel {
+export function resolveModel(
+	model: string,
+	modelsByProvider: Map<string, string[]>,
+): ResolvedModel {
 	if (TIER_NAMES.includes(model as Tier)) {
 		const tier = model as Tier;
 		for (const provider of PROVIDER_PRIORITY) {

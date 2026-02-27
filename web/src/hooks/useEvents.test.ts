@@ -15,9 +15,23 @@ function eventMessage(event: SessionEvent): ServerMessage {
 
 function snapshotMessage(
 	events: SessionEvent[],
-	session: { id: string; status: string } = { id: "test-session", status: "idle" },
+	session: {
+		id: string;
+		status: string;
+		availableModels?: string[];
+		currentModel?: string | null;
+	} = { id: "test-session", status: "idle" },
 ): ServerMessage {
-	return { type: "snapshot", events, session };
+	return {
+		type: "snapshot",
+		events,
+		session: {
+			id: session.id,
+			status: session.status,
+			availableModels: session.availableModels ?? [],
+			currentModel: session.currentModel ?? null,
+		},
+	};
 }
 
 // --- Tests ---
@@ -37,6 +51,7 @@ describe("EventStore", () => {
 				contextTokens: 0,
 				contextWindowSize: 0,
 				sessionId: "",
+				availableModels: [],
 			});
 		});
 	});
@@ -94,6 +109,30 @@ describe("EventStore", () => {
 			expect(store.events).toEqual(newEvents);
 			expect(store.status.model).toBe("claude-sonnet-4-6");
 			expect(store.status.sessionId).toBe("s2");
+		});
+
+		test("populates availableModels from snapshot session", () => {
+			const store = new EventStore();
+			const models = ["best", "balanced", "fast", "claude-opus-4-6", "claude-sonnet-4-6"];
+
+			store.processMessage(
+				snapshotMessage([], {
+					id: "s1",
+					status: "idle",
+					availableModels: models,
+					currentModel: "claude-sonnet-4-6",
+				}),
+			);
+
+			expect(store.status.availableModels).toEqual(models);
+		});
+
+		test("defaults availableModels to empty array", () => {
+			const store = new EventStore();
+
+			store.processMessage(snapshotMessage([], { id: "s1", status: "idle" }));
+
+			expect(store.status.availableModels).toEqual([]);
 		});
 	});
 

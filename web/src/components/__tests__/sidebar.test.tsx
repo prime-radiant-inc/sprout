@@ -30,6 +30,7 @@ function makeStatus(overrides: Partial<SessionStatus> = {}): SessionStatus {
 		contextTokens: 0,
 		contextWindowSize: 200_000,
 		sessionId: "sess-abc-123",
+		availableModels: [],
 		...overrides,
 	};
 }

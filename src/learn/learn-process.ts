@@ -1,7 +1,11 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { AgentEventEmitter } from "../agents/events.ts";
-import { defaultModelsByProvider, type ResolvedModel, resolveModel } from "../agents/model-resolver.ts";
+import {
+	defaultModelsByProvider,
+	type ResolvedModel,
+	resolveModel,
+} from "../agents/model-resolver.ts";
 import type { Genome } from "../genome/genome.ts";
 import type { LearnSignal } from "../kernel/types.ts";
 import { DEFAULT_CONSTRAINTS } from "../kernel/types.ts";
@@ -116,8 +120,7 @@ export class LearnProcess {
 		this.client = options.client;
 		this.pendingEvaluationsPath = options.pendingEvaluationsPath;
 		if (this.client) {
-			const modelMap =
-				options.modelsByProvider ?? defaultModelsByProvider(this.client.providers());
+			const modelMap = options.modelsByProvider ?? defaultModelsByProvider(this.client.providers());
 			this.resolvedModel = resolveModel("best", modelMap);
 		}
 	}
