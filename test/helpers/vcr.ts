@@ -356,6 +356,9 @@ function createAdapterRecorder(opts: AdapterVcrOptions): {
 
 	const adapter: ProviderAdapter = {
 		name: realAdapter.name,
+		async listModels() {
+			return realAdapter.listModels();
+		},
 		complete: async (request: Request): Promise<Response> => {
 			const response = await realAdapter.complete(request);
 			const cleanResponse = stripRaw(response);
@@ -419,6 +422,9 @@ function createAdapterReplayer(opts: AdapterVcrOptions): {
 
 	const adapter: ProviderAdapter = {
 		name: adapterName,
+		async listModels() {
+			return [];
+		},
 		complete: async (_request: Request): Promise<Response> => {
 			const { entry, nextIndex } = nextEntry(cassette, callIndex, opts.testName);
 			callIndex = nextIndex;

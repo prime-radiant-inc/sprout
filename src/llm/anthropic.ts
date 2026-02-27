@@ -25,6 +25,16 @@ export class AnthropicAdapter implements ProviderAdapter {
 		});
 	}
 
+	async listModels(): Promise<string[]> {
+		const models: string[] = [];
+		for await (const page of this.client.models.list({ limit: 100 })) {
+			if (page.id.startsWith("claude-")) {
+				models.push(page.id);
+			}
+		}
+		return models;
+	}
+
 	async complete(request: Request): Promise<Response> {
 		const { system, messages } = extractSystemAndMessages(request.messages);
 		const anthropicRequest = buildAnthropicRequest(request, system, messages);

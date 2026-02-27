@@ -76,6 +76,19 @@ export class Client {
 		return [...this.adapters.keys()];
 	}
 
+	/** Query all providers for their available models. */
+	async listModelsByProvider(): Promise<Map<string, string[]>> {
+		const result = new Map<string, string[]>();
+		for (const [name, adapter] of this.adapters) {
+			try {
+				result.set(name, await adapter.listModels());
+			} catch {
+				result.set(name, []);
+			}
+		}
+		return result;
+	}
+
 	/** Get a specific adapter */
 	adapter(name: string): ProviderAdapter | undefined {
 		return this.adapters.get(name);

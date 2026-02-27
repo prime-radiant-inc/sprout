@@ -24,6 +24,17 @@ export class OpenAIAdapter implements ProviderAdapter {
 		});
 	}
 
+	async listModels(): Promise<string[]> {
+		const models: string[] = [];
+		const response = await this.client.models.list();
+		for (const model of response.data) {
+			if (/^(gpt-|o\d)/.test(model.id)) {
+				models.push(model.id);
+			}
+		}
+		return models;
+	}
+
 	async complete(request: Request): Promise<Response> {
 		const input = buildResponsesInput(request);
 		const params = buildResponsesParams(request, input);
