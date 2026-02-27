@@ -17,6 +17,8 @@ export interface StartMessage {
 	goal: string;
 	hints?: string[];
 	shared: boolean;
+	/** Override agent_id for events. Used to pass parent-assigned ULID to child. */
+	agent_id?: string;
 }
 
 /** Sent to a completed/idle agent to continue conversation */

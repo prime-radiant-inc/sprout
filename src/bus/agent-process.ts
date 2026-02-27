@@ -148,6 +148,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 			genomePath,
 			learnProcess,
 			initialHistory: initialHistory.length > 0 ? initialHistory : undefined,
+			agentId: startMsg.agent_id,
 		});
 
 		// Build goal with hints

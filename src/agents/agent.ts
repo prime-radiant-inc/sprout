@@ -414,6 +414,7 @@ export class Agent {
 				shared,
 				workDir: this.env.working_directory(),
 				handleId,
+				agentId: childId,
 			});
 
 			if (!blocking) {

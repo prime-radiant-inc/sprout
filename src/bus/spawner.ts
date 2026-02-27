@@ -24,6 +24,8 @@ export interface SpawnAgentOptions {
 	workDir: string;
 	/** Pre-assigned handle ID. If omitted, a new ULID is generated. */
 	handleId?: string;
+	/** Override agent_id for events emitted by the child. */
+	agentId?: string;
 }
 
 /** Internal tracking record for a spawned agent */
@@ -188,6 +190,7 @@ export class AgentSpawner {
 			goal: opts.goal,
 			hints: opts.hints,
 			shared: opts.shared,
+			agent_id: opts.agentId,
 		};
 		await this.bus.publish(inboxTopic, JSON.stringify(startMsg));
 
