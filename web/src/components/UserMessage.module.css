@@ -1,24 +1,57 @@
 .userMessage {
 	display: flex;
-	gap: 6px;
-	padding: 4px 0;
+	flex-direction: column;
+	gap: var(--space-xs);
 }
 
-.prompt {
-	color: var(--color-user);
-	font-weight: bold;
-	flex-shrink: 0;
+.header {
+	display: flex;
+	align-items: baseline;
+	gap: var(--space-sm);
+}
+
+.name {
+	font-family: var(--font-ui);
+	font-size: var(--font-size-sm);
+	font-weight: 600;
+	color: var(--color-text-primary);
+}
+
+.timestamp {
+	font-family: var(--font-ui);
+	font-size: var(--font-size-xs);
+	color: var(--color-text-tertiary);
+}
+
+.card {
+	background: var(--color-accent-subtle);
+	border-radius: var(--radius-md);
+	padding: var(--space-sm) var(--space-md);
+	display: flex;
+	align-items: baseline;
+	gap: var(--space-sm);
 }
 
 .text {
-	color: var(--text-primary);
+	color: var(--color-text-primary);
+	font-family: var(--font-ui);
+	font-size: var(--font-size-base);
+	line-height: var(--line-height);
+	white-space: pre-wrap;
 }
 
-.steering .prompt {
-	color: var(--color-yellow);
+.badge {
+	font-family: var(--font-ui);
+	font-size: var(--font-size-xxs);
+	font-weight: 500;
+	color: var(--color-warning);
+	background: rgba(245, 158, 11, 0.1);
+	padding: 1px var(--space-xs);
+	border-radius: var(--radius-full);
+	flex-shrink: 0;
 }
 
 .steering .text {
-	color: var(--text-secondary);
+	color: var(--color-text-secondary);
 	font-style: italic;
 }

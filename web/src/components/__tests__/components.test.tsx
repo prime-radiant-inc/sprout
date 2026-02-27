@@ -89,10 +89,37 @@ describe("UserMessage", () => {
 		expect(html).toContain('data-kind="steering"');
 	});
 
-	test("renders prompt indicator", () => {
+	test("does not render terminal prompt character", () => {
 		const html = renderToStaticMarkup(<UserMessage text="hello" />);
-		// Should have some visual indicator (chevron or similar)
-		expect(html).toContain("&gt;");
+		expect(html).not.toContain("&gt;");
+	});
+
+	test("renders 'You' label when isFirstInGroup is true", () => {
+		const html = renderToStaticMarkup(
+			<UserMessage text="hello" isFirstInGroup />,
+		);
+		expect(html).toContain("You");
+	});
+
+	test("does not render header when isFirstInGroup is false", () => {
+		const html = renderToStaticMarkup(<UserMessage text="hello" />);
+		expect(html).not.toContain("You");
+	});
+
+	test("renders steering badge when isSteering is true", () => {
+		const html = renderToStaticMarkup(
+			<UserMessage text="focus on tests" isSteering />,
+		);
+		expect(html).toContain("steering");
+	});
+
+	test("renders formatted timestamp when provided", () => {
+		// 2025-01-15T12:30:00.000Z
+		const ts = 1736944200000;
+		const html = renderToStaticMarkup(
+			<UserMessage text="hello" isFirstInGroup timestamp={ts} />,
+		);
+		expect(html).toContain("12:30");
 	});
 });
 
@@ -131,6 +158,37 @@ describe("AssistantMessage", () => {
 			<AssistantMessage reasoning="just reasoning" />,
 		);
 		expect(html).toContain("just reasoning");
+	});
+
+	test("renders agent name when isFirstInGroup is true", () => {
+		const html = renderToStaticMarkup(
+			<AssistantMessage text="hello" isFirstInGroup agentName="planner" />,
+		);
+		expect(html).toContain("planner");
+	});
+
+	test("renders 'Assistant' as default name when isFirstInGroup but no agentName", () => {
+		const html = renderToStaticMarkup(
+			<AssistantMessage text="hello" isFirstInGroup />,
+		);
+		expect(html).toContain("Assistant");
+	});
+
+	test("does not render header when isFirstInGroup is false or undefined", () => {
+		const html = renderToStaticMarkup(
+			<AssistantMessage text="hello" agentName="planner" />,
+		);
+		expect(html).not.toContain("planner");
+		expect(html).not.toContain("Assistant");
+	});
+
+	test("renders formatted timestamp when isFirstInGroup and timestamp provided", () => {
+		// 2025-01-15T12:30:00.000Z
+		const ts = 1736944200000;
+		const html = renderToStaticMarkup(
+			<AssistantMessage text="hello" isFirstInGroup timestamp={ts} />,
+		);
+		expect(html).toContain("12:30");
 	});
 });
 
