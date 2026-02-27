@@ -3448,4 +3448,63 @@ describe("Agent", () => {
 		expect(childPerceive).toBeDefined();
 		expect(childPerceive!.agent_id).toBe(childId);
 	});
+
+	test("logs LLM call at debug level with agent context", async () => {
+		const mockResponse: Response = {
+			id: "mock-log-1",
+			model: "claude-haiku-4-5-20251001",
+			provider: "anthropic",
+			message: Msg.assistant("Logged response."),
+			finish_reason: { reason: "stop" },
+			usage: { input_tokens: 100, output_tokens: 50, total_tokens: 150 },
+		};
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async () => mockResponse,
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+
+		const logDir = await mkdtemp(join(tmpdir(), "agent-log-test-"));
+		const logPath = join(logDir, "agent.log");
+		const { SessionLogger } = await import("../../src/host/logger.ts");
+		const logger = new SessionLogger({ logPath, component: "test" });
+
+		const agent = new Agent({
+			spec: leafSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+			logger,
+		});
+
+		await agent.run("test logging goal");
+		await logger.flush();
+
+		const logContent = await readFile(logPath, "utf-8");
+		const entries = logContent
+			.trim()
+			.split("\n")
+			.map((line) => JSON.parse(line));
+
+		const debugLlmEntries = entries.filter(
+			(e: any) => e.level === "debug" && e.category === "llm",
+		);
+		expect(debugLlmEntries.length).toBeGreaterThanOrEqual(1);
+
+		const entry = debugLlmEntries[0];
+		expect(entry.agentId).toBe("leaf");
+		expect(entry.data.model).toBeDefined();
+		expect(entry.data.provider).toBeDefined();
+		expect(entry.data.turn).toBe(1);
+		expect(entry.data.inputTokens).toBe(100);
+		expect(entry.data.outputTokens).toBe(50);
+		expect(entry.data.finishReason).toBe("stop");
+
+		await rm(logDir, { recursive: true, force: true });
+	});
 });

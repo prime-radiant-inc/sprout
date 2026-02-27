@@ -19,6 +19,8 @@ import type {
 	Memory,
 	RoutingRule,
 } from "../kernel/types.ts";
+import type { Logger } from "../host/logger.ts";
+import { NullLogger } from "../host/logger.ts";
 import type { LearnSink } from "../learn/learn-process.ts";
 import type { Client } from "../llm/client.ts";
 import type { Response as LLMResponse, Message, ToolDefinition } from "../llm/types.ts";
@@ -112,6 +114,7 @@ export class Agent {
 	private readonly genomePath?: string;
 	private readonly agentId?: string;
 	private readonly initialHistory?: Message[];
+	private readonly logger: Logger;
 	private history: Message[] = [];
 	private systemPrompt?: string;
 	private signal?: AbortSignal;
@@ -139,6 +142,12 @@ export class Agent {
 		this.genomePath = options.genomePath;
 		this.agentId = options.agentId;
 		this.initialHistory = options.initialHistory ? [...options.initialHistory] : undefined;
+		this.logger = (options.logger ?? new NullLogger()).child({
+			component: "agent",
+			agentId: this.agentId ?? this.spec.name,
+			sessionId: this.sessionId,
+			depth: this.depth,
+		});
 
 		// Validate depth: max_depth > 0 means the agent can only exist at depths < max_depth.
 		// max_depth === 0 means "leaf agent, no sub-spawning" — no depth restriction on the agent itself.
@@ -770,6 +779,16 @@ export class Agent {
 
 			// Add assistant message to history
 			this.history.push(assistantMessage);
+
+			this.logger.debug("llm", "Plan response received", {
+				model: this.resolved.model,
+				provider: this.resolved.provider,
+				turn: turns,
+				inputTokens: response.usage?.input_tokens,
+				outputTokens: response.usage?.output_tokens,
+				finishReason: response.finish_reason.reason,
+				messageCount: this.history.length,
+			});
 
 			this.emitAndLog("plan_end", agentId, this.depth, {
 				turn: turns,
