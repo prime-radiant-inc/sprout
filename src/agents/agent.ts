@@ -74,6 +74,8 @@ export interface AgentOptions {
 	spawner?: AgentSpawner;
 	/** Path to the genome directory (required when using a spawner). */
 	genomePath?: string;
+	/** Override the agent_id used for event emission (used by parent to assign unique child IDs). */
+	agentId?: string;
 }
 
 export interface AgentResult {
@@ -104,6 +106,7 @@ export class Agent {
 	private readonly genomePostscripts?: { global: string; orchestrator: string; worker: string };
 	private readonly spawner?: AgentSpawner;
 	private readonly genomePath?: string;
+	private readonly agentId?: string;
 	private readonly initialHistory?: Message[];
 	private history: Message[] = [];
 	private systemPrompt?: string;
@@ -130,6 +133,7 @@ export class Agent {
 		this.genomePostscripts = options.genomePostscripts;
 		this.spawner = options.spawner;
 		this.genomePath = options.genomePath;
+		this.agentId = options.agentId;
 		this.initialHistory = options.initialHistory ? [...options.initialHistory] : undefined;
 
 		// Validate depth: max_depth > 0 means the agent can only exist at depths < max_depth.
@@ -261,9 +265,11 @@ export class Agent {
 		delegation: Delegation,
 		agentId: string,
 	): Promise<{ toolResultMsg: Message; stumbles: number; output?: string }> {
+		const childId = ulid();
 		this.emitAndLog("act_start", agentId, this.depth, {
 			agent_name: delegation.agent_name,
 			goal: delegation.goal,
+			child_id: childId,
 		});
 
 		const subagentSpec =
@@ -277,6 +283,7 @@ export class Agent {
 				agent_name: delegation.agent_name,
 				success: false,
 				error: errorMsg,
+				child_id: childId,
 				tool_result_message: toolResultMsg,
 			});
 			return { toolResultMsg, stumbles: 1 };
@@ -305,6 +312,7 @@ export class Agent {
 				logBasePath: subLogBasePath,
 				preambles: this.preambles,
 				genomePostscripts: this.genomePostscripts,
+				agentId: childId,
 			});
 
 			const subResult = await subagent.run(subGoal, this.signal);
@@ -344,6 +352,7 @@ export class Agent {
 				success: subResult.success,
 				turns: subResult.turns,
 				timed_out: subResult.timed_out,
+				child_id: childId,
 				tool_result_message: toolResultMsg,
 			});
 
@@ -363,6 +372,7 @@ export class Agent {
 				agent_name: delegation.agent_name,
 				success: false,
 				error: errorMsg,
+				child_id: childId,
 				tool_result_message: toolResultMsg,
 			});
 			return { toolResultMsg, stumbles: 1 };
@@ -380,11 +390,13 @@ export class Agent {
 		agentId: string,
 	): Promise<{ toolResultMsg: Message; stumbles: number; output?: string }> {
 		const handleId = ulid();
+		const childId = ulid();
 
 		this.emitAndLog("act_start", agentId, this.depth, {
 			agent_name: delegation.agent_name,
 			goal: delegation.goal,
 			handle_id: handleId,
+			child_id: childId,
 		});
 
 		const caller: CallerIdentity = { agent_name: this.spec.name, depth: this.depth };
@@ -415,6 +427,7 @@ export class Agent {
 					agent_name: delegation.agent_name,
 					success: true,
 					handle_id: handleId,
+					child_id: childId,
 					tool_result_message: toolResultMsg,
 				});
 				return { toolResultMsg, stumbles: 0, output: handleId };
@@ -465,6 +478,7 @@ export class Agent {
 				handle_id: resultMsg.handle_id,
 				turns: resultMsg.turns,
 				timed_out: resultMsg.timed_out,
+				child_id: childId,
 				tool_result_message: toolResultMsg,
 			});
 
@@ -480,6 +494,7 @@ export class Agent {
 				agent_name: delegation.agent_name,
 				success: false,
 				error: errorMsg,
+				child_id: childId,
 				tool_result_message: toolResultMsg,
 			});
 			return { toolResultMsg, stumbles: 1 };
@@ -555,7 +570,7 @@ export class Agent {
 
 	/** Run the agent loop with the given goal */
 	async run(goal: string, signal?: AbortSignal): Promise<AgentResult> {
-		const agentId = this.spec.name;
+		const agentId = this.agentId ?? this.spec.name;
 		this.signal = signal;
 
 		// Ensure log directory exists
@@ -657,14 +672,14 @@ export class Agent {
 		this.history.push(Msg.user(message));
 
 		// Emit perceive for the new message
-		this.emitAndLog("perceive", this.spec.name, this.depth, { goal: message });
+		this.emitAndLog("perceive", this.agentId ?? this.spec.name, this.depth, { goal: message });
 
 		return this.runLoop(message);
 	}
 
 	/** Core planning loop shared by run() and continue(). */
 	private async runLoop(goal: string): Promise<AgentResult> {
-		const agentId = this.spec.name;
+		const agentId = this.agentId ?? this.spec.name;
 		const systemPrompt = this.systemPrompt!;
 		const signal = this.signal;
 		const startTime = performance.now();

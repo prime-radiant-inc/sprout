@@ -1350,7 +1350,8 @@ describe("Agent", () => {
 			const subLines = subContent.trim().split("\n");
 			const subFirstEvent = JSON.parse(subLines[0]!);
 			expect(subFirstEvent.kind).toBe("session_start");
-			expect(subFirstEvent.agent_id).toBe("leaf");
+			// Child agent uses the parent-assigned child_id (a ULID) as its agent_id
+			expect(subFirstEvent.agent_id).toHaveLength(26);
 		} finally {
 			await rm(tempDir, { recursive: true, force: true });
 		}
@@ -3369,5 +3370,86 @@ describe("Agent", () => {
 		// The same handle_id should have been passed to the spawner
 		expect(spawnCalls).toHaveLength(1);
 		expect(spawnCalls[0]!.handleId).toBe(actStart!.data.handle_id as string);
+	});
+
+	test("delegation emits child_id in act_start/act_end and child uses it as agent_id", async () => {
+		const delegateMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-child-id-1",
+						name: "delegate",
+						arguments: JSON.stringify({ agent_name: "leaf", goal: "do it" }),
+					},
+				},
+			],
+		};
+		const subDoneMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "Done." }],
+		};
+		const rootDoneMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "All done." }],
+		};
+
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				const msg = callCount === 1 ? delegateMsg : callCount === 2 ? subDoneMsg : rootDoneMsg;
+				return {
+					id: `mock-cid-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: msg,
+					finish_reason: { reason: callCount === 1 ? "tool_calls" : "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: rootSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [rootSpec, leafSpec],
+			depth: 0,
+			events,
+		});
+
+		await agent.run("delegate something");
+		const collected = events.collected();
+
+		// act_start must have child_id
+		const actStart = collected.find(
+			(e) => e.kind === "act_start" && e.data.agent_name === "leaf",
+		);
+		expect(actStart).toBeDefined();
+		const childId = actStart!.data.child_id as string;
+		expect(childId).toBeDefined();
+		expect(childId).toHaveLength(26); // ULID length
+
+		// act_end must have same child_id
+		const actEnd = collected.find(
+			(e) => e.kind === "act_end" && e.data.agent_name === "leaf" && e.data.success === true,
+		);
+		expect(actEnd).toBeDefined();
+		expect(actEnd!.data.child_id).toBe(childId);
+
+		// Child's own events use child_id as agent_id
+		const childPerceive = collected.find(
+			(e) => e.kind === "perceive" && e.depth === 1,
+		);
+		expect(childPerceive).toBeDefined();
+		expect(childPerceive!.agent_id).toBe(childId);
 	});
 });
