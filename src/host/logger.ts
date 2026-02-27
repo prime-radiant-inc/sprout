@@ -43,6 +43,7 @@ export interface Logger {
 	error(category: LogCategory, message: string, data?: Record<string, unknown>): void;
 	child(context: LogContext): Logger;
 	flush(): Promise<void>;
+	reconfigure(opts: { sessionId?: string; logPath?: string }): void;
 }
 
 export interface SessionLoggerOptions {
@@ -57,12 +58,12 @@ export interface SessionLoggerOptions {
 // ---------------------------------------------------------------------------
 
 export class SessionLogger implements Logger {
-	private readonly logPath: string;
-	private readonly context: Required<Pick<LogContext, "component">> & Omit<LogContext, "component">;
+	private logPath: string;
+	private context: Required<Pick<LogContext, "component">> & Omit<LogContext, "component">;
 	private readonly bus?: SessionBus;
 	/** Shared write chain — parent and all children append to the same chain. */
 	private writeChain: { promise: Promise<void> };
-	private dirCreated = false;
+	private dirCreated: { value: boolean };
 
 	constructor(options: SessionLoggerOptions);
 	constructor(
@@ -70,14 +71,14 @@ export class SessionLogger implements Logger {
 		context: Required<Pick<LogContext, "component">> & Omit<LogContext, "component">,
 		bus: SessionBus | undefined,
 		writeChain: { promise: Promise<void> },
-		dirCreated: boolean,
+		dirCreated: { value: boolean },
 	);
 	constructor(
 		optionsOrPath: SessionLoggerOptions | string,
 		context?: Required<Pick<LogContext, "component">> & Omit<LogContext, "component">,
 		bus?: SessionBus,
 		writeChain?: { promise: Promise<void> },
-		dirCreated?: boolean,
+		dirCreated?: { value: boolean },
 	) {
 		if (typeof optionsOrPath === "string") {
 			// Internal child constructor
@@ -95,6 +96,7 @@ export class SessionLogger implements Logger {
 			};
 			this.bus = optionsOrPath.bus;
 			this.writeChain = { promise: Promise.resolve() };
+			this.dirCreated = { value: false };
 		}
 	}
 
@@ -125,8 +127,19 @@ export class SessionLogger implements Logger {
 			merged as Required<Pick<LogContext, "component">> & Omit<LogContext, "component">,
 			this.bus,
 			this.writeChain,
-			this.dirCreated,
+			this.dirCreated, // Shared reference — parent and child share mkdir state
 		);
+	}
+
+	reconfigure(opts: { sessionId?: string; logPath?: string }): void {
+		if (opts.sessionId !== undefined) {
+			this.context.sessionId = opts.sessionId;
+		}
+		if (opts.logPath !== undefined) {
+			this.logPath = opts.logPath;
+			// New object so in-flight writes to the old path keep the old flag
+			this.dirCreated = { value: false };
+		}
 	}
 
 	async flush(): Promise<void> {
@@ -165,15 +178,18 @@ export class SessionLogger implements Logger {
 			}
 		}
 
-		// Append to disk via shared write chain
+		// Capture logPath and dirCreated at call time so reconfigure() between
+		// log() and the async write doesn't redirect in-flight entries.
+		const logPath = this.logPath;
+		const dirCreated = this.dirCreated;
 		const line = `${JSON.stringify(entry)}\n`;
 		this.writeChain.promise = this.writeChain.promise
 			.then(async () => {
-				if (!this.dirCreated) {
-					await mkdir(dirname(this.logPath), { recursive: true });
-					this.dirCreated = true;
+				if (!dirCreated.value) {
+					await mkdir(dirname(logPath), { recursive: true });
+					dirCreated.value = true;
 				}
-				await appendFile(this.logPath, line);
+				await appendFile(logPath, line);
 			})
 			.catch(() => {});
 	}
@@ -192,4 +208,5 @@ export class NullLogger implements Logger {
 		return this;
 	}
 	async flush(): Promise<void> {}
+	reconfigure(_opts: { sessionId?: string; logPath?: string }): void {}
 }

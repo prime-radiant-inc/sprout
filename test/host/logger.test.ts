@@ -126,6 +126,93 @@ describe("SessionLogger", () => {
 	});
 });
 
+describe("SessionLogger.reconfigure", () => {
+	let tempDir: string;
+
+	afterEach(async () => {
+		if (tempDir) await rm(tempDir, { recursive: true, force: true });
+	});
+
+	test("reconfigure updates sessionId and logPath for subsequent writes", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "logger-reconf-"));
+		const oldPath = join(tempDir, "old", "session.log.jsonl");
+		const newPath = join(tempDir, "new", "session.log.jsonl");
+
+		const logger = new SessionLogger({
+			logPath: oldPath,
+			component: "test",
+			sessionId: "sess-old",
+		});
+
+		logger.info("system", "before reconfigure");
+		logger.reconfigure({ sessionId: "sess-new", logPath: newPath });
+		logger.info("system", "after reconfigure");
+		await logger.flush();
+
+		const oldEntries = await readLogEntries(oldPath);
+		expect(oldEntries).toHaveLength(1);
+		expect(oldEntries[0]!.sessionId).toBe("sess-old");
+		expect(oldEntries[0]!.message).toBe("before reconfigure");
+
+		const newEntries = await readLogEntries(newPath);
+		expect(newEntries).toHaveLength(1);
+		expect(newEntries[0]!.sessionId).toBe("sess-new");
+		expect(newEntries[0]!.message).toBe("after reconfigure");
+	});
+
+	test("reconfigure with only sessionId keeps same logPath", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "logger-reconf-"));
+		const logPath = join(tempDir, "session.log.jsonl");
+
+		const logger = new SessionLogger({
+			logPath,
+			component: "test",
+			sessionId: "sess-1",
+		});
+
+		logger.info("system", "first");
+		logger.reconfigure({ sessionId: "sess-2" });
+		logger.info("system", "second");
+		await logger.flush();
+
+		const entries = await readLogEntries(logPath);
+		expect(entries).toHaveLength(2);
+		expect(entries[0]!.sessionId).toBe("sess-1");
+		expect(entries[1]!.sessionId).toBe("sess-2");
+	});
+});
+
+describe("SessionLogger shared dirCreated between parent and child", () => {
+	let tempDir: string;
+
+	afterEach(async () => {
+		if (tempDir) await rm(tempDir, { recursive: true, force: true });
+	});
+
+	test("child shares dirCreated flag with parent", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "logger-shared-"));
+		const logPath = join(tempDir, "nested", "session.log.jsonl");
+
+		const parent = new SessionLogger({
+			logPath,
+			component: "parent",
+			sessionId: "sess-1",
+		});
+		const child = parent.child({ component: "child" });
+
+		// Parent writes first (creates dir)
+		parent.info("system", "parent entry");
+		// Child writes second (should use same dir, no redundant mkdir)
+		child.info("system", "child entry");
+		await parent.flush();
+
+		const entries = await readLogEntries(logPath);
+		expect(entries).toHaveLength(2);
+		expect(entries[0]!.component).toBe("parent");
+		expect(entries[1]!.component).toBe("child");
+	});
+});
+
 describe("NullLogger", () => {
 	test("NullLogger methods are no-ops", async () => {
 		const logger = new NullLogger();
