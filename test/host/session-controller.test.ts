@@ -3,6 +3,7 @@ import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventBus } from "../../src/host/event-bus.ts";
+import { NullLogger } from "../../src/host/logger.ts";
 import { type AgentFactory, SessionController } from "../../src/host/session-controller.ts";
 import type { SessionMetadataSnapshot } from "../../src/host/session-metadata.ts";
 
@@ -100,6 +101,17 @@ describe("SessionController", () => {
 			sessionId: "01CUSTOM_SESSION_ID_26CH",
 		});
 		expect(controller.sessionId).toBe("01CUSTOM_SESSION_ID_26CH");
+	});
+
+	test("accepts optional logger", () => {
+		const bus = new EventBus();
+		const controller = new SessionController({
+			bus,
+			genomePath: join(tempDir, "genome"),
+			sessionsDir: join(tempDir, "sessions"),
+			logger: new NullLogger(),
+		});
+		expect(controller).toBeDefined();
 	});
 
 	test("isRunning is false initially", () => {

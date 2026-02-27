@@ -17,6 +17,8 @@ export interface WebServerOptions {
 	initialEvents?: SessionEvent[];
 	/** Available model names for the model selector. */
 	availableModels?: string[];
+	/** Structured logger for LLM call logging and diagnostics. */
+	logger?: import("../host/logger.ts").Logger;
 }
 
 type SessionStatus = "idle" | "running" | "interrupted";

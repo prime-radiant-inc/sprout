@@ -86,6 +86,8 @@ export interface LearnProcessOptions {
 	client?: Client;
 	pendingEvaluationsPath?: string;
 	modelsByProvider?: Map<string, string[]>;
+	/** Structured logger for LLM call logging and diagnostics. */
+	logger?: import("../host/logger.ts").Logger;
 }
 
 export interface EvaluationResult {

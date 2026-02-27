@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SessionLogger, type LogEntry } from "../../src/host/logger.ts";
+import { type LogEntry, SessionLogger } from "../../src/host/logger.ts";
 import { loggingMiddleware } from "../../src/llm/logging-middleware.ts";
 import type { Request, Response } from "../../src/llm/types.ts";
 import { ContentKind } from "../../src/llm/types.ts";
@@ -20,9 +20,7 @@ function makeRequest(overrides: Partial<Request> = {}): Request {
 	return {
 		model: "claude-sonnet-4-6",
 		provider: "anthropic",
-		messages: [
-			{ role: "user", content: [{ kind: ContentKind.TEXT, text: "hello" }] },
-		],
+		messages: [{ role: "user", content: [{ kind: ContentKind.TEXT, text: "hello" }] }],
 		tools: [
 			{ name: "read_file", description: "Read a file", parameters: {} },
 			{ name: "exec", description: "Execute command", parameters: {} },

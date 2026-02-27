@@ -49,6 +49,8 @@ export interface AgentFactoryOptions {
 		result: import("../bus/types.ts").ResultMessage;
 		ownerId: string;
 	}>;
+	/** Structured logger for LLM call logging and diagnostics. */
+	logger?: import("./logger.ts").Logger;
 }
 
 /** Result returned by the agent factory. */
@@ -85,6 +87,8 @@ export interface SessionControllerOptions {
 		result: import("../bus/types.ts").ResultMessage;
 		ownerId: string;
 	}>;
+	/** Structured logger for LLM call logging and diagnostics. */
+	logger?: import("./logger.ts").Logger;
 }
 
 /**
@@ -125,6 +129,7 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 		model: options.model,
 		spawner: options.spawner,
 		genome: options.genome,
+		logger: options.logger,
 	});
 
 	return {
@@ -161,6 +166,7 @@ export class SessionController {
 	private readonly spawner?: AgentSpawner;
 	private readonly genome?: import("../genome/genome.ts").Genome;
 	private readonly completedHandles?: SessionControllerOptions["completedHandles"];
+	private readonly logger?: import("./logger.ts").Logger;
 	private history: Message[] = [];
 	private running = false;
 	private modelOverride?: string;
@@ -182,6 +188,7 @@ export class SessionController {
 		this.spawner = options.spawner;
 		this.genome = options.genome;
 		this.completedHandles = options.completedHandles;
+		this.logger = options.logger;
 		this.history = options.initialHistory ? [...options.initialHistory] : [];
 
 		this.metadata = new SessionMetadata({
@@ -349,6 +356,7 @@ export class SessionController {
 				spawner: this.spawner,
 				genome: this.genome,
 				completedHandles: this.completedHandles,
+				logger: this.logger,
 			});
 
 			this.agent = result.agent;

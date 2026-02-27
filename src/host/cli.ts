@@ -419,6 +419,9 @@ export async function runCli(command: CliCommand): Promise<void> {
 	const bootstrapDir = join(import.meta.dir, "../../bootstrap");
 	const sessionsDir = join(command.genomePath, "sessions");
 
+	const { SessionLogger } = await import("./logger.ts");
+	const { loggingMiddleware } = await import("../llm/logging-middleware.ts");
+
 	if (command.kind === "oneshot") {
 		const sessionId = ulid();
 		const infra = await startBusInfrastructure({
@@ -427,6 +430,9 @@ export async function runCli(command: CliCommand): Promise<void> {
 		});
 
 		const bus = new EventBus();
+		const logPath = join(command.genomePath, "logs", sessionId, "session.log.jsonl");
+		const logger = new SessionLogger({ logPath, component: "cli", sessionId, bus });
+
 		const controller = new SessionController({
 			bus,
 			genomePath: command.genomePath,
@@ -435,6 +441,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 			sessionId,
 			spawner: infra.spawner,
 			genome: infra.genome,
+			logger,
 		});
 
 		bus.onEvent((event) => {
@@ -538,6 +545,9 @@ export async function runCli(command: CliCommand): Promise<void> {
 	});
 
 	const bus = new EventBus();
+	const logPath = join(command.genomePath, "logs", sessionId, "session.log.jsonl");
+	const logger = new SessionLogger({ logPath, component: "cli", sessionId, bus });
+
 	const controller = new SessionController({
 		bus,
 		genomePath: command.genomePath,
@@ -548,12 +558,13 @@ export async function runCli(command: CliCommand): Promise<void> {
 		spawner: infra.spawner,
 		genome: infra.genome,
 		completedHandles: resumeCompletedHandles,
+		logger,
 	});
 
 	// Fetch available models from provider APIs
 	const { getAvailableModels } = await import("../agents/model-resolver.ts");
 	const { Client } = await import("../llm/client.ts");
-	const llmClient = Client.fromEnv();
+	const llmClient = Client.fromEnv({ middleware: [loggingMiddleware(logger)] });
 	const modelsByProvider = await llmClient.listModelsByProvider();
 	const availableModels = getAvailableModels(modelsByProvider);
 
@@ -572,6 +583,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 			hostname: webHost,
 			initialEvents: resumeEvents,
 			availableModels,
+			logger,
 		});
 		await webServer.start();
 		const displayHost = webHost ?? "localhost";
@@ -685,6 +697,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 									staticDir,
 									sessionId,
 									availableModels,
+									logger,
 								});
 								await webServer.start();
 								bus.emitEvent("warning", "cli", 0, {

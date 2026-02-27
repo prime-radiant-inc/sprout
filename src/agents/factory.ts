@@ -37,6 +37,8 @@ export interface CreateAgentOptions {
 	spawner?: AgentSpawner;
 	/** Pre-loaded Genome instance. If provided, skips loading from disk. */
 	genome?: Genome;
+	/** Structured logger for LLM call logging and diagnostics. */
+	logger?: import("../host/logger.ts").Logger;
 }
 
 export interface CreateAgentResult {
@@ -111,6 +113,7 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 		client,
 		pendingEvaluationsPath,
 		modelsByProvider,
+		logger: options.logger,
 	});
 
 	const sessionId = options.sessionId ?? ulid();
@@ -135,6 +138,7 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 		genomePostscripts,
 		spawner: options.spawner,
 		genomePath: options.genomePath,
+		logger: options.logger,
 	});
 
 	const resolved = agent.resolvedModel;
