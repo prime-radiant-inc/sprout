@@ -114,6 +114,30 @@ describe("groupEvents", () => {
 			expect(result[2]!.isFirstInGroup).toBe(true);
 			expect(result[2]!.isLastInGroup).toBe(true);
 		});
+
+		test("exactly 60 seconds between events does NOT break the group", () => {
+			const events: SessionEvent[] = [
+				makeEvent("plan_end", { text: "a" }, { timestamp: 1000 }),
+				makeEvent("plan_end", { text: "b" }, { timestamp: 61000 }),
+			];
+			const result = groupEvents(events);
+			expect(result).toHaveLength(2);
+			// 61000 - 1000 = 60000ms exactly = not > 60_000
+			expect(result[0]!.isLastInGroup).toBe(false);
+			expect(result[1]!.isFirstInGroup).toBe(false);
+		});
+
+		test("61 seconds between events DOES break the group", () => {
+			const events: SessionEvent[] = [
+				makeEvent("plan_end", { text: "a" }, { timestamp: 1000 }),
+				makeEvent("plan_end", { text: "b" }, { timestamp: 62000 }),
+			];
+			const result = groupEvents(events);
+			expect(result).toHaveLength(2);
+			// 62000 - 1000 = 61000ms > 60_000
+			expect(result[0]!.isLastInGroup).toBe(true);
+			expect(result[1]!.isFirstInGroup).toBe(true);
+		});
 	});
 
 	describe("standalone events", () => {
@@ -185,6 +209,26 @@ describe("groupEvents", () => {
 	});
 
 	describe("plan_delta accumulation", () => {
+		test("plan_delta events from different agents are tracked independently", () => {
+			const events: SessionEvent[] = [
+				makeEvent("plan_delta", { text: "hello " }, { agent_id: "agent-a", timestamp: 1001 }),
+				makeEvent("plan_delta", { text: "world " }, { agent_id: "agent-b", timestamp: 1002 }),
+				makeEvent("plan_delta", { text: "from A" }, { agent_id: "agent-a", timestamp: 1003 }),
+				makeEvent("plan_delta", { text: "from B" }, { agent_id: "agent-b", timestamp: 1004 }),
+			];
+			const result = groupEvents(events);
+
+			// Should have exactly 2 entries (one per agent, collapsed)
+			expect(result).toHaveLength(2);
+
+			const entryA = result.find((g) => g.event.agent_id === "agent-a");
+			const entryB = result.find((g) => g.event.agent_id === "agent-b");
+			expect(entryA).toBeTruthy();
+			expect(entryB).toBeTruthy();
+			expect(entryA!.streamingText).toBe("hello from A");
+			expect(entryB!.streamingText).toBe("world from B");
+		});
+
 		test("accumulates plan_delta text into streamingText", () => {
 			const events: SessionEvent[] = [
 				makeEvent("plan_start", {}, { timestamp: 1000 }),

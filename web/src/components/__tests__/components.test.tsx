@@ -980,10 +980,12 @@ describe("ConversationView", () => {
 		expect(html).not.toContain("root goal");
 	});
 
-	test("renders empty state when no events", () => {
+	test("renders empty container when no events", () => {
 		const tree = buildAgentTree([]);
 		const html = renderToStaticMarkup(<ConversationView events={[]} tree={tree} />);
-		expect(html).toBeDefined();
+		// Should render the container div but with no event children or streaming banner
+		expect(html).toContain("div");
+		expect(html).not.toContain("is responding");
 	});
 
 	test("accumulates plan_delta text into a single streaming message", () => {
