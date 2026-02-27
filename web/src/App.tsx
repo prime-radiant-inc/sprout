@@ -14,8 +14,8 @@ import { useWebSocket } from "./hooks/useWebSocket.ts";
 const WS_URL = import.meta.env.VITE_WS_URL || `ws://${window.location.host}`;
 
 export function App() {
-	const { connected, lastMessage, send } = useWebSocket(WS_URL);
-	const { events, status, sendCommand } = useEvents(lastMessage, send);
+	const { connected, send, onMessage } = useWebSocket(WS_URL);
+	const { events, status, sendCommand } = useEvents(onMessage, send);
 	const { tree, selectedAgent, setSelectedAgent } = useAgentTree(events);
 
 	const [sidebarOpen, setSidebarOpen] = useState(true);

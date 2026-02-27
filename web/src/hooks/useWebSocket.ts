@@ -1,4 +1,4 @@
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 import type { ServerMessage } from "../../../src/web/protocol.ts";
 
 type MessageListener = (msg: ServerMessage) => void;
@@ -206,9 +206,16 @@ export function useWebSocket(url: string) {
 		};
 	}, [client]);
 
+	const onMessage = useCallback(
+		(listener: (msg: ServerMessage) => void) => client.onMessage(listener),
+		[client],
+	);
+
 	return {
 		connected: state.connected,
 		lastMessage: state.lastMessage,
 		send: (msg: object) => client.send(msg),
+		/** Subscribe to every incoming message (no batching/dropping). */
+		onMessage,
 	};
 }

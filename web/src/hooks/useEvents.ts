@@ -146,7 +146,7 @@ interface UseEventsResult {
  * Takes the WebSocket hook's output as input.
  */
 export function useEvents(
-	lastMessage: ServerMessage | null,
+	onMessage: (listener: (msg: ServerMessage) => void) => () => void,
 	send: (msg: object) => void,
 ): UseEventsResult {
 	const storeRef = useRef<EventStore | null>(null);
@@ -155,16 +155,14 @@ export function useEvents(
 	}
 	const store = storeRef.current;
 
-	// Track which message we've already processed
-	const processedRef = useRef<ServerMessage | null>(null);
-
-	// Process new messages
+	// Subscribe directly to the WebSocket message stream.
+	// This ensures EVERY message is processed, even when multiple arrive
+	// between React renders (which would drop messages via lastMessage).
 	useEffect(() => {
-		if (lastMessage && lastMessage !== processedRef.current) {
-			processedRef.current = lastMessage;
-			store.processMessage(lastMessage);
-		}
-	}, [lastMessage, store]);
+		return onMessage((msg) => {
+			store.processMessage(msg);
+		});
+	}, [onMessage, store]);
 
 	// Snapshot for useSyncExternalStore
 	const snapshotRef = useRef({ events: store.events, status: store.status });
