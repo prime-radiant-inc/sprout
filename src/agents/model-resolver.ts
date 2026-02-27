@@ -23,6 +23,19 @@ const MODEL_TIERS: Record<string, Record<string, string>> = {
 
 const PROVIDER_PRIORITY = ["anthropic", "openai", "gemini"];
 
+/** Returns tier names plus concrete model IDs available for the given providers (deduped). */
+export function getAvailableModels(providers: string[]): string[] {
+	const tiers = Object.keys(MODEL_TIERS);
+	const models = new Set<string>();
+	for (const tier of Object.values(MODEL_TIERS)) {
+		for (const provider of providers) {
+			const model = tier[provider];
+			if (model) models.add(model);
+		}
+	}
+	return [...tiers, ...models];
+}
+
 export function detectProvider(model: string): string | undefined {
 	if (model.startsWith("claude-")) return "anthropic";
 	if (model.startsWith("gpt-") || model.startsWith("o1-") || model.startsWith("o3-"))

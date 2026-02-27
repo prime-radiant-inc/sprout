@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { detectProvider, resolveModel } from "../../src/agents/model-resolver.ts";
+import { detectProvider, getAvailableModels, resolveModel } from "../../src/agents/model-resolver.ts";
 
 describe("detectProvider", () => {
 	test("detects anthropic from claude model", () => {
@@ -90,5 +90,42 @@ describe("resolveModel", () => {
 
 	test("throws if concrete model provider not available", () => {
 		expect(() => resolveModel("claude-opus-4-6", ["openai"])).toThrow();
+	});
+});
+
+describe("getAvailableModels", () => {
+	test("returns tier names plus concrete models for given providers", () => {
+		const models = getAvailableModels(["anthropic"]);
+		expect(models).toContain("best");
+		expect(models).toContain("balanced");
+		expect(models).toContain("fast");
+		expect(models).toContain("claude-opus-4-6");
+		expect(models).toContain("claude-sonnet-4-6");
+		expect(models).toContain("claude-haiku-4-5-20251001");
+		expect(models).not.toContain("gpt-4.1");
+		expect(models).not.toContain("gemini-2.5-pro");
+	});
+
+	test("collects models from multiple providers, deduped", () => {
+		const models = getAvailableModels(["anthropic", "openai"]);
+		expect(models).toContain("claude-opus-4-6");
+		expect(models).toContain("gpt-4.1");
+		expect(models).toContain("gpt-4.1-mini");
+		// gpt-4.1 appears in both "best" and "balanced" tiers — should not be duplicated
+		const gpt41Count = models.filter((m) => m === "gpt-4.1").length;
+		expect(gpt41Count).toBe(1);
+	});
+
+	test("returns only tier names when no providers given", () => {
+		const models = getAvailableModels([]);
+		expect(models).toEqual(["best", "balanced", "fast"]);
+	});
+
+	test("includes all providers when all are available", () => {
+		const models = getAvailableModels(["anthropic", "openai", "gemini"]);
+		expect(models).toContain("claude-opus-4-6");
+		expect(models).toContain("gpt-4.1");
+		expect(models).toContain("gemini-2.5-pro");
+		expect(models).toContain("gemini-2.5-flash");
 	});
 });
