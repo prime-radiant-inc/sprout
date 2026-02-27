@@ -1,6 +1,7 @@
 import {
 	type KeyboardEvent,
 	type ChangeEvent,
+	type RefObject,
 	useCallback,
 	useEffect,
 	useRef,
@@ -14,6 +15,8 @@ export interface InputAreaProps {
 	onSubmit: (text: string) => void;
 	onSlashCommand: (cmd: SlashCommand) => void;
 	onSteer: (text: string) => void;
+	/** Optional external ref for focusing the textarea from outside. */
+	textareaRef?: RefObject<HTMLTextAreaElement | null>;
 }
 
 const HISTORY_KEY = "sprout-input-history";
@@ -44,11 +47,13 @@ export function InputArea({
 	onSubmit,
 	onSlashCommand,
 	onSteer,
+	textareaRef: externalRef,
 }: InputAreaProps) {
 	const [value, setValue] = useState("");
 	const [historyIndex, setHistoryIndex] = useState(-1);
 	const [draft, setDraft] = useState("");
-	const textareaRef = useRef<HTMLTextAreaElement>(null);
+	const internalRef = useRef<HTMLTextAreaElement>(null);
+	const textareaRef = externalRef ?? internalRef;
 	const historyRef = useRef<string[]>(loadHistory());
 
 	// Auto-resize textarea to content, max 10 lines

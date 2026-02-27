@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SlashCommand } from "../../src/tui/slash-commands.ts";
 import styles from "./App.module.css";
-import { AgentTree } from "./components/AgentTree.tsx";
 import { Breadcrumb } from "./components/Breadcrumb.tsx";
 import { ConversationView } from "./components/ConversationView.tsx";
 import { InputArea } from "./components/InputArea.tsx";
+import { Sidebar } from "./components/Sidebar.tsx";
 import { StatusBar } from "./components/StatusBar.tsx";
 import { useAgentTree } from "./hooks/useAgentTree.ts";
 import { useEvents } from "./hooks/useEvents.ts";
+import { useFaviconStatus } from "./hooks/useFaviconStatus.ts";
+import { handleKeyboardShortcut } from "./hooks/useKeyboardShortcuts.ts";
 import { useWebSocket } from "./hooks/useWebSocket.ts";
 
 const WS_URL = import.meta.env.VITE_WS_URL || `ws://${window.location.host}`;
@@ -18,6 +20,10 @@ export function App() {
 	const { tree, selectedAgent, setSelectedAgent } = useAgentTree(events);
 
 	const [sidebarOpen, setSidebarOpen] = useState(true);
+	const inputRef = useRef<HTMLTextAreaElement>(null);
+
+	// Update favicon based on session status
+	useFaviconStatus(status.status);
 
 	// Auto-scroll: track whether user has scrolled up
 	const conversationRef = useRef<HTMLDivElement>(null);
@@ -51,18 +57,12 @@ export function App() {
 	// Keyboard shortcuts
 	useEffect(() => {
 		const handleKeyDown = (e: KeyboardEvent) => {
-			// Ctrl+/ toggles sidebar
-			if (e.ctrlKey && e.key === "/") {
-				e.preventDefault();
-				setSidebarOpen((prev) => !prev);
-			}
-			// Escape clears agent filter (but not when typing in an input)
-			if (e.key === "Escape") {
-				const tag = (e.target as HTMLElement).tagName;
-				if (tag !== "INPUT" && tag !== "TEXTAREA") {
-					setSelectedAgent(null);
-				}
-			}
+			const handled = handleKeyboardShortcut(e, {
+				toggleSidebar: () => setSidebarOpen((prev) => !prev),
+				clearFilter: () => setSelectedAgent(null),
+				focusInput: () => inputRef.current?.focus(),
+			});
+			if (handled) e.preventDefault();
 		};
 		document.addEventListener("keydown", handleKeyDown);
 		return () => document.removeEventListener("keydown", handleKeyDown);
@@ -143,11 +143,14 @@ export function App() {
 			>
 				{sidebarOpen && (
 					<aside className={styles.sidebar} data-region="sidebar">
-						<AgentTree
+						<Sidebar
+							status={status}
 							tree={tree}
 							selectedAgent={selectedAgent}
 							onSelectAgent={setSelectedAgent}
+							collapsed={!sidebarOpen}
 							onToggle={toggleSidebar}
+							events={events}
 						/>
 					</aside>
 				)}
@@ -181,6 +184,7 @@ export function App() {
 				onSubmit={handleSubmit}
 				onSlashCommand={handleSlashCommand}
 				onSteer={handleSteer}
+				textareaRef={inputRef}
 			/>
 		</div>
 	);

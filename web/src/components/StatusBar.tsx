@@ -8,8 +8,15 @@ export interface StatusBarProps {
 	onInterrupt?: () => void;
 }
 
-/** Status bar showing context, turns, I/O tokens, model, session ID, and connection state. */
-export function StatusBar({ status, connected }: StatusBarProps) {
+/** Determine context pressure bar color based on usage percentage. */
+function pressureColor(percent: number): string {
+	if (percent >= 85) return "var(--color-error)";
+	if (percent >= 60) return "var(--color-warning)";
+	return "var(--color-success)";
+}
+
+/** Top command bar showing context pressure, cost, model, session controls. */
+export function StatusBar({ status, connected, onInterrupt }: StatusBarProps) {
 	const {
 		contextTokens,
 		contextWindowSize,
@@ -23,7 +30,8 @@ export function StatusBar({ status, connected }: StatusBarProps) {
 
 	const pressure =
 		contextWindowSize > 0 ? contextTokens / contextWindowSize : 0;
-	const percentStr = `${Math.round(pressure * 100)}%`;
+	const percentRound = Math.round(pressure * 100);
+	const percentStr = `${percentRound}%`;
 	const turnLabel = `${turns} ${turns === 1 ? "turn" : "turns"}`;
 
 	const handleCopySessionId = () => {
@@ -34,31 +42,67 @@ export function StatusBar({ status, connected }: StatusBarProps) {
 
 	return (
 		<div className={styles.statusBar}>
-			<span className={styles.connectionDot} data-connected={String(connected)} />
-			<span className={styles.section}>
-				ctx: {formatTokens(contextTokens)}/{formatTokens(contextWindowSize)} ({percentStr})
-			</span>
-			<span className={styles.separator}>{"\u2502"}</span>
-			<span className={styles.section}>{turnLabel}</span>
-			{runStatus === "running" && (
-				<>
-					<span className={styles.separator}>{"\u2502"}</span>
-					<span className={styles.section}>
+			{/* Left group */}
+			<div className={styles.leftGroup}>
+				<span className={styles.connectionDot} data-connected={String(connected)} />
+				<div
+					className={styles.pressureBarTrack}
+					data-testid="context-pressure-bar"
+				>
+					<div
+						className={styles.pressureBarFill}
+						style={{
+							width: percentStr,
+							background: pressureColor(percentRound),
+						}}
+					/>
+				</div>
+				<span>
+					{formatTokens(contextTokens)}/{formatTokens(contextWindowSize)} {percentStr}
+				</span>
+				<span>{turnLabel}</span>
+				<span>$0.00</span>
+				{runStatus === "running" && (
+					<span>
 						{"\u2191"}{formatTokens(inputTokens)} {"\u2193"}{formatTokens(outputTokens)}
 					</span>
-				</>
-			)}
+				)}
+			</div>
+
 			<span className={styles.spacer} />
-			<span className={styles.section}>{shortModelName(model)}</span>
-			<span className={styles.separator}>{"\u2502"}</span>
-			<span
-				className={styles.sessionId}
-				data-action="copy-session-id"
-				onClick={handleCopySessionId}
-				title="Click to copy session ID"
-			>
-				{sessionId}
-			</span>
+
+			{/* Right group */}
+			<div className={styles.rightGroup}>
+				<span>{shortModelName(model)}</span>
+				{runStatus === "running" && (
+					<>
+						<button
+							type="button"
+							className={styles.iconButton}
+							onClick={onInterrupt}
+							title="Pause"
+						>
+							{"\u23F8"}
+						</button>
+						<button
+							type="button"
+							className={styles.iconButton}
+							onClick={onInterrupt}
+							title="Stop"
+						>
+							{"\u23F9"}
+						</button>
+					</>
+				)}
+				<span
+					className={styles.sessionId}
+					data-action="copy-session-id"
+					onClick={handleCopySessionId}
+					title="Click to copy session ID"
+				>
+					{sessionId}
+				</span>
+			</div>
 		</div>
 	);
 }

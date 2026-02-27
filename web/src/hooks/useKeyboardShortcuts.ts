@@ -31,9 +31,3 @@ export function handleKeyboardShortcut(event: KeyboardEvent, actions: ShortcutAc
 	return false;
 }
 
-/** Hook that registers keyboard shortcuts. */
-export function useKeyboardShortcuts(actions: ShortcutActions): void {
-	if (typeof document === "undefined") return;
-	// The actual useEffect hook will be wired in App.tsx
-	// This module exports the pure handler for testability
-}
