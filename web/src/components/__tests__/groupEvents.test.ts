@@ -306,6 +306,7 @@ describe("groupEvents", () => {
 				makeEvent("verify", { success: true }),
 				makeEvent("learn_signal", { signal: "positive" }),
 				makeEvent("learn_end", {}),
+				makeEvent("log", { level: "info", message: "test" }),
 				makeEvent("perceive", { goal: "visible" }),
 			];
 			const result = groupEvents(events);

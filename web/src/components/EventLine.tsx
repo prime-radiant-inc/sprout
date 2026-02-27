@@ -180,6 +180,7 @@ export function EventLine({ event, durationMs, streamingText, isFirstInGroup, ag
 		case "verify":
 		case "learn_signal":
 		case "learn_end":
+		case "log":
 			return null;
 
 		default:
