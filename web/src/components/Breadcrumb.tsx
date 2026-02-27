@@ -4,30 +4,29 @@ import styles from "./Breadcrumb.module.css";
 interface BreadcrumbProps {
 	tree: AgentTreeNode;
 	selectedAgent: string | null;
+	onSelectAgent?: (agentId: string | null) => void;
 }
 
-/**
- * Find the path from root to the node with the given agentId.
- * Returns the list of agent names along the path, or null if not found.
- */
-function findPath(
-	node: AgentTreeNode,
-	targetId: string,
-): string[] | null {
+interface PathSegment {
+	name: string;
+	agentId: string;
+}
+
+function findPath(node: AgentTreeNode, targetId: string): PathSegment[] | null {
 	if (node.agentId === targetId) {
-		return [node.agentName];
+		return [{ name: node.agentName, agentId: node.agentId }];
 	}
 	for (const child of node.children) {
 		const childPath = findPath(child, targetId);
 		if (childPath) {
-			return [node.agentName, ...childPath];
+			return [{ name: node.agentName, agentId: node.agentId }, ...childPath];
 		}
 	}
 	return null;
 }
 
 /** Breadcrumb trail showing the path to the selected agent. */
-export function Breadcrumb({ tree, selectedAgent }: BreadcrumbProps) {
+export function Breadcrumb({ tree, selectedAgent, onSelectAgent }: BreadcrumbProps) {
 	if (!selectedAgent) return null;
 
 	const path = findPath(tree, selectedAgent);
@@ -35,12 +34,18 @@ export function Breadcrumb({ tree, selectedAgent }: BreadcrumbProps) {
 
 	return (
 		<nav className={styles.breadcrumb}>
-			{path.map((name, i) => (
-				<span key={i}>
+			{path.map((seg, i) => (
+				<span key={seg.agentId}>
 					{i > 0 && (
 						<span className={styles.separator}>{"\u203A"}</span>
 					)}
-					<span className={styles.segment}>{name}</span>
+					<button
+						type="button"
+						className={styles.segment}
+						onClick={() => onSelectAgent?.(i === 0 ? null : seg.agentId)}
+					>
+						{seg.name}
+					</button>
 				</span>
 			))}
 		</nav>

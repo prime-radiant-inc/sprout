@@ -16,6 +16,11 @@
 
 .segment {
 	color: var(--color-text-secondary);
+	background: none;
+	border: none;
+	cursor: pointer;
+	font: inherit;
+	padding: 0;
 }
 
 .segment:hover {

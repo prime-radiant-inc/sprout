@@ -57,7 +57,7 @@ describe("Sidebar", () => {
 				tree={makeNode()}
 				selectedAgent={null}
 				onSelectAgent={() => {}}
-				collapsed={false}
+
 				onToggle={() => {}}
 				events={[]}
 			/>,
@@ -75,7 +75,7 @@ describe("Sidebar", () => {
 				tree={makeNode()}
 				selectedAgent={null}
 				onSelectAgent={() => {}}
-				collapsed={false}
+
 				onToggle={() => {}}
 				events={[]}
 			/>,
@@ -90,7 +90,7 @@ describe("Sidebar", () => {
 				tree={makeNode()}
 				selectedAgent={null}
 				onSelectAgent={() => {}}
-				collapsed={false}
+
 				onToggle={() => {}}
 				events={[]}
 			/>,

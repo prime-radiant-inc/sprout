@@ -10,7 +10,6 @@ export interface SidebarProps {
 	tree: AgentTreeNode;
 	selectedAgent: string | null;
 	onSelectAgent: (agentId: string | null) => void;
-	collapsed: boolean;
 	onToggle: () => void;
 	events: SessionEvent[];
 }
@@ -21,7 +20,6 @@ export function Sidebar({
 	tree,
 	selectedAgent,
 	onSelectAgent,
-	collapsed,
 	onToggle,
 	events,
 }: SidebarProps) {
