@@ -74,11 +74,6 @@ describe("ThreadPanel status badge", () => {
 
 	test("status badge appears in the header, not in the body", () => {
 		const html = renderPanel(makeTree("completed"));
-		// The header region ends before data-region="thread-panel" body.
-		// Check that the checkmark appears before the ConversationView section.
-		const headerEnd = html.indexOf("</header>") !== -1
-			? html.indexOf("</header>")
-			: html.indexOf("data-region=\"thread-panel\"");
 		// At minimum, the status icon should appear near the agent name
 		const checkmarkIdx = html.indexOf("\u2713");
 		const agentNameIdx = html.indexOf("code-editor");

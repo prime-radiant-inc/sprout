@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { SessionStatus } from "../../hooks/useEvents.ts";
 import { StatusBar } from "../StatusBar.tsx";
