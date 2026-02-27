@@ -6,7 +6,6 @@ import { Breadcrumb } from "./components/Breadcrumb.tsx";
 import { ConversationView } from "./components/ConversationView.tsx";
 import { InputArea } from "./components/InputArea.tsx";
 import { StatusBar } from "./components/StatusBar.tsx";
-import { shortModelName } from "./components/format.ts";
 import { useAgentTree } from "./hooks/useAgentTree.ts";
 import { useEvents } from "./hooks/useEvents.ts";
 import { useWebSocket } from "./hooks/useWebSocket.ts";
@@ -122,32 +121,28 @@ export function App() {
 		[sendCommand],
 	);
 
+	// Interrupt
+	const handleInterrupt = useCallback(() => {
+		sendCommand({ kind: "interrupt", data: {} });
+	}, [sendCommand]);
+
 	const isRunning = status.status === "running";
-	const sessionIdShort = status.sessionId
-		? status.sessionId.slice(0, 8)
-		: "";
 
 	return (
-		<div className={styles.layout}>
-			<header className={styles.header}>
-				<span className={styles.logo}>[sprout]</span>
-				<span className={styles.headerRight}>
-					{status.model && (
-						<span className={styles.model}>
-							{shortModelName(status.model)}
-						</span>
-					)}
-					{sessionIdShort && (
-						<span className={styles.sessionId}>
-							{sessionIdShort}
-						</span>
-					)}
-				</span>
-			</header>
+		<div className={styles.app} data-region="app">
+			<StatusBar
+				status={status}
+				connected={connected}
+				onInterrupt={handleInterrupt}
+			/>
 
-			<div className={styles.body}>
+			<div
+				className={styles.body}
+				data-region="body"
+				data-sidebar-open={String(sidebarOpen)}
+			>
 				{sidebarOpen && (
-					<aside className={styles.sidebar}>
+					<aside className={styles.sidebar} data-region="sidebar">
 						<AgentTree
 							tree={tree}
 							selectedAgent={selectedAgent}
@@ -157,19 +152,18 @@ export function App() {
 					</aside>
 				)}
 
-				<div className={styles.main}>
+				<main
+					ref={conversationRef}
+					className={styles.conversation}
+					data-region="conversation"
+					onScroll={handleScroll}
+				>
 					<Breadcrumb tree={tree} selectedAgent={selectedAgent} />
-					<div
-						ref={conversationRef}
-						className={styles.conversation}
-						onScroll={handleScroll}
-					>
-						<ConversationView
-							events={events}
-							agentFilter={selectedAgent}
-							tree={tree}
-						/>
-					</div>
+					<ConversationView
+						events={events}
+						agentFilter={selectedAgent}
+						tree={tree}
+					/>
 					{userScrolledUp && (
 						<button
 							type="button"
@@ -179,18 +173,15 @@ export function App() {
 							Jump to bottom
 						</button>
 					)}
-				</div>
+				</main>
 			</div>
 
-			<footer className={styles.footer}>
-				<StatusBar status={status} connected={connected} />
-				<InputArea
-					isRunning={isRunning}
-					onSubmit={handleSubmit}
-					onSlashCommand={handleSlashCommand}
-					onSteer={handleSteer}
-				/>
-			</footer>
+			<InputArea
+				isRunning={isRunning}
+				onSubmit={handleSubmit}
+				onSlashCommand={handleSlashCommand}
+				onSteer={handleSteer}
+			/>
 		</div>
 	);
 }

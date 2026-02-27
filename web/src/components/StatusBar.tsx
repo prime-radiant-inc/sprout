@@ -5,6 +5,7 @@ import styles from "./StatusBar.module.css";
 export interface StatusBarProps {
 	status: SessionStatus;
 	connected: boolean;
+	onInterrupt?: () => void;
 }
 
 /** Status bar showing context, turns, I/O tokens, model, session ID, and connection state. */
