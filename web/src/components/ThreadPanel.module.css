@@ -24,6 +24,12 @@
 	min-width: 0;
 }
 
+.nameRow {
+	display: flex;
+	align-items: baseline;
+	gap: var(--space-sm);
+}
+
 .agentName {
 	font-family: var(--font-mono);
 	font-size: var(--font-size-sm);
@@ -57,4 +63,30 @@
 .body {
 	flex: 1;
 	overflow-y: auto;
+}
+
+.statusCompleted {
+	color: var(--color-completed);
+	font-size: var(--font-size-sm);
+}
+
+.statusFailed {
+	color: var(--color-failed);
+	font-size: var(--font-size-sm);
+}
+
+.statusRunning {
+	color: var(--color-running);
+	font-size: var(--font-size-sm);
+	animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+	0%,
+	100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.3;
+	}
 }

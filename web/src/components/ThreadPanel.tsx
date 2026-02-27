@@ -4,6 +4,18 @@ import type { AgentTreeNode } from "../hooks/useAgentTree.ts";
 import { ConversationView } from "./ConversationView.tsx";
 import styles from "./ThreadPanel.module.css";
 
+const statusIcons: Record<AgentTreeNode["status"], string> = {
+	completed: "\u2713",
+	failed: "\u2717",
+	running: "\u25CF",
+};
+
+const statusClasses: Record<AgentTreeNode["status"], string | undefined> = {
+	completed: styles.statusCompleted,
+	failed: styles.statusFailed,
+	running: styles.statusRunning,
+};
+
 interface ThreadPanelProps {
 	agentId: string;
 	tree: AgentTreeNode;
@@ -21,7 +33,14 @@ export function ThreadPanel({ agentId, tree, events, onClose, onSelectAgent }: T
 		<div className={styles.panel} data-region="thread-panel">
 			<div className={styles.header}>
 				<div className={styles.headerInfo}>
-					<span className={styles.agentName}>{agentName}</span>
+					<div className={styles.nameRow}>
+						<span className={styles.agentName}>{agentName}</span>
+						{node && (
+							<span className={statusClasses[node.status]} data-status={node.status}>
+								{statusIcons[node.status]}
+							</span>
+						)}
+					</div>
 					<span className={styles.goal}>{goal}</span>
 				</div>
 				<button
