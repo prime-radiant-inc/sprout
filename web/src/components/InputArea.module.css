@@ -21,7 +21,7 @@
 	padding: var(--space-sm) var(--space-md);
 	resize: none;
 	overflow-y: auto;
-	max-height: calc(23px * 10);
+	max-height: calc(var(--font-size-base) * var(--line-height) * 10);
 }
 
 .textarea:focus {

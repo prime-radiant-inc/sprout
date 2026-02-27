@@ -47,7 +47,7 @@ function durationKey(event: SessionEvent): string | null {
 }
 
 /** Build a flat agentId-to-agentName map from the agent tree. */
-function buildNameMap(node: AgentTreeNode): Map<string, string> {
+export function buildNameMap(node: AgentTreeNode): Map<string, string> {
 	const map = new Map<string, string>();
 	function walk(n: AgentTreeNode) {
 		map.set(n.agentId, n.agentName);

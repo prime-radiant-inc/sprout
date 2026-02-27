@@ -63,8 +63,8 @@ export function InputArea({
 		const el = textareaRef.current;
 		if (!el) return;
 		el.style.height = "auto";
-		// 10 lines x ~23px (15px font x 1.5 line-height)
-		const maxHeight = 10 * 23;
+		const lineHeight = parseFloat(getComputedStyle(el).lineHeight) || 23;
+		const maxHeight = 10 * lineHeight;
 		el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
 	}, [textareaRef]);
 

@@ -1,8 +1,7 @@
 import { useMemo } from "react";
 import type { SessionEvent } from "../../../src/kernel/types.ts";
-import type { AgentTreeNode } from "../hooks/useAgentTree.ts";
 import { EventLine } from "./EventLine.tsx";
-import { groupEvents } from "./groupEvents.ts";
+import { buildNameMap, groupEvents } from "./groupEvents.ts";
 import { StreamingBanner } from "./StreamingBanner.tsx";
 import styles from "./ConversationView.module.css";
 
@@ -32,15 +31,7 @@ export function ConversationView({
 	const streamingAgentName = useMemo(() => {
 		if (!isStreaming) return null;
 		const agentId = events[events.length - 1]!.agent_id;
-		function findName(node: AgentTreeNode): string | null {
-			if (node.agentId === agentId) return node.agentName;
-			for (const child of node.children) {
-				const found = findName(child);
-				if (found) return found;
-			}
-			return null;
-		}
-		return findName(tree) ?? agentId;
+		return buildNameMap(tree).get(agentId) ?? agentId;
 	}, [isStreaming, events, tree]);
 
 	return (
