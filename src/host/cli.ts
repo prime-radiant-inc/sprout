@@ -432,6 +432,8 @@ export async function runCli(command: CliCommand): Promise<void> {
 		const bus = new EventBus();
 		const logPath = join(command.genomePath, "logs", sessionId, "session.log.jsonl");
 		const logger = new SessionLogger({ logPath, component: "cli", sessionId, bus });
+		const { Client } = await import("../llm/client.ts");
+		const llmClient = Client.fromEnv({ middleware: [loggingMiddleware(logger)] });
 
 		const controller = new SessionController({
 			bus,
@@ -442,6 +444,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 			spawner: infra.spawner,
 			genome: infra.genome,
 			logger,
+			client: llmClient,
 		});
 
 		bus.onEvent((event) => {
@@ -547,6 +550,8 @@ export async function runCli(command: CliCommand): Promise<void> {
 	const bus = new EventBus();
 	const logPath = join(command.genomePath, "logs", sessionId, "session.log.jsonl");
 	const logger = new SessionLogger({ logPath, component: "cli", sessionId, bus });
+	const { Client } = await import("../llm/client.ts");
+	const llmClient = Client.fromEnv({ middleware: [loggingMiddleware(logger)] });
 
 	const controller = new SessionController({
 		bus,
@@ -559,12 +564,11 @@ export async function runCli(command: CliCommand): Promise<void> {
 		genome: infra.genome,
 		completedHandles: resumeCompletedHandles,
 		logger,
+		client: llmClient,
 	});
 
 	// Fetch available models from provider APIs
 	const { getAvailableModels } = await import("../agents/model-resolver.ts");
-	const { Client } = await import("../llm/client.ts");
-	const llmClient = Client.fromEnv({ middleware: [loggingMiddleware(logger)] });
 	const modelsByProvider = await llmClient.listModelsByProvider();
 	const availableModels = getAvailableModels(modelsByProvider);
 
