@@ -29,7 +29,19 @@ export function ConversationView({
 	);
 
 	const isStreaming = events.length > 0 && events[events.length - 1]?.kind === "plan_delta";
-	const streamingAgentId = isStreaming ? events[events.length - 1]!.agent_id : null;
+	const streamingAgentName = useMemo(() => {
+		if (!isStreaming) return null;
+		const agentId = events[events.length - 1]!.agent_id;
+		function findName(node: AgentTreeNode): string | null {
+			if (node.agentId === agentId) return node.agentName;
+			for (const child of node.children) {
+				const found = findName(child);
+				if (found) return found;
+			}
+			return null;
+		}
+		return findName(tree) ?? agentId;
+	}, [isStreaming, events, tree]);
 
 	return (
 		<div className={styles.conversationView}>
@@ -44,8 +56,8 @@ export function ConversationView({
 					onSelectAgent={onSelectAgent}
 				/>
 			))}
-			{isStreaming && streamingAgentId && (
-				<StreamingBanner agentName={streamingAgentId} />
+			{isStreaming && streamingAgentName && (
+				<StreamingBanner agentName={streamingAgentName} />
 			)}
 		</div>
 	);

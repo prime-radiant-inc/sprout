@@ -1060,6 +1060,22 @@ describe("ConversationView", () => {
 		);
 		expect(html).toContain("is responding");
 	});
+
+	test("StreamingBanner shows resolved agent name, not raw ID", () => {
+		const events: SessionEvent[] = [
+			makeEvent("act_start", { agent_name: "code-editor", goal: "edit" }, { agent_id: "ce-1", depth: 1 }),
+			makeEvent("plan_delta", { text: "thinking..." }, { agent_id: "ce-1", depth: 1, timestamp: 1000 }),
+		];
+		const tree = buildAgentTree(events);
+		const html = renderToStaticMarkup(
+			<ConversationView events={events} tree={tree} />,
+		);
+		expect(html).toContain("is responding");
+		// The StreamingBanner renders agentName in a span adjacent to "is responding".
+		// It should use the resolved name "code-editor", not the raw agent_id "ce-1".
+		expect(html).not.toMatch(/ce-1<\/span><span[^>]*>is responding/);
+		expect(html).toMatch(/code-editor<\/span><span[^>]*>is responding/);
+	});
 });
 
 // --- Breadcrumb ---
