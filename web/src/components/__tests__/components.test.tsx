@@ -9,6 +9,7 @@ import { EventLine } from "../EventLine.tsx";
 import { smartArgs } from "../format.ts";
 import { MarkdownBlock } from "../MarkdownBlock.tsx";
 import { SystemMessage } from "../SystemMessage.tsx";
+import { ThreadPanel } from "../ThreadPanel.tsx";
 import { ToolCall } from "../ToolCall.tsx";
 import { UserMessage } from "../UserMessage.tsx";
 import { ReadFileRenderer } from "../tools/ReadFileRenderer.tsx";
@@ -1107,6 +1108,61 @@ describe("ConversationView", () => {
 		);
 		expect(html).toContain("is responding");
 		expect(html).toContain("code-editor");
+	});
+});
+
+// --- ThreadPanel ---
+
+describe("ThreadPanel", () => {
+	test("renders header with agent name and close button", () => {
+		const tree = buildAgentTree([
+			makeEvent("perceive", { goal: "Go" }, { agent_id: "root", depth: 0 }),
+			makeEvent("act_start", { agent_name: "editor", goal: "Edit file", child_id: "CID1" }, { agent_id: "root", depth: 0 }),
+		]);
+		const html = renderToStaticMarkup(
+			<ThreadPanel
+				agentId="CID1"
+				tree={tree}
+				events={[]}
+				onClose={() => {}}
+				onSelectAgent={() => {}}
+			/>,
+		);
+		expect(html).toContain("editor");
+		expect(html).toContain("Edit file");
+		expect(html).toContain('data-action="close"');
+	});
+
+	test("renders thread-panel region", () => {
+		const tree = buildAgentTree([
+			makeEvent("perceive", { goal: "Go" }, { agent_id: "root", depth: 0 }),
+		]);
+		const html = renderToStaticMarkup(
+			<ThreadPanel
+				agentId="unknown"
+				tree={tree}
+				events={[]}
+				onClose={() => {}}
+				onSelectAgent={() => {}}
+			/>,
+		);
+		expect(html).toContain('data-region="thread-panel"');
+	});
+
+	test("falls back to agentId when node not found in tree", () => {
+		const tree = buildAgentTree([
+			makeEvent("perceive", { goal: "Go" }, { agent_id: "root", depth: 0 }),
+		]);
+		const html = renderToStaticMarkup(
+			<ThreadPanel
+				agentId="missing-agent"
+				tree={tree}
+				events={[]}
+				onClose={() => {}}
+				onSelectAgent={() => {}}
+			/>,
+		);
+		expect(html).toContain("missing-agent");
 	});
 });
 

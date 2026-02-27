@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SlashCommand } from "../../src/tui/slash-commands.ts";
 import styles from "./App.module.css";
-import { Breadcrumb } from "./components/Breadcrumb.tsx";
 import { ConversationView } from "./components/ConversationView.tsx";
 import { InputArea } from "./components/InputArea.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
 import { StatusBar } from "./components/StatusBar.tsx";
+import { ThreadPanel } from "./components/ThreadPanel.tsx";
 import { useAgentTree } from "./hooks/useAgentTree.ts";
 import { useEvents } from "./hooks/useEvents.ts";
 import { useFaviconStatus } from "./hooks/useFaviconStatus.ts";
@@ -23,8 +23,9 @@ const WS_URL = buildWsUrl(
 export function App() {
 	const { connected, send, onMessage } = useWebSocket(WS_URL);
 	const { events, status, sendCommand } = useEvents(onMessage, send);
-	const { tree, selectedAgent, setSelectedAgent } = useAgentTree(events);
+	const { tree } = useAgentTree(events);
 
+	const [panelStack, setPanelStack] = useState<string[]>([]);
 	const [sidebarOpen, setSidebarOpen] = useState(true);
 	const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -60,19 +61,46 @@ export function App() {
 		setUserScrolledUp(false);
 	}, []);
 
+	// Panel stack management
+	const openPanel = useCallback((agentId: string) => {
+		setPanelStack((prev) => {
+			// If already in stack, close everything above it
+			const idx = prev.indexOf(agentId);
+			if (idx >= 0) return prev.slice(0, idx + 1);
+			return [...prev, agentId];
+		});
+	}, []);
+
+	const closePanel = useCallback((agentId: string) => {
+		setPanelStack((prev) => {
+			const idx = prev.indexOf(agentId);
+			if (idx >= 0) return prev.slice(0, idx);
+			return prev;
+		});
+	}, []);
+
+	// Sidebar calls onSelectAgent(null) for "All agents" — clear panels
+	const handleSidebarSelect = useCallback((agentId: string | null) => {
+		if (agentId === null) {
+			setPanelStack([]);
+		} else {
+			openPanel(agentId);
+		}
+	}, [openPanel]);
+
 	// Keyboard shortcuts
 	useEffect(() => {
 		const handleKeyDown = (e: KeyboardEvent) => {
 			const handled = handleKeyboardShortcut(e, {
 				toggleSidebar: () => setSidebarOpen((prev) => !prev),
-				clearFilter: () => setSelectedAgent(null),
+				clearFilter: () => setPanelStack([]),
 				focusInput: () => inputRef.current?.focus(),
 			});
 			if (handled) e.preventDefault();
 		};
 		document.addEventListener("keydown", handleKeyDown);
 		return () => document.removeEventListener("keydown", handleKeyDown);
-	}, [setSelectedAgent]);
+	}, []);
 
 	// Theme detection: follow OS dark/light preference
 	useEffect(() => {
@@ -163,8 +191,8 @@ export function App() {
 						<Sidebar
 							status={status}
 							tree={tree}
-							selectedAgent={selectedAgent}
-							onSelectAgent={setSelectedAgent}
+							selectedAgent={panelStack[panelStack.length - 1] ?? null}
+							onSelectAgent={handleSidebarSelect}
 							onToggle={toggleSidebar}
 							events={events}
 						/>
@@ -177,12 +205,10 @@ export function App() {
 					data-region="conversation"
 					onScroll={handleScroll}
 				>
-					<Breadcrumb tree={tree} selectedAgent={selectedAgent} onSelectAgent={setSelectedAgent} />
 					<ConversationView
 						events={events}
-						agentFilter={selectedAgent}
 						tree={tree}
-						onSelectAgent={setSelectedAgent}
+						onSelectAgent={openPanel}
 					/>
 					{userScrolledUp && (
 						<button
@@ -194,6 +220,16 @@ export function App() {
 						</button>
 					)}
 				</main>
+				{panelStack.map((agentId) => (
+					<ThreadPanel
+						key={agentId}
+						agentId={agentId}
+						tree={tree}
+						events={events}
+						onClose={() => closePanel(agentId)}
+						onSelectAgent={openPanel}
+					/>
+				))}
 			</div>
 
 			<InputArea

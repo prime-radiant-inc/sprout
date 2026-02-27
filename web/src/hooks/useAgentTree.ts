@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { SessionEvent } from "../../../src/kernel/types.ts";
 
 export interface AgentTreeNode {
@@ -165,17 +165,13 @@ function collectIds(node: AgentTreeNode, ids: Set<string>): void {
 
 interface UseAgentTreeResult {
 	tree: AgentTreeNode;
-	selectedAgent: string | null;
-	setSelectedAgent: (agentId: string | null) => void;
 }
 
 /**
- * React hook that builds an agent tree from session events
- * and manages the selected agent state.
+ * React hook that builds an agent tree from session events.
  */
 export function useAgentTree(events: SessionEvent[]): UseAgentTreeResult {
 	const tree = useMemo(() => buildAgentTree(events), [events]);
-	const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
 
-	return { tree, selectedAgent, setSelectedAgent };
+	return { tree };
 }
