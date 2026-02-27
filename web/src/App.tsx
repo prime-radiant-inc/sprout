@@ -79,14 +79,15 @@ export function App() {
 		});
 	}, []);
 
-	// Sidebar calls onSelectAgent(null) for "All agents" — clear panels
+	// Sidebar calls onSelectAgent(null) for "All agents" — clear panels.
+	// Root agent click also clears (opening a panel for root is redundant).
 	const handleSidebarSelect = useCallback((agentId: string | null) => {
-		if (agentId === null) {
+		if (agentId === null || agentId === tree.agentId) {
 			setPanelStack([]);
 		} else {
 			openPanel(agentId);
 		}
-	}, [openPanel]);
+	}, [openPanel, tree.agentId]);
 
 	// Keyboard shortcuts
 	useEffect(() => {

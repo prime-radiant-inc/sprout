@@ -1,4 +1,5 @@
 import type { SessionEvent } from "../../../src/kernel/types.ts";
+import { findNode } from "../hooks/useAgentTree.ts";
 import type { AgentTreeNode } from "../hooks/useAgentTree.ts";
 import { ConversationView } from "./ConversationView.tsx";
 import styles from "./ThreadPanel.module.css";
@@ -9,15 +10,6 @@ interface ThreadPanelProps {
 	events: SessionEvent[];
 	onClose: () => void;
 	onSelectAgent: (agentId: string) => void;
-}
-
-function findNode(node: AgentTreeNode, agentId: string): AgentTreeNode | null {
-	if (node.agentId === agentId) return node;
-	for (const child of node.children) {
-		const found = findNode(child, agentId);
-		if (found) return found;
-	}
-	return null;
 }
 
 export function ThreadPanel({ agentId, tree, events, onClose, onSelectAgent }: ThreadPanelProps) {

@@ -145,7 +145,7 @@ export function getDescendantIds(tree: AgentTreeNode, agentId: string): Set<stri
 	return ids;
 }
 
-function findNode(node: AgentTreeNode, agentId: string): AgentTreeNode | null {
+export function findNode(node: AgentTreeNode, agentId: string): AgentTreeNode | null {
 	if (node.agentId === agentId) return node;
 	for (const child of node.children) {
 		const found = findNode(child, agentId);
