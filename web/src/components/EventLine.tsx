@@ -78,7 +78,7 @@ export function EventLine({ event, durationMs, streamingText, isFirstInGroup, ag
 					goal={data.goal as string}
 					status="running"
 					onOpenThread={onSelectAgent ? () => onSelectAgent(
-						(data.child_id as string) ?? (data.agent_name as string)
+						typeof data.child_id === "string" ? data.child_id : (data.agent_name as string)
 					) : undefined}
 				/>
 			);
@@ -92,7 +92,7 @@ export function EventLine({ event, durationMs, streamingText, isFirstInGroup, ag
 					turns={typeof data.turns === "number" ? data.turns : undefined}
 					durationMs={durationMs}
 					onOpenThread={onSelectAgent ? () => onSelectAgent(
-						(data.child_id as string) ?? (data.agent_name as string)
+						typeof data.child_id === "string" ? data.child_id : (data.agent_name as string)
 					) : undefined}
 				/>
 			);

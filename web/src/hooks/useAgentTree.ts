@@ -37,8 +37,8 @@ export function buildAgentTree(events: SessionEvent[]): AgentTreeNode {
 	// Track start timestamps for durationMs computation.
 	const startTimestamps = new Map<AgentTreeNode, number>();
 
-	// Disambiguate child nodes that share the same agent_name.
-	// Key: agent_name, value: count seen so far.
+	// Disambiguate child nodes that share the same agent_name (legacy fallback).
+	// Only used when child_id is absent. Not incremented for child_id events.
 	const nameCounters = new Map<string, number>();
 
 	// Index nodes by child_id for act_end lookup.
