@@ -1,0 +1,146 @@
+.agentTree {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-xs);
+}
+
+.header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	margin-bottom: var(--space-xs);
+}
+
+.title {
+	color: var(--color-text-tertiary);
+	font-size: var(--font-size-xs);
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+}
+
+.toggle {
+	background: none;
+	border: none;
+	color: var(--color-text-tertiary);
+	cursor: pointer;
+	font-size: var(--font-size-base);
+	padding: 0 var(--space-xs);
+}
+
+.toggle:hover {
+	color: var(--color-text-primary);
+}
+
+.allAgents {
+	display: block;
+	width: 100%;
+	text-align: left;
+	background: none;
+	border: none;
+	color: var(--color-text-secondary);
+	cursor: pointer;
+	padding: var(--space-xs) var(--space-sm);
+	border-radius: var(--radius-sm);
+	font: inherit;
+	font-size: var(--font-size-sm);
+}
+
+.allAgents:hover {
+	background: var(--color-surface);
+}
+
+.treeRoot {
+	list-style: none;
+	padding: 0;
+	margin: 0;
+}
+
+.children {
+	list-style: none;
+	padding-left: var(--space-md);
+	margin: 0;
+}
+
+.nodeRow {
+	display: flex;
+	align-items: baseline;
+}
+
+.disclosure {
+	all: unset;
+	cursor: pointer;
+	width: var(--space-md);
+	text-align: center;
+	color: var(--color-text-tertiary);
+	font-size: var(--font-size-xs);
+	flex-shrink: 0;
+}
+
+.disclosure:hover {
+	color: var(--color-text-primary);
+}
+
+.disclosureSpacer {
+	width: var(--space-md);
+	flex-shrink: 0;
+}
+
+.node {
+	display: flex;
+	gap: var(--space-sm);
+	align-items: baseline;
+	width: 100%;
+	text-align: left;
+	background: none;
+	border: none;
+	color: var(--color-text-primary);
+	cursor: pointer;
+	padding: var(--space-xs) var(--space-sm);
+	border-radius: var(--radius-sm);
+	font: inherit;
+	font-size: var(--font-size-sm);
+}
+
+.node:hover {
+	background: var(--color-surface);
+}
+
+.selected {
+	background: var(--color-accent-subtle);
+}
+
+.agentName {
+	color: var(--color-accent);
+	font-weight: 600;
+	white-space: nowrap;
+}
+
+.goal {
+	color: var(--color-text-secondary);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.statusCompleted {
+	color: var(--color-completed);
+}
+
+.statusFailed {
+	color: var(--color-failed);
+}
+
+.statusRunning {
+	color: var(--color-running);
+	animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+	0%,
+	100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.3;
+	}
+}

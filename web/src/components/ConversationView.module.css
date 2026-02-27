@@ -1,0 +1,7 @@
+.conversationView {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-sm);
+	background: var(--color-canvas);
+	padding: var(--space-md);
+}

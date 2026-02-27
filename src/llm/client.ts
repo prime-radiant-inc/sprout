@@ -57,6 +57,14 @@ export class Client {
 			providers.gemini = new GeminiAdapter(geminiKey);
 		}
 
+		if (Object.keys(providers).length === 0) {
+			console.warn(
+				"[LLM] No LLM API keys found in environment. " +
+					"Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY. " +
+					"Check that your .env file is in the working directory or export the variables directly.",
+			);
+		}
+
 		return new Client({
 			providers,
 			middleware: options.middleware,
@@ -66,6 +74,19 @@ export class Client {
 	/** List registered provider names */
 	providers(): string[] {
 		return [...this.adapters.keys()];
+	}
+
+	/** Query all providers for their available models. */
+	async listModelsByProvider(): Promise<Map<string, string[]>> {
+		const result = new Map<string, string[]>();
+		for (const [name, adapter] of this.adapters) {
+			try {
+				result.set(name, await adapter.listModels());
+			} catch {
+				result.set(name, []);
+			}
+		}
+		return result;
 	}
 
 	/** Get a specific adapter */

@@ -78,21 +78,50 @@ export function inputHistoryPath(genomePath: string): string {
 	return join(genomePath, "input_history.txt");
 }
 
+export interface WebFlags {
+	web?: boolean;
+	webOnly?: boolean;
+	port?: number;
+	host?: string;
+}
+
 export type CliCommand =
-	| { kind: "interactive"; genomePath: string }
+	| ({ kind: "interactive"; genomePath: string } & WebFlags)
 	| { kind: "oneshot"; goal: string; genomePath: string }
-	| { kind: "resume"; sessionId: string; genomePath: string }
-	| { kind: "resume-last"; genomePath: string }
+	| ({ kind: "resume"; sessionId: string; genomePath: string } & WebFlags)
+	| ({ kind: "resume-last"; genomePath: string } & WebFlags)
 	| { kind: "list"; genomePath: string } // session picker (via --resume with no arg)
 	| { kind: "genome-list"; genomePath: string }
 	| { kind: "genome-log"; genomePath: string }
 	| { kind: "genome-rollback"; genomePath: string; commit: string }
 	| { kind: "help" };
 
+/** Collect web flags from the accumulated state into a WebFlags object.
+ * Only includes keys that are set, keeping result objects clean. */
+function collectWebFlags(webFlags: {
+	web: boolean;
+	webOnly: boolean;
+	port: number | undefined;
+	host: string | undefined;
+}): WebFlags {
+	const flags: WebFlags = {};
+	if (webFlags.web) flags.web = true;
+	if (webFlags.webOnly) flags.webOnly = true;
+	if (webFlags.port !== undefined) flags.port = webFlags.port;
+	if (webFlags.host !== undefined) flags.host = webFlags.host;
+	return flags;
+}
+
 /** Parse CLI arguments (process.argv.slice(2)) into a typed command.
  * Note: --genome-path must come before --genome subcommands. */
 export function parseArgs(argv: string[]): CliCommand {
 	let genomePath = DEFAULT_GENOME_PATH;
+	const webFlags = {
+		web: false,
+		webOnly: false,
+		port: undefined as number | undefined,
+		host: undefined as string | undefined,
+	};
 	const rest: string[] = [];
 
 	for (let i = 0; i < argv.length; i++) {
@@ -104,6 +133,29 @@ export function parseArgs(argv: string[]): CliCommand {
 
 		if (arg === "--genome-path") {
 			genomePath = argv[++i] ?? DEFAULT_GENOME_PATH;
+			continue;
+		}
+
+		if (arg === "--web") {
+			webFlags.web = true;
+			continue;
+		}
+
+		if (arg === "--web-only") {
+			webFlags.webOnly = true;
+			continue;
+		}
+
+		if (arg === "--port") {
+			const raw = argv[++i];
+			const n = Number(raw);
+			if (!raw || Number.isNaN(n) || n <= 0) return { kind: "help" };
+			webFlags.port = n;
+			continue;
+		}
+
+		if (arg === "--host") {
+			webFlags.host = argv[++i] ?? "0.0.0.0";
 			continue;
 		}
 
@@ -120,11 +172,11 @@ export function parseArgs(argv: string[]): CliCommand {
 				return { kind: "list", genomePath };
 			}
 			i++;
-			return { kind: "resume", sessionId: next, genomePath };
+			return { kind: "resume", sessionId: next, genomePath, ...collectWebFlags(webFlags) };
 		}
 
 		if (arg === "--resume-last") {
-			return { kind: "resume-last", genomePath };
+			return { kind: "resume-last", genomePath, ...collectWebFlags(webFlags) };
 		}
 
 		if (arg === "--genome") {
@@ -147,7 +199,7 @@ export function parseArgs(argv: string[]): CliCommand {
 	}
 
 	if (rest.length === 0) {
-		return { kind: "interactive", genomePath };
+		return { kind: "interactive", genomePath, ...collectWebFlags(webFlags) };
 	}
 
 	return { kind: "oneshot", goal: rest.join(" "), genomePath };
@@ -168,6 +220,13 @@ Genome management:
   sprout --genome log                   Show genome git log
   sprout --genome rollback <commit>     Revert a genome commit
 
+Web interface:
+  --web                  Start web server alongside TUI
+  --web-only             Start web server without TUI (headless/remote)
+  --port <port>          Web server port (default: 7777)
+  --host <addr>          Web server bind address (default: localhost, use 0.0.0.0 for all interfaces)
+  /web, /web stop        Start/stop web server from interactive mode
+
 Options:
   --genome-path <path>   Path to genome directory (default: ~/.local/share/sprout-genome)
   --help                 Show this help message`;
@@ -175,6 +234,8 @@ Options:
 export type SlashCommandResult =
 	| { action: "none" }
 	| { action: "show_model_picker" }
+	| { action: "start_web" }
+	| { action: "stop_web" }
 	| { action: "exit" };
 
 /** Handle a slash command from the TUI input area. */
@@ -194,7 +255,7 @@ export async function handleSlashCommand(
 		case "help":
 			bus.emitEvent("warning", "cli", 0, {
 				message:
-					"Commands: /help, /quit, /compact, /clear, /model [name], /status, /terminal-setup\nKeys: Shift+Enter = newline, Ctrl+J = newline (fallback), Ctrl+C = interrupt/exit",
+					"Commands: /help, /quit, /compact, /clear, /model [name], /status, /terminal-setup, /web, /web stop\nKeys: Shift+Enter = newline, Ctrl+J = newline (fallback), Ctrl+C = interrupt/exit",
 			});
 			break;
 		case "compact":
@@ -223,6 +284,10 @@ export async function handleSlashCommand(
 			bus.emitEvent("warning", "cli", 0, { message });
 			break;
 		}
+		case "web":
+			return { action: "start_web" };
+		case "web_stop":
+			return { action: "stop_web" };
 		case "unknown":
 			bus.emitEvent("warning", "cli", 0, {
 				message: `Unknown command: ${cmd.raw}`,
@@ -537,12 +602,28 @@ export async function runCli(command: CliCommand): Promise<void> {
 	const { config } = await import("dotenv");
 	config();
 
+	// Early check: warn if no LLM API keys are available
+	if (
+		!process.env.ANTHROPIC_API_KEY &&
+		!process.env.OPENAI_API_KEY &&
+		!process.env.GEMINI_API_KEY &&
+		!process.env.GOOGLE_API_KEY
+	) {
+		console.error(
+			"[sprout] Warning: No LLM API keys found. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY.\n" +
+				"         Ensure your .env file is in the working directory, or export the variables directly.",
+		);
+	}
+
 	const { EventBus } = await import("./event-bus.ts");
 	const { SessionController } = await import("./session-controller.ts");
 	const { ulid } = await import("../util/ulid.ts");
 
 	const bootstrapDir = join(import.meta.dir, "../../bootstrap");
 	const sessionsDir = join(command.genomePath, "sessions");
+
+	const { SessionLogger } = await import("./logger.ts");
+	const { loggingMiddleware } = await import("../llm/logging-middleware.ts");
 
 	if (command.kind === "oneshot") {
 		const sessionId = ulid();
@@ -552,6 +633,11 @@ export async function runCli(command: CliCommand): Promise<void> {
 		});
 
 		const bus = new EventBus();
+		const logPath = join(command.genomePath, "logs", sessionId, "session.log.jsonl");
+		const logger = new SessionLogger({ logPath, component: "cli", sessionId, bus });
+		const { Client } = await import("../llm/client.ts");
+		const llmClient = Client.fromEnv({ middleware: [loggingMiddleware(logger)] });
+
 		const controller = new SessionController({
 			bus,
 			genomePath: command.genomePath,
@@ -560,6 +646,8 @@ export async function runCli(command: CliCommand): Promise<void> {
 			sessionId,
 			spawner: infra.spawner,
 			genome: infra.genome,
+			logger,
+			client: llmClient,
 		});
 
 		bus.onEvent((event) => {
@@ -663,6 +751,11 @@ export async function runCli(command: CliCommand): Promise<void> {
 	});
 
 	const bus = new EventBus();
+	const logPath = join(command.genomePath, "logs", sessionId, "session.log.jsonl");
+	const logger = new SessionLogger({ logPath, component: "cli", sessionId, bus });
+	const { Client } = await import("../llm/client.ts");
+	const llmClient = Client.fromEnv({ middleware: [loggingMiddleware(logger)] });
+
 	const controller = new SessionController({
 		bus,
 		genomePath: command.genomePath,
@@ -673,7 +766,55 @@ export async function runCli(command: CliCommand): Promise<void> {
 		spawner: infra.spawner,
 		genome: infra.genome,
 		completedHandles: resumeCompletedHandles,
+		logger,
+		client: llmClient,
 	});
+
+	// Fetch available models from provider APIs
+	const { getAvailableModels } = await import("../agents/model-resolver.ts");
+	const modelsByProvider = await llmClient.listModelsByProvider();
+	const availableModels = getAvailableModels(modelsByProvider);
+
+	// Start web server if requested (webPort also used by /web slash command)
+	const webPort = command.port ?? 7777;
+	const webHost = command.host;
+	const staticDir = join(import.meta.dir, "../../web/dist");
+	let webServer: import("../web/server.ts").WebServer | null = null;
+	if (command.web || command.webOnly) {
+		const { WebServer } = await import("../web/server.ts");
+		webServer = new WebServer({
+			bus,
+			port: webPort,
+			staticDir,
+			sessionId,
+			hostname: webHost,
+			initialEvents: resumeEvents,
+			availableModels,
+			logger,
+		});
+		await webServer.start();
+		const displayHost = webHost ?? "localhost";
+		console.error(`Web UI: http://${displayHost}:${webPort}`);
+	}
+
+	if (command.webOnly) {
+		// Headless mode: no TUI, wait for quit command via web interface
+		const webOnlySigintHandler = () => {
+			bus.emitCommand({ kind: "quit", data: {} });
+		};
+		const quitPromise = new Promise<void>((resolve) => {
+			bus.onCommand((cmd) => {
+				if (cmd.kind === "quit") resolve();
+			});
+			process.on("SIGINT", webOnlySigintHandler);
+		});
+		await quitPromise;
+		process.removeListener("SIGINT", webOnlySigintHandler);
+		await webServer!.stop();
+		await infra.cleanup();
+		printResumeHint(controller.sessionId);
+		return;
+	}
 
 	const { InputHistory } = await import("../tui/history.ts");
 	const historyPath = inputHistoryPath(command.genomePath);
@@ -748,6 +889,50 @@ export async function runCli(command: CliCommand): Promise<void> {
 			onSlashCommand: async (cmd: import("../tui/slash-commands.ts").SlashCommand) => {
 				const result = await handleSlashCommand(cmd, bus, controller);
 				if (result.action === "exit") unmount();
+				else if (result.action === "start_web") {
+					if (webServer) {
+						bus.emitEvent("warning", "cli", 0, {
+							message: `Web UI already running at http://localhost:${webPort}`,
+						});
+					} else {
+						(async () => {
+							try {
+								const { WebServer } = await import("../web/server.ts");
+								webServer = new WebServer({
+									bus,
+									port: webPort,
+									staticDir,
+									sessionId,
+									availableModels,
+									logger,
+								});
+								await webServer.start();
+								bus.emitEvent("warning", "cli", 0, {
+									message: `Web UI: http://localhost:${webPort}`,
+								});
+								// TODO: macOS-only. On Linux use xdg-open, on Windows use start.
+								Bun.spawn(["open", `http://localhost:${webPort}`]);
+							} catch (err) {
+								bus.emitEvent("error", "cli", 0, { error: String(err) });
+							}
+						})();
+					}
+				} else if (result.action === "stop_web") {
+					if (webServer) {
+						const server = webServer;
+						webServer = null;
+						(async () => {
+							try {
+								await server.stop();
+								bus.emitEvent("warning", "cli", 0, { message: "Web server stopped." });
+							} catch (err) {
+								bus.emitEvent("error", "cli", 0, { error: String(err) });
+							}
+						})();
+					} else {
+						bus.emitEvent("warning", "cli", 0, { message: "Web server is not running." });
+					}
+				}
 			},
 			onSteer: (text: string) => {
 				inputHistory.add(text);
@@ -763,6 +948,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 
 	await waitUntilExit();
 	process.removeListener("SIGINT", sigintHandler);
+	if (webServer) await webServer.stop();
 	await infra.cleanup();
 	await inputHistory.save();
 	printResumeHint(controller.sessionId);

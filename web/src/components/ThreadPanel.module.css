@@ -1,0 +1,99 @@
+.panel {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	min-width: 400px;
+	max-width: 600px;
+	border-left: 1px solid var(--color-border);
+	background: var(--color-canvas);
+}
+
+.header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	padding: var(--space-sm) var(--space-md);
+	border-bottom: 1px solid var(--color-border);
+	gap: var(--space-sm);
+}
+
+.headerInfo {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+
+.nameRow {
+	display: flex;
+	align-items: baseline;
+	gap: var(--space-sm);
+}
+
+.agentName {
+	font-family: var(--font-mono);
+	font-size: var(--font-size-sm);
+	font-weight: 600;
+	color: var(--color-text-primary);
+}
+
+.tokenUsage {
+	font-family: var(--font-mono);
+	font-size: var(--font-size-xs);
+	color: var(--color-text-tertiary);
+	white-space: nowrap;
+}
+
+.goal {
+	font-size: var(--font-size-xs);
+	color: var(--color-text-secondary);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.close {
+	all: unset;
+	cursor: pointer;
+	color: var(--color-text-tertiary);
+	font-size: var(--font-size-base);
+	padding: var(--space-xs);
+	border-radius: var(--radius-sm);
+	flex-shrink: 0;
+}
+
+.close:hover {
+	color: var(--color-text-primary);
+	background: var(--color-surface);
+}
+
+.body {
+	flex: 1;
+	overflow-y: auto;
+}
+
+.statusCompleted {
+	color: var(--color-completed);
+	font-size: var(--font-size-sm);
+}
+
+.statusFailed {
+	color: var(--color-failed);
+	font-size: var(--font-size-sm);
+}
+
+.statusRunning {
+	color: var(--color-running);
+	font-size: var(--font-size-sm);
+	animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+	0%,
+	100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.3;
+	}
+}

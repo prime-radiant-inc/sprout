@@ -225,4 +225,6 @@ export interface ProviderAdapter {
 	name: string;
 	complete(request: Request): Promise<Response>;
 	stream(request: Request): AsyncIterable<StreamEvent>;
+	/** Query the provider's API for available model IDs. */
+	listModels(): Promise<string[]>;
 }

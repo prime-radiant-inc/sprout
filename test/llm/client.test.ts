@@ -51,6 +51,38 @@ describe("Client", () => {
 		expect(providers).toContain("gemini");
 	});
 
+	test("fromEnv warns to console when no API keys are found", () => {
+		// Temporarily clear all API key env vars
+		const saved = {
+			ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+			OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+			GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+			GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
+		};
+		delete process.env.ANTHROPIC_API_KEY;
+		delete process.env.OPENAI_API_KEY;
+		delete process.env.GEMINI_API_KEY;
+		delete process.env.GOOGLE_API_KEY;
+
+		const logged: unknown[] = [];
+		const origWarn = console.warn;
+		console.warn = (...args: unknown[]) => logged.push(args);
+
+		try {
+			const client = Client.fromEnv();
+			expect(client.providers()).toHaveLength(0);
+			expect(logged.length).toBeGreaterThanOrEqual(1);
+			const logLine = logged.flat().map(String).join(" ");
+			expect(logLine).toContain("No LLM API keys found");
+		} finally {
+			console.warn = origWarn;
+			// Restore env vars
+			for (const [key, val] of Object.entries(saved)) {
+				if (val !== undefined) process.env[key] = val;
+			}
+		}
+	});
+
 	test("complete routes to the correct provider", async () => {
 		const vcr = vcrFor("complete-routes-to-correct-provider", realClient);
 		const req: Request = {

@@ -846,5 +846,8 @@ describe("InputArea", () => {
 });
 
 async function flush() {
-	await new Promise((resolve) => setTimeout(resolve, 10));
+	// Must wait long enough for React to re-render and ink to re-subscribe
+	// the useInput listener (which tears down and re-adds on every render).
+	// Under CPU contention, 10ms was insufficient and caused flaky drops.
+	await new Promise((resolve) => setTimeout(resolve, 50));
 }

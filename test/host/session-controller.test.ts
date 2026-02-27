@@ -3,6 +3,7 @@ import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventBus } from "../../src/host/event-bus.ts";
+import { type LogEntry, NullLogger, SessionLogger } from "../../src/host/logger.ts";
 import { type AgentFactory, SessionController } from "../../src/host/session-controller.ts";
 import type { SessionMetadataSnapshot } from "../../src/host/session-metadata.ts";
 
@@ -100,6 +101,17 @@ describe("SessionController", () => {
 			sessionId: "01CUSTOM_SESSION_ID_26CH",
 		});
 		expect(controller.sessionId).toBe("01CUSTOM_SESSION_ID_26CH");
+	});
+
+	test("accepts optional logger", () => {
+		const bus = new EventBus();
+		const controller = new SessionController({
+			bus,
+			genomePath: join(tempDir, "genome"),
+			sessionsDir: join(tempDir, "sessions"),
+			logger: new NullLogger(),
+		});
+		expect(controller).toBeDefined();
 	});
 
 	test("isRunning is false initially", () => {
@@ -318,6 +330,40 @@ describe("SessionController", () => {
 		expect(errorEvents[0].data.error).toContain("LLM failed");
 		// Should NOT have a 'message' field (that's the old incorrect field)
 		expect(errorEvents[0].data.message).toBeUndefined();
+	});
+
+	test("factory error emits error event and logs to console", async () => {
+		const factoryError = new Error("No provider available for model tier 'best'. Available: ");
+		const throwingFactory: AgentFactory = async () => {
+			throw factoryError;
+		};
+		const { bus } = makeController({ factory: throwingFactory });
+
+		const errorEvents: any[] = [];
+		bus.onEvent((e) => {
+			if (e.kind === "error") errorEvents.push(e);
+		});
+
+		// Capture console.error output
+		const logged: unknown[] = [];
+		const origError = console.error;
+		console.error = (...args: unknown[]) => logged.push(args);
+
+		try {
+			bus.emitCommand({ kind: "submit_goal", data: { goal: "Hello" } });
+			await new Promise((r) => setTimeout(r, 100));
+
+			// Should emit error event
+			expect(errorEvents).toHaveLength(1);
+			expect(errorEvents[0].data.error).toContain("No provider available");
+
+			// Should log to console.error
+			expect(logged.length).toBeGreaterThanOrEqual(1);
+			const logLine = logged.flat().map(String).join(" ");
+			expect(logLine).toContain("No provider available");
+		} finally {
+			console.error = origError;
+		}
 	});
 
 	test("steer command with no agent running is a no-op", () => {
@@ -1161,6 +1207,70 @@ describe("SessionController", () => {
 		const clearEvents = events.filter((e) => e.kind === "session_clear");
 		expect(clearEvents).toHaveLength(1);
 		expect(clearEvents[0].data.new_session_id).toBe(controller.sessionId);
+	});
+
+	test("clear command reconfigures logger to new session path", async () => {
+		const genomePath = join(tempDir, "genome");
+		const bus = new EventBus();
+
+		// Track which sessionId the factory receives
+		const factorySessionIds: string[] = [];
+		const factory: AgentFactory = async (options) => {
+			factorySessionIds.push(options.sessionId);
+			// Log an entry from the factory to test that the logger is writing to the right place
+			if (options.logger) {
+				options.logger.info("session", `goal submitted in session ${options.sessionId}`);
+			}
+			return {
+				agent: {
+					steer() {},
+					requestCompaction() {},
+					async run() {
+						return { output: "done", success: true, stumbles: 0, turns: 1, timed_out: false };
+					},
+				} as any,
+				learnProcess: null,
+			};
+		};
+
+		const initialSessionId = "INITIAL_SESSION_ID_0000000";
+		const logPath = join(genomePath, "logs", initialSessionId, "session.log.jsonl");
+		const logger = new SessionLogger({
+			logPath,
+			component: "session-controller",
+			sessionId: initialSessionId,
+		});
+
+		const controller = new SessionController({
+			bus,
+			genomePath,
+			sessionsDir: join(tempDir, "sessions"),
+			factory,
+			sessionId: initialSessionId,
+			logger,
+		});
+
+		// First goal — logs should go to the initial path
+		await controller.submitGoal("first goal");
+		await logger.flush();
+
+		const firstLogContent = await readFile(logPath, "utf-8");
+		const firstEntries: LogEntry[] = firstLogContent.trim().split("\n").map((l) => JSON.parse(l));
+		expect(firstEntries.some((e) => e.sessionId === initialSessionId)).toBe(true);
+
+		// Clear — should reconfigure logger with new sessionId + logPath
+		bus.emitCommand({ kind: "clear", data: {} });
+		const newSessionId = controller.sessionId;
+		expect(newSessionId).not.toBe(initialSessionId);
+
+		// Second goal — logs should go to the new path
+		await controller.submitGoal("second goal");
+		await logger.flush();
+
+		const newLogPath = join(genomePath, "logs", newSessionId, "session.log.jsonl");
+		const newLogContent = await readFile(newLogPath, "utf-8");
+		const newEntries: LogEntry[] = newLogContent.trim().split("\n").map((l) => JSON.parse(l));
+		expect(newEntries.some((e) => e.sessionId === newSessionId)).toBe(true);
 	});
 
 	test("controller does NOT write .jsonl to sessionsDir (agent handles logging)", async () => {

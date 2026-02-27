@@ -1,0 +1,82 @@
+/* App shell — three-region grid: status bar, body, input */
+
+.app {
+	display: grid;
+	grid-template-rows: auto 1fr auto;
+	height: 100vh;
+	background: var(--color-canvas);
+	color: var(--color-text-primary);
+	font-family: var(--font-ui);
+	font-size: var(--font-size-base);
+}
+
+/* Middle region: sidebar + conversation + thread panels */
+.body {
+	display: flex;
+	overflow: hidden;
+	border-top: 1px solid var(--color-border);
+}
+
+.body[data-sidebar-open="false"] .sidebar {
+	display: none;
+}
+
+.sidebar {
+	width: var(--sidebar-width);
+	flex-shrink: 0;
+	overflow-y: auto;
+	border-right: 1px solid var(--color-border);
+}
+
+.conversation {
+	display: flex;
+	flex-direction: column;
+	overflow-y: auto;
+	position: relative;
+	flex: 1;
+	min-width: 300px;
+}
+
+.jumpToBottom {
+	position: sticky;
+	bottom: var(--space-sm);
+	align-self: flex-end;
+	margin-right: var(--space-md);
+	background: var(--color-surface);
+	color: var(--color-text-primary);
+	border: 1px solid var(--color-border);
+	padding: var(--space-xs) var(--space-md);
+	font-family: var(--font-mono);
+	font-size: var(--font-size-xs);
+	cursor: pointer;
+	border-radius: var(--radius-sm);
+	z-index: 10;
+}
+
+.jumpToBottom:hover {
+	border-color: var(--color-accent);
+}
+
+/* Responsive: hide sidebar on narrow viewports */
+@media (max-width: 1024px) {
+	.sidebar {
+		display: none;
+	}
+
+	/* When sidebar is toggled open on mobile, overlay the conversation */
+	.body[data-sidebar-open="true"] .sidebar {
+		display: block;
+		position: absolute;
+		top: 0;
+		left: 0;
+		bottom: 0;
+		width: var(--sidebar-width);
+		z-index: 20;
+		background: var(--color-surface);
+		box-shadow: var(--shadow-lg);
+	}
+
+	.body[data-sidebar-open="true"] {
+		position: relative;
+	}
+}

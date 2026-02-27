@@ -8,6 +8,8 @@ import { BusServer } from "../../src/bus/server.ts";
 import { agentEvents, agentInbox, agentResult } from "../../src/bus/topics.ts";
 import type { ResultMessage, StartMessage } from "../../src/bus/types.ts";
 import { Genome } from "../../src/genome/genome.ts";
+import type { LogEntry } from "../../src/host/logger.ts";
+import { SessionLogger } from "../../src/host/logger.ts";
 import type { Client } from "../../src/llm/client.ts";
 import type { Request, Response } from "../../src/llm/types.ts";
 import { ContentKind, Msg } from "../../src/llm/types.ts";
@@ -956,4 +958,62 @@ describe("runAgentProcess", () => {
 		expect(allContent).toContain("Response 1.");
 		expect(allContent).toContain("Follow-up task");
 	}, 30_000);
+
+	test("logger receives agent-level log entries when passed to config", async () => {
+		const mockClient = createMockClient("Logged agent run.");
+
+		const logPath = join(tempDir, "agent-logs", "session.log.jsonl");
+		const logger = new SessionLogger({
+			logPath,
+			component: "agent-process",
+			sessionId: SESSION_ID,
+		});
+
+		const resultTopic = agentResult(SESSION_ID, HANDLE_ID);
+		const resultPromise = parentClient.waitForMessage(resultTopic, 10_000);
+
+		const processPromise = runAgentProcess({
+			busUrl: server.url,
+			handleId: HANDLE_ID,
+			sessionId: SESSION_ID,
+			genomePath: genomeDir,
+			client: mockClient,
+			workDir: tempDir,
+			logger,
+		});
+
+		await delay(100);
+
+		const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
+		const startMsg: StartMessage = {
+			kind: "start",
+			handle_id: HANDLE_ID,
+			agent_name: "test-leaf",
+			genome_path: genomeDir,
+			session_id: SESSION_ID,
+			caller: { agent_name: "root", depth: 0 },
+			goal: "Log this run",
+			shared: false,
+		};
+		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
+
+		await resultPromise;
+		await processPromise;
+		await logger.flush();
+
+		// Verify the structured log file was written
+		const logExists = await exists(logPath);
+		expect(logExists).toBe(true);
+
+		const logContent = await readFile(logPath, "utf-8");
+		const entries: LogEntry[] = logContent
+			.trim()
+			.split("\n")
+			.filter(Boolean)
+			.map((line) => JSON.parse(line));
+
+		// Agent creates a child logger with component "agent" — verify entries exist
+		expect(entries.length).toBeGreaterThan(0);
+		expect(entries.some((e) => e.component === "agent")).toBe(true);
+	}, 15_000);
 });

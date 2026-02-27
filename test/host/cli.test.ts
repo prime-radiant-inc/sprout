@@ -145,6 +145,133 @@ describe("parseArgs", () => {
 		const result = parseArgs(["--help"]);
 		expect(result).toEqual({ kind: "help" });
 	});
+
+	// --- Web flags ---
+
+	test("--web sets web flag on interactive mode", () => {
+		const result = parseArgs(["--web"]);
+		expect(result).toEqual({
+			kind: "interactive",
+			genomePath: defaultGenomePath,
+			web: true,
+		});
+	});
+
+	test("--web-only sets webOnly flag on interactive mode", () => {
+		const result = parseArgs(["--web-only"]);
+		expect(result).toEqual({
+			kind: "interactive",
+			genomePath: defaultGenomePath,
+			webOnly: true,
+		});
+	});
+
+	test("--port sets port on interactive mode", () => {
+		const result = parseArgs(["--port", "8080"]);
+		expect(result).toEqual({
+			kind: "interactive",
+			genomePath: defaultGenomePath,
+			port: 8080,
+		});
+	});
+
+	test("--web --port combined on interactive mode", () => {
+		const result = parseArgs(["--web", "--port", "9000"]);
+		expect(result).toEqual({
+			kind: "interactive",
+			genomePath: defaultGenomePath,
+			web: true,
+			port: 9000,
+		});
+	});
+
+	test("--web-only --port combined on interactive mode", () => {
+		const result = parseArgs(["--web-only", "--port", "3000"]);
+		expect(result).toEqual({
+			kind: "interactive",
+			genomePath: defaultGenomePath,
+			webOnly: true,
+			port: 3000,
+		});
+	});
+
+	test("--web with --resume sets web on resume command", () => {
+		const result = parseArgs(["--web", "--resume", "01ABC123"]);
+		expect(result).toEqual({
+			kind: "resume",
+			sessionId: "01ABC123",
+			genomePath: defaultGenomePath,
+			web: true,
+		});
+	});
+
+	test("--web with --resume-last sets web on resume-last command", () => {
+		const result = parseArgs(["--web", "--resume-last"]);
+		expect(result).toEqual({
+			kind: "resume-last",
+			genomePath: defaultGenomePath,
+			web: true,
+		});
+	});
+
+	test("--web-only --port with --resume sets both on resume command", () => {
+		const result = parseArgs(["--web-only", "--port", "4000", "--resume", "01XYZ"]);
+		expect(result).toEqual({
+			kind: "resume",
+			sessionId: "01XYZ",
+			genomePath: defaultGenomePath,
+			webOnly: true,
+			port: 4000,
+		});
+	});
+
+	test("web flags are not present on oneshot via --prompt", () => {
+		const result = parseArgs(["--web", "--prompt", "Fix bug"]);
+		expect(result).toEqual({
+			kind: "oneshot",
+			goal: "Fix bug",
+			genomePath: defaultGenomePath,
+		});
+	});
+
+	test("web flags are not present on oneshot via bare goal", () => {
+		// --web before a bare goal: the bare goal causes oneshot, web flags excluded
+		const result = parseArgs(["--web", "Fix bug"]);
+		expect(result).toEqual({
+			kind: "oneshot",
+			goal: "Fix bug",
+			genomePath: defaultGenomePath,
+		});
+	});
+
+	test("--port with default value when used alone on interactive", () => {
+		// --port without --web still just sets the port; caller decides what to do
+		const result = parseArgs(["--port", "7777"]);
+		expect(result).toEqual({
+			kind: "interactive",
+			genomePath: defaultGenomePath,
+			port: 7777,
+		});
+	});
+
+	test("--genome-path with --web on interactive mode", () => {
+		const result = parseArgs(["--genome-path", "/custom/path", "--web"]);
+		expect(result).toEqual({
+			kind: "interactive",
+			genomePath: "/custom/path",
+			web: true,
+		});
+	});
+
+	test("--port with no value returns help", () => {
+		const result = parseArgs(["--port"]);
+		expect(result).toEqual({ kind: "help" });
+	});
+
+	test("--port with non-numeric value returns help", () => {
+		const result = parseArgs(["--port", "banana"]);
+		expect(result).toEqual({ kind: "help" });
+	});
 });
 
 describe("handleSigint", () => {
@@ -273,6 +400,22 @@ describe("handleSlashCommand", () => {
 		const result = await handleSlashCommand({ kind: "quit" }, bus, controller);
 		expect(bus.commands).toEqual([{ kind: "quit", data: {} }]);
 		expect(result).toEqual({ action: "exit" });
+	});
+
+	test("web returns start_web action", async () => {
+		const bus = makeBus();
+		const result = await handleSlashCommand({ kind: "web" }, bus, controller);
+		expect(result).toEqual({ action: "start_web" });
+		expect(bus.commands).toHaveLength(0);
+		expect(bus.events).toHaveLength(0);
+	});
+
+	test("web_stop returns stop_web action", async () => {
+		const bus = makeBus();
+		const result = await handleSlashCommand({ kind: "web_stop" }, bus, controller);
+		expect(result).toEqual({ action: "stop_web" });
+		expect(bus.commands).toHaveLength(0);
+		expect(bus.events).toHaveLength(0);
 	});
 
 	test("terminal_setup emits warning with setup instructions", async () => {
@@ -971,6 +1114,7 @@ describe("configureTerminal — other terminals", () => {
 			restoreEnv(saved);
 		}
 	});
+
 });
 
 describe("resume flow", () => {

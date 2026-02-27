@@ -3,6 +3,7 @@ description: "Decompose tasks into subgoals and delegate to specialist agents"
 model: best
 capabilities:
   - reader
+  - project-explorer
   - editor
   - command-runner
   - web-reader

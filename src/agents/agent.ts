@@ -5,6 +5,8 @@ import type { CallerIdentity, ResultMessage } from "../bus/types.ts";
 import type { Genome } from "../genome/genome.ts";
 import { recall } from "../genome/recall.ts";
 import { compactHistory, shouldCompact } from "../host/compaction.ts";
+import type { Logger } from "../host/logger.ts";
+import { NullLogger } from "../host/logger.ts";
 import type { ExecutionEnvironment } from "../kernel/execution-env.ts";
 import { checkPathConstraint, validateConstraints } from "../kernel/path-constraints.js";
 import type { PrimitiveRegistry } from "../kernel/primitives.ts";
@@ -27,7 +29,7 @@ import { ulid } from "../util/ulid.ts";
 import { getContextWindowSize } from "./context-window.ts";
 import { AgentEventEmitter } from "./events.ts";
 import type { Preambles } from "./loader.ts";
-import { type ResolvedModel, resolveModel } from "./model-resolver.ts";
+import { defaultModelsByProvider, type ResolvedModel, resolveModel } from "./model-resolver.ts";
 import type { Postscripts } from "./plan.ts";
 import {
 	buildDelegateTool,
@@ -74,6 +76,12 @@ export interface AgentOptions {
 	spawner?: AgentSpawner;
 	/** Path to the genome directory (required when using a spawner). */
 	genomePath?: string;
+	/** Override the agent_id used for event emission (used by parent to assign unique child IDs). */
+	agentId?: string;
+	/** Pre-fetched model map for tier resolution. */
+	modelsByProvider?: Map<string, string[]>;
+	/** Structured logger for LLM call logging and diagnostics. */
+	logger?: Logger;
 }
 
 export interface AgentResult {
@@ -104,7 +112,9 @@ export class Agent {
 	private readonly genomePostscripts?: { global: string; orchestrator: string; worker: string };
 	private readonly spawner?: AgentSpawner;
 	private readonly genomePath?: string;
+	private readonly agentId?: string;
 	private readonly initialHistory?: Message[];
+	private readonly logger: Logger;
 	private history: Message[] = [];
 	private systemPrompt?: string;
 	private signal?: AbortSignal;
@@ -130,7 +140,14 @@ export class Agent {
 		this.genomePostscripts = options.genomePostscripts;
 		this.spawner = options.spawner;
 		this.genomePath = options.genomePath;
+		this.agentId = options.agentId;
 		this.initialHistory = options.initialHistory ? [...options.initialHistory] : undefined;
+		this.logger = (options.logger ?? new NullLogger()).child({
+			component: "agent",
+			agentId: this.agentId ?? this.spec.name,
+			sessionId: this.sessionId,
+			depth: this.depth,
+		});
 
 		// Validate depth: max_depth > 0 means the agent can only exist at depths < max_depth.
 		// max_depth === 0 means "leaf agent, no sub-spawning" — no depth restriction on the agent itself.
@@ -144,7 +161,8 @@ export class Agent {
 		validateConstraints(this.spec.name, this.spec.capabilities, this.spec.constraints);
 
 		// Resolve model and provider
-		this.resolved = resolveModel(options.modelOverride ?? this.spec.model, this.client.providers());
+		const modelMap = options.modelsByProvider ?? defaultModelsByProvider(this.client.providers());
+		this.resolved = resolveModel(options.modelOverride ?? this.spec.model, modelMap);
 
 		// Build delegate tool (single tool for all agent delegations)
 		this.agentTools = [];
@@ -261,9 +279,11 @@ export class Agent {
 		delegation: Delegation,
 		agentId: string,
 	): Promise<{ toolResultMsg: Message; stumbles: number; output?: string }> {
+		const childId = ulid();
 		this.emitAndLog("act_start", agentId, this.depth, {
 			agent_name: delegation.agent_name,
 			goal: delegation.goal,
+			child_id: childId,
 		});
 
 		const subagentSpec =
@@ -277,6 +297,7 @@ export class Agent {
 				agent_name: delegation.agent_name,
 				success: false,
 				error: errorMsg,
+				child_id: childId,
 				tool_result_message: toolResultMsg,
 			});
 			return { toolResultMsg, stumbles: 1 };
@@ -305,6 +326,8 @@ export class Agent {
 				logBasePath: subLogBasePath,
 				preambles: this.preambles,
 				genomePostscripts: this.genomePostscripts,
+				agentId: childId,
+				logger: this.logger,
 			});
 
 			const subResult = await subagent.run(subGoal, this.signal);
@@ -344,6 +367,7 @@ export class Agent {
 				success: subResult.success,
 				turns: subResult.turns,
 				timed_out: subResult.timed_out,
+				child_id: childId,
 				tool_result_message: toolResultMsg,
 			});
 
@@ -363,6 +387,7 @@ export class Agent {
 				agent_name: delegation.agent_name,
 				success: false,
 				error: errorMsg,
+				child_id: childId,
 				tool_result_message: toolResultMsg,
 			});
 			return { toolResultMsg, stumbles: 1 };
@@ -380,11 +405,13 @@ export class Agent {
 		agentId: string,
 	): Promise<{ toolResultMsg: Message; stumbles: number; output?: string }> {
 		const handleId = ulid();
+		const childId = ulid();
 
 		this.emitAndLog("act_start", agentId, this.depth, {
 			agent_name: delegation.agent_name,
 			goal: delegation.goal,
 			handle_id: handleId,
+			child_id: childId,
 		});
 
 		const caller: CallerIdentity = { agent_name: this.spec.name, depth: this.depth };
@@ -402,6 +429,7 @@ export class Agent {
 				shared,
 				workDir: this.env.working_directory(),
 				handleId,
+				agentId: childId,
 			});
 
 			if (!blocking) {
@@ -415,6 +443,7 @@ export class Agent {
 					agent_name: delegation.agent_name,
 					success: true,
 					handle_id: handleId,
+					child_id: childId,
 					tool_result_message: toolResultMsg,
 				});
 				return { toolResultMsg, stumbles: 0, output: handleId };
@@ -465,6 +494,7 @@ export class Agent {
 				handle_id: resultMsg.handle_id,
 				turns: resultMsg.turns,
 				timed_out: resultMsg.timed_out,
+				child_id: childId,
 				tool_result_message: toolResultMsg,
 			});
 
@@ -480,6 +510,7 @@ export class Agent {
 				agent_name: delegation.agent_name,
 				success: false,
 				error: errorMsg,
+				child_id: childId,
 				tool_result_message: toolResultMsg,
 			});
 			return { toolResultMsg, stumbles: 1 };
@@ -555,7 +586,7 @@ export class Agent {
 
 	/** Run the agent loop with the given goal */
 	async run(goal: string, signal?: AbortSignal): Promise<AgentResult> {
-		const agentId = this.spec.name;
+		const agentId = this.agentId ?? this.spec.name;
 		this.signal = signal;
 
 		// Ensure log directory exists
@@ -594,7 +625,7 @@ export class Agent {
 		// Load workspace tools created by the quartermaster for this agent
 		let wsToolDefs: import("../genome/genome.ts").AgentToolDefinition[] = [];
 		if (this.genome && this.primitiveTools.length > 0 && this.genome.loadAgentTools) {
-			wsToolDefs = await this.genome.loadAgentTools(agentId);
+			wsToolDefs = await this.genome.loadAgentTools(this.spec.name);
 			if (wsToolDefs.length > 0) {
 				const toolPrims = buildAgentToolPrimitives(wsToolDefs);
 				for (const prim of toolPrims) {
@@ -608,7 +639,7 @@ export class Agent {
 			}
 
 			// Add agent's tools directory to PATH so saved scripts are directly executable
-			const toolsDir = join(this.genome.agentDir(agentId), "tools");
+			const toolsDir = join(this.genome.agentDir(this.spec.name), "tools");
 			this.env.addToPath?.(toolsDir);
 		}
 
@@ -651,20 +682,21 @@ export class Agent {
 			throw new Error("Cannot call continue() before run() has been called");
 		}
 
+		const agentId = this.agentId ?? this.spec.name;
 		this.signal = signal;
 
 		// Append the new user message
 		this.history.push(Msg.user(message));
 
 		// Emit perceive for the new message
-		this.emitAndLog("perceive", this.spec.name, this.depth, { goal: message });
+		this.emitAndLog("perceive", agentId, this.depth, { goal: message });
 
 		return this.runLoop(message);
 	}
 
 	/** Core planning loop shared by run() and continue(). */
 	private async runLoop(goal: string): Promise<AgentResult> {
-		const agentId = this.spec.name;
+		const agentId = this.agentId ?? this.spec.name;
 		const systemPrompt = this.systemPrompt!;
 		const signal = this.signal;
 		const startTime = performance.now();
@@ -748,6 +780,16 @@ export class Agent {
 
 			// Add assistant message to history
 			this.history.push(assistantMessage);
+
+			this.logger.debug("llm", "Plan response received", {
+				model: this.resolved.model,
+				provider: this.resolved.provider,
+				turn: turns,
+				inputTokens: response.usage?.input_tokens,
+				outputTokens: response.usage?.output_tokens,
+				finishReason: response.finish_reason.reason,
+				messageCount: this.history.length,
+			});
 
 			this.emitAndLog("plan_end", agentId, this.depth, {
 				turn: turns,
@@ -981,9 +1023,9 @@ export class Agent {
 				this.learnProcess.push({
 					kind: "retry",
 					goal,
-					agent_name: agentId,
+					agent_name: this.spec.name,
 					details: {
-						agent_name: agentId,
+						agent_name: this.spec.name,
 						goal,
 						output: `${retryCount} retried tool calls detected`,
 						success: true,

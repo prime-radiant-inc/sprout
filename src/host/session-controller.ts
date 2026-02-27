@@ -49,6 +49,10 @@ export interface AgentFactoryOptions {
 		result: import("../bus/types.ts").ResultMessage;
 		ownerId: string;
 	}>;
+	/** Structured logger for LLM call logging and diagnostics. */
+	logger?: import("./logger.ts").Logger;
+	/** Pre-configured LLM client (e.g. with middleware). */
+	client?: import("../llm/client.ts").Client;
 }
 
 /** Result returned by the agent factory. */
@@ -85,6 +89,10 @@ export interface SessionControllerOptions {
 		result: import("../bus/types.ts").ResultMessage;
 		ownerId: string;
 	}>;
+	/** Structured logger for LLM call logging and diagnostics. */
+	logger?: import("./logger.ts").Logger;
+	/** Pre-configured LLM client (e.g. with middleware) to forward to the agent factory. */
+	client?: import("../llm/client.ts").Client;
 }
 
 /**
@@ -125,6 +133,8 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 		model: options.model,
 		spawner: options.spawner,
 		genome: options.genome,
+		logger: options.logger,
+		client: options.client,
 	});
 
 	return {
@@ -161,6 +171,8 @@ export class SessionController {
 	private readonly spawner?: AgentSpawner;
 	private readonly genome?: import("../genome/genome.ts").Genome;
 	private readonly completedHandles?: SessionControllerOptions["completedHandles"];
+	private readonly logger?: import("./logger.ts").Logger;
+	private readonly client?: import("../llm/client.ts").Client;
 	private history: Message[] = [];
 	private running = false;
 	private modelOverride?: string;
@@ -182,6 +194,8 @@ export class SessionController {
 		this.spawner = options.spawner;
 		this.genome = options.genome;
 		this.completedHandles = options.completedHandles;
+		this.logger = options.logger;
+		this.client = options.client;
 		this.history = options.initialHistory ? [...options.initialHistory] : [];
 
 		this.metadata = new SessionMetadata({
@@ -203,6 +217,7 @@ export class SessionController {
 		switch (cmd.kind) {
 			case "submit_goal":
 				this.submitGoal(cmd.data.goal as string).catch((err) => {
+					console.error("[SessionController] submitGoal failed:", err);
 					this.bus.emitEvent("error", "session", 0, { error: String(err) });
 				});
 				break;
@@ -222,6 +237,10 @@ export class SessionController {
 					model: this.modelOverride ?? "best",
 					sessionsDir: this.sessionsDir,
 				});
+				if (this.logger) {
+					const newLogPath = join(this.genomePath, "logs", this._sessionId, "session.log.jsonl");
+					this.logger.reconfigure({ sessionId: this._sessionId, logPath: newLogPath });
+				}
 				this.bus.emitEvent("session_clear", "session", 0, {
 					new_session_id: this._sessionId,
 				});
@@ -348,6 +367,8 @@ export class SessionController {
 				spawner: this.spawner,
 				genome: this.genome,
 				completedHandles: this.completedHandles,
+				logger: this.logger,
+				client: this.client,
 			});
 
 			this.agent = result.agent;

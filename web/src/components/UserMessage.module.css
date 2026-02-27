@@ -1,0 +1,57 @@
+.userMessage {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-xs);
+}
+
+.header {
+	display: flex;
+	align-items: baseline;
+	gap: var(--space-sm);
+}
+
+.name {
+	font-family: var(--font-ui);
+	font-size: var(--font-size-sm);
+	font-weight: 600;
+	color: var(--color-text-primary);
+}
+
+.timestamp {
+	font-family: var(--font-ui);
+	font-size: var(--font-size-xs);
+	color: var(--color-text-tertiary);
+}
+
+.card {
+	background: var(--color-accent-subtle);
+	border-radius: var(--radius-md);
+	padding: var(--space-sm) var(--space-md);
+	display: flex;
+	align-items: baseline;
+	gap: var(--space-sm);
+}
+
+.text {
+	color: var(--color-text-primary);
+	font-family: var(--font-ui);
+	font-size: var(--font-size-base);
+	line-height: var(--line-height);
+	white-space: pre-wrap;
+}
+
+.badge {
+	font-family: var(--font-ui);
+	font-size: var(--font-size-xxs);
+	font-weight: 500;
+	color: var(--color-warning);
+	background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+	padding: 1px var(--space-xs);
+	border-radius: var(--radius-full);
+	flex-shrink: 0;
+}
+
+.steering .text {
+	color: var(--color-text-secondary);
+	font-style: italic;
+}

@@ -1,0 +1,85 @@
+/* Theme token system — all visual tokens live here.
+   Components reference var(--color-*) etc. and get
+   the correct values based on [data-theme] on <html>. */
+
+[data-theme="light"] {
+  /* Surfaces */
+  --color-canvas: #fafafa;
+  --color-surface: #ffffff;
+  --color-elevated: #ffffff;
+  --color-inset: #f0f0f4;
+
+  /* Text */
+  --color-text-primary: #1a1a2e;
+  --color-text-secondary: #5c5c70;
+  --color-text-tertiary: #8c8c9e;
+  --color-text-placeholder: #b0b0be;
+
+  /* Borders */
+  --color-border: #e2e2ea;
+  --color-border-strong: #c8c8d4;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+
+  /* Accent */
+  --color-accent: #8b5cf6;
+  --color-accent-hover: #7c3aed;
+  --color-accent-subtle: rgba(139, 92, 246, 0.1);
+  --color-on-accent: #ffffff;
+
+  /* Semantic */
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-error: #ef4444;
+  --color-info: #3b82f6;
+
+  /* Agent status */
+  --color-running: #3b82f6;
+  --color-completed: #22c55e;
+  --color-failed: #ef4444;
+
+}
+
+[data-theme="dark"] {
+  /* Surfaces */
+  --color-canvas: #0f172a;
+  --color-surface: #111827;
+  --color-elevated: #1f2937;
+  --color-inset: #0b1120;
+
+  /* Text */
+  --color-text-primary: #e0e0e0;
+  --color-text-secondary: #a0a0b0;
+  --color-text-tertiary: #707080;
+  --color-text-placeholder: #505060;
+
+  /* Borders */
+  --color-border: #2a2a4a;
+  --color-border-strong: #3a3a5a;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+
+  /* Accent */
+  --color-accent: #8b5cf6;
+  --color-accent-hover: #a78bfa;
+  --color-accent-subtle: rgba(139, 92, 246, 0.15);
+  --color-on-accent: #ffffff;
+
+  /* Semantic */
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-error: #ef4444;
+  --color-info: #3b82f6;
+
+  /* Agent status */
+  --color-running: #3b82f6;
+  --color-completed: #22c55e;
+  --color-failed: #ef4444;
+
+}

@@ -37,6 +37,8 @@ export interface CreateAgentOptions {
 	spawner?: AgentSpawner;
 	/** Pre-loaded Genome instance. If provided, skips loading from disk. */
 	genome?: Genome;
+	/** Structured logger for LLM call logging and diagnostics. */
+	logger?: import("../host/logger.ts").Logger;
 }
 
 export interface CreateAgentResult {
@@ -98,6 +100,9 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 
 	const events = options.events ?? new AgentEventEmitter();
 
+	// Fetch available models from provider APIs (once, shared with Agent + LearnProcess)
+	const modelsByProvider = await client.listModelsByProvider();
+
 	const metrics = new MetricsStore(join(options.genomePath, "metrics", "metrics.jsonl"));
 	await metrics.load();
 	const pendingEvaluationsPath = join(options.genomePath, "metrics", "pending-evaluations.json");
@@ -107,6 +112,8 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 		events,
 		client,
 		pendingEvaluationsPath,
+		modelsByProvider,
+		logger: options.logger,
 	});
 
 	const sessionId = options.sessionId ?? ulid();
@@ -125,11 +132,13 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 		logBasePath,
 		initialHistory: options.initialHistory,
 		modelOverride: options.model,
+		modelsByProvider,
 		preambles,
 		projectDocs,
 		genomePostscripts,
 		spawner: options.spawner,
 		genomePath: options.genomePath,
+		logger: options.logger,
 	});
 
 	const resolved = agent.resolvedModel;

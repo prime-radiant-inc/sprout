@@ -45,6 +45,18 @@ describe("parseSlashCommand", () => {
 		expect(parseSlashCommand("/terminal-setup")).toEqual({ kind: "terminal_setup" });
 	});
 
+	test("parses /web", () => {
+		expect(parseSlashCommand("/web")).toEqual({ kind: "web" });
+	});
+
+	test("parses /web stop", () => {
+		expect(parseSlashCommand("/web stop")).toEqual({ kind: "web_stop" });
+	});
+
+	test("parses /web stop with extra whitespace", () => {
+		expect(parseSlashCommand("  /web   stop  ")).toEqual({ kind: "web_stop" });
+	});
+
 	test("returns unknown for unrecognized slash command", () => {
 		expect(parseSlashCommand("/foobar")).toEqual({ kind: "unknown", raw: "/foobar" });
 	});

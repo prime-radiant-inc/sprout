@@ -1,0 +1,45 @@
+.toolCall {
+	padding: 2px 0;
+}
+
+.summary {
+	cursor: pointer;
+	user-select: none;
+	list-style: none;
+	display: flex;
+	gap: 4px;
+	align-items: baseline;
+}
+
+.summary::-webkit-details-marker {
+	display: none;
+}
+
+.indicator {
+	color: var(--color-text-tertiary);
+}
+
+.toolName {
+	color: var(--color-warning);
+}
+
+.args {
+	color: var(--color-text-tertiary);
+}
+
+.success {
+	color: var(--color-success);
+}
+
+.error {
+	color: var(--color-error);
+}
+
+.outputHint {
+	color: var(--color-text-tertiary);
+}
+
+.duration {
+	color: var(--color-text-tertiary);
+	margin-left: var(--space-xs);
+}

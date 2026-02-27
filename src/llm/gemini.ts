@@ -32,6 +32,19 @@ export class GeminiAdapter implements ProviderAdapter {
 		return `call_gemini_${++this.callIdCounter}`;
 	}
 
+	async listModels(): Promise<string[]> {
+		const models: string[] = [];
+		const pager = await this.client.models.list();
+		for await (const model of pager) {
+			// Gemini returns IDs like "models/gemini-2.5-flash" — strip the prefix
+			const id = model.name?.replace(/^models\//, "") ?? "";
+			if (id.startsWith("gemini-")) {
+				models.push(id);
+			}
+		}
+		return models;
+	}
+
 	async complete(request: Request): Promise<Response> {
 		const { systemInstruction, contents, config } = buildGeminiRequest(request, this.callIdToName);
 

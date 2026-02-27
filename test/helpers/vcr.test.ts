@@ -425,6 +425,9 @@ function makeFakeAdapter(
 				yield event;
 			}
 		},
+		async listModels() {
+			return [];
+		},
 	};
 }
 

@@ -1,0 +1,218 @@
+import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
+import type { ServerMessage } from "../../../src/web/protocol.ts";
+
+type MessageListener = (msg: ServerMessage) => void;
+
+/**
+ * Manages a WebSocket connection to the Sprout server.
+ * Handles auto-reconnect with exponential backoff and message queuing.
+ *
+ * Separated from React so it can be tested without a DOM.
+ */
+export class WebSocketClient {
+	private readonly url: string;
+	private ws: WebSocket | null = null;
+	private disposed = false;
+	private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+	private reconnectDelay = 1000;
+	private readonly maxReconnectDelay = 30000;
+	private readonly sendQueue: string[] = [];
+	private listeners: MessageListener[] = [];
+	private stateListeners: Array<(connected: boolean) => void> = [];
+
+	connected = false;
+	lastMessage: ServerMessage | null = null;
+
+	constructor(url: string) {
+		this.url = url;
+	}
+
+	/** Open the WebSocket connection. Idempotent if already connecting/connected. */
+	connect(): void {
+		if (this.disposed || this.ws) return;
+		this.openSocket();
+	}
+
+	/** Permanently close the connection and cancel reconnection. */
+	dispose(): void {
+		this.disposed = true;
+		this.cancelReconnect();
+		if (this.ws) {
+			this.ws.onopen = null;
+			this.ws.onclose = null;
+			this.ws.onmessage = null;
+			this.ws.onerror = null;
+			this.ws.close();
+			this.ws = null;
+		}
+		this.connected = false;
+		this.notifyStateChange();
+	}
+
+	/** Send a message. Queues if not connected; sends immediately if connected. */
+	send(msg: object): void {
+		const payload = JSON.stringify(msg);
+		if (this.connected && this.ws?.readyState === WebSocket.OPEN) {
+			this.ws.send(payload);
+		} else {
+			this.sendQueue.push(payload);
+		}
+	}
+
+	/** Subscribe to parsed incoming messages. Returns unsubscribe function. */
+	onMessage(listener: MessageListener): () => void {
+		this.listeners.push(listener);
+		return () => {
+			const idx = this.listeners.indexOf(listener);
+			if (idx >= 0) this.listeners.splice(idx, 1);
+		};
+	}
+
+	/** Subscribe to connection state changes. Returns unsubscribe function. */
+	onStateChange(listener: (connected: boolean) => void): () => void {
+		this.stateListeners.push(listener);
+		return () => {
+			const idx = this.stateListeners.indexOf(listener);
+			if (idx >= 0) this.stateListeners.splice(idx, 1);
+		};
+	}
+
+	// --- Private ---
+
+	private notifyStateChange(): void {
+		for (const listener of this.stateListeners) {
+			listener(this.connected);
+		}
+	}
+
+	private openSocket(): void {
+		const ws = new WebSocket(this.url);
+
+		ws.onopen = () => {
+			this.connected = true;
+			this.reconnectDelay = 1000;
+			this.flushQueue();
+			this.notifyStateChange();
+		};
+
+		ws.onmessage = (ev: MessageEvent) => {
+			const raw = typeof ev.data === "string" ? ev.data : String(ev.data);
+			try {
+				const msg = JSON.parse(raw) as ServerMessage;
+				this.lastMessage = msg;
+				for (const listener of this.listeners) {
+					listener(msg);
+				}
+			} catch {
+				// Ignore unparseable messages
+			}
+		};
+
+		ws.onclose = () => {
+			this.connected = false;
+			this.ws = null;
+			this.notifyStateChange();
+			if (!this.disposed) {
+				this.scheduleReconnect();
+			}
+		};
+
+		ws.onerror = () => {
+			// onclose will fire after onerror, triggering reconnection
+		};
+
+		this.ws = ws;
+	}
+
+	private flushQueue(): void {
+		while (this.sendQueue.length > 0 && this.ws?.readyState === WebSocket.OPEN) {
+			this.ws.send(this.sendQueue.shift()!);
+		}
+	}
+
+	private scheduleReconnect(): void {
+		if (this.disposed) return;
+		this.cancelReconnect();
+		this.reconnectTimer = setTimeout(() => {
+			this.reconnectTimer = null;
+			if (!this.disposed) {
+				this.openSocket();
+			}
+		}, this.reconnectDelay);
+		this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay);
+	}
+
+	private cancelReconnect(): void {
+		if (this.reconnectTimer !== null) {
+			clearTimeout(this.reconnectTimer);
+			this.reconnectTimer = null;
+		}
+	}
+}
+
+// --- React hook ---
+
+/** Snapshot type for useSyncExternalStore. */
+interface WebSocketState {
+	connected: boolean;
+}
+
+/**
+ * React hook wrapping WebSocketClient.
+ *
+ * Connects on mount, disconnects on unmount.
+ * Returns `{ connected, send, onMessage }`.
+ */
+export function useWebSocket(url: string) {
+	const clientRef = useRef<WebSocketClient | null>(null);
+
+	// Lazily create the client
+	if (!clientRef.current) {
+		clientRef.current = new WebSocketClient(url);
+	}
+
+	const client = clientRef.current;
+
+	// Snapshot for useSyncExternalStore
+	const stateRef = useRef<WebSocketState>({ connected: false });
+
+	const subscribe = useCallback(
+		(onStoreChange: () => void) => {
+			const unsubState = client.onStateChange(() => {
+				stateRef.current = { connected: client.connected };
+				onStoreChange();
+			});
+
+			return () => {
+				unsubState();
+			};
+		},
+		[client],
+	);
+
+	const getSnapshot = () => stateRef.current;
+
+	const state = useSyncExternalStore(subscribe, getSnapshot);
+
+	useEffect(() => {
+		client.connect();
+		return () => {
+			client.dispose();
+			clientRef.current = null;
+		};
+	}, [client]);
+
+	const onMessage = useCallback(
+		(listener: (msg: ServerMessage) => void) => client.onMessage(listener),
+		[client],
+	);
+
+	const send = useCallback((msg: object) => client.send(msg), [client]);
+
+	return {
+		connected: state.connected,
+		send,
+		/** Subscribe to every incoming message (no batching/dropping). */
+		onMessage,
+	};
+}

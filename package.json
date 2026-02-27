@@ -11,7 +11,7 @@
     "check": "biome check --write .",
     "lint": "biome lint .",
     "format": "biome format --write .",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit --project web/tsconfig.json",
     "test": "bun test",
     "test:unit": "bun test $(find test -name '*.test.ts' -o -name '*.test.tsx' | grep -v integration | grep -v 'anthropic\\.test' | grep -v 'gemini\\.test' | grep -v 'openai\\.test' | grep -v 'client\\.test')",
     "test:integration": "VCR_MODE=replay bun test test/integration/e2e.test.ts test/agents/agent.integration.test.ts test/llm/anthropic.test.ts test/llm/openai.test.ts test/llm/gemini.test.ts test/llm/client.test.ts test/learn/learn.integration.test.ts",
@@ -19,7 +19,9 @@
     "test:integration:live": "VCR_MODE=off bun test test/integration/e2e.test.ts test/agents/agent.integration.test.ts test/llm/anthropic.test.ts test/llm/openai.test.ts test/llm/gemini.test.ts test/llm/client.test.ts test/learn/learn.integration.test.ts",
     "test:all": "bun test",
     "test:watch": "bun test --watch",
-    "precommit": "bun run check && bun run typecheck && bun run test:unit"
+    "precommit": "bun run check && bun run typecheck && bun run test:unit",
+    "web:build": "cd web && bun run build",
+    "web:dev": "cd web && bun run dev"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.4",

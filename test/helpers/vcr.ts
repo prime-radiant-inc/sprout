@@ -232,6 +232,10 @@ function createClientRecorder(
 			});
 		},
 		providers: () => realClient.providers(),
+		listModelsByProvider: async () => {
+			const { defaultModelsByProvider } = await import("../../src/agents/model-resolver.ts");
+			return defaultModelsByProvider(realClient.providers());
+		},
 	} as Client;
 
 	const afterTest = async () => {
@@ -295,6 +299,10 @@ function createClientReplayer(
 			}
 		},
 		providers: () => cassette.metadata.providers,
+		listModelsByProvider: async () => {
+			const { defaultModelsByProvider } = await import("../../src/agents/model-resolver.ts");
+			return defaultModelsByProvider(cassette.metadata.providers);
+		},
 	} as Client;
 
 	const afterTest = async () => {
@@ -356,6 +364,9 @@ function createAdapterRecorder(opts: AdapterVcrOptions): {
 
 	const adapter: ProviderAdapter = {
 		name: realAdapter.name,
+		async listModels() {
+			return realAdapter.listModels();
+		},
 		complete: async (request: Request): Promise<Response> => {
 			const response = await realAdapter.complete(request);
 			const cleanResponse = stripRaw(response);
@@ -419,6 +430,9 @@ function createAdapterReplayer(opts: AdapterVcrOptions): {
 
 	const adapter: ProviderAdapter = {
 		name: adapterName,
+		async listModels() {
+			return [];
+		},
 		complete: async (_request: Request): Promise<Response> => {
 			const { entry, nextIndex } = nextEntry(cassette, callIndex, opts.testName);
 			callIndex = nextIndex;
