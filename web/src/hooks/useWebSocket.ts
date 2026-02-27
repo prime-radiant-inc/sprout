@@ -155,14 +155,13 @@ export class WebSocketClient {
 /** Snapshot type for useSyncExternalStore. */
 interface WebSocketState {
 	connected: boolean;
-	lastMessage: ServerMessage | null;
 }
 
 /**
  * React hook wrapping WebSocketClient.
  *
  * Connects on mount, disconnects on unmount.
- * Returns `{ connected, lastMessage, send }`.
+ * Returns `{ connected, send, onMessage }`.
  */
 export function useWebSocket(url: string) {
 	const clientRef = useRef<WebSocketClient | null>(null);
@@ -175,17 +174,17 @@ export function useWebSocket(url: string) {
 	const client = clientRef.current;
 
 	// Snapshot for useSyncExternalStore
-	const stateRef = useRef<WebSocketState>({ connected: false, lastMessage: null });
+	const stateRef = useRef<WebSocketState>({ connected: false });
 
 	const subscribe = useCallback(
 		(onStoreChange: () => void) => {
 			const unsubMsg = client.onMessage(() => {
-				stateRef.current = { connected: client.connected, lastMessage: client.lastMessage };
+				stateRef.current = { connected: client.connected };
 				onStoreChange();
 			});
 
 			const unsubState = client.onStateChange(() => {
-				stateRef.current = { connected: client.connected, lastMessage: client.lastMessage };
+				stateRef.current = { connected: client.connected };
 				onStoreChange();
 			});
 
@@ -218,7 +217,6 @@ export function useWebSocket(url: string) {
 
 	return {
 		connected: state.connected,
-		lastMessage: state.lastMessage,
 		send,
 		/** Subscribe to every incoming message (no batching/dropping). */
 		onMessage,
