@@ -5,9 +5,11 @@ import { loadPreambles } from "../agents/loader.ts";
 import { renderCallerIdentity } from "../agents/plan.ts";
 import { loadProjectDocs } from "../agents/project-doc.ts";
 import { Genome } from "../genome/genome.ts";
+import { SessionLogger } from "../host/logger.ts";
 import { LocalExecutionEnvironment } from "../kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../kernel/primitives.ts";
 import { Client } from "../llm/client.ts";
+import { loggingMiddleware } from "../llm/logging-middleware.ts";
 import { BusClient } from "./client.ts";
 import { BusLearnForwarder } from "./learn-forwarder.ts";
 import { replayHandleLog } from "./resume.ts";
@@ -377,8 +379,6 @@ if (import.meta.main) {
 	process.on("SIGINT", () => controller.abort());
 
 	const logPath = join(genomePath, "logs", sessionId, handleId, "session.log.jsonl");
-	const { SessionLogger } = await import("../host/logger.ts");
-	const { loggingMiddleware } = await import("../llm/logging-middleware.ts");
 	const logger = new SessionLogger({ logPath, component: "agent-process", sessionId });
 	const client = Client.fromEnv({ middleware: [loggingMiddleware(logger)] });
 

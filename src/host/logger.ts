@@ -131,6 +131,12 @@ export class SessionLogger implements Logger {
 		);
 	}
 
+	/**
+	 * Update sessionId and/or logPath for subsequent writes.
+	 * Does NOT propagate to existing child loggers — callers must ensure
+	 * no live children depend on the old values (e.g. /clear destroys the
+	 * current agent before the next submitGoal creates a new one).
+	 */
 	reconfigure(opts: { sessionId?: string; logPath?: string }): void {
 		if (opts.sessionId !== undefined) {
 			this.context.sessionId = opts.sessionId;
