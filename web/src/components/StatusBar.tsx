@@ -61,7 +61,6 @@ export function StatusBar({ status, connected, onInterrupt }: StatusBarProps) {
 					{formatTokens(contextTokens)}/{formatTokens(contextWindowSize)} {percentStr}
 				</span>
 				<span>{turnLabel}</span>
-				<span>$0.00</span>
 				{runStatus === "running" && (
 					<span>
 						{"\u2191"}{formatTokens(inputTokens)} {"\u2193"}{formatTokens(outputTokens)}
@@ -75,24 +74,14 @@ export function StatusBar({ status, connected, onInterrupt }: StatusBarProps) {
 			<div className={styles.rightGroup}>
 				<span>{shortModelName(model)}</span>
 				{runStatus === "running" && (
-					<>
-						<button
-							type="button"
-							className={styles.iconButton}
-							onClick={onInterrupt}
-							title="Pause"
-						>
-							{"\u23F8"}
-						</button>
-						<button
-							type="button"
-							className={styles.iconButton}
-							onClick={onInterrupt}
-							title="Stop"
-						>
-							{"\u23F9"}
-						</button>
-					</>
+					<button
+						type="button"
+						className={styles.iconButton}
+						onClick={onInterrupt}
+						title="Interrupt"
+					>
+						{"\u23F9"}
+					</button>
 				)}
 				<span
 					className={styles.sessionId}

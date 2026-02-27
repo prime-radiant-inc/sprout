@@ -148,7 +148,6 @@ export function App() {
 							tree={tree}
 							selectedAgent={selectedAgent}
 							onSelectAgent={setSelectedAgent}
-							collapsed={!sidebarOpen}
 							onToggle={toggleSidebar}
 							events={events}
 						/>
@@ -161,11 +160,12 @@ export function App() {
 					data-region="conversation"
 					onScroll={handleScroll}
 				>
-					<Breadcrumb tree={tree} selectedAgent={selectedAgent} />
+					<Breadcrumb tree={tree} selectedAgent={selectedAgent} onSelectAgent={setSelectedAgent} />
 					<ConversationView
 						events={events}
 						agentFilter={selectedAgent}
 						tree={tree}
+						onSelectAgent={setSelectedAgent}
 					/>
 					{userScrolledUp && (
 						<button
@@ -184,6 +184,7 @@ export function App() {
 				onSubmit={handleSubmit}
 				onSlashCommand={handleSlashCommand}
 				onSteer={handleSteer}
+				onInterrupt={handleInterrupt}
 				textareaRef={inputRef}
 			/>
 		</div>

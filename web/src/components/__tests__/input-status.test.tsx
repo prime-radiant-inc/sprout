@@ -108,11 +108,11 @@ describe("StatusBar", () => {
 		expect(html).not.toContain("1 turns");
 	});
 
-	test("renders cost display", () => {
+	test("does not render hardcoded cost", () => {
 		const html = renderToStaticMarkup(
 			<StatusBar status={makeStatus()} connected={true} />,
 		);
-		expect(html).toContain("$0.00");
+		expect(html).not.toContain("$0.00");
 	});
 
 	test("renders model name (shortened)", () => {
@@ -176,7 +176,7 @@ describe("StatusBar", () => {
 		expect(html).toContain('data-action="copy-session-id"');
 	});
 
-	test("renders pause and stop buttons when running", () => {
+	test("renders single interrupt button when running", () => {
 		const html = renderToStaticMarkup(
 			<StatusBar
 				status={makeStatus({ status: "running" })}
@@ -184,11 +184,12 @@ describe("StatusBar", () => {
 				onInterrupt={() => {}}
 			/>,
 		);
-		expect(html).toContain("\u23F8");
+		// Should have stop symbol but NOT pause symbol
 		expect(html).toContain("\u23F9");
+		expect(html).not.toContain("\u23F8");
 	});
 
-	test("does not render pause and stop buttons when idle", () => {
+	test("does not render interrupt button when idle", () => {
 		const html = renderToStaticMarkup(
 			<StatusBar
 				status={makeStatus({ status: "idle" })}
@@ -311,5 +312,18 @@ describe("InputArea", () => {
 		);
 		// No terminal-style > prompt should exist
 		expect(html).not.toContain("&gt;");
+	});
+
+	test("accepts onInterrupt prop and renders Stop button when running", () => {
+		const html = renderToStaticMarkup(
+			<InputArea
+				isRunning={true}
+				onSubmit={noop}
+				onSlashCommand={noop}
+				onSteer={noop}
+				onInterrupt={noop}
+			/>,
+		);
+		expect(html).toContain("Stop");
 	});
 });

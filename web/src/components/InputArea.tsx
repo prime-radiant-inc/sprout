@@ -15,6 +15,7 @@ export interface InputAreaProps {
 	onSubmit: (text: string) => void;
 	onSlashCommand: (cmd: SlashCommand) => void;
 	onSteer: (text: string) => void;
+	onInterrupt?: () => void;
 	/** Optional external ref for focusing the textarea from outside. */
 	textareaRef?: RefObject<HTMLTextAreaElement | null>;
 }
@@ -47,6 +48,7 @@ export function InputArea({
 	onSubmit,
 	onSlashCommand,
 	onSteer,
+	onInterrupt,
 	textareaRef: externalRef,
 }: InputAreaProps) {
 	const [value, setValue] = useState("");
@@ -64,7 +66,7 @@ export function InputArea({
 		// Compute max height based on line-height (roughly 1.5 * 13px = 19.5px per line)
 		const maxHeight = 10 * 20;
 		el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
-	}, []);
+	}, [textareaRef]);
 
 	useEffect(() => {
 		autoResize();
@@ -161,7 +163,11 @@ export function InputArea({
 	};
 
 	const handleSubmitClick = () => {
-		submitValue();
+		if (isRunning && !value.trim() && onInterrupt) {
+			onInterrupt();
+		} else {
+			submitValue();
+		}
 		textareaRef.current?.focus();
 	};
 
