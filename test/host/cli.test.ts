@@ -272,6 +272,53 @@ describe("parseArgs", () => {
 		const result = parseArgs(["--port", "banana"]);
 		expect(result).toEqual({ kind: "help" });
 	});
+
+	test("--log-stderr sets logStderr on interactive command", () => {
+		const result = parseArgs(["--log-stderr"]);
+		expect(result).toEqual({
+			kind: "interactive",
+			genomePath: defaultGenomePath,
+			logStderr: true,
+		});
+	});
+
+	test("--debug sets debug on interactive command", () => {
+		const result = parseArgs(["--debug"]);
+		expect(result).toEqual({
+			kind: "interactive",
+			genomePath: defaultGenomePath,
+			debug: true,
+		});
+	});
+
+	test("--log-stderr --debug sets both flags", () => {
+		const result = parseArgs(["--log-stderr", "--debug"]);
+		expect(result).toEqual({
+			kind: "interactive",
+			genomePath: defaultGenomePath,
+			logStderr: true,
+			debug: true,
+		});
+	});
+
+	test("--log-stderr carries through to resume command", () => {
+		const result = parseArgs(["--log-stderr", "--resume", "01ABC"]);
+		expect(result).toEqual({
+			kind: "resume",
+			sessionId: "01ABC",
+			genomePath: defaultGenomePath,
+			logStderr: true,
+		});
+	});
+
+	test("log flags are not present on oneshot", () => {
+		const result = parseArgs(["--log-stderr", "--debug", "--prompt", "Fix bug"]);
+		expect(result).toEqual({
+			kind: "oneshot",
+			goal: "Fix bug",
+			genomePath: defaultGenomePath,
+		});
+	});
 });
 
 describe("handleSigint", () => {
@@ -1114,7 +1161,6 @@ describe("configureTerminal — other terminals", () => {
 			restoreEnv(saved);
 		}
 	});
-
 });
 
 describe("resume flow", () => {

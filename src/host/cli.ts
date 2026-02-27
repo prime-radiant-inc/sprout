@@ -85,11 +85,16 @@ export interface WebFlags {
 	host?: string;
 }
 
+export interface LogFlags {
+	logStderr?: boolean;
+	debug?: boolean;
+}
+
 export type CliCommand =
-	| ({ kind: "interactive"; genomePath: string } & WebFlags)
+	| ({ kind: "interactive"; genomePath: string } & WebFlags & LogFlags)
 	| { kind: "oneshot"; goal: string; genomePath: string }
-	| ({ kind: "resume"; sessionId: string; genomePath: string } & WebFlags)
-	| ({ kind: "resume-last"; genomePath: string } & WebFlags)
+	| ({ kind: "resume"; sessionId: string; genomePath: string } & WebFlags & LogFlags)
+	| ({ kind: "resume-last"; genomePath: string } & WebFlags & LogFlags)
 	| { kind: "list"; genomePath: string } // session picker (via --resume with no arg)
 	| { kind: "genome-list"; genomePath: string }
 	| { kind: "genome-log"; genomePath: string }
@@ -112,6 +117,13 @@ function collectWebFlags(webFlags: {
 	return flags;
 }
 
+function collectLogFlags(logFlags: { logStderr: boolean; debug: boolean }): LogFlags {
+	const flags: LogFlags = {};
+	if (logFlags.logStderr) flags.logStderr = true;
+	if (logFlags.debug) flags.debug = true;
+	return flags;
+}
+
 /** Parse CLI arguments (process.argv.slice(2)) into a typed command.
  * Note: --genome-path must come before --genome subcommands. */
 export function parseArgs(argv: string[]): CliCommand {
@@ -122,6 +134,7 @@ export function parseArgs(argv: string[]): CliCommand {
 		port: undefined as number | undefined,
 		host: undefined as string | undefined,
 	};
+	const logFlags = { logStderr: false, debug: false };
 	const rest: string[] = [];
 
 	for (let i = 0; i < argv.length; i++) {
@@ -159,6 +172,16 @@ export function parseArgs(argv: string[]): CliCommand {
 			continue;
 		}
 
+		if (arg === "--log-stderr") {
+			logFlags.logStderr = true;
+			continue;
+		}
+
+		if (arg === "--debug") {
+			logFlags.debug = true;
+			continue;
+		}
+
 		if (arg === "--prompt") {
 			const goal = argv.slice(i + 1).join(" ");
 			if (!goal) return { kind: "help" };
@@ -172,11 +195,11 @@ export function parseArgs(argv: string[]): CliCommand {
 				return { kind: "list", genomePath };
 			}
 			i++;
-			return { kind: "resume", sessionId: next, genomePath, ...collectWebFlags(webFlags) };
+			return { kind: "resume", sessionId: next, genomePath, ...collectWebFlags(webFlags), ...collectLogFlags(logFlags) };
 		}
 
 		if (arg === "--resume-last") {
-			return { kind: "resume-last", genomePath, ...collectWebFlags(webFlags) };
+			return { kind: "resume-last", genomePath, ...collectWebFlags(webFlags), ...collectLogFlags(logFlags) };
 		}
 
 		if (arg === "--genome") {
@@ -199,7 +222,7 @@ export function parseArgs(argv: string[]): CliCommand {
 	}
 
 	if (rest.length === 0) {
-		return { kind: "interactive", genomePath, ...collectWebFlags(webFlags) };
+		return { kind: "interactive", genomePath, ...collectWebFlags(webFlags), ...collectLogFlags(logFlags) };
 	}
 
 	return { kind: "oneshot", goal: rest.join(" "), genomePath };
@@ -226,6 +249,10 @@ Web interface:
   --port <port>          Web server port (default: 7777)
   --host <addr>          Web server bind address (default: localhost, use 0.0.0.0 for all interfaces)
   /web, /web stop        Start/stop web server from interactive mode
+
+Logging:
+  --log-stderr           Print log entries to stderr (info level and above)
+  --debug                Include debug-level entries (use with --log-stderr)
 
 Options:
   --genome-path <path>   Path to genome directory (default: ~/.local/share/sprout-genome)
@@ -752,7 +779,8 @@ export async function runCli(command: CliCommand): Promise<void> {
 
 	const bus = new EventBus();
 	const logPath = join(command.genomePath, "logs", sessionId, "session.log.jsonl");
-	const logger = new SessionLogger({ logPath, component: "cli", sessionId, bus });
+	const stderrLevel = command.logStderr ? (command.debug ? ("debug" as const) : ("info" as const)) : undefined;
+	const logger = new SessionLogger({ logPath, component: "cli", sessionId, bus, stderrLevel });
 	const { Client } = await import("../llm/client.ts");
 	const llmClient = Client.fromEnv({ middleware: [loggingMiddleware(logger)] });
 

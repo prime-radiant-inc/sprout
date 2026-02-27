@@ -51,6 +51,35 @@ export interface SessionLoggerOptions {
 	component: string;
 	sessionId?: string;
 	bus?: SessionBus;
+	/** Minimum level to also emit to stderr. Omit to disable stderr logging. */
+	stderrLevel?: LogLevel;
+	/** Override stderr output sink (defaults to process.stderr.write). For testing. */
+	stderrWrite?: (line: string) => void;
+}
+
+// ---------------------------------------------------------------------------
+// Formatting
+// ---------------------------------------------------------------------------
+
+const LOG_LEVEL_ORDER: Record<LogLevel, number> = {
+	debug: 0,
+	info: 1,
+	warn: 2,
+	error: 3,
+};
+
+/** Format a log entry as a human-readable line for stderr. */
+export function formatLogEntry(entry: LogEntry): string {
+	const tag = `[${entry.level.toUpperCase()}]`;
+	const source = entry.agentId ? `${entry.component}(${entry.agentId})` : entry.component;
+	let line = `${tag} ${source}: ${entry.message}`;
+	if (entry.data) {
+		const pairs = Object.entries(entry.data).map(([k, v]) =>
+			typeof v === "string" ? `${k}="${v}"` : `${k}=${v}`,
+		);
+		line += ` ${pairs.join(" ")}`;
+	}
+	return line;
 }
 
 // ---------------------------------------------------------------------------
@@ -64,6 +93,8 @@ export class SessionLogger implements Logger {
 	/** Shared write chain — parent and all children append to the same chain. */
 	private writeChain: { promise: Promise<void> };
 	private dirCreated: { value: boolean };
+	private readonly stderrLevel?: LogLevel;
+	private readonly stderrWrite?: (line: string) => void;
 
 	constructor(options: SessionLoggerOptions);
 	constructor(
@@ -72,6 +103,8 @@ export class SessionLogger implements Logger {
 		bus: SessionBus | undefined,
 		writeChain: { promise: Promise<void> },
 		dirCreated: { value: boolean },
+		stderrLevel: LogLevel | undefined,
+		stderrWrite: ((line: string) => void) | undefined,
 	);
 	constructor(
 		optionsOrPath: SessionLoggerOptions | string,
@@ -79,6 +112,8 @@ export class SessionLogger implements Logger {
 		bus?: SessionBus,
 		writeChain?: { promise: Promise<void> },
 		dirCreated?: { value: boolean },
+		stderrLevel?: LogLevel,
+		stderrWrite?: (line: string) => void,
 	) {
 		if (typeof optionsOrPath === "string") {
 			// Internal child constructor
@@ -87,6 +122,8 @@ export class SessionLogger implements Logger {
 			this.bus = bus;
 			this.writeChain = writeChain!;
 			this.dirCreated = dirCreated!;
+			this.stderrLevel = stderrLevel;
+			this.stderrWrite = stderrWrite;
 		} else {
 			// Public constructor
 			this.logPath = optionsOrPath.logPath;
@@ -97,6 +134,8 @@ export class SessionLogger implements Logger {
 			this.bus = optionsOrPath.bus;
 			this.writeChain = { promise: Promise.resolve() };
 			this.dirCreated = { value: false };
+			this.stderrLevel = optionsOrPath.stderrLevel;
+			this.stderrWrite = optionsOrPath.stderrWrite;
 		}
 	}
 
@@ -128,6 +167,8 @@ export class SessionLogger implements Logger {
 			this.bus,
 			this.writeChain,
 			this.dirCreated, // Shared reference — parent and child share mkdir state
+			this.stderrLevel,
+			this.stderrWrite,
 		);
 	}
 
@@ -179,6 +220,16 @@ export class SessionLogger implements Logger {
 					this.context.depth ?? 0,
 					entry as unknown as Record<string, unknown>,
 				);
+			} catch {
+				// Never throw from logging
+			}
+		}
+
+		// Write to stderr if level meets threshold
+		if (this.stderrLevel && LOG_LEVEL_ORDER[level] >= LOG_LEVEL_ORDER[this.stderrLevel]) {
+			const write = this.stderrWrite ?? ((s: string) => process.stderr.write(s));
+			try {
+				write(`${formatLogEntry(entry)}\n`);
 			} catch {
 				// Never throw from logging
 			}

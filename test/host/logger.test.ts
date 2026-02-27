@@ -2,7 +2,12 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type LogEntry, NullLogger, SessionLogger } from "../../src/host/logger.ts";
+import {
+	type LogEntry,
+	NullLogger,
+	SessionLogger,
+	formatLogEntry,
+} from "../../src/host/logger.ts";
 
 async function readLogEntries(path: string): Promise<LogEntry[]> {
 	const raw = await readFile(path, "utf-8");
@@ -210,6 +215,133 @@ describe("SessionLogger shared dirCreated between parent and child", () => {
 		expect(entries).toHaveLength(2);
 		expect(entries[0]!.component).toBe("parent");
 		expect(entries[1]!.component).toBe("child");
+	});
+});
+
+describe("formatLogEntry", () => {
+	test("formats a basic info entry", () => {
+		const entry: LogEntry = {
+			timestamp: 1000,
+			level: "info",
+			category: "system",
+			message: "server started",
+			component: "cli",
+		};
+		const result = formatLogEntry(entry);
+		expect(result).toContain("[INFO]");
+		expect(result).toContain("cli");
+		expect(result).toContain("server started");
+	});
+
+	test("includes agentId when present", () => {
+		const entry: LogEntry = {
+			timestamp: 1000,
+			level: "debug",
+			category: "llm",
+			message: "calling model",
+			component: "agent",
+			agentId: "root",
+			depth: 0,
+		};
+		const result = formatLogEntry(entry);
+		expect(result).toContain("root");
+		expect(result).toContain("calling model");
+	});
+
+	test("includes data keys when present", () => {
+		const entry: LogEntry = {
+			timestamp: 1000,
+			level: "warn",
+			category: "agent",
+			message: "retry",
+			component: "agent",
+			data: { attempt: 3, model: "claude-sonnet" },
+		};
+		const result = formatLogEntry(entry);
+		expect(result).toContain("retry");
+		expect(result).toContain("attempt=3");
+		expect(result).toContain('model="claude-sonnet"');
+	});
+});
+
+describe("SessionLogger stderr output", () => {
+	let tempDir: string;
+
+	afterEach(async () => {
+		if (tempDir) await rm(tempDir, { recursive: true, force: true });
+	});
+
+	test("writes to stderr when stderrLevel is set to info", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "logger-stderr-"));
+		const logPath = join(tempDir, "session.log.jsonl");
+		const stderrLines: string[] = [];
+		const logger = new SessionLogger({
+			logPath,
+			component: "test",
+			stderrLevel: "info",
+			stderrWrite: (line: string) => {
+				stderrLines.push(line);
+			},
+		});
+
+		logger.debug("llm", "should not appear on stderr");
+		logger.info("system", "should appear");
+		logger.warn("system", "also appears");
+		logger.error("system", "also appears");
+		await logger.flush();
+
+		// debug is below info threshold, so 3 lines on stderr
+		expect(stderrLines).toHaveLength(3);
+		expect(stderrLines[0]).toContain("should appear");
+		expect(stderrLines[1]).toContain("also appears");
+
+		// All 4 still written to file
+		const entries = await readLogEntries(logPath);
+		expect(entries).toHaveLength(4);
+	});
+
+	test("writes debug entries to stderr when stderrLevel is debug", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "logger-stderr-"));
+		const logPath = join(tempDir, "session.log.jsonl");
+		const stderrLines: string[] = [];
+		const logger = new SessionLogger({
+			logPath,
+			component: "test",
+			stderrLevel: "debug",
+			stderrWrite: (line: string) => {
+				stderrLines.push(line);
+			},
+		});
+
+		logger.debug("llm", "debug msg");
+		logger.info("system", "info msg");
+		await logger.flush();
+
+		expect(stderrLines).toHaveLength(2);
+		expect(stderrLines[0]).toContain("debug msg");
+		expect(stderrLines[1]).toContain("info msg");
+	});
+
+	test("child inherits stderr settings from parent", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "logger-stderr-"));
+		const logPath = join(tempDir, "session.log.jsonl");
+		const stderrLines: string[] = [];
+		const parent = new SessionLogger({
+			logPath,
+			component: "parent",
+			stderrLevel: "info",
+			stderrWrite: (line: string) => {
+				stderrLines.push(line);
+			},
+		});
+		const child = parent.child({ component: "child", agentId: "agent-1" });
+
+		child.info("agent", "from child");
+		await parent.flush();
+
+		expect(stderrLines).toHaveLength(1);
+		expect(stderrLines[0]).toContain("from child");
+		expect(stderrLines[0]).toContain("agent-1");
 	});
 });
 
