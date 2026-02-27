@@ -167,7 +167,9 @@ describe("EventStore", () => {
 
 			store.processMessage(eventMessage(makeEvent("session_clear", { new_session_id: "new-session" })));
 
-			expect(store.events).toEqual([]);
+			// session_clear event itself is preserved so the UI can show "New session started"
+			expect(store.events).toHaveLength(1);
+			expect(store.events[0]!.kind).toBe("session_clear");
 			expect(store.status.sessionId).toBe("new-session");
 			expect(store.status.status).toBe("idle");
 			expect(store.status.inputTokens).toBe(0);

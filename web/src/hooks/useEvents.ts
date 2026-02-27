@@ -59,9 +59,10 @@ export class EventStore {
 			case "event":
 				this.events = [...this.events, msg.event];
 				this.applyEventToStatus(msg.event);
-				// session_clear resets the events array
 				if (msg.event.kind === "session_clear") {
-					this.events = [];
+					// Clear prior events but keep the session_clear event itself
+					// so the UI can render a "New session started" message.
+					this.events = [msg.event];
 				}
 				break;
 		}
