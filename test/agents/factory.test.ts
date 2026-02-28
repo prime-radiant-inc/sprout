@@ -130,7 +130,7 @@ describe("createAgent", () => {
 
 		// Use the actual sprout source dir as workDir — it will detect dev mode
 		const sproutRoot = join(import.meta.dir, "../..");
-		expect(isDevMode(sproutRoot)).toBe(true);
+		expect(await isDevMode(sproutRoot)).toBe(true);
 
 		const result = await createAgent({
 			genomePath,

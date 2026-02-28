@@ -6,20 +6,7 @@ import { parse, stringify } from "yaml";
 import { loadManifest } from "../../src/genome/bootstrap-manifest.ts";
 import { Genome, git } from "../../src/genome/genome.ts";
 import type { AgentSpec, Memory, RoutingRule } from "../../src/kernel/types.ts";
-import { DEFAULT_CONSTRAINTS } from "../../src/kernel/types.ts";
-
-function makeSpec(overrides: Partial<AgentSpec> = {}): AgentSpec {
-	return {
-		name: overrides.name ?? "test-agent",
-		description: overrides.description ?? "A test agent",
-		system_prompt: overrides.system_prompt ?? "You are a test agent.",
-		model: overrides.model ?? "fast",
-		capabilities: overrides.capabilities ?? ["read_file"],
-		constraints: overrides.constraints ?? { ...DEFAULT_CONSTRAINTS },
-		tags: overrides.tags ?? ["test"],
-		version: overrides.version ?? 1,
-	};
-}
+import { makeSpec } from "../helpers/make-spec.ts";
 
 function makeMemory(overrides: Partial<Memory> = {}): Memory {
 	return {

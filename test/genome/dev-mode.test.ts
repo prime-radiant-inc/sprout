@@ -19,19 +19,19 @@ describe("isDevMode", () => {
 		const workDir = join(tempDir, "sprout-src");
 		await mkdir(join(workDir, "bootstrap"), { recursive: true });
 		await mkdir(join(workDir, "src/genome"), { recursive: true });
-		expect(isDevMode(workDir)).toBe(true);
+		expect(await isDevMode(workDir)).toBe(true);
 	});
 
 	test("returns false when workDir is a normal project", async () => {
 		const workDir = join(tempDir, "normal-project");
 		await mkdir(join(workDir, "src"), { recursive: true });
-		expect(isDevMode(workDir)).toBe(false);
+		expect(await isDevMode(workDir)).toBe(false);
 	});
 
 	test("returns false when only bootstrap/ exists", async () => {
 		const workDir = join(tempDir, "partial");
 		await mkdir(join(workDir, "bootstrap"), { recursive: true });
-		expect(isDevMode(workDir)).toBe(false);
+		expect(await isDevMode(workDir)).toBe(false);
 	});
 
 	test("DEV_MODE_SENTINEL is an HTML comment for safe embedding in markdown", () => {
