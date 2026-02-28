@@ -62,7 +62,8 @@ const md = new Marked({
 		code({ text, lang }: { text: string; lang?: string; escaped?: boolean }): string {
 			const highlighted = highlightCode(text, lang);
 			const langAttr = lang ? ` language-${lang}` : "";
-			return `<div data-code-block><pre><code class="hljs${langAttr}">${highlighted}\n</code></pre></div>\n`;
+			const langLabel = lang ? `<span data-code-lang>${lang}</span>` : "";
+			return `<div data-code-block>${langLabel}<button type="button" data-action="copy-code" title="Copy code">Copy</button><pre><code class="hljs${langAttr}">${highlighted}\n</code></pre></div>\n`;
 		},
 	},
 });
@@ -71,12 +72,33 @@ const md = new Marked({
 export function MarkdownBlock({ content }: MarkdownBlockProps) {
 	const raw = md.parse(content, { async: false }) as string;
 	const html = DOMPurify.sanitize(raw, {
-		ADD_ATTR: ["data-code-block"],
+		ADD_ATTR: ["data-code-block", "data-action", "data-code-lang"],
 		ADD_TAGS: ["span"],
 	});
+
+	const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+		const target = e.target as HTMLElement;
+		if (target.getAttribute("data-action") === "copy-code") {
+			const block = target.closest("[data-code-block]");
+			const code = block?.querySelector("code")?.textContent;
+			if (code) {
+				navigator.clipboard
+					.writeText(code.trimEnd())
+					.then(() => {
+						target.textContent = "Copied!";
+						setTimeout(() => {
+							target.textContent = "Copy";
+						}, 1500);
+					})
+					.catch(() => {});
+			}
+		}
+	};
+
 	return (
 		<div
 			className={styles.markdown}
+			onClick={handleClick}
 			dangerouslySetInnerHTML={{ __html: html }}
 		/>
 	);

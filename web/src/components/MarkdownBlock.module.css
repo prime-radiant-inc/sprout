@@ -55,6 +55,42 @@
 	position: relative;
 }
 
+.markdown [data-action="copy-code"] {
+	position: absolute;
+	top: var(--space-xs);
+	right: var(--space-xs);
+	background: var(--color-surface);
+	border: 1px solid var(--color-border);
+	color: var(--color-text-tertiary);
+	font-family: var(--font-ui);
+	font-size: var(--font-size-xxs);
+	padding: 2px 8px;
+	border-radius: var(--radius-xs);
+	cursor: pointer;
+	opacity: 0;
+	transition: opacity var(--transition-fast);
+}
+
+.markdown [data-code-block]:hover [data-action="copy-code"] {
+	opacity: 1;
+}
+
+.markdown [data-action="copy-code"]:hover {
+	background: var(--color-elevated);
+	color: var(--color-text-primary);
+}
+
+.markdown [data-code-lang] {
+	position: absolute;
+	top: var(--space-xs);
+	left: var(--space-sm);
+	font-family: var(--font-mono);
+	font-size: var(--font-size-xxs);
+	color: var(--color-text-placeholder);
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+}
+
 .markdown ul,
 .markdown ol {
 	margin: 4px 0;

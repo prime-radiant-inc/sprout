@@ -110,6 +110,12 @@ describe("MarkdownBlock", () => {
 		expect(html).toContain("hljs");
 	});
 
+	test("renders copy button on code blocks", () => {
+		const md = "```js\nconst x = 1;\n```";
+		const html = renderToStaticMarkup(<MarkdownBlock content={md} />);
+		expect(html).toContain('data-action="copy-code"');
+	});
+
 	test("wraps multiple code blocks each in their own container", () => {
 		const md = "```\nfirst\n```\n\ntext\n\n```\nsecond\n```";
 		const html = renderToStaticMarkup(<MarkdownBlock content={md} />);
