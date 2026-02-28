@@ -81,7 +81,7 @@ function buildPrimitives(_env: ExecutionEnvironment): Primitive[] {
 }
 
 export function buildWorkspacePrimitives(ctx: GenomeContext): Primitive[] {
-	return [saveToolPrimitive(ctx), saveFilePrimitive(ctx)];
+	return [saveToolPrimitive(ctx), saveFilePrimitive(ctx), saveAgentPrimitive(ctx)];
 }
 
 // ---------------------------------------------------------------------------
@@ -675,6 +675,67 @@ function saveFilePrimitive(ctx: GenomeContext): Primitive {
 				await ctx.genome.saveAgentFile(ctx.agentName, { name, content: content as string });
 				return {
 					output: `Saved file '${name}' to workspace.`,
+					success: true,
+				};
+			} catch (err) {
+				return { output: "", success: false, error: String(err) };
+			}
+		},
+	};
+}
+
+function saveAgentPrimitive(ctx: GenomeContext): Primitive {
+	return {
+		name: "save_agent",
+		description:
+			"Save a new agent definition to the genome. The agent becomes available for delegation immediately and persists across sessions.",
+		parameters: {
+			type: "object",
+			properties: {
+				yaml: {
+					type: "string",
+					description:
+						"Complete agent definition as YAML. Must include: name, description, model, system_prompt. Optional: capabilities, constraints, tags, version.",
+				},
+			},
+			required: ["yaml"],
+		},
+		async execute(args) {
+			const yaml = args.yaml as string;
+			if (!yaml) {
+				return { output: "", success: false, error: "Missing required parameter: yaml" };
+			}
+
+			try {
+				// Use the same parsing/validation as loadAgentSpec
+				const { parse } = await import("yaml");
+				const { DEFAULT_CONSTRAINTS } = await import("./types.ts");
+				const raw = parse(yaml);
+
+				for (const field of ["name", "description", "system_prompt", "model"]) {
+					if (!raw[field] || typeof raw[field] !== "string") {
+						return {
+							output: "",
+							success: false,
+							error: `Invalid agent spec: missing or invalid '${field}'`,
+						};
+					}
+				}
+
+				const spec = {
+					name: raw.name as string,
+					description: raw.description as string,
+					system_prompt: raw.system_prompt as string,
+					model: raw.model as string,
+					capabilities: (raw.capabilities as string[]) ?? [],
+					constraints: { ...DEFAULT_CONSTRAINTS, ...raw.constraints },
+					tags: (raw.tags as string[]) ?? [],
+					version: (raw.version as number) ?? 1,
+				};
+
+				await ctx.genome.addAgent(spec);
+				return {
+					output: `Agent '${spec.name}' saved and registered. It is available for delegation immediately.`,
 					success: true,
 				};
 			} catch (err) {

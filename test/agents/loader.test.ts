@@ -15,7 +15,7 @@ describe("loadAgentSpec", () => {
 		expect(spec.capabilities).toContain("editor");
 		expect(spec.capabilities).toContain("command-runner");
 		expect(spec.constraints.max_turns).toBe(200);
-		expect(spec.constraints.max_depth).toBe(3);
+		expect(spec.constraints.max_depth).toBe(5);
 		expect(spec.constraints.can_learn).toBe(true);
 		expect(spec.tags).toContain("core");
 		expect(spec.version).toBe(2);
@@ -39,9 +39,9 @@ describe("loadAgentSpec", () => {
 });
 
 describe("loadBootstrapAgents", () => {
-	test("loads all 11 bootstrap agents", async () => {
+	test("loads all 19 bootstrap agents", async () => {
 		const agents = await loadBootstrapAgents(join(import.meta.dir, "../../bootstrap"));
-		expect(agents).toHaveLength(11);
+		expect(agents).toHaveLength(19);
 		const names = agents.map((a) => a.name);
 		expect(names).toContain("root");
 		expect(names).toContain("reader");
@@ -53,6 +53,14 @@ describe("loadBootstrapAgents", () => {
 		expect(names).toContain("qm-indexer");
 		expect(names).toContain("qm-planner");
 		expect(names).toContain("qm-fabricator");
+		expect(names).toContain("tech-lead");
+		expect(names).toContain("engineer");
+		expect(names).toContain("spec-reviewer");
+		expect(names).toContain("quality-reviewer");
+		expect(names).toContain("architect");
+		expect(names).toContain("verifier");
+		expect(names).toContain("debugger");
+		expect(names).toContain("task-manager");
 	});
 
 	test("all agents have valid constraints", async () => {
@@ -67,7 +75,7 @@ describe("loadBootstrapAgents", () => {
 
 	test("leaf agents cannot spawn subagents", async () => {
 		const agents = await loadBootstrapAgents(join(import.meta.dir, "../../bootstrap"));
-		const orchestrators = ["root", "quartermaster", "qm-indexer"];
+		const orchestrators = ["root", "quartermaster", "qm-indexer", "tech-lead", "engineer", "spec-reviewer", "quality-reviewer", "architect", "verifier", "debugger"];
 		const leaves = agents.filter((a) => !orchestrators.includes(a.name));
 		for (const leaf of leaves) {
 			expect(leaf.constraints.can_spawn).toBe(false);

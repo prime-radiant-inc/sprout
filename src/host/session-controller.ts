@@ -327,9 +327,11 @@ export class SessionController {
 
 	async submitGoal(goal: string): Promise<void> {
 		if (this.running) {
+			this.logger?.info("session", "Steering running agent", { goal: goal.slice(0, 100) });
 			this.agent?.steer(goal);
 			return;
 		}
+		this.logger?.info("session", "Goal submitted", { goal: goal.slice(0, 100) });
 
 		// Emit session_resume on first run when prior history exists (including
 		// compacted single-message history). The TUI uses history_length to show
@@ -373,6 +375,7 @@ export class SessionController {
 
 			this.agent = result.agent;
 			learnProcess = result.learnProcess;
+			this.logger?.info("session", "Agent created");
 			if (result.compact) {
 				this.compactFn = result.compact;
 			}
@@ -382,6 +385,7 @@ export class SessionController {
 			}
 
 			await result.agent.run(goal, signal);
+			this.logger?.info("session", "Agent run completed");
 		} finally {
 			if (learnProcess) {
 				await learnProcess.stopBackground();

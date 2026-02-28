@@ -337,7 +337,7 @@ describe("Genome", () => {
 			const bootstrapDir = join(import.meta.dir, "../../bootstrap");
 			await genome.initFromBootstrap(bootstrapDir);
 
-			expect(genome.agentCount()).toBe(11);
+			expect(genome.agentCount()).toBe(19);
 			expect(genome.getAgent("root")).toBeDefined();
 			expect(genome.getAgent("reader")).toBeDefined();
 			expect(genome.getAgent("editor")).toBeDefined();
@@ -355,7 +355,7 @@ describe("Genome", () => {
 
 			// Verify files exist on disk
 			const files = await readdir(join(root, "agents"));
-			expect(files).toHaveLength(11);
+			expect(files).toHaveLength(19);
 		});
 
 		test("initFromBootstrap throws if agents already exist", async () => {

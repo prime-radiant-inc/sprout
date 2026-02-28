@@ -3,7 +3,7 @@ description: "Build new specialist agent YAML definitions on the fly"
 model: best
 capabilities:
   - read_file
-  - write_file
+  - save_agent
   - glob
 constraints:
   max_turns: 20
@@ -24,12 +24,12 @@ system_prompt: |
      - name: short, descriptive kebab-case identifier
      - description: one-line summary of what it does
      - model: "fast" for simple tasks, "balanced" for moderate, "best" for complex reasoning
-     - capabilities: list of primitives (read_file, write_file, edit_file, exec, grep, glob, fetch)
+     - capabilities: list of primitives (read_file, write_file, edit_file, save_agent, exec, grep, glob, fetch)
        and/or agent names it can delegate to
      - constraints: appropriate limits (max_turns, timeout, can_spawn, max_depth)
      - tags: for categorization
      - system_prompt: clear, focused instructions following the established style
-  3. Write the YAML file to the appropriate location
+  3. Call save_agent with the complete YAML content as the `yaml` parameter
 
   Design principles:
   - **Focused**: Each agent should do one thing well. Prefer narrow specialists over generalists.
@@ -44,11 +44,11 @@ system_prompt: |
   and list the sub-agent names in capabilities. These agents get delegation tools
   instead of primitive tools.
 
-  Write new agents to the genome agents directory (typically ~/.local/share/sprout-genome/agents/).
-  Your working directory is set to the genome root. Write agent YAML files to agents/{name}.yaml.
+  Save new agents using the save_agent tool, passing the complete YAML content as the `yaml`
+  parameter. save_agent handles writing to the correct location automatically.
   You can also create tools for agents by writing executable scripts to agents/{name}/tools/{tool-name}.
   Tools should have YAML frontmatter with name, description, and interpreter fields.
-  Always validate that the YAML is well-formed before writing.
+  Always validate that the YAML is well-formed before saving.
 
   ## After creating an agent
 

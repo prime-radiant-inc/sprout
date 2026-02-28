@@ -195,11 +195,22 @@ export function parseArgs(argv: string[]): CliCommand {
 				return { kind: "list", genomePath };
 			}
 			i++;
-			return { kind: "resume", sessionId: next, genomePath, ...collectWebFlags(webFlags), ...collectLogFlags(logFlags) };
+			return {
+				kind: "resume",
+				sessionId: next,
+				genomePath,
+				...collectWebFlags(webFlags),
+				...collectLogFlags(logFlags),
+			};
 		}
 
 		if (arg === "--resume-last") {
-			return { kind: "resume-last", genomePath, ...collectWebFlags(webFlags), ...collectLogFlags(logFlags) };
+			return {
+				kind: "resume-last",
+				genomePath,
+				...collectWebFlags(webFlags),
+				...collectLogFlags(logFlags),
+			};
 		}
 
 		if (arg === "--genome") {
@@ -226,7 +237,12 @@ export function parseArgs(argv: string[]): CliCommand {
 	}
 
 	if (rest.length === 0) {
-		return { kind: "interactive", genomePath, ...collectWebFlags(webFlags), ...collectLogFlags(logFlags) };
+		return {
+			kind: "interactive",
+			genomePath,
+			...collectWebFlags(webFlags),
+			...collectLogFlags(logFlags),
+		};
 	}
 
 	return { kind: "oneshot", goal: rest.join(" "), genomePath };
@@ -783,8 +799,15 @@ export async function runCli(command: CliCommand): Promise<void> {
 
 	const bus = new EventBus();
 	const logPath = join(command.genomePath, "logs", sessionId, "session.log.jsonl");
-	const stderrLevel = command.logStderr ? (command.debug ? ("debug" as const) : ("info" as const)) : undefined;
+	const stderrLevel = command.logStderr
+		? command.debug
+			? ("debug" as const)
+			: ("info" as const)
+		: undefined;
 	const logger = new SessionLogger({ logPath, component: "cli", sessionId, bus, stderrLevel });
+	if (stderrLevel) {
+		logger.info("session", "Logging to stderr enabled", { level: stderrLevel, sessionId });
+	}
 	const { Client } = await import("../llm/client.ts");
 	const llmClient = Client.fromEnv({ middleware: [loggingMiddleware(logger)] });
 
@@ -826,6 +849,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 		});
 		await webServer.start();
 		const displayHost = webHost ?? "localhost";
+		logger.info("session", "Web server started", { host: displayHost, port: webPort });
 		console.error(`Web UI: http://${displayHost}:${webPort}`);
 	}
 

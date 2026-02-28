@@ -3491,9 +3491,7 @@ describe("Agent", () => {
 			.split("\n")
 			.map((line) => JSON.parse(line));
 
-		const debugLlmEntries = entries.filter(
-			(e: any) => e.level === "debug" && e.category === "llm",
-		);
+		const debugLlmEntries = entries.filter((e: any) => e.level === "debug" && e.category === "llm");
 		expect(debugLlmEntries.length).toBeGreaterThanOrEqual(1);
 
 		const entry = debugLlmEntries[0];
