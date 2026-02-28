@@ -354,11 +354,15 @@ export class Genome {
 			}
 		}
 
-		// Save manifest before committing so it's included in the genome commit
-		await saveManifest(manifestPath, newManifest);
-
 		// Merge any new bootstrap root capabilities into the genome root
 		const capsMerged = await this.mergeRootCapabilities(specs);
+
+		const hasChanges = added.length > 0 || updated.length > 0 || capsMerged;
+
+		// Only save manifest when something changed — avoids dirty working tree
+		if (hasChanges || conflicts.length > 0) {
+			await saveManifest(manifestPath, newManifest);
+		}
 
 		if (added.length > 0 || updated.length > 0) {
 			const parts: string[] = [];
