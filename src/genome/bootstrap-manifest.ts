@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { parse } from "yaml";
 
 export interface BootstrapManifestEntry {
 	hash: string;
@@ -38,22 +37,28 @@ export async function saveManifest(path: string, manifest: BootstrapManifest): P
 	await writeFile(path, JSON.stringify(manifest, null, "\t"), "utf-8");
 }
 
-/** Scan a bootstrap directory for YAML agent specs and build a manifest from them. */
-export async function buildManifestFromBootstrap(bootstrapDir: string): Promise<BootstrapManifest> {
-	const entries = await readdir(bootstrapDir);
-	const yamlFiles = entries.filter((f) => f.endsWith(".yaml") || f.endsWith(".yml"));
-
+/**
+ * Build a manifest from pre-loaded agent specs and the bootstrap directory.
+ * Uses specs for name/version (single source of truth with loadBootstrapAgents),
+ * reads raw files only for content hashing.
+ */
+export async function buildManifestFromSpecs(
+	specs: ReadonlyArray<{ name: string; version: number }>,
+	bootstrapDir: string,
+): Promise<BootstrapManifest> {
 	const agents: Record<string, BootstrapManifestEntry> = {};
-	for (const file of yamlFiles) {
-		const content = await readFile(join(bootstrapDir, file), "utf-8");
-		const parsed = parse(content);
-		const name = parsed?.name;
-		if (typeof name !== "string" || !name) continue;
-		const version = (parsed?.version as number) ?? 1;
-		agents[name] = {
-			hash: hashFileContent(content),
-			version,
-		};
+	for (const spec of specs) {
+		// Read raw file for content hashing (detects formatting/whitespace changes too)
+		const filePath = join(bootstrapDir, `${spec.name}.yaml`);
+		try {
+			const content = await readFile(filePath, "utf-8");
+			agents[spec.name] = {
+				hash: hashFileContent(content),
+				version: spec.version,
+			};
+		} catch {
+			// File might use .yml extension or be named differently — skip
+		}
 	}
 
 	return {

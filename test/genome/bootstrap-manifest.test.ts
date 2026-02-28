@@ -1,10 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	type BootstrapManifest,
-	buildManifestFromBootstrap,
+	buildManifestFromSpecs,
 	hashFileContent,
 	loadManifest,
 	saveManifest,
@@ -82,26 +82,29 @@ describe("bootstrap-manifest", () => {
 		});
 	});
 
-	describe("buildManifestFromBootstrap", () => {
+	describe("buildManifestFromSpecs", () => {
 		let bootstrapDir: string;
 
 		const readerYaml = "name: reader\nversion: 2\ndescription: reads files\n";
 		const editorYaml = "name: editor\nversion: 1\ndescription: edits files\n";
 
+		const specs = [
+			{ name: "reader", version: 2 },
+			{ name: "editor", version: 1 },
+		];
+
 		beforeAll(async () => {
 			bootstrapDir = await mkdtemp(join(tmpdir(), "sprout-bootstrap-"));
 			await writeFile(join(bootstrapDir, "reader.yaml"), readerYaml);
 			await writeFile(join(bootstrapDir, "editor.yaml"), editorYaml);
-			await writeFile(join(bootstrapDir, "README.md"), "not a yaml file");
-			await mkdir(join(bootstrapDir, "preambles"));
 		});
 
 		afterAll(async () => {
 			await rm(bootstrapDir, { recursive: true });
 		});
 
-		test("creates manifest from directory of YAML files", async () => {
-			const manifest = await buildManifestFromBootstrap(bootstrapDir);
+		test("creates manifest from specs and bootstrap directory", async () => {
+			const manifest = await buildManifestFromSpecs(specs, bootstrapDir);
 
 			expect(Object.keys(manifest.agents)).toHaveLength(2);
 			expect(manifest.agents.reader).toBeDefined();
@@ -109,16 +112,16 @@ describe("bootstrap-manifest", () => {
 			expect(manifest.synced_at).not.toBe("");
 		});
 
-		test("ignores non-YAML files and subdirectories", async () => {
-			const manifest = await buildManifestFromBootstrap(bootstrapDir);
+		test("skips specs whose YAML file is missing", async () => {
+			const extendedSpecs = [...specs, { name: "ghost", version: 1 }];
+			const manifest = await buildManifestFromSpecs(extendedSpecs, bootstrapDir);
 
-			expect(manifest.agents.README).toBeUndefined();
-			expect(manifest.agents.preambles).toBeUndefined();
 			expect(Object.keys(manifest.agents)).toHaveLength(2);
+			expect(manifest.agents.ghost).toBeUndefined();
 		});
 
 		test("captures version and hash for each agent", async () => {
-			const manifest = await buildManifestFromBootstrap(bootstrapDir);
+			const manifest = await buildManifestFromSpecs(specs, bootstrapDir);
 
 			expect(manifest.agents.reader!.version).toBe(2);
 			expect(manifest.agents.reader!.hash).toBe(hashFileContent(readerYaml));

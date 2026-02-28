@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { parse, stringify } from "yaml";
 import { loadAgentSpec, loadBootstrapAgents } from "../agents/loader.ts";
 import type { AgentSpec, Memory, RoutingRule } from "../kernel/types.ts";
-import { buildManifestFromBootstrap, loadManifest, saveManifest } from "./bootstrap-manifest.ts";
+import { buildManifestFromSpecs, loadManifest, saveManifest } from "./bootstrap-manifest.ts";
 import { MemoryStore } from "./memory-store.ts";
 
 export interface SyncBootstrapResult {
@@ -319,8 +319,8 @@ export class Genome {
 	async syncBootstrap(bootstrapDir: string): Promise<SyncBootstrapResult> {
 		const manifestPath = join(this.rootPath, "bootstrap-manifest.json");
 		const oldManifest = await loadManifest(manifestPath);
-		const newManifest = await buildManifestFromBootstrap(bootstrapDir);
 		const specs = await loadBootstrapAgents(bootstrapDir);
+		const newManifest = await buildManifestFromSpecs(specs, bootstrapDir);
 
 		const added: string[] = [];
 		const updated: string[] = [];
@@ -378,6 +378,15 @@ export class Genome {
 		} else if (capsMerged) {
 			await git(this.rootPath, "add", ".");
 			await git(this.rootPath, "commit", "-m", "genome: merge root capabilities from bootstrap");
+		} else if (conflicts.length > 0) {
+			// Commit manifest even when only conflicts detected — avoids dirty working tree
+			await git(this.rootPath, "add", ".");
+			await git(
+				this.rootPath,
+				"commit",
+				"-m",
+				`genome: update bootstrap manifest (conflicts: ${conflicts.join(", ")})`,
+			);
 		}
 
 		return { added, updated, conflicts };
