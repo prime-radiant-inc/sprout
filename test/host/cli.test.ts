@@ -311,6 +311,26 @@ describe("parseArgs", () => {
 		});
 	});
 
+	test("--log-stderr after --resume is still collected", () => {
+		const result = parseArgs(["--resume", "01ABC", "--log-stderr", "--debug"]);
+		expect(result).toEqual({
+			kind: "resume",
+			sessionId: "01ABC",
+			genomePath: defaultGenomePath,
+			logStderr: true,
+			debug: true,
+		});
+	});
+
+	test("--log-stderr after --resume-last is still collected", () => {
+		const result = parseArgs(["--resume-last", "--log-stderr"]);
+		expect(result).toEqual({
+			kind: "resume-last",
+			genomePath: defaultGenomePath,
+			logStderr: true,
+		});
+	});
+
 	test("log flags are not present on oneshot", () => {
 		const result = parseArgs(["--log-stderr", "--debug", "--prompt", "Fix bug"]);
 		expect(result).toEqual({

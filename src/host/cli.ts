@@ -137,6 +137,19 @@ export function parseArgs(argv: string[]): CliCommand {
 	const logFlags = { logStderr: false, debug: false };
 	const rest: string[] = [];
 
+	// Deferred mode — set by --resume, --resume-last, --prompt, --genome
+	// so the loop can continue processing remaining flags.
+	let mode:
+		| { kind: "resume"; sessionId: string }
+		| { kind: "resume-last" }
+		| { kind: "list" }
+		| { kind: "oneshot"; goal: string }
+		| { kind: "genome-list" }
+		| { kind: "genome-log" }
+		| { kind: "genome-rollback"; commit: string }
+		| { kind: "help" }
+		| undefined;
+
 	for (let i = 0; i < argv.length; i++) {
 		const arg = argv[i]!;
 
@@ -191,42 +204,33 @@ export function parseArgs(argv: string[]): CliCommand {
 		if (arg === "--resume") {
 			const next = argv[i + 1];
 			if (!next || next.startsWith("-")) {
-				// No session ID provided — show the session picker
-				return { kind: "list", genomePath };
+				mode = { kind: "list" };
+			} else {
+				i++;
+				mode = { kind: "resume", sessionId: next };
 			}
-			i++;
-			return {
-				kind: "resume",
-				sessionId: next,
-				genomePath,
-				...collectWebFlags(webFlags),
-				...collectLogFlags(logFlags),
-			};
+			continue;
 		}
 
 		if (arg === "--resume-last") {
-			return {
-				kind: "resume-last",
-				genomePath,
-				...collectWebFlags(webFlags),
-				...collectLogFlags(logFlags),
-			};
+			mode = { kind: "resume-last" };
+			continue;
 		}
 
 		if (arg === "--genome") {
 			const sub = argv[++i];
 			if (sub === "list") {
-				return { kind: "genome-list", genomePath };
-			}
-			if (sub === "log") {
-				return { kind: "genome-log", genomePath };
-			}
-			if (sub === "rollback") {
+				mode = { kind: "genome-list" };
+			} else if (sub === "log") {
+				mode = { kind: "genome-log" };
+			} else if (sub === "rollback") {
 				const commit = argv[++i];
 				if (!commit) return { kind: "help" };
-				return { kind: "genome-rollback", genomePath, commit };
+				mode = { kind: "genome-rollback", commit };
+			} else {
+				return { kind: "help" };
 			}
-			return { kind: "help" };
+			continue;
 		}
 
 		if (arg.startsWith("--")) {
@@ -234,6 +238,39 @@ export function parseArgs(argv: string[]): CliCommand {
 		}
 
 		rest.push(arg);
+	}
+
+	// Resolve deferred mode
+	if (mode) {
+		switch (mode.kind) {
+			case "resume":
+				return {
+					kind: "resume",
+					sessionId: mode.sessionId,
+					genomePath,
+					...collectWebFlags(webFlags),
+					...collectLogFlags(logFlags),
+				};
+			case "resume-last":
+				return {
+					kind: "resume-last",
+					genomePath,
+					...collectWebFlags(webFlags),
+					...collectLogFlags(logFlags),
+				};
+			case "list":
+				return { kind: "list", genomePath };
+			case "oneshot":
+				return { kind: "oneshot", goal: mode.goal, genomePath };
+			case "genome-list":
+				return { kind: "genome-list", genomePath };
+			case "genome-log":
+				return { kind: "genome-log", genomePath };
+			case "genome-rollback":
+				return { kind: "genome-rollback", genomePath, commit: mode.commit };
+			case "help":
+				return { kind: "help" };
+		}
 	}
 
 	if (rest.length === 0) {
