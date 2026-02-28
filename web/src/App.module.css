@@ -26,6 +26,22 @@
 	overflow-y: auto;
 	background: var(--color-canvas);
 	border-right: 1px solid var(--color-border);
+	position: relative;
+}
+
+.dragHandle {
+	position: absolute;
+	top: 0;
+	right: -2px;
+	width: 4px;
+	height: 100%;
+	cursor: col-resize;
+	z-index: 10;
+}
+
+.dragHandle:hover {
+	background: var(--color-accent);
+	opacity: 0.3;
 }
 
 .conversation {

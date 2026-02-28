@@ -11,6 +11,7 @@ import { useAgentTree } from "./hooks/useAgentTree.ts";
 import { useEvents } from "./hooks/useEvents.ts";
 import { useFaviconStatus } from "./hooks/useFaviconStatus.ts";
 import { handleKeyboardShortcut } from "./hooks/useKeyboardShortcuts.ts";
+import { useResizable } from "./hooks/useResizable.ts";
 import { useWebSocket } from "./hooks/useWebSocket.ts";
 
 import { buildWsUrl } from "./hooks/buildWsUrl.ts";
@@ -30,6 +31,13 @@ export function App() {
 	const [sidebarOpen, setSidebarOpen] = useState(true);
 	const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
 	const inputRef = useRef<HTMLTextAreaElement>(null);
+
+	const { width: sidebarWidth, onMouseDown: onSidebarDragStart } = useResizable({
+		storageKey: "sprout-sidebar-width",
+		defaultWidth: 260,
+		minWidth: 200,
+		maxWidth: 400,
+	});
 
 	// Update favicon based on session status
 	useFaviconStatus(status.status);
@@ -222,7 +230,11 @@ export function App() {
 				data-sidebar-open={String(sidebarOpen)}
 			>
 				{sidebarOpen && (
-					<aside className={styles.sidebar} data-region="sidebar">
+					<aside
+						className={styles.sidebar}
+						data-region="sidebar"
+						style={{ width: sidebarWidth }}
+					>
 						<Sidebar
 							status={status}
 							tree={tree}
@@ -231,6 +243,7 @@ export function App() {
 							onToggle={toggleSidebar}
 							events={events}
 						/>
+						<div className={styles.dragHandle} onMouseDown={onSidebarDragStart} />
 					</aside>
 				)}
 
