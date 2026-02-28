@@ -21,7 +21,6 @@
 }
 
 .sidebar {
-	width: var(--sidebar-width);
 	flex-shrink: 0;
 	overflow-y: auto;
 	background: var(--color-canvas);

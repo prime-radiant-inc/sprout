@@ -24,15 +24,17 @@ export function useResizable({ storageKey, defaultWidth, minWidth, maxWidth }: U
 	const dragging = useRef(false);
 	const startX = useRef(0);
 	const startWidth = useRef(0);
+	const widthRef = useRef(width);
+	widthRef.current = width;
 
 	const onMouseDown = useCallback((e: React.MouseEvent) => {
 		e.preventDefault();
 		dragging.current = true;
 		startX.current = e.clientX;
-		startWidth.current = width;
+		startWidth.current = widthRef.current;
 		document.body.style.cursor = "col-resize";
 		document.body.style.userSelect = "none";
-	}, [width]);
+	}, []);
 
 	useEffect(() => {
 		const onMouseMove = (e: MouseEvent) => {
@@ -47,7 +49,7 @@ export function useResizable({ storageKey, defaultWidth, minWidth, maxWidth }: U
 			dragging.current = false;
 			document.body.style.cursor = "";
 			document.body.style.userSelect = "";
-			localStorage.setItem(storageKey, String(width));
+			localStorage.setItem(storageKey, String(widthRef.current));
 		};
 
 		document.addEventListener("mousemove", onMouseMove);
@@ -56,7 +58,7 @@ export function useResizable({ storageKey, defaultWidth, minWidth, maxWidth }: U
 			document.removeEventListener("mousemove", onMouseMove);
 			document.removeEventListener("mouseup", onMouseUp);
 		};
-	}, [width, minWidth, maxWidth, storageKey]);
+	}, [minWidth, maxWidth, storageKey]);
 
 	return { width, onMouseDown };
 }
