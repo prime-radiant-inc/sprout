@@ -108,3 +108,58 @@
 .markdown strong {
 	font-weight: 600;
 }
+
+/* highlight.js token colors using project design tokens */
+
+.markdown :global(.hljs) {
+	color: var(--color-text-primary);
+}
+
+.markdown :global(.hljs-keyword),
+.markdown :global(.hljs-built_in),
+.markdown :global(.hljs-type),
+.markdown :global(.hljs-selector-tag) {
+	color: var(--color-accent);
+}
+
+.markdown :global(.hljs-string),
+.markdown :global(.hljs-attr),
+.markdown :global(.hljs-subst) {
+	color: var(--color-success);
+}
+
+.markdown :global(.hljs-number),
+.markdown :global(.hljs-literal) {
+	color: var(--color-warning);
+}
+
+.markdown :global(.hljs-comment),
+.markdown :global(.hljs-doctag) {
+	color: var(--color-text-placeholder);
+	font-style: italic;
+}
+
+.markdown :global(.hljs-title),
+.markdown :global(.hljs-title.function_),
+.markdown :global(.hljs-function) {
+	color: var(--color-info);
+}
+
+.markdown :global(.hljs-variable),
+.markdown :global(.hljs-params) {
+	color: var(--color-text-secondary);
+}
+
+.markdown :global(.hljs-meta) {
+	color: var(--color-text-tertiary);
+}
+
+.markdown :global(.hljs-deletion) {
+	color: var(--color-error);
+	background: var(--color-diff-removed);
+}
+
+.markdown :global(.hljs-addition) {
+	color: var(--color-success);
+	background: var(--color-diff-added);
+}

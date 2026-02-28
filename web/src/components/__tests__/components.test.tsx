@@ -61,7 +61,10 @@ describe("MarkdownBlock", () => {
 		const md = "```js\nconst x = 1;\n```";
 		const html = renderToStaticMarkup(<MarkdownBlock content={md} />);
 		expect(html).toContain("<code");
-		expect(html).toContain("const x = 1;");
+		// Tokens are split across hljs spans
+		expect(html).toContain("const");
+		expect(html).toContain("x = ");
+		expect(html).toContain("1");
 	});
 
 	test("renders inline code", () => {
@@ -89,7 +92,7 @@ describe("MarkdownBlock", () => {
 		const html = renderToStaticMarkup(<MarkdownBlock content={md} />);
 		expect(html).toContain("data-code-block");
 		expect(html).toContain("<pre");
-		expect(html).toContain("const x = 1;");
+		expect(html).toContain("const");
 	});
 
 	test("does not wrap inline code in data-code-block container", () => {
@@ -98,6 +101,13 @@ describe("MarkdownBlock", () => {
 		);
 		expect(html).not.toContain("data-code-block");
 		expect(html).toContain("<code>foo()</code>");
+	});
+
+	test("applies syntax highlighting to code blocks", () => {
+		const md = "```js\nconst x = 1;\n```";
+		const html = renderToStaticMarkup(<MarkdownBlock content={md} />);
+		// highlight.js adds hljs class and span elements for tokens
+		expect(html).toContain("hljs");
 	});
 
 	test("wraps multiple code blocks each in their own container", () => {
