@@ -725,5 +725,92 @@ describe("Genome", () => {
 			expect(genome.getAgent("evolved")!.description).toBe("Genome learned something");
 			expect(genome.getAgent("evolved")!.version).toBe(2);
 		});
+
+		test("merges new capabilities into root agent when bootstrap root references them", async () => {
+			const root = join(tempDir, "sync-cap-merge");
+			const genome = new Genome(root);
+			await genome.init();
+
+			const bootstrapDir = join(tempDir, "sync-cap-merge-bs");
+			await mkdir(bootstrapDir, { recursive: true });
+
+			// Bootstrap has root with 3 capabilities and the corresponding agents
+			await writeBootstrapYaml(bootstrapDir, "root", {
+				capabilities: ["reader", "editor", "debugger"],
+			});
+			await writeBootstrapYaml(bootstrapDir, "reader");
+			await writeBootstrapYaml(bootstrapDir, "editor");
+			await writeBootstrapYaml(bootstrapDir, "debugger");
+
+			// First sync — adds root, reader, editor, debugger
+			await genome.syncBootstrap(bootstrapDir);
+			expect(genome.getAgent("root")!.capabilities).toEqual(["reader", "editor", "debugger"]);
+
+			// Now update bootstrap root to add "verifier" capability, and add verifier.yaml
+			await writeBootstrapYaml(bootstrapDir, "root", {
+				capabilities: ["reader", "editor", "debugger", "verifier"],
+			});
+			await writeBootstrapYaml(bootstrapDir, "verifier");
+
+			// Sync again
+			await genome.syncBootstrap(bootstrapDir);
+
+			// Root's capabilities should now include verifier
+			const rootAgent = genome.getAgent("root")!;
+			expect(rootAgent.capabilities).toContain("reader");
+			expect(rootAgent.capabilities).toContain("editor");
+			expect(rootAgent.capabilities).toContain("debugger");
+			expect(rootAgent.capabilities).toContain("verifier");
+		});
+
+		test("merges bootstrap capabilities into evolved root without removing genome-only caps", async () => {
+			const root = join(tempDir, "sync-cap-merge-evolved");
+			const genome = new Genome(root);
+			await genome.init();
+
+			const bootstrapDir = join(tempDir, "sync-cap-merge-evolved-bs");
+			await mkdir(bootstrapDir, { recursive: true });
+
+			// Bootstrap starts with root listing just ["reader"]
+			await writeBootstrapYaml(bootstrapDir, "root", {
+				capabilities: ["reader"],
+			});
+			await writeBootstrapYaml(bootstrapDir, "reader");
+
+			// First sync — adds root and reader
+			await genome.syncBootstrap(bootstrapDir);
+			expect(genome.getAgent("root")!.capabilities).toEqual(["reader"]);
+
+			// Evolve genome root to add a custom capability
+			const evolvedRoot = genome.getAgent("root")!;
+			await genome.updateAgent({
+				...evolvedRoot,
+				capabilities: ["reader", "custom-agent"],
+				system_prompt: "Evolved system prompt",
+			});
+			expect(genome.getAgent("root")!.capabilities).toEqual(["reader", "custom-agent"]);
+			expect(genome.getAgent("root")!.system_prompt).toBe("Evolved system prompt");
+
+			// Update bootstrap root to add "debugger" and add debugger.yaml
+			await writeBootstrapYaml(bootstrapDir, "root", {
+				capabilities: ["reader", "debugger"],
+			});
+			await writeBootstrapYaml(bootstrapDir, "debugger");
+
+			// Sync again — root is a conflict (both sides changed), but capabilities should merge
+			const result = await genome.syncBootstrap(bootstrapDir);
+
+			// Root agent should have all three: reader (shared), custom-agent (genome-only), debugger (bootstrap-new)
+			const rootAgent = genome.getAgent("root")!;
+			expect(rootAgent.capabilities).toContain("reader");
+			expect(rootAgent.capabilities).toContain("custom-agent");
+			expect(rootAgent.capabilities).toContain("debugger");
+
+			// Genome's evolved system_prompt should be preserved (not overwritten by bootstrap)
+			expect(rootAgent.system_prompt).toBe("Evolved system prompt");
+
+			// Verify debugger was added as a new agent
+			expect(result.added).toContain("debugger");
+		});
 	});
 });

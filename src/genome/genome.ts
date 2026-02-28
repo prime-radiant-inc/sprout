@@ -357,6 +357,9 @@ export class Genome {
 		// Save manifest before committing so it's included in the genome commit
 		await saveManifest(manifestPath, newManifest);
 
+		// Merge any new bootstrap root capabilities into the genome root
+		const capsMerged = await this.mergeRootCapabilities(specs);
+
 		if (added.length > 0 || updated.length > 0) {
 			const parts: string[] = [];
 			if (added.length > 0) parts.push(`added: ${added.join(", ")}`);
@@ -368,9 +371,34 @@ export class Genome {
 				"-m",
 				`genome: sync bootstrap agents (${parts.join("; ")})`,
 			);
+		} else if (capsMerged) {
+			await git(this.rootPath, "add", ".");
+			await git(this.rootPath, "commit", "-m", "genome: merge root capabilities from bootstrap");
 		}
 
 		return { added, updated, conflicts };
+	}
+
+	/**
+	 * Merge bootstrap root capabilities into genome root.
+	 * Adds any capabilities from bootstrap root that the genome root doesn't have,
+	 * but never removes capabilities the genome root already has.
+	 */
+	private async mergeRootCapabilities(bootstrapSpecs: AgentSpec[]): Promise<boolean> {
+		const bootstrapRoot = bootstrapSpecs.find((s) => s.name === "root");
+		const genomeRoot = this.agents.get("root");
+		if (!bootstrapRoot || !genomeRoot) return false;
+
+		const existing = new Set(genomeRoot.capabilities);
+		const toAdd = bootstrapRoot.capabilities.filter((c) => !existing.has(c));
+		if (toAdd.length === 0) return false;
+
+		const merged = [...genomeRoot.capabilities, ...toAdd];
+		const updated = { ...genomeRoot, capabilities: merged };
+		const yamlPath = join(this.rootPath, "agents", "root.yaml");
+		await writeFile(yamlPath, serializeAgentSpec(updated));
+		this.agents.set("root", updated);
+		return true;
 	}
 
 	// --- Agent Workspace ---
