@@ -10,6 +10,8 @@ export interface BootstrapManifestEntry {
 export interface BootstrapManifest {
 	synced_at: string;
 	agents: Record<string, BootstrapManifestEntry>;
+	/** Capabilities from the bootstrap root at last sync — used to detect removals. */
+	rootCapabilities?: string[];
 }
 
 /** Load a bootstrap manifest from disk. Returns an empty manifest if the file doesn't exist. */
@@ -43,10 +45,11 @@ export async function saveManifest(path: string, manifest: BootstrapManifest): P
  * reads raw files only for content hashing.
  */
 export async function buildManifestFromSpecs(
-	specs: ReadonlyArray<{ name: string; version: number }>,
+	specs: ReadonlyArray<{ name: string; version: number; capabilities?: string[] }>,
 	bootstrapDir: string,
 ): Promise<BootstrapManifest> {
 	const agents: Record<string, BootstrapManifestEntry> = {};
+	let rootCapabilities: string[] | undefined;
 	for (const spec of specs) {
 		// Read raw file for content hashing (detects formatting/whitespace changes too)
 		const filePath = join(bootstrapDir, `${spec.name}.yaml`);
@@ -56,6 +59,9 @@ export async function buildManifestFromSpecs(
 				hash: hashFileContent(content),
 				version: spec.version,
 			};
+			if (spec.name === "root" && spec.capabilities) {
+				rootCapabilities = [...spec.capabilities];
+			}
 		} catch {
 			// File might use .yml extension or be named differently — skip
 		}
@@ -64,5 +70,6 @@ export async function buildManifestFromSpecs(
 	return {
 		synced_at: new Date().toISOString(),
 		agents,
+		rootCapabilities,
 	};
 }

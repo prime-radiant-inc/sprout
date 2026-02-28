@@ -354,8 +354,11 @@ export class Genome {
 			}
 		}
 
-		// Merge any new bootstrap root capabilities into the genome root
-		const capsMerged = await this.mergeRootCapabilities(specs);
+		// Reconcile root capabilities: add new, remove dropped, preserve genome-only
+		const capsMerged = await this.reconcileRootCapabilities(
+			specs,
+			oldManifest.rootCapabilities ?? [],
+		);
 
 		const hasChanges = added.length > 0 || updated.length > 0 || capsMerged;
 
@@ -393,20 +396,40 @@ export class Genome {
 	}
 
 	/**
-	 * Merge bootstrap root capabilities into genome root.
-	 * Adds any capabilities from bootstrap root that the genome root doesn't have,
-	 * but never removes capabilities the genome root already has.
+	 * Reconcile bootstrap root capabilities with genome root.
+	 * Adds capabilities bootstrap introduced, removes capabilities bootstrap dropped,
+	 * and preserves genome-only capabilities that were never in bootstrap.
 	 */
-	private async mergeRootCapabilities(bootstrapSpecs: AgentSpec[]): Promise<boolean> {
+	private async reconcileRootCapabilities(
+		bootstrapSpecs: AgentSpec[],
+		oldBootstrapRootCaps: string[],
+	): Promise<boolean> {
 		const bootstrapRoot = bootstrapSpecs.find((s) => s.name === "root");
 		const genomeRoot = this.agents.get("root");
 		if (!bootstrapRoot || !genomeRoot) return false;
 
-		const existing = new Set(genomeRoot.capabilities);
-		const toAdd = bootstrapRoot.capabilities.filter((c) => !existing.has(c));
-		if (toAdd.length === 0) return false;
+		const newBootstrapCaps = new Set(bootstrapRoot.capabilities);
+		const oldBootstrapCaps = new Set(oldBootstrapRootCaps);
 
-		const merged = [...genomeRoot.capabilities, ...toAdd];
+		// Compute the reconciled capabilities:
+		// - Keep genome capabilities that are still in bootstrap OR were never in bootstrap
+		// - Add new bootstrap capabilities that genome doesn't have yet
+		const kept = genomeRoot.capabilities.filter(
+			(c) => newBootstrapCaps.has(c) || !oldBootstrapCaps.has(c),
+		);
+		const toAdd = bootstrapRoot.capabilities.filter(
+			(c) => !genomeRoot.capabilities.includes(c),
+		);
+		const merged = [...kept, ...toAdd];
+
+		// Check if anything actually changed
+		if (
+			merged.length === genomeRoot.capabilities.length &&
+			merged.every((c, i) => c === genomeRoot.capabilities[i])
+		) {
+			return false;
+		}
+
 		const updated = { ...genomeRoot, capabilities: merged };
 		const yamlPath = join(this.rootPath, "agents", "root.yaml");
 		await writeFile(yamlPath, serializeAgentSpec(updated));

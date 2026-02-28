@@ -812,5 +812,84 @@ describe("Genome", () => {
 			// Verify debugger was added as a new agent
 			expect(result.added).toContain("debugger");
 		});
+
+		test("removes capabilities from genome root that bootstrap explicitly dropped", async () => {
+			const root = join(tempDir, "sync-cap-remove");
+			const genome = new Genome(root);
+			await genome.init();
+
+			const bootstrapDir = join(tempDir, "sync-cap-remove-bs");
+			await mkdir(bootstrapDir, { recursive: true });
+
+			// Bootstrap starts with root listing ["reader", "editor", "debugger"]
+			await writeBootstrapYaml(bootstrapDir, "root", {
+				capabilities: ["reader", "editor", "debugger"],
+			});
+			await writeBootstrapYaml(bootstrapDir, "reader");
+			await writeBootstrapYaml(bootstrapDir, "editor");
+			await writeBootstrapYaml(bootstrapDir, "debugger");
+
+			// First sync — adds root, reader, editor, debugger
+			await genome.syncBootstrap(bootstrapDir);
+			expect(genome.getAgent("root")!.capabilities).toEqual(["reader", "editor", "debugger"]);
+
+			// Bootstrap drops "debugger" from root capabilities
+			await writeBootstrapYaml(bootstrapDir, "root", {
+				capabilities: ["reader", "editor"],
+			});
+
+			// Sync again
+			await genome.syncBootstrap(bootstrapDir);
+
+			// Root should no longer have "debugger"
+			const rootAgent = genome.getAgent("root")!;
+			expect(rootAgent.capabilities).toContain("reader");
+			expect(rootAgent.capabilities).toContain("editor");
+			expect(rootAgent.capabilities).not.toContain("debugger");
+		});
+
+		test("preserves genome-added capabilities when bootstrap drops its own", async () => {
+			const root = join(tempDir, "sync-cap-remove-preserve");
+			const genome = new Genome(root);
+			await genome.init();
+
+			const bootstrapDir = join(tempDir, "sync-cap-remove-preserve-bs");
+			await mkdir(bootstrapDir, { recursive: true });
+
+			// Bootstrap starts with root listing ["reader", "debugger"]
+			await writeBootstrapYaml(bootstrapDir, "root", {
+				capabilities: ["reader", "debugger"],
+			});
+			await writeBootstrapYaml(bootstrapDir, "reader");
+			await writeBootstrapYaml(bootstrapDir, "debugger");
+
+			// First sync
+			await genome.syncBootstrap(bootstrapDir);
+
+			// Genome evolves root to add "custom-agent"
+			const evolvedRoot = genome.getAgent("root")!;
+			await genome.updateAgent({
+				...evolvedRoot,
+				capabilities: ["reader", "debugger", "custom-agent"],
+				system_prompt: "Evolved root",
+			});
+
+			// Bootstrap drops "debugger" and adds "editor"
+			await writeBootstrapYaml(bootstrapDir, "root", {
+				capabilities: ["reader", "editor"],
+			});
+			await writeBootstrapYaml(bootstrapDir, "editor");
+
+			// Sync again
+			await genome.syncBootstrap(bootstrapDir);
+
+			// Root should have: reader (kept), editor (added by bootstrap), custom-agent (genome-only)
+			// But NOT debugger (dropped by bootstrap)
+			const rootAgent = genome.getAgent("root")!;
+			expect(rootAgent.capabilities).toContain("reader");
+			expect(rootAgent.capabilities).toContain("editor");
+			expect(rootAgent.capabilities).toContain("custom-agent");
+			expect(rootAgent.capabilities).not.toContain("debugger");
+		});
 	});
 });
