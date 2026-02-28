@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentSpawner } from "../bus/spawner.ts";
-import { isDevMode } from "../genome/dev-mode.ts";
+import { DEV_MODE_SENTINEL, isDevMode } from "../genome/dev-mode.ts";
 import { Genome } from "../genome/genome.ts";
 import { LocalExecutionEnvironment } from "../kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../kernel/primitives.ts";
@@ -91,8 +91,9 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 	// Inject development mode postscript if running inside sprout's source tree
 	if (options.workDir && isDevMode(options.workDir)) {
 		const existingPostscript = await genome.loadAgentPostscript("quartermaster");
-		if (!existingPostscript.includes("Development Mode")) {
-			const devPostscript = `## Development Mode
+		if (!existingPostscript.includes(DEV_MODE_SENTINEL)) {
+			const devPostscript = `${DEV_MODE_SENTINEL}
+## Development Mode
 
 You are running inside sprout's own source tree. Changes you make affect
 two distinct targets:

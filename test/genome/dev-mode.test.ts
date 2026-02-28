@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isDevMode } from "../../src/genome/dev-mode.ts";
+import { DEV_MODE_SENTINEL, isDevMode } from "../../src/genome/dev-mode.ts";
 
 describe("isDevMode", () => {
 	let tempDir: string;
@@ -32,5 +32,9 @@ describe("isDevMode", () => {
 		const workDir = join(tempDir, "partial");
 		await mkdir(join(workDir, "bootstrap"), { recursive: true });
 		expect(isDevMode(workDir)).toBe(false);
+	});
+
+	test("DEV_MODE_SENTINEL is an HTML comment for safe embedding in markdown", () => {
+		expect(DEV_MODE_SENTINEL).toMatch(/^<!--.*-->$/);
 	});
 });

@@ -4,7 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { config } from "dotenv";
 import { createAgent } from "../../src/agents/factory.ts";
-import { isDevMode } from "../../src/genome/dev-mode.ts";
+import { DEV_MODE_SENTINEL, isDevMode } from "../../src/genome/dev-mode.ts";
 import { Genome } from "../../src/genome/genome.ts";
 
 config({ path: join(homedir(), "prime-radiant/serf/.env") });
@@ -139,6 +139,7 @@ describe("createAgent", () => {
 		});
 
 		const qmPostscript = await result.genome.loadAgentPostscript("quartermaster");
+		expect(qmPostscript).toContain(DEV_MODE_SENTINEL);
 		expect(qmPostscript).toContain("Development Mode");
 		expect(qmPostscript).toContain("bootstrap");
 	});
