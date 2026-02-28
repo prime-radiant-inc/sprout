@@ -37,6 +37,7 @@ export class WebServer {
 	private readonly hostname: string | undefined;
 
 	private readonly availableModels: string[];
+	private readonly logger?: import("../host/logger.ts").Logger;
 
 	private bunServer: ReturnType<typeof Bun.serve> | null = null;
 	private events: SessionEvent[] = [];
@@ -52,6 +53,7 @@ export class WebServer {
 		this.sessionId = opts.sessionId;
 		this.hostname = opts.hostname;
 		this.availableModels = opts.availableModels ?? [];
+		this.logger = opts.logger;
 		if (opts.initialEvents) {
 			this.events = [...opts.initialEvents];
 		}
@@ -82,6 +84,10 @@ export class WebServer {
 			hostname: this.hostname,
 			fetch(req, server) {
 				const url = new URL(req.url);
+				self.logger?.debug("system", "HTTP request", {
+					method: req.method,
+					path: url.pathname,
+				});
 
 				// WebSocket upgrade
 				if (req.headers.get("upgrade") === "websocket") {
@@ -172,6 +178,9 @@ export class WebServer {
 
 	private handleWsOpen(ws: ServerWebSocket<unknown>): void {
 		this.wsClients.add(ws);
+		this.logger?.debug("system", "WebSocket client connected", {
+			clients: this.wsClients.size,
+		});
 		// Send snapshot of all buffered events
 		const snapshot: ServerMessage = {
 			type: "snapshot",
@@ -205,6 +214,9 @@ export class WebServer {
 
 	private handleWsClose(ws: ServerWebSocket<unknown>): void {
 		this.wsClients.delete(ws);
+		this.logger?.debug("system", "WebSocket client disconnected", {
+			clients: this.wsClients.size,
+		});
 	}
 
 	private broadcastEvent(event: SessionEvent): void {
