@@ -2,7 +2,8 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parse } from "yaml";
+import { parse, stringify } from "yaml";
+import { loadManifest } from "../../src/genome/bootstrap-manifest.ts";
 import { Genome, git } from "../../src/genome/genome.ts";
 import type { AgentSpec, Memory, RoutingRule } from "../../src/kernel/types.ts";
 import { DEFAULT_CONSTRAINTS } from "../../src/kernel/types.ts";
@@ -567,6 +568,162 @@ describe("Genome", () => {
 
 			const content = await readFile(join(root, "postscripts", "agents", "editor.md"), "utf-8");
 			expect(content).toBe("editor-specific rules");
+		});
+	});
+
+	describe("syncBootstrap (manifest-aware)", () => {
+		/** Write a minimal valid bootstrap YAML file. */
+		function writeBootstrapYaml(
+			dir: string,
+			name: string,
+			overrides: Partial<AgentSpec> = {},
+		): Promise<void> {
+			const spec = makeSpec({ name, ...overrides });
+			return writeFile(join(dir, `${name}.yaml`), stringify(spec));
+		}
+
+		test("adds new bootstrap agents and records manifest", async () => {
+			const root = join(tempDir, "sync-manifest-add");
+			const genome = new Genome(root);
+			await genome.init();
+
+			const bootstrapDir = join(tempDir, "sync-manifest-add-bs");
+			await mkdir(bootstrapDir, { recursive: true });
+			await writeBootstrapYaml(bootstrapDir, "alpha", { description: "Alpha agent" });
+			await writeBootstrapYaml(bootstrapDir, "beta", { description: "Beta agent" });
+
+			const result = await genome.syncBootstrap(bootstrapDir);
+
+			expect(result.added).toContain("alpha");
+			expect(result.added).toContain("beta");
+			expect(result.updated).toEqual([]);
+			expect(result.conflicts).toEqual([]);
+
+			// Agents exist in genome
+			expect(genome.getAgent("alpha")).toBeDefined();
+			expect(genome.getAgent("beta")).toBeDefined();
+
+			// Manifest was saved
+			const manifest = await loadManifest(join(root, "bootstrap-manifest.json"));
+			expect(manifest.agents.alpha).toBeDefined();
+			expect(manifest.agents.beta).toBeDefined();
+			expect(manifest.synced_at).not.toBe("");
+		});
+
+		test("skips agents unchanged in both bootstrap and genome", async () => {
+			const root = join(tempDir, "sync-manifest-noop");
+			const genome = new Genome(root);
+			await genome.init();
+
+			const bootstrapDir = join(tempDir, "sync-manifest-noop-bs");
+			await mkdir(bootstrapDir, { recursive: true });
+			await writeBootstrapYaml(bootstrapDir, "stable");
+
+			// First sync — adds the agent
+			const first = await genome.syncBootstrap(bootstrapDir);
+			expect(first.added).toEqual(["stable"]);
+
+			// Second sync — nothing should change
+			const second = await genome.syncBootstrap(bootstrapDir);
+			expect(second.added).toEqual([]);
+			expect(second.updated).toEqual([]);
+			expect(second.conflicts).toEqual([]);
+		});
+
+		test("updates genome agent when bootstrap changed but genome did not evolve", async () => {
+			const root = join(tempDir, "sync-manifest-update");
+			const genome = new Genome(root);
+			await genome.init();
+
+			const bootstrapDir = join(tempDir, "sync-manifest-update-bs");
+			await mkdir(bootstrapDir, { recursive: true });
+			await writeBootstrapYaml(bootstrapDir, "updatable", {
+				description: "Original description",
+			});
+
+			// First sync
+			await genome.syncBootstrap(bootstrapDir);
+			expect(genome.getAgent("updatable")!.description).toBe("Original description");
+
+			// Change bootstrap file
+			await writeBootstrapYaml(bootstrapDir, "updatable", {
+				description: "Updated description",
+			});
+
+			// Second sync — should update
+			const result = await genome.syncBootstrap(bootstrapDir);
+			expect(result.updated).toEqual(["updatable"]);
+			expect(result.added).toEqual([]);
+			expect(result.conflicts).toEqual([]);
+
+			// Verify genome was updated
+			expect(genome.getAgent("updatable")!.description).toBe("Updated description");
+		});
+
+		test("detects conflict when both bootstrap and genome evolved", async () => {
+			const root = join(tempDir, "sync-manifest-conflict");
+			const genome = new Genome(root);
+			await genome.init();
+
+			const bootstrapDir = join(tempDir, "sync-manifest-conflict-bs");
+			await mkdir(bootstrapDir, { recursive: true });
+			await writeBootstrapYaml(bootstrapDir, "contested", {
+				description: "Bootstrap original",
+			});
+
+			// First sync
+			await genome.syncBootstrap(bootstrapDir);
+			expect(genome.getAgent("contested")!.version).toBe(1);
+
+			// Evolve genome (this bumps version to 2)
+			await genome.updateAgent(makeSpec({ name: "contested", description: "Genome evolved" }));
+			expect(genome.getAgent("contested")!.version).toBe(2);
+
+			// Change bootstrap file
+			await writeBootstrapYaml(bootstrapDir, "contested", {
+				description: "Bootstrap also changed",
+			});
+
+			// Sync again — should detect conflict
+			const result = await genome.syncBootstrap(bootstrapDir);
+			expect(result.conflicts).toEqual(["contested"]);
+			expect(result.added).toEqual([]);
+			expect(result.updated).toEqual([]);
+
+			// Genome version is preserved (not overwritten)
+			expect(genome.getAgent("contested")!.description).toBe("Genome evolved");
+			expect(genome.getAgent("contested")!.version).toBe(2);
+		});
+
+		test("preserves genome evolution when bootstrap unchanged", async () => {
+			const root = join(tempDir, "sync-manifest-preserve");
+			const genome = new Genome(root);
+			await genome.init();
+
+			const bootstrapDir = join(tempDir, "sync-manifest-preserve-bs");
+			await mkdir(bootstrapDir, { recursive: true });
+			await writeBootstrapYaml(bootstrapDir, "evolved", {
+				description: "Bootstrap original",
+			});
+
+			// First sync
+			await genome.syncBootstrap(bootstrapDir);
+
+			// Evolve genome
+			await genome.updateAgent(
+				makeSpec({ name: "evolved", description: "Genome learned something" }),
+			);
+			expect(genome.getAgent("evolved")!.version).toBe(2);
+
+			// Sync again with unchanged bootstrap
+			const result = await genome.syncBootstrap(bootstrapDir);
+			expect(result.added).toEqual([]);
+			expect(result.updated).toEqual([]);
+			expect(result.conflicts).toEqual([]);
+
+			// Genome version is preserved
+			expect(genome.getAgent("evolved")!.description).toBe("Genome learned something");
+			expect(genome.getAgent("evolved")!.version).toBe(2);
 		});
 	});
 });

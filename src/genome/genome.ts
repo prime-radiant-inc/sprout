@@ -3,7 +3,14 @@ import { join } from "node:path";
 import { parse, stringify } from "yaml";
 import { loadAgentSpec, loadBootstrapAgents } from "../agents/loader.ts";
 import type { AgentSpec, Memory, RoutingRule } from "../kernel/types.ts";
+import { buildManifestFromBootstrap, loadManifest, saveManifest } from "./bootstrap-manifest.ts";
 import { MemoryStore } from "./memory-store.ts";
+
+export interface SyncBootstrapResult {
+	added: string[];
+	updated: string[];
+	conflicts: string[];
+}
 
 /** Run a git command in the given directory, returning trimmed stdout. */
 export async function git(cwd: string, ...args: string[]): Promise<string> {
@@ -305,34 +312,63 @@ export class Genome {
 	}
 
 	/**
-	 * Sync missing bootstrap agents into an existing genome.
-	 * Only adds agents that don't already exist — never overwrites learned improvements.
-	 * Returns the names of agents that were added.
+	 * Sync bootstrap agents into an existing genome using manifest-aware 4-way comparison.
+	 * Adds new agents, updates unchanged genome agents when bootstrap evolves,
+	 * and detects conflicts when both sides have changed.
 	 */
-	async syncBootstrap(bootstrapDir: string): Promise<string[]> {
+	async syncBootstrap(bootstrapDir: string): Promise<SyncBootstrapResult> {
+		const manifestPath = join(this.rootPath, "bootstrap-manifest.json");
+		const oldManifest = await loadManifest(manifestPath);
+		const newManifest = await buildManifestFromBootstrap(bootstrapDir);
 		const specs = await loadBootstrapAgents(bootstrapDir);
+
 		const added: string[] = [];
+		const updated: string[] = [];
+		const conflicts: string[] = [];
 
 		for (const spec of specs) {
-			if (this.agents.has(spec.name)) continue;
+			const existing = this.agents.get(spec.name);
+			const oldEntry = oldManifest.agents[spec.name];
+			const newEntry = newManifest.agents[spec.name]!;
 
-			const yamlPath = join(this.rootPath, "agents", `${spec.name}.yaml`);
-			await writeFile(yamlPath, serializeAgentSpec(spec));
-			this.agents.set(spec.name, spec);
-			added.push(spec.name);
+			if (!existing) {
+				// Case 1: Agent not in genome — add it
+				const yamlPath = join(this.rootPath, "agents", `${spec.name}.yaml`);
+				await writeFile(yamlPath, serializeAgentSpec(spec));
+				this.agents.set(spec.name, spec);
+				added.push(spec.name);
+			} else if (!oldEntry) {
+				// Case 2: Pre-manifest genome — skip, treat as genome-evolved
+			} else if (newEntry.hash === oldEntry.hash) {
+				// Case 3: Bootstrap file unchanged — skip
+			} else if (existing.version === oldEntry.version) {
+				// Case 4: Bootstrap changed AND genome unchanged — update genome
+				const yamlPath = join(this.rootPath, "agents", `${spec.name}.yaml`);
+				await writeFile(yamlPath, serializeAgentSpec(spec));
+				this.agents.set(spec.name, spec);
+				updated.push(spec.name);
+			} else {
+				// Case 5: Bootstrap changed AND genome also evolved — conflict
+				conflicts.push(spec.name);
+			}
 		}
 
-		if (added.length > 0) {
+		if (added.length > 0 || updated.length > 0) {
+			const parts: string[] = [];
+			if (added.length > 0) parts.push(`added: ${added.join(", ")}`);
+			if (updated.length > 0) parts.push(`updated: ${updated.join(", ")}`);
 			await git(this.rootPath, "add", ".");
 			await git(
 				this.rootPath,
 				"commit",
 				"-m",
-				`genome: sync bootstrap agents (${added.join(", ")})`,
+				`genome: sync bootstrap agents (${parts.join("; ")})`,
 			);
 		}
 
-		return added;
+		await saveManifest(manifestPath, newManifest);
+
+		return { added, updated, conflicts };
 	}
 
 	// --- Agent Workspace ---
@@ -530,7 +566,7 @@ function parseToolFrontmatter(
 }
 
 /** Serialize an AgentSpec to YAML with explicit field ordering. */
-function serializeAgentSpec(spec: AgentSpec): string {
+export function serializeAgentSpec(spec: AgentSpec): string {
 	return stringify({
 		name: spec.name,
 		description: spec.description,
