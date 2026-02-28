@@ -20,8 +20,8 @@ export interface GenomeOnlyAgent {
 export interface ExportResult {
 	evolved: EvolvedAgent[];
 	genomeOnly: GenomeOnlyAgent[];
-	/** The loaded Genome instance, reusable by stageLearnings. */
-	genome: Genome;
+	/** Pre-serialized YAML for each agent to export, keyed by name. */
+	agentYaml: Map<string, string>;
 }
 
 export async function exportLearnings(
@@ -42,6 +42,7 @@ export async function exportLearnings(
 
 	const evolved: EvolvedAgent[] = [];
 	const genomeOnly: GenomeOnlyAgent[] = [];
+	const agentYaml = new Map<string, string>();
 
 	for (const agent of genome.allAgents()) {
 		const bootstrap = bootstrapByName.get(agent.name);
@@ -52,9 +53,12 @@ export async function exportLearnings(
 				description: agent.description,
 				version: agent.version,
 			});
+			agentYaml.set(agent.name, serializeAgentSpec(agent));
 			continue;
 		}
 
+		// Only export improvements (genome evolved beyond bootstrap).
+		// Lower versions (e.g. after rollback) are not learnings to propagate.
 		if (agent.version > bootstrap.version) {
 			evolved.push({
 				name: agent.name,
@@ -63,10 +67,11 @@ export async function exportLearnings(
 				genomePrompt: agent.system_prompt,
 				bootstrapPrompt: bootstrap.system_prompt,
 			});
+			agentYaml.set(agent.name, serializeAgentSpec(agent));
 		}
 	}
 
-	return { evolved, genomeOnly, genome };
+	return { evolved, genomeOnly, agentYaml };
 }
 
 /**
@@ -74,7 +79,6 @@ export async function exportLearnings(
  * Creates the directory if it doesn't exist.
  */
 export async function stageLearnings(
-	genome: Genome,
 	result: ExportResult,
 	stagingDir: string,
 ): Promise<string[]> {
@@ -82,19 +86,9 @@ export async function stageLearnings(
 
 	const written: string[] = [];
 
-	for (const evolved of result.evolved) {
-		const agent = genome.getAgent(evolved.name);
-		if (!agent) continue;
-		const filePath = join(stagingDir, `${agent.name}.yaml`);
-		await writeFile(filePath, serializeAgentSpec(agent), "utf-8");
-		written.push(filePath);
-	}
-
-	for (const learned of result.genomeOnly) {
-		const agent = genome.getAgent(learned.name);
-		if (!agent) continue;
-		const filePath = join(stagingDir, `${agent.name}.yaml`);
-		await writeFile(filePath, serializeAgentSpec(agent), "utf-8");
+	for (const name of result.agentYaml.keys()) {
+		const filePath = join(stagingDir, `${name}.yaml`);
+		await writeFile(filePath, result.agentYaml.get(name)!, "utf-8");
 		written.push(filePath);
 	}
 

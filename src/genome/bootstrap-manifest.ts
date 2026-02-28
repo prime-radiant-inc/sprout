@@ -87,6 +87,9 @@ export async function buildManifestFromSpecs(
 	}
 
 	return {
+		// Timestamp records when this manifest was built, not when it was saved.
+		// syncBootstrap only persists the manifest when actual changes occur,
+		// so this doesn't cause needless git commits on no-op syncs.
 		synced_at: new Date().toISOString(),
 		agents,
 		rootCapabilities,

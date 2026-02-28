@@ -58,7 +58,7 @@ system_prompt: |
   The quartermaster will handle triggering that — you don't need to update the
   index yourself.
 
-  ## Development mode
+  ## Development mode (only applies when running from source)
 
   When a development-mode postscript is active (your orchestrator will tell you),
   you have two targets for new or updated agents:

@@ -32,7 +32,7 @@ describe("bootstrap-manifest", () => {
 		test("loadManifest throws on corrupt JSON", async () => {
 			const path = join(tempDir, "corrupt.json");
 			await writeFile(path, "not valid json {{{");
-			expect(loadManifest(path)).rejects.toThrow();
+			await expect(loadManifest(path)).rejects.toThrow();
 		});
 
 		test("saveManifest + loadManifest round-trips", async () => {

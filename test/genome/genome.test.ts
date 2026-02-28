@@ -857,9 +857,7 @@ describe("Genome", () => {
 			await genome.syncBootstrap(bootstrapDir);
 
 			// Evolve alpha in genome (creates conflict on next sync)
-			await genome.updateAgent(
-				makeSpec({ name: "alpha", description: "Genome-evolved alpha" }),
-			);
+			await genome.updateAgent(makeSpec({ name: "alpha", description: "Genome-evolved alpha" }));
 
 			// Bootstrap changes alpha AND adds "verifier" to root capabilities
 			await writeBootstrapYaml(bootstrapDir, "root", {

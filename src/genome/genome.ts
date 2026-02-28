@@ -354,7 +354,9 @@ export class Genome {
 			}
 		}
 
-		// Reconcile root capabilities: add new, remove dropped, preserve genome-only
+		// Reconcile root capabilities: add new, remove dropped, preserve genome-only.
+		// Safe after Case 4: if root was updated, genome had no custom caps (version matched
+		// old manifest), so reconcileRootCapabilities finds nothing to merge and returns false.
 		const capsMerged = await this.reconcileRootCapabilities(
 			specs,
 			oldManifest.rootCapabilities ?? [],
@@ -387,12 +389,7 @@ export class Genome {
 
 		if (parts.length > 0) {
 			await git(this.rootPath, "add", ...filesToStage);
-			await git(
-				this.rootPath,
-				"commit",
-				"-m",
-				`genome: sync bootstrap (${parts.join("; ")})`,
-			);
+			await git(this.rootPath, "commit", "-m", `genome: sync bootstrap (${parts.join("; ")})`);
 		}
 
 		return { added, updated, conflicts };
