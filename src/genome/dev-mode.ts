@@ -6,7 +6,5 @@ import { join } from "node:path";
  * True when the working directory contains both bootstrap/ and src/genome/.
  */
 export function isDevMode(workDir: string): boolean {
-	return (
-		existsSync(join(workDir, "bootstrap")) && existsSync(join(workDir, "src", "genome"))
-	);
+	return existsSync(join(workDir, "bootstrap")) && existsSync(join(workDir, "src", "genome"));
 }
