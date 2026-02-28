@@ -47,7 +47,8 @@ export async function buildManifestFromBootstrap(bootstrapDir: string): Promise<
 	for (const file of yamlFiles) {
 		const content = await readFile(join(bootstrapDir, file), "utf-8");
 		const parsed = parse(content);
-		const name = parsed?.name as string;
+		const name = parsed?.name;
+		if (typeof name !== "string" || !name) continue;
 		const version = (parsed?.version as number) ?? 1;
 		agents[name] = {
 			hash: hashFileContent(content),
