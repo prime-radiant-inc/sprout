@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { SessionStatus } from "../hooks/useEvents.ts";
 import { formatTokens, shortModelName } from "./format.ts";
 import styles from "./StatusBar.module.css";
@@ -14,6 +15,27 @@ function pressureColor(percent: number): string {
 	if (percent >= 85) return "var(--color-error)";
 	if (percent >= 60) return "var(--color-warning)";
 	return "var(--color-success)";
+}
+
+/** Format elapsed seconds as "M:SS". */
+export function formatElapsedTime(startedAt: number | null): string | null {
+	if (startedAt === null) return null;
+	const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+	const mins = Math.floor(elapsed / 60);
+	const secs = elapsed % 60;
+	return `${mins}:${secs.toString().padStart(2, "0")}`;
+}
+
+/** Hook that ticks every second to update elapsed time display. */
+function useElapsedTime(startedAt: number | null): string | null {
+	const [, setTick] = useState(0);
+	useEffect(() => {
+		if (startedAt === null) return;
+		const interval = setInterval(() => setTick((t) => t + 1), 1000);
+		return () => clearInterval(interval);
+	}, [startedAt]);
+
+	return formatElapsedTime(startedAt);
 }
 
 /** Top status bar with session info, context pressure, model, and controls. */
@@ -34,6 +56,8 @@ export function StatusBar({ status, connected, onInterrupt, onSwitchModel }: Sta
 		contextWindowSize > 0 ? contextTokens / contextWindowSize : 0;
 	const percentRound = Math.round(pressure * 100);
 	const percentStr = `${percentRound}%`;
+
+	const elapsed = useElapsedTime(status.sessionStartedAt);
 
 	const handleCopySessionId = () => {
 		navigator.clipboard.writeText(sessionId).catch(() => {});
@@ -80,6 +104,14 @@ export function StatusBar({ status, connected, onInterrupt, onSwitchModel }: Sta
 				<span className={styles.label}>Turns</span>
 				<span className={styles.value}>{turns}</span>
 			</div>
+
+			{/* Session duration */}
+			{elapsed && (
+				<div className={styles.group}>
+					<span className={styles.label}>Time</span>
+					<span className={styles.value}>{elapsed}</span>
+				</div>
+			)}
 
 			{/* I/O tokens during run */}
 			{runStatus === "running" && (

@@ -13,6 +13,7 @@ export interface SessionStatus {
 	contextWindowSize: number;
 	sessionId: string;
 	availableModels: string[];
+	sessionStartedAt: number | null;
 }
 
 const INITIAL_STATUS: SessionStatus = {
@@ -25,6 +26,7 @@ const INITIAL_STATUS: SessionStatus = {
 	contextWindowSize: 0,
 	sessionId: "",
 	availableModels: [],
+	sessionStartedAt: null,
 };
 
 /**
@@ -90,6 +92,7 @@ export class EventStore {
 					...this.status,
 					status: "running",
 					model: (event.data.model as string) ?? this.status.model,
+					sessionStartedAt: this.status.sessionStartedAt ?? event.timestamp,
 				};
 				break;
 
