@@ -27,8 +27,6 @@
 	font-family: var(--font-mono);
 	font-size: var(--font-size-sm);
 	line-height: 1.45;
-	max-height: 300px;
-	overflow-y: auto;
 	white-space: pre-wrap;
 	word-break: break-all;
 	color: var(--color-text-primary);
@@ -58,4 +56,22 @@
 
 .removed {
 	background: var(--color-diff-removed);
+}
+
+.expandBtn {
+	all: unset;
+	display: block;
+	width: 100%;
+	padding: var(--space-xs) var(--space-sm);
+	font-family: var(--font-mono);
+	font-size: var(--font-size-xxs);
+	color: var(--color-accent);
+	cursor: pointer;
+	text-align: center;
+	border-top: 1px solid var(--color-border);
+	transition: background var(--transition-fast);
+}
+
+.expandBtn:hover {
+	background: var(--color-inset);
 }

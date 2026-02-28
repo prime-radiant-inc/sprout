@@ -350,6 +350,32 @@ describe("ReadFileRenderer", () => {
 		);
 		expect(html).toContain("50 lines");
 	});
+
+	test("shows expand button for long output", () => {
+		const lines = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`);
+		const html = renderToStaticMarkup(
+			<ReadFileRenderer
+				toolName="read_file"
+				args={{ path: "/tmp/big.ts" }}
+				output={lines.join("\n")}
+				success={true}
+			/>,
+		);
+		expect(html).toContain('data-action="expand-output"');
+		expect(html).toContain("20 lines");
+	});
+
+	test("does not show expand button for short output", () => {
+		const html = renderToStaticMarkup(
+			<ReadFileRenderer
+				toolName="read_file"
+				args={{ path: "/tmp/small.ts" }}
+				output="line 1\nline 2\nline 3"
+				success={true}
+			/>,
+		);
+		expect(html).not.toContain('data-action="expand-output"');
+	});
 });
 
 // --- EditFileRenderer ---
@@ -418,6 +444,19 @@ describe("ExecRenderer", () => {
 		);
 		expect(html).toContain("ls -la");
 		expect(html).toContain("total 32");
+	});
+
+	test("shows expand button for long output", () => {
+		const lines = Array.from({ length: 30 }, (_, i) => `output ${i + 1}`);
+		const html = renderToStaticMarkup(
+			<ExecRenderer
+				toolName="exec"
+				args={{ command: "ls" }}
+				output={lines.join("\n")}
+				success={true}
+			/>,
+		);
+		expect(html).toContain('data-action="expand-output"');
 	});
 
 	test("shows error when failed", () => {

@@ -1,3 +1,4 @@
+import { ExpandableOutput } from "./ExpandableOutput.tsx";
 import type { ToolRendererProps } from "./ToolRendererRegistry.ts";
 import styles from "./tools.module.css";
 
@@ -12,9 +13,7 @@ export function FallbackRenderer({ args, output }: ToolRendererProps) {
 					{JSON.stringify(args, null, 2)}
 				</pre>
 			)}
-			{output && (
-				<pre className={styles.codeBlock}>{output}</pre>
-			)}
+			{output && <ExpandableOutput output={output} />}
 		</div>
 	);
 }
