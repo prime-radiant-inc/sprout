@@ -154,7 +154,8 @@ export function parseArgs(argv: string[]): CliCommand {
 		const prefix = argv.slice(0, promptIdx);
 		if (hasUnknownFlags(prefix)) return { kind: "help" };
 		const gpIdx = prefix.indexOf("--genome-path");
-		const genomePath = gpIdx !== -1 ? (prefix[gpIdx + 1] ?? DEFAULT_GENOME_PATH) : DEFAULT_GENOME_PATH;
+		const genomePath =
+			gpIdx !== -1 ? (prefix[gpIdx + 1] ?? DEFAULT_GENOME_PATH) : DEFAULT_GENOME_PATH;
 		return { kind: "oneshot", goal, genomePath };
 	}
 
@@ -165,7 +166,8 @@ export function parseArgs(argv: string[]): CliCommand {
 		const sub = argv[genomeIdx + 1];
 		const prefix = argv.slice(0, genomeIdx);
 		const gpIdx = prefix.indexOf("--genome-path");
-		const genomePath = gpIdx !== -1 ? (prefix[gpIdx + 1] ?? DEFAULT_GENOME_PATH) : DEFAULT_GENOME_PATH;
+		const genomePath =
+			gpIdx !== -1 ? (prefix[gpIdx + 1] ?? DEFAULT_GENOME_PATH) : DEFAULT_GENOME_PATH;
 		if (sub === "list") return { kind: "genome-list", genomePath };
 		if (sub === "log") return { kind: "genome-log", genomePath };
 		if (sub === "rollback") {
@@ -189,7 +191,8 @@ export function parseArgs(argv: string[]): CliCommand {
 			// Validate remaining flags
 			if (hasUnknownFlags(without)) return { kind: "help" };
 			const gpIdx = without.indexOf("--genome-path");
-			const genomePath = gpIdx !== -1 ? (without[gpIdx + 1] ?? DEFAULT_GENOME_PATH) : DEFAULT_GENOME_PATH;
+			const genomePath =
+				gpIdx !== -1 ? (without[gpIdx + 1] ?? DEFAULT_GENOME_PATH) : DEFAULT_GENOME_PATH;
 			return { kind: "list", genomePath };
 		}
 	}
