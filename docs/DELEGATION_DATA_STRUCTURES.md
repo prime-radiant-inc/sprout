@@ -256,8 +256,8 @@ export class Genome {
     // Read bootstrap/ directory and write each agent to genome/agents/
   }
 
-  async syncBootstrap(bootstrapDir: string): Promise<string[]> {
-    // Add any new bootstrap agents that aren't already in genome
+  async syncBootstrap(bootstrapDir: string): Promise<SyncBootstrapResult> {
+    // Manifest-aware 4-way sync: adds new, updates unchanged, detects conflicts
   }
 }
 ```

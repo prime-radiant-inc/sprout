@@ -247,8 +247,8 @@ capabilities:
 ### Test 2: New Bootstrap Agent Added
 **Before**: genome/agents has [reader, editor]
 **Add**: commander-runner to bootstrap/
-**Then**: Call `genome.syncBootstrap()`
-**Result**: commander-runner added to genome (line 309 check `if (this.agents.has())` passes), available for new delegates. ✓
+**Then**: Call `genome.syncBootstrap()` (manifest-aware 4-way sync)
+**Result**: commander-runner added to genome, available for new delegates. ✓
 
 ### Test 3: Leaf Agent Trying to Delegate
 ```yaml
