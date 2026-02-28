@@ -1,11 +1,13 @@
-import { describe, expect, test, beforeEach } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const CLI = join(import.meta.dir, "../../src/tasks/cli.ts");
 
-async function run(...args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+async function run(
+	...args: string[]
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
 	const proc = Bun.spawn(["bun", "run", CLI, ...args], {
 		stdout: "pipe",
 		stderr: "pipe",
@@ -59,11 +61,15 @@ describe("task CLI", () => {
 
 	test("create with all options", async () => {
 		const result = await run(
-			"--tasks-file", tasksFile,
+			"--tasks-file",
+			tasksFile,
 			"create",
-			"--description", "Build widget",
-			"--prompt", "Full spec here",
-			"--assigned-to", "engineer",
+			"--description",
+			"Build widget",
+			"--prompt",
+			"Full spec here",
+			"--assigned-to",
+			"engineer",
 		);
 		expect(result.exitCode).toBe(0);
 		const task = JSON.parse(result.stdout);
@@ -116,7 +122,13 @@ describe("task CLI", () => {
 	test("update changes status", async () => {
 		await run("--tasks-file", tasksFile, "create", "--description", "Task A");
 		const result = await run(
-			"--tasks-file", tasksFile, "update", "--id", "task-001", "--status", "in_progress",
+			"--tasks-file",
+			tasksFile,
+			"update",
+			"--id",
+			"task-001",
+			"--status",
+			"in_progress",
 		);
 		expect(result.exitCode).toBe(0);
 		const task = JSON.parse(result.stdout);
@@ -131,7 +143,13 @@ describe("task CLI", () => {
 	test("comment adds a note", async () => {
 		await run("--tasks-file", tasksFile, "create", "--description", "Task A");
 		const result = await run(
-			"--tasks-file", tasksFile, "comment", "--id", "task-001", "--text", "Looks good",
+			"--tasks-file",
+			tasksFile,
+			"comment",
+			"--id",
+			"task-001",
+			"--text",
+			"Looks good",
 		);
 		expect(result.exitCode).toBe(0);
 		const task = JSON.parse(result.stdout);
