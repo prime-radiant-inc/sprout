@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	type BootstrapManifest,
+	buildManifestFromBootstrap,
 	hashFileContent,
 	loadManifest,
 	saveManifest,
@@ -78,6 +79,52 @@ describe("bootstrap-manifest", () => {
 			const hash = hashFileContent("anything");
 
 			expect(hash).toMatch(/^sha256:[0-9a-f]{64}$/);
+		});
+	});
+
+	describe("buildManifestFromBootstrap", () => {
+		let bootstrapDir: string;
+
+		const readerYaml = "name: reader\nversion: 2\ndescription: reads files\n";
+		const editorYaml = "name: editor\nversion: 1\ndescription: edits files\n";
+
+		beforeAll(async () => {
+			bootstrapDir = await mkdtemp(join(tmpdir(), "sprout-bootstrap-"));
+			await writeFile(join(bootstrapDir, "reader.yaml"), readerYaml);
+			await writeFile(join(bootstrapDir, "editor.yaml"), editorYaml);
+			await writeFile(join(bootstrapDir, "README.md"), "not a yaml file");
+			await mkdir(join(bootstrapDir, "preambles"));
+		});
+
+		afterAll(async () => {
+			await rm(bootstrapDir, { recursive: true });
+		});
+
+		test("creates manifest from directory of YAML files", async () => {
+			const manifest = await buildManifestFromBootstrap(bootstrapDir);
+
+			expect(Object.keys(manifest.agents)).toHaveLength(2);
+			expect(manifest.agents.reader).toBeDefined();
+			expect(manifest.agents.editor).toBeDefined();
+			expect(manifest.synced_at).not.toBe("");
+		});
+
+		test("ignores non-YAML files and subdirectories", async () => {
+			const manifest = await buildManifestFromBootstrap(bootstrapDir);
+
+			expect(manifest.agents.README).toBeUndefined();
+			expect(manifest.agents.preambles).toBeUndefined();
+			expect(Object.keys(manifest.agents)).toHaveLength(2);
+		});
+
+		test("captures version and hash for each agent", async () => {
+			const manifest = await buildManifestFromBootstrap(bootstrapDir);
+
+			expect(manifest.agents.reader!.version).toBe(2);
+			expect(manifest.agents.reader!.hash).toBe(hashFileContent(readerYaml));
+
+			expect(manifest.agents.editor!.version).toBe(1);
+			expect(manifest.agents.editor!.hash).toBe(hashFileContent(editorYaml));
 		});
 	});
 });

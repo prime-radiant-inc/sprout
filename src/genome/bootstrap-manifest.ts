@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { parse } from "yaml";
 
 export interface BootstrapManifestEntry {
 	hash: string;
@@ -35,4 +36,27 @@ export function hashFileContent(content: string): string {
 export async function saveManifest(path: string, manifest: BootstrapManifest): Promise<void> {
 	await mkdir(dirname(path), { recursive: true });
 	await writeFile(path, JSON.stringify(manifest, null, "\t"), "utf-8");
+}
+
+/** Scan a bootstrap directory for YAML agent specs and build a manifest from them. */
+export async function buildManifestFromBootstrap(bootstrapDir: string): Promise<BootstrapManifest> {
+	const entries = await readdir(bootstrapDir);
+	const yamlFiles = entries.filter((f) => f.endsWith(".yaml") || f.endsWith(".yml"));
+
+	const agents: Record<string, BootstrapManifestEntry> = {};
+	for (const file of yamlFiles) {
+		const content = await readFile(join(bootstrapDir, file), "utf-8");
+		const parsed = parse(content);
+		const name = parsed?.name as string;
+		const version = (parsed?.version as number) ?? 1;
+		agents[name] = {
+			hash: hashFileContent(content),
+			version,
+		};
+	}
+
+	return {
+		synced_at: new Date().toISOString(),
+		agents,
+	};
 }
