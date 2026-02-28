@@ -1,5 +1,5 @@
-import { appendFile, readFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { appendFile, mkdtemp, readFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BusClient } from "../bus/client.ts";
 import type { BusServer } from "../bus/server.ts";
@@ -624,7 +624,15 @@ export async function runCli(command: CliCommand): Promise<void> {
 	if (command.kind === "genome-export") {
 		const { exportLearnings, stageLearnings } = await import("../genome/export-learnings.ts");
 		const bootstrapDir = join(import.meta.dir, "../../bootstrap");
-		const result = await exportLearnings(command.genomePath, bootstrapDir);
+
+		let result: Awaited<ReturnType<typeof exportLearnings>>;
+		try {
+			result = await exportLearnings(command.genomePath, bootstrapDir);
+		} catch (err) {
+			console.error(`Failed to load genome at ${command.genomePath}: ${err instanceof Error ? err.message : err}`);
+			process.exitCode = 1;
+			return;
+		}
 
 		if (result.evolved.length === 0 && result.genomeOnly.length === 0) {
 			console.log("No learnings to export. Genome matches bootstrap.");
@@ -645,8 +653,8 @@ export async function runCli(command: CliCommand): Promise<void> {
 			}
 		}
 
-		const stagingDir = join(command.genomePath, "export-staging");
-		const written = await stageLearnings(command.genomePath, result, stagingDir);
+		const stagingDir = await mkdtemp(join(tmpdir(), "sprout-export-"));
+		const written = await stageLearnings(result.genome, result, stagingDir);
 		console.log(`\nWrote ${written.length} agent YAML files to: ${stagingDir}/`);
 		console.log("Copy desired files to bootstrap/ to incorporate learnings.");
 		return;

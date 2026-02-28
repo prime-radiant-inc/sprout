@@ -129,7 +129,7 @@ describe("stageLearnings", () => {
 
 		const result = await exportLearnings(genomeDir, bootstrapDir);
 		const stagingDir = join(tempDir, "staging-evolved");
-		await stageLearnings(genomeDir, result, stagingDir);
+		await stageLearnings(result.genome, result, stagingDir);
 
 		const content = await readFile(join(stagingDir, "reader.yaml"), "utf-8");
 		const parsed = parse(content) as { name: string; system_prompt: string; version: number };
@@ -152,12 +152,16 @@ describe("stageLearnings", () => {
 		await genome.init();
 		await genome.initFromBootstrap(bootstrapDir);
 		await genome.addAgent(
-			makeSpec({ name: "specialist", description: "learned specialist", system_prompt: "I specialize" }),
+			makeSpec({
+				name: "specialist",
+				description: "learned specialist",
+				system_prompt: "I specialize",
+			}),
 		);
 
 		const result = await exportLearnings(genomeDir, bootstrapDir);
 		const stagingDir = join(tempDir, "staging-learned");
-		await stageLearnings(genomeDir, result, stagingDir);
+		await stageLearnings(result.genome, result, stagingDir);
 
 		const content = await readFile(join(stagingDir, "specialist.yaml"), "utf-8");
 		const parsed = parse(content) as { name: string; description: string };
@@ -182,7 +186,7 @@ describe("stageLearnings", () => {
 
 		const result = await exportLearnings(genomeDir, bootstrapDir);
 		const stagingDir = join(tempDir, "deep", "nested", "staging");
-		await stageLearnings(genomeDir, result, stagingDir);
+		await stageLearnings(result.genome, result, stagingDir);
 
 		const content = await readFile(join(stagingDir, "root.yaml"), "utf-8");
 		expect(content).toContain("evolved root");

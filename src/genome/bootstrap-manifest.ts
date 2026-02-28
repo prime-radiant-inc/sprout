@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { parse } from "yaml";
 
 export interface BootstrapManifestEntry {
 	hash: string;
@@ -43,27 +44,45 @@ export async function saveManifest(path: string, manifest: BootstrapManifest): P
  * Build a manifest from pre-loaded agent specs and the bootstrap directory.
  * Uses specs for name/version (single source of truth with loadBootstrapAgents),
  * reads raw files only for content hashing.
+ *
+ * Scans all YAML files in bootstrapDir and matches by parsed `name` field,
+ * so filenames don't need to match spec names.
  */
 export async function buildManifestFromSpecs(
 	specs: ReadonlyArray<{ name: string; version: number; capabilities?: string[] }>,
 	bootstrapDir: string,
 ): Promise<BootstrapManifest> {
+	// Build a map of agent name → raw file content by scanning all YAML files
+	const fileContentByName = new Map<string, string>();
+	try {
+		const files = await readdir(bootstrapDir);
+		for (const file of files) {
+			if (!file.endsWith(".yaml") && !file.endsWith(".yml")) continue;
+			try {
+				const content = await readFile(join(bootstrapDir, file), "utf-8");
+				const parsed = parse(content);
+				if (typeof parsed?.name === "string") {
+					fileContentByName.set(parsed.name, content);
+				}
+			} catch {
+				// Skip unparseable files
+			}
+		}
+	} catch {
+		// Directory might not exist
+	}
+
 	const agents: Record<string, BootstrapManifestEntry> = {};
 	let rootCapabilities: string[] | undefined;
 	for (const spec of specs) {
-		// Read raw file for content hashing (detects formatting/whitespace changes too)
-		const filePath = join(bootstrapDir, `${spec.name}.yaml`);
-		try {
-			const content = await readFile(filePath, "utf-8");
-			agents[spec.name] = {
-				hash: hashFileContent(content),
-				version: spec.version,
-			};
-			if (spec.name === "root" && spec.capabilities) {
-				rootCapabilities = [...spec.capabilities];
-			}
-		} catch {
-			// File might use .yml extension or be named differently — skip
+		const content = fileContentByName.get(spec.name);
+		if (!content) continue;
+		agents[spec.name] = {
+			hash: hashFileContent(content),
+			version: spec.version,
+		};
+		if (spec.name === "root" && spec.capabilities) {
+			rootCapabilities = [...spec.capabilities];
 		}
 	}
 

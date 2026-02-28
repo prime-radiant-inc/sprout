@@ -367,11 +367,23 @@ export class Genome {
 			await saveManifest(manifestPath, newManifest);
 		}
 
+		// Collect specific files to stage (avoid `git add .` which may stage unrelated files)
+		const filesToStage: string[] = [];
+		for (const name of [...added, ...updated]) {
+			filesToStage.push(join(this.rootPath, "agents", `${name}.yaml`));
+		}
+		if (capsMerged) {
+			filesToStage.push(join(this.rootPath, "agents", "root.yaml"));
+		}
+		if (hasChanges || conflicts.length > 0) {
+			filesToStage.push(manifestPath);
+		}
+
 		if (added.length > 0 || updated.length > 0) {
 			const parts: string[] = [];
 			if (added.length > 0) parts.push(`added: ${added.join(", ")}`);
 			if (updated.length > 0) parts.push(`updated: ${updated.join(", ")}`);
-			await git(this.rootPath, "add", ".");
+			await git(this.rootPath, "add", ...filesToStage);
 			await git(
 				this.rootPath,
 				"commit",
@@ -379,11 +391,10 @@ export class Genome {
 				`genome: sync bootstrap agents (${parts.join("; ")})`,
 			);
 		} else if (capsMerged) {
-			await git(this.rootPath, "add", ".");
+			await git(this.rootPath, "add", ...filesToStage);
 			await git(this.rootPath, "commit", "-m", "genome: merge root capabilities from bootstrap");
 		} else if (conflicts.length > 0) {
-			// Commit manifest even when only conflicts detected — avoids dirty working tree
-			await git(this.rootPath, "add", ".");
+			await git(this.rootPath, "add", ...filesToStage);
 			await git(
 				this.rootPath,
 				"commit",
@@ -417,9 +428,7 @@ export class Genome {
 		const kept = genomeRoot.capabilities.filter(
 			(c) => newBootstrapCaps.has(c) || !oldBootstrapCaps.has(c),
 		);
-		const toAdd = bootstrapRoot.capabilities.filter(
-			(c) => !genomeRoot.capabilities.includes(c),
-		);
+		const toAdd = bootstrapRoot.capabilities.filter((c) => !genomeRoot.capabilities.includes(c));
 		const merged = [...kept, ...toAdd];
 
 		// Check if anything actually changed

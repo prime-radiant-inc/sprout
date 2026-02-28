@@ -129,5 +129,39 @@ describe("bootstrap-manifest", () => {
 			expect(manifest.agents.editor!.version).toBe(1);
 			expect(manifest.agents.editor!.hash).toBe(hashFileContent(editorYaml));
 		});
+
+		test("captures rootCapabilities when root spec has capabilities", async () => {
+			const rootDir = await mkdtemp(join(tmpdir(), "sprout-root-caps-"));
+			const rootYaml =
+				"name: root\nversion: 1\ndescription: root agent\nmodel: best\nsystem_prompt: hi\ncapabilities:\n  - reader\n  - editor\n";
+			await writeFile(join(rootDir, "root.yaml"), rootYaml);
+
+			const rootSpecs = [{ name: "root", version: 1, capabilities: ["reader", "editor"] }];
+			const manifest = await buildManifestFromSpecs(rootSpecs, rootDir);
+
+			expect(manifest.rootCapabilities).toEqual(["reader", "editor"]);
+			await rm(rootDir, { recursive: true });
+		});
+
+		test("rootCapabilities is undefined when no root spec present", async () => {
+			const manifest = await buildManifestFromSpecs(specs, bootstrapDir);
+			expect(manifest.rootCapabilities).toBeUndefined();
+		});
+
+		test("matches spec by parsed name field, not filename", async () => {
+			const mismatchDir = await mkdtemp(join(tmpdir(), "sprout-mismatch-"));
+			// File is named "my-agent.yaml" but contains name: "custom-name"
+			const yamlContent =
+				"name: custom-name\nversion: 3\ndescription: mismatched\nmodel: fast\nsystem_prompt: test\n";
+			await writeFile(join(mismatchDir, "my-agent.yaml"), yamlContent);
+
+			const mismatchSpecs = [{ name: "custom-name", version: 3 }];
+			const manifest = await buildManifestFromSpecs(mismatchSpecs, mismatchDir);
+
+			expect(manifest.agents["custom-name"]).toBeDefined();
+			expect(manifest.agents["custom-name"]!.version).toBe(3);
+			expect(manifest.agents["custom-name"]!.hash).toBe(hashFileContent(yamlContent));
+			await rm(mismatchDir, { recursive: true });
+		});
 	});
 });

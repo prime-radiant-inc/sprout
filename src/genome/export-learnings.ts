@@ -20,6 +20,8 @@ export interface GenomeOnlyAgent {
 export interface ExportResult {
 	evolved: EvolvedAgent[];
 	genomeOnly: GenomeOnlyAgent[];
+	/** The loaded Genome instance, reusable by stageLearnings. */
+	genome: Genome;
 }
 
 export async function exportLearnings(
@@ -58,7 +60,7 @@ export async function exportLearnings(
 		}
 	}
 
-	return { evolved, genomeOnly };
+	return { evolved, genomeOnly, genome };
 }
 
 /**
@@ -66,13 +68,10 @@ export async function exportLearnings(
  * Creates the directory if it doesn't exist.
  */
 export async function stageLearnings(
-	genomePath: string,
+	genome: Genome,
 	result: ExportResult,
 	stagingDir: string,
 ): Promise<string[]> {
-	const genome = new Genome(genomePath);
-	await genome.loadFromDisk();
-
 	await mkdir(stagingDir, { recursive: true });
 
 	const written: string[] = [];
