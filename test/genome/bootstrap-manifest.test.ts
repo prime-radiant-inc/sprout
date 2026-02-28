@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	type BootstrapManifest,
+	hashFileContent,
 	loadManifest,
 	saveManifest,
 } from "../../src/genome/bootstrap-manifest.ts";
@@ -43,7 +44,7 @@ describe("bootstrap-manifest", () => {
 			expect(loaded).toEqual(manifest);
 		});
 
-		test("saveManifest creates parent directories", async () => {
+		test("saveManifest creates parent directories when needed", async () => {
 			const path = join(tempDir, "nested", "dirs", "manifest.json");
 			const manifest: BootstrapManifest = {
 				synced_at: "2026-02-28T00:00:00Z",
@@ -54,6 +55,29 @@ describe("bootstrap-manifest", () => {
 			const loaded = await loadManifest(path);
 
 			expect(loaded).toEqual(manifest);
+		});
+	});
+
+	describe("hashFileContent", () => {
+		test("same content produces same hash", () => {
+			const content = "name: reader\nversion: 2\n";
+			const hash1 = hashFileContent(content);
+			const hash2 = hashFileContent(content);
+
+			expect(hash1).toBe(hash2);
+		});
+
+		test("different content produces different hashes", () => {
+			const hash1 = hashFileContent("name: reader\nversion: 1\n");
+			const hash2 = hashFileContent("name: reader\nversion: 2\n");
+
+			expect(hash1).not.toBe(hash2);
+		});
+
+		test("hash format is sha256: followed by 64 hex characters", () => {
+			const hash = hashFileContent("anything");
+
+			expect(hash).toMatch(/^sha256:[0-9a-f]{64}$/);
 		});
 	});
 });

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
@@ -22,6 +23,12 @@ export async function loadManifest(path: string): Promise<BootstrapManifest> {
 		}
 		throw err;
 	}
+}
+
+/** Compute a sha256 hash of file content, prefixed with "sha256:". */
+export function hashFileContent(content: string): string {
+	const hex = createHash("sha256").update(content).digest("hex");
+	return `sha256:${hex}`;
 }
 
 /** Save a bootstrap manifest to disk, creating parent directories if needed. */
