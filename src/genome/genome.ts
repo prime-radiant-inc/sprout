@@ -329,7 +329,8 @@ export class Genome {
 		for (const spec of specs) {
 			const existing = this.agents.get(spec.name);
 			const oldEntry = oldManifest.agents[spec.name];
-			const newEntry = newManifest.agents[spec.name]!;
+			const newEntry = newManifest.agents[spec.name];
+			if (!newEntry) continue;
 
 			if (!existing) {
 				// Case 1: Agent not in genome — add it
@@ -353,6 +354,9 @@ export class Genome {
 			}
 		}
 
+		// Save manifest before committing so it's included in the genome commit
+		await saveManifest(manifestPath, newManifest);
+
 		if (added.length > 0 || updated.length > 0) {
 			const parts: string[] = [];
 			if (added.length > 0) parts.push(`added: ${added.join(", ")}`);
@@ -365,8 +369,6 @@ export class Genome {
 				`genome: sync bootstrap agents (${parts.join("; ")})`,
 			);
 		}
-
-		await saveManifest(manifestPath, newManifest);
 
 		return { added, updated, conflicts };
 	}
