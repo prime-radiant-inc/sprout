@@ -622,7 +622,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 	}
 
 	if (command.kind === "genome-export") {
-		const { exportLearnings } = await import("../genome/export-learnings.ts");
+		const { exportLearnings, stageLearnings } = await import("../genome/export-learnings.ts");
 		const bootstrapDir = join(import.meta.dir, "../../bootstrap");
 		const result = await exportLearnings(command.genomePath, bootstrapDir);
 
@@ -645,9 +645,10 @@ export async function runCli(command: CliCommand): Promise<void> {
 			}
 		}
 
-		console.log("\nTo review diffs, compare files in:");
-		console.log(`  Genome:    ${command.genomePath}/agents/`);
-		console.log(`  Bootstrap: ${bootstrapDir}/`);
+		const stagingDir = join(command.genomePath, "export-staging");
+		const written = await stageLearnings(command.genomePath, result, stagingDir);
+		console.log(`\nWrote ${written.length} agent YAML files to: ${stagingDir}/`);
+		console.log("Copy desired files to bootstrap/ to incorporate learnings.");
 		return;
 	}
 

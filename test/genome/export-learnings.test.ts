@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { exportLearnings } from "../../src/genome/export-learnings.ts";
+import { parse } from "yaml";
+import { exportLearnings, stageLearnings } from "../../src/genome/export-learnings.ts";
 import { Genome, serializeAgentSpec } from "../../src/genome/genome.ts";
 import type { AgentSpec } from "../../src/kernel/types.ts";
 import { DEFAULT_CONSTRAINTS } from "../../src/kernel/types.ts";
@@ -95,5 +96,95 @@ describe("exportLearnings", () => {
 
 		expect(result.evolved).toHaveLength(0);
 		expect(result.genomeOnly).toHaveLength(0);
+	});
+});
+
+describe("stageLearnings", () => {
+	let tempDir: string;
+
+	beforeAll(async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "sprout-stage-"));
+	});
+
+	afterAll(async () => {
+		await rm(tempDir, { recursive: true });
+	});
+
+	test("writes evolved agent YAML to staging directory", async () => {
+		const genomeDir = join(tempDir, "stage-evolved");
+		const bootstrapDir = join(tempDir, "stage-evolved-boot");
+		await mkdir(bootstrapDir, { recursive: true });
+
+		await writeFile(
+			join(bootstrapDir, "reader.yaml"),
+			serializeAgentSpec(makeSpec({ name: "reader", system_prompt: "basic reader" })),
+		);
+
+		const genome = new Genome(genomeDir);
+		await genome.init();
+		await genome.initFromBootstrap(bootstrapDir);
+		await genome.updateAgent(
+			makeSpec({ name: "reader", system_prompt: "improved reader with batching" }),
+		);
+
+		const result = await exportLearnings(genomeDir, bootstrapDir);
+		const stagingDir = join(tempDir, "staging-evolved");
+		await stageLearnings(genomeDir, result, stagingDir);
+
+		const content = await readFile(join(stagingDir, "reader.yaml"), "utf-8");
+		const parsed = parse(content) as { name: string; system_prompt: string; version: number };
+		expect(parsed.name).toBe("reader");
+		expect(parsed.system_prompt).toBe("improved reader with batching");
+		expect(parsed.version).toBe(2);
+	});
+
+	test("writes genome-only agent YAML to staging directory", async () => {
+		const genomeDir = join(tempDir, "stage-learned");
+		const bootstrapDir = join(tempDir, "stage-learned-boot");
+		await mkdir(bootstrapDir, { recursive: true });
+
+		await writeFile(
+			join(bootstrapDir, "root.yaml"),
+			serializeAgentSpec(makeSpec({ name: "root" })),
+		);
+
+		const genome = new Genome(genomeDir);
+		await genome.init();
+		await genome.initFromBootstrap(bootstrapDir);
+		await genome.addAgent(
+			makeSpec({ name: "specialist", description: "learned specialist", system_prompt: "I specialize" }),
+		);
+
+		const result = await exportLearnings(genomeDir, bootstrapDir);
+		const stagingDir = join(tempDir, "staging-learned");
+		await stageLearnings(genomeDir, result, stagingDir);
+
+		const content = await readFile(join(stagingDir, "specialist.yaml"), "utf-8");
+		const parsed = parse(content) as { name: string; description: string };
+		expect(parsed.name).toBe("specialist");
+		expect(parsed.description).toBe("learned specialist");
+	});
+
+	test("creates staging directory if it does not exist", async () => {
+		const genomeDir = join(tempDir, "stage-mkdir");
+		const bootstrapDir = join(tempDir, "stage-mkdir-boot");
+		await mkdir(bootstrapDir, { recursive: true });
+
+		await writeFile(
+			join(bootstrapDir, "root.yaml"),
+			serializeAgentSpec(makeSpec({ name: "root" })),
+		);
+
+		const genome = new Genome(genomeDir);
+		await genome.init();
+		await genome.initFromBootstrap(bootstrapDir);
+		await genome.updateAgent(makeSpec({ name: "root", system_prompt: "evolved root" }));
+
+		const result = await exportLearnings(genomeDir, bootstrapDir);
+		const stagingDir = join(tempDir, "deep", "nested", "staging");
+		await stageLearnings(genomeDir, result, stagingDir);
+
+		const content = await readFile(join(stagingDir, "root.yaml"), "utf-8");
+		expect(content).toContain("evolved root");
 	});
 });

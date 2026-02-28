@@ -1,5 +1,7 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { loadBootstrapAgents } from "../agents/loader.ts";
-import { Genome } from "./genome.ts";
+import { Genome, serializeAgentSpec } from "./genome.ts";
 
 export interface EvolvedAgent {
 	name: string;
@@ -57,4 +59,39 @@ export async function exportLearnings(
 	}
 
 	return { evolved, genomeOnly };
+}
+
+/**
+ * Write evolved and genome-only agent specs as YAML to a staging directory.
+ * Creates the directory if it doesn't exist.
+ */
+export async function stageLearnings(
+	genomePath: string,
+	result: ExportResult,
+	stagingDir: string,
+): Promise<string[]> {
+	const genome = new Genome(genomePath);
+	await genome.loadFromDisk();
+
+	await mkdir(stagingDir, { recursive: true });
+
+	const written: string[] = [];
+
+	for (const evolved of result.evolved) {
+		const agent = genome.getAgent(evolved.name);
+		if (!agent) continue;
+		const filePath = join(stagingDir, `${agent.name}.yaml`);
+		await writeFile(filePath, serializeAgentSpec(agent), "utf-8");
+		written.push(filePath);
+	}
+
+	for (const learned of result.genomeOnly) {
+		const agent = genome.getAgent(learned.name);
+		if (!agent) continue;
+		const filePath = join(stagingDir, `${agent.name}.yaml`);
+		await writeFile(filePath, serializeAgentSpec(agent), "utf-8");
+		written.push(filePath);
+	}
+
+	return written;
 }
