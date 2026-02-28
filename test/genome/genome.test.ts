@@ -325,7 +325,12 @@ describe("Genome", () => {
 			const bootstrapDir = join(import.meta.dir, "../../bootstrap");
 			await genome.initFromBootstrap(bootstrapDir);
 
-			expect(genome.agentCount()).toBe(19);
+			// Count expected agents from bootstrap YAML files
+			const bootstrapFiles = (await readdir(bootstrapDir)).filter(
+				(f) => f.endsWith(".yaml") || f.endsWith(".yml"),
+			);
+			expect(genome.agentCount()).toBe(bootstrapFiles.length);
+
 			expect(genome.getAgent("root")).toBeDefined();
 			expect(genome.getAgent("reader")).toBeDefined();
 			expect(genome.getAgent("editor")).toBeDefined();
@@ -343,7 +348,7 @@ describe("Genome", () => {
 
 			// Verify files exist on disk
 			const files = await readdir(join(root, "agents"));
-			expect(files).toHaveLength(19);
+			expect(files).toHaveLength(bootstrapFiles.length);
 		});
 
 		test("initFromBootstrap throws if agents already exist", async () => {
@@ -833,6 +838,46 @@ describe("Genome", () => {
 			expect(rootAgent.capabilities).toContain("reader");
 			expect(rootAgent.capabilities).toContain("editor");
 			expect(rootAgent.capabilities).not.toContain("debugger");
+		});
+
+		test("commit message includes both capabilities and conflict info", async () => {
+			const root = join(tempDir, "sync-commit-msg");
+			const genome = new Genome(root);
+			await genome.init();
+
+			const bootstrapDir = join(tempDir, "sync-commit-msg-bs");
+			await mkdir(bootstrapDir, { recursive: true });
+
+			// Bootstrap with root listing ["reader"] and an agent "alpha"
+			await writeBootstrapYaml(bootstrapDir, "root", { capabilities: ["reader"] });
+			await writeBootstrapYaml(bootstrapDir, "reader");
+			await writeBootstrapYaml(bootstrapDir, "alpha", { description: "Original alpha" });
+
+			// First sync
+			await genome.syncBootstrap(bootstrapDir);
+
+			// Evolve alpha in genome (creates conflict on next sync)
+			await genome.updateAgent(
+				makeSpec({ name: "alpha", description: "Genome-evolved alpha" }),
+			);
+
+			// Bootstrap changes alpha AND adds "verifier" to root capabilities
+			await writeBootstrapYaml(bootstrapDir, "root", {
+				capabilities: ["reader", "verifier"],
+			});
+			await writeBootstrapYaml(bootstrapDir, "alpha", {
+				description: "Bootstrap-updated alpha",
+			});
+			await writeBootstrapYaml(bootstrapDir, "verifier");
+
+			// Sync again — should have capsMerged + conflict on alpha
+			const result = await genome.syncBootstrap(bootstrapDir);
+			expect(result.conflicts).toContain("alpha");
+			expect(result.added).toContain("verifier");
+
+			// Check the git commit message mentions both
+			const log = await git(root, "log", "--oneline", "-1");
+			expect(log).toContain("alpha");
 		});
 
 		test("preserves genome-added capabilities when bootstrap drops its own", async () => {

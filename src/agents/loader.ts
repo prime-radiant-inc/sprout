@@ -13,7 +13,7 @@ export async function loadAgentSpec(path: string): Promise<AgentSpec> {
 		}
 	}
 
-	return {
+	const spec: AgentSpec = {
 		name: raw.name,
 		description: raw.description,
 		system_prompt: raw.system_prompt,
@@ -23,6 +23,10 @@ export async function loadAgentSpec(path: string): Promise<AgentSpec> {
 		tags: raw.tags ?? [],
 		version: raw.version ?? 1,
 	};
+	if (raw.thinking !== undefined) {
+		spec.thinking = raw.thinking;
+	}
+	return spec;
 }
 
 export async function loadBootstrapAgents(dir: string): Promise<AgentSpec[]> {

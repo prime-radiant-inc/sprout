@@ -83,6 +83,18 @@ describe("exportLearnings", () => {
 		expect(result.evolved).toHaveLength(0);
 		expect(result.genomeOnly).toHaveLength(0);
 	});
+
+	test("throws when genome path does not exist", async () => {
+		const nonexistent = join(tempDir, "no-such-genome");
+		const bootstrapDir = join(tempDir, "noexist-boot");
+		await mkdir(bootstrapDir, { recursive: true });
+		await writeFile(
+			join(bootstrapDir, "root.yaml"),
+			serializeAgentSpec(makeSpec({ name: "root" })),
+		);
+
+		await expect(exportLearnings(nonexistent, bootstrapDir)).rejects.toThrow(/does not exist/);
+	});
 });
 
 describe("stageLearnings", () => {

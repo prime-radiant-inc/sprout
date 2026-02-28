@@ -29,6 +29,12 @@ describe("bootstrap-manifest", () => {
 			expect(manifest.agents).toEqual({});
 		});
 
+		test("loadManifest throws on corrupt JSON", async () => {
+			const path = join(tempDir, "corrupt.json");
+			await writeFile(path, "not valid json {{{");
+			expect(loadManifest(path)).rejects.toThrow();
+		});
+
 		test("saveManifest + loadManifest round-trips", async () => {
 			const path = join(tempDir, "round-trip.json");
 			const manifest: BootstrapManifest = {

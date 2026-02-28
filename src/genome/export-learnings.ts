@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { access, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { loadBootstrapAgents } from "../agents/loader.ts";
 import { Genome, serializeAgentSpec } from "./genome.ts";
@@ -28,6 +28,12 @@ export async function exportLearnings(
 	genomePath: string,
 	bootstrapDir: string,
 ): Promise<ExportResult> {
+	try {
+		await access(join(genomePath, "agents"));
+	} catch {
+		throw new Error(`Genome does not exist at ${genomePath} (no agents/ directory)`);
+	}
+
 	const genome = new Genome(genomePath);
 	await genome.loadFromDisk();
 

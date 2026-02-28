@@ -379,27 +379,19 @@ export class Genome {
 			filesToStage.push(manifestPath);
 		}
 
-		if (added.length > 0 || updated.length > 0) {
-			const parts: string[] = [];
-			if (added.length > 0) parts.push(`added: ${added.join(", ")}`);
-			if (updated.length > 0) parts.push(`updated: ${updated.join(", ")}`);
+		const parts: string[] = [];
+		if (added.length > 0) parts.push(`added: ${added.join(", ")}`);
+		if (updated.length > 0) parts.push(`updated: ${updated.join(", ")}`);
+		if (capsMerged) parts.push("capabilities merged");
+		if (conflicts.length > 0) parts.push(`conflicts: ${conflicts.join(", ")}`);
+
+		if (parts.length > 0) {
 			await git(this.rootPath, "add", ...filesToStage);
 			await git(
 				this.rootPath,
 				"commit",
 				"-m",
-				`genome: sync bootstrap agents (${parts.join("; ")})`,
-			);
-		} else if (capsMerged) {
-			await git(this.rootPath, "add", ...filesToStage);
-			await git(this.rootPath, "commit", "-m", "genome: merge root capabilities from bootstrap");
-		} else if (conflicts.length > 0) {
-			await git(this.rootPath, "add", ...filesToStage);
-			await git(
-				this.rootPath,
-				"commit",
-				"-m",
-				`genome: update bootstrap manifest (conflicts: ${conflicts.join(", ")})`,
+				`genome: sync bootstrap (${parts.join("; ")})`,
 			);
 		}
 
@@ -642,20 +634,18 @@ function parseToolFrontmatter(
 
 /** Serialize an AgentSpec to YAML with explicit field ordering. */
 export function serializeAgentSpec(spec: AgentSpec): string {
-	return stringify({
+	const obj: Record<string, unknown> = {
 		name: spec.name,
 		description: spec.description,
 		model: spec.model,
 		capabilities: spec.capabilities,
-		constraints: {
-			max_turns: spec.constraints.max_turns,
-			max_depth: spec.constraints.max_depth,
-			timeout_ms: spec.constraints.timeout_ms,
-			can_spawn: spec.constraints.can_spawn,
-			can_learn: spec.constraints.can_learn,
-		},
+		constraints: spec.constraints,
 		tags: spec.tags,
 		system_prompt: spec.system_prompt,
 		version: spec.version,
-	});
+	};
+	if (spec.thinking !== undefined) {
+		obj.thinking = spec.thinking;
+	}
+	return stringify(obj);
 }

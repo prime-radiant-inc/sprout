@@ -629,7 +629,9 @@ export async function runCli(command: CliCommand): Promise<void> {
 		try {
 			result = await exportLearnings(command.genomePath, bootstrapDir);
 		} catch (err) {
-			console.error(`Failed to load genome at ${command.genomePath}: ${err instanceof Error ? err.message : err}`);
+			console.error(
+				`Failed to load genome at ${command.genomePath}: ${err instanceof Error ? err.message : err}`,
+			);
 			process.exitCode = 1;
 			return;
 		}
