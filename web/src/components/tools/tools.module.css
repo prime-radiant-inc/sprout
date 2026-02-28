@@ -75,3 +75,22 @@
 .expandBtn:hover {
 	background: var(--color-inset);
 }
+
+.technicalDetails {
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-xs);
+	margin-bottom: var(--space-xs);
+}
+
+.detailsSummary {
+	font-family: var(--font-mono);
+	font-size: var(--font-size-xxs);
+	color: var(--color-text-placeholder);
+	padding: var(--space-xs) var(--space-sm);
+	cursor: pointer;
+	user-select: none;
+}
+
+.detailsSummary:hover {
+	color: var(--color-text-secondary);
+}

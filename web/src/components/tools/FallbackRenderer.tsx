@@ -9,9 +9,10 @@ export function FallbackRenderer({ args, output }: ToolRendererProps) {
 	return (
 		<div className={styles.rendererBlock}>
 			{hasArgs && (
-				<pre className={styles.codeBlock}>
-					{JSON.stringify(args, null, 2)}
-				</pre>
+				<details className={styles.technicalDetails} data-testid="technical-details">
+					<summary className={styles.detailsSummary}>Arguments</summary>
+					<pre className={styles.codeBlock}>{JSON.stringify(args, null, 2)}</pre>
+				</details>
 			)}
 			{output && <ExpandableOutput output={output} />}
 		</div>

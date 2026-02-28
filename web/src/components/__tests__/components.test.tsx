@@ -518,6 +518,18 @@ describe("FallbackRenderer", () => {
 		);
 		expect(html).toContain("tool result here");
 	});
+
+	test("hides raw JSON args behind details toggle", () => {
+		const html = renderToStaticMarkup(
+			<FallbackRenderer
+				toolName="custom_tool"
+				args={{ key: "value", count: 42 }}
+				output="some output"
+				success={true}
+			/>,
+		);
+		expect(html).toContain('data-testid="technical-details"');
+	});
 });
 
 // --- DelegationBlock ---
