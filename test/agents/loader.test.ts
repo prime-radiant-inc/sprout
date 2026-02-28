@@ -75,7 +75,18 @@ describe("loadBootstrapAgents", () => {
 
 	test("leaf agents cannot spawn subagents", async () => {
 		const agents = await loadBootstrapAgents(join(import.meta.dir, "../../bootstrap"));
-		const orchestrators = ["root", "quartermaster", "qm-indexer", "tech-lead", "engineer", "spec-reviewer", "quality-reviewer", "architect", "verifier", "debugger"];
+		const orchestrators = [
+			"root",
+			"quartermaster",
+			"qm-indexer",
+			"tech-lead",
+			"engineer",
+			"spec-reviewer",
+			"quality-reviewer",
+			"architect",
+			"verifier",
+			"debugger",
+		];
 		const leaves = agents.filter((a) => !orchestrators.includes(a.name));
 		for (const leaf of leaves) {
 			expect(leaf.constraints.can_spawn).toBe(false);

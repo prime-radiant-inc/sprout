@@ -1,6 +1,6 @@
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { type Task, type TaskFile, type TaskStatus, createEmptyTaskFile } from "./types.ts";
+import { createEmptyTaskFile, type Task, type TaskFile, type TaskStatus } from "./types.ts";
 
 export class TaskStore {
 	constructor(private readonly filePath: string) {}
@@ -22,11 +22,7 @@ export class TaskStore {
 		await writeFile(this.filePath, JSON.stringify(data, null, 2) + "\n");
 	}
 
-	async create(
-		description: string,
-		initial_prompt?: string,
-		assigned_to?: string,
-	): Promise<Task> {
+	async create(description: string, initial_prompt?: string, assigned_to?: string): Promise<Task> {
 		const data = await this.load();
 		const id = `task-${String(data.next_id).padStart(3, "0")}`;
 		const task: Task = {
