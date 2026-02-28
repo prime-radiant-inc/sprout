@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import type { SessionEvent } from "../../../src/kernel/types.ts";
 import type { AgentTreeNode } from "../hooks/useAgentTree.ts";
 import { EmptyState } from "./EmptyState.tsx";
+import { EventErrorBoundary } from "./EventErrorBoundary.tsx";
 import { EventLine } from "./EventLine.tsx";
 import { buildNameMap, groupEvents } from "./groupEvents.ts";
 import { StreamingBanner } from "./StreamingBanner.tsx";
@@ -44,17 +45,18 @@ export function ConversationView({
 	return (
 		<div className={styles.conversationView}>
 			{grouped.map(({ event, durationMs, streamingText, isFirstInGroup, agentName, livePeek, livePeekTools }, i) => (
-				<EventLine
-					key={`${event.agent_id}-${event.kind}-${event.timestamp}-${i}`}
-					event={event}
-					durationMs={durationMs}
-					streamingText={streamingText}
-					isFirstInGroup={isFirstInGroup}
-					agentName={agentName}
-					livePeek={livePeek}
-					livePeekTools={livePeekTools}
-					onSelectAgent={onSelectAgent}
-				/>
+				<EventErrorBoundary key={`${event.agent_id}-${event.kind}-${event.timestamp}-${i}`} eventKind={event.kind}>
+					<EventLine
+						event={event}
+						durationMs={durationMs}
+						streamingText={streamingText}
+						isFirstInGroup={isFirstInGroup}
+						agentName={agentName}
+						livePeek={livePeek}
+						livePeekTools={livePeekTools}
+						onSelectAgent={onSelectAgent}
+					/>
+				</EventErrorBoundary>
 			))}
 			{isStreaming && streamingAgentName && (
 				<StreamingBanner agentName={streamingAgentName} />

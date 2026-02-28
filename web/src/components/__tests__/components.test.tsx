@@ -5,6 +5,7 @@ import { buildAgentTree } from "../../hooks/useAgentTree.ts";
 import { AssistantMessage } from "../AssistantMessage.tsx";
 import { ConversationView } from "../ConversationView.tsx";
 import { DelegationBlock } from "../DelegationBlock.tsx";
+import { EventErrorBoundary } from "../EventErrorBoundary.tsx";
 import { EventLine } from "../EventLine.tsx";
 import { smartArgs } from "../format.ts";
 import { MarkdownBlock } from "../MarkdownBlock.tsx";
@@ -982,6 +983,19 @@ describe("EventLine", () => {
 			<EventLine event={event} durationMs={null} isFirstInGroup streamingText="hello" agentName="streamer" />,
 		);
 		expect(html).toContain("streamer");
+	});
+});
+
+// --- EventErrorBoundary ---
+
+describe("EventErrorBoundary", () => {
+	test("renders children normally", () => {
+		const html = renderToStaticMarkup(
+			<EventErrorBoundary eventKind="plan_end">
+				<div>content here</div>
+			</EventErrorBoundary>,
+		);
+		expect(html).toContain("content here");
 	});
 });
 
