@@ -2,6 +2,7 @@ export interface ShortcutActions {
 	toggleSidebar: () => void;
 	clearFilter: () => void;
 	focusInput: () => void;
+	showHelp: () => void;
 }
 
 /** Pure function: process a keyboard event and call the appropriate action. Returns true if handled. */
@@ -19,6 +20,16 @@ export function handleKeyboardShortcut(event: KeyboardEvent, actions: ShortcutAc
 			return false;
 		}
 		actions.clearFilter();
+		return true;
+	}
+
+	// ? shows keyboard shortcuts help (skip when focused on an input element)
+	if (event.key === "?" && !event.ctrlKey && !event.metaKey) {
+		const tag = (event.target as HTMLElement)?.tagName?.toLowerCase();
+		if (tag === "input" || tag === "textarea" || tag === "select") {
+			return false;
+		}
+		actions.showHelp();
 		return true;
 	}
 

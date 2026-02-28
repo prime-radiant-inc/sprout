@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { KeyboardHelp } from "./components/KeyboardHelp.tsx";
 import type { SlashCommand } from "../../src/tui/slash-commands.ts";
 import styles from "./App.module.css";
 import { ConversationView } from "./components/ConversationView.tsx";
@@ -27,6 +28,7 @@ export function App() {
 
 	const [panelStack, setPanelStack] = useState<string[]>([]);
 	const [sidebarOpen, setSidebarOpen] = useState(true);
+	const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
 	const inputRef = useRef<HTMLTextAreaElement>(null);
 
 	// Update favicon based on session status
@@ -96,6 +98,7 @@ export function App() {
 				toggleSidebar: () => setSidebarOpen((prev) => !prev),
 				clearFilter: () => setPanelStack([]),
 				focusInput: () => inputRef.current?.focus(),
+				showHelp: () => setShowKeyboardHelp(true),
 			});
 			if (handled) e.preventDefault();
 		};
@@ -276,6 +279,10 @@ export function App() {
 				onInterrupt={handleInterrupt}
 				textareaRef={inputRef}
 			/>
+
+			{showKeyboardHelp && (
+				<KeyboardHelp onClose={() => setShowKeyboardHelp(false)} />
+			)}
 		</div>
 	);
 }

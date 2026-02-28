@@ -17,6 +17,7 @@ import { ReadFileRenderer } from "../tools/ReadFileRenderer.tsx";
 import { EditFileRenderer } from "../tools/EditFileRenderer.tsx";
 import { ExecRenderer } from "../tools/ExecRenderer.tsx";
 import { FallbackRenderer } from "../tools/FallbackRenderer.tsx";
+import { KeyboardHelp } from "../KeyboardHelp.tsx";
 
 // --- Helpers ---
 
@@ -1262,5 +1263,17 @@ describe("ThreadPanel", () => {
 			/>,
 		);
 		expect(html).toContain("missing-agent");
+	});
+});
+
+// --- KeyboardHelp ---
+
+describe("KeyboardHelp", () => {
+	test("renders all keyboard shortcuts", () => {
+		const html = renderToStaticMarkup(<KeyboardHelp onClose={() => {}} />);
+		expect(html).toContain("Keyboard Shortcuts");
+		expect(html).toContain("Ctrl+/");
+		expect(html).toContain("Escape");
+		expect(html).toContain("Enter");
 	});
 });
