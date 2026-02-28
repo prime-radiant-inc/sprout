@@ -319,6 +319,34 @@ describe("parseArgs", () => {
 			genomePath: defaultGenomePath,
 		});
 	});
+
+	test("unknown flag returns help", () => {
+		expect(parseArgs(["--foobar"])).toEqual({ kind: "help" });
+	});
+
+	test("unknown flag mixed with valid flags returns help", () => {
+		expect(parseArgs(["--web", "--banana"])).toEqual({ kind: "help" });
+	});
+
+	test("unknown flag before --prompt returns help", () => {
+		expect(parseArgs(["--unknown", "--prompt", "Fix bug"])).toEqual({ kind: "help" });
+	});
+
+	test("bare goal without --prompt still works", () => {
+		expect(parseArgs(["Fix the bug"])).toEqual({
+			kind: "oneshot",
+			goal: "Fix the bug",
+			genomePath: defaultGenomePath,
+		});
+	});
+
+	test("bare goal with multiple words still works", () => {
+		expect(parseArgs(["Fix", "the", "bug"])).toEqual({
+			kind: "oneshot",
+			goal: "Fix the bug",
+			genomePath: defaultGenomePath,
+		});
+	});
 });
 
 describe("handleSigint", () => {

@@ -218,6 +218,10 @@ export function parseArgs(argv: string[]): CliCommand {
 			return { kind: "help" };
 		}
 
+		if (arg.startsWith("--")) {
+			return { kind: "help" };
+		}
+
 		rest.push(arg);
 	}
 
