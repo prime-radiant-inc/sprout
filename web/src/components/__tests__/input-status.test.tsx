@@ -20,6 +20,7 @@ function makeStatus(overrides: Partial<SessionStatus> = {}): SessionStatus {
 		contextWindowSize: 200000,
 		sessionId: "abc-123-def",
 		availableModels: [],
+		sessionStartedAt: null,
 		...overrides,
 	};
 }
@@ -209,6 +210,18 @@ describe("StatusBar", () => {
 			/>,
 		);
 		expect(html).not.toContain('title="Interrupt (Esc)"');
+	});
+
+	test("renders session duration when sessionStartedAt is set", () => {
+		const now = Date.now();
+		const html = renderToStaticMarkup(
+			<StatusBar
+				status={makeStatus({ sessionStartedAt: now - 65000 })}
+				connected={true}
+			/>,
+		);
+		// 65 seconds = "1:05"
+		expect(html).toContain("1:05");
 	});
 });
 

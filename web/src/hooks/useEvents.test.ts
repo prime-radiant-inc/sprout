@@ -52,6 +52,7 @@ describe("EventStore", () => {
 				contextWindowSize: 0,
 				sessionId: "",
 				availableModels: [],
+				sessionStartedAt: null,
 			});
 		});
 	});

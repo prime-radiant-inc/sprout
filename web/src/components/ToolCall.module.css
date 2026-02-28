@@ -35,6 +35,11 @@ details[open] > .summary .indicator {
 	transform: rotate(90deg);
 }
 
+.toolIcon {
+	font-size: var(--font-size-xs);
+	flex-shrink: 0;
+}
+
 .toolName {
 	color: var(--color-text-secondary);
 	font-weight: 500;

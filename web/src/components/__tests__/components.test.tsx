@@ -306,6 +306,20 @@ describe("ToolCall", () => {
 		);
 		expect(html).toContain("file contents here");
 	});
+
+	test("renders tool icon for known tools", () => {
+		const html = renderToStaticMarkup(
+			<ToolCall toolName="exec" success={true} args={{ command: "ls" }} />,
+		);
+		expect(html).toContain('data-testid="tool-icon"');
+	});
+
+	test("does not render tool icon for unknown tools", () => {
+		const html = renderToStaticMarkup(
+			<ToolCall toolName="custom_unknown_tool" success={true} />,
+		);
+		expect(html).not.toContain('data-testid="tool-icon"');
+	});
 });
 
 // --- ReadFileRenderer ---

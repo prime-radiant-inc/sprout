@@ -49,7 +49,7 @@ export function App() {
 	const handleScroll = useCallback(() => {
 		const el = conversationRef.current;
 		if (!el) return;
-		const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+		const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
 		setUserScrolledUp(!atBottom);
 	}, []);
 

@@ -1,5 +1,6 @@
 import { formatDuration, smartArgs } from "./format.ts";
 import styles from "./ToolCall.module.css";
+import { getToolIcon } from "./tools/toolIcons.ts";
 import { getRenderer } from "./tools/ToolRendererRegistry.ts";
 
 interface ToolCallProps {
@@ -34,6 +35,7 @@ export function ToolCall({
 		}
 	}
 
+	const icon = getToolIcon(toolName);
 	const statusClass = success ? styles.success : styles.error;
 	const Renderer = getRenderer(toolName);
 
@@ -41,6 +43,7 @@ export function ToolCall({
 		<details className={styles.toolCall} data-status={success ? "success" : "error"}>
 			<summary className={styles.summary}>
 				<span className={styles.indicator}>&#x25B8;</span>
+				{icon && <span className={styles.toolIcon} data-testid="tool-icon">{icon}</span>}
 				<span className={styles.toolName}>{toolName}</span>
 				{argStr && <span className={styles.args}>{argStr}</span>}
 				<span className={statusClass}>
