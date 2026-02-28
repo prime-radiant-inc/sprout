@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { parse } from "yaml";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 
 export interface BootstrapManifestEntry {
 	hash: string;
@@ -41,41 +40,18 @@ export async function saveManifest(path: string, manifest: BootstrapManifest): P
 }
 
 /**
- * Build a manifest from pre-loaded agent specs and the bootstrap directory.
- * Uses specs for name/version (single source of truth with loadBootstrapAgents),
- * reads raw files only for content hashing.
- *
- * Scans all YAML files in bootstrapDir and matches by parsed `name` field,
- * so filenames don't need to match spec names.
+ * Build a manifest from pre-loaded agent specs and their raw YAML content.
+ * The rawContentByName map (agent name → raw file content) is used for content hashing;
+ * specs provide name/version as the single source of truth.
  */
-export async function buildManifestFromSpecs(
+export function buildManifestFromSpecs(
 	specs: ReadonlyArray<{ name: string; version: number; capabilities?: string[] }>,
-	bootstrapDir: string,
-): Promise<BootstrapManifest> {
-	// Build a map of agent name → raw file content by scanning all YAML files
-	const fileContentByName = new Map<string, string>();
-	try {
-		const files = await readdir(bootstrapDir);
-		for (const file of files) {
-			if (!file.endsWith(".yaml") && !file.endsWith(".yml")) continue;
-			try {
-				const content = await readFile(join(bootstrapDir, file), "utf-8");
-				const parsed = parse(content);
-				if (typeof parsed?.name === "string") {
-					fileContentByName.set(parsed.name, content);
-				}
-			} catch {
-				// Skip unparseable files
-			}
-		}
-	} catch {
-		// Directory might not exist
-	}
-
+	rawContentByName: ReadonlyMap<string, string>,
+): BootstrapManifest {
 	const agents: Record<string, BootstrapManifestEntry> = {};
 	let rootCapabilities: string[] | undefined;
 	for (const spec of specs) {
-		const content = fileContentByName.get(spec.name);
+		const content = rawContentByName.get(spec.name);
 		if (!content) continue;
 		agents[spec.name] = {
 			hash: hashFileContent(content),

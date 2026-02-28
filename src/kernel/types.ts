@@ -1,3 +1,38 @@
+/** Built-in primitive tool names that agents cannot shadow. */
+export const KERNEL_PRIMITIVE_NAMES = new Set([
+	"read_file",
+	"write_file",
+	"edit_file",
+	"apply_patch",
+	"exec",
+	"grep",
+	"glob",
+	"fetch",
+]);
+
+/** Core loop phases and the learn process itself — reserved by the kernel. */
+export const KERNEL_RESERVED_NAMES = new Set([
+	"learn",
+	"kernel",
+	"perceive",
+	"recall",
+	"plan",
+	"act",
+	"verify",
+]);
+
+/** Throws if the given name collides with a kernel primitive or reserved name. */
+export function validateAgentName(name: string): void {
+	if (KERNEL_PRIMITIVE_NAMES.has(name)) {
+		throw new Error(
+			`Cannot create agent '${name}': name is a kernel primitive and cannot be shadowed`,
+		);
+	}
+	if (KERNEL_RESERVED_NAMES.has(name)) {
+		throw new Error(`Cannot create agent '${name}': name is reserved by the kernel`);
+	}
+}
+
 /** Constraints governing agent behavior */
 export interface AgentConstraints {
 	max_turns: number;

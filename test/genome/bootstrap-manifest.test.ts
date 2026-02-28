@@ -89,8 +89,6 @@ describe("bootstrap-manifest", () => {
 	});
 
 	describe("buildManifestFromSpecs", () => {
-		let bootstrapDir: string;
-
 		const readerYaml = "name: reader\nversion: 2\ndescription: reads files\n";
 		const editorYaml = "name: editor\nversion: 1\ndescription: edits files\n";
 
@@ -99,18 +97,13 @@ describe("bootstrap-manifest", () => {
 			{ name: "editor", version: 1 },
 		];
 
-		beforeAll(async () => {
-			bootstrapDir = await mkdtemp(join(tmpdir(), "sprout-bootstrap-"));
-			await writeFile(join(bootstrapDir, "reader.yaml"), readerYaml);
-			await writeFile(join(bootstrapDir, "editor.yaml"), editorYaml);
-		});
+		const rawContent = new Map([
+			["reader", readerYaml],
+			["editor", editorYaml],
+		]);
 
-		afterAll(async () => {
-			await rm(bootstrapDir, { recursive: true });
-		});
-
-		test("creates manifest from specs and bootstrap directory", async () => {
-			const manifest = await buildManifestFromSpecs(specs, bootstrapDir);
+		test("creates manifest from specs and raw content", () => {
+			const manifest = buildManifestFromSpecs(specs, rawContent);
 
 			expect(Object.keys(manifest.agents)).toHaveLength(2);
 			expect(manifest.agents.reader).toBeDefined();
@@ -118,16 +111,16 @@ describe("bootstrap-manifest", () => {
 			expect(manifest.synced_at).not.toBe("");
 		});
 
-		test("skips specs whose YAML file is missing", async () => {
+		test("skips specs whose raw content is missing", () => {
 			const extendedSpecs = [...specs, { name: "ghost", version: 1 }];
-			const manifest = await buildManifestFromSpecs(extendedSpecs, bootstrapDir);
+			const manifest = buildManifestFromSpecs(extendedSpecs, rawContent);
 
 			expect(Object.keys(manifest.agents)).toHaveLength(2);
 			expect(manifest.agents.ghost).toBeUndefined();
 		});
 
-		test("captures version and hash for each agent", async () => {
-			const manifest = await buildManifestFromSpecs(specs, bootstrapDir);
+		test("captures version and hash for each agent", () => {
+			const manifest = buildManifestFromSpecs(specs, rawContent);
 
 			expect(manifest.agents.reader!.version).toBe(2);
 			expect(manifest.agents.reader!.hash).toBe(hashFileContent(readerYaml));
@@ -136,38 +129,30 @@ describe("bootstrap-manifest", () => {
 			expect(manifest.agents.editor!.hash).toBe(hashFileContent(editorYaml));
 		});
 
-		test("captures rootCapabilities when root spec has capabilities", async () => {
-			const rootDir = await mkdtemp(join(tmpdir(), "sprout-root-caps-"));
-			const rootYaml =
-				"name: root\nversion: 1\ndescription: root agent\nmodel: best\nsystem_prompt: hi\ncapabilities:\n  - reader\n  - editor\n";
-			await writeFile(join(rootDir, "root.yaml"), rootYaml);
-
+		test("captures rootCapabilities when root spec has capabilities", () => {
+			const rootYaml = "name: root\nversion: 1\ndescription: root agent\n";
+			const rootContent = new Map([["root", rootYaml]]);
 			const rootSpecs = [{ name: "root", version: 1, capabilities: ["reader", "editor"] }];
-			const manifest = await buildManifestFromSpecs(rootSpecs, rootDir);
+			const manifest = buildManifestFromSpecs(rootSpecs, rootContent);
 
 			expect(manifest.rootCapabilities).toEqual(["reader", "editor"]);
-			await rm(rootDir, { recursive: true });
 		});
 
-		test("rootCapabilities is undefined when no root spec present", async () => {
-			const manifest = await buildManifestFromSpecs(specs, bootstrapDir);
+		test("rootCapabilities is undefined when no root spec present", () => {
+			const manifest = buildManifestFromSpecs(specs, rawContent);
 			expect(manifest.rootCapabilities).toBeUndefined();
 		});
 
-		test("matches spec by parsed name field, not filename", async () => {
-			const mismatchDir = await mkdtemp(join(tmpdir(), "sprout-mismatch-"));
-			// File is named "my-agent.yaml" but contains name: "custom-name"
-			const yamlContent =
-				"name: custom-name\nversion: 3\ndescription: mismatched\nmodel: fast\nsystem_prompt: test\n";
-			await writeFile(join(mismatchDir, "my-agent.yaml"), yamlContent);
-
-			const mismatchSpecs = [{ name: "custom-name", version: 3 }];
-			const manifest = await buildManifestFromSpecs(mismatchSpecs, mismatchDir);
+		test("handles spec name not matching raw content key", () => {
+			const customContent = new Map([["custom-name", "name: custom-name\nversion: 3\n"]]);
+			const customSpecs = [{ name: "custom-name", version: 3 }];
+			const manifest = buildManifestFromSpecs(customSpecs, customContent);
 
 			expect(manifest.agents["custom-name"]).toBeDefined();
 			expect(manifest.agents["custom-name"]!.version).toBe(3);
-			expect(manifest.agents["custom-name"]!.hash).toBe(hashFileContent(yamlContent));
-			await rm(mismatchDir, { recursive: true });
+			expect(manifest.agents["custom-name"]!.hash).toBe(
+				hashFileContent("name: custom-name\nversion: 3\n"),
+			);
 		});
 	});
 });

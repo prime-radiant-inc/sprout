@@ -620,6 +620,10 @@ describe("Genome", () => {
 			expect(second.added).toEqual([]);
 			expect(second.updated).toEqual([]);
 			expect(second.conflicts).toEqual([]);
+
+			// Working tree must be clean (no dirty manifest from timestamp churn)
+			const status = await git(root, "status", "--porcelain");
+			expect(status).toBe("");
 		});
 
 		test("updates genome agent when bootstrap changed but genome did not evolve", async () => {

@@ -78,10 +78,7 @@ export async function exportLearnings(
  * Write evolved and genome-only agent specs as YAML to a staging directory.
  * Creates the directory if it doesn't exist.
  */
-export async function stageLearnings(
-	result: ExportResult,
-	stagingDir: string,
-): Promise<string[]> {
+export async function stageLearnings(result: ExportResult, stagingDir: string): Promise<string[]> {
 	await mkdir(stagingDir, { recursive: true });
 
 	const written: string[] = [];

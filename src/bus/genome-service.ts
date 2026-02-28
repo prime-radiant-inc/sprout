@@ -1,42 +1,8 @@
 import type { Genome } from "../genome/genome.ts";
-import { DEFAULT_CONSTRAINTS } from "../kernel/types.ts";
+import { DEFAULT_CONSTRAINTS, validateAgentName } from "../kernel/types.ts";
 import type { LearnMutation } from "../learn/learn-process.ts";
 import type { BusClient } from "./client.ts";
 import { genomeEvents, genomeMutations } from "./topics.ts";
-
-/** Tool primitives that form the kernel's interface -- cannot be shadowed by Learn. */
-const KERNEL_PRIMITIVE_NAMES = new Set([
-	"read_file",
-	"write_file",
-	"edit_file",
-	"apply_patch",
-	"exec",
-	"grep",
-	"glob",
-	"fetch",
-]);
-
-/** Core loop phases and the learn process itself -- reserved by the kernel. */
-const KERNEL_RESERVED_NAMES = new Set([
-	"learn",
-	"kernel",
-	"perceive",
-	"recall",
-	"plan",
-	"act",
-	"verify",
-]);
-
-function validateAgentName(name: string): void {
-	if (KERNEL_PRIMITIVE_NAMES.has(name)) {
-		throw new Error(
-			`Cannot create agent '${name}': name is a kernel primitive and cannot be shadowed`,
-		);
-	}
-	if (KERNEL_RESERVED_NAMES.has(name)) {
-		throw new Error(`Cannot create agent '${name}': name is reserved by the kernel`);
-	}
-}
 
 /** A request to mutate the genome, published on the mutations topic. */
 export interface MutationRequest {

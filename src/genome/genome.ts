@@ -1,7 +1,7 @@
 import { chmod, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse, stringify } from "yaml";
-import { loadAgentSpec, loadBootstrapAgents } from "../agents/loader.ts";
+import { loadAgentSpec, loadBootstrapAgents, readBootstrapDir } from "../agents/loader.ts";
 import type { AgentSpec, Memory, RoutingRule } from "../kernel/types.ts";
 import { buildManifestFromSpecs, loadManifest, saveManifest } from "./bootstrap-manifest.ts";
 import { MemoryStore } from "./memory-store.ts";
@@ -319,8 +319,8 @@ export class Genome {
 	async syncBootstrap(bootstrapDir: string): Promise<SyncBootstrapResult> {
 		const manifestPath = join(this.rootPath, "bootstrap-manifest.json");
 		const oldManifest = await loadManifest(manifestPath);
-		const specs = await loadBootstrapAgents(bootstrapDir);
-		const newManifest = await buildManifestFromSpecs(specs, bootstrapDir);
+		const { specs, rawContentByName } = await readBootstrapDir(bootstrapDir);
+		const newManifest = buildManifestFromSpecs(specs, rawContentByName);
 
 		const added: string[] = [];
 		const updated: string[] = [];
@@ -410,6 +410,7 @@ export class Genome {
 
 		const newBootstrapCaps = new Set(bootstrapRoot.capabilities);
 		const oldBootstrapCaps = new Set(oldBootstrapRootCaps);
+		const genomeCaps = new Set(genomeRoot.capabilities);
 
 		// Compute the reconciled capabilities:
 		// - Keep genome capabilities that are still in bootstrap OR were never in bootstrap
@@ -417,7 +418,7 @@ export class Genome {
 		const kept = genomeRoot.capabilities.filter(
 			(c) => newBootstrapCaps.has(c) || !oldBootstrapCaps.has(c),
 		);
-		const toAdd = bootstrapRoot.capabilities.filter((c) => !genomeRoot.capabilities.includes(c));
+		const toAdd = bootstrapRoot.capabilities.filter((c) => !genomeCaps.has(c));
 		const merged = [...kept, ...toAdd];
 
 		// Check if anything actually changed
