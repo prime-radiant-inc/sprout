@@ -103,8 +103,26 @@ export function App() {
 		return () => document.removeEventListener("keydown", handleKeyDown);
 	}, []);
 
-	// Theme detection: follow OS dark/light preference
+	// Theme: localStorage override or OS preference
+	const [themeOverride, setThemeOverride] = useState<"light" | "dark" | null>(() => {
+		const stored = localStorage.getItem("sprout-theme");
+		return stored === "light" || stored === "dark" ? stored : null;
+	});
+
+	const toggleTheme = useCallback(() => {
+		setThemeOverride((prev) => {
+			const current = prev ?? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+			const next = current === "dark" ? "light" : "dark";
+			localStorage.setItem("sprout-theme", next);
+			return next;
+		});
+	}, []);
+
 	useEffect(() => {
+		if (themeOverride) {
+			document.documentElement.setAttribute("data-theme", themeOverride);
+			return;
+		}
 		const mq = window.matchMedia("(prefers-color-scheme: dark)");
 		const update = (e: MediaQueryListEvent | MediaQueryList) => {
 			document.documentElement.setAttribute("data-theme", e.matches ? "dark" : "light");
@@ -112,7 +130,9 @@ export function App() {
 		update(mq);
 		mq.addEventListener("change", update);
 		return () => mq.removeEventListener("change", update);
-	}, []);
+	}, [themeOverride]);
+
+	const currentTheme = themeOverride ?? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
 
 	const toggleSidebar = useCallback(() => {
 		setSidebarOpen((prev) => !prev);
@@ -189,6 +209,8 @@ export function App() {
 				connected={connected}
 				onInterrupt={handleInterrupt}
 				onSwitchModel={handleSwitchModel}
+				onToggleTheme={toggleTheme}
+				theme={currentTheme}
 			/>
 
 			<div

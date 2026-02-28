@@ -8,6 +8,8 @@ export interface StatusBarProps {
 	connected: boolean;
 	onInterrupt?: () => void;
 	onSwitchModel?: (model: string) => void;
+	onToggleTheme?: () => void;
+	theme?: string;
 }
 
 /** Determine context pressure bar color based on usage percentage. */
@@ -39,7 +41,7 @@ function useElapsedTime(startedAt: number | null): string | null {
 }
 
 /** Top status bar with session info, context pressure, model, and controls. */
-export function StatusBar({ status, connected, onInterrupt, onSwitchModel }: StatusBarProps) {
+export function StatusBar({ status, connected, onInterrupt, onSwitchModel, onToggleTheme, theme }: StatusBarProps) {
 	const {
 		contextTokens,
 		contextWindowSize,
@@ -149,6 +151,19 @@ export function StatusBar({ status, connected, onInterrupt, onSwitchModel }: Sta
 					title="Interrupt (Esc)"
 				>
 					Stop
+				</button>
+			)}
+
+			{/* Theme toggle */}
+			{onToggleTheme && (
+				<button
+					type="button"
+					className={styles.themeToggle}
+					data-action="toggle-theme"
+					onClick={onToggleTheme}
+					title={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+				>
+					{theme === "dark" ? "\u2600" : "\u263E"}
 				</button>
 			)}
 

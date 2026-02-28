@@ -156,6 +156,22 @@
 	color: white;
 }
 
+/* Theme toggle */
+.themeToggle {
+	all: unset;
+	cursor: pointer;
+	font-size: var(--font-size-sm);
+	padding: var(--space-xs);
+	border-radius: var(--radius-xs);
+	color: var(--color-text-tertiary);
+	transition: all var(--transition-fast);
+}
+
+.themeToggle:hover {
+	color: var(--color-text-primary);
+	background: var(--color-inset);
+}
+
 /* Session ID */
 .sessionId {
 	color: var(--color-text-placeholder);

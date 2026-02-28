@@ -223,6 +223,13 @@ describe("StatusBar", () => {
 		// 65 seconds = "1:05"
 		expect(html).toContain("1:05");
 	});
+
+	test("renders theme toggle button", () => {
+		const html = renderToStaticMarkup(
+			<StatusBar status={makeStatus()} connected={true} onToggleTheme={() => {}} theme="dark" />,
+		);
+		expect(html).toContain('data-action="toggle-theme"');
+	});
 });
 
 // --- InputArea ---
