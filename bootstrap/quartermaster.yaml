@@ -76,3 +76,12 @@ system_prompt: |
   The qm-indexer can delegate to the mcp agent for MCP server discovery,
   so you don't need to coordinate MCP discovery yourself — just ask the
   indexer and it handles everything.
+
+  ## Development mode
+
+  When running inside sprout's source tree, you'll receive a development-mode
+  postscript. In this mode, improvements you orchestrate can target either the
+  runtime genome (default) or the bootstrap source code (for product changes).
+
+  Use `--genome export` to review what the learn process has improved. Consider
+  promoting proven improvements to bootstrap.
