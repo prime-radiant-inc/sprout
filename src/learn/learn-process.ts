@@ -8,7 +8,7 @@ import {
 } from "../agents/model-resolver.ts";
 import type { Genome } from "../genome/genome.ts";
 import type { LearnSignal } from "../kernel/types.ts";
-import { DEFAULT_CONSTRAINTS } from "../kernel/types.ts";
+import { DEFAULT_CONSTRAINTS, validateAgentName } from "../kernel/types.ts";
 import type { Client } from "../llm/client.ts";
 import { Msg, messageText } from "../llm/types.ts";
 import type { MetricsStore } from "./metrics-store.ts";
@@ -21,40 +21,6 @@ import { shouldLearn } from "./should-learn.ts";
 export interface LearnSink {
 	push(signal: LearnSignal): void;
 	recordAction(agentName: string): void;
-}
-
-/** Tool primitives that form the kernel's interface — cannot be shadowed by Learn. */
-const KERNEL_PRIMITIVE_NAMES = new Set([
-	"read_file",
-	"write_file",
-	"edit_file",
-	"apply_patch",
-	"exec",
-	"grep",
-	"glob",
-	"fetch",
-]);
-
-/** Core loop phases and the learn process itself — reserved by the kernel. */
-const KERNEL_RESERVED_NAMES = new Set([
-	"learn",
-	"kernel",
-	"perceive",
-	"recall",
-	"plan",
-	"act",
-	"verify",
-]);
-
-function validateAgentName(name: string): void {
-	if (KERNEL_PRIMITIVE_NAMES.has(name)) {
-		throw new Error(
-			`Cannot create agent '${name}': name is a kernel primitive and cannot be shadowed`,
-		);
-	}
-	if (KERNEL_RESERVED_NAMES.has(name)) {
-		throw new Error(`Cannot create agent '${name}': name is reserved by the kernel`);
-	}
 }
 
 export type LearnMutation =

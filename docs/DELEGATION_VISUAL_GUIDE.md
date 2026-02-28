@@ -304,14 +304,17 @@ Session Start
         │  │
         │  ├─ genome.syncBootstrap(bootstrapDir)
         │  │  │
-        │  │  ├─ loadBootstrapAgents(bootstrapDir)
+        │  │  ├─ readBootstrapDir + buildManifest
         │  │  │
-        │  │  ├─ For each spec in bootstrap:
-        │  │  │  ├─ this.agents.has(spec.name)?
-        │  │  │  ├─ NO: Write to genome/agents/ and add to map
-        │  │  │  └─ YES: Skip (don't overwrite learned agents)
+        │  │  ├─ 4-way compare (old manifest, new manifest, genome, bootstrap):
+        │  │  │  ├─ New agent → add to genome
+        │  │  │  ├─ Bootstrap changed, genome unchanged → update
+        │  │  │  ├─ Both changed → conflict (genome preserved)
+        │  │  │  └─ Unchanged → skip
         │  │  │
-        │  │  └─ git commit "genome: sync bootstrap agents"
+        │  │  ├─ Reconcile root capabilities (3-way merge)
+        │  │  │
+        │  │  └─ git commit (if changes)
         │  │
         │  └─ genome.agents Map populated with all agents
         │

@@ -313,42 +313,38 @@ When a new bootstrap agent is added:
 // File: src/agents/factory.ts, lines 55-62
 if (isExisting) {
   await genome.loadFromDisk();
-  // Sync any new bootstrap agents that were added since the genome was initialized
+  // Sync bootstrap agents using manifest-aware 4-way comparison
   if (options.bootstrapDir) {
-    const added = await genome.syncBootstrap(options.bootstrapDir);
-    if (added.length > 0) {
-      console.error(`Synced new bootstrap agents: ${added.join(", ")}`);
+    const result = await genome.syncBootstrap(options.bootstrapDir);
+    if (result.added.length > 0) {
+      console.error(`Synced new bootstrap agents: ${result.added.join(", ")}`);
+    }
+    if (result.updated.length > 0) {
+      console.error(`Updated bootstrap agents: ${result.updated.join(", ")}`);
+    }
+    if (result.conflicts.length > 0) {
+      console.error(`Bootstrap sync conflicts (genome preserved): ${result.conflicts.join(", ")}`);
     }
   }
 }
 ```
 
-The `syncBootstrap` method:
+The `syncBootstrap` method returns `{ added, updated, conflicts }` using a manifest-aware
+4-way comparison (old manifest, new manifest, genome state, bootstrap state):
 ```typescript
-// File: src/genome/genome.ts, lines 304-327
-async syncBootstrap(bootstrapDir: string): Promise<string[]> {
-  const specs = await loadBootstrapAgents(bootstrapDir);
-  const added: string[] = [];
-
-  for (const spec of specs) {
-    if (this.agents.has(spec.name)) continue;  // Skip existing agents
-
-    const yamlPath = join(this.rootPath, "agents", `${spec.name}.yaml`);
-    await writeFile(yamlPath, serializeAgentSpec(spec));
-    this.agents.set(spec.name, spec);
-    added.push(spec.name);
-  }
-
-  if (added.length > 0) {
-    await git(this.rootPath, "add", ".");
-    await git(this.rootPath, "commit", "-m", `genome: sync bootstrap agents (${added.join(", ")})`);
-  }
-
-  return added;
+// File: src/genome/genome.ts
+async syncBootstrap(bootstrapDir: string): Promise<SyncBootstrapResult> {
+  // Reads bootstrap files once, builds manifest from content hashes,
+  // compares against old manifest and genome to determine:
+  // - Case 1: New agent (not in genome) → add
+  // - Case 2: Pre-manifest genome agent → skip (treat as evolved)
+  // - Case 3: Bootstrap unchanged → skip
+  // - Case 4: Bootstrap changed, genome unchanged → update
+  // - Case 5: Both changed → conflict (genome preserved)
 }
 ```
 
-**Key Insight:** New bootstrap agents are only added if they don't already exist in the genome. Learned/evolved agents are never overwritten.
+**Key Insight:** Evolved genome agents are never overwritten. Conflicts are reported but the genome version is preserved. Root capabilities are reconciled via 3-way merge.
 
 ---
 

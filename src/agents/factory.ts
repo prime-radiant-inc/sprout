@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentSpawner } from "../bus/spawner.ts";
+import { DEV_MODE_POSTSCRIPT, DEV_MODE_SENTINEL, isDevMode } from "../genome/dev-mode.ts";
 import { Genome } from "../genome/genome.ts";
 import { LocalExecutionEnvironment } from "../kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../kernel/primitives.ts";
@@ -64,11 +65,19 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 
 		if (isExisting) {
 			await genome.loadFromDisk();
-			// Sync any new bootstrap agents that were added since the genome was initialized
+			// Sync bootstrap agents using manifest-aware comparison
 			if (options.bootstrapDir) {
-				const added = await genome.syncBootstrap(options.bootstrapDir);
-				if (added.length > 0) {
-					console.error(`Synced new bootstrap agents: ${added.join(", ")}`);
+				const result = await genome.syncBootstrap(options.bootstrapDir);
+				if (result.added.length > 0) {
+					console.error(`Synced new bootstrap agents: ${result.added.join(", ")}`);
+				}
+				if (result.updated.length > 0) {
+					console.error(`Updated bootstrap agents: ${result.updated.join(", ")}`);
+				}
+				if (result.conflicts.length > 0) {
+					console.error(
+						`Bootstrap sync conflicts (genome preserved): ${result.conflicts.join(", ")}`,
+					);
 				}
 			}
 		} else {
@@ -76,6 +85,14 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 			if (options.bootstrapDir) {
 				await genome.initFromBootstrap(options.bootstrapDir);
 			}
+		}
+	}
+
+	// Inject development mode postscript if running inside sprout's source tree
+	if (options.workDir && (await isDevMode(options.workDir))) {
+		const existingPostscript = await genome.loadAgentPostscript("quartermaster");
+		if (!existingPostscript.includes(DEV_MODE_SENTINEL)) {
+			await genome.savePostscript("agents/quartermaster.md", DEV_MODE_POSTSCRIPT);
 		}
 	}
 

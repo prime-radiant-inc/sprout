@@ -2,23 +2,11 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parse } from "yaml";
+import { parse, stringify } from "yaml";
+import { loadManifest } from "../../src/genome/bootstrap-manifest.ts";
 import { Genome, git } from "../../src/genome/genome.ts";
 import type { AgentSpec, Memory, RoutingRule } from "../../src/kernel/types.ts";
-import { DEFAULT_CONSTRAINTS } from "../../src/kernel/types.ts";
-
-function makeSpec(overrides: Partial<AgentSpec> = {}): AgentSpec {
-	return {
-		name: overrides.name ?? "test-agent",
-		description: overrides.description ?? "A test agent",
-		system_prompt: overrides.system_prompt ?? "You are a test agent.",
-		model: overrides.model ?? "fast",
-		capabilities: overrides.capabilities ?? ["read_file"],
-		constraints: overrides.constraints ?? { ...DEFAULT_CONSTRAINTS },
-		tags: overrides.tags ?? ["test"],
-		version: overrides.version ?? 1,
-	};
-}
+import { makeSpec } from "../helpers/make-spec.ts";
 
 function makeMemory(overrides: Partial<Memory> = {}): Memory {
 	return {
@@ -337,7 +325,12 @@ describe("Genome", () => {
 			const bootstrapDir = join(import.meta.dir, "../../bootstrap");
 			await genome.initFromBootstrap(bootstrapDir);
 
-			expect(genome.agentCount()).toBe(19);
+			// Count expected agents from bootstrap YAML files
+			const bootstrapFiles = (await readdir(bootstrapDir)).filter(
+				(f) => f.endsWith(".yaml") || f.endsWith(".yml"),
+			);
+			expect(genome.agentCount()).toBe(bootstrapFiles.length);
+
 			expect(genome.getAgent("root")).toBeDefined();
 			expect(genome.getAgent("reader")).toBeDefined();
 			expect(genome.getAgent("editor")).toBeDefined();
@@ -355,7 +348,7 @@ describe("Genome", () => {
 
 			// Verify files exist on disk
 			const files = await readdir(join(root, "agents"));
-			expect(files).toHaveLength(19);
+			expect(files).toHaveLength(bootstrapFiles.length);
 		});
 
 		test("initFromBootstrap throws if agents already exist", async () => {
@@ -567,6 +560,370 @@ describe("Genome", () => {
 
 			const content = await readFile(join(root, "postscripts", "agents", "editor.md"), "utf-8");
 			expect(content).toBe("editor-specific rules");
+		});
+	});
+
+	describe("syncBootstrap (manifest-aware)", () => {
+		/** Write a minimal valid bootstrap YAML file. */
+		function writeBootstrapYaml(
+			dir: string,
+			name: string,
+			overrides: Partial<AgentSpec> = {},
+		): Promise<void> {
+			const spec = makeSpec({ name, ...overrides });
+			return writeFile(join(dir, `${name}.yaml`), stringify(spec));
+		}
+
+		test("adds new bootstrap agents and records manifest", async () => {
+			const root = join(tempDir, "sync-manifest-add");
+			const genome = new Genome(root);
+			await genome.init();
+
+			const bootstrapDir = join(tempDir, "sync-manifest-add-bs");
+			await mkdir(bootstrapDir, { recursive: true });
+			await writeBootstrapYaml(bootstrapDir, "alpha", { description: "Alpha agent" });
+			await writeBootstrapYaml(bootstrapDir, "beta", { description: "Beta agent" });
+
+			const result = await genome.syncBootstrap(bootstrapDir);
+
+			expect(result.added).toContain("alpha");
+			expect(result.added).toContain("beta");
+			expect(result.updated).toEqual([]);
+			expect(result.conflicts).toEqual([]);
+
+			// Agents exist in genome
+			expect(genome.getAgent("alpha")).toBeDefined();
+			expect(genome.getAgent("beta")).toBeDefined();
+
+			// Manifest was saved
+			const manifest = await loadManifest(join(root, "bootstrap-manifest.json"));
+			expect(manifest.agents.alpha).toBeDefined();
+			expect(manifest.agents.beta).toBeDefined();
+			expect(manifest.synced_at).not.toBe("");
+		});
+
+		test("skips agents unchanged in both bootstrap and genome", async () => {
+			const root = join(tempDir, "sync-manifest-noop");
+			const genome = new Genome(root);
+			await genome.init();
+
+			const bootstrapDir = join(tempDir, "sync-manifest-noop-bs");
+			await mkdir(bootstrapDir, { recursive: true });
+			await writeBootstrapYaml(bootstrapDir, "stable");
+
+			// First sync — adds the agent
+			const first = await genome.syncBootstrap(bootstrapDir);
+			expect(first.added).toEqual(["stable"]);
+
+			// Second sync — nothing should change
+			const second = await genome.syncBootstrap(bootstrapDir);
+			expect(second.added).toEqual([]);
+			expect(second.updated).toEqual([]);
+			expect(second.conflicts).toEqual([]);
+
+			// Working tree must be clean (no dirty manifest from timestamp churn)
+			const status = await git(root, "status", "--porcelain");
+			expect(status).toBe("");
+		});
+
+		test("updates genome agent when bootstrap changed but genome did not evolve", async () => {
+			const root = join(tempDir, "sync-manifest-update");
+			const genome = new Genome(root);
+			await genome.init();
+
+			const bootstrapDir = join(tempDir, "sync-manifest-update-bs");
+			await mkdir(bootstrapDir, { recursive: true });
+			await writeBootstrapYaml(bootstrapDir, "updatable", {
+				description: "Original description",
+			});
+
+			// First sync
+			await genome.syncBootstrap(bootstrapDir);
+			expect(genome.getAgent("updatable")!.description).toBe("Original description");
+
+			// Change bootstrap file
+			await writeBootstrapYaml(bootstrapDir, "updatable", {
+				description: "Updated description",
+			});
+
+			// Second sync — should update
+			const result = await genome.syncBootstrap(bootstrapDir);
+			expect(result.updated).toEqual(["updatable"]);
+			expect(result.added).toEqual([]);
+			expect(result.conflicts).toEqual([]);
+
+			// Verify genome was updated
+			expect(genome.getAgent("updatable")!.description).toBe("Updated description");
+		});
+
+		test("detects conflict when both bootstrap and genome evolved", async () => {
+			const root = join(tempDir, "sync-manifest-conflict");
+			const genome = new Genome(root);
+			await genome.init();
+
+			const bootstrapDir = join(tempDir, "sync-manifest-conflict-bs");
+			await mkdir(bootstrapDir, { recursive: true });
+			await writeBootstrapYaml(bootstrapDir, "contested", {
+				description: "Bootstrap original",
+			});
+
+			// First sync
+			await genome.syncBootstrap(bootstrapDir);
+			expect(genome.getAgent("contested")!.version).toBe(1);
+
+			// Evolve genome (this bumps version to 2)
+			await genome.updateAgent(makeSpec({ name: "contested", description: "Genome evolved" }));
+			expect(genome.getAgent("contested")!.version).toBe(2);
+
+			// Change bootstrap file
+			await writeBootstrapYaml(bootstrapDir, "contested", {
+				description: "Bootstrap also changed",
+			});
+
+			// Sync again — should detect conflict
+			const result = await genome.syncBootstrap(bootstrapDir);
+			expect(result.conflicts).toEqual(["contested"]);
+			expect(result.added).toEqual([]);
+			expect(result.updated).toEqual([]);
+
+			// Genome version is preserved (not overwritten)
+			expect(genome.getAgent("contested")!.description).toBe("Genome evolved");
+			expect(genome.getAgent("contested")!.version).toBe(2);
+		});
+
+		test("preserves genome evolution when bootstrap unchanged", async () => {
+			const root = join(tempDir, "sync-manifest-preserve");
+			const genome = new Genome(root);
+			await genome.init();
+
+			const bootstrapDir = join(tempDir, "sync-manifest-preserve-bs");
+			await mkdir(bootstrapDir, { recursive: true });
+			await writeBootstrapYaml(bootstrapDir, "evolved", {
+				description: "Bootstrap original",
+			});
+
+			// First sync
+			await genome.syncBootstrap(bootstrapDir);
+
+			// Evolve genome
+			await genome.updateAgent(
+				makeSpec({ name: "evolved", description: "Genome learned something" }),
+			);
+			expect(genome.getAgent("evolved")!.version).toBe(2);
+
+			// Sync again with unchanged bootstrap
+			const result = await genome.syncBootstrap(bootstrapDir);
+			expect(result.added).toEqual([]);
+			expect(result.updated).toEqual([]);
+			expect(result.conflicts).toEqual([]);
+
+			// Genome version is preserved
+			expect(genome.getAgent("evolved")!.description).toBe("Genome learned something");
+			expect(genome.getAgent("evolved")!.version).toBe(2);
+		});
+
+		test("merges new capabilities into root agent when bootstrap root references them", async () => {
+			const root = join(tempDir, "sync-cap-merge");
+			const genome = new Genome(root);
+			await genome.init();
+
+			const bootstrapDir = join(tempDir, "sync-cap-merge-bs");
+			await mkdir(bootstrapDir, { recursive: true });
+
+			// Bootstrap has root with 3 capabilities and the corresponding agents
+			await writeBootstrapYaml(bootstrapDir, "root", {
+				capabilities: ["reader", "editor", "debugger"],
+			});
+			await writeBootstrapYaml(bootstrapDir, "reader");
+			await writeBootstrapYaml(bootstrapDir, "editor");
+			await writeBootstrapYaml(bootstrapDir, "debugger");
+
+			// First sync — adds root, reader, editor, debugger
+			await genome.syncBootstrap(bootstrapDir);
+			expect(genome.getAgent("root")!.capabilities).toEqual(["reader", "editor", "debugger"]);
+
+			// Now update bootstrap root to add "verifier" capability, and add verifier.yaml
+			await writeBootstrapYaml(bootstrapDir, "root", {
+				capabilities: ["reader", "editor", "debugger", "verifier"],
+			});
+			await writeBootstrapYaml(bootstrapDir, "verifier");
+
+			// Sync again
+			await genome.syncBootstrap(bootstrapDir);
+
+			// Root's capabilities should now include verifier
+			const rootAgent = genome.getAgent("root")!;
+			expect(rootAgent.capabilities).toContain("reader");
+			expect(rootAgent.capabilities).toContain("editor");
+			expect(rootAgent.capabilities).toContain("debugger");
+			expect(rootAgent.capabilities).toContain("verifier");
+		});
+
+		test("merges bootstrap capabilities into evolved root without removing genome-only caps", async () => {
+			const root = join(tempDir, "sync-cap-merge-evolved");
+			const genome = new Genome(root);
+			await genome.init();
+
+			const bootstrapDir = join(tempDir, "sync-cap-merge-evolved-bs");
+			await mkdir(bootstrapDir, { recursive: true });
+
+			// Bootstrap starts with root listing just ["reader"]
+			await writeBootstrapYaml(bootstrapDir, "root", {
+				capabilities: ["reader"],
+			});
+			await writeBootstrapYaml(bootstrapDir, "reader");
+
+			// First sync — adds root and reader
+			await genome.syncBootstrap(bootstrapDir);
+			expect(genome.getAgent("root")!.capabilities).toEqual(["reader"]);
+
+			// Evolve genome root to add a custom capability
+			const evolvedRoot = genome.getAgent("root")!;
+			await genome.updateAgent({
+				...evolvedRoot,
+				capabilities: ["reader", "custom-agent"],
+				system_prompt: "Evolved system prompt",
+			});
+			expect(genome.getAgent("root")!.capabilities).toEqual(["reader", "custom-agent"]);
+			expect(genome.getAgent("root")!.system_prompt).toBe("Evolved system prompt");
+
+			// Update bootstrap root to add "debugger" and add debugger.yaml
+			await writeBootstrapYaml(bootstrapDir, "root", {
+				capabilities: ["reader", "debugger"],
+			});
+			await writeBootstrapYaml(bootstrapDir, "debugger");
+
+			// Sync again — root is a conflict (both sides changed), but capabilities should merge
+			const result = await genome.syncBootstrap(bootstrapDir);
+
+			// Root agent should have all three: reader (shared), custom-agent (genome-only), debugger (bootstrap-new)
+			const rootAgent = genome.getAgent("root")!;
+			expect(rootAgent.capabilities).toContain("reader");
+			expect(rootAgent.capabilities).toContain("custom-agent");
+			expect(rootAgent.capabilities).toContain("debugger");
+
+			// Genome's evolved system_prompt should be preserved (not overwritten by bootstrap)
+			expect(rootAgent.system_prompt).toBe("Evolved system prompt");
+
+			// Verify debugger was added as a new agent
+			expect(result.added).toContain("debugger");
+		});
+
+		test("removes capabilities from genome root that bootstrap explicitly dropped", async () => {
+			const root = join(tempDir, "sync-cap-remove");
+			const genome = new Genome(root);
+			await genome.init();
+
+			const bootstrapDir = join(tempDir, "sync-cap-remove-bs");
+			await mkdir(bootstrapDir, { recursive: true });
+
+			// Bootstrap starts with root listing ["reader", "editor", "debugger"]
+			await writeBootstrapYaml(bootstrapDir, "root", {
+				capabilities: ["reader", "editor", "debugger"],
+			});
+			await writeBootstrapYaml(bootstrapDir, "reader");
+			await writeBootstrapYaml(bootstrapDir, "editor");
+			await writeBootstrapYaml(bootstrapDir, "debugger");
+
+			// First sync — adds root, reader, editor, debugger
+			await genome.syncBootstrap(bootstrapDir);
+			expect(genome.getAgent("root")!.capabilities).toEqual(["reader", "editor", "debugger"]);
+
+			// Bootstrap drops "debugger" from root capabilities
+			await writeBootstrapYaml(bootstrapDir, "root", {
+				capabilities: ["reader", "editor"],
+			});
+
+			// Sync again
+			await genome.syncBootstrap(bootstrapDir);
+
+			// Root should no longer have "debugger"
+			const rootAgent = genome.getAgent("root")!;
+			expect(rootAgent.capabilities).toContain("reader");
+			expect(rootAgent.capabilities).toContain("editor");
+			expect(rootAgent.capabilities).not.toContain("debugger");
+		});
+
+		test("commit message includes both capabilities and conflict info", async () => {
+			const root = join(tempDir, "sync-commit-msg");
+			const genome = new Genome(root);
+			await genome.init();
+
+			const bootstrapDir = join(tempDir, "sync-commit-msg-bs");
+			await mkdir(bootstrapDir, { recursive: true });
+
+			// Bootstrap with root listing ["reader"] and an agent "alpha"
+			await writeBootstrapYaml(bootstrapDir, "root", { capabilities: ["reader"] });
+			await writeBootstrapYaml(bootstrapDir, "reader");
+			await writeBootstrapYaml(bootstrapDir, "alpha", { description: "Original alpha" });
+
+			// First sync
+			await genome.syncBootstrap(bootstrapDir);
+
+			// Evolve alpha in genome (creates conflict on next sync)
+			await genome.updateAgent(makeSpec({ name: "alpha", description: "Genome-evolved alpha" }));
+
+			// Bootstrap changes alpha AND adds "verifier" to root capabilities
+			await writeBootstrapYaml(bootstrapDir, "root", {
+				capabilities: ["reader", "verifier"],
+			});
+			await writeBootstrapYaml(bootstrapDir, "alpha", {
+				description: "Bootstrap-updated alpha",
+			});
+			await writeBootstrapYaml(bootstrapDir, "verifier");
+
+			// Sync again — should have capsMerged + conflict on alpha
+			const result = await genome.syncBootstrap(bootstrapDir);
+			expect(result.conflicts).toContain("alpha");
+			expect(result.added).toContain("verifier");
+
+			// Check the git commit message mentions both
+			const log = await git(root, "log", "--oneline", "-1");
+			expect(log).toContain("alpha");
+		});
+
+		test("preserves genome-added capabilities when bootstrap drops its own", async () => {
+			const root = join(tempDir, "sync-cap-remove-preserve");
+			const genome = new Genome(root);
+			await genome.init();
+
+			const bootstrapDir = join(tempDir, "sync-cap-remove-preserve-bs");
+			await mkdir(bootstrapDir, { recursive: true });
+
+			// Bootstrap starts with root listing ["reader", "debugger"]
+			await writeBootstrapYaml(bootstrapDir, "root", {
+				capabilities: ["reader", "debugger"],
+			});
+			await writeBootstrapYaml(bootstrapDir, "reader");
+			await writeBootstrapYaml(bootstrapDir, "debugger");
+
+			// First sync
+			await genome.syncBootstrap(bootstrapDir);
+
+			// Genome evolves root to add "custom-agent"
+			const evolvedRoot = genome.getAgent("root")!;
+			await genome.updateAgent({
+				...evolvedRoot,
+				capabilities: ["reader", "debugger", "custom-agent"],
+				system_prompt: "Evolved root",
+			});
+
+			// Bootstrap drops "debugger" and adds "editor"
+			await writeBootstrapYaml(bootstrapDir, "root", {
+				capabilities: ["reader", "editor"],
+			});
+			await writeBootstrapYaml(bootstrapDir, "editor");
+
+			// Sync again
+			await genome.syncBootstrap(bootstrapDir);
+
+			// Root should have: reader (kept), editor (added by bootstrap), custom-agent (genome-only)
+			// But NOT debugger (dropped by bootstrap)
+			const rootAgent = genome.getAgent("root")!;
+			expect(rootAgent.capabilities).toContain("reader");
+			expect(rootAgent.capabilities).toContain("editor");
+			expect(rootAgent.capabilities).toContain("custom-agent");
+			expect(rootAgent.capabilities).not.toContain("debugger");
 		});
 	});
 });

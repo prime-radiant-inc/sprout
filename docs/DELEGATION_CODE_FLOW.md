@@ -23,9 +23,9 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
     
     // Step 3b: Sync new bootstrap agents (if any added since initialization)
     if (options.bootstrapDir) {
-      const added = await genome.syncBootstrap(options.bootstrapDir);
-      if (added.length > 0) {
-        console.error(`Synced new bootstrap agents: ${added.join(", ")}`);
+      const result = await genome.syncBootstrap(options.bootstrapDir);
+      if (result.added.length > 0) {
+        console.error(`Synced new bootstrap agents: ${result.added.join(", ")}`);
       }
     }
   } else {

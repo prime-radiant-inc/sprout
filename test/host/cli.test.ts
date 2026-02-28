@@ -367,6 +367,22 @@ describe("parseArgs", () => {
 			genomePath: defaultGenomePath,
 		});
 	});
+
+	test("--genome export returns genome-export command", () => {
+		const result = parseArgs(["--genome", "export"]);
+		expect(result).toEqual({
+			kind: "genome-export",
+			genomePath: defaultGenomePath,
+		});
+	});
+
+	test("--genome-path /custom --genome export uses custom genome path", () => {
+		const result = parseArgs(["--genome-path", "/custom", "--genome", "export"]);
+		expect(result).toEqual({
+			kind: "genome-export",
+			genomePath: "/custom",
+		});
+	});
 });
 
 describe("handleSigint", () => {

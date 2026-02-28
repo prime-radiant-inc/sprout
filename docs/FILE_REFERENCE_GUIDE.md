@@ -193,31 +193,15 @@ async initFromBootstrap(bootstrapDir: string): Promise<void> {
 - 292: `this.agents.set(spec.name, spec)` - Store in memory
 - 295-296: Commit to git
 
-##### `syncBootstrap(bootstrapDir: string): Promise<string[]>` (lines 304-327)
-```typescript
-async syncBootstrap(bootstrapDir: string): Promise<string[]> {
-  const specs = await loadBootstrapAgents(bootstrapDir);
-  const added: string[] = [];
+##### `syncBootstrap(bootstrapDir: string): Promise<SyncBootstrapResult>`
+Manifest-aware 4-way comparison (old manifest, new manifest, genome, bootstrap).
+Returns `{ added, updated, conflicts }`. Adds new agents, updates genome agents
+when bootstrap changed but genome didn't evolve, and reports conflicts when both
+sides changed (genome version preserved). Also reconciles root capabilities via
+3-way merge.
 
-  for (const spec of specs) {
-    if (this.agents.has(spec.name)) continue;  // Don't overwrite existing
-
-    const yamlPath = join(this.rootPath, "agents", `${spec.name}.yaml`);
-    await writeFile(yamlPath, serializeAgentSpec(spec));
-    this.agents.set(spec.name, spec);
-    added.push(spec.name);
-  }
-
-  if (added.length > 0) {
-    await git(this.rootPath, "add", ".");
-    await git(this.rootPath, "commit", "-m", `genome: sync bootstrap agents (${added.join(", ")})`);
-  }
-
-  return added;
-}
-```
-**Usage:** Called in factory.ts line 59 to add new bootstrap agents to existing genome
-**Key insight line 309:** Skip agents that already exist - never overwrite learned agents
+**Usage:** Called in factory.ts to sync bootstrap agents on startup
+**Key insight:** Evolved genome agents are never overwritten — conflicts are reported but preserved
 
 ---
 

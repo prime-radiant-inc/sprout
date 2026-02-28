@@ -4,6 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { config } from "dotenv";
 import { createAgent } from "../../src/agents/factory.ts";
+import { DEV_MODE_SENTINEL, isDevMode } from "../../src/genome/dev-mode.ts";
 import { Genome } from "../../src/genome/genome.ts";
 
 config({ path: join(homedir(), "prime-radiant/serf/.env") });
@@ -121,5 +122,25 @@ describe("createAgent", () => {
 				rootAgent: "nonexistent",
 			}),
 		).rejects.toThrow(/not found/);
+	});
+
+	test("injects dev-mode postscript for quartermaster when workDir is sprout source", async () => {
+		const genomePath = join(tempDir, "dev-mode-test");
+		const bootstrapDir = join(import.meta.dir, "../../bootstrap");
+
+		// Use the actual sprout source dir as workDir — it will detect dev mode
+		const sproutRoot = join(import.meta.dir, "../..");
+		expect(await isDevMode(sproutRoot)).toBe(true);
+
+		const result = await createAgent({
+			genomePath,
+			bootstrapDir,
+			workDir: sproutRoot,
+		});
+
+		const qmPostscript = await result.genome.loadAgentPostscript("quartermaster");
+		expect(qmPostscript).toContain(DEV_MODE_SENTINEL);
+		expect(qmPostscript).toContain("Development Mode");
+		expect(qmPostscript).toContain("bootstrap");
 	});
 });

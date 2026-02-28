@@ -1,5 +1,5 @@
-import { appendFile, readFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { appendFile, mkdtemp, readFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BusClient } from "../bus/client.ts";
 import type { BusServer } from "../bus/server.ts";
@@ -99,6 +99,7 @@ export type CliCommand =
 	| { kind: "genome-list"; genomePath: string }
 	| { kind: "genome-log"; genomePath: string }
 	| { kind: "genome-rollback"; genomePath: string; commit: string }
+	| { kind: "genome-export"; genomePath: string }
 	| { kind: "help" };
 
 import { parseArgs as nodeParseArgs } from "node:util";
@@ -175,6 +176,7 @@ export function parseArgs(argv: string[]): CliCommand {
 			if (!commit) return { kind: "help" };
 			return { kind: "genome-rollback", genomePath, commit };
 		}
+		if (sub === "export") return { kind: "genome-export", genomePath };
 		return { kind: "help" };
 	}
 
@@ -283,6 +285,7 @@ Genome management:
   sprout --genome list                  List agents in the genome
   sprout --genome log                   Show genome git log
   sprout --genome rollback <commit>     Revert a genome commit
+  sprout --genome export                Show learnings that evolved beyond bootstrap
 
 Web interface:
   --web                  Start web server alongside TUI
@@ -615,6 +618,47 @@ export async function runCli(command: CliCommand): Promise<void> {
 		);
 		const exitCode = await proc.exited;
 		if (exitCode !== 0) process.exitCode = exitCode;
+		return;
+	}
+
+	if (command.kind === "genome-export") {
+		const { exportLearnings, stageLearnings } = await import("../genome/export-learnings.ts");
+		const bootstrapDir = join(import.meta.dir, "../../bootstrap");
+
+		let result: Awaited<ReturnType<typeof exportLearnings>>;
+		try {
+			result = await exportLearnings(command.genomePath, bootstrapDir);
+		} catch (err) {
+			console.error(
+				`Failed to load genome at ${command.genomePath}: ${err instanceof Error ? err.message : err}`,
+			);
+			process.exitCode = 1;
+			return;
+		}
+
+		if (result.evolved.length === 0 && result.genomeOnly.length === 0) {
+			console.log("No learnings to export. Genome matches bootstrap.");
+			return;
+		}
+
+		if (result.evolved.length > 0) {
+			console.log("\nEvolved agents (genome improved beyond bootstrap):");
+			for (const agent of result.evolved) {
+				console.log(`  ${agent.name}: v${agent.bootstrapVersion} → v${agent.genomeVersion}`);
+			}
+		}
+
+		if (result.genomeOnly.length > 0) {
+			console.log("\nGenome-only agents (created by learn process):");
+			for (const agent of result.genomeOnly) {
+				console.log(`  ${agent.name} (v${agent.version}) — ${agent.description}`);
+			}
+		}
+
+		const stagingDir = await mkdtemp(join(tmpdir(), "sprout-export-"));
+		const written = await stageLearnings(result, stagingDir);
+		console.log(`\nWrote ${written.length} agent YAML files to: ${stagingDir}/`);
+		console.log("Copy desired files to bootstrap/ to incorporate learnings.");
 		return;
 	}
 

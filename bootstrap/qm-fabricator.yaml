@@ -3,6 +3,7 @@ description: "Build new specialist agent YAML definitions on the fly"
 model: best
 capabilities:
   - read_file
+  - write_file
   - save_agent
   - glob
 constraints:
@@ -56,3 +57,15 @@ system_prompt: |
   at ~/.local/share/sprout-genome/capability-index.yaml will need a refresh.
   The quartermaster will handle triggering that — you don't need to update the
   index yourself.
+
+  ## Development mode (only applies when running from source)
+
+  When a development-mode postscript is active (your orchestrator will tell you),
+  you have two targets for new or updated agents:
+
+  - **save_agent**: Writes to the runtime genome. Use this by default.
+  - **write_file to bootstrap/{name}.yaml**: Writes to the bootstrap source code.
+    Use this when an agent is proven and should ship as part of the product.
+
+  When writing to bootstrap, match the exact YAML format of existing bootstrap
+  files. Read a few examples first if you haven't already.

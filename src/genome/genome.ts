@@ -1,9 +1,16 @@
 import { chmod, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse, stringify } from "yaml";
-import { loadAgentSpec, loadBootstrapAgents } from "../agents/loader.ts";
+import { loadAgentSpec, loadBootstrapAgents, readBootstrapDir } from "../agents/loader.ts";
 import type { AgentSpec, Memory, RoutingRule } from "../kernel/types.ts";
+import { buildManifestFromSpecs, loadManifest, saveManifest } from "./bootstrap-manifest.ts";
 import { MemoryStore } from "./memory-store.ts";
+
+export interface SyncBootstrapResult {
+	added: string[];
+	updated: string[];
+	conflicts: string[];
+}
 
 /** Run a git command in the given directory, returning trimmed stdout. */
 export async function git(cwd: string, ...args: string[]): Promise<string> {
@@ -305,34 +312,128 @@ export class Genome {
 	}
 
 	/**
-	 * Sync missing bootstrap agents into an existing genome.
-	 * Only adds agents that don't already exist — never overwrites learned improvements.
-	 * Returns the names of agents that were added.
+	 * Sync bootstrap agents into an existing genome using manifest-aware 4-way comparison.
+	 * Adds new agents, updates unchanged genome agents when bootstrap evolves,
+	 * and detects conflicts when both sides have changed.
 	 */
-	async syncBootstrap(bootstrapDir: string): Promise<string[]> {
-		const specs = await loadBootstrapAgents(bootstrapDir);
+	async syncBootstrap(bootstrapDir: string): Promise<SyncBootstrapResult> {
+		const manifestPath = join(this.rootPath, "bootstrap-manifest.json");
+		const oldManifest = await loadManifest(manifestPath);
+		const { specs, rawContentByName } = await readBootstrapDir(bootstrapDir);
+		const newManifest = buildManifestFromSpecs(specs, rawContentByName);
+
 		const added: string[] = [];
+		const updated: string[] = [];
+		const conflicts: string[] = [];
 
 		for (const spec of specs) {
-			if (this.agents.has(spec.name)) continue;
+			const existing = this.agents.get(spec.name);
+			const oldEntry = oldManifest.agents[spec.name];
+			const newEntry = newManifest.agents[spec.name];
+			if (!newEntry) continue;
 
-			const yamlPath = join(this.rootPath, "agents", `${spec.name}.yaml`);
-			await writeFile(yamlPath, serializeAgentSpec(spec));
-			this.agents.set(spec.name, spec);
-			added.push(spec.name);
+			if (!existing) {
+				// Case 1: Agent not in genome — add it
+				const yamlPath = join(this.rootPath, "agents", `${spec.name}.yaml`);
+				await writeFile(yamlPath, serializeAgentSpec(spec));
+				this.agents.set(spec.name, spec);
+				added.push(spec.name);
+			} else if (!oldEntry) {
+				// Case 2: Pre-manifest genome — skip, treat as genome-evolved
+			} else if (newEntry.hash === oldEntry.hash) {
+				// Case 3: Bootstrap file unchanged — skip
+			} else if (existing.version === oldEntry.version) {
+				// Case 4: Bootstrap changed AND genome unchanged — update genome
+				const yamlPath = join(this.rootPath, "agents", `${spec.name}.yaml`);
+				await writeFile(yamlPath, serializeAgentSpec(spec));
+				this.agents.set(spec.name, spec);
+				updated.push(spec.name);
+			} else {
+				// Case 5: Bootstrap changed AND genome also evolved — conflict
+				conflicts.push(spec.name);
+			}
 		}
 
-		if (added.length > 0) {
-			await git(this.rootPath, "add", ".");
-			await git(
-				this.rootPath,
-				"commit",
-				"-m",
-				`genome: sync bootstrap agents (${added.join(", ")})`,
-			);
+		// Reconcile root capabilities: add new, remove dropped, preserve genome-only.
+		// Safe after Case 4: if root was updated, genome had no custom caps (version matched
+		// old manifest), so reconcileRootCapabilities finds nothing to merge and returns false.
+		const capsMerged = await this.reconcileRootCapabilities(
+			specs,
+			oldManifest.rootCapabilities ?? [],
+		);
+
+		const hasChanges = added.length > 0 || updated.length > 0 || capsMerged;
+
+		// Only save manifest when something changed — avoids dirty working tree
+		if (hasChanges || conflicts.length > 0) {
+			await saveManifest(manifestPath, newManifest);
 		}
 
-		return added;
+		// Collect specific files to stage (avoid `git add .` which may stage unrelated files)
+		const filesToStage: string[] = [];
+		for (const name of [...added, ...updated]) {
+			filesToStage.push(join(this.rootPath, "agents", `${name}.yaml`));
+		}
+		if (capsMerged) {
+			filesToStage.push(join(this.rootPath, "agents", "root.yaml"));
+		}
+		if (hasChanges || conflicts.length > 0) {
+			filesToStage.push(manifestPath);
+		}
+
+		const parts: string[] = [];
+		if (added.length > 0) parts.push(`added: ${added.join(", ")}`);
+		if (updated.length > 0) parts.push(`updated: ${updated.join(", ")}`);
+		if (capsMerged) parts.push("capabilities merged");
+		if (conflicts.length > 0) parts.push(`conflicts: ${conflicts.join(", ")}`);
+
+		if (parts.length > 0) {
+			await git(this.rootPath, "add", ...filesToStage);
+			await git(this.rootPath, "commit", "-m", `genome: sync bootstrap (${parts.join("; ")})`);
+		}
+
+		return { added, updated, conflicts };
+	}
+
+	/**
+	 * Reconcile bootstrap root capabilities with genome root.
+	 * Adds capabilities bootstrap introduced, removes capabilities bootstrap dropped,
+	 * and preserves genome-only capabilities that were never in bootstrap.
+	 */
+	private async reconcileRootCapabilities(
+		bootstrapSpecs: AgentSpec[],
+		oldBootstrapRootCaps: string[],
+	): Promise<boolean> {
+		const bootstrapRoot = bootstrapSpecs.find((s) => s.name === "root");
+		const genomeRoot = this.agents.get("root");
+		if (!bootstrapRoot || !genomeRoot) return false;
+
+		const newBootstrapCaps = new Set(bootstrapRoot.capabilities);
+		const oldBootstrapCaps = new Set(oldBootstrapRootCaps);
+		const genomeCaps = new Set(genomeRoot.capabilities);
+
+		// Compute the reconciled capabilities:
+		// - Keep genome capabilities that are still in bootstrap OR were never in bootstrap
+		// - Add new bootstrap capabilities that genome doesn't have yet
+		const kept = genomeRoot.capabilities.filter(
+			(c) => newBootstrapCaps.has(c) || !oldBootstrapCaps.has(c),
+		);
+		const toAdd = bootstrapRoot.capabilities.filter((c) => !genomeCaps.has(c));
+		const merged = [...kept, ...toAdd];
+
+		// Check if anything actually changed
+		if (
+			merged.length === genomeRoot.capabilities.length &&
+			merged.every((c, i) => c === genomeRoot.capabilities[i])
+		) {
+			return false;
+		}
+
+		const updated = { ...genomeRoot, capabilities: merged };
+		const yamlPath = join(this.rootPath, "agents", "root.yaml");
+		await writeFile(yamlPath, serializeAgentSpec(updated));
+		this.agents.set("root", updated);
+		return true;
 	}
 
 	// --- Agent Workspace ---
@@ -530,21 +631,19 @@ function parseToolFrontmatter(
 }
 
 /** Serialize an AgentSpec to YAML with explicit field ordering. */
-function serializeAgentSpec(spec: AgentSpec): string {
-	return stringify({
+export function serializeAgentSpec(spec: AgentSpec): string {
+	const obj: Record<string, unknown> = {
 		name: spec.name,
 		description: spec.description,
 		model: spec.model,
 		capabilities: spec.capabilities,
-		constraints: {
-			max_turns: spec.constraints.max_turns,
-			max_depth: spec.constraints.max_depth,
-			timeout_ms: spec.constraints.timeout_ms,
-			can_spawn: spec.constraints.can_spawn,
-			can_learn: spec.constraints.can_learn,
-		},
+		constraints: spec.constraints,
 		tags: spec.tags,
 		system_prompt: spec.system_prompt,
 		version: spec.version,
-	});
+	};
+	if (spec.thinking !== undefined) {
+		obj.thinking = spec.thinking;
+	}
+	return stringify(obj);
 }
