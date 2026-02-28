@@ -101,188 +101,169 @@ export type CliCommand =
 	| { kind: "genome-rollback"; genomePath: string; commit: string }
 	| { kind: "help" };
 
-/** Collect web flags from the accumulated state into a WebFlags object.
- * Only includes keys that are set, keeping result objects clean. */
-function collectWebFlags(webFlags: {
+import { parseArgs as nodeParseArgs } from "node:util";
+
+/** Only include truthy/defined values, keeping result objects clean. */
+function collectFlags(opts: {
 	web: boolean;
 	webOnly: boolean;
 	port: number | undefined;
 	host: string | undefined;
-}): WebFlags {
-	const flags: WebFlags = {};
-	if (webFlags.web) flags.web = true;
-	if (webFlags.webOnly) flags.webOnly = true;
-	if (webFlags.port !== undefined) flags.port = webFlags.port;
-	if (webFlags.host !== undefined) flags.host = webFlags.host;
-	return flags;
+	logStderr: boolean;
+	debug: boolean;
+}): WebFlags & LogFlags {
+	const out: WebFlags & LogFlags = {};
+	if (opts.web) out.web = true;
+	if (opts.webOnly) out.webOnly = true;
+	if (opts.port !== undefined) out.port = opts.port;
+	if (opts.host !== undefined) out.host = opts.host;
+	if (opts.logStderr) out.logStderr = true;
+	if (opts.debug) out.debug = true;
+	return out;
 }
 
-function collectLogFlags(logFlags: { logStderr: boolean; debug: boolean }): LogFlags {
-	const flags: LogFlags = {};
-	if (logFlags.logStderr) flags.logStderr = true;
-	if (logFlags.debug) flags.debug = true;
-	return flags;
+/** Known flags for validating prefix args in pre-scan paths. */
+const KNOWN_FLAGS = new Set([
+	"--help",
+	"--genome-path",
+	"--web",
+	"--web-only",
+	"--port",
+	"--host",
+	"--log-stderr",
+	"--debug",
+	"--prompt",
+	"--resume",
+	"--resume-last",
+	"--genome",
+]);
+
+/** Check that all --flags in an arg list are known. */
+function hasUnknownFlags(args: string[]): boolean {
+	return args.some((a) => a.startsWith("--") && !KNOWN_FLAGS.has(a));
 }
 
-/** Parse CLI arguments (process.argv.slice(2)) into a typed command.
- * Note: --genome-path must come before --genome subcommands. */
+/** Parse CLI arguments (process.argv.slice(2)) into a typed command. */
 export function parseArgs(argv: string[]): CliCommand {
-	let genomePath = DEFAULT_GENOME_PATH;
-	const webFlags = {
-		web: false,
-		webOnly: false,
-		port: undefined as number | undefined,
-		host: undefined as string | undefined,
-	};
-	const logFlags = { logStderr: false, debug: false };
-	const rest: string[] = [];
-
-	// Deferred mode — set by --resume, --resume-last, --prompt, --genome
-	// so the loop can continue processing remaining flags.
-	let mode:
-		| { kind: "resume"; sessionId: string }
-		| { kind: "resume-last" }
-		| { kind: "list" }
-		| { kind: "oneshot"; goal: string }
-		| { kind: "genome-list" }
-		| { kind: "genome-log" }
-		| { kind: "genome-rollback"; commit: string }
-		| { kind: "help" }
-		| undefined;
-
-	for (let i = 0; i < argv.length; i++) {
-		const arg = argv[i]!;
-
-		if (arg === "--help") {
-			return { kind: "help" };
-		}
-
-		if (arg === "--genome-path") {
-			genomePath = argv[++i] ?? DEFAULT_GENOME_PATH;
-			continue;
-		}
-
-		if (arg === "--web") {
-			webFlags.web = true;
-			continue;
-		}
-
-		if (arg === "--web-only") {
-			webFlags.webOnly = true;
-			continue;
-		}
-
-		if (arg === "--port") {
-			const raw = argv[++i];
-			const n = Number(raw);
-			if (!raw || Number.isNaN(n) || n <= 0) return { kind: "help" };
-			webFlags.port = n;
-			continue;
-		}
-
-		if (arg === "--host") {
-			webFlags.host = argv[++i] ?? "0.0.0.0";
-			continue;
-		}
-
-		if (arg === "--log-stderr") {
-			logFlags.logStderr = true;
-			continue;
-		}
-
-		if (arg === "--debug") {
-			logFlags.debug = true;
-			continue;
-		}
-
-		if (arg === "--prompt") {
-			const goal = argv.slice(i + 1).join(" ");
-			if (!goal) return { kind: "help" };
-			return { kind: "oneshot", goal, genomePath };
-		}
-
-		if (arg === "--resume") {
-			const next = argv[i + 1];
-			if (!next || next.startsWith("-")) {
-				mode = { kind: "list" };
-			} else {
-				i++;
-				mode = { kind: "resume", sessionId: next };
-			}
-			continue;
-		}
-
-		if (arg === "--resume-last") {
-			mode = { kind: "resume-last" };
-			continue;
-		}
-
-		if (arg === "--genome") {
-			const sub = argv[++i];
-			if (sub === "list") {
-				mode = { kind: "genome-list" };
-			} else if (sub === "log") {
-				mode = { kind: "genome-log" };
-			} else if (sub === "rollback") {
-				const commit = argv[++i];
-				if (!commit) return { kind: "help" };
-				mode = { kind: "genome-rollback", commit };
-			} else {
-				return { kind: "help" };
-			}
-			continue;
-		}
-
-		if (arg.startsWith("--")) {
-			return { kind: "help" };
-		}
-
-		rest.push(arg);
+	// Pre-scan for --prompt: it consumes all remaining args as the goal,
+	// which doesn't fit node:util.parseArgs' model. Handle it separately.
+	const promptIdx = argv.indexOf("--prompt");
+	if (promptIdx !== -1) {
+		const goal = argv.slice(promptIdx + 1).join(" ");
+		if (!goal) return { kind: "help" };
+		const prefix = argv.slice(0, promptIdx);
+		if (hasUnknownFlags(prefix)) return { kind: "help" };
+		const gpIdx = prefix.indexOf("--genome-path");
+		const genomePath = gpIdx !== -1 ? (prefix[gpIdx + 1] ?? DEFAULT_GENOME_PATH) : DEFAULT_GENOME_PATH;
+		return { kind: "oneshot", goal, genomePath };
 	}
 
-	// Resolve deferred mode
-	if (mode) {
-		switch (mode.kind) {
-			case "resume":
-				return {
-					kind: "resume",
-					sessionId: mode.sessionId,
-					genomePath,
-					...collectWebFlags(webFlags),
-					...collectLogFlags(logFlags),
-				};
-			case "resume-last":
-				return {
-					kind: "resume-last",
-					genomePath,
-					...collectWebFlags(webFlags),
-					...collectLogFlags(logFlags),
-				};
-			case "list":
-				return { kind: "list", genomePath };
-			case "oneshot":
-				return { kind: "oneshot", goal: mode.goal, genomePath };
-			case "genome-list":
-				return { kind: "genome-list", genomePath };
-			case "genome-log":
-				return { kind: "genome-log", genomePath };
-			case "genome-rollback":
-				return { kind: "genome-rollback", genomePath, commit: mode.commit };
-			case "help":
-				return { kind: "help" };
+	// Pre-scan for --genome subcommand: it consumes 1-2 positional tokens
+	// that would confuse the main parser.
+	const genomeIdx = argv.indexOf("--genome");
+	if (genomeIdx !== -1) {
+		const sub = argv[genomeIdx + 1];
+		const prefix = argv.slice(0, genomeIdx);
+		const gpIdx = prefix.indexOf("--genome-path");
+		const genomePath = gpIdx !== -1 ? (prefix[gpIdx + 1] ?? DEFAULT_GENOME_PATH) : DEFAULT_GENOME_PATH;
+		if (sub === "list") return { kind: "genome-list", genomePath };
+		if (sub === "log") return { kind: "genome-log", genomePath };
+		if (sub === "rollback") {
+			const commit = argv[genomeIdx + 2];
+			if (!commit) return { kind: "help" };
+			return { kind: "genome-rollback", genomePath, commit };
+		}
+		return { kind: "help" };
+	}
+
+	// Pre-scan for --resume with no value: node:util.parseArgs with
+	// type: "string" throws if no value follows. Detect this case and
+	// rewrite argv so the main parser sees --resume-list instead.
+	const resumeIdx = argv.indexOf("--resume");
+	if (resumeIdx !== -1) {
+		const next = argv[resumeIdx + 1];
+		if (next === undefined || next.startsWith("-")) {
+			// Bare --resume → session picker. Remove it and parse remaining flags,
+			// then return "list" (which doesn't carry web/log flags).
+			const without = [...argv.slice(0, resumeIdx), ...argv.slice(resumeIdx + 1)];
+			// Validate remaining flags
+			if (hasUnknownFlags(without)) return { kind: "help" };
+			const gpIdx = without.indexOf("--genome-path");
+			const genomePath = gpIdx !== -1 ? (without[gpIdx + 1] ?? DEFAULT_GENOME_PATH) : DEFAULT_GENOME_PATH;
+			return { kind: "list", genomePath };
 		}
 	}
 
-	if (rest.length === 0) {
-		return {
-			kind: "interactive",
-			genomePath,
-			...collectWebFlags(webFlags),
-			...collectLogFlags(logFlags),
-		};
+	let parsed: ReturnType<typeof nodeParseArgs>;
+	try {
+		parsed = nodeParseArgs({
+			args: argv,
+			strict: true,
+			allowPositionals: true,
+			options: {
+				help: { type: "boolean" },
+				"genome-path": { type: "string" },
+				web: { type: "boolean" },
+				"web-only": { type: "boolean" },
+				port: { type: "string" }, // parsed as string, validated below
+				host: { type: "string" },
+				"log-stderr": { type: "boolean" },
+				debug: { type: "boolean" },
+				resume: { type: "string" },
+				"resume-last": { type: "boolean" },
+			},
+		});
+	} catch {
+		// Unknown flag or missing value → show help
+		return { kind: "help" };
 	}
 
-	return { kind: "oneshot", goal: rest.join(" "), genomePath };
+	const vals = parsed.values;
+	if (vals.help) return { kind: "help" };
+
+	const genomePath = (vals["genome-path"] as string | undefined) ?? DEFAULT_GENOME_PATH;
+
+	// Validate --port
+	let port: number | undefined;
+	if (vals.port !== undefined) {
+		const n = Number(vals.port);
+		if (Number.isNaN(n) || n <= 0) return { kind: "help" };
+		port = n;
+	}
+
+	const flags = collectFlags({
+		web: vals.web === true,
+		webOnly: vals["web-only"] === true,
+		port,
+		host: vals.host as string | undefined,
+		logStderr: vals["log-stderr"] === true,
+		debug: vals.debug === true,
+	});
+
+	// --resume: node:util.parseArgs treats it as a string option.
+	// If the user wrote `--resume` with no value, parseArgs in strict mode
+	// will throw (caught above). But `--resume` followed by another flag
+	// like `--resume --web` will also throw. We handle the "no session ID"
+	// case by checking if the value looks like a flag (shouldn't happen with
+	// strict mode, but defensive). For bare `--resume` we need a pre-scan.
+	if (vals.resume !== undefined) {
+		const sessionId = vals.resume as string;
+		if (!sessionId || sessionId.startsWith("-")) {
+			return { kind: "list", genomePath };
+		}
+		return { kind: "resume", sessionId, genomePath, ...flags };
+	}
+
+	if (vals["resume-last"]) {
+		return { kind: "resume-last", genomePath, ...flags };
+	}
+
+	const positionals = parsed.positionals;
+	if (positionals.length === 0) {
+		return { kind: "interactive", genomePath, ...flags };
+	}
+
+	return { kind: "oneshot", goal: positionals.join(" "), genomePath };
 }
 
 const USAGE = `Usage: sprout [options] [goal]
