@@ -230,16 +230,20 @@ export function App() {
 						</button>
 					)}
 				</main>
-				{panelStack.map((agentId) => (
-					<ThreadPanel
-						key={agentId}
-						agentId={agentId}
-						tree={tree}
-						events={events}
-						onClose={() => closePanel(agentId)}
-						onSelectAgent={openPanel}
-					/>
-				))}
+				{panelStack.length > 0 && (
+					<div className={styles.panelContainer} data-region="panels">
+						{panelStack.map((agentId) => (
+							<ThreadPanel
+								key={agentId}
+								agentId={agentId}
+								tree={tree}
+								events={events}
+								onClose={() => closePanel(agentId)}
+								onSelectAgent={openPanel}
+							/>
+						))}
+					</div>
+				)}
 			</div>
 
 			<InputArea

@@ -1255,7 +1255,10 @@ describe("SessionController", () => {
 		await logger.flush();
 
 		const firstLogContent = await readFile(logPath, "utf-8");
-		const firstEntries: LogEntry[] = firstLogContent.trim().split("\n").map((l) => JSON.parse(l));
+		const firstEntries: LogEntry[] = firstLogContent
+			.trim()
+			.split("\n")
+			.map((l) => JSON.parse(l));
 		expect(firstEntries.some((e) => e.sessionId === initialSessionId)).toBe(true);
 
 		// Clear — should reconfigure logger with new sessionId + logPath
@@ -1269,7 +1272,10 @@ describe("SessionController", () => {
 
 		const newLogPath = join(genomePath, "logs", newSessionId, "session.log.jsonl");
 		const newLogContent = await readFile(newLogPath, "utf-8");
-		const newEntries: LogEntry[] = newLogContent.trim().split("\n").map((l) => JSON.parse(l));
+		const newEntries: LogEntry[] = newLogContent
+			.trim()
+			.split("\n")
+			.map((l) => JSON.parse(l));
 		expect(newEntries.some((e) => e.sessionId === newSessionId)).toBe(true);
 	});
 

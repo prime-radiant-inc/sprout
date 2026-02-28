@@ -144,14 +144,13 @@ describe("AgentTree", () => {
 		expect(html).toContain('data-agent-id="runner-1"');
 	});
 
-	test("truncates long goals", () => {
+	test("shows full goal text without truncation", () => {
 		const longGoal = "A".repeat(100);
 		const tree = makeNode({ goal: longGoal });
 		const html = renderToStaticMarkup(
 			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
 		);
-		expect(html).toContain("...");
-		expect(html).not.toContain("A".repeat(100));
+		expect(html).toContain("A".repeat(100));
 	});
 
 	test("renders goal text for each node", () => {
@@ -219,16 +218,14 @@ describe("AgentTree", () => {
 		expect(html).not.toContain('data-action="toggle"');
 	});
 
-	test("truncates goal to exactly maxLen-1 characters plus ellipsis", () => {
+	test("shows goal text of any length without truncation", () => {
 		const goal61 = "a".repeat(61);
 		const tree = makeNode({ goal: goal61 });
 		const html = renderToStaticMarkup(
 			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
 		);
-		// truncateGoal: goal.slice(0, 59) + "..." = 59 a's followed by ...
-		const goalMatch = html.match(/(a+)\.\.\./);
-		expect(goalMatch).toBeTruthy();
-		expect(goalMatch![1]!.length).toBe(59);
+		expect(html).toContain(goal61);
+		expect(html).not.toContain("...");
 	});
 
 	test("does not truncate goal at exactly maxLen characters", () => {

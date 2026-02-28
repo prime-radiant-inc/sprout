@@ -1,13 +1,14 @@
 .card {
 	display: flex;
 	flex-direction: column;
-	gap: var(--space-xs);
-	padding: var(--space-sm) var(--space-md);
+	gap: var(--space-sm);
+	padding: var(--space-md);
 	border-radius: var(--radius-md);
 	background: var(--color-surface);
 	border: 1px solid var(--color-border);
 	border-left: 3px solid var(--color-border-strong);
 	margin: var(--space-xs) 0;
+	transition: border-color var(--transition-normal);
 }
 
 .card[data-status="running"] {
@@ -25,41 +26,40 @@
 .header {
 	display: flex;
 	gap: var(--space-sm);
-	align-items: baseline;
-	flex-wrap: wrap;
+	align-items: center;
 }
 
 .spinner {
 	color: var(--color-running);
-	font-size: var(--font-size-xs);
+	font-size: var(--font-size-xxs);
 	animation: pulse 1.5s ease-in-out infinite;
 }
 
 @keyframes pulse {
-	0%,
-	100% {
-		opacity: 1;
-	}
-	50% {
-		opacity: 0.3;
-	}
+	0%, 100% { opacity: 1; }
+	50% { opacity: 0.3; }
 }
 
 .agentName {
 	font-family: var(--font-mono);
 	font-size: var(--font-size-sm);
 	font-weight: 600;
-	color: var(--color-text-primary);
+	color: var(--color-accent);
 }
 
+/* Full goal text — wraps instead of truncating */
 .goal {
 	font-size: var(--font-size-sm);
 	color: var(--color-text-secondary);
+	line-height: var(--line-height);
+	white-space: pre-wrap;
+	word-break: break-word;
 }
 
 .success {
 	color: var(--color-success);
 	font-weight: 600;
+	font-size: var(--font-size-sm);
 }
 
 .failed {
@@ -69,28 +69,68 @@
 }
 
 .meta {
-	display: flex;
-	gap: var(--space-sm);
-	font-size: var(--font-size-xs);
-	color: var(--color-text-tertiary);
+	font-size: var(--font-size-xxs);
+	color: var(--color-text-placeholder);
+	font-variant-numeric: tabular-nums;
+	margin-left: auto;
 }
 
-.turns,
-.duration {
-	color: var(--color-text-tertiary);
+/* Tool call list — shows recent activity */
+.toolList {
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+	padding: var(--space-xs) 0;
+	border-top: 1px solid var(--color-border);
+}
+
+.toolItem {
+	display: flex;
+	align-items: baseline;
+	gap: var(--space-xs);
+	font-family: var(--font-mono);
+	font-size: var(--font-size-xs);
+	padding: 1px 0;
+}
+
+.toolSuccess {
+	color: var(--color-success);
+	font-size: var(--font-size-xxs);
+	flex-shrink: 0;
+}
+
+.toolError {
+	color: var(--color-error);
+	font-size: var(--font-size-xxs);
+	flex-shrink: 0;
+}
+
+.toolName {
+	color: var(--color-text-secondary);
+	font-weight: 500;
+	flex-shrink: 0;
+}
+
+.toolArgs {
+	color: var(--color-text-placeholder);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .peek {
 	font-size: var(--font-size-xs);
 	font-family: var(--font-mono);
-	color: var(--color-text-tertiary);
+	color: var(--color-text-placeholder);
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
+	padding-top: var(--space-xs);
+	border-top: 1px solid var(--color-border);
 }
 
 .footer {
-	margin-top: var(--space-xs);
+	padding-top: var(--space-xs);
 }
 
 .threadLink {
@@ -99,6 +139,8 @@
 	font-size: var(--font-size-xs);
 	color: var(--color-accent);
 	font-family: var(--font-ui);
+	font-weight: 500;
+	transition: color var(--transition-fast);
 }
 
 .threadLink:hover {

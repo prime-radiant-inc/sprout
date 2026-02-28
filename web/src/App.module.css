@@ -2,7 +2,7 @@
 
 .app {
 	display: grid;
-	grid-template-rows: auto 1fr auto;
+	grid-template-rows: var(--statusbar-height) 1fr auto;
 	height: 100vh;
 	background: var(--color-canvas);
 	color: var(--color-text-primary);
@@ -14,7 +14,6 @@
 .body {
 	display: flex;
 	overflow: hidden;
-	border-top: 1px solid var(--color-border);
 }
 
 .body[data-sidebar-open="false"] .sidebar {
@@ -25,6 +24,7 @@
 	width: var(--sidebar-width);
 	flex-shrink: 0;
 	overflow-y: auto;
+	background: var(--color-canvas);
 	border-right: 1px solid var(--color-border);
 }
 
@@ -39,22 +39,36 @@
 
 .jumpToBottom {
 	position: sticky;
-	bottom: var(--space-sm);
-	align-self: flex-end;
-	margin-right: var(--space-md);
+	bottom: var(--space-md);
+	align-self: center;
 	background: var(--color-surface);
-	color: var(--color-text-primary);
-	border: 1px solid var(--color-border);
-	padding: var(--space-xs) var(--space-md);
-	font-family: var(--font-mono);
+	color: var(--color-text-secondary);
+	border: 1px solid var(--color-border-strong);
+	padding: var(--space-xs) var(--space-lg);
+	font-family: var(--font-ui);
 	font-size: var(--font-size-xs);
+	font-weight: 500;
 	cursor: pointer;
-	border-radius: var(--radius-sm);
+	border-radius: var(--radius-full);
 	z-index: 10;
+	box-shadow: var(--shadow-md);
+	transition: all var(--transition-fast);
+	letter-spacing: 0.01em;
 }
 
 .jumpToBottom:hover {
-	border-color: var(--color-accent);
+	background: var(--color-elevated);
+	color: var(--color-text-primary);
+	box-shadow: var(--shadow-lg);
+	transform: translateY(-1px);
+}
+
+/* Panel container: horizontal scroll for many open thread panels */
+.panelContainer {
+	display: flex;
+	overflow-x: auto;
+	flex-shrink: 0;
+	max-width: 60vw;
 }
 
 /* Responsive: hide sidebar on narrow viewports */
@@ -72,7 +86,7 @@
 		bottom: 0;
 		width: var(--sidebar-width);
 		z-index: 20;
-		background: var(--color-surface);
+		background: var(--color-canvas);
 		box-shadow: var(--shadow-lg);
 	}
 

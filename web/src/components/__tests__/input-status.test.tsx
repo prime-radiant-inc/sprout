@@ -97,16 +97,15 @@ describe("StatusBar", () => {
 			<StatusBar status={makeStatus({ turns: 7 })} connected={true} />,
 		);
 		expect(html).toContain("7");
-		expect(html).toContain("turns");
+		expect(html).toContain("Turns");
 	});
 
-	test("renders singular 'turn' for 1 turn", () => {
+	test("renders turn count of 1", () => {
 		const html = renderToStaticMarkup(
 			<StatusBar status={makeStatus({ turns: 1 })} connected={true} />,
 		);
-		expect(html).toContain("1 turn");
-		// Should not say "1 turns"
-		expect(html).not.toContain("1 turns");
+		expect(html).toContain(">1<");
+		expect(html).toContain("Turns");
 	});
 
 	test("does not render hardcoded cost", () => {
@@ -125,11 +124,13 @@ describe("StatusBar", () => {
 		expect(html).not.toContain("20250514");
 	});
 
-	test("renders session ID", () => {
+	test("renders session ID (truncated to 8 chars)", () => {
 		const html = renderToStaticMarkup(
 			<StatusBar status={makeStatus()} connected={true} />,
 		);
-		expect(html).toContain("abc-123-def");
+		// Session ID "abc-123-def" truncated to first 8 chars: "abc-123-"
+		expect(html).toContain("abc-123-");
+		expect(html).toContain('data-action="copy-session-id"');
 	});
 
 	test("renders I/O tokens when running", () => {
@@ -186,7 +187,7 @@ describe("StatusBar", () => {
 		expect(match?.[1]).toBe("<button");
 	});
 
-	test("renders single interrupt button when running", () => {
+	test("renders Stop button when running", () => {
 		const html = renderToStaticMarkup(
 			<StatusBar
 				status={makeStatus({ status: "running" })}
@@ -194,9 +195,9 @@ describe("StatusBar", () => {
 				onInterrupt={() => {}}
 			/>,
 		);
-		// Should have stop symbol but NOT pause symbol
-		expect(html).toContain("\u23F9");
-		expect(html).not.toContain("\u23F8");
+		// Should have "Stop" text button
+		expect(html).toContain("Stop");
+		expect(html).toContain('title="Interrupt (Esc)"');
 	});
 
 	test("does not render interrupt button when idle", () => {
@@ -207,8 +208,7 @@ describe("StatusBar", () => {
 				onInterrupt={() => {}}
 			/>,
 		);
-		expect(html).not.toContain("\u23F8");
-		expect(html).not.toContain("\u23F9");
+		expect(html).not.toContain('title="Interrupt (Esc)"');
 	});
 });
 

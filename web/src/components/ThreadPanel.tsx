@@ -36,19 +36,21 @@ export function ThreadPanel({ agentId, tree, events, onClose, onSelectAgent }: T
 			<div className={styles.header}>
 				<div className={styles.headerInfo}>
 					<div className={styles.nameRow}>
-						<span className={styles.agentName}>{agentName}</span>
 						{node && (
 							<span className={statusClasses[node.status]} data-status={node.status}>
 								{statusIcons[node.status]}
 							</span>
 						)}
+						<span className={styles.agentName}>{agentName}</span>
 						{tokenUsage && (
 							<span className={styles.tokenUsage} data-testid="token-usage">
 								{formatCompactNumber(tokenUsage.inputTokens)} in / {formatCompactNumber(tokenUsage.outputTokens)} out
 							</span>
 						)}
 					</div>
-					<span className={styles.goal}>{goal}</span>
+					{goal && (
+						<div className={styles.goal}>{goal}</div>
+					)}
 				</div>
 				<button
 					type="button"

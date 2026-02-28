@@ -542,7 +542,7 @@ describe("DelegationBlock", () => {
 		expect(html).not.toContain("View thread");
 	});
 
-	test("truncates long goals", () => {
+	test("shows full goal text without truncation", () => {
 		const longGoal = "A".repeat(100);
 		const html = renderToStaticMarkup(
 			<DelegationBlock
@@ -551,37 +551,15 @@ describe("DelegationBlock", () => {
 				status="running"
 			/>,
 		);
-		expect(html).toContain("...");
-		expect(html).not.toContain("A".repeat(100));
+		expect(html).toContain("A".repeat(100));
 	});
 
-	test("truncates goal to exactly 80 characters (77 + ellipsis)", () => {
-		const longGoal = "a".repeat(100);
+	test("shows full goal text of any length", () => {
+		const longGoal = "a".repeat(200);
 		const html = renderToStaticMarkup(
 			<DelegationBlock agentName="agent" goal={longGoal} status="running" />,
 		);
-		// The displayed goal should be at most 80 chars: 77 chars + "..."
-		const goalMatch = html.match(/(a+)\.\.\./);
-		expect(goalMatch).toBeTruthy();
-		expect(goalMatch![1]!.length + 3).toBe(80);
-	});
-
-	test("does not truncate goal of exactly 80 characters", () => {
-		const goal80 = "b".repeat(80);
-		const html = renderToStaticMarkup(
-			<DelegationBlock agentName="agent" goal={goal80} status="running" />,
-		);
-		expect(html).toContain(goal80);
-		expect(html).not.toContain("...");
-	});
-
-	test("truncates goal of 81 characters", () => {
-		const goal81 = "c".repeat(81);
-		const html = renderToStaticMarkup(
-			<DelegationBlock agentName="agent" goal={goal81} status="running" />,
-		);
-		expect(html).not.toContain(goal81);
-		expect(html).toContain("...");
+		expect(html).toContain(longGoal);
 	});
 
 	test("shows spinner indicator when status is running", () => {
@@ -1027,14 +1005,13 @@ describe("ConversationView", () => {
 		expect(html).not.toContain("root goal");
 	});
 
-	test("renders empty container when no events", () => {
+	test("renders empty state when no events", () => {
 		const tree = buildAgentTree([]);
 		const html = renderToStaticMarkup(<ConversationView events={[]} tree={tree} />);
-		// Should render the wrapper but with no event content or streaming banner
+		// Should render the welcome/empty state component
 		expect(html).not.toContain("is responding");
-		expect(html).not.toContain("fix the bug");
-		// The container itself should be a single empty div
-		expect(html).toMatch(/^<div[^>]*><\/div>$/);
+		expect(html).toContain("Sprout");
+		expect(html).toContain("Enter a goal");
 	});
 
 	test("accumulates plan_delta text into a single streaming message", () => {

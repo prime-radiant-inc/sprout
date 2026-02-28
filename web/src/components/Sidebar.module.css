@@ -2,6 +2,6 @@
 	display: flex;
 	flex-direction: column;
 	height: 100%;
-	padding: var(--space-sm);
+	padding: var(--space-md);
 	overflow-y: auto;
 }

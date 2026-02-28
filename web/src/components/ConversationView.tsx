@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { SessionEvent } from "../../../src/kernel/types.ts";
 import type { AgentTreeNode } from "../hooks/useAgentTree.ts";
+import { EmptyState } from "./EmptyState.tsx";
 import { EventLine } from "./EventLine.tsx";
 import { buildNameMap, groupEvents } from "./groupEvents.ts";
 import { StreamingBanner } from "./StreamingBanner.tsx";
@@ -35,9 +36,14 @@ export function ConversationView({
 		return buildNameMap(tree).get(agentId) ?? agentId;
 	}, [isStreaming, events, tree]);
 
+	// Show empty state when no visible events exist
+	if (grouped.length === 0 && !agentFilter) {
+		return <EmptyState />;
+	}
+
 	return (
 		<div className={styles.conversationView}>
-			{grouped.map(({ event, durationMs, streamingText, isFirstInGroup, agentName, livePeek }, i) => (
+			{grouped.map(({ event, durationMs, streamingText, isFirstInGroup, agentName, livePeek, livePeekTools }, i) => (
 				<EventLine
 					key={`${event.agent_id}-${event.kind}-${event.timestamp}-${i}`}
 					event={event}
@@ -46,6 +52,7 @@ export function ConversationView({
 					isFirstInGroup={isFirstInGroup}
 					agentName={agentName}
 					livePeek={livePeek}
+					livePeekTools={livePeekTools}
 					onSelectAgent={onSelectAgent}
 				/>
 			))}

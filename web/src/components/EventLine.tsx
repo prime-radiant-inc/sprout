@@ -1,4 +1,5 @@
 import type { SessionEvent } from "../../../src/kernel/types.ts";
+import type { ToolCallSummary } from "./groupEvents.ts";
 import { AssistantMessage } from "./AssistantMessage.tsx";
 import { DelegationBlock } from "./DelegationBlock.tsx";
 import { SystemMessage } from "./SystemMessage.tsx";
@@ -12,6 +13,7 @@ interface EventLineProps {
 	isFirstInGroup?: boolean;
 	agentName?: string;
 	livePeek?: string;
+	livePeekTools?: ToolCallSummary[];
 	onSelectAgent?: (agentId: string) => void;
 }
 
@@ -19,7 +21,7 @@ interface EventLineProps {
  * Dispatcher: maps a SessionEvent to the appropriate display component.
  * Returns null for events that should not be displayed.
  */
-export function EventLine({ event, durationMs, streamingText, isFirstInGroup, agentName, livePeek, onSelectAgent }: EventLineProps) {
+export function EventLine({ event, durationMs, streamingText, isFirstInGroup, agentName, livePeek, livePeekTools, onSelectAgent }: EventLineProps) {
 	const { kind, data } = event;
 
 	switch (kind) {
@@ -79,6 +81,7 @@ export function EventLine({ event, durationMs, streamingText, isFirstInGroup, ag
 					goal={data.goal as string}
 					status="running"
 					livePeek={livePeek}
+					livePeekTools={livePeekTools}
 					onOpenThread={onSelectAgent ? () => onSelectAgent(
 						typeof data.child_id === "string" ? data.child_id : (data.agent_name as string)
 					) : undefined}
@@ -86,7 +89,6 @@ export function EventLine({ event, durationMs, streamingText, isFirstInGroup, ag
 			);
 
 		case "act_end":
-			// No livePeek — completed/failed delegations don't show live activity
 			return (
 				<DelegationBlock
 					agentName={data.agent_name as string}
