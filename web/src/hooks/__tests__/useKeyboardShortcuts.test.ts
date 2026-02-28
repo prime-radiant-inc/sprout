@@ -12,6 +12,7 @@ describe("handleKeyboardShortcut", () => {
 			toggleSidebar: () => { called = true; },
 			clearFilter: () => {},
 			focusInput: () => {},
+		showHelp: () => {},
 		};
 		const handled = handleKeyboardShortcut(
 			{ key: "/", ctrlKey: true, metaKey: false, target: bodyTarget } as unknown as KeyboardEvent,
@@ -27,6 +28,7 @@ describe("handleKeyboardShortcut", () => {
 			toggleSidebar: () => { called = true; },
 			clearFilter: () => {},
 			focusInput: () => {},
+		showHelp: () => {},
 		};
 		const handled = handleKeyboardShortcut(
 			{ key: "/", ctrlKey: false, metaKey: true, target: bodyTarget } as unknown as KeyboardEvent,
@@ -42,6 +44,7 @@ describe("handleKeyboardShortcut", () => {
 			toggleSidebar: () => {},
 			clearFilter: () => { called = true; },
 			focusInput: () => {},
+		showHelp: () => {},
 		};
 		const handled = handleKeyboardShortcut(
 			{ key: "Escape", ctrlKey: false, metaKey: false, target: bodyTarget } as unknown as KeyboardEvent,
@@ -57,6 +60,7 @@ describe("handleKeyboardShortcut", () => {
 			toggleSidebar: () => {},
 			clearFilter: () => {},
 			focusInput: () => { called = true; },
+			showHelp: () => {},
 		};
 		const handled = handleKeyboardShortcut(
 			{ key: "/", ctrlKey: false, metaKey: false, target: bodyTarget } as unknown as KeyboardEvent,
@@ -72,6 +76,7 @@ describe("handleKeyboardShortcut", () => {
 			toggleSidebar: () => {},
 			clearFilter: () => {},
 			focusInput: () => { called = true; },
+			showHelp: () => {},
 		};
 		const handled = handleKeyboardShortcut(
 			{ key: "/", ctrlKey: false, metaKey: false, target: textareaTarget } as unknown as KeyboardEvent,
@@ -87,6 +92,7 @@ describe("handleKeyboardShortcut", () => {
 			toggleSidebar: () => {},
 			clearFilter: () => {},
 			focusInput: () => { called = true; },
+			showHelp: () => {},
 		};
 		const handled = handleKeyboardShortcut(
 			{ key: "/", ctrlKey: false, metaKey: false, target: { tagName: "INPUT" } } as unknown as KeyboardEvent,
@@ -102,6 +108,7 @@ describe("handleKeyboardShortcut", () => {
 			toggleSidebar: () => {},
 			clearFilter: () => {},
 			focusInput: () => { called = true; },
+			showHelp: () => {},
 		};
 		const handled = handleKeyboardShortcut(
 			{ key: "/", ctrlKey: false, metaKey: false, target: { tagName: "SELECT" } } as unknown as KeyboardEvent,
@@ -117,6 +124,7 @@ describe("handleKeyboardShortcut", () => {
 			toggleSidebar: () => {},
 			clearFilter: () => { cleared = true; },
 			focusInput: () => {},
+		showHelp: () => {},
 		};
 		const handled = handleKeyboardShortcut(
 			{ key: "Escape", ctrlKey: false, metaKey: false, target: { tagName: "TEXTAREA" } } as unknown as KeyboardEvent,
@@ -126,11 +134,44 @@ describe("handleKeyboardShortcut", () => {
 		expect(handled).toBe(false);
 	});
 
+	test("? triggers showHelp when target is not an input", () => {
+		let called = false;
+		const actions: ShortcutActions = {
+			toggleSidebar: () => {},
+			clearFilter: () => {},
+			focusInput: () => {},
+			showHelp: () => { called = true; },
+		};
+		const handled = handleKeyboardShortcut(
+			{ key: "?", ctrlKey: false, metaKey: false, target: bodyTarget } as unknown as KeyboardEvent,
+			actions,
+		);
+		expect(called).toBe(true);
+		expect(handled).toBe(true);
+	});
+
+	test("? does NOT trigger showHelp when target is a textarea", () => {
+		let called = false;
+		const actions: ShortcutActions = {
+			toggleSidebar: () => {},
+			clearFilter: () => {},
+			focusInput: () => {},
+			showHelp: () => { called = true; },
+		};
+		const handled = handleKeyboardShortcut(
+			{ key: "?", ctrlKey: false, metaKey: false, target: textareaTarget } as unknown as KeyboardEvent,
+			actions,
+		);
+		expect(called).toBe(false);
+		expect(handled).toBe(false);
+	});
+
 	test("unrecognized key returns false", () => {
 		const actions: ShortcutActions = {
 			toggleSidebar: () => {},
 			clearFilter: () => {},
 			focusInput: () => {},
+		showHelp: () => {},
 		};
 		const handled = handleKeyboardShortcut(
 			{ key: "a", ctrlKey: false, metaKey: false, target: bodyTarget } as unknown as KeyboardEvent,

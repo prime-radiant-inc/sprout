@@ -1,85 +1,97 @@
-/* Theme token system — all visual tokens live here.
-   Components reference var(--color-*) etc. and get
-   the correct values based on [data-theme] on <html>. */
+/* Theme tokens — refined, monochromatic palette with precise accent.
+   Inspired by Apple's developer tools: warm grays, restrained color,
+   typography-forward hierarchy. */
 
 [data-theme="light"] {
-  /* Surfaces */
-  --color-canvas: #fafafa;
+  /* Surfaces — warm gray family, subtle elevation */
+  --color-canvas: #f5f5f7;
   --color-surface: #ffffff;
   --color-elevated: #ffffff;
-  --color-inset: #f0f0f4;
+  --color-inset: #ededf0;
 
-  /* Text */
-  --color-text-primary: #1a1a2e;
-  --color-text-secondary: #5c5c70;
-  --color-text-tertiary: #8c8c9e;
-  --color-text-placeholder: #b0b0be;
+  /* Text — high-contrast hierarchy, warm undertone */
+  --color-text-primary: #1d1d1f;
+  --color-text-secondary: #6e6e73;
+  --color-text-tertiary: #98989d;
+  --color-text-placeholder: #aeaeb2;
 
-  /* Borders */
-  --color-border: #e2e2ea;
-  --color-border-strong: #c8c8d4;
+  /* Borders — barely there, structural only */
+  --color-border: rgba(0, 0, 0, 0.08);
+  --color-border-strong: rgba(0, 0, 0, 0.15);
 
-  /* Shadows */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.08);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+  /* Shadows — soft, realistic */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.06), 0 1px 4px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.1), 0 4px 12px rgba(0, 0, 0, 0.04);
 
-  /* Accent */
-  --color-accent: #8b5cf6;
-  --color-accent-hover: #7c3aed;
-  --color-accent-subtle: rgba(139, 92, 246, 0.1);
+  /* Accent — restrained blue, Apple-style */
+  --color-accent: #007aff;
+  --color-accent-hover: #0055d4;
+  --color-accent-subtle: rgba(0, 122, 255, 0.08);
   --color-on-accent: #ffffff;
 
-  /* Semantic */
-  --color-success: #22c55e;
-  --color-warning: #f59e0b;
-  --color-error: #ef4444;
-  --color-info: #3b82f6;
+  /* Semantic — calibrated for light backgrounds */
+  --color-success: #30d158;
+  --color-success-subtle: rgba(48, 209, 88, 0.1);
+  --color-warning: #ff9f0a;
+  --color-warning-subtle: rgba(255, 159, 10, 0.1);
+  --color-error: #ff3b30;
+  --color-error-subtle: rgba(255, 59, 48, 0.08);
+  --color-info: #5ac8fa;
 
   /* Agent status */
-  --color-running: #3b82f6;
-  --color-completed: #22c55e;
-  --color-failed: #ef4444;
+  --color-running: #007aff;
+  --color-completed: #30d158;
+  --color-failed: #ff3b30;
 
+  /* Diff */
+  --color-diff-added: rgba(48, 209, 88, 0.12);
+  --color-diff-removed: rgba(255, 59, 48, 0.1);
 }
 
 [data-theme="dark"] {
-  /* Surfaces */
-  --color-canvas: #0f172a;
-  --color-surface: #111827;
-  --color-elevated: #1f2937;
-  --color-inset: #0b1120;
+  /* Surfaces — deep, rich darks with subtle blue undertone */
+  --color-canvas: #1c1c1e;
+  --color-surface: #2c2c2e;
+  --color-elevated: #3a3a3c;
+  --color-inset: #161618;
 
-  /* Text */
-  --color-text-primary: #e0e0e0;
-  --color-text-secondary: #a0a0b0;
-  --color-text-tertiary: #707080;
-  --color-text-placeholder: #505060;
+  /* Text — carefully calibrated opacity */
+  --color-text-primary: rgba(255, 255, 255, 0.92);
+  --color-text-secondary: rgba(255, 255, 255, 0.55);
+  --color-text-tertiary: rgba(255, 255, 255, 0.35);
+  --color-text-placeholder: rgba(255, 255, 255, 0.22);
 
-  /* Borders */
-  --color-border: #2a2a4a;
-  --color-border-strong: #3a3a5a;
+  /* Borders — subtle separation via luminance */
+  --color-border: rgba(255, 255, 255, 0.08);
+  --color-border-strong: rgba(255, 255, 255, 0.15);
 
-  /* Shadows */
+  /* Shadows — rely on border separation in dark mode */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.5);
 
-  /* Accent */
-  --color-accent: #8b5cf6;
-  --color-accent-hover: #a78bfa;
-  --color-accent-subtle: rgba(139, 92, 246, 0.15);
+  /* Accent — vibrant on dark */
+  --color-accent: #0a84ff;
+  --color-accent-hover: #409cff;
+  --color-accent-subtle: rgba(10, 132, 255, 0.15);
   --color-on-accent: #ffffff;
 
-  /* Semantic */
-  --color-success: #22c55e;
-  --color-warning: #f59e0b;
-  --color-error: #ef4444;
-  --color-info: #3b82f6;
+  /* Semantic — slightly desaturated for dark backgrounds */
+  --color-success: #30d158;
+  --color-success-subtle: rgba(48, 209, 88, 0.15);
+  --color-warning: #ff9f0a;
+  --color-warning-subtle: rgba(255, 159, 10, 0.15);
+  --color-error: #ff453a;
+  --color-error-subtle: rgba(255, 69, 58, 0.12);
+  --color-info: #5ac8fa;
 
   /* Agent status */
-  --color-running: #3b82f6;
-  --color-completed: #22c55e;
-  --color-failed: #ef4444;
+  --color-running: #0a84ff;
+  --color-completed: #30d158;
+  --color-failed: #ff453a;
 
+  /* Diff */
+  --color-diff-added: rgba(48, 209, 88, 0.15);
+  --color-diff-removed: rgba(255, 69, 58, 0.12);
 }

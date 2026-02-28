@@ -1,15 +1,11 @@
+import { ExpandableOutput } from "./ExpandableOutput.tsx";
 import type { ToolRendererProps } from "./ToolRendererRegistry.ts";
 import styles from "./tools.module.css";
 
-const MAX_PREVIEW_LINES = 10;
-
-/** Renderer for read_file tool: shows filename, line count, and first 10 lines. */
+/** Renderer for read_file tool: shows filename, line count, and expandable preview. */
 export function ReadFileRenderer({ args, output }: ToolRendererProps) {
 	const path = typeof args.path === "string" ? args.path : null;
-	const lines = output.split("\n");
-	const lineCount = lines.length;
-	const preview = lines.slice(0, MAX_PREVIEW_LINES).join("\n");
-	const truncated = lineCount > MAX_PREVIEW_LINES;
+	const lineCount = output.split("\n").length;
 
 	return (
 		<div className={styles.rendererBlock}>
@@ -17,10 +13,7 @@ export function ReadFileRenderer({ args, output }: ToolRendererProps) {
 			{lineCount > 0 && (
 				<div className={styles.meta}>{lineCount} lines</div>
 			)}
-			<pre className={styles.codeBlock}>
-				{preview}
-				{truncated && "\n..."}
-			</pre>
+			<ExpandableOutput output={output} maxLines={10} />
 		</div>
 	);
 }

@@ -9,11 +9,6 @@ interface AgentTreeProps {
 	onToggle?: () => void;
 }
 
-function truncateGoal(goal: string, maxLen = 60): string {
-	if (goal.length <= maxLen) return goal;
-	return `${goal.slice(0, maxLen - 1)}...`;
-}
-
 function statusIcon(status: AgentTreeNode["status"]): string {
 	switch (status) {
 		case "completed":
@@ -55,7 +50,7 @@ function TreeNode({
 
 	return (
 		<li>
-			<div className={styles.nodeRow}>
+			<div className={`${styles.nodeRow} ${isSelected ? styles.selected : ""}`}>
 				{hasChildren ? (
 					<button
 						type="button"
@@ -63,7 +58,7 @@ function TreeNode({
 						data-disclosure={expanded ? "open" : "closed"}
 						onClick={() => setExpanded((prev) => !prev)}
 						aria-label={expanded ? "Collapse" : "Expand"}
-					aria-expanded={expanded}
+						aria-expanded={expanded}
 					>
 						{expanded ? "\u25BE" : "\u25B8"}
 					</button>
@@ -72,17 +67,26 @@ function TreeNode({
 				)}
 				<button
 					type="button"
-					className={`${styles.node} ${isSelected ? styles.selected : ""}`}
+					className={styles.node}
 					data-agent-id={node.agentId}
 					data-selected={isSelected ? "true" : undefined}
 					data-status={node.status}
 					onClick={() => onSelectAgent(node.agentId)}
 				>
-					<span className={statusClasses[node.status]}>
-						{statusIcon(node.status)}
-					</span>
-					<span className={styles.agentName}>{node.agentName}</span>
-					<span className={styles.goal}>{truncateGoal(node.goal)}</span>
+					<div className={styles.nodeHeader}>
+						<span className={statusClasses[node.status]}>
+							{statusIcon(node.status)}
+						</span>
+						<span className={styles.agentName}>{node.agentName}</span>
+						{node.durationMs != null && node.status !== "running" && (
+							<span className={styles.duration}>
+								{(node.durationMs / 1000).toFixed(1)}s
+							</span>
+						)}
+					</div>
+					{node.goal && (
+						<div className={styles.goal}>{node.goal}</div>
+					)}
 				</button>
 			</div>
 			{hasChildren && expanded && (
@@ -127,7 +131,7 @@ export function AgentTree({
 			</div>
 			<button
 				type="button"
-				className={`${styles.allAgents} ${allSelected ? styles.selected : ""}`}
+				className={`${styles.allAgents} ${allSelected ? styles.allSelected : ""}`}
 				data-agent-id="all"
 				data-selected={allSelected ? "true" : undefined}
 				onClick={() => onSelectAgent(null)}

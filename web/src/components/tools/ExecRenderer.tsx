@@ -1,3 +1,4 @@
+import { ExpandableOutput } from "./ExpandableOutput.tsx";
 import type { ToolRendererProps } from "./ToolRendererRegistry.ts";
 import styles from "./tools.module.css";
 
@@ -12,7 +13,7 @@ export function ExecRenderer({ args, output, success, error }: ToolRendererProps
 					<span className={styles.prompt}>$</span> {command}
 				</div>
 			)}
-			<pre className={styles.codeBlock}>{output}</pre>
+			{output && <ExpandableOutput output={output} />}
 			{!success && error && (
 				<div className={styles.errorLine}>{error}</div>
 			)}

@@ -5,6 +5,7 @@ import { buildAgentTree } from "../../hooks/useAgentTree.ts";
 import { AssistantMessage } from "../AssistantMessage.tsx";
 import { ConversationView } from "../ConversationView.tsx";
 import { DelegationBlock } from "../DelegationBlock.tsx";
+import { EventErrorBoundary } from "../EventErrorBoundary.tsx";
 import { EventLine } from "../EventLine.tsx";
 import { smartArgs } from "../format.ts";
 import { MarkdownBlock } from "../MarkdownBlock.tsx";
@@ -16,6 +17,7 @@ import { ReadFileRenderer } from "../tools/ReadFileRenderer.tsx";
 import { EditFileRenderer } from "../tools/EditFileRenderer.tsx";
 import { ExecRenderer } from "../tools/ExecRenderer.tsx";
 import { FallbackRenderer } from "../tools/FallbackRenderer.tsx";
+import { KeyboardHelp } from "../KeyboardHelp.tsx";
 
 // --- Helpers ---
 
@@ -61,7 +63,10 @@ describe("MarkdownBlock", () => {
 		const md = "```js\nconst x = 1;\n```";
 		const html = renderToStaticMarkup(<MarkdownBlock content={md} />);
 		expect(html).toContain("<code");
-		expect(html).toContain("const x = 1;");
+		// Tokens are split across hljs spans
+		expect(html).toContain("const");
+		expect(html).toContain("x = ");
+		expect(html).toContain("1");
 	});
 
 	test("renders inline code", () => {
@@ -89,7 +94,7 @@ describe("MarkdownBlock", () => {
 		const html = renderToStaticMarkup(<MarkdownBlock content={md} />);
 		expect(html).toContain("data-code-block");
 		expect(html).toContain("<pre");
-		expect(html).toContain("const x = 1;");
+		expect(html).toContain("const");
 	});
 
 	test("does not wrap inline code in data-code-block container", () => {
@@ -98,6 +103,19 @@ describe("MarkdownBlock", () => {
 		);
 		expect(html).not.toContain("data-code-block");
 		expect(html).toContain("<code>foo()</code>");
+	});
+
+	test("applies syntax highlighting to code blocks", () => {
+		const md = "```js\nconst x = 1;\n```";
+		const html = renderToStaticMarkup(<MarkdownBlock content={md} />);
+		// highlight.js adds hljs class and span elements for tokens
+		expect(html).toContain("hljs");
+	});
+
+	test("renders copy button on code blocks", () => {
+		const md = "```js\nconst x = 1;\n```";
+		const html = renderToStaticMarkup(<MarkdownBlock content={md} />);
+		expect(html).toContain('data-action="copy-code"');
 	});
 
 	test("wraps multiple code blocks each in their own container", () => {
@@ -290,6 +308,20 @@ describe("ToolCall", () => {
 		);
 		expect(html).toContain("file contents here");
 	});
+
+	test("renders tool icon for known tools", () => {
+		const html = renderToStaticMarkup(
+			<ToolCall toolName="exec" success={true} args={{ command: "ls" }} />,
+		);
+		expect(html).toContain('data-testid="tool-icon"');
+	});
+
+	test("does not render tool icon for unknown tools", () => {
+		const html = renderToStaticMarkup(
+			<ToolCall toolName="custom_unknown_tool" success={true} />,
+		);
+		expect(html).not.toContain('data-testid="tool-icon"');
+	});
 });
 
 // --- ReadFileRenderer ---
@@ -333,6 +365,32 @@ describe("ReadFileRenderer", () => {
 			/>,
 		);
 		expect(html).toContain("50 lines");
+	});
+
+	test("shows expand button for long output", () => {
+		const lines = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`);
+		const html = renderToStaticMarkup(
+			<ReadFileRenderer
+				toolName="read_file"
+				args={{ path: "/tmp/big.ts" }}
+				output={lines.join("\n")}
+				success={true}
+			/>,
+		);
+		expect(html).toContain('data-action="expand-output"');
+		expect(html).toContain("20 lines");
+	});
+
+	test("does not show expand button for short output", () => {
+		const html = renderToStaticMarkup(
+			<ReadFileRenderer
+				toolName="read_file"
+				args={{ path: "/tmp/small.ts" }}
+				output="line 1\nline 2\nline 3"
+				success={true}
+			/>,
+		);
+		expect(html).not.toContain('data-action="expand-output"');
 	});
 });
 
@@ -404,6 +462,19 @@ describe("ExecRenderer", () => {
 		expect(html).toContain("total 32");
 	});
 
+	test("shows expand button for long output", () => {
+		const lines = Array.from({ length: 30 }, (_, i) => `output ${i + 1}`);
+		const html = renderToStaticMarkup(
+			<ExecRenderer
+				toolName="exec"
+				args={{ command: "ls" }}
+				output={lines.join("\n")}
+				success={true}
+			/>,
+		);
+		expect(html).toContain('data-action="expand-output"');
+	});
+
 	test("shows error when failed", () => {
 		const html = renderToStaticMarkup(
 			<ExecRenderer
@@ -447,6 +518,18 @@ describe("FallbackRenderer", () => {
 			/>,
 		);
 		expect(html).toContain("tool result here");
+	});
+
+	test("hides raw JSON args behind details toggle", () => {
+		const html = renderToStaticMarkup(
+			<FallbackRenderer
+				toolName="custom_tool"
+				args={{ key: "value", count: 42 }}
+				output="some output"
+				success={true}
+			/>,
+		);
+		expect(html).toContain('data-testid="technical-details"');
 	});
 });
 
@@ -542,7 +625,7 @@ describe("DelegationBlock", () => {
 		expect(html).not.toContain("View thread");
 	});
 
-	test("truncates long goals", () => {
+	test("shows full goal text without truncation", () => {
 		const longGoal = "A".repeat(100);
 		const html = renderToStaticMarkup(
 			<DelegationBlock
@@ -551,37 +634,15 @@ describe("DelegationBlock", () => {
 				status="running"
 			/>,
 		);
-		expect(html).toContain("...");
-		expect(html).not.toContain("A".repeat(100));
+		expect(html).toContain("A".repeat(100));
 	});
 
-	test("truncates goal to exactly 80 characters (77 + ellipsis)", () => {
-		const longGoal = "a".repeat(100);
+	test("shows full goal text of any length", () => {
+		const longGoal = "a".repeat(200);
 		const html = renderToStaticMarkup(
 			<DelegationBlock agentName="agent" goal={longGoal} status="running" />,
 		);
-		// The displayed goal should be at most 80 chars: 77 chars + "..."
-		const goalMatch = html.match(/(a+)\.\.\./);
-		expect(goalMatch).toBeTruthy();
-		expect(goalMatch![1]!.length + 3).toBe(80);
-	});
-
-	test("does not truncate goal of exactly 80 characters", () => {
-		const goal80 = "b".repeat(80);
-		const html = renderToStaticMarkup(
-			<DelegationBlock agentName="agent" goal={goal80} status="running" />,
-		);
-		expect(html).toContain(goal80);
-		expect(html).not.toContain("...");
-	});
-
-	test("truncates goal of 81 characters", () => {
-		const goal81 = "c".repeat(81);
-		const html = renderToStaticMarkup(
-			<DelegationBlock agentName="agent" goal={goal81} status="running" />,
-		);
-		expect(html).not.toContain(goal81);
-		expect(html).toContain("...");
+		expect(html).toContain(longGoal);
 	});
 
 	test("shows spinner indicator when status is running", () => {
@@ -938,6 +999,19 @@ describe("EventLine", () => {
 	});
 });
 
+// --- EventErrorBoundary ---
+
+describe("EventErrorBoundary", () => {
+	test("renders children normally", () => {
+		const html = renderToStaticMarkup(
+			<EventErrorBoundary eventKind="plan_end">
+				<div>content here</div>
+			</EventErrorBoundary>,
+		);
+		expect(html).toContain("content here");
+	});
+});
+
 // --- ConversationView ---
 
 describe("ConversationView", () => {
@@ -1027,14 +1101,13 @@ describe("ConversationView", () => {
 		expect(html).not.toContain("root goal");
 	});
 
-	test("renders empty container when no events", () => {
+	test("renders empty state when no events", () => {
 		const tree = buildAgentTree([]);
 		const html = renderToStaticMarkup(<ConversationView events={[]} tree={tree} />);
-		// Should render the wrapper but with no event content or streaming banner
+		// Should render the welcome/empty state component
 		expect(html).not.toContain("is responding");
-		expect(html).not.toContain("fix the bug");
-		// The container itself should be a single empty div
-		expect(html).toMatch(/^<div[^>]*><\/div>$/);
+		expect(html).toContain("Sprout");
+		expect(html).toContain("Enter a goal");
 	});
 
 	test("accumulates plan_delta text into a single streaming message", () => {
@@ -1190,5 +1263,17 @@ describe("ThreadPanel", () => {
 			/>,
 		);
 		expect(html).toContain("missing-agent");
+	});
+});
+
+// --- KeyboardHelp ---
+
+describe("KeyboardHelp", () => {
+	test("renders all keyboard shortcuts", () => {
+		const html = renderToStaticMarkup(<KeyboardHelp onClose={() => {}} />);
+		expect(html).toContain("Keyboard Shortcuts");
+		expect(html).toContain("Ctrl+/");
+		expect(html).toContain("Escape");
+		expect(html).toContain("Enter");
 	});
 });

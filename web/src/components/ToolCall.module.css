@@ -1,5 +1,8 @@
 .toolCall {
-	padding: 2px 0;
+	padding: 1px 0;
+	font-family: var(--font-mono);
+	font-size: var(--font-size-sm);
+	line-height: var(--line-height-tight);
 }
 
 .summary {
@@ -9,6 +12,13 @@
 	display: flex;
 	gap: 4px;
 	align-items: baseline;
+	padding: 1px 0;
+	border-radius: var(--radius-xs);
+	transition: background var(--transition-fast);
+}
+
+.summary:hover {
+	background: var(--color-inset);
 }
 
 .summary::-webkit-details-marker {
@@ -16,11 +26,23 @@
 }
 
 .indicator {
-	color: var(--color-text-tertiary);
+	color: var(--color-text-placeholder);
+	font-size: var(--font-size-xxs);
+	transition: transform var(--transition-fast);
+}
+
+details[open] > .summary .indicator {
+	transform: rotate(90deg);
+}
+
+.toolIcon {
+	font-size: var(--font-size-xs);
+	flex-shrink: 0;
 }
 
 .toolName {
-	color: var(--color-warning);
+	color: var(--color-text-secondary);
+	font-weight: 500;
 }
 
 .args {
@@ -29,17 +51,21 @@
 
 .success {
 	color: var(--color-success);
+	font-size: var(--font-size-xxs);
 }
 
 .error {
 	color: var(--color-error);
+	font-size: var(--font-size-xxs);
 }
 
 .outputHint {
-	color: var(--color-text-tertiary);
+	color: var(--color-text-placeholder);
+	font-size: var(--font-size-xs);
 }
 
 .duration {
-	color: var(--color-text-tertiary);
+	color: var(--color-text-placeholder);
 	margin-left: var(--space-xs);
+	font-size: var(--font-size-xxs);
 }

@@ -1,6 +1,13 @@
 import type { SessionEvent } from "../../../src/kernel/types.ts";
 import { type AgentTreeNode, getDescendantIds } from "../hooks/useAgentTree.ts";
 
+/** A single tool call summary for live peek display. */
+export interface ToolCallSummary {
+	name: string;
+	args: string;
+	success: boolean;
+}
+
 export interface GroupedEvent {
 	event: SessionEvent;
 	isFirstInGroup: boolean;
@@ -8,8 +15,10 @@ export interface GroupedEvent {
 	durationMs: number | null;
 	streamingText?: string;
 	agentName?: string;
-	/** Live peek summary for running delegations. */
+	/** Live peek summary for running delegations (legacy single-line). */
 	livePeek?: string;
+	/** Recent tool calls for running delegations (richer display). */
+	livePeekTools?: ToolCallSummary[];
 }
 
 /** Event kinds that are never displayed. */
@@ -82,6 +91,7 @@ export function groupEvents(
 	const merging = !agentFilter; // only merge in parent (unfiltered) view
 	const directChildIds = new Set<string>();
 	const childPeek = new Map<string, string>(); // child_id -> latest activity summary
+	const childPeekTools = new Map<string, ToolCallSummary[]>(); // child_id -> recent tool calls
 	const pendingActStarts = new Map<string, number>(); // child_id -> index in result array
 
 	for (let i = 0; i < events.length; i++) {
@@ -112,10 +122,16 @@ export function groupEvents(
 		if (merging && directChildIds.has(event.agent_id)) {
 			if (event.kind === "primitive_end") {
 				const toolName = String(event.data.name ?? "");
-				const path = typeof event.data.args === "object" && event.data.args != null
-					? String((event.data.args as Record<string, unknown>).path ?? "")
-					: "";
-				childPeek.set(event.agent_id, path ? `${toolName} ${path}` : toolName);
+				const args = event.data.args as Record<string, unknown> | undefined;
+				const path = args?.path;
+				const argsStr = typeof path === "string" ? path : "";
+				const success = Boolean(event.data.success);
+				childPeek.set(event.agent_id, argsStr ? `${toolName} ${argsStr}` : toolName);
+				// Accumulate recent tool calls (keep last 3)
+				const tools = childPeekTools.get(event.agent_id) ?? [];
+				tools.push({ name: toolName, args: argsStr, success });
+				if (tools.length > 3) tools.shift();
+				childPeekTools.set(event.agent_id, tools);
 			} else if (event.kind === "plan_end" && typeof event.data.text === "string") {
 				const text = event.data.text;
 				childPeek.set(event.agent_id, text.length > 60 ? `${text.slice(0, 60)}...` : text);
@@ -211,8 +227,13 @@ export function groupEvents(
 	// Update live peek for still-pending (running) delegations
 	for (const [childId, idx] of pendingActStarts) {
 		const peek = childPeek.get(childId);
-		if (peek) {
-			result[idx] = { ...result[idx]!, livePeek: peek };
+		const tools = childPeekTools.get(childId);
+		if (peek || tools) {
+			result[idx] = {
+				...result[idx]!,
+				...(peek ? { livePeek: peek } : {}),
+				...(tools ? { livePeekTools: [...tools] } : {}),
+			};
 		}
 	}
 

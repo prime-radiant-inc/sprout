@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { SessionStatus } from "../hooks/useEvents.ts";
 import { formatTokens, shortModelName } from "./format.ts";
 import styles from "./StatusBar.module.css";
@@ -7,6 +8,8 @@ export interface StatusBarProps {
 	connected: boolean;
 	onInterrupt?: () => void;
 	onSwitchModel?: (model: string) => void;
+	onToggleTheme?: () => void;
+	theme?: string;
 }
 
 /** Determine context pressure bar color based on usage percentage. */
@@ -16,8 +19,29 @@ function pressureColor(percent: number): string {
 	return "var(--color-success)";
 }
 
-/** Top command bar showing context pressure, cost, model, session controls. */
-export function StatusBar({ status, connected, onInterrupt, onSwitchModel }: StatusBarProps) {
+/** Format elapsed seconds as "M:SS". */
+export function formatElapsedTime(startedAt: number | null): string | null {
+	if (startedAt === null) return null;
+	const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+	const mins = Math.floor(elapsed / 60);
+	const secs = elapsed % 60;
+	return `${mins}:${secs.toString().padStart(2, "0")}`;
+}
+
+/** Hook that ticks every second to update elapsed time display. */
+function useElapsedTime(startedAt: number | null): string | null {
+	const [, setTick] = useState(0);
+	useEffect(() => {
+		if (startedAt === null) return;
+		const interval = setInterval(() => setTick((t) => t + 1), 1000);
+		return () => clearInterval(interval);
+	}, [startedAt]);
+
+	return formatElapsedTime(startedAt);
+}
+
+/** Top status bar with session info, context pressure, model, and controls. */
+export function StatusBar({ status, connected, onInterrupt, onSwitchModel, onToggleTheme, theme }: StatusBarProps) {
 	const {
 		contextTokens,
 		contextWindowSize,
@@ -34,19 +58,26 @@ export function StatusBar({ status, connected, onInterrupt, onSwitchModel }: Sta
 		contextWindowSize > 0 ? contextTokens / contextWindowSize : 0;
 	const percentRound = Math.round(pressure * 100);
 	const percentStr = `${percentRound}%`;
-	const turnLabel = `${turns} ${turns === 1 ? "turn" : "turns"}`;
+
+	const elapsed = useElapsedTime(status.sessionStartedAt);
 
 	const handleCopySessionId = () => {
-		navigator.clipboard.writeText(sessionId).catch(() => {
-			// Clipboard write can fail in non-secure contexts; ignore silently.
-		});
+		navigator.clipboard.writeText(sessionId).catch(() => {});
 	};
 
 	return (
 		<div className={styles.statusBar}>
-			{/* Left group */}
-			<div className={styles.leftGroup}>
+			{/* Connection + status */}
+			<div className={styles.group}>
 				<span className={styles.connectionDot} data-connected={String(connected)} />
+				<span className={styles.statusLabel} data-status={runStatus}>
+					{runStatus === "running" ? "Running" : runStatus === "interrupted" ? "Interrupted" : "Idle"}
+				</span>
+			</div>
+
+			{/* Context pressure */}
+			<div className={styles.group}>
+				<span className={styles.label}>Context</span>
 				<div
 					className={styles.pressureBarTrack}
 					data-testid="context-pressure-bar"
@@ -59,56 +90,93 @@ export function StatusBar({ status, connected, onInterrupt, onSwitchModel }: Sta
 						}}
 					/>
 				</div>
-				<span>
-					{formatTokens(contextTokens)}/{formatTokens(contextWindowSize)} {percentStr}
-				</span>
-				<span>{turnLabel}</span>
-				{runStatus === "running" && (
-					<span>
-						{"\u2191"}{formatTokens(inputTokens)} {"\u2193"}{formatTokens(outputTokens)}
-					</span>
-				)}
+				<span className={styles.value}>{percentStr}</span>
 			</div>
+
+			{/* Token usage */}
+			<div className={styles.group}>
+				<span className={styles.label}>Tokens</span>
+				<span className={styles.value}>
+					{formatTokens(contextTokens)}/{formatTokens(contextWindowSize)}
+				</span>
+			</div>
+
+			{/* Turns */}
+			<div className={styles.group}>
+				<span className={styles.label}>Turns</span>
+				<span className={styles.value}>{turns}</span>
+			</div>
+
+			{/* Session duration */}
+			{elapsed && (
+				<div className={styles.group}>
+					<span className={styles.label}>Time</span>
+					<span className={styles.value}>{elapsed}</span>
+				</div>
+			)}
+
+			{/* I/O tokens during run */}
+			{runStatus === "running" && (
+				<div className={styles.group}>
+					<span className={styles.ioUp}>{"\u2191"}{formatTokens(inputTokens)}</span>
+					<span className={styles.ioDown}>{"\u2193"}{formatTokens(outputTokens)}</span>
+				</div>
+			)}
 
 			<span className={styles.spacer} />
 
-			{/* Right group */}
-			<div className={styles.rightGroup}>
-				{availableModels.length > 0 && onSwitchModel ? (
-					<select
-						className={styles.modelSelect}
-						value={model}
-						onChange={(e) => onSwitchModel(e.target.value)}
-					>
-						{availableModels.map((m) => (
-							<option key={m} value={m}>
-								{shortModelName(m)}
-							</option>
-						))}
-					</select>
-				) : (
-					<span>{shortModelName(model)}</span>
-				)}
-				{runStatus === "running" && (
-					<button
-						type="button"
-						className={styles.iconButton}
-						onClick={onInterrupt}
-						title="Interrupt"
-					>
-						{"\u23F9"}
-					</button>
-				)}
+			{/* Model selector */}
+			{availableModels.length > 0 && onSwitchModel ? (
+				<select
+					className={styles.modelSelect}
+					value={model}
+					onChange={(e) => onSwitchModel(e.target.value)}
+				>
+					{availableModels.map((m) => (
+						<option key={m} value={m}>
+							{shortModelName(m)}
+						</option>
+					))}
+				</select>
+			) : (
+				<span className={styles.modelLabel}>{shortModelName(model)}</span>
+			)}
+
+			{/* Interrupt button */}
+			{runStatus === "running" && (
 				<button
 					type="button"
-					className={styles.sessionId}
-					data-action="copy-session-id"
-					onClick={handleCopySessionId}
-					title="Click to copy session ID"
+					className={styles.interruptBtn}
+					onClick={onInterrupt}
+					title="Interrupt (Esc)"
 				>
-					{sessionId}
+					Stop
 				</button>
-			</div>
+			)}
+
+			{/* Theme toggle */}
+			{onToggleTheme && (
+				<button
+					type="button"
+					className={styles.themeToggle}
+					data-action="toggle-theme"
+					onClick={onToggleTheme}
+					title={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+				>
+					{theme === "dark" ? "\u2600" : "\u263E"}
+				</button>
+			)}
+
+			{/* Session ID */}
+			<button
+				type="button"
+				className={styles.sessionId}
+				data-action="copy-session-id"
+				onClick={handleCopySessionId}
+				title="Click to copy session ID"
+			>
+				{sessionId.slice(0, 8)}
+			</button>
 		</div>
 	);
 }

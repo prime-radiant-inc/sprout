@@ -2,6 +2,7 @@
 	display: flex;
 	flex-direction: column;
 	gap: var(--space-xs);
+	padding: var(--space-xs) 0;
 }
 
 .header {
@@ -18,9 +19,10 @@
 }
 
 .timestamp {
-	font-family: var(--font-ui);
-	font-size: var(--font-size-xs);
-	color: var(--color-text-tertiary);
+	font-family: var(--font-mono);
+	font-size: var(--font-size-xxs);
+	color: var(--color-text-placeholder);
+	font-variant-numeric: tabular-nums;
 }
 
 .card {
@@ -30,6 +32,7 @@
 	display: flex;
 	align-items: baseline;
 	gap: var(--space-sm);
+	border: 1px solid transparent;
 }
 
 .text {
@@ -43,12 +46,19 @@
 .badge {
 	font-family: var(--font-ui);
 	font-size: var(--font-size-xxs);
-	font-weight: 500;
+	font-weight: 600;
 	color: var(--color-warning);
-	background: color-mix(in srgb, var(--color-warning) 10%, transparent);
-	padding: 1px var(--space-xs);
+	background: var(--color-warning-subtle);
+	padding: 1px 6px;
 	border-radius: var(--radius-full);
 	flex-shrink: 0;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.steering .card {
+	background: var(--color-warning-subtle);
+	border-color: transparent;
 }
 
 .steering .text {

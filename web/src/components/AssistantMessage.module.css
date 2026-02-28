@@ -4,7 +4,7 @@
 
 .header {
 	display: flex;
-	align-items: center;
+	align-items: baseline;
 	gap: var(--space-sm);
 	margin-bottom: var(--space-xs);
 }
@@ -17,21 +17,24 @@
 }
 
 .timestamp {
-	font-family: var(--font-ui);
-	font-size: var(--font-size-xs);
-	color: var(--color-text-tertiary);
+	font-family: var(--font-mono);
+	font-size: var(--font-size-xxs);
+	color: var(--color-text-placeholder);
+	font-variant-numeric: tabular-nums;
 }
 
+/* Thinking — collapsed by default, subtle reveal */
 .thinking {
 	margin-bottom: var(--space-xs);
 }
 
 .thinkingSummary {
-	color: var(--color-text-tertiary);
-	font-size: var(--font-size-sm);
+	color: var(--color-text-placeholder);
+	font-size: var(--font-size-xs);
 	cursor: pointer;
-	font-style: italic;
 	user-select: none;
+	font-style: italic;
+	transition: color var(--transition-fast);
 }
 
 .thinkingSummary:hover {
@@ -41,7 +44,9 @@
 .thinkingContent {
 	color: var(--color-text-tertiary);
 	font-style: italic;
+	font-size: var(--font-size-sm);
 	padding: var(--space-xs) 0 var(--space-xs) var(--space-md);
-	border-left: 1px solid var(--color-border);
+	border-left: 2px solid var(--color-border);
 	white-space: pre-wrap;
+	line-height: var(--line-height);
 }

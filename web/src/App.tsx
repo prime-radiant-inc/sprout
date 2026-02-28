@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { KeyboardHelp } from "./components/KeyboardHelp.tsx";
 import type { SlashCommand } from "../../src/tui/slash-commands.ts";
 import styles from "./App.module.css";
 import { ConversationView } from "./components/ConversationView.tsx";
@@ -10,6 +11,7 @@ import { useAgentTree } from "./hooks/useAgentTree.ts";
 import { useEvents } from "./hooks/useEvents.ts";
 import { useFaviconStatus } from "./hooks/useFaviconStatus.ts";
 import { handleKeyboardShortcut } from "./hooks/useKeyboardShortcuts.ts";
+import { useResizable } from "./hooks/useResizable.ts";
 import { useWebSocket } from "./hooks/useWebSocket.ts";
 
 import { buildWsUrl } from "./hooks/buildWsUrl.ts";
@@ -27,7 +29,15 @@ export function App() {
 
 	const [panelStack, setPanelStack] = useState<string[]>([]);
 	const [sidebarOpen, setSidebarOpen] = useState(true);
+	const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
 	const inputRef = useRef<HTMLTextAreaElement>(null);
+
+	const { width: sidebarWidth, onMouseDown: onSidebarDragStart } = useResizable({
+		storageKey: "sprout-sidebar-width",
+		defaultWidth: 260,
+		minWidth: 200,
+		maxWidth: 400,
+	});
 
 	// Update favicon based on session status
 	useFaviconStatus(status.status);
@@ -49,7 +59,7 @@ export function App() {
 	const handleScroll = useCallback(() => {
 		const el = conversationRef.current;
 		if (!el) return;
-		const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+		const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
 		setUserScrolledUp(!atBottom);
 	}, []);
 
@@ -96,6 +106,7 @@ export function App() {
 				toggleSidebar: () => setSidebarOpen((prev) => !prev),
 				clearFilter: () => setPanelStack([]),
 				focusInput: () => inputRef.current?.focus(),
+				showHelp: () => setShowKeyboardHelp(true),
 			});
 			if (handled) e.preventDefault();
 		};
@@ -103,8 +114,26 @@ export function App() {
 		return () => document.removeEventListener("keydown", handleKeyDown);
 	}, []);
 
-	// Theme detection: follow OS dark/light preference
+	// Theme: localStorage override or OS preference
+	const [themeOverride, setThemeOverride] = useState<"light" | "dark" | null>(() => {
+		const stored = localStorage.getItem("sprout-theme");
+		return stored === "light" || stored === "dark" ? stored : null;
+	});
+
+	const toggleTheme = useCallback(() => {
+		setThemeOverride((prev) => {
+			const current = prev ?? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+			const next = current === "dark" ? "light" : "dark";
+			localStorage.setItem("sprout-theme", next);
+			return next;
+		});
+	}, []);
+
 	useEffect(() => {
+		if (themeOverride) {
+			document.documentElement.setAttribute("data-theme", themeOverride);
+			return;
+		}
 		const mq = window.matchMedia("(prefers-color-scheme: dark)");
 		const update = (e: MediaQueryListEvent | MediaQueryList) => {
 			document.documentElement.setAttribute("data-theme", e.matches ? "dark" : "light");
@@ -112,7 +141,9 @@ export function App() {
 		update(mq);
 		mq.addEventListener("change", update);
 		return () => mq.removeEventListener("change", update);
-	}, []);
+	}, [themeOverride]);
+
+	const currentTheme = themeOverride ?? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
 
 	const toggleSidebar = useCallback(() => {
 		setSidebarOpen((prev) => !prev);
@@ -189,6 +220,8 @@ export function App() {
 				connected={connected}
 				onInterrupt={handleInterrupt}
 				onSwitchModel={handleSwitchModel}
+				onToggleTheme={toggleTheme}
+				theme={currentTheme}
 			/>
 
 			<div
@@ -197,7 +230,11 @@ export function App() {
 				data-sidebar-open={String(sidebarOpen)}
 			>
 				{sidebarOpen && (
-					<aside className={styles.sidebar} data-region="sidebar">
+					<aside
+						className={styles.sidebar}
+						data-region="sidebar"
+						style={{ width: sidebarWidth }}
+					>
 						<Sidebar
 							status={status}
 							tree={tree}
@@ -206,6 +243,7 @@ export function App() {
 							onToggle={toggleSidebar}
 							events={events}
 						/>
+						<div className={styles.dragHandle} onMouseDown={onSidebarDragStart} />
 					</aside>
 				)}
 
@@ -230,16 +268,20 @@ export function App() {
 						</button>
 					)}
 				</main>
-				{panelStack.map((agentId) => (
-					<ThreadPanel
-						key={agentId}
-						agentId={agentId}
-						tree={tree}
-						events={events}
-						onClose={() => closePanel(agentId)}
-						onSelectAgent={openPanel}
-					/>
-				))}
+				{panelStack.length > 0 && (
+					<div className={styles.panelContainer} data-region="panels">
+						{panelStack.map((agentId) => (
+							<ThreadPanel
+								key={agentId}
+								agentId={agentId}
+								tree={tree}
+								events={events}
+								onClose={() => closePanel(agentId)}
+								onSelectAgent={openPanel}
+							/>
+						))}
+					</div>
+				)}
 			</div>
 
 			<InputArea
@@ -250,6 +292,10 @@ export function App() {
 				onInterrupt={handleInterrupt}
 				textareaRef={inputRef}
 			/>
+
+			{showKeyboardHelp && (
+				<KeyboardHelp onClose={() => setShowKeyboardHelp(false)} />
+			)}
 		</div>
 	);
 }

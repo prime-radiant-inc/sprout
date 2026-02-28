@@ -1,7 +1,12 @@
 .conversationView {
 	display: flex;
 	flex-direction: column;
-	gap: var(--space-sm);
+	gap: 1px;
 	background: var(--color-canvas);
-	padding: var(--space-md);
+	padding: var(--space-lg) var(--space-xl);
+	max-width: 900px;
+}
+
+.conversationView > * {
+	animation: fadeSlideIn 200ms ease-out both;
 }

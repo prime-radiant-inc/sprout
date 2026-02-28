@@ -1,5 +1,5 @@
 .rendererBlock {
-	margin: var(--space-xs) 0 var(--space-xs) var(--space-md);
+	margin: var(--space-xs) 0 var(--space-xs) var(--space-lg);
 	font-size: var(--font-size-sm);
 }
 
@@ -11,25 +11,25 @@
 }
 
 .meta {
-	font-size: var(--font-size-xs);
-	color: var(--color-text-tertiary);
+	font-size: var(--font-size-xxs);
+	color: var(--color-text-placeholder);
 	margin-bottom: var(--space-xs);
+	font-variant-numeric: tabular-nums;
 }
 
 .codeBlock {
 	background: var(--color-inset);
 	border: 1px solid var(--color-border);
 	border-radius: var(--radius-sm);
-	padding: var(--space-sm);
+	padding: var(--space-sm) var(--space-md);
 	margin: 0;
 	overflow-x: auto;
 	font-family: var(--font-mono);
 	font-size: var(--font-size-sm);
-	line-height: 1.4;
-	max-height: 300px;
-	overflow-y: auto;
+	line-height: 1.45;
 	white-space: pre-wrap;
 	word-break: break-all;
+	color: var(--color-text-primary);
 }
 
 .commandLine {
@@ -40,19 +40,57 @@
 }
 
 .prompt {
-	color: var(--color-text-tertiary);
+	color: var(--color-text-placeholder);
 }
 
 .errorLine {
+	font-family: var(--font-mono);
 	font-size: var(--font-size-xs);
 	color: var(--color-error);
 	margin-top: var(--space-xs);
 }
 
 .added {
-	background: color-mix(in srgb, var(--color-success) 15%, transparent);
+	background: var(--color-diff-added);
 }
 
 .removed {
-	background: color-mix(in srgb, var(--color-error) 15%, transparent);
+	background: var(--color-diff-removed);
+}
+
+.expandBtn {
+	all: unset;
+	display: block;
+	width: 100%;
+	padding: var(--space-xs) var(--space-sm);
+	font-family: var(--font-mono);
+	font-size: var(--font-size-xxs);
+	color: var(--color-accent);
+	cursor: pointer;
+	text-align: center;
+	border-top: 1px solid var(--color-border);
+	transition: background var(--transition-fast);
+}
+
+.expandBtn:hover {
+	background: var(--color-inset);
+}
+
+.technicalDetails {
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-xs);
+	margin-bottom: var(--space-xs);
+}
+
+.detailsSummary {
+	font-family: var(--font-mono);
+	font-size: var(--font-size-xxs);
+	color: var(--color-text-placeholder);
+	padding: var(--space-xs) var(--space-sm);
+	cursor: pointer;
+	user-select: none;
+}
+
+.detailsSummary:hover {
+	color: var(--color-text-secondary);
 }
