@@ -222,6 +222,74 @@ describe("GenomeMutationService", () => {
 
 		expect(confirmation.request_id).toBe(requestId);
 	}, 10_000);
+
+	test("processes a valid create_agent mutation", async () => {
+		await service.start();
+
+		const confirmationPromise = testBus.waitForMessage(genomeEvents(SESSION_ID), 5000);
+
+		await testBus.publish(
+			genomeMutations(SESSION_ID),
+			JSON.stringify({
+				kind: "mutation_request",
+				mutation: {
+					type: "create_agent",
+					name: "test-agent",
+					description: "A test agent",
+					system_prompt: "You are a test agent.",
+					model: "fast",
+					tools: ["read_file"],
+					agents: [],
+					tags: ["test"],
+				},
+				request_id: "req-create-001",
+			}),
+		);
+
+		const raw = await confirmationPromise;
+		const confirmation = JSON.parse(raw);
+
+		expect(confirmation.kind).toBe("mutation_confirmed");
+		expect(confirmation.request_id).toBe("req-create-001");
+		expect(confirmation.mutation_type).toBe("create_agent");
+		expect(confirmation.success).toBe(true);
+
+		// Verify the agent was actually added to the genome
+		const agent = genome.getAgent("test-agent");
+		expect(agent).toBeDefined();
+		expect(agent!.description).toBe("A test agent");
+		expect(agent!.system_prompt).toBe("You are a test agent.");
+		expect(agent!.model).toBe("fast");
+		expect(agent!.tools).toEqual(["read_file"]);
+	}, 10_000);
+
+	test("publishes error for create_agent with missing required fields", async () => {
+		await service.start();
+
+		const confirmationPromise = testBus.waitForMessage(genomeEvents(SESSION_ID), 5000);
+
+		// Send create_agent with missing description, system_prompt, and model
+		await testBus.publish(
+			genomeMutations(SESSION_ID),
+			JSON.stringify({
+				kind: "mutation_request",
+				mutation: {
+					type: "create_agent",
+					name: "incomplete-agent",
+				},
+				request_id: "req-create-err-001",
+			}),
+		);
+
+		const raw = await confirmationPromise;
+		const confirmation = JSON.parse(raw);
+
+		expect(confirmation.kind).toBe("mutation_confirmed");
+		expect(confirmation.request_id).toBe("req-create-err-001");
+		expect(confirmation.mutation_type).toBe("create_agent");
+		expect(confirmation.success).toBe(false);
+		expect(confirmation.error).toContain("create_agent: missing or invalid");
+	}, 10_000);
 });
 
 /** Poll until a condition is true or timeout. */

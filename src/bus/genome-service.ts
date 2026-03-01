@@ -122,16 +122,30 @@ export class GenomeMutationService {
 					break;
 				}
 				case "create_agent": {
+					if (typeof mutation.name !== "string" || !mutation.name) {
+						throw new Error("create_agent: missing or invalid 'name'");
+					}
+					if (typeof mutation.description !== "string" || !mutation.description) {
+						throw new Error("create_agent: missing or invalid 'description'");
+					}
+					if (typeof mutation.system_prompt !== "string" || !mutation.system_prompt) {
+						throw new Error("create_agent: missing or invalid 'system_prompt'");
+					}
+					if (typeof mutation.model !== "string" || !mutation.model) {
+						throw new Error("create_agent: missing or invalid 'model'");
+					}
 					validateAgentName(mutation.name);
+					const tools: string[] = Array.isArray(mutation.tools) ? mutation.tools : [];
+					const agents: string[] = Array.isArray(mutation.agents) ? mutation.agents : [];
 					await this.genome.addAgent({
 						name: mutation.name,
 						description: mutation.description,
 						system_prompt: mutation.system_prompt,
 						model: mutation.model,
-						tools: mutation.tools,
-						agents: mutation.agents,
+						tools,
+						agents,
 						constraints: { ...DEFAULT_CONSTRAINTS, can_spawn: false },
-						tags: mutation.tags,
+						tags: Array.isArray(mutation.tags) ? mutation.tags : [],
 						version: 1,
 					});
 					break;

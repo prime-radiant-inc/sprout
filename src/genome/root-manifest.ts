@@ -20,7 +20,14 @@ export interface RootManifest {
 export async function loadManifest(path: string): Promise<RootManifest> {
 	try {
 		const content = await readFile(path, "utf-8");
-		return JSON.parse(content) as RootManifest;
+		const raw = JSON.parse(content) as RootManifest & { rootCapabilities?: string[] };
+		// Migrate old manifests that used combined rootCapabilities
+		if (raw.rootTools === undefined && raw.rootCapabilities) {
+			raw.rootTools = raw.rootCapabilities.filter((c) => !c.includes("/"));
+			raw.rootAgents = raw.rootCapabilities.filter((c) => c.includes("/"));
+			delete raw.rootCapabilities;
+		}
+		return raw;
 	} catch (err: unknown) {
 		if (err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT") {
 			return { synced_at: "", agents: {} };

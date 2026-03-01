@@ -51,6 +51,38 @@ describe("root-manifest", () => {
 			expect(loaded).toEqual(manifest);
 		});
 
+		test("loadManifest migrates old rootCapabilities into rootTools and rootAgents", async () => {
+			const path = join(tempDir, "old-format.json");
+			const oldManifest = {
+				synced_at: "2026-01-01T00:00:00Z",
+				agents: {},
+				rootCapabilities: ["read_file", "write_file", "utility/planner", "grep"],
+			};
+			await writeFile(path, JSON.stringify(oldManifest));
+			const loaded = await loadManifest(path);
+
+			expect(loaded.rootTools).toEqual(["read_file", "write_file", "grep"]);
+			expect(loaded.rootAgents).toEqual(["utility/planner"]);
+			expect((loaded as unknown as Record<string, unknown>).rootCapabilities).toBeUndefined();
+		});
+
+		test("loadManifest does not migrate when rootTools already exists", async () => {
+			const path = join(tempDir, "new-format.json");
+			const manifest = {
+				synced_at: "2026-01-01T00:00:00Z",
+				agents: {},
+				rootTools: ["read_file"],
+				rootAgents: ["utility/planner"],
+				rootCapabilities: ["stale_data"],
+			};
+			await writeFile(path, JSON.stringify(manifest));
+			const loaded = await loadManifest(path);
+
+			// rootTools already set, so migration should not overwrite
+			expect(loaded.rootTools).toEqual(["read_file"]);
+			expect(loaded.rootAgents).toEqual(["utility/planner"]);
+		});
+
 		test("saveManifest creates parent directories when needed", async () => {
 			const path = join(tempDir, "nested", "dirs", "manifest.json");
 			const manifest: RootManifest = {
