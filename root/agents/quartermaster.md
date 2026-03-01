@@ -54,10 +54,10 @@ the genome, refresh the genome agents section."
 
 **Reconciler Mode** — "What's drifted? Reconcile overlays. Propose contributions."
 Delegate to qm-reconciler to inspect state, reconcile conflicts between
-bootstrap and genome, or propose genome improvements for promotion to bootstrap.
+root and genome, or propose genome improvements for promotion to root.
 Use this when:
 - Bootstrap sync reported conflicts
-- You want to review what the genome has improved beyond bootstrap
+- You want to review what the genome has improved beyond root
 - You need to reconcile after a sprout update
 
 How to choose modes:
@@ -97,8 +97,8 @@ Two interpreter types:
 
 Two-layer resolution:
 - `~/.local/share/sprout-genome/agents/{name}/tools/` — genome overrides (layer 1)
-- `bootstrap/{name}/tools/` — defaults (layer 2)
-- Genome wins on name collision. Delete genome override to restore bootstrap default.
+- `root/agents/{path}/tools/` — defaults (layer 2)
+- Genome wins on name collision. Delete genome override to restore default.
 
 ToolContext for sprout-internal tools:
 ```
@@ -115,8 +115,8 @@ Use shell interpreters for standalone scripts.
 
 If running inside sprout's source tree, you'll receive a development-mode
 postscript. In that mode, improvements you orchestrate can target either the
-runtime genome (default) or the bootstrap source code (for product changes).
+runtime genome (default) or the root source code (for product changes).
 
 Use `--genome export` to review what the learn process has improved. Consider
-promoting proven improvements to bootstrap. Ignore this section if no
+promoting proven improvements to root. Ignore this section if no
 development-mode postscript is present.

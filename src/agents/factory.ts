@@ -18,7 +18,7 @@ import { loadProjectDocs } from "./project-doc.ts";
 export interface CreateAgentOptions {
 	/** Path to the genome directory */
 	genomePath: string;
-	/** Path to bootstrap agent YAML files. Required for first-time setup. */
+	/** Path to root agent spec directory. Required for first-time setup. */
 	bootstrapDir?: string;
 	/** Working directory for the agent */
 	workDir?: string;

@@ -141,6 +141,6 @@ describe("createAgent", () => {
 		const qmPostscript = await result.genome.loadAgentPostscript("quartermaster");
 		expect(qmPostscript).toContain(DEV_MODE_SENTINEL);
 		expect(qmPostscript).toContain("Development Mode");
-		expect(qmPostscript).toContain("bootstrap");
+		expect(qmPostscript).toContain("Root source");
 	});
 });

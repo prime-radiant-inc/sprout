@@ -14,18 +14,18 @@ two distinct targets:
 1. **Runtime genome** (\`save_agent\` tool) — changes take effect immediately
    for this sprout instance. Use for experimentation and runtime adaptation.
 
-2. **Bootstrap source** (files in \`bootstrap/\`) — changes here become the
+2. **Root source** (files in \`root/\`) — changes here become the
    default for all new sprout genomes. Use when an improvement should ship
    as part of the product.
 
 When the fabricator creates or modifies an agent:
 - Default to runtime genome (save_agent) for new experimental agents
 - When an improvement is proven (evaluated as helpful), suggest promoting
-  it to bootstrap via a file write to bootstrap/{agent-name}.yaml
+  it to root via a file write to the appropriate path under root/agents/
 - Always note which target was used in your response
 
 The \`--genome export\` command can also harvest runtime improvements into
-bootstrap for human review.`;
+root for human review.`;
 
 async function exists(path: string): Promise<boolean> {
 	try {
@@ -38,12 +38,12 @@ async function exists(path: string): Promise<boolean> {
 
 /**
  * Detect whether sprout is running inside its own source tree.
- * True when the working directory contains both bootstrap/ and src/genome/.
+ * True when the working directory contains both root/ and src/genome/.
  */
 export async function isDevMode(workDir: string): Promise<boolean> {
-	const [hasBootstrap, hasGenome] = await Promise.all([
+	const [hasRoot, hasGenome] = await Promise.all([
 		exists(join(workDir, "root")),
 		exists(join(workDir, "src", "genome")),
 	]);
-	return hasBootstrap && hasGenome;
+	return hasRoot && hasGenome;
 }

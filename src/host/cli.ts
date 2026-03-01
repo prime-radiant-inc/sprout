@@ -695,7 +695,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 		const stagingDir = await mkdtemp(join(tmpdir(), "sprout-export-"));
 		const written = await stageLearnings(result, stagingDir);
 		console.log(`\nWrote ${written.length} agent YAML files to: ${stagingDir}/`);
-		console.log("Copy desired files to bootstrap/ to incorporate learnings.");
+		console.log("Copy desired files to root/ to incorporate learnings.");
 		return;
 	}
 
