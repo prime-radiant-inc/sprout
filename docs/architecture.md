@@ -36,16 +36,58 @@ Agent names that shadow kernel primitives or reserved names are rejected at crea
 
 ## Bootstrap Agents
 
-Four agents. Minimum viable tree for read/edit/run:
+19 agents in `bootstrap/`. Core delegation tree plus specialized roles:
 
-| Agent | Model | Capabilities | Role |
-|-------|-------|-------------|------|
-| root | best | code-reader, code-editor, command-runner | Decomposes tasks, delegates |
-| code-reader | fast | read_file, grep, glob | Finds and returns code |
-| code-editor | balanced | read_file, edit_file, write_file | Makes targeted edits |
-| command-runner | fast | exec | Runs shell commands |
+**Core (delegation chain):**
+
+| Agent | Model | Role |
+|-------|-------|------|
+| root | best | Decomposes tasks, delegates to all others |
+| reader | fast | Finds and returns code (read_file, grep, glob) |
+| editor | balanced | Makes targeted edits (read_file, edit_file, write_file) |
+| command-runner | fast | Runs shell commands (exec) |
+
+**Specialized agents:** architect, debugger, engineer, mcp, project-explorer, quality-reviewer, spec-reviewer, task-manager, tech-lead, verifier, web-reader
+
+**Quartermaster subsystem (self-improvement):** quartermaster, qm-planner, qm-indexer, qm-fabricator
+
+The full set lives in `bootstrap/*.yaml`. New agents added here are synced to runtime genomes via genome reconciliation (see below).
+
+## Genome Reconciliation
+
+The bootstrap directory (`bootstrap/`) is the canonical source for agent definitions shipped with sprout. The runtime genome (`~/.local/share/sprout-genome/`) is a git-versioned copy that Learn can mutate at runtime. Genome reconciliation keeps them in sync.
+
+### How it works
+
+`syncBootstrap(bootstrapDir)` performs a 4-way comparison using a **bootstrap manifest** (`bootstrap-manifest.json` inside the genome):
+
+| # | Old Manifest | New Manifest | Genome | Action |
+|---|-------------|-------------|--------|--------|
+| 1 | missing | present | missing | **Add** — new bootstrap agent, copy to genome |
+| 2 | missing | present | present | **Skip** — pre-manifest genome, treat as evolved |
+| 3 | present | unchanged | any | **Skip** — bootstrap file unchanged |
+| 4 | present | changed | matches old | **Update** — genome hasn't diverged, safe to overwrite |
+| 5 | present | changed | diverged | **Conflict** — both sides evolved, report for manual resolution |
+
+The manifest stores a `sha256:` content hash and version per agent, plus the root agent's capabilities at last sync.
+
+### Root capability reconciliation
+
+Root's capabilities list gets 3-way merged: new bootstrap capabilities are added, capabilities bootstrap removed are dropped, and genome-only capabilities (added by Learn) are preserved.
+
+### Export learnings (reverse flow)
+
+`exportLearnings(genomePath, bootstrapDir)` compares genome agents back to bootstrap. Agents whose genome version exceeds their bootstrap version are "evolved" — their YAML is exported to a staging directory for human review before promotion to bootstrap.
+
+### Dev-mode detection
+
+When running from source (both `bootstrap/` and `src/genome/` exist), agents receive a dev-mode postscript appended to their system prompt with development guidelines. This is injected idempotently using a sentinel comment marker.
 
 ## Implementation Decisions
+
+### Manifest-aware bootstrap sync (Feb 2026)
+
+The bootstrap manifest (`bootstrap-manifest.json`) enables safe bidirectional sync between bootstrap and genome. Without the manifest, there's no way to distinguish "bootstrap changed" from "genome evolved" — both look like a diff. The manifest records what was last synced, making the 4-way comparison possible.
 
 ### Single delegate tool (Feb 2026)
 
