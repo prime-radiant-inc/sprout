@@ -1,6 +1,6 @@
 import { access, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { loadBootstrapAgents } from "../agents/loader.ts";
+import { loadRootAgents } from "../agents/loader.ts";
 import { Genome, serializeAgentSpec } from "./genome.ts";
 
 export interface EvolvedAgent {
@@ -24,10 +24,7 @@ export interface ExportResult {
 	agentYaml: Map<string, string>;
 }
 
-export async function exportLearnings(
-	genomePath: string,
-	rootDir: string,
-): Promise<ExportResult> {
+export async function exportLearnings(genomePath: string, rootDir: string): Promise<ExportResult> {
 	try {
 		await access(join(genomePath, "agents"));
 	} catch {
@@ -37,7 +34,7 @@ export async function exportLearnings(
 	const genome = new Genome(genomePath);
 	await genome.loadFromDisk();
 
-	const rootSpecs = await loadBootstrapAgents(rootDir);
+	const rootSpecs = await loadRootAgents(rootDir);
 	const rootByName = new Map(rootSpecs.map((s) => [s.name, s]));
 
 	const evolved: EvolvedAgent[] = [];

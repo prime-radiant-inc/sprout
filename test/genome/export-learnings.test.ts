@@ -30,7 +30,7 @@ describe("exportLearnings", () => {
 
 		const genome = new Genome(genomeDir);
 		await genome.init();
-		await genome.initFromBootstrap(rootDir);
+		await genome.initFromRoot(rootDir);
 		await genome.updateAgent(
 			makeSpec({ name: "reader", system_prompt: "improved reader with batching" }),
 		);
@@ -48,14 +48,11 @@ describe("exportLearnings", () => {
 		const rootDir = join(tempDir, "export-learned-boot");
 		await mkdir(rootDir, { recursive: true });
 
-		await writeFile(
-			join(rootDir, "root.yaml"),
-			serializeAgentSpec(makeSpec({ name: "root" })),
-		);
+		await writeFile(join(rootDir, "root.yaml"), serializeAgentSpec(makeSpec({ name: "root" })));
 
 		const genome = new Genome(genomeDir);
 		await genome.init();
-		await genome.initFromBootstrap(rootDir);
+		await genome.initFromRoot(rootDir);
 		await genome.addAgent(makeSpec({ name: "specialist", description: "learned specialist" }));
 
 		const result = await exportLearnings(genomeDir, rootDir);
@@ -69,14 +66,11 @@ describe("exportLearnings", () => {
 		const rootDir = join(tempDir, "export-unchanged-boot");
 		await mkdir(rootDir, { recursive: true });
 
-		await writeFile(
-			join(rootDir, "stable.yaml"),
-			serializeAgentSpec(makeSpec({ name: "stable" })),
-		);
+		await writeFile(join(rootDir, "stable.yaml"), serializeAgentSpec(makeSpec({ name: "stable" })));
 
 		const genome = new Genome(genomeDir);
 		await genome.init();
-		await genome.initFromBootstrap(rootDir);
+		await genome.initFromRoot(rootDir);
 
 		const result = await exportLearnings(genomeDir, rootDir);
 
@@ -88,10 +82,7 @@ describe("exportLearnings", () => {
 		const nonexistent = join(tempDir, "no-such-genome");
 		const rootDir = join(tempDir, "noexist-boot");
 		await mkdir(rootDir, { recursive: true });
-		await writeFile(
-			join(rootDir, "root.yaml"),
-			serializeAgentSpec(makeSpec({ name: "root" })),
-		);
+		await writeFile(join(rootDir, "root.yaml"), serializeAgentSpec(makeSpec({ name: "root" })));
 
 		await expect(exportLearnings(nonexistent, rootDir)).rejects.toThrow(/does not exist/);
 	});
@@ -120,7 +111,7 @@ describe("stageLearnings", () => {
 
 		const genome = new Genome(genomeDir);
 		await genome.init();
-		await genome.initFromBootstrap(rootDir);
+		await genome.initFromRoot(rootDir);
 		await genome.updateAgent(
 			makeSpec({ name: "reader", system_prompt: "improved reader with batching" }),
 		);
@@ -141,14 +132,11 @@ describe("stageLearnings", () => {
 		const rootDir = join(tempDir, "stage-learned-boot");
 		await mkdir(rootDir, { recursive: true });
 
-		await writeFile(
-			join(rootDir, "root.yaml"),
-			serializeAgentSpec(makeSpec({ name: "root" })),
-		);
+		await writeFile(join(rootDir, "root.yaml"), serializeAgentSpec(makeSpec({ name: "root" })));
 
 		const genome = new Genome(genomeDir);
 		await genome.init();
-		await genome.initFromBootstrap(rootDir);
+		await genome.initFromRoot(rootDir);
 		await genome.addAgent(
 			makeSpec({
 				name: "specialist",
@@ -172,14 +160,11 @@ describe("stageLearnings", () => {
 		const rootDir = join(tempDir, "stage-mkdir-boot");
 		await mkdir(rootDir, { recursive: true });
 
-		await writeFile(
-			join(rootDir, "root.yaml"),
-			serializeAgentSpec(makeSpec({ name: "root" })),
-		);
+		await writeFile(join(rootDir, "root.yaml"), serializeAgentSpec(makeSpec({ name: "root" })));
 
 		const genome = new Genome(genomeDir);
 		await genome.init();
-		await genome.initFromBootstrap(rootDir);
+		await genome.initFromRoot(rootDir);
 		await genome.updateAgent(makeSpec({ name: "root", system_prompt: "evolved root" }));
 
 		const result = await exportLearnings(genomeDir, rootDir);

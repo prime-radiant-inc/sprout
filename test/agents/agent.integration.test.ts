@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { config } from "dotenv";
 import { Agent } from "../../src/agents/agent.ts";
 import { AgentEventEmitter } from "../../src/agents/events.ts";
-import { loadBootstrapAgents } from "../../src/agents/loader.ts";
+import { loadRootAgents } from "../../src/agents/loader.ts";
 import { Genome } from "../../src/genome/genome.ts";
 import { LocalExecutionEnvironment } from "../../src/kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../../src/kernel/primitives.ts";
@@ -37,7 +37,7 @@ describe("Agent Integration", () => {
 		tempDir = await mkdtemp(join(tmpdir(), "sprout-test-"));
 		env = new LocalExecutionEnvironment(tempDir);
 		registry = createPrimitiveRegistry(env);
-		rootAgents = await loadBootstrapAgents(join(import.meta.dir, "../../root"));
+		rootAgents = await loadRootAgents(join(import.meta.dir, "../../root"));
 
 		const mode = process.env.VCR_MODE;
 		if (mode === "record" || mode === "off") {
@@ -149,7 +149,7 @@ describe("Agent with Genome Integration", () => {
 		// Create fresh genome with bootstrap agents
 		genome = new Genome(genomeDir);
 		await genome.init();
-		await genome.initFromBootstrap(join(import.meta.dir, "../../root"));
+		await genome.initFromRoot(join(import.meta.dir, "../../root"));
 	});
 
 	afterAll(async () => {

@@ -109,7 +109,7 @@ describe("submitGoal", () => {
 		const genomeDir = join(tempDir, "genome");
 		const genome = new Genome(genomeDir);
 		await genome.init();
-		await genome.initFromBootstrap(join(import.meta.dir, "../../root"));
+		await genome.initFromRoot(join(import.meta.dir, "../../root"));
 
 		const mockClient = makeMockClient();
 		const events = new AgentEventEmitter();

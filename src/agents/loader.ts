@@ -38,13 +38,13 @@ export async function loadAgentSpec(path: string): Promise<AgentSpec> {
 	return parseAgentSpec(content, path);
 }
 
-export async function loadBootstrapAgents(dir: string): Promise<AgentSpec[]> {
-	const { specs } = await readBootstrapDir(dir);
+export async function loadRootAgents(dir: string): Promise<AgentSpec[]> {
+	const { specs } = await readRootDir(dir);
 	return specs;
 }
 
 /** Read agent specs from a root directory, supporting both flat YAML and tree Markdown layouts. */
-export async function readBootstrapDir(
+export async function readRootDir(
 	dir: string,
 ): Promise<{ specs: AgentSpec[]; rawContentByName: Map<string, string> }> {
 	const files = await readdir(dir);
@@ -96,10 +96,7 @@ export async function readBootstrapDir(
  * Scans the agent tree to find the correct nested path, falling back to the
  * flat layout (rootDir/agentName/tools/) if the agent is not in the tree.
  */
-export async function findBootstrapToolsDir(
-	rootDir: string,
-	agentName: string,
-): Promise<string> {
+export async function findRootToolsDir(rootDir: string, agentName: string): Promise<string> {
 	const tree = await scanAgentTree(rootDir);
 	for (const entry of tree.values()) {
 		if (entry.spec.name === agentName) {

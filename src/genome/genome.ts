@@ -2,17 +2,17 @@ import { chmod, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/pr
 import { join } from "node:path";
 import { parse, stringify } from "yaml";
 import {
-	findBootstrapToolsDir,
+	findRootToolsDir,
 	loadAgentSpec,
-	loadBootstrapAgents,
-	readBootstrapDir,
+	loadRootAgents,
+	readRootDir,
 } from "../agents/loader.ts";
 import { parseAgentMarkdown } from "../agents/markdown-loader.ts";
 import type { AgentSpec, Memory, RoutingRule } from "../kernel/types.ts";
 import { MemoryStore } from "./memory-store.ts";
 import { buildManifestFromSpecs, loadManifest, saveManifest } from "./root-manifest.ts";
 
-export interface SyncBootstrapResult {
+export interface SyncRootResult {
 	added: string[];
 	updated: string[];
 	conflicts: string[];
@@ -308,12 +308,12 @@ export class Genome {
 	}
 
 	/** Initialize the genome from root agent specs. Throws if agents already exist. */
-	async initFromBootstrap(rootDir: string): Promise<void> {
+	async initFromRoot(rootDir: string): Promise<void> {
 		if (this.agents.size > 0) {
 			throw new Error("Cannot initialize from root: agents already exist");
 		}
 
-		const specs = await loadBootstrapAgents(rootDir);
+		const specs = await loadRootAgents(rootDir);
 		for (const spec of specs) {
 			const yamlPath = join(this.rootPath, "agents", `${spec.name}.yaml`);
 			await writeFile(yamlPath, serializeAgentSpec(spec));
@@ -329,10 +329,10 @@ export class Genome {
 	 * Adds new agents, updates unchanged genome agents when root evolves,
 	 * and detects conflicts when both sides have changed.
 	 */
-	async syncBootstrap(rootDir: string): Promise<SyncBootstrapResult> {
+	async syncRoot(rootDir: string): Promise<SyncRootResult> {
 		const manifestPath = join(this.rootPath, "bootstrap-manifest.json");
 		const oldManifest = await loadManifest(manifestPath);
-		const { specs, rawContentByName } = await readBootstrapDir(rootDir);
+		const { specs, rawContentByName } = await readRootDir(rootDir);
 		const newManifest = buildManifestFromSpecs(specs, rawContentByName);
 
 		const added: string[] = [];
@@ -428,9 +428,7 @@ export class Genome {
 		// Compute the reconciled capabilities:
 		// - Keep genome capabilities that are still in root OR were never in root
 		// - Add new root capabilities that genome doesn't have yet
-		const kept = genomeRoot.capabilities.filter(
-			(c) => newRootCaps.has(c) || !oldRootCapSet.has(c),
-		);
+		const kept = genomeRoot.capabilities.filter((c) => newRootCaps.has(c) || !oldRootCapSet.has(c));
 		const toAdd = rootSpecRoot.capabilities.filter((c) => !genomeCaps.has(c));
 		const merged = [...kept, ...toAdd];
 
@@ -505,12 +503,12 @@ export class Genome {
 	}
 
 	/** Load tools from both genome and root directories, genome overrides on name collision. */
-	async loadAgentToolsWithBootstrap(
+	async loadAgentToolsWithRoot(
 		agentName: string,
 		rootDir: string,
 	): Promise<AgentToolDefinition[]> {
 		const genomeTools = await this.loadAgentTools(agentName);
-		const rootToolDir = await findBootstrapToolsDir(rootDir, agentName);
+		const rootToolDir = await findRootToolsDir(rootDir, agentName);
 		const rootTools = await this.loadToolsFromDir(rootToolDir, "bootstrap");
 		const genomeNames = new Set(genomeTools.map((t) => t.name));
 		return [...genomeTools, ...rootTools.filter((t) => !genomeNames.has(t.name))];

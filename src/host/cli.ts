@@ -639,7 +639,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 			return;
 		}
 
-		const result = await genome.syncBootstrap(rootDir);
+		const result = await genome.syncRoot(rootDir);
 
 		if (result.added.length === 0 && result.updated.length === 0 && result.conflicts.length === 0) {
 			console.log("Genome is up to date with root agents.");

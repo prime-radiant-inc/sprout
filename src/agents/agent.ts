@@ -29,7 +29,7 @@ import { ulid } from "../util/ulid.ts";
 import { getContextWindowSize } from "./context-window.ts";
 import { AgentEventEmitter } from "./events.ts";
 import type { AgentTreeEntry, Preambles } from "./loader.ts";
-import { findBootstrapToolsDir } from "./loader.ts";
+import { findRootToolsDir } from "./loader.ts";
 import { defaultModelsByProvider, type ResolvedModel, resolveModel } from "./model-resolver.ts";
 import type { Postscripts } from "./plan.ts";
 import {
@@ -686,7 +686,7 @@ export class Agent {
 		let wsToolDefs: import("../genome/genome.ts").AgentToolDefinition[] = [];
 		if (this.genome && this.primitiveTools.length > 0) {
 			wsToolDefs = this.rootDir
-				? await this.genome.loadAgentToolsWithBootstrap(this.spec.name, this.rootDir)
+				? await this.genome.loadAgentToolsWithRoot(this.spec.name, this.rootDir)
 				: await this.genome.loadAgentTools(this.spec.name);
 			if (wsToolDefs.length > 0) {
 				const toolPrims = buildAgentToolPrimitives(wsToolDefs, {
@@ -708,7 +708,7 @@ export class Agent {
 			const genomeToolsDir = join(this.genome.agentDir(this.spec.name), "tools");
 			this.env.addToPath?.(genomeToolsDir);
 			if (this.rootDir) {
-				const rootToolsDir = await findBootstrapToolsDir(this.rootDir, this.spec.name);
+				const rootToolsDir = await findRootToolsDir(this.rootDir, this.spec.name);
 				this.env.addToPath?.(rootToolsDir);
 			}
 		}

@@ -615,7 +615,7 @@ describe("Agent", () => {
 		try {
 			const genome = new Genome(tempGenomeDir);
 			await genome.init();
-			await genome.initFromBootstrap(join(import.meta.dir, "../../root"));
+			await genome.initFromRoot(join(import.meta.dir, "../../root"));
 
 			const codeReader = genome.getAgent("reader")!;
 			const env = new LocalExecutionEnvironment(tmpdir());

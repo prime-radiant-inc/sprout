@@ -49,7 +49,7 @@ describe("Learn Integration", () => {
 		const genomeDir = join(tempDir, "genome-failure");
 		const genome = new Genome(genomeDir);
 		await genome.init();
-		await genome.initFromBootstrap(join(import.meta.dir, "../../root"));
+		await genome.initFromRoot(join(import.meta.dir, "../../root"));
 
 		// Verify starting state
 		expect(genome.agentCount()).toBe(20);
@@ -109,7 +109,7 @@ describe("Learn Integration", () => {
 		const genomeDir = join(tempDir, "genome-skip");
 		const genome = new Genome(genomeDir);
 		await genome.init();
-		await genome.initFromBootstrap(join(import.meta.dir, "../../root"));
+		await genome.initFromRoot(join(import.meta.dir, "../../root"));
 
 		const metrics = new MetricsStore(join(genomeDir, "metrics", "metrics.jsonl"));
 		await metrics.load();

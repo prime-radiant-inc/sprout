@@ -40,7 +40,7 @@ describe("createAgent", () => {
 		const genomePath = join(tempDir, "factory-existing");
 		const genome = new Genome(genomePath);
 		await genome.init();
-		await genome.initFromBootstrap(join(import.meta.dir, "../../root"));
+		await genome.initFromRoot(join(import.meta.dir, "../../root"));
 
 		// Now create agent from existing genome
 		const result = await createAgent({
@@ -99,7 +99,7 @@ describe("createAgent", () => {
 		// Pre-load a genome before passing it to createAgent
 		const genome = new Genome(genomePath);
 		await genome.init();
-		await genome.initFromBootstrap(join(import.meta.dir, "../../root"));
+		await genome.initFromRoot(join(import.meta.dir, "../../root"));
 
 		const result = await createAgent({
 			genomePath,

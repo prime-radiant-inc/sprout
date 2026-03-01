@@ -3,9 +3,9 @@ import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-	findBootstrapToolsDir,
+	findRootToolsDir,
 	loadAgentSpec,
-	loadBootstrapAgents,
+	loadRootAgents,
 } from "../../src/agents/loader.ts";
 import { serializeAgentSpec } from "../../src/genome/genome.ts";
 
@@ -118,29 +118,29 @@ describe("serializeAgentSpec", () => {
 	});
 });
 
-describe("findBootstrapToolsDir", () => {
+describe("findRootToolsDir", () => {
 	test("returns nested path for agent in tree", async () => {
 		const rootDir = join(import.meta.dir, "../../root");
-		const dir = await findBootstrapToolsDir(rootDir, "task-manager");
+		const dir = await findRootToolsDir(rootDir, "task-manager");
 		expect(dir).toContain("agents/utility/agents/task-manager/tools");
 	});
 
 	test("returns nested path for mcp agent in tree", async () => {
 		const rootDir = join(import.meta.dir, "../../root");
-		const dir = await findBootstrapToolsDir(rootDir, "mcp");
+		const dir = await findRootToolsDir(rootDir, "mcp");
 		expect(dir).toContain("agents/utility/agents/mcp/tools");
 	});
 
 	test("falls back to flat path for unknown agent", async () => {
 		const rootDir = join(import.meta.dir, "../../root");
-		const dir = await findBootstrapToolsDir(rootDir, "nonexistent-agent");
+		const dir = await findRootToolsDir(rootDir, "nonexistent-agent");
 		expect(dir).toBe(join(rootDir, "nonexistent-agent", "tools"));
 	});
 });
 
-describe("loadBootstrapAgents", () => {
-	test("loads all bootstrap agents", async () => {
-		const agents = await loadBootstrapAgents(join(import.meta.dir, "../../root"));
+describe("loadRootAgents", () => {
+	test("loads all root agents", async () => {
+		const agents = await loadRootAgents(join(import.meta.dir, "../../root"));
 		expect(agents.length).toBeGreaterThanOrEqual(15);
 		const names = agents.map((a) => a.name);
 		expect(names).toContain("root");
@@ -164,7 +164,7 @@ describe("loadBootstrapAgents", () => {
 	});
 
 	test("all agents have valid constraints and system prompts", async () => {
-		const agents = await loadBootstrapAgents(join(import.meta.dir, "../../root"));
+		const agents = await loadRootAgents(join(import.meta.dir, "../../root"));
 		for (const agent of agents) {
 			expect(agent.constraints.max_turns).toBeGreaterThan(0);
 			expect(agent.constraints.max_depth).toBeGreaterThanOrEqual(0);
@@ -173,7 +173,7 @@ describe("loadBootstrapAgents", () => {
 	});
 
 	test("leaf agents cannot spawn subagents", async () => {
-		const agents = await loadBootstrapAgents(join(import.meta.dir, "../../root"));
+		const agents = await loadRootAgents(join(import.meta.dir, "../../root"));
 		const orchestrators = [
 			"root",
 			"quartermaster",
@@ -193,7 +193,7 @@ describe("loadBootstrapAgents", () => {
 	});
 
 	test("qm-indexer has write path constraints and no exec", async () => {
-		const agents = await loadBootstrapAgents(join(import.meta.dir, "../../root"));
+		const agents = await loadRootAgents(join(import.meta.dir, "../../root"));
 		const indexer = agents.find((a) => a.name === "qm-indexer");
 		expect(indexer).toBeDefined();
 		expect(indexer!.constraints.allowed_write_paths).toEqual([

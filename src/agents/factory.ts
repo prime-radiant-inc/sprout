@@ -67,7 +67,7 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 			await genome.loadFromDisk();
 			// Sync root agents using manifest-aware comparison
 			if (options.rootDir) {
-				const result = await genome.syncBootstrap(options.rootDir);
+				const result = await genome.syncRoot(options.rootDir);
 				if (result.added.length > 0) {
 					console.error(`Synced new root agents: ${result.added.join(", ")}`);
 				}
@@ -75,15 +75,13 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 					console.error(`Updated root agents: ${result.updated.join(", ")}`);
 				}
 				if (result.conflicts.length > 0) {
-					console.error(
-						`Root sync conflicts (genome preserved): ${result.conflicts.join(", ")}`,
-					);
+					console.error(`Root sync conflicts (genome preserved): ${result.conflicts.join(", ")}`);
 				}
 			}
 		} else {
 			await genome.init();
 			if (options.rootDir) {
-				await genome.initFromBootstrap(options.rootDir);
+				await genome.initFromRoot(options.rootDir);
 			}
 		}
 	}

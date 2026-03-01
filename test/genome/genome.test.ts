@@ -381,7 +381,7 @@ describe("Genome", () => {
 			await genome.init();
 
 			const rootDir = join(import.meta.dir, "../../root");
-			await genome.initFromBootstrap(rootDir);
+			await genome.initFromRoot(rootDir);
 
 			// Should have loaded all 20 agents from the markdown tree
 			expect(genome.agentCount()).toBe(20);
@@ -413,7 +413,7 @@ describe("Genome", () => {
 			await genome.addAgent(makeSpec({ name: "existing" }));
 
 			const rootDir = join(import.meta.dir, "../../root");
-			await expect(genome.initFromBootstrap(rootDir)).rejects.toThrow(/agents already exist/);
+			await expect(genome.initFromRoot(rootDir)).rejects.toThrow(/agents already exist/);
 		});
 	});
 
@@ -492,7 +492,7 @@ describe("Genome", () => {
 			await genome.init();
 
 			const rootDir = join(import.meta.dir, "../../root");
-			await genome.initFromBootstrap(rootDir);
+			await genome.initFromRoot(rootDir);
 
 			const agentCount = genome.agentCount();
 			await genome.addAgent(makeSpec({ name: "extra-agent" }));
@@ -639,7 +639,7 @@ describe("Genome", () => {
 			await writeRootYaml(rootDir, "alpha", { description: "Alpha agent" });
 			await writeRootYaml(rootDir, "beta", { description: "Beta agent" });
 
-			const result = await genome.syncBootstrap(rootDir);
+			const result = await genome.syncRoot(rootDir);
 
 			expect(result.added).toContain("alpha");
 			expect(result.added).toContain("beta");
@@ -667,11 +667,11 @@ describe("Genome", () => {
 			await writeRootYaml(rootDir, "stable");
 
 			// First sync — adds the agent
-			const first = await genome.syncBootstrap(rootDir);
+			const first = await genome.syncRoot(rootDir);
 			expect(first.added).toEqual(["stable"]);
 
 			// Second sync — nothing should change
-			const second = await genome.syncBootstrap(rootDir);
+			const second = await genome.syncRoot(rootDir);
 			expect(second.added).toEqual([]);
 			expect(second.updated).toEqual([]);
 			expect(second.conflicts).toEqual([]);
@@ -693,7 +693,7 @@ describe("Genome", () => {
 			});
 
 			// First sync
-			await genome.syncBootstrap(rootDir);
+			await genome.syncRoot(rootDir);
 			expect(genome.getAgent("updatable")!.description).toBe("Original description");
 
 			// Change bootstrap file
@@ -702,7 +702,7 @@ describe("Genome", () => {
 			});
 
 			// Second sync — should update
-			const result = await genome.syncBootstrap(rootDir);
+			const result = await genome.syncRoot(rootDir);
 			expect(result.updated).toEqual(["updatable"]);
 			expect(result.added).toEqual([]);
 			expect(result.conflicts).toEqual([]);
@@ -723,7 +723,7 @@ describe("Genome", () => {
 			});
 
 			// First sync
-			await genome.syncBootstrap(rootDir);
+			await genome.syncRoot(rootDir);
 			expect(genome.getAgent("contested")!.version).toBe(1);
 
 			// Evolve genome (this bumps version to 2)
@@ -736,7 +736,7 @@ describe("Genome", () => {
 			});
 
 			// Sync again — should detect conflict
-			const result = await genome.syncBootstrap(rootDir);
+			const result = await genome.syncRoot(rootDir);
 			expect(result.conflicts).toEqual(["contested"]);
 			expect(result.added).toEqual([]);
 			expect(result.updated).toEqual([]);
@@ -758,7 +758,7 @@ describe("Genome", () => {
 			});
 
 			// First sync
-			await genome.syncBootstrap(rootDir);
+			await genome.syncRoot(rootDir);
 
 			// Evolve genome
 			await genome.updateAgent(
@@ -767,7 +767,7 @@ describe("Genome", () => {
 			expect(genome.getAgent("evolved")!.version).toBe(2);
 
 			// Sync again with unchanged bootstrap
-			const result = await genome.syncBootstrap(rootDir);
+			const result = await genome.syncRoot(rootDir);
 			expect(result.added).toEqual([]);
 			expect(result.updated).toEqual([]);
 			expect(result.conflicts).toEqual([]);
@@ -794,7 +794,7 @@ describe("Genome", () => {
 			await writeRootYaml(rootDir, "debugger");
 
 			// First sync — adds root, reader, editor, debugger
-			await genome.syncBootstrap(rootDir);
+			await genome.syncRoot(rootDir);
 			expect(genome.getAgent("root")!.capabilities).toEqual(["reader", "editor", "debugger"]);
 
 			// Now update bootstrap root to add "verifier" capability, and add verifier.yaml
@@ -804,7 +804,7 @@ describe("Genome", () => {
 			await writeRootYaml(rootDir, "verifier");
 
 			// Sync again
-			await genome.syncBootstrap(rootDir);
+			await genome.syncRoot(rootDir);
 
 			// Root's capabilities should now include verifier
 			const rootAgent = genome.getAgent("root")!;
@@ -829,7 +829,7 @@ describe("Genome", () => {
 			await writeRootYaml(rootDir, "reader");
 
 			// First sync — adds root and reader
-			await genome.syncBootstrap(rootDir);
+			await genome.syncRoot(rootDir);
 			expect(genome.getAgent("root")!.capabilities).toEqual(["reader"]);
 
 			// Evolve genome root to add a custom capability
@@ -849,7 +849,7 @@ describe("Genome", () => {
 			await writeRootYaml(rootDir, "debugger");
 
 			// Sync again — root is a conflict (both sides changed), but capabilities should merge
-			const result = await genome.syncBootstrap(rootDir);
+			const result = await genome.syncRoot(rootDir);
 
 			// Root agent should have all three: reader (shared), custom-agent (genome-only), debugger (bootstrap-new)
 			const rootAgent = genome.getAgent("root")!;
@@ -881,7 +881,7 @@ describe("Genome", () => {
 			await writeRootYaml(rootDir, "debugger");
 
 			// First sync — adds root, reader, editor, debugger
-			await genome.syncBootstrap(rootDir);
+			await genome.syncRoot(rootDir);
 			expect(genome.getAgent("root")!.capabilities).toEqual(["reader", "editor", "debugger"]);
 
 			// Bootstrap drops "debugger" from root capabilities
@@ -890,7 +890,7 @@ describe("Genome", () => {
 			});
 
 			// Sync again
-			await genome.syncBootstrap(rootDir);
+			await genome.syncRoot(rootDir);
 
 			// Root should no longer have "debugger"
 			const rootAgent = genome.getAgent("root")!;
@@ -913,7 +913,7 @@ describe("Genome", () => {
 			await writeRootYaml(rootDir, "alpha", { description: "Original alpha" });
 
 			// First sync
-			await genome.syncBootstrap(rootDir);
+			await genome.syncRoot(rootDir);
 
 			// Evolve alpha in genome (creates conflict on next sync)
 			await genome.updateAgent(makeSpec({ name: "alpha", description: "Genome-evolved alpha" }));
@@ -928,7 +928,7 @@ describe("Genome", () => {
 			await writeRootYaml(rootDir, "verifier");
 
 			// Sync again — should have capsMerged + conflict on alpha
-			const result = await genome.syncBootstrap(rootDir);
+			const result = await genome.syncRoot(rootDir);
 			expect(result.conflicts).toContain("alpha");
 			expect(result.added).toContain("verifier");
 
@@ -953,7 +953,7 @@ describe("Genome", () => {
 			await writeRootYaml(rootDir, "debugger");
 
 			// First sync
-			await genome.syncBootstrap(rootDir);
+			await genome.syncRoot(rootDir);
 
 			// Genome evolves root to add "custom-agent"
 			const evolvedRoot = genome.getAgent("root")!;
@@ -970,7 +970,7 @@ describe("Genome", () => {
 			await writeRootYaml(rootDir, "editor");
 
 			// Sync again
-			await genome.syncBootstrap(rootDir);
+			await genome.syncRoot(rootDir);
 
 			// Root should have: reader (kept), editor (added by bootstrap), custom-agent (genome-only)
 			// But NOT debugger (dropped by bootstrap)

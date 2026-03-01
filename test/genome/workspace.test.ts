@@ -243,7 +243,7 @@ describe("Genome workspace", () => {
 		});
 	});
 
-	describe("loadAgentToolsWithBootstrap", () => {
+	describe("loadAgentToolsWithRoot", () => {
 		test("loads tools from bootstrap when genome has none", async () => {
 			const root = join(tempDir, "two-layer-bootstrap-only");
 			const genome = new Genome(root);
@@ -258,7 +258,7 @@ describe("Genome workspace", () => {
 				'---\nname: task-cli\ndescription: Manage tasks\ninterpreter: bash\n---\necho "hello"',
 			);
 
-			const tools = await genome.loadAgentToolsWithBootstrap("task-manager", rootDir);
+			const tools = await genome.loadAgentToolsWithRoot("task-manager", rootDir);
 			expect(tools).toHaveLength(1);
 			expect(tools[0]!.name).toBe("task-cli");
 			expect(tools[0]!.provenance).toBe("bootstrap");
@@ -285,7 +285,7 @@ describe("Genome workspace", () => {
 				'---\nname: task-cli\ndescription: Bootstrap version\ninterpreter: bash\n---\necho "bootstrap"',
 			);
 
-			const tools = await genome.loadAgentToolsWithBootstrap("task-manager", rootDir);
+			const tools = await genome.loadAgentToolsWithRoot("task-manager", rootDir);
 			expect(tools).toHaveLength(1);
 			expect(tools[0]!.name).toBe("task-cli");
 			expect(tools[0]!.provenance).toBe("genome");
@@ -313,7 +313,7 @@ describe("Genome workspace", () => {
 				'---\nname: bootstrap-tool\ndescription: Only in bootstrap\ninterpreter: bash\n---\necho "bootstrap"',
 			);
 
-			const tools = await genome.loadAgentToolsWithBootstrap("editor", rootDir);
+			const tools = await genome.loadAgentToolsWithRoot("editor", rootDir);
 			expect(tools).toHaveLength(2);
 			const names = tools.map((t) => t.name);
 			expect(names).toContain("genome-tool");
@@ -329,7 +329,7 @@ describe("Genome workspace", () => {
 			const rootDir = join(tempDir, "bootstrap-two-layer-empty");
 			await mkdir(rootDir, { recursive: true });
 
-			const tools = await genome.loadAgentToolsWithBootstrap("reader", rootDir);
+			const tools = await genome.loadAgentToolsWithRoot("reader", rootDir);
 			expect(tools).toEqual([]);
 		});
 
@@ -342,7 +342,7 @@ describe("Genome workspace", () => {
 			// Use the real root/ directory which has task-manager tools nested at
 			// root/agents/utility/agents/task-manager/tools/
 			const rootDir = join(import.meta.dir, "../../root");
-			const tools = await genome.loadAgentToolsWithBootstrap("task-manager", rootDir);
+			const tools = await genome.loadAgentToolsWithRoot("task-manager", rootDir);
 
 			// task-manager has tools in the real tree
 			const names = tools.map((t) => t.name);
@@ -357,7 +357,7 @@ describe("Genome workspace", () => {
 			await genome.addAgent(makeSpec({ name: "mcp" }));
 
 			const rootDir = join(import.meta.dir, "../../root");
-			const tools = await genome.loadAgentToolsWithBootstrap("mcp", rootDir);
+			const tools = await genome.loadAgentToolsWithRoot("mcp", rootDir);
 
 			const names = tools.map((t) => t.name);
 			expect(names).toContain("sprout-mcp");
