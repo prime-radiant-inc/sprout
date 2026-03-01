@@ -317,6 +317,64 @@ describe("Genome", () => {
 			expect(genome2.memories.all()[0]!.id).toBe("loader-mem");
 		});
 
+		test("loadFromDisk loads .md agent files using parseAgentMarkdown", async () => {
+			const root = join(tempDir, "load-disk-md");
+			const genome = new Genome(root);
+			await genome.init();
+
+			// Write a .md agent file directly to the genome's agents directory
+			const mdContent = [
+				"---",
+				"name: md-agent",
+				"description: A markdown agent",
+				"model: fast",
+				"---",
+				"You are a markdown-defined agent.",
+			].join("\n");
+			await writeFile(join(root, "agents", "md-agent.md"), mdContent);
+			await git(root, "add", ".");
+			await git(root, "commit", "-m", "add md agent");
+
+			// Load from disk — should pick up the .md file
+			const genome2 = new Genome(root);
+			await genome2.loadFromDisk();
+
+			const agent = genome2.getAgent("md-agent");
+			expect(agent).toBeDefined();
+			expect(agent!.description).toBe("A markdown agent");
+			expect(agent!.system_prompt).toBe("You are a markdown-defined agent.");
+		});
+
+		test("loadFromDisk loads both .yaml and .md agent files", async () => {
+			const root = join(tempDir, "load-disk-mixed");
+			const genome = new Genome(root);
+			await genome.init();
+
+			// Add a YAML agent via the normal path
+			await genome.addAgent(makeSpec({ name: "yaml-agent" }));
+
+			// Write a .md agent file directly
+			const mdContent = [
+				"---",
+				"name: md-agent",
+				"description: A markdown agent",
+				"model: fast",
+				"---",
+				"You are a markdown-defined agent.",
+			].join("\n");
+			await writeFile(join(root, "agents", "md-agent.md"), mdContent);
+			await git(root, "add", ".");
+			await git(root, "commit", "-m", "add md agent");
+
+			// Load from disk — should pick up both
+			const genome2 = new Genome(root);
+			await genome2.loadFromDisk();
+
+			expect(genome2.getAgent("yaml-agent")).toBeDefined();
+			expect(genome2.getAgent("md-agent")).toBeDefined();
+			expect(genome2.agentCount()).toBe(2);
+		});
+
 		test("initFromBootstrap copies bootstrap agents and commits", async () => {
 			const root = join(tempDir, "bootstrap-init");
 			const genome = new Genome(root);

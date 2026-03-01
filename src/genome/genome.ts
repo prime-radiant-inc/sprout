@@ -2,6 +2,7 @@ import { chmod, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/pr
 import { join } from "node:path";
 import { parse, stringify } from "yaml";
 import { loadAgentSpec, loadBootstrapAgents, readBootstrapDir } from "../agents/loader.ts";
+import { parseAgentMarkdown } from "../agents/markdown-loader.ts";
 import type { AgentSpec, Memory, RoutingRule } from "../kernel/types.ts";
 import { buildManifestFromSpecs, loadManifest, saveManifest } from "./bootstrap-manifest.ts";
 import { MemoryStore } from "./memory-store.ts";
@@ -277,6 +278,13 @@ export class Genome {
 		const yamlFiles = files.filter((f) => f.endsWith(".yaml") || f.endsWith(".yml"));
 		for (const file of yamlFiles) {
 			const spec = await loadAgentSpec(join(agentsDir, file));
+			this.agents.set(spec.name, spec);
+		}
+		const mdFiles = files.filter((f) => f.endsWith(".md"));
+		for (const file of mdFiles) {
+			const filePath = join(agentsDir, file);
+			const content = await readFile(filePath, "utf-8");
+			const spec = parseAgentMarkdown(content, filePath);
 			this.agents.set(spec.name, spec);
 		}
 
