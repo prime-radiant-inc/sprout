@@ -404,6 +404,11 @@ Choose the most appropriate improvement. Prefer creating memories for factual le
 				parsed.type === "create_agent" ||
 				parsed.type === "create_routing_rule"
 			) {
+				if (parsed.type === "create_agent") {
+					if (!Array.isArray(parsed.tools)) parsed.tools = [];
+					if (!Array.isArray(parsed.agents)) parsed.agents = [];
+					if (!Array.isArray(parsed.tags)) parsed.tags = [];
+				}
 				return parsed as LearnMutation;
 			}
 			return null;
