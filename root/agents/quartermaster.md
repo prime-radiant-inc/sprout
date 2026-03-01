@@ -85,6 +85,11 @@ The qm-indexer can delegate to the mcp agent for MCP server discovery,
 so you don't need to coordinate MCP discovery yourself — just ask the
 indexer and it handles everything.
 
+## Agent Tree Structure
+
+When creating or managing agents, follow the conventions in your resources/agent-tree-spec.md file.
+Read it before creating any agent.
+
 ## Agent tool system
 
 Agents can have dedicated tools in their workspace. Tools are scripts with YAML
