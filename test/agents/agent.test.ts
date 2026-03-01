@@ -25,6 +25,8 @@ describe("Agent", () => {
 		system_prompt: "You decompose tasks.",
 		model: "fast",
 		capabilities: ["leaf"],
+		tools: [],
+		agents: ["leaf"],
 		constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 10 },
 		tags: [],
 		version: 1,
@@ -36,6 +38,8 @@ describe("Agent", () => {
 		system_prompt: "You do things.",
 		model: "fast",
 		capabilities: ["read_file", "write_file", "exec"],
+		tools: ["read_file", "write_file", "exec"],
+		agents: [],
 		constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5 },
 		tags: [],
 		version: 1,
@@ -108,6 +112,8 @@ describe("Agent", () => {
 			system_prompt: "You do things.",
 			model: "fast",
 			capabilities: ["leaf", "read_file", "grep"],
+			tools: ["read_file", "grep"],
+			agents: ["leaf"],
 			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5 },
 			tags: [],
 			version: 1,
@@ -857,6 +863,8 @@ describe("Agent", () => {
 			system_prompt: "You do dynamic things.",
 			model: "fast",
 			capabilities: ["read_file"],
+			tools: ["read_file"],
+			agents: [],
 			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 3, max_depth: 0, can_spawn: false },
 			tags: [],
 			version: 1,
@@ -866,6 +874,8 @@ describe("Agent", () => {
 		const leafWithDynamic: AgentSpec = {
 			...leafSpec,
 			capabilities: ["dynamic-leaf", "read_file"],
+			tools: ["read_file"],
+			agents: ["dynamic-leaf"],
 			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5, can_spawn: true },
 		};
 
@@ -1017,6 +1027,8 @@ describe("Agent", () => {
 			system_prompt: "You are leaf A.",
 			model: "fast",
 			capabilities: ["read_file"],
+			tools: ["read_file"],
+			agents: [],
 			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 3, max_depth: 0, can_spawn: false },
 			tags: [],
 			version: 1,
@@ -1027,6 +1039,8 @@ describe("Agent", () => {
 			system_prompt: "You are leaf B.",
 			model: "fast",
 			capabilities: ["read_file"],
+			tools: ["read_file"],
+			agents: [],
 			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 3, max_depth: 0, can_spawn: false },
 			tags: [],
 			version: 1,
@@ -1034,6 +1048,8 @@ describe("Agent", () => {
 		const rootWithTwoLeaves: AgentSpec = {
 			...rootSpec,
 			capabilities: ["leaf-a", "leaf-b"],
+			tools: [],
+			agents: ["leaf-a", "leaf-b"],
 			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5 },
 		};
 
@@ -1145,6 +1161,8 @@ describe("Agent", () => {
 			system_prompt: "You are leaf A.",
 			model: "fast",
 			capabilities: ["read_file"],
+			tools: ["read_file"],
+			agents: [],
 			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 3, max_depth: 0, can_spawn: false },
 			tags: [],
 			version: 1,
@@ -1155,6 +1173,8 @@ describe("Agent", () => {
 			system_prompt: "You are leaf B.",
 			model: "fast",
 			capabilities: ["read_file"],
+			tools: ["read_file"],
+			agents: [],
 			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 3, max_depth: 0, can_spawn: false },
 			tags: [],
 			version: 1,
@@ -1162,6 +1182,8 @@ describe("Agent", () => {
 		const rootWithTwoLeaves: AgentSpec = {
 			...rootSpec,
 			capabilities: ["leaf-a", "leaf-b"],
+			tools: [],
+			agents: ["leaf-a", "leaf-b"],
 			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5 },
 		};
 

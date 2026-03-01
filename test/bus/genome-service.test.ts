@@ -30,6 +30,8 @@ describe("GenomeMutationService", () => {
 			system_prompt: "You edit code.",
 			model: "best",
 			capabilities: ["write_file"],
+			tools: ["write_file"],
+			agents: [],
 			constraints: {
 				max_turns: 10,
 				max_depth: 0,

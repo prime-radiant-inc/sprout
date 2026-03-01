@@ -449,6 +449,8 @@ Choose the most appropriate improvement. Prefer creating memories for factual le
 					system_prompt: mutation.system_prompt,
 					model: mutation.model,
 					capabilities: mutation.capabilities,
+					tools: mutation.capabilities.filter((c: string) => !c.includes("/")),
+					agents: mutation.capabilities.filter((c: string) => c.includes("/")),
 					constraints: { ...DEFAULT_CONSTRAINTS, can_spawn: false },
 					tags: mutation.tags,
 					version: 1,

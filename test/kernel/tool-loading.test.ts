@@ -15,6 +15,8 @@ function makeSpec(overrides: Partial<AgentSpec> = {}): AgentSpec {
 		system_prompt: overrides.system_prompt ?? "You are a test agent.",
 		model: overrides.model ?? "fast",
 		capabilities: overrides.capabilities ?? ["read_file"],
+		tools: overrides.tools ?? ["read_file"],
+		agents: overrides.agents ?? [],
 		constraints: overrides.constraints ?? { ...DEFAULT_CONSTRAINTS },
 		tags: overrides.tags ?? ["test"],
 		version: overrides.version ?? 1,

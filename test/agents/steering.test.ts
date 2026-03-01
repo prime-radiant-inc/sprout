@@ -20,6 +20,8 @@ const leafSpec: AgentSpec = {
 		"You are a test agent. Reply with exactly 'DONE' and nothing else. Do not use any tools.",
 	model: "best",
 	capabilities: ["exec"],
+	tools: ["exec"],
+	agents: [],
 	constraints: {
 		max_turns: 5,
 		max_depth: 0,

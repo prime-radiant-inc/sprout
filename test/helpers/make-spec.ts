@@ -8,6 +8,8 @@ export function makeSpec(overrides: Partial<AgentSpec> = {}): AgentSpec {
 		system_prompt: "You are a test agent.",
 		model: "fast",
 		capabilities: ["read_file"],
+		tools: ["read_file"],
+		agents: [],
 		constraints: { ...DEFAULT_CONSTRAINTS },
 		tags: ["test"],
 		version: 1,

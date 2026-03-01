@@ -13,6 +13,8 @@ function makeSpec(name: string): AgentSpec {
 		system_prompt: `You are ${name}.`,
 		model: "fast",
 		capabilities: [],
+		tools: [],
+		agents: [],
 		constraints: { ...DEFAULT_CONSTRAINTS },
 		tags: [],
 		version: 1,

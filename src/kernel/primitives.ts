@@ -722,12 +722,15 @@ function saveAgentPrimitive(ctx: GenomeContext): Primitive {
 					}
 				}
 
+				const capabilities: string[] = (raw.capabilities as string[]) ?? [];
 				const spec = {
 					name: raw.name as string,
 					description: raw.description as string,
 					system_prompt: raw.system_prompt as string,
 					model: raw.model as string,
-					capabilities: (raw.capabilities as string[]) ?? [],
+					capabilities,
+					tools: capabilities.filter((c) => !c.includes("/")),
+					agents: capabilities.filter((c) => c.includes("/")),
 					constraints: { ...DEFAULT_CONSTRAINTS, ...raw.constraints },
 					tags: (raw.tags as string[]) ?? [],
 					version: (raw.version as number) ?? 1,

@@ -104,12 +104,28 @@ describe("parseAgentMarkdown", () => {
 	});
 
 	test("throws when tools is not an array", () => {
-		const content = ["---", "name: t", 'description: "t"', "model: fast", "tools: read_file", "---", "body"].join("\n");
+		const content = [
+			"---",
+			"name: t",
+			'description: "t"',
+			"model: fast",
+			"tools: read_file",
+			"---",
+			"body",
+		].join("\n");
 		expect(() => parseAgentMarkdown(content, "t.md")).toThrow(/tools.*array/);
 	});
 
 	test("throws when agents is not an array", () => {
-		const content = ["---", "name: t", 'description: "t"', "model: fast", "agents: helper", "---", "body"].join("\n");
+		const content = [
+			"---",
+			"name: t",
+			'description: "t"',
+			"model: fast",
+			"agents: helper",
+			"---",
+			"body",
+		].join("\n");
 		expect(() => parseAgentMarkdown(content, "t.md")).toThrow(/agents.*array/);
 	});
 

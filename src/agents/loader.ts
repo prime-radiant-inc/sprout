@@ -13,12 +13,15 @@ export function parseAgentSpec(content: string, source: string): AgentSpec {
 		}
 	}
 
+	const capabilities: string[] = raw.capabilities ?? [];
 	const spec: AgentSpec = {
 		name: raw.name,
 		description: raw.description,
 		system_prompt: raw.system_prompt,
 		model: raw.model,
-		capabilities: raw.capabilities ?? [],
+		capabilities,
+		tools: capabilities.filter((c: string) => !c.includes("/")),
+		agents: capabilities.filter((c: string) => c.includes("/")),
 		constraints: { ...DEFAULT_CONSTRAINTS, ...raw.constraints },
 		tags: raw.tags ?? [],
 		version: raw.version ?? 1,

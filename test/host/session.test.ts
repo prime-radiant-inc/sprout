@@ -26,6 +26,8 @@ const leafSpec: AgentSpec = {
 	system_prompt: "You do things.",
 	model: "fast",
 	capabilities: ["read_file", "write_file", "exec"],
+	tools: ["read_file", "write_file", "exec"],
+	agents: [],
 	constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5 },
 	tags: [],
 	version: 1,

@@ -247,6 +247,8 @@ describe("LearnProcess", () => {
 			system_prompt: "You run tests carefully",
 			model: "fast",
 			capabilities: ["exec"],
+			tools: ["exec"],
+			agents: [],
 			constraints: DEFAULT_CONSTRAINTS,
 			tags: ["testing"],
 			version: 1,

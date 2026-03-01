@@ -26,6 +26,8 @@ function makeSpec(overrides: Partial<AgentSpec> = {}): AgentSpec {
 			"save_tool",
 			"save_file",
 		],
+		tools: overrides.tools ?? ["read_file", "write_file", "exec", "save_tool", "save_file"],
+		agents: overrides.agents ?? [],
 		constraints: overrides.constraints ?? {
 			...DEFAULT_CONSTRAINTS,
 			max_turns: 3,

@@ -14,6 +14,7 @@ import type {
 	SessionEvent,
 	VerifyResult,
 } from "../../src/kernel/types.ts";
+import { DEFAULT_CONSTRAINTS } from "../../src/kernel/types.ts";
 
 describe("kernel types", () => {
 	test("AgentSpec can be constructed with required fields", () => {
@@ -23,6 +24,8 @@ describe("kernel types", () => {
 			system_prompt: "You help find specific code.",
 			model: "fast",
 			capabilities: ["read_file", "grep", "glob"],
+			tools: ["read_file", "grep", "glob"],
+			agents: [],
 			constraints: {
 				max_turns: 50,
 				max_depth: 3,
@@ -35,6 +38,23 @@ describe("kernel types", () => {
 		};
 		expect(spec.name).toBe("code-reader");
 		expect(spec.constraints.max_turns).toBe(50);
+	});
+
+	test("AgentSpec accepts tools and agents fields", () => {
+		const spec: AgentSpec = {
+			name: "test",
+			description: "test",
+			system_prompt: "test",
+			model: "fast",
+			tools: ["read_file", "grep"],
+			agents: ["utility/reader"],
+			capabilities: ["read_file", "grep", "utility/reader"],
+			constraints: { ...DEFAULT_CONSTRAINTS },
+			tags: [],
+			version: 1,
+		};
+		expect(spec.tools).toEqual(["read_file", "grep"]);
+		expect(spec.agents).toEqual(["utility/reader"]);
 	});
 
 	test("AgentConstraints has sensible defaults documented in types", () => {

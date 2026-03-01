@@ -19,6 +19,8 @@ const testAgent: AgentSpec = {
 	system_prompt: "You help find code.",
 	model: "fast",
 	capabilities: ["read_file", "grep", "glob"],
+	tools: ["read_file", "grep", "glob"],
+	agents: [],
 	constraints: {
 		max_turns: 50,
 		max_depth: 3,
