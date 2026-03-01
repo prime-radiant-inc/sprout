@@ -500,13 +500,7 @@ export class Genome {
 		const bootstrapToolDir = join(bootstrapDir, agentName, "tools");
 		const bootstrapTools = await this.loadToolsFromDir(bootstrapToolDir, "bootstrap");
 		const genomeNames = new Set(genomeTools.map((t) => t.name));
-		const merged = [...genomeTools];
-		for (const tool of bootstrapTools) {
-			if (!genomeNames.has(tool.name)) {
-				merged.push(tool);
-			}
-		}
-		return merged;
+		return [...genomeTools, ...bootstrapTools.filter((t) => !genomeNames.has(t.name))];
 	}
 
 	/** Read a tools directory and return AgentToolDefinition[] with the given provenance. */

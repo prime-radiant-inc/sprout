@@ -19,6 +19,39 @@ function extractScriptBody(content: string): string {
 	return content.slice(endIdx + 5); // skip past "\n---\n"
 }
 
+/** Parse a JSON string into a record, returning an empty object on failure. */
+function parseJsonArgs(raw: string): Record<string, unknown> {
+	try {
+		return JSON.parse(raw);
+	} catch {
+		return {};
+	}
+}
+
+/** Execute a sprout-internal tool by dynamically importing its script. */
+async function executeInternalTool(
+	tool: AgentToolDefinition,
+	toolCtx: ToolContext,
+): Promise<{ output: string; success: boolean; error?: string }> {
+	const fileContent = await readFile(tool.scriptPath, "utf-8");
+	const script = extractScriptBody(fileContent);
+
+	// Write to a temp .mjs file for dynamic import (random suffix avoids collisions)
+	const tempPath = `${tool.scriptPath}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.mjs`;
+	await writeFile(tempPath, script);
+	try {
+		const mod = await import(tempPath);
+		const result: ToolResult = await mod.default(toolCtx);
+		return {
+			output: result?.output ?? "",
+			success: result?.success ?? false,
+			error: result?.error,
+		};
+	} finally {
+		await rm(tempPath).catch(() => {});
+	}
+}
+
 /**
  * Build Primitive instances from loaded agent tool definitions.
  * Each tool becomes a primitive that executes its script using the specified interpreter.
@@ -54,40 +87,15 @@ export function buildAgentToolPrimitives(
 					};
 				}
 
-				// Parse args as JSON, fall back to empty object
-				let parsedArgs: Record<string, unknown> = {};
-				try {
-					parsedArgs = JSON.parse(toolArgs);
-				} catch {
-					// Invalid JSON — use empty object
-				}
-
 				const toolCtx: ToolContext = {
 					agentName: ctx.agentName,
-					args: parsedArgs,
+					args: parseJsonArgs(toolArgs),
 					genome: ctx.genome,
 					env: ctx.env,
 				};
 
 				try {
-					// Extract script body (frontmatter is not valid JS)
-					const fileContent = await readFile(tool.scriptPath, "utf-8");
-					const script = extractScriptBody(fileContent);
-
-					// Write to a temp .mjs file for dynamic import (random suffix avoids collisions)
-					const tempPath = `${tool.scriptPath}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.mjs`;
-					await writeFile(tempPath, script);
-					try {
-						const mod = await import(tempPath);
-						const result: ToolResult = await mod.default(toolCtx);
-						return {
-							output: result?.output ?? "",
-							success: result?.success ?? false,
-							error: result?.error,
-						};
-					} finally {
-						await rm(tempPath).catch(() => {});
-					}
+					return await executeInternalTool(tool, toolCtx);
 				} catch (err) {
 					return { output: "", success: false, error: String(err) };
 				}
