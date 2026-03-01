@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { TaskStore } from "../../src/tasks/store.ts";
-import { createEmptyTaskFile } from "../../src/tasks/types.ts";
+import { TaskStore } from "../../bootstrap/task-manager/tools/store.ts";
+import { createEmptyTaskFile } from "../../bootstrap/task-manager/tools/types.ts";
 
 describe("TaskStore", () => {
 	let tmpDir: string;
