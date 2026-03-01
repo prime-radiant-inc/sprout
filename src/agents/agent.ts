@@ -364,6 +364,7 @@ export class Agent {
 				genomePostscripts: this.genomePostscripts,
 				agentId: childId,
 				logger: this.logger,
+				rootDir: this.rootDir,
 				agentTree: this.agentTree,
 				agentTreeChildren: subTreeChildren,
 				agentTreeSelfPath: subTreeSelfPath,
