@@ -67,6 +67,10 @@ export interface AgentSpec {
 	version: number;
 	/** Enable extended thinking (Anthropic models). Budget tokens default to 10000. */
 	thinking?: boolean | { budget_tokens: number };
+	/** Primitive tool names this agent can use. Added by markdown-loader; Task 2 will formalize. */
+	tools?: string[];
+	/** Sub-agent names this agent can delegate to. Added by markdown-loader; Task 2 will formalize. */
+	agents?: string[];
 }
 
 /** Input collected during the Perceive phase */
