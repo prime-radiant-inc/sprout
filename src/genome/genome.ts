@@ -662,6 +662,8 @@ export function serializeAgentSpec(spec: AgentSpec): string {
 		description: spec.description,
 		model: spec.model,
 		capabilities: spec.capabilities,
+		tools: spec.tools,
+		agents: spec.agents,
 		constraints: spec.constraints,
 		tags: spec.tags,
 		system_prompt: spec.system_prompt,

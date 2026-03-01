@@ -3604,7 +3604,7 @@ describe("Agent", () => {
 		expect(desc).toContain("reviewer");
 	});
 
-	test("without agentTree, falls back to capabilities-based resolution", () => {
+	test("without agentTree, falls back to spec.agents-based resolution", () => {
 		const env = new LocalExecutionEnvironment(tmpdir());
 		const client = Client.fromEnv();
 		const registry = createPrimitiveRegistry(env);
@@ -3614,7 +3614,7 @@ describe("Agent", () => {
 			client,
 			primitiveRegistry: registry,
 			availableAgents: [rootSpec, leafSpec],
-			// No agentTree — should use capabilities
+			// No agentTree — should use spec.agents
 		});
 
 		const tools = agent.resolvedTools();
@@ -3623,6 +3623,39 @@ describe("Agent", () => {
 		const delegateTool = tools.find((t) => t.name === "delegate");
 		const desc = (delegateTool!.parameters as any).properties.agent_name.description;
 		expect(desc).toContain("leaf");
+	});
+
+	test("getDelegatableAgents non-tree path uses spec.agents not capabilities", () => {
+		// spec.agents is empty, but capabilities still has "leaf"
+		const noAgentsSpec: AgentSpec = {
+			name: "root",
+			description: "Test root",
+			system_prompt: "You decompose tasks.",
+			model: "fast",
+			capabilities: ["read_file", "leaf"],
+			tools: ["read_file"],
+			agents: [], // empty!
+			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 10 },
+			tags: [],
+			version: 1,
+		};
+
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const client = Client.fromEnv();
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: noAgentsSpec,
+			env,
+			client,
+			primitiveRegistry: registry,
+			availableAgents: [leafSpec],
+			// No agentTree — uses fallback path
+		});
+
+		// Should NOT have a delegate tool since spec.agents is empty
+		const tools = agent.resolvedTools();
+		const names = tools.map((t) => t.name);
+		expect(names).not.toContain("delegate");
 	});
 
 	test("tree-based resolution includes explicit agent refs from spec.agents", () => {

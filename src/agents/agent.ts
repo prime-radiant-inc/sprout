@@ -287,9 +287,9 @@ export class Agent {
 		}
 		const agents: AgentSpec[] = [];
 		const source = this.genome ? this.genome.allAgents() : this.availableAgents;
-		for (const cap of this.spec.capabilities) {
-			if (cap === this.spec.name) continue;
-			const agentSpec = source.find((a) => a.name === cap);
+		for (const ref of this.spec.agents) {
+			if (ref === this.spec.name) continue;
+			const agentSpec = source.find((a) => a.name === ref);
 			if (agentSpec) agents.push(agentSpec);
 		}
 		return agents;

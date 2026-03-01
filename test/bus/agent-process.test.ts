@@ -38,6 +38,8 @@ const ORCHESTRATOR_AGENT_SPEC = {
 	description: "An orchestrator that delegates to test-leaf",
 	model: "best",
 	capabilities: ["test-leaf"],
+	tools: [],
+	agents: ["test-leaf"],
 	constraints: {
 		max_turns: 5,
 		max_depth: 2,
