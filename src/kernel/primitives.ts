@@ -695,7 +695,7 @@ function saveAgentPrimitive(ctx: GenomeContext): Primitive {
 				yaml: {
 					type: "string",
 					description:
-						"Complete agent definition as YAML. Must include: name, description, model, system_prompt. Optional: capabilities, constraints, tags, version.",
+						"Complete agent definition as YAML. Must include: name, description, model, system_prompt. Optional: tools, agents, constraints, tags, version.",
 				},
 			},
 			required: ["yaml"],
@@ -722,15 +722,16 @@ function saveAgentPrimitive(ctx: GenomeContext): Primitive {
 					}
 				}
 
-				const capabilities: string[] = (raw.capabilities as string[]) ?? [];
+				const tools: string[] = (raw.tools as string[]) ?? [];
+				const agents: string[] = (raw.agents as string[]) ?? [];
 				const spec = {
 					name: raw.name as string,
 					description: raw.description as string,
 					system_prompt: raw.system_prompt as string,
 					model: raw.model as string,
-					capabilities,
-					tools: capabilities.filter((c) => !c.includes("/")),
-					agents: capabilities.filter((c) => c.includes("/")),
+					capabilities: [...tools, ...agents],
+					tools,
+					agents,
 					constraints: { ...DEFAULT_CONSTRAINTS, ...raw.constraints },
 					tags: (raw.tags as string[]) ?? [],
 					version: (raw.version as number) ?? 1,
