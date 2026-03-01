@@ -83,7 +83,7 @@ export async function readRootDir(
 	const tree = await scanAgentTree(dir);
 	for (const entry of tree.values()) {
 		specs.push(entry.spec);
-		if (entry.rawContent) {
+		if (entry.rawContent !== undefined) {
 			rawContentByName.set(entry.spec.name, entry.rawContent);
 		}
 	}
