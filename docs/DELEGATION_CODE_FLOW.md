@@ -14,27 +14,27 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
   // Step 1: Initialize genome (git-backed agent repository)
   const genome = new Genome(options.genomePath);
 
-  // Step 2: Check if genome exists or needs bootstrap
+  // Step 2: Check if genome exists or needs initialization
   const isExisting = existsSync(join(options.genomePath, ".git"));
 
   if (isExisting) {
     // Step 3a: Load existing agents from genome directory
     await genome.loadFromDisk();
-    
-    // Step 3b: Sync new bootstrap agents (if any added since initialization)
-    if (options.bootstrapDir) {
-      const result = await genome.syncBootstrap(options.bootstrapDir);
+
+    // Step 3b: Sync new root agents (if any added since initialization)
+    if (options.rootDir) {
+      const result = await genome.syncRoot(options.rootDir);
       if (result.added.length > 0) {
-        console.error(`Synced new bootstrap agents: ${result.added.join(", ")}`);
+        console.error(`Synced new root agents: ${result.added.join(", ")}`);
       }
     }
   } else {
     // Step 4a: Initialize new genome
     await genome.init();
-    
-    // Step 4b: Load bootstrap agents into new genome
-    if (options.bootstrapDir) {
-      await genome.initFromBootstrap(options.bootstrapDir);
+
+    // Step 4b: Load root agents into new genome
+    if (options.rootDir) {
+      await genome.initFromRoot(options.rootDir);
     }
   }
 
@@ -111,18 +111,18 @@ async loadFromDisk(): Promise<void> {
 }
 ```
 
-### 2b. Initialize from Bootstrap
+### 2b. Initialize from Root
 
 ```typescript
-// src/genome/genome.ts, lines 282-297
-async initFromBootstrap(bootstrapDir: string): Promise<void> {
+// src/genome/genome.ts
+async initFromRoot(rootDir: string): Promise<void> {
   if (this.agents.size > 0) {
-    throw new Error("Cannot initialize from bootstrap: agents already exist");
+    throw new Error("Cannot initialize from root: agents already exist");
   }
 
-  // Load all YAML files from bootstrap directory
-  const specs = await loadBootstrapAgents(bootstrapDir);
-  
+  // Recursively load all agent specs from root directory tree
+  const specs = await loadRootAgents(rootDir);
+
   // Write each to genome/agents/ and store in memory
   for (const spec of specs) {
     const yamlPath = join(this.rootPath, "agents", `${spec.name}.yaml`);
@@ -132,21 +132,18 @@ async initFromBootstrap(bootstrapDir: string): Promise<void> {
 
   // Commit to git
   await git(this.rootPath, "add", ".");
-  await git(this.rootPath, "commit", "-m", "genome: initialize from bootstrap agents");
+  await git(this.rootPath, "commit", "-m", "genome: initialize from root agents");
 }
 ```
 
-### 2c. Load Bootstrap Agents
+### 2c. Load Root Agents
 
 ```typescript
-// src/agents/loader.ts, lines 28-32
-export async function loadBootstrapAgents(dir: string): Promise<AgentSpec[]> {
-  const files = await readdir(dir);
-  
-  // Filter and sort YAML files
-  const yamlFiles = files
-    .filter((f) => f.endsWith(".yaml") || f.endsWith(".yml"))
-    .sort();
+// src/agents/loader.ts
+export async function loadRootAgents(dir: string): Promise<AgentSpec[]> {
+  // Recursively scan the directory tree for agent spec files
+  // Loads .md (Markdown with YAML frontmatter) and .yaml/.yml files
+  const files = await readRootDir(dir);
   
   // Load each one
   return Promise.all(yamlFiles.map((f) => loadAgentSpec(join(dir, f))));
@@ -557,20 +554,20 @@ private async executeDelegation(
 User Goal
   ↓
 createAgent(options)
-  ├─ Genome.loadFromDisk() or initFromBootstrap()
-  │  └─ loadBootstrapAgents(bootstrap/) → Read all YAML files
+  ├─ Genome.loadFromDisk() or initFromRoot()
+  │  └─ loadRootAgents(root/) → Recursively scan agent tree
   │     └─ Agent specs loaded into Genome.agents map
-  ├─ genome.getAgent("root") → Gets root.yaml spec
+  ├─ genome.getAgent("root") → Gets root spec
   └─ new Agent({
        spec: root,
-       availableAgents: genome.allAgents(),  ← All agents from genome
+       availableAgents: genome.allAgents(),  <- All agents from genome
        genome,
      })
-       ├─ Constructor analyzes root.capabilities: ["reader", "editor", ...]
-       ├─ For each capability:
-       │  └─ Find matching agent in availableAgents
-       └─ buildDelegateTool(delegatableAgents) → Create single tool with enum
-          └─ Tool enum = ["reader", "editor", "command-runner", ...]
+       ├─ Agent tree resolution or capabilities fallback
+       ├─ For each resolvable agent:
+       │  └─ Find matching agent spec
+       └─ buildDelegateTool(delegatableAgents) → Create single tool
+          └─ Agent names listed in system prompt
 
 Agent.run(goal)
   ├─ Per turn:

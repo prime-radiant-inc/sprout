@@ -29,7 +29,7 @@ Fast, no external dependencies. Mock all LLM calls. These run in the pre-commit 
 
 Test real LLM API interactions, agent loops, and end-to-end workflows. Use the VCR system (see below) to replay recorded API responses by default.
 
-- `test/integration/e2e.test.ts` — Full pipeline: bootstrap, file creation, learn, cross-session
+- `test/integration/e2e.test.ts` — Full pipeline: root agent init, file creation, learn, cross-session
 - `test/agents/agent.integration.test.ts` — Agent with real LLM: delegation, genome recall
 - `test/llm/anthropic.test.ts` — Anthropic adapter: text, tools, caching, streaming, thinking
 - `test/llm/openai.test.ts` — OpenAI adapter: text, tools, streaming

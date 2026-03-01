@@ -1,6 +1,6 @@
 # Quick Start: Agent Delegation Architecture
 
-**TL;DR**: Root agent reads `bootstrap/root.yaml`, filters agents by `capabilities` list, builds a single `delegate` tool with agent names as an enum, and can recursively create subagents that respect the same availability constraints.
+**TL;DR**: Root agent reads `root/root.md`, resolves subagents from the agent tree, builds a single `delegate` tool with agent names as an enum, and can recursively create subagents that respect the same availability constraints.
 
 ---
 
@@ -8,8 +8,8 @@
 
 | File | Purpose | Key Content |
 |------|---------|-------------|
-| `bootstrap/root.yaml` | Root agent config | `capabilities: [reader, editor, ...]` |
-| `src/agents/loader.ts` | Load YAML → AgentSpec | `loadBootstrapAgents(dir)` |
+| `root/root.md` | Root agent config | `agents: [utility/reader, utility/editor, ...]` |
+| `src/agents/loader.ts` | Load specs → AgentSpec | `loadRootAgents(dir)` |
 | `src/genome/genome.ts` | Persist agents in git | `allAgents()`, `getAgent(name)` |
 | `src/agents/factory.ts` | Create agent + genome | `createAgent(options)` → Agent |
 | `src/agents/agent.ts` | Main agent logic | Constructor builds delegate tool, `run()` loop, `executeDelegation()` |
@@ -19,20 +19,20 @@
 
 ## The Critical Path
 
-### 1. Bootstrap Loading
+### 1. Root Agent Loading
 ```typescript
 // src/agents/loader.ts
-loadBootstrapAgents("bootstrap/") 
-  → Reads all .yaml/.yml files
-  → Parses each into AgentSpec
+loadRootAgents("root/")
+  → Recursively scans agent tree
+  → Parses each .md/.yaml spec into AgentSpec
   → Returns AgentSpec[]
 ```
 
 ### 2. Genome Persistence
 ```typescript
 // src/genome/genome.ts
-genome.initFromBootstrap(bootstrapDir)
-  → Calls loadBootstrapAgents()
+genome.initFromRoot(rootDir)
+  → Calls loadRootAgents()
   → Writes each spec to genome/agents/{name}.yaml
   → Stores in this.agents Map<string, AgentSpec>
   → Commits to git
@@ -170,7 +170,7 @@ if (this.spec.constraints.max_depth > 0 &&
 **Truth**: All agent names and specs come from YAML files.
 
 **Evidence**:
-- `loader.ts`: `readdir()` reads bootstrap directory dynamically
+- `loader.ts`: recursively scans root directory dynamically
 - `genome.ts`: `loadFromDisk()` reads genome/agents/ dynamically
 - `agent.ts` line 126: `availableAgents.find(a => a.name === cap)` lookup is dynamic
 - `plan.ts` line 15: `agents.map(a => a.name)` builds enum from input array
@@ -182,12 +182,12 @@ if (this.spec.constraints.max_depth > 0 &&
 ## Delegation Rules
 
 ### Root Agent Can Delegate To:
-- Any agent listed in `bootstrap/root.yaml` `capabilities` array
+- Any agent listed in `root/root.md` `agents` field, or discovered via agent tree scanning
 - ONLY if that agent exists in the genome
 - Agent names used as parameter enum in delegate tool
 
 ### Subagent Can Delegate To:
-- Any agent listed in its own spec's `capabilities` array
+- Any agent listed in its own spec's `agents` field, or resolved via the agent tree
 - Receives same `availableAgents` list from parent
 - Can only delegate if `constraints.can_spawn: true`
 
@@ -209,14 +209,14 @@ Leaf Agent (can_spawn: false):
 ## Data Flow Summary
 
 ```
-bootstrap/root.yaml
-    ↓ (loadBootstrapAgents)
-AgentSpec[] from bootstrap/
-    ↓ (Genome.initFromBootstrap or syncBootstrap)
+root/root.md
+    ↓ (loadRootAgents)
+AgentSpec[] from root/
+    ↓ (Genome.initFromRoot or syncRoot)
 Genome.agents Map<string, AgentSpec>
     ↓ (Genome.allAgents)
 availableAgents: AgentSpec[] passed to Agent constructor
-    ↓ (Constructor filters by root.capabilities)
+    ↓ (Agent tree resolution or capabilities fallback)
 delegatableAgents: AgentSpec[]
     ↓ (buildDelegateTool)
 ToolDefinition with agent_name enum
@@ -236,19 +236,19 @@ ActResult returned to parent
 
 ## Test Cases to Verify Understanding
 
-### Test 1: Capability Not in Genome
+### Test 1: Agent Not in Genome
 ```yaml
-# bootstrap/root.yaml
-capabilities:
+# root/root.md frontmatter
+agents:
   - nonexistent_agent
 ```
-**Result**: `availableAgents.find()` returns undefined, agent not added to delegatableAgents, no enum option for it, LLM can't pick it. ✓
+**Result**: Agent tree resolution finds no matching spec, agent not added to delegatableAgents, no enum option for it, LLM can't pick it.
 
-### Test 2: New Bootstrap Agent Added
+### Test 2: New Root Agent Added
 **Before**: genome/agents has [reader, editor]
-**Add**: commander-runner to bootstrap/
-**Then**: Call `genome.syncBootstrap()` (manifest-aware 4-way sync)
-**Result**: commander-runner added to genome, available for new delegates. ✓
+**Add**: command-runner to root/
+**Then**: Call `genome.syncRoot()` (manifest-aware 4-way sync)
+**Result**: command-runner added to genome, available for new delegates.
 
 ### Test 3: Leaf Agent Trying to Delegate
 ```yaml
@@ -282,7 +282,7 @@ const source = this.genome ? this.genome.allAgents() : this.availableAgents;
 ## Common Questions
 
 **Q: Is there a hardcoded list of agents somewhere?**
-A: No. All agents come from YAML files in bootstrap/ and genome/agents/.
+A: No. All agents come from spec files in root/ and genome/agents/.
 
 **Q: How does the LLM know which agents exist?**
 A: 
@@ -291,7 +291,7 @@ A:
 Both derived from the same AgentSpec[] source.
 
 **Q: Can the root agent delegate to any agent?**
-A: Only agents in `root.yaml` `capabilities` list that exist in the genome.
+A: Only agents listed in `root/root.md` `agents` field (or resolved from the agent tree) that exist in the genome.
 
 **Q: What stops an agent from delegating to itself?**
 A: Line 125 in agent.ts: `if (cap === this.spec.name) continue;` skips self-reference.
@@ -307,47 +307,37 @@ A: Yes, new Agent instance each time (line 254). Each has own state but same ava
 ## To Modify Delegation
 
 ### Add a New Agent
-1. Create `bootstrap/my-agent.yaml` with:
+1. Create `root/agents/my-agent.md` with YAML frontmatter:
    - `name: my-agent`
    - `description: "..."`
    - `model: "..."`
-   - `capabilities: [...]` (primitives or other agents)
+   - `tools: [...]` (primitive tools)
+   - `agents: [...]` (subagent paths, if orchestrator)
    - `constraints: {...}`
-   - `system_prompt: |...`
+   - Markdown body becomes the system prompt
 
-2. Add to `bootstrap/root.yaml` capabilities:
-   ```yaml
-   capabilities:
-     - reader
-     - editor
-     - my-agent  ← Add here
-   ```
+2. The agent tree scanner auto-discovers agents from the directory structure, or explicitly add to parent's `agents` list.
 
-3. Restart or call `genome.syncBootstrap(bootstrapDir)`
+3. Restart or call `genome.syncRoot(rootDir)`
 
-4. Root agent will now show new agent in `<agents>` and delegate tool enum
+4. Parent agent will now show new agent in `<agents>` and delegate tool enum
 
 ### Remove Agent Delegation
-1. Edit `bootstrap/root.yaml` capabilities:
-   ```yaml
-   capabilities:
-     - reader
-     - editor
-     # - removed-agent  ← Comment out or delete
-   ```
+1. Remove the agent's `.md` file from `root/agents/`
+2. Or remove it from the parent's `agents` list in frontmatter
 
-2. Root agent will no longer be able to delegate to it
+3. The agent will no longer be available for delegation
 
-### Change Agent Capabilities
-Edit the agent's YAML file (e.g., `bootstrap/editor.yaml`):
+### Change Agent Tools
+Edit the agent's spec file (e.g., `root/agents/utility/agents/editor.md`):
 ```yaml
-capabilities:
-  - write_file      ← Change these
+tools:
+  - write_file      # Change these
   - edit_file
-  - new_primitive   ← Add this
+  - new_primitive   # Add this
 ```
 
-Subagents will get updated capabilities on next construction (either primitive tools or delegation options depending on what the names match to).
+Subagents will get updated tools on next construction.
 
 ---
 
@@ -392,14 +382,14 @@ Check event logs or look at:
 
 ## Summary Checklist
 
-- [ ] Root agent loaded from `bootstrap/root.yaml`
-- [ ] Root capabilities list determines which agents it can delegate to
-- [ ] Delegate tool has enum parameter limiting agent names
+- [ ] Root agent loaded from `root/root.md`
+- [ ] Agent tree determines which agents each orchestrator can delegate to
+- [ ] Delegate tool has agent names listed in system prompt
 - [ ] Agent descriptions injected into system prompt via `<agents>` XML
-- [ ] LLM can only pick from enum (no hallucination)
+- [ ] LLM selects from known agent names (no hallucination)
 - [ ] Subagents created recursively with same availableAgents and genome
-- [ ] Each agent respects its own capabilities and constraints
+- [ ] Each agent respects its own tools, agents, and constraints
 - [ ] Depth and can_spawn constraints prevent invalid recursion
 - [ ] Genome is source of truth, not hardcoded list
-- [ ] New bootstrap agents synced via `syncBootstrap()` on startup
-- [ ] Learned agents never overwritten by bootstrap sync
+- [ ] New root agents synced via `syncRoot()` on startup
+- [ ] Learned agents never overwritten by root sync

@@ -15,7 +15,7 @@ ASCII diagrams and visual representations of agent delegation.
                             ▼
 ┌────────────────────────────────────────────────────────────────────┐
 │                    Root Agent (Orchestrator)                       │
-│                     bootstrap/root.yaml                            │
+│                     root/root.md                            │
 │  ┌──────────────────────────────────────────────────────────┐     │
 │  │ capabilities: [reader, editor, command-runner, ...]     │     │
 │  │ constraints: {can_spawn: true, max_depth: 3}            │     │
@@ -302,11 +302,11 @@ Session Start
         │  │  │
         │  │  └─ Load memories, routing rules
         │  │
-        │  ├─ genome.syncBootstrap(bootstrapDir)
+        │  ├─ genome.syncRoot(rootDir)
         │  │  │
         │  │  ├─ readBootstrapDir + buildManifest
         │  │  │
-        │  │  ├─ 4-way compare (old manifest, new manifest, genome, bootstrap):
+        │  │  ├─ 4-way compare (old manifest, new manifest, genome, root):
         │  │  │  ├─ New agent → add to genome
         │  │  │  ├─ Bootstrap changed, genome unchanged → update
         │  │  │  ├─ Both changed → conflict (genome preserved)
@@ -327,17 +327,17 @@ Session Start
            │  ├─ Create .gitignore
            │  └─ git commit "genome: initialize"
            │
-           ├─ genome.initFromBootstrap(bootstrapDir)
+           ├─ genome.initFromRoot(rootDir)
            │  │
-           │  ├─ loadBootstrapAgents(bootstrapDir)
+           │  ├─ loadRootAgents(rootDir)
            │  │
            │  ├─ For each spec:
            │  │  ├─ Write to genome/agents/{name}.yaml
            │  │  └─ this.agents.set(name, spec)
            │  │
-           │  └─ git commit "genome: initialize from bootstrap agents"
+           │  └─ git commit "genome: initialize from root agents"
            │
-           └─ genome.agents Map populated with bootstrap agents
+           └─ genome.agents Map populated with root agents
         
         │
         ▼
@@ -408,7 +408,7 @@ Examples:
 ## 8. Data Flow from YAML to LLM
 
 ```
-bootstrap/root.yaml
+root/root.md
 ├─ name: "root"
 ├─ description: "Decompose tasks..."
 ├─ capabilities: [reader, editor, command-runner, web-reader, mcp, quartermaster]
@@ -789,7 +789,7 @@ Return to User
 │  ┌─────────────────────────────────────────────────────────────────┐       │
 │  │  ROOT AGENT (Orchestrator)                                      │       │
 │  │                                                                 │       │
-│  │  Reads: bootstrap/root.yaml                                    │       │
+│  │  Reads: root/root.md                                    │       │
 │  │  Capabilities: [reader, editor, command-runner, ...]          │       │
 │  │  Can Spawn: true (can delegate)                                │       │
 │  │  Max Depth: 3 (can create nested subagents)                    │       │
@@ -821,7 +821,7 @@ Return to User
 │                                                                             │
 │  DATA FLOW:                                                                 │
 │  ┌──────────────────────────────────────────────────────────────────────┐  │
-│  │ bootstrap/ YAML files                                               │  │
+│  │ root/ agent spec files                                               │  │
 │  │        ↓                                                             │  │
 │  │ loadBootstrapAgents() → AgentSpec[]                                │  │
 │  │        ↓                                                             │  │

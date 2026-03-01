@@ -805,14 +805,14 @@ Perfect! I've delegated the task to the reader agent, who found 12 Python files 
 
 ## What If Something Was Different?
 
-### What if "reader" was not in root's capabilities?
+### What if "reader" was not in root's agents?
 ```yaml
-# bootstrap/root.yaml
-capabilities:
-  - editor              # ← reader removed
-  - command-runner
-  - web-reader
-  - mcp
+# root/root.md frontmatter
+agents:
+  - utility/editor              # reader removed
+  - utility/command-runner
+  - utility/web-reader
+  - utility/mcp
   - quartermaster
 ```
 **Result**: 
@@ -832,7 +832,7 @@ capabilities:
 
 ### What if reader had can_spawn: true?
 ```yaml
-# bootstrap/reader.yaml
+# root/agents/utility/agents/reader.md frontmatter
 constraints:
   can_spawn: true  # Changed from false
 ```
@@ -844,7 +844,7 @@ constraints:
 
 ### What if root had max_depth: 1?
 ```yaml
-# bootstrap/root.yaml
+# root/root.md frontmatter
 constraints:
   max_depth: 1  # Changed from 3
 ```

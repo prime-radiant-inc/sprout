@@ -1,6 +1,6 @@
 # Deferred Features: Genome Scale
 
-These features are specified in the self-improving-agent spec but are only needed once the genome grows beyond the bootstrap phase. They are intentionally deferred — not missing. Implement them when the genome reaches the thresholds described below.
+These features are specified in the self-improving-agent spec but are only needed once the genome grows beyond the initial phase. They are intentionally deferred — not missing. Implement them when the genome reaches the thresholds described below.
 
 ---
 
@@ -17,7 +17,7 @@ These features are specified in the self-improving-agent spec but are only neede
 - Rebuild the index whenever an agent is added, updated, or removed
 - The retrieval strategy itself should be part of the genome and improvable by Learn (spec §5.3)
 
-**Why not now:** With 4 bootstrap agents and even 10-15 learned agents, returning all of them costs negligible tokens. Embedding search adds a dependency (model download, inference latency) without benefit at this scale.
+**Why not now:** With the initial root agents and even 10-15 learned agents, returning all of them costs negligible tokens. Embedding search adds a dependency (model download, inference latency) without benefit at this scale.
 
 **Spec references:** §5.3 (retrieval strategy tiers), §D.11 Q5 (embedding model choice)
 

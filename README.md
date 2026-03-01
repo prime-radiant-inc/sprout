@@ -26,27 +26,38 @@ A **root agent** receives your goal, breaks it into subgoals, and delegates each
 
 ```
 root (best model — orchestrator)
-  ├─ reader          (fast — read-only file discovery)
-  ├─ editor          (balanced — file editing & creation)
-  ├─ command-runner  (fast — shell command execution)
-  ├─ web-reader      (fast — HTTP requests & web content)
-  ├─ mcp             (fast — Model Context Protocol client)
-  └─ quartermaster   (best — capability expert & meta-agent)
-       ├─ qm-indexer     (fast — discover & cache capabilities)
-       ├─ qm-planner     (best — design multi-step plans)
-       └─ qm-fabricator  (best — build new specialist agents)
+  ├─ utility/reader          (fast — read-only file discovery)
+  ├─ utility/editor          (balanced — file editing & creation)
+  ├─ utility/command-runner  (fast — shell command execution)
+  ├─ utility/web-reader      (fast — HTTP requests & web content)
+  ├─ utility/mcp             (fast — Model Context Protocol client)
+  ├─ utility/task-manager    (fast — task tracking)
+  ├─ project-explorer        (fast — codebase analysis)
+  ├─ architect               (best — system design)
+  ├─ tech-lead               (best — engineering orchestrator)
+  │    ├─ engineer           (best — implementation)
+  │    ├─ spec-reviewer      (best — spec compliance)
+  │    └─ quality-reviewer   (best — code quality)
+  ├─ verifier                (best — test & build verification)
+  ├─ debugger                (best — systematic debugging)
+  └─ quartermaster           (best — capability expert & meta-agent)
+       ├─ qm-indexer         (fast — discover & cache capabilities)
+       ├─ qm-planner         (best — design multi-step plans)
+       ├─ qm-fabricator      (best — build new specialist agents)
+       └─ qm-reconciler      (best — genome reconciliation)
 ```
 
-### Bootstrap Agents
+### Agent Definitions
 
-Agents are defined as YAML specs in `bootstrap/`. Each spec declares:
+Agents are defined as Markdown specs in `root/`. Each spec declares:
 
 | Field | Description |
 |-------|-------------|
 | `name` | Agent identifier |
 | `description` | What the agent does (shown to parent agents) |
 | `model` | LLM tier: `best`, `balanced`, or `fast` |
-| `capabilities` | List of primitives or agent names this agent can use |
+| `tools` | List of primitives this agent can use |
+| `agents` | List of subagent paths this agent can delegate to |
 | `max_turns` | Maximum planning iterations before forced stop |
 | `max_depth` | How deep in the delegation tree this agent can appear |
 | `can_spawn` | Whether the agent can delegate to subagents |
@@ -233,13 +244,13 @@ Sprout includes a standalone MCP (Model Context Protocol) client CLI:
 
 ```bash
 # List configured MCP servers
-bun run bootstrap/mcp/tools/mcp-cli.ts list-servers
+bun run root/agents/utility/agents/mcp/tools/mcp-cli.ts list-servers
 
 # List tools on a server
-bun run bootstrap/mcp/tools/mcp-cli.ts list-tools github
+bun run root/agents/utility/agents/mcp/tools/mcp-cli.ts list-tools github
 
 # Call a tool
-bun run bootstrap/mcp/tools/mcp-cli.ts call-tool github search_repositories '{"query": "sprout"}'
+bun run root/agents/utility/agents/mcp/tools/mcp-cli.ts call-tool github search_repositories '{"query": "sprout"}'
 ```
 
 MCP servers are configured in `mcp.json`.
@@ -267,21 +278,22 @@ bunx sprout --genome-path /path/to/genome
 
 ```
 sprout/
-├── bootstrap/             # Agent YAML definitions
+├── root/                  # Agent tree (Markdown specs)
+│   ├── root.md            # Root orchestrator
 │   ├── preambles/         # Shared system prompt fragments
-│   │   ├── global.md      # All agents: be factual, precise, explicit
-│   │   ├── orchestrator.md # Orchestrators: break goals, delegate, verify
-│   │   └── worker.md      # Workers: execute directly, return concrete output
-│   ├── root.yaml
-│   ├── editor.yaml
-│   ├── reader.yaml
-│   ├── command-runner.yaml
-│   ├── web-reader.yaml
-│   ├── mcp.yaml
-│   ├── quartermaster.yaml
-│   ├── qm-fabricator.yaml
-│   ├── qm-indexer.yaml
-│   └── qm-planner.yaml
+│   │   ├── global.md
+│   │   ├── orchestrator.md
+│   │   └── worker.md
+│   └── agents/            # Nested agent tree
+│       ├── utility/agents/ # Leaf workers (reader, editor, command-runner, etc.)
+│       ├── tech-lead.md    # Engineering orchestrator
+│       ├── tech-lead/agents/ # engineer, spec-reviewer, quality-reviewer
+│       ├── quartermaster.md
+│       ├── quartermaster/agents/ # qm-indexer, qm-planner, qm-fabricator, qm-reconciler
+│       ├── architect.md
+│       ├── verifier.md
+│       ├── debugger.md
+│       └── project-explorer.md
 ├── docs/                  # Internal documentation
 ├── src/
 │   ├── agents/            # Agent lifecycle, planning, delegation, verification

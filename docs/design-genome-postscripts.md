@@ -2,9 +2,9 @@
 
 ## Problem
 
-Bootstrap preambles establish system-wide behavioral defaults, but users need a way
+Root preambles establish system-wide behavioral defaults, but users need a way
 to customize agent behavior for their specific deployment. Currently the only way
-to do this is to edit bootstrap files directly, which doesn't survive updates.
+to do this is to edit root agent files directly, which doesn't survive updates.
 
 The genome is the right place for user customization — it persists across sessions,
 is git-backed, and is the user's "personality layer" for the system.
@@ -14,7 +14,7 @@ is git-backed, and is the user's "personality layer" for the system.
 The full prompt layering after this work:
 
 ```
-bootstrap preamble (global + role)     ← system defaults, first
+root preamble (global + role)     ← system defaults, first
 agent system_prompt                     ← agent identity and behavior
 genome postscripts (global + role)      ← user customization, overrides defaults
 environment                             ← working dir, platform, date
@@ -146,11 +146,11 @@ if (postscripts) {
    modifying the agent spec. This keeps the bootstrap spec clean and puts all
    learned customizations in the genome layer.
 
-3. **Should there be a `prelude` equivalent?** We have bootstrap preambles (before)
+3. **Should there be a `prelude` equivalent?** We have root preambles (before)
    and genome postscripts (after). Should the genome ALSO have a preamble layer
-   that goes before the agent prompt? Current thinking: no — the bootstrap preamble
+   that goes before the agent prompt? Current thinking: no — the root preamble
    is the "before" slot, the genome postscript is the "after" slot. If users want
-   to override the bootstrap preamble, they should edit the genome postscript to
+   to override the root preamble, they should edit the genome postscript to
    contradict it, and recency bias will do the rest.
 
 4. **Postscript size limits?** Postscripts consume context window. Should there be

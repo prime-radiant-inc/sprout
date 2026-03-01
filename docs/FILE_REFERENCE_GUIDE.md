@@ -4,96 +4,91 @@ Quick reference for all files involved in agent delegation and configuration.
 
 ---
 
-## Bootstrap Agent Configuration Files
+## Agent Tree Configuration Files
 
-### `bootstrap/root.yaml` (Lines 1-47)
-The root agent orchestrator configuration.
+### `root/root.md`
+The root agent orchestrator configuration (Markdown with YAML frontmatter).
 
 **Key fields:**
 - `name: root` - Orchestrator name
-- `capabilities: [reader, editor, command-runner, web-reader, mcp, quartermaster]` - Available agents
+- `tools: [...]` - Primitive tools this agent can use
+- `agents: [utility/reader, utility/editor, ...]` - Subagent paths
 - `constraints.can_spawn: true` - Enables delegation
-- `constraints.max_depth: 3` - Can create nested subagents
-- `system_prompt: |` - Instructions to decompose and delegate
+- `constraints.max_depth: 5` - Can create nested subagents
+- Markdown body becomes the system prompt
 
 **Usage:** Loaded during `createAgent()` → becomes the agent that decomposes tasks
 
 ---
 
-### `bootstrap/reader.yaml` (example leaf agent)
+### `root/agents/utility/agents/reader.md` (example leaf agent)
 Example of a non-delegating agent.
 
 **Key fields:**
 - `name: reader` - Agent name
-- `capabilities: [read_file, grep, find_files]` - Primitive capabilities, not agents
+- `tools: [read_file, grep, glob]` - Primitive tools (not agents)
 - `constraints.can_spawn: false` - Cannot delegate
 - `constraints.max_depth: 0` - Leaf agent
 
 ---
 
-### `bootstrap/` Directory Structure
+### `root/` Directory Structure
 ```
-bootstrap/
-├─ root.yaml                  ← Orchestrator
-├─ quartermaster.yaml         ← Another orchestrator
-├─ qm-fabricator.yaml        ├─ Quartermaster subagents
-├─ qm-indexer.yaml           │
-├─ qm-planner.yaml           ├─
-├─ reader.yaml               ← Leaf agents
-├─ editor.yaml               │
-├─ command-runner.yaml       ├─
-├─ web-reader.yaml           │
-└─ mcp.yaml                  ├─
+root/
+├─ root.md                    ← Root orchestrator
+├─ preambles/                 ← Shared prompt fragments
+│  ├─ global.md
+│  ├─ orchestrator.md
+│  └─ worker.md
+└─ agents/                    ← Nested agent tree
+   ├─ utility/agents/         ← Leaf workers
+   │  ├─ reader.md
+   │  ├─ editor.md
+   │  ├─ command-runner.md
+   │  ├─ web-reader.md
+   │  ├─ mcp.md
+   │  └─ task-manager.md
+   ├─ tech-lead.md            ← Engineering orchestrator
+   ├─ tech-lead/agents/
+   │  ├─ engineer.md
+   │  ├─ spec-reviewer.md
+   │  └─ quality-reviewer.md
+   ├─ quartermaster.md
+   ├─ quartermaster/agents/
+   │  ├─ qm-indexer.md
+   │  ├─ qm-planner.md
+   │  ├─ qm-fabricator.md
+   │  └─ qm-reconciler.md
+   ├─ architect.md
+   ├─ verifier.md
+   ├─ debugger.md
+   └─ project-explorer.md
 ```
 
-All `.yaml` and `.yml` files are automatically loaded.
+All `.md` and `.yaml`/`.yml` files are automatically loaded.
 
 ---
 
 ## Agent Loading and Setup
 
-### `src/agents/loader.ts` (Lines 1-32)
-Loads agent YAML files from disk.
+### `src/agents/loader.ts`
+Loads agent specs from disk (YAML or Markdown with YAML frontmatter).
 
 **Functions:**
 
-#### `loadBootstrapAgents(dir: string): Promise<AgentSpec[]>` (lines 28-32)
-```typescript
-export async function loadBootstrapAgents(dir: string): Promise<AgentSpec[]> {
-  const files = await readdir(dir);
-  const yamlFiles = files.filter((f) => f.endsWith(".yaml") || f.endsWith(".yml")).sort();
-  return Promise.all(yamlFiles.map((f) => loadAgentSpec(join(dir, f))));
-}
-```
-- Reads all YAML/YML files from bootstrap directory
+#### `loadRootAgents(dir: string): Promise<AgentSpec[]>`
+Recursively scans the root agent tree directory and loads all agent specs.
+- Reads `root.md` (or `root.yaml`) from the root directory
+- Recursively discovers agents in `agents/` subdirectories
 - Parses each into AgentSpec
-- Returns array of AgentSpec objects
+- Returns array of all AgentSpec objects
 
-#### `loadAgentSpec(path: string): Promise<AgentSpec>` (lines 6-26)
-```typescript
-export async function loadAgentSpec(path: string): Promise<AgentSpec> {
-  const content = await readFile(path, "utf-8");
-  const raw = parse(content);  // YAML parse
-  
-  // Validate required fields: name, description, system_prompt, model
-  // ...
-  
-  return {
-    name: raw.name,
-    description: raw.description,
-    system_prompt: raw.system_prompt,
-    model: raw.model,
-    capabilities: raw.capabilities ?? [],
-    constraints: { ...DEFAULT_CONSTRAINTS, ...raw.constraints },
-    tags: raw.tags ?? [],
-    version: raw.version ?? 1,
-  };
-}
-```
-- Parses single YAML file
-- Validates required fields
+#### `loadAgentSpec(path: string): Promise<AgentSpec>`
+- Parses a single YAML or Markdown spec file
+- For `.md` files: extracts YAML frontmatter, uses Markdown body as system_prompt
+- Validates required fields (name, description, model)
 - Merges constraints with defaults
-- Returns AgentSpec object
+- Returns AgentSpec object with `tools`, `agents`, and `capabilities` (combined)
 
 ---
 
@@ -109,7 +104,7 @@ Main entry point for creating an agent.
 1. `new Genome(options.genomePath)` - Create genome instance
 2. `existsSync(join(options.genomePath, ".git"))` - Check if genome exists
 3. If existing: `genome.loadFromDisk()` (line 56)
-4. If new: `genome.init()` then `genome.initFromBootstrap()` (lines 65-68)
+4. If new: `genome.init()` then `genome.initFromRoot()` (lines 65-68)
 5. `genome.getAgent(rootName)` - Get root agent spec (line 72)
 6. `new Agent({ spec: rootSpec, availableAgents: genome.allAgents(), genome, ... })` (lines 103-116)
 
@@ -169,38 +164,38 @@ async loadFromDisk(): Promise<void> {
 **Usage:** Called in factory.ts line 56 for existing genomes
 **Key line 264:** Calls `loadAgentSpec()` for each YAML file
 
-##### `initFromBootstrap(bootstrapDir: string): Promise<void>` (lines 282-297)
+##### `initFromRoot(rootDir: string): Promise<void>`
 ```typescript
-async initFromBootstrap(bootstrapDir: string): Promise<void> {
+async initFromRoot(rootDir: string): Promise<void> {
   if (this.agents.size > 0) {
-    throw new Error("Cannot initialize from bootstrap: agents already exist");
+    throw new Error("Cannot initialize from root: agents already exist");
   }
-  
-  const specs = await loadBootstrapAgents(bootstrapDir);
+
+  const specs = await loadRootAgents(rootDir);
   for (const spec of specs) {
     const yamlPath = join(this.rootPath, "agents", `${spec.name}.yaml`);
     await writeFile(yamlPath, serializeAgentSpec(spec));
     this.agents.set(spec.name, spec);
   }
-  
+
   await git(this.rootPath, "add", ".");
-  await git(this.rootPath, "commit", "-m", "genome: initialize from bootstrap agents");
+  await git(this.rootPath, "commit", "-m", "genome: initialize from root agents");
 }
 ```
-**Usage:** Called in factory.ts line 67 for new genomes
-**Key lines:**
-- 288: `loadBootstrapAgents(bootstrapDir)` - Load all YAML files
-- 292: `this.agents.set(spec.name, spec)` - Store in memory
-- 295-296: Commit to git
+**Usage:** Called in factory.ts for new genomes
+**Key steps:**
+- `loadRootAgents(rootDir)` - Recursively load all agent specs from the tree
+- `this.agents.set(spec.name, spec)` - Store in memory
+- Commit to git
 
-##### `syncBootstrap(bootstrapDir: string): Promise<SyncBootstrapResult>`
-Manifest-aware 4-way comparison (old manifest, new manifest, genome, bootstrap).
+##### `syncRoot(rootDir: string): Promise<SyncRootResult>`
+Manifest-aware 4-way comparison (old manifest, new manifest, genome, root).
 Returns `{ added, updated, conflicts }`. Adds new agents, updates genome agents
-when bootstrap changed but genome didn't evolve, and reports conflicts when both
+when root changed but genome didn't evolve, and reports conflicts when both
 sides changed (genome version preserved). Also reconciles root capabilities via
 3-way merge.
 
-**Usage:** Called in factory.ts to sync bootstrap agents on startup
+**Usage:** Called in factory.ts to sync root agents on startup
 **Key insight:** Evolved genome agents are never overwritten — conflicts are reported but preserved
 
 ---
@@ -482,11 +477,13 @@ export interface AgentSpec {
   name: string;
   description: string;
   model: string;
-  capabilities: string[];
+  tools: string[];           // Primitive tool names
+  agents: string[];          // Subagent path references
+  capabilities: string[];   // Combined (tools + agents), for backward compat
   constraints: AgentConstraints;
   tags: string[];
   version: number;
-  system_prompt?: string;
+  system_prompt: string;
   thinking?: boolean | { budget_tokens: number };
 }
 
@@ -606,7 +603,7 @@ These files exist but are NOT part of the core delegation logic:
 To understand delegation completely, read in this order:
 
 1. **Start here:**
-   - `bootstrap/root.yaml` - See the configuration
+   - `root/root.md` - See the configuration
    - `src/kernel/types.ts` - Understand AgentSpec and types
 
 2. **Loading:**

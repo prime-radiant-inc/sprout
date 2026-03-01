@@ -34,38 +34,40 @@ These cannot be modified by Learn:
 
 Agent names that shadow kernel primitives or reserved names are rejected at creation time.
 
-## Bootstrap Agents
+## Agent Tree
 
-19 agents in `bootstrap/`. Core delegation tree plus specialized roles:
+Agents are defined as Markdown specs in `root/`, organized as a nested tree. Each directory's `agents/` subdirectory contains its children.
 
-**Core (delegation chain):**
+**Core utility agents (leaf workers):**
 
 | Agent | Model | Role |
 |-------|-------|------|
-| root | best | Decomposes tasks, delegates to all others |
-| reader | fast | Finds and returns code (read_file, grep, glob) |
-| editor | balanced | Makes targeted edits (read_file, edit_file, write_file) |
-| command-runner | fast | Runs shell commands (exec) |
+| utility/reader | fast | Finds and returns code (read_file, grep, glob) |
+| utility/editor | balanced | Makes targeted edits (read_file, edit_file, write_file) |
+| utility/command-runner | fast | Runs shell commands (exec) |
+| utility/web-reader | fast | HTTP requests & web content |
+| utility/mcp | fast | Model Context Protocol client |
+| utility/task-manager | fast | Task tracking |
 
-**Specialized agents:** architect, debugger, engineer, mcp, project-explorer, quality-reviewer, spec-reviewer, task-manager, tech-lead, verifier, web-reader
+**Specialized orchestrators:** architect, debugger, project-explorer, tech-lead (with engineer, spec-reviewer, quality-reviewer), verifier
 
-**Quartermaster subsystem (self-improvement):** quartermaster, qm-planner, qm-indexer, qm-fabricator
+**Quartermaster subsystem (self-improvement):** quartermaster, qm-planner, qm-indexer, qm-fabricator, qm-reconciler
 
-The full set lives in `bootstrap/*.yaml`. New agents added here are synced to runtime genomes via genome reconciliation (see below).
+The full set lives in `root/`. New agents added here are synced to runtime genomes via genome reconciliation (see below).
 
 ## Genome Reconciliation
 
-The bootstrap directory (`bootstrap/`) is the canonical source for agent definitions shipped with sprout. The runtime genome (`~/.local/share/sprout-genome/`) is a git-versioned copy that Learn can mutate at runtime. Genome reconciliation keeps them in sync.
+The root directory (`root/`) is the canonical source for agent definitions shipped with sprout. The runtime genome (`~/.local/share/sprout-genome/`) is a git-versioned copy that Learn can mutate at runtime. Genome reconciliation keeps them in sync.
 
 ### How it works
 
-`syncBootstrap(bootstrapDir)` performs a 4-way comparison using a **bootstrap manifest** (`bootstrap-manifest.json` inside the genome):
+`syncRoot(rootDir)` performs a 4-way comparison using a **bootstrap manifest** (`bootstrap-manifest.json` inside the genome):
 
 | # | Old Manifest | New Manifest | Genome | Action |
 |---|-------------|-------------|--------|--------|
-| 1 | missing | present | missing | **Add** — new bootstrap agent, copy to genome |
+| 1 | missing | present | missing | **Add** — new root agent, copy to genome |
 | 2 | missing | present | present | **Skip** — pre-manifest genome, treat as evolved |
-| 3 | present | unchanged | any | **Skip** — bootstrap file unchanged |
+| 3 | present | unchanged | any | **Skip** — root file unchanged |
 | 4 | present | changed | matches old | **Update** — genome hasn't diverged, safe to overwrite |
 | 5 | present | changed | diverged | **Conflict** — both sides evolved, report for manual resolution |
 
@@ -73,21 +75,21 @@ The manifest stores a `sha256:` content hash and version per agent, plus the roo
 
 ### Root capability reconciliation
 
-Root's capabilities list gets 3-way merged: new bootstrap capabilities are added, capabilities bootstrap removed are dropped, and genome-only capabilities (added by Learn) are preserved.
+Root's capabilities list gets 3-way merged: new root capabilities are added, capabilities root removed are dropped, and genome-only capabilities (added by Learn) are preserved.
 
 ### Export learnings (reverse flow)
 
-`exportLearnings(genomePath, bootstrapDir)` compares genome agents back to bootstrap. Agents whose genome version exceeds their bootstrap version are "evolved" — their YAML is exported to a staging directory for human review before promotion to bootstrap.
+`exportLearnings(genomePath, rootDir)` compares genome agents back to root. Agents whose genome version exceeds their root version are "evolved" — their specs are exported to a staging directory for human review before promotion to root.
 
 ### Dev-mode detection
 
-When running from source (both `bootstrap/` and `src/genome/` exist), agents receive a dev-mode postscript appended to their system prompt with development guidelines. This is injected idempotently using a sentinel comment marker.
+When running from source (both `root/` and `src/genome/` exist), agents receive a dev-mode postscript appended to their system prompt with development guidelines. This is injected idempotently using a sentinel comment marker.
 
 ## Implementation Decisions
 
-### Manifest-aware bootstrap sync (Feb 2026)
+### Manifest-aware root sync (Feb 2026)
 
-The bootstrap manifest (`bootstrap-manifest.json`) enables safe bidirectional sync between bootstrap and genome. Without the manifest, there's no way to distinguish "bootstrap changed" from "genome evolved" — both look like a diff. The manifest records what was last synced, making the 4-way comparison possible.
+The bootstrap manifest (`bootstrap-manifest.json`) enables safe bidirectional sync between root agents and genome. Without the manifest, there's no way to distinguish "root changed" from "genome evolved" — both look like a diff. The manifest records what was last synced, making the 4-way comparison possible.
 
 ### Single delegate tool (Feb 2026)
 

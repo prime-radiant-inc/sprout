@@ -11,12 +11,14 @@ This document shows the key TypeScript interfaces and how data flows through the
 export interface AgentSpec {
   name: string;                    // "root", "reader", "editor", etc.
   description: string;             // Human-readable description
-  model: string;                   // "best", "gpt-4-turbo", "claude-opus", etc.
-  capabilities: string[];          // List of delegatable agents OR primitive capabilities
+  model: string;                   // "best", "balanced", "fast", etc.
+  tools: string[];                 // Primitive tool names (read_file, exec, etc.)
+  agents: string[];                // Subagent path references (utility/reader, etc.)
+  capabilities: string[];          // Combined tools + agents (backward compat)
   constraints: AgentConstraints;   // Max turns, depth, timeout, etc.
   tags: string[];                  // ["core", "leaf", "orchestration", etc.]
   version: number;                 // For tracking agent evolution
-  system_prompt?: string;          // Instructions for this agent
+  system_prompt: string;           // Instructions for this agent (from Markdown body)
   thinking?: boolean | { budget_tokens: number };  // Extended thinking config
 }
 
@@ -39,25 +41,29 @@ export const DEFAULT_CONSTRAINTS: AgentConstraints = {
 
 ---
 
-## Root Agent YAML Example
+## Root Agent Spec Example
 
-```yaml
-# bootstrap/root.yaml
+```markdown
+---
+# root/root.md
 name: root
 description: "Decompose tasks into subgoals and delegate to specialist agents"
 model: best
-capabilities:
-  - reader           # Delegatable agents
-  - editor
-  - command-runner
-  - web-reader
-  - mcp
+agents:
+  - utility/reader         # Subagent paths
+  - utility/editor
+  - utility/command-runner
+  - utility/web-reader
+  - utility/mcp
   - quartermaster
+  - tech-lead
+  - architect
+  - verifier
+  - debugger
 constraints:
   max_turns: 200
-  max_depth: 3       # Can create subagents up to depth 2
-  timeout_ms: 0
-  can_spawn: true    # ← KEY: This is what allows delegation
+  max_depth: 5       # Can create subagents up to depth 4
+  can_spawn: true    # KEY: This is what allows delegation
   can_learn: true
 tags:
   - core
@@ -79,15 +85,16 @@ system_prompt: |
 
 ---
 
-## Leaf Agent YAML Example
+## Leaf Agent Spec Example
 
-```yaml
-# bootstrap/reader.yaml
+```markdown
+---
+# root/agents/utility/agents/reader.md
 name: reader
 description: "Read and analyze file contents, search for patterns"
-model: best
-capabilities:
-  - read_file      # Primitive capabilities (not agents)
+model: fast
+tools:
+  - read_file      # Primitive tools (not agents)
   - grep
   - find_files
 constraints:
@@ -252,11 +259,11 @@ export class Genome {
     // Read all YAML files from genome/agents/ into this.agents map
   }
 
-  async initFromBootstrap(bootstrapDir: string): Promise<void> {
-    // Read bootstrap/ directory and write each agent to genome/agents/
+  async initFromRoot(rootDir: string): Promise<void> {
+    // Read root/ directory tree and write each agent to genome/agents/
   }
 
-  async syncBootstrap(bootstrapDir: string): Promise<SyncBootstrapResult> {
+  async syncRoot(rootDir: string): Promise<SyncRootResult> {
     // Manifest-aware 4-way sync: adds new, updates unchanged, detects conflicts
   }
 }
@@ -268,24 +275,23 @@ export class Genome {
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│ root.yaml (bootstrap/root.yaml)                     │
+│ root.md (root/root.md)                              │
 ├─────────────────────────────────────────────────────┤
 │ name: "root"                                        │
-│ capabilities: ["reader", "editor", "command-      │
-│               "runner", "web-reader", "mcp",       │
-│               "quartermaster"]                     │
-│ constraints: { can_spawn: true, max_depth: 3, ... }│
+│ agents: ["utility/reader", "utility/editor",       │
+│          "quartermaster", "tech-lead", ...]        │
+│ constraints: { can_spawn: true, max_depth: 5, ... }│
 └──────────────────┬──────────────────────────────────┘
                    │
-                   │ loadBootstrapAgents("bootstrap/")
+                   │ loadRootAgents("root/")
                    ▼
 ┌─────────────────────────────────────────────────────┐
-│ AgentSpec[] (loaded from YAML)                      │
+│ AgentSpec[] (loaded from agent tree)                │
 ├─────────────────────────────────────────────────────┤
 │ [                                                   │
-│   { name: "root", capabilities: [...], ... },     │
-│   { name: "reader", capabilities: [...], ... },   │
-│   { name: "editor", capabilities: [...], ... },   │
+│   { name: "root", agents: [...], ... },           │
+│   { name: "reader", tools: [...], ... },          │
+│   { name: "editor", tools: [...], ... },          │
 │   ...                                               │
 │ ]                                                   │
 └──────────────────┬──────────────────────────────────┘

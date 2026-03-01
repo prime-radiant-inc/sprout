@@ -2,26 +2,30 @@
 
 ## Overview
 
-The orchestrator (root agent) is configured via YAML and determines available agents for delegation through a **capability-based routing system**. There is no hardcoded "shadow" list — agents are dynamically loaded from the bootstrap directory and the genome (git-backed agent repository).
+The orchestrator (root agent) is configured via Markdown specs (with YAML frontmatter) and determines available agents for delegation through an **agent tree routing system**. There is no hardcoded "shadow" list — agents are dynamically loaded from the root directory tree and the genome (git-backed agent repository).
 
 ---
 
 ## 1. Root Agent Configuration
 
-### File: `bootstrap/root.yaml`
+### File: `root/root.md`
 
 The root agent is configured with:
 - **Name**: `root`
 - **Model**: `best` (resolves to the best available model from the LLM client)
-- **Capabilities**: List of agent names it can delegate to
+- **Agents**: Subagent paths it can delegate to
   ```yaml
-  capabilities:
-    - reader
-    - editor
-    - command-runner
-    - web-reader
-    - mcp
+  agents:
+    - utility/reader
+    - utility/editor
+    - utility/command-runner
+    - utility/web-reader
+    - utility/mcp
     - quartermaster
+    - tech-lead
+    - architect
+    - verifier
+    - debugger
   ```
 - **Constraints**: 
   - `max_turns`: 200
@@ -81,12 +85,12 @@ async loadFromDisk(): Promise<void> {
 }
 ```
 
-And bootstrap initialization:
+And root initialization:
 
 ```typescript
-// File: src/genome/genome.ts, lines 283-296
-async initFromBootstrap(bootstrapDir: string): Promise<void> {
-  const specs = await loadBootstrapAgents(bootstrapDir);
+// File: src/genome/genome.ts
+async initFromRoot(rootDir: string): Promise<void> {
+  const specs = await loadRootAgents(rootDir);
   for (const spec of specs) {
     const yamlPath = join(this.rootPath, "agents", `${spec.name}.yaml`);
     await writeFile(yamlPath, serializeAgentSpec(spec));
@@ -237,18 +241,19 @@ private async executeDelegation(delegation: Delegation, agentId: string) {
 
 ---
 
-## 5. Agent YAML Structure
+## 5. Agent Spec Structure
 
-All agents in the bootstrap directory follow the same structure:
+Agents are defined as Markdown files with YAML frontmatter. The frontmatter contains configuration; the Markdown body becomes the system prompt.
 
-```yaml
+```markdown
+---
 name: <agent-name>
 description: "<human-readable description>"
-model: <model-name>  # e.g., "best", "gpt-4", "claude-opus"
-capabilities:
-  - <delegatable-agent-name>
-  - <delegatable-agent-name>
-  - <primitive-capability-name>
+model: <model-name>  # e.g., "best", "balanced", "fast"
+tools:
+  - <primitive-tool-name>
+agents:                # Only for orchestrators
+  - <subagent-path>
 constraints:
   max_turns: <number>
   max_depth: <number>  # 0 = leaf agent, 1+ = can spawn subagents
@@ -258,32 +263,34 @@ constraints:
 tags:
   - <tag>
 version: <number>
-system_prompt: |
-  <detailed instructions for this agent>
+---
+
+<system prompt instructions in Markdown>
 ```
 
 ### Example: Reader Agent
 
-```yaml
+```markdown
+---
 name: reader
 description: "Read and understand file contents, search for patterns"
-model: best
-capabilities:
+model: fast
+tools:
   - read_file
   - grep
-  - find_files
+  - glob
 constraints:
   max_turns: 50
-  max_depth: 0  # Leaf agent — cannot spawn subagents
-  timeout_ms: 0
+  max_depth: 0
   can_spawn: false
   can_learn: true
 tags:
   - leaf
   - read
 version: 2
-system_prompt: |
-  You specialize in reading and analyzing file contents...
+---
+
+You specialize in reading and analyzing file contents...
 ```
 
 ---
@@ -305,41 +312,41 @@ Evidence:
 
 ---
 
-## 7. Bootstrap Agent Synchronization
+## 7. Root Agent Synchronization
 
-When a new bootstrap agent is added:
+When a new root agent is added:
 
 ```typescript
-// File: src/agents/factory.ts, lines 55-62
+// File: src/agents/factory.ts
 if (isExisting) {
   await genome.loadFromDisk();
-  // Sync bootstrap agents using manifest-aware 4-way comparison
-  if (options.bootstrapDir) {
-    const result = await genome.syncBootstrap(options.bootstrapDir);
+  // Sync root agents using manifest-aware 4-way comparison
+  if (options.rootDir) {
+    const result = await genome.syncRoot(options.rootDir);
     if (result.added.length > 0) {
-      console.error(`Synced new bootstrap agents: ${result.added.join(", ")}`);
+      console.error(`Synced new root agents: ${result.added.join(", ")}`);
     }
     if (result.updated.length > 0) {
-      console.error(`Updated bootstrap agents: ${result.updated.join(", ")}`);
+      console.error(`Updated root agents: ${result.updated.join(", ")}`);
     }
     if (result.conflicts.length > 0) {
-      console.error(`Bootstrap sync conflicts (genome preserved): ${result.conflicts.join(", ")}`);
+      console.error(`Root sync conflicts (genome preserved): ${result.conflicts.join(", ")}`);
     }
   }
 }
 ```
 
-The `syncBootstrap` method returns `{ added, updated, conflicts }` using a manifest-aware
-4-way comparison (old manifest, new manifest, genome state, bootstrap state):
+The `syncRoot` method returns `{ added, updated, conflicts }` using a manifest-aware
+4-way comparison (old manifest, new manifest, genome state, root state):
 ```typescript
 // File: src/genome/genome.ts
-async syncBootstrap(bootstrapDir: string): Promise<SyncBootstrapResult> {
-  // Reads bootstrap files once, builds manifest from content hashes,
+async syncRoot(rootDir: string): Promise<SyncRootResult> {
+  // Reads root files once, builds manifest from content hashes,
   // compares against old manifest and genome to determine:
   // - Case 1: New agent (not in genome) → add
   // - Case 2: Pre-manifest genome agent → skip (treat as evolved)
-  // - Case 3: Bootstrap unchanged → skip
-  // - Case 4: Bootstrap changed, genome unchanged → update
+  // - Case 3: Root unchanged → skip
+  // - Case 4: Root changed, genome unchanged → update
   // - Case 5: Both changed → conflict (genome preserved)
 }
 ```
@@ -348,21 +355,31 @@ async syncBootstrap(bootstrapDir: string): Promise<SyncBootstrapResult> {
 
 ---
 
-## 8. Current Bootstrap Agents (as of latest sync)
+## 8. Current Root Agents (as of latest sync)
 
-File: `bootstrap/` directory contains:
-- `root.yaml` — Orchestrator (can_spawn: true, delegates to all others)
-- `reader.yaml` — File reading and analysis
-- `editor.yaml` — File editing
-- `command-runner.yaml` — Shell command execution
-- `web-reader.yaml` — Web fetching
-- `mcp.yaml` — Model Context Protocol integration
-- `quartermaster.yaml` — Quartermaster orchestrator
-- `qm-fabricator.yaml` — Quartermaster task fabricator
-- `qm-indexer.yaml` — Quartermaster indexer
-- `qm-planner.yaml` — Quartermaster planner
+The `root/` directory tree contains:
+- `root.md` — Root orchestrator (can_spawn: true, delegates to all others)
+- `agents/utility/agents/reader.md` — File reading and analysis
+- `agents/utility/agents/editor.md` — File editing
+- `agents/utility/agents/command-runner.md` — Shell command execution
+- `agents/utility/agents/web-reader.md` — Web fetching
+- `agents/utility/agents/mcp.md` — Model Context Protocol integration
+- `agents/utility/agents/task-manager.md` — Task tracking
+- `agents/tech-lead.md` — Engineering orchestrator
+- `agents/tech-lead/agents/engineer.md` — Implementation
+- `agents/tech-lead/agents/spec-reviewer.md` — Spec compliance
+- `agents/tech-lead/agents/quality-reviewer.md` — Code quality
+- `agents/architect.md` — System design
+- `agents/verifier.md` — Test & build verification
+- `agents/debugger.md` — Systematic debugging
+- `agents/project-explorer.md` — Codebase analysis
+- `agents/quartermaster.md` — Quartermaster orchestrator
+- `agents/quartermaster/agents/qm-fabricator.md` — Agent fabrication
+- `agents/quartermaster/agents/qm-indexer.md` — Capability indexing
+- `agents/quartermaster/agents/qm-planner.md` — Plan design
+- `agents/quartermaster/agents/qm-reconciler.md` — Genome reconciliation
 
-These are loaded dynamically, not hardcoded.
+These are loaded dynamically via agent tree scanning, not hardcoded.
 
 ---
 
@@ -370,18 +387,18 @@ These are loaded dynamically, not hardcoded.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│ bootstrap/ directory (source of truth for initial agents)       │
-│ - root.yaml                                                     │
-│ - reader.yaml                                                   │
-│ - editor.yaml                                                   │
-│ - etc.                                                          │
+│ root/ directory tree (source of truth for initial agents)       │
+│ - root.md                                                       │
+│ - agents/utility/agents/reader.md                               │
+│ - agents/utility/agents/editor.md                               │
+│ - agents/tech-lead.md, agents/quartermaster.md, etc.            │
 └────────────────┬────────────────────────────────────────────────┘
-                 │ (loadBootstrapAgents)
+                 │ (loadRootAgents)
                  ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │ Genome (genome/agents/ directory)                               │
 │ - Persists all agents in git-backed repo                        │
-│ - New bootstrap agents synced on startup                        │
+│ - New root agents synced on startup                             │
 │ - Learned/evolved agents stored here                            │
 └────────────────┬────────────────────────────────────────────────┘
                  │ (genome.allAgents())
@@ -389,10 +406,10 @@ These are loaded dynamically, not hardcoded.
 ┌─────────────────────────────────────────────────────────────────┐
 │ Root Agent Instance (src/agents/agent.ts)                       │
 │ - availableAgents: AgentSpec[] (from genome)                    │
-│ - spec.capabilities: ["reader", "editor", "command-runner", ...] │
+│ - spec.agents: ["utility/reader", "utility/editor", ...]       │
 │ - constraints.can_spawn: true                                   │
 └────────────────┬────────────────────────────────────────────────┘
-                 │ (constructor filters by capabilities)
+                 │ (agent tree resolution)
                  ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │ Delegate Tool (single tool for all agents)                      │
@@ -414,15 +431,15 @@ These are loaded dynamically, not hardcoded.
 
 ## 10. Key Takeaways
 
-1. **No hardcoded agent lists**: All agents are dynamically loaded from bootstrap YAML files and the genome directory.
+1. **No hardcoded agent lists**: All agents are dynamically loaded from the root directory tree and the genome directory.
 
-2. **Capability-based routing**: The root agent can only delegate to agents listed in its `capabilities` field.
+2. **Tree-based routing**: The root agent can only delegate to agents listed in its `agents` field or discovered via agent tree scanning.
 
 3. **Dynamic vs. static**: At construction time, agents receive a static snapshot of available agents. At runtime, they prefer the genome's live copy if available.
 
-4. **Genome is source of truth**: Once initialized, the genome becomes the persistent store for agents. New bootstrap agents are synced but don't overwrite learned agents.
+4. **Genome is source of truth**: Once initialized, the genome becomes the persistent store for agents. New root agents are synced but don't overwrite learned agents.
 
-5. **Recursive delegation**: Each agent respects its own `capabilities` list, allowing hierarchical delegation up to `max_depth`.
+5. **Recursive delegation**: Each agent respects its own `agents` list, allowing hierarchical delegation up to `max_depth`.
 
 6. **Single delegate tool**: Instead of separate tools per agent, there's one `delegate` tool with an enum parameter, preserving prompt cache.
 
