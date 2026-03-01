@@ -1,4 +1,4 @@
-import { parse } from "yaml";
+import { parse, stringify } from "yaml";
 import { type AgentSpec, DEFAULT_CONSTRAINTS } from "../kernel/types.ts";
 
 /**
@@ -55,5 +55,56 @@ export function parseAgentMarkdown(content: string, source: string): AgentSpec {
 	if (raw.thinking !== undefined) {
 		spec.thinking = raw.thinking;
 	}
+
+	const extra: Record<string, unknown> = {};
+	for (const key of Object.keys(raw)) {
+		if (!KNOWN_FIELDS.has(key)) {
+			extra[key] = raw[key];
+		}
+	}
+	if (Object.keys(extra).length > 0) {
+		spec._extra = extra;
+	}
+
 	return spec;
+}
+
+const KNOWN_FIELDS = new Set([
+	"name",
+	"description",
+	"model",
+	"tools",
+	"agents",
+	"constraints",
+	"tags",
+	"version",
+	"thinking",
+]);
+
+/**
+ * Serialize an AgentSpec to YAML-fronted Markdown.
+ * Known fields go into frontmatter; system_prompt becomes the markdown body.
+ * Unknown fields stored in _extra are merged into frontmatter to survive round-trips.
+ */
+export function serializeAgentMarkdown(spec: AgentSpec): string {
+	const fm: Record<string, unknown> = {
+		name: spec.name,
+		description: spec.description,
+		model: spec.model,
+		tools: spec.tools,
+		agents: spec.agents,
+		constraints: spec.constraints,
+		tags: spec.tags,
+		version: spec.version,
+	};
+	if (spec.thinking !== undefined) {
+		fm.thinking = spec.thinking;
+	}
+	if (spec._extra) {
+		for (const [key, value] of Object.entries(spec._extra)) {
+			fm[key] = value;
+		}
+	}
+	const yamlStr = stringify(fm);
+	return `---\n${yamlStr}---\n${spec.system_prompt}\n`;
 }

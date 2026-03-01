@@ -71,6 +71,8 @@ export interface AgentSpec {
 	tools: string[];
 	/** Sub-agent names this agent can delegate to. */
 	agents: string[];
+	/** Bag for unknown frontmatter fields that survive parse→serialize round-trips. */
+	_extra?: Record<string, unknown>;
 }
 
 /** Input collected during the Perceive phase */
