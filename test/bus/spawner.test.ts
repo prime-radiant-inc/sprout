@@ -17,7 +17,8 @@ const AGENT_SPEC = {
 	name: "test-leaf",
 	description: "A minimal test agent",
 	model: "best",
-	capabilities: ["read_file"],
+	tools: ["read_file"],
+	agents: [],
 	constraints: {
 		max_turns: 5,
 		max_depth: 0,

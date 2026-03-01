@@ -59,7 +59,6 @@ version: 1
 		expect(saved).toBeDefined();
 		expect(saved!.description).toBe("A test agent");
 		expect(saved!.model).toBe("fast");
-		expect(saved!.capabilities).toEqual(["read_file"]);
 		expect(saved!.tools).toEqual(["read_file"]);
 		expect(saved!.agents).toEqual([]);
 		expect(saved!.constraints.can_spawn).toBe(false);
@@ -80,7 +79,7 @@ system_prompt: |
 		const agents = genome.allAgents();
 		const saved = agents.find((a) => a.name === "minimal-agent");
 		expect(saved).toBeDefined();
-		expect(saved!.capabilities).toEqual([]);
+		expect(saved!.tools).toEqual([]);
 		expect(saved!.tags).toEqual([]);
 		expect(saved!.constraints.max_turns).toBe(50); // default
 		expect(saved!.constraints.max_depth).toBe(3); // default

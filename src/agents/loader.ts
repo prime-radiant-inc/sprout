@@ -14,16 +14,15 @@ function parseAgentSpec(content: string, source: string): AgentSpec {
 		}
 	}
 
-	const capabilities: string[] = raw.capabilities ?? [];
+	const legacyCaps: string[] = raw.capabilities ?? [];
 	// Use explicit tools/agents fields when present; fall back to "/" heuristic for legacy YAML
-	const tools: string[] = raw.tools ?? capabilities.filter((c: string) => !c.includes("/"));
-	const agents: string[] = raw.agents ?? capabilities.filter((c: string) => c.includes("/"));
+	const tools: string[] = raw.tools ?? legacyCaps.filter((c: string) => !c.includes("/"));
+	const agents: string[] = raw.agents ?? legacyCaps.filter((c: string) => c.includes("/"));
 	const spec: AgentSpec = {
 		name: raw.name,
 		description: raw.description,
 		system_prompt: raw.system_prompt,
 		model: raw.model,
-		capabilities,
 		tools,
 		agents,
 		constraints: { ...DEFAULT_CONSTRAINTS, ...raw.constraints },

@@ -23,7 +23,6 @@ describe("kernel types", () => {
 			description: "Find and return relevant code from files",
 			system_prompt: "You help find specific code.",
 			model: "fast",
-			capabilities: ["read_file", "grep", "glob"],
 			tools: ["read_file", "grep", "glob"],
 			agents: [],
 			constraints: {
@@ -48,7 +47,6 @@ describe("kernel types", () => {
 			model: "fast",
 			tools: ["read_file", "grep"],
 			agents: ["utility/reader"],
-			capabilities: ["read_file", "grep", "utility/reader"],
 			constraints: { ...DEFAULT_CONSTRAINTS },
 			tags: [],
 			version: 1,

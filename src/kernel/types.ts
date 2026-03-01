@@ -61,7 +61,6 @@ export interface AgentSpec {
 	description: string;
 	system_prompt: string;
 	model: string;
-	capabilities: string[];
 	constraints: AgentConstraints;
 	tags: string[];
 	version: number;

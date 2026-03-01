@@ -19,7 +19,6 @@ const leafSpec: AgentSpec = {
 	system_prompt:
 		"You are a test agent. Reply with exactly 'DONE' and nothing else. Do not use any tools.",
 	model: "best",
-	capabilities: ["exec"],
 	tools: ["exec"],
 	agents: [],
 	constraints: {

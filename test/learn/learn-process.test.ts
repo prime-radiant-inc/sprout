@@ -205,7 +205,7 @@ describe("LearnProcess", () => {
 		expect(agent!.description).toBe("Runs tests efficiently");
 		expect(agent!.system_prompt).toBe("You are a test specialist.");
 		expect(agent!.model).toBe("fast");
-		expect(agent!.capabilities).toEqual(["exec"]);
+		expect(agent!.tools).toEqual(["exec"]);
 		expect(agent!.tags).toEqual(["testing"]);
 		expect(agent!.constraints.can_spawn).toBe(false);
 	});
@@ -247,7 +247,6 @@ describe("LearnProcess", () => {
 			description: "A specialist for testing",
 			system_prompt: "You run tests carefully",
 			model: "fast",
-			capabilities: ["exec"],
 			tools: ["exec"],
 			agents: [],
 			constraints: DEFAULT_CONSTRAINTS,

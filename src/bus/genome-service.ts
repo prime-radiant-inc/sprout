@@ -128,7 +128,6 @@ export class GenomeMutationService {
 						description: mutation.description,
 						system_prompt: mutation.system_prompt,
 						model: mutation.model,
-						capabilities: [...mutation.tools, ...mutation.agents],
 						tools: mutation.tools,
 						agents: mutation.agents,
 						constraints: { ...DEFAULT_CONSTRAINTS, can_spawn: false },

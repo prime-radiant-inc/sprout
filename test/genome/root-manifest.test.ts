@@ -129,10 +129,10 @@ describe("root-manifest", () => {
 			expect(manifest.agents.editor!.hash).toBe(hashFileContent(editorYaml));
 		});
 
-		test("captures rootCapabilities when root spec has capabilities", () => {
+		test("captures rootCapabilities when root spec has tools and agents", () => {
 			const rootYaml = "name: root\nversion: 1\ndescription: root agent\n";
 			const rootContent = new Map([["root", rootYaml]]);
-			const rootSpecs = [{ name: "root", version: 1, capabilities: ["reader", "editor"] }];
+			const rootSpecs = [{ name: "root", version: 1, tools: ["reader", "editor"] }];
 			const manifest = buildManifestFromSpecs(rootSpecs, rootContent);
 
 			expect(manifest.rootCapabilities).toEqual(["reader", "editor"]);

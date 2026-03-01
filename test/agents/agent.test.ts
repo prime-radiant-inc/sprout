@@ -25,7 +25,6 @@ describe("Agent", () => {
 		description: "Test root",
 		system_prompt: "You decompose tasks.",
 		model: "fast",
-		capabilities: ["leaf"],
 		tools: [],
 		agents: ["leaf"],
 		constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 10 },
@@ -38,7 +37,6 @@ describe("Agent", () => {
 		description: "Test leaf",
 		system_prompt: "You do things.",
 		model: "fast",
-		capabilities: ["read_file", "write_file", "exec"],
 		tools: ["read_file", "write_file", "exec"],
 		agents: [],
 		constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5 },
@@ -84,7 +82,7 @@ describe("Agent", () => {
 		).not.toThrow();
 	});
 
-	test("resolves single delegate tool from capabilities", () => {
+	test("resolves single delegate tool from agents list", () => {
 		const env = new LocalExecutionEnvironment(tmpdir());
 		const client = Client.fromEnv();
 		const registry = createPrimitiveRegistry(env);
@@ -96,7 +94,7 @@ describe("Agent", () => {
 			availableAgents: [rootSpec, leafSpec],
 			depth: 0,
 		});
-		// Root's capabilities include "leaf", which is an agent name
+		// Root's agents list includes "leaf", which is an agent name
 		const tools = agent.resolvedTools();
 		const names = tools.map((t) => t.name);
 		// Should have a single "delegate" tool, not per-agent tools
@@ -106,13 +104,12 @@ describe("Agent", () => {
 	});
 
 	test("delegating agent does not get primitive tools", () => {
-		// An agent with both agent and primitive capabilities should only get the delegate tool
+		// An agent with both agents and primitive tools should only get the delegate tool
 		const mixedSpec: AgentSpec = {
 			name: "mixed",
-			description: "Has both agents and primitives in capabilities",
+			description: "Has both agents and primitive tools",
 			system_prompt: "You do things.",
 			model: "fast",
-			capabilities: ["leaf", "read_file", "grep"],
 			tools: ["read_file", "grep"],
 			agents: ["leaf"],
 			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5 },
@@ -138,7 +135,7 @@ describe("Agent", () => {
 		expect(names).not.toContain("grep");
 	});
 
-	test("resolves primitive tools from capabilities", () => {
+	test("resolves primitive tools from tools list", () => {
 		const env = new LocalExecutionEnvironment(tmpdir());
 		const client = Client.fromEnv();
 		const registry = createPrimitiveRegistry(env);
@@ -155,7 +152,7 @@ describe("Agent", () => {
 		expect(names).toContain("read_file");
 		expect(names).toContain("write_file");
 		expect(names).toContain("exec");
-		// Should not include agent tools (leaf has no agent capabilities)
+		// Should not include agent tools (leaf has no agents)
 		expect(names).not.toContain("root");
 		expect(names).not.toContain("leaf");
 	});
@@ -178,7 +175,7 @@ describe("Agent", () => {
 		});
 		const tools = agent.resolvedTools();
 		const names = tools.map((t) => t.name);
-		// "leaf" is in capabilities but can_spawn is false, so no delegate tool
+		// "leaf" is in agents but can_spawn is false, so no delegate tool
 		expect(names).not.toContain("delegate");
 		expect(names).not.toContain("leaf");
 	});
@@ -864,7 +861,6 @@ describe("Agent", () => {
 			description: "Dynamically added leaf",
 			system_prompt: "You do dynamic things.",
 			model: "fast",
-			capabilities: ["read_file"],
 			tools: ["read_file"],
 			agents: [],
 			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 3, max_depth: 0, can_spawn: false },
@@ -872,10 +868,9 @@ describe("Agent", () => {
 			version: 1,
 		};
 
-		// Leaf can delegate to "dynamic-leaf" (it's in its capabilities)
+		// Leaf can delegate to "dynamic-leaf" (it's in its agents list)
 		const leafWithDynamic: AgentSpec = {
 			...leafSpec,
-			capabilities: ["dynamic-leaf", "read_file"],
 			tools: ["read_file"],
 			agents: ["dynamic-leaf"],
 			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5, can_spawn: true },
@@ -1028,7 +1023,6 @@ describe("Agent", () => {
 			description: "Leaf A",
 			system_prompt: "You are leaf A.",
 			model: "fast",
-			capabilities: ["read_file"],
 			tools: ["read_file"],
 			agents: [],
 			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 3, max_depth: 0, can_spawn: false },
@@ -1040,7 +1034,6 @@ describe("Agent", () => {
 			description: "Leaf B",
 			system_prompt: "You are leaf B.",
 			model: "fast",
-			capabilities: ["read_file"],
 			tools: ["read_file"],
 			agents: [],
 			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 3, max_depth: 0, can_spawn: false },
@@ -1049,7 +1042,6 @@ describe("Agent", () => {
 		};
 		const rootWithTwoLeaves: AgentSpec = {
 			...rootSpec,
-			capabilities: ["leaf-a", "leaf-b"],
 			tools: [],
 			agents: ["leaf-a", "leaf-b"],
 			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5 },
@@ -1162,7 +1154,6 @@ describe("Agent", () => {
 			description: "Leaf A",
 			system_prompt: "You are leaf A.",
 			model: "fast",
-			capabilities: ["read_file"],
 			tools: ["read_file"],
 			agents: [],
 			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 3, max_depth: 0, can_spawn: false },
@@ -1174,7 +1165,6 @@ describe("Agent", () => {
 			description: "Leaf B",
 			system_prompt: "You are leaf B.",
 			model: "fast",
-			capabilities: ["read_file"],
 			tools: ["read_file"],
 			agents: [],
 			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 3, max_depth: 0, can_spawn: false },
@@ -1183,7 +1173,6 @@ describe("Agent", () => {
 		};
 		const rootWithTwoLeaves: AgentSpec = {
 			...rootSpec,
-			capabilities: ["leaf-a", "leaf-b"],
 			tools: [],
 			agents: ["leaf-a", "leaf-b"],
 			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5 },
@@ -3547,7 +3536,6 @@ describe("Agent", () => {
 				description: `The ${name} agent`,
 				system_prompt: `You are ${name}.`,
 				model: "fast",
-				capabilities: [],
 				tools: [],
 				agents: [],
 				constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5 },
@@ -3561,7 +3549,7 @@ describe("Agent", () => {
 		};
 	}
 
-	test("with agentTree, uses tree-based resolution instead of capabilities", () => {
+	test("with agentTree, uses tree-based resolution instead of agents list", () => {
 		const tree = new Map<string, AgentTreeEntry>([
 			["engineer", treeEntry("engineer", "engineer")],
 			["reviewer", treeEntry("reviewer", "reviewer")],
@@ -3572,7 +3560,6 @@ describe("Agent", () => {
 			description: "Orchestrator",
 			system_prompt: "You orchestrate.",
 			model: "fast",
-			capabilities: [],
 			tools: [],
 			agents: [],
 			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5 },
@@ -3625,14 +3612,13 @@ describe("Agent", () => {
 		expect(desc).toContain("leaf");
 	});
 
-	test("getDelegatableAgents non-tree path uses spec.agents not capabilities", () => {
-		// spec.agents is empty, but capabilities still has "leaf"
+	test("getDelegatableAgents non-tree path uses spec.agents", () => {
+		// spec.agents is empty, so no delegates even though tools has entries
 		const noAgentsSpec: AgentSpec = {
 			name: "root",
 			description: "Test root",
 			system_prompt: "You decompose tasks.",
 			model: "fast",
-			capabilities: ["read_file", "leaf"],
 			tools: ["read_file"],
 			agents: [], // empty!
 			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 10 },
@@ -3669,7 +3655,6 @@ describe("Agent", () => {
 			description: "Orchestrator",
 			system_prompt: "You orchestrate.",
 			model: "fast",
-			capabilities: [],
 			tools: [],
 			agents: ["utility/reader"],
 			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5 },
@@ -3703,7 +3688,6 @@ describe("Agent", () => {
 			[
 				"utility/reader",
 				treeEntry("reader", "utility/reader", [], {
-					capabilities: ["read_file"],
 					tools: ["read_file"],
 					constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 2 },
 				}),
@@ -3715,7 +3699,6 @@ describe("Agent", () => {
 			description: "Orchestrator",
 			system_prompt: "You orchestrate.",
 			model: "fast",
-			capabilities: [],
 			tools: [],
 			agents: ["utility/reader"],
 			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5 },
@@ -3802,7 +3785,6 @@ describe("Agent", () => {
 			[
 				"worker",
 				treeEntry("worker", "worker", ["helper"], {
-					capabilities: ["read_file"],
 					tools: ["read_file"],
 					constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 2 },
 				}),
@@ -3810,7 +3792,6 @@ describe("Agent", () => {
 			[
 				"worker/helper",
 				treeEntry("helper", "worker/helper", [], {
-					capabilities: ["read_file"],
 					tools: ["read_file"],
 					constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 2 },
 				}),
@@ -3822,7 +3803,6 @@ describe("Agent", () => {
 			description: "Orchestrator",
 			system_prompt: "You orchestrate.",
 			model: "fast",
-			capabilities: [],
 			tools: [],
 			agents: [],
 			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5 },
@@ -3934,7 +3914,6 @@ describe("Agent", () => {
 			[
 				"utility/reader",
 				treeEntry("reader", "utility/reader", [], {
-					capabilities: ["read_file"],
 					tools: ["read_file"],
 					constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 2 },
 				}),
@@ -3946,7 +3925,6 @@ describe("Agent", () => {
 			description: "Orchestrator",
 			system_prompt: "You orchestrate.",
 			model: "fast",
-			capabilities: [],
 			tools: [],
 			agents: ["utility/reader"],
 			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5 },

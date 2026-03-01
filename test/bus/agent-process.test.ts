@@ -19,7 +19,8 @@ const MINIMAL_AGENT_SPEC = {
 	name: "test-leaf",
 	description: "A minimal test agent",
 	model: "best",
-	capabilities: ["read_file"],
+	tools: ["read_file"],
+	agents: [],
 	constraints: {
 		max_turns: 5,
 		max_depth: 0,
@@ -37,7 +38,6 @@ const ORCHESTRATOR_AGENT_SPEC = {
 	name: "test-orchestrator",
 	description: "An orchestrator that delegates to test-leaf",
 	model: "best",
-	capabilities: ["test-leaf"],
 	tools: [],
 	agents: ["test-leaf"],
 	constraints: {

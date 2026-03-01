@@ -19,7 +19,6 @@ const testAgent: AgentSpec = {
 	description: "Find and return relevant code",
 	system_prompt: "You help find code.",
 	model: "fast",
-	capabilities: ["read_file", "grep", "glob"],
 	tools: ["read_file", "grep", "glob"],
 	agents: [],
 	constraints: {
@@ -122,7 +121,7 @@ describe("primitivesForAgent", () => {
 		"fetch",
 	];
 
-	test("filters primitives by capabilities", () => {
+	test("filters primitives by tools list", () => {
 		const names = primitivesForAgent(["read_file", "grep"], allNames, "anthropic");
 		expect(names).toContain("read_file");
 		expect(names).toContain("grep");
@@ -148,7 +147,7 @@ describe("primitivesForAgent", () => {
 		expect(names).not.toContain("apply_patch");
 	});
 
-	test("ignores capabilities not in allPrimitiveNames", () => {
+	test("ignores tools not in allPrimitiveNames", () => {
 		const names = primitivesForAgent(["read_file", "nonexistent_tool"], allNames, "anthropic");
 		expect(names).toEqual(["read_file"]);
 	});

@@ -47,7 +47,6 @@ export function parseAgentMarkdown(content: string, source: string): AgentSpec {
 		model: raw.model,
 		tools,
 		agents,
-		capabilities: [...tools, ...agents],
 		constraints: { ...DEFAULT_CONSTRAINTS, ...raw.constraints },
 		tags: raw.tags ?? [],
 		version: raw.version ?? 1,

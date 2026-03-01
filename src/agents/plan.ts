@@ -116,7 +116,7 @@ export function renderAgentsForPrompt(agents: AgentSpec[]): string {
 }
 
 /**
- * Filter and provider-align primitives for an agent based on its capabilities.
+ * Filter and provider-align primitives for an agent based on its tools list.
  *
  * Provider alignment:
  * - OpenAI agents get apply_patch instead of edit_file

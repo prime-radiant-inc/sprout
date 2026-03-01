@@ -12,7 +12,6 @@ function makeSpec(name: string): AgentSpec {
 		description: `Agent ${name}`,
 		system_prompt: `You are ${name}.`,
 		model: "fast",
-		capabilities: [],
 		tools: [],
 		agents: [],
 		constraints: { ...DEFAULT_CONSTRAINTS },

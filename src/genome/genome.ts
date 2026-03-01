@@ -362,8 +362,8 @@ export class Genome {
 			}
 		}
 
-		// Reconcile root capabilities: add new, remove dropped, preserve genome-only.
-		// Safe after Case 4: if root was updated, genome had no custom caps (version matched
+		// Reconcile root tools+agents: add new, remove dropped, preserve genome-only.
+		// Safe after Case 4: if root was updated, genome had no custom entries (version matched
 		// old manifest), so reconcileRootCapabilities finds nothing to merge and returns false.
 		const capsMerged = await this.reconcileRootCapabilities(
 			specs,
@@ -392,7 +392,7 @@ export class Genome {
 		const parts: string[] = [];
 		if (added.length > 0) parts.push(`added: ${added.join(", ")}`);
 		if (updated.length > 0) parts.push(`updated: ${updated.join(", ")}`);
-		if (capsMerged) parts.push("capabilities merged");
+		if (capsMerged) parts.push("tools/agents merged");
 		if (conflicts.length > 0) parts.push(`conflicts: ${conflicts.join(", ")}`);
 
 		if (parts.length > 0) {
@@ -404,9 +404,9 @@ export class Genome {
 	}
 
 	/**
-	 * Reconcile root agent capabilities with genome root.
-	 * Adds capabilities root introduced, removes capabilities root dropped,
-	 * and preserves genome-only capabilities that were never in root.
+	 * Reconcile root agent tools+agents with genome root.
+	 * Adds entries root introduced, removes entries root dropped,
+	 * and preserves genome-only entries that were never in root.
 	 */
 	private async reconcileRootCapabilities(
 		rootSpecs: AgentSpec[],
@@ -416,26 +416,31 @@ export class Genome {
 		const genomeRoot = this.agents.get("root");
 		if (!rootSpecRoot || !genomeRoot) return false;
 
-		const newRootCaps = new Set(rootSpecRoot.capabilities);
+		const newRootCaps = new Set([...rootSpecRoot.tools, ...rootSpecRoot.agents]);
 		const oldRootCapSet = new Set(oldRootCaps);
-		const genomeCaps = new Set(genomeRoot.capabilities);
+		const genomeCaps = [...genomeRoot.tools, ...genomeRoot.agents];
+		const genomeCapSet = new Set(genomeCaps);
 
-		// Compute the reconciled capabilities:
-		// - Keep genome capabilities that are still in root OR were never in root
-		// - Add new root capabilities that genome doesn't have yet
-		const kept = genomeRoot.capabilities.filter((c) => newRootCaps.has(c) || !oldRootCapSet.has(c));
-		const toAdd = rootSpecRoot.capabilities.filter((c) => !genomeCaps.has(c));
+		// Compute the reconciled combined list:
+		// - Keep genome entries that are still in root OR were never in root
+		// - Add new root entries that genome doesn't have yet
+		const kept = genomeCaps.filter((c) => newRootCaps.has(c) || !oldRootCapSet.has(c));
+		const rootCombined = [...rootSpecRoot.tools, ...rootSpecRoot.agents];
+		const toAdd = rootCombined.filter((c) => !genomeCapSet.has(c));
 		const merged = [...kept, ...toAdd];
 
 		// Check if anything actually changed
 		if (
-			merged.length === genomeRoot.capabilities.length &&
-			merged.every((c, i) => c === genomeRoot.capabilities[i])
+			merged.length === genomeCaps.length &&
+			merged.every((c, i) => c === genomeCaps[i])
 		) {
 			return false;
 		}
 
-		const updated = { ...genomeRoot, capabilities: merged };
+		// Split merged list back into tools (no "/") and agents (has "/")
+		const mergedTools = merged.filter((c) => !c.includes("/"));
+		const mergedAgents = merged.filter((c) => c.includes("/"));
+		const updated = { ...genomeRoot, tools: mergedTools, agents: mergedAgents };
 		const mdPath = join(this.rootPath, "agents", "root.md");
 		await writeFile(mdPath, serializeAgentMarkdown(updated));
 		this.agents.set("root", updated);
@@ -660,4 +665,3 @@ function parseToolFrontmatter(
 		interpreter: parsed.interpreter ?? "bash",
 	};
 }
-

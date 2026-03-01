@@ -10,7 +10,6 @@ function makeSpec(overrides: Partial<AgentSpec> = {}): AgentSpec {
 		model: "fast",
 		tools: ["read_file", "grep"],
 		agents: [],
-		capabilities: ["read_file", "grep"],
 		constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 20, max_depth: 0, can_spawn: false },
 		tags: ["core"],
 		version: 2,

@@ -10,7 +10,7 @@ export interface RootManifestEntry {
 export interface RootManifest {
 	synced_at: string;
 	agents: Record<string, RootManifestEntry>;
-	/** Capabilities from the root agent at last sync — used to detect removals. */
+	/** Combined tools+agents from the root agent at last sync — used to detect removals. */
 	rootCapabilities?: string[];
 }
 
@@ -45,7 +45,7 @@ export async function saveManifest(path: string, manifest: RootManifest): Promis
  * specs provide name/version as the single source of truth.
  */
 export function buildManifestFromSpecs(
-	specs: ReadonlyArray<{ name: string; version: number; capabilities?: string[] }>,
+	specs: ReadonlyArray<{ name: string; version: number; tools?: string[]; agents?: string[] }>,
 	rawContentByName: ReadonlyMap<string, string>,
 ): RootManifest {
 	const agents: Record<string, RootManifestEntry> = {};
@@ -57,8 +57,8 @@ export function buildManifestFromSpecs(
 			hash: hashFileContent(content),
 			version: spec.version,
 		};
-		if (spec.name === "root" && spec.capabilities) {
-			rootCapabilities = [...spec.capabilities];
+		if (spec.name === "root" && (spec.tools || spec.agents)) {
+			rootCapabilities = [...(spec.tools ?? []), ...(spec.agents ?? [])];
 		}
 	}
 

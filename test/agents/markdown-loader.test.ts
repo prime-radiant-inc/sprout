@@ -31,7 +31,7 @@ describe("parseAgentMarkdown", () => {
 		expect(spec.model).toBe("fast");
 		expect(spec.tools).toEqual(["read_file", "grep"]);
 		expect(spec.agents).toEqual([]);
-		expect(spec.capabilities).toEqual(["read_file", "grep"]);
+		expect(spec.tools).toEqual(["read_file", "grep"]);
 		expect(spec.constraints.can_spawn).toBe(false);
 	});
 

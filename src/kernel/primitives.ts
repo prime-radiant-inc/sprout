@@ -729,7 +729,6 @@ function saveAgentPrimitive(ctx: GenomeContext): Primitive {
 					description: raw.description as string,
 					system_prompt: raw.system_prompt as string,
 					model: raw.model as string,
-					capabilities: [...tools, ...agents],
 					tools,
 					agents,
 					constraints: { ...DEFAULT_CONSTRAINTS, ...raw.constraints },
