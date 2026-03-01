@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parse } from "yaml";
+import { parseAgentMarkdown } from "../../src/agents/markdown-loader.ts";
 import { exportLearnings, stageLearnings } from "../../src/genome/export-learnings.ts";
 import { Genome, serializeAgentSpec } from "../../src/genome/genome.ts";
 import { makeSpec } from "../helpers/make-spec.ts";
@@ -99,7 +99,7 @@ describe("stageLearnings", () => {
 		await rm(tempDir, { recursive: true });
 	});
 
-	test("writes evolved agent YAML to staging directory", async () => {
+	test("writes evolved agent markdown to staging directory", async () => {
 		const genomeDir = join(tempDir, "stage-evolved");
 		const rootDir = join(tempDir, "stage-evolved-boot");
 		await mkdir(rootDir, { recursive: true });
@@ -120,14 +120,14 @@ describe("stageLearnings", () => {
 		const stagingDir = join(tempDir, "staging-evolved");
 		await stageLearnings(result, stagingDir);
 
-		const content = await readFile(join(stagingDir, "reader.yaml"), "utf-8");
-		const parsed = parse(content) as { name: string; system_prompt: string; version: number };
+		const content = await readFile(join(stagingDir, "reader.md"), "utf-8");
+		const parsed = parseAgentMarkdown(content, "reader.md");
 		expect(parsed.name).toBe("reader");
 		expect(parsed.system_prompt).toBe("improved reader with batching");
 		expect(parsed.version).toBe(2);
 	});
 
-	test("writes genome-only agent YAML to staging directory", async () => {
+	test("writes genome-only agent markdown to staging directory", async () => {
 		const genomeDir = join(tempDir, "stage-learned");
 		const rootDir = join(tempDir, "stage-learned-boot");
 		await mkdir(rootDir, { recursive: true });
@@ -149,8 +149,8 @@ describe("stageLearnings", () => {
 		const stagingDir = join(tempDir, "staging-learned");
 		await stageLearnings(result, stagingDir);
 
-		const content = await readFile(join(stagingDir, "specialist.yaml"), "utf-8");
-		const parsed = parse(content) as { name: string; description: string };
+		const content = await readFile(join(stagingDir, "specialist.md"), "utf-8");
+		const parsed = parseAgentMarkdown(content, "specialist.md");
 		expect(parsed.name).toBe("specialist");
 		expect(parsed.description).toBe("learned specialist");
 	});
@@ -171,7 +171,7 @@ describe("stageLearnings", () => {
 		const stagingDir = join(tempDir, "deep", "nested", "staging");
 		await stageLearnings(result, stagingDir);
 
-		const content = await readFile(join(stagingDir, "root.yaml"), "utf-8");
+		const content = await readFile(join(stagingDir, "root.md"), "utf-8");
 		expect(content).toContain("evolved root");
 	});
 });
