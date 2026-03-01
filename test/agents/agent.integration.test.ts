@@ -22,7 +22,7 @@ describe("Agent Integration", () => {
 	let env: LocalExecutionEnvironment;
 	let realClient: Client | undefined;
 	let registry: ReturnType<typeof createPrimitiveRegistry>;
-	let bootstrapAgents: AgentSpec[];
+	let rootAgents: AgentSpec[];
 
 	function vcrForTest(testName: string) {
 		return createVcr({
@@ -37,7 +37,7 @@ describe("Agent Integration", () => {
 		tempDir = await mkdtemp(join(tmpdir(), "sprout-test-"));
 		env = new LocalExecutionEnvironment(tempDir);
 		registry = createPrimitiveRegistry(env);
-		bootstrapAgents = await loadBootstrapAgents(join(import.meta.dir, "../../root"));
+		rootAgents = await loadBootstrapAgents(join(import.meta.dir, "../../root"));
 
 		const mode = process.env.VCR_MODE;
 		if (mode === "record" || mode === "off") {
@@ -51,14 +51,14 @@ describe("Agent Integration", () => {
 
 	test("leaf agent creates a file using primitives", async () => {
 		const vcr = vcrForTest("leaf-agent-creates-a-file-using-primitives");
-		const codeEditor = bootstrapAgents.find((a) => a.name === "editor")!;
+		const codeEditor = rootAgents.find((a) => a.name === "editor")!;
 		const events = new AgentEventEmitter();
 		const agent = new Agent({
 			spec: codeEditor,
 			env,
 			client: vcr.client,
 			primitiveRegistry: registry,
-			availableAgents: bootstrapAgents,
+			availableAgents: rootAgents,
 			depth: 1,
 			events,
 		});
@@ -84,14 +84,14 @@ describe("Agent Integration", () => {
 
 	test("root agent delegates to code-editor to create a file", async () => {
 		const vcr = vcrForTest("root-agent-delegates-to-code-editor-to-create-a-file");
-		const rootSpec = bootstrapAgents.find((a) => a.name === "root")!;
+		const rootSpec = rootAgents.find((a) => a.name === "root")!;
 		const events = new AgentEventEmitter();
 		const agent = new Agent({
 			spec: rootSpec,
 			env,
 			client: vcr.client,
 			primitiveRegistry: registry,
-			availableAgents: bootstrapAgents,
+			availableAgents: rootAgents,
 			depth: 0,
 			events,
 		});

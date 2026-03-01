@@ -31,8 +31,8 @@ export interface AgentProcessConfig {
 	client: Client;
 	/** Working directory for the agent */
 	workDir: string;
-	/** Path to bootstrap agent YAML files (for preambles). */
-	bootstrapDir?: string;
+	/** Path to root agent directory (for preambles). */
+	rootDir?: string;
 	/** Abort signal for clean shutdown */
 	signal?: AbortSignal;
 	/** Structured logger for LLM call logging and diagnostics. */
@@ -106,7 +106,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 		const env = new LocalExecutionEnvironment(workDir);
 		const registry = createPrimitiveRegistry(env);
 		const events = new AgentEventEmitter();
-		const preambles = config.bootstrapDir ? await loadPreambles(config.bootstrapDir) : undefined;
+		const preambles = config.rootDir ? await loadPreambles(config.rootDir) : undefined;
 		const projectDocs = await loadProjectDocs({ cwd: workDir });
 		const genomePostscripts = await genome.loadPostscripts();
 		const logBasePath = join(genomePath, "logs", sessionId, handleId);

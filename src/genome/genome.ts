@@ -9,8 +9,8 @@ import {
 } from "../agents/loader.ts";
 import { parseAgentMarkdown } from "../agents/markdown-loader.ts";
 import type { AgentSpec, Memory, RoutingRule } from "../kernel/types.ts";
-import { buildManifestFromSpecs, loadManifest, saveManifest } from "./root-manifest.ts";
 import { MemoryStore } from "./memory-store.ts";
+import { buildManifestFromSpecs, loadManifest, saveManifest } from "./root-manifest.ts";
 
 export interface SyncBootstrapResult {
 	added: string[];
@@ -307,13 +307,13 @@ export class Genome {
 		}
 	}
 
-	/** Initialize the genome from bootstrap agent specs. Throws if agents already exist. */
-	async initFromBootstrap(bootstrapDir: string): Promise<void> {
+	/** Initialize the genome from root agent specs. Throws if agents already exist. */
+	async initFromBootstrap(rootDir: string): Promise<void> {
 		if (this.agents.size > 0) {
-			throw new Error("Cannot initialize from bootstrap: agents already exist");
+			throw new Error("Cannot initialize from root: agents already exist");
 		}
 
-		const specs = await loadBootstrapAgents(bootstrapDir);
+		const specs = await loadBootstrapAgents(rootDir);
 		for (const spec of specs) {
 			const yamlPath = join(this.rootPath, "agents", `${spec.name}.yaml`);
 			await writeFile(yamlPath, serializeAgentSpec(spec));
@@ -321,18 +321,18 @@ export class Genome {
 		}
 
 		await git(this.rootPath, "add", ".");
-		await git(this.rootPath, "commit", "-m", "genome: initialize from bootstrap agents");
+		await git(this.rootPath, "commit", "-m", "genome: initialize from root agents");
 	}
 
 	/**
-	 * Sync bootstrap agents into an existing genome using manifest-aware 4-way comparison.
-	 * Adds new agents, updates unchanged genome agents when bootstrap evolves,
+	 * Sync root agents into an existing genome using manifest-aware 4-way comparison.
+	 * Adds new agents, updates unchanged genome agents when root evolves,
 	 * and detects conflicts when both sides have changed.
 	 */
-	async syncBootstrap(bootstrapDir: string): Promise<SyncBootstrapResult> {
+	async syncBootstrap(rootDir: string): Promise<SyncBootstrapResult> {
 		const manifestPath = join(this.rootPath, "bootstrap-manifest.json");
 		const oldManifest = await loadManifest(manifestPath);
-		const { specs, rawContentByName } = await readBootstrapDir(bootstrapDir);
+		const { specs, rawContentByName } = await readBootstrapDir(rootDir);
 		const newManifest = buildManifestFromSpecs(specs, rawContentByName);
 
 		const added: string[] = [];
@@ -402,36 +402,36 @@ export class Genome {
 
 		if (parts.length > 0) {
 			await git(this.rootPath, "add", ...filesToStage);
-			await git(this.rootPath, "commit", "-m", `genome: sync bootstrap (${parts.join("; ")})`);
+			await git(this.rootPath, "commit", "-m", `genome: sync root (${parts.join("; ")})`);
 		}
 
 		return { added, updated, conflicts };
 	}
 
 	/**
-	 * Reconcile bootstrap root capabilities with genome root.
-	 * Adds capabilities bootstrap introduced, removes capabilities bootstrap dropped,
-	 * and preserves genome-only capabilities that were never in bootstrap.
+	 * Reconcile root agent capabilities with genome root.
+	 * Adds capabilities root introduced, removes capabilities root dropped,
+	 * and preserves genome-only capabilities that were never in root.
 	 */
 	private async reconcileRootCapabilities(
-		bootstrapSpecs: AgentSpec[],
-		oldBootstrapRootCaps: string[],
+		rootSpecs: AgentSpec[],
+		oldRootCaps: string[],
 	): Promise<boolean> {
-		const bootstrapRoot = bootstrapSpecs.find((s) => s.name === "root");
+		const rootSpecRoot = rootSpecs.find((s) => s.name === "root");
 		const genomeRoot = this.agents.get("root");
-		if (!bootstrapRoot || !genomeRoot) return false;
+		if (!rootSpecRoot || !genomeRoot) return false;
 
-		const newBootstrapCaps = new Set(bootstrapRoot.capabilities);
-		const oldBootstrapCaps = new Set(oldBootstrapRootCaps);
+		const newRootCaps = new Set(rootSpecRoot.capabilities);
+		const oldRootCapSet = new Set(oldRootCaps);
 		const genomeCaps = new Set(genomeRoot.capabilities);
 
 		// Compute the reconciled capabilities:
-		// - Keep genome capabilities that are still in bootstrap OR were never in bootstrap
-		// - Add new bootstrap capabilities that genome doesn't have yet
+		// - Keep genome capabilities that are still in root OR were never in root
+		// - Add new root capabilities that genome doesn't have yet
 		const kept = genomeRoot.capabilities.filter(
-			(c) => newBootstrapCaps.has(c) || !oldBootstrapCaps.has(c),
+			(c) => newRootCaps.has(c) || !oldRootCapSet.has(c),
 		);
-		const toAdd = bootstrapRoot.capabilities.filter((c) => !genomeCaps.has(c));
+		const toAdd = rootSpecRoot.capabilities.filter((c) => !genomeCaps.has(c));
 		const merged = [...kept, ...toAdd];
 
 		// Check if anything actually changed
@@ -504,16 +504,16 @@ export class Genome {
 		return this.loadToolsFromDir(toolDir, "genome");
 	}
 
-	/** Load tools from both genome and bootstrap directories, genome overrides on name collision. */
+	/** Load tools from both genome and root directories, genome overrides on name collision. */
 	async loadAgentToolsWithBootstrap(
 		agentName: string,
-		bootstrapDir: string,
+		rootDir: string,
 	): Promise<AgentToolDefinition[]> {
 		const genomeTools = await this.loadAgentTools(agentName);
-		const bootstrapToolDir = await findBootstrapToolsDir(bootstrapDir, agentName);
-		const bootstrapTools = await this.loadToolsFromDir(bootstrapToolDir, "bootstrap");
+		const rootToolDir = await findBootstrapToolsDir(rootDir, agentName);
+		const rootTools = await this.loadToolsFromDir(rootToolDir, "bootstrap");
 		const genomeNames = new Set(genomeTools.map((t) => t.name));
-		return [...genomeTools, ...bootstrapTools.filter((t) => !genomeNames.has(t.name))];
+		return [...genomeTools, ...rootTools.filter((t) => !genomeNames.has(t.name))];
 	}
 
 	/** Read a tools directory and return AgentToolDefinition[] with the given provenance. */

@@ -54,7 +54,7 @@ describe("E2E Integration", () => {
 		const vcr = vcrForTest("bootstrap-fresh-genome-creates-a-file");
 		const result = await createAgent({
 			genomePath: genomeDir,
-			bootstrapDir: join(import.meta.dir, "../../root"),
+			rootDir: join(import.meta.dir, "../../root"),
 			workDir: workDir,
 			client: vcr.client,
 		});

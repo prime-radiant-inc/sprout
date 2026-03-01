@@ -6,9 +6,9 @@ import { Genome, serializeAgentSpec } from "./genome.ts";
 export interface EvolvedAgent {
 	name: string;
 	genomeVersion: number;
-	bootstrapVersion: number;
+	rootVersion: number;
 	genomePrompt: string;
-	bootstrapPrompt: string;
+	rootPrompt: string;
 }
 
 export interface GenomeOnlyAgent {
@@ -26,7 +26,7 @@ export interface ExportResult {
 
 export async function exportLearnings(
 	genomePath: string,
-	bootstrapDir: string,
+	rootDir: string,
 ): Promise<ExportResult> {
 	try {
 		await access(join(genomePath, "agents"));
@@ -37,17 +37,17 @@ export async function exportLearnings(
 	const genome = new Genome(genomePath);
 	await genome.loadFromDisk();
 
-	const bootstrapSpecs = await loadBootstrapAgents(bootstrapDir);
-	const bootstrapByName = new Map(bootstrapSpecs.map((s) => [s.name, s]));
+	const rootSpecs = await loadBootstrapAgents(rootDir);
+	const rootByName = new Map(rootSpecs.map((s) => [s.name, s]));
 
 	const evolved: EvolvedAgent[] = [];
 	const genomeOnly: GenomeOnlyAgent[] = [];
 	const agentYaml = new Map<string, string>();
 
 	for (const agent of genome.allAgents()) {
-		const bootstrap = bootstrapByName.get(agent.name);
+		const rootSpec = rootByName.get(agent.name);
 
-		if (!bootstrap) {
+		if (!rootSpec) {
 			genomeOnly.push({
 				name: agent.name,
 				description: agent.description,
@@ -57,15 +57,15 @@ export async function exportLearnings(
 			continue;
 		}
 
-		// Only export improvements (genome evolved beyond bootstrap).
+		// Only export improvements (genome evolved beyond root).
 		// Lower versions (e.g. after rollback) are not learnings to propagate.
-		if (agent.version > bootstrap.version) {
+		if (agent.version > rootSpec.version) {
 			evolved.push({
 				name: agent.name,
 				genomeVersion: agent.version,
-				bootstrapVersion: bootstrap.version,
+				rootVersion: rootSpec.version,
 				genomePrompt: agent.system_prompt,
-				bootstrapPrompt: bootstrap.system_prompt,
+				rootPrompt: rootSpec.system_prompt,
 			});
 			agentYaml.set(agent.name, serializeAgentSpec(agent));
 		}

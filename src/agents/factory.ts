@@ -19,7 +19,7 @@ export interface CreateAgentOptions {
 	/** Path to the genome directory */
 	genomePath: string;
 	/** Path to root agent spec directory. Required for first-time setup. */
-	bootstrapDir?: string;
+	rootDir?: string;
 	/** Working directory for the agent */
 	workDir?: string;
 	/** Name of the root agent to use (default: "root") */
@@ -54,7 +54,7 @@ export interface CreateAgentResult {
 
 /**
  * Create an agent wired to a genome with recall.
- * Handles genome initialization, bootstrap loading, and full wiring.
+ * Handles genome initialization, root agent loading, and full wiring.
  */
 export async function createAgent(options: CreateAgentOptions): Promise<CreateAgentResult> {
 	const genome = options.genome ?? new Genome(options.genomePath);
@@ -65,25 +65,25 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 
 		if (isExisting) {
 			await genome.loadFromDisk();
-			// Sync bootstrap agents using manifest-aware comparison
-			if (options.bootstrapDir) {
-				const result = await genome.syncBootstrap(options.bootstrapDir);
+			// Sync root agents using manifest-aware comparison
+			if (options.rootDir) {
+				const result = await genome.syncBootstrap(options.rootDir);
 				if (result.added.length > 0) {
-					console.error(`Synced new bootstrap agents: ${result.added.join(", ")}`);
+					console.error(`Synced new root agents: ${result.added.join(", ")}`);
 				}
 				if (result.updated.length > 0) {
-					console.error(`Updated bootstrap agents: ${result.updated.join(", ")}`);
+					console.error(`Updated root agents: ${result.updated.join(", ")}`);
 				}
 				if (result.conflicts.length > 0) {
 					console.error(
-						`Bootstrap sync conflicts (genome preserved): ${result.conflicts.join(", ")}`,
+						`Root sync conflicts (genome preserved): ${result.conflicts.join(", ")}`,
 					);
 				}
 			}
 		} else {
 			await genome.init();
-			if (options.bootstrapDir) {
-				await genome.initFromBootstrap(options.bootstrapDir);
+			if (options.rootDir) {
+				await genome.initFromBootstrap(options.rootDir);
 			}
 		}
 	}
@@ -111,7 +111,7 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 	const env = new LocalExecutionEnvironment(workDir);
 	const client = options.client ?? Client.fromEnv();
 	const registry = createPrimitiveRegistry(env);
-	const preambles = options.bootstrapDir ? await loadPreambles(options.bootstrapDir) : undefined;
+	const preambles = options.rootDir ? await loadPreambles(options.rootDir) : undefined;
 	const projectDocs = await loadProjectDocs({ cwd: workDir });
 	const genomePostscripts = await genome.loadPostscripts();
 
@@ -137,7 +137,7 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 	const logBasePath = join(options.genomePath, "logs", sessionId);
 
 	// Scan the agent tree for path-based delegation resolution
-	const agentTree = options.bootstrapDir ? await scanAgentTree(options.bootstrapDir) : undefined;
+	const agentTree = options.rootDir ? await scanAgentTree(options.rootDir) : undefined;
 
 	// Root's children are the top-level entries in the tree (paths without slashes)
 	const agentTreeChildren = agentTree
@@ -164,7 +164,7 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 		spawner: options.spawner,
 		genomePath: options.genomePath,
 		logger: options.logger,
-		bootstrapDir: options.bootstrapDir,
+		rootDir: options.rootDir,
 		agentTree,
 		agentTreeChildren,
 		agentTreeSelfPath: agentTree ? "" : undefined,

@@ -29,7 +29,7 @@ interface RunnableAgent {
 /** Options passed to the agent factory. */
 export interface AgentFactoryOptions {
 	genomePath: string;
-	bootstrapDir?: string;
+	rootDir?: string;
 	workDir: string;
 	rootAgent?: string;
 	sessionId: string;
@@ -74,7 +74,7 @@ export interface SessionControllerOptions {
 	genomePath: string;
 	/** Directory for session metadata. Defaults to genomePath/sessions. */
 	sessionsDir?: string;
-	bootstrapDir?: string;
+	rootDir?: string;
 	rootAgent?: string;
 	factory?: AgentFactory;
 	sessionId?: string;
@@ -124,7 +124,7 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 
 	const result = await createAgent({
 		genomePath: options.genomePath,
-		bootstrapDir: options.bootstrapDir,
+		rootDir: options.rootDir,
 		workDir: options.workDir,
 		rootAgent: options.rootAgent,
 		events: agentEvents,
@@ -165,7 +165,7 @@ export class SessionController {
 	private readonly bus: SessionBus;
 	private readonly genomePath: string;
 	private readonly sessionsDir: string;
-	private readonly bootstrapDir?: string;
+	private readonly rootDir?: string;
 	private readonly rootAgentName?: string;
 	private readonly factory: AgentFactory;
 	private readonly spawner?: AgentSpawner;
@@ -188,7 +188,7 @@ export class SessionController {
 		this.bus = options.bus;
 		this.genomePath = options.genomePath;
 		this.sessionsDir = options.sessionsDir ?? join(options.genomePath, "sessions");
-		this.bootstrapDir = options.bootstrapDir;
+		this.rootDir = options.rootDir;
 		this.rootAgentName = options.rootAgent;
 		this.factory = options.factory ?? defaultFactory;
 		this.spawner = options.spawner;
@@ -359,7 +359,7 @@ export class SessionController {
 		try {
 			const result = await this.factory({
 				genomePath: this.genomePath,
-				bootstrapDir: this.bootstrapDir,
+				rootDir: this.rootDir,
 				workDir: process.cwd(),
 				rootAgent: this.rootAgentName,
 				events: this.bus,

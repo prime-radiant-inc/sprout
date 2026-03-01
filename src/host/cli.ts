@@ -286,9 +286,9 @@ Modes:
 Genome management:
   sprout --genome list                  List agents in the genome
   sprout --genome log                   Show genome git log
-  sprout --genome sync                  Sync bootstrap agents to runtime genome
+  sprout --genome sync                  Sync root agents to runtime genome
   sprout --genome rollback <commit>     Revert a genome commit
-  sprout --genome export                Show learnings that evolved beyond bootstrap
+  sprout --genome export                Show learnings that evolved beyond root specs
 
 Web interface:
   --web                  Start web server alongside TUI
@@ -626,7 +626,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 
 	if (command.kind === "genome-sync") {
 		const { Genome } = await import("../genome/genome.ts");
-		const bootstrapDir = join(import.meta.dir, "../../root");
+		const rootDir = join(import.meta.dir, "../../root");
 
 		const genome = new Genome(command.genomePath);
 		try {
@@ -639,10 +639,10 @@ export async function runCli(command: CliCommand): Promise<void> {
 			return;
 		}
 
-		const result = await genome.syncBootstrap(bootstrapDir);
+		const result = await genome.syncBootstrap(rootDir);
 
 		if (result.added.length === 0 && result.updated.length === 0 && result.conflicts.length === 0) {
-			console.log("Genome is up to date with bootstrap.");
+			console.log("Genome is up to date with root agents.");
 			return;
 		}
 
@@ -660,11 +660,11 @@ export async function runCli(command: CliCommand): Promise<void> {
 
 	if (command.kind === "genome-export") {
 		const { exportLearnings, stageLearnings } = await import("../genome/export-learnings.ts");
-		const bootstrapDir = join(import.meta.dir, "../../root");
+		const rootDir = join(import.meta.dir, "../../root");
 
 		let result: Awaited<ReturnType<typeof exportLearnings>>;
 		try {
-			result = await exportLearnings(command.genomePath, bootstrapDir);
+			result = await exportLearnings(command.genomePath, rootDir);
 		} catch (err) {
 			console.error(
 				`Failed to load genome at ${command.genomePath}: ${err instanceof Error ? err.message : err}`,
@@ -674,14 +674,14 @@ export async function runCli(command: CliCommand): Promise<void> {
 		}
 
 		if (result.evolved.length === 0 && result.genomeOnly.length === 0) {
-			console.log("No learnings to export. Genome matches bootstrap.");
+			console.log("No learnings to export. Genome matches root specs.");
 			return;
 		}
 
 		if (result.evolved.length > 0) {
-			console.log("\nEvolved agents (genome improved beyond bootstrap):");
+			console.log("\nEvolved agents (genome improved beyond root specs):");
 			for (const agent of result.evolved) {
-				console.log(`  ${agent.name}: v${agent.bootstrapVersion} → v${agent.genomeVersion}`);
+				console.log(`  ${agent.name}: v${agent.rootVersion} → v${agent.genomeVersion}`);
 			}
 		}
 
@@ -768,7 +768,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 	const { SessionController } = await import("./session-controller.ts");
 	const { ulid } = await import("../util/ulid.ts");
 
-	const bootstrapDir = join(import.meta.dir, "../../root");
+	const rootDir = join(import.meta.dir, "../../root");
 	const sessionsDir = join(command.genomePath, "sessions");
 
 	const { SessionLogger } = await import("./logger.ts");
@@ -791,7 +791,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 			bus,
 			genomePath: command.genomePath,
 			sessionsDir,
-			bootstrapDir,
+			rootDir,
 			sessionId,
 			spawner: infra.spawner,
 			genome: infra.genome,
@@ -917,7 +917,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 		bus,
 		genomePath: command.genomePath,
 		sessionsDir,
-		bootstrapDir,
+		rootDir,
 		sessionId,
 		initialHistory: resumeHistory,
 		spawner: infra.spawner,

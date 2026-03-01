@@ -62,7 +62,7 @@ describe("Agent-Learn wiring", () => {
 		const genomePath = join(tempDir, "genome-factory");
 		const result = await createAgent({
 			genomePath,
-			bootstrapDir: join(import.meta.dir, "../../root"),
+			rootDir: join(import.meta.dir, "../../root"),
 			workDir: tempDir,
 		});
 

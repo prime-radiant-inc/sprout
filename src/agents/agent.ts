@@ -84,8 +84,8 @@ export interface AgentOptions {
 	modelsByProvider?: Map<string, string[]>;
 	/** Structured logger for LLM call logging and diagnostics. */
 	logger?: Logger;
-	/** Path to bootstrap agent directory (for two-layer tool resolution). */
-	bootstrapDir?: string;
+	/** Path to root agent directory (for two-layer tool resolution). */
+	rootDir?: string;
 	/** Agent tree for path-based delegation resolution. */
 	agentTree?: Map<string, AgentTreeEntry>;
 	/** Bare child names for this agent in the tree (from the tree entry's children array). */
@@ -124,7 +124,7 @@ export class Agent {
 	private readonly genomePath?: string;
 	private readonly agentId?: string;
 	private readonly initialHistory?: Message[];
-	private readonly bootstrapDir?: string;
+	private readonly rootDir?: string;
 	private readonly agentTree?: Map<string, AgentTreeEntry>;
 	private readonly agentTreeChildren?: string[];
 	private readonly agentTreeSelfPath?: string;
@@ -155,7 +155,7 @@ export class Agent {
 		this.spawner = options.spawner;
 		this.genomePath = options.genomePath;
 		this.agentId = options.agentId;
-		this.bootstrapDir = options.bootstrapDir;
+		this.rootDir = options.rootDir;
 		this.agentTree = options.agentTree;
 		this.agentTreeChildren = options.agentTreeChildren;
 		this.agentTreeSelfPath = options.agentTreeSelfPath;
@@ -685,8 +685,8 @@ export class Agent {
 		// Load workspace tools created by the quartermaster for this agent
 		let wsToolDefs: import("../genome/genome.ts").AgentToolDefinition[] = [];
 		if (this.genome && this.primitiveTools.length > 0) {
-			wsToolDefs = this.bootstrapDir
-				? await this.genome.loadAgentToolsWithBootstrap(this.spec.name, this.bootstrapDir)
+			wsToolDefs = this.rootDir
+				? await this.genome.loadAgentToolsWithBootstrap(this.spec.name, this.rootDir)
 				: await this.genome.loadAgentTools(this.spec.name);
 			if (wsToolDefs.length > 0) {
 				const toolPrims = buildAgentToolPrimitives(wsToolDefs, {
@@ -704,12 +704,12 @@ export class Agent {
 				}
 			}
 
-			// Add both genome and bootstrap tool directories to PATH
+			// Add both genome and root tool directories to PATH
 			const genomeToolsDir = join(this.genome.agentDir(this.spec.name), "tools");
 			this.env.addToPath?.(genomeToolsDir);
-			if (this.bootstrapDir) {
-				const bootstrapToolsDir = await findBootstrapToolsDir(this.bootstrapDir, this.spec.name);
-				this.env.addToPath?.(bootstrapToolsDir);
+			if (this.rootDir) {
+				const rootToolsDir = await findBootstrapToolsDir(this.rootDir, this.spec.name);
+				this.env.addToPath?.(rootToolsDir);
 			}
 		}
 

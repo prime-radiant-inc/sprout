@@ -43,14 +43,14 @@ export async function loadBootstrapAgents(dir: string): Promise<AgentSpec[]> {
 	return specs;
 }
 
-/** Read agent specs from a bootstrap directory, supporting both flat YAML and tree Markdown layouts. */
+/** Read agent specs from a root directory, supporting both flat YAML and tree Markdown layouts. */
 export async function readBootstrapDir(
 	dir: string,
 ): Promise<{ specs: AgentSpec[]; rawContentByName: Map<string, string> }> {
 	const files = await readdir(dir);
 	const yamlFiles = files.filter((f) => f.endsWith(".yaml") || f.endsWith(".yml")).sort();
 
-	// If there are YAML files, use the flat loader (legacy bootstrap layout)
+	// If there are YAML files, use the flat loader (legacy YAML layout)
 	if (yamlFiles.length > 0) {
 		const specs: AgentSpec[] = [];
 		const rawContentByName = new Map<string, string>();
@@ -92,15 +92,15 @@ export async function readBootstrapDir(
 }
 
 /**
- * Find the tools directory for an agent in the bootstrap root directory.
+ * Find the tools directory for an agent in the root directory.
  * Scans the agent tree to find the correct nested path, falling back to the
- * flat layout (bootstrapDir/agentName/tools/) if the agent is not in the tree.
+ * flat layout (rootDir/agentName/tools/) if the agent is not in the tree.
  */
 export async function findBootstrapToolsDir(
-	bootstrapDir: string,
+	rootDir: string,
 	agentName: string,
 ): Promise<string> {
-	const tree = await scanAgentTree(bootstrapDir);
+	const tree = await scanAgentTree(rootDir);
 	for (const entry of tree.values()) {
 		if (entry.spec.name === agentName) {
 			// Tools dir is a sibling directory to the .md file, named after the agent
@@ -108,8 +108,8 @@ export async function findBootstrapToolsDir(
 			return join(entry.diskPath.replace(/\.md$/, ""), "tools");
 		}
 	}
-	// Fallback: flat layout (bootstrapDir/agentName/tools/)
-	return join(bootstrapDir, agentName, "tools");
+	// Fallback: flat layout (rootDir/agentName/tools/)
+	return join(rootDir, agentName, "tools");
 }
 
 export interface Preambles {
@@ -118,8 +118,8 @@ export interface Preambles {
 	worker: string;
 }
 
-export async function loadPreambles(bootstrapDir: string): Promise<Preambles> {
-	const dir = join(bootstrapDir, "preambles");
+export async function loadPreambles(rootDir: string): Promise<Preambles> {
+	const dir = join(rootDir, "preambles");
 	const read = (name: string) => readFile(join(dir, name), "utf-8").catch(() => "");
 	const [global, orchestrator, worker] = await Promise.all([
 		read("global.md"),
