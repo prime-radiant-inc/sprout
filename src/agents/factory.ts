@@ -12,7 +12,7 @@ import type { Message } from "../llm/types.ts";
 import { ulid } from "../util/ulid.ts";
 import { Agent } from "./agent.ts";
 import { AgentEventEmitter } from "./events.ts";
-import { loadPreambles } from "./loader.ts";
+import { loadPreambles, scanAgentTree } from "./loader.ts";
 import { loadProjectDocs } from "./project-doc.ts";
 
 export interface CreateAgentOptions {
@@ -136,6 +136,14 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 	const sessionId = options.sessionId ?? ulid();
 	const logBasePath = join(options.genomePath, "logs", sessionId);
 
+	// Scan the agent tree for path-based delegation resolution
+	const agentTree = options.bootstrapDir ? await scanAgentTree(options.bootstrapDir) : undefined;
+
+	// Root's children are the top-level entries in the tree (paths without slashes)
+	const agentTreeChildren = agentTree
+		? [...agentTree.keys()].filter((p) => !p.includes("/"))
+		: undefined;
+
 	const agent = new Agent({
 		spec: rootSpec,
 		env,
@@ -157,6 +165,9 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 		genomePath: options.genomePath,
 		logger: options.logger,
 		bootstrapDir: options.bootstrapDir,
+		agentTree,
+		agentTreeChildren,
+		agentTreeSelfPath: agentTree ? "" : undefined,
 	});
 
 	const resolved = agent.resolvedModel;

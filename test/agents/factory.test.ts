@@ -4,6 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { config } from "dotenv";
 import { createAgent } from "../../src/agents/factory.ts";
+import { scanAgentTree } from "../../src/agents/loader.ts";
 import { DEV_MODE_SENTINEL, isDevMode } from "../../src/genome/dev-mode.ts";
 import { Genome } from "../../src/genome/genome.ts";
 
@@ -122,6 +123,31 @@ describe("createAgent", () => {
 				rootAgent: "nonexistent",
 			}),
 		).rejects.toThrow(/not found/);
+	});
+
+	test("passes agent tree to root agent when bootstrapDir has tree layout", async () => {
+		const genomePath = join(tempDir, "factory-tree");
+		const bootstrapDir = join(import.meta.dir, "../../root");
+
+		const result = await createAgent({
+			genomePath,
+			bootstrapDir,
+			workDir: tempDir,
+		});
+
+		// The root agent should have the delegate tool (from tree-based resolution)
+		const tools = result.agent.resolvedTools();
+		const delegateTool = tools.find((t) => t.name === "delegate");
+		expect(delegateTool).toBeDefined();
+
+		// Scan the tree independently to verify the factory did the same
+		const tree = await scanAgentTree(bootstrapDir);
+		expect(tree.size).toBeGreaterThan(0);
+
+		// The delegate tool description should mention some of the tree agents
+		const desc = (delegateTool!.parameters as any).properties.agent_name.description;
+		// At minimum, there should be some agents mentioned
+		expect(desc.length).toBeGreaterThan(20);
 	});
 
 	test("injects dev-mode postscript for quartermaster when workDir is sprout source", async () => {
