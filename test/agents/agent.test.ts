@@ -3758,7 +3758,8 @@ describe("Agent", () => {
 		);
 		expect(actStart).toBeDefined();
 		const actEnd = collected.find(
-			(e) => e.kind === "act_end" && e.data.agent_name === "utility/reader" && e.data.success === true,
+			(e) =>
+				e.kind === "act_end" && e.data.agent_name === "utility/reader" && e.data.success === true,
 		);
 		expect(actEnd).toBeDefined();
 	});
@@ -3843,10 +3844,14 @@ describe("Agent", () => {
 			complete: async (): Promise<Response> => {
 				callCount++;
 				let msg: Message;
-				if (callCount === 1) msg = delegateMsg; // root delegates
-				else if (callCount === 2) msg = workerDelegateMsg; // worker delegates
-				else if (callCount === 3) msg = helperDoneMsg; // helper finishes
-				else if (callCount === 4) msg = workerDoneMsg; // worker finishes
+				if (callCount === 1)
+					msg = delegateMsg; // root delegates
+				else if (callCount === 2)
+					msg = workerDelegateMsg; // worker delegates
+				else if (callCount === 3)
+					msg = helperDoneMsg; // helper finishes
+				else if (callCount === 4)
+					msg = workerDoneMsg; // worker finishes
 				else msg = doneMsg; // root finishes
 				return {
 					id: `mock-sub-tree-${callCount}`,
@@ -3885,7 +3890,8 @@ describe("Agent", () => {
 		);
 		expect(helperActStart).toBeDefined();
 		const helperActEnd = collected.find(
-			(e) => e.kind === "act_end" && e.data.agent_name === "worker/helper" && e.data.success === true,
+			(e) =>
+				e.kind === "act_end" && e.data.agent_name === "worker/helper" && e.data.success === true,
 		);
 		expect(helperActEnd).toBeDefined();
 	});

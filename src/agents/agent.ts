@@ -31,7 +31,6 @@ import { AgentEventEmitter } from "./events.ts";
 import type { AgentTreeEntry, Preambles } from "./loader.ts";
 import { findBootstrapToolsDir } from "./loader.ts";
 import { defaultModelsByProvider, type ResolvedModel, resolveModel } from "./model-resolver.ts";
-import { resolveAgentDelegates } from "./resolver.ts";
 import type { Postscripts } from "./plan.ts";
 import {
 	buildDelegateTool,
@@ -44,6 +43,7 @@ import {
 	renderAgentsForPrompt,
 	renderWorkspaceTools,
 } from "./plan.ts";
+import { resolveAgentDelegates } from "./resolver.ts";
 import {
 	type CallRecord,
 	detectRetries,
