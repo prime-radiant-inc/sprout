@@ -16,7 +16,8 @@ export const MESSAGE_AGENT_TOOL_NAME = "message_agent";
  * This keeps the tool list stable (preserving prompt cache) when agents are added/removed.
  */
 export function buildDelegateTool(agents: AgentSpec[]): ToolDefinition {
-	const agentEnum = agents.map((a) => a.name);
+	const nameList =
+		agents.length > 0 ? ` Known agents: ${agents.map((a) => a.name).join(", ")}.` : "";
 	return {
 		name: DELEGATE_TOOL_NAME,
 		description:
@@ -26,8 +27,7 @@ export function buildDelegateTool(agents: AgentSpec[]): ToolDefinition {
 			properties: {
 				agent_name: {
 					type: "string",
-					description: "Name of the agent to delegate to",
-					enum: agentEnum.length > 0 ? agentEnum : undefined,
+					description: `Name or path of the agent to delegate to.${nameList}`,
 				},
 				goal: {
 					type: "string",

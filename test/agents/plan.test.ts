@@ -33,7 +33,7 @@ const testAgent: AgentSpec = {
 };
 
 describe("buildDelegateTool", () => {
-	test("creates a single delegate tool with agent_name enum", () => {
+	test("creates a single delegate tool with standard schema", () => {
 		const agents: AgentSpec[] = [
 			testAgent,
 			{ ...testAgent, name: "code-editor", description: "Edit code files" },
@@ -43,7 +43,6 @@ describe("buildDelegateTool", () => {
 		expect(tool.description).toContain("Delegate");
 		const props = (tool.parameters as any).properties;
 		expect(props.agent_name).toBeDefined();
-		expect(props.agent_name.enum).toEqual(["code-reader", "code-editor"]);
 		expect(props.goal).toBeDefined();
 		expect(props.goal.type).toBe("string");
 		expect(props.hints).toBeDefined();
@@ -51,10 +50,24 @@ describe("buildDelegateTool", () => {
 		expect((tool.parameters as any).required).toEqual(["agent_name", "goal"]);
 	});
 
-	test("omits enum when no agents provided", () => {
+	test("delegate tool accepts any agent string, not just enum", () => {
+		const agents: AgentSpec[] = [
+			{ ...testAgent, name: "reader" },
+			{ ...testAgent, name: "editor" },
+		];
+		const tool = buildDelegateTool(agents);
+		const agentNameProp = (tool.parameters as any).properties.agent_name;
+		// Should NOT have an enum — accepts any string
+		expect(agentNameProp.enum).toBeUndefined();
+		// But should list known agents in description
+		expect(agentNameProp.description).toContain("reader");
+		expect(agentNameProp.description).toContain("editor");
+	});
+
+	test("no known agents listed when agents array is empty", () => {
 		const tool = buildDelegateTool([]);
-		const props = (tool.parameters as any).properties;
-		expect(props.agent_name.enum).toBeUndefined();
+		const agentNameProp = (tool.parameters as any).properties.agent_name;
+		expect(agentNameProp.enum).toBeUndefined();
 	});
 
 	test("delegate tool shared parameter describes cross-caller access", () => {

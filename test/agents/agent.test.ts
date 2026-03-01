@@ -199,7 +199,8 @@ describe("Agent", () => {
 		expect(delegateTool).toBeDefined();
 		const props = (delegateTool!.parameters as any).properties;
 		expect(props.agent_name).toBeDefined();
-		expect(props.agent_name.enum).toEqual(["leaf"]);
+		expect(props.agent_name.enum).toBeUndefined();
+		expect(props.agent_name.description).toContain("leaf");
 		expect(props.goal).toBeDefined();
 		expect(props.hints).toBeDefined();
 	});
