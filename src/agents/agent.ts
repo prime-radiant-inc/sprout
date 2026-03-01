@@ -176,7 +176,7 @@ export class Agent {
 		}
 
 		// Validate that path constraints are compatible with capabilities
-		validateConstraints(this.spec.name, this.spec.capabilities, this.spec.constraints);
+		validateConstraints(this.spec.name, this.spec.tools, this.spec.constraints);
 
 		// Resolve model and provider
 		const modelMap = options.modelsByProvider ?? defaultModelsByProvider(this.client.providers());
@@ -225,7 +225,7 @@ export class Agent {
 		this.primitiveTools = [];
 		if (this.agentTools.length === 0) {
 			const filteredPrimitiveNames = primitivesForAgent(
-				this.spec.capabilities,
+				this.spec.tools,
 				this.primitiveRegistry.names(),
 				this.resolved.provider,
 			);

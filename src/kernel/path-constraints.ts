@@ -54,15 +54,15 @@ function matchesAny(path: string, patterns: string[]): boolean {
 }
 
 /**
- * Validate that an agent's constraints are compatible with its capabilities.
+ * Validate that an agent's constraints are compatible with its tools.
  * Throws if allowed_write_paths is set but the agent has exec (which can bypass it).
  */
 export function validateConstraints(
 	agentName: string,
-	capabilities: string[],
+	tools: string[],
 	constraints: AgentConstraints,
 ): void {
-	if (constraints.allowed_write_paths && capabilities.includes("exec")) {
+	if (constraints.allowed_write_paths && tools.includes("exec")) {
 		throw new Error(
 			`Agent "${agentName}" has allowed_write_paths but also has exec capability. ` +
 				`exec can bypass write restrictions. Remove exec or remove allowed_write_paths.`,

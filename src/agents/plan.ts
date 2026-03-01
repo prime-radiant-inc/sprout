@@ -123,20 +123,20 @@ export function renderAgentsForPrompt(agents: AgentSpec[]): string {
  * - Anthropic/Gemini agents get edit_file instead of apply_patch
  */
 export function primitivesForAgent(
-	capabilities: string[],
+	tools: string[],
 	allPrimitiveNames: string[],
 	provider: string,
 ): string[] {
 	const available = new Set(allPrimitiveNames);
 	const result: string[] = [];
 
-	for (const cap of capabilities) {
-		let resolved = cap;
+	for (const tool of tools) {
+		let resolved = tool;
 
 		// Provider alignment: swap edit primitives based on provider
-		if (provider === "openai" && cap === "edit_file") {
+		if (provider === "openai" && tool === "edit_file") {
 			resolved = "apply_patch";
-		} else if ((provider === "anthropic" || provider === "gemini") && cap === "apply_patch") {
+		} else if ((provider === "anthropic" || provider === "gemini") && tool === "apply_patch") {
 			resolved = "edit_file";
 		}
 

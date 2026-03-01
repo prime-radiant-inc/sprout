@@ -2,11 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-	findRootToolsDir,
-	loadAgentSpec,
-	loadRootAgents,
-} from "../../src/agents/loader.ts";
+import { findRootToolsDir, loadAgentSpec, loadRootAgents } from "../../src/agents/loader.ts";
 import { serializeAgentSpec } from "../../src/genome/genome.ts";
 
 describe("loadAgentSpec", () => {
