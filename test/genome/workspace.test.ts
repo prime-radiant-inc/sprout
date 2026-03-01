@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Genome, git } from "../../src/genome/genome.ts";
@@ -238,6 +238,97 @@ describe("Genome workspace", () => {
 
 			const styleFile = files.find((f) => f.name === "style-guide.md")!;
 			expect(styleFile.size).toBeGreaterThan(0);
+		});
+	});
+
+	describe("loadAgentToolsWithBootstrap", () => {
+		test("loads tools from bootstrap when genome has none", async () => {
+			const root = join(tempDir, "two-layer-bootstrap-only");
+			const genome = new Genome(root);
+			await genome.init();
+			await genome.addAgent(makeSpec({ name: "task-manager" }));
+
+			const bootstrapDir = join(tempDir, "bootstrap-two-layer-1");
+			const toolDir = join(bootstrapDir, "task-manager", "tools");
+			await mkdir(toolDir, { recursive: true });
+			await writeFile(
+				join(toolDir, "task-cli"),
+				'---\nname: task-cli\ndescription: Manage tasks\ninterpreter: bash\n---\necho "hello"',
+			);
+
+			const tools = await genome.loadAgentToolsWithBootstrap("task-manager", bootstrapDir);
+			expect(tools).toHaveLength(1);
+			expect(tools[0]!.name).toBe("task-cli");
+			expect(tools[0]!.provenance).toBe("bootstrap");
+		});
+
+		test("genome tool overrides bootstrap tool with same name", async () => {
+			const root = join(tempDir, "two-layer-override");
+			const genome = new Genome(root);
+			await genome.init();
+			await genome.addAgent(makeSpec({ name: "task-manager" }));
+
+			await genome.saveAgentTool("task-manager", {
+				name: "task-cli",
+				description: "Genome version of task CLI",
+				script: 'echo "genome"',
+				interpreter: "bash",
+			});
+
+			const bootstrapDir = join(tempDir, "bootstrap-two-layer-2");
+			const toolDir = join(bootstrapDir, "task-manager", "tools");
+			await mkdir(toolDir, { recursive: true });
+			await writeFile(
+				join(toolDir, "task-cli"),
+				'---\nname: task-cli\ndescription: Bootstrap version\ninterpreter: bash\n---\necho "bootstrap"',
+			);
+
+			const tools = await genome.loadAgentToolsWithBootstrap("task-manager", bootstrapDir);
+			expect(tools).toHaveLength(1);
+			expect(tools[0]!.name).toBe("task-cli");
+			expect(tools[0]!.provenance).toBe("genome");
+			expect(tools[0]!.description).toBe("Genome version of task CLI");
+		});
+
+		test("merges genome and bootstrap tools without collision", async () => {
+			const root = join(tempDir, "two-layer-merge");
+			const genome = new Genome(root);
+			await genome.init();
+			await genome.addAgent(makeSpec({ name: "editor" }));
+
+			await genome.saveAgentTool("editor", {
+				name: "genome-tool",
+				description: "Only in genome",
+				script: 'echo "genome"',
+				interpreter: "bash",
+			});
+
+			const bootstrapDir = join(tempDir, "bootstrap-two-layer-3");
+			const toolDir = join(bootstrapDir, "editor", "tools");
+			await mkdir(toolDir, { recursive: true });
+			await writeFile(
+				join(toolDir, "bootstrap-tool"),
+				'---\nname: bootstrap-tool\ndescription: Only in bootstrap\ninterpreter: bash\n---\necho "bootstrap"',
+			);
+
+			const tools = await genome.loadAgentToolsWithBootstrap("editor", bootstrapDir);
+			expect(tools).toHaveLength(2);
+			const names = tools.map((t) => t.name);
+			expect(names).toContain("genome-tool");
+			expect(names).toContain("bootstrap-tool");
+		});
+
+		test("returns empty when neither directory has tools", async () => {
+			const root = join(tempDir, "two-layer-empty");
+			const genome = new Genome(root);
+			await genome.init();
+			await genome.addAgent(makeSpec({ name: "reader" }));
+
+			const bootstrapDir = join(tempDir, "bootstrap-two-layer-empty");
+			await mkdir(bootstrapDir, { recursive: true });
+
+			const tools = await genome.loadAgentToolsWithBootstrap("reader", bootstrapDir);
+			expect(tools).toEqual([]);
 		});
 	});
 });

@@ -488,6 +488,32 @@ export class Genome {
 	/** Load tool definitions from an agent's tools directory. */
 	async loadAgentTools(agentName: string): Promise<AgentToolDefinition[]> {
 		const toolDir = join(this.agentDir(agentName), "tools");
+		return this.loadToolsFromDir(toolDir, "genome");
+	}
+
+	/** Load tools from both genome and bootstrap directories, genome overrides on name collision. */
+	async loadAgentToolsWithBootstrap(
+		agentName: string,
+		bootstrapDir: string,
+	): Promise<AgentToolDefinition[]> {
+		const genomeTools = await this.loadAgentTools(agentName);
+		const bootstrapToolDir = join(bootstrapDir, agentName, "tools");
+		const bootstrapTools = await this.loadToolsFromDir(bootstrapToolDir, "bootstrap");
+		const genomeNames = new Set(genomeTools.map((t) => t.name));
+		const merged = [...genomeTools];
+		for (const tool of bootstrapTools) {
+			if (!genomeNames.has(tool.name)) {
+				merged.push(tool);
+			}
+		}
+		return merged;
+	}
+
+	/** Read a tools directory and return AgentToolDefinition[] with the given provenance. */
+	private async loadToolsFromDir(
+		toolDir: string,
+		provenance: "genome" | "bootstrap",
+	): Promise<AgentToolDefinition[]> {
 		let entries: string[];
 		try {
 			entries = await readdir(toolDir);
@@ -506,7 +532,7 @@ export class Genome {
 					description: parsed.description,
 					interpreter: parsed.interpreter,
 					scriptPath: toolPath,
-					provenance: "genome",
+					provenance,
 				});
 			}
 		}
