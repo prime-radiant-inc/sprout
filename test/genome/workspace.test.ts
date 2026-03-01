@@ -184,6 +184,23 @@ describe("Genome workspace", () => {
 			expect(lintTool.interpreter).toBe("bash");
 			expect(lintTool.scriptPath).toContain("agents/editor/tools/lint-fix");
 		});
+
+		test("tools include provenance field", async () => {
+			const root = join(tempDir, "load-tools-provenance");
+			const genome = new Genome(root);
+			await genome.init();
+			await genome.addAgent(makeSpec({ name: "editor" }));
+
+			await genome.saveAgentTool("editor", {
+				name: "lint-fix",
+				description: "Run linter",
+				script: "#!/bin/bash\neslint --fix .",
+				interpreter: "bash",
+			});
+
+			const tools = await genome.loadAgentTools("editor");
+			expect(tools[0]!.provenance).toBe("genome");
+		});
 	});
 
 	describe("listAgentFiles", () => {

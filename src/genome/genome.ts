@@ -506,6 +506,7 @@ export class Genome {
 					description: parsed.description,
 					interpreter: parsed.interpreter,
 					scriptPath: toolPath,
+					provenance: "genome",
 				});
 			}
 		}
@@ -603,6 +604,7 @@ export interface AgentToolDefinition {
 	description: string;
 	interpreter: string;
 	scriptPath: string;
+	provenance: "genome" | "bootstrap";
 }
 
 export interface AgentFileInfo {

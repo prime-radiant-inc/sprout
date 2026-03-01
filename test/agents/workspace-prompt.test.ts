@@ -41,12 +41,14 @@ describe("workspace prompt sections", () => {
 					description: "Run linter and auto-fix",
 					interpreter: "bash",
 					scriptPath: "/genome/agents/editor/tools/lint-fix",
+					provenance: "genome",
 				},
 				{
 					name: "format",
 					description: "Format code with prettier",
 					interpreter: "bash",
 					scriptPath: "/genome/agents/editor/tools/format",
+					provenance: "genome",
 				},
 			];
 			const result = renderWorkspaceTools(tools);
