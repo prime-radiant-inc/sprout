@@ -28,8 +28,8 @@ import { Msg, messageReasoning, messageText, messageToolCalls } from "../llm/typ
 import { ulid } from "../util/ulid.ts";
 import { getContextWindowSize } from "./context-window.ts";
 import { AgentEventEmitter } from "./events.ts";
-import { findBootstrapToolsDir } from "./loader.ts";
 import type { Preambles } from "./loader.ts";
+import { findBootstrapToolsDir } from "./loader.ts";
 import { defaultModelsByProvider, type ResolvedModel, resolveModel } from "./model-resolver.ts";
 import type { Postscripts } from "./plan.ts";
 import {
@@ -653,10 +653,7 @@ export class Agent {
 			const genomeToolsDir = join(this.genome.agentDir(this.spec.name), "tools");
 			this.env.addToPath?.(genomeToolsDir);
 			if (this.bootstrapDir) {
-				const bootstrapToolsDir = await findBootstrapToolsDir(
-					this.bootstrapDir,
-					this.spec.name,
-				);
+				const bootstrapToolsDir = await findBootstrapToolsDir(this.bootstrapDir, this.spec.name);
 				this.env.addToPath?.(bootstrapToolsDir);
 			}
 		}
