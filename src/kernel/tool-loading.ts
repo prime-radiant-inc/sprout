@@ -46,6 +46,14 @@ export function buildAgentToolPrimitives(
 			const toolArgs = (args.args as string) ?? "";
 
 			if (tool.interpreter === "sprout-internal") {
+				if (!ctx) {
+					return {
+						output: "",
+						success: false,
+						error: "sprout-internal tools require an InternalToolContext",
+					};
+				}
+
 				// Parse args as JSON, fall back to empty object
 				let parsedArgs: Record<string, unknown> = {};
 				try {
@@ -55,10 +63,10 @@ export function buildAgentToolPrimitives(
 				}
 
 				const toolCtx: ToolContext = {
-					agentName: ctx?.agentName ?? "",
+					agentName: ctx.agentName,
 					args: parsedArgs,
-					genome: ctx!.genome,
-					env: ctx?.env ?? env,
+					genome: ctx.genome,
+					env: ctx.env,
 				};
 
 				try {
@@ -66,13 +74,17 @@ export function buildAgentToolPrimitives(
 					const fileContent = await readFile(tool.scriptPath, "utf-8");
 					const script = extractScriptBody(fileContent);
 
-					// Write to a temp .mjs file for dynamic import
-					const tempPath = `${tool.scriptPath}.${Date.now()}.mjs`;
+					// Write to a temp .mjs file for dynamic import (random suffix avoids collisions)
+					const tempPath = `${tool.scriptPath}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.mjs`;
 					await writeFile(tempPath, script);
 					try {
 						const mod = await import(tempPath);
 						const result: ToolResult = await mod.default(toolCtx);
-						return result;
+						return {
+							output: result?.output ?? "",
+							success: result?.success ?? false,
+							error: result?.error,
+						};
 					} finally {
 						await rm(tempPath).catch(() => {});
 					}

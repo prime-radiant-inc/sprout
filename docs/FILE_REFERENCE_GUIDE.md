@@ -597,7 +597,7 @@ These files exist but are NOT part of the core delegation logic:
 - `src/tui/` - Terminal UI, not delegation
 - `src/llm/openai.ts`, `src/llm/anthropic.ts`, etc. - LLM clients, not delegation logic
 - Test files - Not part of runtime
-- `src/index.ts`, `src/mcp-cli.ts` - Entry points, not core logic
+- `src/index.ts` - Entry point, not core logic
 
 ---
 

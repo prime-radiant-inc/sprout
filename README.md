@@ -233,13 +233,13 @@ Sprout includes a standalone MCP (Model Context Protocol) client CLI:
 
 ```bash
 # List configured MCP servers
-bun run src/mcp-cli.ts list-servers
+bun run bootstrap/mcp/tools/mcp-cli.ts list-servers
 
 # List tools on a server
-bun run src/mcp-cli.ts list-tools github
+bun run bootstrap/mcp/tools/mcp-cli.ts list-tools github
 
 # Call a tool
-bun run src/mcp-cli.ts call-tool github search_repositories '{"query": "sprout"}'
+bun run bootstrap/mcp/tools/mcp-cli.ts call-tool github search_repositories '{"query": "sprout"}'
 ```
 
 MCP servers are configured in `mcp.json`.

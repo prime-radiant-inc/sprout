@@ -296,5 +296,36 @@ export default async function(ctx) {
 			expect(result.success).toBe(true);
 			expect(JSON.parse(result.output)).toEqual({});
 		});
+
+		test("returns error when InternalToolContext is missing", async () => {
+			const root = join(tempDir, "sprout-internal-no-ctx");
+			const genome = new Genome(root);
+			await genome.init();
+			await genome.addAgent(makeSpec({ name: "runner" }));
+
+			const toolDir = join(root, "agents", "runner", "tools");
+			await mkdir(toolDir, { recursive: true });
+			await writeFile(
+				join(toolDir, "needs-ctx"),
+				`---
+name: needs-ctx
+description: Needs context
+interpreter: sprout-internal
+---
+export default async function(ctx) {
+  return { output: "ok", success: true };
+}
+`,
+			);
+
+			const toolDefs = await genome.loadAgentTools("runner");
+			const env = new LocalExecutionEnvironment(tempDir);
+			// No InternalToolContext passed
+			const prims = buildAgentToolPrimitives(toolDefs);
+
+			const result = await prims[0]!.execute({ args: "{}" }, env);
+			expect(result.success).toBe(false);
+			expect(result.error).toContain("InternalToolContext");
+		});
 	});
 });
