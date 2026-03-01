@@ -722,12 +722,16 @@ function saveAgentPrimitive(ctx: GenomeContext): Primitive {
 					}
 				}
 
-				const tools: string[] = raw.tools ?? (raw.capabilities
-					? (raw.capabilities as string[]).filter((c: string) => !c.includes("/"))
-					: []);
-				const agents: string[] = raw.agents ?? (raw.capabilities
-					? (raw.capabilities as string[]).filter((c: string) => c.includes("/"))
-					: []);
+				const tools: string[] =
+					raw.tools ??
+					(raw.capabilities
+						? (raw.capabilities as string[]).filter((c: string) => !c.includes("/"))
+						: []);
+				const agents: string[] =
+					raw.agents ??
+					(raw.capabilities
+						? (raw.capabilities as string[]).filter((c: string) => c.includes("/"))
+						: []);
 				const agentSpec = {
 					name: raw.name as string,
 					description: raw.description as string,
