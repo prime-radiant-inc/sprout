@@ -3895,4 +3895,96 @@ describe("Agent", () => {
 		);
 		expect(helperActEnd).toBeDefined();
 	});
+
+	test("executeDelegation resolves bare name for nested tree agent", async () => {
+		const tree = new Map<string, AgentTreeEntry>([
+			[
+				"utility/reader",
+				treeEntry("reader", "utility/reader", [], {
+					capabilities: ["read_file"],
+					tools: ["read_file"],
+					constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 2 },
+				}),
+			],
+		]);
+
+		const orchestratorSpec: AgentSpec = {
+			name: "root",
+			description: "Orchestrator",
+			system_prompt: "You orchestrate.",
+			model: "fast",
+			capabilities: [],
+			tools: [],
+			agents: ["utility/reader"],
+			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5 },
+			tags: [],
+			version: 1,
+		};
+
+		// LLM sends bare name "reader" (NOT "utility/reader")
+		const delegateMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-1",
+						name: "delegate",
+						arguments: JSON.stringify({ agent_name: "reader", goal: "read a file" }),
+					},
+				},
+			],
+		};
+		const doneMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "Done." }],
+		};
+		const subDoneMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "File read." }],
+		};
+
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				const msg = callCount === 1 ? delegateMsg : callCount === 2 ? subDoneMsg : doneMsg;
+				return {
+					id: `mock-bare-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: msg,
+					finish_reason: { reason: "stop" as const },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: orchestratorSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			agentTree: tree,
+			agentTreeChildren: [],
+			agentTreeSelfPath: "",
+			events,
+		});
+
+		const result = await agent.run("test bare name delegation");
+		expect(result.success).toBe(true);
+
+		const collected = events.collected();
+		// The delegation should use "reader" as agent_name
+		const actEnd = collected.find(
+			(e) => e.kind === "act_end" && e.data.agent_name === "reader" && e.data.success === true,
+		);
+		expect(actEnd).toBeDefined();
+	});
 });

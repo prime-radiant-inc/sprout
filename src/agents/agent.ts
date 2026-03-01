@@ -29,7 +29,7 @@ import { ulid } from "../util/ulid.ts";
 import { getContextWindowSize } from "./context-window.ts";
 import { AgentEventEmitter } from "./events.ts";
 import type { AgentTreeEntry, Preambles } from "./loader.ts";
-import { findRootToolsDir } from "./loader.ts";
+import { findRootToolsDir, findTreeEntryByName, resolveRootToolsDir } from "./loader.ts";
 import { defaultModelsByProvider, type ResolvedModel, resolveModel } from "./model-resolver.ts";
 import type { Postscripts } from "./plan.ts";
 import {
@@ -186,33 +186,10 @@ export class Agent {
 		this.agentTools = [];
 
 		if (this.spec.constraints.can_spawn) {
-			let delegatableAgents: AgentSpec[];
-
-			if (this.agentTree) {
-				// Tree-based resolution: use resolver to find delegates from the tree
-				const resolved = resolveAgentDelegates(
-					this.agentTree,
-					this.spec.name,
-					this.agentTreeSelfPath ?? "",
-					this.agentTreeChildren ?? [],
-					this.spec.agents,
-				);
-				delegatableAgents = resolved.map((d) => d.spec);
-			} else {
-				// Fallback: capabilities-based resolution for backward compatibility
-				delegatableAgents = [];
-				for (const cap of this.spec.capabilities) {
-					if (cap === this.spec.name) continue;
-					const agentSpec = this.availableAgents.find((a) => a.name === cap);
-					if (agentSpec) {
-						delegatableAgents.push(agentSpec);
-					}
-				}
-			}
+			const delegatableAgents = this.getDelegatableAgents();
 
 			if (delegatableAgents.length > 0) {
 				this.agentTools.push(buildDelegateTool(delegatableAgents));
-				// When a spawner is available, also expose wait_agent and message_agent
 				if (this.spawner) {
 					this.agentTools.push(buildWaitAgentTool());
 					this.agentTools.push(buildMessageAgentTool());
@@ -330,8 +307,13 @@ export class Agent {
 			child_id: childId,
 		});
 
+		// Resolve tree entry: try path key first, then bare name scan
+		const treeEntry =
+			this.agentTree?.get(delegation.agent_name) ??
+			(this.agentTree ? findTreeEntryByName(this.agentTree, delegation.agent_name) : undefined);
+
 		const subagentSpec =
-			this.agentTree?.get(delegation.agent_name)?.spec ??
+			treeEntry?.spec ??
 			this.genome?.getAgent(delegation.agent_name) ??
 			this.availableAgents.find((a) => a.name === delegation.agent_name);
 
@@ -361,12 +343,9 @@ export class Agent {
 			// Resolve the subagent's tree context (selfPath and children)
 			let subTreeSelfPath: string | undefined;
 			let subTreeChildren: string[] | undefined;
-			if (this.agentTree) {
-				const treeEntry = this.agentTree.get(delegation.agent_name);
-				if (treeEntry) {
-					subTreeSelfPath = treeEntry.path;
-					subTreeChildren = treeEntry.children;
-				}
+			if (treeEntry) {
+				subTreeSelfPath = treeEntry.path;
+				subTreeChildren = treeEntry.children;
 			}
 
 			const subagent = new Agent({
@@ -708,7 +687,9 @@ export class Agent {
 			const genomeToolsDir = join(this.genome.agentDir(this.spec.name), "tools");
 			this.env.addToPath?.(genomeToolsDir);
 			if (this.rootDir) {
-				const rootToolsDir = await findRootToolsDir(this.rootDir, this.spec.name);
+				const rootToolsDir = this.agentTree
+					? resolveRootToolsDir(this.agentTree, this.rootDir, this.spec.name)
+					: await findRootToolsDir(this.rootDir, this.spec.name);
 				this.env.addToPath?.(rootToolsDir);
 			}
 		}
