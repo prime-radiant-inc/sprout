@@ -88,6 +88,22 @@ describe("serializeAgentMarkdown", () => {
 		expect(serialized).not.toContain("_extra");
 	});
 
+	test("_extra keys cannot overwrite known fields", () => {
+		const baseSpec = makeSpec();
+		const spec = { ...baseSpec, _extra: { name: "EVIL", model: "bad-model" } };
+		const md = serializeAgentMarkdown(spec);
+		const parsed = parseAgentMarkdown(md, "test.md");
+		expect(parsed.name).toBe(baseSpec.name);
+		expect(parsed.model).toBe(baseSpec.model);
+	});
+
+	test("round-trips empty system_prompt", () => {
+		const spec = makeSpec({ system_prompt: "" });
+		const md = serializeAgentMarkdown(spec);
+		const parsed = parseAgentMarkdown(md, "test.md");
+		expect(parsed.system_prompt).toBe("");
+	});
+
 	test("capabilities does not appear in frontmatter", () => {
 		const spec = makeSpec();
 		const serialized = serializeAgentMarkdown(spec);

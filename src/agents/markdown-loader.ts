@@ -101,7 +101,9 @@ export function serializeAgentMarkdown(spec: AgentSpec): string {
 	}
 	if (spec._extra) {
 		for (const [key, value] of Object.entries(spec._extra)) {
-			fm[key] = value;
+			if (!KNOWN_FIELDS.has(key)) {
+				fm[key] = value;
+			}
 		}
 	}
 	const yamlStr = stringify(fm);
