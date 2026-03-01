@@ -2,12 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-	type LogEntry,
-	NullLogger,
-	SessionLogger,
-	formatLogEntry,
-} from "../../src/host/logger.ts";
+import { formatLogEntry, type LogEntry, NullLogger, SessionLogger } from "../../src/host/logger.ts";
 
 async function readLogEntries(path: string): Promise<LogEntry[]> {
 	const raw = await readFile(path, "utf-8");
