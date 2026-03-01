@@ -963,6 +963,9 @@ describe("Agent", () => {
 			memories: { search: () => [] },
 			matchRoutingRules: () => [],
 			markMemoriesUsed: async () => {},
+			loadAgentTools: async () => [],
+			loadAgentPostscript: async () => "",
+			agentDir: () => "/tmp/mock-genome/agents",
 		} as unknown as Genome;
 
 		const events = new AgentEventEmitter();

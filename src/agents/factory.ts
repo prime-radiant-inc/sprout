@@ -156,6 +156,7 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 		spawner: options.spawner,
 		genomePath: options.genomePath,
 		logger: options.logger,
+		bootstrapDir: options.bootstrapDir,
 	});
 
 	const resolved = agent.resolvedModel;

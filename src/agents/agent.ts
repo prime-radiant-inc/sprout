@@ -82,6 +82,8 @@ export interface AgentOptions {
 	modelsByProvider?: Map<string, string[]>;
 	/** Structured logger for LLM call logging and diagnostics. */
 	logger?: Logger;
+	/** Path to bootstrap agent directory (for two-layer tool resolution). */
+	bootstrapDir?: string;
 }
 
 export interface AgentResult {
@@ -114,6 +116,7 @@ export class Agent {
 	private readonly genomePath?: string;
 	private readonly agentId?: string;
 	private readonly initialHistory?: Message[];
+	private readonly bootstrapDir?: string;
 	private readonly logger: Logger;
 	private history: Message[] = [];
 	private systemPrompt?: string;
@@ -141,6 +144,7 @@ export class Agent {
 		this.spawner = options.spawner;
 		this.genomePath = options.genomePath;
 		this.agentId = options.agentId;
+		this.bootstrapDir = options.bootstrapDir;
 		this.initialHistory = options.initialHistory ? [...options.initialHistory] : undefined;
 		this.logger = (options.logger ?? new NullLogger()).child({
 			component: "agent",
@@ -624,8 +628,10 @@ export class Agent {
 
 		// Load workspace tools created by the quartermaster for this agent
 		let wsToolDefs: import("../genome/genome.ts").AgentToolDefinition[] = [];
-		if (this.genome && this.primitiveTools.length > 0 && this.genome.loadAgentTools) {
-			wsToolDefs = await this.genome.loadAgentTools(this.spec.name);
+		if (this.genome && this.primitiveTools.length > 0) {
+			wsToolDefs = this.bootstrapDir
+				? await this.genome.loadAgentToolsWithBootstrap(this.spec.name, this.bootstrapDir)
+				: await this.genome.loadAgentTools(this.spec.name);
 			if (wsToolDefs.length > 0) {
 				const toolPrims = buildAgentToolPrimitives(wsToolDefs);
 				for (const prim of toolPrims) {
@@ -638,9 +644,13 @@ export class Agent {
 				}
 			}
 
-			// Add agent's tools directory to PATH so saved scripts are directly executable
-			const toolsDir = join(this.genome.agentDir(this.spec.name), "tools");
-			this.env.addToPath?.(toolsDir);
+			// Add both genome and bootstrap tool directories to PATH
+			const genomeToolsDir = join(this.genome.agentDir(this.spec.name), "tools");
+			this.env.addToPath?.(genomeToolsDir);
+			if (this.bootstrapDir) {
+				const bootstrapToolsDir = join(this.bootstrapDir, this.spec.name, "tools");
+				this.env.addToPath?.(bootstrapToolsDir);
+			}
 		}
 
 		// Load agent-specific postscript from genome
