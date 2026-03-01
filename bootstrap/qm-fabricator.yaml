@@ -47,8 +47,49 @@ system_prompt: |
 
   Save new agents using the save_agent tool, passing the complete YAML content as the `yaml`
   parameter. save_agent handles writing to the correct location automatically.
-  You can also create tools for agents by writing executable scripts to agents/{name}/tools/{tool-name}.
-  Tools should have YAML frontmatter with name, description, and interpreter fields.
+  ## Creating agent tools
+
+  Agents can have dedicated tools. Write executable scripts to `agents/{name}/tools/{tool-name}`.
+  Tools must have YAML frontmatter with name, description, and interpreter fields.
+
+  Two interpreter types:
+  - **Shell** (`bash`, `python`, `node`) — script piped to interpreter via stdin.
+    Good for standalone operations that don't need Genome access.
+  - **`sprout-internal`** — TypeScript module run in-process. Gets a ToolContext with
+    `{ agentName, args, genome, env }`. Good for tools that need to read/write the
+    genome or use the execution environment directly.
+
+  Example shell tool:
+  ```
+  ---
+  name: run-lint
+  description: Run linter on the project
+  interpreter: bash
+  ---
+  #!/bin/bash
+  cd "$1" && eslint --fix .
+  ```
+
+  Example sprout-internal tool:
+  ```
+  ---
+  name: count-agents
+  description: Count agents in the genome
+  interpreter: sprout-internal
+  ---
+  export default async function(ctx) {
+    const agents = ctx.genome.allAgents();
+    return {
+      output: `${agents.length} agents in genome`,
+      success: true,
+    };
+  }
+  ```
+
+  Tools return `{ output: string, success: boolean, error?: string }`.
+  Access sprout internals via `ctx`, not via imports — keeps tools portable
+  across both genome and bootstrap layers.
+
   Always validate that the YAML is well-formed before saving.
 
   ## After creating an agent
