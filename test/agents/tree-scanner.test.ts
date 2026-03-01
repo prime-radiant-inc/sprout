@@ -114,4 +114,23 @@ describe("scanAgentTree", () => {
 		expect(tree.has("utility/reader")).toBe(true);
 		expect(tree.has("utility")).toBe(false);
 	});
+
+	test("discovers .md files directly inside namespace directories", async () => {
+		await mkdir(join(rootDir, "agents/utility"), { recursive: true });
+		await writeAgentMd("agents/utility/reader.md", "reader", "Reads files");
+
+		const tree = await scanAgentTree(rootDir);
+		expect(tree.has("utility/reader")).toBe(true);
+		expect(tree.get("utility/reader")!.spec.name).toBe("reader");
+	});
+
+	test("discovers both sibling .md and nested agents/ in namespace directories", async () => {
+		await mkdir(join(rootDir, "agents/utility/agents"), { recursive: true });
+		await writeAgentMd("agents/utility/reader.md", "reader", "Reads files");
+		await writeAgentMd("agents/utility/agents/task-manager.md", "task-manager", "Manages tasks");
+
+		const tree = await scanAgentTree(rootDir);
+		expect(tree.has("utility/reader")).toBe(true);
+		expect(tree.has("utility/task-manager")).toBe(true);
+	});
 });

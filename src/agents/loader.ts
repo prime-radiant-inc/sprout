@@ -201,8 +201,14 @@ async function scanLevel(
 	// Handle namespace directories without a spec file (e.g., utility/)
 	const dirs = entries.filter((e) => e.isDirectory() && !handledDirs.has(e.name));
 	for (const d of dirs) {
-		const childDir = join(dir, d.name, "agents");
-		await scanLevel(childDir, pathPrefix ? `${pathPrefix}/${d.name}` : d.name, tree);
+		const nsPrefix = pathPrefix ? `${pathPrefix}/${d.name}` : d.name;
+		const nsDir = join(dir, d.name);
+
+		// Scan for .md sibling files directly in the namespace directory
+		await scanLevel(nsDir, nsPrefix, tree);
+
+		// Also recurse into <namespace>/agents/ for conventionally nested children
+		await scanLevel(join(nsDir, "agents"), nsPrefix, tree);
 	}
 
 	return childNames;
