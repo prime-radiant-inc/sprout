@@ -692,25 +692,25 @@ function saveAgentPrimitive(ctx: GenomeContext): Primitive {
 		parameters: {
 			type: "object",
 			properties: {
-				yaml: {
+				spec: {
 					type: "string",
 					description:
 						"Complete agent definition as YAML. Must include: name, description, model, system_prompt. Optional: tools, agents, constraints, tags, version.",
 				},
 			},
-			required: ["yaml"],
+			required: ["spec"],
 		},
 		async execute(args) {
-			const yaml = args.yaml as string;
-			if (!yaml) {
-				return { output: "", success: false, error: "Missing required parameter: yaml" };
+			const spec = args.spec as string;
+			if (!spec) {
+				return { output: "", success: false, error: "Missing required parameter: spec" };
 			}
 
 			try {
 				// Parse and validate agent spec fields
 				const { parse } = await import("yaml");
 				const { DEFAULT_CONSTRAINTS } = await import("./types.ts");
-				const raw = parse(yaml);
+				const raw = parse(spec);
 
 				for (const field of ["name", "description", "system_prompt", "model"]) {
 					if (!raw[field] || typeof raw[field] !== "string") {
@@ -722,9 +722,13 @@ function saveAgentPrimitive(ctx: GenomeContext): Primitive {
 					}
 				}
 
-				const tools: string[] = (raw.tools as string[]) ?? [];
-				const agents: string[] = (raw.agents as string[]) ?? [];
-				const spec = {
+				const tools: string[] = raw.tools ?? (raw.capabilities
+					? (raw.capabilities as string[]).filter((c: string) => !c.includes("/"))
+					: []);
+				const agents: string[] = raw.agents ?? (raw.capabilities
+					? (raw.capabilities as string[]).filter((c: string) => c.includes("/"))
+					: []);
+				const agentSpec = {
 					name: raw.name as string,
 					description: raw.description as string,
 					system_prompt: raw.system_prompt as string,
@@ -736,9 +740,9 @@ function saveAgentPrimitive(ctx: GenomeContext): Primitive {
 					version: (raw.version as number) ?? 1,
 				};
 
-				await ctx.genome.addAgent(spec);
+				await ctx.genome.addAgent(agentSpec);
 				return {
-					output: `Agent '${spec.name}' saved and registered. It is available for delegation immediately.`,
+					output: `Agent '${agentSpec.name}' saved and registered. It is available for delegation immediately.`,
 					success: true,
 				};
 			} catch (err) {

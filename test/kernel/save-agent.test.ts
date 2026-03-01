@@ -30,7 +30,7 @@ describe("save_agent primitive", () => {
 	});
 
 	test("saves a valid agent and registers it in the genome", async () => {
-		const yaml = `
+		const spec = `
 name: test-agent
 description: "A test agent"
 model: fast
@@ -48,7 +48,7 @@ system_prompt: |
 version: 1
 `;
 
-		const result = await registry.execute("save_agent", { yaml });
+		const result = await registry.execute("save_agent", { spec });
 		expect(result.success).toBe(true);
 		expect(result.output).toContain("test-agent");
 		expect(result.output).toContain("immediately");
@@ -65,7 +65,7 @@ version: 1
 	});
 
 	test("applies default constraints for missing fields", async () => {
-		const yaml = `
+		const spec = `
 name: minimal-agent
 description: "Minimal"
 model: fast
@@ -73,7 +73,7 @@ system_prompt: |
   Do things.
 `;
 
-		const result = await registry.execute("save_agent", { yaml });
+		const result = await registry.execute("save_agent", { spec });
 		expect(result.success).toBe(true);
 
 		const agents = genome.allAgents();
@@ -86,45 +86,94 @@ system_prompt: |
 	});
 
 	test("rejects YAML missing required name field", async () => {
-		const yaml = `
+		const spec = `
 description: "No name"
 model: fast
 system_prompt: |
   Do things.
 `;
 
-		const result = await registry.execute("save_agent", { yaml });
+		const result = await registry.execute("save_agent", { spec });
 		expect(result.success).toBe(false);
 		expect(result.error).toContain("name");
 	});
 
 	test("rejects YAML missing required model field", async () => {
-		const yaml = `
+		const spec = `
 name: bad-agent
 description: "No model"
 system_prompt: |
   Do things.
 `;
 
-		const result = await registry.execute("save_agent", { yaml });
+		const result = await registry.execute("save_agent", { spec });
 		expect(result.success).toBe(false);
 		expect(result.error).toContain("model");
 	});
 
 	test("rejects YAML missing required system_prompt field", async () => {
-		const yaml = `
+		const spec = `
 name: bad-agent
 description: "No prompt"
 model: fast
 `;
 
-		const result = await registry.execute("save_agent", { yaml });
+		const result = await registry.execute("save_agent", { spec });
 		expect(result.success).toBe(false);
 		expect(result.error).toContain("system_prompt");
 	});
 
-	test("rejects empty yaml parameter", async () => {
-		const result = await registry.execute("save_agent", { yaml: "" });
+	test("rejects empty spec parameter", async () => {
+		const result = await registry.execute("save_agent", { spec: "" });
 		expect(result.success).toBe(false);
+	});
+
+	test("falls back to capabilities when tools and agents are missing", async () => {
+		const spec = `
+name: legacy-agent
+description: "Uses capabilities"
+model: fast
+capabilities:
+  - read_file
+  - grep
+  - code-editor/edit
+system_prompt: |
+  You are a legacy agent.
+`;
+
+		const result = await registry.execute("save_agent", { spec });
+		expect(result.success).toBe(true);
+
+		const agents = genome.allAgents();
+		const saved = agents.find((a) => a.name === "legacy-agent");
+		expect(saved).toBeDefined();
+		expect(saved!.tools).toEqual(["read_file", "grep"]);
+		expect(saved!.agents).toEqual(["code-editor/edit"]);
+	});
+
+	test("tools and agents take precedence over capabilities", async () => {
+		const spec = `
+name: explicit-agent
+description: "Has both tools and capabilities"
+model: fast
+tools:
+  - exec
+agents:
+  - helper/assist
+capabilities:
+  - read_file
+  - other/delegate
+system_prompt: |
+  You are an explicit agent.
+`;
+
+		const result = await registry.execute("save_agent", { spec });
+		expect(result.success).toBe(true);
+
+		const agents = genome.allAgents();
+		const saved = agents.find((a) => a.name === "explicit-agent");
+		expect(saved).toBeDefined();
+		expect(saved!.tools).toEqual(["exec"]);
+		expect(saved!.agents).toEqual(["helper/assist"]);
 	});
 });
