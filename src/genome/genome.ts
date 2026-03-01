@@ -3,7 +3,6 @@ import { join } from "node:path";
 import { parse, stringify } from "yaml";
 import {
 	findRootToolsDir,
-	loadAgentSpec,
 	loadRootAgents,
 	readRootDir,
 	resolveRootToolsDir,
@@ -280,11 +279,6 @@ export class Genome {
 			files = await readdir(agentsDir);
 		} catch {
 			files = [];
-		}
-		const yamlFiles = files.filter((f) => f.endsWith(".yaml") || f.endsWith(".yml"));
-		for (const file of yamlFiles) {
-			const spec = await loadAgentSpec(join(agentsDir, file));
-			this.agents.set(spec.name, spec);
 		}
 		const mdFiles = files.filter((f) => f.endsWith(".md"));
 		for (const file of mdFiles) {
@@ -667,22 +661,3 @@ function parseToolFrontmatter(
 	};
 }
 
-/** Serialize an AgentSpec to YAML with explicit field ordering. */
-export function serializeAgentSpec(spec: AgentSpec): string {
-	const obj: Record<string, unknown> = {
-		name: spec.name,
-		description: spec.description,
-		model: spec.model,
-		capabilities: spec.capabilities,
-		tools: spec.tools,
-		agents: spec.agents,
-		constraints: spec.constraints,
-		tags: spec.tags,
-		system_prompt: spec.system_prompt,
-		version: spec.version,
-	};
-	if (spec.thinking !== undefined) {
-		obj.thinking = spec.thinking;
-	}
-	return stringify(obj);
-}

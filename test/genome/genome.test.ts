@@ -358,41 +358,6 @@ describe("Genome", () => {
 			expect(agent!.system_prompt).toBe("You are a markdown-defined agent.");
 		});
 
-		test("loadFromDisk loads both .yaml and .md agent files", async () => {
-			const root = join(tempDir, "load-disk-mixed");
-			const genome = new Genome(root);
-			await genome.init();
-
-			// Write a legacy .yaml agent file directly
-			await writeFile(
-				join(root, "agents", "yaml-agent.yaml"),
-				stringify(makeSpec({ name: "yaml-agent" })),
-			);
-			await git(root, "add", ".");
-			await git(root, "commit", "-m", "add yaml agent");
-
-			// Write a .md agent file directly
-			const mdContent = [
-				"---",
-				"name: md-agent",
-				"description: A markdown agent",
-				"model: fast",
-				"---",
-				"You are a markdown-defined agent.",
-			].join("\n");
-			await writeFile(join(root, "agents", "md-agent.md"), mdContent);
-			await git(root, "add", ".");
-			await git(root, "commit", "-m", "add md agent");
-
-			// Load from disk — should pick up both
-			const genome2 = new Genome(root);
-			await genome2.loadFromDisk();
-
-			expect(genome2.getAgent("yaml-agent")).toBeDefined();
-			expect(genome2.getAgent("md-agent")).toBeDefined();
-			expect(genome2.agentCount()).toBe(2);
-		});
-
 		test("initFromRoot copies root agents and commits", async () => {
 			const root = join(tempDir, "init-from-root");
 			const genome = new Genome(root);

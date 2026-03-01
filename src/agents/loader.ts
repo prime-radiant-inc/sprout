@@ -5,7 +5,7 @@ import { type AgentSpec, DEFAULT_CONSTRAINTS } from "../kernel/types.ts";
 import { parseAgentMarkdown } from "./markdown-loader.ts";
 
 /** Parse an AgentSpec from raw YAML content. The source label is used in error messages. */
-export function parseAgentSpec(content: string, source: string): AgentSpec {
+function parseAgentSpec(content: string, source: string): AgentSpec {
 	const raw = parse(content);
 
 	for (const field of ["name", "description", "system_prompt", "model"] as const) {
@@ -34,11 +34,6 @@ export function parseAgentSpec(content: string, source: string): AgentSpec {
 		spec.thinking = raw.thinking;
 	}
 	return spec;
-}
-
-export async function loadAgentSpec(path: string): Promise<AgentSpec> {
-	const content = await readFile(path, "utf-8");
-	return parseAgentSpec(content, path);
 }
 
 export async function loadRootAgents(dir: string): Promise<AgentSpec[]> {
