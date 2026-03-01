@@ -10,6 +10,7 @@ import {
 	renderAgentsForPrompt,
 	renderCallerIdentity,
 } from "../../src/agents/plan.ts";
+import { parseAgentMarkdown } from "../../src/agents/markdown-loader.ts";
 import type { AgentSpec, Memory, RoutingRule } from "../../src/kernel/types.ts";
 import { Msg } from "../../src/llm/types.ts";
 
@@ -301,6 +302,25 @@ describe("buildSystemPrompt", () => {
 		);
 		// Should not have double newlines between prompt and environment
 		expect(prompt).toContain("You help find code.\n\n<environment>");
+	});
+
+	test("system prompt built from markdown body includes preamble and body", () => {
+		const spec = parseAgentMarkdown(
+			[
+				"---",
+				"name: tester",
+				'description: "test"',
+				"model: fast",
+				"---",
+				"You are a tester.",
+				"",
+				"Test everything thoroughly.",
+			].join("\n"),
+			"tester.md",
+		);
+
+		const prompt = buildSystemPrompt(spec, "/work", "darwin", "25.0");
+		expect(prompt).toContain("You are a tester.\n\nTest everything thoroughly.");
 	});
 });
 
