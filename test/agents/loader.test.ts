@@ -7,7 +7,12 @@ import { serializeAgentSpec } from "../../src/genome/genome.ts";
 
 describe("loadAgentSpec", () => {
 	test("loads a valid YAML agent spec", async () => {
-		const spec = await loadAgentSpec(join(import.meta.dir, "../../bootstrap/root.yaml"));
+		const path = join(tmpdir(), `root-spec-${Date.now()}.yaml`);
+		await writeFile(
+			path,
+			"name: root\ndescription: Root agent\nsystem_prompt: You are root\nmodel: best\ncapabilities:\n  - reader\n  - editor\n  - command-runner\nconstraints:\n  max_turns: 200\n  max_depth: 5\n  can_learn: true\ntags:\n  - core\nversion: 2\n",
+		);
+		const spec = await loadAgentSpec(path);
 		expect(spec.name).toBe("root");
 		expect(spec.description).toBeTruthy();
 		expect(spec.system_prompt).toBeTruthy();
@@ -23,8 +28,12 @@ describe("loadAgentSpec", () => {
 	});
 
 	test("applies default constraints for missing fields", async () => {
-		// reader doesn't specify timeout_ms, should get default
-		const spec = await loadAgentSpec(join(import.meta.dir, "../../bootstrap/reader.yaml"));
+		const path = join(tmpdir(), `reader-spec-${Date.now()}.yaml`);
+		await writeFile(
+			path,
+			"name: reader\ndescription: Read files\nsystem_prompt: You read\nmodel: fast\ncapabilities:\n  - read_file\n  - grep\n  - glob\nversion: 2\n",
+		);
+		const spec = await loadAgentSpec(path);
 		expect(spec.constraints.timeout_ms).toBe(300000);
 	});
 
@@ -59,32 +68,47 @@ describe("loadAgentSpec", () => {
 	});
 
 	test("thinking is undefined when not present", async () => {
-		const spec = await loadAgentSpec(join(import.meta.dir, "../../bootstrap/reader.yaml"));
+		const path = join(tmpdir(), `no-thinking-${Date.now()}.yaml`);
+		await writeFile(
+			path,
+			"name: reader\ndescription: Read files\nsystem_prompt: You read\nmodel: fast\ncapabilities:\n  - read_file\n",
+		);
+		const spec = await loadAgentSpec(path);
 		expect(spec.thinking).toBeUndefined();
 	});
 });
 
 describe("serializeAgentSpec", () => {
+	function makeReaderYaml(): string {
+		return "name: reader\ndescription: Read files\nsystem_prompt: You read\nmodel: fast\ncapabilities:\n  - read_file\n  - grep\n  - glob\nversion: 2\n";
+	}
+
 	test("round-trips thinking: true through serialize and load", async () => {
-		const path = join(tmpdir(), `serialize-thinking-${Date.now()}.yaml`);
-		const spec = await loadAgentSpec(join(import.meta.dir, "../../bootstrap/reader.yaml"));
+		const srcPath = join(tmpdir(), `serialize-src-${Date.now()}.yaml`);
+		await writeFile(srcPath, makeReaderYaml());
+		const spec = await loadAgentSpec(srcPath);
 		spec.thinking = true;
-		await writeFile(path, serializeAgentSpec(spec));
-		const loaded = await loadAgentSpec(path);
+		const outPath = join(tmpdir(), `serialize-thinking-${Date.now()}.yaml`);
+		await writeFile(outPath, serializeAgentSpec(spec));
+		const loaded = await loadAgentSpec(outPath);
 		expect(loaded.thinking).toBe(true);
 	});
 
 	test("round-trips thinking: { budget_tokens } through serialize and load", async () => {
-		const path = join(tmpdir(), `serialize-thinking-obj-${Date.now()}.yaml`);
-		const spec = await loadAgentSpec(join(import.meta.dir, "../../bootstrap/reader.yaml"));
+		const srcPath = join(tmpdir(), `serialize-src-obj-${Date.now()}.yaml`);
+		await writeFile(srcPath, makeReaderYaml());
+		const spec = await loadAgentSpec(srcPath);
 		spec.thinking = { budget_tokens: 8000 };
-		await writeFile(path, serializeAgentSpec(spec));
-		const loaded = await loadAgentSpec(path);
+		const outPath = join(tmpdir(), `serialize-thinking-obj-${Date.now()}.yaml`);
+		await writeFile(outPath, serializeAgentSpec(spec));
+		const loaded = await loadAgentSpec(outPath);
 		expect(loaded.thinking).toEqual({ budget_tokens: 8000 });
 	});
 
 	test("omits thinking field when undefined", async () => {
-		const spec = await loadAgentSpec(join(import.meta.dir, "../../bootstrap/reader.yaml"));
+		const srcPath = join(tmpdir(), `serialize-no-thinking-${Date.now()}.yaml`);
+		await writeFile(srcPath, makeReaderYaml());
+		const spec = await loadAgentSpec(srcPath);
 		const yaml = serializeAgentSpec(spec);
 		expect(yaml).not.toContain("thinking");
 	});
@@ -92,7 +116,7 @@ describe("serializeAgentSpec", () => {
 
 describe("loadBootstrapAgents", () => {
 	test("loads all bootstrap agents", async () => {
-		const agents = await loadBootstrapAgents(join(import.meta.dir, "../../bootstrap"));
+		const agents = await loadBootstrapAgents(join(import.meta.dir, "../../root"));
 		expect(agents.length).toBeGreaterThanOrEqual(15);
 		const names = agents.map((a) => a.name);
 		expect(names).toContain("root");
@@ -115,18 +139,17 @@ describe("loadBootstrapAgents", () => {
 		expect(names).toContain("task-manager");
 	});
 
-	test("all agents have valid constraints", async () => {
-		const agents = await loadBootstrapAgents(join(import.meta.dir, "../../bootstrap"));
+	test("all agents have valid constraints and system prompts", async () => {
+		const agents = await loadBootstrapAgents(join(import.meta.dir, "../../root"));
 		for (const agent of agents) {
 			expect(agent.constraints.max_turns).toBeGreaterThan(0);
 			expect(agent.constraints.max_depth).toBeGreaterThanOrEqual(0);
-			expect(agent.capabilities.length).toBeGreaterThan(0);
 			expect(agent.system_prompt.length).toBeGreaterThan(0);
 		}
 	});
 
 	test("leaf agents cannot spawn subagents", async () => {
-		const agents = await loadBootstrapAgents(join(import.meta.dir, "../../bootstrap"));
+		const agents = await loadBootstrapAgents(join(import.meta.dir, "../../root"));
 		const orchestrators = [
 			"root",
 			"quartermaster",
@@ -146,15 +169,15 @@ describe("loadBootstrapAgents", () => {
 	});
 
 	test("qm-indexer has write path constraints and no exec", async () => {
-		const agents = await loadBootstrapAgents(join(import.meta.dir, "../../bootstrap"));
+		const agents = await loadBootstrapAgents(join(import.meta.dir, "../../root"));
 		const indexer = agents.find((a) => a.name === "qm-indexer");
 		expect(indexer).toBeDefined();
 		expect(indexer!.constraints.allowed_write_paths).toEqual([
 			"~/.local/share/sprout-genome/capability-index.yaml",
 		]);
-		expect(indexer!.capabilities).not.toContain("exec");
-		expect(indexer!.capabilities).toContain("mcp");
-		expect(indexer!.capabilities).toContain("write_file");
+		expect(indexer!.tools).not.toContain("exec");
+		expect(indexer!.agents).toContain("utility/mcp");
+		expect(indexer!.tools).toContain("write_file");
 		expect(indexer!.constraints.can_spawn).toBe(true);
 		expect(indexer!.constraints.max_depth).toBe(1);
 	});

@@ -15,9 +15,9 @@ describe("isDevMode", () => {
 		await rm(tempDir, { recursive: true });
 	});
 
-	test("returns true when workDir contains bootstrap/ and src/genome/", async () => {
+	test("returns true when workDir contains root/ and src/genome/", async () => {
 		const workDir = join(tempDir, "sprout-src");
-		await mkdir(join(workDir, "bootstrap"), { recursive: true });
+		await mkdir(join(workDir, "root"), { recursive: true });
 		await mkdir(join(workDir, "src/genome"), { recursive: true });
 		expect(await isDevMode(workDir)).toBe(true);
 	});
@@ -28,9 +28,9 @@ describe("isDevMode", () => {
 		expect(await isDevMode(workDir)).toBe(false);
 	});
 
-	test("returns false when only bootstrap/ exists", async () => {
+	test("returns false when only root/ exists", async () => {
 		const workDir = join(tempDir, "partial");
-		await mkdir(join(workDir, "bootstrap"), { recursive: true });
+		await mkdir(join(workDir, "root"), { recursive: true });
 		expect(await isDevMode(workDir)).toBe(false);
 	});
 

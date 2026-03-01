@@ -37,7 +37,7 @@ describe("Agent Integration", () => {
 		tempDir = await mkdtemp(join(tmpdir(), "sprout-test-"));
 		env = new LocalExecutionEnvironment(tempDir);
 		registry = createPrimitiveRegistry(env);
-		bootstrapAgents = await loadBootstrapAgents(join(import.meta.dir, "../../bootstrap"));
+		bootstrapAgents = await loadBootstrapAgents(join(import.meta.dir, "../../root"));
 
 		const mode = process.env.VCR_MODE;
 		if (mode === "record" || mode === "off") {
@@ -149,7 +149,7 @@ describe("Agent with Genome Integration", () => {
 		// Create fresh genome with bootstrap agents
 		genome = new Genome(genomeDir);
 		await genome.init();
-		await genome.initFromBootstrap(join(import.meta.dir, "../../bootstrap"));
+		await genome.initFromBootstrap(join(import.meta.dir, "../../root"));
 	});
 
 	afterAll(async () => {

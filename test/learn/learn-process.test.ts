@@ -56,7 +56,7 @@ async function setupGenome(tempDir: string, name: string) {
 	const genomeDir = join(tempDir, name);
 	const genome = new Genome(genomeDir);
 	await genome.init();
-	await genome.initFromBootstrap(join(import.meta.dir, "../../bootstrap"));
+	await genome.initFromBootstrap(join(import.meta.dir, "../../root"));
 	const metrics = new MetricsStore(join(genomeDir, "metrics", "metrics.jsonl"));
 	await metrics.load();
 	const events = new AgentEventEmitter();
@@ -69,7 +69,7 @@ async function setupGenomeWithClient(tempDir: string, name: string, client: Clie
 	const genomeDir = join(tempDir, name);
 	const genome = new Genome(genomeDir);
 	await genome.init();
-	await genome.initFromBootstrap(join(import.meta.dir, "../../bootstrap"));
+	await genome.initFromBootstrap(join(import.meta.dir, "../../root"));
 	const metrics = new MetricsStore(join(genomeDir, "metrics", "metrics.jsonl"));
 	await metrics.load();
 	const events = new AgentEventEmitter();

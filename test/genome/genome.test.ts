@@ -322,14 +322,11 @@ describe("Genome", () => {
 			const genome = new Genome(root);
 			await genome.init();
 
-			const bootstrapDir = join(import.meta.dir, "../../bootstrap");
+			const bootstrapDir = join(import.meta.dir, "../../root");
 			await genome.initFromBootstrap(bootstrapDir);
 
-			// Count expected agents from bootstrap YAML files
-			const bootstrapFiles = (await readdir(bootstrapDir)).filter(
-				(f) => f.endsWith(".yaml") || f.endsWith(".yml"),
-			);
-			expect(genome.agentCount()).toBe(bootstrapFiles.length);
+			// Should have loaded all 20 agents from the markdown tree
+			expect(genome.agentCount()).toBe(20);
 
 			expect(genome.getAgent("root")).toBeDefined();
 			expect(genome.getAgent("reader")).toBeDefined();
@@ -348,7 +345,7 @@ describe("Genome", () => {
 
 			// Verify files exist on disk
 			const files = await readdir(join(root, "agents"));
-			expect(files).toHaveLength(bootstrapFiles.length);
+			expect(files).toHaveLength(20);
 		});
 
 		test("initFromBootstrap throws if agents already exist", async () => {
@@ -357,7 +354,7 @@ describe("Genome", () => {
 			await genome.init();
 			await genome.addAgent(makeSpec({ name: "existing" }));
 
-			const bootstrapDir = join(import.meta.dir, "../../bootstrap");
+			const bootstrapDir = join(import.meta.dir, "../../root");
 			await expect(genome.initFromBootstrap(bootstrapDir)).rejects.toThrow(/agents already exist/);
 		});
 	});
@@ -436,7 +433,7 @@ describe("Genome", () => {
 			const genome = new Genome(root);
 			await genome.init();
 
-			const bootstrapDir = join(import.meta.dir, "../../bootstrap");
+			const bootstrapDir = join(import.meta.dir, "../../root");
 			await genome.initFromBootstrap(bootstrapDir);
 
 			const agentCount = genome.agentCount();

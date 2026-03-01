@@ -3,7 +3,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const CLI = join(import.meta.dir, "../../bootstrap/task-manager/tools/cli.ts");
+const CLI = join(import.meta.dir, "../../root/agents/utility/agents/task-manager/tools/cli.ts");
 
 async function run(
 	...args: string[]

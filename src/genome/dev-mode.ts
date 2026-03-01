@@ -42,7 +42,7 @@ async function exists(path: string): Promise<boolean> {
  */
 export async function isDevMode(workDir: string): Promise<boolean> {
 	const [hasBootstrap, hasGenome] = await Promise.all([
-		exists(join(workDir, "bootstrap")),
+		exists(join(workDir, "root")),
 		exists(join(workDir, "src", "genome")),
 	]);
 	return hasBootstrap && hasGenome;

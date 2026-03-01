@@ -30,7 +30,7 @@ describe("Agent-Learn wiring", () => {
 		const genomeDir = join(tempDir, "genome-accept");
 		const genome = new Genome(genomeDir);
 		await genome.init();
-		await genome.initFromBootstrap(join(import.meta.dir, "../../bootstrap"));
+		await genome.initFromBootstrap(join(import.meta.dir, "../../root"));
 
 		const events = new AgentEventEmitter();
 		const metrics = new MetricsStore(join(genomeDir, "metrics", "metrics.jsonl"));
@@ -62,7 +62,7 @@ describe("Agent-Learn wiring", () => {
 		const genomePath = join(tempDir, "genome-factory");
 		const result = await createAgent({
 			genomePath,
-			bootstrapDir: join(import.meta.dir, "../../bootstrap"),
+			bootstrapDir: join(import.meta.dir, "../../root"),
 			workDir: tempDir,
 		});
 

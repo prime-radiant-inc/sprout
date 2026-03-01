@@ -626,7 +626,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 
 	if (command.kind === "genome-sync") {
 		const { Genome } = await import("../genome/genome.ts");
-		const bootstrapDir = join(import.meta.dir, "../../bootstrap");
+		const bootstrapDir = join(import.meta.dir, "../../root");
 
 		const genome = new Genome(command.genomePath);
 		try {
@@ -660,7 +660,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 
 	if (command.kind === "genome-export") {
 		const { exportLearnings, stageLearnings } = await import("../genome/export-learnings.ts");
-		const bootstrapDir = join(import.meta.dir, "../../bootstrap");
+		const bootstrapDir = join(import.meta.dir, "../../root");
 
 		let result: Awaited<ReturnType<typeof exportLearnings>>;
 		try {
@@ -768,7 +768,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 	const { SessionController } = await import("./session-controller.ts");
 	const { ulid } = await import("../util/ulid.ts");
 
-	const bootstrapDir = join(import.meta.dir, "../../bootstrap");
+	const bootstrapDir = join(import.meta.dir, "../../root");
 	const sessionsDir = join(command.genomePath, "sessions");
 
 	const { SessionLogger } = await import("./logger.ts");

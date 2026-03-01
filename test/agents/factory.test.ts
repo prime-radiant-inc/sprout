@@ -24,7 +24,7 @@ describe("createAgent", () => {
 		const genomePath = join(tempDir, "factory-fresh");
 		const result = await createAgent({
 			genomePath,
-			bootstrapDir: join(import.meta.dir, "../../bootstrap"),
+			bootstrapDir: join(import.meta.dir, "../../root"),
 			workDir: tempDir,
 		});
 
@@ -39,7 +39,7 @@ describe("createAgent", () => {
 		const genomePath = join(tempDir, "factory-existing");
 		const genome = new Genome(genomePath);
 		await genome.init();
-		await genome.initFromBootstrap(join(import.meta.dir, "../../bootstrap"));
+		await genome.initFromBootstrap(join(import.meta.dir, "../../root"));
 
 		// Now create agent from existing genome
 		const result = await createAgent({
@@ -55,7 +55,7 @@ describe("createAgent", () => {
 		const genomePath = join(tempDir, "factory-root");
 		const result = await createAgent({
 			genomePath,
-			bootstrapDir: join(import.meta.dir, "../../bootstrap"),
+			bootstrapDir: join(import.meta.dir, "../../root"),
 			workDir: tempDir,
 			rootAgent: "editor",
 		});
@@ -68,7 +68,7 @@ describe("createAgent", () => {
 		const customId = "CUSTOM_SESSION_ID_123456";
 		const result = await createAgent({
 			genomePath,
-			bootstrapDir: join(import.meta.dir, "../../bootstrap"),
+			bootstrapDir: join(import.meta.dir, "../../root"),
 			workDir: tempDir,
 			sessionId: customId,
 		});
@@ -83,7 +83,7 @@ describe("createAgent", () => {
 		const genomePath = join(tempDir, "factory-model-override");
 		const result = await createAgent({
 			genomePath,
-			bootstrapDir: join(import.meta.dir, "../../bootstrap"),
+			bootstrapDir: join(import.meta.dir, "../../root"),
 			workDir: tempDir,
 			model: "claude-sonnet-4-6",
 		});
@@ -98,7 +98,7 @@ describe("createAgent", () => {
 		// Pre-load a genome before passing it to createAgent
 		const genome = new Genome(genomePath);
 		await genome.init();
-		await genome.initFromBootstrap(join(import.meta.dir, "../../bootstrap"));
+		await genome.initFromBootstrap(join(import.meta.dir, "../../root"));
 
 		const result = await createAgent({
 			genomePath,
@@ -117,7 +117,7 @@ describe("createAgent", () => {
 		await expect(
 			createAgent({
 				genomePath,
-				bootstrapDir: join(import.meta.dir, "../../bootstrap"),
+				bootstrapDir: join(import.meta.dir, "../../root"),
 				workDir: tempDir,
 				rootAgent: "nonexistent",
 			}),
@@ -126,7 +126,7 @@ describe("createAgent", () => {
 
 	test("injects dev-mode postscript for quartermaster when workDir is sprout source", async () => {
 		const genomePath = join(tempDir, "dev-mode-test");
-		const bootstrapDir = join(import.meta.dir, "../../bootstrap");
+		const bootstrapDir = join(import.meta.dir, "../../root");
 
 		// Use the actual sprout source dir as workDir — it will detect dev mode
 		const sproutRoot = join(import.meta.dir, "../..");

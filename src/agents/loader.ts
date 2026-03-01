@@ -43,21 +43,51 @@ export async function loadBootstrapAgents(dir: string): Promise<AgentSpec[]> {
 	return specs;
 }
 
-/** Read all YAML files in a bootstrap directory once, returning parsed specs and raw content. */
+/** Read agent specs from a bootstrap directory, supporting both flat YAML and tree Markdown layouts. */
 export async function readBootstrapDir(
 	dir: string,
 ): Promise<{ specs: AgentSpec[]; rawContentByName: Map<string, string> }> {
 	const files = await readdir(dir);
 	const yamlFiles = files.filter((f) => f.endsWith(".yaml") || f.endsWith(".yml")).sort();
+
+	// If there are YAML files, use the flat loader (legacy bootstrap layout)
+	if (yamlFiles.length > 0) {
+		const specs: AgentSpec[] = [];
+		const rawContentByName = new Map<string, string>();
+		for (const f of yamlFiles) {
+			const path = join(dir, f);
+			const content = await readFile(path, "utf-8");
+			const spec = parseAgentSpec(content, path);
+			specs.push(spec);
+			rawContentByName.set(spec.name, content);
+		}
+		return { specs, rawContentByName };
+	}
+
+	// Otherwise, use the tree scanner (new root/ Markdown layout)
 	const specs: AgentSpec[] = [];
 	const rawContentByName = new Map<string, string>();
-	for (const f of yamlFiles) {
-		const path = join(dir, f);
-		const content = await readFile(path, "utf-8");
-		const spec = parseAgentSpec(content, path);
+
+	// Load root.md if present
+	const rootPath = join(dir, "root.md");
+	try {
+		const content = await readFile(rootPath, "utf-8");
+		const spec = parseAgentMarkdown(content, rootPath);
+		specs.push(spec);
+		rawContentByName.set(spec.name, content);
+	} catch {
+		// No root.md — fine
+	}
+
+	// Scan the agent tree
+	const tree = await scanAgentTree(dir);
+	for (const entry of tree.values()) {
+		const content = await readFile(entry.diskPath, "utf-8");
+		const spec = entry.spec;
 		specs.push(spec);
 		rawContentByName.set(spec.name, content);
 	}
+
 	return { specs, rawContentByName };
 }
 
