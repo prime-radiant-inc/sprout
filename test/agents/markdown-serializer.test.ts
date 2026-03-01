@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parseAgentMarkdown, serializeAgentMarkdown } from "../../src/agents/markdown-loader.ts";
-import { DEFAULT_CONSTRAINTS, type AgentSpec } from "../../src/kernel/types.ts";
+import { type AgentSpec, DEFAULT_CONSTRAINTS } from "../../src/kernel/types.ts";
 
 function makeSpec(overrides: Partial<AgentSpec> = {}): AgentSpec {
 	return {
