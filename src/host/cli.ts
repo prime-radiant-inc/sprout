@@ -100,6 +100,7 @@ export type CliCommand =
 	| { kind: "genome-log"; genomePath: string }
 	| { kind: "genome-rollback"; genomePath: string; commit: string }
 	| { kind: "genome-export"; genomePath: string }
+	| { kind: "genome-sync"; genomePath: string }
 	| { kind: "help" };
 
 import { parseArgs as nodeParseArgs } from "node:util";
@@ -177,6 +178,7 @@ export function parseArgs(argv: string[]): CliCommand {
 			return { kind: "genome-rollback", genomePath, commit };
 		}
 		if (sub === "export") return { kind: "genome-export", genomePath };
+		if (sub === "sync") return { kind: "genome-sync", genomePath };
 		return { kind: "help" };
 	}
 
@@ -284,6 +286,7 @@ Modes:
 Genome management:
   sprout --genome list                  List agents in the genome
   sprout --genome log                   Show genome git log
+  sprout --genome sync                  Sync bootstrap agents to runtime genome
   sprout --genome rollback <commit>     Revert a genome commit
   sprout --genome export                Show learnings that evolved beyond bootstrap
 
@@ -618,6 +621,40 @@ export async function runCli(command: CliCommand): Promise<void> {
 		);
 		const exitCode = await proc.exited;
 		if (exitCode !== 0) process.exitCode = exitCode;
+		return;
+	}
+
+	if (command.kind === "genome-sync") {
+		const { Genome } = await import("../genome/genome.ts");
+		const bootstrapDir = join(import.meta.dir, "../../bootstrap");
+
+		const genome = new Genome(command.genomePath);
+		try {
+			await genome.loadFromDisk();
+		} catch (err) {
+			console.error(
+				`Failed to load genome at ${command.genomePath}: ${err instanceof Error ? err.message : err}`,
+			);
+			process.exitCode = 1;
+			return;
+		}
+
+		const result = await genome.syncBootstrap(bootstrapDir);
+
+		if (result.added.length === 0 && result.updated.length === 0 && result.conflicts.length === 0) {
+			console.log("Genome is up to date with bootstrap.");
+			return;
+		}
+
+		if (result.added.length > 0) {
+			console.log(`Added: ${result.added.join(", ")}`);
+		}
+		if (result.updated.length > 0) {
+			console.log(`Updated: ${result.updated.join(", ")}`);
+		}
+		if (result.conflicts.length > 0) {
+			console.log(`Conflicts (genome preserved): ${result.conflicts.join(", ")}`);
+		}
 		return;
 	}
 

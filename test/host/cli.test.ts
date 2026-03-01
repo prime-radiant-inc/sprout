@@ -383,6 +383,22 @@ describe("parseArgs", () => {
 			genomePath: "/custom",
 		});
 	});
+
+	test("--genome sync returns genome-sync command", () => {
+		const cmd = parseArgs(["--genome", "sync"]);
+		expect(cmd).toEqual({
+			kind: "genome-sync",
+			genomePath: defaultGenomePath,
+		});
+	});
+
+	test("--genome sync with custom genome path", () => {
+		const cmd = parseArgs(["--genome-path", "/custom/path", "--genome", "sync"]);
+		expect(cmd).toEqual({
+			kind: "genome-sync",
+			genomePath: "/custom/path",
+		});
+	});
 });
 
 describe("handleSigint", () => {
