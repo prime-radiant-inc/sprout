@@ -32,7 +32,8 @@ export type LearnMutation =
 			description: string;
 			system_prompt: string;
 			model: string;
-			capabilities: string[];
+			tools: string[];
+			agents: string[];
 			tags: string[];
 	  }
 	| { type: "create_routing_rule"; condition: string; preference: string; strength: number };
@@ -367,7 +368,7 @@ Based on this signal and the current system state, decide what improvement to ma
 {"type": "update_agent", "agent_name": "...", "system_prompt": "..."}
 
 3. Create a new specialized agent:
-{"type": "create_agent", "name": "...", "description": "...", "system_prompt": "...", "model": "fast", "capabilities": ["..."], "tags": ["..."]}
+{"type": "create_agent", "name": "...", "description": "...", "system_prompt": "...", "model": "fast", "tools": ["..."], "agents": ["..."], "tags": ["..."]}
 
 4. Create a routing rule (prefer an agent for certain tasks):
 {"type": "create_routing_rule", "condition": "...", "preference": "...", "strength": 0.8}
@@ -448,9 +449,9 @@ Choose the most appropriate improvement. Prefer creating memories for factual le
 					description: mutation.description,
 					system_prompt: mutation.system_prompt,
 					model: mutation.model,
-					capabilities: mutation.capabilities,
-					tools: mutation.capabilities.filter((c: string) => !c.includes("/")),
-					agents: mutation.capabilities.filter((c: string) => c.includes("/")),
+					capabilities: [...mutation.tools, ...mutation.agents],
+					tools: mutation.tools,
+					agents: mutation.agents,
 					constraints: { ...DEFAULT_CONSTRAINTS, can_spawn: false },
 					tags: mutation.tags,
 					version: 1,

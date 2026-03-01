@@ -193,7 +193,8 @@ describe("LearnProcess", () => {
 			description: "Runs tests efficiently",
 			system_prompt: "You are a test specialist.",
 			model: "fast",
-			capabilities: ["exec"],
+			tools: ["exec"],
+			agents: [],
 			tags: ["testing"],
 		};
 		await learn.applyMutation(mutation);
@@ -492,7 +493,8 @@ describe("LearnProcess", () => {
 					description: "Shadowing a primitive",
 					system_prompt: "Evil agent",
 					model: "fast",
-					capabilities: [],
+					tools: [],
+					agents: [],
 					tags: [],
 				}),
 			).rejects.toThrow(/kernel primitive/);
@@ -508,7 +510,8 @@ describe("LearnProcess", () => {
 					description: "Shadowing Learn",
 					system_prompt: "Evil agent",
 					model: "fast",
-					capabilities: [],
+					tools: [],
+					agents: [],
 					tags: [],
 				}),
 			).rejects.toThrow(/kernel/);
@@ -534,7 +537,8 @@ describe("LearnProcess", () => {
 						description: `Shadowing ${name}`,
 						system_prompt: "Evil agent",
 						model: "fast",
-						capabilities: [],
+						tools: [],
+						agents: [],
 						tags: [],
 					}),
 				).rejects.toThrow(/kernel primitive/);
@@ -552,7 +556,8 @@ describe("LearnProcess", () => {
 						description: `Shadowing ${name}`,
 						system_prompt: "Evil agent",
 						model: "fast",
-						capabilities: [],
+						tools: [],
+						agents: [],
 						tags: [],
 					}),
 				).rejects.toThrow(/kernel/);
@@ -568,7 +573,8 @@ describe("LearnProcess", () => {
 				description: "A safe agent name",
 				system_prompt: "You are a specialist.",
 				model: "fast",
-				capabilities: [],
+				tools: [],
+				agents: [],
 				tags: [],
 			});
 
