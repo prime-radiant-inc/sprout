@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { config } from "dotenv";
 import { Agent } from "../../src/agents/agent.ts";
 import { AgentEventEmitter } from "../../src/agents/events.ts";
+import type { AgentTreeEntry } from "../../src/agents/loader.ts";
 import type { AgentSpawner, SpawnAgentOptions } from "../../src/bus/spawner.ts";
 import type { CallerIdentity, ResultMessage } from "../../src/bus/types.ts";
 import { Genome } from "../../src/genome/genome.ts";
@@ -3530,5 +3531,362 @@ describe("Agent", () => {
 		expect(entry.data.finishReason).toBe("stop");
 
 		await rm(logDir, { recursive: true, force: true });
+	});
+
+	// --- Agent Tree Auto-Discovery Tests ---
+
+	function treeEntry(
+		name: string,
+		path: string,
+		children: string[] = [],
+		overrides: Partial<AgentSpec> = {},
+	): AgentTreeEntry {
+		return {
+			spec: {
+				name,
+				description: `The ${name} agent`,
+				system_prompt: `You are ${name}.`,
+				model: "fast",
+				capabilities: [],
+				tools: [],
+				agents: [],
+				constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5 },
+				tags: [],
+				version: 1,
+				...overrides,
+			},
+			path,
+			children,
+			diskPath: `/fake/${path}.md`,
+		};
+	}
+
+	test("with agentTree, uses tree-based resolution instead of capabilities", () => {
+		const tree = new Map<string, AgentTreeEntry>([
+			["engineer", treeEntry("engineer", "engineer")],
+			["reviewer", treeEntry("reviewer", "reviewer")],
+		]);
+
+		const orchestratorSpec: AgentSpec = {
+			name: "root",
+			description: "Orchestrator",
+			system_prompt: "You orchestrate.",
+			model: "fast",
+			capabilities: [],
+			tools: [],
+			agents: [],
+			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5 },
+			tags: [],
+			version: 1,
+		};
+
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const client = Client.fromEnv();
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: orchestratorSpec,
+			env,
+			client,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			agentTree: tree,
+			agentTreeChildren: ["engineer", "reviewer"],
+			agentTreeSelfPath: "",
+		});
+
+		const tools = agent.resolvedTools();
+		const names = tools.map((t) => t.name);
+		expect(names).toContain("delegate");
+		// The delegate tool description should mention the agent names
+		const delegateTool = tools.find((t) => t.name === "delegate");
+		const desc = (delegateTool!.parameters as any).properties.agent_name.description;
+		expect(desc).toContain("engineer");
+		expect(desc).toContain("reviewer");
+	});
+
+	test("without agentTree, falls back to capabilities-based resolution", () => {
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const client = Client.fromEnv();
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: rootSpec,
+			env,
+			client,
+			primitiveRegistry: registry,
+			availableAgents: [rootSpec, leafSpec],
+			// No agentTree — should use capabilities
+		});
+
+		const tools = agent.resolvedTools();
+		const names = tools.map((t) => t.name);
+		expect(names).toContain("delegate");
+		const delegateTool = tools.find((t) => t.name === "delegate");
+		const desc = (delegateTool!.parameters as any).properties.agent_name.description;
+		expect(desc).toContain("leaf");
+	});
+
+	test("tree-based resolution includes explicit agent refs from spec.agents", () => {
+		const tree = new Map<string, AgentTreeEntry>([
+			["engineer", treeEntry("engineer", "engineer")],
+			["utility/reader", treeEntry("reader", "utility/reader")],
+		]);
+
+		const orchestratorSpec: AgentSpec = {
+			name: "root",
+			description: "Orchestrator",
+			system_prompt: "You orchestrate.",
+			model: "fast",
+			capabilities: [],
+			tools: [],
+			agents: ["utility/reader"],
+			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5 },
+			tags: [],
+			version: 1,
+		};
+
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const client = Client.fromEnv();
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: orchestratorSpec,
+			env,
+			client,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			agentTree: tree,
+			agentTreeChildren: ["engineer"],
+			agentTreeSelfPath: "",
+		});
+
+		const tools = agent.resolvedTools();
+		const delegateTool = tools.find((t) => t.name === "delegate");
+		const desc = (delegateTool!.parameters as any).properties.agent_name.description;
+		expect(desc).toContain("engineer");
+		expect(desc).toContain("reader");
+	});
+
+	test("executeDelegation resolves path-based agent names from tree", async () => {
+		const tree = new Map<string, AgentTreeEntry>([
+			[
+				"utility/reader",
+				treeEntry("reader", "utility/reader", [], {
+					capabilities: ["read_file"],
+					tools: ["read_file"],
+					constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 2 },
+				}),
+			],
+		]);
+
+		const orchestratorSpec: AgentSpec = {
+			name: "root",
+			description: "Orchestrator",
+			system_prompt: "You orchestrate.",
+			model: "fast",
+			capabilities: [],
+			tools: [],
+			agents: ["utility/reader"],
+			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5 },
+			tags: [],
+			version: 1,
+		};
+
+		// First response: delegate to "utility/reader"
+		const delegateMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-1",
+						name: "delegate",
+						arguments: JSON.stringify({ agent_name: "utility/reader", goal: "read a file" }),
+					},
+				},
+			],
+		};
+		// Second response (after delegation): done
+		const doneMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "Done." }],
+		};
+		// Subagent response
+		const subDoneMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "File read." }],
+		};
+
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				const msg = callCount === 1 ? delegateMsg : callCount === 2 ? subDoneMsg : doneMsg;
+				return {
+					id: `mock-tree-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: msg,
+					finish_reason: { reason: "stop" as const },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: orchestratorSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			agentTree: tree,
+			agentTreeChildren: [],
+			agentTreeSelfPath: "",
+			events,
+		});
+
+		const result = await agent.run("test path delegation");
+		expect(result.success).toBe(true);
+
+		// Verify the delegation to "utility/reader" succeeded (the subagent was found via tree)
+		const collected = events.collected();
+		const actStart = collected.find(
+			(e) => e.kind === "act_start" && e.data.agent_name === "utility/reader",
+		);
+		expect(actStart).toBeDefined();
+		const actEnd = collected.find(
+			(e) => e.kind === "act_end" && e.data.agent_name === "utility/reader" && e.data.success === true,
+		);
+		expect(actEnd).toBeDefined();
+	});
+
+	test("subagent receives agentTree from parent", async () => {
+		const tree = new Map<string, AgentTreeEntry>([
+			[
+				"worker",
+				treeEntry("worker", "worker", ["helper"], {
+					capabilities: ["read_file"],
+					tools: ["read_file"],
+					constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 2 },
+				}),
+			],
+			[
+				"worker/helper",
+				treeEntry("helper", "worker/helper", [], {
+					capabilities: ["read_file"],
+					tools: ["read_file"],
+					constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 2 },
+				}),
+			],
+		]);
+
+		const orchestratorSpec: AgentSpec = {
+			name: "root",
+			description: "Orchestrator",
+			system_prompt: "You orchestrate.",
+			model: "fast",
+			capabilities: [],
+			tools: [],
+			agents: [],
+			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5 },
+			tags: [],
+			version: 1,
+		};
+
+		// Root delegates to "worker"
+		const delegateMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-1",
+						name: "delegate",
+						arguments: JSON.stringify({ agent_name: "worker", goal: "do work" }),
+					},
+				},
+			],
+		};
+		const doneMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "Done." }],
+		};
+		// Worker delegates to "worker/helper"
+		const workerDelegateMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-2",
+						name: "delegate",
+						arguments: JSON.stringify({ agent_name: "worker/helper", goal: "help out" }),
+					},
+				},
+			],
+		};
+		const workerDoneMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "Work done." }],
+		};
+		const helperDoneMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "Helped." }],
+		};
+
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				let msg: Message;
+				if (callCount === 1) msg = delegateMsg; // root delegates
+				else if (callCount === 2) msg = workerDelegateMsg; // worker delegates
+				else if (callCount === 3) msg = helperDoneMsg; // helper finishes
+				else if (callCount === 4) msg = workerDoneMsg; // worker finishes
+				else msg = doneMsg; // root finishes
+				return {
+					id: `mock-sub-tree-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: msg,
+					finish_reason: { reason: "stop" as const },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: orchestratorSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			agentTree: tree,
+			agentTreeChildren: ["worker"],
+			agentTreeSelfPath: "",
+			events,
+		});
+
+		const result = await agent.run("chain delegation test");
+		expect(result.success).toBe(true);
+
+		// Verify the full chain: root -> worker -> helper
+		const collected = events.collected();
+		const helperActStart = collected.find(
+			(e) => e.kind === "act_start" && e.data.agent_name === "worker/helper",
+		);
+		expect(helperActStart).toBeDefined();
+		const helperActEnd = collected.find(
+			(e) => e.kind === "act_end" && e.data.agent_name === "worker/helper" && e.data.success === true,
+		);
+		expect(helperActEnd).toBeDefined();
 	});
 });

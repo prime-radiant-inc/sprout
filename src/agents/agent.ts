@@ -28,9 +28,10 @@ import { Msg, messageReasoning, messageText, messageToolCalls } from "../llm/typ
 import { ulid } from "../util/ulid.ts";
 import { getContextWindowSize } from "./context-window.ts";
 import { AgentEventEmitter } from "./events.ts";
-import type { Preambles } from "./loader.ts";
+import type { AgentTreeEntry, Preambles } from "./loader.ts";
 import { findBootstrapToolsDir } from "./loader.ts";
 import { defaultModelsByProvider, type ResolvedModel, resolveModel } from "./model-resolver.ts";
+import { resolveAgentDelegates } from "./resolver.ts";
 import type { Postscripts } from "./plan.ts";
 import {
 	buildDelegateTool,
@@ -85,6 +86,12 @@ export interface AgentOptions {
 	logger?: Logger;
 	/** Path to bootstrap agent directory (for two-layer tool resolution). */
 	bootstrapDir?: string;
+	/** Agent tree for path-based delegation resolution. */
+	agentTree?: Map<string, AgentTreeEntry>;
+	/** Bare child names for this agent in the tree (from the tree entry's children array). */
+	agentTreeChildren?: string[];
+	/** This agent's path in the tree (empty string for root). */
+	agentTreeSelfPath?: string;
 }
 
 export interface AgentResult {
@@ -118,6 +125,9 @@ export class Agent {
 	private readonly agentId?: string;
 	private readonly initialHistory?: Message[];
 	private readonly bootstrapDir?: string;
+	private readonly agentTree?: Map<string, AgentTreeEntry>;
+	private readonly agentTreeChildren?: string[];
+	private readonly agentTreeSelfPath?: string;
 	private readonly logger: Logger;
 	private history: Message[] = [];
 	private systemPrompt?: string;
@@ -146,6 +156,9 @@ export class Agent {
 		this.genomePath = options.genomePath;
 		this.agentId = options.agentId;
 		this.bootstrapDir = options.bootstrapDir;
+		this.agentTree = options.agentTree;
+		this.agentTreeChildren = options.agentTreeChildren;
+		this.agentTreeSelfPath = options.agentTreeSelfPath;
 		this.initialHistory = options.initialHistory ? [...options.initialHistory] : undefined;
 		this.logger = (options.logger ?? new NullLogger()).child({
 			component: "agent",
@@ -173,14 +186,30 @@ export class Agent {
 		this.agentTools = [];
 
 		if (this.spec.constraints.can_spawn) {
-			const delegatableAgents: AgentSpec[] = [];
-			for (const cap of this.spec.capabilities) {
-				if (cap === this.spec.name) continue;
-				const agentSpec = this.availableAgents.find((a) => a.name === cap);
-				if (agentSpec) {
-					delegatableAgents.push(agentSpec);
+			let delegatableAgents: AgentSpec[];
+
+			if (this.agentTree) {
+				// Tree-based resolution: use resolver to find delegates from the tree
+				const resolved = resolveAgentDelegates(
+					this.agentTree,
+					this.spec.name,
+					this.agentTreeSelfPath ?? "",
+					this.agentTreeChildren ?? [],
+					this.spec.agents,
+				);
+				delegatableAgents = resolved.map((d) => d.spec);
+			} else {
+				// Fallback: capabilities-based resolution for backward compatibility
+				delegatableAgents = [];
+				for (const cap of this.spec.capabilities) {
+					if (cap === this.spec.name) continue;
+					const agentSpec = this.availableAgents.find((a) => a.name === cap);
+					if (agentSpec) {
+						delegatableAgents.push(agentSpec);
+					}
 				}
 			}
+
 			if (delegatableAgents.length > 0) {
 				this.agentTools.push(buildDelegateTool(delegatableAgents));
 				// When a spawner is available, also expose wait_agent and message_agent
@@ -267,8 +296,18 @@ export class Agent {
 		await this.logWriteChain;
 	}
 
-	/** Get the current list of agents this agent can delegate to, preferring genome over static snapshot. */
+	/** Get the current list of agents this agent can delegate to, preferring tree or genome over static snapshot. */
 	private getDelegatableAgents(): AgentSpec[] {
+		if (this.agentTree) {
+			const resolved = resolveAgentDelegates(
+				this.agentTree,
+				this.spec.name,
+				this.agentTreeSelfPath ?? "",
+				this.agentTreeChildren ?? [],
+				this.spec.agents,
+			);
+			return resolved.map((d) => d.spec);
+		}
 		const agents: AgentSpec[] = [];
 		const source = this.genome ? this.genome.allAgents() : this.availableAgents;
 		for (const cap of this.spec.capabilities) {
@@ -292,6 +331,7 @@ export class Agent {
 		});
 
 		const subagentSpec =
+			this.agentTree?.get(delegation.agent_name)?.spec ??
 			this.genome?.getAgent(delegation.agent_name) ??
 			this.availableAgents.find((a) => a.name === delegation.agent_name);
 
@@ -317,6 +357,18 @@ export class Agent {
 			const subLogBasePath = this.logBasePath
 				? `${this.logBasePath}/subagents/${ulid()}`
 				: undefined;
+
+			// Resolve the subagent's tree context (selfPath and children)
+			let subTreeSelfPath: string | undefined;
+			let subTreeChildren: string[] | undefined;
+			if (this.agentTree) {
+				const treeEntry = this.agentTree.get(delegation.agent_name);
+				if (treeEntry) {
+					subTreeSelfPath = treeEntry.path;
+					subTreeChildren = treeEntry.children;
+				}
+			}
+
 			const subagent = new Agent({
 				spec: subagentSpec,
 				env: this.env,
@@ -333,6 +385,9 @@ export class Agent {
 				genomePostscripts: this.genomePostscripts,
 				agentId: childId,
 				logger: this.logger,
+				agentTree: this.agentTree,
+				agentTreeChildren: subTreeChildren,
+				agentTreeSelfPath: subTreeSelfPath,
 			});
 
 			const subResult = await subagent.run(subGoal, this.signal);
