@@ -9,7 +9,7 @@ import {
 } from "../agents/loader.ts";
 import { parseAgentMarkdown } from "../agents/markdown-loader.ts";
 import type { AgentSpec, Memory, RoutingRule } from "../kernel/types.ts";
-import { buildManifestFromSpecs, loadManifest, saveManifest } from "./bootstrap-manifest.ts";
+import { buildManifestFromSpecs, loadManifest, saveManifest } from "./root-manifest.ts";
 import { MemoryStore } from "./memory-store.ts";
 
 export interface SyncBootstrapResult {

@@ -8,9 +8,9 @@ import {
 	hashFileContent,
 	loadManifest,
 	saveManifest,
-} from "../../src/genome/bootstrap-manifest.ts";
+} from "../../src/genome/root-manifest.ts";
 
-describe("bootstrap-manifest", () => {
+describe("root-manifest", () => {
 	let tempDir: string;
 
 	beforeAll(async () => {

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { parseAgentMarkdown } from "../../src/agents/markdown-loader.ts";
 import {
 	buildDelegateTool,
 	buildMessageAgentTool,
@@ -10,7 +11,6 @@ import {
 	renderAgentsForPrompt,
 	renderCallerIdentity,
 } from "../../src/agents/plan.ts";
-import { parseAgentMarkdown } from "../../src/agents/markdown-loader.ts";
 import type { AgentSpec, Memory, RoutingRule } from "../../src/kernel/types.ts";
 import { Msg } from "../../src/llm/types.ts";
 

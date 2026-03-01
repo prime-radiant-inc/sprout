@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse, stringify } from "yaml";
-import { loadManifest } from "../../src/genome/bootstrap-manifest.ts";
+import { loadManifest } from "../../src/genome/root-manifest.ts";
 import { Genome, git } from "../../src/genome/genome.ts";
 import type { AgentSpec, Memory, RoutingRule } from "../../src/kernel/types.ts";
 import { makeSpec } from "../helpers/make-spec.ts";

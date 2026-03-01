@@ -10,11 +10,11 @@ export interface BootstrapManifestEntry {
 export interface BootstrapManifest {
 	synced_at: string;
 	agents: Record<string, BootstrapManifestEntry>;
-	/** Capabilities from the bootstrap root at last sync — used to detect removals. */
+	/** Capabilities from the root agent at last sync — used to detect removals. */
 	rootCapabilities?: string[];
 }
 
-/** Load a bootstrap manifest from disk. Returns an empty manifest if the file doesn't exist. */
+/** Load a root manifest from disk. Returns an empty manifest if the file doesn't exist. */
 export async function loadManifest(path: string): Promise<BootstrapManifest> {
 	try {
 		const content = await readFile(path, "utf-8");
@@ -33,7 +33,7 @@ export function hashFileContent(content: string): string {
 	return `sha256:${hex}`;
 }
 
-/** Save a bootstrap manifest to disk, creating parent directories if needed. */
+/** Save a root manifest to disk, creating parent directories if needed. */
 export async function saveManifest(path: string, manifest: BootstrapManifest): Promise<void> {
 	await mkdir(dirname(path), { recursive: true });
 	await writeFile(path, JSON.stringify(manifest, null, "\t"), "utf-8");
@@ -64,7 +64,7 @@ export function buildManifestFromSpecs(
 
 	return {
 		// Timestamp records when this manifest was built, not when it was saved.
-		// syncBootstrap only persists the manifest when actual changes occur,
+		// syncRoot only persists the manifest when actual changes occur,
 		// so this doesn't cause needless git commits on no-op syncs.
 		synced_at: new Date().toISOString(),
 		agents,
