@@ -129,18 +129,22 @@ describe("root-manifest", () => {
 			expect(manifest.agents.editor!.hash).toBe(hashFileContent(editorYaml));
 		});
 
-		test("captures rootCapabilities when root spec has tools and agents", () => {
+		test("captures rootTools and rootAgents when root spec has tools and agents", () => {
 			const rootYaml = "name: root\nversion: 1\ndescription: root agent\n";
 			const rootContent = new Map([["root", rootYaml]]);
-			const rootSpecs = [{ name: "root", version: 1, tools: ["reader", "editor"] }];
+			const rootSpecs = [
+				{ name: "root", version: 1, tools: ["reader", "editor"], agents: ["utility/planner"] },
+			];
 			const manifest = buildManifestFromSpecs(rootSpecs, rootContent);
 
-			expect(manifest.rootCapabilities).toEqual(["reader", "editor"]);
+			expect(manifest.rootTools).toEqual(["reader", "editor"]);
+			expect(manifest.rootAgents).toEqual(["utility/planner"]);
 		});
 
-		test("rootCapabilities is undefined when no root spec present", () => {
+		test("rootTools and rootAgents are undefined when no root spec present", () => {
 			const manifest = buildManifestFromSpecs(specs, rawContent);
-			expect(manifest.rootCapabilities).toBeUndefined();
+			expect(manifest.rootTools).toBeUndefined();
+			expect(manifest.rootAgents).toBeUndefined();
 		});
 
 		test("handles spec name not matching raw content key", () => {

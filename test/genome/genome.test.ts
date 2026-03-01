@@ -929,6 +929,56 @@ describe("Genome", () => {
 			expect(log).toContain("alpha");
 		});
 
+		test("reconciles path-style agent refs separately from tools", async () => {
+			const root = join(tempDir, "sync-path-agents");
+			const genome = new Genome(root);
+			await genome.init();
+
+			const rootDir = join(tempDir, "sync-path-agents-bs");
+			await mkdir(rootDir, { recursive: true });
+
+			// Bootstrap root has tools and path-style agent refs
+			await writeRootMd(rootDir, "root", {
+				tools: ["read_file"],
+				agents: ["utility/task-manager"],
+			});
+
+			// First sync — adds root
+			await genome.syncRoot(rootDir);
+			const rootAgent = genome.getAgent("root")!;
+			expect(rootAgent.tools).toEqual(["read_file"]);
+			expect(rootAgent.agents).toEqual(["utility/task-manager"]);
+
+			// Genome evolves root to add a bare-name agent (no "/")
+			await genome.updateAgent({
+				...rootAgent,
+				agents: ["utility/task-manager", "custom-helper"],
+				system_prompt: "Evolved root",
+			});
+			expect(genome.getAgent("root")!.agents).toEqual(["utility/task-manager", "custom-helper"]);
+
+			// Bootstrap adds a new tool and a new agent ref
+			await writeRootMd(rootDir, "root", {
+				tools: ["read_file", "write_file"],
+				agents: ["utility/task-manager", "utility/planner"],
+			});
+
+			// Sync again
+			await genome.syncRoot(rootDir);
+
+			const updated = genome.getAgent("root")!;
+			// Tools reconciled correctly
+			expect(updated.tools).toContain("read_file");
+			expect(updated.tools).toContain("write_file");
+			// Path-style agent ref preserved
+			expect(updated.agents).toContain("utility/task-manager");
+			// New bootstrap agent ref added
+			expect(updated.agents).toContain("utility/planner");
+			// Bare-name genome-only agent survives as an agent, not misclassified as a tool
+			expect(updated.agents).toContain("custom-helper");
+			expect(updated.tools).not.toContain("custom-helper");
+		});
+
 		test("preserves genome-added entries when bootstrap drops its own", async () => {
 			const root = join(tempDir, "sync-cap-remove-preserve");
 			const genome = new Genome(root);

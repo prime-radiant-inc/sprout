@@ -10,8 +10,10 @@ export interface RootManifestEntry {
 export interface RootManifest {
 	synced_at: string;
 	agents: Record<string, RootManifestEntry>;
-	/** Combined tools+agents from the root agent at last sync — used to detect removals. */
-	rootCapabilities?: string[];
+	/** Tools from the root agent at last sync. */
+	rootTools?: string[];
+	/** Agents (delegation refs) from the root agent at last sync. */
+	rootAgents?: string[];
 }
 
 /** Load a root manifest from disk. Returns an empty manifest if the file doesn't exist. */
@@ -40,7 +42,7 @@ export async function saveManifest(path: string, manifest: RootManifest): Promis
 }
 
 /**
- * Build a manifest from pre-loaded agent specs and their raw YAML content.
+ * Build a manifest from pre-loaded agent specs and their raw file content.
  * The rawContentByName map (agent name → raw file content) is used for content hashing;
  * specs provide name/version as the single source of truth.
  */
@@ -49,7 +51,8 @@ export function buildManifestFromSpecs(
 	rawContentByName: ReadonlyMap<string, string>,
 ): RootManifest {
 	const agents: Record<string, RootManifestEntry> = {};
-	let rootCapabilities: string[] | undefined;
+	let rootTools: string[] | undefined;
+	let rootAgents: string[] | undefined;
 	for (const spec of specs) {
 		const content = rawContentByName.get(spec.name);
 		if (!content) continue;
@@ -57,8 +60,9 @@ export function buildManifestFromSpecs(
 			hash: hashFileContent(content),
 			version: spec.version,
 		};
-		if (spec.name === "root" && (spec.tools || spec.agents)) {
-			rootCapabilities = [...(spec.tools ?? []), ...(spec.agents ?? [])];
+		if (spec.name === "root") {
+			rootTools = [...(spec.tools ?? [])];
+			rootAgents = [...(spec.agents ?? [])];
 		}
 	}
 
@@ -68,6 +72,7 @@ export function buildManifestFromSpecs(
 		// so this doesn't cause needless git commits on no-op syncs.
 		synced_at: new Date().toISOString(),
 		agents,
-		rootCapabilities,
+		rootTools,
+		rootAgents,
 	};
 }

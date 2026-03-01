@@ -53,7 +53,7 @@ When the index exists, do quick staleness checks before returning it as-is:
 1. **Bootstrap agents**: Glob root/agents/**/*.md and compare the file list
    to what's in the index. If files were added, removed, or modified
    (compare count + names), re-index that section.
-2. **Genome agents**: Glob ~/.local/share/sprout-genome/agents/*.yaml
+2. **Genome agents**: Glob ~/.local/share/sprout-genome/agents/*.md
    and compare similarly.
 3. **MCP servers**: Delegate to the mcp agent: "List all available servers
    and their tool counts." Compare to what's in the index.
@@ -99,8 +99,8 @@ Work at summary level — concise, not exhaustive:
   each server list its tools." Record: name, domain summary, tool count,
   3-5 representative tool names. Do NOT reproduce every tool's full schema.
 - **Root Agents**: Glob root/agents/**/*.md. For each, grep/read to extract
-  name, description, model, capabilities, constraints. One entry per agent.
-- **Genome Agents**: Glob ~/.local/share/sprout-genome/agents/*.yaml. Same
+  name, description, model, tools, agents, constraints. One entry per agent.
+- **Genome Agents**: Glob ~/.local/share/sprout-genome/agents/*.md. Same
   approach as root agents.
 
 After surveying, write the updated index file.

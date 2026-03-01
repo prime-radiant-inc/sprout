@@ -272,7 +272,7 @@ export class Genome {
 
 	/** Load agents, memories, and routing rules from an existing genome directory. */
 	async loadFromDisk(): Promise<void> {
-		// Load agents
+		// Genome agents are stored flat in agents/ (one .md per agent, no nesting).
 		const agentsDir = join(this.rootPath, "agents");
 		let files: string[];
 		try {
@@ -362,15 +362,16 @@ export class Genome {
 			}
 		}
 
-		// Reconcile root tools+agents: add new, remove dropped, preserve genome-only.
+		// Reconcile root tools and agents: add new, remove dropped, preserve genome-only.
 		// Safe after Case 4: if root was updated, genome had no custom entries (version matched
-		// old manifest), so reconcileRootCapabilities finds nothing to merge and returns false.
-		const capsMerged = await this.reconcileRootCapabilities(
+		// old manifest), so reconcileRootToolsAndAgents finds nothing to merge and returns false.
+		const toolsAgentsMerged = await this.reconcileRootToolsAndAgents(
 			specs,
-			oldManifest.rootCapabilities ?? [],
+			oldManifest.rootTools ?? [],
+			oldManifest.rootAgents ?? [],
 		);
 
-		const hasChanges = added.length > 0 || updated.length > 0 || capsMerged;
+		const hasChanges = added.length > 0 || updated.length > 0 || toolsAgentsMerged;
 
 		// Only save manifest when something changed — avoids dirty working tree
 		if (hasChanges || conflicts.length > 0) {
@@ -382,7 +383,7 @@ export class Genome {
 		for (const name of [...added, ...updated]) {
 			filesToStage.push(join(this.rootPath, "agents", `${name}.md`));
 		}
-		if (capsMerged) {
+		if (toolsAgentsMerged) {
 			filesToStage.push(join(this.rootPath, "agents", "root.md"));
 		}
 		if (hasChanges || conflicts.length > 0) {
@@ -392,7 +393,7 @@ export class Genome {
 		const parts: string[] = [];
 		if (added.length > 0) parts.push(`added: ${added.join(", ")}`);
 		if (updated.length > 0) parts.push(`updated: ${updated.join(", ")}`);
-		if (capsMerged) parts.push("tools/agents merged");
+		if (toolsAgentsMerged) parts.push("tools/agents merged");
 		if (conflicts.length > 0) parts.push(`conflicts: ${conflicts.join(", ")}`);
 
 		if (parts.length > 0) {
@@ -404,44 +405,45 @@ export class Genome {
 	}
 
 	/**
-	 * Reconcile root agent tools+agents with genome root.
+	 * Reconcile root agent tools and agents with genome root.
 	 * Adds entries root introduced, removes entries root dropped,
 	 * and preserves genome-only entries that were never in root.
 	 */
-	private async reconcileRootCapabilities(
+	private async reconcileRootToolsAndAgents(
 		rootSpecs: AgentSpec[],
-		oldRootCaps: string[],
+		oldRootTools: string[],
+		oldRootAgents: string[],
 	): Promise<boolean> {
 		const rootSpecRoot = rootSpecs.find((s) => s.name === "root");
 		const genomeRoot = this.agents.get("root");
 		if (!rootSpecRoot || !genomeRoot) return false;
 
-		const newRootCaps = new Set([...rootSpecRoot.tools, ...rootSpecRoot.agents]);
-		const oldRootCapSet = new Set(oldRootCaps);
-		const genomeCaps = [...genomeRoot.tools, ...genomeRoot.agents];
-		const genomeCapSet = new Set(genomeCaps);
+		const reconciledTools = this.reconcileList(genomeRoot.tools, rootSpecRoot.tools, oldRootTools);
+		const reconciledAgents = this.reconcileList(
+			genomeRoot.agents,
+			rootSpecRoot.agents,
+			oldRootAgents,
+		);
 
-		// Compute the reconciled combined list:
-		// - Keep genome entries that are still in root OR were never in root
-		// - Add new root entries that genome doesn't have yet
-		const kept = genomeCaps.filter((c) => newRootCaps.has(c) || !oldRootCapSet.has(c));
-		const rootCombined = [...rootSpecRoot.tools, ...rootSpecRoot.agents];
-		const toAdd = rootCombined.filter((c) => !genomeCapSet.has(c));
-		const merged = [...kept, ...toAdd];
+		const toolsChanged = !arraysEqual(reconciledTools, genomeRoot.tools);
+		const agentsChanged = !arraysEqual(reconciledAgents, genomeRoot.agents);
+		if (!toolsChanged && !agentsChanged) return false;
 
-		// Check if anything actually changed
-		if (merged.length === genomeCaps.length && merged.every((c, i) => c === genomeCaps[i])) {
-			return false;
-		}
-
-		// Split merged list back into tools (no "/") and agents (has "/")
-		const mergedTools = merged.filter((c) => !c.includes("/"));
-		const mergedAgents = merged.filter((c) => c.includes("/"));
-		const updated = { ...genomeRoot, tools: mergedTools, agents: mergedAgents };
+		const updated = { ...genomeRoot, tools: reconciledTools, agents: reconciledAgents };
 		const mdPath = join(this.rootPath, "agents", "root.md");
 		await writeFile(mdPath, serializeAgentMarkdown(updated));
 		this.agents.set("root", updated);
 		return true;
+	}
+
+	/** 3-way merge a single list: keep genome entries still in root or never in root, add new root entries. */
+	private reconcileList(genomeCurrent: string[], rootNew: string[], rootOld: string[]): string[] {
+		const newSet = new Set(rootNew);
+		const oldSet = new Set(rootOld);
+		const genomeSet = new Set(genomeCurrent);
+		const kept = genomeCurrent.filter((c) => newSet.has(c) || !oldSet.has(c));
+		const toAdd = rootNew.filter((c) => !genomeSet.has(c));
+		return [...kept, ...toAdd];
 	}
 
 	// --- Agent Workspace ---
@@ -642,6 +644,10 @@ export interface AgentFileInfo {
 	name: string;
 	size: number;
 	path: string;
+}
+
+function arraysEqual(a: string[], b: string[]): boolean {
+	return a.length === b.length && a.every((v, i) => v === b[i]);
 }
 
 /** Parse YAML frontmatter from a tool file (delimited by ---). */
