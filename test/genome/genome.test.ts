@@ -2,8 +2,8 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parse, stringify } from "yaml";
-import { parseAgentMarkdown } from "../../src/agents/markdown-loader.ts";
+import { parse } from "yaml";
+import { parseAgentMarkdown, serializeAgentMarkdown } from "../../src/agents/markdown-loader.ts";
 import { Genome, git } from "../../src/genome/genome.ts";
 import { loadManifest } from "../../src/genome/root-manifest.ts";
 import type { AgentSpec, Memory, RoutingRule } from "../../src/kernel/types.ts";
@@ -605,14 +605,20 @@ describe("Genome", () => {
 	});
 
 	describe("syncRoot (manifest-aware)", () => {
-		/** Write a minimal valid root agent YAML file for sync tests. */
-		function writeRootYaml(
+		/** Write a root agent Markdown file into the proper tree layout. */
+		async function writeRootMd(
 			dir: string,
 			name: string,
 			overrides: Partial<AgentSpec> = {},
 		): Promise<void> {
 			const spec = makeSpec({ name, ...overrides });
-			return writeFile(join(dir, `${name}.yaml`), stringify(spec));
+			if (name === "root") {
+				await writeFile(join(dir, "root.md"), serializeAgentMarkdown(spec));
+			} else {
+				const agentsDir = join(dir, "agents");
+				await mkdir(agentsDir, { recursive: true });
+				await writeFile(join(agentsDir, `${name}.md`), serializeAgentMarkdown(spec));
+			}
 		}
 
 		test("adds new bootstrap agents and records manifest", async () => {
@@ -622,8 +628,8 @@ describe("Genome", () => {
 
 			const rootDir = join(tempDir, "sync-manifest-add-bs");
 			await mkdir(rootDir, { recursive: true });
-			await writeRootYaml(rootDir, "alpha", { description: "Alpha agent" });
-			await writeRootYaml(rootDir, "beta", { description: "Beta agent" });
+			await writeRootMd(rootDir, "alpha", { description: "Alpha agent" });
+			await writeRootMd(rootDir, "beta", { description: "Beta agent" });
 
 			const result = await genome.syncRoot(rootDir);
 
@@ -650,7 +656,7 @@ describe("Genome", () => {
 
 			const rootDir = join(tempDir, "sync-manifest-noop-bs");
 			await mkdir(rootDir, { recursive: true });
-			await writeRootYaml(rootDir, "stable");
+			await writeRootMd(rootDir, "stable");
 
 			// First sync — adds the agent
 			const first = await genome.syncRoot(rootDir);
@@ -674,7 +680,7 @@ describe("Genome", () => {
 
 			const rootDir = join(tempDir, "sync-manifest-update-bs");
 			await mkdir(rootDir, { recursive: true });
-			await writeRootYaml(rootDir, "updatable", {
+			await writeRootMd(rootDir, "updatable", {
 				description: "Original description",
 			});
 
@@ -683,7 +689,7 @@ describe("Genome", () => {
 			expect(genome.getAgent("updatable")!.description).toBe("Original description");
 
 			// Change bootstrap file
-			await writeRootYaml(rootDir, "updatable", {
+			await writeRootMd(rootDir, "updatable", {
 				description: "Updated description",
 			});
 
@@ -704,7 +710,7 @@ describe("Genome", () => {
 
 			const rootDir = join(tempDir, "sync-manifest-conflict-bs");
 			await mkdir(rootDir, { recursive: true });
-			await writeRootYaml(rootDir, "contested", {
+			await writeRootMd(rootDir, "contested", {
 				description: "Bootstrap original",
 			});
 
@@ -717,7 +723,7 @@ describe("Genome", () => {
 			expect(genome.getAgent("contested")!.version).toBe(2);
 
 			// Change bootstrap file
-			await writeRootYaml(rootDir, "contested", {
+			await writeRootMd(rootDir, "contested", {
 				description: "Bootstrap also changed",
 			});
 
@@ -739,7 +745,7 @@ describe("Genome", () => {
 
 			const rootDir = join(tempDir, "sync-manifest-preserve-bs");
 			await mkdir(rootDir, { recursive: true });
-			await writeRootYaml(rootDir, "evolved", {
+			await writeRootMd(rootDir, "evolved", {
 				description: "Bootstrap original",
 			});
 
@@ -772,22 +778,22 @@ describe("Genome", () => {
 			await mkdir(rootDir, { recursive: true });
 
 			// Bootstrap has root with 3 tools and the corresponding agents
-			await writeRootYaml(rootDir, "root", {
+			await writeRootMd(rootDir, "root", {
 				tools: ["reader", "editor", "debugger"],
 			});
-			await writeRootYaml(rootDir, "reader");
-			await writeRootYaml(rootDir, "editor");
-			await writeRootYaml(rootDir, "debugger");
+			await writeRootMd(rootDir, "reader");
+			await writeRootMd(rootDir, "editor");
+			await writeRootMd(rootDir, "debugger");
 
 			// First sync — adds root, reader, editor, debugger
 			await genome.syncRoot(rootDir);
 			expect(genome.getAgent("root")!.tools).toEqual(["reader", "editor", "debugger"]);
 
-			// Now update bootstrap root to add "verifier", and add verifier.yaml
-			await writeRootYaml(rootDir, "root", {
+			// Now update bootstrap root to add "verifier", and add verifier agent
+			await writeRootMd(rootDir, "root", {
 				tools: ["reader", "editor", "debugger", "verifier"],
 			});
-			await writeRootYaml(rootDir, "verifier");
+			await writeRootMd(rootDir, "verifier");
 
 			// Sync again
 			await genome.syncRoot(rootDir);
@@ -809,10 +815,10 @@ describe("Genome", () => {
 			await mkdir(rootDir, { recursive: true });
 
 			// Bootstrap starts with root listing just ["reader"]
-			await writeRootYaml(rootDir, "root", {
+			await writeRootMd(rootDir, "root", {
 				tools: ["reader"],
 			});
-			await writeRootYaml(rootDir, "reader");
+			await writeRootMd(rootDir, "reader");
 
 			// First sync — adds root and reader
 			await genome.syncRoot(rootDir);
@@ -828,11 +834,11 @@ describe("Genome", () => {
 			expect(genome.getAgent("root")!.tools).toEqual(["reader", "custom-agent"]);
 			expect(genome.getAgent("root")!.system_prompt).toBe("Evolved system prompt");
 
-			// Update bootstrap root to add "debugger" and add debugger.yaml
-			await writeRootYaml(rootDir, "root", {
+			// Update bootstrap root to add "debugger" and add debugger agent
+			await writeRootMd(rootDir, "root", {
 				tools: ["reader", "debugger"],
 			});
-			await writeRootYaml(rootDir, "debugger");
+			await writeRootMd(rootDir, "debugger");
 
 			// Sync again — root is a conflict (both sides changed), but tools should merge
 			const result = await genome.syncRoot(rootDir);
@@ -859,19 +865,19 @@ describe("Genome", () => {
 			await mkdir(rootDir, { recursive: true });
 
 			// Bootstrap starts with root listing ["reader", "editor", "debugger"]
-			await writeRootYaml(rootDir, "root", {
+			await writeRootMd(rootDir, "root", {
 				tools: ["reader", "editor", "debugger"],
 			});
-			await writeRootYaml(rootDir, "reader");
-			await writeRootYaml(rootDir, "editor");
-			await writeRootYaml(rootDir, "debugger");
+			await writeRootMd(rootDir, "reader");
+			await writeRootMd(rootDir, "editor");
+			await writeRootMd(rootDir, "debugger");
 
 			// First sync — adds root, reader, editor, debugger
 			await genome.syncRoot(rootDir);
 			expect(genome.getAgent("root")!.tools).toEqual(["reader", "editor", "debugger"]);
 
 			// Bootstrap drops "debugger" from root tools
-			await writeRootYaml(rootDir, "root", {
+			await writeRootMd(rootDir, "root", {
 				tools: ["reader", "editor"],
 			});
 
@@ -894,9 +900,9 @@ describe("Genome", () => {
 			await mkdir(rootDir, { recursive: true });
 
 			// Bootstrap with root listing ["reader"] and an agent "alpha"
-			await writeRootYaml(rootDir, "root", { tools: ["reader"] });
-			await writeRootYaml(rootDir, "reader");
-			await writeRootYaml(rootDir, "alpha", { description: "Original alpha" });
+			await writeRootMd(rootDir, "root", { tools: ["reader"] });
+			await writeRootMd(rootDir, "reader");
+			await writeRootMd(rootDir, "alpha", { description: "Original alpha" });
 
 			// First sync
 			await genome.syncRoot(rootDir);
@@ -905,13 +911,13 @@ describe("Genome", () => {
 			await genome.updateAgent(makeSpec({ name: "alpha", description: "Genome-evolved alpha" }));
 
 			// Bootstrap changes alpha AND adds "verifier" to root tools
-			await writeRootYaml(rootDir, "root", {
+			await writeRootMd(rootDir, "root", {
 				tools: ["reader", "verifier"],
 			});
-			await writeRootYaml(rootDir, "alpha", {
+			await writeRootMd(rootDir, "alpha", {
 				description: "Bootstrap-updated alpha",
 			});
-			await writeRootYaml(rootDir, "verifier");
+			await writeRootMd(rootDir, "verifier");
 
 			// Sync again — should have capsMerged + conflict on alpha
 			const result = await genome.syncRoot(rootDir);
@@ -932,11 +938,11 @@ describe("Genome", () => {
 			await mkdir(rootDir, { recursive: true });
 
 			// Bootstrap starts with root listing ["reader", "debugger"]
-			await writeRootYaml(rootDir, "root", {
+			await writeRootMd(rootDir, "root", {
 				tools: ["reader", "debugger"],
 			});
-			await writeRootYaml(rootDir, "reader");
-			await writeRootYaml(rootDir, "debugger");
+			await writeRootMd(rootDir, "reader");
+			await writeRootMd(rootDir, "debugger");
 
 			// First sync
 			await genome.syncRoot(rootDir);
@@ -950,10 +956,10 @@ describe("Genome", () => {
 			});
 
 			// Bootstrap drops "debugger" and adds "editor"
-			await writeRootYaml(rootDir, "root", {
+			await writeRootMd(rootDir, "root", {
 				tools: ["reader", "editor"],
 			});
-			await writeRootYaml(rootDir, "editor");
+			await writeRootMd(rootDir, "editor");
 
 			// Sync again
 			await genome.syncRoot(rootDir);

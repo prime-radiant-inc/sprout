@@ -2,11 +2,28 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { stringify } from "yaml";
-import { parseAgentMarkdown } from "../../src/agents/markdown-loader.ts";
+import { parseAgentMarkdown, serializeAgentMarkdown } from "../../src/agents/markdown-loader.ts";
 import { exportLearnings, stageLearnings } from "../../src/genome/export-learnings.ts";
 import { Genome } from "../../src/genome/genome.ts";
 import { makeSpec } from "../helpers/make-spec.ts";
+
+/** Write a root agent spec as Markdown into the root directory tree layout. */
+async function writeRootAgent(
+	rootDir: string,
+	name: string,
+	overrides: Partial<import("../../src/kernel/types.ts").AgentSpec> = {},
+): Promise<void> {
+	if (name === "root") {
+		await writeFile(join(rootDir, "root.md"), serializeAgentMarkdown(makeSpec({ name, ...overrides })));
+	} else {
+		const agentsDir = join(rootDir, "agents");
+		await mkdir(agentsDir, { recursive: true });
+		await writeFile(
+			join(agentsDir, `${name}.md`),
+			serializeAgentMarkdown(makeSpec({ name, ...overrides })),
+		);
+	}
+}
 
 describe("exportLearnings", () => {
 	let tempDir: string;
@@ -24,10 +41,7 @@ describe("exportLearnings", () => {
 		const rootDir = join(tempDir, "export-evolved-boot");
 		await mkdir(rootDir, { recursive: true });
 
-		await writeFile(
-			join(rootDir, "reader.yaml"),
-			stringify(makeSpec({ name: "reader", system_prompt: "basic reader" })),
-		);
+		await writeRootAgent(rootDir, "reader", { system_prompt: "basic reader" });
 
 		const genome = new Genome(genomeDir);
 		await genome.init();
@@ -49,7 +63,7 @@ describe("exportLearnings", () => {
 		const rootDir = join(tempDir, "export-learned-boot");
 		await mkdir(rootDir, { recursive: true });
 
-		await writeFile(join(rootDir, "root.yaml"), stringify(makeSpec({ name: "root" })));
+		await writeRootAgent(rootDir, "root");
 
 		const genome = new Genome(genomeDir);
 		await genome.init();
@@ -67,7 +81,7 @@ describe("exportLearnings", () => {
 		const rootDir = join(tempDir, "export-unchanged-boot");
 		await mkdir(rootDir, { recursive: true });
 
-		await writeFile(join(rootDir, "stable.yaml"), stringify(makeSpec({ name: "stable" })));
+		await writeRootAgent(rootDir, "stable");
 
 		const genome = new Genome(genomeDir);
 		await genome.init();
@@ -83,7 +97,7 @@ describe("exportLearnings", () => {
 		const nonexistent = join(tempDir, "no-such-genome");
 		const rootDir = join(tempDir, "noexist-boot");
 		await mkdir(rootDir, { recursive: true });
-		await writeFile(join(rootDir, "root.yaml"), stringify(makeSpec({ name: "root" })));
+		await writeRootAgent(rootDir, "root");
 
 		await expect(exportLearnings(nonexistent, rootDir)).rejects.toThrow(/does not exist/);
 	});
@@ -105,10 +119,7 @@ describe("stageLearnings", () => {
 		const rootDir = join(tempDir, "stage-evolved-boot");
 		await mkdir(rootDir, { recursive: true });
 
-		await writeFile(
-			join(rootDir, "reader.yaml"),
-			stringify(makeSpec({ name: "reader", system_prompt: "basic reader" })),
-		);
+		await writeRootAgent(rootDir, "reader", { system_prompt: "basic reader" });
 
 		const genome = new Genome(genomeDir);
 		await genome.init();
@@ -133,7 +144,7 @@ describe("stageLearnings", () => {
 		const rootDir = join(tempDir, "stage-learned-boot");
 		await mkdir(rootDir, { recursive: true });
 
-		await writeFile(join(rootDir, "root.yaml"), stringify(makeSpec({ name: "root" })));
+		await writeRootAgent(rootDir, "root");
 
 		const genome = new Genome(genomeDir);
 		await genome.init();
@@ -161,7 +172,7 @@ describe("stageLearnings", () => {
 		const rootDir = join(tempDir, "stage-mkdir-boot");
 		await mkdir(rootDir, { recursive: true });
 
-		await writeFile(join(rootDir, "root.yaml"), stringify(makeSpec({ name: "root" })));
+		await writeRootAgent(rootDir, "root");
 
 		const genome = new Genome(genomeDir);
 		await genome.init();

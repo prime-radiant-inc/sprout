@@ -1,67 +1,17 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { parse } from "yaml";
-import { type AgentSpec, DEFAULT_CONSTRAINTS } from "../kernel/types.ts";
+import type { AgentSpec } from "../kernel/types.ts";
 import { parseAgentMarkdown } from "./markdown-loader.ts";
-
-/** Parse an AgentSpec from raw YAML content. The source label is used in error messages. */
-function parseAgentSpec(content: string, source: string): AgentSpec {
-	const raw = parse(content);
-
-	for (const field of ["name", "description", "system_prompt", "model"] as const) {
-		if (!raw[field] || typeof raw[field] !== "string") {
-			throw new Error(`Invalid agent spec at ${source}: missing or invalid '${field}'`);
-		}
-	}
-
-	const legacyCaps: string[] = raw.capabilities ?? [];
-	// Use explicit tools/agents fields when present; fall back to "/" heuristic for legacy YAML
-	const tools: string[] = raw.tools ?? legacyCaps.filter((c: string) => !c.includes("/"));
-	const agents: string[] = raw.agents ?? legacyCaps.filter((c: string) => c.includes("/"));
-	const spec: AgentSpec = {
-		name: raw.name,
-		description: raw.description,
-		system_prompt: raw.system_prompt,
-		model: raw.model,
-		tools,
-		agents,
-		constraints: { ...DEFAULT_CONSTRAINTS, ...raw.constraints },
-		tags: raw.tags ?? [],
-		version: raw.version ?? 1,
-	};
-	if (raw.thinking !== undefined) {
-		spec.thinking = raw.thinking;
-	}
-	return spec;
-}
 
 export async function loadRootAgents(dir: string): Promise<AgentSpec[]> {
 	const { specs } = await readRootDir(dir);
 	return specs;
 }
 
-/** Read agent specs from a root directory, supporting both flat YAML and tree Markdown layouts. */
+/** Read agent specs from a root directory using the Markdown tree layout. */
 export async function readRootDir(
 	dir: string,
 ): Promise<{ specs: AgentSpec[]; rawContentByName: Map<string, string> }> {
-	const files = await readdir(dir);
-	const yamlFiles = files.filter((f) => f.endsWith(".yaml") || f.endsWith(".yml")).sort();
-
-	// If there are YAML files, use the flat loader (legacy YAML layout)
-	if (yamlFiles.length > 0) {
-		const specs: AgentSpec[] = [];
-		const rawContentByName = new Map<string, string>();
-		for (const f of yamlFiles) {
-			const path = join(dir, f);
-			const content = await readFile(path, "utf-8");
-			const spec = parseAgentSpec(content, path);
-			specs.push(spec);
-			rawContentByName.set(spec.name, content);
-		}
-		return { specs, rawContentByName };
-	}
-
-	// Otherwise, use the tree scanner (new root/ Markdown layout)
 	const specs: AgentSpec[] = [];
 	const rawContentByName = new Map<string, string>();
 
@@ -76,7 +26,7 @@ export async function readRootDir(
 		// No root.md — fine
 	}
 
-	// Scan the agent tree (rawContent is populated by scanAgentTree)
+	// Scan the agent tree
 	const tree = await scanAgentTree(dir);
 	for (const entry of tree.values()) {
 		specs.push(entry.spec);
