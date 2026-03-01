@@ -2,11 +2,26 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Give the quartermaster a reconciliation sub-agent and add a `sprout-internal` tool interpreter for in-process TypeScript tools.
+**Goal:** Give the quartermaster a reconciliation sub-agent, add a `sprout-internal` tool interpreter, and move misplaced agent tools into bootstrap tool directories.
 
-**Architecture:** Two-layer tool resolution (genome overrides bootstrap), a minimal ToolContext passing real objects, a qm-reconciler agent that reads files and reasons about genome state, and quartermaster prompt updates.
+**Architecture:** Two-layer tool resolution (genome overrides bootstrap), a minimal ToolContext passing real objects, a qm-reconciler agent, and refactoring of existing agent tools from `src/` into `bootstrap/{agent}/tools/`.
 
 **Tech Stack:** TypeScript, Bun, dynamic `import()`
+
+---
+
+## Motivation: Agent Tools Are Misplaced
+
+Several agents already have dedicated tools, but they're buried in `src/` instead of living with their agents:
+
+| Agent | Tool | Current Location | Should Be |
+|-------|------|-----------------|-----------|
+| task-manager | Task CLI (create, list, get, update, comment) | `src/tasks/cli.ts` + `store.ts` + `types.ts` | `bootstrap/task-manager/tools/` |
+| mcp | MCP client CLI (list-servers, list-tools, call-tool) | `src/mcp-cli.ts` | `bootstrap/mcp/tools/` |
+
+These agents invoke their tools via `exec` with hardcoded paths like `bun run src/tasks/cli.ts`. This is fragile (path depends on working directory) and violates the agent-tools convention documented in `qm-fabricator.yaml`.
+
+Moving them into `bootstrap/{agent}/tools/` and loading them through the tool system fixes this: tools are discovered automatically, added to PATH, and registered as agent primitives.
 
 ---
 
@@ -25,7 +40,7 @@ description: Sync bootstrap agents into the runtime genome
 interpreter: sprout-internal
 ---
 export default async function(ctx) {
-  const result = await ctx.genome.syncBootstrap(ctx.paths.bootstrap);
+  const result = await ctx.genome.syncBootstrap(ctx.env.working_directory());
   return {
     output: JSON.stringify(result, null, 2),
     success: true,
@@ -68,9 +83,9 @@ Tools access sprout through `ctx`, not through imports. A tool in `bootstrap/` c
 Tools load from two directories with clear precedence, following the systemd model (`/usr/lib/` vs `/etc/`).
 
 ```
-Resolution for agent "foo", tool "bar":
-  1. genome/agents/foo/tools/bar.ts    ← wins if present
-  2. bootstrap/foo/tools/bar.ts        ← fallback default
+Resolution for agent "task-manager", tool "task-cli":
+  1. genome/agents/task-manager/tools/task-cli    ← wins if present
+  2. bootstrap/task-manager/tools/task-cli        ← fallback default
 ```
 
 ### Properties
@@ -85,16 +100,24 @@ Resolution for agent "foo", tool "bar":
 
 ```
 bootstrap/                              # Layer 2 (defaults)
-  foo.yaml                             # agent spec
-  foo/
+  task-manager.yaml                    # agent spec
+  task-manager/
     tools/
-      bar.ts                           # tool shipped with agent
+      task-cli                         # task management CLI
+  mcp.yaml
+  mcp/
+    tools/
+      sprout-mcp                       # MCP client CLI
+  qm-reconciler.yaml
+  qm-reconciler/
+    tools/
+      (none — uses file primitives)
 
 ~/.local/share/sprout-genome/           # Layer 1 (overrides)
   agents/
-    foo/
+    task-manager/
       tools/
-        bar.ts                         # genome override (if present)
+        task-cli                       # genome override (if present)
 ```
 
 ### Implementation
@@ -110,7 +133,29 @@ Extend `agent.ts` to pass `bootstrapDir` through to the tool loader.
 
 ---
 
-## 3. `--genome sync` CLI Command
+## 3. Refactoring Existing Agent Tools
+
+### task-manager
+
+**Move:** `src/tasks/cli.ts`, `src/tasks/store.ts`, `src/tasks/types.ts` → `bootstrap/task-manager/tools/`
+
+The task CLI becomes a bootstrap-shipped tool with YAML frontmatter. The `task-manager.yaml` system prompt drops the hardcoded `bun run src/tasks/cli.ts` path — the tool is registered as a primitive automatically.
+
+The supporting modules (`store.ts`, `types.ts`) move alongside the CLI. If other parts of sprout import from `src/tasks/types.ts`, those imports need updating or the types need to stay in a shared location.
+
+### mcp
+
+**Move:** `src/mcp-cli.ts` → `bootstrap/mcp/tools/sprout-mcp`
+
+The MCP CLI becomes a bootstrap-shipped tool. The `mcp.yaml` system prompt drops the `sprout-mcp` PATH assumption — the tool is registered as a primitive and added to PATH automatically by the tool loader.
+
+### Agent prompt updates
+
+Both agents' system prompts simplify. Instead of documenting exact `exec` invocations with paths, they describe the tool by name. The tool system handles discovery and registration.
+
+---
+
+## 4. `--genome sync` CLI Command
 
 Add `--genome sync` alongside `--genome export`:
 
@@ -123,9 +168,9 @@ Loads the genome, calls `syncBootstrap(bootstrapDir)`, prints results. Same oper
 
 ---
 
-## 4. The qm-reconciler Agent
+## 5. The qm-reconciler Agent
 
-A leaf agent in the quartermaster subsystem. Uses standard file primitives — no `sprout-internal` tools needed. Agents are already good at reading files and reasoning about content.
+A leaf agent in the quartermaster subsystem. Uses standard file primitives — agents are already good at reading files and reasoning about content.
 
 ```yaml
 name: qm-reconciler
@@ -160,11 +205,11 @@ The reconciler reads files directly:
 - `~/.local/share/sprout-genome/agents/*.yaml` for genome specs
 - `~/.local/share/sprout-genome/bootstrap-manifest.json` for sync state
 
-No special tools — just `read_file`, `grep`, `glob` for discovery and comparison, `write_file` for writing proposals.
+No special tools — `read_file`, `grep`, `glob` for discovery and comparison, `write_file` for writing proposals.
 
 ---
 
-## 5. Quartermaster Updates
+## 6. Quartermaster Updates
 
 ### New mode
 
@@ -191,9 +236,10 @@ The quartermaster's system prompt gains a section explaining the agent tool syst
 
 - **Tool loader:** Test `sprout-internal` dispatch — dynamic import, context injection, try/catch error wrapping
 - **Two-layer resolution:** Verify genome override wins, bootstrap falls back, provenance tracks correctly
+- **Refactored tools:** Verify task-cli and sprout-mcp load correctly from bootstrap directories and register as primitives
 - **`--genome sync` CLI:** Integration test via CLI entry point
-- **qm-reconciler:** Test system prompt contains expected sections; agent spec validates
-- **Quartermaster:** Verify system prompt includes tool documentation
+- **qm-reconciler:** Agent spec validates; system prompt covers both jobs
+- **Quartermaster:** System prompt includes tool documentation
 
 ---
 
