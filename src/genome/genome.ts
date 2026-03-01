@@ -430,10 +430,7 @@ export class Genome {
 		const merged = [...kept, ...toAdd];
 
 		// Check if anything actually changed
-		if (
-			merged.length === genomeCaps.length &&
-			merged.every((c, i) => c === genomeCaps[i])
-		) {
+		if (merged.length === genomeCaps.length && merged.every((c, i) => c === genomeCaps[i])) {
 			return false;
 		}
 

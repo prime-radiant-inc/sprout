@@ -3,10 +3,10 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-	type RootManifest,
 	buildManifestFromSpecs,
 	hashFileContent,
 	loadManifest,
+	type RootManifest,
 	saveManifest,
 } from "../../src/genome/root-manifest.ts";
 

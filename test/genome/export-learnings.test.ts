@@ -14,7 +14,10 @@ async function writeRootAgent(
 	overrides: Partial<import("../../src/kernel/types.ts").AgentSpec> = {},
 ): Promise<void> {
 	if (name === "root") {
-		await writeFile(join(rootDir, "root.md"), serializeAgentMarkdown(makeSpec({ name, ...overrides })));
+		await writeFile(
+			join(rootDir, "root.md"),
+			serializeAgentMarkdown(makeSpec({ name, ...overrides })),
+		);
 	} else {
 		const agentsDir = join(rootDir, "agents");
 		await mkdir(agentsDir, { recursive: true });

@@ -707,7 +707,7 @@ function saveAgentPrimitive(ctx: GenomeContext): Primitive {
 			}
 
 			try {
-				// Use the same parsing/validation as loadAgentSpec
+				// Parse and validate agent spec fields
 				const { parse } = await import("yaml");
 				const { DEFAULT_CONSTRAINTS } = await import("./types.ts");
 				const raw = parse(yaml);
