@@ -501,7 +501,7 @@ export class Genome {
 	async loadAgentToolsWithRoot(agentName: string, rootDir: string): Promise<AgentToolDefinition[]> {
 		const genomeTools = await this.loadAgentTools(agentName);
 		const rootToolDir = await findRootToolsDir(rootDir, agentName);
-		const rootTools = await this.loadToolsFromDir(rootToolDir, "bootstrap");
+		const rootTools = await this.loadToolsFromDir(rootToolDir, "root");
 		const genomeNames = new Set(genomeTools.map((t) => t.name));
 		return [...genomeTools, ...rootTools.filter((t) => !genomeNames.has(t.name))];
 	}
@@ -509,7 +509,7 @@ export class Genome {
 	/** Read a tools directory and return AgentToolDefinition[] with the given provenance. */
 	private async loadToolsFromDir(
 		toolDir: string,
-		provenance: "genome" | "bootstrap",
+		provenance: "genome" | "root",
 	): Promise<AgentToolDefinition[]> {
 		let entries: string[];
 		try {
@@ -627,7 +627,7 @@ export interface AgentToolDefinition {
 	description: string;
 	interpreter: string;
 	scriptPath: string;
-	provenance: "genome" | "bootstrap";
+	provenance: "genome" | "root";
 }
 
 export interface AgentFileInfo {

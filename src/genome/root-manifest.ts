@@ -2,23 +2,23 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
-export interface BootstrapManifestEntry {
+export interface RootManifestEntry {
 	hash: string;
 	version: number;
 }
 
-export interface BootstrapManifest {
+export interface RootManifest {
 	synced_at: string;
-	agents: Record<string, BootstrapManifestEntry>;
+	agents: Record<string, RootManifestEntry>;
 	/** Capabilities from the root agent at last sync — used to detect removals. */
 	rootCapabilities?: string[];
 }
 
 /** Load a root manifest from disk. Returns an empty manifest if the file doesn't exist. */
-export async function loadManifest(path: string): Promise<BootstrapManifest> {
+export async function loadManifest(path: string): Promise<RootManifest> {
 	try {
 		const content = await readFile(path, "utf-8");
-		return JSON.parse(content) as BootstrapManifest;
+		return JSON.parse(content) as RootManifest;
 	} catch (err: unknown) {
 		if (err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT") {
 			return { synced_at: "", agents: {} };
@@ -34,7 +34,7 @@ export function hashFileContent(content: string): string {
 }
 
 /** Save a root manifest to disk, creating parent directories if needed. */
-export async function saveManifest(path: string, manifest: BootstrapManifest): Promise<void> {
+export async function saveManifest(path: string, manifest: RootManifest): Promise<void> {
 	await mkdir(dirname(path), { recursive: true });
 	await writeFile(path, JSON.stringify(manifest, null, "\t"), "utf-8");
 }
@@ -47,8 +47,8 @@ export async function saveManifest(path: string, manifest: BootstrapManifest): P
 export function buildManifestFromSpecs(
 	specs: ReadonlyArray<{ name: string; version: number; capabilities?: string[] }>,
 	rawContentByName: ReadonlyMap<string, string>,
-): BootstrapManifest {
-	const agents: Record<string, BootstrapManifestEntry> = {};
+): RootManifest {
+	const agents: Record<string, RootManifestEntry> = {};
 	let rootCapabilities: string[] | undefined;
 	for (const spec of specs) {
 		const content = rawContentByName.get(spec.name);

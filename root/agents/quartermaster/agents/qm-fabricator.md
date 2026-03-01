@@ -1,6 +1,6 @@
 ---
 name: qm-fabricator
-description: "Build new specialist agent YAML definitions on the fly"
+description: "Build new specialist agent definitions on the fly"
 model: best
 tools:
   - read_file

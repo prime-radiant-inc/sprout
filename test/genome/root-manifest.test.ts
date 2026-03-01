@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-	type BootstrapManifest,
+	type RootManifest,
 	buildManifestFromSpecs,
 	hashFileContent,
 	loadManifest,
@@ -37,7 +37,7 @@ describe("root-manifest", () => {
 
 		test("saveManifest + loadManifest round-trips", async () => {
 			const path = join(tempDir, "round-trip.json");
-			const manifest: BootstrapManifest = {
+			const manifest: RootManifest = {
 				synced_at: "2026-02-28T00:00:00Z",
 				agents: {
 					reader: { hash: "sha256:abc123", version: 2 },
@@ -53,7 +53,7 @@ describe("root-manifest", () => {
 
 		test("saveManifest creates parent directories when needed", async () => {
 			const path = join(tempDir, "nested", "dirs", "manifest.json");
-			const manifest: BootstrapManifest = {
+			const manifest: RootManifest = {
 				synced_at: "2026-02-28T00:00:00Z",
 				agents: {},
 			};

@@ -175,7 +175,7 @@ export class Agent {
 			);
 		}
 
-		// Validate that path constraints are compatible with capabilities
+		// Validate that path constraints are compatible with tools
 		validateConstraints(this.spec.name, this.spec.tools, this.spec.constraints);
 
 		// Resolve model and provider

@@ -261,7 +261,7 @@ describe("Genome workspace", () => {
 			const tools = await genome.loadAgentToolsWithRoot("task-manager", rootDir);
 			expect(tools).toHaveLength(1);
 			expect(tools[0]!.name).toBe("task-cli");
-			expect(tools[0]!.provenance).toBe("bootstrap");
+			expect(tools[0]!.provenance).toBe("root");
 		});
 
 		test("genome tool overrides bootstrap tool with same name", async () => {
@@ -347,7 +347,7 @@ describe("Genome workspace", () => {
 			// task-manager has tools in the real tree
 			const names = tools.map((t) => t.name);
 			expect(names).toContain("task-cli");
-			expect(tools.find((t) => t.name === "task-cli")!.provenance).toBe("bootstrap");
+			expect(tools.find((t) => t.name === "task-cli")!.provenance).toBe("root");
 		});
 
 		test("finds tools in nested tree structure for mcp agent", async () => {
@@ -361,7 +361,7 @@ describe("Genome workspace", () => {
 
 			const names = tools.map((t) => t.name);
 			expect(names).toContain("sprout-mcp");
-			expect(tools.find((t) => t.name === "sprout-mcp")!.provenance).toBe("bootstrap");
+			expect(tools.find((t) => t.name === "sprout-mcp")!.provenance).toBe("root");
 		});
 	});
 });
