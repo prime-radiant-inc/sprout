@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse, stringify } from "yaml";
+import { parseAgentMarkdown } from "../../src/agents/markdown-loader.ts";
 import { Genome, git } from "../../src/genome/genome.ts";
 import { loadManifest } from "../../src/genome/root-manifest.ts";
 import type { AgentSpec, Memory, RoutingRule } from "../../src/kernel/types.ts";
@@ -100,7 +101,7 @@ describe("Genome", () => {
 	// --- Agent CRUD tests ---
 
 	describe("agent CRUD", () => {
-		test("addAgent writes YAML and commits", async () => {
+		test("addAgent writes .md file and commits", async () => {
 			const root = join(tempDir, "agent-add");
 			const genome = new Genome(root);
 			await genome.init();
@@ -108,9 +109,9 @@ describe("Genome", () => {
 			const spec = makeSpec({ name: "reader" });
 			await genome.addAgent(spec);
 
-			// File exists on disk
-			const content = await readFile(join(root, "agents", "reader.yaml"), "utf-8");
-			const parsed = parse(content);
+			// File exists on disk as .md
+			const content = await readFile(join(root, "agents", "reader.md"), "utf-8");
+			const parsed = parseAgentMarkdown(content, "reader.md");
 			expect(parsed.name).toBe("reader");
 
 			// Git status clean
@@ -120,6 +121,18 @@ describe("Genome", () => {
 			// Git log has the commit
 			const log = await git(root, "log", "--oneline");
 			expect(log).toContain("genome: add agent 'reader'");
+		});
+
+		test("addAgent writes .md not .yaml", async () => {
+			const root = join(tempDir, "agent-add-no-yaml");
+			const genome = new Genome(root);
+			await genome.init();
+
+			await genome.addAgent(makeSpec({ name: "checker" }));
+
+			const files = await readdir(join(root, "agents"));
+			expect(files).toContain("checker.md");
+			expect(files).not.toContain("checker.yaml");
 		});
 
 		test("getAgent returns undefined for nonexistent", async () => {
@@ -177,7 +190,7 @@ describe("Genome", () => {
 			expect(log).toContain("genome: update agent 'updater' to v2");
 		});
 
-		test("removeAgent deletes YAML and commits", async () => {
+		test("removeAgent deletes .md file and commits", async () => {
 			const root = join(tempDir, "agent-remove");
 			const genome = new Genome(root);
 			await genome.init();
@@ -350,8 +363,13 @@ describe("Genome", () => {
 			const genome = new Genome(root);
 			await genome.init();
 
-			// Add a YAML agent via the normal path
-			await genome.addAgent(makeSpec({ name: "yaml-agent" }));
+			// Write a legacy .yaml agent file directly
+			await writeFile(
+				join(root, "agents", "yaml-agent.yaml"),
+				stringify(makeSpec({ name: "yaml-agent" })),
+			);
+			await git(root, "add", ".");
+			await git(root, "commit", "-m", "add yaml agent");
 
 			// Write a .md agent file directly
 			const mdContent = [
@@ -401,9 +419,12 @@ describe("Genome", () => {
 			const log = await git(root, "log", "--oneline");
 			expect(log).toContain("genome: initialize from root agents");
 
-			// Verify files exist on disk
+			// Verify files exist on disk as .md
 			const files = await readdir(join(root, "agents"));
 			expect(files).toHaveLength(20);
+			for (const f of files) {
+				expect(f).toEndWith(".md");
+			}
 		});
 
 		test("initFromRoot throws if agents already exist", async () => {

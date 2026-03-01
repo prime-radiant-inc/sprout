@@ -1,8 +1,14 @@
 import { chmod, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse, stringify } from "yaml";
-import { findRootToolsDir, loadAgentSpec, loadRootAgents, readRootDir, resolveRootToolsDir } from "../agents/loader.ts";
-import { parseAgentMarkdown } from "../agents/markdown-loader.ts";
+import {
+	findRootToolsDir,
+	loadAgentSpec,
+	loadRootAgents,
+	readRootDir,
+	resolveRootToolsDir,
+} from "../agents/loader.ts";
+import { parseAgentMarkdown, serializeAgentMarkdown } from "../agents/markdown-loader.ts";
 import type { AgentSpec, Memory, RoutingRule } from "../kernel/types.ts";
 import { MemoryStore } from "./memory-store.ts";
 import { buildManifestFromSpecs, loadManifest, saveManifest } from "./root-manifest.ts";
@@ -103,12 +109,12 @@ export class Genome {
 		return this.agents.get(name);
 	}
 
-	/** Add a new agent spec, writing YAML to disk and committing. */
+	/** Add a new agent spec, writing markdown to disk and committing. */
 	async addAgent(spec: AgentSpec): Promise<void> {
-		const yamlPath = join(this.rootPath, "agents", `${spec.name}.yaml`);
-		await writeFile(yamlPath, serializeAgentSpec(spec));
+		const mdPath = join(this.rootPath, "agents", `${spec.name}.md`);
+		await writeFile(mdPath, serializeAgentMarkdown(spec));
 		this.agents.set(spec.name, spec);
-		await git(this.rootPath, "add", yamlPath);
+		await git(this.rootPath, "add", mdPath);
 		await git(this.rootPath, "commit", "-m", `genome: add agent '${spec.name}'`);
 	}
 
@@ -120,10 +126,10 @@ export class Genome {
 		}
 		const nextVersion = existing.version + 1;
 		const updated = { ...spec, version: nextVersion };
-		const yamlPath = join(this.rootPath, "agents", `${spec.name}.yaml`);
-		await writeFile(yamlPath, serializeAgentSpec(updated));
+		const mdPath = join(this.rootPath, "agents", `${spec.name}.md`);
+		await writeFile(mdPath, serializeAgentMarkdown(updated));
 		this.agents.set(spec.name, updated);
-		await git(this.rootPath, "add", yamlPath);
+		await git(this.rootPath, "add", mdPath);
 		await git(
 			this.rootPath,
 			"commit",
@@ -132,15 +138,15 @@ export class Genome {
 		);
 	}
 
-	/** Remove an agent, deleting its YAML file and committing. */
+	/** Remove an agent, deleting its markdown file and committing. */
 	async removeAgent(name: string): Promise<void> {
 		if (!this.agents.has(name)) {
 			throw new Error(`Cannot remove agent '${name}': not found`);
 		}
-		const yamlPath = join(this.rootPath, "agents", `${name}.yaml`);
-		await rm(yamlPath);
+		const mdPath = join(this.rootPath, "agents", `${name}.md`);
+		await rm(mdPath);
 		this.agents.delete(name);
-		await git(this.rootPath, "add", yamlPath);
+		await git(this.rootPath, "add", mdPath);
 		await git(this.rootPath, "commit", "-m", `genome: remove agent '${name}'`);
 	}
 
@@ -310,8 +316,8 @@ export class Genome {
 
 		const specs = await loadRootAgents(rootDir);
 		for (const spec of specs) {
-			const yamlPath = join(this.rootPath, "agents", `${spec.name}.yaml`);
-			await writeFile(yamlPath, serializeAgentSpec(spec));
+			const mdPath = join(this.rootPath, "agents", `${spec.name}.md`);
+			await writeFile(mdPath, serializeAgentMarkdown(spec));
 			this.agents.set(spec.name, spec);
 		}
 
@@ -342,8 +348,8 @@ export class Genome {
 
 			if (!existing) {
 				// Case 1: Agent not in genome — add it
-				const yamlPath = join(this.rootPath, "agents", `${spec.name}.yaml`);
-				await writeFile(yamlPath, serializeAgentSpec(spec));
+				const mdPath = join(this.rootPath, "agents", `${spec.name}.md`);
+				await writeFile(mdPath, serializeAgentMarkdown(spec));
 				this.agents.set(spec.name, spec);
 				added.push(spec.name);
 			} else if (!oldEntry) {
@@ -352,8 +358,8 @@ export class Genome {
 				// Case 3: Bootstrap file unchanged — skip
 			} else if (existing.version === oldEntry.version) {
 				// Case 4: Bootstrap changed AND genome unchanged — update genome
-				const yamlPath = join(this.rootPath, "agents", `${spec.name}.yaml`);
-				await writeFile(yamlPath, serializeAgentSpec(spec));
+				const mdPath = join(this.rootPath, "agents", `${spec.name}.md`);
+				await writeFile(mdPath, serializeAgentMarkdown(spec));
 				this.agents.set(spec.name, spec);
 				updated.push(spec.name);
 			} else {
@@ -380,10 +386,10 @@ export class Genome {
 		// Collect specific files to stage (avoid `git add .` which may stage unrelated files)
 		const filesToStage: string[] = [];
 		for (const name of [...added, ...updated]) {
-			filesToStage.push(join(this.rootPath, "agents", `${name}.yaml`));
+			filesToStage.push(join(this.rootPath, "agents", `${name}.md`));
 		}
 		if (capsMerged) {
-			filesToStage.push(join(this.rootPath, "agents", "root.yaml"));
+			filesToStage.push(join(this.rootPath, "agents", "root.md"));
 		}
 		if (hasChanges || conflicts.length > 0) {
 			filesToStage.push(manifestPath);
@@ -436,8 +442,8 @@ export class Genome {
 		}
 
 		const updated = { ...genomeRoot, capabilities: merged };
-		const yamlPath = join(this.rootPath, "agents", "root.yaml");
-		await writeFile(yamlPath, serializeAgentSpec(updated));
+		const mdPath = join(this.rootPath, "agents", "root.md");
+		await writeFile(mdPath, serializeAgentMarkdown(updated));
 		this.agents.set("root", updated);
 		return true;
 	}
