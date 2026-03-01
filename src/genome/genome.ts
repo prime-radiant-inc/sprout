@@ -112,9 +112,9 @@ export class Genome {
 	async addAgent(spec: AgentSpec): Promise<void> {
 		const mdPath = join(this.rootPath, "agents", `${spec.name}.md`);
 		await writeFile(mdPath, serializeAgentMarkdown(spec));
-		this.agents.set(spec.name, spec);
 		await git(this.rootPath, "add", mdPath);
 		await git(this.rootPath, "commit", "-m", `genome: add agent '${spec.name}'`);
+		this.agents.set(spec.name, spec);
 	}
 
 	/** Update an existing agent, bumping its version. */
@@ -127,7 +127,6 @@ export class Genome {
 		const updated = { ...spec, version: nextVersion };
 		const mdPath = join(this.rootPath, "agents", `${spec.name}.md`);
 		await writeFile(mdPath, serializeAgentMarkdown(updated));
-		this.agents.set(spec.name, updated);
 		await git(this.rootPath, "add", mdPath);
 		await git(
 			this.rootPath,
@@ -135,6 +134,7 @@ export class Genome {
 			"-m",
 			`genome: update agent '${spec.name}' to v${nextVersion}`,
 		);
+		this.agents.set(spec.name, updated);
 	}
 
 	/** Remove an agent, deleting its markdown file and committing. */
@@ -144,9 +144,9 @@ export class Genome {
 		}
 		const mdPath = join(this.rootPath, "agents", `${name}.md`);
 		await rm(mdPath);
-		this.agents.delete(name);
 		await git(this.rootPath, "add", mdPath);
 		await git(this.rootPath, "commit", "-m", `genome: remove agent '${name}'`);
+		this.agents.delete(name);
 	}
 
 	// --- Routing rules ---

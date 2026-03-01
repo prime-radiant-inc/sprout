@@ -709,7 +709,7 @@ function saveAgentPrimitive(ctx: GenomeContext): Primitive {
 			try {
 				// Parse and validate agent spec fields
 				const { parse } = await import("yaml");
-				const { DEFAULT_CONSTRAINTS } = await import("./types.ts");
+				const { DEFAULT_CONSTRAINTS, validateAgentName } = await import("./types.ts");
 				const raw = parse(spec);
 
 				for (const field of ["name", "description", "system_prompt", "model"]) {
@@ -722,6 +722,8 @@ function saveAgentPrimitive(ctx: GenomeContext): Primitive {
 					}
 				}
 
+				validateAgentName(raw.name as string);
+
 				const tools: string[] =
 					raw.tools ??
 					(raw.capabilities
@@ -732,7 +734,7 @@ function saveAgentPrimitive(ctx: GenomeContext): Primitive {
 					(raw.capabilities
 						? (raw.capabilities as string[]).filter((c: string) => c.includes("/"))
 						: []);
-				const agentSpec = {
+				const agentSpec: import("./types.ts").AgentSpec = {
 					name: raw.name as string,
 					description: raw.description as string,
 					system_prompt: raw.system_prompt as string,
@@ -743,6 +745,9 @@ function saveAgentPrimitive(ctx: GenomeContext): Primitive {
 					tags: (raw.tags as string[]) ?? [],
 					version: (raw.version as number) ?? 1,
 				};
+				if (raw.thinking !== undefined) {
+					agentSpec.thinking = raw.thinking;
+				}
 
 				await ctx.genome.addAgent(agentSpec);
 				return {

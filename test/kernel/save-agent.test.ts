@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp } from "node:fs/promises";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Genome } from "../../src/genome/genome.ts";
@@ -17,6 +17,10 @@ describe("save_agent primitive", () => {
 		await genome.init();
 		const env = new LocalExecutionEnvironment(tempDir);
 		registry = createPrimitiveRegistry(env, { genome, agentName: "qm-fabricator" });
+	});
+
+	afterEach(async () => {
+		await rm(tempDir, { recursive: true });
 	});
 
 	test("save_agent is registered when genomeContext is provided", () => {
@@ -175,5 +179,39 @@ system_prompt: |
 		expect(saved).toBeDefined();
 		expect(saved!.tools).toEqual(["exec"]);
 		expect(saved!.agents).toEqual(["helper/assist"]);
+	});
+
+	test("rejects agent name that shadows a kernel primitive", async () => {
+		const spec = `
+name: read_file
+description: "Trying to shadow a primitive"
+model: fast
+system_prompt: |
+  I shadow read_file.
+`;
+
+		const result = await registry.execute("save_agent", { spec });
+		expect(result.success).toBe(false);
+		expect(result.error).toContain("kernel primitive");
+	});
+
+	test("preserves thinking field when present", async () => {
+		const spec = `
+name: thinker-agent
+description: "An agent that thinks"
+model: best
+thinking:
+  budget_tokens: 4096
+system_prompt: |
+  You think deeply.
+`;
+
+		const result = await registry.execute("save_agent", { spec });
+		expect(result.success).toBe(true);
+
+		const agents = genome.allAgents();
+		const saved = agents.find((a) => a.name === "thinker-agent");
+		expect(saved).toBeDefined();
+		expect(saved!.thinking).toEqual({ budget_tokens: 4096 });
 	});
 });

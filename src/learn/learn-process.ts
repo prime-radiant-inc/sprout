@@ -407,10 +407,11 @@ Choose the most appropriate improvement. Prefer creating memories for factual le
 				if (typeof parsed.agent_name !== "string") return null;
 				if (typeof parsed.system_prompt !== "string") return null;
 			} else if (parsed.type === "create_agent") {
-				if (typeof parsed.name !== "string") return null;
-				if (typeof parsed.description !== "string") return null;
-				if (typeof parsed.system_prompt !== "string") return null;
-				if (typeof parsed.model !== "string") return null;
+				if (typeof parsed.name !== "string" || parsed.name.trim() === "") return null;
+				if (typeof parsed.description !== "string" || parsed.description.trim() === "") return null;
+				if (typeof parsed.system_prompt !== "string" || parsed.system_prompt.trim() === "")
+					return null;
+				if (typeof parsed.model !== "string" || parsed.model.trim() === "") return null;
 				// Migrate old capabilities field into tools and agents
 				if (!Array.isArray(parsed.tools)) {
 					parsed.tools = Array.isArray(parsed.capabilities)

@@ -390,9 +390,7 @@ describe("LearnProcess", () => {
 		});
 
 		test("rejects update_agent missing agent_name", async () => {
-			const client = makeMockClient(
-				'{"type": "update_agent", "system_prompt": "new prompt"}',
-			);
+			const client = makeMockClient('{"type": "update_agent", "system_prompt": "new prompt"}');
 			const { learn } = await setupGenomeWithClient(tempDir, "val-upd-no-name", client);
 			learn.push(makeFailureSignal());
 			const result = await learn.processNext();
@@ -410,6 +408,24 @@ describe("LearnProcess", () => {
 		test("rejects create_agent missing required fields", async () => {
 			const client = makeMockClient('{"type": "create_agent", "name": "partial"}');
 			const { learn } = await setupGenomeWithClient(tempDir, "val-create-partial", client);
+			learn.push(makeFailureSignal());
+			const result = await learn.processNext();
+			expect(result).toBe("skipped");
+		});
+
+		test("rejects create_agent with empty string fields", async () => {
+			const json = JSON.stringify({
+				type: "create_agent",
+				name: "",
+				description: "Has empty name",
+				system_prompt: "prompt",
+				model: "fast",
+				tools: [],
+				agents: [],
+				tags: [],
+			});
+			const client = makeMockClient(json);
+			const { learn } = await setupGenomeWithClient(tempDir, "val-create-empty", client);
 			learn.push(makeFailureSignal());
 			const result = await learn.processNext();
 			expect(result).toBe("skipped");
@@ -454,11 +470,7 @@ describe("LearnProcess", () => {
 				tags: ["test"],
 			});
 			const client = makeMockClient(json);
-			const { learn, genome } = await setupGenomeWithClient(
-				tempDir,
-				"val-capabilities",
-				client,
-			);
+			const { learn, genome } = await setupGenomeWithClient(tempDir, "val-capabilities", client);
 			learn.push(makeFailureSignal());
 			const result = await learn.processNext();
 			expect(result).toBe("applied");

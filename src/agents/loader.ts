@@ -148,10 +148,15 @@ async function scanLevel(
 	// Handle namespace directories without a spec file (e.g., utility/)
 	const dirs = entries.filter((e) => e.isDirectory() && !handledDirs.has(e.name));
 	for (const d of dirs) {
+		// Skip the conventional "agents" subdirectory — it's handled by the
+		// spec-file loop above (line: const childDir = join(dir, name, "agents"))
+		// or by the explicit agents/ scan below for namespace directories.
+		if (d.name === "agents") continue;
+
 		const nsPrefix = pathPrefix ? `${pathPrefix}/${d.name}` : d.name;
 		const nsDir = join(dir, d.name);
 
-		// Scan for .md sibling files directly in the namespace directory
+		// Scan for .md files directly in the namespace directory
 		await scanLevel(nsDir, nsPrefix, tree);
 
 		// Also recurse into <namespace>/agents/ for conventionally nested children

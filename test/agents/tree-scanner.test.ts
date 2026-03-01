@@ -133,4 +133,22 @@ describe("scanAgentTree", () => {
 		expect(tree.has("utility/reader")).toBe(true);
 		expect(tree.has("utility/task-manager")).toBe(true);
 	});
+
+	test("does not produce duplicate entries for namespace agents", async () => {
+		await mkdir(join(rootDir, "agents/utility/agents"), { recursive: true });
+		await writeAgentMd("agents/utility/agents/reader.md", "reader", "Reads files");
+		await writeAgentMd("agents/utility/agents/editor.md", "editor", "Edits files");
+
+		const tree = await scanAgentTree(rootDir);
+
+		// Should have exactly 2 entries, both under utility/ prefix
+		expect(tree.size).toBe(2);
+		expect(tree.has("utility/reader")).toBe(true);
+		expect(tree.has("utility/editor")).toBe(true);
+
+		// Should NOT have entries with "utility/agents/" prefix (double-scan artifact)
+		for (const key of tree.keys()) {
+			expect(key).not.toContain("utility/agents/");
+		}
+	});
 });
