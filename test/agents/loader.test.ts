@@ -2,7 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadAgentSpec, loadBootstrapAgents } from "../../src/agents/loader.ts";
+import {
+	findBootstrapToolsDir,
+	loadAgentSpec,
+	loadBootstrapAgents,
+} from "../../src/agents/loader.ts";
 import { serializeAgentSpec } from "../../src/genome/genome.ts";
 
 describe("loadAgentSpec", () => {
@@ -111,6 +115,26 @@ describe("serializeAgentSpec", () => {
 		const spec = await loadAgentSpec(srcPath);
 		const yaml = serializeAgentSpec(spec);
 		expect(yaml).not.toContain("thinking");
+	});
+});
+
+describe("findBootstrapToolsDir", () => {
+	test("returns nested path for agent in tree", async () => {
+		const rootDir = join(import.meta.dir, "../../root");
+		const dir = await findBootstrapToolsDir(rootDir, "task-manager");
+		expect(dir).toContain("agents/utility/agents/task-manager/tools");
+	});
+
+	test("returns nested path for mcp agent in tree", async () => {
+		const rootDir = join(import.meta.dir, "../../root");
+		const dir = await findBootstrapToolsDir(rootDir, "mcp");
+		expect(dir).toContain("agents/utility/agents/mcp/tools");
+	});
+
+	test("falls back to flat path for unknown agent", async () => {
+		const rootDir = join(import.meta.dir, "../../root");
+		const dir = await findBootstrapToolsDir(rootDir, "nonexistent-agent");
+		expect(dir).toBe(join(rootDir, "nonexistent-agent", "tools"));
 	});
 });
 

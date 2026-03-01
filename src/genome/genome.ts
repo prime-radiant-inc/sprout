@@ -1,7 +1,12 @@
 import { chmod, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse, stringify } from "yaml";
-import { loadAgentSpec, loadBootstrapAgents, readBootstrapDir } from "../agents/loader.ts";
+import {
+	findBootstrapToolsDir,
+	loadAgentSpec,
+	loadBootstrapAgents,
+	readBootstrapDir,
+} from "../agents/loader.ts";
 import { parseAgentMarkdown } from "../agents/markdown-loader.ts";
 import type { AgentSpec, Memory, RoutingRule } from "../kernel/types.ts";
 import { buildManifestFromSpecs, loadManifest, saveManifest } from "./bootstrap-manifest.ts";
@@ -505,7 +510,7 @@ export class Genome {
 		bootstrapDir: string,
 	): Promise<AgentToolDefinition[]> {
 		const genomeTools = await this.loadAgentTools(agentName);
-		const bootstrapToolDir = join(bootstrapDir, agentName, "tools");
+		const bootstrapToolDir = await findBootstrapToolsDir(bootstrapDir, agentName);
 		const bootstrapTools = await this.loadToolsFromDir(bootstrapToolDir, "bootstrap");
 		const genomeNames = new Set(genomeTools.map((t) => t.name));
 		return [...genomeTools, ...bootstrapTools.filter((t) => !genomeNames.has(t.name))];

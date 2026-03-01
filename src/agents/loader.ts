@@ -91,6 +91,27 @@ export async function readBootstrapDir(
 	return { specs, rawContentByName };
 }
 
+/**
+ * Find the tools directory for an agent in the bootstrap root directory.
+ * Scans the agent tree to find the correct nested path, falling back to the
+ * flat layout (bootstrapDir/agentName/tools/) if the agent is not in the tree.
+ */
+export async function findBootstrapToolsDir(
+	bootstrapDir: string,
+	agentName: string,
+): Promise<string> {
+	const tree = await scanAgentTree(bootstrapDir);
+	for (const entry of tree.values()) {
+		if (entry.spec.name === agentName) {
+			// Tools dir is a sibling directory to the .md file, named after the agent
+			// e.g. root/agents/utility/agents/task-manager.md -> root/agents/utility/agents/task-manager/tools
+			return join(entry.diskPath.replace(/\.md$/, ""), "tools");
+		}
+	}
+	// Fallback: flat layout (bootstrapDir/agentName/tools/)
+	return join(bootstrapDir, agentName, "tools");
+}
+
 export interface Preambles {
 	global: string;
 	orchestrator: string;

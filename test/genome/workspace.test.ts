@@ -332,5 +332,36 @@ describe("Genome workspace", () => {
 			const tools = await genome.loadAgentToolsWithBootstrap("reader", bootstrapDir);
 			expect(tools).toEqual([]);
 		});
+
+		test("finds tools in nested tree structure", async () => {
+			const root = join(tempDir, "two-layer-tree");
+			const genome = new Genome(root);
+			await genome.init();
+			await genome.addAgent(makeSpec({ name: "task-manager" }));
+
+			// Use the real root/ directory which has task-manager tools nested at
+			// root/agents/utility/agents/task-manager/tools/
+			const bootstrapDir = join(import.meta.dir, "../../root");
+			const tools = await genome.loadAgentToolsWithBootstrap("task-manager", bootstrapDir);
+
+			// task-manager has tools in the real tree
+			const names = tools.map((t) => t.name);
+			expect(names).toContain("task-cli");
+			expect(tools.find((t) => t.name === "task-cli")!.provenance).toBe("bootstrap");
+		});
+
+		test("finds tools in nested tree structure for mcp agent", async () => {
+			const root = join(tempDir, "two-layer-tree-mcp");
+			const genome = new Genome(root);
+			await genome.init();
+			await genome.addAgent(makeSpec({ name: "mcp" }));
+
+			const bootstrapDir = join(import.meta.dir, "../../root");
+			const tools = await genome.loadAgentToolsWithBootstrap("mcp", bootstrapDir);
+
+			const names = tools.map((t) => t.name);
+			expect(names).toContain("sprout-mcp");
+			expect(tools.find((t) => t.name === "sprout-mcp")!.provenance).toBe("bootstrap");
+		});
 	});
 });
