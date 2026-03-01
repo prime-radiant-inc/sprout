@@ -1,7 +1,7 @@
 import { chmod, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse, stringify } from "yaml";
-import { findRootToolsDir, loadAgentSpec, loadRootAgents, readRootDir } from "../agents/loader.ts";
+import { findRootToolsDir, loadAgentSpec, loadRootAgents, readRootDir, resolveRootToolsDir } from "../agents/loader.ts";
 import { parseAgentMarkdown } from "../agents/markdown-loader.ts";
 import type { AgentSpec, Memory, RoutingRule } from "../kernel/types.ts";
 import { MemoryStore } from "./memory-store.ts";
@@ -498,9 +498,15 @@ export class Genome {
 	}
 
 	/** Load tools from both genome and root directories, genome overrides on name collision. */
-	async loadAgentToolsWithRoot(agentName: string, rootDir: string): Promise<AgentToolDefinition[]> {
+	async loadAgentToolsWithRoot(
+		agentName: string,
+		rootDir: string,
+		tree?: Map<string, import("../agents/loader.ts").AgentTreeEntry>,
+	): Promise<AgentToolDefinition[]> {
 		const genomeTools = await this.loadAgentTools(agentName);
-		const rootToolDir = await findRootToolsDir(rootDir, agentName);
+		const rootToolDir = tree
+			? resolveRootToolsDir(tree, rootDir, agentName)
+			: await findRootToolsDir(rootDir, agentName);
 		const rootTools = await this.loadToolsFromDir(rootToolDir, "root");
 		const genomeNames = new Set(genomeTools.map((t) => t.name));
 		return [...genomeTools, ...rootTools.filter((t) => !genomeNames.has(t.name))];

@@ -666,7 +666,7 @@ export class Agent {
 		let wsToolDefs: import("../genome/genome.ts").AgentToolDefinition[] = [];
 		if (this.genome && this.primitiveTools.length > 0) {
 			wsToolDefs = this.rootDir
-				? await this.genome.loadAgentToolsWithRoot(this.spec.name, this.rootDir)
+				? await this.genome.loadAgentToolsWithRoot(this.spec.name, this.rootDir, this.agentTree)
 				: await this.genome.loadAgentTools(this.spec.name);
 			if (wsToolDefs.length > 0) {
 				const toolPrims = buildAgentToolPrimitives(wsToolDefs, {
