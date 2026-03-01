@@ -351,6 +351,124 @@ describe("LearnProcess", () => {
 		expect(memories.some((m) => m.content === "bare block insight")).toBe(true);
 	});
 
+	describe("mutation validation", () => {
+		function makeFailureSignal() {
+			return makeSignal({
+				kind: "failure",
+				agent_name: "root",
+				goal: "do something",
+				details: {
+					agent_name: "root",
+					goal: "do something",
+					output: "failed",
+					success: false,
+					stumbles: 1,
+					turns: 3,
+					timed_out: false,
+				},
+			});
+		}
+
+		test("rejects create_memory missing content", async () => {
+			const client = makeMockClient('{"type": "create_memory", "tags": ["test"]}');
+			const { learn } = await setupGenomeWithClient(tempDir, "val-mem-no-content", client);
+			learn.push(makeFailureSignal());
+			const result = await learn.processNext();
+			expect(result).toBe("skipped");
+		});
+
+		test("defaults create_memory tags to empty array", async () => {
+			const client = makeMockClient('{"type": "create_memory", "content": "learned fact"}');
+			const { learn, genome } = await setupGenomeWithClient(tempDir, "val-mem-no-tags", client);
+			learn.push(makeFailureSignal());
+			const result = await learn.processNext();
+			expect(result).toBe("applied");
+			const memories = genome.memories.all();
+			const mem = memories.find((m) => m.content === "learned fact");
+			expect(mem).toBeDefined();
+			expect(mem!.tags).toEqual([]);
+		});
+
+		test("rejects update_agent missing agent_name", async () => {
+			const client = makeMockClient(
+				'{"type": "update_agent", "system_prompt": "new prompt"}',
+			);
+			const { learn } = await setupGenomeWithClient(tempDir, "val-upd-no-name", client);
+			learn.push(makeFailureSignal());
+			const result = await learn.processNext();
+			expect(result).toBe("skipped");
+		});
+
+		test("rejects update_agent missing system_prompt", async () => {
+			const client = makeMockClient('{"type": "update_agent", "agent_name": "root"}');
+			const { learn } = await setupGenomeWithClient(tempDir, "val-upd-no-prompt", client);
+			learn.push(makeFailureSignal());
+			const result = await learn.processNext();
+			expect(result).toBe("skipped");
+		});
+
+		test("rejects create_agent missing required fields", async () => {
+			const client = makeMockClient('{"type": "create_agent", "name": "partial"}');
+			const { learn } = await setupGenomeWithClient(tempDir, "val-create-partial", client);
+			learn.push(makeFailureSignal());
+			const result = await learn.processNext();
+			expect(result).toBe("skipped");
+		});
+
+		test("rejects create_routing_rule missing condition", async () => {
+			const client = makeMockClient(
+				'{"type": "create_routing_rule", "preference": "agent-a", "strength": 0.8}',
+			);
+			const { learn } = await setupGenomeWithClient(tempDir, "val-rule-no-cond", client);
+			learn.push(makeFailureSignal());
+			const result = await learn.processNext();
+			expect(result).toBe("skipped");
+		});
+
+		test("rejects create_routing_rule missing strength", async () => {
+			const client = makeMockClient(
+				'{"type": "create_routing_rule", "condition": "tests", "preference": "agent-a"}',
+			);
+			const { learn } = await setupGenomeWithClient(tempDir, "val-rule-no-str", client);
+			learn.push(makeFailureSignal());
+			const result = await learn.processNext();
+			expect(result).toBe("skipped");
+		});
+
+		test("rejects unknown mutation type", async () => {
+			const client = makeMockClient('{"type": "delete_agent", "name": "root"}');
+			const { learn } = await setupGenomeWithClient(tempDir, "val-unknown-type", client);
+			learn.push(makeFailureSignal());
+			const result = await learn.processNext();
+			expect(result).toBe("skipped");
+		});
+
+		test("create_agent falls back from capabilities to tools and agents", async () => {
+			const json = JSON.stringify({
+				type: "create_agent",
+				name: "cap-test",
+				description: "Test capabilities fallback",
+				system_prompt: "You test capabilities.",
+				model: "fast",
+				capabilities: ["read_file", "write_file", "utility/planner"],
+				tags: ["test"],
+			});
+			const client = makeMockClient(json);
+			const { learn, genome } = await setupGenomeWithClient(
+				tempDir,
+				"val-capabilities",
+				client,
+			);
+			learn.push(makeFailureSignal());
+			const result = await learn.processNext();
+			expect(result).toBe("applied");
+			const agent = genome.getAgent("cap-test");
+			expect(agent).toBeDefined();
+			expect(agent!.tools).toEqual(["read_file", "write_file"]);
+			expect(agent!.agents).toEqual(["utility/planner"]);
+		});
+	});
+
 	describe("background processing", () => {
 		test("startBackground processes signals pushed to queue", async () => {
 			const { learn } = await setupGenome(tempDir, "bg-process");

@@ -398,20 +398,39 @@ Choose the most appropriate improvement. Prefer creating memories for factual le
 		try {
 			const parsed = JSON.parse(jsonText);
 			if (parsed.type === "skip") return null;
-			if (
-				parsed.type === "create_memory" ||
-				parsed.type === "update_agent" ||
-				parsed.type === "create_agent" ||
-				parsed.type === "create_routing_rule"
-			) {
-				if (parsed.type === "create_agent") {
-					if (!Array.isArray(parsed.tools)) parsed.tools = [];
-					if (!Array.isArray(parsed.agents)) parsed.agents = [];
-					if (!Array.isArray(parsed.tags)) parsed.tags = [];
+
+			// Validate required fields for each mutation type
+			if (parsed.type === "create_memory") {
+				if (typeof parsed.content !== "string") return null;
+				if (!Array.isArray(parsed.tags)) parsed.tags = [];
+			} else if (parsed.type === "update_agent") {
+				if (typeof parsed.agent_name !== "string") return null;
+				if (typeof parsed.system_prompt !== "string") return null;
+			} else if (parsed.type === "create_agent") {
+				if (typeof parsed.name !== "string") return null;
+				if (typeof parsed.description !== "string") return null;
+				if (typeof parsed.system_prompt !== "string") return null;
+				if (typeof parsed.model !== "string") return null;
+				// Migrate old capabilities field into tools and agents
+				if (!Array.isArray(parsed.tools)) {
+					parsed.tools = Array.isArray(parsed.capabilities)
+						? parsed.capabilities.filter((c: string) => !c.includes("/"))
+						: [];
 				}
-				return parsed as LearnMutation;
+				if (!Array.isArray(parsed.agents)) {
+					parsed.agents = Array.isArray(parsed.capabilities)
+						? parsed.capabilities.filter((c: string) => c.includes("/"))
+						: [];
+				}
+				if (!Array.isArray(parsed.tags)) parsed.tags = [];
+			} else if (parsed.type === "create_routing_rule") {
+				if (typeof parsed.condition !== "string") return null;
+				if (typeof parsed.preference !== "string") return null;
+				if (typeof parsed.strength !== "number") return null;
+			} else {
+				return null; // unknown type
 			}
-			return null;
+			return parsed as LearnMutation;
 		} catch {
 			return null;
 		}
