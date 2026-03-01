@@ -31,6 +31,12 @@ export function parseAgentMarkdown(content: string, source: string): AgentSpec {
 		}
 	}
 
+	if (raw.tools != null && !Array.isArray(raw.tools)) {
+		throw new Error(`Invalid agent markdown at ${source}: 'tools' must be an array`);
+	}
+	if (raw.agents != null && !Array.isArray(raw.agents)) {
+		throw new Error(`Invalid agent markdown at ${source}: 'agents' must be an array`);
+	}
 	const tools: string[] = raw.tools ?? [];
 	const agents: string[] = raw.agents ?? [];
 
