@@ -2,6 +2,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse } from "yaml";
 import { type AgentSpec, DEFAULT_CONSTRAINTS } from "../kernel/types.ts";
+import { parseAgentMarkdown } from "./markdown-loader.ts";
 
 /** Parse an AgentSpec from raw YAML content. The source label is used in error messages. */
 export function parseAgentSpec(content: string, source: string): AgentSpec {
@@ -75,4 +76,66 @@ export async function loadPreambles(bootstrapDir: string): Promise<Preambles> {
 		read("worker.md"),
 	]);
 	return { global, orchestrator, worker };
+}
+
+export interface AgentTreeEntry {
+	spec: AgentSpec;
+	path: string;
+	children: string[];
+	diskPath: string;
+}
+
+/**
+ * Recursively scan an agent root directory, building a map of agent paths to specs.
+ * Directory structure: root/agents/<name>.md, root/agents/<name>/agents/<child>.md, etc.
+ */
+export async function scanAgentTree(rootDir: string): Promise<Map<string, AgentTreeEntry>> {
+	const tree = new Map<string, AgentTreeEntry>();
+	await scanLevel(join(rootDir, "agents"), "", tree);
+	return tree;
+}
+
+async function scanLevel(
+	dir: string,
+	pathPrefix: string,
+	tree: Map<string, AgentTreeEntry>,
+): Promise<string[]> {
+	let entries: import("node:fs").Dirent[];
+	try {
+		entries = await readdir(dir, { withFileTypes: true });
+	} catch {
+		return [];
+	}
+
+	const mdFiles = entries
+		.filter((e) => e.isFile() && e.name.endsWith(".md"))
+		.map((e) => e.name)
+		.sort();
+	const childNames: string[] = [];
+	const handledDirs = new Set<string>();
+
+	for (const file of mdFiles) {
+		const name = file.replace(/\.md$/, "");
+		const agentPath = pathPrefix ? `${pathPrefix}/${name}` : name;
+		const diskPath = join(dir, file);
+		const content = await readFile(diskPath, "utf-8");
+		const spec = parseAgentMarkdown(content, diskPath);
+
+		// Recurse into <name>/agents/ for children
+		const childDir = join(dir, name, "agents");
+		const children = await scanLevel(childDir, agentPath, tree);
+
+		tree.set(agentPath, { spec, path: agentPath, children, diskPath });
+		childNames.push(name);
+		handledDirs.add(name);
+	}
+
+	// Handle namespace directories without a spec file (e.g., utility/)
+	const dirs = entries.filter((e) => e.isDirectory() && !handledDirs.has(e.name));
+	for (const d of dirs) {
+		const childDir = join(dir, d.name, "agents");
+		await scanLevel(childDir, pathPrefix ? `${pathPrefix}/${d.name}` : d.name, tree);
+	}
+
+	return childNames;
 }
