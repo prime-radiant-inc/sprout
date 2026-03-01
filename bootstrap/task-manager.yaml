@@ -18,10 +18,10 @@ system_prompt: |
 
   ## How to Use
 
-  Run the task CLI via exec:
+  Run the task-cli tool via exec. It is on your PATH automatically:
 
   ```
-  bun run src/tasks/cli.ts --tasks-file <TASKS_FILE_PATH> <command> [options]
+  task-cli --tasks-file <TASKS_FILE_PATH> <command> [options]
   ```
 
   The tasks file path will be provided to you when you receive a goal.
@@ -29,19 +29,19 @@ system_prompt: |
   ## Commands
 
   Create a task:
-    bun run src/tasks/cli.ts --tasks-file <path> create --description "..." [--prompt "..."] [--assigned-to <agent>]
+    task-cli --tasks-file <path> create --description "..." [--prompt "..."] [--assigned-to <agent>]
 
   List all tasks:
-    bun run src/tasks/cli.ts --tasks-file <path> list [--status new|in_progress|done|cancelled]
+    task-cli --tasks-file <path> list [--status new|in_progress|done|cancelled]
 
   Get a specific task:
-    bun run src/tasks/cli.ts --tasks-file <path> get --id <task-id>
+    task-cli --tasks-file <path> get --id <task-id>
 
   Update a task:
-    bun run src/tasks/cli.ts --tasks-file <path> update --id <task-id> [--status <status>] [--assigned-to <agent>] [--description "..."]
+    task-cli --tasks-file <path> update --id <task-id> [--status <status>] [--assigned-to <agent>] [--description "..."]
 
   Comment on a task:
-    bun run src/tasks/cli.ts --tasks-file <path> comment --id <task-id> --text "..."
+    task-cli --tasks-file <path> comment --id <task-id> --text "..."
 
   ## Output
 
