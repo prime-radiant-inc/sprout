@@ -2,7 +2,35 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { scanAgentTree } from "../../src/agents/loader.ts";
+import { findTreeEntryByName, scanAgentTree } from "../../src/agents/loader.ts";
+
+test("findTreeEntryByName returns entry for nested agent", () => {
+	// Build a tree manually
+	const tree = new Map([
+		[
+			"utility/reader",
+			{
+				spec: { name: "reader" } as any,
+				path: "utility/reader",
+				children: [],
+				diskPath: "/fake/utility/agents/reader.md",
+			},
+		],
+		[
+			"tech-lead",
+			{
+				spec: { name: "tech-lead" } as any,
+				path: "tech-lead",
+				children: ["engineer"],
+				diskPath: "/fake/agents/tech-lead.md",
+			},
+		],
+	]);
+	expect(findTreeEntryByName(tree, "reader")).toBeDefined();
+	expect(findTreeEntryByName(tree, "reader")!.path).toBe("utility/reader");
+	expect(findTreeEntryByName(tree, "tech-lead")!.path).toBe("tech-lead");
+	expect(findTreeEntryByName(tree, "nonexistent")).toBeUndefined();
+});
 
 describe("scanAgentTree", () => {
 	let rootDir: string;

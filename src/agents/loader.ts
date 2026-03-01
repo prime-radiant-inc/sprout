@@ -79,34 +79,52 @@ export async function readRootDir(
 		// No root.md — fine
 	}
 
-	// Scan the agent tree
+	// Scan the agent tree (rawContent is populated by scanAgentTree)
 	const tree = await scanAgentTree(dir);
 	for (const entry of tree.values()) {
-		const content = await readFile(entry.diskPath, "utf-8");
-		const spec = entry.spec;
-		specs.push(spec);
-		rawContentByName.set(spec.name, content);
+		specs.push(entry.spec);
+		if (entry.rawContent) {
+			rawContentByName.set(entry.spec.name, entry.rawContent);
+		}
 	}
 
 	return { specs, rawContentByName };
 }
 
+/** Look up a tree entry by spec name (linear scan). Returns undefined if not found. */
+export function findTreeEntryByName(
+	tree: Map<string, AgentTreeEntry>,
+	name: string,
+): AgentTreeEntry | undefined {
+	for (const entry of tree.values()) {
+		if (entry.spec.name === name) return entry;
+	}
+	return undefined;
+}
+
 /**
- * Find the tools directory for an agent in the root directory.
- * Scans the agent tree to find the correct nested path, falling back to the
- * flat layout (rootDir/agentName/tools/) if the agent is not in the tree.
+ * Resolve the tools directory for an agent from a pre-scanned tree.
+ * Falls back to the flat layout (rootDir/agentName/tools/) if the agent is not in the tree.
+ */
+export function resolveRootToolsDir(
+	tree: Map<string, AgentTreeEntry>,
+	rootDir: string,
+	agentName: string,
+): string {
+	const entry = findTreeEntryByName(tree, agentName);
+	if (entry) {
+		return join(entry.diskPath.replace(/\.md$/, ""), "tools");
+	}
+	return join(rootDir, agentName, "tools");
+}
+
+/**
+ * Find the tools directory for an agent by scanning the root directory tree.
+ * Convenience wrapper that scans the tree first, then resolves.
  */
 export async function findRootToolsDir(rootDir: string, agentName: string): Promise<string> {
 	const tree = await scanAgentTree(rootDir);
-	for (const entry of tree.values()) {
-		if (entry.spec.name === agentName) {
-			// Tools dir is a sibling directory to the .md file, named after the agent
-			// e.g. root/agents/utility/agents/task-manager.md -> root/agents/utility/agents/task-manager/tools
-			return join(entry.diskPath.replace(/\.md$/, ""), "tools");
-		}
-	}
-	// Fallback: flat layout (rootDir/agentName/tools/)
-	return join(rootDir, agentName, "tools");
+	return resolveRootToolsDir(tree, rootDir, agentName);
 }
 
 export interface Preambles {
@@ -131,6 +149,8 @@ export interface AgentTreeEntry {
 	path: string;
 	children: string[];
 	diskPath: string;
+	/** Raw file content, available when the entry was loaded by scanAgentTree. */
+	rawContent?: string;
 }
 
 /**
@@ -173,7 +193,7 @@ async function scanLevel(
 		const childDir = join(dir, name, "agents");
 		const children = await scanLevel(childDir, agentPath, tree);
 
-		tree.set(agentPath, { spec, path: agentPath, children, diskPath });
+		tree.set(agentPath, { spec, path: agentPath, children, diskPath, rawContent: content });
 		childNames.push(name);
 		handledDirs.add(name);
 	}
