@@ -633,7 +633,11 @@ export class Agent {
 				? await this.genome.loadAgentToolsWithBootstrap(this.spec.name, this.bootstrapDir)
 				: await this.genome.loadAgentTools(this.spec.name);
 			if (wsToolDefs.length > 0) {
-				const toolPrims = buildAgentToolPrimitives(wsToolDefs);
+				const toolPrims = buildAgentToolPrimitives(wsToolDefs, {
+					genome: this.genome,
+					env: this.env,
+					agentName: this.spec.name,
+				});
 				for (const prim of toolPrims) {
 					this.primitiveRegistry.register(prim);
 					this.primitiveTools.push({

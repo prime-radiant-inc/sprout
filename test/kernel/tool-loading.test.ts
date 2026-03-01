@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Genome } from "../../src/genome/genome.ts";
@@ -143,5 +143,158 @@ describe("tool loading", () => {
 
 		const result = await prims[0]!.execute({}, env);
 		expect(result.success).toBe(false);
+	});
+
+	describe("sprout-internal tools", () => {
+		test("executes a sprout-internal tool and returns its result", async () => {
+			const root = join(tempDir, "internal-tool");
+			const genome = new Genome(root);
+			await genome.init();
+			await genome.addAgent(makeSpec({ name: "runner" }));
+
+			const toolDir = join(root, "agents", "runner", "tools");
+			await mkdir(toolDir, { recursive: true });
+			const toolPath = join(toolDir, "hello-internal");
+			await writeFile(
+				toolPath,
+				`---
+name: hello-internal
+description: A test internal tool
+interpreter: sprout-internal
+---
+export default async function(ctx) {
+  return {
+    output: "hello from " + ctx.agentName,
+    success: true,
+  };
+}
+`,
+			);
+
+			const toolDefs = await genome.loadAgentTools("runner");
+			expect(toolDefs).toHaveLength(1);
+			expect(toolDefs[0]!.interpreter).toBe("sprout-internal");
+
+			const env = new LocalExecutionEnvironment(tempDir);
+			const prims = buildAgentToolPrimitives(toolDefs, {
+				genome,
+				env,
+				agentName: "runner",
+			});
+
+			const result = await prims[0]!.execute({}, env);
+			expect(result.success).toBe(true);
+			expect(result.output).toBe("hello from runner");
+		});
+
+		test("sprout-internal tool receives parsed args", async () => {
+			const root = join(tempDir, "internal-args");
+			const genome = new Genome(root);
+			await genome.init();
+			await genome.addAgent(makeSpec({ name: "runner" }));
+
+			const toolDir = join(root, "agents", "runner", "tools");
+			await mkdir(toolDir, { recursive: true });
+			await writeFile(
+				join(toolDir, "echo-args"),
+				`---
+name: echo-args
+description: Echo args back
+interpreter: sprout-internal
+---
+export default async function(ctx) {
+  return {
+    output: JSON.stringify(ctx.args),
+    success: true,
+  };
+}
+`,
+			);
+
+			const toolDefs = await genome.loadAgentTools("runner");
+			const env = new LocalExecutionEnvironment(tempDir);
+			const prims = buildAgentToolPrimitives(toolDefs, {
+				genome,
+				env,
+				agentName: "runner",
+			});
+
+			const result = await prims[0]!.execute({ args: '{"name":"test","count":3}' }, env);
+			expect(result.success).toBe(true);
+			const parsed = JSON.parse(result.output);
+			expect(parsed.name).toBe("test");
+			expect(parsed.count).toBe(3);
+		});
+
+		test("sprout-internal tool wraps thrown errors", async () => {
+			const root = join(tempDir, "internal-error");
+			const genome = new Genome(root);
+			await genome.init();
+			await genome.addAgent(makeSpec({ name: "runner" }));
+
+			const toolDir = join(root, "agents", "runner", "tools");
+			await mkdir(toolDir, { recursive: true });
+			await writeFile(
+				join(toolDir, "throw-tool"),
+				`---
+name: throw-tool
+description: Always throws
+interpreter: sprout-internal
+---
+export default async function(ctx) {
+  throw new Error("intentional failure");
+}
+`,
+			);
+
+			const toolDefs = await genome.loadAgentTools("runner");
+			const env = new LocalExecutionEnvironment(tempDir);
+			const prims = buildAgentToolPrimitives(toolDefs, {
+				genome,
+				env,
+				agentName: "runner",
+			});
+
+			const result = await prims[0]!.execute({}, env);
+			expect(result.success).toBe(false);
+			expect(result.error).toContain("intentional failure");
+		});
+
+		test("sprout-internal tool with invalid JSON args receives empty object", async () => {
+			const root = join(tempDir, "internal-bad-json");
+			const genome = new Genome(root);
+			await genome.init();
+			await genome.addAgent(makeSpec({ name: "runner" }));
+
+			const toolDir = join(root, "agents", "runner", "tools");
+			await mkdir(toolDir, { recursive: true });
+			await writeFile(
+				join(toolDir, "check-args"),
+				`---
+name: check-args
+description: Check args
+interpreter: sprout-internal
+---
+export default async function(ctx) {
+  return {
+    output: JSON.stringify(ctx.args),
+    success: true,
+  };
+}
+`,
+			);
+
+			const toolDefs = await genome.loadAgentTools("runner");
+			const env = new LocalExecutionEnvironment(tempDir);
+			const prims = buildAgentToolPrimitives(toolDefs, {
+				genome,
+				env,
+				agentName: "runner",
+			});
+
+			const result = await prims[0]!.execute({ args: "not valid json" }, env);
+			expect(result.success).toBe(true);
+			expect(JSON.parse(result.output)).toEqual({});
+		});
 	});
 });

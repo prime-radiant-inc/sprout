@@ -1,7 +1,15 @@
-import { readFile } from "node:fs/promises";
-import type { AgentToolDefinition } from "../genome/genome.ts";
+import { readFile, rm, writeFile } from "node:fs/promises";
+import type { AgentToolDefinition, Genome } from "../genome/genome.ts";
 import type { ExecutionEnvironment } from "./execution-env.ts";
 import type { Primitive } from "./primitives.ts";
+import type { ToolContext, ToolResult } from "./tool-context.ts";
+
+/** Context required to execute sprout-internal tools. */
+export interface InternalToolContext {
+	genome: Genome;
+	env: ExecutionEnvironment;
+	agentName: string;
+}
 
 /** Extract the script body from a tool file, stripping the YAML frontmatter. */
 function extractScriptBody(content: string): string {
@@ -14,8 +22,14 @@ function extractScriptBody(content: string): string {
 /**
  * Build Primitive instances from loaded agent tool definitions.
  * Each tool becomes a primitive that executes its script using the specified interpreter.
+ *
+ * For `sprout-internal` tools, an InternalToolContext is required so the tool module
+ * can access the genome, execution environment, and agent name.
  */
-export function buildAgentToolPrimitives(tools: AgentToolDefinition[]): Primitive[] {
+export function buildAgentToolPrimitives(
+	tools: AgentToolDefinition[],
+	ctx?: InternalToolContext,
+): Primitive[] {
 	return tools.map((tool) => ({
 		name: tool.name,
 		description: tool.description,
@@ -30,6 +44,42 @@ export function buildAgentToolPrimitives(tools: AgentToolDefinition[]): Primitiv
 		},
 		async execute(args: Record<string, unknown>, env: ExecutionEnvironment) {
 			const toolArgs = (args.args as string) ?? "";
+
+			if (tool.interpreter === "sprout-internal") {
+				// Parse args as JSON, fall back to empty object
+				let parsedArgs: Record<string, unknown> = {};
+				try {
+					parsedArgs = JSON.parse(toolArgs);
+				} catch {
+					// Invalid JSON — use empty object
+				}
+
+				const toolCtx: ToolContext = {
+					agentName: ctx?.agentName ?? "",
+					args: parsedArgs,
+					genome: ctx!.genome,
+					env: ctx?.env ?? env,
+				};
+
+				try {
+					// Extract script body (frontmatter is not valid JS)
+					const fileContent = await readFile(tool.scriptPath, "utf-8");
+					const script = extractScriptBody(fileContent);
+
+					// Write to a temp .mjs file for dynamic import
+					const tempPath = `${tool.scriptPath}.${Date.now()}.mjs`;
+					await writeFile(tempPath, script);
+					try {
+						const mod = await import(tempPath);
+						const result: ToolResult = await mod.default(toolCtx);
+						return result;
+					} finally {
+						await rm(tempPath).catch(() => {});
+					}
+				} catch (err) {
+					return { output: "", success: false, error: String(err) };
+				}
+			}
 
 			try {
 				// Read the tool file and strip YAML frontmatter
