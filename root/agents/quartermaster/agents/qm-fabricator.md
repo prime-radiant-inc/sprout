@@ -51,7 +51,7 @@ If building an orchestrator agent (one that delegates to others), set can_spawn:
 and list the sub-agent paths in the `agents` field. These agents get delegation tools
 in addition to any primitive tools.
 
-Save new agents using the save_agent tool, passing the complete YAML content as the `yaml`
+Save new agents using the save_agent tool, passing the complete YAML content as the `spec`
 parameter. save_agent handles writing to the correct location automatically.
 ## Creating agent tools
 

@@ -26,7 +26,7 @@ and propose improvements from the genome back to root.
 ### 1. Reconcile overlays
 
 When root updates an agent that the genome has customized, both versions diverge.
-The sync process (via `syncBootstrap`) reports these as conflicts.
+The sync process (via `syncRoot`) reports these as conflicts.
 
 Your job: read both versions, understand the diff, and recommend one of:
 - **Absorb**: Take the root change (genome's customization wasn't valuable)
