@@ -78,6 +78,7 @@ const KNOWN_FIELDS = new Set([
 	"tags",
 	"version",
 	"thinking",
+	"system_prompt",
 ]);
 
 /**
