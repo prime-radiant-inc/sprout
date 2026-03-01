@@ -31,6 +31,7 @@ describe("parseAgentMarkdown", () => {
 		expect(spec.model).toBe("fast");
 		expect(spec.tools).toEqual(["read_file", "grep"]);
 		expect(spec.agents).toEqual([]);
+		expect(spec.capabilities).toEqual(["read_file", "grep"]);
 		expect(spec.constraints.can_spawn).toBe(false);
 	});
 
@@ -63,6 +64,43 @@ describe("parseAgentMarkdown", () => {
 		);
 		const spec = parseAgentMarkdown(content, "t.md");
 		expect(spec.system_prompt).toBe("body");
+	});
+
+	test("parses CRLF line endings correctly", () => {
+		const content = [
+			"---",
+			"name: crlf-agent",
+			'description: "CRLF test"',
+			"model: fast",
+			"tools:",
+			"  - read_file",
+			"---",
+			"Body with CRLF.",
+		].join("\r\n");
+		const spec = parseAgentMarkdown(content, "crlf.md");
+		expect(spec.name).toBe("crlf-agent");
+		expect(spec.description).toBe("CRLF test");
+		expect(spec.tools).toEqual(["read_file"]);
+		expect(spec.system_prompt).toBe("Body with CRLF.");
+	});
+
+	test("non-overridden constraints retain DEFAULT_CONSTRAINTS values", () => {
+		const content = [
+			"---",
+			"name: partial",
+			'description: "partial constraints"',
+			"model: fast",
+			"constraints:",
+			"  can_spawn: false",
+			"---",
+			"Prompt.",
+		].join("\n");
+		const spec = parseAgentMarkdown(content, "partial.md");
+		expect(spec.constraints.can_spawn).toBe(false);
+		expect(spec.constraints.max_turns).toBe(50);
+		expect(spec.constraints.max_depth).toBe(3);
+		expect(spec.constraints.timeout_ms).toBe(300_000);
+		expect(spec.constraints.can_learn).toBe(false);
 	});
 
 	test("parses thinking field when present", () => {

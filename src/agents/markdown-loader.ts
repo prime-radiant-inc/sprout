@@ -13,15 +13,14 @@ export function parseAgentMarkdown(content: string, source: string): AgentSpec {
 	}
 
 	const fmStart = crlf ? 5 : 4;
-	const endIdx = content.indexOf("\n---\n", fmStart);
-	const endIdxR = content.indexOf("\r\n---\r\n", fmStart);
-	const actualEnd = endIdx !== -1 ? endIdx : endIdxR;
+	const endDelimiter = crlf ? "\r\n---\r\n" : "\n---\n";
+	const actualEnd = content.indexOf(endDelimiter, fmStart);
 	if (actualEnd === -1) {
 		throw new Error(`Invalid agent markdown at ${source}: missing closing frontmatter delimiter`);
 	}
 
 	const frontmatterStr = content.slice(fmStart, actualEnd);
-	const bodyStart = content.indexOf("\n", actualEnd + 1) + 1;
+	const bodyStart = actualEnd + endDelimiter.length;
 	const body = content.slice(bodyStart).trim();
 
 	const raw = parse(frontmatterStr);
