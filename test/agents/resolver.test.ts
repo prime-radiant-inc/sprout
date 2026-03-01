@@ -1,13 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { resolveAgentDelegates } from "../../src/agents/resolver.ts";
 import type { AgentTreeEntry } from "../../src/agents/loader.ts";
+import { resolveAgentDelegates } from "../../src/agents/resolver.ts";
 import { makeSpec } from "../helpers/make-spec.ts";
 
-function entry(
-	name: string,
-	path: string,
-	children: string[] = [],
-): AgentTreeEntry {
+function entry(name: string, path: string, children: string[] = []): AgentTreeEntry {
 	return {
 		spec: makeSpec({ name, description: `The ${name} agent` }),
 		path,
@@ -18,23 +14,11 @@ function entry(
 
 describe("resolveAgentDelegates", () => {
 	const tree = new Map<string, AgentTreeEntry>([
-		[
-			"tech-lead",
-			entry("tech-lead", "tech-lead", ["engineer", "spec-reviewer"]),
-		],
+		["tech-lead", entry("tech-lead", "tech-lead", ["engineer", "spec-reviewer"])],
 		["tech-lead/engineer", entry("engineer", "tech-lead/engineer")],
-		[
-			"tech-lead/spec-reviewer",
-			entry("spec-reviewer", "tech-lead/spec-reviewer"),
-		],
-		[
-			"quartermaster",
-			entry("quartermaster", "quartermaster", ["qm-fabricator"]),
-		],
-		[
-			"quartermaster/qm-fabricator",
-			entry("qm-fabricator", "quartermaster/qm-fabricator"),
-		],
+		["tech-lead/spec-reviewer", entry("spec-reviewer", "tech-lead/spec-reviewer")],
+		["quartermaster", entry("quartermaster", "quartermaster", ["qm-fabricator"])],
+		["quartermaster/qm-fabricator", entry("qm-fabricator", "quartermaster/qm-fabricator")],
 		["utility/reader", entry("reader", "utility/reader")],
 		["utility/task-manager", entry("task-manager", "utility/task-manager")],
 		["project-explorer", entry("project-explorer", "project-explorer")],
@@ -44,13 +28,9 @@ describe("resolveAgentDelegates", () => {
 		// Root agent has no path in the tree; its children are the top-level entries.
 		// Top-level bare names match tree keys directly when selfPath is empty.
 		const topLevelChildren = ["tech-lead", "quartermaster", "project-explorer"];
-		const result = resolveAgentDelegates(
-			tree,
-			"root",
-			"",
-			topLevelChildren,
-			["utility/task-manager"],
-		);
+		const result = resolveAgentDelegates(tree, "root", "", topLevelChildren, [
+			"utility/task-manager",
+		]);
 
 		const names = result.map((d) => d.spec.name);
 		expect(names).toContain("tech-lead");
@@ -92,13 +72,7 @@ describe("resolveAgentDelegates", () => {
 	});
 
 	test("skips unresolvable paths without crashing", () => {
-		const result = resolveAgentDelegates(
-			tree,
-			"root",
-			"",
-			[],
-			["nonexistent/agent"],
-		);
+		const result = resolveAgentDelegates(tree, "root", "", [], ["nonexistent/agent"]);
 		expect(result).toHaveLength(0);
 	});
 
