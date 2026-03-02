@@ -219,8 +219,9 @@ export class Agent {
 			}
 		}
 
-		// Safety: an agent with zero tools will hallucinate — never allow this silently
-		if (this.agentTools.length === 0 && this.primitiveTools.length === 0) {
+		// Safety: an agent with zero tools will hallucinate — never allow this silently.
+		// If genome exists, workspace tools may load later in run(), so defer the check.
+		if (this.agentTools.length === 0 && this.primitiveTools.length === 0 && !this.genome) {
 			throw new Error(
 				`Agent '${this.spec.name}' has zero tools: no primitives (tools: [${this.spec.tools.join(", ")}]) ` +
 					`and no delegatable agents (agents: [${this.spec.agents.join(", ")}], can_spawn: ${this.spec.constraints.can_spawn}). ` +
@@ -678,7 +679,7 @@ export class Agent {
 
 		// Load workspace tools created by the quartermaster for this agent
 		let wsToolDefs: import("../genome/genome.ts").AgentToolDefinition[] = [];
-		if (this.genome && this.primitiveTools.length > 0) {
+		if (this.genome) {
 			wsToolDefs = this.rootDir
 				? await this.genome.loadAgentToolsWithRoot(this.spec.name, this.rootDir, this.agentTree)
 				: await this.genome.loadAgentTools(this.spec.name);
@@ -707,6 +708,17 @@ export class Agent {
 					: await findRootToolsDir(this.rootDir, this.spec.name);
 				this.env.addToPath?.(rootToolsDir);
 			}
+		}
+
+		// Safety: after all tool sources are resolved (primitives + agents + workspace tools),
+		// an agent with zero tools would cause the LLM to hallucinate. Fail hard.
+		if (this.agentTools.length === 0 && this.primitiveTools.length === 0) {
+			throw new Error(
+				`Agent '${this.spec.name}' has zero tools after full resolution (including workspace tools). ` +
+					`Spec: tools=[${this.spec.tools.join(", ")}], agents=[${this.spec.agents.join(", ")}], ` +
+					`can_spawn=${this.spec.constraints.can_spawn}. ` +
+					`This would cause the LLM to hallucinate tool calls.`,
+			);
 		}
 
 		// Load agent-specific postscript from genome

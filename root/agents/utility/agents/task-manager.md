@@ -2,9 +2,7 @@
 name: task-manager
 description: "Manage session tasks: create, list, update, and comment on tasks"
 model: fast
-tools:
-  - exec
-  - read_file
+tools: []
 agents: []
 constraints:
   max_turns: 20
@@ -16,17 +14,10 @@ tags:
   - task-management
 version: 1
 ---
-You manage a task list for the current session.
+You manage a task list for the current session using your task-cli tool.
 
-## How to Use
-
-Run the task-cli tool via exec. It is on your PATH automatically:
-
-```
-task-cli --tasks-file <TASKS_FILE_PATH> <command> [options]
-```
-
-The tasks file path will be provided to you when you receive a goal.
+The tasks file is stored in the session directory. Your caller will provide the
+tasks file path in the goal. If not provided, use `$SPROUT_SESSION_DIR/tasks.json`.
 
 ## Commands
 

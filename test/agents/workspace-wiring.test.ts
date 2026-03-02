@@ -172,6 +172,117 @@ describe("workspace wiring", () => {
 		expect(capturedSystemPrompt).toContain("</agent_tools>");
 	});
 
+	test("agent with tools: [] gets only workspace tools (no built-in primitives)", async () => {
+		const root = join(tempDir, "ws-only-tools");
+		const genome = new Genome(root);
+		await genome.init();
+		// Agent with tools: [] — no built-in primitives
+		await genome.addAgent(makeSpec({ name: "task-mgr", tools: [] }));
+
+		// Save a workspace tool
+		await genome.saveAgentTool("task-mgr", {
+			name: "task-cli",
+			description: "Manage tasks",
+			script: '#!/bin/bash\necho \'{"ok":true}\'',
+			interpreter: "bash",
+		});
+
+		const env = new LocalExecutionEnvironment(tempDir);
+		const registry = createPrimitiveRegistry(env);
+
+		const toolCallMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-1",
+						name: "task-cli",
+						arguments: {},
+					},
+				},
+			],
+		};
+		const doneMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "done" }],
+		};
+
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async () => {
+				callCount++;
+				return {
+					message: callCount === 1 ? toolCallMsg : doneMsg,
+					finish_reason: { reason: callCount === 1 ? "tool_calls" : "stop" },
+					usage: USAGE,
+				};
+			},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const agent = new Agent({
+			spec: makeSpec({ name: "task-mgr", tools: [] }),
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			genome,
+			events,
+		});
+
+		await agent.run("create a task");
+
+		// Workspace tool should be the only tool, and it should work
+		const collected = events.collected();
+		const primEnd = collected.find((e) => e.kind === "primitive_end" && e.data.name === "task-cli");
+		expect(primEnd).toBeDefined();
+		expect(primEnd!.data.success).toBe(true);
+
+		// Built-in primitives like exec and read_file should NOT be available
+		const tools = agent.resolvedTools();
+		const toolNames = tools.map((t) => t.name);
+		expect(toolNames).toContain("task-cli");
+		expect(toolNames).not.toContain("exec");
+		expect(toolNames).not.toContain("read_file");
+	});
+
+	test("run() throws when agent has genome but zero tools after workspace loading", async () => {
+		const root = join(tempDir, "ws-zero-tools");
+		const genome = new Genome(root);
+		await genome.init();
+		// Agent with tools: [] and no workspace tools saved
+		await genome.addAgent(makeSpec({ name: "empty-agent", tools: [] }));
+
+		const env = new LocalExecutionEnvironment(tempDir);
+		const registry = createPrimitiveRegistry(env);
+
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async () => ({
+				message: Msg.assistant("done"),
+				finish_reason: { reason: "stop" },
+				usage: USAGE,
+			}),
+		} as unknown as Client;
+
+		const agent = new Agent({
+			spec: makeSpec({ name: "empty-agent", tools: [] }),
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			genome,
+		});
+
+		// Constructor doesn't throw (genome exists, workspace tools might load)
+		// But run() throws after discovering no workspace tools either
+		await expect(agent.run("do something")).rejects.toThrow(
+			/zero tools after full resolution/,
+		);
+	});
+
 	test("agent without genome does not get workspace primitives", async () => {
 		const env = new LocalExecutionEnvironment(tempDir);
 		const registry = createPrimitiveRegistry(env);
