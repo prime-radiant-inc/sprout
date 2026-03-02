@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { Agent } from "../agents/agent.ts";
 import { AgentEventEmitter } from "../agents/events.ts";
-import { loadPreambles } from "../agents/loader.ts";
+import { loadPreambles, scanAgentTree } from "../agents/loader.ts";
 import { renderCallerIdentity } from "../agents/plan.ts";
 import { loadProjectDocs } from "../agents/project-doc.ts";
 import { Genome } from "../genome/genome.ts";
@@ -134,6 +134,23 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 			? new BusLearnForwarder(bus, sessionId)
 			: undefined;
 
+		// Build agent tree so bus-spawned agents can resolve their child agents
+		// (e.g., tech-lead needs to discover engineer, spec-reviewer, quality-reviewer)
+		const agentTree = config.rootDir ? await scanAgentTree(config.rootDir) : undefined;
+		const agentName = agentSpec.name;
+		// Find this agent's path in the tree to determine its children
+		let agentTreeSelfPath: string | undefined;
+		let agentTreeChildren: string[] | undefined;
+		if (agentTree) {
+			for (const [path, entry] of agentTree) {
+				if (entry.spec.name === agentName) {
+					agentTreeSelfPath = path;
+					agentTreeChildren = entry.children;
+					break;
+				}
+			}
+		}
+
 		const agent = new Agent({
 			spec: agentSpec,
 			env,
@@ -155,6 +172,9 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 			agentId: startMsg.agent_id,
 			logger: config.logger,
 			rootDir: config.rootDir,
+			agentTree,
+			agentTreeChildren,
+			agentTreeSelfPath,
 		});
 
 		// Build goal with hints

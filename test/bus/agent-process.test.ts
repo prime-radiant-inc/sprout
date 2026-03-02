@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { exists, mkdtemp, readFile, rm } from "node:fs/promises";
+import { exists, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runAgentProcess } from "../../src/bus/agent-process.ts";
@@ -1017,5 +1017,134 @@ describe("runAgentProcess", () => {
 		// Agent creates a child logger with component "agent" — verify entries exist
 		expect(entries.length).toBeGreaterThan(0);
 		expect(entries.some((e) => e.component === "agent")).toBe(true);
+	}, 15_000);
+
+	test("orchestrator with agents:[] discovers children via agent tree from rootDir", async () => {
+		// Create a root directory with an orchestrator that has child agents in its subdirectory.
+		// The orchestrator's agents field is empty — children are auto-discovered from the tree.
+		const rootDir = join(tempDir, "root");
+		const agentsDir = join(rootDir, "agents");
+		const orchestratorChildDir = join(agentsDir, "test-orchestrator-tree", "agents");
+		await mkdir(orchestratorChildDir, { recursive: true });
+
+		// Write orchestrator spec — tools: [], agents: [], can_spawn: true
+		const orchestratorMd = [
+			"---",
+			"name: test-orchestrator-tree",
+			'description: "Orchestrator with tree children"',
+			"model: best",
+			"tools: []",
+			"agents: []",
+			"constraints:",
+			"  max_turns: 5",
+			"  max_depth: 2",
+			"  can_spawn: true",
+			"tags: [test]",
+			"version: 1",
+			"---",
+			"You are an orchestrator. Delegate to your child agents.",
+		].join("\n");
+		await writeFile(join(agentsDir, "test-orchestrator-tree.md"), orchestratorMd);
+
+		// Write a child agent spec under the orchestrator
+		const childMd = [
+			"---",
+			"name: tree-child",
+			'description: "A child discovered via tree"',
+			"model: fast",
+			"tools: [read_file]",
+			"agents: []",
+			"constraints:",
+			"  max_turns: 5",
+			"  max_depth: 0",
+			"  can_spawn: false",
+			"tags: [test]",
+			"version: 1",
+			"---",
+			"You are a child agent.",
+		].join("\n");
+		await writeFile(join(orchestratorChildDir, "tree-child.md"), childMd);
+
+		// Add the orchestrator to the genome so agent-process can find it
+		const genome = new Genome(genomeDir);
+		await genome.loadFromDisk();
+		await genome.addAgent({
+			name: "test-orchestrator-tree",
+			description: "Orchestrator with tree children",
+			model: "best",
+			tools: [],
+			agents: [],
+			constraints: {
+				max_turns: 5,
+				max_depth: 2,
+				can_spawn: true,
+				can_learn: false,
+				timeout_ms: 30000,
+			},
+			tags: ["test"],
+			version: 1,
+			system_prompt: "You are an orchestrator. Delegate to your child agents.",
+		} as any);
+		// Also add the child so it's available in the genome
+		await genome.addAgent({
+			name: "tree-child",
+			description: "A child discovered via tree",
+			model: "fast",
+			tools: ["read_file"],
+			agents: [],
+			constraints: {
+				max_turns: 5,
+				max_depth: 0,
+				can_spawn: false,
+				can_learn: false,
+				timeout_ms: 30000,
+			},
+			tags: ["test"],
+			version: 1,
+			system_prompt: "You are a child agent.",
+		} as any);
+
+		// The mock client response includes a delegate tool call to prove the agent GOT the delegate tool
+		const mockClient = createMockClient("I can delegate to tree-child.");
+
+		const resultTopic = agentResult(SESSION_ID, HANDLE_ID);
+		const resultPromise = parentClient.waitForMessage(resultTopic, 10_000);
+
+		const processPromise = runAgentProcess({
+			busUrl: server.url,
+			handleId: HANDLE_ID,
+			sessionId: SESSION_ID,
+			genomePath: genomeDir,
+			client: mockClient,
+			workDir: tempDir,
+			rootDir,
+		});
+
+		await delay(100);
+
+		const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
+		const startMsg: StartMessage = {
+			kind: "start",
+			handle_id: HANDLE_ID,
+			agent_name: "test-orchestrator-tree",
+			genome_path: genomeDir,
+			session_id: SESSION_ID,
+			caller: { agent_name: "root", depth: 0 },
+			goal: "Delegate to tree-child",
+			shared: false,
+		};
+		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
+
+		// If the tree was NOT passed, this would throw "zero tools after full resolution"
+		// because agents:[] + tools:[] + no workspace tools = zero tools.
+		// With the tree, the orchestrator auto-discovers tree-child as a delegate.
+		const rawResult = await resultPromise;
+		const result: ResultMessage = JSON.parse(rawResult);
+
+		expect(result.kind).toBe("result");
+		expect(result.success).toBe(true);
+		expect(result.output).toBe("I can delegate to tree-child.");
+
+		await processPromise;
 	}, 15_000);
 });
