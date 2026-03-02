@@ -1,6 +1,5 @@
 import { access, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { loadRootAgents } from "../agents/loader.ts";
 import { serializeAgentMarkdown } from "../agents/markdown-loader.ts";
 import { Genome } from "./genome.ts";
 
@@ -36,17 +35,16 @@ export async function exportLearnings(genomePath: string, rootDir: string): Prom
 	await genome.loadFromDisk();
 	await genome.loadRoot();
 
-	const rootSpecs = await loadRootAgents(rootDir);
-	const rootByName = new Map(rootSpecs.map((s) => [s.name, s]));
-
 	const evolved: EvolvedAgent[] = [];
 	const genomeOnly: GenomeOnlyAgent[] = [];
 	const agentContent = new Map<string, string>();
 
-	for (const agent of genome.allAgents()) {
-		const rootSpec = rootByName.get(agent.name);
+	// Only overlay agents are learnings — root-only agents are unchanged.
+	for (const agent of genome.overlayAgents()) {
+		const rootSpec = genome.getRootAgent(agent.name);
 
 		if (!rootSpec) {
+			// Genome-only agent (created by Learn, not in root)
 			genomeOnly.push({
 				name: agent.name,
 				description: agent.description,

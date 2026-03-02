@@ -124,6 +124,11 @@ export class Genome {
 		return this.agents.get(name) ?? this.rootAgents.get(name);
 	}
 
+	/** Look up an agent in root only (ignoring overlay). */
+	getRootAgent(name: string): AgentSpec | undefined {
+		return this.rootAgents.get(name);
+	}
+
 	/** Returns true if the agent exists in the genome's overlay (modified or genome-created). */
 	isOverlay(name: string): boolean {
 		return this.agents.has(name);
