@@ -52,11 +52,13 @@ function makeMockClient(responseText: string, onComplete?: (req: Request) => voi
 	} as unknown as Client;
 }
 
+const ROOT_DIR = join(import.meta.dir, "../../root");
+
 async function setupGenome(tempDir: string, name: string) {
 	const genomeDir = join(tempDir, name);
-	const genome = new Genome(genomeDir);
+	const genome = new Genome(genomeDir, ROOT_DIR);
 	await genome.init();
-	await genome.initFromRoot(join(import.meta.dir, "../../root"));
+	await genome.initFromRoot(ROOT_DIR);
 	const metrics = new MetricsStore(join(genomeDir, "metrics", "metrics.jsonl"));
 	await metrics.load();
 	const events = new AgentEventEmitter();
@@ -67,9 +69,9 @@ async function setupGenome(tempDir: string, name: string) {
 
 async function setupGenomeWithClient(tempDir: string, name: string, client: Client) {
 	const genomeDir = join(tempDir, name);
-	const genome = new Genome(genomeDir);
+	const genome = new Genome(genomeDir, ROOT_DIR);
 	await genome.init();
-	await genome.initFromRoot(join(import.meta.dir, "../../root"));
+	await genome.initFromRoot(ROOT_DIR);
 	const metrics = new MetricsStore(join(genomeDir, "metrics", "metrics.jsonl"));
 	await metrics.load();
 	const events = new AgentEventEmitter();
@@ -903,8 +905,9 @@ describe("LearnProcess", () => {
 			expect(learn.pendingEvaluations()).toHaveLength(0);
 
 			// Genome should have been rolled back — reload to verify
-			const genome2 = new Genome(join(tempDir, "eval-pending-harmful"));
+			const genome2 = new Genome(join(tempDir, "eval-pending-harmful"), ROOT_DIR);
 			await genome2.loadFromDisk();
+			await genome2.loadRoot();
 			expect(genome2.getAgent("root")!.system_prompt).toBe(originalPrompt);
 		});
 

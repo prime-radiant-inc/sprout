@@ -32,8 +32,9 @@ export async function exportLearnings(genomePath: string, rootDir: string): Prom
 		throw new Error(`Genome does not exist at ${genomePath} (no agents/ directory)`);
 	}
 
-	const genome = new Genome(genomePath);
+	const genome = new Genome(genomePath, rootDir);
 	await genome.loadFromDisk();
+	await genome.loadRoot();
 
 	const rootSpecs = await loadRootAgents(rootDir);
 	const rootByName = new Map(rootSpecs.map((s) => [s.name, s]));

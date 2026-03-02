@@ -358,15 +358,15 @@ describe("Genome", () => {
 			expect(agent!.system_prompt).toBe("You are a markdown-defined agent.");
 		});
 
-		test("initFromRoot copies root agents and commits", async () => {
+		test("initFromRoot loads root agents and saves manifest (no file copy)", async () => {
 			const root = join(tempDir, "init-from-root");
-			const genome = new Genome(root);
+			const rootDir = join(import.meta.dir, "../../root");
+			const genome = new Genome(root, rootDir);
 			await genome.init();
 
-			const rootDir = join(import.meta.dir, "../../root");
 			await genome.initFromRoot(rootDir);
 
-			// Should have loaded all 20 agents from the markdown tree
+			// Should have loaded all 20 agents from root (via rootAgents)
 			expect(genome.agentCount()).toBe(20);
 
 			expect(genome.getAgent("root")).toBeDefined();
@@ -380,26 +380,17 @@ describe("Genome", () => {
 			expect(genome.getAgent("qm-indexer")).toBeDefined();
 			expect(genome.getAgent("qm-planner")).toBeDefined();
 
-			// Verify git commit
+			// Verify git commit (manifest saved)
 			const log = await git(root, "log", "--oneline");
 			expect(log).toContain("genome: initialize from root agents");
 
-			// Verify files exist on disk as .md
+			// Verify NO agent files in genome's agents/ directory (overlay is empty)
 			const files = await readdir(join(root, "agents"));
-			expect(files).toHaveLength(20);
-			for (const f of files) {
-				expect(f).toEndWith(".md");
-			}
-		});
+			expect(files).toHaveLength(0);
 
-		test("initFromRoot throws if agents already exist", async () => {
-			const root = join(tempDir, "init-existing");
-			const genome = new Genome(root);
-			await genome.init();
-			await genome.addAgent(makeSpec({ name: "existing" }));
-
-			const rootDir = join(import.meta.dir, "../../root");
-			await expect(genome.initFromRoot(rootDir)).rejects.toThrow(/agents already exist/);
+			// All agents resolve from root, none from overlay
+			expect(genome.overlayAgents()).toHaveLength(0);
+			expect(genome.isOverlay("root")).toBe(false);
 		});
 	});
 
@@ -474,10 +465,10 @@ describe("Genome", () => {
 	describe("rollback", () => {
 		test("rollback reverts the last mutation", async () => {
 			const root = join(tempDir, "rollback-last");
-			const genome = new Genome(root);
+			const rootDir = join(import.meta.dir, "../../root");
+			const genome = new Genome(root, rootDir);
 			await genome.init();
 
-			const rootDir = join(import.meta.dir, "../../root");
 			await genome.initFromRoot(rootDir);
 
 			const agentCount = genome.agentCount();
@@ -487,8 +478,9 @@ describe("Genome", () => {
 			await genome.rollback();
 
 			// Verify disk state with a fresh Genome instance
-			const genome2 = new Genome(root);
+			const genome2 = new Genome(root, rootDir);
 			await genome2.loadFromDisk();
+			await genome2.loadRoot();
 			expect(genome2.agentCount()).toBe(agentCount);
 			expect(genome2.getAgent("extra-agent")).toBeUndefined();
 		});

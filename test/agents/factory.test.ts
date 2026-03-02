@@ -38,13 +38,15 @@ describe("createAgent", () => {
 	test("creates agent with existing genome", async () => {
 		// First, set up a genome
 		const genomePath = join(tempDir, "factory-existing");
-		const genome = new Genome(genomePath);
+		const rootDir = join(import.meta.dir, "../../root");
+		const genome = new Genome(genomePath, rootDir);
 		await genome.init();
-		await genome.initFromRoot(join(import.meta.dir, "../../root"));
+		await genome.initFromRoot(rootDir);
 
-		// Now create agent from existing genome
+		// Now create agent from existing genome — needs rootDir for overlay resolution
 		const result = await createAgent({
 			genomePath,
+			rootDir,
 			workDir: tempDir,
 		});
 
@@ -96,13 +98,15 @@ describe("createAgent", () => {
 
 	test("uses pre-loaded genome instead of loading from disk", async () => {
 		const genomePath = join(tempDir, "factory-preloaded");
+		const rootDir = join(import.meta.dir, "../../root");
 		// Pre-load a genome before passing it to createAgent
-		const genome = new Genome(genomePath);
+		const genome = new Genome(genomePath, rootDir);
 		await genome.init();
-		await genome.initFromRoot(join(import.meta.dir, "../../root"));
+		await genome.initFromRoot(rootDir);
 
 		const result = await createAgent({
 			genomePath,
+			rootDir,
 			workDir: tempDir,
 			genome,
 		});

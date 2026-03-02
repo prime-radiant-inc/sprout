@@ -57,7 +57,7 @@ export interface CreateAgentResult {
  * Handles genome initialization, root agent loading, and full wiring.
  */
 export async function createAgent(options: CreateAgentOptions): Promise<CreateAgentResult> {
-	const genome = options.genome ?? new Genome(options.genomePath);
+	const genome = options.genome ?? new Genome(options.genomePath, options.rootDir);
 
 	if (!options.genome) {
 		// Check if genome already exists (has a .git directory)
@@ -65,8 +65,9 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 
 		if (isExisting) {
 			await genome.loadFromDisk();
-			// Sync root agents using manifest-aware comparison
+			// Load root agents for overlay resolution
 			if (options.rootDir) {
+				await genome.loadRoot();
 				const result = await genome.syncRoot(options.rootDir);
 				if (result.added.length > 0) {
 					console.error(`Synced new root agents: ${result.added.join(", ")}`);

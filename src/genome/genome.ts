@@ -329,18 +329,19 @@ export class Genome {
 		}
 	}
 
-	/** Initialize the genome from root agent specs. Throws if agents already exist. */
+	/** Initialize the genome from root agent specs. Builds manifest, loads root agents into memory. */
 	async initFromRoot(rootDir: string): Promise<void> {
-		if (this.agents.size > 0) {
-			throw new Error("Cannot initialize from root: agents already exist");
+		const { specs, rawContentByName } = await readRootDir(rootDir);
+
+		// Populate rootAgents so getAgent/allAgents resolve from root
+		for (const spec of specs) {
+			this.rootAgents.set(spec.name, spec);
 		}
 
-		const specs = await loadRootAgents(rootDir);
-		for (const spec of specs) {
-			const mdPath = join(this.rootPath, "agents", `${spec.name}.md`);
-			await writeFile(mdPath, serializeAgentMarkdown(spec));
-			this.agents.set(spec.name, spec);
-		}
+		// Build and save manifest (tracks root state for future syncRoot)
+		const manifest = buildManifestFromSpecs(specs, rawContentByName);
+		const manifestPath = join(this.rootPath, "bootstrap-manifest.json");
+		await saveManifest(manifestPath, manifest);
 
 		await git(this.rootPath, "add", ".");
 		await git(this.rootPath, "commit", "-m", "genome: initialize from root agents");

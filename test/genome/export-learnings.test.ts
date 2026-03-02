@@ -46,7 +46,7 @@ describe("exportLearnings", () => {
 
 		await writeRootAgent(rootDir, "reader", { system_prompt: "basic reader" });
 
-		const genome = new Genome(genomeDir);
+		const genome = new Genome(genomeDir, rootDir);
 		await genome.init();
 		await genome.initFromRoot(rootDir);
 		await genome.updateAgent(
@@ -68,7 +68,7 @@ describe("exportLearnings", () => {
 
 		await writeRootAgent(rootDir, "root");
 
-		const genome = new Genome(genomeDir);
+		const genome = new Genome(genomeDir, rootDir);
 		await genome.init();
 		await genome.initFromRoot(rootDir);
 		await genome.addAgent(makeSpec({ name: "specialist", description: "learned specialist" }));
@@ -86,7 +86,7 @@ describe("exportLearnings", () => {
 
 		await writeRootAgent(rootDir, "stable");
 
-		const genome = new Genome(genomeDir);
+		const genome = new Genome(genomeDir, rootDir);
 		await genome.init();
 		await genome.initFromRoot(rootDir);
 
@@ -124,7 +124,7 @@ describe("stageLearnings", () => {
 
 		await writeRootAgent(rootDir, "reader", { system_prompt: "basic reader" });
 
-		const genome = new Genome(genomeDir);
+		const genome = new Genome(genomeDir, rootDir);
 		await genome.init();
 		await genome.initFromRoot(rootDir);
 		await genome.updateAgent(
@@ -149,7 +149,7 @@ describe("stageLearnings", () => {
 
 		await writeRootAgent(rootDir, "root");
 
-		const genome = new Genome(genomeDir);
+		const genome = new Genome(genomeDir, rootDir);
 		await genome.init();
 		await genome.initFromRoot(rootDir);
 		await genome.addAgent(
@@ -177,7 +177,7 @@ describe("stageLearnings", () => {
 
 		await writeRootAgent(rootDir, "root");
 
-		const genome = new Genome(genomeDir);
+		const genome = new Genome(genomeDir, rootDir);
 		await genome.init();
 		await genome.initFromRoot(rootDir);
 		await genome.updateAgent(makeSpec({ name: "root", system_prompt: "evolved root" }));
