@@ -1,6 +1,6 @@
 ---
 name: quartermaster
-description: "Discover capabilities, plan tool combinations, and fabricate specialist agents on demand"
+description: "Ask when you need to know what tools, agents, or MCP servers are available, need a plan for combining them, or need a new specialist agent built"
 model: best
 tools: []
 agents: []

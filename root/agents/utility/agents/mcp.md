@@ -1,6 +1,6 @@
 ---
 name: mcp
-description: "Connect to MCP servers and invoke their tools using the sprout-mcp CLI"
+description: "Ask to interact with external services via MCP (Model Context Protocol) — list available servers, discover their tools, and call them with arguments"
 model: fast
 tools:
   - exec

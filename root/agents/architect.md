@@ -1,6 +1,6 @@
 ---
 name: architect
-description: "Design systems, write implementation plans, and make architectural decisions"
+description: "Ask when you need a design, plan, or architectural decision before implementation — investigates the codebase, proposes approaches with trade-offs, and writes task specs for engineers"
 model: best
 tools: []
 agents:

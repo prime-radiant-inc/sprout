@@ -1,6 +1,6 @@
 ---
 name: task-manager
-description: "Manage session tasks: create, list, update, and comment on tasks"
+description: "Ask to track work items for this session — create tasks, list them by status, update progress, assign to agents, and add comments"
 model: fast
 tools: []
 agents: []

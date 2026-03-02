@@ -1,6 +1,6 @@
 ---
 name: command-runner
-description: "Execute shell commands and report their output"
+description: "Ask to run shell commands — build, test, install, git, or any CLI tool — and get back exit codes and output"
 model: fast
 tools:
   - exec

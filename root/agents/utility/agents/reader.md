@@ -1,6 +1,6 @@
 ---
 name: reader
-description: "Find and read files, search codebases, and retrieve content from the filesystem"
+description: "Ask to find and read specific files or search for patterns — returns extracted information, not raw dumps. Use for quick targeted lookups, not broad exploration"
 model: fast
 tools:
   - read_file

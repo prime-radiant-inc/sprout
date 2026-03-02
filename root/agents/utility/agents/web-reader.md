@@ -1,6 +1,6 @@
 ---
 name: web-reader
-description: "Fetch and read content from the web via HTTP requests"
+description: "Ask to fetch web pages, call REST APIs, or download data from URLs — parses responses and extracts relevant content"
 model: fast
 tools:
   - fetch

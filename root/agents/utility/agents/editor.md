@@ -1,6 +1,6 @@
 ---
 name: editor
-description: "Write and edit files, create new files, and verify changes"
+description: "Ask to make targeted edits to existing files or create new files — reads before editing, verifies changes after"
 model: balanced
 tools:
   - read_file
