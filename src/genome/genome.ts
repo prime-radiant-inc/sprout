@@ -14,7 +14,6 @@ import { buildManifestFromSpecs, loadManifest, saveManifest } from "./root-manif
 
 export interface SyncRootResult {
 	added: string[];
-	updated: string[];
 	conflicts: string[];
 }
 
@@ -348,9 +347,11 @@ export class Genome {
 	}
 
 	/**
-	 * Sync root agents into an existing genome using manifest-aware 4-way comparison.
-	 * Adds new agents, updates unchanged genome agents when root evolves,
-	 * and detects conflicts when both sides have changed.
+	 * Sync root agents into an existing genome using manifest-aware comparison.
+	 * With overlay design, unmodified agents auto-resolve from root.
+	 * This method refreshes rootAgents, detects new root agents, detects
+	 * conflicts (overlay + root both changed), and reconciles tools/agents
+	 * when the root overlay exists.
 	 */
 	async syncRoot(rootDir: string): Promise<SyncRootResult> {
 		const manifestPath = join(this.rootPath, "bootstrap-manifest.json");
@@ -358,59 +359,48 @@ export class Genome {
 		const { specs, rawContentByName } = await readRootDir(rootDir);
 		const newManifest = buildManifestFromSpecs(specs, rawContentByName);
 
+		// Refresh rootAgents so getAgent/allAgents resolve updated root specs
+		this.rootAgents.clear();
+		for (const spec of specs) {
+			this.rootAgents.set(spec.name, spec);
+		}
+
 		const added: string[] = [];
-		const updated: string[] = [];
 		const conflicts: string[] = [];
 
 		for (const spec of specs) {
-			const existing = this.agents.get(spec.name);
+			const overlayAgent = this.agents.get(spec.name);
 			const oldEntry = oldManifest.agents[spec.name];
 			const newEntry = newManifest.agents[spec.name];
 			if (!newEntry) continue;
 
-			if (!existing) {
-				// Case 1: Agent not in genome — add it
-				const mdPath = join(this.rootPath, "agents", `${spec.name}.md`);
-				await writeFile(mdPath, serializeAgentMarkdown(spec));
-				this.agents.set(spec.name, spec);
+			if (!oldEntry) {
+				// New agent in root (not in previous manifest)
 				added.push(spec.name);
-			} else if (!oldEntry) {
-				// Case 2: Pre-manifest genome — skip, treat as genome-evolved
-			} else if (newEntry.hash === oldEntry.hash) {
-				// Case 3: Bootstrap file unchanged — skip
-			} else if (existing.version === oldEntry.version) {
-				// Case 4: Bootstrap changed AND genome unchanged — update genome
-				const mdPath = join(this.rootPath, "agents", `${spec.name}.md`);
-				await writeFile(mdPath, serializeAgentMarkdown(spec));
-				this.agents.set(spec.name, spec);
-				updated.push(spec.name);
-			} else {
-				// Case 5: Bootstrap changed AND genome also evolved — conflict
+			} else if (newEntry.hash !== oldEntry.hash && overlayAgent) {
+				// Root changed AND genome has overlay — conflict
 				conflicts.push(spec.name);
 			}
+			// All other cases: root auto-reflects (no overlay), or root unchanged.
 		}
 
-		// Reconcile root tools and agents: add new, remove dropped, preserve genome-only.
-		// Safe after Case 4: if root was updated, genome had no custom entries (version matched
-		// old manifest), so reconcileRootToolsAndAgents finds nothing to merge and returns false.
-		const toolsAgentsMerged = await this.reconcileRootToolsAndAgents(
-			specs,
-			oldManifest.rootTools ?? [],
-			oldManifest.rootAgents ?? [],
-		);
+		// Reconcile root tools and agents only if genome has a root overlay
+		const toolsAgentsMerged = this.agents.has("root")
+			? await this.reconcileRootToolsAndAgents(
+					specs,
+					oldManifest.rootTools ?? [],
+					oldManifest.rootAgents ?? [],
+				)
+			: false;
 
-		const hasChanges = added.length > 0 || updated.length > 0 || toolsAgentsMerged;
+		const hasChanges = added.length > 0 || toolsAgentsMerged;
 
 		// Only save manifest when something changed — avoids dirty working tree
 		if (hasChanges || conflicts.length > 0) {
 			await saveManifest(manifestPath, newManifest);
 		}
 
-		// Collect specific files to stage (avoid `git add .` which may stage unrelated files)
 		const filesToStage: string[] = [];
-		for (const name of [...added, ...updated]) {
-			filesToStage.push(join(this.rootPath, "agents", `${name}.md`));
-		}
 		if (toolsAgentsMerged) {
 			filesToStage.push(join(this.rootPath, "agents", "root.md"));
 		}
@@ -420,7 +410,6 @@ export class Genome {
 
 		const parts: string[] = [];
 		if (added.length > 0) parts.push(`added: ${added.join(", ")}`);
-		if (updated.length > 0) parts.push(`updated: ${updated.join(", ")}`);
 		if (toolsAgentsMerged) parts.push("tools/agents merged");
 		if (conflicts.length > 0) parts.push(`conflicts: ${conflicts.join(", ")}`);
 
@@ -429,7 +418,7 @@ export class Genome {
 			await git(this.rootPath, "commit", "-m", `genome: sync root (${parts.join("; ")})`);
 		}
 
-		return { added, updated, conflicts };
+		return { added, conflicts };
 	}
 
 	/**

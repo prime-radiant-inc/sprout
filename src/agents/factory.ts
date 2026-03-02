@@ -72,9 +72,6 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 				if (result.added.length > 0) {
 					console.error(`Synced new root agents: ${result.added.join(", ")}`);
 				}
-				if (result.updated.length > 0) {
-					console.error(`Updated root agents: ${result.updated.join(", ")}`);
-				}
 				if (result.conflicts.length > 0) {
 					console.error(`Root sync conflicts (genome preserved): ${result.conflicts.join(", ")}`);
 				}

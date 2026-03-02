@@ -628,9 +628,10 @@ export async function runCli(command: CliCommand): Promise<void> {
 		const { Genome } = await import("../genome/genome.ts");
 		const rootDir = join(import.meta.dir, "../../root");
 
-		const genome = new Genome(command.genomePath);
+		const genome = new Genome(command.genomePath, rootDir);
 		try {
 			await genome.loadFromDisk();
+			await genome.loadRoot();
 		} catch (err) {
 			console.error(
 				`Failed to load genome at ${command.genomePath}: ${err instanceof Error ? err.message : err}`,
@@ -641,16 +642,13 @@ export async function runCli(command: CliCommand): Promise<void> {
 
 		const result = await genome.syncRoot(rootDir);
 
-		if (result.added.length === 0 && result.updated.length === 0 && result.conflicts.length === 0) {
+		if (result.added.length === 0 && result.conflicts.length === 0) {
 			console.log("Genome is up to date with root agents.");
 			return;
 		}
 
 		if (result.added.length > 0) {
 			console.log(`Added: ${result.added.join(", ")}`);
-		}
-		if (result.updated.length > 0) {
-			console.log(`Updated: ${result.updated.join(", ")}`);
 		}
 		if (result.conflicts.length > 0) {
 			console.log(`Conflicts (genome preserved): ${result.conflicts.join(", ")}`);
