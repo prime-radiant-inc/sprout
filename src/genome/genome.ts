@@ -107,7 +107,11 @@ export class Genome {
 
 	/** Number of agents in the genome (overlay + root, deduplicated). */
 	agentCount(): number {
-		return this.allAgents().length;
+		let rootOnly = 0;
+		for (const name of this.rootAgents.keys()) {
+			if (!this.agents.has(name)) rootOnly++;
+		}
+		return this.agents.size + rootOnly;
 	}
 
 	/** Return a copy of all agent specs (root + overlay merged, overlay wins). */
@@ -331,11 +335,20 @@ export class Genome {
 		} catch {
 			this.routingRules = [];
 		}
+
+		// Load root agents for overlay resolution (no-op if rootDir not set)
+		await this.loadRoot();
 	}
 
 	/** Initialize the genome from root agent specs. Builds manifest, loads root agents into memory. */
-	async initFromRoot(rootDir: string): Promise<void> {
-		const { specs, rawContentByName } = await readRootDir(rootDir);
+	async initFromRoot(): Promise<void> {
+		if (!this.rootDir) {
+			throw new Error("Cannot initFromRoot: rootDir not set");
+		}
+		if (this.rootAgents.size > 0) {
+			throw new Error("Cannot initFromRoot: root agents already loaded");
+		}
+		const { specs, rawContentByName } = await readRootDir(this.rootDir);
 
 		// Populate rootAgents so getAgent/allAgents resolve from root
 		for (const spec of specs) {
@@ -358,17 +371,17 @@ export class Genome {
 	 * conflicts (overlay + root both changed), and reconciles tools/agents
 	 * when the root overlay exists.
 	 */
-	async syncRoot(rootDir: string): Promise<SyncRootResult> {
+	async syncRoot(): Promise<SyncRootResult> {
+		if (!this.rootDir) {
+			throw new Error("Cannot syncRoot: rootDir not set");
+		}
 		const manifestPath = join(this.rootPath, "bootstrap-manifest.json");
 		const oldManifest = await loadManifest(manifestPath);
-		const { specs, rawContentByName } = await readRootDir(rootDir);
+		const { specs, rawContentByName } = await readRootDir(this.rootDir);
 		const newManifest = buildManifestFromSpecs(specs, rawContentByName);
 
 		// Refresh rootAgents so getAgent/allAgents resolve updated root specs
-		this.rootAgents.clear();
-		for (const spec of specs) {
-			this.rootAgents.set(spec.name, spec);
-		}
+		await this.loadRoot();
 
 		const added: string[] = [];
 		const conflicts: string[] = [];

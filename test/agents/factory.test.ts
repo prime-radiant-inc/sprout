@@ -41,7 +41,7 @@ describe("createAgent", () => {
 		const rootDir = join(import.meta.dir, "../../root");
 		const genome = new Genome(genomePath, rootDir);
 		await genome.init();
-		await genome.initFromRoot(rootDir);
+		await genome.initFromRoot();
 
 		// Now create agent from existing genome — needs rootDir for overlay resolution
 		const result = await createAgent({
@@ -102,7 +102,7 @@ describe("createAgent", () => {
 		// Pre-load a genome before passing it to createAgent
 		const genome = new Genome(genomePath, rootDir);
 		await genome.init();
-		await genome.initFromRoot(rootDir);
+		await genome.initFromRoot();
 
 		const result = await createAgent({
 			genomePath,

@@ -631,7 +631,6 @@ export async function runCli(command: CliCommand): Promise<void> {
 		const genome = new Genome(command.genomePath, rootDir);
 		try {
 			await genome.loadFromDisk();
-			await genome.loadRoot();
 		} catch (err) {
 			console.error(
 				`Failed to load genome at ${command.genomePath}: ${err instanceof Error ? err.message : err}`,
@@ -640,7 +639,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 			return;
 		}
 
-		const result = await genome.syncRoot(rootDir);
+		const result = await genome.syncRoot();
 
 		if (result.added.length === 0 && result.conflicts.length === 0) {
 			console.log("Genome is up to date with root agents.");

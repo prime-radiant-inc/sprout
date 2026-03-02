@@ -147,9 +147,9 @@ describe("Agent with Genome Integration", () => {
 		}
 
 		// Create fresh genome with bootstrap agents
-		genome = new Genome(genomeDir);
+		genome = new Genome(genomeDir, join(import.meta.dir, "../../root"));
 		await genome.init();
-		await genome.initFromRoot(join(import.meta.dir, "../../root"));
+		await genome.initFromRoot();
 	});
 
 	afterAll(async () => {

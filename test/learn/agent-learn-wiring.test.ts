@@ -28,9 +28,9 @@ describe("Agent-Learn wiring", () => {
 
 	test("Agent accepts optional learnProcess in options", async () => {
 		const genomeDir = join(tempDir, "genome-accept");
-		const genome = new Genome(genomeDir);
+		const genome = new Genome(genomeDir, join(import.meta.dir, "../../root"));
 		await genome.init();
-		await genome.initFromRoot(join(import.meta.dir, "../../root"));
+		await genome.initFromRoot();
 
 		const events = new AgentEventEmitter();
 		const metrics = new MetricsStore(join(genomeDir, "metrics", "metrics.jsonl"));

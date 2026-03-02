@@ -65,10 +65,8 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 
 		if (isExisting) {
 			await genome.loadFromDisk();
-			// Load root agents for overlay resolution
 			if (options.rootDir) {
-				await genome.loadRoot();
-				const result = await genome.syncRoot(options.rootDir);
+				const result = await genome.syncRoot();
 				if (result.added.length > 0) {
 					console.error(`Synced new root agents: ${result.added.join(", ")}`);
 				}
@@ -79,7 +77,7 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 		} else {
 			await genome.init();
 			if (options.rootDir) {
-				await genome.initFromRoot(options.rootDir);
+				await genome.initFromRoot();
 			}
 		}
 	}

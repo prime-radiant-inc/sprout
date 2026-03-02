@@ -610,9 +610,9 @@ describe("Agent", () => {
 	test("constructor accepts genome option", async () => {
 		const tempGenomeDir = await mkdtemp(join(tmpdir(), "sprout-agent-genome-"));
 		try {
-			const genome = new Genome(tempGenomeDir);
+			const genome = new Genome(tempGenomeDir, join(import.meta.dir, "../../root"));
 			await genome.init();
-			await genome.initFromRoot(join(import.meta.dir, "../../root"));
+			await genome.initFromRoot();
 
 			const codeReader = genome.getAgent("reader")!;
 			const env = new LocalExecutionEnvironment(tmpdir());

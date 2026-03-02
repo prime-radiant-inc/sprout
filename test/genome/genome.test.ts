@@ -364,7 +364,7 @@ describe("Genome", () => {
 			const genome = new Genome(root, rootDir);
 			await genome.init();
 
-			await genome.initFromRoot(rootDir);
+			await genome.initFromRoot();
 
 			// Should have loaded all 20 agents from root (via rootAgents)
 			expect(genome.agentCount()).toBe(20);
@@ -469,7 +469,7 @@ describe("Genome", () => {
 			const genome = new Genome(root, rootDir);
 			await genome.init();
 
-			await genome.initFromRoot(rootDir);
+			await genome.initFromRoot();
 
 			const agentCount = genome.agentCount();
 			await genome.addAgent(makeSpec({ name: "extra-agent" }));
@@ -624,7 +624,7 @@ describe("Genome", () => {
 			await genome.init();
 			await genome.loadRoot();
 
-			const result = await genome.syncRoot(rootDir);
+			const result = await genome.syncRoot();
 
 			expect(result.added).toContain("alpha");
 			expect(result.added).toContain("beta");
@@ -653,11 +653,11 @@ describe("Genome", () => {
 			await genome.loadRoot();
 
 			// First sync — detects the agent
-			const first = await genome.syncRoot(rootDir);
+			const first = await genome.syncRoot();
 			expect(first.added).toEqual(["stable"]);
 
 			// Second sync — nothing should change
-			const second = await genome.syncRoot(rootDir);
+			const second = await genome.syncRoot();
 			expect(second.added).toEqual([]);
 			expect(second.conflicts).toEqual([]);
 
@@ -679,7 +679,7 @@ describe("Genome", () => {
 			await genome.loadRoot();
 
 			// First sync
-			await genome.syncRoot(rootDir);
+			await genome.syncRoot();
 			expect(genome.getAgent("updatable")!.description).toBe("Original description");
 
 			// Change root file
@@ -688,7 +688,7 @@ describe("Genome", () => {
 			});
 
 			// Sync — refreshes rootAgents, auto-reflects the change
-			const result = await genome.syncRoot(rootDir);
+			const result = await genome.syncRoot();
 			expect(result.added).toEqual([]);
 			expect(result.conflicts).toEqual([]);
 
@@ -709,7 +709,7 @@ describe("Genome", () => {
 			await genome.loadRoot();
 
 			// First sync
-			await genome.syncRoot(rootDir);
+			await genome.syncRoot();
 			expect(genome.getAgent("contested")!.version).toBe(1);
 
 			// Evolve genome (promotes to overlay, bumps version to 2)
@@ -722,7 +722,7 @@ describe("Genome", () => {
 			});
 
 			// Sync again — should detect conflict
-			const result = await genome.syncRoot(rootDir);
+			const result = await genome.syncRoot();
 			expect(result.conflicts).toEqual(["contested"]);
 			expect(result.added).toEqual([]);
 
@@ -744,7 +744,7 @@ describe("Genome", () => {
 			await genome.loadRoot();
 
 			// First sync
-			await genome.syncRoot(rootDir);
+			await genome.syncRoot();
 
 			// Evolve genome (promotes to overlay)
 			await genome.updateAgent(
@@ -753,7 +753,7 @@ describe("Genome", () => {
 			expect(genome.getAgent("evolved")!.version).toBe(2);
 
 			// Sync again with unchanged root
-			const result = await genome.syncRoot(rootDir);
+			const result = await genome.syncRoot();
 			expect(result.added).toEqual([]);
 			expect(result.conflicts).toEqual([]);
 
@@ -780,7 +780,7 @@ describe("Genome", () => {
 			await genome.loadRoot();
 
 			// First sync
-			await genome.syncRoot(rootDir);
+			await genome.syncRoot();
 			expect(genome.getAgent("root")!.tools).toEqual(["reader", "editor", "debugger"]);
 
 			// Root adds "verifier"
@@ -790,7 +790,7 @@ describe("Genome", () => {
 			await writeRootMd(rootDir, "verifier");
 
 			// Sync again — auto-reflects since root is not in overlay
-			await genome.syncRoot(rootDir);
+			await genome.syncRoot();
 
 			const rootAgent = genome.getAgent("root")!;
 			expect(rootAgent.tools).toContain("reader");
@@ -815,7 +815,7 @@ describe("Genome", () => {
 			await genome.loadRoot();
 
 			// First sync
-			await genome.syncRoot(rootDir);
+			await genome.syncRoot();
 			expect(genome.getAgent("root")!.tools).toEqual(["reader"]);
 
 			// Evolve genome root to add a custom entry (promotes to overlay)
@@ -835,7 +835,7 @@ describe("Genome", () => {
 			await writeRootMd(rootDir, "debugger");
 
 			// Sync — root overlay conflict, but tools should merge
-			await genome.syncRoot(rootDir);
+			await genome.syncRoot();
 
 			const rootAgent = genome.getAgent("root")!;
 			expect(rootAgent.tools).toContain("reader");
@@ -863,7 +863,7 @@ describe("Genome", () => {
 			await genome.loadRoot();
 
 			// First sync
-			await genome.syncRoot(rootDir);
+			await genome.syncRoot();
 			expect(genome.getAgent("root")!.tools).toEqual(["reader", "editor", "debugger"]);
 
 			// Root drops "debugger"
@@ -872,7 +872,7 @@ describe("Genome", () => {
 			});
 
 			// Sync — auto-reflects since root is not in overlay
-			await genome.syncRoot(rootDir);
+			await genome.syncRoot();
 
 			const rootAgent = genome.getAgent("root")!;
 			expect(rootAgent.tools).toContain("reader");
@@ -894,7 +894,7 @@ describe("Genome", () => {
 			await genome.loadRoot();
 
 			// First sync
-			await genome.syncRoot(rootDir);
+			await genome.syncRoot();
 
 			// Evolve alpha in genome (creates conflict on next sync)
 			await genome.updateAgent(makeSpec({ name: "alpha", description: "Genome-evolved alpha" }));
@@ -905,7 +905,7 @@ describe("Genome", () => {
 			});
 
 			// Sync again — should have conflict on alpha
-			const result = await genome.syncRoot(rootDir);
+			const result = await genome.syncRoot();
 			expect(result.conflicts).toContain("alpha");
 
 			// Check the git commit message mentions the conflict
@@ -929,7 +929,7 @@ describe("Genome", () => {
 			await genome.loadRoot();
 
 			// First sync
-			await genome.syncRoot(rootDir);
+			await genome.syncRoot();
 			const rootAgent = genome.getAgent("root")!;
 			expect(rootAgent.tools).toEqual(["read_file"]);
 			expect(rootAgent.agents).toEqual(["utility/task-manager"]);
@@ -949,7 +949,7 @@ describe("Genome", () => {
 			});
 
 			// Sync again
-			await genome.syncRoot(rootDir);
+			await genome.syncRoot();
 
 			const updated = genome.getAgent("root")!;
 			// Tools reconciled correctly
@@ -980,7 +980,7 @@ describe("Genome", () => {
 			await genome.loadRoot();
 
 			// First sync
-			await genome.syncRoot(rootDir);
+			await genome.syncRoot();
 
 			// Genome evolves root to add "custom-agent" (promotes to overlay)
 			const evolvedRoot = genome.getAgent("root")!;
@@ -997,7 +997,7 @@ describe("Genome", () => {
 			await writeRootMd(rootDir, "editor");
 
 			// Sync again
-			await genome.syncRoot(rootDir);
+			await genome.syncRoot();
 
 			// Root overlay should have: reader (kept), editor (added by root), custom-agent (genome-only)
 			// But NOT debugger (dropped by root)
