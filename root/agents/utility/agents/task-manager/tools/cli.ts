@@ -2,7 +2,9 @@ import { TaskStore } from "./store.ts";
 
 function usage(): string {
 	return [
-		"Usage: task-cli --tasks-file <path> <command> [options]",
+		"Usage: task-cli [--tasks-file <path>] <command> [options]",
+		"",
+		"Tasks file defaults to $SPROUT_GENOME_PATH/logs/$SPROUT_SESSION_ID/tasks.json",
 		"",
 		"Commands:",
 		"  create   --description <text> [--prompt <text>] [--assigned-to <agent>]",
@@ -38,9 +40,18 @@ async function main(): Promise<void> {
 	const args = process.argv.slice(2);
 	const { flags, command } = parseArgs(args);
 
-	const tasksFile = flags["tasks-file"];
+	const tasksFile =
+		flags["tasks-file"] ??
+		(process.env.SPROUT_GENOME_PATH && process.env.SPROUT_SESSION_ID
+			? `${process.env.SPROUT_GENOME_PATH}/logs/${process.env.SPROUT_SESSION_ID}/tasks.json`
+			: undefined);
 	if (!tasksFile) {
-		console.error(JSON.stringify({ error: "Missing required --tasks-file argument" }));
+		console.error(
+			JSON.stringify({
+				error:
+					"No tasks file: pass --tasks-file or set SPROUT_GENOME_PATH and SPROUT_SESSION_ID",
+			}),
+		);
 		process.exit(1);
 	}
 

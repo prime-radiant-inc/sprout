@@ -16,25 +16,25 @@ version: 1
 ---
 You manage a task list for the current session using your task-cli tool.
 
-The tasks file is stored in the session directory. Your caller will provide the
-tasks file path in the goal. If not provided, use `$SPROUT_SESSION_DIR/tasks.json`.
+The tasks file path is resolved automatically from the session environment.
+You do not need to specify --tasks-file.
 
 ## Commands
 
 Create a task:
-  task-cli --tasks-file <path> create --description "..." [--prompt "..."] [--assigned-to <agent>]
+  task-cli create --description "..." [--prompt "..."] [--assigned-to <agent>]
 
 List all tasks:
-  task-cli --tasks-file <path> list [--status new|in_progress|done|cancelled]
+  task-cli list [--status new|in_progress|done|cancelled]
 
 Get a specific task:
-  task-cli --tasks-file <path> get --id <task-id>
+  task-cli get --id <task-id>
 
 Update a task:
-  task-cli --tasks-file <path> update --id <task-id> [--status <status>] [--assigned-to <agent>] [--description "..."]
+  task-cli update --id <task-id> [--status <status>] [--assigned-to <agent>] [--description "..."]
 
 Comment on a task:
-  task-cli --tasks-file <path> comment --id <task-id> --text "..."
+  task-cli comment --id <task-id> --text "..."
 
 ## Output
 
