@@ -562,7 +562,10 @@ describe("renderToolBoundaries", () => {
 	});
 
 	test("warns about missing file tools when agent has neither write_file nor edit_file", () => {
-		const result = renderToolBoundaries([], [{ name: "task-cli", description: "", parameters: {} }]);
+		const result = renderToolBoundaries(
+			[],
+			[{ name: "task-cli", description: "", parameters: {} }],
+		);
 		expect(result).toContain("do NOT have access to read_file");
 		expect(result).toContain("do NOT have access to write_file or edit_file");
 	});
@@ -580,7 +583,10 @@ describe("renderToolBoundaries", () => {
 
 	test("workspace-tool-only agent gets all relevant warnings", () => {
 		// Simulates task-manager: only has task-cli workspace tool
-		const result = renderToolBoundaries([], [{ name: "task-cli", description: "", parameters: {} }]);
+		const result = renderToolBoundaries(
+			[],
+			[{ name: "task-cli", description: "", parameters: {} }],
+		);
 		expect(result).toContain("do NOT have the ability to delegate");
 		expect(result).toContain("do NOT have access to exec");
 		expect(result).toContain("do NOT have access to read_file");

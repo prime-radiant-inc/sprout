@@ -419,14 +419,10 @@ export function renderToolBoundaries(
 		);
 	}
 	if (!allToolNames.includes("exec")) {
-		lines.push(
-			"You do NOT have access to exec or shell commands. Do not simulate command output.",
-		);
+		lines.push("You do NOT have access to exec or shell commands. Do not simulate command output.");
 	}
 	if (!allToolNames.includes("read_file")) {
-		lines.push(
-			"You do NOT have access to read_file. Do not fabricate file contents.",
-		);
+		lines.push("You do NOT have access to read_file. Do not fabricate file contents.");
 	}
 	if (!allToolNames.includes("write_file") && !allToolNames.includes("edit_file")) {
 		lines.push(

@@ -183,7 +183,7 @@ describe("workspace wiring", () => {
 		await genome.saveAgentTool("task-mgr", {
 			name: "task-cli",
 			description: "Manage tasks",
-			script: '#!/bin/bash\necho \'{"ok":true}\'',
+			script: "#!/bin/bash\necho '{\"ok\":true}'",
 			interpreter: "bash",
 		});
 
@@ -278,9 +278,7 @@ describe("workspace wiring", () => {
 
 		// Constructor doesn't throw (genome exists, workspace tools might load)
 		// But run() throws after discovering no workspace tools either
-		await expect(agent.run("do something")).rejects.toThrow(
-			/zero tools after full resolution/,
-		);
+		await expect(agent.run("do something")).rejects.toThrow(/zero tools after full resolution/);
 	});
 
 	test("agent without genome does not get workspace primitives", async () => {
