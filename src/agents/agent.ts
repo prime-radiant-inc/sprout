@@ -41,6 +41,7 @@ import {
 	parsePlanResponse,
 	primitivesForAgent,
 	renderAgentsForPrompt,
+	renderToolBoundaries,
 	renderWorkspaceTools,
 } from "./plan.ts";
 import { resolveAgentDelegates } from "./resolver.ts";
@@ -750,6 +751,9 @@ export class Agent {
 		if (wsToolDefs.length > 0) {
 			this.systemPrompt += renderWorkspaceTools(wsToolDefs);
 		}
+
+		// Inject anti-hallucination guardrails based on actual tool availability
+		this.systemPrompt += renderToolBoundaries(this.agentTools, this.primitiveTools);
 
 		return this.runLoop(goal);
 	}

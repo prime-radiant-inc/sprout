@@ -401,6 +401,48 @@ export function renderWorkspaceEncouragement(): string {
 	return `\n\nPrefer writing and saving tools over running ad-hoc commands. When you need to do something non-trivial, save a tool for it using save_tool — even if you'll only use it once this session. Tools persist across sessions and become part of your permanent capabilities. Your saved tools are on PATH and can be called directly from exec.`;
 }
 
+/**
+ * Render anti-hallucination guardrails based on actual tool availability.
+ * Tells the agent explicitly what it does NOT have access to.
+ */
+export function renderToolBoundaries(
+	agentTools: ToolDefinition[],
+	primitiveTools: ToolDefinition[],
+): string {
+	const hasDelegate = agentTools.some((t) => t.name === DELEGATE_TOOL_NAME);
+	const allToolNames = [...agentTools, ...primitiveTools].map((t) => t.name);
+	const lines: string[] = [];
+
+	if (!hasDelegate) {
+		lines.push(
+			"You do NOT have the ability to delegate to other agents. Do not simulate or fabricate delegations.",
+		);
+	}
+	if (!allToolNames.includes("exec")) {
+		lines.push(
+			"You do NOT have access to exec or shell commands. Do not simulate command output.",
+		);
+	}
+	if (!allToolNames.includes("read_file")) {
+		lines.push(
+			"You do NOT have access to read_file. Do not fabricate file contents.",
+		);
+	}
+	if (!allToolNames.includes("write_file") && !allToolNames.includes("edit_file")) {
+		lines.push(
+			"You do NOT have access to write_file or edit_file. Do not pretend to write or edit files.",
+		);
+	}
+
+	if (lines.length === 0) return "";
+
+	lines.push(
+		"Use ONLY the tools provided to you. If you cannot accomplish a goal with your available tools, say so clearly.",
+	);
+
+	return `\n\n<tool_boundaries>\n${lines.join("\n")}\n</tool_boundaries>`;
+}
+
 /** Render caller identity as an XML block for injection into a sub-agent's system prompt. */
 export function renderCallerIdentity(caller: CallerIdentity): string {
 	return `\n\n<caller>\nAgent: ${caller.agent_name}\nDepth: ${caller.depth}\n</caller>`;

@@ -10,6 +10,7 @@ import {
 	primitivesForAgent,
 	renderAgentsForPrompt,
 	renderCallerIdentity,
+	renderToolBoundaries,
 } from "../../src/agents/plan.ts";
 import type { AgentSpec, Memory, RoutingRule } from "../../src/kernel/types.ts";
 import { Msg } from "../../src/llm/types.ts";
@@ -540,6 +541,51 @@ describe("buildMessageAgentTool", () => {
 		expect(props.blocking).toBeDefined();
 		expect(props.blocking.type).toBe("boolean");
 		expect((tool.parameters as any).required).toEqual(["handle", "message"]);
+	});
+});
+
+describe("renderToolBoundaries", () => {
+	test("warns about missing delegation when agent has no delegate tool", () => {
+		const result = renderToolBoundaries([], [{ name: "exec", description: "", parameters: {} }]);
+		expect(result).toContain("<tool_boundaries>");
+		expect(result).toContain("do NOT have the ability to delegate");
+		expect(result).not.toContain("do NOT have access to exec");
+	});
+
+	test("warns about missing exec when agent has no exec primitive", () => {
+		const result = renderToolBoundaries(
+			[{ name: "delegate", description: "", parameters: {} }],
+			[{ name: "read_file", description: "", parameters: {} }],
+		);
+		expect(result).toContain("do NOT have access to exec");
+		expect(result).not.toContain("do NOT have the ability to delegate");
+	});
+
+	test("warns about missing file tools when agent has neither write_file nor edit_file", () => {
+		const result = renderToolBoundaries([], [{ name: "task-cli", description: "", parameters: {} }]);
+		expect(result).toContain("do NOT have access to read_file");
+		expect(result).toContain("do NOT have access to write_file or edit_file");
+	});
+
+	test("returns empty string when agent has all capabilities", () => {
+		const agentTools = [{ name: "delegate", description: "", parameters: {} }];
+		const primitiveTools = [
+			{ name: "exec", description: "", parameters: {} },
+			{ name: "read_file", description: "", parameters: {} },
+			{ name: "write_file", description: "", parameters: {} },
+		];
+		const result = renderToolBoundaries(agentTools, primitiveTools);
+		expect(result).toBe("");
+	});
+
+	test("workspace-tool-only agent gets all relevant warnings", () => {
+		// Simulates task-manager: only has task-cli workspace tool
+		const result = renderToolBoundaries([], [{ name: "task-cli", description: "", parameters: {} }]);
+		expect(result).toContain("do NOT have the ability to delegate");
+		expect(result).toContain("do NOT have access to exec");
+		expect(result).toContain("do NOT have access to read_file");
+		expect(result).toContain("do NOT have access to write_file or edit_file");
+		expect(result).toContain("Use ONLY the tools provided to you");
 	});
 });
 
