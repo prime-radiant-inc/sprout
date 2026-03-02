@@ -76,6 +76,7 @@ describe("E2E Integration", () => {
 		const vcr = vcrForTest("multi-step-modify-file-and-create-test");
 		const result = await createAgent({
 			genomePath: genomeDir,
+			rootDir: join(import.meta.dir, "../../root"),
 			workDir: workDir,
 			client: vcr.client,
 		});
@@ -109,6 +110,7 @@ describe("E2E Integration", () => {
 			learnProcess: lp1,
 		} = await createAgent({
 			genomePath: genomeDir,
+			rootDir: join(import.meta.dir, "../../root"),
 			workDir: workDir,
 			client: vcr.client,
 		});
@@ -130,6 +132,7 @@ describe("E2E Integration", () => {
 		// The genome should still be loadable after a session with potential learn activity
 		const { genome: genome2 } = await createAgent({
 			genomePath: genomeDir,
+			rootDir: join(import.meta.dir, "../../root"),
 			workDir: workDir,
 			client: vcr.client,
 		});
@@ -142,6 +145,7 @@ describe("E2E Integration", () => {
 		const vcr = vcrForTest("genome-growth-genome-loads-successfully-after-sessions");
 		const result = await createAgent({
 			genomePath: genomeDir,
+			rootDir: join(import.meta.dir, "../../root"),
 			workDir: workDir,
 			client: vcr.client,
 		});
@@ -157,6 +161,7 @@ describe("E2E Integration", () => {
 		const vcr = vcrForTest("cross-session-new-session-loads-learned-genome");
 		const result = await createAgent({
 			genomePath: genomeDir,
+			rootDir: join(import.meta.dir, "../../root"),
 			workDir: workDir,
 			client: vcr.client,
 		});
