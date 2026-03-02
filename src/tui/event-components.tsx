@@ -150,11 +150,13 @@ interface DelegationStartProps {
 	depth: number;
 	agentName: string;
 	goal: string;
+	description?: string;
 }
 
-/** Renders a delegation start: ╭─ agent: goal */
-export function DelegationStartLine({ depth, agentName, goal }: DelegationStartProps) {
-	const displayGoal = goal.length > 80 ? `${goal.slice(0, 79)}\u2026` : goal;
+/** Renders a delegation start: ╭─ agent: description (or truncated goal) */
+export function DelegationStartLine({ depth, agentName, goal, description }: DelegationStartProps) {
+	const label = description ?? goal;
+	const displayLabel = label.length > 80 ? `${label.slice(0, 79)}\u2026` : label;
 	return (
 		<DepthBorder depth={depth}>
 			<Box>
@@ -162,7 +164,7 @@ export function DelegationStartLine({ depth, agentName, goal }: DelegationStartP
 				<Text color="cyan" bold>
 					{agentName}
 				</Text>
-				<Text dimColor>{` ${displayGoal}`}</Text>
+				<Text dimColor>{` ${displayLabel}`}</Text>
 			</Box>
 		</DepthBorder>
 	);
@@ -319,6 +321,7 @@ export function renderEventComponent(event: SessionEvent, durationMs: number | n
 					depth={depth}
 					agentName={data.agent_name as string}
 					goal={data.goal as string}
+					description={typeof data.description === "string" ? data.description : undefined}
 				/>
 			);
 

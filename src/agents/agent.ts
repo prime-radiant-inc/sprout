@@ -323,6 +323,7 @@ export class Agent {
 		this.emitAndLog("act_start", agentId, this.depth, {
 			agent_name: delegation.agent_name,
 			goal: delegation.goal,
+			...(delegation.description ? { description: delegation.description } : {}),
 			child_id: childId,
 		});
 
@@ -336,6 +337,8 @@ export class Agent {
 			this.genome?.getAgent(delegation.agent_name) ??
 			this.availableAgents.find((a) => a.name === delegation.agent_name);
 
+		const descData = delegation.description ? { description: delegation.description } : {};
+
 		if (!subagentSpec) {
 			const errorMsg = `Unknown agent: ${delegation.agent_name}`;
 			const toolResultMsg = Msg.toolResult(delegation.call_id, errorMsg, true);
@@ -344,6 +347,7 @@ export class Agent {
 				success: false,
 				error: errorMsg,
 				child_id: childId,
+				...descData,
 				tool_result_message: toolResultMsg,
 			});
 			return { toolResultMsg, stumbles: 1 };
@@ -427,6 +431,7 @@ export class Agent {
 				turns: subResult.turns,
 				timed_out: subResult.timed_out,
 				child_id: childId,
+				...descData,
 				tool_result_message: toolResultMsg,
 			});
 
@@ -447,6 +452,7 @@ export class Agent {
 				success: false,
 				error: errorMsg,
 				child_id: childId,
+				...descData,
 				tool_result_message: toolResultMsg,
 			});
 			return { toolResultMsg, stumbles: 1 };
@@ -465,10 +471,12 @@ export class Agent {
 	): Promise<{ toolResultMsg: Message; stumbles: number; output?: string }> {
 		const handleId = ulid();
 		const childId = ulid();
+		const descData = delegation.description ? { description: delegation.description } : {};
 
 		this.emitAndLog("act_start", agentId, this.depth, {
 			agent_name: delegation.agent_name,
 			goal: delegation.goal,
+			...descData,
 			handle_id: handleId,
 			child_id: childId,
 		});
@@ -505,6 +513,7 @@ export class Agent {
 					success: true,
 					handle_id: handleId,
 					child_id: childId,
+					...descData,
 					tool_result_message: toolResultMsg,
 				});
 				return { toolResultMsg, stumbles: 0, output: handleId };
@@ -556,6 +565,7 @@ export class Agent {
 				turns: resultMsg.turns,
 				timed_out: resultMsg.timed_out,
 				child_id: childId,
+				...descData,
 				tool_result_message: toolResultMsg,
 			});
 
@@ -572,6 +582,7 @@ export class Agent {
 				success: false,
 				error: errorMsg,
 				child_id: childId,
+				...descData,
 				tool_result_message: toolResultMsg,
 			});
 			return { toolResultMsg, stumbles: 1 };

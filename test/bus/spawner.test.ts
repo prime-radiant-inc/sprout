@@ -95,6 +95,14 @@ describe("AgentSpawner", () => {
 
 	afterEach(async () => {
 		spawner?.shutdown();
+		// Wait for all agent processes to fully exit before deleting the temp dir.
+		// Without this, in-flight mkdir calls inside runAgentProcess race with rm.
+		if (spawner) {
+			const exits = spawner.getHandles()
+				.map((id) => spawner.getHandle(id)?.process.exited)
+				.filter(Boolean);
+			await Promise.allSettled(exits);
+		}
 		await bus.disconnect();
 		await server.stop();
 		await rm(tempDir, { recursive: true, force: true });

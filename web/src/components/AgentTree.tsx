@@ -84,8 +84,8 @@ function TreeNode({
 							</span>
 						)}
 					</div>
-					{node.goal && (
-						<div className={styles.goal}>{node.goal}</div>
+					{(node.description || node.goal) && (
+						<div className={styles.goal}>{node.description ?? node.goal}</div>
 					)}
 				</button>
 			</div>

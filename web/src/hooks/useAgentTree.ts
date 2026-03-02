@@ -7,6 +7,8 @@ export interface AgentTreeNode {
 	depth: number;
 	status: "running" | "completed" | "failed";
 	goal: string;
+	/** Short label (≤10 words) for tree/headers; falls back to goal when absent */
+	description?: string;
 	children: AgentTreeNode[];
 	turns?: number;
 	durationMs?: number;
@@ -86,6 +88,7 @@ export function buildAgentTree(events: SessionEvent[]): AgentTreeNode {
 					depth: childDepth,
 					status: "running",
 					goal: (event.data.goal as string) ?? "",
+					description: typeof event.data.description === "string" ? event.data.description : undefined,
 					children: [],
 				};
 				startTimestamps.set(node, event.timestamp);

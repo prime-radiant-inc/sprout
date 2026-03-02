@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import type { SessionEvent } from "../../../../src/kernel/types.ts";
 import type { AgentTreeNode } from "../../hooks/useAgentTree.ts";
+import { buildAgentTree } from "../../hooks/useAgentTree.ts";
 import { AgentTree } from "../AgentTree.tsx";
 
 // --- Helpers ---
@@ -297,6 +299,95 @@ describe("AgentTree", () => {
 		const nextAgentIdIdx = html.indexOf("data-agent-id", disclosureIdx);
 		// They should be within the same row, not far apart
 		expect(nextAgentIdIdx - disclosureIdx).toBeLessThan(500);
+	});
+
+	test("shows description instead of goal when description is set", () => {
+		const tree = makeNode({
+			children: [
+				makeNode({
+					agentId: "editor-1",
+					agentName: "code-editor",
+					depth: 1,
+					status: "running",
+					goal: "Read all TypeScript files in src/auth and summarize the authentication flow",
+					description: "Analyze auth flow",
+				}),
+			],
+		});
+		const html = renderToStaticMarkup(
+			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
+		);
+		expect(html).toContain("Analyze auth flow");
+		expect(html).not.toContain("Read all TypeScript files");
+	});
+
+	test("falls back to goal when description is absent", () => {
+		const tree = makeNode({
+			children: [
+				makeNode({
+					agentId: "editor-1",
+					agentName: "code-editor",
+					depth: 1,
+					status: "running",
+					goal: "Write the parser",
+				}),
+			],
+		});
+		const html = renderToStaticMarkup(
+			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
+		);
+		expect(html).toContain("Write the parser");
+	});
+});
+
+describe("buildAgentTree", () => {
+	function makeEvent(
+		kind: string,
+		data: Record<string, unknown>,
+		overrides: Partial<SessionEvent> = {},
+	): SessionEvent {
+		return {
+			kind: kind as SessionEvent["kind"],
+			agent_id: "root-agent",
+			depth: 0,
+			timestamp: Date.now(),
+			data,
+			...overrides,
+		} as SessionEvent;
+	}
+
+	test("extracts description from act_start event", () => {
+		const events: SessionEvent[] = [
+			makeEvent("perceive", { goal: "Go" }, { agent_id: "root-agent", depth: 0 }),
+			makeEvent(
+				"act_start",
+				{
+					agent_name: "code-reader",
+					goal: "Read all TypeScript files in src/auth and summarize the authentication flow",
+					description: "Analyze auth flow",
+					child_id: "CID1",
+				},
+				{ agent_id: "root-agent", depth: 0 },
+			),
+		];
+		const tree = buildAgentTree(events);
+		const child = tree.children[0]!;
+		expect(child.agentName).toBe("code-reader");
+		expect(child.description).toBe("Analyze auth flow");
+		expect(child.goal).toBe("Read all TypeScript files in src/auth and summarize the authentication flow");
+	});
+
+	test("description is undefined when not in event data", () => {
+		const events: SessionEvent[] = [
+			makeEvent("perceive", { goal: "Go" }, { agent_id: "root-agent", depth: 0 }),
+			makeEvent(
+				"act_start",
+				{ agent_name: "code-reader", goal: "Find code", child_id: "CID1" },
+				{ agent_id: "root-agent", depth: 0 },
+			),
+		];
+		const tree = buildAgentTree(events);
+		expect(tree.children[0]!.description).toBeUndefined();
 	});
 });
 

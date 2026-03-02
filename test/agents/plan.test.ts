@@ -88,6 +88,15 @@ describe("buildDelegateTool", () => {
 		// They should not be in required (they have defaults)
 		expect((tool.parameters as any).required).toEqual(["agent_name", "goal"]);
 	});
+
+	test("includes description param for short label", () => {
+		const tool = buildDelegateTool([testAgent]);
+		const props = (tool.parameters as any).properties;
+		expect(props.description).toBeDefined();
+		expect(props.description.type).toBe("string");
+		// description should NOT be required
+		expect((tool.parameters as any).required).not.toContain("description");
+	});
 });
 
 describe("renderAgentsForPrompt", () => {
@@ -513,6 +522,35 @@ describe("parsePlanResponse", () => {
 		const result = parsePlanResponse(toolCalls);
 		expect(result.errors).toHaveLength(1);
 		expect(result.errors[0]!.error).toContain("message");
+	});
+
+	test("extracts description from delegate call", () => {
+		const toolCalls = [
+			{
+				id: "call_1",
+				name: "delegate",
+				arguments: {
+					agent_name: "code-reader",
+					goal: "Read all TypeScript files in src/auth and summarize the authentication flow",
+					description: "Analyze auth flow",
+				},
+			},
+		];
+		const result = parsePlanResponse(toolCalls);
+		expect(result.delegations).toHaveLength(1);
+		expect(result.delegations[0]!.description).toBe("Analyze auth flow");
+	});
+
+	test("description is undefined when not provided", () => {
+		const toolCalls = [
+			{
+				id: "call_1",
+				name: "delegate",
+				arguments: { agent_name: "code-reader", goal: "find code" },
+			},
+		];
+		const result = parsePlanResponse(toolCalls);
+		expect(result.delegations[0]!.description).toBeUndefined();
 	});
 });
 

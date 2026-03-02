@@ -98,6 +98,8 @@ export interface Delegation {
 	call_id: string;
 	agent_name: string;
 	goal: string;
+	/** Short summary (≤10 words) shown in tree/headers instead of the full goal */
+	description?: string;
 	hints?: string[];
 	/** If false, delegation runs asynchronously and returns a handle. Default: true */
 	blocking?: boolean;

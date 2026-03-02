@@ -5,6 +5,8 @@ import styles from "./DelegationBlock.module.css";
 interface DelegationBlockProps {
 	agentName: string;
 	goal: string;
+	/** Short label for compact display; falls back to goal when absent */
+	description?: string;
 	status: "running" | "completed" | "failed";
 	turns?: number;
 	durationMs?: number | null;
@@ -15,7 +17,7 @@ interface DelegationBlockProps {
 
 /** Delegation block — status card with left accent stripe showing agent activity. */
 export function DelegationBlock(props: DelegationBlockProps) {
-	const { agentName, goal, status, turns, durationMs, livePeek, livePeekTools, onOpenThread } = props;
+	const { agentName, goal, description, status, turns, durationMs, livePeek, livePeekTools, onOpenThread } = props;
 
 	const dur = formatDuration(durationMs ?? null);
 
@@ -40,7 +42,7 @@ export function DelegationBlock(props: DelegationBlockProps) {
 					</span>
 				)}
 			</div>
-			<div className={styles.goal}>{goal}</div>
+			<div className={styles.goal}>{description ?? goal}</div>
 			{livePeekTools && livePeekTools.length > 0 && status === "running" && (
 				<div className={styles.toolList}>
 					{livePeekTools.map((tool, i) => (

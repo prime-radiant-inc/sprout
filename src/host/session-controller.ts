@@ -241,7 +241,12 @@ export class SessionController {
 					sessionsDir: join(this.projectDataDir, "sessions"),
 				});
 				if (this.logger) {
-					const newLogPath = join(this.projectDataDir, "logs", this._sessionId, "session.log.jsonl");
+					const newLogPath = join(
+						this.projectDataDir,
+						"logs",
+						this._sessionId,
+						"session.log.jsonl",
+					);
 					this.logger.reconfigure({ sessionId: this._sessionId, logPath: newLogPath });
 				}
 				this.bus.emitEvent("session_clear", "session", 0, {

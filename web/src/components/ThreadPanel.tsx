@@ -28,6 +28,7 @@ interface ThreadPanelProps {
 export function ThreadPanel({ agentId, tree, events, onClose, onSelectAgent }: ThreadPanelProps) {
 	const node = findNode(tree, agentId);
 	const agentName = node?.agentName ?? agentId;
+	const description = node?.description ?? "";
 	const goal = node?.goal ?? "";
 	const tokenUsage = useTokenUsage(events, tree, agentId);
 
@@ -48,8 +49,8 @@ export function ThreadPanel({ agentId, tree, events, onClose, onSelectAgent }: T
 							</span>
 						)}
 					</div>
-					{goal && (
-						<div className={styles.goal}>{goal}</div>
+					{(description || goal) && (
+						<div className={styles.goal}>{description || goal}</div>
 					)}
 				</div>
 				<button

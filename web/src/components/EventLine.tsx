@@ -79,6 +79,7 @@ export function EventLine({ event, durationMs, streamingText, isFirstInGroup, ag
 				<DelegationBlock
 					agentName={data.agent_name as string}
 					goal={data.goal as string}
+					description={typeof data.description === "string" ? data.description : undefined}
 					status="running"
 					livePeek={livePeek}
 					livePeekTools={livePeekTools}
@@ -93,6 +94,7 @@ export function EventLine({ event, durationMs, streamingText, isFirstInGroup, ag
 				<DelegationBlock
 					agentName={data.agent_name as string}
 					goal={typeof data.goal === "string" ? data.goal : ""}
+					description={typeof data.description === "string" ? data.description : undefined}
 					status={data.success ? "completed" : "failed"}
 					turns={typeof data.turns === "number" ? data.turns : undefined}
 					durationMs={durationMs}

@@ -33,6 +33,11 @@ export function buildDelegateTool(agents: AgentSpec[]): ToolDefinition {
 					type: "string",
 					description: "What you want this agent to achieve",
 				},
+				description: {
+					type: "string",
+					description:
+						"Short label (10 words or fewer) shown in the UI tree and headers. The full goal is still visible inside the delegation.",
+				},
 				hints: {
 					type: "array",
 					items: { type: "string" },
@@ -323,6 +328,8 @@ export function parsePlanResponse(
 				call_id: call.id,
 				agent_name: agentName,
 				goal,
+				description:
+					typeof call.arguments.description === "string" ? call.arguments.description : undefined,
 				hints: Array.isArray(hints) ? hints : undefined,
 				blocking:
 					typeof call.arguments.blocking === "boolean" ? call.arguments.blocking : undefined,
