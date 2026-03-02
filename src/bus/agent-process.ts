@@ -79,9 +79,6 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 		// Load genome and find agent spec
 		const genome = new Genome(genomePath, config.rootDir);
 		await genome.loadFromDisk();
-		if (config.rootDir) {
-			await genome.loadRoot();
-		}
 
 		const loadedSpec = genome.getAgent(startMsg.agent_name);
 		if (!loadedSpec) {

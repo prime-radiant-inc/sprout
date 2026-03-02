@@ -480,7 +480,6 @@ describe("Genome", () => {
 			// Verify disk state with a fresh Genome instance
 			const genome2 = new Genome(root, rootDir);
 			await genome2.loadFromDisk();
-			await genome2.loadRoot();
 			expect(genome2.agentCount()).toBe(agentCount);
 			expect(genome2.getAgent("extra-agent")).toBeUndefined();
 		});
@@ -1176,7 +1175,6 @@ describe("Genome", () => {
 			// Reload from disk
 			const genome2 = new Genome(genomePath, rootDir);
 			await genome2.loadFromDisk();
-			await genome2.loadRoot();
 
 			expect(genome2.getAgent("reader")!.description).toBe("Root reader");
 			expect(genome2.getAgent("specialist")!.description).toBe("Genome only");
@@ -1267,7 +1265,9 @@ describe("Genome", () => {
 			await genome.init();
 			await genome.loadRoot();
 
-			await genome.addAgent(makeSpec({ name: "reader", description: "Replaced reader", version: 1 }));
+			await genome.addAgent(
+				makeSpec({ name: "reader", description: "Replaced reader", version: 1 }),
+			);
 
 			const agent = genome.getAgent("reader")!;
 			expect(agent.description).toBe("Replaced reader");

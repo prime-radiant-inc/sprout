@@ -907,7 +907,6 @@ describe("LearnProcess", () => {
 			// Genome should have been rolled back — reload to verify
 			const genome2 = new Genome(join(tempDir, "eval-pending-harmful"), ROOT_DIR);
 			await genome2.loadFromDisk();
-			await genome2.loadRoot();
 			expect(genome2.getAgent("root")!.system_prompt).toBe(originalPrompt);
 		});
 

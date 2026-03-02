@@ -33,7 +33,6 @@ export async function exportLearnings(genomePath: string, rootDir: string): Prom
 
 	const genome = new Genome(genomePath, rootDir);
 	await genome.loadFromDisk();
-	await genome.loadRoot();
 
 	const evolved: EvolvedAgent[] = [];
 	const genomeOnly: GenomeOnlyAgent[] = [];
