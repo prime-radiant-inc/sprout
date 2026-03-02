@@ -613,6 +613,112 @@ describe("AgentSpawner", () => {
 		}, 15_000);
 	});
 
+	describe("updateSessionId", () => {
+		test("agents spawned after update use new session ID topic", async () => {
+			const mockClient = createMockClient("After update.");
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			const newSessionId = "spawner-test-session-v2";
+
+			const events: EventMessage[] = [];
+			await spawner.subscribeSessionEvents((event) => events.push(event));
+
+			// Update session ID and resubscribe
+			await spawner.updateSessionId(newSessionId);
+
+			await spawner.spawnAgent({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: { agent_name: "root", depth: 0 },
+				goal: "Post-update task",
+				blocking: true,
+				shared: false,
+				workDir: tempDir,
+			});
+
+			// Events should arrive via the new session-wide topic
+			expect(events.length).toBeGreaterThan(0);
+			const eventKinds = events.map((e) => e.event.kind);
+			expect(eventKinds).toContain("session_start");
+			expect(eventKinds).toContain("session_end");
+		}, 15_000);
+	});
+
+	describe("subscribeSessionEvents multi-agent", () => {
+		test("events from multiple agents arrive at a single subscription", async () => {
+			const mockClient = createMockClient("Multi-agent test.");
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			const events: EventMessage[] = [];
+			await spawner.subscribeSessionEvents((event) => events.push(event));
+
+			const handleA = "01MULTIAGENT_A0000000000000";
+			const handleB = "01MULTIAGENT_B0000000000000";
+
+			// Spawn two agents sequentially (each publishes to the same session topic)
+			await spawner.spawnAgent({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: { agent_name: "root", depth: 0 },
+				goal: "Agent A task",
+				blocking: true,
+				shared: false,
+				workDir: tempDir,
+				handleId: handleA,
+			});
+
+			await spawner.spawnAgent({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: { agent_name: "root", depth: 0 },
+				goal: "Agent B task",
+				blocking: true,
+				shared: false,
+				workDir: tempDir,
+				handleId: handleB,
+			});
+
+			// Events from BOTH agents should arrive via the single subscription
+			const handlesInEvents = new Set(events.map((e) => e.handle_id));
+			expect(handlesInEvents.has(handleA)).toBe(true);
+			expect(handlesInEvents.has(handleB)).toBe(true);
+
+			// Both should have session_start and session_end
+			const agentAEvents = events.filter((e) => e.handle_id === handleA);
+			const agentBEvents = events.filter((e) => e.handle_id === handleB);
+			expect(agentAEvents.map((e) => e.event.kind)).toContain("session_start");
+			expect(agentBEvents.map((e) => e.event.kind)).toContain("session_start");
+		}, 30_000);
+	});
+
+	describe("subscribeSessionEvents idempotency", () => {
+		test("second call is a no-op (does not duplicate events)", async () => {
+			const mockClient = createMockClient("Idempotent test.");
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			const events1: EventMessage[] = [];
+			const events2: EventMessage[] = [];
+			await spawner.subscribeSessionEvents((event) => events1.push(event));
+			// Second call should be ignored
+			await spawner.subscribeSessionEvents((event) => events2.push(event));
+
+			await spawner.spawnAgent({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: { agent_name: "root", depth: 0 },
+				goal: "Single callback test",
+				blocking: true,
+				shared: false,
+				workDir: tempDir,
+			});
+
+			// First callback should receive events
+			expect(events1.length).toBeGreaterThan(0);
+			// Second callback should NOT receive events (was ignored)
+			expect(events2.length).toBe(0);
+		}, 15_000);
+	});
+
 	describe("access control", () => {
 		test("waitAgent rejects non-owner on non-shared handle", async () => {
 			const mockClient = createMockClient("Done.");

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { runAgentProcess } from "../../src/bus/agent-process.ts";
 import { BusClient } from "../../src/bus/client.ts";
 import { BusServer } from "../../src/bus/server.ts";
-import { agentEvents, agentInbox, agentResult } from "../../src/bus/topics.ts";
+import { agentEvents, agentInbox, agentResult, sessionEvents } from "../../src/bus/topics.ts";
 import type { ResultMessage, StartMessage } from "../../src/bus/types.ts";
 import { Genome } from "../../src/genome/genome.ts";
 import type { LogEntry } from "../../src/host/logger.ts";
@@ -268,7 +268,6 @@ describe("runAgentProcess", () => {
 		const mockClient = createMockClient("Done.");
 
 		// Subscribe to session-wide events topic (not the per-handle topic)
-		const { sessionEvents } = await import("../../src/bus/topics.ts");
 		const sessionTopic = sessionEvents(SESSION_ID);
 		const collectedEvents: string[] = [];
 		await parentClient.subscribe(sessionTopic, (payload) => {

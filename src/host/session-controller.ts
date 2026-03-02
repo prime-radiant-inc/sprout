@@ -207,10 +207,14 @@ export class SessionController {
 		// This must be in the constructor, not the factory, to avoid accumulating
 		// subscriptions on each submitGoal call.
 		if (this.spawner) {
-			this.spawner.subscribeSessionEvents((eventMsg) => {
-				const ev = eventMsg.event;
-				this.bus.emitEvent(ev.kind, ev.agent_id, ev.depth, ev.data);
-			});
+			this.spawner
+				.subscribeSessionEvents((eventMsg) => {
+					const ev = eventMsg.event;
+					this.bus.emitEvent(ev.kind, ev.agent_id, ev.depth, ev.data);
+				})
+				.catch((err) => {
+					console.error("[SessionController] Failed to subscribe to session events:", err);
+				});
 		}
 
 		this.bus.onCommand((cmd) => this.handleCommand(cmd));
@@ -253,6 +257,11 @@ export class SessionController {
 						"session.log.jsonl",
 					);
 					this.logger.reconfigure({ sessionId: this._sessionId, logPath: newLogPath });
+				}
+				if (this.spawner) {
+					this.spawner.updateSessionId(this._sessionId).catch((err) => {
+						console.error("[SessionController] Failed to resubscribe after clear:", err);
+					});
 				}
 				this.bus.emitEvent("session_clear", "session", 0, {
 					new_session_id: this._sessionId,

@@ -89,10 +89,11 @@ function defaultSpawnFn(
 export class AgentSpawner {
 	private readonly bus: BusClient;
 	private readonly busUrl: string;
-	private readonly sessionId: string;
+	private sessionId: string;
 	private readonly spawnFn: SpawnFn;
 	private readonly waitTimeoutMs: number;
 	private readonly handles = new Map<string, AgentHandle>();
+	private sessionEventsCallback?: (event: EventMessage) => void;
 
 	constructor(
 		bus: BusClient,
@@ -112,14 +113,37 @@ export class AgentSpawner {
 	 * Subscribe to the session-wide events topic.
 	 * Every agent subprocess publishes here regardless of depth,
 	 * so this provides O(1) event delivery without relay chains.
+	 *
+	 * Can only be called once. Use updateSessionId() to resubscribe
+	 * after a session reset (e.g. /clear).
 	 */
 	async subscribeSessionEvents(callback: (event: EventMessage) => void): Promise<void> {
+		if (this.sessionEventsCallback) return;
+		this.sessionEventsCallback = callback;
+		await this.subscribeToSessionTopic();
+	}
+
+	/**
+	 * Update the session ID (e.g. after /clear).
+	 * Resubscribes to the new session-wide events topic if a callback
+	 * was previously registered. The old subscription becomes a no-op
+	 * since no agents will publish to the old topic after the reset.
+	 */
+	async updateSessionId(newSessionId: string): Promise<void> {
+		this.sessionId = newSessionId;
+		if (this.sessionEventsCallback) {
+			await this.subscribeToSessionTopic();
+		}
+	}
+
+	private async subscribeToSessionTopic(): Promise<void> {
+		const callback = this.sessionEventsCallback!;
 		const topic = sessionEvents(this.sessionId);
 		await this.bus.subscribe(topic, (payload) => {
 			try {
-				const parsed = JSON.parse(payload);
-				if (parsed.kind === "event") {
-					callback(parsed as EventMessage);
+				const msg = parseBusMessage(payload);
+				if (msg.kind === "event") {
+					callback(msg);
 				}
 			} catch {
 				// Ignore malformed messages

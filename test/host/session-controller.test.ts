@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { EventMessage } from "../../src/bus/types.ts";
 import { EventBus } from "../../src/host/event-bus.ts";
 import { type LogEntry, NullLogger, SessionLogger } from "../../src/host/logger.ts";
 import { type AgentFactory, SessionController } from "../../src/host/session-controller.ts";
@@ -1818,5 +1819,101 @@ describe("SessionController", () => {
 
 		// Specifically, message_agent tool_result must be present
 		expect(toolResults).toContain("toolu_msg_agent_003");
+	});
+});
+
+describe("SessionController session-wide event wiring", () => {
+	let tempDir: string;
+
+	beforeEach(async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "sprout-sc-events-"));
+	});
+
+	afterEach(async () => {
+		await rm(tempDir, { recursive: true, force: true });
+	});
+
+	test("constructor wires subscribeSessionEvents callback to bus.emitEvent", async () => {
+		const bus = new EventBus();
+
+		// Track what the spawner's subscribeSessionEvents receives
+		let capturedCallback: ((event: EventMessage) => void) | undefined;
+		const fakeSpawner = {
+			getHandles: () => [],
+			subscribeSessionEvents: async (cb: (event: EventMessage) => void) => {
+				capturedCallback = cb;
+			},
+			updateSessionId: async () => {},
+		} as any;
+
+		const fake = makeFakeAgent();
+		new SessionController({
+			bus,
+			genomePath: join(tempDir, "genome"),
+			projectDataDir: tempDir,
+			factory: makeFakeFactory(fake),
+			spawner: fakeSpawner,
+		});
+
+		// The constructor should have called subscribeSessionEvents
+		expect(capturedCallback).toBeDefined();
+
+		// Simulate an event arriving from a subprocess
+		const emittedEvents: Array<{ kind: string; agent_id: string; depth: number }> = [];
+		bus.onEvent((event) => {
+			emittedEvents.push({
+				kind: event.kind,
+				agent_id: event.agent_id,
+				depth: event.depth,
+			});
+		});
+
+		capturedCallback!({
+			kind: "event",
+			handle_id: "test-handle",
+			event: {
+				kind: "session_start",
+				agent_id: "child-agent",
+				depth: 1,
+				data: {},
+			},
+		} as EventMessage);
+
+		expect(emittedEvents.length).toBe(1);
+		expect(emittedEvents[0]!.kind).toBe("session_start");
+		expect(emittedEvents[0]!.agent_id).toBe("child-agent");
+		expect(emittedEvents[0]!.depth).toBe(1);
+	});
+
+	test("/clear command calls updateSessionId on spawner", async () => {
+		const bus = new EventBus();
+
+		const updateCalls: string[] = [];
+		const fakeSpawner = {
+			getHandles: () => [],
+			subscribeSessionEvents: async () => {},
+			updateSessionId: async (newId: string) => {
+				updateCalls.push(newId);
+			},
+		} as any;
+
+		const fake = makeFakeAgent();
+		const controller = new SessionController({
+			bus,
+			genomePath: join(tempDir, "genome"),
+			projectDataDir: tempDir,
+			factory: makeFakeFactory(fake),
+			spawner: fakeSpawner,
+		});
+
+		const oldSessionId = controller.sessionId;
+		bus.emitCommand({ kind: "clear", data: {} });
+
+		// Wait for the async updateSessionId to be called
+		await new Promise((r) => setTimeout(r, 50));
+
+		expect(controller.sessionId).not.toBe(oldSessionId);
+		expect(updateCalls.length).toBe(1);
+		expect(updateCalls[0]).toBe(controller.sessionId);
 	});
 });

@@ -164,5 +164,12 @@ describe("parseTopic", () => {
 			expect(parsed.session_id).toBe("sess-42");
 			expect(parsed.channel).toBe("genome/mutations");
 		});
+
+		test("sessionEvents round-trips", () => {
+			const topic = sessionEvents("sess-42");
+			const parsed = parseTopic(topic) as ParsedSessionTopic;
+			expect(parsed.session_id).toBe("sess-42");
+			expect(parsed.channel).toBe("events");
+		});
 	});
 });
