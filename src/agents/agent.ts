@@ -470,6 +470,7 @@ export class Agent {
 				workDir: this.env.working_directory(),
 				handleId,
 				agentId: childId,
+				rootDir: this.rootDir,
 			});
 
 			if (!blocking) {

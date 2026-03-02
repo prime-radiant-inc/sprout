@@ -26,6 +26,8 @@ export interface SpawnAgentOptions {
 	handleId?: string;
 	/** Override agent_id for events emitted by the child. */
 	agentId?: string;
+	/** Path to root agent directory (for overlay resolution in subprocesses). */
+	rootDir?: string;
 }
 
 /** Internal tracking record for a spawned agent */
@@ -43,6 +45,7 @@ export interface AgentHandle {
 	genomePath: string;
 	caller: CallerIdentity;
 	workDir: string;
+	rootDir?: string;
 }
 
 /**
@@ -123,6 +126,7 @@ export class AgentSpawner {
 			SPROUT_SESSION_ID: this.sessionId,
 			SPROUT_GENOME_PATH: opts.genomePath,
 			SPROUT_WORK_DIR: opts.workDir,
+			...(opts.rootDir ? { SPROUT_ROOT_DIR: opts.rootDir } : {}),
 		};
 
 		// Spawn the process
@@ -139,6 +143,7 @@ export class AgentSpawner {
 			genomePath: opts.genomePath,
 			caller: opts.caller,
 			workDir: opts.workDir,
+			rootDir: opts.rootDir,
 		};
 		this.handles.set(handleId, handle);
 
@@ -307,6 +312,7 @@ export class AgentSpawner {
 			SPROUT_SESSION_ID: this.sessionId,
 			SPROUT_GENOME_PATH: handle.genomePath,
 			SPROUT_WORK_DIR: handle.workDir,
+			...(handle.rootDir ? { SPROUT_ROOT_DIR: handle.rootDir } : {}),
 		};
 
 		const proc = this.spawnFn(handleId, env);

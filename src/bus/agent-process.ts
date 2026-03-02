@@ -77,8 +77,11 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 		const startMsg = parseBusMessage(startPayload) as StartMessage;
 
 		// Load genome and find agent spec
-		const genome = new Genome(genomePath);
+		const genome = new Genome(genomePath, config.rootDir);
 		await genome.loadFromDisk();
+		if (config.rootDir) {
+			await genome.loadRoot();
+		}
 
 		const loadedSpec = genome.getAgent(startMsg.agent_name);
 		if (!loadedSpec) {
@@ -366,6 +369,7 @@ if (import.meta.main) {
 	const sessionId = process.env.SPROUT_SESSION_ID;
 	const genomePath = process.env.SPROUT_GENOME_PATH;
 	const workDir = process.env.SPROUT_WORK_DIR ?? process.cwd();
+	const rootDir = process.env.SPROUT_ROOT_DIR;
 
 	if (!busUrl || !handleId || !sessionId || !genomePath) {
 		console.error(
@@ -389,6 +393,7 @@ if (import.meta.main) {
 		genomePath,
 		client,
 		workDir,
+		rootDir,
 		signal: controller.signal,
 		logger,
 	})
