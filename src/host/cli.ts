@@ -13,6 +13,7 @@ const DEFAULT_GENOME_PATH = join(homedir(), ".local/share/sprout-genome");
 export interface BusInfrastructureOptions {
 	genomePath: string;
 	sessionId: string;
+	rootDir?: string;
 }
 
 export interface BusInfrastructure {
@@ -43,7 +44,7 @@ export async function startBusInfrastructure(
 	await bus.connect();
 
 	// Load the genome for the mutation service
-	const genome = new Genome(options.genomePath);
+	const genome = new Genome(options.genomePath, options.rootDir);
 	try {
 		await genome.loadFromDisk();
 	} catch {
@@ -588,7 +589,8 @@ export async function runCli(command: CliCommand): Promise<void> {
 
 	if (command.kind === "genome-list") {
 		const { Genome } = await import("../genome/genome.ts");
-		const genome = new Genome(command.genomePath);
+		const rootDir = join(import.meta.dir, "../../root");
+		const genome = new Genome(command.genomePath, rootDir);
 		await genome.loadFromDisk();
 		const agents = genome.allAgents();
 		if (agents.length === 0) {
@@ -776,6 +778,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 		const infra = await startBusInfrastructure({
 			genomePath: command.genomePath,
 			sessionId,
+			rootDir,
 		});
 
 		const bus = new EventBus();
@@ -894,6 +897,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 	const infra = await startBusInfrastructure({
 		genomePath: command.genomePath,
 		sessionId,
+		rootDir,
 	});
 
 	const bus = new EventBus();
