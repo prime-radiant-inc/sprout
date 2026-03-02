@@ -144,10 +144,12 @@ export class Genome {
 	}
 
 	/** Add a new agent spec, writing markdown to disk and committing.
-	 *  If an agent with the same name exists in root, bumps version above root's. */
+	 *  If an agent with the same name exists in root or overlay, bumps version above the highest. */
 	async addAgent(spec: AgentSpec): Promise<void> {
-		const rootSpec = this.rootAgents.get(spec.name);
-		const saved = rootSpec ? { ...spec, version: rootSpec.version + 1 } : spec;
+		const rootVersion = this.rootAgents.get(spec.name)?.version ?? 0;
+		const overlayVersion = this.agents.get(spec.name)?.version ?? 0;
+		const baseVersion = Math.max(rootVersion, overlayVersion);
+		const saved = baseVersion > 0 ? { ...spec, version: baseVersion + 1 } : spec;
 		const mdPath = join(this.rootPath, "agents", `${saved.name}.md`);
 		await writeFile(mdPath, serializeAgentMarkdown(saved));
 		await git(this.rootPath, "add", mdPath);
@@ -303,20 +305,25 @@ export class Genome {
 		return git(this.rootPath, "rev-parse", "HEAD");
 	}
 
-	/** Rollback the last genome mutation (git revert HEAD). */
+	/** Rollback the last genome mutation (git revert HEAD), then re-sync in-memory state. */
 	async rollback(): Promise<void> {
 		await git(this.rootPath, "revert", "--no-edit", "HEAD");
+		await this.loadFromDisk();
 	}
 
-	/** Rollback a specific commit by hash. */
+	/** Rollback a specific commit by hash, then re-sync in-memory state. */
 	async rollbackCommit(commitHash: string): Promise<void> {
 		await git(this.rootPath, "revert", "--no-edit", commitHash);
+		await this.loadFromDisk();
 	}
 
 	// --- Load and Bootstrap ---
 
 	/** Load agents, memories, and routing rules from an existing genome directory. */
 	async loadFromDisk(): Promise<void> {
+		// Clear overlay agents before loading so stale entries don't survive reloads
+		this.agents.clear();
+
 		// Genome agents are stored flat in agents/ (one .md per agent, no nesting).
 		const agentsDir = join(this.rootPath, "agents");
 		let files: string[];
@@ -424,9 +431,10 @@ export class Genome {
 				)
 			: false;
 
-		// Detect whether manifest content changed (any hash differs or agents added/removed)
+		// Detect whether manifest content changed (any hash differs or agents added/removed).
+		// Use sorted keys for agents object since readdir order isn't deterministic.
 		const manifestChanged =
-			JSON.stringify(oldManifest.agents) !== JSON.stringify(newManifest.agents) ||
+			stableStringify(oldManifest.agents) !== stableStringify(newManifest.agents) ||
 			JSON.stringify(oldManifest.rootTools) !== JSON.stringify(newManifest.rootTools) ||
 			JSON.stringify(oldManifest.rootAgents) !== JSON.stringify(newManifest.rootAgents);
 
@@ -697,6 +705,11 @@ export interface AgentFileInfo {
 	name: string;
 	size: number;
 	path: string;
+}
+
+/** JSON.stringify with sorted keys for deterministic comparison regardless of key insertion order. */
+function stableStringify(obj: unknown): string {
+	return JSON.stringify(obj, Object.keys(obj as Record<string, unknown>).sort());
 }
 
 function arraysEqual(a: string[], b: string[]): boolean {

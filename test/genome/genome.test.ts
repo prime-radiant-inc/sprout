@@ -477,6 +477,10 @@ describe("Genome", () => {
 
 			await genome.rollback();
 
+			// Verify in-memory state of the original instance is correct
+			expect(genome.agentCount()).toBe(agentCount);
+			expect(genome.getAgent("extra-agent")).toBeUndefined();
+
 			// Verify disk state with a fresh Genome instance
 			const genome2 = new Genome(root, rootDir);
 			await genome2.loadFromDisk();
@@ -1227,7 +1231,7 @@ describe("Genome", () => {
 			await genome.init();
 			await genome.loadRoot();
 
-			expect(() => genome.removeAgent("reader")).toThrow("root agent");
+			await expect(genome.removeAgent("reader")).rejects.toThrow("root agent");
 		});
 
 		test("root agent deleted between sessions disappears from resolution", async () => {
