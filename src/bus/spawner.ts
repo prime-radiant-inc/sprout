@@ -103,7 +103,7 @@ export class AgentSpawner {
 		this.busUrl = busUrl;
 		this.sessionId = sessionId;
 		this.spawnFn = spawnFn ?? defaultSpawnFn;
-		this.waitTimeoutMs = waitTimeoutMs ?? 120_000;
+		this.waitTimeoutMs = waitTimeoutMs ?? 900_000;
 	}
 
 	/** Register a callback to receive events from all spawned sub-agents. */

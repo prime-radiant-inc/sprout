@@ -160,6 +160,7 @@ describe("Agent", () => {
 	test("excludes delegate tool when can_spawn is false", () => {
 		const noSpawnSpec: AgentSpec = {
 			...rootSpec,
+			tools: ["read_file"],
 			constraints: { ...rootSpec.constraints, can_spawn: false },
 		};
 		const env = new LocalExecutionEnvironment(tmpdir());
@@ -3642,6 +3643,96 @@ describe("Agent", () => {
 		const tools = agent.resolvedTools();
 		const names = tools.map((t) => t.name);
 		expect(names).not.toContain("delegate");
+	});
+
+	test("getDelegatableAgents non-tree path resolves path-style refs by leaf name", () => {
+		// Agent spec uses "utility/reader" but available agent is just "reader"
+		const orchestratorSpec: AgentSpec = {
+			name: "root",
+			description: "Orchestrator",
+			system_prompt: "You orchestrate.",
+			model: "fast",
+			tools: [],
+			agents: ["utility/reader", "utility/command-runner"],
+			constraints: { ...DEFAULT_CONSTRAINTS, can_spawn: true, max_turns: 5 },
+			tags: [],
+			version: 1,
+		};
+
+		const readerSpec: AgentSpec = {
+			name: "reader",
+			description: "Reads files",
+			system_prompt: "You read files.",
+			model: "fast",
+			tools: ["read_file"],
+			agents: [],
+			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 3 },
+			tags: [],
+			version: 1,
+		};
+
+		const commandRunnerSpec: AgentSpec = {
+			name: "command-runner",
+			description: "Runs commands",
+			system_prompt: "You run commands.",
+			model: "fast",
+			tools: ["exec"],
+			agents: [],
+			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 3 },
+			tags: [],
+			version: 1,
+		};
+
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const client = Client.fromEnv();
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: orchestratorSpec,
+			env,
+			client,
+			primitiveRegistry: registry,
+			availableAgents: [orchestratorSpec, readerSpec, commandRunnerSpec],
+			// No agentTree — uses fallback path with leaf-name matching
+		});
+
+		const tools = agent.resolvedTools();
+		const delegateTool = tools.find((t) => t.name === "delegate");
+		expect(delegateTool).toBeDefined();
+		const desc = (delegateTool!.parameters as any).properties.agent_name.description;
+		expect(desc).toContain("reader");
+		expect(desc).toContain("command-runner");
+	});
+
+	test("throws when agent has zero tools (prevents hallucination)", () => {
+		// This simulates the exact scenario that caused hallucination:
+		// an orchestrator with tools: [] and path-style agent refs that don't resolve
+		const zeroToolSpec: AgentSpec = {
+			name: "verifier",
+			description: "Verifies results",
+			system_prompt: "You verify.",
+			model: "fast",
+			tools: [],
+			agents: ["utility/reader", "utility/command-runner"],
+			constraints: { ...DEFAULT_CONSTRAINTS, can_spawn: true, max_turns: 5 },
+			tags: [],
+			version: 1,
+		};
+
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const client = Client.fromEnv();
+		const registry = createPrimitiveRegistry(env);
+
+		// No matching agents in availableAgents and no agentTree — zero tools
+		expect(() => {
+			new Agent({
+				spec: zeroToolSpec,
+				env,
+				client,
+				primitiveRegistry: registry,
+				availableAgents: [], // nothing to resolve
+				// No agentTree
+			});
+		}).toThrow(/Agent 'verifier' has zero tools/);
 	});
 
 	test("tree-based resolution includes explicit agent refs from spec.agents", () => {

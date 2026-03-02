@@ -218,6 +218,16 @@ export class Agent {
 				}
 			}
 		}
+
+		// Safety: an agent with zero tools will hallucinate — never allow this silently
+		if (this.agentTools.length === 0 && this.primitiveTools.length === 0) {
+			throw new Error(
+				`Agent '${this.spec.name}' has zero tools: no primitives (tools: [${this.spec.tools.join(", ")}]) ` +
+					`and no delegatable agents (agents: [${this.spec.agents.join(", ")}], can_spawn: ${this.spec.constraints.can_spawn}). ` +
+					`This would cause the LLM to hallucinate tool calls. Check the agent spec and ensure ` +
+					`agent refs resolve (path-style refs like "utility/reader" require the agent tree).`,
+			);
+		}
 	}
 
 	/** Returns the resolved model and provider for this agent. */
@@ -289,7 +299,10 @@ export class Agent {
 		const source = this.genome ? this.genome.allAgents() : this.availableAgents;
 		for (const ref of this.spec.agents) {
 			if (ref === this.spec.name) continue;
-			const agentSpec = source.find((a) => a.name === ref);
+			// Match on exact name first, then try leaf name for path-style refs (e.g. "utility/reader" → "reader")
+			const agentSpec =
+				source.find((a) => a.name === ref) ??
+				(ref.includes("/") ? source.find((a) => a.name === ref.split("/").pop()) : undefined);
 			if (agentSpec) agents.push(agentSpec);
 		}
 		return agents;
