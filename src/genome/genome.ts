@@ -143,13 +143,16 @@ export class Genome {
 		return [...this.agents.values()];
 	}
 
-	/** Add a new agent spec, writing markdown to disk and committing. */
+	/** Add a new agent spec, writing markdown to disk and committing.
+	 *  If an agent with the same name exists in root, bumps version above root's. */
 	async addAgent(spec: AgentSpec): Promise<void> {
-		const mdPath = join(this.rootPath, "agents", `${spec.name}.md`);
-		await writeFile(mdPath, serializeAgentMarkdown(spec));
+		const rootSpec = this.rootAgents.get(spec.name);
+		const saved = rootSpec ? { ...spec, version: rootSpec.version + 1 } : spec;
+		const mdPath = join(this.rootPath, "agents", `${saved.name}.md`);
+		await writeFile(mdPath, serializeAgentMarkdown(saved));
 		await git(this.rootPath, "add", mdPath);
-		await git(this.rootPath, "commit", "-m", `genome: add agent '${spec.name}'`);
-		this.agents.set(spec.name, spec);
+		await git(this.rootPath, "commit", "-m", `genome: add agent '${saved.name}'`);
+		this.agents.set(saved.name, saved);
 	}
 
 	/** Update an existing agent, bumping its version. Promotes root agents to overlay on first mutation. */
@@ -172,9 +175,16 @@ export class Genome {
 		this.agents.set(spec.name, updated);
 	}
 
-	/** Remove an agent, deleting its markdown file and committing. */
+	/**
+	 * Remove an overlay agent, deleting its markdown file and committing.
+	 * Only overlay agents can be removed — root-only agents are immutable.
+	 * If the overlay shadowed a root agent, the root version re-appears.
+	 */
 	async removeAgent(name: string): Promise<void> {
 		if (!this.agents.has(name)) {
+			if (this.rootAgents.has(name)) {
+				throw new Error(`Cannot remove agent '${name}': it is a root agent (not in overlay)`);
+			}
 			throw new Error(`Cannot remove agent '${name}': not found`);
 		}
 		const mdPath = join(this.rootPath, "agents", `${name}.md`);
@@ -411,10 +421,13 @@ export class Genome {
 				)
 			: false;
 
-		const hasChanges = added.length > 0 || toolsAgentsMerged;
+		// Detect whether manifest content changed (any hash differs or agents added/removed)
+		const manifestChanged =
+			JSON.stringify(oldManifest.agents) !== JSON.stringify(newManifest.agents) ||
+			JSON.stringify(oldManifest.rootTools) !== JSON.stringify(newManifest.rootTools) ||
+			JSON.stringify(oldManifest.rootAgents) !== JSON.stringify(newManifest.rootAgents);
 
-		// Only save manifest when something changed — avoids dirty working tree
-		if (hasChanges || conflicts.length > 0) {
+		if (manifestChanged) {
 			await saveManifest(manifestPath, newManifest);
 		}
 
@@ -422,7 +435,7 @@ export class Genome {
 		if (toolsAgentsMerged) {
 			filesToStage.push(join(this.rootPath, "agents", "root.md"));
 		}
-		if (hasChanges || conflicts.length > 0) {
+		if (manifestChanged) {
 			filesToStage.push(manifestPath);
 		}
 
@@ -431,9 +444,12 @@ export class Genome {
 		if (toolsAgentsMerged) parts.push("tools/agents merged");
 		if (conflicts.length > 0) parts.push(`conflicts: ${conflicts.join(", ")}`);
 
-		if (parts.length > 0) {
+		if (filesToStage.length > 0) {
 			await git(this.rootPath, "add", ...filesToStage);
-			await git(this.rootPath, "commit", "-m", `genome: sync root (${parts.join("; ")})`);
+			const commitMsg = parts.length > 0
+				? `genome: sync root (${parts.join("; ")})`
+				: "genome: sync root manifest";
+			await git(this.rootPath, "commit", "-m", commitMsg);
 		}
 
 		return { added, conflicts };
