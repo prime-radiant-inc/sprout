@@ -154,6 +154,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 			initialHistory: initialHistory.length > 0 ? initialHistory : undefined,
 			agentId: startMsg.agent_id,
 			logger: config.logger,
+			rootDir: config.rootDir,
 		});
 
 		// Build goal with hints

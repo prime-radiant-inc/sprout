@@ -370,7 +370,7 @@ export class Genome {
 		const manifestPath = join(this.rootPath, "bootstrap-manifest.json");
 		await saveManifest(manifestPath, manifest);
 
-		await git(this.rootPath, "add", ".");
+		await git(this.rootPath, "add", manifestPath);
 		await git(this.rootPath, "commit", "-m", "genome: initialize from root agents");
 	}
 
@@ -390,8 +390,11 @@ export class Genome {
 		const { specs, rawContentByName } = await readRootDir(this.rootDir);
 		const newManifest = buildManifestFromSpecs(specs, rawContentByName);
 
-		// Refresh rootAgents so getAgent/allAgents resolve updated root specs
-		await this.loadRoot();
+		// Refresh rootAgents from the already-read specs (avoids re-reading root dir)
+		this.rootAgents.clear();
+		for (const spec of specs) {
+			this.rootAgents.set(spec.name, spec);
+		}
 
 		const added: string[] = [];
 		const conflicts: string[] = [];
@@ -446,9 +449,8 @@ export class Genome {
 
 		if (filesToStage.length > 0) {
 			await git(this.rootPath, "add", ...filesToStage);
-			const commitMsg = parts.length > 0
-				? `genome: sync root (${parts.join("; ")})`
-				: "genome: sync root manifest";
+			const commitMsg =
+				parts.length > 0 ? `genome: sync root (${parts.join("; ")})` : "genome: sync root manifest";
 			await git(this.rootPath, "commit", "-m", commitMsg);
 		}
 
