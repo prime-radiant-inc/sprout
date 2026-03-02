@@ -48,7 +48,7 @@ describe("buildDelegateTool", () => {
 		expect(props.goal.type).toBe("string");
 		expect(props.hints).toBeDefined();
 		expect(props.hints.type).toBe("array");
-		expect((tool.parameters as any).required).toEqual(["agent_name", "goal"]);
+		expect((tool.parameters as any).required).toEqual(["agent_name", "goal", "description"]);
 	});
 
 	test("delegate tool accepts any agent string, not just enum", () => {
@@ -85,8 +85,9 @@ describe("buildDelegateTool", () => {
 		expect(props.blocking.type).toBe("boolean");
 		expect(props.shared).toBeDefined();
 		expect(props.shared.type).toBe("boolean");
-		// They should not be in required (they have defaults)
-		expect((tool.parameters as any).required).toEqual(["agent_name", "goal"]);
+		// blocking and shared should not be in required (they have defaults)
+		expect((tool.parameters as any).required).not.toContain("blocking");
+		expect((tool.parameters as any).required).not.toContain("shared");
 	});
 
 	test("includes description param for short label", () => {
@@ -94,8 +95,8 @@ describe("buildDelegateTool", () => {
 		const props = (tool.parameters as any).properties;
 		expect(props.description).toBeDefined();
 		expect(props.description.type).toBe("string");
-		// description should NOT be required
-		expect((tool.parameters as any).required).not.toContain("description");
+		// description is required so the LLM always provides a compact label
+		expect((tool.parameters as any).required).toContain("description");
 	});
 });
 

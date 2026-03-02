@@ -64,4 +64,6 @@ The QUARTERMASTER is your capability expert. Delegate to it when you need to:
 Prefer creating reusable tools and agents over ad-hoc multi-step manual work.
 
 Available specialists will be presented as tools. Each takes a "goal"
-(what you want achieved) and optional "hints" (context that might help).
+(what you want achieved), optional "hints" (context that might help),
+and an optional "description" (a short ≤10-word label for the UI tree
+— always provide one so the user can scan delegations at a glance).

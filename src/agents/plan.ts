@@ -36,7 +36,7 @@ export function buildDelegateTool(agents: AgentSpec[]): ToolDefinition {
 				description: {
 					type: "string",
 					description:
-						"Short label (10 words or fewer) shown in the UI tree and headers. The full goal is still visible inside the delegation.",
+						"ALWAYS provide this. Short label (10 words or fewer) shown in the UI tree and headers instead of the full goal.",
 				},
 				hints: {
 					type: "array",
@@ -54,7 +54,7 @@ export function buildDelegateTool(agents: AgentSpec[]): ToolDefinition {
 						"If true, other agents (not just the spawning agent) can message_agent or wait_agent this handle. Default: false",
 				},
 			},
-			required: ["agent_name", "goal"],
+			required: ["agent_name", "goal", "description"],
 		},
 	};
 }
