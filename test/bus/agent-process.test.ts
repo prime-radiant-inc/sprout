@@ -264,6 +264,63 @@ describe("runAgentProcess", () => {
 		await processPromise;
 	}, 15_000);
 
+	test("publishes events to session-wide topic for depth-independent delivery", async () => {
+		const mockClient = createMockClient("Done.");
+
+		// Subscribe to session-wide events topic (not the per-handle topic)
+		const { sessionEvents } = await import("../../src/bus/topics.ts");
+		const sessionTopic = sessionEvents(SESSION_ID);
+		const collectedEvents: string[] = [];
+		await parentClient.subscribe(sessionTopic, (payload) => {
+			collectedEvents.push(payload);
+		});
+
+		const resultTopic = agentResult(SESSION_ID, HANDLE_ID);
+		const resultPromise = parentClient.waitForMessage(resultTopic, 10_000);
+
+		const processPromise = runAgentProcess({
+			busUrl: server.url,
+			handleId: HANDLE_ID,
+			sessionId: SESSION_ID,
+			genomePath: genomeDir,
+			client: mockClient,
+			workDir: tempDir,
+		});
+
+		await delay(100);
+
+		const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
+		const startMsg: StartMessage = {
+			kind: "start",
+			handle_id: HANDLE_ID,
+			agent_name: "test-leaf",
+			genome_path: genomeDir,
+			session_id: SESSION_ID,
+			caller: { agent_name: "root", depth: 0 },
+			goal: "Session-wide test",
+			shared: false,
+		};
+		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
+
+		await resultPromise;
+		await delay(100);
+
+		// Events should appear on the session-wide topic
+		expect(collectedEvents.length).toBeGreaterThan(0);
+
+		const parsed = collectedEvents.map((e) => JSON.parse(e));
+		const kinds = parsed.map((e: any) => e.event.kind);
+		expect(kinds).toContain("session_start");
+		expect(kinds).toContain("session_end");
+
+		// Each event should include the handle_id for tracing
+		for (const evt of parsed) {
+			expect(evt.handle_id).toBe(HANDLE_ID);
+		}
+
+		await processPromise;
+	}, 15_000);
+
 	test("shared agent handles continue message after initial run", async () => {
 		let callCount = 0;
 		const mockClient = {

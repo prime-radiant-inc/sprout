@@ -44,11 +44,15 @@ export function genomeEvents(sessionId: string): string {
 	return `session/${sessionId}/genome/events`;
 }
 
+export function sessionEvents(sessionId: string): string {
+	return `session/${sessionId}/events`;
+}
+
 // --- Parser ---
 
 const AGENT_RE = /^session\/([^/]+)\/agent\/([^/]+)\/(inbox|events|ready|result)$/;
 const GENOME_RE = /^session\/([^/]+)\/(genome\/(?:mutations|events))$/;
-const SESSION_RE = /^session\/([^/]+)\/(commands)$/;
+const SESSION_RE = /^session\/([^/]+)\/(commands|events)$/;
 
 export function parseTopic(topic: string): ParsedTopic | null {
 	let m = AGENT_RE.exec(topic);

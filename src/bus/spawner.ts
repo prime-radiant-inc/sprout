@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { ulid } from "../util/ulid.ts";
 import type { BusClient } from "./client.ts";
-import { agentEvents, agentInbox, agentReady, agentResult } from "./topics.ts";
+import { agentEvents, agentInbox, agentReady, agentResult, sessionEvents } from "./topics.ts";
 import type {
 	CallerIdentity,
 	ContinueMessage,
@@ -112,6 +112,27 @@ export class AgentSpawner {
 	/** Register a callback to receive events from all spawned sub-agents. */
 	onEvent(callback: (event: EventMessage) => void): void {
 		this.eventCallback = callback;
+	}
+
+	/**
+	 * Subscribe to the session-wide events topic.
+	 * Every agent subprocess publishes here regardless of depth,
+	 * so this provides O(1) event delivery without relay chains.
+	 */
+	async subscribeSessionEvents(
+		callback: (event: EventMessage) => void,
+	): Promise<void> {
+		const topic = sessionEvents(this.sessionId);
+		await this.bus.subscribe(topic, (payload) => {
+			try {
+				const parsed = JSON.parse(payload);
+				if (parsed.kind === "event") {
+					callback(parsed as EventMessage);
+				}
+			} catch {
+				// Ignore malformed messages
+			}
+		});
 	}
 
 	/**

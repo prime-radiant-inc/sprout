@@ -15,7 +15,7 @@ import { BusClient } from "./client.ts";
 import { BusLearnForwarder } from "./learn-forwarder.ts";
 import { replayHandleLog } from "./resume.ts";
 import { AgentSpawner } from "./spawner.ts";
-import { agentEvents, agentInbox, agentReady, agentResult } from "./topics.ts";
+import { agentEvents, agentInbox, agentReady, agentResult, sessionEvents } from "./topics.ts";
 import type { ContinueMessage, EventMessage, ResultMessage, StartMessage } from "./types.ts";
 import { parseBusMessage } from "./types.ts";
 
@@ -120,7 +120,11 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 		const priorLogPath = `${logBasePath}.jsonl`;
 		const initialHistory = await replayHandleLog(priorLogPath);
 
-		// Forward agent events to the bus (best-effort; ignore if disconnected)
+		// Forward agent events to the bus (best-effort; ignore if disconnected).
+		// Publishes to both the per-handle topic (for spawner result tracking)
+		// and the session-wide topic (so the UI sees events at any depth without
+		// needing a relay chain through intermediate spawners).
+		const sessionEventsTopic = sessionEvents(sessionId);
 		events.on((event) => {
 			if (!bus.connected) return;
 			const eventMsg: EventMessage = {
@@ -128,19 +132,13 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 				handle_id: handleId,
 				event,
 			};
-			bus.publish(eventsTopic, JSON.stringify(eventMsg));
+			const payload = JSON.stringify(eventMsg);
+			bus.publish(eventsTopic, payload);
+			bus.publish(sessionEventsTopic, payload);
 		});
 
 		// Create a spawner so this agent can delegate to other agents via the bus
 		childSpawner = new AgentSpawner(bus, busUrl, sessionId);
-
-		// Relay grandchild events up through this agent's event emitter so they
-		// bubble through the spawner chain all the way to the root session bus.
-		// Without this, events from depth 2+ agents are silently dropped.
-		childSpawner.onEvent((eventMsg) => {
-			const ev = eventMsg.event;
-			events.emit(ev.kind, ev.agent_id, ev.depth, ev.data);
-		});
 
 		// Wire learn signal forwarding for agents that can learn
 		const learnProcess = agentSpec.constraints.can_learn

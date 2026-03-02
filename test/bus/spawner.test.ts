@@ -613,6 +613,33 @@ describe("AgentSpawner", () => {
 		}, 15_000);
 	});
 
+	describe("subscribeSessionEvents", () => {
+		test("receives events from all agents via session-wide topic", async () => {
+			const mockClient = createMockClient("Session-wide event test.");
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			const events: EventMessage[] = [];
+			await spawner.subscribeSessionEvents((event) => events.push(event));
+
+			await spawner.spawnAgent({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: { agent_name: "root", depth: 0 },
+				goal: "Session topic test",
+				hints: [],
+				blocking: true,
+				shared: false,
+				workDir: tempDir,
+			});
+
+			// Events should arrive via the session-wide topic
+			expect(events.length).toBeGreaterThan(0);
+			const eventKinds = events.map((e) => e.event.kind);
+			expect(eventKinds).toContain("session_start");
+			expect(eventKinds).toContain("session_end");
+		}, 15_000);
+	});
+
 	describe("access control", () => {
 		test("waitAgent rejects non-owner on non-shared handle", async () => {
 			const mockClient = createMockClient("Done.");

@@ -9,6 +9,7 @@ import {
 	genomeEvents,
 	genomeMutations,
 	parseTopic,
+	sessionEvents,
 } from "../../src/bus/topics.ts";
 
 describe("topic builders", () => {
@@ -38,6 +39,10 @@ describe("topic builders", () => {
 
 	test("genomeEvents", () => {
 		expect(genomeEvents("S1")).toBe("session/S1/genome/events");
+	});
+
+	test("sessionEvents", () => {
+		expect(sessionEvents("S1")).toBe("session/S1/events");
 	});
 });
 
@@ -102,6 +107,14 @@ describe("parseTopic", () => {
 			expect(result).toEqual({
 				session_id: "S1",
 				channel: "genome/events",
+			});
+		});
+
+		test("parses session events topic", () => {
+			const result = parseTopic("session/S1/events");
+			expect(result).toEqual({
+				session_id: "S1",
+				channel: "events",
 			});
 		});
 	});

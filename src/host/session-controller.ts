@@ -109,9 +109,10 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 		options.events.emitEvent(event.kind, event.agent_id, event.depth, event.data);
 	});
 
-	// Relay sub-agent bus events to the session bus so the TUI sees them
+	// Subscribe to session-wide events topic so the UI sees events from ALL
+	// subprocess agents regardless of depth (O(1) delivery, no relay chain).
 	if (options.spawner) {
-		options.spawner.onEvent((eventMsg) => {
+		await options.spawner.subscribeSessionEvents((eventMsg) => {
 			const ev = eventMsg.event;
 			options.events.emitEvent(ev.kind, ev.agent_id, ev.depth, ev.data);
 		});
