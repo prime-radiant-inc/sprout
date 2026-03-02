@@ -134,6 +134,14 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 		// Create a spawner so this agent can delegate to other agents via the bus
 		childSpawner = new AgentSpawner(bus, busUrl, sessionId);
 
+		// Relay grandchild events up through this agent's event emitter so they
+		// bubble through the spawner chain all the way to the root session bus.
+		// Without this, events from depth 2+ agents are silently dropped.
+		childSpawner.onEvent((eventMsg) => {
+			const ev = eventMsg.event;
+			events.emit(ev.kind, ev.agent_id, ev.depth, ev.data);
+		});
+
 		// Wire learn signal forwarding for agents that can learn
 		const learnProcess = agentSpec.constraints.can_learn
 			? new BusLearnForwarder(bus, sessionId)
