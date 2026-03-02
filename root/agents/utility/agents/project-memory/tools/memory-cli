@@ -1,0 +1,108 @@
+---
+name: memory-cli
+description: "Manage project memory files: list, read, write, search"
+interpreter: bash
+---
+#!/bin/bash
+TOOL_DIR="${SPROUT_TOOL_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)}"
+
+set -euo pipefail
+
+if [ -z "${SPROUT_PROJECT_DATA_DIR:-}" ]; then
+  echo "Error: SPROUT_PROJECT_DATA_DIR is not set" >&2
+  exit 1
+fi
+
+MEMORY_DIR="$SPROUT_PROJECT_DATA_DIR/memory"
+
+command="${1:-}"
+# consume the command arg; ok if no args remain
+shift 2>/dev/null || true
+
+case "$command" in
+  list)
+    if [ ! -d "$MEMORY_DIR" ]; then
+      echo "No memory directory yet. Write a document to create it."
+      exit 0
+    fi
+    found=0
+    for f in "$MEMORY_DIR"/*.md; do
+      [ -f "$f" ] || continue
+      found=1
+      name="$(basename "$f")"
+      title="$(head -n 1 "$f")"
+      printf "%-30s %s\n" "$name" "$title"
+    done
+    if [ "$found" -eq 0 ]; then
+      echo "No memory documents found."
+    fi
+    ;;
+
+  read)
+    filename="${1:-}"
+    if [ -z "$filename" ]; then
+      echo "Error: usage: memory-cli read <filename>" >&2
+      exit 1
+    fi
+    if [[ "$filename" == */* || "$filename" == ..* ]]; then
+      echo "Error: filename must be a simple basename (no path separators)" >&2
+      exit 1
+    fi
+    filepath="$MEMORY_DIR/$filename"
+    if [ ! -f "$filepath" ]; then
+      echo "Error: file not found: $filename" >&2
+      exit 1
+    fi
+    cat "$filepath"
+    ;;
+
+  write)
+    filename="${1:-}"
+    if [ -z "$filename" ]; then
+      echo "Error: usage: echo 'content' | memory-cli write <filename>" >&2
+      exit 1
+    fi
+    if [[ "$filename" == */* || "$filename" == ..* ]]; then
+      echo "Error: filename must be a simple basename (no path separators)" >&2
+      exit 1
+    fi
+    mkdir -p "$MEMORY_DIR"
+    filepath="$MEMORY_DIR/$filename"
+    cat > "$filepath"
+    echo "Wrote $filepath"
+    ;;
+
+  search)
+    keyword="${1:-}"
+    if [ -z "$keyword" ]; then
+      echo "Error: usage: memory-cli search <keyword>" >&2
+      exit 1
+    fi
+    if [ ! -d "$MEMORY_DIR" ]; then
+      echo "No memory directory yet. Nothing to search."
+      exit 0
+    fi
+    matches="$(grep -rl --include="*.md" "$keyword" "$MEMORY_DIR" 2>/dev/null || true)"
+    if [ -z "$matches" ]; then
+      echo "No matches found."
+    else
+      echo "$matches" | while read -r f; do
+        name="$(basename "$f")"
+        echo "=== $name ==="
+        grep -n "$keyword" "$f"
+        echo ""
+      done
+    fi
+    ;;
+
+  *)
+    echo "Usage: memory-cli <command> [args]" >&2
+    echo "" >&2
+    echo "Commands:" >&2
+    echo "  list               List all memory documents" >&2
+    echo "  read <filename>    Read a memory document" >&2
+    echo "  write <filename>   Write a memory document (content from stdin)" >&2
+    echo "  search <keyword>   Search across all memory documents" >&2
+    exit 1
+    ;;
+esac

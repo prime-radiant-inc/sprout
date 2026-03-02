@@ -5,6 +5,7 @@ model: best
 tools: []
 agents:
   - utility/task-manager
+  - utility/project-memory
 constraints:
   max_turns: 200
   max_depth: 5
