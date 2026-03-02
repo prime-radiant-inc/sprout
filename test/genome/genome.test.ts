@@ -366,8 +366,8 @@ describe("Genome", () => {
 
 			await genome.initFromRoot();
 
-			// Should have loaded all 20 agents from root (via rootAgents)
-			expect(genome.agentCount()).toBe(20);
+			// Should have loaded all 21 agents from root (via rootAgents)
+			expect(genome.agentCount()).toBe(21);
 
 			expect(genome.getAgent("root")).toBeDefined();
 			expect(genome.getAgent("reader")).toBeDefined();

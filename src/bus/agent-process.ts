@@ -10,6 +10,7 @@ import { LocalExecutionEnvironment } from "../kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../kernel/primitives.ts";
 import { Client } from "../llm/client.ts";
 import { loggingMiddleware } from "../llm/logging-middleware.ts";
+import { ensureProjectDirs } from "../util/project-id.ts";
 import { BusClient } from "./client.ts";
 import { BusLearnForwarder } from "./learn-forwarder.ts";
 import { replayHandleLog } from "./resume.ts";
@@ -33,6 +34,8 @@ export interface AgentProcessConfig {
 	workDir: string;
 	/** Path to root agent directory (for overlay resolution and preambles). */
 	rootDir?: string;
+	/** Per-project data directory (sessions, logs, memory). Defaults to genomePath. */
+	projectDataDir?: string;
 	/** Abort signal for clean shutdown */
 	signal?: AbortSignal;
 	/** Structured logger for LLM call logging and diagnostics. */
@@ -109,7 +112,9 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 		const preambles = config.rootDir ? await loadPreambles(config.rootDir) : undefined;
 		const projectDocs = await loadProjectDocs({ cwd: workDir });
 		const genomePostscripts = await genome.loadPostscripts();
-		const logBasePath = join(genomePath, "logs", sessionId, handleId);
+		const dataDir = config.projectDataDir ?? genomePath;
+		await ensureProjectDirs(dataDir);
+		const logBasePath = join(dataDir, "logs", sessionId, handleId);
 
 		// Check for a prior log — if this handle ran before, replay its history
 		const priorLogPath = `${logBasePath}.jsonl`;
@@ -167,6 +172,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 			genomePostscripts,
 			spawner: childSpawner,
 			genomePath,
+			projectDataDir: config.projectDataDir,
 			learnProcess,
 			initialHistory: initialHistory.length > 0 ? initialHistory : undefined,
 			agentId: startMsg.agent_id,
@@ -388,6 +394,7 @@ if (import.meta.main) {
 	const genomePath = process.env.SPROUT_GENOME_PATH;
 	const workDir = process.env.SPROUT_WORK_DIR ?? process.cwd();
 	const rootDir = process.env.SPROUT_ROOT_DIR;
+	const projectDataDir = process.env.SPROUT_PROJECT_DATA_DIR;
 
 	if (!busUrl || !handleId || !sessionId || !genomePath) {
 		console.error(
@@ -400,7 +407,8 @@ if (import.meta.main) {
 	process.on("SIGTERM", () => controller.abort());
 	process.on("SIGINT", () => controller.abort());
 
-	const logPath = join(genomePath, "logs", sessionId, handleId, "session.log.jsonl");
+	const dataDir = projectDataDir ?? genomePath;
+	const logPath = join(dataDir, "logs", sessionId, handleId, "session.log.jsonl");
 	const logger = new SessionLogger({ logPath, component: "agent-process", sessionId });
 	const client = Client.fromEnv({ middleware: [loggingMiddleware(logger)] });
 
@@ -412,6 +420,7 @@ if (import.meta.main) {
 		client,
 		workDir,
 		rootDir,
+		projectDataDir,
 		signal: controller.signal,
 		logger,
 	})

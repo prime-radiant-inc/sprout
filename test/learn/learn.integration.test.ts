@@ -53,7 +53,7 @@ describe("Learn Integration", () => {
 		await genome.initFromRoot();
 
 		// Verify starting state
-		expect(genome.agentCount()).toBe(20);
+		expect(genome.agentCount()).toBe(21);
 		expect(genome.memories.all().length).toBe(0);
 		expect(genome.allRoutingRules().length).toBe(0);
 
@@ -144,7 +144,7 @@ describe("Learn Integration", () => {
 		// Verify genome unchanged
 		expect(genome.memories.all().length).toBe(0);
 		expect(genome.allRoutingRules().length).toBe(0);
-		expect(genome.agentCount()).toBe(20);
+		expect(genome.agentCount()).toBe(21);
 		await vcr.afterTest();
 	}, 30_000);
 });

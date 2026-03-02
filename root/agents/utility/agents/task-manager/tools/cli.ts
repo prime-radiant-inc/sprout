@@ -40,10 +40,11 @@ async function main(): Promise<void> {
 	const args = process.argv.slice(2);
 	const { flags, command } = parseArgs(args);
 
+	const dataDir = process.env.SPROUT_PROJECT_DATA_DIR ?? process.env.SPROUT_GENOME_PATH;
 	const tasksFile =
 		flags["tasks-file"] ??
-		(process.env.SPROUT_GENOME_PATH && process.env.SPROUT_SESSION_ID
-			? `${process.env.SPROUT_GENOME_PATH}/logs/${process.env.SPROUT_SESSION_ID}/tasks.json`
+		(dataDir && process.env.SPROUT_SESSION_ID
+			? `${dataDir}/logs/${process.env.SPROUT_SESSION_ID}/tasks.json`
 			: undefined);
 	if (!tasksFile) {
 		console.error(

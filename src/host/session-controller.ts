@@ -29,6 +29,8 @@ interface RunnableAgent {
 /** Options passed to the agent factory. */
 export interface AgentFactoryOptions {
 	genomePath: string;
+	/** Per-project data directory (sessions, logs, memory). */
+	projectDataDir?: string;
 	rootDir?: string;
 	workDir: string;
 	rootAgent?: string;
@@ -72,8 +74,8 @@ export type AgentFactory = (options: AgentFactoryOptions) => Promise<AgentFactor
 export interface SessionControllerOptions {
 	bus: SessionBus;
 	genomePath: string;
-	/** Directory for session metadata. Defaults to genomePath/sessions. */
-	sessionsDir?: string;
+	/** Per-project data directory (sessions, logs, memory). Defaults to genomePath. */
+	projectDataDir?: string;
 	rootDir?: string;
 	rootAgent?: string;
 	factory?: AgentFactory;
@@ -124,6 +126,7 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 
 	const result = await createAgent({
 		genomePath: options.genomePath,
+		projectDataDir: options.projectDataDir,
 		rootDir: options.rootDir,
 		workDir: options.workDir,
 		rootAgent: options.rootAgent,
@@ -164,7 +167,7 @@ export class SessionController {
 	private metadata: SessionMetadata;
 	private readonly bus: SessionBus;
 	private readonly genomePath: string;
-	private readonly sessionsDir: string;
+	private readonly projectDataDir: string;
 	private readonly rootDir?: string;
 	private readonly rootAgentName?: string;
 	private readonly factory: AgentFactory;
@@ -187,7 +190,7 @@ export class SessionController {
 		this._sessionId = options.sessionId ?? ulid();
 		this.bus = options.bus;
 		this.genomePath = options.genomePath;
-		this.sessionsDir = options.sessionsDir ?? join(options.genomePath, "sessions");
+		this.projectDataDir = options.projectDataDir ?? options.genomePath;
 		this.rootDir = options.rootDir;
 		this.rootAgentName = options.rootAgent;
 		this.factory = options.factory ?? defaultFactory;
@@ -202,7 +205,7 @@ export class SessionController {
 			sessionId: this._sessionId,
 			agentSpec: options.rootAgent ?? "root",
 			model: "best",
-			sessionsDir: this.sessionsDir,
+			sessionsDir: join(this.projectDataDir, "sessions"),
 		});
 
 		this.bus.onCommand((cmd) => this.handleCommand(cmd));
@@ -235,10 +238,10 @@ export class SessionController {
 					sessionId: this._sessionId,
 					agentSpec: this.rootAgentName ?? "root",
 					model: this.modelOverride ?? "best",
-					sessionsDir: this.sessionsDir,
+					sessionsDir: join(this.projectDataDir, "sessions"),
 				});
 				if (this.logger) {
-					const newLogPath = join(this.genomePath, "logs", this._sessionId, "session.log.jsonl");
+					const newLogPath = join(this.projectDataDir, "logs", this._sessionId, "session.log.jsonl");
 					this.logger.reconfigure({ sessionId: this._sessionId, logPath: newLogPath });
 				}
 				this.bus.emitEvent("session_clear", "session", 0, {
@@ -345,7 +348,7 @@ export class SessionController {
 
 		// Task 19: If resuming a session with stuck "running" metadata, recover it
 		if (this.history.length > 0) {
-			const metaPath = join(this.sessionsDir, `${this._sessionId}.meta.json`);
+			const metaPath = join(this.projectDataDir, "sessions", `${this._sessionId}.meta.json`);
 			await this.metadata.loadIfExists(metaPath);
 		}
 
@@ -359,6 +362,7 @@ export class SessionController {
 		try {
 			const result = await this.factory({
 				genomePath: this.genomePath,
+				projectDataDir: this.projectDataDir,
 				rootDir: this.rootDir,
 				workDir: process.cwd(),
 				rootAgent: this.rootAgentName,
@@ -399,7 +403,7 @@ export class SessionController {
 
 	private async compactWhileIdle(): Promise<void> {
 		if (!this.compactFn) return;
-		const logPath = join(this.genomePath, "logs", `${this._sessionId}.jsonl`);
+		const logPath = join(this.projectDataDir, "logs", `${this._sessionId}.jsonl`);
 		try {
 			const result = await this.compactFn(this.history, logPath);
 			if (result.summary) {

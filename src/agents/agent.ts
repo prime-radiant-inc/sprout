@@ -79,6 +79,8 @@ export interface AgentOptions {
 	spawner?: AgentSpawner;
 	/** Path to the genome directory (required when using a spawner). */
 	genomePath?: string;
+	/** Per-project data directory (sessions, logs, memory). */
+	projectDataDir?: string;
 	/** Override the agent_id used for event emission (used by parent to assign unique child IDs). */
 	agentId?: string;
 	/** Pre-fetched model map for tier resolution. */
@@ -123,6 +125,7 @@ export class Agent {
 	private readonly genomePostscripts?: { global: string; orchestrator: string; worker: string };
 	private readonly spawner?: AgentSpawner;
 	private readonly genomePath?: string;
+	private readonly projectDataDir?: string;
 	private readonly agentId?: string;
 	private readonly initialHistory?: Message[];
 	private readonly rootDir?: string;
@@ -155,6 +158,7 @@ export class Agent {
 		this.genomePostscripts = options.genomePostscripts;
 		this.spawner = options.spawner;
 		this.genomePath = options.genomePath;
+		this.projectDataDir = options.projectDataDir;
 		this.agentId = options.agentId;
 		this.rootDir = options.rootDir;
 		this.agentTree = options.agentTree;
@@ -477,6 +481,7 @@ export class Agent {
 			const result = await this.spawner!.spawnAgent({
 				agentName: delegation.agent_name,
 				genomePath: this.genomePath ?? "",
+				projectDataDir: this.projectDataDir,
 				caller,
 				goal: delegation.goal,
 				hints: delegation.hints,

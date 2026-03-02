@@ -16,6 +16,8 @@ import { parseBusMessage } from "./types.ts";
 export interface SpawnAgentOptions {
 	agentName: string;
 	genomePath: string;
+	/** Per-project data directory (sessions, logs, memory). */
+	projectDataDir?: string;
 	caller: CallerIdentity;
 	goal: string;
 	hints?: string[];
@@ -46,6 +48,7 @@ export interface AgentHandle {
 	caller: CallerIdentity;
 	workDir: string;
 	rootDir?: string;
+	projectDataDir?: string;
 }
 
 /**
@@ -127,6 +130,7 @@ export class AgentSpawner {
 			SPROUT_GENOME_PATH: opts.genomePath,
 			SPROUT_WORK_DIR: opts.workDir,
 			...(opts.rootDir ? { SPROUT_ROOT_DIR: opts.rootDir } : {}),
+			...(opts.projectDataDir ? { SPROUT_PROJECT_DATA_DIR: opts.projectDataDir } : {}),
 		};
 
 		// Spawn the process
@@ -144,6 +148,7 @@ export class AgentSpawner {
 			caller: opts.caller,
 			workDir: opts.workDir,
 			rootDir: opts.rootDir,
+			projectDataDir: opts.projectDataDir,
 		};
 		this.handles.set(handleId, handle);
 
@@ -313,6 +318,7 @@ export class AgentSpawner {
 			SPROUT_GENOME_PATH: handle.genomePath,
 			SPROUT_WORK_DIR: handle.workDir,
 			...(handle.rootDir ? { SPROUT_ROOT_DIR: handle.rootDir } : {}),
+			...(handle.projectDataDir ? { SPROUT_PROJECT_DATA_DIR: handle.projectDataDir } : {}),
 		};
 
 		const proc = this.spawnFn(handleId, env);

@@ -9,6 +9,7 @@ import { LearnProcess } from "../learn/learn-process.ts";
 import { MetricsStore } from "../learn/metrics-store.ts";
 import { Client } from "../llm/client.ts";
 import type { Message } from "../llm/types.ts";
+import { ensureProjectDirs } from "../util/project-id.ts";
 import { ulid } from "../util/ulid.ts";
 import { Agent } from "./agent.ts";
 import { AgentEventEmitter } from "./events.ts";
@@ -40,6 +41,8 @@ export interface CreateAgentOptions {
 	genome?: Genome;
 	/** Structured logger for LLM call logging and diagnostics. */
 	logger?: import("../host/logger.ts").Logger;
+	/** Per-project data directory (sessions, logs, memory). Defaults to genomePath. */
+	projectDataDir?: string;
 }
 
 export interface CreateAgentResult {
@@ -81,6 +84,10 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 			}
 		}
 	}
+
+	// Ensure project data directory structure exists (sessions/, logs/, memory/)
+	const dataDir = options.projectDataDir ?? options.genomePath;
+	await ensureProjectDirs(dataDir);
 
 	// Inject development mode postscript if running inside sprout's source tree
 	if (options.workDir && (await isDevMode(options.workDir))) {
@@ -128,7 +135,7 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 	});
 
 	const sessionId = options.sessionId ?? ulid();
-	const logBasePath = join(options.genomePath, "logs", sessionId);
+	const logBasePath = join(dataDir, "logs", sessionId);
 
 	// Scan the agent tree for path-based delegation resolution
 	const agentTree = options.rootDir ? await scanAgentTree(options.rootDir) : undefined;
@@ -157,6 +164,7 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 		genomePostscripts,
 		spawner: options.spawner,
 		genomePath: options.genomePath,
+		projectDataDir: options.projectDataDir,
 		logger: options.logger,
 		rootDir: options.rootDir,
 		agentTree,

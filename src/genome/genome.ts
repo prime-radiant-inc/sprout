@@ -85,8 +85,8 @@ export class Genome {
 			// Create empty routing rules file
 			await writeFile(join(this.rootPath, "routing", "rules.yaml"), stringify([]));
 
-			// Create .gitignore to exclude logs
-			await writeFile(join(this.rootPath, ".gitignore"), "logs/\n");
+			// Create .gitignore to exclude ephemeral data
+			await writeFile(join(this.rootPath, ".gitignore"), "logs/\nprojects/\n");
 
 			await git(this.rootPath, "add", ".");
 			await git(this.rootPath, "commit", "-m", "genome: initialize");

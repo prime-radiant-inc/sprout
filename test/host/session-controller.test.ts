@@ -79,7 +79,7 @@ describe("SessionController", () => {
 		const controller = new SessionController({
 			bus,
 			genomePath: join(tempDir, "genome"),
-			sessionsDir,
+			projectDataDir: tempDir,
 			factory: overrides?.factory,
 		});
 		return { bus, controller, sessionsDir };
@@ -97,7 +97,7 @@ describe("SessionController", () => {
 		const controller = new SessionController({
 			bus,
 			genomePath: join(tempDir, "genome"),
-			sessionsDir: join(tempDir, "sessions"),
+			projectDataDir: tempDir,
 			sessionId: "01CUSTOM_SESSION_ID_26CH",
 		});
 		expect(controller.sessionId).toBe("01CUSTOM_SESSION_ID_26CH");
@@ -108,7 +108,7 @@ describe("SessionController", () => {
 		const controller = new SessionController({
 			bus,
 			genomePath: join(tempDir, "genome"),
-			sessionsDir: join(tempDir, "sessions"),
+			projectDataDir: tempDir,
 			logger: new NullLogger(),
 		});
 		expect(controller).toBeDefined();
@@ -254,7 +254,7 @@ describe("SessionController", () => {
 		const controller = new SessionController({
 			bus,
 			genomePath: join(tempDir, "genome"),
-			sessionsDir,
+			projectDataDir: tempDir,
 			factory,
 		});
 
@@ -567,7 +567,7 @@ describe("SessionController", () => {
 		const controller = new SessionController({
 			bus,
 			genomePath: join(tempDir, "genome"),
-			sessionsDir: join(tempDir, "sessions"),
+			projectDataDir: tempDir,
 			factory,
 		});
 
@@ -607,7 +607,7 @@ describe("SessionController", () => {
 		const controller = new SessionController({
 			bus,
 			genomePath: join(tempDir, "genome"),
-			sessionsDir: join(tempDir, "sessions"),
+			projectDataDir: tempDir,
 			sessionId: "MY_CUSTOM_SESSION",
 			factory: spyFactory,
 		});
@@ -691,7 +691,7 @@ describe("SessionController", () => {
 		const controller = new SessionController({
 			bus,
 			genomePath: join(tempDir, "genome"),
-			sessionsDir: join(tempDir, "sessions"),
+			projectDataDir: tempDir,
 			factory,
 			initialHistory: [{ role: "user", content: [{ kind: "text", text: "prior" }] }],
 		});
@@ -716,7 +716,7 @@ describe("SessionController", () => {
 		const controller = new SessionController({
 			bus,
 			genomePath: join(tempDir, "genome"),
-			sessionsDir: join(tempDir, "sessions"),
+			projectDataDir: tempDir,
 			factory: async () => ({
 				agent: {
 					steer() {},
@@ -765,7 +765,7 @@ describe("SessionController", () => {
 		const controller = new SessionController({
 			bus,
 			genomePath: join(tempDir, "genome"),
-			sessionsDir: join(tempDir, "sessions"),
+			projectDataDir: tempDir,
 			factory,
 			initialHistory: [
 				{ role: "user", content: [{ kind: "text", text: "prior" }] },
@@ -836,7 +836,7 @@ describe("SessionController", () => {
 		const controller = new SessionController({
 			bus,
 			genomePath: join(tempDir, "genome"),
-			sessionsDir: join(tempDir, "sessions"),
+			projectDataDir: tempDir,
 			factory,
 			initialHistory: [
 				{ role: "user", content: [{ kind: "text", text: "prior goal" }] },
@@ -1060,7 +1060,7 @@ describe("SessionController", () => {
 		new SessionController({
 			bus,
 			genomePath: "/dev/null/impossible/path",
-			sessionsDir: "/dev/null/impossible/path",
+			projectDataDir: "/dev/null/impossible/path",
 			factory: makeFakeFactory(fake),
 		});
 
@@ -1234,7 +1234,7 @@ describe("SessionController", () => {
 		};
 
 		const initialSessionId = "INITIAL_SESSION_ID_0000000";
-		const logPath = join(genomePath, "logs", initialSessionId, "session.log.jsonl");
+		const logPath = join(tempDir, "logs", initialSessionId, "session.log.jsonl");
 		const logger = new SessionLogger({
 			logPath,
 			component: "session-controller",
@@ -1244,7 +1244,7 @@ describe("SessionController", () => {
 		const controller = new SessionController({
 			bus,
 			genomePath,
-			sessionsDir: join(tempDir, "sessions"),
+			projectDataDir: tempDir,
 			factory,
 			sessionId: initialSessionId,
 			logger,
@@ -1270,7 +1270,7 @@ describe("SessionController", () => {
 		await controller.submitGoal("second goal");
 		await logger.flush();
 
-		const newLogPath = join(genomePath, "logs", newSessionId, "session.log.jsonl");
+		const newLogPath = join(tempDir, "logs", newSessionId, "session.log.jsonl");
 		const newLogContent = await readFile(newLogPath, "utf-8");
 		const newEntries: LogEntry[] = newLogContent
 			.trim()
@@ -1314,7 +1314,7 @@ describe("SessionController", () => {
 		expect(metaFiles).toHaveLength(1);
 	});
 
-	test("sessionsDir defaults to genomePath/sessions", () => {
+	test("projectDataDir defaults to genomePath", () => {
 		const bus = new EventBus();
 		const genomePath = join(tempDir, "my-genome");
 		const controller = new SessionController({
@@ -1363,7 +1363,7 @@ describe("SessionController", () => {
 		const controller = new SessionController({
 			bus,
 			genomePath: join(tempDir, "genome"),
-			sessionsDir: join(tempDir, "sessions"),
+			projectDataDir: tempDir,
 			factory,
 			completedHandles,
 		});
@@ -1414,7 +1414,7 @@ describe("SessionController", () => {
 		const controller = new SessionController({
 			bus,
 			genomePath: join(tempDir, "genome"),
-			sessionsDir,
+			projectDataDir: tempDir,
 			sessionId,
 			initialHistory: [{ role: "user", content: [{ kind: "text", text: "prior" }] }],
 			factory,
@@ -1472,7 +1472,7 @@ describe("SessionController", () => {
 		const ctrl2 = new SessionController({
 			bus: bus2,
 			genomePath: join(tempDir, "genome"),
-			sessionsDir,
+			projectDataDir: tempDir,
 			sessionId,
 			initialHistory: [{ role: "user", content: [{ kind: "text", text: "prior" }] }],
 			factory: noopFactory,

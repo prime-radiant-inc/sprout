@@ -25,8 +25,6 @@ describe("Compaction integration", () => {
 	});
 
 	test("controller updates shadow history when agent emits compaction event", async () => {
-		const sessionsDir = join(tempDir, "sessions");
-
 		const factory: AgentFactory = async (options) => {
 			return {
 				agent: {
@@ -69,7 +67,7 @@ describe("Compaction integration", () => {
 		new SessionController({
 			bus,
 			genomePath: join(tempDir, "genome"),
-			sessionsDir,
+			projectDataDir: tempDir,
 			factory,
 		});
 
@@ -88,7 +86,6 @@ describe("Compaction integration", () => {
 	});
 
 	test("manual compact command calls requestCompaction on the agent", async () => {
-		const sessionsDir = join(tempDir, "sessions");
 		let requestCompactionCalled = false;
 
 		const factory: AgentFactory = async (options) => ({
@@ -129,7 +126,7 @@ describe("Compaction integration", () => {
 		new SessionController({
 			bus,
 			genomePath: join(tempDir, "genome"),
-			sessionsDir,
+			projectDataDir: tempDir,
 			factory,
 		});
 

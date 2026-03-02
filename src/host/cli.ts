@@ -5,6 +5,7 @@ import type { BusClient } from "../bus/client.ts";
 import type { BusServer } from "../bus/server.ts";
 import type { AgentSpawner } from "../bus/spawner.ts";
 import { renderEvent } from "../tui/render-event.ts";
+import { projectDataDir as computeProjectDataDir } from "../util/project-id.ts";
 
 export { renderEvent, truncateLines } from "../tui/render-event.ts";
 
@@ -72,6 +73,28 @@ export async function startBusInfrastructure(
 
 function printResumeHint(sessionId: string): void {
 	console.error(`\nTo resume this session:\n  sprout --resume ${sessionId}\n`);
+}
+
+/**
+ * Resolve the project root directory.
+ * For git repos, uses the common dir (works for worktrees too).
+ * Falls back to cwd.
+ */
+async function resolveProjectDir(): Promise<string> {
+	try {
+		const { execSync } = await import("node:child_process");
+		// git rev-parse --git-common-dir gives the original .git dir (works for worktrees)
+		const gitCommonDir = execSync("git rev-parse --git-common-dir", {
+			encoding: "utf-8",
+			stdio: ["ignore", "pipe", "ignore"],
+		}).trim();
+		// The project root is the parent of the .git dir
+		const { resolve, dirname } = await import("node:path");
+		const absGitDir = resolve(gitCommonDir);
+		return dirname(absGitDir);
+	} catch {
+		return process.cwd();
+	}
 }
 
 /** Returns the path to the persistent input history file inside the genome directory. */
@@ -700,8 +723,10 @@ export async function runCli(command: CliCommand): Promise<void> {
 
 	if (command.kind === "list") {
 		const { loadSessionSummaries } = await import("./session-metadata.ts");
-		const sessionsDir = join(command.genomePath, "sessions");
-		const logsDir = join(command.genomePath, "logs");
+		const listProjDir = await resolveProjectDir();
+		const listDataDir = computeProjectDataDir(command.genomePath, listProjDir);
+		const sessionsDir = join(listDataDir, "sessions");
+		const logsDir = join(listDataDir, "logs");
 		const sessions = await loadSessionSummaries(sessionsDir, logsDir);
 		if (sessions.length === 0) {
 			console.log("No sessions found.");
@@ -768,7 +793,9 @@ export async function runCli(command: CliCommand): Promise<void> {
 	const { ulid } = await import("../util/ulid.ts");
 
 	const rootDir = join(import.meta.dir, "../../root");
-	const sessionsDir = join(command.genomePath, "sessions");
+	const projDir = await resolveProjectDir();
+	const projectDataDir = computeProjectDataDir(command.genomePath, projDir);
+	const sessionsDir = join(projectDataDir, "sessions");
 
 	const { SessionLogger } = await import("./logger.ts");
 	const { loggingMiddleware } = await import("../llm/logging-middleware.ts");
@@ -782,7 +809,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 		});
 
 		const bus = new EventBus();
-		const logPath = join(command.genomePath, "logs", sessionId, "session.log.jsonl");
+		const logPath = join(projectDataDir, "logs", sessionId, "session.log.jsonl");
 		const logger = new SessionLogger({ logPath, component: "cli", sessionId, bus });
 		const { Client } = await import("../llm/client.ts");
 		const llmClient = Client.fromEnv({ middleware: [loggingMiddleware(logger)] });
@@ -790,7 +817,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 		const controller = new SessionController({
 			bus,
 			genomePath: command.genomePath,
-			sessionsDir,
+			projectDataDir,
 			rootDir,
 			sessionId,
 			spawner: infra.spawner,
@@ -837,7 +864,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 			sessionId = command.sessionId;
 		}
 
-		const logPath = join(command.genomePath, "logs", `${sessionId}.jsonl`);
+		const logPath = join(projectDataDir, "logs", `${sessionId}.jsonl`);
 		const history = await replayEventLog(logPath);
 		console.error(`Resumed session ${sessionId} with ${history.length} messages of history`);
 
@@ -847,7 +874,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 		);
 		const childHandles = await extractChildHandles(logPath);
 		if (childHandles.length > 0) {
-			const handleLogDir = join(command.genomePath, "logs", sessionId);
+			const handleLogDir = join(projectDataDir, "logs", sessionId);
 			const completed: typeof resumeCompletedHandles = [];
 			for (const handle of childHandles) {
 				if (!handle.completed) {
@@ -901,7 +928,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 	});
 
 	const bus = new EventBus();
-	const logPath = join(command.genomePath, "logs", sessionId, "session.log.jsonl");
+	const logPath = join(projectDataDir, "logs", sessionId, "session.log.jsonl");
 	const stderrLevel = command.logStderr
 		? command.debug
 			? ("debug" as const)
@@ -917,7 +944,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 	const controller = new SessionController({
 		bus,
 		genomePath: command.genomePath,
-		sessionsDir,
+		projectDataDir,
 		rootDir,
 		sessionId,
 		initialHistory: resumeHistory,
