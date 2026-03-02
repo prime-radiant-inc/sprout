@@ -1023,4 +1023,180 @@ describe("Genome", () => {
 			expect(rootAgent.tools).not.toContain("debugger");
 		});
 	});
+
+	describe("overlay resolution (rootDir)", () => {
+		/** Write a root agent Markdown file into the proper tree layout. */
+		async function writeRootMd(
+			dir: string,
+			name: string,
+			overrides: Partial<AgentSpec> = {},
+		): Promise<void> {
+			const spec = makeSpec({ name, ...overrides });
+			if (name === "root") {
+				await writeFile(join(dir, "root.md"), serializeAgentMarkdown(spec));
+			} else {
+				const agentsDir = join(dir, "agents");
+				await mkdir(agentsDir, { recursive: true });
+				await writeFile(join(agentsDir, `${name}.md`), serializeAgentMarkdown(spec));
+			}
+		}
+
+		test("getAgent returns root agent when overlay is empty", async () => {
+			const genomePath = join(tempDir, "overlay-get-root");
+			const rootDir = join(tempDir, "overlay-get-root-rd");
+			await mkdir(rootDir, { recursive: true });
+			await writeRootMd(rootDir, "reader", { description: "Root reader" });
+
+			const genome = new Genome(genomePath, rootDir);
+			await genome.init();
+			await genome.loadRoot();
+
+			const agent = genome.getAgent("reader");
+			expect(agent).toBeDefined();
+			expect(agent!.description).toBe("Root reader");
+		});
+
+		test("getAgent returns overlay agent when it exists (overlay wins)", async () => {
+			const genomePath = join(tempDir, "overlay-get-overlay");
+			const rootDir = join(tempDir, "overlay-get-overlay-rd");
+			await mkdir(rootDir, { recursive: true });
+			await writeRootMd(rootDir, "reader", { description: "Root reader" });
+
+			const genome = new Genome(genomePath, rootDir);
+			await genome.init();
+			await genome.loadRoot();
+
+			// Add an overlay agent with the same name
+			await genome.addAgent(makeSpec({ name: "reader", description: "Overlay reader" }));
+
+			const agent = genome.getAgent("reader");
+			expect(agent).toBeDefined();
+			expect(agent!.description).toBe("Overlay reader");
+		});
+
+		test("allAgents returns root + overlay merged (overlay wins)", async () => {
+			const genomePath = join(tempDir, "overlay-all");
+			const rootDir = join(tempDir, "overlay-all-rd");
+			await mkdir(rootDir, { recursive: true });
+			await writeRootMd(rootDir, "root", { description: "Root root" });
+			await writeRootMd(rootDir, "reader", { description: "Root reader" });
+			await writeRootMd(rootDir, "editor", { description: "Root editor" });
+
+			const genome = new Genome(genomePath, rootDir);
+			await genome.init();
+			await genome.loadRoot();
+
+			// Override reader in overlay
+			await genome.addAgent(makeSpec({ name: "reader", description: "Overlay reader" }));
+			// Add genome-only agent
+			await genome.addAgent(makeSpec({ name: "specialist", description: "Genome only" }));
+
+			const agents = genome.allAgents();
+			const byName = new Map(agents.map((a) => [a.name, a]));
+
+			// Root agents present
+			expect(byName.get("root")!.description).toBe("Root root");
+			expect(byName.get("editor")!.description).toBe("Root editor");
+			// Overlay wins for reader
+			expect(byName.get("reader")!.description).toBe("Overlay reader");
+			// Genome-only agent present
+			expect(byName.get("specialist")!.description).toBe("Genome only");
+			// Total: root(1) + editor(1) + reader-overlay(1) + specialist(1) = 4
+			expect(agents).toHaveLength(4);
+		});
+
+		test("isOverlay correctly identifies overlay vs root-only agents", async () => {
+			const genomePath = join(tempDir, "overlay-isoverlay");
+			const rootDir = join(tempDir, "overlay-isoverlay-rd");
+			await mkdir(rootDir, { recursive: true });
+			await writeRootMd(rootDir, "reader", { description: "Root reader" });
+
+			const genome = new Genome(genomePath, rootDir);
+			await genome.init();
+			await genome.loadRoot();
+
+			// reader is root-only
+			expect(genome.isOverlay("reader")).toBe(false);
+			// nonexistent is not overlay
+			expect(genome.isOverlay("nonexistent")).toBe(false);
+
+			// Add overlay for reader
+			await genome.addAgent(makeSpec({ name: "reader", description: "Overlay reader" }));
+			expect(genome.isOverlay("reader")).toBe(true);
+
+			// Add genome-only agent
+			await genome.addAgent(makeSpec({ name: "specialist" }));
+			expect(genome.isOverlay("specialist")).toBe(true);
+		});
+
+		test("overlayAgents returns only modified/created agents", async () => {
+			const genomePath = join(tempDir, "overlay-agents");
+			const rootDir = join(tempDir, "overlay-agents-rd");
+			await mkdir(rootDir, { recursive: true });
+			await writeRootMd(rootDir, "root");
+			await writeRootMd(rootDir, "reader");
+
+			const genome = new Genome(genomePath, rootDir);
+			await genome.init();
+			await genome.loadRoot();
+
+			// No overlay agents yet
+			expect(genome.overlayAgents()).toHaveLength(0);
+
+			// Add overlay
+			await genome.addAgent(makeSpec({ name: "specialist" }));
+			const overlay = genome.overlayAgents();
+			expect(overlay).toHaveLength(1);
+			expect(overlay[0]!.name).toBe("specialist");
+		});
+
+		test("updateAgent promotes root agent to overlay on first mutation", async () => {
+			const genomePath = join(tempDir, "overlay-promote");
+			const rootDir = join(tempDir, "overlay-promote-rd");
+			await mkdir(rootDir, { recursive: true });
+			await writeRootMd(rootDir, "reader", {
+				description: "Root reader",
+				system_prompt: "Original prompt",
+			});
+
+			const genome = new Genome(genomePath, rootDir);
+			await genome.init();
+			await genome.loadRoot();
+
+			// reader is root-only
+			expect(genome.isOverlay("reader")).toBe(false);
+
+			// Update it — should promote to overlay
+			await genome.updateAgent(
+				makeSpec({ name: "reader", description: "Evolved reader", system_prompt: "New prompt" }),
+			);
+
+			expect(genome.isOverlay("reader")).toBe(true);
+			expect(genome.getAgent("reader")!.description).toBe("Evolved reader");
+			expect(genome.getAgent("reader")!.version).toBe(2); // bumped from 1
+		});
+
+		test("loadFromDisk + loadRoot combines overlay and root agents", async () => {
+			const genomePath = join(tempDir, "overlay-reload");
+			const rootDir = join(tempDir, "overlay-reload-rd");
+			await mkdir(rootDir, { recursive: true });
+			await writeRootMd(rootDir, "reader", { description: "Root reader" });
+
+			// Set up genome with an overlay agent
+			const genome = new Genome(genomePath, rootDir);
+			await genome.init();
+			await genome.loadRoot();
+			await genome.addAgent(makeSpec({ name: "specialist", description: "Genome only" }));
+
+			// Reload from disk
+			const genome2 = new Genome(genomePath, rootDir);
+			await genome2.loadFromDisk();
+			await genome2.loadRoot();
+
+			expect(genome2.getAgent("reader")!.description).toBe("Root reader");
+			expect(genome2.getAgent("specialist")!.description).toBe("Genome only");
+			expect(genome2.isOverlay("reader")).toBe(false);
+			expect(genome2.isOverlay("specialist")).toBe(true);
+		});
+	});
 });

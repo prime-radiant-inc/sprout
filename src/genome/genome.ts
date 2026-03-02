@@ -50,12 +50,15 @@ const DIRS = [
 
 export class Genome {
 	private readonly rootPath: string;
+	private readonly rootDir?: string;
 	private readonly agents = new Map<string, AgentSpec>();
+	private readonly rootAgents = new Map<string, AgentSpec>();
 	readonly memories: MemoryStore;
 	private routingRules: RoutingRule[] = [];
 
-	constructor(rootPath: string) {
+	constructor(rootPath: string, rootDir?: string) {
 		this.rootPath = rootPath;
+		this.rootDir = rootDir;
 		this.memories = new MemoryStore(join(rootPath, "memories", "memories.jsonl"));
 	}
 
@@ -91,21 +94,45 @@ export class Genome {
 		}
 	}
 
+	/** Load root agents from the rootDir. No-op if rootDir was not set. */
+	async loadRoot(): Promise<void> {
+		if (!this.rootDir) return;
+		const specs = await loadRootAgents(this.rootDir);
+		this.rootAgents.clear();
+		for (const spec of specs) {
+			this.rootAgents.set(spec.name, spec);
+		}
+	}
+
 	// --- Agent CRUD ---
 
-	/** Number of agents in the genome. */
+	/** Number of agents in the genome (overlay + root, deduplicated). */
 	agentCount(): number {
-		return this.agents.size;
+		return this.allAgents().length;
 	}
 
-	/** Return a copy of all agent specs. */
+	/** Return a copy of all agent specs (root + overlay merged, overlay wins). */
 	allAgents(): AgentSpec[] {
-		return [...this.agents.values()];
+		const merged = new Map<string, AgentSpec>(this.rootAgents);
+		for (const [name, spec] of this.agents) {
+			merged.set(name, spec);
+		}
+		return [...merged.values()];
 	}
 
-	/** Look up an agent by name. */
+	/** Look up an agent by name. Checks overlay first, then root. */
 	getAgent(name: string): AgentSpec | undefined {
-		return this.agents.get(name);
+		return this.agents.get(name) ?? this.rootAgents.get(name);
+	}
+
+	/** Returns true if the agent exists in the genome's overlay (modified or genome-created). */
+	isOverlay(name: string): boolean {
+		return this.agents.has(name);
+	}
+
+	/** Returns only genome-modified or genome-created agents (the overlay). */
+	overlayAgents(): AgentSpec[] {
+		return [...this.agents.values()];
 	}
 
 	/** Add a new agent spec, writing markdown to disk and committing. */
@@ -117,9 +144,9 @@ export class Genome {
 		this.agents.set(spec.name, spec);
 	}
 
-	/** Update an existing agent, bumping its version. */
+	/** Update an existing agent, bumping its version. Promotes root agents to overlay on first mutation. */
 	async updateAgent(spec: AgentSpec): Promise<void> {
-		const existing = this.agents.get(spec.name);
+		const existing = this.agents.get(spec.name) ?? this.rootAgents.get(spec.name);
 		if (!existing) {
 			throw new Error(`Cannot update agent '${spec.name}': not found`);
 		}
