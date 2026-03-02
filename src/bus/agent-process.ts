@@ -31,7 +31,7 @@ export interface AgentProcessConfig {
 	client: Client;
 	/** Working directory for the agent */
 	workDir: string;
-	/** Path to root agent directory (for preambles). */
+	/** Path to root agent directory (for overlay resolution and preambles). */
 	rootDir?: string;
 	/** Abort signal for clean shutdown */
 	signal?: AbortSignal;
