@@ -4,5 +4,5 @@ description: "Connect to MCP servers and invoke their tools"
 interpreter: bash
 ---
 #!/bin/bash
-TOOL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+TOOL_DIR="${SPROUT_TOOL_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)}"
 exec bun run "$TOOL_DIR/mcp-cli.ts" "$@"

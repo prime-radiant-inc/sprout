@@ -106,12 +106,14 @@ export function buildAgentToolPrimitives(
 				const fileContent = await readFile(tool.scriptPath, "utf-8");
 				const script = extractScriptBody(fileContent);
 
-				// Execute via: echo script | interpreter - args
-				// Using a heredoc approach for reliable passing
+				// Execute via: echo script | SPROUT_TOOL_DIR=<dir> interpreter /dev/stdin args
+				// SPROUT_TOOL_DIR lets scripts find sibling files (since BASH_SOURCE/$0 = /dev/stdin)
 				const escapedScript = script.replace(/'/g, "'\\''");
+				const toolDir = tool.scriptPath.replace(/\/[^/]+$/, "");
+				const envPrefix = `SPROUT_TOOL_DIR='${toolDir}'`;
 				const command = toolArgs
-					? `echo '${escapedScript}' | ${tool.interpreter} /dev/stdin ${toolArgs}`
-					: `echo '${escapedScript}' | ${tool.interpreter} /dev/stdin`;
+					? `echo '${escapedScript}' | ${envPrefix} ${tool.interpreter} /dev/stdin ${toolArgs}`
+					: `echo '${escapedScript}' | ${envPrefix} ${tool.interpreter} /dev/stdin`;
 
 				const result = await env.exec_command(command, { timeout_ms: 30_000 });
 				const output = [result.stdout, result.stderr ? `[stderr]\n${result.stderr}` : ""]
