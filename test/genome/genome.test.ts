@@ -1183,5 +1183,95 @@ describe("Genome", () => {
 			expect(genome2.isOverlay("reader")).toBe(false);
 			expect(genome2.isOverlay("specialist")).toBe(true);
 		});
+
+		test("loadRoot is a no-op when rootDir is not set", async () => {
+			const genomePath = join(tempDir, "overlay-no-rootdir");
+			const genome = new Genome(genomePath);
+			await genome.init();
+			await genome.addAgent(makeSpec({ name: "local", description: "Local agent" }));
+
+			// loadRoot should not throw and should not change agent count
+			await genome.loadRoot();
+			expect(genome.agentCount()).toBe(1);
+			expect(genome.getAgent("local")!.description).toBe("Local agent");
+		});
+
+		test("removeAgent on overlay re-exposes root agent", async () => {
+			const genomePath = join(tempDir, "overlay-remove-reexpose");
+			const rootDir = join(tempDir, "overlay-remove-reexpose-rd");
+			await mkdir(rootDir, { recursive: true });
+			await writeRootMd(rootDir, "reader", { description: "Root reader", version: 1 });
+
+			const genome = new Genome(genomePath, rootDir);
+			await genome.init();
+			await genome.loadRoot();
+
+			// Create overlay that shadows root
+			await genome.addAgent(makeSpec({ name: "reader", description: "Overlay reader" }));
+			expect(genome.getAgent("reader")!.description).toBe("Overlay reader");
+			expect(genome.isOverlay("reader")).toBe(true);
+
+			// Remove overlay — root re-appears
+			await genome.removeAgent("reader");
+			expect(genome.isOverlay("reader")).toBe(false);
+			const agent = genome.getAgent("reader");
+			expect(agent).toBeDefined();
+			expect(agent!.description).toBe("Root reader");
+		});
+
+		test("removeAgent throws for root-only agents", async () => {
+			const genomePath = join(tempDir, "overlay-remove-root-only");
+			const rootDir = join(tempDir, "overlay-remove-root-only-rd");
+			await mkdir(rootDir, { recursive: true });
+			await writeRootMd(rootDir, "reader", { description: "Root reader" });
+
+			const genome = new Genome(genomePath, rootDir);
+			await genome.init();
+			await genome.loadRoot();
+
+			expect(() => genome.removeAgent("reader")).toThrow("root agent");
+		});
+
+		test("root agent deleted between sessions disappears from resolution", async () => {
+			const genomePath = join(tempDir, "overlay-root-deleted");
+			const rootDir = join(tempDir, "overlay-root-deleted-rd");
+			await mkdir(rootDir, { recursive: true });
+			await writeRootMd(rootDir, "reader", { description: "Root reader" });
+			await writeRootMd(rootDir, "editor", { description: "Root editor" });
+
+			const genome = new Genome(genomePath, rootDir);
+			await genome.init();
+			await genome.initFromRoot();
+			expect(genome.agentCount()).toBe(2);
+
+			// Delete the reader agent from root between sessions
+			await rm(join(rootDir, "agents", "reader.md"));
+
+			// Reload — simulates a new session
+			const genome2 = new Genome(genomePath, rootDir);
+			await genome2.loadFromDisk();
+
+			// reader should no longer be resolvable
+			expect(genome2.getAgent("reader")).toBeUndefined();
+			expect(genome2.getAgent("editor")).toBeDefined();
+			expect(genome2.agentCount()).toBe(1);
+		});
+
+		test("addAgent with root-matching name bumps version above root", async () => {
+			const genomePath = join(tempDir, "overlay-add-shadows-root");
+			const rootDir = join(tempDir, "overlay-add-shadows-root-rd");
+			await mkdir(rootDir, { recursive: true });
+			await writeRootMd(rootDir, "reader", { description: "Root reader", version: 3 });
+
+			const genome = new Genome(genomePath, rootDir);
+			await genome.init();
+			await genome.loadRoot();
+
+			await genome.addAgent(makeSpec({ name: "reader", description: "Replaced reader", version: 1 }));
+
+			const agent = genome.getAgent("reader")!;
+			expect(agent.description).toBe("Replaced reader");
+			expect(agent.version).toBe(4); // root.version (3) + 1
+		});
 	});
 });
