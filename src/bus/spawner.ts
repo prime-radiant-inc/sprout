@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { ulid } from "../util/ulid.ts";
 import type { BusClient } from "./client.ts";
-import { agentEvents, agentInbox, agentReady, agentResult, sessionEvents } from "./topics.ts";
+import { agentInbox, agentReady, agentResult, sessionEvents } from "./topics.ts";
 import type {
 	CallerIdentity,
 	ContinueMessage,
@@ -93,7 +93,6 @@ export class AgentSpawner {
 	private readonly spawnFn: SpawnFn;
 	private readonly waitTimeoutMs: number;
 	private readonly handles = new Map<string, AgentHandle>();
-	private eventCallback?: (event: EventMessage) => void;
 
 	constructor(
 		bus: BusClient,
@@ -109,19 +108,12 @@ export class AgentSpawner {
 		this.waitTimeoutMs = waitTimeoutMs ?? 900_000;
 	}
 
-	/** Register a callback to receive events from all spawned sub-agents. */
-	onEvent(callback: (event: EventMessage) => void): void {
-		this.eventCallback = callback;
-	}
-
 	/**
 	 * Subscribe to the session-wide events topic.
 	 * Every agent subprocess publishes here regardless of depth,
 	 * so this provides O(1) event delivery without relay chains.
 	 */
-	async subscribeSessionEvents(
-		callback: (event: EventMessage) => void,
-	): Promise<void> {
+	async subscribeSessionEvents(callback: (event: EventMessage) => void): Promise<void> {
 		const topic = sessionEvents(this.sessionId);
 		await this.bus.subscribe(topic, (payload) => {
 			try {
@@ -185,20 +177,6 @@ export class AgentSpawner {
 						resolve(msg);
 					}
 					handle.resultResolvers = [];
-				}
-			} catch {
-				// Ignore malformed messages
-			}
-		});
-
-		// Subscribe to events topic and relay to the onEvent callback
-		const eventsTopic = agentEvents(this.sessionId, handleId);
-		await this.bus.subscribe(eventsTopic, (payload) => {
-			if (!this.eventCallback) return;
-			try {
-				const parsed = JSON.parse(payload);
-				if (parsed.kind === "event") {
-					this.eventCallback(parsed as EventMessage);
 				}
 			} catch {
 				// Ignore malformed messages

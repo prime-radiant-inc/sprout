@@ -109,14 +109,7 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 		options.events.emitEvent(event.kind, event.agent_id, event.depth, event.data);
 	});
 
-	// Subscribe to session-wide events topic so the UI sees events from ALL
-	// subprocess agents regardless of depth (O(1) delivery, no relay chain).
 	if (options.spawner) {
-		await options.spawner.subscribeSessionEvents((eventMsg) => {
-			const ev = eventMsg.event;
-			options.events.emitEvent(ev.kind, ev.agent_id, ev.depth, ev.data);
-		});
-
 		// Pre-register completed child handles from a previous session
 		if (options.completedHandles) {
 			for (const { handleId, result, ownerId } of options.completedHandles) {
@@ -208,6 +201,17 @@ export class SessionController {
 			model: "best",
 			sessionsDir: join(this.projectDataDir, "sessions"),
 		});
+
+		// Subscribe once to the session-wide events topic so the UI sees events
+		// from ALL subprocess agents regardless of depth (O(1) delivery).
+		// This must be in the constructor, not the factory, to avoid accumulating
+		// subscriptions on each submitGoal call.
+		if (this.spawner) {
+			this.spawner.subscribeSessionEvents((eventMsg) => {
+				const ev = eventMsg.event;
+				this.bus.emitEvent(ev.kind, ev.agent_id, ev.depth, ev.data);
+			});
+		}
 
 		this.bus.onCommand((cmd) => this.handleCommand(cmd));
 		this.bus.onEvent((event) => {
