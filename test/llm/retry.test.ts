@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { retryLLMCall } from "../../src/llm/retry.ts";
+import { StreamReadTimeoutError } from "../../src/llm/stream-timeout.ts";
 
 const dummyResponse = {
 	id: "test",
@@ -478,5 +479,104 @@ describe("retryLLMCall", () => {
 
 		expect(calls).toBe(1);
 		expect((caughtError as Error).message).toBe("Rate limited");
+	});
+
+	test("jitter keeps delays within [baseDelay*0.5, baseDelay*1.5)", async () => {
+		// Use a small baseDelay to keep the test fast. The jitter formula is
+		// delay * (0.5 + Math.random()), so for baseDelay=10 on attempt 1
+		// (multiplier 2^0 = 1), delays should be in [5, 15).
+		const delays: number[] = [];
+
+		for (let i = 0; i < 100; i++) {
+			let calls = 0;
+			await retryLLMCall(
+				async () => {
+					calls++;
+					if (calls === 1) {
+						const err = new Error("fail");
+						(err as any).status = 500;
+						throw err;
+					}
+					return dummyResponse;
+				},
+				{
+					maxRetries: 1,
+					baseDelayMs: 10,
+					jitter: true,
+					onRetry: (_error, _attempt, delayMs) => {
+						delays.push(delayMs);
+					},
+				},
+			);
+		}
+
+		expect(delays).toHaveLength(100);
+		for (const delay of delays) {
+			// baseDelay=10, attempt 1: delay = 10 * (0.5 + rand) => [5, 15)
+			expect(delay).toBeGreaterThanOrEqual(5);
+			expect(delay).toBeLessThan(15);
+		}
+	});
+
+	test("maxRetries=0 calls fn once and throws on failure without retrying", async () => {
+		let calls = 0;
+		let caughtError: unknown;
+
+		try {
+			await retryLLMCall(
+				async () => {
+					calls++;
+					const err = new Error("Server error");
+					(err as any).status = 500;
+					throw err;
+				},
+				{ maxRetries: 0, baseDelayMs: 10 },
+			);
+		} catch (err) {
+			caughtError = err;
+		}
+
+		expect(calls).toBe(1);
+		expect(caughtError).toBeDefined();
+		expect((caughtError as Error).message).toBe("Server error");
+	});
+
+	test("retries StreamReadTimeoutError (retryable=true)", async () => {
+		let calls = 0;
+		const result = await retryLLMCall(
+			async () => {
+				calls++;
+				if (calls === 1) {
+					throw new StreamReadTimeoutError(30_000);
+				}
+				return dummyResponse;
+			},
+			{ maxRetries: 2, baseDelayMs: 10 },
+		);
+
+		expect(result).toBe(dummyResponse);
+		expect(calls).toBe(2);
+	});
+
+	test("does not retry on 402 (Payment Required)", async () => {
+		let calls = 0;
+		let caughtError: unknown;
+
+		try {
+			await retryLLMCall(
+				async () => {
+					calls++;
+					const err = new Error("Payment required");
+					(err as any).status = 402;
+					throw err;
+				},
+				{ maxRetries: 2, baseDelayMs: 10 },
+			);
+		} catch (err) {
+			caughtError = err;
+		}
+
+		expect(calls).toBe(1);
+		expect((caughtError as Error).message).toBe("Payment required");
 	});
 });

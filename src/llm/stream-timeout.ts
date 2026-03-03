@@ -17,7 +17,7 @@ export const DEFAULT_STREAM_READ_TIMEOUT_MS = 30_000;
  * the stream emits an error rather than retrying automatically.
  */
 export class StreamReadTimeoutError extends Error {
-	readonly name = "StreamReadTimeoutError";
+	override readonly name = "StreamReadTimeoutError";
 	readonly retryable = true;
 	readonly timeoutMs: number;
 
@@ -38,11 +38,20 @@ export class StreamReadTimeoutError extends Error {
  * - The source completes normally
  * - The consumer breaks out of the loop early
  * - A timeout fires
+ * - The abort signal fires
+ *
+ * @param signal - Optional AbortSignal to cancel the stream. When aborted,
+ *   the timer is cleared and an AbortError is thrown.
  */
 export async function* withStreamReadTimeout<T>(
 	source: AsyncIterable<T>,
 	timeoutMs: number,
+	signal?: AbortSignal,
 ): AsyncGenerator<T> {
+	if (signal?.aborted) {
+		throw new DOMException("Aborted", "AbortError");
+	}
+
 	const iterator = source[Symbol.asyncIterator]();
 	let timer: ReturnType<typeof setTimeout> | null = null;
 	let timedOut = false;
@@ -65,10 +74,23 @@ export async function* withStreamReadTimeout<T>(
 		}
 	}
 
+	function onAbort(): void {
+		clearTimer();
+		if (rejectCurrent) {
+			rejectCurrent(new DOMException("Aborted", "AbortError"));
+		}
+	}
+
+	signal?.addEventListener("abort", onAbort, { once: true });
+
 	try {
 		startTimer();
 
 		while (true) {
+			if (signal?.aborted) {
+				throw new DOMException("Aborted", "AbortError");
+			}
+
 			if (timedOut) {
 				throw new StreamReadTimeoutError(timeoutMs);
 			}
@@ -85,13 +107,17 @@ export async function* withStreamReadTimeout<T>(
 				break;
 			}
 
-			// Reset timer for the next chunk
-			startTimer();
+			// Clear timer before yielding — the consumer may be slow to pull
+			// the next value, and the timer should not tick during that pause.
+			clearTimer();
 			yield result.value;
+			// Restart timer after yield returns (consumer pulled the next value)
+			startTimer();
 		}
 	} finally {
 		clearTimer();
 		rejectCurrent = null;
+		signal?.removeEventListener("abort", onAbort);
 		// Ensure the source iterator is closed if we exit early
 		await iterator.return?.();
 	}

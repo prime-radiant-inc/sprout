@@ -25,7 +25,7 @@ export interface RetryOptions {
 }
 
 /** HTTP status codes that should NOT be retried (client errors that won't succeed on retry). */
-const NON_RETRYABLE_STATUSES = new Set([400, 401, 403, 404, 413, 422]);
+const NON_RETRYABLE_STATUSES = new Set([400, 401, 402, 403, 404, 413, 422]);
 
 function isRetryable(error: unknown): boolean {
 	// AbortError is never retried
@@ -33,7 +33,9 @@ function isRetryable(error: unknown): boolean {
 		return false;
 	}
 
-	// Honor explicit retryable property if present
+	// Honor explicit retryable property if present. Adapters and custom error
+	// types (e.g. StreamReadTimeoutError) can set `.retryable` to override
+	// status-code heuristics. This is intentional API surface.
 	const retryableProp = (error as { retryable?: boolean }).retryable;
 	if (retryableProp === true) return true;
 	if (retryableProp === false) return false;
@@ -98,7 +100,9 @@ export async function retryLLMCall<T>(
 				throw error;
 			}
 
-			// Check for Retry-After header value (in seconds)
+			// Check for Retry-After header value (in seconds). Spec-compliant:
+			// adapters should populate `retry_after` when extracting Retry-After
+			// headers from provider responses (e.g. 429 rate-limit responses).
 			const retryAfter = (error as { retry_after?: number }).retry_after;
 			let delayMs: number;
 			if (retryAfter !== undefined && retryAfter > 0) {

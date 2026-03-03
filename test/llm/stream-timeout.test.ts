@@ -109,6 +109,85 @@ describe("withStreamReadTimeout", () => {
 		// Timer should be cleaned up — no lingering timeout
 		await new Promise((resolve) => setTimeout(resolve, 200));
 	});
+
+	test("throws AbortError when signal is already aborted", async () => {
+		const controller = new AbortController();
+		controller.abort();
+
+		const source = delayedIterable([{ value: "a", delayMs: 10 }]);
+		let caughtError: unknown;
+
+		try {
+			for await (const _item of withStreamReadTimeout(source, 500, controller.signal)) {
+				// Should not reach here
+			}
+		} catch (err) {
+			caughtError = err;
+		}
+
+		expect(caughtError).toBeInstanceOf(DOMException);
+		expect((caughtError as DOMException).name).toBe("AbortError");
+	});
+
+	test("throws AbortError when signal fires during iteration", async () => {
+		const controller = new AbortController();
+		const source = delayedIterable([
+			{ value: "a", delayMs: 10 },
+			{ value: "b", delayMs: 10 },
+			{ value: "c", delayMs: 200 }, // Abort will fire during this gap
+		]);
+
+		setTimeout(() => controller.abort(), 50);
+
+		const results: string[] = [];
+		let caughtError: unknown;
+
+		try {
+			for await (const item of withStreamReadTimeout(source, 500, controller.signal)) {
+				results.push(item);
+			}
+		} catch (err) {
+			caughtError = err;
+		}
+
+		expect(results).toEqual(["a", "b"]);
+		expect(caughtError).toBeInstanceOf(DOMException);
+		expect((caughtError as DOMException).name).toBe("AbortError");
+	});
+
+	test("cleans up abort listener on normal completion", async () => {
+		const controller = new AbortController();
+		const source = delayedIterable([
+			{ value: "a", delayMs: 10 },
+			{ value: "b", delayMs: 10 },
+		]);
+
+		const results: string[] = [];
+		for await (const item of withStreamReadTimeout(source, 500, controller.signal)) {
+			results.push(item);
+		}
+
+		expect(results).toEqual(["a", "b"]);
+		// Aborting after completion should not throw
+		controller.abort();
+	});
+
+	test("does not false-timeout when consumer is slow to pull values", async () => {
+		const source = delayedIterable([
+			{ value: "a", delayMs: 10 },
+			{ value: "b", delayMs: 10 },
+		]);
+
+		const results: string[] = [];
+		for await (const item of withStreamReadTimeout(source, 100)) {
+			results.push(item);
+			// Simulate slow consumer — 150ms exceeds the 100ms timeout,
+			// but the timer should be paused during yield.
+			await new Promise((resolve) => setTimeout(resolve, 150));
+		}
+
+		expect(results).toEqual(["a", "b"]);
+	});
 });
 
 describe("StreamReadTimeoutError", () => {

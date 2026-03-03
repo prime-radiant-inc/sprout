@@ -3,6 +3,9 @@ export type { ClientOptions, Middleware } from "./client.ts";
 export { Client } from "./client.ts";
 export { GeminiAdapter } from "./gemini.ts";
 export { OpenAIAdapter } from "./openai.ts";
+export type { RetryOptions } from "./retry.ts";
+export { retryLLMCall } from "./retry.ts";
+export { StreamReadTimeoutError, withStreamReadTimeout } from "./stream-timeout.ts";
 export type {
 	ContentPart,
 	FinishReason,
