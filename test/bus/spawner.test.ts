@@ -973,6 +973,42 @@ describe("AgentSpawner", () => {
 
 			expect(() => spawner.waitAgent(handleId)).toThrow(/unknown handle/i);
 		}, 15_000);
+
+		test("rejects pending waitAgent promises immediately", async () => {
+			// Mock client that blocks forever so the agent never completes
+			const mockClient = {
+				complete: async (_request: Request): Promise<Response> => {
+					await new Promise(() => {}); // never resolves
+					throw new Error("unreachable");
+				},
+				stream: async function* () {},
+				providers: () => ["anthropic"],
+			} as unknown as Client;
+
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			const handleId = (await spawner.spawnAgent({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: { agent_name: "root", depth: 0 },
+				goal: "Blocking task",
+				blocking: false,
+				shared: false,
+				workDir: tempDir,
+			})) as string;
+
+			// Start waiting (will never resolve on its own since agent blocks)
+			const waitPromise = spawner.waitAgent(handleId);
+
+			// clearHandles should reject the pending waiter promptly
+			const start = Date.now();
+			await spawner.clearHandles();
+			await expect(waitPromise).rejects.toThrow(/session cleared/i);
+			const elapsed = Date.now() - start;
+
+			// Should resolve almost immediately, not after the 15min timeout
+			expect(elapsed).toBeLessThan(2000);
+		}, 15_000);
 	});
 
 	describe("updateSessionId unsubscribes old topic", () => {

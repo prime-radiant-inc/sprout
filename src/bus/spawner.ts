@@ -32,6 +32,13 @@ export interface SpawnAgentOptions {
 	rootDir?: string;
 }
 
+/** A pending waitAgent() promise that can be resolved or rejected. */
+interface PendingWaiter {
+	resolve: (result: ResultMessage) => void;
+	reject: (error: Error) => void;
+	timer: ReturnType<typeof setTimeout>;
+}
+
 /** Internal tracking record for a spawned agent */
 export interface AgentHandle {
 	handleId: string;
@@ -39,7 +46,7 @@ export interface AgentHandle {
 	status: "running" | "idle" | "completed";
 	result?: ResultMessage;
 	shared: boolean;
-	resultResolvers: Array<(result: ResultMessage) => void>;
+	pendingWaiters: PendingWaiter[];
 	/** agent_name of the parent who spawned this handle */
 	ownerId: string;
 	/** Original spawn options needed for re-spawning completed agents */
@@ -144,14 +151,17 @@ export class AgentSpawner {
 	 * and kill any running processes. Called on session reset (/clear).
 	 */
 	async clearHandles(): Promise<void> {
-		// Kill running processes
 		for (const handle of this.handles.values()) {
+			// Reject pending waiters so they don't hang for the timeout duration
+			for (const waiter of handle.pendingWaiters) {
+				clearTimeout(waiter.timer);
+				waiter.reject(new Error("Session cleared"));
+			}
+			handle.pendingWaiters = [];
+
 			if (handle.status === "running" || handle.status === "idle") {
 				handle.process.kill();
 			}
-		}
-		// Unsubscribe from per-handle result topics
-		for (const handle of this.handles.values()) {
 			if (handle.resultTopic && this.bus.connected) {
 				await this.bus.unsubscribe(handle.resultTopic);
 			}
@@ -207,7 +217,7 @@ export class AgentSpawner {
 			process: proc,
 			status: "running",
 			shared: opts.shared,
-			resultResolvers: [],
+			pendingWaiters: [],
 			ownerId: opts.caller.agent_name,
 			agentName: opts.agentName,
 			genomePath: opts.genomePath,
@@ -227,10 +237,11 @@ export class AgentSpawner {
 				if (msg.kind === "result") {
 					handle.result = msg;
 					handle.status = opts.shared ? "idle" : "completed";
-					for (const resolve of handle.resultResolvers) {
-						resolve(msg);
+					for (const waiter of handle.pendingWaiters) {
+						clearTimeout(waiter.timer);
+						waiter.resolve(msg);
 					}
-					handle.resultResolvers = [];
+					handle.pendingWaiters = [];
 				}
 			} catch {
 				// Ignore malformed messages
@@ -288,17 +299,16 @@ export class AgentSpawner {
 		}
 
 		return new Promise<ResultMessage>((resolve, reject) => {
-			const timeout = setTimeout(() => {
-				const idx = handle.resultResolvers.indexOf(resolver);
-				if (idx !== -1) handle.resultResolvers.splice(idx, 1);
-				reject(new Error(`waitAgent timed out for handle ${handleId}`));
-			}, this.waitTimeoutMs);
-
-			const resolver = (result: ResultMessage) => {
-				clearTimeout(timeout);
-				resolve(result);
+			const waiter: PendingWaiter = {
+				resolve,
+				reject,
+				timer: setTimeout(() => {
+					const idx = handle.pendingWaiters.indexOf(waiter);
+					if (idx !== -1) handle.pendingWaiters.splice(idx, 1);
+					reject(new Error(`waitAgent timed out for handle ${handleId}`));
+				}, this.waitTimeoutMs),
 			};
-			handle.resultResolvers.push(resolver);
+			handle.pendingWaiters.push(waiter);
 		});
 	}
 
@@ -417,7 +427,7 @@ export class AgentSpawner {
 			status: "completed",
 			result,
 			shared: false,
-			resultResolvers: [],
+			pendingWaiters: [],
 			ownerId,
 			agentName: spawnInfo?.agentName ?? "",
 			genomePath: spawnInfo?.genomePath ?? "",

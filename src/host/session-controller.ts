@@ -260,12 +260,12 @@ export class SessionController {
 					this.logger.reconfigure({ sessionId: this._sessionId, logPath: newLogPath });
 				}
 				if (this.spawner) {
-					this.spawner.clearHandles().catch((err) => {
-						console.error("[SessionController] Failed to clear handles after clear:", err);
-					});
-					this.spawner.updateSessionId(this._sessionId).catch((err) => {
-						console.error("[SessionController] Failed to resubscribe after clear:", err);
-					});
+					this.spawnerReady = this.spawner
+						.clearHandles()
+						.then(() => this.spawner!.updateSessionId(this._sessionId))
+						.catch((err) => {
+							console.error("[SessionController] Failed spawner reset after clear:", err);
+						});
 				}
 				this.bus.emitEvent("session_clear", "session", 0, {
 					new_session_id: this._sessionId,

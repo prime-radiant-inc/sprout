@@ -308,7 +308,7 @@ async function waitForStartWithReady(
  * processed sequentially. Steer messages are queued via agent.steer()
  * for injection into the next continue cycle. Exits on abort signal.
  */
-function idleLoop(
+async function idleLoop(
 	bus: BusClient,
 	agent: Agent,
 	inboxTopic: string,
@@ -316,77 +316,77 @@ function idleLoop(
 	handleId: string,
 	signal?: AbortSignal,
 ): Promise<void> {
-	if (signal?.aborted) return Promise.resolve();
+	if (signal?.aborted) return;
 
-	return new Promise((resolve) => {
-		let processing = false;
-		const continueQueue: ContinueMessage[] = [];
+	let processing = false;
+	const continueQueue: ContinueMessage[] = [];
+	let resolveIdle: (() => void) | null = null;
 
-		const onAbort = () => {
-			resolve();
-		};
+	if (signal) {
+		signal.addEventListener("abort", () => resolveIdle?.(), { once: true });
+	}
 
-		if (signal) {
-			signal.addEventListener("abort", onAbort, { once: true });
+	async function processNext(): Promise<void> {
+		if (continueQueue.length === 0) {
+			processing = false;
+			return;
 		}
 
-		async function processNext(): Promise<void> {
-			if (continueQueue.length === 0) {
-				processing = false;
+		processing = true;
+		const continueMsg = continueQueue.shift()!;
+		try {
+			const result = await agent.continue(continueMsg.message, signal);
+			const resultMsg: ResultMessage = {
+				kind: "result",
+				handle_id: handleId,
+				output: result.output,
+				success: result.success,
+				stumbles: result.stumbles,
+				turns: result.turns,
+				timed_out: result.timed_out,
+			};
+			await bus.publish(resultTopic, JSON.stringify(resultMsg));
+		} catch (err) {
+			const errorResult: ResultMessage = {
+				kind: "result",
+				handle_id: handleId,
+				output: `Continue failed: ${err instanceof Error ? err.message : String(err)}`,
+				success: false,
+				stumbles: 0,
+				turns: 0,
+				timed_out: false,
+			};
+			await bus.publish(resultTopic, JSON.stringify(errorResult));
+		}
+
+		await processNext();
+	}
+
+	// Await the subscribe so the callback is confirmed before entering idle
+	await bus.subscribe(inboxTopic, async (payload) => {
+		try {
+			const msg = parseBusMessage(payload);
+
+			// Steer messages are queued regardless of processing state
+			if (msg.kind === "steer") {
+				agent.steer(msg.message);
 				return;
 			}
 
-			processing = true;
-			const continueMsg = continueQueue.shift()!;
-			try {
-				const result = await agent.continue(continueMsg.message, signal);
-				const resultMsg: ResultMessage = {
-					kind: "result",
-					handle_id: handleId,
-					output: result.output,
-					success: result.success,
-					stumbles: result.stumbles,
-					turns: result.turns,
-					timed_out: result.timed_out,
-				};
-				await bus.publish(resultTopic, JSON.stringify(resultMsg));
-			} catch (err) {
-				const errorResult: ResultMessage = {
-					kind: "result",
-					handle_id: handleId,
-					output: `Continue failed: ${err instanceof Error ? err.message : String(err)}`,
-					success: false,
-					stumbles: 0,
-					turns: 0,
-					timed_out: false,
-				};
-				await bus.publish(resultTopic, JSON.stringify(errorResult));
+			if (msg.kind === "continue") {
+				continueQueue.push(msg as ContinueMessage);
+				if (!processing) {
+					await processNext();
+				}
+				return;
 			}
-
-			await processNext();
+		} catch {
+			// Ignore malformed messages
 		}
+	});
 
-		bus.subscribe(inboxTopic, async (payload) => {
-			try {
-				const msg = parseBusMessage(payload);
-
-				// Steer messages are queued regardless of processing state
-				if (msg.kind === "steer") {
-					agent.steer(msg.message);
-					return;
-				}
-
-				if (msg.kind === "continue") {
-					continueQueue.push(msg as ContinueMessage);
-					if (!processing) {
-						await processNext();
-					}
-					return;
-				}
-			} catch {
-				// Ignore malformed messages
-			}
-		});
+	return new Promise((resolve) => {
+		resolveIdle = resolve;
 	});
 }
 

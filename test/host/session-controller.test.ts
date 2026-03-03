@@ -1886,19 +1886,18 @@ describe("SessionController session-wide event wiring", () => {
 		expect(emittedEvents[0]!.depth).toBe(1);
 	});
 
-	test("/clear command calls clearHandles and updateSessionId on spawner", async () => {
+	test("/clear command calls clearHandles then updateSessionId sequentially", async () => {
 		const bus = new EventBus();
 
-		const updateCalls: string[] = [];
-		let clearHandlesCalled = false;
+		const callOrder: string[] = [];
 		const fakeSpawner = {
 			getHandles: () => [],
 			subscribeSessionEvents: async () => {},
 			updateSessionId: async (newId: string) => {
-				updateCalls.push(newId);
+				callOrder.push(`update:${newId}`);
 			},
 			clearHandles: async () => {
-				clearHandlesCalled = true;
+				callOrder.push("clear");
 			},
 		} as any;
 
@@ -1914,12 +1913,13 @@ describe("SessionController session-wide event wiring", () => {
 		const oldSessionId = controller.sessionId;
 		bus.emitCommand({ kind: "clear", data: {} });
 
-		// Wait for the async updateSessionId to be called
+		// Wait for the chained async calls to complete
 		await new Promise((r) => setTimeout(r, 50));
 
 		expect(controller.sessionId).not.toBe(oldSessionId);
-		expect(clearHandlesCalled).toBe(true);
-		expect(updateCalls.length).toBe(1);
-		expect(updateCalls[0]).toBe(controller.sessionId);
+		// clearHandles must run before updateSessionId
+		expect(callOrder.length).toBe(2);
+		expect(callOrder[0]).toBe("clear");
+		expect(callOrder[1]).toBe(`update:${controller.sessionId}`);
 	});
 });
