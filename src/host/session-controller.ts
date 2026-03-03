@@ -241,6 +241,7 @@ export class SessionController {
 				this.interrupt();
 				break;
 			case "clear": {
+				this.interrupt();
 				this.history = [];
 				this.hasRun = false;
 				this._sessionId = ulid();

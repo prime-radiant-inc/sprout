@@ -163,7 +163,7 @@ export class AgentSpawner {
 				handle.process.kill();
 			}
 			if (handle.resultTopic && this.bus.connected) {
-				await this.bus.unsubscribe(handle.resultTopic);
+				this.bus.unsubscribe(handle.resultTopic).catch(() => {});
 			}
 		}
 		this.handles.clear();
@@ -344,7 +344,7 @@ export class AgentSpawner {
 				kind: "steer",
 				message,
 			};
-			this.bus.publish(inboxTopic, JSON.stringify(steerMsg));
+			await this.bus.publish(inboxTopic, JSON.stringify(steerMsg));
 
 			if (blocking) {
 				// Clear cached result so waitAgent waits for the new one
@@ -364,7 +364,7 @@ export class AgentSpawner {
 				message,
 				caller,
 			};
-			this.bus.publish(inboxTopic, JSON.stringify(continueMsg));
+			await this.bus.publish(inboxTopic, JSON.stringify(continueMsg));
 
 			if (blocking) {
 				return this.waitAgent(handleId);

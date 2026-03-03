@@ -235,7 +235,11 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 			return;
 		}
 
-		// Shared agent: enter idle loop, handle continue messages
+		// Shared agent: enter idle loop, handle continue messages.
+		// Signal is required for shared agents — without it, idleLoop hangs forever.
+		if (!signal) {
+			throw new Error("Shared agents require an AbortSignal to exit the idle loop");
+		}
 		await idleLoop(bus, agent, inboxTopic, resultTopic, handleId, signal);
 	} finally {
 		childSpawner?.shutdown();
@@ -314,7 +318,7 @@ async function idleLoop(
 	inboxTopic: string,
 	resultTopic: string,
 	handleId: string,
-	signal?: AbortSignal,
+	signal: AbortSignal,
 ): Promise<void> {
 	if (signal?.aborted) return;
 
@@ -322,39 +326,35 @@ async function idleLoop(
 	const continueQueue: ContinueMessage[] = [];
 
 	async function processNext(): Promise<void> {
-		if (continueQueue.length === 0) {
-			processing = false;
-			return;
-		}
-
 		processing = true;
-		const continueMsg = continueQueue.shift()!;
-		try {
-			const result = await agent.continue(continueMsg.message, signal);
-			const resultMsg: ResultMessage = {
-				kind: "result",
-				handle_id: handleId,
-				output: result.output,
-				success: result.success,
-				stumbles: result.stumbles,
-				turns: result.turns,
-				timed_out: result.timed_out,
-			};
-			await bus.publish(resultTopic, JSON.stringify(resultMsg));
-		} catch (err) {
-			const errorResult: ResultMessage = {
-				kind: "result",
-				handle_id: handleId,
-				output: `Continue failed: ${err instanceof Error ? err.message : String(err)}`,
-				success: false,
-				stumbles: 0,
-				turns: 0,
-				timed_out: false,
-			};
-			await bus.publish(resultTopic, JSON.stringify(errorResult));
+		while (continueQueue.length > 0) {
+			const continueMsg = continueQueue.shift()!;
+			try {
+				const result = await agent.continue(continueMsg.message, signal);
+				const resultMsg: ResultMessage = {
+					kind: "result",
+					handle_id: handleId,
+					output: result.output,
+					success: result.success,
+					stumbles: result.stumbles,
+					turns: result.turns,
+					timed_out: result.timed_out,
+				};
+				await bus.publish(resultTopic, JSON.stringify(resultMsg));
+			} catch (err) {
+				const errorResult: ResultMessage = {
+					kind: "result",
+					handle_id: handleId,
+					output: `Continue failed: ${err instanceof Error ? err.message : String(err)}`,
+					success: false,
+					stumbles: 0,
+					turns: 0,
+					timed_out: false,
+				};
+				await bus.publish(resultTopic, JSON.stringify(errorResult));
+			}
 		}
-
-		await processNext();
+		processing = false;
 	}
 
 	// Await the subscribe so the callback is confirmed before entering idle
