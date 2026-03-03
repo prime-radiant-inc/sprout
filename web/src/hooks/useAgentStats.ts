@@ -62,6 +62,7 @@ export function buildAgentStats(events: SessionEvent[]): Map<string, AgentStats>
 				s.currentTurn = 0;
 				s.streamingChunks = 0;
 				s.llmCallStartedAt = null;
+				if (typeof event.data.model === "string") s.model = event.data.model;
 				break;
 
 			case "session_end":

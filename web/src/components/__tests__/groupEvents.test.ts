@@ -515,4 +515,222 @@ describe("groupEvents", () => {
 			expect(result[3]!.isLastInGroup).toBe(true);
 		});
 	});
+
+	describe("primitive_end args from primitive_start", () => {
+		test("attaches args from primitive_start to primitive_end GroupedEvent", () => {
+			const events: SessionEvent[] = [
+				makeEvent("primitive_start", { name: "read_file", args: { path: "/foo.ts" } }, { timestamp: 1000 }),
+				makeEvent("primitive_end", { name: "read_file", success: true }, { timestamp: 1500 }),
+			];
+			const result = groupEvents(events);
+			expect(result).toHaveLength(1);
+			expect(result[0]!.event.kind).toBe("primitive_end");
+			expect(result[0]!.args).toEqual({ path: "/foo.ts" });
+		});
+
+		test("args is undefined when primitive_start has no args", () => {
+			const events: SessionEvent[] = [
+				makeEvent("primitive_start", { name: "exec" }, { timestamp: 1000 }),
+				makeEvent("primitive_end", { name: "exec", success: true }, { timestamp: 1500 }),
+			];
+			const result = groupEvents(events);
+			expect(result).toHaveLength(1);
+			expect(result[0]!.args).toBeUndefined();
+		});
+
+		test("matches args by agent_id + tool name", () => {
+			const events: SessionEvent[] = [
+				makeEvent("primitive_start", { name: "exec", args: { command: "ls" } }, { agent_id: "a", timestamp: 1000 }),
+				makeEvent("primitive_start", { name: "exec", args: { command: "pwd" } }, { agent_id: "b", timestamp: 1001 }),
+				makeEvent("primitive_end", { name: "exec", success: true }, { agent_id: "b", timestamp: 1002 }),
+				makeEvent("primitive_end", { name: "exec", success: true }, { agent_id: "a", timestamp: 1003 }),
+			];
+			const result = groupEvents(events);
+			expect(result).toHaveLength(2);
+			// agent b ended first
+			expect(result[0]!.event.agent_id).toBe("b");
+			expect(result[0]!.args).toEqual({ command: "pwd" });
+			// agent a ended second
+			expect(result[1]!.event.agent_id).toBe("a");
+			expect(result[1]!.args).toEqual({ command: "ls" });
+		});
+	});
+
+	describe("livePeek extractArgSummary", () => {
+		function treePlusChild(childId: string, childName = "worker"): AgentTreeNode {
+			return makeTree({
+				agentId: "root",
+				children: [
+					makeTree({ agentId: childId, agentName: childName, depth: 1 }),
+				],
+			});
+		}
+
+		test("livePeek shows command for exec tool", () => {
+			const childId = "child-exec";
+			const tree = treePlusChild(childId);
+			const events: SessionEvent[] = [
+				makeEvent("act_start", { agent_name: "worker", goal: "run cmd", child_id: childId }, { timestamp: 1000 }),
+				makeEvent("primitive_start", { name: "exec", args: { command: "ls -la" } }, { agent_id: childId, timestamp: 1500, depth: 1 }),
+				makeEvent("primitive_end", { name: "exec", success: true }, { agent_id: childId, timestamp: 2000, depth: 1 }),
+			];
+			const result = groupEvents(events, undefined, tree);
+			const delegation = result.find((g) => g.event.kind === "act_start");
+			expect(delegation).toBeTruthy();
+			expect(delegation!.livePeek).toBe("exec ls -la");
+		});
+
+		test("livePeek shows pattern for grep tool", () => {
+			const childId = "child-grep";
+			const tree = treePlusChild(childId);
+			const events: SessionEvent[] = [
+				makeEvent("act_start", { agent_name: "worker", goal: "search", child_id: childId }, { timestamp: 1000 }),
+				makeEvent("primitive_start", { name: "grep", args: { pattern: "TODO" } }, { agent_id: childId, timestamp: 1500, depth: 1 }),
+				makeEvent("primitive_end", { name: "grep", success: true }, { agent_id: childId, timestamp: 2000, depth: 1 }),
+			];
+			const result = groupEvents(events, undefined, tree);
+			const delegation = result.find((g) => g.event.kind === "act_start");
+			expect(delegation).toBeTruthy();
+			expect(delegation!.livePeek).toBe("grep TODO");
+		});
+
+		test("livePeek shows pattern for glob tool", () => {
+			const childId = "child-glob";
+			const tree = treePlusChild(childId);
+			const events: SessionEvent[] = [
+				makeEvent("act_start", { agent_name: "worker", goal: "find files", child_id: childId }, { timestamp: 1000 }),
+				makeEvent("primitive_start", { name: "glob", args: { pattern: "**/*.ts" } }, { agent_id: childId, timestamp: 1500, depth: 1 }),
+				makeEvent("primitive_end", { name: "glob", success: true }, { agent_id: childId, timestamp: 2000, depth: 1 }),
+			];
+			const result = groupEvents(events, undefined, tree);
+			const delegation = result.find((g) => g.event.kind === "act_start");
+			expect(delegation).toBeTruthy();
+			expect(delegation!.livePeek).toBe("glob **/*.ts");
+		});
+
+		test("livePeek falls back to tool name when no recognized arg", () => {
+			const childId = "child-custom";
+			const tree = treePlusChild(childId);
+			const events: SessionEvent[] = [
+				makeEvent("act_start", { agent_name: "worker", goal: "custom", child_id: childId }, { timestamp: 1000 }),
+				makeEvent("primitive_start", { name: "fetch", args: { url: "http://example.com" } }, { agent_id: childId, timestamp: 1500, depth: 1 }),
+				makeEvent("primitive_end", { name: "fetch", success: true }, { agent_id: childId, timestamp: 2000, depth: 1 }),
+			];
+			const result = groupEvents(events, undefined, tree);
+			const delegation = result.find((g) => g.event.kind === "act_start");
+			expect(delegation).toBeTruthy();
+			expect(delegation!.livePeek).toBe("fetch");
+		});
+	});
+
+	describe("livePeekTools", () => {
+		function treePlusChild(childId: string, childName = "worker"): AgentTreeNode {
+			return makeTree({
+				agentId: "root",
+				children: [
+					makeTree({ agentId: childId, agentName: childName, depth: 1 }),
+				],
+			});
+		}
+
+		test("populates livePeekTools from primitive_start/end pairs", () => {
+			const childId = "child-tools";
+			const tree = treePlusChild(childId);
+			const events: SessionEvent[] = [
+				makeEvent("act_start", { agent_name: "worker", goal: "work", child_id: childId }, { timestamp: 1000 }),
+				makeEvent("primitive_start", { name: "read_file", args: { path: "a.ts" } }, { agent_id: childId, timestamp: 1100, depth: 1 }),
+				makeEvent("primitive_end", { name: "read_file", success: true }, { agent_id: childId, timestamp: 1200, depth: 1 }),
+				makeEvent("primitive_start", { name: "exec", args: { command: "test" } }, { agent_id: childId, timestamp: 1300, depth: 1 }),
+				makeEvent("primitive_end", { name: "exec", success: false }, { agent_id: childId, timestamp: 1400, depth: 1 }),
+			];
+			const result = groupEvents(events, undefined, tree);
+			const delegation = result.find((g) => g.event.kind === "act_start");
+			expect(delegation).toBeTruthy();
+			expect(delegation!.livePeekTools).toHaveLength(2);
+			expect(delegation!.livePeekTools![0]).toEqual({ name: "read_file", args: "a.ts", success: true });
+			expect(delegation!.livePeekTools![1]).toEqual({ name: "exec", args: "test", success: false });
+		});
+
+		test("keeps only last 3 tool calls", () => {
+			const childId = "child-many-tools";
+			const tree = treePlusChild(childId);
+			const events: SessionEvent[] = [
+				makeEvent("act_start", { agent_name: "worker", goal: "work", child_id: childId }, { timestamp: 1000 }),
+			];
+			// Generate 5 tool call pairs
+			for (let i = 1; i <= 5; i++) {
+				events.push(
+					makeEvent("primitive_start", { name: "read_file", args: { path: `file${i}.ts` } }, { agent_id: childId, timestamp: 1000 + i * 100, depth: 1 }),
+					makeEvent("primitive_end", { name: "read_file", success: true }, { agent_id: childId, timestamp: 1000 + i * 100 + 50, depth: 1 }),
+				);
+			}
+			const result = groupEvents(events, undefined, tree);
+			const delegation = result.find((g) => g.event.kind === "act_start");
+			expect(delegation).toBeTruthy();
+			expect(delegation!.livePeekTools).toHaveLength(3);
+			// Should keep the last 3 (file3, file4, file5)
+			expect(delegation!.livePeekTools![0]!.args).toBe("file3.ts");
+			expect(delegation!.livePeekTools![1]!.args).toBe("file4.ts");
+			expect(delegation!.livePeekTools![2]!.args).toBe("file5.ts");
+		});
+
+		test("livePeekTools attaches to pending delegation entries", () => {
+			const childId = "child-pending";
+			const tree = treePlusChild(childId);
+			const events: SessionEvent[] = [
+				makeEvent("act_start", { agent_name: "worker", goal: "work", child_id: childId }, { timestamp: 1000 }),
+				makeEvent("primitive_start", { name: "write_file", args: { path: "out.ts" } }, { agent_id: childId, timestamp: 1100, depth: 1 }),
+				makeEvent("primitive_end", { name: "write_file", success: true }, { agent_id: childId, timestamp: 1200, depth: 1 }),
+				// No act_end — delegation still running
+			];
+			const result = groupEvents(events, undefined, tree);
+			const delegation = result.find((g) => g.event.kind === "act_start");
+			expect(delegation).toBeTruthy();
+			expect(delegation!.livePeekTools).toBeDefined();
+			expect(delegation!.livePeekTools).toHaveLength(1);
+			expect(delegation!.livePeekTools![0]).toEqual({ name: "write_file", args: "out.ts", success: true });
+		});
+	});
+
+	describe("session_end marks abandoned delegations", () => {
+		function treePlusChild(childId: string, childName = "worker"): AgentTreeNode {
+			return makeTree({
+				agentId: "root",
+				children: [
+					makeTree({ agentId: childId, agentName: childName, depth: 1 }),
+				],
+			});
+		}
+
+		test("sets abandoned flag on pending delegations at session_end", () => {
+			const childId = "child-abandoned";
+			const tree = treePlusChild(childId);
+			const events: SessionEvent[] = [
+				makeEvent("act_start", { agent_name: "worker", goal: "work", child_id: childId }, { timestamp: 1000 }),
+				makeEvent("primitive_start", { name: "exec", args: { command: "build" } }, { agent_id: childId, timestamp: 1100, depth: 1 }),
+				makeEvent("primitive_end", { name: "exec", success: true }, { agent_id: childId, timestamp: 1200, depth: 1 }),
+				makeEvent("session_end", { success: false }, { timestamp: 2000 }),
+			];
+			const result = groupEvents(events, undefined, tree);
+			const delegation = result.find((g) => g.event.kind === "act_start");
+			expect(delegation).toBeTruthy();
+			expect(delegation!.abandoned).toBe(true);
+		});
+
+		test("completed delegations are NOT marked as abandoned", () => {
+			const childId = "child-completed";
+			const tree = treePlusChild(childId);
+			const events: SessionEvent[] = [
+				makeEvent("act_start", { agent_name: "worker", goal: "work", child_id: childId }, { timestamp: 1000 }),
+				makeEvent("act_end", { agent_name: "worker", child_id: childId, success: true, turns: 2, goal: "work" }, { timestamp: 2000 }),
+				makeEvent("session_end", { success: true }, { timestamp: 3000 }),
+			];
+			const result = groupEvents(events, undefined, tree);
+			const delegation = result.find(
+				(g) => g.event.kind === "act_start" || g.event.kind === "act_end",
+			);
+			expect(delegation).toBeTruthy();
+			expect(delegation!.abandoned).toBeUndefined();
+		});
+	});
 });

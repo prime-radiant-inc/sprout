@@ -33,7 +33,6 @@ describe("buildAgentStats", () => {
 		});
 
 		test("agent starts idle on session_start", () => {
-			resetTimestamps();
 			const events = [
 				makeEvent("session_start", "root", 0, { model: "claude" }),
 			];
@@ -43,7 +42,6 @@ describe("buildAgentStats", () => {
 		});
 
 		test("agent state becomes calling_llm on llm_start", () => {
-			resetTimestamps();
 			const events = [
 				makeEvent("session_start", "root", 0, { model: "claude" }),
 				makeEvent("plan_start", "root", 0, { turn: 1 }),
@@ -59,7 +57,6 @@ describe("buildAgentStats", () => {
 		});
 
 		test("agent state returns to idle on llm_end when no tool calls follow", () => {
-			resetTimestamps();
 			const events = [
 				makeEvent("session_start", "root", 0, { model: "claude" }),
 				makeEvent("plan_start", "root", 0, { turn: 1 }),
@@ -72,7 +69,6 @@ describe("buildAgentStats", () => {
 		});
 
 		test("agent state becomes executing_tool on primitive_start", () => {
-			resetTimestamps();
 			const events = [
 				makeEvent("session_start", "child-1", 1, { model: "claude" }),
 				makeEvent("llm_start", "child-1", 1, { model: "claude", provider: "anthropic", turn: 1, message_count: 2 }),
@@ -84,7 +80,6 @@ describe("buildAgentStats", () => {
 		});
 
 		test("agent state returns to idle on primitive_end", () => {
-			resetTimestamps();
 			const events = [
 				makeEvent("session_start", "child-1", 1, { model: "claude" }),
 				makeEvent("primitive_start", "child-1", 1, { name: "read_file" }),
@@ -95,7 +90,6 @@ describe("buildAgentStats", () => {
 		});
 
 		test("parent agent state becomes delegating on act_start", () => {
-			resetTimestamps();
 			const events = [
 				makeEvent("session_start", "root", 0, { model: "claude" }),
 				makeEvent("act_start", "root", 0, { agent_name: "editor", goal: "Edit", child_id: "child-1" }),
@@ -105,7 +99,6 @@ describe("buildAgentStats", () => {
 		});
 
 		test("parent state returns to idle on act_end", () => {
-			resetTimestamps();
 			const events = [
 				makeEvent("session_start", "root", 0, { model: "claude" }),
 				makeEvent("act_start", "root", 0, { agent_name: "editor", goal: "Edit", child_id: "child-1" }),
@@ -116,7 +109,6 @@ describe("buildAgentStats", () => {
 		});
 
 		test("agent state becomes idle on session_end", () => {
-			resetTimestamps();
 			const events = [
 				makeEvent("session_start", "root", 0, { model: "claude" }),
 				makeEvent("llm_start", "root", 0, { model: "claude", provider: "anthropic", turn: 1, message_count: 2 }),
@@ -129,7 +121,6 @@ describe("buildAgentStats", () => {
 
 	describe("token counting", () => {
 		test("accumulates tokens from llm_end events", () => {
-			resetTimestamps();
 			const events = [
 				makeEvent("session_start", "root", 0, { model: "claude" }),
 				makeEvent("llm_end", "root", 0, { model: "claude", provider: "anthropic", input_tokens: 100, output_tokens: 50, latency_ms: 200, finish_reason: "stop" }),
@@ -140,7 +131,6 @@ describe("buildAgentStats", () => {
 		});
 
 		test("accumulates tokens across multiple llm_end events", () => {
-			resetTimestamps();
 			const events = [
 				makeEvent("session_start", "root", 0, { model: "claude" }),
 				makeEvent("llm_end", "root", 0, { input_tokens: 100, output_tokens: 50, latency_ms: 200, finish_reason: "tool_calls" }),
@@ -152,7 +142,6 @@ describe("buildAgentStats", () => {
 		});
 
 		test("tracks tokens per agent independently", () => {
-			resetTimestamps();
 			const events = [
 				makeEvent("session_start", "root", 0, { model: "claude" }),
 				makeEvent("session_start", "child-1", 1, { model: "claude" }),
@@ -169,7 +158,6 @@ describe("buildAgentStats", () => {
 
 	describe("turn tracking", () => {
 		test("tracks current turn from llm_start", () => {
-			resetTimestamps();
 			const events = [
 				makeEvent("session_start", "root", 0, { model: "claude" }),
 				makeEvent("llm_start", "root", 0, { model: "claude", provider: "anthropic", turn: 3, message_count: 10 }),
@@ -179,7 +167,6 @@ describe("buildAgentStats", () => {
 		});
 
 		test("updates turn as turns progress", () => {
-			resetTimestamps();
 			const events = [
 				makeEvent("session_start", "root", 0, { model: "claude" }),
 				makeEvent("llm_start", "root", 0, { turn: 1 }),
@@ -193,7 +180,6 @@ describe("buildAgentStats", () => {
 
 	describe("LLM call timing", () => {
 		test("records llm call start timestamp on llm_start", () => {
-			resetTimestamps();
 			const events = [
 				makeEvent("session_start", "root", 0, { model: "claude" }),
 				makeEvent("llm_start", "root", 0, { model: "claude", provider: "anthropic", turn: 1, message_count: 2 }),
@@ -204,7 +190,6 @@ describe("buildAgentStats", () => {
 		});
 
 		test("clears llm call start timestamp on llm_end", () => {
-			resetTimestamps();
 			const events = [
 				makeEvent("session_start", "root", 0, { model: "claude" }),
 				makeEvent("llm_start", "root", 0, { turn: 1 }),
@@ -217,7 +202,6 @@ describe("buildAgentStats", () => {
 
 	describe("agent name and depth tracking", () => {
 		test("extracts agent name from session_start model data", () => {
-			resetTimestamps();
 			const events = [
 				makeEvent("session_start", "root", 0, { model: "claude" }),
 			];
@@ -227,7 +211,6 @@ describe("buildAgentStats", () => {
 		});
 
 		test("creates stats entry on first event for an agent", () => {
-			resetTimestamps();
 			const events = [
 				makeEvent("llm_start", "some-agent", 2, { turn: 1 }),
 			];
@@ -239,7 +222,6 @@ describe("buildAgentStats", () => {
 
 	describe("llm_chunk tracking", () => {
 		test("updates streaming token count from llm_chunk", () => {
-			resetTimestamps();
 			const events = [
 				makeEvent("session_start", "root", 0, { model: "claude" }),
 				makeEvent("llm_start", "root", 0, { turn: 1 }),
@@ -250,7 +232,6 @@ describe("buildAgentStats", () => {
 		});
 
 		test("clears streaming tokens on llm_end", () => {
-			resetTimestamps();
 			const events = [
 				makeEvent("session_start", "root", 0, { model: "claude" }),
 				makeEvent("llm_start", "root", 0, { turn: 1 }),
@@ -264,9 +245,25 @@ describe("buildAgentStats", () => {
 
 	describe("model tracking", () => {
 		test("records model from llm_start", () => {
-			resetTimestamps();
 			const events = [
 				makeEvent("session_start", "root", 0, { model: "claude-3-opus" }),
+				makeEvent("llm_start", "root", 0, { model: "claude-haiku-4-5-20251001", provider: "anthropic", turn: 1, message_count: 2 }),
+			];
+			const stats = buildAgentStats(events);
+			expect(stats.get("root")!.model).toBe("claude-haiku-4-5-20251001");
+		});
+
+		test("records model from session_start when present", () => {
+			const events = [
+				makeEvent("session_start", "root", 0, { model: "claude-sonnet-4" }),
+			];
+			const stats = buildAgentStats(events);
+			expect(stats.get("root")!.model).toBe("claude-sonnet-4");
+		});
+
+		test("session_start model is overridden by llm_start model", () => {
+			const events = [
+				makeEvent("session_start", "root", 0, { model: "claude-sonnet-4" }),
 				makeEvent("llm_start", "root", 0, { model: "claude-haiku-4-5-20251001", provider: "anthropic", turn: 1, message_count: 2 }),
 			];
 			const stats = buildAgentStats(events);
@@ -276,7 +273,6 @@ describe("buildAgentStats", () => {
 
 	describe("interrupted event handling", () => {
 		test("interrupted event after llm_start resets state to idle", () => {
-			resetTimestamps();
 			const events = [
 				makeEvent("session_start", "root", 0, { model: "claude" }),
 				makeEvent("llm_start", "root", 0, { model: "claude", provider: "anthropic", turn: 1, message_count: 2 }),
@@ -289,7 +285,6 @@ describe("buildAgentStats", () => {
 		});
 
 		test("llm_end with finish_reason 'error' resets state to idle", () => {
-			resetTimestamps();
 			const events = [
 				makeEvent("session_start", "root", 0, { model: "claude" }),
 				makeEvent("llm_start", "root", 0, { model: "claude", provider: "anthropic", turn: 1, message_count: 2 }),
@@ -302,7 +297,6 @@ describe("buildAgentStats", () => {
 		});
 
 		test("llm_end with finish_reason 'interrupted' resets state to idle", () => {
-			resetTimestamps();
 			const events = [
 				makeEvent("session_start", "root", 0, { model: "claude" }),
 				makeEvent("llm_start", "root", 0, { model: "claude", provider: "anthropic", turn: 1, message_count: 2 }),
@@ -318,7 +312,6 @@ describe("buildAgentStats", () => {
 
 	describe("session_end handling", () => {
 		test("session_end resets agent state even mid-LLM-call", () => {
-			resetTimestamps();
 			const events = [
 				makeEvent("session_start", "root", 0, { model: "claude" }),
 				makeEvent("llm_start", "root", 0, { model: "claude", provider: "anthropic", turn: 1, message_count: 2 }),
@@ -332,7 +325,6 @@ describe("buildAgentStats", () => {
 		});
 
 		test("session_end preserves token counts and turn", () => {
-			resetTimestamps();
 			const events = [
 				makeEvent("session_start", "root", 0, { model: "claude" }),
 				makeEvent("llm_start", "root", 0, { model: "claude", provider: "anthropic", turn: 3, message_count: 5 }),
@@ -346,7 +338,6 @@ describe("buildAgentStats", () => {
 		});
 
 		test("session_start resets token counts and turn", () => {
-			resetTimestamps();
 			const events = [
 				makeEvent("session_start", "root", 0, { model: "claude" }),
 				makeEvent("llm_end", "root", 0, { input_tokens: 500, output_tokens: 200, latency_ms: 100, finish_reason: "stop" }),
@@ -362,7 +353,6 @@ describe("buildAgentStats", () => {
 
 	describe("multi-session lifecycle", () => {
 		test("tokens persist after session_end, reset on next session_start, accumulate fresh", () => {
-			resetTimestamps();
 			const events = [
 				// First session
 				makeEvent("session_start", "root", 0, { model: "claude" }),
@@ -399,7 +389,6 @@ describe("buildAgentStats", () => {
 
 	describe("error event handling", () => {
 		test("error event resets state to idle", () => {
-			resetTimestamps();
 			const events = [
 				makeEvent("session_start", "root", 0, { model: "claude" }),
 				makeEvent("llm_start", "root", 0, { model: "claude", provider: "anthropic", turn: 1, message_count: 2 }),
@@ -412,7 +401,6 @@ describe("buildAgentStats", () => {
 		});
 
 		test("error event during tool execution resets state to idle", () => {
-			resetTimestamps();
 			const events = [
 				makeEvent("session_start", "root", 0, { model: "claude" }),
 				makeEvent("primitive_start", "root", 0, { name: "exec" }),
@@ -425,7 +413,6 @@ describe("buildAgentStats", () => {
 
 	describe("out-of-order events", () => {
 		test("llm_end without preceding llm_start does not crash", () => {
-			resetTimestamps();
 			const events = [
 				makeEvent("session_start", "root", 0, { model: "claude" }),
 				makeEvent("llm_end", "root", 0, { input_tokens: 100, output_tokens: 50, latency_ms: 200, finish_reason: "stop" }),
@@ -437,7 +424,6 @@ describe("buildAgentStats", () => {
 		});
 
 		test("llm_chunk without preceding llm_start does not crash", () => {
-			resetTimestamps();
 			const events = [
 				makeEvent("session_start", "root", 0, { model: "claude" }),
 				makeEvent("llm_chunk", "root", 0, { chunks_so_far: 5, elapsed_ms: 100 }),
@@ -447,7 +433,6 @@ describe("buildAgentStats", () => {
 		});
 
 		test("multiple llm_start without intervening llm_end updates state correctly", () => {
-			resetTimestamps();
 			const events = [
 				makeEvent("session_start", "root", 0, { model: "claude" }),
 				makeEvent("llm_start", "root", 0, { model: "claude", provider: "anthropic", turn: 1, message_count: 2 }),

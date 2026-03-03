@@ -424,4 +424,71 @@ describe("buildAgentTree", () => {
 			expect(tree.children[1]!.agentId).toBe("editor#2");
 		});
 	});
+
+	describe("session_start resets root status", () => {
+		test("root status resets to running on session_start after being completed", () => {
+			resetTimestamps();
+			const events = [
+				makeEvent("session_start", "root", 0, { model: "claude" }),
+				makeEvent("perceive", "root", 0, { goal: "First task" }),
+				makeEvent("session_end", "root", 0, { success: true }),
+				// Second session starts
+				makeEvent("session_start", "root", 0, { model: "claude" }),
+			];
+			const tree = buildAgentTree(events);
+
+			expect(tree.status).toBe("running");
+		});
+
+		test("root status resets to running on session_start after being failed", () => {
+			resetTimestamps();
+			const events = [
+				makeEvent("session_start", "root", 0, { model: "claude" }),
+				makeEvent("session_end", "root", 0, { success: false }),
+				makeEvent("session_start", "root", 0, { model: "claude" }),
+			];
+			const tree = buildAgentTree(events);
+
+			expect(tree.status).toBe("running");
+		});
+	});
+
+	describe("root goal updates on subsequent perceive events", () => {
+		test("goal updates on continue() with new perceive", () => {
+			resetTimestamps();
+			const events = [
+				makeEvent("session_start", "root", 0, { model: "claude" }),
+				makeEvent("perceive", "root", 0, { goal: "First task" }),
+				makeEvent("session_end", "root", 0, { success: true }),
+				makeEvent("session_start", "root", 0, { model: "claude" }),
+				makeEvent("perceive", "root", 0, { goal: "Second task" }),
+			];
+			const tree = buildAgentTree(events);
+
+			expect(tree.goal).toBe("Second task");
+		});
+
+		test("first perceive sets the goal", () => {
+			resetTimestamps();
+			const events = [
+				makeEvent("perceive", "root", 0, { goal: "Initial goal" }),
+			];
+			const tree = buildAgentTree(events);
+
+			expect(tree.goal).toBe("Initial goal");
+		});
+	});
+
+	describe("root agentName derived from agent_id", () => {
+		test("sets agentName from first depth-0 event agent_id", () => {
+			resetTimestamps();
+			const events = [
+				makeEvent("perceive", "my-agent", 0, { goal: "Hello" }),
+			];
+			const tree = buildAgentTree(events);
+
+			expect(tree.agentId).toBe("my-agent");
+			expect(tree.agentName).toBe("my-agent");
+		});
+	});
 });

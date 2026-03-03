@@ -1,6 +1,18 @@
 import type { SessionEvent } from "../../../src/kernel/types.ts";
 import { type AgentTreeNode, getDescendantIds } from "../hooks/useAgentTree.ts";
 
+/** Extract the most informative single arg from a tool's args for compact display. */
+function extractArgSummary(_toolName: string, args: Record<string, unknown> | undefined): string {
+	if (!args) return "";
+	const path = args.path;
+	const command = args.command;
+	const pattern = args.pattern;
+	if (typeof path === "string") return path;
+	if (typeof command === "string") return command;
+	if (typeof pattern === "string") return pattern;
+	return "";
+}
+
 /** A single tool call summary for live peek display. */
 export interface ToolCallSummary {
 	name: string;
@@ -19,6 +31,10 @@ export interface GroupedEvent {
 	livePeek?: string;
 	/** Recent tool calls for running delegations (richer display). */
 	livePeekTools?: ToolCallSummary[];
+	/** Args from the matching primitive_start (primitive_end events don't carry args). */
+	args?: Record<string, unknown>;
+	/** Set when a delegation was still running at session_end (crash/abort). */
+	abandoned?: boolean;
 }
 
 /** Event kinds that are never displayed. */
@@ -136,8 +152,7 @@ export function groupEvents(
 				const argsKey = `${event.agent_id}:${toolName}`;
 				const args = lastPrimitiveArgs.get(argsKey);
 				lastPrimitiveArgs.delete(argsKey);
-				const path = args?.path;
-				const argsStr = typeof path === "string" ? path : "";
+				const argsStr = extractArgSummary(toolName, args);
 				const success = Boolean(event.data.success);
 				childPeek.set(event.agent_id, argsStr ? `${toolName} ${argsStr}` : toolName);
 				// Accumulate recent tool calls (keep last 3)
@@ -174,6 +189,7 @@ export function groupEvents(
 					const tools = childPeekTools.get(childId);
 					result[idx] = {
 						...entry,
+						abandoned: true,
 						...(peek ? { livePeek: peek } : {}),
 						...(tools ? { livePeekTools: [...tools] } : {}),
 					};
@@ -188,8 +204,14 @@ export function groupEvents(
 		// Skip invisible events
 		if (INVISIBLE_KINDS.has(event.kind)) continue;
 
-		// Skip primitive_start (not displayed)
-		if (event.kind === "primitive_start") continue;
+		// Track args from primitive_start before skipping (primitive_end doesn't carry args)
+		if (event.kind === "primitive_start") {
+			const name = String(event.data.name ?? "");
+			if (event.data.args) {
+				lastPrimitiveArgs.set(`${event.agent_id}:${name}`, event.data.args as Record<string, unknown>);
+			}
+			continue;
+		}
 
 		// Skip plan_start (not displayed)
 		if (event.kind === "plan_start") continue;
@@ -246,12 +268,21 @@ export function groupEvents(
 			continue;
 		}
 
+		// Look up args from matching primitive_start for primitive_end events
+		let args: Record<string, unknown> | undefined;
+		if (event.kind === "primitive_end") {
+			const argsKey = `${event.agent_id}:${String(event.data.name ?? "")}`;
+			args = lastPrimitiveArgs.get(argsKey);
+			lastPrimitiveArgs.delete(argsKey);
+		}
+
 		result.push({
 			event,
 			durationMs,
 			isFirstInGroup: true,
 			isLastInGroup: true,
 			agentName: nameMap.get(event.agent_id),
+			...(args ? { args } : {}),
 		});
 	}
 
