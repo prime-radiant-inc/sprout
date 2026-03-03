@@ -174,6 +174,8 @@ export class SessionController {
 	private running = false;
 	private modelOverride?: string;
 	private hasRun = false;
+	/** Suppresses event accumulation after /clear until the next submitGoal. */
+	private suppressEvents = false;
 	private compactFn?: AgentFactoryResult["compact"];
 	private spawnerReady?: Promise<void>;
 
@@ -242,6 +244,7 @@ export class SessionController {
 				break;
 			case "clear": {
 				this.interrupt();
+				this.suppressEvents = true;
 				this.history = [];
 				this.hasRun = false;
 				this._sessionId = ulid();
@@ -294,6 +297,10 @@ export class SessionController {
 	}
 
 	private async handleEvent(event: SessionEvent): Promise<void> {
+		// After /clear, suppress events from the dying agent run so they
+		// don't contaminate the new session's history or metadata.
+		if (this.suppressEvents) return;
+
 		// Accumulate history synchronously before async operations
 		if (event.depth === 0) {
 			switch (event.kind) {
@@ -359,6 +366,7 @@ export class SessionController {
 			return;
 		}
 		this.logger?.info("session", "Goal submitted", { goal: goal.slice(0, 100) });
+		this.suppressEvents = false;
 
 		// Ensure the spawner's session-wide events subscription is active
 		// before we create any agents. The subscription is fire-and-forget
