@@ -1,4 +1,5 @@
 import type { SessionEvent } from "../../../src/kernel/types.ts";
+import type { AgentStats } from "../hooks/useAgentStats.ts";
 import type { AgentTreeNode } from "../hooks/useAgentTree.ts";
 import type { SessionStatus } from "../hooks/useEvents.ts";
 import { AgentTree } from "./AgentTree.tsx";
@@ -12,6 +13,7 @@ export interface SidebarProps {
 	onSelectAgent: (agentId: string | null) => void;
 	onToggle: () => void;
 	events: SessionEvent[];
+	agentStats?: Map<string, AgentStats>;
 }
 
 /** Adaptive sidebar: shows agent tree while running, session summary while idle. */
@@ -22,6 +24,7 @@ export function Sidebar({
 	onSelectAgent,
 	onToggle,
 	events,
+	agentStats,
 }: SidebarProps) {
 	const showTree = tree.children.length > 0 || status.status === "running" || status.status === "interrupted";
 
@@ -33,6 +36,7 @@ export function Sidebar({
 					selectedAgent={selectedAgent}
 					onSelectAgent={onSelectAgent}
 					onToggle={onToggle}
+					agentStats={agentStats}
 				/>
 			) : (
 				<SidebarSessionSummary status={status} events={events} />

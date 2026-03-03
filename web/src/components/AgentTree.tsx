@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
+import type { AgentStats } from "../hooks/useAgentStats.ts";
 import type { AgentTreeNode } from "../hooks/useAgentTree.ts";
+import { formatCompactNumber } from "../hooks/useTokenUsage.ts";
 import styles from "./AgentTree.module.css";
 
 interface AgentTreeProps {
@@ -7,6 +9,7 @@ interface AgentTreeProps {
 	selectedAgent: string | null;
 	onSelectAgent: (agentId: string | null) => void;
 	onToggle?: () => void;
+	agentStats?: Map<string, AgentStats>;
 }
 
 function statusIcon(status: AgentTreeNode["status"]): string {
@@ -26,20 +29,53 @@ const statusClasses: Record<AgentTreeNode["status"], string | undefined> = {
 	running: styles.statusRunning,
 };
 
+const stateLabels: Record<string, string> = {
+	calling_llm: "Calling LLM",
+	executing_tool: "Executing tool",
+	delegating: "Delegating",
+	idle: "Idle",
+};
+
+/** Returns true if this agent has meaningful stats to show. */
+function hasActivity(stats: AgentStats): boolean {
+	return stats.state !== "idle" || stats.inputTokens > 0 || stats.outputTokens > 0 || stats.currentTurn > 0;
+}
+
+function StatsLine({ stats }: { stats: AgentStats }) {
+	if (!hasActivity(stats)) return null;
+
+	return (
+		<div className={styles.statsLine} data-agent-state={stats.state}>
+			<span className={styles.stateLabel}>{stateLabels[stats.state] ?? stats.state}</span>
+			{stats.currentTurn > 0 && (
+				<span className={styles.statsTurn}>T{stats.currentTurn}</span>
+			)}
+			{(stats.inputTokens > 0 || stats.outputTokens > 0) && (
+				<span className={styles.statsTokens}>
+					{formatCompactNumber(stats.inputTokens)}/{formatCompactNumber(stats.outputTokens)}
+				</span>
+			)}
+		</div>
+	);
+}
+
 function TreeNode({
 	node,
 	selectedAgent,
 	onSelectAgent,
 	defaultExpanded,
+	agentStats,
 }: {
 	node: AgentTreeNode;
 	selectedAgent: string | null;
 	onSelectAgent: (agentId: string | null) => void;
 	defaultExpanded?: boolean;
+	agentStats?: Map<string, AgentStats>;
 }) {
 	const hasChildren = node.children.length > 0;
 	const isSelected = selectedAgent === node.agentId;
 	const [expanded, setExpanded] = useState(defaultExpanded ?? true);
+	const stats = agentStats?.get(node.agentId);
 
 	// Auto-expand when a running child appears
 	useEffect(() => {
@@ -87,6 +123,7 @@ function TreeNode({
 					{(node.description || node.goal) && (
 						<div className={styles.goal}>{node.description ?? node.goal}</div>
 					)}
+					{stats && <StatsLine stats={stats} />}
 				</button>
 			</div>
 			{hasChildren && expanded && (
@@ -97,6 +134,7 @@ function TreeNode({
 							node={child}
 							selectedAgent={selectedAgent}
 							onSelectAgent={onSelectAgent}
+							agentStats={agentStats}
 						/>
 					))}
 				</ul>
@@ -111,6 +149,7 @@ export function AgentTree({
 	selectedAgent,
 	onSelectAgent,
 	onToggle,
+	agentStats,
 }: AgentTreeProps) {
 	const allSelected = selectedAgent === null;
 
@@ -143,6 +182,7 @@ export function AgentTree({
 					node={tree}
 					selectedAgent={selectedAgent}
 					onSelectAgent={onSelectAgent}
+					agentStats={agentStats}
 				/>
 			</ul>
 		</nav>
