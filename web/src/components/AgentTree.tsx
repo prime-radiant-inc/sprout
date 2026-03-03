@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { AgentStats } from "../hooks/useAgentStats.ts";
+import type { AgentState, AgentStats } from "../hooks/useAgentStats.ts";
 import type { AgentTreeNode } from "../hooks/useAgentTree.ts";
 import { formatCompactNumber } from "../hooks/useTokenUsage.ts";
 import styles from "./AgentTree.module.css";
@@ -29,7 +29,7 @@ const statusClasses: Record<AgentTreeNode["status"], string | undefined> = {
 	running: styles.statusRunning,
 };
 
-const stateLabels: Record<string, string> = {
+const stateLabels: Record<AgentState, string> = {
 	calling_llm: "Calling LLM",
 	executing_tool: "Executing tool",
 	delegating: "Delegating",
@@ -44,9 +44,13 @@ function hasActivity(stats: AgentStats): boolean {
 function StatsLine({ stats }: { stats: AgentStats }) {
 	if (!hasActivity(stats)) return null;
 
+	const showStateLabel = stats.state !== "idle" || (stats.inputTokens === 0 && stats.outputTokens === 0);
+
 	return (
-		<div className={styles.statsLine} data-agent-state={stats.state}>
-			<span className={styles.stateLabel}>{stateLabels[stats.state] ?? stats.state}</span>
+		<span className={styles.statsLine} data-agent-state={stats.state}>
+			{showStateLabel && (
+				<span className={styles.stateLabel}>{stateLabels[stats.state]}</span>
+			)}
 			{stats.currentTurn > 0 && (
 				<span className={styles.statsTurn}>T{stats.currentTurn}</span>
 			)}
@@ -55,7 +59,7 @@ function StatsLine({ stats }: { stats: AgentStats }) {
 					{formatCompactNumber(stats.inputTokens)}/{formatCompactNumber(stats.outputTokens)}
 				</span>
 			)}
-		</div>
+		</span>
 	);
 }
 
@@ -109,7 +113,7 @@ function TreeNode({
 					data-status={node.status}
 					onClick={() => onSelectAgent(node.agentId)}
 				>
-					<div className={styles.nodeHeader}>
+					<span className={styles.nodeHeader}>
 						<span className={statusClasses[node.status]}>
 							{statusIcon(node.status)}
 						</span>
@@ -119,9 +123,9 @@ function TreeNode({
 								{(node.durationMs / 1000).toFixed(1)}s
 							</span>
 						)}
-					</div>
+					</span>
 					{(node.description || node.goal) && (
-						<div className={styles.goal}>{node.description ?? node.goal}</div>
+						<span className={styles.goal}>{node.description ?? node.goal}</span>
 					)}
 					{stats && <StatsLine stats={stats} />}
 				</button>

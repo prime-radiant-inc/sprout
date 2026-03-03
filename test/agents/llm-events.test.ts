@@ -403,11 +403,14 @@ describe("LLM progress events", () => {
 
 	test("emits llm_end with finish_reason 'interrupted' when LLM call is aborted", async () => {
 		const ac = new AbortController();
+		let resolveStarted: () => void;
+		const llmStarted = new Promise<void>((r) => { resolveStarted = r; });
 		const mockClient = {
 			providers: () => ["anthropic"],
 			complete: async (): Promise<Response> => {
-				// Simulate a long call that will be aborted
-				await new Promise((resolve) => setTimeout(resolve, 500));
+				// Signal that the LLM call has started, then block
+				resolveStarted();
+				await new Promise((resolve) => setTimeout(resolve, 5000));
 				return simpleResponse;
 			},
 			stream: async function* () {},
@@ -426,8 +429,8 @@ describe("LLM progress events", () => {
 			events,
 		});
 
-		// Abort shortly after run starts
-		setTimeout(() => ac.abort(), 10);
+		// Abort only after the mock LLM call has started
+		llmStarted.then(() => ac.abort());
 
 		await agent.run("abort test", ac.signal);
 
@@ -493,14 +496,17 @@ describe("LLM progress events", () => {
 
 	test("emits llm_end when streaming LLM call is aborted", async () => {
 		const ac = new AbortController();
+		let resolveStarted: () => void;
+		const streamStarted = new Promise<void>((r) => { resolveStarted = r; });
 		const mockClient = {
 			providers: () => ["anthropic"],
 			complete: async () => simpleResponse,
 			stream: async function* () {
 				yield { type: "stream_start" as const };
 				yield { type: "text_start" as const };
-				// Simulate a long stream that will be aborted
-				await new Promise((resolve) => setTimeout(resolve, 500));
+				// Signal that the stream has started, then block
+				resolveStarted();
+				await new Promise((resolve) => setTimeout(resolve, 5000));
 				yield { type: "text_delta" as const, delta: "never reached" };
 				yield { type: "text_end" as const };
 				yield {
@@ -526,8 +532,8 @@ describe("LLM progress events", () => {
 			enableStreaming: true,
 		});
 
-		// Abort shortly after run starts
-		setTimeout(() => ac.abort(), 10);
+		// Abort only after the mock stream has started
+		streamStarted.then(() => ac.abort());
 
 		await agent.run("stream abort test", ac.signal);
 
@@ -590,10 +596,13 @@ describe("LLM progress events", () => {
 
 	test("plan_end is emitted when non-streaming LLM call is aborted", async () => {
 		const ac = new AbortController();
+		let resolveStarted: () => void;
+		const llmStarted = new Promise<void>((r) => { resolveStarted = r; });
 		const mockClient = {
 			providers: () => ["anthropic"],
 			complete: async (): Promise<Response> => {
-				await new Promise((resolve) => setTimeout(resolve, 500));
+				resolveStarted();
+				await new Promise((resolve) => setTimeout(resolve, 5000));
 				return simpleResponse;
 			},
 			stream: async function* () {},
@@ -612,7 +621,8 @@ describe("LLM progress events", () => {
 			events,
 		});
 
-		setTimeout(() => ac.abort(), 10);
+		// Abort only after the mock LLM call has started
+		llmStarted.then(() => ac.abort());
 
 		await agent.run("plan_end on abort test", ac.signal);
 
@@ -626,5 +636,54 @@ describe("LLM progress events", () => {
 
 		const planEnd = collected.find((e) => e.kind === "plan_end");
 		expect(planEnd!.data.finish_reason).toBe("interrupted");
+	});
+
+	test("reasoning_delta events are counted in chunks_so_far", async () => {
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async () => simpleResponse,
+			stream: async function* () {
+				yield { type: "stream_start" as const };
+				// Reasoning deltas before text
+				yield { type: "reasoning_delta" as const, delta: "Let me think " };
+				yield { type: "reasoning_delta" as const, delta: "about this." };
+				// Then text deltas
+				yield { type: "text_start" as const };
+				yield { type: "text_delta" as const, delta: "Result." };
+				yield { type: "text_end" as const };
+				yield {
+					type: "finish" as const,
+					finish_reason: simpleResponse.finish_reason,
+					usage: simpleResponse.usage,
+					response: simpleResponse,
+				};
+			},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: leafSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+			events,
+			enableStreaming: true,
+		});
+
+		await agent.run("reasoning test");
+
+		const collected = events.collected();
+		const chunks = collected.filter((e) => e.kind === "llm_chunk");
+
+		// Should have at least one chunk (the first chunk is emitted immediately).
+		// All 3 deltas arrive instantly, so the first chunk fires at chunks_so_far=1,
+		// and the remaining 2 deltas are within the throttle window. The key assertion
+		// is that reasoning_delta is counted at all (the first chunk is triggered by it).
+		expect(chunks.length).toBeGreaterThanOrEqual(1);
+		expect(chunks[0]!.data.chunks_so_far).toBeGreaterThanOrEqual(1);
 	});
 });

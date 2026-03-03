@@ -187,6 +187,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 			agentTree,
 			agentTreeChildren,
 			agentTreeSelfPath,
+			enableStreaming: true,
 		});
 
 		// Build goal with hints

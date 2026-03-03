@@ -27,6 +27,7 @@ import type {
 	Request as LLMRequest,
 	Response as LLMResponse,
 	Message,
+	StreamEvent,
 	ToolDefinition,
 } from "../llm/types.ts";
 import { Msg, messageReasoning, messageText, messageToolCalls } from "../llm/types.ts";
@@ -306,28 +307,67 @@ export class Agent {
 		request: LLMRequest,
 		agentId: string,
 		llmStartTime: number,
+		signal?: AbortSignal,
 	): Promise<LLMResponse> {
 		let chunkCount = 0;
 		let lastChunkTime = -Infinity;
 
-		for await (const event of this.client.stream(request)) {
-			if (event.type === "text_delta" || event.type === "tool_call_delta" || event.type === "reasoning_delta") {
-				chunkCount++;
-				const now = performance.now();
-				const elapsed = now - llmStartTime;
-				if (now - lastChunkTime >= Agent.LLM_CHUNK_THROTTLE_MS) {
-					this.emitAndLog("llm_chunk", agentId, this.depth, {
-						chunks_so_far: chunkCount,
-						elapsed_ms: Math.round(elapsed),
-					});
-					lastChunkTime = now;
+		// Helper: race iterator.next() against the abort signal so we don't
+		// block on a slow/hanging stream when the caller wants to cancel.
+		const abortError = () => new DOMException("Aborted", "AbortError");
+		const nextOrAbort = (
+			iter: AsyncIterator<StreamEvent>,
+			sig?: AbortSignal,
+		): Promise<IteratorResult<StreamEvent>> => {
+			if (!sig) return iter.next();
+			if (sig.aborted) return Promise.reject(abortError());
+			return new Promise<IteratorResult<StreamEvent>>((resolve, reject) => {
+				const onAbort = () => reject(abortError());
+				sig.addEventListener("abort", onAbort, { once: true });
+				iter.next().then(
+					(val) => { sig.removeEventListener("abort", onAbort); resolve(val); },
+					(err) => { sig.removeEventListener("abort", onAbort); reject(err); },
+				);
+			});
+		};
+
+		const iterator = this.client.stream(request)[Symbol.asyncIterator]();
+		try {
+			let result = await nextOrAbort(iterator, signal);
+			while (!result.done) {
+				const event = result.value;
+				if (event.type === "text_delta" || event.type === "tool_call_delta" || event.type === "reasoning_delta") {
+					chunkCount++;
+					const now = performance.now();
+					const elapsed = now - llmStartTime;
+					if (now - lastChunkTime >= Agent.LLM_CHUNK_THROTTLE_MS) {
+						this.emitAndLog("llm_chunk", agentId, this.depth, {
+							chunks_so_far: chunkCount,
+							elapsed_ms: Math.round(elapsed),
+						});
+						lastChunkTime = now;
+					}
 				}
+				if (event.type === "error") {
+					throw event.error ?? new Error("Stream error");
+				}
+				if (event.type === "finish") {
+					if (!event.response) {
+						throw new Error("Stream finished but response was missing");
+					}
+					return event.response;
+				}
+				result = await nextOrAbort(iterator, signal);
 			}
-			if (event.type === "error") {
-				throw event.error ?? new Error("Stream error");
-			}
-			if (event.type === "finish" && event.response) {
-				return event.response;
+		} finally {
+			// Ensure the underlying HTTP stream is closed even if we break out
+			// of the loop early (e.g., on abort or error).  When the signal is
+			// already aborted the generator might be stuck on an unresolvable
+			// internal await, so fire-and-forget to avoid hanging.
+			if (signal?.aborted) {
+				void iterator.return?.();
+			} else {
+				await iterator.return?.();
 			}
 		}
 
@@ -437,6 +477,7 @@ export class Agent {
 				agentTree: this.agentTree,
 				agentTreeChildren: subTreeChildren,
 				agentTreeSelfPath: subTreeSelfPath,
+				enableStreaming: this.enableStreaming,
 			});
 
 			const subResult = await subagent.run(subGoal, this.signal);
@@ -849,6 +890,7 @@ export class Agent {
 		let turns = 0;
 		let lastOutput = "";
 
+		try {
 		while (turns < this.spec.constraints.max_turns) {
 			turns++;
 
@@ -903,22 +945,7 @@ export class Agent {
 			let response: LLMResponse;
 			try {
 				if (this.enableStreaming) {
-					if (signal) {
-						const streamPromise = this.completeWithStreaming(request, agentId, llmStartTime);
-						let onAbort: () => void = () => {};
-						const abortPromise = new Promise<never>((_, reject) => {
-							if (signal.aborted) reject(new DOMException("Aborted", "AbortError"));
-							onAbort = () => reject(new DOMException("Aborted", "AbortError"));
-							signal.addEventListener("abort", onAbort, { once: true });
-						});
-						try {
-							response = await Promise.race([streamPromise, abortPromise]);
-						} finally {
-							signal.removeEventListener("abort", onAbort);
-						}
-					} else {
-						response = await this.completeWithStreaming(request, agentId, llmStartTime);
-					}
+					response = await this.completeWithStreaming(request, agentId, llmStartTime, signal);
 				} else if (signal) {
 					const completePromise = this.client.complete(request);
 					let onAbort: () => void = () => {};
@@ -1240,6 +1267,22 @@ export class Agent {
 					timestamp: Date.now(),
 				});
 			}
+		}
+
+		} catch (err) {
+			// Emit session_end on unrecoverable errors so listeners are not left
+			// stuck in a "running" state. The normal completion path below handles
+			// the happy case and abort-via-break.
+			this.emitAndLog("session_end", agentId, this.depth, {
+				session_id: this.sessionId,
+				success: false,
+				stumbles,
+				turns,
+				timed_out: false,
+				output: lastOutput,
+			});
+			await this.flushLog();
+			throw err;
 		}
 
 		// Check if we hit limits

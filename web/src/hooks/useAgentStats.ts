@@ -63,6 +63,8 @@ export function buildAgentStats(events: SessionEvent[]): Map<string, AgentStats>
 				s.state = "idle";
 				s.llmCallStartedAt = null;
 				s.streamingChunks = 0;
+				s.inputTokens = 0;
+				s.outputTokens = 0;
 				break;
 
 			case "llm_start":
@@ -112,6 +114,12 @@ export function buildAgentStats(events: SessionEvent[]): Map<string, AgentStats>
 				break;
 
 			case "interrupted":
+				s.state = "idle";
+				s.llmCallStartedAt = null;
+				s.streamingChunks = 0;
+				break;
+
+			case "error":
 				s.state = "idle";
 				s.llmCallStartedAt = null;
 				s.streamingChunks = 0;

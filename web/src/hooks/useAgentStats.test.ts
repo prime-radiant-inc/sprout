@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import type { SessionEvent } from "../../../src/kernel/types.ts";
 import { buildAgentStats } from "./useAgentStats.ts";
 
@@ -22,6 +22,10 @@ function resetTimestamps(): void {
 // --- Tests ---
 
 describe("buildAgentStats", () => {
+	beforeEach(() => {
+		resetTimestamps();
+	});
+
 	describe("state tracking", () => {
 		test("returns empty map with no events", () => {
 			const stats = buildAgentStats([]);
@@ -324,6 +328,81 @@ describe("buildAgentStats", () => {
 			const stats = buildAgentStats(events);
 			expect(stats.get("root")!.state).toBe("idle");
 			expect(stats.get("root")!.llmCallStartedAt).toBeNull();
+			expect(stats.get("root")!.streamingChunks).toBe(0);
+		});
+
+		test("session_end resets token counts to zero", () => {
+			resetTimestamps();
+			const events = [
+				makeEvent("session_start", "root", 0, { model: "claude" }),
+				makeEvent("llm_end", "root", 0, { input_tokens: 500, output_tokens: 200, latency_ms: 100, finish_reason: "stop" }),
+				makeEvent("session_end", "root", 0, { success: true }),
+			];
+			const stats = buildAgentStats(events);
+			expect(stats.get("root")!.inputTokens).toBe(0);
+			expect(stats.get("root")!.outputTokens).toBe(0);
+		});
+	});
+
+	describe("error event handling", () => {
+		test("error event resets state to idle", () => {
+			resetTimestamps();
+			const events = [
+				makeEvent("session_start", "root", 0, { model: "claude" }),
+				makeEvent("llm_start", "root", 0, { model: "claude", provider: "anthropic", turn: 1, message_count: 2 }),
+				makeEvent("error", "root", 0, { error: "connection refused" }),
+			];
+			const stats = buildAgentStats(events);
+			expect(stats.get("root")!.state).toBe("idle");
+			expect(stats.get("root")!.llmCallStartedAt).toBeNull();
+			expect(stats.get("root")!.streamingChunks).toBe(0);
+		});
+
+		test("error event during tool execution resets state to idle", () => {
+			resetTimestamps();
+			const events = [
+				makeEvent("session_start", "root", 0, { model: "claude" }),
+				makeEvent("primitive_start", "root", 0, { name: "exec" }),
+				makeEvent("error", "root", 0, { error: "process crashed" }),
+			];
+			const stats = buildAgentStats(events);
+			expect(stats.get("root")!.state).toBe("idle");
+		});
+	});
+
+	describe("out-of-order events", () => {
+		test("llm_end without preceding llm_start does not crash", () => {
+			resetTimestamps();
+			const events = [
+				makeEvent("session_start", "root", 0, { model: "claude" }),
+				makeEvent("llm_end", "root", 0, { input_tokens: 100, output_tokens: 50, latency_ms: 200, finish_reason: "stop" }),
+			];
+			const stats = buildAgentStats(events);
+			expect(stats.get("root")!.state).toBe("idle");
+			expect(stats.get("root")!.inputTokens).toBe(100);
+			expect(stats.get("root")!.outputTokens).toBe(50);
+		});
+
+		test("llm_chunk without preceding llm_start does not crash", () => {
+			resetTimestamps();
+			const events = [
+				makeEvent("session_start", "root", 0, { model: "claude" }),
+				makeEvent("llm_chunk", "root", 0, { chunks_so_far: 5, elapsed_ms: 100 }),
+			];
+			const stats = buildAgentStats(events);
+			expect(stats.get("root")!.streamingChunks).toBe(5);
+		});
+
+		test("multiple llm_start without intervening llm_end updates state correctly", () => {
+			resetTimestamps();
+			const events = [
+				makeEvent("session_start", "root", 0, { model: "claude" }),
+				makeEvent("llm_start", "root", 0, { model: "claude", provider: "anthropic", turn: 1, message_count: 2 }),
+				makeEvent("llm_start", "root", 0, { model: "claude", provider: "anthropic", turn: 2, message_count: 4 }),
+			];
+			const stats = buildAgentStats(events);
+			expect(stats.get("root")!.state).toBe("calling_llm");
+			expect(stats.get("root")!.currentTurn).toBe(2);
 			expect(stats.get("root")!.streamingChunks).toBe(0);
 		});
 	});

@@ -170,6 +170,7 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 		agentTree,
 		agentTreeChildren,
 		agentTreeSelfPath: agentTree ? "" : undefined,
+		enableStreaming: true,
 	});
 
 	const resolved = agent.resolvedModel;
