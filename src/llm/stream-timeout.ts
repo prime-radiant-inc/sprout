@@ -124,8 +124,15 @@ export async function* withStreamReadTimeout<T>(
 		rejectCurrent = null;
 		signal?.removeEventListener("abort", onAbort);
 		// Ensure the source iterator is closed if we exit early.
+		// Race against a short timeout because a pending .next() call can
+		// block .return() indefinitely for async generators.
 		// Swallow cleanup errors to avoid masking the real error
 		// (e.g., network error during HTTP teardown).
-		try { await iterator.return?.(); } catch { /* swallow cleanup error */ }
+		try {
+			await Promise.race([
+				iterator.return?.(),
+				new Promise(resolve => setTimeout(resolve, 1000)),
+			]);
+		} catch { /* swallow cleanup error */ }
 	}
 }

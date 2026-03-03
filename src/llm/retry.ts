@@ -20,7 +20,7 @@ export interface RetryOptions {
 	jitter?: boolean;
 	/** AbortSignal to cancel retries during delay. */
 	signal?: AbortSignal;
-	/** Callback invoked before each retry. */
+	/** Callback invoked before each retry. `attempt` is 1-indexed (1 = first retry). */
 	onRetry?: (error: Error, attempt: number, delayMs: number) => void;
 }
 
@@ -59,9 +59,9 @@ function computeDelay(
 	backoffMultiplier: number,
 	jitter: boolean,
 ): number {
-	const delay = Math.min(baseDelayMs * backoffMultiplier ** attempt, maxDelayMs);
-	if (!jitter) return delay;
-	return delay * (0.5 + Math.random());
+	const raw = baseDelayMs * backoffMultiplier ** attempt;
+	const withJitter = jitter ? raw * (0.5 + Math.random()) : raw;
+	return Math.min(withJitter, maxDelayMs);
 }
 
 /**
@@ -88,13 +88,19 @@ export async function retryLLMCall<T>(
 		onRetry,
 	} = options;
 
+	if (maxRetries < 0) throw new Error("maxRetries must be >= 0");
+	if (baseDelayMs < 0) throw new Error("baseDelayMs must be >= 0");
+	if (maxDelayMs < 0) throw new Error("maxDelayMs must be >= 0");
+
 	let lastError: Error | undefined;
 
 	for (let attempt = 0; attempt <= maxRetries; attempt++) {
 		try {
 			return await fn();
 		} catch (err) {
-			const error = err instanceof Error ? err : new Error(String(err));
+			const error = err instanceof Error ? err : new Error(
+				typeof (err as any)?.message === "string" ? (err as any).message : String(err),
+			);
 			if (!(err instanceof Error) && typeof err === "object" && err !== null) {
 				const source = err as Record<string, unknown>;
 				if ("status" in source) (error as any).status = source.status;
@@ -130,16 +136,15 @@ export async function retryLLMCall<T>(
 			if (signal) {
 				if (signal.aborted) throw new DOMException("Aborted", "AbortError");
 				await new Promise<void>((resolve, reject) => {
-					const timer = setTimeout(() => {
-						signal.removeEventListener("abort", onAbort);
-						resolve();
-					}, delayMs);
-
 					function onAbort() {
 						clearTimeout(timer);
 						reject(new DOMException("Aborted", "AbortError"));
 					}
 					signal.addEventListener("abort", onAbort, { once: true });
+					const timer = setTimeout(() => {
+						signal.removeEventListener("abort", onAbort);
+						resolve();
+					}, delayMs);
 				});
 			} else {
 				await new Promise((resolve) => setTimeout(resolve, delayMs));

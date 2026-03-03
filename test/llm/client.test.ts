@@ -282,6 +282,18 @@ describe("Client", () => {
 		expect(caughtError).toBeInstanceOf(StreamReadTimeoutError);
 	});
 
+	test("constructor throws on negative streamReadTimeoutMs", () => {
+		expect(() => new Client({ streamReadTimeoutMs: -1 })).toThrow(
+			"streamReadTimeoutMs must be >= 0 (0 to disable)",
+		);
+	});
+
+	test("constructor throws on NaN streamReadTimeoutMs", () => {
+		expect(() => new Client({ streamReadTimeoutMs: NaN })).toThrow(
+			"streamReadTimeoutMs must be >= 0 (0 to disable)",
+		);
+	});
+
 	test("stream does not timeout when streamReadTimeoutMs is 0 (disabled)", async () => {
 		// Create a fake adapter with a slow chunk
 		const slowAdapter: ProviderAdapter = {

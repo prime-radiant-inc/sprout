@@ -253,6 +253,72 @@ describe("withStreamReadTimeout", () => {
 		expect((caughtError as Error).message).toBe("timeoutMs must be positive");
 	});
 
+	test("swallows cleanup error when iterator.return() throws", async () => {
+		// Custom async iterable whose return() method throws
+		const throwingIterable: AsyncIterable<string> = {
+			[Symbol.asyncIterator]() {
+				let yielded = false;
+				return {
+					async next() {
+						if (!yielded) {
+							yielded = true;
+							return { value: "a", done: false as const };
+						}
+						// Stall to trigger timeout
+						await new Promise((resolve) => setTimeout(resolve, 500));
+						return { value: "b", done: false as const };
+					},
+					async return() {
+						throw new Error("cleanup explosion");
+					},
+				};
+			},
+		};
+
+		let caughtError: unknown;
+		const results: string[] = [];
+		try {
+			for await (const item of withStreamReadTimeout(throwingIterable, 100)) {
+				results.push(item);
+			}
+		} catch (err) {
+			caughtError = err;
+		}
+
+		// Should get the timeout error, NOT the cleanup error
+		expect(results).toEqual(["a"]);
+		expect(caughtError).toBeInstanceOf(StreamReadTimeoutError);
+		expect((caughtError as StreamReadTimeoutError).timeoutMs).toBe(100);
+	});
+
+	test("swallows cleanup error when consumer breaks and iterator.return() throws", async () => {
+		// Custom async iterable whose return() method throws
+		const throwingIterable: AsyncIterable<string> = {
+			[Symbol.asyncIterator]() {
+				let count = 0;
+				return {
+					async next() {
+						count++;
+						return { value: `item-${count}`, done: false as const };
+					},
+					async return() {
+						throw new Error("cleanup explosion on break");
+					},
+				};
+			},
+		};
+
+		// Consumer breaks early — cleanup error should be swallowed
+		const results: string[] = [];
+		for await (const item of withStreamReadTimeout(throwingIterable, 500)) {
+			results.push(item);
+			break;
+		}
+
+		expect(results).toEqual(["item-1"]);
+		// No error thrown — cleanup error was swallowed
+	});
+
 	test("handles empty source iterable without error", async () => {
 		async function* emptyIterable(): AsyncIterable<string> {
 			// yields nothing
