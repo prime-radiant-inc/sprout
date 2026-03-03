@@ -4089,4 +4089,75 @@ describe("Agent", () => {
 		);
 		expect(actEnd).toBeDefined();
 	});
+
+	test("retries transient LLM errors and succeeds", async () => {
+		const mockResponse: Response = {
+			id: "mock-retry-1",
+			model: "claude-haiku-4-5-20251001",
+			provider: "anthropic",
+			message: Msg.assistant("Success after retry."),
+			finish_reason: { reason: "stop" },
+			usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+		};
+
+		let calls = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async () => {
+				calls++;
+				if (calls === 1) {
+					const err = new Error("Service temporarily unavailable");
+					(err as any).status = 503;
+					throw err;
+				}
+				return mockResponse;
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: leafSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+			events,
+		});
+
+		const result = await agent.run("test retry goal");
+		expect(result.success).toBe(true);
+		expect(calls).toBe(2); // 1 failure + 1 success
+	});
+
+	test("does not retry non-retryable LLM errors", async () => {
+		let calls = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async () => {
+				calls++;
+				const err = new Error("Unauthorized");
+				(err as any).status = 401;
+				throw err;
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: leafSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+		});
+
+		await expect(agent.run("test non-retryable goal")).rejects.toThrow("Unauthorized");
+		expect(calls).toBe(1); // No retry for 401
+	});
 });

@@ -23,6 +23,7 @@ import type {
 } from "../kernel/types.ts";
 import type { LearnSink } from "../learn/learn-process.ts";
 import type { Client } from "../llm/client.ts";
+import { retryLLMCall } from "../llm/retry.ts";
 import type { Response as LLMResponse, Message, ToolDefinition } from "../llm/types.ts";
 import { Msg, messageReasoning, messageText, messageToolCalls } from "../llm/types.ts";
 import { ulid } from "../util/ulid.ts";
@@ -848,22 +849,35 @@ export class Agent {
 
 			let response: LLMResponse;
 			try {
-				if (signal) {
-					const completePromise = this.client.complete(request);
-					let onAbort: () => void = () => {};
-					const abortPromise = new Promise<never>((_, reject) => {
-						if (signal.aborted) reject(new DOMException("Aborted", "AbortError"));
-						onAbort = () => reject(new DOMException("Aborted", "AbortError"));
-						signal.addEventListener("abort", onAbort, { once: true });
-					});
-					try {
-						response = await Promise.race([completePromise, abortPromise]);
-					} finally {
-						signal.removeEventListener("abort", onAbort);
+				const completeFn = () => {
+					if (signal) {
+						const completePromise = this.client.complete(request);
+						let onAbort: () => void = () => {};
+						const abortPromise = new Promise<never>((_, reject) => {
+							if (signal.aborted) reject(new DOMException("Aborted", "AbortError"));
+							onAbort = () => reject(new DOMException("Aborted", "AbortError"));
+							signal.addEventListener("abort", onAbort, { once: true });
+						});
+						return Promise.race([completePromise, abortPromise]).finally(() => {
+							signal.removeEventListener("abort", onAbort);
+						});
 					}
-				} else {
-					response = await this.client.complete(request);
-				}
+					return this.client.complete(request);
+				};
+
+				response = await retryLLMCall(completeFn, {
+					signal,
+					onRetry: (error, attempt, delayMs) => {
+						this.logger.warn("llm", "Retrying LLM call", {
+							attempt,
+							delayMs,
+							error: error.message,
+							model: this.resolved.model,
+							provider: this.resolved.provider,
+							turn: turns,
+						});
+					},
+				});
 			} catch (err) {
 				if (err instanceof DOMException && err.name === "AbortError") {
 					this.emitAndLog("interrupted", agentId, this.depth, {
