@@ -870,6 +870,13 @@ export class Agent {
 		const agentId = this.agentId ?? this.spec.name;
 		this.signal = signal;
 
+		// Emit session_start (same as run() — so stats reset for the new session)
+		this.emitAndLog("session_start", agentId, this.depth, {
+			goal: message,
+			session_id: this.sessionId,
+			model: this.resolved.model,
+		});
+
 		// Append the new user message
 		this.history.push(Msg.user(message));
 

@@ -57,14 +57,17 @@ export function buildAgentStats(events: SessionEvent[]): Map<string, AgentStats>
 		switch (event.kind) {
 			case "session_start":
 				s.state = "idle";
+				s.inputTokens = 0;
+				s.outputTokens = 0;
+				s.currentTurn = 0;
+				s.streamingChunks = 0;
+				s.llmCallStartedAt = null;
 				break;
 
 			case "session_end":
 				s.state = "idle";
 				s.llmCallStartedAt = null;
 				s.streamingChunks = 0;
-				s.inputTokens = 0;
-				s.outputTokens = 0;
 				break;
 
 			case "llm_start":

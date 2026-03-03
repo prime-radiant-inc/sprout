@@ -331,16 +331,69 @@ describe("buildAgentStats", () => {
 			expect(stats.get("root")!.streamingChunks).toBe(0);
 		});
 
-		test("session_end resets token counts to zero", () => {
+		test("session_end preserves token counts and turn", () => {
+			resetTimestamps();
+			const events = [
+				makeEvent("session_start", "root", 0, { model: "claude" }),
+				makeEvent("llm_start", "root", 0, { model: "claude", provider: "anthropic", turn: 3, message_count: 5 }),
+				makeEvent("llm_end", "root", 0, { input_tokens: 500, output_tokens: 200, latency_ms: 100, finish_reason: "stop" }),
+				makeEvent("session_end", "root", 0, { success: true }),
+			];
+			const stats = buildAgentStats(events);
+			expect(stats.get("root")!.inputTokens).toBe(500);
+			expect(stats.get("root")!.outputTokens).toBe(200);
+			expect(stats.get("root")!.currentTurn).toBe(3);
+		});
+
+		test("session_start resets token counts and turn", () => {
 			resetTimestamps();
 			const events = [
 				makeEvent("session_start", "root", 0, { model: "claude" }),
 				makeEvent("llm_end", "root", 0, { input_tokens: 500, output_tokens: 200, latency_ms: 100, finish_reason: "stop" }),
 				makeEvent("session_end", "root", 0, { success: true }),
+				makeEvent("session_start", "root", 0, { model: "claude" }),
 			];
 			const stats = buildAgentStats(events);
 			expect(stats.get("root")!.inputTokens).toBe(0);
 			expect(stats.get("root")!.outputTokens).toBe(0);
+			expect(stats.get("root")!.currentTurn).toBe(0);
+		});
+	});
+
+	describe("multi-session lifecycle", () => {
+		test("tokens persist after session_end, reset on next session_start, accumulate fresh", () => {
+			resetTimestamps();
+			const events = [
+				// First session
+				makeEvent("session_start", "root", 0, { model: "claude" }),
+				makeEvent("llm_start", "root", 0, { model: "claude", provider: "anthropic", turn: 1, message_count: 2 }),
+				makeEvent("llm_end", "root", 0, { input_tokens: 100, output_tokens: 40, latency_ms: 200, finish_reason: "stop" }),
+				makeEvent("session_end", "root", 0, { success: true }),
+			];
+
+			// After first session_end: tokens preserved, turn preserved
+			let stats = buildAgentStats(events);
+			expect(stats.get("root")!.inputTokens).toBe(100);
+			expect(stats.get("root")!.outputTokens).toBe(40);
+			expect(stats.get("root")!.currentTurn).toBe(1);
+
+			// Second session starts: tokens and turn reset
+			events.push(makeEvent("session_start", "root", 0, { model: "claude" }));
+			stats = buildAgentStats(events);
+			expect(stats.get("root")!.inputTokens).toBe(0);
+			expect(stats.get("root")!.outputTokens).toBe(0);
+			expect(stats.get("root")!.currentTurn).toBe(0);
+
+			// Second session accumulates fresh tokens
+			events.push(
+				makeEvent("llm_start", "root", 0, { model: "claude", provider: "anthropic", turn: 1, message_count: 3 }),
+				makeEvent("llm_end", "root", 0, { input_tokens: 50, output_tokens: 20, latency_ms: 150, finish_reason: "stop" }),
+				makeEvent("session_end", "root", 0, { success: true }),
+			);
+			stats = buildAgentStats(events);
+			expect(stats.get("root")!.inputTokens).toBe(50);
+			expect(stats.get("root")!.outputTokens).toBe(20);
+			expect(stats.get("root")!.currentTurn).toBe(1);
 		});
 	});
 

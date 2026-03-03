@@ -351,7 +351,8 @@ describe("groupEvents", () => {
 				makeEvent("act_start", { agent_name: "worker", goal: "do stuff", child_id: childId }, { timestamp: 1000 }),
 				// Child events in between
 				makeEvent("plan_end", { text: "thinking" }, { agent_id: childId, timestamp: 1500, depth: 1 }),
-				makeEvent("primitive_end", { name: "write_file", success: true, args: { path: "foo.ts" } }, { agent_id: childId, timestamp: 2000, depth: 1 }),
+				makeEvent("primitive_start", { name: "write_file", args: { path: "foo.ts" } }, { agent_id: childId, timestamp: 1800, depth: 1 }),
+				makeEvent("primitive_end", { name: "write_file", success: true }, { agent_id: childId, timestamp: 2000, depth: 1 }),
 				// act_end for the delegation
 				makeEvent("act_end", { agent_name: "worker", child_id: childId, success: true, turns: 3, goal: "do stuff" }, { timestamp: 3000 }),
 			];
@@ -372,8 +373,8 @@ describe("groupEvents", () => {
 			const tree = treePlusChild(childId);
 			const events: SessionEvent[] = [
 				makeEvent("act_start", { agent_name: "worker", goal: "do stuff", child_id: childId }, { timestamp: 1000 }),
-				makeEvent("primitive_start", { name: "write_file" }, { agent_id: childId, timestamp: 1500, depth: 1 }),
-				makeEvent("primitive_end", { name: "write_file", success: true, args: { path: "foo.ts" } }, { agent_id: childId, timestamp: 2000, depth: 1 }),
+				makeEvent("primitive_start", { name: "write_file", args: { path: "foo.ts" } }, { agent_id: childId, timestamp: 1500, depth: 1 }),
+				makeEvent("primitive_end", { name: "write_file", success: true }, { agent_id: childId, timestamp: 2000, depth: 1 }),
 			];
 			// No act_end → delegation is still running
 			const result = groupEvents(events, undefined, tree);
@@ -458,6 +459,37 @@ describe("groupEvents", () => {
 			expect(result).toHaveLength(1);
 			expect(result[0]!.event.kind).toBe("act_end");
 			expect(result[0]!.durationMs).toBe(3000);
+		});
+	});
+
+	describe("session_end clears pending delegations", () => {
+		function treePlusChild(childId: string, childName = "worker"): AgentTreeNode {
+			return makeTree({
+				agentId: "root",
+				children: [
+					makeTree({ agentId: childId, agentName: childName, depth: 1 }),
+				],
+			});
+		}
+
+		test("session_end clears pendingActStarts so they are not stale", () => {
+			const childId = "child-stale";
+			const tree = treePlusChild(childId);
+			const events: SessionEvent[] = [
+				makeEvent("act_start", { agent_name: "worker", goal: "do stuff", child_id: childId }, { timestamp: 1000 }),
+				makeEvent("primitive_end", { name: "exec", success: true }, { agent_id: childId, timestamp: 1500, depth: 1 }),
+				// Session ends without act_end — simulates a crash
+				makeEvent("session_end", { success: false }, { timestamp: 2000 }),
+			];
+			const result = groupEvents(events, undefined, tree);
+
+			// The pending delegation should still appear (with its peek info)
+			const delegations = result.filter(
+				(g) => g.event.kind === "act_start" || g.event.kind === "act_end",
+			);
+			expect(delegations).toHaveLength(1);
+			expect(delegations[0]!.event.kind).toBe("act_start");
+			expect(delegations[0]!.livePeek).toBe("exec");
 		});
 	});
 

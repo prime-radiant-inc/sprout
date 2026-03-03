@@ -96,6 +96,7 @@ export function groupEvents(
 	const childPeek = new Map<string, string>(); // child_id -> latest activity summary
 	const childPeekTools = new Map<string, ToolCallSummary[]>(); // child_id -> recent tool calls
 	const pendingActStarts = new Map<string, number>(); // child_id -> index in result array
+	const lastPrimitiveArgs = new Map<string, Record<string, unknown>>(); // agent_id:name -> args from primitive_start
 
 	for (let i = 0; i < events.length; i++) {
 		const event = events[i]!;
@@ -123,9 +124,18 @@ export function groupEvents(
 
 		// In parent view, filter out events from direct children (but update peek first)
 		if (merging && directChildIds.has(event.agent_id)) {
-			if (event.kind === "primitive_end") {
+			if (event.kind === "primitive_start") {
+				// Store args from primitive_start so primitive_end can use them
+				const name = String(event.data.name ?? "");
+				if (event.data.args) {
+					lastPrimitiveArgs.set(`${event.agent_id}:${name}`, event.data.args as Record<string, unknown>);
+				}
+			} else if (event.kind === "primitive_end") {
 				const toolName = String(event.data.name ?? "");
-				const args = event.data.args as Record<string, unknown> | undefined;
+				// Read args from the matching primitive_start (args is not on primitive_end events)
+				const argsKey = `${event.agent_id}:${toolName}`;
+				const args = lastPrimitiveArgs.get(argsKey);
+				lastPrimitiveArgs.delete(argsKey);
 				const path = args?.path;
 				const argsStr = typeof path === "string" ? path : "";
 				const success = Boolean(event.data.success);
@@ -152,6 +162,24 @@ export function groupEvents(
 		if (event.kind === "plan_end" || event.kind === "plan_start") {
 			streamBuffers.delete(event.agent_id);
 			lastDeltaIdx.delete(event.agent_id);
+		}
+
+		// On session_end, mark any still-pending delegations as abandoned
+		// so they don't show stale "running" cards after a crash.
+		if (merging && event.kind === "session_end") {
+			for (const [childId, idx] of pendingActStarts) {
+				const entry = result[idx];
+				if (entry) {
+					const peek = childPeek.get(childId);
+					const tools = childPeekTools.get(childId);
+					result[idx] = {
+						...entry,
+						...(peek ? { livePeek: peek } : {}),
+						...(tools ? { livePeekTools: [...tools] } : {}),
+					};
+				}
+			}
+			pendingActStarts.clear();
 		}
 
 		// Apply agent filter (includes descendants)

@@ -30,6 +30,9 @@ export function ConversationView({
 		[events, agentFilter, tree],
 	);
 
+	// TODO: checking only the last event is fragile in multi-agent scenarios where
+	// interleaved events from other agents may push plan_delta out of the last position.
+	// Consider tracking streaming state per-agent or checking the last N events.
 	const isStreaming = events.length > 0 && events[events.length - 1]?.kind === "plan_delta";
 	const streamingAgentName = useMemo(() => {
 		if (!isStreaming) return null;

@@ -50,6 +50,7 @@ export function buildAgentTree(events: SessionEvent[]): AgentTreeNode {
 		// Derive root identity from the first depth-0 event
 		if (event.depth === 0 && root.agentId === "root" && event.agent_id !== "root") {
 			root.agentId = event.agent_id;
+			// TODO: update root.agentName from event data once session_start includes agent_name
 		}
 
 		switch (event.kind) {
@@ -62,7 +63,7 @@ export function buildAgentTree(events: SessionEvent[]): AgentTreeNode {
 
 			case "session_end": {
 				if (event.depth === 0) {
-					root.status = "completed";
+					root.status = event.data.success === false ? "failed" : "completed";
 				}
 				break;
 			}

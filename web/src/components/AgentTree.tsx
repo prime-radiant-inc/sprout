@@ -80,13 +80,14 @@ function TreeNode({
 	const isSelected = selectedAgent === node.agentId;
 	const [expanded, setExpanded] = useState(defaultExpanded ?? true);
 	const stats = agentStats?.get(node.agentId);
+	const hasRunningChild = node.children.some((c) => c.status === "running");
 
 	// Auto-expand when a running child appears
 	useEffect(() => {
-		if (node.children.some((c) => c.status === "running")) {
+		if (hasRunningChild) {
 			setExpanded(true);
 		}
-	}, [node.children]);
+	}, [hasRunningChild]);
 
 	return (
 		<li>

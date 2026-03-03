@@ -2406,7 +2406,7 @@ describe("Agent", () => {
 		expect(history[3]!.role).toBe("assistant");
 	});
 
-	test("continue() does not emit session_start or recall", async () => {
+	test("continue() emits session_start but not recall", async () => {
 		let callCount = 0;
 		const mockClient = {
 			providers: () => ["anthropic"],
@@ -2445,10 +2445,10 @@ describe("Agent", () => {
 		const allEvents = events.collected();
 		const continueEvents = allEvents.slice(eventsAfterRun);
 
-		// continue() should emit perceive but NOT session_start or recall
+		// continue() should emit session_start and perceive but NOT recall
 		const kinds = continueEvents.map((e) => e.kind);
+		expect(kinds).toContain("session_start");
 		expect(kinds).toContain("perceive");
-		expect(kinds).not.toContain("session_start");
 		expect(kinds).not.toContain("recall");
 	});
 

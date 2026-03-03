@@ -71,6 +71,17 @@ describe("buildAgentTree", () => {
 
 			expect(tree.status).toBe("completed");
 		});
+
+		test("root status becomes failed on session_end with success: false", () => {
+			const events = [
+				makeEvent("session_start", "root", 0, { model: "claude" }),
+				makeEvent("perceive", "root", 0, { goal: "Do work" }),
+				makeEvent("session_end", "root", 0, { success: false }),
+			];
+			const tree = buildAgentTree(events);
+
+			expect(tree.status).toBe("failed");
+		});
 	});
 
 	describe("single child agent", () => {
