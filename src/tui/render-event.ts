@@ -194,7 +194,20 @@ export function renderEvent(event: SessionEvent): string | null {
 		case "perceive":
 			return `${ind}\u276F ${data.goal}`;
 
+		case "recall":
+		case "plan_delta":
+		case "verify":
+		case "learn_signal":
+		case "learn_end":
+		case "log":
+		case "exit_hint":
+		case "llm_start":
+		case "llm_chunk":
+		case "llm_end":
+			return null;
+
 		default:
+			kind satisfies never;
 			return null;
 	}
 }

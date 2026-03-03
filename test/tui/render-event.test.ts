@@ -303,6 +303,18 @@ describe("renderEvent", () => {
 		expect(result).toContain("refactor the auth module");
 	});
 
+	test("llm_start -> null", () => {
+		expect(renderEvent(makeEvent("llm_start", { model: "claude", provider: "anthropic", turn: 1, message_count: 5 }))).toBeNull();
+	});
+
+	test("llm_chunk -> null", () => {
+		expect(renderEvent(makeEvent("llm_chunk", { chunks_so_far: 10, elapsed_ms: 500 }))).toBeNull();
+	});
+
+	test("llm_end -> null", () => {
+		expect(renderEvent(makeEvent("llm_end", { model: "claude", input_tokens: 100, output_tokens: 50, latency_ms: 200, finish_reason: "stop" }))).toBeNull();
+	});
+
 	test("returns null for unknown event kind", () => {
 		const event = makeEvent("totally_unknown" as any, {});
 		expect(renderEvent(event)).toBeNull();

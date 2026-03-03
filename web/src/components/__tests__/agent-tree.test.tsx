@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { SessionEvent } from "../../../../src/kernel/types.ts";
+import type { AgentStats } from "../../hooks/useAgentStats.ts";
 import type { AgentTreeNode } from "../../hooks/useAgentTree.ts";
 import { buildAgentTree } from "../../hooks/useAgentTree.ts";
 import { AgentTree } from "../AgentTree.tsx";
@@ -388,6 +389,146 @@ describe("buildAgentTree", () => {
 		];
 		const tree = buildAgentTree(events);
 		expect(tree.children[0]!.description).toBeUndefined();
+	});
+});
+
+// --- Agent stats rendering tests ---
+
+function makeStats(overrides: Partial<AgentStats> = {}): AgentStats {
+	return {
+		agentId: "root",
+		depth: 0,
+		state: "idle",
+		inputTokens: 0,
+		outputTokens: 0,
+		currentTurn: 0,
+		llmCallStartedAt: null,
+		streamingChunks: 0,
+		model: "",
+		...overrides,
+	};
+}
+
+describe("AgentTree with stats", () => {
+	test("renders agent state when stats are provided", () => {
+		const tree = makeNode({ agentId: "root", status: "running" });
+		const agentStats = new Map<string, AgentStats>([
+			["root", makeStats({ agentId: "root", state: "calling_llm" })],
+		]);
+		const html = renderToStaticMarkup(
+			<AgentTree
+				tree={tree}
+				selectedAgent={null}
+				onSelectAgent={() => {}}
+				agentStats={agentStats}
+			/>,
+		);
+		expect(html).toContain("data-agent-state");
+		expect(html).toContain("Calling LLM");
+	});
+
+	test("renders token counts when stats have token data", () => {
+		const tree = makeNode({ agentId: "root", status: "running" });
+		const agentStats = new Map<string, AgentStats>([
+			["root", makeStats({ agentId: "root", inputTokens: 1500, outputTokens: 300 })],
+		]);
+		const html = renderToStaticMarkup(
+			<AgentTree
+				tree={tree}
+				selectedAgent={null}
+				onSelectAgent={() => {}}
+				agentStats={agentStats}
+			/>,
+		);
+		expect(html).toContain("1.5k");
+		expect(html).toContain("300");
+	});
+
+	test("renders turn number when stats have turn data", () => {
+		const tree = makeNode({ agentId: "root", status: "running" });
+		const agentStats = new Map<string, AgentStats>([
+			["root", makeStats({ agentId: "root", currentTurn: 3 })],
+		]);
+		const html = renderToStaticMarkup(
+			<AgentTree
+				tree={tree}
+				selectedAgent={null}
+				onSelectAgent={() => {}}
+				agentStats={agentStats}
+			/>,
+		);
+		expect(html).toContain("T3");
+	});
+
+	test("does not render stats section when no stats available for agent", () => {
+		const tree = makeNode({ agentId: "root", status: "running" });
+		const emptyStats = new Map<string, AgentStats>();
+		const html = renderToStaticMarkup(
+			<AgentTree
+				tree={tree}
+				selectedAgent={null}
+				onSelectAgent={() => {}}
+				agentStats={emptyStats}
+			/>,
+		);
+		expect(html).not.toContain("data-agent-state");
+	});
+
+	test("renders stats for child agents", () => {
+		const tree = makeNode({
+			agentId: "root",
+			status: "running",
+			children: [
+				makeNode({
+					agentId: "child-1",
+					agentName: "editor",
+					depth: 1,
+					status: "running",
+					goal: "Edit code",
+				}),
+			],
+		});
+		const agentStats = new Map<string, AgentStats>([
+			["root", makeStats({ agentId: "root", state: "delegating" })],
+			["child-1", makeStats({ agentId: "child-1", state: "executing_tool", currentTurn: 2, inputTokens: 800, outputTokens: 120 })],
+		]);
+		const html = renderToStaticMarkup(
+			<AgentTree
+				tree={tree}
+				selectedAgent={null}
+				onSelectAgent={() => {}}
+				agentStats={agentStats}
+			/>,
+		);
+		expect(html).toContain("Delegating");
+		expect(html).toContain("Executing tool");
+	});
+
+	test("renders without stats prop (backward compatible)", () => {
+		const tree = makeNode();
+		const html = renderToStaticMarkup(
+			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
+		);
+		// Should render normally without any stats-related elements
+		expect(html).toContain("root");
+		expect(html).not.toContain("data-agent-state");
+	});
+
+	test("does not render stats line for idle agents with no tokens", () => {
+		const tree = makeNode({ agentId: "root", status: "running" });
+		const agentStats = new Map<string, AgentStats>([
+			["root", makeStats({ agentId: "root", state: "idle", inputTokens: 0, outputTokens: 0, currentTurn: 0 })],
+		]);
+		const html = renderToStaticMarkup(
+			<AgentTree
+				tree={tree}
+				selectedAgent={null}
+				onSelectAgent={() => {}}
+				agentStats={agentStats}
+			/>,
+		);
+		// Idle with no activity — no stats line needed
+		expect(html).not.toContain("data-agent-state");
 	});
 });
 

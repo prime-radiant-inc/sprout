@@ -24,7 +24,13 @@ import type {
 import type { LearnSink } from "../learn/learn-process.ts";
 import type { Client } from "../llm/client.ts";
 import { retryLLMCall } from "../llm/retry.ts";
-import type { Response as LLMResponse, Message, ToolDefinition } from "../llm/types.ts";
+import type {
+	Request as LLMRequest,
+	Response as LLMResponse,
+	Message,
+	StreamEvent,
+	ToolDefinition,
+} from "../llm/types.ts";
 import { Msg, messageReasoning, messageText, messageToolCalls } from "../llm/types.ts";
 import { ulid } from "../util/ulid.ts";
 import { getContextWindowSize } from "./context-window.ts";
@@ -96,6 +102,8 @@ export interface AgentOptions {
 	agentTreeChildren?: string[];
 	/** This agent's path in the tree (empty string for root). */
 	agentTreeSelfPath?: string;
+	/** Use streaming LLM calls and emit throttled llm_chunk events. */
+	enableStreaming?: boolean;
 }
 
 export interface AgentResult {
@@ -133,6 +141,7 @@ export class Agent {
 	private readonly agentTree?: Map<string, AgentTreeEntry>;
 	private readonly agentTreeChildren?: string[];
 	private readonly agentTreeSelfPath?: string;
+	private readonly enableStreaming: boolean;
 	private readonly logger: Logger;
 	private history: Message[] = [];
 	private systemPrompt?: string;
@@ -165,6 +174,7 @@ export class Agent {
 		this.agentTree = options.agentTree;
 		this.agentTreeChildren = options.agentTreeChildren;
 		this.agentTreeSelfPath = options.agentTreeSelfPath;
+		this.enableStreaming = options.enableStreaming ?? false;
 		this.initialHistory = options.initialHistory ? [...options.initialHistory] : undefined;
 		this.logger = (options.logger ?? new NullLogger()).child({
 			component: "agent",
@@ -290,6 +300,82 @@ export class Agent {
 		await this.logWriteChain;
 	}
 
+	/** Minimum interval between llm_chunk emissions (milliseconds). */
+	private static readonly LLM_CHUNK_THROTTLE_MS = 500;
+
+	/** Complete an LLM request using streaming, emitting throttled llm_chunk events. */
+	private async completeWithStreaming(
+		request: LLMRequest,
+		agentId: string,
+		llmStartTime: number,
+		signal?: AbortSignal,
+	): Promise<LLMResponse> {
+		let chunkCount = 0;
+		let lastChunkTime = -Infinity;
+
+		// Helper: race iterator.next() against the abort signal so we don't
+		// block on a slow/hanging stream when the caller wants to cancel.
+		const abortError = () => new DOMException("Aborted", "AbortError");
+		const nextOrAbort = (
+			iter: AsyncIterator<StreamEvent>,
+			sig?: AbortSignal,
+		): Promise<IteratorResult<StreamEvent>> => {
+			if (!sig) return iter.next();
+			if (sig.aborted) return Promise.reject(abortError());
+			return new Promise<IteratorResult<StreamEvent>>((resolve, reject) => {
+				const onAbort = () => reject(abortError());
+				sig.addEventListener("abort", onAbort, { once: true });
+				iter.next().then(
+					(val) => { sig.removeEventListener("abort", onAbort); resolve(val); },
+					(err) => { sig.removeEventListener("abort", onAbort); reject(err); },
+				);
+			});
+		};
+
+		const iterator = this.client.stream(request)[Symbol.asyncIterator]();
+		try {
+			let result = await nextOrAbort(iterator, signal);
+			while (!result.done) {
+				const event = result.value;
+				if (event.type === "text_delta" || event.type === "tool_call_delta" || event.type === "reasoning_delta") {
+					chunkCount++;
+					const now = performance.now();
+					const elapsed = now - llmStartTime;
+					if (now - lastChunkTime >= Agent.LLM_CHUNK_THROTTLE_MS) {
+						this.emitAndLog("llm_chunk", agentId, this.depth, {
+							chunks_so_far: chunkCount,
+							elapsed_ms: Math.round(elapsed),
+						});
+						lastChunkTime = now;
+					}
+				}
+				if (event.type === "error") {
+					throw event.error ?? new Error("Stream error");
+				}
+				if (event.type === "finish") {
+					if (!event.response) {
+						throw new Error("Stream finished but response was missing");
+					}
+					return event.response;
+				}
+				result = await nextOrAbort(iterator, signal);
+			}
+		} finally {
+			// Ensure the underlying HTTP stream is closed even if we break out
+			// of the loop early (e.g., on abort or error).  When the signal is
+			// already aborted the generator might be stuck on an unresolvable
+			// internal await, so fire-and-forget to avoid hanging.
+			if (signal?.aborted) {
+				void iterator.return?.();
+			} else {
+				await iterator.return?.();
+			}
+		}
+
+		// Should not reach here — finish event should always be emitted
+		throw new Error("Stream ended without a finish event");
+	}
+
 	/** Get the current list of agents this agent can delegate to, preferring tree or genome over static snapshot. */
 	private getDelegatableAgents(): AgentSpec[] {
 		if (this.agentTree) {
@@ -392,6 +478,7 @@ export class Agent {
 				agentTree: this.agentTree,
 				agentTreeChildren: subTreeChildren,
 				agentTreeSelfPath: subTreeSelfPath,
+				enableStreaming: this.enableStreaming,
 			});
 
 			const subResult = await subagent.run(subGoal, this.signal);
@@ -784,6 +871,13 @@ export class Agent {
 		const agentId = this.agentId ?? this.spec.name;
 		this.signal = signal;
 
+		// Emit session_start (same as run() — so stats reset for the new session)
+		this.emitAndLog("session_start", agentId, this.depth, {
+			goal: message,
+			session_id: this.sessionId,
+			model: this.resolved.model,
+		});
+
 		// Append the new user message
 		this.history.push(Msg.user(message));
 
@@ -804,6 +898,7 @@ export class Agent {
 		let turns = 0;
 		let lastOutput = "";
 
+		try {
 		while (turns < this.spec.constraints.max_turns) {
 			turns++;
 
@@ -847,47 +942,93 @@ export class Agent {
 				thinking: this.spec.thinking,
 			});
 
+			this.emitAndLog("llm_start", agentId, this.depth, {
+				model: this.resolved.model,
+				provider: this.resolved.provider,
+				turn: turns,
+				message_count: this.history.length,
+			});
+
+			const llmStartTime = performance.now();
 			let response: LLMResponse;
 			try {
-				const completeFn = () => {
-					if (signal) {
-						const completePromise = this.client.complete(request);
-						let onAbort: () => void = () => {};
-						const abortPromise = new Promise<never>((_, reject) => {
-							if (signal.aborted) reject(new DOMException("Aborted", "AbortError"));
-							onAbort = () => reject(new DOMException("Aborted", "AbortError"));
-							signal.addEventListener("abort", onAbort, { once: true });
-						});
-						return Promise.race([completePromise, abortPromise]).finally(() => {
-							signal.removeEventListener("abort", onAbort);
-						});
-					}
-					return this.client.complete(request);
-				};
+				if (this.enableStreaming) {
+					response = await this.completeWithStreaming(request, agentId, llmStartTime, signal);
+				} else {
+					const completeFn = () => {
+						if (signal) {
+							const completePromise = this.client.complete(request);
+							let onAbort: () => void = () => {};
+							const abortPromise = new Promise<never>((_, reject) => {
+								if (signal.aborted) reject(new DOMException("Aborted", "AbortError"));
+								onAbort = () => reject(new DOMException("Aborted", "AbortError"));
+								signal.addEventListener("abort", onAbort, { once: true });
+							});
+							return Promise.race([completePromise, abortPromise]).finally(() => {
+								signal.removeEventListener("abort", onAbort);
+							});
+						}
+						return this.client.complete(request);
+					};
 
-				response = await retryLLMCall(completeFn, {
-					signal,
-					onRetry: (error, attempt, delayMs) => {
-						this.logger.warn("llm", "Retrying LLM call", {
-							attempt,
-							delayMs,
-							error: error.message,
-							model: this.resolved.model,
-							provider: this.resolved.provider,
-							turn: turns,
-						});
-					},
-				});
+					response = await retryLLMCall(completeFn, {
+						signal,
+						onRetry: (error, attempt, delayMs) => {
+							this.logger.warn("llm", "Retrying LLM call", {
+								attempt,
+								delayMs,
+								error: error.message,
+								model: this.resolved.model,
+								provider: this.resolved.provider,
+								turn: turns,
+							});
+						},
+					});
+				}
 			} catch (err) {
 				if (err instanceof DOMException && err.name === "AbortError") {
+					this.emitAndLog("llm_end", agentId, this.depth, {
+						model: this.resolved.model,
+						provider: this.resolved.provider,
+						input_tokens: 0,
+						output_tokens: 0,
+						latency_ms: Math.round(performance.now() - llmStartTime),
+						finish_reason: "interrupted",
+					});
+					this.emitAndLog("plan_end", agentId, this.depth, {
+						turn: turns,
+						finish_reason: "interrupted",
+					});
 					this.emitAndLog("interrupted", agentId, this.depth, {
 						message: "Agent interrupted during LLM call",
 						turns,
 					});
 					break;
 				}
+				this.emitAndLog("llm_end", agentId, this.depth, {
+					model: this.resolved.model,
+					provider: this.resolved.provider,
+					input_tokens: 0,
+					output_tokens: 0,
+					latency_ms: Math.round(performance.now() - llmStartTime),
+					finish_reason: "error",
+				});
+				this.emitAndLog("plan_end", agentId, this.depth, {
+					turn: turns,
+					finish_reason: "error",
+				});
 				throw err;
 			}
+
+			const llmLatencyMs = Math.round(performance.now() - llmStartTime);
+			this.emitAndLog("llm_end", agentId, this.depth, {
+				model: this.resolved.model,
+				provider: this.resolved.provider,
+				input_tokens: response.usage?.input_tokens ?? 0,
+				output_tokens: response.usage?.output_tokens ?? 0,
+				latency_ms: llmLatencyMs,
+				finish_reason: response.finish_reason.reason,
+			});
 			const assistantMessage = response.message;
 
 			// Add assistant message to history
@@ -1149,6 +1290,22 @@ export class Agent {
 					timestamp: Date.now(),
 				});
 			}
+		}
+
+		} catch (err) {
+			// Emit session_end on unrecoverable errors so listeners are not left
+			// stuck in a "running" state. The normal completion path below handles
+			// the happy case and abort-via-break.
+			this.emitAndLog("session_end", agentId, this.depth, {
+				session_id: this.sessionId,
+				success: false,
+				stumbles,
+				turns,
+				timed_out: false,
+				output: lastOutput,
+			});
+			await this.flushLog();
+			throw err;
 		}
 
 		// Check if we hit limits

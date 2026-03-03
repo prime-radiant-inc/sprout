@@ -287,16 +287,31 @@ function createClientReplayer(
 			const { entry, nextIndex } = nextEntry(cassette, callIndex, opts.testName);
 			callIndex = nextIndex;
 
-			if (entry.type !== "stream") {
-				throw new Error(
-					`VCR type mismatch for '${opts.testName}' call #${callIndex}: ` +
-						`expected 'stream' but recording is '${entry.type}'.`,
-				);
+			if (entry.type === "stream") {
+				for (const event of entry.events) {
+					yield substituteForReplay(event, subs) as StreamEvent;
+				}
+				return;
 			}
 
-			for (const event of entry.events) {
-				yield substituteForReplay(event, subs) as StreamEvent;
+			// Wrap a complete recording as a minimal stream so existing
+			// non-streaming VCR fixtures work when enableStreaming is on.
+			if (entry.type === "complete") {
+				const response = substituteForReplay(entry.response, subs) as Response;
+				yield { type: "stream_start" } as StreamEvent;
+				yield {
+					type: "finish",
+					finish_reason: response.finish_reason,
+					usage: response.usage,
+					response,
+				} as unknown as StreamEvent;
+				return;
 			}
+
+			throw new Error(
+				`VCR type mismatch for '${opts.testName}' call #${callIndex}: ` +
+					`expected 'stream' or 'complete' but recording is '${(entry as VcrEntry).type}'.`,
+			);
 		},
 		providers: () => cassette.metadata.providers,
 		listModelsByProvider: async () => {

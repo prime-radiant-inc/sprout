@@ -180,3 +180,39 @@
 	0%, 100% { opacity: 1; }
 	50% { opacity: 0.3; }
 }
+
+/* Per-agent stats line */
+.statsLine {
+	display: flex;
+	gap: var(--space-xs);
+	align-items: baseline;
+	font-family: var(--font-mono);
+	font-size: var(--font-size-xxs);
+	color: var(--color-text-placeholder);
+	margin-top: 1px;
+}
+
+.stateLabel {
+	font-family: var(--font-ui);
+}
+
+.statsLine[data-agent-state="calling_llm"] .stateLabel {
+	color: var(--color-running);
+}
+
+.statsLine[data-agent-state="executing_tool"] .stateLabel {
+	color: var(--color-warning, var(--color-text-secondary));
+}
+
+.statsLine[data-agent-state="delegating"] .stateLabel {
+	color: var(--color-accent);
+}
+
+.statsTurn {
+	font-variant-numeric: tabular-nums;
+}
+
+.statsTokens {
+	font-variant-numeric: tabular-nums;
+	margin-left: auto;
+}

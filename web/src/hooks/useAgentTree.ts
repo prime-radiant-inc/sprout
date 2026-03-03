@@ -50,11 +50,19 @@ export function buildAgentTree(events: SessionEvent[]): AgentTreeNode {
 		// Derive root identity from the first depth-0 event
 		if (event.depth === 0 && root.agentId === "root" && event.agent_id !== "root") {
 			root.agentId = event.agent_id;
+			root.agentName = event.agent_id;
 		}
 
 		switch (event.kind) {
+			case "session_start": {
+				if (event.depth === 0) {
+					root.status = "running";
+				}
+				break;
+			}
+
 			case "perceive": {
-				if (event.depth === 0 && !root.goal) {
+				if (event.depth === 0) {
 					root.goal = (event.data.goal as string) ?? "";
 				}
 				break;
@@ -62,7 +70,7 @@ export function buildAgentTree(events: SessionEvent[]): AgentTreeNode {
 
 			case "session_end": {
 				if (event.depth === 0) {
-					root.status = "completed";
+					root.status = event.data.success === false ? "failed" : "completed";
 				}
 				break;
 			}

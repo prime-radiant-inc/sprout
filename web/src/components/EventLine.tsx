@@ -14,6 +14,10 @@ interface EventLineProps {
 	agentName?: string;
 	livePeek?: string;
 	livePeekTools?: ToolCallSummary[];
+	/** Args from matching primitive_start (primitive_end events don't carry args). */
+	args?: Record<string, unknown>;
+	/** Whether this delegation was abandoned (session ended without act_end). */
+	abandoned?: boolean;
 	onSelectAgent?: (agentId: string) => void;
 }
 
@@ -21,7 +25,7 @@ interface EventLineProps {
  * Dispatcher: maps a SessionEvent to the appropriate display component.
  * Returns null for events that should not be displayed.
  */
-export function EventLine({ event, durationMs, streamingText, isFirstInGroup, agentName, livePeek, livePeekTools, onSelectAgent }: EventLineProps) {
+export function EventLine({ event, durationMs, streamingText, isFirstInGroup, agentName, livePeek, livePeekTools, args: groupedArgs, abandoned, onSelectAgent }: EventLineProps) {
 	const { kind, data } = event;
 
 	switch (kind) {
@@ -67,7 +71,7 @@ export function EventLine({ event, durationMs, streamingText, isFirstInGroup, ag
 				<ToolCall
 					toolName={data.name as string}
 					success={Boolean(data.success)}
-					args={data.args as Record<string, unknown>}
+					args={groupedArgs ?? (data.args as Record<string, unknown>)}
 					error={data.error ? String(data.error) : undefined}
 					output={data.output ? String(data.output) : undefined}
 					durationMs={durationMs}
@@ -80,7 +84,7 @@ export function EventLine({ event, durationMs, streamingText, isFirstInGroup, ag
 					agentName={data.agent_name as string}
 					goal={data.goal as string}
 					description={typeof data.description === "string" ? data.description : undefined}
-					status="running"
+					status={abandoned ? "failed" : "running"}
 					livePeek={livePeek}
 					livePeekTools={livePeekTools}
 					onOpenThread={onSelectAgent ? () => onSelectAgent(
@@ -185,6 +189,9 @@ export function EventLine({ event, durationMs, streamingText, isFirstInGroup, ag
 		case "learn_signal":
 		case "learn_end":
 		case "log":
+		case "llm_start":
+		case "llm_chunk":
+		case "llm_end":
 			return null;
 
 		default:

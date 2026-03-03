@@ -54,16 +54,48 @@ const ORCHESTRATOR_AGENT_SPEC = {
 
 /** Create a mock LLM client that returns a canned text response */
 function createMockClient(responseText: string): Client {
+	const response: Response = {
+		id: "mock-1",
+		model: "claude-haiku-4-5-20251001",
+		provider: "anthropic",
+		message: Msg.assistant(responseText),
+		finish_reason: { reason: "stop" },
+		usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+	};
 	return {
-		complete: async (_request: Request): Promise<Response> => ({
-			id: "mock-1",
-			model: "claude-haiku-4-5-20251001",
-			provider: "anthropic",
-			message: Msg.assistant(responseText),
-			finish_reason: { reason: "stop" },
-			usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
-		}),
-		stream: async function* () {},
+		complete: async (_request: Request): Promise<Response> => response,
+		stream: async function* () {
+			yield { type: "stream_start" as const };
+			yield {
+				type: "finish" as const,
+				finish_reason: response.finish_reason,
+				usage: response.usage,
+				response,
+			};
+		},
+		providers: () => ["anthropic"],
+	} as unknown as Client;
+}
+
+/**
+ * Build a mock client where both `complete` and `stream` use the same handler.
+ * The stream wraps the complete response as a minimal streaming sequence.
+ */
+function buildMockClient(
+	handler: (request: Request) => Promise<Response>,
+): Client {
+	return {
+		complete: handler,
+		stream: async function* (request: Request) {
+			const response = await handler(request);
+			yield { type: "stream_start" as const };
+			yield {
+				type: "finish" as const,
+				finish_reason: response.finish_reason,
+				usage: response.usage,
+				response,
+			};
+		},
 		providers: () => ["anthropic"],
 	} as unknown as Client;
 }
@@ -322,22 +354,18 @@ describe("runAgentProcess", () => {
 
 	test("shared agent handles continue message after initial run", async () => {
 		let callCount = 0;
-		const mockClient = {
-			complete: async (_request: Request): Promise<Response> => {
-				callCount++;
-				const text = callCount === 1 ? "First response." : "Continued response.";
-				return {
-					id: `mock-${callCount}`,
-					model: "claude-haiku-4-5-20251001",
-					provider: "anthropic",
-					message: Msg.assistant(text),
-					finish_reason: { reason: "stop" },
-					usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
-				};
-			},
-			stream: async function* () {},
-			providers: () => ["anthropic"],
-		} as unknown as Client;
+		const mockClient = buildMockClient(async (_request: Request): Promise<Response> => {
+			callCount++;
+			const text = callCount === 1 ? "First response." : "Continued response.";
+			return {
+				id: `mock-${callCount}`,
+				model: "claude-haiku-4-5-20251001",
+				provider: "anthropic",
+				message: Msg.assistant(text),
+				finish_reason: { reason: "stop" },
+				usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+			};
+		});
 
 		const controller = new AbortController();
 
@@ -396,32 +424,28 @@ describe("runAgentProcess", () => {
 
 	test("queues continue messages that arrive while processing", async () => {
 		let callCount = 0;
-		const mockClient = {
-			complete: async (_request: Request): Promise<Response> => {
-				callCount++;
-				// First call is the initial run. Second is the first continue
-				// (slow so the third arrives while it's still processing).
-				// Third is the queued continue.
-				const responses: Record<number, string> = {
-					1: "Initial response.",
-					2: "Continue-1 response.",
-					3: "Continue-2 response.",
-				};
-				if (callCount === 2) {
-					await delay(300); // Slow enough for second continue to arrive
-				}
-				return {
-					id: `mock-${callCount}`,
-					model: "claude-haiku-4-5-20251001",
-					provider: "anthropic",
-					message: Msg.assistant(responses[callCount] ?? `Response ${callCount}`),
-					finish_reason: { reason: "stop" },
-					usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
-				};
-			},
-			stream: async function* () {},
-			providers: () => ["anthropic"],
-		} as unknown as Client;
+		const mockClient = buildMockClient(async (_request: Request): Promise<Response> => {
+			callCount++;
+			// First call is the initial run. Second is the first continue
+			// (slow so the third arrives while it's still processing).
+			// Third is the queued continue.
+			const responses: Record<number, string> = {
+				1: "Initial response.",
+				2: "Continue-1 response.",
+				3: "Continue-2 response.",
+			};
+			if (callCount === 2) {
+				await delay(300); // Slow enough for second continue to arrive
+			}
+			return {
+				id: `mock-${callCount}`,
+				model: "claude-haiku-4-5-20251001",
+				provider: "anthropic",
+				message: Msg.assistant(responses[callCount] ?? `Response ${callCount}`),
+				finish_reason: { reason: "stop" },
+				usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+			};
+		});
 
 		const controller = new AbortController();
 
@@ -494,22 +518,18 @@ describe("runAgentProcess", () => {
 	test("steer messages are queued and applied in next continue cycle", async () => {
 		const requests: Request[] = [];
 		let callCount = 0;
-		const mockClient = {
-			complete: async (request: Request): Promise<Response> => {
-				requests.push(request);
-				callCount++;
-				return {
-					id: `mock-${callCount}`,
-					model: "claude-haiku-4-5-20251001",
-					provider: "anthropic",
-					message: Msg.assistant(`Response ${callCount}.`),
-					finish_reason: { reason: "stop" },
-					usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
-				};
-			},
-			stream: async function* () {},
-			providers: () => ["anthropic"],
-		} as unknown as Client;
+		const mockClient = buildMockClient(async (request: Request): Promise<Response> => {
+			requests.push(request);
+			callCount++;
+			return {
+				id: `mock-${callCount}`,
+				model: "claude-haiku-4-5-20251001",
+				provider: "anthropic",
+				message: Msg.assistant(`Response ${callCount}.`),
+				finish_reason: { reason: "stop" },
+				usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+			};
+		});
 
 		const controller = new AbortController();
 
@@ -579,48 +599,44 @@ describe("runAgentProcess", () => {
 	test("steer messages are forwarded to agent during initial run", async () => {
 		const requests: Request[] = [];
 		let callCount = 0;
-		const mockClient = {
-			complete: async (request: Request): Promise<Response> => {
-				requests.push(request);
-				callCount++;
-				if (callCount === 1) {
-					// First turn: return a tool call so the agent loops for a second turn.
-					// Add a delay so the test can inject a steer before the second turn.
-					await delay(200);
-					return {
-						id: "mock-1",
-						model: "claude-haiku-4-5-20251001",
-						provider: "anthropic",
-						message: {
-							role: "assistant" as const,
-							content: [
-								{
-									kind: ContentKind.TOOL_CALL,
-									tool_call: {
-										id: "tc-1",
-										name: "read_file",
-										arguments: { path: "/dev/null" },
-									},
-								},
-							],
-						},
-						finish_reason: { reason: "tool_calls" as const },
-						usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
-					};
-				}
-				// Second turn: return a plain text response to finish
+		const mockClient = buildMockClient(async (request: Request): Promise<Response> => {
+			requests.push(request);
+			callCount++;
+			if (callCount === 1) {
+				// First turn: return a tool call so the agent loops for a second turn.
+				// Add a delay so the test can inject a steer before the second turn.
+				await delay(200);
 				return {
-					id: "mock-2",
+					id: "mock-1",
 					model: "claude-haiku-4-5-20251001",
 					provider: "anthropic",
-					message: Msg.assistant("Done with steered task."),
-					finish_reason: { reason: "stop" as const },
+					message: {
+						role: "assistant" as const,
+						content: [
+							{
+								kind: ContentKind.TOOL_CALL,
+								tool_call: {
+									id: "tc-1",
+									name: "read_file",
+									arguments: { path: "/dev/null" },
+								},
+							},
+						],
+					},
+					finish_reason: { reason: "tool_calls" as const },
 					usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
 				};
-			},
-			stream: async function* () {},
-			providers: () => ["anthropic"],
-		} as unknown as Client;
+			}
+			// Second turn: return a plain text response to finish
+			return {
+				id: "mock-2",
+				model: "claude-haiku-4-5-20251001",
+				provider: "anthropic",
+				message: Msg.assistant("Done with steered task."),
+				finish_reason: { reason: "stop" as const },
+				usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+			};
+		});
 
 		const resultTopic = agentResult(SESSION_ID, HANDLE_ID);
 		const resultPromise = parentClient.waitForMessage(resultTopic, 10_000);
@@ -741,24 +757,20 @@ describe("runAgentProcess", () => {
 
 	test("publishes error result when continue fails in idle loop", async () => {
 		let callCount = 0;
-		const mockClient = {
-			complete: async (_request: Request): Promise<Response> => {
-				callCount++;
-				if (callCount === 1) {
-					return {
-						id: "mock-1",
-						model: "claude-haiku-4-5-20251001",
-						provider: "anthropic",
-						message: Msg.assistant("First response."),
-						finish_reason: { reason: "stop" },
-						usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
-					};
-				}
-				throw new Error("LLM provider unavailable");
-			},
-			stream: async function* () {},
-			providers: () => ["anthropic"],
-		} as unknown as Client;
+		const mockClient = buildMockClient(async (_request: Request): Promise<Response> => {
+			callCount++;
+			if (callCount === 1) {
+				return {
+					id: "mock-1",
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant("First response."),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+				};
+			}
+			throw new Error("LLM provider unavailable");
+		});
 
 		const controller = new AbortController();
 
@@ -874,21 +886,17 @@ describe("runAgentProcess", () => {
 		await genome.addAgent(ORCHESTRATOR_AGENT_SPEC as any);
 
 		const capturedRequests: Request[] = [];
-		const mockClient = {
-			complete: async (request: Request): Promise<Response> => {
-				capturedRequests.push(request);
-				return {
-					id: "mock-1",
-					model: "claude-haiku-4-5-20251001",
-					provider: "anthropic",
-					message: Msg.assistant("Delegated successfully."),
-					finish_reason: { reason: "stop" },
-					usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
-				};
-			},
-			stream: async function* () {},
-			providers: () => ["anthropic"],
-		} as unknown as Client;
+		const mockClient = buildMockClient(async (request: Request): Promise<Response> => {
+			capturedRequests.push(request);
+			return {
+				id: "mock-1",
+				model: "claude-haiku-4-5-20251001",
+				provider: "anthropic",
+				message: Msg.assistant("Delegated successfully."),
+				finish_reason: { reason: "stop" },
+				usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+			};
+		});
 
 		const resultTopic = agentResult(SESSION_ID, HANDLE_ID);
 		const resultPromise = parentClient.waitForMessage(resultTopic, 10_000);
@@ -932,22 +940,18 @@ describe("runAgentProcess", () => {
 	test("re-spawned agent with existing log replays history as initialHistory", async () => {
 		const capturedRequests: Request[] = [];
 		let callCount = 0;
-		const mockClient = {
-			complete: async (request: Request): Promise<Response> => {
-				capturedRequests.push(request);
-				callCount++;
-				return {
-					id: `mock-${callCount}`,
-					model: "claude-haiku-4-5-20251001",
-					provider: "anthropic",
-					message: Msg.assistant(`Response ${callCount}.`),
-					finish_reason: { reason: "stop" },
-					usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
-				};
-			},
-			stream: async function* () {},
-			providers: () => ["anthropic"],
-		} as unknown as Client;
+		const mockClient = buildMockClient(async (request: Request): Promise<Response> => {
+			capturedRequests.push(request);
+			callCount++;
+			return {
+				id: `mock-${callCount}`,
+				model: "claude-haiku-4-5-20251001",
+				provider: "anthropic",
+				message: Msg.assistant(`Response ${callCount}.`),
+				finish_reason: { reason: "stop" },
+				usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+			};
+		});
 
 		const resultTopic = agentResult(SESSION_ID, HANDLE_ID);
 

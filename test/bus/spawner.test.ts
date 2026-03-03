@@ -32,16 +32,28 @@ const AGENT_SPEC = {
 };
 
 function createMockClient(responseText: string): Client {
+	const response: Response = {
+		id: "mock-1",
+		model: "claude-haiku-4-5-20251001",
+		provider: "anthropic",
+		message: Msg.assistant(responseText),
+		finish_reason: { reason: "stop" },
+		usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+	};
 	return {
-		complete: async (_request: Request): Promise<Response> => ({
-			id: "mock-1",
-			model: "claude-haiku-4-5-20251001",
-			provider: "anthropic",
-			message: Msg.assistant(responseText),
-			finish_reason: { reason: "stop" },
-			usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
-		}),
-		stream: async function* () {},
+		complete: async (_request: Request): Promise<Response> => response,
+		stream: async function* () {
+			yield { type: "stream_start" as const };
+			yield { type: "text_start" as const };
+			yield { type: "text_delta" as const, delta: responseText };
+			yield { type: "text_end" as const };
+			yield {
+				type: "finish" as const,
+				finish_reason: response.finish_reason,
+				usage: response.usage,
+				response,
+			};
+		},
 		providers: () => ["anthropic"],
 	} as unknown as Client;
 }
@@ -64,6 +76,29 @@ function createInProcessSpawnFn(client: Client) {
 			exited: promise.then(() => 0),
 		};
 	};
+}
+
+/**
+ * Build a mock client where both `complete` and `stream` use the same handler.
+ * The stream wraps the complete response as a minimal streaming sequence.
+ */
+function buildMockClient(
+	handler: (request: Request) => Promise<Response>,
+): Client {
+	return {
+		complete: handler,
+		stream: async function* (request: Request) {
+			const response = await handler(request);
+			yield { type: "stream_start" as const };
+			yield {
+				type: "finish" as const,
+				finish_reason: response.finish_reason,
+				usage: response.usage,
+				response,
+			};
+		},
+		providers: () => ["anthropic"],
+	} as unknown as Client;
 }
 
 function delay(ms = 50): Promise<void> {
@@ -154,21 +189,17 @@ describe("AgentSpawner", () => {
 
 		test("spawned agent receives start message with correct fields", async () => {
 			const requests: Request[] = [];
-			const mockClient = {
-				complete: async (request: Request): Promise<Response> => {
-					requests.push(request);
-					return {
-						id: "mock-1",
-						model: "claude-haiku-4-5-20251001",
-						provider: "anthropic",
-						message: Msg.assistant("Done with hints."),
-						finish_reason: { reason: "stop" },
-						usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
-					};
-				},
-				stream: async function* () {},
-				providers: () => ["anthropic"],
-			} as unknown as Client;
+			const mockClient = buildMockClient(async (request: Request): Promise<Response> => {
+				requests.push(request);
+				return {
+					id: "mock-1",
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant("Done with hints."),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+				};
+			});
 
 			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
 
@@ -294,7 +325,10 @@ describe("AgentSpawner", () => {
 					await new Promise(() => {}); // never resolves
 					throw new Error("unreachable");
 				},
-				stream: async function* () {},
+				stream: async function* () {
+					yield { type: "stream_start" as const };
+					await new Promise(() => {}); // never resolves
+				},
 				providers: () => ["anthropic"],
 			} as unknown as Client;
 
@@ -332,24 +366,20 @@ describe("AgentSpawner", () => {
 
 		test("multiple concurrent waitAgent calls all resolve with the same result", async () => {
 			let resolveFirstCall: (() => void) | null = null;
-			const mockClient = {
-				complete: async (_request: Request): Promise<Response> => {
-					// Block until released so we can set up multiple waiters
-					await new Promise<void>((resolve) => {
-						resolveFirstCall = resolve;
-					});
-					return {
-						id: "mock-1",
-						model: "claude-haiku-4-5-20251001",
-						provider: "anthropic",
-						message: Msg.assistant("Shared result."),
-						finish_reason: { reason: "stop" },
-						usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
-					};
-				},
-				stream: async function* () {},
-				providers: () => ["anthropic"],
-			} as unknown as Client;
+			const mockClient = buildMockClient(async (_request: Request): Promise<Response> => {
+				// Block until released so we can set up multiple waiters
+				await new Promise<void>((resolve) => {
+					resolveFirstCall = resolve;
+				});
+				return {
+					id: "mock-1",
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant("Shared result."),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+				};
+			});
 
 			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
 
@@ -383,22 +413,18 @@ describe("AgentSpawner", () => {
 	describe("messageAgent", () => {
 		test("sends continue message to idle shared agent and waits for result", async () => {
 			let callCount = 0;
-			const mockClient = {
-				complete: async (_request: Request): Promise<Response> => {
-					callCount++;
-					const text = callCount === 1 ? "First." : "Continued.";
-					return {
-						id: `mock-${callCount}`,
-						model: "claude-haiku-4-5-20251001",
-						provider: "anthropic",
-						message: Msg.assistant(text),
-						finish_reason: { reason: "stop" },
-						usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
-					};
-				},
-				stream: async function* () {},
-				providers: () => ["anthropic"],
-			} as unknown as Client;
+			const mockClient = buildMockClient(async (_request: Request): Promise<Response> => {
+				callCount++;
+				const text = callCount === 1 ? "First." : "Continued.";
+				return {
+					id: `mock-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant(text),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+				};
+			});
 
 			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
 
@@ -433,27 +459,23 @@ describe("AgentSpawner", () => {
 		test("sends steer message to running agent (non-blocking)", async () => {
 			let resolveFirstCall: (() => void) | null = null;
 			let callCount = 0;
-			const mockClient = {
-				complete: async (_request: Request): Promise<Response> => {
-					callCount++;
-					if (callCount === 1) {
-						// First call takes a while so we can steer it
-						await new Promise<void>((resolve) => {
-							resolveFirstCall = resolve;
-						});
-					}
-					return {
-						id: `mock-${callCount}`,
-						model: "claude-haiku-4-5-20251001",
-						provider: "anthropic",
-						message: Msg.assistant(`Response ${callCount}.`),
-						finish_reason: { reason: "stop" },
-						usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
-					};
-				},
-				stream: async function* () {},
-				providers: () => ["anthropic"],
-			} as unknown as Client;
+			const mockClient = buildMockClient(async (_request: Request): Promise<Response> => {
+				callCount++;
+				if (callCount === 1) {
+					// First call takes a while so we can steer it
+					await new Promise<void>((resolve) => {
+						resolveFirstCall = resolve;
+					});
+				}
+				return {
+					id: `mock-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant(`Response ${callCount}.`),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+				};
+			});
 
 			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
 
@@ -491,22 +513,18 @@ describe("AgentSpawner", () => {
 		test("re-spawns completed agent and returns result with history", async () => {
 			const capturedRequests: Request[] = [];
 			let callCount = 0;
-			const mockClient = {
-				complete: async (request: Request): Promise<Response> => {
-					capturedRequests.push(request);
-					callCount++;
-					return {
-						id: `mock-${callCount}`,
-						model: "claude-haiku-4-5-20251001",
-						provider: "anthropic",
-						message: Msg.assistant(`Response ${callCount}.`),
-						finish_reason: { reason: "stop" },
-						usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
-					};
-				},
-				stream: async function* () {},
-				providers: () => ["anthropic"],
-			} as unknown as Client;
+			const mockClient = buildMockClient(async (request: Request): Promise<Response> => {
+				capturedRequests.push(request);
+				callCount++;
+				return {
+					id: `mock-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant(`Response ${callCount}.`),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+				};
+			});
 
 			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
 
@@ -807,21 +825,17 @@ describe("AgentSpawner", () => {
 
 		test("messageAgent allows non-owner on shared handle", async () => {
 			let callCount = 0;
-			const mockClient = {
-				complete: async (_request: Request): Promise<Response> => {
-					callCount++;
-					return {
-						id: `mock-${callCount}`,
-						model: "claude-haiku-4-5-20251001",
-						provider: "anthropic",
-						message: Msg.assistant(`Response ${callCount}.`),
-						finish_reason: { reason: "stop" },
-						usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
-					};
-				},
-				stream: async function* () {},
-				providers: () => ["anthropic"],
-			} as unknown as Client;
+			const mockClient = buildMockClient(async (_request: Request): Promise<Response> => {
+				callCount++;
+				return {
+					id: `mock-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant(`Response ${callCount}.`),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+				};
+			});
 
 			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
 
@@ -981,7 +995,10 @@ describe("AgentSpawner", () => {
 					await new Promise(() => {}); // never resolves
 					throw new Error("unreachable");
 				},
-				stream: async function* () {},
+				stream: async function* () {
+					yield { type: "stream_start" as const };
+					await new Promise(() => {}); // never resolves
+				},
 				providers: () => ["anthropic"],
 			} as unknown as Client;
 
@@ -1058,24 +1075,20 @@ describe("AgentSpawner", () => {
 	describe("shutdown", () => {
 		test("kills all running agent processes", async () => {
 			let resolveCall: (() => void) | null = null;
-			const mockClient = {
-				complete: async (_request: Request): Promise<Response> => {
-					// Block indefinitely so the agent stays running
-					await new Promise<void>((resolve) => {
-						resolveCall = resolve;
-					});
-					return {
-						id: "mock-1",
-						model: "claude-haiku-4-5-20251001",
-						provider: "anthropic",
-						message: Msg.assistant("Done."),
-						finish_reason: { reason: "stop" },
-						usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
-					};
-				},
-				stream: async function* () {},
-				providers: () => ["anthropic"],
-			} as unknown as Client;
+			const mockClient = buildMockClient(async (_request: Request): Promise<Response> => {
+				// Block indefinitely so the agent stays running
+				await new Promise<void>((resolve) => {
+					resolveCall = resolve;
+				});
+				return {
+					id: "mock-1",
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant("Done."),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+				};
+			});
 
 			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
 

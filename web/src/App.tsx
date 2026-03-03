@@ -7,6 +7,7 @@ import { InputArea } from "./components/InputArea.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
 import { StatusBar } from "./components/StatusBar.tsx";
 import { ThreadPanel } from "./components/ThreadPanel.tsx";
+import { useAgentStats } from "./hooks/useAgentStats.ts";
 import { useAgentTree } from "./hooks/useAgentTree.ts";
 import { useEvents } from "./hooks/useEvents.ts";
 import { useFaviconStatus } from "./hooks/useFaviconStatus.ts";
@@ -26,6 +27,7 @@ export function App() {
 	const { connected, send, onMessage } = useWebSocket(WS_URL);
 	const { events, status, sendCommand } = useEvents(onMessage, send);
 	const { tree } = useAgentTree(events);
+	const agentStats = useAgentStats(events);
 
 	const [panelStack, setPanelStack] = useState<string[]>([]);
 	const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -242,6 +244,7 @@ export function App() {
 							onSelectAgent={handleSidebarSelect}
 							onToggle={toggleSidebar}
 							events={events}
+							agentStats={agentStats}
 						/>
 						<div className={styles.dragHandle} onMouseDown={onSidebarDragStart} />
 					</aside>
