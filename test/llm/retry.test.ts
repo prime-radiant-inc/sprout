@@ -754,22 +754,79 @@ describe("retryLLMCall", () => {
 	test("throws on negative maxRetries", async () => {
 		expect(
 			retryLLMCall(async () => dummyResponse, { maxRetries: -1 }),
-		).rejects.toThrow("maxRetries must be >= 0");
+		).rejects.toThrow("maxRetries must be a non-negative finite number");
+	});
+
+	test("throws on NaN maxRetries", async () => {
+		expect(
+			retryLLMCall(async () => dummyResponse, { maxRetries: NaN }),
+		).rejects.toThrow("maxRetries must be a non-negative finite number");
+	});
+
+	test("throws on Infinity maxRetries", async () => {
+		expect(
+			retryLLMCall(async () => dummyResponse, { maxRetries: Infinity }),
+		).rejects.toThrow("maxRetries must be a non-negative finite number");
 	});
 
 	test("throws on negative baseDelayMs", async () => {
 		expect(
 			retryLLMCall(async () => dummyResponse, { baseDelayMs: -1 }),
-		).rejects.toThrow("baseDelayMs must be >= 0");
+		).rejects.toThrow("baseDelayMs must be a non-negative finite number");
+	});
+
+	test("throws on NaN baseDelayMs", async () => {
+		expect(
+			retryLLMCall(async () => dummyResponse, { baseDelayMs: NaN }),
+		).rejects.toThrow("baseDelayMs must be a non-negative finite number");
+	});
+
+	test("throws on Infinity baseDelayMs", async () => {
+		expect(
+			retryLLMCall(async () => dummyResponse, { baseDelayMs: Infinity }),
+		).rejects.toThrow("baseDelayMs must be a non-negative finite number");
 	});
 
 	test("throws on negative maxDelayMs", async () => {
 		expect(
 			retryLLMCall(async () => dummyResponse, { maxDelayMs: -1 }),
-		).rejects.toThrow("maxDelayMs must be >= 0");
+		).rejects.toThrow("maxDelayMs must be a non-negative finite number");
 	});
 
-	test("jitter never exceeds maxDelayMs", async () => {
+	test("throws on NaN maxDelayMs", async () => {
+		expect(
+			retryLLMCall(async () => dummyResponse, { maxDelayMs: NaN }),
+		).rejects.toThrow("maxDelayMs must be a non-negative finite number");
+	});
+
+	test("throws on Infinity maxDelayMs", async () => {
+		expect(
+			retryLLMCall(async () => dummyResponse, { maxDelayMs: Infinity }),
+		).rejects.toThrow("maxDelayMs must be a non-negative finite number");
+	});
+
+	test("throws on negative backoffMultiplier", async () => {
+		expect(
+			retryLLMCall(async () => dummyResponse, { backoffMultiplier: -1 }),
+		).rejects.toThrow("backoffMultiplier must be a non-negative finite number");
+	});
+
+	test("throws on NaN backoffMultiplier", async () => {
+		expect(
+			retryLLMCall(async () => dummyResponse, { backoffMultiplier: NaN }),
+		).rejects.toThrow("backoffMultiplier must be a non-negative finite number");
+	});
+
+	test("throws on Infinity backoffMultiplier", async () => {
+		expect(
+			retryLLMCall(async () => dummyResponse, { backoffMultiplier: Infinity }),
+		).rejects.toThrow("backoffMultiplier must be a non-negative finite number");
+	});
+
+	test("jitter can exceed maxDelayMs but stays within [0.5*max, 1.5*max)", async () => {
+		// Per spec: cap first, then jitter. Jitter is applied AFTER capping
+		// so delays can exceed maxDelayMs — intentional for thundering-herd
+		// desynchronization.
 		const delays: number[] = [];
 		const maxDelayMs = 5;
 
@@ -800,8 +857,9 @@ describe("retryLLMCall", () => {
 
 		expect(delays).toHaveLength(100);
 		for (const delay of delays) {
-			expect(delay).toBeLessThanOrEqual(maxDelayMs);
-			expect(delay).toBeGreaterThan(0);
+			// capped = min(100, 5) = 5, then jitter: 5 * [0.5, 1.5) => [2.5, 7.5)
+			expect(delay).toBeGreaterThanOrEqual(maxDelayMs * 0.5);
+			expect(delay).toBeLessThan(maxDelayMs * 1.5);
 		}
 	});
 

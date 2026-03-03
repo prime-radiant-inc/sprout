@@ -234,7 +234,7 @@ describe("withStreamReadTimeout", () => {
 		}
 
 		expect(caughtError).toBeInstanceOf(Error);
-		expect((caughtError as Error).message).toBe("timeoutMs must be positive");
+		expect((caughtError as Error).message).toBe("timeoutMs must be a positive finite number");
 	});
 
 	test("throws Error when timeoutMs is negative", async () => {
@@ -250,7 +250,39 @@ describe("withStreamReadTimeout", () => {
 		}
 
 		expect(caughtError).toBeInstanceOf(Error);
-		expect((caughtError as Error).message).toBe("timeoutMs must be positive");
+		expect((caughtError as Error).message).toBe("timeoutMs must be a positive finite number");
+	});
+
+	test("throws Error when timeoutMs is NaN", async () => {
+		const source = delayedIterable([{ value: "a", delayMs: 10 }]);
+		let caughtError: unknown;
+
+		try {
+			for await (const _item of withStreamReadTimeout(source, NaN)) {
+				// Should not reach here
+			}
+		} catch (err) {
+			caughtError = err;
+		}
+
+		expect(caughtError).toBeInstanceOf(Error);
+		expect((caughtError as Error).message).toBe("timeoutMs must be a positive finite number");
+	});
+
+	test("throws Error when timeoutMs is Infinity", async () => {
+		const source = delayedIterable([{ value: "a", delayMs: 10 }]);
+		let caughtError: unknown;
+
+		try {
+			for await (const _item of withStreamReadTimeout(source, Infinity)) {
+				// Should not reach here
+			}
+		} catch (err) {
+			caughtError = err;
+		}
+
+		expect(caughtError).toBeInstanceOf(Error);
+		expect((caughtError as Error).message).toBe("timeoutMs must be a positive finite number");
 	});
 
 	test("swallows cleanup error when iterator.return() throws", async () => {

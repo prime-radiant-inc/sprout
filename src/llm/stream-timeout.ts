@@ -48,8 +48,8 @@ export async function* withStreamReadTimeout<T>(
 	timeoutMs: number,
 	signal?: AbortSignal,
 ): AsyncGenerator<T> {
-	if (timeoutMs <= 0) {
-		throw new Error("timeoutMs must be positive");
+	if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+		throw new Error("timeoutMs must be a positive finite number");
 	}
 
 	if (signal?.aborted) {
@@ -128,10 +128,11 @@ export async function* withStreamReadTimeout<T>(
 		// block .return() indefinitely for async generators.
 		// Swallow cleanup errors to avoid masking the real error
 		// (e.g., network error during HTTP teardown).
+		let cleanupTimer: ReturnType<typeof setTimeout>;
 		try {
 			await Promise.race([
-				iterator.return?.(),
-				new Promise(resolve => setTimeout(resolve, 1000)),
+				iterator.return?.()?.then((v) => { clearTimeout(cleanupTimer); return v; }),
+				new Promise(resolve => { cleanupTimer = setTimeout(resolve, 1000); }),
 			]);
 		} catch { /* swallow cleanup error */ }
 	}

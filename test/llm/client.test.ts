@@ -284,13 +284,19 @@ describe("Client", () => {
 
 	test("constructor throws on negative streamReadTimeoutMs", () => {
 		expect(() => new Client({ streamReadTimeoutMs: -1 })).toThrow(
-			"streamReadTimeoutMs must be >= 0 (0 to disable)",
+			"streamReadTimeoutMs must be >= 0 and finite (0 to disable)",
 		);
 	});
 
 	test("constructor throws on NaN streamReadTimeoutMs", () => {
 		expect(() => new Client({ streamReadTimeoutMs: NaN })).toThrow(
-			"streamReadTimeoutMs must be >= 0 (0 to disable)",
+			"streamReadTimeoutMs must be >= 0 and finite (0 to disable)",
+		);
+	});
+
+	test("constructor throws on Infinity streamReadTimeoutMs", () => {
+		expect(() => new Client({ streamReadTimeoutMs: Infinity })).toThrow(
+			"streamReadTimeoutMs must be >= 0 and finite (0 to disable)",
 		);
 	});
 

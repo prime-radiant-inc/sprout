@@ -48,10 +48,16 @@ function isRetryable(error: unknown): boolean {
 		return false;
 	}
 
-	// No status code (network errors, timeout errors): retryable
+	// Status code not in non-retryable set, or no status code: retryable
 	return true;
 }
 
+// Cap first, then jitter — per spec Section 6.6:
+//   delay = MIN(base_delay * (backoff_multiplier ^ n), max_delay)
+//   IF jitter: delay = delay * RANDOM(0.5, 1.5)
+// Jitter is applied AFTER capping so that retries desynchronize
+// (thundering-herd prevention). This means jittered delays can exceed
+// maxDelayMs — that's intentional per spec.
 function computeDelay(
 	attempt: number, // 0-indexed: 0 = first retry
 	baseDelayMs: number,
@@ -59,9 +65,9 @@ function computeDelay(
 	backoffMultiplier: number,
 	jitter: boolean,
 ): number {
-	const raw = baseDelayMs * backoffMultiplier ** attempt;
-	const withJitter = jitter ? raw * (0.5 + Math.random()) : raw;
-	return Math.min(withJitter, maxDelayMs);
+	const capped = Math.min(baseDelayMs * backoffMultiplier ** attempt, maxDelayMs);
+	if (!jitter) return capped;
+	return capped * (0.5 + Math.random());
 }
 
 /**
@@ -88,9 +94,10 @@ export async function retryLLMCall<T>(
 		onRetry,
 	} = options;
 
-	if (maxRetries < 0) throw new Error("maxRetries must be >= 0");
-	if (baseDelayMs < 0) throw new Error("baseDelayMs must be >= 0");
-	if (maxDelayMs < 0) throw new Error("maxDelayMs must be >= 0");
+	if (!Number.isFinite(maxRetries) || maxRetries < 0) throw new Error("maxRetries must be a non-negative finite number");
+	if (!Number.isFinite(baseDelayMs) || baseDelayMs < 0) throw new Error("baseDelayMs must be a non-negative finite number");
+	if (!Number.isFinite(maxDelayMs) || maxDelayMs < 0) throw new Error("maxDelayMs must be a non-negative finite number");
+	if (!Number.isFinite(backoffMultiplier) || backoffMultiplier < 0) throw new Error("backoffMultiplier must be a non-negative finite number");
 
 	let lastError: Error | undefined;
 
@@ -130,11 +137,13 @@ export async function retryLLMCall<T>(
 				delayMs = computeDelay(attempt, baseDelayMs, maxDelayMs, backoffMultiplier, jitter);
 			}
 
+			// Check abort before calling onRetry (don't report a retry that won't happen)
+			if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+
 			onRetry?.(error, attempt + 1, delayMs);
 
 			// Wait with abort support
 			if (signal) {
-				if (signal.aborted) throw new DOMException("Aborted", "AbortError");
 				await new Promise<void>((resolve, reject) => {
 					function onAbort() {
 						clearTimeout(timer);
