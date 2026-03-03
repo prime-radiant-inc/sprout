@@ -1607,7 +1607,12 @@ describe("defaultFactory passes spawner to createAgent", () => {
 		};
 
 		const bus = new EventBus();
-		const fakeSpawner = { getHandles: () => [], subscribeSessionEvents: async () => {} } as any;
+		const fakeSpawner = {
+			getHandles: () => [],
+			subscribeSessionEvents: async () => {},
+			updateSessionId: async () => {},
+			clearHandles: async () => {},
+		} as any;
 		const controller = new SessionController({
 			bus,
 			genomePath,

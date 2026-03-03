@@ -175,6 +175,7 @@ export class SessionController {
 	private modelOverride?: string;
 	private hasRun = false;
 	private compactFn?: AgentFactoryResult["compact"];
+	private spawnerReady?: Promise<void>;
 
 	get sessionId(): string {
 		return this._sessionId;
@@ -207,7 +208,7 @@ export class SessionController {
 		// This must be in the constructor, not the factory, to avoid accumulating
 		// subscriptions on each submitGoal call.
 		if (this.spawner) {
-			this.spawner
+			this.spawnerReady = this.spawner
 				.subscribeSessionEvents((eventMsg) => {
 					const ev = eventMsg.event;
 					this.bus.emitEvent(ev.kind, ev.agent_id, ev.depth, ev.data);
@@ -259,6 +260,9 @@ export class SessionController {
 					this.logger.reconfigure({ sessionId: this._sessionId, logPath: newLogPath });
 				}
 				if (this.spawner) {
+					this.spawner.clearHandles().catch((err) => {
+						console.error("[SessionController] Failed to clear handles after clear:", err);
+					});
 					this.spawner.updateSessionId(this._sessionId).catch((err) => {
 						console.error("[SessionController] Failed to resubscribe after clear:", err);
 					});
@@ -354,6 +358,13 @@ export class SessionController {
 			return;
 		}
 		this.logger?.info("session", "Goal submitted", { goal: goal.slice(0, 100) });
+
+		// Ensure the spawner's session-wide events subscription is active
+		// before we create any agents. The subscription is fire-and-forget
+		// in the constructor; awaiting here closes the race window.
+		if (this.spawnerReady) {
+			await this.spawnerReady;
+		}
 
 		// Emit session_resume on first run when prior history exists (including
 		// compacted single-message history). The TUI uses history_length to show

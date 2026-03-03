@@ -1844,6 +1844,7 @@ describe("SessionController session-wide event wiring", () => {
 				capturedCallback = cb;
 			},
 			updateSessionId: async () => {},
+			clearHandles: async () => {},
 		} as any;
 
 		const fake = makeFakeAgent();
@@ -1885,15 +1886,19 @@ describe("SessionController session-wide event wiring", () => {
 		expect(emittedEvents[0]!.depth).toBe(1);
 	});
 
-	test("/clear command calls updateSessionId on spawner", async () => {
+	test("/clear command calls clearHandles and updateSessionId on spawner", async () => {
 		const bus = new EventBus();
 
 		const updateCalls: string[] = [];
+		let clearHandlesCalled = false;
 		const fakeSpawner = {
 			getHandles: () => [],
 			subscribeSessionEvents: async () => {},
 			updateSessionId: async (newId: string) => {
 				updateCalls.push(newId);
+			},
+			clearHandles: async () => {
+				clearHandlesCalled = true;
 			},
 		} as any;
 
@@ -1913,6 +1918,7 @@ describe("SessionController session-wide event wiring", () => {
 		await new Promise((r) => setTimeout(r, 50));
 
 		expect(controller.sessionId).not.toBe(oldSessionId);
+		expect(clearHandlesCalled).toBe(true);
 		expect(updateCalls.length).toBe(1);
 		expect(updateCalls[0]).toBe(controller.sessionId);
 	});

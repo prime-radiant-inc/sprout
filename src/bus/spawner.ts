@@ -49,6 +49,8 @@ export interface AgentHandle {
 	workDir: string;
 	rootDir?: string;
 	projectDataDir?: string;
+	/** Bus topic for result messages, used for cleanup. */
+	resultTopic?: string;
 }
 
 /**
@@ -94,6 +96,7 @@ export class AgentSpawner {
 	private readonly waitTimeoutMs: number;
 	private readonly handles = new Map<string, AgentHandle>();
 	private sessionEventsCallback?: (event: EventMessage) => void;
+	private currentSessionEventsTopic?: string;
 
 	constructor(
 		bus: BusClient,
@@ -136,9 +139,35 @@ export class AgentSpawner {
 		}
 	}
 
+	/**
+	 * Clear all tracked handles, unsubscribe from their result topics,
+	 * and kill any running processes. Called on session reset (/clear).
+	 */
+	async clearHandles(): Promise<void> {
+		// Kill running processes
+		for (const handle of this.handles.values()) {
+			if (handle.status === "running" || handle.status === "idle") {
+				handle.process.kill();
+			}
+		}
+		// Unsubscribe from per-handle result topics
+		for (const handle of this.handles.values()) {
+			if (handle.resultTopic && this.bus.connected) {
+				await this.bus.unsubscribe(handle.resultTopic);
+			}
+		}
+		this.handles.clear();
+	}
+
 	private async subscribeToSessionTopic(): Promise<void> {
+		// Unsubscribe from the previous session events topic to avoid leaking
+		if (this.currentSessionEventsTopic && this.bus.connected) {
+			await this.bus.unsubscribe(this.currentSessionEventsTopic);
+		}
+
 		const callback = this.sessionEventsCallback!;
 		const topic = sessionEvents(this.sessionId);
+		this.currentSessionEventsTopic = topic;
 		await this.bus.subscribe(topic, (payload) => {
 			try {
 				const msg = parseBusMessage(payload);
@@ -191,6 +220,7 @@ export class AgentSpawner {
 
 		// Subscribe to result topic to track status
 		const resultTopic = agentResult(this.sessionId, handleId);
+		handle.resultTopic = resultTopic;
 		await this.bus.subscribe(resultTopic, (payload) => {
 			try {
 				const msg = parseBusMessage(payload);
@@ -407,12 +437,18 @@ export class AgentSpawner {
 		return this.handles.get(handleId);
 	}
 
-	/** Kill all running agent processes */
+	/** Kill all running agent processes and clean up bus subscriptions. */
 	shutdown(): void {
 		for (const handle of this.handles.values()) {
 			if (handle.status === "running" || handle.status === "idle") {
 				handle.process.kill();
 			}
+			if (handle.resultTopic && this.bus.connected) {
+				this.bus.unsubscribe(handle.resultTopic).catch(() => {});
+			}
+		}
+		if (this.currentSessionEventsTopic && this.bus.connected) {
+			this.bus.unsubscribe(this.currentSessionEventsTopic).catch(() => {});
 		}
 	}
 }

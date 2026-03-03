@@ -645,7 +645,7 @@ describe("AgentSpawner", () => {
 	});
 
 	describe("subscribeSessionEvents multi-agent", () => {
-		test("events from multiple agents arrive at a single subscription", async () => {
+		test("events from concurrent agents arrive at a single subscription", async () => {
 			const mockClient = createMockClient("Multi-agent test.");
 			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
 
@@ -655,28 +655,29 @@ describe("AgentSpawner", () => {
 			const handleA = "01MULTIAGENT_A0000000000000";
 			const handleB = "01MULTIAGENT_B0000000000000";
 
-			// Spawn two agents sequentially (each publishes to the same session topic)
-			await spawner.spawnAgent({
-				agentName: "test-leaf",
-				genomePath: genomeDir,
-				caller: { agent_name: "root", depth: 0 },
-				goal: "Agent A task",
-				blocking: true,
-				shared: false,
-				workDir: tempDir,
-				handleId: handleA,
-			});
-
-			await spawner.spawnAgent({
-				agentName: "test-leaf",
-				genomePath: genomeDir,
-				caller: { agent_name: "root", depth: 0 },
-				goal: "Agent B task",
-				blocking: true,
-				shared: false,
-				workDir: tempDir,
-				handleId: handleB,
-			});
+			// Spawn two agents concurrently to test interleaved delivery
+			await Promise.all([
+				spawner.spawnAgent({
+					agentName: "test-leaf",
+					genomePath: genomeDir,
+					caller: { agent_name: "root", depth: 0 },
+					goal: "Agent A task",
+					blocking: true,
+					shared: false,
+					workDir: tempDir,
+					handleId: handleA,
+				}),
+				spawner.spawnAgent({
+					agentName: "test-leaf",
+					genomePath: genomeDir,
+					caller: { agent_name: "root", depth: 0 },
+					goal: "Agent B task",
+					blocking: true,
+					shared: false,
+					workDir: tempDir,
+					handleId: handleB,
+				}),
+			]);
 
 			// Events from BOTH agents should arrive via the single subscription
 			const handlesInEvents = new Set(events.map((e) => e.handle_id));
@@ -929,6 +930,93 @@ describe("AgentSpawner", () => {
 
 			expect(spawner.getHandles()).toContain("01HANDLELIST0000000000000000");
 		});
+	});
+
+	describe("clearHandles", () => {
+		test("clears all handles and empties the map", async () => {
+			const mockClient = createMockClient("Clear test.");
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			await spawner.spawnAgent({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: { agent_name: "root", depth: 0 },
+				goal: "Task to clear",
+				blocking: true,
+				shared: false,
+				workDir: tempDir,
+			});
+
+			expect(spawner.getHandles().length).toBe(1);
+
+			await spawner.clearHandles();
+
+			expect(spawner.getHandles().length).toBe(0);
+		}, 15_000);
+
+		test("throws unknown handle after clearHandles", async () => {
+			const mockClient = createMockClient("Clear test.");
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			const handleId = (await spawner.spawnAgent({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: { agent_name: "root", depth: 0 },
+				goal: "Task to clear",
+				blocking: false,
+				shared: false,
+				workDir: tempDir,
+			})) as string;
+
+			await spawner.waitAgent(handleId);
+			await spawner.clearHandles();
+
+			expect(() => spawner.waitAgent(handleId)).toThrow(/unknown handle/i);
+		}, 15_000);
+	});
+
+	describe("updateSessionId unsubscribes old topic", () => {
+		test("events on old session topic no longer reach callback after update", async () => {
+			const mockClient = createMockClient("Old topic test.");
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			const events: EventMessage[] = [];
+			await spawner.subscribeSessionEvents((event) => events.push(event));
+
+			// Spawn an agent on the original session to confirm subscription works
+			await spawner.spawnAgent({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: { agent_name: "root", depth: 0 },
+				goal: "Before update",
+				blocking: true,
+				shared: false,
+				workDir: tempDir,
+			});
+
+			const eventsBeforeUpdate = events.length;
+			expect(eventsBeforeUpdate).toBeGreaterThan(0);
+
+			// Update session ID (unsubscribes old topic, subscribes new)
+			await spawner.updateSessionId("new-session-id-test");
+
+			// Manually publish to the OLD session topic — should NOT arrive
+			const oldTopic = `session/${SESSION_ID}/events`;
+			await bus.publish(
+				oldTopic,
+				JSON.stringify({
+					kind: "event",
+					handle_id: "ghost",
+					event: { kind: "session_start", agent_id: "ghost", depth: 1, data: {} },
+				}),
+			);
+
+			// Give time for any message delivery
+			await delay(100);
+
+			// No new events should have arrived from the old topic
+			expect(events.length).toBe(eventsBeforeUpdate);
+		}, 15_000);
 	});
 
 	describe("shutdown", () => {
