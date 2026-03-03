@@ -176,6 +176,10 @@ export class SessionController {
 	private hasRun = false;
 	/** Suppresses event accumulation after /clear until the next submitGoal. */
 	private suppressEvents = false;
+	/** Incremented on each submitGoal; the finally block only writes shared
+	 *  state (running, agent) if the generation hasn't changed (i.e. no /clear
+	 *  started a newer run in the meantime). */
+	private runGeneration = 0;
 	private compactFn?: AgentFactoryResult["compact"];
 	private spawnerReady?: Promise<void>;
 
@@ -394,6 +398,8 @@ export class SessionController {
 		}
 
 		this.running = true;
+		this.runGeneration++;
+		const generation = this.runGeneration;
 		this.metadata.setStatus("running");
 		await this.metadata.save();
 
@@ -438,10 +444,15 @@ export class SessionController {
 			if (learnProcess) {
 				await learnProcess.stopBackground();
 			}
-			this.running = false;
+			// Only update shared state if no /clear has started a newer run.
+			// Without this guard, the old finally block would clobber the
+			// new run's this.running and this.agent.
+			if (this.runGeneration === generation) {
+				this.running = false;
+				this.agent = null;
+			}
 			metadata.setStatus(signal.aborted ? "interrupted" : "idle");
 			await metadata.save();
-			this.agent = null;
 		}
 	}
 
