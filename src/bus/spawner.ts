@@ -450,6 +450,12 @@ export class AgentSpawner {
 	/** Kill all running agent processes and clean up bus subscriptions. */
 	shutdown(): void {
 		for (const handle of this.handles.values()) {
+			for (const waiter of handle.pendingWaiters) {
+				clearTimeout(waiter.timer);
+				waiter.reject(new Error("Spawner shutting down"));
+			}
+			handle.pendingWaiters = [];
+
 			if (handle.status === "running" || handle.status === "idle") {
 				handle.process.kill();
 			}

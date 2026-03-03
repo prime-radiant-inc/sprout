@@ -320,11 +320,6 @@ async function idleLoop(
 
 	let processing = false;
 	const continueQueue: ContinueMessage[] = [];
-	let resolveIdle: (() => void) | null = null;
-
-	if (signal) {
-		signal.addEventListener("abort", () => resolveIdle?.(), { once: true });
-	}
 
 	async function processNext(): Promise<void> {
 		if (continueQueue.length === 0) {
@@ -386,7 +381,13 @@ async function idleLoop(
 	});
 
 	return new Promise((resolve) => {
-		resolveIdle = resolve;
+		if (signal) {
+			if (signal.aborted) {
+				resolve();
+				return;
+			}
+			signal.addEventListener("abort", () => resolve(), { once: true });
+		}
 	});
 }
 
