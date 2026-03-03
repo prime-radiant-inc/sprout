@@ -245,6 +245,8 @@ export class SessionController {
 			case "clear": {
 				this.interrupt();
 				this.suppressEvents = true;
+				this.running = false;
+				this.agent = null;
 				this.history = [];
 				this.hasRun = false;
 				this._sessionId = ulid();

@@ -425,6 +425,11 @@ export class AgentSpawner {
 		ownerId: string,
 		spawnInfo?: { agentName: string; genomePath: string; caller: CallerIdentity; workDir: string },
 	): void {
+		// Skip if the handle already exists (e.g. re-spawned since the
+		// original completed state was recorded). Avoids overwriting a
+		// live handle with stale completed data.
+		if (this.handles.has(handleId)) return;
+
 		const handle: AgentHandle = {
 			handleId,
 			process: { kill: () => {}, exited: Promise.resolve(0) },
