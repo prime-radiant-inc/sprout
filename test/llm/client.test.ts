@@ -2,7 +2,8 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { config } from "dotenv";
 import { Client } from "../../src/llm/client.ts";
-import { ContentKind, messageText, type Request } from "../../src/llm/types.ts";
+import { StreamReadTimeoutError } from "../../src/llm/stream-timeout.ts";
+import { ContentKind, messageText, type ProviderAdapter, type Request, type StreamEvent } from "../../src/llm/types.ts";
 import { createVcr } from "../helpers/vcr.ts";
 
 config();
@@ -223,6 +224,109 @@ describe("Client", () => {
 		expect(interceptedModel).toBe("gpt-4.1-mini");
 		await vcr.afterTest();
 	}, 15_000);
+
+	test("stream applies stream_read timeout and throws on stall", async () => {
+		// Create a fake adapter whose stream stalls after one chunk
+		const stallingAdapter: ProviderAdapter = {
+			name: "stalling",
+			async complete() {
+				throw new Error("not implemented");
+			},
+			async *stream(): AsyncIterable<StreamEvent> {
+				yield { type: "stream_start" };
+				yield { type: "text_start" };
+				yield { type: "text_delta", delta: "hello" };
+				// Stall for longer than the timeout
+				await new Promise((resolve) => setTimeout(resolve, 500));
+				yield { type: "text_end" };
+				yield {
+					type: "finish",
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+					response: {
+						id: "test",
+						model: "test",
+						provider: "stalling",
+						message: { role: "assistant", content: [] },
+						finish_reason: { reason: "stop" },
+						usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+					},
+				};
+			},
+			async listModels() {
+				return [];
+			},
+		};
+
+		const client = new Client({
+			providers: { stalling: stallingAdapter },
+			streamReadTimeoutMs: 100,
+		});
+
+		const events: StreamEvent[] = [];
+		let caughtError: unknown;
+		try {
+			for await (const event of client.stream({
+				model: "test",
+				messages: [],
+				provider: "stalling",
+			})) {
+				events.push(event);
+			}
+		} catch (err) {
+			caughtError = err;
+		}
+
+		// Should have received some events before the stall
+		expect(events.length).toBeGreaterThan(0);
+		expect(caughtError).toBeInstanceOf(StreamReadTimeoutError);
+	});
+
+	test("stream does not timeout when streamReadTimeoutMs is 0 (disabled)", async () => {
+		// Create a fake adapter with a slow chunk
+		const slowAdapter: ProviderAdapter = {
+			name: "slow",
+			async complete() {
+				throw new Error("not implemented");
+			},
+			async *stream(): AsyncIterable<StreamEvent> {
+				yield { type: "stream_start" };
+				await new Promise((resolve) => setTimeout(resolve, 200));
+				yield {
+					type: "finish",
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+					response: {
+						id: "test",
+						model: "test",
+						provider: "slow",
+						message: { role: "assistant", content: [] },
+						finish_reason: { reason: "stop" },
+						usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+					},
+				};
+			},
+			async listModels() {
+				return [];
+			},
+		};
+
+		const client = new Client({
+			providers: { slow: slowAdapter },
+			streamReadTimeoutMs: 0, // disabled
+		});
+
+		const events: StreamEvent[] = [];
+		for await (const event of client.stream({
+			model: "test",
+			messages: [],
+			provider: "slow",
+		})) {
+			events.push(event);
+		}
+
+		expect(events.some((e) => e.type === "finish")).toBe(true);
+	});
 
 	test("middleware can transform requests for streaming", async () => {
 		let transformedMaxTokens = 0;

@@ -1,0 +1,98 @@
+/**
+ * Stream read timeout utility.
+ *
+ * Per the unified LLM spec (Section 4, AdapterTimeout), the `stream_read`
+ * timeout is the max time between consecutive stream events. Default: 30s.
+ * If no chunk arrives within the timeout, a StreamReadTimeoutError is thrown.
+ */
+
+/** Default stream read timeout in milliseconds (spec default: 30s). */
+export const DEFAULT_STREAM_READ_TIMEOUT_MS = 30_000;
+
+/**
+ * Error thrown when the time between consecutive stream chunks exceeds
+ * the configured stream_read timeout. Marked as retryable per spec
+ * (StreamError is retryable), though callers should note that once
+ * streaming has begun and partial data was delivered, the spec says
+ * the stream emits an error rather than retrying automatically.
+ */
+export class StreamReadTimeoutError extends Error {
+	readonly name = "StreamReadTimeoutError";
+	readonly retryable = true;
+	readonly timeoutMs: number;
+
+	constructor(timeoutMs: number) {
+		super(`Stream read timed out: no data received for ${timeoutMs}ms`);
+		this.timeoutMs = timeoutMs;
+	}
+}
+
+/**
+ * Wrap an async iterable with a per-chunk read timeout.
+ *
+ * Yields values from the source. If the time between any two consecutive
+ * values (or before the first value) exceeds `timeoutMs`, throws a
+ * StreamReadTimeoutError.
+ *
+ * The timer is properly cleaned up when:
+ * - The source completes normally
+ * - The consumer breaks out of the loop early
+ * - A timeout fires
+ */
+export async function* withStreamReadTimeout<T>(
+	source: AsyncIterable<T>,
+	timeoutMs: number,
+): AsyncGenerator<T> {
+	const iterator = source[Symbol.asyncIterator]();
+	let timer: ReturnType<typeof setTimeout> | null = null;
+	let timedOut = false;
+	let rejectCurrent: ((err: Error) => void) | null = null;
+
+	function startTimer(): void {
+		clearTimer();
+		timer = setTimeout(() => {
+			timedOut = true;
+			if (rejectCurrent) {
+				rejectCurrent(new StreamReadTimeoutError(timeoutMs));
+			}
+		}, timeoutMs);
+	}
+
+	function clearTimer(): void {
+		if (timer !== null) {
+			clearTimeout(timer);
+			timer = null;
+		}
+	}
+
+	try {
+		startTimer();
+
+		while (true) {
+			if (timedOut) {
+				throw new StreamReadTimeoutError(timeoutMs);
+			}
+
+			// Race the iterator's next() against the timeout
+			const result = await new Promise<IteratorResult<T>>((resolve, reject) => {
+				rejectCurrent = reject;
+				iterator.next().then(resolve, reject);
+			});
+
+			rejectCurrent = null;
+
+			if (result.done) {
+				break;
+			}
+
+			// Reset timer for the next chunk
+			startTimer();
+			yield result.value;
+		}
+	} finally {
+		clearTimer();
+		rejectCurrent = null;
+		// Ensure the source iterator is closed if we exit early
+		await iterator.return?.();
+	}
+}

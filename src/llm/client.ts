@@ -1,6 +1,7 @@
 import { AnthropicAdapter } from "./anthropic.ts";
 import { GeminiAdapter } from "./gemini.ts";
 import { OpenAIAdapter } from "./openai.ts";
+import { DEFAULT_STREAM_READ_TIMEOUT_MS, withStreamReadTimeout } from "./stream-timeout.ts";
 import type { ProviderAdapter, Request, Response, StreamEvent } from "./types.ts";
 
 export type Middleware = (
@@ -12,6 +13,8 @@ export interface ClientOptions {
 	providers?: Record<string, ProviderAdapter>;
 	defaultProvider?: string;
 	middleware?: Middleware[];
+	/** Max time (ms) between consecutive stream chunks. 0 to disable. Default: 30s. */
+	streamReadTimeoutMs?: number;
 }
 
 /**
@@ -22,11 +25,13 @@ export class Client {
 	private adapters: Map<string, ProviderAdapter>;
 	private defaultProvider: string | undefined;
 	private middlewareChain: Middleware[];
+	private streamReadTimeoutMs: number;
 
 	constructor(options: ClientOptions = {}) {
 		this.adapters = new Map(Object.entries(options.providers ?? {}));
 		this.defaultProvider = options.defaultProvider;
 		this.middlewareChain = options.middleware ?? [];
+		this.streamReadTimeoutMs = options.streamReadTimeoutMs ?? DEFAULT_STREAM_READ_TIMEOUT_MS;
 
 		// Auto-set default if not specified
 		if (!this.defaultProvider && this.adapters.size > 0) {
@@ -39,7 +44,7 @@ export class Client {
 	 * Only providers with keys present are registered.
 	 * The first registered provider becomes the default.
 	 */
-	static fromEnv(options: { middleware?: Middleware[] } = {}): Client {
+	static fromEnv(options: { middleware?: Middleware[]; streamReadTimeoutMs?: number } = {}): Client {
 		const providers: Record<string, ProviderAdapter> = {};
 
 		const anthropicKey = process.env.ANTHROPIC_API_KEY;
@@ -68,6 +73,7 @@ export class Client {
 		return new Client({
 			providers,
 			middleware: options.middleware,
+			streamReadTimeoutMs: options.streamReadTimeoutMs,
 		});
 	}
 
@@ -157,6 +163,12 @@ export class Client {
 		}
 
 		const adapter = this.resolveAdapter(finalRequest);
-		yield* adapter.stream(finalRequest);
+		const rawStream = adapter.stream(finalRequest);
+
+		if (this.streamReadTimeoutMs > 0) {
+			yield* withStreamReadTimeout(rawStream, this.streamReadTimeoutMs);
+		} else {
+			yield* rawStream;
+		}
 	}
 }
