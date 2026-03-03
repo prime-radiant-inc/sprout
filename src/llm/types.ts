@@ -146,6 +146,8 @@ export interface Request {
 	stop_sequences?: string[];
 	reasoning_effort?: "low" | "medium" | "high";
 	provider_options?: Record<string, unknown>;
+	/** AbortSignal to cancel the request. Passed to stream read timeout. */
+	signal?: AbortSignal;
 }
 
 export interface FinishReason {

@@ -48,6 +48,10 @@ export async function* withStreamReadTimeout<T>(
 	timeoutMs: number,
 	signal?: AbortSignal,
 ): AsyncGenerator<T> {
+	if (timeoutMs <= 0) {
+		throw new Error("timeoutMs must be positive");
+	}
+
 	if (signal?.aborted) {
 		throw new DOMException("Aborted", "AbortError");
 	}
@@ -60,6 +64,7 @@ export async function* withStreamReadTimeout<T>(
 	function startTimer(): void {
 		clearTimer();
 		timer = setTimeout(() => {
+			timer = null;
 			timedOut = true;
 			if (rejectCurrent) {
 				rejectCurrent(new StreamReadTimeoutError(timeoutMs));
@@ -118,7 +123,9 @@ export async function* withStreamReadTimeout<T>(
 		clearTimer();
 		rejectCurrent = null;
 		signal?.removeEventListener("abort", onAbort);
-		// Ensure the source iterator is closed if we exit early
-		await iterator.return?.();
+		// Ensure the source iterator is closed if we exit early.
+		// Swallow cleanup errors to avoid masking the real error
+		// (e.g., network error during HTTP teardown).
+		try { await iterator.return?.(); } catch { /* swallow cleanup error */ }
 	}
 }

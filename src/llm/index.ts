@@ -5,7 +5,7 @@ export { GeminiAdapter } from "./gemini.ts";
 export { OpenAIAdapter } from "./openai.ts";
 export type { RetryOptions } from "./retry.ts";
 export { retryLLMCall } from "./retry.ts";
-export { StreamReadTimeoutError, withStreamReadTimeout } from "./stream-timeout.ts";
+export { DEFAULT_STREAM_READ_TIMEOUT_MS, StreamReadTimeoutError, withStreamReadTimeout } from "./stream-timeout.ts";
 export type {
 	ContentPart,
 	FinishReason,

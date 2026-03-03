@@ -558,6 +558,51 @@ describe("retryLLMCall", () => {
 		expect(calls).toBe(2);
 	});
 
+	test("preserves status/retryable/retry_after properties on non-Error throws", async () => {
+		let calls = 0;
+		let caughtError: unknown;
+
+		try {
+			await retryLLMCall(
+				async () => {
+					calls++;
+					// Throw a non-Error object with relevant properties
+					throw { message: "weird error", status: 401, retryable: false, retry_after: 5 };
+				},
+				{ maxRetries: 2, baseDelayMs: 10 },
+			);
+		} catch (err) {
+			caughtError = err;
+		}
+
+		// Should be wrapped in an Error
+		expect(caughtError).toBeInstanceOf(Error);
+		// Properties should be preserved from the source object
+		expect((caughtError as any).status).toBe(401);
+		expect((caughtError as any).retryable).toBe(false);
+		expect((caughtError as any).retry_after).toBe(5);
+		// retryable: false means no retry
+		expect(calls).toBe(1);
+	});
+
+	test("retries non-Error throw with retryable: true and status preserved", async () => {
+		let calls = 0;
+
+		const result = await retryLLMCall(
+			async () => {
+				calls++;
+				if (calls === 1) {
+					throw { message: "transient", status: 500, retryable: true };
+				}
+				return dummyResponse;
+			},
+			{ maxRetries: 2, baseDelayMs: 10 },
+		);
+
+		expect(result).toBe(dummyResponse);
+		expect(calls).toBe(2);
+	});
+
 	test("does not retry on 402 (Payment Required)", async () => {
 		let calls = 0;
 		let caughtError: unknown;
@@ -578,5 +623,74 @@ describe("retryLLMCall", () => {
 
 		expect(calls).toBe(1);
 		expect((caughtError as Error).message).toBe("Payment required");
+	});
+
+	// retry_after: 0 means "not set" in our implementation — the code checks
+	// `retryAfter > 0`, so 0 falls through to computed backoff.
+	test("retry_after: 0 falls back to computed backoff", async () => {
+		const delays: number[] = [];
+		let calls = 0;
+
+		const result = await retryLLMCall(
+			async () => {
+				calls++;
+				if (calls === 1) {
+					const err = new Error("Rate limited");
+					(err as any).status = 429;
+					(err as any).retry_after = 0;
+					throw err;
+				}
+				return dummyResponse;
+			},
+			{
+				maxRetries: 2,
+				baseDelayMs: 100,
+				maxDelayMs: 60_000,
+				jitter: false,
+				onRetry: (_error, _attempt, delayMs) => {
+					delays.push(delayMs);
+				},
+			},
+		);
+
+		expect(result).toBe(dummyResponse);
+		expect(calls).toBe(2);
+		expect(delays).toHaveLength(1);
+		// Should use computed backoff (100 * 2^0 = 100), not retry_after
+		expect(delays[0]).toBe(100);
+	});
+
+	test("retries when retry_after * 1000 equals maxDelayMs exactly", async () => {
+		// The code uses `>` not `>=`, so retry_after exactly at the boundary
+		// should still retry. Use small values to keep the test fast.
+		const delays: number[] = [];
+		let calls = 0;
+
+		const result = await retryLLMCall(
+			async () => {
+				calls++;
+				if (calls === 1) {
+					const err = new Error("Rate limited");
+					(err as any).status = 429;
+					(err as any).retry_after = 0.05; // 0.05 * 1000 = 50ms = maxDelayMs
+					throw err;
+				}
+				return dummyResponse;
+			},
+			{
+				maxRetries: 2,
+				baseDelayMs: 10,
+				maxDelayMs: 50,
+				jitter: false,
+				onRetry: (_error, _attempt, delayMs) => {
+					delays.push(delayMs);
+				},
+			},
+		);
+
+		expect(result).toBe(dummyResponse);
+		expect(calls).toBe(2);
+		expect(delays).toHaveLength(1);
+		expect(delays[0]).toBe(50); // retry_after * 1000 = maxDelayMs exactly
 	});
 });

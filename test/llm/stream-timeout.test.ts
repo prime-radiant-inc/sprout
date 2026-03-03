@@ -188,6 +188,86 @@ describe("withStreamReadTimeout", () => {
 
 		expect(results).toEqual(["a", "b"]);
 	});
+
+	test("propagates source iterator errors and cleans up timer", async () => {
+		// Source yields 2 items then throws a NetworkError
+		async function* failingIterable(): AsyncIterable<string> {
+			yield "a";
+			yield "b";
+			throw new Error("NetworkError: connection lost");
+		}
+
+		const controller = new AbortController();
+		const results: string[] = [];
+		let caughtError: unknown;
+
+		try {
+			for await (const item of withStreamReadTimeout(failingIterable(), 500, controller.signal)) {
+				results.push(item);
+			}
+		} catch (err) {
+			caughtError = err;
+		}
+
+		// The source error propagates to the consumer
+		expect(results).toEqual(["a", "b"]);
+		expect(caughtError).toBeInstanceOf(Error);
+		expect((caughtError as Error).message).toBe("NetworkError: connection lost");
+
+		// Timer is cleaned up — no lingering timeout fires after the error
+		await new Promise((resolve) => setTimeout(resolve, 600));
+
+		// Abort listener is removed — aborting after error doesn't throw
+		controller.abort();
+	});
+
+	test("throws Error when timeoutMs is zero", async () => {
+		const source = delayedIterable([{ value: "a", delayMs: 10 }]);
+		let caughtError: unknown;
+
+		try {
+			for await (const _item of withStreamReadTimeout(source, 0)) {
+				// Should not reach here
+			}
+		} catch (err) {
+			caughtError = err;
+		}
+
+		expect(caughtError).toBeInstanceOf(Error);
+		expect((caughtError as Error).message).toBe("timeoutMs must be positive");
+	});
+
+	test("throws Error when timeoutMs is negative", async () => {
+		const source = delayedIterable([{ value: "a", delayMs: 10 }]);
+		let caughtError: unknown;
+
+		try {
+			for await (const _item of withStreamReadTimeout(source, -100)) {
+				// Should not reach here
+			}
+		} catch (err) {
+			caughtError = err;
+		}
+
+		expect(caughtError).toBeInstanceOf(Error);
+		expect((caughtError as Error).message).toBe("timeoutMs must be positive");
+	});
+
+	test("handles empty source iterable without error", async () => {
+		async function* emptyIterable(): AsyncIterable<string> {
+			// yields nothing
+		}
+
+		const results: string[] = [];
+		for await (const item of withStreamReadTimeout(emptyIterable(), 100)) {
+			results.push(item);
+		}
+
+		expect(results).toEqual([]);
+
+		// No lingering timeout fires
+		await new Promise((resolve) => setTimeout(resolve, 200));
+	});
 });
 
 describe("StreamReadTimeoutError", () => {

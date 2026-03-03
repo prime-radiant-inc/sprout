@@ -166,7 +166,7 @@ export class Client {
 		const rawStream = adapter.stream(finalRequest);
 
 		if (this.streamReadTimeoutMs > 0) {
-			yield* withStreamReadTimeout(rawStream, this.streamReadTimeoutMs);
+			yield* withStreamReadTimeout(rawStream, this.streamReadTimeoutMs, finalRequest.signal);
 		} else {
 			yield* rawStream;
 		}

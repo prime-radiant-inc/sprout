@@ -24,7 +24,9 @@ export interface RetryOptions {
 	onRetry?: (error: Error, attempt: number, delayMs: number) => void;
 }
 
-/** HTTP status codes that should NOT be retried (client errors that won't succeed on retry). */
+/** HTTP status codes that should NOT be retried (client errors that won't succeed on retry).
+ * Note: 402 is not in the spec's explicit list but is included because payment
+ * issues don't resolve on retry. */
 const NON_RETRYABLE_STATUSES = new Set([400, 401, 402, 403, 404, 413, 422]);
 
 function isRetryable(error: unknown): boolean {
@@ -51,13 +53,13 @@ function isRetryable(error: unknown): boolean {
 }
 
 function computeDelay(
-	attempt: number,
+	attempt: number, // 0-indexed: 0 = first retry
 	baseDelayMs: number,
 	maxDelayMs: number,
 	backoffMultiplier: number,
 	jitter: boolean,
 ): number {
-	const delay = Math.min(baseDelayMs * backoffMultiplier ** (attempt - 1), maxDelayMs);
+	const delay = Math.min(baseDelayMs * backoffMultiplier ** attempt, maxDelayMs);
 	if (!jitter) return delay;
 	return delay * (0.5 + Math.random());
 }
@@ -93,6 +95,12 @@ export async function retryLLMCall<T>(
 			return await fn();
 		} catch (err) {
 			const error = err instanceof Error ? err : new Error(String(err));
+			if (!(err instanceof Error) && typeof err === "object" && err !== null) {
+				const source = err as Record<string, unknown>;
+				if ("status" in source) (error as any).status = source.status;
+				if ("retryable" in source) (error as any).retryable = source.retryable;
+				if ("retry_after" in source) (error as any).retry_after = source.retry_after;
+			}
 			lastError = error;
 
 			// Don't retry non-retryable errors or on the last attempt
@@ -113,7 +121,7 @@ export async function retryLLMCall<T>(
 				}
 				delayMs = retryAfterMs;
 			} else {
-				delayMs = computeDelay(attempt + 1, baseDelayMs, maxDelayMs, backoffMultiplier, jitter);
+				delayMs = computeDelay(attempt, baseDelayMs, maxDelayMs, backoffMultiplier, jitter);
 			}
 
 			onRetry?.(error, attempt + 1, delayMs);
