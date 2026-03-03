@@ -237,11 +237,11 @@ describe("LLM progress events", () => {
 
 		// Should have at least one chunk event
 		expect(chunks.length).toBeGreaterThanOrEqual(1);
-		// Each chunk should have tokens_so_far and elapsed_ms
+		// Each chunk should have chunks_so_far and elapsed_ms
 		for (const chunk of chunks) {
-			expect(typeof chunk.data.tokens_so_far).toBe("number");
+			expect(typeof chunk.data.chunks_so_far).toBe("number");
 			expect(typeof chunk.data.elapsed_ms).toBe("number");
-			expect(chunk.data.tokens_so_far).toBeGreaterThan(0);
+			expect(chunk.data.chunks_so_far).toBeGreaterThan(0);
 		}
 	});
 
@@ -365,5 +365,83 @@ describe("LLM progress events", () => {
 		const llmEnd = collected.find((e) => e.kind === "llm_end");
 		expect(llmEnd).toBeDefined();
 		expect(llmEnd!.data.latency_ms).toBeGreaterThanOrEqual(5);
+	});
+
+	test("emits llm_end with finish_reason 'error' when LLM call throws a non-abort error", async () => {
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				throw new Error("API rate limit exceeded");
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: leafSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+			events,
+		});
+
+		await expect(agent.run("error test")).rejects.toThrow("API rate limit exceeded");
+
+		const collected = events.collected();
+		const llmStart = collected.find((e) => e.kind === "llm_start");
+		const llmEnd = collected.find((e) => e.kind === "llm_end");
+		expect(llmStart).toBeDefined();
+		expect(llmEnd).toBeDefined();
+		expect(llmEnd!.data.finish_reason).toBe("error");
+		expect(llmEnd!.data.input_tokens).toBe(0);
+		expect(llmEnd!.data.output_tokens).toBe(0);
+	});
+
+	test("emits llm_end with finish_reason 'interrupted' when LLM call is aborted", async () => {
+		const ac = new AbortController();
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				// Simulate a long call that will be aborted
+				await new Promise((resolve) => setTimeout(resolve, 500));
+				return simpleResponse;
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: leafSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+			events,
+		});
+
+		// Abort shortly after run starts
+		setTimeout(() => ac.abort(), 10);
+
+		await agent.run("abort test", ac.signal);
+
+		const collected = events.collected();
+		const llmStart = collected.find((e) => e.kind === "llm_start");
+		const llmEnd = collected.find((e) => e.kind === "llm_end");
+		expect(llmStart).toBeDefined();
+		expect(llmEnd).toBeDefined();
+		expect(llmEnd!.data.finish_reason).toBe("interrupted");
+		expect(llmEnd!.data.input_tokens).toBe(0);
+		expect(llmEnd!.data.output_tokens).toBe(0);
+
+		// Also check that interrupted event was emitted
+		const interrupted = collected.find((e) => e.kind === "interrupted");
+		expect(interrupted).toBeDefined();
 	});
 });

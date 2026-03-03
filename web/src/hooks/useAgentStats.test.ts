@@ -239,10 +239,10 @@ describe("buildAgentStats", () => {
 			const events = [
 				makeEvent("session_start", "root", 0, { model: "claude" }),
 				makeEvent("llm_start", "root", 0, { turn: 1 }),
-				makeEvent("llm_chunk", "root", 0, { tokens_so_far: 15, elapsed_ms: 500 }),
+				makeEvent("llm_chunk", "root", 0, { chunks_so_far: 15, elapsed_ms: 500 }),
 			];
 			const stats = buildAgentStats(events);
-			expect(stats.get("root")!.streamingTokens).toBe(15);
+			expect(stats.get("root")!.streamingChunks).toBe(15);
 		});
 
 		test("clears streaming tokens on llm_end", () => {
@@ -250,11 +250,11 @@ describe("buildAgentStats", () => {
 			const events = [
 				makeEvent("session_start", "root", 0, { model: "claude" }),
 				makeEvent("llm_start", "root", 0, { turn: 1 }),
-				makeEvent("llm_chunk", "root", 0, { tokens_so_far: 15, elapsed_ms: 500 }),
+				makeEvent("llm_chunk", "root", 0, { chunks_so_far: 15, elapsed_ms: 500 }),
 				makeEvent("llm_end", "root", 0, { input_tokens: 100, output_tokens: 50, latency_ms: 1000, finish_reason: "stop" }),
 			];
 			const stats = buildAgentStats(events);
-			expect(stats.get("root")!.streamingTokens).toBe(0);
+			expect(stats.get("root")!.streamingChunks).toBe(0);
 		});
 	});
 
@@ -267,6 +267,64 @@ describe("buildAgentStats", () => {
 			];
 			const stats = buildAgentStats(events);
 			expect(stats.get("root")!.model).toBe("claude-haiku-4-5-20251001");
+		});
+	});
+
+	describe("interrupted event handling", () => {
+		test("interrupted event after llm_start resets state to idle", () => {
+			resetTimestamps();
+			const events = [
+				makeEvent("session_start", "root", 0, { model: "claude" }),
+				makeEvent("llm_start", "root", 0, { model: "claude", provider: "anthropic", turn: 1, message_count: 2 }),
+				makeEvent("interrupted", "root", 0, { message: "Agent interrupted during LLM call", turns: 1 }),
+			];
+			const stats = buildAgentStats(events);
+			expect(stats.get("root")!.state).toBe("idle");
+			expect(stats.get("root")!.llmCallStartedAt).toBeNull();
+			expect(stats.get("root")!.streamingChunks).toBe(0);
+		});
+
+		test("llm_end with finish_reason 'error' resets state to idle", () => {
+			resetTimestamps();
+			const events = [
+				makeEvent("session_start", "root", 0, { model: "claude" }),
+				makeEvent("llm_start", "root", 0, { model: "claude", provider: "anthropic", turn: 1, message_count: 2 }),
+				makeEvent("llm_end", "root", 0, { model: "claude", provider: "anthropic", input_tokens: 0, output_tokens: 0, latency_ms: 50, finish_reason: "error" }),
+			];
+			const stats = buildAgentStats(events);
+			expect(stats.get("root")!.state).toBe("idle");
+			expect(stats.get("root")!.llmCallStartedAt).toBeNull();
+			expect(stats.get("root")!.streamingChunks).toBe(0);
+		});
+
+		test("llm_end with finish_reason 'interrupted' resets state to idle", () => {
+			resetTimestamps();
+			const events = [
+				makeEvent("session_start", "root", 0, { model: "claude" }),
+				makeEvent("llm_start", "root", 0, { model: "claude", provider: "anthropic", turn: 1, message_count: 2 }),
+				makeEvent("llm_chunk", "root", 0, { chunks_so_far: 5, elapsed_ms: 200 }),
+				makeEvent("llm_end", "root", 0, { model: "claude", provider: "anthropic", input_tokens: 0, output_tokens: 0, latency_ms: 100, finish_reason: "interrupted" }),
+			];
+			const stats = buildAgentStats(events);
+			expect(stats.get("root")!.state).toBe("idle");
+			expect(stats.get("root")!.llmCallStartedAt).toBeNull();
+			expect(stats.get("root")!.streamingChunks).toBe(0);
+		});
+	});
+
+	describe("session_end handling", () => {
+		test("session_end resets agent state even mid-LLM-call", () => {
+			resetTimestamps();
+			const events = [
+				makeEvent("session_start", "root", 0, { model: "claude" }),
+				makeEvent("llm_start", "root", 0, { model: "claude", provider: "anthropic", turn: 1, message_count: 2 }),
+				makeEvent("llm_chunk", "root", 0, { chunks_so_far: 10, elapsed_ms: 500 }),
+				makeEvent("session_end", "root", 0, { success: true }),
+			];
+			const stats = buildAgentStats(events);
+			expect(stats.get("root")!.state).toBe("idle");
+			expect(stats.get("root")!.llmCallStartedAt).toBeNull();
+			expect(stats.get("root")!.streamingChunks).toBe(0);
 		});
 	});
 });

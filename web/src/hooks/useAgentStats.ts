@@ -12,8 +12,8 @@ export interface AgentStats {
 	currentTurn: number;
 	/** Timestamp (Date.now()) when the current LLM call started, or null if not in a call. */
 	llmCallStartedAt: number | null;
-	/** Number of streaming tokens received so far in the current LLM call. */
-	streamingTokens: number;
+	/** Number of streaming chunks received so far in the current LLM call. */
+	streamingChunks: number;
 	/** Model name from the most recent llm_start event. */
 	model: string;
 }
@@ -27,7 +27,7 @@ function createDefaultStats(agentId: string, depth: number): AgentStats {
 		outputTokens: 0,
 		currentTurn: 0,
 		llmCallStartedAt: null,
-		streamingTokens: 0,
+		streamingChunks: 0,
 		model: "",
 	};
 }
@@ -62,13 +62,13 @@ export function buildAgentStats(events: SessionEvent[]): Map<string, AgentStats>
 			case "session_end":
 				s.state = "idle";
 				s.llmCallStartedAt = null;
-				s.streamingTokens = 0;
+				s.streamingChunks = 0;
 				break;
 
 			case "llm_start":
 				s.state = "calling_llm";
 				s.llmCallStartedAt = event.timestamp;
-				s.streamingTokens = 0;
+				s.streamingChunks = 0;
 				if (typeof event.data.turn === "number") {
 					s.currentTurn = event.data.turn;
 				}
@@ -78,15 +78,15 @@ export function buildAgentStats(events: SessionEvent[]): Map<string, AgentStats>
 				break;
 
 			case "llm_chunk":
-				if (typeof event.data.tokens_so_far === "number") {
-					s.streamingTokens = event.data.tokens_so_far;
+				if (typeof event.data.chunks_so_far === "number") {
+					s.streamingChunks = event.data.chunks_so_far;
 				}
 				break;
 
 			case "llm_end":
 				s.state = "idle";
 				s.llmCallStartedAt = null;
-				s.streamingTokens = 0;
+				s.streamingChunks = 0;
 				if (typeof event.data.input_tokens === "number") {
 					s.inputTokens += event.data.input_tokens;
 				}
@@ -109,6 +109,12 @@ export function buildAgentStats(events: SessionEvent[]): Map<string, AgentStats>
 
 			case "act_end":
 				s.state = "idle";
+				break;
+
+			case "interrupted":
+				s.state = "idle";
+				s.llmCallStartedAt = null;
+				s.streamingChunks = 0;
 				break;
 		}
 	}

@@ -301,30 +301,30 @@ export class Agent {
 	/** Minimum interval between llm_chunk emissions (milliseconds). */
 	private static readonly LLM_CHUNK_THROTTLE_MS = 500;
 
-	/**
-	 * Complete an LLM request using streaming, emitting throttled llm_chunk events.
-	 * Falls back to client.complete() when streaming is disabled.
-	 */
+	/** Complete an LLM request using streaming, emitting throttled llm_chunk events. */
 	private async completeWithStreaming(
 		request: LLMRequest,
 		agentId: string,
 		llmStartTime: number,
 	): Promise<LLMResponse> {
-		let tokenCount = 0;
+		let chunkCount = 0;
 		let lastChunkTime = -Infinity;
 
 		for await (const event of this.client.stream(request)) {
-			if (event.type === "text_delta" || event.type === "tool_call_delta") {
-				tokenCount++;
+			if (event.type === "text_delta" || event.type === "tool_call_delta" || event.type === "reasoning_delta") {
+				chunkCount++;
 				const now = performance.now();
 				const elapsed = now - llmStartTime;
 				if (now - lastChunkTime >= Agent.LLM_CHUNK_THROTTLE_MS) {
 					this.emitAndLog("llm_chunk", agentId, this.depth, {
-						tokens_so_far: tokenCount,
+						chunks_so_far: chunkCount,
 						elapsed_ms: Math.round(elapsed),
 					});
 					lastChunkTime = now;
 				}
+			}
+			if (event.type === "error") {
+				throw event.error ?? new Error("Stream error");
 			}
 			if (event.type === "finish" && event.response) {
 				return event.response;
@@ -937,12 +937,28 @@ export class Agent {
 				}
 			} catch (err) {
 				if (err instanceof DOMException && err.name === "AbortError") {
+					this.emitAndLog("llm_end", agentId, this.depth, {
+						model: this.resolved.model,
+						provider: this.resolved.provider,
+						input_tokens: 0,
+						output_tokens: 0,
+						latency_ms: Math.round(performance.now() - llmStartTime),
+						finish_reason: "interrupted",
+					});
 					this.emitAndLog("interrupted", agentId, this.depth, {
 						message: "Agent interrupted during LLM call",
 						turns,
 					});
 					break;
 				}
+				this.emitAndLog("llm_end", agentId, this.depth, {
+					model: this.resolved.model,
+					provider: this.resolved.provider,
+					input_tokens: 0,
+					output_tokens: 0,
+					latency_ms: Math.round(performance.now() - llmStartTime),
+					finish_reason: "error",
+				});
 				throw err;
 			}
 

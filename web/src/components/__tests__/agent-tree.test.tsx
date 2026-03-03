@@ -403,7 +403,7 @@ function makeStats(overrides: Partial<AgentStats> = {}): AgentStats {
 		outputTokens: 0,
 		currentTurn: 0,
 		llmCallStartedAt: null,
-		streamingTokens: 0,
+		streamingChunks: 0,
 		model: "",
 		...overrides,
 	};
