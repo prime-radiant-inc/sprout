@@ -23,7 +23,7 @@ import type {
 } from "../kernel/types.ts";
 import type { LearnSink } from "../learn/learn-process.ts";
 import type { Client } from "../llm/client.ts";
-import type { Response as LLMResponse, Message, ToolDefinition } from "../llm/types.ts";
+import type { Request as LLMRequest, Response as LLMResponse, Message, ToolDefinition } from "../llm/types.ts";
 import { Msg, messageReasoning, messageText, messageToolCalls } from "../llm/types.ts";
 import { ulid } from "../util/ulid.ts";
 import { getContextWindowSize } from "./context-window.ts";
@@ -95,6 +95,8 @@ export interface AgentOptions {
 	agentTreeChildren?: string[];
 	/** This agent's path in the tree (empty string for root). */
 	agentTreeSelfPath?: string;
+	/** Use streaming LLM calls and emit throttled llm_chunk events. */
+	enableStreaming?: boolean;
 }
 
 export interface AgentResult {
@@ -132,6 +134,7 @@ export class Agent {
 	private readonly agentTree?: Map<string, AgentTreeEntry>;
 	private readonly agentTreeChildren?: string[];
 	private readonly agentTreeSelfPath?: string;
+	private readonly enableStreaming: boolean;
 	private readonly logger: Logger;
 	private history: Message[] = [];
 	private systemPrompt?: string;
@@ -164,6 +167,7 @@ export class Agent {
 		this.agentTree = options.agentTree;
 		this.agentTreeChildren = options.agentTreeChildren;
 		this.agentTreeSelfPath = options.agentTreeSelfPath;
+		this.enableStreaming = options.enableStreaming ?? false;
 		this.initialHistory = options.initialHistory ? [...options.initialHistory] : undefined;
 		this.logger = (options.logger ?? new NullLogger()).child({
 			component: "agent",
@@ -287,6 +291,43 @@ export class Agent {
 	/** Wait for all pending log writes to complete. */
 	private async flushLog(): Promise<void> {
 		await this.logWriteChain;
+	}
+
+	/** Minimum interval between llm_chunk emissions (milliseconds). */
+	private static readonly LLM_CHUNK_THROTTLE_MS = 500;
+
+	/**
+	 * Complete an LLM request using streaming, emitting throttled llm_chunk events.
+	 * Falls back to client.complete() when streaming is disabled.
+	 */
+	private async completeWithStreaming(
+		request: LLMRequest,
+		agentId: string,
+		llmStartTime: number,
+	): Promise<LLMResponse> {
+		let tokenCount = 0;
+		let lastChunkTime = -Infinity;
+
+		for await (const event of this.client.stream(request)) {
+			if (event.type === "text_delta" || event.type === "tool_call_delta") {
+				tokenCount++;
+				const now = performance.now();
+				const elapsed = now - llmStartTime;
+				if (now - lastChunkTime >= Agent.LLM_CHUNK_THROTTLE_MS) {
+					this.emitAndLog("llm_chunk", agentId, this.depth, {
+						tokens_so_far: tokenCount,
+						elapsed_ms: Math.round(elapsed),
+					});
+					lastChunkTime = now;
+				}
+			}
+			if (event.type === "finish" && event.response) {
+				return event.response;
+			}
+		}
+
+		// Should not reach here — finish event should always be emitted
+		throw new Error("Stream ended without a finish event");
 	}
 
 	/** Get the current list of agents this agent can delegate to, preferring tree or genome over static snapshot. */
@@ -846,9 +887,34 @@ export class Agent {
 				thinking: this.spec.thinking,
 			});
 
+			this.emitAndLog("llm_start", agentId, this.depth, {
+				model: this.resolved.model,
+				provider: this.resolved.provider,
+				turn: turns,
+				message_count: this.history.length,
+			});
+
+			const llmStartTime = performance.now();
 			let response: LLMResponse;
 			try {
-				if (signal) {
+				if (this.enableStreaming) {
+					if (signal) {
+						const streamPromise = this.completeWithStreaming(request, agentId, llmStartTime);
+						let onAbort: () => void = () => {};
+						const abortPromise = new Promise<never>((_, reject) => {
+							if (signal.aborted) reject(new DOMException("Aborted", "AbortError"));
+							onAbort = () => reject(new DOMException("Aborted", "AbortError"));
+							signal.addEventListener("abort", onAbort, { once: true });
+						});
+						try {
+							response = await Promise.race([streamPromise, abortPromise]);
+						} finally {
+							signal.removeEventListener("abort", onAbort);
+						}
+					} else {
+						response = await this.completeWithStreaming(request, agentId, llmStartTime);
+					}
+				} else if (signal) {
 					const completePromise = this.client.complete(request);
 					let onAbort: () => void = () => {};
 					const abortPromise = new Promise<never>((_, reject) => {
@@ -874,6 +940,16 @@ export class Agent {
 				}
 				throw err;
 			}
+
+			const llmLatencyMs = Math.round(performance.now() - llmStartTime);
+			this.emitAndLog("llm_end", agentId, this.depth, {
+				model: this.resolved.model,
+				provider: this.resolved.provider,
+				input_tokens: response.usage?.input_tokens ?? 0,
+				output_tokens: response.usage?.output_tokens ?? 0,
+				latency_ms: llmLatencyMs,
+				finish_reason: response.finish_reason.reason,
+			});
 			const assistantMessage = response.message;
 
 			// Add assistant message to history
