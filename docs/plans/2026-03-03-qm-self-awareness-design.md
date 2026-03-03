@@ -73,10 +73,10 @@ Root agent also gets updated routing hints:
 | tools | [] (no direct primitives) |
 | agents | utility/reader, utility/command-runner, utility/editor |
 | can_spawn | true |
-| max_depth | 2 |
-| max_turns | 0 (unlimited) |
+| max_depth | 3 |
+| max_turns | 200 |
 
-**Key knowledge in system prompt:**
+**Key knowledge loaded on demand from resource files:**
 - Session storage layout: `~/.local/share/sprout-genome/projects/{slug}/sessions/`
   (metadata) and `logs/` (JSONL events)
 - Event kind taxonomy (~30 EventKind values and their meaning)
@@ -118,10 +118,10 @@ The "how does Sprout work?" agent.
 | tools | [] (no direct primitives) |
 | agents | utility/reader, project-explorer |
 | can_spawn | true |
-| max_depth | 2 |
-| max_turns | 0 (unlimited) |
+| max_depth | 3 |
+| max_turns | 200 |
 
-**Knowledge domains** (carried as context references):
+**Knowledge domains** (loaded on demand from resource files):
 1. Agent tree — conventions, auto-discovery, path resolution, preambles
 2. Genome — overlay model, two-layer resolution, version bumping, persistence
 3. Delegation — in-process vs bus-based spawner, blocking/non-blocking/shared agents
@@ -157,10 +157,10 @@ improving from experience.
 | tools | [] (no direct primitives) |
 | agents | utility/reader, utility/command-runner |
 | can_spawn | true |
-| max_depth | 2 |
-| max_turns | 0 (unlimited) |
+| max_depth | 3 |
+| max_turns | 200 |
 
-**Key knowledge in system prompt:**
+**Key knowledge loaded on demand from resource files:**
 1. Learn signal kinds — failure, timeout, error, inefficiency, retry — and triggers
 2. Learn pipeline — signal → shouldLearn → LLM reasoning → mutation → evaluation
 3. Mutation types — memory creation, agent spec updates, routing rule changes
