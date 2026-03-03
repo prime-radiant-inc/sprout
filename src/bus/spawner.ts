@@ -344,11 +344,15 @@ export class AgentSpawner {
 				kind: "steer",
 				message,
 			};
+
+			if (blocking) {
+				// Clear cached result BEFORE publishing so a result arriving
+				// between publish and waitAgent doesn't get overwritten.
+				handle.result = undefined;
+			}
 			await this.bus.publish(inboxTopic, JSON.stringify(steerMsg));
 
 			if (blocking) {
-				// Clear cached result so waitAgent waits for the new one
-				handle.result = undefined;
 				return this.waitAgent(handleId);
 			}
 			return Promise.resolve(undefined);

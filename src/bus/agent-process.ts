@@ -327,10 +327,11 @@ async function idleLoop(
 
 	async function processNext(): Promise<void> {
 		processing = true;
-		while (continueQueue.length > 0) {
+		while (continueQueue.length > 0 && !signal.aborted) {
 			const continueMsg = continueQueue.shift()!;
 			try {
 				const result = await agent.continue(continueMsg.message, signal);
+				if (!bus.connected) break;
 				const resultMsg: ResultMessage = {
 					kind: "result",
 					handle_id: handleId,
@@ -342,6 +343,7 @@ async function idleLoop(
 				};
 				await bus.publish(resultTopic, JSON.stringify(resultMsg));
 			} catch (err) {
+				if (!bus.connected) break;
 				const errorResult: ResultMessage = {
 					kind: "result",
 					handle_id: handleId,

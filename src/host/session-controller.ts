@@ -389,6 +389,9 @@ export class SessionController {
 
 		let learnProcess: AgentFactoryResult["learnProcess"] = null;
 		const signal = this.abortController.signal;
+		// Capture metadata before the try block so the finally writes to the
+		// correct session even if /clear replaces this.metadata mid-run.
+		const metadata = this.metadata;
 
 		try {
 			const result = await this.factory({
@@ -426,8 +429,8 @@ export class SessionController {
 				await learnProcess.stopBackground();
 			}
 			this.running = false;
-			this.metadata.setStatus(signal.aborted ? "interrupted" : "idle");
-			await this.metadata.save();
+			metadata.setStatus(signal.aborted ? "interrupted" : "idle");
+			await metadata.save();
 			this.agent = null;
 		}
 	}
