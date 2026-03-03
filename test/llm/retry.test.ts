@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { retryLLMCall } from "../../src/llm/retry.ts";
-import type { Response } from "../../src/llm/types.ts";
 
-const dummyResponse: Response = {
+const dummyResponse = {
 	id: "test",
 	model: "test",
 	provider: "test",
@@ -178,7 +177,7 @@ describe("retryLLMCall", () => {
 		expect(retryLog[1]!.error.message).toBe("Fail 2");
 	});
 
-	test("respects abort signal during retry delay", async () => {
+	test("respects abort signal during retry delay and throws AbortError", async () => {
 		const controller = new AbortController();
 		let calls = 0;
 		let caughtError: unknown;
@@ -206,7 +205,34 @@ describe("retryLLMCall", () => {
 
 		// Should have attempted at most 2 calls (initial + maybe one retry before abort)
 		expect(calls).toBeLessThanOrEqual(2);
-		expect(caughtError).toBeDefined();
+		expect(caughtError).toBeInstanceOf(DOMException);
+		expect((caughtError as DOMException).name).toBe("AbortError");
+	});
+
+	test("abort when signal already aborted throws AbortError, not original error", async () => {
+		const controller = new AbortController();
+		controller.abort();
+		let caughtError: unknown;
+
+		try {
+			await retryLLMCall(
+				async () => {
+					const err = new Error("Server error");
+					(err as any).status = 500;
+					throw err;
+				},
+				{
+					maxRetries: 5,
+					baseDelayMs: 10,
+					signal: controller.signal,
+				},
+			);
+		} catch (err) {
+			caughtError = err;
+		}
+
+		expect(caughtError).toBeInstanceOf(DOMException);
+		expect((caughtError as DOMException).name).toBe("AbortError");
 	});
 
 	test("retries errors without status code (network errors)", async () => {
@@ -276,5 +302,181 @@ describe("retryLLMCall", () => {
 		expect(delays[0]).toBe(100);
 		expect(delays[1]).toBe(200);
 		expect(delays[2]).toBe(400);
+	});
+
+	test("caps delays at maxDelayMs", async () => {
+		const delays: number[] = [];
+
+		try {
+			await retryLLMCall(
+				async () => {
+					const err = new Error("fail");
+					(err as any).status = 500;
+					throw err;
+				},
+				{
+					maxRetries: 3,
+					baseDelayMs: 100,
+					maxDelayMs: 150,
+					jitter: false,
+					onRetry: (_error, _attempt, delayMs) => {
+						delays.push(delayMs);
+					},
+				},
+			);
+		} catch {
+			// Expected
+		}
+
+		expect(delays).toHaveLength(3);
+		// 100, min(200,150)=150, min(400,150)=150
+		expect(delays[0]).toBe(100);
+		expect(delays[1]).toBe(150);
+		expect(delays[2]).toBe(150);
+	});
+
+	test("error with retryable: false and no status code is not retried", async () => {
+		let calls = 0;
+		let caughtError: unknown;
+
+		try {
+			await retryLLMCall(
+				async () => {
+					calls++;
+					const err = new Error("Non-retryable");
+					(err as any).retryable = false;
+					throw err;
+				},
+				{ maxRetries: 2, baseDelayMs: 10 },
+			);
+		} catch (err) {
+			caughtError = err;
+		}
+
+		expect(calls).toBe(1);
+		expect((caughtError as Error).message).toBe("Non-retryable");
+	});
+
+	test("error with retryable: true overrides non-retryable status code", async () => {
+		let calls = 0;
+		const result = await retryLLMCall(
+			async () => {
+				calls++;
+				if (calls === 1) {
+					const err = new Error("Bad request but retryable");
+					(err as any).status = 400;
+					(err as any).retryable = true;
+					throw err;
+				}
+				return dummyResponse;
+			},
+			{ maxRetries: 2, baseDelayMs: 10 },
+		);
+
+		expect(result).toBe(dummyResponse);
+		expect(calls).toBe(2);
+	});
+
+	test("does not retry on 413 (ContextLengthError)", async () => {
+		let calls = 0;
+		let caughtError: unknown;
+
+		try {
+			await retryLLMCall(
+				async () => {
+					calls++;
+					const err = new Error("Context too long");
+					(err as any).status = 413;
+					throw err;
+				},
+				{ maxRetries: 2, baseDelayMs: 10 },
+			);
+		} catch (err) {
+			caughtError = err;
+		}
+
+		expect(calls).toBe(1);
+		expect((caughtError as Error).message).toBe("Context too long");
+	});
+
+	test("does not retry on 422 (InvalidRequestError)", async () => {
+		let calls = 0;
+		let caughtError: unknown;
+
+		try {
+			await retryLLMCall(
+				async () => {
+					calls++;
+					const err = new Error("Invalid request");
+					(err as any).status = 422;
+					throw err;
+				},
+				{ maxRetries: 2, baseDelayMs: 10 },
+			);
+		} catch (err) {
+			caughtError = err;
+		}
+
+		expect(calls).toBe(1);
+		expect((caughtError as Error).message).toBe("Invalid request");
+	});
+
+	test("uses retry_after delay instead of computed backoff", async () => {
+		const delays: number[] = [];
+		let calls = 0;
+
+		const result = await retryLLMCall(
+			async () => {
+				calls++;
+				if (calls === 1) {
+					const err = new Error("Rate limited");
+					(err as any).status = 429;
+					(err as any).retry_after = 2; // 2 seconds
+					throw err;
+				}
+				return dummyResponse;
+			},
+			{
+				maxRetries: 2,
+				baseDelayMs: 100,
+				maxDelayMs: 60_000,
+				jitter: false,
+				onRetry: (_error, _attempt, delayMs) => {
+					delays.push(delayMs);
+				},
+			},
+		);
+
+		expect(result).toBe(dummyResponse);
+		expect(calls).toBe(2);
+		expect(delays).toHaveLength(1);
+		expect(delays[0]).toBe(2000); // retry_after * 1000
+	});
+
+	test("throws immediately when retry_after exceeds maxDelayMs", async () => {
+		let calls = 0;
+		let caughtError: unknown;
+
+		try {
+			await retryLLMCall(
+				async () => {
+					calls++;
+					const err = new Error("Rate limited");
+					(err as any).status = 429;
+					(err as any).retry_after = 120; // 120 seconds
+					throw err;
+				},
+				{
+					maxRetries: 3,
+					baseDelayMs: 100,
+					maxDelayMs: 60_000,
+				},
+			);
+		} catch (err) {
+			caughtError = err;
+		}
+
+		expect(calls).toBe(1);
+		expect((caughtError as Error).message).toBe("Rate limited");
 	});
 });
