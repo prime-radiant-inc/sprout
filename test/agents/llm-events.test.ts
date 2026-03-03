@@ -4,8 +4,8 @@ import { Agent } from "../../src/agents/agent.ts";
 import { AgentEventEmitter } from "../../src/agents/events.ts";
 import { LocalExecutionEnvironment } from "../../src/kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../../src/kernel/primitives.ts";
-import { type AgentSpec, DEFAULT_CONSTRAINTS, type SessionEvent } from "../../src/kernel/types.ts";
-import { Client } from "../../src/llm/client.ts";
+import { type AgentSpec, DEFAULT_CONSTRAINTS } from "../../src/kernel/types.ts";
+import type { Client } from "../../src/llm/client.ts";
 import type { Response } from "../../src/llm/types.ts";
 import { Msg } from "../../src/llm/types.ts";
 

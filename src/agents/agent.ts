@@ -23,7 +23,12 @@ import type {
 } from "../kernel/types.ts";
 import type { LearnSink } from "../learn/learn-process.ts";
 import type { Client } from "../llm/client.ts";
-import type { Request as LLMRequest, Response as LLMResponse, Message, ToolDefinition } from "../llm/types.ts";
+import type {
+	Request as LLMRequest,
+	Response as LLMResponse,
+	Message,
+	ToolDefinition,
+} from "../llm/types.ts";
 import { Msg, messageReasoning, messageText, messageToolCalls } from "../llm/types.ts";
 import { ulid } from "../util/ulid.ts";
 import { getContextWindowSize } from "./context-window.ts";
