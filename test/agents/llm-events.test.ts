@@ -444,4 +444,187 @@ describe("LLM progress events", () => {
 		const interrupted = collected.find((e) => e.kind === "interrupted");
 		expect(interrupted).toBeDefined();
 	});
+
+	test("emits llm_end when streaming LLM call emits an error event", async () => {
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async () => simpleResponse,
+			stream: async function* () {
+				yield { type: "stream_start" as const };
+				yield { type: "text_start" as const };
+				yield { type: "text_delta" as const, delta: "partial " };
+				yield { type: "error" as const, error: new Error("Stream connection lost") };
+			},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: leafSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+			events,
+			enableStreaming: true,
+		});
+
+		await expect(agent.run("stream error test")).rejects.toThrow("Stream connection lost");
+
+		const collected = events.collected();
+		const llmStart = collected.find((e) => e.kind === "llm_start");
+		const llmEnd = collected.find((e) => e.kind === "llm_end");
+		expect(llmStart).toBeDefined();
+		expect(llmEnd).toBeDefined();
+		expect(llmEnd!.data.finish_reason).toBe("error");
+		expect(llmEnd!.data.input_tokens).toBe(0);
+		expect(llmEnd!.data.output_tokens).toBe(0);
+		expect(typeof llmEnd!.data.latency_ms).toBe("number");
+
+		// plan_end should also be emitted to close the orphaned plan_start
+		const planStart = collected.find((e) => e.kind === "plan_start");
+		const planEnd = collected.find((e) => e.kind === "plan_end");
+		expect(planStart).toBeDefined();
+		expect(planEnd).toBeDefined();
+		expect(planEnd!.data.finish_reason).toBe("error");
+	});
+
+	test("emits llm_end when streaming LLM call is aborted", async () => {
+		const ac = new AbortController();
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async () => simpleResponse,
+			stream: async function* () {
+				yield { type: "stream_start" as const };
+				yield { type: "text_start" as const };
+				// Simulate a long stream that will be aborted
+				await new Promise((resolve) => setTimeout(resolve, 500));
+				yield { type: "text_delta" as const, delta: "never reached" };
+				yield { type: "text_end" as const };
+				yield {
+					type: "finish" as const,
+					finish_reason: simpleResponse.finish_reason,
+					usage: simpleResponse.usage,
+					response: simpleResponse,
+				};
+			},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: leafSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+			events,
+			enableStreaming: true,
+		});
+
+		// Abort shortly after run starts
+		setTimeout(() => ac.abort(), 10);
+
+		await agent.run("stream abort test", ac.signal);
+
+		const collected = events.collected();
+		const llmStart = collected.find((e) => e.kind === "llm_start");
+		const llmEnd = collected.find((e) => e.kind === "llm_end");
+		expect(llmStart).toBeDefined();
+		expect(llmEnd).toBeDefined();
+		expect(llmEnd!.data.finish_reason).toBe("interrupted");
+		expect(llmEnd!.data.input_tokens).toBe(0);
+		expect(llmEnd!.data.output_tokens).toBe(0);
+
+		// plan_end should also be emitted to close the orphaned plan_start
+		const planStart = collected.find((e) => e.kind === "plan_start");
+		const planEnd = collected.find((e) => e.kind === "plan_end");
+		expect(planStart).toBeDefined();
+		expect(planEnd).toBeDefined();
+		expect(planEnd!.data.finish_reason).toBe("interrupted");
+
+		// interrupted event should be emitted
+		const interrupted = collected.find((e) => e.kind === "interrupted");
+		expect(interrupted).toBeDefined();
+	});
+
+	test("plan_end is emitted even when non-streaming LLM call errors", async () => {
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				throw new Error("Service unavailable");
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: leafSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+			events,
+		});
+
+		await expect(agent.run("plan_end on error test")).rejects.toThrow("Service unavailable");
+
+		const collected = events.collected();
+		const kinds = collected.map((e) => e.kind);
+		const planStartIdx = kinds.indexOf("plan_start");
+		const planEndIdx = kinds.indexOf("plan_end");
+
+		expect(planStartIdx).toBeGreaterThanOrEqual(0);
+		expect(planEndIdx).toBeGreaterThan(planStartIdx);
+
+		const planEnd = collected.find((e) => e.kind === "plan_end");
+		expect(planEnd!.data.finish_reason).toBe("error");
+	});
+
+	test("plan_end is emitted when non-streaming LLM call is aborted", async () => {
+		const ac = new AbortController();
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				await new Promise((resolve) => setTimeout(resolve, 500));
+				return simpleResponse;
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: leafSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+			events,
+		});
+
+		setTimeout(() => ac.abort(), 10);
+
+		await agent.run("plan_end on abort test", ac.signal);
+
+		const collected = events.collected();
+		const kinds = collected.map((e) => e.kind);
+		const planStartIdx = kinds.indexOf("plan_start");
+		const planEndIdx = kinds.indexOf("plan_end");
+
+		expect(planStartIdx).toBeGreaterThanOrEqual(0);
+		expect(planEndIdx).toBeGreaterThan(planStartIdx);
+
+		const planEnd = collected.find((e) => e.kind === "plan_end");
+		expect(planEnd!.data.finish_reason).toBe("interrupted");
+	});
 });

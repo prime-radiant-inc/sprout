@@ -945,6 +945,10 @@ export class Agent {
 						latency_ms: Math.round(performance.now() - llmStartTime),
 						finish_reason: "interrupted",
 					});
+					this.emitAndLog("plan_end", agentId, this.depth, {
+						turn: turns,
+						finish_reason: "interrupted",
+					});
 					this.emitAndLog("interrupted", agentId, this.depth, {
 						message: "Agent interrupted during LLM call",
 						turns,
@@ -957,6 +961,10 @@ export class Agent {
 					input_tokens: 0,
 					output_tokens: 0,
 					latency_ms: Math.round(performance.now() - llmStartTime),
+					finish_reason: "error",
+				});
+				this.emitAndLog("plan_end", agentId, this.depth, {
+					turn: turns,
 					finish_reason: "error",
 				});
 				throw err;
