@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { SessionEvent } from "../../../src/kernel/types.ts";
-import { buildAgentStats, type AgentStats } from "./useAgentStats.ts";
+import { buildAgentStats } from "./useAgentStats.ts";
 
 // --- Helpers ---
 

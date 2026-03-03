@@ -185,6 +185,9 @@ export function EventLine({ event, durationMs, streamingText, isFirstInGroup, ag
 		case "learn_signal":
 		case "learn_end":
 		case "log":
+		case "llm_start":
+		case "llm_chunk":
+		case "llm_end":
 			return null;
 
 		default:

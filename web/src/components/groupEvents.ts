@@ -32,6 +32,9 @@ const INVISIBLE_KINDS = new Set([
 	"learn_signal",
 	"learn_end",
 	"log",
+	"llm_start",
+	"llm_chunk",
+	"llm_end",
 ]);
 
 /** Event kinds that can be grouped with consecutive events of the same kind + agent. */
