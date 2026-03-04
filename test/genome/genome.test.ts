@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "yaml";
@@ -34,14 +34,23 @@ function makeRule(overrides: Partial<RoutingRule> = {}): RoutingRule {
 
 describe("Genome", () => {
 	let tempDir: string;
+	let initTemplateDir: string;
 
 	beforeAll(async () => {
 		tempDir = await mkdtemp(join(tmpdir(), "sprout-genome-"));
+		initTemplateDir = join(tempDir, "__init-template");
+		const template = new Genome(initTemplateDir);
+		await template.init();
 	});
 
 	afterAll(async () => {
 		await rm(tempDir, { recursive: true });
 	});
+
+	async function createInitializedGenome(rootPath: string, rootDir?: string): Promise<Genome> {
+		await cp(initTemplateDir, rootPath, { recursive: true });
+		return new Genome(rootPath, rootDir);
+	}
 
 	// --- Init tests ---
 
@@ -103,8 +112,7 @@ describe("Genome", () => {
 	describe("agent CRUD", () => {
 		test("addAgent writes .md file and commits", async () => {
 			const root = join(tempDir, "agent-add");
-			const genome = new Genome(root);
-			await genome.init();
+			const genome = await createInitializedGenome(root);
 
 			const spec = makeSpec({ name: "reader" });
 			await genome.addAgent(spec);
@@ -125,8 +133,7 @@ describe("Genome", () => {
 
 		test("addAgent writes .md not .yaml", async () => {
 			const root = join(tempDir, "agent-add-no-yaml");
-			const genome = new Genome(root);
-			await genome.init();
+			const genome = await createInitializedGenome(root);
 
 			await genome.addAgent(makeSpec({ name: "checker" }));
 
@@ -137,16 +144,14 @@ describe("Genome", () => {
 
 		test("getAgent returns undefined for nonexistent", async () => {
 			const root = join(tempDir, "agent-get-missing");
-			const genome = new Genome(root);
-			await genome.init();
+			const genome = await createInitializedGenome(root);
 
 			expect(genome.getAgent("nonexistent")).toBeUndefined();
 		});
 
 		test("allAgents returns all agents", async () => {
 			const root = join(tempDir, "agent-all");
-			const genome = new Genome(root);
-			await genome.init();
+			const genome = await createInitializedGenome(root);
 
 			await genome.addAgent(makeSpec({ name: "alpha" }));
 			await genome.addAgent(makeSpec({ name: "beta" }));
@@ -164,8 +169,7 @@ describe("Genome", () => {
 
 		test("agentCount returns correct count", async () => {
 			const root = join(tempDir, "agent-count");
-			const genome = new Genome(root);
-			await genome.init();
+			const genome = await createInitializedGenome(root);
 
 			expect(genome.agentCount()).toBe(0);
 			await genome.addAgent(makeSpec({ name: "one" }));
@@ -176,8 +180,7 @@ describe("Genome", () => {
 
 		test("updateAgent bumps version and commits", async () => {
 			const root = join(tempDir, "agent-update");
-			const genome = new Genome(root);
-			await genome.init();
+			const genome = await createInitializedGenome(root);
 
 			await genome.addAgent(makeSpec({ name: "updater", version: 1 }));
 			await genome.updateAgent(makeSpec({ name: "updater", description: "Updated desc" }));
@@ -192,8 +195,7 @@ describe("Genome", () => {
 
 		test("removeAgent deletes .md file and commits", async () => {
 			const root = join(tempDir, "agent-remove");
-			const genome = new Genome(root);
-			await genome.init();
+			const genome = await createInitializedGenome(root);
 
 			await genome.addAgent(makeSpec({ name: "doomed" }));
 			expect(genome.getAgent("doomed")).toBeDefined();
@@ -216,8 +218,7 @@ describe("Genome", () => {
 	describe("routing rules", () => {
 		test("addRoutingRule appends and commits", async () => {
 			const root = join(tempDir, "rule-add");
-			const genome = new Genome(root);
-			await genome.init();
+			const genome = await createInitializedGenome(root);
 
 			const rule = makeRule({ id: "r1", condition: "typescript" });
 			await genome.addRoutingRule(rule);
@@ -239,8 +240,7 @@ describe("Genome", () => {
 
 		test("removeRoutingRule removes and commits", async () => {
 			const root = join(tempDir, "rule-remove");
-			const genome = new Genome(root);
-			await genome.init();
+			const genome = await createInitializedGenome(root);
 
 			await genome.addRoutingRule(makeRule({ id: "r1" }));
 			await genome.addRoutingRule(makeRule({ id: "r2" }));
@@ -257,8 +257,7 @@ describe("Genome", () => {
 
 		test("matchRoutingRules finds by keyword", async () => {
 			const root = join(tempDir, "rule-match");
-			const genome = new Genome(root);
-			await genome.init();
+			const genome = await createInitializedGenome(root);
 
 			await genome.addRoutingRule(
 				makeRule({ id: "r1", condition: "typescript error", preference: "code-editor" }),
@@ -274,8 +273,7 @@ describe("Genome", () => {
 
 		test("matchRoutingRules sorts by strength descending", async () => {
 			const root = join(tempDir, "rule-sort");
-			const genome = new Genome(root);
-			await genome.init();
+			const genome = await createInitializedGenome(root);
 
 			await genome.addRoutingRule(
 				makeRule({ id: "weak", condition: "code review", strength: 0.3 }),
@@ -296,8 +294,7 @@ describe("Genome", () => {
 
 		test("matchRoutingRules returns empty for empty query", async () => {
 			const root = join(tempDir, "rule-empty");
-			const genome = new Genome(root);
-			await genome.init();
+			const genome = await createInitializedGenome(root);
 
 			await genome.addRoutingRule(makeRule({ id: "r1" }));
 
@@ -311,8 +308,7 @@ describe("Genome", () => {
 	describe("load and init", () => {
 		test("loadFromDisk loads agents, memories, and routing rules", async () => {
 			const root = join(tempDir, "load-disk");
-			const genome = new Genome(root);
-			await genome.init();
+			const genome = await createInitializedGenome(root);
 
 			// Add some data
 			await genome.addAgent(makeSpec({ name: "loader-agent" }));
@@ -332,8 +328,7 @@ describe("Genome", () => {
 
 		test("loadFromDisk loads .md agent files using parseAgentMarkdown", async () => {
 			const root = join(tempDir, "load-disk-md");
-			const genome = new Genome(root);
-			await genome.init();
+			const genome = await createInitializedGenome(root);
 
 			// Write a .md agent file directly to the genome's agents directory
 			const mdContent = [
@@ -361,8 +356,7 @@ describe("Genome", () => {
 		test("initFromRoot loads root agents and saves manifest (no file copy)", async () => {
 			const root = join(tempDir, "init-from-root");
 			const rootDir = join(import.meta.dir, "../../root");
-			const genome = new Genome(root, rootDir);
-			await genome.init();
+			const genome = await createInitializedGenome(root, rootDir);
 
 			await genome.initFromRoot();
 
@@ -397,16 +391,14 @@ describe("Genome", () => {
 	describe("error guards", () => {
 		test("updateAgent throws if agent does not exist", async () => {
 			const root = join(tempDir, "update-guard");
-			const genome = new Genome(root);
-			await genome.init();
+			const genome = await createInitializedGenome(root);
 
 			await expect(genome.updateAgent(makeSpec({ name: "ghost" }))).rejects.toThrow(/not found/);
 		});
 
 		test("removeAgent throws if agent does not exist", async () => {
 			const root = join(tempDir, "remove-guard");
-			const genome = new Genome(root);
-			await genome.init();
+			const genome = await createInitializedGenome(root);
 
 			await expect(genome.removeAgent("ghost")).rejects.toThrow(/not found/);
 		});
@@ -417,8 +409,7 @@ describe("Genome", () => {
 	describe("memory CRUD", () => {
 		test("addMemory writes JSONL and commits", async () => {
 			const root = join(tempDir, "mem-add");
-			const genome = new Genome(root);
-			await genome.init();
+			const genome = await createInitializedGenome(root);
 
 			const mem = makeMemory({ id: "genome-mem-1", content: "important fact" });
 			await genome.addMemory(mem);
@@ -434,8 +425,7 @@ describe("Genome", () => {
 
 		test("markMemoriesUsed updates use_count and persists to disk", async () => {
 			const root = join(tempDir, "mem-used");
-			const genome = new Genome(root);
-			await genome.init();
+			const genome = await createInitializedGenome(root);
 
 			const mem1 = makeMemory({ id: "used-1", use_count: 0 });
 			const mem2 = makeMemory({ id: "used-2", use_count: 0 });
@@ -466,8 +456,7 @@ describe("Genome", () => {
 		test("rollback reverts the last mutation", async () => {
 			const root = join(tempDir, "rollback-last");
 			const rootDir = join(import.meta.dir, "../../root");
-			const genome = new Genome(root, rootDir);
-			await genome.init();
+			const genome = await createInitializedGenome(root, rootDir);
 
 			await genome.initFromRoot();
 
@@ -490,8 +479,7 @@ describe("Genome", () => {
 
 		test("lastCommitHash returns the HEAD commit hash", async () => {
 			const root = join(tempDir, "last-commit-hash");
-			const genome = new Genome(root);
-			await genome.init();
+			const genome = await createInitializedGenome(root);
 
 			await genome.addAgent(makeSpec({ name: "hash-agent" }));
 
@@ -505,8 +493,7 @@ describe("Genome", () => {
 
 		test("rollbackCommit reverts a specific commit", async () => {
 			const root = join(tempDir, "rollback-commit");
-			const genome = new Genome(root);
-			await genome.init();
+			const genome = await createInitializedGenome(root);
 
 			await genome.addAgent(makeSpec({ name: "first" }));
 			const commitHash = await git(root, "rev-parse", "HEAD");
@@ -528,8 +515,7 @@ describe("Genome", () => {
 	describe("Postscripts", () => {
 		test("loadPostscripts returns empty strings when no postscripts exist", async () => {
 			const root = join(tempDir, "ps-empty");
-			const genome = new Genome(root);
-			await genome.init();
+			const genome = await createInitializedGenome(root);
 
 			const ps = await genome.loadPostscripts();
 			expect(ps.global).toBe("");
@@ -539,8 +525,7 @@ describe("Genome", () => {
 
 		test("loadPostscripts reads existing postscript files", async () => {
 			const root = join(tempDir, "ps-read");
-			const genome = new Genome(root);
-			await genome.init();
+			const genome = await createInitializedGenome(root);
 
 			await writeFile(join(root, "postscripts", "global.md"), "global rules");
 			await writeFile(join(root, "postscripts", "worker.md"), "worker rules");
@@ -553,8 +538,7 @@ describe("Genome", () => {
 
 		test("loadAgentPostscript returns empty string when not found", async () => {
 			const root = join(tempDir, "ps-agent-missing");
-			const genome = new Genome(root);
-			await genome.init();
+			const genome = await createInitializedGenome(root);
 
 			const content = await genome.loadAgentPostscript("reader");
 			expect(content).toBe("");
@@ -562,8 +546,7 @@ describe("Genome", () => {
 
 		test("loadAgentPostscript reads agent-specific postscript", async () => {
 			const root = join(tempDir, "ps-agent-read");
-			const genome = new Genome(root);
-			await genome.init();
+			const genome = await createInitializedGenome(root);
 
 			const agentsDir = join(root, "postscripts", "agents");
 			await mkdir(agentsDir, { recursive: true });
@@ -575,8 +558,7 @@ describe("Genome", () => {
 
 		test("savePostscript writes file and commits", async () => {
 			const root = join(tempDir, "ps-save");
-			const genome = new Genome(root);
-			await genome.init();
+			const genome = await createInitializedGenome(root);
 
 			await genome.savePostscript("global.md", "saved global rules");
 
@@ -589,8 +571,7 @@ describe("Genome", () => {
 
 		test("savePostscript creates agents subdirectory if needed", async () => {
 			const root = join(tempDir, "ps-save-agent");
-			const genome = new Genome(root);
-			await genome.init();
+			const genome = await createInitializedGenome(root);
 
 			await genome.savePostscript("agents/editor.md", "editor-specific rules");
 
@@ -623,8 +604,7 @@ describe("Genome", () => {
 			await writeRootMd(rootDir, "beta", { description: "Beta agent" });
 
 			const root = join(tempDir, "sync-manifest-add");
-			const genome = new Genome(root, rootDir);
-			await genome.init();
+			const genome = await createInitializedGenome(root, rootDir);
 			await genome.loadRoot();
 
 			const result = await genome.syncRoot();
@@ -651,8 +631,7 @@ describe("Genome", () => {
 			await writeRootMd(rootDir, "stable");
 
 			const root = join(tempDir, "sync-manifest-noop");
-			const genome = new Genome(root, rootDir);
-			await genome.init();
+			const genome = await createInitializedGenome(root, rootDir);
 			await genome.loadRoot();
 
 			// First sync — detects the agent
@@ -677,8 +656,7 @@ describe("Genome", () => {
 			});
 
 			const root = join(tempDir, "sync-manifest-update");
-			const genome = new Genome(root, rootDir);
-			await genome.init();
+			const genome = await createInitializedGenome(root, rootDir);
 			await genome.loadRoot();
 
 			// First sync
@@ -707,8 +685,7 @@ describe("Genome", () => {
 			});
 
 			const root = join(tempDir, "sync-manifest-conflict");
-			const genome = new Genome(root, rootDir);
-			await genome.init();
+			const genome = await createInitializedGenome(root, rootDir);
 			await genome.loadRoot();
 
 			// First sync
@@ -742,8 +719,7 @@ describe("Genome", () => {
 			});
 
 			const root = join(tempDir, "sync-manifest-preserve");
-			const genome = new Genome(root, rootDir);
-			await genome.init();
+			const genome = await createInitializedGenome(root, rootDir);
 			await genome.loadRoot();
 
 			// First sync
@@ -778,8 +754,7 @@ describe("Genome", () => {
 			await writeRootMd(rootDir, "debugger");
 
 			const root = join(tempDir, "sync-cap-merge");
-			const genome = new Genome(root, rootDir);
-			await genome.init();
+			const genome = await createInitializedGenome(root, rootDir);
 			await genome.loadRoot();
 
 			// First sync
@@ -813,8 +788,7 @@ describe("Genome", () => {
 			await writeRootMd(rootDir, "reader");
 
 			const root = join(tempDir, "sync-cap-merge-evolved");
-			const genome = new Genome(root, rootDir);
-			await genome.init();
+			const genome = await createInitializedGenome(root, rootDir);
 			await genome.loadRoot();
 
 			// First sync
@@ -861,8 +835,7 @@ describe("Genome", () => {
 			await writeRootMd(rootDir, "debugger");
 
 			const root = join(tempDir, "sync-cap-remove");
-			const genome = new Genome(root, rootDir);
-			await genome.init();
+			const genome = await createInitializedGenome(root, rootDir);
 			await genome.loadRoot();
 
 			// First sync
@@ -892,8 +865,7 @@ describe("Genome", () => {
 			await writeRootMd(rootDir, "alpha", { description: "Original alpha" });
 
 			const root = join(tempDir, "sync-commit-msg");
-			const genome = new Genome(root, rootDir);
-			await genome.init();
+			const genome = await createInitializedGenome(root, rootDir);
 			await genome.loadRoot();
 
 			// First sync
@@ -927,8 +899,7 @@ describe("Genome", () => {
 			});
 
 			const root = join(tempDir, "sync-path-agents");
-			const genome = new Genome(root, rootDir);
-			await genome.init();
+			const genome = await createInitializedGenome(root, rootDir);
 			await genome.loadRoot();
 
 			// First sync
@@ -978,8 +949,7 @@ describe("Genome", () => {
 			await writeRootMd(rootDir, "debugger");
 
 			const root = join(tempDir, "sync-cap-remove-preserve");
-			const genome = new Genome(root, rootDir);
-			await genome.init();
+			const genome = await createInitializedGenome(root, rootDir);
 			await genome.loadRoot();
 
 			// First sync
@@ -1035,8 +1005,7 @@ describe("Genome", () => {
 			await mkdir(rootDir, { recursive: true });
 			await writeRootMd(rootDir, "reader", { description: "Root reader" });
 
-			const genome = new Genome(genomePath, rootDir);
-			await genome.init();
+			const genome = await createInitializedGenome(genomePath, rootDir);
 			await genome.loadRoot();
 
 			const agent = genome.getAgent("reader");
@@ -1050,8 +1019,7 @@ describe("Genome", () => {
 			await mkdir(rootDir, { recursive: true });
 			await writeRootMd(rootDir, "reader", { description: "Root reader" });
 
-			const genome = new Genome(genomePath, rootDir);
-			await genome.init();
+			const genome = await createInitializedGenome(genomePath, rootDir);
 			await genome.loadRoot();
 
 			// Add an overlay agent with the same name
@@ -1070,8 +1038,7 @@ describe("Genome", () => {
 			await writeRootMd(rootDir, "reader", { description: "Root reader" });
 			await writeRootMd(rootDir, "editor", { description: "Root editor" });
 
-			const genome = new Genome(genomePath, rootDir);
-			await genome.init();
+			const genome = await createInitializedGenome(genomePath, rootDir);
 			await genome.loadRoot();
 
 			// Override reader in overlay
@@ -1099,8 +1066,7 @@ describe("Genome", () => {
 			await mkdir(rootDir, { recursive: true });
 			await writeRootMd(rootDir, "reader", { description: "Root reader" });
 
-			const genome = new Genome(genomePath, rootDir);
-			await genome.init();
+			const genome = await createInitializedGenome(genomePath, rootDir);
 			await genome.loadRoot();
 
 			// reader is root-only
@@ -1124,8 +1090,7 @@ describe("Genome", () => {
 			await writeRootMd(rootDir, "root");
 			await writeRootMd(rootDir, "reader");
 
-			const genome = new Genome(genomePath, rootDir);
-			await genome.init();
+			const genome = await createInitializedGenome(genomePath, rootDir);
 			await genome.loadRoot();
 
 			// No overlay agents yet
@@ -1147,8 +1112,7 @@ describe("Genome", () => {
 				system_prompt: "Original prompt",
 			});
 
-			const genome = new Genome(genomePath, rootDir);
-			await genome.init();
+			const genome = await createInitializedGenome(genomePath, rootDir);
 			await genome.loadRoot();
 
 			// reader is root-only
@@ -1171,8 +1135,7 @@ describe("Genome", () => {
 			await writeRootMd(rootDir, "reader", { description: "Root reader" });
 
 			// Set up genome with an overlay agent
-			const genome = new Genome(genomePath, rootDir);
-			await genome.init();
+			const genome = await createInitializedGenome(genomePath, rootDir);
 			await genome.loadRoot();
 			await genome.addAgent(makeSpec({ name: "specialist", description: "Genome only" }));
 
@@ -1188,8 +1151,7 @@ describe("Genome", () => {
 
 		test("loadRoot is a no-op when rootDir is not set", async () => {
 			const genomePath = join(tempDir, "overlay-no-rootdir");
-			const genome = new Genome(genomePath);
-			await genome.init();
+			const genome = await createInitializedGenome(genomePath);
 			await genome.addAgent(makeSpec({ name: "local", description: "Local agent" }));
 
 			// loadRoot should not throw and should not change agent count
@@ -1204,8 +1166,7 @@ describe("Genome", () => {
 			await mkdir(rootDir, { recursive: true });
 			await writeRootMd(rootDir, "reader", { description: "Root reader", version: 1 });
 
-			const genome = new Genome(genomePath, rootDir);
-			await genome.init();
+			const genome = await createInitializedGenome(genomePath, rootDir);
 			await genome.loadRoot();
 
 			// Create overlay that shadows root
@@ -1227,8 +1188,7 @@ describe("Genome", () => {
 			await mkdir(rootDir, { recursive: true });
 			await writeRootMd(rootDir, "reader", { description: "Root reader" });
 
-			const genome = new Genome(genomePath, rootDir);
-			await genome.init();
+			const genome = await createInitializedGenome(genomePath, rootDir);
 			await genome.loadRoot();
 
 			await expect(genome.removeAgent("reader")).rejects.toThrow("root agent");
@@ -1241,8 +1201,7 @@ describe("Genome", () => {
 			await writeRootMd(rootDir, "reader", { description: "Root reader" });
 			await writeRootMd(rootDir, "editor", { description: "Root editor" });
 
-			const genome = new Genome(genomePath, rootDir);
-			await genome.init();
+			const genome = await createInitializedGenome(genomePath, rootDir);
 			await genome.initFromRoot();
 			expect(genome.agentCount()).toBe(2);
 
@@ -1265,8 +1224,7 @@ describe("Genome", () => {
 			await mkdir(rootDir, { recursive: true });
 			await writeRootMd(rootDir, "reader", { description: "Root reader", version: 3 });
 
-			const genome = new Genome(genomePath, rootDir);
-			await genome.init();
+			const genome = await createInitializedGenome(genomePath, rootDir);
 			await genome.loadRoot();
 
 			await genome.addAgent(

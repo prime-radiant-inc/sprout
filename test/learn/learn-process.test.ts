@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentEventEmitter } from "../../src/agents/events.ts";
@@ -53,12 +53,13 @@ function makeMockClient(responseText: string, onComplete?: (req: Request) => voi
 }
 
 const ROOT_DIR = join(import.meta.dir, "../../root");
+let genomeTemplateDir: string;
 
 async function setupGenome(tempDir: string, name: string) {
 	const genomeDir = join(tempDir, name);
+	await cp(genomeTemplateDir, genomeDir, { recursive: true });
 	const genome = new Genome(genomeDir, ROOT_DIR);
-	await genome.init();
-	await genome.initFromRoot();
+	await genome.loadFromDisk();
 	const metrics = new MetricsStore(join(genomeDir, "metrics", "metrics.jsonl"));
 	await metrics.load();
 	const events = new AgentEventEmitter();
@@ -69,9 +70,9 @@ async function setupGenome(tempDir: string, name: string) {
 
 async function setupGenomeWithClient(tempDir: string, name: string, client: Client) {
 	const genomeDir = join(tempDir, name);
+	await cp(genomeTemplateDir, genomeDir, { recursive: true });
 	const genome = new Genome(genomeDir, ROOT_DIR);
-	await genome.init();
-	await genome.initFromRoot();
+	await genome.loadFromDisk();
 	const metrics = new MetricsStore(join(genomeDir, "metrics", "metrics.jsonl"));
 	await metrics.load();
 	const events = new AgentEventEmitter();
@@ -83,11 +84,15 @@ async function setupGenomeWithClient(tempDir: string, name: string, client: Clie
 describe("LearnProcess", () => {
 	let tempDir: string;
 
-	beforeEach(async () => {
+	beforeAll(async () => {
 		tempDir = await mkdtemp(join(tmpdir(), "sprout-learn-process-"));
+		genomeTemplateDir = join(tempDir, "__genome-template");
+		const templateGenome = new Genome(genomeTemplateDir, ROOT_DIR);
+		await templateGenome.init();
+		await templateGenome.initFromRoot();
 	});
 
-	afterEach(async () => {
+	afterAll(async () => {
 		await rm(tempDir, { recursive: true, force: true });
 	});
 
