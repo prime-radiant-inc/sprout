@@ -165,8 +165,10 @@ describe("primitivesForAgent", () => {
 });
 
 describe("buildSystemPrompt", () => {
+	const defaults = { spec: testAgent, workDir: "/tmp/test", platform: "darwin", osVersion: "Darwin 25.0" };
+
 	test("includes agent system prompt and environment context", () => {
-		const prompt = buildSystemPrompt(testAgent, "/tmp/test", "darwin", "Darwin 25.0");
+		const prompt = buildSystemPrompt(defaults);
 		expect(prompt).toContain("You help find code.");
 		expect(prompt).toContain("/tmp/test");
 		expect(prompt).toContain("darwin");
@@ -188,9 +190,7 @@ describe("buildSystemPrompt", () => {
 				confidence: 1.0,
 			},
 		];
-		const prompt = buildSystemPrompt(testAgent, "/tmp/test", "darwin", "Darwin 25.0", {
-			memories,
-		});
+		const prompt = buildSystemPrompt({ ...defaults, recallContext: { memories } });
 		expect(prompt).toContain("<memories>");
 		expect(prompt).toContain("this project uses vitest");
 		expect(prompt).toContain("</memories>");
@@ -206,9 +206,7 @@ describe("buildSystemPrompt", () => {
 				source: "test",
 			},
 		];
-		const prompt = buildSystemPrompt(testAgent, "/tmp/test", "darwin", "Darwin 25.0", {
-			routingHints,
-		});
+		const prompt = buildSystemPrompt({ ...defaults, recallContext: { routingHints } });
 		expect(prompt).toContain("<routing_hints>");
 		expect(prompt).toContain("Go testing");
 		expect(prompt).toContain("test-runner-go");
@@ -216,52 +214,56 @@ describe("buildSystemPrompt", () => {
 	});
 
 	test("omits memory/routing sections when empty", () => {
-		const prompt = buildSystemPrompt(testAgent, "/tmp/test", "darwin", "Darwin 25.0");
+		const prompt = buildSystemPrompt(defaults);
 		expect(prompt).not.toContain("<memories>");
 		expect(prompt).not.toContain("<routing_hints>");
 	});
 
 	test("includes project docs when provided", () => {
-		const prompt = buildSystemPrompt(
-			testAgent,
-			"/tmp/test",
-			"darwin",
-			"Darwin 25.0",
-			undefined,
-			undefined,
-			"Follow the coding standards in this project.",
-		);
+		const prompt = buildSystemPrompt({
+			...defaults,
+			projectDocs: "Follow the coding standards in this project.",
+		});
 		expect(prompt).toContain("<project-instructions>");
 		expect(prompt).toContain("Follow the coding standards in this project.");
 		expect(prompt).toContain("</project-instructions>");
 	});
 
 	test("omits project docs section when not provided", () => {
-		const prompt = buildSystemPrompt(testAgent, "/tmp/test", "darwin", "Darwin 25.0");
+		const prompt = buildSystemPrompt(defaults);
 		expect(prompt).not.toContain("<project-instructions>");
 	});
 
+	test("expands {{SPROUT_ROOT}} in system_prompt when rootDir is provided", () => {
+		const prompt = buildSystemPrompt({
+			...defaults,
+			spec: { ...testAgent, system_prompt: "Read the spec at {{SPROUT_ROOT}}/agents/foo/bar.md" },
+			rootDir: "/home/user/sprout/root",
+		});
+		expect(prompt).toContain("Read the spec at /home/user/sprout/root/agents/foo/bar.md");
+		expect(prompt).not.toContain("{{SPROUT_ROOT}}");
+	});
+
+	test("leaves {{SPROUT_ROOT}} unexpanded when rootDir is not provided", () => {
+		const prompt = buildSystemPrompt({
+			...defaults,
+			spec: { ...testAgent, system_prompt: "Read the spec at {{SPROUT_ROOT}}/agents/foo/bar.md" },
+		});
+		expect(prompt).toContain("{{SPROUT_ROOT}}");
+	});
+
 	test("includes genome postscripts after agent prompt and before environment", () => {
-		const workerSpec: AgentSpec = {
-			...testAgent,
-			constraints: { ...testAgent.constraints, can_spawn: false },
-		};
 		const postscripts = {
 			global: "Be concise.",
 			orchestrator: "",
 			worker: "No fluff.",
 			agent: "Reader-specific.",
 		};
-		const prompt = buildSystemPrompt(
-			workerSpec,
-			"/tmp/test",
-			"darwin",
-			"Darwin 25.0",
-			undefined,
-			undefined,
-			undefined,
+		const prompt = buildSystemPrompt({
+			...defaults,
+			spec: { ...testAgent, constraints: { ...testAgent.constraints, can_spawn: false } },
 			postscripts,
-		);
+		});
 		expect(prompt).toContain("Be concise.");
 		expect(prompt).toContain("No fluff.");
 		expect(prompt).toContain("Reader-specific.");
@@ -272,44 +274,27 @@ describe("buildSystemPrompt", () => {
 	});
 
 	test("uses orchestrator postscript for agents with can_spawn", () => {
-		const orchestratorSpec: AgentSpec = {
-			...testAgent,
-			name: "root",
-			constraints: { ...testAgent.constraints, can_spawn: true },
-		};
 		const postscripts = {
 			global: "Global.",
 			orchestrator: "Orchestrator rule.",
 			worker: "Worker rule.",
 			agent: "",
 		};
-		const prompt = buildSystemPrompt(
-			orchestratorSpec,
-			"/tmp/test",
-			"darwin",
-			"Darwin 25.0",
-			undefined,
-			undefined,
-			undefined,
+		const prompt = buildSystemPrompt({
+			...defaults,
+			spec: { ...testAgent, name: "root", constraints: { ...testAgent.constraints, can_spawn: true } },
 			postscripts,
-		);
+		});
 		expect(prompt).toContain("Global.");
 		expect(prompt).toContain("Orchestrator rule.");
 		expect(prompt).not.toContain("Worker rule.");
 	});
 
 	test("omits postscript section when all parts are empty", () => {
-		const postscripts = { global: "", orchestrator: "", worker: "", agent: "" };
-		const prompt = buildSystemPrompt(
-			testAgent,
-			"/tmp/test",
-			"darwin",
-			"Darwin 25.0",
-			undefined,
-			undefined,
-			undefined,
-			postscripts,
-		);
+		const prompt = buildSystemPrompt({
+			...defaults,
+			postscripts: { global: "", orchestrator: "", worker: "", agent: "" },
+		});
 		// Should not have double newlines between prompt and environment
 		expect(prompt).toContain("You help find code.\n\n<environment>");
 	});
@@ -329,7 +314,7 @@ describe("buildSystemPrompt", () => {
 			"tester.md",
 		);
 
-		const prompt = buildSystemPrompt(spec, "/work", "darwin", "25.0");
+		const prompt = buildSystemPrompt({ spec, workDir: "/work", platform: "darwin", osVersion: "25.0" });
 		expect(prompt).toContain("You are a tester.\n\nTest everything thoroughly.");
 	});
 });

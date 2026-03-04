@@ -76,6 +76,20 @@ describe("loadRootAgents", () => {
 		}
 	});
 
+	test("qm-fabricator has write path constraints and correct tools", async () => {
+		const agents = await loadRootAgents(join(import.meta.dir, "../../root"));
+		const fabricator = agents.find((a) => a.name === "qm-fabricator");
+		expect(fabricator).toBeDefined();
+		expect(fabricator!.constraints.allowed_write_paths).toEqual([
+			"~/.local/share/sprout-genome/agents/*/tools/**",
+		]);
+		expect(fabricator!.tools).not.toContain("exec");
+		expect(fabricator!.tools).toContain("save_agent");
+		// Template variable should be present for runtime expansion
+		expect(fabricator!.system_prompt).toContain("{{SPROUT_ROOT}}");
+		expect(fabricator!.system_prompt).not.toContain("root/agents/");
+	});
+
 	test("qm-indexer has write path constraints and no exec", async () => {
 		const agents = await loadRootAgents(join(import.meta.dir, "../../root"));
 		const indexer = agents.find((a) => a.name === "qm-indexer");

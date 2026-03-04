@@ -834,16 +834,17 @@ export class Agent {
 		}
 
 		// Build system prompt with recall context (memories and routing hints)
-		this.systemPrompt = buildSystemPrompt(
-			this.spec,
-			this.env.working_directory(),
-			this.env.platform(),
-			this.env.os_version(),
+		this.systemPrompt = buildSystemPrompt({
+			spec: this.spec,
+			workDir: this.env.working_directory(),
+			platform: this.env.platform(),
+			osVersion: this.env.os_version(),
 			recallContext,
-			this.preambles,
-			this.projectDocs,
+			preambles: this.preambles,
+			projectDocs: this.projectDocs,
 			postscripts,
-		);
+			rootDir: this.rootDir,
+		});
 
 		// Append available agent descriptions to system prompt
 		if (this.spec.constraints.can_spawn) {

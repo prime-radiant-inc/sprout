@@ -160,19 +160,23 @@ export interface Postscripts {
 	agent: string;
 }
 
+export interface SystemPromptOptions {
+	spec: AgentSpec;
+	workDir: string;
+	platform: string;
+	osVersion: string;
+	recallContext?: { memories?: Memory[]; routingHints?: RoutingRule[] };
+	preambles?: Preambles;
+	projectDocs?: string;
+	postscripts?: Postscripts;
+	rootDir?: string;
+}
+
 /**
  * Combine the agent's system prompt with environment context.
  */
-export function buildSystemPrompt(
-	spec: AgentSpec,
-	workDir: string,
-	platform: string,
-	osVersion: string,
-	recallContext?: { memories?: Memory[]; routingHints?: RoutingRule[] },
-	preambles?: Preambles,
-	projectDocs?: string,
-	postscripts?: Postscripts,
-): string {
+export function buildSystemPrompt(opts: SystemPromptOptions): string {
+	const { spec, workDir, platform, osVersion, recallContext, preambles, projectDocs, postscripts, rootDir } = opts;
 	const today = new Date().toISOString().slice(0, 10);
 
 	// Compose preamble: global + role-specific
@@ -213,6 +217,11 @@ Today's date: ${today}
 	}
 	if (recallContext?.routingHints && recallContext.routingHints.length > 0) {
 		prompt += renderRoutingHints(recallContext.routingHints);
+	}
+
+	// Expand {{SPROUT_ROOT}} template variable when rootDir is available
+	if (rootDir) {
+		prompt = prompt.replaceAll("{{SPROUT_ROOT}}", rootDir);
 	}
 
 	return prompt;

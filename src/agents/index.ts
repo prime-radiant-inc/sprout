@@ -13,6 +13,7 @@ export {
 	buildMessageAgentTool,
 	buildPlanRequest,
 	buildSystemPrompt,
+	type SystemPromptOptions,
 	buildWaitAgentTool,
 	DELEGATE_TOOL_NAME,
 	MESSAGE_AGENT_TOOL_NAME,
