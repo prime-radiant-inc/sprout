@@ -1,11 +1,16 @@
-import { appendFile, mkdtemp, readFile } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
+import { appendFile, readFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import type { BusClient } from "../bus/client.ts";
 import type { BusServer } from "../bus/server.ts";
 import type { AgentSpawner } from "../bus/spawner.ts";
-import { renderEvent } from "../tui/render-event.ts";
 import { projectDataDir as computeProjectDataDir } from "../util/project-id.ts";
+import { bootstrapInteractiveRuntime } from "./cli-bootstrap.ts";
+import { isGenomeCommand, runGenomeCommand } from "./cli-genome.ts";
+import { runInteractiveMode } from "./cli-interactive.ts";
+import { runListMode } from "./cli-list.ts";
+import { runOneshotMode } from "./cli-oneshot.ts";
+import { loadResumeState } from "./cli-resume.ts";
 
 export { renderEvent, truncateLines } from "../tui/render-event.ts";
 
@@ -77,21 +82,19 @@ function printResumeHint(sessionId: string): void {
 
 /**
  * Resolve the project root directory.
- * For git repos, uses the common dir (works for worktrees too).
+ * For git repos, uses the active checkout root (works for worktrees too).
  * Falls back to cwd.
  */
-async function resolveProjectDir(): Promise<string> {
+export async function resolveProjectDir(): Promise<string> {
 	try {
 		const { execSync } = await import("node:child_process");
-		// git rev-parse --git-common-dir gives the original .git dir (works for worktrees)
-		const gitCommonDir = execSync("git rev-parse --git-common-dir", {
+		// git rev-parse --show-toplevel resolves to the active checkout root.
+		// In worktrees this is the worktree directory, not the main repo path.
+		const topLevel = execSync("git rev-parse --show-toplevel", {
 			encoding: "utf-8",
 			stdio: ["ignore", "pipe", "ignore"],
 		}).trim();
-		// The project root is the parent of the .git dir
-		const { resolve, dirname } = await import("node:path");
-		const absGitDir = resolve(gitCommonDir);
-		return dirname(absGitDir);
+		return topLevel;
 	} catch {
 		return process.cwd();
 	}
@@ -107,6 +110,7 @@ export interface WebFlags {
 	webOnly?: boolean;
 	port?: number;
 	host?: string;
+	webToken?: string;
 }
 
 export interface LogFlags {
@@ -135,6 +139,7 @@ function collectFlags(opts: {
 	webOnly: boolean;
 	port: number | undefined;
 	host: string | undefined;
+	webToken: string | undefined;
 	logStderr: boolean;
 	debug: boolean;
 }): WebFlags & LogFlags {
@@ -143,6 +148,7 @@ function collectFlags(opts: {
 	if (opts.webOnly) out.webOnly = true;
 	if (opts.port !== undefined) out.port = opts.port;
 	if (opts.host !== undefined) out.host = opts.host;
+	if (opts.webToken !== undefined) out.webToken = opts.webToken;
 	if (opts.logStderr) out.logStderr = true;
 	if (opts.debug) out.debug = true;
 	return out;
@@ -156,6 +162,7 @@ const KNOWN_FLAGS = new Set([
 	"--web-only",
 	"--port",
 	"--host",
+	"--web-token",
 	"--log-stderr",
 	"--debug",
 	"--prompt",
@@ -238,6 +245,7 @@ export function parseArgs(argv: string[]): CliCommand {
 				"web-only": { type: "boolean" },
 				port: { type: "string" }, // parsed as string, validated below
 				host: { type: "string" },
+				"web-token": { type: "string" },
 				"log-stderr": { type: "boolean" },
 				debug: { type: "boolean" },
 				resume: { type: "string" },
@@ -267,6 +275,7 @@ export function parseArgs(argv: string[]): CliCommand {
 		webOnly: vals["web-only"] === true,
 		port,
 		host: vals.host as string | undefined,
+		webToken: vals["web-token"] as string | undefined,
 		logStderr: vals["log-stderr"] === true,
 		debug: vals.debug === true,
 	});
@@ -319,6 +328,7 @@ Web interface:
   --web-only             Start web server without TUI (headless/remote)
   --port <port>          Web server port (default: 7777)
   --host <addr>          Web server bind address (default: localhost, use 0.0.0.0 for all interfaces)
+  --web-token <token>    WebSocket auth token (required for non-localhost binds)
   /web, /web stop        Start/stop web server from interactive mode
 
 Logging:
@@ -610,114 +620,8 @@ export async function runCli(command: CliCommand): Promise<void> {
 		return;
 	}
 
-	if (command.kind === "genome-list") {
-		const { Genome } = await import("../genome/genome.ts");
-		const rootDir = join(import.meta.dir, "../../root");
-		const genome = new Genome(command.genomePath, rootDir);
-		await genome.loadFromDisk();
-		const agents = genome.allAgents();
-		if (agents.length === 0) {
-			console.log("No agents in genome.");
-		} else {
-			for (const agent of agents) {
-				console.log(`  ${agent.name} (v${agent.version}) — ${agent.description}`);
-			}
-		}
-		return;
-	}
-
-	if (command.kind === "genome-log") {
-		const proc = Bun.spawn(["git", "-C", command.genomePath, "log", "--oneline"], {
-			stdout: "inherit",
-			stderr: "inherit",
-		});
-		const exitCode = await proc.exited;
-		if (exitCode !== 0) process.exitCode = exitCode;
-		return;
-	}
-
-	if (command.kind === "genome-rollback") {
-		const proc = Bun.spawn(
-			["git", "-C", command.genomePath, "revert", "--no-edit", command.commit],
-			{
-				stdout: "inherit",
-				stderr: "inherit",
-			},
-		);
-		const exitCode = await proc.exited;
-		if (exitCode !== 0) process.exitCode = exitCode;
-		return;
-	}
-
-	if (command.kind === "genome-sync") {
-		const { Genome } = await import("../genome/genome.ts");
-		const rootDir = join(import.meta.dir, "../../root");
-
-		const genome = new Genome(command.genomePath, rootDir);
-		try {
-			await genome.loadFromDisk();
-		} catch (err) {
-			console.error(
-				`Failed to load genome at ${command.genomePath}: ${err instanceof Error ? err.message : err}`,
-			);
-			process.exitCode = 1;
-			return;
-		}
-
-		const result = await genome.syncRoot();
-
-		if (result.added.length === 0 && result.conflicts.length === 0) {
-			console.log("Genome is up to date with root agents.");
-			return;
-		}
-
-		if (result.added.length > 0) {
-			console.log(`Added: ${result.added.join(", ")}`);
-		}
-		if (result.conflicts.length > 0) {
-			console.log(`Conflicts (genome preserved): ${result.conflicts.join(", ")}`);
-		}
-		return;
-	}
-
-	if (command.kind === "genome-export") {
-		const { exportLearnings, stageLearnings } = await import("../genome/export-learnings.ts");
-		const rootDir = join(import.meta.dir, "../../root");
-
-		let result: Awaited<ReturnType<typeof exportLearnings>>;
-		try {
-			result = await exportLearnings(command.genomePath, rootDir);
-		} catch (err) {
-			console.error(
-				`Failed to load genome at ${command.genomePath}: ${err instanceof Error ? err.message : err}`,
-			);
-			process.exitCode = 1;
-			return;
-		}
-
-		if (result.evolved.length === 0 && result.genomeOnly.length === 0) {
-			console.log("No learnings to export. Genome matches root specs.");
-			return;
-		}
-
-		if (result.evolved.length > 0) {
-			console.log("\nEvolved agents (genome improved beyond root specs):");
-			for (const agent of result.evolved) {
-				console.log(`  ${agent.name}: v${agent.rootVersion} → v${agent.genomeVersion}`);
-			}
-		}
-
-		if (result.genomeOnly.length > 0) {
-			console.log("\nGenome-only agents (created by learn process):");
-			for (const agent of result.genomeOnly) {
-				console.log(`  ${agent.name} (v${agent.version}) — ${agent.description}`);
-			}
-		}
-
-		const stagingDir = await mkdtemp(join(tmpdir(), "sprout-export-"));
-		const written = await stageLearnings(result, stagingDir);
-		console.log(`\nWrote ${written.length} agent spec files to: ${stagingDir}/`);
-		console.log("Copy desired files to root/ to incorporate learnings.");
+	if (isGenomeCommand(command)) {
+		await runGenomeCommand(command);
 		return;
 	}
 
@@ -727,47 +631,20 @@ export async function runCli(command: CliCommand): Promise<void> {
 		const listDataDir = computeProjectDataDir(command.genomePath, listProjDir);
 		const sessionsDir = join(listDataDir, "sessions");
 		const logsDir = join(listDataDir, "logs");
-		const sessions = await loadSessionSummaries(sessionsDir, logsDir);
-		if (sessions.length === 0) {
-			console.log("No sessions found.");
-			return;
-		}
-
-		const { render } = await import("ink");
-		const React = await import("react");
-		const { SessionPicker } = await import("../tui/session-picker.tsx");
-
-		// Enter alternate screen so the picker doesn't pollute the scrollback buffer.
-		process.stdout.write("\x1b[?1049h\x1b[2J\x1b[H");
-
-		const selectedId = await new Promise<string | null>((resolve) => {
-			const { unmount } = render(
-				React.createElement(SessionPicker, {
-					sessions,
-					onSelect: (id: string) => {
-						unmount();
-						resolve(id);
-					},
-					onCancel: () => {
-						unmount();
-						resolve(null);
-					},
-				}),
-				{ kittyKeyboard: { mode: "enabled" as const } },
-			);
-		});
-
-		// Exit alternate screen, restoring the previous terminal content.
-		process.stdout.write("\x1b[?1049l");
-
-		if (selectedId) {
-			// Resume the selected session
-			await runCli({
-				kind: "resume",
-				sessionId: selectedId,
-				genomePath: command.genomePath,
-			});
-		}
+		await runListMode(
+			{
+				sessionsDir,
+				logsDir,
+				onResume: async (selectedId) => {
+					await runCli({
+						kind: "resume",
+						sessionId: selectedId,
+						genomePath: command.genomePath,
+					});
+				},
+			},
+			{ loadSessionSummaries },
+		);
 		return;
 	}
 
@@ -788,8 +665,6 @@ export async function runCli(command: CliCommand): Promise<void> {
 		);
 	}
 
-	const { EventBus } = await import("./event-bus.ts");
-	const { SessionController } = await import("./session-controller.ts");
 	const { ulid } = await import("../util/ulid.ts");
 
 	const rootDir = join(import.meta.dir, "../../root");
@@ -797,347 +672,80 @@ export async function runCli(command: CliCommand): Promise<void> {
 	const projectDataDir = computeProjectDataDir(command.genomePath, projDir);
 	const sessionsDir = join(projectDataDir, "sessions");
 
-	const { SessionLogger } = await import("./logger.ts");
-	const { loggingMiddleware } = await import("../llm/logging-middleware.ts");
-
 	if (command.kind === "oneshot") {
-		const sessionId = ulid();
-		const infra = await startBusInfrastructure({
-			genomePath: command.genomePath,
-			sessionId,
-			rootDir,
-		});
-
-		const bus = new EventBus();
-		const logPath = join(projectDataDir, "logs", sessionId, "session.log.jsonl");
-		const logger = new SessionLogger({ logPath, component: "cli", sessionId, bus });
-		const { Client } = await import("../llm/client.ts");
-		const llmClient = Client.fromEnv({ middleware: [loggingMiddleware(logger)] });
-
-		const controller = new SessionController({
-			bus,
+		await runOneshotMode({
+			goal: command.goal,
 			genomePath: command.genomePath,
 			projectDataDir,
 			rootDir,
-			sessionId,
-			spawner: infra.spawner,
-			genome: infra.genome,
-			logger,
-			client: llmClient,
+			startBusInfrastructure,
+			onResumeHint: printResumeHint,
 		});
-
-		bus.onEvent((event) => {
-			const line = renderEvent(event);
-			if (line !== null) console.log(line);
-		});
-
-		try {
-			await controller.submitGoal(command.goal);
-			printResumeHint(controller.sessionId);
-		} finally {
-			await infra.cleanup();
-		}
 		return;
 	}
 
-	let resumeSessionId: string | undefined;
-	let resumeHistory: import("../llm/types.ts").Message[] | undefined;
-	let resumeEvents: import("../kernel/types.ts").SessionEvent[] | undefined;
-	let resumeCompletedHandles:
-		| Array<{ handleId: string; result: import("../bus/types.ts").ResultMessage; ownerId: string }>
-		| undefined;
+	let resumeState: Awaited<ReturnType<typeof loadResumeState>> | undefined;
 
 	if (command.kind === "resume" || command.kind === "resume-last") {
-		const { listSessions } = await import("./session-metadata.ts");
-		const { replayEventLog } = await import("./resume.ts");
-		const { readFile } = await import("node:fs/promises");
-
-		let sessionId: string;
-		if (command.kind === "resume-last") {
-			const sessions = await listSessions(sessionsDir);
-			if (sessions.length === 0) {
-				console.log("No sessions found.");
-				return;
-			}
-			sessionId = sessions[sessions.length - 1]!.sessionId;
-		} else {
-			sessionId = command.sessionId;
+		resumeState = await loadResumeState({
+			command,
+			projectDataDir,
+			sessionsDir,
+			onInfo: (line) => {
+				console.error(line);
+			},
+		});
+		if (!resumeState) {
+			console.log("No sessions found.");
+			return;
 		}
-
-		const logPath = join(projectDataDir, "logs", `${sessionId}.jsonl`);
-		const history = await replayEventLog(logPath);
-		console.error(`Resumed session ${sessionId} with ${history.length} messages of history`);
-
-		// Extract child handle info from the root log and reconstruct completed results
-		const { extractChildHandles, checkHandleCompleted, readHandleResult } = await import(
-			"../bus/resume.ts"
-		);
-		const childHandles = await extractChildHandles(logPath);
-		if (childHandles.length > 0) {
-			const handleLogDir = join(projectDataDir, "logs", sessionId);
-			const completed: typeof resumeCompletedHandles = [];
-			for (const handle of childHandles) {
-				if (!handle.completed) {
-					handle.completed = await checkHandleCompleted(handleLogDir, handle.handleId);
-				}
-				if (handle.completed) {
-					const result = await readHandleResult(handleLogDir, handle.handleId);
-					if (result) {
-						completed.push({ handleId: handle.handleId, result, ownerId: "root" });
-					}
-				}
-			}
-			if (completed.length > 0) {
-				resumeCompletedHandles = completed;
-			}
-			const completedCount = childHandles.filter((h) => h.completed).length;
-			const pendingCount = childHandles.length - completedCount;
-			console.error(
-				`  Child handles: ${childHandles.length} total, ${completedCount} completed, ${pendingCount} pending`,
-			);
-		}
-
-		// Read raw events for display in the TUI
-		try {
-			const raw = await readFile(logPath, "utf-8");
-			resumeEvents = raw
-				.split("\n")
-				.filter((line) => line.trim() !== "")
-				.map((line) => {
-					try {
-						return JSON.parse(line);
-					} catch {
-						return null;
-					}
-				})
-				.filter((e): e is import("../kernel/types.ts").SessionEvent => e !== null);
-		} catch {
-			// Log file missing — no events to display
-		}
-
-		resumeSessionId = sessionId;
-		resumeHistory = history;
 	}
 
 	// Interactive mode (also reached via resume)
-	const sessionId = resumeSessionId ?? ulid();
+	const sessionId = resumeState?.sessionId ?? ulid();
 	const infra = await startBusInfrastructure({
 		genomePath: command.genomePath,
 		sessionId,
 		rootDir,
 	});
 
-	const bus = new EventBus();
-	const logPath = join(projectDataDir, "logs", sessionId, "session.log.jsonl");
-	const stderrLevel = command.logStderr
-		? command.debug
-			? ("debug" as const)
-			: ("info" as const)
-		: undefined;
-	const logger = new SessionLogger({ logPath, component: "cli", sessionId, bus, stderrLevel });
-	if (stderrLevel) {
-		logger.info("session", "Logging to stderr enabled", { level: stderrLevel, sessionId });
-	}
-	const { Client } = await import("../llm/client.ts");
-	const llmClient = Client.fromEnv({ middleware: [loggingMiddleware(logger)] });
-
-	const controller = new SessionController({
-		bus,
+	const runtime = await bootstrapInteractiveRuntime({
 		genomePath: command.genomePath,
 		projectDataDir,
 		rootDir,
 		sessionId,
-		initialHistory: resumeHistory,
-		spawner: infra.spawner,
-		genome: infra.genome,
-		completedHandles: resumeCompletedHandles,
-		logger,
-		client: llmClient,
+		initialHistory: resumeState?.history,
+		completedHandles: resumeState?.completedHandles,
+		infra,
+		logStderr: command.logStderr,
+		debug: command.debug,
 	});
-
-	// Fetch available models from provider APIs
-	const { getAvailableModels } = await import("../agents/model-resolver.ts");
-	const modelsByProvider = await llmClient.listModelsByProvider();
-	const availableModels = getAvailableModels(modelsByProvider);
-
-	// Start web server if requested (webPort also used by /web slash command)
-	const webPort = command.port ?? 7777;
-	const webHost = command.host;
-	const staticDir = join(import.meta.dir, "../../web/dist");
-	let webServer: import("../web/server.ts").WebServer | null = null;
-	if (command.web || command.webOnly) {
-		const { WebServer } = await import("../web/server.ts");
-		webServer = new WebServer({
+	const bus = runtime.bus as import("./event-bus.ts").EventBus;
+	const logger = runtime.logger as import("./logger.ts").SessionLogger;
+	const controller = runtime.controller as import("./session-controller.ts").SessionController;
+	const { availableModels } = runtime;
+	await runInteractiveMode({
+		command: {
+			genomePath: command.genomePath,
+			web: command.web,
+			webOnly: command.webOnly,
+			port: command.port,
+			host: command.host,
+			webToken: command.webToken,
+		},
+		sessionId,
+		runtime: {
 			bus,
-			port: webPort,
-			staticDir,
-			sessionId,
-			hostname: webHost,
-			initialEvents: resumeEvents,
-			availableModels,
 			logger,
-		});
-		await webServer.start();
-		const displayHost = webHost ?? "localhost";
-		logger.info("session", "Web server started", { host: displayHost, port: webPort });
-		console.error(`Web UI: http://${displayHost}:${webPort}`);
-	}
-
-	if (command.webOnly) {
-		// Headless mode: no TUI, wait for quit command via web interface
-		const webOnlySigintHandler = () => {
-			bus.emitCommand({ kind: "quit", data: {} });
-		};
-		const quitPromise = new Promise<void>((resolve) => {
-			bus.onCommand((cmd) => {
-				if (cmd.kind === "quit") resolve();
-			});
-			process.on("SIGINT", webOnlySigintHandler);
-		});
-		await quitPromise;
-		process.removeListener("SIGINT", webOnlySigintHandler);
-		await webServer!.stop();
-		await infra.cleanup();
-		printResumeHint(controller.sessionId);
-		return;
-	}
-
-	const { InputHistory } = await import("../tui/history.ts");
-	const historyPath = inputHistoryPath(command.genomePath);
-	const inputHistory = new InputHistory(historyPath);
-	await inputHistory.load();
-
-	const { render } = await import("ink");
-	const React = await import("react");
-	const { App } = await import("../tui/app.tsx");
-
-	// Register a SIGINT handler BEFORE ink renders. Ink uses signal-exit
-	// which registers its own SIGINT handler. signal-exit's handler checks
-	// if it's the sole listener — if so, it re-kills the process via
-	// process.kill(). By registering our handler first, signal-exit always
-	// sees another listener and defers instead of killing.
-	// This is necessary because Bun's setRawMode may not fully suppress
-	// OS-level SIGINT generation from Ctrl+C (unlike Node which clears
-	// the ISIG termios flag).
-	//
-	// Two-stage logic: first Ctrl+C interrupts (or warns if idle),
-	// second Ctrl+C exits. The flag resets when a new goal starts running.
-	let unmountFn: (() => void) | undefined;
-	let pendingSigintExit = false;
-	let pendingSigintTimer: ReturnType<typeof setTimeout> | null = null;
-	const SIGINT_WINDOW = 5000;
-
-	const clearSigintPending = () => {
-		if (pendingSigintTimer) {
-			clearTimeout(pendingSigintTimer);
-			pendingSigintTimer = null;
-		}
-		pendingSigintExit = false;
-	};
-	// Reset when a new goal starts or when a keystroke cancels from InputArea
-	bus.onEvent((event) => {
-		if (event.kind === "perceive") clearSigintPending();
-		if (event.kind === "exit_hint" && event.data.visible === false) clearSigintPending();
+			controller,
+			availableModels,
+		},
+		initialEvents: resumeState?.events,
+		cleanupInfra: infra.cleanup,
+		onResumeHint: printResumeHint,
+		inputHistoryPath,
+		handleSlashCommand,
 	});
-
-	const sigintHandler = () => {
-		if (pendingSigintExit) {
-			clearSigintPending();
-			bus.emitCommand({ kind: "quit", data: {} });
-			unmountFn?.();
-			return;
-		}
-
-		pendingSigintExit = true;
-		pendingSigintTimer = setTimeout(() => {
-			clearSigintPending();
-			bus.emitEvent("exit_hint", "cli", 0, { visible: false });
-		}, SIGINT_WINDOW);
-
-		if (controller.isRunning) {
-			bus.emitCommand({ kind: "interrupt", data: {} });
-		} else {
-			bus.emitEvent("exit_hint", "cli", 0, { visible: true });
-		}
-	};
-	process.on("SIGINT", sigintHandler);
-
-	const { waitUntilExit, unmount } = render(
-		React.createElement(App, {
-			bus,
-			sessionId: controller.sessionId,
-			initialHistory: inputHistory.all(),
-			initialEvents: resumeEvents,
-			onSubmit: (text: string) => {
-				inputHistory.add(text);
-				bus.emitCommand({ kind: "submit_goal", data: { goal: text } });
-			},
-			onSlashCommand: async (cmd: import("../tui/slash-commands.ts").SlashCommand) => {
-				const result = await handleSlashCommand(cmd, bus, controller);
-				if (result.action === "exit") unmount();
-				else if (result.action === "start_web") {
-					if (webServer) {
-						bus.emitEvent("warning", "cli", 0, {
-							message: `Web UI already running at http://localhost:${webPort}`,
-						});
-					} else {
-						(async () => {
-							try {
-								const { WebServer } = await import("../web/server.ts");
-								webServer = new WebServer({
-									bus,
-									port: webPort,
-									staticDir,
-									sessionId,
-									availableModels,
-									logger,
-								});
-								await webServer.start();
-								bus.emitEvent("warning", "cli", 0, {
-									message: `Web UI: http://localhost:${webPort}`,
-								});
-								// TODO: macOS-only. On Linux use xdg-open, on Windows use start.
-								Bun.spawn(["open", `http://localhost:${webPort}`]);
-							} catch (err) {
-								bus.emitEvent("error", "cli", 0, { error: String(err) });
-							}
-						})();
-					}
-				} else if (result.action === "stop_web") {
-					if (webServer) {
-						const server = webServer;
-						webServer = null;
-						(async () => {
-							try {
-								await server.stop();
-								bus.emitEvent("warning", "cli", 0, { message: "Web server stopped." });
-							} catch (err) {
-								bus.emitEvent("error", "cli", 0, { error: String(err) });
-							}
-						})();
-					} else {
-						bus.emitEvent("warning", "cli", 0, { message: "Web server is not running." });
-					}
-				}
-			},
-			onSteer: (text: string) => {
-				inputHistory.add(text);
-			},
-			onExit: () => {
-				bus.emitCommand({ kind: "quit", data: {} });
-				unmount();
-			},
-		}),
-		{ exitOnCtrlC: false, kittyKeyboard: { mode: "enabled" as const } },
-	);
-	unmountFn = unmount;
-
-	await waitUntilExit();
-	process.removeListener("SIGINT", sigintHandler);
-	if (webServer) await webServer.stop();
-	await infra.cleanup();
-	await inputHistory.save();
-	printResumeHint(controller.sessionId);
 }
 
 if (import.meta.main) {

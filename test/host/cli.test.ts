@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { checkHandleCompleted, extractChildHandles } from "../../src/bus/resume.ts";
@@ -8,6 +8,7 @@ import {
 	handleSlashCommand,
 	inputHistoryPath,
 	parseArgs,
+	resolveProjectDir,
 	startBusInfrastructure,
 } from "../../src/host/cli.ts";
 import { EventBus } from "../../src/host/event-bus.ts";
@@ -192,6 +193,25 @@ describe("parseArgs", () => {
 			genomePath: defaultGenomePath,
 			webOnly: true,
 			port: 3000,
+		});
+	});
+
+	test("--web-token sets webToken on interactive mode", () => {
+		const result = parseArgs(["--web-token", "secret123"]);
+		expect(result).toEqual({
+			kind: "interactive",
+			genomePath: defaultGenomePath,
+			webToken: "secret123",
+		});
+	});
+
+	test("--web-token is forwarded on resume mode", () => {
+		const result = parseArgs(["--resume", "01ABC123", "--web-token", "secret123"]);
+		expect(result).toEqual({
+			kind: "resume",
+			sessionId: "01ABC123",
+			genomePath: defaultGenomePath,
+			webToken: "secret123",
 		});
 	});
 
@@ -398,6 +418,45 @@ describe("parseArgs", () => {
 			kind: "genome-sync",
 			genomePath: "/custom/path",
 		});
+	});
+});
+
+describe("resolveProjectDir", () => {
+	test("returns the active git worktree root (not the common .git parent)", async () => {
+		const tempRoot = await mkdtemp(join(tmpdir(), "sprout-worktree-root-"));
+		const repoDir = join(tempRoot, "repo");
+		const worktreeDir = join(tempRoot, "worktree");
+		await mkdir(repoDir, { recursive: true });
+
+		const runGit = async (cwd: string, args: string[]): Promise<void> => {
+			const proc = Bun.spawn(["git", ...args], {
+				cwd,
+				stdout: "pipe",
+				stderr: "pipe",
+			});
+			const exitCode = await proc.exited;
+			if (exitCode !== 0) {
+				const stderr = await new Response(proc.stderr).text();
+				throw new Error(`git ${args.join(" ")} failed: ${stderr}`);
+			}
+		};
+
+		await runGit(repoDir, ["init"]);
+		await runGit(repoDir, ["config", "user.email", "tests@example.com"]);
+		await runGit(repoDir, ["config", "user.name", "Sprout Tests"]);
+		await writeFile(join(repoDir, "README.md"), "test\n", "utf-8");
+		await runGit(repoDir, ["add", "README.md"]);
+		await runGit(repoDir, ["commit", "-m", "init"]);
+		await runGit(repoDir, ["worktree", "add", worktreeDir, "-b", "wt-branch"]);
+
+		const previousCwd = process.cwd();
+		process.chdir(worktreeDir);
+		try {
+			const projectDir = await resolveProjectDir();
+			expect(await realpath(projectDir)).toBe(await realpath(worktreeDir));
+		} finally {
+			process.chdir(previousCwd);
+		}
 	});
 });
 
