@@ -131,9 +131,16 @@ export async function* withStreamReadTimeout<T>(
 		let cleanupTimer: ReturnType<typeof setTimeout>;
 		try {
 			await Promise.race([
-				iterator.return?.()?.then((v) => { clearTimeout(cleanupTimer); return v; }),
-				new Promise(resolve => { cleanupTimer = setTimeout(resolve, 1000); }),
+				iterator.return?.()?.then((v) => {
+					clearTimeout(cleanupTimer);
+					return v;
+				}),
+				new Promise((resolve) => {
+					cleanupTimer = setTimeout(resolve, 1000);
+				}),
 			]);
-		} catch { /* swallow cleanup error */ }
+		} catch {
+			/* swallow cleanup error */
+		}
 	}
 }

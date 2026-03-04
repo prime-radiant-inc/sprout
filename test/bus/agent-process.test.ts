@@ -5,7 +5,13 @@ import { join } from "node:path";
 import { runAgentProcess } from "../../src/bus/agent-process.ts";
 import { BusClient } from "../../src/bus/client.ts";
 import { BusServer } from "../../src/bus/server.ts";
-import { agentEvents, agentInbox, agentReady, agentResult, sessionEvents } from "../../src/bus/topics.ts";
+import {
+	agentEvents,
+	agentInbox,
+	agentReady,
+	agentResult,
+	sessionEvents,
+} from "../../src/bus/topics.ts";
 import type { ResultMessage, StartMessage } from "../../src/bus/types.ts";
 import { Genome } from "../../src/genome/genome.ts";
 import type { LogEntry } from "../../src/host/logger.ts";
@@ -81,9 +87,7 @@ function createMockClient(responseText: string): Client {
  * Build a mock client where both `complete` and `stream` use the same handler.
  * The stream wraps the complete response as a minimal streaming sequence.
  */
-function buildMockClient(
-	handler: (request: Request) => Promise<Response>,
-): Client {
+function buildMockClient(handler: (request: Request) => Promise<Response>): Client {
 	return {
 		complete: handler,
 		stream: async function* (request: Request) {
@@ -121,10 +125,7 @@ async function waitForResults(
 }
 
 /** Poll until a predicate becomes true, or time out. */
-async function waitForCondition(
-	condition: () => boolean,
-	timeoutMs = 5000,
-): Promise<void> {
+async function waitForCondition(condition: () => boolean, timeoutMs = 5000): Promise<void> {
 	if (condition()) return;
 	const deadline = Date.now() + timeoutMs;
 	while (!condition() && Date.now() < deadline) {

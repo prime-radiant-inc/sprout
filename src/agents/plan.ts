@@ -176,7 +176,17 @@ export interface SystemPromptOptions {
  * Combine the agent's system prompt with environment context.
  */
 export function buildSystemPrompt(opts: SystemPromptOptions): string {
-	const { spec, workDir, platform, osVersion, recallContext, preambles, projectDocs, postscripts, rootDir } = opts;
+	const {
+		spec,
+		workDir,
+		platform,
+		osVersion,
+		recallContext,
+		preambles,
+		projectDocs,
+		postscripts,
+		rootDir,
+	} = opts;
 	const today = new Date().toISOString().slice(0, 10);
 
 	// Compose preamble: global + role-specific

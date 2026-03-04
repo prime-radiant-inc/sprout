@@ -82,9 +82,7 @@ function createInProcessSpawnFn(client: Client) {
  * Build a mock client where both `complete` and `stream` use the same handler.
  * The stream wraps the complete response as a minimal streaming sequence.
  */
-function buildMockClient(
-	handler: (request: Request) => Promise<Response>,
-): Client {
+function buildMockClient(handler: (request: Request) => Promise<Response>): Client {
 	return {
 		complete: handler,
 		stream: async function* (request: Request) {

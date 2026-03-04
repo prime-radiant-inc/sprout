@@ -165,7 +165,12 @@ describe("primitivesForAgent", () => {
 });
 
 describe("buildSystemPrompt", () => {
-	const defaults = { spec: testAgent, workDir: "/tmp/test", platform: "darwin", osVersion: "Darwin 25.0" };
+	const defaults = {
+		spec: testAgent,
+		workDir: "/tmp/test",
+		platform: "darwin",
+		osVersion: "Darwin 25.0",
+	};
 
 	test("includes agent system prompt and environment context", () => {
 		const prompt = buildSystemPrompt(defaults);
@@ -282,7 +287,11 @@ describe("buildSystemPrompt", () => {
 		};
 		const prompt = buildSystemPrompt({
 			...defaults,
-			spec: { ...testAgent, name: "root", constraints: { ...testAgent.constraints, can_spawn: true } },
+			spec: {
+				...testAgent,
+				name: "root",
+				constraints: { ...testAgent.constraints, can_spawn: true },
+			},
 			postscripts,
 		});
 		expect(prompt).toContain("Global.");
@@ -314,7 +323,12 @@ describe("buildSystemPrompt", () => {
 			"tester.md",
 		);
 
-		const prompt = buildSystemPrompt({ spec, workDir: "/work", platform: "darwin", osVersion: "25.0" });
+		const prompt = buildSystemPrompt({
+			spec,
+			workDir: "/work",
+			platform: "darwin",
+			osVersion: "25.0",
+		});
 		expect(prompt).toContain("You are a tester.\n\nTest everything thoroughly.");
 	});
 });

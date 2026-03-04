@@ -3,7 +3,13 @@ import { join } from "node:path";
 import { config } from "dotenv";
 import { Client } from "../../src/llm/client.ts";
 import { StreamReadTimeoutError } from "../../src/llm/stream-timeout.ts";
-import { ContentKind, messageText, type ProviderAdapter, type Request, type StreamEvent } from "../../src/llm/types.ts";
+import {
+	ContentKind,
+	messageText,
+	type ProviderAdapter,
+	type Request,
+	type StreamEvent,
+} from "../../src/llm/types.ts";
 import { createVcr } from "../helpers/vcr.ts";
 
 config();

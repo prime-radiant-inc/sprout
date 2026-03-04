@@ -406,7 +406,9 @@ describe("LLM progress events", () => {
 	test("emits llm_end with finish_reason 'interrupted' when LLM call is aborted", async () => {
 		const ac = new AbortController();
 		let resolveStarted: () => void;
-		const llmStarted = new Promise<void>((r) => { resolveStarted = r; });
+		const llmStarted = new Promise<void>((r) => {
+			resolveStarted = r;
+		});
 		const mockClient = {
 			providers: () => ["anthropic"],
 			complete: async (): Promise<Response> => {
@@ -499,7 +501,9 @@ describe("LLM progress events", () => {
 	test("emits llm_end when streaming LLM call is aborted", async () => {
 		const ac = new AbortController();
 		let resolveStarted: () => void;
-		const streamStarted = new Promise<void>((r) => { resolveStarted = r; });
+		const streamStarted = new Promise<void>((r) => {
+			resolveStarted = r;
+		});
 		const mockClient = {
 			providers: () => ["anthropic"],
 			complete: async () => simpleResponse,
@@ -601,7 +605,9 @@ describe("LLM progress events", () => {
 	test("plan_end is emitted when non-streaming LLM call is aborted", async () => {
 		const ac = new AbortController();
 		let resolveStarted: () => void;
-		const llmStarted = new Promise<void>((r) => { resolveStarted = r; });
+		const llmStarted = new Promise<void>((r) => {
+			resolveStarted = r;
+		});
 		const mockClient = {
 			providers: () => ["anthropic"],
 			complete: async (): Promise<Response> => {

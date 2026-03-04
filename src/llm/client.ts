@@ -32,7 +32,10 @@ export class Client {
 		this.defaultProvider = options.defaultProvider;
 		this.middlewareChain = options.middleware ?? [];
 		this.streamReadTimeoutMs = options.streamReadTimeoutMs ?? DEFAULT_STREAM_READ_TIMEOUT_MS;
-		if (this.streamReadTimeoutMs !== 0 && (!Number.isFinite(this.streamReadTimeoutMs) || this.streamReadTimeoutMs < 0)) {
+		if (
+			this.streamReadTimeoutMs !== 0 &&
+			(!Number.isFinite(this.streamReadTimeoutMs) || this.streamReadTimeoutMs < 0)
+		) {
 			throw new Error("streamReadTimeoutMs must be >= 0 and finite (0 to disable)");
 		}
 
@@ -47,7 +50,9 @@ export class Client {
 	 * Only providers with keys present are registered.
 	 * The first registered provider becomes the default.
 	 */
-	static fromEnv(options: { middleware?: Middleware[]; streamReadTimeoutMs?: number } = {}): Client {
+	static fromEnv(
+		options: { middleware?: Middleware[]; streamReadTimeoutMs?: number } = {},
+	): Client {
 		const providers: Record<string, ProviderAdapter> = {};
 
 		const anthropicKey = process.env.ANTHROPIC_API_KEY;

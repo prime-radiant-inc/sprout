@@ -304,7 +304,16 @@ describe("renderEvent", () => {
 	});
 
 	test("llm_start -> null", () => {
-		expect(renderEvent(makeEvent("llm_start", { model: "claude", provider: "anthropic", turn: 1, message_count: 5 }))).toBeNull();
+		expect(
+			renderEvent(
+				makeEvent("llm_start", {
+					model: "claude",
+					provider: "anthropic",
+					turn: 1,
+					message_count: 5,
+				}),
+			),
+		).toBeNull();
 	});
 
 	test("llm_chunk -> null", () => {
@@ -312,7 +321,17 @@ describe("renderEvent", () => {
 	});
 
 	test("llm_end -> null", () => {
-		expect(renderEvent(makeEvent("llm_end", { model: "claude", input_tokens: 100, output_tokens: 50, latency_ms: 200, finish_reason: "stop" }))).toBeNull();
+		expect(
+			renderEvent(
+				makeEvent("llm_end", {
+					model: "claude",
+					input_tokens: 100,
+					output_tokens: 50,
+					latency_ms: 200,
+					finish_reason: "stop",
+				}),
+			),
+		).toBeNull();
 	});
 
 	test("returns null for unknown event kind", () => {

@@ -13,13 +13,13 @@ export {
 	buildMessageAgentTool,
 	buildPlanRequest,
 	buildSystemPrompt,
-	type SystemPromptOptions,
 	buildWaitAgentTool,
 	DELEGATE_TOOL_NAME,
 	MESSAGE_AGENT_TOOL_NAME,
 	parsePlanResponse,
 	primitivesForAgent,
 	renderAgentsForPrompt,
+	type SystemPromptOptions,
 	WAIT_AGENT_TOOL_NAME,
 } from "./plan.ts";
 export { verifyActResult, verifyPrimitiveResult } from "./verify.ts";

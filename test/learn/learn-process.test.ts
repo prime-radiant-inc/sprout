@@ -620,11 +620,10 @@ describe("LearnProcess", () => {
 
 			// Start background — should load and evaluate pending improvements
 			learn2.startBackground();
-			await waitForCondition(
-				() =>
-					events2
-						.collected()
-						.some((e) => e.kind === "learn_mutation" && e.data.mutation_type === "evaluation"),
+			await waitForCondition(() =>
+				events2
+					.collected()
+					.some((e) => e.kind === "learn_mutation" && e.data.mutation_type === "evaluation"),
 			);
 
 			// Pending evaluations should have been loaded AND processed

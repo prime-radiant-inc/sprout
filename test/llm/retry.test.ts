@@ -747,74 +747,74 @@ describe("retryLLMCall", () => {
 		expect(result).toBe(dummyResponse);
 		expect(calls).toBe(3);
 		expect(delays).toHaveLength(2);
-		expect(delays[0]).toBe(10);  // retry_after: 0.01 => 10ms
-		expect(delays[1]).toBe(30);  // retry_after: 0.03 => 30ms
+		expect(delays[0]).toBe(10); // retry_after: 0.01 => 10ms
+		expect(delays[1]).toBe(30); // retry_after: 0.03 => 30ms
 	});
 
 	test("throws on negative maxRetries", async () => {
-		expect(
-			retryLLMCall(async () => dummyResponse, { maxRetries: -1 }),
-		).rejects.toThrow("maxRetries must be a non-negative finite number");
+		expect(retryLLMCall(async () => dummyResponse, { maxRetries: -1 })).rejects.toThrow(
+			"maxRetries must be a non-negative finite number",
+		);
 	});
 
 	test("throws on NaN maxRetries", async () => {
-		expect(
-			retryLLMCall(async () => dummyResponse, { maxRetries: NaN }),
-		).rejects.toThrow("maxRetries must be a non-negative finite number");
+		expect(retryLLMCall(async () => dummyResponse, { maxRetries: NaN })).rejects.toThrow(
+			"maxRetries must be a non-negative finite number",
+		);
 	});
 
 	test("throws on Infinity maxRetries", async () => {
-		expect(
-			retryLLMCall(async () => dummyResponse, { maxRetries: Infinity }),
-		).rejects.toThrow("maxRetries must be a non-negative finite number");
+		expect(retryLLMCall(async () => dummyResponse, { maxRetries: Infinity })).rejects.toThrow(
+			"maxRetries must be a non-negative finite number",
+		);
 	});
 
 	test("throws on negative baseDelayMs", async () => {
-		expect(
-			retryLLMCall(async () => dummyResponse, { baseDelayMs: -1 }),
-		).rejects.toThrow("baseDelayMs must be a non-negative finite number");
+		expect(retryLLMCall(async () => dummyResponse, { baseDelayMs: -1 })).rejects.toThrow(
+			"baseDelayMs must be a non-negative finite number",
+		);
 	});
 
 	test("throws on NaN baseDelayMs", async () => {
-		expect(
-			retryLLMCall(async () => dummyResponse, { baseDelayMs: NaN }),
-		).rejects.toThrow("baseDelayMs must be a non-negative finite number");
+		expect(retryLLMCall(async () => dummyResponse, { baseDelayMs: NaN })).rejects.toThrow(
+			"baseDelayMs must be a non-negative finite number",
+		);
 	});
 
 	test("throws on Infinity baseDelayMs", async () => {
-		expect(
-			retryLLMCall(async () => dummyResponse, { baseDelayMs: Infinity }),
-		).rejects.toThrow("baseDelayMs must be a non-negative finite number");
+		expect(retryLLMCall(async () => dummyResponse, { baseDelayMs: Infinity })).rejects.toThrow(
+			"baseDelayMs must be a non-negative finite number",
+		);
 	});
 
 	test("throws on negative maxDelayMs", async () => {
-		expect(
-			retryLLMCall(async () => dummyResponse, { maxDelayMs: -1 }),
-		).rejects.toThrow("maxDelayMs must be a non-negative finite number");
+		expect(retryLLMCall(async () => dummyResponse, { maxDelayMs: -1 })).rejects.toThrow(
+			"maxDelayMs must be a non-negative finite number",
+		);
 	});
 
 	test("throws on NaN maxDelayMs", async () => {
-		expect(
-			retryLLMCall(async () => dummyResponse, { maxDelayMs: NaN }),
-		).rejects.toThrow("maxDelayMs must be a non-negative finite number");
+		expect(retryLLMCall(async () => dummyResponse, { maxDelayMs: NaN })).rejects.toThrow(
+			"maxDelayMs must be a non-negative finite number",
+		);
 	});
 
 	test("throws on Infinity maxDelayMs", async () => {
-		expect(
-			retryLLMCall(async () => dummyResponse, { maxDelayMs: Infinity }),
-		).rejects.toThrow("maxDelayMs must be a non-negative finite number");
+		expect(retryLLMCall(async () => dummyResponse, { maxDelayMs: Infinity })).rejects.toThrow(
+			"maxDelayMs must be a non-negative finite number",
+		);
 	});
 
 	test("throws on negative backoffMultiplier", async () => {
-		expect(
-			retryLLMCall(async () => dummyResponse, { backoffMultiplier: -1 }),
-		).rejects.toThrow("backoffMultiplier must be a non-negative finite number");
+		expect(retryLLMCall(async () => dummyResponse, { backoffMultiplier: -1 })).rejects.toThrow(
+			"backoffMultiplier must be a non-negative finite number",
+		);
 	});
 
 	test("throws on NaN backoffMultiplier", async () => {
-		expect(
-			retryLLMCall(async () => dummyResponse, { backoffMultiplier: NaN }),
-		).rejects.toThrow("backoffMultiplier must be a non-negative finite number");
+		expect(retryLLMCall(async () => dummyResponse, { backoffMultiplier: NaN })).rejects.toThrow(
+			"backoffMultiplier must be a non-negative finite number",
+		);
 	});
 
 	test("throws on Infinity backoffMultiplier", async () => {
@@ -832,25 +832,25 @@ describe("retryLLMCall", () => {
 
 		for (let i = 0; i < 25; i++) {
 			let calls = 0;
-				try {
-					await retryLLMCall(
+			try {
+				await retryLLMCall(
 					async () => {
 						calls++;
 						const err = new Error("fail");
 						(err as any).status = 500;
 						throw err;
 					},
-						{
-							maxRetries: 1,
-							baseDelayMs: 100, // Larger than maxDelayMs to force capping
-							maxDelayMs,
-							jitter: true,
-							onRetry: (_error, _attempt, delayMs) => {
-								delays.push(delayMs);
-							},
+					{
+						maxRetries: 1,
+						baseDelayMs: 100, // Larger than maxDelayMs to force capping
+						maxDelayMs,
+						jitter: true,
+						onRetry: (_error, _attempt, delayMs) => {
+							delays.push(delayMs);
 						},
-					);
-				} catch {
+					},
+				);
+			} catch {
 				// Expected
 			}
 		}
@@ -869,7 +869,7 @@ describe("retryLLMCall", () => {
 		const delays: number[] = [];
 		let calls = 0;
 
-			const result = await retryLLMCall(
+		const result = await retryLLMCall(
 			async () => {
 				calls++;
 				if (calls === 1) {
@@ -880,16 +880,16 @@ describe("retryLLMCall", () => {
 				}
 				return dummyResponse;
 			},
-				{
-					maxRetries: 2,
-					baseDelayMs: 5,
-					maxDelayMs: 10,
-					jitter: false,
-					onRetry: (_error, _attempt, delayMs) => {
-						delays.push(delayMs);
-					},
+			{
+				maxRetries: 2,
+				baseDelayMs: 5,
+				maxDelayMs: 10,
+				jitter: false,
+				onRetry: (_error, _attempt, delayMs) => {
+					delays.push(delayMs);
 				},
-			);
+			},
+		);
 
 		expect(result).toBe(dummyResponse);
 		expect(calls).toBe(2);

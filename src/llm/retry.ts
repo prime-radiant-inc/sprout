@@ -94,10 +94,14 @@ export async function retryLLMCall<T>(
 		onRetry,
 	} = options;
 
-	if (!Number.isFinite(maxRetries) || maxRetries < 0) throw new Error("maxRetries must be a non-negative finite number");
-	if (!Number.isFinite(baseDelayMs) || baseDelayMs < 0) throw new Error("baseDelayMs must be a non-negative finite number");
-	if (!Number.isFinite(maxDelayMs) || maxDelayMs < 0) throw new Error("maxDelayMs must be a non-negative finite number");
-	if (!Number.isFinite(backoffMultiplier) || backoffMultiplier < 0) throw new Error("backoffMultiplier must be a non-negative finite number");
+	if (!Number.isFinite(maxRetries) || maxRetries < 0)
+		throw new Error("maxRetries must be a non-negative finite number");
+	if (!Number.isFinite(baseDelayMs) || baseDelayMs < 0)
+		throw new Error("baseDelayMs must be a non-negative finite number");
+	if (!Number.isFinite(maxDelayMs) || maxDelayMs < 0)
+		throw new Error("maxDelayMs must be a non-negative finite number");
+	if (!Number.isFinite(backoffMultiplier) || backoffMultiplier < 0)
+		throw new Error("backoffMultiplier must be a non-negative finite number");
 
 	let lastError: Error | undefined;
 
@@ -105,9 +109,12 @@ export async function retryLLMCall<T>(
 		try {
 			return await fn();
 		} catch (err) {
-			const error = err instanceof Error ? err : new Error(
-				typeof (err as any)?.message === "string" ? (err as any).message : String(err),
-			);
+			const error =
+				err instanceof Error
+					? err
+					: new Error(
+							typeof (err as any)?.message === "string" ? (err as any).message : String(err),
+						);
 			if (!(err instanceof Error) && typeof err === "object" && err !== null) {
 				const source = err as Record<string, unknown>;
 				if ("status" in source) (error as any).status = source.status;

@@ -452,14 +452,12 @@ describe("App", () => {
 		bus.onEvent((e) => events.push(e));
 
 		const setTimeoutSpy = jest.spyOn(globalThis, "setTimeout");
-		setTimeoutSpy.mockImplementation(
-			((handler: Parameters<typeof setTimeout>[0]) => {
-				if (typeof handler === "function") {
-					handler();
-				}
-				return 0 as unknown as ReturnType<typeof setTimeout>;
-			}) as typeof setTimeout,
-		);
+		setTimeoutSpy.mockImplementation(((handler: Parameters<typeof setTimeout>[0]) => {
+			if (typeof handler === "function") {
+				handler();
+			}
+			return 0 as unknown as ReturnType<typeof setTimeout>;
+		}) as typeof setTimeout);
 		try {
 			stdin.write("\x03"); // idle Ctrl+C → onIdleCtrlC → shows hint, starts 5s timer
 			expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 5000);
