@@ -77,6 +77,27 @@ describe("checkPathConstraint", () => {
 			expect(result).toContain("Write access denied");
 		});
 
+		test("applies to apply_patch add file operations", () => {
+			const patch = `*** Begin Patch
+*** Add File: /tmp/evil.txt
++pwnd
+*** End Patch`;
+			const result = checkPathConstraint("apply_patch", { patch }, c, workDir);
+			expect(result).toContain("Write access denied");
+		});
+
+		test("applies to apply_patch update moveTo operations", () => {
+			const patch = `*** Begin Patch
+*** Update File: ~/.local/share/sprout-genome/capability-index.yaml
+*** Move to: /tmp/evil.txt
+@@ key: value
+-key: value
++key: updated
+*** End Patch`;
+			const result = checkPathConstraint("apply_patch", { patch }, c, workDir);
+			expect(result).toContain("Write access denied");
+		});
+
 		test("does not restrict reads", () => {
 			const result = checkPathConstraint("read_file", { path: "/any/path" }, c, workDir);
 			expect(result).toBeNull();
@@ -105,6 +126,15 @@ describe("checkPathConstraint", () => {
 				c,
 				workDir,
 			);
+			expect(result).toBeNull();
+		});
+
+		test("allows apply_patch writes matching the glob", () => {
+			const patch = `*** Begin Patch
+*** Add File: ~/.local/share/sprout-genome/new-file.txt
++ok
+*** End Patch`;
+			const result = checkPathConstraint("apply_patch", { patch }, c, workDir);
 			expect(result).toBeNull();
 		});
 

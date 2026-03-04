@@ -13,6 +13,8 @@ export interface WebServerOptions {
 	sessionId: string;
 	/** Bind address (default: localhost). Use "0.0.0.0" for all interfaces. */
 	hostname?: string;
+	/** Optional bearer token for WebSocket command/auth checks. */
+	webToken?: string;
 	/** Events from a prior session to pre-populate the snapshot. */
 	initialEvents?: SessionEvent[];
 	/** Available model names for the model selector. */
@@ -33,8 +35,9 @@ export class WebServer {
 	private readonly bus: SessionBus;
 	private readonly port: number;
 	private readonly staticDir: string;
-	private readonly sessionId: string;
+	private sessionId: string;
 	private readonly hostname: string | undefined;
+	private readonly webToken: string | undefined;
 
 	private readonly availableModels: string[];
 	private readonly logger?: import("../host/logger.ts").Logger;
@@ -52,6 +55,7 @@ export class WebServer {
 		this.staticDir = opts.staticDir;
 		this.sessionId = opts.sessionId;
 		this.hostname = opts.hostname;
+		this.webToken = opts.webToken;
 		this.availableModels = opts.availableModels ?? [];
 		this.logger = opts.logger;
 		if (opts.initialEvents) {
@@ -60,6 +64,12 @@ export class WebServer {
 	}
 
 	async start(): Promise<void> {
+		if (!this.isLoopbackHost(this.hostname) && !this.webToken) {
+			throw new Error(
+				"Web auth token required for non-localhost bind. Use --web-token or SPROUT_WEB_TOKEN.",
+			);
+		}
+
 		// Track switch_model commands to update currentModel
 		this.unsubscribeCommands = this.bus.onCommand((cmd) => {
 			if (cmd.kind === "switch_model" && typeof cmd.data.model === "string") {
@@ -69,9 +79,18 @@ export class WebServer {
 
 		// Subscribe to bus events — buffer them and track session status
 		this.unsubscribeEvents = this.bus.onEvent((event) => {
-			this.events.push(event);
-			if (this.events.length > EVENT_CAP * 2) {
-				this.events = this.events.slice(-EVENT_CAP);
+			if (event.kind === "session_clear") {
+				const newSessionId = event.data.new_session_id;
+				if (typeof newSessionId === "string" && newSessionId.trim().length > 0) {
+					this.sessionId = newSessionId;
+				}
+				// New session semantics: reconnect snapshots should not include stale events.
+				this.events = [event];
+			} else {
+				this.events.push(event);
+				if (this.events.length > EVENT_CAP * 2) {
+					this.events = this.events.slice(-EVENT_CAP);
+				}
 			}
 			this.updateStatus(event);
 			this.broadcastEvent(event);
@@ -91,19 +110,11 @@ export class WebServer {
 
 				// WebSocket upgrade
 				if (req.headers.get("upgrade") === "websocket") {
-					// Skip origin check when explicitly listening on all interfaces
-					if (self.hostname !== "0.0.0.0") {
-						const origin = req.headers.get("origin");
-						if (origin) {
-							try {
-								const host = new URL(origin).hostname;
-								if (host !== "localhost" && host !== "127.0.0.1" && host !== "::1") {
-									return new Response("Forbidden", { status: 403 });
-								}
-							} catch {
-								return new Response("Forbidden", { status: 403 });
-							}
-						}
+					if (!self.isAllowedOrigin(req)) {
+						return new Response("Forbidden", { status: 403 });
+					}
+					if (!self.hasValidToken(url, req)) {
+						return new Response("Unauthorized", { status: 401 });
 					}
 					if (!server.upgrade(req, { data: undefined })) {
 						return new Response("WebSocket upgrade failed", { status: 400 });
@@ -240,6 +251,63 @@ export class WebServer {
 			case "interrupted":
 				this.status = "interrupted";
 				break;
+			case "session_clear":
+				this.status = "idle";
+				this.currentModel = null;
+				break;
 		}
+	}
+
+	private isLoopbackHost(hostname: string | undefined): boolean {
+		const host = hostname ?? "localhost";
+		return host === "localhost" || host === "127.0.0.1" || host === "::1";
+	}
+
+	private parseHostHeader(hostHeader: string | null): string | null {
+		if (!hostHeader) return null;
+		const trimmed = hostHeader.trim().toLowerCase();
+		if (trimmed.startsWith("[")) {
+			const end = trimmed.indexOf("]");
+			return end >= 0 ? trimmed.slice(1, end) : null;
+		}
+		const first = trimmed.split(",")[0]?.trim();
+		if (!first) return null;
+		const parts = first.split(":");
+		// hostname:port
+		if (parts.length === 2) return parts[0] ?? null;
+		// plain hostname
+		if (parts.length === 1) return first;
+		// likely raw ipv6 without brackets
+		return first;
+	}
+
+	/** Enforce strict same-origin checks for browser-origin websocket upgrades. */
+	private isAllowedOrigin(req: Request): boolean {
+		const origin = req.headers.get("origin");
+		if (!origin) return true;
+		let originHost: string;
+		try {
+			originHost = new URL(origin).hostname.toLowerCase();
+		} catch {
+			return false;
+		}
+		const requestHost = this.parseHostHeader(req.headers.get("host"));
+		if (!requestHost) return false;
+		return originHost === requestHost;
+	}
+
+	private hasValidToken(url: URL, req: Request): boolean {
+		if (!this.webToken) return true;
+
+		const queryToken = url.searchParams.get("token");
+		if (queryToken === this.webToken) return true;
+
+		const authHeader = req.headers.get("authorization");
+		if (authHeader?.startsWith("Bearer ")) {
+			const bearerToken = authHeader.slice("Bearer ".length).trim();
+			if (bearerToken === this.webToken) return true;
+		}
+
+		return false;
 	}
 }

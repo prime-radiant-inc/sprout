@@ -182,6 +182,47 @@ describe("BusClient", () => {
 		await sub.disconnect();
 	});
 
+	test("subscribe rejects if subscribe ack times out", async () => {
+		const client = new BusClient(server.url, { subscribeAckTimeoutMs: 50 });
+		await client.connect();
+
+		// Simulate wire-level subscribe send being dropped so ack never arrives.
+		// @ts-expect-error -- test override of private method
+		const originalSend = client.send.bind(client);
+		// @ts-expect-error -- test override of private method
+		client.send = (msg: any) => {
+			if (msg.action === "subscribe") return;
+			originalSend(msg);
+		};
+
+		await expect(client.subscribe("test/no-ack", () => {})).rejects.toThrow(
+			/Subscribe acknowledgment timed out/i,
+		);
+		await client.disconnect();
+	});
+
+	test("subscribe rejects if connection closes before ack", async () => {
+		const client = new BusClient(server.url, { subscribeAckTimeoutMs: 500 });
+		await client.connect();
+
+		// @ts-expect-error -- accessing private method for test
+		const originalSend = client.send.bind(client);
+		// @ts-expect-error -- test override of private method
+		client.send = (msg: any) => {
+			if (msg.action === "subscribe") {
+				return;
+			}
+			originalSend(msg);
+		};
+
+		const subscribePromise = client.subscribe("test/close-before-ack", () => {});
+		setTimeout(() => {
+			void client.disconnect();
+		}, 20);
+		await expect(subscribePromise).rejects.toThrow(/disconnected before subscribe acknowledgment/i);
+		await client.disconnect();
+	});
+
 	test("send() with closed WebSocket throws clear error", async () => {
 		const client = new BusClient(server.url);
 		await client.connect();

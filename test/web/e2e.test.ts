@@ -1,10 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { EventBus } from "../../src/host/event-bus.ts";
-import type { ServerMessage } from "../../src/web/protocol.ts";
 import { WebServer } from "../../src/web/server.ts";
+import { collectMessages, connect, createStaticDir, delay, nextMessage, randomPort } from "./fixtures.ts";
 
 /**
  * End-to-end tests for the web interface round-trip.
@@ -18,42 +15,6 @@ import { WebServer } from "../../src/web/server.ts";
  * back on the bus in response to commands.
  */
 
-// --- Helpers ---
-
-function connect(url: string): Promise<WebSocket> {
-	return new Promise((resolve, reject) => {
-		const ws = new WebSocket(url);
-		ws.onopen = () => resolve(ws);
-		ws.onerror = (e) => reject(e);
-	});
-}
-
-function nextMessage(ws: WebSocket, timeoutMs = 2000): Promise<ServerMessage> {
-	return new Promise((resolve, reject) => {
-		const timer = setTimeout(() => reject(new Error("Timed out waiting for message")), timeoutMs);
-		ws.addEventListener(
-			"message",
-			(ev) => {
-				clearTimeout(timer);
-				resolve(JSON.parse(ev.data as string) as ServerMessage);
-			},
-			{ once: true },
-		);
-	});
-}
-
-function collectMessages(ws: WebSocket): ServerMessage[] {
-	const messages: ServerMessage[] = [];
-	ws.addEventListener("message", (ev) => {
-		messages.push(JSON.parse(ev.data as string) as ServerMessage);
-	});
-	return messages;
-}
-
-function delay(ms = 50): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 // --- Test setup ---
 
 let bus: EventBus;
@@ -63,9 +24,8 @@ const clients: WebSocket[] = [];
 
 beforeEach(() => {
 	bus = new EventBus();
-	const staticDir = mkdtempSync(join(tmpdir(), "sprout-e2e-test-"));
-	writeFileSync(join(staticDir, "index.html"), "<html><body>E2E</body></html>");
-	port = 10000 + Math.floor(Math.random() * 50000);
+	const staticDir = createStaticDir("sprout-e2e-test-", "<html><body>E2E</body></html>");
+	port = randomPort();
 	server = new WebServer({
 		bus,
 		port,
@@ -245,9 +205,8 @@ describe("Web interface end-to-end", () => {
 		const ws2 = await connectClient();
 		const snapshot = await nextMessage(ws2);
 		if (snapshot.type !== "snapshot") throw new Error("Expected snapshot");
-		// Buffer should contain all events including session_clear
-		const kinds = snapshot.events.map((e) => e.kind);
-		expect(kinds).toContain("session_clear");
+		expect(snapshot.session.id).toBe("new-session");
+		expect(snapshot.events.map((e) => e.kind)).toEqual(["session_clear"]);
 	});
 
 	test("multiple rapid commands are all delivered", async () => {
@@ -291,9 +250,8 @@ describe("Web interface end-to-end", () => {
 	});
 
 	test("snapshot includes availableModels and currentModel in session", async () => {
-		const staticDir2 = mkdtempSync(join(tmpdir(), "sprout-e2e-models-"));
-		writeFileSync(join(staticDir2, "index.html"), "<html></html>");
-		const port2 = 10000 + Math.floor(Math.random() * 50000);
+		const staticDir2 = createStaticDir("sprout-e2e-models-", "<html></html>");
+		const port2 = randomPort();
 		const server2 = new WebServer({
 			bus,
 			port: port2,
@@ -318,9 +276,8 @@ describe("Web interface end-to-end", () => {
 	});
 
 	test("GET /api/models returns available models and current model", async () => {
-		const staticDir2 = mkdtempSync(join(tmpdir(), "sprout-e2e-models-"));
-		writeFileSync(join(staticDir2, "index.html"), "<html></html>");
-		const port2 = 10000 + Math.floor(Math.random() * 50000);
+		const staticDir2 = createStaticDir("sprout-e2e-models-", "<html></html>");
+		const port2 = randomPort();
 		const server2 = new WebServer({
 			bus,
 			port: port2,
@@ -339,9 +296,8 @@ describe("Web interface end-to-end", () => {
 	});
 
 	test("currentModel updates when switch_model command is received", async () => {
-		const staticDir2 = mkdtempSync(join(tmpdir(), "sprout-e2e-models-"));
-		writeFileSync(join(staticDir2, "index.html"), "<html></html>");
-		const port2 = 10000 + Math.floor(Math.random() * 50000);
+		const staticDir2 = createStaticDir("sprout-e2e-models-", "<html></html>");
+		const port2 = randomPort();
 		const server2 = new WebServer({
 			bus,
 			port: port2,
@@ -410,5 +366,40 @@ describe("Web interface end-to-end", () => {
 		} finally {
 			console.error = origError;
 		}
+	});
+
+	test("token-protected websocket rejects missing token and accepts valid token", async () => {
+		const staticDir2 = createStaticDir("sprout-e2e-auth-", "<html></html>");
+		const port2 = randomPort();
+		const server2 = new WebServer({
+			bus,
+			port: port2,
+			staticDir: staticDir2,
+			sessionId: "auth-test",
+			webToken: "secret-token",
+		});
+		await server2.start();
+
+		const unauthorized = await fetch(`http://localhost:${port2}/`, {
+			headers: {
+				upgrade: "websocket",
+				"sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==",
+				"sec-websocket-version": "13",
+				connection: "upgrade",
+			},
+		});
+		expect(unauthorized.status).toBe(401);
+
+		const received: Array<{ kind: string }> = [];
+		bus.onCommand((cmd) => received.push({ kind: cmd.kind }));
+
+		const ws = await connect(`ws://localhost:${port2}/ws?token=secret-token`);
+		clients.push(ws);
+		await nextMessage(ws); // snapshot
+		sendCommand(ws, "interrupt", {});
+		await delay(100);
+		expect(received.map((r) => r.kind)).toContain("interrupt");
+
+		await server2.stop();
 	});
 });

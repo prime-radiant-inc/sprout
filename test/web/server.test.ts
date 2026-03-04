@@ -1,69 +1,17 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { EventBus } from "../../src/host/event-bus.ts";
-import type { ServerMessage } from "../../src/web/protocol.ts";
 import { WebServer } from "../../src/web/server.ts";
-
-// --- Helpers ---
-
-/** Connect a WebSocket client and wait for the connection to open. */
-function connect(url: string): Promise<WebSocket> {
-	return new Promise((resolve, reject) => {
-		const ws = new WebSocket(url);
-		ws.onopen = () => resolve(ws);
-		ws.onerror = (e) => reject(e);
-	});
-}
-
-/** Wait for the next JSON message from a WebSocket. */
-function nextMessage(ws: WebSocket, timeoutMs = 2000): Promise<ServerMessage> {
-	return new Promise((resolve, reject) => {
-		const timer = setTimeout(() => reject(new Error("Timed out waiting for message")), timeoutMs);
-		ws.addEventListener(
-			"message",
-			(ev) => {
-				clearTimeout(timer);
-				resolve(JSON.parse(ev.data as string) as ServerMessage);
-			},
-			{ once: true },
-		);
-	});
-}
-
-/** Collect all JSON messages arriving on a WebSocket into an array. */
-function collectMessages(ws: WebSocket): ServerMessage[] {
-	const messages: ServerMessage[] = [];
-	ws.addEventListener("message", (ev) => {
-		messages.push(JSON.parse(ev.data as string) as ServerMessage);
-	});
-	return messages;
-}
-
-/** Brief delay for message propagation. */
-function delay(ms = 50): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** Wait for a WebSocket to fully close. */
-function waitForClose(ws: WebSocket, timeoutMs = 2000): Promise<void> {
-	return new Promise((resolve, reject) => {
-		if (ws.readyState === WebSocket.CLOSED) {
-			resolve();
-			return;
-		}
-		const timer = setTimeout(() => reject(new Error("Timed out waiting for close")), timeoutMs);
-		ws.addEventListener(
-			"close",
-			() => {
-				clearTimeout(timer);
-				resolve();
-			},
-			{ once: true },
-		);
-	});
-}
+import {
+	collectMessages,
+	connect,
+	createStaticDir,
+	delay,
+	nextMessage,
+	randomPort,
+	waitForClose,
+} from "./fixtures.ts";
 
 // --- Test setup ---
 
@@ -75,11 +23,8 @@ const clients: WebSocket[] = [];
 
 beforeEach(() => {
 	bus = new EventBus();
-	staticDir = mkdtempSync(join(tmpdir(), "sprout-web-test-"));
-	// Create a simple index.html for static serving tests
-	writeFileSync(join(staticDir, "index.html"), "<html><body>Hello</body></html>");
-	// Pick a random high port
-	port = 10000 + Math.floor(Math.random() * 50000);
+	staticDir = createStaticDir("sprout-web-test-", "<html><body>Hello</body></html>");
+	port = randomPort();
 	server = new WebServer({ bus, port, staticDir, sessionId: "test-session" });
 });
 
@@ -112,6 +57,20 @@ describe("WebServer", () => {
 			await server.start();
 			await server.stop();
 			await server.stop();
+		});
+
+		test("start() requires webToken for non-localhost binds", async () => {
+			const remoteServer = new WebServer({
+				bus,
+				port: port + 1,
+				staticDir,
+				sessionId: "remote-session",
+				hostname: "0.0.0.0",
+			});
+			await expect(remoteServer.start()).rejects.toThrow(
+				"Web auth token required for non-localhost bind",
+			);
+			await remoteServer.stop();
 		});
 	});
 
@@ -202,6 +161,19 @@ describe("WebServer", () => {
 			const resp = await fetch(`http://localhost:${port}/api/session`);
 			const body = (await resp.json()) as { id: string; status: string };
 			expect(body.status).toBe("interrupted");
+		});
+
+		test("session_clear updates session id and resets to idle", async () => {
+			await server.start();
+			bus.emitEvent("session_start", "root", 0, { goal: "old" });
+			bus.emitEvent("session_clear", "session", 0, {
+				new_session_id: "new-session-id",
+			});
+
+			const resp = await fetch(`http://localhost:${port}/api/session`);
+			const body = (await resp.json()) as { id: string; status: string };
+			expect(body.id).toBe("new-session-id");
+			expect(body.status).toBe("idle");
 		});
 	});
 
@@ -421,6 +393,72 @@ describe("WebServer", () => {
 			});
 			expect(res.status).toBe(403);
 		});
+
+		test("still enforces strict origin checks on 0.0.0.0 binds", async () => {
+			const remotePort = port + 2;
+			const remoteServer = new WebServer({
+				bus,
+				port: remotePort,
+				staticDir,
+				sessionId: "remote-origin-test",
+				hostname: "0.0.0.0",
+				webToken: "secret-token",
+			});
+			await remoteServer.start();
+			const res = await fetch(`http://localhost:${remotePort}/`, {
+				headers: {
+					upgrade: "websocket",
+					origin: "https://evil.example.com",
+					authorization: "Bearer secret-token",
+					"sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==",
+					"sec-websocket-version": "13",
+					connection: "upgrade",
+				},
+			});
+			expect(res.status).toBe(403);
+			await remoteServer.stop();
+		});
+	});
+
+	describe("WebSocket token auth", () => {
+		test("rejects websocket upgrade when token is required but missing", async () => {
+			const tokenPort = port + 3;
+			const tokenServer = new WebServer({
+				bus,
+				port: tokenPort,
+				staticDir,
+				sessionId: "token-test",
+				webToken: "secret-token",
+			});
+			await tokenServer.start();
+			const res = await fetch(`http://localhost:${tokenPort}/`, {
+				headers: {
+					upgrade: "websocket",
+					"sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==",
+					"sec-websocket-version": "13",
+					connection: "upgrade",
+				},
+			});
+			expect(res.status).toBe(401);
+			await tokenServer.stop();
+		});
+
+		test("allows websocket connection with query token", async () => {
+			const tokenPort = port + 4;
+			const tokenServer = new WebServer({
+				bus,
+				port: tokenPort,
+				staticDir,
+				sessionId: "token-test-ok",
+				webToken: "secret-token",
+			});
+			await tokenServer.start();
+			const ws = await connect(`ws://localhost:${tokenPort}/ws?token=secret-token`);
+			clients.push(ws);
+			const msg = await nextMessage(ws);
+			expect(msg.type).toBe("snapshot");
+			await tokenServer.stop();
+		});
 	});
 
 	describe("event buffer cap", () => {
@@ -441,6 +479,23 @@ describe("WebServer", () => {
 			// Should contain the newest events
 			const last = msg.events[msg.events.length - 1]!;
 			expect(last.data.i).toBe(total - 1);
+		});
+	});
+
+	describe("session_clear buffer behavior", () => {
+		test("snapshot after session_clear excludes pre-clear events", async () => {
+			await server.start();
+			bus.emitEvent("session_start", "root", 0, { goal: "old session" });
+			bus.emitEvent("plan_end", "root", 0, { text: "old result" });
+			bus.emitEvent("session_clear", "session", 0, { new_session_id: "new-session" });
+			bus.emitEvent("plan_start", "root", 0, { turn: 1 });
+
+			const ws = await connectClient();
+			const snapshot = await nextMessage(ws);
+			expect(snapshot.type).toBe("snapshot");
+			if (snapshot.type !== "snapshot") throw new Error("Expected snapshot");
+			expect(snapshot.session.id).toBe("new-session");
+			expect(snapshot.events.map((e) => e.kind)).toEqual(["session_clear", "plan_start"]);
 		});
 	});
 });

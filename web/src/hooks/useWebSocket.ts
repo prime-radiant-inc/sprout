@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import type { ServerMessage } from "../../../src/web/protocol.ts";
 
 type MessageListener = (msg: ServerMessage) => void;
@@ -6,6 +6,7 @@ type MessageListener = (msg: ServerMessage) => void;
 export interface WebSocketClientOptions {
 	initialReconnectDelayMs?: number;
 	maxReconnectDelayMs?: number;
+	maxQueuedMessages?: number;
 }
 
 /**
@@ -22,6 +23,7 @@ export class WebSocketClient {
 	private readonly initialReconnectDelayMs: number;
 	private reconnectDelay: number;
 	private readonly maxReconnectDelay: number;
+	private readonly maxQueuedMessages: number;
 	private readonly sendQueue: string[] = [];
 	private listeners: MessageListener[] = [];
 	private stateListeners: Array<(connected: boolean) => void> = [];
@@ -34,6 +36,7 @@ export class WebSocketClient {
 		this.initialReconnectDelayMs = options.initialReconnectDelayMs ?? 1000;
 		this.reconnectDelay = this.initialReconnectDelayMs;
 		this.maxReconnectDelay = options.maxReconnectDelayMs ?? 30000;
+		this.maxQueuedMessages = Math.max(1, options.maxQueuedMessages ?? 200);
 	}
 
 	/** Open the WebSocket connection. Idempotent if already connecting/connected. */
@@ -64,6 +67,9 @@ export class WebSocketClient {
 		if (this.connected && this.ws?.readyState === WebSocket.OPEN) {
 			this.ws.send(payload);
 		} else {
+			if (this.sendQueue.length >= this.maxQueuedMessages) {
+				this.sendQueue.shift();
+			}
 			this.sendQueue.push(payload);
 		}
 	}
@@ -173,17 +179,11 @@ interface WebSocketState {
  * Returns `{ connected, send, onMessage }`.
  */
 export function useWebSocket(url: string) {
-	const clientRef = useRef<WebSocketClient | null>(null);
-
-	// Lazily create the client
-	if (!clientRef.current) {
-		clientRef.current = new WebSocketClient(url);
-	}
-
-	const client = clientRef.current;
+	const client = useMemo(() => new WebSocketClient(url), [url]);
 
 	// Snapshot for useSyncExternalStore
 	const stateRef = useRef<WebSocketState>({ connected: false });
+	stateRef.current = { connected: client.connected };
 
 	const subscribe = useCallback(
 		(onStoreChange: () => void) => {
@@ -207,7 +207,6 @@ export function useWebSocket(url: string) {
 		client.connect();
 		return () => {
 			client.dispose();
-			clientRef.current = null;
 		};
 	}, [client]);
 

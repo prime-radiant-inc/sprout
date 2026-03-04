@@ -62,10 +62,11 @@ afterEach(async () => {
 	await delay(50);
 });
 
-function createClient(url?: string): WebSocketClient {
+function createClient(url?: string, options: WebSocketClientOptions = {}): WebSocketClient {
 	const reconnectOptions: WebSocketClientOptions = {
 		initialReconnectDelayMs: 20,
 		maxReconnectDelayMs: 200,
+		...options,
 	};
 	const client = new WebSocketClient(url ?? `ws://localhost:${port}/ws`, reconnectOptions);
 	clients.push(client);
@@ -186,6 +187,36 @@ describe("WebSocketClient", () => {
 			await waitFor(() => commands.length >= 1);
 			expect(commands[0]!.kind).toBe("submit_goal");
 			expect(commands[0]!.data.goal).toBe("queued");
+		});
+
+		test("send() queue is capped while disconnected (drops oldest)", async () => {
+			await server.start();
+			const client = createClient(undefined, { maxQueuedMessages: 2 });
+
+			const commands: { kind: string; data: Record<string, unknown> }[] = [];
+			bus.onCommand((cmd) => commands.push(cmd));
+
+			client.send({
+				type: "command",
+				command: { kind: "submit_goal", data: { goal: "oldest" } },
+			});
+			client.send({
+				type: "command",
+				command: { kind: "submit_goal", data: { goal: "middle" } },
+			});
+			client.send({
+				type: "command",
+				command: { kind: "submit_goal", data: { goal: "newest" } },
+			});
+
+			client.connect();
+			await waitFor(() => client.connected);
+			await waitFor(() => commands.length >= 2);
+			await delay(100);
+
+			expect(commands).toHaveLength(2);
+			expect(commands[0]!.data.goal).toBe("middle");
+			expect(commands[1]!.data.goal).toBe("newest");
 		});
 	});
 

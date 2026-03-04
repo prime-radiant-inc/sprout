@@ -17,4 +17,16 @@ describe("buildWsUrl", () => {
 	test("ignores empty env override", () => {
 		expect(buildWsUrl("https:", "example.com", "")).toBe("wss://example.com");
 	});
+
+	test("forwards token from URL search params", () => {
+		expect(buildWsUrl("https:", "example.com", undefined, "?token=abc123")).toBe(
+			"wss://example.com/?token=abc123",
+		);
+	});
+
+	test("does not override token already present in env override", () => {
+		expect(
+			buildWsUrl("https:", "example.com", "wss://remote.example/ws?token=existing", "?token=new"),
+		).toBe("wss://remote.example/ws?token=existing");
+	});
 });

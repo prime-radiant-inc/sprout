@@ -21,6 +21,7 @@ const WS_URL = buildWsUrl(
 	window.location.protocol,
 	window.location.host,
 	import.meta.env.VITE_WS_URL,
+	window.location.search,
 );
 
 export function App() {

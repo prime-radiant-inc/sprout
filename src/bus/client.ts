@@ -4,18 +4,31 @@ type ClientAction =
 	| { action: "unsubscribe"; topic: string }
 	| { action: "publish"; topic: string; payload: string };
 
+interface PendingAck {
+	resolve: () => void;
+	reject: (error: Error) => void;
+	timer: ReturnType<typeof setTimeout>;
+}
+
+export interface BusClientOptions {
+	/** Max time to wait for subscribe ack before rejecting. */
+	subscribeAckTimeoutMs?: number;
+}
+
 /**
  * WebSocket client for the bus pub/sub server.
  * Provides a clean API over the raw JSON wire protocol.
  */
 export class BusClient {
 	private readonly url: string;
+	private readonly subscribeAckTimeoutMs: number;
 	private ws: WebSocket | null = null;
 	private callbacks = new Map<string, Set<(payload: string) => void>>();
-	private pendingAcks = new Map<string, (() => void)[]>();
+	private pendingAcks = new Map<string, PendingAck[]>();
 
-	constructor(url: string) {
+	constructor(url: string, options: BusClientOptions = {}) {
 		this.url = url;
+		this.subscribeAckTimeoutMs = options.subscribeAckTimeoutMs ?? 5000;
 	}
 
 	/** Whether the client is currently connected to the bus server. */
@@ -30,10 +43,15 @@ export class BusClient {
 			ws.onopen = () => {
 				this.ws = ws;
 				ws.onmessage = (ev) => this.handleMessage(ev);
+				ws.onclose = () => {
+					if (this.ws === ws) this.ws = null;
+					this.rejectAllPendingAcks("BusClient disconnected before subscribe acknowledgment");
+				};
 				resolve();
 			};
 			ws.onerror = (e) => {
 				ws.close();
+				this.rejectAllPendingAcks("BusClient socket error before subscribe acknowledgment");
 				reject(e);
 			};
 		});
@@ -49,7 +67,7 @@ export class BusClient {
 			const ws = this.ws;
 			this.ws = null;
 			this.callbacks.clear();
-			this.pendingAcks.clear();
+			this.rejectAllPendingAcks("BusClient disconnected before subscribe acknowledgment");
 
 			if (ws.readyState === WebSocket.CLOSED) {
 				resolve();
@@ -161,8 +179,11 @@ export class BusClient {
 		if (msg.action === "subscribed" && typeof msg.topic === "string") {
 			const acks = this.pendingAcks.get(msg.topic);
 			if (acks) {
-				const resolve = acks.shift();
-				if (resolve) resolve();
+				const waiter = acks.shift();
+				if (waiter) {
+					clearTimeout(waiter.timer);
+					waiter.resolve();
+				}
 				if (acks.length === 0) this.pendingAcks.delete(msg.topic);
 			}
 			return;
@@ -184,20 +205,50 @@ export class BusClient {
 	}
 
 	/** Register an ack resolver for a topic (used by waitForMessage). */
-	private registerAck(topic: string, resolve: () => void): void {
+	private registerAck(topic: string, waiter: PendingAck): void {
 		let acks = this.pendingAcks.get(topic);
 		if (!acks) {
 			acks = [];
 			this.pendingAcks.set(topic, acks);
 		}
-		acks.push(resolve);
+		acks.push(waiter);
+	}
+
+	private removeAck(topic: string, waiter: PendingAck): void {
+		const acks = this.pendingAcks.get(topic);
+		if (!acks) return;
+		const idx = acks.indexOf(waiter);
+		if (idx >= 0) acks.splice(idx, 1);
+		if (acks.length === 0) this.pendingAcks.delete(topic);
 	}
 
 	/** Wait for the server to acknowledge a subscribe for a topic. */
 	private awaitAck(topic: string): Promise<void> {
-		return new Promise<void>((resolve) => {
-			this.registerAck(topic, resolve);
+		return new Promise<void>((resolve, reject) => {
+			const waiter = {} as PendingAck;
+			waiter.resolve = resolve;
+			waiter.reject = reject;
+			waiter.timer = setTimeout(() => {
+				this.removeAck(topic, waiter);
+				reject(
+					new Error(
+						`Subscribe acknowledgment timed out after ${this.subscribeAckTimeoutMs}ms on topic "${topic}"`,
+					),
+				);
+			}, this.subscribeAckTimeoutMs);
+			this.registerAck(topic, waiter);
 		});
+	}
+
+	private rejectAllPendingAcks(message: string): void {
+		const error = new Error(message);
+		for (const acks of this.pendingAcks.values()) {
+			for (const ack of acks) {
+				clearTimeout(ack.timer);
+				ack.reject(error);
+			}
+		}
+		this.pendingAcks.clear();
 	}
 
 	private send(msg: ClientAction): void {

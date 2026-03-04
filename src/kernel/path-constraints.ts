@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 import type { AgentConstraints } from "./types.js";
 
 /** Primitives that write to file paths */
-const WRITE_PRIMITIVES = new Set(["write_file", "edit_file"]);
+const WRITE_PRIMITIVES = new Set(["write_file", "edit_file", "apply_patch"]);
 
 /**
  * Resolve a path the same way ExecutionEnvironment does:
@@ -34,14 +34,25 @@ export function checkPathConstraint(
 	if (!constraints.allowed_write_paths) return null;
 	if (!WRITE_PRIMITIVES.has(primitiveName)) return null;
 
-	const rawPath = args.path as string | undefined;
-	if (!rawPath) return null;
-
-	const resolved = resolvePath(rawPath, workDir);
-
 	// Resolve constraint patterns too, so ~/... in constraints matches correctly
 	const resolvedPatterns = constraints.allowed_write_paths.map((p) => resolvePath(p, workDir));
 
+	if (primitiveName === "apply_patch") {
+		const rawPatch = args.patch;
+		if (typeof rawPatch !== "string") return null;
+
+		for (const rawPath of extractPatchWritePaths(rawPatch)) {
+			const resolved = resolvePath(rawPath, workDir);
+			if (!matchesAny(resolved, resolvedPatterns)) {
+				return `Write access denied: "${rawPath}" (resolved: ${resolved}) is not in allowed_write_paths`;
+			}
+		}
+		return null;
+	}
+
+	const rawPath = args.path as string | undefined;
+	if (!rawPath) return null;
+	const resolved = resolvePath(rawPath, workDir);
 	if (!matchesAny(resolved, resolvedPatterns)) {
 		return `Write access denied: "${rawPath}" (resolved: ${resolved}) is not in allowed_write_paths`;
 	}
@@ -51,6 +62,35 @@ export function checkPathConstraint(
 
 function matchesAny(path: string, patterns: string[]): boolean {
 	return patterns.some((pattern) => new Bun.Glob(pattern).match(path));
+}
+
+/**
+ * Extract every file path touched by an apply_patch payload.
+ * Includes add/delete/update paths plus rename targets (`*** Move to`).
+ */
+function extractPatchWritePaths(patch: string): string[] {
+	const paths = new Set<string>();
+	const lines = patch.split("\n");
+
+	for (const line of lines) {
+		if (line.startsWith("*** Add File: ")) {
+			paths.add(line.slice("*** Add File: ".length).trim());
+			continue;
+		}
+		if (line.startsWith("*** Delete File: ")) {
+			paths.add(line.slice("*** Delete File: ".length).trim());
+			continue;
+		}
+		if (line.startsWith("*** Update File: ")) {
+			paths.add(line.slice("*** Update File: ".length).trim());
+			continue;
+		}
+		if (line.startsWith("*** Move to: ")) {
+			paths.add(line.slice("*** Move to: ".length).trim());
+		}
+	}
+
+	return [...paths].filter((p) => p.length > 0);
 }
 
 /**
