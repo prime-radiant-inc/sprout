@@ -275,12 +275,10 @@ describe("retryLLMCall", () => {
 
 	test("applies exponential backoff", async () => {
 		const delays: number[] = [];
-		let calls = 0;
 
 		try {
 			await retryLLMCall(
 				async () => {
-					calls++;
 					const err = new Error("fail");
 					(err as any).status = 500;
 					throw err;
@@ -831,11 +829,9 @@ describe("retryLLMCall", () => {
 		const maxDelayMs = 2;
 
 		for (let i = 0; i < 25; i++) {
-			let calls = 0;
 			try {
 				await retryLLMCall(
 					async () => {
-						calls++;
 						const err = new Error("fail");
 						(err as any).status = 500;
 						throw err;

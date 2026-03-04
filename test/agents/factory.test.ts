@@ -19,7 +19,7 @@ function createFactoryTestClient(): Client {
 		complete: async () => {
 			throw new Error("factory test client should not call complete()");
 		},
-		stream: async function* () {
+		stream: async () => {
 			throw new Error("factory test client should not call stream()");
 		},
 		providers: () => ["anthropic"],
