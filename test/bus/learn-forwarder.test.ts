@@ -50,7 +50,7 @@ describe("BusLearnForwarder", () => {
 		};
 	}
 
-	test("push() publishes a learn_signal message to genomeMutations topic", async () => {
+	test("push() publishes a learn_request signal message to genomeMutations topic", async () => {
 		const forwarder = new BusLearnForwarder(publisherBus, SESSION_ID);
 
 		const messagePromise = subscriberBus.waitForMessage(genomeMutations(SESSION_ID), 5000);
@@ -61,8 +61,10 @@ describe("BusLearnForwarder", () => {
 		const raw = await messagePromise;
 		const msg = JSON.parse(raw);
 
-		expect(msg.kind).toBe("learn_signal");
-		expect(msg.signal).toEqual(signal);
+		expect(msg.kind).toBe("learn_request");
+		expect(typeof msg.request_id).toBe("string");
+		expect(msg.payload.kind).toBe("signal");
+		expect(msg.payload.signal).toEqual(signal);
 	}, 10_000);
 
 	test("push() publishes multiple signals independently", async () => {
@@ -83,9 +85,9 @@ describe("BusLearnForwarder", () => {
 		await waitUntil(() => received.length >= 2, 5000);
 
 		expect(received.length).toBe(2);
-		expect(received[0]!.signal.agent_name).toBe("agent-a");
-		expect(received[1]!.signal.agent_name).toBe("agent-b");
-		expect(received[1]!.signal.kind).toBe("retry");
+		expect(received[0]!.payload.signal.agent_name).toBe("agent-a");
+		expect(received[1]!.payload.signal.agent_name).toBe("agent-b");
+		expect(received[1]!.payload.signal.kind).toBe("retry");
 	}, 10_000);
 
 	test("recordAction() is a no-op (does not throw)", () => {

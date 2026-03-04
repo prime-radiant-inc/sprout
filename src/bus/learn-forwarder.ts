@@ -1,6 +1,8 @@
 import type { LearnSignal } from "../kernel/types.ts";
 import type { LearnSink } from "../learn/learn-process.ts";
+import { ulid } from "../util/ulid.ts";
 import type { BusClient } from "./client.ts";
+import { createSignalLearnRequest } from "./learn-contract.ts";
 import { genomeMutations } from "./topics.ts";
 
 /**
@@ -19,7 +21,8 @@ export class BusLearnForwarder implements LearnSink {
 
 	push(signal: LearnSignal): void {
 		if (!this.bus.connected) return;
-		this.bus.publish(this.topic, JSON.stringify({ kind: "learn_signal", signal }));
+		const request = createSignalLearnRequest(signal, ulid());
+		this.bus.publish(this.topic, JSON.stringify(request));
 	}
 
 	recordAction(_agentName: string): void {

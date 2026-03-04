@@ -1,15 +1,8 @@
 import type { Genome } from "../genome/genome.ts";
 import { DEFAULT_CONSTRAINTS, validateAgentName } from "../kernel/types.ts";
-import type { LearnMutation } from "../learn/learn-process.ts";
 import type { BusClient } from "./client.ts";
+import { parseLearnRequest, resolveLearnMutation, type LearnRequest } from "./learn-contract.ts";
 import { genomeEvents, genomeMutations } from "./topics.ts";
-
-/** A request to mutate the genome, published on the mutations topic. */
-export interface MutationRequest {
-	kind: "mutation_request";
-	mutation: LearnMutation;
-	request_id: string;
-}
 
 /** A confirmation event published after processing a mutation request. */
 export interface MutationConfirmation {
@@ -42,7 +35,7 @@ export class GenomeMutationService {
 	private readonly sessionId: string;
 	private readonly stopDrainTimeoutMs: number;
 	private readonly stopDrainPollMs: number;
-	private readonly queue: MutationRequest[] = [];
+	private readonly queue: LearnRequest[] = [];
 	private processing = false;
 	private started = false;
 
@@ -60,14 +53,10 @@ export class GenomeMutationService {
 		this.started = true;
 
 		await this.bus.subscribe(genomeMutations(this.sessionId), (payload) => {
-			try {
-				const msg = JSON.parse(payload) as MutationRequest;
-				if (msg.kind !== "mutation_request") return;
-				this.queue.push(msg);
-				this.processQueue();
-			} catch {
-				// Ignore malformed messages
-			}
+			const msg = parseLearnRequest(payload);
+			if (!msg) return;
+			this.queue.push(msg);
+			this.processQueue();
 		});
 	}
 
@@ -97,8 +86,9 @@ export class GenomeMutationService {
 		this.processing = false;
 	}
 
-	private async applyMutation(req: MutationRequest): Promise<void> {
-		const { mutation, request_id } = req;
+	private async applyMutation(req: LearnRequest): Promise<void> {
+		const request_id = req.request_id;
+		const mutation = resolveLearnMutation(req);
 
 		try {
 			const now = Date.now();

@@ -4,9 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BusClient } from "../../src/bus/client.ts";
 import { GenomeMutationService } from "../../src/bus/genome-service.ts";
+import { createMutationLearnRequest } from "../../src/bus/learn-contract.ts";
+import { BusLearnForwarder } from "../../src/bus/learn-forwarder.ts";
 import { BusServer } from "../../src/bus/server.ts";
 import { genomeEvents, genomeMutations } from "../../src/bus/topics.ts";
 import { Genome } from "../../src/genome/genome.ts";
+import type { LearnMutation } from "../../src/learn/learn-process.ts";
 
 describe("GenomeMutationService", () => {
 	let server: BusServer;
@@ -71,23 +74,26 @@ describe("GenomeMutationService", () => {
 		await rm(tempDir, { recursive: true, force: true });
 	});
 
+	async function publishMutation(mutation: LearnMutation, requestId: string): Promise<void> {
+		await testBus.publish(
+			genomeMutations(SESSION_ID),
+			JSON.stringify(createMutationLearnRequest(mutation, requestId)),
+		);
+	}
+
 	test("processes a create_memory mutation", async () => {
 		await service.start();
 
 		// Subscribe to confirmations before publishing the request
 		const confirmationPromise = testBus.waitForMessage(genomeEvents(SESSION_ID), 5000);
 
-		await testBus.publish(
-			genomeMutations(SESSION_ID),
-			JSON.stringify({
-				kind: "mutation_request",
-				mutation: {
-					type: "create_memory",
-					content: "Always use strict mode in TypeScript",
-					tags: ["typescript", "best-practice"],
-				},
-				request_id: "req-001",
-			}),
+		await publishMutation(
+			{
+				type: "create_memory",
+				content: "Always use strict mode in TypeScript",
+				tags: ["typescript", "best-practice"],
+			},
+			"req-001",
 		);
 
 		const raw = await confirmationPromise;
@@ -118,27 +124,29 @@ describe("GenomeMutationService", () => {
 		const mutationsTopic = genomeMutations(SESSION_ID);
 		await testBus.publish(
 			mutationsTopic,
-			JSON.stringify({
-				kind: "mutation_request",
-				mutation: {
-					type: "create_memory",
-					content: "First memory",
-					tags: ["first"],
-				},
-				request_id: "req-serial-1",
-			}),
+			JSON.stringify(
+				createMutationLearnRequest(
+					{
+						type: "create_memory",
+						content: "First memory",
+						tags: ["first"],
+					},
+					"req-serial-1",
+				),
+			),
 		);
 		await testBus.publish(
 			mutationsTopic,
-			JSON.stringify({
-				kind: "mutation_request",
-				mutation: {
-					type: "create_memory",
-					content: "Second memory",
-					tags: ["second"],
-				},
-				request_id: "req-serial-2",
-			}),
+			JSON.stringify(
+				createMutationLearnRequest(
+					{
+						type: "create_memory",
+						content: "Second memory",
+						tags: ["second"],
+					},
+					"req-serial-2",
+				),
+			),
 		);
 
 		// Wait for both confirmations
@@ -163,17 +171,13 @@ describe("GenomeMutationService", () => {
 		const confirmationPromise = testBus.waitForMessage(genomeEvents(SESSION_ID), 5000);
 
 		// update_agent with nonexistent agent should fail
-		await testBus.publish(
-			genomeMutations(SESSION_ID),
-			JSON.stringify({
-				kind: "mutation_request",
-				mutation: {
-					type: "update_agent",
-					agent_name: "nonexistent-agent",
-					system_prompt: "New prompt",
-				},
-				request_id: "req-err-001",
-			}),
+		await publishMutation(
+			{
+				type: "update_agent",
+				agent_name: "nonexistent-agent",
+				system_prompt: "New prompt",
+			},
+			"req-err-001",
 		);
 
 		const raw = await confirmationPromise;
@@ -206,17 +210,13 @@ describe("GenomeMutationService", () => {
 		const confirmationPromise = testBus.waitForMessage(genomeEvents(SESSION_ID), 5000);
 
 		const requestId = "unique-correlation-id-42";
-		await testBus.publish(
-			genomeMutations(SESSION_ID),
-			JSON.stringify({
-				kind: "mutation_request",
-				mutation: {
-					type: "create_memory",
-					content: "Correlation test",
-					tags: ["test"],
-				},
-				request_id: requestId,
-			}),
+		await publishMutation(
+			{
+				type: "create_memory",
+				content: "Correlation test",
+				tags: ["test"],
+			},
+			requestId,
 		);
 
 		const raw = await confirmationPromise;
@@ -230,22 +230,18 @@ describe("GenomeMutationService", () => {
 
 		const confirmationPromise = testBus.waitForMessage(genomeEvents(SESSION_ID), 5000);
 
-		await testBus.publish(
-			genomeMutations(SESSION_ID),
-			JSON.stringify({
-				kind: "mutation_request",
-				mutation: {
-					type: "create_agent",
-					name: "test-agent",
-					description: "A test agent",
-					system_prompt: "You are a test agent.",
-					model: "fast",
-					tools: ["read_file"],
-					agents: [],
-					tags: ["test"],
-				},
-				request_id: "req-create-001",
-			}),
+		await publishMutation(
+			{
+				type: "create_agent",
+				name: "test-agent",
+				description: "A test agent",
+				system_prompt: "You are a test agent.",
+				model: "fast",
+				tools: ["read_file"],
+				agents: [],
+				tags: ["test"],
+			},
+			"req-create-001",
 		);
 
 		const raw = await confirmationPromise;
@@ -271,16 +267,12 @@ describe("GenomeMutationService", () => {
 		const confirmationPromise = testBus.waitForMessage(genomeEvents(SESSION_ID), 5000);
 
 		// Send create_agent with missing description, system_prompt, and model
-		await testBus.publish(
-			genomeMutations(SESSION_ID),
-			JSON.stringify({
-				kind: "mutation_request",
-				mutation: {
-					type: "create_agent",
-					name: "incomplete-agent",
-				},
-				request_id: "req-create-err-001",
-			}),
+		await publishMutation(
+			{
+				type: "create_agent",
+				name: "incomplete-agent",
+			} as LearnMutation,
+			"req-create-err-001",
 		);
 
 		const raw = await confirmationPromise;
@@ -291,6 +283,43 @@ describe("GenomeMutationService", () => {
 		expect(confirmation.mutation_type).toBe("create_agent");
 		expect(confirmation.success).toBe(false);
 		expect(confirmation.error).toContain("create_agent: missing or invalid");
+	}, 10_000);
+
+	test("consumes BusLearnForwarder signal requests end-to-end", async () => {
+		await service.start();
+
+		const forwarder = new BusLearnForwarder(testBus, SESSION_ID);
+		const confirmationPromise = testBus.waitForMessage(genomeEvents(SESSION_ID), 5000);
+
+		forwarder.push({
+			kind: "failure",
+			goal: "stabilize pipeline",
+			agent_name: "worker-a",
+			details: {
+				agent_name: "worker-a",
+				goal: "stabilize pipeline",
+				output: "command failed",
+				success: false,
+				stumbles: 1,
+				turns: 2,
+				timed_out: false,
+			},
+			session_id: SESSION_ID,
+			timestamp: Date.now(),
+		});
+
+		const raw = await confirmationPromise;
+		const confirmation = JSON.parse(raw);
+
+		expect(confirmation.kind).toBe("mutation_confirmed");
+		expect(confirmation.success).toBe(true);
+		expect(confirmation.mutation_type).toBe("create_memory");
+
+		const memories = genome.memories.all();
+		expect(memories.length).toBe(1);
+		expect(memories[0]!.content).toContain("Learn signal (failure)");
+		expect(memories[0]!.content).toContain("Goal: stabilize pipeline");
+		expect(memories[0]!.tags).toEqual(["learn-signal", "failure", "worker-a"]);
 	}, 10_000);
 });
 
