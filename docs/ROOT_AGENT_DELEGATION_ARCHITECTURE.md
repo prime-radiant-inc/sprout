@@ -1,5 +1,7 @@
 # Root Agent Delegation Architecture
 
+> Canonical doc (2026-03-04): this is the single source of truth for current delegation runtime behavior. Historical delegation guides were moved to `docs/archive/delegation/`.
+
 ## Overview
 
 The orchestrator (root agent) is configured via Markdown specs (with YAML frontmatter) and determines available agents for delegation through an **agent tree routing system**. There is no hardcoded "shadow" list — agents are dynamically loaded from the root directory tree and the genome (git-backed agent repository).
