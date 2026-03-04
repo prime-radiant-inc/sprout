@@ -358,7 +358,6 @@ export class SessionController {
 
 	private interrupt(): void {
 		this.abortController.abort();
-		this.abortController = new AbortController();
 	}
 
 	async submitGoal(goal: string): Promise<void> {
@@ -369,6 +368,11 @@ export class SessionController {
 		}
 		this.logger?.info("session", "Goal submitted", { goal: goal.slice(0, 100) });
 		this.suppressEvents = false;
+		// Cancellation is run-scoped. Set the active controller before any await
+		// so an immediate /interrupt cannot miss this run.
+		const runAbortController = new AbortController();
+		this.abortController = runAbortController;
+		const signal = runAbortController.signal;
 
 		// Ensure the spawner's session-wide events subscription is active
 		// before we create any agents. The subscription is fire-and-forget
@@ -403,7 +407,6 @@ export class SessionController {
 		await persistRunningMetadata(this.metadata);
 
 		let learnProcess: AgentFactoryResult["learnProcess"] = null;
-		const signal = this.abortController.signal;
 		// Capture metadata before the try block so the finally writes to the
 		// correct session even if /clear replaces this.metadata mid-run.
 		const metadata = this.metadata;

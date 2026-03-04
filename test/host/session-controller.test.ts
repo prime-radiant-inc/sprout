@@ -218,6 +218,53 @@ describe("SessionController", () => {
 		await promise;
 	});
 
+	test("interrupt before run starts still aborts that run's signal", async () => {
+		let releaseSubscription: (() => void) | undefined;
+		const subscriptionReady = new Promise<void>((resolve) => {
+			releaseSubscription = resolve;
+		});
+		const fakeSpawner = {
+			getHandles: () => [],
+			subscribeSessionEvents: async () => {
+				await subscriptionReady;
+			},
+			updateSessionId: async () => {},
+			clearHandles: async () => {},
+		} as any;
+
+		let runSignal: AbortSignal | undefined;
+		const factory: AgentFactory = async () => ({
+			agent: {
+				steer() {},
+				async run(_goal: string, signal?: AbortSignal) {
+					runSignal = signal;
+					return { output: "done", success: true, stumbles: 0, turns: 1, timed_out: false };
+				},
+			} as any,
+			learnProcess: null,
+		});
+
+		const bus = new EventBus();
+		const controller = new SessionController({
+			bus,
+			genomePath: join(tempDir, "genome"),
+			projectDataDir: tempDir,
+			factory,
+			spawner: fakeSpawner,
+		});
+
+		const runPromise = controller.submitGoal("test run");
+		await sleep(2);
+
+		bus.emitCommand({ kind: "interrupt", data: {} });
+		releaseSubscription?.();
+
+		await runPromise;
+
+		expect(runSignal).toBeDefined();
+		expect(runSignal?.aborted).toBe(true);
+	});
+
 	test("metadata is saved as running then idle", async () => {
 		const fake = makeFakeAgent({ runDelay: 20 });
 		const factory = makeFakeFactory(fake);

@@ -9,6 +9,7 @@
   },
   "scripts": {
     "check": "biome check --write .",
+    "check:host-guardrails": "bash scripts/check-host-session-controller-boundaries.sh",
     "lint": "biome lint .",
     "format": "biome format --write .",
     "typecheck": "tsc --noEmit && tsc --noEmit --project web/tsconfig.json",
