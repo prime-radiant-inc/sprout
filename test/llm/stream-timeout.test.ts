@@ -12,13 +12,13 @@ async function* delayedIterable<T>(items: { value: T; delayMs: number }[]): Asyn
 describe("withStreamReadTimeout", () => {
 	test("yields all items when no timeout occurs", async () => {
 		const source = delayedIterable([
-			{ value: "a", delayMs: 10 },
-			{ value: "b", delayMs: 10 },
-			{ value: "c", delayMs: 10 },
+			{ value: "a", delayMs: 5 },
+			{ value: "b", delayMs: 5 },
+			{ value: "c", delayMs: 5 },
 		]);
 
 		const results: string[] = [];
-		for await (const item of withStreamReadTimeout(source, 500)) {
+		for await (const item of withStreamReadTimeout(source, 120)) {
 			results.push(item);
 		}
 
@@ -27,16 +27,16 @@ describe("withStreamReadTimeout", () => {
 
 	test("throws StreamReadTimeoutError when gap between chunks exceeds timeout", async () => {
 		const source = delayedIterable([
-			{ value: "a", delayMs: 10 },
-			{ value: "b", delayMs: 10 },
-			{ value: "c", delayMs: 300 }, // This gap exceeds the 100ms timeout
+			{ value: "a", delayMs: 5 },
+			{ value: "b", delayMs: 5 },
+			{ value: "c", delayMs: 120 }, // This gap exceeds the 40ms timeout
 		]);
 
 		const results: string[] = [];
 		let caughtError: unknown;
 
 		try {
-			for await (const item of withStreamReadTimeout(source, 100)) {
+			for await (const item of withStreamReadTimeout(source, 40)) {
 				results.push(item);
 			}
 		} catch (err) {
@@ -45,17 +45,17 @@ describe("withStreamReadTimeout", () => {
 
 		expect(results).toEqual(["a", "b"]);
 		expect(caughtError).toBeInstanceOf(StreamReadTimeoutError);
-		expect((caughtError as StreamReadTimeoutError).timeoutMs).toBe(100);
+		expect((caughtError as StreamReadTimeoutError).timeoutMs).toBe(40);
 	});
 
 	test("throws StreamReadTimeoutError when first chunk takes too long", async () => {
 		const source = delayedIterable([
-			{ value: "a", delayMs: 300 }, // First chunk exceeds timeout
+			{ value: "a", delayMs: 120 }, // First chunk exceeds timeout
 		]);
 
 		let caughtError: unknown;
 		try {
-			for await (const _item of withStreamReadTimeout(source, 100)) {
+			for await (const _item of withStreamReadTimeout(source, 40)) {
 				// Should not reach here
 			}
 		} catch (err) {
@@ -66,17 +66,17 @@ describe("withStreamReadTimeout", () => {
 	});
 
 	test("resets timer on each yielded chunk", async () => {
-		// Each chunk arrives at 80ms intervals — under the 100ms timeout.
-		// Total time is 240ms which would exceed a single 100ms timeout,
+		// Each chunk arrives at 30ms intervals — under the 40ms timeout.
+		// Total time is 90ms which would exceed a single 40ms timeout,
 		// but each gap is within the limit.
 		const source = delayedIterable([
-			{ value: "a", delayMs: 80 },
-			{ value: "b", delayMs: 80 },
-			{ value: "c", delayMs: 80 },
+			{ value: "a", delayMs: 30 },
+			{ value: "b", delayMs: 30 },
+			{ value: "c", delayMs: 30 },
 		]);
 
 		const results: string[] = [];
-		for await (const item of withStreamReadTimeout(source, 100)) {
+		for await (const item of withStreamReadTimeout(source, 40)) {
 			results.push(item);
 		}
 
@@ -84,41 +84,41 @@ describe("withStreamReadTimeout", () => {
 	});
 
 	test("cleans up timer when source completes normally", async () => {
-		const source = delayedIterable([{ value: "a", delayMs: 10 }]);
+		const source = delayedIterable([{ value: "a", delayMs: 5 }]);
 
-		for await (const _item of withStreamReadTimeout(source, 100)) {
+		for await (const _item of withStreamReadTimeout(source, 40)) {
 			// consume
 		}
 
 		// If the timer wasn't cleaned up, this sleep would trigger it.
 		// No error should occur.
-		await new Promise((resolve) => setTimeout(resolve, 200));
+		await new Promise((resolve) => setTimeout(resolve, 80));
 	});
 
 	test("cleans up timer when consumer breaks early", async () => {
 		const source = delayedIterable([
-			{ value: "a", delayMs: 10 },
-			{ value: "b", delayMs: 10 },
-			{ value: "c", delayMs: 10 },
+			{ value: "a", delayMs: 5 },
+			{ value: "b", delayMs: 5 },
+			{ value: "c", delayMs: 5 },
 		]);
 
-		for await (const _item of withStreamReadTimeout(source, 100)) {
+		for await (const _item of withStreamReadTimeout(source, 40)) {
 			break; // Consumer breaks after first item
 		}
 
 		// Timer should be cleaned up — no lingering timeout
-		await new Promise((resolve) => setTimeout(resolve, 200));
+		await new Promise((resolve) => setTimeout(resolve, 80));
 	});
 
 	test("throws AbortError when signal is already aborted", async () => {
 		const controller = new AbortController();
 		controller.abort();
 
-		const source = delayedIterable([{ value: "a", delayMs: 10 }]);
+		const source = delayedIterable([{ value: "a", delayMs: 5 }]);
 		let caughtError: unknown;
 
 		try {
-			for await (const _item of withStreamReadTimeout(source, 500, controller.signal)) {
+			for await (const _item of withStreamReadTimeout(source, 120, controller.signal)) {
 				// Should not reach here
 			}
 		} catch (err) {
@@ -132,18 +132,18 @@ describe("withStreamReadTimeout", () => {
 	test("throws AbortError when signal fires during iteration", async () => {
 		const controller = new AbortController();
 		const source = delayedIterable([
-			{ value: "a", delayMs: 10 },
-			{ value: "b", delayMs: 10 },
-			{ value: "c", delayMs: 200 }, // Abort will fire during this gap
+			{ value: "a", delayMs: 5 },
+			{ value: "b", delayMs: 5 },
+			{ value: "c", delayMs: 80 }, // Abort will fire during this gap
 		]);
 
-		setTimeout(() => controller.abort(), 50);
+		setTimeout(() => controller.abort(), 20);
 
 		const results: string[] = [];
 		let caughtError: unknown;
 
 		try {
-			for await (const item of withStreamReadTimeout(source, 500, controller.signal)) {
+			for await (const item of withStreamReadTimeout(source, 120, controller.signal)) {
 				results.push(item);
 			}
 		} catch (err) {
@@ -158,12 +158,12 @@ describe("withStreamReadTimeout", () => {
 	test("cleans up abort listener on normal completion", async () => {
 		const controller = new AbortController();
 		const source = delayedIterable([
-			{ value: "a", delayMs: 10 },
-			{ value: "b", delayMs: 10 },
+			{ value: "a", delayMs: 5 },
+			{ value: "b", delayMs: 5 },
 		]);
 
 		const results: string[] = [];
-		for await (const item of withStreamReadTimeout(source, 500, controller.signal)) {
+		for await (const item of withStreamReadTimeout(source, 120, controller.signal)) {
 			results.push(item);
 		}
 
@@ -174,16 +174,16 @@ describe("withStreamReadTimeout", () => {
 
 	test("does not false-timeout when consumer is slow to pull values", async () => {
 		const source = delayedIterable([
-			{ value: "a", delayMs: 10 },
-			{ value: "b", delayMs: 10 },
+			{ value: "a", delayMs: 5 },
+			{ value: "b", delayMs: 5 },
 		]);
 
 		const results: string[] = [];
-		for await (const item of withStreamReadTimeout(source, 100)) {
+		for await (const item of withStreamReadTimeout(source, 40)) {
 			results.push(item);
-			// Simulate slow consumer — 150ms exceeds the 100ms timeout,
+			// Simulate slow consumer — 60ms exceeds the 40ms timeout,
 			// but the timer should be paused during yield.
-			await new Promise((resolve) => setTimeout(resolve, 150));
+			await new Promise((resolve) => setTimeout(resolve, 60));
 		}
 
 		expect(results).toEqual(["a", "b"]);
@@ -202,7 +202,7 @@ describe("withStreamReadTimeout", () => {
 		let caughtError: unknown;
 
 		try {
-			for await (const item of withStreamReadTimeout(failingIterable(), 500, controller.signal)) {
+			for await (const item of withStreamReadTimeout(failingIterable(), 120, controller.signal)) {
 				results.push(item);
 			}
 		} catch (err) {
@@ -215,14 +215,14 @@ describe("withStreamReadTimeout", () => {
 		expect((caughtError as Error).message).toBe("NetworkError: connection lost");
 
 		// Timer is cleaned up — no lingering timeout fires after the error
-		await new Promise((resolve) => setTimeout(resolve, 600));
+		await new Promise((resolve) => setTimeout(resolve, 160));
 
 		// Abort listener is removed — aborting after error doesn't throw
 		controller.abort();
 	});
 
 	test("throws Error when timeoutMs is zero", async () => {
-		const source = delayedIterable([{ value: "a", delayMs: 10 }]);
+		const source = delayedIterable([{ value: "a", delayMs: 5 }]);
 		let caughtError: unknown;
 
 		try {
@@ -238,7 +238,7 @@ describe("withStreamReadTimeout", () => {
 	});
 
 	test("throws Error when timeoutMs is negative", async () => {
-		const source = delayedIterable([{ value: "a", delayMs: 10 }]);
+		const source = delayedIterable([{ value: "a", delayMs: 5 }]);
 		let caughtError: unknown;
 
 		try {
@@ -254,7 +254,7 @@ describe("withStreamReadTimeout", () => {
 	});
 
 	test("throws Error when timeoutMs is NaN", async () => {
-		const source = delayedIterable([{ value: "a", delayMs: 10 }]);
+		const source = delayedIterable([{ value: "a", delayMs: 5 }]);
 		let caughtError: unknown;
 
 		try {
@@ -270,7 +270,7 @@ describe("withStreamReadTimeout", () => {
 	});
 
 	test("throws Error when timeoutMs is Infinity", async () => {
-		const source = delayedIterable([{ value: "a", delayMs: 10 }]);
+		const source = delayedIterable([{ value: "a", delayMs: 5 }]);
 		let caughtError: unknown;
 
 		try {
@@ -297,7 +297,7 @@ describe("withStreamReadTimeout", () => {
 							return { value: "a", done: false as const };
 						}
 						// Stall to trigger timeout
-						await new Promise((resolve) => setTimeout(resolve, 500));
+						await new Promise((resolve) => setTimeout(resolve, 120));
 						return { value: "b", done: false as const };
 					},
 					async return() {
@@ -310,7 +310,7 @@ describe("withStreamReadTimeout", () => {
 		let caughtError: unknown;
 		const results: string[] = [];
 		try {
-			for await (const item of withStreamReadTimeout(throwingIterable, 100)) {
+			for await (const item of withStreamReadTimeout(throwingIterable, 40)) {
 				results.push(item);
 			}
 		} catch (err) {
@@ -320,7 +320,7 @@ describe("withStreamReadTimeout", () => {
 		// Should get the timeout error, NOT the cleanup error
 		expect(results).toEqual(["a"]);
 		expect(caughtError).toBeInstanceOf(StreamReadTimeoutError);
-		expect((caughtError as StreamReadTimeoutError).timeoutMs).toBe(100);
+		expect((caughtError as StreamReadTimeoutError).timeoutMs).toBe(40);
 	});
 
 	test("swallows cleanup error when consumer breaks and iterator.return() throws", async () => {
@@ -342,7 +342,7 @@ describe("withStreamReadTimeout", () => {
 
 		// Consumer breaks early — cleanup error should be swallowed
 		const results: string[] = [];
-		for await (const item of withStreamReadTimeout(throwingIterable, 500)) {
+		for await (const item of withStreamReadTimeout(throwingIterable, 120)) {
 			results.push(item);
 			break;
 		}
@@ -357,14 +357,14 @@ describe("withStreamReadTimeout", () => {
 		}
 
 		const results: string[] = [];
-		for await (const item of withStreamReadTimeout(emptyIterable(), 100)) {
+		for await (const item of withStreamReadTimeout(emptyIterable(), 40)) {
 			results.push(item);
 		}
 
 		expect(results).toEqual([]);
 
 		// No lingering timeout fires
-		await new Promise((resolve) => setTimeout(resolve, 200));
+		await new Promise((resolve) => setTimeout(resolve, 80));
 	});
 });
 

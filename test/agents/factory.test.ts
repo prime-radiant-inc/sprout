@@ -7,14 +7,32 @@ import { createAgent } from "../../src/agents/factory.ts";
 import { scanAgentTree } from "../../src/agents/loader.ts";
 import { DEV_MODE_SENTINEL, isDevMode } from "../../src/genome/dev-mode.ts";
 import { Genome } from "../../src/genome/genome.ts";
+import type { Client } from "../../src/llm/client.ts";
 
 config({ path: join(homedir(), "prime-radiant/serf/.env") });
+
+function createFactoryTestClient(): Client {
+	const modelsByProvider = new Map<string, string[]>([
+		["anthropic", ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"]],
+	]);
+	return {
+		complete: async () => {
+			throw new Error("factory test client should not call complete()");
+		},
+		stream: async function* () {
+			throw new Error("factory test client should not call stream()");
+		},
+		providers: () => ["anthropic"],
+		listModelsByProvider: async () => modelsByProvider,
+	} as unknown as Client;
+}
 
 describe("createAgent", () => {
 	let tempDir: string;
 	const rootDir = join(import.meta.dir, "../../root");
 	let sharedGenomePath: string;
 	let sharedGenome: Genome;
+	let sharedClient: Client;
 
 	beforeAll(async () => {
 		tempDir = await mkdtemp(join(tmpdir(), "sprout-factory-"));
@@ -22,6 +40,7 @@ describe("createAgent", () => {
 		sharedGenome = new Genome(sharedGenomePath, rootDir);
 		await sharedGenome.init();
 		await sharedGenome.initFromRoot();
+		sharedClient = createFactoryTestClient();
 	});
 
 	afterAll(async () => {
@@ -34,6 +53,7 @@ describe("createAgent", () => {
 			genomePath,
 			rootDir,
 			workDir: tempDir,
+			client: sharedClient,
 		});
 
 		expect(result.agent).toBeDefined();
@@ -49,6 +69,7 @@ describe("createAgent", () => {
 			genomePath: sharedGenomePath,
 			rootDir,
 			workDir: tempDir,
+			client: sharedClient,
 		});
 
 		expect(result.agent).toBeDefined();
@@ -58,10 +79,10 @@ describe("createAgent", () => {
 	test("uses specified root agent name", async () => {
 		const result = await createAgent({
 			genomePath: sharedGenomePath,
-			rootDir,
 			workDir: tempDir,
 			rootAgent: "editor",
 			genome: sharedGenome,
+			client: sharedClient,
 		});
 
 		expect(result.agent.spec.name).toBe("editor");
@@ -71,10 +92,10 @@ describe("createAgent", () => {
 		const customId = "CUSTOM_SESSION_ID_123456";
 		const result = await createAgent({
 			genomePath: sharedGenomePath,
-			rootDir,
 			workDir: tempDir,
 			sessionId: customId,
 			genome: sharedGenome,
+			client: sharedClient,
 		});
 		expect(result.agent).toBeDefined();
 		expect(result.model).toBeTruthy();
@@ -86,10 +107,10 @@ describe("createAgent", () => {
 	test("model option overrides agent spec model", async () => {
 		const result = await createAgent({
 			genomePath: sharedGenomePath,
-			rootDir,
 			workDir: tempDir,
 			model: "claude-sonnet-4-6",
 			genome: sharedGenome,
+			client: sharedClient,
 		});
 
 		// The root agent spec uses "best", but model override should win
@@ -100,9 +121,9 @@ describe("createAgent", () => {
 	test("uses pre-loaded genome instead of loading from disk", async () => {
 		const result = await createAgent({
 			genomePath: sharedGenomePath,
-			rootDir,
 			workDir: tempDir,
 			genome: sharedGenome,
+			client: sharedClient,
 		});
 
 		// The returned genome should be the exact same instance we passed in
@@ -115,10 +136,10 @@ describe("createAgent", () => {
 		await expect(
 			createAgent({
 				genomePath: sharedGenomePath,
-				rootDir,
 				workDir: tempDir,
 				rootAgent: "nonexistent",
 				genome: sharedGenome,
+				client: sharedClient,
 			}),
 		).rejects.toThrow(/not found/);
 	});
@@ -129,6 +150,7 @@ describe("createAgent", () => {
 			rootDir,
 			workDir: tempDir,
 			genome: sharedGenome,
+			client: sharedClient,
 		});
 
 		// The root agent should have the delegate tool (from tree-based resolution)
@@ -157,6 +179,7 @@ describe("createAgent", () => {
 			genomePath,
 			rootDir,
 			workDir: sproutRoot,
+			client: sharedClient,
 		});
 
 		const qmPostscript = await result.genome.loadAgentPostscript("quartermaster");

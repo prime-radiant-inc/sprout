@@ -275,10 +275,8 @@ describe("InputArea", () => {
 		// Move cursor to middle (after "hello")
 		stdin.write("\x01"); // Ctrl-A (start)
 		await flush();
-		for (let i = 0; i < 5; i++) {
-			stdin.write("\x1B[C"); // right arrow
-			await flush();
-		}
+		stdin.write("\x1B[C".repeat(5)); // right arrow x5
+		await flush();
 
 		const frame = lastFrame()!;
 		// "hello" and "world" should appear WITHOUT extra space between them
@@ -569,10 +567,8 @@ describe("InputArea", () => {
 		await flush();
 		stdin.write("\x01"); // Ctrl-A
 		await flush();
-		for (let i = 0; i < 5; i++) {
-			stdin.write("\x1B[C"); // right arrow
-			await flush();
-		}
+		stdin.write("\x1B[C".repeat(5)); // right arrow x5
+		await flush();
 		stdin.write("\x0B"); // Ctrl-K
 		await flush();
 		stdin.write("\r");
@@ -684,10 +680,8 @@ describe("InputArea", () => {
 		// Move to middle: Ctrl-A then 5 rights
 		stdin.write("\x01");
 		await flush();
-		for (let i = 0; i < 5; i++) {
-			stdin.write("\x1B[C");
-			await flush();
-		}
+		stdin.write("\x1B[C".repeat(5));
+		await flush();
 		stdin.write("\x15"); // Ctrl-U
 		await flush();
 		stdin.write("\r");
@@ -803,7 +797,7 @@ describe("InputArea", () => {
 		stdin.write("\r");
 		await flush();
 		// Wait for the async callback to complete
-		await new Promise((r) => setTimeout(r, 10));
+		await new Promise((r) => setTimeout(r, 8));
 
 		expect(resolved).toBe(true);
 	});
@@ -855,5 +849,5 @@ describe("InputArea", () => {
 
 async function flush() {
 	// Keep this above ultra-short timers to avoid dropped keystrokes under load.
-	await new Promise((resolve) => setTimeout(resolve, 20));
+	await new Promise((resolve) => setTimeout(resolve, 10));
 }

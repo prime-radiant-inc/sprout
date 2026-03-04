@@ -1,11 +1,11 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { exists, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { cp, exists, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runAgentProcess } from "../../src/bus/agent-process.ts";
 import { BusClient } from "../../src/bus/client.ts";
 import { BusServer } from "../../src/bus/server.ts";
-import { agentEvents, agentInbox, agentResult, sessionEvents } from "../../src/bus/topics.ts";
+import { agentEvents, agentInbox, agentReady, agentResult, sessionEvents } from "../../src/bus/topics.ts";
 import type { ResultMessage, StartMessage } from "../../src/bus/types.ts";
 import { Genome } from "../../src/genome/genome.ts";
 import type { LogEntry } from "../../src/host/logger.ts";
@@ -120,21 +120,45 @@ async function waitForResults(
 	}
 }
 
+/** Poll until a predicate becomes true, or time out. */
+async function waitForCondition(
+	condition: () => boolean,
+	timeoutMs = 5000,
+): Promise<void> {
+	if (condition()) return;
+	const deadline = Date.now() + timeoutMs;
+	while (!condition() && Date.now() < deadline) {
+		await delay(10);
+	}
+	if (!condition()) {
+		throw new Error("Timed out waiting for condition");
+	}
+}
+
 describe("runAgentProcess", () => {
 	let server: BusServer;
 	let parentClient: BusClient;
+	let suiteTempDir: string;
 	let tempDir: string;
 	let genomeDir: string;
+	let genomeTemplateDir: string;
 
 	const SESSION_ID = "test-session-001";
 	const HANDLE_ID = "test-handle-001";
 
+	beforeAll(async () => {
+		suiteTempDir = await mkdtemp(join(tmpdir(), "sprout-agent-proc-"));
+		genomeTemplateDir = join(suiteTempDir, "__genome-template");
+
+		const templateGenome = new Genome(genomeTemplateDir);
+		await templateGenome.init();
+		await templateGenome.addAgent(MINIMAL_AGENT_SPEC as any);
+	});
+
 	beforeEach(async () => {
-		tempDir = await mkdtemp(join(tmpdir(), "sprout-agent-proc-"));
+		tempDir = await mkdtemp(join(suiteTempDir, "case-"));
 		genomeDir = join(tempDir, "genome");
-		const genome = new Genome(genomeDir);
-		await genome.init();
-		await genome.addAgent(MINIMAL_AGENT_SPEC as any);
+		await cp(genomeTemplateDir, genomeDir, { recursive: true });
 
 		server = new BusServer({ port: 0 });
 		await server.start();
@@ -148,6 +172,15 @@ describe("runAgentProcess", () => {
 		await server.stop();
 		await rm(tempDir, { recursive: true, force: true });
 	});
+
+	afterAll(async () => {
+		await rm(suiteTempDir, { recursive: true, force: true });
+	});
+
+	async function waitForAgentReady(): Promise<void> {
+		const readyTopic = agentReady(SESSION_ID, HANDLE_ID);
+		await parentClient.waitForMessage(readyTopic, 10_000);
+	}
 
 	test("non-shared agent runs to completion and exits", async () => {
 		const mockClient = createMockClient("Task completed successfully.");
@@ -165,7 +198,7 @@ describe("runAgentProcess", () => {
 			workDir: tempDir,
 		});
 
-		await delay(100);
+		await waitForAgentReady();
 
 		// Send a start message (shared: false)
 		const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
@@ -217,7 +250,7 @@ describe("runAgentProcess", () => {
 			workDir: tempDir,
 		});
 
-		await delay(100);
+		await waitForAgentReady();
 
 		const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
 		const startMsg: StartMessage = {
@@ -233,7 +266,10 @@ describe("runAgentProcess", () => {
 		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
 
 		await resultPromise;
-		await delay(100);
+		await waitForCondition(() => {
+			const kinds = collectedEvents.map((payload) => JSON.parse(payload).event.kind);
+			return kinds.includes("session_start") && kinds.includes("session_end");
+		});
 
 		expect(collectedEvents.length).toBeGreaterThan(0);
 
@@ -266,7 +302,7 @@ describe("runAgentProcess", () => {
 			workDir: tempDir,
 		});
 
-		await delay(100);
+		await waitForAgentReady();
 
 		// Send start message with caller at depth 0 → agent should be depth 1
 		const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
@@ -283,7 +319,10 @@ describe("runAgentProcess", () => {
 		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
 
 		await resultPromise;
-		await delay(100);
+		await waitForCondition(() => {
+			const kinds = collectedEvents.map((payload) => JSON.parse(payload).event.kind);
+			return kinds.includes("session_start") && kinds.includes("session_end");
+		});
 
 		expect(collectedEvents.length).toBeGreaterThan(0);
 
@@ -318,7 +357,7 @@ describe("runAgentProcess", () => {
 			workDir: tempDir,
 		});
 
-		await delay(100);
+		await waitForAgentReady();
 
 		const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
 		const startMsg: StartMessage = {
@@ -334,7 +373,10 @@ describe("runAgentProcess", () => {
 		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
 
 		await resultPromise;
-		await delay(100);
+		await waitForCondition(() => {
+			const kinds = collectedEvents.map((payload) => JSON.parse(payload).event.kind);
+			return kinds.includes("session_start") && kinds.includes("session_end");
+		});
 
 		// Events should appear on the session-wide topic
 		expect(collectedEvents.length).toBeGreaterThan(0);
@@ -385,7 +427,7 @@ describe("runAgentProcess", () => {
 			signal: controller.signal,
 		});
 
-		await delay(100);
+		await waitForAgentReady();
 
 		// Send start message (shared: true -- agent stays alive for continue)
 		const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
@@ -435,7 +477,7 @@ describe("runAgentProcess", () => {
 				3: "Continue-2 response.",
 			};
 			if (callCount === 2) {
-				await delay(300); // Slow enough for second continue to arrive
+				await delay(120); // Slow enough for second continue to arrive
 			}
 			return {
 				id: `mock-${callCount}`,
@@ -465,7 +507,7 @@ describe("runAgentProcess", () => {
 			signal: controller.signal,
 		});
 
-		await delay(100);
+		await waitForAgentReady();
 
 		// Send start message (shared: true)
 		const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
@@ -496,7 +538,7 @@ describe("runAgentProcess", () => {
 				caller: { agent_name: "root", depth: 0 },
 			}),
 		);
-		await delay(50); // Small gap to ensure ordering
+		await delay(20); // Small gap to ensure ordering
 		await parentClient.publish(
 			inboxTopic,
 			JSON.stringify({
@@ -549,7 +591,7 @@ describe("runAgentProcess", () => {
 			signal: controller.signal,
 		});
 
-		await delay(100);
+		await waitForAgentReady();
 
 		const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
 		const startMsg: StartMessage = {
@@ -572,7 +614,7 @@ describe("runAgentProcess", () => {
 			inboxTopic,
 			JSON.stringify({ kind: "steer", message: "Priority change: focus on tests" }),
 		);
-		await delay(100);
+		await delay(25);
 
 		// Send continue — the steer should be injected into the conversation
 		await parentClient.publish(
@@ -605,7 +647,7 @@ describe("runAgentProcess", () => {
 			if (callCount === 1) {
 				// First turn: return a tool call so the agent loops for a second turn.
 				// Add a delay so the test can inject a steer before the second turn.
-				await delay(200);
+				await delay(120);
 				return {
 					id: "mock-1",
 					model: "claude-haiku-4-5-20251001",
@@ -650,7 +692,7 @@ describe("runAgentProcess", () => {
 			workDir: tempDir,
 		});
 
-		await delay(100);
+		await waitForAgentReady();
 
 		// Send start message (non-shared — this tests the initial run path only)
 		const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
@@ -667,8 +709,8 @@ describe("runAgentProcess", () => {
 		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
 
 		// Wait for the first LLM call to be in progress, then send a steer.
-		// The 200ms delay in the mock client gives us time.
-		await delay(150);
+		// The mock client delay gives us time.
+		await delay(60);
 		await parentClient.publish(
 			inboxTopic,
 			JSON.stringify({ kind: "steer", message: "Urgent: pivot to security review" }),
@@ -705,7 +747,7 @@ describe("runAgentProcess", () => {
 			workDir: tempDir,
 		});
 
-		await delay(100);
+		await waitForAgentReady();
 
 		// Send start message with a non-existent agent name
 		const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
@@ -746,7 +788,7 @@ describe("runAgentProcess", () => {
 			signal: controller.signal,
 		});
 
-		await delay(100);
+		await waitForAgentReady();
 
 		// Abort before sending any start message
 		controller.abort();
@@ -790,7 +832,7 @@ describe("runAgentProcess", () => {
 			signal: controller.signal,
 		});
 
-		await delay(100);
+		await waitForAgentReady();
 
 		// Send start message (shared: true -- agent stays alive for continue)
 		const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
@@ -845,7 +887,7 @@ describe("runAgentProcess", () => {
 			workDir: tempDir,
 		});
 
-		await delay(100);
+		await waitForAgentReady();
 
 		const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
 		const startMsg: StartMessage = {
@@ -910,7 +952,7 @@ describe("runAgentProcess", () => {
 			workDir: tempDir,
 		});
 
-		await delay(100);
+		await waitForAgentReady();
 
 		// Start the orchestrator (not the leaf)
 		const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
@@ -966,7 +1008,7 @@ describe("runAgentProcess", () => {
 			workDir: tempDir,
 		});
 
-		await delay(100);
+		await waitForAgentReady();
 		const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
 		await parentClient.publish(
 			inboxTopic,
@@ -995,7 +1037,7 @@ describe("runAgentProcess", () => {
 			workDir: tempDir,
 		});
 
-		await delay(100);
+		await waitForAgentReady();
 		await parentClient.publish(
 			inboxTopic,
 			JSON.stringify({
@@ -1044,7 +1086,7 @@ describe("runAgentProcess", () => {
 			logger,
 		});
 
-		await delay(100);
+		await waitForAgentReady();
 
 		const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
 		const startMsg: StartMessage = {
@@ -1180,7 +1222,7 @@ describe("runAgentProcess", () => {
 			rootDir,
 		});
 
-		await delay(100);
+		await waitForAgentReady();
 
 		const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
 		const startMsg: StartMessage = {
