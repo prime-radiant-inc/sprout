@@ -1,7 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import type { Command, SessionEvent } from "../../src/kernel/types.ts";
+import type {
+	CommandMessage as CanonicalCommandMessage,
+	ServerMessage as CanonicalServerMessage,
+} from "../../src/kernel/protocol.ts";
+import {
+	createCommandMessage,
+	parseCommandMessage as parseCanonicalCommandMessage,
+} from "../../src/kernel/protocol.ts";
 import type { CommandMessage, ServerMessage } from "../../src/web/protocol.ts";
-import { parseCommandMessage } from "../../src/web/protocol.ts";
+import { parseCommandMessage as parseLegacyCommandMessage } from "../../src/web/protocol.ts";
 
 describe("web protocol types", () => {
 	test("ServerMessage event variant wraps a SessionEvent", () => {
@@ -58,13 +66,50 @@ describe("web protocol types", () => {
 	});
 });
 
+describe("canonical protocol module", () => {
+	test("createCommandMessage produces a valid command envelope", () => {
+		const command: Command = { kind: "interrupt", data: {} };
+		const msg = createCommandMessage(command);
+		expect(msg).toEqual({
+			type: "command",
+			command,
+		});
+	});
+
+	test("canonical and legacy protocol types are structurally compatible", () => {
+		const command: Command = { kind: "quit", data: {} };
+		const canonicalCommandMessage: CanonicalCommandMessage = createCommandMessage(command);
+		const legacyCommandMessage: CommandMessage = canonicalCommandMessage;
+		expect(legacyCommandMessage.type).toBe("command");
+
+		const event: SessionEvent = {
+			kind: "plan_start",
+			timestamp: Date.now(),
+			agent_id: "root",
+			depth: 0,
+			data: {},
+		};
+		const canonicalServerMessage: CanonicalServerMessage = { type: "event", event };
+		const legacyServerMessage: ServerMessage = canonicalServerMessage;
+		expect(legacyServerMessage.type).toBe("event");
+	});
+
+	test("canonical parser accepts the same valid payloads as legacy parser", () => {
+		const raw = JSON.stringify({
+			type: "command",
+			command: { kind: "submit_goal", data: { goal: "Fix the bug" } },
+		});
+		expect(parseCanonicalCommandMessage(raw)).toEqual(parseLegacyCommandMessage(raw));
+	});
+});
+
 describe("parseCommandMessage", () => {
 	test("parses a valid submit_goal command", () => {
 		const raw = JSON.stringify({
 			type: "command",
 			command: { kind: "submit_goal", data: { goal: "Fix the bug" } },
 		});
-		const msg = parseCommandMessage(raw);
+		const msg = parseLegacyCommandMessage(raw);
 		expect(msg.type).toBe("command");
 		expect(msg.command.kind).toBe("submit_goal");
 		expect(msg.command.data.goal).toBe("Fix the bug");
@@ -75,7 +120,7 @@ describe("parseCommandMessage", () => {
 			type: "command",
 			command: { kind: "steer", data: { message: "Focus on auth" } },
 		});
-		const msg = parseCommandMessage(raw);
+		const msg = parseLegacyCommandMessage(raw);
 		expect(msg.command.kind).toBe("steer");
 		expect(msg.command.data.message).toBe("Focus on auth");
 	});
@@ -85,7 +130,7 @@ describe("parseCommandMessage", () => {
 			type: "command",
 			command: { kind: "interrupt", data: {} },
 		});
-		const msg = parseCommandMessage(raw);
+		const msg = parseLegacyCommandMessage(raw);
 		expect(msg.command.kind).toBe("interrupt");
 	});
 
@@ -94,7 +139,7 @@ describe("parseCommandMessage", () => {
 			type: "command",
 			command: { kind: "quit", data: {} },
 		});
-		const msg = parseCommandMessage(raw);
+		const msg = parseLegacyCommandMessage(raw);
 		expect(msg.command.kind).toBe("quit");
 	});
 
@@ -103,7 +148,7 @@ describe("parseCommandMessage", () => {
 			type: "command",
 			command: { kind: "custom_thing", data: { foo: "bar" } },
 		});
-		const msg = parseCommandMessage(raw);
+		const msg = parseLegacyCommandMessage(raw);
 		// Cast to string — the runtime parser accepts any kind string,
 		// even though the TypeScript type narrows to CommandKind
 		expect(msg.command.kind as string).toBe("custom_thing");
@@ -111,26 +156,26 @@ describe("parseCommandMessage", () => {
 	});
 
 	test("throws on invalid JSON", () => {
-		expect(() => parseCommandMessage("not json{")).toThrow("Invalid JSON");
+		expect(() => parseLegacyCommandMessage("not json{")).toThrow("Invalid JSON");
 	});
 
 	test("throws on non-object JSON (string)", () => {
-		expect(() => parseCommandMessage('"just a string"')).toThrow("must be a JSON object");
+		expect(() => parseLegacyCommandMessage('"just a string"')).toThrow("must be a JSON object");
 	});
 
 	test("throws on non-object JSON (array)", () => {
-		expect(() => parseCommandMessage("[1, 2, 3]")).toThrow("must be a JSON object");
+		expect(() => parseLegacyCommandMessage("[1, 2, 3]")).toThrow("must be a JSON object");
 	});
 
 	test("throws on null JSON", () => {
-		expect(() => parseCommandMessage("null")).toThrow("must be a JSON object");
+		expect(() => parseLegacyCommandMessage("null")).toThrow("must be a JSON object");
 	});
 
 	test("throws on missing type field", () => {
 		const raw = JSON.stringify({
 			command: { kind: "quit", data: {} },
 		});
-		expect(() => parseCommandMessage(raw)).toThrow("type");
+		expect(() => parseLegacyCommandMessage(raw)).toThrow("type");
 	});
 
 	test("throws on wrong type field value", () => {
@@ -138,27 +183,27 @@ describe("parseCommandMessage", () => {
 			type: "event",
 			command: { kind: "quit", data: {} },
 		});
-		expect(() => parseCommandMessage(raw)).toThrow("type");
+		expect(() => parseLegacyCommandMessage(raw)).toThrow("type");
 	});
 
 	test("throws on missing command field", () => {
 		const raw = JSON.stringify({ type: "command" });
-		expect(() => parseCommandMessage(raw)).toThrow("command");
+		expect(() => parseLegacyCommandMessage(raw)).toThrow("command");
 	});
 
 	test("throws when command is not an object", () => {
 		const raw = JSON.stringify({ type: "command", command: "quit" });
-		expect(() => parseCommandMessage(raw)).toThrow("command");
+		expect(() => parseLegacyCommandMessage(raw)).toThrow("command");
 	});
 
 	test("throws when command is null", () => {
 		const raw = JSON.stringify({ type: "command", command: null });
-		expect(() => parseCommandMessage(raw)).toThrow("command");
+		expect(() => parseLegacyCommandMessage(raw)).toThrow("command");
 	});
 
 	test("throws when command is an array", () => {
 		const raw = JSON.stringify({ type: "command", command: [1, 2] });
-		expect(() => parseCommandMessage(raw)).toThrow("command");
+		expect(() => parseLegacyCommandMessage(raw)).toThrow("command");
 	});
 
 	test("throws when command.kind is missing", () => {
@@ -166,7 +211,7 @@ describe("parseCommandMessage", () => {
 			type: "command",
 			command: { data: {} },
 		});
-		expect(() => parseCommandMessage(raw)).toThrow("kind");
+		expect(() => parseLegacyCommandMessage(raw)).toThrow("kind");
 	});
 
 	test("throws when command.kind is not a string", () => {
@@ -174,7 +219,7 @@ describe("parseCommandMessage", () => {
 			type: "command",
 			command: { kind: 42, data: {} },
 		});
-		expect(() => parseCommandMessage(raw)).toThrow("kind");
+		expect(() => parseLegacyCommandMessage(raw)).toThrow("kind");
 	});
 
 	test("throws when command.data is missing", () => {
@@ -182,7 +227,7 @@ describe("parseCommandMessage", () => {
 			type: "command",
 			command: { kind: "quit" },
 		});
-		expect(() => parseCommandMessage(raw)).toThrow("data");
+		expect(() => parseLegacyCommandMessage(raw)).toThrow("data");
 	});
 
 	test("throws when command.data is not an object", () => {
@@ -190,6 +235,6 @@ describe("parseCommandMessage", () => {
 			type: "command",
 			command: { kind: "quit", data: "not-an-object" },
 		});
-		expect(() => parseCommandMessage(raw)).toThrow("data");
+		expect(() => parseLegacyCommandMessage(raw)).toThrow("data");
 	});
 });

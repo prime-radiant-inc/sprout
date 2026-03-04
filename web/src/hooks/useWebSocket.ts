@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
-import type { ServerMessage } from "../../../src/web/protocol.ts";
+import type { ServerMessage } from "@kernel/protocol.ts";
 
 type MessageListener = (msg: ServerMessage) => void;
 

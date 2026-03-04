@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
-import type { Command, SessionEvent } from "../../../src/kernel/types.ts";
-import type { ServerMessage } from "../../../src/web/protocol.ts";
+import { createCommandMessage, type ServerMessage } from "@kernel/protocol.ts";
+import type { Command, SessionEvent } from "@kernel/types.ts";
 
 /** Status state derived from the event stream, mirroring the TUI's App.tsx logic. */
 export interface SessionStatus {
@@ -81,7 +81,7 @@ export class EventStore {
 	/** Create a sendCommand function bound to a specific send callback. */
 	createSendCommand(send: (msg: object) => void): (command: Command) => void {
 		return (command: Command) => {
-			send({ type: "command", command });
+			send(createCommandMessage(command));
 		};
 	}
 
