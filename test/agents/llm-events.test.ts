@@ -1,25 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { tmpdir } from "node:os";
-import { Agent } from "../../src/agents/agent.ts";
 import { AgentEventEmitter } from "../../src/agents/events.ts";
-import { LocalExecutionEnvironment } from "../../src/kernel/execution-env.ts";
-import { createPrimitiveRegistry } from "../../src/kernel/primitives.ts";
-import { type AgentSpec, DEFAULT_CONSTRAINTS } from "../../src/kernel/types.ts";
 import type { Client } from "../../src/llm/client.ts";
 import type { Response } from "../../src/llm/types.ts";
 import { Msg } from "../../src/llm/types.ts";
-
-const leafSpec: AgentSpec = {
-	name: "leaf",
-	description: "Test leaf",
-	system_prompt: "You do things.",
-	model: "fast",
-	tools: ["read_file", "write_file", "exec"],
-	agents: [],
-	constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5 },
-	tags: [],
-	version: 1,
-};
+import { createAgentFixture, leafSpec } from "./fixtures.ts";
 
 function makeMockClient(response: Response) {
 	return {
@@ -41,6 +25,21 @@ function makeMockClient(response: Response) {
 	} as unknown as Client;
 }
 
+function createLlmEventsAgent(
+	client: Client,
+	events: AgentEventEmitter,
+	enableStreaming = false,
+) {
+	const fixture = createAgentFixture({
+		spec: leafSpec,
+		client,
+		availableAgents: [],
+		events,
+		enableStreaming,
+	});
+	return fixture.agent;
+}
+
 describe("LLM progress events", () => {
 	const simpleResponse: Response = {
 		id: "mock-1",
@@ -54,17 +53,7 @@ describe("LLM progress events", () => {
 	test("emits llm_start before the LLM call", async () => {
 		const mockClient = makeMockClient(simpleResponse);
 		const events = new AgentEventEmitter();
-		const env = new LocalExecutionEnvironment(tmpdir());
-		const registry = createPrimitiveRegistry(env);
-		const agent = new Agent({
-			spec: leafSpec,
-			env,
-			client: mockClient,
-			primitiveRegistry: registry,
-			availableAgents: [],
-			depth: 0,
-			events,
-		});
+		const agent = createLlmEventsAgent(mockClient, events);
 
 		await agent.run("test goal");
 
@@ -80,17 +69,7 @@ describe("LLM progress events", () => {
 	test("emits llm_end after the LLM call completes", async () => {
 		const mockClient = makeMockClient(simpleResponse);
 		const events = new AgentEventEmitter();
-		const env = new LocalExecutionEnvironment(tmpdir());
-		const registry = createPrimitiveRegistry(env);
-		const agent = new Agent({
-			spec: leafSpec,
-			env,
-			client: mockClient,
-			primitiveRegistry: registry,
-			availableAgents: [],
-			depth: 0,
-			events,
-		});
+		const agent = createLlmEventsAgent(mockClient, events);
 
 		await agent.run("test goal");
 
@@ -109,17 +88,7 @@ describe("LLM progress events", () => {
 	test("llm_start is emitted after plan_start and before llm_end", async () => {
 		const mockClient = makeMockClient(simpleResponse);
 		const events = new AgentEventEmitter();
-		const env = new LocalExecutionEnvironment(tmpdir());
-		const registry = createPrimitiveRegistry(env);
-		const agent = new Agent({
-			spec: leafSpec,
-			env,
-			client: mockClient,
-			primitiveRegistry: registry,
-			availableAgents: [],
-			depth: 0,
-			events,
-		});
+		const agent = createLlmEventsAgent(mockClient, events);
 
 		await agent.run("test goal");
 
@@ -168,17 +137,7 @@ describe("LLM progress events", () => {
 		} as unknown as Client;
 
 		const events = new AgentEventEmitter();
-		const env = new LocalExecutionEnvironment(tmpdir());
-		const registry = createPrimitiveRegistry(env);
-		const agent = new Agent({
-			spec: leafSpec,
-			env,
-			client: mockClient,
-			primitiveRegistry: registry,
-			availableAgents: [],
-			depth: 0,
-			events,
-		});
+		const agent = createLlmEventsAgent(mockClient, events);
 
 		await agent.run("multi-turn test");
 
@@ -217,18 +176,7 @@ describe("LLM progress events", () => {
 		} as unknown as Client;
 
 		const events = new AgentEventEmitter();
-		const env = new LocalExecutionEnvironment(tmpdir());
-		const registry = createPrimitiveRegistry(env);
-		const agent = new Agent({
-			spec: leafSpec,
-			env,
-			client: mockClient,
-			primitiveRegistry: registry,
-			availableAgents: [],
-			depth: 0,
-			events,
-			enableStreaming: true,
-		});
+		const agent = createLlmEventsAgent(mockClient, events, true);
 
 		await agent.run("streaming test");
 
@@ -268,18 +216,7 @@ describe("LLM progress events", () => {
 		} as unknown as Client;
 
 		const events = new AgentEventEmitter();
-		const env = new LocalExecutionEnvironment(tmpdir());
-		const registry = createPrimitiveRegistry(env);
-		const agent = new Agent({
-			spec: leafSpec,
-			env,
-			client: mockClient,
-			primitiveRegistry: registry,
-			availableAgents: [],
-			depth: 0,
-			events,
-			enableStreaming: true,
-		});
+		const agent = createLlmEventsAgent(mockClient, events, true);
 
 		await agent.run("throttle test");
 
@@ -311,18 +248,7 @@ describe("LLM progress events", () => {
 		} as unknown as Client;
 
 		const events = new AgentEventEmitter();
-		const env = new LocalExecutionEnvironment(tmpdir());
-		const registry = createPrimitiveRegistry(env);
-		const agent = new Agent({
-			spec: leafSpec,
-			env,
-			client: mockClient,
-			primitiveRegistry: registry,
-			availableAgents: [],
-			depth: 0,
-			events,
-			enableStreaming: true,
-		});
+		const agent = createLlmEventsAgent(mockClient, events, true);
 
 		await agent.run("stream with bookends");
 
@@ -347,17 +273,7 @@ describe("LLM progress events", () => {
 		} as unknown as Client;
 
 		const events = new AgentEventEmitter();
-		const env = new LocalExecutionEnvironment(tmpdir());
-		const registry = createPrimitiveRegistry(env);
-		const agent = new Agent({
-			spec: leafSpec,
-			env,
-			client: mockClient,
-			primitiveRegistry: registry,
-			availableAgents: [],
-			depth: 0,
-			events,
-		});
+		const agent = createLlmEventsAgent(mockClient, events);
 
 		await agent.run("latency test");
 
@@ -379,17 +295,7 @@ describe("LLM progress events", () => {
 		} as unknown as Client;
 
 		const events = new AgentEventEmitter();
-		const env = new LocalExecutionEnvironment(tmpdir());
-		const registry = createPrimitiveRegistry(env);
-		const agent = new Agent({
-			spec: leafSpec,
-			env,
-			client: mockClient,
-			primitiveRegistry: registry,
-			availableAgents: [],
-			depth: 0,
-			events,
-		});
+		const agent = createLlmEventsAgent(mockClient, events);
 
 		await expect(agent.run("error test")).rejects.toThrow("API rate limit exceeded");
 
@@ -421,17 +327,7 @@ describe("LLM progress events", () => {
 		} as unknown as Client;
 
 		const events = new AgentEventEmitter();
-		const env = new LocalExecutionEnvironment(tmpdir());
-		const registry = createPrimitiveRegistry(env);
-		const agent = new Agent({
-			spec: leafSpec,
-			env,
-			client: mockClient,
-			primitiveRegistry: registry,
-			availableAgents: [],
-			depth: 0,
-			events,
-		});
+		const agent = createLlmEventsAgent(mockClient, events);
 
 		// Abort only after the mock LLM call has started
 		llmStarted.then(() => ac.abort());
@@ -465,18 +361,7 @@ describe("LLM progress events", () => {
 		} as unknown as Client;
 
 		const events = new AgentEventEmitter();
-		const env = new LocalExecutionEnvironment(tmpdir());
-		const registry = createPrimitiveRegistry(env);
-		const agent = new Agent({
-			spec: leafSpec,
-			env,
-			client: mockClient,
-			primitiveRegistry: registry,
-			availableAgents: [],
-			depth: 0,
-			events,
-			enableStreaming: true,
-		});
+		const agent = createLlmEventsAgent(mockClient, events, true);
 
 		await expect(agent.run("stream error test")).rejects.toThrow("Stream connection lost");
 
@@ -525,18 +410,7 @@ describe("LLM progress events", () => {
 		} as unknown as Client;
 
 		const events = new AgentEventEmitter();
-		const env = new LocalExecutionEnvironment(tmpdir());
-		const registry = createPrimitiveRegistry(env);
-		const agent = new Agent({
-			spec: leafSpec,
-			env,
-			client: mockClient,
-			primitiveRegistry: registry,
-			availableAgents: [],
-			depth: 0,
-			events,
-			enableStreaming: true,
-		});
+		const agent = createLlmEventsAgent(mockClient, events, true);
 
 		// Abort only after the mock stream has started
 		streamStarted.then(() => ac.abort());
@@ -576,17 +450,7 @@ describe("LLM progress events", () => {
 		} as unknown as Client;
 
 		const events = new AgentEventEmitter();
-		const env = new LocalExecutionEnvironment(tmpdir());
-		const registry = createPrimitiveRegistry(env);
-		const agent = new Agent({
-			spec: leafSpec,
-			env,
-			client: mockClient,
-			primitiveRegistry: registry,
-			availableAgents: [],
-			depth: 0,
-			events,
-		});
+		const agent = createLlmEventsAgent(mockClient, events);
 
 		await expect(agent.run("plan_end on error test")).rejects.toThrow("Service unavailable");
 
@@ -619,17 +483,7 @@ describe("LLM progress events", () => {
 		} as unknown as Client;
 
 		const events = new AgentEventEmitter();
-		const env = new LocalExecutionEnvironment(tmpdir());
-		const registry = createPrimitiveRegistry(env);
-		const agent = new Agent({
-			spec: leafSpec,
-			env,
-			client: mockClient,
-			primitiveRegistry: registry,
-			availableAgents: [],
-			depth: 0,
-			events,
-		});
+		const agent = createLlmEventsAgent(mockClient, events);
 
 		// Abort only after the mock LLM call has started
 		llmStarted.then(() => ac.abort());
@@ -671,18 +525,7 @@ describe("LLM progress events", () => {
 		} as unknown as Client;
 
 		const events = new AgentEventEmitter();
-		const env = new LocalExecutionEnvironment(tmpdir());
-		const registry = createPrimitiveRegistry(env);
-		const agent = new Agent({
-			spec: leafSpec,
-			env,
-			client: mockClient,
-			primitiveRegistry: registry,
-			availableAgents: [],
-			depth: 0,
-			events,
-			enableStreaming: true,
-		});
+		const agent = createLlmEventsAgent(mockClient, events, true);
 
 		await agent.run("reasoning test");
 

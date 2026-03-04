@@ -2,11 +2,11 @@ import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { AgentSpawner } from "../bus/spawner.ts";
 import type { CallerIdentity, ResultMessage } from "../bus/types.ts";
+import { compactHistory } from "../core/compaction.ts";
+import type { Logger } from "../core/logger.ts";
+import { NullLogger } from "../core/logger.ts";
 import type { Genome } from "../genome/genome.ts";
 import { recall } from "../genome/recall.ts";
-import { compactHistory, shouldCompact } from "../host/compaction.ts";
-import type { Logger } from "../host/logger.ts";
-import { NullLogger } from "../host/logger.ts";
 import type { ExecutionEnvironment } from "../kernel/execution-env.ts";
 import { checkPathConstraint, validateConstraints } from "../kernel/path-constraints.js";
 import type { PrimitiveRegistry } from "../kernel/primitives.ts";
@@ -23,26 +23,29 @@ import type {
 } from "../kernel/types.ts";
 import type { LearnSink } from "../learn/learn-process.ts";
 import type { Client } from "../llm/client.ts";
-import { retryLLMCall } from "../llm/retry.ts";
+import { retryLLMCall, type RetryOptions } from "../llm/retry.ts";
 import type {
 	Request as LLMRequest,
 	Response as LLMResponse,
 	Message,
 	StreamEvent,
+	ToolCall,
 	ToolDefinition,
 } from "../llm/types.ts";
-import { Msg, messageReasoning, messageText, messageToolCalls } from "../llm/types.ts";
+import { Msg, messageText } from "../llm/types.ts";
 import { ulid } from "../util/ulid.ts";
 import { getContextWindowSize } from "./context-window.ts";
 import { AgentEventEmitter } from "./events.ts";
 import type { AgentTreeEntry, Preambles } from "./loader.ts";
 import { findRootToolsDir, findTreeEntryByName, resolveRootToolsDir } from "./loader.ts";
 import { defaultModelsByProvider, type ResolvedModel, resolveModel } from "./model-resolver.ts";
+import { evaluateCompaction } from "./run-loop-compaction.ts";
+import { applyRetryAccounting, finalizeRunLoopResult } from "./run-loop-finalize.ts";
+import { executePlanningTurn } from "./run-loop-planning.ts";
 import type { Postscripts } from "./plan.ts";
 import {
 	buildDelegateTool,
 	buildMessageAgentTool,
-	buildPlanRequest,
 	buildSystemPrompt,
 	buildWaitAgentTool,
 	parsePlanResponse,
@@ -54,7 +57,6 @@ import {
 import { resolveAgentDelegates } from "./resolver.ts";
 import {
 	type CallRecord,
-	detectRetries,
 	verifyActResult,
 	verifyPrimitiveResult,
 } from "./verify.ts";
@@ -104,6 +106,8 @@ export interface AgentOptions {
 	agentTreeSelfPath?: string;
 	/** Use streaming LLM calls and emit throttled llm_chunk events. */
 	enableStreaming?: boolean;
+	/** Override retry backoff settings for LLM calls (tests/tuning). */
+	llmRetryOptions?: Omit<RetryOptions, "signal" | "onRetry">;
 }
 
 export interface AgentResult {
@@ -142,6 +146,7 @@ export class Agent {
 	private readonly agentTreeChildren?: string[];
 	private readonly agentTreeSelfPath?: string;
 	private readonly enableStreaming: boolean;
+	private readonly llmRetryOptions?: Omit<RetryOptions, "signal" | "onRetry">;
 	private readonly logger: Logger;
 	private history: Message[] = [];
 	private systemPrompt?: string;
@@ -175,6 +180,7 @@ export class Agent {
 		this.agentTreeChildren = options.agentTreeChildren;
 		this.agentTreeSelfPath = options.agentTreeSelfPath;
 		this.enableStreaming = options.enableStreaming ?? false;
+		this.llmRetryOptions = options.llmRetryOptions;
 		this.initialHistory = options.initialHistory ? [...options.initialHistory] : undefined;
 		this.logger = (options.logger ?? new NullLogger()).child({
 			component: "agent",
@@ -898,6 +904,241 @@ export class Agent {
 		return this.runLoop(message);
 	}
 
+	private async requestPlanResponse(opts: {
+		request: LLMRequest;
+		agentId: string;
+		turn: number;
+		signal: AbortSignal | undefined;
+	}): Promise<{ response: LLMResponse; latencyMs: number } | "interrupted"> {
+		const { request, agentId, turn, signal } = opts;
+		const llmStartTime = performance.now();
+		try {
+			let response: LLMResponse;
+			if (this.enableStreaming) {
+				response = await this.completeWithStreaming(request, agentId, llmStartTime, signal);
+			} else {
+				const completeFn = () => {
+					if (signal) {
+						const completePromise = this.client.complete(request);
+						let onAbort: () => void = () => {};
+						const abortPromise = new Promise<never>((_, reject) => {
+							if (signal.aborted) reject(new DOMException("Aborted", "AbortError"));
+							onAbort = () => reject(new DOMException("Aborted", "AbortError"));
+							signal.addEventListener("abort", onAbort, { once: true });
+						});
+						return Promise.race([completePromise, abortPromise]).finally(() => {
+							signal.removeEventListener("abort", onAbort);
+						});
+					}
+					return this.client.complete(request);
+				};
+
+				response = await retryLLMCall(completeFn, {
+					...this.llmRetryOptions,
+					signal,
+					onRetry: (error, attempt, delayMs) => {
+						this.logger.warn("llm", "Retrying LLM call", {
+							attempt,
+							delayMs,
+							error: error.message,
+							model: this.resolved.model,
+							provider: this.resolved.provider,
+							turn,
+						});
+					},
+				});
+			}
+			return { response, latencyMs: Math.round(performance.now() - llmStartTime) };
+		} catch (err) {
+			const latencyMs = Math.round(performance.now() - llmStartTime);
+			if (err instanceof DOMException && err.name === "AbortError") {
+				this.emitAndLog("llm_end", agentId, this.depth, {
+					model: this.resolved.model,
+					provider: this.resolved.provider,
+					input_tokens: 0,
+					output_tokens: 0,
+					latency_ms: latencyMs,
+					finish_reason: "interrupted",
+				});
+				this.emitAndLog("plan_end", agentId, this.depth, {
+					turn,
+					finish_reason: "interrupted",
+				});
+				this.emitAndLog("interrupted", agentId, this.depth, {
+					message: "Agent interrupted during LLM call",
+					turns: turn,
+				});
+				return "interrupted";
+			}
+			this.emitAndLog("llm_end", agentId, this.depth, {
+				model: this.resolved.model,
+				provider: this.resolved.provider,
+				input_tokens: 0,
+				output_tokens: 0,
+				latency_ms: latencyMs,
+				finish_reason: "error",
+			});
+			this.emitAndLog("plan_end", agentId, this.depth, {
+				turn,
+				finish_reason: "error",
+			});
+			throw err;
+		}
+	}
+
+	private async executeToolCalls(opts: {
+		toolCalls: ToolCall[];
+		agentId: string;
+		goal: string;
+		callHistory: CallRecord[];
+	}): Promise<{ stumbles: number; output?: string }> {
+		const { toolCalls, agentId, goal, callHistory } = opts;
+		let stumbles = 0;
+		let lastOutput: string | undefined;
+
+		// Parse tool calls into delegations, agent commands, and primitive calls
+		const agentNames = new Set(this.availableAgents.map((a) => a.name));
+		const { delegations, agentCommands, errors: delegationErrors } = parsePlanResponse(
+			toolCalls,
+			agentNames,
+		);
+		const delegationByCallId = new Map(delegations.map((d) => [d.call_id, d]));
+		const agentCommandByCallId = new Map(agentCommands.map((c) => [c.call_id, c]));
+
+		// Track call history for retry detection
+		for (const call of toolCalls) {
+			callHistory.push({ name: call.name, arguments: call.arguments });
+		}
+
+		// Execute all delegations concurrently, primitives sequentially.
+		// Collect results keyed by call ID so we can add them to history in original order.
+		const resultByCallId = new Map<string, Message>();
+
+		// Handle malformed delegations — add error tool results so history stays valid
+		for (const err of delegationErrors) {
+			this.emitAndLog("error", agentId, this.depth, { error: err.error });
+			resultByCallId.set(err.call_id, Msg.toolResult(err.call_id, `Error: ${err.error}`, true));
+			stumbles++;
+		}
+
+		// Launch all delegations concurrently (spawner or in-process fallback)
+		const executeDelegationFn = this.spawner
+			? (d: Delegation) => this.executeSpawnerDelegation(d, agentId)
+			: (d: Delegation) => this.executeDelegation(d, agentId);
+
+		const delegationPromises = delegations.map((delegation) =>
+			executeDelegationFn(delegation).then((dr) => {
+				resultByCallId.set(delegation.call_id, dr.toolResultMsg);
+				stumbles += dr.stumbles;
+				if (dr.output !== undefined) lastOutput = dr.output;
+			}),
+		);
+		await Promise.all(delegationPromises);
+
+		// Handle agent commands (wait_agent, message_agent)
+		for (const cmd of agentCommands) {
+			const result = await this.executeAgentCommand(cmd, agentId);
+			resultByCallId.set(cmd.call_id, result.toolResultMsg);
+			if (result.stumbles > 0) stumbles += result.stumbles;
+			if (result.output !== undefined) lastOutput = result.output;
+		}
+
+		// Execute primitives sequentially (they're fast, may depend on each other)
+		for (const call of toolCalls) {
+			if (
+				delegationByCallId.has(call.id) ||
+				agentCommandByCallId.has(call.id) ||
+				resultByCallId.has(call.id)
+			)
+				continue;
+
+			this.emitAndLog("primitive_start", agentId, this.depth, {
+				name: call.name,
+				args: call.arguments,
+			});
+
+			// Enforce write path constraints before execution
+			const pathDenied = checkPathConstraint(
+				call.name,
+				call.arguments,
+				this.spec.constraints,
+				this.env.working_directory(),
+			);
+			if (pathDenied) {
+				const content = `Error: ${pathDenied}`;
+				const toolResultMsg = Msg.toolResult(call.id, content, true);
+				resultByCallId.set(call.id, toolResultMsg);
+				this.emitAndLog("primitive_end", agentId, this.depth, {
+					name: call.name,
+					success: false,
+					stumbled: true,
+					output: "",
+					error: pathDenied,
+					tool_result_message: toolResultMsg,
+				});
+				stumbles++;
+				continue;
+			}
+
+			const result = await this.primitiveRegistry.execute(call.name, call.arguments, this.signal);
+
+			// Verify primitive result
+			const { stumbled, learnSignal: primSignal } = verifyPrimitiveResult(
+				result,
+				call.name,
+				goal,
+				this.sessionId,
+			);
+
+			const content = result.error ? `Error: ${result.error}\n${result.output}` : result.output;
+			const toolResultMsg = Msg.toolResult(call.id, content, !result.success);
+
+			this.emitAndLog("primitive_end", agentId, this.depth, {
+				name: call.name,
+				success: result.success,
+				stumbled,
+				output: result.output,
+				error: result.error,
+				tool_result_message: toolResultMsg,
+			});
+
+			if (stumbled) {
+				stumbles++;
+			}
+
+			if (primSignal) {
+				this.emitAndLog("learn_signal", agentId, this.depth, {
+					signal: primSignal,
+				});
+				if (this.learnProcess && this.spec.constraints.can_learn) {
+					this.learnProcess.push(primSignal);
+				}
+			}
+
+			this.emitAndLog("verify", agentId, this.depth, {
+				primitive: call.name,
+				success: result.success,
+				stumbled,
+			});
+
+			// Record action for stumble rate computation
+			if (this.learnProcess) {
+				this.learnProcess.recordAction(agentId);
+			}
+
+			resultByCallId.set(call.id, toolResultMsg);
+			lastOutput = result.output;
+		}
+
+		// Add all tool results to history in original tool call order
+		for (const call of toolCalls) {
+			const msg = resultByCallId.get(call.id);
+			if (msg) this.history.push(msg);
+		}
+
+		return { stumbles, output: lastOutput };
+	}
+
 	/** Core planning loop shared by run() and continue(). */
 	private async runLoop(goal: string): Promise<AgentResult> {
 		const agentId = this.agentId ?? this.spec.name;
@@ -908,6 +1149,7 @@ export class Agent {
 		let stumbles = 0;
 		let turns = 0;
 		let lastOutput = "";
+		let interrupted = false;
 
 		try {
 			while (turns < this.spec.constraints.max_turns) {
@@ -933,6 +1175,7 @@ export class Agent {
 
 				// Check abort signal
 				if (signal?.aborted) {
+					interrupted = true;
 					this.emitAndLog("interrupted", agentId, this.depth, {
 						message: "Agent interrupted by abort signal",
 						turns,
@@ -941,9 +1184,10 @@ export class Agent {
 				}
 
 				// Plan: build request and call LLM
-				this.emitAndLog("plan_start", agentId, this.depth, { turn: turns });
-
-				const request = buildPlanRequest({
+				const planningResult = await executePlanningTurn({
+					turn: turns,
+					agentId,
+					depth: this.depth,
 					systemPrompt,
 					history: this.history,
 					agentTools: this.agentTools,
@@ -951,123 +1195,16 @@ export class Agent {
 					model: this.resolved.model,
 					provider: this.resolved.provider,
 					thinking: this.spec.thinking,
+					signal,
+					emit: this.emitAndLog.bind(this),
+					requestPlanResponse: this.requestPlanResponse.bind(this),
+					logger: this.logger,
 				});
-
-				this.emitAndLog("llm_start", agentId, this.depth, {
-					model: this.resolved.model,
-					provider: this.resolved.provider,
-					turn: turns,
-					message_count: this.history.length,
-				});
-
-				const llmStartTime = performance.now();
-				let response: LLMResponse;
-				try {
-					if (this.enableStreaming) {
-						response = await this.completeWithStreaming(request, agentId, llmStartTime, signal);
-					} else {
-						const completeFn = () => {
-							if (signal) {
-								const completePromise = this.client.complete(request);
-								let onAbort: () => void = () => {};
-								const abortPromise = new Promise<never>((_, reject) => {
-									if (signal.aborted) reject(new DOMException("Aborted", "AbortError"));
-									onAbort = () => reject(new DOMException("Aborted", "AbortError"));
-									signal.addEventListener("abort", onAbort, { once: true });
-								});
-								return Promise.race([completePromise, abortPromise]).finally(() => {
-									signal.removeEventListener("abort", onAbort);
-								});
-							}
-							return this.client.complete(request);
-						};
-
-						response = await retryLLMCall(completeFn, {
-							signal,
-							onRetry: (error, attempt, delayMs) => {
-								this.logger.warn("llm", "Retrying LLM call", {
-									attempt,
-									delayMs,
-									error: error.message,
-									model: this.resolved.model,
-									provider: this.resolved.provider,
-									turn: turns,
-								});
-							},
-						});
-					}
-				} catch (err) {
-					if (err instanceof DOMException && err.name === "AbortError") {
-						this.emitAndLog("llm_end", agentId, this.depth, {
-							model: this.resolved.model,
-							provider: this.resolved.provider,
-							input_tokens: 0,
-							output_tokens: 0,
-							latency_ms: Math.round(performance.now() - llmStartTime),
-							finish_reason: "interrupted",
-						});
-						this.emitAndLog("plan_end", agentId, this.depth, {
-							turn: turns,
-							finish_reason: "interrupted",
-						});
-						this.emitAndLog("interrupted", agentId, this.depth, {
-							message: "Agent interrupted during LLM call",
-							turns,
-						});
-						break;
-					}
-					this.emitAndLog("llm_end", agentId, this.depth, {
-						model: this.resolved.model,
-						provider: this.resolved.provider,
-						input_tokens: 0,
-						output_tokens: 0,
-						latency_ms: Math.round(performance.now() - llmStartTime),
-						finish_reason: "error",
-					});
-					this.emitAndLog("plan_end", agentId, this.depth, {
-						turn: turns,
-						finish_reason: "error",
-					});
-					throw err;
+				if (planningResult.kind === "interrupted") {
+					interrupted = true;
+					break;
 				}
-
-				const llmLatencyMs = Math.round(performance.now() - llmStartTime);
-				this.emitAndLog("llm_end", agentId, this.depth, {
-					model: this.resolved.model,
-					provider: this.resolved.provider,
-					input_tokens: response.usage?.input_tokens ?? 0,
-					output_tokens: response.usage?.output_tokens ?? 0,
-					latency_ms: llmLatencyMs,
-					finish_reason: response.finish_reason.reason,
-				});
-				const assistantMessage = response.message;
-
-				// Add assistant message to history
-				this.history.push(assistantMessage);
-
-				this.logger.debug("llm", "Plan response received", {
-					model: this.resolved.model,
-					provider: this.resolved.provider,
-					turn: turns,
-					inputTokens: response.usage?.input_tokens,
-					outputTokens: response.usage?.output_tokens,
-					finishReason: response.finish_reason.reason,
-					messageCount: this.history.length,
-				});
-
-				this.emitAndLog("plan_end", agentId, this.depth, {
-					turn: turns,
-					finish_reason: response.finish_reason.reason,
-					usage: response.usage,
-					text: messageText(assistantMessage),
-					reasoning: messageReasoning(assistantMessage),
-					assistant_message: assistantMessage,
-					context_tokens: response.usage?.input_tokens ?? 0,
-					context_window_size: getContextWindowSize(this.resolved.model),
-				});
-
-				// Check for tool calls
-				const toolCalls = messageToolCalls(assistantMessage);
+				const { response, assistantMessage, toolCalls } = planningResult;
 
 				// If response was truncated (hit max_tokens), tool calls are likely incomplete.
 				// Don't attempt to execute them — tell the LLM to break the task into smaller steps.
@@ -1094,7 +1231,6 @@ export class Agent {
 						message: "Response truncated (max_tokens). Asking agent to use smaller steps.",
 					});
 					stumbles++;
-					turns++;
 					continue;
 				}
 
@@ -1104,163 +1240,27 @@ export class Agent {
 					break;
 				}
 
-				// Parse tool calls into delegations, agent commands, and primitive calls
-				const agentNames = new Set(this.availableAgents.map((a) => a.name));
-				const {
-					delegations,
-					agentCommands,
-					errors: delegationErrors,
-				} = parsePlanResponse(toolCalls, agentNames);
-				const delegationByCallId = new Map(delegations.map((d) => [d.call_id, d]));
-				const agentCommandByCallId = new Map(agentCommands.map((c) => [c.call_id, c]));
-
-				// Track call history for retry detection
-				for (const call of toolCalls) {
-					callHistory.push({ name: call.name, arguments: call.arguments });
-				}
-
-				// Execute all delegations concurrently, primitives sequentially.
-				// Collect results keyed by call ID so we can add them to history in original order.
-				const resultByCallId = new Map<string, Message>();
-				let delegationStumbles = 0;
-
-				// Handle malformed delegations — add error tool results so history stays valid
-				for (const err of delegationErrors) {
-					this.emitAndLog("error", agentId, this.depth, { error: err.error });
-					resultByCallId.set(err.call_id, Msg.toolResult(err.call_id, `Error: ${err.error}`, true));
-					stumbles++;
-				}
-
-				// Launch all delegations concurrently (spawner or in-process fallback)
-				const executeDelegationFn = this.spawner
-					? (d: Delegation) => this.executeSpawnerDelegation(d, agentId)
-					: (d: Delegation) => this.executeDelegation(d, agentId);
-
-				const delegationPromises = delegations.map((delegation) =>
-					executeDelegationFn(delegation).then((dr) => {
-						resultByCallId.set(delegation.call_id, dr.toolResultMsg);
-						delegationStumbles += dr.stumbles;
-						if (dr.output !== undefined) lastOutput = dr.output;
-					}),
-				);
-				await Promise.all(delegationPromises);
-				stumbles += delegationStumbles;
-
-				// Handle agent commands (wait_agent, message_agent)
-				for (const cmd of agentCommands) {
-					const result = await this.executeAgentCommand(cmd, agentId);
-					resultByCallId.set(cmd.call_id, result.toolResultMsg);
-					if (result.stumbles > 0) stumbles += result.stumbles;
-					if (result.output !== undefined) lastOutput = result.output;
-				}
-
-				// Execute primitives sequentially (they're fast, may depend on each other)
-				for (const call of toolCalls) {
-					if (
-						delegationByCallId.has(call.id) ||
-						agentCommandByCallId.has(call.id) ||
-						resultByCallId.has(call.id)
-					)
-						continue;
-
-					this.emitAndLog("primitive_start", agentId, this.depth, {
-						name: call.name,
-						args: call.arguments,
-					});
-
-					// Enforce write path constraints before execution
-					const pathDenied = checkPathConstraint(
-						call.name,
-						call.arguments,
-						this.spec.constraints,
-						this.env.working_directory(),
-					);
-					if (pathDenied) {
-						const content = `Error: ${pathDenied}`;
-						const toolResultMsg = Msg.toolResult(call.id, content, true);
-						resultByCallId.set(call.id, toolResultMsg);
-						this.emitAndLog("primitive_end", agentId, this.depth, {
-							name: call.name,
-							success: false,
-							stumbled: true,
-							output: "",
-							error: pathDenied,
-							tool_result_message: toolResultMsg,
-						});
-						stumbles++;
-						continue;
-					}
-
-					const result = await this.primitiveRegistry.execute(
-						call.name,
-						call.arguments,
-						this.signal,
-					);
-
-					// Verify primitive result
-					const { stumbled, learnSignal: primSignal } = verifyPrimitiveResult(
-						result,
-						call.name,
-						goal,
-						this.sessionId,
-					);
-
-					const content = result.error ? `Error: ${result.error}\n${result.output}` : result.output;
-					const toolResultMsg = Msg.toolResult(call.id, content, !result.success);
-
-					this.emitAndLog("primitive_end", agentId, this.depth, {
-						name: call.name,
-						success: result.success,
-						stumbled,
-						output: result.output,
-						error: result.error,
-						tool_result_message: toolResultMsg,
-					});
-
-					if (stumbled) {
-						stumbles++;
-					}
-
-					if (primSignal) {
-						this.emitAndLog("learn_signal", agentId, this.depth, {
-							signal: primSignal,
-						});
-						if (this.learnProcess && this.spec.constraints.can_learn) {
-							this.learnProcess.push(primSignal);
-						}
-					}
-
-					this.emitAndLog("verify", agentId, this.depth, {
-						primitive: call.name,
-						success: result.success,
-						stumbled,
-					});
-
-					// Record action for stumble rate computation
-					if (this.learnProcess) {
-						this.learnProcess.recordAction(agentId);
-					}
-
-					resultByCallId.set(call.id, toolResultMsg);
-					lastOutput = result.output;
-				}
-
-				// Add all tool results to history in original tool call order
-				for (const call of toolCalls) {
-					const msg = resultByCallId.get(call.id);
-					if (msg) this.history.push(msg);
+				const toolExecution = await this.executeToolCalls({
+					toolCalls,
+					agentId,
+					goal,
+					callHistory,
+				});
+				stumbles += toolExecution.stumbles;
+				if (toolExecution.output !== undefined) {
+					lastOutput = toolExecution.output;
 				}
 
 				// Compact history if context usage exceeds threshold or manually requested
-				this.turnsSinceCompaction++;
-				const contextWindowSize = getContextWindowSize(this.resolved.model);
-				const inputTokens = response.usage?.input_tokens ?? 0;
-				if (
-					this.compactionRequested ||
-					(this.turnsSinceCompaction >= 3 && shouldCompact(inputTokens, contextWindowSize))
-				) {
-					this.turnsSinceCompaction = 0;
-					this.compactionRequested = false;
+				const compactionDecision = evaluateCompaction({
+					turnsSinceCompaction: this.turnsSinceCompaction,
+					compactionRequested: this.compactionRequested,
+					inputTokens: response.usage?.input_tokens ?? 0,
+					contextWindowSize: getContextWindowSize(this.resolved.model),
+				});
+				this.turnsSinceCompaction = compactionDecision.turnsSinceCompaction;
+				this.compactionRequested = compactionDecision.compactionRequested;
+				if (compactionDecision.shouldCompact) {
 					try {
 						const compactResult = await compactHistory({
 							history: this.history,
@@ -1283,29 +1283,22 @@ export class Agent {
 				}
 			}
 
-			// Detect retry stumbles from repeated identical tool calls
-			const retryCount = detectRetries(callHistory);
-			if (retryCount > 0) {
-				stumbles += retryCount;
-				if (this.learnProcess && this.spec.constraints.can_learn) {
-					this.learnProcess.push({
-						kind: "retry",
-						goal,
-						agent_name: this.spec.name,
-						details: {
-							agent_name: this.spec.name,
-							goal,
-							output: `${retryCount} retried tool calls detected`,
-							success: true,
-							stumbles: retryCount,
-							turns,
-							timed_out: false,
-						},
-						session_id: this.sessionId,
-						timestamp: Date.now(),
-					});
-				}
-			}
+		const retryAccounting = applyRetryAccounting({
+			callHistory,
+			stumbles,
+			goal,
+			agentName: this.spec.name,
+			turns,
+			sessionId: this.sessionId,
+		});
+		stumbles = retryAccounting.stumbles;
+		if (
+			retryAccounting.learnSignal &&
+			this.learnProcess &&
+			this.spec.constraints.can_learn
+		) {
+			this.learnProcess.push(retryAccounting.learnSignal);
+		}
 		} catch (err) {
 			// Emit session_end on unrecoverable errors so listeners are not left
 			// stuck in a "running" state. The normal completion path below handles
@@ -1322,36 +1315,23 @@ export class Agent {
 			throw err;
 		}
 
-		// Check if we hit limits
-		const hitTurnLimit = turns >= this.spec.constraints.max_turns;
-		const timedOut =
-			this.spec.constraints.timeout_ms > 0 &&
-			performance.now() - startTime >= this.spec.constraints.timeout_ms;
-
-		if (hitTurnLimit || timedOut) {
-			stumbles++;
-		}
-
-		const success = !hitTurnLimit && !timedOut;
+		const finalization = finalizeRunLoopResult({
+			turns,
+			stumbles,
+			maxTurns: this.spec.constraints.max_turns,
+			timeoutMs: this.spec.constraints.timeout_ms,
+			elapsedMs: performance.now() - startTime,
+			interrupted,
+			output: lastOutput,
+			sessionId: this.sessionId,
+		});
+		stumbles = finalization.stumbles;
 
 		// Emit session_end
-		this.emitAndLog("session_end", agentId, this.depth, {
-			session_id: this.sessionId,
-			success,
-			stumbles,
-			turns,
-			timed_out: timedOut,
-			output: lastOutput,
-		});
+		this.emitAndLog("session_end", agentId, this.depth, finalization.sessionEndData);
 
 		await this.flushLog();
 
-		return {
-			output: lastOutput,
-			success,
-			stumbles,
-			turns,
-			timed_out: timedOut,
-		};
+		return finalization.agentResult;
 	}
 }

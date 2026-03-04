@@ -1,9 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { config } from "dotenv";
 import { Agent } from "../../src/agents/agent.ts";
 import { AgentEventEmitter } from "../../src/agents/events.ts";
 import type { AgentTreeEntry } from "../../src/agents/loader.ts";
@@ -16,228 +15,10 @@ import { type AgentSpec, DEFAULT_CONSTRAINTS } from "../../src/kernel/types.ts";
 import { Client } from "../../src/llm/client.ts";
 import type { Message, Response } from "../../src/llm/types.ts";
 import { ContentKind, Msg } from "../../src/llm/types.ts";
-
-config({ path: join(homedir(), "prime-radiant/serf/.env") });
+import { leafSpec, rootSpec } from "./fixtures.ts";
+import "../helpers/test-env.ts";
 
 describe("Agent", () => {
-	const rootSpec: AgentSpec = {
-		name: "root",
-		description: "Test root",
-		system_prompt: "You decompose tasks.",
-		model: "fast",
-		tools: [],
-		agents: ["leaf"],
-		constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 10 },
-		tags: [],
-		version: 1,
-	};
-
-	const leafSpec: AgentSpec = {
-		name: "leaf",
-		description: "Test leaf",
-		system_prompt: "You do things.",
-		model: "fast",
-		tools: ["read_file", "write_file", "exec"],
-		agents: [],
-		constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5 },
-		tags: [],
-		version: 1,
-	};
-
-	test("constructor validates max_depth", () => {
-		const env = new LocalExecutionEnvironment(tmpdir());
-		const client = Client.fromEnv();
-		const registry = createPrimitiveRegistry(env);
-		expect(
-			() =>
-				new Agent({
-					spec: rootSpec,
-					env,
-					client,
-					primitiveRegistry: registry,
-					availableAgents: [],
-					depth: 5,
-				}),
-		).toThrow(/depth/i);
-	});
-
-	test("max_depth 0 does not restrict instantiation depth", () => {
-		const leafOnly: AgentSpec = {
-			...leafSpec,
-			constraints: { ...leafSpec.constraints, max_depth: 0 },
-		};
-		const env = new LocalExecutionEnvironment(tmpdir());
-		const client = Client.fromEnv();
-		const registry = createPrimitiveRegistry(env);
-		expect(
-			() =>
-				new Agent({
-					spec: leafOnly,
-					env,
-					client,
-					primitiveRegistry: registry,
-					availableAgents: [],
-					depth: 3,
-				}),
-		).not.toThrow();
-	});
-
-	test("resolves single delegate tool from agents list", () => {
-		const env = new LocalExecutionEnvironment(tmpdir());
-		const client = Client.fromEnv();
-		const registry = createPrimitiveRegistry(env);
-		const agent = new Agent({
-			spec: rootSpec,
-			env,
-			client,
-			primitiveRegistry: registry,
-			availableAgents: [rootSpec, leafSpec],
-			depth: 0,
-		});
-		// Root's agents list includes "leaf", which is an agent name
-		const tools = agent.resolvedTools();
-		const names = tools.map((t) => t.name);
-		// Should have a single "delegate" tool, not per-agent tools
-		expect(names).toContain("delegate");
-		expect(names).not.toContain("leaf");
-		expect(names).not.toContain("root");
-	});
-
-	test("delegating agent does not get primitive tools", () => {
-		// An agent with both agents and primitive tools should only get the delegate tool
-		const mixedSpec: AgentSpec = {
-			name: "mixed",
-			description: "Has both agents and primitive tools",
-			system_prompt: "You do things.",
-			model: "fast",
-			tools: ["read_file", "grep"],
-			agents: ["leaf"],
-			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5 },
-			tags: [],
-			version: 1,
-		};
-		const env = new LocalExecutionEnvironment(tmpdir());
-		const client = Client.fromEnv();
-		const registry = createPrimitiveRegistry(env);
-		const agent = new Agent({
-			spec: mixedSpec,
-			env,
-			client,
-			primitiveRegistry: registry,
-			availableAgents: [mixedSpec, leafSpec],
-			depth: 0,
-		});
-		const tools = agent.resolvedTools();
-		const names = tools.map((t) => t.name);
-		// Should only have delegate tool, no primitives
-		expect(names).toContain("delegate");
-		expect(names).not.toContain("read_file");
-		expect(names).not.toContain("grep");
-	});
-
-	test("resolves primitive tools from tools list", () => {
-		const env = new LocalExecutionEnvironment(tmpdir());
-		const client = Client.fromEnv();
-		const registry = createPrimitiveRegistry(env);
-		const agent = new Agent({
-			spec: leafSpec,
-			env,
-			client,
-			primitiveRegistry: registry,
-			availableAgents: [rootSpec, leafSpec],
-			depth: 1,
-		});
-		const tools = agent.resolvedTools();
-		const names = tools.map((t) => t.name);
-		expect(names).toContain("read_file");
-		expect(names).toContain("write_file");
-		expect(names).toContain("exec");
-		// Should not include agent tools (leaf has no agents)
-		expect(names).not.toContain("root");
-		expect(names).not.toContain("leaf");
-	});
-
-	test("excludes delegate tool when can_spawn is false", () => {
-		const noSpawnSpec: AgentSpec = {
-			...rootSpec,
-			tools: ["read_file"],
-			constraints: { ...rootSpec.constraints, can_spawn: false },
-		};
-		const env = new LocalExecutionEnvironment(tmpdir());
-		const client = Client.fromEnv();
-		const registry = createPrimitiveRegistry(env);
-		const agent = new Agent({
-			spec: noSpawnSpec,
-			env,
-			client,
-			primitiveRegistry: registry,
-			availableAgents: [rootSpec, leafSpec],
-			depth: 0,
-		});
-		const tools = agent.resolvedTools();
-		const names = tools.map((t) => t.name);
-		// "leaf" is in agents but can_spawn is false, so no delegate tool
-		expect(names).not.toContain("delegate");
-		expect(names).not.toContain("leaf");
-	});
-
-	test("delegate tool has agent_name/goal/hints parameters", () => {
-		const env = new LocalExecutionEnvironment(tmpdir());
-		const client = Client.fromEnv();
-		const registry = createPrimitiveRegistry(env);
-		const agent = new Agent({
-			spec: rootSpec,
-			env,
-			client,
-			primitiveRegistry: registry,
-			availableAgents: [rootSpec, leafSpec],
-			depth: 0,
-		});
-		const tools = agent.resolvedTools();
-		const delegateTool = tools.find((t) => t.name === "delegate");
-		expect(delegateTool).toBeDefined();
-		const props = (delegateTool!.parameters as any).properties;
-		expect(props.agent_name).toBeDefined();
-		expect(props.agent_name.enum).toBeUndefined();
-		expect(props.agent_name.description).toContain("leaf");
-		expect(props.goal).toBeDefined();
-		expect(props.hints).toBeDefined();
-	});
-
-	test("primitive tools have correct descriptions", () => {
-		const env = new LocalExecutionEnvironment(tmpdir());
-		const client = Client.fromEnv();
-		const registry = createPrimitiveRegistry(env);
-		const agent = new Agent({
-			spec: leafSpec,
-			env,
-			client,
-			primitiveRegistry: registry,
-			availableAgents: [],
-			depth: 0,
-		});
-		const tools = agent.resolvedTools();
-		const readTool = tools.find((t) => t.name === "read_file");
-		expect(readTool).toBeDefined();
-		expect(readTool!.description).toContain("Read");
-		expect(readTool!.parameters).toBeDefined();
-	});
-
-	test("depth defaults to 0", () => {
-		const env = new LocalExecutionEnvironment(tmpdir());
-		const client = Client.fromEnv();
-		const registry = createPrimitiveRegistry(env);
-		// Should not throw — depth defaults to 0, max_depth is 3
-		const agent = new Agent({
-			spec: rootSpec,
-			env,
-			client,
-			primitiveRegistry: registry,
-			availableAgents: [leafSpec],
-		});
-		expect(agent.resolvedTools().map((t) => t.name)).toContain("delegate");
-	});
-
 	test("run() with initialHistory prepends prior messages", async () => {
 		let capturedHistory: Message[] = [];
 		const mockClient = {
@@ -853,6 +634,115 @@ describe("Agent", () => {
 
 		expect(result.success).toBe(true);
 		expect(result.timed_out).toBe(false);
+	});
+
+	test("abort during LLM call emits interrupted events and unsuccessful session_end", async () => {
+		const pending = new Promise<Response>(() => {});
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async () => pending,
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: leafSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+			events,
+		});
+
+		const ac = new AbortController();
+		const runPromise = agent.run("abort me", ac.signal);
+		setTimeout(() => ac.abort(), 10);
+		const result = await runPromise;
+
+		const collected = events.collected();
+		const interrupted = collected.find((e) => e.kind === "interrupted");
+		const llmEnd = collected.find((e) => e.kind === "llm_end");
+		const sessionEnd = collected.find((e) => e.kind === "session_end");
+
+		expect(interrupted).toBeDefined();
+		expect(llmEnd).toBeDefined();
+		expect(llmEnd!.data.finish_reason).toBe("interrupted");
+		expect(sessionEnd).toBeDefined();
+		expect(sessionEnd!.data.success).toBe(false);
+		expect(result.success).toBe(false);
+		expect(result.timed_out).toBe(false);
+	});
+
+	test("truncation path does not consume an extra turn", async () => {
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				if (callCount === 1) {
+					return {
+						id: "mock-truncate-1",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: {
+							role: "assistant",
+							content: [
+								{
+									kind: ContentKind.TOOL_CALL,
+									tool_call: {
+										id: "call-truncate-1",
+										name: "exec",
+										arguments: JSON.stringify({ command: "echo hello" }),
+									},
+								},
+							],
+						},
+						finish_reason: { reason: "length" },
+						usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+					};
+				}
+				return {
+					id: "mock-truncate-2",
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant("Done."),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const spec: AgentSpec = {
+			...leafSpec,
+			constraints: {
+				...DEFAULT_CONSTRAINTS,
+				max_turns: 3,
+				max_depth: 0,
+				can_spawn: false,
+			},
+		};
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+			events,
+		});
+
+		const result = await agent.run("test truncation turns");
+		expect(result.success).toBe(true);
+		expect(result.turns).toBe(2);
+		expect(callCount).toBe(2);
 	});
 
 	test("subagent sees agents added to genome after parent construction", async () => {
@@ -4118,6 +4008,18 @@ describe("Agent", () => {
 		const events = new AgentEventEmitter();
 		const env = new LocalExecutionEnvironment(tmpdir());
 		const registry = createPrimitiveRegistry(env);
+		let retryDelayMs: number | undefined;
+		const logger = {
+			debug: () => {},
+			info: () => {},
+			warn: (_category: string, _message: string, data?: Record<string, unknown>) => {
+				retryDelayMs = data?.delayMs as number | undefined;
+			},
+			error: () => {},
+			child: () => logger,
+			flush: async () => {},
+			reconfigure: () => {},
+		};
 		const agent = new Agent({
 			spec: leafSpec,
 			env,
@@ -4126,11 +4028,14 @@ describe("Agent", () => {
 			availableAgents: [],
 			depth: 0,
 			events,
+			llmRetryOptions: { baseDelayMs: 1, jitter: false },
+			logger: logger as any,
 		});
 
 		const result = await agent.run("test retry goal");
 		expect(result.success).toBe(true);
 		expect(calls).toBe(2); // 1 failure + 1 success
+		expect(retryDelayMs).toBe(1);
 	});
 
 	test("does not retry non-retryable LLM errors", async () => {

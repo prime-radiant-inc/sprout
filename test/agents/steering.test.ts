@@ -1,7 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
-import { config } from "dotenv";
+import { tmpdir } from "node:os";
 import { Agent } from "../../src/agents/agent.ts";
 import { AgentEventEmitter } from "../../src/agents/events.ts";
 import { LocalExecutionEnvironment } from "../../src/kernel/execution-env.ts";
@@ -10,8 +8,7 @@ import type { AgentSpec } from "../../src/kernel/types.ts";
 import type { Client } from "../../src/llm/client.ts";
 import type { Response } from "../../src/llm/types.ts";
 import { ContentKind, Msg } from "../../src/llm/types.ts";
-
-config({ path: join(homedir(), "prime-radiant/serf/.env") });
+import "../helpers/test-env.ts";
 
 const leafSpec: AgentSpec = {
 	name: "test-leaf",
@@ -174,12 +171,14 @@ describe("AbortSignal", () => {
 		const controller = new AbortController();
 		controller.abort();
 
-		await agent.run("test goal", controller.signal);
+		const result = await agent.run("test goal", controller.signal);
 
 		const collected = events.collected();
 		const interrupted = collected.filter((e) => e.kind === "interrupted");
 		expect(interrupted.length).toBe(1);
 		expect(interrupted[0]!.data.message).toContain("abort signal");
+		expect(result.success).toBe(false);
+		expect(result.timed_out).toBe(false);
 	});
 
 	test("abort during LLM call emits interrupted and terminates", async () => {
@@ -209,12 +208,14 @@ describe("AbortSignal", () => {
 		// Abort after a short delay
 		setTimeout(() => controller.abort(), 50);
 
-		await agent.run("test goal", controller.signal);
+		const result = await agent.run("test goal", controller.signal);
 
 		const collected = events.collected();
 		const interrupted = collected.filter((e) => e.kind === "interrupted");
 		expect(interrupted.length).toBe(1);
 		expect(interrupted[0]!.data.message).toContain("interrupted");
+		expect(result.success).toBe(false);
+		expect(result.timed_out).toBe(false);
 	});
 
 	test("abort between turns emits interrupted with turn count", async () => {
@@ -265,7 +266,7 @@ describe("AbortSignal", () => {
 
 		const agent = makeAgent({ events, client: mockClient });
 
-		await agent.run("test goal", controller.signal);
+		const result = await agent.run("test goal", controller.signal);
 
 		const collected = events.collected();
 		const interrupted = collected.filter((e) => e.kind === "interrupted");
@@ -273,5 +274,7 @@ describe("AbortSignal", () => {
 		// Should have turns recorded in the event data
 		const interruptedEvent = interrupted[0]!;
 		expect(interruptedEvent.data.turns).toBeDefined();
+		expect(result.success).toBe(false);
+		expect(result.timed_out).toBe(false);
 	});
 });
