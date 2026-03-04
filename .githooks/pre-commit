@@ -21,7 +21,8 @@ fi
 
 # --- Unit tests (same filter as `bun run test:unit:parallel`) ---
 echo "Running unit tests..."
-bun run test:unit:parallel
+# Cap default parallelism for pre-commit to balance speed and laptop thermals.
+TEST_JOBS="${TEST_JOBS:-8}" bun run test:unit:parallel
 if [ $? -ne 0 ]; then
   echo "Tests failed. Fix tests before committing."
   exit 1

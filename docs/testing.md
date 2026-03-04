@@ -172,7 +172,7 @@ The git pre-commit hook (`.githooks/pre-commit`) runs:
 
 1. `biome check --staged` — Lint/format staged files
 2. `tsc --noEmit` — Typecheck (incremental)
-3. `bun run test:unit:parallel` — Unit tests only
+3. `TEST_JOBS=8 bun run test:unit:parallel` — Unit tests only (parallel, capped by default in hook)
 
 Total: ~15s. Integration tests are NOT run on commit.
 
