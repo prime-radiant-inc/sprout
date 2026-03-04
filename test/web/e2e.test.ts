@@ -382,22 +382,33 @@ describe("Web interface end-to-end", () => {
 			throw new Error("handler exploded");
 		});
 
-		const ws = await connectClient();
-		const messages = collectMessages(ws);
-		await delay(50);
+		const logged: unknown[] = [];
+		const origError = console.error;
+		console.error = (...args: unknown[]) => logged.push(args);
+		try {
+			const ws = await connectClient();
+			const messages = collectMessages(ws);
+			await delay(50);
 
-		// Send a command that will throw
-		sendCommand(ws, "submit_goal", { goal: "Boom" });
-		await delay(100);
+			// Send a command that will throw
+			sendCommand(ws, "submit_goal", { goal: "Boom" });
+			await delay(100);
 
-		// Server should still stream events
-		bus.emitEvent("plan_start", "root", 0, { turn: 1 });
-		await delay(100);
+			// Server should still stream events
+			bus.emitEvent("plan_start", "root", 0, { turn: 1 });
+			await delay(100);
 
-		// Should have snapshot + the plan_start event
-		const eventMessages = messages.filter((m) => m.type === "event");
-		expect(eventMessages.length).toBeGreaterThanOrEqual(1);
-		if (eventMessages[0]!.type !== "event") throw new Error("Expected event");
-		expect(eventMessages[0]!.event.kind).toBe("plan_start");
+			// Should have snapshot + the plan_start event
+			const eventMessages = messages.filter((m) => m.type === "event");
+			expect(eventMessages.length).toBeGreaterThanOrEqual(1);
+			if (eventMessages[0]!.type !== "event") throw new Error("Expected event");
+			expect(eventMessages[0]!.event.kind).toBe("plan_start");
+
+			expect(logged.length).toBeGreaterThanOrEqual(1);
+			const logLine = logged.flat().map(String).join(" ");
+			expect(logLine).toContain("handler exploded");
+		} finally {
+			console.error = origError;
+		}
 	});
 });

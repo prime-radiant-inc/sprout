@@ -319,18 +319,29 @@ describe("SessionController", () => {
 			if (e.kind === "error") errorEvents.push(e);
 		});
 
-		// Use bus command so the error is caught by handleCommand
-		bus.emitCommand({ kind: "submit_goal", data: { goal: "Fix the bug" } });
+		const logged: unknown[] = [];
+		const origError = console.error;
+		console.error = (...args: unknown[]) => logged.push(args);
+		try {
+			// Use bus command so the error is caught by handleCommand
+			bus.emitCommand({ kind: "submit_goal", data: { goal: "Fix the bug" } });
 
-		// Give async submitGoal time to run and fail
-		await new Promise((r) => setTimeout(r, 100));
+			// Give async submitGoal time to run and fail
+			await new Promise((r) => setTimeout(r, 100));
 
-		expect(errorEvents.length).toBeGreaterThanOrEqual(1);
-		expect(errorEvents[0].data.error).toBeDefined();
-		expect(typeof errorEvents[0].data.error).toBe("string");
-		expect(errorEvents[0].data.error).toContain("LLM failed");
-		// Should NOT have a 'message' field (that's the old incorrect field)
-		expect(errorEvents[0].data.message).toBeUndefined();
+			expect(errorEvents.length).toBeGreaterThanOrEqual(1);
+			expect(errorEvents[0].data.error).toBeDefined();
+			expect(typeof errorEvents[0].data.error).toBe("string");
+			expect(errorEvents[0].data.error).toContain("LLM failed");
+			// Should NOT have a 'message' field (that's the old incorrect field)
+			expect(errorEvents[0].data.message).toBeUndefined();
+
+			expect(logged.length).toBeGreaterThanOrEqual(1);
+			const logLine = logged.flat().map(String).join(" ");
+			expect(logLine).toContain("LLM failed");
+		} finally {
+			console.error = origError;
+		}
 	});
 
 	test("factory error emits error event and logs to console", async () => {
