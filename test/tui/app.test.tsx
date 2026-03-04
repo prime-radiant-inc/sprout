@@ -1,5 +1,5 @@
-import { describe, expect, jest, test } from "bun:test";
-import { render } from "ink-testing-library";
+import { afterEach, describe, expect, jest, test } from "bun:test";
+import { cleanup, render } from "ink-testing-library";
 import { EventBus } from "../../src/host/event-bus.ts";
 import { App } from "../../src/tui/app.tsx";
 
@@ -20,10 +20,14 @@ function setup(overrides?: Partial<Parameters<typeof App>[0]>) {
 
 /** Wait for React to flush state updates. */
 async function flush() {
-	await new Promise((resolve) => setTimeout(resolve, 10));
+	await new Promise((resolve) => setTimeout(resolve, 15));
 }
 
 describe("App", () => {
+	afterEach(() => {
+		cleanup();
+	});
+
 	test("renders StatusBar with initial zero values", () => {
 		const { lastFrame } = setup();
 		const frame = lastFrame();

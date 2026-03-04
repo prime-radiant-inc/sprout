@@ -1,15 +1,13 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { config } from "dotenv";
 import { createAgent } from "../../src/agents/factory.ts";
 import { scanAgentTree } from "../../src/agents/loader.ts";
 import { DEV_MODE_SENTINEL, isDevMode } from "../../src/genome/dev-mode.ts";
 import { Genome } from "../../src/genome/genome.ts";
 import type { Client } from "../../src/llm/client.ts";
-
-config({ path: join(homedir(), "prime-radiant/serf/.env") });
+import "../helpers/test-env.ts";
 
 function createFactoryTestClient(): Client {
 	const modelsByProvider = new Map<string, string[]>([

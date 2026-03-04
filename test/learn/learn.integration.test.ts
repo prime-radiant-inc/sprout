@@ -1,17 +1,15 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { config } from "dotenv";
 import { AgentEventEmitter } from "../../src/agents/events.ts";
 import { Genome } from "../../src/genome/genome.ts";
 import type { LearnSignal } from "../../src/kernel/types.ts";
 import { LearnProcess } from "../../src/learn/learn-process.ts";
 import { MetricsStore } from "../../src/learn/metrics-store.ts";
 import { Client } from "../../src/llm/client.ts";
+import "../helpers/test-env.ts";
 import { createVcr } from "../helpers/vcr.ts";
-
-config({ path: join(homedir(), "prime-radiant/serf/.env") });
 
 const FIXTURE_DIR = join(import.meta.dir, "../fixtures/vcr/learn");
 

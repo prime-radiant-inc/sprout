@@ -16,6 +16,7 @@ bun run test:integration:record  # Re-record VCR fixtures (~200s, needs keys)
 ### Unit tests (`bun run test:unit` / `bun run test:unit:parallel`)
 
 Fast, no external dependencies. Mock all LLM calls. These run in the pre-commit hook.
+Selection is managed by lane scripts: `scripts/test-unit-files.sh` and `scripts/test-integration-files.sh`.
 
 - `test/agents/*.test.ts` (excluding `*.integration.test.ts`)
 - `test/genome/*.test.ts`

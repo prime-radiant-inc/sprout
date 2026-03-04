@@ -1,6 +1,5 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { config } from "dotenv";
 import { Client } from "../../src/llm/client.ts";
 import { StreamReadTimeoutError } from "../../src/llm/stream-timeout.ts";
 import {
@@ -10,9 +9,8 @@ import {
 	type Request,
 	type StreamEvent,
 } from "../../src/llm/types.ts";
+import "../helpers/test-env.ts";
 import { createVcr } from "../helpers/vcr.ts";
-
-config();
 
 const FIXTURE_DIR = join(import.meta.dir, "../fixtures/vcr/llm-client");
 
@@ -243,7 +241,7 @@ describe("Client", () => {
 				yield { type: "text_start" };
 				yield { type: "text_delta", delta: "hello" };
 				// Stall for longer than the timeout
-				await new Promise((resolve) => setTimeout(resolve, 500));
+				await new Promise((resolve) => setTimeout(resolve, 80));
 				yield { type: "text_end" };
 				yield {
 					type: "finish",
@@ -266,7 +264,7 @@ describe("Client", () => {
 
 		const client = new Client({
 			providers: { stalling: stallingAdapter },
-			streamReadTimeoutMs: 100,
+			streamReadTimeoutMs: 20,
 		});
 
 		const events: StreamEvent[] = [];
@@ -315,7 +313,7 @@ describe("Client", () => {
 			},
 			async *stream(): AsyncIterable<StreamEvent> {
 				yield { type: "stream_start" };
-				await new Promise((resolve) => setTimeout(resolve, 200));
+				await new Promise((resolve) => setTimeout(resolve, 40));
 				yield {
 					type: "finish",
 					finish_reason: { reason: "stop" },

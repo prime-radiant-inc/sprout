@@ -1,8 +1,12 @@
-import { describe, expect, jest, test } from "bun:test";
-import { render } from "ink-testing-library";
+import { afterEach, describe, expect, jest, test } from "bun:test";
+import { cleanup, render } from "ink-testing-library";
 import { InputArea } from "../../src/tui/input-area.tsx";
 
 describe("InputArea", () => {
+	afterEach(() => {
+		cleanup();
+	});
+
 	test("renders prompt symbol", () => {
 		const { lastFrame } = render(
 			<InputArea onSubmit={() => {}} onSlashCommand={() => {}} isRunning={false} />,
@@ -847,5 +851,5 @@ describe("InputArea", () => {
 
 async function flush() {
 	// Keep this above ultra-short timers to avoid dropped keystrokes under load.
-	await new Promise((resolve) => setTimeout(resolve, 10));
+	await new Promise((resolve) => setTimeout(resolve, 15));
 }

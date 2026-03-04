@@ -94,9 +94,9 @@ describe("LocalExecutionEnvironment", () => {
 	});
 
 	test("exec_command times out and kills the process", async () => {
-		const result = await env.exec_command("sleep 30", { timeout_ms: 500 });
+		const result = await env.exec_command("sleep 30", { timeout_ms: 120 });
 		expect(result.timed_out).toBe(true);
-		expect(result.duration_ms).toBeLessThan(2000);
+		expect(result.duration_ms).toBeLessThan(1200);
 	});
 
 	test("exec_command resolves PATH (shell execution)", async () => {

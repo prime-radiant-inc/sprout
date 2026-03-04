@@ -1,8 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { config } from "dotenv";
 import { Agent } from "../../src/agents/agent.ts";
 import { AgentEventEmitter } from "../../src/agents/events.ts";
 import { loadRootAgents } from "../../src/agents/loader.ts";
@@ -11,9 +10,8 @@ import { LocalExecutionEnvironment } from "../../src/kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../../src/kernel/primitives.ts";
 import type { AgentSpec } from "../../src/kernel/types.ts";
 import { Client } from "../../src/llm/client.ts";
+import "../helpers/test-env.ts";
 import { createVcr } from "../helpers/vcr.ts";
-
-config({ path: join(homedir(), "prime-radiant/serf/.env") });
 
 const VCR_FIXTURE_DIR = join(import.meta.dir, "../fixtures/vcr/agent-integration");
 

@@ -1,12 +1,10 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { config } from "dotenv";
 import { OpenAIAdapter } from "../../src/llm/openai.ts";
 import type { ProviderAdapter } from "../../src/llm/types.ts";
 import { ContentKind, messageText, messageToolCalls, type Request } from "../../src/llm/types.ts";
+import "../helpers/test-env.ts";
 import { createAdapterVcr } from "../helpers/vcr.ts";
-
-config();
 
 const FIXTURE_DIR = join(import.meta.dir, "../fixtures/vcr/llm-openai");
 

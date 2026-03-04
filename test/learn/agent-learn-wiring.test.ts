@@ -1,8 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { config } from "dotenv";
 import { Agent } from "../../src/agents/agent.ts";
 import { AgentEventEmitter } from "../../src/agents/events.ts";
 import { createAgent } from "../../src/agents/factory.ts";
@@ -12,8 +11,23 @@ import { createPrimitiveRegistry } from "../../src/kernel/primitives.ts";
 import { LearnProcess } from "../../src/learn/learn-process.ts";
 import { MetricsStore } from "../../src/learn/metrics-store.ts";
 import { Client } from "../../src/llm/client.ts";
+import type { ProviderAdapter, Request, Response, StreamEvent } from "../../src/llm/types.ts";
+import "../helpers/test-env.ts";
 
-config({ path: join(homedir(), "prime-radiant/serf/.env") });
+function fakeAdapter(name: string, models: string[]): ProviderAdapter {
+	return {
+		name,
+		async complete(_request: Request): Promise<Response> {
+			throw new Error("not implemented");
+		},
+		stream(_request: Request): AsyncIterable<StreamEvent> {
+			throw new Error("not implemented");
+		},
+		async listModels(): Promise<string[]> {
+			return models;
+		},
+	};
+}
 
 describe("Agent-Learn wiring", () => {
 	let tempDir: string;
@@ -60,10 +74,17 @@ describe("Agent-Learn wiring", () => {
 
 	test("createAgent factory creates and returns learnProcess", async () => {
 		const genomePath = join(tempDir, "genome-factory");
+		const client = new Client({
+			providers: {
+				anthropic: fakeAdapter("anthropic", ["claude-opus-4-6", "claude-sonnet-4-6"]),
+			},
+		});
+
 		const result = await createAgent({
 			genomePath,
 			rootDir: join(import.meta.dir, "../../root"),
 			workDir: tempDir,
+			client,
 		});
 
 		expect(result.learnProcess).toBeDefined();
