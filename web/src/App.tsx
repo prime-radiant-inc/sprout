@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { KeyboardHelp } from "./components/KeyboardHelp.tsx";
-import type { SlashCommand } from "../../src/tui/slash-commands.ts";
+import type { SlashCommand } from "@shared/slash-commands.ts";
 import styles from "./App.module.css";
 import { ConversationView } from "./components/ConversationView.tsx";
 import { InputArea } from "./components/InputArea.tsx";

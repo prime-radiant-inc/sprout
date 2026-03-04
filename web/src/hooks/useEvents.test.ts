@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { SessionEvent } from "../../../src/kernel/types.ts";
+import type { SessionEvent } from "@kernel/types.ts";
 import type { ServerMessage } from "../../../src/web/protocol.ts";
 import { EventStore } from "./useEvents.ts";
 

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import type { SessionEvent } from "../../../src/kernel/types.ts";
+import type { SessionEvent } from "@kernel/types.ts";
 import { buildAgentStats } from "./useAgentStats.ts";
 
 // --- Helpers ---

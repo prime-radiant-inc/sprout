@@ -9,6 +9,8 @@
   },
   "scripts": {
     "check": "biome check --write .",
+    "check:ci": "bun run lint && bun run typecheck && bun run check:architecture && bun run test:unit:parallel",
+    "check:architecture": "bun run check:host-guardrails && bun test test/architecture",
     "check:host-guardrails": "bash scripts/check-host-session-controller-boundaries.sh",
     "lint": "biome lint .",
     "format": "biome format --write .",

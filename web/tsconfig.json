@@ -16,7 +16,8 @@
     "noUnusedParameters": true,
     "baseUrl": ".",
     "paths": {
-      "@kernel/*": ["../src/kernel/*"]
+      "@kernel/*": ["../src/kernel/*"],
+      "@shared/*": ["../src/shared/*"]
     }
   },
   "include": ["src", "vite-env.d.ts"]

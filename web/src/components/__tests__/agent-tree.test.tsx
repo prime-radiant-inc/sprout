@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { SessionEvent } from "../../../../src/kernel/types.ts";
+import type { SessionEvent } from "@kernel/types.ts";
 import type { AgentStats } from "../../hooks/useAgentStats.ts";
 import type { AgentTreeNode } from "../../hooks/useAgentTree.ts";
 import { buildAgentTree } from "../../hooks/useAgentTree.ts";

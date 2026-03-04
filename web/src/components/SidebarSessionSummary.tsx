@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { SessionEvent } from "../../../src/kernel/types.ts";
+import type { SessionEvent } from "@kernel/types.ts";
 import type { SessionStatus } from "../hooks/useEvents.ts";
 import styles from "./SidebarSessionSummary.module.css";
 

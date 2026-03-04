@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { SessionEvent } from "../../../src/kernel/types.ts";
+import type { SessionEvent } from "@kernel/types.ts";
 import type { AgentTreeNode } from "../hooks/useAgentTree.ts";
 import { EmptyState } from "./EmptyState.tsx";
 import { EventErrorBoundary } from "./EventErrorBoundary.tsx";

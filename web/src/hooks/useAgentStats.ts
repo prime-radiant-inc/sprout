@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { SessionEvent } from "../../../src/kernel/types.ts";
+import type { SessionEvent } from "@kernel/types.ts";
 
 export type AgentState = "idle" | "calling_llm" | "executing_tool" | "delegating";
 

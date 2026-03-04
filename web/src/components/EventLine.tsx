@@ -1,4 +1,4 @@
-import type { SessionEvent } from "../../../src/kernel/types.ts";
+import type { SessionEvent } from "@kernel/types.ts";
 import type { ToolCallSummary } from "./groupEvents.ts";
 import { AssistantMessage } from "./AssistantMessage.tsx";
 import { DelegationBlock } from "./DelegationBlock.tsx";

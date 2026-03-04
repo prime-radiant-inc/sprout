@@ -7,7 +7,7 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { parseSlashCommand, type SlashCommand } from "../../../src/tui/slash-commands.ts";
+import { parseSlashCommand, type SlashCommand } from "@shared/slash-commands.ts";
 import styles from "./InputArea.module.css";
 
 export interface InputAreaProps {

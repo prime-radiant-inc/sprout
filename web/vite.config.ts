@@ -7,6 +7,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@kernel": resolve(__dirname, "../src/kernel"),
+      "@shared": resolve(__dirname, "../src/shared"),
     },
   },
   server: {
