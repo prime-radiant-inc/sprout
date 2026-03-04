@@ -37,7 +37,7 @@ import { ulid } from "../util/ulid.ts";
 import { getContextWindowSize } from "./context-window.ts";
 import { AgentEventEmitter } from "./events.ts";
 import type { AgentTreeEntry, Preambles } from "./loader.ts";
-import { findRootToolsDir, findTreeEntryByName, resolveRootToolsDir } from "./loader.ts";
+import { findRootToolsDir, resolveRootToolsDir } from "./loader.ts";
 import { defaultModelsByProvider, type ResolvedModel, resolveModel } from "./model-resolver.ts";
 import { evaluateCompaction } from "./run-loop-compaction.ts";
 import { applyRetryAccounting, finalizeRunLoopResult } from "./run-loop-finalize.ts";
@@ -417,6 +417,69 @@ export class Agent {
 		return agents;
 	}
 
+	/**
+	 * Resolve a delegation target against this agent's effective allowlist.
+	 *
+	 * Effective allowlist:
+	 * - Tree mode: auto-discovered children + explicit spec.agents refs
+	 * - Non-tree mode: explicit spec.agents refs
+	 */
+	private resolveDelegationTarget(agentName: string): {
+		spec?: AgentSpec;
+		treePath?: string;
+		allowedNames: string[];
+	} {
+		const allowedNames = new Set<string>();
+
+		if (this.agentTree) {
+			const resolved = resolveAgentDelegates(
+				this.agentTree,
+				this.spec.name,
+				this.agentTreeSelfPath ?? "",
+				this.agentTreeChildren ?? [],
+				this.spec.agents,
+			);
+
+			let match: { spec: AgentSpec; path: string } | undefined;
+			for (const delegate of resolved) {
+				allowedNames.add(delegate.spec.name);
+				allowedNames.add(delegate.path);
+				if (agentName === delegate.spec.name || agentName === delegate.path) {
+					match = delegate;
+				}
+			}
+
+			return {
+				spec: match?.spec,
+				treePath: match?.path,
+				allowedNames: [...allowedNames].sort(),
+			};
+		}
+
+		const source = this.genome ? this.genome.allAgents() : this.availableAgents;
+		let match: AgentSpec | undefined;
+		for (const ref of this.spec.agents) {
+			if (ref === this.spec.name) continue;
+			const agentSpec =
+				source.find((a) => a.name === ref) ??
+				(ref.includes("/") ? source.find((a) => a.name === ref.split("/").pop()) : undefined);
+			if (!agentSpec) continue;
+
+			allowedNames.add(ref);
+			allowedNames.add(agentSpec.name);
+			if (agentName === ref || agentName === agentSpec.name) {
+				match = agentSpec;
+			}
+		}
+
+		return { spec: match, allowedNames: [...allowedNames].sort() };
+	}
+
+	private buildDelegationDeniedError(agentName: string, allowedNames: string[]): string {
+		const allowed = allowedNames.length > 0 ? allowedNames.join(", ") : "(none)";
+		return `Agent '${agentName}' is not delegatable by '${this.spec.name}'. Allowed delegates: ${allowed}`;
+	}
+
 	/** Execute a single delegation to a subagent. Returns the tool result message and stumble count. */
 	private async executeDelegation(
 		delegation: Delegation,
@@ -430,20 +493,17 @@ export class Agent {
 			child_id: childId,
 		});
 
-		// Resolve tree entry: try path key first, then bare name scan
-		const treeEntry =
-			this.agentTree?.get(delegation.agent_name) ??
-			(this.agentTree ? findTreeEntryByName(this.agentTree, delegation.agent_name) : undefined);
-
-		const subagentSpec =
-			treeEntry?.spec ??
-			this.genome?.getAgent(delegation.agent_name) ??
-			this.availableAgents.find((a) => a.name === delegation.agent_name);
-
 		const descData = delegation.description ? { description: delegation.description } : {};
+		const target = this.resolveDelegationTarget(delegation.agent_name);
+		const subagentSpec = target.spec;
+		const treeEntry =
+			target.treePath && this.agentTree ? this.agentTree.get(target.treePath) : undefined;
 
 		if (!subagentSpec) {
-			const errorMsg = `Unknown agent: ${delegation.agent_name}`;
+			const errorMsg = this.buildDelegationDeniedError(
+				delegation.agent_name,
+				target.allowedNames,
+			);
 			const toolResultMsg = Msg.toolResult(delegation.call_id, errorMsg, true);
 			this.emitAndLog("act_end", agentId, this.depth, {
 				agent_name: delegation.agent_name,
@@ -584,6 +644,23 @@ export class Agent {
 			handle_id: handleId,
 			child_id: childId,
 		});
+		const target = this.resolveDelegationTarget(delegation.agent_name);
+		if (!target.spec) {
+			const errorMsg = this.buildDelegationDeniedError(
+				delegation.agent_name,
+				target.allowedNames,
+			);
+			const toolResultMsg = Msg.toolResult(delegation.call_id, errorMsg, true);
+			this.emitAndLog("act_end", agentId, this.depth, {
+				agent_name: delegation.agent_name,
+				success: false,
+				error: errorMsg,
+				child_id: childId,
+				...descData,
+				tool_result_message: toolResultMsg,
+			});
+			return { toolResultMsg, stumbles: 1 };
+		}
 
 		const caller: CallerIdentity = { agent_name: this.spec.name, depth: this.depth };
 		const blocking = delegation.blocking !== false; // default true
@@ -997,11 +1074,7 @@ export class Agent {
 		let lastOutput: string | undefined;
 
 		// Parse tool calls into delegations, agent commands, and primitive calls
-		const agentNames = new Set(this.availableAgents.map((a) => a.name));
-		const { delegations, agentCommands, errors: delegationErrors } = parsePlanResponse(
-			toolCalls,
-			agentNames,
-		);
+		const { delegations, agentCommands, errors: delegationErrors } = parsePlanResponse(toolCalls);
 		const delegationByCallId = new Map(delegations.map((d) => [d.call_id, d]));
 		const agentCommandByCallId = new Map(agentCommands.map((c) => [c.call_id, c]));
 

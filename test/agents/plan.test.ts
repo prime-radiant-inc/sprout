@@ -426,7 +426,7 @@ describe("parsePlanResponse", () => {
 		expect(result.delegations[0]!.hints).toBeUndefined();
 	});
 
-	test("auto-corrected agent call preserves blocking/shared", () => {
+	test("does not auto-correct direct agent-name tool calls into delegations", () => {
 		const toolCalls = [
 			{
 				id: "call_1",
@@ -435,9 +435,10 @@ describe("parsePlanResponse", () => {
 			},
 		];
 		const result = parsePlanResponse(toolCalls, new Set(["code-reader"]));
-		expect(result.delegations).toHaveLength(1);
-		expect(result.delegations[0]!.blocking).toBe(false);
-		expect(result.delegations[0]!.shared).toBe(true);
+		expect(result.delegations).toHaveLength(0);
+		expect(result.errors).toHaveLength(0);
+		expect(result.primitiveCalls).toHaveLength(1);
+		expect(result.primitiveCalls[0]!.name).toBe("code-reader");
 	});
 
 	test("extracts blocking and shared from delegate call", () => {

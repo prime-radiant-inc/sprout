@@ -1354,10 +1354,85 @@ describe("Agent", () => {
 		const collected = events.collected();
 		const actEnd = collected.find((e) => e.kind === "act_end" && e.data.success === false);
 		expect(actEnd).toBeDefined();
-		expect(actEnd!.data.error).toContain("Unknown agent");
+		expect(String(actEnd!.data.error)).toContain("not delegatable");
 		const toolResultMsg = actEnd!.data.tool_result_message as Message;
 		expect(toolResultMsg).toBeDefined();
 		expect(toolResultMsg.role).toBe("tool");
+	});
+
+	test("blocks delegation to available agent that is outside spec.agents allowlist", async () => {
+		const rogueSpec: AgentSpec = {
+			name: "rogue",
+			description: "Not delegatable from root",
+			system_prompt: "You are rogue.",
+			model: "fast",
+			tools: ["read_file"],
+			agents: [],
+			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 2 },
+			tags: [],
+			version: 1,
+		};
+
+		const delegateToRogueMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-block-1",
+						name: "delegate",
+						arguments: JSON.stringify({ agent_name: "rogue", goal: "do rogue work" }),
+					},
+				},
+			],
+		};
+		const doneMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "Done." }],
+		};
+
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<any> => {
+				callCount++;
+				return {
+					id: `mock-block-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: callCount === 1 ? delegateToRogueMsg : doneMsg,
+					finish_reason: { reason: callCount === 1 ? "tool_calls" : "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: rootSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [rootSpec, leafSpec, rogueSpec],
+			depth: 0,
+			events,
+		});
+
+		await agent.run("delegate outside allowlist");
+
+		const collected = events.collected();
+		const actEnd = collected.find(
+			(e) => e.kind === "act_end" && e.data.agent_name === "rogue" && e.data.success === false,
+		);
+		expect(actEnd).toBeDefined();
+		expect(String(actEnd!.data.error)).toContain("not delegatable");
+
+		// No child agent should run when delegation is rejected before execution.
+		const childPerceive = collected.find((e) => e.kind === "perceive" && e.depth === 1);
+		expect(childPerceive).toBeUndefined();
 	});
 
 	test("initialHistory is defensively copied in constructor", async () => {
@@ -3759,6 +3834,100 @@ describe("Agent", () => {
 				e.kind === "act_end" && e.data.agent_name === "utility/reader" && e.data.success === true,
 		);
 		expect(actEnd).toBeDefined();
+	});
+
+	test("blocks tree delegation to agent outside effective children+spec.agents set", async () => {
+		const tree = new Map<string, AgentTreeEntry>([
+			[
+				"worker",
+				treeEntry("worker", "worker", [], {
+					tools: ["read_file"],
+					constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 2 },
+				}),
+			],
+			[
+				"rogue",
+				treeEntry("rogue", "rogue", [], {
+					tools: ["read_file"],
+					constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 2 },
+				}),
+			],
+		]);
+
+		const orchestratorSpec: AgentSpec = {
+			name: "root",
+			description: "Orchestrator",
+			system_prompt: "You orchestrate.",
+			model: "fast",
+			tools: [],
+			agents: [],
+			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5 },
+			tags: [],
+			version: 1,
+		};
+
+		const delegateRogueMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-tree-block-1",
+						name: "delegate",
+						arguments: JSON.stringify({ agent_name: "rogue", goal: "do rogue work" }),
+					},
+				},
+			],
+		};
+		const doneMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "Done." }],
+		};
+
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				return {
+					id: `mock-tree-block-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: callCount === 1 ? delegateRogueMsg : doneMsg,
+					finish_reason: { reason: callCount === 1 ? "tool_calls" : "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: orchestratorSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			agentTree: tree,
+			agentTreeChildren: ["worker"],
+			agentTreeSelfPath: "",
+			events,
+		});
+
+		await agent.run("tree allowlist");
+
+		const collected = events.collected();
+		const actEnd = collected.find(
+			(e) => e.kind === "act_end" && e.data.agent_name === "rogue" && e.data.success === false,
+		);
+		expect(actEnd).toBeDefined();
+		expect(String(actEnd!.data.error)).toContain("not delegatable");
+
+		// No child agent should run when blocked at delegation gate.
+		const childPerceive = collected.find((e) => e.kind === "perceive" && e.depth === 1);
+		expect(childPerceive).toBeUndefined();
 	});
 
 	test("subagent receives agentTree from parent", async () => {
