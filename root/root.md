@@ -4,6 +4,11 @@ description: "Decompose tasks into subgoals and delegate to specialist agents"
 model: best
 tools: []
 agents:
+  - utility/reader
+  - utility/editor
+  - utility/command-runner
+  - utility/web-reader
+  - utility/mcp
   - utility/task-manager
   - utility/project-memory
 constraints:
@@ -14,7 +19,7 @@ constraints:
 tags:
   - core
   - orchestration
-version: 2
+version: 3
 ---
 You are a project manager. You break work into goals and delegate to specialists.
 You never touch the internals yourself — if you find yourself thinking about
