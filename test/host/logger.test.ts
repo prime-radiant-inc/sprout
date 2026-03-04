@@ -98,6 +98,39 @@ describe("SessionLogger", () => {
 		await logger.flush();
 	});
 
+	test("write failure is observable via warning event and stderr fallback", async () => {
+		const stderrLines: string[] = [];
+		const emitted: Array<{ kind: string; data: Record<string, unknown> }> = [];
+		const fakeBus = {
+			emitEvent(kind: string, _agentId: string, _depth: number, data: Record<string, unknown>) {
+				emitted.push({ kind, data });
+			},
+		};
+		const logger = new SessionLogger({
+			logPath: "/dev/null/impossible/path/log.jsonl",
+			component: "test",
+			bus: fakeBus,
+			stderrWrite: (line: string) => {
+				stderrLines.push(line);
+			},
+		});
+
+		// Use debug to avoid normal info/warn log forwarding; we only want failure signal.
+		logger.debug("system", "first failing write");
+		logger.debug("system", "second failing write");
+		await logger.flush();
+
+		const warningEvents = emitted.filter((e) => e.kind === "warning");
+		expect(warningEvents).toHaveLength(1);
+		expect(warningEvents[0]!.data.log_path).toBe("/dev/null/impossible/path/log.jsonl");
+		expect(warningEvents[0]!.data.failure_count).toBe(1);
+
+		expect(stderrLines.length).toBeGreaterThanOrEqual(2);
+		expect(stderrLines.join("")).toContain("failed to write session log");
+		expect(stderrLines.join("")).toContain("failures=1");
+		expect(stderrLines.join("")).toContain("failures=2");
+	});
+
 	test("forwards info+ entries to bus when configured", async () => {
 		tempDir = await mkdtemp(join(tmpdir(), "logger-"));
 		const logPath = join(tempDir, "session.log.jsonl");

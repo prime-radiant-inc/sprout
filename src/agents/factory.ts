@@ -40,7 +40,7 @@ export interface CreateAgentOptions {
 	/** Pre-loaded Genome instance. If provided, skips loading from disk. */
 	genome?: Genome;
 	/** Structured logger for LLM call logging and diagnostics. */
-	logger?: import("../host/logger.ts").Logger;
+	logger?: import("../core/logger.ts").Logger;
 	/** Per-project data directory (sessions, logs, memory). Defaults to genomePath. */
 	projectDataDir?: string;
 }
