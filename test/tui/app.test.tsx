@@ -451,14 +451,20 @@ describe("App", () => {
 		const { bus, stdin } = setup();
 		bus.onEvent((e) => events.push(e));
 
-		jest.useFakeTimers();
+		const setTimeoutSpy = jest.spyOn(globalThis, "setTimeout");
+		setTimeoutSpy.mockImplementation((handler) => {
+			if (typeof handler === "function") {
+				handler();
+			}
+			return 1 as ReturnType<typeof setTimeout>;
+		});
 		try {
 			stdin.write("\x03"); // idle Ctrl+C → onIdleCtrlC → shows hint, starts 5s timer
-			jest.advanceTimersByTime(5000); // timer fires → onCancelExit → hides hint
+			expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 5000);
 			const hideEvent = events.find((e) => e.kind === "exit_hint" && e.data.visible === false);
 			expect(hideEvent).toBeDefined();
 		} finally {
-			jest.useRealTimers();
+			setTimeoutSpy.mockRestore();
 		}
 	});
 

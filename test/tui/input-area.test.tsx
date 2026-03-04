@@ -439,13 +439,19 @@ describe("InputArea", () => {
 			/>,
 		);
 
-		jest.useFakeTimers();
+		const setTimeoutSpy = jest.spyOn(globalThis, "setTimeout");
+		setTimeoutSpy.mockImplementation((handler) => {
+			if (typeof handler === "function") {
+				handler();
+			}
+			return 1 as ReturnType<typeof setTimeout>;
+		});
 		try {
 			stdin.write("\x03"); // idle Ctrl+C — sets up 5s timer
-			jest.advanceTimersByTime(5000);
+			expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 5000);
 			expect(cancelCalled).toBe(true);
 		} finally {
-			jest.useRealTimers();
+			setTimeoutSpy.mockRestore();
 		}
 	});
 
