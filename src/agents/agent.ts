@@ -1073,8 +1073,15 @@ export class Agent {
 		let stumbles = 0;
 		let lastOutput: string | undefined;
 
-		// Parse tool calls into delegations, agent commands, and primitive calls
-		const { delegations, agentCommands, errors: delegationErrors } = parsePlanResponse(toolCalls);
+		// Parse tool calls into delegations, agent commands, and primitive calls.
+		// Include loaded agent names so legacy direct agent-name tool calls are
+		// interpreted as delegations.
+		const agentNameSource = this.genome ? this.genome.allAgents() : this.availableAgents;
+		const knownAgentNames = new Set(agentNameSource.map((agent) => agent.name));
+		const { delegations, agentCommands, errors: delegationErrors } = parsePlanResponse(
+			toolCalls,
+			knownAgentNames,
+		);
 		const delegationByCallId = new Map(delegations.map((d) => [d.call_id, d]));
 		const agentCommandByCallId = new Map(agentCommands.map((c) => [c.call_id, c]));
 

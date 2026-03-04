@@ -283,13 +283,14 @@ export interface DelegationError {
 
 /**
  * Classify tool calls into agent delegations, agent commands, and primitive calls.
- * Delegations are identified only by the "delegate" tool name.
+ * Delegations are identified by the "delegate" tool name.
  * Agent commands are wait_agent and message_agent tool calls.
+ * If an agent name is used directly as a tool name, auto-corrects to a delegation.
  * Malformed calls are returned as errors (never throws).
  */
 export function parsePlanResponse(
 	toolCalls: ToolCall[],
-	_agentNames?: Set<string>,
+	agentNames?: Set<string>,
 ): {
 	delegations: Delegation[];
 	agentCommands: AgentCommand[];
@@ -302,6 +303,28 @@ export function parsePlanResponse(
 	const errors: DelegationError[] = [];
 
 	for (const call of toolCalls) {
+		// Compatibility path: older fixtures may call an agent name directly as a tool.
+		if (call.name !== DELEGATE_TOOL_NAME && agentNames?.has(call.name)) {
+			const goal = call.arguments.goal ?? call.arguments.task ?? call.arguments.command;
+			if (typeof goal === "string" && goal.length > 0) {
+				delegations.push({
+					call_id: call.id,
+					agent_name: call.name,
+					goal,
+					hints: Array.isArray(call.arguments.hints) ? call.arguments.hints : undefined,
+					blocking:
+						typeof call.arguments.blocking === "boolean" ? call.arguments.blocking : undefined,
+					shared: typeof call.arguments.shared === "boolean" ? call.arguments.shared : undefined,
+				});
+			} else {
+				errors.push({
+					call_id: call.id,
+					error: `Called agent '${call.name}' directly instead of using delegate tool. Use: delegate(agent_name="${call.name}", goal="...")`,
+				});
+			}
+			continue;
+		}
+
 		if (call.name === DELEGATE_TOOL_NAME) {
 			const agentName = call.arguments.agent_name;
 			if (typeof agentName !== "string" || agentName.length === 0) {
