@@ -50,6 +50,25 @@ export function InputArea({
 	}, [isRunning]);
 
 	useInput((input, key) => {
+		const submitCurrentInput = () => {
+			const trimmed = getText(bufferState).trim();
+			if (!trimmed) return;
+
+			const slash = parseSlashCommand(trimmed);
+			if (slash) {
+				onSlashCommand(slash);
+			} else if (isRunning && onSteer) {
+				history.push(trimmed);
+				onSteer(trimmed);
+			} else {
+				onSubmit(trimmed);
+				history.push(trimmed);
+			}
+			bufferOps.reset();
+			setHistoryCursor(-1);
+			draftRef.current = "";
+		};
+
 		// Ctrl-C: two-stage exit. First press interrupts (if running) or warns
 		// (if idle). Second press exits.
 		if (key.ctrl && input === "c") {
@@ -103,22 +122,13 @@ export function InputArea({
 
 		// Enter: submit
 		if (key.return) {
-			const trimmed = getText(bufferState).trim();
-			if (!trimmed) return;
+			submitCurrentInput();
+			return;
+		}
 
-			const slash = parseSlashCommand(trimmed);
-			if (slash) {
-				onSlashCommand(slash);
-			} else if (isRunning && onSteer) {
-				history.push(trimmed);
-				onSteer(trimmed);
-			} else {
-				onSubmit(trimmed);
-				history.push(trimmed);
-			}
-			bufferOps.reset();
-			setHistoryCursor(-1);
-			draftRef.current = "";
+		// Ctrl+D: explicit submit chord for terminals where Enter is unreliable.
+		if (key.ctrl && input === "d") {
+			submitCurrentInput();
 			return;
 		}
 

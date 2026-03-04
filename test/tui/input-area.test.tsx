@@ -46,6 +46,28 @@ describe("InputArea", () => {
 		expect(lastFrame()).not.toContain("fix the bug");
 	});
 
+	test("calls onSubmit with text on Ctrl+D and clears input", async () => {
+		let submitted = "";
+		const { lastFrame, stdin } = render(
+			<InputArea
+				onSubmit={(text) => {
+					submitted = text;
+				}}
+				onSlashCommand={() => {}}
+				isRunning={false}
+			/>,
+		);
+
+		stdin.write("submit via ctrl-d");
+		await flush();
+		// Ctrl+D
+		stdin.write("\x04");
+		await flush();
+
+		expect(submitted).toBe("submit via ctrl-d");
+		expect(lastFrame()).not.toContain("submit via ctrl-d");
+	});
+
 	test("calls onSlashCommand for slash input instead of onSubmit", async () => {
 		let submitted = "";
 		let slashCmd: any = null;
@@ -84,6 +106,24 @@ describe("InputArea", () => {
 		);
 
 		stdin.write("\r");
+		await flush();
+
+		expect(submitted).toBe(false);
+	});
+
+	test("does not submit empty input on Ctrl+D", async () => {
+		let submitted = false;
+		const { stdin } = render(
+			<InputArea
+				onSubmit={() => {
+					submitted = true;
+				}}
+				onSlashCommand={() => {}}
+				isRunning={false}
+			/>,
+		);
+
+		stdin.write("\x04");
 		await flush();
 
 		expect(submitted).toBe(false);
