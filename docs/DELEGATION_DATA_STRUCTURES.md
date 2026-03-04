@@ -2,6 +2,8 @@
 
 This document shows the key TypeScript interfaces and how data flows through the system.
 
+> Contract update (2026-03-04): runtime now uses `tools` + `agents` (not `capabilities`), and delegate routing is string-based (no enum restriction in tool schema).
+
 ---
 
 ## AgentSpec: Core Agent Definition
@@ -14,7 +16,6 @@ export interface AgentSpec {
   model: string;                   // "best", "balanced", "fast", etc.
   tools: string[];                 // Primitive tool names (read_file, exec, etc.)
   agents: string[];                // Subagent path references (utility/reader, etc.)
-  capabilities: string[];          // Combined tools + agents (backward compat)
   constraints: AgentConstraints;   // Max turns, depth, timeout, etc.
   tags: string[];                  // ["core", "leaf", "orchestration", etc.]
   version: number;                 // For tracking agent evolution
@@ -133,7 +134,7 @@ export interface AgentOptions {
   env: ExecutionEnvironment;
   client: Client;
   primitiveRegistry: PrimitiveRegistry;
-  availableAgents: AgentSpec[];      // ← All agents in the system (filtered by capabilities)
+  availableAgents: AgentSpec[];      // ← All known agents in the system
   genome?: Genome;                   // ← Reference to persistent agent store
   depth?: number;                    // Current depth (0 = root, 1 = subagent, etc.)
   events?: AgentEventEmitter;
@@ -171,12 +172,14 @@ export interface ToolDefinition {
       agent_name: {
         type: "string",
         description: "Name of the agent to delegate to",
-        enum: ["reader", "editor", "command-runner", "web-reader", "mcp", "quartermaster"],
-        // ^ These come from root.capabilities that match agents in availableAgents
       },
       goal: {
         type: "string",
         description: "What you want this agent to achieve",
+      },
+      description: {
+        type: "string",
+        description: "Short label shown in tree/headers"
       },
       hints: {
         type: "array",
@@ -184,7 +187,7 @@ export interface ToolDefinition {
         description: "Optional context that might help",
       },
     },
-    required: ["agent_name", "goal"],
+    required: ["agent_name", "goal", "description"],
   },
 }
 ```
@@ -303,13 +306,13 @@ export class Genome {
 │ Genome.agents Map<string, AgentSpec>               │
 ├─────────────────────────────────────────────────────┤
 │ {                                                   │
-│   "root" → { name: "root", capabilities: [...] }  │
+│   "root" → { name: "root", agents: [...], ... }   │
 │   "reader" → { name: "reader", ... }              │
 │   "editor" → { name: "editor", ... }              │
 │   ...                                               │
 │ }                                                   │
 │                                                     │
-│ ← Persisted to: genome/agents/{name}.yaml         │
+│ ← Persisted to: genome/agents/{name}.md           │
 │ ← Tracked in git with commits                      │
 └──────────────────┬──────────────────────────────────┘
                    │
@@ -331,8 +334,8 @@ export class Genome {
 │   { name: "quartermaster", ... }                   │
 │ ]                                                   │
 │                                                     │
-│ For each capability in root.capabilities:         │
-│   agentSpec = this.availableAgents.find(...)      │
+│ Resolve each path/name in root.agents:            │
+│   agentSpec = resolveAgainstTreeOrGenome(...)     │
 │   if (agentSpec) delegatableAgents.push(...)      │
 │                                                     │
 │ this.agentTools = [                                │
@@ -353,15 +356,12 @@ export class Genome {
 │     properties: {                                   │
 │       agent_name: {                                │
 │         type: "string",                            │
-│         enum: ["reader", "editor", "command-      │
-│                 "runner", "web-reader", "mcp",    │
-│                 "quartermaster"]                   │
-│         // ← Limited by root's capabilities       │
+│         // Known agents are listed in prompt context│
 │       },                                            │
 │       goal: { type: "string", ... },              │
 │       hints: { type: "array", ... }               │
 │     },                                              │
-│     required: ["agent_name", "goal"]              │
+│     required: ["agent_name", "goal", "description"]│
 │   }                                                 │
 │ }                                                   │
 │                                                     │
@@ -434,7 +434,7 @@ After loading, the Genome object contains:
 Genome {
   rootPath: "/path/to/genome",
   agents: Map {
-    "root" → AgentSpec { name: "root", capabilities: [...], ... },
+    "root" → AgentSpec { name: "root", agents: [...], tools: [...], ... },
     "reader" → AgentSpec { name: "reader", ... },
     "editor" → AgentSpec { name: "editor", ... },
     "command-runner" → AgentSpec { name: "command-runner", ... },
@@ -455,13 +455,13 @@ The agents are also persisted on disk:
 ```
 genome/
 ├─ agents/
-│  ├─ root.yaml
-│  ├─ reader.yaml
-│  ├─ editor.yaml
-│  ├─ command-runner.yaml
-│  ├─ web-reader.yaml
-│  ├─ mcp.yaml
-│  ├─ quartermaster.yaml
+│  ├─ root.md
+│  ├─ reader.md
+│  ├─ editor.md
+│  ├─ command-runner.md
+│  ├─ web-reader.md
+│  ├─ mcp.md
+│  ├─ quartermaster.md
 │  └─ ... (any newly learned agents)
 ├─ memories/
 │  └─ memories.jsonl
@@ -496,9 +496,8 @@ const subagent = new Agent({
   depth: 1,  // Incremented
 });
 
-// Reader can then delegate to agents in ITS capabilities:
-// readerSpec.capabilities = ["read_file", "grep", ...]
-// But if it had [other_agent_name], it could delegate further
+// Reader can then delegate to agents in ITS `agents` list.
+// Primitive execution is controlled separately via `tools`.
 
 // Building even deeper:
 const subsubagent = new Agent({
@@ -517,9 +516,9 @@ const subsubagent = new Agent({
 
 1. **No data duplication**: `availableAgents` is derived from `genome.allAgents()`, not copied
 2. **Live references**: genome is passed to subagents, so learned agents are immediately visible
-3. **Capability filtering**: Each agent only delegates to agents it explicitly lists
-4. **YAML as single source of truth**: All agent definitions come from YAML files, never hardcoded
-5. **Tool enum is restrictive**: The delegate tool's enum limits what the LLM can choose
+3. **Agent-list filtering**: Each agent only delegates to agents it explicitly lists in `agents`
+4. **Markdown as single source of truth**: Agent definitions are markdown specs in the tree/genome
+5. **Tool schema is stable**: The delegate tool keeps a string `agent_name`; choices are listed in prompt context
 6. **Validation happens early**: `parsePlanResponse()` validates agent names before delegation
 7. **Recursive architecture**: Each subagent gets the same availableAgents and genome, enabling arbitrary nesting
 
@@ -555,18 +554,18 @@ if (this.spec.constraints.timeout_ms > 0 && elapsed >= this.spec.constraints.tim
 ## Summary
 
 The data structures are:
-- **AgentSpec**: YAML-loaded definition of an agent
+- **AgentSpec**: Markdown-loaded definition of an agent
 - **Genome**: In-memory map of AgentSpecs, persisted to git
-- **ToolDefinition**: What gets sent to LLM (includes enum from capabilities)
+- **ToolDefinition**: What gets sent to LLM (delegate + primitive schemas)
 - **Delegation**: Parsed tool call from LLM
 - **ActResult**: Subagent execution result
 
 The flow is:
-1. Load YAML → AgentSpec[]
+1. Load markdown specs → AgentSpec[]
 2. Persist to Genome
 3. Create Agent with Genome.allAgents()
-4. Filter by capabilities → build delegate tool
-5. LLM sees tool enum → picks agent
+4. Filter by `agents` list → build delegate tool context
+5. LLM sees delegate tool + `<agents>` context → picks agent
 6. Validate and execute delegation
 7. Create subagent with same availableAgents
 8. Recursive loop

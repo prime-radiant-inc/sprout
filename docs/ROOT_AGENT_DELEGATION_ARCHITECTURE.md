@@ -4,6 +4,8 @@
 
 The orchestrator (root agent) is configured via Markdown specs (with YAML frontmatter) and determines available agents for delegation through an **agent tree routing system**. There is no hardcoded "shadow" list — agents are dynamically loaded from the root directory tree and the genome (git-backed agent repository).
 
+> Contract update (2026-03-04): delegation routing is based on `spec.agents` (not `capabilities`), and runtime specs are markdown-based (`*.md`) rather than YAML files.
+
 ---
 
 ## 1. Root Agent Configuration
@@ -105,19 +107,12 @@ async initFromRoot(rootDir: string): Promise<void> {
 
 ### Constructor: Building Agent Tools
 
-When the root agent is constructed, it checks its `can_spawn` constraint. If true, it builds delegation tools based on its capabilities:
+When the root agent is constructed, it checks its `can_spawn` constraint. If true, it builds delegation tools from the agents listed in `spec.agents`:
 
 ```typescript
-// File: src/agents/agent.ts, lines 122-134
+// File: src/agents/agent.ts
 if (this.spec.constraints.can_spawn) {
-  const delegatableAgents: AgentSpec[] = [];
-  for (const cap of this.spec.capabilities) {
-    if (cap === this.spec.name) continue;  // Don't delegate to itself
-    const agentSpec = this.availableAgents.find((a) => a.name === cap);
-    if (agentSpec) {
-      delegatableAgents.push(agentSpec);
-    }
-  }
+  const delegatableAgents = this.getDelegatableAgents();
   if (delegatableAgents.length > 0) {
     this.agentTools.push(buildDelegateTool(delegatableAgents));
   }
@@ -125,25 +120,19 @@ if (this.spec.constraints.can_spawn) {
 ```
 
 **Key Points:**
-1. Only agents listed in the root's `capabilities` are made available for delegation
-2. These agents are looked up by name in the `availableAgents` snapshot
-3. A single `delegate` tool is created with an enum of agent names
+1. Only agents listed in the root's `agents` list are made available for delegation
+2. These agents are resolved from live genome/tree state
+3. A single `delegate` tool is created with string params; available choices are shown in prompt context
 
 ### Runtime: Dynamic Delegation
 
 During execution, the agent calls `getDelegatableAgents()` to get the current list:
 
 ```typescript
-// File: src/agents/agent.ts, lines 207-217
+// File: src/agents/agent.ts
 private getDelegatableAgents(): AgentSpec[] {
-  const agents: AgentSpec[] = [];
-  const source = this.genome ? this.genome.allAgents() : this.availableAgents;
-  for (const cap of this.spec.capabilities) {
-    if (cap === this.spec.name) continue;
-    const agentSpec = source.find((a) => a.name === cap);
-    if (agentSpec) agents.push(agentSpec);
-  }
-  return agents;
+  // Resolve by tree path/name from spec.agents against live source.
+  // (See resolver.ts for current path-aware behavior.)
 }
 ```
 
@@ -172,7 +161,7 @@ This produces XML like:
 
 ### Tool Definition
 
-The `delegate` tool definition includes an enum of available agent names:
+The `delegate` tool accepts a string `agent_name`; known agents are provided in the `<agents>` prompt block:
 
 ```typescript
 // File: src/agents/plan.ts, lines 14-41
@@ -237,7 +226,7 @@ private async executeDelegation(delegation: Delegation, agentId: string) {
 **Inheritance Pattern:**
 - Subagents receive the same `availableAgents` list (from genome or static snapshot)
 - Subagents also receive the `genome` reference, so they can learn from it
-- Each subagent respects its own `capabilities` list to determine what it can delegate to
+- Each subagent respects its own `agents` list to determine what it can delegate to
 
 ---
 
@@ -300,15 +289,15 @@ You specialize in reading and analyzing file contents...
 **Important:** There is **no hardcoded list of available agents elsewhere** in the codebase.
 
 The available agents are always determined by:
-1. **Bootstrap YAML files** in `bootstrap/` directory (initially loaded)
+1. **Bootstrap markdown specs** in the `root/` tree (initially loaded)
 2. **Genome directory** `agents/` subdirectory (dynamically loaded and persisted)
-3. **Root agent's capabilities list** (restricts which agents it can delegate to)
+3. **Root agent's `agents` list + runtime tree resolution** (restricts which agents it can delegate to)
 
 Evidence:
-- `src/agents/loader.ts`: Dynamically reads all `.yaml` and `.yml` files from the bootstrap directory
+- `src/agents/loader.ts`: Dynamically reads markdown agent specs from the root tree
 - `src/genome/genome.ts`: Loads agents from the genome's `agents/` directory at startup
 - `src/agents/factory.ts`: Creates agent with `availableAgents: genome.allAgents()` — no hardcoding
-- `src/agents/agent.ts`: Always filters delegatable agents based on the spec's capabilities list
+- `src/agents/agent.ts`: Filters delegatable agents via `spec.agents` + tree resolution
 
 ---
 
@@ -351,7 +340,7 @@ async syncRoot(rootDir: string): Promise<SyncRootResult> {
 }
 ```
 
-**Key Insight:** Evolved genome agents are never overwritten. Conflicts are reported but the genome version is preserved. Root capabilities are reconciled via 3-way merge.
+**Key Insight:** Evolved genome agents are never overwritten. Conflicts are reported but the genome version is preserved. Root metadata/tooling is reconciled via manifest-aware merge.
 
 ---
 
@@ -413,16 +402,16 @@ These are loaded dynamically via agent tree scanning, not hardcoded.
                  ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │ Delegate Tool (single tool for all agents)                      │
-│ - Enum: ["reader", "editor", "command-runner", ...]            │
+│ - String param: agent_name (choices supplied in prompt context) │
 │ - Parameters: agent_name, goal, hints                           │
 │ - Rendered in system prompt as <agents> section                 │
 └────────────────┬────────────────────────────────────────────────┘
-                 │ (LLM can choose any agent from enum)
+                 │ (LLM chooses agent_name from listed context)
                  ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │ Subagent Execution                                              │
 │ - Create Agent(spec: subagentSpec, availableAgents: [...], ...) │
-│ - Subagent respects its own capabilities list                   │
+│ - Subagent respects its own agents/tools lists                  │
 │ - Subagent can spawn further subagents (up to max_depth)        │
 └─────────────────────────────────────────────────────────────────┘
 ```
