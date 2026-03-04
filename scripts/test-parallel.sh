@@ -31,12 +31,18 @@ if ! [[ "$jobs" =~ ^[1-9][0-9]*$ ]]; then
 fi
 
 declare -a files=()
-while IFS= read -r path; do
-  files+=("$path")
-done < <(find test web/src -type f \( -name '*.test.ts' -o -name '*.test.tsx' \) | sort)
+if (( $# > 0 )); then
+  for path in "$@"; do
+    files+=("$path")
+  done
+else
+  while IFS= read -r path; do
+    files+=("$path")
+  done < <(find test web/src -type f \( -name '*.test.ts' -o -name '*.test.tsx' \) | sort)
+fi
 
 if (( ${#files[@]} == 0 )); then
-  echo "No test files found under test/ or web/src/." >&2
+  echo "No test files found to run." >&2
   exit 1
 fi
 

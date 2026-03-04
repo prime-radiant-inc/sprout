@@ -328,7 +328,7 @@ describe("Genome", () => {
 
 		test("loadFromDisk loads .md agent files using parseAgentMarkdown", async () => {
 			const root = join(tempDir, "load-disk-md");
-			const genome = await createInitializedGenome(root);
+			await createInitializedGenome(root);
 
 			// Write a .md agent file directly to the genome's agents directory
 			const mdContent = [

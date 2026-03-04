@@ -3,7 +3,8 @@
 ## Quick Reference
 
 ```bash
-bun run test:unit              # Unit tests only (~13s, no API keys needed)
+bun run test:unit:parallel      # Unit tests only, parallel (recommended)
+bun run test:unit               # Unit tests only, single process
 bun test                       # Full suite with VCR replay (~15s, no API keys needed)
 bun run test:integration       # Integration tests with VCR replay (<1s)
 bun run test:integration:live  # Integration tests with real API calls (~200s, needs keys)
@@ -12,7 +13,7 @@ bun run test:integration:record  # Re-record VCR fixtures (~200s, needs keys)
 
 ## Test Categories
 
-### Unit tests (`bun run test:unit`)
+### Unit tests (`bun run test:unit` / `bun run test:unit:parallel`)
 
 Fast, no external dependencies. Mock all LLM calls. These run in the pre-commit hook.
 
@@ -171,7 +172,7 @@ The git pre-commit hook (`.githooks/pre-commit`) runs:
 
 1. `biome check --staged` — Lint/format staged files
 2. `tsc --noEmit` — Typecheck (incremental)
-3. `bun run test:unit` — Unit tests only
+3. `bun run test:unit:parallel` — Unit tests only
 
 Total: ~15s. Integration tests are NOT run on commit.
 
