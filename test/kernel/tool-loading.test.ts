@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Genome } from "../../src/genome/genome.ts";
@@ -24,14 +24,27 @@ function makeSpec(overrides: Partial<AgentSpec> = {}): AgentSpec {
 
 describe("tool loading", () => {
 	let tempDir: string;
+	let genomeTemplateDir: string;
 
 	beforeAll(async () => {
 		tempDir = await mkdtemp(join(tmpdir(), "sprout-tool-load-"));
+		genomeTemplateDir = join(tempDir, "__genome-template");
+		const template = new Genome(genomeTemplateDir);
+		await template.init();
+		for (const name of ["runner", "editor"]) {
+			await template.addAgent(makeSpec({ name }));
+		}
 	});
 
 	afterAll(async () => {
 		await rm(tempDir, { recursive: true, force: true });
 	});
+
+	async function setupGenome(name: string): Promise<{ root: string; genome: Genome }> {
+		const root = join(tempDir, name);
+		await cp(genomeTemplateDir, root, { recursive: true });
+		return { root, genome: new Genome(root) };
+	}
 
 	test("buildAgentToolPrimitives returns empty array for no tools", () => {
 		const prims = buildAgentToolPrimitives([]);
@@ -39,10 +52,7 @@ describe("tool loading", () => {
 	});
 
 	test("buildAgentToolPrimitives creates primitives from tool definitions", async () => {
-		const root = join(tempDir, "build-prims");
-		const genome = new Genome(root);
-		await genome.init();
-		await genome.addAgent(makeSpec({ name: "editor" }));
+		const { genome } = await setupGenome("build-prims");
 
 		await genome.saveAgentTool("editor", {
 			name: "hello",
@@ -60,10 +70,7 @@ describe("tool loading", () => {
 	});
 
 	test("executing a loaded tool runs the script", async () => {
-		const root = join(tempDir, "exec-tool");
-		const genome = new Genome(root);
-		await genome.init();
-		await genome.addAgent(makeSpec({ name: "runner" }));
+		const { genome } = await setupGenome("exec-tool");
 
 		await genome.saveAgentTool("runner", {
 			name: "greet",
@@ -82,10 +89,7 @@ describe("tool loading", () => {
 	});
 
 	test("loaded tool uses specified interpreter", async () => {
-		const root = join(tempDir, "interp-tool");
-		const genome = new Genome(root);
-		await genome.init();
-		await genome.addAgent(makeSpec({ name: "runner" }));
+		const { genome } = await setupGenome("interp-tool");
 
 		await genome.saveAgentTool("runner", {
 			name: "node-tool",
@@ -104,10 +108,7 @@ describe("tool loading", () => {
 	});
 
 	test("loaded tool passes args as positional parameters", async () => {
-		const root = join(tempDir, "args-tool");
-		const genome = new Genome(root);
-		await genome.init();
-		await genome.addAgent(makeSpec({ name: "runner" }));
+		const { genome } = await setupGenome("args-tool");
 
 		await genome.saveAgentTool("runner", {
 			name: "echo-args",
@@ -126,10 +127,7 @@ describe("tool loading", () => {
 	});
 
 	test("loaded tool reports non-zero exit as failure", async () => {
-		const root = join(tempDir, "fail-tool");
-		const genome = new Genome(root);
-		await genome.init();
-		await genome.addAgent(makeSpec({ name: "runner" }));
+		const { genome } = await setupGenome("fail-tool");
 
 		await genome.saveAgentTool("runner", {
 			name: "fail-tool",
@@ -148,10 +146,7 @@ describe("tool loading", () => {
 
 	describe("sprout-internal tools", () => {
 		test("executes a sprout-internal tool and returns its result", async () => {
-			const root = join(tempDir, "internal-tool");
-			const genome = new Genome(root);
-			await genome.init();
-			await genome.addAgent(makeSpec({ name: "runner" }));
+			const { genome } = await setupGenome("internal-tool");
 
 			await genome.saveAgentTool("runner", {
 				name: "hello-internal",
@@ -179,10 +174,7 @@ describe("tool loading", () => {
 		});
 
 		test("sprout-internal tool receives parsed args", async () => {
-			const root = join(tempDir, "internal-args");
-			const genome = new Genome(root);
-			await genome.init();
-			await genome.addAgent(makeSpec({ name: "runner" }));
+			const { genome } = await setupGenome("internal-args");
 
 			await genome.saveAgentTool("runner", {
 				name: "echo-args",
@@ -209,10 +201,7 @@ describe("tool loading", () => {
 		});
 
 		test("sprout-internal tool wraps thrown errors", async () => {
-			const root = join(tempDir, "internal-error");
-			const genome = new Genome(root);
-			await genome.init();
-			await genome.addAgent(makeSpec({ name: "runner" }));
+			const { genome } = await setupGenome("internal-error");
 
 			await genome.saveAgentTool("runner", {
 				name: "throw-tool",
@@ -237,10 +226,7 @@ describe("tool loading", () => {
 		});
 
 		test("sprout-internal tool with invalid JSON args receives empty object", async () => {
-			const root = join(tempDir, "internal-bad-json");
-			const genome = new Genome(root);
-			await genome.init();
-			await genome.addAgent(makeSpec({ name: "runner" }));
+			const { genome } = await setupGenome("internal-bad-json");
 
 			await genome.saveAgentTool("runner", {
 				name: "check-args",
@@ -265,10 +251,7 @@ describe("tool loading", () => {
 		});
 
 		test("returns error when InternalToolContext is missing", async () => {
-			const root = join(tempDir, "sprout-internal-no-ctx");
-			const genome = new Genome(root);
-			await genome.init();
-			await genome.addAgent(makeSpec({ name: "runner" }));
+			const { genome } = await setupGenome("sprout-internal-no-ctx");
 
 			await genome.saveAgentTool("runner", {
 				name: "needs-ctx",

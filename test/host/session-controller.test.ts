@@ -63,6 +63,10 @@ function makeFakeFactory(fake: ReturnType<typeof makeFakeAgent>): AgentFactory {
 	});
 }
 
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 describe("SessionController", () => {
 	let tempDir: string;
 
@@ -121,14 +125,14 @@ describe("SessionController", () => {
 	});
 
 	test("submitGoal runs the agent and updates isRunning", async () => {
-		const fake = makeFakeAgent({ runDelay: 50 });
+		const fake = makeFakeAgent({ runDelay: 20 });
 		const factory = makeFakeFactory(fake);
 		const { controller } = makeController({ factory });
 
 		const promise = controller.submitGoal("Fix the bug");
 
 		// Give the event loop a tick for the factory to create the agent
-		await new Promise((r) => setTimeout(r, 10));
+		await sleep(2);
 		expect(controller.isRunning).toBe(true);
 
 		await promise;
@@ -139,12 +143,12 @@ describe("SessionController", () => {
 	});
 
 	test("submitGoal routes as steer when already running", async () => {
-		const fake = makeFakeAgent({ runDelay: 100 });
+		const fake = makeFakeAgent({ runDelay: 40 });
 		const factory = makeFakeFactory(fake);
 		const { controller } = makeController({ factory });
 
 		const promise = controller.submitGoal("Fix the bug");
-		await new Promise((r) => setTimeout(r, 10));
+		await sleep(2);
 
 		// Second submit while running should steer
 		await controller.submitGoal("Actually, try a different approach");
@@ -155,12 +159,12 @@ describe("SessionController", () => {
 	});
 
 	test("steer command routes to agent", async () => {
-		const fake = makeFakeAgent({ runDelay: 100 });
+		const fake = makeFakeAgent({ runDelay: 40 });
 		const factory = makeFakeFactory(fake);
 		const { bus, controller } = makeController({ factory });
 
 		const promise = controller.submitGoal("Fix the bug");
-		await new Promise((r) => setTimeout(r, 10));
+		await sleep(2);
 
 		bus.emitCommand({ kind: "steer", data: { text: "focus on tests" } });
 
@@ -177,19 +181,19 @@ describe("SessionController", () => {
 		bus.emitCommand({ kind: "submit_goal", data: { goal: "Write tests" } });
 
 		// Give the async submitGoal time to run
-		await new Promise((r) => setTimeout(r, 50));
+		await sleep(10);
 
 		expect(fake.runCalled).toBe(true);
 		expect(fake.runGoal).toBe("Write tests");
 	});
 
 	test("interrupt aborts the current signal", async () => {
-		const fake = makeFakeAgent({ runDelay: 200 });
+		const fake = makeFakeAgent({ runDelay: 60 });
 		const factory = makeFakeFactory(fake);
 		const { bus, controller } = makeController({ factory });
 
 		const promise = controller.submitGoal("Fix the bug");
-		await new Promise((r) => setTimeout(r, 10));
+		await sleep(2);
 
 		bus.emitCommand({ kind: "interrupt", data: {} });
 
@@ -200,12 +204,12 @@ describe("SessionController", () => {
 	});
 
 	test("quit command triggers interrupt", async () => {
-		const fake = makeFakeAgent({ runDelay: 200 });
+		const fake = makeFakeAgent({ runDelay: 60 });
 		const factory = makeFakeFactory(fake);
 		const { bus, controller } = makeController({ factory });
 
 		const promise = controller.submitGoal("Fix the bug");
-		await new Promise((r) => setTimeout(r, 10));
+		await sleep(2);
 
 		bus.emitCommand({ kind: "quit", data: {} });
 
@@ -215,7 +219,7 @@ describe("SessionController", () => {
 	});
 
 	test("metadata is saved as running then idle", async () => {
-		const fake = makeFakeAgent({ runDelay: 50 });
+		const fake = makeFakeAgent({ runDelay: 20 });
 		const factory = makeFakeFactory(fake);
 		const { controller, sessionsDir } = makeController({ factory });
 
@@ -242,7 +246,7 @@ describe("SessionController", () => {
 					// Read metadata during run
 					const metaPath = join(sessionsDir, `${options.sessionId}.meta.json`);
 					// Wait a tick for the save to complete
-					await new Promise((r) => setTimeout(r, 20));
+					await sleep(5);
 					const raw = await readFile(metaPath, "utf-8");
 					capturedSnapshot = JSON.parse(raw);
 					return { output: "done", success: true, stumbles: 0, turns: 1, timed_out: false };
@@ -327,7 +331,7 @@ describe("SessionController", () => {
 			bus.emitCommand({ kind: "submit_goal", data: { goal: "Fix the bug" } });
 
 			// Give async submitGoal time to run and fail
-			await new Promise((r) => setTimeout(r, 100));
+			await sleep(20);
 
 			expect(errorEvents.length).toBeGreaterThanOrEqual(1);
 			expect(errorEvents[0].data.error).toBeDefined();
@@ -363,7 +367,7 @@ describe("SessionController", () => {
 
 		try {
 			bus.emitCommand({ kind: "submit_goal", data: { goal: "Hello" } });
-			await new Promise((r) => setTimeout(r, 100));
+			await sleep(20);
 
 			// Should emit error event
 			expect(errorEvents).toHaveLength(1);
@@ -397,7 +401,7 @@ describe("SessionController", () => {
 				async run() {
 					options.events.emitEvent("plan_start", "root", 0, { turn: 1 });
 					options.events.emitEvent("plan_end", "root", 0, { turn: 1 });
-					await new Promise((r) => setTimeout(r, 20));
+					await sleep(5);
 					return { output: "done", success: true, stumbles: 0, turns: 1, timed_out: false };
 				},
 			} as any,
@@ -408,7 +412,7 @@ describe("SessionController", () => {
 		await controller.submitGoal("Test no logging in sessionsDir");
 
 		// Wait for any potential async writes
-		await new Promise((r) => setTimeout(r, 50));
+		await sleep(10);
 
 		// Only .meta.json should exist in sessionsDir, no .jsonl
 		let entries: string[];
@@ -432,7 +436,7 @@ describe("SessionController", () => {
 						context_window_size: 200000,
 					});
 					// Allow async metadata save to flush
-					await new Promise((r) => setTimeout(r, 50));
+					await sleep(10);
 					return { output: "done", success: true, stumbles: 0, turns: 3, timed_out: false };
 				},
 			} as any,
@@ -590,7 +594,7 @@ describe("SessionController", () => {
 		bus.emitEvent("steering", "root", 0, { text: "steer msg" });
 
 		// Allow async event handling to flush
-		await new Promise((r) => setTimeout(r, 50));
+		await sleep(10);
 
 		// Second goal — factory should get history containing the steer message
 		await controller.submitGoal("second");
@@ -877,7 +881,7 @@ describe("SessionController", () => {
 						context_window_size: 200000,
 					});
 					// Allow async event handling
-					await new Promise((r) => setTimeout(r, 50));
+					await sleep(10);
 					return { output: "done", success: true, stumbles: 0, turns: 2, timed_out: false };
 				},
 			} as any,
@@ -897,13 +901,13 @@ describe("SessionController", () => {
 	});
 
 	test("compact command calls requestCompaction on the agent", async () => {
-		const fake = makeFakeAgent({ runDelay: 100 });
+		const fake = makeFakeAgent({ runDelay: 40 });
 		const factory = makeFakeFactory(fake);
 		const { bus, controller } = makeController({ factory });
 
 		// Start agent running
 		const promise = controller.submitGoal("build something");
-		await new Promise((r) => setTimeout(r, 10));
+		await sleep(2);
 
 		// Issue compact command while agent is running
 		bus.emitCommand({ kind: "compact", data: {} });
@@ -959,7 +963,7 @@ describe("SessionController", () => {
 
 		// Issue compact while idle — history is short
 		bus.emitCommand({ kind: "compact", data: {} });
-		await new Promise((r) => setTimeout(r, 100));
+		await sleep(20);
 
 		const warnings = events.filter(
 			(e: any) => e.kind === "warning" && e.data.message?.includes("compact"),
@@ -1019,7 +1023,7 @@ describe("SessionController", () => {
 		bus.emitCommand({ kind: "compact", data: {} });
 
 		// Wait for async compaction
-		await new Promise((r) => setTimeout(r, 100));
+		await sleep(20);
 
 		expect(compactCalled).toBe(true);
 		expect(compactedHistoryLength).toBeGreaterThan(6);
@@ -1036,7 +1040,7 @@ describe("SessionController", () => {
 		// The controller should NOT trigger compaction — the agent handles it internally.
 		// Verify that plan_end with high token usage does NOT cause the controller
 		// to call requestCompaction.
-		const fake = makeFakeAgent({ runDelay: 200 });
+		const fake = makeFakeAgent({ runDelay: 60 });
 		const factory: AgentFactory = async (options) => {
 			const result = makeFakeFactory(fake);
 			const factoryResult = await result(options);
@@ -1045,7 +1049,7 @@ describe("SessionController", () => {
 		const { bus, controller } = makeController({ factory });
 
 		const promise = controller.submitGoal("build something big");
-		await new Promise((r) => setTimeout(r, 10));
+		await sleep(2);
 
 		// Emit plan_end with context at 90% capacity
 		bus.emitEvent("plan_end", "root", 0, {
@@ -1056,7 +1060,7 @@ describe("SessionController", () => {
 		});
 
 		// Allow event handling
-		await new Promise((r) => setTimeout(r, 50));
+		await sleep(10);
 
 		// Controller should NOT have called requestCompaction
 		expect(fake.compactionRequested).toBe(false);
@@ -1085,7 +1089,7 @@ describe("SessionController", () => {
 		});
 
 		// Wait for the async handler to settle
-		await new Promise((r) => setTimeout(r, 100));
+		await sleep(20);
 
 		// If we get here without the test runner crashing, the error was handled
 		expect(true).toBe(true);
@@ -1132,7 +1136,7 @@ describe("SessionController", () => {
 		});
 
 		// Allow event handling
-		await new Promise((r) => setTimeout(r, 50));
+		await sleep(10);
 
 		// Second submitGoal should receive compacted 1-message history
 		await controller.submitGoal("continue");
@@ -1164,7 +1168,7 @@ describe("SessionController", () => {
 
 		const { bus, controller, sessionsDir } = makeController({ factory });
 		const promise = controller.submitGoal("do stuff");
-		await new Promise((r) => setTimeout(r, 10));
+		await sleep(2);
 
 		// Interrupt
 		bus.emitCommand({ kind: "interrupt", data: {} });
@@ -1298,7 +1302,7 @@ describe("SessionController", () => {
 				async run() {
 					options.events.emitEvent("plan_start", "root", 0, { turn: 1 });
 					options.events.emitEvent("plan_end", "root", 0, { turn: 1 });
-					await new Promise((r) => setTimeout(r, 20));
+					await sleep(5);
 					return { output: "done", success: true, stumbles: 0, turns: 1, timed_out: false };
 				},
 			} as any,
@@ -1309,7 +1313,7 @@ describe("SessionController", () => {
 		await controller.submitGoal("Test no jsonl in sessionsDir");
 
 		// Wait for any async writes
-		await new Promise((r) => setTimeout(r, 50));
+		await sleep(10);
 
 		// sessionsDir should only have .meta.json, NOT .jsonl
 		let entries: string[];
@@ -1925,7 +1929,7 @@ describe("SessionController session-wide event wiring", () => {
 		bus.emitCommand({ kind: "clear", data: {} });
 
 		// Wait for the chained async calls to complete
-		await new Promise((r) => setTimeout(r, 50));
+		await sleep(10);
 
 		expect(controller.sessionId).not.toBe(oldSessionId);
 		// clearHandles must run before updateSessionId

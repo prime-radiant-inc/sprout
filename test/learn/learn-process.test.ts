@@ -52,6 +52,25 @@ function makeMockClient(responseText: string, onComplete?: (req: Request) => voi
 	} as unknown as Client;
 }
 
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForCondition(
+	condition: () => boolean,
+	timeoutMs = 500,
+	pollMs = 5,
+): Promise<void> {
+	if (condition()) return;
+	const deadline = Date.now() + timeoutMs;
+	while (!condition() && Date.now() < deadline) {
+		await sleep(pollMs);
+	}
+	if (!condition()) {
+		throw new Error("Timed out waiting for condition");
+	}
+}
+
 const ROOT_DIR = join(import.meta.dir, "../../root");
 let genomeTemplateDir: string;
 
@@ -499,7 +518,7 @@ describe("LearnProcess", () => {
 			learn.push(makeSignal({ kind: "failure" }));
 
 			// Wait for background loop to pick it up
-			await new Promise((resolve) => setTimeout(resolve, 100));
+			await waitForCondition(() => learn.queueSize() === 0);
 
 			expect(learn.queueSize()).toBe(0);
 
@@ -513,7 +532,7 @@ describe("LearnProcess", () => {
 			learn.startBackground(); // second call should be no-op
 
 			learn.push(makeSignal({ kind: "failure" }));
-			await new Promise((resolve) => setTimeout(resolve, 100));
+			await waitForCondition(() => learn.queueSize() === 0);
 			expect(learn.queueSize()).toBe(0);
 
 			await learn.stopBackground();
@@ -542,13 +561,12 @@ describe("LearnProcess", () => {
 			learn.startBackground();
 
 			// Wait for loop to enter sleep (no signals yet)
-			await new Promise((resolve) => setTimeout(resolve, 50));
+			await sleep(15);
 
 			// Push a signal — should wake the loop
 			learn.push(makeSignal({ kind: "failure" }));
 
-			// Give it a tick to process
-			await new Promise((resolve) => setTimeout(resolve, 50));
+			await waitForCondition(() => learn.queueSize() === 0);
 
 			expect(learn.queueSize()).toBe(0);
 
@@ -572,7 +590,7 @@ describe("LearnProcess", () => {
 			for (let i = 0; i < 10; i++) await metrics.recordAction("root");
 			await metrics.recordStumble("root", "error");
 
-			await new Promise((r) => setTimeout(r, 5));
+			await sleep(5);
 
 			// Apply a mutation to create a pending evaluation
 			await learn.applyMutation({
@@ -582,7 +600,7 @@ describe("LearnProcess", () => {
 			});
 			expect(learn.pendingEvaluations()).toHaveLength(1);
 
-			await new Promise((r) => setTimeout(r, 5));
+			await sleep(5);
 
 			// "After" data: same stumble rate (neutral)
 			for (let i = 0; i < 10; i++) await metrics.recordAction("root");
@@ -602,7 +620,12 @@ describe("LearnProcess", () => {
 
 			// Start background — should load and evaluate pending improvements
 			learn2.startBackground();
-			await new Promise((r) => setTimeout(r, 200));
+			await waitForCondition(
+				() =>
+					events2
+						.collected()
+						.some((e) => e.kind === "learn_mutation" && e.data.mutation_type === "evaluation"),
+			);
 
 			// Pending evaluations should have been loaded AND processed
 			expect(learn2.pendingEvaluations()).toHaveLength(0);
@@ -829,7 +852,7 @@ describe("LearnProcess", () => {
 			for (let i = 0; i < 10; i++) await metrics.recordAction("root");
 			for (let i = 0; i < 5; i++) await metrics.recordStumble("root", "error");
 
-			await new Promise((r) => setTimeout(r, 5));
+			await sleep(5);
 
 			// Apply a mutation
 			await learn.applyMutation({
@@ -839,7 +862,7 @@ describe("LearnProcess", () => {
 			});
 			expect(learn.pendingEvaluations()).toHaveLength(1);
 
-			await new Promise((r) => setTimeout(r, 5));
+			await sleep(5);
 
 			// "After" data: low stumble rate (improved!)
 			for (let i = 0; i < 10; i++) await metrics.recordAction("root");
@@ -858,7 +881,7 @@ describe("LearnProcess", () => {
 			for (let i = 0; i < 10; i++) await metrics.recordAction("root");
 			await metrics.recordStumble("root", "error");
 
-			await new Promise((r) => setTimeout(r, 5));
+			await sleep(5);
 
 			// Apply a mutation
 			await learn.applyMutation({
@@ -867,7 +890,7 @@ describe("LearnProcess", () => {
 				system_prompt: "Slightly different prompt",
 			});
 
-			await new Promise((r) => setTimeout(r, 5));
+			await sleep(5);
 
 			// "After" data: same stumble rate
 			for (let i = 0; i < 10; i++) await metrics.recordAction("root");
@@ -888,7 +911,7 @@ describe("LearnProcess", () => {
 			for (let i = 0; i < 10; i++) await metrics.recordAction("root");
 			await metrics.recordStumble("root", "error");
 
-			await new Promise((r) => setTimeout(r, 5));
+			await sleep(5);
 
 			// Apply a harmful mutation
 			await learn.applyMutation({
@@ -898,7 +921,7 @@ describe("LearnProcess", () => {
 			});
 			expect(learn.pendingEvaluations()).toHaveLength(1);
 
-			await new Promise((r) => setTimeout(r, 5));
+			await sleep(5);
 
 			// "After" data: high stumble rate (worse!)
 			for (let i = 0; i < 10; i++) await metrics.recordAction("root");
@@ -922,7 +945,7 @@ describe("LearnProcess", () => {
 			for (let i = 0; i < 10; i++) await metrics.recordAction("root");
 			await metrics.recordStumble("root", "error");
 
-			await new Promise((r) => setTimeout(r, 5));
+			await sleep(5);
 
 			await learn.applyMutation({
 				type: "update_agent",
@@ -930,7 +953,7 @@ describe("LearnProcess", () => {
 				system_prompt: "Event test prompt",
 			});
 
-			await new Promise((r) => setTimeout(r, 5));
+			await sleep(5);
 
 			// "After" data: same stumble rate (neutral)
 			for (let i = 0; i < 10; i++) await metrics.recordAction("root");
@@ -953,7 +976,7 @@ describe("LearnProcess", () => {
 			for (let i = 0; i < 10; i++) await metrics.recordAction("root");
 			await metrics.recordStumble("root", "error");
 
-			await new Promise((r) => setTimeout(r, 5));
+			await sleep(5);
 
 			await learn.applyMutation({
 				type: "update_agent",
@@ -961,7 +984,7 @@ describe("LearnProcess", () => {
 				system_prompt: "Bad prompt",
 			});
 
-			await new Promise((r) => setTimeout(r, 5));
+			await sleep(5);
 
 			// "After" data: high stumble rate (worse!)
 			for (let i = 0; i < 10; i++) await metrics.recordAction("root");
@@ -986,9 +1009,9 @@ describe("LearnProcess", () => {
 			await metrics.recordStumble("code-reader", "error");
 
 			// Delay ensures boundary timestamp is strictly after all "before" entries
-			await new Promise((r) => setTimeout(r, 5));
+			await sleep(5);
 			const beforeTimestamp = Date.now();
-			await new Promise((r) => setTimeout(r, 5));
+			await sleep(5);
 
 			// After: 5 stumbles / 10 actions = 0.5 (worse!)
 			for (let i = 0; i < 10; i++) await metrics.recordAction("code-reader");
@@ -1007,9 +1030,9 @@ describe("LearnProcess", () => {
 			for (let i = 0; i < 10; i++) await metrics.recordAction("code-reader");
 			for (let i = 0; i < 5; i++) await metrics.recordStumble("code-reader", "error");
 
-			await new Promise((r) => setTimeout(r, 5));
+			await sleep(5);
 			const beforeTimestamp = Date.now();
-			await new Promise((r) => setTimeout(r, 5));
+			await sleep(5);
 
 			// After: 1 stumble / 10 actions = 0.1 (better!)
 			for (let i = 0; i < 10; i++) await metrics.recordAction("code-reader");
@@ -1027,9 +1050,9 @@ describe("LearnProcess", () => {
 			for (let i = 0; i < 10; i++) await metrics.recordAction("code-reader");
 			await metrics.recordStumble("code-reader", "error");
 
-			await new Promise((r) => setTimeout(r, 5));
+			await sleep(5);
 			const beforeTimestamp = Date.now();
-			await new Promise((r) => setTimeout(r, 5));
+			await sleep(5);
 
 			// After: 1 stumble / 10 actions = 0.1 (same — within 0.05 threshold)
 			for (let i = 0; i < 10; i++) await metrics.recordAction("code-reader");

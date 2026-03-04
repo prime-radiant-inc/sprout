@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Genome, git } from "../../src/genome/genome.ts";
@@ -22,14 +22,27 @@ function makeSpec(overrides: Partial<AgentSpec> = {}): AgentSpec {
 
 describe("Genome workspace", () => {
 	let tempDir: string;
+	let genomeTemplateDir: string;
 
 	beforeAll(async () => {
 		tempDir = await mkdtemp(join(tmpdir(), "sprout-workspace-"));
+		genomeTemplateDir = join(tempDir, "__genome-template");
+		const template = new Genome(genomeTemplateDir);
+		await template.init();
+		for (const name of ["editor", "runner", "task-manager", "reader", "mcp"]) {
+			await template.addAgent(makeSpec({ name }));
+		}
 	});
 
 	afterAll(async () => {
 		await rm(tempDir, { recursive: true, force: true });
 	});
+
+	async function setupGenome(name: string): Promise<{ root: string; genome: Genome }> {
+		const root = join(tempDir, name);
+		await cp(genomeTemplateDir, root, { recursive: true });
+		return { root, genome: new Genome(root) };
+	}
 
 	describe("agentDir", () => {
 		test("returns path to agent directory", () => {
@@ -40,10 +53,7 @@ describe("Genome workspace", () => {
 
 	describe("saveAgentTool", () => {
 		test("writes tool file with YAML frontmatter and makes executable", async () => {
-			const root = join(tempDir, "save-tool");
-			const genome = new Genome(root);
-			await genome.init();
-			await genome.addAgent(makeSpec({ name: "editor" }));
+			const { root, genome } = await setupGenome("save-tool");
 
 			await genome.saveAgentTool("editor", {
 				name: "lint-fix",
@@ -71,10 +81,7 @@ describe("Genome workspace", () => {
 		});
 
 		test("defaults interpreter to bash", async () => {
-			const root = join(tempDir, "save-tool-default");
-			const genome = new Genome(root);
-			await genome.init();
-			await genome.addAgent(makeSpec({ name: "runner" }));
+			const { root, genome } = await setupGenome("save-tool-default");
 
 			await genome.saveAgentTool("runner", {
 				name: "test-run",
@@ -88,10 +95,7 @@ describe("Genome workspace", () => {
 		});
 
 		test("git commits the tool", async () => {
-			const root = join(tempDir, "save-tool-git");
-			const genome = new Genome(root);
-			await genome.init();
-			await genome.addAgent(makeSpec({ name: "editor" }));
+			const { root, genome } = await setupGenome("save-tool-git");
 
 			await genome.saveAgentTool("editor", {
 				name: "format",
@@ -109,10 +113,7 @@ describe("Genome workspace", () => {
 
 	describe("saveAgentFile", () => {
 		test("writes file to agent files directory", async () => {
-			const root = join(tempDir, "save-file");
-			const genome = new Genome(root);
-			await genome.init();
-			await genome.addAgent(makeSpec({ name: "editor" }));
+			const { root, genome } = await setupGenome("save-file");
 
 			await genome.saveAgentFile("editor", {
 				name: "style-guide.md",
@@ -125,10 +126,7 @@ describe("Genome workspace", () => {
 		});
 
 		test("git commits the file", async () => {
-			const root = join(tempDir, "save-file-git");
-			const genome = new Genome(root);
-			await genome.init();
-			await genome.addAgent(makeSpec({ name: "editor" }));
+			const { root, genome } = await setupGenome("save-file-git");
 
 			await genome.saveAgentFile("editor", {
 				name: "notes.md",
@@ -145,20 +143,14 @@ describe("Genome workspace", () => {
 
 	describe("loadAgentTools", () => {
 		test("returns empty array when no tools directory exists", async () => {
-			const root = join(tempDir, "load-tools-empty");
-			const genome = new Genome(root);
-			await genome.init();
-			await genome.addAgent(makeSpec({ name: "editor" }));
+			const { genome } = await setupGenome("load-tools-empty");
 
 			const tools = await genome.loadAgentTools("editor");
 			expect(tools).toEqual([]);
 		});
 
 		test("parses tool files and returns tool definitions", async () => {
-			const root = join(tempDir, "load-tools");
-			const genome = new Genome(root);
-			await genome.init();
-			await genome.addAgent(makeSpec({ name: "editor" }));
+			const { genome } = await setupGenome("load-tools");
 
 			await genome.saveAgentTool("editor", {
 				name: "lint-fix",
@@ -187,10 +179,7 @@ describe("Genome workspace", () => {
 		});
 
 		test("tools include provenance field", async () => {
-			const root = join(tempDir, "load-tools-provenance");
-			const genome = new Genome(root);
-			await genome.init();
-			await genome.addAgent(makeSpec({ name: "editor" }));
+			const { genome } = await setupGenome("load-tools-provenance");
 
 			await genome.saveAgentTool("editor", {
 				name: "lint-fix",
@@ -206,20 +195,14 @@ describe("Genome workspace", () => {
 
 	describe("listAgentFiles", () => {
 		test("returns empty array when no files directory exists", async () => {
-			const root = join(tempDir, "list-files-empty");
-			const genome = new Genome(root);
-			await genome.init();
-			await genome.addAgent(makeSpec({ name: "editor" }));
+			const { genome } = await setupGenome("list-files-empty");
 
 			const files = await genome.listAgentFiles("editor");
 			expect(files).toEqual([]);
 		});
 
 		test("returns file names and sizes", async () => {
-			const root = join(tempDir, "list-files");
-			const genome = new Genome(root);
-			await genome.init();
-			await genome.addAgent(makeSpec({ name: "editor" }));
+			const { genome } = await setupGenome("list-files");
 
 			await genome.saveAgentFile("editor", {
 				name: "style-guide.md",
@@ -244,10 +227,7 @@ describe("Genome workspace", () => {
 
 	describe("loadAgentToolsWithRoot", () => {
 		test("loads tools from bootstrap when genome has none", async () => {
-			const root = join(tempDir, "two-layer-bootstrap-only");
-			const genome = new Genome(root);
-			await genome.init();
-			await genome.addAgent(makeSpec({ name: "task-manager" }));
+			const { genome } = await setupGenome("two-layer-bootstrap-only");
 
 			const rootDir = join(tempDir, "bootstrap-two-layer-1");
 			const toolDir = join(rootDir, "task-manager", "tools");
@@ -264,10 +244,7 @@ describe("Genome workspace", () => {
 		});
 
 		test("genome tool overrides bootstrap tool with same name", async () => {
-			const root = join(tempDir, "two-layer-override");
-			const genome = new Genome(root);
-			await genome.init();
-			await genome.addAgent(makeSpec({ name: "task-manager" }));
+			const { genome } = await setupGenome("two-layer-override");
 
 			await genome.saveAgentTool("task-manager", {
 				name: "task-cli",
@@ -292,10 +269,7 @@ describe("Genome workspace", () => {
 		});
 
 		test("merges genome and bootstrap tools without collision", async () => {
-			const root = join(tempDir, "two-layer-merge");
-			const genome = new Genome(root);
-			await genome.init();
-			await genome.addAgent(makeSpec({ name: "editor" }));
+			const { genome } = await setupGenome("two-layer-merge");
 
 			await genome.saveAgentTool("editor", {
 				name: "genome-tool",
@@ -320,10 +294,7 @@ describe("Genome workspace", () => {
 		});
 
 		test("returns empty when neither directory has tools", async () => {
-			const root = join(tempDir, "two-layer-empty");
-			const genome = new Genome(root);
-			await genome.init();
-			await genome.addAgent(makeSpec({ name: "reader" }));
+			const { genome } = await setupGenome("two-layer-empty");
 
 			const rootDir = join(tempDir, "bootstrap-two-layer-empty");
 			await mkdir(rootDir, { recursive: true });
@@ -333,10 +304,7 @@ describe("Genome workspace", () => {
 		});
 
 		test("finds tools in nested tree structure", async () => {
-			const root = join(tempDir, "two-layer-tree");
-			const genome = new Genome(root);
-			await genome.init();
-			await genome.addAgent(makeSpec({ name: "task-manager" }));
+			const { genome } = await setupGenome("two-layer-tree");
 
 			// Use the real root/ directory which has task-manager tools nested at
 			// root/agents/utility/agents/task-manager/tools/
@@ -350,10 +318,7 @@ describe("Genome workspace", () => {
 		});
 
 		test("finds tools in nested tree structure for mcp agent", async () => {
-			const root = join(tempDir, "two-layer-tree-mcp");
-			const genome = new Genome(root);
-			await genome.init();
-			await genome.addAgent(makeSpec({ name: "mcp" }));
+			const { genome } = await setupGenome("two-layer-tree-mcp");
 
 			const rootDir = join(import.meta.dir, "../../root");
 			const tools = await genome.loadAgentToolsWithRoot("mcp", rootDir);
