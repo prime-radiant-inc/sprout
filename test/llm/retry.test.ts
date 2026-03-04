@@ -287,7 +287,7 @@ describe("retryLLMCall", () => {
 				},
 				{
 					maxRetries: 3,
-					baseDelayMs: 100,
+					baseDelayMs: 5,
 					jitter: false, // Disable jitter for predictable delay testing
 					onRetry: (_error, _attempt, delayMs) => {
 						delays.push(delayMs);
@@ -300,9 +300,9 @@ describe("retryLLMCall", () => {
 
 		expect(delays).toHaveLength(3);
 		// baseDelay * 2^0, baseDelay * 2^1, baseDelay * 2^2
-		expect(delays[0]).toBe(100);
-		expect(delays[1]).toBe(200);
-		expect(delays[2]).toBe(400);
+		expect(delays[0]).toBe(5);
+		expect(delays[1]).toBe(10);
+		expect(delays[2]).toBe(20);
 	});
 
 	test("caps delays at maxDelayMs", async () => {
@@ -317,8 +317,8 @@ describe("retryLLMCall", () => {
 				},
 				{
 					maxRetries: 3,
-					baseDelayMs: 100,
-					maxDelayMs: 150,
+					baseDelayMs: 5,
+					maxDelayMs: 8,
 					jitter: false,
 					onRetry: (_error, _attempt, delayMs) => {
 						delays.push(delayMs);
@@ -330,10 +330,10 @@ describe("retryLLMCall", () => {
 		}
 
 		expect(delays).toHaveLength(3);
-		// 100, min(200,150)=150, min(400,150)=150
-		expect(delays[0]).toBe(100);
-		expect(delays[1]).toBe(150);
-		expect(delays[2]).toBe(150);
+		// 5, min(10,8)=8, min(20,8)=8
+		expect(delays[0]).toBe(5);
+		expect(delays[1]).toBe(8);
+		expect(delays[2]).toBe(8);
 	});
 
 	test("error with retryable: false and no status code is not retried", async () => {
@@ -432,14 +432,14 @@ describe("retryLLMCall", () => {
 				if (calls === 1) {
 					const err = new Error("Rate limited");
 					(err as any).status = 429;
-					(err as any).retry_after = 2; // 2 seconds
+					(err as any).retry_after = 0.02; // 20ms
 					throw err;
 				}
 				return dummyResponse;
 			},
 			{
 				maxRetries: 2,
-				baseDelayMs: 100,
+				baseDelayMs: 5,
 				maxDelayMs: 60_000,
 				jitter: false,
 				onRetry: (_error, _attempt, delayMs) => {
@@ -451,7 +451,7 @@ describe("retryLLMCall", () => {
 		expect(result).toBe(dummyResponse);
 		expect(calls).toBe(2);
 		expect(delays).toHaveLength(1);
-		expect(delays[0]).toBe(2000); // retry_after * 1000
+		expect(delays[0]).toBe(20); // retry_after * 1000
 	});
 
 	test("throws immediately when retry_after exceeds maxDelayMs", async () => {
@@ -483,11 +483,11 @@ describe("retryLLMCall", () => {
 
 	test("jitter keeps delays within [baseDelay*0.5, baseDelay*1.5)", async () => {
 		// Use a small baseDelay to keep the test fast. The jitter formula is
-		// delay * (0.5 + Math.random()), so for baseDelay=10 on attempt 1
-		// (multiplier 2^0 = 1), delays should be in [5, 15).
+		// delay * (0.5 + Math.random()), so for baseDelay=2 on attempt 1
+		// (multiplier 2^0 = 1), delays should be in [1, 3).
 		const delays: number[] = [];
 
-		for (let i = 0; i < 100; i++) {
+		for (let i = 0; i < 25; i++) {
 			let calls = 0;
 			await retryLLMCall(
 				async () => {
@@ -501,7 +501,7 @@ describe("retryLLMCall", () => {
 				},
 				{
 					maxRetries: 1,
-					baseDelayMs: 10,
+					baseDelayMs: 2,
 					jitter: true,
 					onRetry: (_error, _attempt, delayMs) => {
 						delays.push(delayMs);
@@ -510,11 +510,11 @@ describe("retryLLMCall", () => {
 			);
 		}
 
-		expect(delays).toHaveLength(100);
+		expect(delays).toHaveLength(25);
 		for (const delay of delays) {
-			// baseDelay=10, attempt 1: delay = 10 * (0.5 + rand) => [5, 15)
-			expect(delay).toBeGreaterThanOrEqual(5);
-			expect(delay).toBeLessThan(15);
+			// baseDelay=2, attempt 1: delay = 2 * (0.5 + rand) => [1, 3)
+			expect(delay).toBeGreaterThanOrEqual(1);
+			expect(delay).toBeLessThan(3);
 		}
 	});
 
@@ -644,7 +644,7 @@ describe("retryLLMCall", () => {
 			},
 			{
 				maxRetries: 2,
-				baseDelayMs: 100,
+				baseDelayMs: 5,
 				maxDelayMs: 60_000,
 				jitter: false,
 				onRetry: (_error, _attempt, delayMs) => {
@@ -656,8 +656,8 @@ describe("retryLLMCall", () => {
 		expect(result).toBe(dummyResponse);
 		expect(calls).toBe(2);
 		expect(delays).toHaveLength(1);
-		// Should use computed backoff (100 * 2^0 = 100), not retry_after
-		expect(delays[0]).toBe(100);
+		// Should use computed backoff (5 * 2^0 = 5), not retry_after
+		expect(delays[0]).toBe(5);
 	});
 
 	test("retry_after: -1 falls back to computed backoff", async () => {
@@ -677,7 +677,7 @@ describe("retryLLMCall", () => {
 			},
 			{
 				maxRetries: 2,
-				baseDelayMs: 100,
+				baseDelayMs: 5,
 				maxDelayMs: 60_000,
 				jitter: false,
 				onRetry: (_error, _attempt, delayMs) => {
@@ -689,8 +689,8 @@ describe("retryLLMCall", () => {
 		expect(result).toBe(dummyResponse);
 		expect(calls).toBe(2);
 		expect(delays).toHaveLength(1);
-		// Should use computed backoff (100 * 2^0 = 100), not retry_after
-		expect(delays[0]).toBe(100);
+		// Should use computed backoff (5 * 2^0 = 5), not retry_after
+		expect(delays[0]).toBe(5);
 	});
 
 	test("retries on 408 (Request Timeout)", async () => {
@@ -828,36 +828,36 @@ describe("retryLLMCall", () => {
 		// so delays can exceed maxDelayMs — intentional for thundering-herd
 		// desynchronization.
 		const delays: number[] = [];
-		const maxDelayMs = 5;
+		const maxDelayMs = 2;
 
-		for (let i = 0; i < 100; i++) {
+		for (let i = 0; i < 25; i++) {
 			let calls = 0;
-			try {
-				await retryLLMCall(
+				try {
+					await retryLLMCall(
 					async () => {
 						calls++;
 						const err = new Error("fail");
 						(err as any).status = 500;
 						throw err;
 					},
-					{
-						maxRetries: 1,
-						baseDelayMs: 100, // Larger than maxDelayMs to force capping
-						maxDelayMs,
-						jitter: true,
-						onRetry: (_error, _attempt, delayMs) => {
-							delays.push(delayMs);
+						{
+							maxRetries: 1,
+							baseDelayMs: 100, // Larger than maxDelayMs to force capping
+							maxDelayMs,
+							jitter: true,
+							onRetry: (_error, _attempt, delayMs) => {
+								delays.push(delayMs);
+							},
 						},
-					},
-				);
-			} catch {
+					);
+				} catch {
 				// Expected
 			}
 		}
 
-		expect(delays).toHaveLength(100);
+		expect(delays).toHaveLength(25);
 		for (const delay of delays) {
-			// capped = min(100, 5) = 5, then jitter: 5 * [0.5, 1.5) => [2.5, 7.5)
+			// capped = min(100, maxDelayMs), then jitter => maxDelayMs * [0.5, 1.5)
 			expect(delay).toBeGreaterThanOrEqual(maxDelayMs * 0.5);
 			expect(delay).toBeLessThan(maxDelayMs * 1.5);
 		}
@@ -869,31 +869,31 @@ describe("retryLLMCall", () => {
 		const delays: number[] = [];
 		let calls = 0;
 
-		const result = await retryLLMCall(
+			const result = await retryLLMCall(
 			async () => {
 				calls++;
 				if (calls === 1) {
 					const err = new Error("Rate limited");
 					(err as any).status = 429;
-					(err as any).retry_after = 0.05; // 0.05 * 1000 = 50ms = maxDelayMs
+					(err as any).retry_after = 0.01; // 0.01 * 1000 = 10ms = maxDelayMs
 					throw err;
 				}
 				return dummyResponse;
 			},
-			{
-				maxRetries: 2,
-				baseDelayMs: 10,
-				maxDelayMs: 50,
-				jitter: false,
-				onRetry: (_error, _attempt, delayMs) => {
-					delays.push(delayMs);
+				{
+					maxRetries: 2,
+					baseDelayMs: 5,
+					maxDelayMs: 10,
+					jitter: false,
+					onRetry: (_error, _attempt, delayMs) => {
+						delays.push(delayMs);
+					},
 				},
-			},
-		);
+			);
 
 		expect(result).toBe(dummyResponse);
 		expect(calls).toBe(2);
 		expect(delays).toHaveLength(1);
-		expect(delays[0]).toBe(50); // retry_after * 1000 = maxDelayMs exactly
+		expect(delays[0]).toBe(10); // retry_after * 1000 = maxDelayMs exactly
 	});
 });

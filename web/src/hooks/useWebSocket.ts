@@ -3,6 +3,11 @@ import type { ServerMessage } from "../../../src/web/protocol.ts";
 
 type MessageListener = (msg: ServerMessage) => void;
 
+export interface WebSocketClientOptions {
+	initialReconnectDelayMs?: number;
+	maxReconnectDelayMs?: number;
+}
+
 /**
  * Manages a WebSocket connection to the Sprout server.
  * Handles auto-reconnect with exponential backoff and message queuing.
@@ -14,8 +19,9 @@ export class WebSocketClient {
 	private ws: WebSocket | null = null;
 	private disposed = false;
 	private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-	private reconnectDelay = 1000;
-	private readonly maxReconnectDelay = 30000;
+	private readonly initialReconnectDelayMs: number;
+	private reconnectDelay: number;
+	private readonly maxReconnectDelay: number;
 	private readonly sendQueue: string[] = [];
 	private listeners: MessageListener[] = [];
 	private stateListeners: Array<(connected: boolean) => void> = [];
@@ -23,8 +29,11 @@ export class WebSocketClient {
 	connected = false;
 	lastMessage: ServerMessage | null = null;
 
-	constructor(url: string) {
+	constructor(url: string, options: WebSocketClientOptions = {}) {
 		this.url = url;
+		this.initialReconnectDelayMs = options.initialReconnectDelayMs ?? 1000;
+		this.reconnectDelay = this.initialReconnectDelayMs;
+		this.maxReconnectDelay = options.maxReconnectDelayMs ?? 30000;
 	}
 
 	/** Open the WebSocket connection. Idempotent if already connecting/connected. */
@@ -90,7 +99,7 @@ export class WebSocketClient {
 
 		ws.onopen = () => {
 			this.connected = true;
-			this.reconnectDelay = 1000;
+			this.reconnectDelay = this.initialReconnectDelayMs;
 			this.flushQueue();
 			this.notifyStateChange();
 		};

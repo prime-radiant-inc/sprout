@@ -371,7 +371,9 @@ describe("LLM progress events", () => {
 		const mockClient = {
 			providers: () => ["anthropic"],
 			complete: async (): Promise<Response> => {
-				throw new Error("API rate limit exceeded");
+				const err = new Error("API rate limit exceeded");
+				(err as any).retryable = false;
+				throw err;
 			},
 			stream: async function* () {},
 		} as unknown as Client;
@@ -562,7 +564,9 @@ describe("LLM progress events", () => {
 		const mockClient = {
 			providers: () => ["anthropic"],
 			complete: async (): Promise<Response> => {
-				throw new Error("Service unavailable");
+				const err = new Error("Service unavailable");
+				(err as any).retryable = false;
+				throw err;
 			},
 			stream: async function* () {},
 		} as unknown as Client;

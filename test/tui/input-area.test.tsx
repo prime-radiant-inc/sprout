@@ -803,7 +803,7 @@ describe("InputArea", () => {
 		stdin.write("\r");
 		await flush();
 		// Wait for the async callback to complete
-		await new Promise((r) => setTimeout(r, 20));
+		await new Promise((r) => setTimeout(r, 10));
 
 		expect(resolved).toBe(true);
 	});
@@ -854,8 +854,6 @@ describe("InputArea", () => {
 });
 
 async function flush() {
-	// Must wait long enough for React to re-render and ink to re-subscribe
-	// the useInput listener (which tears down and re-adds on every render).
-	// Under CPU contention, 10ms was insufficient and caused flaky drops.
-	await new Promise((resolve) => setTimeout(resolve, 50));
+	// Keep this above ultra-short timers to avoid dropped keystrokes under load.
+	await new Promise((resolve) => setTimeout(resolve, 20));
 }

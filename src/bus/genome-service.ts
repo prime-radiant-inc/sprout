@@ -24,6 +24,10 @@ export interface GenomeMutationServiceOptions {
 	bus: BusClient;
 	genome: Genome;
 	sessionId: string;
+	/** Max time to wait for queue drain during stop(). Default: 5000ms. */
+	stopDrainTimeoutMs?: number;
+	/** Poll interval while waiting for queue drain during stop(). Default: 10ms. */
+	stopDrainPollMs?: number;
 }
 
 /**
@@ -36,6 +40,8 @@ export class GenomeMutationService {
 	private readonly bus: BusClient;
 	private readonly genome: Genome;
 	private readonly sessionId: string;
+	private readonly stopDrainTimeoutMs: number;
+	private readonly stopDrainPollMs: number;
 	private readonly queue: MutationRequest[] = [];
 	private processing = false;
 	private started = false;
@@ -44,6 +50,8 @@ export class GenomeMutationService {
 		this.bus = options.bus;
 		this.genome = options.genome;
 		this.sessionId = options.sessionId;
+		this.stopDrainTimeoutMs = options.stopDrainTimeoutMs ?? 5_000;
+		this.stopDrainPollMs = options.stopDrainPollMs ?? 10;
 	}
 
 	/** Start subscribing to the mutations topic. */
@@ -71,9 +79,9 @@ export class GenomeMutationService {
 		await this.bus.unsubscribe(genomeMutations(this.sessionId));
 
 		// Drain remaining items with a safety timeout
-		const deadline = Date.now() + 5_000;
+		const deadline = Date.now() + this.stopDrainTimeoutMs;
 		while ((this.queue.length > 0 || this.processing) && Date.now() < deadline) {
-			await new Promise((resolve) => setTimeout(resolve, 10));
+			await new Promise((resolve) => setTimeout(resolve, this.stopDrainPollMs));
 		}
 	}
 

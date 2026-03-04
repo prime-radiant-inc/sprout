@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { EventBus } from "../../../src/host/event-bus.ts";
 import type { ServerMessage } from "../../../src/web/protocol.ts";
 import { WebServer } from "../../../src/web/server.ts";
-import { WebSocketClient } from "./useWebSocket.ts";
+import { type WebSocketClientOptions, WebSocketClient } from "./useWebSocket.ts";
 
 // --- Helpers ---
 
@@ -63,7 +63,11 @@ afterEach(async () => {
 });
 
 function createClient(url?: string): WebSocketClient {
-	const client = new WebSocketClient(url ?? `ws://localhost:${port}/ws`);
+	const reconnectOptions: WebSocketClientOptions = {
+		initialReconnectDelayMs: 20,
+		maxReconnectDelayMs: 200,
+	};
+	const client = new WebSocketClient(url ?? `ws://localhost:${port}/ws`, reconnectOptions);
 	clients.push(client);
 	return client;
 }

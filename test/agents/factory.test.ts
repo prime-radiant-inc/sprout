@@ -12,9 +12,16 @@ config({ path: join(homedir(), "prime-radiant/serf/.env") });
 
 describe("createAgent", () => {
 	let tempDir: string;
+	const rootDir = join(import.meta.dir, "../../root");
+	let sharedGenomePath: string;
+	let sharedGenome: Genome;
 
 	beforeAll(async () => {
 		tempDir = await mkdtemp(join(tmpdir(), "sprout-factory-"));
+		sharedGenomePath = join(tempDir, "factory-shared");
+		sharedGenome = new Genome(sharedGenomePath, rootDir);
+		await sharedGenome.init();
+		await sharedGenome.initFromRoot();
 	});
 
 	afterAll(async () => {
@@ -25,7 +32,7 @@ describe("createAgent", () => {
 		const genomePath = join(tempDir, "factory-fresh");
 		const result = await createAgent({
 			genomePath,
-			rootDir: join(import.meta.dir, "../../root"),
+			rootDir,
 			workDir: tempDir,
 		});
 
@@ -36,16 +43,10 @@ describe("createAgent", () => {
 	});
 
 	test("creates agent with existing genome", async () => {
-		// First, set up a genome
-		const genomePath = join(tempDir, "factory-existing");
-		const rootDir = join(import.meta.dir, "../../root");
-		const genome = new Genome(genomePath, rootDir);
-		await genome.init();
-		await genome.initFromRoot();
-
-		// Now create agent from existing genome — needs rootDir for overlay resolution
+		// Use the pre-initialized genome from beforeAll and ensure createAgent
+		// can load it from disk without needing a preloaded instance.
 		const result = await createAgent({
-			genomePath,
+			genomePath: sharedGenomePath,
 			rootDir,
 			workDir: tempDir,
 		});
@@ -55,25 +56,25 @@ describe("createAgent", () => {
 	});
 
 	test("uses specified root agent name", async () => {
-		const genomePath = join(tempDir, "factory-root");
 		const result = await createAgent({
-			genomePath,
-			rootDir: join(import.meta.dir, "../../root"),
+			genomePath: sharedGenomePath,
+			rootDir,
 			workDir: tempDir,
 			rootAgent: "editor",
+			genome: sharedGenome,
 		});
 
 		expect(result.agent.spec.name).toBe("editor");
 	});
 
 	test("accepts and forwards sessionId to agent", async () => {
-		const genomePath = join(tempDir, "factory-sessionid");
 		const customId = "CUSTOM_SESSION_ID_123456";
 		const result = await createAgent({
-			genomePath,
-			rootDir: join(import.meta.dir, "../../root"),
+			genomePath: sharedGenomePath,
+			rootDir,
 			workDir: tempDir,
 			sessionId: customId,
+			genome: sharedGenome,
 		});
 		expect(result.agent).toBeDefined();
 		expect(result.model).toBeTruthy();
@@ -83,12 +84,12 @@ describe("createAgent", () => {
 	});
 
 	test("model option overrides agent spec model", async () => {
-		const genomePath = join(tempDir, "factory-model-override");
 		const result = await createAgent({
-			genomePath,
-			rootDir: join(import.meta.dir, "../../root"),
+			genomePath: sharedGenomePath,
+			rootDir,
 			workDir: tempDir,
 			model: "claude-sonnet-4-6",
+			genome: sharedGenome,
 		});
 
 		// The root agent spec uses "best", but model override should win
@@ -97,46 +98,37 @@ describe("createAgent", () => {
 	});
 
 	test("uses pre-loaded genome instead of loading from disk", async () => {
-		const genomePath = join(tempDir, "factory-preloaded");
-		const rootDir = join(import.meta.dir, "../../root");
-		// Pre-load a genome before passing it to createAgent
-		const genome = new Genome(genomePath, rootDir);
-		await genome.init();
-		await genome.initFromRoot();
-
 		const result = await createAgent({
-			genomePath,
+			genomePath: sharedGenomePath,
 			rootDir,
 			workDir: tempDir,
-			genome,
+			genome: sharedGenome,
 		});
 
 		// The returned genome should be the exact same instance we passed in
-		expect(result.genome).toBe(genome);
+		expect(result.genome).toBe(sharedGenome);
 		expect(result.agent).toBeDefined();
 		expect(result.genome.agentCount()).toBeGreaterThanOrEqual(5);
 	});
 
 	test("throws if root agent not found", async () => {
-		const genomePath = join(tempDir, "factory-missing");
 		await expect(
 			createAgent({
-				genomePath,
-				rootDir: join(import.meta.dir, "../../root"),
+				genomePath: sharedGenomePath,
+				rootDir,
 				workDir: tempDir,
 				rootAgent: "nonexistent",
+				genome: sharedGenome,
 			}),
 		).rejects.toThrow(/not found/);
 	});
 
 	test("passes agent tree to root agent when rootDir has tree layout", async () => {
-		const genomePath = join(tempDir, "factory-tree");
-		const rootDir = join(import.meta.dir, "../../root");
-
 		const result = await createAgent({
-			genomePath,
+			genomePath: sharedGenomePath,
 			rootDir,
 			workDir: tempDir,
+			genome: sharedGenome,
 		});
 
 		// The root agent should have the delegate tool (from tree-based resolution)
@@ -156,7 +148,6 @@ describe("createAgent", () => {
 
 	test("injects dev-mode postscript for quartermaster when workDir is sprout source", async () => {
 		const genomePath = join(tempDir, "dev-mode-test");
-		const rootDir = join(import.meta.dir, "../../root");
 
 		// Use the actual sprout source dir as workDir — it will detect dev mode
 		const sproutRoot = join(import.meta.dir, "../..");
