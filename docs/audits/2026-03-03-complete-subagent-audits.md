@@ -5,6 +5,28 @@ This document preserves the full output from three independent read-only audits:
 - Design-concept audit (`Ohm`)
 - Code-quality audit (`Avicenna`)
 
+## Easy-Fix Status Update (2026-03-03)
+
+All "easy"/quick-win fixes called out in these audits are now implemented.
+
+- `Fixed` Code-quality quick win #1/#2/#3: `runLoop` interruption success semantics and truncation turn counting were corrected, and write constraints now cover `apply_patch` (including `moveTo` path targets). See `src/agents/agent.ts`, `src/kernel/path-constraints.ts`, `test/agents/agent.test.ts`, `test/agents/steering.test.ts`, `test/kernel/path-constraints.test.ts`.
+- `Fixed` Code-quality quick win #4 and finding #11: web socket client now recreates on URL changes and uses a bounded offline send queue. See `web/src/hooks/useWebSocket.ts`, `web/src/hooks/useWebSocket.test.ts`.
+- `Fixed` Code-quality medium item #2 (promoted during sprint): subscribe acknowledgments now have timeout/error propagation and pending-ack cleanup on disconnect. See `src/bus/client.ts`, `test/bus/client.test.ts`.
+- `Fixed` Code-quality finding #6: typecheck gate is green again (`bun run typecheck` passes).
+- `Fixed` Code-quality finding #7: dedicated tests were added for `apply_patch` path-constraint enforcement. See `test/kernel/path-constraints.test.ts`.
+- `Fixed` Architecture finding #9: unit/integration lanes are now explicit-script based instead of fragile grep-only filtering. See `scripts/test-unit-files.sh`, `scripts/test-integration-files.sh`, `package.json`, `docs/testing.md`.
+- `Fixed` Architecture finding #10: machine-specific dotenv setup was removed from tests and centralized in deterministic repo-local bootstrap. See `test/helpers/test-env.ts` and updated imports in tests under `test/agents`, `test/integration`, `test/learn`, and `test/llm`.
+- `Fixed` Design-concept finding #5/#6: delegation docs and orchestrator preamble were brought back in sync with runtime contracts (`tools`/`agents`, `delegate`). See `docs/DELEGATION_DATA_STRUCTURES.md`, `docs/ROOT_AGENT_DELEGATION_ARCHITECTURE.md`, `root/preambles/orchestrator.md`, `test/agents/preamble-contract.test.ts`.
+- `Fixed` Architecture performance target (30-day item #1, early): test runtime improved from the audit baseline (`90.586s`) to `40.75s` (`bun test`, 1985 passing tests).
+
+## Structural + Speed Sprint Update (2026-03-03, later)
+
+- `In progress` Agent monolith decomposition: extracted tested run-loop outcome logic and isolated LLM request/abort/retry handling behind a dedicated method seam. See `src/agents/run-loop-outcome.ts`, `src/agents/agent.ts`, `test/agents/run-loop-outcome.test.ts`, `test/agents/agent.test.ts`.
+- `In progress` CLI decomposition: extracted genome maintenance command execution from `runCli` into `src/host/cli-genome.ts`, interactive-path extraction for SIGINT and web-only lifecycle into `src/host/cli-sigint.ts` and `src/host/cli-web.ts`, resume loading/bootstrap into `src/host/cli-resume.ts` and `src/host/cli-bootstrap.ts`, list/picker flow into `src/host/cli-list.ts`, oneshot flow into `src/host/cli-oneshot.ts`, and interactive runtime orchestration into `src/host/cli-interactive.ts` (`test/host/cli-genome.test.ts`, `test/host/cli-sigint.test.ts`, `test/host/cli-web.test.ts`, `test/host/cli-resume.test.ts`, `test/host/cli-bootstrap.test.ts`, `test/host/cli-list.test.ts`, `test/host/cli-oneshot.test.ts`, `test/host/cli-interactive.test.ts`).
+- `In progress` Agent monolith decomposition (next seam): extracted tool/delegation/agent-command execution into a dedicated `executeToolCalls` method in `src/agents/agent.ts`.
+- `Improved` Test stability: hardened TUI keystroke tests with explicit `ink-testing-library` cleanup and safer flush timing in `test/tui/input-area.test.tsx` and `test/tui/app.test.tsx`.
+- `Improved` Test performance: reduced timeout-based waits and added test-only retry backoff override for agent retry tests. Full suite now runs in `38.74s` (`bun test`, 2025 passing tests).
+
 ---
 
 ## Architecture/Design Audit (`Tesla`)
