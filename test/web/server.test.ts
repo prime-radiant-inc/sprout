@@ -84,7 +84,9 @@ describe("WebServer", () => {
 			});
 			expect(unauthorized.status).toBe(401);
 
-			const ws = await connect(`ws://localhost:${remotePort}/ws?token=${encodeURIComponent(nonce!)}`);
+			const ws = await connect(
+				`ws://localhost:${remotePort}/ws?token=${encodeURIComponent(nonce!)}`,
+			);
 			clients.push(ws);
 			const snapshot = await nextMessage(ws);
 			expect(snapshot.type).toBe("snapshot");

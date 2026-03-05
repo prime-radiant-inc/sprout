@@ -235,7 +235,11 @@ export async function runInteractiveMode(
 				opts.runtime.bus.emitCommand({ kind: "submit_goal", data: { goal: text } });
 			},
 			onSlashCommand: async (cmd: SlashCommand) => {
-				const result = await opts.handleSlashCommand(cmd, opts.runtime.bus, opts.runtime.controller);
+				const result = await opts.handleSlashCommand(
+					cmd,
+					opts.runtime.bus,
+					opts.runtime.controller,
+				);
 				if (result.action === "exit") unmountFn?.();
 				else if (result.action === "start_web") {
 					if (webServer) {
@@ -279,7 +283,9 @@ export async function runInteractiveMode(
 							}
 						})();
 					} else {
-						opts.runtime.bus.emitEvent("warning", "cli", 0, { message: "Web server is not running." });
+						opts.runtime.bus.emitEvent("warning", "cli", 0, {
+							message: "Web server is not running.",
+						});
 					}
 				}
 			},

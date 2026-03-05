@@ -1,5 +1,5 @@
-import { resolve } from "node:path";
 import { randomBytes } from "node:crypto";
+import { resolve } from "node:path";
 import type { ServerWebSocket } from "bun";
 import type { SessionBus } from "../host/event-bus.ts";
 import { EVENT_CAP } from "../kernel/constants.ts";
