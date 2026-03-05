@@ -167,6 +167,7 @@ export async function runInteractiveMode(
 	const webToken = opts.command.webToken ?? process.env.SPROUT_WEB_TOKEN;
 	const staticDir = join(import.meta.dir, "../../web/dist");
 	let webServer: WebServerLike | null = null;
+	const projectDataDir = process.env.SPROUT_PROJECT_DATA_DIR ?? process.env.SPROUT_GENOME_PATH;
 
 	if (opts.command.web || opts.command.webOnly) {
 		webServer = await d.createWebServer({
@@ -179,7 +180,7 @@ export async function runInteractiveMode(
 			initialEvents: opts.initialEvents,
 			availableModels: opts.runtime.availableModels,
 			logger: opts.runtime.logger,
-			projectDataDir: process.env.SPROUT_PROJECT_DATA_DIR ?? process.env.SPROUT_GENOME_PATH,
+			projectDataDir,
 		});
 		try {
 			await webServer.start();
@@ -261,7 +262,7 @@ export async function runInteractiveMode(
 									webToken,
 									availableModels: opts.runtime.availableModels,
 									logger: opts.runtime.logger,
-									projectDataDir: process.env.SPROUT_PROJECT_DATA_DIR ?? process.env.SPROUT_GENOME_PATH,
+									projectDataDir,
 								});
 								await webServer.start();
 								opts.runtime.bus.emitEvent("warning", "cli", 0, {

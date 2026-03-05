@@ -286,6 +286,31 @@ describe("WebServer", () => {
 				await server2.stop();
 			}
 		});
+
+		test("GET /api/tasks returns empty tasks when JSON lacks a tasks key", async () => {
+			const dataDir = mkdtempSync(join(tmpdir(), "sprout-tasks-notasks-"));
+			const logsDir = join(dataDir, "logs", "tasks-notasks-session");
+			mkdirSync(logsDir, { recursive: true });
+			writeFileSync(join(logsDir, "tasks.json"), JSON.stringify({ version: 1 }));
+
+			const port2 = randomPort();
+			const server2 = new WebServer({
+				bus,
+				port: port2,
+				staticDir,
+				sessionId: "tasks-notasks-session",
+				projectDataDir: dataDir,
+			});
+			await server2.start();
+			try {
+				const resp = await fetch(`http://localhost:${port2}/api/tasks`);
+				expect(resp.status).toBe(200);
+				const body = (await resp.json()) as { tasks: unknown[] };
+				expect(body.tasks).toEqual([]);
+			} finally {
+				await server2.stop();
+			}
+		});
 	});
 
 	describe("WebSocket snapshot on connect", () => {

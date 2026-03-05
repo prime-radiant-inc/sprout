@@ -203,7 +203,7 @@ export class WebServer {
 				return Response.json({ tasks: [] });
 			}
 			const data = await file.json();
-			return Response.json({ tasks: data.tasks });
+			return Response.json({ tasks: Array.isArray(data.tasks) ? data.tasks : [] });
 		} catch {
 			return Response.json({ tasks: [] });
 		}
