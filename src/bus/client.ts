@@ -98,8 +98,16 @@ export class BusClient {
 		cbs.add(callback);
 
 		if (isFirst) {
-			this.send({ action: "subscribe", topic });
-			await this.awaitAck(topic);
+			try {
+				this.send({ action: "subscribe", topic });
+				await this.awaitAck(topic);
+			} catch (error) {
+				cbs.delete(callback);
+				if (cbs.size === 0) {
+					this.callbacks.delete(topic);
+				}
+				throw error;
+			}
 		}
 	}
 
@@ -135,11 +143,19 @@ export class BusClient {
 		}
 
 		if (isFirst) {
-			this.send({ action: "subscribe", topic });
 			// Add a placeholder so the Set is non-empty during ack wait
 			const placeholder = () => {};
-			cbs.add(placeholder);
-			await this.awaitAck(topic);
+			try {
+				cbs.add(placeholder);
+				this.send({ action: "subscribe", topic });
+				await this.awaitAck(topic);
+			} catch (error) {
+				cbs.delete(placeholder);
+				if (cbs.size === 0) {
+					this.callbacks.delete(topic);
+				}
+				throw error;
+			}
 			cbs.delete(placeholder);
 		}
 

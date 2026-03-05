@@ -57,7 +57,13 @@ export class EventBus implements SessionBus {
 			this.events = this.events.slice(-EVENT_CAP);
 		}
 		for (const listener of this.eventListeners) {
-			listener(event);
+			try {
+				listener(event);
+			} catch (err) {
+				console.error(
+					`[EventBus] event listener error: ${err instanceof Error ? err.message : String(err)}`,
+				);
+			}
 		}
 	}
 
@@ -73,7 +79,13 @@ export class EventBus implements SessionBus {
 	/** Emit a command to all subscribers. */
 	emitCommand(command: Command): void {
 		for (const listener of this.commandListeners) {
-			listener(command);
+			try {
+				listener(command);
+			} catch (err) {
+				console.error(
+					`[EventBus] command listener error: ${err instanceof Error ? err.message : String(err)}`,
+				);
+			}
 		}
 	}
 

@@ -223,6 +223,78 @@ describe("BusClient", () => {
 		await client.disconnect();
 	});
 
+	test("subscribe retries cleanly after ack timeout", async () => {
+		const pub = new BusClient(server.url);
+		const sub = new BusClient(server.url, { subscribeAckTimeoutMs: 50 });
+		await pub.connect();
+		await sub.connect();
+
+		let staleCount = 0;
+		let freshCount = 0;
+
+		// @ts-expect-error -- test override of private method
+		const originalSend = sub.send.bind(sub);
+		let dropFirstSubscribe = true;
+		// @ts-expect-error -- test override of private method
+		sub.send = (msg: any) => {
+			if (msg.action === "subscribe" && dropFirstSubscribe) {
+				dropFirstSubscribe = false;
+				return;
+			}
+			originalSend(msg);
+		};
+
+		await expect(
+			sub.subscribe("test/retry-after-timeout", () => {
+				staleCount++;
+			}),
+		).rejects.toThrow(/Subscribe acknowledgment timed out/i);
+
+		await sub.subscribe("test/retry-after-timeout", () => {
+			freshCount++;
+		});
+
+		await pub.publish("test/retry-after-timeout", "hello");
+		await delay();
+
+		expect(staleCount).toBe(0);
+		expect(freshCount).toBe(1);
+
+		await pub.disconnect();
+		await sub.disconnect();
+	});
+
+	test("waitForMessage retries cleanly after subscribe ack timeout", async () => {
+		const pub = new BusClient(server.url);
+		const sub = new BusClient(server.url, { subscribeAckTimeoutMs: 50 });
+		await pub.connect();
+		await sub.connect();
+
+		// @ts-expect-error -- test override of private method
+		const originalSend = sub.send.bind(sub);
+		let dropFirstSubscribe = true;
+		// @ts-expect-error -- test override of private method
+		sub.send = (msg: any) => {
+			if (msg.action === "subscribe" && dropFirstSubscribe) {
+				dropFirstSubscribe = false;
+				return;
+			}
+			originalSend(msg);
+		};
+
+		await expect(sub.waitForMessage("test/wait-retry", 100)).rejects.toThrow(
+			/Subscribe acknowledgment timed out/i,
+		);
+
+		const waitPromise = sub.waitForMessage("test/wait-retry", 1000);
+		await delay(50);
+		await pub.publish("test/wait-retry", "after-retry");
+		await expect(waitPromise).resolves.toBe("after-retry");
+
+		await pub.disconnect();
+		await sub.disconnect();
+	});
+
 	test("send() with closed WebSocket throws clear error", async () => {
 		const client = new BusClient(server.url);
 		await client.connect();

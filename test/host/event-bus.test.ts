@@ -29,6 +29,24 @@ describe("EventBus", () => {
 			expect(count2).toBe(1);
 		});
 
+		test("listener errors do not block other event subscribers", () => {
+			const bus = new EventBus();
+			const received: SessionEvent[] = [];
+
+			bus.onEvent(() => {
+				throw new Error("event listener exploded");
+			});
+			bus.onEvent((event) => {
+				received.push(event);
+			});
+
+			expect(() => {
+				bus.emitEvent("session_start", "root", 0, { goal: "test" });
+			}).not.toThrow();
+			expect(received).toHaveLength(1);
+			expect(received[0]!.kind).toBe("session_start");
+		});
+
 		test("unsubscribe stops delivery", () => {
 			const bus = new EventBus();
 			let count = 0;
@@ -77,6 +95,24 @@ describe("EventBus", () => {
 
 			expect(count1).toBe(1);
 			expect(count2).toBe(1);
+		});
+
+		test("listener errors do not block other command subscribers", () => {
+			const bus = new EventBus();
+			const received: Command[] = [];
+
+			bus.onCommand(() => {
+				throw new Error("command listener exploded");
+			});
+			bus.onCommand((command) => {
+				received.push(command);
+			});
+
+			expect(() => {
+				bus.emitCommand({ kind: "interrupt", data: {} });
+			}).not.toThrow();
+			expect(received).toHaveLength(1);
+			expect(received[0]!.kind).toBe("interrupt");
 		});
 
 		test("unsubscribe stops command delivery", () => {
