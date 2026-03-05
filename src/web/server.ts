@@ -101,7 +101,11 @@ export class WebServer {
 					this.pendingTaskCliAgents.add(event.agent_id);
 				}
 			}
-			if (event.kind === "primitive_end" && event.data.name === "exec" && event.data.success === true) {
+			if (
+				event.kind === "primitive_end" &&
+				event.data.name === "exec" &&
+				event.data.success === true
+			) {
 				if (this.pendingTaskCliAgents.delete(event.agent_id)) {
 					this.emitTaskUpdate(event.agent_id, event.depth);
 				}
@@ -215,7 +219,10 @@ export class WebServer {
 		try {
 			const path = `${this.projectDataDir}/logs/${this.sessionId}/tasks.json`;
 			const file = Bun.file(path);
-			if (!(await file.exists())) return;
+			if (!(await file.exists())) {
+				this.bus.emitEvent("task_update", agentId, depth, { tasks: [] });
+				return;
+			}
 			const data = await file.json();
 			const tasks = Array.isArray(data.tasks) ? data.tasks : [];
 			this.bus.emitEvent("task_update", agentId, depth, { tasks });
