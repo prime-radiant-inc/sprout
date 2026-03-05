@@ -3836,6 +3836,123 @@ describe("Agent", () => {
 		expect(actEnd).toBeDefined();
 	});
 
+	test("tree delegation prefers genome overlay spec when available", async () => {
+		const tree = new Map<string, AgentTreeEntry>([
+			[
+				"utility/reader",
+				treeEntry("reader", "utility/reader", [], {
+					tools: [],
+					constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 2 },
+				}),
+			],
+		]);
+
+		const overlayReader: AgentSpec = {
+			name: "reader",
+			description: "Overlay reader",
+			system_prompt: "Use overlay spec.",
+			model: "fast",
+			tools: ["read_file"],
+			agents: [],
+			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 2, can_spawn: false },
+			tags: [],
+			version: 2,
+		};
+
+		const orchestratorSpec: AgentSpec = {
+			name: "root",
+			description: "Orchestrator",
+			system_prompt: "You orchestrate.",
+			model: "fast",
+			tools: [],
+			agents: ["utility/reader"],
+			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5 },
+			tags: [],
+			version: 1,
+		};
+
+		const delegateMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-overlay-1",
+						name: "delegate",
+						arguments: JSON.stringify({ agent_name: "utility/reader", goal: "read quickly" }),
+					},
+				},
+			],
+		};
+		const subDoneMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "Overlay reader done." }],
+		};
+		const doneMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "Done." }],
+		};
+
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				const msg = callCount === 1 ? delegateMsg : callCount === 2 ? subDoneMsg : doneMsg;
+				return {
+					id: `mock-overlay-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: msg,
+					finish_reason: { reason: "stop" as const },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const mockGenome = {
+			getAgent: (name: string) => (name === "reader" ? overlayReader : undefined),
+			allAgents: () => [orchestratorSpec, overlayReader],
+			memories: {
+				search: () => [],
+			},
+			matchRoutingRules: () => [],
+			markMemoriesUsed: async () => {},
+			loadAgentTools: async () => [],
+			agentDir: () => tmpdir(),
+		} as unknown as import("../../src/genome/genome.ts").Genome;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: orchestratorSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			genome: mockGenome,
+			agentTree: tree,
+			agentTreeChildren: [],
+			agentTreeSelfPath: "",
+			events,
+		});
+
+		const result = await agent.run("overlay delegation test");
+		expect(result.success).toBe(true);
+
+		const actEnd = events
+			.collected()
+			.find(
+				(e) =>
+					e.kind === "act_end" &&
+					e.data.agent_name === "utility/reader" &&
+					e.data.success === true,
+			);
+		expect(actEnd).toBeDefined();
+	});
+
 	test("blocks tree delegation to agent outside effective children+spec.agents set", async () => {
 		const tree = new Map<string, AgentTreeEntry>([
 			[

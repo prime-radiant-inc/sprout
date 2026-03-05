@@ -402,7 +402,7 @@ export class Agent {
 				this.agentTreeChildren ?? [],
 				this.spec.agents,
 			);
-			return resolved.map((d) => d.spec);
+			return resolved.map((d) => this.resolveGenomeDelegateSpec(d.spec));
 		}
 		const agents: AgentSpec[] = [];
 		const source = this.genome ? this.genome.allAgents() : this.availableAgents;
@@ -415,6 +415,11 @@ export class Agent {
 			if (agentSpec) agents.push(agentSpec);
 		}
 		return agents;
+	}
+
+	private resolveGenomeDelegateSpec(spec: AgentSpec): AgentSpec {
+		if (!this.genome) return spec;
+		return this.genome.getAgent(spec.name) ?? spec;
 	}
 
 	/**
@@ -450,7 +455,7 @@ export class Agent {
 			}
 
 			return {
-				spec: match?.spec,
+				spec: match ? this.resolveGenomeDelegateSpec(match.spec) : undefined,
 				treePath: match?.path,
 				allowedNames: [...allowedNames].sort(),
 			};
