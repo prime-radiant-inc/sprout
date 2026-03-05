@@ -266,16 +266,42 @@ describe("WebSocketClient", () => {
 			expect(commands).toHaveLength(0);
 
 			// Restart the server
-			server = new WebServer({ bus, port, staticDir, sessionId: "hook-test-3" });
+			server = new WebServer({ bus, port, staticDir, sessionId: "hook-test" });
 			await server.start();
-			// Re-subscribe since new server has a new bus subscription
-			bus.onCommand((cmd) => commands.push(cmd));
 
 			await waitFor(() => client.connected, 10000);
 
 			// Queued command should have been sent
 			await waitFor(() => commands.length >= 1, 5000);
 			expect(commands[0]!.kind).toBe("interrupt");
+		});
+
+		test("queued messages are dropped when reconnect snapshot has a new session id", async () => {
+			await server.start();
+			const client = createClient();
+			client.connect();
+			await waitFor(() => client.connected);
+
+			const commands: { kind: string; data: Record<string, unknown> }[] = [];
+			bus.onCommand((cmd) => commands.push(cmd));
+
+			// Stop the server to enter disconnected state.
+			await server.stop();
+			await waitFor(() => !client.connected);
+
+			// Queue a command while disconnected.
+			client.send({
+				type: "command",
+				command: { kind: "submit_goal", data: { goal: "stale command" } },
+			});
+
+			// Restart with a different session id.
+			server = new WebServer({ bus, port, staticDir, sessionId: "hook-test-new-session" });
+			await server.start();
+			await waitFor(() => client.connected, 10000);
+			await delay(200);
+
+			expect(commands).toHaveLength(0);
 		});
 
 		test("does not reconnect after dispose()", async () => {

@@ -29,6 +29,13 @@ const INITIAL_STATUS: SessionStatus = {
 	sessionStartedAt: null,
 };
 
+function coerceSessionStatus(status: string): SessionStatus["status"] {
+	if (status === "running" || status === "interrupted") {
+		return status;
+	}
+	return "idle";
+}
+
 /**
  * Pure state management for session events and derived status.
  * Separated from React so it can be tested without a DOM.
@@ -51,18 +58,34 @@ export class EventStore {
 	/** Process an incoming server message, updating events and status. */
 	processMessage(msg: ServerMessage): void {
 		switch (msg.type) {
-			case "snapshot":
+			case "snapshot": {
+				const snapshotStatus = coerceSessionStatus(msg.session.status);
+				const snapshotModel =
+					typeof msg.session.currentModel === "string" ? msg.session.currentModel : undefined;
+				const snapshotAvailableModels = msg.session.availableModels ?? [];
+
 				this.events = msg.events;
 				this.status = {
 					...INITIAL_STATUS,
+					status: snapshotStatus,
+					model: snapshotModel ?? INITIAL_STATUS.model,
 					sessionId: msg.session.id,
-					availableModels: msg.session.availableModels ?? [],
+					availableModels: snapshotAvailableModels,
 				};
 				// Replay all events in the snapshot to derive current status
 				for (const event of msg.events) {
 					this.applyEventToStatus(event);
 				}
+				// Snapshot session metadata is authoritative on reconnect.
+				this.status = {
+					...this.status,
+					status: snapshotStatus,
+					model: snapshotModel ?? this.status.model,
+					sessionId: msg.session.id,
+					availableModels: snapshotAvailableModels,
+				};
 				break;
+			}
 
 			case "event":
 				this.events = [...this.events, msg.event];
@@ -110,7 +133,11 @@ export class EventStore {
 				break;
 
 			case "session_clear":
-				this.status = { ...INITIAL_STATUS, sessionId: (event.data.new_session_id as string) ?? this.status.sessionId };
+				this.status = {
+					...INITIAL_STATUS,
+					sessionId: (event.data.new_session_id as string) ?? this.status.sessionId,
+					availableModels: this.status.availableModels,
+				};
 				break;
 
 			case "context_update":

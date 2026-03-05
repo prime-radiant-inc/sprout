@@ -135,6 +135,25 @@ describe("EventStore", () => {
 
 			expect(store.status.availableModels).toEqual([]);
 		});
+
+		test("uses snapshot status and currentModel as authoritative", () => {
+			const store = new EventStore();
+			const events = [makeEvent("session_end")];
+
+			store.processMessage(
+				snapshotMessage(events, {
+					id: "snap-session",
+					status: "running",
+					availableModels: ["best", "fast"],
+					currentModel: "claude-sonnet-4-6",
+				}),
+			);
+
+			expect(store.status.sessionId).toBe("snap-session");
+			expect(store.status.status).toBe("running");
+			expect(store.status.model).toBe("claude-sonnet-4-6");
+			expect(store.status.availableModels).toEqual(["best", "fast"]);
+		});
 	});
 
 	describe("event appending", () => {
@@ -218,6 +237,22 @@ describe("EventStore", () => {
 			expect(store.status.contextTokens).toBe(0);
 			expect(store.status.contextWindowSize).toBe(0);
 			expect(store.status.model).toBe("");
+		});
+
+		test("preserves availableModels across session_clear", () => {
+			const store = new EventStore();
+			store.processMessage(
+				snapshotMessage([], {
+					id: "s1",
+					status: "idle",
+					availableModels: ["best", "balanced", "fast"],
+				}),
+			);
+
+			store.processMessage(eventMessage(makeEvent("session_clear", { new_session_id: "s2" })));
+
+			expect(store.status.sessionId).toBe("s2");
+			expect(store.status.availableModels).toEqual(["best", "balanced", "fast"]);
 		});
 	});
 

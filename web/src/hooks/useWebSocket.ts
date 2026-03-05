@@ -24,7 +24,10 @@ export class WebSocketClient {
 	private reconnectDelay: number;
 	private readonly maxReconnectDelay: number;
 	private readonly maxQueuedMessages: number;
-	private readonly sendQueue: string[] = [];
+	private readonly sendQueue: Array<{ payload: string; epoch: number }> = [];
+	private sessionId: string | null = null;
+	private sessionEpoch = 0;
+	private awaitingInitialSnapshot = false;
 	private listeners: MessageListener[] = [];
 	private stateListeners: Array<(connected: boolean) => void> = [];
 
@@ -64,13 +67,13 @@ export class WebSocketClient {
 	/** Send a message. Queues if not connected; sends immediately if connected. */
 	send(msg: object): void {
 		const payload = JSON.stringify(msg);
-		if (this.connected && this.ws?.readyState === WebSocket.OPEN) {
+		if (this.connected && this.ws?.readyState === WebSocket.OPEN && !this.awaitingInitialSnapshot) {
 			this.ws.send(payload);
 		} else {
 			if (this.sendQueue.length >= this.maxQueuedMessages) {
 				this.sendQueue.shift();
 			}
-			this.sendQueue.push(payload);
+			this.sendQueue.push({ payload, epoch: this.sessionEpoch });
 		}
 	}
 
@@ -106,7 +109,7 @@ export class WebSocketClient {
 		ws.onopen = () => {
 			this.connected = true;
 			this.reconnectDelay = this.initialReconnectDelayMs;
-			this.flushQueue();
+			this.awaitingInitialSnapshot = true;
 			this.notifyStateChange();
 		};
 
@@ -114,7 +117,12 @@ export class WebSocketClient {
 			const raw = typeof ev.data === "string" ? ev.data : String(ev.data);
 			try {
 				const msg = JSON.parse(raw) as ServerMessage;
+				this.trackSessionEpoch(msg);
 				this.lastMessage = msg;
+				if (this.awaitingInitialSnapshot && msg.type === "snapshot") {
+					this.awaitingInitialSnapshot = false;
+					this.flushQueue();
+				}
 				for (const listener of this.listeners) {
 					listener(msg);
 				}
@@ -126,6 +134,7 @@ export class WebSocketClient {
 		ws.onclose = () => {
 			this.connected = false;
 			this.ws = null;
+			this.awaitingInitialSnapshot = false;
 			this.notifyStateChange();
 			if (!this.disposed) {
 				this.scheduleReconnect();
@@ -141,8 +150,31 @@ export class WebSocketClient {
 
 	private flushQueue(): void {
 		while (this.sendQueue.length > 0 && this.ws?.readyState === WebSocket.OPEN) {
-			this.ws.send(this.sendQueue.shift()!);
+			const queued = this.sendQueue.shift()!;
+			if (queued.epoch !== this.sessionEpoch) continue;
+			this.ws.send(queued.payload);
 		}
+	}
+
+	private trackSessionEpoch(msg: ServerMessage): void {
+		if (msg.type === "snapshot") {
+			const nextSessionId = msg.session.id;
+			if (this.sessionId !== null && this.sessionId !== nextSessionId) {
+				this.sessionEpoch += 1;
+				this.sendQueue.length = 0;
+			}
+			this.sessionId = nextSessionId;
+			return;
+		}
+
+		if (msg.event.kind !== "session_clear") return;
+		const nextSessionId = msg.event.data.new_session_id;
+		if (typeof nextSessionId !== "string" || nextSessionId.length === 0) return;
+		if (this.sessionId !== null && this.sessionId !== nextSessionId) {
+			this.sessionEpoch += 1;
+			this.sendQueue.length = 0;
+		}
+		this.sessionId = nextSessionId;
 	}
 
 	private scheduleReconnect(): void {
