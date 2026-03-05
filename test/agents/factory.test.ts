@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -184,5 +185,31 @@ describe("createAgent", () => {
 		expect(qmPostscript).toContain(DEV_MODE_SENTINEL);
 		expect(qmPostscript).toContain("Development Mode");
 		expect(qmPostscript).toContain("Root source");
+	});
+
+	test("initializes a provided preloaded genome before dev-mode postscript save", async () => {
+		const genomePath = join(tempDir, "preloaded-no-git");
+		const preloadedGenome = new Genome(genomePath, rootDir);
+
+		// Mimic CLI preloading: load root agents into memory without creating the genome repo.
+		await preloadedGenome.loadFromDisk();
+		expect(existsSync(join(genomePath, ".git"))).toBe(false);
+
+		const sproutRoot = join(import.meta.dir, "../..");
+		expect(await isDevMode(sproutRoot)).toBe(true);
+
+		const result = await createAgent({
+			genomePath,
+			rootDir,
+			workDir: sproutRoot,
+			genome: preloadedGenome,
+			client: sharedClient,
+		});
+
+		expect(result.agent).toBeDefined();
+		expect(existsSync(join(genomePath, ".git"))).toBe(true);
+
+		const qmPostscript = await result.genome.loadAgentPostscript("quartermaster");
+		expect(qmPostscript).toContain(DEV_MODE_SENTINEL);
 	});
 });

@@ -1,8 +1,7 @@
-import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentSpawner } from "../bus/spawner.ts";
 import { DEV_MODE_POSTSCRIPT, DEV_MODE_SENTINEL, isDevMode } from "../genome/dev-mode.ts";
-import { Genome } from "../genome/genome.ts";
+import { Genome, git } from "../genome/genome.ts";
 import { LocalExecutionEnvironment } from "../kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../kernel/primitives.ts";
 import { LearnProcess } from "../learn/learn-process.ts";
@@ -55,6 +54,15 @@ export interface CreateAgentResult {
 	provider: string;
 }
 
+async function hasGenomeRepo(genomePath: string): Promise<boolean> {
+	try {
+		await git(genomePath, "rev-parse", "--git-dir");
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 /**
  * Create an agent wired to a genome with recall.
  * Handles genome initialization, root agent loading, and full wiring.
@@ -62,11 +70,9 @@ export interface CreateAgentResult {
 export async function createAgent(options: CreateAgentOptions): Promise<CreateAgentResult> {
 	const genome = options.genome ?? new Genome(options.genomePath, options.rootDir);
 
-	if (!options.genome) {
-		// Check if genome already exists (has a .git directory)
-		const isExisting = existsSync(join(options.genomePath, ".git"));
-
-		if (isExisting) {
+	const hasRepo = await hasGenomeRepo(options.genomePath);
+	if (hasRepo) {
+		if (!options.genome) {
 			await genome.loadFromDisk();
 			if (options.rootDir) {
 				const result = await genome.syncRoot();
@@ -77,11 +83,23 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 					console.error(`Root sync conflicts (genome preserved): ${result.conflicts.join(", ")}`);
 				}
 			}
-		} else {
-			await genome.init();
-			if (options.rootDir) {
+		} else if (genome.agentCount() === 0) {
+			// Callers may pass a Genome instance before loading it from disk.
+			await genome.loadFromDisk();
+		}
+	} else {
+		await genome.init();
+		if (options.rootDir) {
+			if (options.genome) {
+				// Preloaded genomes may already have root agents in memory, which blocks initFromRoot.
+				const bootstrapGenome = new Genome(options.genomePath, options.rootDir);
+				await bootstrapGenome.initFromRoot();
+			} else {
 				await genome.initFromRoot();
 			}
+		}
+		if (options.genome) {
+			await genome.loadFromDisk();
 		}
 	}
 
