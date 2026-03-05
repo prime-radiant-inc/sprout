@@ -329,6 +329,9 @@ sprout/
 ### Code Quality
 
 ```bash
+# Install project git hooks once per clone
+bun run hooks:install
+
 # Type checking
 bun run typecheck
 
@@ -340,6 +343,24 @@ bun run format
 
 # All checks
 bun run check
+
+# CI-equivalent local gate
+bun run check:ci
+
+# Deep local hygiene (CI gate + dead code + dependency cycles)
+bun run check:deep
+
+# Dead-code report (non-blocking)
+bun run deadcode
+
+# Runtime dead-code gate (unresolved-import check + trace checks)
+bun run deadcode:runtime
+
+# Strict dependency-cycle gate (non-zero on findings)
+bun run deps:cycles:strict
+
+# Repeat unit lane to catch flakes
+FLAKE_RUNS=10 bun run test:flake
 ```
 
 ### Testing
@@ -374,6 +395,9 @@ bun run test:integration:live
 ```bash
 # Run checks + typecheck + unit tests
 bun run precommit
+
+# Run pre-push checks manually (same gate as .githooks/pre-push)
+bun run check:ci && bun run deps:cycles
 ```
 
 ## How It Works — A Walkthrough

@@ -177,6 +177,34 @@ The git pre-commit hook (`.githooks/pre-commit`) runs:
 
 Total: ~15s. Integration tests are NOT run on commit.
 
+## Local Quality Automation
+
+Install project hooks once per clone:
+
+```bash
+bun run hooks:install
+```
+
+Additional local automation commands:
+
+```bash
+bun run check:ci       # lint + typecheck + architecture + unit lane
+bun run deadcode       # knip dead-code report (deps + exports, non-blocking)
+bun run deadcode:runtime  # strict runtime gate (unresolved imports + trace checks)
+bun run deadcode:trace  # validates known cross-entrypoint trace paths
+bun run deps:cycles    # madge cycle report (root + web, non-blocking)
+bun run deps:cycles:strict  # same as above, but exits non-zero on findings
+bun run check:deep     # check:ci + deadcode + deps:cycles
+FLAKE_RUNS=10 bun run test:flake  # rerun unit lane N times to catch flakes
+```
+
+The git pre-push hook (`.githooks/pre-push`) runs:
+
+1. `bun run check:ci`
+2. `bun run deps:cycles`
+
+This keeps pre-commit fast and surfaces structural debt at push time without blocking on existing backlog.
+
 ## CI Considerations
 
 For CI without API keys, `bun test` works out of the box (VCR replay). For CI that should verify real API compatibility, use `bun run test:integration:live`.
