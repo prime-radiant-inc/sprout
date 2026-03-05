@@ -62,6 +62,7 @@ describe("Sidebar", () => {
 
 				onToggle={() => {}}
 				events={[]}
+				tasks={[]}
 			/>,
 		);
 		// AgentTree renders data-agent-id attributes
@@ -80,6 +81,7 @@ describe("Sidebar", () => {
 
 				onToggle={() => {}}
 				events={[]}
+				tasks={[]}
 			/>,
 		);
 		expect(html).toContain('data-agent-id="root"');
@@ -95,6 +97,7 @@ describe("Sidebar", () => {
 
 				onToggle={() => {}}
 				events={[]}
+				tasks={[]}
 			/>,
 		);
 		// Should show summary, not agent tree nodes
@@ -122,6 +125,7 @@ describe("Sidebar", () => {
 				onSelectAgent={() => {}}
 				onToggle={() => {}}
 				events={[]}
+				tasks={[]}
 			/>,
 		);
 		// Should show tree even though idle, because tree has children

@@ -1,0 +1,63 @@
+.taskList {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-xs);
+}
+
+.header {
+	color: var(--color-text-tertiary);
+	font-family: var(--font-ui);
+	font-size: var(--font-size-xxs);
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+}
+
+.list {
+	list-style: none;
+	padding: 0;
+	margin: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+.taskRow {
+	display: flex;
+	align-items: baseline;
+	gap: var(--space-xs);
+	padding: var(--space-xxs) var(--space-sm);
+}
+
+.description {
+	color: var(--color-text-secondary);
+	font-size: var(--font-size-sm);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.statusNew {
+	color: var(--color-text-placeholder);
+	font-size: var(--font-size-xxs);
+}
+
+.statusInProgress {
+	color: var(--color-running);
+	font-size: var(--font-size-xxs);
+	animation: pulse 1.5s ease-in-out infinite;
+}
+
+.statusDone {
+	color: var(--color-completed);
+	font-size: var(--font-size-xxs);
+}
+
+.statusCancelled {
+	color: var(--color-text-placeholder);
+	font-size: var(--font-size-xxs);
+}
+
+@keyframes pulse {
+	0%, 100% { opacity: 1; }
+	50% { opacity: 0.3; }
+}

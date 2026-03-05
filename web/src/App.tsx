@@ -14,6 +14,7 @@ import { useFaviconStatus } from "./hooks/useFaviconStatus.ts";
 import { handleKeyboardShortcut } from "./hooks/useKeyboardShortcuts.ts";
 import { useResizable } from "./hooks/useResizable.ts";
 import { useWebSocket } from "./hooks/useWebSocket.ts";
+import { useTaskList } from "./hooks/useTaskList.ts";
 
 import { buildWsUrl } from "./hooks/buildWsUrl.ts";
 
@@ -29,6 +30,7 @@ export function App() {
 	const { events, status, sendCommand } = useEvents(onMessage, send);
 	const { tree } = useAgentTree(events);
 	const agentStats = useAgentStats(events);
+	const { tasks } = useTaskList(status.status === "running");
 
 	const [panelStack, setPanelStack] = useState<string[]>([]);
 	const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -246,32 +248,43 @@ export function App() {
 							onToggle={toggleSidebar}
 							events={events}
 							agentStats={agentStats}
+							tasks={tasks}
 						/>
 						<div className={styles.dragHandle} onMouseDown={onSidebarDragStart} />
 					</aside>
 				)}
 
-				<main
-					ref={conversationRef}
-					className={styles.conversation}
-					data-region="conversation"
-					onScroll={handleScroll}
-				>
-					<ConversationView
-						events={events}
-						tree={tree}
-						onSelectAgent={openPanel}
+				<div className={styles.mainColumn} data-region="main">
+					<main
+						ref={conversationRef}
+						className={styles.conversation}
+						data-region="conversation"
+						onScroll={handleScroll}
+					>
+						<ConversationView
+							events={events}
+							tree={tree}
+							onSelectAgent={openPanel}
+						/>
+						{userScrolledUp && (
+							<button
+								type="button"
+								className={styles.jumpToBottom}
+								onClick={jumpToBottom}
+							>
+								Jump to bottom
+							</button>
+						)}
+					</main>
+					<InputArea
+						isRunning={isRunning}
+						onSubmit={handleSubmit}
+						onSlashCommand={handleSlashCommand}
+						onSteer={handleSteer}
+						onInterrupt={handleInterrupt}
+						textareaRef={inputRef}
 					/>
-					{userScrolledUp && (
-						<button
-							type="button"
-							className={styles.jumpToBottom}
-							onClick={jumpToBottom}
-						>
-							Jump to bottom
-						</button>
-					)}
-				</main>
+				</div>
 				{panelStack.length > 0 && (
 					<div className={styles.panelContainer} data-region="panels">
 						{panelStack.map((agentId) => (
@@ -287,15 +300,6 @@ export function App() {
 					</div>
 				)}
 			</div>
-
-			<InputArea
-				isRunning={isRunning}
-				onSubmit={handleSubmit}
-				onSlashCommand={handleSlashCommand}
-				onSteer={handleSteer}
-				onInterrupt={handleInterrupt}
-				textareaRef={inputRef}
-			/>
 
 			{showKeyboardHelp && (
 				<KeyboardHelp onClose={() => setShowKeyboardHelp(false)} />
