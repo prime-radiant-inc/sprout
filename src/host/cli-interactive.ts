@@ -86,6 +86,7 @@ interface InteractiveModeDeps {
 		initialEvents?: SessionEvent[];
 		availableModels: string[];
 		logger: LoggerLike;
+		projectDataDir?: string;
 	}) => Promise<WebServerLike>;
 	runWebOnlyMode: typeof runWebOnlyMode;
 	createInputHistory: (historyPath: string) => Promise<InputHistoryLike>;
@@ -124,6 +125,7 @@ export async function runInteractiveMode(
 					initialEvents: serverOpts.initialEvents,
 					availableModels: serverOpts.availableModels,
 					logger: serverOpts.logger as any,
+					projectDataDir: serverOpts.projectDataDir,
 				});
 			}),
 		runWebOnlyMode: deps.runWebOnlyMode ?? runWebOnlyMode,
@@ -177,6 +179,7 @@ export async function runInteractiveMode(
 			initialEvents: opts.initialEvents,
 			availableModels: opts.runtime.availableModels,
 			logger: opts.runtime.logger,
+			projectDataDir: process.env.SPROUT_PROJECT_DATA_DIR ?? process.env.SPROUT_GENOME_PATH,
 		});
 		try {
 			await webServer.start();
@@ -258,6 +261,7 @@ export async function runInteractiveMode(
 									webToken,
 									availableModels: opts.runtime.availableModels,
 									logger: opts.runtime.logger,
+									projectDataDir: process.env.SPROUT_PROJECT_DATA_DIR ?? process.env.SPROUT_GENOME_PATH,
 								});
 								await webServer.start();
 								opts.runtime.bus.emitEvent("warning", "cli", 0, {

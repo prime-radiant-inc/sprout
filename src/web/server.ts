@@ -20,6 +20,8 @@ export interface WebServerOptions {
 	initialEvents?: SessionEvent[];
 	/** Available model names for the model selector. */
 	availableModels?: string[];
+	/** Directory for project data (task files, logs). */
+	projectDataDir?: string;
 	/** Structured logger for LLM call logging and diagnostics. */
 	logger?: import("../host/logger.ts").Logger;
 }
@@ -42,6 +44,7 @@ export class WebServer {
 
 	private readonly availableModels: string[];
 	private readonly logger?: import("../host/logger.ts").Logger;
+	private readonly projectDataDir: string | undefined;
 
 	private bunServer: ReturnType<typeof Bun.serve> | null = null;
 	private events: SessionEvent[] = [];
@@ -62,6 +65,7 @@ export class WebServer {
 		}
 		this.availableModels = opts.availableModels ?? [];
 		this.logger = opts.logger;
+		this.projectDataDir = opts.projectDataDir;
 		if (opts.initialEvents) {
 			this.events = [...opts.initialEvents];
 		}
@@ -132,6 +136,10 @@ export class WebServer {
 					});
 				}
 
+				if (url.pathname === "/api/tasks") {
+					return self.serveTasks();
+				}
+
 				// Static file serving
 				return self.serveStatic(url.pathname);
 			},
@@ -182,6 +190,23 @@ export class WebServer {
 			return new Response("Not Found", { status: 404 });
 		}
 		return new Response(file);
+	}
+
+	private async serveTasks(): Promise<Response> {
+		if (!this.projectDataDir) {
+			return Response.json({ tasks: [] });
+		}
+		try {
+			const path = `${this.projectDataDir}/logs/${this.sessionId}/tasks.json`;
+			const file = Bun.file(path);
+			if (!(await file.exists())) {
+				return Response.json({ tasks: [] });
+			}
+			const data = await file.json();
+			return Response.json({ tasks: data.tasks });
+		} catch {
+			return Response.json({ tasks: [] });
+		}
 	}
 
 	// --- Private: WebSocket ---

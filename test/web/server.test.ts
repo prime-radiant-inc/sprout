@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventBus } from "../../src/host/event-bus.ts";
 import { WebServer } from "../../src/web/server.ts";
@@ -195,6 +196,95 @@ describe("WebServer", () => {
 			const body = (await resp.json()) as { id: string; status: string };
 			expect(body.id).toBe("new-session-id");
 			expect(body.status).toBe("idle");
+		});
+
+		test("GET /api/tasks returns empty tasks when projectDataDir is not set", async () => {
+			await server.start();
+			const resp = await fetch(`http://localhost:${port}/api/tasks`);
+			expect(resp.status).toBe(200);
+			const body = (await resp.json()) as { tasks: unknown[] };
+			expect(body.tasks).toEqual([]);
+		});
+
+		test("GET /api/tasks returns empty tasks when tasks.json does not exist", async () => {
+			const port2 = randomPort();
+			const server2 = new WebServer({
+				bus,
+				port: port2,
+				staticDir,
+				sessionId: "tasks-test",
+				projectDataDir: "/tmp/nonexistent-sprout-data-dir",
+			});
+			await server2.start();
+			try {
+				const resp = await fetch(`http://localhost:${port2}/api/tasks`);
+				expect(resp.status).toBe(200);
+				const body = (await resp.json()) as { tasks: unknown[] };
+				expect(body.tasks).toEqual([]);
+			} finally {
+				await server2.stop();
+			}
+		});
+
+		test("GET /api/tasks returns tasks from tasks.json when it exists", async () => {
+			const dataDir = mkdtempSync(join(tmpdir(), "sprout-tasks-test-"));
+			const logsDir = join(dataDir, "logs", "tasks-session");
+			mkdirSync(logsDir, { recursive: true });
+			writeFileSync(
+				join(logsDir, "tasks.json"),
+				JSON.stringify({
+					tasks: [
+						{ id: "1", title: "First task", status: "in_progress" },
+						{ id: "2", title: "Second task", status: "done" },
+					],
+				}),
+			);
+
+			const port2 = randomPort();
+			const server2 = new WebServer({
+				bus,
+				port: port2,
+				staticDir,
+				sessionId: "tasks-session",
+				projectDataDir: dataDir,
+			});
+			await server2.start();
+			try {
+				const resp = await fetch(`http://localhost:${port2}/api/tasks`);
+				expect(resp.status).toBe(200);
+				const body = (await resp.json()) as { tasks: unknown[] };
+				expect(body.tasks).toEqual([
+					{ id: "1", title: "First task", status: "in_progress" },
+					{ id: "2", title: "Second task", status: "done" },
+				]);
+			} finally {
+				await server2.stop();
+			}
+		});
+
+		test("GET /api/tasks returns empty tasks when tasks.json has invalid JSON", async () => {
+			const dataDir = mkdtempSync(join(tmpdir(), "sprout-tasks-invalid-"));
+			const logsDir = join(dataDir, "logs", "tasks-invalid-session");
+			mkdirSync(logsDir, { recursive: true });
+			writeFileSync(join(logsDir, "tasks.json"), "not valid json {{{");
+
+			const port2 = randomPort();
+			const server2 = new WebServer({
+				bus,
+				port: port2,
+				staticDir,
+				sessionId: "tasks-invalid-session",
+				projectDataDir: dataDir,
+			});
+			await server2.start();
+			try {
+				const resp = await fetch(`http://localhost:${port2}/api/tasks`);
+				expect(resp.status).toBe(200);
+				const body = (await resp.json()) as { tasks: unknown[] };
+				expect(body.tasks).toEqual([]);
+			} finally {
+				await server2.stop();
+			}
 		});
 	});
 
