@@ -24,6 +24,7 @@
     "test:all": "bun test",
     "test:parallel": "bash scripts/test-parallel.sh",
     "test:watch": "bun test --watch",
+    "postinstall": "cd web && bun install",
     "precommit": "bun run check && bun run typecheck && bun run test:unit:parallel",
     "web:build": "cd web && bun run build",
     "web:dev": "cd web && bun run dev"

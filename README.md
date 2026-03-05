@@ -119,7 +119,7 @@ Sprout maintains persistent memory across sessions:
 git clone <repo-url>
 cd sprout
 
-# Install dependencies
+# Install dependencies (root + web)
 bun install
 
 # Set up your LLM provider API keys as environment variables
