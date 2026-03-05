@@ -94,6 +94,18 @@ export class WebServer {
 					this.events = this.events.slice(-EVENT_CAP);
 				}
 			}
+			// Track task-cli exec calls to emit task_update events
+			if (event.kind === "primitive_start" && event.data.name === "exec") {
+				const cmd = event.data.args && (event.data.args as Record<string, unknown>).command;
+				if (typeof cmd === "string" && cmd.includes("task-cli")) {
+					this.pendingTaskCliAgents.add(event.agent_id);
+				}
+			}
+			if (event.kind === "primitive_end" && event.data.name === "exec" && event.data.success === true) {
+				if (this.pendingTaskCliAgents.delete(event.agent_id)) {
+					this.emitTaskUpdate(event.agent_id, event.depth);
+				}
+			}
 			this.updateStatus(event);
 			this.broadcastEvent(event);
 		});
@@ -125,6 +137,16 @@ export class WebServer {
 				}
 
 				// API routes
+				if (url.pathname === "/api/auth") {
+					if (!self.isAllowedOrigin(req)) {
+						return new Response("Forbidden", { status: 403 });
+					}
+					if (!self.hasValidToken(url, req)) {
+						return Response.json({ ok: false, error: "invalid_nonce" }, { status: 401 });
+					}
+					return Response.json({ ok: true });
+				}
+
 				if (url.pathname === "/api/session") {
 					return Response.json({ id: self.sessionId, status: self.status });
 				}
@@ -134,10 +156,6 @@ export class WebServer {
 						models: self.availableModels,
 						currentModel: self.currentModel,
 					});
-				}
-
-				if (url.pathname === "/api/tasks") {
-					return self.serveTasks();
 				}
 
 				// Static file serving
@@ -192,20 +210,17 @@ export class WebServer {
 		return new Response(file);
 	}
 
-	private async serveTasks(): Promise<Response> {
-		if (!this.projectDataDir) {
-			return Response.json({ tasks: [] });
-		}
+	private async emitTaskUpdate(agentId: string, depth: number): Promise<void> {
+		if (!this.projectDataDir) return;
 		try {
 			const path = `${this.projectDataDir}/logs/${this.sessionId}/tasks.json`;
 			const file = Bun.file(path);
-			if (!(await file.exists())) {
-				return Response.json({ tasks: [] });
-			}
+			if (!(await file.exists())) return;
 			const data = await file.json();
-			return Response.json({ tasks: Array.isArray(data.tasks) ? data.tasks : [] });
+			const tasks = Array.isArray(data.tasks) ? data.tasks : [];
+			this.bus.emitEvent("task_update", agentId, depth, { tasks });
 		} catch {
-			return Response.json({ tasks: [] });
+			// File read/parse error — silently skip
 		}
 	}
 
@@ -213,6 +228,7 @@ export class WebServer {
 
 	/** Track connected clients for broadcasting. */
 	private wsClients = new Set<ServerWebSocket<unknown>>();
+	private pendingTaskCliAgents = new Set<string>();
 
 	private handleWsOpen(ws: ServerWebSocket<unknown>): void {
 		this.wsClients.add(ws);
@@ -231,6 +247,34 @@ export class WebServer {
 			},
 		};
 		ws.send(JSON.stringify(snapshot));
+		// Seed task list for new clients if no task_update event has been emitted yet
+		this.seedTasksForClient(ws);
+	}
+
+	private async seedTasksForClient(ws: ServerWebSocket<unknown>): Promise<void> {
+		// Check if any task_update event already exists in the buffered events
+		const hasTaskUpdate = this.events.some((e) => e.kind === "task_update");
+		if (hasTaskUpdate) return;
+		if (!this.projectDataDir) return;
+		try {
+			const path = `${this.projectDataDir}/logs/${this.sessionId}/tasks.json`;
+			const file = Bun.file(path);
+			if (!(await file.exists())) return;
+			const data = await file.json();
+			const tasks = Array.isArray(data.tasks) ? data.tasks : [];
+			if (tasks.length === 0) return;
+			const syntheticEvent: SessionEvent = {
+				kind: "task_update",
+				timestamp: Date.now(),
+				agent_id: "system",
+				depth: 0,
+				data: { tasks },
+			};
+			const msg: ServerMessage = { type: "event", event: syntheticEvent };
+			ws.send(JSON.stringify(msg));
+		} catch {
+			// File read/parse error — silently skip
+		}
 	}
 
 	private handleWsMessage(message: string | Buffer): void {
