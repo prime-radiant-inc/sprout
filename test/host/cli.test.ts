@@ -419,6 +419,63 @@ describe("parseArgs", () => {
 			genomePath: "/custom/path",
 		});
 	});
+
+	test("uses SPROUT_GENOME_PATH as default genome path", () => {
+		const prevSproutGenome = process.env.SPROUT_GENOME_PATH;
+		const prevXdgDataHome = process.env.XDG_DATA_HOME;
+		try {
+			process.env.SPROUT_GENOME_PATH = "/env/sprout-genome";
+			delete process.env.XDG_DATA_HOME;
+			const cmd = parseArgs([]);
+			expect(cmd).toEqual({
+				kind: "interactive",
+				genomePath: "/env/sprout-genome",
+			});
+		} finally {
+			if (prevSproutGenome === undefined) delete process.env.SPROUT_GENOME_PATH;
+			else process.env.SPROUT_GENOME_PATH = prevSproutGenome;
+			if (prevXdgDataHome === undefined) delete process.env.XDG_DATA_HOME;
+			else process.env.XDG_DATA_HOME = prevXdgDataHome;
+		}
+	});
+
+	test("uses XDG_DATA_HOME when SPROUT_GENOME_PATH is unset", () => {
+		const prevSproutGenome = process.env.SPROUT_GENOME_PATH;
+		const prevXdgDataHome = process.env.XDG_DATA_HOME;
+		try {
+			delete process.env.SPROUT_GENOME_PATH;
+			process.env.XDG_DATA_HOME = "/xdg/data";
+			const cmd = parseArgs([]);
+			expect(cmd).toEqual({
+				kind: "interactive",
+				genomePath: "/xdg/data/sprout-genome",
+			});
+		} finally {
+			if (prevSproutGenome === undefined) delete process.env.SPROUT_GENOME_PATH;
+			else process.env.SPROUT_GENOME_PATH = prevSproutGenome;
+			if (prevXdgDataHome === undefined) delete process.env.XDG_DATA_HOME;
+			else process.env.XDG_DATA_HOME = prevXdgDataHome;
+		}
+	});
+
+	test("SPROUT_GENOME_PATH takes precedence over XDG_DATA_HOME", () => {
+		const prevSproutGenome = process.env.SPROUT_GENOME_PATH;
+		const prevXdgDataHome = process.env.XDG_DATA_HOME;
+		try {
+			process.env.SPROUT_GENOME_PATH = "/sprout/override";
+			process.env.XDG_DATA_HOME = "/xdg/data";
+			const cmd = parseArgs([]);
+			expect(cmd).toEqual({
+				kind: "interactive",
+				genomePath: "/sprout/override",
+			});
+		} finally {
+			if (prevSproutGenome === undefined) delete process.env.SPROUT_GENOME_PATH;
+			else process.env.SPROUT_GENOME_PATH = prevSproutGenome;
+			if (prevXdgDataHome === undefined) delete process.env.XDG_DATA_HOME;
+			else process.env.XDG_DATA_HOME = prevXdgDataHome;
+		}
+	});
 });
 
 describe("resolveProjectDir", () => {

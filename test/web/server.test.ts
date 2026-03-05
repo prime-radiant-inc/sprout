@@ -310,6 +310,7 @@ describe("WebServer", () => {
 			ws.send("not json");
 			ws.send(JSON.stringify({ type: "wrong" }));
 			ws.send(JSON.stringify({ type: "command", command: "bad" }));
+			ws.send(JSON.stringify({ type: "command", command: { kind: "custom_thing", data: {} } }));
 
 			// Server should still be alive — emit an event and verify it arrives
 			await delay(50);

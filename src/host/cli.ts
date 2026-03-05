@@ -14,7 +14,15 @@ import { loadResumeState } from "./cli-resume.ts";
 
 export { renderEvent, truncateLines } from "../tui/render-event.ts";
 
-const DEFAULT_GENOME_PATH = join(homedir(), ".local/share/sprout-genome");
+export function defaultGenomePathFromEnv(env: NodeJS.ProcessEnv = process.env): string {
+	const explicitGenomePath = env.SPROUT_GENOME_PATH?.trim();
+	if (explicitGenomePath) return explicitGenomePath;
+
+	const xdgDataHome = env.XDG_DATA_HOME?.trim();
+	if (xdgDataHome) return join(xdgDataHome, "sprout-genome");
+
+	return join(homedir(), ".local/share/sprout-genome");
+}
 
 export interface BusInfrastructureOptions {
 	genomePath: string;
@@ -178,6 +186,7 @@ function hasUnknownFlags(args: string[]): boolean {
 
 /** Parse CLI arguments (process.argv.slice(2)) into a typed command. */
 export function parseArgs(argv: string[]): CliCommand {
+	const defaultGenomePath = defaultGenomePathFromEnv();
 	// Pre-scan for --prompt: it consumes all remaining args as the goal,
 	// which doesn't fit node:util.parseArgs' model. Handle it separately.
 	const promptIdx = argv.indexOf("--prompt");
@@ -188,7 +197,7 @@ export function parseArgs(argv: string[]): CliCommand {
 		if (hasUnknownFlags(prefix)) return { kind: "help" };
 		const gpIdx = prefix.indexOf("--genome-path");
 		const genomePath =
-			gpIdx !== -1 ? (prefix[gpIdx + 1] ?? DEFAULT_GENOME_PATH) : DEFAULT_GENOME_PATH;
+			gpIdx !== -1 ? (prefix[gpIdx + 1] ?? defaultGenomePath) : defaultGenomePath;
 		return { kind: "oneshot", goal, genomePath };
 	}
 
@@ -200,7 +209,7 @@ export function parseArgs(argv: string[]): CliCommand {
 		const prefix = argv.slice(0, genomeIdx);
 		const gpIdx = prefix.indexOf("--genome-path");
 		const genomePath =
-			gpIdx !== -1 ? (prefix[gpIdx + 1] ?? DEFAULT_GENOME_PATH) : DEFAULT_GENOME_PATH;
+			gpIdx !== -1 ? (prefix[gpIdx + 1] ?? defaultGenomePath) : defaultGenomePath;
 		if (sub === "list") return { kind: "genome-list", genomePath };
 		if (sub === "log") return { kind: "genome-log", genomePath };
 		if (sub === "rollback") {
@@ -227,7 +236,7 @@ export function parseArgs(argv: string[]): CliCommand {
 			if (hasUnknownFlags(without)) return { kind: "help" };
 			const gpIdx = without.indexOf("--genome-path");
 			const genomePath =
-				gpIdx !== -1 ? (without[gpIdx + 1] ?? DEFAULT_GENOME_PATH) : DEFAULT_GENOME_PATH;
+				gpIdx !== -1 ? (without[gpIdx + 1] ?? defaultGenomePath) : defaultGenomePath;
 			return { kind: "list", genomePath };
 		}
 	}
@@ -260,7 +269,7 @@ export function parseArgs(argv: string[]): CliCommand {
 	const vals = parsed.values;
 	if (vals.help) return { kind: "help" };
 
-	const genomePath = (vals["genome-path"] as string | undefined) ?? DEFAULT_GENOME_PATH;
+	const genomePath = (vals["genome-path"] as string | undefined) ?? defaultGenomePath;
 
 	// Validate --port
 	let port: number | undefined;
@@ -336,7 +345,7 @@ Logging:
   --debug                Include debug-level entries (use with --log-stderr)
 
 Options:
-  --genome-path <path>   Path to genome directory (default: ~/.local/share/sprout-genome)
+  --genome-path <path>   Path to genome directory (default: $SPROUT_GENOME_PATH or $XDG_DATA_HOME/sprout-genome or ~/.local/share/sprout-genome)
   --help                 Show this help message`;
 
 export type SlashCommandResult =

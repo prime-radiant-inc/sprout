@@ -27,6 +27,16 @@ export interface CommandMessage {
 	command: Command;
 }
 
+const VALID_COMMAND_KINDS = new Set<Command["kind"]>([
+	"submit_goal",
+	"steer",
+	"interrupt",
+	"compact",
+	"clear",
+	"switch_model",
+	"quit",
+]);
+
 /** Build a command envelope for transport from browser to server. */
 export function createCommandMessage(command: Command): CommandMessage {
 	return { type: "command", command };
@@ -34,8 +44,7 @@ export function createCommandMessage(command: Command): CommandMessage {
 
 /**
  * Parse a raw JSON string into a validated CommandMessage.
- * Validates structure but not command kind — the SessionController
- * decides which kinds are valid.
+ * Validates structure and command kind.
  * Throws on invalid JSON, missing fields, or wrong types.
  */
 export function parseCommandMessage(raw: string): CommandMessage {
@@ -65,6 +74,9 @@ export function parseCommandMessage(raw: string): CommandMessage {
 
 	if (typeof cmd.kind !== "string") {
 		throw new Error(`'command.kind' must be a string, got ${JSON.stringify(cmd.kind)}`);
+	}
+	if (!VALID_COMMAND_KINDS.has(cmd.kind as Command["kind"])) {
+		throw new Error(`Unknown command kind: ${JSON.stringify(cmd.kind)}`);
 	}
 
 	if (cmd.data === null || typeof cmd.data !== "object" || Array.isArray(cmd.data)) {

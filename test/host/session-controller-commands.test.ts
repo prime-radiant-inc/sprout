@@ -84,4 +84,21 @@ describe("dispatchSessionCommand", () => {
 
 		expect(switchedModel).toBe("undefined");
 	});
+
+	test("throws clear error for unknown command kind", () => {
+		expect(() =>
+			dispatchSessionCommand(
+				{ kind: "not_a_real_command", data: {} } as unknown as Command,
+				{
+					submitGoal: () => {},
+					steer: () => {},
+					interrupt: () => {},
+					compact: () => {},
+					clear: () => {},
+					switchModel: () => {},
+					quit: () => {},
+				},
+			),
+		).toThrow("Unknown command kind");
+	});
 });

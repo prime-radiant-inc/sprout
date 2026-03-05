@@ -268,7 +268,13 @@ You can also:
 
 ### Genome Path
 
-The genome is stored at `~/.local/share/sprout-genome` by default. Override with:
+Default genome path precedence:
+- `--genome-path <path>` (highest)
+- `SPROUT_GENOME_PATH`
+- `$XDG_DATA_HOME/sprout-genome`
+- `~/.local/share/sprout-genome` (fallback)
+
+Override explicitly with:
 
 ```bash
 bunx sprout --genome-path /path/to/genome

@@ -143,16 +143,12 @@ describe("parseCommandMessage", () => {
 		expect(msg.command.kind).toBe("quit");
 	});
 
-	test("unknown command kinds pass through", () => {
+	test("throws when command.kind is unknown", () => {
 		const raw = JSON.stringify({
 			type: "command",
 			command: { kind: "custom_thing", data: { foo: "bar" } },
 		});
-		const msg = parseLegacyCommandMessage(raw);
-		// Cast to string — the runtime parser accepts any kind string,
-		// even though the TypeScript type narrows to CommandKind
-		expect(msg.command.kind as string).toBe("custom_thing");
-		expect(msg.command.data.foo).toBe("bar");
+		expect(() => parseLegacyCommandMessage(raw)).toThrow("Unknown command kind");
 	});
 
 	test("throws on invalid JSON", () => {
