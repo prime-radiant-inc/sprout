@@ -1,0 +1,24 @@
+{
+	"$schema": "./node_modules/knip/schema.json",
+	"entry": [
+		"src/host/cli.ts",
+		"src/bus/agent-process.ts",
+		"src/web/server.ts",
+		"web/src/main.tsx",
+		"root/agents/utility/agents/mcp/tools/mcp-cli.ts",
+		"root/agents/utility/agents/task-manager/tools/cli.ts"
+	],
+	"project": [
+		"src/**/*.ts",
+		"src/**/*.tsx",
+		"test/**/*.ts",
+		"test/**/*.tsx",
+		"web/src/**/*.ts",
+		"web/src/**/*.tsx",
+		"root/agents/**/*.ts"
+	],
+	"paths": {
+		"@kernel/*": ["src/kernel/*"],
+		"@shared/*": ["src/shared/*"]
+	}
+}

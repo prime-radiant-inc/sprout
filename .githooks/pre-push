@@ -1,0 +1,19 @@
+#!/bin/sh
+# Pre-push hook: full CI gate + cycle checks
+unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES
+
+echo "Running CI checks before push..."
+bun run check:ci
+if [ $? -ne 0 ]; then
+  echo "CI checks failed. Fix issues before pushing."
+  exit 1
+fi
+
+echo "Running dependency cycle checks before push..."
+bun run deps:cycles
+if [ $? -ne 0 ]; then
+  echo "Dependency cycle checks failed. Fix cycles before pushing."
+  exit 1
+fi
+
+echo "Pre-push checks passed."

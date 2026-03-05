@@ -10,12 +10,24 @@
   "scripts": {
     "check": "biome check --write .",
     "check:ci": "bun run lint && bun run typecheck && bun run check:architecture && bun run test:unit:parallel",
+    "check:deep": "bun run check:ci && bun run deadcode && bun run deps:cycles",
     "check:architecture": "bun run check:host-guardrails && bun test test/architecture",
     "check:host-guardrails": "bash scripts/check-host-session-controller-boundaries.sh",
+    "deadcode": "bun run deadcode:report",
+    "deadcode:report": "bun run deadcode:report:deps && bun run deadcode:report:exports",
+    "deadcode:report:deps": "bunx knip -c knip.root.json --include dependencies,unresolved --reporter compact --no-exit-code && bunx knip --directory web -c knip.json --include dependencies,unresolved --reporter compact --no-exit-code",
+    "deadcode:report:exports": "bunx knip -c knip.cross.json --include exports --reporter compact --no-exit-code",
+    "deadcode:runtime": "bunx knip -c knip.root.json --include unresolved --reporter compact && bunx knip --directory web -c knip.json --include unresolved --reporter compact && bun run deadcode:trace",
+    "deadcode:strict": "bun run deadcode:runtime",
+    "deadcode:trace": "bash scripts/check-knip-traces.sh",
+    "deps:cycles": "bash scripts/check-deps-cycles.sh",
+    "deps:cycles:strict": "CYCLE_STRICT=1 bash scripts/check-deps-cycles.sh",
+    "hooks:install": "bash scripts/install-hooks.sh",
     "lint": "biome lint .",
     "format": "biome format --write .",
     "typecheck": "tsc --noEmit && tsc --noEmit --project web/tsconfig.json",
     "test": "bun test",
+    "test:flake": "bash scripts/test-flake.sh bun run test:unit:parallel",
     "test:unit": "bash scripts/run-tests-from-list.sh scripts/test-unit-files.sh",
     "test:unit:parallel": "bash scripts/run-tests-parallel-from-list.sh scripts/test-unit-files.sh",
     "test:integration": "VCR_MODE=replay bash scripts/run-tests-from-list.sh scripts/test-integration-files.sh",
@@ -34,7 +46,9 @@
     "@types/bun": "latest",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.1.6",
-    "ink-testing-library": "^4.0.0"
+    "ink-testing-library": "^4.0.0",
+    "knip": "^5.85.0",
+    "madge": "^8.0.0"
   },
   "peerDependencies": {
     "typescript": "^5"
@@ -43,15 +57,11 @@
     "@anthropic-ai/sdk": "^0.78.0",
     "@google/genai": "^1.42.0",
     "dotenv": "^17.3.1",
-    "highlight.js": "^11.11.1",
     "ink": "^6.8.0",
     "ink-markdown-es": "^1.4.0",
     "ink-shiki-code": "^1.0.0",
-    "isomorphic-dompurify": "^3.0.0",
-    "marked": "^15.0.12",
     "openai": "^6.22.0",
     "react": "^19.2.4",
-    "react-dom": "^19.2.4",
     "yaml": "^2.8.2"
   }
 }

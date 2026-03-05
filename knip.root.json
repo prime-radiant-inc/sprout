@@ -1,0 +1,18 @@
+{
+	"$schema": "./node_modules/knip/schema.json",
+	"entry": [
+		"src/host/cli.ts",
+		"src/host/cli-oneshot.ts",
+		"src/bus/agent-process.ts",
+		"src/web/server.ts",
+		"root/agents/utility/agents/mcp/tools/mcp-cli.ts",
+		"root/agents/utility/agents/task-manager/tools/cli.ts"
+	],
+	"project": [
+		"src/**/*.ts",
+		"src/**/*.tsx",
+		"test/**/*.ts",
+		"test/**/*.tsx",
+		"root/agents/**/*.ts"
+	]
+}
