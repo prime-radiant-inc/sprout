@@ -408,6 +408,23 @@ describe("groupEvents", () => {
 			expect(result[1]!.event.kind).toBe("act_end");
 		});
 
+		test("main view suppresses depth>0 events even without known child_id", () => {
+			const tree = makeTree();
+			const events: SessionEvent[] = [
+				makeEvent("perceive", { goal: "root goal" }, { agent_id: "root", depth: 0, timestamp: 1000 }),
+				// Simulates resumed/shared deep-agent events without a local act_start handshake
+				makeEvent("plan_end", { text: "deep reply" }, { agent_id: "deep-agent", depth: 2, timestamp: 1001 }),
+				makeEvent("perceive", { goal: "still deep" }, { agent_id: "deep-agent", depth: 2, timestamp: 1002 }),
+				makeEvent("plan_end", { text: "root reply" }, { agent_id: "root", depth: 0, timestamp: 1003 }),
+			];
+			const result = groupEvents(events, undefined, tree);
+			expect(result).toHaveLength(2);
+			expect(result[0]!.event.agent_id).toBe("root");
+			expect(result[0]!.event.kind).toBe("perceive");
+			expect(result[1]!.event.agent_id).toBe("root");
+			expect(result[1]!.event.kind).toBe("plan_end");
+		});
+
 		test("child events still appear when agentFilter matches child", () => {
 			const childId = "child-visible";
 			const tree = treePlusChild(childId);

@@ -100,6 +100,11 @@ export function groupEvents(
 ): GroupedEvent[] {
 	const allowedIds =
 		agentFilter && tree ? getDescendantIds(tree, agentFilter) : null;
+	const rootAgentId = tree?.agentId;
+	const visibleMainAgentIds =
+		!agentFilter && rootAgentId
+			? new Set([rootAgentId, "session", "cli", "logger"])
+			: null;
 	const nameMap = tree ? buildNameMap(tree) : new Map<string, string>();
 	const startTimes = new Map<string, number>();
 	const streamBuffers = new Map<string, string>();
@@ -134,7 +139,12 @@ export function groupEvents(
 		}
 
 		// Track child_ids from act_start events with child_id
-		if (merging && event.kind === "act_start" && typeof event.data.child_id === "string") {
+		if (
+			merging &&
+			event.kind === "act_start" &&
+			typeof event.data.child_id === "string" &&
+			(!rootAgentId || event.agent_id === rootAgentId)
+		) {
 			directChildIds.add(event.data.child_id);
 		}
 
@@ -164,6 +174,12 @@ export function groupEvents(
 				const text = event.data.text;
 				childPeek.set(event.agent_id, text.length > 60 ? `${text.slice(0, 60)}...` : text);
 			}
+			continue;
+		}
+
+		// In the main (unfiltered) view, render only the root/session surface.
+		// Child-agent events should be represented via delegation cards, not raw text.
+		if (merging && visibleMainAgentIds && !visibleMainAgentIds.has(event.agent_id)) {
 			continue;
 		}
 

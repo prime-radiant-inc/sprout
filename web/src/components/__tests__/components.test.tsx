@@ -1196,8 +1196,9 @@ describe("ConversationView", () => {
 		expect(html).toContain("is responding");
 	});
 
-	test("StreamingBanner shows resolved agent name from tree", () => {
-		// Root (depth 0) dispatches code-editor; child streams plan_delta
+	test("StreamingBanner does not appear when only depth>0 streaming events are present", () => {
+		// Root (depth 0) dispatches code-editor; child streams plan_delta.
+		// Main view should not surface depth>0 child stream markers.
 		const events: SessionEvent[] = [
 			makeEvent("act_start", { agent_name: "code-editor", goal: "edit" }, { agent_id: "root", depth: 0 }),
 			makeEvent("plan_delta", { text: "thinking..." }, { agent_id: "code-editor", depth: 1, timestamp: 1000 }),
@@ -1206,8 +1207,7 @@ describe("ConversationView", () => {
 		const html = renderToStaticMarkup(
 			<ConversationView events={events} tree={tree} />,
 		);
-		expect(html).toContain("is responding");
-		expect(html).toContain("code-editor");
+		expect(html).not.toContain("is responding");
 	});
 });
 
