@@ -1,3 +1,13 @@
+<!-- DOCS_NAV:START -->
+## Related Docs
+- [Docs Home](../README.md)
+- [Audits Index](./README.md)
+- [Architecture](../architecture.md)
+- [Testing](../testing.md)
+- [Refactor Backlog Plan](../plans/2026-03-04-audit-refactor-backlog-yagni-dry.md)
+- [Plans Index](../plans/README.md)
+<!-- DOCS_NAV:END -->
+
 ## 1) Concept verdict
 Jesse, the concept is currently **not contract-coherent**. Core promises (self-extension, self-improving agent specs, and “canonical” delegation docs) drift from default runtime behavior.
 

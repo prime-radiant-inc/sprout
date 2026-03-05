@@ -1,5 +1,15 @@
 # Genome Format Unification Implementation Plan
 
+<!-- DOCS_NAV:START -->
+## Related Docs
+- [Docs Home](../README.md)
+- [Plans Index](./README.md)
+- [Architecture](../architecture.md)
+- [Testing](../testing.md)
+- [Audit Backlog Plan](./2026-03-04-audit-refactor-backlog-yagni-dry.md)
+- [Audits Index](../audits/README.md)
+<!-- DOCS_NAV:END -->
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Eliminate the legacy `.yaml` genome format. The genome uses the same YAML-fronted Markdown (`.md`) format as the root directory — one parser, one serializer, one format.

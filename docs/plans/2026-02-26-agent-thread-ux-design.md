@@ -1,5 +1,15 @@
 # Agent Thread UX Design
 
+<!-- DOCS_NAV:START -->
+## Related Docs
+- [Docs Home](../README.md)
+- [Plans Index](./README.md)
+- [Architecture](../architecture.md)
+- [Testing](../testing.md)
+- [Audit Backlog Plan](./2026-03-04-audit-refactor-backlog-yagni-dry.md)
+- [Audits Index](../audits/README.md)
+<!-- DOCS_NAV:END -->
+
 **Goal:** Replace the flat event log with a threaded conversation model that collapses child agent activity into delegation cards, supports drill-down via stacking side panels, and provides a collapsible sidebar tree for navigation.
 
 **Architecture:** Kernel emits unique child IDs (ULIDs) per delegation. The web UI groups child events into collapsed cards with live-peek summaries. Side panels stack Obsidian-style for deep delegation chains. A sidebar tree provides structural overview.

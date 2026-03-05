@@ -1,5 +1,15 @@
 # Agent Tree & Delegation Redesign
 
+<!-- DOCS_NAV:START -->
+## Related Docs
+- [Docs Home](../README.md)
+- [Plans Index](./README.md)
+- [Architecture](../architecture.md)
+- [Testing](../testing.md)
+- [Audit Backlog Plan](./2026-03-04-audit-refactor-backlog-yagni-dry.md)
+- [Audits Index](../audits/README.md)
+<!-- DOCS_NAV:END -->
+
 **Goal:** Replace the prescriptive capabilities allowlist with directory-based auto-discovery, path-based delegation, and YAML-fronted Markdown agent specs.
 
 **Problem:** Agents list their delegation targets in a flat `capabilities` field. New agents are invisible until someone manually updates every parent's capabilities list. This defeats the purpose of a self-improving system.

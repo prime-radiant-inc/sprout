@@ -1,3 +1,13 @@
+<!-- DOCS_NAV:START -->
+## Related Docs
+- [Docs Home](../README.md)
+- [Audits Index](./README.md)
+- [Architecture](../architecture.md)
+- [Testing](../testing.md)
+- [Refactor Backlog Plan](../plans/2026-03-04-audit-refactor-backlog-yagni-dry.md)
+- [Plans Index](../plans/README.md)
+<!-- DOCS_NAV:END -->
+
 ## 1) Overall grade + confidence
 **Grade: C+**  
 **Confidence: Medium-High** (lint/typecheck/architecture lanes ran cleanly; full test/build verification was constrained by read-only FS behavior, but core findings are code-evidenced).

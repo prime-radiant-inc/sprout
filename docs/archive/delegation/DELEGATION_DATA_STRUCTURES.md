@@ -1,5 +1,14 @@
 # Agent Delegation Data Structures
 
+<!-- DOCS_NAV:START -->
+## Related Docs
+- [Docs Home](../../README.md)
+- [Archive Index](../README.md)
+- [Current Delegation Quick Start](../../QUICK_START_DELEGATION_GUIDE.md)
+- [Current Delegation Code Flow](../../DELEGATION_CODE_FLOW.md)
+- [Architecture](../../architecture.md)
+<!-- DOCS_NAV:END -->
+
 This document shows the key TypeScript interfaces and how data flows through the system.
 
 > Contract update (2026-03-04): runtime now uses `tools` + `agents` (not `capabilities`), and delegate routing is string-based (no enum restriction in tool schema).

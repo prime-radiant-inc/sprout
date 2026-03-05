@@ -1,5 +1,14 @@
 # Delegation Visual Guide
 
+<!-- DOCS_NAV:START -->
+## Related Docs
+- [Docs Home](../../README.md)
+- [Archive Index](../README.md)
+- [Current Delegation Quick Start](../../QUICK_START_DELEGATION_GUIDE.md)
+- [Current Delegation Code Flow](../../DELEGATION_CODE_FLOW.md)
+- [Architecture](../../architecture.md)
+<!-- DOCS_NAV:END -->
+
 ASCII diagrams and visual representations of agent delegation.
 
 ---

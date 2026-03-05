@@ -1,3 +1,13 @@
+<!-- DOCS_NAV:START -->
+## Related Docs
+- [Docs Home](../README.md)
+- [Audits Index](./README.md)
+- [Architecture](../architecture.md)
+- [Testing](../testing.md)
+- [Refactor Backlog Plan](../plans/2026-03-04-audit-refactor-backlog-yagni-dry.md)
+- [Plans Index](../plans/README.md)
+<!-- DOCS_NAV:END -->
+
 ## 1) Verdict + confidence (0-1)
 Jesse, the repository is materially improved after remediation, but still has **moderate architectural risk at runtime boundaries** (command ingress, bus fanout, client/server state contract).  
 **Verdict:** `Conditionally sound; not yet hard-boundary-safe for long-lived/hostile conditions.`  

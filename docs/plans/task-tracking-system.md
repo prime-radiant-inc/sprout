@@ -1,5 +1,15 @@
 # Task Tracking System — Implementation Plan
 
+<!-- DOCS_NAV:START -->
+## Related Docs
+- [Docs Home](../README.md)
+- [Plans Index](./README.md)
+- [Architecture](../architecture.md)
+- [Testing](../testing.md)
+- [Audit Backlog Plan](./2026-03-04-audit-refactor-backlog-yagni-dry.md)
+- [Audits Index](../audits/README.md)
+<!-- DOCS_NAV:END -->
+
 ## Overview
 
 A lightweight per-session task tracking system. Tasks are stored as a JSON file in the session log directory. A CLI script provides CRUD operations. Only the `task-manager` agent invokes the script (via `exec`).

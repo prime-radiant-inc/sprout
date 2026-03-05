@@ -1,5 +1,14 @@
 # Real-World Walkthrough: How the Root Agent Delegates
 
+<!-- DOCS_NAV:START -->
+## Related Docs
+- [Docs Home](../../README.md)
+- [Archive Index](../README.md)
+- [Current Delegation Quick Start](../../QUICK_START_DELEGATION_GUIDE.md)
+- [Current Delegation Code Flow](../../DELEGATION_CODE_FLOW.md)
+- [Architecture](../../architecture.md)
+<!-- DOCS_NAV:END -->
+
 This document traces a complete example of how the root agent processes a user goal and delegates to subagents.
 
 ---

@@ -1,5 +1,15 @@
 # Agent Tree & Delegation Redesign Implementation Plan
 
+<!-- DOCS_NAV:START -->
+## Related Docs
+- [Docs Home](../README.md)
+- [Plans Index](./README.md)
+- [Architecture](../architecture.md)
+- [Testing](../testing.md)
+- [Audit Backlog Plan](./2026-03-04-audit-refactor-backlog-yagni-dry.md)
+- [Audits Index](../audits/README.md)
+<!-- DOCS_NAV:END -->
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Replace prescriptive capabilities allowlist with directory-based auto-discovery, path-based delegation, and YAML-fronted Markdown agent specs.

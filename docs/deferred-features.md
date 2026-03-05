@@ -1,5 +1,15 @@
 # Deferred Features: Genome Scale
 
+<!-- DOCS_NAV:START -->
+## Related Docs
+- [Docs Home](./README.md)
+- [Architecture](./architecture.md)
+- [Testing](./testing.md)
+- [Plans Index](./plans/README.md)
+- [Audits Index](./audits/README.md)
+- [Delegation Quick Start](./QUICK_START_DELEGATION_GUIDE.md)
+<!-- DOCS_NAV:END -->
+
 These features are specified in the self-improving-agent spec but are only needed once the genome grows beyond the initial phase. They are intentionally deferred — not missing. Implement them when the genome reaches the thresholds described below.
 
 ---

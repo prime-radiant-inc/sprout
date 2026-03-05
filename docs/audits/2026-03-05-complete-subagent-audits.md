@@ -1,5 +1,15 @@
 # Complete Subagent Audits (2026-03-05)
 
+<!-- DOCS_NAV:START -->
+## Related Docs
+- [Docs Home](../README.md)
+- [Audits Index](./README.md)
+- [Architecture](../architecture.md)
+- [Testing](../testing.md)
+- [Refactor Backlog Plan](../plans/2026-03-04-audit-refactor-backlog-yagni-dry.md)
+- [Plans Index](../plans/README.md)
+<!-- DOCS_NAV:END -->
+
 This document records three independent read-only audit runs commissioned on 2026-03-05.
 
 ## Audits

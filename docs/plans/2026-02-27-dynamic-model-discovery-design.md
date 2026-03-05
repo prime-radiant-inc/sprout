@@ -1,5 +1,15 @@
 # Dynamic Model Discovery
 
+<!-- DOCS_NAV:START -->
+## Related Docs
+- [Docs Home](../README.md)
+- [Plans Index](./README.md)
+- [Architecture](../architecture.md)
+- [Testing](../testing.md)
+- [Audit Backlog Plan](./2026-03-04-audit-refactor-backlog-yagni-dry.md)
+- [Audits Index](../audits/README.md)
+<!-- DOCS_NAV:END -->
+
 ## Problem
 
 Model tiers are hardcoded in `MODEL_TIERS` (model-resolver.ts). The table maps tier names to specific model IDs per provider. This rots — GPT-4.1 is already stale — and duplicates provider detection logic that `Client.fromEnv()` already handles.

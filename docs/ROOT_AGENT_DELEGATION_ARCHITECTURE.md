@@ -1,5 +1,15 @@
 # Root Agent Delegation Architecture
 
+<!-- DOCS_NAV:START -->
+## Related Docs
+- [Docs Home](./README.md)
+- [Architecture](./architecture.md)
+- [Testing](./testing.md)
+- [Plans Index](./plans/README.md)
+- [Audits Index](./audits/README.md)
+- [Delegation Quick Start](./QUICK_START_DELEGATION_GUIDE.md)
+<!-- DOCS_NAV:END -->
+
 > Canonical doc (2026-03-04): this is the single source of truth for current delegation runtime behavior. Historical delegation guides were moved to `docs/archive/delegation/`.
 
 ## Overview

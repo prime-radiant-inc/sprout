@@ -1,5 +1,15 @@
 # Async Agent Messaging: Known Deviations from Design
 
+<!-- DOCS_NAV:START -->
+## Related Docs
+- [Docs Home](../README.md)
+- [Plans Index](./README.md)
+- [Architecture](../architecture.md)
+- [Testing](../testing.md)
+- [Audit Backlog Plan](./2026-03-04-audit-refactor-backlog-yagni-dry.md)
+- [Audits Index](../audits/README.md)
+<!-- DOCS_NAV:END -->
+
 Deviations between the [design spec](2026-02-25-async-agent-messaging-design.md) and the current implementation as of 2026-02-25.
 
 ---

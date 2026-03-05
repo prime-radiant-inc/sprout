@@ -1,5 +1,14 @@
 # Quick Start: Agent Delegation Architecture
 
+<!-- DOCS_NAV:START -->
+## Related Docs
+- [Docs Home](../../README.md)
+- [Archive Index](../README.md)
+- [Current Delegation Quick Start](../../QUICK_START_DELEGATION_GUIDE.md)
+- [Current Delegation Code Flow](../../DELEGATION_CODE_FLOW.md)
+- [Architecture](../../architecture.md)
+<!-- DOCS_NAV:END -->
+
 **TL;DR**: Root agent reads `root/root.md`, resolves subagents from the agent tree, builds a single `delegate` tool with agent names as an enum, and can recursively create subagents that respect the same availability constraints.
 
 ---

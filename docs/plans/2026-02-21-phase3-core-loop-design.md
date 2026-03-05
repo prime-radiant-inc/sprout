@@ -1,5 +1,15 @@
 # Phase 3: Core Loop + Bootstrap Agents — Design
 
+<!-- DOCS_NAV:START -->
+## Related Docs
+- [Docs Home](../README.md)
+- [Plans Index](./README.md)
+- [Architecture](../architecture.md)
+- [Testing](../testing.md)
+- [Audit Backlog Plan](./2026-03-04-audit-refactor-backlog-yagni-dry.md)
+- [Audits Index](../audits/README.md)
+<!-- DOCS_NAV:END -->
+
 ## Scope
 
 Implement the core agent loop (Perceive -> Plan -> Act -> Verify) and the 4 bootstrap agent YAML specs. Skip Recall (pass all available agents to Plan). Skip Learn (log stumbles to a queue, don't process them).

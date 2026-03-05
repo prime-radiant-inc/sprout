@@ -1,5 +1,15 @@
 # Phase 7: Event System and Host Interface — Implementation Plan
 
+<!-- DOCS_NAV:START -->
+## Related Docs
+- [Docs Home](../README.md)
+- [Plans Index](./README.md)
+- [Architecture](../architecture.md)
+- [Testing](../testing.md)
+- [Audit Backlog Plan](./2026-03-04-audit-refactor-backlog-yagni-dry.md)
+- [Audits Index](../audits/README.md)
+<!-- DOCS_NAV:END -->
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Implement the host-facing `submit()` API that returns an async event stream, add `session_start`/`session_end` lifecycle events, wire Learn queue draining into session end, and create a minimal CLI entry point.

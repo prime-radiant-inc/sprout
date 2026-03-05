@@ -1,5 +1,15 @@
 # Async Agent Messaging Design
 
+<!-- DOCS_NAV:START -->
+## Related Docs
+- [Docs Home](../README.md)
+- [Plans Index](./README.md)
+- [Architecture](../architecture.md)
+- [Testing](../testing.md)
+- [Audit Backlog Plan](./2026-03-04-audit-refactor-backlog-yagni-dry.md)
+- [Audits Index](../audits/README.md)
+<!-- DOCS_NAV:END -->
+
 **Goal:** Replace the current one-shot synchronous delegation model with a bus-based, per-process agent architecture that supports async delegation, conversational sub-agents, durable resume, and a path to remote agents.
 
 **Context:** The current implementation collapses the spec's `spawn_agent` / `send_input` / `wait` / `close_agent` into a single synchronous `executeDelegation()` call. The parent creates a child Agent instance in-process, awaits `child.run(goal)`, and discards the child. This can't support async delegation, multi-turn conversations with sub-agents, or remote execution.

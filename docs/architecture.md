@@ -1,5 +1,15 @@
 # Sprout Architecture
 
+<!-- DOCS_NAV:START -->
+## Related Docs
+- [Docs Home](./README.md)
+- [Architecture](./architecture.md)
+- [Testing](./testing.md)
+- [Plans Index](./plans/README.md)
+- [Audits Index](./audits/README.md)
+- [Delegation Quick Start](./QUICK_START_DELEGATION_GUIDE.md)
+<!-- DOCS_NAV:END -->
+
 Sprout is a self-improving coding agent. The full spec lives at `~/prime-radiant/serf/self-improving-agent-spec.md`.
 
 ## Core Loop

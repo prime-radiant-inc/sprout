@@ -1,5 +1,15 @@
 # Genome Format Unification Design
 
+<!-- DOCS_NAV:START -->
+## Related Docs
+- [Docs Home](../README.md)
+- [Plans Index](./README.md)
+- [Architecture](../architecture.md)
+- [Testing](../testing.md)
+- [Audit Backlog Plan](./2026-03-04-audit-refactor-backlog-yagni-dry.md)
+- [Audits Index](../audits/README.md)
+<!-- DOCS_NAV:END -->
+
 **Problem:** The genome layer stores agent specs as `.yaml` files while the root layer uses YAML-fronted Markdown (`.md`). This means two parsers (`parseAgentSpec` for YAML, `parseAgentMarkdown` for .md), two serializers (only `serializeAgentSpec` for YAML — no .md serializer exists), and unknown fields are silently dropped during YAML round-trips.
 
 **Goal:** One format, one parser, one serializer. The genome should use the same YAML-fronted Markdown format as the root directory. Unknown frontmatter fields should survive round-trips.

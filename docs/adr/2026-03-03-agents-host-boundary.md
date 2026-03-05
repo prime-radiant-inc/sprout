@@ -1,5 +1,14 @@
 # ADR: Agents-Host Dependency Boundary
 
+<!-- DOCS_NAV:START -->
+## Related Docs
+- [Docs Home](../README.md)
+- [ADR Index](./README.md)
+- [Architecture](../architecture.md)
+- [Audits Index](../audits/README.md)
+- [Plans Index](../plans/README.md)
+<!-- DOCS_NAV:END -->
+
 - Status: Accepted
 - Date: 2026-03-03
 

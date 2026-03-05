@@ -1,5 +1,14 @@
 # File Reference Guide - Agent Delegation
 
+<!-- DOCS_NAV:START -->
+## Related Docs
+- [Docs Home](../../README.md)
+- [Archive Index](../README.md)
+- [Current Delegation Quick Start](../../QUICK_START_DELEGATION_GUIDE.md)
+- [Current Delegation Code Flow](../../DELEGATION_CODE_FLOW.md)
+- [Architecture](../../architecture.md)
+<!-- DOCS_NAV:END -->
+
 Quick reference for all files involved in agent delegation and configuration.
 
 ---
