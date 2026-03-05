@@ -1,7 +1,7 @@
-export function buildWebOpenUrl(port: number, webToken?: string): string {
+export function buildWebOpenUrl(port: number, webToken?: string, host = "localhost"): string {
 	return webToken
-		? `http://localhost:${port}/?token=${encodeURIComponent(webToken)}`
-		: `http://localhost:${port}`;
+		? `http://${host}:${port}/?token=${encodeURIComponent(webToken)}`
+		: `http://${host}:${port}`;
 }
 
 export async function runWebOnlyMode(opts: {

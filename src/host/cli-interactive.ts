@@ -32,6 +32,7 @@ interface InputHistoryLike {
 interface WebServerLike {
 	start(): Promise<void>;
 	stop(): Promise<void>;
+	getWebToken?(): string | undefined;
 }
 
 export interface InteractiveCommandFlags {
@@ -95,7 +96,13 @@ interface InteractiveModeDeps {
 	registerInteractiveSigint: typeof registerInteractiveSigint;
 	buildWebOpenUrl: typeof buildWebOpenUrl;
 	openUrl: (url: string) => void;
+	logOut: (line: string) => void;
 	logError: (line: string) => void;
+}
+
+function isLoopbackHost(hostname: string | undefined): boolean {
+	const host = hostname ?? "localhost";
+	return host === "localhost" || host === "127.0.0.1" || host === "::1";
 }
 
 export async function runInteractiveMode(
@@ -149,6 +156,7 @@ export async function runInteractiveMode(
 		registerInteractiveSigint: deps.registerInteractiveSigint ?? registerInteractiveSigint,
 		buildWebOpenUrl: deps.buildWebOpenUrl ?? buildWebOpenUrl,
 		openUrl: deps.openUrl ?? ((url) => void Bun.spawn(["open", url])),
+		logOut: deps.logOut ?? ((line) => console.log(line)),
 		logError: deps.logError ?? ((line) => console.error(line)),
 	};
 
@@ -178,9 +186,13 @@ export async function runInteractiveMode(
 			return;
 		}
 		const displayHost = webHost ?? "localhost";
+		const effectiveWebToken = webServer.getWebToken?.() ?? webToken;
 		opts.runtime.logger.info("session", "Web server started", { host: displayHost, port: webPort });
 		d.logError(`Web UI: http://${displayHost}:${webPort}`);
-		if (webToken) {
+		if (!isLoopbackHost(displayHost) && effectiveWebToken) {
+			d.logOut(`Web nonce: ${effectiveWebToken}`);
+			d.logOut(`Web UI URL: ${d.buildWebOpenUrl(webPort, effectiveWebToken, displayHost)}`);
+		} else if (effectiveWebToken) {
 			d.logError("Web auth enabled. Open with ?token=<your-token>.");
 		}
 	}
@@ -201,7 +213,7 @@ export async function runInteractiveMode(
 	const historyPath = opts.inputHistoryPath(opts.command.genomePath);
 	const inputHistory = await d.createInputHistory(historyPath);
 	await inputHistory.load();
-	const webOpenUrl = d.buildWebOpenUrl(webPort, webToken);
+	const webOpenUrl = d.buildWebOpenUrl(webPort, webServer?.getWebToken?.() ?? webToken);
 
 	let unmountFn: (() => void) | undefined;
 	const sigintRegistration = d.registerInteractiveSigint({
@@ -238,6 +250,7 @@ export async function runInteractiveMode(
 									port: webPort,
 									staticDir,
 									sessionId: opts.sessionId,
+									hostname: webHost,
 									webToken,
 									availableModels: opts.runtime.availableModels,
 									logger: opts.runtime.logger,

@@ -79,6 +79,74 @@ describe("runInteractiveMode", () => {
 		expect(called).toEqual(["web-start", "web-only", "web-stop", "cleanup", "resume"]);
 	});
 
+	test("non-local web bind prints nonce to stdout", async () => {
+		const bus = new FakeBus();
+		const stdout: string[] = [];
+		const stderr: string[] = [];
+
+		await runInteractiveMode(
+			{
+				command: {
+					genomePath: "/tmp/genome",
+					webOnly: true,
+					web: true,
+					host: "0.0.0.0",
+				},
+				sessionId: "01NONCE",
+				runtime: {
+					bus: bus as any,
+					controller: { sessionId: "01NONCE", isRunning: false, currentModel: undefined },
+					logger: { info: () => {} },
+					availableModels: [],
+				},
+				initialEvents: [],
+				cleanupInfra: async () => {},
+				onResumeHint: () => {},
+				inputHistoryPath: () => "/tmp/history",
+				handleSlashCommand: async () => ({ action: "none" }),
+			},
+			{
+				createWebServer: async () => ({
+					start: async () => {},
+					stop: async () => {},
+					getWebToken: () => "generated-nonce",
+				}),
+				runWebOnlyMode: async (opts) => {
+					await opts.stopWebServer();
+					await opts.cleanupInfra();
+					opts.onResumeHint(opts.sessionId);
+				},
+				createInputHistory: async () => {
+					throw new Error("history should not be created in web-only mode");
+				},
+				renderApp: async () => {
+					throw new Error("renderApp should not run in web-only mode");
+				},
+				registerInteractiveSigint: () =>
+					({
+						onSignal: () => {},
+						clearPending: () => {},
+						dispose: () => {},
+					}) as any,
+				buildWebOpenUrl: (port, webToken, host) =>
+					`http://${host ?? "localhost"}:${port}${webToken ? `/?token=${webToken}` : ""}`,
+				openUrl: () => {},
+				logOut: (line) => {
+					stdout.push(line);
+				},
+				logError: (line) => {
+					stderr.push(line);
+				},
+			},
+		);
+
+		expect(stdout).toEqual([
+			"Web nonce: generated-nonce",
+			"Web UI URL: http://0.0.0.0:7777/?token=generated-nonce",
+		]);
+		expect(stderr).toContain("Web UI: http://0.0.0.0:7777");
+	});
+
 	test("interactive TUI path loads/saves history, submits commands, and cleans up", async () => {
 		const bus = new FakeBus();
 		const called: string[] = [];

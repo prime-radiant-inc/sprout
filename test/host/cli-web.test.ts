@@ -23,6 +23,12 @@ describe("buildWebOpenUrl", () => {
 	test("builds URL with encoded token", () => {
 		expect(buildWebOpenUrl(7777, "a b+c")).toBe("http://localhost:7777/?token=a%20b%2Bc");
 	});
+
+	test("builds URL for custom host with encoded token", () => {
+		expect(buildWebOpenUrl(7777, "nonce token", "0.0.0.0")).toBe(
+			"http://0.0.0.0:7777/?token=nonce%20token",
+		);
+	});
 });
 
 describe("runWebOnlyMode", () => {

@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { randomBytes } from "node:crypto";
 import type { ServerWebSocket } from "bun";
 import type { SessionBus } from "../host/event-bus.ts";
 import { EVENT_CAP } from "../kernel/constants.ts";
@@ -37,7 +38,7 @@ export class WebServer {
 	private readonly staticDir: string;
 	private sessionId: string;
 	private readonly hostname: string | undefined;
-	private readonly webToken: string | undefined;
+	private webToken: string | undefined;
 
 	private readonly availableModels: string[];
 	private readonly logger?: import("../host/logger.ts").Logger;
@@ -56,6 +57,9 @@ export class WebServer {
 		this.sessionId = opts.sessionId;
 		this.hostname = opts.hostname;
 		this.webToken = opts.webToken;
+		if (!this.isLoopbackHost(this.hostname) && !this.webToken) {
+			this.webToken = randomBytes(16).toString("hex");
+		}
 		this.availableModels = opts.availableModels ?? [];
 		this.logger = opts.logger;
 		if (opts.initialEvents) {
@@ -64,12 +68,6 @@ export class WebServer {
 	}
 
 	async start(): Promise<void> {
-		if (!this.isLoopbackHost(this.hostname) && !this.webToken) {
-			throw new Error(
-				"Web auth token required for non-localhost bind. Use --web-token or SPROUT_WEB_TOKEN.",
-			);
-		}
-
 		// Track switch_model commands to update currentModel
 		this.unsubscribeCommands = this.bus.onCommand((cmd) => {
 			if (cmd.kind === "switch_model" && typeof cmd.data.model === "string") {
@@ -164,6 +162,10 @@ export class WebServer {
 			this.bunServer.stop(true);
 			this.bunServer = null;
 		}
+	}
+
+	getWebToken(): string | undefined {
+		return this.webToken;
 	}
 
 	// --- Private: HTTP ---

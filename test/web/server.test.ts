@@ -59,17 +59,36 @@ describe("WebServer", () => {
 			await server.stop();
 		});
 
-		test("start() requires webToken for non-localhost binds", async () => {
+		test("start() auto-generates nonce for non-localhost binds and enforces auth", async () => {
+			const remotePort = port + 1;
 			const remoteServer = new WebServer({
 				bus,
-				port: port + 1,
+				port: remotePort,
 				staticDir,
 				sessionId: "remote-session",
 				hostname: "0.0.0.0",
 			});
-			await expect(remoteServer.start()).rejects.toThrow(
-				"Web auth token required for non-localhost bind",
-			);
+
+			await remoteServer.start();
+			const nonce = remoteServer.getWebToken();
+			expect(typeof nonce).toBe("string");
+			expect((nonce ?? "").length).toBeGreaterThanOrEqual(16);
+
+			const unauthorized = await fetch(`http://localhost:${remotePort}/`, {
+				headers: {
+					upgrade: "websocket",
+					"sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==",
+					"sec-websocket-version": "13",
+					connection: "upgrade",
+				},
+			});
+			expect(unauthorized.status).toBe(401);
+
+			const ws = await connect(`ws://localhost:${remotePort}/ws?token=${encodeURIComponent(nonce!)}`);
+			clients.push(ws);
+			const snapshot = await nextMessage(ws);
+			expect(snapshot.type).toBe("snapshot");
+
 			await remoteServer.stop();
 		});
 	});
