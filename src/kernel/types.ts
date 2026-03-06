@@ -214,7 +214,8 @@ export type EventKind =
 	| "compaction"
 	| "interrupted"
 	| "exit_hint"
-	| "log";
+	| "log"
+	| "task_update";
 
 /** A typed event emitted by the agent for host application consumption */
 export interface SessionEvent {

@@ -5,12 +5,22 @@ import { join } from "node:path";
 
 const CLI = join(import.meta.dir, "../../root/agents/utility/agents/task-manager/tools/cli.ts");
 
+/** Environment stripped of vars that let the CLI auto-resolve a tasks file. */
+const cleanEnv = (() => {
+	const env = { ...process.env };
+	delete env.SPROUT_PROJECT_DATA_DIR;
+	delete env.SPROUT_GENOME_PATH;
+	delete env.SPROUT_SESSION_ID;
+	return env;
+})();
+
 async function run(
 	...args: string[]
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
 	const proc = Bun.spawn(["bun", "run", CLI, ...args], {
 		stdout: "pipe",
 		stderr: "pipe",
+		env: cleanEnv,
 	});
 	const [stdout, stderr] = await Promise.all([
 		new Response(proc.stdout).text(),

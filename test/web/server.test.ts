@@ -147,6 +147,52 @@ describe("WebServer", () => {
 	});
 
 	describe("HTTP API", () => {
+		test("GET /api/auth returns ok when no token is configured", async () => {
+			await server.start();
+			const resp = await fetch(`http://localhost:${port}/api/auth`);
+			expect(resp.status).toBe(200);
+			const body = (await resp.json()) as { ok: boolean };
+			expect(body.ok).toBe(true);
+		});
+
+		test("GET /api/auth returns 401 when token is required and missing", async () => {
+			const tokenPort = port + 10;
+			const tokenServer = new WebServer({
+				bus,
+				port: tokenPort,
+				staticDir,
+				sessionId: "auth-token-missing",
+				webToken: "secret-token",
+			});
+			await tokenServer.start();
+			try {
+				const resp = await fetch(`http://localhost:${tokenPort}/api/auth`);
+				expect(resp.status).toBe(401);
+			} finally {
+				await tokenServer.stop();
+			}
+		});
+
+		test("GET /api/auth accepts valid token query param", async () => {
+			const tokenPort = port + 11;
+			const tokenServer = new WebServer({
+				bus,
+				port: tokenPort,
+				staticDir,
+				sessionId: "auth-token-valid",
+				webToken: "secret-token",
+			});
+			await tokenServer.start();
+			try {
+				const resp = await fetch(`http://localhost:${tokenPort}/api/auth?token=secret-token`);
+				expect(resp.status).toBe(200);
+				const body = (await resp.json()) as { ok: boolean };
+				expect(body.ok).toBe(true);
+			} finally {
+				await tokenServer.stop();
+			}
+		});
+
 		test("GET /api/session returns session id and status", async () => {
 			await server.start();
 			const resp = await fetch(`http://localhost:${port}/api/session`);
@@ -198,119 +244,6 @@ describe("WebServer", () => {
 			expect(body.status).toBe("idle");
 		});
 
-		test("GET /api/tasks returns empty tasks when projectDataDir is not set", async () => {
-			await server.start();
-			const resp = await fetch(`http://localhost:${port}/api/tasks`);
-			expect(resp.status).toBe(200);
-			const body = (await resp.json()) as { tasks: unknown[] };
-			expect(body.tasks).toEqual([]);
-		});
-
-		test("GET /api/tasks returns empty tasks when tasks.json does not exist", async () => {
-			const port2 = randomPort();
-			const server2 = new WebServer({
-				bus,
-				port: port2,
-				staticDir,
-				sessionId: "tasks-test",
-				projectDataDir: "/tmp/nonexistent-sprout-data-dir",
-			});
-			await server2.start();
-			try {
-				const resp = await fetch(`http://localhost:${port2}/api/tasks`);
-				expect(resp.status).toBe(200);
-				const body = (await resp.json()) as { tasks: unknown[] };
-				expect(body.tasks).toEqual([]);
-			} finally {
-				await server2.stop();
-			}
-		});
-
-		test("GET /api/tasks returns tasks from tasks.json when it exists", async () => {
-			const dataDir = mkdtempSync(join(tmpdir(), "sprout-tasks-test-"));
-			const logsDir = join(dataDir, "logs", "tasks-session");
-			mkdirSync(logsDir, { recursive: true });
-			writeFileSync(
-				join(logsDir, "tasks.json"),
-				JSON.stringify({
-					tasks: [
-						{ id: "1", title: "First task", status: "in_progress" },
-						{ id: "2", title: "Second task", status: "done" },
-					],
-				}),
-			);
-
-			const port2 = randomPort();
-			const server2 = new WebServer({
-				bus,
-				port: port2,
-				staticDir,
-				sessionId: "tasks-session",
-				projectDataDir: dataDir,
-			});
-			await server2.start();
-			try {
-				const resp = await fetch(`http://localhost:${port2}/api/tasks`);
-				expect(resp.status).toBe(200);
-				const body = (await resp.json()) as { tasks: unknown[] };
-				expect(body.tasks).toEqual([
-					{ id: "1", title: "First task", status: "in_progress" },
-					{ id: "2", title: "Second task", status: "done" },
-				]);
-			} finally {
-				await server2.stop();
-			}
-		});
-
-		test("GET /api/tasks returns empty tasks when tasks.json has invalid JSON", async () => {
-			const dataDir = mkdtempSync(join(tmpdir(), "sprout-tasks-invalid-"));
-			const logsDir = join(dataDir, "logs", "tasks-invalid-session");
-			mkdirSync(logsDir, { recursive: true });
-			writeFileSync(join(logsDir, "tasks.json"), "not valid json {{{");
-
-			const port2 = randomPort();
-			const server2 = new WebServer({
-				bus,
-				port: port2,
-				staticDir,
-				sessionId: "tasks-invalid-session",
-				projectDataDir: dataDir,
-			});
-			await server2.start();
-			try {
-				const resp = await fetch(`http://localhost:${port2}/api/tasks`);
-				expect(resp.status).toBe(200);
-				const body = (await resp.json()) as { tasks: unknown[] };
-				expect(body.tasks).toEqual([]);
-			} finally {
-				await server2.stop();
-			}
-		});
-
-		test("GET /api/tasks returns empty tasks when JSON lacks a tasks key", async () => {
-			const dataDir = mkdtempSync(join(tmpdir(), "sprout-tasks-notasks-"));
-			const logsDir = join(dataDir, "logs", "tasks-notasks-session");
-			mkdirSync(logsDir, { recursive: true });
-			writeFileSync(join(logsDir, "tasks.json"), JSON.stringify({ version: 1 }));
-
-			const port2 = randomPort();
-			const server2 = new WebServer({
-				bus,
-				port: port2,
-				staticDir,
-				sessionId: "tasks-notasks-session",
-				projectDataDir: dataDir,
-			});
-			await server2.start();
-			try {
-				const resp = await fetch(`http://localhost:${port2}/api/tasks`);
-				expect(resp.status).toBe(200);
-				const body = (await resp.json()) as { tasks: unknown[] };
-				expect(body.tasks).toEqual([]);
-			} finally {
-				await server2.stop();
-			}
-		});
 	});
 
 	describe("WebSocket snapshot on connect", () => {
@@ -633,6 +566,291 @@ describe("WebServer", () => {
 			if (snapshot.type !== "snapshot") throw new Error("Expected snapshot");
 			expect(snapshot.session.id).toBe("new-session");
 			expect(snapshot.events.map((e) => e.kind)).toEqual(["session_clear", "plan_start"]);
+		});
+	});
+
+	describe("task_update event emission", () => {
+		test("emits task_update when task-cli exec completes successfully", async () => {
+			const dataDir = mkdtempSync(join(tmpdir(), "sprout-task-update-"));
+			const logsDir = join(dataDir, "logs", "task-update-session");
+			mkdirSync(logsDir, { recursive: true });
+			writeFileSync(
+				join(logsDir, "tasks.json"),
+				JSON.stringify({
+					tasks: [
+						{ id: "1", description: "First task", status: "in_progress" },
+					],
+				}),
+			);
+
+			const port2 = randomPort();
+			const server2 = new WebServer({
+				bus,
+				port: port2,
+				staticDir,
+				sessionId: "task-update-session",
+				projectDataDir: dataDir,
+			});
+			await server2.start();
+
+			const ws = await connect(`ws://localhost:${port2}/ws`);
+			clients.push(ws);
+			const messages = collectMessages(ws);
+
+			// Wait for snapshot (and possible seed task_update) to arrive
+			await delay(200);
+
+			// Simulate task-cli exec: primitive_start then primitive_end
+			bus.emitEvent("primitive_start", "agent-1", 1, {
+				name: "exec",
+				args: { command: "task-cli update 1 --status done" },
+			});
+			bus.emitEvent("primitive_end", "agent-1", 1, {
+				name: "exec",
+				success: true,
+				args: { command: "task-cli update 1 --status done" },
+			});
+
+			// Wait for the async emitTaskUpdate to complete
+			await delay(500);
+
+			// Find task_update events among all received messages
+			const taskUpdateMsgs = messages.filter(
+				(m): m is import("../../src/web/protocol.ts").EventServerMessage =>
+					m.type === "event" && m.event.kind === "task_update",
+			);
+
+			// Should have at least one task_update from the exec completion
+			// (may also have the seed task_update from initial connect)
+			expect(taskUpdateMsgs.length).toBeGreaterThanOrEqual(1);
+
+			const lastTaskUpdate = taskUpdateMsgs[taskUpdateMsgs.length - 1]!;
+			if (lastTaskUpdate.type !== "event") throw new Error("Expected event");
+			expect(lastTaskUpdate.event.kind).toBe("task_update");
+			expect(Array.isArray(lastTaskUpdate.event.data.tasks)).toBe(true);
+			const tasks = lastTaskUpdate.event.data.tasks as { id: string }[];
+			expect(tasks[0]!.id).toBe("1");
+
+			await server2.stop();
+		});
+
+		test("emits task_update when task-cli primitive completes successfully", async () => {
+			const dataDir = mkdtempSync(join(tmpdir(), "sprout-task-update-direct-"));
+			const logsDir = join(dataDir, "logs", "task-update-direct-session");
+			mkdirSync(logsDir, { recursive: true });
+			writeFileSync(
+				join(logsDir, "tasks.json"),
+				JSON.stringify({
+					tasks: [
+						{ id: "1", description: "First task", status: "in_progress" },
+					],
+				}),
+			);
+
+			const port2 = randomPort();
+			const server2 = new WebServer({
+				bus,
+				port: port2,
+				staticDir,
+				sessionId: "task-update-direct-session",
+				projectDataDir: dataDir,
+			});
+			await server2.start();
+
+			const ws = await connect(`ws://localhost:${port2}/ws`);
+			clients.push(ws);
+			const messages = collectMessages(ws);
+
+			// Wait for snapshot (and possible seed task_update) to arrive
+			await delay(200);
+
+			// Simulate direct task-cli primitive: name is "task-cli", not "exec"
+			bus.emitEvent("primitive_start", "agent-1", 1, {
+				name: "task-cli",
+				args: { command: "update", id: "1", status: "done" },
+			});
+			bus.emitEvent("primitive_end", "agent-1", 1, {
+				name: "task-cli",
+				success: true,
+				args: { command: "update", id: "1", status: "done" },
+			});
+
+			// Wait for the async emitTaskUpdate to complete
+			await delay(500);
+
+			// Find task_update events among all received messages
+			const taskUpdateMsgs = messages.filter(
+				(m): m is import("../../src/web/protocol.ts").EventServerMessage =>
+					m.type === "event" && m.event.kind === "task_update",
+			);
+
+			// Should have at least one task_update from the primitive completion
+			expect(taskUpdateMsgs.length).toBeGreaterThanOrEqual(1);
+
+			const lastTaskUpdate = taskUpdateMsgs[taskUpdateMsgs.length - 1]!;
+			if (lastTaskUpdate.type !== "event") throw new Error("Expected event");
+			expect(lastTaskUpdate.event.kind).toBe("task_update");
+			expect(Array.isArray(lastTaskUpdate.event.data.tasks)).toBe(true);
+			const tasks = lastTaskUpdate.event.data.tasks as { id: string }[];
+			expect(tasks[0]!.id).toBe("1");
+
+			await server2.stop();
+		});
+
+		test("does not emit task_update for non-task-cli exec", async () => {
+			await server.start();
+			const ws = await connectClient();
+			const messages = collectMessages(ws);
+
+			await delay(50);
+
+			// Simulate a regular (non-task-cli) exec
+			bus.emitEvent("primitive_start", "agent-1", 1, {
+				name: "exec",
+				args: { command: "ls -la" },
+			});
+			bus.emitEvent("primitive_end", "agent-1", 1, {
+				name: "exec",
+				success: true,
+				args: { command: "ls -la" },
+			});
+
+			await delay(200);
+
+			// Should have snapshot + 2 events (primitive_start, primitive_end), no task_update
+			const eventMessages = messages.filter(
+				(m) => m.type === "event" && (m.type === "event" ? m.event.kind : "") === "task_update",
+			);
+			expect(eventMessages).toHaveLength(0);
+		});
+
+		test("does not emit task_update for failed task-cli exec", async () => {
+			await server.start();
+			const ws = await connectClient();
+			const messages = collectMessages(ws);
+
+			await delay(50);
+
+			bus.emitEvent("primitive_start", "agent-1", 1, {
+				name: "exec",
+				args: { command: "task-cli update 1 --status done" },
+			});
+			bus.emitEvent("primitive_end", "agent-1", 1, {
+				name: "exec",
+				success: false,
+				error: "command failed",
+				args: { command: "task-cli update 1 --status done" },
+			});
+
+			await delay(200);
+
+			const taskUpdateMessages = messages.filter(
+				(m) => m.type === "event" && (m.type === "event" ? m.event.kind : "") === "task_update",
+			);
+			expect(taskUpdateMessages).toHaveLength(0);
+		});
+
+		test("seedTasksForClient sends synthetic task_update on connect when tasks.json exists", async () => {
+			const dataDir = mkdtempSync(join(tmpdir(), "sprout-seed-tasks-"));
+			const logsDir = join(dataDir, "logs", "seed-session");
+			mkdirSync(logsDir, { recursive: true });
+			writeFileSync(
+				join(logsDir, "tasks.json"),
+				JSON.stringify({
+					tasks: [
+						{ id: "1", description: "Seeded task", status: "new" },
+					],
+				}),
+			);
+
+			const port2 = randomPort();
+			const server2 = new WebServer({
+				bus,
+				port: port2,
+				staticDir,
+				sessionId: "seed-session",
+				projectDataDir: dataDir,
+			});
+			await server2.start();
+
+			const ws = await connect(`ws://localhost:${port2}/ws`);
+			clients.push(ws);
+
+			// First message is the snapshot
+			const snapshot = await nextMessage(ws);
+			expect(snapshot.type).toBe("snapshot");
+
+			// Second message should be the synthetic task_update
+			const seedMsg = await nextMessage(ws);
+			expect(seedMsg.type).toBe("event");
+			if (seedMsg.type !== "event") throw new Error("Expected event");
+			expect(seedMsg.event.kind).toBe("task_update");
+			expect(Array.isArray(seedMsg.event.data.tasks)).toBe(true);
+			const tasks = seedMsg.event.data.tasks as { id: string; description: string }[];
+			expect(tasks[0]!.description).toBe("Seeded task");
+
+			await server2.stop();
+		});
+
+		test("seedTasksForClient does not send synthetic event when task_update already in buffer", async () => {
+			const dataDir = mkdtempSync(join(tmpdir(), "sprout-seed-exists-"));
+			const logsDir = join(dataDir, "logs", "seed-exists-session");
+			mkdirSync(logsDir, { recursive: true });
+			writeFileSync(
+				join(logsDir, "tasks.json"),
+				JSON.stringify({
+					tasks: [
+						{ id: "1", description: "Task", status: "new" },
+					],
+				}),
+			);
+
+			const port2 = randomPort();
+			const server2 = new WebServer({
+				bus,
+				port: port2,
+				staticDir,
+				sessionId: "seed-exists-session",
+				projectDataDir: dataDir,
+			});
+			await server2.start();
+
+			// Emit a task_update event before connecting
+			bus.emitEvent("task_update", "agent-1", 0, {
+				tasks: [{ id: "1", description: "Already updated", status: "done" }],
+			});
+
+			const ws = await connect(`ws://localhost:${port2}/ws`);
+			clients.push(ws);
+
+			// First message is the snapshot (which already contains the task_update)
+			const snapshot = await nextMessage(ws);
+			expect(snapshot.type).toBe("snapshot");
+			if (snapshot.type !== "snapshot") throw new Error("Expected snapshot");
+
+			// The snapshot should contain the task_update event
+			const taskUpdates = snapshot.events.filter((e) => e.kind === "task_update");
+			expect(taskUpdates).toHaveLength(1);
+
+			// No additional synthetic event should arrive - wait a bit and check
+			await delay(200);
+
+			// Connect another client and verify it also gets snapshot only (no extra seed)
+			const ws2 = await connect(`ws://localhost:${port2}/ws`);
+			clients.push(ws2);
+			const snapshot2 = await nextMessage(ws2);
+			expect(snapshot2.type).toBe("snapshot");
+			if (snapshot2.type !== "snapshot") throw new Error("Expected snapshot");
+			const taskUpdates2 = snapshot2.events.filter((e) => e.kind === "task_update");
+			expect(taskUpdates2).toHaveLength(1);
+
+			await server2.stop();
+		});
+
+		test("GET /api/tasks returns 404 (endpoint removed)", async () => {
+			await server.start();
+			const resp = await fetch(`http://localhost:${port}/api/tasks`);
+			expect(resp.status).toBe(404);
 		});
 	});
 });

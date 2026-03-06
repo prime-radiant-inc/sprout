@@ -94,16 +94,22 @@ export class WebServer {
 					this.events = this.events.slice(-EVENT_CAP);
 				}
 			}
-			// Track task-cli exec calls to emit task_update events
-			if (event.kind === "primitive_start" && event.data.name === "exec") {
-				const cmd = event.data.args && (event.data.args as Record<string, unknown>).command;
-				if (typeof cmd === "string" && cmd.includes("task-cli")) {
+			// Track task-cli calls to emit task_update events.
+			// task-cli is registered as a direct primitive (name === "task-cli"),
+			// but may also be invoked via the exec primitive with "task-cli" in the command string.
+			if (event.kind === "primitive_start") {
+				if (event.data.name === "task-cli") {
 					this.pendingTaskCliAgents.add(event.agent_id);
+				} else if (event.data.name === "exec") {
+					const cmd = event.data.args && (event.data.args as Record<string, unknown>).command;
+					if (typeof cmd === "string" && cmd.includes("task-cli")) {
+						this.pendingTaskCliAgents.add(event.agent_id);
+					}
 				}
 			}
 			if (
 				event.kind === "primitive_end" &&
-				event.data.name === "exec" &&
+				(event.data.name === "task-cli" || event.data.name === "exec") &&
 				event.data.success === true
 			) {
 				if (this.pendingTaskCliAgents.delete(event.agent_id)) {
