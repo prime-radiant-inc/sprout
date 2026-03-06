@@ -45,12 +45,14 @@ export function buildAgentTree(events: SessionEvent[]): AgentTreeNode {
 
 	// Index nodes by child_id for act_end lookup.
 	const nodeById = new Map<string, AgentTreeNode>();
+	nodeById.set("root", root);
 
 	for (const event of events) {
 		// Derive root identity from the first depth-0 event
 		if (event.depth === 0 && root.agentId === "root" && event.agent_id !== "root") {
 			root.agentId = event.agent_id;
 			root.agentName = event.agent_id;
+			nodeById.set(event.agent_id, root);
 		}
 
 		switch (event.kind) {
@@ -101,8 +103,9 @@ export function buildAgentTree(events: SessionEvent[]): AgentTreeNode {
 				};
 				startTimestamps.set(node, event.timestamp);
 
-				// Parent is at the event's depth in the path
-				const parent = path[event.depth];
+				// Parent lookup: prefer nodeById (correct for concurrent children at same depth),
+				// fall back to path-based lookup for backward compatibility.
+				const parent = nodeById.get(event.agent_id) ?? path[event.depth];
 				if (parent) {
 					parent.children.push(node);
 				}

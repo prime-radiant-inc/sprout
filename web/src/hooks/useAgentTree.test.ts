@@ -237,6 +237,130 @@ describe("buildAgentTree", () => {
 		});
 	});
 
+	describe("concurrent delegations (parallel children)", () => {
+		test("sub-agents parent correctly when siblings are concurrent", () => {
+			resetTimestamps();
+			// Root spawns A and B concurrently. A then spawns C.
+			// C should be a child of A, not B, even though B was the last
+			// node registered at depth 1 in the path array.
+			const events = [
+				makeEvent("perceive", "root", 0, { goal: "Concurrent work" }),
+				makeEvent("act_start", "root", 0, {
+					agent_name: "agent-a",
+					goal: "Task A",
+					child_id: "ID_A",
+				}),
+				makeEvent("act_start", "root", 0, {
+					agent_name: "agent-b",
+					goal: "Task B",
+					child_id: "ID_B",
+				}),
+				// Agent A (child_id ID_A, at depth 1) spawns agent C
+				makeEvent("act_start", "ID_A", 1, {
+					agent_name: "agent-c",
+					goal: "Sub-task C",
+					child_id: "ID_C",
+				}),
+				makeEvent("act_end", "ID_A", 1, {
+					agent_name: "agent-c",
+					child_id: "ID_C",
+					success: true,
+					turns: 1,
+				}),
+				makeEvent("act_end", "root", 0, {
+					agent_name: "agent-b",
+					child_id: "ID_B",
+					success: true,
+					turns: 2,
+				}),
+				makeEvent("act_end", "root", 0, {
+					agent_name: "agent-a",
+					child_id: "ID_A",
+					success: true,
+					turns: 3,
+				}),
+			];
+			const tree = buildAgentTree(events);
+
+			// Root should have two children: A and B
+			expect(tree.children).toHaveLength(2);
+			const agentA = tree.children[0]!;
+			const agentB = tree.children[1]!;
+			expect(agentA.agentId).toBe("ID_A");
+			expect(agentB.agentId).toBe("ID_B");
+
+			// C should be a child of A, NOT of B
+			expect(agentA.children).toHaveLength(1);
+			expect(agentA.children[0]!.agentId).toBe("ID_C");
+			expect(agentA.children[0]!.agentName).toBe("agent-c");
+			expect(agentA.children[0]!.depth).toBe(2);
+
+			// B should have no children
+			expect(agentB.children).toHaveLength(0);
+		});
+
+		test("deep nesting with concurrent siblings at each level", () => {
+			resetTimestamps();
+			// Root spawns A and B. A spawns C and D. C spawns E.
+			// All should nest correctly regardless of interleaving.
+			const events = [
+				makeEvent("perceive", "root", 0, { goal: "Deep concurrent" }),
+				makeEvent("act_start", "root", 0, {
+					agent_name: "a",
+					goal: "A",
+					child_id: "ID_A",
+				}),
+				makeEvent("act_start", "root", 0, {
+					agent_name: "b",
+					goal: "B",
+					child_id: "ID_B",
+				}),
+				makeEvent("act_start", "ID_A", 1, {
+					agent_name: "c",
+					goal: "C",
+					child_id: "ID_C",
+				}),
+				makeEvent("act_start", "ID_A", 1, {
+					agent_name: "d",
+					goal: "D",
+					child_id: "ID_D",
+				}),
+				makeEvent("act_start", "ID_C", 2, {
+					agent_name: "e",
+					goal: "E",
+					child_id: "ID_E",
+				}),
+				makeEvent("act_end", "ID_C", 2, { child_id: "ID_E", success: true }),
+				makeEvent("act_end", "ID_A", 1, { child_id: "ID_C", success: true }),
+				makeEvent("act_end", "ID_A", 1, { child_id: "ID_D", success: true }),
+				makeEvent("act_end", "root", 0, { child_id: "ID_B", success: true }),
+				makeEvent("act_end", "root", 0, { child_id: "ID_A", success: true }),
+			];
+			const tree = buildAgentTree(events);
+
+			// Root → [A, B]
+			expect(tree.children).toHaveLength(2);
+			const a = tree.children[0]!;
+			const b = tree.children[1]!;
+			expect(a.agentId).toBe("ID_A");
+			expect(b.agentId).toBe("ID_B");
+			expect(b.children).toHaveLength(0);
+
+			// A → [C, D]
+			expect(a.children).toHaveLength(2);
+			const c = a.children[0]!;
+			const d = a.children[1]!;
+			expect(c.agentId).toBe("ID_C");
+			expect(d.agentId).toBe("ID_D");
+			expect(d.children).toHaveLength(0);
+
+			// C → [E]
+			expect(c.children).toHaveLength(1);
+			expect(c.children[0]!.agentId).toBe("ID_E");
+			expect(c.children[0]!.depth).toBe(3);
+		});
+	});
+
 	describe("mixed active and completed agents", () => {
 		test("completed and running agents coexist", () => {
 			resetTimestamps();
