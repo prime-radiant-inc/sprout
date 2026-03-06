@@ -3,6 +3,7 @@ import type { AgentStats } from "../hooks/useAgentStats.ts";
 import type { AgentTreeNode } from "../hooks/useAgentTree.ts";
 import type { SessionStatus } from "../hooks/useEvents.ts";
 import type { Task } from "../hooks/useTaskList.ts";
+import { useContextPressure } from "../hooks/useTokenUsage.ts";
 import { AgentTree } from "./AgentTree.tsx";
 import { SidebarSessionSummary } from "./SidebarSessionSummary.tsx";
 import { SidebarTaskList } from "./SidebarTaskList.tsx";
@@ -30,6 +31,7 @@ export function Sidebar({
 	agentStats,
 	tasks,
 }: SidebarProps) {
+	const contextPressure = useContextPressure(events);
 	const showTree = tree.children.length > 0 || status.status === "running" || status.status === "interrupted";
 
 	return (
@@ -42,6 +44,7 @@ export function Sidebar({
 					onSelectAgent={onSelectAgent}
 					onToggle={onToggle}
 					agentStats={agentStats}
+					contextPressure={contextPressure}
 				/>
 			) : (
 				<SidebarSessionSummary status={status} events={events} />
