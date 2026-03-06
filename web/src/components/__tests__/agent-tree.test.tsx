@@ -63,11 +63,16 @@ function makeTree(): AgentTreeNode {
 	});
 }
 
+/** Variant with root completed — no hide-finished filtering applied. */
+function makeCompletedTree(): AgentTreeNode {
+	return { ...makeTree(), status: "completed" };
+}
+
 // --- AgentTree ---
 
 describe("AgentTree", () => {
 	test("renders all agent names in the tree", () => {
-		const tree = makeTree();
+		const tree = makeCompletedTree();
 		const html = renderToStaticMarkup(
 			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
 		);
@@ -86,7 +91,7 @@ describe("AgentTree", () => {
 	});
 
 	test("renders nested structure with depth-based nesting", () => {
-		const tree = makeTree();
+		const tree = makeCompletedTree();
 		const html = renderToStaticMarkup(
 			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
 		);
@@ -97,7 +102,7 @@ describe("AgentTree", () => {
 	});
 
 	test("shows checkmark for completed agents", () => {
-		const tree = makeTree();
+		const tree = makeCompletedTree();
 		const html = renderToStaticMarkup(
 			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
 		);
@@ -106,7 +111,7 @@ describe("AgentTree", () => {
 	});
 
 	test("shows X for failed agents", () => {
-		const tree = makeTree();
+		const tree = makeCompletedTree();
 		const html = renderToStaticMarkup(
 			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
 		);
@@ -124,7 +129,7 @@ describe("AgentTree", () => {
 	});
 
 	test("marks selected agent with data-selected attribute", () => {
-		const tree = makeTree();
+		const tree = makeCompletedTree();
 		const html = renderToStaticMarkup(
 			<AgentTree
 				tree={tree}
@@ -136,7 +141,7 @@ describe("AgentTree", () => {
 	});
 
 	test("each node has data-agent-id for click targeting", () => {
-		const tree = makeTree();
+		const tree = makeCompletedTree();
 		const html = renderToStaticMarkup(
 			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
 		);
@@ -157,7 +162,7 @@ describe("AgentTree", () => {
 	});
 
 	test("renders goal text for each node", () => {
-		const tree = makeTree();
+		const tree = makeCompletedTree();
 		const html = renderToStaticMarkup(
 			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
 		);
@@ -253,6 +258,7 @@ describe("AgentTree", () => {
 	test("leaf nodes render spacer instead of disclosure triangle", () => {
 		// A tree where root has one child (leaf node with no children)
 		const tree = makeNode({
+			status: "completed",
 			children: [
 				makeNode({
 					agentId: "leaf-1",
@@ -338,6 +344,85 @@ describe("AgentTree", () => {
 			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
 		);
 		expect(html).toContain("Write the parser");
+	});
+
+	test("hides finished agents by default when root is running", () => {
+		const tree = makeTree();
+		const html = renderToStaticMarkup(
+			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
+		);
+		// Root and running child should be visible
+		expect(html).toContain('data-agent-id="root"');
+		expect(html).toContain('data-agent-id="reader-1"');
+		// Completed and failed children should be hidden
+		expect(html).not.toContain('data-agent-id="editor-1"');
+		expect(html).not.toContain('data-agent-id="editor-2"');
+	});
+
+	test("shows toggle button with finished count when root is running", () => {
+		const tree = makeTree();
+		const html = renderToStaticMarkup(
+			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
+		);
+		expect(html).toContain("Show 3 finished agents");
+	});
+
+	test("does not show toggle button when root is completed", () => {
+		const tree = makeCompletedTree();
+		const html = renderToStaticMarkup(
+			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
+		);
+		expect(html).not.toContain("finished agent");
+	});
+
+	test("does not show toggle button when no finished agents exist", () => {
+		const tree = makeNode({
+			status: "running",
+			children: [
+				makeNode({
+					agentId: "child-1",
+					agentName: "runner",
+					depth: 1,
+					status: "running",
+					goal: "Run things",
+				}),
+			],
+		});
+		const html = renderToStaticMarkup(
+			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
+		);
+		expect(html).not.toContain("finished agent");
+	});
+
+	test("shows all agents when root is completed (session done)", () => {
+		const tree = makeCompletedTree();
+		const html = renderToStaticMarkup(
+			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
+		);
+		expect(html).toContain('data-agent-id="editor-1"');
+		expect(html).toContain('data-agent-id="editor-2"');
+		expect(html).toContain('data-agent-id="reader-1"');
+		expect(html).toContain('data-agent-id="runner-1"');
+	});
+
+	test("toggle text uses singular when only one finished agent", () => {
+		const tree = makeNode({
+			status: "running",
+			children: [
+				makeNode({
+					agentId: "child-1",
+					agentName: "editor",
+					depth: 1,
+					status: "completed",
+					goal: "Edit stuff",
+				}),
+			],
+		});
+		const html = renderToStaticMarkup(
+			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
+		);
+		expect(html).toContain("Show 1 finished agent");
+		expect(html).not.toContain("finished agents");
 	});
 });
 

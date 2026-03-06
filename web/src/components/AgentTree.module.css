@@ -216,3 +216,26 @@
 	font-variant-numeric: tabular-nums;
 	margin-left: auto;
 }
+
+/* Hide-finished toggle */
+.finishedToggle {
+	display: block;
+	width: 100%;
+	text-align: center;
+	background: none;
+	border: 1px dashed var(--color-border);
+	color: var(--color-text-tertiary);
+	cursor: pointer;
+	padding: var(--space-xs) var(--space-sm);
+	border-radius: var(--radius-sm);
+	font: inherit;
+	font-size: var(--font-size-xxs);
+	transition: all var(--transition-fast);
+	margin-top: var(--space-xs);
+}
+
+.finishedToggle:hover {
+	color: var(--color-text-secondary);
+	border-color: var(--color-border-strong);
+	background: var(--color-inset);
+}

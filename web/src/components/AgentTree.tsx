@@ -148,6 +148,20 @@ function TreeNode({
 	);
 }
 
+function countFinished(node: AgentTreeNode, excludeRoot = true): number {
+	let count = 0;
+	if (!excludeRoot && (node.status === "completed" || node.status === "failed")) count = 1;
+	for (const child of node.children) count += countFinished(child, false);
+	return count;
+}
+
+function filterRunning(node: AgentTreeNode): AgentTreeNode {
+	return {
+		...node,
+		children: node.children.filter(c => c.status === "running").map(filterRunning),
+	};
+}
+
 /** Sidebar panel showing the agent tree with selection support. */
 export function AgentTree({
 	tree,
@@ -157,6 +171,12 @@ export function AgentTree({
 	agentStats,
 }: AgentTreeProps) {
 	const allSelected = selectedAgent === null;
+	const [showFinished, setShowFinished] = useState(false);
+	const finishedCount = countFinished(tree);
+	const displayTree =
+		tree.status === "running" && finishedCount > 0 && !showFinished
+			? filterRunning(tree)
+			: tree;
 
 	return (
 		<nav className={styles.agentTree}>
@@ -184,12 +204,23 @@ export function AgentTree({
 			</button>
 			<ul className={styles.treeRoot}>
 				<TreeNode
-					node={tree}
+					node={displayTree}
 					selectedAgent={selectedAgent}
 					onSelectAgent={onSelectAgent}
 					agentStats={agentStats}
 				/>
 			</ul>
+			{finishedCount > 0 && tree.status === "running" && (
+				<button
+					type="button"
+					className={styles.finishedToggle}
+					onClick={() => setShowFinished(prev => !prev)}
+				>
+					{showFinished
+						? "Hide finished agents"
+						: `Show ${finishedCount} finished agent${finishedCount !== 1 ? "s" : ""}`}
+				</button>
+			)}
 		</nav>
 	);
 }

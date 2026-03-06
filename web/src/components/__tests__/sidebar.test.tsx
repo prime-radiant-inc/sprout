@@ -107,6 +107,7 @@ describe("Sidebar", () => {
 
 	test("renders AgentTree when idle but tree has children", () => {
 		const tree = makeNode({
+			status: "completed",
 			children: [
 				makeNode({
 					agentId: "child-1",
