@@ -346,83 +346,18 @@ describe("AgentTree", () => {
 		expect(html).toContain("Write the parser");
 	});
 
-	test("hides finished agents by default when root is running", () => {
+	test("renders all agents including finished in static markup (auto-collapse is client-side only)", () => {
 		const tree = makeTree();
 		const html = renderToStaticMarkup(
 			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
 		);
-		// Root and running child should be visible
+		// With the toggle removed, all agents are always in the DOM
+		// Auto-collapse via useEffect only runs client-side, not in SSR
 		expect(html).toContain('data-agent-id="root"');
-		expect(html).toContain('data-agent-id="reader-1"');
-		// Completed and failed children should be hidden
-		expect(html).not.toContain('data-agent-id="editor-1"');
-		expect(html).not.toContain('data-agent-id="editor-2"');
-	});
-
-	test("shows toggle button with finished count when root is running", () => {
-		const tree = makeTree();
-		const html = renderToStaticMarkup(
-			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
-		);
-		expect(html).toContain("Show 3 finished agents");
-	});
-
-	test("does not show toggle button when root is completed", () => {
-		const tree = makeCompletedTree();
-		const html = renderToStaticMarkup(
-			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
-		);
-		expect(html).not.toContain("finished agent");
-	});
-
-	test("does not show toggle button when no finished agents exist", () => {
-		const tree = makeNode({
-			status: "running",
-			children: [
-				makeNode({
-					agentId: "child-1",
-					agentName: "runner",
-					depth: 1,
-					status: "running",
-					goal: "Run things",
-				}),
-			],
-		});
-		const html = renderToStaticMarkup(
-			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
-		);
-		expect(html).not.toContain("finished agent");
-	});
-
-	test("shows all agents when root is completed (session done)", () => {
-		const tree = makeCompletedTree();
-		const html = renderToStaticMarkup(
-			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
-		);
 		expect(html).toContain('data-agent-id="editor-1"');
 		expect(html).toContain('data-agent-id="editor-2"');
 		expect(html).toContain('data-agent-id="reader-1"');
 		expect(html).toContain('data-agent-id="runner-1"');
-	});
-
-	test("toggle text uses singular when only one finished agent", () => {
-		const tree = makeNode({
-			status: "running",
-			children: [
-				makeNode({
-					agentId: "child-1",
-					agentName: "editor",
-					depth: 1,
-					status: "completed",
-					goal: "Edit stuff",
-				}),
-			],
-		});
-		const html = renderToStaticMarkup(
-			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
-		);
-		expect(html).toContain("Show 1 finished agent");
-		expect(html).not.toContain("finished agents");
 	});
 });
 

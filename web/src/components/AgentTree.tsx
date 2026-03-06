@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import type { AgentState, AgentStats } from "../hooks/useAgentStats.ts";
 import type { AgentTreeNode } from "../hooks/useAgentTree.ts";
-import { formatCompactNumber } from "../hooks/useTokenUsage.ts";
+import { type ContextPressure, formatCompactNumber } from "../hooks/useTokenUsage.ts";
+import { pressureColor } from "../utils/pressureColor.ts";
 import styles from "./AgentTree.module.css";
 
 interface AgentTreeProps {
@@ -10,6 +11,7 @@ interface AgentTreeProps {
 	onSelectAgent: (agentId: string | null) => void;
 	onToggle?: () => void;
 	agentStats?: Map<string, AgentStats>;
+	contextPressure?: Map<string, ContextPressure>;
 }
 
 function statusIcon(status: AgentTreeNode["status"]): string {
@@ -41,10 +43,19 @@ function hasActivity(stats: AgentStats): boolean {
 	return stats.state !== "idle" || stats.inputTokens > 0 || stats.outputTokens > 0 || stats.currentTurn > 0;
 }
 
-function StatsLine({ stats }: { stats: AgentStats }) {
+function StatsLine({
+	stats,
+	status,
+	pressure,
+}: {
+	stats: AgentStats;
+	status: AgentTreeNode["status"];
+	pressure?: ContextPressure;
+}) {
 	if (!hasActivity(stats)) return null;
 
 	const showStateLabel = stats.state !== "idle" || (stats.inputTokens === 0 && stats.outputTokens === 0);
+	const showThermometer = status === "running" && pressure != null;
 
 	return (
 		<span className={styles.statsLine} data-agent-state={stats.state}>
@@ -54,10 +65,22 @@ function StatsLine({ stats }: { stats: AgentStats }) {
 			{stats.currentTurn > 0 && (
 				<span className={styles.statsTurn}>T{stats.currentTurn}</span>
 			)}
-			{(stats.inputTokens > 0 || stats.outputTokens > 0) && (
-				<span className={styles.statsTokens}>
-					{formatCompactNumber(stats.inputTokens)}/{formatCompactNumber(stats.outputTokens)}
+			{showThermometer ? (
+				<span className={styles.contextMini}>
+					<span className={styles.miniBarTrack}>
+						<span
+							className={styles.miniBarFill}
+							style={{ width: `${pressure.percent}%`, background: pressureColor(pressure.percent) }}
+						/>
+					</span>
+					<span className={styles.miniBarLabel}>{pressure.percent}%</span>
 				</span>
+			) : (
+				(stats.inputTokens > 0 || stats.outputTokens > 0) && (
+					<span className={styles.statsTokens}>
+						{formatCompactNumber(stats.inputTokens)}/{formatCompactNumber(stats.outputTokens)}
+					</span>
+				)
 			)}
 		</span>
 	);
@@ -69,17 +92,20 @@ function TreeNode({
 	onSelectAgent,
 	defaultExpanded,
 	agentStats,
+	contextPressure,
 }: {
 	node: AgentTreeNode;
 	selectedAgent: string | null;
 	onSelectAgent: (agentId: string | null) => void;
 	defaultExpanded?: boolean;
 	agentStats?: Map<string, AgentStats>;
+	contextPressure?: Map<string, ContextPressure>;
 }) {
 	const hasChildren = node.children.length > 0;
 	const isSelected = selectedAgent === node.agentId;
 	const [expanded, setExpanded] = useState(defaultExpanded ?? true);
 	const stats = agentStats?.get(node.agentId);
+	const pressure = contextPressure?.get(node.agentId);
 	const hasRunningChild = node.children.some((c) => c.status === "running");
 
 	// Auto-expand when a running child appears
@@ -88,6 +114,13 @@ function TreeNode({
 			setExpanded(true);
 		}
 	}, [hasRunningChild]);
+
+	// Auto-collapse when this agent finishes
+	useEffect(() => {
+		if (node.status === "completed" || node.status === "failed") {
+			setExpanded(false);
+		}
+	}, [node.status]);
 
 	return (
 		<li>
@@ -128,7 +161,7 @@ function TreeNode({
 					{(node.description || node.goal) && (
 						<span className={styles.goal}>{node.description ?? node.goal}</span>
 					)}
-					{stats && <StatsLine stats={stats} />}
+					{stats && <StatsLine stats={stats} status={node.status} pressure={pressure} />}
 				</button>
 			</div>
 			{hasChildren && expanded && (
@@ -140,26 +173,13 @@ function TreeNode({
 							selectedAgent={selectedAgent}
 							onSelectAgent={onSelectAgent}
 							agentStats={agentStats}
+							contextPressure={contextPressure}
 						/>
 					))}
 				</ul>
 			)}
 		</li>
 	);
-}
-
-function countFinished(node: AgentTreeNode, excludeRoot = true): number {
-	let count = 0;
-	if (!excludeRoot && (node.status === "completed" || node.status === "failed")) count = 1;
-	for (const child of node.children) count += countFinished(child, false);
-	return count;
-}
-
-function filterRunning(node: AgentTreeNode): AgentTreeNode {
-	return {
-		...node,
-		children: node.children.filter(c => c.status === "running").map(filterRunning),
-	};
 }
 
 /** Sidebar panel showing the agent tree with selection support. */
@@ -169,14 +189,9 @@ export function AgentTree({
 	onSelectAgent,
 	onToggle,
 	agentStats,
+	contextPressure,
 }: AgentTreeProps) {
 	const allSelected = selectedAgent === null;
-	const [showFinished, setShowFinished] = useState(false);
-	const finishedCount = countFinished(tree);
-	const displayTree =
-		tree.status === "running" && finishedCount > 0 && !showFinished
-			? filterRunning(tree)
-			: tree;
 
 	return (
 		<nav className={styles.agentTree}>
@@ -204,23 +219,13 @@ export function AgentTree({
 			</button>
 			<ul className={styles.treeRoot}>
 				<TreeNode
-					node={displayTree}
+					node={tree}
 					selectedAgent={selectedAgent}
 					onSelectAgent={onSelectAgent}
 					agentStats={agentStats}
+					contextPressure={contextPressure}
 				/>
 			</ul>
-			{finishedCount > 0 && tree.status === "running" && (
-				<button
-					type="button"
-					className={styles.finishedToggle}
-					onClick={() => setShowFinished(prev => !prev)}
-				>
-					{showFinished
-						? "Hide finished agents"
-						: `Show ${finishedCount} finished agent${finishedCount !== 1 ? "s" : ""}`}
-				</button>
-			)}
 		</nav>
 	);
 }

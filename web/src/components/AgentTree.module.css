@@ -217,25 +217,30 @@
 	margin-left: auto;
 }
 
-/* Hide-finished toggle */
-.finishedToggle {
-	display: block;
-	width: 100%;
-	text-align: center;
-	background: none;
-	border: 1px dashed var(--color-border);
-	color: var(--color-text-tertiary);
-	cursor: pointer;
-	padding: var(--space-xs) var(--space-sm);
-	border-radius: var(--radius-sm);
-	font: inherit;
-	font-size: var(--font-size-xxs);
-	transition: all var(--transition-fast);
-	margin-top: var(--space-xs);
+/* Context pressure thermometer (running agents) */
+.contextMini {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	margin-left: auto;
 }
-
-.finishedToggle:hover {
-	color: var(--color-text-secondary);
-	border-color: var(--color-border-strong);
-	background: var(--color-inset);
+.miniBarTrack {
+	display: inline-block;
+	width: 28px;
+	height: 3px;
+	background: var(--color-border-strong);
+	border-radius: var(--radius-full);
+	overflow: hidden;
+}
+.miniBarFill {
+	display: block;
+	height: 100%;
+	border-radius: var(--radius-full);
+	transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.miniBarLabel {
+	font-family: var(--font-mono);
+	font-size: var(--font-size-xxs);
+	font-variant-numeric: tabular-nums;
+	color: var(--color-text-placeholder);
 }
