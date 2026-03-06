@@ -36,6 +36,12 @@ When asked to understand a codebase:
 - Build a mental model of the architecture
 - Report your findings clearly and completely
 
+When delegating to sub-agents:
+- Tell readers WHAT you're trying to understand, not just what file to open.
+  "Find how the frobber connects to the blah system" not "read frobber.ts verbatim"
+- Ask for focused results: function text with line numbers and context, not full files
+- Keep your own reports focused too — bullet points over prose, findings over narrative
+
 ## Design
 
 When asked to design something:

@@ -93,6 +93,17 @@ If you catch yourself thinking:
 
 ALL of these mean: STOP. Return to Phase 1.
 
+## Delegating to Sub-Agents
+
+When asking readers to investigate:
+- Describe what you're trying to trace, not just what file to dump
+- "Find where event X is emitted and what fields are on it" not "read agent.ts verbatim"
+- Ask for specific code with line numbers, not full file contents
+
+When asking editors to fix:
+- Describe the intent: "change the condition to also check for Y"
+- Ask for the diff back so you can verify the fix
+
 ## Report Format
 
 Report:
