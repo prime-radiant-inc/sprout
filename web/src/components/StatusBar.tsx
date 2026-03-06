@@ -6,6 +6,7 @@ import styles from "./StatusBar.module.css";
 export interface StatusBarProps {
 	status: SessionStatus;
 	connected: boolean;
+	connectionError?: string | null;
 	onInterrupt?: () => void;
 	onSwitchModel?: (model: string) => void;
 	onToggleTheme?: () => void;
@@ -41,7 +42,15 @@ function useElapsedTime(startedAt: number | null): string | null {
 }
 
 /** Top status bar with session info, context pressure, model, and controls. */
-export function StatusBar({ status, connected, onInterrupt, onSwitchModel, onToggleTheme, theme }: StatusBarProps) {
+export function StatusBar({
+	status,
+	connected,
+	connectionError,
+	onInterrupt,
+	onSwitchModel,
+	onToggleTheme,
+	theme,
+}: StatusBarProps) {
 	const {
 		contextTokens,
 		contextWindowSize,
@@ -73,6 +82,11 @@ export function StatusBar({ status, connected, onInterrupt, onSwitchModel, onTog
 				<span className={styles.statusLabel} data-status={runStatus}>
 					{runStatus === "running" ? "Running" : runStatus === "interrupted" ? "Interrupted" : "Idle"}
 				</span>
+				{connectionError && (
+					<span className={styles.connectionError} data-testid="connection-error">
+						{connectionError}
+					</span>
+				)}
 			</div>
 
 			{/* Context pressure */}

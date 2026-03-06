@@ -92,7 +92,25 @@ describe("WebSocketClient", () => {
 		test("starts disconnected", () => {
 			const client = createClient();
 			expect(client.connected).toBe(false);
+			expect(client.authError).toBeNull();
 			expect(client.lastMessage).toBeNull();
+		});
+
+		test("sets authError when nonce is invalid", async () => {
+			server = new WebServer({
+				bus,
+				port,
+				staticDir,
+				sessionId: "hook-test-auth",
+				webToken: "expected-nonce",
+			});
+			await server.start();
+			const client = createClient(`ws://localhost:${port}/ws?token=wrong-nonce`);
+			client.connect();
+
+			await waitFor(() => client.authError !== null, 5000);
+			expect(client.connected).toBe(false);
+			expect(client.authError).toContain("Invalid or missing web nonce");
 		});
 
 		test("dispose closes the connection", async () => {

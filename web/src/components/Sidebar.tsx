@@ -34,17 +34,15 @@ export function Sidebar({
 
 	return (
 		<div className={styles.sidebar}>
+			<SidebarTaskList tasks={tasks} />
 			{showTree ? (
-				<>
-					<AgentTree
-						tree={tree}
-						selectedAgent={selectedAgent}
-						onSelectAgent={onSelectAgent}
-						onToggle={onToggle}
-						agentStats={agentStats}
-					/>
-					<SidebarTaskList tasks={tasks} />
-				</>
+				<AgentTree
+					tree={tree}
+					selectedAgent={selectedAgent}
+					onSelectAgent={onSelectAgent}
+					onToggle={onToggle}
+					agentStats={agentStats}
+				/>
 			) : (
 				<SidebarSessionSummary status={status} events={events} />
 			)}

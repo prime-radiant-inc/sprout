@@ -32,6 +32,7 @@ export class WebSocketClient {
 	private stateListeners: Array<(connected: boolean) => void> = [];
 
 	connected = false;
+	authError: string | null = null;
 	lastMessage: ServerMessage | null = null;
 
 	constructor(url: string, options: WebSocketClientOptions = {}) {
@@ -105,9 +106,12 @@ export class WebSocketClient {
 
 	private openSocket(): void {
 		const ws = new WebSocket(this.url);
+		let opened = false;
 
 		ws.onopen = () => {
+			opened = true;
 			this.connected = true;
+			this.authError = null;
 			this.reconnectDelay = this.initialReconnectDelayMs;
 			this.awaitingInitialSnapshot = true;
 			this.notifyStateChange();
@@ -132,13 +136,7 @@ export class WebSocketClient {
 		};
 
 		ws.onclose = () => {
-			this.connected = false;
-			this.ws = null;
-			this.awaitingInitialSnapshot = false;
-			this.notifyStateChange();
-			if (!this.disposed) {
-				this.scheduleReconnect();
-			}
+			void this.handleSocketClose(opened);
 		};
 
 		ws.onerror = () => {
@@ -146,6 +144,44 @@ export class WebSocketClient {
 		};
 
 		this.ws = ws;
+	}
+
+	private async handleSocketClose(opened: boolean): Promise<void> {
+		this.connected = false;
+		this.ws = null;
+		this.awaitingInitialSnapshot = false;
+		this.notifyStateChange();
+
+		if (this.disposed) return;
+
+		if (!opened) {
+			const authError = await this.detectAuthError();
+			if (this.disposed) return;
+			if (authError) {
+				this.authError = authError;
+				this.notifyStateChange();
+				return;
+			}
+		}
+
+		this.authError = null;
+		this.scheduleReconnect();
+	}
+
+	private async detectAuthError(): Promise<string | null> {
+		try {
+			const wsUrl = new URL(this.url);
+			wsUrl.protocol = wsUrl.protocol === "wss:" ? "https:" : "http:";
+			wsUrl.pathname = "/api/auth";
+			wsUrl.hash = "";
+			const response = await fetch(wsUrl.toString(), { cache: "no-store" });
+			if (response.status === 401) {
+				return "Invalid or missing web nonce. Add ?token=<nonce> to the URL.";
+			}
+			return null;
+		} catch {
+			return null;
+		}
 	}
 
 	private flushQueue(): void {
@@ -202,6 +238,7 @@ export class WebSocketClient {
 /** Snapshot type for useSyncExternalStore. */
 interface WebSocketState {
 	connected: boolean;
+	authError: string | null;
 }
 
 /**
@@ -214,13 +251,13 @@ export function useWebSocket(url: string) {
 	const client = useMemo(() => new WebSocketClient(url), [url]);
 
 	// Snapshot for useSyncExternalStore
-	const stateRef = useRef<WebSocketState>({ connected: false });
-	stateRef.current = { connected: client.connected };
+	const stateRef = useRef<WebSocketState>({ connected: false, authError: null });
+	stateRef.current = { connected: client.connected, authError: client.authError };
 
 	const subscribe = useCallback(
 		(onStoreChange: () => void) => {
 			const unsubState = client.onStateChange(() => {
-				stateRef.current = { connected: client.connected };
+				stateRef.current = { connected: client.connected, authError: client.authError };
 				onStoreChange();
 			});
 
@@ -251,6 +288,7 @@ export function useWebSocket(url: string) {
 
 	return {
 		connected: state.connected,
+		authError: state.authError,
 		send,
 		/** Subscribe to every incoming message (no batching/dropping). */
 		onMessage,

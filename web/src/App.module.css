@@ -2,7 +2,7 @@
 
 .app {
 	display: grid;
-	grid-template-rows: var(--statusbar-height) 1fr auto;
+	grid-template-rows: var(--statusbar-height) 1fr;
 	height: 100vh;
 	background: var(--color-canvas);
 	color: var(--color-text-primary);
@@ -18,6 +18,14 @@
 
 .body[data-sidebar-open="false"] .sidebar {
 	display: none;
+}
+
+.mainColumn {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-width: 300px;
+	overflow: hidden;
 }
 
 .sidebar {
@@ -49,7 +57,7 @@
 	overflow-y: auto;
 	position: relative;
 	flex: 1;
-	min-width: 300px;
+	min-height: 0;
 }
 
 .jumpToBottom {

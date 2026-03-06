@@ -72,6 +72,13 @@
 	color: var(--color-text-tertiary);
 }
 
+.connectionError {
+	color: var(--color-error);
+	max-width: 360px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
 /* Context pressure bar */
 .pressureBarTrack {
 	width: 48px;

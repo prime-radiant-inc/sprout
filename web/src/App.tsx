@@ -26,11 +26,11 @@ const WS_URL = buildWsUrl(
 );
 
 export function App() {
-	const { connected, send, onMessage } = useWebSocket(WS_URL);
+	const { connected, authError, send, onMessage } = useWebSocket(WS_URL);
 	const { events, status, sendCommand } = useEvents(onMessage, send);
 	const { tree } = useAgentTree(events);
 	const agentStats = useAgentStats(events);
-	const { tasks } = useTaskList(status.status === "running");
+	const { tasks } = useTaskList(events);
 
 	const [panelStack, setPanelStack] = useState<string[]>([]);
 	const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -223,6 +223,7 @@ export function App() {
 			<StatusBar
 				status={status}
 				connected={connected}
+				connectionError={authError}
 				onInterrupt={handleInterrupt}
 				onSwitchModel={handleSwitchModel}
 				onToggleTheme={toggleTheme}

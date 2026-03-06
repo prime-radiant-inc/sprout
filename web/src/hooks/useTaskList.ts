@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
+import type { SessionEvent } from "@kernel/types.ts";
 
 export interface Task {
 	id: string;
@@ -7,39 +8,20 @@ export interface Task {
 	assigned_to: string | null;
 }
 
-interface UseTaskListResult {
-	tasks: Task[];
-}
-
-export function useTaskList(isActive: boolean): UseTaskListResult {
-	const [tasks, setTasks] = useState<Task[]>([]);
-
-	useEffect(() => {
-		if (!isActive) return;
-
-		let cancelled = false;
-
-		async function poll() {
-			try {
-				const res = await fetch("/api/tasks");
-				if (!res.ok) return;
-				const data = await res.json();
-				if (!cancelled && Array.isArray(data.tasks)) {
-					setTasks(data.tasks);
-				}
-			} catch {
-				// Network error — ignore, will retry
+export function buildTaskList(events: SessionEvent[]): Task[] {
+	for (let i = events.length - 1; i >= 0; i--) {
+		const event = events[i]!;
+		if (event.kind === "task_update") {
+			const tasks = event.data.tasks;
+			if (Array.isArray(tasks)) {
+				return tasks as Task[];
 			}
 		}
+	}
+	return [];
+}
 
-		poll();
-		const interval = setInterval(poll, 5000);
-
-		return () => {
-			cancelled = true;
-			clearInterval(interval);
-		};
-	}, [isActive]);
-
+export function useTaskList(events: SessionEvent[]): { tasks: Task[] } {
+	const tasks = useMemo(() => buildTaskList(events), [events]);
 	return { tasks };
 }

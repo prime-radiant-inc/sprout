@@ -200,6 +200,7 @@ export function renderEvent(event: SessionEvent): string | null {
 		case "learn_signal":
 		case "learn_end":
 		case "log":
+		case "task_update":
 		case "exit_hint":
 		case "llm_start":
 		case "llm_chunk":

@@ -370,6 +370,9 @@ export function renderEventComponent(event: SessionEvent, durationMs: number | n
 		case "perceive":
 			return <UserMessageLine depth={depth} text={String(data.goal ?? "")} />;
 
+		case "task_update":
+			return null;
+
 		default:
 			return null;
 	}

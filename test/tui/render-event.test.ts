@@ -334,6 +334,10 @@ describe("renderEvent", () => {
 		).toBeNull();
 	});
 
+	test("task_update -> null", () => {
+		expect(renderEvent(makeEvent("task_update", { tasks: [] }))).toBeNull();
+	});
+
 	test("returns null for unknown event kind", () => {
 		const event = makeEvent("totally_unknown" as any, {});
 		expect(renderEvent(event)).toBeNull();

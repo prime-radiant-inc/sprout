@@ -172,6 +172,18 @@ describe("StatusBar", () => {
 		expect(html).toContain('data-connected="false"');
 	});
 
+	test("renders nonce auth error when disconnected due to bad token", () => {
+		const html = renderToStaticMarkup(
+			<StatusBar
+				status={makeStatus()}
+				connected={false}
+				connectionError="Invalid or missing web nonce. Add ?token=<nonce> to the URL."
+			/>,
+		);
+		expect(html).toContain('data-testid="connection-error"');
+		expect(html).toContain("Invalid or missing web nonce");
+	});
+
 	test("session ID has data-action=copy for click-to-copy", () => {
 		const html = renderToStaticMarkup(
 			<StatusBar status={makeStatus()} connected={true} />,
