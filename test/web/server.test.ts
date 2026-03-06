@@ -243,7 +243,6 @@ describe("WebServer", () => {
 			expect(body.id).toBe("new-session-id");
 			expect(body.status).toBe("idle");
 		});
-
 	});
 
 	describe("WebSocket snapshot on connect", () => {
@@ -577,9 +576,7 @@ describe("WebServer", () => {
 			writeFileSync(
 				join(logsDir, "tasks.json"),
 				JSON.stringify({
-					tasks: [
-						{ id: "1", description: "First task", status: "in_progress" },
-					],
+					tasks: [{ id: "1", description: "First task", status: "in_progress" }],
 				}),
 			);
 
@@ -641,9 +638,7 @@ describe("WebServer", () => {
 			writeFileSync(
 				join(logsDir, "tasks.json"),
 				JSON.stringify({
-					tasks: [
-						{ id: "1", description: "First task", status: "in_progress" },
-					],
+					tasks: [{ id: "1", description: "First task", status: "in_progress" }],
 				}),
 			);
 
@@ -757,9 +752,7 @@ describe("WebServer", () => {
 			writeFileSync(
 				join(logsDir, "tasks.json"),
 				JSON.stringify({
-					tasks: [
-						{ id: "1", description: "Seeded task", status: "new" },
-					],
+					tasks: [{ id: "1", description: "Seeded task", status: "new" }],
 				}),
 			);
 
@@ -799,9 +792,7 @@ describe("WebServer", () => {
 			writeFileSync(
 				join(logsDir, "tasks.json"),
 				JSON.stringify({
-					tasks: [
-						{ id: "1", description: "Task", status: "new" },
-					],
+					tasks: [{ id: "1", description: "Task", status: "new" }],
 				}),
 			);
 
