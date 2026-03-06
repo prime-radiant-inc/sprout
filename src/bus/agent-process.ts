@@ -215,7 +215,26 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 		}
 
 		// Run the agent
-		const agentResult_ = await agent.run(goal, signal);
+		let agentResult_: Awaited<ReturnType<typeof agent.run>>;
+		try {
+			agentResult_ = await agent.run(goal, signal);
+		} catch (err) {
+			initialRunActive = false;
+			// Publish a failed result so the parent spawner doesn't hang waiting.
+			if (bus.connected) {
+				const errorResult: ResultMessage = {
+					kind: "result",
+					handle_id: handleId,
+					output: `Initial run failed: ${err instanceof Error ? err.message : String(err)}`,
+					success: false,
+					stumbles: 0,
+					turns: 0,
+					timed_out: false,
+				};
+				await bus.publish(resultTopic, JSON.stringify(errorResult));
+			}
+			return;
+		}
 		initialRunActive = false;
 
 		// Publish result (may fail if bus disconnected during shutdown)

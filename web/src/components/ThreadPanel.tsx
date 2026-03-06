@@ -17,6 +17,13 @@ const statusClasses: Record<AgentTreeNode["status"], string | undefined> = {
 	running: styles.statusRunning,
 };
 
+/** Determine context pressure bar color based on usage percentage. */
+function pressureColor(percent: number): string {
+	if (percent >= 85) return "var(--color-error)";
+	if (percent >= 60) return "var(--color-warning)";
+	return "var(--color-success)";
+}
+
 interface ThreadPanelProps {
 	agentId: string;
 	tree: AgentTreeNode;
@@ -31,6 +38,9 @@ export function ThreadPanel({ agentId, tree, events, onClose, onSelectAgent }: T
 	const description = node?.description ?? "";
 	const goal = node?.goal ?? "";
 	const tokenUsage = useTokenUsage(events, tree, agentId);
+	const contextPressure = tokenUsage?.contextTokens != null && tokenUsage?.contextWindowSize
+		? Math.round((tokenUsage.contextTokens / tokenUsage.contextWindowSize) * 100)
+		: null;
 
 	return (
 		<div className={styles.panel} data-region="thread-panel">
@@ -44,9 +54,25 @@ export function ThreadPanel({ agentId, tree, events, onClose, onSelectAgent }: T
 						)}
 						<span className={styles.agentName}>{agentName}</span>
 						{tokenUsage && (
-							<span className={styles.tokenUsage} data-testid="token-usage">
-								{formatCompactNumber(tokenUsage.inputTokens)} in / {formatCompactNumber(tokenUsage.outputTokens)} out
-							</span>
+							<div className={styles.headerStats} data-testid="header-stats">
+								{contextPressure !== null && (
+									<span className={styles.contextPressure} data-testid="context-pressure">
+										<span className={styles.pressureBarTrack}>
+											<span
+												className={styles.pressureBarFill}
+												style={{
+													width: `${contextPressure}%`,
+													background: pressureColor(contextPressure),
+												}}
+											/>
+										</span>
+										{contextPressure}%
+									</span>
+								)}
+								<span className={styles.tokenUsage} data-testid="token-usage">
+									{formatCompactNumber(tokenUsage.inputTokens)} in / {formatCompactNumber(tokenUsage.outputTokens)} out
+								</span>
+							</div>
 						)}
 					</div>
 					{(description || goal) && (

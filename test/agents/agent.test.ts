@@ -13,6 +13,7 @@ import { LocalExecutionEnvironment } from "../../src/kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../../src/kernel/primitives.ts";
 import { type AgentSpec, DEFAULT_CONSTRAINTS } from "../../src/kernel/types.ts";
 import { Client } from "../../src/llm/client.ts";
+import { StreamReadTimeoutError } from "../../src/llm/stream-timeout.ts";
 import type { Message, Response } from "../../src/llm/types.ts";
 import { ContentKind, Msg } from "../../src/llm/types.ts";
 import { leafSpec, rootSpec } from "./fixtures.ts";
@@ -3946,9 +3947,7 @@ describe("Agent", () => {
 			.collected()
 			.find(
 				(e) =>
-					e.kind === "act_end" &&
-					e.data.agent_name === "utility/reader" &&
-					e.data.success === true,
+					e.kind === "act_end" && e.data.agent_name === "utility/reader" && e.data.success === true,
 			);
 		expect(actEnd).toBeDefined();
 	});
@@ -4350,5 +4349,70 @@ describe("Agent", () => {
 
 		await expect(agent.run("test non-retryable goal")).rejects.toThrow("Unauthorized");
 		expect(calls).toBe(1); // No retry for 401
+	});
+
+	test("retries transient streaming errors and succeeds", async () => {
+		const mockResponse: Response = {
+			id: "mock-stream-retry-1",
+			model: "claude-haiku-4-5-20251001",
+			provider: "anthropic",
+			message: Msg.assistant("Success after streaming retry."),
+			finish_reason: { reason: "stop" },
+			usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+		};
+
+		let calls = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async () => {
+				throw new Error("complete() should not be used in streaming mode");
+			},
+			stream: async function* () {
+				calls++;
+				if (calls === 1) {
+					throw new StreamReadTimeoutError(30_000);
+				}
+				yield { type: "stream_start" as const };
+				yield {
+					type: "finish" as const,
+					finish_reason: { reason: "stop" as const },
+					usage: mockResponse.usage,
+					response: mockResponse,
+				};
+			},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		let retryDelayMs: number | undefined;
+		const logger = {
+			debug: () => {},
+			info: () => {},
+			warn: (_category: string, _message: string, data?: Record<string, unknown>) => {
+				retryDelayMs = data?.delayMs as number | undefined;
+			},
+			error: () => {},
+			child: () => logger,
+			flush: async () => {},
+			reconfigure: () => {},
+		};
+		const agent = new Agent({
+			spec: leafSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+			events,
+			enableStreaming: true,
+			llmRetryOptions: { baseDelayMs: 1, jitter: false },
+			logger: logger as any,
+		});
+
+		const result = await agent.run("test streaming retry goal");
+		expect(result.success).toBe(true);
+		expect(calls).toBe(2); // 1 timeout + 1 success
+		expect(retryDelayMs).toBe(1);
 	});
 });

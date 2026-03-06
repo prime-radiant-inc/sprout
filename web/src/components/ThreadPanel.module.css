@@ -47,7 +47,40 @@
 	color: var(--color-text-placeholder);
 	white-space: nowrap;
 	font-variant-numeric: tabular-nums;
+}
+
+.headerStats {
+	display: flex;
+	align-items: center;
+	gap: var(--space-sm);
 	margin-left: auto;
+	flex-shrink: 0;
+}
+
+.contextPressure {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-xs);
+	font-family: var(--font-mono);
+	font-size: var(--font-size-xxs);
+	color: var(--color-text-placeholder);
+	font-variant-numeric: tabular-nums;
+}
+
+.pressureBarTrack {
+	display: inline-block;
+	width: 36px;
+	height: 3px;
+	background: var(--color-border-strong);
+	border-radius: var(--radius-full);
+	overflow: hidden;
+}
+
+.pressureBarFill {
+	display: block;
+	height: 100%;
+	border-radius: var(--radius-full);
+	transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* Goal — full text, wrapping */

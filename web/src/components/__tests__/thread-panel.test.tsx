@@ -162,3 +162,142 @@ describe("ThreadPanel token usage", () => {
 		expect(html).toContain("5k out");
 	});
 });
+
+// --- ThreadPanel context pressure ---
+
+describe("ThreadPanel context pressure", () => {
+	test("shows pressure bar when contextTokens and contextWindowSize are available", () => {
+		const tree = makeTree("running");
+		const events: SessionEvent[] = [
+			{
+				kind: "plan_end",
+				timestamp: 1000,
+				agent_id: "child-1",
+				depth: 1,
+				data: {
+					usage: { input_tokens: 1000, output_tokens: 500, total_tokens: 1500 },
+					context_tokens: 80000,
+					context_window_size: 200000,
+				},
+			},
+		];
+		const html = renderPanelWithEvents(tree, events);
+		expect(html).toContain("data-testid=\"context-pressure\"");
+		// 80000 / 200000 = 40%
+		expect(html).toContain("40%");
+	});
+
+	test("does not show pressure bar when contextTokens is null", () => {
+		const tree = makeTree("running");
+		const events: SessionEvent[] = [
+			{
+				kind: "plan_end",
+				timestamp: 1000,
+				agent_id: "child-1",
+				depth: 1,
+				data: { usage: { input_tokens: 1000, output_tokens: 500, total_tokens: 1500 } },
+			},
+		];
+		const html = renderPanelWithEvents(tree, events);
+		expect(html).not.toContain("data-testid=\"context-pressure\"");
+	});
+
+	test("applies success color when pressure is below 60%", () => {
+		const tree = makeTree("running");
+		const events: SessionEvent[] = [
+			{
+				kind: "plan_end",
+				timestamp: 1000,
+				agent_id: "child-1",
+				depth: 1,
+				data: {
+					usage: { input_tokens: 1000, output_tokens: 500, total_tokens: 1500 },
+					context_tokens: 50000,
+					context_window_size: 200000,
+				},
+			},
+		];
+		const html = renderPanelWithEvents(tree, events);
+		// 25% -> success
+		expect(html).toContain("var(--color-success)");
+	});
+
+	test("applies warning color when pressure is between 60% and 84%", () => {
+		const tree = makeTree("running");
+		const events: SessionEvent[] = [
+			{
+				kind: "plan_end",
+				timestamp: 1000,
+				agent_id: "child-1",
+				depth: 1,
+				data: {
+					usage: { input_tokens: 1000, output_tokens: 500, total_tokens: 1500 },
+					context_tokens: 140000,
+					context_window_size: 200000,
+				},
+			},
+		];
+		const html = renderPanelWithEvents(tree, events);
+		// 70% -> warning
+		expect(html).toContain("var(--color-warning)");
+	});
+
+	test("applies error color when pressure is 85% or above", () => {
+		const tree = makeTree("running");
+		const events: SessionEvent[] = [
+			{
+				kind: "plan_end",
+				timestamp: 1000,
+				agent_id: "child-1",
+				depth: 1,
+				data: {
+					usage: { input_tokens: 1000, output_tokens: 500, total_tokens: 1500 },
+					context_tokens: 180000,
+					context_window_size: 200000,
+				},
+			},
+		];
+		const html = renderPanelWithEvents(tree, events);
+		// 90% -> error
+		expect(html).toContain("var(--color-error)");
+	});
+
+	test("wraps pressure and token usage in headerStats container", () => {
+		const tree = makeTree("running");
+		const events: SessionEvent[] = [
+			{
+				kind: "plan_end",
+				timestamp: 1000,
+				agent_id: "child-1",
+				depth: 1,
+				data: {
+					usage: { input_tokens: 1000, output_tokens: 500, total_tokens: 1500 },
+					context_tokens: 80000,
+					context_window_size: 200000,
+				},
+			},
+		];
+		const html = renderPanelWithEvents(tree, events);
+		expect(html).toContain("data-testid=\"header-stats\"");
+		// Both should be present
+		expect(html).toContain("data-testid=\"context-pressure\"");
+		expect(html).toContain("data-testid=\"token-usage\"");
+	});
+
+	test("token usage still wrapped in headerStats even without pressure data", () => {
+		const tree = makeTree("completed");
+		const events: SessionEvent[] = [
+			{
+				kind: "plan_end",
+				timestamp: 1000,
+				agent_id: "child-1",
+				depth: 1,
+				data: { usage: { input_tokens: 1200, output_tokens: 800, total_tokens: 2000 } },
+			},
+		];
+		const html = renderPanelWithEvents(tree, events);
+		expect(html).toContain("data-testid=\"header-stats\"");
+		expect(html).toContain("data-testid=\"token-usage\"");
+		expect(html).not.toContain("data-testid=\"context-pressure\"");
+	});
+});

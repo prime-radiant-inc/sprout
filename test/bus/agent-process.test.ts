@@ -784,6 +784,57 @@ describe("runAgentProcess", () => {
 		await processPromise;
 	}, 15_000);
 
+	test("publishes error result when initial run fails", async () => {
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async () => {
+				throw new Error("complete() should not be used in streaming mode");
+			},
+			stream: () => {
+				const err = new Error("LLM provider unavailable");
+				(err as any).retryable = false;
+				throw err;
+			},
+		} as unknown as Client;
+
+		const resultTopic = agentResult(SESSION_ID, HANDLE_ID);
+		const resultPromise = parentClient.waitForMessage(resultTopic, 10_000);
+
+		const processPromise = runAgentProcess({
+			busUrl: server.url,
+			handleId: HANDLE_ID,
+			sessionId: SESSION_ID,
+			genomePath: genomeDir,
+			client: mockClient,
+			workDir: tempDir,
+		});
+
+		await waitForAgentReady();
+
+		const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
+		const startMsg: StartMessage = {
+			kind: "start",
+			handle_id: HANDLE_ID,
+			agent_name: "test-leaf",
+			genome_path: genomeDir,
+			session_id: SESSION_ID,
+			caller: { agent_name: "root", depth: 0 },
+			goal: "Do something",
+			shared: false,
+			agent_id: HANDLE_ID,
+		};
+		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
+
+		const rawResult = await resultPromise;
+		const result: ResultMessage = JSON.parse(rawResult);
+
+		expect(result.kind).toBe("result");
+		expect(result.success).toBe(false);
+		expect(result.output).toContain("LLM provider unavailable");
+
+		await processPromise;
+	}, 15_000);
+
 	test("exits cleanly on shutdown signal before start", async () => {
 		const mockClient = createMockClient("Done.");
 		const controller = new AbortController();

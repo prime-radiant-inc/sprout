@@ -23,7 +23,7 @@ import type {
 } from "../kernel/types.ts";
 import type { LearnSink } from "../learn/learn-process.ts";
 import type { Client } from "../llm/client.ts";
-import { retryLLMCall, type RetryOptions } from "../llm/retry.ts";
+import { type RetryOptions, retryLLMCall } from "../llm/retry.ts";
 import type {
 	Request as LLMRequest,
 	Response as LLMResponse,
@@ -39,9 +39,6 @@ import { AgentEventEmitter } from "./events.ts";
 import type { AgentTreeEntry, Preambles } from "./loader.ts";
 import { findRootToolsDir, resolveRootToolsDir } from "./loader.ts";
 import { defaultModelsByProvider, type ResolvedModel, resolveModel } from "./model-resolver.ts";
-import { evaluateCompaction } from "./run-loop-compaction.ts";
-import { applyRetryAccounting, finalizeRunLoopResult } from "./run-loop-finalize.ts";
-import { executePlanningTurn } from "./run-loop-planning.ts";
 import type { Postscripts } from "./plan.ts";
 import {
 	buildDelegateTool,
@@ -55,11 +52,10 @@ import {
 	renderWorkspaceTools,
 } from "./plan.ts";
 import { resolveAgentDelegates } from "./resolver.ts";
-import {
-	type CallRecord,
-	verifyActResult,
-	verifyPrimitiveResult,
-} from "./verify.ts";
+import { evaluateCompaction } from "./run-loop-compaction.ts";
+import { applyRetryAccounting, finalizeRunLoopResult } from "./run-loop-finalize.ts";
+import { executePlanningTurn } from "./run-loop-planning.ts";
+import { type CallRecord, verifyActResult, verifyPrimitiveResult } from "./verify.ts";
 
 export interface AgentOptions {
 	spec: AgentSpec;
@@ -505,10 +501,7 @@ export class Agent {
 			target.treePath && this.agentTree ? this.agentTree.get(target.treePath) : undefined;
 
 		if (!subagentSpec) {
-			const errorMsg = this.buildDelegationDeniedError(
-				delegation.agent_name,
-				target.allowedNames,
-			);
+			const errorMsg = this.buildDelegationDeniedError(delegation.agent_name, target.allowedNames);
 			const toolResultMsg = Msg.toolResult(delegation.call_id, errorMsg, true);
 			this.emitAndLog("act_end", agentId, this.depth, {
 				agent_name: delegation.agent_name,
@@ -651,10 +644,7 @@ export class Agent {
 		});
 		const target = this.resolveDelegationTarget(delegation.agent_name);
 		if (!target.spec) {
-			const errorMsg = this.buildDelegationDeniedError(
-				delegation.agent_name,
-				target.allowedNames,
-			);
+			const errorMsg = this.buildDelegationDeniedError(delegation.agent_name, target.allowedNames);
 			const toolResultMsg = Msg.toolResult(delegation.call_id, errorMsg, true);
 			this.emitAndLog("act_end", agentId, this.depth, {
 				agent_name: delegation.agent_name,
@@ -995,41 +985,39 @@ export class Agent {
 		const { request, agentId, turn, signal } = opts;
 		const llmStartTime = performance.now();
 		try {
-			let response: LLMResponse;
-			if (this.enableStreaming) {
-				response = await this.completeWithStreaming(request, agentId, llmStartTime, signal);
-			} else {
-				const completeFn = () => {
-					if (signal) {
-						const completePromise = this.client.complete(request);
-						let onAbort: () => void = () => {};
-						const abortPromise = new Promise<never>((_, reject) => {
-							if (signal.aborted) reject(new DOMException("Aborted", "AbortError"));
-							onAbort = () => reject(new DOMException("Aborted", "AbortError"));
-							signal.addEventListener("abort", onAbort, { once: true });
-						});
-						return Promise.race([completePromise, abortPromise]).finally(() => {
-							signal.removeEventListener("abort", onAbort);
-						});
-					}
-					return this.client.complete(request);
-				};
+			const completeFn = () => {
+				if (this.enableStreaming) {
+					return this.completeWithStreaming(request, agentId, llmStartTime, signal);
+				}
+				if (signal) {
+					const completePromise = this.client.complete(request);
+					let onAbort: () => void = () => {};
+					const abortPromise = new Promise<never>((_, reject) => {
+						if (signal.aborted) reject(new DOMException("Aborted", "AbortError"));
+						onAbort = () => reject(new DOMException("Aborted", "AbortError"));
+						signal.addEventListener("abort", onAbort, { once: true });
+					});
+					return Promise.race([completePromise, abortPromise]).finally(() => {
+						signal.removeEventListener("abort", onAbort);
+					});
+				}
+				return this.client.complete(request);
+			};
 
-				response = await retryLLMCall(completeFn, {
-					...this.llmRetryOptions,
-					signal,
-					onRetry: (error, attempt, delayMs) => {
-						this.logger.warn("llm", "Retrying LLM call", {
-							attempt,
-							delayMs,
-							error: error.message,
-							model: this.resolved.model,
-							provider: this.resolved.provider,
-							turn,
-						});
-					},
-				});
-			}
+			const response = await retryLLMCall(completeFn, {
+				...this.llmRetryOptions,
+				signal,
+				onRetry: (error, attempt, delayMs) => {
+					this.logger.warn("llm", "Retrying LLM call", {
+						attempt,
+						delayMs,
+						error: error.message,
+						model: this.resolved.model,
+						provider: this.resolved.provider,
+						turn,
+					});
+				},
+			});
 			return { response, latencyMs: Math.round(performance.now() - llmStartTime) };
 		} catch (err) {
 			const latencyMs = Math.round(performance.now() - llmStartTime);
@@ -1083,10 +1071,11 @@ export class Agent {
 		// interpreted as delegations.
 		const agentNameSource = this.genome ? this.genome.allAgents() : this.availableAgents;
 		const knownAgentNames = new Set(agentNameSource.map((agent) => agent.name));
-		const { delegations, agentCommands, errors: delegationErrors } = parsePlanResponse(
-			toolCalls,
-			knownAgentNames,
-		);
+		const {
+			delegations,
+			agentCommands,
+			errors: delegationErrors,
+		} = parsePlanResponse(toolCalls, knownAgentNames);
 		const delegationByCallId = new Map(delegations.map((d) => [d.call_id, d]));
 		const agentCommandByCallId = new Map(agentCommands.map((c) => [c.call_id, c]));
 
@@ -1368,22 +1357,18 @@ export class Agent {
 				}
 			}
 
-		const retryAccounting = applyRetryAccounting({
-			callHistory,
-			stumbles,
-			goal,
-			agentName: this.spec.name,
-			turns,
-			sessionId: this.sessionId,
-		});
-		stumbles = retryAccounting.stumbles;
-		if (
-			retryAccounting.learnSignal &&
-			this.learnProcess &&
-			this.spec.constraints.can_learn
-		) {
-			this.learnProcess.push(retryAccounting.learnSignal);
-		}
+			const retryAccounting = applyRetryAccounting({
+				callHistory,
+				stumbles,
+				goal,
+				agentName: this.spec.name,
+				turns,
+				sessionId: this.sessionId,
+			});
+			stumbles = retryAccounting.stumbles;
+			if (retryAccounting.learnSignal && this.learnProcess && this.spec.constraints.can_learn) {
+				this.learnProcess.push(retryAccounting.learnSignal);
+			}
 		} catch (err) {
 			// Emit session_end on unrecoverable errors so listeners are not left
 			// stuck in a "running" state. The normal completion path below handles
