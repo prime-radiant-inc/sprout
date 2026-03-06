@@ -783,6 +783,7 @@ export class Agent {
 		}
 
 		const caller: CallerIdentity = { agent_name: this.spec.name, depth: this.depth };
+		const childAgentId = this.spawner.getHandle(cmd.handle)?.agentId;
 
 		try {
 			if (cmd.kind === "wait_agent") {
@@ -792,6 +793,7 @@ export class Agent {
 				this.emitAndLog("act_end", agentId, this.depth, {
 					agent_name: cmd.kind,
 					success: result.success,
+					child_id: childAgentId,
 					tool_result_message: toolResultMsg,
 				});
 				return { toolResultMsg, stumbles: result.success ? 0 : 1, output: result.output };
@@ -806,6 +808,7 @@ export class Agent {
 				this.emitAndLog("act_end", agentId, this.depth, {
 					agent_name: cmd.kind,
 					success: true,
+					child_id: childAgentId,
 					tool_result_message: toolResultMsg,
 				});
 				return { toolResultMsg, stumbles: 0 };
@@ -816,6 +819,7 @@ export class Agent {
 			this.emitAndLog("act_end", agentId, this.depth, {
 				agent_name: cmd.kind,
 				success: result.success,
+				child_id: childAgentId,
 				tool_result_message: toolResultMsg,
 			});
 			return { toolResultMsg, stumbles: result.success ? 0 : 1, output: result.output };
@@ -826,6 +830,7 @@ export class Agent {
 				agent_name: cmd.kind,
 				success: false,
 				error: errorMsg,
+				child_id: childAgentId,
 				tool_result_message: toolResultMsg,
 			});
 			return { toolResultMsg, stumbles: 1 };

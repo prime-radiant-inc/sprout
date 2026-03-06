@@ -2583,7 +2583,7 @@ describe("Agent", () => {
 				return undefined;
 			},
 			getHandles: () => [],
-			getHandle: () => undefined,
+			getHandle: (handleId: string) => ({ agentId: `agent-${handleId}` }),
 			shutdown: () => {},
 		} as unknown as AgentSpawner;
 
@@ -2859,6 +2859,7 @@ describe("Agent", () => {
 		);
 		expect(actEndEvents).toHaveLength(1);
 		expect(actEndEvents[0]!.data.tool_result_message).toBeDefined();
+		expect(actEndEvents[0]!.data.child_id).toBe("agent-handle-abc");
 	});
 
 	test("with spawner, message_agent routes through spawner.messageAgent", async () => {
@@ -2931,6 +2932,7 @@ describe("Agent", () => {
 		);
 		expect(actEndEvents).toHaveLength(1);
 		expect(actEndEvents[0]!.data.tool_result_message).toBeDefined();
+		expect(actEndEvents[0]!.data.child_id).toBe("agent-handle-xyz");
 	});
 
 	test("without spawner, wait_agent returns error tool result", async () => {

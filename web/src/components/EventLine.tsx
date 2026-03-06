@@ -87,9 +87,7 @@ export function EventLine({ event, durationMs, streamingText, isFirstInGroup, ag
 					status={abandoned ? "failed" : "running"}
 					livePeek={livePeek}
 					livePeekTools={livePeekTools}
-					onOpenThread={onSelectAgent ? () => onSelectAgent(
-						typeof data.child_id === "string" ? data.child_id : (data.agent_name as string)
-					) : undefined}
+					onOpenThread={onSelectAgent && typeof data.child_id === "string" ? () => onSelectAgent(data.child_id as string) : undefined}
 				/>
 			);
 
@@ -102,9 +100,7 @@ export function EventLine({ event, durationMs, streamingText, isFirstInGroup, ag
 					status={data.success ? "completed" : "failed"}
 					turns={typeof data.turns === "number" ? data.turns : undefined}
 					durationMs={durationMs}
-					onOpenThread={onSelectAgent ? () => onSelectAgent(
-						typeof data.child_id === "string" ? data.child_id : (data.agent_name as string)
-					) : undefined}
+					onOpenThread={onSelectAgent && typeof data.child_id === "string" ? () => onSelectAgent(data.child_id as string) : undefined}
 				/>
 			);
 
