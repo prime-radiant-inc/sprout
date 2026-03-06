@@ -103,7 +103,9 @@ function TreeNode({
 }) {
 	const hasChildren = node.children.length > 0;
 	const isSelected = selectedAgent === node.agentId;
-	const [expanded, setExpanded] = useState(defaultExpanded ?? true);
+	const [expanded, setExpanded] = useState(() =>
+		(defaultExpanded ?? true) && node.status !== "completed" && node.status !== "failed"
+	);
 	const stats = agentStats?.get(node.agentId);
 	const pressure = contextPressure?.get(node.agentId);
 	const hasRunningChild = node.children.some((c) => c.status === "running");

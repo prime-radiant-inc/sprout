@@ -68,11 +68,53 @@ function makeCompletedTree(): AgentTreeNode {
 	return { ...makeTree(), status: "completed" };
 }
 
+/** Variant with all agents running — everything expanded by default. */
+function makeAllRunningTree(): AgentTreeNode {
+	return makeNode({
+		agentId: "root",
+		agentName: "root",
+		goal: "Orchestrate the build",
+		status: "running",
+		children: [
+			makeNode({
+				agentId: "editor-1",
+				agentName: "code-editor",
+				depth: 1,
+				status: "running",
+				goal: "Write the parser",
+				children: [
+					makeNode({
+						agentId: "runner-1",
+						agentName: "test-runner",
+						depth: 2,
+						status: "running",
+						goal: "Run unit tests",
+					}),
+				],
+			}),
+			makeNode({
+				agentId: "editor-2",
+				agentName: "code-editor",
+				depth: 1,
+				status: "running",
+				goal: "Refactor the formatter",
+			}),
+			makeNode({
+				agentId: "reader-1",
+				agentName: "code-reader",
+				depth: 1,
+				status: "running",
+				goal: "Analyze dependencies",
+			}),
+		],
+	});
+}
+
 // --- AgentTree ---
 
 describe("AgentTree", () => {
 	test("renders all agent names in the tree", () => {
-		const tree = makeCompletedTree();
+		const tree = makeAllRunningTree();
 		const html = renderToStaticMarkup(
 			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
 		);
@@ -91,7 +133,7 @@ describe("AgentTree", () => {
 	});
 
 	test("renders nested structure with depth-based nesting", () => {
-		const tree = makeCompletedTree();
+		const tree = makeAllRunningTree();
 		const html = renderToStaticMarkup(
 			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
 		);
@@ -111,7 +153,18 @@ describe("AgentTree", () => {
 	});
 
 	test("shows X for failed agents", () => {
-		const tree = makeCompletedTree();
+		const tree = makeNode({
+			status: "running",
+			children: [
+				makeNode({
+					agentId: "fail-1",
+					agentName: "editor",
+					depth: 1,
+					status: "failed",
+					goal: "Oops",
+				}),
+			],
+		});
 		const html = renderToStaticMarkup(
 			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
 		);
@@ -129,7 +182,7 @@ describe("AgentTree", () => {
 	});
 
 	test("marks selected agent with data-selected attribute", () => {
-		const tree = makeCompletedTree();
+		const tree = makeAllRunningTree();
 		const html = renderToStaticMarkup(
 			<AgentTree
 				tree={tree}
@@ -141,7 +194,7 @@ describe("AgentTree", () => {
 	});
 
 	test("each node has data-agent-id for click targeting", () => {
-		const tree = makeCompletedTree();
+		const tree = makeAllRunningTree();
 		const html = renderToStaticMarkup(
 			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
 		);
@@ -162,7 +215,7 @@ describe("AgentTree", () => {
 	});
 
 	test("renders goal text for each node", () => {
-		const tree = makeCompletedTree();
+		const tree = makeAllRunningTree();
 		const html = renderToStaticMarkup(
 			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
 		);
@@ -258,13 +311,13 @@ describe("AgentTree", () => {
 	test("leaf nodes render spacer instead of disclosure triangle", () => {
 		// A tree where root has one child (leaf node with no children)
 		const tree = makeNode({
-			status: "completed",
+			status: "running",
 			children: [
 				makeNode({
 					agentId: "leaf-1",
 					agentName: "leaf",
 					depth: 1,
-					status: "completed",
+					status: "running",
 					goal: "Do something",
 					children: [],
 				}),
@@ -351,13 +404,14 @@ describe("AgentTree", () => {
 		const html = renderToStaticMarkup(
 			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
 		);
-		// With the toggle removed, all agents are always in the DOM
-		// Auto-collapse via useEffect only runs client-side, not in SSR
+		// Root is running, so it starts expanded — direct children are visible
 		expect(html).toContain('data-agent-id="root"');
 		expect(html).toContain('data-agent-id="editor-1"');
 		expect(html).toContain('data-agent-id="editor-2"');
 		expect(html).toContain('data-agent-id="reader-1"');
-		expect(html).toContain('data-agent-id="runner-1"');
+		// runner-1 is a child of editor-1 (completed), which starts collapsed
+		// so runner-1 is NOT rendered in SSR
+		expect(html).not.toContain('data-agent-id="runner-1"');
 	});
 });
 
