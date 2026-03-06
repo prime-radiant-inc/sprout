@@ -27,6 +27,7 @@ describe("runInteractiveMode", () => {
 					web: true,
 				},
 				sessionId: "01WEBONLY",
+				projectDataDir: "/tmp/project-data",
 				runtime: {
 					bus: bus as any,
 					controller: { sessionId: "01WEBONLY", isRunning: false, currentModel: undefined },
@@ -93,6 +94,7 @@ describe("runInteractiveMode", () => {
 					host: "0.0.0.0",
 				},
 				sessionId: "01NONCE",
+				projectDataDir: "/tmp/project-data",
 				runtime: {
 					bus: bus as any,
 					controller: { sessionId: "01NONCE", isRunning: false, currentModel: undefined },
@@ -147,6 +149,67 @@ describe("runInteractiveMode", () => {
 		expect(stderr).toContain("Web UI: http://0.0.0.0:7777");
 	});
 
+	test("interactive web mode emits recoverable web URL event", async () => {
+		const bus = new FakeBus();
+
+		await runInteractiveMode(
+			{
+				command: {
+					genomePath: "/tmp/genome",
+					web: true,
+					host: "0.0.0.0",
+				},
+				sessionId: "01WEBHINT",
+				projectDataDir: "/tmp/project-data",
+				runtime: {
+					bus: bus as any,
+					controller: { sessionId: "01WEBHINT", isRunning: false, currentModel: undefined },
+					logger: { info: () => {} },
+					availableModels: [],
+				},
+				initialEvents: [],
+				cleanupInfra: async () => {},
+				onResumeHint: () => {},
+				inputHistoryPath: () => "/tmp/history",
+				handleSlashCommand: async () => ({ action: "none" }),
+			},
+			{
+				createWebServer: async () => ({
+					start: async () => {},
+					stop: async () => {},
+					getWebToken: () => "generated-nonce",
+				}),
+				runWebOnlyMode: async () => {},
+				createInputHistory: async () => ({
+					load: async () => {},
+					save: async () => {},
+					add: () => {},
+					all: () => [],
+				}),
+				renderApp: async () => ({
+					waitUntilExit: async () => {},
+					unmount: () => {},
+				}),
+				registerInteractiveSigint: () =>
+					({
+						onSignal: () => {},
+						clearPending: () => {},
+						dispose: () => {},
+					}) as any,
+				buildWebOpenUrl: (port, webToken, host) =>
+					`http://${host ?? "localhost"}:${port}${webToken ? `/?token=${webToken}` : ""}`,
+				openUrl: () => {},
+				logOut: () => {},
+				logError: () => {},
+			},
+		);
+
+		expect(bus.events).toContainEqual({
+			kind: "warning",
+			data: { message: "Web UI URL: http://0.0.0.0:7777/?token=generated-nonce" },
+		});
+	});
+
 	test("interactive TUI path loads/saves history, submits commands, and cleans up", async () => {
 		const bus = new FakeBus();
 		const called: string[] = [];
@@ -157,6 +220,7 @@ describe("runInteractiveMode", () => {
 			{
 				command: { genomePath: "/tmp/genome" },
 				sessionId: "01TUI",
+				projectDataDir: "/tmp/project-data",
 				runtime: {
 					bus: bus as any,
 					controller: { sessionId: "01TUI", isRunning: false, currentModel: "fast" },
@@ -229,6 +293,77 @@ describe("runInteractiveMode", () => {
 		expect(hints).toEqual(["01TUI"]);
 	});
 
+	test("starting /web in a resumed TUI seeds WebServer with initialEvents", async () => {
+		const bus = new FakeBus();
+		const createWebServerCalls: Array<{ initialEvents?: unknown[] }> = [];
+		const resumedEvents = [
+			{
+				kind: "perceive",
+				timestamp: 1000,
+				agent_id: "root",
+				depth: 0,
+				data: { goal: "resumed goal" },
+			},
+		];
+
+		await runInteractiveMode(
+			{
+				command: { genomePath: "/tmp/genome" },
+				sessionId: "01RESUMEWEB",
+				projectDataDir: "/tmp/project-data",
+				runtime: {
+					bus: bus as any,
+					controller: { sessionId: "01RESUMEWEB", isRunning: false, currentModel: "fast" },
+					logger: { info: () => {} },
+					availableModels: ["fast"],
+				},
+				initialEvents: resumedEvents as any,
+				cleanupInfra: async () => {},
+				onResumeHint: () => {},
+				inputHistoryPath: () => "/tmp/history",
+				handleSlashCommand: async (cmd) =>
+					cmd.kind === "web" ? { action: "start_web" } : { action: "none" },
+			},
+			{
+				createWebServer: async (opts) => {
+					createWebServerCalls.push({ initialEvents: opts.initialEvents as unknown[] | undefined });
+					return {
+						start: async () => {},
+						stop: async () => {},
+					};
+				},
+				runWebOnlyMode: async () => {},
+				createInputHistory: async () => ({
+					load: async () => {},
+					save: async () => {},
+					add: () => {},
+					all: () => [],
+				}),
+				renderApp: async (renderOpts) => {
+					await renderOpts.onSlashCommand({ kind: "web" } as any);
+					// /web start is launched in a background task.
+					await new Promise((resolve) => setTimeout(resolve, 0));
+					return {
+						waitUntilExit: async () => {},
+						unmount: () => {},
+					};
+				},
+				registerInteractiveSigint: () =>
+					({
+						onSignal: () => {},
+						clearPending: () => {},
+						dispose: () => {},
+					}) as any,
+				buildWebOpenUrl: () => "http://localhost:7777",
+				openUrl: () => {},
+				logError: () => {},
+			},
+		);
+
+		expect(createWebServerCalls).toHaveLength(1);
+		expect(createWebServerCalls[0]!.initialEvents).toEqual(resumedEvents);
+	});
+
 	test("web startup failure logs error and cleans up infra", async () => {
 		const bus = new FakeBus();
 		let cleanupCount = 0;
@@ -239,6 +374,7 @@ describe("runInteractiveMode", () => {
 			{
 				command: { genomePath: "/tmp/genome", web: true },
 				sessionId: "01FAILWEB",
+				projectDataDir: "/tmp/project-data",
 				runtime: {
 					bus: bus as any,
 					controller: { sessionId: "01FAILWEB", isRunning: false, currentModel: undefined },

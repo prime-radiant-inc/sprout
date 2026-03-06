@@ -196,8 +196,7 @@ export function parseArgs(argv: string[]): CliCommand {
 		const prefix = argv.slice(0, promptIdx);
 		if (hasUnknownFlags(prefix)) return { kind: "help" };
 		const gpIdx = prefix.indexOf("--genome-path");
-		const genomePath =
-			gpIdx !== -1 ? (prefix[gpIdx + 1] ?? defaultGenomePath) : defaultGenomePath;
+		const genomePath = gpIdx !== -1 ? (prefix[gpIdx + 1] ?? defaultGenomePath) : defaultGenomePath;
 		return { kind: "oneshot", goal, genomePath };
 	}
 
@@ -208,8 +207,7 @@ export function parseArgs(argv: string[]): CliCommand {
 		const sub = argv[genomeIdx + 1];
 		const prefix = argv.slice(0, genomeIdx);
 		const gpIdx = prefix.indexOf("--genome-path");
-		const genomePath =
-			gpIdx !== -1 ? (prefix[gpIdx + 1] ?? defaultGenomePath) : defaultGenomePath;
+		const genomePath = gpIdx !== -1 ? (prefix[gpIdx + 1] ?? defaultGenomePath) : defaultGenomePath;
 		if (sub === "list") return { kind: "genome-list", genomePath };
 		if (sub === "log") return { kind: "genome-log", genomePath };
 		if (sub === "rollback") {
@@ -743,6 +741,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 			webToken: command.webToken,
 		},
 		sessionId,
+		projectDataDir,
 		runtime: {
 			bus,
 			logger,

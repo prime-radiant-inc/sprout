@@ -47,6 +47,7 @@ export interface InteractiveCommandFlags {
 export interface InteractiveModeOptions {
 	command: InteractiveCommandFlags;
 	sessionId: string;
+	projectDataDir: string;
 	runtime: {
 		bus: BusLike;
 		controller: ControllerLike;
@@ -164,10 +165,23 @@ export async function runInteractiveMode(
 
 	const webPort = opts.command.port ?? 7777;
 	const webHost = opts.command.host;
+	const displayHost = webHost ?? "localhost";
 	const webToken = opts.command.webToken ?? process.env.SPROUT_WEB_TOKEN;
 	const staticDir = join(import.meta.dir, "../../web/dist");
 	let webServer: WebServerLike | null = null;
-	const projectDataDir = process.env.SPROUT_PROJECT_DATA_DIR ?? process.env.SPROUT_GENOME_PATH;
+	const projectDataDir =
+		opts.projectDataDir ?? process.env.SPROUT_PROJECT_DATA_DIR ?? process.env.SPROUT_GENOME_PATH;
+	const shouldExposeTokenInUi = !isLoopbackHost(displayHost);
+	const currentWebToken = () => webServer?.getWebToken?.() ?? webToken;
+	const buildUiWebUrl = () =>
+		d.buildWebOpenUrl(webPort, shouldExposeTokenInUi ? currentWebToken() : undefined, displayHost);
+	const buildLocalWebOpenUrl = () => d.buildWebOpenUrl(webPort, currentWebToken());
+	const emitWebUiHint = () => {
+		if (!webServer) return;
+		opts.runtime.bus.emitEvent("warning", "cli", 0, {
+			message: `Web UI URL: ${buildUiWebUrl()}`,
+		});
+	};
 
 	if (opts.command.web || opts.command.webOnly) {
 		webServer = await d.createWebServer({
@@ -189,8 +203,7 @@ export async function runInteractiveMode(
 			d.logError(`Failed to start web server: ${err instanceof Error ? err.message : String(err)}`);
 			return;
 		}
-		const displayHost = webHost ?? "localhost";
-		const effectiveWebToken = webServer.getWebToken?.() ?? webToken;
+		const effectiveWebToken = currentWebToken();
 		opts.runtime.logger.info("session", "Web server started", { host: displayHost, port: webPort });
 		d.logError(`Web UI: http://${displayHost}:${webPort}`);
 		if (!isLoopbackHost(displayHost) && effectiveWebToken) {
@@ -217,7 +230,6 @@ export async function runInteractiveMode(
 	const historyPath = opts.inputHistoryPath(opts.command.genomePath);
 	const inputHistory = await d.createInputHistory(historyPath);
 	await inputHistory.load();
-	const webOpenUrl = d.buildWebOpenUrl(webPort, webServer?.getWebToken?.() ?? webToken);
 
 	let unmountFn: (() => void) | undefined;
 	const sigintRegistration = d.registerInteractiveSigint({
@@ -247,9 +259,7 @@ export async function runInteractiveMode(
 				if (result.action === "exit") unmountFn?.();
 				else if (result.action === "start_web") {
 					if (webServer) {
-						opts.runtime.bus.emitEvent("warning", "cli", 0, {
-							message: `Web UI already running at http://localhost:${webPort}`,
-						});
+						emitWebUiHint();
 					} else {
 						(async () => {
 							try {
@@ -260,16 +270,15 @@ export async function runInteractiveMode(
 									sessionId: opts.sessionId,
 									hostname: webHost,
 									webToken,
+									initialEvents: opts.initialEvents,
 									availableModels: opts.runtime.availableModels,
 									logger: opts.runtime.logger,
 									projectDataDir,
 								});
 								await webServer.start();
-								opts.runtime.bus.emitEvent("warning", "cli", 0, {
-									message: `Web UI: http://localhost:${webPort}`,
-								});
+								emitWebUiHint();
 								// TODO: macOS-only. On Linux use xdg-open, on Windows use start.
-								d.openUrl(webOpenUrl);
+								d.openUrl(buildLocalWebOpenUrl());
 							} catch (err) {
 								opts.runtime.bus.emitEvent("error", "cli", 0, { error: String(err) });
 							}
@@ -303,6 +312,7 @@ export async function runInteractiveMode(
 			},
 		});
 		unmountFn = unmount;
+		emitWebUiHint();
 
 		await waitUntilExit();
 	} finally {
