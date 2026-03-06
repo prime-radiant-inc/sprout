@@ -13,8 +13,17 @@ export interface ClientOptions {
 	providers?: Record<string, ProviderAdapter>;
 	defaultProvider?: string;
 	middleware?: Middleware[];
-	/** Max time (ms) between consecutive stream chunks. 0 to disable. Default: 30s. */
+	/** Max time (ms) between consecutive stream chunks. 0 to disable. */
 	streamReadTimeoutMs?: number;
+}
+
+function parseStreamReadTimeoutFromEnv(raw: string | undefined): number | undefined {
+	if (raw === undefined || raw.trim() === "") return undefined;
+	const parsed = Number(raw);
+	if (!Number.isFinite(parsed) || parsed < 0) {
+		throw new Error("SPROUT_STREAM_READ_TIMEOUT_MS must be >= 0 and finite (0 to disable)");
+	}
+	return parsed;
 }
 
 /**
@@ -54,6 +63,9 @@ export class Client {
 		options: { middleware?: Middleware[]; streamReadTimeoutMs?: number } = {},
 	): Client {
 		const providers: Record<string, ProviderAdapter> = {};
+		const streamReadTimeoutMs =
+			options.streamReadTimeoutMs ??
+			parseStreamReadTimeoutFromEnv(process.env.SPROUT_STREAM_READ_TIMEOUT_MS);
 
 		const anthropicKey = process.env.ANTHROPIC_API_KEY;
 		if (anthropicKey) {
@@ -81,7 +93,7 @@ export class Client {
 		return new Client({
 			providers,
 			middleware: options.middleware,
-			streamReadTimeoutMs: options.streamReadTimeoutMs,
+			streamReadTimeoutMs,
 		});
 	}
 

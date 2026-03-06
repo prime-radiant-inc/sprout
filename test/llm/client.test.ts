@@ -88,6 +88,55 @@ describe("Client", () => {
 		}
 	});
 
+	test("fromEnv reads stream read timeout from SPROUT_STREAM_READ_TIMEOUT_MS", () => {
+		const saved = process.env.SPROUT_STREAM_READ_TIMEOUT_MS;
+		process.env.SPROUT_STREAM_READ_TIMEOUT_MS = "120000";
+
+		try {
+			const client = Client.fromEnv();
+			expect((client as any).streamReadTimeoutMs).toBe(120000);
+		} finally {
+			if (saved === undefined) {
+				delete process.env.SPROUT_STREAM_READ_TIMEOUT_MS;
+			} else {
+				process.env.SPROUT_STREAM_READ_TIMEOUT_MS = saved;
+			}
+		}
+	});
+
+	test("fromEnv option streamReadTimeoutMs overrides SPROUT_STREAM_READ_TIMEOUT_MS", () => {
+		const saved = process.env.SPROUT_STREAM_READ_TIMEOUT_MS;
+		process.env.SPROUT_STREAM_READ_TIMEOUT_MS = "120000";
+
+		try {
+			const client = Client.fromEnv({ streamReadTimeoutMs: 5000 });
+			expect((client as any).streamReadTimeoutMs).toBe(5000);
+		} finally {
+			if (saved === undefined) {
+				delete process.env.SPROUT_STREAM_READ_TIMEOUT_MS;
+			} else {
+				process.env.SPROUT_STREAM_READ_TIMEOUT_MS = saved;
+			}
+		}
+	});
+
+	test("fromEnv throws on invalid SPROUT_STREAM_READ_TIMEOUT_MS", () => {
+		const saved = process.env.SPROUT_STREAM_READ_TIMEOUT_MS;
+		process.env.SPROUT_STREAM_READ_TIMEOUT_MS = "not-a-number";
+
+		try {
+			expect(() => Client.fromEnv()).toThrow(
+				"SPROUT_STREAM_READ_TIMEOUT_MS must be >= 0 and finite (0 to disable)",
+			);
+		} finally {
+			if (saved === undefined) {
+				delete process.env.SPROUT_STREAM_READ_TIMEOUT_MS;
+			} else {
+				process.env.SPROUT_STREAM_READ_TIMEOUT_MS = saved;
+			}
+		}
+	});
+
 	test("complete routes to the correct provider", async () => {
 		const vcr = vcrFor("complete-routes-to-correct-provider", realClient);
 		const req: Request = {

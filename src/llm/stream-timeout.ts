@@ -2,12 +2,12 @@
  * Stream read timeout utility.
  *
  * Per the unified LLM spec (Section 4, AdapterTimeout), the `stream_read`
- * timeout is the max time between consecutive stream events. Default: 30s.
+ * timeout is the max time between consecutive stream events.
  * If no chunk arrives within the timeout, a StreamReadTimeoutError is thrown.
  */
 
-/** Default stream read timeout in milliseconds (spec default: 30s). */
-export const DEFAULT_STREAM_READ_TIMEOUT_MS = 30_000;
+/** Default stream read timeout in milliseconds. */
+export const DEFAULT_STREAM_READ_TIMEOUT_MS = 120_000;
 
 /**
  * Error thrown when the time between consecutive stream chunks exceeds
