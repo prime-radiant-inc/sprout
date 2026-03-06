@@ -101,6 +101,6 @@ describe("loadRootAgents", () => {
 		expect(indexer!.agents).toContain("utility/mcp");
 		expect(indexer!.tools).toContain("write_file");
 		expect(indexer!.constraints.can_spawn).toBe(true);
-		expect(indexer!.constraints.max_depth).toBe(1);
+		expect(indexer!.constraints.max_depth).toBe(3);
 	});
 });

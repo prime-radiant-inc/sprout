@@ -11,7 +11,7 @@ agents:
   - utility/mcp
 constraints:
   max_turns: 30
-  max_depth: 1
+  max_depth: 3
   can_spawn: true
   timeout_ms: 120000
   allowed_write_paths:
