@@ -4,6 +4,7 @@ import type { AgentTreeNode } from "../hooks/useAgentTree.ts";
 import { formatCompactNumber, useTokenUsage } from "../hooks/useTokenUsage.ts";
 import { ConversationView } from "./ConversationView.tsx";
 import styles from "./ThreadPanel.module.css";
+import { pressureColor } from "../utils/pressureColor.ts";
 
 const statusIcons: Record<AgentTreeNode["status"], string> = {
 	completed: "\u2713",
@@ -16,13 +17,6 @@ const statusClasses: Record<AgentTreeNode["status"], string | undefined> = {
 	failed: styles.statusFailed,
 	running: styles.statusRunning,
 };
-
-/** Determine context pressure bar color based on usage percentage. */
-function pressureColor(percent: number): string {
-	if (percent >= 85) return "var(--color-error)";
-	if (percent >= 60) return "var(--color-warning)";
-	return "var(--color-success)";
-}
 
 interface ThreadPanelProps {
 	agentId: string;
@@ -41,7 +35,6 @@ export function ThreadPanel({ agentId, tree, events, onClose, onSelectAgent }: T
 	const contextPressure = tokenUsage?.contextTokens != null && tokenUsage?.contextWindowSize
 		? Math.round((tokenUsage.contextTokens / tokenUsage.contextWindowSize) * 100)
 		: null;
-
 	return (
 		<div className={styles.panel} data-region="thread-panel">
 			<div className={styles.header}>

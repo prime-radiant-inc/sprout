@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { SessionStatus } from "../hooks/useEvents.ts";
 import { formatTokens, shortModelName } from "./format.ts";
 import styles from "./StatusBar.module.css";
+import { pressureColor } from "../utils/pressureColor.ts";
 
 export interface StatusBarProps {
 	status: SessionStatus;
@@ -11,13 +12,6 @@ export interface StatusBarProps {
 	onSwitchModel?: (model: string) => void;
 	onToggleTheme?: () => void;
 	theme?: string;
-}
-
-/** Determine context pressure bar color based on usage percentage. */
-function pressureColor(percent: number): string {
-	if (percent >= 85) return "var(--color-error)";
-	if (percent >= 60) return "var(--color-warning)";
-	return "var(--color-success)";
 }
 
 /** Format elapsed seconds as "M:SS". */
