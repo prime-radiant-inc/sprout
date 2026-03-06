@@ -71,6 +71,8 @@ describe("aggregateTokenUsage", () => {
 		expect(aggregateTokenUsage(events, tree, "child-1")).toEqual({
 			inputTokens: 500,
 			outputTokens: 200,
+			contextTokens: null,
+			contextWindowSize: null,
 		});
 	});
 
@@ -91,6 +93,8 @@ describe("aggregateTokenUsage", () => {
 		expect(aggregateTokenUsage(events, tree, "child-1")).toEqual({
 			inputTokens: 1300,
 			outputTokens: 500,
+			contextTokens: null,
+			contextWindowSize: null,
 		});
 	});
 
@@ -117,6 +121,8 @@ describe("aggregateTokenUsage", () => {
 		expect(aggregateTokenUsage(events, tree, "parent-1")).toEqual({
 			inputTokens: 1300,
 			outputTokens: 500,
+			contextTokens: null,
+			contextWindowSize: null,
 		});
 	});
 
@@ -140,10 +146,14 @@ describe("aggregateTokenUsage", () => {
 		expect(aggregateTokenUsage(events, tree, "agent-a")).toEqual({
 			inputTokens: 500,
 			outputTokens: 200,
+			contextTokens: null,
+			contextWindowSize: null,
 		});
 		expect(aggregateTokenUsage(events, tree, "agent-b")).toEqual({
 			inputTokens: 1000,
 			outputTokens: 800,
+			contextTokens: null,
+			contextWindowSize: null,
 		});
 	});
 
@@ -184,6 +194,110 @@ describe("aggregateTokenUsage", () => {
 		expect(aggregateTokenUsage(events, tree, "child-1")).toEqual({
 			inputTokens: 500,
 			outputTokens: 200,
+			contextTokens: null,
+			contextWindowSize: null,
 		});
+	});
+
+	test("extracts context window data from plan_end events for the specific agent", () => {
+		resetTimestamps();
+		const events = [
+			makeEvent("perceive", "root", 0, { goal: "Work" }),
+			makeEvent("act_start", "root", 0, { agent_name: "editor", goal: "Edit", child_id: "child-1" }),
+			makeEvent("plan_end", "child-1", 1, {
+				usage: { input_tokens: 500, output_tokens: 200, total_tokens: 700 },
+				context_tokens: 500,
+				context_window_size: 200000,
+			}),
+		];
+		const tree = buildAgentTree(events);
+
+		expect(aggregateTokenUsage(events, tree, "child-1")).toEqual({
+			inputTokens: 500,
+			outputTokens: 200,
+			contextTokens: 500,
+			contextWindowSize: 200000,
+		});
+	});
+
+	test("takes the last context window values across multiple plan_end events", () => {
+		resetTimestamps();
+		const events = [
+			makeEvent("perceive", "root", 0, { goal: "Work" }),
+			makeEvent("act_start", "root", 0, { agent_name: "editor", goal: "Edit", child_id: "child-1" }),
+			makeEvent("plan_end", "child-1", 1, {
+				usage: { input_tokens: 500, output_tokens: 200, total_tokens: 700 },
+				context_tokens: 500,
+				context_window_size: 200000,
+			}),
+			makeEvent("plan_end", "child-1", 1, {
+				usage: { input_tokens: 800, output_tokens: 300, total_tokens: 1100 },
+				context_tokens: 1200,
+				context_window_size: 200000,
+			}),
+		];
+		const tree = buildAgentTree(events);
+
+		expect(aggregateTokenUsage(events, tree, "child-1")).toEqual({
+			inputTokens: 1300,
+			outputTokens: 500,
+			contextTokens: 1200,
+			contextWindowSize: 200000,
+		});
+	});
+
+	test("context window data is per-agent only, not from descendants", () => {
+		resetTimestamps();
+		const events = [
+			makeEvent("perceive", "root", 0, { goal: "Work" }),
+			makeEvent("act_start", "root", 0, { agent_name: "parent", goal: "Plan", child_id: "parent-1" }),
+			makeEvent("plan_end", "parent-1", 1, {
+				usage: { input_tokens: 1000, output_tokens: 400, total_tokens: 1400 },
+				context_tokens: 1000,
+				context_window_size: 200000,
+			}),
+			makeEvent("act_start", "parent-1", 1, { agent_name: "child", goal: "Execute", child_id: "grandchild-1" }),
+			makeEvent("plan_end", "grandchild-1", 2, {
+				usage: { input_tokens: 300, output_tokens: 100, total_tokens: 400 },
+				context_tokens: 300,
+				context_window_size: 128000,
+			}),
+			makeEvent("act_end", "parent-1", 1, { agent_name: "child", child_id: "grandchild-1", success: true }),
+			makeEvent("act_end", "root", 0, { agent_name: "parent", child_id: "parent-1", success: true }),
+		];
+		const tree = buildAgentTree(events);
+
+		// parent-1 should have its own context data, NOT grandchild-1's
+		expect(aggregateTokenUsage(events, tree, "parent-1")).toEqual({
+			inputTokens: 1300,
+			outputTokens: 500,
+			contextTokens: 1000,
+			contextWindowSize: 200000,
+		});
+
+		// grandchild-1 should have its own context data
+		expect(aggregateTokenUsage(events, tree, "grandchild-1")).toEqual({
+			inputTokens: 300,
+			outputTokens: 100,
+			contextTokens: 300,
+			contextWindowSize: 128000,
+		});
+	});
+
+	test("returns null context fields when plan_end events lack context data", () => {
+		resetTimestamps();
+		const events = [
+			makeEvent("perceive", "root", 0, { goal: "Work" }),
+			makeEvent("act_start", "root", 0, { agent_name: "editor", goal: "Edit", child_id: "child-1" }),
+			makeEvent("plan_end", "child-1", 1, {
+				usage: { input_tokens: 500, output_tokens: 200, total_tokens: 700 },
+			}),
+		];
+		const tree = buildAgentTree(events);
+
+		const result = aggregateTokenUsage(events, tree, "child-1");
+		expect(result).not.toBeNull();
+		expect(result!.contextTokens).toBeNull();
+		expect(result!.contextWindowSize).toBeNull();
 	});
 });
