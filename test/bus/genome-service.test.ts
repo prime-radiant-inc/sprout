@@ -36,7 +36,6 @@ describe("GenomeMutationService", () => {
 			agents: [],
 			constraints: {
 				max_turns: 10,
-				max_depth: 0,
 				timeout_ms: 30000,
 				can_spawn: false,
 				can_learn: false,

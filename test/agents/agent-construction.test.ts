@@ -3,16 +3,24 @@ import type { AgentSpec } from "../../src/kernel/types.ts";
 import { createAgentFixture, leafSpec, rootSpec } from "./fixtures.ts";
 
 describe("Agent construction and tool resolution", () => {
-	test("constructor validates max_depth", () => {
-		expect(() => createAgentFixture({ spec: rootSpec, depth: 5 })).toThrow(/depth/i);
+	test("global depth rail allows agents at depth 8", () => {
+		expect(() =>
+			createAgentFixture({
+				spec: rootSpec,
+				availableAgents: [rootSpec, leafSpec],
+				depth: 8,
+			}),
+		).not.toThrow();
 	});
 
-	test("max_depth 0 does not restrict instantiation depth", () => {
-		const leafOnly: AgentSpec = {
-			...leafSpec,
-			constraints: { ...leafSpec.constraints, max_depth: 0 },
-		};
-		expect(() => createAgentFixture({ spec: leafOnly, depth: 3 })).not.toThrow();
+	test("global depth rail rejects agents deeper than 8", () => {
+		expect(() =>
+			createAgentFixture({
+				spec: rootSpec,
+				availableAgents: [rootSpec, leafSpec],
+				depth: 9,
+			}),
+		).toThrow(/depth/i);
 	});
 
 	test("resolves single delegate tool from agents list", () => {

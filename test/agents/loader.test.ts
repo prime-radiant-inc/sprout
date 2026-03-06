@@ -51,7 +51,7 @@ describe("loadRootAgents", () => {
 		const agents = await loadRootAgents(join(import.meta.dir, "../../root"));
 		for (const agent of agents) {
 			expect(agent.constraints.max_turns).toBeGreaterThan(0);
-			expect(agent.constraints.max_depth).toBeGreaterThanOrEqual(0);
+			expect("max_depth" in agent.constraints).toBe(false);
 			expect(agent.system_prompt.length).toBeGreaterThan(0);
 		}
 	});
@@ -101,6 +101,6 @@ describe("loadRootAgents", () => {
 		expect(indexer!.agents).toContain("utility/mcp");
 		expect(indexer!.tools).toContain("write_file");
 		expect(indexer!.constraints.can_spawn).toBe(true);
-		expect(indexer!.constraints.max_depth).toBe(3);
+		expect("max_depth" in indexer!.constraints).toBe(false);
 	});
 });

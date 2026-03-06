@@ -42,7 +42,6 @@ tools:
   - read_file
 constraints:
   max_turns: 10
-  max_depth: 0
   can_spawn: false
   timeout_ms: 30000
 tags:
@@ -86,7 +85,7 @@ system_prompt: |
 		expect(saved!.tools).toEqual([]);
 		expect(saved!.tags).toEqual([]);
 		expect(saved!.constraints.max_turns).toBe(50); // default
-		expect(saved!.constraints.max_depth).toBe(3); // default
+		expect("max_depth" in saved!.constraints).toBe(false);
 	});
 
 	test("rejects YAML missing required name field", async () => {
@@ -130,6 +129,22 @@ model: fast
 	test("rejects empty spec parameter", async () => {
 		const result = await registry.execute("save_agent", { spec: "" });
 		expect(result.success).toBe(false);
+	});
+
+	test("rejects removed constraint keys", async () => {
+		const spec = `
+name: legacy-depth-agent
+description: "Uses removed max_depth"
+model: fast
+constraints:
+  max_depth: 3
+system_prompt: |
+  Do things.
+`;
+
+		const result = await registry.execute("save_agent", { spec });
+		expect(result.success).toBe(false);
+		expect(result.error).toContain("max_depth");
 	});
 
 	test("falls back to capabilities when tools and agents are missing", async () => {

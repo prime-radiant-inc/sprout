@@ -6,7 +6,6 @@ tools: []
 agents: []
 constraints:
   max_turns: 80
-  max_depth: 4
   can_spawn: true
   timeout_ms: 900000
 tags:

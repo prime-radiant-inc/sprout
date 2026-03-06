@@ -17,7 +17,6 @@ tools:
 agents: []
 constraints:
   max_turns: 20
-  max_depth: 0
   can_spawn: false
   timeout_ms: 120000
 tags: [my-category]
@@ -50,13 +49,13 @@ You are my-agent. You do X.
 | Field | Default | Description |
 |-------|---------|-------------|
 | `max_turns` | 50 | Maximum LLM round-trips |
-| `max_depth` | 3 | Maximum delegation nesting depth |
 | `can_spawn` | true | Whether this agent can delegate to others |
 | `can_learn` | false | Whether experiences are persisted to memory |
 | `timeout_ms` | 300000 | Hard timeout in milliseconds |
 
-Workers (leaf agents) should use `can_spawn: false` and `max_depth: 0`.
-Orchestrators need `can_spawn: true` and `max_depth >= 1`.
+Workers (leaf agents) should use `can_spawn: false`.
+Orchestrators need `can_spawn: true`.
+The runtime enforces a global depth rail of 8 with root at depth 0.
 
 ### The `tools` Field
 

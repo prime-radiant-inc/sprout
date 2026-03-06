@@ -36,7 +36,6 @@ export function validateAgentName(name: string): void {
 /** Constraints governing agent behavior */
 export interface AgentConstraints {
 	max_turns: number;
-	max_depth: number;
 	timeout_ms: number;
 	can_spawn: boolean;
 	can_learn: boolean;
@@ -49,11 +48,42 @@ export interface AgentConstraints {
 /** Default agent constraints */
 export const DEFAULT_CONSTRAINTS: AgentConstraints = {
 	max_turns: 50,
-	max_depth: 3,
 	timeout_ms: 300_000,
 	can_spawn: true,
 	can_learn: false,
 };
+
+/** Absolute agent tree depth limit. Root is depth 0, deepest allowed child is depth 8. */
+export const MAX_AGENT_DEPTH = 8;
+
+const AGENT_CONSTRAINT_KEYS = new Set([
+	"max_turns",
+	"timeout_ms",
+	"can_spawn",
+	"can_learn",
+	"allowed_write_paths",
+]);
+
+export function normalizeAgentConstraints(
+	rawConstraints: unknown,
+	source: string,
+): AgentConstraints {
+	if (rawConstraints === undefined || rawConstraints === null) {
+		return { ...DEFAULT_CONSTRAINTS };
+	}
+	if (typeof rawConstraints !== "object" || Array.isArray(rawConstraints)) {
+		throw new Error(`Invalid agent constraints at ${source}: 'constraints' must be an object`);
+	}
+
+	const constraints = rawConstraints as Record<string, unknown>;
+	for (const key of Object.keys(constraints)) {
+		if (!AGENT_CONSTRAINT_KEYS.has(key)) {
+			throw new Error(`Invalid agent constraints at ${source}: unknown constraint '${key}'`);
+		}
+	}
+
+	return { ...DEFAULT_CONSTRAINTS, ...constraints } as AgentConstraints;
+}
 
 /** Complete specification for an agent in the genome */
 export interface AgentSpec {

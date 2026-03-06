@@ -14,7 +14,6 @@ describe("parseAgentMarkdown", () => {
 			"agents: []",
 			"constraints:",
 			"  max_turns: 20",
-			"  max_depth: 0",
 			"  can_spawn: false",
 			"tags: [core]",
 			"version: 2",
@@ -98,9 +97,24 @@ describe("parseAgentMarkdown", () => {
 		const spec = parseAgentMarkdown(content, "partial.md");
 		expect(spec.constraints.can_spawn).toBe(false);
 		expect(spec.constraints.max_turns).toBe(50);
-		expect(spec.constraints.max_depth).toBe(3);
+		expect("max_depth" in spec.constraints).toBe(false);
 		expect(spec.constraints.timeout_ms).toBe(300_000);
 		expect(spec.constraints.can_learn).toBe(false);
+	});
+
+	test("rejects removed constraint keys", () => {
+		const content = [
+			"---",
+			"name: t",
+			'description: "t"',
+			"model: fast",
+			"constraints:",
+			"  max_depth: 3",
+			"---",
+			"body",
+		].join("\n");
+
+		expect(() => parseAgentMarkdown(content, "t.md")).toThrow(/max_depth/);
 	});
 
 	test("throws when tools is not an array", () => {

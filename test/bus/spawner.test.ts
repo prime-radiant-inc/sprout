@@ -21,7 +21,6 @@ const AGENT_SPEC = {
 	agents: [],
 	constraints: {
 		max_turns: 5,
-		max_depth: 0,
 		timeout_ms: 30000,
 		can_spawn: false,
 		can_learn: false,

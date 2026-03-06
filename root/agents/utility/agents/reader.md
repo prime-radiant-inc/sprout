@@ -9,7 +9,6 @@ tools:
 agents: []
 constraints:
   max_turns: 20
-  max_depth: 0
   can_spawn: false
 tags:
   - core

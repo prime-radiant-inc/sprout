@@ -709,7 +709,7 @@ function saveAgentPrimitive(ctx: GenomeContext): Primitive {
 			try {
 				// Parse and validate agent spec fields
 				const { parse } = await import("yaml");
-				const { DEFAULT_CONSTRAINTS, validateAgentName } = await import("./types.ts");
+				const { normalizeAgentConstraints, validateAgentName } = await import("./types.ts");
 				const raw = parse(spec);
 
 				for (const field of ["name", "description", "system_prompt", "model"]) {
@@ -741,7 +741,10 @@ function saveAgentPrimitive(ctx: GenomeContext): Primitive {
 					model: raw.model as string,
 					tools,
 					agents,
-					constraints: { ...DEFAULT_CONSTRAINTS, ...raw.constraints },
+					constraints: normalizeAgentConstraints(
+						raw.constraints,
+						`save_agent spec for '${raw.name as string}'`,
+					),
 					tags: (raw.tags as string[]) ?? [],
 					version: (raw.version as number) ?? 1,
 				};

@@ -543,7 +543,6 @@ describe("Agent", () => {
 				...DEFAULT_CONSTRAINTS,
 				timeout_ms: 200,
 				max_turns: 1000,
-				max_depth: 0,
 				can_spawn: false,
 			},
 		};
@@ -615,7 +614,6 @@ describe("Agent", () => {
 				...DEFAULT_CONSTRAINTS,
 				timeout_ms: 0,
 				max_turns: 10,
-				max_depth: 0,
 				can_spawn: false,
 			},
 		};
@@ -722,7 +720,6 @@ describe("Agent", () => {
 			constraints: {
 				...DEFAULT_CONSTRAINTS,
 				max_turns: 3,
-				max_depth: 0,
 				can_spawn: false,
 			},
 		};
@@ -755,7 +752,7 @@ describe("Agent", () => {
 			model: "fast",
 			tools: ["read_file"],
 			agents: [],
-			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 3, max_depth: 0, can_spawn: false },
+			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 3, can_spawn: false },
 			tags: [],
 			version: 1,
 		};
@@ -917,7 +914,7 @@ describe("Agent", () => {
 			model: "fast",
 			tools: ["read_file"],
 			agents: [],
-			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 3, max_depth: 0, can_spawn: false },
+			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 3, can_spawn: false },
 			tags: [],
 			version: 1,
 		};
@@ -928,7 +925,7 @@ describe("Agent", () => {
 			model: "fast",
 			tools: ["read_file"],
 			agents: [],
-			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 3, max_depth: 0, can_spawn: false },
+			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 3, can_spawn: false },
 			tags: [],
 			version: 1,
 		};
@@ -1048,7 +1045,7 @@ describe("Agent", () => {
 			model: "fast",
 			tools: ["read_file"],
 			agents: [],
-			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 3, max_depth: 0, can_spawn: false },
+			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 3, can_spawn: false },
 			tags: [],
 			version: 1,
 		};
@@ -1059,7 +1056,7 @@ describe("Agent", () => {
 			model: "fast",
 			tools: ["read_file"],
 			agents: [],
-			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 3, max_depth: 0, can_spawn: false },
+			constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 3, can_spawn: false },
 			tags: [],
 			version: 1,
 		};

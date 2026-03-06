@@ -27,7 +27,6 @@ describe("kernel types", () => {
 			agents: [],
 			constraints: {
 				max_turns: 50,
-				max_depth: 3,
 				timeout_ms: 300000,
 				can_spawn: true,
 				can_learn: false,
@@ -59,12 +58,12 @@ describe("kernel types", () => {
 		// Verify the type allows partial construction with defaults
 		const constraints: AgentConstraints = {
 			max_turns: 50,
-			max_depth: 3,
 			timeout_ms: 300000,
 			can_spawn: true,
 			can_learn: false,
 		};
-		expect(constraints.max_depth).toBe(3);
+		expect("max_depth" in constraints).toBe(false);
+		expect("max_depth" in DEFAULT_CONSTRAINTS).toBe(false);
 	});
 
 	test("Perception captures inputs and environment state", () => {

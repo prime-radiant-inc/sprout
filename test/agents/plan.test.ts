@@ -24,7 +24,6 @@ const testAgent: AgentSpec = {
 	agents: [],
 	constraints: {
 		max_turns: 50,
-		max_depth: 3,
 		timeout_ms: 300000,
 		can_spawn: true,
 		can_learn: false,

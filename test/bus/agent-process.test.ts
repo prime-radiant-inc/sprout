@@ -29,7 +29,6 @@ const MINIMAL_AGENT_SPEC = {
 	agents: [],
 	constraints: {
 		max_turns: 5,
-		max_depth: 0,
 		timeout_ms: 30000,
 		can_spawn: false,
 		can_learn: false,
@@ -48,7 +47,6 @@ const ORCHESTRATOR_AGENT_SPEC = {
 	agents: ["test-leaf"],
 	constraints: {
 		max_turns: 5,
-		max_depth: 2,
 		timeout_ms: 30000,
 		can_spawn: true,
 		can_learn: false,
@@ -1206,7 +1204,6 @@ describe("runAgentProcess", () => {
 			"agents: []",
 			"constraints:",
 			"  max_turns: 5",
-			"  max_depth: 2",
 			"  can_spawn: true",
 			"tags: [test]",
 			"version: 1",
@@ -1225,7 +1222,6 @@ describe("runAgentProcess", () => {
 			"agents: []",
 			"constraints:",
 			"  max_turns: 5",
-			"  max_depth: 0",
 			"  can_spawn: false",
 			"tags: [test]",
 			"version: 1",
@@ -1245,7 +1241,6 @@ describe("runAgentProcess", () => {
 			agents: [],
 			constraints: {
 				max_turns: 5,
-				max_depth: 2,
 				can_spawn: true,
 				can_learn: false,
 				timeout_ms: 30000,
@@ -1263,7 +1258,6 @@ describe("runAgentProcess", () => {
 			agents: [],
 			constraints: {
 				max_turns: 5,
-				max_depth: 0,
 				can_spawn: false,
 				can_learn: false,
 				timeout_ms: 30000,

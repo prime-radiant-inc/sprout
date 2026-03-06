@@ -9,7 +9,6 @@ tools:
 agents: []
 constraints:
   max_turns: 30
-  max_depth: 0
   timeout_ms: 300000
   can_spawn: false
   can_learn: false

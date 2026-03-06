@@ -43,7 +43,6 @@ The root agent is configured with:
   ```
 - **Constraints**: 
   - `max_turns`: 200
-  - `max_depth`: 3 (can spawn subagents up to depth 2)
   - `timeout_ms`: 0 (no timeout)
   - `can_learn`: true
 - **Tags**: `[core, orchestration]`
@@ -257,7 +256,6 @@ agents:                # Only for orchestrators
   - <subagent-path>
 constraints:
   max_turns: <number>
-  max_depth: <number>  # 0 = leaf agent, 1+ = can spawn subagents
   timeout_ms: <number>  # 0 = no timeout
   can_spawn: <boolean>   # Usually true for orchestrators, false for leaf agents
   can_learn: <boolean>
@@ -282,7 +280,6 @@ tools:
   - glob
 constraints:
   max_turns: 50
-  max_depth: 0
   can_spawn: false
   can_learn: true
 tags:
@@ -424,7 +421,7 @@ These are loaded dynamically via agent tree scanning, not hardcoded.
 │ Subagent Execution                                              │
 │ - Create Agent(spec: subagentSpec, availableAgents: [...], ...) │
 │ - Subagent respects its own agents/tools lists                  │
-│ - Subagent can spawn further subagents (up to max_depth)        │
+│ - Subagent can spawn further subagents until the global depth rail │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -440,10 +437,10 @@ These are loaded dynamically via agent tree scanning, not hardcoded.
 
 4. **Genome is source of truth**: Once initialized, the genome becomes the persistent store for agents. New root agents are synced but don't overwrite learned agents.
 
-5. **Recursive delegation**: Each agent respects its own `agents` list, allowing hierarchical delegation up to `max_depth`.
+5. **Recursive delegation**: Each agent respects its own `agents` list, with the runtime enforcing one global depth rail.
 
 6. **Single delegate tool**: Instead of separate tools per agent, there's one `delegate` tool with an enum parameter, preserving prompt cache.
 
 7. **System prompt guidance**: The LLM is instructed via the agent's system_prompt to decompose tasks and delegate appropriately. Agent descriptions appear in the `<agents>` XML section.
 
-8. **Constraints enforce hierarchy**: `can_spawn: false` and `max_depth: 0` prevent leaf agents from spawning subagents.
+8. **Constraints enforce hierarchy**: `can_spawn: false` prevents leaf agents from spawning subagents, and the runtime enforces a global depth rail.

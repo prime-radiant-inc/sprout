@@ -12,14 +12,15 @@ import { checkPathConstraint, validateConstraints } from "../kernel/path-constra
 import type { PrimitiveRegistry } from "../kernel/primitives.ts";
 import { buildAgentToolPrimitives } from "../kernel/tool-loading.ts";
 import { truncateToolOutput } from "../kernel/truncation.ts";
-import type {
-	ActResult,
-	AgentCommand,
-	AgentSpec,
-	Delegation,
-	EventKind,
-	Memory,
-	RoutingRule,
+import {
+	type ActResult,
+	type AgentCommand,
+	type AgentSpec,
+	type Delegation,
+	type EventKind,
+	MAX_AGENT_DEPTH,
+	type Memory,
+	type RoutingRule,
 } from "../kernel/types.ts";
 import type { LearnSink } from "../learn/learn-process.ts";
 import type { Client } from "../llm/client.ts";
@@ -185,11 +186,10 @@ export class Agent {
 			depth: this.depth,
 		});
 
-		// Validate depth: max_depth > 0 means the agent can only exist at depths < max_depth.
-		// max_depth === 0 means "leaf agent, no sub-spawning" — no depth restriction on the agent itself.
-		if (this.spec.constraints.max_depth > 0 && this.depth >= this.spec.constraints.max_depth) {
+		// Root is depth 0. The deepest allowed child is MAX_AGENT_DEPTH.
+		if (this.depth > MAX_AGENT_DEPTH) {
 			throw new Error(
-				`Agent '${this.spec.name}' exceeds max depth: depth=${this.depth}, max_depth=${this.spec.constraints.max_depth}`,
+				`Agent '${this.spec.name}' exceeds global max depth: depth=${this.depth}, limit=${MAX_AGENT_DEPTH}`,
 			);
 		}
 
@@ -481,6 +481,10 @@ export class Agent {
 		return `Agent '${agentName}' is not delegatable by '${this.spec.name}'. Allowed delegates: ${allowed}`;
 	}
 
+	private buildDepthLimitError(agentName: string): string {
+		return `Delegation to '${agentName}' would exceed global max depth: child_depth=${this.depth + 1}, limit=${MAX_AGENT_DEPTH}`;
+	}
+
 	/** Execute a single delegation to a subagent. Returns the tool result message and stumble count. */
 	private async executeDelegation(
 		delegation: Delegation,
@@ -502,6 +506,20 @@ export class Agent {
 
 		if (!subagentSpec) {
 			const errorMsg = this.buildDelegationDeniedError(delegation.agent_name, target.allowedNames);
+			const toolResultMsg = Msg.toolResult(delegation.call_id, errorMsg, true);
+			this.emitAndLog("act_end", agentId, this.depth, {
+				agent_name: delegation.agent_name,
+				success: false,
+				error: errorMsg,
+				child_id: childId,
+				...descData,
+				tool_result_message: toolResultMsg,
+			});
+			return { toolResultMsg, stumbles: 1 };
+		}
+
+		if (this.depth + 1 > MAX_AGENT_DEPTH) {
+			const errorMsg = this.buildDepthLimitError(delegation.agent_name);
 			const toolResultMsg = Msg.toolResult(delegation.call_id, errorMsg, true);
 			this.emitAndLog("act_end", agentId, this.depth, {
 				agent_name: delegation.agent_name,
@@ -645,6 +663,20 @@ export class Agent {
 		const target = this.resolveDelegationTarget(delegation.agent_name);
 		if (!target.spec) {
 			const errorMsg = this.buildDelegationDeniedError(delegation.agent_name, target.allowedNames);
+			const toolResultMsg = Msg.toolResult(delegation.call_id, errorMsg, true);
+			this.emitAndLog("act_end", agentId, this.depth, {
+				agent_name: delegation.agent_name,
+				success: false,
+				error: errorMsg,
+				child_id: childId,
+				...descData,
+				tool_result_message: toolResultMsg,
+			});
+			return { toolResultMsg, stumbles: 1 };
+		}
+
+		if (this.depth + 1 > MAX_AGENT_DEPTH) {
+			const errorMsg = this.buildDepthLimitError(delegation.agent_name);
 			const toolResultMsg = Msg.toolResult(delegation.call_id, errorMsg, true);
 			this.emitAndLog("act_end", agentId, this.depth, {
 				agent_name: delegation.agent_name,

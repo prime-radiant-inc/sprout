@@ -9,7 +9,6 @@ agents:
   - utility/command-runner
 constraints:
   max_turns: 80
-  max_depth: 3
   can_spawn: true
   timeout_ms: 600000
 tags:

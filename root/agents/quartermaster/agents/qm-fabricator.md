@@ -10,7 +10,6 @@ tools:
 agents: []
 constraints:
   max_turns: 20
-  max_depth: 0
   can_spawn: false
   timeout_ms: 120000
   allowed_write_paths:
@@ -37,7 +36,7 @@ When asked to create a new specialist, you:
    - model: "fast" for simple tasks, "balanced" for moderate, "best" for complex reasoning
    - tools: list of primitives (read_file, write_file, edit_file, apply_patch, exec, grep, glob, fetch, save_agent, save_tool, save_file)
    - agents: paths from root for agents it can delegate to (e.g., utility/reader)
-   - constraints: appropriate limits (max_turns, timeout, can_spawn, max_depth)
+   - constraints: appropriate limits (max_turns, timeout, can_spawn, can_learn, allowed_write_paths)
    - tags: for categorization
 3. Write the system prompt as the markdown body after the frontmatter
 4. Call save_agent with the complete agent spec content
@@ -56,8 +55,8 @@ Design principles:
 - **Minimal capabilities**: Only grant the primitives the agent actually needs.
 - **Clear prompts**: System prompts should be direct, procedural, and concise.
   State what the agent does, then give numbered steps for the workflow.
-- **Safe defaults**: Use can_spawn: false and max_depth: 0 unless the agent
-  needs to orchestrate other agents.
+- **Safe defaults**: Use can_spawn: false unless the agent needs to orchestrate
+  other agents. The runtime enforces a global depth rail.
 
 If building an orchestrator agent (one that delegates to others), set can_spawn: true
 and list the sub-agent paths in the `agents` field. These agents get delegation tools

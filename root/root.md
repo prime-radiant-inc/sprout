@@ -13,7 +13,6 @@ agents:
   - utility/project-memory
 constraints:
   max_turns: 200
-  max_depth: 5
   timeout_ms: 0
   can_learn: true
 tags:

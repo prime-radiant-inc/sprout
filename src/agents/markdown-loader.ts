@@ -1,5 +1,5 @@
 import { parse, stringify } from "yaml";
-import { type AgentSpec, DEFAULT_CONSTRAINTS } from "../kernel/types.ts";
+import { type AgentSpec, normalizeAgentConstraints } from "../kernel/types.ts";
 
 /**
  * Parse an agent spec from a YAML-fronted Markdown file.
@@ -47,7 +47,7 @@ export function parseAgentMarkdown(content: string, source: string): AgentSpec {
 		model: raw.model,
 		tools,
 		agents,
-		constraints: { ...DEFAULT_CONSTRAINTS, ...raw.constraints },
+		constraints: normalizeAgentConstraints(raw.constraints, source),
 		tags: raw.tags ?? [],
 		version: raw.version ?? 1,
 	};
