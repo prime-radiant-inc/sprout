@@ -179,6 +179,9 @@ export function groupEvents(
 
 		// In the main (unfiltered) view, render only the root/session surface.
 		// Child-agent events should be represented via delegation cards, not raw text.
+		if (merging && event.depth > 0) {
+			continue;
+		}
 		if (merging && visibleMainAgentIds && !visibleMainAgentIds.has(event.agent_id)) {
 			continue;
 		}

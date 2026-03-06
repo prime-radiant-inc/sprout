@@ -425,6 +425,21 @@ describe("groupEvents", () => {
 			expect(result[1]!.event.kind).toBe("plan_end");
 		});
 
+		test("main view suppresses depth>0 events even when agent_id matches root", () => {
+			const tree = makeTree();
+			const events: SessionEvent[] = [
+				makeEvent("perceive", { goal: "root goal" }, { agent_id: "root", depth: 0, timestamp: 1000 }),
+				// Misattributed deep events (same agent_id as root) should still be hidden.
+				makeEvent("perceive", { goal: "leaked user prompt" }, { agent_id: "root", depth: 3, timestamp: 1001 }),
+				makeEvent("plan_end", { text: "leaked assistant reply" }, { agent_id: "root", depth: 3, timestamp: 1002 }),
+				makeEvent("plan_end", { text: "root reply" }, { agent_id: "root", depth: 0, timestamp: 1003 }),
+			];
+			const result = groupEvents(events, undefined, tree);
+			expect(result).toHaveLength(2);
+			expect(result[0]!.event.data.goal).toBe("root goal");
+			expect(result[1]!.event.data.text).toBe("root reply");
+		});
+
 		test("child events still appear when agentFilter matches child", () => {
 			const childId = "child-visible";
 			const tree = treePlusChild(childId);
