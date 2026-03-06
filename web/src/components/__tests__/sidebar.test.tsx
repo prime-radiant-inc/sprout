@@ -105,7 +105,7 @@ describe("Sidebar", () => {
 		expect(html).not.toContain('data-agent-id="root"');
 	});
 
-	test("renders AgentTree when idle but tree has children", () => {
+	test("renders AgentTree when idle but tree has children, even if completed descendants start collapsed", () => {
 		const tree = makeNode({
 			status: "completed",
 			children: [
@@ -131,7 +131,7 @@ describe("Sidebar", () => {
 		);
 		// Should show tree even though idle, because tree has children
 		expect(html).toContain('data-agent-id="root"');
-		expect(html).toContain('data-agent-id="child-1"');
+		expect(html).not.toContain('data-agent-id="child-1"');
 	});
 });
 

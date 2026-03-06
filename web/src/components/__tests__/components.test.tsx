@@ -958,6 +958,7 @@ describe("EventLine", () => {
 		const event = makeEvent("act_end", {
 			agent_name: "code-editor",
 			goal: "write tests",
+			child_id: "child-1",
 			success: true,
 		});
 		const html = renderToStaticMarkup(
@@ -1165,7 +1166,7 @@ describe("ConversationView", () => {
 
 	test("passes onSelectAgent to delegation blocks as onOpenThread", () => {
 		const events: SessionEvent[] = [
-			makeEvent("act_end", { agent_name: "worker", goal: "do work", success: true }, { agent_id: "root", timestamp: 1000 }),
+			makeEvent("act_end", { agent_name: "worker", goal: "do work", child_id: "child-1", success: true }, { agent_id: "root", timestamp: 1000 }),
 		];
 		const tree = buildAgentTree(events);
 		const html = renderToStaticMarkup(
@@ -1176,7 +1177,7 @@ describe("ConversationView", () => {
 
 	test("passes onSelectAgent to enable View thread links on act_start", () => {
 		const events: SessionEvent[] = [
-			makeEvent("act_start", { agent_name: "sub-agent", goal: "do stuff" }, { agent_id: "root", depth: 0 }),
+			makeEvent("act_start", { agent_name: "sub-agent", goal: "do stuff", child_id: "child-1" }, { agent_id: "root", depth: 0 }),
 		];
 		const tree = buildAgentTree(events);
 		const html = renderToStaticMarkup(
