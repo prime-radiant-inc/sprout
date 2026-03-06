@@ -26,7 +26,7 @@ export interface SpawnAgentOptions {
 	workDir: string;
 	/** Pre-assigned handle ID. If omitted, a new ULID is generated. */
 	handleId?: string;
-	/** Override agent_id for events emitted by the child. */
+	/** Stable agent_id for events emitted by the child. Defaults to handleId. */
 	agentId?: string;
 	/** Path to root agent directory (for overlay resolution in subprocesses). */
 	rootDir?: string;
@@ -42,6 +42,8 @@ interface PendingWaiter {
 /** Internal tracking record for a spawned agent */
 export interface AgentHandle {
 	handleId: string;
+	/** Stable event identity for this handle across respawns. */
+	agentId: string;
 	process: { kill: () => void; exited: Promise<number> };
 	status: "running" | "idle" | "completed";
 	result?: ResultMessage;
@@ -198,6 +200,7 @@ export class AgentSpawner {
 	 */
 	async spawnAgent(opts: SpawnAgentOptions): Promise<ResultMessage | string> {
 		const handleId = opts.handleId ?? ulid();
+		const agentId = opts.agentId ?? handleId;
 
 		const env: Record<string, string> = {
 			SPROUT_BUS_URL: this.busUrl,
@@ -214,6 +217,7 @@ export class AgentSpawner {
 
 		const handle: AgentHandle = {
 			handleId,
+			agentId,
 			process: proc,
 			status: "running",
 			shared: opts.shared,
@@ -264,7 +268,7 @@ export class AgentSpawner {
 			goal: opts.goal,
 			hints: opts.hints,
 			shared: opts.shared,
-			agent_id: opts.agentId,
+			agent_id: agentId,
 		};
 		await this.bus.publish(inboxTopic, JSON.stringify(startMsg));
 
@@ -405,6 +409,7 @@ export class AgentSpawner {
 			caller: handle.caller,
 			goal: message,
 			shared: handle.shared,
+			agent_id: handle.agentId,
 		};
 		await this.bus.publish(inboxTopic, JSON.stringify(startMsg));
 
@@ -423,7 +428,13 @@ export class AgentSpawner {
 		handleId: string,
 		result: ResultMessage,
 		ownerId: string,
-		spawnInfo?: { agentName: string; genomePath: string; caller: CallerIdentity; workDir: string },
+		spawnInfo?: {
+			agentName: string;
+			genomePath: string;
+			caller: CallerIdentity;
+			workDir: string;
+			agentId?: string;
+		},
 	): void {
 		// Skip if the handle already exists (e.g. re-spawned since the
 		// original completed state was recorded). Avoids overwriting a
@@ -432,6 +443,7 @@ export class AgentSpawner {
 
 		const handle: AgentHandle = {
 			handleId,
+			agentId: spawnInfo?.agentId ?? handleId,
 			process: { kill: () => {}, exited: Promise.resolve(0) },
 			status: "completed",
 			result,

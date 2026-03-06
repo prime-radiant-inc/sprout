@@ -22,6 +22,7 @@ describe("bus message types", () => {
 		const msg: StartMessage = {
 			kind: "start",
 			handle_id: "01JTEST000000000000000001",
+			agent_id: "01JTEST000000000000000001",
 			agent_name: "code-editor",
 			genome_path: "/tmp/genome",
 			session_id: "session-1",
@@ -44,6 +45,7 @@ describe("bus message types", () => {
 		const msg: StartMessage = {
 			kind: "start",
 			handle_id: "01JTEST000000000000000002",
+			agent_id: "01JTEST000000000000000002",
 			agent_name: "code-reader",
 			genome_path: "/tmp/genome",
 			session_id: "session-1",
@@ -134,6 +136,7 @@ describe("bus message types", () => {
 			{
 				kind: "start",
 				handle_id: "h1",
+				agent_id: "h1",
 				agent_name: "editor",
 				genome_path: "/g",
 				session_id: "s1",
@@ -179,6 +182,7 @@ describe("parseBusMessage", () => {
 		const raw = JSON.stringify({
 			kind: "start",
 			handle_id: "h1",
+			agent_id: "h1",
 			agent_name: "editor",
 			genome_path: "/g",
 			session_id: "s1",
@@ -293,6 +297,7 @@ describe("parseBusMessage", () => {
 		const raw = JSON.stringify({
 			kind: "start",
 			handle_id: "H1",
+			agent_id: "H1",
 			agent_name: "editor",
 			genome_path: "/tmp",
 			session_id: "S1",
@@ -307,6 +312,7 @@ describe("parseBusMessage", () => {
 		const raw = JSON.stringify({
 			kind: "start",
 			handle_id: "H1",
+			agent_id: "H1",
 			agent_name: "editor",
 			genome_path: "/tmp",
 			session_id: "S1",

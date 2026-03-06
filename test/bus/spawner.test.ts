@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runAgentProcess } from "../../src/bus/agent-process.ts";
@@ -561,6 +561,61 @@ describe("AgentSpawner", () => {
 			expect(allContent).toContain("Initial task");
 			expect(allContent).toContain("Response 1.");
 			expect(allContent).toContain("Follow-up message");
+		}, 30_000);
+
+		test("re-spawn preserves explicit agent_id across runs", async () => {
+			let callCount = 0;
+			const mockClient = buildMockClient(async (_request: Request): Promise<Response> => {
+				callCount++;
+				return {
+					id: `mock-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant(`Response ${callCount}.`),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+				};
+			});
+
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			const handleId = "01RESPAWNAGENTID0000000000000";
+			const childAgentId = "01CHILDAGENTID00000000000000";
+
+			await spawner.spawnAgent({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: { agent_name: "root", depth: 0 },
+				goal: "Initial task",
+				blocking: true,
+				shared: false,
+				workDir: tempDir,
+				handleId,
+				agentId: childAgentId,
+			});
+
+			const firstHandle = spawner.getHandle(handleId)!;
+			await firstHandle.process.exited;
+
+			await spawner.messageAgent(
+				handleId,
+				"Follow-up message",
+				{ agent_name: "root", depth: 0 },
+				true,
+			);
+
+			const logPath = join(genomeDir, "logs", SESSION_ID, `${handleId}.jsonl`);
+			const raw = await readFile(logPath, "utf8");
+			const events = raw
+				.split("\n")
+				.filter((line) => line.trim().length > 0)
+				.map((line) => JSON.parse(line) as { kind: string; agent_id?: string });
+			const sessionStarts = events.filter((event) => event.kind === "session_start");
+
+			expect(sessionStarts.length).toBeGreaterThanOrEqual(2);
+			for (const event of sessionStarts) {
+				expect(event.agent_id).toBe(childAgentId);
+			}
 		}, 30_000);
 
 		test("throws for unknown handle ID", async () => {

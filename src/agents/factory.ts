@@ -183,6 +183,7 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 		spawner: options.spawner,
 		genomePath: options.genomePath,
 		projectDataDir: options.projectDataDir,
+		agentId: "root",
 		logger: options.logger,
 		rootDir: options.rootDir,
 		agentTree,

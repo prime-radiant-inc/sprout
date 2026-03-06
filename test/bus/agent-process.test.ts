@@ -212,6 +212,7 @@ describe("runAgentProcess", () => {
 			caller: { agent_name: "root", depth: 0 },
 			goal: "Say hello",
 			shared: false,
+			agent_id: HANDLE_ID,
 		};
 		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
 
@@ -263,6 +264,7 @@ describe("runAgentProcess", () => {
 			caller: { agent_name: "root", depth: 0 },
 			goal: "Do something",
 			shared: false,
+			agent_id: HANDLE_ID,
 		};
 		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
 
@@ -316,6 +318,7 @@ describe("runAgentProcess", () => {
 			caller: { agent_name: "root", depth: 0 },
 			goal: "Do something",
 			shared: false,
+			agent_id: HANDLE_ID,
 		};
 		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
 
@@ -370,6 +373,7 @@ describe("runAgentProcess", () => {
 			caller: { agent_name: "root", depth: 0 },
 			goal: "Session-wide test",
 			shared: false,
+			agent_id: HANDLE_ID,
 		};
 		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
 
@@ -441,6 +445,7 @@ describe("runAgentProcess", () => {
 			caller: { agent_name: "root", depth: 0 },
 			goal: "First task",
 			shared: true,
+			agent_id: HANDLE_ID,
 		};
 		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
 
@@ -521,6 +526,7 @@ describe("runAgentProcess", () => {
 			caller: { agent_name: "root", depth: 0 },
 			goal: "Initial task",
 			shared: true,
+			agent_id: HANDLE_ID,
 		};
 		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
 
@@ -604,6 +610,7 @@ describe("runAgentProcess", () => {
 			caller: { agent_name: "root", depth: 0 },
 			goal: "Initial task",
 			shared: true,
+			agent_id: HANDLE_ID,
 		};
 		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
 
@@ -706,6 +713,7 @@ describe("runAgentProcess", () => {
 			caller: { agent_name: "root", depth: 0 },
 			goal: "Do something multi-turn",
 			shared: false,
+			agent_id: HANDLE_ID,
 		};
 		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
 
@@ -761,6 +769,7 @@ describe("runAgentProcess", () => {
 			caller: { agent_name: "root", depth: 0 },
 			goal: "Do something",
 			shared: false,
+			agent_id: HANDLE_ID,
 		};
 		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
 
@@ -846,6 +855,7 @@ describe("runAgentProcess", () => {
 			caller: { agent_name: "root", depth: 0 },
 			goal: "First task",
 			shared: true,
+			agent_id: HANDLE_ID,
 		};
 		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
 
@@ -900,6 +910,7 @@ describe("runAgentProcess", () => {
 			caller: { agent_name: "root", depth: 0 },
 			goal: "Log this",
 			shared: false,
+			agent_id: HANDLE_ID,
 		};
 		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
 
@@ -966,6 +977,7 @@ describe("runAgentProcess", () => {
 			caller: { agent_name: "root", depth: 0 },
 			goal: "Delegate to test-leaf",
 			shared: false,
+			agent_id: HANDLE_ID,
 		};
 		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
 
@@ -1022,6 +1034,7 @@ describe("runAgentProcess", () => {
 				caller: { agent_name: "root", depth: 0 },
 				goal: "First task",
 				shared: false,
+				agent_id: HANDLE_ID,
 			} satisfies StartMessage),
 		);
 		await resultPromise1;
@@ -1050,6 +1063,7 @@ describe("runAgentProcess", () => {
 				caller: { agent_name: "root", depth: 0 },
 				goal: "Follow-up task",
 				shared: false,
+				agent_id: HANDLE_ID,
 			} satisfies StartMessage),
 		);
 		await resultPromise2;
@@ -1099,6 +1113,7 @@ describe("runAgentProcess", () => {
 			caller: { agent_name: "root", depth: 0 },
 			goal: "Log this run",
 			shared: false,
+			agent_id: HANDLE_ID,
 		};
 		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
 
@@ -1235,6 +1250,7 @@ describe("runAgentProcess", () => {
 			caller: { agent_name: "root", depth: 0 },
 			goal: "Delegate to tree-child",
 			shared: false,
+			agent_id: HANDLE_ID,
 		};
 		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
 
