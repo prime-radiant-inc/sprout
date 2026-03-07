@@ -72,8 +72,9 @@ Agents can have dedicated tools. Write executable scripts to
 Tools must have YAML frontmatter with name, description, and interpreter fields.
 
 Two interpreter types:
-- **Shell** (`bash`, `python`, `node`) — script piped to interpreter via stdin.
-  Good for standalone operations that don't need Genome access.
+- **Shell** (`bash`, `node`, or rarely `python`) — script piped to interpreter via stdin.
+   Good for standalone operations that don't need Genome access.
+   Prefer `node` over `python` in TypeScript/JavaScript projects. See 'Language and runtime selection' below.
 - **`sprout-internal`** — TypeScript module run in-process. Gets a ToolContext with
   `{ agentName, args, genome, env }`. Good for tools that need to read/write the
   genome or use the execution environment directly.
@@ -110,6 +111,19 @@ Access sprout internals via `ctx`, not via imports — keeps tools portable
 across both genome and root layers.
 
 Always validate that the YAML is well-formed before saving.
+
+## Language and runtime selection
+
+When creating tools, match the host project's technology stack:
+
+1. **Detect the project stack first.** Check package.json, tsconfig.json, pyproject.toml, or similar markers. If in doubt, ask your caller.
+2. **Default to the project's language.** A TypeScript/Bun project gets TypeScript tools. A Python project gets Python tools. Do not introduce a foreign runtime.
+3. **Prefer `sprout-internal` (TypeScript)** when the tool needs genome access, environment access, or when the project is TypeScript-based — this is the most integrated option.
+4. **Use `node` interpreter** for standalone TypeScript/JavaScript tools that don't need genome access but should stay in the project's language ecosystem.
+5. **Use `bash` interpreter** only for thin wrappers around system commands (git, linters, package managers) where a shell one-liner is clearer than a script.
+6. **Avoid `python` interpreter** unless the project is Python-based OR a required library has no JavaScript/TypeScript equivalent. If you choose Python, state why explicitly.
+
+**Anti-pattern:** Creating a Python tool in a TypeScript project because the script "would be simpler in Python." Simplicity in isolation is not worth the complexity of introducing a second runtime. Write it in TypeScript.
 
 ## After creating an agent
 
