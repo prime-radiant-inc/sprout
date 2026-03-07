@@ -8,7 +8,7 @@ tools:
   - glob
 agents: []
 constraints:
-  max_turns: 20
+  max_turns: 30
   can_spawn: false
 tags:
   - core
