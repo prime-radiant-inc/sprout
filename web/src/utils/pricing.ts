@@ -1,3 +1,7 @@
+import type { AgentStats } from "../hooks/useAgentStats.ts";
+import type { AgentTreeNode } from "../hooks/useAgentTree.ts";
+import { getDescendantIds } from "../hooks/useAgentTree.ts";
+
 interface ModelPricing {
 	input: number; // $/1M input tokens
 	output: number; // $/1M output tokens
@@ -36,6 +40,35 @@ export function computeCost(
 	const pricing = getModelPricing(model);
 	if (!pricing) return null;
 	return (inputTokens * pricing.input + outputTokens * pricing.output) / 1_000_000;
+}
+
+/**
+ * Compute the total cost across a subtree by summing each agent's own cost
+ * (using that agent's own model and token counts).
+ */
+export function computeSubtreeCost(
+	tree: AgentTreeNode,
+	agentId: string,
+	agentStats: Map<string, AgentStats>,
+): number | null {
+	const ids = getDescendantIds(tree, agentId);
+	if (!ids) return null;
+
+	let total = 0;
+	let found = false;
+
+	for (const id of ids) {
+		const stats = agentStats.get(id);
+		if (!stats?.model) continue;
+		if (stats.inputTokens === 0 && stats.outputTokens === 0) continue;
+		const cost = computeCost(stats.model, stats.inputTokens, stats.outputTokens);
+		if (cost != null) {
+			total += cost;
+			found = true;
+		}
+	}
+
+	return found ? total : null;
 }
 
 /** Format a dollar amount for display: "$0.12", "$1.23", "$123" */

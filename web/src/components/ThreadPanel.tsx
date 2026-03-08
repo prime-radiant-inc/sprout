@@ -6,7 +6,7 @@ import { ConversationView } from "./ConversationView.tsx";
 import styles from "./ThreadPanel.module.css";
 import { pressureColor } from "../utils/pressureColor.ts";
 import type { AgentStats } from "../hooks/useAgentStats.ts";
-import { computeCost, formatCost } from "../utils/pricing.ts";
+import { computeSubtreeCost, formatCost } from "../utils/pricing.ts";
 
 const statusIcons: Record<AgentTreeNode["status"], string> = {
 	completed: "\u2713",
@@ -39,8 +39,8 @@ export function ThreadPanel({ agentId, tree, events, agentStats, onClose, onSele
 		? Math.round((tokenUsage.contextTokens / tokenUsage.contextWindowSize) * 100)
 		: null;
 	const stats = agentStats.get(agentId);
-	const cost = stats?.model && tokenUsage
-		? computeCost(stats.model, tokenUsage.inputTokens, tokenUsage.outputTokens)
+	const cost = agentStats
+		? computeSubtreeCost(tree, agentId, agentStats)
 		: null;
 	return (
 		<div className={styles.panel} data-region="thread-panel">

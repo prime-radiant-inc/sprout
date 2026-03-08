@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { computeCost, formatCost, getModelPricing } from "./pricing";
+import { computeCost, computeSubtreeCost, formatCost, getModelPricing } from "./pricing";
+import type { AgentStats } from "../hooks/useAgentStats";
+import type { AgentTreeNode } from "../hooks/useAgentTree";
 
 describe("getModelPricing", () => {
 	test("matches exact prefix", () => {
@@ -58,5 +60,68 @@ describe("formatCost", () => {
 
 	test("rounds to 2 decimal places", () => {
 		expect(formatCost(0.129)).toBe("$0.13");
+	});
+});
+
+describe("computeSubtreeCost", () => {
+	const makeStats = (model: string, inputTokens: number, outputTokens: number): AgentStats => ({
+		agentId: "",
+		depth: 0,
+		state: "idle" as const,
+		inputTokens,
+		outputTokens,
+		currentTurn: 0,
+		llmCallStartedAt: null,
+		streamingChunks: 0,
+		model,
+	});
+
+	const makeNode = (agentId: string, children: AgentTreeNode[] = []): AgentTreeNode => ({
+		agentId,
+		agentName: agentId,
+		depth: 0,
+		status: "completed" as const,
+		goal: "",
+		children,
+	});
+
+	test("single agent returns its own cost", () => {
+		const tree = makeNode("root");
+		const stats = new Map([["root", makeStats("claude-sonnet-4-6", 1_000_000, 0)]]);
+		expect(computeSubtreeCost(tree, "root", stats)).toBeCloseTo(3.0);
+	});
+
+	test("sums costs across agents with different models", () => {
+		const tree = makeNode("root", [makeNode("child1"), makeNode("child2")]);
+		const stats = new Map([
+			["root", makeStats("claude-sonnet-4-6", 1_000_000, 0)],    // $3
+			["child1", makeStats("claude-haiku-4-5", 1_000_000, 0)],   // $0.80
+			["child2", makeStats("claude-haiku-4-5", 1_000_000, 0)],   // $0.80
+		]);
+		expect(computeSubtreeCost(tree, "root", stats)).toBeCloseTo(4.6);
+	});
+
+	test("skips agents with unknown models", () => {
+		const tree = makeNode("root", [makeNode("child1")]);
+		const stats = new Map([
+			["root", makeStats("claude-sonnet-4-6", 1_000_000, 0)],    // $3
+			["child1", makeStats("unknown-model", 1_000_000, 0)],      // null, skipped
+		]);
+		expect(computeSubtreeCost(tree, "root", stats)).toBeCloseTo(3.0);
+	});
+
+	test("returns null when agent not in tree", () => {
+		const tree = makeNode("root");
+		const stats = new Map([["root", makeStats("claude-sonnet-4-6", 1_000_000, 0)]]);
+		expect(computeSubtreeCost(tree, "nonexistent", stats)).toBeNull();
+	});
+
+	test("returns null when no agents have token data", () => {
+		const tree = makeNode("root", [makeNode("child1")]);
+		const stats = new Map([
+			["root", makeStats("claude-sonnet-4-6", 0, 0)],
+			["child1", makeStats("claude-haiku-4-5", 0, 0)],
+		]);
+		expect(computeSubtreeCost(tree, "root", stats)).toBeNull();
 	});
 });
