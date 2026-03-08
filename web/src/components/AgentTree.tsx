@@ -3,6 +3,7 @@ import type { AgentState, AgentStats } from "../hooks/useAgentStats.ts";
 import type { AgentTreeNode } from "../hooks/useAgentTree.ts";
 import { type ContextPressure, formatCompactNumber } from "../hooks/useTokenUsage.ts";
 import { pressureColor } from "../utils/pressureColor.ts";
+import { computeCost, formatCost } from "../utils/pricing.ts";
 import styles from "./AgentTree.module.css";
 
 interface AgentTreeProps {
@@ -82,6 +83,10 @@ function StatsLine({
 					</span>
 				)
 			)}
+			{stats.model && (stats.inputTokens > 0 || stats.outputTokens > 0) && (() => {
+				const cost = computeCost(stats.model, stats.inputTokens, stats.outputTokens);
+				return cost != null ? <span className={styles.cost}>{formatCost(cost)}</span> : null;
+			})()}
 		</span>
 	);
 }
@@ -154,6 +159,7 @@ function TreeNode({
 							{statusIcon(node.status)}
 						</span>
 						<span className={styles.agentName}>{node.agentName}</span>
+						<span className={styles.agentId}>{node.agentId.slice(0, 8)}</span>
 						{node.durationMs != null && node.status !== "running" && (
 							<span className={styles.duration}>
 								{(node.durationMs / 1000).toFixed(1)}s

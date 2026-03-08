@@ -144,6 +144,13 @@
 	font-size: var(--font-size-xs);
 }
 
+.agentId {
+	font-family: var(--font-mono);
+	font-size: var(--font-size-xxs);
+	color: var(--color-text-placeholder);
+	white-space: nowrap;
+}
+
 .duration {
 	color: var(--color-text-placeholder);
 	font-family: var(--font-mono);
@@ -213,6 +220,14 @@
 }
 
 .statsTokens {
+	font-variant-numeric: tabular-nums;
+	margin-left: auto;
+}
+
+.cost {
+	font-family: var(--font-mono);
+	font-size: var(--font-size-xxs);
+	color: var(--color-text-placeholder);
 	font-variant-numeric: tabular-nums;
 	margin-left: auto;
 }
