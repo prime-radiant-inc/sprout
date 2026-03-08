@@ -1,7 +1,14 @@
 import { afterEach, describe, expect, jest, test } from "bun:test";
-import { cleanup, render } from "ink-testing-library";
+import { render as inkRender } from "ink-testing-library";
 import { EventBus } from "../../src/host/event-bus.ts";
 import { App } from "../../src/tui/app.tsx";
+
+let currentInstance: ReturnType<typeof inkRender> | undefined;
+
+function render(...args: Parameters<typeof inkRender>): ReturnType<typeof inkRender> {
+    currentInstance = inkRender(...args);
+    return currentInstance;
+}
 
 function setup(overrides?: Partial<Parameters<typeof App>[0]>) {
 	const bus = new EventBus();
@@ -25,7 +32,8 @@ async function flush() {
 
 describe("App", () => {
 	afterEach(() => {
-		cleanup();
+		currentInstance?.unmount();
+		currentInstance = undefined;
 	});
 
 	test("renders StatusBar with initial zero values", () => {

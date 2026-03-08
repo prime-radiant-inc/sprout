@@ -1,7 +1,19 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { Text } from "ink";
-import { render } from "ink-testing-library";
+import { render as inkRender } from "ink-testing-library";
 import { useWindowSize } from "../../src/tui/use-window-size.ts";
+
+let currentInstance: ReturnType<typeof inkRender> | undefined;
+
+function render(...args: Parameters<typeof inkRender>): ReturnType<typeof inkRender> {
+	currentInstance = inkRender(...args);
+	return currentInstance;
+}
+
+afterEach(() => {
+	currentInstance?.unmount();
+	currentInstance = undefined;
+});
 
 function SizeDisplay() {
 	const { columns, rows } = useWindowSize();

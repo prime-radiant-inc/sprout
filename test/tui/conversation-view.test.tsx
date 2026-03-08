@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { render } from "ink-testing-library";
+import { afterEach, describe, expect, test } from "bun:test";
+import { render as inkRender } from "ink-testing-library";
 import { EventBus } from "../../src/host/event-bus.ts";
 import { ConversationView } from "../../src/tui/conversation-view.tsx";
 
@@ -8,7 +8,19 @@ async function flush() {
 	await new Promise((resolve) => setTimeout(resolve, 10));
 }
 
+let currentInstance: ReturnType<typeof inkRender> | undefined;
+
+function render(...args: Parameters<typeof inkRender>): ReturnType<typeof inkRender> {
+	currentInstance = inkRender(...args);
+	return currentInstance;
+}
+
 describe("ConversationView", () => {
+	afterEach(() => {
+		currentInstance?.unmount();
+		currentInstance = undefined;
+	});
+
 	test("renders events as formatted lines", async () => {
 		const bus = new EventBus();
 		const { lastFrame } = render(<ConversationView bus={bus} />);

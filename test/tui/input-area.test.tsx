@@ -1,10 +1,21 @@
 import { afterEach, describe, expect, jest, test } from "bun:test";
-import { cleanup, render } from "ink-testing-library";
+import { render as inkRender } from "ink-testing-library";
 import { InputArea } from "../../src/tui/input-area.tsx";
+
+// Wrap render() to track the current instance for per-test cleanup.
+// The global cleanup() from ink-testing-library unmounts ALL instances across
+// all test files sharing a process, causing cross-file interference.
+let currentInstance: ReturnType<typeof inkRender> | undefined;
+
+function render(...args: Parameters<typeof inkRender>): ReturnType<typeof inkRender> {
+	currentInstance = inkRender(...args);
+	return currentInstance;
+}
 
 describe("InputArea", () => {
 	afterEach(() => {
-		cleanup();
+		currentInstance?.unmount();
+		currentInstance = undefined;
 	});
 
 	test("renders prompt symbol", () => {

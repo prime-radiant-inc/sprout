@@ -1,6 +1,6 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { Box } from "ink";
-import { render } from "ink-testing-library";
+import { render as inkRender } from "ink-testing-library";
 import type { SessionEvent } from "../../src/kernel/types.ts";
 import {
 	AssistantTextLine,
@@ -13,6 +13,18 @@ import {
 	ToolStartLine,
 } from "../../src/tui/event-components.tsx";
 import { formatDuration, smartArgs } from "../../src/tui/render-event.ts";
+
+let currentInstance: ReturnType<typeof inkRender> | undefined;
+
+function render(...args: Parameters<typeof inkRender>): ReturnType<typeof inkRender> {
+    currentInstance = inkRender(...args);
+    return currentInstance;
+}
+
+afterEach(() => {
+    currentInstance?.unmount();
+    currentInstance = undefined;
+});
 
 // ---------------------------------------------------------------------------
 // smartArgs

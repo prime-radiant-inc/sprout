@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { render } from "ink-testing-library";
+import { afterEach, describe, expect, test } from "bun:test";
+import { render as inkRender } from "ink-testing-library";
 import type { SessionListEntry } from "../../src/host/session-metadata.ts";
 import { SessionPicker } from "../../src/tui/session-picker.tsx";
 
@@ -37,7 +37,19 @@ const sessions: SessionListEntry[] = [
 	},
 ];
 
+let currentInstance: ReturnType<typeof inkRender> | undefined;
+
+function render(...args: Parameters<typeof inkRender>): ReturnType<typeof inkRender> {
+	currentInstance = inkRender(...args);
+	return currentInstance;
+}
+
 describe("SessionPicker", () => {
+	afterEach(() => {
+		currentInstance?.unmount();
+		currentInstance = undefined;
+	});
+
 	test("renders session list", () => {
 		const { lastFrame } = render(
 			<SessionPicker sessions={sessions} onSelect={() => {}} onCancel={() => {}} />,

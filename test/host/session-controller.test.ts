@@ -67,6 +67,20 @@ function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Poll until a condition is met, with a timeout. */
+async function waitFor(
+	fn: () => boolean,
+	{ timeout = 2000, interval = 2 }: { timeout?: number; interval?: number } = {},
+): Promise<void> {
+	const start = Date.now();
+	while (!fn()) {
+		if (Date.now() - start > timeout) {
+			throw new Error("waitFor timed out");
+		}
+		await sleep(interval);
+	}
+}
+
 describe("SessionController", () => {
 	let tempDir: string;
 
@@ -148,7 +162,7 @@ describe("SessionController", () => {
 		const { controller } = makeController({ factory });
 
 		const promise = controller.submitGoal("Fix the bug");
-		await sleep(2);
+		await waitFor(() => fake.runCalled);
 
 		// Second submit while running should steer
 		await controller.submitGoal("Actually, try a different approach");
@@ -164,7 +178,7 @@ describe("SessionController", () => {
 		const { bus, controller } = makeController({ factory });
 
 		const promise = controller.submitGoal("Fix the bug");
-		await sleep(2);
+		await waitFor(() => fake.runCalled);
 
 		bus.emitCommand({ kind: "steer", data: { text: "focus on tests" } });
 
@@ -193,7 +207,7 @@ describe("SessionController", () => {
 		const { bus, controller } = makeController({ factory });
 
 		const promise = controller.submitGoal("Fix the bug");
-		await sleep(2);
+		await waitFor(() => fake.runCalled);
 
 		bus.emitCommand({ kind: "interrupt", data: {} });
 
@@ -209,7 +223,7 @@ describe("SessionController", () => {
 		const { bus, controller } = makeController({ factory });
 
 		const promise = controller.submitGoal("Fix the bug");
-		await sleep(2);
+		await waitFor(() => fake.runCalled);
 
 		bus.emitCommand({ kind: "quit", data: {} });
 

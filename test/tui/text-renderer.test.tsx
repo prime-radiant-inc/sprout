@@ -1,9 +1,21 @@
-import { describe, expect, test } from "bun:test";
-import { render } from "ink-testing-library";
+import { afterEach, describe, expect, test } from "bun:test";
+import { render as inkRender } from "ink-testing-library";
 import { TextRenderer } from "../../src/tui/text-renderer.tsx";
 
 // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape stripping
 const stripAnsi = (s: string) => s.replace(/\x1B\[[0-9;]*m/g, "");
+
+let currentInstance: ReturnType<typeof inkRender> | undefined;
+
+function render(...args: Parameters<typeof inkRender>): ReturnType<typeof inkRender> {
+	currentInstance = inkRender(...args);
+	return currentInstance;
+}
+
+afterEach(() => {
+	currentInstance?.unmount();
+	currentInstance = undefined;
+});
 
 describe("TextRenderer", () => {
 	describe("basic rendering", () => {

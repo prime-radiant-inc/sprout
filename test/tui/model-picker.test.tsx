@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { render } from "ink-testing-library";
+import { afterEach, describe, expect, test } from "bun:test";
+import { render as inkRender } from "ink-testing-library";
 import { ModelPicker } from "../../src/tui/model-picker.tsx";
 
 /** Wait for React to flush state updates. */
@@ -9,7 +9,19 @@ async function flush() {
 
 const MODELS = ["claude-sonnet-4-6", "claude-opus-4-6", "gpt-4o"];
 
+let currentInstance: ReturnType<typeof inkRender> | undefined;
+
+function render(...args: Parameters<typeof inkRender>): ReturnType<typeof inkRender> {
+	currentInstance = inkRender(...args);
+	return currentInstance;
+}
+
 describe("ModelPicker", () => {
+	afterEach(() => {
+		currentInstance?.unmount();
+		currentInstance = undefined;
+	});
+
 	test("renders model list", () => {
 		const { lastFrame } = render(
 			<ModelPicker models={MODELS} onSelect={() => {}} onCancel={() => {}} />,

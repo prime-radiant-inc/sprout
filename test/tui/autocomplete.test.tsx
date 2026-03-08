@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { render } from "ink-testing-library";
+import { afterEach, describe, expect, test } from "bun:test";
+import { render as inkRender } from "ink-testing-library";
 import { Autocomplete } from "../../src/tui/autocomplete.tsx";
 
 /** Wait for React to flush state updates. */
@@ -7,7 +7,19 @@ async function flush() {
 	await new Promise((resolve) => setTimeout(resolve, 10));
 }
 
+let currentInstance: ReturnType<typeof inkRender> | undefined;
+
+function render(...args: Parameters<typeof inkRender>): ReturnType<typeof inkRender> {
+	currentInstance = inkRender(...args);
+	return currentInstance;
+}
+
 describe("Autocomplete", () => {
+	afterEach(() => {
+		currentInstance?.unmount();
+		currentInstance = undefined;
+	});
+
 	test("renders nothing when not visible", () => {
 		const { lastFrame } = render(
 			<Autocomplete items={["foo", "bar"]} selectedIndex={0} visible={false} />,
