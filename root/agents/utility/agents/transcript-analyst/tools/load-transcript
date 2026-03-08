@@ -240,6 +240,7 @@ export default async function (ctx) {
     name: string;
     timestamp: number;
     kind: "start" | "end";
+    turn?: number;
     args?: Record<string, unknown>;
     duration_ms?: number;
   }> = [];
@@ -248,6 +249,7 @@ export default async function (ctx) {
   let sessionEnd: number | undefined;
   let sessionEndData: Record<string, unknown> | undefined;
   let maxTurn = 0;
+  let currentTurn = 0;
 
   for (const event of filtered) {
     // Count by kind
@@ -266,6 +268,7 @@ export default async function (ctx) {
       case "plan_end": {
         const turn = (event.data.turn as number) || 0;
         if (turn > maxTurn) maxTurn = turn;
+        currentTurn = turn;
         planSteps.push({
           turn,
           timestamp: event.timestamp,
@@ -283,6 +286,7 @@ export default async function (ctx) {
           name,
           timestamp: event.timestamp,
           kind: "start",
+          turn: currentTurn,
           args: event.data.args as Record<string, unknown> | undefined,
         });
 
@@ -330,27 +334,30 @@ export default async function (ctx) {
   const parallelGroups: Array<{ turn: number; tools: string[]; count: number }> = [];
   let currentGroup: string[] = [];
   let lastWasStart = false;
+  let groupTurn = 0;
 
   for (const tc of toolCalls) {
     if (tc.kind === "start") {
       currentGroup.push(tc.name);
+      if (currentGroup.length === 1) groupTurn = tc.turn ?? 0;
       lastWasStart = true;
     } else {
       if (lastWasStart && currentGroup.length > 1) {
         parallelGroups.push({
-          turn: maxTurn, // approximate
+          turn: groupTurn,
           tools: [...currentGroup],
           count: currentGroup.length,
         });
       }
       currentGroup = [];
+      groupTurn = 0;
       lastWasStart = false;
     }
   }
   // Flush remaining group
   if (currentGroup.length > 1) {
     parallelGroups.push({
-      turn: maxTurn,
+      turn: groupTurn,
       tools: [...currentGroup],
       count: currentGroup.length,
     });

@@ -486,6 +486,56 @@ describe("load-transcript tool", () => {
       const summary = JSON.parse(result.output);
       expect(summary.tools.parallel_call_groups.length).toBe(0);
     });
+
+    test("parallel groups track correct turn number", async () => {
+      const ctx = makeCtx({}, {
+        glob: async () => ["session.jsonl"],
+        read_file: async () =>
+          makeLog(
+            // Turn 1: first parallel group
+            makeEvent("plan_end", "agent1", { turn: 1, text: "step 1" }),
+            makeEvent("primitive_start", "agent1", { name: "read_file", args: { path: "/a" } }),
+            makeEvent("primitive_start", "agent1", { name: "grep", args: { pattern: "test" } }),
+            makeEvent("primitive_end", "agent1", { name: "read_file" }),
+            makeEvent("primitive_end", "agent1", { name: "grep" }),
+            // Turn 3: second parallel group
+            makeEvent("plan_end", "agent1", { turn: 3, text: "step 3" }),
+            makeEvent("primitive_start", "agent1", { name: "glob", args: { pattern: "*.ts" } }),
+            makeEvent("primitive_start", "agent1", { name: "read_file", args: { path: "/b" } }),
+            makeEvent("primitive_end", "agent1", { name: "glob" }),
+            makeEvent("primitive_end", "agent1", { name: "read_file" }),
+          ),
+      });
+
+      const result = await loadTranscript(ctx);
+
+      expect(result.success).toBe(true);
+      const summary = JSON.parse(result.output);
+      expect(summary.tools.parallel_call_groups.length).toBe(2);
+      expect(summary.tools.parallel_call_groups[0].turn).toBe(1);
+      expect(summary.tools.parallel_call_groups[1].turn).toBe(3);
+    });
+
+    test("parallel group turn is 0 when no preceding plan_end", async () => {
+      const ctx = makeCtx({}, {
+        glob: async () => ["session.jsonl"],
+        read_file: async () =>
+          makeLog(
+            // No plan_end before these starts
+            makeEvent("primitive_start", "agent1", { name: "read_file", args: { path: "/a" } }),
+            makeEvent("primitive_start", "agent1", { name: "grep", args: { pattern: "test" } }),
+            makeEvent("primitive_end", "agent1", { name: "read_file" }),
+            makeEvent("primitive_end", "agent1", { name: "grep" }),
+          ),
+      });
+
+      const result = await loadTranscript(ctx);
+
+      expect(result.success).toBe(true);
+      const summary = JSON.parse(result.output);
+      expect(summary.tools.parallel_call_groups.length).toBe(1);
+      expect(summary.tools.parallel_call_groups[0].turn).toBe(0);
+    });
   });
 
   // ── Group 9: Delegation tracking ────────────────────────────────────────
