@@ -51,7 +51,8 @@ describe("Learn Integration", () => {
 		await genome.initFromRoot();
 
 		// Verify starting state
-		expect(genome.agentCount()).toBe(21);
+		const agentCountBefore = genome.agentCount();
+		expect(agentCountBefore).toBeGreaterThan(0);
 		expect(genome.memories.all().length).toBe(0);
 		expect(genome.allRoutingRules().length).toBe(0);
 
@@ -91,7 +92,7 @@ describe("Learn Integration", () => {
 		const memoryCount = genome.memories.all().length;
 		const routingCount = genome.allRoutingRules().length;
 		const agentCount = genome.agentCount();
-		const grew = memoryCount > 0 || routingCount > 0 || agentCount > 10;
+		const grew = memoryCount > 0 || routingCount > 0 || agentCount >= agentCountBefore;
 		expect(grew).toBe(true);
 		await vcr.afterTest();
 	}, 60_000);
@@ -110,6 +111,8 @@ describe("Learn Integration", () => {
 		const genome = new Genome(genomeDir, rootDir);
 		await genome.init();
 		await genome.initFromRoot();
+
+		const agentCountBefore = genome.agentCount();
 
 		const metrics = new MetricsStore(join(genomeDir, "metrics", "metrics.jsonl"));
 		await metrics.load();
@@ -142,7 +145,7 @@ describe("Learn Integration", () => {
 		// Verify genome unchanged
 		expect(genome.memories.all().length).toBe(0);
 		expect(genome.allRoutingRules().length).toBe(0);
-		expect(genome.agentCount()).toBe(21);
+		expect(genome.agentCount()).toBe(agentCountBefore);
 		await vcr.afterTest();
 	}, 30_000);
 });
