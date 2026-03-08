@@ -272,4 +272,161 @@ describe("tool loading", () => {
 			expect(result.error).toContain("InternalToolContext");
 		});
 	});
+
+	describe("error diagnostic helpers", () => {
+		test("extractLineFromStack extracts line number from stack trace", () => {
+			const { extractLineFromStack } = require("../../src/kernel/tool-loading.ts");
+			const tempPath = "/tmp/some-tool.12345.abc123.ts";
+			const err = new Error("Unexpected token");
+			err.stack = `SyntaxError: Unexpected token\n    at ${tempPath}:5:10\n    at Module._compile`;
+			expect(extractLineFromStack(err, tempPath)).toBe(5);
+		});
+
+		test("extractLineFromStack returns null when path not in stack", () => {
+			const { extractLineFromStack } = require("../../src/kernel/tool-loading.ts");
+			const err = new Error("fail");
+			err.stack = "Error: fail\n    at /other/path.ts:10:1";
+			expect(extractLineFromStack(err, "/tmp/some-tool.ts")).toBeNull();
+		});
+
+		test("extractLineFromStack returns null for non-Error values", () => {
+			const { extractLineFromStack } = require("../../src/kernel/tool-loading.ts");
+			expect(extractLineFromStack("just a string", "/tmp/foo.ts")).toBeNull();
+		});
+
+		test("getSourceContext shows lines around target with marker", () => {
+			const { getSourceContext } = require("../../src/kernel/tool-loading.ts");
+			const lines = [
+				"const a = 1;",
+				"const b = 2;",
+				"const c = INVALID;",
+				"const d = 4;",
+				"const e = 5;",
+			];
+			const result = getSourceContext(lines, 3, 1);
+			expect(result).toContain("> ");
+			expect(result).toContain("   3 |");
+			expect(result).toContain("const c = INVALID;");
+			// Should include context lines
+			expect(result).toContain("   2 |");
+			expect(result).toContain("   4 |");
+			// Should NOT include line 1 or 5 with contextSize=1
+			expect(result).not.toContain("   1 |");
+			expect(result).not.toContain("   5 |");
+		});
+
+		test("getSourceContext handles edge cases at start of file", () => {
+			const { getSourceContext } = require("../../src/kernel/tool-loading.ts");
+			const lines = ["line1", "line2", "line3"];
+			const result = getSourceContext(lines, 1, 2);
+			// Line 1 is target, context goes 2 before (clamped to 0) and 2 after
+			expect(result).toContain(">    1 |");
+			expect(result).toContain("   2 |");
+			expect(result).toContain("   3 |");
+		});
+
+		test("formatImportError includes tool name and message", () => {
+			const { formatImportError } = require("../../src/kernel/tool-loading.ts");
+			const err = new Error("Unexpected token");
+			const result = formatImportError("my-tool", err, [], "/tmp/fake.ts");
+			expect(result).toContain("Tool 'my-tool' failed to load:");
+			expect(result).toContain("Unexpected token");
+		});
+
+		test("formatImportError includes source context when line found", () => {
+			const { formatImportError } = require("../../src/kernel/tool-loading.ts");
+			const tempPath = "/tmp/tool.12345.ts";
+			const err = new Error("bad syntax");
+			err.stack = `SyntaxError: bad syntax\n    at ${tempPath}:2:5`;
+			const lines = ["const ok = 1;", "const bad = @@@;", "const fine = 3;"];
+			const result = formatImportError("my-tool", err, lines, tempPath);
+			expect(result).toContain("Tool 'my-tool' failed to load: bad syntax");
+			expect(result).toContain("const bad = @@@;");
+		});
+
+		test("formatRuntimeError replaces temp path with original path in stack", () => {
+			const { formatRuntimeError } = require("../../src/kernel/tool-loading.ts");
+			const tempPath = "/tmp/tool.12345.abc.ts";
+			const originalPath = "/genome/tools/my-tool.ts";
+			const err = new Error("runtime boom");
+			err.stack = `Error: runtime boom\n    at doThing (${tempPath}:10:5)\n    at ${tempPath}:20:1`;
+			const result = formatRuntimeError("my-tool", err, tempPath, originalPath);
+			expect(result).toContain("Tool 'my-tool' threw an error: runtime boom");
+			expect(result).toContain(originalPath);
+			expect(result).not.toContain(tempPath);
+		});
+	});
+
+	describe("sprout-internal error diagnostics", () => {
+		test("missing default export gives clear error message", async () => {
+			const { genome } = await setupGenome("no-default-export");
+
+			await genome.saveAgentTool("runner", {
+				name: "no-export",
+				description: "Missing default export",
+				interpreter: "sprout-internal",
+				script: `export function notDefault() { return { output: "oops", success: true }; }`,
+			});
+
+			const toolDefs = await genome.loadAgentTools("runner");
+			const env = new LocalExecutionEnvironment(tempDir);
+			const prims = buildAgentToolPrimitives(toolDefs, {
+				genome,
+				env,
+				agentName: "runner",
+			});
+
+			const result = await prims[0]!.execute({}, env);
+			expect(result.success).toBe(false);
+			expect(result.error).toContain("does not export a default function");
+		});
+
+		test("import error includes tool name and source context", async () => {
+			const { genome } = await setupGenome("import-error");
+
+			await genome.saveAgentTool("runner", {
+				name: "bad-import",
+				description: "Has syntax error",
+				interpreter: "sprout-internal",
+				script: `const x = ;\nexport default async function(ctx) { return { output: "ok", success: true }; }`,
+			});
+
+			const toolDefs = await genome.loadAgentTools("runner");
+			const env = new LocalExecutionEnvironment(tempDir);
+			const prims = buildAgentToolPrimitives(toolDefs, {
+				genome,
+				env,
+				agentName: "runner",
+			});
+
+			const result = await prims[0]!.execute({}, env);
+			expect(result.success).toBe(false);
+			expect(result.error).toContain("Tool 'bad-import' failed to load:");
+		});
+
+		test("runtime error includes cleaned stack trace", async () => {
+			const { genome } = await setupGenome("runtime-error-stack");
+
+			await genome.saveAgentTool("runner", {
+				name: "runtime-fail",
+				description: "Throws at runtime",
+				interpreter: "sprout-internal",
+				script: `export default async function(ctx) {
+  throw new Error("runtime failure");
+}`,
+			});
+
+			const toolDefs = await genome.loadAgentTools("runner");
+			const env = new LocalExecutionEnvironment(tempDir);
+			const prims = buildAgentToolPrimitives(toolDefs, {
+				genome,
+				env,
+				agentName: "runner",
+			});
+
+			const result = await prims[0]!.execute({}, env);
+			expect(result.success).toBe(false);
+			expect(result.error).toContain("Tool 'runtime-fail' threw an error: runtime failure");
+		});
+	});
 });

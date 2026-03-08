@@ -28,6 +28,52 @@ function parseJsonArgs(raw: string): Record<string, unknown> {
 	}
 }
 
+/** Extract the error line number from a stack trace referencing tempPath. */
+export function extractLineFromStack(err: unknown, tempPath: string): number | null {
+	const stack = (err instanceof Error) ? err.stack : String(err);
+	if (!stack) return null;
+	const escaped = tempPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+	const match = stack.match(new RegExp(`${escaped}:(\\d+)`));
+	return match?.[1] != null ? parseInt(match[1], 10) : null;
+}
+
+/** Show source lines around a target line number, with a > marker on the target. */
+export function getSourceContext(lines: string[], lineNum: number, contextSize = 2): string {
+	const start = Math.max(0, lineNum - 1 - contextSize);
+	const end = Math.min(lines.length, lineNum + contextSize);
+	return lines
+		.slice(start, end)
+		.map((line, i) => {
+			const num = start + i + 1;
+			const marker = num === lineNum ? ">" : " ";
+			return `${marker} ${String(num).padStart(4)} | ${line}`;
+		})
+		.join("\n");
+}
+
+/** Format an import-time error with tool name, message, and optional source context. */
+export function formatImportError(toolName: string, err: unknown, scriptLines: string[], tempPath: string): string {
+	const message = err instanceof Error ? err.message : String(err);
+	const line = extractLineFromStack(err, tempPath);
+	const parts = [`Tool '${toolName}' failed to load: ${message}`];
+	if (line !== null) {
+		parts.push("", getSourceContext(scriptLines, line));
+	}
+	return parts.join("\n");
+}
+
+/** Format a runtime error with tool name and stack trace cleaned of temp paths. */
+export function formatRuntimeError(toolName: string, err: unknown, tempPath: string, originalPath: string): string {
+	const message = err instanceof Error ? err.message : String(err);
+	const stack = (err instanceof Error) ? err.stack : undefined;
+	const parts = [`Tool '${toolName}' threw an error: ${message}`];
+	if (stack) {
+		const cleaned = stack.replaceAll(tempPath, originalPath);
+		parts.push("", cleaned);
+	}
+	return parts.join("\n");
+}
+
 /** Execute a sprout-internal tool by dynamically importing its script. */
 async function executeInternalTool(
 	tool: AgentToolDefinition,
@@ -35,18 +81,48 @@ async function executeInternalTool(
 ): Promise<{ output: string; success: boolean; error?: string }> {
 	const fileContent = await readFile(tool.scriptPath, "utf-8");
 	const script = extractScriptBody(fileContent);
+	const scriptLines = script.split("\n");
 
 	// Write to a temp .ts file for dynamic import (random suffix avoids collisions)
 	const tempPath = `${tool.scriptPath}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.ts`;
 	await writeFile(tempPath, script);
 	try {
-		const mod = await import(tempPath);
-		const result: ToolResult = await mod.default(toolCtx);
-		return {
-			output: result?.output ?? "",
-			success: result?.success ?? false,
-			error: result?.error,
-		};
+		// Phase 1: Import the module
+		let mod: Record<string, unknown>;
+		try {
+			mod = await import(tempPath);
+		} catch (importErr) {
+			return {
+				output: "",
+				success: false,
+				error: formatImportError(tool.name, importErr, scriptLines, tempPath),
+			};
+		}
+
+		// Phase 2: Check for default export
+		if (typeof mod.default !== "function") {
+			return {
+				output: "",
+				success: false,
+				error: `Tool '${tool.name}' does not export a default function`,
+			};
+		}
+
+		// Phase 3: Execute the tool
+		try {
+			const result: ToolResult = await mod.default(toolCtx);
+			return {
+				output: result?.output ?? "",
+				success: result?.success ?? false,
+				error: result?.error,
+			};
+		} catch (runtimeErr) {
+			return {
+				output: "",
+				success: false,
+				error: formatRuntimeError(tool.name, runtimeErr, tempPath, tool.scriptPath),
+			};
+		}
 	} finally {
 		await rm(tempPath).catch(() => {});
 	}
