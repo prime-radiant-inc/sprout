@@ -387,27 +387,29 @@ export default async function (ctx) {
   }
 
   // Build delegation tree by reading child logs recursively
+  interface DelegationTreeNode {
+    agent_name: string;
+    handle_id: string;
+    child_id: string;
+    success: boolean | null;
+    turns: number | null;
+    duration_ms: number | null;
+    children: DelegationTreeNode[];
+  }
+
   async function buildSubtree(
     baseDir: string,
     parentDelegations: typeof delegations,
     parentActEnds: typeof actEnds,
     depth: number,
-  ): Promise<Array<{
-    agent_name: string;
-    handle_id: string;
-    child_id: string;
-    success: boolean | undefined;
-    turns: number | undefined;
-    duration_ms: number | undefined;
-    children: any[];
-  }>> {
+  ): Promise<DelegationTreeNode[]> {
     if (depth > 5) return parentDelegations.map(d => ({
       agent_name: d.agent_name,
       handle_id: d.handle_id,
       child_id: d.child_id || "",
-      success: undefined,
-      turns: undefined,
-      duration_ms: undefined,
+      success: null,
+      turns: null,
+      duration_ms: null,
       children: [],
     }));
 
@@ -460,9 +462,9 @@ export default async function (ctx) {
         agent_name: d.agent_name,
         handle_id: d.handle_id,
         child_id: d.child_id || "",
-        success: end?.success,
-        turns: end?.turns,
-        duration_ms: end ? end.timestamp - d.timestamp : undefined,
+        success: end?.success ?? null,
+        turns: end?.turns ?? null,
+        duration_ms: end ? end.timestamp - d.timestamp : null,
         children,
       });
     }
