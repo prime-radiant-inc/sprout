@@ -25,11 +25,7 @@ function makeMockClient(response: Response) {
 	} as unknown as Client;
 }
 
-function createLlmEventsAgent(
-	client: Client,
-	events: AgentEventEmitter,
-	enableStreaming = false,
-) {
+function createLlmEventsAgent(client: Client, events: AgentEventEmitter, enableStreaming = false) {
 	const fixture = createAgentFixture({
 		spec: leafSpec,
 		client,

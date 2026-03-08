@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { Msg, type Response, ContentKind, type Request } from "../../src/llm/types.ts";
 import { executePlanningTurn } from "../../src/agents/run-loop-planning.ts";
+import { ContentKind, Msg, type Request, type Response } from "../../src/llm/types.ts";
 
 describe("executePlanningTurn", () => {
 	test("success path emits planning events, appends assistant message, and returns tool calls", async () => {
@@ -58,7 +58,9 @@ describe("executePlanningTurn", () => {
 		expect(debugCalls[0]?.message).toBe("Plan response received");
 		expect(result.kind).toBe("success");
 		if (result.kind === "success") {
-			expect(result.toolCalls).toEqual([{ id: "c1", name: "read_file", arguments: { path: "README.md" } }]);
+			expect(result.toolCalls).toEqual([
+				{ id: "c1", name: "read_file", arguments: { path: "README.md" } },
+			]);
 		}
 	});
 

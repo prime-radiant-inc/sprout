@@ -1,7 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { EventBus } from "../../src/host/event-bus.ts";
 import { WebServer } from "../../src/web/server.ts";
-import { collectMessages, connect, createStaticDir, delay, nextMessage, randomPort } from "./fixtures.ts";
+import {
+	collectMessages,
+	connect,
+	createStaticDir,
+	delay,
+	nextMessage,
+	randomPort,
+} from "./fixtures.ts";
 
 /**
  * End-to-end tests for the web interface round-trip.

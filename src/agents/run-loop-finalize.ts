@@ -1,6 +1,6 @@
 import type { LearnSignal } from "../kernel/types.ts";
 import { finalizeRunLoopOutcome } from "./run-loop-outcome.ts";
-import { detectRetries, type CallRecord } from "./verify.ts";
+import { type CallRecord, detectRetries } from "./verify.ts";
 
 export interface RetryAccountingInput {
 	callHistory: CallRecord[];
@@ -88,9 +88,7 @@ export interface FinalizeRunLoopResult {
  * Builds the final run-loop outcome and mirrors it into both session_end payload
  * data and the AgentResult return shape.
  */
-export function finalizeRunLoopResult(
-	input: FinalizeRunLoopResultInput,
-): FinalizeRunLoopResult {
+export function finalizeRunLoopResult(input: FinalizeRunLoopResultInput): FinalizeRunLoopResult {
 	const outcome = finalizeRunLoopOutcome({
 		turns: input.turns,
 		stumbles: input.stumbles,

@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import type { LearnSignal } from "../../src/kernel/types.ts";
 import {
 	createMutationLearnRequest,
 	createSignalLearnRequest,
 	parseLearnRequest,
 	resolveLearnMutation,
 } from "../../src/bus/learn-contract.ts";
+import type { LearnSignal } from "../../src/kernel/types.ts";
 
 function makeSignal(): LearnSignal {
 	return {

@@ -22,9 +22,7 @@ export interface InspectTreeDelegationsInput {
  * Inspect tree-based delegation visibility and report where each delegate came from.
  * Order is deterministic: auto-discovered children first, then explicit refs.
  */
-export function inspectTreeDelegations(
-	input: InspectTreeDelegationsInput,
-): DelegationInspection[] {
+export function inspectTreeDelegations(input: InspectTreeDelegationsInput): DelegationInspection[] {
 	const result: DelegationInspection[] = [];
 	const seen = new Set<string>();
 

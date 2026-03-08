@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import type { AgentTreeEntry } from "../../src/agents/loader.ts";
 import {
 	inspectStaticDelegations,
 	inspectTreeDelegations,
 } from "../../src/agents/delegation-inspect.ts";
+import type { AgentTreeEntry } from "../../src/agents/loader.ts";
 import { makeSpec } from "../helpers/make-spec.ts";
 
 function entry(name: string, path: string, children: string[] = []): AgentTreeEntry {

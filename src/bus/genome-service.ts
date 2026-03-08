@@ -1,7 +1,7 @@
 import type { Genome } from "../genome/genome.ts";
 import { DEFAULT_CONSTRAINTS, validateAgentName } from "../kernel/types.ts";
 import type { BusClient } from "./client.ts";
-import { parseLearnRequest, resolveLearnMutation, type LearnRequest } from "./learn-contract.ts";
+import { type LearnRequest, parseLearnRequest, resolveLearnMutation } from "./learn-contract.ts";
 import { genomeEvents, genomeMutations } from "./topics.ts";
 
 /** A confirmation event published after processing a mutation request. */

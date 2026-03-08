@@ -1,21 +1,18 @@
 import { join } from "node:path";
 import { getAvailableModels } from "../agents/model-resolver.ts";
+import type { AgentSpawner } from "../bus/spawner.ts";
 import type { ResultMessage } from "../bus/types.ts";
 import type { Genome } from "../genome/genome.ts";
-import type { Message } from "../llm/types.ts";
-import { loggingMiddleware } from "../llm/logging-middleware.ts";
-import type { AgentSpawner } from "../bus/spawner.ts";
 import { Client } from "../llm/client.ts";
+import { loggingMiddleware } from "../llm/logging-middleware.ts";
+import type { Message } from "../llm/types.ts";
 import { EventBus } from "./event-bus.ts";
 import { SessionLogger } from "./logger.ts";
 import { SessionController } from "./session-controller.ts";
 
 export type StderrLevel = "debug" | "info" | undefined;
 
-export function resolveStderrLevel(opts: {
-	logStderr?: boolean;
-	debug?: boolean;
-}): StderrLevel {
+export function resolveStderrLevel(opts: { logStderr?: boolean; debug?: boolean }): StderrLevel {
 	if (!opts.logStderr) return undefined;
 	return opts.debug ? "debug" : "info";
 }
@@ -115,7 +112,10 @@ export async function bootstrapInteractiveRuntime(
 		onLoggingEnabled:
 			deps.onLoggingEnabled ??
 			((logger, level, sessionId) => {
-				(logger as SessionLogger).info("session", "Logging to stderr enabled", { level, sessionId });
+				(logger as SessionLogger).info("session", "Logging to stderr enabled", {
+					level,
+					sessionId,
+				});
 			}),
 	};
 

@@ -17,13 +17,13 @@ import { formatDuration, smartArgs } from "../../src/tui/render-event.ts";
 let currentInstance: ReturnType<typeof inkRender> | undefined;
 
 function render(...args: Parameters<typeof inkRender>): ReturnType<typeof inkRender> {
-    currentInstance = inkRender(...args);
-    return currentInstance;
+	currentInstance = inkRender(...args);
+	return currentInstance;
 }
 
 afterEach(() => {
-    currentInstance?.unmount();
-    currentInstance = undefined;
+	currentInstance?.unmount();
+	currentInstance = undefined;
 });
 
 // ---------------------------------------------------------------------------

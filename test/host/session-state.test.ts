@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import type { SessionEvent } from "../../src/kernel/types.ts";
-import { Msg } from "../../src/llm/types.ts";
 import {
 	applyHistoryShadowUpdate,
 	beginSubmitGoalTransition,
 	clearSessionShadowState,
 } from "../../src/host/session-state.ts";
+import type { SessionEvent } from "../../src/kernel/types.ts";
+import { Msg } from "../../src/llm/types.ts";
 
 function makeEvent(
 	kind: SessionEvent["kind"],
@@ -29,13 +29,19 @@ describe("applyHistoryShadowUpdate", () => {
 
 	test("appends assistant message on plan_end", () => {
 		const assistant = Msg.assistant("Done.");
-		const next = applyHistoryShadowUpdate([], makeEvent("plan_end", { assistant_message: assistant }));
+		const next = applyHistoryShadowUpdate(
+			[],
+			makeEvent("plan_end", { assistant_message: assistant }),
+		);
 		expect(next).toEqual([assistant]);
 	});
 
 	test("replaces history with compaction summary user message", () => {
 		const prior = [Msg.user("first"), Msg.assistant("second")];
-		const next = applyHistoryShadowUpdate(prior, makeEvent("compaction", { summary: "compressed" }));
+		const next = applyHistoryShadowUpdate(
+			prior,
+			makeEvent("compaction", { summary: "compressed" }),
+		);
 		expect(next).toEqual([Msg.user("compressed")]);
 	});
 

@@ -7,9 +7,7 @@ interface ListModeDeps {
 }
 
 /** Render the TUI session picker and return the selected session id (or null on cancel). */
-export async function presentSessionPicker(
-	sessions: SessionListEntry[],
-): Promise<string | null> {
+export async function presentSessionPicker(sessions: SessionListEntry[]): Promise<string | null> {
 	const { render } = await import("ink");
 	const React = await import("react");
 	const { SessionPicker } = await import("../tui/session-picker.tsx");

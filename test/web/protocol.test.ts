@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import type { Command, SessionEvent } from "../../src/kernel/types.ts";
 import type {
 	CommandMessage as CanonicalCommandMessage,
 	ServerMessage as CanonicalServerMessage,
@@ -8,6 +7,7 @@ import {
 	createCommandMessage,
 	parseCommandMessage as parseCanonicalCommandMessage,
 } from "../../src/kernel/protocol.ts";
+import type { Command, SessionEvent } from "../../src/kernel/types.ts";
 import type { CommandMessage, ServerMessage } from "../../src/web/protocol.ts";
 import { parseCommandMessage as parseLegacyCommandMessage } from "../../src/web/protocol.ts";
 

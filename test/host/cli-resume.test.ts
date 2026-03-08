@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { Message } from "../../src/llm/types.ts";
 import { loadResumeState } from "../../src/host/cli-resume.ts";
+import type { Message } from "../../src/llm/types.ts";
 
 describe("loadResumeState", () => {
 	test("resume-last returns undefined when no sessions exist", async () => {

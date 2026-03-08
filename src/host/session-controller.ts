@@ -11,17 +11,17 @@ import {
 	createSessionCommandHandlers,
 	type SessionCommandHandlers,
 } from "./session-controller-commands.ts";
-import {
-	applyHistoryShadowUpdate,
-	beginSubmitGoalTransition,
-	clearSessionShadowState,
-} from "./session-state.ts";
+import { SessionMetadata } from "./session-metadata.ts";
 import {
 	persistPlanEndMetadataUpdate,
 	persistRunningMetadata,
 	persistTerminalMetadata,
 } from "./session-metadata-updater.ts";
-import { SessionMetadata } from "./session-metadata.ts";
+import {
+	applyHistoryShadowUpdate,
+	beginSubmitGoalTransition,
+	clearSessionShadowState,
+} from "./session-state.ts";
 
 /** Minimal agent interface used by the SessionController. */
 interface RunnableAgent {
@@ -307,12 +307,7 @@ export class SessionController {
 			sessionsDir: join(this.projectDataDir, "sessions"),
 		});
 		if (this.logger) {
-			const newLogPath = join(
-				this.projectDataDir,
-				"logs",
-				this._sessionId,
-				"session.log.jsonl",
-			);
+			const newLogPath = join(this.projectDataDir, "logs", this._sessionId, "session.log.jsonl");
 			this.logger.reconfigure({ sessionId: this._sessionId, logPath: newLogPath });
 		}
 		if (this.spawner) {

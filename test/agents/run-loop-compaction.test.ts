@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { evaluateCompaction, MIN_TURNS_BETWEEN_COMPACTIONS } from "../../src/agents/run-loop-compaction.ts";
+import {
+	evaluateCompaction,
+	MIN_TURNS_BETWEEN_COMPACTIONS,
+} from "../../src/agents/run-loop-compaction.ts";
 
 describe("evaluateCompaction", () => {
 	test("no manual request and below cooldown does not compact", () => {

@@ -1,8 +1,8 @@
 import type { EventKind } from "../kernel/types.ts";
 import type {
-	Message,
 	Request as LLMRequest,
 	Response as LLMResponse,
+	Message,
 	ToolCall,
 	ToolDefinition,
 } from "../llm/types.ts";
@@ -22,12 +22,7 @@ export interface ExecutePlanningTurnInput {
 	provider: string;
 	thinking?: boolean | { budget_tokens: number };
 	signal?: AbortSignal;
-	emit: (
-		kind: EventKind,
-		agentId: string,
-		depth: number,
-		data: Record<string, unknown>,
-	) => void;
+	emit: (kind: EventKind, agentId: string, depth: number, data: Record<string, unknown>) => void;
 	requestPlanResponse: (opts: {
 		request: LLMRequest;
 		agentId: string;

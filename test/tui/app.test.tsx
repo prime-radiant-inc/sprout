@@ -6,8 +6,8 @@ import { App } from "../../src/tui/app.tsx";
 let currentInstance: ReturnType<typeof inkRender> | undefined;
 
 function render(...args: Parameters<typeof inkRender>): ReturnType<typeof inkRender> {
-    currentInstance = inkRender(...args);
-    return currentInstance;
+	currentInstance = inkRender(...args);
+	return currentInstance;
 }
 
 function setup(overrides?: Partial<Parameters<typeof App>[0]>) {

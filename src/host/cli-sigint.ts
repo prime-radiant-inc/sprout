@@ -26,8 +26,10 @@ export function registerInteractiveSigint(
 	deps: InteractiveSigintDeps,
 ): InteractiveSigintRegistration {
 	const sigintWindowMs = deps.sigintWindowMs ?? 5000;
-	const setTimer = deps.setTimer ?? ((handler: () => void, delayMs: number) => setTimeout(handler, delayMs));
-	const clearTimer = deps.clearTimer ?? ((timer: ReturnType<typeof setTimeout>) => clearTimeout(timer));
+	const setTimer =
+		deps.setTimer ?? ((handler: () => void, delayMs: number) => setTimeout(handler, delayMs));
+	const clearTimer =
+		deps.clearTimer ?? ((timer: ReturnType<typeof setTimeout>) => clearTimeout(timer));
 	const processRef = deps.processRef ?? process;
 	const registerProcessListener = deps.registerProcessListener ?? true;
 

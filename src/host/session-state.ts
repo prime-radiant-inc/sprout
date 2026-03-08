@@ -23,10 +23,7 @@ export interface ClearedSessionShadowState {
  * Applies root-level event effects to the controller's history shadow.
  * Returns the same array reference when no history transition occurs.
  */
-export function applyHistoryShadowUpdate(
-	history: Message[],
-	event: SessionEvent,
-): Message[] {
+export function applyHistoryShadowUpdate(history: Message[], event: SessionEvent): Message[] {
 	if (event.depth !== 0) return history;
 
 	switch (event.kind) {
@@ -62,9 +59,7 @@ export function applyHistoryShadowUpdate(
 /**
  * Computes the hasRun/session_resume transition when a goal is submitted.
  */
-export function beginSubmitGoalTransition(
-	input: SubmitGoalTransitionInput,
-): SubmitGoalTransition {
+export function beginSubmitGoalTransition(input: SubmitGoalTransitionInput): SubmitGoalTransition {
 	return {
 		hasRun: true,
 		shouldEmitResume: !input.hasRun && input.historyLength > 0,
