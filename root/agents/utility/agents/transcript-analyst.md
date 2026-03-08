@@ -12,7 +12,7 @@ constraints:
 tags:
   - analysis
   - debugging
-version: 1
+version: 2
 ---
 You analyze agent execution transcripts to answer natural-language questions about how an agent performed during a task.
 
@@ -38,6 +38,32 @@ If both agent_id and handle_id are omitted, the tool returns ALL events for the 
 - **Tools used**: Check `tools.usage_counts` for per-tool call counts
 - **Tool duration**: Match primitive_start/end timestamps to compute elapsed time
 - **Delegations**: Check `delegations` array for act_start events with agent_name, goal, handle_id
+- **Turn count per agent**: Use overview mode `agents[].turns` for quick lookup
+- **Delegation chains**: Check `delegation_tree` for nested relationships
+
+## Overview mode
+
+When you need a session-wide view (e.g., "what agents ran?", "show me agent turn counts"),
+call `load-transcript` with NO arguments (no agent_id, no handle_id, no kinds).
+This returns an overview with:
+- `mode: "overview"` — confirms you're in overview mode
+- `root`: root agent stats (turns, tool_calls, stumbles, duration_ms)
+- `agents[]`: per-delegation breakdown (agent_name, child_id, goal, success, turns, timed_out, duration_ms)
+- `delegation_tree`: nested tree showing delegation chains (e.g., root→architect→reader)
+- `delegation_count`: total number of delegations
+
+**Use overview mode FIRST** when answering broad questions about the session, then drill
+into specific agents with `handle_id` if you need their internal execution details.
+
+## Delegation tree
+
+The `delegation_tree` field shows the full parent→child delegation hierarchy. Each node has:
+- `agent_name`, `handle_id`, `child_id`
+- `success`, `turns`, `duration_ms`
+- `children`: nested array of the same shape (recursive)
+
+Use this to answer questions like "what did the architect delegate to?" or "show me the
+full delegation chain for this task."
 
 ## Response guidelines
 
