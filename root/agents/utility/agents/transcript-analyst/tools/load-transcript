@@ -50,16 +50,133 @@ export default async function (ctx) {
   const latestLog = logFiles[logFiles.length - 1];
   const latestLogPath = `${logsDir}/${latestLog}`;
 
-  // Step 3: Read and parse the JSONL
+  // Extract session ID from the log filename (e.g., "01KK4Y2D2VB1BT3CCQMMFFJWQ9.jsonl" -> "01KK4Y2D2VB1BT3CCQMMFFJWQ9")
+  const sessionId = latestLog.replace(".jsonl", "");
+  const childLogsDir = `${logsDir}/${sessionId}`;
+
+  // Step 3: Read events
+  // Child agents log to {logsDir}/{sessionId}/{handleId}.jsonl
+  // Root agent logs to {logsDir}/{sessionId}.jsonl
+
   let raw: string;
-  try {
-    raw = await ctx.env.read_file(latestLogPath);
-  } catch (err) {
-    return {
-      output: JSON.stringify({ error: "Failed to read log file", path: latestLogPath }),
-      success: false,
-      error: `Failed to read ${latestLogPath}`,
-    };
+  let logFilePath = latestLogPath; // default: root log
+  let targetAgentId = agent_id;
+
+  if (handle_id) {
+    const childLogPath = `${childLogsDir}/${handle_id}.jsonl`;
+    try {
+      raw = await ctx.env.read_file(childLogPath);
+      logFilePath = childLogPath;
+      // Resolve targetAgentId from child log events
+      for (const line of raw.split("\n")) {
+        if (!line.trim()) continue;
+        try {
+          const jsonPart = line.includes("\t") ? line.substring(line.indexOf("\t") + 1) : line;
+          const event = JSON.parse(jsonPart);
+          if (event.agent_id) {
+            targetAgentId = event.agent_id;
+            break;
+          }
+        } catch { /* skip */ }
+      }
+    } catch {
+      // Child log not found — fall back to root log
+      try {
+        raw = await ctx.env.read_file(latestLogPath);
+      } catch (err) {
+        return {
+          output: JSON.stringify({ error: "Failed to read log file", path: latestLogPath }),
+          success: false,
+          error: `Failed to read ${latestLogPath}`,
+        };
+      }
+      // Resolve handle_id to agent_id from root log act_start events
+      for (const line of raw.split("\n")) {
+        if (!line.trim()) continue;
+        try {
+          const jsonPart = line.includes("\t") ? line.substring(line.indexOf("\t") + 1) : line;
+          const event = JSON.parse(jsonPart);
+          if (event.kind === "act_start" && event.data?.handle_id === handle_id) {
+            targetAgentId = event.data.child_id;
+            break;
+          }
+        } catch { /* skip */ }
+      }
+      if (!targetAgentId) {
+        // Try matching handle_id as a direct agent_id
+        for (const line of raw.split("\n")) {
+          if (!line.trim()) continue;
+          try {
+            const jsonPart = line.includes("\t") ? line.substring(line.indexOf("\t") + 1) : line;
+            const event = JSON.parse(jsonPart);
+            if (event.agent_id === handle_id) {
+              targetAgentId = handle_id;
+              break;
+            }
+          } catch { /* skip */ }
+        }
+      }
+      if (!targetAgentId) {
+        return {
+          output: JSON.stringify({
+            error: "Could not resolve handle_id to agent_id",
+            handle_id,
+            suggestion: "Try passing agent_id directly",
+          }),
+          success: false,
+          error: `No act_start event found for handle ${handle_id}`,
+        };
+      }
+    }
+  } else if (agent_id) {
+    // Read root log to find the handle_id for this agent_id, then read child log
+    let rootRaw: string;
+    try {
+      rootRaw = await ctx.env.read_file(latestLogPath);
+    } catch (err) {
+      return {
+        output: JSON.stringify({ error: "Failed to read log file", path: latestLogPath }),
+        success: false,
+        error: `Failed to read ${latestLogPath}`,
+      };
+    }
+
+    // Search act_start events for the child_id matching agent_id
+    let foundHandleId: string | undefined;
+    for (const line of rootRaw.split("\n")) {
+      if (!line.trim()) continue;
+      try {
+        const jsonPart = line.includes("\t") ? line.substring(line.indexOf("\t") + 1) : line;
+        const event = JSON.parse(jsonPart);
+        if (event.kind === "act_start" && event.data?.child_id === agent_id) {
+          foundHandleId = event.data.handle_id;
+          break;
+        }
+      } catch { /* skip */ }
+    }
+
+    if (foundHandleId) {
+      const childLogPath = `${childLogsDir}/${foundHandleId}.jsonl`;
+      try {
+        raw = await ctx.env.read_file(childLogPath);
+        logFilePath = childLogPath;
+      } catch {
+        raw = rootRaw; // fall back to root log
+      }
+    } else {
+      raw = rootRaw; // agent_id not found in act_start events, use root log
+    }
+  } else {
+    // No filter: read root log
+    try {
+      raw = await ctx.env.read_file(latestLogPath);
+    } catch (err) {
+      return {
+        output: JSON.stringify({ error: "Failed to read log file", path: latestLogPath }),
+        success: false,
+        error: `Failed to read ${latestLogPath}`,
+      };
+    }
   }
 
   const events: Array<{
@@ -84,41 +201,13 @@ export default async function (ctx) {
 
   if (events.length === 0) {
     return {
-      output: JSON.stringify({ error: "No events found in log", path: latestLogPath }),
+      output: JSON.stringify({ error: "No events found in log", path: logFilePath }),
       success: false,
       error: "Log file contained no valid events",
     };
   }
 
-  // Step 4: Resolve handle_id to agent_id if needed
-  let targetAgentId = agent_id;
-  if (!targetAgentId && handle_id) {
-    // Find act_start event with matching handle_id to get child_id
-    const actStart = events.find(
-      (e) => e.kind === "act_start" && e.data.handle_id === handle_id,
-    );
-    if (actStart && actStart.data.child_id) {
-      targetAgentId = actStart.data.child_id as string;
-    } else {
-      // Try matching against agent_id directly (handle might be the agent_id)
-      const hasEvents = events.some((e) => e.agent_id === handle_id);
-      if (hasEvents) {
-        targetAgentId = handle_id;
-      } else {
-        return {
-          output: JSON.stringify({
-            error: "Could not resolve handle_id to agent_id",
-            handle_id,
-            suggestion: "Try passing agent_id directly",
-          }),
-          success: false,
-          error: `No act_start event found for handle ${handle_id}`,
-        };
-      }
-    }
-  }
-
-  // Step 5: Filter events
+  // Step 4: Filter events
   let filtered = events;
   if (targetAgentId) {
     filtered = filtered.filter((e) => e.agent_id === targetAgentId);
@@ -127,7 +216,7 @@ export default async function (ctx) {
     filtered = filtered.filter((e) => kinds.includes(e.kind));
   }
 
-  // Step 6: Build structured summary
+  // Step 5: Build structured summary
   const kindCounts: Record<string, number> = {};
   const toolUsage: Record<string, number> = {};
   const filesAccessed: string[] = [];
@@ -278,7 +367,7 @@ export default async function (ctx) {
 
   const summary = {
     session: {
-      log_file: latestLogPath,
+      log_file: logFilePath,
       total_events: events.length,
       filtered_events: filtered.length,
       target_agent_id: targetAgentId || "all",

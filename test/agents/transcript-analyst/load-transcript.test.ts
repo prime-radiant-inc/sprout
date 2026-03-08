@@ -266,8 +266,9 @@ describe("load-transcript tool", () => {
         { handle_id: "handle-123" },
         {
           glob: async () => ["session.jsonl"],
-          read_file: async () =>
-            makeLog(
+          read_file: async (path: string) => {
+            if (path.includes("handle-123")) throw new Error("not found");
+            return makeLog(
               makeEvent("act_start", "parent", {
                 handle_id: "handle-123",
                 child_id: "child-agent-456",
@@ -277,7 +278,8 @@ describe("load-transcript tool", () => {
               makeEvent("plan_end", "child-agent-456", { turn: 1, text: "working" }),
               makeEvent("plan_end", "parent", { turn: 1, text: "delegating" }),
               makeEvent("plan_end", "child-agent-456", { turn: 2, text: "done" }),
-            ),
+            );
+          },
         },
       );
 
@@ -317,10 +319,12 @@ describe("load-transcript tool", () => {
         { handle_id: "nonexistent-handle" },
         {
           glob: async () => ["session.jsonl"],
-          read_file: async () =>
-            makeLog(
+          read_file: async (path: string) => {
+            if (path.includes("nonexistent-handle")) throw new Error("not found");
+            return makeLog(
               makeEvent("session_start", "agent-A", {}, 1000),
-            ),
+            );
+          },
         },
       );
 
