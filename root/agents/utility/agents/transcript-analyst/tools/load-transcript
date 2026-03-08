@@ -73,7 +73,10 @@ export default async function (ctx) {
   for (const line of raw.split("\n")) {
     if (!line.trim()) continue;
     try {
-      events.push(JSON.parse(line));
+      // ctx.env.read_file() returns line-numbered output (e.g. "1\t{...}")
+      // Strip the line number prefix before parsing JSON
+      const jsonPart = line.includes("\t") ? line.substring(line.indexOf("\t") + 1) : line;
+      events.push(JSON.parse(jsonPart));
     } catch {
       // Skip malformed lines
     }
