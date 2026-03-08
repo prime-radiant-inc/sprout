@@ -647,4 +647,211 @@ describe("load-transcript tool", () => {
       expect(globPattern).toBe("*.jsonl");
     });
   });
+
+  // ── Group 12: Overview mode ──────────────────────────────────────────────
+
+  describe("overview mode", () => {
+    test("overview mode: returns per-agent summary when no args given", async () => {
+      const ctx = makeCtx(
+        {},
+        {
+          glob: async () => ["session.jsonl"],
+          read_file: async () =>
+            makeLog(
+              makeEvent("session_start", "root-agent", {}, 1000),
+              makeEvent("plan_end", "root-agent", { turn: 1, text: "delegating" }, 1500),
+              makeEvent("act_start", "root-agent", {
+                agent_name: "reader",
+                goal: "read files",
+                handle_id: "h-1",
+                child_id: "child-001",
+                blocking: true,
+              }, 2000),
+              makeEvent("act_end", "root-agent", {
+                child_id: "child-001",
+                agent_name: "reader",
+                success: true,
+                turns: 5,
+                timed_out: false,
+              }, 3000),
+              makeEvent("act_start", "root-agent", {
+                agent_name: "editor",
+                goal: "edit code",
+                handle_id: "h-2",
+                child_id: "child-002",
+                blocking: true,
+              }, 3500),
+              makeEvent("act_end", "root-agent", {
+                child_id: "child-002",
+                agent_name: "editor",
+                success: true,
+                turns: 3,
+                timed_out: false,
+              }, 5000),
+              makeEvent("plan_end", "root-agent", { turn: 2, text: "done" }, 5500),
+              makeEvent("primitive_start", "root-agent", { name: "read_file", args: { path: "/a" } }, 5600),
+              makeEvent("primitive_end", "root-agent", { name: "read_file" }, 5700),
+              makeEvent("session_end", "root-agent", {}, 6000),
+            ),
+        },
+      );
+
+      const result = await loadTranscript(ctx);
+
+      expect(result.success).toBe(true);
+      const overview = JSON.parse(result.output);
+
+      // Check mode
+      expect(overview.mode).toBe("overview");
+
+      // Check session info
+      expect(overview.session.log_file).toContain("session.jsonl");
+      expect(overview.session.duration_ms).toBe(5000);
+      expect(overview.session.total_events).toBe(10);
+
+      // Check root stats
+      expect(overview.root.turns).toBe(2);
+      expect(overview.root.tool_calls).toBe(1);
+      expect(overview.root.duration_ms).toBe(5000);
+
+      // Check agents array
+      expect(overview.agents).toHaveLength(2);
+      expect(overview.agents[0].agent_name).toBe("reader");
+      expect(overview.agents[0].child_id).toBe("child-001");
+      expect(overview.agents[0].goal).toBe("read files");
+      expect(overview.agents[0].success).toBe(true);
+      expect(overview.agents[0].turns).toBe(5);
+      expect(overview.agents[0].duration_ms).toBe(1000);
+      expect(overview.agents[0].timed_out).toBe(false);
+
+      expect(overview.agents[1].agent_name).toBe("editor");
+      expect(overview.agents[1].child_id).toBe("child-002");
+      expect(overview.agents[1].goal).toBe("edit code");
+      expect(overview.agents[1].success).toBe(true);
+      expect(overview.agents[1].turns).toBe(3);
+      expect(overview.agents[1].duration_ms).toBe(1500);
+      expect(overview.agents[1].timed_out).toBe(false);
+
+      // Check delegation count
+      expect(overview.delegation_count).toBe(2);
+
+      // Check event_kind_counts
+      expect(overview.event_kind_counts.session_start).toBe(1);
+      expect(overview.event_kind_counts.plan_end).toBe(2);
+      expect(overview.event_kind_counts.act_start).toBe(2);
+      expect(overview.event_kind_counts.act_end).toBe(2);
+      expect(overview.event_kind_counts.session_end).toBe(1);
+      expect(overview.event_kind_counts.primitive_start).toBe(1);
+      expect(overview.event_kind_counts.primitive_end).toBe(1);
+    });
+
+    test("overview mode: handles in-progress delegation (no act_end)", async () => {
+      const ctx = makeCtx(
+        {},
+        {
+          glob: async () => ["session.jsonl"],
+          read_file: async () =>
+            makeLog(
+              makeEvent("session_start", "root-agent", {}, 1000),
+              makeEvent("act_start", "root-agent", {
+                agent_name: "reader",
+                goal: "read files",
+                handle_id: "h-1",
+                child_id: "child-001",
+                blocking: true,
+              }, 2000),
+              makeEvent("plan_end", "root-agent", { turn: 1, text: "waiting" }, 2500),
+            ),
+        },
+      );
+
+      const result = await loadTranscript(ctx);
+
+      expect(result.success).toBe(true);
+      const overview = JSON.parse(result.output);
+
+      expect(overview.mode).toBe("overview");
+      expect(overview.agents).toHaveLength(1);
+      expect(overview.agents[0].agent_name).toBe("reader");
+      expect(overview.agents[0].child_id).toBe("child-001");
+      expect(overview.agents[0].goal).toBe("read files");
+      expect(overview.agents[0].success).toBeNull();
+      expect(overview.agents[0].duration_ms).toBeNull();
+      expect(overview.agents[0].turns).toBeNull();
+      expect(overview.agents[0].timed_out).toBeNull();
+    });
+
+    test("overview mode: not triggered when kinds filter is set", async () => {
+      const ctx = makeCtx(
+        { kinds: ["session_start", "session_end"] },
+        {
+          glob: async () => ["session.jsonl"],
+          read_file: async () =>
+            makeLog(
+              makeEvent("session_start", "root-agent", {}, 1000),
+              makeEvent("act_start", "root-agent", {
+                agent_name: "reader",
+                goal: "read files",
+                handle_id: "h-1",
+                child_id: "child-001",
+                blocking: true,
+              }, 2000),
+              makeEvent("session_end", "root-agent", {}, 3000),
+            ),
+        },
+      );
+
+      const result = await loadTranscript(ctx);
+
+      expect(result.success).toBe(true);
+      const summary = JSON.parse(result.output);
+
+      expect(summary.mode).toBeUndefined();
+      expect(summary.session).toBeDefined();
+      expect(summary.turns).toBeDefined();
+      expect(summary.tools).toBeDefined();
+      expect(summary.delegations).toBeDefined();
+      expect(summary.diagnostics).toBeDefined();
+    });
+
+    test("overview mode: not triggered when agent_id filter is set", async () => {
+      const ctx = makeCtx(
+        { agent_id: "root-agent" },
+        {
+          glob: async () => ["session.jsonl"],
+          read_file: async () =>
+            makeLog(
+              makeEvent("session_start", "root-agent", {}, 1000),
+              makeEvent("act_start", "root-agent", {
+                agent_name: "reader",
+                goal: "read files",
+                handle_id: "h-1",
+                child_id: "child-001",
+                blocking: true,
+              }, 2000),
+              makeEvent("act_end", "root-agent", {
+                child_id: "child-001",
+                agent_name: "reader",
+                success: true,
+                turns: 3,
+                timed_out: false,
+              }, 3000),
+              makeEvent("session_end", "root-agent", {}, 4000),
+            ),
+        },
+      );
+
+      const result = await loadTranscript(ctx);
+
+      expect(result.success).toBe(true);
+      const summary = JSON.parse(result.output);
+
+      expect(summary.mode).toBeUndefined();
+      expect(summary.session).toBeDefined();
+      expect(summary.turns).toBeDefined();
+      expect(summary.tools).toBeDefined();
+      expect(summary.delegations).toBeDefined();
+      expect(summary.diagnostics).toBeDefined();
+    });
+  });
 });

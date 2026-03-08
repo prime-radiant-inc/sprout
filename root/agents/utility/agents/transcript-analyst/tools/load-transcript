@@ -226,7 +226,15 @@ export default async function (ctx) {
     handle_id: string;
     child_id?: string;
     blocking?: boolean;
+    timestamp: number;
   }> = [];
+  const actEnds = new Map<string, {
+    timestamp: number;
+    success: boolean;
+    turns: number;
+    timed_out: boolean;
+    agent_name: string;
+  }>();
   const warnings: Array<{ timestamp: number; data: Record<string, unknown> }> = [];
   const errors: Array<{ timestamp: number; data: Record<string, unknown> }> = [];
   const planSteps: Array<{
@@ -317,9 +325,24 @@ export default async function (ctx) {
           handle_id: (event.data.handle_id as string) || "",
           child_id: event.data.child_id as string | undefined,
           blocking: event.data.blocking as boolean | undefined,
+          timestamp: event.timestamp,
         });
         break;
 
+
+      case "act_end": {
+        const childId = event.data.child_id as string | undefined;
+        if (childId) {
+          actEnds.set(childId, {
+            timestamp: event.timestamp,
+            success: event.data.success as boolean,
+            turns: event.data.turns as number,
+            timed_out: event.data.timed_out as boolean,
+            agent_name: (event.data.agent_name as string) || "unknown",
+          });
+        }
+        break;
+      }
       case "warning":
         warnings.push({ timestamp: event.timestamp, data: event.data });
         break;
@@ -361,6 +384,58 @@ export default async function (ctx) {
       tools: [...currentGroup],
       count: currentGroup.length,
     });
+  }
+
+  // Overview mode: when no agent/handle filter and no kinds filter, and delegations exist
+  if (!targetAgentId && (!kinds || kinds.length === 0) && delegations.length > 0) {
+    const firstTimestamp = events.length > 0 ? events[0].timestamp : undefined;
+    const lastTimestamp = events.length > 0 ? events[events.length - 1].timestamp : undefined;
+    const sessionDurationMs =
+      firstTimestamp !== undefined && lastTimestamp !== undefined
+        ? lastTimestamp - firstTimestamp
+        : undefined;
+
+    const agents = delegations.map((d) => {
+      const actEnd = d.child_id ? actEnds.get(d.child_id) : undefined;
+      const startTs = d.timestamp;
+      const endTs = actEnd?.timestamp;
+      const durationMs =
+        startTs !== undefined && endTs !== undefined ? endTs - startTs : null;
+
+      return {
+        agent_name: d.agent_name,
+        child_id: d.child_id || null,
+        goal: d.goal,
+        success: actEnd ? actEnd.success : null,
+        turns: actEnd ? actEnd.turns : null,
+        timed_out: actEnd ? actEnd.timed_out : null,
+        duration_ms: durationMs,
+      };
+    });
+
+    const overview = {
+      mode: "overview" as const,
+      session: {
+        log_file: logFilePath,
+        duration_ms: sessionDurationMs,
+        total_events: events.length,
+      },
+      root: {
+        turns: maxTurn,
+        tool_calls: Object.values(toolUsage).reduce((a, b) => a + b, 0),
+        stumbles: kindCounts["warning"] || 0,
+        duration_ms: sessionDurationMs,
+      },
+      agents,
+      delegations,
+      delegation_count: agents.length,
+      event_kind_counts: kindCounts,
+    };
+
+    return {
+      output: JSON.stringify(overview, null, 2),
+      success: true,
+    };
   }
 
   const totalDurationMs =
