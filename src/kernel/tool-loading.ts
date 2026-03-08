@@ -36,8 +36,8 @@ async function executeInternalTool(
 	const fileContent = await readFile(tool.scriptPath, "utf-8");
 	const script = extractScriptBody(fileContent);
 
-	// Write to a temp .mjs file for dynamic import (random suffix avoids collisions)
-	const tempPath = `${tool.scriptPath}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.mjs`;
+	// Write to a temp .ts file for dynamic import (random suffix avoids collisions)
+	const tempPath = `${tool.scriptPath}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.ts`;
 	await writeFile(tempPath, script);
 	try {
 		const mod = await import(tempPath);
