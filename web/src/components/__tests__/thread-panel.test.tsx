@@ -41,6 +41,7 @@ function renderPanel(tree: AgentTreeNode, agentId = "child-1"): string {
 			agentId={agentId}
 			tree={tree}
 			events={[]}
+			agentStats={new Map()}
 			onClose={() => {}}
 			onSelectAgent={() => {}}
 		/>,
@@ -107,6 +108,7 @@ function renderPanelWithEvents(
 			agentId={agentId}
 			tree={tree}
 			events={events}
+			agentStats={new Map()}
 			onClose={() => {}}
 			onSelectAgent={() => {}}
 		/>,

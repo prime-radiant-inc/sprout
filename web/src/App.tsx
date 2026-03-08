@@ -294,6 +294,7 @@ export function App() {
 								agentId={agentId}
 								tree={tree}
 								events={events}
+								agentStats={agentStats}
 								onClose={() => closePanel(agentId)}
 								onSelectAgent={openPanel}
 							/>

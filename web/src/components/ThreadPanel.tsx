@@ -5,6 +5,8 @@ import { formatCompactNumber, useTokenUsage } from "../hooks/useTokenUsage.ts";
 import { ConversationView } from "./ConversationView.tsx";
 import styles from "./ThreadPanel.module.css";
 import { pressureColor } from "../utils/pressureColor.ts";
+import type { AgentStats } from "../hooks/useAgentStats.ts";
+import { computeCost, formatCost } from "../utils/pricing.ts";
 
 const statusIcons: Record<AgentTreeNode["status"], string> = {
 	completed: "\u2713",
@@ -22,11 +24,12 @@ interface ThreadPanelProps {
 	agentId: string;
 	tree: AgentTreeNode;
 	events: SessionEvent[];
+	agentStats: Map<string, AgentStats>;
 	onClose: () => void;
 	onSelectAgent: (agentId: string) => void;
 }
 
-export function ThreadPanel({ agentId, tree, events, onClose, onSelectAgent }: ThreadPanelProps) {
+export function ThreadPanel({ agentId, tree, events, agentStats, onClose, onSelectAgent }: ThreadPanelProps) {
 	const node = findNode(tree, agentId);
 	const agentName = node?.agentName ?? agentId;
 	const description = node?.description ?? "";
@@ -34,6 +37,10 @@ export function ThreadPanel({ agentId, tree, events, onClose, onSelectAgent }: T
 	const tokenUsage = useTokenUsage(events, tree, agentId);
 	const contextPressure = tokenUsage?.contextTokens != null && tokenUsage?.contextWindowSize
 		? Math.round((tokenUsage.contextTokens / tokenUsage.contextWindowSize) * 100)
+		: null;
+	const stats = agentStats.get(agentId);
+	const cost = stats?.model && tokenUsage
+		? computeCost(stats.model, tokenUsage.inputTokens, tokenUsage.outputTokens)
 		: null;
 	return (
 		<div className={styles.panel} data-region="thread-panel">
@@ -46,6 +53,7 @@ export function ThreadPanel({ agentId, tree, events, onClose, onSelectAgent }: T
 							</span>
 						)}
 						<span className={styles.agentName}>{agentName}</span>
+						<span className={styles.agentId}>{agentId}</span>
 						{tokenUsage && (
 							<div className={styles.headerStats} data-testid="header-stats">
 								{contextPressure !== null && (
@@ -65,6 +73,12 @@ export function ThreadPanel({ agentId, tree, events, onClose, onSelectAgent }: T
 								<span className={styles.tokenUsage} data-testid="token-usage">
 									{formatCompactNumber(tokenUsage.inputTokens)} in / {formatCompactNumber(tokenUsage.outputTokens)} out
 								</span>
+								{cost != null && (
+									<span className={styles.cost} data-testid="cost">{formatCost(cost)}</span>
+								)}
+								{stats?.model && (
+									<span className={styles.modelName} data-testid="model-name">{stats.model}</span>
+								)}
 							</div>
 						)}
 					</div>

@@ -1225,6 +1225,7 @@ describe("ThreadPanel", () => {
 				agentId="CID1"
 				tree={tree}
 				events={[]}
+				agentStats={new Map()}
 				onClose={() => {}}
 				onSelectAgent={() => {}}
 			/>,
@@ -1243,6 +1244,7 @@ describe("ThreadPanel", () => {
 				agentId="unknown"
 				tree={tree}
 				events={[]}
+				agentStats={new Map()}
 				onClose={() => {}}
 				onSelectAgent={() => {}}
 			/>,
@@ -1259,6 +1261,7 @@ describe("ThreadPanel", () => {
 				agentId="missing-agent"
 				tree={tree}
 				events={[]}
+				agentStats={new Map()}
 				onClose={() => {}}
 				onSelectAgent={() => {}}
 			/>,
