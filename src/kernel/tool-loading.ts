@@ -30,9 +30,9 @@ function parseJsonArgs(raw: string): Record<string, unknown> {
 
 /** Extract the error line number from a stack trace referencing tempPath. */
 export function extractLineFromStack(err: unknown, tempPath: string): number | null {
-	const stack = (err instanceof Error) ? err.stack : String(err);
+	const stack = err instanceof Error ? err.stack : String(err);
 	if (!stack) return null;
-	const escaped = tempPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+	const escaped = tempPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 	const match = stack.match(new RegExp(`${escaped}:(\\d+)`));
 	return match?.[1] != null ? parseInt(match[1], 10) : null;
 }
@@ -52,7 +52,12 @@ export function getSourceContext(lines: string[], lineNum: number, contextSize =
 }
 
 /** Format an import-time error with tool name, message, and optional source context. */
-export function formatImportError(toolName: string, err: unknown, scriptLines: string[], tempPath: string): string {
+export function formatImportError(
+	toolName: string,
+	err: unknown,
+	scriptLines: string[],
+	tempPath: string,
+): string {
 	const message = err instanceof Error ? err.message : String(err);
 	const line = extractLineFromStack(err, tempPath);
 	const parts = [`Tool '${toolName}' failed to load: ${message}`];
@@ -63,9 +68,14 @@ export function formatImportError(toolName: string, err: unknown, scriptLines: s
 }
 
 /** Format a runtime error with tool name and stack trace cleaned of temp paths. */
-export function formatRuntimeError(toolName: string, err: unknown, tempPath: string, originalPath: string): string {
+export function formatRuntimeError(
+	toolName: string,
+	err: unknown,
+	tempPath: string,
+	originalPath: string,
+): string {
 	const message = err instanceof Error ? err.message : String(err);
-	const stack = (err instanceof Error) ? err.stack : undefined;
+	const stack = err instanceof Error ? err.stack : undefined;
 	const parts = [`Tool '${toolName}' threw an error: ${message}`];
 	if (stack) {
 		const cleaned = stack.replaceAll(tempPath, originalPath);
