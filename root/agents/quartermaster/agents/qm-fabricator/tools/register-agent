@@ -1,0 +1,98 @@
+---
+name: register-agent
+description: "Register a new agent spec into the genome using the proper Genome API. Pass the full agent spec as YAML-fronted markdown in the 'spec' argument."
+interpreter: sprout-internal
+---
+export default async function(ctx) {
+  const specContent = ctx.args.spec;
+  if (!specContent) {
+    return { output: "", success: false, error: "Missing 'spec' argument. Pass the full YAML-fronted markdown agent spec as a string." };
+  }
+
+  // Use the genome's proper addAgent API which handles validation, writing, and git commit
+  // We need to parse the markdown into an AgentSpec first
+  const fmMatch = specContent.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+  if (!fmMatch) {
+    return { output: "", success: false, error: "Invalid spec format. Must have YAML frontmatter between --- delimiters." };
+  }
+
+  const yamlStr = fmMatch[1];
+  const body = fmMatch[2].trim();
+
+  // Parse YAML fields manually (lightweight, no external deps)
+  function parseYamlValue(yaml, key) {
+    const match = yaml.match(new RegExp(`^${key}:\\s*(.+)$`, "m"));
+    return match ? match[1].trim().replace(/^["']|["']$/g, "") : undefined;
+  }
+
+  function parseYamlList(yaml, key) {
+    const lines = yaml.split("\n");
+    const items = [];
+    let collecting = false;
+    for (const line of lines) {
+      if (line.match(new RegExp(`^${key}:`))) {
+        if (line.match(new RegExp(`^${key}:\\s*\\[\\]`))) return [];
+        collecting = true;
+        continue;
+      }
+      if (collecting) {
+        const itemMatch = line.match(/^\s+-\s+(.+)/);
+        if (itemMatch) {
+          items.push(itemMatch[1].trim().replace(/^["']|["']$/g, ""));
+        } else {
+          break;
+        }
+      }
+    }
+    return items;
+  }
+
+  const name = parseYamlValue(yamlStr, "name");
+  const description = parseYamlValue(yamlStr, "description");
+  const model = parseYamlValue(yamlStr, "model");
+
+  if (!name || !description || !model) {
+    return { output: "", success: false, error: `Missing required fields. Got name=${name}, description=${description}, model=${model}` };
+  }
+
+  const spec = {
+    name,
+    description,
+    model,
+    system_prompt: body,
+    tools: parseYamlList(yamlStr, "tools"),
+    agents: parseYamlList(yamlStr, "agents"),
+    tags: parseYamlList(yamlStr, "tags"),
+    version: parseInt(parseYamlValue(yamlStr, "version") || "1", 10),
+    constraints: {
+      max_turns: parseInt(parseYamlValue(yamlStr, "max_turns") || "50", 10),
+      can_spawn: parseYamlValue(yamlStr, "can_spawn") === "true",
+      can_learn: parseYamlValue(yamlStr, "can_learn") === "true",
+      timeout_ms: parseInt(parseYamlValue(yamlStr, "timeout_ms") || "300000", 10),
+    },
+  };
+
+  // Parse constraints from nested YAML
+  const constraintsMatch = yamlStr.match(/constraints:\n((?:\s+.+\n)*)/);
+  if (constraintsMatch) {
+    const cBlock = constraintsMatch[1];
+    const mt = cBlock.match(/max_turns:\s*(\d+)/);
+    const cs = cBlock.match(/can_spawn:\s*(true|false)/);
+    const cl = cBlock.match(/can_learn:\s*(true|false)/);
+    const tm = cBlock.match(/timeout_ms:\s*(\d+)/);
+    if (mt) spec.constraints.max_turns = parseInt(mt[1], 10);
+    if (cs) spec.constraints.can_spawn = cs[1] === "true";
+    if (cl) spec.constraints.can_learn = cl[1] === "true";
+    if (tm) spec.constraints.timeout_ms = parseInt(tm[1], 10);
+  }
+
+  try {
+    await ctx.genome.addAgent(spec);
+    return {
+      output: `Agent '${name}' registered successfully via genome.addAgent(). It is available for delegation immediately.`,
+      success: true,
+    };
+  } catch (err) {
+    return { output: "", success: false, error: `genome.addAgent failed: ${err}` };
+  }
+}
