@@ -19,20 +19,8 @@ export default async function (ctx) {
   // Slugify the working directory path (replace / and spaces with -)
   const slug = cwd.replace(/[\s/]/g, "-");
 
-  // Find the genome directory by globbing for the standard location
-  const genomeCandidates = await ctx.env.glob(
-    ".local/share/sprout-genome",
-    process.env.HOME || "~",
-  );
-
-  let genomePath: string;
-  if (genomeCandidates.length > 0) {
-    genomePath = genomeCandidates[0];
-  } else {
-    // Fallback: try the standard path directly
-    const home = process.env.HOME || process.env.USERPROFILE || "~";
-    genomePath = `${home}/.local/share/sprout-genome`;
-  }
+  const home = process.env.HOME || process.env.USERPROFILE || "~";
+  const genomePath = `${home}/.local/share/sprout-genome`;
 
   const projectDataDir = `${genomePath}/projects/${slug}`;
   const logsDir = `${projectDataDir}/logs`;
@@ -60,16 +48,17 @@ export default async function (ctx) {
   // Pick the most recent session log (lexicographic sort of ULIDs = chronological)
   logFiles.sort();
   const latestLog = logFiles[logFiles.length - 1];
+  const latestLogPath = `${logsDir}/${latestLog}`;
 
   // Step 3: Read and parse the JSONL
   let raw: string;
   try {
-    raw = await ctx.env.read_file(latestLog);
+    raw = await ctx.env.read_file(latestLogPath);
   } catch (err) {
     return {
-      output: JSON.stringify({ error: "Failed to read log file", path: latestLog }),
+      output: JSON.stringify({ error: "Failed to read log file", path: latestLogPath }),
       success: false,
-      error: `Failed to read ${latestLog}`,
+      error: `Failed to read ${latestLogPath}`,
     };
   }
 
@@ -92,7 +81,7 @@ export default async function (ctx) {
 
   if (events.length === 0) {
     return {
-      output: JSON.stringify({ error: "No events found in log", path: latestLog }),
+      output: JSON.stringify({ error: "No events found in log", path: latestLogPath }),
       success: false,
       error: "Log file contained no valid events",
     };
@@ -286,7 +275,7 @@ export default async function (ctx) {
 
   const summary = {
     session: {
-      log_file: latestLog,
+      log_file: latestLogPath,
       total_events: events.length,
       filtered_events: filtered.length,
       target_agent_id: targetAgentId || "all",
