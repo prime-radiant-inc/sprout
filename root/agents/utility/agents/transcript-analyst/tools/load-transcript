@@ -386,6 +386,89 @@ export default async function (ctx) {
     });
   }
 
+  // Build delegation tree by reading child logs recursively
+  async function buildSubtree(
+    baseDir: string,
+    parentDelegations: typeof delegations,
+    parentActEnds: typeof actEnds,
+    depth: number,
+  ): Promise<Array<{
+    agent_name: string;
+    handle_id: string;
+    child_id: string;
+    success: boolean | undefined;
+    turns: number | undefined;
+    duration_ms: number | undefined;
+    children: any[];
+  }>> {
+    if (depth > 5) return parentDelegations.map(d => ({
+      agent_name: d.agent_name,
+      handle_id: d.handle_id,
+      child_id: d.child_id || "",
+      success: undefined,
+      turns: undefined,
+      duration_ms: undefined,
+      children: [],
+    }));
+
+    const nodes = [];
+    for (const d of parentDelegations) {
+      const childLogPath = `${baseDir}/${d.handle_id}.jsonl`;
+      let childDelegations: typeof delegations = [];
+      let childActEnds: typeof actEnds = new Map();
+      try {
+        const childRaw = await ctx.env.read_file(childLogPath);
+        for (const line of childRaw.split("\n")) {
+          if (!line.trim()) continue;
+          try {
+            const jsonPart = line.includes("\t") ? line.substring(line.indexOf("\t") + 1) : line;
+            const event = JSON.parse(jsonPart);
+            if (event.kind === "act_start") {
+              childDelegations.push({
+                agent_name: (event.data?.agent_name as string) || "unknown",
+                handle_id: (event.data?.handle_id as string) || "",
+                child_id: event.data?.child_id as string | undefined,
+                goal: (event.data?.goal as string) || "",
+                blocking: event.data?.blocking as boolean | undefined,
+                timestamp: event.timestamp,
+              });
+            } else if (event.kind === "act_end") {
+              const childId = event.data?.child_id as string | undefined;
+              if (childId) {
+                childActEnds.set(childId, {
+                  timestamp: event.timestamp,
+                  success: event.data.success as boolean,
+                  turns: event.data.turns as number,
+                  timed_out: event.data.timed_out as boolean,
+                  agent_name: (event.data.agent_name as string) || "unknown",
+                });
+              }
+            }
+          } catch {}
+        }
+      } catch {
+        // Child log not found — no sub-delegations
+      }
+
+      const end = d.child_id ? parentActEnds.get(d.child_id) : undefined;
+      const childBaseDir = `${baseDir}/${d.handle_id}`;
+      const children = childDelegations.length > 0
+        ? await buildSubtree(childBaseDir, childDelegations, childActEnds, depth + 1)
+        : [];
+
+      nodes.push({
+        agent_name: d.agent_name,
+        handle_id: d.handle_id,
+        child_id: d.child_id || "",
+        success: end?.success,
+        turns: end?.turns,
+        duration_ms: end ? end.timestamp - d.timestamp : undefined,
+        children,
+      });
+    }
+    return nodes;
+  }
+
   // Overview mode: when no agent/handle filter and no kinds filter, and delegations exist
   if (!targetAgentId && (!kinds || kinds.length === 0) && delegations.length > 0) {
     const firstTimestamp = events.length > 0 ? events[0].timestamp : undefined;
@@ -430,6 +513,7 @@ export default async function (ctx) {
       delegations,
       delegation_count: agents.length,
       event_kind_counts: kindCounts,
+      delegation_tree: await buildSubtree(childLogsDir, delegations, actEnds, 0),
     };
 
     return {

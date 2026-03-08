@@ -939,5 +939,270 @@ describe("load-transcript tool", () => {
 			expect(summary.delegations).toBeDefined();
 			expect(summary.diagnostics).toBeDefined();
 		});
+
+		test("delegation tree: flat delegations with no sub-delegations", async () => {
+			const rootLog = makeLog(
+				makeEvent("session_start", "root-agent", {}, 1000),
+				makeEvent(
+					"act_start",
+					"root-agent",
+					{
+						agent_name: "reader",
+						goal: "read files",
+						handle_id: "h-1",
+						child_id: "child-001",
+						blocking: true,
+					},
+					2000,
+				),
+				makeEvent(
+					"act_end",
+					"root-agent",
+					{
+						child_id: "child-001",
+						agent_name: "reader",
+						success: true,
+						turns: 5,
+						timed_out: false,
+					},
+					3000,
+				),
+				makeEvent(
+					"act_start",
+					"root-agent",
+					{
+						agent_name: "editor",
+						goal: "edit code",
+						handle_id: "h-2",
+						child_id: "child-002",
+						blocking: true,
+					},
+					3500,
+				),
+				makeEvent(
+					"act_end",
+					"root-agent",
+					{
+						child_id: "child-002",
+						agent_name: "editor",
+						success: true,
+						turns: 3,
+						timed_out: false,
+					},
+					5000,
+				),
+				makeEvent("session_end", "root-agent", {}, 6000),
+			);
+
+			// Child logs exist but have no sub-delegations
+			const childLogA = makeLog(
+				makeEvent("plan_end", "child-001", { turn: 1, text: "reading" }, 2100),
+				makeEvent("session_end", "child-001", {}, 2900),
+			);
+			const childLogB = makeLog(
+				makeEvent("plan_end", "child-002", { turn: 1, text: "editing" }, 3600),
+				makeEvent("session_end", "child-002", {}, 4900),
+			);
+
+			const ctx = makeCtx(
+				{},
+				{
+					glob: async () => ["session.jsonl"],
+					read_file: async (path: string) => {
+						if (path.endsWith("session.jsonl")) return rootLog;
+						if (path.endsWith("h-1.jsonl")) return childLogA;
+						if (path.endsWith("h-2.jsonl")) return childLogB;
+						throw new Error(`File not found: ${path}`);
+					},
+				},
+			);
+
+			const result = await loadTranscript(ctx);
+			expect(result.success).toBe(true);
+			const overview = JSON.parse(result.output);
+
+			expect(overview.delegation_tree).toBeDefined();
+			expect(overview.delegation_tree).toHaveLength(2);
+
+			expect(overview.delegation_tree[0].agent_name).toBe("reader");
+			expect(overview.delegation_tree[0].handle_id).toBe("h-1");
+			expect(overview.delegation_tree[0].child_id).toBe("child-001");
+			expect(overview.delegation_tree[0].success).toBe(true);
+			expect(overview.delegation_tree[0].turns).toBe(5);
+			expect(overview.delegation_tree[0].duration_ms).toBe(1000);
+			expect(overview.delegation_tree[0].children).toEqual([]);
+
+			expect(overview.delegation_tree[1].agent_name).toBe("editor");
+			expect(overview.delegation_tree[1].handle_id).toBe("h-2");
+			expect(overview.delegation_tree[1].child_id).toBe("child-002");
+			expect(overview.delegation_tree[1].success).toBe(true);
+			expect(overview.delegation_tree[1].turns).toBe(3);
+			expect(overview.delegation_tree[1].duration_ms).toBe(1500);
+			expect(overview.delegation_tree[1].children).toEqual([]);
+		});
+
+		test("delegation tree: nested (root→A→B)", async () => {
+			const rootLog = makeLog(
+				makeEvent("session_start", "root-agent", {}, 1000),
+				makeEvent(
+					"act_start",
+					"root-agent",
+					{
+						agent_name: "orchestrator",
+						goal: "coordinate work",
+						handle_id: "h-orch",
+						child_id: "child-orch",
+						blocking: true,
+					},
+					2000,
+				),
+				makeEvent(
+					"act_end",
+					"root-agent",
+					{
+						child_id: "child-orch",
+						agent_name: "orchestrator",
+						success: true,
+						turns: 4,
+						timed_out: false,
+					},
+					8000,
+				),
+				makeEvent("session_end", "root-agent", {}, 9000),
+			);
+
+			// Orchestrator's log has a sub-delegation to worker
+			const orchLog = makeLog(
+				makeEvent("plan_end", "child-orch", { turn: 1, text: "delegating" }, 2100),
+				makeEvent(
+					"act_start",
+					"child-orch",
+					{
+						agent_name: "worker",
+						goal: "do the work",
+						handle_id: "h-worker",
+						child_id: "child-worker",
+						blocking: true,
+					},
+					3000,
+				),
+				makeEvent(
+					"act_end",
+					"child-orch",
+					{
+						child_id: "child-worker",
+						agent_name: "worker",
+						success: true,
+						turns: 2,
+						timed_out: false,
+					},
+					6000,
+				),
+				makeEvent("session_end", "child-orch", {}, 7500),
+			);
+
+			// Worker's log (no further delegations)
+			const workerLog = makeLog(
+				makeEvent("plan_end", "child-worker", { turn: 1, text: "working" }, 3100),
+				makeEvent("session_end", "child-worker", {}, 5900),
+			);
+
+			const ctx = makeCtx(
+				{},
+				{
+					glob: async () => ["session.jsonl"],
+					read_file: async (path: string) => {
+						if (path.endsWith("session.jsonl")) return rootLog;
+						if (path.endsWith("h-orch.jsonl")) return orchLog;
+						if (path.endsWith("h-worker.jsonl")) return workerLog;
+						throw new Error(`File not found: ${path}`);
+					},
+				},
+			);
+
+			const result = await loadTranscript(ctx);
+			expect(result.success).toBe(true);
+			const overview = JSON.parse(result.output);
+
+			expect(overview.delegation_tree).toBeDefined();
+			expect(overview.delegation_tree).toHaveLength(1);
+
+			// Root → orchestrator
+			const orchNode = overview.delegation_tree[0];
+			expect(orchNode.agent_name).toBe("orchestrator");
+			expect(orchNode.handle_id).toBe("h-orch");
+			expect(orchNode.child_id).toBe("child-orch");
+			expect(orchNode.success).toBe(true);
+			expect(orchNode.turns).toBe(4);
+			expect(orchNode.duration_ms).toBe(6000);
+			expect(orchNode.children).toHaveLength(1);
+
+			// Orchestrator → worker
+			const workerNode = orchNode.children[0];
+			expect(workerNode.agent_name).toBe("worker");
+			expect(workerNode.handle_id).toBe("h-worker");
+			expect(workerNode.child_id).toBe("child-worker");
+			expect(workerNode.success).toBe(true);
+			expect(workerNode.turns).toBe(2);
+			expect(workerNode.duration_ms).toBe(3000);
+			expect(workerNode.children).toEqual([]);
+		});
+
+		test("delegation tree: graceful when child log missing", async () => {
+			const rootLog = makeLog(
+				makeEvent("session_start", "root-agent", {}, 1000),
+				makeEvent(
+					"act_start",
+					"root-agent",
+					{
+						agent_name: "reader",
+						goal: "read files",
+						handle_id: "h-missing",
+						child_id: "child-missing",
+						blocking: true,
+					},
+					2000,
+				),
+				makeEvent(
+					"act_end",
+					"root-agent",
+					{
+						child_id: "child-missing",
+						agent_name: "reader",
+						success: false,
+						turns: 1,
+						timed_out: true,
+					},
+					4000,
+				),
+				makeEvent("session_end", "root-agent", {}, 5000),
+			);
+
+			const ctx = makeCtx(
+				{},
+				{
+					glob: async () => ["session.jsonl"],
+					read_file: async (path: string) => {
+						if (path.endsWith("session.jsonl")) return rootLog;
+						throw new Error(`File not found: ${path}`);
+					},
+				},
+			);
+
+			const result = await loadTranscript(ctx);
+			expect(result.success).toBe(true);
+			const overview = JSON.parse(result.output);
+
+			expect(overview.delegation_tree).toBeDefined();
+			expect(overview.delegation_tree).toHaveLength(1);
+
+			expect(overview.delegation_tree[0].agent_name).toBe("reader");
+			expect(overview.delegation_tree[0].handle_id).toBe("h-missing");
+			expect(overview.delegation_tree[0].child_id).toBe("child-missing");
+			expect(overview.delegation_tree[0].success).toBe(false);
+			expect(overview.delegation_tree[0].turns).toBe(1);
+			expect(overview.delegation_tree[0].duration_ms).toBe(2000);
+			expect(overview.delegation_tree[0].children).toEqual([]);
+		});
 	});
 });
