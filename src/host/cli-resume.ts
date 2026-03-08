@@ -6,6 +6,7 @@ import type { SessionEvent } from "../kernel/types.ts";
 import type { Message } from "../llm/types.ts";
 import { replayEventLog } from "./resume.ts";
 import { listSessions } from "./session-metadata.ts";
+import { loadAllEventLogs } from "./session-state.ts";
 
 export interface ResumeCommand {
 	kind: "resume" | "resume-last";
@@ -32,6 +33,7 @@ interface ResumeDeps {
 	extractChildHandles: typeof extractChildHandles;
 	checkHandleCompleted: typeof checkHandleCompleted;
 	readHandleResult: typeof readHandleResult;
+	loadAllEventLogs: typeof loadAllEventLogs;
 }
 
 /**
@@ -55,6 +57,7 @@ export async function loadResumeState(
 		extractChildHandles: deps.extractChildHandles ?? extractChildHandles,
 		checkHandleCompleted: deps.checkHandleCompleted ?? checkHandleCompleted,
 		readHandleResult: deps.readHandleResult ?? readHandleResult,
+		loadAllEventLogs: deps.loadAllEventLogs ?? loadAllEventLogs,
 	};
 
 	let sessionId: string;
@@ -96,7 +99,8 @@ export async function loadResumeState(
 		);
 	}
 
-	const events = await d.loadEventLog(logPath);
+	const sessionLogDir = join(opts.projectDataDir, "logs", sessionId);
+	const events = await d.loadAllEventLogs(logPath, sessionLogDir);
 	return {
 		sessionId,
 		history,

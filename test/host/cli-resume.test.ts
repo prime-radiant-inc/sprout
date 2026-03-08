@@ -14,6 +14,7 @@ describe("loadResumeState", () => {
 				listSessions: async () => [],
 				replayEventLog: async () => [],
 				loadEventLog: async () => [],
+				loadAllEventLogs: async () => [],
 				extractChildHandles: async () => [],
 				checkHandleCompleted: async () => false,
 				readHandleResult: async () => null,
@@ -64,6 +65,15 @@ describe("loadResumeState", () => {
 								timed_out: false,
 							}
 						: null,
+				loadAllEventLogs: async () => [
+					{
+						kind: "perceive",
+						timestamp: 1,
+						agent_id: "root",
+						depth: 0,
+						data: { goal: "goal" },
+					},
+				],
 			},
 		);
 

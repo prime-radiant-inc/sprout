@@ -1,3 +1,7 @@
+import type { Dirent } from "node:fs";
+import { readdir } from "node:fs/promises";
+import { join } from "node:path";
+import { loadEventLog } from "../kernel/event-replay.ts";
 import type { SessionEvent } from "../kernel/types.ts";
 import type { Message } from "../llm/types.ts";
 import { Msg } from "../llm/types.ts";
@@ -76,4 +80,43 @@ export function clearSessionShadowState(sessionId: string): ClearedSessionShadow
 		hasRun: false,
 		suppressEvents: true,
 	};
+}
+
+/**
+ * Recursively collect all .jsonl event log files from a directory tree.
+ */
+async function collectChildLogs(dir: string): Promise<SessionEvent[]> {
+	let entries: Dirent[];
+	try {
+		entries = await readdir(dir, { withFileTypes: true });
+	} catch {
+		return [];
+	}
+	const allEvents: SessionEvent[] = [];
+	for (const entry of entries) {
+		const fullPath = join(dir, entry.name);
+		if (entry.isFile() && entry.name.endsWith(".jsonl")) {
+			const events = await loadEventLog(fullPath);
+			allEvents.push(...events);
+		} else if (entry.isDirectory()) {
+			const nested = await collectChildLogs(fullPath);
+			allEvents.push(...nested);
+		}
+	}
+	return allEvents;
+}
+
+/**
+ * Load all event logs for a session — root log plus all child/grandchild logs
+ * from the session directory. Returns events merged and sorted by timestamp.
+ */
+export async function loadAllEventLogs(
+	rootLogPath: string,
+	sessionLogDir: string,
+): Promise<SessionEvent[]> {
+	const rootEvents = await loadEventLog(rootLogPath);
+	const childEvents = await collectChildLogs(sessionLogDir);
+	const allEvents = [...rootEvents, ...childEvents];
+	allEvents.sort((a, b) => a.timestamp - b.timestamp);
+	return allEvents;
 }
