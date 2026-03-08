@@ -54,11 +54,17 @@ export class Genome {
 	private readonly rootAgents = new Map<string, AgentSpec>();
 	readonly memories: MemoryStore;
 	private routingRules: RoutingRule[] = [];
+	private _generation = 0;
+	private _knownAgentFiles: Set<string> = new Set();
 
 	constructor(rootPath: string, rootDir?: string) {
 		this.rootPath = rootPath;
 		this.rootDir = rootDir;
 		this.memories = new MemoryStore(join(rootPath, "memories", "memories.jsonl"));
+	}
+
+	get generation(): number {
+		return this._generation;
 	}
 
 	/** Initialize the genome directory with subdirectories and a git repo. */
@@ -155,6 +161,7 @@ export class Genome {
 		await git(this.rootPath, "add", mdPath);
 		await git(this.rootPath, "commit", "-m", `genome: add agent '${saved.name}'`);
 		this.agents.set(saved.name, saved);
+		this._generation++;
 	}
 
 	/** Update an existing agent, bumping its version. Promotes root agents to overlay on first mutation. */
@@ -175,6 +182,7 @@ export class Genome {
 			`genome: update agent '${spec.name}' to v${nextVersion}`,
 		);
 		this.agents.set(spec.name, updated);
+		this._generation++;
 	}
 
 	/**
@@ -194,6 +202,7 @@ export class Genome {
 		await git(this.rootPath, "add", mdPath);
 		await git(this.rootPath, "commit", "-m", `genome: remove agent '${name}'`);
 		this.agents.delete(name);
+		this._generation++;
 	}
 
 	// --- Routing rules ---
@@ -319,6 +328,25 @@ export class Genome {
 
 	// --- Load and Bootstrap ---
 
+	/**
+	 * Check if the agents directory has new .md files since the last load.
+	 * Single readdir() call — no file content is read.
+	 * Returns true if new files were found and the genome was reloaded.
+	 */
+	async refreshIfDiskChanged(): Promise<boolean> {
+		const agentsDir = join(this.rootPath, "agents");
+		let files: string[];
+		try {
+			files = (await readdir(agentsDir)).filter((f) => f.endsWith(".md"));
+		} catch {
+			return false;
+		}
+		const hasNew = files.some((f) => !this._knownAgentFiles.has(f));
+		if (!hasNew) return false;
+		await this.loadFromDisk();
+		return true;
+	}
+
 	/** Load agents, memories, and routing rules from an existing genome directory. */
 	async loadFromDisk(): Promise<void> {
 		// Clear overlay agents before loading so stale entries don't survive reloads
@@ -339,6 +367,7 @@ export class Genome {
 			const spec = parseAgentMarkdown(content, filePath);
 			this.agents.set(spec.name, spec);
 		}
+		this._knownAgentFiles = new Set(mdFiles);
 
 		// Load memories
 		await this.memories.load();
@@ -355,6 +384,7 @@ export class Genome {
 
 		// Load root agents for overlay resolution (no-op if rootDir not set)
 		await this.loadRoot();
+		this._generation++;
 	}
 
 	/** Initialize the genome from root agent specs. Builds manifest, loads root agents into memory. */

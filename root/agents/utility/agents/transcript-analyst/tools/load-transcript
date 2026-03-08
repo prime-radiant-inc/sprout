@@ -1,0 +1,318 @@
+---
+name: load-transcript
+description: "Load and analyze session event logs. Pass agent_id or handle_id to filter to a specific agent, or omit both for all events. Returns structured JSON summary."
+interpreter: sprout-internal
+---
+export default async function (ctx) {
+  const { agent_id, handle_id, kinds } = ctx.args as {
+    agent_id?: string;
+    handle_id?: string;
+    kinds?: string[];
+  };
+
+  // Step 1: Find the session logs directory
+  // The genome is at ~/.local/share/sprout-genome (or similar)
+  // Project data is at {genome}/projects/{slugified-project-dir}
+  // Session logs are at {projectData}/logs/{sessionId}.jsonl
+  const cwd = ctx.env.working_directory();
+
+  // Slugify the working directory path (replace / and spaces with -)
+  const slug = cwd.replace(/[\s/]/g, "-");
+
+  // Find the genome directory by globbing for the standard location
+  const genomeCandidates = await ctx.env.glob(
+    ".local/share/sprout-genome",
+    process.env.HOME || "~",
+  );
+
+  let genomePath: string;
+  if (genomeCandidates.length > 0) {
+    genomePath = genomeCandidates[0];
+  } else {
+    // Fallback: try the standard path directly
+    const home = process.env.HOME || process.env.USERPROFILE || "~";
+    genomePath = `${home}/.local/share/sprout-genome`;
+  }
+
+  const projectDataDir = `${genomePath}/projects/${slug}`;
+  const logsDir = `${projectDataDir}/logs`;
+
+  // Step 2: Find session log files
+  let logFiles: string[];
+  try {
+    logFiles = await ctx.env.glob("*.jsonl", logsDir);
+  } catch {
+    return {
+      output: JSON.stringify({ error: "No session logs found", logsDir }),
+      success: false,
+      error: "Could not find session logs directory",
+    };
+  }
+
+  if (logFiles.length === 0) {
+    return {
+      output: JSON.stringify({ error: "No .jsonl log files found", logsDir }),
+      success: false,
+      error: "No session log files found",
+    };
+  }
+
+  // Pick the most recent session log (lexicographic sort of ULIDs = chronological)
+  logFiles.sort();
+  const latestLog = logFiles[logFiles.length - 1];
+
+  // Step 3: Read and parse the JSONL
+  let raw: string;
+  try {
+    raw = await ctx.env.read_file(latestLog);
+  } catch (err) {
+    return {
+      output: JSON.stringify({ error: "Failed to read log file", path: latestLog }),
+      success: false,
+      error: `Failed to read ${latestLog}`,
+    };
+  }
+
+  const events: Array<{
+    kind: string;
+    timestamp: number;
+    agent_id: string;
+    depth: number;
+    data: Record<string, unknown>;
+  }> = [];
+
+  for (const line of raw.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      events.push(JSON.parse(line));
+    } catch {
+      // Skip malformed lines
+    }
+  }
+
+  if (events.length === 0) {
+    return {
+      output: JSON.stringify({ error: "No events found in log", path: latestLog }),
+      success: false,
+      error: "Log file contained no valid events",
+    };
+  }
+
+  // Step 4: Resolve handle_id to agent_id if needed
+  let targetAgentId = agent_id;
+  if (!targetAgentId && handle_id) {
+    // Find act_start event with matching handle_id to get child_id
+    const actStart = events.find(
+      (e) => e.kind === "act_start" && e.data.handle_id === handle_id,
+    );
+    if (actStart && actStart.data.child_id) {
+      targetAgentId = actStart.data.child_id as string;
+    } else {
+      // Try matching against agent_id directly (handle might be the agent_id)
+      const hasEvents = events.some((e) => e.agent_id === handle_id);
+      if (hasEvents) {
+        targetAgentId = handle_id;
+      } else {
+        return {
+          output: JSON.stringify({
+            error: "Could not resolve handle_id to agent_id",
+            handle_id,
+            suggestion: "Try passing agent_id directly",
+          }),
+          success: false,
+          error: `No act_start event found for handle ${handle_id}`,
+        };
+      }
+    }
+  }
+
+  // Step 5: Filter events
+  let filtered = events;
+  if (targetAgentId) {
+    filtered = filtered.filter((e) => e.agent_id === targetAgentId);
+  }
+  if (kinds && kinds.length > 0) {
+    filtered = filtered.filter((e) => kinds.includes(e.kind));
+  }
+
+  // Step 6: Build structured summary
+  const kindCounts: Record<string, number> = {};
+  const toolUsage: Record<string, number> = {};
+  const filesAccessed: string[] = [];
+  const delegations: Array<{
+    agent_name: string;
+    goal: string;
+    handle_id: string;
+    child_id?: string;
+    blocking?: boolean;
+  }> = [];
+  const warnings: Array<{ timestamp: number; data: Record<string, unknown> }> = [];
+  const errors: Array<{ timestamp: number; data: Record<string, unknown> }> = [];
+  const planSteps: Array<{
+    turn: number;
+    timestamp: number;
+    text: string;
+    context_tokens?: number;
+    context_window_size?: number;
+  }> = [];
+  const toolCalls: Array<{
+    name: string;
+    timestamp: number;
+    kind: "start" | "end";
+    args?: Record<string, unknown>;
+    duration_ms?: number;
+  }> = [];
+
+  let sessionStart: number | undefined;
+  let sessionEnd: number | undefined;
+  let sessionEndData: Record<string, unknown> | undefined;
+  let maxTurn = 0;
+
+  for (const event of filtered) {
+    // Count by kind
+    kindCounts[event.kind] = (kindCounts[event.kind] || 0) + 1;
+
+    switch (event.kind) {
+      case "session_start":
+        sessionStart = event.timestamp;
+        break;
+
+      case "session_end":
+        sessionEnd = event.timestamp;
+        sessionEndData = event.data;
+        break;
+
+      case "plan_end": {
+        const turn = (event.data.turn as number) || 0;
+        if (turn > maxTurn) maxTurn = turn;
+        planSteps.push({
+          turn,
+          timestamp: event.timestamp,
+          text: (event.data.text as string) || "",
+          context_tokens: event.data.context_tokens as number | undefined,
+          context_window_size: event.data.context_window_size as number | undefined,
+        });
+        break;
+      }
+
+      case "primitive_start": {
+        const name = (event.data.name as string) || "unknown";
+        toolUsage[name] = (toolUsage[name] || 0) + 1;
+        toolCalls.push({
+          name,
+          timestamp: event.timestamp,
+          kind: "start",
+          args: event.data.args as Record<string, unknown> | undefined,
+        });
+
+        // Track file access
+        if (["read_file", "grep", "glob"].includes(name)) {
+          const args = event.data.args as Record<string, unknown> | undefined;
+          if (args) {
+            const path = (args.path as string) || (args.pattern as string) || "";
+            if (path) filesAccessed.push(path);
+          }
+        }
+        break;
+      }
+
+      case "primitive_end": {
+        toolCalls.push({
+          name: (event.data.name as string) || "unknown",
+          timestamp: event.timestamp,
+          kind: "end",
+        });
+        break;
+      }
+
+      case "act_start":
+        delegations.push({
+          agent_name: (event.data.agent_name as string) || "unknown",
+          goal: (event.data.goal as string) || "",
+          handle_id: (event.data.handle_id as string) || "",
+          child_id: event.data.child_id as string | undefined,
+          blocking: event.data.blocking as boolean | undefined,
+        });
+        break;
+
+      case "warning":
+        warnings.push({ timestamp: event.timestamp, data: event.data });
+        break;
+
+      case "error":
+        errors.push({ timestamp: event.timestamp, data: event.data });
+        break;
+    }
+  }
+
+  // Detect parallel tool call groups
+  const parallelGroups: Array<{ turn: number; tools: string[]; count: number }> = [];
+  let currentGroup: string[] = [];
+  let lastWasStart = false;
+
+  for (const tc of toolCalls) {
+    if (tc.kind === "start") {
+      currentGroup.push(tc.name);
+      lastWasStart = true;
+    } else {
+      if (lastWasStart && currentGroup.length > 1) {
+        parallelGroups.push({
+          turn: maxTurn, // approximate
+          tools: [...currentGroup],
+          count: currentGroup.length,
+        });
+      }
+      currentGroup = [];
+      lastWasStart = false;
+    }
+  }
+  // Flush remaining group
+  if (currentGroup.length > 1) {
+    parallelGroups.push({
+      turn: maxTurn,
+      tools: [...currentGroup],
+      count: currentGroup.length,
+    });
+  }
+
+  const totalDurationMs =
+    sessionStart && sessionEnd ? sessionEnd - sessionStart : undefined;
+
+  // Truncate plan step text to keep output manageable
+  const truncatedPlanSteps = planSteps.map((p) => ({
+    ...p,
+    text: p.text.length > 500 ? p.text.substring(0, 500) + "..." : p.text,
+  }));
+
+  const summary = {
+    session: {
+      log_file: latestLog,
+      total_events: events.length,
+      filtered_events: filtered.length,
+      target_agent_id: targetAgentId || "all",
+      duration_ms: totalDurationMs,
+      session_end_data: sessionEndData,
+    },
+    turns: {
+      total: maxTurn,
+      plan_steps: truncatedPlanSteps,
+    },
+    tools: {
+      usage_counts: toolUsage,
+      total_calls: Object.values(toolUsage).reduce((a, b) => a + b, 0),
+      files_accessed: [...new Set(filesAccessed)],
+      parallel_call_groups: parallelGroups,
+    },
+    delegations,
+    diagnostics: {
+      warnings: warnings.slice(0, 20),
+      errors: errors.slice(0, 20),
+      event_kind_counts: kindCounts,
+    },
+  };
+
+  return {
+    output: JSON.stringify(summary, null, 2),
+    success: true,
+  };
+}

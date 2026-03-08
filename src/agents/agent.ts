@@ -127,7 +127,7 @@ export class Agent {
 	private readonly sessionId: string;
 	private readonly learnProcess?: LearnSink;
 	private readonly resolved: ResolvedModel;
-	private readonly agentTools: ToolDefinition[];
+	private agentTools: ToolDefinition[];
 	private readonly primitiveTools: ToolDefinition[];
 	private readonly logBasePath?: string;
 	private readonly preambles?: Preambles;
@@ -152,6 +152,8 @@ export class Agent {
 	private steeringQueue: string[] = [];
 	private compactionRequested = false;
 	private turnsSinceCompaction = Infinity;
+	private lastGenomeGeneration = 0;
+	private lastDelegateNames: Set<string> = new Set();
 
 	constructor(options: AgentOptions) {
 		this.spec = options.spec;
@@ -213,6 +215,12 @@ export class Agent {
 					this.agentTools.push(buildMessageAgentTool());
 				}
 			}
+
+			this.lastDelegateNames = new Set(delegatableAgents.map((a) => a.name));
+		}
+
+		if (this.genome) {
+			this.lastGenomeGeneration = this.genome.generation;
 		}
 
 		// Build primitive tool list (provider-aligned).
@@ -411,6 +419,73 @@ export class Agent {
 			if (agentSpec) agents.push(agentSpec);
 		}
 		return agents;
+	}
+
+	/**
+	 * Check if the genome has new agents and refresh delegation tools if so.
+	 * Returns info about newly added agents, or null if nothing changed.
+	 */
+	private async refreshDelegationList(): Promise<Array<{
+		name: string;
+		description: string;
+	}> | null> {
+		if (!this.genome || !this.spec.constraints.can_spawn) return null;
+		await this.genome.refreshIfDiskChanged();
+		if (this.genome.generation === this.lastGenomeGeneration) return null;
+		this.lastGenomeGeneration = this.genome.generation;
+
+		// Sync new genome agents into the shared agent tree so all agents
+		// (including siblings) see them via the shared Map reference.
+		if (this.agentTree) {
+			for (const spec of this.genome.allAgents()) {
+				if (!this.agentTree.has(spec.name)) {
+					this.agentTree.set(spec.name, {
+						spec,
+						path: spec.name,
+						children: [],
+						// diskPath is empty because these agents were created at
+						// runtime by the fabricator and have no on-disk directory.
+						diskPath: "",
+					});
+					// Only the root agent (selfPath === "") adds new children
+					// directly.  Non-root agents discover new delegates through
+					// getDelegatableAgents() which re-resolves against the
+					// updated tree, so they don't need manual child insertion.
+					if (this.agentTreeSelfPath === "" && this.agentTreeChildren) {
+						this.agentTreeChildren.push(spec.name);
+					}
+				}
+			}
+		}
+
+		// Re-resolve delegates with updated tree/genome
+		const newDelegates = this.getDelegatableAgents();
+		const newNames = new Set(newDelegates.map((a) => a.name));
+
+		// Diff: find genuinely new agents
+		const added = newDelegates.filter((a) => !this.lastDelegateNames.has(a.name));
+		if (added.length === 0) {
+			this.lastDelegateNames = newNames;
+			return null;
+		}
+
+		// Rebuild agent tools with updated delegate list
+		this.agentTools = [buildDelegateTool(newDelegates)];
+		if (this.spawner) {
+			this.agentTools.push(buildWaitAgentTool());
+			this.agentTools.push(buildMessageAgentTool());
+		}
+
+		// If this agent previously had no delegates, it was given primitive
+		// tools (the constructor rule: "agents that delegate don't get
+		// primitives").  Now that it has delegation tools, clear primitives
+		// to preserve that invariant.
+		if (this.primitiveTools.length > 0) {
+			this.primitiveTools.length = 0;
+		}
+
+		this.lastDelegateNames = newNames;
+		return added.map((a) => ({ name: a.name, description: a.description }));
 	}
 
 	private resolveGenomeDelegateSpec(spec: AgentSpec): AgentSpec {
@@ -1269,6 +1344,15 @@ export class Agent {
 				// Drain steering messages and inject as user messages
 				const steered = this.drainSteering();
 				for (const text of steered) {
+					this.history.push(Msg.user(text));
+					this.emitAndLog("steering", agentId, this.depth, { text });
+				}
+
+				// Refresh delegation list if genome has changed
+				const newAgents = await this.refreshDelegationList();
+				if (newAgents) {
+					const descriptions = newAgents.map((a) => `- **${a.name}**: ${a.description}`).join("\n");
+					const text = `New agents are now available for delegation:\n${descriptions}`;
 					this.history.push(Msg.user(text));
 					this.emitAndLog("steering", agentId, this.depth, { text });
 				}

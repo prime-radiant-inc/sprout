@@ -10,7 +10,7 @@ agents: []
 constraints:
   max_turns: 40
   can_spawn: false
-  timeout_ms: 180000
+  timeout_ms: 600000
 tags:
   - core
   - reading

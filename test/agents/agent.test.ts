@@ -862,6 +862,10 @@ describe("Agent", () => {
 			loadAgentTools: async () => [],
 			loadAgentPostscript: async () => "",
 			agentDir: () => "/tmp/mock-genome/agents",
+			get generation() {
+				return genomeAgents.size;
+			},
+			refreshIfDiskChanged: async () => false,
 		} as unknown as Genome;
 
 		const events = new AgentEventEmitter();
@@ -3921,6 +3925,8 @@ describe("Agent", () => {
 			markMemoriesUsed: async () => {},
 			loadAgentTools: async () => [],
 			agentDir: () => tmpdir(),
+			generation: 0,
+			refreshIfDiskChanged: async () => false,
 		} as unknown as import("../../src/genome/genome.ts").Genome;
 
 		const events = new AgentEventEmitter();

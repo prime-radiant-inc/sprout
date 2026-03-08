@@ -10,7 +10,7 @@ agents:
 constraints:
   max_turns: 100
   can_spawn: true
-  timeout_ms: 600000
+  timeout_ms: 900000
 tags:
   - development
   - debugging

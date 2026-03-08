@@ -11,6 +11,7 @@ agents:
   - utility/mcp
   - utility/task-manager
   - utility/project-memory
+  - utility/transcript-analyst
 constraints:
   max_turns: 200
   timeout_ms: 0

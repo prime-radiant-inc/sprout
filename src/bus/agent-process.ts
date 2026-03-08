@@ -260,7 +260,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 		if (!signal) {
 			throw new Error("Shared agents require an AbortSignal to exit the idle loop");
 		}
-		await idleLoop(bus, agent, inboxTopic, resultTopic, handleId, signal);
+		await idleLoop(bus, agent, genome, inboxTopic, resultTopic, handleId, signal);
 	} finally {
 		childSpawner?.shutdown();
 		await bus.disconnect();
@@ -335,6 +335,7 @@ async function waitForStartWithReady(
 async function idleLoop(
 	bus: BusClient,
 	agent: Agent,
+	genome: Genome,
 	inboxTopic: string,
 	resultTopic: string,
 	handleId: string,
@@ -350,6 +351,7 @@ async function idleLoop(
 		while (continueQueue.length > 0 && !signal.aborted) {
 			const continueMsg = continueQueue.shift()!;
 			try {
+				await genome.loadFromDisk();
 				const result = await agent.continue(continueMsg.message, signal);
 				if (!bus.connected) break;
 				const resultMsg: ResultMessage = {
