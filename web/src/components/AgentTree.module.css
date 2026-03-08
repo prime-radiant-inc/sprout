@@ -229,7 +229,6 @@
 	font-size: var(--font-size-xxs);
 	color: var(--color-text-placeholder);
 	font-variant-numeric: tabular-nums;
-	margin-left: auto;
 }
 
 /* Context pressure thermometer (running agents) */

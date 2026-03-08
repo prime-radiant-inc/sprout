@@ -604,5 +604,39 @@ describe("AgentTree with stats", () => {
 		// Idle with no activity — no stats line needed
 		expect(html).not.toContain("data-agent-state");
 	});
+
+	test("renders cost when model and tokens are present", () => {
+		const tree = makeNode({ agentId: "root", status: "running" });
+		const agentStats = new Map<string, AgentStats>([
+			[
+				"root",
+				makeStats({
+					agentId: "root",
+					model: "claude-sonnet-4-20250514",
+					inputTokens: 100_000,
+					outputTokens: 10_000,
+				}),
+			],
+		]);
+		const html = renderToStaticMarkup(
+			<AgentTree
+				tree={tree}
+				selectedAgent={null}
+				onSelectAgent={() => {}}
+				agentStats={agentStats}
+			/>,
+		);
+		// (100_000 * 3 + 10_000 * 15) / 1_000_000 = $0.45
+		expect(html).toContain("$0.45");
+	});
+
+	test("renders truncated agentId in node header", () => {
+		const tree = makeNode({ agentId: "01ABCDEF99ZZZZZZ", agentName: "my-agent" });
+		const html = renderToStaticMarkup(
+			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
+		);
+		// The truncated 8-char ID appears as display text
+		expect(html).toContain(">01ABCDEF<");
+	});
 });
 
