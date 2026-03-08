@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { WEB_HISTORY_PAGE_SIZE } from "@kernel/constants.ts";
 import { KeyboardHelp } from "./components/KeyboardHelp.tsx";
 import type { SlashCommand } from "@shared/slash-commands.ts";
 import styles from "./App.module.css";
@@ -25,9 +26,16 @@ const WS_URL = buildWsUrl(
 	window.location.search,
 );
 
+interface EventHistoryPage {
+	events: import("@kernel/types.ts").SessionEvent[];
+	hasMore: boolean;
+	nextBefore: number;
+	total: number;
+}
+
 export function App() {
 	const { connected, authError, send, onMessage } = useWebSocket(WS_URL);
-	const { events, status, sendCommand } = useEvents(onMessage, send);
+	const { events, status, sendCommand, prependHistory } = useEvents(onMessage, send);
 	const { tree } = useAgentTree(events);
 	const agentStats = useAgentStats(events);
 	const { tasks } = useTaskList(events);
@@ -50,6 +58,60 @@ export function App() {
 	// Auto-scroll: track whether user has scrolled up
 	const conversationRef = useRef<HTMLDivElement>(null);
 	const [userScrolledUp, setUserScrolledUp] = useState(false);
+	const [historyLoading, setHistoryLoading] = useState(false);
+	const historyLoadingRef = useRef(false);
+	const historyHasMoreRef = useRef(true);
+	const historyBeforeRef = useRef<number | null>(null);
+	const historyRequestedBeforeRef = useRef<number | null>(null);
+	const searchRef = useRef(window.location.search);
+
+	useEffect(() => {
+		setHistoryLoading(false);
+		historyLoadingRef.current = false;
+		historyHasMoreRef.current = true;
+		historyBeforeRef.current = null;
+		historyRequestedBeforeRef.current = null;
+	}, [status.sessionId]);
+
+	const loadOlderEvents = useCallback(async () => {
+		if (historyLoadingRef.current || !historyHasMoreRef.current || events.length === 0) return;
+		const el = conversationRef.current;
+		const prevHeight = el?.scrollHeight ?? 0;
+		const prevTop = el?.scrollTop ?? 0;
+		const before = historyBeforeRef.current ?? events.length;
+		if (historyRequestedBeforeRef.current === before) return;
+		const params = new URLSearchParams({
+			before: String(before),
+			limit: String(WEB_HISTORY_PAGE_SIZE),
+		});
+		const token = new URLSearchParams(searchRef.current).get("token");
+		if (token) params.set("token", token);
+
+		historyLoadingRef.current = true;
+		historyRequestedBeforeRef.current = before;
+		setHistoryLoading(true);
+		try {
+			const resp = await fetch(`/api/events?${params.toString()}`, { cache: "no-store" });
+			if (!resp.ok) {
+				historyRequestedBeforeRef.current = null;
+				return;
+			}
+			const page = (await resp.json()) as EventHistoryPage;
+			prependHistory(page.events);
+			historyHasMoreRef.current = page.hasMore;
+			historyBeforeRef.current = page.nextBefore;
+			historyRequestedBeforeRef.current = page.nextBefore;
+			requestAnimationFrame(() => {
+				const node = conversationRef.current;
+				if (!node) return;
+				const newHeight = node.scrollHeight;
+				node.scrollTop = prevTop + (newHeight - prevHeight);
+			});
+		} finally {
+			historyLoadingRef.current = false;
+			setHistoryLoading(false);
+		}
+	}, [events.length, prependHistory]);
 
 	// Scroll to bottom when events change (unless user scrolled up)
 	useEffect(() => {
@@ -66,7 +128,10 @@ export function App() {
 		if (!el) return;
 		const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
 		setUserScrolledUp(!atBottom);
-	}, []);
+		if (el.scrollTop < 150 && !atBottom) {
+			void loadOlderEvents();
+		}
+	}, [loadOlderEvents]);
 
 	const jumpToBottom = useCallback(() => {
 		const el = conversationRef.current;
@@ -262,6 +327,7 @@ export function App() {
 						data-region="conversation"
 						onScroll={handleScroll}
 					>
+						{historyLoading && <div>Loading older events...</div>}
 						<ConversationView
 							events={events}
 							tree={tree}

@@ -1,6 +1,23 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
+import { EVENT_CAP } from "@kernel/constants.ts";
 import { createCommandMessage, type ServerMessage } from "@kernel/protocol.ts";
 import type { Command, SessionEvent } from "@kernel/types.ts";
+
+function eventKey(event: SessionEvent): string {
+	return JSON.stringify(event);
+}
+
+function dedupeEvents(events: SessionEvent[]): SessionEvent[] {
+	const seen = new Set<string>();
+	const result: SessionEvent[] = [];
+	for (const event of events) {
+		const key = eventKey(event);
+		if (seen.has(key)) continue;
+		seen.add(key);
+		result.push(event);
+	}
+	return result;
+}
 
 /** Status state derived from the event stream, mirroring the TUI's App.tsx logic. */
 export interface SessionStatus {
@@ -43,6 +60,8 @@ function coerceSessionStatus(status: string): SessionStatus["status"] {
 export class EventStore {
 	events: SessionEvent[] = [];
 	status: SessionStatus = { ...INITIAL_STATUS };
+	private historyExtended = false;
+	private eventKeys = new Set<string>();
 
 	private listeners: Array<() => void> = [];
 
@@ -64,7 +83,11 @@ export class EventStore {
 					typeof msg.session.currentModel === "string" ? msg.session.currentModel : undefined;
 				const snapshotAvailableModels = msg.session.availableModels ?? [];
 
-				this.events = msg.events;
+				this.historyExtended = false;
+				this.replaceEvents(dedupeEvents(msg.events));
+				if (this.events.length > EVENT_CAP) {
+					this.replaceEvents(this.events.slice(-EVENT_CAP));
+				}
 				this.status = {
 					...INITIAL_STATUS,
 					status: snapshotStatus,
@@ -88,16 +111,27 @@ export class EventStore {
 			}
 
 			case "event":
-				this.events = [...this.events, msg.event];
+				this.appendEvent(msg.event);
+				if (!this.historyExtended && this.events.length > EVENT_CAP) {
+					this.replaceEvents(this.events.slice(-EVENT_CAP));
+				}
 				this.applyEventToStatus(msg.event);
 				if (msg.event.kind === "session_clear") {
+					this.historyExtended = false;
 					// Clear prior events but keep the session_clear event itself
 					// so the UI can render a "New session started" message.
-					this.events = [msg.event];
+					this.replaceEvents([msg.event]);
 				}
 				break;
 		}
 
+		this.notify();
+	}
+
+	prependHistory(events: SessionEvent[]): void {
+		if (events.length === 0) return;
+		this.historyExtended = true;
+		this.replaceEvents(dedupeEvents([...events, ...this.events]));
 		this.notify();
 	}
 
@@ -161,6 +195,18 @@ export class EventStore {
 		}
 	}
 
+	private replaceEvents(events: SessionEvent[]): void {
+		this.events = events;
+		this.eventKeys = new Set(events.map((event) => eventKey(event)));
+	}
+
+	private appendEvent(event: SessionEvent): void {
+		const key = eventKey(event);
+		if (this.eventKeys.has(key)) return;
+		this.events = [...this.events, event];
+		this.eventKeys.add(key);
+	}
+
 	private notify(): void {
 		for (const listener of this.listeners) {
 			listener();
@@ -174,6 +220,7 @@ interface UseEventsResult {
 	events: SessionEvent[];
 	status: SessionStatus;
 	sendCommand: (command: Command) => void;
+	prependHistory: (events: SessionEvent[]) => void;
 }
 
 /**
@@ -227,5 +274,6 @@ export function useEvents(
 		events: state.events,
 		status: state.status,
 		sendCommand: (cmd: Command) => sendCommandRef.current(cmd),
+		prependHistory: (events: SessionEvent[]) => store.prependHistory(events),
 	};
 }

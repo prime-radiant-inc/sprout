@@ -77,18 +77,21 @@ export async function loadResumeState(
 	let completedHandles: ResumeState["completedHandles"];
 	if (childHandles.length > 0) {
 		const handleLogDir = join(opts.projectDataDir, "logs", sessionId);
-		const completed: NonNullable<ResumeState["completedHandles"]> = [];
-		for (const handle of childHandles) {
-			if (!handle.completed) {
-				handle.completed = await d.checkHandleCompleted(handleLogDir, handle.handleId);
-			}
-			if (handle.completed) {
-				const result = await d.readHandleResult(handleLogDir, handle.handleId);
-				if (result) {
-					completed.push({ handleId: handle.handleId, result, ownerId: "root" });
-				}
-			}
-		}
+		const completed = (
+			await Promise.all(
+				childHandles.map(async (handle) => {
+					if (!handle.completed) {
+						handle.completed = await d.checkHandleCompleted(handleLogDir, handle.handleId);
+					}
+					if (!handle.completed) return null;
+
+					const result = await d.readHandleResult(handleLogDir, handle.handleId);
+					if (!result) return null;
+
+					return { handleId: handle.handleId, result, ownerId: "root" as const };
+				}),
+			)
+		).filter((handle): handle is NonNullable<typeof handle> => handle !== null);
 		if (completed.length > 0) {
 			completedHandles = completed;
 		}

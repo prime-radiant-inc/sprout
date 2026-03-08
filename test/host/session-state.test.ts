@@ -148,4 +148,32 @@ describe("loadAllEventLogs", () => {
 		const events = await loadAllEventLogs(rootLog, sessionDir);
 		expect(events).toHaveLength(3);
 	});
+
+	test("ignores nested session.log.jsonl structured logger files", async () => {
+		const tmp = await mkdtemp(join(tmpdir(), "sprout-test-"));
+		const rootLog = join(tmp, "root.jsonl");
+		const sessionDir = join(tmp, "session");
+		const handleDir = join(sessionDir, "01HANDLE");
+		await mkdir(handleDir, { recursive: true });
+		await writeFile(rootLog, eventLine("plan_start", 100));
+		await writeFile(join(sessionDir, "child1.jsonl"), eventLine("plan_start", 200));
+		await writeFile(join(handleDir, "grandchild.jsonl"), eventLine("plan_start", 300));
+		await writeFile(
+			join(handleDir, "session.log.jsonl"),
+			JSON.stringify({
+				timestamp: 250,
+				level: "info",
+				category: "llm",
+				message: "LLM call completed",
+				component: "agent-process",
+				sessionId: "session-1",
+				data: { provider: "anthropic" },
+			}),
+		);
+
+		const events = await loadAllEventLogs(rootLog, sessionDir);
+
+		expect(events).toHaveLength(3);
+		expect(events.map((e) => e.timestamp)).toEqual([100, 200, 300]);
+	});
 });

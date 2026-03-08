@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { EVENT_CAP } from "@kernel/constants.ts";
 import type { SessionEvent } from "@kernel/types.ts";
 import type { ServerMessage } from "../../../src/web/protocol.ts";
 import { EventStore } from "./useEvents.ts";
@@ -166,6 +167,59 @@ describe("EventStore", () => {
 			store.processMessage(eventMessage(e2));
 
 			expect(store.events).toEqual([e1, e2]);
+		});
+
+		test("caps retained events to the most recent EVENT_CAP while appending", () => {
+			const store = new EventStore();
+
+			for (let index = 1; index <= EVENT_CAP + 3; index++) {
+				store.processMessage(
+					eventMessage(
+						makeEvent("warning", {
+							message: `event-${index}`,
+						}),
+					),
+				);
+			}
+
+			expect(store.events).toHaveLength(EVENT_CAP);
+			expect((store.events[0]!.data.message as string) ?? "").toBe("event-4");
+			expect((store.events[store.events.length - 1]!.data.message as string) ?? "").toBe(
+				`event-${EVENT_CAP + 3}`,
+			);
+		});
+
+		test("prepends older history without changing current status", () => {
+			const store = new EventStore();
+			store.processMessage(
+				snapshotMessage([makeEvent("session_start", { model: "gpt-4o" })], {
+					id: "s1",
+					status: "running",
+					currentModel: "gpt-4o",
+				}),
+			);
+
+			store.prependHistory([
+				makeEvent("perceive", { goal: "older-goal" }),
+				makeEvent("plan_end", { turn: 99, usage: { input_tokens: 1, output_tokens: 1 } }),
+			]);
+
+			expect(store.events).toHaveLength(3);
+			expect(store.events[0]!.kind).toBe("perceive");
+			expect(store.status.status).toBe("running");
+			expect(store.status.model).toBe("gpt-4o");
+			expect(store.status.turns).toBe(0);
+		});
+
+		test("deduplicates overlap when prepending older history", () => {
+			const store = new EventStore();
+			const shared = makeEvent("warning", { message: "shared" });
+			store.processMessage(snapshotMessage([shared, makeEvent("warning", { message: "new" })]));
+
+			store.prependHistory([makeEvent("warning", { message: "old" }), shared]);
+
+			expect(store.events).toHaveLength(3);
+			expect(store.events.map((event) => event.data.message)).toEqual(["old", "shared", "new"]);
 		});
 	});
 

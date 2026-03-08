@@ -92,18 +92,19 @@ async function collectChildLogs(dir: string): Promise<SessionEvent[]> {
 	} catch {
 		return [];
 	}
-	const allEvents: SessionEvent[] = [];
-	for (const entry of entries) {
-		const fullPath = join(dir, entry.name);
-		if (entry.isFile() && entry.name.endsWith(".jsonl")) {
-			const events = await loadEventLog(fullPath);
-			allEvents.push(...events);
-		} else if (entry.isDirectory()) {
-			const nested = await collectChildLogs(fullPath);
-			allEvents.push(...nested);
-		}
-	}
-	return allEvents;
+	const nestedEvents = await Promise.all(
+		entries.map(async (entry) => {
+			const fullPath = join(dir, entry.name);
+			if (entry.isDirectory()) {
+				return collectChildLogs(fullPath);
+			}
+			if (entry.isFile() && entry.name.endsWith(".jsonl") && entry.name !== "session.log.jsonl") {
+				return loadEventLog(fullPath);
+			}
+			return [];
+		}),
+	);
+	return nestedEvents.flat();
 }
 
 /**
@@ -114,8 +115,10 @@ export async function loadAllEventLogs(
 	rootLogPath: string,
 	sessionLogDir: string,
 ): Promise<SessionEvent[]> {
-	const rootEvents = await loadEventLog(rootLogPath);
-	const childEvents = await collectChildLogs(sessionLogDir);
+	const [rootEvents, childEvents] = await Promise.all([
+		loadEventLog(rootLogPath),
+		collectChildLogs(sessionLogDir),
+	]);
 	const allEvents = [...rootEvents, ...childEvents];
 	allEvents.sort((a, b) => a.timestamp - b.timestamp);
 	return allEvents;

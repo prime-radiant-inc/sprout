@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { runInteractiveMode } from "../../src/host/cli-interactive.ts";
+import { EVENT_CAP, TUI_INITIAL_EVENT_CAP } from "../../src/kernel/constants.ts";
 
 class FakeBus {
 	readonly commands: Array<{ kind: string; data: Record<string, unknown> }> = [];
@@ -362,6 +363,76 @@ describe("runInteractiveMode", () => {
 
 		expect(createWebServerCalls).toHaveLength(1);
 		expect(createWebServerCalls[0]!.initialEvents).toEqual(resumedEvents);
+	});
+
+	test("resumed TUI caps initialEvents passed to renderApp but not WebServer", async () => {
+		const bus = new FakeBus();
+		const resumedEvents = Array.from({ length: EVENT_CAP + 2 }, (_, index) => ({
+			kind: "warning" as const,
+			timestamp: index + 1,
+			agent_id: "cli",
+			depth: 0,
+			data: { message: `event-${index + 1}` },
+		}));
+		const createWebServerCalls: Array<{ initialEvents?: unknown[] }> = [];
+		const renderAppCalls: Array<{ initialEvents?: unknown[] }> = [];
+
+		await runInteractiveMode(
+			{
+				command: { genomePath: "/tmp/genome", web: true },
+				sessionId: "01CAPTUI",
+				projectDataDir: "/tmp/project-data",
+				runtime: {
+					bus: bus as any,
+					controller: { sessionId: "01CAPTUI", isRunning: false, currentModel: "fast" },
+					logger: { info: () => {} },
+					availableModels: ["fast"],
+				},
+				initialEvents: resumedEvents as any,
+				cleanupInfra: async () => {},
+				onResumeHint: () => {},
+				inputHistoryPath: () => "/tmp/history",
+				handleSlashCommand: async () => ({ action: "none" }),
+			},
+			{
+				createWebServer: async (opts) => {
+					createWebServerCalls.push({ initialEvents: opts.initialEvents as unknown[] | undefined });
+					return {
+						start: async () => {},
+						stop: async () => {},
+					};
+				},
+				runWebOnlyMode: async () => {},
+				createInputHistory: async () => ({
+					load: async () => {},
+					save: async () => {},
+					add: () => {},
+					all: () => [],
+				}),
+				renderApp: async (renderOpts) => {
+					renderAppCalls.push({ initialEvents: renderOpts.initialEvents as unknown[] | undefined });
+					return {
+						waitUntilExit: async () => {},
+						unmount: () => {},
+					};
+				},
+				registerInteractiveSigint: () =>
+					({
+						onSignal: () => {},
+						clearPending: () => {},
+						dispose: () => {},
+					}) as any,
+				buildWebOpenUrl: () => "http://localhost:7777",
+				openUrl: () => {},
+				logError: () => {},
+			},
+		);
+
+		expect(createWebServerCalls).toHaveLength(1);
+		expect((createWebServerCalls[0]!.initialEvents as unknown[]).length).toBe(EVENT_CAP + 2);
+		expect(renderAppCalls).toHaveLength(1);
+		expect((renderAppCalls[0]!.initialEvents as unknown[]).length).toBe(TUI_INITIAL_EVENT_CAP);
+		expect(renderAppCalls[0]!.initialEvents).toEqual(resumedEvents.slice(-TUI_INITIAL_EVENT_CAP));
 	});
 
 	test("web startup failure logs error and cleans up infra", async () => {

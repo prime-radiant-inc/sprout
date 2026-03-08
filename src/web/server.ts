@@ -1,7 +1,8 @@
 import { randomBytes } from "node:crypto";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import type { ServerWebSocket } from "bun";
 import type { SessionBus } from "../host/event-bus.ts";
+import { loadAllEventLogs } from "../host/session-state.ts";
 import { EVENT_CAP } from "../kernel/constants.ts";
 import type { SessionEvent } from "../kernel/types.ts";
 import type { CommandMessage, ServerMessage } from "./protocol.ts";
@@ -52,6 +53,8 @@ export class WebServer {
 	private currentModel: string | null = null;
 	private unsubscribeEvents: (() => void) | null = null;
 	private unsubscribeCommands: (() => void) | null = null;
+	private historyCache: SessionEvent[] | null = null;
+	private historyCacheSessionId: string | null = null;
 
 	constructor(opts: WebServerOptions) {
 		this.bus = opts.bus;
@@ -67,7 +70,10 @@ export class WebServer {
 		this.logger = opts.logger;
 		this.projectDataDir = opts.projectDataDir;
 		if (opts.initialEvents) {
-			this.events = [...opts.initialEvents];
+			this.events =
+				opts.initialEvents.length > EVENT_CAP
+					? opts.initialEvents.slice(-EVENT_CAP)
+					: [...opts.initialEvents];
 		}
 	}
 
@@ -86,12 +92,17 @@ export class WebServer {
 				if (typeof newSessionId === "string" && newSessionId.trim().length > 0) {
 					this.sessionId = newSessionId;
 				}
+				this.historyCache = null;
+				this.historyCacheSessionId = null;
 				// New session semantics: reconnect snapshots should not include stale events.
 				this.events = [event];
 			} else {
 				this.events.push(event);
 				if (this.events.length > EVENT_CAP * 2) {
 					this.events = this.events.slice(-EVENT_CAP);
+				}
+				if (this.historyCache && this.historyCacheSessionId === this.sessionId) {
+					this.historyCache.push(event);
 				}
 			}
 			// Track task-cli calls to emit task_update events.
@@ -161,6 +172,16 @@ export class WebServer {
 					return Response.json({ id: self.sessionId, status: self.status });
 				}
 
+				if (url.pathname === "/api/events") {
+					if (!self.isAllowedOrigin(req)) {
+						return new Response("Forbidden", { status: 403 });
+					}
+					if (!self.hasValidToken(url, req)) {
+						return new Response("Unauthorized", { status: 401 });
+					}
+					return self.serveEventHistory(url);
+				}
+
 				if (url.pathname === "/api/models") {
 					return Response.json({
 						models: self.availableModels,
@@ -218,6 +239,38 @@ export class WebServer {
 			return new Response("Not Found", { status: 404 });
 		}
 		return new Response(file);
+	}
+
+	private async serveEventHistory(url: URL): Promise<Response> {
+		const before = Math.max(0, Number(url.searchParams.get("before") ?? 0) || 0);
+		const limit = Math.min(
+			Math.max(1, Number(url.searchParams.get("limit") ?? 0) || 0 || 1000),
+			EVENT_CAP,
+		);
+		const history = await this.getHistoryEvents();
+		const endExclusive = Math.max(0, history.length - before);
+		const start = Math.max(0, endExclusive - limit);
+		const events = history.slice(start, endExclusive);
+		return Response.json({
+			events,
+			hasMore: start > 0,
+			nextBefore: before + events.length,
+			total: history.length,
+		});
+	}
+
+	private async getHistoryEvents(): Promise<SessionEvent[]> {
+		if (!this.projectDataDir) return [...this.events];
+		if (this.historyCache && this.historyCacheSessionId === this.sessionId) {
+			return this.historyCache;
+		}
+
+		const rootLogPath = join(this.projectDataDir, "logs", `${this.sessionId}.jsonl`);
+		const sessionLogDir = join(this.projectDataDir, "logs", this.sessionId);
+		const events = await loadAllEventLogs(rootLogPath, sessionLogDir);
+		this.historyCache = events;
+		this.historyCacheSessionId = this.sessionId;
+		return events;
 	}
 
 	private async emitTaskUpdate(agentId: string, depth: number): Promise<void> {

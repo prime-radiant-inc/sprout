@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { TUI_INITIAL_EVENT_CAP } from "../kernel/constants.ts";
 import type { SessionEvent } from "../kernel/types.ts";
 import type { SlashCommand } from "../tui/slash-commands.ts";
 import { registerInteractiveSigint } from "./cli-sigint.ts";
@@ -230,6 +231,10 @@ export async function runInteractiveMode(
 	const historyPath = opts.inputHistoryPath(opts.command.genomePath);
 	const inputHistory = await d.createInputHistory(historyPath);
 	await inputHistory.load();
+	const initialTuiEvents =
+		opts.initialEvents && opts.initialEvents.length > TUI_INITIAL_EVENT_CAP
+			? opts.initialEvents.slice(-TUI_INITIAL_EVENT_CAP)
+			: opts.initialEvents;
 
 	let unmountFn: (() => void) | undefined;
 	const sigintRegistration = d.registerInteractiveSigint({
@@ -245,7 +250,7 @@ export async function runInteractiveMode(
 			bus: opts.runtime.bus,
 			sessionId: opts.runtime.controller.sessionId,
 			initialHistory: inputHistory.all(),
-			initialEvents: opts.initialEvents,
+			initialEvents: initialTuiEvents,
 			onSubmit: (text: string) => {
 				inputHistory.add(text);
 				opts.runtime.bus.emitCommand({ kind: "submit_goal", data: { goal: text } });

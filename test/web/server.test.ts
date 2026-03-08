@@ -3,6 +3,8 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventBus } from "../../src/host/event-bus.ts";
+import { EVENT_CAP, WEB_HISTORY_PAGE_SIZE } from "../../src/kernel/constants.ts";
+import type { SessionEvent } from "../../src/kernel/types.ts";
 import { WebServer } from "../../src/web/server.ts";
 import {
 	collectMessages,
@@ -48,6 +50,16 @@ async function connectClient(): Promise<WebSocket> {
 }
 
 describe("WebServer", () => {
+	function eventLine(kind: string, timestamp: number): string {
+		return JSON.stringify({
+			kind,
+			timestamp,
+			agent_id: "root",
+			depth: 0,
+			data: {},
+		});
+	}
+
 	describe("lifecycle", () => {
 		test("start() and stop() without error", async () => {
 			await server.start();
@@ -243,6 +255,41 @@ describe("WebServer", () => {
 			expect(body.id).toBe("new-session-id");
 			expect(body.status).toBe("idle");
 		});
+
+		test("GET /api/events returns the next older history page before a cursor", async () => {
+			const projectDataDir = mkdtempSync(join(tmpdir(), "sprout-web-history-"));
+			const logsDir = join(projectDataDir, "logs");
+			mkdirSync(logsDir, { recursive: true });
+			writeFileSync(
+				join(logsDir, "test-session.jsonl"),
+				Array.from({ length: WEB_HISTORY_PAGE_SIZE + 8 }, (_, index) =>
+					eventLine("warning", index + 1),
+				).join("\n"),
+			);
+			server = new WebServer({
+				bus,
+				port,
+				staticDir,
+				sessionId: "test-session",
+				projectDataDir,
+			});
+
+			await server.start();
+			const resp = await fetch(
+				`http://localhost:${port}/api/events?before=${WEB_HISTORY_PAGE_SIZE}&limit=5`,
+			);
+			expect(resp.status).toBe(200);
+			const body = (await resp.json()) as {
+				events: SessionEvent[];
+				hasMore: boolean;
+				nextBefore: number;
+				total: number;
+			};
+			expect(body.events.map((event) => event.timestamp)).toEqual([4, 5, 6, 7, 8]);
+			expect(body.hasMore).toBe(true);
+			expect(body.nextBefore).toBe(WEB_HISTORY_PAGE_SIZE + 5);
+			expect(body.total).toBe(WEB_HISTORY_PAGE_SIZE + 8);
+		});
 	});
 
 	describe("WebSocket snapshot on connect", () => {
@@ -256,6 +303,33 @@ describe("WebServer", () => {
 			expect(msg.events).toEqual([]);
 			expect(msg.session.id).toBe("test-session");
 			expect(msg.session.status).toBe("idle");
+		});
+
+		test("caps resumed initialEvents in the snapshot to the most recent EVENT_CAP", async () => {
+			const initialEvents = Array.from({ length: EVENT_CAP + 5 }, (_, index) => ({
+				kind: "warning" as const,
+				timestamp: index + 1,
+				agent_id: "cli",
+				depth: 0,
+				data: { message: `event-${index + 1}` },
+			}));
+			server = new WebServer({
+				bus,
+				port,
+				staticDir,
+				sessionId: "test-session",
+				initialEvents,
+			});
+
+			await server.start();
+			const ws = await connectClient();
+			const msg = await nextMessage(ws);
+
+			expect(msg.type).toBe("snapshot");
+			if (msg.type !== "snapshot") throw new Error("Expected snapshot");
+			expect(msg.events).toHaveLength(EVENT_CAP);
+			expect(msg.events[0]!.timestamp).toBe(6);
+			expect(msg.events.at(-1)!.timestamp).toBe(EVENT_CAP + 5);
 		});
 
 		test("sends snapshot with buffered events on connect", async () => {
