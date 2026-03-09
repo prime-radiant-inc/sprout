@@ -32,6 +32,7 @@ interface ThreadPanelProps {
 export function ThreadPanel({ agentId, tree, events, agentStats, onClose, onSelectAgent }: ThreadPanelProps) {
 	const node = findNode(tree, agentId);
 	const agentName = node?.agentName ?? agentId;
+	const mnemonicName = node?.mnemonicName;
 	const description = node?.description ?? "";
 	const goal = node?.goal ?? "";
 	const tokenUsage = useTokenUsage(events, tree, agentId);
@@ -52,7 +53,9 @@ export function ThreadPanel({ agentId, tree, events, agentStats, onClose, onSele
 								{statusIcons[node.status]}
 							</span>
 						)}
-						<span className={styles.agentName}>{agentName}</span>
+						<span className={styles.agentName}>
+							{mnemonicName ? `${mnemonicName} (${agentName})` : agentName}
+						</span>
 						<span className={styles.agentId}>{agentId}</span>
 						{tokenUsage && (
 							<div className={styles.headerStats} data-testid="header-stats">

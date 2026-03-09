@@ -42,6 +42,7 @@ export interface CreateAgentOptions {
 	logger?: import("../core/logger.ts").Logger;
 	/** Per-project data directory (sessions, logs, memory). Defaults to genomePath. */
 	projectDataDir?: string;
+	usedMnemonicNames?: Set<string>;
 }
 
 export interface CreateAgentResult {
@@ -190,6 +191,7 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 		agentTreeChildren,
 		agentTreeSelfPath: agentTree ? "" : undefined,
 		enableStreaming: true,
+		usedMnemonicNames: options.usedMnemonicNames,
 	});
 
 	const resolved = agent.resolvedModel;

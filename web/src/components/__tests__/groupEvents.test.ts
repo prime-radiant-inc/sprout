@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { SessionEvent } from "@kernel/types.ts";
 import type { AgentTreeNode } from "../../hooks/useAgentTree.ts";
-import { groupEvents } from "../groupEvents.ts";
+import { buildNameMap, groupEvents } from "../groupEvents.ts";
 
 // --- Helpers ---
 
@@ -764,5 +764,68 @@ describe("groupEvents", () => {
 			expect(delegation).toBeTruthy();
 			expect(delegation!.abandoned).toBeUndefined();
 		});
+	});
+});
+
+describe("buildNameMap", () => {
+	test("uses agentName when no mnemonicName is present", () => {
+		const node: AgentTreeNode = {
+			agentId: "agent-001",
+			agentName: "reader",
+			depth: 0,
+			status: "running",
+			goal: "read files",
+			children: [],
+		};
+		const map = buildNameMap(node);
+		expect(map.get("agent-001")).toBe("reader");
+	});
+
+	test("formats mnemonic with agent name when mnemonicName is present", () => {
+		const node: AgentTreeNode = {
+			agentId: "agent-001",
+			agentName: "reader",
+			depth: 0,
+			status: "running",
+			goal: "read files",
+			mnemonicName: "Champollion",
+			children: [],
+		};
+		const map = buildNameMap(node);
+		expect(map.get("agent-001")).toBe("Champollion (reader)");
+	});
+
+	test("handles mixed children with and without mnemonicName", () => {
+		const node: AgentTreeNode = {
+			agentId: "root-001",
+			agentName: "orchestrator",
+			depth: 0,
+			status: "running",
+			goal: "coordinate",
+			mnemonicName: "Turing",
+			children: [
+				{
+					agentId: "child-001",
+					agentName: "reader",
+					depth: 1,
+					status: "running",
+					goal: "read",
+					children: [],
+				},
+				{
+					agentId: "child-002",
+					agentName: "editor",
+					depth: 1,
+					status: "running",
+					goal: "edit",
+					mnemonicName: "Lovelace",
+					children: [],
+				},
+			],
+		};
+		const map = buildNameMap(node);
+		expect(map.get("root-001")).toBe("Turing (orchestrator)");
+		expect(map.get("child-001")).toBe("reader");
+		expect(map.get("child-002")).toBe("Lovelace (editor)");
 	});
 });

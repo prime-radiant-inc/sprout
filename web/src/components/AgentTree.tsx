@@ -164,7 +164,9 @@ function TreeNode({
 						<span className={statusClasses[node.status]}>
 							{statusIcon(node.status)}
 						</span>
-						<span className={styles.agentName}>{node.agentName}</span>
+						<span className={styles.agentName}>
+							{node.mnemonicName ? `${node.mnemonicName} (${node.agentName})` : node.agentName}
+						</span>
 						<span className={styles.agentId}>{node.agentId.slice(0, 8)}</span>
 						{node.durationMs != null && node.status !== "running" && (
 							<span className={styles.duration}>

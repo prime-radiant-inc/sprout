@@ -81,7 +81,7 @@ function durationKey(event: SessionEvent): string | null {
 export function buildNameMap(node: AgentTreeNode): Map<string, string> {
 	const map = new Map<string, string>();
 	function walk(n: AgentTreeNode) {
-		map.set(n.agentId, n.agentName);
+		map.set(n.agentId, n.mnemonicName ? `${n.mnemonicName} (${n.agentName})` : n.agentName);
 		for (const child of n.children) walk(child);
 	}
 	walk(node);

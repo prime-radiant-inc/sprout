@@ -261,6 +261,27 @@ describe("AgentSpawner", () => {
 			expect(resultMsg.handle_id).toBe(preAssignedId);
 			expect(resultMsg.success).toBe(true);
 		}, 15_000);
+
+		test("mnemonicName is stored on the handle", async () => {
+			const mockClient = createMockClient("Named agent result.");
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			const opts: SpawnAgentOptions = {
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: { agent_name: "root", depth: 0 },
+				goal: "Do a named thing",
+				blocking: false,
+				shared: false,
+				workDir: tempDir,
+				mnemonicName: "Curie",
+			};
+
+			const handleId = (await spawner.spawnAgent(opts)) as string;
+			const handle = spawner.getHandle(handleId);
+			expect(handle).toBeDefined();
+			expect(handle!.mnemonicName).toBe("Curie");
+		}, 15_000);
 	});
 
 	describe("waitAgent", () => {

@@ -1027,7 +1027,7 @@ describe("ConversationView", () => {
 				output: "hi",
 			}),
 		];
-		const tree = buildAgentTree(events);
+		const { tree } = buildAgentTree(events);
 		const html = renderToStaticMarkup(<ConversationView events={events} tree={tree} />);
 		expect(html).toContain("hello world");
 		expect(html).toContain("I will help you");
@@ -1040,7 +1040,7 @@ describe("ConversationView", () => {
 			makeEvent("perceive", { goal: "visible" }),
 			makeEvent("context_update", { context_tokens: 500 }),
 		];
-		const tree = buildAgentTree(events);
+		const { tree } = buildAgentTree(events);
 		const html = renderToStaticMarkup(<ConversationView events={events} tree={tree} />);
 		expect(html).toContain("visible");
 		expect(html).not.toContain("context_tokens");
@@ -1055,7 +1055,7 @@ describe("ConversationView", () => {
 				{ timestamp: 2500 },
 			),
 		];
-		const tree = buildAgentTree(events);
+		const { tree } = buildAgentTree(events);
 		const html = renderToStaticMarkup(<ConversationView events={events} tree={tree} />);
 		expect(html).toContain("1.5s");
 	});
@@ -1072,7 +1072,7 @@ describe("ConversationView", () => {
 			makeEvent("perceive", { goal: "beta goal" }, { agent_id: "beta", depth: 1 }),
 			makeEvent("act_end", { agent_name: "beta", success: true }, { agent_id: "root-agent", depth: 0, timestamp: 1004 }),
 		];
-		const tree = buildAgentTree(events);
+		const { tree } = buildAgentTree(events);
 		const html = renderToStaticMarkup(
 			<ConversationView events={events} agentFilter="alpha" tree={tree} />,
 		);
@@ -1091,7 +1091,7 @@ describe("ConversationView", () => {
 			makeEvent("act_end", { agent_name: "child", success: true }, { agent_id: "parent", depth: 1 }),
 			makeEvent("act_end", { agent_name: "parent", success: true }, { agent_id: "root-agent", depth: 0 }),
 		];
-		const tree = buildAgentTree(events);
+		const { tree } = buildAgentTree(events);
 		const html = renderToStaticMarkup(
 			<ConversationView events={events} agentFilter="parent" tree={tree} />,
 		);
@@ -1103,7 +1103,7 @@ describe("ConversationView", () => {
 	});
 
 	test("renders empty state when no events", () => {
-		const tree = buildAgentTree([]);
+		const { tree } = buildAgentTree([]);
 		const html = renderToStaticMarkup(<ConversationView events={[]} tree={tree} />);
 		// Should render the welcome/empty state component
 		expect(html).not.toContain("is responding");
@@ -1117,7 +1117,7 @@ describe("ConversationView", () => {
 			makeEvent("plan_delta", { text: "Hello " }, { timestamp: 1001 }),
 			makeEvent("plan_delta", { text: "world" }, { timestamp: 1002 }),
 		];
-		const tree = buildAgentTree(events);
+		const { tree } = buildAgentTree(events);
 		const html = renderToStaticMarkup(<ConversationView events={events} tree={tree} />);
 		expect(html).toContain("Hello world");
 	});
@@ -1130,7 +1130,7 @@ describe("ConversationView", () => {
 			makeEvent("plan_start", {}, { timestamp: 1003 }),
 			makeEvent("plan_delta", { text: "second" }, { timestamp: 1004 }),
 		];
-		const tree = buildAgentTree(events);
+		const { tree } = buildAgentTree(events);
 		const html = renderToStaticMarkup(<ConversationView events={events} tree={tree} />);
 		expect(html).toContain("final text");
 		expect(html).toContain("second");
@@ -1143,7 +1143,7 @@ describe("ConversationView", () => {
 			makeEvent("plan_end", { text: "first message" }, { timestamp: 1000 }),
 			makeEvent("plan_end", { text: "second message" }, { timestamp: 1001 }),
 		];
-		const tree = buildAgentTree(events);
+		const { tree } = buildAgentTree(events);
 		const html = renderToStaticMarkup(<ConversationView events={events} tree={tree} />);
 		expect(html).toContain("first message");
 		expect(html).toContain("second message");
@@ -1158,7 +1158,7 @@ describe("ConversationView", () => {
 			makeEvent("act_start", { agent_name: "worker", goal: "do work" }, { timestamp: 1000 }),
 			makeEvent("act_end", { agent_name: "worker", goal: "do work", success: true, turns: 2 }, { timestamp: 2000 }),
 		];
-		const tree = buildAgentTree(events);
+		const { tree } = buildAgentTree(events);
 		const html = renderToStaticMarkup(<ConversationView events={events} tree={tree} />);
 		expect(html).toContain('data-status="running"');
 		expect(html).toContain('data-status="completed"');
@@ -1168,7 +1168,7 @@ describe("ConversationView", () => {
 		const events: SessionEvent[] = [
 			makeEvent("act_end", { agent_name: "worker", goal: "do work", child_id: "child-1", success: true }, { agent_id: "root", timestamp: 1000 }),
 		];
-		const tree = buildAgentTree(events);
+		const { tree } = buildAgentTree(events);
 		const html = renderToStaticMarkup(
 			<ConversationView events={events} tree={tree} onSelectAgent={() => {}} />,
 		);
@@ -1179,7 +1179,7 @@ describe("ConversationView", () => {
 		const events: SessionEvent[] = [
 			makeEvent("act_start", { agent_name: "sub-agent", goal: "do stuff", child_id: "child-1" }, { agent_id: "root", depth: 0 }),
 		];
-		const tree = buildAgentTree(events);
+		const { tree } = buildAgentTree(events);
 		const html = renderToStaticMarkup(
 			<ConversationView events={events} tree={tree} onSelectAgent={() => {}} />,
 		);
@@ -1190,7 +1190,7 @@ describe("ConversationView", () => {
 		const events: SessionEvent[] = [
 			makeEvent("plan_delta", { text: "thinking..." }, { agent_id: "root", timestamp: 1000 }),
 		];
-		const tree = buildAgentTree([]);
+		const { tree } = buildAgentTree([]);
 		const html = renderToStaticMarkup(
 			<ConversationView events={events} tree={tree} />,
 		);
@@ -1204,7 +1204,7 @@ describe("ConversationView", () => {
 			makeEvent("act_start", { agent_name: "code-editor", goal: "edit" }, { agent_id: "root", depth: 0 }),
 			makeEvent("plan_delta", { text: "thinking..." }, { agent_id: "code-editor", depth: 1, timestamp: 1000 }),
 		];
-		const tree = buildAgentTree(events);
+		const { tree } = buildAgentTree(events);
 		const html = renderToStaticMarkup(
 			<ConversationView events={events} tree={tree} />,
 		);
@@ -1216,7 +1216,7 @@ describe("ConversationView", () => {
 
 describe("ThreadPanel", () => {
 	test("renders header with agent name and close button", () => {
-		const tree = buildAgentTree([
+		const { tree } = buildAgentTree([
 			makeEvent("perceive", { goal: "Go" }, { agent_id: "root", depth: 0 }),
 			makeEvent("act_start", { agent_name: "editor", goal: "Edit file", child_id: "CID1" }, { agent_id: "root", depth: 0 }),
 		]);
@@ -1236,7 +1236,7 @@ describe("ThreadPanel", () => {
 	});
 
 	test("renders thread-panel region", () => {
-		const tree = buildAgentTree([
+		const { tree } = buildAgentTree([
 			makeEvent("perceive", { goal: "Go" }, { agent_id: "root", depth: 0 }),
 		]);
 		const html = renderToStaticMarkup(
@@ -1253,7 +1253,7 @@ describe("ThreadPanel", () => {
 	});
 
 	test("falls back to agentId when node not found in tree", () => {
-		const tree = buildAgentTree([
+		const { tree } = buildAgentTree([
 			makeEvent("perceive", { goal: "Go" }, { agent_id: "root", depth: 0 }),
 		]);
 		const html = renderToStaticMarkup(

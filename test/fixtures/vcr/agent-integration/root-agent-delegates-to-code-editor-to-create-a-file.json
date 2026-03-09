@@ -103,6 +103,39 @@
 		{
 			"type": "complete",
 			"request": {
+				"model": "claude-opus-4-6",
+				"provider": "anthropic",
+				"messages": [],
+				"max_tokens": 30,
+				"temperature": 0.9,
+				"tool_choice": "none"
+			},
+			"response": {
+				"id": "mock-mnemonic-1",
+				"model": "claude-opus-4-6",
+				"provider": "anthropic",
+				"message": {
+					"role": "assistant",
+					"content": [
+						{
+							"kind": "text",
+							"text": "Curie"
+						}
+					]
+				},
+				"finish_reason": {
+					"reason": "stop"
+				},
+				"usage": {
+					"input_tokens": 50,
+					"output_tokens": 3,
+					"total_tokens": 53
+				}
+			}
+		},
+		{
+			"type": "complete",
+			"request": {
 				"model": "claude-sonnet-4-6",
 				"provider": "anthropic",
 				"messages": [
@@ -719,6 +752,39 @@
 					"total_tokens": 1694,
 					"cache_read_tokens": 0,
 					"cache_write_tokens": 0
+				}
+			}
+		},
+		{
+			"type": "complete",
+			"request": {
+				"model": "claude-opus-4-6",
+				"provider": "anthropic",
+				"messages": [],
+				"max_tokens": 30,
+				"temperature": 0.9,
+				"tool_choice": "none"
+			},
+			"response": {
+				"id": "mock-mnemonic-2",
+				"model": "claude-opus-4-6",
+				"provider": "anthropic",
+				"message": {
+					"role": "assistant",
+					"content": [
+						{
+							"kind": "text",
+							"text": "Tesla"
+						}
+					]
+				},
+				"finish_reason": {
+					"reason": "stop"
+				},
+				"usage": {
+					"input_tokens": 50,
+					"output_tokens": 3,
+					"total_tokens": 53
 				}
 			}
 		},

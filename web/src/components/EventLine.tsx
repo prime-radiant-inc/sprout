@@ -82,6 +82,7 @@ export function EventLine({ event, durationMs, streamingText, isFirstInGroup, ag
 			return (
 				<DelegationBlock
 					agentName={data.agent_name as string}
+					mnemonicName={typeof data.mnemonic_name === "string" ? data.mnemonic_name : undefined}
 					goal={data.goal as string}
 					description={typeof data.description === "string" ? data.description : undefined}
 					status={abandoned ? "failed" : "running"}
@@ -95,6 +96,7 @@ export function EventLine({ event, durationMs, streamingText, isFirstInGroup, ag
 			return (
 				<DelegationBlock
 					agentName={data.agent_name as string}
+					mnemonicName={typeof data.mnemonic_name === "string" ? data.mnemonic_name : undefined}
 					goal={typeof data.goal === "string" ? data.goal : ""}
 					description={typeof data.description === "string" ? data.description : undefined}
 					status={data.success ? "completed" : "failed"}

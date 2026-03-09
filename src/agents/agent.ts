@@ -39,6 +39,7 @@ import { getContextWindowSize } from "./context-window.ts";
 import { AgentEventEmitter } from "./events.ts";
 import type { AgentTreeEntry, Preambles } from "./loader.ts";
 import { findRootToolsDir, resolveRootToolsDir } from "./loader.ts";
+import { generateMnemonicName } from "./mnemonic.ts";
 import { defaultModelsByProvider, type ResolvedModel, resolveModel } from "./model-resolver.ts";
 import type { Postscripts } from "./plan.ts";
 import {
@@ -105,6 +106,8 @@ export interface AgentOptions {
 	enableStreaming?: boolean;
 	/** Override retry backoff settings for LLM calls (tests/tuning). */
 	llmRetryOptions?: Omit<RetryOptions, "signal" | "onRetry">;
+	/** Set of mnemonic names already used in this session (shared across agents for uniqueness). */
+	usedMnemonicNames?: Set<string>;
 }
 
 export interface AgentResult {
@@ -154,6 +157,7 @@ export class Agent {
 	private turnsSinceCompaction = Infinity;
 	private lastGenomeGeneration = 0;
 	private lastDelegateNames: Set<string> = new Set();
+	private readonly usedMnemonicNames: Set<string>;
 
 	constructor(options: AgentOptions) {
 		this.spec = options.spec;
@@ -181,6 +185,7 @@ export class Agent {
 		this.enableStreaming = options.enableStreaming ?? false;
 		this.llmRetryOptions = options.llmRetryOptions;
 		this.initialHistory = options.initialHistory ? [...options.initialHistory] : undefined;
+		this.usedMnemonicNames = options.usedMnemonicNames ?? new Set();
 		this.logger = (options.logger ?? new NullLogger()).child({
 			component: "agent",
 			agentId: this.agentId ?? this.spec.name,
@@ -566,11 +571,28 @@ export class Agent {
 		agentId: string,
 	): Promise<{ toolResultMsg: Message; stumbles: number; output?: string }> {
 		const childId = ulid();
+
+		// Generate mnemonic name for this child agent
+		const mnemonicName = await generateMnemonicName(
+			this.client,
+			this.resolved.model,
+			this.resolved.provider,
+			{
+				agentName: delegation.agent_name,
+				goal: delegation.goal,
+				description: delegation.description,
+				usedNames: [...this.usedMnemonicNames],
+			},
+			this.signal,
+		);
+		if (mnemonicName) this.usedMnemonicNames.add(mnemonicName);
+
 		this.emitAndLog("act_start", agentId, this.depth, {
 			agent_name: delegation.agent_name,
 			goal: delegation.goal,
 			...(delegation.description ? { description: delegation.description } : {}),
 			child_id: childId,
+			...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
 		});
 
 		const descData = delegation.description ? { description: delegation.description } : {};
@@ -589,6 +611,7 @@ export class Agent {
 				child_id: childId,
 				...descData,
 				tool_result_message: toolResultMsg,
+				...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
 			});
 			return { toolResultMsg, stumbles: 1 };
 		}
@@ -603,6 +626,7 @@ export class Agent {
 				child_id: childId,
 				...descData,
 				tool_result_message: toolResultMsg,
+				...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
 			});
 			return { toolResultMsg, stumbles: 1 };
 		}
@@ -646,6 +670,7 @@ export class Agent {
 				agentTreeChildren: subTreeChildren,
 				agentTreeSelfPath: subTreeSelfPath,
 				enableStreaming: this.enableStreaming,
+				usedMnemonicNames: this.usedMnemonicNames,
 			});
 
 			const subResult = await subagent.run(subGoal, this.signal);
@@ -688,6 +713,7 @@ export class Agent {
 				child_id: childId,
 				...descData,
 				tool_result_message: toolResultMsg,
+				...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
 			});
 
 			if (this.learnProcess) {
@@ -709,6 +735,7 @@ export class Agent {
 				child_id: childId,
 				...descData,
 				tool_result_message: toolResultMsg,
+				...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
 			});
 			return { toolResultMsg, stumbles: 1 };
 		}
@@ -728,12 +755,27 @@ export class Agent {
 		const childId = ulid();
 		const descData = delegation.description ? { description: delegation.description } : {};
 
+		const mnemonicName = await generateMnemonicName(
+			this.client,
+			this.resolved.model,
+			this.resolved.provider,
+			{
+				agentName: delegation.agent_name,
+				goal: delegation.goal,
+				description: delegation.description,
+				usedNames: [...this.usedMnemonicNames],
+			},
+			this.signal,
+		);
+		if (mnemonicName) this.usedMnemonicNames.add(mnemonicName);
+
 		this.emitAndLog("act_start", agentId, this.depth, {
 			agent_name: delegation.agent_name,
 			goal: delegation.goal,
 			...descData,
 			handle_id: handleId,
 			child_id: childId,
+			...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
 		});
 		const target = this.resolveDelegationTarget(delegation.agent_name);
 		if (!target.spec) {
@@ -745,6 +787,7 @@ export class Agent {
 				error: errorMsg,
 				child_id: childId,
 				...descData,
+				...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
 				tool_result_message: toolResultMsg,
 			});
 			return { toolResultMsg, stumbles: 1 };
@@ -759,6 +802,7 @@ export class Agent {
 				error: errorMsg,
 				child_id: childId,
 				...descData,
+				...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
 				tool_result_message: toolResultMsg,
 			});
 			return { toolResultMsg, stumbles: 1 };
@@ -782,6 +826,7 @@ export class Agent {
 				handleId,
 				agentId: childId,
 				rootDir: this.rootDir,
+				mnemonicName: mnemonicName ?? undefined,
 			});
 
 			if (!blocking) {
@@ -797,6 +842,7 @@ export class Agent {
 					handle_id: handleId,
 					child_id: childId,
 					...descData,
+					...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
 					tool_result_message: toolResultMsg,
 				});
 				return { toolResultMsg, stumbles: 0, output: handleId };
@@ -849,6 +895,7 @@ export class Agent {
 				timed_out: resultMsg.timed_out,
 				child_id: childId,
 				...descData,
+				...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
 				tool_result_message: toolResultMsg,
 			});
 
@@ -866,6 +913,7 @@ export class Agent {
 				error: errorMsg,
 				child_id: childId,
 				...descData,
+				...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
 				tool_result_message: toolResultMsg,
 			});
 			return { toolResultMsg, stumbles: 1 };
@@ -891,6 +939,8 @@ export class Agent {
 
 		const caller: CallerIdentity = { agent_name: this.spec.name, depth: this.depth };
 		const childAgentId = this.spawner.getHandle(cmd.handle)?.agentId;
+		const targetMnemonicName = this.spawner.getHandle(cmd.handle)?.mnemonicName;
+		const targetAgentName = this.spawner.getHandle(cmd.handle)?.agentName;
 
 		try {
 			if (cmd.kind === "wait_agent") {
@@ -901,6 +951,8 @@ export class Agent {
 					agent_name: cmd.kind,
 					success: result.success,
 					child_id: childAgentId,
+					...(targetMnemonicName ? { mnemonic_name: targetMnemonicName } : {}),
+					...(targetAgentName ? { target_agent_name: targetAgentName } : {}),
 					tool_result_message: toolResultMsg,
 				});
 				return { toolResultMsg, stumbles: result.success ? 0 : 1, output: result.output };
@@ -916,6 +968,8 @@ export class Agent {
 					agent_name: cmd.kind,
 					success: true,
 					child_id: childAgentId,
+					...(targetMnemonicName ? { mnemonic_name: targetMnemonicName } : {}),
+					...(targetAgentName ? { target_agent_name: targetAgentName } : {}),
 					tool_result_message: toolResultMsg,
 				});
 				return { toolResultMsg, stumbles: 0 };
@@ -927,6 +981,8 @@ export class Agent {
 				agent_name: cmd.kind,
 				success: result.success,
 				child_id: childAgentId,
+				...(targetMnemonicName ? { mnemonic_name: targetMnemonicName } : {}),
+				...(targetAgentName ? { target_agent_name: targetAgentName } : {}),
 				tool_result_message: toolResultMsg,
 			});
 			return { toolResultMsg, stumbles: result.success ? 0 : 1, output: result.output };
@@ -938,6 +994,8 @@ export class Agent {
 				success: false,
 				error: errorMsg,
 				child_id: childAgentId,
+				...(targetMnemonicName ? { mnemonic_name: targetMnemonicName } : {}),
+				...(targetAgentName ? { target_agent_name: targetAgentName } : {}),
 				tool_result_message: toolResultMsg,
 			});
 			return { toolResultMsg, stumbles: 1 };

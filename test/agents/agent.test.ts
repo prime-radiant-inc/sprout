@@ -813,32 +813,40 @@ describe("Agent", () => {
 		};
 
 		let callCount = 0;
+		const mnemonicMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "Curie" }],
+		};
 		const mockClient = {
 			providers: () => ["anthropic"],
 			complete: async (): Promise<Response> => {
 				callCount++;
 				// Call 1: root delegates to leaf
-				// Call 2: leaf delegates to dynamic-leaf
-				// Call 3: dynamic-leaf completes
-				// Call 4: leaf completes
-				// Call 5: root completes
+				// Call 2: mnemonic generation for leaf
+				// Call 3: leaf delegates to dynamic-leaf
+				// Call 4: mnemonic generation for dynamic-leaf
+				// Call 5: dynamic-leaf completes
+				// Call 6: leaf completes
+				// Call 7: root completes
 				const msg =
 					callCount === 1
 						? rootDelegateMsg
-						: callCount === 2
-							? leafDelegateMsg
+						: callCount === 2 || callCount === 4
+							? mnemonicMsg
 							: callCount === 3
-								? dynamicDoneMsg
-								: callCount === 4
-									? leafDoneMsg
-									: rootDoneMsg;
+								? leafDelegateMsg
+								: callCount === 5
+									? dynamicDoneMsg
+									: callCount === 6
+										? leafDoneMsg
+										: rootDoneMsg;
 				return {
 					id: `mock-dyn-${callCount}`,
 					model: "claude-haiku-4-5-20251001",
 					provider: "anthropic",
 					message: msg,
 					finish_reason: {
-						reason: callCount <= 2 ? "tool_calls" : "stop",
+						reason: callCount === 1 || callCount === 3 ? "tool_calls" : "stop",
 					},
 					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
 				};
@@ -4122,6 +4130,10 @@ describe("Agent", () => {
 			content: [{ kind: ContentKind.TEXT, text: "Helped." }],
 		};
 
+		const mnemonicMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "Curie" }],
+		};
 		let callCount = 0;
 		const mockClient = {
 			providers: () => ["anthropic"],
@@ -4130,11 +4142,13 @@ describe("Agent", () => {
 				let msg: Message;
 				if (callCount === 1)
 					msg = delegateMsg; // root delegates
-				else if (callCount === 2)
-					msg = workerDelegateMsg; // worker delegates
+				else if (callCount === 2 || callCount === 4)
+					msg = mnemonicMsg; // mnemonic generation
 				else if (callCount === 3)
+					msg = workerDelegateMsg; // worker delegates
+				else if (callCount === 5)
 					msg = helperDoneMsg; // helper finishes
-				else if (callCount === 4)
+				else if (callCount === 6)
 					msg = workerDoneMsg; // worker finishes
 				else msg = doneMsg; // root finishes
 				return {

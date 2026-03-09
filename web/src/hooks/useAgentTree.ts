@@ -9,9 +9,16 @@ export interface AgentTreeNode {
 	goal: string;
 	/** Short label (≤10 words) for tree/headers; falls back to goal when absent */
 	description?: string;
+	mnemonicName?: string;
 	children: AgentTreeNode[];
 	turns?: number;
 	durationMs?: number;
+}
+
+export interface BuildAgentTreeResult {
+	tree: AgentTreeNode;
+	handleToMnemonic: Map<string, string>;
+	childIdToMnemonic: Map<string, string>;
 }
 
 /**
@@ -22,7 +29,7 @@ export interface AgentTreeNode {
  * events, which are emitted by the *parent* agent (so event.agent_id is the
  * parent and event.depth is the parent's depth).
  */
-export function buildAgentTree(events: SessionEvent[]): AgentTreeNode {
+export function buildAgentTree(events: SessionEvent[]): BuildAgentTreeResult {
 	const root: AgentTreeNode = {
 		agentId: "root",
 		agentName: "root",
@@ -46,6 +53,10 @@ export function buildAgentTree(events: SessionEvent[]): AgentTreeNode {
 	// Index nodes by child_id for act_end lookup.
 	const nodeById = new Map<string, AgentTreeNode>();
 	nodeById.set("root", root);
+
+	// Maps for mnemonic name lookups
+	const handleToMnemonic = new Map<string, string>();
+	const childIdToMnemonic = new Map<string, string>();
 
 	for (const event of events) {
 		// Derive root identity from the first depth-0 event
@@ -99,6 +110,7 @@ export function buildAgentTree(events: SessionEvent[]): AgentTreeNode {
 					status: "running",
 					goal: (event.data.goal as string) ?? "",
 					description: typeof event.data.description === "string" ? event.data.description : undefined,
+					mnemonicName: typeof event.data.mnemonic_name === "string" ? event.data.mnemonic_name : undefined,
 					children: [],
 				};
 				startTimestamps.set(node, event.timestamp);
@@ -112,6 +124,14 @@ export function buildAgentTree(events: SessionEvent[]): AgentTreeNode {
 
 				// Index by childId for act_end lookup
 				nodeById.set(childId, node);
+
+				// Populate mnemonic name lookup maps
+				if (typeof event.data.handle_id === "string" && typeof event.data.mnemonic_name === "string") {
+					handleToMnemonic.set(event.data.handle_id as string, event.data.mnemonic_name as string);
+				}
+				if (typeof event.data.child_id === "string" && typeof event.data.mnemonic_name === "string") {
+					childIdToMnemonic.set(event.data.child_id as string, event.data.mnemonic_name as string);
+				}
 
 				// Record this child at its depth (and clear deeper entries)
 				path[childDepth] = node;
@@ -138,13 +158,16 @@ export function buildAgentTree(events: SessionEvent[]): AgentTreeNode {
 					if (startTs !== undefined) {
 						node.durationMs = event.timestamp - startTs;
 					}
+					if (typeof event.data.mnemonic_name === "string" && !node.mnemonicName) {
+						node.mnemonicName = event.data.mnemonic_name;
+					}
 				}
 				break;
 			}
 		}
 	}
 
-	return root;
+	return { tree: root, handleToMnemonic, childIdToMnemonic };
 }
 
 /**
@@ -179,13 +202,15 @@ function collectIds(node: AgentTreeNode, ids: Set<string>): void {
 
 interface UseAgentTreeResult {
 	tree: AgentTreeNode;
+	handleToMnemonic: Map<string, string>;
+	childIdToMnemonic: Map<string, string>;
 }
 
 /**
  * React hook that builds an agent tree from session events.
  */
 export function useAgentTree(events: SessionEvent[]): UseAgentTreeResult {
-	const tree = useMemo(() => buildAgentTree(events), [events]);
+	const result = useMemo(() => buildAgentTree(events), [events]);
 
-	return { tree };
+	return result;
 }

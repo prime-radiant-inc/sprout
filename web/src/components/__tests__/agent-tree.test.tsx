@@ -445,7 +445,7 @@ describe("buildAgentTree", () => {
 				{ agent_id: "root-agent", depth: 0 },
 			),
 		];
-		const tree = buildAgentTree(events);
+		const { tree } = buildAgentTree(events);
 		const child = tree.children[0]!;
 		expect(child.agentName).toBe("code-reader");
 		expect(child.description).toBe("Analyze auth flow");
@@ -461,7 +461,7 @@ describe("buildAgentTree", () => {
 				{ agent_id: "root-agent", depth: 0 },
 			),
 		];
-		const tree = buildAgentTree(events);
+		const { tree } = buildAgentTree(events);
 		expect(tree.children[0]!.description).toBeUndefined();
 	});
 });

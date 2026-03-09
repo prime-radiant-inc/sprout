@@ -30,6 +30,8 @@ export interface SpawnAgentOptions {
 	agentId?: string;
 	/** Path to root agent directory (for overlay resolution in subprocesses). */
 	rootDir?: string;
+	/** Mnemonic codename for this agent (historical figure surname). */
+	mnemonicName?: string;
 }
 
 /** A pending waitAgent() promise that can be resolved or rejected. */
@@ -60,6 +62,8 @@ export interface AgentHandle {
 	projectDataDir?: string;
 	/** Bus topic for result messages, used for cleanup. */
 	resultTopic?: string;
+	/** Mnemonic codename assigned at delegation time. */
+	mnemonicName?: string;
 }
 
 /**
@@ -229,6 +233,7 @@ export class AgentSpawner {
 			workDir: opts.workDir,
 			rootDir: opts.rootDir,
 			projectDataDir: opts.projectDataDir,
+			mnemonicName: opts.mnemonicName,
 		};
 		this.handles.set(handleId, handle);
 

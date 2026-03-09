@@ -52,7 +52,7 @@ describe("aggregateTokenUsage", () => {
 			makeEvent("perceive", "root", 0, { goal: "Work" }),
 			makeEvent("act_start", "root", 0, { agent_name: "editor", goal: "Edit", child_id: "child-1" }),
 		];
-		const tree = buildAgentTree(events);
+		const { tree } = buildAgentTree(events);
 
 		expect(aggregateTokenUsage(events, tree, "child-1")).toBeNull();
 	});
@@ -66,7 +66,7 @@ describe("aggregateTokenUsage", () => {
 				usage: { input_tokens: 500, output_tokens: 200, total_tokens: 700 },
 			}),
 		];
-		const tree = buildAgentTree(events);
+		const { tree } = buildAgentTree(events);
 
 		expect(aggregateTokenUsage(events, tree, "child-1")).toEqual({
 			inputTokens: 500,
@@ -88,7 +88,7 @@ describe("aggregateTokenUsage", () => {
 				usage: { input_tokens: 800, output_tokens: 300, total_tokens: 1100 },
 			}),
 		];
-		const tree = buildAgentTree(events);
+		const { tree } = buildAgentTree(events);
 
 		expect(aggregateTokenUsage(events, tree, "child-1")).toEqual({
 			inputTokens: 1300,
@@ -115,7 +115,7 @@ describe("aggregateTokenUsage", () => {
 			makeEvent("act_end", "parent-1", 1, { agent_name: "child", child_id: "grandchild-1", success: true }),
 			makeEvent("act_end", "root", 0, { agent_name: "parent", child_id: "parent-1", success: true }),
 		];
-		const tree = buildAgentTree(events);
+		const { tree } = buildAgentTree(events);
 
 		// Querying parent-1 should include grandchild-1's tokens too
 		expect(aggregateTokenUsage(events, tree, "parent-1")).toEqual({
@@ -141,7 +141,7 @@ describe("aggregateTokenUsage", () => {
 			}),
 			makeEvent("act_end", "root", 0, { agent_name: "runner", child_id: "agent-b", success: true }),
 		];
-		const tree = buildAgentTree(events);
+		const { tree } = buildAgentTree(events);
 
 		expect(aggregateTokenUsage(events, tree, "agent-a")).toEqual({
 			inputTokens: 500,
@@ -160,7 +160,7 @@ describe("aggregateTokenUsage", () => {
 	test("returns null when agent not found in tree", () => {
 		resetTimestamps();
 		const events = [makeEvent("perceive", "root", 0, { goal: "Work" })];
-		const tree = buildAgentTree(events);
+		const { tree } = buildAgentTree(events);
 
 		expect(aggregateTokenUsage(events, tree, "nonexistent")).toBeNull();
 	});
@@ -172,7 +172,7 @@ describe("aggregateTokenUsage", () => {
 			makeEvent("act_start", "root", 0, { agent_name: "editor", goal: "Edit", child_id: "child-1" }),
 			makeEvent("plan_end", "child-1", 1, { text: "I will edit the file" }),
 		];
-		const tree = buildAgentTree(events);
+		const { tree } = buildAgentTree(events);
 
 		expect(aggregateTokenUsage(events, tree, "child-1")).toBeNull();
 	});
@@ -189,7 +189,7 @@ describe("aggregateTokenUsage", () => {
 			// Malformed: usage is a string instead of object
 			makeEvent("plan_end", "child-1", 1, { usage: "bad" }),
 		];
-		const tree = buildAgentTree(events);
+		const { tree } = buildAgentTree(events);
 
 		expect(aggregateTokenUsage(events, tree, "child-1")).toEqual({
 			inputTokens: 500,
@@ -210,7 +210,7 @@ describe("aggregateTokenUsage", () => {
 				context_window_size: 200000,
 			}),
 		];
-		const tree = buildAgentTree(events);
+		const { tree } = buildAgentTree(events);
 
 		expect(aggregateTokenUsage(events, tree, "child-1")).toEqual({
 			inputTokens: 500,
@@ -236,7 +236,7 @@ describe("aggregateTokenUsage", () => {
 				context_window_size: 200000,
 			}),
 		];
-		const tree = buildAgentTree(events);
+		const { tree } = buildAgentTree(events);
 
 		expect(aggregateTokenUsage(events, tree, "child-1")).toEqual({
 			inputTokens: 1300,
@@ -265,7 +265,7 @@ describe("aggregateTokenUsage", () => {
 			makeEvent("act_end", "parent-1", 1, { agent_name: "child", child_id: "grandchild-1", success: true }),
 			makeEvent("act_end", "root", 0, { agent_name: "parent", child_id: "parent-1", success: true }),
 		];
-		const tree = buildAgentTree(events);
+		const { tree } = buildAgentTree(events);
 
 		// parent-1 should have its own context data, NOT grandchild-1's
 		expect(aggregateTokenUsage(events, tree, "parent-1")).toEqual({
@@ -293,7 +293,7 @@ describe("aggregateTokenUsage", () => {
 				usage: { input_tokens: 500, output_tokens: 200, total_tokens: 700 },
 			}),
 		];
-		const tree = buildAgentTree(events);
+		const { tree } = buildAgentTree(events);
 
 		const result = aggregateTokenUsage(events, tree, "child-1");
 		expect(result).not.toBeNull();

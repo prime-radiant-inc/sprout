@@ -4,6 +4,7 @@ import styles from "./DelegationBlock.module.css";
 
 interface DelegationBlockProps {
 	agentName: string;
+	mnemonicName?: string;
 	goal: string;
 	/** Short label for compact display; falls back to goal when absent */
 	description?: string;
@@ -17,7 +18,7 @@ interface DelegationBlockProps {
 
 /** Delegation block — status card with left accent stripe showing agent activity. */
 export function DelegationBlock(props: DelegationBlockProps) {
-	const { agentName, goal, description, status, turns, durationMs, livePeek, livePeekTools, onOpenThread } = props;
+	const { agentName, mnemonicName, goal, description, status, turns, durationMs, livePeek, livePeekTools, onOpenThread } = props;
 
 	const dur = formatDuration(durationMs ?? null);
 
@@ -27,7 +28,9 @@ export function DelegationBlock(props: DelegationBlockProps) {
 				{status === "running" && (
 					<span className={styles.spinner} data-testid="spinner">{"\u25CF"}</span>
 				)}
-				<span className={styles.agentName}>{agentName}</span>
+				<span className={styles.agentName}>
+					{mnemonicName ? `${mnemonicName} (${agentName})` : agentName}
+				</span>
 				{status === "completed" && (
 					<span className={styles.success}>{"\u2713"}</span>
 				)}
