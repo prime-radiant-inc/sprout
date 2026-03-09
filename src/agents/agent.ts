@@ -1384,13 +1384,38 @@ export class Agent {
 	private async runLoop(goal: string): Promise<AgentResult> {
 		const agentId = this.agentId ?? this.spec.name;
 		const systemPrompt = this.systemPrompt!;
-		const signal = this.signal;
+		const externalSignal = this.signal;
 		const startTime = performance.now();
 		const callHistory: CallRecord[] = [];
 		let stumbles = 0;
 		let turns = 0;
 		let lastOutput = "";
 		let interrupted = false;
+		let timedOut = false;
+
+		const timeoutMs = this.spec.constraints.timeout_ms;
+		let timeoutController: AbortController | undefined;
+		let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
+
+		const resetInactivityTimer = () => {
+			if (timeoutMs <= 0) return;
+			clearTimeout(timeoutTimer);
+			timeoutTimer = setTimeout(() => timeoutController?.abort(), timeoutMs);
+		};
+
+		if (timeoutMs > 0) {
+			timeoutController = new AbortController();
+			resetInactivityTimer();
+		}
+
+		// Combined signal: aborts if external signal OR inactivity timeout fires
+		const signals: AbortSignal[] = [];
+		if (externalSignal) signals.push(externalSignal);
+		if (timeoutController) signals.push(timeoutController.signal);
+		const signal = signals.length > 0 ? AbortSignal.any(signals) : undefined;
+
+		// Update this.signal so executeToolCalls picks up the combined signal
+		if (signal) this.signal = signal;
 
 		try {
 			while (turns < this.spec.constraints.max_turns) {
@@ -1412,24 +1437,20 @@ export class Agent {
 					this.emitAndLog("steering", agentId, this.depth, { text });
 				}
 
-				// Check timeout
-				if (this.spec.constraints.timeout_ms > 0) {
-					const elapsed = performance.now() - startTime;
-					if (elapsed >= this.spec.constraints.timeout_ms) {
-						this.emitAndLog("warning", agentId, this.depth, {
-							message: `Agent timed out after ${Math.round(elapsed)}ms (limit: ${this.spec.constraints.timeout_ms}ms)`,
-						});
-						break;
-					}
-				}
-
-				// Check abort signal
+				// Check abort signal (timeout or external)
 				if (signal?.aborted) {
-					interrupted = true;
-					this.emitAndLog("interrupted", agentId, this.depth, {
-						message: "Agent interrupted by abort signal",
-						turns,
-					});
+					if (timeoutController?.signal.aborted) {
+						this.emitAndLog("warning", agentId, this.depth, {
+							message: `Agent timed out after ${timeoutMs}ms idle (total elapsed: ${Math.round(performance.now() - startTime)}ms, limit: ${timeoutMs}ms)`,
+						});
+						timedOut = true;
+					} else {
+						interrupted = true;
+						this.emitAndLog("interrupted", agentId, this.depth, {
+							message: "Agent interrupted by abort signal",
+							turns,
+						});
+					}
 					break;
 				}
 
@@ -1451,10 +1472,18 @@ export class Agent {
 					logger: this.logger,
 				});
 				if (planningResult.kind === "interrupted") {
-					interrupted = true;
+					if (timeoutController?.signal.aborted) {
+						this.emitAndLog("warning", agentId, this.depth, {
+							message: `Agent timed out after ${timeoutMs}ms idle (total elapsed: ${Math.round(performance.now() - startTime)}ms, limit: ${timeoutMs}ms)`,
+						});
+						timedOut = true;
+					} else {
+						interrupted = true;
+					}
 					break;
 				}
 				const { response, assistantMessage, toolCalls } = planningResult;
+				resetInactivityTimer();
 
 				// If response was truncated (hit max_tokens), tool calls are likely incomplete.
 				// Don't attempt to execute them — tell the LLM to break the task into smaller steps.
@@ -1500,6 +1529,7 @@ export class Agent {
 				if (toolExecution.output !== undefined) {
 					lastOutput = toolExecution.output;
 				}
+				resetInactivityTimer();
 
 				// Compact history if context usage exceeds threshold or manually requested
 				const compactionDecision = evaluateCompaction({
@@ -1533,6 +1563,9 @@ export class Agent {
 				}
 			}
 
+			clearTimeout(timeoutTimer);
+			this.signal = externalSignal;
+
 			const retryAccounting = applyRetryAccounting({
 				callHistory,
 				stumbles,
@@ -1565,8 +1598,7 @@ export class Agent {
 			turns,
 			stumbles,
 			maxTurns: this.spec.constraints.max_turns,
-			timeoutMs: this.spec.constraints.timeout_ms,
-			elapsedMs: performance.now() - startTime,
+			timedOut,
 			interrupted,
 			output: lastOutput,
 			sessionId: this.sessionId,
