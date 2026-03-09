@@ -543,6 +543,7 @@ describe("runInteractiveMode", () => {
 						clearPending: () => {},
 						dispose: () => {},
 					}) as any,
+				checkWebBuildFreshness: async () => undefined,
 				buildWebOpenUrl: () => "http://localhost:7777",
 				openUrl: () => {},
 				logError: (line) => {

@@ -121,6 +121,7 @@
 	flex-direction: column;
 	gap: 1px;
 	width: 100%;
+	min-width: 0;
 	text-align: left;
 	background: none;
 	border: none;
@@ -132,16 +133,42 @@
 }
 
 .nodeHeader {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	column-gap: var(--space-xs);
+	align-items: start;
+}
+
+.titleGroup {
 	display: flex;
-	gap: var(--space-xs);
+	flex-wrap: wrap;
 	align-items: baseline;
+	gap: 4px;
+	min-width: 0;
 }
 
 .agentName {
 	color: var(--color-accent);
 	font-weight: 600;
-	white-space: nowrap;
 	font-size: var(--font-size-xs);
+	line-height: 1.3;
+	overflow-wrap: anywhere;
+}
+
+.agentRole {
+	color: var(--color-text-tertiary);
+	font-size: var(--font-size-xxs);
+	font-weight: 500;
+	line-height: 1.4;
+	overflow-wrap: anywhere;
+}
+
+.agentMeta {
+	display: inline-flex;
+	align-items: baseline;
+	gap: var(--space-xs);
+	justify-self: end;
+	min-width: 0;
 }
 
 .agentId {
@@ -156,7 +183,6 @@
 	font-family: var(--font-mono);
 	font-size: var(--font-size-xxs);
 	font-variant-numeric: tabular-nums;
-	margin-left: auto;
 }
 
 /* Goal text — wraps fully, never truncated */

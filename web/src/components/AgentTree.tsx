@@ -164,15 +164,22 @@ function TreeNode({
 						<span className={statusClasses[node.status]}>
 							{statusIcon(node.status)}
 						</span>
-						<span className={styles.agentName}>
-							{node.mnemonicName ? `${node.mnemonicName} (${node.agentName})` : node.agentName}
-						</span>
-						<span className={styles.agentId}>{node.agentId.slice(0, 8)}</span>
-						{node.durationMs != null && node.status !== "running" && (
-							<span className={styles.duration}>
-								{(node.durationMs / 1000).toFixed(1)}s
+						<span className={styles.titleGroup}>
+							<span className={styles.agentName}>
+								{node.mnemonicName ?? node.agentName}
 							</span>
-						)}
+							{node.mnemonicName && (
+								<span className={styles.agentRole}>{node.agentName}</span>
+							)}
+						</span>
+						<span className={styles.agentMeta}>
+							<span className={styles.agentId}>{node.agentId.slice(0, 8)}</span>
+							{node.durationMs != null && node.status !== "running" && (
+								<span className={styles.duration}>
+									{(node.durationMs / 1000).toFixed(1)}s
+								</span>
+							)}
+						</span>
 					</span>
 					{(node.description || node.goal) && (
 						<span className={styles.goal}>{node.description ?? node.goal}</span>

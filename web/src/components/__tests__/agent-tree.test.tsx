@@ -381,6 +381,27 @@ describe("AgentTree", () => {
 		expect(html).not.toContain("Read all TypeScript files");
 	});
 
+	test("renders mnemonic titles with a separate role label", () => {
+		const tree = makeNode({
+			children: [
+				makeNode({
+					agentId: "runner-1",
+					agentName: "command-runner",
+					mnemonicName: "Thompson",
+					depth: 1,
+					status: "completed",
+					goal: "Is the cwd",
+				}),
+			],
+		});
+		const html = renderToStaticMarkup(
+			<AgentTree tree={tree} selectedAgent="runner-1" onSelectAgent={() => {}} />,
+		);
+		expect(html).toContain(">Thompson<");
+		expect(html).toContain(">command-runner<");
+		expect(html).not.toContain("Thompson (command-runner)");
+	});
+
 	test("falls back to goal when description is absent", () => {
 		const tree = makeNode({
 			children: [
@@ -641,4 +662,3 @@ describe("AgentTree with stats", () => {
 		expect(html).toContain(">01ABCDEF<");
 	});
 });
-
