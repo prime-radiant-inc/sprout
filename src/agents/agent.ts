@@ -1478,6 +1478,7 @@ export class Agent {
 						});
 						timedOut = true;
 					} else {
+						// Note: requestPlanResponse already emitted the "interrupted" event
 						interrupted = true;
 					}
 					break;
@@ -1563,9 +1564,6 @@ export class Agent {
 				}
 			}
 
-			clearTimeout(timeoutTimer);
-			this.signal = externalSignal;
-
 			const retryAccounting = applyRetryAccounting({
 				callHistory,
 				stumbles,
@@ -1592,6 +1590,9 @@ export class Agent {
 			});
 			await this.flushLog();
 			throw err;
+		} finally {
+			clearTimeout(timeoutTimer);
+			this.signal = externalSignal;
 		}
 
 		const finalization = finalizeRunLoopResult({
