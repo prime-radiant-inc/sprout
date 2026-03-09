@@ -938,9 +938,10 @@ export class Agent {
 		}
 
 		const caller: CallerIdentity = { agent_name: this.spec.name, depth: this.depth };
-		const childAgentId = this.spawner.getHandle(cmd.handle)?.agentId;
-		const targetMnemonicName = this.spawner.getHandle(cmd.handle)?.mnemonicName;
-		const targetAgentName = this.spawner.getHandle(cmd.handle)?.agentName;
+		const handle = this.spawner.getHandle(cmd.handle);
+		const childAgentId = handle?.agentId;
+		const targetMnemonicName = handle?.mnemonicName;
+		const targetAgentName = handle?.agentName;
 
 		try {
 			if (cmd.kind === "wait_agent") {
