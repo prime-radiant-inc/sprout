@@ -4,10 +4,10 @@ import type { ServerWebSocket } from "bun";
 import type { SessionBus } from "../host/event-bus.ts";
 import { loadAllEventLogs } from "../host/session-state.ts";
 import { EVENT_CAP } from "../kernel/constants.ts";
+import type { PricingTable } from "../kernel/pricing.ts";
 import type { SessionEvent } from "../kernel/types.ts";
 import type { CommandMessage, ServerMessage } from "./protocol.ts";
 import { parseCommandMessage } from "./protocol.ts";
-import type { PricingTable } from "../kernel/pricing.ts";
 
 export interface WebServerOptions {
 	bus: SessionBus;

@@ -1,8 +1,8 @@
 import { join } from "node:path";
 import { TUI_INITIAL_EVENT_CAP } from "../kernel/constants.ts";
+import type { PricingTable } from "../kernel/pricing.ts";
 import type { SessionEvent } from "../kernel/types.ts";
 import type { SlashCommand } from "../tui/slash-commands.ts";
-import type { PricingTable } from "../kernel/pricing.ts";
 import { registerInteractiveSigint } from "./cli-sigint.ts";
 import { buildWebOpenUrl, runWebOnlyMode } from "./cli-web.ts";
 import { loadPricingTable } from "./pricing-cache.ts";

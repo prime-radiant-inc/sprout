@@ -31,6 +31,7 @@ function snapshotMessage(
 			status: session.status,
 			availableModels: session.availableModels ?? [],
 			currentModel: session.currentModel ?? null,
+			pricingTable: null,
 		},
 	};
 }

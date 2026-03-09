@@ -110,10 +110,10 @@ export class EventStore {
 					model: snapshotModel ?? this.status.model,
 					sessionId: msg.session.id,
 					availableModels: snapshotAvailableModels,
+					pricingTable: Array.isArray(msg.session.pricingTable)
+						? msg.session.pricingTable
+						: null,
 				};
-				this.status.pricingTable = Array.isArray(msg.session.pricingTable)
-					? msg.session.pricingTable
-					: null;
 				setPricingTable(this.status.pricingTable);
 				break;
 			}

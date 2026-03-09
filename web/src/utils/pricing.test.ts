@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { computeCost, computeSubtreeCost, formatCost, getModelPricing } from "./pricing";
+import { computeCost, computeSubtreeCost, formatCost, getModelPricing, setPricingTable } from "./pricing";
 import type { AgentStats } from "../hooks/useAgentStats";
 import type { AgentTreeNode } from "../hooks/useAgentTree";
 
@@ -123,5 +123,33 @@ describe("computeSubtreeCost", () => {
 			["child1", makeStats("claude-haiku-4-5", 0, 0)],
 		]);
 		expect(computeSubtreeCost(tree, "root", stats)).toBeNull();
+	});
+});
+
+describe("setPricingTable", () => {
+	test("server table provides pricing for getModelPricing", () => {
+		setPricingTable([["my-custom-model", { input: 5, output: 25 }]]);
+		expect(getModelPricing("my-custom-model-v2")).toEqual({ input: 5, output: 25 });
+		setPricingTable(null);
+	});
+
+	test("null reverts to fallback behaviour", () => {
+		setPricingTable([["claude-sonnet-4", { input: 99, output: 99 }]]);
+		setPricingTable(null);
+		const p = getModelPricing("claude-sonnet-4-20250514");
+		// Should get fallback pricing, not server pricing
+		expect(p).toEqual({ input: 3, output: 15 });
+	});
+
+	test("server table takes priority over fallback for matching models", () => {
+		const serverTable: [string, { input: number; output: number }][] = [
+			["claude-sonnet-4", { input: 3.5, output: 16 }],
+		];
+		setPricingTable(serverTable);
+		const p = getModelPricing("claude-sonnet-4-20250514");
+		expect(p).toEqual({ input: 3.5, output: 16 });
+		// Falls back for non-matching models
+		expect(getModelPricing("o4-mini-2025")).toEqual({ input: 1.1, output: 4.4 });
+		setPricingTable(null);
 	});
 });
