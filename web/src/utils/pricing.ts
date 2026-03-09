@@ -27,10 +27,21 @@ export function computeCost(
 	model: string,
 	inputTokens: number,
 	outputTokens: number,
+	cacheReadTokens = 0,
+	cacheWriteTokens = 0,
 ): number | null {
 	const pricing = getModelPricing(model);
 	if (!pricing) return null;
-	return (inputTokens * pricing.input + outputTokens * pricing.output) / 1_000_000;
+
+	const uncachedInput = Math.max(0, inputTokens - cacheReadTokens - cacheWriteTokens);
+	const inputCost =
+		(uncachedInput * pricing.input +
+			cacheReadTokens * pricing.input * 0.1 +
+			cacheWriteTokens * pricing.input * 0.25) /
+		1_000_000;
+	const outputCost = (outputTokens * pricing.output) / 1_000_000;
+
+	return inputCost + outputCost;
 }
 
 /**
@@ -52,7 +63,13 @@ export function computeSubtreeCost(
 		const stats = agentStats.get(id);
 		if (!stats?.model) continue;
 		if (stats.inputTokens === 0 && stats.outputTokens === 0) continue;
-		const cost = computeCost(stats.model, stats.inputTokens, stats.outputTokens);
+		const cost = computeCost(
+			stats.model,
+			stats.inputTokens,
+			stats.outputTokens,
+			stats.cacheReadTokens,
+			stats.cacheWriteTokens,
+		);
 		if (cost != null) {
 			total += cost;
 			found = true;

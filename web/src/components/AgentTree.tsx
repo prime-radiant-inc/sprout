@@ -84,7 +84,13 @@ function StatsLine({
 				)
 			)}
 			{stats.model && (stats.inputTokens > 0 || stats.outputTokens > 0) && (() => {
-				const cost = computeCost(stats.model, stats.inputTokens, stats.outputTokens);
+				const cost = computeCost(
+					stats.model,
+					stats.inputTokens,
+					stats.outputTokens,
+					stats.cacheReadTokens,
+					stats.cacheWriteTokens,
+				);
 				return cost != null ? <span className={styles.cost}>{formatCost(cost)}</span> : null;
 			})()}
 		</span>

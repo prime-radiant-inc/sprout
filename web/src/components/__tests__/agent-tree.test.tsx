@@ -475,6 +475,8 @@ function makeStats(overrides: Partial<AgentStats> = {}): AgentStats {
 		state: "idle",
 		inputTokens: 0,
 		outputTokens: 0,
+		cacheReadTokens: 0,
+		cacheWriteTokens: 0,
 		currentTurn: 0,
 		llmCallStartedAt: null,
 		streamingChunks: 0,

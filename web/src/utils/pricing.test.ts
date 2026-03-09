@@ -39,6 +39,22 @@ describe("computeCost", () => {
 	test("returns null for unknown model", () => {
 		expect(computeCost("unknown-model", 1000, 1000)).toBeNull();
 	});
+
+	test("computes cost with cached tokens at reduced rates", () => {
+		// 1M total input, 800K cached reads, 100K cache writes, 100K uncached
+		// Uncached: 100K × $3/M = $0.30
+		// Cache reads: 800K × $3/M × 0.10 = $0.24
+		// Cache writes: 100K × $3/M × 0.25 = $0.075
+		// Total input: $0.615
+		// Output: 0
+		const cost = computeCost("claude-sonnet-4-6", 1_000_000, 0, 800_000, 100_000);
+		expect(cost).toBeCloseTo(0.615);
+	});
+
+	test("cache tokens default to zero (backward compatible)", () => {
+		const cost = computeCost("claude-sonnet-4-20250514", 1_000_000, 500_000);
+		expect(cost).toBeCloseTo(10.5);
+	});
 });
 
 describe("formatCost", () => {
@@ -70,6 +86,8 @@ describe("computeSubtreeCost", () => {
 		state: "idle" as const,
 		inputTokens,
 		outputTokens,
+		cacheReadTokens: 0,
+		cacheWriteTokens: 0,
 		currentTurn: 0,
 		llmCallStartedAt: null,
 		streamingChunks: 0,

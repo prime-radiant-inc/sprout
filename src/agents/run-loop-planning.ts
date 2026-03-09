@@ -89,6 +89,8 @@ export async function executePlanningTurn(
 		provider: input.provider,
 		input_tokens: response.usage?.input_tokens ?? 0,
 		output_tokens: response.usage?.output_tokens ?? 0,
+		cache_read_tokens: response.usage?.cache_read_tokens ?? 0,
+		cache_write_tokens: response.usage?.cache_write_tokens ?? 0,
 		latency_ms: latencyMs,
 		finish_reason: response.finish_reason.reason,
 	});

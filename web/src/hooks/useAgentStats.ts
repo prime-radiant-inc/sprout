@@ -9,6 +9,8 @@ export interface AgentStats {
 	state: AgentState;
 	inputTokens: number;
 	outputTokens: number;
+	cacheReadTokens: number;
+	cacheWriteTokens: number;
 	currentTurn: number;
 	/** Timestamp (Date.now()) when the current LLM call started, or null if not in a call. */
 	llmCallStartedAt: number | null;
@@ -25,6 +27,8 @@ function createDefaultStats(agentId: string, depth: number): AgentStats {
 		state: "idle",
 		inputTokens: 0,
 		outputTokens: 0,
+		cacheReadTokens: 0,
+		cacheWriteTokens: 0,
 		currentTurn: 0,
 		llmCallStartedAt: null,
 		streamingChunks: 0,
@@ -59,6 +63,8 @@ export function buildAgentStats(events: SessionEvent[]): Map<string, AgentStats>
 				s.state = "idle";
 				s.inputTokens = 0;
 				s.outputTokens = 0;
+				s.cacheReadTokens = 0;
+				s.cacheWriteTokens = 0;
 				s.currentTurn = 0;
 				s.streamingChunks = 0;
 				s.llmCallStartedAt = null;
@@ -98,6 +104,12 @@ export function buildAgentStats(events: SessionEvent[]): Map<string, AgentStats>
 				}
 				if (typeof event.data.output_tokens === "number") {
 					s.outputTokens += event.data.output_tokens;
+				}
+				if (typeof event.data.cache_read_tokens === "number") {
+					s.cacheReadTokens += event.data.cache_read_tokens;
+				}
+				if (typeof event.data.cache_write_tokens === "number") {
+					s.cacheWriteTokens += event.data.cache_write_tokens;
 				}
 				break;
 
