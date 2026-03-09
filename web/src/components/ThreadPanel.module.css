@@ -30,7 +30,7 @@
 
 .nameRow {
 	display: flex;
-	align-items: flex-start;
+	align-items: baseline;
 	gap: var(--space-sm);
 	min-width: 0;
 }
@@ -49,7 +49,6 @@
 	font-weight: 600;
 	color: var(--color-accent);
 	line-height: 1.3;
-	overflow-wrap: anywhere;
 }
 
 .agentRole {
@@ -58,16 +57,6 @@
 	font-size: var(--font-size-xxs);
 	font-weight: 500;
 	line-height: 1.4;
-	overflow-wrap: anywhere;
-}
-
-.headerMeta {
-	display: flex;
-	align-items: center;
-	gap: var(--space-sm);
-	margin-left: auto;
-	flex-shrink: 0;
-	min-width: 0;
 }
 
 .tokenUsage {
@@ -81,8 +70,8 @@
 .headerStats {
 	display: flex;
 	align-items: center;
+	flex-wrap: wrap;
 	gap: var(--space-sm);
-	flex-shrink: 0;
 }
 
 .contextPressure {
@@ -154,16 +143,6 @@
 	color: var(--color-running);
 	font-size: var(--font-size-xs);
 	animation: pulse 1.5s ease-in-out infinite;
-}
-
-.agentId {
-	font-family: var(--font-mono);
-	font-size: var(--font-size-xxs);
-	color: var(--color-text-placeholder);
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	min-width: 0;
 }
 
 .cost {

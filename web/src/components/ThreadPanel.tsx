@@ -80,39 +80,36 @@ export function ThreadPanel({ agentId, tree, events, agentStats, onClose, onSele
 								<span className={styles.agentRole}>{agentName}</span>
 							)}
 						</span>
-						<div className={styles.headerMeta}>
-							<span className={styles.agentId}>{agentId}</span>
-							{tokenUsage && (
-								<div className={styles.headerStats} data-testid="header-stats">
-									{contextPressure !== null && (
-										<span className={styles.contextPressure} data-testid="context-pressure">
-											<span className={styles.pressureBarTrack}>
-												<span
-													className={styles.pressureBarFill}
-													style={{
-														width: `${contextPressure}%`,
-														background: pressureColor(contextPressure),
-													}}
-												/>
-											</span>
-											{contextPressure}%
-										</span>
-									)}
-									<span className={styles.tokenUsage} data-testid="token-usage">
-										{formatCompactNumber(tokenUsage.inputTokens)} in / {formatCompactNumber(tokenUsage.outputTokens)} out
-									</span>
-									{cost != null && (
-										<span className={styles.cost} data-testid="cost">{formatCost(cost)}</span>
-									)}
-									{stats?.model && (
-										<span className={styles.modelName} data-testid="model-name">{stats.model}</span>
-									)}
-								</div>
-							)}
-						</div>
 					</div>
 					{(description || goal) && (
 						<div className={styles.goal}>{description || goal}</div>
+					)}
+					{tokenUsage && (
+						<div className={styles.headerStats} data-testid="header-stats">
+							{contextPressure !== null && (
+								<span className={styles.contextPressure} data-testid="context-pressure">
+									<span className={styles.pressureBarTrack}>
+										<span
+											className={styles.pressureBarFill}
+											style={{
+												width: `${contextPressure}%`,
+												background: pressureColor(contextPressure),
+											}}
+										/>
+									</span>
+									{contextPressure}%
+								</span>
+							)}
+							<span className={styles.tokenUsage} data-testid="token-usage">
+								{formatCompactNumber(tokenUsage.inputTokens)} in / {formatCompactNumber(tokenUsage.outputTokens)} out
+							</span>
+							{cost != null && (
+								<span className={styles.cost} data-testid="cost">{formatCost(cost)}</span>
+							)}
+							{stats?.model && (
+								<span className={styles.modelName} data-testid="model-name">{stats.model}</span>
+							)}
+						</div>
 					)}
 				</div>
 				<button

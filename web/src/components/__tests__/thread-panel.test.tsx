@@ -115,6 +115,25 @@ describe("ThreadPanel status badge", () => {
 		expect(html).toContain(">command-runner<");
 		expect(html).not.toContain("Thompson (command-runner)");
 	});
+
+	test("does not render the raw child id in the thread title", () => {
+		const tree = makeNode({
+			agentId: "root",
+			agentName: "root",
+			children: [
+				makeNode({
+					agentId: "child-1",
+					agentName: "command-runner",
+					mnemonicName: "Thompson",
+					depth: 1,
+					status: "completed",
+					goal: "Run ls",
+				}),
+			],
+		});
+		const html = renderPanel(tree);
+		expect(html).not.toContain(">child-1<");
+	});
 });
 
 // --- ThreadPanel token usage ---
