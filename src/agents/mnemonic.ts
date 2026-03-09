@@ -9,6 +9,10 @@ export interface MnemonicContext {
 	usedNames: string[];
 }
 
+function isReplayVcrClient(client: Client): boolean {
+	return (client as Client & { __sproutVcrMode?: string }).__sproutVcrMode === "replay";
+}
+
 /**
  * Generate a mnemonic codename for an agent using an LLM.
  * Returns a historical figure's surname relevant to the agent's task,
@@ -21,6 +25,10 @@ export async function generateMnemonicName(
 	context: MnemonicContext,
 	signal?: AbortSignal,
 ): Promise<string | null> {
+	if (isReplayVcrClient(client)) {
+		return null;
+	}
+
 	const usedList =
 		context.usedNames.length > 0
 			? `\nDo NOT use any of these already-taken names: ${context.usedNames.join(", ")}`

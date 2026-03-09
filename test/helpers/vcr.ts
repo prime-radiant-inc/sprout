@@ -66,6 +66,8 @@ interface VcrOptions {
 	realClient?: VcrRealClient;
 }
 
+type VcrTaggedClient = Client & { __sproutVcrMode: VcrMode };
+
 // ---------------------------------------------------------------------------
 // Adapter VCR options
 // ---------------------------------------------------------------------------
@@ -113,6 +115,10 @@ function stripRaw(response: Response): Response {
 
 function fixturePath(fixtureDir: string, testName: string): string {
 	return join(fixtureDir, `${testName}.json`);
+}
+
+function tagClientMode(client: object, mode: VcrMode): VcrTaggedClient {
+	return Object.assign(client, { __sproutVcrMode: mode }) as unknown as VcrTaggedClient;
 }
 
 function resolveMode(opts: { mode?: VcrMode; fixtureDir: string; testName: string }): VcrMode {
@@ -186,7 +192,7 @@ function createClientPassthrough(opts: VcrOptions): {
 		throw new Error("VCR off mode requires a realClient");
 	}
 	return {
-		client: realClient as Client,
+		client: tagClientMode(realClient as Client, "off"),
 		afterTest: async () => {},
 	};
 }
@@ -202,41 +208,45 @@ function createClientRecorder(
 
 	const entries: VcrEntry[] = [];
 
-	const client = {
-		complete: async (request: Request): Promise<Response> => {
-			const response = await realClient.complete(request);
-			const cleanResponse = stripRaw(response);
+	const client = tagClientMode(
+		{
+			__sproutVcrMode: "record" as const,
+			complete: async (request: Request): Promise<Response> => {
+				const response = await realClient.complete(request);
+				const cleanResponse = stripRaw(response);
 
-			entries.push({
-				type: "complete",
-				request: substituteForRecording(request, subs) as Request,
-				response: substituteForRecording(cleanResponse, subs) as Response,
-			});
+				entries.push({
+					type: "complete",
+					request: substituteForRecording(request, subs) as Request,
+					response: substituteForRecording(cleanResponse, subs) as Response,
+				});
 
-			return response;
-		},
-		stream: async function* (request: Request): AsyncIterable<StreamEvent> {
-			if (!realClient.stream) {
-				throw new Error("VCR record mode: realClient does not support stream()");
-			}
-			const events: StreamEvent[] = [];
-			for await (const event of realClient.stream(request)) {
-				events.push(event);
-				yield event;
-			}
+				return response;
+			},
+			stream: async function* (request: Request): AsyncIterable<StreamEvent> {
+				if (!realClient.stream) {
+					throw new Error("VCR record mode: realClient does not support stream()");
+				}
+				const events: StreamEvent[] = [];
+				for await (const event of realClient.stream(request)) {
+					events.push(event);
+					yield event;
+				}
 
-			entries.push({
-				type: "stream",
-				request: substituteForRecording(request, subs) as Request,
-				events: substituteForRecording(events, subs) as StreamEvent[],
-			});
+				entries.push({
+					type: "stream",
+					request: substituteForRecording(request, subs) as Request,
+					events: substituteForRecording(events, subs) as StreamEvent[],
+				});
+			},
+			providers: () => realClient.providers(),
+			listModelsByProvider: async () => {
+				const { defaultModelsByProvider } = await import("../../src/agents/model-resolver.ts");
+				return defaultModelsByProvider(realClient.providers());
+			},
 		},
-		providers: () => realClient.providers(),
-		listModelsByProvider: async () => {
-			const { defaultModelsByProvider } = await import("../../src/agents/model-resolver.ts");
-			return defaultModelsByProvider(realClient.providers());
-		},
-	} as Client;
+		"record",
+	);
 
 	const afterTest = async () => {
 		const path = fixturePath(opts.fixtureDir, opts.testName);
@@ -269,56 +279,60 @@ function createClientReplayer(
 	const cassette = loadCassette(path);
 	let callIndex = 0;
 
-	const client = {
-		complete: async (_request: Request): Promise<Response> => {
-			const { entry, nextIndex } = nextEntry(cassette, callIndex, opts.testName);
-			callIndex = nextIndex;
+	const client = tagClientMode(
+		{
+			__sproutVcrMode: "replay" as const,
+			complete: async (_request: Request): Promise<Response> => {
+				const { entry, nextIndex } = nextEntry(cassette, callIndex, opts.testName);
+				callIndex = nextIndex;
 
-			if (entry.type !== "complete") {
+				if (entry.type !== "complete") {
+					throw new Error(
+						`VCR type mismatch for '${opts.testName}' call #${callIndex}: ` +
+							`expected 'complete' but recording is '${entry.type}'.`,
+					);
+				}
+
+				return substituteForReplay(entry.response, subs) as Response;
+			},
+			stream: async function* (_request: Request): AsyncIterable<StreamEvent> {
+				const { entry, nextIndex } = nextEntry(cassette, callIndex, opts.testName);
+				callIndex = nextIndex;
+
+				if (entry.type === "stream") {
+					for (const event of entry.events) {
+						yield substituteForReplay(event, subs) as StreamEvent;
+					}
+					return;
+				}
+
+				// Wrap a complete recording as a minimal stream so existing
+				// non-streaming VCR fixtures work when enableStreaming is on.
+				if (entry.type === "complete") {
+					const response = substituteForReplay(entry.response, subs) as Response;
+					yield { type: "stream_start" } as StreamEvent;
+					yield {
+						type: "finish",
+						finish_reason: response.finish_reason,
+						usage: response.usage,
+						response,
+					} as unknown as StreamEvent;
+					return;
+				}
+
 				throw new Error(
 					`VCR type mismatch for '${opts.testName}' call #${callIndex}: ` +
-						`expected 'complete' but recording is '${entry.type}'.`,
+						`expected 'stream' or 'complete' but recording is '${(entry as VcrEntry).type}'.`,
 				);
-			}
-
-			return substituteForReplay(entry.response, subs) as Response;
+			},
+			providers: () => cassette.metadata.providers,
+			listModelsByProvider: async () => {
+				const { defaultModelsByProvider } = await import("../../src/agents/model-resolver.ts");
+				return defaultModelsByProvider(cassette.metadata.providers);
+			},
 		},
-		stream: async function* (_request: Request): AsyncIterable<StreamEvent> {
-			const { entry, nextIndex } = nextEntry(cassette, callIndex, opts.testName);
-			callIndex = nextIndex;
-
-			if (entry.type === "stream") {
-				for (const event of entry.events) {
-					yield substituteForReplay(event, subs) as StreamEvent;
-				}
-				return;
-			}
-
-			// Wrap a complete recording as a minimal stream so existing
-			// non-streaming VCR fixtures work when enableStreaming is on.
-			if (entry.type === "complete") {
-				const response = substituteForReplay(entry.response, subs) as Response;
-				yield { type: "stream_start" } as StreamEvent;
-				yield {
-					type: "finish",
-					finish_reason: response.finish_reason,
-					usage: response.usage,
-					response,
-				} as unknown as StreamEvent;
-				return;
-			}
-
-			throw new Error(
-				`VCR type mismatch for '${opts.testName}' call #${callIndex}: ` +
-					`expected 'stream' or 'complete' but recording is '${(entry as VcrEntry).type}'.`,
-			);
-		},
-		providers: () => cassette.metadata.providers,
-		listModelsByProvider: async () => {
-			const { defaultModelsByProvider } = await import("../../src/agents/model-resolver.ts");
-			return defaultModelsByProvider(cassette.metadata.providers);
-		},
-	} as Client;
+		"replay",
+	);
 
 	const afterTest = async () => {
 		// No-op in replay mode

@@ -103,6 +103,34 @@ describe("generateMnemonicName", () => {
 		expect(name).toBeNull();
 	});
 
+	test("skips mnemonic generation for replay-mode VCR clients", async () => {
+		let callCount = 0;
+		const client = {
+			__sproutVcrMode: "replay",
+			complete: async () => {
+				callCount++;
+				return {
+					id: "test",
+					model: "test",
+					provider: "test",
+					message: Msg.assistant("Turing"),
+					finish_reason: "stop" as const,
+					usage: {
+						input_tokens: 0,
+						output_tokens: 0,
+						total_tokens: 0,
+						cache_read_input_tokens: 0,
+						cache_creation_input_tokens: 0,
+					},
+				};
+			},
+		} as any;
+
+		const name = await generateMnemonicName(client, "test-model", "test-provider", baseContext);
+		expect(name).toBeNull();
+		expect(callCount).toBe(0);
+	});
+
 	test("extracts first word from multi-word response", async () => {
 		const client = makeMockClient("Ada Lovelace");
 		const name = await generateMnemonicName(client, "test-model", "test-provider", baseContext);
