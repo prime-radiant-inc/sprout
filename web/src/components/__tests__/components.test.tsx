@@ -1176,6 +1176,31 @@ describe("ConversationView", () => {
 		expect(html).not.toContain("Thompson (command-runner)");
 	});
 
+	test("uses a default caller label when provided", () => {
+		const events: SessionEvent[] = [
+			makeEvent("perceive", { goal: "Run ls" }, { agent_id: "CID1", depth: 1, timestamp: 1002 }),
+		];
+		const { tree } = buildAgentTree([
+			makeEvent("perceive", { goal: "root goal" }, { agent_id: "root", depth: 0, timestamp: 1000 }),
+			makeEvent(
+				"act_start",
+				{ agent_name: "command-runner", mnemonic_name: "Thompson", goal: "Run ls", child_id: "CID1" },
+				{ agent_id: "root", depth: 0, timestamp: 1001 },
+			),
+			...events,
+		]);
+		const html = renderToStaticMarkup(
+			<ConversationView
+				events={events}
+				agentFilter="CID1"
+				tree={tree}
+				defaultUserName="root"
+			/>,
+		);
+		expect(html).toContain(">root<");
+		expect(html).not.toContain(">You<");
+	});
+
 	test("renders empty state when no events", () => {
 		const { tree } = buildAgentTree([]);
 		const html = renderToStaticMarkup(<ConversationView events={[]} tree={tree} />);
@@ -1343,7 +1368,7 @@ describe("ThreadPanel", () => {
 		expect(html).toContain("missing-agent");
 	});
 
-	test("keeps the full role label in the thread header only", () => {
+	test("renders a separate role label in the thread header", () => {
 		const events: SessionEvent[] = [
 			makeEvent("perceive", { goal: "root goal" }, { agent_id: "root", depth: 0, timestamp: 1000 }),
 			makeEvent(
@@ -1365,11 +1390,11 @@ describe("ThreadPanel", () => {
 				onSelectAgent={() => {}}
 			/>,
 		);
-		const matches = html.match(/Thompson \(command-runner\)/g);
-		expect(matches).toHaveLength(1);
 		expect(html).toContain(">Thompson<");
+		expect(html).toContain(">command-runner<");
 		expect(html).toContain(">root<");
 		expect(html).not.toContain(">You<");
+		expect(html).not.toContain("Thompson (command-runner)");
 	});
 });
 

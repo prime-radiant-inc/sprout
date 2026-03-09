@@ -14,6 +14,8 @@ interface ConversationViewProps {
 	agentFilter?: string | null;
 	/** Agent tree for descendant resolution. */
 	tree: AgentTreeNode;
+	/** Fallback caller label for filtered thread views. */
+	defaultUserName?: string;
 	/** Navigate into a child agent's thread. */
 	onSelectAgent?: (agentId: string) => void;
 }
@@ -23,6 +25,7 @@ export function ConversationView({
 	events,
 	agentFilter,
 	tree,
+	defaultUserName,
 	onSelectAgent,
 }: ConversationViewProps) {
 	const grouped = useMemo(
@@ -52,7 +55,7 @@ export function ConversationView({
 						streamingText={streamingText}
 						isFirstInGroup={isFirstInGroup}
 						agentName={agentName}
-						userName={userName}
+						userName={userName ?? defaultUserName}
 						livePeek={livePeek}
 						livePeekTools={livePeekTools}
 						args={args}

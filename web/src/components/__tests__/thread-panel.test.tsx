@@ -94,6 +94,27 @@ describe("ThreadPanel status badge", () => {
 		// there is no data-status attribute in the header
 		expect(html).not.toContain("data-status");
 	});
+
+	test("renders mnemonic and role separately in the header", () => {
+		const tree = makeNode({
+			agentId: "root",
+			agentName: "root",
+			children: [
+				makeNode({
+					agentId: "child-1",
+					agentName: "command-runner",
+					mnemonicName: "Thompson",
+					depth: 1,
+					status: "completed",
+					goal: "Run ls",
+				}),
+			],
+		});
+		const html = renderPanel(tree);
+		expect(html).toContain(">Thompson<");
+		expect(html).toContain(">command-runner<");
+		expect(html).not.toContain("Thompson (command-runner)");
+	});
 });
 
 // --- ThreadPanel token usage ---

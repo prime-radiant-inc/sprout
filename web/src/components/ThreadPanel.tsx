@@ -29,10 +29,29 @@ interface ThreadPanelProps {
 	onSelectAgent: (agentId: string) => void;
 }
 
+function findParentNode(
+	node: AgentTreeNode,
+	agentId: string,
+	parent?: AgentTreeNode,
+): AgentTreeNode | undefined {
+	if (node.agentId === agentId) {
+		return parent;
+	}
+	for (const child of node.children) {
+		const found = findParentNode(child, agentId, node);
+		if (found) {
+			return found;
+		}
+	}
+	return undefined;
+}
+
 export function ThreadPanel({ agentId, tree, events, agentStats, onClose, onSelectAgent }: ThreadPanelProps) {
 	const node = findNode(tree, agentId);
 	const agentName = node?.agentName ?? agentId;
 	const mnemonicName = node?.mnemonicName;
+	const parentNode = findParentNode(tree, agentId);
+	const defaultUserName = parentNode?.mnemonicName ?? parentNode?.agentName;
 	const description = node?.description ?? "";
 	const goal = node?.goal ?? "";
 	const tokenUsage = useTokenUsage(events, tree, agentId);
@@ -53,37 +72,44 @@ export function ThreadPanel({ agentId, tree, events, agentStats, onClose, onSele
 								{statusIcons[node.status]}
 							</span>
 						)}
-						<span className={styles.agentName}>
-							{mnemonicName ? `${mnemonicName} (${agentName})` : agentName}
+						<span className={styles.titleGroup}>
+							<span className={styles.agentName}>
+								{mnemonicName ?? agentName}
+							</span>
+							{mnemonicName && (
+								<span className={styles.agentRole}>{agentName}</span>
+							)}
 						</span>
-						<span className={styles.agentId}>{agentId}</span>
-						{tokenUsage && (
-							<div className={styles.headerStats} data-testid="header-stats">
-								{contextPressure !== null && (
-									<span className={styles.contextPressure} data-testid="context-pressure">
-										<span className={styles.pressureBarTrack}>
-											<span
-												className={styles.pressureBarFill}
-												style={{
-													width: `${contextPressure}%`,
-													background: pressureColor(contextPressure),
-												}}
-											/>
+						<div className={styles.headerMeta}>
+							<span className={styles.agentId}>{agentId}</span>
+							{tokenUsage && (
+								<div className={styles.headerStats} data-testid="header-stats">
+									{contextPressure !== null && (
+										<span className={styles.contextPressure} data-testid="context-pressure">
+											<span className={styles.pressureBarTrack}>
+												<span
+													className={styles.pressureBarFill}
+													style={{
+														width: `${contextPressure}%`,
+														background: pressureColor(contextPressure),
+													}}
+												/>
+											</span>
+											{contextPressure}%
 										</span>
-										{contextPressure}%
+									)}
+									<span className={styles.tokenUsage} data-testid="token-usage">
+										{formatCompactNumber(tokenUsage.inputTokens)} in / {formatCompactNumber(tokenUsage.outputTokens)} out
 									</span>
-								)}
-								<span className={styles.tokenUsage} data-testid="token-usage">
-									{formatCompactNumber(tokenUsage.inputTokens)} in / {formatCompactNumber(tokenUsage.outputTokens)} out
-								</span>
-								{cost != null && (
-									<span className={styles.cost} data-testid="cost">{formatCost(cost)}</span>
-								)}
-								{stats?.model && (
-									<span className={styles.modelName} data-testid="model-name">{stats.model}</span>
-								)}
-							</div>
-						)}
+									{cost != null && (
+										<span className={styles.cost} data-testid="cost">{formatCost(cost)}</span>
+									)}
+									{stats?.model && (
+										<span className={styles.modelName} data-testid="model-name">{stats.model}</span>
+									)}
+								</div>
+							)}
+						</div>
 					</div>
 					{(description || goal) && (
 						<div className={styles.goal}>{description || goal}</div>
@@ -104,6 +130,7 @@ export function ThreadPanel({ agentId, tree, events, agentStats, onClose, onSele
 					events={events}
 					agentFilter={agentId}
 					tree={tree}
+					defaultUserName={defaultUserName}
 					onSelectAgent={onSelectAgent}
 				/>
 			</div>
