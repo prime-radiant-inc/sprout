@@ -34,9 +34,14 @@ export function ToolCall({
 	const Renderer = getRenderer(toolName);
 	const hasBody = Boolean(output) || Boolean(error);
 	const hasMetaLine = Boolean(pathDetail) || Boolean(showSummaryDuration && dur);
+	const defaultOpen = toolName === "exec" && Boolean(output);
 
 	return (
-		<details className={styles.toolCall} data-status={success ? "success" : "error"}>
+		<details
+			className={styles.toolCall}
+			data-status={success ? "success" : "error"}
+			open={defaultOpen}
+		>
 			<summary className={styles.summary}>
 				<span className={styles.indicator}>&#x25B8;</span>
 				{icon && <span className={styles.toolIcon} data-testid="tool-icon">{icon}</span>}

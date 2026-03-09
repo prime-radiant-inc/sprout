@@ -310,6 +310,19 @@ describe("ToolCall", () => {
 		expect(html).toContain("line 1");
 	});
 
+	test("opens exec rows by default when a preview is available", () => {
+		const html = renderToStaticMarkup(
+			<ToolCall
+				toolName="exec"
+				success={true}
+				args={{ command: "ls" }}
+				output={"line 1\nline 2"}
+			/>,
+		);
+		expect(html).toContain("<details");
+		expect(html).toContain("open");
+	});
+
 	test("renders smart args for exec", () => {
 		const html = renderToStaticMarkup(
 			<ToolCall
