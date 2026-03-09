@@ -68,7 +68,6 @@ export interface AgentFactoryOptions {
 	logger?: import("./logger.ts").Logger;
 	/** Pre-configured LLM client (e.g. with middleware). */
 	client?: import("../llm/client.ts").Client;
-	usedMnemonicNames?: Set<string>;
 }
 
 /** Result returned by the agent factory. */
@@ -109,8 +108,6 @@ export interface SessionControllerOptions {
 	logger?: import("./logger.ts").Logger;
 	/** Pre-configured LLM client (e.g. with middleware) to forward to the agent factory. */
 	client?: import("../llm/client.ts").Client;
-	/** Mnemonic names already used in the session (for uniqueness on resume). */
-	usedMnemonicNames?: Set<string>;
 }
 
 /**
@@ -148,7 +145,6 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 		genome: options.genome,
 		logger: options.logger,
 		client: options.client,
-		usedMnemonicNames: options.usedMnemonicNames,
 	});
 
 	return {
@@ -187,7 +183,6 @@ export class SessionController {
 	private readonly completedHandles?: SessionControllerOptions["completedHandles"];
 	private readonly logger?: import("./logger.ts").Logger;
 	private readonly client?: import("../llm/client.ts").Client;
-	private usedMnemonicNames?: Set<string>;
 	private history: Message[] = [];
 	private running = false;
 	private modelOverride?: string;
@@ -219,7 +214,6 @@ export class SessionController {
 		this.completedHandles = options.completedHandles;
 		this.logger = options.logger;
 		this.client = options.client;
-		this.usedMnemonicNames = options.usedMnemonicNames;
 		this.history = options.initialHistory ? [...options.initialHistory] : [];
 
 		this.metadata = new SessionMetadata({
@@ -428,7 +422,6 @@ export class SessionController {
 				completedHandles: this.completedHandles,
 				logger: this.logger,
 				client: this.client,
-				usedMnemonicNames: this.usedMnemonicNames,
 			});
 
 			this.agent = result.agent;

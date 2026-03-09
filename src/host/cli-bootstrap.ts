@@ -24,7 +24,6 @@ export interface InteractiveBootstrapOptions {
 	sessionId: string;
 	initialHistory?: Message[];
 	completedHandles?: Array<{ handleId: string; result: ResultMessage; ownerId: string }>;
-	usedMnemonicNames?: Set<string>;
 	infra: { spawner: AgentSpawner; genome: Genome };
 	logStderr?: boolean;
 	debug?: boolean;
@@ -50,7 +49,6 @@ interface InteractiveBootstrapDeps {
 		spawner: AgentSpawner;
 		genome: Genome;
 		completedHandles?: Array<{ handleId: string; result: ResultMessage; ownerId: string }>;
-		usedMnemonicNames?: Set<string>;
 		logger: unknown;
 		client: unknown;
 	}) => unknown;
@@ -101,7 +99,6 @@ export async function bootstrapInteractiveRuntime(
 					spawner: controllerOpts.spawner,
 					genome: controllerOpts.genome,
 					completedHandles: controllerOpts.completedHandles,
-					usedMnemonicNames: controllerOpts.usedMnemonicNames,
 					logger: controllerOpts.logger as SessionLogger,
 					client: controllerOpts.client as Client,
 				});
@@ -150,7 +147,6 @@ export async function bootstrapInteractiveRuntime(
 		spawner: opts.infra.spawner,
 		genome: opts.infra.genome,
 		completedHandles: opts.completedHandles,
-		usedMnemonicNames: opts.usedMnemonicNames,
 		logger,
 		client: llmClient,
 	});

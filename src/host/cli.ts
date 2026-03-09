@@ -723,7 +723,6 @@ export async function runCli(command: CliCommand): Promise<void> {
 		sessionId,
 		initialHistory: resumeState?.history,
 		completedHandles: resumeState?.completedHandles,
-		usedMnemonicNames: resumeState?.usedMnemonicNames,
 		infra,
 		logStderr: command.logStderr,
 		debug: command.debug,

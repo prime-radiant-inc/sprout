@@ -24,7 +24,6 @@ export interface ResumeState {
 				ownerId: string;
 		  }>
 		| undefined;
-	usedMnemonicNames?: Set<string>;
 }
 
 interface ResumeDeps {
@@ -105,27 +104,10 @@ export async function loadResumeState(
 
 	const sessionLogDir = join(opts.projectDataDir, "logs", sessionId);
 	const events = await d.loadAllEventLogs(logPath, sessionLogDir);
-	const usedMnemonicNames = extractUsedMnemonicNames(events);
 	return {
 		sessionId,
 		history,
 		events,
 		completedHandles,
-		usedMnemonicNames,
 	};
-}
-
-/**
- * Extract all mnemonic names from act_start events in a session's event log.
- * Used during session resume to reconstruct the usedMnemonicNames set so that
- * new delegations avoid name collisions with agents from the prior session.
- */
-export function extractUsedMnemonicNames(events: SessionEvent[]): Set<string> {
-	const names = new Set<string>();
-	for (const event of events) {
-		if (event.kind === "act_start" && typeof event.data.mnemonic_name === "string") {
-			names.add(event.data.mnemonic_name);
-		}
-	}
-	return names;
 }

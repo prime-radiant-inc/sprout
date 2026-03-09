@@ -106,8 +106,6 @@ export interface AgentOptions {
 	enableStreaming?: boolean;
 	/** Override retry backoff settings for LLM calls (tests/tuning). */
 	llmRetryOptions?: Omit<RetryOptions, "signal" | "onRetry">;
-	/** Set of mnemonic names already used in this session (shared across agents for uniqueness). */
-	usedMnemonicNames?: Set<string>;
 }
 
 export interface AgentResult {
@@ -157,7 +155,7 @@ export class Agent {
 	private turnsSinceCompaction = Infinity;
 	private lastGenomeGeneration = 0;
 	private lastDelegateNames: Set<string> = new Set();
-	private readonly usedMnemonicNames: Set<string>;
+	private readonly usedMnemonicNames = new Set<string>();
 
 	constructor(options: AgentOptions) {
 		this.spec = options.spec;
@@ -185,7 +183,6 @@ export class Agent {
 		this.enableStreaming = options.enableStreaming ?? false;
 		this.llmRetryOptions = options.llmRetryOptions;
 		this.initialHistory = options.initialHistory ? [...options.initialHistory] : undefined;
-		this.usedMnemonicNames = options.usedMnemonicNames ?? new Set();
 		this.logger = (options.logger ?? new NullLogger()).child({
 			component: "agent",
 			agentId: this.agentId ?? this.spec.name,
@@ -670,7 +667,6 @@ export class Agent {
 				agentTreeChildren: subTreeChildren,
 				agentTreeSelfPath: subTreeSelfPath,
 				enableStreaming: this.enableStreaming,
-				usedMnemonicNames: this.usedMnemonicNames,
 			});
 
 			const subResult = await subagent.run(subGoal, this.signal);
