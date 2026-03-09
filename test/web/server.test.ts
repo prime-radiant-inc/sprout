@@ -290,6 +290,39 @@ describe("WebServer", () => {
 			expect(body.nextBefore).toBe(WEB_HISTORY_PAGE_SIZE + 5);
 			expect(body.total).toBe(WEB_HISTORY_PAGE_SIZE + 8);
 		});
+
+		test("GET /api/events reuses resumed initialEvents as history cache", async () => {
+			const projectDataDir = mkdtempSync(join(tmpdir(), "sprout-web-history-cache-"));
+			const initialEvents = Array.from({ length: EVENT_CAP + 8 }, (_, index) => ({
+				kind: "warning" as const,
+				timestamp: index + 1,
+				agent_id: "cli",
+				depth: 0,
+				data: { message: `event-${index + 1}` },
+			}));
+			server = new WebServer({
+				bus,
+				port,
+				staticDir,
+				sessionId: "test-session",
+				projectDataDir,
+				initialEvents,
+			});
+
+			await server.start();
+			const resp = await fetch(`http://localhost:${port}/api/events?before=${EVENT_CAP}&limit=5`);
+			expect(resp.status).toBe(200);
+			const body = (await resp.json()) as {
+				events: SessionEvent[];
+				hasMore: boolean;
+				nextBefore: number;
+				total: number;
+			};
+			expect(body.events.map((event) => event.timestamp)).toEqual([4, 5, 6, 7, 8]);
+			expect(body.hasMore).toBe(true);
+			expect(body.nextBefore).toBe(EVENT_CAP + 5);
+			expect(body.total).toBe(EVENT_CAP + 8);
+		});
 	});
 
 	describe("WebSocket snapshot on connect", () => {

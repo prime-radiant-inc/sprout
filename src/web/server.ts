@@ -75,6 +75,8 @@ export class WebServer {
 		this.projectDataDir = opts.projectDataDir;
 		this.pricingTable = opts.pricingTable ?? null;
 		if (opts.initialEvents) {
+			this.historyCache = [...opts.initialEvents];
+			this.historyCacheSessionId = this.sessionId;
 			this.events =
 				opts.initialEvents.length > EVENT_CAP
 					? opts.initialEvents.slice(-EVENT_CAP)

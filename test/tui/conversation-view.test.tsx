@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { render as inkRender } from "ink-testing-library";
 import { EventBus } from "../../src/host/event-bus.ts";
+import { TUI_INITIAL_EVENT_CAP } from "../../src/kernel/constants.ts";
 import { ConversationView } from "../../src/tui/conversation-view.tsx";
 
 /** Wait for React to flush state updates. */
@@ -193,5 +194,19 @@ describe("ConversationView", () => {
 		const frame = lastFrame()!;
 		expect(frame).toContain("s");
 		expect(frame).toContain("\u2713");
+	});
+
+	test("retains only the most recent live lines", async () => {
+		const bus = new EventBus();
+		const { lastFrame } = render(<ConversationView bus={bus} />);
+
+		for (let index = 1; index <= TUI_INITIAL_EVENT_CAP + 3; index++) {
+			bus.emitEvent("warning", "cli", 0, { message: `event-${index}` });
+		}
+		await flush();
+
+		const frame = lastFrame()!;
+		expect(frame.startsWith("\u26a0 event-4")).toBe(true);
+		expect(frame).toContain(`event-${TUI_INITIAL_EVENT_CAP + 3}`);
 	});
 });

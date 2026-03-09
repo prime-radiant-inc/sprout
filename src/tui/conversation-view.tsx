@@ -2,6 +2,7 @@ import { Box, Static } from "ink";
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import type { SessionBus } from "../host/event-bus.ts";
+import { TUI_INITIAL_EVENT_CAP } from "../kernel/constants.ts";
 import type { EventKind, SessionEvent } from "../kernel/types.ts";
 import { renderEventComponent } from "./event-components.tsx";
 
@@ -23,6 +24,11 @@ export interface ConversationViewProps {
 	initialEvents?: SessionEvent[];
 	/** When true, tool detail events (primitive_start/end, act_start/end) are hidden. */
 	toolsCollapsed?: boolean;
+}
+
+function appendCommittedLine(lines: StaticLine[], line: StaticLine): StaticLine[] {
+	const next = [...lines, line];
+	return next.length > TUI_INITIAL_EVENT_CAP ? next.slice(-TUI_INITIAL_EVENT_CAP) : next;
 }
 
 /**
@@ -93,7 +99,7 @@ export function ConversationView({ bus, initialEvents, toolsCollapsed }: Convers
 				const node = renderEventComponent(event, null);
 				if (node !== null) {
 					const id = nextId.current++;
-					setCommittedLines((prev) => [...prev, { id, node }]);
+					setCommittedLines((prev) => appendCommittedLine(prev, { id, node }));
 				}
 				return;
 			}
@@ -104,7 +110,7 @@ export function ConversationView({ bus, initialEvents, toolsCollapsed }: Convers
 			if (node !== null) {
 				if (toolsCollapsedRef.current && TOOL_DETAIL_KINDS.has(event.kind)) return;
 				const id = nextId.current++;
-				setCommittedLines((prev) => [...prev, { id, node }]);
+				setCommittedLines((prev) => appendCommittedLine(prev, { id, node }));
 			}
 		});
 	}, [bus]);

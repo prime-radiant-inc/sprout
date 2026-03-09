@@ -211,6 +211,64 @@ describe("runInteractiveMode", () => {
 		});
 	});
 
+	test("warns when built web assets are stale", async () => {
+		const bus = new FakeBus();
+		const stderr: string[] = [];
+
+		await runInteractiveMode(
+			{
+				command: {
+					genomePath: "/tmp/genome",
+					webOnly: true,
+					web: true,
+				},
+				sessionId: "01STALEWEB",
+				projectDataDir: "/tmp/project-data",
+				runtime: {
+					bus: bus as any,
+					controller: { sessionId: "01STALEWEB", isRunning: false, currentModel: undefined },
+					logger: { info: () => {} },
+					availableModels: [],
+				},
+				initialEvents: [],
+				cleanupInfra: async () => {},
+				onResumeHint: () => {},
+				inputHistoryPath: () => "/tmp/history",
+				handleSlashCommand: async () => ({ action: "none" }),
+			},
+			{
+				createWebServer: async () => ({
+					start: async () => {},
+					stop: async () => {},
+				}),
+				checkWebBuildFreshness: async () => "Web UI assets are stale. Run `bun run web:build`.",
+				runWebOnlyMode: async (opts) => {
+					await opts.stopWebServer();
+					await opts.cleanupInfra();
+				},
+				createInputHistory: async () => {
+					throw new Error("history should not be created in web-only mode");
+				},
+				renderApp: async () => {
+					throw new Error("renderApp should not run in web-only mode");
+				},
+				registerInteractiveSigint: () =>
+					({
+						onSignal: () => {},
+						clearPending: () => {},
+						dispose: () => {},
+					}) as any,
+				buildWebOpenUrl: () => "http://localhost:7777",
+				openUrl: () => {},
+				logError: (line) => {
+					stderr.push(line);
+				},
+			},
+		);
+
+		expect(stderr).toContain("Web UI assets are stale. Run `bun run web:build`.");
+	});
+
 	test("interactive TUI path loads/saves history, submits commands, and cleans up", async () => {
 		const bus = new FakeBus();
 		const called: string[] = [];

@@ -1,3 +1,5 @@
+import type { Dirent } from "node:fs";
+import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { TUI_INITIAL_EVENT_CAP } from "../kernel/constants.ts";
 import type { PricingTable } from "../kernel/pricing.ts";
@@ -101,9 +103,59 @@ interface InteractiveModeDeps {
 	}>;
 	registerInteractiveSigint: typeof registerInteractiveSigint;
 	buildWebOpenUrl: typeof buildWebOpenUrl;
+	checkWebBuildFreshness: (staticDir: string) => Promise<string | undefined>;
 	openUrl: (url: string) => void;
 	logOut: (line: string) => void;
 	logError: (line: string) => void;
+}
+
+async function latestFileMtimeMs(dir: string): Promise<number | undefined> {
+	let entries: Dirent[];
+	try {
+		entries = await readdir(dir, { withFileTypes: true });
+	} catch {
+		return undefined;
+	}
+
+	const mtimes = await Promise.all(
+		entries.map(async (entry) => {
+			const fullPath = join(dir, entry.name);
+			if (entry.isDirectory()) {
+				return latestFileMtimeMs(fullPath);
+			}
+			try {
+				return (await stat(fullPath)).mtimeMs;
+			} catch {
+				return undefined;
+			}
+		}),
+	);
+	return mtimes.reduce<number | undefined>((latest, mtime) => {
+		if (mtime === undefined) return latest;
+		return latest === undefined || mtime > latest ? mtime : latest;
+	}, undefined);
+}
+
+async function checkWebBuildFreshness(staticDir: string): Promise<string | undefined> {
+	const webRoot = join(staticDir, "..");
+	const [distMtime, srcMtime, indexMtime] = await Promise.all([
+		latestFileMtimeMs(staticDir),
+		latestFileMtimeMs(join(webRoot, "src")),
+		stat(join(webRoot, "index.html"))
+			.then((info) => info.mtimeMs)
+			.catch(() => undefined),
+	]);
+
+	if (distMtime === undefined) {
+		return "Web UI assets are missing. Run `bun run web:build`.";
+	}
+
+	const sourceMtime = Math.max(srcMtime ?? 0, indexMtime ?? 0);
+	if (sourceMtime > distMtime) {
+		return "Web UI assets are stale. Run `bun run web:build`.";
+	}
+
+	return undefined;
 }
 
 function isLoopbackHost(hostname: string | undefined): boolean {
@@ -163,6 +215,7 @@ export async function runInteractiveMode(
 			}),
 		registerInteractiveSigint: deps.registerInteractiveSigint ?? registerInteractiveSigint,
 		buildWebOpenUrl: deps.buildWebOpenUrl ?? buildWebOpenUrl,
+		checkWebBuildFreshness: deps.checkWebBuildFreshness ?? checkWebBuildFreshness,
 		openUrl: deps.openUrl ?? ((url) => void Bun.spawn(["open", url])),
 		logOut: deps.logOut ?? ((line) => console.log(line)),
 		logError: deps.logError ?? ((line) => console.error(line)),
@@ -191,6 +244,10 @@ export async function runInteractiveMode(
 	const pricingTable = await loadPricingTable(opts.command.genomePath);
 
 	if (opts.command.web || opts.command.webOnly) {
+		const staleWebBuildWarning = await d.checkWebBuildFreshness(staticDir);
+		if (staleWebBuildWarning) {
+			d.logError(staleWebBuildWarning);
+		}
 		webServer = await d.createWebServer({
 			bus: opts.runtime.bus,
 			port: webPort,
