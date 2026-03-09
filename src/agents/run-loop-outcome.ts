@@ -2,8 +2,7 @@ export interface RunLoopOutcomeInput {
 	turns: number;
 	stumbles: number;
 	maxTurns: number;
-	timeoutMs: number;
-	elapsedMs: number;
+	timedOut: boolean;
 	interrupted: boolean;
 }
 
@@ -16,7 +15,7 @@ export interface RunLoopOutcome {
 
 export function finalizeRunLoopOutcome(input: RunLoopOutcomeInput): RunLoopOutcome {
 	const hitTurnLimit = input.turns >= input.maxTurns;
-	const timedOut = input.timeoutMs > 0 && input.elapsedMs >= input.timeoutMs;
+	const timedOut = input.timedOut;
 	const stumbles = hitTurnLimit || timedOut ? input.stumbles + 1 : input.stumbles;
 	const success = !hitTurnLimit && !timedOut && !input.interrupted;
 

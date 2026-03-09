@@ -7,8 +7,7 @@ describe("finalizeRunLoopOutcome", () => {
 			turns: 2,
 			stumbles: 1,
 			maxTurns: 5,
-			timeoutMs: 10_000,
-			elapsedMs: 500,
+			timedOut: false,
 			interrupted: false,
 		});
 
@@ -23,8 +22,7 @@ describe("finalizeRunLoopOutcome", () => {
 			turns: 5,
 			stumbles: 0,
 			maxTurns: 5,
-			timeoutMs: 0,
-			elapsedMs: 0,
+			timedOut: false,
 			interrupted: false,
 		});
 
@@ -34,13 +32,12 @@ describe("finalizeRunLoopOutcome", () => {
 		expect(outcome.stumbles).toBe(1);
 	});
 
-	test("increments stumbles and marks timed out when elapsed exceeds timeout", () => {
+	test("increments stumbles and marks timed out when timedOut is true", () => {
 		const outcome = finalizeRunLoopOutcome({
 			turns: 1,
 			stumbles: 3,
 			maxTurns: 10,
-			timeoutMs: 200,
-			elapsedMs: 200,
+			timedOut: true,
 			interrupted: false,
 		});
 
@@ -55,14 +52,27 @@ describe("finalizeRunLoopOutcome", () => {
 			turns: 2,
 			stumbles: 2,
 			maxTurns: 10,
-			timeoutMs: 1_000,
-			elapsedMs: 100,
+			timedOut: false,
 			interrupted: true,
 		});
 
 		expect(outcome.success).toBe(false);
 		expect(outcome.timedOut).toBe(false);
 		expect(outcome.hitTurnLimit).toBe(false);
+		expect(outcome.stumbles).toBe(2);
+	});
+
+	test("active long-running agent is not timed out even with high elapsed time", () => {
+		const outcome = finalizeRunLoopOutcome({
+			turns: 50,
+			stumbles: 2,
+			maxTurns: 100,
+			timedOut: false,
+			interrupted: false,
+		});
+
+		expect(outcome.success).toBe(true);
+		expect(outcome.timedOut).toBe(false);
 		expect(outcome.stumbles).toBe(2);
 	});
 });

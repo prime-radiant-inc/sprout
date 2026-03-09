@@ -56,8 +56,7 @@ export interface FinalizeRunLoopResultInput {
 	turns: number;
 	stumbles: number;
 	maxTurns: number;
-	timeoutMs: number;
-	elapsedMs: number;
+	timedOut: boolean;
 	interrupted: boolean;
 	output: string;
 	sessionId: string;
@@ -93,8 +92,7 @@ export function finalizeRunLoopResult(input: FinalizeRunLoopResultInput): Finali
 		turns: input.turns,
 		stumbles: input.stumbles,
 		maxTurns: input.maxTurns,
-		timeoutMs: input.timeoutMs,
-		elapsedMs: input.elapsedMs,
+		timedOut: input.timedOut,
 		interrupted: input.interrupted,
 	});
 

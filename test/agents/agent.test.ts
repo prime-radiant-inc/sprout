@@ -505,48 +505,30 @@ describe("Agent", () => {
 	});
 
 	test("agent times out after timeout_ms", async () => {
-		// Mock client that always returns tool calls, keeping the loop alive
-		const alwaysCallToolResponse: Response = {
-			id: "mock-timeout",
-			model: "claude-haiku-4-5-20251001",
-			provider: "anthropic",
-			message: {
-				role: "assistant",
-				content: [
-					{
-						kind: ContentKind.TOOL_CALL,
-						tool_call: {
-							id: "call_1",
-							name: "read_file",
-							arguments: JSON.stringify({ path: "/tmp/test.txt" }),
-						},
-					},
-				],
-			},
-			finish_reason: { reason: "tool_calls" },
-			usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
-		};
-
-		const mockClient = {
-			providers: () => ["anthropic"],
-			complete: async () => {
-				// Small delay so timeout can trigger
-				await new Promise((resolve) => setTimeout(resolve, 50));
-				return alwaysCallToolResponse;
-			},
-			stream: async function* () {},
-		} as unknown as Client;
-
 		const timeoutSpec: AgentSpec = {
-			...leafSpec,
+			name: "timeout-root",
+			description: "Test timeout agent",
+			system_prompt: "You are a test agent.",
+			model: "claude-haiku-4-5-20251001",
+			tools: ["read_file"],
+			agents: [],
 			constraints: {
 				...DEFAULT_CONSTRAINTS,
 				timeout_ms: 200,
 				max_turns: 1000,
-				can_spawn: false,
 			},
+			tags: [],
+			version: 1,
 		};
 
+		// Mock LLM that never responds (simulates a hung/stalled agent)
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: () => new Promise<never>(() => {}), // Never resolves
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
 		const env = new LocalExecutionEnvironment(tmpdir());
 		const registry = createPrimitiveRegistry(env);
 		const agent = new Agent({
@@ -554,18 +536,16 @@ describe("Agent", () => {
 			env,
 			client: mockClient,
 			primitiveRegistry: registry,
-			availableAgents: [],
+			availableAgents: [timeoutSpec],
 			depth: 0,
+			events,
 		});
 
-		const result = await agent.run("do something forever");
+		const result = await agent.run("do something");
 
-		// Should have timed out, not hit max_turns
-		expect(result.success).toBe(false);
 		expect(result.timed_out).toBe(true);
-		expect(result.turns).toBeLessThan(1000);
-		expect(result.stumbles).toBeGreaterThan(0);
-	});
+		expect(result.success).toBe(false);
+	}, 10_000);
 
 	test("agent with timeout_ms 0 does not time out", async () => {
 		// Mock client that returns a tool call then completes
