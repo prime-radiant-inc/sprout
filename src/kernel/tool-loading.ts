@@ -1,5 +1,6 @@
 import { readFile, rm, writeFile } from "node:fs/promises";
 import type { AgentToolDefinition, Genome } from "../genome/genome.ts";
+import { getToolDisplayName } from "../shared/tool-display.ts";
 import type { ExecutionEnvironment } from "./execution-env.ts";
 import type { Primitive } from "./primitives.ts";
 import type { ToolContext, ToolResult } from "./tool-context.ts";
@@ -151,6 +152,7 @@ export function buildAgentToolPrimitives(
 ): Primitive[] {
 	return tools.map((tool) => ({
 		name: tool.name,
+		displayName: getToolDisplayName(tool.name, tool.displayName),
 		description: tool.description,
 		parameters: {
 			type: "object",

@@ -9,6 +9,7 @@ import {
 } from "../agents/loader.ts";
 import { parseAgentMarkdown, serializeAgentMarkdown } from "../agents/markdown-loader.ts";
 import type { AgentSpec, Memory, RoutingRule } from "../kernel/types.ts";
+import { getToolDisplayName } from "../shared/tool-display.ts";
 import { MemoryStore } from "./memory-store.ts";
 import { buildManifestFromSpecs, loadManifest, saveManifest } from "./root-manifest.ts";
 
@@ -553,6 +554,7 @@ export class Genome {
 		const toolPath = join(toolDir, opts.name);
 		const frontmatter = stringify({
 			name: opts.name,
+			...(opts.displayName ? { display_name: opts.displayName } : {}),
 			description: opts.description,
 			interpreter,
 		});
@@ -627,6 +629,7 @@ export class Genome {
 			if (parsed) {
 				tools.push({
 					name: parsed.name,
+					displayName: getToolDisplayName(parsed.name, parsed.displayName),
 					description: parsed.description,
 					interpreter: parsed.interpreter,
 					scriptPath: toolPath,
@@ -713,6 +716,7 @@ export class Genome {
 
 export interface SaveAgentToolOptions {
 	name: string;
+	displayName?: string;
 	description: string;
 	script: string;
 	interpreter?: string;
@@ -725,6 +729,7 @@ export interface SaveAgentFileOptions {
 
 export interface AgentToolDefinition {
 	name: string;
+	displayName?: string;
 	description: string;
 	interpreter: string;
 	scriptPath: string;
@@ -749,7 +754,7 @@ function arraysEqual(a: string[], b: string[]): boolean {
 /** Parse YAML frontmatter from a tool file (delimited by ---). */
 function parseToolFrontmatter(
 	content: string,
-): { name: string; description: string; interpreter: string } | null {
+): { name: string; displayName?: string; description: string; interpreter: string } | null {
 	if (!content.startsWith("---\n")) return null;
 	const endIdx = content.indexOf("\n---\n", 4);
 	if (endIdx === -1) return null;
@@ -760,6 +765,7 @@ function parseToolFrontmatter(
 
 	return {
 		name: parsed.name,
+		displayName: typeof parsed.display_name === "string" ? parsed.display_name : undefined,
 		description: parsed.description,
 		interpreter: parsed.interpreter ?? "bash",
 	};

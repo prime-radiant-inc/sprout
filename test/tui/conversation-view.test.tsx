@@ -99,7 +99,7 @@ describe("ConversationView", () => {
 		await flush();
 
 		// All events should be visible
-		expect(lastFrame()).toContain("exec");
+		expect(lastFrame()).toContain("Run");
 		expect(lastFrame()).toContain("test goal");
 	});
 

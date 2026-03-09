@@ -51,8 +51,8 @@ describe("smartArgs", () => {
 		expect(smartArgs("read_file", { path: "f.ts", offset: 10, limit: 20 })).toBe("f.ts:10+20");
 	});
 
-	test("write_file shows path with line count", () => {
-		expect(smartArgs("write_file", { path: "f.ts", content: "a\nb" })).toBe("f.ts (2 lines)");
+	test("write_file shows basename", () => {
+		expect(smartArgs("write_file", { path: "f.ts", content: "a\nb" })).toBe("f.ts");
 	});
 
 	test("grep shows pattern and optional path", () => {
@@ -120,35 +120,35 @@ describe("renderEvent", () => {
 		const result = renderEvent(
 			makeEvent("primitive_start", { name: "exec", args: { command: "ls -la" } }),
 		);
-		expect(result).toBe("  \u25B8 exec `ls -la`");
+		expect(result).toBe("  \u25B8 Run `ls -la`");
 	});
 
 	test("primitive_start shows read_file path", () => {
 		const result = renderEvent(
 			makeEvent("primitive_start", { name: "read_file", args: { path: "/src/main.ts" } }),
 		);
-		expect(result).toBe("  \u25B8 read_file /src/main.ts");
+		expect(result).toBe("  \u25B8 Read main.ts");
 	});
 
 	test("primitive_start shows write_file path", () => {
 		const result = renderEvent(
 			makeEvent("primitive_start", { name: "write_file", args: { path: "/src/out.ts" } }),
 		);
-		expect(result).toBe("  \u25B8 write_file /src/out.ts");
+		expect(result).toBe("  \u25B8 Write out.ts");
 	});
 
 	test("primitive_start shows grep pattern", () => {
 		const result = renderEvent(
 			makeEvent("primitive_start", { name: "grep", args: { pattern: "TODO" } }),
 		);
-		expect(result).toBe("  \u25B8 grep `TODO`");
+		expect(result).toBe("  \u25B8 Search `TODO`");
 	});
 
 	test("primitive_start shows glob pattern", () => {
 		const result = renderEvent(
 			makeEvent("primitive_start", { name: "glob", args: { pattern: "**/*.ts" } }),
 		);
-		expect(result).toBe("  \u25B8 glob `**/*.ts`");
+		expect(result).toBe("  \u25B8 Find `**/*.ts`");
 	});
 
 	test("primitive_end shows success with check mark", () => {
@@ -159,14 +159,14 @@ describe("renderEvent", () => {
 				output: "file1.ts\nfile2.ts\nfile3.ts",
 			}),
 		);
-		expect(result).toBe("  \u25B8 exec \u2713");
+		expect(result).toBe("  \u25B8 Run \u2713");
 	});
 
 	test("primitive_end shows success with no output", () => {
 		const result = renderEvent(
 			makeEvent("primitive_end", { name: "write_file", success: true, output: "" }),
 		);
-		expect(result).toBe("  \u25B8 write_file \u2713");
+		expect(result).toBe("  \u25B8 Write \u2713");
 	});
 
 	test("primitive_end shows failure with error", () => {
@@ -177,12 +177,12 @@ describe("renderEvent", () => {
 				error: "command not found",
 			}),
 		);
-		expect(result).toBe("  \u25B8 exec \u2717 command not found");
+		expect(result).toBe("  \u25B8 Run \u2717 command not found");
 	});
 
 	test("primitive_end shows failure without error", () => {
 		const result = renderEvent(makeEvent("primitive_end", { name: "exec", success: false }));
-		expect(result).toBe("  \u25B8 exec \u2717");
+		expect(result).toBe("  \u25B8 Run \u2717");
 	});
 
 	test("act_start shows arrow with agent and goal", () => {

@@ -1,5 +1,6 @@
 .toolCall {
-	padding: 1px 0;
+	border-top: 1px solid var(--color-border);
+	padding: var(--space-sm) 0;
 	font-family: var(--font-mono);
 	font-size: var(--font-size-sm);
 	line-height: var(--line-height-tight);
@@ -10,15 +11,8 @@
 	user-select: none;
 	list-style: none;
 	display: flex;
-	gap: 4px;
-	align-items: baseline;
-	padding: 1px 0;
-	border-radius: var(--radius-xs);
-	transition: background var(--transition-fast);
-}
-
-.summary:hover {
-	background: var(--color-inset);
+	align-items: flex-start;
+	gap: var(--space-xs);
 }
 
 .summary::-webkit-details-marker {
@@ -28,6 +22,7 @@
 .indicator {
 	color: var(--color-text-placeholder);
 	font-size: var(--font-size-xxs);
+	padding-top: 2px;
 	transition: transform var(--transition-fast);
 }
 
@@ -38,34 +33,79 @@ details[open] > .summary .indicator {
 .toolIcon {
 	font-size: var(--font-size-xs);
 	flex-shrink: 0;
+	padding-top: 1px;
+}
+
+.summaryBody {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-width: 0;
+	gap: 2px;
+}
+
+.primaryLine {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: var(--space-xs);
+	min-width: 0;
 }
 
 .toolName {
 	color: var(--color-text-secondary);
 	font-weight: 500;
+	flex-shrink: 0;
 }
 
 .args {
 	color: var(--color-text-tertiary);
+	min-width: 0;
+	word-break: break-word;
 }
 
-.success {
-	color: var(--color-success);
-	font-size: var(--font-size-xxs);
+.metaLine {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: var(--space-sm);
+	min-width: 0;
 }
 
-.error {
-	color: var(--color-error);
-	font-size: var(--font-size-xxs);
-}
-
-.outputHint {
+.pathDetail {
 	color: var(--color-text-placeholder);
 	font-size: var(--font-size-xs);
+	min-width: 0;
+	word-break: break-all;
 }
 
 .duration {
 	color: var(--color-text-placeholder);
-	margin-left: var(--space-xs);
 	font-size: var(--font-size-xxs);
+	font-variant-numeric: tabular-nums;
+	flex-shrink: 0;
+}
+
+.errorPill {
+	align-self: flex-start;
+	border: 1px solid color-mix(in srgb, var(--color-error) 30%, transparent);
+	border-radius: 999px;
+	padding: 1px 6px;
+	color: var(--color-error);
+	font-size: var(--font-size-xxs);
+	line-height: 1.5;
+	flex-shrink: 0;
+}
+
+.body {
+	margin-top: var(--space-xs);
+}
+
+.errorBlock {
+	margin-left: calc(var(--space-lg) + var(--space-xs));
+	font-family: var(--font-mono);
+	font-size: var(--font-size-xs);
+	color: var(--color-error);
+	white-space: pre-wrap;
+	word-break: break-word;
 }

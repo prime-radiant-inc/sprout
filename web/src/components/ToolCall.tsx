@@ -1,3 +1,4 @@
+import { getToolDisplayName, getToolPathDetail } from "@shared/tool-display.ts";
 import { formatDuration, smartArgs } from "./format.ts";
 import styles from "./ToolCall.module.css";
 import { getToolIcon } from "./tools/toolIcons.ts";
@@ -5,6 +6,7 @@ import { getRenderer } from "./tools/ToolRendererRegistry.ts";
 
 interface ToolCallProps {
 	toolName: string;
+	displayName?: string;
 	success: boolean;
 	args?: Record<string, unknown>;
 	error?: string;
@@ -12,9 +14,10 @@ interface ToolCallProps {
 	durationMs?: number | null;
 }
 
-/** Collapsible tool call with status icon, duration, and type-specific expanded renderer. */
+/** Flat tool row with a collapsible detail pane for output and errors. */
 export function ToolCall({
 	toolName,
+	displayName,
 	success,
 	args,
 	error,
@@ -22,46 +25,51 @@ export function ToolCall({
 	durationMs,
 }: ToolCallProps) {
 	const argStr = smartArgs(toolName, args);
+	const label = getToolDisplayName(toolName, displayName);
+	const pathDetail = getToolPathDetail(args);
 	const dur = formatDuration(durationMs ?? null);
 
-	// Compact output summary: short output inline, long output shows line count
-	let outputHint: string | null = null;
-	if (success && output) {
-		const outputLines = output.split("\n");
-		if (outputLines.length === 1 && output.length <= 60) {
-			outputHint = output;
-		} else if (outputLines.length > 1) {
-			outputHint = `${outputLines.length} lines`;
-		}
-	}
-
 	const icon = getToolIcon(toolName);
-	const statusClass = success ? styles.success : styles.error;
 	const Renderer = getRenderer(toolName);
+	const hasBody = Boolean(output) || Boolean(error);
+	const hasMetaLine = Boolean(pathDetail) || Boolean(dur);
 
 	return (
 		<details className={styles.toolCall} data-status={success ? "success" : "error"}>
 			<summary className={styles.summary}>
 				<span className={styles.indicator}>&#x25B8;</span>
 				{icon && <span className={styles.toolIcon} data-testid="tool-icon">{icon}</span>}
-				<span className={styles.toolName}>{toolName}</span>
-				{argStr && <span className={styles.args}>{argStr}</span>}
-				<span className={statusClass}>
-					{success ? " \u2713" : ` \u2717${error ? ` ${error}` : ""}`}
+				<span className={styles.summaryBody}>
+					<span className={styles.primaryLine}>
+						<span className={styles.toolName}>{label}</span>
+						{argStr && <span className={styles.args}>{argStr}</span>}
+					</span>
+					{hasMetaLine && (
+						<span className={styles.metaLine}>
+							{pathDetail && <span className={styles.pathDetail}>{pathDetail}</span>}
+							{dur && <span className={styles.duration}>{dur}</span>}
+						</span>
+					)}
 				</span>
-				{outputHint && (
-					<span className={styles.outputHint}> &rarr; {outputHint}</span>
+				{!success && (
+					<span className={styles.errorPill}>
+						Failed
+					</span>
 				)}
-				{dur && <span className={styles.duration}>{dur}</span>}
 			</summary>
-			{output && (
-				<Renderer
-					toolName={toolName}
-					args={args ?? {}}
-					output={output}
-					success={success}
-					error={error}
-				/>
+			{hasBody && (
+				<div className={styles.body}>
+					{error && !output && <div className={styles.errorBlock}>{error}</div>}
+					{output && (
+						<Renderer
+							toolName={toolName}
+							args={args ?? {}}
+							output={output}
+							success={success}
+							error={error}
+						/>
+					)}
+				</div>
 			)}
 		</details>
 	);

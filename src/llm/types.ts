@@ -119,6 +119,7 @@ export function messageReasoning(msg: Message): string | undefined {
 
 export interface ToolDefinition {
 	name: string;
+	displayName?: string;
 	description: string;
 	parameters: Record<string, unknown>;
 }

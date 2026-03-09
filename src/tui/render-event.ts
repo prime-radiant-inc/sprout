@@ -1,4 +1,5 @@
 import type { SessionEvent } from "../kernel/types.ts";
+import { formatToolKeyArg, getToolDisplayName } from "../shared/tool-display.ts";
 
 /** Truncate text to maxLines, appending an ellipsis if truncated. */
 export function truncateLines(text: string, maxLines: number): string {
@@ -15,70 +16,12 @@ function truncate(str: string, maxLen: number): string {
 	return `${str.slice(0, maxLen - 1)}...`;
 }
 
-/** Count newlines in content to report line count. */
-function lineCount(content: unknown): number | null {
-	if (typeof content !== "string" || content === "") return null;
-	return content.split("\n").length;
-}
-
 /**
  * Build a smart display string for primitive tool arguments.
  * Returns the formatted arg string (without leading space — caller adds that).
  */
 export function smartArgs(name: string, args: Record<string, unknown> | undefined): string {
-	if (!args) return "";
-	switch (name) {
-		case "exec": {
-			const cmd = args.command;
-			if (typeof cmd !== "string") return "";
-			return `\`${truncate(cmd, 60)}\``;
-		}
-		case "read_file": {
-			const path = args.path;
-			if (typeof path !== "string") return "";
-			const offset = args.offset;
-			const limit = args.limit;
-			if (typeof offset === "number" || typeof limit === "number") {
-				const parts: string[] = [];
-				if (typeof offset === "number") parts.push(String(offset));
-				if (typeof limit === "number") parts.push(`+${limit}`);
-				return `${path}:${parts.join("")}`;
-			}
-			return path;
-		}
-		case "write_file": {
-			const path = args.path;
-			if (typeof path !== "string") return "";
-			const lines = lineCount(args.content);
-			return lines ? `${path} (${lines} lines)` : path;
-		}
-		case "edit_file": {
-			const path = args.path;
-			return typeof path === "string" ? path : "";
-		}
-		case "grep": {
-			const pattern = args.pattern;
-			const path = args.path;
-			if (typeof pattern !== "string") return "";
-			const parts = [`\`${pattern}\``];
-			if (typeof path === "string") parts.push(path);
-			return parts.join(" ");
-		}
-		case "glob": {
-			const pattern = args.pattern;
-			return typeof pattern === "string" ? `\`${pattern}\`` : "";
-		}
-		default: {
-			// Show first key=value pair where value is short enough to display
-			for (const [key, val] of Object.entries(args)) {
-				const str = typeof val === "string" ? val : JSON.stringify(val);
-				if (str !== undefined && str.length <= 40) {
-					return `${key}=${str}`;
-				}
-			}
-			return "";
-		}
-	}
+	return truncate(formatToolKeyArg(name, args), 60);
 }
 
 /** Extract the key argument for a primitive (the most informative single arg). */
@@ -133,19 +76,28 @@ export function renderEvent(event: SessionEvent): string | null {
 		}
 
 		case "primitive_start": {
-			const argStr = smartArgs(data.name as string, data.args as Record<string, unknown>);
-			return `${ind}  \u25B8 ${data.name}${argStr ? ` ${argStr}` : ""}`;
+			const name = String(data.name ?? "");
+			const displayName = getToolDisplayName(
+				name,
+				typeof data.display_name === "string" ? data.display_name : undefined,
+			);
+			const argStr = smartArgs(name, data.args as Record<string, unknown>);
+			return `${ind}  \u25B8 ${displayName}${argStr ? ` ${argStr}` : ""}`;
 		}
 
 		case "primitive_end": {
-			const name = data.name;
-			const argStr = smartArgs(name as string, data.args as Record<string, unknown>);
+			const name = String(data.name ?? "");
+			const displayName = getToolDisplayName(
+				name,
+				typeof data.display_name === "string" ? data.display_name : undefined,
+			);
+			const argStr = smartArgs(name, data.args as Record<string, unknown>);
 			const argSuffix = argStr ? ` ${argStr}` : "";
 			if (!data.success) {
 				const errMsg = data.error ? ` ${data.error}` : "";
-				return `${ind}  \u25B8 ${name}${argSuffix} \u2717${errMsg}`;
+				return `${ind}  \u25B8 ${displayName}${argSuffix} \u2717${errMsg}`;
 			}
-			return `${ind}  \u25B8 ${name}${argSuffix} \u2713`;
+			return `${ind}  \u25B8 ${displayName}${argSuffix} \u2713`;
 		}
 
 		case "act_start":

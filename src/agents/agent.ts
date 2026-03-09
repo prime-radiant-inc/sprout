@@ -34,6 +34,7 @@ import type {
 	ToolDefinition,
 } from "../llm/types.ts";
 import { Msg, messageText } from "../llm/types.ts";
+import { getToolDisplayName } from "../shared/tool-display.ts";
 import { ulid } from "../util/ulid.ts";
 import { getContextWindowSize } from "./context-window.ts";
 import { AgentEventEmitter } from "./events.ts";
@@ -240,6 +241,7 @@ export class Agent {
 				if (prim) {
 					this.primitiveTools.push({
 						name: prim.name,
+						displayName: prim.displayName,
 						description: prim.description,
 						parameters: prim.parameters,
 					});
@@ -1053,6 +1055,7 @@ export class Agent {
 					this.primitiveRegistry.register(prim);
 					this.primitiveTools.push({
 						name: prim.name,
+						displayName: prim.displayName,
 						description: prim.description,
 						parameters: prim.parameters,
 					});
@@ -1293,8 +1296,12 @@ export class Agent {
 			)
 				continue;
 
+			const prim = this.primitiveRegistry.get(call.name);
+			const displayName = prim?.displayName ?? getToolDisplayName(call.name);
+
 			this.emitAndLog("primitive_start", agentId, this.depth, {
 				name: call.name,
+				display_name: displayName,
 				args: call.arguments,
 			});
 
@@ -1311,6 +1318,7 @@ export class Agent {
 				resultByCallId.set(call.id, toolResultMsg);
 				this.emitAndLog("primitive_end", agentId, this.depth, {
 					name: call.name,
+					display_name: displayName,
 					success: false,
 					stumbled: true,
 					output: "",
@@ -1336,6 +1344,7 @@ export class Agent {
 
 			this.emitAndLog("primitive_end", agentId, this.depth, {
 				name: call.name,
+				display_name: displayName,
 				success: result.success,
 				stumbled,
 				output: result.output,
@@ -1500,6 +1509,7 @@ export class Agent {
 						this.history.push(toolResultMsg);
 						this.emitAndLog("primitive_end", agentId, this.depth, {
 							name: call.name,
+							display_name: getToolDisplayName(call.name),
 							success: false,
 							stumbled: true,
 							output: "",

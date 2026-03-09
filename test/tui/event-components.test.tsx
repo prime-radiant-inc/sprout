@@ -47,31 +47,29 @@ describe("smartArgs", () => {
 	});
 
 	test("read_file shows path", () => {
-		expect(smartArgs("read_file", { path: "/src/main.ts" })).toBe("/src/main.ts");
+		expect(smartArgs("read_file", { path: "/src/main.ts" })).toBe("main.ts");
 	});
 
 	test("read_file shows offset and limit", () => {
 		expect(smartArgs("read_file", { path: "/src/main.ts", offset: 10, limit: 50 })).toBe(
-			"/src/main.ts:10+50",
+			"main.ts:10+50",
 		);
 	});
 
 	test("read_file shows only limit", () => {
-		expect(smartArgs("read_file", { path: "/src/main.ts", limit: 20 })).toBe("/src/main.ts:+20");
+		expect(smartArgs("read_file", { path: "/src/main.ts", limit: 20 })).toBe("main.ts:+20");
 	});
 
-	test("write_file shows path and line count", () => {
-		expect(smartArgs("write_file", { path: "/out.ts", content: "a\nb\nc" })).toBe(
-			"/out.ts (3 lines)",
-		);
+	test("write_file shows basename only", () => {
+		expect(smartArgs("write_file", { path: "/out.ts", content: "a\nb\nc" })).toBe("out.ts");
 	});
 
 	test("write_file shows only path when no content", () => {
-		expect(smartArgs("write_file", { path: "/out.ts" })).toBe("/out.ts");
+		expect(smartArgs("write_file", { path: "/out.ts" })).toBe("out.ts");
 	});
 
 	test("edit_file shows path", () => {
-		expect(smartArgs("edit_file", { path: "/src/foo.ts" })).toBe("/src/foo.ts");
+		expect(smartArgs("edit_file", { path: "/src/foo.ts" })).toBe("foo.ts");
 	});
 
 	test("grep shows pattern in backticks", () => {
@@ -131,7 +129,7 @@ describe("ToolStartLine", () => {
 			<ToolStartLine depth={0} toolName="exec" args={{ command: "ls" }} />,
 		);
 		const frame = lastFrame()!;
-		expect(frame).toContain("exec");
+		expect(frame).toContain("Run");
 		expect(frame).toContain("`ls`");
 	});
 
@@ -144,7 +142,7 @@ describe("ToolStartLine", () => {
 
 	test("handles no args", () => {
 		const { lastFrame } = render(<ToolStartLine depth={0} toolName="custom" />);
-		expect(lastFrame()).toContain("custom");
+		expect(lastFrame()).toContain("Custom");
 	});
 });
 
@@ -160,7 +158,7 @@ describe("ToolEndLine", () => {
 			/>,
 		);
 		const frame = lastFrame()!;
-		expect(frame).toContain("write_file");
+		expect(frame).toContain("Write");
 		expect(frame).toContain("\u2713");
 		expect(frame).toContain("0.3s");
 	});
@@ -459,7 +457,7 @@ describe("renderEventComponent", () => {
 		);
 		const { lastFrame } = render(<Box>{node}</Box>);
 		const frame = lastFrame()!;
-		expect(frame).toContain("exec");
+		expect(frame).toContain("Run");
 		expect(frame).toContain("\u2713");
 		expect(frame).toContain("1.5s");
 	});

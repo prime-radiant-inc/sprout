@@ -311,8 +311,12 @@ describe("Agent", () => {
 		await agent.run("read a file");
 
 		const collected = events.collected();
+		const primStart = collected.find((e) => e.kind === "primitive_start");
 		const primEnd = collected.find((e) => e.kind === "primitive_end");
+		expect(primStart).toBeDefined();
 		expect(primEnd).toBeDefined();
+		expect(primStart!.data.display_name).toBe("Read");
+		expect(primEnd!.data.display_name).toBe("Read");
 		expect(primEnd!.data.name).toBe("read_file");
 		// read_file on a nonexistent path should fail with output and error
 		expect(primEnd!.data.success).toBe(false);

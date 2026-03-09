@@ -4,6 +4,7 @@ import { renderMemories, renderRoutingHints } from "../genome/recall.ts";
 import type { AgentCommand, AgentSpec, Delegation, Memory, RoutingRule } from "../kernel/types.ts";
 import type { Message, Request, ToolCall, ToolDefinition } from "../llm/types.ts";
 import { Msg } from "../llm/types.ts";
+import { getToolDisplayName } from "../shared/tool-display.ts";
 import type { Preambles } from "./loader.ts";
 
 export const DELEGATE_TOOL_NAME = "delegate";
@@ -20,6 +21,7 @@ export function buildDelegateTool(agents: AgentSpec[]): ToolDefinition {
 		agents.length > 0 ? ` Known agents: ${agents.map((a) => a.name).join(", ")}.` : "";
 	return {
 		name: DELEGATE_TOOL_NAME,
+		displayName: getToolDisplayName(DELEGATE_TOOL_NAME),
 		description:
 			"Delegate a task to a specialist agent. See the <agents> section in your instructions for available agents and their descriptions.",
 		parameters: {
@@ -65,6 +67,7 @@ export function buildDelegateTool(agents: AgentSpec[]): ToolDefinition {
 export function buildWaitAgentTool(): ToolDefinition {
 	return {
 		name: WAIT_AGENT_TOOL_NAME,
+		displayName: getToolDisplayName(WAIT_AGENT_TOOL_NAME),
 		description: "Wait for a non-blocking agent to finish and return its result.",
 		parameters: {
 			type: "object",
@@ -85,6 +88,7 @@ export function buildWaitAgentTool(): ToolDefinition {
 export function buildMessageAgentTool(): ToolDefinition {
 	return {
 		name: MESSAGE_AGENT_TOOL_NAME,
+		displayName: getToolDisplayName(MESSAGE_AGENT_TOOL_NAME),
 		description:
 			"Send a follow-up message to an agent (running, idle, or completed) and receive its response. Completed agents are automatically resumed with their prior conversation history.",
 		parameters: {

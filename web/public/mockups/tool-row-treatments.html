@@ -1,0 +1,818 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Tool Row Treatments</title>
+		<style>
+			:root {
+				color-scheme: light;
+				--bg: #f3efe7;
+				--paper: rgba(255, 252, 247, 0.88);
+				--paper-strong: #fffdfa;
+				--ink: #1e2428;
+				--muted: #667078;
+				--line: rgba(39, 49, 56, 0.12);
+				--shadow: 0 18px 40px rgba(56, 40, 23, 0.08);
+				--accent: #0c6c7e;
+				--accent-soft: rgba(12, 108, 126, 0.12);
+				--success: #127356;
+				--success-soft: rgba(18, 115, 86, 0.11);
+				--warning: #a76419;
+				--warning-soft: rgba(167, 100, 25, 0.12);
+				--danger: #9f3d2e;
+				--danger-soft: rgba(159, 61, 46, 0.12);
+				--code-bg: #f5f2ec;
+				--code-line: rgba(39, 49, 56, 0.08);
+				--added: rgba(18, 115, 86, 0.1);
+				--removed: rgba(159, 61, 46, 0.1);
+				--ui: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+				--display: "Avenir Next Condensed", "Helvetica Neue", sans-serif;
+				--mono: "SF Mono", "Menlo", "Consolas", monospace;
+			}
+
+			* {
+				box-sizing: border-box;
+			}
+
+			body {
+				margin: 0;
+				background:
+					radial-gradient(circle at top left, rgba(215, 173, 92, 0.16), transparent 30%),
+					radial-gradient(circle at 90% 0%, rgba(12, 108, 126, 0.16), transparent 24%),
+					linear-gradient(180deg, #f6f2ea 0%, var(--bg) 100%);
+				color: var(--ink);
+				font-family: var(--ui);
+			}
+
+			main {
+				max-width: 1480px;
+				margin: 0 auto;
+				padding: 40px 28px 56px;
+			}
+
+			.hero {
+				max-width: 820px;
+				margin-bottom: 30px;
+			}
+
+			.kicker {
+				margin: 0 0 8px;
+				font: 600 11px/1.2 var(--mono);
+				letter-spacing: 0.18em;
+				text-transform: uppercase;
+				color: var(--accent);
+			}
+
+			h1 {
+				margin: 0;
+				font: 700 clamp(34px, 4vw, 58px) / 0.96 var(--display);
+				letter-spacing: -0.04em;
+			}
+
+			.hero p {
+				margin: 14px 0 0;
+				max-width: 62ch;
+				font-size: 18px;
+				line-height: 1.45;
+				color: var(--muted);
+			}
+
+			.grid {
+				display: grid;
+				grid-template-columns: repeat(2, minmax(320px, 1fr));
+				gap: 22px;
+			}
+
+			.treatment {
+				border: 1px solid rgba(57, 48, 35, 0.12);
+				border-radius: 28px;
+				padding: 22px;
+				background: var(--paper);
+				box-shadow: var(--shadow);
+				backdrop-filter: blur(14px);
+			}
+
+			.treatment header {
+				display: flex;
+				align-items: start;
+				justify-content: space-between;
+				gap: 16px;
+				margin-bottom: 18px;
+			}
+
+			.treatment h2 {
+				margin: 0;
+				font: 700 26px/1 var(--display);
+				letter-spacing: -0.03em;
+			}
+
+			.treatment .caption {
+				margin: 5px 0 0;
+				font-size: 14px;
+				line-height: 1.42;
+				color: var(--muted);
+			}
+
+			.treatment .intent {
+				padding: 6px 10px;
+				border-radius: 999px;
+				background: rgba(255, 255, 255, 0.65);
+				border: 1px solid var(--line);
+				font: 600 10px/1 var(--mono);
+				letter-spacing: 0.06em;
+				text-transform: uppercase;
+				color: var(--muted);
+				white-space: nowrap;
+			}
+
+			.rows {
+				display: grid;
+				gap: 14px;
+			}
+
+			.tool {
+				border-radius: 22px;
+				border: 1px solid var(--line);
+				background: var(--paper-strong);
+				overflow: hidden;
+			}
+
+			.tool-head {
+				display: flex;
+				align-items: center;
+				justify-content: space-between;
+				gap: 14px;
+				padding: 14px 16px;
+			}
+
+			.tool-meta {
+				display: flex;
+				align-items: center;
+				gap: 8px;
+				min-width: 0;
+			}
+
+			.tool-body {
+				padding: 0 16px 16px;
+			}
+
+			.pill,
+			.status,
+			.duration {
+				display: inline-flex;
+				align-items: center;
+				border-radius: 999px;
+				font: 600 10px/1 var(--mono);
+				letter-spacing: 0.05em;
+				text-transform: uppercase;
+				white-space: nowrap;
+			}
+
+			.pill {
+				padding: 7px 9px;
+				background: var(--accent-soft);
+				color: var(--accent);
+			}
+
+			.status {
+				padding: 7px 9px;
+				background: var(--success-soft);
+				color: var(--success);
+			}
+
+			.duration {
+				padding: 7px 0;
+				color: var(--muted);
+			}
+
+			.tool-name {
+				font: 700 12px/1.2 var(--mono);
+				color: var(--accent);
+				white-space: nowrap;
+			}
+
+			.path {
+				font: 500 13px/1.35 var(--mono);
+				color: #364148;
+				overflow-wrap: anywhere;
+			}
+
+			.secondary {
+				margin-top: 5px;
+				font: 500 12px/1.4 var(--ui);
+				color: var(--muted);
+			}
+
+			.preview-meta {
+				display: flex;
+				flex-wrap: wrap;
+				gap: 8px 14px;
+				margin-bottom: 10px;
+				font: 600 11px/1.3 var(--mono);
+				color: var(--muted);
+			}
+
+			.code,
+			.diff {
+				border: 1px solid var(--code-line);
+				border-radius: 16px;
+				background: var(--code-bg);
+				overflow: hidden;
+			}
+
+			.code pre {
+				margin: 0;
+				padding: 14px 16px;
+				font: 500 12px/1.55 var(--mono);
+				color: #263138;
+				overflow-x: auto;
+			}
+
+			.diff-head {
+				display: flex;
+				align-items: center;
+				justify-content: space-between;
+				gap: 8px;
+				padding: 10px 14px;
+				border-bottom: 1px solid var(--code-line);
+				font: 600 11px/1.2 var(--mono);
+				color: var(--muted);
+			}
+
+			.diff-lines {
+				display: grid;
+			}
+
+			.diff-line {
+				display: grid;
+				grid-template-columns: 32px 32px 16px minmax(0, 1fr);
+				gap: 10px;
+				padding: 0 14px;
+				font: 500 12px/1.5 var(--mono);
+				border-top: 1px solid rgba(39, 49, 56, 0.03);
+			}
+
+			.diff-line:first-child {
+				border-top: 0;
+			}
+
+			.diff-line.added {
+				background: var(--added);
+			}
+
+			.diff-line.removed {
+				background: var(--removed);
+			}
+
+			.ln,
+			.mark {
+				padding: 9px 0;
+				color: #8b8f95;
+				user-select: none;
+			}
+
+			.diff code {
+				display: block;
+				padding: 9px 0;
+				white-space: pre;
+				overflow-x: auto;
+				color: #243036;
+			}
+
+			.tok-key {
+				color: #0c6c7e;
+			}
+
+			.tok-str {
+				color: #127356;
+			}
+
+			.tok-punc {
+				color: #6b6e73;
+			}
+
+			.tok-ident {
+				color: #243036;
+			}
+
+			.tok-type {
+				color: #a76419;
+			}
+
+			.ledger .tool-head {
+				background: linear-gradient(180deg, rgba(12, 108, 126, 0.06), transparent);
+			}
+
+			.ledger .tool-body {
+				padding-top: 2px;
+			}
+
+			.file-centric .tool-head {
+				display: block;
+			}
+
+			.file-centric .file-title {
+				display: flex;
+				align-items: center;
+				justify-content: space-between;
+				gap: 12px;
+			}
+
+			.file-centric .file-name {
+				font: 700 24px/1 var(--display);
+				letter-spacing: -0.03em;
+			}
+
+			.file-centric .directory {
+				margin-top: 8px;
+				font: 600 12px/1.3 var(--mono);
+				color: var(--muted);
+			}
+
+			.timeline .tool {
+				position: relative;
+			}
+
+			.timeline .tool::before {
+				content: "";
+				position: absolute;
+				left: 28px;
+				top: 18px;
+				bottom: 18px;
+				width: 2px;
+				background: rgba(12, 108, 126, 0.16);
+			}
+
+			.timeline .tool-head {
+				align-items: flex-start;
+				padding-left: 56px;
+			}
+
+			.timeline .step {
+				position: absolute;
+				left: 14px;
+				top: 12px;
+				width: 28px;
+				height: 28px;
+				border-radius: 999px;
+				display: grid;
+				place-items: center;
+				border: 1px solid rgba(12, 108, 126, 0.24);
+				background: #fffdfa;
+				font: 700 11px/1 var(--mono);
+				color: var(--accent);
+			}
+
+			.timeline .tool-body {
+				padding-left: 56px;
+			}
+
+			.review .tool {
+				border: 0;
+				border-radius: 0;
+				background: transparent;
+				overflow: visible;
+			}
+
+			.review .rows {
+				gap: 0;
+			}
+
+			.review .tool + .tool {
+				border-top: 1px solid var(--line);
+				margin-top: 8px;
+				padding-top: 8px;
+			}
+
+			.review .tool-head {
+				display: flex;
+				align-items: flex-start;
+				padding: 12px 0 10px;
+			}
+
+			.review .review-meta {
+				display: flex;
+				flex-direction: column;
+				gap: 3px;
+				min-width: 0;
+			}
+
+			.review .review-title-line {
+				display: flex;
+				align-items: baseline;
+				gap: 10px;
+				min-width: 0;
+			}
+
+			.review .friendly-name {
+				font: 700 11px/1 var(--mono);
+				letter-spacing: 0.08em;
+				text-transform: uppercase;
+				color: var(--muted);
+				white-space: nowrap;
+			}
+
+			.review .file-inline {
+				font: 700 20px/1 var(--display);
+				letter-spacing: -0.03em;
+				color: var(--ink);
+				min-width: 0;
+				overflow-wrap: anywhere;
+			}
+
+			.review .review-subline {
+				display: flex;
+				align-items: baseline;
+				gap: 8px;
+				min-width: 0;
+				font: 500 11px/1.35 var(--mono);
+				color: #8b8f95;
+			}
+
+			.review .review-path {
+				min-width: 0;
+				overflow-wrap: anywhere;
+			}
+
+			.review .review-time {
+				margin-left: auto;
+				font: 500 10px/1 var(--mono);
+				color: #adb2b6;
+				white-space: nowrap;
+			}
+
+			.review .failure {
+				padding: 7px 9px;
+				border-radius: 999px;
+				font: 600 10px/1 var(--mono);
+				letter-spacing: 0.05em;
+				text-transform: uppercase;
+				background: var(--danger-soft);
+				color: var(--danger);
+			}
+
+			.review .tool-body {
+				padding: 0 0 14px;
+			}
+
+			.review .code,
+			.review .diff {
+				border-radius: 12px;
+			}
+
+			@media (max-width: 980px) {
+				.grid {
+					grid-template-columns: 1fr;
+				}
+			}
+
+			@media (max-width: 640px) {
+				main {
+					padding: 24px 16px 36px;
+				}
+
+				.treatment {
+					padding: 16px;
+					border-radius: 22px;
+				}
+
+				.treatment header {
+					display: block;
+				}
+
+				.treatment .intent {
+					display: inline-flex;
+					margin-top: 10px;
+				}
+
+				.tool-head,
+				.tool-body {
+					padding-left: 14px;
+					padding-right: 14px;
+				}
+
+				.diff-line {
+					grid-template-columns: 26px 26px 14px minmax(0, 1fr);
+					gap: 8px;
+					padding-left: 10px;
+					padding-right: 10px;
+				}
+
+				.timeline .tool-head,
+				.timeline .tool-body {
+					padding-left: 52px;
+				}
+			}
+		</style>
+	</head>
+	<body>
+		<main>
+			<section class="hero">
+				<p class="kicker">Tool row treatment mock</p>
+				<h1>Actual tool rows, mocked four different ways.</h1>
+				<p>
+					Same underlying example in every card: a <code>read_file</code> excerpt from
+					<code>test/agents/agent.test.ts</code> followed by an <code>edit_file</code> that rewrites the
+					tool declaration. The visual treatment is the only thing changing.
+				</p>
+			</section>
+
+			<section class="grid">
+				<article class="treatment ledger">
+					<header>
+						<div>
+							<h2>Ledger</h2>
+							<p class="caption">Compressed summary first, inspector second.</p>
+						</div>
+						<span class="intent">balanced</span>
+					</header>
+					<div class="rows">
+						<section class="tool">
+							<div class="tool-head">
+								<div class="tool-meta">
+									<span class="tool-name">read_file</span>
+									<div>
+										<div class="path">test/agents/agent.test.ts:512+5</div>
+										<div class="secondary">5-line excerpt around the requested change</div>
+									</div>
+								</div>
+								<div class="tool-meta">
+									<span class="pill">inspect</span>
+									<span class="status">success</span>
+									<span class="duration">0.0s</span>
+								</div>
+							</div>
+							<div class="tool-body">
+								<div class="preview-meta">
+									<span>line-numbered preview</span>
+									<span>1 target line visible</span>
+								</div>
+								<div class="code">
+									<pre>512  role: "worker",
+513  instructions: "You are a test agent.",
+514  tools: [{ type: "primitive", name: "read_file" }],
+515  constraints: {
+516    ...DEFAULT_CONSTRAINTS,</pre>
+								</div>
+							</div>
+						</section>
+
+						<section class="tool">
+							<div class="tool-head">
+								<div class="tool-meta">
+									<span class="tool-name">edit_file</span>
+									<div>
+										<div class="path">test/agents/agent.test.ts</div>
+										<div class="secondary">Replaced 1 occurrence(s) in test/agents/agent.test.ts</div>
+									</div>
+								</div>
+								<div class="tool-meta">
+									<span class="pill">change</span>
+									<span class="status">success</span>
+									<span class="duration">0.0s</span>
+								</div>
+							</div>
+							<div class="tool-body">
+								<div class="preview-meta">
+									<span>synthetic diff from tool args</span>
+									<span>TypeScript highlighting</span>
+								</div>
+								<div class="diff">
+									<div class="diff-head">
+										<span>Unified diff</span>
+										<span>typescript</span>
+									</div>
+									<div class="diff-lines">
+										<div class="diff-line removed">
+											<span class="ln">514</span>
+											<span class="ln"></span>
+											<span class="mark">-</span>
+											<code><span class="tok-key">tools</span><span class="tok-punc">:</span> <span class="tok-punc">[{</span> <span class="tok-key">type</span><span class="tok-punc">:</span> <span class="tok-str">"primitive"</span><span class="tok-punc">,</span> <span class="tok-key">name</span><span class="tok-punc">:</span> <span class="tok-str">"read_file"</span> <span class="tok-punc">}],</span></code>
+										</div>
+										<div class="diff-line added">
+											<span class="ln"></span>
+											<span class="ln">514</span>
+											<span class="mark">+</span>
+											<code><span class="tok-key">tools</span><span class="tok-punc">:</span> <span class="tok-punc">[</span><span class="tok-str">"read_file"</span><span class="tok-punc">],</span></code>
+										</div>
+									</div>
+								</div>
+							</div>
+						</section>
+					</div>
+				</article>
+
+				<article class="treatment file-centric">
+					<header>
+						<div>
+							<h2>File-Centric</h2>
+							<p class="caption">The target file becomes the first thing you read.</p>
+						</div>
+						<span class="intent">code-heavy</span>
+					</header>
+					<div class="rows">
+						<section class="tool">
+							<div class="tool-head">
+								<div class="file-title">
+									<div class="file-name">agent.test.ts</div>
+									<span class="pill">read_file</span>
+								</div>
+								<div class="directory">test/agents/agent.test.ts:512+5</div>
+							</div>
+							<div class="tool-body">
+								<div class="preview-meta">
+									<span>5 lines visible</span>
+									<span>line 514 called out</span>
+									<span class="duration">0.0s</span>
+								</div>
+								<div class="code">
+									<pre>512  role: "worker",
+513  instructions: "You are a test agent.",
+514  tools: [{ type: "primitive", name: "read_file" }],
+515  constraints: {
+516    ...DEFAULT_CONSTRAINTS,</pre>
+								</div>
+							</div>
+						</section>
+
+						<section class="tool">
+							<div class="tool-head">
+								<div class="file-title">
+									<div class="file-name">agent.test.ts</div>
+									<span class="pill">edit_file</span>
+								</div>
+								<div class="directory">test/agents/agent.test.ts</div>
+							</div>
+							<div class="tool-body">
+								<div class="preview-meta">
+									<span>1 occurrence replaced</span>
+									<span>path stays primary</span>
+									<span class="duration">0.0s</span>
+								</div>
+								<div class="diff">
+									<div class="diff-head">
+										<span>Change preview</span>
+										<span>typescript</span>
+									</div>
+									<div class="diff-lines">
+										<div class="diff-line removed">
+											<span class="ln">514</span>
+											<span class="ln"></span>
+											<span class="mark">-</span>
+											<code><span class="tok-key">tools</span><span class="tok-punc">:</span> <span class="tok-punc">[{</span> <span class="tok-key">type</span><span class="tok-punc">:</span> <span class="tok-str">"primitive"</span><span class="tok-punc">,</span> <span class="tok-key">name</span><span class="tok-punc">:</span> <span class="tok-str">"read_file"</span> <span class="tok-punc">}],</span></code>
+										</div>
+										<div class="diff-line added">
+											<span class="ln"></span>
+											<span class="ln">514</span>
+											<span class="mark">+</span>
+											<code><span class="tok-key">tools</span><span class="tok-punc">:</span> <span class="tok-punc">[</span><span class="tok-str">"read_file"</span><span class="tok-punc">],</span></code>
+										</div>
+									</div>
+								</div>
+							</div>
+						</section>
+					</div>
+				</article>
+
+				<article class="treatment timeline">
+					<header>
+						<div>
+							<h2>Timeline</h2>
+							<p class="caption">Feels like an execution log, with stronger sequencing.</p>
+						</div>
+						<span class="intent">scan-first</span>
+					</header>
+					<div class="rows">
+						<section class="tool">
+							<span class="step">01</span>
+							<div class="tool-head">
+								<div>
+									<div class="path"><span class="tool-name">read_file</span> test/agents/agent.test.ts:512+5</div>
+									<div class="secondary">5-line excerpt around the requested change</div>
+								</div>
+								<div class="tool-meta">
+									<span class="status">success</span>
+									<span class="duration">0.0s</span>
+								</div>
+							</div>
+							<div class="tool-body">
+								<div class="code">
+									<pre>512  role: "worker",
+513  instructions: "You are a test agent.",
+514  tools: [{ type: "primitive", name: "read_file" }],
+515  constraints: {
+516    ...DEFAULT_CONSTRAINTS,</pre>
+								</div>
+							</div>
+						</section>
+
+						<section class="tool">
+							<span class="step">02</span>
+							<div class="tool-head">
+								<div>
+									<div class="path"><span class="tool-name">edit_file</span> test/agents/agent.test.ts</div>
+									<div class="secondary">Replaced 1 occurrence(s) in test/agents/agent.test.ts</div>
+								</div>
+								<div class="tool-meta">
+									<span class="status">success</span>
+									<span class="duration">0.0s</span>
+								</div>
+							</div>
+							<div class="tool-body">
+								<div class="diff">
+									<div class="diff-head">
+										<span>Patched line</span>
+										<span>typescript</span>
+									</div>
+									<div class="diff-lines">
+										<div class="diff-line removed">
+											<span class="ln">514</span>
+											<span class="ln"></span>
+											<span class="mark">-</span>
+											<code><span class="tok-key">tools</span><span class="tok-punc">:</span> <span class="tok-punc">[{</span> <span class="tok-key">type</span><span class="tok-punc">:</span> <span class="tok-str">"primitive"</span><span class="tok-punc">,</span> <span class="tok-key">name</span><span class="tok-punc">:</span> <span class="tok-str">"read_file"</span> <span class="tok-punc">}],</span></code>
+										</div>
+										<div class="diff-line added">
+											<span class="ln"></span>
+											<span class="ln">514</span>
+											<span class="mark">+</span>
+											<code><span class="tok-key">tools</span><span class="tok-punc">:</span> <span class="tok-punc">[</span><span class="tok-str">"read_file"</span><span class="tok-punc">],</span></code>
+										</div>
+									</div>
+								</div>
+							</div>
+						</section>
+					</div>
+				</article>
+
+				<article class="treatment review">
+					<header>
+						<div>
+							<h2>Review</h2>
+							<p class="caption">Leans into code-review semantics for edit comprehension.</p>
+						</div>
+						<span class="intent">edit-first</span>
+					</header>
+					<div class="rows">
+						<section class="tool">
+							<div class="tool-head">
+								<div class="review-meta">
+									<div class="review-title-line">
+										<div class="friendly-name">Read</div>
+										<div class="file-inline">agent.test.ts</div>
+									</div>
+									<div class="review-subline">
+										<div class="review-path">test/agents/agent.test.ts:512+5</div>
+										<div class="review-time">0.0s</div>
+									</div>
+								</div>
+							</div>
+							<div class="tool-body">
+								<div class="code">
+									<pre>512  role: "worker",
+513  instructions: "You are a test agent.",
+514  tools: [{ type: "primitive", name: "read_file" }],
+515  constraints: {
+516    ...DEFAULT_CONSTRAINTS,</pre>
+								</div>
+							</div>
+						</section>
+
+						<section class="tool">
+							<div class="tool-head">
+								<div class="review-meta">
+									<div class="review-title-line">
+										<div class="friendly-name">Edit</div>
+										<div class="file-inline">agent.test.ts</div>
+									</div>
+									<div class="review-subline">
+										<div class="review-path">test/agents/agent.test.ts</div>
+										<div class="review-time">0.0s</div>
+									</div>
+								</div>
+							</div>
+							<div class="tool-body">
+								<div class="diff">
+									<div class="diff-lines">
+										<div class="diff-line removed">
+											<span class="ln">514</span>
+											<span class="ln"></span>
+											<span class="mark">-</span>
+											<code><span class="tok-key">tools</span><span class="tok-punc">:</span> <span class="tok-punc">[{</span> <span class="tok-key">type</span><span class="tok-punc">:</span> <span class="tok-str">"primitive"</span><span class="tok-punc">,</span> <span class="tok-key">name</span><span class="tok-punc">:</span> <span class="tok-str">"read_file"</span> <span class="tok-punc">}],</span></code>
+										</div>
+										<div class="diff-line added">
+											<span class="ln"></span>
+											<span class="ln">514</span>
+											<span class="mark">+</span>
+											<code><span class="tok-key">tools</span><span class="tok-punc">:</span> <span class="tok-punc">[</span><span class="tok-str">"read_file"</span><span class="tok-punc">],</span></code>
+										</div>
+									</div>
+								</div>
+							</div>
+						</section>
+					</div>
+				</article>
+			</section>
+		</main>
+	</body>
+</html>

@@ -3,6 +3,7 @@ import Markdown from "ink-markdown-es";
 import { createShikiCodeRenderer } from "ink-shiki-code";
 import type { ReactNode } from "react";
 import type { SessionEvent } from "../kernel/types.ts";
+import { getToolDisplayName } from "../shared/tool-display.ts";
 import { formatDuration, smartArgs } from "./render-event.ts";
 
 const codeRenderer = createShikiCodeRenderer({ theme: "one-dark-pro" });
@@ -53,17 +54,19 @@ export function UserMessageLine({ depth, text }: UserMessageProps) {
 interface ToolStartProps {
 	depth: number;
 	toolName: string;
+	displayName?: string;
 	args?: Record<string, unknown>;
 }
 
 /** Renders a tool invocation start: ▸ tool_name args */
-export function ToolStartLine({ depth, toolName, args }: ToolStartProps) {
+export function ToolStartLine({ depth, toolName, displayName, args }: ToolStartProps) {
 	const argStr = smartArgs(toolName, args);
+	const label = getToolDisplayName(toolName, displayName);
 	return (
 		<DepthBorder depth={depth}>
 			<Box>
 				<Text dimColor>{"\u25B8 "}</Text>
-				<Text color="yellow">{toolName}</Text>
+				<Text color="yellow">{label}</Text>
 				{argStr && <Text dimColor>{` ${argStr}`}</Text>}
 			</Box>
 		</DepthBorder>
@@ -73,6 +76,7 @@ export function ToolStartLine({ depth, toolName, args }: ToolStartProps) {
 interface ToolEndProps {
 	depth: number;
 	toolName: string;
+	displayName?: string;
 	args?: Record<string, unknown>;
 	success: boolean;
 	error?: string;
@@ -84,6 +88,7 @@ interface ToolEndProps {
 export function ToolEndLine({
 	depth,
 	toolName,
+	displayName,
 	args,
 	success,
 	error,
@@ -92,6 +97,7 @@ export function ToolEndLine({
 }: ToolEndProps) {
 	const argStr = smartArgs(toolName, args);
 	const dur = formatDuration(durationMs);
+	const label = getToolDisplayName(toolName, displayName);
 
 	// Compact output summary: single-line output shown inline, multi-line shows count
 	let outputHint: string | null = null;
@@ -108,7 +114,7 @@ export function ToolEndLine({
 		<DepthBorder depth={depth}>
 			<Box>
 				<Text dimColor>{"\u25B8 "}</Text>
-				<Text color="yellow">{toolName}</Text>
+				<Text color="yellow">{label}</Text>
 				{argStr && <Text dimColor>{` ${argStr}`}</Text>}
 				{success ? (
 					<Text color="green">{" \u2713"}</Text>
@@ -307,6 +313,7 @@ export function renderEventComponent(event: SessionEvent, durationMs: number | n
 				<ToolEndLine
 					depth={depth}
 					toolName={data.name as string}
+					displayName={typeof data.display_name === "string" ? data.display_name : undefined}
 					args={data.args as Record<string, unknown>}
 					success={Boolean(data.success)}
 					error={data.error ? String(data.error) : undefined}

@@ -546,7 +546,7 @@ describe("App", () => {
 			success: true,
 		});
 		await flush();
-		expect(lastFrame()).toContain("exec");
+		expect(lastFrame()).toContain("Run");
 
 		// Type /collapse-tools and submit
 		stdin.write("/collapse-tools");

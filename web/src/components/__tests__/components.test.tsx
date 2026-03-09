@@ -252,22 +252,25 @@ describe("ToolCall", () => {
 		const html = renderToStaticMarkup(
 			<ToolCall
 				toolName="read_file"
+				displayName="Read"
 				success={true}
 				args={{ path: "/tmp/test.ts" }}
 			/>,
 		);
-		expect(html).toContain("read_file");
+		expect(html).toContain("Read");
+		expect(html).toContain("test.ts");
+		expect(html).toContain("/tmp/test.ts");
 	});
 
-	test("shows success indicator", () => {
+	test("does not show a success pill", () => {
 		const html = renderToStaticMarkup(
 			<ToolCall toolName="exec" success={true} />
 		);
 		expect(html).toContain('data-status="success"');
-		expect(html).toContain("\u2713");
+		expect(html).not.toContain("Failed");
 	});
 
-	test("shows failure indicator and error", () => {
+	test("shows failure pill and error", () => {
 		const html = renderToStaticMarkup(
 			<ToolCall
 				toolName="exec"
@@ -276,7 +279,7 @@ describe("ToolCall", () => {
 			/>,
 		);
 		expect(html).toContain('data-status="error"');
-		expect(html).toContain("\u2717");
+		expect(html).toContain("Failed");
 		expect(html).toContain("command not found");
 	});
 
@@ -291,11 +294,13 @@ describe("ToolCall", () => {
 		const html = renderToStaticMarkup(
 			<ToolCall
 				toolName="exec"
+				displayName="Run"
 				success={true}
 				args={{ command: "ls -la" }}
 			/>,
 		);
 		expect(html).toContain("ls -la");
+		expect(html).toContain("Run");
 	});
 
 	test("renders output preview when provided", () => {
@@ -327,7 +332,7 @@ describe("ToolCall", () => {
 // --- ReadFileRenderer ---
 
 describe("ReadFileRenderer", () => {
-	test("renders filename from args", () => {
+	test("does not duplicate the file path header", () => {
 		const html = renderToStaticMarkup(
 			<ReadFileRenderer
 				toolName="read_file"
@@ -336,7 +341,7 @@ describe("ReadFileRenderer", () => {
 				success={true}
 			/>,
 		);
-		expect(html).toContain("/src/main.ts");
+		expect(html).not.toContain("/src/main.ts");
 	});
 
 	test("previews first 10 lines of output", () => {
@@ -415,13 +420,13 @@ describe("EditFileRenderer", () => {
 				success={true}
 			/>,
 		);
-		expect(html).toContain('data-diff="added"');
-		expect(html).toContain('data-diff="removed"');
+		expect(html).toContain("hljs-addition");
+		expect(html).toContain("hljs-deletion");
 		expect(html).toContain("+new line");
 		expect(html).toContain("-old line");
 	});
 
-	test("renders file path from args", () => {
+	test("does not duplicate the file path header", () => {
 		const html = renderToStaticMarkup(
 			<EditFileRenderer
 				toolName="edit_file"
@@ -430,7 +435,7 @@ describe("EditFileRenderer", () => {
 				success={true}
 			/>,
 		);
-		expect(html).toContain("/src/app.tsx");
+		expect(html).not.toContain("/src/app.tsx");
 	});
 
 	test("falls back to plain output when no diff detected", () => {
@@ -787,6 +792,7 @@ describe("EventLine", () => {
 	test("renders primitive_end as ToolCall", () => {
 		const event = makeEvent("primitive_end", {
 			name: "exec",
+			display_name: "Run",
 			args: { command: "ls" },
 			success: true,
 			output: "file.txt",
@@ -794,7 +800,7 @@ describe("EventLine", () => {
 		const html = renderToStaticMarkup(
 			<EventLine event={event} durationMs={250} />,
 		);
-		expect(html).toContain("exec");
+		expect(html).toContain("Run");
 		expect(html).toContain("ls");
 	});
 
@@ -1031,7 +1037,7 @@ describe("ConversationView", () => {
 		const html = renderToStaticMarkup(<ConversationView events={events} tree={tree} />);
 		expect(html).toContain("hello world");
 		expect(html).toContain("I will help you");
-		expect(html).toContain("exec");
+		expect(html).toContain("Run");
 	});
 
 	test("skips events that return null", () => {

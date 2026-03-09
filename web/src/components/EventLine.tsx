@@ -70,6 +70,7 @@ export function EventLine({ event, durationMs, streamingText, isFirstInGroup, ag
 			return (
 				<ToolCall
 					toolName={data.name as string}
+					displayName={typeof data.display_name === "string" ? data.display_name : undefined}
 					success={Boolean(data.success)}
 					args={groupedArgs ?? (data.args as Record<string, unknown>)}
 					error={data.error ? String(data.error) : undefined}

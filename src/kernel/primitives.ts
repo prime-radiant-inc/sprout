@@ -1,6 +1,7 @@
 import { readFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import type { Genome } from "../genome/genome.ts";
+import { getToolDisplayName } from "../shared/tool-display.ts";
 import type { ExecutionEnvironment } from "./execution-env.ts";
 import { truncateToolOutput } from "./truncation.ts";
 import type { PrimitiveResult } from "./types.ts";
@@ -12,6 +13,7 @@ export interface GenomeContext {
 
 export interface Primitive {
 	name: string;
+	displayName?: string;
 	description: string;
 	parameters: Record<string, unknown>;
 	execute(
@@ -91,6 +93,7 @@ export function buildWorkspacePrimitives(ctx: GenomeContext): Primitive[] {
 function readFilePrimitive(): Primitive {
 	return {
 		name: "read_file",
+		displayName: getToolDisplayName("read_file"),
 		description: "Read a file from the filesystem. Returns line-numbered content.",
 		parameters: {
 			type: "object",
@@ -122,6 +125,7 @@ function readFilePrimitive(): Primitive {
 function writeFilePrimitive(): Primitive {
 	return {
 		name: "write_file",
+		displayName: getToolDisplayName("write_file"),
 		description: "Write content to a file. Creates the file and parent directories if needed.",
 		parameters: {
 			type: "object",
@@ -153,6 +157,7 @@ function writeFilePrimitive(): Primitive {
 function editFilePrimitive(): Primitive {
 	return {
 		name: "edit_file",
+		displayName: getToolDisplayName("edit_file"),
 		description: "Replace an exact string occurrence in a file.",
 		parameters: {
 			type: "object",
@@ -226,6 +231,7 @@ function editFilePrimitive(): Primitive {
 function applyPatchPrimitive(): Primitive {
 	return {
 		name: "apply_patch",
+		displayName: getToolDisplayName("apply_patch"),
 		description:
 			"Apply code changes using the v4a patch format. Supports creating, deleting, updating, and renaming files.",
 		parameters: {
@@ -435,6 +441,7 @@ function findMatchPosition(fileLines: string[], searchLines: string[]): number {
 function execPrimitive(): Primitive {
 	return {
 		name: "exec",
+		displayName: getToolDisplayName("exec"),
 		description: "Execute a shell command. Returns stdout, stderr, and exit code.",
 		parameters: {
 			type: "object",
@@ -485,6 +492,7 @@ function execPrimitive(): Primitive {
 function grepPrimitive(): Primitive {
 	return {
 		name: "grep",
+		displayName: getToolDisplayName("grep"),
 		description: "Search file contents using regex patterns.",
 		parameters: {
 			type: "object",
@@ -517,6 +525,7 @@ function grepPrimitive(): Primitive {
 function globPrimitive(): Primitive {
 	return {
 		name: "glob",
+		displayName: getToolDisplayName("glob"),
 		description: "Find files matching a glob pattern.",
 		parameters: {
 			type: "object",
@@ -544,6 +553,7 @@ function globPrimitive(): Primitive {
 function fetchPrimitive(): Primitive {
 	return {
 		name: "fetch",
+		displayName: getToolDisplayName("fetch"),
 		description: "Make an HTTP request.",
 		parameters: {
 			type: "object",
@@ -593,6 +603,7 @@ function fetchPrimitive(): Primitive {
 function saveToolPrimitive(ctx: GenomeContext): Primitive {
 	return {
 		name: "save_tool",
+		displayName: getToolDisplayName("save_tool"),
 		description:
 			"Save an executable script to your workspace. The tool persists across sessions and becomes part of your capabilities.",
 		parameters: {
@@ -650,6 +661,7 @@ function saveToolPrimitive(ctx: GenomeContext): Primitive {
 function saveFilePrimitive(ctx: GenomeContext): Primitive {
 	return {
 		name: "save_file",
+		displayName: getToolDisplayName("save_file"),
 		description:
 			"Save a reference file to your workspace. Files persist across sessions and can be read with read_file.",
 		parameters: {
@@ -687,6 +699,7 @@ function saveFilePrimitive(ctx: GenomeContext): Primitive {
 function saveAgentPrimitive(ctx: GenomeContext): Primitive {
 	return {
 		name: "save_agent",
+		displayName: getToolDisplayName("save_agent"),
 		description:
 			"Save a new agent definition to the genome. The agent becomes available for delegation immediately and persists across sessions.",
 		parameters: {
