@@ -19,7 +19,19 @@ function resetTimestamps(): void {
 	nextTs = 1000;
 }
 
-// --- Tests ---
+function makeEventPartial(
+	overrides: Partial<SessionEvent> & { kind: SessionEvent["kind"] },
+): SessionEvent {
+	return {
+		timestamp: Date.now(),
+		agent_id: "root",
+		depth: 0,
+		data: {},
+		...overrides,
+	};
+}
+
+// --- Tree building tests ---
 //
 // IMPORTANT: act_start/act_end events are emitted by the PARENT agent.
 // So event.agent_id is the parent, event.depth is the parent's depth,
@@ -418,43 +430,6 @@ describe("buildAgentTree", () => {
 		});
 	});
 
-	describe("getDescendantIds", () => {
-		test("returns all descendant agent IDs including self", () => {
-			resetTimestamps();
-			const { tree } = buildAgentTree([
-				makeEvent("perceive", "root-agent", 0, { goal: "Go" }),
-				makeEvent("act_start", "root-agent", 0, { agent_name: "editor", goal: "Edit" }),
-				makeEvent("act_start", "editor", 1, { agent_name: "writer", goal: "Write" }),
-				makeEvent("act_end", "editor", 1, { agent_name: "writer", success: true }),
-				makeEvent("act_end", "root-agent", 0, { agent_name: "editor", success: true }),
-				makeEvent("act_start", "root-agent", 0, { agent_name: "runner", goal: "Run" }),
-				makeEvent("act_end", "root-agent", 0, { agent_name: "runner", success: true }),
-			]);
-
-			const ids = getDescendantIds(tree, "editor");
-			expect(ids).toContain("editor");
-			expect(ids).toContain("writer");
-			expect(ids).not.toContain("runner");
-			expect(ids).not.toContain("root-agent");
-		});
-
-		test("returns null when agentId not found", () => {
-			const { tree } = buildAgentTree([makeEvent("perceive", "root", 0, { goal: "Go" })]);
-			expect(getDescendantIds(tree, "nonexistent")).toBeNull();
-		});
-
-		test("returns just self for leaf agent", () => {
-			resetTimestamps();
-			const { tree } = buildAgentTree([
-				makeEvent("perceive", "root-agent", 0, { goal: "Go" }),
-				makeEvent("act_start", "root-agent", 0, { agent_name: "leaf", goal: "Do" }),
-				makeEvent("act_end", "root-agent", 0, { agent_name: "leaf", success: true }),
-			]);
-			const ids = getDescendantIds(tree, "leaf");
-			expect(ids).toEqual(new Set(["leaf"]));
-		});
-	});
-
 	describe("act_end without turns", () => {
 		test("handles missing turns gracefully", () => {
 			resetTimestamps();
@@ -614,5 +589,230 @@ describe("buildAgentTree", () => {
 			expect(tree.agentId).toBe("my-agent");
 			expect(tree.agentName).toBe("my-agent");
 		});
+	});
+});
+
+// --- Mnemonic name tests ---
+
+describe("buildAgentTree — mnemonic names", () => {
+	test("act_start with mnemonic_name sets mnemonicName on child node", () => {
+		const events: SessionEvent[] = [
+			makeEventPartial({ kind: "session_start", depth: 0 }),
+			makeEventPartial({
+				kind: "act_start",
+				depth: 0,
+				agent_id: "root",
+				data: {
+					agent_name: "reader",
+					child_id: "child-1",
+					goal: "read something",
+					mnemonic_name: "Ada Lovelace",
+				},
+			}),
+		];
+
+		const { tree } = buildAgentTree(events);
+		expect(tree.children).toHaveLength(1);
+		expect(tree.children[0]!.mnemonicName).toBe("Ada Lovelace");
+	});
+
+	test("act_start without mnemonic_name leaves mnemonicName undefined", () => {
+		const events: SessionEvent[] = [
+			makeEventPartial({ kind: "session_start", depth: 0 }),
+			makeEventPartial({
+				kind: "act_start",
+				depth: 0,
+				agent_id: "root",
+				data: {
+					agent_name: "reader",
+					child_id: "child-2",
+					goal: "read something",
+				},
+			}),
+		];
+
+		const { tree } = buildAgentTree(events);
+		expect(tree.children).toHaveLength(1);
+		expect(tree.children[0]!.mnemonicName).toBeUndefined();
+	});
+
+	test("act_start with handle_id and mnemonic_name populates handleToMnemonic map", () => {
+		const events: SessionEvent[] = [
+			makeEventPartial({ kind: "session_start", depth: 0 }),
+			makeEventPartial({
+				kind: "act_start",
+				depth: 0,
+				agent_id: "root",
+				data: {
+					agent_name: "reader",
+					child_id: "child-3",
+					handle_id: "handle-abc",
+					goal: "read something",
+					mnemonic_name: "Alan Turing",
+				},
+			}),
+		];
+
+		const { handleToMnemonic } = buildAgentTree(events);
+		expect(handleToMnemonic.get("handle-abc")).toBe("Alan Turing");
+	});
+
+	test("act_start with child_id and mnemonic_name populates childIdToMnemonic map", () => {
+		const events: SessionEvent[] = [
+			makeEventPartial({ kind: "session_start", depth: 0 }),
+			makeEventPartial({
+				kind: "act_start",
+				depth: 0,
+				agent_id: "root",
+				data: {
+					agent_name: "reader",
+					child_id: "child-4",
+					goal: "read something",
+					mnemonic_name: "Grace Hopper",
+				},
+			}),
+		];
+
+		const { childIdToMnemonic } = buildAgentTree(events);
+		expect(childIdToMnemonic.get("child-4")).toBe("Grace Hopper");
+	});
+
+	test("act_end with mnemonic_name sets mnemonicName on node if not already set", () => {
+		const events: SessionEvent[] = [
+			makeEventPartial({ kind: "session_start", depth: 0 }),
+			makeEventPartial({
+				kind: "act_start",
+				depth: 0,
+				agent_id: "root",
+				data: {
+					agent_name: "reader",
+					child_id: "child-5",
+					goal: "read something",
+					// no mnemonic_name in act_start
+				},
+			}),
+			makeEventPartial({
+				kind: "act_end",
+				depth: 0,
+				agent_id: "root",
+				data: {
+					child_id: "child-5",
+					success: true,
+					turns: 3,
+					mnemonic_name: "Marie Curie",
+				},
+			}),
+		];
+
+		const { tree } = buildAgentTree(events);
+		expect(tree.children[0]!.mnemonicName).toBe("Marie Curie");
+	});
+
+	test("act_end does not overwrite mnemonicName already set by act_start", () => {
+		const events: SessionEvent[] = [
+			makeEventPartial({ kind: "session_start", depth: 0 }),
+			makeEventPartial({
+				kind: "act_start",
+				depth: 0,
+				agent_id: "root",
+				data: {
+					agent_name: "reader",
+					child_id: "child-6",
+					goal: "read something",
+					mnemonic_name: "Ada Lovelace",
+				},
+			}),
+			makeEventPartial({
+				kind: "act_end",
+				depth: 0,
+				agent_id: "root",
+				data: {
+					child_id: "child-6",
+					success: true,
+					turns: 2,
+					mnemonic_name: "Different Name",
+				},
+			}),
+		];
+
+		const { tree } = buildAgentTree(events);
+		expect(tree.children[0]!.mnemonicName).toBe("Ada Lovelace");
+	});
+
+	test("handleToMnemonic is empty when no handle_id or mnemonic_name present", () => {
+		const events: SessionEvent[] = [
+			makeEventPartial({ kind: "session_start", depth: 0 }),
+			makeEventPartial({
+				kind: "act_start",
+				depth: 0,
+				agent_id: "root",
+				data: {
+					agent_name: "reader",
+					child_id: "child-7",
+					goal: "read something",
+				},
+			}),
+		];
+
+		const { handleToMnemonic } = buildAgentTree(events);
+		expect(handleToMnemonic.size).toBe(0);
+	});
+
+	test("childIdToMnemonic is empty when no mnemonic_name present", () => {
+		const events: SessionEvent[] = [
+			makeEventPartial({ kind: "session_start", depth: 0 }),
+			makeEventPartial({
+				kind: "act_start",
+				depth: 0,
+				agent_id: "root",
+				data: {
+					agent_name: "reader",
+					child_id: "child-8",
+					goal: "read something",
+				},
+			}),
+		];
+
+		const { childIdToMnemonic } = buildAgentTree(events);
+		expect(childIdToMnemonic.size).toBe(0);
+	});
+});
+
+// --- getDescendantIds tests ---
+
+describe("getDescendantIds", () => {
+	test("returns all descendant agent IDs including self", () => {
+		resetTimestamps();
+		const { tree } = buildAgentTree([
+			makeEvent("perceive", "root-agent", 0, { goal: "Go" }),
+			makeEvent("act_start", "root-agent", 0, { agent_name: "editor", goal: "Edit" }),
+			makeEvent("act_start", "editor", 1, { agent_name: "writer", goal: "Write" }),
+			makeEvent("act_end", "editor", 1, { agent_name: "writer", success: true }),
+			makeEvent("act_end", "root-agent", 0, { agent_name: "editor", success: true }),
+			makeEvent("act_start", "root-agent", 0, { agent_name: "runner", goal: "Run" }),
+			makeEvent("act_end", "root-agent", 0, { agent_name: "runner", success: true }),
+		]);
+
+		const ids = getDescendantIds(tree, "editor");
+		expect(ids).toContain("editor");
+		expect(ids).toContain("writer");
+		expect(ids).not.toContain("runner");
+		expect(ids).not.toContain("root-agent");
+	});
+
+	test("returns null when agentId not found", () => {
+		const { tree } = buildAgentTree([makeEvent("perceive", "root", 0, { goal: "Go" })]);
+		expect(getDescendantIds(tree, "nonexistent")).toBeNull();
+	});
+
+	test("returns just self for leaf agent", () => {
+		resetTimestamps();
+		const { tree } = buildAgentTree([
+			makeEvent("perceive", "root-agent", 0, { goal: "Go" }),
+			makeEvent("act_start", "root-agent", 0, { agent_name: "leaf", goal: "Do" }),
+			makeEvent("act_end", "root-agent", 0, { agent_name: "leaf", success: true }),
+		]);
+		const ids = getDescendantIds(tree, "leaf");
+		expect(ids).toEqual(new Set(["leaf"]));
 	});
 });
