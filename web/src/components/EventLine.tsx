@@ -12,6 +12,7 @@ interface EventLineProps {
 	streamingText?: string;
 	isFirstInGroup?: boolean;
 	agentName?: string;
+	userName?: string;
 	livePeek?: string;
 	livePeekTools?: ToolCallSummary[];
 	/** Args from matching primitive_start (primitive_end events don't carry args). */
@@ -25,7 +26,7 @@ interface EventLineProps {
  * Dispatcher: maps a SessionEvent to the appropriate display component.
  * Returns null for events that should not be displayed.
  */
-export function EventLine({ event, durationMs, streamingText, isFirstInGroup, agentName, livePeek, livePeekTools, args: groupedArgs, abandoned, onSelectAgent }: EventLineProps) {
+export function EventLine({ event, durationMs, streamingText, isFirstInGroup, agentName, userName, livePeek, livePeekTools, args: groupedArgs, abandoned, onSelectAgent }: EventLineProps) {
 	const { kind, data } = event;
 
 	switch (kind) {
@@ -35,6 +36,7 @@ export function EventLine({ event, durationMs, streamingText, isFirstInGroup, ag
 					text={String(data.goal ?? "")}
 					isFirstInGroup={isFirstInGroup}
 					timestamp={event.timestamp}
+					name={userName}
 				/>
 			);
 
@@ -45,6 +47,7 @@ export function EventLine({ event, durationMs, streamingText, isFirstInGroup, ag
 					isSteering
 					isFirstInGroup={isFirstInGroup}
 					timestamp={event.timestamp}
+					name={userName}
 				/>
 			);
 

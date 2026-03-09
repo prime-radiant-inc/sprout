@@ -4,7 +4,7 @@ import type { AgentTreeNode } from "../hooks/useAgentTree.ts";
 import { EmptyState } from "./EmptyState.tsx";
 import { EventErrorBoundary } from "./EventErrorBoundary.tsx";
 import { EventLine } from "./EventLine.tsx";
-import { buildNameMap, groupEvents } from "./groupEvents.ts";
+import { groupEvents } from "./groupEvents.ts";
 import { StreamingBanner } from "./StreamingBanner.tsx";
 import styles from "./ConversationView.module.css";
 
@@ -34,10 +34,8 @@ export function ConversationView({
 	const isStreaming = lastVisible?.event.kind === "plan_delta";
 	const streamingAgentName = useMemo(() => {
 		if (!isStreaming) return null;
-		const agentId = lastVisible?.event.agent_id;
-		if (!agentId) return null;
-		return buildNameMap(tree).get(agentId) ?? agentId;
-	}, [isStreaming, lastVisible, tree]);
+		return lastVisible?.agentName ?? null;
+	}, [isStreaming, lastVisible]);
 
 	// Show empty state when no visible events exist
 	if (grouped.length === 0 && !agentFilter) {
@@ -46,7 +44,7 @@ export function ConversationView({
 
 	return (
 		<div className={styles.conversationView}>
-			{grouped.map(({ event, durationMs, streamingText, isFirstInGroup, agentName, livePeek, livePeekTools, args, abandoned }, i) => (
+			{grouped.map(({ event, durationMs, streamingText, isFirstInGroup, agentName, userName, livePeek, livePeekTools, args, abandoned }, i) => (
 				<EventErrorBoundary key={`${event.agent_id}-${event.kind}-${event.timestamp}-${i}`} eventKind={event.kind}>
 					<EventLine
 						event={event}
@@ -54,6 +52,7 @@ export function ConversationView({
 						streamingText={streamingText}
 						isFirstInGroup={isFirstInGroup}
 						agentName={agentName}
+						userName={userName}
 						livePeek={livePeek}
 						livePeekTools={livePeekTools}
 						args={args}

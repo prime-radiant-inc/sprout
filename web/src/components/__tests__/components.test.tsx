@@ -174,6 +174,14 @@ describe("UserMessage", () => {
 		);
 		expect(html).toContain("12:30");
 	});
+
+	test("renders custom speaker name when provided", () => {
+		const html = renderToStaticMarkup(
+			<UserMessage text="hello" isFirstInGroup name="root" />,
+		);
+		expect(html).toContain("root");
+		expect(html).not.toContain("You");
+	});
 });
 
 // --- AssistantMessage ---
@@ -1147,6 +1155,27 @@ describe("ConversationView", () => {
 		expect(html).not.toContain("root goal");
 	});
 
+	test("filtered thread view uses short assistant names and caller labels", () => {
+		const events: SessionEvent[] = [
+			makeEvent("perceive", { goal: "root goal" }, { agent_id: "root", depth: 0, timestamp: 1000 }),
+			makeEvent(
+				"act_start",
+				{ agent_name: "command-runner", mnemonic_name: "Thompson", goal: "Run ls", child_id: "CID1" },
+				{ agent_id: "root", depth: 0, timestamp: 1001 },
+			),
+			makeEvent("perceive", { goal: "Run ls" }, { agent_id: "CID1", depth: 1, timestamp: 1002 }),
+			makeEvent("plan_end", { text: "I'll run ls in the current working directory." }, { agent_id: "CID1", depth: 1, timestamp: 1003 }),
+		];
+		const { tree } = buildAgentTree(events);
+		const html = renderToStaticMarkup(
+			<ConversationView events={events} agentFilter="CID1" tree={tree} />,
+		);
+		expect(html).toContain(">root<");
+		expect(html).not.toContain(">You<");
+		expect(html).toContain(">Thompson<");
+		expect(html).not.toContain("Thompson (command-runner)");
+	});
+
 	test("renders empty state when no events", () => {
 		const { tree } = buildAgentTree([]);
 		const html = renderToStaticMarkup(<ConversationView events={[]} tree={tree} />);
@@ -1312,6 +1341,35 @@ describe("ThreadPanel", () => {
 			/>,
 		);
 		expect(html).toContain("missing-agent");
+	});
+
+	test("keeps the full role label in the thread header only", () => {
+		const events: SessionEvent[] = [
+			makeEvent("perceive", { goal: "root goal" }, { agent_id: "root", depth: 0, timestamp: 1000 }),
+			makeEvent(
+				"act_start",
+				{ agent_name: "command-runner", mnemonic_name: "Thompson", goal: "Run ls", child_id: "CID1" },
+				{ agent_id: "root", depth: 0, timestamp: 1001 },
+			),
+			makeEvent("perceive", { goal: "Run ls" }, { agent_id: "CID1", depth: 1, timestamp: 1002 }),
+			makeEvent("plan_end", { text: "I'll run ls in the current working directory." }, { agent_id: "CID1", depth: 1, timestamp: 1003 }),
+		];
+		const { tree } = buildAgentTree(events);
+		const html = renderToStaticMarkup(
+			<ThreadPanel
+				agentId="CID1"
+				tree={tree}
+				events={events}
+				agentStats={new Map()}
+				onClose={() => {}}
+				onSelectAgent={() => {}}
+			/>,
+		);
+		const matches = html.match(/Thompson \(command-runner\)/g);
+		expect(matches).toHaveLength(1);
+		expect(html).toContain(">Thompson<");
+		expect(html).toContain(">root<");
+		expect(html).not.toContain(">You<");
 	});
 });
 

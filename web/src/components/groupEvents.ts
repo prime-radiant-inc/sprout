@@ -27,6 +27,7 @@ export interface GroupedEvent {
 	durationMs: number | null;
 	streamingText?: string;
 	agentName?: string;
+	userName?: string;
 	/** Live peek summary for running delegations (legacy single-line). */
 	livePeek?: string;
 	/** Recent tool calls for running delegations (richer display). */
@@ -78,11 +79,33 @@ function durationKey(event: SessionEvent): string | null {
 }
 
 /** Build a flat agentId-to-agentName map from the agent tree. */
-export function buildNameMap(node: AgentTreeNode): Map<string, string> {
+export function buildNameMap(
+	node: AgentTreeNode,
+	style: "full" | "short" = "full",
+): Map<string, string> {
 	const map = new Map<string, string>();
 	function walk(n: AgentTreeNode) {
-		map.set(n.agentId, n.mnemonicName ? `${n.mnemonicName} (${n.agentName})` : n.agentName);
+		map.set(
+			n.agentId,
+			style === "short"
+				? n.mnemonicName ?? n.agentName
+				: n.mnemonicName
+					? `${n.mnemonicName} (${n.agentName})`
+					: n.agentName,
+		);
 		for (const child of n.children) walk(child);
+	}
+	walk(node);
+	return map;
+}
+
+function buildParentMap(node: AgentTreeNode): Map<string, string> {
+	const map = new Map<string, string>();
+	function walk(n: AgentTreeNode, parentId?: string) {
+		if (parentId) {
+			map.set(n.agentId, parentId);
+		}
+		for (const child of n.children) walk(child, n.agentId);
 	}
 	walk(node);
 	return map;
@@ -105,7 +128,10 @@ export function groupEvents(
 		!agentFilter && rootAgentId
 			? new Set([rootAgentId, "session", "cli", "logger"])
 			: null;
-	const nameMap = tree ? buildNameMap(tree) : new Map<string, string>();
+	const nameMap = tree
+		? buildNameMap(tree, agentFilter ? "short" : "full")
+		: new Map<string, string>();
+	const parentMap = tree ? buildParentMap(tree) : new Map<string, string>();
 	const startTimes = new Map<string, number>();
 	const streamBuffers = new Map<string, string>();
 	const lastDeltaIdx = new Map<string, number>();
@@ -295,12 +321,16 @@ export function groupEvents(
 			lastPrimitiveArgs.delete(argsKey);
 		}
 
+		const callerId = agentFilter ? parentMap.get(event.agent_id) : undefined;
+		const userName = callerId ? nameMap.get(callerId) : undefined;
+
 		result.push({
 			event,
 			durationMs,
 			isFirstInGroup: true,
 			isLastInGroup: true,
 			agentName: nameMap.get(event.agent_id),
+			...(userName ? { userName } : {}),
 			...(args ? { args } : {}),
 		});
 	}
