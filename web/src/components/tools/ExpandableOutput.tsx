@@ -4,6 +4,9 @@ import styles from "./tools.module.css";
 interface ExpandableOutputProps {
 	output: string;
 	maxLines?: number;
+	collapsedLabel?: (remainingLines: number, totalLines: number) => string;
+	expandedLabel?: string;
+	showEllipsis?: boolean;
 }
 
 const DEFAULT_MAX_LINES = 15;
@@ -12,10 +15,14 @@ const DEFAULT_MAX_LINES = 15;
 export function ExpandableOutput({
 	output,
 	maxLines = DEFAULT_MAX_LINES,
+	collapsedLabel,
+	expandedLabel = "Collapse",
+	showEllipsis = true,
 }: ExpandableOutputProps) {
 	const [expanded, setExpanded] = useState(false);
 	const lines = output.split("\n");
 	const totalLines = lines.length;
+	const remainingLines = Math.max(0, totalLines - maxLines);
 	const needsTruncation = totalLines > maxLines;
 	const displayText =
 		expanded || !needsTruncation
@@ -26,7 +33,7 @@ export function ExpandableOutput({
 		<>
 			<pre className={styles.codeBlock}>
 				{displayText}
-				{!expanded && needsTruncation && "\n..."}
+				{!expanded && needsTruncation && showEllipsis && "\n..."}
 			</pre>
 			{needsTruncation && (
 				<button
@@ -35,7 +42,10 @@ export function ExpandableOutput({
 					data-action="expand-output"
 					onClick={() => setExpanded((prev) => !prev)}
 				>
-					{expanded ? "Collapse" : `Show all (${totalLines} lines)`}
+					{expanded
+						? expandedLabel
+						: collapsedLabel?.(remainingLines, totalLines) ??
+							`Show all (${totalLines} lines)`}
 				</button>
 			)}
 		</>

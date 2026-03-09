@@ -89,7 +89,22 @@
 	font-family: var(--font-mono);
 	font-size: var(--font-size-sm);
 	color: var(--color-text-primary);
+	min-width: 0;
+}
+
+.commandHeader {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: var(--space-sm);
 	margin-bottom: var(--space-xs);
+}
+
+.commandMeta {
+	font-size: var(--font-size-xxs);
+	color: var(--color-text-placeholder);
+	font-variant-numeric: tabular-nums;
+	flex-shrink: 0;
 }
 
 .prompt {

@@ -283,11 +283,31 @@ describe("ToolCall", () => {
 		expect(html).toContain("command not found");
 	});
 
-	test("shows duration when provided", () => {
+	test("shows duration when provided for non-exec tools", () => {
 		const html = renderToStaticMarkup(
-			<ToolCall toolName="exec" success={true} durationMs={1500} />,
+			<ToolCall
+				toolName="read_file"
+				success={true}
+				durationMs={1500}
+				args={{ path: "/tmp/test.ts" }}
+			/>,
 		);
 		expect(html).toContain("1.5s");
+	});
+
+	test("does not show exec duration in the summary line", () => {
+		const html = renderToStaticMarkup(
+			<ToolCall
+				toolName="exec"
+				success={true}
+				durationMs={1500}
+				args={{ command: "ls" }}
+				output={"line 1\nline 2"}
+			/>,
+		);
+		expect(html).toContain("1.5s");
+		expect(html).toContain("ls");
+		expect(html).toContain("line 1");
 	});
 
 	test("renders smart args for exec", () => {
@@ -461,13 +481,15 @@ describe("ExecRenderer", () => {
 				args={{ command: "ls -la" }}
 				output="total 32\ndrwxr-xr-x 5 user staff 160"
 				success={true}
+				durationMs={1500}
 			/>,
 		);
 		expect(html).toContain("ls -la");
 		expect(html).toContain("total 32");
+		expect(html).toContain("1.5s");
 	});
 
-	test("shows expand button for long output", () => {
+	test("shows first 5 lines and remaining-line toggle for long output", () => {
 		const lines = Array.from({ length: 30 }, (_, i) => `output ${i + 1}`);
 		const html = renderToStaticMarkup(
 			<ExecRenderer
@@ -477,7 +499,11 @@ describe("ExecRenderer", () => {
 				success={true}
 			/>,
 		);
+		expect(html).toContain("output 1");
+		expect(html).toContain("output 5");
+		expect(html).not.toContain("output 6");
 		expect(html).toContain('data-action="expand-output"');
+		expect(html).toContain("Show 25 more lines");
 	});
 
 	test("shows error when failed", () => {
@@ -1057,7 +1083,7 @@ describe("ConversationView", () => {
 			makeEvent("primitive_start", { name: "exec", args: {} }, { timestamp: 1000 }),
 			makeEvent(
 				"primitive_end",
-				{ name: "exec", args: { command: "ls" }, success: true },
+				{ name: "exec", args: { command: "ls" }, success: true, output: "line 1\nline 2" },
 				{ timestamp: 2500 },
 			),
 		];

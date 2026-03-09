@@ -10,6 +10,7 @@ export interface ToolRendererProps {
 	output: string;
 	success: boolean;
 	error?: string;
+	durationMs?: number | null;
 }
 
 const renderers: Record<string, ComponentType<ToolRendererProps>> = {

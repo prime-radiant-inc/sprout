@@ -28,11 +28,12 @@ export function ToolCall({
 	const label = getToolDisplayName(toolName, displayName);
 	const pathDetail = getToolPathDetail(args);
 	const dur = formatDuration(durationMs ?? null);
+	const showSummaryDuration = toolName !== "exec";
 
 	const icon = getToolIcon(toolName);
 	const Renderer = getRenderer(toolName);
 	const hasBody = Boolean(output) || Boolean(error);
-	const hasMetaLine = Boolean(pathDetail) || Boolean(dur);
+	const hasMetaLine = Boolean(pathDetail) || Boolean(showSummaryDuration && dur);
 
 	return (
 		<details className={styles.toolCall} data-status={success ? "success" : "error"}>
@@ -47,7 +48,7 @@ export function ToolCall({
 					{hasMetaLine && (
 						<span className={styles.metaLine}>
 							{pathDetail && <span className={styles.pathDetail}>{pathDetail}</span>}
-							{dur && <span className={styles.duration}>{dur}</span>}
+							{showSummaryDuration && dur && <span className={styles.duration}>{dur}</span>}
 						</span>
 					)}
 				</span>
@@ -67,6 +68,7 @@ export function ToolCall({
 							output={output}
 							success={success}
 							error={error}
+							durationMs={durationMs}
 						/>
 					)}
 				</div>
