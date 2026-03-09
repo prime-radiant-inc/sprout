@@ -20,9 +20,7 @@ const openRouterPayload = {
 /** Minimal llm-prices.com response with one model */
 const llmPricesPayload = {
 	updated_at: "2025-01-01T00:00:00Z",
-	prices: [
-		{ id: "gpt-4o", vendor: "openai", name: "GPT-4o", input: 2.5, output: 10 },
-	],
+	prices: [{ id: "gpt-4o", vendor: "openai", name: "GPT-4o", input: 2.5, output: 10 }],
 };
 
 describe("loadPricingTable", () => {

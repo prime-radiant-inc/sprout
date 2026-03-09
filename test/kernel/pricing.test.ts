@@ -61,7 +61,10 @@ describe("longestPrefixMatch", () => {
 describe("transformOpenRouterPrices", () => {
 	test("converts per-token pricing to per-million", () => {
 		const result = transformOpenRouterPrices([
-			{ id: "anthropic/claude-sonnet-4-6", pricing: { prompt: "0.000003", completion: "0.000015" } },
+			{
+				id: "anthropic/claude-sonnet-4-6",
+				pricing: { prompt: "0.000003", completion: "0.000015" },
+			},
 		]);
 		// Should have 2 entries: full ID and stripped
 		expect(result).toHaveLength(2);

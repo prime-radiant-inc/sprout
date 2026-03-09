@@ -32,6 +32,7 @@ function makeStatus(overrides: Partial<SessionStatus> = {}): SessionStatus {
 		sessionId: "sess-abc-123",
 		availableModels: [],
 		sessionStartedAt: null,
+		pricingTable: null,
 		...overrides,
 	};
 }

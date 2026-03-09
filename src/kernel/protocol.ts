@@ -1,4 +1,5 @@
 import type { Command, SessionEvent } from "./types.ts";
+import type { PricingTable } from "./pricing.ts";
 
 /** Server -> Browser: a single live event */
 export interface EventServerMessage {
@@ -15,6 +16,7 @@ export interface SnapshotServerMessage {
 		status: string;
 		availableModels: string[];
 		currentModel: string | null;
+		pricingTable?: PricingTable | null;
 	};
 }
 

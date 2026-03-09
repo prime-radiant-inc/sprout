@@ -7,6 +7,7 @@ import { EVENT_CAP } from "../kernel/constants.ts";
 import type { SessionEvent } from "../kernel/types.ts";
 import type { CommandMessage, ServerMessage } from "./protocol.ts";
 import { parseCommandMessage } from "./protocol.ts";
+import type { PricingTable } from "../kernel/pricing.ts";
 
 export interface WebServerOptions {
 	bus: SessionBus;
@@ -25,6 +26,8 @@ export interface WebServerOptions {
 	projectDataDir?: string;
 	/** Structured logger for LLM call logging and diagnostics. */
 	logger?: import("../host/logger.ts").Logger;
+	/** Server-side pricing table for model cost calculations. */
+	pricingTable?: PricingTable | null;
 }
 
 type SessionStatus = "idle" | "running" | "interrupted";
@@ -46,6 +49,7 @@ export class WebServer {
 	private readonly availableModels: string[];
 	private readonly logger?: import("../host/logger.ts").Logger;
 	private readonly projectDataDir: string | undefined;
+	private pricingTable: PricingTable | null;
 
 	private bunServer: ReturnType<typeof Bun.serve> | null = null;
 	private events: SessionEvent[] = [];
@@ -69,6 +73,7 @@ export class WebServer {
 		this.availableModels = opts.availableModels ?? [];
 		this.logger = opts.logger;
 		this.projectDataDir = opts.projectDataDir;
+		this.pricingTable = opts.pricingTable ?? null;
 		if (opts.initialEvents) {
 			this.events =
 				opts.initialEvents.length > EVENT_CAP
@@ -310,6 +315,7 @@ export class WebServer {
 				status: this.status,
 				availableModels: this.availableModels,
 				currentModel: this.currentModel,
+				pricingTable: this.pricingTable,
 			},
 		};
 		ws.send(JSON.stringify(snapshot));

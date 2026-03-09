@@ -1,44 +1,22 @@
 import type { AgentStats } from "../hooks/useAgentStats.ts";
 import type { AgentTreeNode } from "../hooks/useAgentTree.ts";
 import { getDescendantIds } from "../hooks/useAgentTree.ts";
-import { getFetchedPricingTable } from "./llm-prices.ts";
+import { FALLBACK_PRICING_TABLE, longestPrefixMatch } from "@kernel/pricing.ts";
+import type { ModelPricing, PricingTable } from "@kernel/pricing.ts";
 
-export interface ModelPricing {
-	input: number; // $/1M input tokens
-	output: number; // $/1M output tokens
-}
+export type { ModelPricing, PricingTable };
 
-// Prefix-matched: longer prefixes win over shorter ones (ordering does not matter)
-const FALLBACK_PRICING_TABLE: [prefix: string, pricing: ModelPricing][] = [
-	["claude-opus-4", { input: 15, output: 75 }],
-	["claude-sonnet-4", { input: 3, output: 15 }],
-	["claude-haiku-4", { input: 0.8, output: 4 }],
-	["o3-pro", { input: 20, output: 80 }],
-	["o4-mini", { input: 1.1, output: 4.4 }],
-	["gemini-2.5-pro", { input: 1.25, output: 10 }],
-	["gemini-2.5-flash", { input: 0.3, output: 2.5 }],
-];
+let activePricingTable: PricingTable | null = null;
 
-function longestPrefixMatch(
-	model: string,
-	table: [string, ModelPricing][],
-): ModelPricing | null {
-	let best: ModelPricing | null = null;
-	let bestLen = 0;
-	for (const [prefix, pricing] of table) {
-		if (model.startsWith(prefix) && prefix.length > bestLen) {
-			best = pricing;
-			bestLen = prefix.length;
-		}
-	}
-	return best;
+/** Called when snapshot arrives with server-provided pricing */
+export function setPricingTable(table: PricingTable | null): void {
+	activePricingTable = table;
 }
 
 /** Find pricing for a model name by longest prefix match. Returns null if no match. */
 export function getModelPricing(model: string): ModelPricing | null {
-	const fetched = getFetchedPricingTable();
-	if (fetched) {
-		const result = longestPrefixMatch(model, fetched);
+	if (activePricingTable) {
+		const result = longestPrefixMatch(model, activePricingTable);
 		if (result) return result;
 	}
 	return longestPrefixMatch(model, FALLBACK_PRICING_TABLE);

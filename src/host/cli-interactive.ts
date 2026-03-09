@@ -2,8 +2,10 @@ import { join } from "node:path";
 import { TUI_INITIAL_EVENT_CAP } from "../kernel/constants.ts";
 import type { SessionEvent } from "../kernel/types.ts";
 import type { SlashCommand } from "../tui/slash-commands.ts";
+import type { PricingTable } from "../kernel/pricing.ts";
 import { registerInteractiveSigint } from "./cli-sigint.ts";
 import { buildWebOpenUrl, runWebOnlyMode } from "./cli-web.ts";
+import { loadPricingTable } from "./pricing-cache.ts";
 
 type SlashAction = "none" | "show_model_picker" | "start_web" | "stop_web" | "exit";
 
@@ -89,6 +91,7 @@ interface InteractiveModeDeps {
 		availableModels: string[];
 		logger: LoggerLike;
 		projectDataDir?: string;
+		pricingTable?: PricingTable | null;
 	}) => Promise<WebServerLike>;
 	runWebOnlyMode: typeof runWebOnlyMode;
 	createInputHistory: (historyPath: string) => Promise<InputHistoryLike>;
@@ -128,6 +131,7 @@ export async function runInteractiveMode(
 					availableModels: serverOpts.availableModels,
 					logger: serverOpts.logger as any,
 					projectDataDir: serverOpts.projectDataDir,
+					pricingTable: serverOpts.pricingTable,
 				});
 			}),
 		runWebOnlyMode: deps.runWebOnlyMode ?? runWebOnlyMode,
@@ -184,6 +188,8 @@ export async function runInteractiveMode(
 		});
 	};
 
+	const pricingTable = await loadPricingTable(opts.command.genomePath);
+
 	if (opts.command.web || opts.command.webOnly) {
 		webServer = await d.createWebServer({
 			bus: opts.runtime.bus,
@@ -196,6 +202,7 @@ export async function runInteractiveMode(
 			availableModels: opts.runtime.availableModels,
 			logger: opts.runtime.logger,
 			projectDataDir,
+			pricingTable,
 		});
 		try {
 			await webServer.start();
@@ -279,6 +286,7 @@ export async function runInteractiveMode(
 									availableModels: opts.runtime.availableModels,
 									logger: opts.runtime.logger,
 									projectDataDir,
+									pricingTable,
 								});
 								await webServer.start();
 								emitWebUiHint();

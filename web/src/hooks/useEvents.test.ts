@@ -54,6 +54,7 @@ describe("EventStore", () => {
 				sessionId: "",
 				availableModels: [],
 				sessionStartedAt: null,
+				pricingTable: null,
 			});
 		});
 	});

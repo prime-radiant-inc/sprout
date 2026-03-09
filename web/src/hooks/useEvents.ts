@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 import { EVENT_CAP } from "@kernel/constants.ts";
 import { createCommandMessage, type ServerMessage } from "@kernel/protocol.ts";
 import type { Command, SessionEvent } from "@kernel/types.ts";
+import type { PricingTable } from "@kernel/pricing.ts";
+import { setPricingTable } from "../utils/pricing.ts";
 
 function eventKey(event: SessionEvent): string {
 	return JSON.stringify(event);
@@ -31,6 +33,7 @@ export interface SessionStatus {
 	sessionId: string;
 	availableModels: string[];
 	sessionStartedAt: number | null;
+	pricingTable: PricingTable | null;
 }
 
 const INITIAL_STATUS: SessionStatus = {
@@ -44,6 +47,7 @@ const INITIAL_STATUS: SessionStatus = {
 	sessionId: "",
 	availableModels: [],
 	sessionStartedAt: null,
+	pricingTable: null,
 };
 
 function coerceSessionStatus(status: string): SessionStatus["status"] {
@@ -107,6 +111,10 @@ export class EventStore {
 					sessionId: msg.session.id,
 					availableModels: snapshotAvailableModels,
 				};
+				this.status.pricingTable = Array.isArray(msg.session.pricingTable)
+					? msg.session.pricingTable
+					: null;
+				setPricingTable(this.status.pricingTable);
 				break;
 			}
 

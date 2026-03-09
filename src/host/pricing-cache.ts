@@ -1,10 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type {
-	LlmPricesResponse,
-	OpenRouterResponse,
-	PricingTable,
-} from "../kernel/pricing.ts";
+import type { LlmPricesResponse, OpenRouterResponse, PricingTable } from "../kernel/pricing.ts";
 import { transformOpenRouterPrices, transformPrices } from "../kernel/pricing.ts";
 
 const LLM_PRICES_URL = "https://www.llm-prices.com/current-v1.json";
@@ -18,10 +14,7 @@ interface CachedPricing {
 
 export async function loadPricingTable(cacheDir: string): Promise<PricingTable | null> {
 	// Fetch both sources in parallel (each has 5s timeout)
-	const [openRouter, llmPrices] = await Promise.all([
-		fetchOpenRouter(),
-		fetchLlmPrices(),
-	]);
+	const [openRouter, llmPrices] = await Promise.all([fetchOpenRouter(), fetchLlmPrices()]);
 
 	// Merge: OpenRouter entries first (primary), llm-prices.com supplements
 	const table: PricingTable = [];
