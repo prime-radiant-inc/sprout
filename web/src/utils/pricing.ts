@@ -8,7 +8,7 @@ export type { ModelPricing, PricingTable };
 
 let activePricingTable: PricingTable | null = null;
 
-/** Called when snapshot arrives with server-provided pricing */
+/** Called when snapshot arrives with server-provided pricing. */
 export function setPricingTable(table: PricingTable | null): void {
 	activePricingTable = table;
 }
