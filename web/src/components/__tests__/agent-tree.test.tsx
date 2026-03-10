@@ -554,7 +554,23 @@ describe("AgentTree with stats", () => {
 				agentStats={agentStats}
 			/>,
 		);
-		expect(html).toContain("T3");
+		expect(html).toContain("3 turns");
+	});
+
+	test("renders singular turn label for one turn", () => {
+		const tree = makeNode({ agentId: "root", status: "running" });
+		const agentStats = new Map<string, AgentStats>([
+			["root", makeStats({ agentId: "root", currentTurn: 1 })],
+		]);
+		const html = renderToStaticMarkup(
+			<AgentTree
+				tree={tree}
+				selectedAgent={null}
+				onSelectAgent={() => {}}
+				agentStats={agentStats}
+			/>,
+		);
+		expect(html).toContain("1 turn");
 	});
 
 	test("does not render stats section when no stats available for agent", () => {

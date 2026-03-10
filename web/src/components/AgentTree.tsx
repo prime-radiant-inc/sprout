@@ -64,7 +64,9 @@ function StatsLine({
 				<span className={styles.stateLabel}>{stateLabels[stats.state]}</span>
 			)}
 			{stats.currentTurn > 0 && (
-				<span className={styles.statsTurn}>T{stats.currentTurn}</span>
+				<span className={styles.statsTurn}>
+					{stats.currentTurn} {stats.currentTurn === 1 ? "turn" : "turns"}
+				</span>
 			)}
 			{showThermometer ? (
 				<span className={styles.contextMini}>
