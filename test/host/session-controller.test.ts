@@ -7,6 +7,7 @@ import { EventBus } from "../../src/host/event-bus.ts";
 import { type LogEntry, NullLogger, SessionLogger } from "../../src/host/logger.ts";
 import { type AgentFactory, SessionController } from "../../src/host/session-controller.ts";
 import type { SessionMetadataSnapshot } from "../../src/host/session-metadata.ts";
+import { sleep, waitFor } from "../helpers/wait-for.ts";
 
 /** Minimal fake agent that satisfies the RunnableAgent interface. */
 function makeFakeAgent(options?: { runDelay?: number; runError?: Error }) {
@@ -61,24 +62,6 @@ function makeFakeFactory(fake: ReturnType<typeof makeFakeAgent>): AgentFactory {
 		agent: fake.agent as any,
 		learnProcess: null,
 	});
-}
-
-function sleep(ms: number): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** Poll until a condition is met, with a timeout. */
-async function waitFor(
-	fn: () => boolean,
-	{ timeout = 2000, interval = 2 }: { timeout?: number; interval?: number } = {},
-): Promise<void> {
-	const start = Date.now();
-	while (!fn()) {
-		if (Date.now() - start > timeout) {
-			throw new Error("waitFor timed out");
-		}
-		await sleep(interval);
-	}
 }
 
 describe("SessionController", () => {
@@ -194,8 +177,7 @@ describe("SessionController", () => {
 
 		bus.emitCommand({ kind: "submit_goal", data: { goal: "Write tests" } });
 
-		// Give the async submitGoal time to run
-		await sleep(10);
+		await waitFor(() => fake.runCalled);
 
 		expect(fake.runCalled).toBe(true);
 		expect(fake.runGoal).toBe("Write tests");
@@ -428,7 +410,7 @@ describe("SessionController", () => {
 
 		try {
 			bus.emitCommand({ kind: "submit_goal", data: { goal: "Hello" } });
-			await sleep(20);
+			await waitFor(() => errorEvents.length === 1);
 
 			// Should emit error event
 			expect(errorEvents).toHaveLength(1);
@@ -968,11 +950,12 @@ describe("SessionController", () => {
 
 		// Start agent running
 		const promise = controller.submitGoal("build something");
-		await sleep(2);
+		await waitFor(() => fake.runCalled);
 
 		// Issue compact command while agent is running
 		bus.emitCommand({ kind: "compact", data: {} });
 
+		await waitFor(() => fake.compactionRequested);
 		expect(fake.compactionRequested).toBe(true);
 
 		await promise;

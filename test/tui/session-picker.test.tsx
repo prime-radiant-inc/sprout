@@ -2,10 +2,11 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { render as inkRender } from "ink-testing-library";
 import type { SessionListEntry } from "../../src/host/session-metadata.ts";
 import { SessionPicker } from "../../src/tui/session-picker.tsx";
+import { sleep, waitFor } from "../helpers/wait-for.ts";
 
 /** Wait for React to flush state updates. */
 async function flush() {
-	await new Promise((resolve) => setTimeout(resolve, 10));
+	await sleep(10);
 }
 
 const sessions: SessionListEntry[] = [
@@ -134,7 +135,10 @@ describe("SessionPicker", () => {
 		).toBeDefined();
 
 		stdin.write("\x1B[A"); // Up
-		await flush();
+		await waitFor(() => {
+			const lines = (lastFrame() ?? "").split("\n");
+			return lines.some((l) => l.includes(">") && l.includes("Fix the login bug"));
+		});
 		lines = lastFrame()!.split("\n");
 		expect(lines.find((l) => l.includes(">") && l.includes("Fix the login bug"))).toBeDefined();
 	});

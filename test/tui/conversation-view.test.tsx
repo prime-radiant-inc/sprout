@@ -3,10 +3,11 @@ import { render as inkRender } from "ink-testing-library";
 import { EventBus } from "../../src/host/event-bus.ts";
 import { TUI_INITIAL_EVENT_CAP } from "../../src/kernel/constants.ts";
 import { ConversationView } from "../../src/tui/conversation-view.tsx";
+import { sleep, waitFor } from "../helpers/wait-for.ts";
 
 /** Wait for React to flush state updates. */
 async function flush() {
-	await new Promise((resolve) => setTimeout(resolve, 10));
+	await sleep(10);
 }
 
 let currentInstance: ReturnType<typeof inkRender> | undefined;
@@ -203,7 +204,12 @@ describe("ConversationView", () => {
 		for (let index = 1; index <= TUI_INITIAL_EVENT_CAP + 3; index++) {
 			bus.emitEvent("warning", "cli", 0, { message: `event-${index}` });
 		}
-		await flush();
+		await waitFor(() => {
+			const frame = lastFrame() ?? "";
+			return (
+				frame.startsWith("\u26a0 event-4") && frame.includes(`event-${TUI_INITIAL_EVENT_CAP + 3}`)
+			);
+		});
 
 		const frame = lastFrame()!;
 		expect(frame.startsWith("\u26a0 event-4")).toBe(true);

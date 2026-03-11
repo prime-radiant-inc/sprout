@@ -2,6 +2,7 @@ import { afterEach, describe, expect, jest, test } from "bun:test";
 import { render as inkRender } from "ink-testing-library";
 import { EventBus } from "../../src/host/event-bus.ts";
 import { App } from "../../src/tui/app.tsx";
+import { sleep, waitFor } from "../helpers/wait-for.ts";
 
 let currentInstance: ReturnType<typeof inkRender> | undefined;
 
@@ -27,7 +28,7 @@ function setup(overrides?: Partial<Parameters<typeof App>[0]>) {
 
 /** Wait for React to flush state updates. */
 async function flush() {
-	await new Promise((resolve) => setTimeout(resolve, 15));
+	await sleep(15);
 }
 
 describe("App", () => {
@@ -166,7 +167,11 @@ describe("App", () => {
 		stdin.write("/compact");
 		await flush();
 		stdin.write("\r");
-		await flush();
+		await waitFor(() =>
+			events.some(
+				(e) => e.kind === "warning" && (e.data.message as string).includes("terminal setup failed"),
+			),
+		);
 
 		const warning = events.find(
 			(e) => e.kind === "warning" && (e.data.message as string).includes("terminal setup failed"),
@@ -328,7 +333,7 @@ describe("App", () => {
 		stdin.write("focus on the edge case");
 		await flush();
 		stdin.write("\r");
-		await flush();
+		await waitFor(() => steered === "focus on the edge case");
 
 		expect(steered).toBe("focus on the edge case");
 	});
@@ -552,7 +557,9 @@ describe("App", () => {
 		stdin.write("/collapse-tools");
 		await flush();
 		stdin.write("\r");
-		await flush();
+		await waitFor(() =>
+			events.some((e) => e.kind === "warning" && e.data.message === "Tool details hidden"),
+		);
 
 		// Should emit a warning event about hiding
 		const hideWarning = events.find(

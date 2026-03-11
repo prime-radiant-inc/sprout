@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { render as inkRender } from "ink-testing-library";
 import { ModelPicker } from "../../src/tui/model-picker.tsx";
+import { sleep, waitFor } from "../helpers/wait-for.ts";
 
 /** Wait for React to flush state updates. */
 async function flush() {
-	await new Promise((resolve) => setTimeout(resolve, 10));
+	await sleep(10);
 }
 
 const MODELS = ["claude-sonnet-4-6", "claude-opus-4-6", "gpt-4o"];
@@ -76,7 +77,7 @@ describe("ModelPicker", () => {
 		stdin.write("\x1B[B"); // Down
 		await flush();
 		stdin.write("\r");
-		await flush();
+		await waitFor(() => selected === "claude-opus-4-6");
 		expect(selected).toBe("claude-opus-4-6");
 	});
 
@@ -98,7 +99,7 @@ describe("ModelPicker", () => {
 		stdin.write("\x1B[A"); // Up
 		await flush();
 		stdin.write("\r");
-		await flush();
+		await waitFor(() => selected === "claude-opus-4-6");
 		expect(selected).toBe("claude-opus-4-6");
 	});
 
