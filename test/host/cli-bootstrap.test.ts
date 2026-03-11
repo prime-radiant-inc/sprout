@@ -1,6 +1,66 @@
 import { describe, expect, test } from "bun:test";
 import { bootstrapInteractiveRuntime } from "../../src/host/cli-bootstrap.ts";
 import { createEmptySettings } from "../../src/host/settings/types.ts";
+import type { ProviderRegistryEntry } from "../../src/llm/provider-registry.ts";
+import type { ProviderAdapter, ProviderModel } from "../../src/llm/types.ts";
+
+function fakeAdapter(
+	providerId: string,
+	kind: ProviderAdapter["kind"],
+	models: ProviderModel[],
+	options: { failListModels?: boolean } = {},
+): ProviderAdapter {
+	return {
+		name: providerId,
+		providerId,
+		kind,
+		async complete() {
+			throw new Error("not implemented");
+		},
+		stream() {
+			throw new Error("not implemented");
+		},
+		async listModels() {
+			if (options.failListModels) {
+				throw new Error("catalog refresh failed");
+			}
+			return models;
+		},
+		async checkConnection() {
+			return { ok: true as const };
+		},
+	};
+}
+
+function emptyRegistry() {
+	return {
+		getEntries: async () => [] as ProviderRegistryEntry[],
+		getEntry: async () => undefined,
+	};
+}
+
+function memorySecretStore() {
+	return {
+		backend: "memory" as const,
+		secretStore: {
+			getSecret: async () => undefined,
+			setSecret: async () => {},
+			deleteSecret: async () => {},
+			hasSecret: async () => false,
+		},
+	};
+}
+
+function emptySettingsStore(source: "loaded" | "recovered" = "loaded") {
+	return {
+		load: async () => ({
+			settings: createEmptySettings(),
+			skipEnvImport: false,
+			source,
+		}),
+		save: async () => {},
+	};
+}
 
 describe("bootstrapInteractiveRuntime", () => {
 	test("builds runtime wiring and emits stderr-enabled info log", async () => {
@@ -39,20 +99,27 @@ describe("bootstrapInteractiveRuntime", () => {
 			},
 			{
 				createBus: () => ({ id: "bus" }),
+				createSettingsStore: () => emptySettingsStore(),
+				createSecretStore: () => memorySecretStore(),
+				createProviderRegistry: () => emptyRegistry(),
 				createLogger: (opts) => {
 					created.loggerOpts = opts;
 					return logger;
 				},
-				createClient: async (incomingLogger) => {
+				createClient: async ({ logger: incomingLogger }) => {
 					created.clientLogger = incomingLogger;
 					return { id: "client" };
+				},
+				createSettingsControlPlane: (options) => {
+					created.controlPlaneOptions = options;
+					return { id: "control-plane" };
 				},
 				createController: (opts) => {
 					created.controllerOpts = opts;
 					return { sessionId: "01BOOT" };
 				},
-				loadAvailableModels: async (client) => {
-					created.availableModelsClient = client;
+				loadAvailableModels: async (catalog) => {
+					created.availableModelsCatalog = catalog;
 					return ["fast", "balanced"];
 				},
 			},
@@ -78,11 +145,15 @@ describe("bootstrapInteractiveRuntime", () => {
 			},
 			{
 				createBus: () => ({ id: "bus" }),
+				createSettingsStore: () => emptySettingsStore(),
+				createSecretStore: () => memorySecretStore(),
+				createProviderRegistry: () => emptyRegistry(),
 				createLogger: (opts) => {
 					created.loggerOpts = opts;
 					return { info: () => {} };
 				},
 				createClient: async () => ({ id: "client" }),
+				createSettingsControlPlane: () => ({ id: "control-plane" }),
 				createController: () => ({ sessionId: "01BOOT" }),
 				loadAvailableModels: async () => [],
 			},
@@ -124,8 +195,10 @@ describe("bootstrapInteractiveRuntime", () => {
 				createBus: () => ({ id: "bus" }),
 				createLogger: () => ({ info: () => {} }),
 				createClient: async () => ({ id: "client" }),
+				createSettingsControlPlane: () => ({ id: "control-plane" }),
 				createController: () => ({ sessionId: "01BOOT" }),
 				loadAvailableModels: async () => [],
+				createProviderRegistry: () => emptyRegistry(),
 				createSettingsStore: () => ({
 					load: async () => ({
 						settings: createEmptySettings(),
@@ -136,13 +209,7 @@ describe("bootstrapInteractiveRuntime", () => {
 						created.savedSettings = settings;
 					},
 				}),
-				createSecretStore: () =>
-					({
-						getSecret: async () => undefined,
-						setSecret: async () => {},
-						deleteSecret: async () => {},
-						hasSecret: async () => false,
-					}) as any,
+				createSecretStore: () => memorySecretStore(),
 				importSettingsFromEnv: async () => {
 					created.importCalled = true;
 					return {
@@ -172,8 +239,10 @@ describe("bootstrapInteractiveRuntime", () => {
 				createBus: () => ({ id: "bus" }),
 				createLogger: () => ({ info: () => {} }),
 				createClient: async () => ({ id: "client" }),
+				createSettingsControlPlane: () => ({ id: "control-plane" }),
 				createController: () => ({ sessionId: "01BOOT" }),
 				loadAvailableModels: async () => [],
+				createProviderRegistry: () => emptyRegistry(),
 				createSettingsStore: () => ({
 					load: async () => ({
 						settings: createEmptySettings(),
@@ -184,13 +253,7 @@ describe("bootstrapInteractiveRuntime", () => {
 						created.saved = true;
 					},
 				}),
-				createSecretStore: () =>
-					({
-						getSecret: async () => undefined,
-						setSecret: async () => {},
-						deleteSecret: async () => {},
-						hasSecret: async () => false,
-					}) as any,
+				createSecretStore: () => memorySecretStore(),
 				importSettingsFromEnv: async () => {
 					created.importCalled = true;
 					return {
@@ -203,5 +266,105 @@ describe("bootstrapInteractiveRuntime", () => {
 
 		expect(created.importCalled).toBeUndefined();
 		expect(created.saved).toBeUndefined();
+	});
+
+	test("builds the runtime client from the settings-backed registry and derives available models from the catalog", async () => {
+		const created: Record<string, unknown> = {};
+		const settings = {
+			...createEmptySettings(),
+			providers: [
+				{
+					id: "anthropic",
+					kind: "anthropic" as const,
+					label: "Anthropic",
+					enabled: true,
+					discoveryStrategy: "remote-only" as const,
+					createdAt: "2026-03-11T12:34:56.000Z",
+					updatedAt: "2026-03-11T12:34:56.000Z",
+				},
+				{
+					id: "openrouter",
+					kind: "openrouter" as const,
+					label: "OpenRouter",
+					enabled: true,
+					discoveryStrategy: "remote-only" as const,
+					createdAt: "2026-03-11T12:34:56.000Z",
+					updatedAt: "2026-03-11T12:34:56.000Z",
+				},
+			],
+			routing: {
+				providerPriority: ["anthropic", "openrouter"],
+				tierOverrides: {},
+			},
+		};
+		const entries: ProviderRegistryEntry[] = [
+			{
+				provider: settings.providers[0]!,
+				validationErrors: [],
+				adapter: fakeAdapter("anthropic", "anthropic", [
+					{ id: "claude-opus-4-6", label: "claude-opus-4-6", source: "remote" },
+				]),
+			},
+			{
+				provider: settings.providers[1]!,
+				validationErrors: [],
+				adapter: fakeAdapter("openrouter", "openrouter", [], {
+					failListModels: true,
+				}),
+			},
+		];
+
+		const result = await bootstrapInteractiveRuntime(
+			{
+				genomePath: "/tmp/genome",
+				projectDataDir: "/tmp/project",
+				rootDir: "/tmp/root",
+				sessionId: "01BOOT",
+				infra: { spawner: { id: "spawner" } as any, genome: { id: "genome" } as any },
+			},
+			{
+				createBus: () => ({ id: "bus" }),
+				createLogger: () => ({ info: () => {} }),
+				createSettingsStore: () => ({
+					load: async () => ({
+						settings,
+						skipEnvImport: false,
+						source: "loaded" as const,
+					}),
+					save: async () => {},
+				}),
+				createSecretStore: () => ({
+					backend: "memory",
+					secretStore: {
+						getSecret: async () => undefined,
+						setSecret: async () => {},
+						deleteSecret: async () => {},
+						hasSecret: async () => false,
+					},
+				}),
+				createProviderRegistry: () => ({
+					getEntries: async () => entries,
+					getEntry: async (providerId: string) =>
+						entries.find((entry) => entry.provider.id === providerId),
+				}),
+				createClient: async (options) => {
+					created.clientOptions = options;
+					return { id: "client" };
+				},
+				createSettingsControlPlane: (options) => {
+					created.controlPlaneOptions = options;
+					return { id: "control-plane" };
+				},
+				createController: () => ({ sessionId: "01BOOT" }),
+			},
+		);
+
+		expect((created.clientOptions as any).providers).toEqual({
+			anthropic: entries[0]!.adapter,
+			openrouter: entries[1]!.adapter,
+		});
+		expect((created.controlPlaneOptions as any).initialSettings).toEqual(settings);
+		expect(result.availableModels).toContain("claude-opus-4-6");
+		expect(result.availableModels).not.toContain("openrouter");
 	});
 });

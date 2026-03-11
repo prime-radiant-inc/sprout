@@ -5,10 +5,13 @@ import type { ResultMessage } from "../bus/types.ts";
 import type { Genome } from "../genome/genome.ts";
 import { Client } from "../llm/client.ts";
 import { loggingMiddleware } from "../llm/logging-middleware.ts";
-import type { Message } from "../llm/types.ts";
+import { buildCatalogEntry, type ProviderCatalogEntry } from "../llm/model-catalog.ts";
+import { ProviderRegistry, type ProviderRegistryEntry } from "../llm/provider-registry.ts";
+import type { Message, ProviderAdapter } from "../llm/types.ts";
 import { EventBus } from "./event-bus.ts";
 import { SessionLogger } from "./logger.ts";
 import { SessionController } from "./session-controller.ts";
+import { SettingsControlPlane } from "./settings/control-plane.ts";
 import { type EnvImportResult, importSettingsFromEnv } from "./settings/env-import.ts";
 import {
 	createSecretStore,
@@ -17,6 +20,7 @@ import {
 	type SecretStore,
 } from "./settings/secret-store.ts";
 import { type SettingsLoadResult, SettingsStore } from "./settings/store.ts";
+import type { SproutSettings } from "./settings/types.ts";
 
 export type StderrLevel = "debug" | "info" | undefined;
 
@@ -48,6 +52,14 @@ interface InteractiveBootstrapDeps {
 		secretStore: SecretStore;
 		secretBackend: SecretStorageBackend;
 	}) => Promise<EnvImportResult>;
+	createProviderRegistry: (options: {
+		settings: SproutSettings;
+		secretStore: SecretStore;
+		secretBackend: SecretStorageBackend;
+	}) => {
+		getEntries(): Promise<ProviderRegistryEntry[]>;
+		getEntry(providerId: string): Promise<ProviderRegistryEntry | undefined>;
+	};
 	createLogger: (opts: {
 		logPath: string;
 		component: string;
@@ -55,7 +67,13 @@ interface InteractiveBootstrapDeps {
 		bus: unknown;
 		stderrLevel?: "debug" | "info";
 	}) => unknown;
-	createClient: (logger: unknown) => Promise<unknown>;
+	createClient: (options: {
+		logger: unknown;
+		providers: Record<string, ProviderAdapter>;
+	}) => Promise<unknown>;
+	createSettingsControlPlane: (
+		options: ConstructorParameters<typeof SettingsControlPlane>[0],
+	) => unknown;
 	createController: (opts: {
 		bus: unknown;
 		genomePath: string;
@@ -69,7 +87,7 @@ interface InteractiveBootstrapDeps {
 		logger: unknown;
 		client: unknown;
 	}) => unknown;
-	loadAvailableModels: (client: unknown) => Promise<string[]>;
+	loadAvailableModels: (catalog: ProviderCatalogEntry[]) => Promise<string[]>;
 	onLoggingEnabled: (logger: unknown, level: "debug" | "info", sessionId: string) => void;
 }
 
@@ -80,6 +98,7 @@ export async function bootstrapInteractiveRuntime(
 	bus: unknown;
 	logger: unknown;
 	llmClient: unknown;
+	settingsControlPlane: unknown;
 	controller: unknown;
 	availableModels: string[];
 }> {
@@ -100,6 +119,11 @@ export async function bootstrapInteractiveRuntime(
 			(async ({ secretStore, secretBackend }) => {
 				return importSettingsFromEnv({ secretStore, secretBackend });
 			}),
+		createProviderRegistry:
+			deps.createProviderRegistry ??
+			((options) => {
+				return new ProviderRegistry(options);
+			}),
 		createLogger:
 			deps.createLogger ??
 			((loggerOpts) => {
@@ -113,10 +137,15 @@ export async function bootstrapInteractiveRuntime(
 			}),
 		createClient:
 			deps.createClient ??
-			(async (logger) => {
-				return Client.fromEnv({
+			(async ({ logger, providers }) => {
+				return Client.fromProviders(providers, {
 					middleware: [loggingMiddleware(logger as SessionLogger)],
 				});
+			}),
+		createSettingsControlPlane:
+			deps.createSettingsControlPlane ??
+			((options) => {
+				return new SettingsControlPlane(options);
 			}),
 		createController:
 			deps.createController ??
@@ -137,9 +166,8 @@ export async function bootstrapInteractiveRuntime(
 			}),
 		loadAvailableModels:
 			deps.loadAvailableModels ??
-			(async (client) => {
-				const modelsByProvider = await (client as Client).listModelsByProvider();
-				return getAvailableModels(modelsByProvider);
+			(async (catalog) => {
+				return getAvailableModels(catalog);
 			}),
 		onLoggingEnabled:
 			deps.onLoggingEnabled ??
@@ -170,18 +198,40 @@ export async function bootstrapInteractiveRuntime(
 
 	const settingsStore = d.createSettingsStore();
 	const settingsLoadResult = await settingsStore.load();
+	const { backend, secretStore } = d.createSecretStore();
+	let settings = settingsLoadResult.settings;
+	let initialValidationErrors: Record<string, string[]> = {};
 	if (settingsLoadResult.source === "missing") {
-		const { backend, secretStore } = d.createSecretStore();
 		const imported = await d.importSettingsFromEnv({
 			secretStore,
 			secretBackend: backend,
 		});
 		if (imported.settings.providers.length > 0) {
 			await settingsStore.save(imported.settings);
+			settings = imported.settings;
+			initialValidationErrors = imported.validationErrorsByProvider;
 		}
 	}
 
-	const llmClient = await d.createClient(logger);
+	const registry = d.createProviderRegistry({
+		settings,
+		secretStore,
+		secretBackend: backend,
+	});
+	const startupState = await loadStartupProvidersAndCatalog(registry);
+	const llmClient = await d.createClient({ logger, providers: startupState.providers });
+	const settingsControlPlane = d.createSettingsControlPlane({
+		settingsStore,
+		secretStore,
+		secretBackend: backend,
+		initialSettings: settings,
+		initialValidationErrors: {
+			...initialValidationErrors,
+			...startupState.validationErrorsByProvider,
+		},
+		checkConnection: createRuntimeConnectionChecker(registry),
+		refreshModels: createRuntimeModelRefresher(registry),
+	});
 	const controller = d.createController({
 		bus,
 		genomePath: opts.genomePath,
@@ -195,7 +245,79 @@ export async function bootstrapInteractiveRuntime(
 		logger,
 		client: llmClient,
 	});
-	const availableModels = await d.loadAvailableModels(llmClient);
+	const availableModels = await d.loadAvailableModels(startupState.catalog);
 
-	return { bus, logger, llmClient, controller, availableModels };
+	return { bus, logger, llmClient, settingsControlPlane, controller, availableModels };
+}
+
+async function loadStartupProvidersAndCatalog(registry: {
+	getEntries(): Promise<ProviderRegistryEntry[]>;
+}): Promise<{
+	providers: Record<string, ProviderAdapter>;
+	catalog: ProviderCatalogEntry[];
+	validationErrorsByProvider: Record<string, string[]>;
+}> {
+	const providers: Record<string, ProviderAdapter> = {};
+	const catalog: ProviderCatalogEntry[] = [];
+	const validationErrorsByProvider: Record<string, string[]> = {};
+
+	for (const entry of await registry.getEntries()) {
+		if (entry.validationErrors.length > 0) {
+			validationErrorsByProvider[entry.provider.id] = entry.validationErrors;
+		}
+		if (entry.adapter && entry.provider.enabled) {
+			providers[entry.provider.id] = entry.adapter;
+		}
+		if (!entry.adapter || entry.validationErrors.length > 0 || !entry.provider.enabled) {
+			catalog.push(
+				buildCatalogEntry(entry.provider, {
+					validationErrors: entry.validationErrors,
+				}),
+			);
+			continue;
+		}
+		try {
+			catalog.push(
+				buildCatalogEntry(entry.provider, {
+					remoteModels: await entry.adapter.listModels(),
+					lastRefreshAt: new Date().toISOString(),
+				}),
+			);
+		} catch (error) {
+			catalog.push(
+				buildCatalogEntry(entry.provider, {
+					validationErrors: [error instanceof Error ? error.message : String(error)],
+				}),
+			);
+		}
+	}
+
+	return { providers, catalog, validationErrorsByProvider };
+}
+
+function createRuntimeConnectionChecker(registry: {
+	getEntry(providerId: string): Promise<ProviderRegistryEntry | undefined>;
+}) {
+	return async (provider: ProviderRegistryEntry["provider"]) => {
+		const entry = await registry.getEntry(provider.id);
+		if (!entry?.adapter) {
+			throw new Error(entry?.validationErrors[0] ?? `Unknown provider: ${provider.id}`);
+		}
+		const result = await entry.adapter.checkConnection();
+		if (!result.ok) {
+			throw new Error(result.message);
+		}
+	};
+}
+
+function createRuntimeModelRefresher(registry: {
+	getEntry(providerId: string): Promise<ProviderRegistryEntry | undefined>;
+}) {
+	return async (provider: ProviderRegistryEntry["provider"]) => {
+		const entry = await registry.getEntry(provider.id);
+		if (!entry?.adapter) {
+			throw new Error(entry?.validationErrors[0] ?? `Unknown provider: ${provider.id}`);
+		}
+		return entry.adapter.listModels();
+	};
 }

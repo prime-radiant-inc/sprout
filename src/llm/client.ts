@@ -97,6 +97,22 @@ export class Client {
 		});
 	}
 
+	static fromProviders(
+		providers: Record<string, ProviderAdapter>,
+		options: {
+			defaultProvider?: string;
+			middleware?: Middleware[];
+			streamReadTimeoutMs?: number;
+		} = {},
+	): Client {
+		return new Client({
+			providers,
+			defaultProvider: options.defaultProvider,
+			middleware: options.middleware,
+			streamReadTimeoutMs: options.streamReadTimeoutMs,
+		});
+	}
+
 	/** List registered provider names */
 	providers(): string[] {
 		return [...this.adapters.keys()];

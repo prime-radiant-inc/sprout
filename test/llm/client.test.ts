@@ -6,6 +6,7 @@ import {
 	ContentKind,
 	messageText,
 	type ProviderAdapter,
+	type ProviderModel,
 	type Request,
 	type StreamEvent,
 } from "../../src/llm/types.ts";
@@ -27,6 +28,30 @@ function vcrFor(testName: string, realClient?: Client) {
 		testName: slug(testName),
 		realClient,
 	});
+}
+
+function fakeRegistryAdapter(
+	providerId: string,
+	kind: ProviderAdapter["kind"],
+	models: ProviderModel[],
+): ProviderAdapter {
+	return {
+		name: providerId,
+		providerId,
+		kind,
+		async complete() {
+			throw new Error("not implemented");
+		},
+		stream() {
+			throw new Error("not implemented");
+		},
+		async listModels() {
+			return models;
+		},
+		async checkConnection() {
+			return { ok: true as const };
+		},
+	};
 }
 
 describe("Client", () => {
@@ -135,6 +160,19 @@ describe("Client", () => {
 				process.env.SPROUT_STREAM_READ_TIMEOUT_MS = saved;
 			}
 		}
+	});
+
+	test("fromProviders preserves registry-backed provider IDs", async () => {
+		const client = Client.fromProviders({
+			lmstudio: fakeRegistryAdapter("lmstudio", "openai-compatible", [
+				{ id: "qwen2.5-coder", label: "Qwen 2.5 Coder", source: "remote" },
+			]),
+		});
+
+		expect(client.providers()).toEqual(["lmstudio"]);
+		expect(await client.listModelsByProvider()).toEqual(
+			new Map([["lmstudio", [{ id: "qwen2.5-coder", label: "Qwen 2.5 Coder", source: "remote" }]]]),
+		);
 	});
 
 	test("complete routes to the correct provider", async () => {
