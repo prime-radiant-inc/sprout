@@ -116,4 +116,18 @@ describe("SecretStore", () => {
 			}),
 		).toThrow(/unsupported secret backend/i);
 	});
+
+	test("backend command failures are surfaced instead of silently succeeding", async () => {
+		const store = createSecretStore({
+			backend: "macos-keychain",
+			platform: "darwin",
+			async runCommand() {
+				return { stdout: "", stderr: "security failed", exitCode: 1 };
+			},
+		});
+
+		await expect(store.setSecret(makeSecretRef("macos-keychain"), "secret-value")).rejects.toThrow(
+			/security failed/i,
+		);
+	});
 });

@@ -81,7 +81,7 @@ class MacOsKeychainSecretStore implements SecretStore {
 	}
 
 	async setSecret(ref: ProviderSecretRef, value: string): Promise<void> {
-		await this.runCommandImpl("security", [
+		const result = await this.runCommandImpl("security", [
 			"add-generic-password",
 			"-U",
 			"-a",
@@ -91,16 +91,18 @@ class MacOsKeychainSecretStore implements SecretStore {
 			"-w",
 			value,
 		]);
+		assertCommandSucceeded(result, "security");
 	}
 
 	async deleteSecret(ref: ProviderSecretRef): Promise<void> {
-		await this.runCommandImpl("security", [
+		const result = await this.runCommandImpl("security", [
 			"delete-generic-password",
 			"-a",
 			ref.storageKey,
 			"-s",
 			"sprout",
 		]);
+		assertCommandSucceeded(result, "security");
 	}
 
 	async hasSecret(ref: ProviderSecretRef): Promise<boolean> {
@@ -123,21 +125,23 @@ class SecretServiceSecretStore implements SecretStore {
 	}
 
 	async setSecret(ref: ProviderSecretRef, value: string): Promise<void> {
-		await this.runCommandImpl(
+		const result = await this.runCommandImpl(
 			"secret-tool",
 			["store", "--label=Sprout", "service", "sprout", "account", ref.storageKey],
 			value,
 		);
+		assertCommandSucceeded(result, "secret-tool");
 	}
 
 	async deleteSecret(ref: ProviderSecretRef): Promise<void> {
-		await this.runCommandImpl("secret-tool", [
+		const result = await this.runCommandImpl("secret-tool", [
 			"clear",
 			"service",
 			"sprout",
 			"account",
 			ref.storageKey,
 		]);
+		assertCommandSucceeded(result, "secret-tool");
 	}
 
 	async hasSecret(ref: ProviderSecretRef): Promise<boolean> {
@@ -155,4 +159,10 @@ async function runCommand(cmd: string, args: string[], stdin?: string): Promise<
 	const stderr = await new Response(proc.stderr).text();
 	const exitCode = await proc.exited;
 	return { stdout, stderr, exitCode };
+}
+
+function assertCommandSucceeded(result: RunCommandResult, cmd: string): void {
+	if (result.exitCode !== 0) {
+		throw new Error(result.stderr.trim() || `${cmd} exited with code ${result.exitCode}`);
+	}
 }

@@ -1,4 +1,5 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import type { SettingsPathOptions } from "./paths.ts";
 import { buildInvalidSettingsPath, resolveSettingsPath } from "./paths.ts";
 import {
@@ -64,10 +65,6 @@ export class SettingsStore {
 
 	async save(settings: SproutSettings): Promise<void> {
 		validateSproutSettings(settings);
-		await mkdir(new URL(".", `file://${this.settingsPath}`), { recursive: true }).catch(() => {
-			// Bun's URL mkdir behavior is inconsistent; fall through to dirname-based mkdir below.
-		});
-		const { dirname } = await import("node:path");
 		await mkdir(dirname(this.settingsPath), { recursive: true });
 		const tempPath = `${this.settingsPath}.tmp`;
 		await writeFile(tempPath, `${JSON.stringify(settings, null, "\t")}\n`, "utf-8");
