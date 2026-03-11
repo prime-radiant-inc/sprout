@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { access, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { homedir, platform as osPlatform, release } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
@@ -141,7 +141,10 @@ export class LocalExecutionEnvironment implements ExecutionEnvironment {
 	}
 
 	async exec_command(command: string, options?: ExecOptions): Promise<ExecResult> {
-		const cwd = options?.working_dir ? this.resolvePath(options.working_dir) : this.workDir;
+		const requestedCwd = options?.working_dir
+			? this.resolvePath(options.working_dir)
+			: this.workDir;
+		const cwd = await realpath(requestedCwd).catch(() => requestedCwd);
 		const timeout = options?.timeout_ms ?? 10_000;
 		const signal = options?.signal;
 
@@ -166,6 +169,7 @@ export class LocalExecutionEnvironment implements ExecutionEnvironment {
 		if (this.extraPathDirs.length > 0) {
 			mergedEnv.PATH = [...this.extraPathDirs, mergedEnv.PATH ?? ""].join(":");
 		}
+		mergedEnv.PWD = cwd;
 
 		const start = performance.now();
 

@@ -2,7 +2,7 @@ import { AnthropicAdapter } from "./anthropic.ts";
 import { GeminiAdapter } from "./gemini.ts";
 import { OpenAIAdapter } from "./openai.ts";
 import { DEFAULT_STREAM_READ_TIMEOUT_MS, withStreamReadTimeout } from "./stream-timeout.ts";
-import type { ProviderAdapter, Request, Response, StreamEvent } from "./types.ts";
+import type { ProviderAdapter, ProviderModel, Request, Response, StreamEvent } from "./types.ts";
 
 export type Middleware = (
 	request: Request,
@@ -103,14 +103,11 @@ export class Client {
 	}
 
 	/** Query all providers for their available models. */
-	async listModelsByProvider(): Promise<Map<string, string[]>> {
-		const result = new Map<string, string[]>();
+	async listModelsByProvider(): Promise<Map<string, ProviderModel[]>> {
+		const result = new Map<string, ProviderModel[]>();
 		for (const [name, adapter] of this.adapters) {
 			try {
-				result.set(
-					name,
-					(await adapter.listModels()).map((model) => model.id),
-				);
+				result.set(name, await adapter.listModels());
 			} catch {
 				result.set(name, []);
 			}

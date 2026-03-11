@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { AgentEventEmitter } from "../agents/events.ts";
 import {
+	createResolverSettings,
 	defaultModelsByProvider,
 	type ResolvedModel,
 	resolveModel,
@@ -10,6 +11,7 @@ import type { Genome } from "../genome/genome.ts";
 import type { LearnSignal } from "../kernel/types.ts";
 import { DEFAULT_CONSTRAINTS, validateAgentName } from "../kernel/types.ts";
 import type { Client } from "../llm/client.ts";
+import type { ProviderModel } from "../llm/types.ts";
 import { Msg, messageText } from "../llm/types.ts";
 import type { MetricsStore } from "./metrics-store.ts";
 import { shouldLearn } from "./should-learn.ts";
@@ -52,7 +54,7 @@ export interface LearnProcessOptions {
 	events: AgentEventEmitter;
 	client?: Client;
 	pendingEvaluationsPath?: string;
-	modelsByProvider?: Map<string, string[]>;
+	modelsByProvider?: Map<string, ProviderModel[]>;
 	/** Structured logger for LLM call logging and diagnostics. */
 	logger?: import("../host/logger.ts").Logger;
 }
@@ -90,7 +92,11 @@ export class LearnProcess {
 		this.pendingEvaluationsPath = options.pendingEvaluationsPath;
 		if (this.client) {
 			const modelMap = options.modelsByProvider ?? defaultModelsByProvider(this.client.providers());
-			this.resolvedModel = resolveModel("best", modelMap);
+			this.resolvedModel = resolveModel(
+				"best",
+				createResolverSettings([...modelMap.keys()]),
+				modelMap,
+			);
 		}
 	}
 

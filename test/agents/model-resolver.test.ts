@@ -1,131 +1,204 @@
 import { describe, expect, test } from "bun:test";
 import {
-	classifyTier,
-	detectProvider,
+	defaultModelsByProvider,
 	getAvailableModels,
 	resolveModel,
 } from "../../src/agents/model-resolver.ts";
+import type { ModelRef, ProviderConfig, SproutSettings } from "../../src/host/settings/types.ts";
+import type { ProviderCatalogEntry } from "../../src/llm/model-catalog.ts";
+import type { ProviderModel } from "../../src/llm/types.ts";
 
-describe("detectProvider", () => {
-	test("detects anthropic from claude model", () => {
-		expect(detectProvider("claude-haiku-4-5-20251001")).toBe("anthropic");
-		expect(detectProvider("claude-opus-4-6")).toBe("anthropic");
-	});
+function provider(overrides: Partial<ProviderConfig> = {}): ProviderConfig {
+	return {
+		id: "anthropic",
+		kind: "anthropic",
+		label: "Anthropic",
+		enabled: true,
+		discoveryStrategy: "remote-only",
+		createdAt: "2026-03-11T12:00:00.000Z",
+		updatedAt: "2026-03-11T12:00:00.000Z",
+		...overrides,
+	};
+}
 
-	test("detects openai from gpt/o-series models", () => {
-		expect(detectProvider("gpt-4.1-mini")).toBe("openai");
-		expect(detectProvider("gpt-4.1")).toBe("openai");
-		expect(detectProvider("o3-pro")).toBe("openai");
-	});
+function settingsFor(providers: ProviderConfig[], providerPriority?: string[]): SproutSettings {
+	return {
+		version: 1,
+		providers,
+		defaults: { selection: { kind: "none" } },
+		routing: {
+			providerPriority: providerPriority ?? providers.filter((p) => p.enabled).map((p) => p.id),
+			tierOverrides: {},
+		},
+	};
+}
 
-	test("detects gemini", () => {
-		expect(detectProvider("gemini-2.5-flash")).toBe("gemini");
-		expect(detectProvider("gemini-2.5-pro")).toBe("gemini");
-	});
+function model(id: string, overrides: Partial<ProviderModel> = {}): ProviderModel {
+	return {
+		id,
+		label: id,
+		source: "remote",
+		...overrides,
+	};
+}
 
-	test("returns undefined for unknown model", () => {
-		expect(detectProvider("llama-3")).toBeUndefined();
-	});
-});
-
-describe("classifyTier", () => {
-	test("classifies opus/pro models as best", () => {
-		expect(classifyTier("claude-opus-4-6")).toBe("best");
-		expect(classifyTier("gemini-2.5-pro")).toBe("best");
-		expect(classifyTier("o3-pro")).toBe("best");
-	});
-
-	test("classifies sonnet models as balanced", () => {
-		expect(classifyTier("claude-sonnet-4-6")).toBe("balanced");
-		expect(classifyTier("claude-sonnet-4-5-20251001")).toBe("balanced");
-	});
-
-	test("classifies haiku/mini/flash/nano models as fast", () => {
-		expect(classifyTier("claude-haiku-4-5-20251001")).toBe("fast");
-		expect(classifyTier("gpt-4.1-mini")).toBe("fast");
-		expect(classifyTier("o4-mini")).toBe("fast");
-		expect(classifyTier("gemini-2.5-flash")).toBe("fast");
-		expect(classifyTier("gpt-4.1-nano")).toBe("fast");
-	});
-
-	test("returns null for unclassifiable models", () => {
-		expect(classifyTier("gpt-4.1")).toBeNull();
-		expect(classifyTier("some-custom-model")).toBeNull();
-	});
-});
-
-// Helper to build a models-by-provider map for tests
-function modelsMap(entries: Record<string, string[]>): Map<string, string[]> {
-	return new Map(Object.entries(entries));
+function catalog(
+	entries: Array<{ providerId: string; models: ProviderModel[] }>,
+): ProviderCatalogEntry[] {
+	return entries.map((entry) => ({
+		providerId: entry.providerId,
+		models: entry.models,
+	}));
 }
 
 describe("resolveModel", () => {
-	const allModels = modelsMap({
-		anthropic: ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"],
-		openai: ["gpt-5.1", "gpt-5.1-mini", "o4-mini"],
-		gemini: ["gemini-2.5-pro", "gemini-2.5-flash"],
+	test("falls back from a tier override to the remaining global provider priority", () => {
+		const settings = settingsFor(
+			[
+				provider({ id: "anthropic", kind: "anthropic" }),
+				provider({ id: "openai", kind: "openai", label: "OpenAI" }),
+			],
+			["anthropic", "openai"],
+		);
+		settings.routing.tierOverrides.fast = ["anthropic"];
+		const result = resolveModel(
+			"fast",
+			settings,
+			catalog([
+				{
+					providerId: "anthropic",
+					models: [model("claude-sonnet-4-6", { tierHint: "balanced", rank: 220 })],
+				},
+				{ providerId: "openai", models: [model("gpt-4.1-mini", { tierHint: "fast", rank: 100 })] },
+			]),
+		);
+
+		expect(result).toEqual({ provider: "openai", model: "gpt-4.1-mini" });
 	});
 
-	test("resolves 'best' using classifyTier and provider priority", () => {
-		const result = resolveModel("best", allModels);
-		expect(result.provider).toBe("anthropic");
-		expect(result.model).toBe("claude-opus-4-6");
+	test("ignores disabled providers for tier routing", () => {
+		const settings = settingsFor(
+			[
+				provider({ id: "anthropic", enabled: false }),
+				provider({ id: "openai", kind: "openai", label: "OpenAI", enabled: true }),
+			],
+			["openai"],
+		);
+		const result = resolveModel(
+			"fast",
+			settings,
+			catalog([
+				{
+					providerId: "anthropic",
+					models: [model("claude-haiku-4-5-20251001", { tierHint: "fast", rank: 100 })],
+				},
+				{ providerId: "openai", models: [model("gpt-4.1-mini", { tierHint: "fast", rank: 100 })] },
+			]),
+		);
+
+		expect(result).toEqual({ provider: "openai", model: "gpt-4.1-mini" });
 	});
 
-	test("resolves 'best' to gemini pro when only gemini available", () => {
-		const geminiOnly = modelsMap({ gemini: ["gemini-2.5-pro", "gemini-2.5-flash"] });
-		const result = resolveModel("best", geminiOnly);
-		expect(result.provider).toBe("gemini");
-		expect(result.model).toBe("gemini-2.5-pro");
+	test("allows explicit ModelRef selection when the provider is enabled but the catalog is empty", () => {
+		const settings = settingsFor(
+			[provider({ id: "lmstudio", kind: "openai-compatible" })],
+			["lmstudio"],
+		);
+		const result = resolveModel(
+			{ providerId: "lmstudio", modelId: "qwen2.5-coder" } satisfies ModelRef,
+			settings,
+			catalog([{ providerId: "lmstudio", models: [] }]),
+		);
+
+		expect(result).toEqual({ provider: "lmstudio", model: "qwen2.5-coder" });
 	});
 
-	test("resolves 'balanced' to sonnet", () => {
-		const result = resolveModel("balanced", allModels);
-		expect(result.provider).toBe("anthropic");
-		expect(result.model).toBe("claude-sonnet-4-6");
+	test("rejects ambiguous raw model ids across enabled providers", () => {
+		const settings = settingsFor(
+			[
+				provider({ id: "lmstudio", kind: "openai-compatible" }),
+				provider({ id: "openrouter", kind: "openrouter" }),
+			],
+			["lmstudio", "openrouter"],
+		);
+
+		expect(() =>
+			resolveModel(
+				"shared-model",
+				settings,
+				catalog([
+					{ providerId: "lmstudio", models: [model("shared-model")] },
+					{ providerId: "openrouter", models: [model("shared-model")] },
+				]),
+			),
+		).toThrow(/ambiguous/i);
 	});
 
-	test("resolves 'fast' to haiku with provider priority", () => {
-		const result = resolveModel("fast", allModels);
-		expect(result.provider).toBe("anthropic");
-		expect(result.model).toBe("claude-haiku-4-5-20251001");
+	test("fails clearly when a saved explicit model points to a removed model", () => {
+		const settings = settingsFor([provider({ id: "anthropic" })], ["anthropic"]);
+		expect(() =>
+			resolveModel(
+				{ providerId: "anthropic", modelId: "claude-opus-4-6" } satisfies ModelRef,
+				settings,
+				catalog([{ providerId: "anthropic", models: [model("claude-sonnet-4-6")] }]),
+			),
+		).toThrow(/missing model/i);
 	});
 
-	test("resolves 'fast' to mini when only openai available", () => {
-		const openaiOnly = modelsMap({ openai: ["gpt-5.1", "gpt-5.1-mini"] });
-		const result = resolveModel("fast", openaiOnly);
-		expect(result.provider).toBe("openai");
-		expect(result.model).toBe("gpt-5.1-mini");
+	test("orders provider candidates by descending rank then ascending id", () => {
+		const settings = settingsFor([provider({ id: "openai", kind: "openai" })], ["openai"]);
+		const result = resolveModel(
+			"balanced",
+			settings,
+			catalog([
+				{
+					providerId: "openai",
+					models: [
+						model("gpt-4.1-b", { tierHint: "balanced", rank: 210 }),
+						model("gpt-4.1-a", { tierHint: "balanced", rank: 210 }),
+						model("gpt-4o", { tierHint: "balanced", rank: 205 }),
+					],
+				},
+			]),
+		);
+
+		expect(result).toEqual({ provider: "openai", model: "gpt-4.1-a" });
 	});
 
-	test("passes through concrete model IDs unchanged", () => {
-		const result = resolveModel("claude-haiku-4-5-20251001", allModels);
-		expect(result.model).toBe("claude-haiku-4-5-20251001");
-		expect(result.provider).toBe("anthropic");
-	});
+	test("classifies raw provider model metadata before tier routing", () => {
+		const settings = settingsFor([provider({ id: "anthropic", kind: "anthropic" })], ["anthropic"]);
+		const result = resolveModel(
+			"best",
+			settings,
+			new Map([
+				[
+					"anthropic",
+					[
+						{ id: "claude-opus-4-6", label: "claude-opus-4-6", source: "remote" },
+						{ id: "claude-sonnet-4-6", label: "claude-sonnet-4-6", source: "remote" },
+					],
+				],
+			]),
+		);
 
-	test("throws if no model matches the requested tier", () => {
-		const noBalanced = modelsMap({ openai: ["gpt-5.1", "gpt-5.1-mini"] });
-		expect(() => resolveModel("balanced", noBalanced)).toThrow();
-	});
-
-	test("throws if concrete model provider not in map", () => {
-		const geminiOnly = modelsMap({ gemini: ["gemini-2.5-pro"] });
-		expect(() => resolveModel("claude-opus-4-6", geminiOnly)).toThrow();
-	});
-
-	test("throws on empty map for tier", () => {
-		expect(() => resolveModel("fast", new Map())).toThrow();
+		expect(result).toEqual({ provider: "anthropic", model: "claude-opus-4-6" });
 	});
 });
 
 describe("getAvailableModels", () => {
 	test("returns tier names plus all models from all providers", () => {
-		const map = modelsMap({
-			anthropic: ["claude-opus-4-6", "claude-sonnet-4-6"],
-			openai: ["gpt-5.1"],
-		});
-		const models = getAvailableModels(map);
+		const models = getAvailableModels(
+			new Map([
+				[
+					"anthropic",
+					[
+						model("claude-opus-4-6", { tierHint: "best", rank: 300 }),
+						model("claude-sonnet-4-6", { tierHint: "balanced", rank: 220 }),
+					],
+				],
+				["openai", [model("gpt-5.1", { tierHint: "balanced", rank: 210 })]],
+			]),
+		);
 		expect(models).toContain("best");
 		expect(models).toContain("balanced");
 		expect(models).toContain("fast");
@@ -135,11 +208,12 @@ describe("getAvailableModels", () => {
 	});
 
 	test("deduplicates models", () => {
-		const map = modelsMap({
-			anthropic: ["claude-opus-4-6"],
-			openai: ["gpt-5.1"],
-		});
-		const models = getAvailableModels(map);
+		const models = getAvailableModels(
+			new Map([
+				["anthropic", [model("claude-opus-4-6", { tierHint: "best", rank: 300 })]],
+				["openai", [model("gpt-5.1", { tierHint: "balanced", rank: 210 })]],
+			]),
+		);
 		const opusCount = models.filter((m) => m === "claude-opus-4-6").length;
 		expect(opusCount).toBe(1);
 	});
@@ -147,5 +221,19 @@ describe("getAvailableModels", () => {
 	test("returns only tier names when map is empty", () => {
 		const models = getAvailableModels(new Map());
 		expect(models).toEqual(["best", "balanced", "fast"]);
+	});
+});
+
+describe("defaultModelsByProvider", () => {
+	test("returns provider-model metadata instead of raw strings", () => {
+		const defaults = defaultModelsByProvider(["anthropic", "openai"]);
+		expect(defaults.get("anthropic")?.[0]).toMatchObject({
+			id: "claude-opus-4-6",
+			tierHint: "best",
+		});
+		expect(defaults.get("openai")?.[0]).toMatchObject({
+			id: "o3-pro",
+			tierHint: "best",
+		});
 	});
 });

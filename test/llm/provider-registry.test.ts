@@ -63,11 +63,7 @@ describe("ProviderRegistry", () => {
 		globalThis.fetch = (async (input, init) => {
 			requests.push({
 				url:
-					typeof input === "string"
-						? input
-						: input instanceof URL
-							? input.toString()
-							: input.url,
+					typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
 				headers: new Headers(init?.headers),
 			});
 			return new Response(

@@ -29,6 +29,7 @@ import type {
 	Request as LLMRequest,
 	Response as LLMResponse,
 	Message,
+	ProviderModel,
 	StreamEvent,
 	ToolCall,
 	ToolDefinition,
@@ -41,7 +42,12 @@ import { AgentEventEmitter } from "./events.ts";
 import type { AgentTreeEntry, Preambles } from "./loader.ts";
 import { findRootToolsDir, resolveRootToolsDir } from "./loader.ts";
 import { generateMnemonicName } from "./mnemonic.ts";
-import { defaultModelsByProvider, type ResolvedModel, resolveModel } from "./model-resolver.ts";
+import {
+	createResolverSettings,
+	defaultModelsByProvider,
+	type ResolvedModel,
+	resolveModel,
+} from "./model-resolver.ts";
 import type { Postscripts } from "./plan.ts";
 import {
 	buildDelegateTool,
@@ -92,7 +98,7 @@ export interface AgentOptions {
 	/** Override the agent_id used for event emission (used by parent to assign unique child IDs). */
 	agentId?: string;
 	/** Pre-fetched model map for tier resolution. */
-	modelsByProvider?: Map<string, string[]>;
+	modelsByProvider?: Map<string, ProviderModel[]>;
 	/** Structured logger for LLM call logging and diagnostics. */
 	logger?: Logger;
 	/** Path to root agent directory (for two-layer tool resolution). */
@@ -203,7 +209,11 @@ export class Agent {
 
 		// Resolve model and provider
 		const modelMap = options.modelsByProvider ?? defaultModelsByProvider(this.client.providers());
-		this.resolved = resolveModel(options.modelOverride ?? this.spec.model, modelMap);
+		this.resolved = resolveModel(
+			options.modelOverride ?? this.spec.model,
+			createResolverSettings([...modelMap.keys()]),
+			modelMap,
+		);
 
 		// Build delegate tool (single tool for all agent delegations)
 		this.agentTools = [];

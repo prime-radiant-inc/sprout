@@ -50,8 +50,14 @@ describe("Client.listModelsByProvider", () => {
 		});
 
 		const result = await client.listModelsByProvider();
-		expect(result.get("anthropic")).toEqual(["claude-opus-4-6", "claude-sonnet-4-6"]);
-		expect(result.get("openai")).toEqual(["gpt-4.1", "o4-mini"]);
+		expect(result.get("anthropic")).toEqual([
+			{ id: "claude-opus-4-6", label: "claude-opus-4-6", source: "remote" },
+			{ id: "claude-sonnet-4-6", label: "claude-sonnet-4-6", source: "remote" },
+		]);
+		expect(result.get("openai")).toEqual([
+			{ id: "gpt-4.1", label: "gpt-4.1", source: "remote" },
+			{ id: "o4-mini", label: "o4-mini", source: "remote" },
+		]);
 	});
 
 	test("returns empty map when no providers registered", async () => {
@@ -88,6 +94,6 @@ describe("Client.listModelsByProvider", () => {
 
 		const result = await client.listModelsByProvider();
 		expect(result.get("broken")).toEqual([]);
-		expect(result.get("working")).toEqual(["model-a"]);
+		expect(result.get("working")).toEqual([{ id: "model-a", label: "model-a", source: "remote" }]);
 	});
 });

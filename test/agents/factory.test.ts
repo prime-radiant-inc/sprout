@@ -8,11 +8,23 @@ import { scanAgentTree } from "../../src/agents/loader.ts";
 import { DEV_MODE_SENTINEL, isDevMode } from "../../src/genome/dev-mode.ts";
 import { Genome } from "../../src/genome/genome.ts";
 import type { Client } from "../../src/llm/client.ts";
+import type { ProviderModel } from "../../src/llm/types.ts";
 import "../helpers/test-env.ts";
 
 function createFactoryTestClient(): Client {
-	const modelsByProvider = new Map<string, string[]>([
-		["anthropic", ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"]],
+	const modelsByProvider = new Map<string, ProviderModel[]>([
+		[
+			"anthropic",
+			[
+				{ id: "claude-opus-4-6", label: "claude-opus-4-6", source: "remote" },
+				{ id: "claude-sonnet-4-6", label: "claude-sonnet-4-6", source: "remote" },
+				{
+					id: "claude-haiku-4-5-20251001",
+					label: "claude-haiku-4-5-20251001",
+					source: "remote",
+				},
+			],
+		],
 	]);
 	return {
 		complete: async () => {
