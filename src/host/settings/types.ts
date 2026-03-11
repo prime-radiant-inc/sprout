@@ -1,11 +1,6 @@
 export const SETTINGS_SCHEMA_VERSION = 1;
 
-export type ProviderKind =
-	| "anthropic"
-	| "openai"
-	| "openai-compatible"
-	| "openrouter"
-	| "gemini";
+export type ProviderKind = "anthropic" | "openai" | "openai-compatible" | "openrouter" | "gemini";
 
 export type Tier = "best" | "balanced" | "fast";
 
