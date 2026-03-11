@@ -56,6 +56,16 @@ describe("loadRootAgents", () => {
 		}
 	});
 
+	test("root only explicitly delegates to approved utility leaves", async () => {
+		const agents = await loadRootAgents(join(import.meta.dir, "../../root"));
+		const root = agents.find((a) => a.name === "root");
+		expect(root).toBeDefined();
+		expect(root!.tools).toEqual([]);
+		expect(root!.agents).toContain("utility/reader");
+		expect(root!.agents).not.toContain("utility/editor");
+		expect(root!.agents).not.toContain("utility/command-runner");
+	});
+
 	test("leaf agents cannot spawn subagents", async () => {
 		const agents = await loadRootAgents(join(import.meta.dir, "../../root"));
 		const orchestrators = [

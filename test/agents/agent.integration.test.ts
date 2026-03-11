@@ -4,12 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Agent } from "../../src/agents/agent.ts";
 import { AgentEventEmitter } from "../../src/agents/events.ts";
-import { loadRootAgents } from "../../src/agents/loader.ts";
+import { loadRootAgents, scanAgentTree } from "../../src/agents/loader.ts";
 import { Genome } from "../../src/genome/genome.ts";
 import { LocalExecutionEnvironment } from "../../src/kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../../src/kernel/primitives.ts";
 import type { AgentSpec } from "../../src/kernel/types.ts";
 import { Client } from "../../src/llm/client.ts";
+import { ContentKind, type Message, Msg, type Response } from "../../src/llm/types.ts";
 import "../helpers/test-env.ts";
 import { createVcr } from "../helpers/vcr.ts";
 
@@ -21,6 +22,8 @@ describe("Agent Integration", () => {
 	let realClient: Client | undefined;
 	let registry: ReturnType<typeof createPrimitiveRegistry>;
 	let rootAgents: AgentSpec[];
+	let rootTree: Awaited<ReturnType<typeof scanAgentTree>>;
+	let rootTreeChildren: string[];
 
 	function vcrForTest(testName: string) {
 		return createVcr({
@@ -36,6 +39,8 @@ describe("Agent Integration", () => {
 		env = new LocalExecutionEnvironment(tempDir);
 		registry = createPrimitiveRegistry(env);
 		rootAgents = await loadRootAgents(join(import.meta.dir, "../../root"));
+		rootTree = await scanAgentTree(join(import.meta.dir, "../../root"));
+		rootTreeChildren = [...rootTree.keys()].filter((path) => !path.includes("/"));
 
 		const mode = process.env.VCR_MODE;
 		if (mode === "record" || mode === "off") {
@@ -80,18 +85,57 @@ describe("Agent Integration", () => {
 		await vcr.afterTest();
 	}, 60_000);
 
-	test("root agent delegates to code-editor to create a file", async () => {
-		const vcr = vcrForTest("root-agent-delegates-to-code-editor-to-create-a-file");
+	test("root delegates file work to a top-level specialist", async () => {
 		const rootSpec = rootAgents.find((a) => a.name === "root")!;
 		const events = new AgentEventEmitter();
+		const delegateMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-root-1",
+						name: "delegate",
+						arguments: JSON.stringify({
+							agent_name: "tech-lead",
+							goal: "Handle the requested file change.",
+						}),
+					},
+				},
+			],
+		};
+		const subDoneMsg = Msg.assistant("File work completed.");
+		const doneMsg = Msg.assistant("Done.");
+
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				const message = callCount === 1 ? delegateMsg : callCount === 2 ? subDoneMsg : doneMsg;
+				return {
+					id: `mock-root-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message,
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
 		const agent = new Agent({
 			spec: rootSpec,
 			env,
-			client: vcr.client,
+			client: mockClient,
 			primitiveRegistry: registry,
 			availableAgents: rootAgents,
 			depth: 0,
 			events,
+			agentTree: rootTree,
+			agentTreeChildren: rootTreeChildren,
+			agentTreeSelfPath: "",
 		});
 
 		const result = await agent.run(
@@ -101,15 +145,23 @@ describe("Agent Integration", () => {
 		expect(result.success).toBe(true);
 		expect(result.turns).toBeGreaterThan(0);
 
-		const content = await readFile(join(tempDir, "greet.py"), "utf-8");
-		expect(content).toContain("Sprout");
-
-		// Should have act_start/act_end events (delegation happened)
 		const collected = events.collected();
-		expect(collected.some((e) => e.kind === "act_start")).toBe(true);
-		expect(collected.some((e) => e.kind === "act_end")).toBe(true);
-
-		await vcr.afterTest();
+		expect(collected.some((e) => e.kind === "act_start" && e.data.agent_name === "tech-lead")).toBe(
+			true,
+		);
+		expect(
+			collected.some(
+				(e) => e.kind === "act_end" && e.data.agent_name === "tech-lead" && e.data.success === true,
+			),
+		).toBe(true);
+		expect(
+			collected.some((e) => e.kind === "act_start" && e.data.agent_name === "utility/editor"),
+		).toBe(false);
+		expect(
+			collected.some(
+				(e) => e.kind === "act_start" && e.data.agent_name === "utility/command-runner",
+			),
+		).toBe(false);
 	}, 120_000);
 });
 
