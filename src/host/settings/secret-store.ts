@@ -7,6 +7,18 @@ export interface ProviderSecretRef {
 	storageKey: string;
 }
 
+export function createProviderSecretRef(
+	providerId: string,
+	storageBackend: SecretStorageBackend,
+): ProviderSecretRef {
+	return {
+		providerId,
+		secretKind: "api-key",
+		storageBackend,
+		storageKey: `sprout/providers/${providerId}/api-key`,
+	};
+}
+
 export interface SecretStore {
 	getSecret(ref: ProviderSecretRef): Promise<string | undefined>;
 	setSecret(ref: ProviderSecretRef, value: string): Promise<void>;
@@ -26,6 +38,19 @@ export interface CreateSecretStoreOptions {
 	backend: SecretStorageBackend;
 	platform?: NodeJS.Platform;
 	runCommand?: RunCommand;
+}
+
+export function resolveDefaultSecretStorageBackend(
+	platform: NodeJS.Platform = process.platform,
+): SecretStorageBackend {
+	switch (platform) {
+		case "darwin":
+			return "macos-keychain";
+		case "linux":
+			return "secret-service";
+		default:
+			throw new Error(`Unsupported secret backend for platform: ${platform}`);
+	}
 }
 
 export function createSecretStore(options: CreateSecretStoreOptions): SecretStore {

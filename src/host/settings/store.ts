@@ -13,6 +13,7 @@ export interface SettingsLoadResult {
 	settings: SproutSettings;
 	recoveredInvalidFilePath?: string;
 	skipEnvImport: boolean;
+	source: "missing" | "loaded" | "recovered";
 }
 
 export interface SettingsStoreOptions {
@@ -42,6 +43,7 @@ export class SettingsStore {
 				return {
 					settings: createEmptySettings(),
 					skipEnvImport: false,
+					source: "missing",
 				};
 			}
 			throw error;
@@ -52,6 +54,7 @@ export class SettingsStore {
 			return {
 				settings,
 				skipEnvImport: false,
+				source: "loaded",
 			};
 		} catch {
 			const recoveredInvalidFilePath = await this.recoverInvalidFile();
@@ -59,6 +62,7 @@ export class SettingsStore {
 				settings: createEmptySettings(),
 				recoveredInvalidFilePath,
 				skipEnvImport: true,
+				source: "recovered",
 			};
 		}
 	}

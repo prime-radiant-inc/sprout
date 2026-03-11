@@ -9,6 +9,14 @@ import type { Message } from "../llm/types.ts";
 import { EventBus } from "./event-bus.ts";
 import { SessionLogger } from "./logger.ts";
 import { SessionController } from "./session-controller.ts";
+import { type EnvImportResult, importSettingsFromEnv } from "./settings/env-import.ts";
+import {
+	createSecretStore,
+	resolveDefaultSecretStorageBackend,
+	type SecretStorageBackend,
+	type SecretStore,
+} from "./settings/secret-store.ts";
+import { type SettingsLoadResult, SettingsStore } from "./settings/store.ts";
 
 export type StderrLevel = "debug" | "info" | undefined;
 
@@ -31,6 +39,15 @@ export interface InteractiveBootstrapOptions {
 
 interface InteractiveBootstrapDeps {
 	createBus: () => unknown;
+	createSettingsStore: () => {
+		load(): Promise<SettingsLoadResult>;
+		save(settings: SettingsLoadResult["settings"]): Promise<void>;
+	};
+	createSecretStore: () => { backend: SecretStorageBackend; secretStore: SecretStore };
+	importSettingsFromEnv: (options: {
+		secretStore: SecretStore;
+		secretBackend: SecretStorageBackend;
+	}) => Promise<EnvImportResult>;
 	createLogger: (opts: {
 		logPath: string;
 		component: string;
@@ -68,6 +85,21 @@ export async function bootstrapInteractiveRuntime(
 }> {
 	const d: InteractiveBootstrapDeps = {
 		createBus: deps.createBus ?? (() => new EventBus()),
+		createSettingsStore: deps.createSettingsStore ?? (() => new SettingsStore()),
+		createSecretStore:
+			deps.createSecretStore ??
+			(() => {
+				const backend = resolveDefaultSecretStorageBackend();
+				return {
+					backend,
+					secretStore: createSecretStore({ backend }),
+				};
+			}),
+		importSettingsFromEnv:
+			deps.importSettingsFromEnv ??
+			(async ({ secretStore, secretBackend }) => {
+				return importSettingsFromEnv({ secretStore, secretBackend });
+			}),
 		createLogger:
 			deps.createLogger ??
 			((loggerOpts) => {
@@ -134,6 +166,19 @@ export async function bootstrapInteractiveRuntime(
 	});
 	if (stderrLevel) {
 		d.onLoggingEnabled(logger, stderrLevel, opts.sessionId);
+	}
+
+	const settingsStore = d.createSettingsStore();
+	const settingsLoadResult = await settingsStore.load();
+	if (settingsLoadResult.source === "missing") {
+		const { backend, secretStore } = d.createSecretStore();
+		const imported = await d.importSettingsFromEnv({
+			secretStore,
+			secretBackend: backend,
+		});
+		if (imported.settings.providers.length > 0) {
+			await settingsStore.save(imported.settings);
+		}
 	}
 
 	const llmClient = await d.createClient(logger);
