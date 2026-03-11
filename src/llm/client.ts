@@ -107,7 +107,10 @@ export class Client {
 		const result = new Map<string, string[]>();
 		for (const [name, adapter] of this.adapters) {
 			try {
-				result.set(name, await adapter.listModels());
+				result.set(
+					name,
+					(await adapter.listModels()).map((model) => model.id),
+				);
 			} catch {
 				result.set(name, []);
 			}

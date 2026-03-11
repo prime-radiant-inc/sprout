@@ -1,38 +1,62 @@
 import OpenAI from "openai";
+import type { ProviderKind } from "../host/settings/types.ts";
 import {
 	ContentKind,
 	type FinishReason,
 	type ProviderAdapter,
+	type ProviderModel,
 	type Request,
 	type Response,
 	type StreamEvent,
 	type Usage,
 } from "./types.ts";
 
+export interface OpenAIAdapterOptions {
+	providerId?: string;
+	kind?: ProviderKind;
+	baseUrl?: string;
+	headers?: Record<string, string>;
+}
+
 /**
  * OpenAI adapter using the Responses API (/v1/responses).
  * Required for reasoning token visibility and server-side conversation state.
  */
 export class OpenAIAdapter implements ProviderAdapter {
-	readonly name = "openai";
+	readonly name: string;
+	readonly providerId: string;
+	readonly kind: ProviderKind;
 	private client: OpenAI;
 
-	constructor(apiKey: string, baseUrl?: string) {
+	constructor(apiKey: string, options: string | OpenAIAdapterOptions = {}) {
+		const normalized = typeof options === "string" ? { baseUrl: options } : options;
+		this.kind = normalized.kind ?? "openai";
+		this.name = this.kind;
+		this.providerId = normalized.providerId ?? this.kind;
 		this.client = new OpenAI({
 			apiKey,
-			baseURL: baseUrl,
+			baseURL: normalized.baseUrl,
+			defaultHeaders: normalized.headers,
 		});
 	}
 
-	async listModels(): Promise<string[]> {
-		const models: string[] = [];
+	async listModels(): Promise<ProviderModel[]> {
+		const models: ProviderModel[] = [];
 		const response = await this.client.models.list();
 		for (const model of response.data) {
-			if (/^(gpt-|o\d)/.test(model.id)) {
-				models.push(model.id);
-			}
+			if (this.kind === "openai" && !/^(gpt-|o\d)/.test(model.id)) continue;
+			models.push({ id: model.id, label: model.id, source: "remote" });
 		}
 		return models;
+	}
+
+	async checkConnection(): Promise<{ ok: true } | { ok: false; message: string }> {
+		try {
+			await this.client.models.list();
+			return { ok: true };
+		} catch (error) {
+			return { ok: false, message: error instanceof Error ? error.message : String(error) };
+		}
 	}
 
 	async complete(request: Request): Promise<Response> {
@@ -40,7 +64,7 @@ export class OpenAIAdapter implements ProviderAdapter {
 		const params = buildResponsesParams(request, input);
 
 		const raw = await this.client.responses.create({ ...params, stream: false });
-		return parseResponsesResponse(raw);
+		return parseResponsesResponse(raw, this.kind);
 	}
 
 	async *stream(request: Request): AsyncIterable<StreamEvent> {
@@ -114,7 +138,7 @@ export class OpenAIAdapter implements ProviderAdapter {
 		const finalResponse: Response = {
 			id: "",
 			model: request.model,
-			provider: "openai",
+			provider: this.kind,
 			message: { role: "assistant", content: contentParts },
 			finish_reason: finishReason,
 			usage: usage ?? { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
@@ -288,7 +312,7 @@ function buildResponsesParams(
 // Response parsing
 // ---------------------------------------------------------------------------
 
-function parseResponsesResponse(raw: OpenAI.Responses.Response): Response {
+function parseResponsesResponse(raw: OpenAI.Responses.Response, provider: ProviderKind): Response {
 	const contentParts: import("./types.ts").ContentPart[] = [];
 	let hasToolCalls = false;
 
@@ -327,7 +351,7 @@ function parseResponsesResponse(raw: OpenAI.Responses.Response): Response {
 	return {
 		id: raw.id,
 		model: raw.model,
-		provider: "openai",
+		provider,
 		message: { role: "assistant", content: contentParts },
 		finish_reason: finishReason,
 		usage,

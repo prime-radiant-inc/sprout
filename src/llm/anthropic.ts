@@ -1,14 +1,22 @@
 import Anthropic from "@anthropic-ai/sdk";
+import type { ProviderKind } from "../host/settings/types.ts";
 import {
 	ContentKind,
 	type FinishReason,
 	type Message,
 	type ProviderAdapter,
+	type ProviderModel,
 	type Request,
 	type Response,
 	type StreamEvent,
 	type Usage,
 } from "./types.ts";
+
+export interface AnthropicAdapterOptions {
+	providerId?: string;
+	baseUrl?: string;
+	headers?: Record<string, string>;
+}
 
 /**
  * Anthropic adapter using the native Messages API.
@@ -16,23 +24,39 @@ import {
  */
 export class AnthropicAdapter implements ProviderAdapter {
 	readonly name = "anthropic";
+	readonly providerId: string;
+	readonly kind: ProviderKind = "anthropic";
 	private client: Anthropic;
 
-	constructor(apiKey: string, baseUrl?: string) {
+	constructor(apiKey: string, options: string | AnthropicAdapterOptions = {}) {
+		const normalized = typeof options === "string" ? { baseUrl: options } : options;
+		this.providerId = normalized.providerId ?? "anthropic";
 		this.client = new Anthropic({
 			apiKey,
-			baseURL: baseUrl,
+			baseURL: normalized.baseUrl,
+			defaultHeaders: normalized.headers,
 		});
 	}
 
-	async listModels(): Promise<string[]> {
-		const models: string[] = [];
+	async listModels(): Promise<ProviderModel[]> {
+		const models: ProviderModel[] = [];
 		for await (const page of this.client.models.list({ limit: 100 })) {
 			if (page.id.startsWith("claude-")) {
-				models.push(page.id);
+				models.push({ id: page.id, label: page.id, source: "remote" });
 			}
 		}
 		return models;
+	}
+
+	async checkConnection(): Promise<{ ok: true } | { ok: false; message: string }> {
+		try {
+			for await (const _page of this.client.models.list({ limit: 1 })) {
+				break;
+			}
+			return { ok: true };
+		} catch (error) {
+			return { ok: false, message: error instanceof Error ? error.message : String(error) };
+		}
 	}
 
 	async complete(request: Request): Promise<Response> {
@@ -44,7 +68,7 @@ export class AnthropicAdapter implements ProviderAdapter {
 			stream: false,
 		});
 
-		return parseAnthropicResponse(raw);
+		return parseAnthropicResponse(raw, this.kind);
 	}
 
 	async *stream(request: Request): AsyncIterable<StreamEvent> {
@@ -109,7 +133,7 @@ export class AnthropicAdapter implements ProviderAdapter {
 
 		// Get final message for the finish event
 		const finalMessage = await stream.finalMessage();
-		const response = parseAnthropicResponse(finalMessage);
+		const response = parseAnthropicResponse(finalMessage, this.kind);
 
 		yield {
 			type: "finish",
@@ -304,7 +328,7 @@ function convertContentParts(msg: Message): Anthropic.ContentBlockParam[] {
 // Response parsing
 // ---------------------------------------------------------------------------
 
-function parseAnthropicResponse(raw: Anthropic.Message): Response {
+function parseAnthropicResponse(raw: Anthropic.Message, provider: ProviderKind): Response {
 	const contentParts = parseContentBlocks(raw.content);
 
 	const finishReason = mapFinishReason(raw.stop_reason);
@@ -320,7 +344,7 @@ function parseAnthropicResponse(raw: Anthropic.Message): Response {
 	return {
 		id: raw.id,
 		model: raw.model,
-		provider: "anthropic",
+		provider,
 		message: {
 			role: "assistant",
 			content: contentParts,

@@ -11,20 +11,31 @@ import { createPrimitiveRegistry } from "../../src/kernel/primitives.ts";
 import { LearnProcess } from "../../src/learn/learn-process.ts";
 import { MetricsStore } from "../../src/learn/metrics-store.ts";
 import { Client } from "../../src/llm/client.ts";
-import type { ProviderAdapter, Request, Response, StreamEvent } from "../../src/llm/types.ts";
+import type {
+	ProviderAdapter,
+	ProviderModel,
+	Request,
+	Response,
+	StreamEvent,
+} from "../../src/llm/types.ts";
 import "../helpers/test-env.ts";
 
 function fakeAdapter(name: string, models: string[]): ProviderAdapter {
 	return {
 		name,
+		providerId: name,
+		kind: name as ProviderAdapter["kind"],
 		async complete(_request: Request): Promise<Response> {
 			throw new Error("not implemented");
 		},
 		stream(_request: Request): AsyncIterable<StreamEvent> {
 			throw new Error("not implemented");
 		},
-		async listModels(): Promise<string[]> {
-			return models;
+		async listModels(): Promise<ProviderModel[]> {
+			return models.map((id) => ({ id, label: id, source: "remote" }));
+		},
+		async checkConnection() {
+			return { ok: true as const };
 		},
 	};
 }

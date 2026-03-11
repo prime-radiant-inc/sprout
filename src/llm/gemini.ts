@@ -1,15 +1,21 @@
 import type { Content, FunctionCall, GenerateContentConfig, Part } from "@google/genai";
 import { GoogleGenAI } from "@google/genai";
+import type { ProviderKind } from "../host/settings/types.ts";
 import {
 	ContentKind,
 	type FinishReason,
 	type Message,
 	type ProviderAdapter,
+	type ProviderModel,
 	type Request,
 	type Response,
 	type StreamEvent,
 	type Usage,
 } from "./types.ts";
+
+export interface GeminiAdapterOptions {
+	providerId?: string;
+}
 
 /**
  * Gemini adapter using the native Gemini API.
@@ -17,6 +23,8 @@ import {
  */
 export class GeminiAdapter implements ProviderAdapter {
 	readonly name = "gemini";
+	readonly providerId: string;
+	readonly kind: ProviderKind = "gemini";
 	private client: GoogleGenAI;
 
 	// Gemini doesn't assign unique IDs to function calls.
@@ -24,7 +32,8 @@ export class GeminiAdapter implements ProviderAdapter {
 	private callIdCounter = 0;
 	private callIdToName = new Map<string, string>();
 
-	constructor(apiKey: string) {
+	constructor(apiKey: string, options: GeminiAdapterOptions = {}) {
+		this.providerId = options.providerId ?? "gemini";
 		this.client = new GoogleGenAI({ apiKey });
 	}
 
@@ -32,17 +41,29 @@ export class GeminiAdapter implements ProviderAdapter {
 		return `call_gemini_${++this.callIdCounter}`;
 	}
 
-	async listModels(): Promise<string[]> {
-		const models: string[] = [];
+	async listModels(): Promise<ProviderModel[]> {
+		const models: ProviderModel[] = [];
 		const pager = await this.client.models.list();
 		for await (const model of pager) {
 			// Gemini returns IDs like "models/gemini-2.5-flash" — strip the prefix
 			const id = model.name?.replace(/^models\//, "") ?? "";
 			if (id.startsWith("gemini-")) {
-				models.push(id);
+				models.push({ id, label: id, source: "remote" });
 			}
 		}
 		return models;
+	}
+
+	async checkConnection(): Promise<{ ok: true } | { ok: false; message: string }> {
+		try {
+			const pager = await this.client.models.list();
+			for await (const _model of pager) {
+				break;
+			}
+			return { ok: true };
+		} catch (error) {
+			return { ok: false, message: error instanceof Error ? error.message : String(error) };
+		}
 	}
 
 	async complete(request: Request): Promise<Response> {
@@ -57,7 +78,13 @@ export class GeminiAdapter implements ProviderAdapter {
 			},
 		});
 
-		return parseGeminiResponse(result, request.model, () => this.nextCallId(), this.callIdToName);
+		return parseGeminiResponse(
+			result,
+			request.model,
+			this.kind,
+			() => this.nextCallId(),
+			this.callIdToName,
+		);
 	}
 
 	async *stream(request: Request): AsyncIterable<StreamEvent> {
@@ -133,7 +160,7 @@ export class GeminiAdapter implements ProviderAdapter {
 		const finalResponse: Response = {
 			id: "",
 			model: request.model,
-			provider: "gemini",
+			provider: this.kind,
 			message: { role: "assistant", content: contentParts },
 			finish_reason: finishReason,
 			usage: usage ?? { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
@@ -288,6 +315,7 @@ function convertToParts(msg: Message, callIdToName: Map<string, string>): Part[]
 function parseGeminiResponse(
 	raw: any,
 	model: string,
+	provider: ProviderKind,
 	nextCallId: () => string,
 	callIdToName: Map<string, string>,
 ): Response {
@@ -331,7 +359,7 @@ function parseGeminiResponse(
 	return {
 		id: "",
 		model,
-		provider: "gemini",
+		provider,
 		message: { role: "assistant", content: contentParts },
 		finish_reason: finishReason,
 		usage,

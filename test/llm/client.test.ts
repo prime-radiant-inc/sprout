@@ -282,6 +282,8 @@ describe("Client", () => {
 		// Create a fake adapter whose stream stalls after one chunk
 		const stallingAdapter: ProviderAdapter = {
 			name: "stalling",
+			providerId: "stalling",
+			kind: "openai",
 			async complete() {
 				throw new Error("not implemented");
 			},
@@ -308,6 +310,9 @@ describe("Client", () => {
 			},
 			async listModels() {
 				return [];
+			},
+			async checkConnection() {
+				return { ok: true as const };
 			},
 		};
 
@@ -357,6 +362,8 @@ describe("Client", () => {
 		// Create a fake adapter with a slow chunk
 		const slowAdapter: ProviderAdapter = {
 			name: "slow",
+			providerId: "slow",
+			kind: "openai",
 			async complete() {
 				throw new Error("not implemented");
 			},
@@ -379,6 +386,9 @@ describe("Client", () => {
 			},
 			async listModels() {
 				return [];
+			},
+			async checkConnection() {
+				return { ok: true as const };
 			},
 		};
 

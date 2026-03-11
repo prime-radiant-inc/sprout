@@ -393,8 +393,13 @@ function createAdapterRecorder(opts: AdapterVcrOptions): {
 
 	const adapter: ProviderAdapter = {
 		name: realAdapter.name,
+		providerId: realAdapter.providerId,
+		kind: realAdapter.kind,
 		async listModels() {
 			return realAdapter.listModels();
+		},
+		async checkConnection() {
+			return realAdapter.checkConnection();
 		},
 		complete: async (request: Request): Promise<Response> => {
 			const response = await realAdapter.complete(request);
@@ -459,8 +464,13 @@ function createAdapterReplayer(opts: AdapterVcrOptions): {
 
 	const adapter: ProviderAdapter = {
 		name: adapterName,
+		providerId: adapterName,
+		kind: "openai",
 		async listModels() {
 			return [];
+		},
+		async checkConnection() {
+			return { ok: true as const };
 		},
 		complete: async (_request: Request): Promise<Response> => {
 			const { entry, nextIndex } = nextEntry(cassette, callIndex, opts.testName);

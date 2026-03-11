@@ -1,19 +1,30 @@
 import { describe, expect, test } from "bun:test";
 import { Client } from "../../src/llm/client.ts";
-import type { ProviderAdapter, Request, Response, StreamEvent } from "../../src/llm/types.ts";
+import type {
+	ProviderAdapter,
+	ProviderModel,
+	Request,
+	Response,
+	StreamEvent,
+} from "../../src/llm/types.ts";
 
 /** Minimal fake adapter that returns a fixed model list. */
 function fakeAdapter(name: string, models: string[]): ProviderAdapter {
 	return {
 		name,
+		providerId: name,
+		kind: name as ProviderAdapter["kind"],
 		async complete(_request: Request): Promise<Response> {
 			throw new Error("not implemented");
 		},
 		stream(_request: Request): AsyncIterable<StreamEvent> {
 			throw new Error("not implemented");
 		},
-		async listModels(): Promise<string[]> {
-			return models;
+		async listModels(): Promise<ProviderModel[]> {
+			return models.map((id) => ({ id, label: id, source: "remote" }));
+		},
+		async checkConnection() {
+			return { ok: true as const };
 		},
 	};
 }
@@ -22,7 +33,10 @@ describe("ProviderAdapter.listModels", () => {
 	test("fake adapter returns its model list", async () => {
 		const adapter = fakeAdapter("test", ["model-a", "model-b"]);
 		const models = await adapter.listModels();
-		expect(models).toEqual(["model-a", "model-b"]);
+		expect(models).toEqual([
+			{ id: "model-a", label: "model-a", source: "remote" },
+			{ id: "model-b", label: "model-b", source: "remote" },
+		]);
 	});
 });
 
@@ -52,11 +66,16 @@ describe("Client.listModelsByProvider", () => {
 			async complete() {
 				throw new Error("not implemented");
 			},
+			providerId: "broken",
+			kind: "openai",
 			stream() {
 				throw new Error("not implemented");
 			},
 			async listModels() {
 				throw new Error("API unavailable");
+			},
+			async checkConnection() {
+				return { ok: false as const, message: "API unavailable" };
 			},
 		};
 

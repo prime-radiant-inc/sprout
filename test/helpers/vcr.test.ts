@@ -419,6 +419,8 @@ function makeFakeAdapter(
 ): ProviderAdapter {
 	return {
 		name,
+		providerId: name,
+		kind: "openai",
 		complete: async () => response,
 		stream: async function* () {
 			for (const event of streamEvents) {
@@ -427,6 +429,9 @@ function makeFakeAdapter(
 		},
 		async listModels() {
 			return [];
+		},
+		async checkConnection() {
+			return { ok: true as const };
 		},
 	};
 }

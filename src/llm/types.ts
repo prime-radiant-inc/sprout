@@ -1,3 +1,5 @@
+import type { ProviderKind, Tier } from "../host/settings/types.ts";
+
 // ---------------------------------------------------------------------------
 // Content model
 // ---------------------------------------------------------------------------
@@ -130,6 +132,14 @@ export interface ToolCall {
 	arguments: Record<string, unknown>;
 }
 
+export interface ProviderModel {
+	id: string;
+	label: string;
+	tierHint?: Tier;
+	rank?: number;
+	source: "remote" | "manual";
+}
+
 // ---------------------------------------------------------------------------
 // Request / Response
 // ---------------------------------------------------------------------------
@@ -226,8 +236,10 @@ export interface StreamEvent {
 
 export interface ProviderAdapter {
 	name: string;
+	readonly providerId: string;
+	readonly kind: ProviderKind;
 	complete(request: Request): Promise<Response>;
 	stream(request: Request): AsyncIterable<StreamEvent>;
-	/** Query the provider's API for available model IDs. */
-	listModels(): Promise<string[]>;
+	listModels(): Promise<ProviderModel[]>;
+	checkConnection(): Promise<{ ok: true } | { ok: false; message: string }>;
 }
