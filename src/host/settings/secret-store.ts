@@ -1,0 +1,158 @@
+export type SecretStorageBackend = "memory" | "macos-keychain" | "secret-service";
+
+export interface ProviderSecretRef {
+	providerId: string;
+	secretKind: "api-key";
+	storageBackend: SecretStorageBackend;
+	storageKey: string;
+}
+
+export interface SecretStore {
+	getSecret(ref: ProviderSecretRef): Promise<string | undefined>;
+	setSecret(ref: ProviderSecretRef, value: string): Promise<void>;
+	deleteSecret(ref: ProviderSecretRef): Promise<void>;
+	hasSecret(ref: ProviderSecretRef): Promise<boolean>;
+}
+
+export interface RunCommandResult {
+	stdout: string;
+	stderr: string;
+	exitCode: number;
+}
+
+export type RunCommand = (cmd: string, args: string[], stdin?: string) => Promise<RunCommandResult>;
+
+export interface CreateSecretStoreOptions {
+	backend: SecretStorageBackend;
+	platform?: NodeJS.Platform;
+	runCommand?: RunCommand;
+}
+
+export function createSecretStore(options: CreateSecretStoreOptions): SecretStore {
+	switch (options.backend) {
+		case "memory":
+			return new MemorySecretStore();
+		case "macos-keychain":
+			if ((options.platform ?? process.platform) !== "darwin") {
+				throw new Error("Unsupported secret backend: macos-keychain");
+			}
+			return new MacOsKeychainSecretStore(options.runCommand ?? runCommand);
+		case "secret-service":
+			if ((options.platform ?? process.platform) !== "linux") {
+				throw new Error("Unsupported secret backend: secret-service");
+			}
+			return new SecretServiceSecretStore(options.runCommand ?? runCommand);
+	}
+}
+
+class MemorySecretStore implements SecretStore {
+	private readonly secrets = new Map<string, string>();
+
+	async getSecret(ref: ProviderSecretRef): Promise<string | undefined> {
+		return this.secrets.get(ref.storageKey);
+	}
+
+	async setSecret(ref: ProviderSecretRef, value: string): Promise<void> {
+		this.secrets.set(ref.storageKey, value);
+	}
+
+	async deleteSecret(ref: ProviderSecretRef): Promise<void> {
+		this.secrets.delete(ref.storageKey);
+	}
+
+	async hasSecret(ref: ProviderSecretRef): Promise<boolean> {
+		return this.secrets.has(ref.storageKey);
+	}
+}
+
+class MacOsKeychainSecretStore implements SecretStore {
+	constructor(private readonly runCommandImpl: RunCommand) {}
+
+	async getSecret(ref: ProviderSecretRef): Promise<string | undefined> {
+		const result = await this.runCommandImpl("security", [
+			"find-generic-password",
+			"-a",
+			ref.storageKey,
+			"-s",
+			"sprout",
+			"-w",
+		]);
+		return result.exitCode === 0 ? result.stdout.trimEnd() : undefined;
+	}
+
+	async setSecret(ref: ProviderSecretRef, value: string): Promise<void> {
+		await this.runCommandImpl("security", [
+			"add-generic-password",
+			"-U",
+			"-a",
+			ref.storageKey,
+			"-s",
+			"sprout",
+			"-w",
+			value,
+		]);
+	}
+
+	async deleteSecret(ref: ProviderSecretRef): Promise<void> {
+		await this.runCommandImpl("security", [
+			"delete-generic-password",
+			"-a",
+			ref.storageKey,
+			"-s",
+			"sprout",
+		]);
+	}
+
+	async hasSecret(ref: ProviderSecretRef): Promise<boolean> {
+		return (await this.getSecret(ref)) !== undefined;
+	}
+}
+
+class SecretServiceSecretStore implements SecretStore {
+	constructor(private readonly runCommandImpl: RunCommand) {}
+
+	async getSecret(ref: ProviderSecretRef): Promise<string | undefined> {
+		const result = await this.runCommandImpl("secret-tool", [
+			"lookup",
+			"service",
+			"sprout",
+			"account",
+			ref.storageKey,
+		]);
+		return result.exitCode === 0 ? result.stdout.trimEnd() : undefined;
+	}
+
+	async setSecret(ref: ProviderSecretRef, value: string): Promise<void> {
+		await this.runCommandImpl(
+			"secret-tool",
+			["store", "--label=Sprout", "service", "sprout", "account", ref.storageKey],
+			value,
+		);
+	}
+
+	async deleteSecret(ref: ProviderSecretRef): Promise<void> {
+		await this.runCommandImpl("secret-tool", [
+			"clear",
+			"service",
+			"sprout",
+			"account",
+			ref.storageKey,
+		]);
+	}
+
+	async hasSecret(ref: ProviderSecretRef): Promise<boolean> {
+		return (await this.getSecret(ref)) !== undefined;
+	}
+}
+
+async function runCommand(cmd: string, args: string[], stdin?: string): Promise<RunCommandResult> {
+	const proc = Bun.spawn([cmd, ...args], {
+		stdin: stdin === undefined ? "ignore" : new TextEncoder().encode(stdin),
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	const stdout = await new Response(proc.stdout).text();
+	const stderr = await new Response(proc.stderr).text();
+	const exitCode = await proc.exited;
+	return { stdout, stderr, exitCode };
+}
