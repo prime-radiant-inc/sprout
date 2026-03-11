@@ -271,3 +271,9 @@ export interface Command {
 	kind: CommandKind;
 	data: Record<string, unknown>;
 }
+
+export type {
+	DefaultSelection,
+	ModelRef,
+	SessionModelSelection,
+} from "../host/settings/types.ts";
