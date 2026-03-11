@@ -7,6 +7,24 @@ import {
 } from "../../src/host/settings/paths.ts";
 
 describe("settings paths", () => {
+	test("uses XDG_CONFIG_HOME from the process environment by default", () => {
+		const original = process.env.XDG_CONFIG_HOME;
+		process.env.XDG_CONFIG_HOME = "/tmp/runtime-xdg-home";
+
+		try {
+			expect(resolveSettingsDir({ homeDir: "/Users/tester" })).toBe("/tmp/runtime-xdg-home/sprout");
+			expect(resolveSettingsPath({ homeDir: "/Users/tester" })).toBe(
+				"/tmp/runtime-xdg-home/sprout/settings.json",
+			);
+		} finally {
+			if (original === undefined) {
+				delete process.env.XDG_CONFIG_HOME;
+			} else {
+				process.env.XDG_CONFIG_HOME = original;
+			}
+		}
+	});
+
 	test("uses XDG_CONFIG_HOME when set", () => {
 		expect(
 			resolveSettingsDir({

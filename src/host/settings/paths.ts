@@ -9,7 +9,7 @@ export interface SettingsPathOptions {
 }
 
 export function resolveSettingsDir(options: SettingsPathOptions = {}): string {
-	const xdgConfigHome = options.xdgConfigHome?.trim();
+	const xdgConfigHome = options.xdgConfigHome?.trim() || process.env.XDG_CONFIG_HOME?.trim();
 	if (xdgConfigHome) return join(xdgConfigHome, "sprout");
 
 	return join(options.homeDir ?? homedir(), ".config", "sprout");
