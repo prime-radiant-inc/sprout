@@ -32,6 +32,14 @@ export function makeSettingsSnapshot(): SettingsSnapshot {
 					enabled: true,
 					baseUrl: "http://127.0.0.1:1234/v1",
 					discoveryStrategy: "manual-only",
+					manualModels: [
+						{
+							id: "qwen2.5-coder",
+							label: "Qwen 2.5 Coder",
+							tierHint: "fast",
+							rank: 5,
+						},
+					],
 					createdAt: "2026-03-11T00:00:00.000Z",
 					updatedAt: "2026-03-11T00:00:00.000Z",
 				},

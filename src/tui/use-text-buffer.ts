@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
 	createBufferState,
 	deleteChar,
@@ -17,28 +17,40 @@ import {
 export type { TextBufferState };
 
 export function useTextBuffer(initialText = "") {
-	const [state, setState] = useState<TextBufferState>(() => createBufferState(initialText));
+	const initialState = useRef<TextBufferState>(createBufferState(initialText));
+	const [state, setState] = useState<TextBufferState>(initialState.current);
+	const stateRef = useRef<TextBufferState>(state);
+
+	const apply = (update: (state: TextBufferState) => TextBufferState) => {
+		const next = update(stateRef.current);
+		stateRef.current = next;
+		setState(next);
+	};
 
 	const ops = {
-		insertText: (text: string) => setState((s) => insertText(s, text)),
-		deleteChar: (dir: "forward" | "backward") => setState((s) => deleteChar(s, dir)),
+		insertText: (text: string) => apply((current) => insertText(current, text)),
+		deleteChar: (dir: "forward" | "backward") => apply((current) => deleteChar(current, dir)),
 		moveCursor: (dir: "left" | "right" | "up" | "down" | "home" | "end") =>
-			setState((s) => moveCursor(s, dir)),
-		setText: (text: string) => setState((s) => setText(s, text)),
-		getText: () => getText(state),
+			apply((current) => moveCursor(current, dir)),
+		setText: (text: string) => apply((current) => setText(current, text)),
+		getText: () => getText(stateRef.current),
 		setCursorPosition: (line: number, column: number) =>
-			setState((s) => ({
-				...s,
-				cursorLine: Math.max(0, Math.min(line, s.lines.length - 1)),
+			apply((current) => ({
+				...current,
+				cursorLine: Math.max(0, Math.min(line, current.lines.length - 1)),
 				cursorColumn: Math.max(0, column),
 				preferredColumn: Math.max(0, column),
 			})),
-		killLine: () => setState((s) => killLine(s)),
-		killLineBackward: () => setState((s) => killLineBackward(s)),
-		killWordBackward: () => setState((s) => killWordBackward(s)),
-		isOnFirstLine: () => isOnFirstLine(state),
-		isOnLastLine: () => isOnLastLine(state),
-		reset: () => setState(createBufferState("")),
+		killLine: () => apply((current) => killLine(current)),
+		killLineBackward: () => apply((current) => killLineBackward(current)),
+		killWordBackward: () => apply((current) => killWordBackward(current)),
+		isOnFirstLine: () => isOnFirstLine(stateRef.current),
+		isOnLastLine: () => isOnLastLine(stateRef.current),
+		reset: () => {
+			const next = createBufferState("");
+			stateRef.current = next;
+			setState(next);
+		},
 	};
 
 	return [state, ops] as const;

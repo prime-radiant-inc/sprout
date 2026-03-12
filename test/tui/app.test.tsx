@@ -161,7 +161,7 @@ describe("App", () => {
 		stdin.write("hello world");
 		await flush();
 		stdin.write("\r");
-		await flush();
+		await waitFor(() => submitted === "hello world");
 
 		expect(submitted).toBe("hello world");
 	});
@@ -480,7 +480,8 @@ describe("App", () => {
 		const frame = lastFrame()!;
 		expect(frame).toContain("Provider settings");
 		expect(frame).toContain("Anthropic");
-		expect(frame).toContain("settings>");
+		expect(frame).toContain("Actions");
+		expect(frame).toContain("shortcut>");
 	});
 
 	test("/settings commands run through the settings control plane", async () => {

@@ -71,6 +71,28 @@ describe("SettingsPanel", () => {
 		expect(empty.lastFrame()).toContain("No providers configured");
 	});
 
+	test("renders runtime warnings in settings mode", () => {
+		const settings = makeSettingsSnapshot();
+		settings.runtime.warnings = [
+			{
+				code: "invalid_settings_recovered",
+				message: "Recovered invalid settings file to /tmp/settings.invalid.2026-03-12.json",
+			},
+		];
+		const { lastFrame } = render(
+			<SettingsPanel
+				settings={settings}
+				lastResult={null}
+				onCommand={() => {}}
+				onClose={() => {}}
+			/>,
+		);
+
+		expect(lastFrame()).toContain(
+			"Recovered invalid settings file to /tmp/settings.invalid.2026-03-12.json",
+		);
+	});
+
 	test("navigates between views and issues create, defaults, and edit commands", async () => {
 		const commands: unknown[] = [];
 		const { stdin, lastFrame } = render(
@@ -85,40 +107,25 @@ describe("SettingsPanel", () => {
 		);
 
 		expect(lastFrame()).toContain("Anthropic");
+		expect(lastFrame()).toContain("Actions");
 		expect(lastFrame()).toContain("Latest command failed");
 
 		await submitCommand(stdin, "create", () => (lastFrame() ?? "").includes("Create provider"));
 		expect(lastFrame()).toContain("Create provider");
-
-		await submitCommand(stdin, "label OpenRouter", () =>
-			!(lastFrame() ?? "").includes("label OpenRouter"),
-		);
-		await submitCommand(stdin, "kind openrouter", () =>
-			!(lastFrame() ?? "").includes("kind openrouter"),
-		);
-		await submitCommand(stdin, "save", () => commands.length === 1);
 
 		await submitCommand(stdin, "defaults", () =>
 			(lastFrame() ?? "").includes("Defaults and routing"),
 		);
 		expect(lastFrame()).toContain("Defaults and routing");
 
-		await submitCommand(stdin, "default tier fast", () => commands.length === 2);
+		await submitCommand(stdin, "default tier fast", () => commands.length === 1);
 
 		await submitCommand(stdin, "open lmstudio", () => (lastFrame() ?? "").includes("LM Studio"));
 		expect(lastFrame()).toContain("LM Studio");
 
-		await submitCommand(stdin, "disable", () => commands.length === 3);
+		await submitCommand(stdin, "disable", () => commands.length === 2);
 
 		expect(commands).toEqual([
-			{
-				kind: "create_provider",
-				data: {
-					kind: "openrouter",
-					label: "OpenRouter",
-					discoveryStrategy: "remote-with-manual",
-				},
-			},
 			{
 				kind: "set_default_selection",
 				data: { selection: { kind: "tier", tier: "fast" } },

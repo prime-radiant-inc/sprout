@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from "react";
 import { readClipboard } from "./clipboard.ts";
 import type { SlashCommand } from "./slash-commands.ts";
 import { parseSlashCommand } from "./slash-commands.ts";
-import { getText } from "./text-buffer.ts";
 import { TextRenderer } from "./text-renderer.tsx";
 import { useTextBuffer } from "./use-text-buffer.ts";
 
@@ -51,7 +50,7 @@ export function InputArea({
 
 	useInput((input, key) => {
 		const submitCurrentInput = () => {
-			const trimmed = getText(bufferState).trim();
+			const trimmed = bufferOps.getText().trim();
 			if (!trimmed) return;
 
 			const slash = parseSlashCommand(trimmed);
@@ -192,7 +191,7 @@ export function InputArea({
 				if (history.length === 0) return;
 				// Save current text as draft when first entering history
 				if (historyCursor === -1) {
-					draftRef.current = getText(bufferState);
+					draftRef.current = bufferOps.getText();
 				}
 				const newCursor =
 					historyCursor === -1 ? history.length - 1 : Math.max(0, historyCursor - 1);

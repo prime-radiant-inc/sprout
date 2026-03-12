@@ -41,7 +41,44 @@ describe("ProviderSettingsEditor", () => {
 		expect(frame).toContain("Latest command failed");
 	});
 
-	test("builds create and edit provider commands from editor commands", () => {
+	test("renders field-level feedback, manual models, custom headers, and visible actions", () => {
+		const settings = makeSettingsSnapshot();
+		settings.settings.providers[1]!.nonSecretHeaders = {
+			"X-Client": "sprout",
+		};
+		const { lastFrame } = render(
+			<ProviderSettingsEditor
+				mode="edit"
+				draft={createProviderEditorDraft(settings.settings.providers[1])}
+				provider={settings.settings.providers[1]}
+				status={settings.providers[1]}
+				catalogEntry={settings.catalog[1]}
+				lastResult={{
+					ok: false,
+					code: "validation_failed",
+					message: "Validation failed",
+					fieldErrors: {
+						baseUrl: "Base URL must be a valid http or https URL",
+						manualModels: "Manual models must use unique ids",
+						nonSecretHeaders: "Header names must be unique",
+					},
+				}}
+			/>,
+		);
+		const frame = lastFrame()!;
+		expect(frame).toContain("Manual models");
+		expect(frame).toContain("Qwen 2.5 Coder");
+		expect(frame).toContain("Custom headers");
+		expect(frame).toContain("X-Client");
+		expect(frame).toContain("Actions");
+		expect(frame).toContain("Add manual model");
+		expect(frame).toContain("Add header");
+		expect(frame).toContain("Base URL must be a valid http or https URL");
+		expect(frame).toContain("Manual models must use unique ids");
+		expect(frame).toContain("Header names must be unique");
+	});
+
+	test("builds create and edit provider commands from editor shortcuts", () => {
 		const created = applyProviderEditorCommand(
 			"save",
 			createProviderEditorDraft(undefined),
@@ -59,19 +96,59 @@ describe("ProviderSettingsEditor", () => {
 		const kind = applyProviderEditorCommand("kind openrouter", labeled.draft, "create");
 		expect(kind.draft.kind).toBe("openrouter");
 
-		const saveCreate = applyProviderEditorCommand("save", kind.draft, "create");
+		const withModel = applyProviderEditorCommand("add-model", kind.draft, "create");
+		const modelId = applyProviderEditorCommand(
+			"model-id 1 openrouter/manual-fast",
+			withModel.draft,
+			"create",
+		);
+		const modelLabel = applyProviderEditorCommand(
+			"model-label 1 Manual Fast",
+			modelId.draft,
+			"create",
+		);
+		const modelTier = applyProviderEditorCommand("model-tier 1 fast", modelLabel.draft, "create");
+		const modelRank = applyProviderEditorCommand("model-rank 1 3", modelTier.draft, "create");
+		const withHeader = applyProviderEditorCommand("add-header", modelRank.draft, "create");
+		const headerKey = applyProviderEditorCommand(
+			"header-key 1 HTTP-Referer",
+			withHeader.draft,
+			"create",
+		);
+		const headerValue = applyProviderEditorCommand(
+			"header-value 1 https://sprout.local",
+			headerKey.draft,
+			"create",
+		);
+
+		const saveCreate = applyProviderEditorCommand("save", headerValue.draft, "create");
 		expect(saveCreate.command).toEqual({
 			kind: "create_provider",
 			data: {
 				kind: "openrouter",
 				label: "OpenRouter",
 				discoveryStrategy: "remote-with-manual",
+				manualModels: [
+					{
+						id: "openrouter/manual-fast",
+						label: "Manual Fast",
+						tierHint: "fast",
+						rank: 3,
+					},
+				],
+				nonSecretHeaders: {
+					"HTTP-Referer": "https://sprout.local",
+				},
 			},
 		});
 
+		const settings = makeSettingsSnapshot();
+		settings.settings.providers[1]!.nonSecretHeaders = {
+			"X-Client": "sprout",
+		};
 		const saveEdit = applyProviderEditorCommand(
 			"save",
-			createProviderEditorDraft(makeSettingsSnapshot().settings.providers[1]),
+			createProviderEditorDraft(settings.settings.providers[1]),
 			"edit",
 			"lmstudio",
 		);
@@ -83,6 +160,41 @@ describe("ProviderSettingsEditor", () => {
 					label: "LM Studio",
 					baseUrl: "http://127.0.0.1:1234/v1",
 					discoveryStrategy: "manual-only",
+					manualModels: [
+						{
+							id: "qwen2.5-coder",
+							label: "Qwen 2.5 Coder",
+							tierHint: "fast",
+							rank: 5,
+						},
+					],
+					nonSecretHeaders: {
+						"X-Client": "sprout",
+					},
+				},
+			},
+		});
+
+		const clearedEdit = applyProviderEditorCommand(
+			"remove-model 1",
+			createProviderEditorDraft(settings.settings.providers[1]),
+			"edit",
+			"lmstudio",
+		);
+		expect(
+			applyProviderEditorCommand("save", clearedEdit.draft, "edit", "lmstudio").command,
+		).toEqual({
+			kind: "update_provider",
+			data: {
+				providerId: "lmstudio",
+				patch: {
+					label: "LM Studio",
+					baseUrl: "http://127.0.0.1:1234/v1",
+					discoveryStrategy: "manual-only",
+					manualModels: [],
+					nonSecretHeaders: {
+						"X-Client": "sprout",
+					},
 				},
 			},
 		});

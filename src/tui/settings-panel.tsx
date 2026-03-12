@@ -47,11 +47,19 @@ export function SettingsPanel({ settings, lastResult, onCommand, onClose }: Sett
 	const createDraftRef = useRef(createDraft);
 	const providerDraftsRef = useRef(providerDrafts);
 	const settingsRef = useRef(settings);
+	const inputRef = useRef(input);
 
 	selectedViewRef.current = selectedView;
 	createDraftRef.current = createDraft;
 	providerDraftsRef.current = providerDrafts;
 	settingsRef.current = settings;
+	inputRef.current = input;
+
+	const updateInput = (update: (current: string) => string) => {
+		const next = update(inputRef.current);
+		inputRef.current = next;
+		setInput(next);
+	};
 
 	useEffect(() => {
 		if (!settings) return;
@@ -81,11 +89,11 @@ export function SettingsPanel({ settings, lastResult, onCommand, onClose }: Sett
 			return;
 		}
 		if (key.backspace || key.delete) {
-			setInput((current) => current.slice(0, -1));
+			updateInput((current) => current.slice(0, -1));
 			return;
 		}
 		if (character) {
-			setInput((current) => current + character);
+			updateInput((current) => current + character);
 		}
 	});
 
@@ -113,9 +121,10 @@ export function SettingsPanel({ settings, lastResult, onCommand, onClose }: Sett
 	}
 
 	const executeInput = () => {
-		const commandText = input.trim();
+		const commandText = inputRef.current.trim();
 		const currentSettings = settingsRef.current;
 		const currentView = selectedViewRef.current;
+		inputRef.current = "";
 		setInput("");
 		if (!commandText || !currentSettings) return;
 
@@ -174,6 +183,11 @@ export function SettingsPanel({ settings, lastResult, onCommand, onClose }: Sett
 	return (
 		<Box flexDirection="column" gap={1}>
 			<Text bold>Provider settings</Text>
+			{settings.runtime.warnings.map((warning) => (
+				<Text key={`${warning.code}-${warning.message}`} color="yellow">
+					{warning.message}
+				</Text>
+			))}
 			{settings.settings.providers.length === 0 && (
 				<Text color="gray">No providers configured</Text>
 			)}
@@ -220,7 +234,8 @@ export function SettingsPanel({ settings, lastResult, onCommand, onClose }: Sett
 			<Text color="gray">
 				Navigation: create · defaults · open &lt;provider-id&gt; · next · prev · close
 			</Text>
-			<Text>settings&gt; {input}</Text>
+			<Text color="gray">Shortcuts are optional; use them when you already know the action.</Text>
+			<Text>shortcut&gt; {input}</Text>
 		</Box>
 	);
 }

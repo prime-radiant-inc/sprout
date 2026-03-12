@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, jest, test } from "bun:test";
 import { render as inkRender } from "ink-testing-library";
 import { InputArea } from "../../src/tui/input-area.tsx";
+import { waitFor } from "../helpers/wait-for.ts";
 
 // Wrap render() to track the current instance for per-test cleanup.
 // The global cleanup() from ink-testing-library unmounts ALL instances across
@@ -51,7 +52,8 @@ describe("InputArea", () => {
 		stdin.write("fix the bug");
 		await flush();
 		stdin.write("\r");
-		await flush();
+		await waitFor(() => submitted === "fix the bug");
+		await waitFor(() => !(lastFrame() ?? "").includes("fix the bug"));
 
 		expect(submitted).toBe("fix the bug");
 		expect(lastFrame()).not.toContain("fix the bug");
@@ -73,7 +75,8 @@ describe("InputArea", () => {
 		await flush();
 		// Ctrl+D
 		stdin.write("\x04");
-		await flush();
+		await waitFor(() => submitted === "submit via ctrl-d");
+		await waitFor(() => !(lastFrame() ?? "").includes("submit via ctrl-d"));
 
 		expect(submitted).toBe("submit via ctrl-d");
 		expect(lastFrame()).not.toContain("submit via ctrl-d");
@@ -97,7 +100,7 @@ describe("InputArea", () => {
 		stdin.write("/help");
 		await flush();
 		stdin.write("\r");
-		await flush();
+		await waitFor(() => slashCmd !== null);
 
 		expect(submitted).toBe("");
 		expect(slashCmd).toBeDefined();
@@ -645,7 +648,7 @@ describe("InputArea", () => {
 		stdin.write("\x17"); // Ctrl-W
 		await flush();
 		stdin.write("\r");
-		await flush();
+		await waitFor(() => submitted === "hello");
 		expect(submitted).toBe("hello");
 	});
 
