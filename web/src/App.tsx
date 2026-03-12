@@ -11,6 +11,7 @@ import { InputArea } from "./components/InputArea.tsx";
 import { Sidebar } from "./components/Sidebar.tsx";
 import { StatusBar } from "./components/StatusBar.tsx";
 import { ThreadPanel } from "./components/ThreadPanel.tsx";
+import { ProviderSettingsPanel } from "./components/settings/ProviderSettingsPanel.tsx";
 import { useAgentStats } from "./hooks/useAgentStats.ts";
 import { useAgentTree } from "./hooks/useAgentTree.ts";
 import { useEvents } from "./hooks/useEvents.ts";
@@ -109,7 +110,14 @@ export function createCommandFromSlashCommand(
 
 export function App() {
 	const { connected, authError, send, onMessage } = useWebSocket(WS_URL);
-	const { events, status, settings, sendCommand, prependHistory } = useEvents(onMessage, send);
+	const {
+		events,
+		status,
+		settings,
+		lastSettingsResult,
+		sendCommand,
+		prependHistory,
+	} = useEvents(onMessage, send);
 	const { tree } = useAgentTree(events);
 	const agentStats = useAgentStats(events);
 	const { tasks } = useTaskList(events);
@@ -117,6 +125,7 @@ export function App() {
 	const [panelStack, setPanelStack] = useState<string[]>([]);
 	const [sidebarOpen, setSidebarOpen] = useState(true);
 	const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
+	const [showSettings, setShowSettings] = useState(false);
 	const inputRef = useRef<HTMLTextAreaElement>(null);
 
 	const { width: sidebarWidth, onMouseDown: onSidebarDragStart } = useResizable({
@@ -248,7 +257,10 @@ export function App() {
 		const handleKeyDown = (e: KeyboardEvent) => {
 			const handled = handleKeyboardShortcut(e, {
 				toggleSidebar: () => setSidebarOpen((prev) => !prev),
-				clearFilter: () => setPanelStack([]),
+				clearFilter: () => {
+					setShowSettings(false);
+					setPanelStack([]);
+				},
 				focusInput: () => inputRef.current?.focus(),
 				showHelp: () => setShowKeyboardHelp(true),
 			});
@@ -344,6 +356,7 @@ export function App() {
 				connectionError={authError}
 				onInterrupt={handleInterrupt}
 				onSwitchModel={handleSwitchModel}
+				onOpenSettings={() => setShowSettings(true)}
 				onToggleTheme={toggleTheme}
 				theme={currentTheme}
 			/>
@@ -424,6 +437,14 @@ export function App() {
 
 			{showKeyboardHelp && (
 				<KeyboardHelp onClose={() => setShowKeyboardHelp(false)} />
+			)}
+			{showSettings && (
+				<ProviderSettingsPanel
+					settings={settings}
+					lastResult={lastSettingsResult}
+					onCommand={sendCommand}
+					onClose={() => setShowSettings(false)}
+				/>
 			)}
 		</div>
 	);

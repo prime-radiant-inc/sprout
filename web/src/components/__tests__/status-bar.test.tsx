@@ -218,4 +218,16 @@ describe("StatusBar", () => {
 			),
 		).toBe("OpenRouter · GPT-4.1");
 	});
+
+	test("renders settings launcher when settings callback is provided", () => {
+		const html = renderToStaticMarkup(
+			<StatusBar
+				status={makeStatus()}
+				connected={true}
+				onOpenSettings={() => {}}
+			/>,
+		);
+		expect(html).toContain('data-action="open-settings"');
+		expect(html).toContain("Settings");
+	});
 });

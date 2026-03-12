@@ -23,6 +23,7 @@ export interface StatusBarProps {
 	connectionError?: string | null;
 	onInterrupt?: () => void;
 	onSwitchModel?: (selection: SessionModelSelection) => void;
+	onOpenSettings?: () => void;
 	onToggleTheme?: () => void;
 	theme?: string;
 }
@@ -166,6 +167,7 @@ export function StatusBar({
 	connectionError,
 	onInterrupt,
 	onSwitchModel,
+	onOpenSettings,
 	onToggleTheme,
 	theme,
 }: StatusBarProps) {
@@ -294,6 +296,17 @@ export function StatusBar({
 					title="Interrupt (Esc)"
 				>
 					Stop
+				</button>
+			)}
+
+			{onOpenSettings && (
+				<button
+					type="button"
+					className={styles.settingsButton}
+					data-action="open-settings"
+					onClick={onOpenSettings}
+				>
+					Settings
 				</button>
 			)}
 

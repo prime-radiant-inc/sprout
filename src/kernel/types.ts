@@ -281,6 +281,8 @@ export type {
 export type {
 	DefaultSelection,
 	ModelRef,
+	ProviderConfig,
+	ProviderKind,
 	SessionModelSelection,
 } from "../host/settings/types.ts";
 export type { SessionSelectionRequest } from "../shared/session-selection.ts";
