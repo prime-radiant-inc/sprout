@@ -1,14 +1,23 @@
 import { Box, Text } from "ink";
 import { useEffect, useState } from "react";
 import type { SessionBus } from "../host/event-bus.ts";
-import type { SessionEvent } from "../kernel/types.ts";
 import {
-	formatSessionSelectionRequest,
-	parseSessionSelectionRequest,
-} from "../shared/session-selection.ts";
+	createDefaultSessionSelectionSnapshot,
+	defaultResolveSessionSelectionRequest,
+	resolveSessionSelectionRequest,
+	type SessionSelectionSnapshot,
+} from "../host/session-selection.ts";
+import type {
+	SessionEvent,
+	SettingsCommand,
+	SettingsCommandResult,
+	SettingsSnapshot,
+} from "../kernel/types.ts";
+import { formatSessionSelectionRequest } from "../shared/session-selection.ts";
 import { ConversationView } from "./conversation-view.tsx";
 import { InputArea } from "./input-area.tsx";
-import { ModelPicker } from "./model-picker.tsx";
+import { buildModelPickerOptions, ModelPicker } from "./model-picker.tsx";
+import { SettingsPanel } from "./settings-panel.tsx";
 import type { SlashCommand } from "./slash-commands.ts";
 import { StatusBar } from "./status-bar.tsx";
 
@@ -22,6 +31,10 @@ export interface AppProps {
 	onSteer?: (text: string) => void;
 	/** List of known model names for the /model picker. */
 	knownModels?: string[];
+	initialSelection?: SessionSelectionSnapshot;
+	settingsControlPlane?: {
+		execute(command: SettingsCommand): Promise<SettingsCommandResult>;
+	};
 	/** Historical events to display in conversation view on resume. */
 	initialEvents?: SessionEvent[];
 }
@@ -48,6 +61,19 @@ const INITIAL_STATUS: StatusState = {
 	status: "idle",
 };
 
+function selectionSnapshotFromRequest(
+	selection: Parameters<typeof defaultResolveSessionSelectionRequest>[0],
+	settings: SettingsSnapshot | null,
+): SessionSelectionSnapshot {
+	if (settings) {
+		return resolveSessionSelectionRequest(selection, {
+			settings: settings.settings,
+			catalog: settings.catalog,
+		});
+	}
+	return defaultResolveSessionSelectionRequest(selection);
+}
+
 export function App({
 	bus,
 	sessionId,
@@ -57,13 +83,31 @@ export function App({
 	initialHistory,
 	onSteer,
 	knownModels,
+	initialSelection,
+	settingsControlPlane,
 	initialEvents,
 }: AppProps) {
 	const [statusState, setStatusState] = useState<StatusState>(INITIAL_STATUS);
+	const [selectionSnapshot, setSelectionSnapshot] = useState<SessionSelectionSnapshot>(
+		initialSelection ?? createDefaultSessionSelectionSnapshot(),
+	);
+	const [settingsSnapshot, setSettingsSnapshot] = useState<SettingsSnapshot | null>(null);
+	const [lastSettingsResult, setLastSettingsResult] = useState<SettingsCommandResult | null>(null);
 	const [currentSessionId, setCurrentSessionId] = useState(sessionId);
 	const [showModelPicker, setShowModelPicker] = useState(false);
+	const [showSettings, setShowSettings] = useState(false);
 	const [exitHintVisible, setExitHintVisible] = useState(false);
 	const [toolsCollapsed, setToolsCollapsed] = useState(false);
+
+	useEffect(() => {
+		if (!settingsControlPlane) return;
+		void settingsControlPlane.execute({ kind: "get_settings", data: {} }).then((result) => {
+			setLastSettingsResult(result);
+			if (result.ok) {
+				setSettingsSnapshot(result.snapshot);
+			}
+		});
+	}, [settingsControlPlane]);
 
 	useEffect(() => {
 		return bus.onEvent((event: SessionEvent) => {
@@ -118,6 +162,21 @@ export function App({
 	}, [bus, sessionId]);
 
 	const models = knownModels ?? DEFAULT_MODELS;
+	const modelOptions = buildModelPickerOptions({
+		availableModels: models,
+		settings: settingsSnapshot,
+		currentSelection: selectionSnapshot,
+		currentModel: statusState.model,
+	});
+
+	const runSettingsCommand = async (command: SettingsCommand) => {
+		if (!settingsControlPlane) return;
+		const result = await settingsControlPlane.execute(command);
+		setLastSettingsResult(result);
+		if (result.ok) {
+			setSettingsSnapshot(result.snapshot);
+		}
+	};
 
 	const handleSlash = (cmd: SlashCommand) => {
 		if (cmd.kind === "collapse_tools") {
@@ -127,9 +186,30 @@ export function App({
 			});
 			return;
 		}
+		if (cmd.kind === "settings") {
+			if (!settingsControlPlane) {
+				bus.emitEvent("warning", "cli", 0, {
+					message: "Provider settings are unavailable in this session.",
+				});
+				return;
+			}
+			void settingsControlPlane.execute({ kind: "get_settings", data: {} }).then((result) => {
+				setLastSettingsResult(result);
+				if (result.ok) {
+					setSettingsSnapshot(result.snapshot);
+				}
+				setShowSettings(true);
+			});
+			return;
+		}
 		if (cmd.kind === "switch_model" && !cmd.selection) {
 			setShowModelPicker(true);
 			return;
+		}
+		if (cmd.kind === "switch_model" && cmd.selection) {
+			try {
+				setSelectionSnapshot(selectionSnapshotFromRequest(cmd.selection, settingsSnapshot));
+			} catch {}
 		}
 		Promise.resolve(onSlashCommand(cmd)).catch((err: unknown) => {
 			const message = err instanceof Error ? err.message : String(err);
@@ -147,16 +227,42 @@ export function App({
 				inputTokens={statusState.inputTokens}
 				outputTokens={statusState.outputTokens}
 				model={statusState.model}
+				selection={selectionSnapshot}
+				settings={settingsSnapshot}
 				sessionId={currentSessionId}
 				status={statusState.status}
 			/>
 			{exitHintVisible && <Text color="yellow">Press Ctrl+C again to exit</Text>}
-			{showModelPicker ? (
+			{showSettings ? (
+				<SettingsPanel
+					settings={settingsSnapshot}
+					lastResult={lastSettingsResult}
+					onCommand={(command) => {
+						void runSettingsCommand(command);
+					}}
+					onClose={() => {
+						setShowSettings(false);
+					}}
+				/>
+			) : showModelPicker ? (
 				<ModelPicker
-					models={models}
-					onSelect={(model) => {
-						const selection = parseSessionSelectionRequest(model);
+					options={modelOptions}
+					onSelect={(selection) => {
 						setShowModelPicker(false);
+						setSelectionSnapshot(
+							selection.kind === "inherit"
+								? createDefaultSessionSelectionSnapshot()
+								: selection.kind === "model"
+									? {
+											selection,
+											resolved: selection.model,
+											source: "session",
+										}
+									: {
+											selection,
+											source: "session",
+										},
+						);
 						bus.emitCommand({ kind: "switch_model", data: { selection } });
 						bus.emitEvent("warning", "cli", 0, {
 							message: `Model set to: ${formatSessionSelectionRequest(selection)}`,

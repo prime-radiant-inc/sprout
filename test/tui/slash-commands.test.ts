@@ -45,6 +45,10 @@ describe("parseSlashCommand", () => {
 		});
 	});
 
+	test("parses /settings", () => {
+		expect(parseSlashCommand("/settings")).toEqual({ kind: "settings" });
+	});
+
 	test("parses /compact", () => {
 		expect(parseSlashCommand("/compact")).toEqual({ kind: "compact" });
 	});

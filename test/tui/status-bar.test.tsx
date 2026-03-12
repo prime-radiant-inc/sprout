@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { render as inkRender } from "ink-testing-library";
-import { formatTokens, StatusBar, shortModelName } from "../../src/tui/status-bar.tsx";
+import {
+	formatSelectionLabel,
+	formatTokens,
+	StatusBar,
+	shortModelName,
+} from "../../src/tui/status-bar.tsx";
+import { makeSelectionSnapshot, makeSettingsSnapshot } from "../helpers/provider-settings.ts";
 
 // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape stripping
 const stripAnsi = (s: string) => s.replace(/\x1B\[[0-9;]*m/g, "");
@@ -16,6 +22,24 @@ afterEach(() => {
 	currentInstance?.unmount();
 	currentInstance = undefined;
 });
+
+function makeProps(
+	overrides: Partial<Parameters<typeof StatusBar>[0]> = {},
+): Parameters<typeof StatusBar>[0] {
+	return {
+		contextTokens: 0,
+		contextWindowSize: 200000,
+		turns: 0,
+		inputTokens: 0,
+		outputTokens: 0,
+		model: "claude-sonnet-4-6",
+		selection: makeSelectionSnapshot(),
+		settings: makeSettingsSnapshot(),
+		sessionId: "01ABCDEF12345678ABCDEF1234",
+		status: "idle",
+		...overrides,
+	};
+}
 
 describe("formatTokens", () => {
 	test("returns plain number below 1000", () => {
@@ -53,20 +77,31 @@ describe("shortModelName", () => {
 	});
 });
 
+describe("formatSelectionLabel", () => {
+	test("renders provider-aware labels for explicit model selections", () => {
+		expect(
+			formatSelectionLabel(makeSelectionSnapshot(), "claude-sonnet-4-6", makeSettingsSnapshot()),
+		).toBe("Anthropic · Claude Sonnet 4.6");
+	});
+
+	test("renders inherit selections as the current default model", () => {
+		expect(
+			formatSelectionLabel(
+				makeSelectionSnapshot({
+					selection: { kind: "inherit" },
+					resolved: undefined,
+					source: "runtime-fallback",
+				}),
+				"claude-sonnet-4-6",
+				makeSettingsSnapshot(),
+			),
+		).toBe("Default · claude-sonnet-4-6");
+	});
+});
+
 describe("StatusBar", () => {
 	test("renders context pressure percentage", () => {
-		const { lastFrame } = render(
-			<StatusBar
-				contextTokens={50000}
-				contextWindowSize={200000}
-				turns={3}
-				inputTokens={0}
-				outputTokens={0}
-				model="claude-sonnet-4-20250514"
-				sessionId="01ABCDEF12345678ABCDEF1234"
-				status="idle"
-			/>,
-		);
+		const { lastFrame } = render(<StatusBar {...makeProps({ contextTokens: 50000, turns: 3 })} />);
 		const frame = lastFrame();
 		expect(frame).toContain("25%");
 		expect(frame).toContain("50.0k");
@@ -74,32 +109,20 @@ describe("StatusBar", () => {
 	});
 
 	test("renders turn count", () => {
-		const { lastFrame } = render(
-			<StatusBar
-				contextTokens={0}
-				contextWindowSize={200000}
-				turns={7}
-				inputTokens={0}
-				outputTokens={0}
-				model="claude-sonnet-4-20250514"
-				sessionId="01ABCDEF12345678ABCDEF1234"
-				status="idle"
-			/>,
-		);
+		const { lastFrame } = render(<StatusBar {...makeProps({ turns: 7 })} />);
 		expect(lastFrame()).toContain("7 turns");
 	});
 
 	test("renders token usage when running", () => {
 		const { lastFrame } = render(
 			<StatusBar
-				contextTokens={10000}
-				contextWindowSize={200000}
-				turns={2}
-				inputTokens={5000}
-				outputTokens={1200}
-				model="claude-sonnet-4-20250514"
-				sessionId="01ABCDEF12345678ABCDEF1234"
-				status="running"
+				{...makeProps({
+					contextTokens: 10000,
+					turns: 2,
+					inputTokens: 5000,
+					outputTokens: 1200,
+					status: "running",
+				})}
 			/>,
 		);
 		const frame = lastFrame();
@@ -110,14 +133,12 @@ describe("StatusBar", () => {
 	test("hides token usage when idle", () => {
 		const { lastFrame } = render(
 			<StatusBar
-				contextTokens={10000}
-				contextWindowSize={200000}
-				turns={2}
-				inputTokens={5000}
-				outputTokens={1200}
-				model="claude-sonnet-4-20250514"
-				sessionId="01ABCDEF12345678ABCDEF1234"
-				status="idle"
+				{...makeProps({
+					contextTokens: 10000,
+					turns: 2,
+					inputTokens: 5000,
+					outputTokens: 1200,
+				})}
 			/>,
 		);
 		const frame = lastFrame();
@@ -126,51 +147,26 @@ describe("StatusBar", () => {
 		expect(frame).not.toContain("\u2193");
 	});
 
-	test("renders model name with date suffix stripped", () => {
-		const { lastFrame } = render(
-			<StatusBar
-				contextTokens={0}
-				contextWindowSize={200000}
-				turns={0}
-				inputTokens={0}
-				outputTokens={0}
-				model="claude-sonnet-4-20250514"
-				sessionId="01ABCDEF12345678ABCDEF1234"
-				status="idle"
-			/>,
-		);
+	test("renders provider-aware model label", () => {
+		const { lastFrame } = render(<StatusBar {...makeProps()} />);
 		const frame = lastFrame()!;
-		expect(frame).toContain("claude-sonnet-4");
-		expect(frame).not.toContain("20250514");
+		expect(frame).toContain("Anthropic");
+		expect(frame).toContain("Claude Sonnet 4.6");
 	});
 
 	test("renders full session ID", () => {
-		const { lastFrame } = render(
-			<StatusBar
-				contextTokens={0}
-				contextWindowSize={200000}
-				turns={0}
-				inputTokens={0}
-				outputTokens={0}
-				model="claude-sonnet-4-20250514"
-				sessionId="01ABCDEF12345678ABCDEF1234"
-				status="idle"
-			/>,
-		);
+		const { lastFrame } = render(<StatusBar {...makeProps()} />);
 		expect(lastFrame()).toContain("01ABCDEF12345678ABCDEF1234");
 	});
 
 	test("renders compact distance", () => {
 		const { lastFrame } = render(
 			<StatusBar
-				contextTokens={100000}
-				contextWindowSize={200000}
-				turns={5}
-				inputTokens={0}
-				outputTokens={0}
-				model="test-model"
-				sessionId="01ABCDEF12345678ABCDEF1234"
-				status="idle"
+				{...makeProps({
+					contextTokens: 100000,
+					turns: 5,
+					model: "test-model",
+				})}
 			/>,
 		);
 		// 80% of 200k = 160k, 160k - 100k = 60k
@@ -180,14 +176,11 @@ describe("StatusBar", () => {
 	test("compact distance clamps to zero when past threshold", () => {
 		const { lastFrame } = render(
 			<StatusBar
-				contextTokens={180000}
-				contextWindowSize={200000}
-				turns={5}
-				inputTokens={0}
-				outputTokens={0}
-				model="test-model"
-				sessionId="01ABCDEF12345678ABCDEF1234"
-				status="idle"
+				{...makeProps({
+					contextTokens: 180000,
+					turns: 5,
+					model: "test-model",
+				})}
 			/>,
 		);
 		// 80% of 200k = 160k, 160k - 180k = -20k → clamped to 0
@@ -196,16 +189,7 @@ describe("StatusBar", () => {
 
 	test("handles zero context window size gracefully", () => {
 		const { lastFrame } = render(
-			<StatusBar
-				contextTokens={0}
-				contextWindowSize={0}
-				turns={0}
-				inputTokens={0}
-				outputTokens={0}
-				model="test-model"
-				sessionId="01ABCDEF12345678ABCDEF1234"
-				status="idle"
-			/>,
+			<StatusBar {...makeProps({ contextWindowSize: 0, model: "test-model" })} />,
 		);
 		const frame = lastFrame();
 		expect(frame).toContain("0%");
@@ -215,14 +199,13 @@ describe("StatusBar", () => {
 	test("hides token usage when interrupted", () => {
 		const { lastFrame } = render(
 			<StatusBar
-				contextTokens={10000}
-				contextWindowSize={200000}
-				turns={2}
-				inputTokens={5000}
-				outputTokens={1200}
-				model="claude-sonnet-4-20250514"
-				sessionId="01ABCDEF12345678ABCDEF1234"
-				status="interrupted"
+				{...makeProps({
+					contextTokens: 10000,
+					turns: 2,
+					inputTokens: 5000,
+					outputTokens: 1200,
+					status: "interrupted",
+				})}
 			/>,
 		);
 		const frame = lastFrame();
@@ -233,14 +216,11 @@ describe("StatusBar", () => {
 	test("uses colored background with no border or padding", () => {
 		const { lastFrame } = render(
 			<StatusBar
-				contextTokens={10000}
-				contextWindowSize={200000}
-				turns={2}
-				inputTokens={0}
-				outputTokens={0}
-				model="test-model"
-				sessionId="01ABCDEF12345678ABCDEF1234"
-				status="idle"
+				{...makeProps({
+					contextTokens: 10000,
+					turns: 2,
+					model: "test-model",
+				})}
 			/>,
 		);
 		const frame = lastFrame()!;

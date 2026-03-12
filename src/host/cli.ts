@@ -371,8 +371,10 @@ export async function handleSlashCommand(
 		case "help":
 			bus.emitEvent("warning", "cli", 0, {
 				message:
-					"Commands: /help, /quit, /compact, /clear, /model [name], /status, /terminal-setup, /web, /web stop\nKeys: Shift+Enter = newline, Ctrl+J = newline (fallback), Ctrl+C = interrupt/exit",
+					"Commands: /help, /quit, /compact, /clear, /model [name], /settings, /status, /terminal-setup, /web, /web stop\nKeys: Shift+Enter = newline, Ctrl+J = newline (fallback), Ctrl+C = interrupt/exit",
 			});
+			break;
+		case "settings":
 			break;
 		case "compact":
 			bus.emitCommand({ kind: "compact", data: {} });

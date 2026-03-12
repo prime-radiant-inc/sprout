@@ -3,6 +3,7 @@ import { parseSessionSelectionRequest, type SessionSelectionRequest } from "./se
 export type SlashCommand =
 	| { kind: "help" }
 	| { kind: "quit" }
+	| { kind: "settings" }
 	| { kind: "switch_model"; selection: SessionSelectionRequest | undefined }
 	| { kind: "compact" }
 	| { kind: "clear" }
@@ -26,6 +27,8 @@ export function parseSlashCommand(input: string): SlashCommand | null {
 			return { kind: "help" };
 		case "/quit":
 			return { kind: "quit" };
+		case "/settings":
+			return { kind: "settings" };
 		case "/model":
 			return {
 				kind: "switch_model",

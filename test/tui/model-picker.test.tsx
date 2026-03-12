@@ -1,14 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { render as inkRender } from "ink-testing-library";
-import { ModelPicker } from "../../src/tui/model-picker.tsx";
+import { buildModelPickerOptions, ModelPicker } from "../../src/tui/model-picker.tsx";
+import { makeSelectionSnapshot, makeSettingsSnapshot } from "../helpers/provider-settings.ts";
 import { sleep, waitFor } from "../helpers/wait-for.ts";
 
-/** Wait for React to flush state updates. */
 async function flush() {
 	await sleep(10);
 }
-
-const MODELS = ["claude-sonnet-4-6", "claude-opus-4-6", "gpt-4o"];
 
 let currentInstance: ReturnType<typeof inkRender> | undefined;
 
@@ -23,35 +21,89 @@ describe("ModelPicker", () => {
 		currentInstance = undefined;
 	});
 
-	test("renders model list", () => {
-		const { lastFrame } = render(
-			<ModelPicker models={MODELS} onSelect={() => {}} onCancel={() => {}} />,
-		);
-		expect(lastFrame()).toContain("claude-sonnet");
-		expect(lastFrame()).toContain("gpt-4o");
+	test("builds provider-aware picker options", () => {
+		const options = buildModelPickerOptions({
+			availableModels: ["best", "balanced", "fast", "claude-sonnet-4-6", "qwen2.5-coder"],
+			settings: makeSettingsSnapshot(),
+			currentSelection: makeSelectionSnapshot(),
+			currentModel: "claude-sonnet-4-6",
+		});
+
+		expect(options.map((option) => option.label)).toEqual([
+			"Default · claude-sonnet-4-6",
+			"Best",
+			"Balanced",
+			"Fast",
+			"Anthropic · Claude Sonnet 4.6",
+			"LM Studio · Qwen 2.5 Coder",
+		]);
 	});
 
-	test("Enter selects model", async () => {
-		let selected = "";
+	test("renders provider-aware option labels", () => {
+		const { lastFrame } = render(
+			<ModelPicker
+				options={buildModelPickerOptions({
+					availableModels: ["best", "claude-sonnet-4-6"],
+					settings: makeSettingsSnapshot(),
+					currentSelection: makeSelectionSnapshot(),
+					currentModel: "claude-sonnet-4-6",
+				})}
+				onSelect={() => {}}
+				onCancel={() => {}}
+			/>,
+		);
+		expect(lastFrame()).toContain("Anthropic");
+		expect(lastFrame()).toContain("Best");
+	});
+
+	test("Enter selects the highlighted canonical selection", async () => {
+		let selected:
+			| {
+					kind: "inherit";
+			  }
+			| {
+					kind: "tier";
+					tier: "best" | "balanced" | "fast";
+			  }
+			| {
+					kind: "model";
+					model: { providerId: string; modelId: string };
+			  }
+			| undefined;
 		const { stdin } = render(
 			<ModelPicker
-				models={MODELS}
-				onSelect={(m) => {
-					selected = m;
+				options={buildModelPickerOptions({
+					availableModels: ["best", "claude-sonnet-4-6"],
+					settings: makeSettingsSnapshot(),
+					currentSelection: makeSelectionSnapshot(),
+					currentModel: "claude-sonnet-4-6",
+				})}
+				onSelect={(selection) => {
+					selected = selection;
 				}}
 				onCancel={() => {}}
 			/>,
 		);
-		stdin.write("\r");
+		stdin.write("\x1B[B");
 		await flush();
-		expect(selected).toBe("claude-sonnet-4-6");
+		stdin.write("\x1B[B");
+		await flush();
+		stdin.write("\r");
+		await waitFor(() => selected?.kind === "model");
+		expect(selected).toEqual({
+			kind: "model",
+			model: {
+				providerId: "anthropic-main",
+				modelId: "claude-sonnet-4-6",
+			},
+		});
 	});
 
 	test("Escape cancels", async () => {
 		let cancelled = false;
 		const { stdin } = render(
 			<ModelPicker
-				models={MODELS}
+				options={[]}
 				onSelect={() => {}}
 				onCancel={() => {
 					cancelled = true;
@@ -63,49 +115,9 @@ describe("ModelPicker", () => {
 		expect(cancelled).toBe(true);
 	});
 
-	test("Down arrow moves selection", async () => {
-		let selected = "";
-		const { stdin } = render(
-			<ModelPicker
-				models={MODELS}
-				onSelect={(m) => {
-					selected = m;
-				}}
-				onCancel={() => {}}
-			/>,
-		);
-		stdin.write("\x1B[B"); // Down
-		await flush();
-		stdin.write("\r");
-		await waitFor(() => selected === "claude-opus-4-6");
-		expect(selected).toBe("claude-opus-4-6");
-	});
-
-	test("Up arrow moves selection back", async () => {
-		let selected = "";
-		const { stdin } = render(
-			<ModelPicker
-				models={MODELS}
-				onSelect={(m) => {
-					selected = m;
-				}}
-				onCancel={() => {}}
-			/>,
-		);
-		stdin.write("\x1B[B"); // Down
-		await flush();
-		stdin.write("\x1B[B"); // Down again
-		await flush();
-		stdin.write("\x1B[A"); // Up
-		await flush();
-		stdin.write("\r");
-		await waitFor(() => selected === "claude-opus-4-6");
-		expect(selected).toBe("claude-opus-4-6");
-	});
-
 	test("shows empty state", () => {
 		const { lastFrame } = render(
-			<ModelPicker models={[]} onSelect={() => {}} onCancel={() => {}} />,
+			<ModelPicker options={[]} onSelect={() => {}} onCancel={() => {}} />,
 		);
 		expect(lastFrame()).toContain("No models");
 	});

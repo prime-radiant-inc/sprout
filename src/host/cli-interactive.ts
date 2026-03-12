@@ -83,6 +83,11 @@ interface RenderAppOptions {
 	bus: BusLike;
 	sessionId: string;
 	initialHistory: string[];
+	knownModels: string[];
+	initialSelection?: SessionSelectionSnapshot;
+	settingsControlPlane?: {
+		execute(command: SettingsCommand): Promise<SettingsCommandResult>;
+	};
 	initialEvents?: SessionEvent[];
 	onSubmit: (text: string) => void;
 	onSlashCommand: (cmd: SlashCommand) => Promise<void>;
@@ -219,6 +224,9 @@ export async function runInteractiveMode(
 						bus: renderOpts.bus,
 						sessionId: renderOpts.sessionId,
 						initialHistory: renderOpts.initialHistory,
+						knownModels: renderOpts.knownModels,
+						initialSelection: renderOpts.initialSelection,
+						settingsControlPlane: renderOpts.settingsControlPlane,
 						initialEvents: renderOpts.initialEvents,
 						onSubmit: renderOpts.onSubmit,
 						onSlashCommand: renderOpts.onSlashCommand,
@@ -333,6 +341,9 @@ export async function runInteractiveMode(
 			bus: opts.runtime.bus,
 			sessionId: opts.runtime.controller.sessionId,
 			initialHistory: inputHistory.all(),
+			knownModels: opts.runtime.availableModels,
+			initialSelection: opts.runtime.controller.currentSelection,
+			settingsControlPlane: opts.runtime.settingsControlPlane,
 			initialEvents: initialTuiEvents,
 			onSubmit: (text: string) => {
 				inputHistory.add(text);

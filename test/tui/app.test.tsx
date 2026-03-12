@@ -2,6 +2,7 @@ import { afterEach, describe, expect, jest, test } from "bun:test";
 import { render as inkRender } from "ink-testing-library";
 import { EventBus } from "../../src/host/event-bus.ts";
 import { App } from "../../src/tui/app.tsx";
+import { makeSelectionSnapshot, makeSettingsSnapshot } from "../helpers/provider-settings.ts";
 import { sleep, waitFor } from "../helpers/wait-for.ts";
 
 let currentInstance: ReturnType<typeof inkRender> | undefined;
@@ -24,6 +25,16 @@ function setup(overrides?: Partial<Parameters<typeof App>[0]>) {
 		/>,
 	);
 	return { bus, ...result };
+}
+
+function createSettingsControlPlane() {
+	const snapshot = makeSettingsSnapshot();
+	return {
+		execute: async (command: { kind: string }) =>
+			command.kind === "get_settings"
+				? { ok: true as const, snapshot }
+				: { ok: true as const, snapshot },
+	};
 }
 
 /** Wait for React to flush state updates. */
@@ -358,8 +369,11 @@ describe("App", () => {
 
 	test("/model without arg shows ModelPicker", async () => {
 		const { lastFrame, stdin } = setup({
-			knownModels: ["claude-sonnet-4-6", "gpt-4o"],
+			knownModels: ["best", "claude-sonnet-4-6", "qwen2.5-coder"],
+			settingsControlPlane: createSettingsControlPlane(),
+			initialSelection: makeSelectionSnapshot(),
 		});
+		await flush();
 
 		// Type /model and submit
 		stdin.write("/model");
@@ -369,12 +383,13 @@ describe("App", () => {
 
 		// Model picker should be visible
 		const frame = lastFrame()!;
-		expect(frame).toContain("claude-sonnet-4-6");
-		expect(frame).toContain("gpt-4o");
+		expect(frame).toContain("Anthropic");
+		expect(frame).toContain("LM Studio");
+		expect(frame).toContain("Best");
 		expect(frame).toContain("Select model");
 	});
 
-	test("selecting model from picker emits switch_model and hides picker", async () => {
+	test("selecting model from picker emits a canonical model selection and hides picker", async () => {
 		const commands: any[] = [];
 		const bus = new EventBus();
 		bus.onCommand((cmd) => commands.push(cmd));
@@ -386,9 +401,12 @@ describe("App", () => {
 				onSubmit={() => {}}
 				onSlashCommand={() => {}}
 				onExit={() => {}}
-				knownModels={["model-a", "model-b"]}
+				knownModels={["best", "claude-sonnet-4-6", "qwen2.5-coder"]}
+				settingsControlPlane={createSettingsControlPlane() as any}
+				initialSelection={makeSelectionSnapshot()}
 			/>,
 		);
+		await flush();
 
 		// Open model picker
 		stdin.write("/model");
@@ -398,7 +416,11 @@ describe("App", () => {
 
 		expect(lastFrame()).toContain("Select model");
 
-		// Press Enter to select first model
+		// Move to the explicit Anthropic model and select it
+		stdin.write("\x1B[B");
+		await flush();
+		stdin.write("\x1B[B");
+		await flush();
 		stdin.write("\r");
 		await flush();
 
@@ -406,13 +428,34 @@ describe("App", () => {
 		const switchCmd = commands.find((c) => c.kind === "switch_model");
 		expect(switchCmd).toBeDefined();
 		expect(switchCmd!.data.selection).toEqual({
-			kind: "unqualified_model",
-			modelId: "model-a",
+			kind: "model",
+			model: {
+				providerId: "anthropic-main",
+				modelId: "claude-sonnet-4-6",
+			},
 		});
 
 		// Picker should be hidden, input area should be back
 		expect(lastFrame()).not.toContain("Select model");
 		expect(lastFrame()).toContain(">");
+	});
+
+	test("/settings opens the provider settings mode", async () => {
+		const { lastFrame, stdin } = setup({
+			settingsControlPlane: createSettingsControlPlane(),
+			initialSelection: makeSelectionSnapshot(),
+		});
+		await flush();
+
+		stdin.write("/settings");
+		await flush();
+		stdin.write("\r");
+		await flush();
+
+		const frame = lastFrame()!;
+		expect(frame).toContain("Provider settings");
+		expect(frame).toContain("Anthropic");
+		expect(frame).toContain("settings>");
 	});
 
 	test("Escape cancels model picker", async () => {

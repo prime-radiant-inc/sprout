@@ -1,4 +1,5 @@
 import { Box, Text } from "ink";
+import type { SessionSelectionSnapshot, SettingsSnapshot } from "../kernel/types.ts";
 import { useWindowSize } from "./use-window-size.ts";
 
 export interface StatusBarProps {
@@ -8,9 +9,17 @@ export interface StatusBarProps {
 	inputTokens: number;
 	outputTokens: number;
 	model: string;
+	selection: SessionSelectionSnapshot;
+	settings?: SettingsSnapshot | null;
 	sessionId: string;
 	status: "idle" | "running" | "interrupted";
 }
+
+const TIER_LABELS = {
+	best: "Best",
+	balanced: "Balanced",
+	fast: "Fast",
+} as const;
 
 export function formatTokens(n: number): string {
 	if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -23,6 +32,31 @@ export function shortModelName(model: string): string {
 	return model.replace(/-\d{8}$/, "");
 }
 
+export function formatSelectionLabel(
+	selection: SessionSelectionSnapshot,
+	currentModel: string,
+	settings?: SettingsSnapshot | null,
+): string {
+	const currentSelection = selection.selection;
+	switch (currentSelection.kind) {
+		case "inherit":
+			return currentModel ? `Default · ${shortModelName(currentModel)}` : "Default";
+		case "tier":
+			return TIER_LABELS[currentSelection.tier];
+		case "model": {
+			const provider = settings?.settings.providers.find(
+				(candidate) => candidate.id === currentSelection.model.providerId,
+			);
+			const model = settings?.catalog
+				.find((entry) => entry.providerId === currentSelection.model.providerId)
+				?.models.find((candidate) => candidate.id === currentSelection.model.modelId);
+			return `${provider?.label ?? currentSelection.model.providerId} · ${shortModelName(
+				model?.label ?? currentSelection.model.modelId,
+			)}`;
+		}
+	}
+}
+
 export function StatusBar(props: StatusBarProps) {
 	const {
 		contextTokens,
@@ -31,13 +65,14 @@ export function StatusBar(props: StatusBarProps) {
 		inputTokens,
 		outputTokens,
 		model,
+		selection,
+		settings,
 		sessionId,
 		status,
 	} = props;
 	const pressure = contextWindowSize > 0 ? contextTokens / contextWindowSize : 0;
 	const percentStr = `${Math.round(pressure * 100)}%`;
 
-	// Only show compact distance when context pressure is above 50%
 	let ctxInfo = `ctx: ${formatTokens(contextTokens)}/${formatTokens(contextWindowSize)} (${percentStr})`;
 	if (pressure >= 0.5) {
 		const compactDistance = Math.max(0, Math.round(contextWindowSize * 0.8 - contextTokens));
@@ -48,11 +83,11 @@ export function StatusBar(props: StatusBarProps) {
 
 	const { columns: cols } = useWindowSize();
 
-	let left = `${ctxInfo} \u2502 ${turnLabel}`;
+	let left = `${ctxInfo} │ ${turnLabel}`;
 	if (status === "running") {
-		left += ` \u2502 \u2191${formatTokens(inputTokens)} \u2193${formatTokens(outputTokens)}`;
+		left += ` │ ↑${formatTokens(inputTokens)} ↓${formatTokens(outputTokens)}`;
 	}
-	const right = `${shortModelName(model)} \u2502 ${sessionId}`;
+	const right = `${formatSelectionLabel(selection, model, settings)} │ ${sessionId}`;
 	const gap = Math.max(1, cols - left.length - right.length);
 	const line = left + " ".repeat(gap) + right;
 
