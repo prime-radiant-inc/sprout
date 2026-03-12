@@ -33,6 +33,17 @@ Five synchronous phases execute in sequence. Learn forks asynchronously from Ver
 - **Stumble rate is the fitness function.** Not user satisfaction but "did I stumble getting there?" Errors, retries, timeouts, failures.
 - **Multi-provider.** Uses the unified LLM spec (Anthropic, OpenAI, Gemini).
 
+## Provider Configuration And Model Selection
+
+Sprout now treats provider configuration as persisted host state rather than an env-only startup detail.
+
+- **Settings file.** Provider settings live at `$XDG_CONFIG_HOME/sprout/settings.json`, falling back to `~/.config/sprout/settings.json`.
+- **Secrets stay out of `settings.json`.** Production backends store provider API keys in the OS credential store: macOS uses Keychain (`security`), Linux uses Secret Service (`secret-tool`). Tests use the in-memory backend.
+- **Env vars are import-only.** On first run, if `settings.json` does not exist, supported env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`) are imported into provider settings and the selected secret backend. Once imported, persisted settings become the source of truth.
+- **Provider instances are explicit.** Runtime resolution is keyed by provider instance id, not by guessing from model-name prefixes. The provider registry materializes configured adapters, and the model catalog tracks discovered models per provider.
+- **Session selection is canonical.** Session state stores `inherit`, a tier (`best`, `balanced`, `fast`), or an explicit `{ providerId, modelId }` pair. User input still accepts bare model ids as compatibility sugar, but they are normalized before becoming session state.
+- **Operator entry points are shared.** The web UI opens provider settings from the status bar settings button. The TUI opens the same host-backed settings surface with `/settings`. `/model` accepts `inherit`, tier names, `providerId:modelId`, and bare model ids.
+
 ## Immutable Kernel
 
 These cannot be modified by Learn:

@@ -19,7 +19,6 @@ import {
 	createStaticDir,
 	delay,
 	nextMessage,
-	randomPort,
 	waitForClose,
 } from "./fixtures.ts";
 
@@ -56,10 +55,10 @@ let staticDir: string;
 let port: number;
 const clients: WebSocket[] = [];
 
-beforeEach(() => {
+beforeEach(async () => {
 	bus = new EventBus();
 	staticDir = createStaticDir("sprout-web-test-", "<html><body>Hello</body></html>");
-	port = randomPort();
+	port = 0;
 	server = new WebServer({ bus, port, staticDir, sessionId: "test-session" });
 });
 
@@ -81,6 +80,11 @@ async function connectClient(): Promise<WebSocket> {
 	return ws;
 }
 
+async function startServer(): Promise<void> {
+	await server.start();
+	port = server.getPort();
+}
+
 describe("WebServer", () => {
 	function eventLine(kind: string, timestamp: number): string {
 		return JSON.stringify({
@@ -94,27 +98,27 @@ describe("WebServer", () => {
 
 	describe("lifecycle", () => {
 		test("start() and stop() without error", async () => {
-			await server.start();
+			await startServer();
 			await server.stop();
 		});
 
 		test("stop() is idempotent", async () => {
-			await server.start();
+			await startServer();
 			await server.stop();
 			await server.stop();
 		});
 
 		test("start() auto-generates nonce for non-localhost binds and enforces auth", async () => {
-			const remotePort = port + 1;
 			const remoteServer = new WebServer({
 				bus,
-				port: remotePort,
+				port: 0,
 				staticDir,
 				sessionId: "remote-session",
 				hostname: "0.0.0.0",
 			});
 
 			await remoteServer.start();
+			const remotePort = remoteServer.getPort();
 			const nonce = remoteServer.getWebToken();
 			expect(typeof nonce).toBe("string");
 			expect((nonce ?? "").length).toBeGreaterThanOrEqual(16);
@@ -142,7 +146,7 @@ describe("WebServer", () => {
 
 	describe("HTTP static file serving", () => {
 		test("GET / serves index.html", async () => {
-			await server.start();
+			await startServer();
 			const resp = await fetch(`http://localhost:${port}/`);
 			expect(resp.status).toBe(200);
 			const text = await resp.text();
@@ -155,7 +159,7 @@ describe("WebServer", () => {
 			mkdirSync(join(staticDir, "assets"), { recursive: true });
 			writeFileSync(join(staticDir, "assets", "app.js"), "console.log('hi')");
 
-			await server.start();
+			await startServer();
 			const resp = await fetch(`http://localhost:${port}/assets/app.js`);
 			expect(resp.status).toBe(200);
 			const text = await resp.text();
@@ -163,7 +167,7 @@ describe("WebServer", () => {
 		});
 
 		test("GET /nonexistent returns 404", async () => {
-			await server.start();
+			await startServer();
 			const resp = await fetch(`http://localhost:${port}/nonexistent`);
 			expect(resp.status).toBe(404);
 		});
@@ -175,7 +179,7 @@ describe("WebServer", () => {
 			const secretName = `secret-${basename(staticDir)}.txt`;
 			writeFileSync(join(parentDir, secretName), "top secret");
 
-			await server.start();
+			await startServer();
 
 			// Bun's URL parser normalizes /../.. before it reaches serveStatic,
 			// providing a first layer of defense. Our resolve+startsWith check
@@ -192,7 +196,7 @@ describe("WebServer", () => {
 
 	describe("HTTP API", () => {
 		test("GET /api/auth returns ok when no token is configured", async () => {
-			await server.start();
+			await startServer();
 			const resp = await fetch(`http://localhost:${port}/api/auth`);
 			expect(resp.status).toBe(200);
 			const body = (await resp.json()) as { ok: boolean };
@@ -200,15 +204,15 @@ describe("WebServer", () => {
 		});
 
 		test("GET /api/auth returns 401 when token is required and missing", async () => {
-			const tokenPort = port + 10;
 			const tokenServer = new WebServer({
 				bus,
-				port: tokenPort,
+				port: 0,
 				staticDir,
 				sessionId: "auth-token-missing",
 				webToken: "secret-token",
 			});
 			await tokenServer.start();
+			const tokenPort = tokenServer.getPort();
 			try {
 				const resp = await fetch(`http://localhost:${tokenPort}/api/auth`);
 				expect(resp.status).toBe(401);
@@ -218,15 +222,15 @@ describe("WebServer", () => {
 		});
 
 		test("GET /api/auth accepts valid token query param", async () => {
-			const tokenPort = port + 11;
 			const tokenServer = new WebServer({
 				bus,
-				port: tokenPort,
+				port: 0,
 				staticDir,
 				sessionId: "auth-token-valid",
 				webToken: "secret-token",
 			});
 			await tokenServer.start();
+			const tokenPort = tokenServer.getPort();
 			try {
 				const resp = await fetch(`http://localhost:${tokenPort}/api/auth?token=secret-token`);
 				expect(resp.status).toBe(200);
@@ -238,7 +242,7 @@ describe("WebServer", () => {
 		});
 
 		test("GET /api/session returns session id and status", async () => {
-			await server.start();
+			await startServer();
 			const resp = await fetch(`http://localhost:${port}/api/session`);
 			expect(resp.status).toBe(200);
 			const body = (await resp.json()) as { id: string; status: string };
@@ -247,7 +251,7 @@ describe("WebServer", () => {
 		});
 
 		test("session status reflects session_start event", async () => {
-			await server.start();
+			await startServer();
 			bus.emitEvent("session_start", "root", 0, { goal: "test" });
 
 			const resp = await fetch(`http://localhost:${port}/api/session`);
@@ -256,7 +260,7 @@ describe("WebServer", () => {
 		});
 
 		test("session status reflects session_end event", async () => {
-			await server.start();
+			await startServer();
 			bus.emitEvent("session_start", "root", 0);
 			bus.emitEvent("session_end", "root", 0);
 
@@ -266,7 +270,7 @@ describe("WebServer", () => {
 		});
 
 		test("session status reflects interrupted event", async () => {
-			await server.start();
+			await startServer();
 			bus.emitEvent("session_start", "root", 0);
 			bus.emitEvent("interrupted", "root", 0);
 
@@ -276,7 +280,7 @@ describe("WebServer", () => {
 		});
 
 		test("session_clear updates session id and resets to idle", async () => {
-			await server.start();
+			await startServer();
 			bus.emitEvent("session_start", "root", 0, { goal: "old" });
 			bus.emitEvent("session_clear", "session", 0, {
 				new_session_id: "new-session-id",
@@ -306,7 +310,7 @@ describe("WebServer", () => {
 				projectDataDir,
 			});
 
-			await server.start();
+			await startServer();
 			const resp = await fetch(
 				`http://localhost:${port}/api/events?before=${WEB_HISTORY_PAGE_SIZE}&limit=5`,
 			);
@@ -341,7 +345,7 @@ describe("WebServer", () => {
 				initialEvents,
 			});
 
-			await server.start();
+			await startServer();
 			const resp = await fetch(`http://localhost:${port}/api/events?before=${EVENT_CAP}&limit=5`);
 			expect(resp.status).toBe(200);
 			const body = (await resp.json()) as {
@@ -359,7 +363,7 @@ describe("WebServer", () => {
 
 	describe("WebSocket snapshot on connect", () => {
 		test("sends snapshot with empty events when no events buffered", async () => {
-			await server.start();
+			await startServer();
 			const ws = await connectClient();
 			const msg = await nextMessage(ws);
 
@@ -386,7 +390,7 @@ describe("WebServer", () => {
 				initialEvents,
 			});
 
-			await server.start();
+			await startServer();
 			const ws = await connectClient();
 			const msg = await nextMessage(ws);
 
@@ -398,7 +402,7 @@ describe("WebServer", () => {
 		});
 
 		test("sends snapshot with buffered events on connect", async () => {
-			await server.start();
+			await startServer();
 			bus.emitEvent("session_start", "root", 0, { goal: "fix bug" });
 			bus.emitEvent("perceive", "root", 0, { input: "hello" });
 
@@ -431,7 +435,7 @@ describe("WebServer", () => {
 				getSessionSelection: () => currentSelection,
 			} as any);
 
-			await server.start();
+			await startServer();
 			const ws = await connectClient();
 			const msg = await nextMessage(ws);
 
@@ -457,7 +461,7 @@ describe("WebServer", () => {
 				getSessionSelection: () => makeCurrentSelection(),
 			} as any);
 
-			await server.start();
+			await startServer();
 			const ws = await connectClient();
 			const msg = await nextMessage(ws);
 
@@ -469,7 +473,7 @@ describe("WebServer", () => {
 
 	describe("WebSocket event streaming", () => {
 		test("streams new events after snapshot", async () => {
-			await server.start();
+			await startServer();
 			const ws = await connectClient();
 
 			// Consume the initial snapshot
@@ -487,7 +491,7 @@ describe("WebServer", () => {
 		});
 
 		test("streams multiple events in order", async () => {
-			await server.start();
+			await startServer();
 			const ws = await connectClient();
 			const messages = collectMessages(ws);
 
@@ -511,7 +515,7 @@ describe("WebServer", () => {
 		});
 
 		test("multiple clients receive the same events", async () => {
-			await server.start();
+			await startServer();
 			const ws1 = await connectClient();
 			const msgs1 = collectMessages(ws1);
 			const ws2 = await connectClient();
@@ -540,7 +544,7 @@ describe("WebServer", () => {
 
 	describe("WebSocket commands", () => {
 		test("command sent over WS triggers bus.onCommand listener", async () => {
-			await server.start();
+			await startServer();
 			const ws = await connectClient();
 			await nextMessage(ws); // consume snapshot
 
@@ -562,7 +566,7 @@ describe("WebServer", () => {
 		});
 
 		test("invalid command message does not crash the server", async () => {
-			await server.start();
+			await startServer();
 			const ws = await connectClient();
 			await nextMessage(ws); // consume snapshot
 
@@ -636,7 +640,7 @@ describe("WebServer", () => {
 				getSessionSelection: () => makeCurrentSelection(),
 			} as any);
 
-			await server.start();
+			await startServer();
 			const ws = await connectClient();
 			const messages = collectMessages(ws);
 
@@ -670,7 +674,7 @@ describe("WebServer", () => {
 				getSessionSelection: () => makeCurrentSelection(),
 			} as any);
 
-			await server.start();
+			await startServer();
 			const ws = await connectClient();
 			const messages = collectMessages(ws);
 
@@ -704,7 +708,7 @@ describe("WebServer", () => {
 
 	describe("WebSocket disconnect and reconnect", () => {
 		test("reconnect receives snapshot with events from before", async () => {
-			await server.start();
+			await startServer();
 
 			// First client connects and receives empty snapshot
 			const ws1 = await connectClient();
@@ -737,7 +741,7 @@ describe("WebServer", () => {
 		});
 
 		test("emitting after client disconnect does not crash", async () => {
-			await server.start();
+			await startServer();
 			const ws = await connectClient();
 			await nextMessage(ws); // consume snapshot
 
@@ -753,7 +757,7 @@ describe("WebServer", () => {
 
 	describe("WebSocket upgrade failure", () => {
 		test("returns 400 when WebSocket upgrade fails", async () => {
-			await server.start();
+			await startServer();
 			// Send a request with upgrade header but missing required WS headers
 			const res = await fetch(`http://localhost:${port}/`, {
 				headers: { upgrade: "websocket" },
@@ -764,7 +768,7 @@ describe("WebServer", () => {
 
 	describe("WebSocket origin validation", () => {
 		test("rejects WebSocket upgrade from non-localhost origin", async () => {
-			await server.start();
+			await startServer();
 			const res = await fetch(`http://localhost:${port}/`, {
 				headers: {
 					upgrade: "websocket",
@@ -778,16 +782,16 @@ describe("WebServer", () => {
 		});
 
 		test("still enforces strict origin checks on 0.0.0.0 binds", async () => {
-			const remotePort = port + 2;
 			const remoteServer = new WebServer({
 				bus,
-				port: remotePort,
+				port: 0,
 				staticDir,
 				sessionId: "remote-origin-test",
 				hostname: "0.0.0.0",
 				webToken: "secret-token",
 			});
 			await remoteServer.start();
+			const remotePort = remoteServer.getPort();
 			const res = await fetch(`http://localhost:${remotePort}/`, {
 				headers: {
 					upgrade: "websocket",
@@ -805,15 +809,15 @@ describe("WebServer", () => {
 
 	describe("WebSocket token auth", () => {
 		test("rejects websocket upgrade when token is required but missing", async () => {
-			const tokenPort = port + 3;
 			const tokenServer = new WebServer({
 				bus,
-				port: tokenPort,
+				port: 0,
 				staticDir,
 				sessionId: "token-test",
 				webToken: "secret-token",
 			});
 			await tokenServer.start();
+			const tokenPort = tokenServer.getPort();
 			const res = await fetch(`http://localhost:${tokenPort}/`, {
 				headers: {
 					upgrade: "websocket",
@@ -827,15 +831,15 @@ describe("WebServer", () => {
 		});
 
 		test("allows websocket connection with query token", async () => {
-			const tokenPort = port + 4;
 			const tokenServer = new WebServer({
 				bus,
-				port: tokenPort,
+				port: 0,
 				staticDir,
 				sessionId: "token-test-ok",
 				webToken: "secret-token",
 			});
 			await tokenServer.start();
+			const tokenPort = tokenServer.getPort();
 			const ws = await connect(`ws://localhost:${tokenPort}/ws?token=secret-token`);
 			clients.push(ws);
 			const msg = await nextMessage(ws);
@@ -846,7 +850,7 @@ describe("WebServer", () => {
 
 	describe("event buffer cap", () => {
 		test("buffer trims to EVENT_CAP when exceeding 2x cap", async () => {
-			await server.start();
+			await startServer();
 
 			// Emit exactly 2x cap + 1 to trigger amortized trim, leaving exactly EVENT_CAP
 			const total = 20_001;
@@ -867,7 +871,7 @@ describe("WebServer", () => {
 
 	describe("session_clear buffer behavior", () => {
 		test("snapshot after session_clear excludes pre-clear events", async () => {
-			await server.start();
+			await startServer();
 			bus.emitEvent("session_start", "root", 0, { goal: "old session" });
 			bus.emitEvent("plan_end", "root", 0, { text: "old result" });
 			bus.emitEvent("session_clear", "session", 0, { new_session_id: "new-session" });
@@ -894,15 +898,15 @@ describe("WebServer", () => {
 				}),
 			);
 
-			const port2 = randomPort();
 			const server2 = new WebServer({
 				bus,
-				port: port2,
+				port: 0,
 				staticDir,
 				sessionId: "task-update-session",
 				projectDataDir: dataDir,
 			});
 			await server2.start();
+			const port2 = server2.getPort();
 
 			const ws = await connect(`ws://localhost:${port2}/ws`);
 			clients.push(ws);
@@ -956,15 +960,15 @@ describe("WebServer", () => {
 				}),
 			);
 
-			const port2 = randomPort();
 			const server2 = new WebServer({
 				bus,
-				port: port2,
+				port: 0,
 				staticDir,
 				sessionId: "task-update-direct-session",
 				projectDataDir: dataDir,
 			});
 			await server2.start();
+			const port2 = server2.getPort();
 
 			const ws = await connect(`ws://localhost:${port2}/ws`);
 			clients.push(ws);
@@ -1007,7 +1011,7 @@ describe("WebServer", () => {
 		});
 
 		test("does not emit task_update for non-task-cli exec", async () => {
-			await server.start();
+			await startServer();
 			const ws = await connectClient();
 			const messages = collectMessages(ws);
 
@@ -1034,7 +1038,7 @@ describe("WebServer", () => {
 		});
 
 		test("does not emit task_update for failed task-cli exec", async () => {
-			await server.start();
+			await startServer();
 			const ws = await connectClient();
 			const messages = collectMessages(ws);
 
@@ -1070,15 +1074,15 @@ describe("WebServer", () => {
 				}),
 			);
 
-			const port2 = randomPort();
 			const server2 = new WebServer({
 				bus,
-				port: port2,
+				port: 0,
 				staticDir,
 				sessionId: "seed-session",
 				projectDataDir: dataDir,
 			});
 			await server2.start();
+			const port2 = server2.getPort();
 
 			const ws = await connect(`ws://localhost:${port2}/ws`);
 			clients.push(ws);
@@ -1110,15 +1114,15 @@ describe("WebServer", () => {
 				}),
 			);
 
-			const port2 = randomPort();
 			const server2 = new WebServer({
 				bus,
-				port: port2,
+				port: 0,
 				staticDir,
 				sessionId: "seed-exists-session",
 				projectDataDir: dataDir,
 			});
 			await server2.start();
+			const port2 = server2.getPort();
 
 			// Emit a task_update event before connecting
 			bus.emitEvent("task_update", "agent-1", 0, {
@@ -1153,7 +1157,7 @@ describe("WebServer", () => {
 		});
 
 		test("GET /api/tasks returns 404 (endpoint removed)", async () => {
-			await server.start();
+			await startServer();
 			const resp = await fetch(`http://localhost:${port}/api/tasks`);
 			expect(resp.status).toBe(404);
 		});

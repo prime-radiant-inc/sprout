@@ -49,6 +49,25 @@ Test real LLM API interactions, agent loops, and end-to-end workflows. Use the V
 - `test/llm/client.test.ts` — Client routing, middleware, streaming
 - `test/learn/learn.integration.test.ts` — Learn pipeline with real LLM
 
+## Provider Settings And Selection Coverage
+
+The provider registry and settings UI span host bootstrapping, secret storage, model resolution, web transport, and the TUI. Coverage is split by seam:
+
+- `test/host/settings-*.test.ts` covers XDG settings paths, settings persistence/recovery, env import, secret backends, and the settings control plane.
+- `test/llm/provider-registry.test.ts` and `test/llm/model-catalog.test.ts` cover provider materialization and per-provider model discovery.
+- `test/host/session-selection.test.ts`, `test/host/session-controller-selection.test.ts`, and `test/host/cli-resume.test.ts` cover canonical session selection, compatibility handling for bare model ids, and resume behavior.
+- `test/web/protocol.test.ts`, `test/web/server.test.ts`, and `test/web/e2e.test.ts` cover browser transport, websocket settings commands, and live `settings_updated` propagation.
+- `test/tui/settings-panel.test.tsx`, `test/tui/provider-settings-editor.test.tsx`, and `test/tui/app.test.tsx` cover the TUI settings flow and provider-aware `/model` behavior.
+- `test/host/cli-interactive.test.ts` and `test/host/cli-web.test.ts` cover interactive wiring so web and TUI settings surfaces hit the same host control plane.
+
+Provider-related tests use the in-memory secret backend or mocked shell commands instead of the real OS keychain. Web server tests bind to port `0` and read the assigned port back from the server to avoid parallel test collisions.
+
+### Operator-facing entry points
+
+- Web: open the settings panel from the status bar settings button.
+- TUI: use `/settings`.
+- Session model selection: `/model inherit`, `/model best`, `/model balanced`, `/model fast`, `/model providerId:modelId`, or `/model modelId`.
+
 ## VCR (Record/Replay) System
 
 Integration tests use a VCR pattern: LLM API responses are recorded once and replayed in subsequent runs. This makes the full test suite run in ~15s with zero API calls.

@@ -86,4 +86,41 @@ describe("runWebOnlyMode", () => {
 
 		expect(bus.emitted.map((cmd) => cmd.kind)).toContain("quit");
 	});
+
+	test("non-quit commands do not stop web-only mode", async () => {
+		const bus = new FakeCommandBus();
+		const calls: string[] = [];
+		let settled = false;
+
+		const modePromise = runWebOnlyMode({
+			bus: bus as any,
+			stopWebServer: async () => {
+				calls.push("stop");
+			},
+			cleanupInfra: async () => {
+				calls.push("cleanup");
+			},
+			onResumeHint: (sessionId) => {
+				calls.push(`resume:${sessionId}`);
+			},
+			sessionId: "01TEST",
+			processRef: {
+				on: (_event: "SIGINT", _listener: () => void) => {},
+				removeListener: (_event: "SIGINT", _listener: () => void) => {},
+			},
+		}).then(() => {
+			settled = true;
+		});
+
+		bus.emitCommand({ kind: "get_settings", data: {} });
+		await Promise.resolve();
+
+		expect(settled).toBe(false);
+		expect(calls).toEqual([]);
+
+		bus.emitCommand({ kind: "quit", data: {} });
+		await modePromise;
+
+		expect(calls).toEqual(["stop", "cleanup", "resume:01TEST"]);
+	});
 });

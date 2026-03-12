@@ -352,6 +352,107 @@ describe("runInteractiveMode", () => {
 		expect(hints).toEqual(["01TUI"]);
 	});
 
+	test("interactive TUI passes model and settings context into App", async () => {
+		const bus = new FakeBus();
+		const settingsControlPlane = {
+			execute: async () => ({
+				ok: true as const,
+				snapshot: {
+					settings: {
+						version: 1,
+						providers: [],
+						defaults: { selection: { kind: "none" as const } },
+						routing: { providerPriority: [], tierOverrides: {} },
+					},
+					providers: [],
+					catalog: [],
+				},
+			}),
+		};
+		const currentSelection = {
+			selection: {
+				kind: "model" as const,
+				model: {
+					providerId: "anthropic-main",
+					modelId: "claude-sonnet-4-6",
+				},
+			},
+			resolved: {
+				providerId: "anthropic-main",
+				modelId: "claude-sonnet-4-6",
+			},
+			source: "session" as const,
+		};
+		const renderAppCalls: Array<{
+			knownModels: string[];
+			initialSelection?: unknown;
+			settingsControlPlane?: unknown;
+		}> = [];
+
+		await runInteractiveMode(
+			{
+				command: { genomePath: "/tmp/genome" },
+				sessionId: "01TUICTX",
+				projectDataDir: "/tmp/project-data",
+				runtime: {
+					bus: bus as any,
+					controller: {
+						sessionId: "01TUICTX",
+						isRunning: false,
+						currentModel: "claude-sonnet-4-6",
+						currentSelection,
+					},
+					logger: { info: () => {} },
+					availableModels: ["best", "claude-sonnet-4-6", "qwen2.5-coder"],
+					settingsControlPlane: settingsControlPlane as any,
+				},
+				initialEvents: [],
+				cleanupInfra: async () => {},
+				onResumeHint: () => {},
+				inputHistoryPath: () => "/tmp/history",
+				handleSlashCommand: async () => ({ action: "none" }),
+			},
+			{
+				createWebServer: async () => ({
+					start: async () => {},
+					stop: async () => {},
+				}),
+				runWebOnlyMode: async () => {},
+				createInputHistory: async () => ({
+					load: async () => {},
+					save: async () => {},
+					add: () => {},
+					all: () => [],
+				}),
+				renderApp: async (renderOpts) => {
+					renderAppCalls.push({
+						knownModels: renderOpts.knownModels,
+						initialSelection: renderOpts.initialSelection,
+						settingsControlPlane: renderOpts.settingsControlPlane,
+					});
+					return {
+						waitUntilExit: async () => {},
+						unmount: () => {},
+					};
+				},
+				registerInteractiveSigint: () =>
+					({
+						onSignal: () => {},
+						clearPending: () => {},
+						dispose: () => {},
+					}) as any,
+				buildWebOpenUrl: () => "http://localhost:7777",
+				openUrl: () => {},
+				logError: () => {},
+			},
+		);
+
+		expect(renderAppCalls).toHaveLength(1);
+		expect(renderAppCalls[0]!.knownModels).toEqual(["best", "claude-sonnet-4-6", "qwen2.5-coder"]);
+		expect(renderAppCalls[0]!.initialSelection).toEqual(currentSelection);
+		expect(renderAppCalls[0]!.settingsControlPlane).toBe(settingsControlPlane);
+	});
+
 	test("starting /web in a resumed TUI seeds WebServer with initialEvents", async () => {
 		const bus = new FakeBus();
 		const createWebServerCalls: Array<{

@@ -37,6 +37,31 @@ function createSettingsControlPlane() {
 	};
 }
 
+function createRecordingSettingsControlPlane() {
+	let snapshot = structuredClone(makeSettingsSnapshot());
+	const commands: Array<{ kind: string; data: Record<string, unknown> }> = [];
+	return {
+		commands,
+		execute: async (command: { kind: string; data: Record<string, unknown> }) => {
+			commands.push(command);
+			if (command.kind === "set_provider_enabled") {
+				const providerId = command.data.providerId as string;
+				const enabled = command.data.enabled as boolean;
+				snapshot = {
+					...snapshot,
+					settings: {
+						...snapshot.settings,
+						providers: snapshot.settings.providers.map((provider) =>
+							provider.id === providerId ? { ...provider, enabled } : provider,
+						),
+					},
+				};
+			}
+			return { ok: true as const, snapshot };
+		},
+	};
+}
+
 /** Wait for React to flush state updates. */
 async function flush() {
 	await sleep(15);
@@ -456,6 +481,49 @@ describe("App", () => {
 		expect(frame).toContain("Provider settings");
 		expect(frame).toContain("Anthropic");
 		expect(frame).toContain("settings>");
+	});
+
+	test("/settings commands run through the settings control plane", async () => {
+		const settingsControlPlane = createRecordingSettingsControlPlane();
+		const { lastFrame, stdin } = setup({
+			settingsControlPlane,
+			initialSelection: makeSelectionSnapshot(),
+		});
+		await waitFor(() =>
+			settingsControlPlane.commands.some((command) => command.kind === "get_settings"),
+		);
+
+		stdin.write("/settings");
+		await flush();
+		stdin.write("\r");
+		await waitFor(() => {
+			const frame = lastFrame();
+			return frame?.includes("Provider settings") ?? false;
+		});
+
+		stdin.write("disable");
+		await flush();
+		stdin.write("\r");
+		await waitFor(() =>
+			settingsControlPlane.commands.some((command) => command.kind === "set_provider_enabled"),
+		);
+
+		expect(settingsControlPlane.commands.map((command) => command.kind)).toEqual([
+			"get_settings",
+			"get_settings",
+			"set_provider_enabled",
+		]);
+		expect(settingsControlPlane.commands[2]).toEqual({
+			kind: "set_provider_enabled",
+			data: {
+				providerId: "anthropic-main",
+				enabled: false,
+			},
+		});
+		await waitFor(() => {
+			const frame = lastFrame();
+			return frame?.includes("Enabled: no") ?? false;
+		});
 	});
 
 	test("Escape cancels model picker", async () => {

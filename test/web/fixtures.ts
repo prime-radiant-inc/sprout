@@ -66,8 +66,3 @@ export function createStaticDir(prefix: string, indexHtml: string): string {
 	writeFileSync(join(dir, "index.html"), indexHtml);
 	return dir;
 }
-
-/** Pick a random high port for tests. */
-export function randomPort(): number {
-	return 10_000 + Math.floor(Math.random() * 50_000);
-}

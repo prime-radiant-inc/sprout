@@ -251,6 +251,10 @@ export class WebServer {
 		});
 	}
 
+	getPort(): number {
+		return this.bunServer?.port ?? this.port;
+	}
+
 	async stop(): Promise<void> {
 		if (this.unsubscribeCommands) {
 			this.unsubscribeCommands();

@@ -1,14 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { EventBus } from "../../src/host/event-bus.ts";
 import { WebServer } from "../../src/web/server.ts";
-import {
-	collectMessages,
-	connect,
-	createStaticDir,
-	delay,
-	nextMessage,
-	randomPort,
-} from "./fixtures.ts";
+import { makeSettingsSnapshot } from "../helpers/provider-settings.ts";
+import { collectMessages, connect, createStaticDir, delay, nextMessage } from "./fixtures.ts";
 
 /**
  * End-to-end tests for the web interface round-trip.
@@ -29,10 +23,10 @@ let server: WebServer;
 let port: number;
 const clients: WebSocket[] = [];
 
-beforeEach(() => {
+beforeEach(async () => {
 	bus = new EventBus();
 	const staticDir = createStaticDir("sprout-e2e-test-", "<html><body>E2E</body></html>");
-	port = randomPort();
+	port = 0;
 	server = new WebServer({
 		bus,
 		port,
@@ -57,6 +51,11 @@ async function connectClient(): Promise<WebSocket> {
 	return ws;
 }
 
+async function startServer(): Promise<void> {
+	await server.start();
+	port = server.getPort();
+}
+
 /**
  * Send a command message via WebSocket (matches what the browser does).
  */
@@ -66,7 +65,7 @@ function sendCommand(ws: WebSocket, kind: string, data: Record<string, unknown>)
 
 describe("Web interface end-to-end", () => {
 	test("submit_goal command triggers events that arrive back at the client", async () => {
-		await server.start();
+		await startServer();
 
 		// Simulate SessionController: when we receive submit_goal,
 		// emit the same events the real controller would
@@ -122,7 +121,7 @@ describe("Web interface end-to-end", () => {
 	});
 
 	test("steer command is received by command handler", async () => {
-		await server.start();
+		await startServer();
 
 		const received: Array<{ kind: string; data: Record<string, unknown> }> = [];
 		bus.onCommand((cmd) => received.push(cmd));
@@ -139,7 +138,7 @@ describe("Web interface end-to-end", () => {
 	});
 
 	test("interrupt command is received by command handler", async () => {
-		await server.start();
+		await startServer();
 
 		const received: Array<{ kind: string }> = [];
 		bus.onCommand((cmd) => received.push({ kind: cmd.kind }));
@@ -155,7 +154,7 @@ describe("Web interface end-to-end", () => {
 	});
 
 	test("session status updates flow back to new connections", async () => {
-		await server.start();
+		await startServer();
 
 		// Simulate a session starting (emit perceive + session_start like real controller)
 		bus.onCommand((cmd) => {
@@ -181,7 +180,7 @@ describe("Web interface end-to-end", () => {
 	});
 
 	test("clear command resets session state", async () => {
-		await server.start();
+		await startServer();
 
 		bus.onCommand((cmd) => {
 			if (cmd.kind === "submit_goal") {
@@ -217,7 +216,7 @@ describe("Web interface end-to-end", () => {
 	});
 
 	test("multiple rapid commands are all delivered", async () => {
-		await server.start();
+		await startServer();
 
 		const received: Array<{ kind: string }> = [];
 		bus.onCommand((cmd) => received.push({ kind: cmd.kind }));
@@ -238,7 +237,7 @@ describe("Web interface end-to-end", () => {
 	});
 
 	test("events emitted before client connects are in snapshot", async () => {
-		await server.start();
+		await startServer();
 
 		// Emit events before any client connects
 		bus.emitEvent("perceive", "root", 0, { goal: "Pre-connect goal" });
@@ -258,15 +257,15 @@ describe("Web interface end-to-end", () => {
 
 	test("snapshot includes availableModels and currentModel in session", async () => {
 		const staticDir2 = createStaticDir("sprout-e2e-models-", "<html></html>");
-		const port2 = randomPort();
 		const server2 = new WebServer({
 			bus,
-			port: port2,
+			port: 0,
 			staticDir: staticDir2,
 			sessionId: "model-test",
 			availableModels: ["best", "balanced", "fast", "claude-opus-4-6"],
 		});
 		await server2.start();
+		const port2 = server2.getPort();
 
 		const ws = await connect(`ws://localhost:${port2}/ws`);
 		clients.push(ws);
@@ -284,15 +283,15 @@ describe("Web interface end-to-end", () => {
 
 	test("GET /api/models returns available models and current model", async () => {
 		const staticDir2 = createStaticDir("sprout-e2e-models-", "<html></html>");
-		const port2 = randomPort();
 		const server2 = new WebServer({
 			bus,
-			port: port2,
+			port: 0,
 			staticDir: staticDir2,
 			sessionId: "model-api-test",
 			availableModels: ["best", "claude-opus-4-6"],
 		});
 		await server2.start();
+		const port2 = server2.getPort();
 
 		const resp = await fetch(`http://localhost:${port2}/api/models`);
 		expect(resp.status).toBe(200);
@@ -304,15 +303,15 @@ describe("Web interface end-to-end", () => {
 
 	test("currentModel updates when switch_model command is received", async () => {
 		const staticDir2 = createStaticDir("sprout-e2e-models-", "<html></html>");
-		const port2 = randomPort();
 		const server2 = new WebServer({
 			bus,
-			port: port2,
+			port: 0,
 			staticDir: staticDir2,
 			sessionId: "model-switch-test",
 			availableModels: ["best", "claude-opus-4-6"],
 		});
 		await server2.start();
+		const port2 = server2.getPort();
 
 		// Send switch_model command through bus
 		const ws = await connect(`ws://localhost:${port2}/ws`);
@@ -339,8 +338,79 @@ describe("Web interface end-to-end", () => {
 		await server2.stop();
 	});
 
+	test("settings commands return results and live updates through the same websocket", async () => {
+		const staticDir2 = createStaticDir("sprout-e2e-settings-", "<html></html>");
+		const received: Array<{ kind: string; data: Record<string, unknown> }> = [];
+		let snapshot = structuredClone(makeSettingsSnapshot());
+		const server2 = new WebServer({
+			bus,
+			port: 0,
+			staticDir: staticDir2,
+			sessionId: "settings-test",
+			settingsControlPlane: {
+				execute: async (command) => {
+					received.push(command);
+					if (command.kind === "set_provider_enabled") {
+						const providerId = command.data.providerId;
+						const enabled = command.data.enabled;
+						snapshot = {
+							...snapshot,
+							settings: {
+								...snapshot.settings,
+								providers: snapshot.settings.providers.map((provider) =>
+									provider.id === providerId ? { ...provider, enabled } : provider,
+								),
+							},
+						};
+					}
+					return { ok: true as const, snapshot };
+				},
+			},
+		});
+		await server2.start();
+		const port2 = server2.getPort();
+
+		const ws = await connect(`ws://localhost:${port2}/ws`);
+		clients.push(ws);
+		const messages = collectMessages(ws);
+		await nextMessage(ws);
+
+		sendCommand(ws, "set_provider_enabled", {
+			providerId: "anthropic-main",
+			enabled: false,
+		});
+		await delay(100);
+
+		expect(received.map((command) => command.kind)).toEqual([
+			"get_settings",
+			"set_provider_enabled",
+		]);
+		expect(received[1]).toEqual({
+			kind: "set_provider_enabled",
+			data: {
+				providerId: "anthropic-main",
+				enabled: false,
+			},
+		});
+		const settingsResult = messages.find((message) => message.type === "settings_result");
+		expect(settingsResult).toEqual({
+			type: "settings_result",
+			result: {
+				ok: true,
+				snapshot,
+			},
+		});
+		const settingsUpdated = messages.find((message) => message.type === "settings_updated");
+		expect(settingsUpdated).toEqual({
+			type: "settings_updated",
+			snapshot,
+		});
+
+		await server2.stop();
+	});
+
 	test("command handler error does not break event streaming", async () => {
-		await server.start();
+		await startServer();
 
 		// First handler throws
 		bus.onCommand(() => {
@@ -379,15 +449,15 @@ describe("Web interface end-to-end", () => {
 
 	test("token-protected websocket rejects missing token and accepts valid token", async () => {
 		const staticDir2 = createStaticDir("sprout-e2e-auth-", "<html></html>");
-		const port2 = randomPort();
 		const server2 = new WebServer({
 			bus,
-			port: port2,
+			port: 0,
 			staticDir: staticDir2,
 			sessionId: "auth-test",
 			webToken: "secret-token",
 		});
 		await server2.start();
+		const port2 = server2.getPort();
 
 		const unauthorized = await fetch(`http://localhost:${port2}/`, {
 			headers: {
