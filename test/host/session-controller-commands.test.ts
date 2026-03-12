@@ -1,13 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { dispatchSessionCommand } from "../../src/host/session-controller-commands.ts";
 import type { Command } from "../../src/kernel/types.ts";
+import type { SessionSelectionRequest } from "../../src/shared/session-selection.ts";
 
 describe("dispatchSessionCommand", () => {
 	test("routes each command kind to the matching action", () => {
 		const calls: string[] = [];
 		let submitGoal: string | undefined;
 		let steerText: string | undefined;
-		let switchedModel: string | undefined;
+		let switchedModel: unknown;
 
 		const actions = {
 			submitGoal: (goal: string) => {
@@ -27,9 +28,9 @@ describe("dispatchSessionCommand", () => {
 			clear: () => {
 				calls.push("clear");
 			},
-			switchModel: (model: string | undefined) => {
+			switchModel: (selection: SessionSelectionRequest | undefined) => {
 				calls.push("switch_model");
-				switchedModel = model;
+				switchedModel = selection;
 			},
 			quit: () => {
 				calls.push("quit");
@@ -42,7 +43,7 @@ describe("dispatchSessionCommand", () => {
 			{ kind: "interrupt", data: {} },
 			{ kind: "compact", data: {} },
 			{ kind: "clear", data: {} },
-			{ kind: "switch_model", data: { model: "fast" } },
+			{ kind: "switch_model", data: { selection: { kind: "tier", tier: "fast" } } },
 			{ kind: "quit", data: {} },
 		];
 
@@ -61,28 +62,28 @@ describe("dispatchSessionCommand", () => {
 		]);
 		expect(submitGoal).toBe("ship it");
 		expect(steerText).toBe("focus tests");
-		expect(switchedModel).toBe("fast");
+		expect(switchedModel).toEqual({ kind: "tier", tier: "fast" });
 	});
 
-	test("passes undefined model through switch_model", () => {
-		let switchedModel = "unset";
+	test("passes inherit selection through switch_model", () => {
+		let switchedModel: unknown = "unset";
 
 		dispatchSessionCommand(
-			{ kind: "switch_model", data: { model: undefined } },
+			{ kind: "switch_model", data: { selection: { kind: "inherit" } } },
 			{
 				submitGoal: () => {},
 				steer: () => {},
 				interrupt: () => {},
 				compact: () => {},
 				clear: () => {},
-				switchModel: (model) => {
-					switchedModel = model ?? "undefined";
+				switchModel: (selection: SessionSelectionRequest | undefined) => {
+					switchedModel = selection;
 				},
 				quit: () => {},
 			},
 		);
 
-		expect(switchedModel).toBe("undefined");
+		expect(switchedModel).toEqual({ kind: "inherit" });
 	});
 
 	test("throws clear error for unknown command kind", () => {

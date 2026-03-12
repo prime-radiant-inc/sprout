@@ -405,7 +405,10 @@ describe("App", () => {
 		// switch_model command should have been emitted
 		const switchCmd = commands.find((c) => c.kind === "switch_model");
 		expect(switchCmd).toBeDefined();
-		expect(switchCmd!.data.model).toBe("model-a");
+		expect(switchCmd!.data.selection).toEqual({
+			kind: "unqualified_model",
+			modelId: "model-a",
+		});
 
 		// Picker should be hidden, input area should be back
 		expect(lastFrame()).not.toContain("Select model");

@@ -20,6 +20,7 @@ import {
 	type EventKind,
 	MAX_AGENT_DEPTH,
 	type Memory,
+	type ModelRef,
 	type RoutingRule,
 } from "../kernel/types.ts";
 import type { LearnSink } from "../learn/learn-process.ts";
@@ -82,7 +83,7 @@ export interface AgentOptions {
 	/** Prior conversation history to prepend (for resume/continuation). */
 	initialHistory?: Message[];
 	/** Override the spec's model for this agent instance. */
-	modelOverride?: string;
+	modelOverride?: string | ModelRef;
 	/** Prompt preambles (global + role-specific) to prepend to system prompt. */
 	preambles?: Preambles;
 	/** AGENTS.md project documentation for top-level agent only. */

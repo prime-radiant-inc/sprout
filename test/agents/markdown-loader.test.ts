@@ -157,4 +157,44 @@ describe("parseAgentMarkdown", () => {
 		const spec = parseAgentMarkdown(content, "thinker.md");
 		expect(spec.thinking).toEqual({ budget_tokens: 5000 });
 	});
+
+	test("accepts bare model ids in frontmatter", () => {
+		const content = [
+			"---",
+			"name: coder",
+			'description: "writes code"',
+			"model: claude-sonnet-4-6",
+			"---",
+			"Build features.",
+		].join("\n");
+
+		const spec = parseAgentMarkdown(content, "coder.md");
+		expect(spec.model).toBe("claude-sonnet-4-6");
+	});
+
+	test("rejects provider-qualified model refs in frontmatter", () => {
+		const content = [
+			"---",
+			"name: coder",
+			'description: "writes code"',
+			"model: openai:gpt-4.1",
+			"---",
+			"Build features.",
+		].join("\n");
+
+		expect(() => parseAgentMarkdown(content, "coder.md")).toThrow(/provider-qualified/);
+	});
+
+	test("rejects inherit in frontmatter", () => {
+		const content = [
+			"---",
+			"name: coder",
+			'description: "writes code"',
+			"model: inherit",
+			"---",
+			"Build features.",
+		].join("\n");
+
+		expect(() => parseAgentMarkdown(content, "coder.md")).toThrow(/inherit/);
+	});
 });

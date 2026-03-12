@@ -1,4 +1,5 @@
 import type { Command, CommandKind } from "../kernel/types.ts";
+import type { SessionSelectionRequest } from "../shared/session-selection.ts";
 
 export interface SessionCommandActions {
 	submitGoal(goal: string): void;
@@ -6,7 +7,7 @@ export interface SessionCommandActions {
 	interrupt(): void;
 	compact(): void;
 	clear(): void;
-	switchModel(model: string | undefined): void;
+	switchModel(selection: SessionSelectionRequest | undefined): void;
 	quit(): void;
 }
 
@@ -32,7 +33,7 @@ export function createSessionCommandHandlers(
 			actions.clear();
 		},
 		switch_model: (data) => {
-			actions.switchModel(data.model as string | undefined);
+			actions.switchModel(data.selection as SessionSelectionRequest | undefined);
 		},
 		quit: () => {
 			actions.quit();

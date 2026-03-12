@@ -17,12 +17,32 @@ describe("parseSlashCommand", () => {
 	test("parses /model with argument", () => {
 		expect(parseSlashCommand("/model claude-sonnet-4-6")).toEqual({
 			kind: "switch_model",
-			model: "claude-sonnet-4-6",
+			selection: { kind: "unqualified_model", modelId: "claude-sonnet-4-6" },
 		});
 	});
 
 	test("parses /model without argument", () => {
-		expect(parseSlashCommand("/model")).toEqual({ kind: "switch_model", model: undefined });
+		expect(parseSlashCommand("/model")).toEqual({ kind: "switch_model", selection: undefined });
+	});
+
+	test("parses /model inherit", () => {
+		expect(parseSlashCommand("/model inherit")).toEqual({
+			kind: "switch_model",
+			selection: { kind: "inherit" },
+		});
+	});
+
+	test("parses /model provider-qualified selection", () => {
+		expect(parseSlashCommand("/model openrouter:gpt-4.1")).toEqual({
+			kind: "switch_model",
+			selection: {
+				kind: "model",
+				model: {
+					providerId: "openrouter",
+					modelId: "gpt-4.1",
+				},
+			},
+		});
 	});
 
 	test("parses /compact", () => {

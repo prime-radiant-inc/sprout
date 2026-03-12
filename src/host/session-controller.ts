@@ -2,8 +2,12 @@ import { join } from "node:path";
 import { AgentEventEmitter } from "../agents/events.ts";
 import { createAgent } from "../agents/factory.ts";
 import type { AgentSpawner } from "../bus/spawner.ts";
-import type { Command, SessionEvent } from "../kernel/types.ts";
+import type { Command, ModelRef, SessionEvent } from "../kernel/types.ts";
 import type { Message } from "../llm/types.ts";
+import {
+	formatModelOverride,
+	selectionRequestToModelOverride,
+} from "../shared/session-selection.ts";
 import { ulid } from "../util/ulid.ts";
 import { compactHistory } from "./compaction.ts";
 import type { SessionBus } from "./event-bus.ts";
@@ -53,7 +57,7 @@ export interface AgentFactoryOptions {
 	/** Prior conversation history for resume/continuation. */
 	initialHistory?: Message[];
 	/** Model override from /model command. */
-	model?: string;
+	model?: string | ModelRef;
 	/** Bus-based spawner for running subagents as separate processes. */
 	spawner?: AgentSpawner;
 	/** Pre-loaded Genome instance. If provided, skips loading from disk. */
@@ -185,7 +189,7 @@ export class SessionController {
 	private readonly client?: import("../llm/client.ts").Client;
 	private history: Message[] = [];
 	private running = false;
-	private modelOverride?: string;
+	private modelOverride?: string | ModelRef;
 	private hasRun = false;
 	/** Suppresses event accumulation after /clear until the next submitGoal. */
 	private suppressEvents = false;
@@ -257,8 +261,8 @@ export class SessionController {
 			clear: () => {
 				this.clearSession();
 			},
-			switchModel: (model) => {
-				this.modelOverride = model;
+			switchModel: (selection) => {
+				this.modelOverride = selectionRequestToModelOverride(selection);
 			},
 			quit: () => {
 				this.interrupt();
@@ -303,7 +307,7 @@ export class SessionController {
 		this.metadata = new SessionMetadata({
 			sessionId: this._sessionId,
 			agentSpec: this.rootAgentName ?? "root",
-			model: this.modelOverride ?? "best",
+			model: this.currentModel ?? "best",
 			sessionsDir: join(this.projectDataDir, "sessions"),
 		});
 		if (this.logger) {
@@ -476,6 +480,6 @@ export class SessionController {
 	}
 
 	get currentModel(): string | undefined {
-		return this.modelOverride;
+		return formatModelOverride(this.modelOverride);
 	}
 }

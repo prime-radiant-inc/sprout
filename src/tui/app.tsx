@@ -2,6 +2,10 @@ import { Box, Text } from "ink";
 import { useEffect, useState } from "react";
 import type { SessionBus } from "../host/event-bus.ts";
 import type { SessionEvent } from "../kernel/types.ts";
+import {
+	formatSessionSelectionRequest,
+	parseSessionSelectionRequest,
+} from "../shared/session-selection.ts";
 import { ConversationView } from "./conversation-view.tsx";
 import { InputArea } from "./input-area.tsx";
 import { ModelPicker } from "./model-picker.tsx";
@@ -123,7 +127,7 @@ export function App({
 			});
 			return;
 		}
-		if (cmd.kind === "switch_model" && !cmd.model) {
+		if (cmd.kind === "switch_model" && !cmd.selection) {
 			setShowModelPicker(true);
 			return;
 		}
@@ -151,10 +155,11 @@ export function App({
 				<ModelPicker
 					models={models}
 					onSelect={(model) => {
+						const selection = parseSessionSelectionRequest(model);
 						setShowModelPicker(false);
-						bus.emitCommand({ kind: "switch_model", data: { model } });
+						bus.emitCommand({ kind: "switch_model", data: { selection } });
 						bus.emitEvent("warning", "cli", 0, {
-							message: `Model set to: ${model}`,
+							message: `Model set to: ${formatSessionSelectionRequest(selection)}`,
 						});
 					}}
 					onCancel={() => {

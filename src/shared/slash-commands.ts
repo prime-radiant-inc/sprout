@@ -1,7 +1,9 @@
+import { parseSessionSelectionRequest, type SessionSelectionRequest } from "./session-selection.ts";
+
 export type SlashCommand =
 	| { kind: "help" }
 	| { kind: "quit" }
-	| { kind: "switch_model"; model: string | undefined }
+	| { kind: "switch_model"; selection: SessionSelectionRequest | undefined }
 	| { kind: "compact" }
 	| { kind: "clear" }
 	| { kind: "status" }
@@ -25,7 +27,10 @@ export function parseSlashCommand(input: string): SlashCommand | null {
 		case "/quit":
 			return { kind: "quit" };
 		case "/model":
-			return { kind: "switch_model", model: arg };
+			return {
+				kind: "switch_model",
+				selection: arg ? parseSessionSelectionRequest(arg) : undefined,
+			};
 		case "/compact":
 			return { kind: "compact" };
 		case "/clear":

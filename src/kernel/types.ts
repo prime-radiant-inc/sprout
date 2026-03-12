@@ -277,3 +277,4 @@ export type {
 	ModelRef,
 	SessionModelSelection,
 } from "../host/settings/types.ts";
+export type { SessionSelectionRequest } from "../shared/session-selection.ts";

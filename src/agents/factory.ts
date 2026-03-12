@@ -4,6 +4,7 @@ import { DEV_MODE_POSTSCRIPT, DEV_MODE_SENTINEL, isDevMode } from "../genome/dev
 import { Genome, git } from "../genome/genome.ts";
 import { LocalExecutionEnvironment } from "../kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../kernel/primitives.ts";
+import type { ModelRef } from "../kernel/types.ts";
 import { LearnProcess } from "../learn/learn-process.ts";
 import { MetricsStore } from "../learn/metrics-store.ts";
 import { Client } from "../llm/client.ts";
@@ -33,7 +34,7 @@ export interface CreateAgentOptions {
 	/** Prior conversation history for resume/continuation. */
 	initialHistory?: Message[];
 	/** Model override — if provided, overrides the root agent's spec model. */
-	model?: string;
+	model?: string | ModelRef;
 	/** Bus-based spawner for running subagents as separate processes. */
 	spawner?: AgentSpawner;
 	/** Pre-loaded Genome instance. If provided, skips loading from disk. */

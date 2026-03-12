@@ -1,5 +1,6 @@
 import { parse, stringify } from "yaml";
 import { type AgentSpec, normalizeAgentConstraints } from "../kernel/types.ts";
+import { parseAgentModelInput } from "../shared/session-selection.ts";
 
 /**
  * Parse an agent spec from a YAML-fronted Markdown file.
@@ -29,6 +30,12 @@ export function parseAgentMarkdown(content: string, source: string): AgentSpec {
 		if (!raw[field] || typeof raw[field] !== "string") {
 			throw new Error(`Invalid agent markdown at ${source}: missing or invalid '${field}'`);
 		}
+	}
+	try {
+		parseAgentModelInput(raw.model);
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		throw new Error(`Invalid agent markdown at ${source}: ${message}`);
 	}
 
 	if (raw.tools != null && !Array.isArray(raw.tools)) {

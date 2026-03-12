@@ -788,10 +788,10 @@ describe("SessionController", () => {
 		});
 		expect(controller.currentModel).toBeUndefined();
 
-		bus.emitCommand({ kind: "switch_model", data: { model: "fast" } });
+		bus.emitCommand({ kind: "switch_model", data: { selection: { kind: "tier", tier: "fast" } } });
 		expect(controller.currentModel).toBe("fast");
 
-		bus.emitCommand({ kind: "switch_model", data: { model: undefined } });
+		bus.emitCommand({ kind: "switch_model", data: { selection: { kind: "inherit" } } });
 		expect(controller.currentModel).toBeUndefined();
 	});
 
@@ -849,7 +849,7 @@ describe("SessionController", () => {
 	});
 
 	test("switch_model command updates model passed to factory", async () => {
-		let capturedModel: string | undefined;
+		let capturedModel: string | { providerId: string; modelId: string } | undefined;
 		let callCount = 0;
 
 		const factory: AgentFactory = async (options) => {
@@ -880,7 +880,7 @@ describe("SessionController", () => {
 		expect(capturedModel).toBeUndefined();
 
 		// Switch model
-		bus.emitCommand({ kind: "switch_model", data: { model: "fast" } });
+		bus.emitCommand({ kind: "switch_model", data: { selection: { kind: "tier", tier: "fast" } } });
 
 		// Second run — should pass model
 		await controller.submitGoal("second");

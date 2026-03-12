@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { BusClient } from "../bus/client.ts";
 import type { BusServer } from "../bus/server.ts";
 import type { AgentSpawner } from "../bus/spawner.ts";
+import { formatSessionSelectionRequest } from "../shared/session-selection.ts";
 import { projectDataDir as computeProjectDataDir } from "../util/project-id.ts";
 import { bootstrapInteractiveRuntime } from "./cli-bootstrap.ts";
 import { isGenomeCommand, runGenomeCommand } from "./cli-genome.ts";
@@ -380,10 +381,10 @@ export async function handleSlashCommand(
 			bus.emitCommand({ kind: "clear", data: {} });
 			break;
 		case "switch_model":
-			if (cmd.model) {
-				bus.emitCommand({ kind: "switch_model", data: { model: cmd.model } });
+			if (cmd.selection) {
+				bus.emitCommand({ kind: "switch_model", data: { selection: cmd.selection } });
 				bus.emitEvent("warning", "cli", 0, {
-					message: `Model set to: ${cmd.model}`,
+					message: `Model set to: ${formatSessionSelectionRequest(cmd.selection)}`,
 				});
 			} else {
 				return { action: "show_model_picker" };

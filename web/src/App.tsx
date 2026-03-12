@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { WEB_HISTORY_PAGE_SIZE } from "@kernel/constants.ts";
 import { KeyboardHelp } from "./components/KeyboardHelp.tsx";
+import { parseSessionSelectionRequest } from "@shared/session-selection.ts";
 import type { SlashCommand } from "@shared/slash-commands.ts";
 import styles from "./App.module.css";
 import { ConversationView } from "./components/ConversationView.tsx";
@@ -233,10 +234,12 @@ export function App() {
 					sendCommand({ kind: "clear", data: {} });
 					break;
 				case "switch_model":
-					sendCommand({
-						kind: "switch_model",
-						data: { model: cmd.model ?? "" },
-					});
+					if (cmd.selection) {
+						sendCommand({
+							kind: "switch_model",
+							data: { selection: cmd.selection },
+						});
+					}
 					break;
 				case "status":
 					// Status is already visible in the UI; no-op for web
@@ -276,7 +279,10 @@ export function App() {
 	// Model switch
 	const handleSwitchModel = useCallback(
 		(model: string) => {
-			sendCommand({ kind: "switch_model", data: { model } });
+			sendCommand({
+				kind: "switch_model",
+				data: { selection: parseSessionSelectionRequest(model) },
+			});
 		},
 		[sendCommand],
 	);

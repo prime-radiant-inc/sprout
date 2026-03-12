@@ -603,18 +603,37 @@ describe("handleSlashCommand", () => {
 
 	test("switch_model emits command and warning event", async () => {
 		const bus = makeBus();
-		await handleSlashCommand({ kind: "switch_model", model: "gpt-4o" }, bus, controller);
+		await handleSlashCommand(
+			{
+				kind: "switch_model",
+				selection: {
+					kind: "model",
+					model: {
+						providerId: "openai",
+						modelId: "gpt-4o",
+					},
+				},
+			},
+			bus,
+			controller,
+		);
 		expect(bus.commands).toHaveLength(1);
 		expect(bus.commands[0].kind).toBe("switch_model");
-		expect(bus.commands[0].data.model).toBe("gpt-4o");
+		expect(bus.commands[0].data.selection).toEqual({
+			kind: "model",
+			model: {
+				providerId: "openai",
+				modelId: "gpt-4o",
+			},
+		});
 		expect(bus.events).toHaveLength(1);
-		expect(bus.events[0].data.message).toContain("gpt-4o");
+		expect(bus.events[0].data.message).toContain("openai:gpt-4o");
 	});
 
 	test("switch_model without arg returns show_model_picker action", async () => {
 		const bus = makeBus();
 		const result = await handleSlashCommand(
-			{ kind: "switch_model", model: undefined },
+			{ kind: "switch_model", selection: undefined },
 			bus,
 			controller,
 		);

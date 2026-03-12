@@ -6,6 +6,11 @@ import { loadAllEventLogs } from "../host/session-state.ts";
 import { EVENT_CAP } from "../kernel/constants.ts";
 import type { PricingTable } from "../kernel/pricing.ts";
 import type { SessionEvent } from "../kernel/types.ts";
+import {
+	formatModelOverride,
+	type SessionSelectionRequest,
+	selectionRequestToModelOverride,
+} from "../shared/session-selection.ts";
 import type { CommandMessage, ServerMessage } from "./protocol.ts";
 import { parseCommandMessage } from "./protocol.ts";
 
@@ -87,8 +92,11 @@ export class WebServer {
 	async start(): Promise<void> {
 		// Track switch_model commands to update currentModel
 		this.unsubscribeCommands = this.bus.onCommand((cmd) => {
-			if (cmd.kind === "switch_model" && typeof cmd.data.model === "string") {
-				this.currentModel = cmd.data.model;
+			if (cmd.kind === "switch_model") {
+				this.currentModel =
+					formatModelOverride(
+						selectionRequestToModelOverride(cmd.data.selection as SessionSelectionRequest),
+					) ?? null;
 			}
 		});
 

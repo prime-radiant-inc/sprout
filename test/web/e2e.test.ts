@@ -319,7 +319,9 @@ describe("Web interface end-to-end", () => {
 		clients.push(ws);
 		await nextMessage(ws); // consume snapshot
 
-		sendCommand(ws, "switch_model", { model: "claude-opus-4-6" });
+		sendCommand(ws, "switch_model", {
+			selection: { kind: "unqualified_model", modelId: "claude-opus-4-6" },
+		});
 		await delay(100);
 
 		// New connection should see updated currentModel
