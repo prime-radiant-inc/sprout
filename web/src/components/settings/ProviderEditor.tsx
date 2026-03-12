@@ -376,7 +376,7 @@ export function ProviderEditor({
 			)}
 
 			{mode === "edit" && (
-				<div className={styles.split}>
+				<div className={styles.splitGrid}>
 					<div className={styles.section}>
 						<h3 className={styles.sectionTitle}>Health</h3>
 						<div className={styles.statusList}>

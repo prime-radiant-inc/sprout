@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import type {
 	SettingsCommand,
 	SettingsCommandResult,
@@ -126,6 +126,12 @@ function makeResult(
 }
 
 describe("ProviderSettingsPanel", () => {
+	const originalConsoleError = console.error;
+
+	afterEach(() => {
+		console.error = originalConsoleError;
+	});
+
 	test("renders loading and empty states", () => {
 		expect(
 			renderToStaticMarkup(
@@ -161,6 +167,10 @@ describe("ProviderSettingsPanel", () => {
 
 	test("renders provider health, unsupported secret backend messaging, and discovered models", () => {
 		const result = makeResult({ message: "Latest command failed" });
+		const logged: unknown[][] = [];
+		console.error = (...args: unknown[]) => {
+			logged.push(args);
+		};
 		const html = renderToStaticMarkup(
 			<ProviderEditor
 				mode="edit"
@@ -176,6 +186,7 @@ describe("ProviderSettingsPanel", () => {
 		expect(html).toContain("Refresh required");
 		expect(html).toContain("Claude Sonnet 4.6");
 		expect(html).toContain("Latest command failed");
+		expect(logged).toEqual([]);
 	});
 
 	test("builds create and edit provider commands", () => {

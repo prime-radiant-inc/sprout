@@ -301,7 +301,7 @@ export function DefaultsPanel({ settings, onCommand }: DefaultsPanelProps) {
 
 			<div className={styles.section}>
 				<h3 className={styles.sectionTitle}>Tier overrides</h3>
-				<div className={styles.split}>
+				<div className={styles.splitGrid}>
 					{TIERS.map((tier) => (
 						<div key={tier} className={styles.section}>
 							<h4 className={styles.sectionTitle}>{tier}</h4>
