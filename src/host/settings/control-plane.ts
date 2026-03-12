@@ -3,11 +3,6 @@ import {
 	type SecretStorageBackend,
 	type SecretStore,
 } from "./secret-store.ts";
-import {
-	providerRequiresSecret,
-	validateProviderConfig,
-	validateProviderRuntimeReadiness,
-} from "./validation.ts";
 import type {
 	DefaultSelection,
 	ManualModelConfig,
@@ -15,6 +10,11 @@ import type {
 	SproutSettings,
 	Tier,
 } from "./types.ts";
+import {
+	providerRequiresSecret,
+	validateProviderConfig,
+	validateProviderRuntimeReadiness,
+} from "./validation.ts";
 
 export interface ProviderModel {
 	id: string;
@@ -208,11 +208,7 @@ export class SettingsControlPlane {
 		};
 		const validation = validateProviderConfig(provider);
 		if (validation.errors.length > 0) {
-			return this.error(
-				"validation_failed",
-				validation.errors.join("; "),
-				validation.fieldErrors,
-			);
+			return this.error("validation_failed", validation.errors.join("; "), validation.fieldErrors);
 		}
 		next.providers.push(provider);
 		return this.persistSettings(next, [providerId], true);
@@ -234,11 +230,7 @@ export class SettingsControlPlane {
 		provider.updatedAt = this.now();
 		const validation = validateProviderConfig(provider);
 		if (validation.errors.length > 0) {
-			return this.error(
-				"validation_failed",
-				validation.errors.join("; "),
-				validation.fieldErrors,
-			);
+			return this.error("validation_failed", validation.errors.join("; "), validation.fieldErrors);
 		}
 
 		return this.persistSettings(next, [providerId], true);
@@ -321,18 +313,18 @@ export class SettingsControlPlane {
 		if (!provider) return this.error("not_found", `Unknown provider: ${providerId}`);
 
 		provider.enabled = enabled;
-			provider.updatedAt = this.now();
-			if (enabled) {
-				const validation = await this.getValidationResult(provider);
-				if (validation.errors.length > 0) {
-					return this.error(
-						"validation_failed",
-						validation.errors.join("; "),
-						validation.fieldErrors,
-					);
-				}
-				if (!next.routing.providerPriority.includes(providerId)) {
-					next.routing.providerPriority.push(providerId);
+		provider.updatedAt = this.now();
+		if (enabled) {
+			const validation = await this.getValidationResult(provider);
+			if (validation.errors.length > 0) {
+				return this.error(
+					"validation_failed",
+					validation.errors.join("; "),
+					validation.fieldErrors,
+				);
+			}
+			if (!next.routing.providerPriority.includes(providerId)) {
+				next.routing.providerPriority.push(providerId);
 			}
 		} else {
 			next.routing.providerPriority = next.routing.providerPriority.filter(
@@ -357,11 +349,7 @@ export class SettingsControlPlane {
 		if (!provider) return this.error("not_found", `Unknown provider: ${providerId}`);
 		const validation = await this.getValidationResult(provider);
 		if (validation.errors.length > 0) {
-			return this.error(
-				"validation_failed",
-				validation.errors.join("; "),
-				validation.fieldErrors,
-			);
+			return this.error("validation_failed", validation.errors.join("; "), validation.fieldErrors);
 		}
 
 		const secret = await this.getProviderSecret(provider);
@@ -382,11 +370,7 @@ export class SettingsControlPlane {
 		if (!provider) return this.error("not_found", `Unknown provider: ${providerId}`);
 		const validation = await this.getValidationResult(provider);
 		if (validation.errors.length > 0) {
-			return this.error(
-				"validation_failed",
-				validation.errors.join("; "),
-				validation.fieldErrors,
-			);
+			return this.error("validation_failed", validation.errors.join("; "), validation.fieldErrors);
 		}
 
 		const secret = await this.getProviderSecret(provider);

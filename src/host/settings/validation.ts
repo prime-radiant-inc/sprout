@@ -28,12 +28,7 @@ export function validateProviderConfig(provider: ProviderConfig): ProviderValida
 				"Base URL is required for openai-compatible providers",
 			);
 		} else if (!isValidHttpUrl(baseUrl)) {
-			addFieldError(
-				errors,
-				fieldErrors,
-				"baseUrl",
-				"Base URL must be a valid http or https URL",
-			);
+			addFieldError(errors, fieldErrors, "baseUrl", "Base URL must be a valid http or https URL");
 		}
 	}
 	if (provider.kind !== "openai-compatible" && provider.baseUrl !== undefined) {

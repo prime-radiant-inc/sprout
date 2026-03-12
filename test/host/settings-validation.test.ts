@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import type { ProviderConfig } from "../../src/host/settings/types.ts";
 import {
 	validateProviderConfig,
 	validateProviderRuntimeReadiness,
 } from "../../src/host/settings/validation.ts";
-import type { ProviderConfig } from "../../src/host/settings/types.ts";
 
 function makeProvider(overrides: Partial<ProviderConfig> = {}): ProviderConfig {
 	return {

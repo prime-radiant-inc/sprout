@@ -74,21 +74,21 @@ describe("SettingsControlPlane", () => {
 		expect(providerId).toBe("openai");
 		if (!providerId) throw new Error("expected provider id");
 
-			const enableWithoutSecret = await plane.execute({
-				kind: "set_provider_enabled",
-				data: {
-					providerId,
-					enabled: true,
-				},
-			});
-			expect(enableWithoutSecret).toEqual({
-				ok: false,
-				code: "validation_failed",
-				message: "API key is required",
-				fieldErrors: {
-					secret: "API key is required",
-				},
-			});
+		const enableWithoutSecret = await plane.execute({
+			kind: "set_provider_enabled",
+			data: {
+				providerId,
+				enabled: true,
+			},
+		});
+		expect(enableWithoutSecret).toEqual({
+			ok: false,
+			code: "validation_failed",
+			message: "API key is required",
+			fieldErrors: {
+				secret: "API key is required",
+			},
+		});
 
 		const secretResult = await plane.execute({
 			kind: "set_provider_secret",
@@ -317,11 +317,11 @@ describe("SettingsControlPlane", () => {
 			},
 		});
 
-			expect(result).toEqual({
-				ok: false,
-				code: "persist_failed",
-				message: "disk full",
-			});
+		expect(result).toEqual({
+			ok: false,
+			code: "persist_failed",
+			message: "disk full",
+		});
 	});
 
 	test("rejects invalid provider config with field-level validation errors", async () => {
