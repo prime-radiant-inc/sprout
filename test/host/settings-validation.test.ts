@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import type { ProviderConfig } from "../../src/host/settings/types.ts";
+import {
+	createEmptySettings,
+	type ProviderConfig,
+	validateSproutSettings,
+} from "../../src/host/settings/types.ts";
 import {
 	validateProviderConfig,
 	validateProviderRuntimeReadiness,
@@ -88,5 +92,61 @@ describe("validateProviderRuntimeReadiness", () => {
 		expect(result.fieldErrors).toEqual({
 			secret: "Secret storage backend is unavailable",
 		});
+	});
+});
+
+describe("validateSproutSettings", () => {
+	test("rejects provider priority entries for disabled or unknown providers", () => {
+		const settings = createEmptySettings();
+		settings.providers = [
+			makeProvider({
+				id: "anthropic",
+				kind: "anthropic",
+				baseUrl: undefined,
+				enabled: true,
+			}),
+			makeProvider({
+				id: "lmstudio",
+				enabled: false,
+			}),
+		];
+		settings.routing.providerPriority = ["anthropic", "lmstudio", "ghost"];
+
+		expect(() => validateSproutSettings(settings)).toThrow(
+			"Provider priority may only reference enabled providers: lmstudio",
+		);
+	});
+
+	test("rejects tier overrides with duplicates or disabled providers", () => {
+		const settings = createEmptySettings();
+		settings.providers = [
+			makeProvider({
+				id: "anthropic",
+				kind: "anthropic",
+				baseUrl: undefined,
+				enabled: true,
+			}),
+			makeProvider({
+				id: "openai",
+				kind: "openai",
+				baseUrl: undefined,
+				enabled: true,
+			}),
+			makeProvider({
+				id: "lmstudio",
+				enabled: false,
+			}),
+		];
+		settings.routing.providerPriority = ["anthropic", "openai"];
+		settings.routing.tierOverrides.fast = ["anthropic", "anthropic"];
+
+		expect(() => validateSproutSettings(settings)).toThrow(
+			"Duplicate tier override entry for fast: anthropic",
+		);
+
+		settings.routing.tierOverrides.fast = ["lmstudio"];
+		expect(() => validateSproutSettings(settings)).toThrow(
+			"Tier override for fast may only reference enabled providers: lmstudio",
+		);
 	});
 });

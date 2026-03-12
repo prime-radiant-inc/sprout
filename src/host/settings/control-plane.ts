@@ -49,7 +49,7 @@ export interface SettingsSnapshot {
 }
 
 export interface SettingsRuntimeWarning {
-	code: "secret_backend_unavailable" | "invalid_settings_recovered";
+	code: "secret_backend_unavailable" | "invalid_settings_recovered" | "secret_cleanup_failed";
 	message: string;
 }
 
@@ -122,7 +122,7 @@ export interface SettingsControlPlaneOptions {
 	initialSettings: SproutSettings;
 	initialValidationErrors?: Record<string, string[]>;
 	runtimeWarnings?: SettingsRuntimeWarning[];
-	onSettingsUpdated?: (snapshot: SettingsSnapshot) => void;
+	onSettingsUpdated?: (snapshot: SettingsSnapshot) => void | Promise<void>;
 	checkConnection?: (provider: ProviderConfig, secret?: string) => Promise<void>;
 	refreshModels?: (provider: ProviderConfig, secret?: string) => Promise<ProviderModel[]>;
 	now?: () => string;
@@ -134,9 +134,9 @@ export class SettingsControlPlane {
 	private readonly secretStore: SecretStore;
 	private readonly secretBackend: SecretStorageBackend;
 	private readonly secretBackendState: SecretBackendState;
-	private readonly initialValidationErrors: Record<string, string[]>;
-	private readonly runtimeWarnings: SettingsRuntimeWarning[];
-	private readonly onSettingsUpdated?: (snapshot: SettingsSnapshot) => void;
+	private initialValidationErrors: Record<string, string[]>;
+	private runtimeWarnings: SettingsRuntimeWarning[];
+	private readonly onSettingsUpdated?: (snapshot: SettingsSnapshot) => void | Promise<void>;
 	private readonly checkConnection?: (provider: ProviderConfig, secret?: string) => Promise<void>;
 	private readonly refreshModels?: (
 		provider: ProviderConfig,
@@ -276,15 +276,27 @@ export class SettingsControlPlane {
 		}
 		next.defaults.selection = clearSelectionForProvider(next.defaults.selection, providerId);
 
-		try {
-			await this.secretStore.deleteSecret(createProviderSecretRef(providerId, this.secretBackend));
-		} catch {}
-
 		this.providerState.delete(providerId);
 		this.providerCatalog.delete(providerId);
 		delete this.initialValidationErrors[providerId];
 
-		return this.persistSettings(next, [], true);
+		const persisted = await this.persistSettings(next, [], true);
+		if (!persisted.ok) {
+			return persisted;
+		}
+
+		try {
+			await this.secretStore.deleteSecret(createProviderSecretRef(providerId, this.secretBackend));
+		} catch (error) {
+			this.addRuntimeWarning({
+				code: "secret_cleanup_failed",
+				message: `Deleted provider '${providerId}' from settings, but failed to remove its stored secret: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+			});
+		}
+
+		return this.emitUpdatedSnapshot();
 	}
 
 	private async setProviderSecret(
@@ -315,6 +327,7 @@ export class SettingsControlPlane {
 			);
 		}
 
+		delete this.initialValidationErrors[providerId];
 		this.markCatalogStale(providerId);
 		return this.emitUpdatedSnapshot();
 	}
@@ -341,6 +354,7 @@ export class SettingsControlPlane {
 			);
 		}
 
+		delete this.initialValidationErrors[providerId];
 		this.markCatalogStale(providerId);
 		return this.emitUpdatedSnapshot();
 	}
@@ -494,7 +508,7 @@ export class SettingsControlPlane {
 
 	private async persistSettings(
 		nextSettings: SproutSettings,
-		staleProviderIds: string[],
+		touchedProviderIds: string[],
 		emitUpdate: boolean,
 	): Promise<SettingsCommandResult> {
 		try {
@@ -507,7 +521,8 @@ export class SettingsControlPlane {
 		for (const provider of nextSettings.providers) {
 			this.getOrCreateProviderState(provider.id);
 		}
-		for (const providerId of staleProviderIds) {
+		for (const providerId of touchedProviderIds) {
+			delete this.initialValidationErrors[providerId];
 			this.markCatalogStale(providerId);
 		}
 		for (const providerId of [...this.providerCatalog.keys()]) {
@@ -523,7 +538,7 @@ export class SettingsControlPlane {
 
 	private async emitUpdatedSnapshot(): Promise<SettingsCommandResult> {
 		const snapshot = await this.buildSnapshot();
-		this.onSettingsUpdated?.(snapshot);
+		await this.onSettingsUpdated?.(snapshot);
 		return this.ok(snapshot);
 	}
 
@@ -630,6 +645,10 @@ export class SettingsControlPlane {
 		);
 	}
 
+	private addRuntimeWarning(warning: SettingsRuntimeWarning): void {
+		this.runtimeWarnings = dedupeWarnings([...this.runtimeWarnings, warning]);
+	}
+
 	private getOrCreateProviderState(providerId: string): StatusState {
 		const existing = this.providerState.get(providerId);
 		if (existing) return existing;
@@ -713,4 +732,13 @@ function sameMembers(left: string[], right: string[]): boolean {
 
 function dedupe(values: string[]): string[] {
 	return [...new Set(values)];
+}
+
+function dedupeWarnings(warnings: SettingsRuntimeWarning[]): SettingsRuntimeWarning[] {
+	return warnings.filter(
+		(warning, index, all) =>
+			all.findIndex(
+				(candidate) => candidate.code === warning.code && candidate.message === warning.message,
+			) === index,
+	);
 }

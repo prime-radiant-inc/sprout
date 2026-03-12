@@ -331,6 +331,100 @@ describe("SettingsControlPlane", () => {
 		});
 	});
 
+	test("does not delete stored secrets when provider deletion cannot be persisted", async () => {
+		const secretStore = createSecretStore({ backend: "memory", platform: "darwin" });
+		await secretStore.setSecret(createProviderSecretRef("openai", "memory"), "openai-secret");
+		const plane = await makePlane({
+			secretStore,
+			initialSettings: {
+				version: 1,
+				providers: [
+					{
+						id: "openai",
+						kind: "openai",
+						label: "OpenAI",
+						enabled: true,
+						discoveryStrategy: "remote-only",
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: { selection: { kind: "none" } },
+				routing: { providerPriority: ["openai"], tierOverrides: {} },
+			},
+			settingsStore: {
+				async save() {
+					throw new Error("disk full");
+				},
+			},
+		});
+
+		const result = await plane.execute({
+			kind: "delete_provider",
+			data: { providerId: "openai" },
+		});
+
+		expect(result).toEqual({
+			ok: false,
+			code: "persist_failed",
+			message: "disk full",
+		});
+		expect(await secretStore.hasSecret(createProviderSecretRef("openai", "memory"))).toBe(true);
+	});
+
+	test("surfaces provider secret cleanup failures as runtime warnings", async () => {
+		const plane = await makePlane({
+			secretStore: {
+				async getSecret() {
+					return "openai-secret";
+				},
+				async setSecret() {},
+				async deleteSecret() {
+					throw new Error("keychain unavailable");
+				},
+				async hasSecret() {
+					return true;
+				},
+			},
+			initialSettings: {
+				version: 1,
+				providers: [
+					{
+						id: "openai",
+						kind: "openai",
+						label: "OpenAI",
+						enabled: true,
+						discoveryStrategy: "remote-only",
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: { selection: { kind: "none" } },
+				routing: { providerPriority: ["openai"], tierOverrides: {} },
+			},
+		});
+
+		const result = await plane.execute({
+			kind: "delete_provider",
+			data: { providerId: "openai" },
+		});
+
+		expect(result).toMatchObject({
+			ok: true,
+			snapshot: {
+				runtime: {
+					warnings: [
+						{
+							code: "secret_cleanup_failed",
+							message:
+								"Deleted provider 'openai' from settings, but failed to remove its stored secret: keychain unavailable",
+						},
+					],
+				},
+			},
+		});
+	});
+
 	test("rejects invalid provider config with field-level validation errors", async () => {
 		const plane = await makePlane();
 

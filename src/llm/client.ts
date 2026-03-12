@@ -118,6 +118,16 @@ export class Client {
 		return [...this.adapters.keys()];
 	}
 
+	/** Replace the active provider set without rebuilding the client instance. */
+	replaceProviders(providers: Record<string, ProviderAdapter>, defaultProvider?: string): void {
+		this.adapters = new Map(Object.entries(providers));
+		if (defaultProvider && this.adapters.has(defaultProvider)) {
+			this.defaultProvider = defaultProvider;
+			return;
+		}
+		this.defaultProvider = this.adapters.keys().next().value;
+	}
+
 	/** Query all providers for their available models. */
 	async listModelsByProvider(): Promise<Map<string, ProviderModel[]>> {
 		const result = new Map<string, ProviderModel[]>();

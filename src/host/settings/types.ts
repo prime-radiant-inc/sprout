@@ -86,12 +86,30 @@ export function validateSproutSettings(settings: SproutSettings): void {
 		if (providerPriority.has(providerId)) {
 			throw new Error(`Duplicate provider priority entry: ${providerId}`);
 		}
+		if (!enabledProviderIds.has(providerId)) {
+			throw new Error(`Provider priority may only reference enabled providers: ${providerId}`);
+		}
 		providerPriority.add(providerId);
 	}
 
 	for (const providerId of enabledProviderIds) {
 		if (!providerPriority.has(providerId)) {
 			throw new Error(`Missing enabled provider in provider priority: ${providerId}`);
+		}
+	}
+
+	for (const tier of Object.keys(settings.routing.tierOverrides) as Tier[]) {
+		const seenTierProviders = new Set<string>();
+		for (const providerId of settings.routing.tierOverrides[tier] ?? []) {
+			if (seenTierProviders.has(providerId)) {
+				throw new Error(`Duplicate tier override entry for ${tier}: ${providerId}`);
+			}
+			if (!enabledProviderIds.has(providerId)) {
+				throw new Error(
+					`Tier override for ${tier} may only reference enabled providers: ${providerId}`,
+				);
+			}
+			seenTierProviders.add(providerId);
 		}
 	}
 }

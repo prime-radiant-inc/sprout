@@ -211,6 +211,11 @@ export async function bootstrapInteractiveRuntime(
 	const runtimeWarnings = buildBootstrapRuntimeWarnings(settingsLoadResult);
 	let settings = settingsLoadResult.settings;
 	let initialValidationErrors: Record<string, string[]> = {};
+	const registryOptions = {
+		secretStore,
+		secretBackend: secretRefBackend,
+		secretBackendState,
+	};
 	if (settingsLoadResult.source === "missing") {
 		const imported = await d.importSettingsFromEnv({
 			secretStore,
@@ -223,14 +228,13 @@ export async function bootstrapInteractiveRuntime(
 		}
 	}
 
-	const registry = d.createProviderRegistry({
+	let registry = d.createProviderRegistry({
 		settings,
-		secretStore,
-		secretBackend: secretRefBackend,
-		secretBackendState,
+		...registryOptions,
 	});
 	const startupState = await loadStartupProvidersAndCatalog(registry);
 	const llmClient = await d.createClient({ logger, providers: startupState.providers });
+	const availableModels = await d.loadAvailableModels(startupState.catalog);
 	const settingsControlPlane = d.createSettingsControlPlane({
 		settingsStore,
 		secretStore,
@@ -242,8 +246,17 @@ export async function bootstrapInteractiveRuntime(
 			...initialValidationErrors,
 			...startupState.validationErrorsByProvider,
 		},
-		checkConnection: createRuntimeConnectionChecker(registry),
-		refreshModels: createRuntimeModelRefresher(registry),
+		checkConnection: createRuntimeConnectionChecker(() => registry),
+		refreshModels: createRuntimeModelRefresher(() => registry),
+		onSettingsUpdated: async (snapshot) => {
+			registry = d.createProviderRegistry({
+				settings: snapshot.settings,
+				...registryOptions,
+			});
+			const updatedProviders = await loadRuntimeProviders(registry);
+			replaceRuntimeClientProviders(llmClient, updatedProviders);
+			replaceArrayContents(availableModels, await d.loadAvailableModels(snapshot.catalog));
+		},
 	});
 	const resolveSelection = createSelectionResolver(
 		settingsControlPlane as { getSelectionContext?: () => SessionSelectionContext },
@@ -266,8 +279,6 @@ export async function bootstrapInteractiveRuntime(
 		logger,
 		client: llmClient,
 	});
-	const availableModels = await d.loadAvailableModels(startupState.catalog);
-
 	return { bus, logger, llmClient, settingsControlPlane, controller, availableModels };
 }
 
@@ -341,11 +352,13 @@ async function loadStartupProvidersAndCatalog(registry: {
 	return { providers, catalog, validationErrorsByProvider };
 }
 
-function createRuntimeConnectionChecker(registry: {
-	getEntry(providerId: string): Promise<ProviderRegistryEntry | undefined>;
-}) {
+function createRuntimeConnectionChecker(
+	getRegistry: () => {
+		getEntry(providerId: string): Promise<ProviderRegistryEntry | undefined>;
+	},
+) {
 	return async (provider: ProviderRegistryEntry["provider"]) => {
-		const entry = await registry.getEntry(provider.id);
+		const entry = await getRegistry().getEntry(provider.id);
 		if (!entry?.adapter) {
 			throw new Error(entry?.validationErrors[0] ?? `Unknown provider: ${provider.id}`);
 		}
@@ -356,14 +369,45 @@ function createRuntimeConnectionChecker(registry: {
 	};
 }
 
-function createRuntimeModelRefresher(registry: {
-	getEntry(providerId: string): Promise<ProviderRegistryEntry | undefined>;
-}) {
+function createRuntimeModelRefresher(
+	getRegistry: () => {
+		getEntry(providerId: string): Promise<ProviderRegistryEntry | undefined>;
+	},
+) {
 	return async (provider: ProviderRegistryEntry["provider"]) => {
-		const entry = await registry.getEntry(provider.id);
+		const entry = await getRegistry().getEntry(provider.id);
 		if (!entry?.adapter) {
 			throw new Error(entry?.validationErrors[0] ?? `Unknown provider: ${provider.id}`);
 		}
 		return entry.adapter.listModels();
 	};
+}
+
+async function loadRuntimeProviders(registry: {
+	getEntries(): Promise<ProviderRegistryEntry[]>;
+}): Promise<Record<string, ProviderAdapter>> {
+	const providers: Record<string, ProviderAdapter> = {};
+	for (const entry of await registry.getEntries()) {
+		if (!entry.adapter || !entry.provider.enabled || entry.validationErrors.length > 0) continue;
+		providers[entry.provider.id] = entry.adapter;
+	}
+	return providers;
+}
+
+function replaceRuntimeClientProviders(
+	client: unknown,
+	providers: Record<string, ProviderAdapter>,
+): void {
+	if (
+		client &&
+		typeof client === "object" &&
+		"replaceProviders" in client &&
+		typeof client.replaceProviders === "function"
+	) {
+		client.replaceProviders(providers);
+	}
+}
+
+function replaceArrayContents(target: string[], next: string[]): void {
+	target.splice(0, target.length, ...next);
 }

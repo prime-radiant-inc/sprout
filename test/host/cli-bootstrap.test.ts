@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { bootstrapInteractiveRuntime } from "../../src/host/cli-bootstrap.ts";
+import type { ProviderSecretRef } from "../../src/host/settings/secret-store.ts";
 import { createEmptySettings } from "../../src/host/settings/types.ts";
 import type { ProviderRegistryEntry } from "../../src/llm/provider-registry.ts";
 import type { ProviderAdapter, ProviderModel } from "../../src/llm/types.ts";
@@ -40,6 +41,7 @@ function emptyRegistry() {
 }
 
 function memorySecretStore() {
+	const secrets = new Map<string, string>();
 	return {
 		secretRefBackend: "memory" as const,
 		secretBackendState: {
@@ -47,10 +49,14 @@ function memorySecretStore() {
 			available: true,
 		},
 		secretStore: {
-			getSecret: async () => undefined,
-			setSecret: async () => {},
-			deleteSecret: async () => {},
-			hasSecret: async () => false,
+			getSecret: async (ref: ProviderSecretRef) => secrets.get(ref.storageKey),
+			setSecret: async (ref: ProviderSecretRef, value: string) => {
+				secrets.set(ref.storageKey, value);
+			},
+			deleteSecret: async (ref: ProviderSecretRef) => {
+				secrets.delete(ref.storageKey);
+			},
+			hasSecret: async (ref: ProviderSecretRef) => secrets.has(ref.storageKey),
 		},
 	};
 }
@@ -527,5 +533,181 @@ describe("bootstrapInteractiveRuntime", () => {
 		expect((created.controlPlaneOptions as any).initialSettings).toEqual(settings);
 		expect(result.availableModels).toContain("claude-opus-4-6");
 		expect(result.availableModels).not.toContain("openrouter");
+	});
+
+	test("rebuilds the runtime registry after provider settings change", async () => {
+		const registrySettings: string[][] = [];
+		const checkConnectionCalls: string[] = [];
+		const clientUpdates: string[][] = [];
+		const runtime = await bootstrapInteractiveRuntime(
+			{
+				genomePath: "/tmp/genome",
+				projectDataDir: "/tmp/project",
+				rootDir: "/tmp/root",
+				sessionId: "01BOOT",
+				infra: { spawner: { id: "spawner" } as any, genome: { id: "genome" } as any },
+			},
+			{
+				createBus: () => ({ id: "bus" }),
+				createLogger: () => ({ info: () => {} }),
+				createSettingsStore: () => emptySettingsStore(),
+				createSecretStore: () => memorySecretStore(),
+				createProviderRegistry: ({ settings }) => {
+					registrySettings.push(settings.providers.map((provider) => provider.id));
+					return {
+						getEntries: async () =>
+							settings.providers.map((provider) => ({
+								provider,
+								validationErrors: [],
+								adapter: fakeAdapter(
+									provider.id,
+									"openai-compatible",
+									[{ id: "qwen2.5-coder", label: "Qwen 2.5 Coder", source: "manual" }],
+									{
+										failListModels: false,
+									},
+								),
+							})),
+						getEntry: async (providerId: string) => {
+							const provider = settings.providers.find((candidate) => candidate.id === providerId);
+							if (!provider) return undefined;
+							return {
+								provider,
+								validationErrors: [],
+								adapter: {
+									...fakeAdapter(provider.id, "openai-compatible", [
+										{ id: "qwen2.5-coder", label: "Qwen 2.5 Coder", source: "manual" },
+									]),
+									async checkConnection() {
+										checkConnectionCalls.push(provider.id);
+										return { ok: true as const };
+									},
+								},
+							};
+						},
+					};
+				},
+				createClient: async ({ providers }) => ({
+					replaceProviders(nextProviders: Record<string, unknown>) {
+						clientUpdates.push(Object.keys(nextProviders));
+					},
+					providers,
+				}),
+				createController: () => ({ sessionId: "01BOOT" }),
+			},
+		);
+
+		const controlPlane = runtime.settingsControlPlane as {
+			execute: (command: Record<string, unknown>) => Promise<any>;
+		};
+		await controlPlane.execute({
+			kind: "create_provider",
+			data: {
+				kind: "openai-compatible",
+				label: "LM Studio",
+				baseUrl: "http://127.0.0.1:1234/v1",
+				discoveryStrategy: "manual-only",
+				manualModels: [{ id: "qwen2.5-coder" }],
+			},
+		});
+		const connection = await controlPlane.execute({
+			kind: "test_provider_connection",
+			data: { providerId: "openai-compatible" },
+		});
+
+		expect(registrySettings).toEqual([[], ["openai-compatible"], ["openai-compatible"]]);
+		expect(clientUpdates).toEqual([[], []]);
+		expect(checkConnectionCalls).toEqual(["openai-compatible"]);
+		expect(connection).toMatchObject({
+			ok: true,
+			snapshot: {
+				providers: [
+					{
+						providerId: "openai-compatible",
+						connectionStatus: "ok",
+					},
+				],
+			},
+		});
+	});
+
+	test("clears startup validation errors once a provider is repaired", async () => {
+		const settings = {
+			...createEmptySettings(),
+			providers: [
+				{
+					id: "openai",
+					kind: "openai" as const,
+					label: "OpenAI",
+					enabled: false,
+					discoveryStrategy: "remote-only" as const,
+					createdAt: "2026-03-11T12:34:56.000Z",
+					updatedAt: "2026-03-11T12:34:56.000Z",
+				},
+			],
+			defaults: { selection: { kind: "none" as const } },
+			routing: {
+				providerPriority: [],
+				tierOverrides: {},
+			},
+		};
+		const runtime = await bootstrapInteractiveRuntime(
+			{
+				genomePath: "/tmp/genome",
+				projectDataDir: "/tmp/project",
+				rootDir: "/tmp/root",
+				sessionId: "01BOOT",
+				infra: { spawner: { id: "spawner" } as any, genome: { id: "genome" } as any },
+			},
+			{
+				createBus: () => ({ id: "bus" }),
+				createLogger: () => ({ info: () => {} }),
+				createSettingsStore: () => ({
+					load: async () => ({
+						settings,
+						skipEnvImport: false,
+						source: "loaded" as const,
+					}),
+					save: async () => {},
+				}),
+				createSecretStore: () => memorySecretStore(),
+				createProviderRegistry: () => ({
+					getEntries: async () => [
+						{
+							provider: settings.providers[0]!,
+							validationErrors: ["API key is required"],
+						},
+					],
+					getEntry: async () => undefined,
+				}),
+				createClient: async () => ({ replaceProviders() {} }),
+				createController: () => ({ sessionId: "01BOOT" }),
+				loadAvailableModels: async () => [],
+			},
+		);
+
+		const controlPlane = runtime.settingsControlPlane as {
+			execute: (command: Record<string, unknown>) => Promise<any>;
+		};
+		await controlPlane.execute({
+			kind: "set_provider_secret",
+			data: {
+				providerId: "openai",
+				secret: "openai-secret",
+			},
+		});
+		const snapshot = await controlPlane.execute({ kind: "get_settings", data: {} });
+
+		expect(snapshot).toMatchObject({
+			ok: true,
+			snapshot: {
+				providers: [
+					{
+						providerId: "openai",
+						validationErrors: [],
+					},
+				],
+			},
+		});
 	});
 });
