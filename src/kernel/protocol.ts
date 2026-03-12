@@ -78,6 +78,25 @@ const VALID_COMMAND_KINDS = new Set([
 	"set_tier_priority",
 ]);
 
+const SETTINGS_COMMAND_KINDS = new Set([
+	"get_settings",
+	"create_provider",
+	"update_provider",
+	"delete_provider",
+	"set_provider_secret",
+	"delete_provider_secret",
+	"set_provider_enabled",
+	"test_provider_connection",
+	"refresh_provider_models",
+	"set_default_selection",
+	"set_provider_priority",
+	"set_tier_priority",
+]);
+
+const PROVIDER_KINDS = new Set(["anthropic", "openai", "openai-compatible", "openrouter", "gemini"]);
+const DISCOVERY_STRATEGIES = new Set(["remote-only", "manual-only", "remote-with-manual"]);
+const TIERS = new Set(["best", "balanced", "fast"]);
+
 /** Build a command envelope for transport from browser to server. */
 export function createCommandMessage(command: BrowserCommand): CommandMessage {
 	return { type: "command", command };
@@ -124,5 +143,168 @@ export function parseCommandMessage(raw: string): CommandMessage {
 		throw new Error("'command.data' must be an object");
 	}
 
+	if (SETTINGS_COMMAND_KINDS.has(cmd.kind)) {
+		validateSettingsCommand(cmd.kind, cmd.data as Record<string, unknown>);
+	}
+
 	return obj as unknown as CommandMessage;
+}
+
+function validateSettingsCommand(kind: string, data: Record<string, unknown>): void {
+	switch (kind) {
+		case "get_settings":
+			return;
+		case "create_provider":
+			assertEnum(data.kind, PROVIDER_KINDS, "command.data.kind");
+			assertNonEmptyString(data.label, "command.data.label");
+			assertEnum(data.discoveryStrategy, DISCOVERY_STRATEGIES, "command.data.discoveryStrategy");
+			assertOptionalString(data.baseUrl, "command.data.baseUrl");
+			assertOptionalStringRecord(data.nonSecretHeaders, "command.data.nonSecretHeaders");
+			assertOptionalManualModels(data.manualModels, "command.data.manualModels");
+			return;
+		case "update_provider": {
+			assertNonEmptyString(data.providerId, "command.data.providerId");
+			assertRecord(data.patch, "command.data.patch");
+			const patch = data.patch as Record<string, unknown>;
+			if (patch.label !== undefined) {
+				assertNonEmptyString(patch.label, "command.data.patch.label");
+			}
+			if (patch.baseUrl !== undefined) {
+				assertString(patch.baseUrl, "command.data.patch.baseUrl");
+			}
+			if (patch.discoveryStrategy !== undefined) {
+				assertEnum(
+					patch.discoveryStrategy,
+					DISCOVERY_STRATEGIES,
+					"command.data.patch.discoveryStrategy",
+				);
+			}
+			assertOptionalStringRecord(
+				patch.nonSecretHeaders,
+				"command.data.patch.nonSecretHeaders",
+			);
+			assertOptionalManualModels(patch.manualModels, "command.data.patch.manualModels");
+			return;
+		}
+		case "delete_provider":
+		case "delete_provider_secret":
+		case "test_provider_connection":
+		case "refresh_provider_models":
+			assertNonEmptyString(data.providerId, "command.data.providerId");
+			return;
+		case "set_provider_secret":
+			assertNonEmptyString(data.providerId, "command.data.providerId");
+			assertNonEmptyString(data.secret, "command.data.secret");
+			return;
+		case "set_provider_enabled":
+			assertNonEmptyString(data.providerId, "command.data.providerId");
+			assertBoolean(data.enabled, "command.data.enabled");
+			return;
+		case "set_default_selection":
+			assertSelection(data.selection, "command.data.selection");
+			return;
+		case "set_provider_priority":
+			assertStringArray(data.providerIds, "command.data.providerIds");
+			return;
+		case "set_tier_priority":
+			assertEnum(data.tier, TIERS, "command.data.tier");
+			assertStringArray(data.providerIds, "command.data.providerIds");
+			return;
+	}
+}
+
+function assertRecord(value: unknown, path: string): asserts value is Record<string, unknown> {
+	if (value === null || typeof value !== "object" || Array.isArray(value)) {
+		throw new Error(`${path} must be an object`);
+	}
+}
+
+function assertString(value: unknown, path: string): asserts value is string {
+	if (typeof value !== "string") {
+		throw new Error(`${path} must be a string`);
+	}
+}
+
+function assertNonEmptyString(value: unknown, path: string): asserts value is string {
+	assertString(value, path);
+	if (!value.trim()) {
+		throw new Error(`${path} must be a non-empty string`);
+	}
+}
+
+function assertOptionalString(value: unknown, path: string): void {
+	if (value === undefined) return;
+	assertString(value, path);
+}
+
+function assertBoolean(value: unknown, path: string): asserts value is boolean {
+	if (typeof value !== "boolean") {
+		throw new Error(`${path} must be a boolean`);
+	}
+}
+
+function assertEnum(value: unknown, valid: Set<string>, path: string): asserts value is string {
+	assertString(value, path);
+	if (!valid.has(value)) {
+		throw new Error(`${path} must be one of: ${[...valid].join(", ")}`);
+	}
+}
+
+function assertStringArray(value: unknown, path: string): asserts value is string[] {
+	if (!Array.isArray(value)) {
+		throw new Error(`${path} must be an array`);
+	}
+	for (const [index, item] of value.entries()) {
+		assertNonEmptyString(item, `${path}[${index}]`);
+	}
+}
+
+function assertOptionalStringRecord(value: unknown, path: string): void {
+	if (value === undefined) return;
+	assertRecord(value, path);
+	for (const [key, entry] of Object.entries(value)) {
+		if (!key.trim()) {
+			throw new Error(`${path} keys must be non-empty strings`);
+		}
+		assertString(entry, `${path}.${key}`);
+	}
+}
+
+function assertOptionalManualModels(value: unknown, path: string): void {
+	if (value === undefined) return;
+	if (!Array.isArray(value)) {
+		throw new Error(`${path} must be an array`);
+	}
+	for (const [index, item] of value.entries()) {
+		assertRecord(item, `${path}[${index}]`);
+		assertNonEmptyString(item.id, `${path}[${index}].id`);
+		if (item.label !== undefined) {
+			assertString(item.label, `${path}[${index}].label`);
+		}
+		if (item.tierHint !== undefined) {
+			assertEnum(item.tierHint, TIERS, `${path}[${index}].tierHint`);
+		}
+		if (item.rank !== undefined) {
+			if (typeof item.rank !== "number" || Number.isNaN(item.rank)) {
+				throw new Error(`${path}[${index}].rank must be a number`);
+			}
+		}
+	}
+}
+
+function assertSelection(value: unknown, path: string): void {
+	assertRecord(value, path);
+	assertEnum(value.kind, new Set(["none", "tier", "model"]), `${path}.kind`);
+	switch (value.kind) {
+		case "none":
+			return;
+		case "tier":
+			assertEnum(value.tier, TIERS, `${path}.tier`);
+			return;
+		case "model":
+			assertRecord(value.model, `${path}.model`);
+			assertNonEmptyString(value.model.providerId, `${path}.model.providerId`);
+			assertNonEmptyString(value.model.modelId, `${path}.model.modelId`);
+			return;
+	}
 }

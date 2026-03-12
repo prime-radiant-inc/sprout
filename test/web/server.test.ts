@@ -704,6 +704,50 @@ describe("WebServer", () => {
 				},
 			});
 		});
+
+		test("malformed settings commands are ignored before they reach the control plane", async () => {
+			const received: SettingsCommand[] = [];
+			server = new WebServer({
+				bus,
+				port,
+				staticDir,
+				sessionId: "test-session",
+				settingsControlPlane: {
+					execute: async (command: SettingsCommand): Promise<SettingsCommandResult> => {
+						received.push(command);
+						return {
+							ok: true,
+							snapshot: makeSettingsSnapshot(),
+						};
+					},
+				},
+				getSessionSelection: () => makeCurrentSelection(),
+			} as any);
+
+			await startServer();
+			const ws = await connectClient();
+			const messages = collectMessages(ws);
+
+			await delay(50);
+			received.length = 0;
+			ws.send(
+				JSON.stringify({
+					type: "command",
+					command: {
+						kind: "create_provider",
+						data: {
+							kind: "openrouter",
+							label: "",
+							discoveryStrategy: "remote-only",
+						},
+					},
+				}),
+			);
+			await delay(100);
+
+			expect(received).toEqual([]);
+			expect(messages.filter((message) => message.type === "settings_result")).toHaveLength(0);
+		});
 	});
 
 	describe("WebSocket disconnect and reconnect", () => {

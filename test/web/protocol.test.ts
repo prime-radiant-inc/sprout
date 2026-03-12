@@ -196,6 +196,90 @@ describe("canonical protocol module", () => {
 			expect(parseCanonicalCommandMessage(raw)).toEqual(parseLegacyCommandMessage(raw));
 		}
 	});
+
+	test("canonical parser rejects malformed settings control-plane payloads", () => {
+		expect(() =>
+			parseCanonicalCommandMessage(
+				JSON.stringify({
+					type: "command",
+					command: {
+						kind: "create_provider",
+						data: {
+							kind: "openrouter",
+							label: "",
+							discoveryStrategy: "remote-only",
+						},
+					},
+				}),
+			),
+		).toThrow("label");
+
+		expect(() =>
+			parseCanonicalCommandMessage(
+				JSON.stringify({
+					type: "command",
+					command: {
+						kind: "create_provider",
+						data: {
+							kind: "openrouter",
+							label: "OpenRouter",
+							discoveryStrategy: "remote-only",
+							manualModels: [{ id: 42 }],
+						},
+					},
+				}),
+			),
+		).toThrow("manualModels");
+
+		expect(() =>
+			parseCanonicalCommandMessage(
+				JSON.stringify({
+					type: "command",
+					command: {
+						kind: "update_provider",
+						data: {
+							providerId: "openrouter-main",
+							patch: "bad-patch",
+						},
+					},
+				}),
+			),
+		).toThrow("patch");
+
+		expect(() =>
+			parseCanonicalCommandMessage(
+				JSON.stringify({
+					type: "command",
+					command: {
+						kind: "set_default_selection",
+						data: {
+							selection: {
+								kind: "model",
+								model: {
+									providerId: "openrouter-main",
+								},
+							},
+						},
+					},
+				}),
+			),
+		).toThrow("selection");
+
+		expect(() =>
+			parseCanonicalCommandMessage(
+				JSON.stringify({
+					type: "command",
+					command: {
+						kind: "set_tier_priority",
+						data: {
+							tier: "turbo",
+							providerIds: ["openrouter-main"],
+						},
+					},
+				}),
+			),
+		).toThrow("tier");
+	});
 });
 
 describe("parseCommandMessage", () => {
