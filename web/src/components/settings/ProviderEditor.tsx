@@ -45,6 +45,19 @@ export interface ProviderDraft {
 	manualModels: ManualModelDraft[];
 }
 
+export function validateProviderDraftForSave(
+	draft: ProviderDraft,
+): Record<string, string> | undefined {
+	const fieldErrors: Record<string, string> = {};
+	if (!draft.label.trim()) {
+		fieldErrors.label = "Label is required.";
+	}
+	if (supportsBaseUrl(draft.kind) && !draft.baseUrl?.trim()) {
+		fieldErrors.baseUrl = "Base URL is required.";
+	}
+	return Object.keys(fieldErrors).length > 0 ? fieldErrors : undefined;
+}
+
 function supportsBaseUrl(kind: ProviderKind): boolean {
 	return kind === "openai-compatible";
 }
@@ -230,23 +243,31 @@ export function ProviderEditor({
 }: ProviderEditorProps) {
 	const [draft, setDraft] = useState<ProviderDraft>(() => createProviderDraft(provider));
 	const [secret, setSecret] = useState("");
+	const [localFieldErrors, setLocalFieldErrors] = useState<Record<string, string>>();
 
 	useEffect(() => {
 		setDraft(createProviderDraft(provider));
 		setSecret("");
+		setLocalFieldErrors(undefined);
 	}, [provider]);
 
 	const handleSave = () => {
-		const trimmedLabel = draft.label.trim();
-		if (!trimmedLabel) return;
-		onCommand(
-			createProviderSaveCommand(
-				mode,
-				{ ...draft, label: trimmedLabel },
-				provider?.id,
-			),
-		);
+		const validationErrors = validateProviderDraftForSave(draft);
+		if (validationErrors) {
+			setLocalFieldErrors(validationErrors);
+			return;
+		}
+		setLocalFieldErrors(undefined);
+		onCommand(createProviderSaveCommand(mode, draft, provider?.id));
 	};
+
+	const mergedFieldErrors =
+		fieldErrors || localFieldErrors
+			? {
+					...localFieldErrors,
+					...fieldErrors,
+				}
+			: undefined;
 
 	return (
 		<div className={styles.section}>
@@ -275,10 +296,20 @@ export function ProviderEditor({
 							className={styles.fieldSelect}
 							value={draft.kind}
 							onChange={(event) =>
-								setDraft((current) => ({
-									...current,
-									kind: event.target.value as ProviderKind,
-								}))
+								setDraft((current) => {
+									const kind = event.target.value as ProviderKind;
+									setLocalFieldErrors((errors) => {
+										if (!errors?.baseUrl) return errors;
+										if (supportsBaseUrl(kind)) return errors;
+										const nextErrors = { ...errors };
+										delete nextErrors.baseUrl;
+										return Object.keys(nextErrors).length > 0 ? nextErrors : undefined;
+									});
+									return {
+										...current,
+										kind,
+									};
+								})
 							}
 						>
 							{PROVIDER_KIND_OPTIONS.map((option) => (
@@ -306,13 +337,23 @@ export function ProviderEditor({
 						className={styles.fieldInput}
 						value={draft.label}
 						onChange={(event) =>
-							setDraft((current) => ({
-								...current,
-								label: event.target.value,
-							}))
+							setDraft((current) => {
+								setLocalFieldErrors((errors) => {
+									if (!errors?.label) return errors;
+									const nextErrors = { ...errors };
+									delete nextErrors.label;
+									return Object.keys(nextErrors).length > 0 ? nextErrors : undefined;
+								});
+								return {
+									...current,
+									label: event.target.value,
+								};
+							})
 						}
 					/>
-					{fieldErrors?.label && <div className={styles.fieldError}>{fieldErrors.label}</div>}
+					{mergedFieldErrors?.label && (
+						<div className={styles.fieldError}>{mergedFieldErrors.label}</div>
+					)}
 				</div>
 
 				<div className={styles.field}>
@@ -351,14 +392,22 @@ export function ProviderEditor({
 							className={styles.fieldInput}
 							value={draft.baseUrl ?? ""}
 							onChange={(event) =>
-								setDraft((current) => ({
-									...current,
-									baseUrl: event.target.value,
-								}))
+								setDraft((current) => {
+									setLocalFieldErrors((errors) => {
+										if (!errors?.baseUrl) return errors;
+										const nextErrors = { ...errors };
+										delete nextErrors.baseUrl;
+										return Object.keys(nextErrors).length > 0 ? nextErrors : undefined;
+									});
+									return {
+										...current,
+										baseUrl: event.target.value,
+									};
+								})
 							}
 						/>
-						{fieldErrors?.baseUrl && (
-							<div className={styles.fieldError}>{fieldErrors.baseUrl}</div>
+						{mergedFieldErrors?.baseUrl && (
+							<div className={styles.fieldError}>{mergedFieldErrors.baseUrl}</div>
 						)}
 					</div>
 				)}
@@ -366,7 +415,7 @@ export function ProviderEditor({
 
 			<ManualModelsEditor
 				models={draft.manualModels}
-				error={fieldErrors?.manualModels}
+				error={mergedFieldErrors?.manualModels}
 				onChange={(manualModels) =>
 					setDraft((current) => ({
 						...current,
@@ -378,7 +427,7 @@ export function ProviderEditor({
 			{supportsNonSecretHeaders(draft.kind) && (
 				<HeadersEditor
 					headers={draft.nonSecretHeaders}
-					error={fieldErrors?.nonSecretHeaders}
+					error={mergedFieldErrors?.nonSecretHeaders}
 					onChange={(nonSecretHeaders) =>
 						setDraft((current) => ({
 							...current,
@@ -466,7 +515,9 @@ export function ProviderEditor({
 							<span className={styles.hint}>
 								{status?.hasSecret ? "A secret is already stored." : "No secret stored yet."}
 							</span>
-							{fieldErrors?.secret && <div className={styles.fieldError}>{fieldErrors.secret}</div>}
+							{mergedFieldErrors?.secret && (
+								<div className={styles.fieldError}>{mergedFieldErrors.secret}</div>
+							)}
 						</div>
 					</div>
 					<div className={styles.actions}>

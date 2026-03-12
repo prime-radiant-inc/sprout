@@ -21,6 +21,7 @@ import {
 	createTestProviderConnectionCommand,
 	createToggleProviderEnabledCommand,
 	ProviderEditor,
+	validateProviderDraftForSave,
 } from "../settings/ProviderEditor.tsx";
 import { ProviderSettingsPanel } from "../settings/ProviderSettingsPanel.tsx";
 
@@ -340,6 +341,32 @@ describe("ProviderSettingsPanel", () => {
 				},
 			},
 		} satisfies SettingsCommand);
+	});
+
+	test("validates required local save fields before dispatch", () => {
+		expect(
+			validateProviderDraftForSave({
+				kind: "openai-compatible",
+				label: "   ",
+				baseUrl: "",
+				discoveryStrategy: "manual-only",
+				nonSecretHeaders: [],
+				manualModels: [],
+			}),
+		).toEqual({
+			label: "Label is required.",
+			baseUrl: "Base URL is required.",
+		});
+
+		expect(
+			validateProviderDraftForSave({
+				kind: "anthropic",
+				label: "Anthropic",
+				discoveryStrategy: "remote-only",
+				nonSecretHeaders: [],
+				manualModels: [],
+			}),
+		).toBeUndefined();
 	});
 
 	test("renders field-level errors, manual models, and custom headers for supported providers", () => {
