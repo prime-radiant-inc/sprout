@@ -31,6 +31,7 @@ async function makePlane(
 		secretBackendState?: ConstructorParameters<
 			typeof SettingsControlPlane
 		>[0]["secretBackendState"];
+		runtimeWarnings?: ConstructorParameters<typeof SettingsControlPlane>[0]["runtimeWarnings"];
 		onSettingsUpdated?: (snapshot: SettingsSnapshot) => void;
 		checkConnection?: ConstructorParameters<typeof SettingsControlPlane>[0]["checkConnection"];
 		refreshModels?: ConstructorParameters<typeof SettingsControlPlane>[0]["refreshModels"];
@@ -51,6 +52,7 @@ async function makePlane(
 			options.secretStore ?? createSecretStore({ backend: "memory", platform: "darwin" }),
 		secretBackend: options.secretBackend ?? "memory",
 		secretBackendState: options.secretBackendState,
+		runtimeWarnings: options.runtimeWarnings,
 		initialSettings: options.initialSettings ?? createEmptySettings(),
 		onSettingsUpdated: options.onSettingsUpdated,
 		checkConnection: options.checkConnection,
@@ -477,6 +479,44 @@ describe("SettingsControlPlane", () => {
 			message,
 			fieldErrors: {
 				secret: message,
+			},
+		});
+	});
+
+	test("preserves runtime warnings across snapshots and successful mutations", async () => {
+		const warning = {
+			code: "invalid_settings_recovered" as const,
+			message: "Recovered invalid settings file to /tmp/settings.invalid.2026-03-12.json",
+		};
+		const plane = await makePlane({
+			runtimeWarnings: [warning],
+		});
+
+		const snapshot = await plane.execute({ kind: "get_settings", data: {} });
+		expect(snapshot).toMatchObject({
+			ok: true,
+			snapshot: {
+				runtime: {
+					warnings: [warning],
+				},
+			},
+		});
+
+		const created = await plane.execute({
+			kind: "create_provider",
+			data: {
+				kind: "openai-compatible",
+				label: "LM Studio",
+				baseUrl: "http://127.0.0.1:1234/v1",
+				discoveryStrategy: "manual-only",
+			},
+		});
+		expect(created).toMatchObject({
+			ok: true,
+			snapshot: {
+				runtime: {
+					warnings: [warning],
+				},
 			},
 		});
 	});

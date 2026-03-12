@@ -292,6 +292,49 @@ describe("bootstrapInteractiveRuntime", () => {
 		expect(created.saved).toBeUndefined();
 	});
 
+	test("passes invalid-settings recovery warnings into the settings control plane", async () => {
+		const created: Record<string, unknown> = {};
+
+		await bootstrapInteractiveRuntime(
+			{
+				genomePath: "/tmp/genome",
+				projectDataDir: "/tmp/project",
+				rootDir: "/tmp/root",
+				sessionId: "01BOOT",
+				infra: { spawner: { id: "spawner" } as any, genome: { id: "genome" } as any },
+			},
+			{
+				createBus: () => ({ id: "bus" }),
+				createLogger: () => ({ info: () => {} }),
+				createClient: async () => ({ id: "client" }),
+				createSettingsControlPlane: (options) => {
+					created.controlPlaneOptions = options;
+					return { id: "control-plane" };
+				},
+				createController: () => ({ sessionId: "01BOOT" }),
+				loadAvailableModels: async () => [],
+				createProviderRegistry: () => emptyRegistry(),
+				createSettingsStore: () => ({
+					load: async () => ({
+						settings: createEmptySettings(),
+						recoveredInvalidFilePath: "/tmp/settings.invalid.2026-03-12.json",
+						skipEnvImport: true,
+						source: "recovered" as const,
+					}),
+					save: async () => {},
+				}),
+				createSecretStore: () => memorySecretStore(),
+			},
+		);
+
+		expect((created.controlPlaneOptions as any).runtimeWarnings).toEqual([
+			{
+				code: "invalid_settings_recovered",
+				message: "Recovered invalid settings file to /tmp/settings.invalid.2026-03-12.json",
+			},
+		]);
+	});
+
 	test("continues bootstrapping when the secret backend is unavailable", async () => {
 		const created: Record<string, unknown> = {};
 

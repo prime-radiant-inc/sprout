@@ -207,6 +207,7 @@ export async function bootstrapInteractiveRuntime(
 	const settingsStore = d.createSettingsStore();
 	const settingsLoadResult = await settingsStore.load();
 	const { secretRefBackend, secretBackendState, secretStore } = d.createSecretStore();
+	const runtimeWarnings = buildBootstrapRuntimeWarnings(settingsLoadResult);
 	let settings = settingsLoadResult.settings;
 	let initialValidationErrors: Record<string, string[]> = {};
 	if (settingsLoadResult.source === "missing") {
@@ -234,6 +235,7 @@ export async function bootstrapInteractiveRuntime(
 		secretBackend: secretRefBackend,
 		secretBackendState,
 		initialSettings: settings,
+		runtimeWarnings,
 		initialValidationErrors: {
 			...initialValidationErrors,
 			...startupState.validationErrorsByProvider,
@@ -265,6 +267,21 @@ export async function bootstrapInteractiveRuntime(
 	const availableModels = await d.loadAvailableModels(startupState.catalog);
 
 	return { bus, logger, llmClient, settingsControlPlane, controller, availableModels };
+}
+
+function buildBootstrapRuntimeWarnings(
+	settingsLoadResult: SettingsLoadResult,
+): ConstructorParameters<typeof SettingsControlPlane>[0]["runtimeWarnings"] {
+	const warnings: NonNullable<
+		ConstructorParameters<typeof SettingsControlPlane>[0]["runtimeWarnings"]
+	> = [];
+	if (settingsLoadResult.recoveredInvalidFilePath) {
+		warnings.push({
+			code: "invalid_settings_recovered",
+			message: `Recovered invalid settings file to ${settingsLoadResult.recoveredInvalidFilePath}`,
+		});
+	}
+	return warnings;
 }
 
 function createSelectionResolver(controlPlane: {

@@ -90,22 +90,16 @@ describe("SettingsPanel", () => {
 		await submitCommand(stdin, "create", () => (lastFrame() ?? "").includes("Create provider"));
 		expect(lastFrame()).toContain("Create provider");
 
-		await submitCommand(
-			stdin,
-			"label OpenRouter",
-			() => (lastFrame() ?? "").includes("Label: OpenRouter"),
+		await submitCommand(stdin, "label OpenRouter", () =>
+			(lastFrame() ?? "").includes("Label: OpenRouter"),
 		);
-		await submitCommand(
-			stdin,
-			"kind openrouter",
-			() => (lastFrame() ?? "").includes("Kind: openrouter"),
+		await submitCommand(stdin, "kind openrouter", () =>
+			(lastFrame() ?? "").includes("Kind: openrouter"),
 		);
 		await submitCommand(stdin, "save", () => commands.length === 1);
 
-		await submitCommand(
-			stdin,
-			"defaults",
-			() => (lastFrame() ?? "").includes("Defaults and routing"),
+		await submitCommand(stdin, "defaults", () =>
+			(lastFrame() ?? "").includes("Defaults and routing"),
 		);
 		expect(lastFrame()).toContain("Defaults and routing");
 

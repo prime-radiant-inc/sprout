@@ -462,6 +462,39 @@ describe("EventStore", () => {
 			expect(store.settings).toEqual(settings);
 		});
 
+		test("retains runtime warnings from snapshots and successful settings results", () => {
+			const store = new EventStore();
+			const snapshot = makeSettingsSnapshot();
+			snapshot.runtime.warnings = [
+				{
+					code: "invalid_settings_recovered",
+					message: "Recovered invalid settings file to /tmp/settings.invalid.2026-03-12.json",
+				},
+			];
+
+			store.processMessage(snapshotMessage([], undefined, snapshot));
+			expect(store.settings?.runtime.warnings).toEqual(snapshot.runtime.warnings);
+
+			const updated = structuredClone(snapshot);
+			updated.runtime.warnings = [
+				...updated.runtime.warnings,
+				{
+					code: "secret_backend_unavailable",
+					message: "Unsupported secret backend for platform: win32",
+				},
+			];
+
+			store.processMessage({
+				type: "settings_result",
+				result: {
+					ok: true,
+					snapshot: updated,
+				},
+			} as unknown as ServerMessage);
+
+			expect(store.settings?.runtime.warnings).toEqual(updated.runtime.warnings);
+		});
+
 		test("retains the latest settings_result payload including field errors", () => {
 			const store = new EventStore();
 			const result: SettingsCommandResult = {
