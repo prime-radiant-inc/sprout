@@ -1,17 +1,140 @@
 import { useEffect, useState } from "react";
+import type {
+	SessionModelSelection,
+	SessionSelectionSnapshot,
+	SettingsSnapshot,
+} from "@kernel/types.ts";
+import { formatSessionSelectionRequest } from "@shared/session-selection.ts";
 import type { SessionStatus } from "../hooks/useEvents.ts";
 import { formatTokens, shortModelName } from "./format.ts";
 import styles from "./StatusBar.module.css";
 import { pressureColor } from "../utils/pressureColor.ts";
 
+interface SessionSelectionOption {
+	selection: SessionModelSelection;
+	value: string;
+	label: string;
+}
+
 export interface StatusBarProps {
 	status: SessionStatus;
+	settings?: SettingsSnapshot | null;
 	connected: boolean;
 	connectionError?: string | null;
 	onInterrupt?: () => void;
-	onSwitchModel?: (model: string) => void;
+	onSwitchModel?: (selection: SessionModelSelection) => void;
 	onToggleTheme?: () => void;
 	theme?: string;
+}
+
+const TIER_LABELS = {
+	best: "Best",
+	balanced: "Balanced",
+	fast: "Fast",
+} as const;
+
+function formatProviderModelLabel(
+	selection: { providerId: string; modelId: string },
+	settings: SettingsSnapshot | null | undefined,
+): string {
+	const provider = settings?.settings.providers.find(
+		(candidate) => candidate.id === selection.providerId,
+	);
+	const catalogEntry = settings?.catalog.find(
+		(entry) => entry.providerId === selection.providerId,
+	);
+	const catalogModel = catalogEntry?.models.find(
+		(candidate) => candidate.id === selection.modelId,
+	);
+	const providerLabel = provider?.label ?? selection.providerId;
+	const modelLabel = shortModelName(catalogModel?.label ?? selection.modelId);
+	return `${providerLabel} · ${modelLabel}`;
+}
+
+export function formatSessionSelectionLabel(
+	selection: SessionSelectionSnapshot,
+	currentModel: string,
+	settings: SettingsSnapshot | null | undefined,
+): string {
+	switch (selection.selection.kind) {
+		case "inherit":
+			return currentModel
+				? `Default · ${shortModelName(currentModel)}`
+				: "Default";
+		case "tier":
+			return TIER_LABELS[selection.selection.tier];
+		case "model":
+			return formatProviderModelLabel(selection.selection.model, settings);
+	}
+}
+
+export function buildSessionSelectionOptions(
+	status: SessionStatus,
+	settings: SettingsSnapshot | null | undefined,
+): SessionSelectionOption[] {
+	const options: SessionSelectionOption[] = [];
+	const seenValues = new Set<string>();
+	const availableModelIds = new Set(
+		status.availableModels.filter(
+			(model): model is Exclude<typeof model, "best" | "balanced" | "fast"> =>
+				model !== "best" && model !== "balanced" && model !== "fast",
+		),
+	);
+
+	const pushOption = (selection: SessionModelSelection, label: string) => {
+		const value = formatSessionSelectionRequest(selection);
+		if (seenValues.has(value)) return;
+		seenValues.add(value);
+		options.push({ selection, value, label });
+	};
+
+	pushOption(
+		{ kind: "inherit" },
+		formatSessionSelectionLabel(
+			{ selection: { kind: "inherit" }, source: status.currentSelection.source },
+			status.model,
+			settings,
+		),
+	);
+
+	for (const tier of ["best", "balanced", "fast"] as const) {
+		if (!status.availableModels.includes(tier)) continue;
+		pushOption({ kind: "tier", tier }, TIER_LABELS[tier]);
+	}
+
+	for (const provider of settings?.settings.providers ?? []) {
+		if (!provider.enabled) continue;
+		const catalogEntry = settings?.catalog.find((entry) => entry.providerId === provider.id);
+		for (const model of catalogEntry?.models ?? []) {
+			if (!availableModelIds.has(model.id)) continue;
+			pushOption(
+				{
+					kind: "model",
+					model: {
+						providerId: provider.id,
+						modelId: model.id,
+					},
+				},
+				`${provider.label} · ${shortModelName(model.label)}`,
+			);
+		}
+	}
+
+	if (status.currentSelection.selection.kind === "model") {
+		pushOption(
+			status.currentSelection.selection,
+			formatProviderModelLabel(status.currentSelection.selection.model, settings),
+		);
+	}
+
+	if (status.currentSelection.selection.kind === "tier") {
+		pushOption(
+			status.currentSelection.selection,
+			TIER_LABELS[status.currentSelection.selection.tier],
+		);
+	}
+
+	return options;
 }
 
 /** Format elapsed seconds as "M:SS". */
@@ -38,6 +161,7 @@ function useElapsedTime(startedAt: number | null): string | null {
 /** Top status bar with session info, context pressure, model, and controls. */
 export function StatusBar({
 	status,
+	settings,
 	connected,
 	connectionError,
 	onInterrupt,
@@ -54,7 +178,6 @@ export function StatusBar({
 		model,
 		sessionId,
 		status: runStatus,
-		availableModels,
 	} = status;
 
 	const pressure =
@@ -63,6 +186,11 @@ export function StatusBar({
 	const percentStr = `${percentRound}%`;
 
 	const elapsed = useElapsedTime(status.sessionStartedAt);
+	const selectionOptions = buildSessionSelectionOptions(status, settings);
+	const selectionValue = formatSessionSelectionRequest(status.currentSelection.selection);
+	const selectionMap = new Map(
+		selectionOptions.map((option) => [option.value, option.selection]),
+	);
 
 	const handleCopySessionId = () => {
 		navigator.clipboard.writeText(sessionId).catch(() => {});
@@ -134,20 +262,27 @@ export function StatusBar({
 			<span className={styles.spacer} />
 
 			{/* Model selector */}
-			{availableModels.length > 0 && onSwitchModel ? (
+			{selectionOptions.length > 1 && onSwitchModel ? (
 				<select
 					className={styles.modelSelect}
-					value={model}
-					onChange={(e) => onSwitchModel(e.target.value)}
+					value={selectionValue}
+					onChange={(e) => {
+						const nextSelection = selectionMap.get(e.target.value);
+						if (nextSelection) {
+							onSwitchModel(nextSelection);
+						}
+					}}
 				>
-					{availableModels.map((m) => (
-						<option key={m} value={m}>
-							{shortModelName(m)}
+					{selectionOptions.map((option) => (
+						<option key={option.value} value={option.value}>
+							{option.label}
 						</option>
 					))}
 				</select>
 			) : (
-				<span className={styles.modelLabel}>{shortModelName(model)}</span>
+				<span className={styles.modelLabel}>
+					{formatSessionSelectionLabel(status.currentSelection, model, settings)}
+				</span>
 			)}
 
 			{/* Interrupt button */}

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { WEB_HISTORY_PAGE_SIZE } from "@kernel/constants.ts";
+import type { BrowserCommand } from "@kernel/protocol.ts";
+import type { SessionModelSelection, SettingsSnapshot } from "@kernel/types.ts";
 import { KeyboardHelp } from "./components/KeyboardHelp.tsx";
-import { parseSessionSelectionRequest } from "@shared/session-selection.ts";
+import type { SessionSelectionRequest } from "@shared/session-selection.ts";
 import type { SlashCommand } from "@shared/slash-commands.ts";
 import styles from "./App.module.css";
 import { ConversationView } from "./components/ConversationView.tsx";
@@ -20,12 +22,15 @@ import { useTaskList } from "./hooks/useTaskList.ts";
 
 import { buildWsUrl } from "./hooks/buildWsUrl.ts";
 
-const WS_URL = buildWsUrl(
-	window.location.protocol,
-	window.location.host,
-	import.meta.env.VITE_WS_URL,
-	window.location.search,
-);
+const WS_URL =
+	typeof window === "undefined"
+		? ""
+		: buildWsUrl(
+				window.location.protocol,
+				window.location.host,
+				import.meta.env.VITE_WS_URL,
+				window.location.search,
+			);
 
 interface EventHistoryPage {
 	events: import("@kernel/types.ts").SessionEvent[];
@@ -34,9 +39,77 @@ interface EventHistoryPage {
 	total: number;
 }
 
+export function normalizeWebSessionSelection(
+	selection: SessionSelectionRequest,
+	settings: SettingsSnapshot | null,
+): SessionSelectionRequest {
+	if (selection.kind !== "unqualified_model" || !settings) {
+		return selection;
+	}
+
+	const enabledProviderIds = new Set(
+		settings.settings.providers
+			.filter((provider) => provider.enabled)
+			.map((provider) => provider.id),
+	);
+	let matchedProviderId: string | undefined;
+
+	for (const entry of settings.catalog) {
+		if (!enabledProviderIds.has(entry.providerId)) continue;
+		if (!entry.models.some((model) => model.id === selection.modelId)) continue;
+		if (matchedProviderId && matchedProviderId !== entry.providerId) {
+			return selection;
+		}
+		matchedProviderId = entry.providerId;
+	}
+
+	if (!matchedProviderId) {
+		return selection;
+	}
+
+	return {
+		kind: "model",
+		model: {
+			providerId: matchedProviderId,
+			modelId: selection.modelId,
+		},
+	};
+}
+
+export function createSwitchModelCommand(
+	selection: SessionSelectionRequest | SessionModelSelection,
+): BrowserCommand {
+	return {
+		kind: "switch_model",
+		data: { selection },
+	};
+}
+
+export function createCommandFromSlashCommand(
+	cmd: SlashCommand,
+	settings: SettingsSnapshot | null,
+): BrowserCommand | null {
+	switch (cmd.kind) {
+		case "quit":
+			return { kind: "quit", data: {} };
+		case "compact":
+			return { kind: "compact", data: {} };
+		case "clear":
+			return { kind: "clear", data: {} };
+		case "switch_model":
+			return cmd.selection
+				? createSwitchModelCommand(normalizeWebSessionSelection(cmd.selection, settings))
+				: null;
+		case "status":
+		case "help":
+		default:
+			return null;
+	}
+}
+
 export function App() {
 	const { connected, authError, send, onMessage } = useWebSocket(WS_URL);
-	const { events, status, sendCommand, prependHistory } = useEvents(onMessage, send);
+	const { events, status, settings, sendCommand, prependHistory } = useEvents(onMessage, send);
 	const { tree } = useAgentTree(events);
 	const agentStats = useAgentStats(events);
 	const { tasks } = useTaskList(events);
@@ -223,36 +296,12 @@ export function App() {
 	// Slash command handler
 	const handleSlashCommand = useCallback(
 		(cmd: SlashCommand) => {
-			switch (cmd.kind) {
-				case "quit":
-					sendCommand({ kind: "quit", data: {} });
-					break;
-				case "compact":
-					sendCommand({ kind: "compact", data: {} });
-					break;
-				case "clear":
-					sendCommand({ kind: "clear", data: {} });
-					break;
-				case "switch_model":
-					if (cmd.selection) {
-						sendCommand({
-							kind: "switch_model",
-							data: { selection: cmd.selection },
-						});
-					}
-					break;
-				case "status":
-					// Status is already visible in the UI; no-op for web
-					break;
-				case "help":
-					// Could show a help overlay in the future; no-op for now
-					break;
-				default:
-					// Unknown or web-specific commands — ignore in web UI
-					break;
+			const command = createCommandFromSlashCommand(cmd, settings);
+			if (command) {
+				sendCommand(command);
 			}
 		},
-		[sendCommand],
+		[sendCommand, settings],
 	);
 
 	// Submit goal
@@ -278,11 +327,8 @@ export function App() {
 
 	// Model switch
 	const handleSwitchModel = useCallback(
-		(model: string) => {
-			sendCommand({
-				kind: "switch_model",
-				data: { selection: parseSessionSelectionRequest(model) },
-			});
+		(selection: SessionModelSelection) => {
+			sendCommand(createSwitchModelCommand(selection));
 		},
 		[sendCommand],
 	);
@@ -293,6 +339,7 @@ export function App() {
 		<div className={styles.app} data-region="app">
 			<StatusBar
 				status={status}
+				settings={settings}
 				connected={connected}
 				connectionError={authError}
 				onInterrupt={handleInterrupt}
