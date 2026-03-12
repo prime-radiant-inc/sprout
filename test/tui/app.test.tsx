@@ -499,8 +499,13 @@ describe("App", () => {
 		stdin.write("\r");
 		await waitFor(() => {
 			const frame = lastFrame();
-			return frame?.includes("Provider settings") ?? false;
+			return Boolean(
+				frame?.includes("Provider settings") &&
+					frame.includes("shortcut>") &&
+					frame.includes("Enabled: yes"),
+			);
 		});
+		await flush();
 
 		stdin.write("disable");
 		await flush();
