@@ -41,11 +41,35 @@ function emptyRegistry() {
 
 function memorySecretStore() {
 	return {
-		backend: "memory" as const,
+		secretRefBackend: "memory" as const,
+		secretBackendState: {
+			backend: "memory" as const,
+			available: true,
+		},
 		secretStore: {
 			getSecret: async () => undefined,
 			setSecret: async () => {},
 			deleteSecret: async () => {},
+			hasSecret: async () => false,
+		},
+	};
+}
+
+function unavailableSecretStore(message = "Unsupported secret backend for platform: win32") {
+	return {
+		secretRefBackend: "memory" as const,
+		secretBackendState: {
+			available: false,
+			message,
+		},
+		secretStore: {
+			getSecret: async () => undefined,
+			setSecret: async () => {
+				throw new Error(message);
+			},
+			deleteSecret: async () => {
+				throw new Error(message);
+			},
 			hasSecret: async () => false,
 		},
 	};
@@ -268,6 +292,40 @@ describe("bootstrapInteractiveRuntime", () => {
 		expect(created.saved).toBeUndefined();
 	});
 
+	test("continues bootstrapping when the secret backend is unavailable", async () => {
+		const created: Record<string, unknown> = {};
+
+		const result = await bootstrapInteractiveRuntime(
+			{
+				genomePath: "/tmp/genome",
+				projectDataDir: "/tmp/project",
+				rootDir: "/tmp/root",
+				sessionId: "01BOOT",
+				infra: { spawner: { id: "spawner" } as any, genome: { id: "genome" } as any },
+			},
+			{
+				createBus: () => ({ id: "bus" }),
+				createSettingsStore: () => emptySettingsStore(),
+				createSecretStore: () => unavailableSecretStore(),
+				createProviderRegistry: () => emptyRegistry(),
+				createLogger: () => ({ info: () => {} }),
+				createClient: async () => ({ id: "client" }),
+				createSettingsControlPlane: (options) => {
+					created.controlPlaneOptions = options;
+					return { id: "control-plane" };
+				},
+				createController: () => ({ sessionId: "01BOOT" }),
+				loadAvailableModels: async () => [],
+			},
+		);
+
+		expect(result.availableModels).toEqual([]);
+		expect((created.controlPlaneOptions as any).secretBackendState).toEqual({
+			available: false,
+			message: "Unsupported secret backend for platform: win32",
+		});
+	});
+
 	test("builds the runtime client from the settings-backed registry and derives available models from the catalog", async () => {
 		const created: Record<string, unknown> = {};
 		const settings = {
@@ -334,7 +392,11 @@ describe("bootstrapInteractiveRuntime", () => {
 					save: async () => {},
 				}),
 				createSecretStore: () => ({
-					backend: "memory",
+					secretRefBackend: "memory",
+					secretBackendState: {
+						backend: "memory",
+						available: true,
+					},
 					secretStore: {
 						getSecret: async () => undefined,
 						setSecret: async () => {},

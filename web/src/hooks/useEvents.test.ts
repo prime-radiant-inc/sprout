@@ -23,6 +23,13 @@ function eventMessage(event: SessionEvent): ServerMessage {
 
 function makeSettingsSnapshot(): SettingsSnapshot {
 	return {
+		runtime: {
+			secretBackend: {
+				backend: "memory",
+				available: true,
+			},
+			warnings: [],
+		},
 		settings: createEmptySettings(),
 		providers: [],
 		catalog: [],

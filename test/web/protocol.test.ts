@@ -16,6 +16,13 @@ import { parseCommandMessage as parseLegacyCommandMessage } from "../../src/web/
 
 function makeSettingsSnapshot(): SettingsSnapshot {
 	return {
+		runtime: {
+			secretBackend: {
+				backend: "memory",
+				available: true,
+			},
+			warnings: [],
+		},
 		settings: createEmptySettings(),
 		providers: [],
 		catalog: [],

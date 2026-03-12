@@ -31,6 +31,13 @@ function makeStatus(overrides: Partial<SessionStatus> = {}): SessionStatus {
 
 function makeSettings(): SettingsSnapshot {
 	return {
+		runtime: {
+			secretBackend: {
+				backend: "memory",
+				available: true,
+			},
+			warnings: [],
+		},
 		settings: {
 			version: 1,
 			providers: [

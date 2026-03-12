@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { render as inkRender } from "ink-testing-library";
 import { SettingsPanel } from "../../src/tui/settings-panel.tsx";
 import { makeSettingsErrorResult, makeSettingsSnapshot } from "../helpers/provider-settings.ts";
-import { sleep } from "../helpers/wait-for.ts";
+import { sleep, waitFor } from "../helpers/wait-for.ts";
 
 let currentInstance: ReturnType<typeof inkRender> | undefined;
 
@@ -13,6 +13,21 @@ function render(...args: Parameters<typeof inkRender>): ReturnType<typeof inkRen
 
 async function flush() {
 	await sleep(10);
+}
+
+async function submitCommand(
+	stdin: ReturnType<typeof inkRender>["stdin"],
+	command: string,
+	assertReady?: () => boolean,
+) {
+	stdin.write(command);
+	await flush();
+	stdin.write("\r");
+	if (assertReady) {
+		await waitFor(assertReady);
+		return;
+	}
+	await flush();
 }
 
 describe("SettingsPanel", () => {
@@ -32,6 +47,13 @@ describe("SettingsPanel", () => {
 		const empty = render(
 			<SettingsPanel
 				settings={{
+					runtime: {
+						secretBackend: {
+							backend: "memory",
+							available: true,
+						},
+						warnings: [],
+					},
 					settings: {
 						version: 1,
 						providers: [],
@@ -65,46 +87,34 @@ describe("SettingsPanel", () => {
 		expect(lastFrame()).toContain("Anthropic");
 		expect(lastFrame()).toContain("Latest command failed");
 
-		stdin.write("create");
-		await flush();
-		stdin.write("\r");
-		await flush();
+		await submitCommand(stdin, "create", () => (lastFrame() ?? "").includes("Create provider"));
 		expect(lastFrame()).toContain("Create provider");
 
-		stdin.write("label OpenRouter");
-		await flush();
-		stdin.write("\r");
-		await flush();
-		stdin.write("kind openrouter");
-		await flush();
-		stdin.write("\r");
-		await flush();
-		stdin.write("save");
-		await flush();
-		stdin.write("\r");
-		await flush();
+		await submitCommand(
+			stdin,
+			"label OpenRouter",
+			() => (lastFrame() ?? "").includes("Label: OpenRouter"),
+		);
+		await submitCommand(
+			stdin,
+			"kind openrouter",
+			() => (lastFrame() ?? "").includes("Kind: openrouter"),
+		);
+		await submitCommand(stdin, "save", () => commands.length === 1);
 
-		stdin.write("defaults");
-		await flush();
-		stdin.write("\r");
-		await flush();
+		await submitCommand(
+			stdin,
+			"defaults",
+			() => (lastFrame() ?? "").includes("Defaults and routing"),
+		);
 		expect(lastFrame()).toContain("Defaults and routing");
 
-		stdin.write("default tier fast");
-		await flush();
-		stdin.write("\r");
-		await flush();
+		await submitCommand(stdin, "default tier fast", () => commands.length === 2);
 
-		stdin.write("open lmstudio");
-		await flush();
-		stdin.write("\r");
-		await flush();
+		await submitCommand(stdin, "open lmstudio", () => (lastFrame() ?? "").includes("LM Studio"));
 		expect(lastFrame()).toContain("LM Studio");
 
-		stdin.write("disable");
-		await flush();
-		stdin.write("\r");
-		await flush();
+		await submitCommand(stdin, "disable", () => commands.length === 3);
 
 		expect(commands).toEqual([
 			{

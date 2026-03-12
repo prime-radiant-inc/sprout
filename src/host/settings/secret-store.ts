@@ -40,6 +40,18 @@ export interface CreateSecretStoreOptions {
 	runCommand?: RunCommand;
 }
 
+export interface SecretBackendState {
+	backend?: SecretStorageBackend;
+	available: boolean;
+	message?: string;
+}
+
+export interface SecretStoreRuntime {
+	secretRefBackend: SecretStorageBackend;
+	secretBackendState: SecretBackendState;
+	secretStore: SecretStore;
+}
+
 export function resolveDefaultSecretStorageBackend(
 	platform: NodeJS.Platform = process.platform,
 ): SecretStorageBackend {
@@ -70,6 +82,67 @@ export function createSecretStore(options: CreateSecretStoreOptions): SecretStor
 	}
 }
 
+export function createSecretStoreRuntime(
+	options: Partial<CreateSecretStoreOptions> = {},
+): SecretStoreRuntime {
+	const platform = options.platform ?? process.platform;
+	if (options.backend) {
+		try {
+			return {
+				secretRefBackend: options.backend,
+				secretBackendState: {
+					backend: options.backend,
+					available: true,
+				},
+				secretStore: createSecretStore({
+					backend: options.backend,
+					platform,
+					runCommand: options.runCommand,
+				}),
+			};
+		} catch (error) {
+			return {
+				secretRefBackend: options.backend,
+				secretBackendState: {
+					backend: options.backend,
+					available: false,
+					message: error instanceof Error ? error.message : String(error),
+				},
+				secretStore: new UnavailableSecretStore(
+					error instanceof Error ? error.message : String(error),
+				),
+			};
+		}
+	}
+
+	try {
+		const backend = resolveDefaultSecretStorageBackend(platform);
+		return {
+			secretRefBackend: backend,
+			secretBackendState: {
+				backend,
+				available: true,
+			},
+			secretStore: createSecretStore({
+				backend,
+				platform,
+				runCommand: options.runCommand,
+			}),
+		};
+	} catch (error) {
+		return {
+			secretRefBackend: "memory",
+			secretBackendState: {
+				available: false,
+				message: error instanceof Error ? error.message : String(error),
+			},
+			secretStore: new UnavailableSecretStore(
+				error instanceof Error ? error.message : String(error),
+			),
+		};
+	}
+}
+
 class MemorySecretStore implements SecretStore {
 	private readonly secrets = new Map<string, string>();
 
@@ -87,6 +160,26 @@ class MemorySecretStore implements SecretStore {
 
 	async hasSecret(ref: ProviderSecretRef): Promise<boolean> {
 		return this.secrets.has(ref.storageKey);
+	}
+}
+
+class UnavailableSecretStore implements SecretStore {
+	constructor(private readonly message: string) {}
+
+	async getSecret(): Promise<string | undefined> {
+		return undefined;
+	}
+
+	async setSecret(): Promise<void> {
+		throw new Error(this.message);
+	}
+
+	async deleteSecret(): Promise<void> {
+		throw new Error(this.message);
+	}
+
+	async hasSecret(): Promise<boolean> {
+		return false;
 	}
 }
 

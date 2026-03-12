@@ -21,8 +21,8 @@ import {
 import { SettingsControlPlane } from "./settings/control-plane.ts";
 import { type EnvImportResult, importSettingsFromEnv } from "./settings/env-import.ts";
 import {
-	createSecretStore,
-	resolveDefaultSecretStorageBackend,
+	createSecretStoreRuntime,
+	type SecretBackendState,
 	type SecretStorageBackend,
 	type SecretStore,
 } from "./settings/secret-store.ts";
@@ -55,7 +55,11 @@ interface InteractiveBootstrapDeps {
 		load(): Promise<SettingsLoadResult>;
 		save(settings: SettingsLoadResult["settings"]): Promise<void>;
 	};
-	createSecretStore: () => { backend: SecretStorageBackend; secretStore: SecretStore };
+	createSecretStore: () => {
+		secretRefBackend: SecretStorageBackend;
+		secretBackendState: SecretBackendState;
+		secretStore: SecretStore;
+	};
 	importSettingsFromEnv: (options: {
 		secretStore: SecretStore;
 		secretBackend: SecretStorageBackend;
@@ -115,15 +119,7 @@ export async function bootstrapInteractiveRuntime(
 	const d: InteractiveBootstrapDeps = {
 		createBus: deps.createBus ?? (() => new EventBus()),
 		createSettingsStore: deps.createSettingsStore ?? (() => new SettingsStore()),
-		createSecretStore:
-			deps.createSecretStore ??
-			(() => {
-				const backend = resolveDefaultSecretStorageBackend();
-				return {
-					backend,
-					secretStore: createSecretStore({ backend }),
-				};
-			}),
+		createSecretStore: deps.createSecretStore ?? (() => createSecretStoreRuntime()),
 		importSettingsFromEnv:
 			deps.importSettingsFromEnv ??
 			(async ({ secretStore, secretBackend }) => {
@@ -210,13 +206,13 @@ export async function bootstrapInteractiveRuntime(
 
 	const settingsStore = d.createSettingsStore();
 	const settingsLoadResult = await settingsStore.load();
-	const { backend, secretStore } = d.createSecretStore();
+	const { secretRefBackend, secretBackendState, secretStore } = d.createSecretStore();
 	let settings = settingsLoadResult.settings;
 	let initialValidationErrors: Record<string, string[]> = {};
 	if (settingsLoadResult.source === "missing") {
 		const imported = await d.importSettingsFromEnv({
 			secretStore,
-			secretBackend: backend,
+			secretBackend: secretRefBackend,
 		});
 		if (imported.settings.providers.length > 0) {
 			await settingsStore.save(imported.settings);
@@ -228,14 +224,15 @@ export async function bootstrapInteractiveRuntime(
 	const registry = d.createProviderRegistry({
 		settings,
 		secretStore,
-		secretBackend: backend,
+		secretBackend: secretRefBackend,
 	});
 	const startupState = await loadStartupProvidersAndCatalog(registry);
 	const llmClient = await d.createClient({ logger, providers: startupState.providers });
 	const settingsControlPlane = d.createSettingsControlPlane({
 		settingsStore,
 		secretStore,
-		secretBackend: backend,
+		secretBackend: secretRefBackend,
+		secretBackendState,
 		initialSettings: settings,
 		initialValidationErrors: {
 			...initialValidationErrors,

@@ -1,5 +1,6 @@
 import {
 	createProviderSecretRef,
+	type SecretBackendState,
 	type SecretStorageBackend,
 	type SecretStore,
 } from "./secret-store.ts";
@@ -42,8 +43,19 @@ export interface ProviderStatusSnapshot {
 
 export interface SettingsSnapshot {
 	settings: SproutSettings;
+	runtime: SettingsRuntimeSnapshot;
 	providers: ProviderStatusSnapshot[];
 	catalog: ProviderCatalogEntry[];
+}
+
+export interface SettingsRuntimeWarning {
+	code: "secret_backend_unavailable" | "invalid_settings_recovered";
+	message: string;
+}
+
+export interface SettingsRuntimeSnapshot {
+	secretBackend: SecretBackendState;
+	warnings: SettingsRuntimeWarning[];
 }
 
 export interface SelectionContextSnapshot {
@@ -106,8 +118,10 @@ export interface SettingsControlPlaneOptions {
 	settingsStore: SettingsStoreLike;
 	secretStore: SecretStore;
 	secretBackend: SecretStorageBackend;
+	secretBackendState?: SecretBackendState;
 	initialSettings: SproutSettings;
 	initialValidationErrors?: Record<string, string[]>;
+	runtimeWarnings?: SettingsRuntimeWarning[];
 	onSettingsUpdated?: (snapshot: SettingsSnapshot) => void;
 	checkConnection?: (provider: ProviderConfig, secret?: string) => Promise<void>;
 	refreshModels?: (provider: ProviderConfig, secret?: string) => Promise<ProviderModel[]>;
@@ -119,7 +133,9 @@ export class SettingsControlPlane {
 	private readonly settingsStore: SettingsStoreLike;
 	private readonly secretStore: SecretStore;
 	private readonly secretBackend: SecretStorageBackend;
+	private readonly secretBackendState: SecretBackendState;
 	private readonly initialValidationErrors: Record<string, string[]>;
+	private readonly runtimeWarnings: SettingsRuntimeWarning[];
 	private readonly onSettingsUpdated?: (snapshot: SettingsSnapshot) => void;
 	private readonly checkConnection?: (provider: ProviderConfig, secret?: string) => Promise<void>;
 	private readonly refreshModels?: (
@@ -135,7 +151,14 @@ export class SettingsControlPlane {
 		this.settingsStore = options.settingsStore;
 		this.secretStore = options.secretStore;
 		this.secretBackend = options.secretBackend;
+		this.secretBackendState = structuredClone(
+			options.secretBackendState ?? {
+				backend: options.secretBackend,
+				available: true,
+			},
+		);
 		this.initialValidationErrors = structuredClone(options.initialValidationErrors ?? {});
+		this.runtimeWarnings = structuredClone(options.runtimeWarnings ?? []);
 		this.onSettingsUpdated = options.onSettingsUpdated;
 		this.checkConnection = options.checkConnection;
 		this.refreshModels = options.refreshModels;
@@ -277,6 +300,15 @@ export class SettingsControlPlane {
 				secret,
 			);
 		} catch (error) {
+			if (!this.secretBackendState.available) {
+				return this.error(
+					"secret_backend_unavailable",
+					this.secretBackendState.message ?? "Secret storage backend is unavailable",
+					{
+						secret: this.secretBackendState.message ?? "Secret storage backend is unavailable",
+					},
+				);
+			}
 			return this.error(
 				"secret_store_failed",
 				error instanceof Error ? error.message : String(error),
@@ -294,6 +326,15 @@ export class SettingsControlPlane {
 		try {
 			await this.secretStore.deleteSecret(createProviderSecretRef(providerId, this.secretBackend));
 		} catch (error) {
+			if (!this.secretBackendState.available) {
+				return this.error(
+					"secret_backend_unavailable",
+					this.secretBackendState.message ?? "Secret storage backend is unavailable",
+					{
+						secret: this.secretBackendState.message ?? "Secret storage backend is unavailable",
+					},
+				);
+			}
 			return this.error(
 				"secret_store_failed",
 				error instanceof Error ? error.message : String(error),
@@ -505,6 +546,10 @@ export class SettingsControlPlane {
 
 		return {
 			settings: structuredClone(this.settings),
+			runtime: {
+				secretBackend: structuredClone(this.secretBackendState),
+				warnings: this.buildRuntimeWarnings(),
+			},
 			providers,
 			catalog: this.buildCatalogEntries(),
 		};
@@ -561,12 +606,28 @@ export class SettingsControlPlane {
 		const resolvedHasSecret = hasSecret ?? (await this.providerHasSecret(provider));
 		const validation = validateProviderRuntimeReadiness(provider, {
 			hasSecret: resolvedHasSecret,
-			secretBackendAvailable: true,
+			secretBackendAvailable: this.secretBackendState.available,
 		});
 		return {
 			errors: dedupe([...(this.initialValidationErrors[provider.id] ?? []), ...validation.errors]),
 			fieldErrors: validation.fieldErrors,
 		};
+	}
+
+	private buildRuntimeWarnings(): SettingsRuntimeWarning[] {
+		const warnings = [...this.runtimeWarnings];
+		if (!this.secretBackendState.available) {
+			warnings.push({
+				code: "secret_backend_unavailable",
+				message: this.secretBackendState.message ?? "Secret storage backend is unavailable",
+			});
+		}
+		return warnings.filter(
+			(warning, index, all) =>
+				all.findIndex(
+					(candidate) => candidate.code === warning.code && candidate.message === warning.message,
+				) === index,
+		);
 	}
 
 	private getOrCreateProviderState(providerId: string): StatusState {

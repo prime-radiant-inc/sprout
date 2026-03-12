@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { createSecretStore, type ProviderSecretRef } from "../../src/host/settings/secret-store.ts";
+import {
+	createSecretStore,
+	createSecretStoreRuntime,
+	type ProviderSecretRef,
+} from "../../src/host/settings/secret-store.ts";
 
 function makeSecretRef(storageBackend: ProviderSecretRef["storageBackend"]): ProviderSecretRef {
 	return {
@@ -129,5 +133,31 @@ describe("SecretStore", () => {
 		await expect(store.setSecret(makeSecretRef("macos-keychain"), "secret-value")).rejects.toThrow(
 			/security failed/i,
 		);
+	});
+
+	test("runtime creation degrades unsupported default backends without aborting", async () => {
+		const runtime = createSecretStoreRuntime({ platform: "win32" });
+
+		expect(runtime.secretBackendState).toEqual({
+			available: false,
+			message: "Unsupported secret backend for platform: win32",
+		});
+		expect(await runtime.secretStore.hasSecret(makeSecretRef("memory"))).toBe(false);
+		await expect(
+			runtime.secretStore.setSecret(makeSecretRef("memory"), "secret-value"),
+		).rejects.toThrow(/unsupported secret backend/i);
+	});
+
+	test("runtime creation preserves the requested backend name when it is unavailable", () => {
+		const runtime = createSecretStoreRuntime({
+			backend: "secret-service",
+			platform: "darwin",
+		});
+
+		expect(runtime.secretBackendState).toEqual({
+			backend: "secret-service",
+			available: false,
+			message: "Unsupported secret backend: secret-service",
+		});
 	});
 });

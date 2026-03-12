@@ -27,6 +27,10 @@ async function makePlane(
 	options: {
 		initialSettings?: SproutSettings;
 		secretStore?: SecretStore;
+		secretBackend?: ConstructorParameters<typeof SettingsControlPlane>[0]["secretBackend"];
+		secretBackendState?: ConstructorParameters<
+			typeof SettingsControlPlane
+		>[0]["secretBackendState"];
 		onSettingsUpdated?: (snapshot: SettingsSnapshot) => void;
 		checkConnection?: ConstructorParameters<typeof SettingsControlPlane>[0]["checkConnection"];
 		refreshModels?: ConstructorParameters<typeof SettingsControlPlane>[0]["refreshModels"];
@@ -45,7 +49,8 @@ async function makePlane(
 		settingsStore,
 		secretStore:
 			options.secretStore ?? createSecretStore({ backend: "memory", platform: "darwin" }),
-		secretBackend: "memory",
+		secretBackend: options.secretBackend ?? "memory",
+		secretBackendState: options.secretBackendState,
 		initialSettings: options.initialSettings ?? createEmptySettings(),
 		onSettingsUpdated: options.onSettingsUpdated,
 		checkConnection: options.checkConnection,
@@ -364,6 +369,114 @@ describe("SettingsControlPlane", () => {
 			message: "Gemini providers do not support custom non-secret headers",
 			fieldErrors: {
 				nonSecretHeaders: "Gemini providers do not support custom non-secret headers",
+			},
+		});
+	});
+
+	test("surfaces unavailable secret backends in snapshots and secret mutations", async () => {
+		const message = "Unsupported secret backend for platform: win32";
+		const unavailableSecretStore: SecretStore = {
+			async getSecret() {
+				return undefined;
+			},
+			async setSecret() {
+				throw new Error(message);
+			},
+			async deleteSecret() {
+				throw new Error(message);
+			},
+			async hasSecret() {
+				return false;
+			},
+		};
+		const plane = await makePlane({
+			secretStore: unavailableSecretStore,
+			secretBackendState: {
+				available: false,
+				message,
+			},
+			initialSettings: {
+				version: 1,
+				providers: [
+					{
+						id: "openai",
+						kind: "openai",
+						label: "OpenAI",
+						enabled: false,
+						discoveryStrategy: "remote-only",
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: { selection: { kind: "none" } },
+				routing: { providerPriority: [], tierOverrides: {} },
+			},
+		});
+
+		const snapshot = await plane.execute({ kind: "get_settings", data: {} });
+		expect(snapshot).toMatchObject({
+			ok: true,
+			snapshot: {
+				runtime: {
+					secretBackend: {
+						available: false,
+						message,
+					},
+				},
+				providers: [
+					{
+						providerId: "openai",
+						hasSecret: false,
+						validationErrors: ["Secret storage backend is unavailable"],
+					},
+				],
+			},
+		});
+
+		const enable = await plane.execute({
+			kind: "set_provider_enabled",
+			data: {
+				providerId: "openai",
+				enabled: true,
+			},
+		});
+		expect(enable).toEqual({
+			ok: false,
+			code: "validation_failed",
+			message: "Secret storage backend is unavailable",
+			fieldErrors: {
+				secret: "Secret storage backend is unavailable",
+			},
+		});
+
+		const saveSecret = await plane.execute({
+			kind: "set_provider_secret",
+			data: {
+				providerId: "openai",
+				secret: "openai-secret",
+			},
+		});
+		expect(saveSecret).toEqual({
+			ok: false,
+			code: "secret_backend_unavailable",
+			message,
+			fieldErrors: {
+				secret: message,
+			},
+		});
+
+		const deleteSecret = await plane.execute({
+			kind: "delete_provider_secret",
+			data: {
+				providerId: "openai",
+			},
+		});
+		expect(deleteSecret).toEqual({
+			ok: false,
+			code: "secret_backend_unavailable",
+			message,
+			fieldErrors: {
+				secret: message,
 			},
 		});
 	});

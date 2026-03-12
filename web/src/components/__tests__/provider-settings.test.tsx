@@ -26,6 +26,13 @@ import { ProviderSettingsPanel } from "../settings/ProviderSettingsPanel.tsx";
 
 function makeSettings(): SettingsSnapshot {
 	return {
+		runtime: {
+			secretBackend: {
+				backend: "memory",
+				available: true,
+			},
+			warnings: [],
+		},
 		settings: {
 			version: 1,
 			providers: [
@@ -148,6 +155,13 @@ describe("ProviderSettingsPanel", () => {
 			renderToStaticMarkup(
 				<ProviderSettingsPanel
 					settings={{
+						runtime: {
+							secretBackend: {
+								backend: "memory",
+								available: true,
+							},
+							warnings: [],
+						},
 						settings: {
 							version: 1,
 							providers: [],
