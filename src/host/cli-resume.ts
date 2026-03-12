@@ -4,8 +4,21 @@ import type { ResultMessage } from "../bus/types.ts";
 import { loadEventLog } from "../kernel/event-replay.ts";
 import type { SessionEvent } from "../kernel/types.ts";
 import type { Message } from "../llm/types.ts";
+import {
+	parseSessionSelectionRequest,
+	type SessionSelectionRequest,
+} from "../shared/session-selection.ts";
 import { replayEventLog } from "./resume.ts";
-import { listSessions } from "./session-metadata.ts";
+import {
+	listSessions,
+	loadSessionMetadata,
+	type SessionMetadataSnapshot,
+} from "./session-metadata.ts";
+import {
+	resolveSessionSelectionRequest,
+	type SessionSelectionContext,
+	type SessionSelectionSnapshot,
+} from "./session-selection.ts";
 import { loadAllEventLogs } from "./session-state.ts";
 
 export interface ResumeCommand {
@@ -17,6 +30,7 @@ export interface ResumeState {
 	sessionId: string;
 	history: Message[];
 	events: SessionEvent[];
+	selectionRequest?: SessionSelectionRequest;
 	completedHandles?:
 		| Array<{
 				handleId: string;
@@ -28,6 +42,7 @@ export interface ResumeState {
 
 interface ResumeDeps {
 	listSessions: typeof listSessions;
+	loadSessionMetadata: typeof loadSessionMetadata;
 	replayEventLog: typeof replayEventLog;
 	loadEventLog: typeof loadEventLog;
 	extractChildHandles: typeof extractChildHandles;
@@ -52,6 +67,7 @@ export async function loadResumeState(
 ): Promise<ResumeState | undefined> {
 	const d: ResumeDeps = {
 		listSessions: deps.listSessions ?? listSessions,
+		loadSessionMetadata: deps.loadSessionMetadata ?? loadSessionMetadata,
 		replayEventLog: deps.replayEventLog ?? replayEventLog,
 		loadEventLog: deps.loadEventLog ?? loadEventLog,
 		extractChildHandles: deps.extractChildHandles ?? extractChildHandles,
@@ -68,6 +84,12 @@ export async function loadResumeState(
 	} else {
 		sessionId = opts.command.sessionId ?? "";
 	}
+
+	let selectionRequest: SessionSelectionRequest | undefined;
+	try {
+		const snapshot = await d.loadSessionMetadata(join(opts.sessionsDir, `${sessionId}.meta.json`));
+		selectionRequest = metadataSnapshotToSelectionRequest(snapshot);
+	} catch {}
 
 	const logPath = join(opts.projectDataDir, "logs", `${sessionId}.jsonl`);
 	const history = await d.replayEventLog(logPath);
@@ -108,6 +130,23 @@ export async function loadResumeState(
 		sessionId,
 		history,
 		events,
+		selectionRequest,
 		completedHandles,
 	};
+}
+
+export function resolveResumeSelection(
+	selection: SessionSelectionRequest,
+	context: SessionSelectionContext,
+): SessionSelectionSnapshot {
+	return resolveSessionSelectionRequest(selection, context);
+}
+
+function metadataSnapshotToSelectionRequest(
+	snapshot: SessionMetadataSnapshot,
+): SessionSelectionRequest {
+	if ("selection" in snapshot) {
+		return snapshot.selection;
+	}
+	return parseSessionSelectionRequest(snapshot.model);
 }

@@ -4,10 +4,7 @@ import { createAgent } from "../agents/factory.ts";
 import type { AgentSpawner } from "../bus/spawner.ts";
 import type { Command, ModelRef, SessionEvent } from "../kernel/types.ts";
 import type { Message } from "../llm/types.ts";
-import {
-	formatModelOverride,
-	selectionRequestToModelOverride,
-} from "../shared/session-selection.ts";
+import type { SessionSelectionRequest } from "../shared/session-selection.ts";
 import { ulid } from "../util/ulid.ts";
 import { compactHistory } from "./compaction.ts";
 import type { SessionBus } from "./event-bus.ts";
@@ -21,6 +18,13 @@ import {
 	persistRunningMetadata,
 	persistTerminalMetadata,
 } from "./session-metadata-updater.ts";
+import {
+	createDefaultSessionSelectionSnapshot,
+	defaultResolveSessionSelectionRequest,
+	formatSessionSelectionSnapshot,
+	type SessionSelectionSnapshot,
+	selectionSnapshotToModelOverride,
+} from "./session-selection.ts";
 import {
 	applyHistoryShadowUpdate,
 	beginSubmitGoalTransition,
@@ -112,6 +116,8 @@ export interface SessionControllerOptions {
 	logger?: import("./logger.ts").Logger;
 	/** Pre-configured LLM client (e.g. with middleware) to forward to the agent factory. */
 	client?: import("../llm/client.ts").Client;
+	initialSelection?: SessionSelectionSnapshot;
+	resolveSelection?: (selection: SessionSelectionRequest) => SessionSelectionSnapshot;
 }
 
 /**
@@ -187,9 +193,12 @@ export class SessionController {
 	private readonly completedHandles?: SessionControllerOptions["completedHandles"];
 	private readonly logger?: import("./logger.ts").Logger;
 	private readonly client?: import("../llm/client.ts").Client;
+	private readonly resolveSelectionFn: (
+		selection: SessionSelectionRequest,
+	) => SessionSelectionSnapshot;
 	private history: Message[] = [];
 	private running = false;
-	private modelOverride?: string | ModelRef;
+	private selectionSnapshot: SessionSelectionSnapshot;
 	private hasRun = false;
 	/** Suppresses event accumulation after /clear until the next submitGoal. */
 	private suppressEvents = false;
@@ -218,12 +227,15 @@ export class SessionController {
 		this.completedHandles = options.completedHandles;
 		this.logger = options.logger;
 		this.client = options.client;
+		this.resolveSelectionFn = options.resolveSelection ?? defaultResolveSessionSelectionRequest;
+		this.selectionSnapshot = options.initialSelection ?? createDefaultSessionSelectionSnapshot();
 		this.history = options.initialHistory ? [...options.initialHistory] : [];
 
 		this.metadata = new SessionMetadata({
 			sessionId: this._sessionId,
 			agentSpec: options.rootAgent ?? "root",
-			model: "best",
+			selection: this.selectionSnapshot.selection,
+			resolvedModel: this.selectionSnapshot.resolved,
 			sessionsDir: join(this.projectDataDir, "sessions"),
 		});
 
@@ -262,7 +274,7 @@ export class SessionController {
 				this.clearSession();
 			},
 			switchModel: (selection) => {
-				this.modelOverride = selectionRequestToModelOverride(selection);
+				this.selectionSnapshot = this.resolveSelectionFn(selection ?? { kind: "inherit" });
 			},
 			quit: () => {
 				this.interrupt();
@@ -307,7 +319,8 @@ export class SessionController {
 		this.metadata = new SessionMetadata({
 			sessionId: this._sessionId,
 			agentSpec: this.rootAgentName ?? "root",
-			model: this.currentModel ?? "best",
+			selection: this.selectionSnapshot.selection,
+			resolvedModel: this.selectionSnapshot.resolved,
 			sessionsDir: join(this.projectDataDir, "sessions"),
 		});
 		if (this.logger) {
@@ -400,6 +413,8 @@ export class SessionController {
 			await this.metadata.loadIfExists(metaPath);
 		}
 
+		this.selectionSnapshot = this.resolveSelectionFn(this.selectionSnapshot.selection);
+		this.metadata.setSelection(this.selectionSnapshot.selection, this.selectionSnapshot.resolved);
 		this.running = true;
 		this.runGeneration++;
 		const generation = this.runGeneration;
@@ -420,7 +435,7 @@ export class SessionController {
 				events: this.bus,
 				sessionId: this._sessionId,
 				initialHistory: this.history.length > 0 ? [...this.history] : undefined,
-				model: this.modelOverride,
+				model: selectionSnapshotToModelOverride(this.selectionSnapshot),
 				spawner: this.spawner,
 				genome: this.genome,
 				completedHandles: this.completedHandles,
@@ -480,6 +495,10 @@ export class SessionController {
 	}
 
 	get currentModel(): string | undefined {
-		return formatModelOverride(this.modelOverride);
+		return formatSessionSelectionSnapshot(this.selectionSnapshot);
+	}
+
+	get currentSelection(): SessionSelectionSnapshot {
+		return this.selectionSnapshot;
 	}
 }

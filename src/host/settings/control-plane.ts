@@ -41,6 +41,11 @@ export interface SettingsSnapshot {
 	catalog: ProviderCatalogEntry[];
 }
 
+export interface SelectionContextSnapshot {
+	settings: Pick<SproutSettings, "providers" | "routing">;
+	catalog: ProviderCatalogEntry[];
+}
+
 export type SettingsCommand =
 	| { kind: "get_settings"; data: Record<string, never> }
 	| {
@@ -137,6 +142,16 @@ export class SettingsControlPlane {
 				catalogStatus: "never-loaded",
 			});
 		}
+	}
+
+	getSelectionContext(): SelectionContextSnapshot {
+		return {
+			settings: {
+				providers: structuredClone(this.settings.providers),
+				routing: structuredClone(this.settings.routing),
+			},
+			catalog: this.buildCatalogEntries(),
+		};
 	}
 
 	async execute(command: SettingsCommand): Promise<SettingsCommandResult> {
@@ -470,9 +485,17 @@ export class SettingsControlPlane {
 			});
 		}
 
-		const catalog = this.settings.providers.map((provider) => {
+		return {
+			settings: structuredClone(this.settings),
+			providers,
+			catalog: this.buildCatalogEntries(),
+		};
+	}
+
+	private buildCatalogEntries(): ProviderCatalogEntry[] {
+		return this.settings.providers.map((provider) => {
 			const entry = this.providerCatalog.get(provider.id);
-			if (entry) return entry;
+			if (entry) return structuredClone(entry);
 			if (provider.discoveryStrategy === "manual-only") {
 				return {
 					providerId: provider.id,
@@ -484,12 +507,6 @@ export class SettingsControlPlane {
 				models: [],
 			};
 		});
-
-		return {
-			settings: structuredClone(this.settings),
-			providers,
-			catalog,
-		};
 	}
 
 	private async loadProviderModels(

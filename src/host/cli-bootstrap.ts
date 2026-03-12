@@ -8,9 +8,16 @@ import { loggingMiddleware } from "../llm/logging-middleware.ts";
 import { buildCatalogEntry, type ProviderCatalogEntry } from "../llm/model-catalog.ts";
 import { ProviderRegistry, type ProviderRegistryEntry } from "../llm/provider-registry.ts";
 import type { Message, ProviderAdapter } from "../llm/types.ts";
+import type { SessionSelectionRequest } from "../shared/session-selection.ts";
 import { EventBus } from "./event-bus.ts";
 import { SessionLogger } from "./logger.ts";
 import { SessionController } from "./session-controller.ts";
+import {
+	defaultResolveSessionSelectionRequest,
+	resolveSessionSelectionRequest,
+	type SessionSelectionContext,
+	type SessionSelectionSnapshot,
+} from "./session-selection.ts";
 import { SettingsControlPlane } from "./settings/control-plane.ts";
 import { type EnvImportResult, importSettingsFromEnv } from "./settings/env-import.ts";
 import {
@@ -35,6 +42,7 @@ export interface InteractiveBootstrapOptions {
 	rootDir: string;
 	sessionId: string;
 	initialHistory?: Message[];
+	initialSelectionRequest?: SessionSelectionRequest;
 	completedHandles?: Array<{ handleId: string; result: ResultMessage; ownerId: string }>;
 	infra: { spawner: AgentSpawner; genome: Genome };
 	logStderr?: boolean;
@@ -81,6 +89,8 @@ interface InteractiveBootstrapDeps {
 		rootDir: string;
 		sessionId: string;
 		initialHistory?: Message[];
+		initialSelection?: SessionSelectionSnapshot;
+		resolveSelection?: (selection: SessionSelectionRequest) => SessionSelectionSnapshot;
 		spawner: AgentSpawner;
 		genome: Genome;
 		completedHandles?: Array<{ handleId: string; result: ResultMessage; ownerId: string }>;
@@ -157,6 +167,8 @@ export async function bootstrapInteractiveRuntime(
 					rootDir: controllerOpts.rootDir,
 					sessionId: controllerOpts.sessionId,
 					initialHistory: controllerOpts.initialHistory,
+					initialSelection: controllerOpts.initialSelection,
+					resolveSelection: controllerOpts.resolveSelection,
 					spawner: controllerOpts.spawner,
 					genome: controllerOpts.genome,
 					completedHandles: controllerOpts.completedHandles,
@@ -232,6 +244,12 @@ export async function bootstrapInteractiveRuntime(
 		checkConnection: createRuntimeConnectionChecker(registry),
 		refreshModels: createRuntimeModelRefresher(registry),
 	});
+	const resolveSelection = createSelectionResolver(
+		settingsControlPlane as { getSelectionContext?: () => SessionSelectionContext },
+	);
+	const initialSelection = opts.initialSelectionRequest
+		? resolveSelection(opts.initialSelectionRequest)
+		: undefined;
 	const controller = d.createController({
 		bus,
 		genomePath: opts.genomePath,
@@ -239,6 +257,8 @@ export async function bootstrapInteractiveRuntime(
 		rootDir: opts.rootDir,
 		sessionId: opts.sessionId,
 		initialHistory: opts.initialHistory,
+		initialSelection,
+		resolveSelection,
 		spawner: opts.infra.spawner,
 		genome: opts.infra.genome,
 		completedHandles: opts.completedHandles,
@@ -248,6 +268,16 @@ export async function bootstrapInteractiveRuntime(
 	const availableModels = await d.loadAvailableModels(startupState.catalog);
 
 	return { bus, logger, llmClient, settingsControlPlane, controller, availableModels };
+}
+
+function createSelectionResolver(controlPlane: {
+	getSelectionContext?: () => SessionSelectionContext;
+}): (selection: SessionSelectionRequest) => SessionSelectionSnapshot {
+	if (!controlPlane.getSelectionContext) {
+		return defaultResolveSessionSelectionRequest;
+	}
+	return (selection) =>
+		resolveSessionSelectionRequest(selection, controlPlane.getSelectionContext!());
 }
 
 async function loadStartupProvidersAndCatalog(registry: {

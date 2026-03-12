@@ -1,10 +1,10 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { ModelRef, SessionModelSelection } from "./settings/types.ts";
 
-export interface SessionMetadataSnapshot {
+interface SessionMetadataBaseSnapshot {
 	sessionId: string;
 	agentSpec: string;
-	model: string;
 	status: "idle" | "running" | "interrupted";
 	turns: number;
 	contextTokens: number;
@@ -13,17 +13,30 @@ export interface SessionMetadataSnapshot {
 	updatedAt: string;
 }
 
+export interface PersistedSessionMetadataSnapshot extends SessionMetadataBaseSnapshot {
+	selection: SessionModelSelection;
+	resolvedModel?: ModelRef;
+}
+
+export interface LegacySessionMetadataSnapshot extends SessionMetadataBaseSnapshot {
+	model: string;
+}
+
+export type SessionMetadataSnapshot =
+	| PersistedSessionMetadataSnapshot
+	| LegacySessionMetadataSnapshot;
+
 interface SessionMetadataOptions {
 	sessionId: string;
 	agentSpec: string;
-	model: string;
+	selection: SessionModelSelection;
+	resolvedModel?: ModelRef;
 	sessionsDir: string;
 }
 
 export class SessionMetadata {
 	private readonly sessionId: string;
 	private readonly agentSpec: string;
-	private readonly model: string;
 	private readonly sessionsDir: string;
 	private readonly createdAt: string;
 
@@ -31,11 +44,14 @@ export class SessionMetadata {
 	private turns = 0;
 	private contextTokens = 0;
 	private contextWindowSize = 0;
+	private selection: SessionModelSelection;
+	private resolvedModel?: ModelRef;
 
 	constructor(options: SessionMetadataOptions) {
 		this.sessionId = options.sessionId;
 		this.agentSpec = options.agentSpec;
-		this.model = options.model;
+		this.selection = options.selection;
+		this.resolvedModel = options.resolvedModel;
 		this.sessionsDir = options.sessionsDir;
 		this.createdAt = new Date().toISOString();
 	}
@@ -50,13 +66,19 @@ export class SessionMetadata {
 		this.status = status;
 	}
 
+	setSelection(selection: SessionModelSelection, resolvedModel?: ModelRef): void {
+		this.selection = selection;
+		this.resolvedModel = resolvedModel;
+	}
+
 	async save(): Promise<void> {
 		await mkdir(this.sessionsDir, { recursive: true });
 
-		const snapshot: SessionMetadataSnapshot = {
+		const snapshot: PersistedSessionMetadataSnapshot = {
 			sessionId: this.sessionId,
 			agentSpec: this.agentSpec,
-			model: this.model,
+			selection: this.selection,
+			resolvedModel: this.resolvedModel,
 			status: this.status,
 			turns: this.turns,
 			contextTokens: this.contextTokens,
@@ -93,12 +115,12 @@ export async function loadSessionMetadata(path: string): Promise<SessionMetadata
 	return JSON.parse(raw) as SessionMetadataSnapshot;
 }
 
-export interface SessionListEntry extends SessionMetadataSnapshot {
+export type SessionListEntry = SessionMetadataSnapshot & {
 	/** Text of the first user goal submitted in this session. */
 	firstPrompt?: string;
 	/** Text of the last assistant response in this session. */
 	lastMessage?: string;
-}
+};
 
 /** Scan a directory for *.meta.json files and return snapshots sorted by filename (ULID order). */
 export async function listSessions(sessionsDir: string): Promise<SessionMetadataSnapshot[]> {

@@ -723,6 +723,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 		rootDir,
 		sessionId,
 		initialHistory: resumeState?.history,
+		initialSelectionRequest: resumeState?.selectionRequest,
 		completedHandles: resumeState?.completedHandles,
 		infra,
 		logStderr: command.logStderr,

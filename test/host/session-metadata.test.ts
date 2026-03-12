@@ -6,9 +6,15 @@ import {
 	listSessions,
 	loadSessionMetadata,
 	loadSessionSummaries,
+	type PersistedSessionMetadataSnapshot,
 	SessionMetadata,
 	type SessionMetadataSnapshot,
 } from "../../src/host/session-metadata.ts";
+
+const defaultSelection = {
+	kind: "model",
+	model: { providerId: "anthropic", modelId: "claude-haiku" },
+} as const;
 
 describe("SessionMetadata", () => {
 	let tempDir: string;
@@ -25,7 +31,8 @@ describe("SessionMetadata", () => {
 		const meta = new SessionMetadata({
 			sessionId: "01JTEST000000000000000001",
 			agentSpec: "root",
-			model: "claude-haiku",
+			selection: defaultSelection,
+			resolvedModel: defaultSelection.model,
 			sessionsDir: tempDir,
 		});
 
@@ -37,7 +44,10 @@ describe("SessionMetadata", () => {
 
 		expect(snapshot.sessionId).toBe("01JTEST000000000000000001");
 		expect(snapshot.agentSpec).toBe("root");
-		expect(snapshot.model).toBe("claude-haiku");
+		expect((snapshot as PersistedSessionMetadataSnapshot).selection).toEqual(defaultSelection);
+		expect((snapshot as PersistedSessionMetadataSnapshot).resolvedModel).toEqual(
+			defaultSelection.model,
+		);
 		expect(snapshot.status).toBe("idle");
 		expect(snapshot.turns).toBe(0);
 		expect(snapshot.contextTokens).toBe(0);
@@ -51,7 +61,8 @@ describe("SessionMetadata", () => {
 		const meta = new SessionMetadata({
 			sessionId: "01JTEST000000000000000001",
 			agentSpec: "root",
-			model: "claude-haiku",
+			selection: defaultSelection,
+			resolvedModel: defaultSelection.model,
 			sessionsDir: nestedDir,
 		});
 
@@ -65,7 +76,8 @@ describe("SessionMetadata", () => {
 		const meta = new SessionMetadata({
 			sessionId: "01JTEST000000000000000002",
 			agentSpec: "root",
-			model: "claude-haiku",
+			selection: defaultSelection,
+			resolvedModel: defaultSelection.model,
 			sessionsDir: tempDir,
 		});
 
@@ -84,7 +96,8 @@ describe("SessionMetadata", () => {
 		const meta = new SessionMetadata({
 			sessionId: "01JTEST000000000000000003",
 			agentSpec: "root",
-			model: "claude-haiku",
+			selection: defaultSelection,
+			resolvedModel: defaultSelection.model,
 			sessionsDir: tempDir,
 		});
 
@@ -101,7 +114,8 @@ describe("SessionMetadata", () => {
 		const meta = new SessionMetadata({
 			sessionId: "01JTEST000000000000000004",
 			agentSpec: "root",
-			model: "claude-haiku",
+			selection: defaultSelection,
+			resolvedModel: defaultSelection.model,
 			sessionsDir: tempDir,
 		});
 
@@ -117,6 +131,33 @@ describe("SessionMetadata", () => {
 
 		expect(second.updatedAt >= first.updatedAt).toBe(true);
 		expect(second.createdAt).toBe(first.createdAt);
+	});
+
+	test("save persists canonical selection and resolvedModel", async () => {
+		const meta = new SessionMetadata({
+			sessionId: "01JTEST000000000000000010",
+			agentSpec: "root",
+			selection: {
+				kind: "model",
+				model: { providerId: "openai", modelId: "gpt-4o" },
+			},
+			resolvedModel: { providerId: "openai", modelId: "gpt-4o" },
+			sessionsDir: tempDir,
+		});
+
+		await meta.save();
+
+		const snapshot = await loadSessionMetadata(
+			join(tempDir, "01JTEST000000000000000010.meta.json"),
+		);
+		expect((snapshot as PersistedSessionMetadataSnapshot).selection).toEqual({
+			kind: "model",
+			model: { providerId: "openai", modelId: "gpt-4o" },
+		});
+		expect((snapshot as PersistedSessionMetadataSnapshot).resolvedModel).toEqual({
+			providerId: "openai",
+			modelId: "gpt-4o",
+		});
 	});
 });
 
@@ -135,7 +176,7 @@ describe("loadSessionMetadata", () => {
 		const meta = new SessionMetadata({
 			sessionId: "01JTEST000000000000000005",
 			agentSpec: "planner",
-			model: "claude-sonnet",
+			selection: { kind: "tier", tier: "balanced" },
 			sessionsDir: tempDir,
 		});
 		meta.updateTurn(5, 3000, 200000);
@@ -148,11 +189,28 @@ describe("loadSessionMetadata", () => {
 
 		expect(snapshot.sessionId).toBe("01JTEST000000000000000005");
 		expect(snapshot.agentSpec).toBe("planner");
-		expect(snapshot.model).toBe("claude-sonnet");
+		expect((snapshot as PersistedSessionMetadataSnapshot).selection).toEqual({
+			kind: "tier",
+			tier: "balanced",
+		});
 		expect(snapshot.status).toBe("interrupted");
 		expect(snapshot.turns).toBe(5);
 		expect(snapshot.contextTokens).toBe(3000);
 		expect(snapshot.contextWindowSize).toBe(200000);
+	});
+
+	test("loadSessionMetadata preserves legacy raw model snapshots for migration", async () => {
+		const sessionId = "01LEGACY_MODEL_TEST";
+		const metaPath = join(tempDir, `${sessionId}.meta.json`);
+
+		await writeLegacySnapshot(metaPath, {
+			sessionId,
+			agentSpec: "root",
+			model: "claude-sonnet-4-6",
+		});
+
+		const snapshot = await loadSessionMetadata(metaPath);
+		expect("model" in snapshot ? snapshot.model : undefined).toBe("claude-sonnet-4-6");
 	});
 });
 
@@ -191,7 +249,7 @@ describe("loadIfExists", () => {
 		const meta = new SessionMetadata({
 			sessionId,
 			agentSpec: "root",
-			model: "best",
+			selection: { kind: "tier", tier: "best" },
 			sessionsDir: tempDir,
 		});
 
@@ -225,7 +283,7 @@ describe("loadIfExists", () => {
 		const meta = new SessionMetadata({
 			sessionId,
 			agentSpec: "root",
-			model: "best",
+			selection: { kind: "tier", tier: "best" },
 			sessionsDir: tempDir,
 		});
 
@@ -240,7 +298,7 @@ describe("loadIfExists", () => {
 		const meta = new SessionMetadata({
 			sessionId: "01NONEXISTENT",
 			agentSpec: "root",
-			model: "best",
+			selection: { kind: "tier", tier: "best" },
 			sessionsDir: tempDir,
 		});
 
@@ -248,6 +306,28 @@ describe("loadIfExists", () => {
 		await meta.loadIfExists(join(tempDir, "nonexistent.meta.json"));
 	});
 });
+
+async function writeLegacySnapshot(
+	path: string,
+	values: {
+		sessionId: string;
+		agentSpec: string;
+		model: string;
+	},
+): Promise<void> {
+	await Bun.write(
+		path,
+		JSON.stringify({
+			...values,
+			status: "idle",
+			turns: 0,
+			contextTokens: 0,
+			contextWindowSize: 0,
+			createdAt: new Date().toISOString(),
+			updatedAt: new Date().toISOString(),
+		}),
+	);
+}
 
 describe("listSessions", () => {
 	let tempDir: string;
@@ -271,7 +351,8 @@ describe("listSessions", () => {
 			const meta = new SessionMetadata({
 				sessionId: id,
 				agentSpec: "root",
-				model: "claude-haiku",
+				selection: defaultSelection,
+				resolvedModel: defaultSelection.model,
 				sessionsDir: tempDir,
 			});
 			await meta.save();
@@ -296,7 +377,8 @@ describe("listSessions", () => {
 		const meta = new SessionMetadata({
 			sessionId: "01GOOD000000000000000000",
 			agentSpec: "root",
-			model: "claude-haiku",
+			selection: defaultSelection,
+			resolvedModel: defaultSelection.model,
 			sessionsDir: tempDir,
 		});
 		await meta.save();
@@ -331,7 +413,8 @@ describe("loadSessionSummaries", () => {
 		const meta = new SessionMetadata({
 			sessionId: id,
 			agentSpec: "root",
-			model: "claude-haiku",
+			selection: defaultSelection,
+			resolvedModel: defaultSelection.model,
 			sessionsDir,
 		});
 		await meta.save();
