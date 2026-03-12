@@ -369,6 +369,62 @@ describe("bootstrapInteractiveRuntime", () => {
 		});
 	});
 
+	test("threads backend-unavailable startup validation into the control plane without a fake missing-secret error", async () => {
+		const created: Record<string, unknown> = {};
+		const settings = {
+			...createEmptySettings(),
+			providers: [
+				{
+					id: "openai",
+					kind: "openai" as const,
+					label: "OpenAI",
+					enabled: true,
+					discoveryStrategy: "remote-only" as const,
+					createdAt: "2026-03-11T12:34:56.000Z",
+					updatedAt: "2026-03-11T12:34:56.000Z",
+				},
+			],
+			routing: {
+				providerPriority: ["openai"],
+				tierOverrides: {},
+			},
+		};
+
+		await bootstrapInteractiveRuntime(
+			{
+				genomePath: "/tmp/genome",
+				projectDataDir: "/tmp/project",
+				rootDir: "/tmp/root",
+				sessionId: "01BOOT",
+				infra: { spawner: { id: "spawner" } as any, genome: { id: "genome" } as any },
+			},
+			{
+				createBus: () => ({ id: "bus" }),
+				createSettingsStore: () => ({
+					load: async () => ({
+						settings,
+						skipEnvImport: false,
+						source: "loaded" as const,
+					}),
+					save: async () => {},
+				}),
+				createSecretStore: () => unavailableSecretStore(),
+				createLogger: () => ({ info: () => {} }),
+				createClient: async () => ({ id: "client" }),
+				createSettingsControlPlane: (options) => {
+					created.controlPlaneOptions = options;
+					return { id: "control-plane" };
+				},
+				createController: () => ({ sessionId: "01BOOT" }),
+				loadAvailableModels: async () => [],
+			},
+		);
+
+		expect((created.controlPlaneOptions as any).initialValidationErrors).toEqual({
+			openai: ["Secret storage backend is unavailable"],
+		});
+	});
+
 	test("builds the runtime client from the settings-backed registry and derives available models from the catalog", async () => {
 		const created: Record<string, unknown> = {};
 		const settings = {

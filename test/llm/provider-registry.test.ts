@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
 	createProviderSecretRef,
 	createSecretStore,
+	createSecretStoreRuntime,
 } from "../../src/host/settings/secret-store.ts";
 import type { ProviderConfig, SproutSettings } from "../../src/host/settings/types.ts";
 import { ProviderRegistry } from "../../src/llm/provider-registry.ts";
@@ -127,6 +128,33 @@ describe("ProviderRegistry", () => {
 		const entry = await registry.getEntry("openai");
 		expect(entry?.adapter).toBeUndefined();
 		expect(entry?.validationErrors).toContain("API key is required");
+	});
+
+	test("reports unavailable secret backend distinctly instead of collapsing it into a missing secret", async () => {
+		const runtime = createSecretStoreRuntime({
+			backend: "macos-keychain",
+			platform: "linux",
+		});
+		const registry = new ProviderRegistry({
+			settings: makeSettings([
+				{
+					id: "openai",
+					kind: "openai",
+					label: "OpenAI",
+					enabled: true,
+					discoveryStrategy: "remote-only",
+					createdAt: "2026-03-11T12:00:00.000Z",
+					updatedAt: "2026-03-11T12:00:00.000Z",
+				},
+			]),
+			secretStore: runtime.secretStore,
+			secretBackend: runtime.secretRefBackend,
+			secretBackendState: runtime.secretBackendState,
+		});
+
+		const entry = await registry.getEntry("openai");
+		expect(entry?.adapter).toBeUndefined();
+		expect(entry?.validationErrors).toEqual(["Secret storage backend is unavailable"]);
 	});
 
 	test("reports malformed base URLs consistently instead of constructing adapters", async () => {

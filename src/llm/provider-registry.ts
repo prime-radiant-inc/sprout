@@ -1,5 +1,6 @@
 import {
 	createProviderSecretRef,
+	type SecretBackendState,
 	type SecretStorageBackend,
 	type SecretStore,
 } from "../host/settings/secret-store.ts";
@@ -20,6 +21,7 @@ export interface ProviderRegistryOptions {
 	settings: SproutSettings;
 	secretStore: SecretStore;
 	secretBackend: SecretStorageBackend;
+	secretBackendState?: SecretBackendState;
 }
 
 export interface ProviderRegistryEntry {
@@ -32,12 +34,17 @@ export class ProviderRegistry {
 	private readonly settings: SproutSettings;
 	private readonly secretStore: SecretStore;
 	private readonly secretBackend: SecretStorageBackend;
+	private readonly secretBackendState: SecretBackendState;
 	private readonly cache = new Map<string, Promise<ProviderRegistryEntry>>();
 
 	constructor(options: ProviderRegistryOptions) {
 		this.settings = options.settings;
 		this.secretStore = options.secretStore;
 		this.secretBackend = options.secretBackend;
+		this.secretBackendState = options.secretBackendState ?? {
+			backend: options.secretBackend,
+			available: true,
+		};
 	}
 
 	async getEntry(providerId: string): Promise<ProviderRegistryEntry | undefined> {
@@ -75,7 +82,7 @@ export class ProviderRegistry {
 			: false;
 		return validateProviderRuntimeReadiness(provider, {
 			hasSecret,
-			secretBackendAvailable: true,
+			secretBackendAvailable: this.secretBackendState.available,
 		}).errors;
 	}
 

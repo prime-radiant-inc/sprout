@@ -68,6 +68,7 @@ interface InteractiveBootstrapDeps {
 		settings: SproutSettings;
 		secretStore: SecretStore;
 		secretBackend: SecretStorageBackend;
+		secretBackendState: SecretBackendState;
 	}) => {
 		getEntries(): Promise<ProviderRegistryEntry[]>;
 		getEntry(providerId: string): Promise<ProviderRegistryEntry | undefined>;
@@ -226,6 +227,7 @@ export async function bootstrapInteractiveRuntime(
 		settings,
 		secretStore,
 		secretBackend: secretRefBackend,
+		secretBackendState,
 	});
 	const startupState = await loadStartupProvidersAndCatalog(registry);
 	const llmClient = await d.createClient({ logger, providers: startupState.providers });
