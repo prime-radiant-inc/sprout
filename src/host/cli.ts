@@ -8,7 +8,7 @@ import { formatSessionSelectionRequest } from "../shared/session-selection.ts";
 import { projectDataDir as computeProjectDataDir } from "../util/project-id.ts";
 import { bootstrapInteractiveRuntime } from "./cli-bootstrap.ts";
 import { isGenomeCommand, runGenomeCommand } from "./cli-genome.ts";
-import { runInteractiveMode } from "./cli-interactive.ts";
+import { type InteractiveModeOptions, runInteractiveMode } from "./cli-interactive.ts";
 import { runListMode } from "./cli-list.ts";
 import { runOneshotMode } from "./cli-oneshot.ts";
 import { loadResumeState } from "./cli-resume.ts";
@@ -112,6 +112,19 @@ export async function resolveProjectDir(): Promise<string> {
 /** Returns the path to the persistent input history file inside the genome directory. */
 export function inputHistoryPath(genomePath: string): string {
 	return join(genomePath, "input_history.txt");
+}
+
+export function buildInteractiveModeRuntime(
+	runtime: Awaited<ReturnType<typeof bootstrapInteractiveRuntime>>,
+): InteractiveModeOptions["runtime"] {
+	return {
+		bus: runtime.bus as import("./event-bus.ts").EventBus,
+		logger: runtime.logger as import("./logger.ts").SessionLogger,
+		controller: runtime.controller as import("./session-controller.ts").SessionController,
+		availableModels: runtime.availableModels,
+		settingsControlPlane:
+			runtime.settingsControlPlane as InteractiveModeOptions["runtime"]["settingsControlPlane"],
+	};
 }
 
 export interface WebFlags {
@@ -731,10 +744,6 @@ export async function runCli(command: CliCommand): Promise<void> {
 		logStderr: command.logStderr,
 		debug: command.debug,
 	});
-	const bus = runtime.bus as import("./event-bus.ts").EventBus;
-	const logger = runtime.logger as import("./logger.ts").SessionLogger;
-	const controller = runtime.controller as import("./session-controller.ts").SessionController;
-	const { availableModels } = runtime;
 	await runInteractiveMode({
 		command: {
 			genomePath: command.genomePath,
@@ -746,12 +755,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 		},
 		sessionId,
 		projectDataDir,
-		runtime: {
-			bus,
-			logger,
-			controller,
-			availableModels,
-		},
+		runtime: buildInteractiveModeRuntime(runtime),
 		initialEvents: resumeState?.events,
 		cleanupInfra: infra.cleanup,
 		onResumeHint: printResumeHint,

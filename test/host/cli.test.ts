@@ -4,6 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { checkHandleCompleted, extractChildHandles } from "../../src/bus/resume.ts";
 import {
+	buildInteractiveModeRuntime,
 	configureTerminal,
 	handleSlashCommand,
 	inputHistoryPath,
@@ -33,6 +34,43 @@ function restoreEnv(saved: Record<string, string | undefined>) {
 }
 
 const defaultGenomePath = join(homedir(), ".local/share/sprout-genome");
+
+describe("buildInteractiveModeRuntime", () => {
+	test("preserves the settings control plane for interactive mode", () => {
+		const settingsControlPlane = {
+			execute: async () => ({
+				ok: true as const,
+				snapshot: {
+					runtime: {
+						secretBackend: {
+							backend: "memory" as const,
+							available: true,
+						},
+						warnings: [],
+					},
+					settings: {
+						version: 1 as const,
+						providers: [],
+						defaults: { selection: { kind: "none" as const } },
+						routing: { providerPriority: [], tierOverrides: {} },
+					},
+					providers: [],
+					catalog: [],
+				},
+			}),
+		};
+		const runtime = buildInteractiveModeRuntime({
+			bus: {} as never,
+			logger: {} as never,
+			llmClient: {} as never,
+			settingsControlPlane: settingsControlPlane as never,
+			controller: {} as never,
+			availableModels: ["best"],
+		});
+
+		expect(runtime.settingsControlPlane).toBe(settingsControlPlane);
+	});
+});
 
 describe("parseArgs", () => {
 	test("no args → interactive mode", () => {
