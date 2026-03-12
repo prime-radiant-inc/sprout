@@ -20,6 +20,10 @@ function makeStatus(overrides: Partial<SessionStatus> = {}): SessionStatus {
 		contextWindowSize: 200000,
 		sessionId: "abc-123-def",
 		availableModels: [],
+		currentSelection: {
+			selection: { kind: "inherit" },
+			source: "runtime-fallback",
+		},
 		sessionStartedAt: null,
 		pricingTable: null,
 		...overrides,

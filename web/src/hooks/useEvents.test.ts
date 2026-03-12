@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import type {
+	SettingsCommandResult,
+	SettingsSnapshot,
+} from "../../../src/host/settings/control-plane.ts";
+import type { SessionSelectionSnapshot } from "../../../src/host/session-selection.ts";
+import { createEmptySettings } from "../../../src/host/settings/types.ts";
 import { EVENT_CAP } from "@kernel/constants.ts";
+import type { BrowserCommand } from "@kernel/protocol.ts";
 import type { SessionEvent } from "@kernel/types.ts";
 import type { ServerMessage } from "../../../src/web/protocol.ts";
 import { EventStore } from "./useEvents.ts";
@@ -14,6 +21,31 @@ function eventMessage(event: SessionEvent): ServerMessage {
 	return { type: "event", event };
 }
 
+function makeSettingsSnapshot(): SettingsSnapshot {
+	return {
+		settings: createEmptySettings(),
+		providers: [],
+		catalog: [],
+	};
+}
+
+function makeCurrentSelection(): SessionSelectionSnapshot {
+	return {
+		selection: {
+			kind: "model",
+			model: {
+				providerId: "anthropic-main",
+				modelId: "claude-sonnet-4-6",
+			},
+		},
+		resolved: {
+			providerId: "anthropic-main",
+			modelId: "claude-sonnet-4-6",
+		},
+		source: "session",
+	};
+}
+
 function snapshotMessage(
 	events: SessionEvent[],
 	session: {
@@ -21,7 +53,9 @@ function snapshotMessage(
 		status: string;
 		availableModels?: string[];
 		currentModel?: string | null;
+		currentSelection?: SessionSelectionSnapshot;
 	} = { id: "test-session", status: "idle" },
+	settings: SettingsSnapshot | null = null,
 ): ServerMessage {
 	return {
 		type: "snapshot",
@@ -31,9 +65,11 @@ function snapshotMessage(
 			status: session.status,
 			availableModels: session.availableModels ?? [],
 			currentModel: session.currentModel ?? null,
+			currentSelection: session.currentSelection ?? makeCurrentSelection(),
 			pricingTable: null,
 		},
-	};
+		settings,
+	} as ServerMessage;
 }
 
 // --- Tests ---
@@ -54,9 +90,15 @@ describe("EventStore", () => {
 				contextWindowSize: 0,
 				sessionId: "",
 				availableModels: [],
+				currentSelection: {
+					selection: { kind: "inherit" },
+					source: "runtime-fallback",
+				},
 				sessionStartedAt: null,
 				pricingTable: null,
 			});
+			expect(store.settings).toBeNull();
+			expect(store.lastSettingsResult).toBeNull();
 		});
 	});
 
@@ -156,6 +198,27 @@ describe("EventStore", () => {
 			expect(store.status.status).toBe("running");
 			expect(store.status.model).toBe("claude-sonnet-4-6");
 			expect(store.status.availableModels).toEqual(["best", "fast"]);
+		});
+
+		test("stores currentSelection and settings from snapshot", () => {
+			const store = new EventStore();
+			const currentSelection = makeCurrentSelection();
+			const settings = makeSettingsSnapshot();
+
+			store.processMessage(
+				snapshotMessage(
+					[],
+					{
+						id: "snap-session",
+						status: "idle",
+						currentSelection,
+					},
+					settings,
+				),
+			);
+
+			expect(store.status.currentSelection).toEqual(currentSelection);
+			expect(store.settings).toEqual(settings);
 		});
 	});
 
@@ -377,6 +440,43 @@ describe("EventStore", () => {
 		});
 	});
 
+	describe("settings transport", () => {
+		test("applies live settings_updated messages", () => {
+			const store = new EventStore();
+			const settings = makeSettingsSnapshot();
+
+			store.processMessage(
+				{
+					type: "settings_updated",
+					snapshot: settings,
+				} as unknown as ServerMessage,
+			);
+
+			expect(store.settings).toEqual(settings);
+		});
+
+		test("retains the latest settings_result payload including field errors", () => {
+			const store = new EventStore();
+			const result: SettingsCommandResult = {
+				ok: false,
+				code: "validation_failed",
+				message: "Provider label is required",
+				fieldErrors: {
+					label: "Label is required",
+				},
+			};
+
+			store.processMessage(
+				{
+					type: "settings_result",
+					result,
+				} as unknown as ServerMessage,
+			);
+
+			expect(store.lastSettingsResult).toEqual(result);
+		});
+	});
+
 	describe("sendCommand helper", () => {
 		test("wraps command in CommandMessage and sends via callback", () => {
 			const sent: object[] = [];
@@ -402,6 +502,20 @@ describe("EventStore", () => {
 			expect((sent[0] as Record<string, unknown>).type).toBe("command");
 			const command = (sent[0] as { command: { kind: string } }).command;
 			expect(command.kind).toBe("interrupt");
+		});
+
+		test("accepts settings commands", () => {
+			const sent: object[] = [];
+			const store = new EventStore();
+			const sendCommand = store.createSendCommand((msg: object) => sent.push(msg));
+			const command: BrowserCommand = { kind: "get_settings", data: {} };
+
+			sendCommand(command);
+
+			expect(sent[0]).toEqual({
+				type: "command",
+				command: { kind: "get_settings", data: {} },
+			});
 		});
 	});
 

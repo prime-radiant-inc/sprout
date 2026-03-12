@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 import { EVENT_CAP } from "@kernel/constants.ts";
-import { createCommandMessage, type ServerMessage } from "@kernel/protocol.ts";
-import type { Command, SessionEvent } from "@kernel/types.ts";
+import {
+	createCommandMessage,
+	type BrowserCommand,
+	type ServerMessage,
+} from "@kernel/protocol.ts";
+import type {
+	SessionEvent,
+	SessionSelectionSnapshot,
+	SettingsCommandResult,
+	SettingsSnapshot,
+} from "@kernel/types.ts";
 import type { PricingTable } from "@kernel/pricing.ts";
 import { setPricingTable } from "../utils/pricing.ts";
 
@@ -32,8 +41,16 @@ export interface SessionStatus {
 	contextWindowSize: number;
 	sessionId: string;
 	availableModels: string[];
+	currentSelection: SessionSelectionSnapshot;
 	sessionStartedAt: number | null;
 	pricingTable: PricingTable | null;
+}
+
+function createDefaultSelection(): SessionSelectionSnapshot {
+	return {
+		selection: { kind: "inherit" },
+		source: "runtime-fallback",
+	};
 }
 
 const INITIAL_STATUS: SessionStatus = {
@@ -46,6 +63,7 @@ const INITIAL_STATUS: SessionStatus = {
 	contextWindowSize: 0,
 	sessionId: "",
 	availableModels: [],
+	currentSelection: createDefaultSelection(),
 	sessionStartedAt: null,
 	pricingTable: null,
 };
@@ -64,6 +82,8 @@ function coerceSessionStatus(status: string): SessionStatus["status"] {
 export class EventStore {
 	events: SessionEvent[] = [];
 	status: SessionStatus = { ...INITIAL_STATUS };
+	settings: SettingsSnapshot | null = null;
+	lastSettingsResult: SettingsCommandResult | null = null;
 	private historyExtended = false;
 	private eventKeys = new Set<string>();
 
@@ -86,6 +106,7 @@ export class EventStore {
 				const snapshotModel =
 					typeof msg.session.currentModel === "string" ? msg.session.currentModel : undefined;
 				const snapshotAvailableModels = msg.session.availableModels ?? [];
+				const snapshotSelection = msg.session.currentSelection ?? createDefaultSelection();
 
 				this.historyExtended = false;
 				this.replaceEvents(dedupeEvents(msg.events));
@@ -98,6 +119,7 @@ export class EventStore {
 					model: snapshotModel ?? INITIAL_STATUS.model,
 					sessionId: msg.session.id,
 					availableModels: snapshotAvailableModels,
+					currentSelection: snapshotSelection,
 				};
 				// Replay all events in the snapshot to derive current status
 				for (const event of msg.events) {
@@ -110,10 +132,13 @@ export class EventStore {
 					model: snapshotModel ?? this.status.model,
 					sessionId: msg.session.id,
 					availableModels: snapshotAvailableModels,
+					currentSelection: snapshotSelection,
 					pricingTable: Array.isArray(msg.session.pricingTable)
 						? msg.session.pricingTable
 						: null,
 				};
+				this.settings = msg.settings ?? null;
+				this.lastSettingsResult = null;
 				setPricingTable(this.status.pricingTable);
 				break;
 			}
@@ -131,6 +156,17 @@ export class EventStore {
 					this.replaceEvents([msg.event]);
 				}
 				break;
+
+			case "settings_updated":
+				this.settings = msg.snapshot;
+				break;
+
+			case "settings_result":
+				this.lastSettingsResult = msg.result;
+				if (msg.result.ok) {
+					this.settings = msg.result.snapshot;
+				}
+				break;
 		}
 
 		this.notify();
@@ -144,8 +180,8 @@ export class EventStore {
 	}
 
 	/** Create a sendCommand function bound to a specific send callback. */
-	createSendCommand(send: (msg: object) => void): (command: Command) => void {
-		return (command: Command) => {
+	createSendCommand(send: (msg: object) => void): (command: BrowserCommand) => void {
+		return (command: BrowserCommand) => {
 			send(createCommandMessage(command));
 		};
 	}
@@ -179,6 +215,7 @@ export class EventStore {
 					...INITIAL_STATUS,
 					sessionId: (event.data.new_session_id as string) ?? this.status.sessionId,
 					availableModels: this.status.availableModels,
+					currentSelection: this.status.currentSelection,
 				};
 				break;
 
@@ -227,7 +264,9 @@ export class EventStore {
 interface UseEventsResult {
 	events: SessionEvent[];
 	status: SessionStatus;
-	sendCommand: (command: Command) => void;
+	settings: SettingsSnapshot | null;
+	lastSettingsResult: SettingsCommandResult | null;
+	sendCommand: (command: BrowserCommand) => void;
 	prependHistory: (events: SessionEvent[]) => void;
 }
 
@@ -257,12 +296,22 @@ export function useEvents(
 	}, [onMessage, store]);
 
 	// Snapshot for useSyncExternalStore
-	const snapshotRef = useRef({ events: store.events, status: store.status });
+	const snapshotRef = useRef({
+		events: store.events,
+		status: store.status,
+		settings: store.settings,
+		lastSettingsResult: store.lastSettingsResult,
+	});
 
 	const subscribe = useCallback(
 		(onStoreChange: () => void) => {
 			return store.subscribe(() => {
-				snapshotRef.current = { events: store.events, status: store.status };
+				snapshotRef.current = {
+					events: store.events,
+					status: store.status,
+					settings: store.settings,
+					lastSettingsResult: store.lastSettingsResult,
+				};
 				onStoreChange();
 			});
 		},
@@ -281,7 +330,9 @@ export function useEvents(
 	return {
 		events: state.events,
 		status: state.status,
-		sendCommand: (cmd: Command) => sendCommandRef.current(cmd),
+		settings: state.settings,
+		lastSettingsResult: state.lastSettingsResult,
+		sendCommand: (cmd: BrowserCommand) => sendCommandRef.current(cmd),
 		prependHistory: (events: SessionEvent[]) => store.prependHistory(events),
 	};
 }

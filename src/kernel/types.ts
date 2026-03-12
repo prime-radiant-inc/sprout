@@ -272,6 +272,12 @@ export interface Command {
 	data: Record<string, unknown>;
 }
 
+export type { SessionSelectionSnapshot } from "../host/session-selection.ts";
+export type {
+	SettingsCommand,
+	SettingsCommandResult,
+	SettingsSnapshot,
+} from "../host/settings/control-plane.ts";
 export type {
 	DefaultSelection,
 	ModelRef,

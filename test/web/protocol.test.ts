@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import type { SessionSelectionSnapshot } from "../../src/host/session-selection.ts";
+import type { SettingsCommand, SettingsSnapshot } from "../../src/host/settings/control-plane.ts";
+import { createEmptySettings } from "../../src/host/settings/types.ts";
 import type {
 	CommandMessage as CanonicalCommandMessage,
 	ServerMessage as CanonicalServerMessage,
@@ -10,6 +13,31 @@ import {
 import type { Command, SessionEvent } from "../../src/kernel/types.ts";
 import type { CommandMessage, ServerMessage } from "../../src/web/protocol.ts";
 import { parseCommandMessage as parseLegacyCommandMessage } from "../../src/web/protocol.ts";
+
+function makeSettingsSnapshot(): SettingsSnapshot {
+	return {
+		settings: createEmptySettings(),
+		providers: [],
+		catalog: [],
+	};
+}
+
+function makeCurrentSelection(): SessionSelectionSnapshot {
+	return {
+		selection: {
+			kind: "model",
+			model: {
+				providerId: "anthropic-main",
+				modelId: "claude-sonnet-4-6",
+			},
+		},
+		resolved: {
+			providerId: "anthropic-main",
+			modelId: "claude-sonnet-4-6",
+		},
+		source: "session",
+	};
+}
 
 describe("web protocol types", () => {
 	test("ServerMessage event variant wraps a SessionEvent", () => {
@@ -51,13 +79,18 @@ describe("web protocol types", () => {
 				status: "running",
 				availableModels: [],
 				currentModel: null,
+				currentSelection: makeCurrentSelection(),
 				pricingTable: null,
 			},
-		};
+			settings: makeSettingsSnapshot(),
+		} as ServerMessage;
 		expect(msg.type).toBe("snapshot");
+		if (msg.type !== "snapshot") throw new Error("Expected snapshot");
 		expect(msg.events).toHaveLength(2);
 		expect(msg.session.id).toBe("sess-1");
 		expect(msg.session.status).toBe("running");
+		expect(msg.session.currentSelection).toEqual(makeCurrentSelection());
+		expect(msg.settings).toEqual(makeSettingsSnapshot());
 	});
 
 	test("CommandMessage wraps a Command", () => {
@@ -68,6 +101,7 @@ describe("web protocol types", () => {
 		const msg: CommandMessage = { type: "command", command };
 		expect(msg.type).toBe("command");
 		expect(msg.command.kind).toBe("submit_goal");
+		if (msg.command.kind !== "submit_goal") throw new Error("Expected submit_goal");
 		expect(msg.command.data.goal).toBe("Write tests");
 	});
 });
@@ -107,6 +141,61 @@ describe("canonical protocol module", () => {
 		});
 		expect(parseCanonicalCommandMessage(raw)).toEqual(parseLegacyCommandMessage(raw));
 	});
+
+	test("canonical parser accepts settings control-plane commands", () => {
+		const commands: SettingsCommand[] = [
+			{ kind: "get_settings", data: {} },
+			{
+				kind: "create_provider",
+				data: {
+					kind: "openrouter",
+					label: "OpenRouter",
+					discoveryStrategy: "remote-only",
+				},
+			},
+			{
+				kind: "update_provider",
+				data: {
+					providerId: "openrouter-main",
+					patch: { label: "Primary OpenRouter" },
+				},
+			},
+			{ kind: "delete_provider", data: { providerId: "openrouter-main" } },
+			{
+				kind: "set_provider_secret",
+				data: { providerId: "openrouter-main", secret: "sk-test" },
+			},
+			{ kind: "delete_provider_secret", data: { providerId: "openrouter-main" } },
+			{
+				kind: "set_provider_enabled",
+				data: { providerId: "openrouter-main", enabled: true },
+			},
+			{ kind: "test_provider_connection", data: { providerId: "openrouter-main" } },
+			{ kind: "refresh_provider_models", data: { providerId: "openrouter-main" } },
+			{
+				kind: "set_default_selection",
+				data: {
+					selection: {
+						kind: "model",
+						model: {
+							providerId: "openrouter-main",
+							modelId: "openai/gpt-4.1",
+						},
+					},
+				},
+			},
+			{ kind: "set_provider_priority", data: { providerIds: ["openrouter-main"] } },
+			{
+				kind: "set_tier_priority",
+				data: { tier: "fast", providerIds: ["openrouter-main"] },
+			},
+		];
+
+		for (const command of commands) {
+			const raw = JSON.stringify({ type: "command", command });
+			expect(parseCanonicalCommandMessage(raw)).toEqual(parseLegacyCommandMessage(raw));
+		}
+	});
 });
 
 describe("parseCommandMessage", () => {
@@ -118,6 +207,7 @@ describe("parseCommandMessage", () => {
 		const msg = parseLegacyCommandMessage(raw);
 		expect(msg.type).toBe("command");
 		expect(msg.command.kind).toBe("submit_goal");
+		if (msg.command.kind !== "submit_goal") throw new Error("Expected submit_goal");
 		expect(msg.command.data.goal).toBe("Fix the bug");
 	});
 
@@ -128,6 +218,7 @@ describe("parseCommandMessage", () => {
 		});
 		const msg = parseLegacyCommandMessage(raw);
 		expect(msg.command.kind).toBe("steer");
+		if (msg.command.kind !== "steer") throw new Error("Expected steer");
 		expect(msg.command.data.message).toBe("Focus on auth");
 	});
 

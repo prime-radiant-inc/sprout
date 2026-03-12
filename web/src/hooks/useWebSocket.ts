@@ -203,6 +203,7 @@ export class WebSocketClient {
 			return;
 		}
 
+		if (msg.type !== "event") return;
 		if (msg.event.kind !== "session_clear") return;
 		const nextSessionId = msg.event.data.new_session_id;
 		if (typeof nextSessionId !== "string" || nextSessionId.length === 0) return;

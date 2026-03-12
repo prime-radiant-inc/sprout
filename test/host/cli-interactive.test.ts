@@ -354,7 +354,11 @@ describe("runInteractiveMode", () => {
 
 	test("starting /web in a resumed TUI seeds WebServer with initialEvents", async () => {
 		const bus = new FakeBus();
-		const createWebServerCalls: Array<{ initialEvents?: unknown[] }> = [];
+		const createWebServerCalls: Array<{
+			initialEvents?: unknown[];
+			settingsControlPlane?: unknown;
+			getSessionSelection?: (() => unknown) | undefined;
+		}> = [];
 		const resumedEvents = [
 			{
 				kind: "perceive",
@@ -364,6 +368,15 @@ describe("runInteractiveMode", () => {
 				data: { goal: "resumed goal" },
 			},
 		];
+		const currentSelection = {
+			selection: { kind: "tier", tier: "fast" },
+			source: "session",
+		} as const;
+		const settingsControlPlane = {
+			execute: async () => {
+				throw new Error("unused");
+			},
+		};
 
 		await runInteractiveMode(
 			{
@@ -372,9 +385,15 @@ describe("runInteractiveMode", () => {
 				projectDataDir: "/tmp/project-data",
 				runtime: {
 					bus: bus as any,
-					controller: { sessionId: "01RESUMEWEB", isRunning: false, currentModel: "fast" },
+					controller: {
+						sessionId: "01RESUMEWEB",
+						isRunning: false,
+						currentModel: "fast",
+						currentSelection,
+					},
 					logger: { info: () => {} },
 					availableModels: ["fast"],
+					settingsControlPlane: settingsControlPlane as any,
 				},
 				initialEvents: resumedEvents as any,
 				cleanupInfra: async () => {},
@@ -385,7 +404,11 @@ describe("runInteractiveMode", () => {
 			},
 			{
 				createWebServer: async (opts) => {
-					createWebServerCalls.push({ initialEvents: opts.initialEvents as unknown[] | undefined });
+					createWebServerCalls.push({
+						initialEvents: opts.initialEvents as unknown[] | undefined,
+						settingsControlPlane: opts.settingsControlPlane,
+						getSessionSelection: opts.getSessionSelection,
+					});
 					return {
 						start: async () => {},
 						stop: async () => {},
@@ -421,6 +444,8 @@ describe("runInteractiveMode", () => {
 
 		expect(createWebServerCalls).toHaveLength(1);
 		expect(createWebServerCalls[0]!.initialEvents).toEqual(resumedEvents);
+		expect(createWebServerCalls[0]!.settingsControlPlane).toBe(settingsControlPlane);
+		expect(createWebServerCalls[0]!.getSessionSelection?.()).toEqual(currentSelection);
 	});
 
 	test("resumed TUI caps initialEvents passed to renderApp but not WebServer", async () => {

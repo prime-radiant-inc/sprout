@@ -2,7 +2,17 @@ import { randomBytes } from "node:crypto";
 import { join, resolve } from "node:path";
 import type { ServerWebSocket } from "bun";
 import type { SessionBus } from "../host/event-bus.ts";
+import {
+	createDefaultSessionSelectionSnapshot,
+	formatSessionSelectionSnapshot,
+	type SessionSelectionSnapshot,
+} from "../host/session-selection.ts";
 import { loadAllEventLogs } from "../host/session-state.ts";
+import type {
+	SettingsCommand,
+	SettingsCommandResult,
+	SettingsSnapshot,
+} from "../host/settings/control-plane.ts";
 import { EVENT_CAP } from "../kernel/constants.ts";
 import type { PricingTable } from "../kernel/pricing.ts";
 import type { SessionEvent } from "../kernel/types.ts";
@@ -13,6 +23,10 @@ import {
 } from "../shared/session-selection.ts";
 import type { CommandMessage, ServerMessage } from "./protocol.ts";
 import { parseCommandMessage } from "./protocol.ts";
+
+interface SettingsControlPlaneLike {
+	execute(command: SettingsCommand): Promise<SettingsCommandResult>;
+}
 
 export interface WebServerOptions {
 	bus: SessionBus;
@@ -33,6 +47,10 @@ export interface WebServerOptions {
 	logger?: import("../host/logger.ts").Logger;
 	/** Server-side pricing table for model cost calculations. */
 	pricingTable?: PricingTable | null;
+	/** Settings control plane used for the web settings UI. */
+	settingsControlPlane?: SettingsControlPlaneLike;
+	/** Returns the controller's current session model selection. */
+	getSessionSelection?: () => SessionSelectionSnapshot;
 }
 
 type SessionStatus = "idle" | "running" | "interrupted";
@@ -55,6 +73,9 @@ export class WebServer {
 	private readonly logger?: import("../host/logger.ts").Logger;
 	private readonly projectDataDir: string | undefined;
 	private pricingTable: PricingTable | null;
+	private readonly settingsControlPlane: SettingsControlPlaneLike | undefined;
+	private readonly getSessionSelection: (() => SessionSelectionSnapshot) | undefined;
+	private settingsSnapshot: SettingsSnapshot | null = null;
 
 	private bunServer: ReturnType<typeof Bun.serve> | null = null;
 	private events: SessionEvent[] = [];
@@ -79,6 +100,11 @@ export class WebServer {
 		this.logger = opts.logger;
 		this.projectDataDir = opts.projectDataDir;
 		this.pricingTable = opts.pricingTable ?? null;
+		this.settingsControlPlane = opts.settingsControlPlane;
+		this.getSessionSelection = opts.getSessionSelection;
+		if (this.getSessionSelection) {
+			this.currentModel = formatSessionSelectionSnapshot(this.getCurrentSelection()) ?? null;
+		}
 		if (opts.initialEvents) {
 			this.historyCache = [...opts.initialEvents];
 			this.historyCacheSessionId = this.sessionId;
@@ -90,9 +116,13 @@ export class WebServer {
 	}
 
 	async start(): Promise<void> {
+		await this.refreshSettingsSnapshot();
+
 		// Track switch_model commands to update currentModel
 		this.unsubscribeCommands = this.bus.onCommand((cmd) => {
-			if (cmd.kind === "switch_model") {
+			if (this.getSessionSelection) {
+				this.currentModel = formatSessionSelectionSnapshot(this.getCurrentSelection()) ?? null;
+			} else if (cmd.kind === "switch_model") {
 				this.currentModel =
 					formatModelOverride(
 						selectionRequestToModelOverride(cmd.data.selection as SessionSelectionRequest),
@@ -200,7 +230,7 @@ export class WebServer {
 				if (url.pathname === "/api/models") {
 					return Response.json({
 						models: self.availableModels,
-						currentModel: self.currentModel,
+						currentModel: self.getCurrentModel(),
 					});
 				}
 
@@ -211,8 +241,8 @@ export class WebServer {
 				open(ws) {
 					self.handleWsOpen(ws);
 				},
-				message(_ws, message) {
-					self.handleWsMessage(message);
+				message(ws, message) {
+					void self.handleWsMessage(ws, message);
 				},
 				close(ws) {
 					self.handleWsClose(ws);
@@ -312,25 +342,13 @@ export class WebServer {
 	private pendingTaskCliAgents = new Set<string>();
 
 	private handleWsOpen(ws: ServerWebSocket<unknown>): void {
+		const snapshot = this.createSnapshotMessage();
+		this.sendToClient(ws, snapshot);
 		this.wsClients.add(ws);
 		this.logger?.debug("system", "WebSocket client connected", {
 			clients: this.wsClients.size,
 		});
-		// Send snapshot of all buffered events
-		const snapshot: ServerMessage = {
-			type: "snapshot",
-			events: [...this.events],
-			session: {
-				id: this.sessionId,
-				status: this.status,
-				availableModels: this.availableModels,
-				currentModel: this.currentModel,
-				pricingTable: this.pricingTable,
-			},
-		};
-		ws.send(JSON.stringify(snapshot));
-		// Seed task list for new clients if no task_update event has been emitted yet
-		this.seedTasksForClient(ws);
+		void this.seedTasksForClient(ws);
 	}
 
 	private async seedTasksForClient(ws: ServerWebSocket<unknown>): Promise<void> {
@@ -359,7 +377,10 @@ export class WebServer {
 		}
 	}
 
-	private handleWsMessage(message: string | Buffer): void {
+	private async handleWsMessage(
+		ws: ServerWebSocket<unknown>,
+		message: string | Buffer,
+	): Promise<void> {
 		const raw = typeof message === "string" ? message : message.toString();
 		let cmd: CommandMessage;
 		try {
@@ -368,6 +389,30 @@ export class WebServer {
 			// Malformed client message — expected, ignore
 			return;
 		}
+
+		if (this.isSettingsCommand(cmd.command)) {
+			const unavailableResult: SettingsCommandResult = {
+				ok: false,
+				code: "settings_unavailable",
+				message: "Settings control plane is unavailable",
+			};
+			const result = this.settingsControlPlane
+				? await this.executeSettingsCommand(cmd.command)
+				: unavailableResult;
+			this.sendToClient(ws, {
+				type: "settings_result",
+				result,
+			});
+			if (result.ok) {
+				this.settingsSnapshot = result.snapshot;
+				this.broadcast({
+					type: "settings_updated",
+					snapshot: result.snapshot,
+				});
+			}
+			return;
+		}
+
 		try {
 			this.bus.emitCommand(cmd.command);
 		} catch (err) {
@@ -384,11 +429,7 @@ export class WebServer {
 	}
 
 	private broadcastEvent(event: SessionEvent): void {
-		const msg: ServerMessage = { type: "event", event };
-		const payload = JSON.stringify(msg);
-		for (const ws of this.wsClients) {
-			ws.send(payload);
-		}
+		this.broadcast({ type: "event", event });
 	}
 
 	// --- Private: Status tracking ---
@@ -408,6 +449,97 @@ export class WebServer {
 				this.status = "idle";
 				this.currentModel = null;
 				break;
+		}
+	}
+
+	private createSnapshotMessage(): ServerMessage {
+		return {
+			type: "snapshot",
+			events: [...this.events],
+			session: {
+				id: this.sessionId,
+				status: this.status,
+				availableModels: this.availableModels,
+				currentModel: this.getCurrentModel(),
+				currentSelection: this.getCurrentSelection(),
+				pricingTable: this.pricingTable,
+			},
+			settings: this.settingsSnapshot,
+		};
+	}
+
+	private getCurrentSelection(): SessionSelectionSnapshot {
+		return this.getSessionSelection?.() ?? createDefaultSessionSelectionSnapshot();
+	}
+
+	private getCurrentModel(): string | null {
+		if (this.getSessionSelection) {
+			return formatSessionSelectionSnapshot(this.getCurrentSelection()) ?? null;
+		}
+		return this.currentModel;
+	}
+
+	private async refreshSettingsSnapshot(): Promise<void> {
+		if (!this.settingsControlPlane) {
+			this.settingsSnapshot = null;
+			return;
+		}
+		try {
+			const result = await this.settingsControlPlane.execute({ kind: "get_settings", data: {} });
+			this.settingsSnapshot = result.ok ? result.snapshot : null;
+		} catch (error) {
+			this.settingsSnapshot = null;
+			this.logger?.debug("system", "Failed to load settings snapshot", {
+				error: error instanceof Error ? error.message : String(error),
+			});
+		}
+	}
+
+	private async executeSettingsCommand(command: SettingsCommand): Promise<SettingsCommandResult> {
+		if (!this.settingsControlPlane) {
+			return {
+				ok: false,
+				code: "settings_unavailable",
+				message: "Settings control plane is unavailable",
+			};
+		}
+		try {
+			return await this.settingsControlPlane.execute(command);
+		} catch (error) {
+			return {
+				ok: false,
+				code: "settings_error",
+				message: error instanceof Error ? error.message : String(error),
+			};
+		}
+	}
+
+	private isSettingsCommand(command: CommandMessage["command"]): command is SettingsCommand {
+		const { kind } = command;
+		return (
+			kind === "get_settings" ||
+			kind === "create_provider" ||
+			kind === "update_provider" ||
+			kind === "delete_provider" ||
+			kind === "set_provider_secret" ||
+			kind === "delete_provider_secret" ||
+			kind === "set_provider_enabled" ||
+			kind === "test_provider_connection" ||
+			kind === "refresh_provider_models" ||
+			kind === "set_default_selection" ||
+			kind === "set_provider_priority" ||
+			kind === "set_tier_priority"
+		);
+	}
+
+	private sendToClient(ws: ServerWebSocket<unknown>, message: ServerMessage): void {
+		ws.send(JSON.stringify(message));
+	}
+
+	private broadcast(message: ServerMessage): void {
+		const payload = JSON.stringify(message);
+		for (const ws of this.wsClients) {
+			ws.send(payload);
 		}
 	}
 

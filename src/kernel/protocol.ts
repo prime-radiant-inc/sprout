@@ -1,5 +1,12 @@
 import type { PricingTable } from "./pricing.ts";
-import type { Command, SessionEvent } from "./types.ts";
+import type {
+	Command,
+	SessionEvent,
+	SessionSelectionSnapshot,
+	SettingsCommand,
+	SettingsCommandResult,
+	SettingsSnapshot,
+} from "./types.ts";
 
 /** Server -> Browser: a single live event */
 export interface EventServerMessage {
@@ -16,20 +23,40 @@ export interface SnapshotServerMessage {
 		status: string;
 		availableModels: string[];
 		currentModel: string | null;
+		currentSelection: SessionSelectionSnapshot;
 		pricingTable: PricingTable | null;
 	};
+	settings: SettingsSnapshot | null;
+}
+
+/** Server -> Browser: settings snapshot changed live */
+export interface SettingsUpdatedServerMessage {
+	type: "settings_updated";
+	snapshot: SettingsSnapshot;
+}
+
+/** Server -> Browser: result of a settings command */
+export interface SettingsResultServerMessage {
+	type: "settings_result";
+	result: SettingsCommandResult;
 }
 
 /** All message types the server sends to the browser */
-export type ServerMessage = EventServerMessage | SnapshotServerMessage;
+export type ServerMessage =
+	| EventServerMessage
+	| SnapshotServerMessage
+	| SettingsUpdatedServerMessage
+	| SettingsResultServerMessage;
+
+export type BrowserCommand = Command | SettingsCommand;
 
 /** Browser -> Server: a user command */
 export interface CommandMessage {
 	type: "command";
-	command: Command;
+	command: BrowserCommand;
 }
 
-const VALID_COMMAND_KINDS = new Set<Command["kind"]>([
+const VALID_COMMAND_KINDS = new Set([
 	"submit_goal",
 	"steer",
 	"interrupt",
@@ -37,10 +64,22 @@ const VALID_COMMAND_KINDS = new Set<Command["kind"]>([
 	"clear",
 	"switch_model",
 	"quit",
+	"get_settings",
+	"create_provider",
+	"update_provider",
+	"delete_provider",
+	"set_provider_secret",
+	"delete_provider_secret",
+	"set_provider_enabled",
+	"test_provider_connection",
+	"refresh_provider_models",
+	"set_default_selection",
+	"set_provider_priority",
+	"set_tier_priority",
 ]);
 
 /** Build a command envelope for transport from browser to server. */
-export function createCommandMessage(command: Command): CommandMessage {
+export function createCommandMessage(command: BrowserCommand): CommandMessage {
 	return { type: "command", command };
 }
 
@@ -77,7 +116,7 @@ export function parseCommandMessage(raw: string): CommandMessage {
 	if (typeof cmd.kind !== "string") {
 		throw new Error(`'command.kind' must be a string, got ${JSON.stringify(cmd.kind)}`);
 	}
-	if (!VALID_COMMAND_KINDS.has(cmd.kind as Command["kind"])) {
+	if (!VALID_COMMAND_KINDS.has(cmd.kind)) {
 		throw new Error(`Unknown command kind: ${JSON.stringify(cmd.kind)}`);
 	}
 

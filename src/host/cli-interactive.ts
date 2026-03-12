@@ -3,7 +3,12 @@ import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { TUI_INITIAL_EVENT_CAP } from "../kernel/constants.ts";
 import type { PricingTable } from "../kernel/pricing.ts";
-import type { SessionEvent } from "../kernel/types.ts";
+import type {
+	SessionEvent,
+	SessionSelectionSnapshot,
+	SettingsCommand,
+	SettingsCommandResult,
+} from "../kernel/types.ts";
 import type { SlashCommand } from "../tui/slash-commands.ts";
 import { registerInteractiveSigint } from "./cli-sigint.ts";
 import { buildWebOpenUrl, runWebOnlyMode } from "./cli-web.ts";
@@ -21,6 +26,7 @@ interface ControllerLike {
 	sessionId: string;
 	isRunning: boolean;
 	currentModel: string | undefined;
+	currentSelection?: SessionSelectionSnapshot;
 }
 
 interface LoggerLike {
@@ -58,6 +64,9 @@ export interface InteractiveModeOptions {
 		controller: ControllerLike;
 		logger: LoggerLike;
 		availableModels: string[];
+		settingsControlPlane?: {
+			execute(command: SettingsCommand): Promise<SettingsCommandResult>;
+		};
 	};
 	initialEvents?: SessionEvent[];
 	cleanupInfra: () => Promise<void>;
@@ -94,6 +103,10 @@ interface InteractiveModeDeps {
 		logger: LoggerLike;
 		projectDataDir?: string;
 		pricingTable?: PricingTable | null;
+		settingsControlPlane?: {
+			execute(command: SettingsCommand): Promise<SettingsCommandResult>;
+		};
+		getSessionSelection?: () => SessionSelectionSnapshot;
 	}) => Promise<WebServerLike>;
 	runWebOnlyMode: typeof runWebOnlyMode;
 	createInputHistory: (historyPath: string) => Promise<InputHistoryLike>;
@@ -184,6 +197,8 @@ export async function runInteractiveMode(
 					logger: serverOpts.logger as any,
 					projectDataDir: serverOpts.projectDataDir,
 					pricingTable: serverOpts.pricingTable,
+					settingsControlPlane: serverOpts.settingsControlPlane as any,
+					getSessionSelection: serverOpts.getSessionSelection,
 				});
 			}),
 		runWebOnlyMode: deps.runWebOnlyMode ?? runWebOnlyMode,
@@ -260,6 +275,10 @@ export async function runInteractiveMode(
 			logger: opts.runtime.logger,
 			projectDataDir,
 			pricingTable,
+			settingsControlPlane: opts.runtime.settingsControlPlane,
+			getSessionSelection: opts.runtime.controller.currentSelection
+				? () => opts.runtime.controller.currentSelection!
+				: undefined,
 		});
 		try {
 			await webServer.start();
@@ -344,6 +363,10 @@ export async function runInteractiveMode(
 									logger: opts.runtime.logger,
 									projectDataDir,
 									pricingTable,
+									settingsControlPlane: opts.runtime.settingsControlPlane,
+									getSessionSelection: opts.runtime.controller.currentSelection
+										? () => opts.runtime.controller.currentSelection!
+										: undefined,
 								});
 								await webServer.start();
 								emitWebUiHint();

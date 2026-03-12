@@ -3,6 +3,13 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventBus } from "../../src/host/event-bus.ts";
+import type { SessionSelectionSnapshot } from "../../src/host/session-selection.ts";
+import type {
+	SettingsCommand,
+	SettingsCommandResult,
+	SettingsSnapshot,
+} from "../../src/host/settings/control-plane.ts";
+import { createEmptySettings } from "../../src/host/settings/types.ts";
 import { EVENT_CAP, WEB_HISTORY_PAGE_SIZE } from "../../src/kernel/constants.ts";
 import type { SessionEvent } from "../../src/kernel/types.ts";
 import { WebServer } from "../../src/web/server.ts";
@@ -17,6 +24,31 @@ import {
 } from "./fixtures.ts";
 
 // --- Test setup ---
+
+function makeSettingsSnapshot(): SettingsSnapshot {
+	return {
+		settings: createEmptySettings(),
+		providers: [],
+		catalog: [],
+	};
+}
+
+function makeCurrentSelection(): SessionSelectionSnapshot {
+	return {
+		selection: {
+			kind: "model",
+			model: {
+				providerId: "anthropic-main",
+				modelId: "claude-sonnet-4-6",
+			},
+		},
+		resolved: {
+			providerId: "anthropic-main",
+			modelId: "claude-sonnet-4-6",
+		},
+		source: "session",
+	};
+}
 
 let bus: EventBus;
 let server: WebServer;
@@ -380,6 +412,59 @@ describe("WebServer", () => {
 			expect(msg.events[1]!.kind).toBe("perceive");
 			expect(msg.session.status).toBe("running");
 		});
+
+		test("includes settings snapshot and authoritative session selection", async () => {
+			const settingsSnapshot = makeSettingsSnapshot();
+			const currentSelection = makeCurrentSelection();
+
+			server = new WebServer({
+				bus,
+				port,
+				staticDir,
+				sessionId: "test-session",
+				settingsControlPlane: {
+					execute: async (_command: SettingsCommand): Promise<SettingsCommandResult> => ({
+						ok: true,
+						snapshot: settingsSnapshot,
+					}),
+				},
+				getSessionSelection: () => currentSelection,
+			} as any);
+
+			await server.start();
+			const ws = await connectClient();
+			const msg = await nextMessage(ws);
+
+			expect(msg.type).toBe("snapshot");
+			if (msg.type !== "snapshot") throw new Error("Expected snapshot");
+			expect((msg as { settings: SettingsSnapshot }).settings).toEqual(settingsSnapshot);
+			expect(
+				(msg.session as { currentSelection: SessionSelectionSnapshot }).currentSelection,
+			).toEqual(currentSelection);
+		});
+
+		test("falls back to null settings when the initial settings snapshot load fails", async () => {
+			server = new WebServer({
+				bus,
+				port,
+				staticDir,
+				sessionId: "test-session",
+				settingsControlPlane: {
+					execute: async (_command: SettingsCommand): Promise<SettingsCommandResult> => {
+						throw new Error("settings unavailable");
+					},
+				},
+				getSessionSelection: () => makeCurrentSelection(),
+			} as any);
+
+			await server.start();
+			const ws = await connectClient();
+			const msg = await nextMessage(ws);
+
+			expect(msg.type).toBe("snapshot");
+			if (msg.type !== "snapshot") throw new Error("Expected snapshot");
+			expect(msg.settings).toBeNull();
+		});
 	});
 
 	describe("WebSocket event streaming", () => {
@@ -492,6 +577,128 @@ describe("WebServer", () => {
 			bus.emitEvent("plan_start", "root", 0);
 			const msg = await nextMessage(ws);
 			expect(msg.type).toBe("event");
+		});
+
+		test("settings commands return a result and broadcast updated settings", async () => {
+			const received: SettingsCommand[] = [];
+			const settingsSnapshot: SettingsSnapshot = {
+				...makeSettingsSnapshot(),
+				settings: {
+					...createEmptySettings(),
+					providers: [
+						{
+							id: "openrouter-main",
+							kind: "openrouter",
+							label: "OpenRouter",
+							enabled: true,
+							discoveryStrategy: "remote-only",
+							createdAt: "2026-03-11T00:00:00.000Z",
+							updatedAt: "2026-03-11T00:00:00.000Z",
+						},
+					],
+					routing: {
+						providerPriority: ["openrouter-main"],
+						tierOverrides: {},
+					},
+				},
+				providers: [
+					{
+						providerId: "openrouter-main",
+						hasSecret: true,
+						validationErrors: [],
+						connectionStatus: "ok",
+						catalogStatus: "current",
+					},
+				],
+				catalog: [
+					{
+						providerId: "openrouter-main",
+						models: [{ id: "openai/gpt-4.1", label: "GPT-4.1", source: "remote" }],
+						lastRefreshAt: "2026-03-11T00:00:00.000Z",
+					},
+				],
+			};
+
+			server = new WebServer({
+				bus,
+				port,
+				staticDir,
+				sessionId: "test-session",
+				settingsControlPlane: {
+					execute: async (command: SettingsCommand): Promise<SettingsCommandResult> => {
+						received.push(command);
+						return {
+							ok: true,
+							snapshot: settingsSnapshot,
+						};
+					},
+				},
+				getSessionSelection: () => makeCurrentSelection(),
+			} as any);
+
+			await server.start();
+			const ws = await connectClient();
+			const messages = collectMessages(ws);
+
+			await delay(50);
+			received.length = 0;
+			ws.send(JSON.stringify({ type: "command", command: { kind: "get_settings", data: {} } }));
+			await delay(100);
+
+			expect(received).toEqual([{ kind: "get_settings", data: {} }]);
+			expect(messages.map((message) => message.type)).toContain("settings_result");
+			expect(messages.map((message) => message.type)).toContain("settings_updated");
+		});
+
+		test("settings command failures return an error result instead of hanging", async () => {
+			server = new WebServer({
+				bus,
+				port,
+				staticDir,
+				sessionId: "test-session",
+				settingsControlPlane: {
+					execute: async (command: SettingsCommand): Promise<SettingsCommandResult> => {
+						if (command.kind === "get_settings") {
+							return {
+								ok: true,
+								snapshot: makeSettingsSnapshot(),
+							};
+						}
+						throw new Error("boom");
+					},
+				},
+				getSessionSelection: () => makeCurrentSelection(),
+			} as any);
+
+			await server.start();
+			const ws = await connectClient();
+			const messages = collectMessages(ws);
+
+			await delay(50);
+			ws.send(
+				JSON.stringify({
+					type: "command",
+					command: {
+						kind: "create_provider",
+						data: {
+							kind: "openrouter",
+							label: "OpenRouter",
+							discoveryStrategy: "remote-only",
+						},
+					},
+				}),
+			);
+			await delay(100);
+
+			const settingsResult = messages.find((message) => message.type === "settings_result");
+			expect(settingsResult).toEqual({
+				type: "settings_result",
+				result: {
+					ok: false,
+					code: "settings_error",
+					message: "boom",
+				},
+			});
 		});
 	});
 
