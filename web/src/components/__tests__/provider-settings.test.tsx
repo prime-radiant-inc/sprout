@@ -52,6 +52,14 @@ function makeSettings(): SettingsSnapshot {
 					enabled: false,
 					baseUrl: "http://127.0.0.1:1234/v1",
 					discoveryStrategy: "manual-only",
+					manualModels: [
+						{
+							id: "qwen2.5-coder",
+							label: "Qwen 2.5 Coder",
+							tierHint: "fast",
+							rank: 5,
+						},
+					],
 					createdAt: "2026-03-11T00:00:00.000Z",
 					updatedAt: "2026-03-11T00:00:00.000Z",
 				},
@@ -203,19 +211,70 @@ describe("ProviderSettingsPanel", () => {
 		expect(logged).toEqual([]);
 	});
 
-	test("builds create and edit provider commands", () => {
+	test("renders panel-level runtime warnings", () => {
+		const settings = makeSettings();
+		settings.runtime.warnings = [
+			{
+				code: "invalid_settings_recovered",
+				message: "Recovered invalid settings file to /tmp/settings.invalid.2026-03-12.json",
+			},
+			{
+				code: "secret_backend_unavailable",
+				message: "Unsupported secret backend for platform: win32",
+			},
+		];
+
+		const html = renderToStaticMarkup(
+			<ProviderSettingsPanel
+				settings={settings}
+				lastResult={null}
+				onCommand={() => {}}
+				onClose={() => {}}
+			/>,
+		);
+
+		expect(html).toContain("Recovered invalid settings file to /tmp/settings.invalid.2026-03-12.json");
+		expect(html).toContain("Unsupported secret backend for platform: win32");
+	});
+
+	test("builds create and edit provider commands with manual models and headers", () => {
 		expect(
 			createProviderSaveCommand("create", {
 				kind: "openrouter",
 				label: "OpenRouter",
+				nonSecretHeaders: [
+					{
+						key: "HTTP-Referer",
+						value: "https://sprout.local",
+					},
+				],
 				discoveryStrategy: "remote-only",
+				manualModels: [
+					{
+						id: "openrouter/manual-fast",
+						label: "Manual Fast",
+						tierHint: "fast",
+						rank: "3",
+					},
+				],
 			}),
 		).toEqual({
 			kind: "create_provider",
 			data: {
 				kind: "openrouter",
 				label: "OpenRouter",
+				nonSecretHeaders: {
+					"HTTP-Referer": "https://sprout.local",
+				},
 				discoveryStrategy: "remote-only",
+				manualModels: [
+					{
+						id: "openrouter/manual-fast",
+						label: "Manual Fast",
+						tierHint: "fast",
+						rank: 3,
+					},
+				],
 			},
 		} satisfies SettingsCommand);
 
@@ -226,7 +285,21 @@ describe("ProviderSettingsPanel", () => {
 					kind: "openai-compatible",
 					label: "Local LM Studio",
 					baseUrl: "http://127.0.0.1:4321/v1",
+					nonSecretHeaders: [
+						{
+							key: "X-Client",
+							value: "sprout",
+						},
+					],
 					discoveryStrategy: "remote-with-manual",
+					manualModels: [
+						{
+							id: "qwen2.5-coder",
+							label: "Qwen 2.5 Coder",
+							tierHint: "",
+							rank: "",
+						},
+					],
 				},
 				"lmstudio",
 			),
@@ -237,10 +310,76 @@ describe("ProviderSettingsPanel", () => {
 				patch: {
 					label: "Local LM Studio",
 					baseUrl: "http://127.0.0.1:4321/v1",
+					nonSecretHeaders: {
+						"X-Client": "sprout",
+					},
 					discoveryStrategy: "remote-with-manual",
+					manualModels: [
+						{
+							id: "qwen2.5-coder",
+							label: "Qwen 2.5 Coder",
+						},
+					],
 				},
 			},
 		} satisfies SettingsCommand);
+	});
+
+	test("renders field-level errors, manual models, and custom headers for supported providers", () => {
+		const html = renderToStaticMarkup(
+			<ProviderEditor
+				mode="edit"
+				provider={makeSettings().settings.providers[1]}
+				status={makeSettings().providers[1]}
+				catalogEntry={makeSettings().catalog[1]}
+				message="Validation failed"
+				fieldErrors={{
+					baseUrl: "Base URL must be a valid http or https URL",
+					manualModels: "Manual models must use unique ids",
+					nonSecretHeaders: "Header names must be unique",
+				}}
+				onCommand={() => {}}
+			/>,
+		);
+
+		expect(html).toContain("Base URL must be a valid http or https URL");
+		expect(html).toContain("Manual models");
+		expect(html).toContain("Manual models must use unique ids");
+		expect(html).toContain("Custom headers");
+		expect(html).toContain("Header names must be unique");
+		expect(html).toContain("Qwen 2.5 Coder");
+	});
+
+	test("hides custom header editing for gemini providers", () => {
+		const html = renderToStaticMarkup(
+			<ProviderEditor
+				mode="edit"
+				provider={{
+					id: "gemini-main",
+					kind: "gemini",
+					label: "Gemini",
+					enabled: true,
+					discoveryStrategy: "remote-only",
+					createdAt: "2026-03-11T00:00:00.000Z",
+					updatedAt: "2026-03-11T00:00:00.000Z",
+				}}
+				status={{
+					providerId: "gemini-main",
+					hasSecret: true,
+					validationErrors: [],
+					connectionStatus: "ok",
+					catalogStatus: "current",
+				}}
+				catalogEntry={{
+					providerId: "gemini-main",
+					models: [],
+				}}
+				message={null}
+				onCommand={() => {}}
+			/>,
+		);
+
+		expect(html).not.toContain("Custom headers");
 	});
 
 	test("builds secret and provider action commands", () => {

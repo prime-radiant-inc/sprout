@@ -57,6 +57,7 @@ export function ProviderSettingsPanel({
 		(entry) => entry.providerId === selectedProvider?.id,
 	);
 	const message = lastResult && !lastResult.ok ? lastResult.message : null;
+	const fieldErrors = lastResult && !lastResult.ok ? lastResult.fieldErrors : undefined;
 
 	if (!settings) {
 		return (
@@ -106,6 +107,16 @@ export function ProviderSettingsPanel({
 					</aside>
 
 					<div className={styles.detail}>
+						{settings.runtime.warnings.length > 0 && (
+							<div className={styles.warningList}>
+								{settings.runtime.warnings.map((warning) => (
+									<div key={`${warning.code}-${warning.message}`} className={styles.messageBanner}>
+										{warning.message}
+									</div>
+								))}
+							</div>
+						)}
+
 						{settings.settings.providers.length === 0 && selectedView === "create" && (
 							<div className={styles.emptyState}>No providers configured</div>
 						)}
@@ -116,6 +127,7 @@ export function ProviderSettingsPanel({
 							<ProviderEditor
 								mode="create"
 								message={message}
+								fieldErrors={fieldErrors}
 								onCommand={onCommand}
 							/>
 						) : (
@@ -125,6 +137,7 @@ export function ProviderSettingsPanel({
 								status={selectedStatus}
 								catalogEntry={selectedCatalog}
 								message={message}
+								fieldErrors={fieldErrors}
 								onCommand={onCommand}
 							/>
 						)}

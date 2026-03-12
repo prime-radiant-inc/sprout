@@ -91,10 +91,10 @@ describe("SettingsPanel", () => {
 		expect(lastFrame()).toContain("Create provider");
 
 		await submitCommand(stdin, "label OpenRouter", () =>
-			(lastFrame() ?? "").includes("Label: OpenRouter"),
+			!(lastFrame() ?? "").includes("label OpenRouter"),
 		);
 		await submitCommand(stdin, "kind openrouter", () =>
-			(lastFrame() ?? "").includes("Kind: openrouter"),
+			!(lastFrame() ?? "").includes("kind openrouter"),
 		);
 		await submitCommand(stdin, "save", () => commands.length === 1);
 
