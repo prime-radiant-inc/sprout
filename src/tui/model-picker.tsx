@@ -5,6 +5,7 @@ import type {
 	SessionSelectionSnapshot,
 	SettingsSnapshot,
 } from "../kernel/types.ts";
+import { deriveAvailableModels } from "../shared/available-models.ts";
 import { formatSessionSelectionRequest } from "../shared/session-selection.ts";
 
 export interface ModelPickerOption {
@@ -39,6 +40,9 @@ export function buildModelPickerOptions({
 }: BuildModelPickerOptionsArgs): ModelPickerOption[] {
 	const options: ModelPickerOption[] = [];
 	const seen = new Set<string>();
+	const resolvedAvailableModels = settings
+		? deriveAvailableModels(settings.catalog)
+		: availableModels;
 
 	const push = (selection: SessionModelSelection, label: string) => {
 		const key = formatSessionSelectionRequest(selection);
@@ -50,7 +54,7 @@ export function buildModelPickerOptions({
 	push({ kind: "inherit" }, currentModel ? `Default · ${currentModel}` : "Default");
 
 	for (const tier of ["best", "balanced", "fast"] as const) {
-		if (availableModels.includes(tier)) {
+		if (resolvedAvailableModels.includes(tier)) {
 			push({ kind: "tier", tier }, TIER_LABELS[tier]);
 		}
 	}
@@ -59,7 +63,7 @@ export function buildModelPickerOptions({
 		if (!provider.enabled) continue;
 		const catalogEntry = settings?.catalog.find((entry) => entry.providerId === provider.id);
 		for (const model of catalogEntry?.models ?? []) {
-			if (!availableModels.includes(model.id)) continue;
+			if (!resolvedAvailableModels.includes(model.id)) continue;
 			push(
 				{
 					kind: "model",

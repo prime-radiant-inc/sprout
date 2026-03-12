@@ -4,6 +4,7 @@ import type {
 	SessionSelectionSnapshot,
 	SettingsSnapshot,
 } from "@kernel/types.ts";
+import { deriveAvailableModels } from "@shared/available-models.ts";
 import { formatSessionSelectionRequest } from "@shared/session-selection.ts";
 import type { SessionStatus } from "../hooks/useEvents.ts";
 import { formatTokens, shortModelName } from "./format.ts";
@@ -75,8 +76,11 @@ export function buildSessionSelectionOptions(
 ): SessionSelectionOption[] {
 	const options: SessionSelectionOption[] = [];
 	const seenValues = new Set<string>();
+	const availableModels = settings
+		? deriveAvailableModels(settings.catalog)
+		: status.availableModels;
 	const availableModelIds = new Set(
-		status.availableModels.filter(
+		availableModels.filter(
 			(model): model is Exclude<typeof model, "best" | "balanced" | "fast"> =>
 				model !== "best" && model !== "balanced" && model !== "fast",
 		),
@@ -99,7 +103,7 @@ export function buildSessionSelectionOptions(
 	);
 
 	for (const tier of ["best", "balanced", "fast"] as const) {
-		if (!status.availableModels.includes(tier)) continue;
+		if (!availableModels.includes(tier)) continue;
 		pushOption({ kind: "tier", tier }, TIER_LABELS[tier]);
 	}
 

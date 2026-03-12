@@ -48,6 +48,9 @@ export function SettingsPanel({ settings, lastResult, onCommand, onClose }: Sett
 	const providerDraftsRef = useRef(providerDrafts);
 	const settingsRef = useRef(settings);
 	const inputRef = useRef(input);
+	const previousProviderIdsRef = useRef<string[]>(
+		settings?.settings.providers.map((provider) => provider.id) ?? [],
+	);
 
 	selectedViewRef.current = selectedView;
 	createDraftRef.current = createDraft;
@@ -63,6 +66,9 @@ export function SettingsPanel({ settings, lastResult, onCommand, onClose }: Sett
 
 	useEffect(() => {
 		if (!settings) return;
+		const previousProviderIds = previousProviderIdsRef.current;
+		const currentProviderIds = settings.settings.providers.map((provider) => provider.id);
+		previousProviderIdsRef.current = currentProviderIds;
 		setProviderDrafts((current) => {
 			const next = { ...current };
 			for (const provider of settings.settings.providers) {
@@ -70,6 +76,14 @@ export function SettingsPanel({ settings, lastResult, onCommand, onClose }: Sett
 			}
 			return next;
 		});
+		const createdProviderId = currentProviderIds.find(
+			(providerId) => !previousProviderIds.includes(providerId),
+		);
+		if (selectedView === "create" && createdProviderId) {
+			setCreateDraft(createProviderEditorDraft());
+			setSelectedView(createdProviderId);
+			return;
+		}
 		if (
 			selectedView !== "defaults" &&
 			selectedView !== "create" &&
@@ -212,7 +226,7 @@ export function SettingsPanel({ settings, lastResult, onCommand, onClose }: Sett
 
 				<Box flexDirection="column" flexGrow={1}>
 					{selectedView === "defaults" ? (
-						<DefaultsSummary settings={settings} />
+						<DefaultsSummary settings={settings} lastResult={lastResult} />
 					) : (
 						<ProviderSettingsEditor
 							mode={selectedView === "create" ? "create" : "edit"}
@@ -240,10 +254,17 @@ export function SettingsPanel({ settings, lastResult, onCommand, onClose }: Sett
 	);
 }
 
-function DefaultsSummary({ settings }: { settings: SettingsSnapshot }) {
+function DefaultsSummary({
+	settings,
+	lastResult,
+}: {
+	settings: SettingsSnapshot;
+	lastResult: SettingsCommandResult | null;
+}) {
 	return (
 		<Box flexDirection="column" gap={1}>
 			<Text bold>Defaults and routing</Text>
+			{lastResult && !lastResult.ok && <Text color="red">{lastResult.message}</Text>}
 			<Text>Default selection: {formatDefaultSelection(settings)}</Text>
 			<Text>
 				Provider priority: {settings.settings.routing.providerPriority.join(", ") || "(empty)"}

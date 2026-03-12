@@ -117,6 +117,7 @@ describe("SettingsPanel", () => {
 			(lastFrame() ?? "").includes("Defaults and routing"),
 		);
 		expect(lastFrame()).toContain("Defaults and routing");
+		expect(lastFrame()).toContain("Latest command failed");
 
 		await submitCommand(stdin, "default tier fast", () => commands.length === 1);
 
@@ -135,6 +136,63 @@ describe("SettingsPanel", () => {
 				data: { providerId: "lmstudio", enabled: false },
 			},
 		]);
+	});
+
+	test("selects a newly created provider after the settings snapshot updates", async () => {
+		const initialSettings = makeSettingsSnapshot();
+		const createdSettings = structuredClone(initialSettings);
+		createdSettings.settings.providers = [
+			...createdSettings.settings.providers,
+			{
+				id: "openrouter-main",
+				kind: "openrouter",
+				label: "OpenRouter",
+				enabled: false,
+				discoveryStrategy: "remote-only",
+				createdAt: "2026-03-12T00:00:00.000Z",
+				updatedAt: "2026-03-12T00:00:00.000Z",
+			},
+		];
+		createdSettings.providers = [
+			...createdSettings.providers,
+			{
+				providerId: "openrouter-main",
+				hasSecret: false,
+				validationErrors: [],
+				connectionStatus: "unknown",
+				catalogStatus: "never-loaded",
+			},
+		];
+		createdSettings.catalog = [
+			...createdSettings.catalog,
+			{
+				providerId: "openrouter-main",
+				models: [],
+			},
+		];
+
+		const { stdin, lastFrame, rerender } = render(
+			<SettingsPanel
+				settings={initialSettings}
+				lastResult={null}
+				onCommand={() => {}}
+				onClose={() => {}}
+			/>,
+		);
+
+		await submitCommand(stdin, "create", () => (lastFrame() ?? "").includes("Create provider"));
+		rerender(
+			<SettingsPanel
+				settings={createdSettings}
+				lastResult={null}
+				onCommand={() => {}}
+				onClose={() => {}}
+			/>,
+		);
+		await waitFor(() => (lastFrame() ?? "").includes("> OpenRouter"));
+
+		expect(lastFrame()).toContain("> OpenRouter");
+		expect(lastFrame()).not.toContain("> Create provider");
 	});
 
 	test("esc closes the panel", async () => {

@@ -3,10 +3,29 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerMessage } from "../../src/web/protocol.ts";
 
+interface WebSocketFixtureState {
+	queue: ServerMessage[];
+	listeners: Set<(message: ServerMessage) => void>;
+}
+
+const wsState = new WeakMap<WebSocket, WebSocketFixtureState>();
+
 /** Connect a WebSocket client and wait for the connection to open. */
 export function connect(url: string): Promise<WebSocket> {
 	return new Promise((resolve, reject) => {
 		const ws = new WebSocket(url);
+		const state: WebSocketFixtureState = {
+			queue: [],
+			listeners: new Set(),
+		};
+		wsState.set(ws, state);
+		ws.addEventListener("message", (ev) => {
+			const message = JSON.parse(ev.data as string) as ServerMessage;
+			state.queue.push(message);
+			for (const listener of state.listeners) {
+				listener(message);
+			}
+		});
 		ws.onopen = () => resolve(ws);
 		ws.onerror = (e) => reject(e);
 	});
@@ -14,24 +33,32 @@ export function connect(url: string): Promise<WebSocket> {
 
 /** Wait for the next JSON message from a WebSocket. */
 export function nextMessage(ws: WebSocket, timeoutMs = 2000): Promise<ServerMessage> {
+	const state = wsState.get(ws);
+	if (!state) {
+		return Promise.reject(new Error("WebSocket state not initialized"));
+	}
+	if (state.queue.length > 0) {
+		return Promise.resolve(state.queue.shift()!);
+	}
+
 	return new Promise((resolve, reject) => {
 		const timer = setTimeout(() => reject(new Error("Timed out waiting for message")), timeoutMs);
-		ws.addEventListener(
-			"message",
-			(ev) => {
-				clearTimeout(timer);
-				resolve(JSON.parse(ev.data as string) as ServerMessage);
-			},
-			{ once: true },
-		);
+		const listener = (message: ServerMessage) => {
+			clearTimeout(timer);
+			state.listeners.delete(listener);
+			state.queue.shift();
+			resolve(message);
+		};
+		state.listeners.add(listener);
 	});
 }
 
 /** Collect all JSON messages arriving on a WebSocket into an array. */
 export function collectMessages(ws: WebSocket): ServerMessage[] {
-	const messages: ServerMessage[] = [];
-	ws.addEventListener("message", (ev) => {
-		messages.push(JSON.parse(ev.data as string) as ServerMessage);
+	const state = wsState.get(ws);
+	const messages: ServerMessage[] = [...(state?.queue ?? [])];
+	state?.listeners.add((message) => {
+		messages.push(message);
 	});
 	return messages;
 }

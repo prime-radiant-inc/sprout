@@ -7,11 +7,13 @@ import {
 } from "@kernel/protocol.ts";
 import type {
 	SessionEvent,
+	SessionModelSelection,
 	SessionSelectionSnapshot,
 	SettingsCommandResult,
 	SettingsSnapshot,
 } from "@kernel/types.ts";
 import type { PricingTable } from "@kernel/pricing.ts";
+import { deriveAvailableModels } from "@shared/available-models.ts";
 import { setPricingTable } from "../utils/pricing.ts";
 
 function eventKey(event: SessionEvent): string {
@@ -105,8 +107,11 @@ export class EventStore {
 				const snapshotStatus = coerceSessionStatus(msg.session.status);
 				const snapshotModel =
 					typeof msg.session.currentModel === "string" ? msg.session.currentModel : undefined;
-				const snapshotAvailableModels = msg.session.availableModels ?? [];
 				const snapshotSelection = msg.session.currentSelection ?? createDefaultSelection();
+				const snapshotSettings = msg.settings ?? null;
+				const snapshotAvailableModels = snapshotSettings
+					? deriveAvailableModels(snapshotSettings.catalog)
+					: (msg.session.availableModels ?? []);
 
 				this.historyExtended = false;
 				this.replaceEvents(dedupeEvents(msg.events));
@@ -137,7 +142,7 @@ export class EventStore {
 						? msg.session.pricingTable
 						: null,
 				};
-				this.settings = msg.settings ?? null;
+				this.settings = snapshotSettings;
 				this.lastSettingsResult = null;
 				setPricingTable(this.status.pricingTable);
 				break;
@@ -159,12 +164,20 @@ export class EventStore {
 
 			case "settings_updated":
 				this.settings = msg.snapshot;
+				this.status = {
+					...this.status,
+					availableModels: deriveAvailableModels(msg.snapshot.catalog),
+				};
 				break;
 
 			case "settings_result":
 				this.lastSettingsResult = msg.result;
 				if (msg.result.ok) {
 					this.settings = msg.result.snapshot;
+					this.status = {
+						...this.status,
+						availableModels: deriveAvailableModels(msg.result.snapshot.catalog),
+					};
 				}
 				break;
 		}
@@ -182,6 +195,16 @@ export class EventStore {
 	/** Create a sendCommand function bound to a specific send callback. */
 	createSendCommand(send: (msg: object) => void): (command: BrowserCommand) => void {
 		return (command: BrowserCommand) => {
+			if (command.kind === "switch_model") {
+				const selection = command.data.selection as SessionModelSelection | undefined;
+				if (selection) {
+					this.status = {
+						...this.status,
+						currentSelection: selectionSnapshotFromModelSelection(selection),
+					};
+					this.notify();
+				}
+			}
 			send(createCommandMessage(command));
 		};
 	}
@@ -257,6 +280,24 @@ export class EventStore {
 			listener();
 		}
 	}
+}
+
+function selectionSnapshotFromModelSelection(
+	selection: SessionModelSelection,
+): SessionSelectionSnapshot {
+	if (selection.kind === "inherit") {
+		return createDefaultSelection();
+	}
+	return selection.kind === "model"
+		? {
+				selection,
+				resolved: selection.model,
+				source: "session",
+			}
+		: {
+				selection,
+				source: "session",
+			};
 }
 
 // --- React hook ---

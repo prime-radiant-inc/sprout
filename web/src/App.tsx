@@ -308,6 +308,11 @@ export function App() {
 	// Slash command handler
 	const handleSlashCommand = useCallback(
 		(cmd: SlashCommand) => {
+			if (cmd.kind === "settings") {
+				setShowSettings(true);
+				sendCommand({ kind: "get_settings", data: {} });
+				return;
+			}
 			const command = createCommandFromSlashCommand(cmd, settings);
 			if (command) {
 				sendCommand(command);
@@ -344,6 +349,10 @@ export function App() {
 		},
 		[sendCommand],
 	);
+	const handleOpenSettings = useCallback(() => {
+		setShowSettings(true);
+		sendCommand({ kind: "get_settings", data: {} });
+	}, [sendCommand]);
 
 	const isRunning = status.status === "running";
 
@@ -356,7 +365,7 @@ export function App() {
 				connectionError={authError}
 				onInterrupt={handleInterrupt}
 				onSwitchModel={handleSwitchModel}
-				onOpenSettings={() => setShowSettings(true)}
+				onOpenSettings={handleOpenSettings}
 				onToggleTheme={toggleTheme}
 				theme={currentTheme}
 			/>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
 	SettingsCommand,
 	SettingsCommandResult,
@@ -33,10 +33,21 @@ export function ProviderSettingsPanel({
 	const [selectedView, setSelectedView] = useState<SelectedView>(() =>
 		selectInitialView(settings),
 	);
+	const previousProviderIdsRef = useRef<string[]>(settings?.settings.providers.map((provider) => provider.id) ?? []);
 
 	useEffect(() => {
 		if (!settings) {
 			setSelectedView("create");
+			return;
+		}
+		const previousProviderIds = previousProviderIdsRef.current;
+		const currentProviderIds = settings.settings.providers.map((provider) => provider.id);
+		previousProviderIdsRef.current = currentProviderIds;
+		const createdProviderId = currentProviderIds.find(
+			(providerId) => !previousProviderIds.includes(providerId),
+		);
+		if (selectedView === "create" && createdProviderId) {
+			setSelectedView(createdProviderId);
 			return;
 		}
 		if (selectedView === "defaults" || selectedView === "create") return;
@@ -60,6 +71,26 @@ export function ProviderSettingsPanel({
 	const fieldErrors = lastResult && !lastResult.ok ? lastResult.fieldErrors : undefined;
 
 	if (!settings) {
+		if (lastResult && !lastResult.ok) {
+			return (
+				<div className={styles.overlay} onClick={onClose}>
+					<div className={styles.panel} onClick={(event) => event.stopPropagation()}>
+						<div className={styles.header}>
+							<div className={styles.titleGroup}>
+								<h2 className={styles.title}>Provider settings</h2>
+								<span className={styles.subtitle}>Provider settings are unavailable</span>
+							</div>
+							<button type="button" className={styles.close} onClick={onClose}>
+								{"\u2715"}
+							</button>
+						</div>
+						<div className={styles.detail}>
+							<div className={styles.errorBanner}>{lastResult.message}</div>
+						</div>
+					</div>
+				</div>
+			);
+		}
 		return (
 			<div className={styles.overlay} onClick={onClose}>
 				<div className={styles.panel} onClick={(event) => event.stopPropagation()}>
@@ -122,7 +153,7 @@ export function ProviderSettingsPanel({
 						)}
 
 						{selectedView === "defaults" ? (
-							<DefaultsPanel settings={settings} onCommand={onCommand} />
+							<DefaultsPanel settings={settings} message={message} onCommand={onCommand} />
 						) : selectedView === "create" ? (
 							<ProviderEditor
 								mode="create"

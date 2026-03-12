@@ -446,6 +446,10 @@ describe("App", () => {
 		await flush();
 		stdin.write("\x1B[B");
 		await flush();
+		stdin.write("\x1B[B");
+		await flush();
+		stdin.write("\x1B[B");
+		await flush();
 		stdin.write("\r");
 		await flush();
 

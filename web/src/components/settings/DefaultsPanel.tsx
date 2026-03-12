@@ -95,10 +95,11 @@ export function createTierPriorityCommand(
 
 export interface DefaultsPanelProps {
 	settings: SettingsSnapshot;
+	message?: string | null;
 	onCommand: (command: SettingsCommand) => void;
 }
 
-export function DefaultsPanel({ settings, onCommand }: DefaultsPanelProps) {
+export function DefaultsPanel({ settings, message, onCommand }: DefaultsPanelProps) {
 	const providers = settings.settings.providers;
 	const enabledProviders = providers.filter((provider) => provider.enabled);
 	const defaultSelection = settings.settings.defaults.selection;
@@ -172,6 +173,8 @@ export function DefaultsPanel({ settings, onCommand }: DefaultsPanelProps) {
 					Control the global fallback selection, provider order, and tier-specific routing.
 				</p>
 			</div>
+
+			{message && <div className={styles.errorBanner}>{message}</div>}
 
 			<div className={styles.section}>
 				<h3 className={styles.sectionTitle}>Default selection</h3>

@@ -175,6 +175,18 @@ describe("StatusBar", () => {
 		]);
 	});
 
+	test("builds provider-aware selector labels from settings even when session models are stale", () => {
+		const options = buildSessionSelectionOptions(
+			makeStatus({
+				model: "claude-sonnet-4-6",
+				availableModels: [],
+			}),
+			makeSettings(),
+		);
+		expect(options.map((option) => option.label)).toContain("Anthropic · Claude Sonnet 4.6");
+		expect(options.map((option) => option.label)).toContain("OpenRouter · GPT-4.1");
+	});
+
 	test("renders provider-aware selector when settings provide explicit models", () => {
 		const status = makeStatus({
 			availableModels: ["best", "balanced", "fast", "claude-sonnet-4-6", "gpt-4.1"],

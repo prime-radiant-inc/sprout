@@ -187,6 +187,23 @@ describe("ProviderSettingsPanel", () => {
 		).toContain("No providers configured");
 	});
 
+	test("renders unavailable state when settings cannot be loaded", () => {
+		const html = renderToStaticMarkup(
+			<ProviderSettingsPanel
+				settings={null}
+				lastResult={makeResult({
+					code: "settings_unavailable",
+					message: "Settings control plane is unavailable",
+				})}
+				onCommand={() => {}}
+				onClose={() => {}}
+			/>,
+		);
+
+		expect(html).toContain("Provider settings are unavailable");
+		expect(html).toContain("Settings control plane is unavailable");
+	});
+
 	test("renders provider health, unsupported secret backend messaging, and discovered models", () => {
 		const result = makeResult({ message: "Latest command failed" });
 		const logged: unknown[][] = [];

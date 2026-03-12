@@ -39,6 +39,24 @@ describe("ModelPicker", () => {
 		]);
 	});
 
+	test("builds provider-aware picker options from settings when availableModels is stale", () => {
+		const options = buildModelPickerOptions({
+			availableModels: [],
+			settings: makeSettingsSnapshot(),
+			currentSelection: makeSelectionSnapshot(),
+			currentModel: "claude-sonnet-4-6",
+		});
+
+		expect(options.map((option) => option.label)).toEqual([
+			"Default · claude-sonnet-4-6",
+			"Best",
+			"Balanced",
+			"Fast",
+			"Anthropic · Claude Sonnet 4.6",
+			"LM Studio · Qwen 2.5 Coder",
+		]);
+	});
+
 	test("renders provider-aware option labels", () => {
 		const { lastFrame } = render(
 			<ModelPicker
@@ -84,6 +102,10 @@ describe("ModelPicker", () => {
 				onCancel={() => {}}
 			/>,
 		);
+		stdin.write("\x1B[B");
+		await flush();
+		stdin.write("\x1B[B");
+		await flush();
 		stdin.write("\x1B[B");
 		await flush();
 		stdin.write("\x1B[B");

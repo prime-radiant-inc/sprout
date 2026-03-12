@@ -227,6 +227,36 @@ describe("EventStore", () => {
 			expect(store.status.currentSelection).toEqual(currentSelection);
 			expect(store.settings).toEqual(settings);
 		});
+
+		test("derives availableModels from the settings catalog in snapshots", () => {
+			const store = new EventStore();
+			const settings = makeSettingsSnapshot();
+			settings.catalog = [
+				{
+					providerId: "lmstudio",
+					models: [{ id: "qwen2.5-coder", label: "Qwen 2.5 Coder", source: "manual" }],
+				},
+			];
+
+			store.processMessage(
+				snapshotMessage(
+					[],
+					{
+						id: "snap-session",
+						status: "idle",
+						availableModels: [],
+					},
+					settings,
+				),
+			);
+
+			expect(store.status.availableModels).toEqual([
+				"best",
+				"balanced",
+				"fast",
+				"qwen2.5-coder",
+			]);
+		});
 	});
 
 	describe("event appending", () => {
@@ -636,6 +666,68 @@ describe("EventStore", () => {
 
 			store.processMessage(eventMessage(makeEvent("plan_start")));
 			expect(notifyCount).toBe(1);
+		});
+	});
+
+	describe("settings updates", () => {
+		test("refreshes availableModels when settings snapshots change", () => {
+			const store = new EventStore();
+			const settings = makeSettingsSnapshot();
+			settings.catalog = [
+				{
+					providerId: "lmstudio",
+					models: [{ id: "qwen2.5-coder", label: "Qwen 2.5 Coder", source: "manual" }],
+				},
+			];
+
+			store.processMessage({
+				type: "settings_updated",
+				snapshot: settings,
+			});
+
+			expect(store.status.availableModels).toEqual([
+				"best",
+				"balanced",
+				"fast",
+				"qwen2.5-coder",
+			]);
+		});
+
+		test("optimistically updates currentSelection when switch_model is sent", () => {
+			const store = new EventStore();
+			const sent: object[] = [];
+			const sendCommand = store.createSendCommand((message) => {
+				sent.push(message);
+			});
+
+			sendCommand({
+				kind: "switch_model",
+				data: {
+					selection: {
+						kind: "model",
+						model: {
+							providerId: "lmstudio",
+							modelId: "qwen2.5-coder",
+						},
+					},
+				},
+			} as BrowserCommand);
+
+			expect(store.status.currentSelection).toEqual({
+				selection: {
+					kind: "model",
+					model: {
+						providerId: "lmstudio",
+						modelId: "qwen2.5-coder",
+					},
+				},
+				resolved: {
+					providerId: "lmstudio",
+					modelId: "qwen2.5-coder",
+				},
+				source: "session",
+			});
+			expect(sent).toHaveLength(1);
 		});
 	});
 });
