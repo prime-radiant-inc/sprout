@@ -1,44 +1,92 @@
 import { describe, expect, test } from "bun:test";
 import {
-	createEmptySettings,
-	type ProviderConfig,
-	validateSproutSettings,
-} from "../../src/host/settings/types.ts";
+	validateProviderConfig,
+	validateProviderRuntimeReadiness,
+} from "../../src/host/settings/validation.ts";
+import type { ProviderConfig } from "../../src/host/settings/types.ts";
 
 function makeProvider(overrides: Partial<ProviderConfig> = {}): ProviderConfig {
 	return {
-		id: "anthropic-main",
-		kind: "anthropic",
-		label: "Anthropic",
-		enabled: true,
-		discoveryStrategy: "remote-only",
-		createdAt: "2026-03-11T00:00:00.000Z",
-		updatedAt: "2026-03-11T00:00:00.000Z",
+		id: "lmstudio",
+		kind: "openai-compatible",
+		label: "LM Studio",
+		enabled: false,
+		baseUrl: "http://127.0.0.1:1234/v1",
+		discoveryStrategy: "remote-with-manual",
+		createdAt: "2026-03-12T00:00:00.000Z",
+		updatedAt: "2026-03-12T00:00:00.000Z",
 		...overrides,
 	};
 }
 
-describe("settings validation", () => {
-	test("rejects duplicate provider ids", () => {
-		const settings = createEmptySettings();
-		settings.providers = [makeProvider(), makeProvider()];
+describe("validateProviderConfig", () => {
+	test("rejects malformed base URLs before runtime use", () => {
+		const result = validateProviderConfig(
+			makeProvider({
+				baseUrl: "localhost:1234/v1",
+			}),
+		);
 
-		expect(() => validateSproutSettings(settings)).toThrow(/duplicate provider id/i);
+		expect(result.errors).toContain("Base URL must be a valid http or https URL");
+		expect(result.fieldErrors).toEqual({
+			baseUrl: "Base URL must be a valid http or https URL",
+		});
 	});
 
-	test("rejects duplicate provider priority entries", () => {
-		const settings = createEmptySettings();
-		settings.providers = [makeProvider()];
-		settings.routing.providerPriority = ["anthropic-main", "anthropic-main"];
+	test("rejects custom headers for gemini providers", () => {
+		const result = validateProviderConfig(
+			makeProvider({
+				kind: "gemini",
+				baseUrl: undefined,
+				nonSecretHeaders: {
+					"X-Test": "value",
+				},
+			}),
+		);
 
-		expect(() => validateSproutSettings(settings)).toThrow(/duplicate provider priority/i);
+		expect(result.errors).toContain("Gemini providers do not support custom non-secret headers");
+		expect(result.fieldErrors).toEqual({
+			nonSecretHeaders: "Gemini providers do not support custom non-secret headers",
+		});
+	});
+});
+
+describe("validateProviderRuntimeReadiness", () => {
+	test("reports missing secret readiness separately from config validation", () => {
+		const result = validateProviderRuntimeReadiness(
+			makeProvider({
+				id: "openai",
+				kind: "openai",
+				baseUrl: undefined,
+			}),
+			{
+				hasSecret: false,
+				secretBackendAvailable: true,
+			},
+		);
+
+		expect(result.errors).toContain("API key is required");
+		expect(result.fieldErrors).toEqual({
+			secret: "API key is required",
+		});
 	});
 
-	test("rejects enabled providers missing from provider priority", () => {
-		const settings = createEmptySettings();
-		settings.providers = [makeProvider(), makeProvider({ id: "openai-main", kind: "openai" })];
-		settings.routing.providerPriority = ["anthropic-main"];
+	test("reports unavailable secret backend distinctly", () => {
+		const result = validateProviderRuntimeReadiness(
+			makeProvider({
+				id: "openai",
+				kind: "openai",
+				baseUrl: undefined,
+			}),
+			{
+				hasSecret: false,
+				secretBackendAvailable: false,
+			},
+		);
 
-		expect(() => validateSproutSettings(settings)).toThrow(/missing enabled provider/i);
+		expect(result.errors).toContain("Secret storage backend is unavailable");
+		expect(result.fieldErrors).toEqual({
+			secret: "Secret storage backend is unavailable",
+		});
 	});
 });

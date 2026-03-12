@@ -3,6 +3,11 @@ import {
 	type SecretStorageBackend,
 	type SecretStore,
 } from "./secret-store.ts";
+import {
+	providerRequiresSecret,
+	validateProviderConfig,
+	validateProviderRuntimeReadiness,
+} from "./validation.ts";
 import type {
 	DefaultSelection,
 	ManualModelConfig,
@@ -189,7 +194,7 @@ export class SettingsControlPlane {
 		const next = structuredClone(this.settings);
 		const providerId = buildNextProviderId(next.providers, data.kind);
 		const timestamp = this.now();
-		next.providers.push({
+		const provider: ProviderConfig = {
 			id: providerId,
 			kind: data.kind,
 			label: data.label,
@@ -200,7 +205,16 @@ export class SettingsControlPlane {
 			manualModels: data.manualModels,
 			createdAt: timestamp,
 			updatedAt: timestamp,
-		});
+		};
+		const validation = validateProviderConfig(provider);
+		if (validation.errors.length > 0) {
+			return this.error(
+				"validation_failed",
+				validation.errors.join("; "),
+				validation.fieldErrors,
+			);
+		}
+		next.providers.push(provider);
 		return this.persistSettings(next, [providerId], true);
 	}
 
@@ -218,6 +232,14 @@ export class SettingsControlPlane {
 		if (patch.discoveryStrategy !== undefined) provider.discoveryStrategy = patch.discoveryStrategy;
 		if (patch.manualModels !== undefined) provider.manualModels = patch.manualModels;
 		provider.updatedAt = this.now();
+		const validation = validateProviderConfig(provider);
+		if (validation.errors.length > 0) {
+			return this.error(
+				"validation_failed",
+				validation.errors.join("; "),
+				validation.fieldErrors,
+			);
+		}
 
 		return this.persistSettings(next, [providerId], true);
 	}
@@ -299,14 +321,18 @@ export class SettingsControlPlane {
 		if (!provider) return this.error("not_found", `Unknown provider: ${providerId}`);
 
 		provider.enabled = enabled;
-		provider.updatedAt = this.now();
-		if (enabled) {
-			const errors = await this.getValidationErrors(provider);
-			if (errors.length > 0) {
-				return this.error("validation_failed", errors.join("; "));
-			}
-			if (!next.routing.providerPriority.includes(providerId)) {
-				next.routing.providerPriority.push(providerId);
+			provider.updatedAt = this.now();
+			if (enabled) {
+				const validation = await this.getValidationResult(provider);
+				if (validation.errors.length > 0) {
+					return this.error(
+						"validation_failed",
+						validation.errors.join("; "),
+						validation.fieldErrors,
+					);
+				}
+				if (!next.routing.providerPriority.includes(providerId)) {
+					next.routing.providerPriority.push(providerId);
 			}
 		} else {
 			next.routing.providerPriority = next.routing.providerPriority.filter(
@@ -329,9 +355,13 @@ export class SettingsControlPlane {
 	private async testProviderConnection(providerId: string): Promise<SettingsCommandResult> {
 		const provider = this.settings.providers.find((candidate) => candidate.id === providerId);
 		if (!provider) return this.error("not_found", `Unknown provider: ${providerId}`);
-		const validationErrors = await this.getValidationErrors(provider);
-		if (validationErrors.length > 0) {
-			return this.error("validation_failed", validationErrors.join("; "));
+		const validation = await this.getValidationResult(provider);
+		if (validation.errors.length > 0) {
+			return this.error(
+				"validation_failed",
+				validation.errors.join("; "),
+				validation.fieldErrors,
+			);
 		}
 
 		const secret = await this.getProviderSecret(provider);
@@ -350,9 +380,13 @@ export class SettingsControlPlane {
 	private async refreshProviderModels(providerId: string): Promise<SettingsCommandResult> {
 		const provider = this.settings.providers.find((candidate) => candidate.id === providerId);
 		if (!provider) return this.error("not_found", `Unknown provider: ${providerId}`);
-		const validationErrors = await this.getValidationErrors(provider);
-		if (validationErrors.length > 0) {
-			return this.error("validation_failed", validationErrors.join("; "));
+		const validation = await this.getValidationResult(provider);
+		if (validation.errors.length > 0) {
+			return this.error(
+				"validation_failed",
+				validation.errors.join("; "),
+				validation.fieldErrors,
+			);
 		}
 
 		const secret = await this.getProviderSecret(provider);
@@ -472,12 +506,12 @@ export class SettingsControlPlane {
 		const providers: ProviderStatusSnapshot[] = [];
 		for (const provider of this.settings.providers) {
 			const hasSecret = await this.providerHasSecret(provider);
-			const validationErrors = await this.getValidationErrors(provider, hasSecret);
+			const validation = await this.getValidationResult(provider, hasSecret);
 			const state = this.getOrCreateProviderState(provider.id);
 			providers.push({
 				providerId: provider.id,
 				hasSecret,
-				validationErrors,
+				validationErrors: validation.errors,
 				connectionStatus: state.connectionStatus,
 				connectionError: state.connectionError,
 				catalogStatus: state.catalogStatus,
@@ -536,29 +570,19 @@ export class SettingsControlPlane {
 		return this.secretStore.getSecret(createProviderSecretRef(provider.id, this.secretBackend));
 	}
 
-	private async getValidationErrors(
+	private async getValidationResult(
 		provider: ProviderConfig,
 		hasSecret?: boolean,
-	): Promise<string[]> {
+	): Promise<{ errors: string[]; fieldErrors: Record<string, string> }> {
 		const resolvedHasSecret = hasSecret ?? (await this.providerHasSecret(provider));
-		const errors = [...(this.initialValidationErrors[provider.id] ?? [])];
-		if (provider.kind === "openai-compatible" && !provider.baseUrl?.trim()) {
-			errors.push("Base URL is required for openai-compatible providers");
-		}
-		if (provider.kind !== "openai-compatible" && provider.baseUrl !== undefined) {
-			errors.push("Base URL is only supported for openai-compatible providers");
-		}
-		if (
-			provider.kind === "gemini" &&
-			provider.nonSecretHeaders &&
-			Object.keys(provider.nonSecretHeaders).length > 0
-		) {
-			errors.push("Gemini providers do not support custom non-secret headers");
-		}
-		if (providerRequiresSecret(provider) && !resolvedHasSecret) {
-			errors.push("API key is required");
-		}
-		return dedupe(errors);
+		const validation = validateProviderRuntimeReadiness(provider, {
+			hasSecret: resolvedHasSecret,
+			secretBackendAvailable: true,
+		});
+		return {
+			errors: dedupe([...(this.initialValidationErrors[provider.id] ?? []), ...validation.errors]),
+			fieldErrors: validation.fieldErrors,
+		};
 	}
 
 	private getOrCreateProviderState(providerId: string): StatusState {
@@ -583,13 +607,15 @@ export class SettingsControlPlane {
 		return { ok: true, snapshot };
 	}
 
-	private error(code: string, message: string): SettingsCommandResult {
-		return { ok: false, code, message };
+	private error(
+		code: string,
+		message: string,
+		fieldErrors?: Record<string, string>,
+	): SettingsCommandResult {
+		return fieldErrors && Object.keys(fieldErrors).length > 0
+			? { ok: false, code, message, fieldErrors }
+			: { ok: false, code, message };
 	}
-}
-
-function providerRequiresSecret(provider: ProviderConfig): boolean {
-	return provider.kind !== "openai-compatible";
 }
 
 function buildNextProviderId(providers: ProviderConfig[], kind: ProviderConfig["kind"]): string {

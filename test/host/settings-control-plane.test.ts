@@ -74,17 +74,21 @@ describe("SettingsControlPlane", () => {
 		expect(providerId).toBe("openai");
 		if (!providerId) throw new Error("expected provider id");
 
-		const enableWithoutSecret = await plane.execute({
-			kind: "set_provider_enabled",
-			data: {
-				providerId,
-				enabled: true,
-			},
-		});
-		expect(enableWithoutSecret).toMatchObject({
-			ok: false,
-			code: "validation_failed",
-		});
+			const enableWithoutSecret = await plane.execute({
+				kind: "set_provider_enabled",
+				data: {
+					providerId,
+					enabled: true,
+				},
+			});
+			expect(enableWithoutSecret).toEqual({
+				ok: false,
+				code: "validation_failed",
+				message: "API key is required",
+				fieldErrors: {
+					secret: "API key is required",
+				},
+			});
 
 		const secretResult = await plane.execute({
 			kind: "set_provider_secret",
@@ -313,10 +317,54 @@ describe("SettingsControlPlane", () => {
 			},
 		});
 
-		expect(result).toEqual({
+			expect(result).toEqual({
+				ok: false,
+				code: "persist_failed",
+				message: "disk full",
+			});
+	});
+
+	test("rejects invalid provider config with field-level validation errors", async () => {
+		const plane = await makePlane();
+
+		const malformedBaseUrl = await plane.execute({
+			kind: "create_provider",
+			data: {
+				kind: "openai-compatible",
+				label: "LM Studio",
+				baseUrl: "localhost:1234/v1",
+				discoveryStrategy: "manual-only",
+			},
+		});
+
+		expect(malformedBaseUrl).toEqual({
 			ok: false,
-			code: "persist_failed",
-			message: "disk full",
+			code: "validation_failed",
+			message: "Base URL must be a valid http or https URL",
+			fieldErrors: {
+				baseUrl: "Base URL must be a valid http or https URL",
+			},
+		});
+
+		const geminiHeaders = await plane.execute({
+			kind: "create_provider",
+			data: {
+				kind: "gemini",
+				label: "Gemini",
+				nonSecretHeaders: {
+					"X-Test": "value",
+				},
+				discoveryStrategy: "remote-only",
+			},
+		});
+
+		expect(geminiHeaders).toEqual({
+			ok: false,
+			code: "validation_failed",
+			message: "Gemini providers do not support custom non-secret headers",
+			fieldErrors: {
+				nonSecretHeaders: "Gemini providers do not support custom non-secret headers",
+			},
 		});
 	});
 });

@@ -128,4 +128,27 @@ describe("ProviderRegistry", () => {
 		expect(entry?.adapter).toBeUndefined();
 		expect(entry?.validationErrors).toContain("API key is required");
 	});
+
+	test("reports malformed base URLs consistently instead of constructing adapters", async () => {
+		const registry = new ProviderRegistry({
+			settings: makeSettings([
+				{
+					id: "lmstudio",
+					kind: "openai-compatible",
+					label: "LM Studio",
+					enabled: true,
+					baseUrl: "localhost:1234/v1",
+					discoveryStrategy: "manual-only",
+					createdAt: "2026-03-11T12:00:00.000Z",
+					updatedAt: "2026-03-11T12:00:00.000Z",
+				},
+			]),
+			secretStore: createSecretStore({ backend: "memory", platform: "darwin" }),
+			secretBackend: "memory",
+		});
+
+		const entry = await registry.getEntry("lmstudio");
+		expect(entry?.adapter).toBeUndefined();
+		expect(entry?.validationErrors).toEqual(["Base URL must be a valid http or https URL"]);
+	});
 });

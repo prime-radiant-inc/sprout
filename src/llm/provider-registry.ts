@@ -4,6 +4,10 @@ import {
 	type SecretStore,
 } from "../host/settings/secret-store.ts";
 import type { ProviderConfig, SproutSettings } from "../host/settings/types.ts";
+import {
+	providerRequiresSecret,
+	validateProviderRuntimeReadiness,
+} from "../host/settings/validation.ts";
 import { AnthropicAdapter } from "./anthropic.ts";
 import { GeminiAdapter } from "./gemini.ts";
 import { OpenAIAdapter } from "./openai.ts";
@@ -66,31 +70,17 @@ export class ProviderRegistry {
 	}
 
 	private async validateProvider(provider: ProviderConfig): Promise<string[]> {
-		const errors: string[] = [];
-		if (provider.kind === "openai-compatible" && !provider.baseUrl?.trim()) {
-			errors.push("Base URL is required for openai-compatible providers");
-		}
-		if (provider.kind !== "openai-compatible" && provider.baseUrl !== undefined) {
-			errors.push("Base URL is only supported for openai-compatible providers");
-		}
-		if (
-			provider.kind === "gemini" &&
-			provider.nonSecretHeaders &&
-			Object.keys(provider.nonSecretHeaders).length > 0
-		) {
-			errors.push("Gemini providers do not support custom non-secret headers");
-		}
-		if (
-			requiresApiKey(provider) &&
-			!(await this.secretStore.hasSecret(this.secretRef(provider.id)))
-		) {
-			errors.push("API key is required");
-		}
-		return errors;
+		const hasSecret = providerRequiresSecret(provider)
+			? await this.secretStore.hasSecret(this.secretRef(provider.id))
+			: false;
+		return validateProviderRuntimeReadiness(provider, {
+			hasSecret,
+			secretBackendAvailable: true,
+		}).errors;
 	}
 
 	private async getProviderSecret(provider: ProviderConfig): Promise<string | undefined> {
-		if (!requiresApiKey(provider)) return undefined;
+		if (!providerRequiresSecret(provider)) return undefined;
 		return this.secretStore.getSecret(this.secretRef(provider.id));
 	}
 
@@ -129,10 +119,6 @@ function createProviderAdapter(
 				providerId: provider.id,
 			});
 	}
-}
-
-function requiresApiKey(provider: ProviderConfig): boolean {
-	return provider.kind !== "openai-compatible";
 }
 
 class OpenRouterAdapter implements ProviderAdapter {
