@@ -12,6 +12,19 @@
 
 **Supersedes:** This follow-up closes the implementation gaps left after `docs/superpowers/plans/2026-03-11-provider-backends-and-config-ui.md`.
 
+**Status:** Completed on 2026-03-12.
+
+**Implementation commits:**
+- `04f1124` / `6da50da` - validation contract centralization
+- `1df8a3d` - settings command payload validation
+- `6ee6bd5` - degraded secret-backend runtime behavior
+- `1f6c727` - runtime warning surfacing
+- `17c262d` - web provider editor completion
+- `7d3f029` - TUI provider settings parity and underlying input-state fixes
+- `6fdb990` - app-level TUI settings test hardening under parallel load
+
+**Notes:** The approved design doc did not need follow-up edits. The final implementation preserved the provider-registry architecture, degraded secret-backend handling, full web/TUI editing for provider metadata, and field-level validation/runtime warning surfacing described there.
+
 ---
 
 ## File Structure
