@@ -93,7 +93,13 @@ const SETTINGS_COMMAND_KINDS = new Set([
 	"set_tier_priority",
 ]);
 
-const PROVIDER_KINDS = new Set(["anthropic", "openai", "openai-compatible", "openrouter", "gemini"]);
+const PROVIDER_KINDS = new Set([
+	"anthropic",
+	"openai",
+	"openai-compatible",
+	"openrouter",
+	"gemini",
+]);
 const DISCOVERY_STRATEGIES = new Set(["remote-only", "manual-only", "remote-with-manual"]);
 const TIERS = new Set(["best", "balanced", "fast"]);
 
@@ -179,10 +185,7 @@ function validateSettingsCommand(kind: string, data: Record<string, unknown>): v
 					"command.data.patch.discoveryStrategy",
 				);
 			}
-			assertOptionalStringRecord(
-				patch.nonSecretHeaders,
-				"command.data.patch.nonSecretHeaders",
-			);
+			assertOptionalStringRecord(patch.nonSecretHeaders, "command.data.patch.nonSecretHeaders");
 			assertOptionalManualModels(patch.manualModels, "command.data.patch.manualModels");
 			return;
 		}
