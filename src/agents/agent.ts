@@ -220,8 +220,6 @@ export class Agent {
 				modelMap.set(providerId, []);
 			}
 		}
-		const implicitProviderId =
-			options.providerIdOverride ?? (modelMap.size === 1 ? [...modelMap.keys()][0] : undefined);
 		const resolverSettings =
 			options.resolverSettings ??
 			createResolverSettings(
@@ -229,14 +227,12 @@ export class Agent {
 					id: providerId,
 					enabled: true,
 				})),
-				implicitProviderId,
 			);
 		this.resolverSettings = resolverSettings;
 		this.resolved = resolveModel(
 			options.modelOverride ?? this.spec.model,
 			resolverSettings,
 			modelMap,
-			implicitProviderId ? { providerId: implicitProviderId } : {},
 		);
 
 		// Build delegate tool (single tool for all agent delegations)

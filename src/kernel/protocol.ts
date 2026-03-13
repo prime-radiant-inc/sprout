@@ -73,8 +73,7 @@ const VALID_COMMAND_KINDS = new Set([
 	"set_provider_enabled",
 	"test_provider_connection",
 	"refresh_provider_models",
-	"set_global_tier_default",
-	"set_default_provider",
+	"set_default_model",
 ]);
 
 const SETTINGS_COMMAND_KINDS = new Set([
@@ -87,8 +86,7 @@ const SETTINGS_COMMAND_KINDS = new Set([
 	"set_provider_enabled",
 	"test_provider_connection",
 	"refresh_provider_models",
-	"set_global_tier_default",
-	"set_default_provider",
+	"set_default_model",
 ]);
 
 const PROVIDER_KINDS = new Set([
@@ -98,7 +96,6 @@ const PROVIDER_KINDS = new Set([
 	"openrouter",
 	"gemini",
 ]);
-const DISCOVERY_STRATEGIES = new Set(["remote-only", "manual-only", "remote-with-manual"]);
 const TIERS = new Set(["best", "balanced", "fast"]);
 /** Build a command envelope for transport from browser to server. */
 export function createCommandMessage(command: BrowserCommand): CommandMessage {
@@ -159,43 +156,25 @@ function validateSettingsCommand(kind: string, data: Record<string, unknown>): v
 			assertOnlyKnownKeys(data, [], "command.data");
 			return;
 		case "create_provider":
-			assertOnlyKnownKeys(
-				data,
-				["kind", "label", "baseUrl", "nonSecretHeaders", "discoveryStrategy", "manualModels"],
-				"command.data",
-			);
+			assertOnlyKnownKeys(data, ["kind", "label", "baseUrl", "nonSecretHeaders"], "command.data");
 			assertEnum(data.kind, PROVIDER_KINDS, "command.data.kind");
 			assertNonEmptyString(data.label, "command.data.label");
-			assertEnum(data.discoveryStrategy, DISCOVERY_STRATEGIES, "command.data.discoveryStrategy");
 			assertOptionalString(data.baseUrl, "command.data.baseUrl");
 			assertOptionalStringRecord(data.nonSecretHeaders, "command.data.nonSecretHeaders");
-			assertOptionalManualModels(data.manualModels, "command.data.manualModels");
 			return;
 		case "update_provider": {
 			assertOnlyKnownKeys(data, ["providerId", "patch"], "command.data");
 			assertNonEmptyString(data.providerId, "command.data.providerId");
 			assertRecord(data.patch, "command.data.patch");
 			const patch = data.patch as Record<string, unknown>;
-			assertOnlyKnownKeys(
-				patch,
-				["label", "baseUrl", "nonSecretHeaders", "discoveryStrategy", "manualModels"],
-				"command.data.patch",
-			);
+			assertOnlyKnownKeys(patch, ["label", "baseUrl", "nonSecretHeaders"], "command.data.patch");
 			if (patch.label !== undefined) {
 				assertNonEmptyString(patch.label, "command.data.patch.label");
 			}
 			if (patch.baseUrl !== undefined) {
 				assertString(patch.baseUrl, "command.data.patch.baseUrl");
 			}
-			if (patch.discoveryStrategy !== undefined) {
-				assertEnum(
-					patch.discoveryStrategy,
-					DISCOVERY_STRATEGIES,
-					"command.data.patch.discoveryStrategy",
-				);
-			}
 			assertOptionalStringRecord(patch.nonSecretHeaders, "command.data.patch.nonSecretHeaders");
-			assertOptionalManualModels(patch.manualModels, "command.data.patch.manualModels");
 			return;
 		}
 		case "delete_provider":
@@ -215,16 +194,10 @@ function validateSettingsCommand(kind: string, data: Record<string, unknown>): v
 			assertNonEmptyString(data.providerId, "command.data.providerId");
 			assertBoolean(data.enabled, "command.data.enabled");
 			return;
-		case "set_global_tier_default":
-			assertOnlyKnownKeys(data, ["tier", "model"], "command.data");
-			assertEnum(data.tier, TIERS, "command.data.tier");
+		case "set_default_model":
+			assertOnlyKnownKeys(data, ["slot", "model"], "command.data");
+			assertEnum(data.slot, TIERS, "command.data.slot");
 			assertOptionalModelRef(data.model, "command.data.model");
-			return;
-		case "set_default_provider":
-			assertOnlyKnownKeys(data, ["providerId"], "command.data");
-			if (data.providerId !== undefined) {
-				assertNonEmptyString(data.providerId, "command.data.providerId");
-			}
 			return;
 	}
 }
@@ -287,20 +260,6 @@ function assertOptionalStringRecord(value: unknown, path: string): void {
 			throw new Error(`${path} keys must be non-empty strings`);
 		}
 		assertString(entry, `${path}.${key}`);
-	}
-}
-
-function assertOptionalManualModels(value: unknown, path: string): void {
-	if (value === undefined) return;
-	if (!Array.isArray(value)) {
-		throw new Error(`${path} must be an array`);
-	}
-	for (const [index, item] of value.entries()) {
-		assertRecord(item, `${path}[${index}]`);
-		assertNonEmptyString(item.id, `${path}[${index}].id`);
-		if (item.label !== undefined) {
-			assertString(item.label, `${path}[${index}].label`);
-		}
 	}
 }
 

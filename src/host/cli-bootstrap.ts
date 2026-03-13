@@ -282,11 +282,7 @@ export async function bootstrapInteractiveRuntime(
 			if (!context) {
 				return createResolverSettings([]);
 			}
-			return createResolverSettings(
-				context.settings.providers,
-				context.settings.defaults.defaultProviderId,
-				context.settings.defaults.tierDefaults,
-			);
+			return createResolverSettings(context.settings.providers, context.settings.defaults);
 		},
 		spawner: opts.infra.spawner,
 		genome: opts.infra.genome,

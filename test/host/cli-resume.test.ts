@@ -10,7 +10,6 @@ function provider(overrides: Partial<ProviderConfig> = {}): ProviderConfig {
 		kind: "openai",
 		label: "OpenAI",
 		enabled: true,
-		discoveryStrategy: "remote-only",
 		createdAt: "",
 		updatedAt: "",
 		...overrides,
@@ -201,11 +200,9 @@ describe("loadResumeState", () => {
 							}),
 						],
 						defaults: {
-							tierDefaults: {
-								balanced: {
-									providerId: "openai",
-									modelId: "gpt-4.1",
-								},
+							balanced: {
+								providerId: "openai",
+								modelId: "gpt-4.1",
 							},
 						},
 					},

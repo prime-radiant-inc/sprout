@@ -45,7 +45,7 @@ export function ProviderList({
 				onClick={onSelectDefaults}
 			>
 				<span className={styles.listTitle}>Default models</span>
-				<span className={styles.listMeta}>Fallback provider and tier defaults</span>
+				<span className={styles.listMeta}>Global best, balanced, and fast model choices</span>
 			</button>
 
 			{settings.settings.providers.map((provider) => {

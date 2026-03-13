@@ -40,11 +40,9 @@ export function formatSelectionLabel(
 	const currentSelection = selection.selection;
 	switch (currentSelection.kind) {
 		case "inherit": {
-			const provider = selectionProvider(selection, settings);
-			if (provider) {
-				return `Default · ${provider.label}`;
-			}
-			return currentModel ? `Default · ${shortModelName(currentModel)}` : "Default";
+			return currentModel
+				? `Use agent default · ${shortModelName(currentModel)}`
+				: "Use agent default";
 		}
 		case "tier": {
 			const provider = selectionProvider(selection, settings);
@@ -74,7 +72,10 @@ function selectionProvider(
 	const providerId =
 		selection.selection.kind === "model"
 			? selection.selection.model.providerId
-			: (selection.resolved?.providerId ?? settings?.settings.defaults.defaultProviderId);
+			: (selection.resolved?.providerId ??
+				settings?.settings.defaults[
+					selection.selection.kind === "tier" ? selection.selection.tier : "best"
+				]?.providerId);
 	if (!providerId) return undefined;
 	return settings?.settings.providers.find((candidate) => candidate.id === providerId);
 }

@@ -21,18 +21,15 @@ export interface SettingsStoreOptions {
 	settingsPath?: string;
 	pathOptions?: SettingsPathOptions;
 	now?: () => string;
-	migrate?: (raw: unknown) => SproutSettings;
 }
 
 export class SettingsStore {
 	private readonly settingsPath: string;
 	private readonly now: () => string;
-	private readonly migrate?: (raw: unknown) => SproutSettings;
 
 	constructor(options: SettingsStoreOptions = {}) {
 		this.settingsPath = options.settingsPath ?? resolveSettingsPath(options.pathOptions);
 		this.now = options.now ?? (() => new Date().toISOString().replaceAll(":", "-"));
-		this.migrate = options.migrate;
 	}
 
 	async load(): Promise<SettingsLoadResult> {
@@ -97,11 +94,6 @@ export class SettingsStore {
 			this.validateSettings(settings);
 			return settings;
 		}
-		if (this.migrate) {
-			const migrated = this.normalizeSettings(this.migrate(parsed));
-			this.validateSettings(migrated);
-			return migrated;
-		}
 		throw new Error(`Unsupported settings schema version: ${String(parsed.version)}`);
 	}
 
@@ -110,10 +102,9 @@ export class SettingsStore {
 			version: settings.version,
 			providers: settings.providers.map((provider) => normalizeProviderConfig(provider)),
 			defaults: {
-				...(settings.defaults.defaultProviderId
-					? { defaultProviderId: settings.defaults.defaultProviderId }
-					: {}),
-				...(settings.defaults.tierDefaults ? { tierDefaults: settings.defaults.tierDefaults } : {}),
+				...(settings.defaults.best ? { best: settings.defaults.best } : {}),
+				...(settings.defaults.balanced ? { balanced: settings.defaults.balanced } : {}),
+				...(settings.defaults.fast ? { fast: settings.defaults.fast } : {}),
 			},
 		};
 	}

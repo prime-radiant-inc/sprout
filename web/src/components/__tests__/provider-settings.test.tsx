@@ -5,7 +5,7 @@ import type {
 	SettingsSnapshot,
 } from "@kernel/types.ts";
 import { renderToStaticMarkup } from "react-dom/server";
-import { DefaultProviderPanel } from "../settings/DefaultProviderPanel.tsx";
+import { DefaultModelsPanel } from "../settings/DefaultModelsPanel.tsx";
 import {
 	createDeleteProviderCommand,
 	createDeleteProviderSecretCommand,
@@ -30,14 +30,13 @@ function makeSettings(): SettingsSnapshot {
 			warnings: [],
 		},
 		settings: {
-			version: 1,
+			version: 2,
 			providers: [
 				{
 					id: "anthropic-main",
 					kind: "anthropic",
 					label: "Anthropic",
 					enabled: true,
-					discoveryStrategy: "remote-with-manual",
 					createdAt: "2026-03-11T00:00:00.000Z",
 					updatedAt: "2026-03-11T00:00:00.000Z",
 				},
@@ -47,32 +46,22 @@ function makeSettings(): SettingsSnapshot {
 					label: "LM Studio",
 					enabled: true,
 					baseUrl: "http://127.0.0.1:1234/v1",
-					discoveryStrategy: "manual-only",
-					manualModels: [
-						{
-							id: "qwen2.5-coder",
-							label: "Qwen 2.5 Coder",
-						},
-					],
 					createdAt: "2026-03-11T00:00:00.000Z",
 					updatedAt: "2026-03-11T00:00:00.000Z",
 				},
 			],
 			defaults: {
-				defaultProviderId: "anthropic-main",
-				tierDefaults: {
-					best: {
-						providerId: "anthropic-main",
-						modelId: "claude-opus-4-6",
-					},
-					balanced: {
-						providerId: "anthropic-main",
-						modelId: "claude-sonnet-4-6",
-					},
-					fast: {
-						providerId: "lmstudio",
-						modelId: "qwen2.5-coder",
-					},
+				best: {
+					providerId: "anthropic-main",
+					modelId: "claude-opus-4-6",
+				},
+				balanced: {
+					providerId: "anthropic-main",
+					modelId: "claude-sonnet-4-6",
+				},
+				fast: {
+					providerId: "lmstudio",
+					modelId: "qwen2.5-coder",
 				},
 			},
 		},
@@ -117,7 +106,7 @@ function makeSettings(): SettingsSnapshot {
 					{
 						id: "qwen2.5-coder",
 						label: "Qwen 2.5 Coder",
-						source: "manual",
+						source: "remote",
 					},
 				],
 			},
@@ -175,7 +164,7 @@ describe("ProviderSettingsPanel", () => {
 					settings={{
 						...makeSettings(),
 						settings: {
-							version: 1,
+							version: 2,
 							providers: [],
 							defaults: {},
 						},
@@ -228,7 +217,8 @@ describe("ProviderSettingsPanel", () => {
 		expect(html).toContain("Auth failed");
 		expect(html).toContain("Refresh required");
 		expect(html).toContain("Claude Sonnet 4.6");
-		expect(html).not.toContain("Tier defaults");
+		expect(html).not.toContain("Discovery strategy");
+		expect(html).not.toContain("Manual models");
 	});
 
 	test("renders pending provider action feedback", () => {
@@ -248,14 +238,13 @@ describe("ProviderSettingsPanel", () => {
 	});
 });
 
-describe("DefaultProviderPanel", () => {
+describe("DefaultModelsPanel", () => {
 	test("renders the current enabled default models controls", () => {
 		const html = renderToStaticMarkup(
-			<DefaultProviderPanel settings={makeSettings()} onCommand={() => {}} />,
+			<DefaultModelsPanel settings={makeSettings()} onCommand={() => {}} />,
 		);
 
 		expect(html).toContain("Default models");
-		expect(html).toContain("Fallback provider");
 		expect(html).toContain("Anthropic");
 		expect(html).toContain("Best model");
 		expect(html).toContain("Balanced model");
@@ -266,7 +255,7 @@ describe("DefaultProviderPanel", () => {
 });
 
 describe("ProviderEditor helpers", () => {
-	test("builds create and edit provider commands with manual models", () => {
+	test("builds create and edit provider commands", () => {
 		expect(
 			createProviderSaveCommand("create", {
 				kind: "openrouter",
@@ -275,13 +264,6 @@ describe("ProviderEditor helpers", () => {
 					{
 						key: "HTTP-Referer",
 						value: "https://sprout.local",
-					},
-				],
-				discoveryStrategy: "remote-only",
-				manualModels: [
-					{
-						id: "openrouter/manual-fast",
-						label: "Manual Fast",
 					},
 				],
 			}),
@@ -293,13 +275,6 @@ describe("ProviderEditor helpers", () => {
 				nonSecretHeaders: {
 					"HTTP-Referer": "https://sprout.local",
 				},
-				discoveryStrategy: "remote-only",
-				manualModels: [
-					{
-						id: "openrouter/manual-fast",
-						label: "Manual Fast",
-					},
-				],
 			},
 		} satisfies SettingsCommand);
 
@@ -316,13 +291,6 @@ describe("ProviderEditor helpers", () => {
 							value: "sprout",
 						},
 					],
-					discoveryStrategy: "remote-with-manual",
-					manualModels: [
-						{
-							id: "qwen2.5-coder",
-							label: "Qwen 2.5 Coder",
-						},
-					],
 				},
 				"lmstudio",
 			),
@@ -336,13 +304,6 @@ describe("ProviderEditor helpers", () => {
 					nonSecretHeaders: {
 						"X-Client": "sprout",
 					},
-					discoveryStrategy: "remote-with-manual",
-					manualModels: [
-						{
-							id: "qwen2.5-coder",
-							label: "Qwen 2.5 Coder",
-						},
-					],
 				},
 			},
 		} satisfies SettingsCommand);
@@ -354,9 +315,7 @@ describe("ProviderEditor helpers", () => {
 				kind: "openai-compatible",
 				label: "   ",
 				baseUrl: "",
-				discoveryStrategy: "manual-only",
 				nonSecretHeaders: [],
-				manualModels: [],
 			}),
 		).toEqual({
 			label: "Label is required.",
@@ -367,9 +326,7 @@ describe("ProviderEditor helpers", () => {
 			validateProviderDraftForSave({
 				kind: "anthropic",
 				label: "Anthropic",
-				discoveryStrategy: "remote-only",
 				nonSecretHeaders: [],
-				manualModels: [],
 			}),
 		).toBeUndefined();
 	});

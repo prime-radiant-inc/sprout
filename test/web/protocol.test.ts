@@ -157,7 +157,6 @@ describe("canonical protocol module", () => {
 				data: {
 					kind: "openrouter",
 					label: "OpenRouter",
-					discoveryStrategy: "remote-only",
 				},
 			},
 			{
@@ -182,16 +181,15 @@ describe("canonical protocol module", () => {
 			{ kind: "test_provider_connection", data: { providerId: "openrouter-main" } },
 			{ kind: "refresh_provider_models", data: { providerId: "openrouter-main" } },
 			{
-				kind: "set_global_tier_default",
+				kind: "set_default_model",
 				data: {
-					tier: "fast",
+					slot: "fast",
 					model: {
 						providerId: "openrouter-main",
 						modelId: "openai/gpt-4.1-mini",
 					},
 				},
 			},
-			{ kind: "set_default_provider", data: { providerId: "openrouter-main" } },
 		];
 
 		for (const command of commands) {
@@ -210,7 +208,6 @@ describe("canonical protocol module", () => {
 						data: {
 							kind: "openrouter",
 							label: "",
-							discoveryStrategy: "remote-only",
 						},
 					},
 				}),
@@ -226,13 +223,12 @@ describe("canonical protocol module", () => {
 						data: {
 							kind: "openrouter",
 							label: "OpenRouter",
-							discoveryStrategy: "remote-only",
-							manualModels: [{ id: 42 }],
+							unknownField: [{ id: 42 }],
 						},
 					},
 				}),
 			),
-		).toThrow("manualModels");
+		).toThrow("unknownField");
 
 		expect(() =>
 			parseCanonicalCommandMessage(
@@ -258,29 +254,27 @@ describe("canonical protocol module", () => {
 						data: {
 							providerId: "openrouter-main",
 							patch: {
-								tierDefaults: {
-									best: 42,
-								},
+								unknownField: 42,
 							},
 						},
 					},
 				}),
 			),
-		).toThrow("tierDefaults");
+		).toThrow("unknownField");
 
 		expect(() =>
 			parseCanonicalCommandMessage(
 				JSON.stringify({
 					type: "command",
 					command: {
-						kind: "set_default_provider",
+						kind: "set_default_model",
 						data: {
-							providerId: 42,
+							slot: 42,
 						},
 					},
 				}),
 			),
-		).toThrow("providerId");
+		).toThrow("slot");
 	});
 });
 

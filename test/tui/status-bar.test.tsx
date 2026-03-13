@@ -95,7 +95,7 @@ describe("formatSelectionLabel", () => {
 				"claude-sonnet-4-6",
 				makeSettingsSnapshot(),
 			),
-		).toBe("Default · Anthropic");
+		).toBe("Use agent default · claude-sonnet-4-6");
 	});
 
 	test("renders global tier labels with their resolved provider", () => {
@@ -183,8 +183,8 @@ describe("StatusBar", () => {
 				})}
 			/>,
 		);
-		expect(lastFrame()).toContain("Anthropic");
-		expect(lastFrame()).toContain("Default");
+		expect(lastFrame()).toContain("Use agent default");
+		expect(lastFrame()).toContain("claude-sonnet-4-6");
 	});
 
 	test("renders full session ID", () => {

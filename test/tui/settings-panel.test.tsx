@@ -55,7 +55,7 @@ describe("SettingsPanel", () => {
 						warnings: [],
 					},
 					settings: {
-						version: 1,
+						version: 2,
 						providers: [],
 						defaults: {},
 					},
@@ -106,7 +106,7 @@ describe("SettingsPanel", () => {
 		);
 
 		expect(lastFrame()).toContain("Default models");
-		expect(lastFrame()).toContain("Fallback provider: Anthropic (anthropic-main)");
+		expect(lastFrame()).toContain("best: Anthropic");
 		expect(lastFrame()).toContain("Latest command failed");
 
 		await submitCommand(stdin, "create", () => (lastFrame() ?? "").includes("Create provider"));
@@ -116,7 +116,7 @@ describe("SettingsPanel", () => {
 		expect(lastFrame()).toContain("Default models");
 		expect(lastFrame()).toContain("Latest command failed");
 
-		await submitCommand(stdin, "default lmstudio", () => commands.length === 1);
+		await submitCommand(stdin, "model fast lmstudio:qwen2.5-coder", () => commands.length === 1);
 
 		await submitCommand(stdin, "open lmstudio", () => (lastFrame() ?? "").includes("LM Studio"));
 		expect(lastFrame()).toContain("LM Studio");
@@ -125,8 +125,14 @@ describe("SettingsPanel", () => {
 
 		expect(commands).toEqual([
 			{
-				kind: "set_default_provider",
-				data: { providerId: "lmstudio" },
+				kind: "set_default_model",
+				data: {
+					slot: "fast",
+					model: {
+						providerId: "lmstudio",
+						modelId: "qwen2.5-coder",
+					},
+				},
 			},
 			{
 				kind: "set_provider_enabled",
@@ -145,7 +151,6 @@ describe("SettingsPanel", () => {
 				kind: "openrouter",
 				label: "OpenRouter",
 				enabled: false,
-				discoveryStrategy: "remote-only",
 				createdAt: "2026-03-12T00:00:00.000Z",
 				updatedAt: "2026-03-12T00:00:00.000Z",
 			},

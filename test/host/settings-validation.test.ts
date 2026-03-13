@@ -16,7 +16,6 @@ function makeProvider(overrides: Partial<ProviderConfig> = {}): ProviderConfig {
 		label: "LM Studio",
 		enabled: false,
 		baseUrl: "http://127.0.0.1:1234/v1",
-		discoveryStrategy: "remote-with-manual",
 		createdAt: "2026-03-12T00:00:00.000Z",
 		updatedAt: "2026-03-12T00:00:00.000Z",
 		...overrides,
@@ -67,6 +66,24 @@ describe("validateProviderConfig", () => {
 			nonSecretHeaders: "Gemini providers do not support custom non-secret headers",
 		});
 	});
+
+	test("rejects discovery strategy and manual models from the removed schema", () => {
+		const result = validateProviderConfig({
+			...makeProvider(),
+			discoveryStrategy: "remote-only",
+			manualModels: [{ id: "qwen2.5-coder" }],
+		} as ProviderConfig & {
+			discoveryStrategy: string;
+			manualModels: Array<{ id: string }>;
+		});
+
+		expect(result.errors).toContain("Discovery strategy is no longer supported");
+		expect(result.errors).toContain("Manual model configuration is no longer supported");
+		expect(result.fieldErrors).toEqual({
+			discoveryStrategy: "Discovery strategy is no longer supported",
+			manualModels: "Manual model configuration is no longer supported",
+		});
+	});
 });
 
 describe("validateProviderRuntimeReadiness", () => {
@@ -110,28 +127,25 @@ describe("validateProviderRuntimeReadiness", () => {
 });
 
 describe("validateSproutSettings", () => {
-	test("rejects a default provider that is missing or disabled", () => {
+	test("rejects duplicate provider ids", () => {
 		const settings = createEmptySettings();
 		settings.providers = [
 			makeProvider({
-				id: "anthropic",
-				kind: "anthropic",
-				baseUrl: undefined,
+				id: "lmstudio",
 				enabled: true,
 			}),
 			makeProvider({
 				id: "lmstudio",
-				enabled: false,
+				kind: "openrouter",
+				baseUrl: undefined,
+				enabled: true,
 			}),
 		];
-		settings.defaults.defaultProviderId = "ghost";
 
-		expect(() => validateSproutSettings(settings)).toThrow(
-			"Default provider must reference an enabled provider: ghost",
-		);
+		expect(() => validateSproutSettings(settings)).toThrow("Duplicate provider id: lmstudio");
 	});
 
-	test("allows enabled providers with optional tier defaults", () => {
+	test("allows explicit default model tuples for enabled providers", () => {
 		const settings = createEmptySettings();
 		settings.providers = [
 			makeProvider({
@@ -143,16 +157,9 @@ describe("validateSproutSettings", () => {
 			makeProvider({
 				id: "lmstudio",
 				enabled: true,
-				manualModels: [
-					{
-						id: "qwen2.5-coder",
-						label: "Qwen 2.5 Coder",
-					},
-				],
 			}),
 		];
-		settings.defaults.defaultProviderId = "openrouter-main";
-		settings.defaults.tierDefaults = {
+		settings.defaults = {
 			best: {
 				providerId: "openrouter-main",
 				modelId: "anthropic/claude-opus-4.1",
@@ -166,7 +173,7 @@ describe("validateSproutSettings", () => {
 		expect(() => validateSproutSettings(settings)).not.toThrow();
 	});
 
-	test("rejects global tier defaults that reference missing or disabled providers", () => {
+	test("rejects default models that reference missing or disabled providers", () => {
 		const settings = createEmptySettings();
 		settings.providers = [
 			makeProvider({
@@ -180,7 +187,7 @@ describe("validateSproutSettings", () => {
 				enabled: false,
 			}),
 		];
-		settings.defaults.tierDefaults = {
+		settings.defaults = {
 			fast: {
 				providerId: "lmstudio",
 				modelId: "qwen2.5-coder",
@@ -188,7 +195,7 @@ describe("validateSproutSettings", () => {
 		};
 
 		expect(() => validateSproutSettings(settings)).toThrow(
-			"Tier default 'fast' must reference an enabled provider: lmstudio",
+			"Default model 'fast' must reference an enabled provider: lmstudio",
 		);
 	});
 });

@@ -65,7 +65,6 @@ export function createDefaultResolverSettings() {
 				enabled: true,
 			},
 		],
-		TEST_PROVIDER_ID,
 		{
 			best: { providerId: TEST_PROVIDER_ID, modelId: TEST_MODELS[0]!.id },
 			balanced: { providerId: TEST_PROVIDER_ID, modelId: TEST_MODELS[1]!.id },

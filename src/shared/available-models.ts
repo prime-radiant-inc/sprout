@@ -1,4 +1,5 @@
 export interface AvailableModelsCatalogEntry {
+	providerId: string;
 	models: Array<{ id: string }>;
 }
 
@@ -10,7 +11,7 @@ export function deriveAvailableModels(
 	const models = new Set<string>(TIER_MODELS);
 	for (const entry of catalog ?? []) {
 		for (const model of entry.models) {
-			models.add(model.id);
+			models.add(`${entry.providerId}:${model.id}`);
 		}
 	}
 	return [...models];

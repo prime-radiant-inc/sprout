@@ -73,7 +73,6 @@ describe("SettingsControlPlane", () => {
 			data: {
 				kind: "openai",
 				label: "OpenAI",
-				discoveryStrategy: "remote-only",
 			},
 		});
 		expect(created.ok).toBe(true);
@@ -138,20 +137,28 @@ describe("SettingsControlPlane", () => {
 		expect(snapshots).toHaveLength(3);
 	});
 
-	test("sets the default provider, clears it on delete, and removes stored secrets", async () => {
+	test("sets default models, clears them on delete, and removes stored secrets", async () => {
 		const secretStore = createSecretStore({ backend: "memory", platform: "darwin" });
 		await secretStore.setSecret(createProviderSecretRef("openai", "memory"), "openai-secret");
 		const plane = await makePlane({
 			secretStore,
+			refreshModels: async (provider) => {
+				if (provider.id === "openai") {
+					return [{ id: "gpt-4.1", label: "GPT-4.1", source: "remote" }];
+				}
+				if (provider.id === "lmstudio") {
+					return [{ id: "qwen2.5-coder", label: "Qwen 2.5 Coder", source: "remote" }];
+				}
+				return [];
+			},
 			initialSettings: {
-				version: 1,
+				version: 2,
 				providers: [
 					{
 						id: "openai",
 						kind: "openai",
 						label: "OpenAI",
 						enabled: true,
-						discoveryStrategy: "remote-only",
 						createdAt: "2026-03-11T12:00:00.000Z",
 						updatedAt: "2026-03-11T12:00:00.000Z",
 					},
@@ -161,54 +168,37 @@ describe("SettingsControlPlane", () => {
 						label: "LM Studio",
 						enabled: true,
 						baseUrl: "http://127.0.0.1:1234/v1",
-						discoveryStrategy: "manual-only",
-						manualModels: [{ id: "qwen2.5-coder", label: "Qwen 2.5 Coder" }],
 						createdAt: "2026-03-11T12:00:00.000Z",
 						updatedAt: "2026-03-11T12:00:00.000Z",
 					},
 				],
-				defaults: {
-					defaultProviderId: "openai",
-				},
+				defaults: {},
 			},
 		});
 
-		const setDefaultProvider = await plane.execute({
-			kind: "set_default_provider",
-			data: { providerId: "lmstudio" },
-		});
-		expect(setDefaultProvider).toMatchObject({
-			ok: true,
-			snapshot: {
-				settings: {
-					defaults: {
-						defaultProviderId: "lmstudio",
-					},
-				},
-			},
+		await plane.execute({
+			kind: "refresh_provider_models",
+			data: { providerId: "openai" },
 		});
 
-		const setFastTier = await plane.execute({
-			kind: "set_global_tier_default",
+		const setBestDefault = await plane.execute({
+			kind: "set_default_model",
 			data: {
-				tier: "fast",
+				slot: "best",
 				model: {
-					providerId: "lmstudio",
-					modelId: "qwen2.5-coder",
+					providerId: "openai",
+					modelId: "gpt-4.1",
 				},
 			},
 		});
-		expect(setFastTier).toMatchObject({
+		expect(setBestDefault).toMatchObject({
 			ok: true,
 			snapshot: {
 				settings: {
 					defaults: {
-						defaultProviderId: "lmstudio",
-						tierDefaults: {
-							fast: {
-								providerId: "lmstudio",
-								modelId: "qwen2.5-coder",
-							},
+						best: {
+							providerId: "openai",
+							modelId: "gpt-4.1",
 						},
 					},
 				},
@@ -232,16 +222,23 @@ describe("SettingsControlPlane", () => {
 
 	test("clears global tier defaults that reference a disabled or deleted provider", async () => {
 		const plane = await makePlane({
+			refreshModels: async (provider) => {
+				if (provider.id === "openrouter") {
+					return [{ id: "anthropic/claude-opus-4.1", label: "Claude Opus 4.1", source: "remote" }];
+				}
+				if (provider.id === "lmstudio") {
+					return [{ id: "qwen2.5-coder", label: "Qwen 2.5 Coder", source: "remote" }];
+				}
+				return [];
+			},
 			initialSettings: {
-				version: 1,
+				version: 2,
 				providers: [
 					{
 						id: "openrouter",
 						kind: "openrouter",
 						label: "OpenRouter",
 						enabled: true,
-						discoveryStrategy: "manual-only",
-						manualModels: [{ id: "anthropic/claude-opus-4.1" }],
 						createdAt: "2026-03-11T12:00:00.000Z",
 						updatedAt: "2026-03-11T12:00:00.000Z",
 					},
@@ -251,23 +248,18 @@ describe("SettingsControlPlane", () => {
 						label: "LM Studio",
 						enabled: true,
 						baseUrl: "http://127.0.0.1:1234/v1",
-						discoveryStrategy: "manual-only",
-						manualModels: [{ id: "qwen2.5-coder" }],
 						createdAt: "2026-03-11T12:00:00.000Z",
 						updatedAt: "2026-03-11T12:00:00.000Z",
 					},
 				],
 				defaults: {
-					defaultProviderId: "openrouter",
-					tierDefaults: {
-						best: {
-							providerId: "openrouter",
-							modelId: "anthropic/claude-opus-4.1",
-						},
-						fast: {
-							providerId: "lmstudio",
-							modelId: "qwen2.5-coder",
-						},
+					best: {
+						providerId: "openrouter",
+						modelId: "anthropic/claude-opus-4.1",
+					},
+					fast: {
+						providerId: "lmstudio",
+						modelId: "qwen2.5-coder",
 					},
 				},
 			},
@@ -282,12 +274,9 @@ describe("SettingsControlPlane", () => {
 			snapshot: {
 				settings: {
 					defaults: {
-						defaultProviderId: "openrouter",
-						tierDefaults: {
-							best: {
-								providerId: "openrouter",
-								modelId: "anthropic/claude-opus-4.1",
-							},
+						best: {
+							providerId: "openrouter",
+							modelId: "anthropic/claude-opus-4.1",
 						},
 					},
 				},
@@ -311,7 +300,7 @@ describe("SettingsControlPlane", () => {
 	test("surfaces provider health failures in snapshots without failing the command", async () => {
 		const plane = await makePlane({
 			initialSettings: {
-				version: 1,
+				version: 2,
 				providers: [
 					{
 						id: "lmstudio",
@@ -319,8 +308,6 @@ describe("SettingsControlPlane", () => {
 						label: "LM Studio",
 						enabled: true,
 						baseUrl: "http://127.0.0.1:1234/v1",
-						discoveryStrategy: "manual-only",
-						manualModels: [{ id: "qwen2.5-coder", label: "Qwen 2.5 Coder" }],
 						createdAt: "2026-03-11T12:00:00.000Z",
 						updatedAt: "2026-03-11T12:00:00.000Z",
 					},
@@ -330,6 +317,9 @@ describe("SettingsControlPlane", () => {
 			checkConnection: async () => {
 				throw new Error("connection refused");
 			},
+			refreshModels: async () => [
+				{ id: "qwen2.5-coder", label: "Qwen 2.5 Coder", source: "remote" },
+			],
 		});
 
 		const connection = await plane.execute({
@@ -365,7 +355,7 @@ describe("SettingsControlPlane", () => {
 				catalog: [
 					{
 						providerId: "lmstudio",
-						models: [{ id: "qwen2.5-coder", source: "manual" }],
+						models: [{ id: "qwen2.5-coder", source: "remote" }],
 					},
 				],
 			},
@@ -387,7 +377,6 @@ describe("SettingsControlPlane", () => {
 				kind: "openai-compatible",
 				label: "LM Studio",
 				baseUrl: "http://127.0.0.1:1234/v1",
-				discoveryStrategy: "manual-only",
 			},
 		});
 
@@ -404,14 +393,13 @@ describe("SettingsControlPlane", () => {
 		const plane = await makePlane({
 			secretStore,
 			initialSettings: {
-				version: 1,
+				version: 2,
 				providers: [
 					{
 						id: "openai",
 						kind: "openai",
 						label: "OpenAI",
 						enabled: true,
-						discoveryStrategy: "remote-only",
 						createdAt: "2026-03-11T12:00:00.000Z",
 						updatedAt: "2026-03-11T12:00:00.000Z",
 					},
@@ -453,14 +441,13 @@ describe("SettingsControlPlane", () => {
 				},
 			},
 			initialSettings: {
-				version: 1,
+				version: 2,
 				providers: [
 					{
 						id: "openai",
 						kind: "openai",
 						label: "OpenAI",
 						enabled: true,
-						discoveryStrategy: "remote-only",
 						createdAt: "2026-03-11T12:00:00.000Z",
 						updatedAt: "2026-03-11T12:00:00.000Z",
 					},
@@ -499,7 +486,6 @@ describe("SettingsControlPlane", () => {
 				kind: "openai-compatible",
 				label: "LM Studio",
 				baseUrl: "localhost:1234/v1",
-				discoveryStrategy: "manual-only",
 			},
 		});
 
@@ -520,7 +506,6 @@ describe("SettingsControlPlane", () => {
 				nonSecretHeaders: {
 					"X-Test": "value",
 				},
-				discoveryStrategy: "remote-only",
 			},
 		});
 
@@ -557,14 +542,13 @@ describe("SettingsControlPlane", () => {
 				message,
 			},
 			initialSettings: {
-				version: 1,
+				version: 2,
 				providers: [
 					{
 						id: "openai",
 						kind: "openai",
 						label: "OpenAI",
 						enabled: false,
-						discoveryStrategy: "remote-only",
 						createdAt: "2026-03-11T12:00:00.000Z",
 						updatedAt: "2026-03-11T12:00:00.000Z",
 					},
@@ -666,7 +650,6 @@ describe("SettingsControlPlane", () => {
 				kind: "openai-compatible",
 				label: "LM Studio",
 				baseUrl: "http://127.0.0.1:1234/v1",
-				discoveryStrategy: "manual-only",
 			},
 		});
 		expect(created).toMatchObject({

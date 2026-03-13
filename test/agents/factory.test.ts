@@ -130,7 +130,7 @@ describe("createAgent", () => {
 		const result = await createAgent({
 			genomePath: sharedGenomePath,
 			workDir: tempDir,
-			model: "claude-sonnet-4-6",
+			model: "anthropic:claude-sonnet-4-6",
 			genome: sharedGenome,
 			client: sharedClient,
 			providerIdOverride: sharedResolverContext.providerId,

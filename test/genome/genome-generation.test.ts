@@ -10,7 +10,7 @@ function makeSpec(name: string, overrides?: Partial<{ description: string; versi
 		name,
 		description: overrides?.description ?? `${name} agent`,
 		system_prompt: "You are a test agent.",
-		model: "test-model",
+		model: "test-provider:test-model",
 		constraints: {
 			max_turns: 10,
 			timeout_ms: 0,

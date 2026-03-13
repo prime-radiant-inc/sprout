@@ -6,7 +6,6 @@ import type {
 	SettingsSnapshot,
 } from "@kernel/types.ts";
 import { HeadersEditor, type HeaderDraft } from "./HeadersEditor.tsx";
-import { ManualModelsEditor, type ManualModelDraft } from "./ManualModelsEditor.tsx";
 import styles from "./ProviderSettingsPanel.module.css";
 
 const PROVIDER_KIND_OPTIONS: Array<{ value: ProviderKind; label: string }> = [
@@ -15,15 +14,6 @@ const PROVIDER_KIND_OPTIONS: Array<{ value: ProviderKind; label: string }> = [
 	{ value: "openai-compatible", label: "OpenAI-compatible" },
 	{ value: "openrouter", label: "OpenRouter" },
 	{ value: "gemini", label: "Gemini" },
-];
-
-const DISCOVERY_OPTIONS: Array<{
-	value: ProviderConfig["discoveryStrategy"];
-	label: string;
-}> = [
-	{ value: "remote-only", label: "Remote only" },
-	{ value: "manual-only", label: "Manual only" },
-	{ value: "remote-with-manual", label: "Remote with manual fallback" },
 ];
 
 export interface ProviderEditorProps {
@@ -41,9 +31,7 @@ export interface ProviderDraft {
 	kind: ProviderKind;
 	label: string;
 	baseUrl?: string;
-	discoveryStrategy: ProviderConfig["discoveryStrategy"];
 	nonSecretHeaders: HeaderDraft[];
-	manualModels: ManualModelDraft[];
 }
 
 export function validateProviderDraftForSave(
@@ -72,14 +60,9 @@ function createProviderDraft(provider?: ProviderConfig): ProviderDraft {
 		kind: provider?.kind ?? "anthropic",
 		label: provider?.label ?? "",
 		baseUrl: provider?.baseUrl ?? "",
-		discoveryStrategy: provider?.discoveryStrategy ?? "remote-with-manual",
 		nonSecretHeaders: Object.entries(provider?.nonSecretHeaders ?? {}).map(([key, value]) => ({
 			key,
 			value,
-		})),
-		manualModels: (provider?.manualModels ?? []).map((model) => ({
-			id: model.id,
-			label: model.label ?? "",
 		})),
 	};
 }
@@ -97,32 +80,6 @@ function normalizeHeaders(
 	return Object.fromEntries(entries);
 }
 
-function normalizeManualModels(
-	models:
-		| ManualModelDraft[]
-		| Array<{
-				id: string;
-				label?: string;
-		  }>
-		| undefined,
-): Array<{
-	id: string;
-	label?: string;
-}> | undefined {
-	const normalized = (models ?? [])
-		.map((model) => {
-			const id = model.id.trim();
-			const label = `${model.label ?? ""}`.trim();
-			return {
-				id,
-				label: label || undefined,
-			};
-		})
-		.filter((model) => model.id.length > 0 || model.label !== undefined);
-	if (normalized.length === 0) return undefined;
-	return normalized;
-}
-
 export function createProviderSaveCommand(
 	mode: "create" | "edit",
 	draft: ProviderDraft,
@@ -131,19 +88,16 @@ export function createProviderSaveCommand(
 	const trimmedLabel = draft.label.trim();
 	const baseUrl = draft.baseUrl?.trim();
 	const nonSecretHeaders = normalizeHeaders(draft.nonSecretHeaders);
-	const manualModels = normalizeManualModels(draft.manualModels);
 	if (mode === "create") {
 		return {
 			kind: "create_provider",
 			data: {
 				kind: draft.kind,
 				label: trimmedLabel,
-				discoveryStrategy: draft.discoveryStrategy,
 				...(supportsBaseUrl(draft.kind) && baseUrl ? { baseUrl } : {}),
 				...(supportsNonSecretHeaders(draft.kind) && nonSecretHeaders
 					? { nonSecretHeaders }
 					: {}),
-				...(manualModels ? { manualModels } : {}),
 			},
 		};
 	}
@@ -156,12 +110,10 @@ export function createProviderSaveCommand(
 			providerId,
 			patch: {
 				label: trimmedLabel,
-				discoveryStrategy: draft.discoveryStrategy,
 				...(supportsBaseUrl(draft.kind) ? { baseUrl: baseUrl ?? "" } : {}),
 				...(supportsNonSecretHeaders(draft.kind)
 					? { nonSecretHeaders: nonSecretHeaders ?? {} }
 					: {}),
-				manualModels: manualModels ?? [],
 			},
 		},
 	};
@@ -283,8 +235,8 @@ export function ProviderEditor({
 				</h2>
 				<p className={styles.sectionText}>
 					{mode === "create"
-						? "Add a provider instance with its own endpoint, discovery mode, and credentials."
-						: "Edit connection details, credentials, and catalog state for this provider."}
+						? "Add a provider instance with its own endpoint and credentials."
+						: "Edit connection details, credentials, and cached model catalog state for this provider."}
 				</p>
 			</div>
 
@@ -363,31 +315,6 @@ export function ProviderEditor({
 					)}
 				</div>
 
-				<div className={styles.field}>
-					<label className={styles.fieldLabel} htmlFor="provider-discovery">
-						Discovery strategy
-					</label>
-					<select
-						id="provider-discovery"
-						name="discoveryStrategy"
-						className={styles.fieldSelect}
-						value={draft.discoveryStrategy}
-						onChange={(event) =>
-							setDraft((current) => ({
-								...current,
-								discoveryStrategy:
-									event.target.value as ProviderConfig["discoveryStrategy"],
-							}))
-						}
-					>
-						{DISCOVERY_OPTIONS.map((option) => (
-							<option key={option.value} value={option.value}>
-								{option.label}
-							</option>
-						))}
-					</select>
-				</div>
-
 				{supportsBaseUrl(draft.kind) && (
 					<div className={styles.field}>
 						<label className={styles.fieldLabel} htmlFor="provider-base-url">
@@ -419,17 +346,6 @@ export function ProviderEditor({
 					</div>
 				)}
 			</div>
-
-			<ManualModelsEditor
-				models={draft.manualModels}
-				error={mergedFieldErrors?.manualModels}
-				onChange={(manualModels) =>
-					setDraft((current) => ({
-						...current,
-						manualModels,
-					}))
-				}
-			/>
 
 			{supportsNonSecretHeaders(draft.kind) && (
 				<HeadersEditor

@@ -4,7 +4,7 @@ import type {
 	SettingsCommandResult,
 	SettingsSnapshot,
 } from "@kernel/types.ts";
-import { DefaultProviderPanel } from "./DefaultProviderPanel.tsx";
+import { DefaultModelsPanel } from "./DefaultModelsPanel.tsx";
 import { describePendingProviderAction, ProviderEditor } from "./ProviderEditor.tsx";
 import styles from "./ProviderSettingsPanel.module.css";
 import { ProviderList } from "./ProviderList.tsx";
@@ -21,7 +21,7 @@ export interface ProviderSettingsPanelProps {
 function selectInitialView(settings: SettingsSnapshot | null): SelectedView {
 	if (!settings) return "create";
 	if (settings.settings.providers.length === 0) return "create";
-	return settings.settings.providers[0]?.id ?? "create";
+	return "defaults";
 }
 
 export function ProviderSettingsPanel({
@@ -130,7 +130,7 @@ export function ProviderSettingsPanel({
 					<div className={styles.titleGroup}>
 						<h2 className={styles.title}>Provider settings</h2>
 						<span className={styles.subtitle}>
-							Manage providers, credentials, the fallback provider, and default models.
+							Manage global default models, provider credentials, and cached model lists.
 						</span>
 					</div>
 					<button type="button" className={styles.close} onClick={onClose}>
@@ -165,7 +165,7 @@ export function ProviderSettingsPanel({
 						)}
 
 						{selectedView === "defaults" ? (
-							<DefaultProviderPanel
+							<DefaultModelsPanel
 								settings={settings}
 								message={message}
 								fieldErrors={fieldErrors}

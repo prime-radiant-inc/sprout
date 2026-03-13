@@ -234,7 +234,7 @@ describe("EventStore", () => {
 			settings.catalog = [
 				{
 					providerId: "lmstudio",
-					models: [{ id: "qwen2.5-coder", label: "Qwen 2.5 Coder", source: "manual" }],
+					models: [{ id: "qwen2.5-coder", label: "Qwen 2.5 Coder", source: "remote" }],
 				},
 			];
 
@@ -254,7 +254,7 @@ describe("EventStore", () => {
 				"best",
 				"balanced",
 				"fast",
-				"qwen2.5-coder",
+				"lmstudio:qwen2.5-coder",
 			]);
 		});
 	});
@@ -676,7 +676,7 @@ describe("EventStore", () => {
 			settings.catalog = [
 				{
 					providerId: "lmstudio",
-					models: [{ id: "qwen2.5-coder", label: "Qwen 2.5 Coder", source: "manual" }],
+					models: [{ id: "qwen2.5-coder", label: "Qwen 2.5 Coder", source: "remote" }],
 				},
 			];
 
@@ -689,7 +689,7 @@ describe("EventStore", () => {
 				"best",
 				"balanced",
 				"fast",
-				"qwen2.5-coder",
+				"lmstudio:qwen2.5-coder",
 			]);
 		});
 

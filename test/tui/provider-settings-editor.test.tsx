@@ -41,7 +41,7 @@ describe("ProviderSettingsEditor", () => {
 		expect(frame).toContain("Latest command failed");
 	});
 
-	test("renders field-level feedback, manual models, custom headers, and visible actions", () => {
+	test("renders field-level feedback, custom headers, and visible actions", () => {
 		const settings = makeSettingsSnapshot();
 		settings.settings.providers[1]!.nonSecretHeaders = {
 			"X-Client": "sprout",
@@ -59,22 +59,17 @@ describe("ProviderSettingsEditor", () => {
 					message: "Validation failed",
 					fieldErrors: {
 						baseUrl: "Base URL must be a valid http or https URL",
-						manualModels: "Manual models must use unique ids",
 						nonSecretHeaders: "Header names must be unique",
 					},
 				}}
 			/>,
 		);
 		const frame = lastFrame()!;
-		expect(frame).toContain("Manual models");
-		expect(frame).toContain("Qwen 2.5 Coder");
 		expect(frame).toContain("Custom headers");
 		expect(frame).toContain("X-Client");
 		expect(frame).toContain("Actions");
-		expect(frame).toContain("Add manual model");
 		expect(frame).toContain("Add header");
 		expect(frame).toContain("Base URL must be a valid http or https URL");
-		expect(frame).toContain("Manual models must use unique ids");
 		expect(frame).toContain("Header names must be unique");
 	});
 
@@ -96,24 +91,7 @@ describe("ProviderSettingsEditor", () => {
 		const kind = applyProviderEditorCommand("kind openrouter", labeled.draft, "create");
 		expect(kind.draft.kind).toBe("openrouter");
 
-		const withModel = applyProviderEditorCommand("add-model", kind.draft, "create");
-		const modelId = applyProviderEditorCommand(
-			"model-id 1 openrouter/manual-fast",
-			withModel.draft,
-			"create",
-		);
-		const modelLabel = applyProviderEditorCommand(
-			"model-label 1 Manual Fast",
-			modelId.draft,
-			"create",
-		);
-		expect(applyProviderEditorCommand("model-tier 1 fast", modelLabel.draft, "create").error).toBe(
-			"Unknown provider command: model-tier",
-		);
-		expect(applyProviderEditorCommand("model-rank 1 3", modelLabel.draft, "create").error).toBe(
-			"Unknown provider command: model-rank",
-		);
-		const withHeader = applyProviderEditorCommand("add-header", modelLabel.draft, "create");
+		const withHeader = applyProviderEditorCommand("add-header", kind.draft, "create");
 		const headerKey = applyProviderEditorCommand(
 			"header-key 1 HTTP-Referer",
 			withHeader.draft,
@@ -131,13 +109,6 @@ describe("ProviderSettingsEditor", () => {
 			data: {
 				kind: "openrouter",
 				label: "OpenRouter",
-				discoveryStrategy: "remote-with-manual",
-				manualModels: [
-					{
-						id: "openrouter/manual-fast",
-						label: "Manual Fast",
-					},
-				],
 				nonSecretHeaders: {
 					"HTTP-Referer": "https://sprout.local",
 				},
@@ -161,13 +132,6 @@ describe("ProviderSettingsEditor", () => {
 				patch: {
 					label: "LM Studio",
 					baseUrl: "http://127.0.0.1:1234/v1",
-					discoveryStrategy: "manual-only",
-					manualModels: [
-						{
-							id: "qwen2.5-coder",
-							label: "Qwen 2.5 Coder",
-						},
-					],
 					nonSecretHeaders: {
 						"X-Client": "sprout",
 					},
@@ -175,29 +139,12 @@ describe("ProviderSettingsEditor", () => {
 			},
 		});
 
-		const clearedEdit = applyProviderEditorCommand(
-			"remove-model 1",
-			createProviderEditorDraft(settings.settings.providers[1]),
-			"edit",
-			"lmstudio",
+		expect(applyProviderEditorCommand("discovery remote-only", kind.draft, "create").error).toBe(
+			"Unknown provider command: discovery",
 		);
-		expect(
-			applyProviderEditorCommand("save", clearedEdit.draft, "edit", "lmstudio").command,
-		).toEqual({
-			kind: "update_provider",
-			data: {
-				providerId: "lmstudio",
-				patch: {
-					label: "LM Studio",
-					baseUrl: "http://127.0.0.1:1234/v1",
-					discoveryStrategy: "manual-only",
-					manualModels: [],
-					nonSecretHeaders: {
-						"X-Client": "sprout",
-					},
-				},
-			},
-		});
+		expect(applyProviderEditorCommand("add-model", kind.draft, "create").error).toBe(
+			"Unknown provider command: add-model",
+		);
 	});
 
 	test("builds provider action commands in edit mode", () => {

@@ -158,26 +158,26 @@ describe("parseAgentMarkdown", () => {
 		expect(spec.thinking).toEqual({ budget_tokens: 5000 });
 	});
 
-	test("accepts bare model ids in frontmatter", () => {
-		const content = [
-			"---",
-			"name: coder",
-			'description: "writes code"',
-			"model: claude-sonnet-4-6",
-			"---",
-			"Build features.",
-		].join("\n");
-
-		const spec = parseAgentMarkdown(content, "coder.md");
-		expect(spec.model).toBe("claude-sonnet-4-6");
-	});
-
-	test("rejects provider-qualified model refs in frontmatter", () => {
+	test("accepts provider-qualified model refs in frontmatter", () => {
 		const content = [
 			"---",
 			"name: coder",
 			'description: "writes code"',
 			"model: openai:gpt-4.1",
+			"---",
+			"Build features.",
+		].join("\n");
+
+		const spec = parseAgentMarkdown(content, "coder.md");
+		expect(spec.model).toBe("openai:gpt-4.1");
+	});
+
+	test("rejects bare model ids in frontmatter", () => {
+		const content = [
+			"---",
+			"name: coder",
+			'description: "writes code"',
+			"model: claude-sonnet-4-6",
 			"---",
 			"Build features.",
 		].join("\n");

@@ -31,7 +31,7 @@ describe("importSettingsFromEnv", () => {
 			{ id: "openai", kind: "openai", enabled: true },
 			{ id: "gemini", kind: "gemini", enabled: true },
 		]);
-		expect(result.settings.defaults).toEqual({ defaultProviderId: "anthropic" });
+		expect(result.settings.defaults).toEqual({});
 		expect(result.validationErrorsByProvider).toEqual({});
 		expect(await secretStore.getSecret(createProviderSecretRef("anthropic", "memory"))).toBe(
 			"anthropic-secret",

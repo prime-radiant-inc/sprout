@@ -15,7 +15,7 @@ afterEach(() => {
 
 function makeSettings(providers: ProviderConfig[]): SproutSettings {
 	return {
-		version: 1,
+		version: 2,
 		providers,
 		defaults: {},
 	};
@@ -31,8 +31,6 @@ describe("ProviderRegistry", () => {
 					label: "LM Studio",
 					enabled: true,
 					baseUrl: "http://127.0.0.1:1234/v1",
-					discoveryStrategy: "manual-only",
-					manualModels: [{ id: "qwen2.5-coder", label: "Qwen 2.5 Coder" }],
 					createdAt: "2026-03-11T12:00:00.000Z",
 					updatedAt: "2026-03-11T12:00:00.000Z",
 				},
@@ -83,7 +81,6 @@ describe("ProviderRegistry", () => {
 						"HTTP-Referer": "https://sprout.test",
 						"X-Title": "Sprout",
 					},
-					discoveryStrategy: "remote-only",
 					createdAt: "2026-03-11T12:00:00.000Z",
 					updatedAt: "2026-03-11T12:00:00.000Z",
 				},
@@ -110,7 +107,6 @@ describe("ProviderRegistry", () => {
 					kind: "openai",
 					label: "OpenAI",
 					enabled: true,
-					discoveryStrategy: "remote-only",
 					createdAt: "2026-03-11T12:00:00.000Z",
 					updatedAt: "2026-03-11T12:00:00.000Z",
 				},
@@ -136,7 +132,6 @@ describe("ProviderRegistry", () => {
 					kind: "openai",
 					label: "OpenAI",
 					enabled: true,
-					discoveryStrategy: "remote-only",
 					createdAt: "2026-03-11T12:00:00.000Z",
 					updatedAt: "2026-03-11T12:00:00.000Z",
 				},
@@ -160,7 +155,6 @@ describe("ProviderRegistry", () => {
 					label: "LM Studio",
 					enabled: true,
 					baseUrl: "localhost:1234/v1",
-					discoveryStrategy: "manual-only",
 					createdAt: "2026-03-11T12:00:00.000Z",
 					updatedAt: "2026-03-11T12:00:00.000Z",
 				},

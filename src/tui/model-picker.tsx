@@ -14,24 +14,29 @@ interface ModelPickerSelectionOption {
 	selection: SessionModelSelection;
 }
 
-interface ModelPickerProviderOption {
-	kind: "provider";
-	key: string;
-	label: string;
-	providerId: string;
-}
+export type ModelPickerOption = ModelPickerSelectionOption;
 
-export type ModelPickerOption = ModelPickerSelectionOption | ModelPickerProviderOption;
+type ModelPickerRow =
+	| {
+			kind: "heading";
+			key: string;
+			label: string;
+	  }
+	| {
+			kind: "option";
+			key: string;
+			label: string;
+			optionIndex: number;
+	  };
 
 export interface BuildModelPickerOptionsArgs {
 	availableModels: string[];
 	settings?: SettingsSnapshot | null;
 	currentSelection: SessionSelectionSnapshot;
 	currentModel: string;
-	selectedProviderId?: string;
 }
 
-export interface ModelPickerProps extends Omit<BuildModelPickerOptionsArgs, "selectedProviderId"> {
+export interface ModelPickerProps extends BuildModelPickerOptionsArgs {
 	onSelect: (selection: SessionModelSelection) => void;
 	onCancel: () => void;
 }
@@ -47,7 +52,6 @@ export function buildModelPickerOptions({
 	settings,
 	currentSelection,
 	currentModel,
-	selectedProviderId,
 }: BuildModelPickerOptionsArgs): ModelPickerOption[] {
 	const options: ModelPickerOption[] = [];
 	const seenSelections = new Set<string>();
@@ -60,7 +64,10 @@ export function buildModelPickerOptions({
 	};
 
 	if (!settings) {
-		pushSelection({ kind: "inherit" }, currentModel ? `Default · ${currentModel}` : "Default");
+		pushSelection(
+			{ kind: "inherit" },
+			currentModel ? `Use agent default · ${currentModel}` : "Use agent default",
+		);
 		for (const tier of ["best", "balanced", "fast"] as const) {
 			if (availableModels.includes(tier)) {
 				pushSelection({ kind: "tier", tier }, TIER_LABELS[tier]);
@@ -73,51 +80,42 @@ export function buildModelPickerOptions({
 	}
 
 	const enabledProviders = settings.settings.providers.filter((provider) => provider.enabled);
-	const activeProviderId = resolveActiveProviderId(settings, currentSelection, selectedProviderId);
-	const activeProvider = enabledProviders.find((provider) => provider.id === activeProviderId);
-	const activeCatalogEntry = settings.catalog.find(
-		(entry) => entry.providerId === activeProvider?.id,
-	);
-
-	pushSelection({ kind: "inherit" }, formatGlobalDefaultLabel(settings, currentModel));
-
-	for (const provider of enabledProviders) {
-		options.push({
-			kind: "provider",
-			key: `provider:${provider.id}`,
-			providerId: provider.id,
-			label: `Provider · ${provider.label}${provider.id === activeProviderId ? " (selected)" : ""}`,
-		});
-	}
-
-	if (!activeProvider) {
-		return options;
-	}
+	pushSelection({ kind: "inherit" }, formatDefaultSelectionLabel(currentModel));
 
 	for (const tier of ["best", "balanced", "fast"] as const) {
-		const modelRef = settings.settings.defaults.tierDefaults?.[tier];
+		const modelRef = settings.settings.defaults[tier];
 		if (!modelRef) continue;
 		const provider = enabledProviders.find((candidate) => candidate.id === modelRef.providerId);
+		const model = settings.catalog
+			.find((entry) => entry.providerId === modelRef.providerId)
+			?.models.find((candidate) => candidate.id === modelRef.modelId);
 		pushSelection(
 			{ kind: "tier", tier },
-			`${TIER_LABELS[tier]} · ${provider?.label ?? modelRef.providerId}`,
+			`${TIER_LABELS[tier]} · ${provider?.label ?? modelRef.providerId} · ${
+				model?.label ?? modelRef.modelId
+			}`,
 		);
 	}
 
-	for (const model of activeCatalogEntry?.models ?? []) {
-		pushSelection(
-			{
-				kind: "model",
-				model: {
-					providerId: activeProvider.id,
-					modelId: model.id,
+	for (const provider of enabledProviders) {
+		const entry = settings.catalog.find((catalogEntry) => catalogEntry.providerId === provider.id);
+		for (const model of entry?.models ?? []) {
+			const selectionKey = `${provider.id}:${model.id}`;
+			if (availableModels.length > 0 && !availableModels.includes(selectionKey)) continue;
+			pushSelection(
+				{
+					kind: "model",
+					model: {
+						providerId: provider.id,
+						modelId: model.id,
+					},
 				},
-			},
-			`${activeProvider.label} · ${model.label}`,
-		);
+				`${provider.label} · ${model.label}`,
+			);
+		}
 	}
 
-	if (currentSelection.selection.kind === "model") {
+	if (currentSelection.selection.kind !== "inherit") {
 		pushSelection(currentSelection.selection, formatSelectionLabel(currentSelection, settings));
 	}
 
@@ -133,18 +131,20 @@ export function ModelPicker({
 	onCancel,
 }: ModelPickerProps) {
 	const [cursor, setCursor] = useState(0);
-	const [selectedProviderId, setSelectedProviderId] = useState<string | undefined>(undefined);
 	const options = buildModelPickerOptions({
 		availableModels,
 		settings,
 		currentSelection,
 		currentModel,
-		selectedProviderId,
 	});
+	const rows = buildModelPickerRows(options, settings);
+	const selectableRows = rows.filter(
+		(row): row is Extract<ModelPickerRow, { kind: "option" }> => row.kind === "option",
+	);
 
 	useEffect(() => {
-		setCursor((prev) => Math.min(prev, Math.max(0, options.length - 1)));
-	}, [options.length]);
+		setCursor((prev) => Math.min(prev, Math.max(0, selectableRows.length - 1)));
+	}, [selectableRows.length]);
 
 	useInput((_input, key) => {
 		if (key.escape) {
@@ -152,19 +152,17 @@ export function ModelPicker({
 			return;
 		}
 
-		if (key.return && options.length > 0) {
-			const option = options[cursor];
+		if (key.return && selectableRows.length > 0) {
+			const row = selectableRows[cursor];
+			if (!row) return;
+			const option = options[row.optionIndex];
 			if (!option) return;
-			if (option.kind === "provider") {
-				setSelectedProviderId(option.providerId);
-				return;
-			}
 			onSelect(option.selection);
 			return;
 		}
 
 		if (key.downArrow) {
-			setCursor((prev) => Math.min(prev + 1, options.length - 1));
+			setCursor((prev) => Math.min(prev + 1, selectableRows.length - 1));
 			return;
 		}
 
@@ -173,19 +171,26 @@ export function ModelPicker({
 		}
 	});
 
-	if (options.length === 0) {
+	if (selectableRows.length === 0) {
 		return <Text>No models available.</Text>;
 	}
 
 	return (
 		<Box flexDirection="column">
 			<Text bold>Select model (Enter to confirm, Esc to cancel):</Text>
-			{options.map((option, index) => {
-				const selected = index === cursor;
+			{rows.map((row) => {
+				if (row.kind === "heading") {
+					return (
+						<Text key={row.key} dimColor>
+							{row.label}
+						</Text>
+					);
+				}
+				const selected = row.optionIndex === selectableRows[cursor]?.optionIndex;
 				return (
-					<Text key={option.key} color={selected ? "cyan" : undefined}>
+					<Text key={row.key} color={selected ? "cyan" : undefined}>
 						{selected ? "> " : "  "}
-						{option.label}
+						{row.label}
 					</Text>
 				);
 			})}
@@ -193,45 +198,89 @@ export function ModelPicker({
 	);
 }
 
-function resolveActiveProviderId(
-	settings: SettingsSnapshot,
-	currentSelection: SessionSelectionSnapshot,
-	selectedProviderId?: string,
-): string | undefined {
-	const enabledProviderIds = new Set(
-		settings.settings.providers
-			.filter((provider) => provider.enabled)
-			.map((provider) => provider.id),
-	);
-	if (selectedProviderId && enabledProviderIds.has(selectedProviderId)) {
-		return selectedProviderId;
+function buildModelPickerRows(
+	options: ModelPickerOption[],
+	settings: SettingsSnapshot | null | undefined,
+): ModelPickerRow[] {
+	if (!settings) {
+		return options.map((option, optionIndex) => ({
+			kind: "option",
+			key: option.key,
+			label: option.label,
+			optionIndex,
+		}));
 	}
 
-	if (
-		currentSelection.selection.kind === "model" &&
-		enabledProviderIds.has(currentSelection.selection.model.providerId)
-	) {
-		return currentSelection.selection.model.providerId;
+	const rows: ModelPickerRow[] = [];
+	let addedDefaultHeading = false;
+	let currentProviderGroup: string | null = null;
+
+	for (const [optionIndex, option] of options.entries()) {
+		switch (option.selection.kind) {
+			case "inherit":
+				rows.push({
+					kind: "option",
+					key: option.key,
+					label: option.label,
+					optionIndex,
+				});
+				break;
+			case "tier":
+				if (!addedDefaultHeading) {
+					rows.push({
+						kind: "heading",
+						key: "heading:defaults",
+						label: "Default models",
+					});
+					addedDefaultHeading = true;
+				}
+				rows.push({
+					kind: "option",
+					key: option.key,
+					label: option.label,
+					optionIndex,
+				});
+				break;
+			case "model": {
+				const selectedModel = option.selection.model;
+				const provider = settings.settings.providers.find(
+					(candidate) => candidate.id === selectedModel.providerId,
+				);
+				const providerLabel = provider?.label ?? selectedModel.providerId;
+				if (currentProviderGroup !== selectedModel.providerId) {
+					rows.push({
+						kind: "heading",
+						key: `heading:${selectedModel.providerId}`,
+						label: providerLabel,
+					});
+					currentProviderGroup = selectedModel.providerId;
+				}
+				rows.push({
+					kind: "option",
+					key: option.key,
+					label: formatExactModelRowLabel(option, settings),
+					optionIndex,
+				});
+				break;
+			}
+		}
 	}
 
-	const defaultProviderId = settings.settings.defaults.defaultProviderId;
-	if (defaultProviderId && enabledProviderIds.has(defaultProviderId)) {
-		return defaultProviderId;
-	}
-
-	return settings.settings.providers.find((provider) => provider.enabled)?.id;
+	return rows;
 }
 
-function formatGlobalDefaultLabel(settings: SettingsSnapshot, currentModel: string): string {
-	const provider = settings.settings.defaults.defaultProviderId
-		? settings.settings.providers.find(
-				(candidate) => candidate.id === settings.settings.defaults.defaultProviderId,
-			)
-		: undefined;
-	if (provider) {
-		return `Default · ${provider.label}`;
+function formatExactModelRowLabel(
+	option: ModelPickerOption,
+	settings: SettingsSnapshot | null | undefined,
+): string {
+	if (option.selection.kind !== "model") {
+		return option.label;
 	}
-	return currentModel ? `Default · ${currentModel}` : "Default";
+	const selectedModel = option.selection.model;
+	const model = settings?.catalog
+		.find((entry) => entry.providerId === selectedModel.providerId)
+		?.models.find((candidate) => candidate.id === selectedModel.modelId);
+	return model?.label ?? selectedModel.modelId;
 }
 
 function formatSelectionLabel(
@@ -240,22 +289,27 @@ function formatSelectionLabel(
 ): string {
 	const currentSelection = selection.selection;
 	switch (currentSelection.kind) {
-		case "inherit": {
-			const providerId = settings?.settings.defaults.defaultProviderId;
-			const provider = providerId
-				? settings?.settings.providers.find((candidate) => candidate.id === providerId)
-				: undefined;
-			return provider ? `Default · ${provider.label}` : "Default";
-		}
+		case "inherit":
+			return formatDefaultSelectionLabel();
 		case "tier": {
 			const providerId =
 				selection.resolved?.providerId ??
-				settings?.settings.defaults.tierDefaults?.[currentSelection.tier]?.providerId;
+				settings?.settings.defaults[currentSelection.tier]?.providerId;
 			const provider = providerId
 				? settings?.settings.providers.find((candidate) => candidate.id === providerId)
 				: undefined;
+			const modelId =
+				selection.resolved?.modelId ?? settings?.settings.defaults[currentSelection.tier]?.modelId;
+			const model =
+				providerId && modelId
+					? settings?.catalog
+							.find((entry) => entry.providerId === providerId)
+							?.models.find((candidate) => candidate.id === modelId)
+					: undefined;
 			return provider
-				? `${provider.label} · ${TIER_LABELS[currentSelection.tier]}`
+				? `${TIER_LABELS[currentSelection.tier]} · ${provider.label} · ${
+						model?.label ?? modelId ?? ""
+					}`.trim()
 				: TIER_LABELS[currentSelection.tier];
 		}
 		case "model": {
@@ -269,4 +323,8 @@ function formatSelectionLabel(
 			return `${provider?.label ?? selectedModel.providerId} · ${model?.label ?? selectedModel.modelId}`;
 		}
 	}
+}
+
+function formatDefaultSelectionLabel(currentModel?: string): string {
+	return currentModel ? `Use agent default · ${currentModel}` : "Use agent default";
 }

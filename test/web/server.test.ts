@@ -602,18 +602,14 @@ describe("WebServer", () => {
 							kind: "openrouter",
 							label: "OpenRouter",
 							enabled: true,
-							discoveryStrategy: "remote-only",
 							createdAt: "2026-03-11T00:00:00.000Z",
 							updatedAt: "2026-03-11T00:00:00.000Z",
 						},
 					],
 					defaults: {
-						defaultProviderId: "openrouter-main",
-						tierDefaults: {
-							fast: {
-								providerId: "openrouter-main",
-								modelId: "openai/gpt-4.1-mini",
-							},
+						fast: {
+							providerId: "openrouter-main",
+							modelId: "openai/gpt-4.1-mini",
 						},
 					},
 				},
@@ -662,9 +658,9 @@ describe("WebServer", () => {
 				JSON.stringify({
 					type: "command",
 					command: {
-						kind: "set_global_tier_default",
+						kind: "set_default_model",
 						data: {
-							tier: "fast",
+							slot: "fast",
 							model: {
 								providerId: "openrouter-main",
 								modelId: "openai/gpt-4.1",
@@ -677,9 +673,9 @@ describe("WebServer", () => {
 
 			expect(received).toEqual([
 				{
-					kind: "set_global_tier_default",
+					kind: "set_default_model",
 					data: {
-						tier: "fast",
+						slot: "fast",
 						model: {
 							providerId: "openrouter-main",
 							modelId: "openai/gpt-4.1",
@@ -724,7 +720,6 @@ describe("WebServer", () => {
 						data: {
 							kind: "openrouter",
 							label: "OpenRouter",
-							discoveryStrategy: "remote-only",
 						},
 					},
 				}),
@@ -775,7 +770,6 @@ describe("WebServer", () => {
 						data: {
 							kind: "openrouter",
 							label: "",
-							discoveryStrategy: "remote-only",
 						},
 					},
 				}),

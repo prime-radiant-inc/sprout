@@ -66,7 +66,6 @@ const TEST_RESOLVER_SETTINGS = createResolverSettings(
 			enabled: true,
 		},
 	],
-	TEST_PROVIDER_ID,
 	{
 		best: { providerId: TEST_PROVIDER_ID, modelId: TEST_MODEL_ID },
 		balanced: { providerId: TEST_PROVIDER_ID, modelId: TEST_MODEL_ID },

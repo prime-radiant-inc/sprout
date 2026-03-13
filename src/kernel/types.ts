@@ -283,6 +283,5 @@ export type {
 	ProviderConfig,
 	ProviderKind,
 	SessionModelSelection,
-	TierModelDefaults,
 } from "../shared/provider-settings.ts";
 export type { SessionSelectionRequest } from "../shared/session-selection.ts";

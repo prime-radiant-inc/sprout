@@ -1,11 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { resolveModel } from "../../src/agents/model-resolver.ts";
-import type {
-	ModelRef,
-	ProviderConfig,
-	SproutSettings,
-	TierModelDefaults,
-} from "../../src/host/settings/types.ts";
+import type { ModelRef, ProviderConfig, SproutSettings } from "../../src/host/settings/types.ts";
 import type { ProviderCatalogEntry } from "../../src/llm/model-catalog.ts";
 import type { ProviderModel } from "../../src/llm/types.ts";
 
@@ -15,7 +10,6 @@ function provider(overrides: Partial<ProviderConfig> = {}): ProviderConfig {
 		kind: "anthropic",
 		label: "Anthropic",
 		enabled: true,
-		discoveryStrategy: "remote-only",
 		createdAt: "2026-03-11T12:00:00.000Z",
 		updatedAt: "2026-03-11T12:00:00.000Z",
 		...overrides,
@@ -24,16 +18,12 @@ function provider(overrides: Partial<ProviderConfig> = {}): ProviderConfig {
 
 function settingsFor(
 	providers: ProviderConfig[],
-	defaultProviderId?: string,
-	tierDefaults?: TierModelDefaults,
+	defaults: SproutSettings["defaults"] = {},
 ): SproutSettings {
 	return {
-		version: 1,
+		version: 2,
 		providers,
-		defaults: {
-			...(defaultProviderId ? { defaultProviderId } : {}),
-			...(tierDefaults ? { tierDefaults } : {}),
-		},
+		defaults,
 	};
 }
 
@@ -70,7 +60,6 @@ describe("resolveModel", () => {
 					label: "LM Studio",
 				}),
 			],
-			"openrouter-main",
 			{
 				best: {
 					providerId: "lmstudio",
@@ -111,7 +100,6 @@ describe("resolveModel", () => {
 					label: "LM Studio",
 				}),
 			],
-			"openrouter-main",
 			{
 				fast: {
 					providerId: "lmstudio",
@@ -133,16 +121,15 @@ describe("resolveModel", () => {
 					models: [model("qwen2.5-coder")],
 				},
 			]),
-			{ providerId: "openrouter-main" },
 		);
 
 		expect(result).toEqual({ provider: "lmstudio", model: "qwen2.5-coder" });
 	});
 
 	test("fails clearly when a global tier default is missing", () => {
-		expect(() =>
-			resolveModel("best", settingsFor([provider()], "anthropic-main"), catalog([])),
-		).toThrow(/global 'best' model/i);
+		expect(() => resolveModel("best", settingsFor([provider()]), catalog([]))).toThrow(
+			/global 'best' model/i,
+		);
 	});
 
 	test("fails clearly when a global tier default references a disabled provider", () => {
@@ -155,7 +142,6 @@ describe("resolveModel", () => {
 					enabled: false,
 				}),
 			],
-			undefined,
 			{
 				fast: {
 					providerId: "lmstudio",
@@ -168,10 +154,7 @@ describe("resolveModel", () => {
 	});
 
 	test("accepts explicit model refs when the provider is enabled", () => {
-		const settings = settingsFor(
-			[provider({ id: "lmstudio", kind: "openai-compatible" })],
-			"lmstudio",
-		);
+		const settings = settingsFor([provider({ id: "lmstudio", kind: "openai-compatible" })]);
 		const result = resolveModel(
 			{ providerId: "lmstudio", modelId: "qwen2.5-coder" } satisfies ModelRef,
 			settings,
@@ -181,11 +164,23 @@ describe("resolveModel", () => {
 		expect(result).toEqual({ provider: "lmstudio", model: "qwen2.5-coder" });
 	});
 
+	test("accepts provider-qualified exact model strings", () => {
+		const settings = settingsFor([provider({ id: "lmstudio", kind: "openai-compatible" })]);
+
+		expect(
+			resolveModel(
+				"lmstudio:qwen2.5-coder",
+				settings,
+				catalog([{ providerId: "lmstudio", models: [] }]),
+			),
+		).toEqual({ provider: "lmstudio", model: "qwen2.5-coder" });
+	});
+
 	test("rejects bare model ids without provider context", () => {
 		expect(() =>
 			resolveModel(
 				"claude-sonnet-4-6",
-				settingsFor([provider()], "anthropic-main"),
+				settingsFor([provider()]),
 				catalog([{ providerId: "anthropic-main", models: [model("claude-sonnet-4-6")] }]),
 			),
 		).toThrow(/provider/i);

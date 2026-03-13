@@ -155,7 +155,7 @@ export function SettingsPanel({ settings, lastResult, onCommand, onClose }: Sett
 		}
 
 		if (currentView === "defaults") {
-			const next = applyDefaultProviderCommand(commandText, currentSettings);
+			const next = applyDefaultModelCommand(commandText, currentSettings);
 			if (next.error) {
 				setMessage(next.error);
 				return;
@@ -215,7 +215,7 @@ export function SettingsPanel({ settings, lastResult, onCommand, onClose }: Sett
 					{settings.settings.providers.map((provider) => (
 						<Text key={provider.id} color={selectedView === provider.id ? "cyan" : undefined}>
 							{selectedView === provider.id ? "> " : "  "}
-							{formatProviderNavLabel(provider, settings)}
+							{formatProviderNavLabel(provider)}
 						</Text>
 					))}
 					<Text color={selectedView === "create" ? "cyan" : undefined}>
@@ -226,7 +226,7 @@ export function SettingsPanel({ settings, lastResult, onCommand, onClose }: Sett
 
 				<Box flexDirection="column" flexGrow={1}>
 					{selectedView === "defaults" ? (
-						<DefaultProviderSummary settings={settings} lastResult={lastResult} />
+						<DefaultModelsSummary settings={settings} lastResult={lastResult} />
 					) : (
 						<ProviderSettingsEditor
 							mode={selectedView === "create" ? "create" : "edit"}
@@ -254,7 +254,7 @@ export function SettingsPanel({ settings, lastResult, onCommand, onClose }: Sett
 	);
 }
 
-function DefaultProviderSummary({
+function DefaultModelsSummary({
 	settings,
 	lastResult,
 }: {
@@ -262,21 +262,11 @@ function DefaultProviderSummary({
 	lastResult: SettingsCommandResult | null;
 }) {
 	const enabledProviders = settings.settings.providers.filter((provider) => provider.enabled);
-	const defaultProvider = settings.settings.defaults.defaultProviderId
-		? settings.settings.providers.find(
-				(provider) => provider.id === settings.settings.defaults.defaultProviderId,
-			)
-		: undefined;
-	const tierDefaults = settings.settings.defaults.tierDefaults;
 
 	return (
 		<Box flexDirection="column" gap={1}>
 			<Text bold>Default models</Text>
 			{lastResult && !lastResult.ok && <Text color="red">{lastResult.message}</Text>}
-			<Text>
-				Fallback provider:{" "}
-				{defaultProvider ? `${defaultProvider.label} (${defaultProvider.id})` : "Not configured"}
-			</Text>
 			<Text bold>Enabled providers</Text>
 			{enabledProviders.length === 0 ? (
 				<Text color="gray">No enabled providers available.</Text>
@@ -284,13 +274,12 @@ function DefaultProviderSummary({
 				enabledProviders.map((provider) => (
 					<Text key={provider.id}>
 						{provider.label} ({provider.id})
-						{provider.id === settings.settings.defaults.defaultProviderId ? " · default" : ""}
 					</Text>
 				))
 			)}
-			<Text bold>Global tier defaults</Text>
+			<Text bold>Default models</Text>
 			{(["best", "balanced", "fast"] as const).map((tier) => {
-				const modelRef = tierDefaults?.[tier];
+				const modelRef = settings.settings.defaults[tier];
 				if (!modelRef) {
 					return (
 						<Text key={tier} color="gray">
@@ -311,8 +300,8 @@ function DefaultProviderSummary({
 				);
 			})}
 			<Text color="gray">
-				Commands: default &lt;provider-id&gt; | default none | tier &lt;best|balanced|fast&gt;
-				&lt;provider-id:model-id&gt; | tier &lt;best|balanced|fast&gt; none
+				Commands: model &lt;best|balanced|fast&gt; &lt;provider-id:model-id&gt; | model
+				&lt;best|balanced|fast&gt; none
 			</Text>
 		</Box>
 	);
@@ -320,12 +309,8 @@ function DefaultProviderSummary({
 
 function formatProviderNavLabel(
 	provider: SettingsSnapshot["settings"]["providers"][number],
-	settings: SettingsSnapshot,
 ): string {
-	const markers = [
-		provider.id === settings.settings.defaults.defaultProviderId ? "fallback" : undefined,
-		!provider.enabled ? "disabled" : undefined,
-	].filter(Boolean);
+	const markers = [!provider.enabled ? "disabled" : undefined].filter(Boolean);
 	if (markers.length === 0) return provider.label;
 	return `${provider.label} · ${markers.join(" · ")}`;
 }
@@ -374,25 +359,25 @@ function applyGlobalCommand(
 	return { handled: false };
 }
 
-function applyDefaultProviderCommand(
+function applyDefaultModelCommand(
 	input: string,
 	settings: SettingsSnapshot,
 ): { command?: SettingsCommand; error?: string } {
 	const trimmed = input.trim();
-	if (trimmed.startsWith("tier ")) {
-		const [command, tier, target] = trimmed.split(/\s+/, 3);
-		if (command !== "tier" || !tier || !target) {
-			return { error: "Use: tier <best|balanced|fast> <provider-id:model-id|none>" };
+	if (trimmed.startsWith("model ")) {
+		const [command, slot, target] = trimmed.split(/\s+/, 3);
+		if (command !== "model" || !slot || !target) {
+			return { error: "Use: model <best|balanced|fast> <provider-id:model-id|none>" };
 		}
-		if (!["best", "balanced", "fast"].includes(tier)) {
-			return { error: `Unknown tier: ${tier}` };
+		if (!["best", "balanced", "fast"].includes(slot)) {
+			return { error: `Unknown slot: ${slot}` };
 		}
-		const selectionTier = tier as "best" | "balanced" | "fast";
+		const selectionSlot = slot as "best" | "balanced" | "fast";
 		if (target === "none") {
 			return {
 				command: {
-					kind: "set_global_tier_default",
-					data: { tier: selectionTier },
+					kind: "set_default_model",
+					data: { slot: selectionSlot },
 				},
 			};
 		}
@@ -407,7 +392,7 @@ function applyDefaultProviderCommand(
 			return { error: `Unknown provider: ${providerId}` };
 		}
 		if (!provider.enabled) {
-			return { error: `Tier provider must be enabled: ${providerId}` };
+			return { error: `Default-model provider must be enabled: ${providerId}` };
 		}
 		const model = settings.catalog
 			.find((entry) => entry.providerId === providerId)
@@ -417,9 +402,9 @@ function applyDefaultProviderCommand(
 		}
 		return {
 			command: {
-				kind: "set_global_tier_default",
+				kind: "set_default_model",
 				data: {
-					tier: selectionTier,
+					slot: selectionSlot,
 					model: {
 						providerId,
 						modelId,
@@ -428,29 +413,8 @@ function applyDefaultProviderCommand(
 			},
 		};
 	}
-	if (trimmed === "default none") {
-		return {
-			command: { kind: "set_default_provider", data: {} },
-		};
-	}
-	if (!trimmed.startsWith("default ")) {
+	if (!trimmed.startsWith("model ")) {
 		return { error: "Unknown defaults command." };
 	}
-	const providerId = trimmed.slice("default ".length).trim();
-	if (!providerId) {
-		return { error: "Provider id is required." };
-	}
-	const provider = settings.settings.providers.find((candidate) => candidate.id === providerId);
-	if (!provider) {
-		return { error: `Unknown provider: ${providerId}` };
-	}
-	if (!provider.enabled) {
-		return { error: `Fallback provider must be enabled: ${providerId}` };
-	}
-	return {
-		command: {
-			kind: "set_default_provider",
-			data: { providerId },
-		},
-	};
+	return { error: "Use: model <best|balanced|fast> <provider-id:model-id|none>" };
 }

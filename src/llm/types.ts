@@ -135,7 +135,7 @@ export interface ToolCall {
 export interface ProviderModel {
 	id: string;
 	label: string;
-	source: "remote" | "manual";
+	source: "remote";
 }
 
 // ---------------------------------------------------------------------------

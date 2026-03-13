@@ -34,10 +34,13 @@ describe("parseAgentModelInput", () => {
 		expect(parseAgentModelInput("balanced")).toEqual({ kind: "tier", tier: "balanced" });
 	});
 
-	test("accepts bare model ids", () => {
-		expect(parseAgentModelInput("claude-sonnet-4-6")).toEqual({
-			kind: "unqualified_model",
-			modelId: "claude-sonnet-4-6",
+	test("accepts provider-qualified model refs", () => {
+		expect(parseAgentModelInput("openai:gpt-4.1")).toEqual({
+			kind: "model",
+			model: {
+				providerId: "openai",
+				modelId: "gpt-4.1",
+			},
 		});
 	});
 
@@ -45,8 +48,8 @@ describe("parseAgentModelInput", () => {
 		expect(() => parseAgentModelInput("inherit")).toThrow(/inherit/);
 	});
 
-	test("rejects provider-qualified model refs", () => {
-		expect(() => parseAgentModelInput("openai:gpt-4.1")).toThrow(/provider-qualified/);
+	test("rejects bare model ids", () => {
+		expect(() => parseAgentModelInput("claude-sonnet-4-6")).toThrow(/provider-qualified/);
 	});
 });
 

@@ -44,26 +44,16 @@ export function buildCatalogEntry(
 	provider: ProviderConfig,
 	options: BuildCatalogEntryOptions,
 ): ProviderCatalogEntry {
-	const manualModels = normalizeManualModels(provider.manualModels);
 	const cachedModels = normalizeRemoteModels(options.cachedModels ?? []);
 	const remoteModels = normalizeRemoteModels(options.remoteModels ?? []);
 	const validationErrors = options.validationErrors ?? [];
 
-	let models: ProviderModel[];
-	if (validationErrors.length > 0) {
-		models = provider.discoveryStrategy === "remote-only" ? [] : manualModels;
-	} else if (provider.discoveryStrategy === "manual-only") {
-		models = manualModels;
-	} else if (!provider.enabled) {
-		models =
-			provider.discoveryStrategy === "remote-with-manual"
-				? mergeProviderModels(cachedModels, manualModels)
+	const models =
+		validationErrors.length > 0 || !provider.enabled
+			? cachedModels
+			: options.remoteModels
+				? remoteModels
 				: cachedModels;
-	} else if (provider.discoveryStrategy === "remote-only") {
-		models = remoteModels;
-	} else {
-		models = mergeProviderModels(remoteModels, manualModels);
-	}
 
 	return {
 		providerId: provider.id,
@@ -78,36 +68,4 @@ function normalizeRemoteModels(models: ProviderModel[]): ProviderModel[] {
 		label: model.label ?? model.id,
 		source: model.source ?? "remote",
 	}));
-}
-
-function normalizeManualModels(models: ProviderConfig["manualModels"]): ProviderModel[] {
-	return (models ?? []).map((model) => ({
-		id: model.id,
-		label: model.label ?? model.id,
-		source: "manual",
-	}));
-}
-
-function mergeProviderModels(
-	remoteModels: ProviderModel[],
-	manualModels: ProviderModel[],
-): ProviderModel[] {
-	const merged = new Map<string, ProviderModel>();
-
-	for (const model of remoteModels) {
-		merged.set(model.id, model);
-	}
-	for (const manualModel of manualModels) {
-		const remoteModel = merged.get(manualModel.id);
-		if (!remoteModel) {
-			merged.set(manualModel.id, manualModel);
-			continue;
-		}
-		merged.set(manualModel.id, {
-			...remoteModel,
-			label: remoteModel.label ?? manualModel.label,
-		});
-	}
-
-	return [...merged.values()];
 }

@@ -34,7 +34,6 @@ export async function buildTestResolverContext(
 				id,
 				enabled: true,
 			})),
-			providerId,
 			{
 				best: { providerId, modelId: defaultModelId },
 				balanced: { providerId, modelId: defaultModelId },

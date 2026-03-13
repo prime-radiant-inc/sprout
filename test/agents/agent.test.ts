@@ -73,7 +73,7 @@ describe("Agent", () => {
 	test("run() emits session_end with correct data", async () => {
 		const mockResponse: Response = {
 			id: "mock-1",
-			model: "claude-haiku-4-5-20251001",
+			model: "anthropic:claude-haiku-4-5-20251001",
 			provider: "anthropic",
 			message: Msg.assistant("Task complete."),
 			finish_reason: { reason: "stop" },
@@ -117,7 +117,7 @@ describe("Agent", () => {
 	test("plan_end event includes assistant_message", async () => {
 		const mockResponse: Response = {
 			id: "mock-am-1",
-			model: "claude-haiku-4-5-20251001",
+			model: "anthropic:claude-haiku-4-5-20251001",
 			provider: "anthropic",
 			message: Msg.assistant("Task complete."),
 			finish_reason: { reason: "stop" },
@@ -519,7 +519,7 @@ describe("Agent", () => {
 			name: "timeout-root",
 			description: "Test timeout agent",
 			system_prompt: "You are a test agent.",
-			model: "claude-haiku-4-5-20251001",
+			model: "anthropic:claude-haiku-4-5-20251001",
 			tools: ["read_file"],
 			agents: [],
 			constraints: {
@@ -1275,7 +1275,7 @@ describe("Agent", () => {
 			primitiveRegistry: registry,
 			availableAgents: [],
 			depth: 0,
-			modelOverride: "claude-sonnet-4-6",
+			modelOverride: "anthropic:claude-sonnet-4-6",
 		});
 		expect(agent.resolvedModel.model).toBe("claude-sonnet-4-6");
 		expect(agent.resolvedModel.provider).toBe("anthropic");

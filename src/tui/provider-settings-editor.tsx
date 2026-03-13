@@ -14,26 +14,17 @@ const PROVIDER_KINDS = new Set([
 	"gemini",
 ] as const);
 
-const DISCOVERY_STRATEGIES = new Set(["remote-only", "manual-only", "remote-with-manual"] as const);
-
 export interface HeaderDraft {
 	key: string;
 	value: string;
-}
-
-export interface ManualModelDraft {
-	id: string;
-	label: string;
 }
 
 export interface ProviderEditorDraft {
 	kind: ProviderConfig["kind"];
 	label: string;
 	baseUrl: string;
-	discoveryStrategy: ProviderConfig["discoveryStrategy"];
 	enabled: boolean;
 	nonSecretHeaders: HeaderDraft[];
-	manualModels: ManualModelDraft[];
 }
 
 export interface ProviderEditorCommandResult {
@@ -56,15 +47,10 @@ export function createProviderEditorDraft(provider?: ProviderConfig): ProviderEd
 		kind: provider?.kind ?? "anthropic",
 		label: provider?.label ?? "",
 		baseUrl: provider?.baseUrl ?? "",
-		discoveryStrategy: provider?.discoveryStrategy ?? "remote-with-manual",
 		enabled: provider?.enabled ?? false,
 		nonSecretHeaders: Object.entries(provider?.nonSecretHeaders ?? {}).map(([key, value]) => ({
 			key,
 			value,
-		})),
-		manualModels: (provider?.manualModels ?? []).map((model) => ({
-			id: model.id,
-			label: model.label ?? "",
 		})),
 	};
 }
@@ -101,24 +87,9 @@ export function applyProviderEditorCommand(
 				nextDraft.nonSecretHeaders = [];
 			}
 			return { draft: nextDraft };
-		case "discovery":
-			if (!argument || !DISCOVERY_STRATEGIES.has(argument as ProviderConfig["discoveryStrategy"])) {
-				return { draft, error: "Unknown discovery strategy." };
-			}
-			nextDraft.discoveryStrategy = argument as ProviderConfig["discoveryStrategy"];
-			return { draft: nextDraft };
 		case "base-url":
 			nextDraft.baseUrl = argument;
 			return { draft: nextDraft };
-		case "add-model":
-			nextDraft.manualModels.push({ id: "", label: "" });
-			return { draft: nextDraft };
-		case "remove-model":
-			return removeIndexedItem(nextDraft, "model", argument);
-		case "model-id":
-			return updateIndexedManualModel(nextDraft, "id", argument);
-		case "model-label":
-			return updateIndexedManualModel(nextDraft, "label", argument);
 		case "add-header":
 			nextDraft.nonSecretHeaders.push({ key: "", value: "" });
 			return { draft: nextDraft };
@@ -177,7 +148,6 @@ function createProviderSaveCommand(
 	const trimmedLabel = draft.label.trim();
 	const baseUrl = draft.baseUrl.trim();
 	const nonSecretHeaders = normalizeHeaders(draft.nonSecretHeaders);
-	const manualModels = normalizeManualModels(draft.manualModels);
 
 	if (mode === "create") {
 		return {
@@ -185,10 +155,8 @@ function createProviderSaveCommand(
 			data: {
 				kind: draft.kind,
 				label: trimmedLabel,
-				discoveryStrategy: draft.discoveryStrategy,
 				...(supportsBaseUrl(draft.kind) && baseUrl ? { baseUrl } : {}),
 				...(supportsNonSecretHeaders(draft.kind) && nonSecretHeaders ? { nonSecretHeaders } : {}),
-				...(manualModels ? { manualModels } : {}),
 			},
 		};
 	}
@@ -203,12 +171,10 @@ function createProviderSaveCommand(
 			providerId,
 			patch: {
 				label: trimmedLabel,
-				discoveryStrategy: draft.discoveryStrategy,
 				...(supportsBaseUrl(draft.kind) ? { baseUrl } : {}),
 				...(supportsNonSecretHeaders(draft.kind)
 					? { nonSecretHeaders: nonSecretHeaders ?? {} }
 					: {}),
-				manualModels: manualModels ?? [],
 			},
 		},
 	};
@@ -245,29 +211,9 @@ function normalizeHeaders(headers: HeaderDraft[]): Record<string, string> | unde
 	return Object.fromEntries(entries);
 }
 
-function normalizeManualModels(models: ManualModelDraft[]):
-	| Array<{
-			id: string;
-			label?: string;
-	  }>
-	| undefined {
-	const normalized = models
-		.map((model) => {
-			const id = model.id.trim();
-			const label = model.label.trim();
-			return {
-				id,
-				label: label || undefined,
-			};
-		})
-		.filter((model) => model.id.length > 0 || model.label !== undefined);
-	if (normalized.length === 0) return undefined;
-	return normalized;
-}
-
 function removeIndexedItem(
 	draft: ProviderEditorDraft,
-	kind: "model" | "header",
+	kind: "header",
 	argument: string,
 ): ProviderEditorCommandResult {
 	const index = parseOneBasedIndex(argument);
@@ -275,25 +221,11 @@ function removeIndexedItem(
 		return { draft, error: `Provide a ${kind} index.` };
 	}
 	const next = structuredClone(draft);
-	const list = kind === "model" ? next.manualModels : next.nonSecretHeaders;
+	const list = next.nonSecretHeaders;
 	if (!list[index]) {
 		return { draft, error: `Unknown ${kind} index.` };
 	}
 	list.splice(index, 1);
-	return { draft: next };
-}
-
-function updateIndexedManualModel(
-	draft: ProviderEditorDraft,
-	field: keyof ManualModelDraft,
-	argument: string,
-): ProviderEditorCommandResult {
-	const parsed = parseIndexedArgument(argument);
-	if (!parsed) return { draft, error: "Provide an index and value." };
-	const next = structuredClone(draft);
-	const model = next.manualModels[parsed.index];
-	if (!model) return { draft, error: "Unknown model index." };
-	model[field] = parsed.value;
 	return { draft: next };
 }
 
@@ -354,7 +286,6 @@ export function ProviderSettingsEditor({
 					{fieldErrors?.baseUrl && <Text color="red">Base URL: {fieldErrors.baseUrl}</Text>}
 				</>
 			)}
-			<Text>Discovery: {draft.discoveryStrategy}</Text>
 			{mode === "edit" && provider && <Text>Enabled: {provider.enabled ? "yes" : "no"}</Text>}
 
 			{mode === "edit" && (
@@ -376,20 +307,6 @@ export function ProviderSettingsEditor({
 						)}
 				</Box>
 			)}
-
-			<Box flexDirection="column">
-				<Text bold>Manual models</Text>
-				{draft.manualModels.length === 0 ? (
-					<Text color="gray">No manual models configured.</Text>
-				) : (
-					draft.manualModels.map((model, index) => (
-						<Text key={`${model.id}-${index}`}>
-							{index + 1}. {model.label || "(unnamed)"} [{model.id || "(missing id)"}]
-						</Text>
-					))
-				)}
-				{fieldErrors?.manualModels && <Text color="red">{fieldErrors.manualModels}</Text>}
-			</Box>
 
 			{supportsNonSecretHeaders(draft.kind) && (
 				<Box flexDirection="column">
@@ -425,7 +342,6 @@ export function ProviderSettingsEditor({
 			<Box flexDirection="column">
 				<Text bold>Actions</Text>
 				<Text color="gray">Save provider: save</Text>
-				<Text color="gray">Add manual model: add-model</Text>
 				{supportsNonSecretHeaders(draft.kind) && <Text color="gray">Add header: add-header</Text>}
 				{mode === "edit" && (
 					<Text color="gray">
@@ -433,13 +349,7 @@ export function ProviderSettingsEditor({
 					</Text>
 				)}
 				<Text color="gray">Shortcuts</Text>
-				<Text color="gray">
-					label &lt;text&gt; · kind &lt;kind&gt; · discovery &lt;strategy&gt;
-				</Text>
-				<Text color="gray">
-					base-url &lt;url&gt; · model-id &lt;n&gt; &lt;id&gt; · model-label &lt;n&gt; &lt;text&gt;
-				</Text>
-				<Text color="gray">remove-model &lt;n&gt;</Text>
+				<Text color="gray">label &lt;text&gt; · kind &lt;kind&gt; · base-url &lt;url&gt;</Text>
 				{supportsNonSecretHeaders(draft.kind) && (
 					<Text color="gray">
 						header-key &lt;n&gt; &lt;key&gt; · header-value &lt;n&gt; &lt;value&gt; · remove-header

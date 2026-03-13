@@ -13,7 +13,6 @@ function provider(overrides: Partial<ProviderConfig> = {}): ProviderConfig {
 		kind: "anthropic",
 		label: "Anthropic",
 		enabled: true,
-		discoveryStrategy: "remote-only",
 		createdAt: "2026-03-11T12:00:00.000Z",
 		updatedAt: "2026-03-11T12:00:00.000Z",
 		...overrides,
@@ -30,21 +29,7 @@ function model(id: string, overrides: Partial<ProviderModel> = {}): ProviderMode
 }
 
 describe("buildCatalogEntry", () => {
-	test("supports manual-only providers", () => {
-		const entry = buildCatalogEntry(
-			provider({
-				id: "lmstudio",
-				kind: "openai-compatible",
-				discoveryStrategy: "manual-only",
-				manualModels: [{ id: "qwen2.5-coder", label: "Qwen" }],
-			}),
-			{},
-		);
-
-		expect(entry.models).toEqual([{ id: "qwen2.5-coder", label: "Qwen", source: "manual" }]);
-	});
-
-	test("normalizes remote-only provider models", () => {
+	test("normalizes remote provider models", () => {
 		const entry = buildCatalogEntry(provider(), {
 			remoteModels: [
 				model("claude-sonnet-4-6", { label: undefined, source: undefined }),
@@ -66,75 +51,27 @@ describe("buildCatalogEntry", () => {
 		]);
 	});
 
-	test("remote-with-manual keeps remote entries and appends manual-only models", () => {
-		const entry = buildCatalogEntry(
-			provider({
-				id: "openai",
-				kind: "openai",
-				discoveryStrategy: "remote-with-manual",
-				manualModels: [
-					{ id: "gpt-4.1", label: "Manual GPT 4.1" },
-					{ id: "custom-fast", label: "Custom Fast" },
-				],
-			}),
-			{
-				remoteModels: [model("gpt-4.1", { label: "GPT 4.1" })],
-			},
-		);
-
-		expect(entry.models).toEqual([
-			{
-				id: "gpt-4.1",
-				label: "GPT 4.1",
-				source: "remote",
-			},
-			{
-				id: "custom-fast",
-				label: "Custom Fast",
-				source: "manual",
-			},
-		]);
-	});
-
-	test("invalid providers expose no remote-discovered catalog entries", () => {
+	test("invalid providers retain the last cached remote models", () => {
 		const entry = buildCatalogEntry(provider(), {
-			remoteModels: [model("claude-sonnet-4-6")],
+			cachedModels: [model("claude-sonnet-4-6")],
 			validationErrors: ["API key is required"],
 		});
 
-		expect(entry.models).toEqual([]);
-	});
-
-	test("invalid remote-with-manual providers retain manual entries for UI display", () => {
-		const entry = buildCatalogEntry(
-			provider({
-				id: "lmstudio",
-				kind: "openai-compatible",
-				discoveryStrategy: "remote-with-manual",
-				manualModels: [{ id: "custom-fast", label: "Custom Fast" }],
-			}),
-			{
-				validationErrors: ["catalog refresh failed"],
-			},
-		);
-
 		expect(entry.models).toEqual([
 			{
-				id: "custom-fast",
-				label: "Custom Fast",
-				source: "manual",
+				id: "claude-sonnet-4-6",
+				label: "claude-sonnet-4-6",
+				source: "remote",
 			},
 		]);
 	});
 
-	test("disabled providers may retain cached or manual catalog entries for UI display", () => {
+	test("disabled providers retain cached remote models for UI display", () => {
 		const entry = buildCatalogEntry(
 			provider({
 				id: "lmstudio",
 				kind: "openai-compatible",
 				enabled: false,
-				discoveryStrategy: "remote-with-manual",
-				manualModels: [{ id: "custom-fast", label: "Custom Fast" }],
 			}),
 			{
 				cachedModels: [
@@ -153,10 +90,20 @@ describe("buildCatalogEntry", () => {
 				label: "Qwen 2.5 Coder",
 				source: "remote",
 			},
+		]);
+	});
+
+	test("enabled providers prefer fresh remote models over cached ones", () => {
+		const entry = buildCatalogEntry(provider(), {
+			cachedModels: [model("claude-sonnet-4-6")],
+			remoteModels: [model("claude-opus-4-1")],
+		});
+
+		expect(entry.models).toEqual([
 			{
-				id: "custom-fast",
-				label: "Custom Fast",
-				source: "manual",
+				id: "claude-opus-4-1",
+				label: "claude-opus-4-1",
+				source: "remote",
 			},
 		]);
 	});

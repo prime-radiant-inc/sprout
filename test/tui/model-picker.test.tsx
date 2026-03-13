@@ -21,50 +21,58 @@ describe("ModelPicker", () => {
 		currentInstance = undefined;
 	});
 
-	test("builds global tier options plus exact models for the current provider", () => {
+	test("builds default-model options plus exact models grouped by provider", () => {
 		const options = buildModelPickerOptions({
-			availableModels: ["best", "balanced", "fast", "claude-sonnet-4-6", "qwen2.5-coder"],
+			availableModels: [
+				"best",
+				"balanced",
+				"fast",
+				"anthropic-main:claude-sonnet-4-6",
+				"lmstudio:qwen2.5-coder",
+			],
 			settings: makeSettingsSnapshot(),
 			currentSelection: makeSelectionSnapshot(),
 			currentModel: "claude-sonnet-4-6",
 		});
 
 		expect(options.map((option) => option.label)).toEqual([
-			"Default · Anthropic",
-			"Provider · Anthropic (selected)",
-			"Provider · LM Studio",
-			"Best · Anthropic",
-			"Balanced · Anthropic",
-			"Fast · LM Studio",
+			"Use agent default · claude-sonnet-4-6",
+			"Best · Anthropic · claude-opus-4-6",
+			"Balanced · Anthropic · Claude Sonnet 4.6",
+			"Fast · LM Studio · Qwen 2.5 Coder",
 			"Anthropic · Claude Sonnet 4.6",
+			"LM Studio · Qwen 2.5 Coder",
 		]);
 	});
 
-	test("builds exact-model options for an explicitly selected provider while keeping global tiers", () => {
+	test("includes exact models from every enabled provider when no filter is applied", () => {
 		const options = buildModelPickerOptions({
 			availableModels: [],
 			settings: makeSettingsSnapshot(),
 			currentSelection: makeSelectionSnapshot(),
 			currentModel: "claude-sonnet-4-6",
-			selectedProviderId: "lmstudio",
 		});
 
 		expect(options.map((option) => option.label)).toEqual([
-			"Default · Anthropic",
-			"Provider · Anthropic",
-			"Provider · LM Studio (selected)",
-			"Best · Anthropic",
-			"Balanced · Anthropic",
-			"Fast · LM Studio",
-			"LM Studio · Qwen 2.5 Coder",
+			"Use agent default · claude-sonnet-4-6",
+			"Best · Anthropic · claude-opus-4-6",
+			"Balanced · Anthropic · Claude Sonnet 4.6",
+			"Fast · LM Studio · Qwen 2.5 Coder",
 			"Anthropic · Claude Sonnet 4.6",
+			"LM Studio · Qwen 2.5 Coder",
 		]);
 	});
 
-	test("renders global tier labels alongside provider-scoped exact models", () => {
+	test("renders default-model labels alongside provider-grouped exact models", () => {
 		const { lastFrame } = render(
 			<ModelPicker
-				availableModels={["best", "claude-sonnet-4-6"]}
+				availableModels={[
+					"best",
+					"balanced",
+					"fast",
+					"anthropic-main:claude-sonnet-4-6",
+					"lmstudio:qwen2.5-coder",
+				]}
 				settings={makeSettingsSnapshot()}
 				currentSelection={makeSelectionSnapshot()}
 				currentModel="claude-sonnet-4-6"
@@ -72,12 +80,16 @@ describe("ModelPicker", () => {
 				onCancel={() => {}}
 			/>,
 		);
-		expect(lastFrame()).toContain("Provider · LM Studio");
+		expect(lastFrame()).toContain("Use agent default");
+		expect(lastFrame()).toContain("Default models");
 		expect(lastFrame()).toContain("Balanced · Anthropic");
-		expect(lastFrame()).toContain("Fast · LM Studio");
+		expect(lastFrame()).toContain("Anthropic");
+		expect(lastFrame()).toContain("LM Studio");
+		expect(lastFrame()).toContain("Claude Sonnet 4.6");
+		expect(lastFrame()).toContain("Qwen 2.5 Coder");
 	});
 
-	test("Enter selects the highlighted canonical selection after switching providers", async () => {
+	test("Enter selects the highlighted canonical exact-model selection", async () => {
 		let selected:
 			| {
 					kind: "inherit";
@@ -91,9 +103,9 @@ describe("ModelPicker", () => {
 					model: { providerId: string; modelId: string };
 			  }
 			| undefined;
-		const { stdin, lastFrame } = render(
+		const { stdin } = render(
 			<ModelPicker
-				availableModels={["best", "claude-sonnet-4-6", "qwen2.5-coder"]}
+				availableModels={["best", "anthropic-main:claude-sonnet-4-6", "lmstudio:qwen2.5-coder"]}
 				settings={makeSettingsSnapshot()}
 				currentSelection={makeSelectionSnapshot()}
 				currentModel="claude-sonnet-4-6"
@@ -108,8 +120,6 @@ describe("ModelPicker", () => {
 		await flush();
 		stdin.write("\x1B[B");
 		await flush();
-		stdin.write("\r");
-		await waitFor(() => (lastFrame() ?? "").includes("Provider · LM Studio (selected)"));
 		stdin.write("\x1B[B");
 		await flush();
 		stdin.write("\x1B[B");
@@ -157,7 +167,7 @@ describe("ModelPicker", () => {
 				onCancel={() => {}}
 			/>,
 		);
-		expect(lastFrame()).toContain("Default");
+		expect(lastFrame()).toContain("Use agent default");
 		expect(lastFrame()).toContain("anthropic-main · claude-sonnet-4-6");
 	});
 });

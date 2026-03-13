@@ -4,14 +4,7 @@ import {
 	type SecretStorageBackend,
 	type SecretStore,
 } from "./secret-store.ts";
-import type {
-	ManualModelConfig,
-	ModelRef,
-	ProviderConfig,
-	SproutSettings,
-	Tier,
-	TierModelDefaults,
-} from "./types.ts";
+import type { ModelRef, ProviderConfig, SproutSettings, Tier } from "./types.ts";
 import {
 	providerRequiresSecret,
 	validateProviderConfig,
@@ -21,7 +14,7 @@ import {
 export interface ProviderModel {
 	id: string;
 	label: string;
-	source: "remote" | "manual";
+	source: "remote";
 }
 
 export interface ProviderCatalogEntry {
@@ -71,8 +64,6 @@ export type SettingsCommand =
 				label: string;
 				baseUrl?: string;
 				nonSecretHeaders?: Record<string, string>;
-				discoveryStrategy: ProviderConfig["discoveryStrategy"];
-				manualModels?: ManualModelConfig[];
 			};
 	  }
 	| {
@@ -83,8 +74,6 @@ export type SettingsCommand =
 					label?: string;
 					baseUrl?: string;
 					nonSecretHeaders?: Record<string, string>;
-					discoveryStrategy?: ProviderConfig["discoveryStrategy"];
-					manualModels?: ManualModelConfig[];
 				};
 			};
 	  }
@@ -94,8 +83,7 @@ export type SettingsCommand =
 	| { kind: "set_provider_enabled"; data: { providerId: string; enabled: boolean } }
 	| { kind: "test_provider_connection"; data: { providerId: string } }
 	| { kind: "refresh_provider_models"; data: { providerId: string } }
-	| { kind: "set_global_tier_default"; data: { tier: Tier; model?: ModelRef } }
-	| { kind: "set_default_provider"; data: { providerId?: string } };
+	| { kind: "set_default_model"; data: { slot: Tier; model?: ModelRef } };
 
 export type SettingsCommandResult =
 	| { ok: true; snapshot: SettingsSnapshot }
@@ -200,10 +188,8 @@ export class SettingsControlPlane {
 				return this.testProviderConnection(command.data.providerId);
 			case "refresh_provider_models":
 				return this.refreshProviderModels(command.data.providerId);
-			case "set_global_tier_default":
-				return this.setGlobalTierDefault(command.data.tier, command.data.model);
-			case "set_default_provider":
-				return this.setDefaultProvider(command.data.providerId);
+			case "set_default_model":
+				return this.setDefaultModel(command.data.slot, command.data.model);
 		}
 	}
 
@@ -220,8 +206,6 @@ export class SettingsControlPlane {
 			enabled: false,
 			baseUrl: data.baseUrl,
 			nonSecretHeaders: data.nonSecretHeaders,
-			discoveryStrategy: data.discoveryStrategy,
-			manualModels: data.manualModels,
 			createdAt: timestamp,
 			updatedAt: timestamp,
 		};
@@ -244,8 +228,6 @@ export class SettingsControlPlane {
 		if (patch.label !== undefined) provider.label = patch.label;
 		if (patch.baseUrl !== undefined) provider.baseUrl = patch.baseUrl;
 		if (patch.nonSecretHeaders !== undefined) provider.nonSecretHeaders = patch.nonSecretHeaders;
-		if (patch.discoveryStrategy !== undefined) provider.discoveryStrategy = patch.discoveryStrategy;
-		if (patch.manualModels !== undefined) provider.manualModels = patch.manualModels;
 		provider.updatedAt = this.now();
 		const validation = validateProviderConfig(provider);
 		if (validation.errors.length > 0) {
@@ -261,16 +243,7 @@ export class SettingsControlPlane {
 		if (providerIndex === -1) return this.error("not_found", `Unknown provider: ${providerId}`);
 
 		next.providers.splice(providerIndex, 1);
-		if (next.defaults.defaultProviderId === providerId) {
-			delete next.defaults.defaultProviderId;
-		}
-		next.defaults.tierDefaults = removeTierDefaultsForProvider(
-			next.defaults.tierDefaults,
-			providerId,
-		);
-		if (next.defaults.tierDefaults && Object.keys(next.defaults.tierDefaults).length === 0) {
-			delete next.defaults.tierDefaults;
-		}
+		next.defaults = removeDefaultsForProvider(next.defaults, providerId);
 
 		this.providerState.delete(providerId);
 		this.providerCatalog.delete(providerId);
@@ -375,16 +348,7 @@ export class SettingsControlPlane {
 				);
 			}
 		} else {
-			if (next.defaults.defaultProviderId === providerId) {
-				delete next.defaults.defaultProviderId;
-			}
-			next.defaults.tierDefaults = removeTierDefaultsForProvider(
-				next.defaults.tierDefaults,
-				providerId,
-			);
-			if (next.defaults.tierDefaults && Object.keys(next.defaults.tierDefaults).length === 0) {
-				delete next.defaults.tierDefaults;
-			}
+			next.defaults = removeDefaultsForProvider(next.defaults, providerId);
 		}
 
 		return this.persistSettings(next, [providerId], true);
@@ -411,25 +375,19 @@ export class SettingsControlPlane {
 		return this.emitUpdatedSnapshot();
 	}
 
-	private async setGlobalTierDefault(tier: Tier, model?: ModelRef): Promise<SettingsCommandResult> {
+	private async setDefaultModel(slot: Tier, model?: ModelRef): Promise<SettingsCommandResult> {
 		const next = structuredClone(this.settings);
 		if (!model) {
-			if (next.defaults.tierDefaults) {
-				delete next.defaults.tierDefaults[tier];
-				if (Object.keys(next.defaults.tierDefaults).length === 0) {
-					delete next.defaults.tierDefaults;
-				}
-			}
+			delete next.defaults[slot];
 			return this.persistSettings(next, [], true);
 		}
 
-		const validation = this.validateGlobalTierDefault(next, tier, model);
+		const validation = this.validateDefaultModel(next, slot, model);
 		if (validation) {
 			return validation;
 		}
 
-		next.defaults.tierDefaults ??= {};
-		next.defaults.tierDefaults[tier] = model;
+		next.defaults[slot] = model;
 		return this.persistSettings(next, [], true);
 	}
 
@@ -461,25 +419,6 @@ export class SettingsControlPlane {
 			state.catalogError = state.connectionError;
 		}
 		return this.emitUpdatedSnapshot();
-	}
-
-	private async setDefaultProvider(providerId?: string): Promise<SettingsCommandResult> {
-		const next = structuredClone(this.settings);
-		if (!providerId) {
-			delete next.defaults.defaultProviderId;
-			return this.persistSettings(next, [], true);
-		}
-
-		const provider = next.providers.find((candidate) => candidate.id === providerId);
-		if (!provider) {
-			return this.error("validation_failed", `Unknown provider: ${providerId}`);
-		}
-		if (!provider.enabled) {
-			return this.error("validation_failed", `Default provider must be enabled: ${providerId}`);
-		}
-
-		next.defaults.defaultProviderId = providerId;
-		return this.persistSettings(next, [], true);
 	}
 
 	private async persistSettings(
@@ -550,12 +489,6 @@ export class SettingsControlPlane {
 		return this.settings.providers.map((provider) => {
 			const entry = this.providerCatalog.get(provider.id);
 			if (entry) return structuredClone(entry);
-			if (provider.discoveryStrategy === "manual-only") {
-				return {
-					providerId: provider.id,
-					models: normalizeManualModels(provider.manualModels),
-				};
-			}
 			return {
 				providerId: provider.id,
 				models: [],
@@ -567,17 +500,10 @@ export class SettingsControlPlane {
 		provider: ProviderConfig,
 		secret?: string,
 	): Promise<ProviderModel[]> {
-		if (provider.discoveryStrategy === "manual-only") {
-			return normalizeManualModels(provider.manualModels);
-		}
 		if (!this.refreshModels) {
 			throw new Error(`No model refresh handler registered for provider kind: ${provider.kind}`);
 		}
-		const remoteModels = await this.refreshModels(provider, secret);
-		if (provider.discoveryStrategy === "remote-with-manual") {
-			return mergeProviderModels(remoteModels, normalizeManualModels(provider.manualModels));
-		}
-		return remoteModels;
+		return this.refreshModels(provider, secret);
 	}
 
 	private async providerHasSecret(provider: ProviderConfig): Promise<boolean> {
@@ -605,34 +531,31 @@ export class SettingsControlPlane {
 		};
 	}
 
-	private validateGlobalTierDefault(
+	private validateDefaultModel(
 		settings: SproutSettings,
-		tier: Tier,
+		slot: Tier,
 		model: ModelRef,
 	): SettingsCommandResult | undefined {
 		const provider = settings.providers.find((candidate) => candidate.id === model.providerId);
 		if (!provider) {
 			return this.error(
 				"validation_failed",
-				`Unknown provider '${model.providerId}' for global '${tier}' model`,
-				{ tierDefaults: `Unknown provider '${model.providerId}' for global '${tier}' model` },
+				`Unknown provider '${model.providerId}' for default '${slot}' model`,
+				{ [slot]: `Unknown provider '${model.providerId}' for default '${slot}' model` },
 			);
 		}
 		if (!provider.enabled) {
 			return this.error(
 				"validation_failed",
-				`Provider '${model.providerId}' must be enabled before setting '${tier}'`,
-				{ tierDefaults: `Provider '${model.providerId}' must be enabled before setting '${tier}'` },
+				`Provider '${model.providerId}' must be enabled before setting '${slot}'`,
+				{ [slot]: `Provider '${model.providerId}' must be enabled before setting '${slot}'` },
 			);
 		}
 
-		const availableModels =
-			provider.discoveryStrategy === "manual-only"
-				? normalizeManualModels(provider.manualModels)
-				: (this.providerCatalog.get(provider.id)?.models ?? []);
+		const availableModels = this.providerCatalog.get(provider.id)?.models ?? [];
 		if (availableModels.length === 0) {
-			return this.error("validation_failed", "Refresh models to configure tier defaults", {
-				tierDefaults: "Refresh models to configure tier defaults",
+			return this.error("validation_failed", "Refresh models to configure default models", {
+				[slot]: "Refresh models to configure default models",
 			});
 		}
 
@@ -640,9 +563,7 @@ export class SettingsControlPlane {
 			return this.error(
 				"validation_failed",
 				`Unknown model '${model.modelId}' for provider '${model.providerId}'`,
-				{
-					tierDefaults: `Unknown model '${model.modelId}' for provider '${model.providerId}'`,
-				},
+				{ [slot]: `Unknown model '${model.modelId}' for provider '${model.providerId}'` },
 			);
 		}
 
@@ -710,40 +631,17 @@ function buildNextProviderId(providers: ProviderConfig[], kind: ProviderConfig["
 	return `${kind}-${suffix}`;
 }
 
-function mergeProviderModels(
-	remoteModels: ProviderModel[],
-	manualModels: ProviderModel[],
-): ProviderModel[] {
-	const merged = new Map<string, ProviderModel>();
-	for (const model of remoteModels) {
-		merged.set(model.id, model);
-	}
-	for (const model of manualModels) {
-		if (!merged.has(model.id)) merged.set(model.id, model);
-	}
-	return [...merged.values()];
-}
-
-function normalizeManualModels(models: ManualModelConfig[] | undefined): ProviderModel[] {
-	return (models ?? []).map((model) => ({
-		id: model.id,
-		label: model.label ?? model.id,
-		source: "manual",
-	}));
-}
-
-function removeTierDefaultsForProvider(
-	tierDefaults: TierModelDefaults | undefined,
+function removeDefaultsForProvider(
+	defaults: SproutSettings["defaults"],
 	providerId: string,
-): TierModelDefaults | undefined {
-	if (!tierDefaults) return undefined;
-	const next: TierModelDefaults = {};
+): SproutSettings["defaults"] {
+	const next: SproutSettings["defaults"] = {};
 	for (const tier of ["best", "balanced", "fast"] as const) {
-		const modelRef = tierDefaults[tier];
+		const modelRef = defaults[tier];
 		if (!modelRef || modelRef.providerId === providerId) continue;
 		next[tier] = modelRef;
 	}
-	return Object.keys(next).length > 0 ? next : undefined;
+	return next;
 }
 
 function dedupe(values: string[]): string[] {

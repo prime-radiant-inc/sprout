@@ -26,24 +26,12 @@ export function validateSproutSettings(settings: SproutSettings): void {
 		if (provider.enabled) enabledProviderIds.add(provider.id);
 	}
 
-	if (
-		settings.defaults.defaultProviderId !== undefined &&
-		!enabledProviderIds.has(settings.defaults.defaultProviderId)
-	) {
-		throw new Error(
-			`Default provider must reference an enabled provider: ${settings.defaults.defaultProviderId}`,
-		);
-	}
-
-	const tierDefaults = settings.defaults.tierDefaults;
-	if (!tierDefaults) return;
-
 	for (const tier of ["best", "balanced", "fast"] as const satisfies Tier[]) {
-		const modelRef = tierDefaults[tier];
+		const modelRef = settings.defaults[tier];
 		if (!modelRef) continue;
 		if (!enabledProviderIds.has(modelRef.providerId)) {
 			throw new Error(
-				`Tier default '${tier}' must reference an enabled provider: ${modelRef.providerId}`,
+				`Default model '${tier}' must reference an enabled provider: ${modelRef.providerId}`,
 			);
 		}
 	}

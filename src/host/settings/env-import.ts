@@ -66,7 +66,6 @@ export async function importSettingsFromEnv(options: EnvImportOptions): Promise<
 				createProviderSecretRef(provider.id, options.secretBackend),
 				secret,
 			);
-			settings.defaults.defaultProviderId ??= provider.id;
 		} catch (error) {
 			provider.enabled = false;
 			validationErrorsByProvider[provider.id] = [
@@ -102,7 +101,6 @@ function createImportedProviderConfig(
 		kind: source.kind,
 		label: source.label,
 		enabled: true,
-		discoveryStrategy: "remote-only",
 		createdAt: timestamp,
 		updatedAt: timestamp,
 	};

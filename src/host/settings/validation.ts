@@ -13,6 +13,10 @@ export interface ProviderRuntimeValidationOptions {
 export function validateProviderConfig(provider: ProviderConfig): ProviderValidationResult {
 	const errors: string[] = [];
 	const fieldErrors: Record<string, string> = {};
+	const legacyProvider = provider as ProviderConfig & {
+		discoveryStrategy?: unknown;
+		manualModels?: unknown;
+	};
 
 	if (!provider.label.trim()) {
 		addFieldError(errors, fieldErrors, "label", "Label is required");
@@ -60,18 +64,22 @@ export function validateProviderConfig(provider: ProviderConfig): ProviderValida
 		);
 	}
 
-	const manualModelIds = new Set<string>();
-	for (const model of provider.manualModels ?? []) {
-		const modelId = model.id.trim();
-		if (!modelId) {
-			addFieldError(errors, fieldErrors, "manualModels", "Manual models require a non-empty id");
-			continue;
-		}
-		if (manualModelIds.has(modelId)) {
-			addFieldError(errors, fieldErrors, "manualModels", "Manual models must use unique ids");
-			continue;
-		}
-		manualModelIds.add(modelId);
+	if ("discoveryStrategy" in legacyProvider) {
+		addFieldError(
+			errors,
+			fieldErrors,
+			"discoveryStrategy",
+			"Discovery strategy is no longer supported",
+		);
+	}
+
+	if ("manualModels" in legacyProvider) {
+		addFieldError(
+			errors,
+			fieldErrors,
+			"manualModels",
+			"Manual model configuration is no longer supported",
+		);
 	}
 
 	return {
@@ -97,8 +105,6 @@ export function normalizeProviderConfig(provider: ProviderConfig): ProviderConfi
 			? { baseUrl: provider.baseUrl.trim() }
 			: {}),
 		...(provider.nonSecretHeaders ? { nonSecretHeaders: provider.nonSecretHeaders } : {}),
-		discoveryStrategy: provider.discoveryStrategy,
-		...(provider.manualModels ? { manualModels: provider.manualModels } : {}),
 		createdAt: provider.createdAt,
 		updatedAt: provider.updatedAt,
 	};

@@ -49,7 +49,7 @@ describe("buildInteractiveModeRuntime", () => {
 						warnings: [],
 					},
 					settings: {
-						version: 1 as const,
+						version: 2 as const,
 						providers: [],
 						defaults: {},
 					},

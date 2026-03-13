@@ -202,12 +202,11 @@ describe("bootstrapInteractiveRuntime", () => {
 					kind: "anthropic" as const,
 					label: "Anthropic",
 					enabled: true,
-					discoveryStrategy: "remote-only" as const,
 					createdAt: "2026-03-11T12:34:56.000Z",
 					updatedAt: "2026-03-11T12:34:56.000Z",
 				},
 			],
-			defaults: { defaultProviderId: "anthropic" },
+			defaults: {},
 		};
 
 		await bootstrapInteractiveRuntime(
@@ -382,7 +381,6 @@ describe("bootstrapInteractiveRuntime", () => {
 					kind: "openai" as const,
 					label: "OpenAI",
 					enabled: true,
-					discoveryStrategy: "remote-only" as const,
 					createdAt: "2026-03-11T12:34:56.000Z",
 					updatedAt: "2026-03-11T12:34:56.000Z",
 				},
@@ -434,10 +432,6 @@ describe("bootstrapInteractiveRuntime", () => {
 					kind: "anthropic" as const,
 					label: "Anthropic",
 					enabled: true,
-					discoveryStrategy: "remote-only" as const,
-					tierDefaults: {
-						best: "claude-opus-4-6",
-					},
 					createdAt: "2026-03-11T12:34:56.000Z",
 					updatedAt: "2026-03-11T12:34:56.000Z",
 				},
@@ -446,12 +440,11 @@ describe("bootstrapInteractiveRuntime", () => {
 					kind: "openrouter" as const,
 					label: "OpenRouter",
 					enabled: true,
-					discoveryStrategy: "remote-only" as const,
 					createdAt: "2026-03-11T12:34:56.000Z",
 					updatedAt: "2026-03-11T12:34:56.000Z",
 				},
 			],
-			defaults: { defaultProviderId: "anthropic" },
+			defaults: {},
 		};
 		const entries: ProviderRegistryEntry[] = [
 			{
@@ -524,7 +517,7 @@ describe("bootstrapInteractiveRuntime", () => {
 			openrouter: entries[1]!.adapter,
 		});
 		expect((created.controlPlaneOptions as any).initialSettings).toEqual(settings);
-		expect(result.availableModels).toContain("claude-opus-4-6");
+		expect(result.availableModels).toContain("anthropic:claude-opus-4-6");
 		expect(result.availableModels).not.toContain("openrouter");
 	});
 
@@ -538,7 +531,6 @@ describe("bootstrapInteractiveRuntime", () => {
 					kind: "openai" as const,
 					label: "OpenAI",
 					enabled: true,
-					discoveryStrategy: "remote-only" as const,
 					createdAt: "2026-03-11T12:34:56.000Z",
 					updatedAt: "2026-03-11T12:34:56.000Z",
 				},
@@ -547,22 +539,18 @@ describe("bootstrapInteractiveRuntime", () => {
 					kind: "anthropic" as const,
 					label: "Anthropic",
 					enabled: false,
-					discoveryStrategy: "remote-only" as const,
 					createdAt: "2026-03-11T12:34:56.000Z",
 					updatedAt: "2026-03-11T12:34:56.000Z",
 				},
 			],
 			defaults: {
-				defaultProviderId: "openai",
-				tierDefaults: {
-					balanced: {
-						providerId: "openai",
-						modelId: "gpt-4.1",
-					},
-					best: {
-						providerId: "anthropic",
-						modelId: "claude-opus-4-6",
-					},
+				balanced: {
+					providerId: "openai",
+					modelId: "gpt-4.1",
+				},
+				best: {
+					providerId: "anthropic",
+					modelId: "claude-opus-4-6",
 				},
 			},
 		};
@@ -618,16 +606,13 @@ describe("bootstrapInteractiveRuntime", () => {
 				},
 			],
 			defaults: {
-				defaultProviderId: "openai",
-				tierDefaults: {
-					balanced: {
-						providerId: "openai",
-						modelId: "gpt-4.1",
-					},
-					best: {
-						providerId: "anthropic",
-						modelId: "claude-opus-4-6",
-					},
+				balanced: {
+					providerId: "openai",
+					modelId: "gpt-4.1",
+				},
+				best: {
+					providerId: "anthropic",
+					modelId: "claude-opus-4-6",
 				},
 			},
 		});
@@ -660,7 +645,7 @@ describe("bootstrapInteractiveRuntime", () => {
 								adapter: fakeAdapter(
 									provider.id,
 									"openai-compatible",
-									[{ id: "qwen2.5-coder", label: "Qwen 2.5 Coder", source: "manual" }],
+									[{ id: "qwen2.5-coder", label: "Qwen 2.5 Coder", source: "remote" }],
 									{
 										failListModels: false,
 									},
@@ -674,7 +659,7 @@ describe("bootstrapInteractiveRuntime", () => {
 								validationErrors: [],
 								adapter: {
 									...fakeAdapter(provider.id, "openai-compatible", [
-										{ id: "qwen2.5-coder", label: "Qwen 2.5 Coder", source: "manual" },
+										{ id: "qwen2.5-coder", label: "Qwen 2.5 Coder", source: "remote" },
 									]),
 									async checkConnection() {
 										checkConnectionCalls.push(provider.id);
@@ -704,8 +689,6 @@ describe("bootstrapInteractiveRuntime", () => {
 				kind: "openai-compatible",
 				label: "LM Studio",
 				baseUrl: "http://127.0.0.1:1234/v1",
-				discoveryStrategy: "manual-only",
-				manualModels: [{ id: "qwen2.5-coder" }],
 			},
 		});
 		const connection = await controlPlane.execute({
@@ -738,7 +721,6 @@ describe("bootstrapInteractiveRuntime", () => {
 					kind: "openai" as const,
 					label: "OpenAI",
 					enabled: false,
-					discoveryStrategy: "remote-only" as const,
 					createdAt: "2026-03-11T12:34:56.000Z",
 					updatedAt: "2026-03-11T12:34:56.000Z",
 				},

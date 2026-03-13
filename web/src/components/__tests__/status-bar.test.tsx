@@ -39,14 +39,13 @@ function makeSettings(): SettingsSnapshot {
 			warnings: [],
 		},
 		settings: {
-			version: 1,
+			version: 2,
 			providers: [
 				{
 					id: "anthropic-main",
 					kind: "anthropic",
 					label: "Anthropic",
 					enabled: true,
-					discoveryStrategy: "remote-with-manual",
 					createdAt: "2026-03-11T00:00:00.000Z",
 					updatedAt: "2026-03-11T00:00:00.000Z",
 				},
@@ -55,22 +54,18 @@ function makeSettings(): SettingsSnapshot {
 					kind: "openrouter",
 					label: "OpenRouter",
 					enabled: true,
-					discoveryStrategy: "remote-with-manual",
 					createdAt: "2026-03-11T00:00:00.000Z",
 					updatedAt: "2026-03-11T00:00:00.000Z",
 				},
 			],
 			defaults: {
-				defaultProviderId: "anthropic-main",
-				tierDefaults: {
-					best: {
-						providerId: "openrouter-main",
-						modelId: "gpt-4.1",
-					},
-					balanced: {
-						providerId: "anthropic-main",
-						modelId: "claude-sonnet-4-6",
-					},
+				best: {
+					providerId: "openrouter-main",
+					modelId: "gpt-4.1",
+				},
+				balanced: {
+					providerId: "anthropic-main",
+					modelId: "claude-sonnet-4-6",
 				},
 			},
 		},
@@ -120,35 +115,41 @@ describe("StatusBar", () => {
 		const html = renderToStaticMarkup(
 			<StatusBar status={makeStatus()} connected={true} />,
 		);
-		expect(html).toContain("Default");
+		expect(html).toContain("Use agent default");
 		expect(html).toContain("claude-sonnet-4-6");
 		expect(html).not.toContain("<select");
 	});
 
-	test("builds global tier options and provider-scoped exact model options", () => {
+	test("builds global default-model options and exact-model groups", () => {
 		const options = buildSessionSelectionOptions(
 			makeStatus({
 				model: "claude-sonnet-4-6",
-				availableModels: ["best", "balanced", "fast", "claude-sonnet-4-6", "gpt-4.1"],
+				availableModels: [
+					"best",
+					"balanced",
+					"anthropic-main:claude-sonnet-4-6",
+					"openrouter-main:gpt-4.1",
+				],
 			}),
 			makeSettings(),
-			"anthropic-main",
 		);
 		expect(options).toEqual([
 			{
 				selection: { kind: "inherit" },
 				value: "inherit",
-				label: "Default · claude-sonnet-4-6",
+				label: "Use agent default · claude-sonnet-4-6",
 			},
 			{
 				selection: { kind: "tier", tier: "best" },
 				value: "best",
-				label: "Best · OpenRouter",
+				label: "Best · OpenRouter · GPT-4.1",
+				group: "Default models",
 			},
 			{
 				selection: { kind: "tier", tier: "balanced" },
 				value: "balanced",
-				label: "Balanced · Anthropic",
+				label: "Balanced · Anthropic · Claude Sonnet 4.6",
+				group: "Default models",
 			},
 			{
 				selection: {
@@ -159,31 +160,32 @@ describe("StatusBar", () => {
 					},
 				},
 				value: "anthropic-main:claude-sonnet-4-6",
-				label: "Anthropic · Claude Sonnet 4.6",
+				label: "Claude Sonnet 4.6",
+				group: "Anthropic",
+			},
+			{
+				selection: {
+					kind: "model",
+					model: {
+						providerId: "openrouter-main",
+						modelId: "gpt-4.1",
+					},
+				},
+				value: "openrouter-main:gpt-4.1",
+				label: "GPT-4.1",
+				group: "OpenRouter",
 			},
 		]);
 	});
 
-	test("builds exact-model options from the selected provider while keeping global tiers", () => {
-		const options = buildSessionSelectionOptions(
-			makeStatus({
-				model: "claude-sonnet-4-6",
-				availableModels: [],
-			}),
-			makeSettings(),
-			"openrouter-main",
-		);
-		expect(options.map((option) => option.label)).toEqual([
-			"Default · claude-sonnet-4-6",
-			"Best · OpenRouter",
-			"Balanced · Anthropic",
-			"OpenRouter · GPT-4.1",
-		]);
-	});
-
-	test("renders provider-aware selector when settings provide explicit models", () => {
+	test("renders grouped default-model and exact-model selector", () => {
 		const status = makeStatus({
-			availableModels: ["best", "balanced", "fast", "claude-sonnet-4-6", "gpt-4.1"],
+			availableModels: [
+				"best",
+				"balanced",
+				"anthropic-main:claude-sonnet-4-6",
+				"openrouter-main:gpt-4.1",
+			],
 			model: "claude-sonnet-4-6",
 			currentSelection: {
 				selection: {
@@ -209,7 +211,10 @@ describe("StatusBar", () => {
 			/>,
 		);
 		expect(html).toContain("<select");
-		expect(html).toContain("Anthropic · Claude Sonnet 4.6");
+		expect(html).toContain('label="Default models"');
+		expect(html).toContain('label="Anthropic"');
+		expect(html).toContain('label="OpenRouter"');
+		expect(html).toContain("Claude Sonnet 4.6");
 		expect(html).toContain('selected=""');
 	});
 

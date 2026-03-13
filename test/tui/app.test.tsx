@@ -57,15 +57,19 @@ function createRecordingSettingsControlPlane() {
 					},
 				};
 			}
-			if (command.kind === "set_default_provider") {
+			if (command.kind === "set_default_model") {
+				const nextDefaults = { ...snapshot.settings.defaults } as Record<string, unknown>;
+				const slot = command.data.slot as string;
+				if (command.data.model === undefined) {
+					delete nextDefaults[slot];
+				} else {
+					nextDefaults[slot] = command.data.model;
+				}
 				snapshot = {
 					...snapshot,
 					settings: {
 						...snapshot.settings,
-						defaults:
-							command.data.providerId === undefined
-								? {}
-								: { defaultProviderId: command.data.providerId as string },
+						defaults: nextDefaults,
 					},
 				};
 			}
@@ -406,7 +410,13 @@ describe("App", () => {
 
 	test("/model without arg shows ModelPicker", async () => {
 		const { lastFrame, stdin } = setup({
-			knownModels: ["best", "claude-sonnet-4-6", "qwen2.5-coder"],
+			knownModels: [
+				"best",
+				"balanced",
+				"fast",
+				"anthropic-main:claude-sonnet-4-6",
+				"lmstudio:qwen2.5-coder",
+			],
 			settingsControlPlane: createSettingsControlPlane(),
 			initialSelection: makeSelectionSnapshot(),
 		});
@@ -420,11 +430,12 @@ describe("App", () => {
 
 		// Model picker should be visible
 		const frame = lastFrame()!;
-		expect(frame).toContain("Provider · Anthropic");
-		expect(frame).toContain("Provider · LM Studio");
+		expect(frame).toContain("Default models");
+		expect(frame).toContain("Anthropic");
+		expect(frame).toContain("LM Studio");
 		expect(frame).toContain("Balanced · Anthropic");
 		expect(frame).toContain("Best · Anthropic");
-		expect(frame).not.toContain("LM Studio · Qwen 2.5 Coder");
+		expect(frame).toContain("Qwen 2.5 Coder");
 		expect(frame).toContain("Select model");
 	});
 
@@ -440,7 +451,13 @@ describe("App", () => {
 				onSubmit={() => {}}
 				onSlashCommand={() => {}}
 				onExit={() => {}}
-				knownModels={["best", "claude-sonnet-4-6", "qwen2.5-coder"]}
+				knownModels={[
+					"best",
+					"balanced",
+					"fast",
+					"anthropic-main:claude-sonnet-4-6",
+					"lmstudio:qwen2.5-coder",
+				]}
 				settingsControlPlane={createSettingsControlPlane() as any}
 				initialSelection={makeSelectionSnapshot()}
 			/>,
@@ -455,15 +472,8 @@ describe("App", () => {
 
 		expect(lastFrame()).toContain("Select model");
 
-		// Switch to the LM Studio provider first
 		stdin.write("\x1B[B");
 		await flush();
-		stdin.write("\x1B[B");
-		await flush();
-		stdin.write("\r");
-		await flush();
-
-		// Move to the explicit LM Studio model and select it
 		stdin.write("\x1B[B");
 		await flush();
 		stdin.write("\x1B[B");
@@ -506,7 +516,7 @@ describe("App", () => {
 		const frame = lastFrame()!;
 		expect(frame).toContain("Provider settings");
 		expect(frame).toContain("Default models");
-		expect(frame).toContain("Fallback provider: Anthropic (anthropic-main)");
+		expect(frame).toContain("best: Anthropic");
 		expect(frame).toContain("shortcut>");
 	});
 
@@ -528,32 +538,36 @@ describe("App", () => {
 			return Boolean(
 				frame?.includes("Provider settings") &&
 					frame.includes("shortcut>") &&
-					frame.includes("Fallback provider: Anthropic (anthropic-main)"),
+					frame.includes("best: Anthropic"),
 			);
 		});
 		await flush();
 
-		stdin.write("default lmstudio");
+		stdin.write("model fast lmstudio:qwen2.5-coder");
 		await flush();
 		stdin.write("\r");
 		await waitFor(() =>
-			settingsControlPlane.commands.some((command) => command.kind === "set_default_provider"),
+			settingsControlPlane.commands.some((command) => command.kind === "set_default_model"),
 		);
 
 		expect(settingsControlPlane.commands.map((command) => command.kind)).toEqual([
 			"get_settings",
 			"get_settings",
-			"set_default_provider",
+			"set_default_model",
 		]);
 		expect(settingsControlPlane.commands[2]).toEqual({
-			kind: "set_default_provider",
+			kind: "set_default_model",
 			data: {
-				providerId: "lmstudio",
+				slot: "fast",
+				model: {
+					providerId: "lmstudio",
+					modelId: "qwen2.5-coder",
+				},
 			},
 		});
 		await waitFor(() => {
 			const frame = lastFrame();
-			return frame?.includes("Fallback provider: LM Studio (lmstudio)") ?? false;
+			return frame?.includes("fast: LM Studio") ?? false;
 		});
 	});
 

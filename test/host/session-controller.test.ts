@@ -200,7 +200,7 @@ describe("SessionController", () => {
 			rootDir,
 			client,
 			getResolverSettings: () =>
-				createResolverSettings([{ id: providerId, enabled: true }], providerId, {
+				createResolverSettings([{ id: providerId, enabled: true }], {
 					best: {
 						providerId,
 						modelId,

@@ -99,8 +99,6 @@ export class LearnProcess {
 					modelMap.set(providerId, []);
 				}
 			}
-			const implicitProviderId =
-				options.providerIdOverride ?? (modelMap.size === 1 ? [...modelMap.keys()][0] : undefined);
 			const resolverSettings =
 				options.resolverSettings ??
 				createResolverSettings(
@@ -108,15 +106,9 @@ export class LearnProcess {
 						id: providerId,
 						enabled: true,
 					})),
-					implicitProviderId,
 				);
 			try {
-				this.resolvedModel = resolveModel(
-					"best",
-					resolverSettings,
-					modelMap,
-					implicitProviderId ? { providerId: implicitProviderId } : {},
-				);
+				this.resolvedModel = resolveModel("best", resolverSettings, modelMap);
 			} catch {
 				this.resolvedModel = undefined;
 			}

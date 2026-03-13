@@ -63,28 +63,6 @@ describe("SettingsStore", () => {
 		expect(result.skipEnvImport).toBe(true);
 	});
 
-	test("load recovers failed migrations", async () => {
-		tempDir = await mkdtemp(join(tmpdir(), "sprout-settings-store-"));
-		const settingsPath = join(tempDir, "settings.json");
-		await writeFile(settingsPath, JSON.stringify({ version: 0 }), "utf-8");
-		const store = new SettingsStore({
-			settingsPath,
-			now: () => "2026-03-11T12-34-56Z",
-			migrate(raw) {
-				expect(raw).toEqual({ version: 0 });
-				throw new Error("migration failed");
-			},
-		});
-
-		const result = await store.load();
-
-		expect(result.settings).toEqual(createEmptySettings());
-		expect(result.recoveredInvalidFilePath).toBe(
-			join(tempDir!, "settings.invalid.2026-03-11T12-34-56Z.json"),
-		);
-		expect(result.skipEnvImport).toBe(true);
-	});
-
 	test("load recovers partially written settings files", async () => {
 		const { store, settingsPath } = await makeStore();
 		await writeFile(settingsPath, '{"version": 1, "providers": [', "utf-8");
@@ -98,7 +76,7 @@ describe("SettingsStore", () => {
 		expect(result.skipEnvImport).toBe(true);
 	});
 
-	test("load normalizes openrouter endpoints that were saved as openai-compatible", async () => {
+	test("load recovers old schema settings instead of normalizing them", async () => {
 		const { store, settingsPath } = await makeStore();
 		await writeFile(
 			settingsPath,
@@ -113,22 +91,19 @@ describe("SettingsStore", () => {
 							enabled: true,
 							baseUrl: "https://openrouter.ai/api/v1",
 							discoveryStrategy: "remote-only",
-							tierDefaults: {
-								fast: "openrouter/hunter-alpha",
-							},
+							manualModels: [{ id: "hunter-alpha" }],
 							createdAt: "2026-03-11T12:00:00.000Z",
 							updatedAt: "2026-03-11T12:00:00.000Z",
 						},
 					],
 					defaults: {
-						selection: {
-							kind: "tier",
-							tier: "best",
-						},
 						defaultProviderId: "openai-compatible",
-					},
-					routing: {
-						providerPriority: ["openai-compatible"],
+						tierDefaults: {
+							best: {
+								providerId: "openai-compatible",
+								modelId: "hunter-alpha",
+							},
+						},
 					},
 				},
 				null,
@@ -139,25 +114,12 @@ describe("SettingsStore", () => {
 
 		const result = await store.load();
 
-		expect(result.source).toBe("loaded");
-		expect(result.recoveredInvalidFilePath).toBeUndefined();
-		expect(result.settings).toEqual({
-			version: 1,
-			providers: [
-				{
-					id: "openai-compatible",
-					kind: "openrouter",
-					label: "OpenRouter",
-					enabled: true,
-					discoveryStrategy: "remote-only",
-					createdAt: "2026-03-11T12:00:00.000Z",
-					updatedAt: "2026-03-11T12:00:00.000Z",
-				},
-			],
-			defaults: {
-				defaultProviderId: "openai-compatible",
-			},
-		});
+		expect(result.source).toBe("recovered");
+		expect(result.settings).toEqual(createEmptySettings());
+		expect(result.recoveredInvalidFilePath).toBe(
+			join(tempDir!, "settings.invalid.2026-03-11T12-34-56Z.json"),
+		);
+		expect(result.skipEnvImport).toBe(true);
 	});
 
 	test("load leaves env import enabled when settings file is absent", async () => {

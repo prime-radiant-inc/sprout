@@ -2,9 +2,7 @@ import type { ModelRef, SessionModelSelection, Tier } from "./provider-settings.
 
 export type SessionSelectionRequest = SessionModelSelection;
 
-export type AgentModelInput =
-	| { kind: "tier"; tier: Tier }
-	| { kind: "unqualified_model"; modelId: string };
+export type AgentModelInput = { kind: "tier"; tier: Tier } | { kind: "model"; model: ModelRef };
 
 export type ModelOverride = string | ModelRef;
 
@@ -33,10 +31,11 @@ export function parseAgentModelInput(input: string): AgentModelInput {
 	if (isTier(trimmed)) {
 		return { kind: "tier", tier: trimmed };
 	}
-	if (parseProviderQualifiedModel(trimmed)) {
-		throw new Error("Agent frontmatter does not allow provider-qualified model refs");
+	const explicitModel = parseProviderQualifiedModel(trimmed);
+	if (explicitModel) {
+		return { kind: "model", model: explicitModel };
 	}
-	return { kind: "unqualified_model", modelId: trimmed };
+	throw new Error("Agent frontmatter models must use a provider-qualified model ref");
 }
 
 export function formatSessionSelectionRequest(selection: SessionSelectionRequest): string {
