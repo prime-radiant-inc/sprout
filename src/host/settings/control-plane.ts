@@ -203,7 +203,7 @@ export class SettingsControlPlane {
 			id: providerId,
 			kind: data.kind,
 			label: data.label,
-			enabled: false,
+			enabled: true,
 			baseUrl: data.baseUrl,
 			nonSecretHeaders: data.nonSecretHeaders,
 			createdAt: timestamp,

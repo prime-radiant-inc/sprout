@@ -697,7 +697,7 @@ describe("bootstrapInteractiveRuntime", () => {
 		});
 
 		expect(registrySettings).toEqual([[], ["openai-compatible"], ["openai-compatible"]]);
-		expect(clientUpdates).toEqual([[], []]);
+		expect(clientUpdates).toEqual([["openai-compatible"], ["openai-compatible"]]);
 		expect(checkConnectionCalls).toEqual(["openai-compatible"]);
 		expect(connection).toMatchObject({
 			ok: true,

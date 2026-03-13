@@ -62,7 +62,7 @@ async function makePlane(
 }
 
 describe("SettingsControlPlane", () => {
-	test("creates providers, manages secrets, and enables them after validation", async () => {
+	test("creates providers enabled by default and clears validation errors when secrets are added", async () => {
 		const snapshots: SettingsSnapshot[] = [];
 		const plane = await makePlane({
 			onSettingsUpdated: (snapshot) => snapshots.push(snapshot),
@@ -79,20 +79,19 @@ describe("SettingsControlPlane", () => {
 		const providerId = created.ok ? created.snapshot.settings.providers[0]?.id : undefined;
 		expect(providerId).toBe("openai");
 		if (!providerId) throw new Error("expected provider id");
-
-		const enableWithoutSecret = await plane.execute({
-			kind: "set_provider_enabled",
-			data: {
-				providerId,
-				enabled: true,
-			},
-		});
-		expect(enableWithoutSecret).toEqual({
-			ok: false,
-			code: "validation_failed",
-			message: "API key is required",
-			fieldErrors: {
-				secret: "API key is required",
+		expect(created).toMatchObject({
+			ok: true,
+			snapshot: {
+				settings: {
+					providers: [{ id: "openai", enabled: true }],
+				},
+				providers: [
+					{
+						providerId: "openai",
+						hasSecret: false,
+						validationErrors: ["API key is required"],
+					},
+				],
 			},
 		});
 
@@ -103,16 +102,7 @@ describe("SettingsControlPlane", () => {
 				secret: "openai-secret",
 			},
 		});
-		expect(secretResult.ok).toBe(true);
-
-		const enabled = await plane.execute({
-			kind: "set_provider_enabled",
-			data: {
-				providerId,
-				enabled: true,
-			},
-		});
-		expect(enabled).toMatchObject({
+		expect(secretResult).toMatchObject({
 			ok: true,
 			snapshot: {
 				settings: {
@@ -134,7 +124,7 @@ describe("SettingsControlPlane", () => {
 				],
 			},
 		});
-		expect(snapshots).toHaveLength(3);
+		expect(snapshots).toHaveLength(2);
 	});
 
 	test("sets default models, clears them on delete, and removes stored secrets", async () => {
