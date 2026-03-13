@@ -66,7 +66,7 @@ export async function importSettingsFromEnv(options: EnvImportOptions): Promise<
 				createProviderSecretRef(provider.id, options.secretBackend),
 				secret,
 			);
-			settings.routing.providerPriority.push(provider.id);
+			settings.defaults.defaultProviderId ??= provider.id;
 		} catch (error) {
 			provider.enabled = false;
 			validationErrorsByProvider[provider.id] = [

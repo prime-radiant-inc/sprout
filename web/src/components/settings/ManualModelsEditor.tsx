@@ -3,8 +3,6 @@ import styles from "./ProviderSettingsPanel.module.css";
 export interface ManualModelDraft {
 	id: string;
 	label: string;
-	tierHint: "" | "best" | "balanced" | "fast";
-	rank: string;
 }
 
 export interface ManualModelsEditorProps {
@@ -70,42 +68,6 @@ export function ManualModelsEditor({
 										}
 									/>
 								</div>
-								<div className={styles.field}>
-									<label className={styles.fieldLabel} htmlFor={`manual-model-tier-${index}`}>
-										Tier
-									</label>
-									<select
-										id={`manual-model-tier-${index}`}
-										className={styles.fieldSelect}
-										value={model.tierHint}
-										onChange={(event) =>
-											onChange(
-												updateModel(models, index, {
-													tierHint: event.target.value as ManualModelDraft["tierHint"],
-												}),
-											)
-										}
-									>
-										<option value="">Unspecified</option>
-										<option value="best">Best</option>
-										<option value="balanced">Balanced</option>
-										<option value="fast">Fast</option>
-									</select>
-								</div>
-								<div className={styles.field}>
-									<label className={styles.fieldLabel} htmlFor={`manual-model-rank-${index}`}>
-										Rank
-									</label>
-									<input
-										id={`manual-model-rank-${index}`}
-										className={styles.fieldInput}
-										inputMode="numeric"
-										value={model.rank}
-										onChange={(event) =>
-											onChange(updateModel(models, index, { rank: event.target.value }))
-										}
-									/>
-								</div>
 							</div>
 							<div className={styles.compactActions}>
 								<button
@@ -132,7 +94,7 @@ export function ManualModelsEditor({
 					onClick={() =>
 						onChange([
 							...models,
-							{ id: "", label: "", tierHint: "", rank: "" },
+							{ id: "", label: "" },
 						])
 					}
 				>

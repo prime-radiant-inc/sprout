@@ -1,6 +1,6 @@
 import type { ProviderCatalogEntry } from "../llm/model-catalog.ts";
-import { classifyTier } from "../llm/model-catalog.ts";
 import type { ProviderModel } from "../llm/types.ts";
+import type { ProviderConfig, ProviderTierDefaults } from "../shared/provider-settings.ts";
 
 export interface ResolvedModel {
 	model: string;
@@ -17,60 +17,40 @@ export interface ModelRef {
 export interface ResolverProvider {
 	id: string;
 	enabled: boolean;
+	tierDefaults?: ProviderTierDefaults;
 }
 
 export interface ResolverSettings {
 	providers: ResolverProvider[];
-	routing: {
-		providerPriority: string[];
-		tierOverrides: Partial<Record<Tier, string[]>>;
+	defaults: {
+		defaultProviderId?: string;
 	};
 }
+const TIER_NAMES: readonly Tier[] = ["best", "balanced", "fast"];
 
-const TIER_NAMES: Tier[] = ["best", "balanced", "fast"];
-
-export function defaultModelsByProvider(providers: string[]): Map<string, ProviderModel[]> {
-	const defaults: Record<string, string[]> = {
-		anthropic: ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"],
-		openai: ["o3-pro", "gpt-4.1", "o4-mini"],
-		gemini: ["gemini-2.5-pro", "gemini-2.5-flash"],
-	};
-	const map = new Map<string, ProviderModel[]>();
-	for (const provider of providers) {
-		map.set(
-			provider,
-			(defaults[provider] ?? []).map((id) => {
-				const classified = classifyTier(id);
-				return {
-					id,
-					label: id,
-					tierHint: classified?.tierHint,
-					rank: classified?.rank,
-					source: "remote" as const,
-				};
-			}),
-		);
-	}
-	return map;
-}
-
-export function createResolverSettings(providerIds: string[]): ResolverSettings {
+export function createResolverSettings(
+	providers: Pick<ProviderConfig, "id" | "enabled" | "tierDefaults">[],
+	defaultProviderId?: string,
+): ResolverSettings {
 	return {
-		providers: providerIds.map((providerId) => ({
-			id: providerId,
-			enabled: true,
+		providers: providers.map((provider) => ({
+			id: provider.id,
+			enabled: provider.enabled,
+			tierDefaults: provider.tierDefaults,
 		})),
-		routing: {
-			providerPriority: [...providerIds],
-			tierOverrides: {},
-		},
+		defaults: defaultProviderId ? { defaultProviderId } : {},
 	};
+}
+
+export interface ResolveModelOptions {
+	providerId?: string;
 }
 
 export function resolveModel(
 	selection: string | ModelRef,
 	settings: ResolverSettings,
 	catalog: ProviderCatalogEntry[] | Map<string, ProviderModel[]>,
+	options: ResolveModelOptions = {},
 ): ResolvedModel {
 	const catalogMap = toCatalogMap(catalog);
 
@@ -79,19 +59,9 @@ export function resolveModel(
 	}
 
 	if (TIER_NAMES.includes(selection as Tier)) {
-		return resolveTier(selection as Tier, settings, catalogMap);
+		return resolveTier(selection as Tier, settings, catalogMap, options);
 	}
-
-	const matches = findExplicitModelMatches(selection, settings, catalogMap);
-	if (matches.length === 1) {
-		return { provider: matches[0]!.providerId, model: matches[0]!.model.id };
-	}
-	if (matches.length > 1) {
-		throw new Error(
-			`Ambiguous model '${selection}' across providers: ${matches.map((m) => m.providerId).join(", ")}`,
-		);
-	}
-	throw new Error(`Missing model '${selection}' in enabled providers`);
+	return resolveProviderRelativeModel(selection, settings, catalogMap, options);
 }
 
 export function getAvailableModels(
@@ -111,12 +81,12 @@ function resolveExplicitModelRef(
 	settings: ResolverSettings,
 	catalog: Map<string, ProviderModel[]>,
 ): ResolvedModel {
-	const provider = settings.providers.find((candidate) => candidate.id === selection.providerId);
+	const provider = getEnabledProvider(selection.providerId, settings);
 	if (!provider) {
+		if (settings.providers.some((candidate) => candidate.id === selection.providerId)) {
+			throw new Error(`Provider '${selection.providerId}' is disabled`);
+		}
 		throw new Error(`Unknown provider '${selection.providerId}'`);
-	}
-	if (!provider.enabled) {
-		throw new Error(`Provider '${selection.providerId}' is disabled`);
 	}
 	const providerModels = catalog.get(selection.providerId) ?? [];
 	if (providerModels.length === 0) {
@@ -132,52 +102,79 @@ function resolveTier(
 	tier: Tier,
 	settings: ResolverSettings,
 	catalog: Map<string, ProviderModel[]>,
+	options: ResolveModelOptions,
 ): ResolvedModel {
-	const providerOrder = resolveProviderOrder(settings, tier);
-	for (const providerId of providerOrder) {
-		const provider = settings.providers.find((candidate) => candidate.id === providerId);
-		if (!provider?.enabled) continue;
-		const models = [...(catalog.get(providerId) ?? [])]
-			.filter((model) => model.tierHint === tier)
-			.sort(compareTierCandidates);
-		if (models.length > 0) {
-			return { provider: providerId, model: models[0]!.id };
-		}
+	const provider = getSelectedProvider(settings, options);
+	const modelId = provider.tierDefaults?.[tier];
+	if (!modelId) {
+		throw new Error(`Provider '${provider.id}' does not define a '${tier}' model`);
 	}
-	throw new Error(`No model matching tier '${tier}' found`);
+	assertProviderModelAvailable(provider.id, modelId, catalog);
+	return { provider: provider.id, model: modelId };
 }
 
-function resolveProviderOrder(settings: ResolverSettings, tier: Tier): string[] {
-	const tierOverride = settings.routing.tierOverrides[tier] ?? [];
-	const global = settings.routing.providerPriority;
-	return [...tierOverride, ...global.filter((providerId) => !tierOverride.includes(providerId))];
-}
-
-function compareTierCandidates(left: ProviderModel, right: ProviderModel): number {
-	const rankDelta =
-		(right.rank ?? Number.NEGATIVE_INFINITY) - (left.rank ?? Number.NEGATIVE_INFINITY);
-	if (rankDelta !== 0) return rankDelta;
-	return left.id.localeCompare(right.id);
-}
-
-function findExplicitModelMatches(
+function resolveProviderRelativeModel(
 	modelId: string,
 	settings: ResolverSettings,
 	catalog: Map<string, ProviderModel[]>,
-): Array<{ providerId: string; model: ProviderModel }> {
-	const enabledProviderIds = new Set(
-		settings.providers.filter((provider) => provider.enabled).map((provider) => provider.id),
-	);
-	const matches: Array<{ providerId: string; model: ProviderModel }> = [];
-	for (const [providerId, models] of catalog) {
-		if (!enabledProviderIds.has(providerId)) continue;
-		for (const model of models) {
-			if (model.id === modelId) {
-				matches.push({ providerId, model });
-			}
-		}
+	options: ResolveModelOptions,
+): ResolvedModel {
+	const providerId = options.providerId;
+	if (!providerId) {
+		throw new Error(`Exact model '${modelId}' requires an explicit provider`);
 	}
-	return matches;
+	const provider = getEnabledProvider(providerId, settings);
+	if (!provider) {
+		if (settings.providers.some((candidate) => candidate.id === providerId)) {
+			throw new Error(`Provider '${providerId}' is disabled`);
+		}
+		throw new Error(`Unknown provider '${providerId}'`);
+	}
+	assertProviderModelAvailable(provider.id, modelId, catalog);
+	return {
+		provider: provider.id,
+		model: modelId,
+	};
+}
+
+function getSelectedProvider(
+	settings: ResolverSettings,
+	options: ResolveModelOptions,
+): ResolverProvider {
+	const providerId = options.providerId ?? settings.defaults.defaultProviderId;
+	if (!providerId) {
+		throw new Error("No provider selected for model resolution");
+	}
+	const provider = getEnabledProvider(providerId, settings);
+	if (!provider) {
+		if (settings.providers.some((candidate) => candidate.id === providerId)) {
+			throw new Error(`Provider '${providerId}' is disabled`);
+		}
+		throw new Error(`Unknown provider '${providerId}'`);
+	}
+	return provider;
+}
+
+function getEnabledProvider(
+	providerId: string,
+	settings: ResolverSettings,
+): ResolverProvider | undefined {
+	const provider = settings.providers.find((candidate) => candidate.id === providerId);
+	return provider?.enabled ? provider : undefined;
+}
+
+function assertProviderModelAvailable(
+	providerId: string,
+	modelId: string,
+	catalog: Map<string, ProviderModel[]>,
+): void {
+	const providerModels = catalog.get(providerId) ?? [];
+	if (providerModels.length === 0) {
+		return;
+	}
+	if (!providerModels.some((model) => model.id === modelId)) {
+		throw new Error(`Missing model '${modelId}' for provider '${providerId}'`);
+	}
 }
 
 function toCatalogMap(
@@ -195,13 +192,8 @@ function toCatalogMap(
 }
 
 function normalizeProviderModels(models: ProviderModel[]): ProviderModel[] {
-	return models.map((model) => {
-		const classified = classifyTier(model.id);
-		return {
-			...model,
-			label: model.label ?? model.id,
-			tierHint: model.tierHint ?? classified?.tierHint,
-			rank: model.rank ?? classified?.rank,
-		};
-	});
+	return models.map((model) => ({
+		...model,
+		label: model.label ?? model.id,
+	}));
 }

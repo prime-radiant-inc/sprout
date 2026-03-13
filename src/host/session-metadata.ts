@@ -18,13 +18,7 @@ export interface PersistedSessionMetadataSnapshot extends SessionMetadataBaseSna
 	resolvedModel?: ModelRef;
 }
 
-export interface LegacySessionMetadataSnapshot extends SessionMetadataBaseSnapshot {
-	model: string;
-}
-
-export type SessionMetadataSnapshot =
-	| PersistedSessionMetadataSnapshot
-	| LegacySessionMetadataSnapshot;
+export type SessionMetadataSnapshot = PersistedSessionMetadataSnapshot;
 
 interface SessionMetadataOptions {
 	sessionId: string;

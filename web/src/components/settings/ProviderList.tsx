@@ -44,10 +44,8 @@ export function ProviderList({
 				data-action="select-defaults"
 				onClick={onSelectDefaults}
 			>
-				<span className={styles.listTitle}>Defaults and routing</span>
-				<span className={styles.listMeta}>
-					Global fallback selection and provider order
-				</span>
+				<span className={styles.listTitle}>Default provider</span>
+				<span className={styles.listMeta}>Session provider fallback</span>
 			</button>
 
 			{settings.settings.providers.map((provider) => {

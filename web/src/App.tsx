@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { WEB_HISTORY_PAGE_SIZE } from "@kernel/constants.ts";
 import type { BrowserCommand } from "@kernel/protocol.ts";
-import type { SessionModelSelection, SettingsSnapshot } from "@kernel/types.ts";
+import type { SessionModelSelection } from "@kernel/types.ts";
 import { KeyboardHelp } from "./components/KeyboardHelp.tsx";
-import type { SessionSelectionRequest } from "@shared/session-selection.ts";
 import type { SlashCommand } from "@shared/slash-commands.ts";
 import styles from "./App.module.css";
 import { ConversationView } from "./components/ConversationView.tsx";
@@ -40,45 +39,8 @@ interface EventHistoryPage {
 	total: number;
 }
 
-export function normalizeWebSessionSelection(
-	selection: SessionSelectionRequest,
-	settings: SettingsSnapshot | null,
-): SessionSelectionRequest {
-	if (selection.kind !== "unqualified_model" || !settings) {
-		return selection;
-	}
-
-	const enabledProviderIds = new Set(
-		settings.settings.providers
-			.filter((provider) => provider.enabled)
-			.map((provider) => provider.id),
-	);
-	let matchedProviderId: string | undefined;
-
-	for (const entry of settings.catalog) {
-		if (!enabledProviderIds.has(entry.providerId)) continue;
-		if (!entry.models.some((model) => model.id === selection.modelId)) continue;
-		if (matchedProviderId && matchedProviderId !== entry.providerId) {
-			return selection;
-		}
-		matchedProviderId = entry.providerId;
-	}
-
-	if (!matchedProviderId) {
-		return selection;
-	}
-
-	return {
-		kind: "model",
-		model: {
-			providerId: matchedProviderId,
-			modelId: selection.modelId,
-		},
-	};
-}
-
 export function createSwitchModelCommand(
-	selection: SessionSelectionRequest | SessionModelSelection,
+	selection: SessionModelSelection,
 ): BrowserCommand {
 	return {
 		kind: "switch_model",
@@ -86,10 +48,7 @@ export function createSwitchModelCommand(
 	};
 }
 
-export function createCommandFromSlashCommand(
-	cmd: SlashCommand,
-	settings: SettingsSnapshot | null,
-): BrowserCommand | null {
+export function createCommandFromSlashCommand(cmd: SlashCommand): BrowserCommand | null {
 	switch (cmd.kind) {
 		case "quit":
 			return { kind: "quit", data: {} };
@@ -98,9 +57,7 @@ export function createCommandFromSlashCommand(
 		case "clear":
 			return { kind: "clear", data: {} };
 		case "switch_model":
-			return cmd.selection
-				? createSwitchModelCommand(normalizeWebSessionSelection(cmd.selection, settings))
-				: null;
+			return cmd.selection ? createSwitchModelCommand(cmd.selection) : null;
 		case "status":
 		case "help":
 		default:
@@ -313,12 +270,12 @@ export function App() {
 				sendCommand({ kind: "get_settings", data: {} });
 				return;
 			}
-			const command = createCommandFromSlashCommand(cmd, settings);
+			const command = createCommandFromSlashCommand(cmd);
 			if (command) {
 				sendCommand(command);
 			}
 		},
-		[sendCommand, settings],
+		[sendCommand],
 	);
 
 	// Submit goal

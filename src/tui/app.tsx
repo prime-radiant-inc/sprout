@@ -16,7 +16,7 @@ import type {
 import { formatSessionSelectionRequest } from "../shared/session-selection.ts";
 import { ConversationView } from "./conversation-view.tsx";
 import { InputArea } from "./input-area.tsx";
-import { buildModelPickerOptions, ModelPicker } from "./model-picker.tsx";
+import { ModelPicker } from "./model-picker.tsx";
 import { SettingsPanel } from "./settings-panel.tsx";
 import type { SlashCommand } from "./slash-commands.ts";
 import { StatusBar } from "./status-bar.tsx";
@@ -162,12 +162,6 @@ export function App({
 	}, [bus, sessionId]);
 
 	const models = knownModels ?? DEFAULT_MODELS;
-	const modelOptions = buildModelPickerOptions({
-		availableModels: models,
-		settings: settingsSnapshot,
-		currentSelection: selectionSnapshot,
-		currentModel: statusState.model,
-	});
 
 	const runSettingsCommand = async (command: SettingsCommand) => {
 		if (!settingsControlPlane) return;
@@ -246,23 +240,13 @@ export function App({
 				/>
 			) : showModelPicker ? (
 				<ModelPicker
-					options={modelOptions}
+					availableModels={models}
+					settings={settingsSnapshot}
+					currentSelection={selectionSnapshot}
+					currentModel={statusState.model}
 					onSelect={(selection) => {
 						setShowModelPicker(false);
-						setSelectionSnapshot(
-							selection.kind === "inherit"
-								? createDefaultSessionSelectionSnapshot()
-								: selection.kind === "model"
-									? {
-											selection,
-											resolved: selection.model,
-											source: "session",
-										}
-									: {
-											selection,
-											source: "session",
-										},
-						);
+						setSelectionSnapshot(selectionSnapshotFromRequest(selection, settingsSnapshot));
 						bus.emitCommand({ kind: "switch_model", data: { selection } });
 						bus.emitEvent("warning", "cli", 0, {
 							message: `Model set to: ${formatSessionSelectionRequest(selection)}`,

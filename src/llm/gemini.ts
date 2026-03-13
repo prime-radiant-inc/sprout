@@ -1,6 +1,6 @@
 import type { Content, FunctionCall, GenerateContentConfig, Part } from "@google/genai";
 import { GoogleGenAI } from "@google/genai";
-import type { ProviderKind } from "../host/settings/types.ts";
+import type { ProviderKind } from "../shared/provider-settings.ts";
 import {
 	ContentKind,
 	type FinishReason,

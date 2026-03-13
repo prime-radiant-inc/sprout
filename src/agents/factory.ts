@@ -14,6 +14,7 @@ import { ulid } from "../util/ulid.ts";
 import { Agent } from "./agent.ts";
 import { AgentEventEmitter } from "./events.ts";
 import { loadPreambles, scanAgentTree } from "./loader.ts";
+import type { ResolverSettings } from "./model-resolver.ts";
 import { loadProjectDocs } from "./project-doc.ts";
 
 export interface CreateAgentOptions {
@@ -35,6 +36,10 @@ export interface CreateAgentOptions {
 	initialHistory?: Message[];
 	/** Model override — if provided, overrides the root agent's spec model. */
 	model?: string | ModelRef;
+	/** Provider context for provider-relative tier resolution. */
+	providerIdOverride?: string;
+	/** Provider settings used for provider-relative tier resolution. */
+	resolverSettings?: ResolverSettings;
 	/** Bus-based spawner for running subagents as separate processes. */
 	spawner?: AgentSpawner;
 	/** Pre-loaded Genome instance. If provided, skips loading from disk. */
@@ -150,6 +155,8 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 		client,
 		pendingEvaluationsPath,
 		modelsByProvider,
+		providerIdOverride: options.providerIdOverride,
+		resolverSettings: options.resolverSettings,
 		logger: options.logger,
 	});
 
@@ -177,6 +184,8 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 		logBasePath,
 		initialHistory: options.initialHistory,
 		modelOverride: options.model,
+		providerIdOverride: options.providerIdOverride,
+		resolverSettings: options.resolverSettings,
 		modelsByProvider,
 		preambles,
 		projectDocs,

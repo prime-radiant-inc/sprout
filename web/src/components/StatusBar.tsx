@@ -4,7 +4,6 @@ import type {
 	SessionSelectionSnapshot,
 	SettingsSnapshot,
 } from "@kernel/types.ts";
-import { deriveAvailableModels } from "@shared/available-models.ts";
 import { formatSessionSelectionRequest } from "@shared/session-selection.ts";
 import type { SessionStatus } from "../hooks/useEvents.ts";
 import { formatTokens, shortModelName } from "./format.ts";
@@ -14,6 +13,11 @@ import { pressureColor } from "../utils/pressureColor.ts";
 interface SessionSelectionOption {
 	selection: SessionModelSelection;
 	value: string;
+	label: string;
+}
+
+interface ProviderOption {
+	providerId: string;
 	label: string;
 }
 
@@ -60,9 +64,7 @@ export function formatSessionSelectionLabel(
 ): string {
 	switch (selection.selection.kind) {
 		case "inherit":
-			return currentModel
-				? `Default · ${shortModelName(currentModel)}`
-				: "Default";
+			return currentModel ? `Default · ${shortModelName(currentModel)}` : "Default";
 		case "tier":
 			return TIER_LABELS[selection.selection.tier];
 		case "model":
@@ -70,21 +72,38 @@ export function formatSessionSelectionLabel(
 	}
 }
 
+function getSelectedProviderId(
+	selection: SessionSelectionSnapshot,
+	settings: SettingsSnapshot | null | undefined,
+): string | undefined {
+	switch (selection.selection.kind) {
+		case "inherit":
+		case "tier":
+			return selection.selection.providerId ?? settings?.settings.defaults.defaultProviderId;
+		case "model":
+			return selection.selection.model.providerId;
+	}
+}
+
+function buildProviderOptions(settings: SettingsSnapshot | null | undefined): ProviderOption[] {
+	return (settings?.settings.providers ?? [])
+		.filter((provider) => provider.enabled)
+		.map((provider) => ({
+			providerId: provider.id,
+			label: provider.label,
+		}));
+}
+
 export function buildSessionSelectionOptions(
 	status: SessionStatus,
 	settings: SettingsSnapshot | null | undefined,
+	providerId: string | undefined,
 ): SessionSelectionOption[] {
 	const options: SessionSelectionOption[] = [];
 	const seenValues = new Set<string>();
-	const availableModels = settings
-		? deriveAvailableModels(settings.catalog)
-		: status.availableModels;
-	const availableModelIds = new Set(
-		availableModels.filter(
-			(model): model is Exclude<typeof model, "best" | "balanced" | "fast"> =>
-				model !== "best" && model !== "balanced" && model !== "fast",
-		),
-	);
+	const providerCatalog = settings?.catalog.find((entry) => entry.providerId === providerId);
+	const availableModels = providerCatalog?.models ?? [];
+	const availableModelIds = new Set(availableModels.map((model) => model.id));
 
 	const pushOption = (selection: SessionModelSelection, label: string) => {
 		const value = formatSessionSelectionRequest(selection);
@@ -94,33 +113,37 @@ export function buildSessionSelectionOptions(
 	};
 
 	pushOption(
-		{ kind: "inherit" },
+		{ kind: "inherit", ...(providerId ? { providerId } : {}) },
 		formatSessionSelectionLabel(
-			{ selection: { kind: "inherit" }, source: status.currentSelection.source },
+			{
+				selection: { kind: "inherit", ...(providerId ? { providerId } : {}) },
+				source: status.currentSelection.source,
+			},
 			status.model,
 			settings,
 		),
 	);
 
 	for (const tier of ["best", "balanced", "fast"] as const) {
-		if (!availableModels.includes(tier)) continue;
-		pushOption({ kind: "tier", tier }, TIER_LABELS[tier]);
+		pushOption(
+			{ kind: "tier", tier, ...(providerId ? { providerId } : {}) },
+			TIER_LABELS[tier],
+		);
 	}
 
-	for (const provider of settings?.settings.providers ?? []) {
-		if (!provider.enabled) continue;
-		const catalogEntry = settings?.catalog.find((entry) => entry.providerId === provider.id);
-		for (const model of catalogEntry?.models ?? []) {
+	if (providerId) {
+		const provider = settings?.settings.providers.find((candidate) => candidate.id === providerId);
+		for (const model of providerCatalog?.models ?? []) {
 			if (!availableModelIds.has(model.id)) continue;
 			pushOption(
 				{
 					kind: "model",
 					model: {
-						providerId: provider.id,
+						providerId,
 						modelId: model.id,
 					},
 				},
-				`${provider.label} · ${shortModelName(model.label)}`,
+				`${provider?.label ?? providerId} · ${shortModelName(model.label)}`,
 			);
 		}
 	}
@@ -192,11 +215,30 @@ export function StatusBar({
 	const percentStr = `${percentRound}%`;
 
 	const elapsed = useElapsedTime(status.sessionStartedAt);
-	const selectionOptions = buildSessionSelectionOptions(status, settings);
+	const providerOptions = buildProviderOptions(settings);
+	const selectedProviderId = getSelectedProviderId(status.currentSelection, settings);
+	const selectionOptions = buildSessionSelectionOptions(status, settings, selectedProviderId);
 	const selectionValue = formatSessionSelectionRequest(status.currentSelection.selection);
 	const selectionMap = new Map(
 		selectionOptions.map((option) => [option.value, option.selection]),
 	);
+	const providerMap = new Map(providerOptions.map((option) => [option.providerId, option]));
+
+	const handleProviderChange = (nextProviderId: string) => {
+		if (!onSwitchModel) return;
+		const currentSelection = status.currentSelection.selection;
+		switch (currentSelection.kind) {
+			case "inherit":
+				onSwitchModel({ kind: "inherit", providerId: nextProviderId });
+				return;
+			case "tier":
+				onSwitchModel({ kind: "tier", providerId: nextProviderId, tier: currentSelection.tier });
+				return;
+			case "model":
+				onSwitchModel({ kind: "inherit", providerId: nextProviderId });
+				return;
+		}
+	};
 
 	const handleCopySessionId = () => {
 		navigator.clipboard.writeText(sessionId).catch(() => {});
@@ -267,24 +309,46 @@ export function StatusBar({
 
 			<span className={styles.spacer} />
 
-			{/* Model selector */}
-			{selectionOptions.length > 1 && onSwitchModel ? (
-				<select
-					className={styles.modelSelect}
-					value={selectionValue}
-					onChange={(e) => {
-						const nextSelection = selectionMap.get(e.target.value);
-						if (nextSelection) {
-							onSwitchModel(nextSelection);
-						}
-					}}
-				>
-					{selectionOptions.map((option) => (
-						<option key={option.value} value={option.value}>
-							{option.label}
+			{/* Provider + model selectors */}
+			{providerOptions.length > 0 && onSwitchModel ? (
+				<>
+					<select
+						className={styles.modelSelect}
+						value={selectedProviderId ?? ""}
+						onChange={(event) => {
+							if (providerMap.has(event.target.value)) {
+								handleProviderChange(event.target.value);
+							}
+						}}
+					>
+						<option value="" disabled>
+							Provider
 						</option>
-					))}
-				</select>
+						{providerOptions.map((option) => (
+							<option key={option.providerId} value={option.providerId}>
+								{option.label}
+							</option>
+						))}
+					</select>
+					{selectionOptions.length > 0 && (
+						<select
+							className={styles.modelSelect}
+							value={selectionValue}
+							onChange={(e) => {
+								const nextSelection = selectionMap.get(e.target.value);
+								if (nextSelection) {
+									onSwitchModel(nextSelection);
+								}
+							}}
+						>
+							{selectionOptions.map((option) => (
+								<option key={option.value} value={option.value}>
+									{option.label}
+								</option>
+							))}
+						</select>
+					)}
+				</>
 			) : (
 				<span className={styles.modelLabel}>
 					{formatSessionSelectionLabel(status.currentSelection, model, settings)}

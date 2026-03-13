@@ -4,10 +4,7 @@ import type { ResultMessage } from "../bus/types.ts";
 import { loadEventLog } from "../kernel/event-replay.ts";
 import type { SessionEvent } from "../kernel/types.ts";
 import type { Message } from "../llm/types.ts";
-import {
-	parseSessionSelectionRequest,
-	type SessionSelectionRequest,
-} from "../shared/session-selection.ts";
+import type { SessionSelectionRequest } from "../shared/session-selection.ts";
 import { replayEventLog } from "./resume.ts";
 import {
 	listSessions,
@@ -145,8 +142,5 @@ export function resolveResumeSelection(
 function metadataSnapshotToSelectionRequest(
 	snapshot: SessionMetadataSnapshot,
 ): SessionSelectionRequest {
-	if ("selection" in snapshot) {
-		return snapshot.selection;
-	}
-	return parseSessionSelectionRequest(snapshot.model);
+	return snapshot.selection;
 }

@@ -5,11 +5,10 @@ import {
 	type SecretStore,
 } from "./secret-store.ts";
 import type {
-	DefaultSelection,
 	ManualModelConfig,
 	ProviderConfig,
+	ProviderTierDefaults,
 	SproutSettings,
-	Tier,
 } from "./types.ts";
 import {
 	providerRequiresSecret,
@@ -20,8 +19,6 @@ import {
 export interface ProviderModel {
 	id: string;
 	label: string;
-	tierHint?: Tier;
-	rank?: number;
 	source: "remote" | "manual";
 }
 
@@ -59,7 +56,7 @@ export interface SettingsRuntimeSnapshot {
 }
 
 export interface SelectionContextSnapshot {
-	settings: Pick<SproutSettings, "providers" | "routing">;
+	settings: Pick<SproutSettings, "providers" | "defaults">;
 	catalog: ProviderCatalogEntry[];
 }
 
@@ -74,6 +71,7 @@ export type SettingsCommand =
 				nonSecretHeaders?: Record<string, string>;
 				discoveryStrategy: ProviderConfig["discoveryStrategy"];
 				manualModels?: ManualModelConfig[];
+				tierDefaults?: ProviderTierDefaults;
 			};
 	  }
 	| {
@@ -86,6 +84,7 @@ export type SettingsCommand =
 					nonSecretHeaders?: Record<string, string>;
 					discoveryStrategy?: ProviderConfig["discoveryStrategy"];
 					manualModels?: ManualModelConfig[];
+					tierDefaults?: ProviderTierDefaults;
 				};
 			};
 	  }
@@ -95,9 +94,7 @@ export type SettingsCommand =
 	| { kind: "set_provider_enabled"; data: { providerId: string; enabled: boolean } }
 	| { kind: "test_provider_connection"; data: { providerId: string } }
 	| { kind: "refresh_provider_models"; data: { providerId: string } }
-	| { kind: "set_default_selection"; data: { selection: DefaultSelection } }
-	| { kind: "set_provider_priority"; data: { providerIds: string[] } }
-	| { kind: "set_tier_priority"; data: { tier: Tier; providerIds: string[] } };
+	| { kind: "set_default_provider"; data: { providerId?: string } };
 
 export type SettingsCommandResult =
 	| { ok: true; snapshot: SettingsSnapshot }
@@ -176,7 +173,7 @@ export class SettingsControlPlane {
 		return {
 			settings: {
 				providers: structuredClone(this.settings.providers),
-				routing: structuredClone(this.settings.routing),
+				defaults: structuredClone(this.settings.defaults),
 			},
 			catalog: this.buildCatalogEntries(),
 		};
@@ -202,12 +199,8 @@ export class SettingsControlPlane {
 				return this.testProviderConnection(command.data.providerId);
 			case "refresh_provider_models":
 				return this.refreshProviderModels(command.data.providerId);
-			case "set_default_selection":
-				return this.setDefaultSelection(command.data.selection);
-			case "set_provider_priority":
-				return this.setProviderPriority(command.data.providerIds);
-			case "set_tier_priority":
-				return this.setTierPriority(command.data.tier, command.data.providerIds);
+			case "set_default_provider":
+				return this.setDefaultProvider(command.data.providerId);
 		}
 	}
 
@@ -226,6 +219,7 @@ export class SettingsControlPlane {
 			nonSecretHeaders: data.nonSecretHeaders,
 			discoveryStrategy: data.discoveryStrategy,
 			manualModels: data.manualModels,
+			tierDefaults: data.tierDefaults,
 			createdAt: timestamp,
 			updatedAt: timestamp,
 		};
@@ -250,10 +244,15 @@ export class SettingsControlPlane {
 		if (patch.nonSecretHeaders !== undefined) provider.nonSecretHeaders = patch.nonSecretHeaders;
 		if (patch.discoveryStrategy !== undefined) provider.discoveryStrategy = patch.discoveryStrategy;
 		if (patch.manualModels !== undefined) provider.manualModels = patch.manualModels;
+		if (patch.tierDefaults !== undefined) provider.tierDefaults = patch.tierDefaults;
 		provider.updatedAt = this.now();
 		const validation = validateProviderConfig(provider);
 		if (validation.errors.length > 0) {
 			return this.error("validation_failed", validation.errors.join("; "), validation.fieldErrors);
+		}
+		const tierDefaultsValidation = this.validateProviderTierDefaults(provider);
+		if (tierDefaultsValidation) {
+			return tierDefaultsValidation;
 		}
 
 		return this.persistSettings(next, [providerId], true);
@@ -265,16 +264,9 @@ export class SettingsControlPlane {
 		if (providerIndex === -1) return this.error("not_found", `Unknown provider: ${providerId}`);
 
 		next.providers.splice(providerIndex, 1);
-		next.routing.providerPriority = next.routing.providerPriority.filter((id) => id !== providerId);
-		for (const tier of Object.keys(next.routing.tierOverrides) as Tier[]) {
-			const filtered = next.routing.tierOverrides[tier]?.filter((id) => id !== providerId) ?? [];
-			if (filtered.length === 0) {
-				delete next.routing.tierOverrides[tier];
-			} else {
-				next.routing.tierOverrides[tier] = filtered;
-			}
+		if (next.defaults.defaultProviderId === providerId) {
+			delete next.defaults.defaultProviderId;
 		}
-		next.defaults.selection = clearSelectionForProvider(next.defaults.selection, providerId);
 
 		this.providerState.delete(providerId);
 		this.providerCatalog.delete(providerId);
@@ -378,22 +370,10 @@ export class SettingsControlPlane {
 					validation.fieldErrors,
 				);
 			}
-			if (!next.routing.providerPriority.includes(providerId)) {
-				next.routing.providerPriority.push(providerId);
-			}
 		} else {
-			next.routing.providerPriority = next.routing.providerPriority.filter(
-				(id) => id !== providerId,
-			);
-			for (const tier of Object.keys(next.routing.tierOverrides) as Tier[]) {
-				const filtered = next.routing.tierOverrides[tier]?.filter((id) => id !== providerId) ?? [];
-				if (filtered.length === 0) {
-					delete next.routing.tierOverrides[tier];
-				} else {
-					next.routing.tierOverrides[tier] = filtered;
-				}
+			if (next.defaults.defaultProviderId === providerId) {
+				delete next.defaults.defaultProviderId;
 			}
-			next.defaults.selection = clearSelectionForProvider(next.defaults.selection, providerId);
 		}
 
 		return this.persistSettings(next, [providerId], true);
@@ -450,59 +430,22 @@ export class SettingsControlPlane {
 		return this.emitUpdatedSnapshot();
 	}
 
-	private async setDefaultSelection(selection: DefaultSelection): Promise<SettingsCommandResult> {
-		if (selection.kind === "model") {
-			const provider = this.settings.providers.find(
-				(candidate) => candidate.id === selection.model.providerId,
-			);
-			if (!provider) {
-				return this.error("validation_failed", `Unknown provider: ${selection.model.providerId}`);
-			}
-		}
-
+	private async setDefaultProvider(providerId?: string): Promise<SettingsCommandResult> {
 		const next = structuredClone(this.settings);
-		next.defaults.selection = selection;
-		return this.persistSettings(next, [], true);
-	}
-
-	private async setProviderPriority(providerIds: string[]): Promise<SettingsCommandResult> {
-		const enabledProviderIds = this.settings.providers
-			.filter((provider) => provider.enabled)
-			.map((provider) => provider.id);
-		if (!sameMembers(providerIds, enabledProviderIds)) {
-			return this.error(
-				"validation_failed",
-				"Provider priority must contain every enabled provider exactly once",
-			);
+		if (!providerId) {
+			delete next.defaults.defaultProviderId;
+			return this.persistSettings(next, [], true);
 		}
 
-		const next = structuredClone(this.settings);
-		next.routing.providerPriority = [...providerIds];
-		return this.persistSettings(next, [], true);
-	}
-
-	private async setTierPriority(tier: Tier, providerIds: string[]): Promise<SettingsCommandResult> {
-		const enabledProviderIds = new Set(
-			this.settings.providers.filter((provider) => provider.enabled).map((provider) => provider.id),
-		);
-		if (new Set(providerIds).size !== providerIds.length) {
-			return this.error("validation_failed", "Tier priority cannot contain duplicates");
+		const provider = next.providers.find((candidate) => candidate.id === providerId);
+		if (!provider) {
+			return this.error("validation_failed", `Unknown provider: ${providerId}`);
 		}
-		for (const providerId of providerIds) {
-			if (!enabledProviderIds.has(providerId)) {
-				return this.error(
-					"validation_failed",
-					`Tier priority provider must be enabled: ${providerId}`,
-				);
-			}
+		if (!provider.enabled) {
+			return this.error("validation_failed", `Default provider must be enabled: ${providerId}`);
 		}
 
-		const next = structuredClone(this.settings);
-		if (providerIds.length === 0) {
-			delete next.routing.tierOverrides[tier];
-		} else {
-			next.routing.tierOverrides[tier] = [...providerIds];
-		}
+		next.defaults.defaultProviderId = providerId;
 		return this.persistSettings(next, [], true);
 	}
 
@@ -629,6 +572,41 @@ export class SettingsControlPlane {
 		};
 	}
 
+	private validateProviderTierDefaults(
+		provider: ProviderConfig,
+	): SettingsCommandResult | undefined {
+		const tierDefaults = provider.tierDefaults;
+		if (!tierDefaults) return undefined;
+		const configuredModelIds = Object.values(tierDefaults).filter((modelId): modelId is string =>
+			Boolean(modelId?.trim()),
+		);
+		if (configuredModelIds.length === 0) return undefined;
+
+		const availableModels =
+			provider.discoveryStrategy === "manual-only"
+				? normalizeManualModels(provider.manualModels)
+				: (this.providerCatalog.get(provider.id)?.models ?? []);
+		if (availableModels.length === 0) {
+			return this.error("validation_failed", "Refresh models to configure tier defaults", {
+				tierDefaults: "Refresh models to configure tier defaults",
+			});
+		}
+
+		const availableModelIds = new Set(availableModels.map((model) => model.id));
+		for (const [tier, modelId] of Object.entries(tierDefaults)) {
+			if (!modelId?.trim()) continue;
+			if (!availableModelIds.has(modelId)) {
+				return this.error(
+					"validation_failed",
+					`Unknown ${tier} model '${modelId}' for provider '${provider.id}'`,
+					{ tierDefaults: `Unknown ${tier} model '${modelId}' for provider '${provider.id}'` },
+				);
+			}
+		}
+
+		return undefined;
+	}
+
 	private buildRuntimeWarnings(): SettingsRuntimeWarning[] {
 		const warnings = [...this.runtimeWarnings];
 		if (!this.secretBackendState.available) {
@@ -690,14 +668,6 @@ function buildNextProviderId(providers: ProviderConfig[], kind: ProviderConfig["
 	return `${kind}-${suffix}`;
 }
 
-function clearSelectionForProvider(
-	selection: DefaultSelection,
-	providerId: string,
-): DefaultSelection {
-	if (selection.kind !== "model") return selection;
-	return selection.model.providerId === providerId ? { kind: "none" } : selection;
-}
-
 function mergeProviderModels(
 	remoteModels: ProviderModel[],
 	manualModels: ProviderModel[],
@@ -716,18 +686,8 @@ function normalizeManualModels(models: ManualModelConfig[] | undefined): Provide
 	return (models ?? []).map((model) => ({
 		id: model.id,
 		label: model.label ?? model.id,
-		tierHint: model.tierHint,
-		rank: model.rank,
 		source: "manual",
 	}));
-}
-
-function sameMembers(left: string[], right: string[]): boolean {
-	return (
-		left.length === right.length &&
-		new Set(left).size === left.length &&
-		left.every((id) => right.includes(id))
-	);
 }
 
 function dedupe(values: string[]): string[] {

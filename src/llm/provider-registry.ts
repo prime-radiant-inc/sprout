@@ -4,11 +4,11 @@ import {
 	type SecretStorageBackend,
 	type SecretStore,
 } from "../host/settings/secret-store.ts";
-import type { ProviderConfig, SproutSettings } from "../host/settings/types.ts";
 import {
 	providerRequiresSecret,
 	validateProviderRuntimeReadiness,
 } from "../host/settings/validation.ts";
+import type { ProviderConfig, SproutSettings } from "../shared/provider-settings.ts";
 import { AnthropicAdapter } from "./anthropic.ts";
 import { GeminiAdapter } from "./gemini.ts";
 import { OpenAIAdapter } from "./openai.ts";

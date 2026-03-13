@@ -9,7 +9,7 @@ import type { ProviderCatalogEntry } from "./settings/control-plane.ts";
 import type { ModelRef, SessionModelSelection, SproutSettings } from "./settings/types.ts";
 
 export interface SessionSelectionContext {
-	settings: Pick<SproutSettings, "providers" | "routing">;
+	settings: Pick<SproutSettings, "providers" | "defaults">;
 	catalog: ProviderCatalogEntry[];
 }
 
@@ -31,7 +31,10 @@ export function defaultResolveSessionSelectionRequest(
 ): SessionSelectionSnapshot {
 	switch (selection.kind) {
 		case "inherit":
-			return createDefaultSessionSelectionSnapshot();
+			return {
+				selection,
+				source: "runtime-fallback",
+			};
 		case "tier":
 			return {
 				selection,
@@ -43,10 +46,6 @@ export function defaultResolveSessionSelectionRequest(
 				resolved: selection.model,
 				source: "session",
 			};
-		case "unqualified_model":
-			throw new Error(
-				`Cannot resolve unqualified model '${selection.modelId}' without a provider catalog`,
-			);
 	}
 }
 
@@ -55,33 +54,21 @@ export function resolveSessionSelectionRequest(
 	context: SessionSelectionContext,
 ): SessionSelectionSnapshot {
 	if (selection.kind === "inherit") {
-		return createDefaultSessionSelectionSnapshot();
-	}
-
-	if (selection.kind === "unqualified_model" && context.catalog.length === 0) {
-		throw new Error(
-			`Cannot resolve unqualified model '${selection.modelId}' without a provider catalog`,
-		);
+		return {
+			selection,
+			source: "runtime-fallback",
+		};
 	}
 
 	const resolvedModel =
 		selection.kind === "tier"
-			? resolveModel(selection.tier, context.settings, context.catalog)
-			: selection.kind === "model"
-				? resolveModel(selection.model, context.settings, context.catalog)
-				: resolveModel(selection.modelId, context.settings, context.catalog);
+			? resolveModel(selection.tier, context.settings, context.catalog, {
+					providerId: selection.providerId,
+				})
+			: resolveModel(selection.model, context.settings, context.catalog);
 
 	return {
-		selection:
-			selection.kind === "unqualified_model"
-				? {
-						kind: "model",
-						model: {
-							providerId: resolvedModel.provider,
-							modelId: resolvedModel.model,
-						},
-					}
-				: selection,
+		selection,
 		resolved: {
 			providerId: resolvedModel.provider,
 			modelId: resolvedModel.model,
@@ -97,6 +84,39 @@ export function selectionSnapshotToModelOverride(
 		return selection.resolved;
 	}
 	return selectionRequestToModelOverride(selection.selection);
+}
+
+export function selectionSnapshotToProviderId(
+	selection: SessionSelectionSnapshot,
+): string | undefined {
+	if (selection.selection.kind === "model") {
+		return selection.selection.model.providerId;
+	}
+	return selection.selection.providerId ?? selection.resolved?.providerId;
+}
+
+export function selectionSnapshotToCurrentModel(
+	selection: SessionSelectionSnapshot,
+): string | undefined {
+	if (selection.resolved) {
+		return selection.resolved.modelId;
+	}
+	if (selection.selection.kind === "model") {
+		return selection.selection.model.modelId;
+	}
+	return undefined;
+}
+
+export function selectionRequestToCurrentModel(
+	selection: SessionSelectionRequest | undefined,
+): string | undefined {
+	if (!selection || selection.kind === "inherit") {
+		return undefined;
+	}
+	if (selection.kind === "model") {
+		return selection.model.modelId;
+	}
+	return undefined;
 }
 
 export function formatSessionSelectionSnapshot(

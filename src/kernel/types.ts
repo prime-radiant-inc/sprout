@@ -279,10 +279,10 @@ export type {
 	SettingsSnapshot,
 } from "../host/settings/control-plane.ts";
 export type {
-	DefaultSelection,
 	ModelRef,
 	ProviderConfig,
 	ProviderKind,
+	ProviderTierDefaults,
 	SessionModelSelection,
-} from "../host/settings/types.ts";
+} from "../shared/provider-settings.ts";
 export type { SessionSelectionRequest } from "../shared/session-selection.ts";

@@ -4,7 +4,7 @@ import type {
 	SettingsCommandResult,
 	SettingsSnapshot,
 } from "@kernel/types.ts";
-import { DefaultsPanel } from "./DefaultsPanel.tsx";
+import { DefaultProviderPanel } from "./DefaultProviderPanel.tsx";
 import { ProviderEditor } from "./ProviderEditor.tsx";
 import styles from "./ProviderSettingsPanel.module.css";
 import { ProviderList } from "./ProviderList.tsx";
@@ -118,7 +118,8 @@ export function ProviderSettingsPanel({
 					<div className={styles.titleGroup}>
 						<h2 className={styles.title}>Provider settings</h2>
 						<span className={styles.subtitle}>
-							Manage providers, credentials, defaults, and routing.
+							Manage providers, credentials, the default provider, and provider-owned tier
+							defaults.
 						</span>
 					</div>
 					<button type="button" className={styles.close} onClick={onClose}>
@@ -153,7 +154,7 @@ export function ProviderSettingsPanel({
 						)}
 
 						{selectedView === "defaults" ? (
-							<DefaultsPanel settings={settings} message={message} onCommand={onCommand} />
+							<DefaultProviderPanel settings={settings} message={message} onCommand={onCommand} />
 						) : selectedView === "create" ? (
 							<ProviderEditor
 								mode="create"

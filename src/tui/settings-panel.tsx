@@ -8,7 +8,7 @@ import {
 	ProviderSettingsEditor,
 } from "./provider-settings-editor.tsx";
 
-type SelectedView = "defaults" | "create" | string;
+type SelectedView = "default-provider" | "create" | string;
 
 export interface SettingsPanelProps {
 	settings: SettingsSnapshot | null;
@@ -20,7 +20,7 @@ export interface SettingsPanelProps {
 function selectInitialView(settings: SettingsSnapshot | null): SelectedView {
 	if (!settings) return "create";
 	if (settings.settings.providers.length === 0) return "create";
-	return settings.settings.providers[0]?.id ?? "create";
+	return "default-provider";
 }
 
 function createInitialDrafts(
@@ -85,7 +85,7 @@ export function SettingsPanel({ settings, lastResult, onCommand, onClose }: Sett
 			return;
 		}
 		if (
-			selectedView !== "defaults" &&
+			selectedView !== "default-provider" &&
 			selectedView !== "create" &&
 			!settings.settings.providers.some((provider) => provider.id === selectedView)
 		) {
@@ -113,7 +113,7 @@ export function SettingsPanel({ settings, lastResult, onCommand, onClose }: Sett
 
 	const selectedProvider = useMemo(
 		() =>
-			selectedView === "defaults" || selectedView === "create"
+			selectedView === "default-provider" || selectedView === "create"
 				? undefined
 				: settings?.settings.providers.find((provider) => provider.id === selectedView),
 		[settings, selectedView],
@@ -154,8 +154,8 @@ export function SettingsPanel({ settings, lastResult, onCommand, onClose }: Sett
 			return;
 		}
 
-		if (currentView === "defaults") {
-			const next = applyDefaultsCommand(commandText);
+		if (currentView === "default-provider") {
+			const next = applyDefaultProviderCommand(commandText, currentSettings);
 			if (next.error) {
 				setMessage(next.error);
 				return;
@@ -208,14 +208,14 @@ export function SettingsPanel({ settings, lastResult, onCommand, onClose }: Sett
 			<Box gap={4}>
 				<Box flexDirection="column" width={24}>
 					<Text bold>Views</Text>
-					<Text color={selectedView === "defaults" ? "cyan" : undefined}>
-						{selectedView === "defaults" ? "> " : "  "}
-						Defaults and routing
+					<Text color={selectedView === "default-provider" ? "cyan" : undefined}>
+						{selectedView === "default-provider" ? "> " : "  "}
+						Default provider
 					</Text>
 					{settings.settings.providers.map((provider) => (
 						<Text key={provider.id} color={selectedView === provider.id ? "cyan" : undefined}>
 							{selectedView === provider.id ? "> " : "  "}
-							{provider.label}
+							{formatProviderNavLabel(provider, settings)}
 						</Text>
 					))}
 					<Text color={selectedView === "create" ? "cyan" : undefined}>
@@ -225,8 +225,8 @@ export function SettingsPanel({ settings, lastResult, onCommand, onClose }: Sett
 				</Box>
 
 				<Box flexDirection="column" flexGrow={1}>
-					{selectedView === "defaults" ? (
-						<DefaultsSummary settings={settings} lastResult={lastResult} />
+					{selectedView === "default-provider" ? (
+						<DefaultProviderSummary settings={settings} lastResult={lastResult} />
 					) : (
 						<ProviderSettingsEditor
 							mode={selectedView === "create" ? "create" : "edit"}
@@ -246,7 +246,7 @@ export function SettingsPanel({ settings, lastResult, onCommand, onClose }: Sett
 
 			{message && <Text color="yellow">{message}</Text>}
 			<Text color="gray">
-				Navigation: create · defaults · open &lt;provider-id&gt; · next · prev · close
+				Navigation: default-provider · create · open &lt;provider-id&gt; · next · prev · close
 			</Text>
 			<Text color="gray">Shortcuts are optional; use them when you already know the action.</Text>
 			<Text>shortcut&gt; {input}</Text>
@@ -254,46 +254,56 @@ export function SettingsPanel({ settings, lastResult, onCommand, onClose }: Sett
 	);
 }
 
-function DefaultsSummary({
+function DefaultProviderSummary({
 	settings,
 	lastResult,
 }: {
 	settings: SettingsSnapshot;
 	lastResult: SettingsCommandResult | null;
 }) {
+	const enabledProviders = settings.settings.providers.filter((provider) => provider.enabled);
+	const defaultProvider = settings.settings.defaults.defaultProviderId
+		? settings.settings.providers.find(
+				(provider) => provider.id === settings.settings.defaults.defaultProviderId,
+			)
+		: undefined;
+
 	return (
 		<Box flexDirection="column" gap={1}>
-			<Text bold>Defaults and routing</Text>
+			<Text bold>Default provider</Text>
 			{lastResult && !lastResult.ok && <Text color="red">{lastResult.message}</Text>}
-			<Text>Default selection: {formatDefaultSelection(settings)}</Text>
 			<Text>
-				Provider priority: {settings.settings.routing.providerPriority.join(", ") || "(empty)"}
+				Current default:{" "}
+				{defaultProvider
+					? `${defaultProvider.label} (${defaultProvider.id})`
+					: "Automatic provider selection"}
 			</Text>
-			<Text>Best: {settings.settings.routing.tierOverrides.best?.join(", ") || "(inherit)"}</Text>
-			<Text>
-				Balanced: {settings.settings.routing.tierOverrides.balanced?.join(", ") || "(inherit)"}
-			</Text>
-			<Text>Fast: {settings.settings.routing.tierOverrides.fast?.join(", ") || "(inherit)"}</Text>
-			<Text color="gray">
-				Commands: default none | default tier &lt;tier&gt; | default model &lt;provider:model&gt;
-			</Text>
-			<Text color="gray">
-				priority &lt;provider-a,provider-b&gt; | tier &lt;tier&gt; &lt;provider-a,provider-b&gt;
-			</Text>
+			<Text bold>Enabled providers</Text>
+			{enabledProviders.length === 0 ? (
+				<Text color="gray">No enabled providers available.</Text>
+			) : (
+				enabledProviders.map((provider) => (
+					<Text key={provider.id}>
+						{provider.label} ({provider.id})
+						{provider.id === settings.settings.defaults.defaultProviderId ? " · default" : ""}
+					</Text>
+				))
+			)}
+			<Text color="gray">Commands: default &lt;provider-id&gt; | default none</Text>
 		</Box>
 	);
 }
 
-function formatDefaultSelection(settings: SettingsSnapshot): string {
-	const selection = settings.settings.defaults.selection;
-	switch (selection.kind) {
-		case "none":
-			return "none";
-		case "tier":
-			return selection.tier;
-		case "model":
-			return `${selection.model.providerId}:${selection.model.modelId}`;
-	}
+function formatProviderNavLabel(
+	provider: SettingsSnapshot["settings"]["providers"][number],
+	settings: SettingsSnapshot,
+): string {
+	const markers = [
+		provider.id === settings.settings.defaults.defaultProviderId ? "default" : undefined,
+		!provider.enabled ? "disabled" : undefined,
+	].filter(Boolean);
+	if (markers.length === 0) return provider.label;
+	return `${provider.label} · ${markers.join(" · ")}`;
 }
 
 function applyGlobalCommand(
@@ -308,8 +318,8 @@ function applyGlobalCommand(
 		setSelectedView("create");
 		return { handled: true };
 	}
-	if (trimmed === "defaults") {
-		setSelectedView("defaults");
+	if (trimmed === "default-provider") {
+		setSelectedView("default-provider");
 		return { handled: true };
 	}
 	if (trimmed === "close") {
@@ -318,7 +328,7 @@ function applyGlobalCommand(
 	}
 	if (trimmed === "next" || trimmed === "prev") {
 		const order = [
-			"defaults",
+			"default-provider",
 			...settings.settings.providers.map((provider) => provider.id),
 			"create",
 		];
@@ -340,73 +350,34 @@ function applyGlobalCommand(
 	return { handled: false };
 }
 
-function applyDefaultsCommand(input: string): { command?: SettingsCommand; error?: string } {
+function applyDefaultProviderCommand(
+	input: string,
+	settings: SettingsSnapshot,
+): { command?: SettingsCommand; error?: string } {
 	const trimmed = input.trim();
 	if (trimmed === "default none") {
 		return {
-			command: { kind: "set_default_selection", data: { selection: { kind: "none" } } },
+			command: { kind: "set_default_provider", data: {} },
 		};
 	}
-	if (trimmed.startsWith("default tier ")) {
-		const tier = trimmed.slice("default tier ".length).trim();
-		if (!isTier(tier)) return { error: "Unknown tier." };
-		return {
-			command: {
-				kind: "set_default_selection",
-				data: { selection: { kind: "tier", tier } },
-			},
-		};
+	if (!trimmed.startsWith("default ")) {
+		return { error: "Unknown default-provider command." };
 	}
-	if (trimmed.startsWith("default model ")) {
-		const value = trimmed.slice("default model ".length).trim();
-		const model = parseModelRef(value);
-		if (!model) return { error: "Use providerId:modelId for explicit models." };
-		return {
-			command: {
-				kind: "set_default_selection",
-				data: { selection: { kind: "model", model } },
-			},
-		};
+	const providerId = trimmed.slice("default ".length).trim();
+	if (!providerId) {
+		return { error: "Provider id is required." };
 	}
-	if (trimmed.startsWith("priority ")) {
-		return {
-			command: {
-				kind: "set_provider_priority",
-				data: { providerIds: parseProviderList(trimmed.slice("priority ".length)) },
-			},
-		};
+	const provider = settings.settings.providers.find((candidate) => candidate.id === providerId);
+	if (!provider) {
+		return { error: `Unknown provider: ${providerId}` };
 	}
-	if (trimmed.startsWith("tier ")) {
-		const [, tier, providerIds] = trimmed.match(/^tier\s+(\S+)\s+(.+)$/) ?? [];
-		if (!tier || !providerIds || !isTier(tier)) {
-			return { error: "Use tier <best|balanced|fast> <provider-a,provider-b>." };
-		}
-		return {
-			command: {
-				kind: "set_tier_priority",
-				data: { tier, providerIds: parseProviderList(providerIds) },
-			},
-		};
+	if (!provider.enabled) {
+		return { error: `Default provider must be enabled: ${providerId}` };
 	}
-	return { error: "Unknown defaults command." };
-}
-
-function parseProviderList(input: string): string[] {
-	return input
-		.split(",")
-		.map((value) => value.trim())
-		.filter(Boolean);
-}
-
-function parseModelRef(input: string): { providerId: string; modelId: string } | null {
-	const separator = input.indexOf(":");
-	if (separator <= 0 || separator >= input.length - 1) return null;
 	return {
-		providerId: input.slice(0, separator),
-		modelId: input.slice(separator + 1),
+		command: {
+			kind: "set_default_provider",
+			data: { providerId },
+		},
 	};
-}
-
-function isTier(input: string): input is "best" | "balanced" | "fast" {
-	return input === "best" || input === "balanced" || input === "fast";
 }

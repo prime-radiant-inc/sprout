@@ -1,3 +1,4 @@
+import type { ResolverSettings } from "../agents/model-resolver.ts";
 import type { SessionEvent } from "../kernel/types.ts";
 
 /** Identity of the agent that initiated a message */
@@ -19,6 +20,10 @@ export interface StartMessage {
 	shared: boolean;
 	/** Stable agent_id for events emitted by this handle. */
 	agent_id: string;
+	/** Selected provider context inherited from the caller. */
+	provider_id?: string;
+	/** Provider tier defaults and enabled-provider state inherited from the caller. */
+	resolver_settings?: ResolverSettings;
 }
 
 /** Sent to a completed/idle agent to continue conversation */

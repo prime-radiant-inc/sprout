@@ -15,7 +15,6 @@ const PROVIDER_KINDS = new Set([
 ] as const);
 
 const DISCOVERY_STRATEGIES = new Set(["remote-only", "manual-only", "remote-with-manual"] as const);
-const MODEL_TIERS = new Set(["best", "balanced", "fast", "none"] as const);
 
 export interface HeaderDraft {
 	key: string;
@@ -25,8 +24,6 @@ export interface HeaderDraft {
 export interface ManualModelDraft {
 	id: string;
 	label: string;
-	tierHint: "" | "best" | "balanced" | "fast";
-	rank: string;
 }
 
 export interface ProviderEditorDraft {
@@ -68,8 +65,6 @@ export function createProviderEditorDraft(provider?: ProviderConfig): ProviderEd
 		manualModels: (provider?.manualModels ?? []).map((model) => ({
 			id: model.id,
 			label: model.label ?? "",
-			tierHint: model.tierHint ?? "",
-			rank: model.rank?.toString() ?? "",
 		})),
 	};
 }
@@ -116,7 +111,7 @@ export function applyProviderEditorCommand(
 			nextDraft.baseUrl = argument;
 			return { draft: nextDraft };
 		case "add-model":
-			nextDraft.manualModels.push({ id: "", label: "", tierHint: "", rank: "" });
+			nextDraft.manualModels.push({ id: "", label: "" });
 			return { draft: nextDraft };
 		case "remove-model":
 			return removeIndexedItem(nextDraft, "model", argument);
@@ -124,10 +119,6 @@ export function applyProviderEditorCommand(
 			return updateIndexedManualModel(nextDraft, "id", argument);
 		case "model-label":
 			return updateIndexedManualModel(nextDraft, "label", argument);
-		case "model-tier":
-			return updateIndexedManualModel(nextDraft, "tierHint", argument);
-		case "model-rank":
-			return updateIndexedManualModel(nextDraft, "rank", argument);
 		case "add-header":
 			nextDraft.nonSecretHeaders.push({ key: "", value: "" });
 			return { draft: nextDraft };
@@ -258,29 +249,18 @@ function normalizeManualModels(models: ManualModelDraft[]):
 	| Array<{
 			id: string;
 			label?: string;
-			tierHint?: "best" | "balanced" | "fast";
-			rank?: number;
 	  }>
 	| undefined {
 	const normalized = models
 		.map((model) => {
 			const id = model.id.trim();
 			const label = model.label.trim();
-			const rank = model.rank.trim();
 			return {
 				id,
 				label: label || undefined,
-				tierHint: model.tierHint || undefined,
-				rank: rank ? Number(rank) : undefined,
 			};
 		})
-		.filter(
-			(model) =>
-				model.id.length > 0 ||
-				model.label !== undefined ||
-				model.tierHint !== undefined ||
-				model.rank !== undefined,
-		);
+		.filter((model) => model.id.length > 0 || model.label !== undefined);
 	if (normalized.length === 0) return undefined;
 	return normalized;
 }
@@ -313,17 +293,6 @@ function updateIndexedManualModel(
 	const next = structuredClone(draft);
 	const model = next.manualModels[parsed.index];
 	if (!model) return { draft, error: "Unknown model index." };
-	if (field === "tierHint") {
-		if (!MODEL_TIERS.has(parsed.value as typeof MODEL_TIERS extends Set<infer T> ? T : never)) {
-			return { draft, error: "Unknown model tier." };
-		}
-		model.tierHint = parsed.value === "none" ? "" : (parsed.value as ManualModelDraft["tierHint"]);
-		return { draft: next };
-	}
-	if (field === "rank") {
-		model.rank = parsed.value === "none" ? "" : parsed.value;
-		return { draft: next };
-	}
 	model[field] = parsed.value;
 	return { draft: next };
 }
@@ -416,8 +385,6 @@ export function ProviderSettingsEditor({
 					draft.manualModels.map((model, index) => (
 						<Text key={`${model.id}-${index}`}>
 							{index + 1}. {model.label || "(unnamed)"} [{model.id || "(missing id)"}]
-							{model.tierHint ? ` · ${model.tierHint}` : ""}
-							{model.rank ? ` · rank ${model.rank}` : ""}
 						</Text>
 					))
 				)}
@@ -448,7 +415,7 @@ export function ProviderSettingsEditor({
 					) : (
 						catalogEntry?.models.map((model) => (
 							<Text key={model.id}>
-								{model.label} [{model.id}] {model.tierHint ? `· ${model.tierHint}` : ""}
+								{model.label} [{model.id}]
 							</Text>
 						))
 					)}
@@ -472,10 +439,7 @@ export function ProviderSettingsEditor({
 				<Text color="gray">
 					base-url &lt;url&gt; · model-id &lt;n&gt; &lt;id&gt; · model-label &lt;n&gt; &lt;text&gt;
 				</Text>
-				<Text color="gray">
-					model-tier &lt;n&gt; &lt;tier|none&gt; · model-rank &lt;n&gt; &lt;rank|none&gt; ·
-					remove-model &lt;n&gt;
-				</Text>
+				<Text color="gray">remove-model &lt;n&gt;</Text>
 				{supportsNonSecretHeaders(draft.kind) && (
 					<Text color="gray">
 						header-key &lt;n&gt; &lt;key&gt; · header-value &lt;n&gt; &lt;value&gt; · remove-header

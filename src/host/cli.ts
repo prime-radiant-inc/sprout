@@ -384,7 +384,7 @@ export async function handleSlashCommand(
 		case "help":
 			bus.emitEvent("warning", "cli", 0, {
 				message:
-					"Commands: /help, /quit, /compact, /clear, /model [name], /settings, /status, /terminal-setup, /web, /web stop\nKeys: Shift+Enter = newline, Ctrl+J = newline (fallback), Ctrl+C = interrupt/exit",
+					"Commands: /help, /quit, /compact, /clear, /model [best|balanced|fast|inherit|provider:model], /settings, /status, /terminal-setup, /web, /web stop\nKeys: Shift+Enter = newline, Ctrl+J = newline (fallback), Ctrl+C = interrupt/exit",
 			});
 			break;
 		case "settings":
@@ -422,6 +422,11 @@ export async function handleSlashCommand(
 		case "unknown":
 			bus.emitEvent("warning", "cli", 0, {
 				message: `Unknown command: ${cmd.raw}`,
+			});
+			break;
+		case "invalid":
+			bus.emitEvent("warning", "cli", 0, {
+				message: cmd.message,
 			});
 			break;
 	}

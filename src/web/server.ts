@@ -4,8 +4,9 @@ import type { ServerWebSocket } from "bun";
 import type { SessionBus } from "../host/event-bus.ts";
 import {
 	createDefaultSessionSelectionSnapshot,
-	formatSessionSelectionSnapshot,
 	type SessionSelectionSnapshot,
+	selectionRequestToCurrentModel,
+	selectionSnapshotToCurrentModel,
 } from "../host/session-selection.ts";
 import { loadAllEventLogs } from "../host/session-state.ts";
 import type {
@@ -16,11 +17,7 @@ import type {
 import { EVENT_CAP } from "../kernel/constants.ts";
 import type { PricingTable } from "../kernel/pricing.ts";
 import type { SessionEvent } from "../kernel/types.ts";
-import {
-	formatModelOverride,
-	type SessionSelectionRequest,
-	selectionRequestToModelOverride,
-} from "../shared/session-selection.ts";
+import type { SessionSelectionRequest } from "../shared/session-selection.ts";
 import type { CommandMessage, ServerMessage } from "./protocol.ts";
 import { parseCommandMessage } from "./protocol.ts";
 
@@ -103,7 +100,7 @@ export class WebServer {
 		this.settingsControlPlane = opts.settingsControlPlane;
 		this.getSessionSelection = opts.getSessionSelection;
 		if (this.getSessionSelection) {
-			this.currentModel = formatSessionSelectionSnapshot(this.getCurrentSelection()) ?? null;
+			this.currentModel = selectionSnapshotToCurrentModel(this.getCurrentSelection()) ?? null;
 		}
 		if (opts.initialEvents) {
 			this.historyCache = [...opts.initialEvents];
@@ -121,12 +118,10 @@ export class WebServer {
 		// Track switch_model commands to update currentModel
 		this.unsubscribeCommands = this.bus.onCommand((cmd) => {
 			if (this.getSessionSelection) {
-				this.currentModel = formatSessionSelectionSnapshot(this.getCurrentSelection()) ?? null;
+				this.currentModel = selectionSnapshotToCurrentModel(this.getCurrentSelection()) ?? null;
 			} else if (cmd.kind === "switch_model") {
 				this.currentModel =
-					formatModelOverride(
-						selectionRequestToModelOverride(cmd.data.selection as SessionSelectionRequest),
-					) ?? null;
+					selectionRequestToCurrentModel(cmd.data.selection as SessionSelectionRequest) ?? null;
 			}
 		});
 
@@ -478,7 +473,7 @@ export class WebServer {
 
 	private getCurrentModel(): string | null {
 		if (this.getSessionSelection) {
-			return formatSessionSelectionSnapshot(this.getCurrentSelection()) ?? null;
+			return selectionSnapshotToCurrentModel(this.getCurrentSelection()) ?? null;
 		}
 		return this.currentModel;
 	}
@@ -530,9 +525,7 @@ export class WebServer {
 			kind === "set_provider_enabled" ||
 			kind === "test_provider_connection" ||
 			kind === "refresh_provider_models" ||
-			kind === "set_default_selection" ||
-			kind === "set_provider_priority" ||
-			kind === "set_tier_priority"
+			kind === "set_default_provider"
 		);
 	}
 

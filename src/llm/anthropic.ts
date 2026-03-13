@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { ProviderKind } from "../host/settings/types.ts";
+import type { ProviderKind } from "../shared/provider-settings.ts";
 import {
 	ContentKind,
 	type FinishReason,

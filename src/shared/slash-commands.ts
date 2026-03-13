@@ -5,6 +5,7 @@ export type SlashCommand =
 	| { kind: "quit" }
 	| { kind: "settings" }
 	| { kind: "switch_model"; selection: SessionSelectionRequest | undefined }
+	| { kind: "invalid"; raw: string; message: string }
 	| { kind: "compact" }
 	| { kind: "clear" }
 	| { kind: "status" }
@@ -30,10 +31,21 @@ export function parseSlashCommand(input: string): SlashCommand | null {
 		case "/settings":
 			return { kind: "settings" };
 		case "/model":
-			return {
-				kind: "switch_model",
-				selection: arg ? parseSessionSelectionRequest(arg) : undefined,
-			};
+			if (!arg) {
+				return { kind: "switch_model", selection: undefined };
+			}
+			try {
+				return {
+					kind: "switch_model",
+					selection: parseSessionSelectionRequest(arg),
+				};
+			} catch (error) {
+				return {
+					kind: "invalid",
+					raw: trimmed,
+					message: error instanceof Error ? error.message : String(error),
+				};
+			}
 		case "/compact":
 			return { kind: "compact" };
 		case "/clear":

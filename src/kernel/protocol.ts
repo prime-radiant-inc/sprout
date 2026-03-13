@@ -73,9 +73,7 @@ const VALID_COMMAND_KINDS = new Set([
 	"set_provider_enabled",
 	"test_provider_connection",
 	"refresh_provider_models",
-	"set_default_selection",
-	"set_provider_priority",
-	"set_tier_priority",
+	"set_default_provider",
 ]);
 
 const SETTINGS_COMMAND_KINDS = new Set([
@@ -88,9 +86,7 @@ const SETTINGS_COMMAND_KINDS = new Set([
 	"set_provider_enabled",
 	"test_provider_connection",
 	"refresh_provider_models",
-	"set_default_selection",
-	"set_provider_priority",
-	"set_tier_priority",
+	"set_default_provider",
 ]);
 
 const PROVIDER_KINDS = new Set([
@@ -102,7 +98,6 @@ const PROVIDER_KINDS = new Set([
 ]);
 const DISCOVERY_STRATEGIES = new Set(["remote-only", "manual-only", "remote-with-manual"]);
 const TIERS = new Set(["best", "balanced", "fast"]);
-
 /** Build a command envelope for transport from browser to server. */
 export function createCommandMessage(command: BrowserCommand): CommandMessage {
 	return { type: "command", command };
@@ -167,6 +162,7 @@ function validateSettingsCommand(kind: string, data: Record<string, unknown>): v
 			assertOptionalString(data.baseUrl, "command.data.baseUrl");
 			assertOptionalStringRecord(data.nonSecretHeaders, "command.data.nonSecretHeaders");
 			assertOptionalManualModels(data.manualModels, "command.data.manualModels");
+			assertOptionalTierDefaults(data.tierDefaults, "command.data.tierDefaults");
 			return;
 		case "update_provider": {
 			assertNonEmptyString(data.providerId, "command.data.providerId");
@@ -187,6 +183,7 @@ function validateSettingsCommand(kind: string, data: Record<string, unknown>): v
 			}
 			assertOptionalStringRecord(patch.nonSecretHeaders, "command.data.patch.nonSecretHeaders");
 			assertOptionalManualModels(patch.manualModels, "command.data.patch.manualModels");
+			assertOptionalTierDefaults(patch.tierDefaults, "command.data.patch.tierDefaults");
 			return;
 		}
 		case "delete_provider":
@@ -203,15 +200,10 @@ function validateSettingsCommand(kind: string, data: Record<string, unknown>): v
 			assertNonEmptyString(data.providerId, "command.data.providerId");
 			assertBoolean(data.enabled, "command.data.enabled");
 			return;
-		case "set_default_selection":
-			assertSelection(data.selection, "command.data.selection");
-			return;
-		case "set_provider_priority":
-			assertStringArray(data.providerIds, "command.data.providerIds");
-			return;
-		case "set_tier_priority":
-			assertEnum(data.tier, TIERS, "command.data.tier");
-			assertStringArray(data.providerIds, "command.data.providerIds");
+		case "set_default_provider":
+			if (data.providerId !== undefined) {
+				assertNonEmptyString(data.providerId, "command.data.providerId");
+			}
 			return;
 	}
 }
@@ -253,15 +245,6 @@ function assertEnum(value: unknown, valid: Set<string>, path: string): asserts v
 	}
 }
 
-function assertStringArray(value: unknown, path: string): asserts value is string[] {
-	if (!Array.isArray(value)) {
-		throw new Error(`${path} must be an array`);
-	}
-	for (const [index, item] of value.entries()) {
-		assertNonEmptyString(item, `${path}[${index}]`);
-	}
-}
-
 function assertOptionalStringRecord(value: unknown, path: string): void {
 	if (value === undefined) return;
 	assertRecord(value, path);
@@ -295,19 +278,12 @@ function assertOptionalManualModels(value: unknown, path: string): void {
 	}
 }
 
-function assertSelection(value: unknown, path: string): void {
+function assertOptionalTierDefaults(value: unknown, path: string): void {
+	if (value === undefined) return;
 	assertRecord(value, path);
-	assertEnum(value.kind, new Set(["none", "tier", "model"]), `${path}.kind`);
-	switch (value.kind) {
-		case "none":
-			return;
-		case "tier":
-			assertEnum(value.tier, TIERS, `${path}.tier`);
-			return;
-		case "model":
-			assertRecord(value.model, `${path}.model`);
-			assertNonEmptyString(value.model.providerId, `${path}.model.providerId`);
-			assertNonEmptyString(value.model.modelId, `${path}.model.modelId`);
-			return;
+	for (const key of ["best", "balanced", "fast"]) {
+		if (value[key] !== undefined) {
+			assertString(value[key], `${path}.${key}`);
+		}
 	}
 }

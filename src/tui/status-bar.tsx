@@ -39,10 +39,24 @@ export function formatSelectionLabel(
 ): string {
 	const currentSelection = selection.selection;
 	switch (currentSelection.kind) {
-		case "inherit":
-			return currentModel ? `Default · ${shortModelName(currentModel)}` : "Default";
-		case "tier":
+		case "inherit": {
+			const provider = selectionProvider(selection, settings);
+			if (provider) {
+				return currentSelection.providerId
+					? `${provider.label} · Default`
+					: `Default provider · ${provider.label}`;
+			}
+			return currentModel
+				? `Default provider · ${shortModelName(currentModel)}`
+				: "Default provider";
+		}
+		case "tier": {
+			const provider = selectionProvider(selection, settings);
+			if (provider) {
+				return `${provider.label} · ${TIER_LABELS[currentSelection.tier]}`;
+			}
 			return TIER_LABELS[currentSelection.tier];
+		}
 		case "model": {
 			const provider = settings?.settings.providers.find(
 				(candidate) => candidate.id === currentSelection.model.providerId,
@@ -55,6 +69,20 @@ export function formatSelectionLabel(
 			)}`;
 		}
 	}
+}
+
+function selectionProvider(
+	selection: SessionSelectionSnapshot,
+	settings?: SettingsSnapshot | null,
+) {
+	const providerId =
+		selection.selection.kind === "model"
+			? selection.selection.model.providerId
+			: (selection.selection.providerId ??
+				selection.resolved?.providerId ??
+				settings?.settings.defaults.defaultProviderId);
+	if (!providerId) return undefined;
+	return settings?.settings.providers.find((candidate) => candidate.id === providerId);
 }
 
 export function StatusBar(props: StatusBarProps) {

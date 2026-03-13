@@ -45,8 +45,8 @@ import { findRootToolsDir, resolveRootToolsDir } from "./loader.ts";
 import { generateMnemonicName } from "./mnemonic.ts";
 import {
 	createResolverSettings,
-	defaultModelsByProvider,
 	type ResolvedModel,
+	type ResolverSettings,
 	resolveModel,
 } from "./model-resolver.ts";
 import type { Postscripts } from "./plan.ts";
@@ -84,6 +84,10 @@ export interface AgentOptions {
 	initialHistory?: Message[];
 	/** Override the spec's model for this agent instance. */
 	modelOverride?: string | ModelRef;
+	/** Provider context for provider-relative tier resolution. */
+	providerIdOverride?: string;
+	/** Provider settings used for provider-relative tier resolution. */
+	resolverSettings?: ResolverSettings;
 	/** Prompt preambles (global + role-specific) to prepend to system prompt. */
 	preambles?: Preambles;
 	/** AGENTS.md project documentation for top-level agent only. */
@@ -154,6 +158,7 @@ export class Agent {
 	private readonly enableStreaming: boolean;
 	private readonly llmRetryOptions?: Omit<RetryOptions, "signal" | "onRetry">;
 	private readonly logger: Logger;
+	private readonly resolverSettings: ResolverSettings;
 	private history: Message[] = [];
 	private systemPrompt?: string;
 	private signal?: AbortSignal;
@@ -209,11 +214,29 @@ export class Agent {
 		validateConstraints(this.spec.name, this.spec.tools, this.spec.constraints);
 
 		// Resolve model and provider
-		const modelMap = options.modelsByProvider ?? defaultModelsByProvider(this.client.providers());
+		const modelMap = options.modelsByProvider ?? new Map<string, ProviderModel[]>();
+		for (const providerId of this.client.providers()) {
+			if (!modelMap.has(providerId)) {
+				modelMap.set(providerId, []);
+			}
+		}
+		const implicitProviderId =
+			options.providerIdOverride ?? (modelMap.size === 1 ? [...modelMap.keys()][0] : undefined);
+		const resolverSettings =
+			options.resolverSettings ??
+			createResolverSettings(
+				[...modelMap.keys()].map((providerId) => ({
+					id: providerId,
+					enabled: true,
+				})),
+				implicitProviderId,
+			);
+		this.resolverSettings = resolverSettings;
 		this.resolved = resolveModel(
 			options.modelOverride ?? this.spec.model,
-			createResolverSettings([...modelMap.keys()]),
+			resolverSettings,
 			modelMap,
+			implicitProviderId ? { providerId: implicitProviderId } : {},
 		);
 
 		// Build delegate tool (single tool for all agent delegations)
@@ -673,6 +696,8 @@ export class Agent {
 				logBasePath: subLogBasePath,
 				preambles: this.preambles,
 				genomePostscripts: this.genomePostscripts,
+				providerIdOverride: this.resolved.provider,
+				resolverSettings: this.resolverSettings,
 				agentId: childId,
 				logger: this.logger,
 				rootDir: this.rootDir,
@@ -836,6 +861,8 @@ export class Agent {
 				agentId: childId,
 				rootDir: this.rootDir,
 				mnemonicName: mnemonicName ?? undefined,
+				providerIdOverride: this.resolved.provider,
+				resolverSettings: this.resolverSettings,
 			});
 
 			if (!blocking) {

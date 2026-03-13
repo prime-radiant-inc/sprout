@@ -1,4 +1,4 @@
-import type { ProviderKind, Tier } from "../host/settings/types.ts";
+import type { ProviderKind } from "../shared/provider-settings.ts";
 
 // ---------------------------------------------------------------------------
 // Content model
@@ -135,8 +135,6 @@ export interface ToolCall {
 export interface ProviderModel {
 	id: string;
 	label: string;
-	tierHint?: Tier;
-	rank?: number;
 	source: "remote" | "manual";
 }
 

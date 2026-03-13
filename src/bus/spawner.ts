@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import type { ResolverSettings } from "../agents/model-resolver.ts";
 import { ulid } from "../util/ulid.ts";
 import type { BusClient } from "./client.ts";
 import { agentInbox, agentReady, agentResult, sessionEvents } from "./topics.ts";
@@ -32,6 +33,10 @@ export interface SpawnAgentOptions {
 	rootDir?: string;
 	/** Mnemonic codename for this agent (historical figure surname). */
 	mnemonicName?: string;
+	/** Selected provider context inherited from the caller. */
+	providerIdOverride?: string;
+	/** Provider tier defaults and enabled-provider state inherited from the caller. */
+	resolverSettings?: ResolverSettings;
 }
 
 /** A pending waitAgent() promise that can be resolved or rejected. */
@@ -64,6 +69,8 @@ export interface AgentHandle {
 	resultTopic?: string;
 	/** Mnemonic codename assigned at delegation time. */
 	mnemonicName?: string;
+	providerIdOverride?: string;
+	resolverSettings?: ResolverSettings;
 }
 
 /**
@@ -234,6 +241,8 @@ export class AgentSpawner {
 			rootDir: opts.rootDir,
 			projectDataDir: opts.projectDataDir,
 			mnemonicName: opts.mnemonicName,
+			providerIdOverride: opts.providerIdOverride,
+			resolverSettings: opts.resolverSettings,
 		};
 		this.handles.set(handleId, handle);
 
@@ -274,6 +283,8 @@ export class AgentSpawner {
 			hints: opts.hints,
 			shared: opts.shared,
 			agent_id: agentId,
+			provider_id: opts.providerIdOverride,
+			resolver_settings: opts.resolverSettings,
 		};
 		await this.bus.publish(inboxTopic, JSON.stringify(startMsg));
 
@@ -415,6 +426,8 @@ export class AgentSpawner {
 			goal: message,
 			shared: handle.shared,
 			agent_id: handle.agentId,
+			provider_id: handle.providerIdOverride,
+			resolver_settings: handle.resolverSettings,
 		};
 		await this.bus.publish(inboxTopic, JSON.stringify(startMsg));
 

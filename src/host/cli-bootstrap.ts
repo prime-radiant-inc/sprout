@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { getAvailableModels } from "../agents/model-resolver.ts";
+import { createResolverSettings, getAvailableModels } from "../agents/model-resolver.ts";
 import type { AgentSpawner } from "../bus/spawner.ts";
 import type { ResultMessage } from "../bus/types.ts";
 import type { Genome } from "../genome/genome.ts";
@@ -96,6 +96,7 @@ interface InteractiveBootstrapDeps {
 		initialHistory?: Message[];
 		initialSelection?: SessionSelectionSnapshot;
 		resolveSelection?: (selection: SessionSelectionRequest) => SessionSelectionSnapshot;
+		getResolverSettings?: () => ReturnType<typeof createResolverSettings>;
 		spawner: AgentSpawner;
 		genome: Genome;
 		completedHandles?: Array<{ handleId: string; result: ResultMessage; ownerId: string }>;
@@ -166,6 +167,7 @@ export async function bootstrapInteractiveRuntime(
 					initialHistory: controllerOpts.initialHistory,
 					initialSelection: controllerOpts.initialSelection,
 					resolveSelection: controllerOpts.resolveSelection,
+					getResolverSettings: controllerOpts.getResolverSettings,
 					spawner: controllerOpts.spawner,
 					genome: controllerOpts.genome,
 					completedHandles: controllerOpts.completedHandles,
@@ -273,6 +275,18 @@ export async function bootstrapInteractiveRuntime(
 		initialHistory: opts.initialHistory,
 		initialSelection,
 		resolveSelection,
+		getResolverSettings: () => {
+			const context = (
+				settingsControlPlane as { getSelectionContext?: () => SessionSelectionContext }
+			).getSelectionContext?.();
+			if (!context) {
+				return createResolverSettings([]);
+			}
+			return createResolverSettings(
+				context.settings.providers,
+				context.settings.defaults.defaultProviderId,
+			);
+		},
 		spawner: opts.infra.spawner,
 		genome: opts.infra.genome,
 		completedHandles: opts.completedHandles,

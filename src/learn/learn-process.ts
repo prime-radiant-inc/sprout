@@ -3,8 +3,8 @@ import { dirname } from "node:path";
 import type { AgentEventEmitter } from "../agents/events.ts";
 import {
 	createResolverSettings,
-	defaultModelsByProvider,
 	type ResolvedModel,
+	type ResolverSettings,
 	resolveModel,
 } from "../agents/model-resolver.ts";
 import type { Genome } from "../genome/genome.ts";
@@ -55,6 +55,8 @@ export interface LearnProcessOptions {
 	client?: Client;
 	pendingEvaluationsPath?: string;
 	modelsByProvider?: Map<string, ProviderModel[]>;
+	providerIdOverride?: string;
+	resolverSettings?: ResolverSettings;
 	/** Structured logger for LLM call logging and diagnostics. */
 	logger?: import("../host/logger.ts").Logger;
 }
@@ -91,12 +93,33 @@ export class LearnProcess {
 		this.client = options.client;
 		this.pendingEvaluationsPath = options.pendingEvaluationsPath;
 		if (this.client) {
-			const modelMap = options.modelsByProvider ?? defaultModelsByProvider(this.client.providers());
-			this.resolvedModel = resolveModel(
-				"best",
-				createResolverSettings([...modelMap.keys()]),
-				modelMap,
-			);
+			const modelMap = options.modelsByProvider ?? new Map<string, ProviderModel[]>();
+			for (const providerId of this.client.providers()) {
+				if (!modelMap.has(providerId)) {
+					modelMap.set(providerId, []);
+				}
+			}
+			const implicitProviderId =
+				options.providerIdOverride ?? (modelMap.size === 1 ? [...modelMap.keys()][0] : undefined);
+			const resolverSettings =
+				options.resolverSettings ??
+				createResolverSettings(
+					[...modelMap.keys()].map((providerId) => ({
+						id: providerId,
+						enabled: true,
+					})),
+					implicitProviderId,
+				);
+			try {
+				this.resolvedModel = resolveModel(
+					"best",
+					resolverSettings,
+					modelMap,
+					implicitProviderId ? { providerId: implicitProviderId } : {},
+				);
+			} catch {
+				this.resolvedModel = undefined;
+			}
 		}
 	}
 

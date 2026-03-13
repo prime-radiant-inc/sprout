@@ -1,4 +1,3 @@
-export { classifyTier } from "../llm/model-catalog.ts";
 export { Agent, type AgentOptions, type AgentResult } from "./agent.ts";
 export { AgentEventEmitter, type EventListener } from "./events.ts";
 export { type CreateAgentOptions, type CreateAgentResult, createAgent } from "./factory.ts";

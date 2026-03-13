@@ -1,71 +1,12 @@
-export const SETTINGS_SCHEMA_VERSION = 1;
+import { SETTINGS_SCHEMA_VERSION, type SproutSettings } from "../../shared/provider-settings.ts";
 
-export type ProviderKind = "anthropic" | "openai" | "openai-compatible" | "openrouter" | "gemini";
-
-export type Tier = "best" | "balanced" | "fast";
-
-export type ProviderDiscoveryStrategy = "remote-only" | "manual-only" | "remote-with-manual";
-
-export interface ManualModelConfig {
-	id: string;
-	label?: string;
-	tierHint?: Tier;
-	rank?: number;
-}
-
-export interface ProviderConfig {
-	id: string;
-	kind: ProviderKind;
-	label: string;
-	enabled: boolean;
-	baseUrl?: string;
-	nonSecretHeaders?: Record<string, string>;
-	discoveryStrategy: ProviderDiscoveryStrategy;
-	manualModels?: ManualModelConfig[];
-	createdAt: string;
-	updatedAt: string;
-}
-
-export interface ModelRef {
-	providerId: string;
-	modelId: string;
-}
-
-export type DefaultSelection =
-	| { kind: "none" }
-	| { kind: "model"; model: ModelRef }
-	| { kind: "tier"; tier: Tier };
-
-export type SessionModelSelection =
-	| { kind: "inherit" }
-	| { kind: "model"; model: ModelRef }
-	| { kind: "tier"; tier: Tier };
-
-export interface DefaultsConfig {
-	selection: DefaultSelection;
-}
-
-export interface RoutingConfig {
-	providerPriority: string[];
-	tierOverrides: Partial<Record<Tier, string[]>>;
-}
-
-export interface SproutSettings {
-	version: typeof SETTINGS_SCHEMA_VERSION;
-	providers: ProviderConfig[];
-	defaults: DefaultsConfig;
-	routing: RoutingConfig;
-}
+export * from "../../shared/provider-settings.ts";
 
 export function createEmptySettings(): SproutSettings {
 	return {
 		version: SETTINGS_SCHEMA_VERSION,
 		providers: [],
-		defaults: { selection: { kind: "none" } },
-		routing: {
-			providerPriority: [],
-			tierOverrides: {},
-		},
+		defaults: {},
 	};
 }
 
@@ -81,35 +22,12 @@ export function validateSproutSettings(settings: SproutSettings): void {
 		if (provider.enabled) enabledProviderIds.add(provider.id);
 	}
 
-	const providerPriority = new Set<string>();
-	for (const providerId of settings.routing.providerPriority) {
-		if (providerPriority.has(providerId)) {
-			throw new Error(`Duplicate provider priority entry: ${providerId}`);
-		}
-		if (!enabledProviderIds.has(providerId)) {
-			throw new Error(`Provider priority may only reference enabled providers: ${providerId}`);
-		}
-		providerPriority.add(providerId);
-	}
-
-	for (const providerId of enabledProviderIds) {
-		if (!providerPriority.has(providerId)) {
-			throw new Error(`Missing enabled provider in provider priority: ${providerId}`);
-		}
-	}
-
-	for (const tier of Object.keys(settings.routing.tierOverrides) as Tier[]) {
-		const seenTierProviders = new Set<string>();
-		for (const providerId of settings.routing.tierOverrides[tier] ?? []) {
-			if (seenTierProviders.has(providerId)) {
-				throw new Error(`Duplicate tier override entry for ${tier}: ${providerId}`);
-			}
-			if (!enabledProviderIds.has(providerId)) {
-				throw new Error(
-					`Tier override for ${tier} may only reference enabled providers: ${providerId}`,
-				);
-			}
-			seenTierProviders.add(providerId);
-		}
+	if (
+		settings.defaults.defaultProviderId !== undefined &&
+		!enabledProviderIds.has(settings.defaults.defaultProviderId)
+	) {
+		throw new Error(
+			`Default provider must reference an enabled provider: ${settings.defaults.defaultProviderId}`,
+		);
 	}
 }

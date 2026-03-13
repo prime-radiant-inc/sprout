@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { AgentEventEmitter } from "../agents/events.ts";
 import { createAgent } from "../agents/factory.ts";
+import type { ResolverSettings } from "../agents/model-resolver.ts";
 import type { AgentSpawner } from "../bus/spawner.ts";
 import type { Command, ModelRef, SessionEvent } from "../kernel/types.ts";
 import type { Message } from "../llm/types.ts";
@@ -21,9 +22,10 @@ import {
 import {
 	createDefaultSessionSelectionSnapshot,
 	defaultResolveSessionSelectionRequest,
-	formatSessionSelectionSnapshot,
 	type SessionSelectionSnapshot,
+	selectionSnapshotToCurrentModel,
 	selectionSnapshotToModelOverride,
+	selectionSnapshotToProviderId,
 } from "./session-selection.ts";
 import {
 	applyHistoryShadowUpdate,
@@ -62,6 +64,10 @@ export interface AgentFactoryOptions {
 	initialHistory?: Message[];
 	/** Model override from /model command. */
 	model?: string | ModelRef;
+	/** Provider context for provider-relative tier resolution. */
+	providerIdOverride?: string;
+	/** Provider settings used for provider-relative tier resolution. */
+	resolverSettings?: ResolverSettings;
 	/** Bus-based spawner for running subagents as separate processes. */
 	spawner?: AgentSpawner;
 	/** Pre-loaded Genome instance. If provided, skips loading from disk. */
@@ -118,6 +124,7 @@ export interface SessionControllerOptions {
 	client?: import("../llm/client.ts").Client;
 	initialSelection?: SessionSelectionSnapshot;
 	resolveSelection?: (selection: SessionSelectionRequest) => SessionSelectionSnapshot;
+	getResolverSettings?: () => ResolverSettings | undefined;
 }
 
 /**
@@ -196,6 +203,7 @@ export class SessionController {
 	private readonly resolveSelectionFn: (
 		selection: SessionSelectionRequest,
 	) => SessionSelectionSnapshot;
+	private readonly getResolverSettings?: () => ResolverSettings | undefined;
 	private history: Message[] = [];
 	private running = false;
 	private selectionSnapshot: SessionSelectionSnapshot;
@@ -228,6 +236,7 @@ export class SessionController {
 		this.logger = options.logger;
 		this.client = options.client;
 		this.resolveSelectionFn = options.resolveSelection ?? defaultResolveSessionSelectionRequest;
+		this.getResolverSettings = options.getResolverSettings;
 		this.selectionSnapshot = options.initialSelection ?? createDefaultSessionSelectionSnapshot();
 		this.history = options.initialHistory ? [...options.initialHistory] : [];
 
@@ -436,6 +445,8 @@ export class SessionController {
 				sessionId: this._sessionId,
 				initialHistory: this.history.length > 0 ? [...this.history] : undefined,
 				model: selectionSnapshotToModelOverride(this.selectionSnapshot),
+				providerIdOverride: selectionSnapshotToProviderId(this.selectionSnapshot),
+				resolverSettings: this.getResolverSettings?.(),
 				spawner: this.spawner,
 				genome: this.genome,
 				completedHandles: this.completedHandles,
@@ -495,7 +506,7 @@ export class SessionController {
 	}
 
 	get currentModel(): string | undefined {
-		return formatSessionSelectionSnapshot(this.selectionSnapshot);
+		return selectionSnapshotToCurrentModel(this.selectionSnapshot);
 	}
 
 	get currentSelection(): SessionSelectionSnapshot {
