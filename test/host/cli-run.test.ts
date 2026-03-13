@@ -104,4 +104,81 @@ describe("runCli", () => {
 			process.exitCode = priorExitCode ?? 0;
 		}
 	});
+
+	test("cleans up bus infrastructure when interactive bootstrap fails", async () => {
+		let cleanupCount = 0;
+
+		await expect(
+			runCli(
+				{
+					kind: "interactive",
+					genomePath: "/tmp/genome",
+				},
+				{
+					loadDotenv: () => {},
+					resolveProjectDir: async () => "/tmp/project",
+					startBusInfrastructure: async () => ({
+						server: {} as any,
+						bus: {} as any,
+						spawner: {} as any,
+						genome: {} as any,
+						cleanup: async () => {
+							cleanupCount++;
+						},
+					}),
+					bootstrapRuntime: async () => {
+						throw new Error("bootstrap failed");
+					},
+				},
+			),
+		).rejects.toThrow("bootstrap failed");
+
+		expect(cleanupCount).toBe(1);
+	});
+
+	test("does not print env-key warnings before shared runtime bootstrap", async () => {
+		const errors: string[] = [];
+		const savedEnv = {
+			ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+			OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+			GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+			GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
+		};
+		delete process.env.ANTHROPIC_API_KEY;
+		delete process.env.OPENAI_API_KEY;
+		delete process.env.GEMINI_API_KEY;
+		delete process.env.GOOGLE_API_KEY;
+
+		try {
+			await runCli(
+				{
+					kind: "headless",
+					goal: "continue",
+					genomePath: "/tmp/genome",
+				},
+				{
+					loadDotenv: () => {},
+					resolveProjectDir: async () => "/tmp/project",
+					runHeadlessMode: async () => ({
+						sessionId: "01HEADLESS",
+						output: "done",
+						success: true,
+						stumbles: 0,
+						turns: 1,
+						timedOut: false,
+					}),
+					logError: (line) => {
+						errors.push(line);
+					},
+				},
+			);
+		} finally {
+			for (const [key, value] of Object.entries(savedEnv)) {
+				if (value === undefined) delete process.env[key];
+				else process.env[key] = value;
+			}
+		}
+
+		expect(errors).toEqual([]);
+	});
 });

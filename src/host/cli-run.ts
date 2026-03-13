@@ -101,18 +101,6 @@ export async function runCli(command: CliCommand, deps: Partial<CliRunDeps> = {}
 
 	await d.loadDotenv();
 
-	if (
-		!process.env.ANTHROPIC_API_KEY &&
-		!process.env.OPENAI_API_KEY &&
-		!process.env.GEMINI_API_KEY &&
-		!process.env.GOOGLE_API_KEY
-	) {
-		d.logError(
-			"[sprout] Warning: No LLM API keys found. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY.\n" +
-				"         Ensure your .env file is in the working directory, or export the variables directly.",
-		);
-	}
-
 	const rootDir = join(import.meta.dir, "../../root");
 	const projectDir = await d.resolveProjectDir();
 	const projectDataDirPath = computeProjectDataDir(command.genomePath, projectDir);
@@ -173,37 +161,45 @@ export async function runCli(command: CliCommand, deps: Partial<CliRunDeps> = {}
 		sessionId,
 		rootDir,
 	});
-
-	const runtime = await d.bootstrapRuntime({
-		genomePath: command.genomePath,
-		projectDataDir: projectDataDirPath,
-		rootDir,
-		sessionId,
-		initialHistory: resumeState?.history,
-		initialSelectionRequest: resumeState?.selectionRequest,
-		completedHandles: resumeState?.completedHandles,
-		infra,
-		logStderr: command.logStderr,
-		debug: command.debug,
-	});
-	await d.runInteractiveMode({
-		command: {
+	let interactiveModeOwnsInfra = false;
+	try {
+		const runtime = await d.bootstrapRuntime({
 			genomePath: command.genomePath,
-			web: command.web,
-			webOnly: command.webOnly,
-			port: command.port,
-			host: command.host,
-			webToken: command.webToken,
-		},
-		sessionId,
-		projectDataDir: projectDataDirPath,
-		runtime: buildInteractiveModeRuntime(runtime),
-		initialEvents: resumeState?.events,
-		cleanupInfra: infra.cleanup,
-		onResumeHint: (nextSessionId) => {
-			printResumeHint(nextSessionId, d.logError);
-		},
-		inputHistoryPath,
-		handleSlashCommand,
-	});
+			projectDataDir: projectDataDirPath,
+			rootDir,
+			sessionId,
+			initialHistory: resumeState?.history,
+			initialSelectionRequest: resumeState?.selectionRequest,
+			completedHandles: resumeState?.completedHandles,
+			infra,
+			logStderr: command.logStderr,
+			debug: command.debug,
+		});
+		interactiveModeOwnsInfra = true;
+		await d.runInteractiveMode({
+			command: {
+				genomePath: command.genomePath,
+				web: command.web,
+				webOnly: command.webOnly,
+				port: command.port,
+				host: command.host,
+				webToken: command.webToken,
+			},
+			sessionId,
+			projectDataDir: projectDataDirPath,
+			runtime: buildInteractiveModeRuntime(runtime),
+			initialEvents: resumeState?.events,
+			cleanupInfra: infra.cleanup,
+			onResumeHint: (nextSessionId) => {
+				printResumeHint(nextSessionId, d.logError);
+			},
+			inputHistoryPath,
+			handleSlashCommand,
+		});
+	} catch (error) {
+		if (!interactiveModeOwnsInfra) {
+			await infra.cleanup();
+		}
+		throw error;
+	}
 }

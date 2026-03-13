@@ -172,4 +172,36 @@ describe("runHeadlessMode", () => {
 
 		expect(cleanupCount).toBe(1);
 	});
+
+	test("fails clearly when the shared runtime controller cannot run headless goals", async () => {
+		let cleanupCount = 0;
+
+		await expect(
+			runHeadlessMode(
+				{
+					goal: "boom",
+					genomePath: "/tmp/genome",
+					projectDataDir: "/tmp/project",
+					rootDir: "/tmp/root",
+					startBusInfrastructure: async () => ({
+						spawner: { id: "spawner" } as any,
+						genome: { id: "genome" } as any,
+						cleanup: async () => {
+							cleanupCount++;
+						},
+					}),
+				},
+				{
+					createSessionId: () => "01FAIL",
+					bootstrapRuntime: async () => ({
+						controller: {} as any,
+					}),
+					writeStdout: () => {},
+					writeStderr: () => {},
+				},
+			),
+		).rejects.toThrow("Shared session runtime does not expose runGoal()");
+
+		expect(cleanupCount).toBe(1);
+	});
 });

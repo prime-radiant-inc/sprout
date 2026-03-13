@@ -39,6 +39,17 @@ interface HeadlessRuntime {
 	};
 }
 
+function requireHeadlessRuntimeController(controller: unknown): HeadlessRuntime["controller"] {
+	const candidate =
+		controller && typeof controller === "object"
+			? (controller as { runGoal?: unknown })
+			: undefined;
+	if (typeof candidate?.runGoal === "function") {
+		return controller as HeadlessRuntime["controller"];
+	}
+	throw new Error("Shared session runtime does not expose runGoal()");
+}
+
 interface HeadlessDeps {
 	createSessionId: () => string;
 	bootstrapRuntime: (options: SessionBootstrapOptions) => Promise<HeadlessRuntime>;
@@ -84,7 +95,8 @@ export async function runHeadlessMode(
 			completedHandles: opts.completedHandles,
 			infra,
 		});
-		const result = await runtime.controller.runGoal(opts.goal);
+		const controller = requireHeadlessRuntimeController(runtime.controller);
+		const result = await controller.runGoal(opts.goal);
 		if (result.output) {
 			d.writeStdout(result.output);
 		}
