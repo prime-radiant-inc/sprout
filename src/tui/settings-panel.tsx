@@ -8,7 +8,7 @@ import {
 	ProviderSettingsEditor,
 } from "./provider-settings-editor.tsx";
 
-type SelectedView = "default-provider" | "create" | string;
+type SelectedView = "defaults" | "create" | string;
 
 export interface SettingsPanelProps {
 	settings: SettingsSnapshot | null;
@@ -20,7 +20,7 @@ export interface SettingsPanelProps {
 function selectInitialView(settings: SettingsSnapshot | null): SelectedView {
 	if (!settings) return "create";
 	if (settings.settings.providers.length === 0) return "create";
-	return "default-provider";
+	return "defaults";
 }
 
 function createInitialDrafts(
@@ -85,7 +85,7 @@ export function SettingsPanel({ settings, lastResult, onCommand, onClose }: Sett
 			return;
 		}
 		if (
-			selectedView !== "default-provider" &&
+			selectedView !== "defaults" &&
 			selectedView !== "create" &&
 			!settings.settings.providers.some((provider) => provider.id === selectedView)
 		) {
@@ -113,7 +113,7 @@ export function SettingsPanel({ settings, lastResult, onCommand, onClose }: Sett
 
 	const selectedProvider = useMemo(
 		() =>
-			selectedView === "default-provider" || selectedView === "create"
+			selectedView === "defaults" || selectedView === "create"
 				? undefined
 				: settings?.settings.providers.find((provider) => provider.id === selectedView),
 		[settings, selectedView],
@@ -154,7 +154,7 @@ export function SettingsPanel({ settings, lastResult, onCommand, onClose }: Sett
 			return;
 		}
 
-		if (currentView === "default-provider") {
+		if (currentView === "defaults") {
 			const next = applyDefaultProviderCommand(commandText, currentSettings);
 			if (next.error) {
 				setMessage(next.error);
@@ -208,9 +208,9 @@ export function SettingsPanel({ settings, lastResult, onCommand, onClose }: Sett
 			<Box gap={4}>
 				<Box flexDirection="column" width={24}>
 					<Text bold>Views</Text>
-					<Text color={selectedView === "default-provider" ? "cyan" : undefined}>
-						{selectedView === "default-provider" ? "> " : "  "}
-						Default provider
+					<Text color={selectedView === "defaults" ? "cyan" : undefined}>
+						{selectedView === "defaults" ? "> " : "  "}
+						Default models
 					</Text>
 					{settings.settings.providers.map((provider) => (
 						<Text key={provider.id} color={selectedView === provider.id ? "cyan" : undefined}>
@@ -225,7 +225,7 @@ export function SettingsPanel({ settings, lastResult, onCommand, onClose }: Sett
 				</Box>
 
 				<Box flexDirection="column" flexGrow={1}>
-					{selectedView === "default-provider" ? (
+					{selectedView === "defaults" ? (
 						<DefaultProviderSummary settings={settings} lastResult={lastResult} />
 					) : (
 						<ProviderSettingsEditor
@@ -246,7 +246,7 @@ export function SettingsPanel({ settings, lastResult, onCommand, onClose }: Sett
 
 			{message && <Text color="yellow">{message}</Text>}
 			<Text color="gray">
-				Navigation: default-provider · create · open &lt;provider-id&gt; · next · prev · close
+				Navigation: defaults · create · open &lt;provider-id&gt; · next · prev · close
 			</Text>
 			<Text color="gray">Shortcuts are optional; use them when you already know the action.</Text>
 			<Text>shortcut&gt; {input}</Text>
@@ -271,13 +271,11 @@ function DefaultProviderSummary({
 
 	return (
 		<Box flexDirection="column" gap={1}>
-			<Text bold>Default provider</Text>
+			<Text bold>Default models</Text>
 			{lastResult && !lastResult.ok && <Text color="red">{lastResult.message}</Text>}
 			<Text>
-				Current default:{" "}
-				{defaultProvider
-					? `${defaultProvider.label} (${defaultProvider.id})`
-					: "Automatic provider selection"}
+				Fallback provider:{" "}
+				{defaultProvider ? `${defaultProvider.label} (${defaultProvider.id})` : "Not configured"}
 			</Text>
 			<Text bold>Enabled providers</Text>
 			{enabledProviders.length === 0 ? (
@@ -325,7 +323,7 @@ function formatProviderNavLabel(
 	settings: SettingsSnapshot,
 ): string {
 	const markers = [
-		provider.id === settings.settings.defaults.defaultProviderId ? "default" : undefined,
+		provider.id === settings.settings.defaults.defaultProviderId ? "fallback" : undefined,
 		!provider.enabled ? "disabled" : undefined,
 	].filter(Boolean);
 	if (markers.length === 0) return provider.label;
@@ -344,8 +342,8 @@ function applyGlobalCommand(
 		setSelectedView("create");
 		return { handled: true };
 	}
-	if (trimmed === "default-provider") {
-		setSelectedView("default-provider");
+	if (trimmed === "defaults") {
+		setSelectedView("defaults");
 		return { handled: true };
 	}
 	if (trimmed === "close") {
@@ -354,7 +352,7 @@ function applyGlobalCommand(
 	}
 	if (trimmed === "next" || trimmed === "prev") {
 		const order = [
-			"default-provider",
+			"defaults",
 			...settings.settings.providers.map((provider) => provider.id),
 			"create",
 		];
@@ -436,7 +434,7 @@ function applyDefaultProviderCommand(
 		};
 	}
 	if (!trimmed.startsWith("default ")) {
-		return { error: "Unknown default-provider command." };
+		return { error: "Unknown defaults command." };
 	}
 	const providerId = trimmed.slice("default ".length).trim();
 	if (!providerId) {
@@ -447,7 +445,7 @@ function applyDefaultProviderCommand(
 		return { error: `Unknown provider: ${providerId}` };
 	}
 	if (!provider.enabled) {
-		return { error: `Default provider must be enabled: ${providerId}` };
+		return { error: `Fallback provider must be enabled: ${providerId}` };
 	}
 	return {
 		command: {

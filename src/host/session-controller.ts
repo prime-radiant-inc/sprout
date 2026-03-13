@@ -158,6 +158,8 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 		sessionId: options.sessionId,
 		initialHistory: options.initialHistory,
 		model: options.model,
+		providerIdOverride: options.providerIdOverride,
+		resolverSettings: options.resolverSettings,
 		spawner: options.spawner,
 		genome: options.genome,
 		logger: options.logger,

@@ -525,6 +525,7 @@ export class WebServer {
 			kind === "set_provider_enabled" ||
 			kind === "test_provider_connection" ||
 			kind === "refresh_provider_models" ||
+			kind === "set_global_tier_default" ||
 			kind === "set_default_provider"
 		);
 	}

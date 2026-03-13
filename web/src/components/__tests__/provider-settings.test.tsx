@@ -14,6 +14,7 @@ import {
 	createSetProviderSecretCommand,
 	createTestProviderConnectionCommand,
 	createToggleProviderEnabledCommand,
+	describePendingProviderAction,
 	ProviderEditor,
 	validateProviderDraftForSave,
 } from "../settings/ProviderEditor.tsx";
@@ -189,7 +190,7 @@ describe("ProviderSettingsPanel", () => {
 		).toContain("No providers configured");
 	});
 
-	test("renders the default provider panel and runtime warnings", () => {
+	test("renders the default models panel and runtime warnings", () => {
 		const settings = makeSettings();
 		settings.runtime.warnings = [
 			{
@@ -207,7 +208,7 @@ describe("ProviderSettingsPanel", () => {
 			/>,
 		);
 
-		expect(html).toContain("Default provider");
+		expect(html).toContain("Default models");
 		expect(html).toContain("Recovered invalid settings file to /tmp/settings.invalid.json");
 	});
 
@@ -229,15 +230,32 @@ describe("ProviderSettingsPanel", () => {
 		expect(html).toContain("Claude Sonnet 4.6");
 		expect(html).not.toContain("Tier defaults");
 	});
+
+	test("renders pending provider action feedback", () => {
+		const html = renderToStaticMarkup(
+			<ProviderEditor
+				mode="edit"
+				provider={makeSettings().settings.providers[0]}
+				status={makeSettings().providers[0]}
+				catalogEntry={makeSettings().catalog[0]}
+				pendingMessage="Refreshing models..."
+				onCommand={() => {}}
+			/>,
+		);
+
+		expect(html).toContain("Refreshing models...");
+		expect(html).toContain("disabled");
+	});
 });
 
 describe("DefaultProviderPanel", () => {
-	test("renders the current enabled default provider and global tier selectors", () => {
+	test("renders the current enabled default models controls", () => {
 		const html = renderToStaticMarkup(
 			<DefaultProviderPanel settings={makeSettings()} onCommand={() => {}} />,
 		);
 
-		expect(html).toContain("Default provider");
+		expect(html).toContain("Default models");
+		expect(html).toContain("Fallback provider");
 		expect(html).toContain("Anthropic");
 		expect(html).toContain("Best model");
 		expect(html).toContain("Balanced model");
@@ -395,5 +413,21 @@ describe("ProviderEditor helpers", () => {
 				providerId: "lmstudio",
 			},
 		} satisfies SettingsCommand);
+	});
+
+	test("describes pending provider actions for long-running commands", () => {
+		expect(
+			describePendingProviderAction(createTestProviderConnectionCommand("lmstudio")),
+		).toEqual({
+			providerId: "lmstudio",
+			message: "Testing connection...",
+		});
+		expect(
+			describePendingProviderAction(createRefreshProviderModelsCommand("lmstudio")),
+		).toEqual({
+			providerId: "lmstudio",
+			message: "Refreshing models...",
+		});
+		expect(describePendingProviderAction(createDeleteProviderCommand("lmstudio"))).toBeUndefined();
 	});
 });

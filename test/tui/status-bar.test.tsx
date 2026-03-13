@@ -95,7 +95,7 @@ describe("formatSelectionLabel", () => {
 				"claude-sonnet-4-6",
 				makeSettingsSnapshot(),
 			),
-		).toBe("Default provider · Anthropic");
+		).toBe("Default · Anthropic");
 	});
 
 	test("renders global tier labels with their resolved provider", () => {
@@ -171,7 +171,7 @@ describe("StatusBar", () => {
 		expect(frame).toContain("Claude Sonnet 4.6");
 	});
 
-	test("renders default-provider inherit selection label", () => {
+	test("renders inherit selection label", () => {
 		const { lastFrame } = render(
 			<StatusBar
 				{...makeProps({

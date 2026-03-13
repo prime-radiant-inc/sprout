@@ -60,10 +60,7 @@ export function buildModelPickerOptions({
 	};
 
 	if (!settings) {
-		pushSelection(
-			{ kind: "inherit" },
-			currentModel ? `Default provider · ${currentModel}` : "Default provider",
-		);
+		pushSelection({ kind: "inherit" }, currentModel ? `Default · ${currentModel}` : "Default");
 		for (const tier of ["best", "balanced", "fast"] as const) {
 			if (availableModels.includes(tier)) {
 				pushSelection({ kind: "tier", tier }, TIER_LABELS[tier]);
@@ -232,9 +229,9 @@ function formatGlobalDefaultLabel(settings: SettingsSnapshot, currentModel: stri
 			)
 		: undefined;
 	if (provider) {
-		return `Default provider · ${provider.label}`;
+		return `Default · ${provider.label}`;
 	}
-	return currentModel ? `Default provider · ${currentModel}` : "Default provider";
+	return currentModel ? `Default · ${currentModel}` : "Default";
 }
 
 function formatSelectionLabel(
@@ -248,7 +245,7 @@ function formatSelectionLabel(
 			const provider = providerId
 				? settings?.settings.providers.find((candidate) => candidate.id === providerId)
 				: undefined;
-			return provider ? `${provider.label} · Default` : "Default provider";
+			return provider ? `Default · ${provider.label}` : "Default";
 		}
 		case "tier": {
 			const providerId =

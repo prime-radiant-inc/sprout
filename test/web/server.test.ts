@@ -658,10 +658,35 @@ describe("WebServer", () => {
 
 			await delay(50);
 			received.length = 0;
-			ws.send(JSON.stringify({ type: "command", command: { kind: "get_settings", data: {} } }));
+			ws.send(
+				JSON.stringify({
+					type: "command",
+					command: {
+						kind: "set_global_tier_default",
+						data: {
+							tier: "fast",
+							model: {
+								providerId: "openrouter-main",
+								modelId: "openai/gpt-4.1",
+							},
+						},
+					},
+				}),
+			);
 			await delay(100);
 
-			expect(received).toEqual([{ kind: "get_settings", data: {} }]);
+			expect(received).toEqual([
+				{
+					kind: "set_global_tier_default",
+					data: {
+						tier: "fast",
+						model: {
+							providerId: "openrouter-main",
+							modelId: "openai/gpt-4.1",
+						},
+					},
+				},
+			]);
 			expect(messages.map((message) => message.type)).toContain("settings_result");
 			expect(messages.map((message) => message.type)).toContain("settings_updated");
 		});

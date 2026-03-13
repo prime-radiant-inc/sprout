@@ -32,6 +32,7 @@ export interface ProviderEditorProps {
 	status?: SettingsSnapshot["providers"][number];
 	catalogEntry?: SettingsSnapshot["catalog"][number];
 	message?: string | null;
+	pendingMessage?: string | null;
 	fieldErrors?: Record<string, string>;
 	onCommand: (command: SettingsCommand) => void;
 }
@@ -217,12 +218,32 @@ export function createDeleteProviderCommand(providerId: string): SettingsCommand
 	};
 }
 
+export function describePendingProviderAction(
+	command: SettingsCommand,
+): { providerId: string; message: string } | undefined {
+	switch (command.kind) {
+		case "test_provider_connection":
+			return {
+				providerId: command.data.providerId,
+				message: "Testing connection...",
+			};
+		case "refresh_provider_models":
+			return {
+				providerId: command.data.providerId,
+				message: "Refreshing models...",
+			};
+		default:
+			return undefined;
+	}
+}
+
 export function ProviderEditor({
 	mode,
 	provider,
 	status,
 	catalogEntry,
 	message,
+	pendingMessage,
 	fieldErrors,
 	onCommand,
 }: ProviderEditorProps) {
@@ -268,6 +289,7 @@ export function ProviderEditor({
 			</div>
 
 			{message && <div className={styles.errorBanner}>{message}</div>}
+			{pendingMessage && <div className={styles.messageBanner}>{pendingMessage}</div>}
 
 			<div className={styles.formGrid}>
 				<div className={styles.field}>
@@ -454,6 +476,7 @@ export function ProviderEditor({
 							className={styles.secondaryButton}
 							data-action="test-provider"
 							data-provider-id={provider.id}
+							disabled={Boolean(pendingMessage)}
 							onClick={() => onCommand(createTestProviderConnectionCommand(provider.id))}
 						>
 							Test connection
@@ -463,6 +486,7 @@ export function ProviderEditor({
 							className={styles.secondaryButton}
 							data-action="refresh-provider-models"
 							data-provider-id={provider.id}
+							disabled={Boolean(pendingMessage)}
 							onClick={() => onCommand(createRefreshProviderModelsCommand(provider.id))}
 						>
 							Refresh models

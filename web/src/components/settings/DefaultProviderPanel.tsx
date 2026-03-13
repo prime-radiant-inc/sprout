@@ -49,10 +49,10 @@ export function DefaultProviderPanel({
 	return (
 		<div className={styles.section}>
 			<div>
-				<h2 className={styles.sectionTitle}>Default provider</h2>
+				<h2 className={styles.sectionTitle}>Default models</h2>
 				<p className={styles.sectionText}>
-					Sprout uses this provider when a session has no exact-model selection. Tier defaults
-					are global provider-model tuples and can point at any enabled provider.
+					Choose the fallback provider for exact-model browsing and the global provider-model
+					tuples for best, balanced, and fast.
 				</p>
 			</div>
 
@@ -61,7 +61,7 @@ export function DefaultProviderPanel({
 			<div className={styles.formGrid}>
 				<div className={styles.field}>
 					<label className={styles.fieldLabel} htmlFor="default-provider">
-						Default provider
+						Fallback provider
 					</label>
 					<select
 						id="default-provider"
@@ -77,7 +77,7 @@ export function DefaultProviderPanel({
 							})
 						}
 					>
-						<option value="">No default provider</option>
+						<option value="">No fallback provider</option>
 						{enabledProviders.map((provider) => (
 							<option key={provider.id} value={provider.id}>
 								{provider.label}
@@ -144,7 +144,7 @@ export function DefaultProviderPanel({
 
 			{enabledProviders.length === 0 && (
 				<div className={styles.emptyState}>
-					Enable a provider to make it available as the default provider.
+					Enable a provider to make it available as the fallback provider.
 				</div>
 			)}
 		</div>

@@ -1,12 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createResolverSettings } from "../../src/agents/model-resolver.ts";
 import type { EventMessage } from "../../src/bus/types.ts";
 import { EventBus } from "../../src/host/event-bus.ts";
 import { type LogEntry, NullLogger, SessionLogger } from "../../src/host/logger.ts";
 import { type AgentFactory, SessionController } from "../../src/host/session-controller.ts";
 import type { SessionMetadataSnapshot } from "../../src/host/session-metadata.ts";
+import { Msg, type ProviderModel, type Response } from "../../src/llm/types.ts";
 import { sleep, waitFor } from "../helpers/wait-for.ts";
 
 /** Minimal fake agent that satisfies the RunnableAgent interface. */
@@ -137,6 +139,76 @@ describe("SessionController", () => {
 		expect(controller.isRunning).toBe(false);
 		expect(fake.runCalled).toBe(true);
 		expect(fake.runGoal).toBe("Fix the bug");
+	});
+
+	test("default factory forwards resolver settings into createAgent for tier-based root models", async () => {
+		const bus = new EventBus();
+		const rootDir = join(tempDir, "root-spec");
+		await mkdir(rootDir, { recursive: true });
+		await writeFile(
+			join(rootDir, "root.md"),
+			[
+				"---",
+				'name: "root"',
+				'description: "Test root"',
+				"model: best",
+				'tools: ["read_file"]',
+				"---",
+				"You are a test root.",
+				"",
+			].join("\n"),
+		);
+
+		const modelId = "claude-sonnet-4-6";
+		const providerId = "anthropic";
+		const modelsByProvider = new Map<string, ProviderModel[]>([
+			[
+				providerId,
+				[
+					{
+						id: modelId,
+						label: modelId,
+						source: "remote",
+					},
+				],
+			],
+		]);
+		const response: Response = {
+			id: "mock-response",
+			model: modelId,
+			provider: providerId,
+			message: Msg.assistant("done"),
+			finish_reason: { reason: "stop" },
+			usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+		};
+		const client = {
+			providers: () => [providerId],
+			listModelsByProvider: async () => modelsByProvider,
+			complete: async (): Promise<Response> => response,
+			stream: async function* () {
+				yield {
+					type: "finish",
+					response,
+				} as any;
+			},
+		} as any;
+
+		const controller = new SessionController({
+			bus,
+			genomePath: join(tempDir, "genome"),
+			projectDataDir: tempDir,
+			rootDir,
+			client,
+			getResolverSettings: () =>
+				createResolverSettings([{ id: providerId, enabled: true }], providerId, {
+					best: {
+						providerId,
+						modelId,
+					},
+				}),
+		});
+
+		await expect(controller.submitGoal("say hello")).resolves.toBeUndefined();
 	});
 
 	test("submitGoal routes as steer when already running", async () => {

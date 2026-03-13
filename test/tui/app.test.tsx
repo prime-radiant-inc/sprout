@@ -505,8 +505,8 @@ describe("App", () => {
 
 		const frame = lastFrame()!;
 		expect(frame).toContain("Provider settings");
-		expect(frame).toContain("Default provider");
-		expect(frame).toContain("Current default: Anthropic (anthropic-main)");
+		expect(frame).toContain("Default models");
+		expect(frame).toContain("Fallback provider: Anthropic (anthropic-main)");
 		expect(frame).toContain("shortcut>");
 	});
 
@@ -528,7 +528,7 @@ describe("App", () => {
 			return Boolean(
 				frame?.includes("Provider settings") &&
 					frame.includes("shortcut>") &&
-					frame.includes("Current default: Anthropic (anthropic-main)"),
+					frame.includes("Fallback provider: Anthropic (anthropic-main)"),
 			);
 		});
 		await flush();
@@ -553,7 +553,7 @@ describe("App", () => {
 		});
 		await waitFor(() => {
 			const frame = lastFrame();
-			return frame?.includes("Current default: LM Studio (lmstudio)") ?? false;
+			return frame?.includes("Fallback provider: LM Studio (lmstudio)") ?? false;
 		});
 	});
 

@@ -5,7 +5,7 @@ import type {
 	SettingsSnapshot,
 } from "@kernel/types.ts";
 import { DefaultProviderPanel } from "./DefaultProviderPanel.tsx";
-import { ProviderEditor } from "./ProviderEditor.tsx";
+import { describePendingProviderAction, ProviderEditor } from "./ProviderEditor.tsx";
 import styles from "./ProviderSettingsPanel.module.css";
 import { ProviderList } from "./ProviderList.tsx";
 
@@ -33,6 +33,10 @@ export function ProviderSettingsPanel({
 	const [selectedView, setSelectedView] = useState<SelectedView>(() =>
 		selectInitialView(settings),
 	);
+	const [pendingProviderAction, setPendingProviderAction] = useState<{
+		providerId: string;
+		message: string;
+	} | null>(null);
 	const previousProviderIdsRef = useRef<string[]>(settings?.settings.providers.map((provider) => provider.id) ?? []);
 
 	useEffect(() => {
@@ -56,6 +60,10 @@ export function ProviderSettingsPanel({
 		}
 	}, [settings, selectedView]);
 
+	useEffect(() => {
+		setPendingProviderAction(null);
+	}, [settings, lastResult]);
+
 	const selectedProvider = useMemo(
 		() =>
 			settings?.settings.providers.find((provider) => provider.id === selectedView),
@@ -69,6 +77,10 @@ export function ProviderSettingsPanel({
 	);
 	const message = lastResult && !lastResult.ok ? lastResult.message : null;
 	const fieldErrors = lastResult && !lastResult.ok ? lastResult.fieldErrors : undefined;
+	const handleCommand = (command: SettingsCommand) => {
+		setPendingProviderAction(describePendingProviderAction(command) ?? null);
+		onCommand(command);
+	};
 
 	if (!settings) {
 		if (lastResult && !lastResult.ok) {
@@ -118,7 +130,7 @@ export function ProviderSettingsPanel({
 					<div className={styles.titleGroup}>
 						<h2 className={styles.title}>Provider settings</h2>
 						<span className={styles.subtitle}>
-							Manage providers, credentials, the default provider, and global tier defaults.
+							Manage providers, credentials, the fallback provider, and default models.
 						</span>
 					</div>
 					<button type="button" className={styles.close} onClick={onClose}>
@@ -157,14 +169,14 @@ export function ProviderSettingsPanel({
 								settings={settings}
 								message={message}
 								fieldErrors={fieldErrors}
-								onCommand={onCommand}
+								onCommand={handleCommand}
 							/>
 						) : selectedView === "create" ? (
 							<ProviderEditor
 								mode="create"
 								message={message}
 								fieldErrors={fieldErrors}
-								onCommand={onCommand}
+								onCommand={handleCommand}
 							/>
 						) : (
 							<ProviderEditor
@@ -173,8 +185,14 @@ export function ProviderSettingsPanel({
 								status={selectedStatus}
 								catalogEntry={selectedCatalog}
 								message={message}
+								pendingMessage={
+									selectedProvider &&
+									pendingProviderAction?.providerId === selectedProvider.id
+										? pendingProviderAction.message
+										: null
+								}
 								fieldErrors={fieldErrors}
-								onCommand={onCommand}
+								onCommand={handleCommand}
 							/>
 						)}
 					</div>

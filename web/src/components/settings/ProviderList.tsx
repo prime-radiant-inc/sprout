@@ -44,8 +44,8 @@ export function ProviderList({
 				data-action="select-defaults"
 				onClick={onSelectDefaults}
 			>
-				<span className={styles.listTitle}>Default provider</span>
-				<span className={styles.listMeta}>Session provider fallback</span>
+				<span className={styles.listTitle}>Default models</span>
+				<span className={styles.listMeta}>Fallback provider and tier defaults</span>
 			</button>
 
 			{settings.settings.providers.map((provider) => {

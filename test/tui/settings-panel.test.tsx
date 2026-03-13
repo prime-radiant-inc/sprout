@@ -92,7 +92,7 @@ describe("SettingsPanel", () => {
 		);
 	});
 
-	test("navigates between views and issues create, default-provider, and edit commands", async () => {
+	test("navigates between views and issues create, defaults, and edit commands", async () => {
 		const commands: unknown[] = [];
 		const { stdin, lastFrame } = render(
 			<SettingsPanel
@@ -105,17 +105,15 @@ describe("SettingsPanel", () => {
 			/>,
 		);
 
-		expect(lastFrame()).toContain("Default provider");
-		expect(lastFrame()).toContain("Current default: Anthropic (anthropic-main)");
+		expect(lastFrame()).toContain("Default models");
+		expect(lastFrame()).toContain("Fallback provider: Anthropic (anthropic-main)");
 		expect(lastFrame()).toContain("Latest command failed");
 
 		await submitCommand(stdin, "create", () => (lastFrame() ?? "").includes("Create provider"));
 		expect(lastFrame()).toContain("Create provider");
 
-		await submitCommand(stdin, "default-provider", () =>
-			(lastFrame() ?? "").includes("Default provider"),
-		);
-		expect(lastFrame()).toContain("Default provider");
+		await submitCommand(stdin, "defaults", () => (lastFrame() ?? "").includes("Default models"));
+		expect(lastFrame()).toContain("Default models");
 		expect(lastFrame()).toContain("Latest command failed");
 
 		await submitCommand(stdin, "default lmstudio", () => commands.length === 1);

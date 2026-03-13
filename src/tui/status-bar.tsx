@@ -42,11 +42,9 @@ export function formatSelectionLabel(
 		case "inherit": {
 			const provider = selectionProvider(selection, settings);
 			if (provider) {
-				return `Default provider · ${provider.label}`;
+				return `Default · ${provider.label}`;
 			}
-			return currentModel
-				? `Default provider · ${shortModelName(currentModel)}`
-				: "Default provider";
+			return currentModel ? `Default · ${shortModelName(currentModel)}` : "Default";
 		}
 		case "tier": {
 			const provider = selectionProvider(selection, settings);
