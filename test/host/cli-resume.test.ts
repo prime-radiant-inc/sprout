@@ -198,13 +198,15 @@ describe("loadResumeState", () => {
 						providers: [
 							provider({
 								id: "openai",
-								tierDefaults: {
-									balanced: "gpt-4.1",
-								},
 							}),
 						],
 						defaults: {
-							defaultProviderId: "openai",
+							tierDefaults: {
+								balanced: {
+									providerId: "openai",
+									modelId: "gpt-4.1",
+								},
+							},
 						},
 					},
 					catalog: [
@@ -225,9 +227,9 @@ describe("loadResumeState", () => {
 		});
 	});
 
-	test("resolveResumeSelection rejects tier selections when no default provider is configured", () => {
+	test("resolveResumeSelection rejects tier selections when no global tier default is configured", () => {
 		expect(() =>
 			resolveResumeSelection({ kind: "tier", tier: "fast" }, selectionContext()),
-		).toThrow(/No provider selected/);
+		).toThrow(/No global 'fast' model is configured/);
 	});
 });

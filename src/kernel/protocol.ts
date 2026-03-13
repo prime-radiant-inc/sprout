@@ -73,6 +73,7 @@ const VALID_COMMAND_KINDS = new Set([
 	"set_provider_enabled",
 	"test_provider_connection",
 	"refresh_provider_models",
+	"set_global_tier_default",
 	"set_default_provider",
 ]);
 
@@ -86,6 +87,7 @@ const SETTINGS_COMMAND_KINDS = new Set([
 	"set_provider_enabled",
 	"test_provider_connection",
 	"refresh_provider_models",
+	"set_global_tier_default",
 	"set_default_provider",
 ]);
 
@@ -154,20 +156,31 @@ export function parseCommandMessage(raw: string): CommandMessage {
 function validateSettingsCommand(kind: string, data: Record<string, unknown>): void {
 	switch (kind) {
 		case "get_settings":
+			assertOnlyKnownKeys(data, [], "command.data");
 			return;
 		case "create_provider":
+			assertOnlyKnownKeys(
+				data,
+				["kind", "label", "baseUrl", "nonSecretHeaders", "discoveryStrategy", "manualModels"],
+				"command.data",
+			);
 			assertEnum(data.kind, PROVIDER_KINDS, "command.data.kind");
 			assertNonEmptyString(data.label, "command.data.label");
 			assertEnum(data.discoveryStrategy, DISCOVERY_STRATEGIES, "command.data.discoveryStrategy");
 			assertOptionalString(data.baseUrl, "command.data.baseUrl");
 			assertOptionalStringRecord(data.nonSecretHeaders, "command.data.nonSecretHeaders");
 			assertOptionalManualModels(data.manualModels, "command.data.manualModels");
-			assertOptionalTierDefaults(data.tierDefaults, "command.data.tierDefaults");
 			return;
 		case "update_provider": {
+			assertOnlyKnownKeys(data, ["providerId", "patch"], "command.data");
 			assertNonEmptyString(data.providerId, "command.data.providerId");
 			assertRecord(data.patch, "command.data.patch");
 			const patch = data.patch as Record<string, unknown>;
+			assertOnlyKnownKeys(
+				patch,
+				["label", "baseUrl", "nonSecretHeaders", "discoveryStrategy", "manualModels"],
+				"command.data.patch",
+			);
 			if (patch.label !== undefined) {
 				assertNonEmptyString(patch.label, "command.data.patch.label");
 			}
@@ -183,28 +196,49 @@ function validateSettingsCommand(kind: string, data: Record<string, unknown>): v
 			}
 			assertOptionalStringRecord(patch.nonSecretHeaders, "command.data.patch.nonSecretHeaders");
 			assertOptionalManualModels(patch.manualModels, "command.data.patch.manualModels");
-			assertOptionalTierDefaults(patch.tierDefaults, "command.data.patch.tierDefaults");
 			return;
 		}
 		case "delete_provider":
 		case "delete_provider_secret":
 		case "test_provider_connection":
 		case "refresh_provider_models":
+			assertOnlyKnownKeys(data, ["providerId"], "command.data");
 			assertNonEmptyString(data.providerId, "command.data.providerId");
 			return;
 		case "set_provider_secret":
+			assertOnlyKnownKeys(data, ["providerId", "secret"], "command.data");
 			assertNonEmptyString(data.providerId, "command.data.providerId");
 			assertNonEmptyString(data.secret, "command.data.secret");
 			return;
 		case "set_provider_enabled":
+			assertOnlyKnownKeys(data, ["providerId", "enabled"], "command.data");
 			assertNonEmptyString(data.providerId, "command.data.providerId");
 			assertBoolean(data.enabled, "command.data.enabled");
 			return;
+		case "set_global_tier_default":
+			assertOnlyKnownKeys(data, ["tier", "model"], "command.data");
+			assertEnum(data.tier, TIERS, "command.data.tier");
+			assertOptionalModelRef(data.model, "command.data.model");
+			return;
 		case "set_default_provider":
+			assertOnlyKnownKeys(data, ["providerId"], "command.data");
 			if (data.providerId !== undefined) {
 				assertNonEmptyString(data.providerId, "command.data.providerId");
 			}
 			return;
+	}
+}
+
+function assertOnlyKnownKeys(
+	value: Record<string, unknown>,
+	allowedKeys: string[],
+	path: string,
+): void {
+	const allowedKeySet = new Set(allowedKeys);
+	for (const key of Object.keys(value)) {
+		if (!allowedKeySet.has(key)) {
+			throw new Error(`${path}.${key} is not allowed`);
+		}
 	}
 }
 
@@ -267,23 +301,12 @@ function assertOptionalManualModels(value: unknown, path: string): void {
 		if (item.label !== undefined) {
 			assertString(item.label, `${path}[${index}].label`);
 		}
-		if (item.tierHint !== undefined) {
-			assertEnum(item.tierHint, TIERS, `${path}[${index}].tierHint`);
-		}
-		if (item.rank !== undefined) {
-			if (typeof item.rank !== "number" || Number.isNaN(item.rank)) {
-				throw new Error(`${path}[${index}].rank must be a number`);
-			}
-		}
 	}
 }
 
-function assertOptionalTierDefaults(value: unknown, path: string): void {
+function assertOptionalModelRef(value: unknown, path: string): void {
 	if (value === undefined) return;
 	assertRecord(value, path);
-	for (const key of ["best", "balanced", "fast"]) {
-		if (value[key] !== undefined) {
-			assertString(value[key], `${path}.${key}`);
-		}
-	}
+	assertNonEmptyString(value.providerId, `${path}.providerId`);
+	assertNonEmptyString(value.modelId, `${path}.modelId`);
 }

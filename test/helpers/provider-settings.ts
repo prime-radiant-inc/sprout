@@ -22,10 +22,6 @@ export function makeSettingsSnapshot(): SettingsSnapshot {
 					label: "Anthropic",
 					enabled: true,
 					discoveryStrategy: "remote-with-manual",
-					tierDefaults: {
-						best: "claude-opus-4-6",
-						balanced: "claude-sonnet-4-6",
-					},
 					createdAt: "2026-03-11T00:00:00.000Z",
 					updatedAt: "2026-03-11T00:00:00.000Z",
 				},
@@ -42,15 +38,26 @@ export function makeSettingsSnapshot(): SettingsSnapshot {
 							label: "Qwen 2.5 Coder",
 						},
 					],
-					tierDefaults: {
-						fast: "qwen2.5-coder",
-					},
 					createdAt: "2026-03-11T00:00:00.000Z",
 					updatedAt: "2026-03-11T00:00:00.000Z",
 				},
 			],
 			defaults: {
 				defaultProviderId: "anthropic-main",
+				tierDefaults: {
+					best: {
+						providerId: "anthropic-main",
+						modelId: "claude-opus-4-6",
+					},
+					balanced: {
+						providerId: "anthropic-main",
+						modelId: "claude-sonnet-4-6",
+					},
+					fast: {
+						providerId: "lmstudio",
+						modelId: "qwen2.5-coder",
+					},
+				},
 			},
 		},
 		providers: [

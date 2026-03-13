@@ -188,6 +188,33 @@ describe("SettingsControlPlane", () => {
 			},
 		});
 
+		const setFastTier = await plane.execute({
+			kind: "set_global_tier_default",
+			data: {
+				tier: "fast",
+				model: {
+					providerId: "lmstudio",
+					modelId: "qwen2.5-coder",
+				},
+			},
+		});
+		expect(setFastTier).toMatchObject({
+			ok: true,
+			snapshot: {
+				settings: {
+					defaults: {
+						defaultProviderId: "lmstudio",
+						tierDefaults: {
+							fast: {
+								providerId: "lmstudio",
+								modelId: "qwen2.5-coder",
+							},
+						},
+					},
+				},
+			},
+		});
+
 		const deleted = await plane.execute({
 			kind: "delete_provider",
 			data: { providerId: "openai" },
@@ -201,6 +228,84 @@ describe("SettingsControlPlane", () => {
 			},
 		});
 		expect(await secretStore.hasSecret(createProviderSecretRef("openai", "memory"))).toBe(false);
+	});
+
+	test("clears global tier defaults that reference a disabled or deleted provider", async () => {
+		const plane = await makePlane({
+			initialSettings: {
+				version: 1,
+				providers: [
+					{
+						id: "openrouter",
+						kind: "openrouter",
+						label: "OpenRouter",
+						enabled: true,
+						discoveryStrategy: "manual-only",
+						manualModels: [{ id: "anthropic/claude-opus-4.1" }],
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+					{
+						id: "lmstudio",
+						kind: "openai-compatible",
+						label: "LM Studio",
+						enabled: true,
+						baseUrl: "http://127.0.0.1:1234/v1",
+						discoveryStrategy: "manual-only",
+						manualModels: [{ id: "qwen2.5-coder" }],
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {
+					defaultProviderId: "openrouter",
+					tierDefaults: {
+						best: {
+							providerId: "openrouter",
+							modelId: "anthropic/claude-opus-4.1",
+						},
+						fast: {
+							providerId: "lmstudio",
+							modelId: "qwen2.5-coder",
+						},
+					},
+				},
+			},
+		});
+
+		const disabled = await plane.execute({
+			kind: "set_provider_enabled",
+			data: { providerId: "lmstudio", enabled: false },
+		});
+		expect(disabled).toMatchObject({
+			ok: true,
+			snapshot: {
+				settings: {
+					defaults: {
+						defaultProviderId: "openrouter",
+						tierDefaults: {
+							best: {
+								providerId: "openrouter",
+								modelId: "anthropic/claude-opus-4.1",
+							},
+						},
+					},
+				},
+			},
+		});
+
+		const deleted = await plane.execute({
+			kind: "delete_provider",
+			data: { providerId: "openrouter" },
+		});
+		expect(deleted).toMatchObject({
+			ok: true,
+			snapshot: {
+				settings: {
+					defaults: {},
+				},
+			},
+		});
 	});
 
 	test("surfaces provider health failures in snapshots without failing the command", async () => {

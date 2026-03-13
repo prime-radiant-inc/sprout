@@ -1,4 +1,8 @@
-import { SETTINGS_SCHEMA_VERSION, type SproutSettings } from "../../shared/provider-settings.ts";
+import {
+	SETTINGS_SCHEMA_VERSION,
+	type SproutSettings,
+	type Tier,
+} from "../../shared/provider-settings.ts";
 
 export * from "../../shared/provider-settings.ts";
 
@@ -29,5 +33,18 @@ export function validateSproutSettings(settings: SproutSettings): void {
 		throw new Error(
 			`Default provider must reference an enabled provider: ${settings.defaults.defaultProviderId}`,
 		);
+	}
+
+	const tierDefaults = settings.defaults.tierDefaults;
+	if (!tierDefaults) return;
+
+	for (const tier of ["best", "balanced", "fast"] as const satisfies Tier[]) {
+		const modelRef = tierDefaults[tier];
+		if (!modelRef) continue;
+		if (!enabledProviderIds.has(modelRef.providerId)) {
+			throw new Error(
+				`Tier default '${tier}' must reference an enabled provider: ${modelRef.providerId}`,
+			);
+		}
 	}
 }

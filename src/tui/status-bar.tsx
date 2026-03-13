@@ -42,9 +42,7 @@ export function formatSelectionLabel(
 		case "inherit": {
 			const provider = selectionProvider(selection, settings);
 			if (provider) {
-				return currentSelection.providerId
-					? `${provider.label} · Default`
-					: `Default provider · ${provider.label}`;
+				return `Default provider · ${provider.label}`;
 			}
 			return currentModel
 				? `Default provider · ${shortModelName(currentModel)}`
@@ -78,9 +76,7 @@ function selectionProvider(
 	const providerId =
 		selection.selection.kind === "model"
 			? selection.selection.model.providerId
-			: (selection.selection.providerId ??
-				selection.resolved?.providerId ??
-				settings?.settings.defaults.defaultProviderId);
+			: (selection.resolved?.providerId ?? settings?.settings.defaults.defaultProviderId);
 	if (!providerId) return undefined;
 	return settings?.settings.providers.find((candidate) => candidate.id === providerId);
 }

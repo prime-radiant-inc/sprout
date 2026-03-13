@@ -84,9 +84,9 @@ export interface AgentOptions {
 	initialHistory?: Message[];
 	/** Override the spec's model for this agent instance. */
 	modelOverride?: string | ModelRef;
-	/** Provider context for provider-relative tier resolution. */
+	/** Default provider context for exact-model resolution. */
 	providerIdOverride?: string;
-	/** Provider settings used for provider-relative tier resolution. */
+	/** Provider settings used for global tier and exact-model resolution. */
 	resolverSettings?: ResolverSettings;
 	/** Prompt preambles (global + role-specific) to prepend to system prompt. */
 	preambles?: Preambles;

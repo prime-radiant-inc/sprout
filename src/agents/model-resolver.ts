@@ -1,6 +1,6 @@
 import type { ProviderCatalogEntry } from "../llm/model-catalog.ts";
 import type { ProviderModel } from "../llm/types.ts";
-import type { ProviderConfig, ProviderTierDefaults } from "../shared/provider-settings.ts";
+import type { ProviderConfig, TierModelDefaults } from "../shared/provider-settings.ts";
 
 export interface ResolvedModel {
 	model: string;
@@ -17,28 +17,31 @@ export interface ModelRef {
 export interface ResolverProvider {
 	id: string;
 	enabled: boolean;
-	tierDefaults?: ProviderTierDefaults;
 }
 
 export interface ResolverSettings {
 	providers: ResolverProvider[];
 	defaults: {
 		defaultProviderId?: string;
+		tierDefaults?: TierModelDefaults;
 	};
 }
 const TIER_NAMES: readonly Tier[] = ["best", "balanced", "fast"];
 
 export function createResolverSettings(
-	providers: Pick<ProviderConfig, "id" | "enabled" | "tierDefaults">[],
+	providers: Pick<ProviderConfig, "id" | "enabled">[],
 	defaultProviderId?: string,
+	tierDefaults?: TierModelDefaults,
 ): ResolverSettings {
 	return {
 		providers: providers.map((provider) => ({
 			id: provider.id,
 			enabled: provider.enabled,
-			tierDefaults: provider.tierDefaults,
 		})),
-		defaults: defaultProviderId ? { defaultProviderId } : {},
+		defaults: {
+			...(defaultProviderId ? { defaultProviderId } : {}),
+			...(tierDefaults ? { tierDefaults } : {}),
+		},
 	};
 }
 
@@ -59,7 +62,7 @@ export function resolveModel(
 	}
 
 	if (TIER_NAMES.includes(selection as Tier)) {
-		return resolveTier(selection as Tier, settings, catalogMap, options);
+		return resolveTier(selection as Tier, settings, catalogMap);
 	}
 	return resolveProviderRelativeModel(selection, settings, catalogMap, options);
 }
@@ -102,15 +105,22 @@ function resolveTier(
 	tier: Tier,
 	settings: ResolverSettings,
 	catalog: Map<string, ProviderModel[]>,
-	options: ResolveModelOptions,
 ): ResolvedModel {
-	const provider = getSelectedProvider(settings, options);
-	const modelId = provider.tierDefaults?.[tier];
-	if (!modelId) {
-		throw new Error(`Provider '${provider.id}' does not define a '${tier}' model`);
+	const modelRef = settings.defaults.tierDefaults?.[tier];
+	if (!modelRef) {
+		throw new Error(`No global '${tier}' model is configured`);
 	}
-	assertProviderModelAvailable(provider.id, modelId, catalog);
-	return { provider: provider.id, model: modelId };
+	const provider = getEnabledProvider(modelRef.providerId, settings);
+	if (!provider) {
+		if (settings.providers.some((candidate) => candidate.id === modelRef.providerId)) {
+			throw new Error(
+				`Global '${tier}' model references disabled provider '${modelRef.providerId}'`,
+			);
+		}
+		throw new Error(`Global '${tier}' model references unknown provider '${modelRef.providerId}'`);
+	}
+	assertProviderModelAvailable(modelRef.providerId, modelRef.modelId, catalog);
+	return { provider: modelRef.providerId, model: modelRef.modelId };
 }
 
 function resolveProviderRelativeModel(
@@ -135,24 +145,6 @@ function resolveProviderRelativeModel(
 		provider: provider.id,
 		model: modelId,
 	};
-}
-
-function getSelectedProvider(
-	settings: ResolverSettings,
-	options: ResolveModelOptions,
-): ResolverProvider {
-	const providerId = options.providerId ?? settings.defaults.defaultProviderId;
-	if (!providerId) {
-		throw new Error("No provider selected for model resolution");
-	}
-	const provider = getEnabledProvider(providerId, settings);
-	if (!provider) {
-		if (settings.providers.some((candidate) => candidate.id === providerId)) {
-			throw new Error(`Provider '${providerId}' is disabled`);
-		}
-		throw new Error(`Unknown provider '${providerId}'`);
-	}
-	return provider;
 }
 
 function getEnabledProvider(

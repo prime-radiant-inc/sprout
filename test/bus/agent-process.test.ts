@@ -64,14 +64,14 @@ const TEST_RESOLVER_SETTINGS = createResolverSettings(
 		{
 			id: TEST_PROVIDER_ID,
 			enabled: true,
-			tierDefaults: {
-				best: TEST_MODEL_ID,
-				balanced: TEST_MODEL_ID,
-				fast: TEST_MODEL_ID,
-			},
 		},
 	],
 	TEST_PROVIDER_ID,
+	{
+		best: { providerId: TEST_PROVIDER_ID, modelId: TEST_MODEL_ID },
+		balanced: { providerId: TEST_PROVIDER_ID, modelId: TEST_MODEL_ID },
+		fast: { providerId: TEST_PROVIDER_ID, modelId: TEST_MODEL_ID },
+	},
 );
 
 function withResolverContext(startMsg: StartMessage): StartMessage {

@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { resolveModel } from "../../src/agents/model-resolver.ts";
-import type { ModelRef, ProviderConfig, SproutSettings } from "../../src/host/settings/types.ts";
+import type {
+	ModelRef,
+	ProviderConfig,
+	SproutSettings,
+	TierModelDefaults,
+} from "../../src/host/settings/types.ts";
 import type { ProviderCatalogEntry } from "../../src/llm/model-catalog.ts";
 import type { ProviderModel } from "../../src/llm/types.ts";
 
@@ -17,11 +22,18 @@ function provider(overrides: Partial<ProviderConfig> = {}): ProviderConfig {
 	};
 }
 
-function settingsFor(providers: ProviderConfig[], defaultProviderId?: string): SproutSettings {
+function settingsFor(
+	providers: ProviderConfig[],
+	defaultProviderId?: string,
+	tierDefaults?: TierModelDefaults,
+): SproutSettings {
 	return {
 		version: 1,
 		providers,
-		defaults: defaultProviderId ? { defaultProviderId } : {},
+		defaults: {
+			...(defaultProviderId ? { defaultProviderId } : {}),
+			...(tierDefaults ? { tierDefaults } : {}),
+		},
 	};
 }
 
@@ -44,27 +56,27 @@ function catalog(
 }
 
 describe("resolveModel", () => {
-	test("resolves tiers only from the selected provider tier defaults", () => {
+	test("resolves tiers from global provider-model defaults", () => {
 		const settings = settingsFor(
 			[
 				provider({
 					id: "openrouter-main",
 					kind: "openrouter",
 					label: "OpenRouter",
-					tierDefaults: {
-						best: "anthropic/claude-opus-4.1",
-					},
 				}),
 				provider({
 					id: "lmstudio",
 					kind: "openai-compatible",
 					label: "LM Studio",
-					tierDefaults: {
-						best: "qwen2.5-coder",
-					},
 				}),
 			],
 			"openrouter-main",
+			{
+				best: {
+					providerId: "lmstudio",
+					modelId: "qwen2.5-coder",
+				},
+			},
 		);
 
 		const result = resolveModel(
@@ -80,25 +92,32 @@ describe("resolveModel", () => {
 					models: [model("qwen2.5-coder")],
 				},
 			]),
-			{ providerId: "lmstudio" },
 		);
 
 		expect(result).toEqual({ provider: "lmstudio", model: "qwen2.5-coder" });
 	});
 
-	test("falls back to the default provider when no provider context is supplied", () => {
+	test("uses the configured global tier tuple regardless of the selected provider", () => {
 		const settings = settingsFor(
 			[
 				provider({
 					id: "openrouter-main",
 					kind: "openrouter",
 					label: "OpenRouter",
-					tierDefaults: {
-						fast: "openai/gpt-4o-mini",
-					},
+				}),
+				provider({
+					id: "lmstudio",
+					kind: "openai-compatible",
+					label: "LM Studio",
 				}),
 			],
 			"openrouter-main",
+			{
+				fast: {
+					providerId: "lmstudio",
+					modelId: "qwen2.5-coder",
+				},
+			},
 		);
 
 		const result = resolveModel(
@@ -109,31 +128,43 @@ describe("resolveModel", () => {
 					providerId: "openrouter-main",
 					models: [model("openai/gpt-4o-mini")],
 				},
+				{
+					providerId: "lmstudio",
+					models: [model("qwen2.5-coder")],
+				},
 			]),
+			{ providerId: "openrouter-main" },
 		);
 
-		expect(result).toEqual({ provider: "openrouter-main", model: "openai/gpt-4o-mini" });
+		expect(result).toEqual({ provider: "lmstudio", model: "qwen2.5-coder" });
 	});
 
-	test("fails clearly when no provider can be chosen for a tier", () => {
-		expect(() => resolveModel("best", settingsFor([provider()]), catalog([]))).toThrow(/provider/i);
+	test("fails clearly when a global tier default is missing", () => {
+		expect(() =>
+			resolveModel("best", settingsFor([provider()], "anthropic-main"), catalog([])),
+		).toThrow(/global 'best' model/i);
 	});
 
-	test("fails clearly when the selected provider does not define the requested tier", () => {
+	test("fails clearly when a global tier default references a disabled provider", () => {
 		const settings = settingsFor(
 			[
 				provider({
 					id: "lmstudio",
 					kind: "openai-compatible",
 					label: "LM Studio",
+					enabled: false,
 				}),
 			],
-			"lmstudio",
+			undefined,
+			{
+				fast: {
+					providerId: "lmstudio",
+					modelId: "qwen2.5-coder",
+				},
+			},
 		);
 
-		expect(() => resolveModel("fast", settings, catalog([]), { providerId: "lmstudio" })).toThrow(
-			/does not define a 'fast' model/i,
-		);
+		expect(() => resolveModel("fast", settings, catalog([]))).toThrow(/disabled provider/i);
 	});
 
 	test("accepts explicit model refs when the provider is enabled", () => {

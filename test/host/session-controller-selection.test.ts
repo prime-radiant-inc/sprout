@@ -4,7 +4,7 @@ import { type AgentFactory, SessionController } from "../../src/host/session-con
 import type { SessionSelectionRequest } from "../../src/shared/session-selection.ts";
 
 describe("SessionController selection state", () => {
-	test("stores provider-relative tier selections after resolution", () => {
+	test("stores global tier selections after resolution", () => {
 		const bus = new EventBus();
 		const controller = new SessionController({
 			bus,
@@ -17,7 +17,6 @@ describe("SessionController selection state", () => {
 				return {
 					selection: {
 						kind: "tier",
-						providerId: "openrouter-main",
 						tier: "best",
 					},
 					resolved: {
@@ -31,13 +30,12 @@ describe("SessionController selection state", () => {
 
 		bus.emitCommand({
 			kind: "switch_model",
-			data: { selection: { kind: "tier", providerId: "openrouter-main", tier: "best" } },
+			data: { selection: { kind: "tier", tier: "best" } },
 		});
 
 		expect(controller.currentSelection).toEqual({
 			selection: {
 				kind: "tier",
-				providerId: "openrouter-main",
 				tier: "best",
 			},
 			resolved: {
@@ -110,11 +108,11 @@ describe("SessionController selection state", () => {
 
 		bus.emitCommand({
 			kind: "switch_model",
-			data: { selection: { kind: "inherit", providerId: "openrouter-main" } },
+			data: { selection: { kind: "inherit" } },
 		});
 
 		expect(controller.currentSelection).toEqual({
-			selection: { kind: "inherit", providerId: "openrouter-main" },
+			selection: { kind: "inherit" },
 			source: "runtime-fallback",
 		});
 		expect(controller.currentModel).toBeUndefined();

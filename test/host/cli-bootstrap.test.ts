@@ -528,7 +528,7 @@ describe("bootstrapInteractiveRuntime", () => {
 		expect(result.availableModels).not.toContain("openrouter");
 	});
 
-	test("passes default-provider resolver settings with provider-owned tier defaults into the controller", async () => {
+	test("passes default-provider resolver settings with global tier defaults into the controller", async () => {
 		const created: Record<string, unknown> = {};
 		const settings = {
 			...createEmptySettings(),
@@ -539,9 +539,6 @@ describe("bootstrapInteractiveRuntime", () => {
 					label: "OpenAI",
 					enabled: true,
 					discoveryStrategy: "remote-only" as const,
-					tierDefaults: {
-						balanced: "gpt-4.1",
-					},
 					createdAt: "2026-03-11T12:34:56.000Z",
 					updatedAt: "2026-03-11T12:34:56.000Z",
 				},
@@ -551,14 +548,23 @@ describe("bootstrapInteractiveRuntime", () => {
 					label: "Anthropic",
 					enabled: false,
 					discoveryStrategy: "remote-only" as const,
-					tierDefaults: {
-						best: "claude-opus-4-6",
-					},
 					createdAt: "2026-03-11T12:34:56.000Z",
 					updatedAt: "2026-03-11T12:34:56.000Z",
 				},
 			],
-			defaults: { defaultProviderId: "openai" },
+			defaults: {
+				defaultProviderId: "openai",
+				tierDefaults: {
+					balanced: {
+						providerId: "openai",
+						modelId: "gpt-4.1",
+					},
+					best: {
+						providerId: "anthropic",
+						modelId: "claude-opus-4-6",
+					},
+				},
+			},
 		};
 
 		await bootstrapInteractiveRuntime(
@@ -605,19 +611,25 @@ describe("bootstrapInteractiveRuntime", () => {
 				{
 					id: "openai",
 					enabled: true,
-					tierDefaults: {
-						balanced: "gpt-4.1",
-					},
 				},
 				{
 					id: "anthropic",
 					enabled: false,
-					tierDefaults: {
-						best: "claude-opus-4-6",
-					},
 				},
 			],
-			defaults: { defaultProviderId: "openai" },
+			defaults: {
+				defaultProviderId: "openai",
+				tierDefaults: {
+					balanced: {
+						providerId: "openai",
+						modelId: "gpt-4.1",
+					},
+					best: {
+						providerId: "anthropic",
+						modelId: "claude-opus-4-6",
+					},
+				},
+			},
 		});
 	});
 

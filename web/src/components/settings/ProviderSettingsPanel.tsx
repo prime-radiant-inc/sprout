@@ -118,8 +118,7 @@ export function ProviderSettingsPanel({
 					<div className={styles.titleGroup}>
 						<h2 className={styles.title}>Provider settings</h2>
 						<span className={styles.subtitle}>
-							Manage providers, credentials, the default provider, and provider-owned tier
-							defaults.
+							Manage providers, credentials, the default provider, and global tier defaults.
 						</span>
 					</div>
 					<button type="button" className={styles.close} onClick={onClose}>
@@ -154,7 +153,12 @@ export function ProviderSettingsPanel({
 						)}
 
 						{selectedView === "defaults" ? (
-							<DefaultProviderPanel settings={settings} message={message} onCommand={onCommand} />
+							<DefaultProviderPanel
+								settings={settings}
+								message={message}
+								fieldErrors={fieldErrors}
+								onCommand={onCommand}
+							/>
 						) : selectedView === "create" ? (
 							<ProviderEditor
 								mode="create"

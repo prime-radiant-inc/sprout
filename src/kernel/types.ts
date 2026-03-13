@@ -282,7 +282,7 @@ export type {
 	ModelRef,
 	ProviderConfig,
 	ProviderKind,
-	ProviderTierDefaults,
 	SessionModelSelection,
+	TierModelDefaults,
 } from "../shared/provider-settings.ts";
 export type { SessionSelectionRequest } from "../shared/session-selection.ts";

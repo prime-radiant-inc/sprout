@@ -36,9 +36,9 @@ export interface CreateAgentOptions {
 	initialHistory?: Message[];
 	/** Model override — if provided, overrides the root agent's spec model. */
 	model?: string | ModelRef;
-	/** Provider context for provider-relative tier resolution. */
+	/** Default provider context for exact-model resolution. */
 	providerIdOverride?: string;
-	/** Provider settings used for provider-relative tier resolution. */
+	/** Provider settings used for global tier and exact-model resolution. */
 	resolverSettings?: ResolverSettings;
 	/** Bus-based spawner for running subagents as separate processes. */
 	spawner?: AgentSpawner;

@@ -37,10 +37,6 @@ function makeSettings(): SettingsSnapshot {
 					label: "Anthropic",
 					enabled: true,
 					discoveryStrategy: "remote-with-manual",
-					tierDefaults: {
-						best: "claude-opus-4-6",
-						balanced: "claude-sonnet-4-6",
-					},
 					createdAt: "2026-03-11T00:00:00.000Z",
 					updatedAt: "2026-03-11T00:00:00.000Z",
 				},
@@ -48,7 +44,7 @@ function makeSettings(): SettingsSnapshot {
 					id: "lmstudio",
 					kind: "openai-compatible",
 					label: "LM Studio",
-					enabled: false,
+					enabled: true,
 					baseUrl: "http://127.0.0.1:1234/v1",
 					discoveryStrategy: "manual-only",
 					manualModels: [
@@ -63,6 +59,20 @@ function makeSettings(): SettingsSnapshot {
 			],
 			defaults: {
 				defaultProviderId: "anthropic-main",
+				tierDefaults: {
+					best: {
+						providerId: "anthropic-main",
+						modelId: "claude-opus-4-6",
+					},
+					balanced: {
+						providerId: "anthropic-main",
+						modelId: "claude-sonnet-4-6",
+					},
+					fast: {
+						providerId: "lmstudio",
+						modelId: "qwen2.5-coder",
+					},
+				},
 			},
 		},
 		providers: [
@@ -201,7 +211,7 @@ describe("ProviderSettingsPanel", () => {
 		expect(html).toContain("Recovered invalid settings file to /tmp/settings.invalid.json");
 	});
 
-	test("renders provider health, discovered models, and tier defaults", () => {
+	test("renders provider health and discovered models without provider-owned tier defaults", () => {
 		const html = renderToStaticMarkup(
 			<ProviderEditor
 				mode="edit"
@@ -216,24 +226,29 @@ describe("ProviderSettingsPanel", () => {
 		expect(html).toContain("Unsupported secret backend");
 		expect(html).toContain("Auth failed");
 		expect(html).toContain("Refresh required");
-		expect(html).toContain("Tier defaults");
 		expect(html).toContain("Claude Sonnet 4.6");
+		expect(html).not.toContain("Tier defaults");
 	});
 });
 
 describe("DefaultProviderPanel", () => {
-	test("renders the current enabled default provider", () => {
+	test("renders the current enabled default provider and global tier selectors", () => {
 		const html = renderToStaticMarkup(
 			<DefaultProviderPanel settings={makeSettings()} onCommand={() => {}} />,
 		);
 
 		expect(html).toContain("Default provider");
 		expect(html).toContain("Anthropic");
+		expect(html).toContain("Best model");
+		expect(html).toContain("Balanced model");
+		expect(html).toContain("Fast model");
+		expect(html).toContain("Claude Opus 4.6");
+		expect(html).toContain("Qwen 2.5 Coder");
 	});
 });
 
 describe("ProviderEditor helpers", () => {
-	test("builds create and edit provider commands with manual models and tier defaults", () => {
+	test("builds create and edit provider commands with manual models", () => {
 		expect(
 			createProviderSaveCommand("create", {
 				kind: "openrouter",
@@ -251,9 +266,6 @@ describe("ProviderEditor helpers", () => {
 						label: "Manual Fast",
 					},
 				],
-				tierDefaults: {
-					fast: "openai/gpt-4o-mini",
-				},
 			}),
 		).toEqual({
 			kind: "create_provider",
@@ -270,9 +282,6 @@ describe("ProviderEditor helpers", () => {
 						label: "Manual Fast",
 					},
 				],
-				tierDefaults: {
-					fast: "openai/gpt-4o-mini",
-				},
 			},
 		} satisfies SettingsCommand);
 
@@ -296,9 +305,6 @@ describe("ProviderEditor helpers", () => {
 							label: "Qwen 2.5 Coder",
 						},
 					],
-					tierDefaults: {
-						best: "qwen2.5-coder",
-					},
 				},
 				"lmstudio",
 			),
@@ -319,9 +325,6 @@ describe("ProviderEditor helpers", () => {
 							label: "Qwen 2.5 Coder",
 						},
 					],
-					tierDefaults: {
-						best: "qwen2.5-coder",
-					},
 				},
 			},
 		} satisfies SettingsCommand);
@@ -336,7 +339,6 @@ describe("ProviderEditor helpers", () => {
 				discoveryStrategy: "manual-only",
 				nonSecretHeaders: [],
 				manualModels: [],
-				tierDefaults: {},
 			}),
 		).toEqual({
 			label: "Label is required.",
@@ -350,7 +352,6 @@ describe("ProviderEditor helpers", () => {
 				discoveryStrategy: "remote-only",
 				nonSecretHeaders: [],
 				manualModels: [],
-				tierDefaults: {},
 			}),
 		).toBeUndefined();
 	});

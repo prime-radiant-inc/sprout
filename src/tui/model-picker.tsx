@@ -81,7 +81,6 @@ export function buildModelPickerOptions({
 	const activeCatalogEntry = settings.catalog.find(
 		(entry) => entry.providerId === activeProvider?.id,
 	);
-	const activeModelIds = new Set(activeCatalogEntry?.models.map((model) => model.id) ?? []);
 
 	pushSelection({ kind: "inherit" }, formatGlobalDefaultLabel(settings, currentModel));
 
@@ -98,18 +97,13 @@ export function buildModelPickerOptions({
 		return options;
 	}
 
-	pushSelection(
-		{ kind: "inherit", providerId: activeProvider.id },
-		`${activeProvider.label} · Default`,
-	);
-
 	for (const tier of ["best", "balanced", "fast"] as const) {
-		const modelId = activeProvider.tierDefaults?.[tier];
-		if (!modelId) continue;
-		if (activeModelIds.size > 0 && !activeModelIds.has(modelId)) continue;
+		const modelRef = settings.settings.defaults.tierDefaults?.[tier];
+		if (!modelRef) continue;
+		const provider = enabledProviders.find((candidate) => candidate.id === modelRef.providerId);
 		pushSelection(
-			{ kind: "tier", providerId: activeProvider.id, tier },
-			`${activeProvider.label} · ${TIER_LABELS[tier]}`,
+			{ kind: "tier", tier },
+			`${TIER_LABELS[tier]} · ${provider?.label ?? modelRef.providerId}`,
 		);
 	}
 
@@ -126,8 +120,7 @@ export function buildModelPickerOptions({
 		);
 	}
 
-	const currentProviderId = selectionProviderId(currentSelection);
-	if (currentProviderId === activeProvider.id && currentSelection.selection.kind !== "inherit") {
+	if (currentSelection.selection.kind === "model") {
 		pushSelection(currentSelection.selection, formatSelectionLabel(currentSelection, settings));
 	}
 
@@ -217,9 +210,11 @@ function resolveActiveProviderId(
 		return selectedProviderId;
 	}
 
-	const currentProviderId = selectionProviderId(currentSelection);
-	if (currentProviderId && enabledProviderIds.has(currentProviderId)) {
-		return currentProviderId;
+	if (
+		currentSelection.selection.kind === "model" &&
+		enabledProviderIds.has(currentSelection.selection.model.providerId)
+	) {
+		return currentSelection.selection.model.providerId;
 	}
 
 	const defaultProviderId = settings.settings.defaults.defaultProviderId;
@@ -228,13 +223,6 @@ function resolveActiveProviderId(
 	}
 
 	return settings.settings.providers.find((provider) => provider.enabled)?.id;
-}
-
-function selectionProviderId(selection: SessionSelectionSnapshot): string | undefined {
-	if (selection.selection.kind === "model") {
-		return selection.selection.model.providerId;
-	}
-	return selection.selection.providerId ?? selection.resolved?.providerId;
 }
 
 function formatGlobalDefaultLabel(settings: SettingsSnapshot, currentModel: string): string {
@@ -256,14 +244,16 @@ function formatSelectionLabel(
 	const currentSelection = selection.selection;
 	switch (currentSelection.kind) {
 		case "inherit": {
-			const providerId = selectionProviderId(selection);
+			const providerId = settings?.settings.defaults.defaultProviderId;
 			const provider = providerId
 				? settings?.settings.providers.find((candidate) => candidate.id === providerId)
 				: undefined;
 			return provider ? `${provider.label} · Default` : "Default provider";
 		}
 		case "tier": {
-			const providerId = selectionProviderId(selection);
+			const providerId =
+				selection.resolved?.providerId ??
+				settings?.settings.defaults.tierDefaults?.[currentSelection.tier]?.providerId;
 			const provider = providerId
 				? settings?.settings.providers.find((candidate) => candidate.id === providerId)
 				: undefined;

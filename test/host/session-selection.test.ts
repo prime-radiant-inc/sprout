@@ -6,21 +6,12 @@ import {
 } from "../../src/shared/session-selection.ts";
 
 describe("parseSessionSelectionRequest", () => {
-	test("parses inherit with an optional provider context", () => {
+	test("parses inherit without provider context", () => {
 		expect(parseSessionSelectionRequest("inherit")).toEqual({ kind: "inherit" });
-		expect(parseSessionSelectionRequest("inherit", "openrouter-main")).toEqual({
-			kind: "inherit",
-			providerId: "openrouter-main",
-		});
 	});
 
-	test("parses tier names with an optional provider context", () => {
+	test("parses tier names without provider context", () => {
 		expect(parseSessionSelectionRequest("fast")).toEqual({ kind: "tier", tier: "fast" });
-		expect(parseSessionSelectionRequest("fast", "lmstudio")).toEqual({
-			kind: "tier",
-			providerId: "lmstudio",
-			tier: "fast",
-		});
 	});
 
 	test("parses provider-qualified model refs", () => {
@@ -60,21 +51,9 @@ describe("parseAgentModelInput", () => {
 });
 
 describe("formatSessionSelectionRequest", () => {
-	test("formats provider-relative selections", () => {
+	test("formats canonical selections", () => {
 		expect(formatSessionSelectionRequest({ kind: "inherit" })).toBe("inherit");
-		expect(
-			formatSessionSelectionRequest({
-				kind: "inherit",
-				providerId: "openrouter-main",
-			}),
-		).toBe("inherit:openrouter-main");
-		expect(
-			formatSessionSelectionRequest({
-				kind: "tier",
-				providerId: "openrouter-main",
-				tier: "best",
-			}),
-		).toBe("tier:openrouter-main:best");
+		expect(formatSessionSelectionRequest({ kind: "tier", tier: "best" })).toBe("best");
 		expect(
 			formatSessionSelectionRequest({
 				kind: "model",

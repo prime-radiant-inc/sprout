@@ -21,7 +21,7 @@ describe("ModelPicker", () => {
 		currentInstance = undefined;
 	});
 
-	test("builds provider-relative picker options for the current provider", () => {
+	test("builds global tier options plus exact models for the current provider", () => {
 		const options = buildModelPickerOptions({
 			availableModels: ["best", "balanced", "fast", "claude-sonnet-4-6", "qwen2.5-coder"],
 			settings: makeSettingsSnapshot(),
@@ -33,13 +33,14 @@ describe("ModelPicker", () => {
 			"Default provider · Anthropic",
 			"Provider · Anthropic (selected)",
 			"Provider · LM Studio",
-			"Anthropic · Default",
-			"Anthropic · Balanced",
+			"Best · Anthropic",
+			"Balanced · Anthropic",
+			"Fast · LM Studio",
 			"Anthropic · Claude Sonnet 4.6",
 		]);
 	});
 
-	test("builds provider-relative picker options for an explicitly selected provider", () => {
+	test("builds exact-model options for an explicitly selected provider while keeping global tiers", () => {
 		const options = buildModelPickerOptions({
 			availableModels: [],
 			settings: makeSettingsSnapshot(),
@@ -52,13 +53,15 @@ describe("ModelPicker", () => {
 			"Default provider · Anthropic",
 			"Provider · Anthropic",
 			"Provider · LM Studio (selected)",
-			"LM Studio · Default",
-			"LM Studio · Fast",
+			"Best · Anthropic",
+			"Balanced · Anthropic",
+			"Fast · LM Studio",
 			"LM Studio · Qwen 2.5 Coder",
+			"Anthropic · Claude Sonnet 4.6",
 		]);
 	});
 
-	test("renders provider-relative option labels", () => {
+	test("renders global tier labels alongside provider-scoped exact models", () => {
 		const { lastFrame } = render(
 			<ModelPicker
 				availableModels={["best", "claude-sonnet-4-6"]}
@@ -70,19 +73,17 @@ describe("ModelPicker", () => {
 			/>,
 		);
 		expect(lastFrame()).toContain("Provider · LM Studio");
-		expect(lastFrame()).toContain("Anthropic · Balanced");
-		expect(lastFrame()).not.toContain("Anthropic · Best");
+		expect(lastFrame()).toContain("Balanced · Anthropic");
+		expect(lastFrame()).toContain("Fast · LM Studio");
 	});
 
 	test("Enter selects the highlighted canonical selection after switching providers", async () => {
 		let selected:
 			| {
 					kind: "inherit";
-					providerId?: string;
 			  }
 			| {
 					kind: "tier";
-					providerId?: string;
 					tier: "best" | "balanced" | "fast";
 			  }
 			| {
@@ -108,6 +109,8 @@ describe("ModelPicker", () => {
 		stdin.write("\x1B[B");
 		await flush();
 		stdin.write("\r");
+		await flush();
+		stdin.write("\x1B[B");
 		await flush();
 		stdin.write("\x1B[B");
 		await flush();

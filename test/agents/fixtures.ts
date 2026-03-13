@@ -63,14 +63,14 @@ export function createDefaultResolverSettings() {
 			{
 				id: TEST_PROVIDER_ID,
 				enabled: true,
-				tierDefaults: {
-					best: TEST_MODELS[0]!.id,
-					balanced: TEST_MODELS[1]!.id,
-					fast: TEST_MODELS[2]!.id,
-				},
 			},
 		],
 		TEST_PROVIDER_ID,
+		{
+			best: { providerId: TEST_PROVIDER_ID, modelId: TEST_MODELS[0]!.id },
+			balanced: { providerId: TEST_PROVIDER_ID, modelId: TEST_MODELS[1]!.id },
+			fast: { providerId: TEST_PROVIDER_ID, modelId: TEST_MODELS[2]!.id },
+		},
 	);
 }
 

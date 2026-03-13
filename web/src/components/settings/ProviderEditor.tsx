@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import type {
 	ProviderConfig,
 	ProviderKind,
-	ProviderTierDefaults,
 	SettingsCommand,
 	SettingsSnapshot,
 } from "@kernel/types.ts";
@@ -44,7 +43,6 @@ export interface ProviderDraft {
 	discoveryStrategy: ProviderConfig["discoveryStrategy"];
 	nonSecretHeaders: HeaderDraft[];
 	manualModels: ManualModelDraft[];
-	tierDefaults: ProviderTierDefaults;
 }
 
 export function validateProviderDraftForSave(
@@ -82,11 +80,6 @@ function createProviderDraft(provider?: ProviderConfig): ProviderDraft {
 			id: model.id,
 			label: model.label ?? "",
 		})),
-		tierDefaults: {
-			best: provider?.tierDefaults?.best,
-			balanced: provider?.tierDefaults?.balanced,
-			fast: provider?.tierDefaults?.fast,
-		},
 	};
 }
 
@@ -129,17 +122,6 @@ function normalizeManualModels(
 	return normalized;
 }
 
-function normalizeTierDefaults(tierDefaults: ProviderTierDefaults): ProviderTierDefaults | undefined {
-	const normalized: ProviderTierDefaults = {};
-	for (const tier of ["best", "balanced", "fast"] as const) {
-		const modelId = tierDefaults[tier]?.trim();
-		if (modelId) {
-			normalized[tier] = modelId;
-		}
-	}
-	return Object.keys(normalized).length > 0 ? normalized : undefined;
-}
-
 export function createProviderSaveCommand(
 	mode: "create" | "edit",
 	draft: ProviderDraft,
@@ -149,7 +131,6 @@ export function createProviderSaveCommand(
 	const baseUrl = draft.baseUrl?.trim();
 	const nonSecretHeaders = normalizeHeaders(draft.nonSecretHeaders);
 	const manualModels = normalizeManualModels(draft.manualModels);
-	const tierDefaults = normalizeTierDefaults(draft.tierDefaults);
 	if (mode === "create") {
 		return {
 			kind: "create_provider",
@@ -162,7 +143,6 @@ export function createProviderSaveCommand(
 					? { nonSecretHeaders }
 					: {}),
 				...(manualModels ? { manualModels } : {}),
-				...(tierDefaults ? { tierDefaults } : {}),
 			},
 		};
 	}
@@ -181,7 +161,6 @@ export function createProviderSaveCommand(
 					? { nonSecretHeaders: nonSecretHeaders ?? {} }
 					: {}),
 				manualModels: manualModels ?? [],
-				tierDefaults: tierDefaults ?? {},
 			},
 		},
 	};
@@ -442,55 +421,6 @@ export function ProviderEditor({
 					}
 				/>
 			)}
-
-			<div className={styles.section}>
-				<div>
-					<h3 className={styles.sectionTitle}>Tier defaults</h3>
-					<p className={styles.sectionText}>
-						Choose which fetched models represent this provider&apos;s best, balanced, and fast
-						defaults.
-					</p>
-				</div>
-
-				{(catalogEntry?.models.length ?? 0) === 0 ? (
-					<div className={styles.emptyState}>Refresh models to configure tier defaults.</div>
-				) : (
-					<div className={styles.formGrid}>
-						{(["best", "balanced", "fast"] as const).map((tier) => (
-							<div className={styles.field} key={tier}>
-								<label className={styles.fieldLabel} htmlFor={`provider-tier-${tier}`}>
-									{tier === "best"
-										? "Best model"
-										: tier === "balanced"
-											? "Balanced model"
-											: "Fast model"}
-								</label>
-								<select
-									id={`provider-tier-${tier}`}
-									className={styles.fieldSelect}
-									value={draft.tierDefaults[tier] ?? ""}
-									onChange={(event) =>
-										setDraft((current) => ({
-											...current,
-											tierDefaults: {
-												...current.tierDefaults,
-												[tier]: event.target.value || undefined,
-											},
-										}))
-									}
-								>
-									<option value="">Not configured</option>
-									{catalogEntry?.models.map((model) => (
-										<option key={`${tier}-${model.id}`} value={model.id}>
-											{model.label}
-										</option>
-									))}
-								</select>
-							</div>
-						))}
-					</div>
-				)}
-			</div>
 
 			<div className={styles.actions}>
 				<button

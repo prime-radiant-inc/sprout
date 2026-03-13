@@ -11,10 +11,15 @@ export interface ManualModelConfig {
 	label?: string;
 }
 
-export interface ProviderTierDefaults {
-	best?: string;
-	balanced?: string;
-	fast?: string;
+export interface ModelRef {
+	providerId: string;
+	modelId: string;
+}
+
+export interface TierModelDefaults {
+	best?: ModelRef;
+	balanced?: ModelRef;
+	fast?: ModelRef;
 }
 
 export interface ProviderConfig {
@@ -26,23 +31,18 @@ export interface ProviderConfig {
 	nonSecretHeaders?: Record<string, string>;
 	discoveryStrategy: ProviderDiscoveryStrategy;
 	manualModels?: ManualModelConfig[];
-	tierDefaults?: ProviderTierDefaults;
 	createdAt: string;
 	updatedAt: string;
 }
 
-export interface ModelRef {
-	providerId: string;
-	modelId: string;
-}
-
 export type SessionModelSelection =
-	| { kind: "inherit"; providerId?: string }
+	| { kind: "inherit" }
 	| { kind: "model"; model: ModelRef }
-	| { kind: "tier"; providerId?: string; tier: Tier };
+	| { kind: "tier"; tier: Tier };
 
 export interface DefaultsConfig {
 	defaultProviderId?: string;
+	tierDefaults?: TierModelDefaults;
 }
 
 export interface SproutSettings {

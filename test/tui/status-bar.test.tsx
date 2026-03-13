@@ -98,11 +98,11 @@ describe("formatSelectionLabel", () => {
 		).toBe("Default provider · Anthropic");
 	});
 
-	test("renders provider-relative tier labels", () => {
+	test("renders global tier labels with their resolved provider", () => {
 		expect(
 			formatSelectionLabel(
 				makeSelectionSnapshot({
-					selection: { kind: "tier", providerId: "lmstudio", tier: "fast" },
+					selection: { kind: "tier", tier: "fast" },
 					resolved: {
 						providerId: "lmstudio",
 						modelId: "qwen2.5-coder",
@@ -171,19 +171,19 @@ describe("StatusBar", () => {
 		expect(frame).toContain("Claude Sonnet 4.6");
 	});
 
-	test("renders provider-relative default selection label", () => {
+	test("renders default-provider inherit selection label", () => {
 		const { lastFrame } = render(
 			<StatusBar
 				{...makeProps({
 					selection: makeSelectionSnapshot({
-						selection: { kind: "inherit", providerId: "lmstudio" },
+						selection: { kind: "inherit" },
 						resolved: undefined,
 						source: "runtime-fallback",
 					}),
 				})}
 			/>,
 		);
-		expect(lastFrame()).toContain("LM Studio");
+		expect(lastFrame()).toContain("Anthropic");
 		expect(lastFrame()).toContain("Default");
 	});
 

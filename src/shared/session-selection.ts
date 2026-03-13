@@ -10,18 +10,13 @@ export type ModelOverride = string | ModelRef;
 
 const TIER_NAMES = new Set<Tier>(["best", "balanced", "fast"]);
 
-export function parseSessionSelectionRequest(
-	input: string,
-	providerId?: string,
-): SessionSelectionRequest {
+export function parseSessionSelectionRequest(input: string): SessionSelectionRequest {
 	const trimmed = requireNonEmptySelection(input, "Session model selection");
 	if (trimmed === "inherit") {
-		return providerId ? { kind: "inherit", providerId } : { kind: "inherit" };
+		return { kind: "inherit" };
 	}
 	if (isTier(trimmed)) {
-		return providerId
-			? { kind: "tier", providerId, tier: trimmed }
-			: { kind: "tier", tier: trimmed };
+		return { kind: "tier", tier: trimmed };
 	}
 	const explicitModel = parseProviderQualifiedModel(trimmed);
 	if (explicitModel) {
@@ -47,11 +42,9 @@ export function parseAgentModelInput(input: string): AgentModelInput {
 export function formatSessionSelectionRequest(selection: SessionSelectionRequest): string {
 	switch (selection.kind) {
 		case "inherit":
-			return selection.providerId ? `inherit:${selection.providerId}` : "inherit";
+			return "inherit";
 		case "tier":
-			return selection.providerId
-				? `tier:${selection.providerId}:${selection.tier}`
-				: selection.tier;
+			return selection.tier;
 		case "model":
 			return formatModelRef(selection.model);
 	}

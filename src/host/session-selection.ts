@@ -62,9 +62,7 @@ export function resolveSessionSelectionRequest(
 
 	const resolvedModel =
 		selection.kind === "tier"
-			? resolveModel(selection.tier, context.settings, context.catalog, {
-					providerId: selection.providerId,
-				})
+			? resolveModel(selection.tier, context.settings, context.catalog)
 			: resolveModel(selection.model, context.settings, context.catalog);
 
 	return {
@@ -92,7 +90,7 @@ export function selectionSnapshotToProviderId(
 	if (selection.selection.kind === "model") {
 		return selection.selection.model.providerId;
 	}
-	return selection.selection.providerId ?? selection.resolved?.providerId;
+	return selection.resolved?.providerId;
 }
 
 export function selectionSnapshotToCurrentModel(

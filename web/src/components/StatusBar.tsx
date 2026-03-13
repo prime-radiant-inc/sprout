@@ -57,6 +57,17 @@ function formatProviderModelLabel(
 	return `${providerLabel} · ${modelLabel}`;
 }
 
+function formatTierLabel(
+	tier: keyof typeof TIER_LABELS,
+	settings: SettingsSnapshot | null | undefined,
+): string {
+	const modelRef = settings?.settings.defaults.tierDefaults?.[tier];
+	const provider = modelRef
+		? settings?.settings.providers.find((candidate) => candidate.id === modelRef.providerId)
+		: undefined;
+	return provider ? `${TIER_LABELS[tier]} · ${provider.label}` : TIER_LABELS[tier];
+}
+
 export function formatSessionSelectionLabel(
 	selection: SessionSelectionSnapshot,
 	currentModel: string,
@@ -66,23 +77,35 @@ export function formatSessionSelectionLabel(
 		case "inherit":
 			return currentModel ? `Default · ${shortModelName(currentModel)}` : "Default";
 		case "tier":
-			return TIER_LABELS[selection.selection.tier];
+			return formatTierLabel(selection.selection.tier, settings);
 		case "model":
 			return formatProviderModelLabel(selection.selection.model, settings);
 	}
 }
 
-function getSelectedProviderId(
+function getBrowseProviderId(
 	selection: SessionSelectionSnapshot,
 	settings: SettingsSnapshot | null | undefined,
 ): string | undefined {
-	switch (selection.selection.kind) {
-		case "inherit":
-		case "tier":
-			return selection.selection.providerId ?? settings?.settings.defaults.defaultProviderId;
-		case "model":
-			return selection.selection.model.providerId;
+	if (selection.selection.kind === "model") {
+		return selection.selection.model.providerId;
 	}
+	return settings?.settings.defaults.defaultProviderId;
+}
+
+function resolveValidBrowseProviderId(
+	providerId: string | undefined,
+	settings: SettingsSnapshot | null | undefined,
+): string | undefined {
+	const enabledProviders =
+		settings?.settings.providers.filter((provider) => provider.enabled) ?? [];
+	if (!providerId) {
+		return enabledProviders[0]?.id;
+	}
+	if (enabledProviders.some((provider) => provider.id === providerId)) {
+		return providerId;
+	}
+	return enabledProviders[0]?.id;
 }
 
 function buildProviderOptions(settings: SettingsSnapshot | null | undefined): ProviderOption[] {
@@ -102,8 +125,6 @@ export function buildSessionSelectionOptions(
 	const options: SessionSelectionOption[] = [];
 	const seenValues = new Set<string>();
 	const providerCatalog = settings?.catalog.find((entry) => entry.providerId === providerId);
-	const availableModels = providerCatalog?.models ?? [];
-	const availableModelIds = new Set(availableModels.map((model) => model.id));
 
 	const pushOption = (selection: SessionModelSelection, label: string) => {
 		const value = formatSessionSelectionRequest(selection);
@@ -113,10 +134,10 @@ export function buildSessionSelectionOptions(
 	};
 
 	pushOption(
-		{ kind: "inherit", ...(providerId ? { providerId } : {}) },
+		{ kind: "inherit" },
 		formatSessionSelectionLabel(
 			{
-				selection: { kind: "inherit", ...(providerId ? { providerId } : {}) },
+				selection: { kind: "inherit" },
 				source: status.currentSelection.source,
 			},
 			status.model,
@@ -125,16 +146,14 @@ export function buildSessionSelectionOptions(
 	);
 
 	for (const tier of ["best", "balanced", "fast"] as const) {
-		pushOption(
-			{ kind: "tier", tier, ...(providerId ? { providerId } : {}) },
-			TIER_LABELS[tier],
-		);
+		if (!settings?.settings.defaults.tierDefaults?.[tier]) continue;
+		pushOption({ kind: "tier", tier }, formatTierLabel(tier, settings));
 	}
 
 	if (providerId) {
 		const provider = settings?.settings.providers.find((candidate) => candidate.id === providerId);
 		for (const model of providerCatalog?.models ?? []) {
-			if (!availableModelIds.has(model.id)) continue;
+			if (status.availableModels.length > 0 && !status.availableModels.includes(model.id)) continue;
 			pushOption(
 				{
 					kind: "model",
@@ -216,29 +235,27 @@ export function StatusBar({
 
 	const elapsed = useElapsedTime(status.sessionStartedAt);
 	const providerOptions = buildProviderOptions(settings);
-	const selectedProviderId = getSelectedProviderId(status.currentSelection, settings);
-	const selectionOptions = buildSessionSelectionOptions(status, settings, selectedProviderId);
+	const [browseProviderId, setBrowseProviderId] = useState<string | undefined>(() =>
+		resolveValidBrowseProviderId(getBrowseProviderId(status.currentSelection, settings), settings),
+	);
+	useEffect(() => {
+		if (status.currentSelection.selection.kind === "model") {
+			setBrowseProviderId(status.currentSelection.selection.model.providerId);
+			return;
+		}
+		setBrowseProviderId((current) =>
+			resolveValidBrowseProviderId(
+				current ?? getBrowseProviderId(status.currentSelection, settings),
+				settings,
+			),
+		);
+	}, [status.currentSelection, settings]);
+	const selectionOptions = buildSessionSelectionOptions(status, settings, browseProviderId);
 	const selectionValue = formatSessionSelectionRequest(status.currentSelection.selection);
 	const selectionMap = new Map(
 		selectionOptions.map((option) => [option.value, option.selection]),
 	);
 	const providerMap = new Map(providerOptions.map((option) => [option.providerId, option]));
-
-	const handleProviderChange = (nextProviderId: string) => {
-		if (!onSwitchModel) return;
-		const currentSelection = status.currentSelection.selection;
-		switch (currentSelection.kind) {
-			case "inherit":
-				onSwitchModel({ kind: "inherit", providerId: nextProviderId });
-				return;
-			case "tier":
-				onSwitchModel({ kind: "tier", providerId: nextProviderId, tier: currentSelection.tier });
-				return;
-			case "model":
-				onSwitchModel({ kind: "inherit", providerId: nextProviderId });
-				return;
-		}
-	};
 
 	const handleCopySessionId = () => {
 		navigator.clipboard.writeText(sessionId).catch(() => {});
@@ -314,10 +331,10 @@ export function StatusBar({
 				<>
 					<select
 						className={styles.modelSelect}
-						value={selectedProviderId ?? ""}
+						value={browseProviderId ?? ""}
 						onChange={(event) => {
 							if (providerMap.has(event.target.value)) {
-								handleProviderChange(event.target.value);
+								setBrowseProviderId(event.target.value);
 							}
 						}}
 					>

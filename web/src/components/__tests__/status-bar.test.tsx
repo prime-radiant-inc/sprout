@@ -47,10 +47,6 @@ function makeSettings(): SettingsSnapshot {
 					label: "Anthropic",
 					enabled: true,
 					discoveryStrategy: "remote-with-manual",
-					tierDefaults: {
-						best: "claude-opus-4-6",
-						balanced: "claude-sonnet-4-6",
-					},
 					createdAt: "2026-03-11T00:00:00.000Z",
 					updatedAt: "2026-03-11T00:00:00.000Z",
 				},
@@ -60,14 +56,23 @@ function makeSettings(): SettingsSnapshot {
 					label: "OpenRouter",
 					enabled: true,
 					discoveryStrategy: "remote-with-manual",
-					tierDefaults: {
-						best: "gpt-4.1",
-					},
 					createdAt: "2026-03-11T00:00:00.000Z",
 					updatedAt: "2026-03-11T00:00:00.000Z",
 				},
 			],
-			defaults: { defaultProviderId: "anthropic-main" },
+			defaults: {
+				defaultProviderId: "anthropic-main",
+				tierDefaults: {
+					best: {
+						providerId: "openrouter-main",
+						modelId: "gpt-4.1",
+					},
+					balanced: {
+						providerId: "anthropic-main",
+						modelId: "claude-sonnet-4-6",
+					},
+				},
+			},
 		},
 		providers: [
 			{
@@ -120,7 +125,7 @@ describe("StatusBar", () => {
 		expect(html).not.toContain("<select");
 	});
 
-	test("builds provider-relative selector labels from the selected provider catalog", () => {
+	test("builds global tier options and provider-scoped exact model options", () => {
 		const options = buildSessionSelectionOptions(
 			makeStatus({
 				model: "claude-sonnet-4-6",
@@ -131,24 +136,19 @@ describe("StatusBar", () => {
 		);
 		expect(options).toEqual([
 			{
-				selection: { kind: "inherit", providerId: "anthropic-main" },
-				value: "inherit:anthropic-main",
+				selection: { kind: "inherit" },
+				value: "inherit",
 				label: "Default · claude-sonnet-4-6",
 			},
 			{
-				selection: { kind: "tier", providerId: "anthropic-main", tier: "best" },
-				value: "tier:anthropic-main:best",
-				label: "Best",
+				selection: { kind: "tier", tier: "best" },
+				value: "best",
+				label: "Best · OpenRouter",
 			},
 			{
-				selection: { kind: "tier", providerId: "anthropic-main", tier: "balanced" },
-				value: "tier:anthropic-main:balanced",
-				label: "Balanced",
-			},
-			{
-				selection: { kind: "tier", providerId: "anthropic-main", tier: "fast" },
-				value: "tier:anthropic-main:fast",
-				label: "Fast",
+				selection: { kind: "tier", tier: "balanced" },
+				value: "balanced",
+				label: "Balanced · Anthropic",
 			},
 			{
 				selection: {
@@ -164,7 +164,7 @@ describe("StatusBar", () => {
 		]);
 	});
 
-	test("builds provider-relative selector labels for a different selected provider", () => {
+	test("builds exact-model options from the selected provider while keeping global tiers", () => {
 		const options = buildSessionSelectionOptions(
 			makeStatus({
 				model: "claude-sonnet-4-6",
@@ -173,7 +173,12 @@ describe("StatusBar", () => {
 			makeSettings(),
 			"openrouter-main",
 		);
-		expect(options.map((option) => option.label)).toContain("OpenRouter · GPT-4.1");
+		expect(options.map((option) => option.label)).toEqual([
+			"Default · claude-sonnet-4-6",
+			"Best · OpenRouter",
+			"Balanced · Anthropic",
+			"OpenRouter · GPT-4.1",
+		]);
 	});
 
 	test("renders provider-aware selector when settings provide explicit models", () => {

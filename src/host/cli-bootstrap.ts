@@ -285,6 +285,7 @@ export async function bootstrapInteractiveRuntime(
 			return createResolverSettings(
 				context.settings.providers,
 				context.settings.defaults.defaultProviderId,
+				context.settings.defaults.tierDefaults,
 			);
 		},
 		spawner: opts.infra.spawner,

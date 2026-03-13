@@ -33,16 +33,13 @@ export async function buildTestResolverContext(
 			providerIds.map((id) => ({
 				id,
 				enabled: true,
-				tierDefaults:
-					id === providerId
-						? {
-								best: defaultModelId,
-								balanced: defaultModelId,
-								fast: defaultModelId,
-							}
-						: undefined,
 			})),
 			providerId,
+			{
+				best: { providerId, modelId: defaultModelId },
+				balanced: { providerId, modelId: defaultModelId },
+				fast: { providerId, modelId: defaultModelId },
+			},
 		),
 	};
 }

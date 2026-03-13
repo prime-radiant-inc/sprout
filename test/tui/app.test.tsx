@@ -422,13 +422,13 @@ describe("App", () => {
 		const frame = lastFrame()!;
 		expect(frame).toContain("Provider · Anthropic");
 		expect(frame).toContain("Provider · LM Studio");
-		expect(frame).toContain("Anthropic · Balanced");
-		expect(frame).not.toContain("Anthropic · Best");
+		expect(frame).toContain("Balanced · Anthropic");
+		expect(frame).toContain("Best · Anthropic");
 		expect(frame).not.toContain("LM Studio · Qwen 2.5 Coder");
 		expect(frame).toContain("Select model");
 	});
 
-	test("selecting model from picker emits a canonical provider-relative model selection and hides picker", async () => {
+	test("selecting model from picker emits a canonical provider-qualified model selection and hides picker", async () => {
 		const commands: any[] = [];
 		const bus = new EventBus();
 		bus.onCommand((cmd) => commands.push(cmd));
@@ -464,6 +464,8 @@ describe("App", () => {
 		await flush();
 
 		// Move to the explicit LM Studio model and select it
+		stdin.write("\x1B[B");
+		await flush();
 		stdin.write("\x1B[B");
 		await flush();
 		stdin.write("\x1B[B");

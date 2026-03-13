@@ -158,9 +158,6 @@ describe("canonical protocol module", () => {
 					kind: "openrouter",
 					label: "OpenRouter",
 					discoveryStrategy: "remote-only",
-					tierDefaults: {
-						fast: "openai/gpt-4.1-mini",
-					},
 				},
 			},
 			{
@@ -169,9 +166,6 @@ describe("canonical protocol module", () => {
 					providerId: "openrouter-main",
 					patch: {
 						label: "Primary OpenRouter",
-						tierDefaults: {
-							balanced: "openai/gpt-4.1",
-						},
 					},
 				},
 			},
@@ -187,6 +181,16 @@ describe("canonical protocol module", () => {
 			},
 			{ kind: "test_provider_connection", data: { providerId: "openrouter-main" } },
 			{ kind: "refresh_provider_models", data: { providerId: "openrouter-main" } },
+			{
+				kind: "set_global_tier_default",
+				data: {
+					tier: "fast",
+					model: {
+						providerId: "openrouter-main",
+						modelId: "openai/gpt-4.1-mini",
+					},
+				},
+			},
 			{ kind: "set_default_provider", data: { providerId: "openrouter-main" } },
 		];
 

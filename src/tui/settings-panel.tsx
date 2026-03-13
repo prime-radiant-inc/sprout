@@ -267,6 +267,7 @@ function DefaultProviderSummary({
 				(provider) => provider.id === settings.settings.defaults.defaultProviderId,
 			)
 		: undefined;
+	const tierDefaults = settings.settings.defaults.tierDefaults;
 
 	return (
 		<Box flexDirection="column" gap={1}>
@@ -289,7 +290,32 @@ function DefaultProviderSummary({
 					</Text>
 				))
 			)}
-			<Text color="gray">Commands: default &lt;provider-id&gt; | default none</Text>
+			<Text bold>Global tier defaults</Text>
+			{(["best", "balanced", "fast"] as const).map((tier) => {
+				const modelRef = tierDefaults?.[tier];
+				if (!modelRef) {
+					return (
+						<Text key={tier} color="gray">
+							{tier}: not configured
+						</Text>
+					);
+				}
+				const provider = settings.settings.providers.find(
+					(candidate) => candidate.id === modelRef.providerId,
+				);
+				const model = settings.catalog
+					.find((entry) => entry.providerId === modelRef.providerId)
+					?.models.find((candidate) => candidate.id === modelRef.modelId);
+				return (
+					<Text key={tier}>
+						{tier}: {provider?.label ?? modelRef.providerId} · {model?.label ?? modelRef.modelId}
+					</Text>
+				);
+			})}
+			<Text color="gray">
+				Commands: default &lt;provider-id&gt; | default none | tier &lt;best|balanced|fast&gt;
+				&lt;provider-id:model-id&gt; | tier &lt;best|balanced|fast&gt; none
+			</Text>
 		</Box>
 	);
 }
@@ -355,6 +381,55 @@ function applyDefaultProviderCommand(
 	settings: SettingsSnapshot,
 ): { command?: SettingsCommand; error?: string } {
 	const trimmed = input.trim();
+	if (trimmed.startsWith("tier ")) {
+		const [command, tier, target] = trimmed.split(/\s+/, 3);
+		if (command !== "tier" || !tier || !target) {
+			return { error: "Use: tier <best|balanced|fast> <provider-id:model-id|none>" };
+		}
+		if (!["best", "balanced", "fast"].includes(tier)) {
+			return { error: `Unknown tier: ${tier}` };
+		}
+		const selectionTier = tier as "best" | "balanced" | "fast";
+		if (target === "none") {
+			return {
+				command: {
+					kind: "set_global_tier_default",
+					data: { tier: selectionTier },
+				},
+			};
+		}
+		const separatorIndex = target.indexOf(":");
+		if (separatorIndex <= 0 || separatorIndex === target.length - 1) {
+			return { error: "Tier targets must use provider-id:model-id." };
+		}
+		const providerId = target.slice(0, separatorIndex);
+		const modelId = target.slice(separatorIndex + 1);
+		const provider = settings.settings.providers.find((candidate) => candidate.id === providerId);
+		if (!provider) {
+			return { error: `Unknown provider: ${providerId}` };
+		}
+		if (!provider.enabled) {
+			return { error: `Tier provider must be enabled: ${providerId}` };
+		}
+		const model = settings.catalog
+			.find((entry) => entry.providerId === providerId)
+			?.models.find((candidate) => candidate.id === modelId);
+		if (!model) {
+			return { error: `Unknown model for ${providerId}: ${modelId}` };
+		}
+		return {
+			command: {
+				kind: "set_global_tier_default",
+				data: {
+					tier: selectionTier,
+					model: {
+						providerId,
+						modelId,
+					},
+				},
+			},
+		};
+	}
 	if (trimmed === "default none") {
 		return {
 			command: { kind: "set_default_provider", data: {} },

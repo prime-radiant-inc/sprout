@@ -125,10 +125,6 @@ describe("validateSproutSettings", () => {
 				kind: "openrouter",
 				baseUrl: undefined,
 				enabled: true,
-				tierDefaults: {
-					best: "anthropic/claude-opus-4.1",
-					fast: "openai/gpt-4o-mini",
-				},
 			}),
 			makeProvider({
 				id: "lmstudio",
@@ -142,7 +138,43 @@ describe("validateSproutSettings", () => {
 			}),
 		];
 		settings.defaults.defaultProviderId = "openrouter-main";
+		settings.defaults.tierDefaults = {
+			best: {
+				providerId: "openrouter-main",
+				modelId: "anthropic/claude-opus-4.1",
+			},
+			fast: {
+				providerId: "lmstudio",
+				modelId: "qwen2.5-coder",
+			},
+		};
 
 		expect(() => validateSproutSettings(settings)).not.toThrow();
+	});
+
+	test("rejects global tier defaults that reference missing or disabled providers", () => {
+		const settings = createEmptySettings();
+		settings.providers = [
+			makeProvider({
+				id: "openrouter-main",
+				kind: "openrouter",
+				baseUrl: undefined,
+				enabled: true,
+			}),
+			makeProvider({
+				id: "lmstudio",
+				enabled: false,
+			}),
+		];
+		settings.defaults.tierDefaults = {
+			fast: {
+				providerId: "lmstudio",
+				modelId: "qwen2.5-coder",
+			},
+		};
+
+		expect(() => validateSproutSettings(settings)).toThrow(
+			"Tier default 'fast' must reference an enabled provider: lmstudio",
+		);
 	});
 });
