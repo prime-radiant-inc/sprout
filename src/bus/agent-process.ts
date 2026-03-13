@@ -6,10 +6,17 @@ import { renderCallerIdentity } from "../agents/plan.ts";
 import { loadProjectDocs } from "../agents/project-doc.ts";
 import { Genome } from "../genome/genome.ts";
 import { SessionLogger } from "../host/logger.ts";
+import {
+	createSecretStoreRuntime,
+	type SecretStoreRuntime,
+} from "../host/settings/secret-store.ts";
+import { type SettingsLoadResult, SettingsStore } from "../host/settings/store.ts";
 import { LocalExecutionEnvironment } from "../kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../kernel/primitives.ts";
 import { Client } from "../llm/client.ts";
 import { loggingMiddleware } from "../llm/logging-middleware.ts";
+import { ProviderRegistry, type ProviderRegistryEntry } from "../llm/provider-registry.ts";
+import type { ProviderAdapter } from "../llm/types.ts";
 import { ensureProjectDirs } from "../util/project-id.ts";
 import { BusClient } from "./client.ts";
 import { BusLearnForwarder } from "./learn-forwarder.ts";
@@ -40,6 +47,55 @@ export interface AgentProcessConfig {
 	signal?: AbortSignal;
 	/** Structured logger for LLM call logging and diagnostics. */
 	logger?: import("../host/logger.ts").Logger;
+}
+
+interface AgentProcessClientDeps {
+	createSettingsStore?: () => Pick<SettingsStore, "load">;
+	createSecretStoreRuntime?: () => SecretStoreRuntime;
+	createProviderRegistry?: (options: ConstructorParameters<typeof ProviderRegistry>[0]) => {
+		getEntries(): Promise<ProviderRegistryEntry[]>;
+	};
+	createClient?: (options: {
+		providers: Record<string, ProviderAdapter>;
+		logger: SessionLogger;
+	}) => Client;
+}
+
+export async function createAgentProcessClient(
+	logger: SessionLogger,
+	deps: AgentProcessClientDeps = {},
+): Promise<Client> {
+	const settingsStore = deps.createSettingsStore?.() ?? new SettingsStore();
+	const settingsLoadResult = (await settingsStore.load()) as SettingsLoadResult;
+	const secretStoreRuntime = deps.createSecretStoreRuntime?.() ?? createSecretStoreRuntime();
+	const registry =
+		deps.createProviderRegistry?.({
+			settings: settingsLoadResult.settings,
+			secretStore: secretStoreRuntime.secretStore,
+			secretBackend: secretStoreRuntime.secretRefBackend,
+			secretBackendState: secretStoreRuntime.secretBackendState,
+		}) ??
+		new ProviderRegistry({
+			settings: settingsLoadResult.settings,
+			secretStore: secretStoreRuntime.secretStore,
+			secretBackend: secretStoreRuntime.secretRefBackend,
+			secretBackendState: secretStoreRuntime.secretBackendState,
+		});
+
+	const providers: Record<string, ProviderAdapter> = {};
+	for (const entry of await registry.getEntries()) {
+		if (!entry.provider.enabled || entry.validationErrors.length > 0 || !entry.adapter) {
+			continue;
+		}
+		providers[entry.provider.id] = entry.adapter;
+	}
+
+	return (
+		deps.createClient?.({ providers, logger }) ??
+		Client.fromProviders(providers, {
+			middleware: [loggingMiddleware(logger)],
+		})
+	);
 }
 
 /**
@@ -443,20 +499,22 @@ if (import.meta.main) {
 	const dataDir = projectDataDir ?? genomePath;
 	const logPath = join(dataDir, "logs", sessionId, handleId, "session.log.jsonl");
 	const logger = new SessionLogger({ logPath, component: "agent-process", sessionId });
-	const client = Client.fromEnv({ middleware: [loggingMiddleware(logger)] });
 
-	runAgentProcess({
-		busUrl,
-		handleId,
-		sessionId,
-		genomePath,
-		client,
-		workDir,
-		rootDir,
-		projectDataDir,
-		signal: controller.signal,
-		logger,
-	})
+	createAgentProcessClient(logger)
+		.then((client) =>
+			runAgentProcess({
+				busUrl,
+				handleId,
+				sessionId,
+				genomePath,
+				client,
+				workDir,
+				rootDir,
+				projectDataDir,
+				signal: controller.signal,
+				logger,
+			}),
+		)
 		.then(() => process.exit(0))
 		.catch((err) => {
 			console.error("Agent process error:", err);

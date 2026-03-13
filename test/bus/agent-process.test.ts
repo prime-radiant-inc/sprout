@@ -3,7 +3,7 @@ import { cp, exists, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/pro
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createResolverSettings } from "../../src/agents/model-resolver.ts";
-import { runAgentProcess } from "../../src/bus/agent-process.ts";
+import { createAgentProcessClient, runAgentProcess } from "../../src/bus/agent-process.ts";
 import { BusClient } from "../../src/bus/client.ts";
 import { BusServer } from "../../src/bus/server.ts";
 import {
@@ -17,6 +17,12 @@ import type { ResultMessage, StartMessage } from "../../src/bus/types.ts";
 import { Genome } from "../../src/genome/genome.ts";
 import type { LogEntry } from "../../src/host/logger.ts";
 import { SessionLogger } from "../../src/host/logger.ts";
+import {
+	createProviderSecretRef,
+	createSecretStore,
+	type SecretStoreRuntime,
+} from "../../src/host/settings/secret-store.ts";
+import type { SproutSettings } from "../../src/host/settings/types.ts";
 import type { Client } from "../../src/llm/client.ts";
 import type { Request, Response } from "../../src/llm/types.ts";
 import { ContentKind, Msg } from "../../src/llm/types.ts";
@@ -253,6 +259,72 @@ describe("runAgentProcess", () => {
 		// Non-shared agent process should exit on its own
 		await processPromise;
 	}, 15_000);
+
+	test("builds child-process clients from settings-backed providers instead of env", async () => {
+		const originalOpenAiKey = process.env.OPENAI_API_KEY;
+		process.env.OPENAI_API_KEY = "env-openai-secret";
+
+		try {
+			const secretStore = createSecretStore({ backend: "memory", platform: "darwin" });
+			await secretStore.setSecret(
+				createProviderSecretRef("openrouter", "memory"),
+				"openrouter-secret",
+			);
+			const settings: SproutSettings = {
+				version: 2,
+				providers: [
+					{
+						id: "openrouter",
+						kind: "openrouter",
+						label: "OpenRouter",
+						enabled: true,
+						createdAt: "2026-03-13T18:00:00.000Z",
+						updatedAt: "2026-03-13T18:00:00.000Z",
+					},
+				],
+				defaults: {},
+			};
+			const logger = new SessionLogger({
+				logPath: join(tempDir, "session.log.jsonl"),
+				component: "agent-process-test",
+				sessionId: SESSION_ID,
+			});
+
+			const client = await createAgentProcessClient(logger, {
+				createSettingsStore: () => ({
+					load: async () =>
+						({
+							settings,
+							skipEnvImport: false,
+							source: "loaded",
+						}) satisfies {
+							settings: SproutSettings;
+							skipEnvImport: boolean;
+							source: "missing" | "loaded" | "recovered";
+						},
+				}),
+				createSecretStoreRuntime: () =>
+					({
+						secretRefBackend: "memory",
+						secretBackendState: {
+							backend: "memory",
+							available: true,
+						},
+						secretStore,
+					}) satisfies SecretStoreRuntime,
+			});
+
+			expect(client.providers()).toEqual(["openrouter"]);
+			expect(client.adapter("openrouter")?.providerId).toBe("openrouter");
+			expect(client.adapter("openai")).toBeUndefined();
+		} finally {
+			if (originalOpenAiKey === undefined) {
+				delete process.env.OPENAI_API_KEY;
+			} else {
+				process.env.OPENAI_API_KEY = originalOpenAiKey;
+			}
+		}
+	});
 
 	test("publishes events during agent execution", async () => {
 		const mockClient = createMockClient("Done.");
