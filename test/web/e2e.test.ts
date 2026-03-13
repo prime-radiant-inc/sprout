@@ -319,7 +319,13 @@ describe("Web interface end-to-end", () => {
 		await nextMessage(ws); // consume snapshot
 
 		sendCommand(ws, "switch_model", {
-			selection: { kind: "unqualified_model", modelId: "claude-opus-4-6" },
+			selection: {
+				kind: "model",
+				model: {
+					providerId: "anthropic",
+					modelId: "claude-opus-4-6",
+				},
+			},
 		});
 		await delay(100);
 

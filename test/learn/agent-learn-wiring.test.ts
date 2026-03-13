@@ -18,6 +18,7 @@ import type {
 	Response,
 	StreamEvent,
 } from "../../src/llm/types.ts";
+import { buildTestResolverContext } from "../helpers/resolver-context.ts";
 import "../helpers/test-env.ts";
 
 function fakeAdapter(name: string, models: string[]): ProviderAdapter {
@@ -60,10 +61,22 @@ describe("Agent-Learn wiring", () => {
 		const events = new AgentEventEmitter();
 		const metrics = new MetricsStore(join(genomeDir, "metrics", "metrics.jsonl"));
 		await metrics.load();
-		const learnProcess = new LearnProcess({ genome, metrics, events });
-
 		const env = new LocalExecutionEnvironment(tmpdir());
-		const client = Client.fromEnv();
+		const client = new Client({
+			providers: {
+				anthropic: fakeAdapter("anthropic", ["claude-sonnet-4-6"]),
+			},
+		});
+		const resolverContext = await buildTestResolverContext(client);
+		const learnProcess = new LearnProcess({
+			genome,
+			metrics,
+			events,
+			client,
+			modelsByProvider: resolverContext.modelsByProvider,
+			providerIdOverride: resolverContext.providerId,
+			resolverSettings: resolverContext.resolverSettings,
+		});
 		const registry = createPrimitiveRegistry(env);
 
 		const rootSpec = genome.getAgent("root")!;
@@ -78,6 +91,9 @@ describe("Agent-Learn wiring", () => {
 			genome,
 			events,
 			learnProcess,
+			modelsByProvider: resolverContext.modelsByProvider,
+			providerIdOverride: resolverContext.providerId,
+			resolverSettings: resolverContext.resolverSettings,
 		});
 
 		expect(agent).toBeDefined();
@@ -90,12 +106,15 @@ describe("Agent-Learn wiring", () => {
 				anthropic: fakeAdapter("anthropic", ["claude-opus-4-6", "claude-sonnet-4-6"]),
 			},
 		});
+		const resolverContext = await buildTestResolverContext(client);
 
 		const result = await createAgent({
 			genomePath,
 			rootDir: join(import.meta.dir, "../../root"),
 			workDir: tempDir,
 			client,
+			providerIdOverride: resolverContext.providerId,
+			resolverSettings: resolverContext.resolverSettings,
 		});
 
 		expect(result.learnProcess).toBeDefined();

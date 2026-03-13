@@ -4,22 +4,26 @@ import { type AgentFactory, SessionController } from "../../src/host/session-con
 import type { SessionSelectionRequest } from "../../src/shared/session-selection.ts";
 
 describe("SessionController selection state", () => {
-	test("stores canonical selection snapshots after resolving unqualified model requests", () => {
+	test("stores provider-relative tier selections after resolution", () => {
 		const bus = new EventBus();
 		const controller = new SessionController({
 			bus,
 			genomePath: "/tmp/genome",
 			projectDataDir: "/tmp/project",
 			resolveSelection: (selection: SessionSelectionRequest) => {
-				if (selection.kind !== "unqualified_model") {
+				if (selection.kind !== "tier") {
 					throw new Error(`Unexpected selection kind: ${selection.kind}`);
 				}
 				return {
 					selection: {
-						kind: "model",
-						model: { providerId: "openai", modelId: "gpt-4o" },
+						kind: "tier",
+						providerId: "openrouter-main",
+						tier: "best",
 					},
-					resolved: { providerId: "openai", modelId: "gpt-4o" },
+					resolved: {
+						providerId: "openrouter-main",
+						modelId: "anthropic/claude-opus-4.1",
+					},
 					source: "session",
 				};
 			},
@@ -27,15 +31,19 @@ describe("SessionController selection state", () => {
 
 		bus.emitCommand({
 			kind: "switch_model",
-			data: { selection: { kind: "unqualified_model", modelId: "gpt-4o" } },
+			data: { selection: { kind: "tier", providerId: "openrouter-main", tier: "best" } },
 		});
 
 		expect(controller.currentSelection).toEqual({
 			selection: {
-				kind: "model",
-				model: { providerId: "openai", modelId: "gpt-4o" },
+				kind: "tier",
+				providerId: "openrouter-main",
+				tier: "best",
 			},
-			resolved: { providerId: "openai", modelId: "gpt-4o" },
+			resolved: {
+				providerId: "openrouter-main",
+				modelId: "anthropic/claude-opus-4.1",
+			},
 			source: "session",
 		});
 	});
@@ -80,14 +88,19 @@ describe("SessionController selection state", () => {
 
 		bus.emitCommand({
 			kind: "switch_model",
-			data: { selection: { kind: "unqualified_model", modelId: "gpt-4o" } },
+			data: {
+				selection: {
+					kind: "model",
+					model: { providerId: "openai", modelId: "gpt-4o" },
+				},
+			},
 		});
 		await controller.submitGoal("ship it");
 
 		expect(capturedModel).toEqual({ providerId: "openai", modelId: "gpt-4o" });
 	});
 
-	test("inherit resets the controller to the runtime fallback selection snapshot", () => {
+	test("inherit keeps the runtime fallback snapshot", () => {
 		const bus = new EventBus();
 		const controller = new SessionController({
 			bus,
@@ -97,11 +110,11 @@ describe("SessionController selection state", () => {
 
 		bus.emitCommand({
 			kind: "switch_model",
-			data: { selection: { kind: "inherit" } },
+			data: { selection: { kind: "inherit", providerId: "openrouter-main" } },
 		});
 
 		expect(controller.currentSelection).toEqual({
-			selection: { kind: "inherit" },
+			selection: { kind: "inherit", providerId: "openrouter-main" },
 			source: "runtime-fallback",
 		});
 		expect(controller.currentModel).toBeUndefined();

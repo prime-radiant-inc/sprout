@@ -1,6 +1,33 @@
 import { describe, expect, test } from "bun:test";
 import { loadResumeState, resolveResumeSelection } from "../../src/host/cli-resume.ts";
+import type { SessionSelectionContext } from "../../src/host/session-selection.ts";
+import type { ProviderConfig } from "../../src/host/settings/types.ts";
 import type { Message } from "../../src/llm/types.ts";
+
+function provider(overrides: Partial<ProviderConfig> = {}): ProviderConfig {
+	return {
+		id: "openai",
+		kind: "openai",
+		label: "OpenAI",
+		enabled: true,
+		discoveryStrategy: "remote-only",
+		createdAt: "",
+		updatedAt: "",
+		...overrides,
+	};
+}
+
+function selectionContext(
+	overrides: Partial<SessionSelectionContext> = {},
+): SessionSelectionContext {
+	return {
+		settings: {
+			providers: overrides.settings?.providers ?? [provider()],
+			defaults: overrides.settings?.defaults ?? {},
+		},
+		catalog: overrides.catalog ?? [],
+	};
+}
 
 describe("loadResumeState", () => {
 	test("resume-last returns undefined when no sessions exist", async () => {
@@ -139,35 +166,18 @@ describe("loadResumeState", () => {
 		});
 	});
 
-	test("resolveResumeSelection resolves unique legacy raw model ids to explicit provider identities", () => {
+	test("resolveResumeSelection preserves explicit provider-qualified model selections", () => {
 		expect(
 			resolveResumeSelection(
-				{ kind: "unqualified_model", modelId: "gpt-4o" },
-				{
-					settings: {
-						providers: [
-							{
-								id: "openai",
-								kind: "openai",
-								label: "OpenAI",
-								enabled: true,
-								discoveryStrategy: "remote-only",
-								createdAt: "",
-								updatedAt: "",
-							},
-						],
-						routing: {
-							providerPriority: ["openai"],
-							tierOverrides: {},
-						},
-					},
+				{ kind: "model", model: { providerId: "openai", modelId: "gpt-4o" } },
+				selectionContext({
 					catalog: [
 						{
 							providerId: "openai",
 							models: [{ id: "gpt-4o", label: "gpt-4o", source: "remote" }],
 						},
 					],
-				},
+				}),
 			),
 		).toEqual({
 			selection: {
@@ -179,77 +189,45 @@ describe("loadResumeState", () => {
 		});
 	});
 
-	test("resolveResumeSelection rejects ambiguous legacy raw model ids", () => {
-		expect(() =>
+	test("resolveResumeSelection resolves tier selections through the default provider tier defaults", () => {
+		expect(
 			resolveResumeSelection(
-				{ kind: "unqualified_model", modelId: "gpt-4o" },
-				{
+				{ kind: "tier", tier: "balanced" },
+				selectionContext({
 					settings: {
 						providers: [
-							{
+							provider({
 								id: "openai",
-								kind: "openai",
-								label: "OpenAI",
-								enabled: true,
-								discoveryStrategy: "remote-only",
-								createdAt: "",
-								updatedAt: "",
-							},
-							{
-								id: "openrouter",
-								kind: "openrouter",
-								label: "OpenRouter",
-								enabled: true,
-								discoveryStrategy: "remote-only",
-								createdAt: "",
-								updatedAt: "",
-							},
+								tierDefaults: {
+									balanced: "gpt-4.1",
+								},
+							}),
 						],
-						routing: {
-							providerPriority: ["openai", "openrouter"],
-							tierOverrides: {},
+						defaults: {
+							defaultProviderId: "openai",
 						},
 					},
 					catalog: [
 						{
 							providerId: "openai",
-							models: [{ id: "gpt-4o", label: "gpt-4o", source: "remote" }],
-						},
-						{
-							providerId: "openrouter",
-							models: [{ id: "gpt-4o", label: "gpt-4o", source: "remote" }],
+							models: [{ id: "gpt-4.1", label: "gpt-4.1", source: "remote" }],
 						},
 					],
-				},
+				}),
 			),
-		).toThrow(/Ambiguous model/);
+		).toEqual({
+			selection: {
+				kind: "tier",
+				tier: "balanced",
+			},
+			resolved: { providerId: "openai", modelId: "gpt-4.1" },
+			source: "session",
+		});
 	});
 
-	test("resolveResumeSelection rejects stale or missing catalogs for legacy raw model ids", () => {
+	test("resolveResumeSelection rejects tier selections when no default provider is configured", () => {
 		expect(() =>
-			resolveResumeSelection(
-				{ kind: "unqualified_model", modelId: "gpt-4o" },
-				{
-					settings: {
-						providers: [
-							{
-								id: "openai",
-								kind: "openai",
-								label: "OpenAI",
-								enabled: true,
-								discoveryStrategy: "remote-only",
-								createdAt: "",
-								updatedAt: "",
-							},
-						],
-						routing: {
-							providerPriority: ["openai"],
-							tierOverrides: {},
-						},
-					},
-					catalog: [],
-				},
-			),
-		).toThrow(/catalog/i);
+			resolveResumeSelection({ kind: "tier", tier: "fast" }, selectionContext()),
+		).toThrow(/No provider selected/);
 	});
 });

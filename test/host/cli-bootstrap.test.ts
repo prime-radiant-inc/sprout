@@ -207,10 +207,7 @@ describe("bootstrapInteractiveRuntime", () => {
 					updatedAt: "2026-03-11T12:34:56.000Z",
 				},
 			],
-			routing: {
-				providerPriority: ["anthropic"],
-				tierOverrides: {},
-			},
+			defaults: { defaultProviderId: "anthropic" },
 		};
 
 		await bootstrapInteractiveRuntime(
@@ -390,10 +387,6 @@ describe("bootstrapInteractiveRuntime", () => {
 					updatedAt: "2026-03-11T12:34:56.000Z",
 				},
 			],
-			routing: {
-				providerPriority: ["openai"],
-				tierOverrides: {},
-			},
 		};
 
 		await bootstrapInteractiveRuntime(
@@ -442,6 +435,9 @@ describe("bootstrapInteractiveRuntime", () => {
 					label: "Anthropic",
 					enabled: true,
 					discoveryStrategy: "remote-only" as const,
+					tierDefaults: {
+						best: "claude-opus-4-6",
+					},
 					createdAt: "2026-03-11T12:34:56.000Z",
 					updatedAt: "2026-03-11T12:34:56.000Z",
 				},
@@ -455,10 +451,7 @@ describe("bootstrapInteractiveRuntime", () => {
 					updatedAt: "2026-03-11T12:34:56.000Z",
 				},
 			],
-			routing: {
-				providerPriority: ["anthropic", "openrouter"],
-				tierOverrides: {},
-			},
+			defaults: { defaultProviderId: "anthropic" },
 		};
 		const entries: ProviderRegistryEntry[] = [
 			{
@@ -533,6 +526,99 @@ describe("bootstrapInteractiveRuntime", () => {
 		expect((created.controlPlaneOptions as any).initialSettings).toEqual(settings);
 		expect(result.availableModels).toContain("claude-opus-4-6");
 		expect(result.availableModels).not.toContain("openrouter");
+	});
+
+	test("passes default-provider resolver settings with provider-owned tier defaults into the controller", async () => {
+		const created: Record<string, unknown> = {};
+		const settings = {
+			...createEmptySettings(),
+			providers: [
+				{
+					id: "openai",
+					kind: "openai" as const,
+					label: "OpenAI",
+					enabled: true,
+					discoveryStrategy: "remote-only" as const,
+					tierDefaults: {
+						balanced: "gpt-4.1",
+					},
+					createdAt: "2026-03-11T12:34:56.000Z",
+					updatedAt: "2026-03-11T12:34:56.000Z",
+				},
+				{
+					id: "anthropic",
+					kind: "anthropic" as const,
+					label: "Anthropic",
+					enabled: false,
+					discoveryStrategy: "remote-only" as const,
+					tierDefaults: {
+						best: "claude-opus-4-6",
+					},
+					createdAt: "2026-03-11T12:34:56.000Z",
+					updatedAt: "2026-03-11T12:34:56.000Z",
+				},
+			],
+			defaults: { defaultProviderId: "openai" },
+		};
+
+		await bootstrapInteractiveRuntime(
+			{
+				genomePath: "/tmp/genome",
+				projectDataDir: "/tmp/project",
+				rootDir: "/tmp/root",
+				sessionId: "01BOOT",
+				infra: { spawner: { id: "spawner" } as any, genome: { id: "genome" } as any },
+			},
+			{
+				createBus: () => ({ id: "bus" }),
+				createLogger: () => ({ info: () => {} }),
+				createSettingsStore: () => ({
+					load: async () => ({
+						settings,
+						skipEnvImport: false,
+						source: "loaded" as const,
+					}),
+					save: async () => {},
+				}),
+				createSecretStore: () => memorySecretStore(),
+				createProviderRegistry: () => emptyRegistry(),
+				createClient: async () => ({ id: "client" }),
+				createSettingsControlPlane: () => ({
+					getSelectionContext: () => ({
+						settings: {
+							providers: settings.providers,
+							defaults: settings.defaults,
+						},
+						catalog: [],
+					}),
+				}),
+				createController: (opts) => {
+					created.resolverSettings = opts.getResolverSettings?.();
+					return { sessionId: "01BOOT" };
+				},
+				loadAvailableModels: async () => [],
+			},
+		);
+
+		expect(created.resolverSettings).toEqual({
+			providers: [
+				{
+					id: "openai",
+					enabled: true,
+					tierDefaults: {
+						balanced: "gpt-4.1",
+					},
+				},
+				{
+					id: "anthropic",
+					enabled: false,
+					tierDefaults: {
+						best: "claude-opus-4-6",
+					},
+				},
+			],
+			defaults: { defaultProviderId: "openai" },
+		});
 	});
 
 	test("rebuilds the runtime registry after provider settings change", async () => {
@@ -645,11 +731,7 @@ describe("bootstrapInteractiveRuntime", () => {
 					updatedAt: "2026-03-11T12:34:56.000Z",
 				},
 			],
-			defaults: { selection: { kind: "none" as const } },
-			routing: {
-				providerPriority: [],
-				tierOverrides: {},
-			},
+			defaults: {},
 		};
 		const runtime = await bootstrapInteractiveRuntime(
 			{

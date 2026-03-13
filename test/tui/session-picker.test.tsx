@@ -9,11 +9,13 @@ async function flush() {
 	await sleep(10);
 }
 
+const defaultSelection = { kind: "inherit" } as const;
+
 const sessions: SessionListEntry[] = [
 	{
 		sessionId: "01AAAA00000000000000000001",
 		agentSpec: "root",
-		model: "gpt-4o",
+		selection: defaultSelection,
 		status: "idle",
 		turns: 3,
 		contextTokens: 10000,
@@ -26,7 +28,7 @@ const sessions: SessionListEntry[] = [
 	{
 		sessionId: "01BBBB00000000000000000002",
 		agentSpec: "root",
-		model: "claude-sonnet",
+		selection: defaultSelection,
 		status: "running",
 		turns: 7,
 		contextTokens: 50000,
@@ -167,7 +169,7 @@ describe("SessionPicker", () => {
 			{
 				sessionId: "01ONE000000000000000000001",
 				agentSpec: "root",
-				model: "gpt-4o",
+				selection: defaultSelection,
 				status: "idle",
 				turns: 1,
 				contextTokens: 0,
@@ -215,7 +217,7 @@ describe("SessionPicker", () => {
 			{
 				sessionId: "01DDDD00000000000000000004",
 				agentSpec: "root",
-				model: "gpt-4o",
+				selection: defaultSelection,
 				status: "idle",
 				turns: 1,
 				contextTokens: 0,
@@ -241,7 +243,7 @@ describe("SessionPicker", () => {
 			{
 				sessionId: "01EEEE00000000000000000005",
 				agentSpec: "root",
-				model: "gpt-4o",
+				selection: defaultSelection,
 				status: "idle",
 				turns: 1,
 				contextTokens: 0,
@@ -266,7 +268,7 @@ describe("SessionPicker", () => {
 			{
 				sessionId: "01FFFF00000000000000000006",
 				agentSpec: "root",
-				model: "gpt-4o",
+				selection: defaultSelection,
 				status: "idle",
 				turns: 1,
 				contextTokens: 0,
@@ -293,7 +295,7 @@ describe("SessionPicker", () => {
 			{
 				sessionId: "01CCCC00000000000000000003",
 				agentSpec: "root",
-				model: "gpt-4o",
+				selection: defaultSelection,
 				status: "idle",
 				turns: 0,
 				contextTokens: 0,

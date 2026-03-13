@@ -14,10 +14,11 @@ describe("parseSlashCommand", () => {
 		expect(parseSlashCommand("/quit")).toEqual({ kind: "quit" });
 	});
 
-	test("parses /model with argument", () => {
+	test("rejects /model with an unqualified model id", () => {
 		expect(parseSlashCommand("/model claude-sonnet-4-6")).toEqual({
-			kind: "switch_model",
-			selection: { kind: "unqualified_model", modelId: "claude-sonnet-4-6" },
+			kind: "invalid",
+			raw: "/model claude-sonnet-4-6",
+			message: "Session model selections must use a provider-qualified model ref",
 		});
 	});
 

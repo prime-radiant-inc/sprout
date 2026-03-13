@@ -57,6 +57,18 @@ function createRecordingSettingsControlPlane() {
 					},
 				};
 			}
+			if (command.kind === "set_default_provider") {
+				snapshot = {
+					...snapshot,
+					settings: {
+						...snapshot.settings,
+						defaults:
+							command.data.providerId === undefined
+								? {}
+								: { defaultProviderId: command.data.providerId as string },
+					},
+				};
+			}
 			return { ok: true as const, snapshot };
 		},
 	};
@@ -408,13 +420,15 @@ describe("App", () => {
 
 		// Model picker should be visible
 		const frame = lastFrame()!;
-		expect(frame).toContain("Anthropic");
-		expect(frame).toContain("LM Studio");
-		expect(frame).toContain("Best");
+		expect(frame).toContain("Provider · Anthropic");
+		expect(frame).toContain("Provider · LM Studio");
+		expect(frame).toContain("Anthropic · Balanced");
+		expect(frame).not.toContain("Anthropic · Best");
+		expect(frame).not.toContain("LM Studio · Qwen 2.5 Coder");
 		expect(frame).toContain("Select model");
 	});
 
-	test("selecting model from picker emits a canonical model selection and hides picker", async () => {
+	test("selecting model from picker emits a canonical provider-relative model selection and hides picker", async () => {
 		const commands: any[] = [];
 		const bus = new EventBus();
 		bus.onCommand((cmd) => commands.push(cmd));
@@ -441,9 +455,15 @@ describe("App", () => {
 
 		expect(lastFrame()).toContain("Select model");
 
-		// Move to the explicit Anthropic model and select it
+		// Switch to the LM Studio provider first
 		stdin.write("\x1B[B");
 		await flush();
+		stdin.write("\x1B[B");
+		await flush();
+		stdin.write("\r");
+		await flush();
+
+		// Move to the explicit LM Studio model and select it
 		stdin.write("\x1B[B");
 		await flush();
 		stdin.write("\x1B[B");
@@ -459,8 +479,8 @@ describe("App", () => {
 		expect(switchCmd!.data.selection).toEqual({
 			kind: "model",
 			model: {
-				providerId: "anthropic-main",
-				modelId: "claude-sonnet-4-6",
+				providerId: "lmstudio",
+				modelId: "qwen2.5-coder",
 			},
 		});
 
@@ -483,8 +503,8 @@ describe("App", () => {
 
 		const frame = lastFrame()!;
 		expect(frame).toContain("Provider settings");
-		expect(frame).toContain("Anthropic");
-		expect(frame).toContain("Actions");
+		expect(frame).toContain("Default provider");
+		expect(frame).toContain("Current default: Anthropic (anthropic-main)");
 		expect(frame).toContain("shortcut>");
 	});
 
@@ -506,33 +526,32 @@ describe("App", () => {
 			return Boolean(
 				frame?.includes("Provider settings") &&
 					frame.includes("shortcut>") &&
-					frame.includes("Enabled: yes"),
+					frame.includes("Current default: Anthropic (anthropic-main)"),
 			);
 		});
 		await flush();
 
-		stdin.write("disable");
+		stdin.write("default lmstudio");
 		await flush();
 		stdin.write("\r");
 		await waitFor(() =>
-			settingsControlPlane.commands.some((command) => command.kind === "set_provider_enabled"),
+			settingsControlPlane.commands.some((command) => command.kind === "set_default_provider"),
 		);
 
 		expect(settingsControlPlane.commands.map((command) => command.kind)).toEqual([
 			"get_settings",
 			"get_settings",
-			"set_provider_enabled",
+			"set_default_provider",
 		]);
 		expect(settingsControlPlane.commands[2]).toEqual({
-			kind: "set_provider_enabled",
+			kind: "set_default_provider",
 			data: {
-				providerId: "anthropic-main",
-				enabled: false,
+				providerId: "lmstudio",
 			},
 		});
 		await waitFor(() => {
 			const frame = lastFrame();
-			return frame?.includes("Enabled: no") ?? false;
+			return frame?.includes("Current default: LM Studio (lmstudio)") ?? false;
 		});
 	});
 

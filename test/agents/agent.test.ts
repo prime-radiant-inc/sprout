@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Agent } from "../../src/agents/agent.ts";
+import { type AgentOptions, Agent as RawAgent } from "../../src/agents/agent.ts";
 import { AgentEventEmitter } from "../../src/agents/events.ts";
 import type { AgentTreeEntry } from "../../src/agents/loader.ts";
 import type { AgentSpawner, SpawnAgentOptions } from "../../src/bus/spawner.ts";
@@ -16,8 +16,14 @@ import { Client } from "../../src/llm/client.ts";
 import { StreamReadTimeoutError } from "../../src/llm/stream-timeout.ts";
 import type { Message, Response } from "../../src/llm/types.ts";
 import { ContentKind, Msg } from "../../src/llm/types.ts";
-import { leafSpec, rootSpec } from "./fixtures.ts";
+import { leafSpec, rootSpec, withDefaultResolverContext } from "./fixtures.ts";
 import "../helpers/test-env.ts";
+
+class Agent extends RawAgent {
+	constructor(options: AgentOptions) {
+		super(withDefaultResolverContext(options));
+	}
+}
 
 describe("Agent", () => {
 	test("run() with initialHistory prepends prior messages", async () => {

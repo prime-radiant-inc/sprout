@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import { cp, exists, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createResolverSettings } from "../../src/agents/model-resolver.ts";
 import { runAgentProcess } from "../../src/bus/agent-process.ts";
 import { BusClient } from "../../src/bus/client.ts";
 import { BusServer } from "../../src/bus/server.ts";
@@ -55,6 +56,31 @@ const ORCHESTRATOR_AGENT_SPEC = {
 	version: 1,
 	system_prompt: "You are an orchestrator. Delegate work to test-leaf.",
 };
+
+const TEST_PROVIDER_ID = "anthropic";
+const TEST_MODEL_ID = "claude-haiku-4-5-20251001";
+const TEST_RESOLVER_SETTINGS = createResolverSettings(
+	[
+		{
+			id: TEST_PROVIDER_ID,
+			enabled: true,
+			tierDefaults: {
+				best: TEST_MODEL_ID,
+				balanced: TEST_MODEL_ID,
+				fast: TEST_MODEL_ID,
+			},
+		},
+	],
+	TEST_PROVIDER_ID,
+);
+
+function withResolverContext(startMsg: StartMessage): StartMessage {
+	return {
+		...startMsg,
+		provider_id: TEST_PROVIDER_ID,
+		resolver_settings: TEST_RESOLVER_SETTINGS,
+	};
+}
 
 /** Create a mock LLM client that returns a canned text response */
 function createMockClient(responseText: string): Client {
@@ -212,7 +238,7 @@ describe("runAgentProcess", () => {
 			shared: false,
 			agent_id: HANDLE_ID,
 		};
-		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
+		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
 
 		// Wait for the result
 		const rawResult = await resultPromise;
@@ -264,7 +290,7 @@ describe("runAgentProcess", () => {
 			shared: false,
 			agent_id: HANDLE_ID,
 		};
-		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
+		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
 
 		await resultPromise;
 		await waitForCondition(() => {
@@ -318,7 +344,7 @@ describe("runAgentProcess", () => {
 			shared: false,
 			agent_id: HANDLE_ID,
 		};
-		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
+		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
 
 		await resultPromise;
 		await waitForCondition(() => {
@@ -373,7 +399,7 @@ describe("runAgentProcess", () => {
 			shared: false,
 			agent_id: HANDLE_ID,
 		};
-		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
+		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
 
 		await resultPromise;
 		await waitForCondition(() => {
@@ -445,7 +471,7 @@ describe("runAgentProcess", () => {
 			shared: true,
 			agent_id: HANDLE_ID,
 		};
-		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
+		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
 
 		// Wait for first result
 		await waitForResults(results, 1);
@@ -526,7 +552,7 @@ describe("runAgentProcess", () => {
 			shared: true,
 			agent_id: HANDLE_ID,
 		};
-		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
+		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
 
 		// Wait for initial result
 		await waitForResults(results, 1);
@@ -610,7 +636,7 @@ describe("runAgentProcess", () => {
 			shared: true,
 			agent_id: HANDLE_ID,
 		};
-		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
+		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
 
 		// Wait for first result
 		await waitForResults(results, 1);
@@ -713,7 +739,7 @@ describe("runAgentProcess", () => {
 			shared: false,
 			agent_id: HANDLE_ID,
 		};
-		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
+		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
 
 		// Wait for the first LLM call to be in progress, then send a steer.
 		// The mock client delay gives us time.
@@ -769,7 +795,7 @@ describe("runAgentProcess", () => {
 			shared: false,
 			agent_id: HANDLE_ID,
 		};
-		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
+		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
 
 		const rawResult = await resultPromise;
 		const result: ResultMessage = JSON.parse(rawResult);
@@ -821,7 +847,7 @@ describe("runAgentProcess", () => {
 			shared: false,
 			agent_id: HANDLE_ID,
 		};
-		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
+		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
 
 		const rawResult = await resultPromise;
 		const result: ResultMessage = JSON.parse(rawResult);
@@ -906,7 +932,7 @@ describe("runAgentProcess", () => {
 			shared: true,
 			agent_id: HANDLE_ID,
 		};
-		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
+		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
 
 		// Wait for first result (should succeed)
 		await waitForResults(results, 1);
@@ -961,7 +987,7 @@ describe("runAgentProcess", () => {
 			shared: false,
 			agent_id: HANDLE_ID,
 		};
-		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
+		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
 
 		await resultPromise;
 		await processPromise;
@@ -1028,7 +1054,7 @@ describe("runAgentProcess", () => {
 			shared: false,
 			agent_id: HANDLE_ID,
 		};
-		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
+		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
 
 		await resultPromise;
 		await processPromise;
@@ -1074,17 +1100,19 @@ describe("runAgentProcess", () => {
 		const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
 		await parentClient.publish(
 			inboxTopic,
-			JSON.stringify({
-				kind: "start",
-				handle_id: HANDLE_ID,
-				agent_name: "test-leaf",
-				genome_path: genomeDir,
-				session_id: SESSION_ID,
-				caller: { agent_name: "root", depth: 0 },
-				goal: "First task",
-				shared: false,
-				agent_id: HANDLE_ID,
-			} satisfies StartMessage),
+			JSON.stringify(
+				withResolverContext({
+					kind: "start",
+					handle_id: HANDLE_ID,
+					agent_name: "test-leaf",
+					genome_path: genomeDir,
+					session_id: SESSION_ID,
+					caller: { agent_name: "root", depth: 0 },
+					goal: "First task",
+					shared: false,
+					agent_id: HANDLE_ID,
+				} satisfies StartMessage),
+			),
 		);
 		await resultPromise1;
 		await processPromise1;
@@ -1103,17 +1131,19 @@ describe("runAgentProcess", () => {
 		await waitForAgentReady();
 		await parentClient.publish(
 			inboxTopic,
-			JSON.stringify({
-				kind: "start",
-				handle_id: HANDLE_ID,
-				agent_name: "test-leaf",
-				genome_path: genomeDir,
-				session_id: SESSION_ID,
-				caller: { agent_name: "root", depth: 0 },
-				goal: "Follow-up task",
-				shared: false,
-				agent_id: HANDLE_ID,
-			} satisfies StartMessage),
+			JSON.stringify(
+				withResolverContext({
+					kind: "start",
+					handle_id: HANDLE_ID,
+					agent_name: "test-leaf",
+					genome_path: genomeDir,
+					session_id: SESSION_ID,
+					caller: { agent_name: "root", depth: 0 },
+					goal: "Follow-up task",
+					shared: false,
+					agent_id: HANDLE_ID,
+				} satisfies StartMessage),
+			),
 		);
 		await resultPromise2;
 		await processPromise2;
@@ -1164,7 +1194,7 @@ describe("runAgentProcess", () => {
 			shared: false,
 			agent_id: HANDLE_ID,
 		};
-		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
+		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
 
 		await resultPromise;
 		await processPromise;
@@ -1297,7 +1327,7 @@ describe("runAgentProcess", () => {
 			shared: false,
 			agent_id: HANDLE_ID,
 		};
-		await parentClient.publish(inboxTopic, JSON.stringify(startMsg));
+		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
 
 		// If the tree was NOT passed, this would throw "zero tools after full resolution"
 		// because agents:[] + tools:[] + no workspace tools = zero tools.

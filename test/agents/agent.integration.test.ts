@@ -12,6 +12,7 @@ import type { AgentSpec } from "../../src/kernel/types.ts";
 import { Client } from "../../src/llm/client.ts";
 import { ContentKind, type Message, Msg, type Response } from "../../src/llm/types.ts";
 import "../helpers/test-env.ts";
+import { buildTestResolverContext } from "../helpers/resolver-context.ts";
 import { createVcr } from "../helpers/vcr.ts";
 
 const VCR_FIXTURE_DIR = join(import.meta.dir, "../fixtures/vcr/agent-integration");
@@ -54,6 +55,7 @@ describe("Agent Integration", () => {
 
 	test("leaf agent creates a file using primitives", async () => {
 		const vcr = vcrForTest("leaf-agent-creates-a-file-using-primitives");
+		const resolverContext = await buildTestResolverContext(vcr.client);
 		const codeEditor = rootAgents.find((a) => a.name === "editor")!;
 		const events = new AgentEventEmitter();
 		const agent = new Agent({
@@ -64,6 +66,9 @@ describe("Agent Integration", () => {
 			availableAgents: rootAgents,
 			depth: 1,
 			events,
+			providerIdOverride: resolverContext.providerId,
+			resolverSettings: resolverContext.resolverSettings,
+			modelsByProvider: resolverContext.modelsByProvider,
 		});
 
 		const result = await agent.run(
@@ -110,6 +115,19 @@ describe("Agent Integration", () => {
 		let callCount = 0;
 		const mockClient = {
 			providers: () => ["anthropic"],
+			listModelsByProvider: async () =>
+				new Map([
+					[
+						"anthropic",
+						[
+							{
+								id: "claude-haiku-4-5-20251001",
+								label: "claude-haiku-4-5-20251001",
+								source: "remote" as const,
+							},
+						],
+					],
+				]),
 			complete: async (): Promise<Response> => {
 				callCount++;
 				const message = callCount === 1 ? delegateMsg : callCount === 2 ? subDoneMsg : doneMsg;
@@ -124,6 +142,7 @@ describe("Agent Integration", () => {
 			},
 			stream: async function* () {},
 		} as unknown as Client;
+		const resolverContext = await buildTestResolverContext(mockClient);
 
 		const agent = new Agent({
 			spec: rootSpec,
@@ -136,6 +155,9 @@ describe("Agent Integration", () => {
 			agentTree: rootTree,
 			agentTreeChildren: rootTreeChildren,
 			agentTreeSelfPath: "",
+			providerIdOverride: resolverContext.providerId,
+			resolverSettings: resolverContext.resolverSettings,
+			modelsByProvider: resolverContext.modelsByProvider,
 		});
 
 		const result = await agent.run(
@@ -208,6 +230,7 @@ describe("Agent with Genome Integration", () => {
 
 	test("fresh genome with bootstrap agents completes a file creation task", async () => {
 		const vcr = vcrForTest("fresh-genome-with-bootstrap-agents-completes-a-file-creation-task");
+		const resolverContext = await buildTestResolverContext(vcr.client);
 		const events = new AgentEventEmitter();
 		const rootSpec = genome.getAgent("root")!;
 
@@ -220,6 +243,9 @@ describe("Agent with Genome Integration", () => {
 			genome,
 			events,
 			depth: 0,
+			providerIdOverride: resolverContext.providerId,
+			resolverSettings: resolverContext.resolverSettings,
+			modelsByProvider: resolverContext.modelsByProvider,
 		});
 
 		const result = await agent.run(
@@ -245,6 +271,7 @@ describe("Agent with Genome Integration", () => {
 
 	test("agent with memory in genome gets recall with memory count > 0", async () => {
 		const vcr = vcrForTest("agent-with-memory-in-genome-gets-recall-with-memory-count");
+		const resolverContext = await buildTestResolverContext(vcr.client);
 
 		// Add a memory to the genome
 		await genome.addMemory({
@@ -270,6 +297,9 @@ describe("Agent with Genome Integration", () => {
 			genome,
 			events,
 			depth: 0,
+			providerIdOverride: resolverContext.providerId,
+			resolverSettings: resolverContext.resolverSettings,
+			modelsByProvider: resolverContext.modelsByProvider,
 		});
 
 		// Use a goal that has keywords matching the memory

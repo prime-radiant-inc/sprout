@@ -95,7 +95,24 @@ describe("formatSelectionLabel", () => {
 				"claude-sonnet-4-6",
 				makeSettingsSnapshot(),
 			),
-		).toBe("Default · claude-sonnet-4-6");
+		).toBe("Default provider · Anthropic");
+	});
+
+	test("renders provider-relative tier labels", () => {
+		expect(
+			formatSelectionLabel(
+				makeSelectionSnapshot({
+					selection: { kind: "tier", providerId: "lmstudio", tier: "fast" },
+					resolved: {
+						providerId: "lmstudio",
+						modelId: "qwen2.5-coder",
+					},
+					source: "session",
+				}),
+				"claude-sonnet-4-6",
+				makeSettingsSnapshot(),
+			),
+		).toBe("LM Studio · Fast");
 	});
 });
 
@@ -152,6 +169,22 @@ describe("StatusBar", () => {
 		const frame = lastFrame()!;
 		expect(frame).toContain("Anthropic");
 		expect(frame).toContain("Claude Sonnet 4.6");
+	});
+
+	test("renders provider-relative default selection label", () => {
+		const { lastFrame } = render(
+			<StatusBar
+				{...makeProps({
+					selection: makeSelectionSnapshot({
+						selection: { kind: "inherit", providerId: "lmstudio" },
+						resolved: undefined,
+						source: "runtime-fallback",
+					}),
+				})}
+			/>,
+		);
+		expect(lastFrame()).toContain("LM Studio");
+		expect(lastFrame()).toContain("Default");
 	});
 
 	test("renders full session ID", () => {

@@ -1,13 +1,19 @@
 import { describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
-import { Agent } from "@/agents/agent.ts";
+import { type AgentOptions, Agent as RawAgent } from "@/agents/agent.ts";
 import { AgentEventEmitter } from "@/agents/events.ts";
 import { LocalExecutionEnvironment } from "@/kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "@/kernel/primitives.ts";
 import type { Client } from "@/llm/client.ts";
 import type { Message, Response } from "@/llm/types.ts";
 import { ContentKind } from "@/llm/types.ts";
-import { leafSpec, rootSpec } from "./fixtures.ts";
+import { leafSpec, rootSpec, withDefaultResolverContext } from "./fixtures.ts";
+
+class Agent extends RawAgent {
+	constructor(options: AgentOptions) {
+		super(withDefaultResolverContext(options));
+	}
+}
 
 describe("Agent mnemonic names", () => {
 	test("act_start and act_end events include mnemonic_name from delegation", async () => {

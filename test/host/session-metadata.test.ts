@@ -198,20 +198,6 @@ describe("loadSessionMetadata", () => {
 		expect(snapshot.contextTokens).toBe(3000);
 		expect(snapshot.contextWindowSize).toBe(200000);
 	});
-
-	test("loadSessionMetadata preserves legacy raw model snapshots for migration", async () => {
-		const sessionId = "01LEGACY_MODEL_TEST";
-		const metaPath = join(tempDir, `${sessionId}.meta.json`);
-
-		await writeLegacySnapshot(metaPath, {
-			sessionId,
-			agentSpec: "root",
-			model: "claude-sonnet-4-6",
-		});
-
-		const snapshot = await loadSessionMetadata(metaPath);
-		expect("model" in snapshot ? snapshot.model : undefined).toBe("claude-sonnet-4-6");
-	});
 });
 
 describe("loadIfExists", () => {
@@ -236,7 +222,7 @@ describe("loadIfExists", () => {
 			JSON.stringify({
 				sessionId,
 				agentSpec: "root",
-				model: "best",
+				selection: { kind: "tier", tier: "best" },
 				status: "running",
 				turns: 5,
 				contextTokens: 1000,
@@ -270,7 +256,7 @@ describe("loadIfExists", () => {
 			JSON.stringify({
 				sessionId,
 				agentSpec: "root",
-				model: "best",
+				selection: { kind: "tier", tier: "best" },
 				status: "idle",
 				turns: 3,
 				contextTokens: 500,
@@ -306,28 +292,6 @@ describe("loadIfExists", () => {
 		await meta.loadIfExists(join(tempDir, "nonexistent.meta.json"));
 	});
 });
-
-async function writeLegacySnapshot(
-	path: string,
-	values: {
-		sessionId: string;
-		agentSpec: string;
-		model: string;
-	},
-): Promise<void> {
-	await Bun.write(
-		path,
-		JSON.stringify({
-			...values,
-			status: "idle",
-			turns: 0,
-			contextTokens: 0,
-			contextWindowSize: 0,
-			createdAt: new Date().toISOString(),
-			updatedAt: new Date().toISOString(),
-		}),
-	);
-}
 
 describe("listSessions", () => {
 	let tempDir: string;

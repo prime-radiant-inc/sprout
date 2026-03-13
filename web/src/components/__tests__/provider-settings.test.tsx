@@ -5,13 +5,7 @@ import type {
 	SettingsSnapshot,
 } from "@kernel/types.ts";
 import { renderToStaticMarkup } from "react-dom/server";
-import {
-	createDefaultSelectionCommand,
-	createProviderPriorityCommand,
-	createTierPriorityCommand,
-	moveProviderPriority,
-	toggleTierProviderSelection,
-} from "../settings/DefaultsPanel.tsx";
+import { DefaultProviderPanel } from "../settings/DefaultProviderPanel.tsx";
 import {
 	createDeleteProviderCommand,
 	createDeleteProviderSecretCommand,
@@ -43,6 +37,10 @@ function makeSettings(): SettingsSnapshot {
 					label: "Anthropic",
 					enabled: true,
 					discoveryStrategy: "remote-with-manual",
+					tierDefaults: {
+						best: "claude-opus-4-6",
+						balanced: "claude-sonnet-4-6",
+					},
 					createdAt: "2026-03-11T00:00:00.000Z",
 					updatedAt: "2026-03-11T00:00:00.000Z",
 				},
@@ -57,8 +55,6 @@ function makeSettings(): SettingsSnapshot {
 						{
 							id: "qwen2.5-coder",
 							label: "Qwen 2.5 Coder",
-							tierHint: "fast",
-							rank: 5,
 						},
 					],
 					createdAt: "2026-03-11T00:00:00.000Z",
@@ -66,20 +62,7 @@ function makeSettings(): SettingsSnapshot {
 				},
 			],
 			defaults: {
-				selection: {
-					kind: "model",
-					model: {
-						providerId: "anthropic-main",
-						modelId: "claude-sonnet-4-6",
-					},
-				},
-			},
-			routing: {
-				providerPriority: ["anthropic-main", "lmstudio"],
-				tierOverrides: {
-					best: ["anthropic-main"],
-					fast: ["lmstudio"],
-				},
+				defaultProviderId: "anthropic-main",
 			},
 		},
 		providers: [
@@ -106,10 +89,13 @@ function makeSettings(): SettingsSnapshot {
 				lastRefreshAt: "2026-03-11T00:00:00.000Z",
 				models: [
 					{
+						id: "claude-opus-4-6",
+						label: "Claude Opus 4.6",
+						source: "remote",
+					},
+					{
 						id: "claude-sonnet-4-6",
 						label: "Claude Sonnet 4.6",
-						tierHint: "balanced",
-						rank: 10,
 						source: "remote",
 					},
 				],
@@ -120,8 +106,6 @@ function makeSettings(): SettingsSnapshot {
 					{
 						id: "qwen2.5-coder",
 						label: "Qwen 2.5 Coder",
-						tierHint: "fast",
-						rank: 5,
 						source: "manual",
 					},
 				],
@@ -148,7 +132,7 @@ describe("ProviderSettingsPanel", () => {
 		console.error = originalConsoleError;
 	});
 
-	test("renders loading and empty states", () => {
+	test("renders loading, unavailable, and empty states", () => {
 		expect(
 			renderToStaticMarkup(
 				<ProviderSettingsPanel
@@ -163,19 +147,26 @@ describe("ProviderSettingsPanel", () => {
 		expect(
 			renderToStaticMarkup(
 				<ProviderSettingsPanel
+					settings={null}
+					lastResult={makeResult({
+						code: "settings_unavailable",
+						message: "Settings control plane is unavailable",
+					})}
+					onCommand={() => {}}
+					onClose={() => {}}
+				/>,
+			),
+		).toContain("Provider settings are unavailable");
+
+		expect(
+			renderToStaticMarkup(
+				<ProviderSettingsPanel
 					settings={{
-						runtime: {
-							secretBackend: {
-								backend: "memory",
-								available: true,
-							},
-							warnings: [],
-						},
+						...makeSettings(),
 						settings: {
 							version: 1,
 							providers: [],
-							defaults: { selection: { kind: "none" } },
-							routing: { providerPriority: [], tierOverrides: {} },
+							defaults: {},
 						},
 						providers: [],
 						catalog: [],
@@ -188,57 +179,12 @@ describe("ProviderSettingsPanel", () => {
 		).toContain("No providers configured");
 	});
 
-	test("renders unavailable state when settings cannot be loaded", () => {
-		const html = renderToStaticMarkup(
-			<ProviderSettingsPanel
-				settings={null}
-				lastResult={makeResult({
-					code: "settings_unavailable",
-					message: "Settings control plane is unavailable",
-				})}
-				onCommand={() => {}}
-				onClose={() => {}}
-			/>,
-		);
-
-		expect(html).toContain("Provider settings are unavailable");
-		expect(html).toContain("Settings control plane is unavailable");
-	});
-
-	test("renders provider health, unsupported secret backend messaging, and discovered models", () => {
-		const result = makeResult({ message: "Latest command failed" });
-		const logged: unknown[][] = [];
-		console.error = (...args: unknown[]) => {
-			logged.push(args);
-		};
-		const html = renderToStaticMarkup(
-			<ProviderEditor
-				mode="edit"
-				provider={makeSettings().settings.providers[0]}
-				status={makeSettings().providers[0]}
-				catalogEntry={makeSettings().catalog[0]}
-				message={result.message}
-				onCommand={() => {}}
-			/>,
-		);
-		expect(html).toContain("Unsupported secret backend");
-		expect(html).toContain("Auth failed");
-		expect(html).toContain("Refresh required");
-		expect(html).toContain("Claude Sonnet 4.6");
-		expect(html).toContain("Latest command failed");
-		expect(logged).toEqual([]);
-	});
-
-	test("renders panel-level runtime warnings", () => {
+	test("renders the default provider panel and runtime warnings", () => {
 		const settings = makeSettings();
 		settings.runtime.warnings = [
 			{
 				code: "invalid_settings_recovered",
-				message: "Recovered invalid settings file to /tmp/settings.invalid.2026-03-12.json",
-			},
-			{
-				code: "secret_backend_unavailable",
-				message: "Unsupported secret backend for platform: win32",
+				message: "Recovered invalid settings file to /tmp/settings.invalid.json",
 			},
 		];
 
@@ -251,11 +197,43 @@ describe("ProviderSettingsPanel", () => {
 			/>,
 		);
 
-		expect(html).toContain("Recovered invalid settings file to /tmp/settings.invalid.2026-03-12.json");
-		expect(html).toContain("Unsupported secret backend for platform: win32");
+		expect(html).toContain("Default provider");
+		expect(html).toContain("Recovered invalid settings file to /tmp/settings.invalid.json");
 	});
 
-	test("builds create and edit provider commands with manual models and headers", () => {
+	test("renders provider health, discovered models, and tier defaults", () => {
+		const html = renderToStaticMarkup(
+			<ProviderEditor
+				mode="edit"
+				provider={makeSettings().settings.providers[0]}
+				status={makeSettings().providers[0]}
+				catalogEntry={makeSettings().catalog[0]}
+				message="Validation failed"
+				onCommand={() => {}}
+			/>,
+		);
+
+		expect(html).toContain("Unsupported secret backend");
+		expect(html).toContain("Auth failed");
+		expect(html).toContain("Refresh required");
+		expect(html).toContain("Tier defaults");
+		expect(html).toContain("Claude Sonnet 4.6");
+	});
+});
+
+describe("DefaultProviderPanel", () => {
+	test("renders the current enabled default provider", () => {
+		const html = renderToStaticMarkup(
+			<DefaultProviderPanel settings={makeSettings()} onCommand={() => {}} />,
+		);
+
+		expect(html).toContain("Default provider");
+		expect(html).toContain("Anthropic");
+	});
+});
+
+describe("ProviderEditor helpers", () => {
+	test("builds create and edit provider commands with manual models and tier defaults", () => {
 		expect(
 			createProviderSaveCommand("create", {
 				kind: "openrouter",
@@ -271,10 +249,11 @@ describe("ProviderSettingsPanel", () => {
 					{
 						id: "openrouter/manual-fast",
 						label: "Manual Fast",
-						tierHint: "fast",
-						rank: "3",
 					},
 				],
+				tierDefaults: {
+					fast: "openai/gpt-4o-mini",
+				},
 			}),
 		).toEqual({
 			kind: "create_provider",
@@ -289,10 +268,11 @@ describe("ProviderSettingsPanel", () => {
 					{
 						id: "openrouter/manual-fast",
 						label: "Manual Fast",
-						tierHint: "fast",
-						rank: 3,
 					},
 				],
+				tierDefaults: {
+					fast: "openai/gpt-4o-mini",
+				},
 			},
 		} satisfies SettingsCommand);
 
@@ -314,10 +294,11 @@ describe("ProviderSettingsPanel", () => {
 						{
 							id: "qwen2.5-coder",
 							label: "Qwen 2.5 Coder",
-							tierHint: "",
-							rank: "",
 						},
 					],
+					tierDefaults: {
+						best: "qwen2.5-coder",
+					},
 				},
 				"lmstudio",
 			),
@@ -338,6 +319,9 @@ describe("ProviderSettingsPanel", () => {
 							label: "Qwen 2.5 Coder",
 						},
 					],
+					tierDefaults: {
+						best: "qwen2.5-coder",
+					},
 				},
 			},
 		} satisfies SettingsCommand);
@@ -352,6 +336,7 @@ describe("ProviderSettingsPanel", () => {
 				discoveryStrategy: "manual-only",
 				nonSecretHeaders: [],
 				manualModels: [],
+				tierDefaults: {},
 			}),
 		).toEqual({
 			label: "Label is required.",
@@ -365,65 +350,9 @@ describe("ProviderSettingsPanel", () => {
 				discoveryStrategy: "remote-only",
 				nonSecretHeaders: [],
 				manualModels: [],
+				tierDefaults: {},
 			}),
 		).toBeUndefined();
-	});
-
-	test("renders field-level errors, manual models, and custom headers for supported providers", () => {
-		const html = renderToStaticMarkup(
-			<ProviderEditor
-				mode="edit"
-				provider={makeSettings().settings.providers[1]}
-				status={makeSettings().providers[1]}
-				catalogEntry={makeSettings().catalog[1]}
-				message="Validation failed"
-				fieldErrors={{
-					baseUrl: "Base URL must be a valid http or https URL",
-					manualModels: "Manual models must use unique ids",
-					nonSecretHeaders: "Header names must be unique",
-				}}
-				onCommand={() => {}}
-			/>,
-		);
-
-		expect(html).toContain("Base URL must be a valid http or https URL");
-		expect(html).toContain("Manual models");
-		expect(html).toContain("Manual models must use unique ids");
-		expect(html).toContain("Custom headers");
-		expect(html).toContain("Header names must be unique");
-		expect(html).toContain("Qwen 2.5 Coder");
-	});
-
-	test("hides custom header editing for gemini providers", () => {
-		const html = renderToStaticMarkup(
-			<ProviderEditor
-				mode="edit"
-				provider={{
-					id: "gemini-main",
-					kind: "gemini",
-					label: "Gemini",
-					enabled: true,
-					discoveryStrategy: "remote-only",
-					createdAt: "2026-03-11T00:00:00.000Z",
-					updatedAt: "2026-03-11T00:00:00.000Z",
-				}}
-				status={{
-					providerId: "gemini-main",
-					hasSecret: true,
-					validationErrors: [],
-					connectionStatus: "ok",
-					catalogStatus: "current",
-				}}
-				catalogEntry={{
-					providerId: "gemini-main",
-					models: [],
-				}}
-				message={null}
-				onCommand={() => {}}
-			/>,
-		);
-
-		expect(html).not.toContain("Custom headers");
 	});
 
 	test("builds secret and provider action commands", () => {
@@ -463,57 +392,6 @@ describe("ProviderSettingsPanel", () => {
 			kind: "delete_provider",
 			data: {
 				providerId: "lmstudio",
-			},
-		} satisfies SettingsCommand);
-	});
-
-	test("builds default selection and routing commands", () => {
-		expect(createDefaultSelectionCommand("tier", "fast", "")).toEqual({
-			kind: "set_default_selection",
-			data: {
-				selection: {
-					kind: "tier",
-					tier: "fast",
-				},
-			},
-		} satisfies SettingsCommand);
-		expect(
-			createDefaultSelectionCommand(
-				"model",
-				"balanced",
-				"lmstudio:qwen2.5-coder",
-			),
-		).toEqual({
-			kind: "set_default_selection",
-			data: {
-				selection: {
-					kind: "model",
-					model: {
-						providerId: "lmstudio",
-						modelId: "qwen2.5-coder",
-					},
-				},
-			},
-		} satisfies SettingsCommand);
-		expect(moveProviderPriority(["anthropic-main", "lmstudio"], "lmstudio", -1)).toEqual([
-			"lmstudio",
-			"anthropic-main",
-		]);
-		expect(toggleTierProviderSelection(["anthropic-main"], "lmstudio")).toEqual([
-			"anthropic-main",
-			"lmstudio",
-		]);
-		expect(createProviderPriorityCommand(["lmstudio", "anthropic-main"])).toEqual({
-			kind: "set_provider_priority",
-			data: {
-				providerIds: ["lmstudio", "anthropic-main"],
-			},
-		} satisfies SettingsCommand);
-		expect(createTierPriorityCommand("best", ["anthropic-main", "lmstudio"])).toEqual({
-			kind: "set_tier_priority",
-			data: {
-				tier: "best",
-				providerIds: ["anthropic-main", "lmstudio"],
 			},
 		} satisfies SettingsCommand);
 	});

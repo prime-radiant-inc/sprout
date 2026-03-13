@@ -17,8 +17,9 @@ import {
 import { LearnProcess } from "../../src/learn/learn-process.ts";
 import { MetricsStore } from "../../src/learn/metrics-store.ts";
 import type { Client } from "../../src/llm/client.ts";
-import type { Response } from "../../src/llm/types.ts";
+import type { ProviderModel, Response } from "../../src/llm/types.ts";
 import { Msg } from "../../src/llm/types.ts";
+import { buildTestResolverContext } from "../helpers/resolver-context.ts";
 
 const leafSpec: AgentSpec = {
 	name: "leaf",
@@ -41,8 +42,21 @@ function makeMockClient(): Client {
 		finish_reason: { reason: "stop" },
 		usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
 	};
+	const modelsByProvider = new Map<string, ProviderModel[]>([
+		[
+			"anthropic",
+			[
+				{
+					id: "claude-haiku-4-5-20251001",
+					label: "claude-haiku-4-5-20251001",
+					source: "remote",
+				},
+			],
+		],
+	]);
 	return {
 		providers: () => ["anthropic"],
+		listModelsByProvider: async () => modelsByProvider,
 		complete: async () => mockResponse,
 	} as unknown as Client;
 }
@@ -79,6 +93,7 @@ describe("submitGoal", () => {
 
 	test("yields session_start and session_end events", async () => {
 		const mockClient = makeMockClient();
+		const resolverContext = await buildTestResolverContext(mockClient);
 		const events = new AgentEventEmitter();
 		const env = new LocalExecutionEnvironment(tmpdir());
 		const registry = createPrimitiveRegistry(env);
@@ -90,6 +105,9 @@ describe("submitGoal", () => {
 			availableAgents: [],
 			depth: 0,
 			events,
+			providerIdOverride: resolverContext.providerId,
+			resolverSettings: resolverContext.resolverSettings,
+			modelsByProvider: resolverContext.modelsByProvider,
 		});
 
 		const collected: SessionEvent[] = [];
@@ -111,6 +129,7 @@ describe("submitGoal", () => {
 		await genome.initFromRoot();
 
 		const mockClient = makeMockClient();
+		const resolverContext = await buildTestResolverContext(mockClient);
 		const events = new AgentEventEmitter();
 		const metrics = new MetricsStore(join(genomeDir, "metrics", "metrics.jsonl"));
 		await metrics.load();
@@ -127,6 +146,9 @@ describe("submitGoal", () => {
 			availableAgents: [],
 			depth: 0,
 			events,
+			providerIdOverride: resolverContext.providerId,
+			resolverSettings: resolverContext.resolverSettings,
+			modelsByProvider: resolverContext.modelsByProvider,
 		});
 
 		// Pre-load queue with a signal
@@ -145,6 +167,7 @@ describe("submitGoal", () => {
 
 	test("works without learnProcess", async () => {
 		const mockClient = makeMockClient();
+		const resolverContext = await buildTestResolverContext(mockClient);
 		const events = new AgentEventEmitter();
 		const env = new LocalExecutionEnvironment(tmpdir());
 		const registry = createPrimitiveRegistry(env);
@@ -156,6 +179,9 @@ describe("submitGoal", () => {
 			availableAgents: [],
 			depth: 0,
 			events,
+			providerIdOverride: resolverContext.providerId,
+			resolverSettings: resolverContext.resolverSettings,
+			modelsByProvider: resolverContext.modelsByProvider,
 		});
 
 		const collected: SessionEvent[] = [];

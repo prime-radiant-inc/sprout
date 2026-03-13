@@ -96,7 +96,7 @@ describe("validateProviderRuntimeReadiness", () => {
 });
 
 describe("validateSproutSettings", () => {
-	test("rejects provider priority entries for disabled or unknown providers", () => {
+	test("rejects a default provider that is missing or disabled", () => {
 		const settings = createEmptySettings();
 		settings.providers = [
 			makeProvider({
@@ -110,43 +110,39 @@ describe("validateSproutSettings", () => {
 				enabled: false,
 			}),
 		];
-		settings.routing.providerPriority = ["anthropic", "lmstudio", "ghost"];
+		settings.defaults.defaultProviderId = "ghost";
 
 		expect(() => validateSproutSettings(settings)).toThrow(
-			"Provider priority may only reference enabled providers: lmstudio",
+			"Default provider must reference an enabled provider: ghost",
 		);
 	});
 
-	test("rejects tier overrides with duplicates or disabled providers", () => {
+	test("allows enabled providers with optional tier defaults", () => {
 		const settings = createEmptySettings();
 		settings.providers = [
 			makeProvider({
-				id: "anthropic",
-				kind: "anthropic",
+				id: "openrouter-main",
+				kind: "openrouter",
 				baseUrl: undefined,
 				enabled: true,
-			}),
-			makeProvider({
-				id: "openai",
-				kind: "openai",
-				baseUrl: undefined,
-				enabled: true,
+				tierDefaults: {
+					best: "anthropic/claude-opus-4.1",
+					fast: "openai/gpt-4o-mini",
+				},
 			}),
 			makeProvider({
 				id: "lmstudio",
-				enabled: false,
+				enabled: true,
+				manualModels: [
+					{
+						id: "qwen2.5-coder",
+						label: "Qwen 2.5 Coder",
+					},
+				],
 			}),
 		];
-		settings.routing.providerPriority = ["anthropic", "openai"];
-		settings.routing.tierOverrides.fast = ["anthropic", "anthropic"];
+		settings.defaults.defaultProviderId = "openrouter-main";
 
-		expect(() => validateSproutSettings(settings)).toThrow(
-			"Duplicate tier override entry for fast: anthropic",
-		);
-
-		settings.routing.tierOverrides.fast = ["lmstudio"];
-		expect(() => validateSproutSettings(settings)).toThrow(
-			"Tier override for fast may only reference enabled providers: lmstudio",
-		);
+		expect(() => validateSproutSettings(settings)).not.toThrow();
 	});
 });

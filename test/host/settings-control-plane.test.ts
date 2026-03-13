@@ -117,9 +117,7 @@ describe("SettingsControlPlane", () => {
 			ok: true,
 			snapshot: {
 				settings: {
-					routing: {
-						providerPriority: ["openai"],
-					},
+					providers: [{ id: "openai", enabled: true }],
 				},
 			},
 		});
@@ -140,7 +138,7 @@ describe("SettingsControlPlane", () => {
 		expect(snapshots).toHaveLength(3);
 	});
 
-	test("updates routing, clears defaults on delete, and removes stored secrets", async () => {
+	test("sets the default provider, clears it on delete, and removes stored secrets", async () => {
 		const secretStore = createSecretStore({ backend: "memory", platform: "darwin" });
 		await secretStore.setSecret(createProviderSecretRef("openai", "memory"), "openai-secret");
 		const plane = await makePlane({
@@ -170,50 +168,21 @@ describe("SettingsControlPlane", () => {
 					},
 				],
 				defaults: {
-					selection: {
-						kind: "model",
-						model: {
-							providerId: "openai",
-							modelId: "gpt-4o",
-						},
-					},
-				},
-				routing: {
-					providerPriority: ["openai", "lmstudio"],
-					tierOverrides: {
-						fast: ["openai"],
-					},
+					defaultProviderId: "openai",
 				},
 			},
 		});
 
-		const priority = await plane.execute({
-			kind: "set_provider_priority",
-			data: { providerIds: ["lmstudio", "openai"] },
+		const setDefaultProvider = await plane.execute({
+			kind: "set_default_provider",
+			data: { providerId: "lmstudio" },
 		});
-		expect(priority).toMatchObject({
+		expect(setDefaultProvider).toMatchObject({
 			ok: true,
 			snapshot: {
 				settings: {
-					routing: {
-						providerPriority: ["lmstudio", "openai"],
-					},
-				},
-			},
-		});
-
-		const tierPriority = await plane.execute({
-			kind: "set_tier_priority",
-			data: { tier: "fast", providerIds: ["lmstudio"] },
-		});
-		expect(tierPriority).toMatchObject({
-			ok: true,
-			snapshot: {
-				settings: {
-					routing: {
-						tierOverrides: {
-							fast: ["lmstudio"],
-						},
+					defaults: {
+						defaultProviderId: "lmstudio",
 					},
 				},
 			},
@@ -227,13 +196,7 @@ describe("SettingsControlPlane", () => {
 			ok: true,
 			snapshot: {
 				settings: {
-					defaults: { selection: { kind: "none" } },
-					routing: {
-						providerPriority: ["lmstudio"],
-						tierOverrides: {
-							fast: ["lmstudio"],
-						},
-					},
+					defaults: {},
 				},
 			},
 		});
@@ -257,8 +220,7 @@ describe("SettingsControlPlane", () => {
 						updatedAt: "2026-03-11T12:00:00.000Z",
 					},
 				],
-				defaults: { selection: { kind: "none" } },
-				routing: { providerPriority: ["lmstudio"], tierOverrides: {} },
+				defaults: {},
 			},
 			checkConnection: async () => {
 				throw new Error("connection refused");
@@ -349,8 +311,7 @@ describe("SettingsControlPlane", () => {
 						updatedAt: "2026-03-11T12:00:00.000Z",
 					},
 				],
-				defaults: { selection: { kind: "none" } },
-				routing: { providerPriority: ["openai"], tierOverrides: {} },
+				defaults: {},
 			},
 			settingsStore: {
 				async save() {
@@ -399,8 +360,7 @@ describe("SettingsControlPlane", () => {
 						updatedAt: "2026-03-11T12:00:00.000Z",
 					},
 				],
-				defaults: { selection: { kind: "none" } },
-				routing: { providerPriority: ["openai"], tierOverrides: {} },
+				defaults: {},
 			},
 		});
 
@@ -504,8 +464,7 @@ describe("SettingsControlPlane", () => {
 						updatedAt: "2026-03-11T12:00:00.000Z",
 					},
 				],
-				defaults: { selection: { kind: "none" } },
-				routing: { providerPriority: [], tierOverrides: {} },
+				defaults: {},
 			},
 		});
 

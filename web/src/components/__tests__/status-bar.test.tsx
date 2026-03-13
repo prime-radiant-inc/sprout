@@ -47,6 +47,10 @@ function makeSettings(): SettingsSnapshot {
 					label: "Anthropic",
 					enabled: true,
 					discoveryStrategy: "remote-with-manual",
+					tierDefaults: {
+						best: "claude-opus-4-6",
+						balanced: "claude-sonnet-4-6",
+					},
 					createdAt: "2026-03-11T00:00:00.000Z",
 					updatedAt: "2026-03-11T00:00:00.000Z",
 				},
@@ -56,15 +60,14 @@ function makeSettings(): SettingsSnapshot {
 					label: "OpenRouter",
 					enabled: true,
 					discoveryStrategy: "remote-with-manual",
+					tierDefaults: {
+						best: "gpt-4.1",
+					},
 					createdAt: "2026-03-11T00:00:00.000Z",
 					updatedAt: "2026-03-11T00:00:00.000Z",
 				},
 			],
-			defaults: { selection: { kind: "none" } },
-			routing: {
-				providerPriority: ["anthropic-main", "openrouter-main"],
-				tierOverrides: {},
-			},
+			defaults: { defaultProviderId: "anthropic-main" },
 		},
 		providers: [
 			{
@@ -89,8 +92,6 @@ function makeSettings(): SettingsSnapshot {
 					{
 						id: "claude-sonnet-4-6",
 						label: "Claude Sonnet 4.6",
-						tierHint: "balanced",
-						rank: 10,
 						source: "remote",
 					},
 				],
@@ -101,8 +102,6 @@ function makeSettings(): SettingsSnapshot {
 					{
 						id: "gpt-4.1",
 						label: "GPT-4.1",
-						tierHint: "best",
-						rank: 20,
 						source: "remote",
 					},
 				],
@@ -121,33 +120,34 @@ describe("StatusBar", () => {
 		expect(html).not.toContain("<select");
 	});
 
-	test("builds provider-aware selector labels from settings catalog", () => {
+	test("builds provider-relative selector labels from the selected provider catalog", () => {
 		const options = buildSessionSelectionOptions(
 			makeStatus({
 				model: "claude-sonnet-4-6",
 				availableModels: ["best", "balanced", "fast", "claude-sonnet-4-6", "gpt-4.1"],
 			}),
 			makeSettings(),
+			"anthropic-main",
 		);
 		expect(options).toEqual([
 			{
-				selection: { kind: "inherit" },
-				value: "inherit",
+				selection: { kind: "inherit", providerId: "anthropic-main" },
+				value: "inherit:anthropic-main",
 				label: "Default · claude-sonnet-4-6",
 			},
 			{
-				selection: { kind: "tier", tier: "best" },
-				value: "best",
+				selection: { kind: "tier", providerId: "anthropic-main", tier: "best" },
+				value: "tier:anthropic-main:best",
 				label: "Best",
 			},
 			{
-				selection: { kind: "tier", tier: "balanced" },
-				value: "balanced",
+				selection: { kind: "tier", providerId: "anthropic-main", tier: "balanced" },
+				value: "tier:anthropic-main:balanced",
 				label: "Balanced",
 			},
 			{
-				selection: { kind: "tier", tier: "fast" },
-				value: "fast",
+				selection: { kind: "tier", providerId: "anthropic-main", tier: "fast" },
+				value: "tier:anthropic-main:fast",
 				label: "Fast",
 			},
 			{
@@ -161,29 +161,18 @@ describe("StatusBar", () => {
 				value: "anthropic-main:claude-sonnet-4-6",
 				label: "Anthropic · Claude Sonnet 4.6",
 			},
-			{
-				selection: {
-					kind: "model",
-					model: {
-						providerId: "openrouter-main",
-						modelId: "gpt-4.1",
-					},
-				},
-				value: "openrouter-main:gpt-4.1",
-				label: "OpenRouter · GPT-4.1",
-			},
 		]);
 	});
 
-	test("builds provider-aware selector labels from settings even when session models are stale", () => {
+	test("builds provider-relative selector labels for a different selected provider", () => {
 		const options = buildSessionSelectionOptions(
 			makeStatus({
 				model: "claude-sonnet-4-6",
 				availableModels: [],
 			}),
 			makeSettings(),
+			"openrouter-main",
 		);
-		expect(options.map((option) => option.label)).toContain("Anthropic · Claude Sonnet 4.6");
 		expect(options.map((option) => option.label)).toContain("OpenRouter · GPT-4.1");
 	});
 

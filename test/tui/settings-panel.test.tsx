@@ -57,8 +57,7 @@ describe("SettingsPanel", () => {
 					settings: {
 						version: 1,
 						providers: [],
-						defaults: { selection: { kind: "none" } },
-						routing: { providerPriority: [], tierOverrides: {} },
+						defaults: {},
 					},
 					providers: [],
 					catalog: [],
@@ -93,7 +92,7 @@ describe("SettingsPanel", () => {
 		);
 	});
 
-	test("navigates between views and issues create, defaults, and edit commands", async () => {
+	test("navigates between views and issues create, default-provider, and edit commands", async () => {
 		const commands: unknown[] = [];
 		const { stdin, lastFrame } = render(
 			<SettingsPanel
@@ -106,20 +105,20 @@ describe("SettingsPanel", () => {
 			/>,
 		);
 
-		expect(lastFrame()).toContain("Anthropic");
-		expect(lastFrame()).toContain("Actions");
+		expect(lastFrame()).toContain("Default provider");
+		expect(lastFrame()).toContain("Current default: Anthropic (anthropic-main)");
 		expect(lastFrame()).toContain("Latest command failed");
 
 		await submitCommand(stdin, "create", () => (lastFrame() ?? "").includes("Create provider"));
 		expect(lastFrame()).toContain("Create provider");
 
-		await submitCommand(stdin, "defaults", () =>
-			(lastFrame() ?? "").includes("Defaults and routing"),
+		await submitCommand(stdin, "default-provider", () =>
+			(lastFrame() ?? "").includes("Default provider"),
 		);
-		expect(lastFrame()).toContain("Defaults and routing");
+		expect(lastFrame()).toContain("Default provider");
 		expect(lastFrame()).toContain("Latest command failed");
 
-		await submitCommand(stdin, "default tier fast", () => commands.length === 1);
+		await submitCommand(stdin, "default lmstudio", () => commands.length === 1);
 
 		await submitCommand(stdin, "open lmstudio", () => (lastFrame() ?? "").includes("LM Studio"));
 		expect(lastFrame()).toContain("LM Studio");
@@ -128,8 +127,8 @@ describe("SettingsPanel", () => {
 
 		expect(commands).toEqual([
 			{
-				kind: "set_default_selection",
-				data: { selection: { kind: "tier", tier: "fast" } },
+				kind: "set_default_provider",
+				data: { providerId: "lmstudio" },
 			},
 			{
 				kind: "set_provider_enabled",

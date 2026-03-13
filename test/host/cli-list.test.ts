@@ -6,7 +6,7 @@ function makeSession(sessionId: string): SessionListEntry {
 	return {
 		sessionId,
 		agentSpec: "root",
-		model: "claude-sonnet-4-5",
+		selection: { kind: "inherit" },
 		status: "idle",
 		turns: 0,
 		contextTokens: 0,

@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { createAgent } from "../../src/agents/factory.ts";
 import { submitGoal } from "../../src/host/session.ts";
 import { Client } from "../../src/llm/client.ts";
+import { buildTestResolverContext } from "../helpers/resolver-context.ts";
 import "../helpers/test-env.ts";
 import { createVcr } from "../helpers/vcr.ts";
 
@@ -50,11 +51,14 @@ describe("E2E Integration", () => {
 
 	test("bootstrap: fresh genome creates a file", async () => {
 		const vcr = vcrForTest("bootstrap-fresh-genome-creates-a-file");
+		const resolverContext = await buildTestResolverContext(vcr.client);
 		const result = await createAgent({
 			genomePath: genomeDir,
 			rootDir: join(import.meta.dir, "../../root"),
 			workDir: workDir,
 			client: vcr.client,
+			providerIdOverride: resolverContext.providerId,
+			resolverSettings: resolverContext.resolverSettings,
 		});
 		for await (const _event of submitGoal(
 			"Create a file called hello.py in the current directory that prints 'Hello World'",
@@ -72,11 +76,14 @@ describe("E2E Integration", () => {
 
 	test("multi-step: modify file and create test", async () => {
 		const vcr = vcrForTest("multi-step-modify-file-and-create-test");
+		const resolverContext = await buildTestResolverContext(vcr.client);
 		const result = await createAgent({
 			genomePath: genomeDir,
 			rootDir: join(import.meta.dir, "../../root"),
 			workDir: workDir,
 			client: vcr.client,
+			providerIdOverride: resolverContext.providerId,
+			resolverSettings: resolverContext.resolverSettings,
 		});
 
 		for await (const _event of submitGoal(
@@ -102,6 +109,7 @@ describe("E2E Integration", () => {
 
 	test("stumble and learn: session produces learn signals", async () => {
 		const vcr = vcrForTest("stumble-and-learn-session-produces-learn-signals");
+		const resolverContext = await buildTestResolverContext(vcr.client);
 		const {
 			agent: agent1,
 			events: events1,
@@ -111,6 +119,8 @@ describe("E2E Integration", () => {
 			rootDir: join(import.meta.dir, "../../root"),
 			workDir: workDir,
 			client: vcr.client,
+			providerIdOverride: resolverContext.providerId,
+			resolverSettings: resolverContext.resolverSettings,
 		});
 
 		let sessionEnded = false;
@@ -133,6 +143,8 @@ describe("E2E Integration", () => {
 			rootDir: join(import.meta.dir, "../../root"),
 			workDir: workDir,
 			client: vcr.client,
+			providerIdOverride: resolverContext.providerId,
+			resolverSettings: resolverContext.resolverSettings,
 		});
 		expect(genome2.agentCount()).toBeGreaterThanOrEqual(4);
 
@@ -141,11 +153,14 @@ describe("E2E Integration", () => {
 
 	test("genome growth: genome loads successfully after sessions", async () => {
 		const vcr = vcrForTest("genome-growth-genome-loads-successfully-after-sessions");
+		const resolverContext = await buildTestResolverContext(vcr.client);
 		const result = await createAgent({
 			genomePath: genomeDir,
 			rootDir: join(import.meta.dir, "../../root"),
 			workDir: workDir,
 			client: vcr.client,
+			providerIdOverride: resolverContext.providerId,
+			resolverSettings: resolverContext.resolverSettings,
 		});
 
 		// Genome should load with at least the bootstrap agents
@@ -157,11 +172,14 @@ describe("E2E Integration", () => {
 
 	test("cross-session: new session loads learned genome", async () => {
 		const vcr = vcrForTest("cross-session-new-session-loads-learned-genome");
+		const resolverContext = await buildTestResolverContext(vcr.client);
 		const result = await createAgent({
 			genomePath: genomeDir,
 			rootDir: join(import.meta.dir, "../../root"),
 			workDir: workDir,
 			client: vcr.client,
+			providerIdOverride: resolverContext.providerId,
+			resolverSettings: resolverContext.resolverSettings,
 		});
 
 		// Verify the genome loaded with at least bootstrap agents

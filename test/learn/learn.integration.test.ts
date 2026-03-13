@@ -8,6 +8,7 @@ import type { LearnSignal } from "../../src/kernel/types.ts";
 import { LearnProcess } from "../../src/learn/learn-process.ts";
 import { MetricsStore } from "../../src/learn/metrics-store.ts";
 import { Client } from "../../src/llm/client.ts";
+import { buildTestResolverContext } from "../helpers/resolver-context.ts";
 import "../helpers/test-env.ts";
 import { createVcr } from "../helpers/vcr.ts";
 
@@ -59,7 +60,16 @@ describe("Learn Integration", () => {
 		const metrics = new MetricsStore(join(genomeDir, "metrics", "metrics.jsonl"));
 		await metrics.load();
 		const events = new AgentEventEmitter();
-		const learn = new LearnProcess({ genome, metrics, events, client: vcr.client });
+		const resolverContext = await buildTestResolverContext(vcr.client);
+		const learn = new LearnProcess({
+			genome,
+			metrics,
+			events,
+			client: vcr.client,
+			modelsByProvider: resolverContext.modelsByProvider,
+			providerIdOverride: resolverContext.providerId,
+			resolverSettings: resolverContext.resolverSettings,
+		});
 
 		const signal: LearnSignal = {
 			kind: "failure",
@@ -117,7 +127,16 @@ describe("Learn Integration", () => {
 		const metrics = new MetricsStore(join(genomeDir, "metrics", "metrics.jsonl"));
 		await metrics.load();
 		const events = new AgentEventEmitter();
-		const learn = new LearnProcess({ genome, metrics, events, client: vcr.client });
+		const resolverContext = await buildTestResolverContext(vcr.client);
+		const learn = new LearnProcess({
+			genome,
+			metrics,
+			events,
+			client: vcr.client,
+			modelsByProvider: resolverContext.modelsByProvider,
+			providerIdOverride: resolverContext.providerId,
+			resolverSettings: resolverContext.resolverSettings,
+		});
 
 		// One-off error signal: kind "error" with 0 prior occurrences should be skipped
 		const signal: LearnSignal = {

@@ -7,7 +7,7 @@ import {
 } from "../../src/host/settings/secret-store.ts";
 
 describe("importSettingsFromEnv", () => {
-	test("maps env-backed providers into deterministic priority with stable ids", async () => {
+	test("maps env-backed providers into deterministic order with stable ids", async () => {
 		const secretStore = createSecretStore({ backend: "memory", platform: "darwin" });
 		const result = await importSettingsFromEnv({
 			env: {
@@ -31,8 +31,7 @@ describe("importSettingsFromEnv", () => {
 			{ id: "openai", kind: "openai", enabled: true },
 			{ id: "gemini", kind: "gemini", enabled: true },
 		]);
-		expect(result.settings.routing.providerPriority).toEqual(["anthropic", "openai", "gemini"]);
-		expect(result.settings.routing.tierOverrides).toEqual({});
+		expect(result.settings.defaults).toEqual({ defaultProviderId: "anthropic" });
 		expect(result.validationErrorsByProvider).toEqual({});
 		expect(await secretStore.getSecret(createProviderSecretRef("anthropic", "memory"))).toBe(
 			"anthropic-secret",
@@ -74,7 +73,7 @@ describe("importSettingsFromEnv", () => {
 			kind: "anthropic",
 			enabled: false,
 		});
-		expect(result.settings.routing.providerPriority).toEqual([]);
+		expect(result.settings.defaults).toEqual({});
 		expect(result.validationErrorsByProvider).toEqual({
 			anthropic: ["Credential migration failed: keychain unavailable"],
 		});

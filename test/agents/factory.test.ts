@@ -10,6 +10,7 @@ import { Genome } from "../../src/genome/genome.ts";
 import type { Client } from "../../src/llm/client.ts";
 import type { ProviderModel } from "../../src/llm/types.ts";
 import "../helpers/test-env.ts";
+import { buildTestResolverContext } from "../helpers/resolver-context.ts";
 
 function createFactoryTestClient(): Client {
 	const modelsByProvider = new Map<string, ProviderModel[]>([
@@ -44,6 +45,7 @@ describe("createAgent", () => {
 	let sharedGenomePath: string;
 	let sharedGenome: Genome;
 	let sharedClient: Client;
+	let sharedResolverContext: Awaited<ReturnType<typeof buildTestResolverContext>>;
 
 	beforeAll(async () => {
 		tempDir = await mkdtemp(join(tmpdir(), "sprout-factory-"));
@@ -52,6 +54,7 @@ describe("createAgent", () => {
 		await sharedGenome.init();
 		await sharedGenome.initFromRoot();
 		sharedClient = createFactoryTestClient();
+		sharedResolverContext = await buildTestResolverContext(sharedClient);
 	});
 
 	afterAll(async () => {
@@ -65,6 +68,8 @@ describe("createAgent", () => {
 			rootDir,
 			workDir: tempDir,
 			client: sharedClient,
+			providerIdOverride: sharedResolverContext.providerId,
+			resolverSettings: sharedResolverContext.resolverSettings,
 		});
 
 		expect(result.agent).toBeDefined();
@@ -81,6 +86,8 @@ describe("createAgent", () => {
 			rootDir,
 			workDir: tempDir,
 			client: sharedClient,
+			providerIdOverride: sharedResolverContext.providerId,
+			resolverSettings: sharedResolverContext.resolverSettings,
 		});
 
 		expect(result.agent).toBeDefined();
@@ -94,6 +101,8 @@ describe("createAgent", () => {
 			rootAgent: "editor",
 			genome: sharedGenome,
 			client: sharedClient,
+			providerIdOverride: sharedResolverContext.providerId,
+			resolverSettings: sharedResolverContext.resolverSettings,
 		});
 
 		expect(result.agent.spec.name).toBe("editor");
@@ -107,6 +116,8 @@ describe("createAgent", () => {
 			sessionId: customId,
 			genome: sharedGenome,
 			client: sharedClient,
+			providerIdOverride: sharedResolverContext.providerId,
+			resolverSettings: sharedResolverContext.resolverSettings,
 		});
 		expect(result.agent).toBeDefined();
 		expect(result.model).toBeTruthy();
@@ -122,6 +133,8 @@ describe("createAgent", () => {
 			model: "claude-sonnet-4-6",
 			genome: sharedGenome,
 			client: sharedClient,
+			providerIdOverride: sharedResolverContext.providerId,
+			resolverSettings: sharedResolverContext.resolverSettings,
 		});
 
 		// The root agent spec uses "best", but model override should win
@@ -135,6 +148,8 @@ describe("createAgent", () => {
 			workDir: tempDir,
 			genome: sharedGenome,
 			client: sharedClient,
+			providerIdOverride: sharedResolverContext.providerId,
+			resolverSettings: sharedResolverContext.resolverSettings,
 		});
 
 		// The returned genome should be the exact same instance we passed in
@@ -151,6 +166,8 @@ describe("createAgent", () => {
 				rootAgent: "nonexistent",
 				genome: sharedGenome,
 				client: sharedClient,
+				providerIdOverride: sharedResolverContext.providerId,
+				resolverSettings: sharedResolverContext.resolverSettings,
 			}),
 		).rejects.toThrow(/not found/);
 	});
@@ -162,6 +179,8 @@ describe("createAgent", () => {
 			workDir: tempDir,
 			genome: sharedGenome,
 			client: sharedClient,
+			providerIdOverride: sharedResolverContext.providerId,
+			resolverSettings: sharedResolverContext.resolverSettings,
 		});
 
 		// The root agent should have the delegate tool (from tree-based resolution)
@@ -191,6 +210,8 @@ describe("createAgent", () => {
 			rootDir,
 			workDir: sproutRoot,
 			client: sharedClient,
+			providerIdOverride: sharedResolverContext.providerId,
+			resolverSettings: sharedResolverContext.resolverSettings,
 		});
 
 		const qmPostscript = await result.genome.loadAgentPostscript("quartermaster");
@@ -216,6 +237,8 @@ describe("createAgent", () => {
 			workDir: sproutRoot,
 			genome: preloadedGenome,
 			client: sharedClient,
+			providerIdOverride: sharedResolverContext.providerId,
+			resolverSettings: sharedResolverContext.resolverSettings,
 		});
 
 		expect(result.agent).toBeDefined();

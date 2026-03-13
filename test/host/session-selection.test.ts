@@ -6,12 +6,21 @@ import {
 } from "../../src/shared/session-selection.ts";
 
 describe("parseSessionSelectionRequest", () => {
-	test("parses inherit", () => {
+	test("parses inherit with an optional provider context", () => {
 		expect(parseSessionSelectionRequest("inherit")).toEqual({ kind: "inherit" });
+		expect(parseSessionSelectionRequest("inherit", "openrouter-main")).toEqual({
+			kind: "inherit",
+			providerId: "openrouter-main",
+		});
 	});
 
-	test("parses tier names", () => {
+	test("parses tier names with an optional provider context", () => {
 		expect(parseSessionSelectionRequest("fast")).toEqual({ kind: "tier", tier: "fast" });
+		expect(parseSessionSelectionRequest("fast", "lmstudio")).toEqual({
+			kind: "tier",
+			providerId: "lmstudio",
+			tier: "fast",
+		});
 	});
 
 	test("parses provider-qualified model refs", () => {
@@ -24,11 +33,8 @@ describe("parseSessionSelectionRequest", () => {
 		});
 	});
 
-	test("parses bare model ids as unqualified compatibility input", () => {
-		expect(parseSessionSelectionRequest("claude-sonnet-4-6")).toEqual({
-			kind: "unqualified_model",
-			modelId: "claude-sonnet-4-6",
-		});
+	test("rejects bare exact model ids", () => {
+		expect(() => parseSessionSelectionRequest("claude-sonnet-4-6")).toThrow(/provider-qualified/i);
 	});
 });
 
@@ -54,20 +60,26 @@ describe("parseAgentModelInput", () => {
 });
 
 describe("formatSessionSelectionRequest", () => {
-	test("formats each supported selection kind for user-facing messages", () => {
+	test("formats provider-relative selections", () => {
 		expect(formatSessionSelectionRequest({ kind: "inherit" })).toBe("inherit");
-		expect(formatSessionSelectionRequest({ kind: "tier", tier: "best" })).toBe("best");
+		expect(
+			formatSessionSelectionRequest({
+				kind: "inherit",
+				providerId: "openrouter-main",
+			}),
+		).toBe("inherit:openrouter-main");
+		expect(
+			formatSessionSelectionRequest({
+				kind: "tier",
+				providerId: "openrouter-main",
+				tier: "best",
+			}),
+		).toBe("tier:openrouter-main:best");
 		expect(
 			formatSessionSelectionRequest({
 				kind: "model",
 				model: { providerId: "openrouter", modelId: "gpt-4.1" },
 			}),
 		).toBe("openrouter:gpt-4.1");
-		expect(
-			formatSessionSelectionRequest({
-				kind: "unqualified_model",
-				modelId: "claude-sonnet-4-6",
-			}),
-		).toBe("claude-sonnet-4-6");
 	});
 });

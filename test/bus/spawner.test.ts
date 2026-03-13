@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createResolverSettings } from "../../src/agents/model-resolver.ts";
 import { runAgentProcess } from "../../src/bus/agent-process.ts";
 import { BusClient } from "../../src/bus/client.ts";
 import { BusServer } from "../../src/bus/server.ts";
@@ -29,6 +30,23 @@ const AGENT_SPEC = {
 	version: 1,
 	system_prompt: "You are a test agent. Respond with a brief answer.",
 };
+
+const TEST_PROVIDER_ID = "anthropic";
+const TEST_MODEL_ID = "claude-haiku-4-5-20251001";
+const TEST_RESOLVER_SETTINGS = createResolverSettings(
+	[
+		{
+			id: TEST_PROVIDER_ID,
+			enabled: true,
+			tierDefaults: {
+				best: TEST_MODEL_ID,
+				balanced: TEST_MODEL_ID,
+				fast: TEST_MODEL_ID,
+			},
+		},
+	],
+	TEST_PROVIDER_ID,
+);
 
 function createMockClient(responseText: string): Client {
 	const response: Response = {
@@ -125,6 +143,14 @@ describe("AgentSpawner", () => {
 		await bus.connect();
 	});
 
+	function spawnWithResolver(opts: SpawnAgentOptions) {
+		return spawner.spawnAgent({
+			...opts,
+			providerIdOverride: TEST_PROVIDER_ID,
+			resolverSettings: TEST_RESOLVER_SETTINGS,
+		});
+	}
+
 	afterEach(async () => {
 		spawner?.shutdown();
 		// Wait for all agent processes to fully exit before deleting the temp dir.
@@ -156,7 +182,7 @@ describe("AgentSpawner", () => {
 				workDir: tempDir,
 			};
 
-			const result = (await spawner.spawnAgent(opts)) as ResultMessage;
+			const result = (await spawnWithResolver(opts)) as ResultMessage;
 
 			expect(result.output).toBe("Blocking result.");
 			expect(result.success).toBe(true);
@@ -177,7 +203,7 @@ describe("AgentSpawner", () => {
 				workDir: tempDir,
 			};
 
-			const handleId = await spawner.spawnAgent(opts);
+			const handleId = await spawnWithResolver(opts);
 
 			// Returns a string handle ID (ULID), not a result
 			expect(typeof handleId).toBe("string");
@@ -211,7 +237,7 @@ describe("AgentSpawner", () => {
 				workDir: tempDir,
 			};
 
-			const result = (await spawner.spawnAgent(opts)) as ResultMessage;
+			const result = (await spawnWithResolver(opts)) as ResultMessage;
 
 			expect(result.output).toBe("Done with hints.");
 			// Verify hints were included in the goal the agent received
@@ -235,8 +261,8 @@ describe("AgentSpawner", () => {
 				workDir: tempDir,
 			};
 
-			const id1 = await spawner.spawnAgent(baseOpts);
-			const id2 = await spawner.spawnAgent(baseOpts);
+			const id1 = await spawnWithResolver(baseOpts);
+			const id2 = await spawnWithResolver(baseOpts);
 
 			expect(id1).not.toBe(id2);
 		}, 15_000);
@@ -246,7 +272,7 @@ describe("AgentSpawner", () => {
 			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
 
 			const preAssignedId = "01PREASSIGNED0000000000000";
-			const result = await spawner.spawnAgent({
+			const result = await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
 				caller: { agent_name: "root", depth: 0 },
@@ -277,7 +303,7 @@ describe("AgentSpawner", () => {
 				mnemonicName: "Curie",
 			};
 
-			const handleId = (await spawner.spawnAgent(opts)) as string;
+			const handleId = (await spawnWithResolver(opts)) as string;
 			const handle = spawner.getHandle(handleId);
 			expect(handle).toBeDefined();
 			expect(handle!.mnemonicName).toBe("Curie");
@@ -289,7 +315,7 @@ describe("AgentSpawner", () => {
 			const mockClient = createMockClient("Eventually done.");
 			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
 
-			const handleId = (await spawner.spawnAgent({
+			const handleId = (await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
 				caller: { agent_name: "root", depth: 0 },
@@ -309,7 +335,7 @@ describe("AgentSpawner", () => {
 			const mockClient = createMockClient("Already done.");
 			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
 
-			const handleId = (await spawner.spawnAgent({
+			const handleId = (await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
 				caller: { agent_name: "root", depth: 0 },
@@ -358,7 +384,7 @@ describe("AgentSpawner", () => {
 				200, // 200ms timeout
 			);
 
-			const handleId = (await spawner.spawnAgent({
+			const handleId = (await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
 				caller: { agent_name: "root", depth: 0 },
@@ -401,7 +427,7 @@ describe("AgentSpawner", () => {
 
 			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
 
-			const handleId = (await spawner.spawnAgent({
+			const handleId = (await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
 				caller: { agent_name: "root", depth: 0 },
@@ -447,7 +473,7 @@ describe("AgentSpawner", () => {
 			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
 
 			// Spawn a shared agent (blocking waits for initial result)
-			const initialResult = await spawner.spawnAgent({
+			const initialResult = await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
 				caller: { agent_name: "root", depth: 0 },
@@ -498,7 +524,7 @@ describe("AgentSpawner", () => {
 			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
 
 			// Spawn non-blocking (so we can interact while it's running)
-			const handleId = (await spawner.spawnAgent({
+			const handleId = (await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
 				caller: { agent_name: "root", depth: 0 },
@@ -547,7 +573,7 @@ describe("AgentSpawner", () => {
 			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
 
 			// First: spawn and complete a non-shared blocking agent
-			const initialResult = await spawner.spawnAgent({
+			const initialResult = await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
 				caller: { agent_name: "root", depth: 0 },
@@ -602,7 +628,7 @@ describe("AgentSpawner", () => {
 			const handleId = "01RESPAWNAGENTID0000000000000";
 			const childAgentId = "01CHILDAGENTID00000000000000";
 
-			await spawner.spawnAgent({
+			await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
 				caller: { agent_name: "root", depth: 0 },
@@ -656,7 +682,7 @@ describe("AgentSpawner", () => {
 			const events: EventMessage[] = [];
 			await spawner.subscribeSessionEvents((event) => events.push(event));
 
-			await spawner.spawnAgent({
+			await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
 				caller: { agent_name: "root", depth: 0 },
@@ -686,7 +712,7 @@ describe("AgentSpawner", () => {
 			await spawner.subscribeSessionEvents((event) => events.push(event));
 
 			const preAssignedId = "01EVENTHANDLE000000000000A";
-			await spawner.spawnAgent({
+			await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
 				caller: { agent_name: "root", depth: 0 },
@@ -717,7 +743,7 @@ describe("AgentSpawner", () => {
 			// Update session ID and resubscribe
 			await spawner.updateSessionId(newSessionId);
 
-			await spawner.spawnAgent({
+			await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
 				caller: { agent_name: "root", depth: 0 },
@@ -748,7 +774,7 @@ describe("AgentSpawner", () => {
 
 			// Spawn two agents concurrently to test interleaved delivery
 			await Promise.all([
-				spawner.spawnAgent({
+				spawnWithResolver({
 					agentName: "test-leaf",
 					genomePath: genomeDir,
 					caller: { agent_name: "root", depth: 0 },
@@ -758,7 +784,7 @@ describe("AgentSpawner", () => {
 					workDir: tempDir,
 					handleId: handleA,
 				}),
-				spawner.spawnAgent({
+				spawnWithResolver({
 					agentName: "test-leaf",
 					genomePath: genomeDir,
 					caller: { agent_name: "root", depth: 0 },
@@ -794,7 +820,7 @@ describe("AgentSpawner", () => {
 			// Second call should be ignored
 			await spawner.subscribeSessionEvents((event) => events2.push(event));
 
-			await spawner.spawnAgent({
+			await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
 				caller: { agent_name: "root", depth: 0 },
@@ -816,7 +842,7 @@ describe("AgentSpawner", () => {
 			const mockClient = createMockClient("Done.");
 			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
 
-			const handleId = (await spawner.spawnAgent({
+			const handleId = (await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
 				caller: { agent_name: "root", depth: 0 },
@@ -839,7 +865,7 @@ describe("AgentSpawner", () => {
 			const mockClient = createMockClient("Owner result.");
 			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
 
-			const handleId = (await spawner.spawnAgent({
+			const handleId = (await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
 				caller: { agent_name: "root", depth: 0 },
@@ -858,7 +884,7 @@ describe("AgentSpawner", () => {
 			const mockClient = createMockClient("Shared result.");
 			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
 
-			const handleId = (await spawner.spawnAgent({
+			const handleId = (await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
 				caller: { agent_name: "root", depth: 0 },
@@ -877,7 +903,7 @@ describe("AgentSpawner", () => {
 			const mockClient = createMockClient("Done.");
 			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
 
-			const handleId = (await spawner.spawnAgent({
+			const handleId = (await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
 				caller: { agent_name: "root", depth: 0 },
@@ -913,7 +939,7 @@ describe("AgentSpawner", () => {
 			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
 
 			// Spawn shared, blocking to get initial result
-			await spawner.spawnAgent({
+			await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
 				caller: { agent_name: "root", depth: 0 },
@@ -939,7 +965,7 @@ describe("AgentSpawner", () => {
 			const mockClient = createMockClient("Done.");
 			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
 
-			const handleId = (await spawner.spawnAgent({
+			const handleId = (await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
 				caller: { agent_name: "my-parent", depth: 2 },
@@ -1024,7 +1050,7 @@ describe("AgentSpawner", () => {
 			const mockClient = createMockClient("Clear test.");
 			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
 
-			await spawner.spawnAgent({
+			await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
 				caller: { agent_name: "root", depth: 0 },
@@ -1045,7 +1071,7 @@ describe("AgentSpawner", () => {
 			const mockClient = createMockClient("Clear test.");
 			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
 
-			const handleId = (await spawner.spawnAgent({
+			const handleId = (await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
 				caller: { agent_name: "root", depth: 0 },
@@ -1077,7 +1103,7 @@ describe("AgentSpawner", () => {
 
 			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
 
-			const handleId = (await spawner.spawnAgent({
+			const handleId = (await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
 				caller: { agent_name: "root", depth: 0 },
@@ -1110,7 +1136,7 @@ describe("AgentSpawner", () => {
 			await spawner.subscribeSessionEvents((event) => events.push(event));
 
 			// Spawn an agent on the original session to confirm subscription works
-			await spawner.spawnAgent({
+			await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
 				caller: { agent_name: "root", depth: 0 },
@@ -1165,7 +1191,7 @@ describe("AgentSpawner", () => {
 
 			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
 
-			const handleId = (await spawner.spawnAgent({
+			const handleId = (await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
 				caller: { agent_name: "root", depth: 0 },

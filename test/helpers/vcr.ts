@@ -240,10 +240,8 @@ function createClientRecorder(
 				});
 			},
 			providers: () => realClient.providers(),
-			listModelsByProvider: async () => {
-				const { defaultModelsByProvider } = await import("../../src/agents/model-resolver.ts");
-				return defaultModelsByProvider(realClient.providers());
-			},
+			listModelsByProvider: async () =>
+				new Map(realClient.providers().map((providerId) => [providerId, []])),
 		},
 		"record",
 	);
@@ -326,10 +324,8 @@ function createClientReplayer(
 				);
 			},
 			providers: () => cassette.metadata.providers,
-			listModelsByProvider: async () => {
-				const { defaultModelsByProvider } = await import("../../src/agents/model-resolver.ts");
-				return defaultModelsByProvider(cassette.metadata.providers);
-			},
+			listModelsByProvider: async () =>
+				new Map(cassette.metadata.providers.map((providerId) => [providerId, []])),
 		},
 		"replay",
 	);

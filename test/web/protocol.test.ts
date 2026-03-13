@@ -158,13 +158,21 @@ describe("canonical protocol module", () => {
 					kind: "openrouter",
 					label: "OpenRouter",
 					discoveryStrategy: "remote-only",
+					tierDefaults: {
+						fast: "openai/gpt-4.1-mini",
+					},
 				},
 			},
 			{
 				kind: "update_provider",
 				data: {
 					providerId: "openrouter-main",
-					patch: { label: "Primary OpenRouter" },
+					patch: {
+						label: "Primary OpenRouter",
+						tierDefaults: {
+							balanced: "openai/gpt-4.1",
+						},
+					},
 				},
 			},
 			{ kind: "delete_provider", data: { providerId: "openrouter-main" } },
@@ -179,23 +187,7 @@ describe("canonical protocol module", () => {
 			},
 			{ kind: "test_provider_connection", data: { providerId: "openrouter-main" } },
 			{ kind: "refresh_provider_models", data: { providerId: "openrouter-main" } },
-			{
-				kind: "set_default_selection",
-				data: {
-					selection: {
-						kind: "model",
-						model: {
-							providerId: "openrouter-main",
-							modelId: "openai/gpt-4.1",
-						},
-					},
-				},
-			},
-			{ kind: "set_provider_priority", data: { providerIds: ["openrouter-main"] } },
-			{
-				kind: "set_tier_priority",
-				data: { tier: "fast", providerIds: ["openrouter-main"] },
-			},
+			{ kind: "set_default_provider", data: { providerId: "openrouter-main" } },
 		];
 
 		for (const command of commands) {
@@ -258,34 +250,33 @@ describe("canonical protocol module", () => {
 				JSON.stringify({
 					type: "command",
 					command: {
-						kind: "set_default_selection",
+						kind: "update_provider",
 						data: {
-							selection: {
-								kind: "model",
-								model: {
-									providerId: "openrouter-main",
+							providerId: "openrouter-main",
+							patch: {
+								tierDefaults: {
+									best: 42,
 								},
 							},
 						},
 					},
 				}),
 			),
-		).toThrow("selection");
+		).toThrow("tierDefaults");
 
 		expect(() =>
 			parseCanonicalCommandMessage(
 				JSON.stringify({
 					type: "command",
 					command: {
-						kind: "set_tier_priority",
+						kind: "set_default_provider",
 						data: {
-							tier: "turbo",
-							providerIds: ["openrouter-main"],
+							providerId: 42,
 						},
 					},
 				}),
 			),
-		).toThrow("tier");
+		).toThrow("providerId");
 	});
 });
 

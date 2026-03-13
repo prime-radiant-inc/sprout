@@ -107,9 +107,13 @@ describe("ProviderSettingsEditor", () => {
 			modelId.draft,
 			"create",
 		);
-		const modelTier = applyProviderEditorCommand("model-tier 1 fast", modelLabel.draft, "create");
-		const modelRank = applyProviderEditorCommand("model-rank 1 3", modelTier.draft, "create");
-		const withHeader = applyProviderEditorCommand("add-header", modelRank.draft, "create");
+		expect(applyProviderEditorCommand("model-tier 1 fast", modelLabel.draft, "create").error).toBe(
+			"Unknown provider command: model-tier",
+		);
+		expect(applyProviderEditorCommand("model-rank 1 3", modelLabel.draft, "create").error).toBe(
+			"Unknown provider command: model-rank",
+		);
+		const withHeader = applyProviderEditorCommand("add-header", modelLabel.draft, "create");
 		const headerKey = applyProviderEditorCommand(
 			"header-key 1 HTTP-Referer",
 			withHeader.draft,
@@ -132,8 +136,6 @@ describe("ProviderSettingsEditor", () => {
 					{
 						id: "openrouter/manual-fast",
 						label: "Manual Fast",
-						tierHint: "fast",
-						rank: 3,
 					},
 				],
 				nonSecretHeaders: {
@@ -164,8 +166,6 @@ describe("ProviderSettingsEditor", () => {
 						{
 							id: "qwen2.5-coder",
 							label: "Qwen 2.5 Coder",
-							tierHint: "fast",
-							rank: 5,
 						},
 					],
 					nonSecretHeaders: {

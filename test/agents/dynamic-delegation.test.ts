@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Agent } from "../../src/agents/agent.ts";
+import { type AgentOptions, Agent as RawAgent } from "../../src/agents/agent.ts";
 import { AgentEventEmitter } from "../../src/agents/events.ts";
 import { serializeAgentMarkdown } from "../../src/agents/markdown-loader.ts";
 import { Genome } from "../../src/genome/genome.ts";
@@ -11,6 +11,13 @@ import { createPrimitiveRegistry, type PrimitiveRegistry } from "../../src/kerne
 import type { AgentSpec } from "../../src/kernel/types.ts";
 import type { Client } from "../../src/llm/client.ts";
 import { Msg } from "../../src/llm/types.ts";
+import { withDefaultResolverContext } from "./fixtures.ts";
+
+class Agent extends RawAgent {
+	constructor(options: AgentOptions) {
+		super(withDefaultResolverContext(options));
+	}
+}
 
 function makeSpec(name: string, overrides?: Partial<AgentSpec>): AgentSpec {
 	return {

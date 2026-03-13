@@ -17,13 +17,7 @@ function makeSettings(providers: ProviderConfig[]): SproutSettings {
 	return {
 		version: 1,
 		providers,
-		defaults: { selection: { kind: "none" } },
-		routing: {
-			providerPriority: providers
-				.filter((provider) => provider.enabled)
-				.map((provider) => provider.id),
-			tierOverrides: {},
-		},
+		defaults: {},
 	};
 }
 

@@ -51,8 +51,7 @@ describe("buildInteractiveModeRuntime", () => {
 					settings: {
 						version: 1 as const,
 						providers: [],
-						defaults: { selection: { kind: "none" as const } },
-						routing: { providerPriority: [], tierOverrides: {} },
+						defaults: {},
 					},
 					providers: [],
 					catalog: [],

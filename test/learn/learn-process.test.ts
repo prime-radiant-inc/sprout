@@ -10,7 +10,8 @@ import type { LearnMutation, PendingEvaluation } from "../../src/learn/learn-pro
 import { LearnProcess } from "../../src/learn/learn-process.ts";
 import { MetricsStore } from "../../src/learn/metrics-store.ts";
 import type { Client } from "../../src/llm/client.ts";
-import type { Request, Response } from "../../src/llm/types.ts";
+import type { ProviderModel, Request, Response } from "../../src/llm/types.ts";
+import { buildTestResolverContext } from "../helpers/resolver-context.ts";
 
 function makeSignal(overrides: Partial<LearnSignal> = {}): LearnSignal {
 	return {
@@ -43,8 +44,12 @@ function makeMockResponse(text: string): Response {
 }
 
 function makeMockClient(responseText: string, onComplete?: (req: Request) => void): Client {
+	const modelsByProvider = new Map<string, ProviderModel[]>([
+		["anthropic", [{ id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", source: "remote" }]],
+	]);
 	return {
 		providers: () => ["anthropic"],
+		listModelsByProvider: async () => modelsByProvider,
 		complete: async (request: Request) => {
 			onComplete?.(request);
 			return makeMockResponse(responseText);
@@ -96,7 +101,17 @@ async function setupGenomeWithClient(tempDir: string, name: string, client: Clie
 	await metrics.load();
 	const events = new AgentEventEmitter();
 	const pendingEvaluationsPath = join(genomeDir, "metrics", "pending-evaluations.json");
-	const learn = new LearnProcess({ genome, metrics, events, client, pendingEvaluationsPath });
+	const resolverContext = await buildTestResolverContext(client);
+	const learn = new LearnProcess({
+		genome,
+		metrics,
+		events,
+		client,
+		pendingEvaluationsPath,
+		modelsByProvider: resolverContext.modelsByProvider,
+		providerIdOverride: resolverContext.providerId,
+		resolverSettings: resolverContext.resolverSettings,
+	});
 	return { genome, metrics, events, learn, genomeDir, pendingEvaluationsPath };
 }
 

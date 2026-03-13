@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Agent } from "../../src/agents/agent.ts";
+import { type AgentOptions, Agent as RawAgent } from "../../src/agents/agent.ts";
 import { AgentEventEmitter } from "../../src/agents/events.ts";
 import { Genome } from "../../src/genome/genome.ts";
 import { LocalExecutionEnvironment } from "../../src/kernel/execution-env.ts";
@@ -12,6 +12,13 @@ import { DEFAULT_CONSTRAINTS } from "../../src/kernel/types.ts";
 import type { Client } from "../../src/llm/client.ts";
 import type { Message } from "../../src/llm/types.ts";
 import { ContentKind, Msg } from "../../src/llm/types.ts";
+import { withDefaultResolverContext } from "./fixtures.ts";
+
+class Agent extends RawAgent {
+	constructor(options: AgentOptions) {
+		super(withDefaultResolverContext(options));
+	}
+}
 
 function makeSpec(overrides: Partial<AgentSpec> = {}): AgentSpec {
 	return {

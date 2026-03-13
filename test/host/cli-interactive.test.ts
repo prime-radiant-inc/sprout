@@ -361,8 +361,7 @@ describe("runInteractiveMode", () => {
 					settings: {
 						version: 1,
 						providers: [],
-						defaults: { selection: { kind: "none" as const } },
-						routing: { providerPriority: [], tierOverrides: {} },
+						defaults: {},
 					},
 					providers: [],
 					catalog: [],

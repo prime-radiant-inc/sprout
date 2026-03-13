@@ -789,7 +789,21 @@ describe("SessionController", () => {
 		expect(controller.currentModel).toBeUndefined();
 
 		bus.emitCommand({ kind: "switch_model", data: { selection: { kind: "tier", tier: "fast" } } });
-		expect(controller.currentModel).toBe("fast");
+		expect(controller.currentModel).toBeUndefined();
+
+		bus.emitCommand({
+			kind: "switch_model",
+			data: {
+				selection: {
+					kind: "model",
+					model: {
+						providerId: "anthropic",
+						modelId: "claude-haiku-4-5-20251001",
+					},
+				},
+			},
+		});
+		expect(controller.currentModel).toBe("claude-haiku-4-5-20251001");
 
 		bus.emitCommand({ kind: "switch_model", data: { selection: { kind: "inherit" } } });
 		expect(controller.currentModel).toBeUndefined();

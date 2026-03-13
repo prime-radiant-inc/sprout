@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
-import { Agent } from "../../src/agents/agent.ts";
+import { Agent, type AgentOptions } from "../../src/agents/agent.ts";
 import { AgentEventEmitter } from "../../src/agents/events.ts";
 import { LocalExecutionEnvironment } from "../../src/kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../../src/kernel/primitives.ts";
@@ -8,6 +8,7 @@ import type { AgentSpec } from "../../src/kernel/types.ts";
 import type { Client } from "../../src/llm/client.ts";
 import type { Response } from "../../src/llm/types.ts";
 import { ContentKind, Msg } from "../../src/llm/types.ts";
+import { withDefaultResolverContext } from "./fixtures.ts";
 import "../helpers/test-env.ts";
 
 const leafSpec: AgentSpec = {
@@ -49,15 +50,17 @@ function makeAgent(opts?: {
 			stream: async function* () {},
 		} as unknown as Client);
 	const registry = createPrimitiveRegistry(env);
-	return new Agent({
-		spec: opts?.spec ?? leafSpec,
-		env,
-		client,
-		primitiveRegistry: registry,
-		availableAgents: [],
-		depth: 0,
-		events: opts?.events,
-	});
+	return new Agent(
+		withDefaultResolverContext({
+			spec: opts?.spec ?? leafSpec,
+			env,
+			client,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+			events: opts?.events,
+		} satisfies AgentOptions),
+	);
 }
 
 describe("Steering queue", () => {

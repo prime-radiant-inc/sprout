@@ -21,7 +21,7 @@ describe("ModelPicker", () => {
 		currentInstance = undefined;
 	});
 
-	test("builds provider-aware picker options", () => {
+	test("builds provider-relative picker options for the current provider", () => {
 		const options = buildModelPickerOptions({
 			availableModels: ["best", "balanced", "fast", "claude-sonnet-4-6", "qwen2.5-coder"],
 			settings: makeSettingsSnapshot(),
@@ -30,57 +30,59 @@ describe("ModelPicker", () => {
 		});
 
 		expect(options.map((option) => option.label)).toEqual([
-			"Default · claude-sonnet-4-6",
-			"Best",
-			"Balanced",
-			"Fast",
+			"Default provider · Anthropic",
+			"Provider · Anthropic (selected)",
+			"Provider · LM Studio",
+			"Anthropic · Default",
+			"Anthropic · Balanced",
 			"Anthropic · Claude Sonnet 4.6",
-			"LM Studio · Qwen 2.5 Coder",
 		]);
 	});
 
-	test("builds provider-aware picker options from settings when availableModels is stale", () => {
+	test("builds provider-relative picker options for an explicitly selected provider", () => {
 		const options = buildModelPickerOptions({
 			availableModels: [],
 			settings: makeSettingsSnapshot(),
 			currentSelection: makeSelectionSnapshot(),
 			currentModel: "claude-sonnet-4-6",
+			selectedProviderId: "lmstudio",
 		});
 
 		expect(options.map((option) => option.label)).toEqual([
-			"Default · claude-sonnet-4-6",
-			"Best",
-			"Balanced",
-			"Fast",
-			"Anthropic · Claude Sonnet 4.6",
+			"Default provider · Anthropic",
+			"Provider · Anthropic",
+			"Provider · LM Studio (selected)",
+			"LM Studio · Default",
+			"LM Studio · Fast",
 			"LM Studio · Qwen 2.5 Coder",
 		]);
 	});
 
-	test("renders provider-aware option labels", () => {
+	test("renders provider-relative option labels", () => {
 		const { lastFrame } = render(
 			<ModelPicker
-				options={buildModelPickerOptions({
-					availableModels: ["best", "claude-sonnet-4-6"],
-					settings: makeSettingsSnapshot(),
-					currentSelection: makeSelectionSnapshot(),
-					currentModel: "claude-sonnet-4-6",
-				})}
+				availableModels={["best", "claude-sonnet-4-6"]}
+				settings={makeSettingsSnapshot()}
+				currentSelection={makeSelectionSnapshot()}
+				currentModel="claude-sonnet-4-6"
 				onSelect={() => {}}
 				onCancel={() => {}}
 			/>,
 		);
-		expect(lastFrame()).toContain("Anthropic");
-		expect(lastFrame()).toContain("Best");
+		expect(lastFrame()).toContain("Provider · LM Studio");
+		expect(lastFrame()).toContain("Anthropic · Balanced");
+		expect(lastFrame()).not.toContain("Anthropic · Best");
 	});
 
-	test("Enter selects the highlighted canonical selection", async () => {
+	test("Enter selects the highlighted canonical selection after switching providers", async () => {
 		let selected:
 			| {
 					kind: "inherit";
+					providerId?: string;
 			  }
 			| {
 					kind: "tier";
+					providerId?: string;
 					tier: "best" | "balanced" | "fast";
 			  }
 			| {
@@ -90,19 +92,22 @@ describe("ModelPicker", () => {
 			| undefined;
 		const { stdin } = render(
 			<ModelPicker
-				options={buildModelPickerOptions({
-					availableModels: ["best", "claude-sonnet-4-6"],
-					settings: makeSettingsSnapshot(),
-					currentSelection: makeSelectionSnapshot(),
-					currentModel: "claude-sonnet-4-6",
-				})}
+				availableModels={["best", "claude-sonnet-4-6", "qwen2.5-coder"]}
+				settings={makeSettingsSnapshot()}
+				currentSelection={makeSelectionSnapshot()}
+				currentModel="claude-sonnet-4-6"
 				onSelect={(selection) => {
 					selected = selection;
 				}}
 				onCancel={() => {}}
 			/>,
 		);
+
 		stdin.write("\x1B[B");
+		await flush();
+		stdin.write("\x1B[B");
+		await flush();
+		stdin.write("\r");
 		await flush();
 		stdin.write("\x1B[B");
 		await flush();
@@ -115,8 +120,8 @@ describe("ModelPicker", () => {
 		expect(selected).toEqual({
 			kind: "model",
 			model: {
-				providerId: "anthropic-main",
-				modelId: "claude-sonnet-4-6",
+				providerId: "lmstudio",
+				modelId: "qwen2.5-coder",
 			},
 		});
 	});
@@ -125,7 +130,9 @@ describe("ModelPicker", () => {
 		let cancelled = false;
 		const { stdin } = render(
 			<ModelPicker
-				options={[]}
+				availableModels={[]}
+				currentSelection={makeSelectionSnapshot()}
+				currentModel=""
 				onSelect={() => {}}
 				onCancel={() => {
 					cancelled = true;
@@ -137,10 +144,17 @@ describe("ModelPicker", () => {
 		expect(cancelled).toBe(true);
 	});
 
-	test("shows empty state", () => {
+	test("falls back to the current selection when settings are unavailable", () => {
 		const { lastFrame } = render(
-			<ModelPicker options={[]} onSelect={() => {}} onCancel={() => {}} />,
+			<ModelPicker
+				availableModels={[]}
+				currentSelection={makeSelectionSnapshot()}
+				currentModel=""
+				onSelect={() => {}}
+				onCancel={() => {}}
+			/>,
 		);
-		expect(lastFrame()).toContain("No models");
+		expect(lastFrame()).toContain("Default provider");
+		expect(lastFrame()).toContain("anthropic-main · claude-sonnet-4-6");
 	});
 });

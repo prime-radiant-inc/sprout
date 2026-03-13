@@ -603,13 +603,15 @@ describe("WebServer", () => {
 							label: "OpenRouter",
 							enabled: true,
 							discoveryStrategy: "remote-only",
+							tierDefaults: {
+								fast: "openai/gpt-4.1-mini",
+							},
 							createdAt: "2026-03-11T00:00:00.000Z",
 							updatedAt: "2026-03-11T00:00:00.000Z",
 						},
 					],
-					routing: {
-						providerPriority: ["openrouter-main"],
-						tierOverrides: {},
+					defaults: {
+						defaultProviderId: "openrouter-main",
 					},
 				},
 				providers: [
