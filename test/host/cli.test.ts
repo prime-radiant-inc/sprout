@@ -80,10 +80,19 @@ describe("parseArgs", () => {
 		});
 	});
 
-	test("--prompt returns oneshot mode", () => {
+	test("-p returns headless mode", () => {
+		const result = parseArgs(["-p", "Fix the bug"]);
+		expect(result).toEqual({
+			kind: "headless",
+			goal: "Fix the bug",
+			genomePath: defaultGenomePath,
+		});
+	});
+
+	test("--prompt returns headless mode", () => {
 		const result = parseArgs(["--prompt", "Fix the bug"]);
 		expect(result).toEqual({
-			kind: "oneshot",
+			kind: "headless",
 			goal: "Fix the bug",
 			genomePath: defaultGenomePath,
 		});
@@ -92,7 +101,7 @@ describe("parseArgs", () => {
 	test("--prompt with multiple words joins them", () => {
 		const result = parseArgs(["--prompt", "Fix", "the", "bug"]);
 		expect(result).toEqual({
-			kind: "oneshot",
+			kind: "headless",
 			goal: "Fix the bug",
 			genomePath: defaultGenomePath,
 		});
@@ -103,13 +112,9 @@ describe("parseArgs", () => {
 		expect(result).toEqual({ kind: "help" });
 	});
 
-	test("bare goal returns oneshot mode", () => {
+	test("bare goal returns help", () => {
 		const result = parseArgs(["Fix the bug"]);
-		expect(result).toEqual({
-			kind: "oneshot",
-			goal: "Fix the bug",
-			genomePath: defaultGenomePath,
-		});
+		expect(result).toEqual({ kind: "help" });
 	});
 
 	test("--resume returns resume mode", () => {
@@ -129,12 +134,29 @@ describe("parseArgs", () => {
 		});
 	});
 
-	test("--resume-last returns resume-last mode", () => {
-		const result = parseArgs(["--resume-last"]);
+	test("--resume with --prompt returns headless resume mode", () => {
+		const result = parseArgs(["--resume", "01ABC123", "--prompt", "continue"]);
 		expect(result).toEqual({
-			kind: "resume-last",
+			kind: "headless",
+			sessionId: "01ABC123",
+			goal: "continue",
 			genomePath: defaultGenomePath,
 		});
+	});
+
+	test("--resume with -p returns headless resume mode", () => {
+		const result = parseArgs(["--resume", "01ABC123", "-p", "continue"]);
+		expect(result).toEqual({
+			kind: "headless",
+			sessionId: "01ABC123",
+			goal: "continue",
+			genomePath: defaultGenomePath,
+		});
+	});
+
+	test("--resume-last returns help", () => {
+		const result = parseArgs(["--resume-last"]);
+		expect(result).toEqual({ kind: "help" });
 	});
 
 	test("--genome list → genome-list command", () => {
@@ -162,10 +184,10 @@ describe("parseArgs", () => {
 		});
 	});
 
-	test("--genome-path with goal → oneshot with custom path", () => {
-		const result = parseArgs(["--genome-path", "/custom/path", "Fix bug"]);
+	test("--genome-path with prompt → headless with custom path", () => {
+		const result = parseArgs(["--genome-path", "/custom/path", "--prompt", "Fix bug"]);
 		expect(result).toEqual({
-			kind: "oneshot",
+			kind: "headless",
 			goal: "Fix bug",
 			genomePath: "/custom/path",
 		});
@@ -262,13 +284,9 @@ describe("parseArgs", () => {
 		});
 	});
 
-	test("--web with --resume-last sets web on resume-last command", () => {
+	test("--web with --resume-last returns help", () => {
 		const result = parseArgs(["--web", "--resume-last"]);
-		expect(result).toEqual({
-			kind: "resume-last",
-			genomePath: defaultGenomePath,
-			web: true,
-		});
+		expect(result).toEqual({ kind: "help" });
 	});
 
 	test("--web-only --port with --resume sets both on resume command", () => {
@@ -282,23 +300,14 @@ describe("parseArgs", () => {
 		});
 	});
 
-	test("web flags are not present on oneshot via --prompt", () => {
+	test("web flags with --prompt return help", () => {
 		const result = parseArgs(["--web", "--prompt", "Fix bug"]);
-		expect(result).toEqual({
-			kind: "oneshot",
-			goal: "Fix bug",
-			genomePath: defaultGenomePath,
-		});
+		expect(result).toEqual({ kind: "help" });
 	});
 
-	test("web flags are not present on oneshot via bare goal", () => {
-		// --web before a bare goal: the bare goal causes oneshot, web flags excluded
+	test("bare goal with web flags returns help", () => {
 		const result = parseArgs(["--web", "Fix bug"]);
-		expect(result).toEqual({
-			kind: "oneshot",
-			goal: "Fix bug",
-			genomePath: defaultGenomePath,
-		});
+		expect(result).toEqual({ kind: "help" });
 	});
 
 	test("--port with default value when used alone on interactive", () => {
@@ -379,22 +388,14 @@ describe("parseArgs", () => {
 		});
 	});
 
-	test("--log-stderr after --resume-last is still collected", () => {
+	test("--log-stderr after --resume-last returns help", () => {
 		const result = parseArgs(["--resume-last", "--log-stderr"]);
-		expect(result).toEqual({
-			kind: "resume-last",
-			genomePath: defaultGenomePath,
-			logStderr: true,
-		});
+		expect(result).toEqual({ kind: "help" });
 	});
 
-	test("log flags are not present on oneshot", () => {
+	test("log flags with --prompt return help", () => {
 		const result = parseArgs(["--log-stderr", "--debug", "--prompt", "Fix bug"]);
-		expect(result).toEqual({
-			kind: "oneshot",
-			goal: "Fix bug",
-			genomePath: defaultGenomePath,
-		});
+		expect(result).toEqual({ kind: "help" });
 	});
 
 	test("unknown flag returns help", () => {
@@ -409,20 +410,12 @@ describe("parseArgs", () => {
 		expect(parseArgs(["--unknown", "--prompt", "Fix bug"])).toEqual({ kind: "help" });
 	});
 
-	test("bare goal without --prompt still works", () => {
-		expect(parseArgs(["Fix the bug"])).toEqual({
-			kind: "oneshot",
-			goal: "Fix the bug",
-			genomePath: defaultGenomePath,
-		});
+	test("bare goal without --prompt returns help", () => {
+		expect(parseArgs(["Fix the bug"])).toEqual({ kind: "help" });
 	});
 
-	test("bare goal with multiple words still works", () => {
-		expect(parseArgs(["Fix", "the", "bug"])).toEqual({
-			kind: "oneshot",
-			goal: "Fix the bug",
-			genomePath: defaultGenomePath,
-		});
+	test("bare goal with multiple words returns help", () => {
+		expect(parseArgs(["Fix", "the", "bug"])).toEqual({ kind: "help" });
 	});
 
 	test("--genome export returns genome-export command", () => {

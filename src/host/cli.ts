@@ -11,19 +11,12 @@ import { isGenomeCommand, runGenomeCommand } from "./cli-genome.ts";
 import { type InteractiveModeOptions, runInteractiveMode } from "./cli-interactive.ts";
 import { runListMode } from "./cli-list.ts";
 import { runOneshotMode } from "./cli-oneshot.ts";
+import { type CliCommand, parseArgs, USAGE } from "./cli-parse.ts";
 import { loadResumeState } from "./cli-resume.ts";
 
 export { renderEvent, truncateLines } from "../tui/render-event.ts";
-
-export function defaultGenomePathFromEnv(env: NodeJS.ProcessEnv = process.env): string {
-	const explicitGenomePath = env.SPROUT_GENOME_PATH?.trim();
-	if (explicitGenomePath) return explicitGenomePath;
-
-	const xdgDataHome = env.XDG_DATA_HOME?.trim();
-	if (xdgDataHome) return join(xdgDataHome, "sprout-genome");
-
-	return join(homedir(), ".local/share/sprout-genome");
-}
+export type { CliCommand, LogFlags, WebFlags } from "./cli-parse.ts";
+export { defaultGenomePathFromEnv, parseArgs, USAGE } from "./cli-parse.ts";
 
 export interface BusInfrastructureOptions {
 	genomePath: string;
@@ -126,239 +119,6 @@ export function buildInteractiveModeRuntime(
 			runtime.settingsControlPlane as InteractiveModeOptions["runtime"]["settingsControlPlane"],
 	};
 }
-
-export interface WebFlags {
-	web?: boolean;
-	webOnly?: boolean;
-	port?: number;
-	host?: string;
-	webToken?: string;
-}
-
-export interface LogFlags {
-	logStderr?: boolean;
-	debug?: boolean;
-}
-
-export type CliCommand =
-	| ({ kind: "interactive"; genomePath: string } & WebFlags & LogFlags)
-	| { kind: "oneshot"; goal: string; genomePath: string }
-	| ({ kind: "resume"; sessionId: string; genomePath: string } & WebFlags & LogFlags)
-	| ({ kind: "resume-last"; genomePath: string } & WebFlags & LogFlags)
-	| { kind: "list"; genomePath: string } // session picker (via --resume with no arg)
-	| { kind: "genome-list"; genomePath: string }
-	| { kind: "genome-log"; genomePath: string }
-	| { kind: "genome-rollback"; genomePath: string; commit: string }
-	| { kind: "genome-export"; genomePath: string }
-	| { kind: "genome-sync"; genomePath: string }
-	| { kind: "help" };
-
-import { parseArgs as nodeParseArgs } from "node:util";
-
-/** Only include truthy/defined values, keeping result objects clean. */
-function collectFlags(opts: {
-	web: boolean;
-	webOnly: boolean;
-	port: number | undefined;
-	host: string | undefined;
-	webToken: string | undefined;
-	logStderr: boolean;
-	debug: boolean;
-}): WebFlags & LogFlags {
-	const out: WebFlags & LogFlags = {};
-	if (opts.web) out.web = true;
-	if (opts.webOnly) out.webOnly = true;
-	if (opts.port !== undefined) out.port = opts.port;
-	if (opts.host !== undefined) out.host = opts.host;
-	if (opts.webToken !== undefined) out.webToken = opts.webToken;
-	if (opts.logStderr) out.logStderr = true;
-	if (opts.debug) out.debug = true;
-	return out;
-}
-
-/** Known flags for validating prefix args in pre-scan paths. */
-const KNOWN_FLAGS = new Set([
-	"--help",
-	"--genome-path",
-	"--web",
-	"--web-only",
-	"--port",
-	"--host",
-	"--web-token",
-	"--log-stderr",
-	"--debug",
-	"--prompt",
-	"--resume",
-	"--resume-last",
-	"--genome",
-]);
-
-/** Check that all --flags in an arg list are known. */
-function hasUnknownFlags(args: string[]): boolean {
-	return args.some((a) => a.startsWith("--") && !KNOWN_FLAGS.has(a));
-}
-
-/** Parse CLI arguments (process.argv.slice(2)) into a typed command. */
-export function parseArgs(argv: string[]): CliCommand {
-	const defaultGenomePath = defaultGenomePathFromEnv();
-	// Pre-scan for --prompt: it consumes all remaining args as the goal,
-	// which doesn't fit node:util.parseArgs' model. Handle it separately.
-	const promptIdx = argv.indexOf("--prompt");
-	if (promptIdx !== -1) {
-		const goal = argv.slice(promptIdx + 1).join(" ");
-		if (!goal) return { kind: "help" };
-		const prefix = argv.slice(0, promptIdx);
-		if (hasUnknownFlags(prefix)) return { kind: "help" };
-		const gpIdx = prefix.indexOf("--genome-path");
-		const genomePath = gpIdx !== -1 ? (prefix[gpIdx + 1] ?? defaultGenomePath) : defaultGenomePath;
-		return { kind: "oneshot", goal, genomePath };
-	}
-
-	// Pre-scan for --genome subcommand: it consumes 1-2 positional tokens
-	// that would confuse the main parser.
-	const genomeIdx = argv.indexOf("--genome");
-	if (genomeIdx !== -1) {
-		const sub = argv[genomeIdx + 1];
-		const prefix = argv.slice(0, genomeIdx);
-		const gpIdx = prefix.indexOf("--genome-path");
-		const genomePath = gpIdx !== -1 ? (prefix[gpIdx + 1] ?? defaultGenomePath) : defaultGenomePath;
-		if (sub === "list") return { kind: "genome-list", genomePath };
-		if (sub === "log") return { kind: "genome-log", genomePath };
-		if (sub === "rollback") {
-			const commit = argv[genomeIdx + 2];
-			if (!commit) return { kind: "help" };
-			return { kind: "genome-rollback", genomePath, commit };
-		}
-		if (sub === "export") return { kind: "genome-export", genomePath };
-		if (sub === "sync") return { kind: "genome-sync", genomePath };
-		return { kind: "help" };
-	}
-
-	// Pre-scan for --resume with no value: node:util.parseArgs with
-	// type: "string" throws if no value follows. Detect this case and
-	// rewrite argv so the main parser sees --resume-list instead.
-	const resumeIdx = argv.indexOf("--resume");
-	if (resumeIdx !== -1) {
-		const next = argv[resumeIdx + 1];
-		if (next === undefined || next.startsWith("-")) {
-			// Bare --resume → session picker. Remove it and parse remaining flags,
-			// then return "list" (which doesn't carry web/log flags).
-			const without = [...argv.slice(0, resumeIdx), ...argv.slice(resumeIdx + 1)];
-			// Validate remaining flags
-			if (hasUnknownFlags(without)) return { kind: "help" };
-			const gpIdx = without.indexOf("--genome-path");
-			const genomePath =
-				gpIdx !== -1 ? (without[gpIdx + 1] ?? defaultGenomePath) : defaultGenomePath;
-			return { kind: "list", genomePath };
-		}
-	}
-
-	let parsed: ReturnType<typeof nodeParseArgs>;
-	try {
-		parsed = nodeParseArgs({
-			args: argv,
-			strict: true,
-			allowPositionals: true,
-			options: {
-				help: { type: "boolean" },
-				"genome-path": { type: "string" },
-				web: { type: "boolean" },
-				"web-only": { type: "boolean" },
-				port: { type: "string" }, // parsed as string, validated below
-				host: { type: "string" },
-				"web-token": { type: "string" },
-				"log-stderr": { type: "boolean" },
-				debug: { type: "boolean" },
-				resume: { type: "string" },
-				"resume-last": { type: "boolean" },
-			},
-		});
-	} catch {
-		// Unknown flag or missing value → show help
-		return { kind: "help" };
-	}
-
-	const vals = parsed.values;
-	if (vals.help) return { kind: "help" };
-
-	const genomePath = (vals["genome-path"] as string | undefined) ?? defaultGenomePath;
-
-	// Validate --port
-	let port: number | undefined;
-	if (vals.port !== undefined) {
-		const n = Number(vals.port);
-		if (Number.isNaN(n) || n <= 0) return { kind: "help" };
-		port = n;
-	}
-
-	const flags = collectFlags({
-		web: vals.web === true,
-		webOnly: vals["web-only"] === true,
-		port,
-		host: vals.host as string | undefined,
-		webToken: vals["web-token"] as string | undefined,
-		logStderr: vals["log-stderr"] === true,
-		debug: vals.debug === true,
-	});
-
-	// --resume: node:util.parseArgs treats it as a string option.
-	// If the user wrote `--resume` with no value, parseArgs in strict mode
-	// will throw (caught above). But `--resume` followed by another flag
-	// like `--resume --web` will also throw. We handle the "no session ID"
-	// case by checking if the value looks like a flag (shouldn't happen with
-	// strict mode, but defensive). For bare `--resume` we need a pre-scan.
-	if (vals.resume !== undefined) {
-		const sessionId = vals.resume as string;
-		if (!sessionId || sessionId.startsWith("-")) {
-			return { kind: "list", genomePath };
-		}
-		return { kind: "resume", sessionId, genomePath, ...flags };
-	}
-
-	if (vals["resume-last"]) {
-		return { kind: "resume-last", genomePath, ...flags };
-	}
-
-	const positionals = parsed.positionals;
-	if (positionals.length === 0) {
-		return { kind: "interactive", genomePath, ...flags };
-	}
-
-	return { kind: "oneshot", goal: positionals.join(" "), genomePath };
-}
-
-const USAGE = `Usage: sprout [options] [goal]
-
-Modes:
-  sprout                                Interactive mode (default)
-  sprout --prompt "Fix the bug"         One-shot mode
-  sprout "Fix the bug"                  One-shot mode (bare goal)
-  sprout --resume                       List sessions and pick one to resume
-  sprout --resume <session-id>          Resume a specific session
-  sprout --resume-last                  Resume the most recent session
-
-Genome management:
-  sprout --genome list                  List agents in the genome
-  sprout --genome log                   Show genome git log
-  sprout --genome sync                  Sync root agents to runtime genome
-  sprout --genome rollback <commit>     Revert a genome commit
-  sprout --genome export                Show learnings that evolved beyond root specs
-
-Web interface:
-  --web                  Start web server alongside TUI
-  --web-only             Start web server without TUI (headless/remote)
-  --port <port>          Web server port (default: 7777)
-  --host <addr>          Web server bind address (default: localhost, use 0.0.0.0 for all interfaces)
-  --web-token <token>    WebSocket auth token (required for non-localhost binds)
-  /web, /web stop        Start/stop web server from interactive mode
-
-Logging:
-  --log-stderr           Print log entries to stderr (info level and above)
-  --debug                Include debug-level entries (use with --log-stderr)
-
-Options:
-  --genome-path <path>   Path to genome directory (default: $SPROUT_GENOME_PATH or $XDG_DATA_HOME/sprout-genome or ~/.local/share/sprout-genome)
-  --help                 Show this help message`;
 
 export type SlashCommandResult =
 	| { action: "none" }
@@ -700,7 +460,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 	const projectDataDir = computeProjectDataDir(command.genomePath, projDir);
 	const sessionsDir = join(projectDataDir, "sessions");
 
-	if (command.kind === "oneshot") {
+	if (command.kind === "headless") {
 		await runOneshotMode({
 			goal: command.goal,
 			genomePath: command.genomePath,
@@ -714,7 +474,7 @@ export async function runCli(command: CliCommand): Promise<void> {
 
 	let resumeState: Awaited<ReturnType<typeof loadResumeState>> | undefined;
 
-	if (command.kind === "resume" || command.kind === "resume-last") {
+	if (command.kind === "resume") {
 		resumeState = await loadResumeState({
 			command,
 			projectDataDir,
