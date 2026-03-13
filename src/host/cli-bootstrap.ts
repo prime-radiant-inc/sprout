@@ -36,7 +36,7 @@ export function resolveStderrLevel(opts: { logStderr?: boolean; debug?: boolean 
 	return opts.debug ? "debug" : "info";
 }
 
-export interface InteractiveBootstrapOptions {
+export interface SessionBootstrapOptions {
 	genomePath: string;
 	projectDataDir: string;
 	rootDir: string;
@@ -107,8 +107,8 @@ interface InteractiveBootstrapDeps {
 	onLoggingEnabled: (logger: unknown, level: "debug" | "info", sessionId: string) => void;
 }
 
-export async function bootstrapInteractiveRuntime(
-	opts: InteractiveBootstrapOptions,
+export async function bootstrapSessionRuntime(
+	opts: SessionBootstrapOptions,
 	deps: Partial<InteractiveBootstrapDeps> = {},
 ): Promise<{
 	bus: unknown;

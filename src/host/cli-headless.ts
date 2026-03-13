@@ -4,7 +4,7 @@ import type { Genome } from "../genome/genome.ts";
 import type { Message } from "../llm/types.ts";
 import type { SessionSelectionRequest } from "../shared/session-selection.ts";
 import { ulid } from "../util/ulid.ts";
-import { bootstrapInteractiveRuntime, type InteractiveBootstrapOptions } from "./cli-bootstrap.ts";
+import { bootstrapSessionRuntime, type SessionBootstrapOptions } from "./cli-bootstrap.ts";
 import type { SessionRunResult } from "./session-controller.ts";
 
 export interface HeadlessInfrastructure {
@@ -41,7 +41,7 @@ interface HeadlessRuntime {
 
 interface HeadlessDeps {
 	createSessionId: () => string;
-	bootstrapRuntime: (options: InteractiveBootstrapOptions) => Promise<HeadlessRuntime>;
+	bootstrapRuntime: (options: SessionBootstrapOptions) => Promise<HeadlessRuntime>;
 	writeStdout: (line: string) => void;
 	writeStderr: (line: string) => void;
 }
@@ -55,7 +55,7 @@ export async function runHeadlessMode(
 		bootstrapRuntime:
 			deps.bootstrapRuntime ??
 			(async (options) => {
-				const runtime = await bootstrapInteractiveRuntime(options);
+				const runtime = await bootstrapSessionRuntime(options);
 				return {
 					controller: runtime.controller as {
 						runGoal(goal: string): Promise<SessionRunResult>;

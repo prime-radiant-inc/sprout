@@ -8,7 +8,7 @@ import {
 	resolveProjectDir,
 	startBusInfrastructure,
 } from "./cli.ts";
-import { bootstrapInteractiveRuntime } from "./cli-bootstrap.ts";
+import { bootstrapSessionRuntime } from "./cli-bootstrap.ts";
 import { isGenomeCommand, runGenomeCommand } from "./cli-genome.ts";
 import { runHeadlessMode } from "./cli-headless.ts";
 import { runInteractiveMode } from "./cli-interactive.ts";
@@ -26,7 +26,7 @@ interface CliRunDeps {
 	runListMode: typeof runListMode;
 	loadSessionSummaries: typeof loadSessionSummaries;
 	startBusInfrastructure: typeof startBusInfrastructure;
-	bootstrapRuntime: typeof bootstrapInteractiveRuntime;
+	bootstrapRuntime: typeof bootstrapSessionRuntime;
 	loadResumeState: typeof loadResumeState;
 	runInteractiveMode: typeof runInteractiveMode;
 	runHeadlessMode: typeof runHeadlessMode;
@@ -48,7 +48,7 @@ export async function runCli(command: CliCommand, deps: Partial<CliRunDeps> = {}
 			deps.loadDotenv ??
 			(async () => {
 				const { config } = await import("dotenv");
-				config();
+				config({ quiet: true });
 			}),
 		logError: deps.logError ?? ((line) => console.error(line)),
 		logOut: deps.logOut ?? ((line) => console.log(line)),
@@ -57,7 +57,7 @@ export async function runCli(command: CliCommand, deps: Partial<CliRunDeps> = {}
 		runListMode: deps.runListMode ?? runListMode,
 		loadSessionSummaries: deps.loadSessionSummaries ?? loadSessionSummaries,
 		startBusInfrastructure: deps.startBusInfrastructure ?? startBusInfrastructure,
-		bootstrapRuntime: deps.bootstrapRuntime ?? bootstrapInteractiveRuntime,
+		bootstrapRuntime: deps.bootstrapRuntime ?? bootstrapSessionRuntime,
 		loadResumeState: deps.loadResumeState ?? loadResumeState,
 		runInteractiveMode: deps.runInteractiveMode ?? runInteractiveMode,
 		runHeadlessMode: deps.runHeadlessMode ?? runHeadlessMode,

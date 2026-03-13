@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { bootstrapInteractiveRuntime } from "../../src/host/cli-bootstrap.ts";
+import { bootstrapSessionRuntime } from "../../src/host/cli-bootstrap.ts";
 import type { ProviderSecretRef } from "../../src/host/settings/secret-store.ts";
 import { createEmptySettings } from "../../src/host/settings/types.ts";
 import type { ProviderRegistryEntry } from "../../src/llm/provider-registry.ts";
@@ -92,7 +92,7 @@ function emptySettingsStore(source: "loaded" | "recovered" = "loaded") {
 	};
 }
 
-describe("bootstrapInteractiveRuntime", () => {
+describe("bootstrapSessionRuntime", () => {
 	test("builds runtime wiring and emits stderr-enabled info log", async () => {
 		const created: Record<string, unknown> = {};
 		const logger = {
@@ -101,7 +101,7 @@ describe("bootstrapInteractiveRuntime", () => {
 			},
 		};
 
-		const result = await bootstrapInteractiveRuntime(
+		const result = await bootstrapSessionRuntime(
 			{
 				genomePath: "/tmp/genome",
 				projectDataDir: "/tmp/project",
@@ -163,7 +163,7 @@ describe("bootstrapInteractiveRuntime", () => {
 
 	test("omits stderr level when logStderr is false", async () => {
 		const created: Record<string, unknown> = {};
-		await bootstrapInteractiveRuntime(
+		await bootstrapSessionRuntime(
 			{
 				genomePath: "/tmp/genome",
 				projectDataDir: "/tmp/project",
@@ -209,7 +209,7 @@ describe("bootstrapInteractiveRuntime", () => {
 			defaults: {},
 		};
 
-		await bootstrapInteractiveRuntime(
+		await bootstrapSessionRuntime(
 			{
 				genomePath: "/tmp/genome",
 				projectDataDir: "/tmp/project",
@@ -253,7 +253,7 @@ describe("bootstrapInteractiveRuntime", () => {
 	test("does not import env-backed settings after invalid-file recovery", async () => {
 		const created: Record<string, unknown> = {};
 
-		await bootstrapInteractiveRuntime(
+		await bootstrapSessionRuntime(
 			{
 				genomePath: "/tmp/genome",
 				projectDataDir: "/tmp/project",
@@ -297,7 +297,7 @@ describe("bootstrapInteractiveRuntime", () => {
 	test("passes invalid-settings recovery warnings into the settings control plane", async () => {
 		const created: Record<string, unknown> = {};
 
-		await bootstrapInteractiveRuntime(
+		await bootstrapSessionRuntime(
 			{
 				genomePath: "/tmp/genome",
 				projectDataDir: "/tmp/project",
@@ -340,7 +340,7 @@ describe("bootstrapInteractiveRuntime", () => {
 	test("continues bootstrapping when the secret backend is unavailable", async () => {
 		const created: Record<string, unknown> = {};
 
-		const result = await bootstrapInteractiveRuntime(
+		const result = await bootstrapSessionRuntime(
 			{
 				genomePath: "/tmp/genome",
 				projectDataDir: "/tmp/project",
@@ -387,7 +387,7 @@ describe("bootstrapInteractiveRuntime", () => {
 			],
 		};
 
-		await bootstrapInteractiveRuntime(
+		await bootstrapSessionRuntime(
 			{
 				genomePath: "/tmp/genome",
 				projectDataDir: "/tmp/project",
@@ -463,7 +463,7 @@ describe("bootstrapInteractiveRuntime", () => {
 			},
 		];
 
-		const result = await bootstrapInteractiveRuntime(
+		const result = await bootstrapSessionRuntime(
 			{
 				genomePath: "/tmp/genome",
 				projectDataDir: "/tmp/project",
@@ -555,7 +555,7 @@ describe("bootstrapInteractiveRuntime", () => {
 			},
 		};
 
-		await bootstrapInteractiveRuntime(
+		await bootstrapSessionRuntime(
 			{
 				genomePath: "/tmp/genome",
 				projectDataDir: "/tmp/project",
@@ -622,7 +622,7 @@ describe("bootstrapInteractiveRuntime", () => {
 		const registrySettings: string[][] = [];
 		const checkConnectionCalls: string[] = [];
 		const clientUpdates: string[][] = [];
-		const runtime = await bootstrapInteractiveRuntime(
+		const runtime = await bootstrapSessionRuntime(
 			{
 				genomePath: "/tmp/genome",
 				projectDataDir: "/tmp/project",
@@ -727,7 +727,7 @@ describe("bootstrapInteractiveRuntime", () => {
 			],
 			defaults: {},
 		};
-		const runtime = await bootstrapInteractiveRuntime(
+		const runtime = await bootstrapSessionRuntime(
 			{
 				genomePath: "/tmp/genome",
 				projectDataDir: "/tmp/project",

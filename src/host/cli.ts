@@ -5,7 +5,7 @@ import type { BusClient } from "../bus/client.ts";
 import type { BusServer } from "../bus/server.ts";
 import type { AgentSpawner } from "../bus/spawner.ts";
 import { formatSessionSelectionRequest } from "../shared/session-selection.ts";
-import type { bootstrapInteractiveRuntime } from "./cli-bootstrap.ts";
+import type { bootstrapSessionRuntime } from "./cli-bootstrap.ts";
 import type { InteractiveModeOptions } from "./cli-interactive.ts";
 import { parseArgs } from "./cli-parse.ts";
 
@@ -99,7 +99,7 @@ export function inputHistoryPath(genomePath: string): string {
 }
 
 export function buildInteractiveModeRuntime(
-	runtime: Awaited<ReturnType<typeof bootstrapInteractiveRuntime>>,
+	runtime: Awaited<ReturnType<typeof bootstrapSessionRuntime>>,
 ): InteractiveModeOptions["runtime"] {
 	return {
 		bus: runtime.bus as import("./event-bus.ts").EventBus,
