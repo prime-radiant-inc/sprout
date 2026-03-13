@@ -8,6 +8,7 @@ import {
 	type SproutSettings,
 	validateSproutSettings,
 } from "./types.ts";
+import { normalizeProviderConfig, validateProviderConfig } from "./validation.ts";
 
 export interface SettingsLoadResult {
 	settings: SproutSettings;
@@ -68,10 +69,11 @@ export class SettingsStore {
 	}
 
 	async save(settings: SproutSettings): Promise<void> {
-		validateSproutSettings(settings);
+		const normalized = this.normalizeSettings(settings);
+		this.validateSettings(normalized);
 		await mkdir(dirname(this.settingsPath), { recursive: true });
 		const tempPath = `${this.settingsPath}.tmp`;
-		await writeFile(tempPath, `${JSON.stringify(settings, null, "\t")}\n`, "utf-8");
+		await writeFile(tempPath, `${JSON.stringify(normalized, null, "\t")}\n`, "utf-8");
 		await rename(tempPath, this.settingsPath);
 	}
 
@@ -91,14 +93,38 @@ export class SettingsStore {
 	private parseSettings(raw: string): SproutSettings {
 		const parsed = JSON.parse(raw) as { version?: unknown };
 		if (parsed.version === SETTINGS_SCHEMA_VERSION) {
-			validateSproutSettings(parsed as SproutSettings);
-			return parsed as SproutSettings;
+			const settings = this.normalizeSettings(parsed as SproutSettings);
+			this.validateSettings(settings);
+			return settings;
 		}
 		if (this.migrate) {
-			const migrated = this.migrate(parsed);
-			validateSproutSettings(migrated);
+			const migrated = this.normalizeSettings(this.migrate(parsed));
+			this.validateSettings(migrated);
 			return migrated;
 		}
 		throw new Error(`Unsupported settings schema version: ${String(parsed.version)}`);
+	}
+
+	private normalizeSettings(settings: SproutSettings): SproutSettings {
+		return {
+			version: settings.version,
+			providers: settings.providers.map((provider) => normalizeProviderConfig(provider)),
+			defaults: {
+				...(settings.defaults.defaultProviderId
+					? { defaultProviderId: settings.defaults.defaultProviderId }
+					: {}),
+				...(settings.defaults.tierDefaults ? { tierDefaults: settings.defaults.tierDefaults } : {}),
+			},
+		};
+	}
+
+	private validateSettings(settings: SproutSettings): void {
+		for (const provider of settings.providers) {
+			const validation = validateProviderConfig(provider);
+			if (validation.errors.length > 0) {
+				throw new Error(validation.errors.join("; "));
+			}
+		}
+		validateSproutSettings(settings);
 	}
 }

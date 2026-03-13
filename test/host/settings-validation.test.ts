@@ -37,6 +37,20 @@ describe("validateProviderConfig", () => {
 		});
 	});
 
+	test("rejects openrouter endpoints on openai-compatible providers", () => {
+		const result = validateProviderConfig(
+			makeProvider({
+				label: "OpenRouter",
+				baseUrl: "https://openrouter.ai/api/v1",
+			}),
+		);
+
+		expect(result.errors).toContain("OpenRouter endpoints must use the OpenRouter provider kind");
+		expect(result.fieldErrors).toEqual({
+			baseUrl: "OpenRouter endpoints must use the OpenRouter provider kind",
+		});
+	});
+
 	test("rejects custom headers for gemini providers", () => {
 		const result = validateProviderConfig(
 			makeProvider({

@@ -29,6 +29,13 @@ export function validateProviderConfig(provider: ProviderConfig): ProviderValida
 			);
 		} else if (!isValidHttpUrl(baseUrl)) {
 			addFieldError(errors, fieldErrors, "baseUrl", "Base URL must be a valid http or https URL");
+		} else if (isOpenRouterBaseUrl(baseUrl)) {
+			addFieldError(
+				errors,
+				fieldErrors,
+				"baseUrl",
+				"OpenRouter endpoints must use the OpenRouter provider kind",
+			);
 		}
 	}
 	if (provider.kind !== "openai-compatible" && provider.baseUrl !== undefined) {
@@ -73,6 +80,30 @@ export function validateProviderConfig(provider: ProviderConfig): ProviderValida
 	};
 }
 
+export function normalizeProviderConfig(provider: ProviderConfig): ProviderConfig {
+	const normalizedKind =
+		provider.kind === "openai-compatible" && provider.baseUrl?.trim()
+			? isOpenRouterBaseUrl(provider.baseUrl.trim())
+				? "openrouter"
+				: "openai-compatible"
+			: provider.kind;
+
+	return {
+		id: provider.id,
+		kind: normalizedKind,
+		label: provider.label,
+		enabled: provider.enabled,
+		...(normalizedKind === "openai-compatible" && provider.baseUrl?.trim()
+			? { baseUrl: provider.baseUrl.trim() }
+			: {}),
+		...(provider.nonSecretHeaders ? { nonSecretHeaders: provider.nonSecretHeaders } : {}),
+		discoveryStrategy: provider.discoveryStrategy,
+		...(provider.manualModels ? { manualModels: provider.manualModels } : {}),
+		createdAt: provider.createdAt,
+		updatedAt: provider.updatedAt,
+	};
+}
+
 export function validateProviderRuntimeReadiness(
 	provider: ProviderConfig,
 	options: ProviderRuntimeValidationOptions,
@@ -114,6 +145,15 @@ function isValidHttpUrl(value: string): boolean {
 	try {
 		const url = new URL(value);
 		return url.protocol === "http:" || url.protocol === "https:";
+	} catch {
+		return false;
+	}
+}
+
+function isOpenRouterBaseUrl(value: string): boolean {
+	try {
+		const url = new URL(value);
+		return url.host === "openrouter.ai" && /^\/api\/v1\/?$/.test(url.pathname);
 	} catch {
 		return false;
 	}

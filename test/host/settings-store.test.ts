@@ -98,6 +98,68 @@ describe("SettingsStore", () => {
 		expect(result.skipEnvImport).toBe(true);
 	});
 
+	test("load normalizes openrouter endpoints that were saved as openai-compatible", async () => {
+		const { store, settingsPath } = await makeStore();
+		await writeFile(
+			settingsPath,
+			JSON.stringify(
+				{
+					version: 1,
+					providers: [
+						{
+							id: "openai-compatible",
+							kind: "openai-compatible",
+							label: "OpenRouter",
+							enabled: true,
+							baseUrl: "https://openrouter.ai/api/v1",
+							discoveryStrategy: "remote-only",
+							tierDefaults: {
+								fast: "openrouter/hunter-alpha",
+							},
+							createdAt: "2026-03-11T12:00:00.000Z",
+							updatedAt: "2026-03-11T12:00:00.000Z",
+						},
+					],
+					defaults: {
+						selection: {
+							kind: "tier",
+							tier: "best",
+						},
+						defaultProviderId: "openai-compatible",
+					},
+					routing: {
+						providerPriority: ["openai-compatible"],
+					},
+				},
+				null,
+				"\t",
+			),
+			"utf-8",
+		);
+
+		const result = await store.load();
+
+		expect(result.source).toBe("loaded");
+		expect(result.recoveredInvalidFilePath).toBeUndefined();
+		expect(result.settings).toEqual({
+			version: 1,
+			providers: [
+				{
+					id: "openai-compatible",
+					kind: "openrouter",
+					label: "OpenRouter",
+					enabled: true,
+					discoveryStrategy: "remote-only",
+					createdAt: "2026-03-11T12:00:00.000Z",
+					updatedAt: "2026-03-11T12:00:00.000Z",
+				},
+			],
+			defaults: {
+				defaultProviderId: "openai-compatible",
+			},
+		});
+	});
+
 	test("load leaves env import enabled when settings file is absent", async () => {
 		const { store } = await makeStore();
 
