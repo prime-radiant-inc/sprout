@@ -171,9 +171,10 @@ Slash-command behavior:
 - `/model model` becomes a validation error with a clear message telling the user to specify
   `provider:model`
 
-Agent-spec and frontmatter behavior must follow the same rule:
+Agent-spec and frontmatter behavior must follow the same rule for explicit model declarations:
 
-- agent model declarations may be `best`, `balanced`, `fast`, `inherit`, or `provider:model`
+- agent model declarations may be `best`, `balanced`, `fast`, or `provider:model`
+- `inherit` is session-only and is invalid in agent specs/frontmatter
 - bare exact-model ids are invalid everywhere, not just in root-session commands
 - any parsing or runtime path that still accepts bare exact-model ids must be removed
 
@@ -187,9 +188,10 @@ Sprout should always use one provider discovery behavior:
 There should be no user-facing discovery strategy choice, no persisted strategy field, and no
 manual model entry path in the product model.
 
-If a provider cannot be refreshed, the provider editor should show the error and keep the last known
-catalog state semantics already used elsewhere. The important rule is that discovery mode is not a
-thing the user configures.
+If a provider cannot be refreshed, the provider editor should show the error and continue showing
+the last known remote-only cached catalog for that provider. The cache is only a stored copy of
+previous remote results; it must not preserve `manual-only`, `remote-with-manual`, or any other
+strategy branches or manual overlay semantics.
 
 ## Data Model Direction
 
