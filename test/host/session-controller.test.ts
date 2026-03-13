@@ -141,6 +141,23 @@ describe("SessionController", () => {
 		expect(fake.runGoal).toBe("Fix the bug");
 	});
 
+	test("runGoal returns a structured session result", async () => {
+		const fake = makeFakeAgent();
+		const factory = makeFakeFactory(fake);
+		const { controller } = makeController({ factory });
+
+		const result = await controller.runGoal("Fix the bug");
+
+		expect(result).toEqual({
+			sessionId: controller.sessionId,
+			output: "done",
+			success: true,
+			stumbles: 0,
+			turns: 1,
+			timedOut: false,
+		});
+	});
+
 	test("default factory forwards resolver settings into createAgent for tier-based root models", async () => {
 		const bus = new EventBus();
 		const rootDir = join(tempDir, "root-spec");

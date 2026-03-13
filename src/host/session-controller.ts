@@ -127,6 +127,15 @@ export interface SessionControllerOptions {
 	getResolverSettings?: () => ResolverSettings | undefined;
 }
 
+export interface SessionRunResult {
+	sessionId: string;
+	output: string;
+	success: boolean;
+	stumbles: number;
+	turns: number;
+	timedOut: boolean;
+}
+
 /**
  * Default factory that delegates to createAgent from the agents module.
  * Relays events from the agent's AgentEventEmitter to the SessionBus.
@@ -389,6 +398,17 @@ export class SessionController {
 			this.agent?.steer(goal);
 			return;
 		}
+		await this.executeGoal(goal);
+	}
+
+	async runGoal(goal: string): Promise<SessionRunResult> {
+		if (this.running) {
+			throw new Error("Cannot run a new goal while the session is already running");
+		}
+		return this.executeGoal(goal);
+	}
+
+	private async executeGoal(goal: string): Promise<SessionRunResult> {
 		this.logger?.info("session", "Goal submitted", { goal: goal.slice(0, 100) });
 		this.suppressEvents = false;
 		// Cancellation is run-scoped. Set the active controller before any await
@@ -467,8 +487,16 @@ export class SessionController {
 				learnProcess.startBackground();
 			}
 
-			await result.agent.run(goal, signal);
+			const runResult = await result.agent.run(goal, signal);
 			this.logger?.info("session", "Agent run completed");
+			return {
+				sessionId: this._sessionId,
+				output: runResult.output,
+				success: runResult.success,
+				stumbles: runResult.stumbles,
+				turns: runResult.turns,
+				timedOut: runResult.timed_out,
+			};
 		} finally {
 			if (learnProcess) {
 				await learnProcess.stopBackground();
