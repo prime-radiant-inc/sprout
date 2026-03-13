@@ -6,11 +6,7 @@ import type { SessionEvent } from "../kernel/types.ts";
 import type { Message } from "../llm/types.ts";
 import type { SessionSelectionRequest } from "../shared/session-selection.ts";
 import { replayEventLog } from "./resume.ts";
-import {
-	listSessions,
-	loadSessionMetadata,
-	type SessionMetadataSnapshot,
-} from "./session-metadata.ts";
+import { loadSessionMetadata, type SessionMetadataSnapshot } from "./session-metadata.ts";
 import {
 	resolveSessionSelectionRequest,
 	type SessionSelectionContext,
@@ -19,8 +15,8 @@ import {
 import { loadAllEventLogs } from "./session-state.ts";
 
 export interface ResumeCommand {
-	kind: "resume" | "resume-last";
-	sessionId?: string;
+	kind: "resume";
+	sessionId: string;
 }
 
 export interface ResumeState {
@@ -38,7 +34,6 @@ export interface ResumeState {
 }
 
 interface ResumeDeps {
-	listSessions: typeof listSessions;
 	loadSessionMetadata: typeof loadSessionMetadata;
 	replayEventLog: typeof replayEventLog;
 	loadEventLog: typeof loadEventLog;
@@ -51,7 +46,7 @@ interface ResumeDeps {
 /**
  * Load resume state from an existing session log.
  *
- * Returns undefined only for `resume-last` when no sessions exist.
+ * Returns undefined when the requested session cannot be loaded.
  */
 export async function loadResumeState(
 	opts: {
@@ -63,7 +58,6 @@ export async function loadResumeState(
 	deps: Partial<ResumeDeps> = {},
 ): Promise<ResumeState | undefined> {
 	const d: ResumeDeps = {
-		listSessions: deps.listSessions ?? listSessions,
 		loadSessionMetadata: deps.loadSessionMetadata ?? loadSessionMetadata,
 		replayEventLog: deps.replayEventLog ?? replayEventLog,
 		loadEventLog: deps.loadEventLog ?? loadEventLog,
@@ -73,14 +67,7 @@ export async function loadResumeState(
 		loadAllEventLogs: deps.loadAllEventLogs ?? loadAllEventLogs,
 	};
 
-	let sessionId: string;
-	if (opts.command.kind === "resume-last") {
-		const sessions = await d.listSessions(opts.sessionsDir);
-		if (sessions.length === 0) return undefined;
-		sessionId = sessions[sessions.length - 1]!.sessionId;
-	} else {
-		sessionId = opts.command.sessionId ?? "";
-	}
+	const sessionId = opts.command.sessionId;
 
 	let selectionRequest: SessionSelectionRequest | undefined;
 	try {

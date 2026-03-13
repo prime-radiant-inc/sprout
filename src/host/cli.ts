@@ -5,14 +5,9 @@ import type { BusClient } from "../bus/client.ts";
 import type { BusServer } from "../bus/server.ts";
 import type { AgentSpawner } from "../bus/spawner.ts";
 import { formatSessionSelectionRequest } from "../shared/session-selection.ts";
-import { projectDataDir as computeProjectDataDir } from "../util/project-id.ts";
-import { bootstrapInteractiveRuntime } from "./cli-bootstrap.ts";
-import { isGenomeCommand, runGenomeCommand } from "./cli-genome.ts";
-import { type InteractiveModeOptions, runInteractiveMode } from "./cli-interactive.ts";
-import { runListMode } from "./cli-list.ts";
-import { runOneshotMode } from "./cli-oneshot.ts";
-import { type CliCommand, parseArgs, USAGE } from "./cli-parse.ts";
-import { loadResumeState } from "./cli-resume.ts";
+import type { bootstrapInteractiveRuntime } from "./cli-bootstrap.ts";
+import type { InteractiveModeOptions } from "./cli-interactive.ts";
+import { parseArgs } from "./cli-parse.ts";
 
 export { renderEvent, truncateLines } from "../tui/render-event.ts";
 export type { CliCommand, LogFlags, WebFlags } from "./cli-parse.ts";
@@ -76,10 +71,6 @@ export async function startBusInfrastructure(
 	};
 
 	return { server, bus, spawner, genome, cleanup };
-}
-
-function printResumeHint(sessionId: string): void {
-	console.error(`\nTo resume this session:\n  sprout --resume ${sessionId}\n`);
 }
 
 /**
@@ -402,134 +393,8 @@ export function handleSigint(
 }
 
 /** Execute a parsed CLI command. */
-export async function runCli(command: CliCommand): Promise<void> {
-	if (command.kind === "help") {
-		console.log(USAGE);
-		return;
-	}
-
-	if (isGenomeCommand(command)) {
-		await runGenomeCommand(command);
-		return;
-	}
-
-	if (command.kind === "list") {
-		const { loadSessionSummaries } = await import("./session-metadata.ts");
-		const listProjDir = await resolveProjectDir();
-		const listDataDir = computeProjectDataDir(command.genomePath, listProjDir);
-		const sessionsDir = join(listDataDir, "sessions");
-		const logsDir = join(listDataDir, "logs");
-		await runListMode(
-			{
-				sessionsDir,
-				logsDir,
-				onResume: async (selectedId) => {
-					await runCli({
-						kind: "resume",
-						sessionId: selectedId,
-						genomePath: command.genomePath,
-					});
-				},
-			},
-			{ loadSessionSummaries },
-		);
-		return;
-	}
-
-	// All remaining modes need dotenv + SessionController setup
-	const { config } = await import("dotenv");
-	config();
-
-	// Early check: warn if no LLM API keys are available
-	if (
-		!process.env.ANTHROPIC_API_KEY &&
-		!process.env.OPENAI_API_KEY &&
-		!process.env.GEMINI_API_KEY &&
-		!process.env.GOOGLE_API_KEY
-	) {
-		console.error(
-			"[sprout] Warning: No LLM API keys found. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY.\n" +
-				"         Ensure your .env file is in the working directory, or export the variables directly.",
-		);
-	}
-
-	const { ulid } = await import("../util/ulid.ts");
-
-	const rootDir = join(import.meta.dir, "../../root");
-	const projDir = await resolveProjectDir();
-	const projectDataDir = computeProjectDataDir(command.genomePath, projDir);
-	const sessionsDir = join(projectDataDir, "sessions");
-
-	if (command.kind === "headless") {
-		await runOneshotMode({
-			goal: command.goal,
-			genomePath: command.genomePath,
-			projectDataDir,
-			rootDir,
-			startBusInfrastructure,
-			onResumeHint: printResumeHint,
-		});
-		return;
-	}
-
-	let resumeState: Awaited<ReturnType<typeof loadResumeState>> | undefined;
-
-	if (command.kind === "resume") {
-		resumeState = await loadResumeState({
-			command,
-			projectDataDir,
-			sessionsDir,
-			onInfo: (line) => {
-				console.error(line);
-			},
-		});
-		if (!resumeState) {
-			console.log("No sessions found.");
-			return;
-		}
-	}
-
-	// Interactive mode (also reached via resume)
-	const sessionId = resumeState?.sessionId ?? ulid();
-	const infra = await startBusInfrastructure({
-		genomePath: command.genomePath,
-		sessionId,
-		rootDir,
-	});
-
-	const runtime = await bootstrapInteractiveRuntime({
-		genomePath: command.genomePath,
-		projectDataDir,
-		rootDir,
-		sessionId,
-		initialHistory: resumeState?.history,
-		initialSelectionRequest: resumeState?.selectionRequest,
-		completedHandles: resumeState?.completedHandles,
-		infra,
-		logStderr: command.logStderr,
-		debug: command.debug,
-	});
-	await runInteractiveMode({
-		command: {
-			genomePath: command.genomePath,
-			web: command.web,
-			webOnly: command.webOnly,
-			port: command.port,
-			host: command.host,
-			webToken: command.webToken,
-		},
-		sessionId,
-		projectDataDir,
-		runtime: buildInteractiveModeRuntime(runtime),
-		initialEvents: resumeState?.events,
-		cleanupInfra: infra.cleanup,
-		onResumeHint: printResumeHint,
-		inputHistoryPath,
-		handleSlashCommand,
-	});
-}
-
 if (import.meta.main) {
 	const command = parseArgs(process.argv.slice(2));
+	const { runCli } = await import("./cli-run.ts");
 	await runCli(command);
 }

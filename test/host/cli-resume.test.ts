@@ -29,27 +29,6 @@ function selectionContext(
 }
 
 describe("loadResumeState", () => {
-	test("resume-last returns undefined when no sessions exist", async () => {
-		const state = await loadResumeState(
-			{
-				command: { kind: "resume-last" },
-				projectDataDir: "/tmp/project",
-				sessionsDir: "/tmp/project/sessions",
-			},
-			{
-				listSessions: async () => [],
-				replayEventLog: async () => [],
-				loadEventLog: async () => [],
-				loadAllEventLogs: async () => [],
-				extractChildHandles: async () => [],
-				checkHandleCompleted: async () => false,
-				readHandleResult: async () => null,
-			},
-		);
-
-		expect(state).toBeUndefined();
-	});
-
 	test("resume loads history, events, and completed child handle results", async () => {
 		const history: Message[] = [{ role: "user", content: [{ kind: "text", text: "goal" }] }];
 		const messages: string[] = [];
@@ -63,7 +42,6 @@ describe("loadResumeState", () => {
 				},
 			},
 			{
-				listSessions: async () => [],
 				replayEventLog: async () => history,
 				loadEventLog: async () => [
 					{
@@ -134,7 +112,6 @@ describe("loadResumeState", () => {
 				sessionsDir: "/tmp/project/sessions",
 			},
 			{
-				listSessions: async () => [],
 				loadSessionMetadata: async () => ({
 					sessionId: "01ABC",
 					agentSpec: "root",
