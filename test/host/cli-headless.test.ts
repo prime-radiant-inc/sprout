@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { runHeadlessMode } from "../../src/host/cli-headless.ts";
+import type { SessionEvent } from "../../src/kernel/types.ts";
 import type { Message } from "../../src/llm/types.ts";
 
 describe("runHeadlessMode", () => {
@@ -158,6 +159,9 @@ describe("runHeadlessMode", () => {
 					expect(opts.atifPath).toBe("/tmp/trajectory.json");
 					expect(opts.evalMode).toBe(true);
 					return {
+						bus: {
+							onEvent: () => () => {},
+						} as any,
 						controller: {
 							runGoal: async () => ({
 								sessionId: "01ATIF",
@@ -174,6 +178,85 @@ describe("runHeadlessMode", () => {
 				writeStderr: () => {},
 			},
 		);
+	});
+
+	test("subscribes an ATIF recorder around the headless run and closes it afterward", async () => {
+		const recorded: SessionEvent[] = [];
+		let unsubscribeCount = 0;
+		let closeCount = 0;
+		let eventListener: ((event: SessionEvent) => void) | null = null;
+
+		await runHeadlessMode(
+			{
+				goal: "benchmark task",
+				genomePath: "/tmp/genome",
+				projectDataDir: "/tmp/project",
+				rootDir: "/tmp/root",
+				atifPath: "/tmp/trajectory.json",
+				startBusInfrastructure: async () => ({
+					spawner: { id: "spawner" } as any,
+					genome: { id: "genome" } as any,
+					cleanup: async () => {},
+				}),
+			},
+			{
+				createSessionId: () => "01ATIF",
+				bootstrapRuntime: async () => ({
+					bus: {
+						onEvent: (listener: (event: SessionEvent) => void) => {
+							eventListener = listener;
+							return () => {
+								unsubscribeCount++;
+							};
+						},
+					} as any,
+					controller: {
+						runGoal: async () => {
+							eventListener?.({
+								kind: "perceive",
+								timestamp: 1,
+								agent_id: "root",
+								depth: 0,
+								data: { goal: "benchmark task" },
+							});
+							eventListener?.({
+								kind: "session_end",
+								timestamp: 2,
+								agent_id: "root",
+								depth: 0,
+								data: { success: true },
+							});
+							return {
+								sessionId: "01ATIF",
+								output: "done",
+								success: true,
+								stumbles: 0,
+								turns: 1,
+								timedOut: false,
+							};
+						},
+					},
+				}),
+				createAtifRecorder: async (options) => {
+					expect(options.outputPath).toBe("/tmp/trajectory.json");
+					expect(options.sessionId).toBe("01ATIF");
+					return {
+						recordEvent: (event) => {
+							recorded.push(event);
+						},
+						close: async () => {
+							closeCount++;
+						},
+					};
+				},
+				writeStdout: () => {},
+				writeStderr: () => {},
+			},
+		);
+
+		expect(recorded.map((event) => event.kind)).toEqual(["perceive", "session_end"]);
+		expect(unsubscribeCount).toBe(1);
+		expect(closeCount).toBe(1);
 	});
 
 	test("cleans up infra and rethrows when the run fails", async () => {

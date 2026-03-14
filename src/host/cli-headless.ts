@@ -1,9 +1,12 @@
 import type { AgentSpawner } from "../bus/spawner.ts";
 import type { ResultMessage } from "../bus/types.ts";
 import type { Genome } from "../genome/genome.ts";
+import type { SessionEvent } from "../kernel/types.ts";
 import type { Message } from "../llm/types.ts";
 import type { SessionSelectionRequest } from "../shared/session-selection.ts";
 import { ulid } from "../util/ulid.ts";
+import { VERSION } from "../version.ts";
+import { createAtifRecorder } from "./atif/recorder.ts";
 import { bootstrapSessionRuntime, type SessionBootstrapOptions } from "./cli-bootstrap.ts";
 import type { SessionRunResult } from "./session-controller.ts";
 
@@ -36,6 +39,9 @@ export interface RunHeadlessOptions {
 }
 
 interface HeadlessRuntime {
+	bus?: {
+		onEvent(listener: (event: SessionEvent) => void): () => void;
+	};
 	controller: {
 		runGoal(goal: string): Promise<SessionRunResult>;
 	};
@@ -52,9 +58,28 @@ function requireHeadlessRuntimeController(controller: unknown): HeadlessRuntime[
 	throw new Error("Shared session runtime does not expose runGoal()");
 }
 
+function requireHeadlessRuntimeBus(bus: unknown): NonNullable<HeadlessRuntime["bus"]> {
+	const candidate = bus && typeof bus === "object" ? (bus as { onEvent?: unknown }) : undefined;
+	if (typeof candidate?.onEvent === "function") {
+		return bus as NonNullable<HeadlessRuntime["bus"]>;
+	}
+	throw new Error("Shared session runtime does not expose an event bus for ATIF logging");
+}
+
+interface HeadlessAtifRecorder {
+	recordEvent(event: SessionEvent): void;
+	close(): Promise<void>;
+}
+
 interface HeadlessDeps {
 	createSessionId: () => string;
 	bootstrapRuntime: (options: SessionBootstrapOptions) => Promise<HeadlessRuntime>;
+	createAtifRecorder: (options: {
+		outputPath: string;
+		sessionId: string;
+		agentName: string;
+		agentVersion: string;
+	}) => Promise<HeadlessAtifRecorder>;
 	writeStdout: (line: string) => void;
 	writeStderr: (line: string) => void;
 }
@@ -70,11 +95,13 @@ export async function runHeadlessMode(
 			(async (options) => {
 				const runtime = await bootstrapSessionRuntime(options);
 				return {
+					bus: runtime.bus as HeadlessRuntime["bus"],
 					controller: runtime.controller as {
 						runGoal(goal: string): Promise<SessionRunResult>;
 					},
 				};
 			}),
+		createAtifRecorder: deps.createAtifRecorder ?? createAtifRecorder,
 		writeStdout: deps.writeStdout ?? ((line) => console.log(line)),
 		writeStderr: deps.writeStderr ?? ((line) => console.error(line)),
 	};
@@ -99,13 +126,31 @@ export async function runHeadlessMode(
 			completedHandles: opts.completedHandles,
 			infra,
 		});
+		const recorder = opts.atifPath
+			? await d.createAtifRecorder({
+					outputPath: opts.atifPath,
+					sessionId,
+					agentName: "sprout",
+					agentVersion: VERSION,
+				})
+			: null;
+		const unsubscribeAtif = recorder
+			? requireHeadlessRuntimeBus(runtime.bus).onEvent((event) => {
+					recorder.recordEvent(event);
+				})
+			: null;
 		const controller = requireHeadlessRuntimeController(runtime.controller);
-		const result = await controller.runGoal(opts.goal);
-		if (result.output) {
-			d.writeStdout(result.output);
+		try {
+			const result = await controller.runGoal(opts.goal);
+			if (result.output) {
+				d.writeStdout(result.output);
+			}
+			d.writeStderr(`Session: ${result.sessionId}`);
+			return result;
+		} finally {
+			unsubscribeAtif?.();
+			await recorder?.close();
 		}
-		d.writeStderr(`Session: ${result.sessionId}`);
-		return result;
 	} finally {
 		await infra.cleanup();
 	}

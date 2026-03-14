@@ -48,9 +48,7 @@ describe("transformPrices", () => {
 				input_cached: 1.25,
 			},
 		]);
-		expect(result).toEqual([
-			["gpt-4o", { input: 2.5, output: 10, cached_input: 1.25 }],
-		]);
+		expect(result).toEqual([["gpt-4o", { input: 2.5, output: 10, cached_input: 1.25 }]]);
 	});
 });
 
