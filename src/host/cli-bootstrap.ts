@@ -95,6 +95,7 @@ interface InteractiveBootstrapDeps {
 		projectDataDir: string;
 		rootDir: string;
 		sessionId: string;
+		evalMode?: boolean;
 		initialHistory?: Message[];
 		initialSelection?: SessionSelectionSnapshot;
 		resolveSelection?: (selection: SessionSelectionRequest) => SessionSelectionSnapshot;
@@ -166,6 +167,7 @@ export async function bootstrapSessionRuntime(
 					projectDataDir: controllerOpts.projectDataDir,
 					rootDir: controllerOpts.rootDir,
 					sessionId: controllerOpts.sessionId,
+					evalMode: controllerOpts.evalMode,
 					initialHistory: controllerOpts.initialHistory,
 					initialSelection: controllerOpts.initialSelection,
 					resolveSelection: controllerOpts.resolveSelection,
@@ -274,6 +276,7 @@ export async function bootstrapSessionRuntime(
 		projectDataDir: opts.projectDataDir,
 		rootDir: opts.rootDir,
 		sessionId: opts.sessionId,
+		evalMode: opts.evalMode,
 		initialHistory: opts.initialHistory,
 		initialSelection,
 		resolveSelection,

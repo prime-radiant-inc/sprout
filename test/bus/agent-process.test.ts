@@ -11,6 +11,7 @@ import {
 	agentInbox,
 	agentReady,
 	agentResult,
+	genomeMutations,
 	sessionEvents,
 } from "../../src/bus/topics.ts";
 import type { ResultMessage, StartMessage } from "../../src/bus/types.ts";
@@ -61,6 +62,23 @@ const ORCHESTRATOR_AGENT_SPEC = {
 	tags: ["test"],
 	version: 1,
 	system_prompt: "You are an orchestrator. Delegate work to test-leaf.",
+};
+
+const LEARNING_AGENT_SPEC = {
+	name: "test-learner",
+	description: "A learning-capable test agent",
+	model: "best",
+	tools: ["read_file"],
+	agents: [],
+	constraints: {
+		max_turns: 5,
+		timeout_ms: 30000,
+		can_spawn: false,
+		can_learn: true,
+	},
+	tags: ["test"],
+	version: 1,
+	system_prompt: "You are a test learner.",
 };
 
 const TEST_PROVIDER_ID = "anthropic";
@@ -257,6 +275,161 @@ describe("runAgentProcess", () => {
 		expect(result.timed_out).toBe(false);
 
 		// Non-shared agent process should exit on its own
+		await processPromise;
+	}, 15_000);
+
+	test("eval mode suppresses learn forwarding for child agents", async () => {
+		const learnerGenome = new Genome(genomeDir);
+		await learnerGenome.addAgent(LEARNING_AGENT_SPEC as any);
+
+		let callCount = 0;
+		const mockClient = buildMockClient(async (): Promise<Response> => {
+			callCount++;
+			if (callCount === 1) {
+				return {
+					id: "mock-tool-call",
+					model: TEST_MODEL_ID,
+					provider: TEST_PROVIDER_ID,
+					message: {
+						role: "assistant",
+						content: [
+							{
+								kind: ContentKind.TOOL_CALL,
+								tool_call: {
+									id: "call-1",
+									name: "read_file",
+									arguments: { path: "missing.txt" },
+								},
+							},
+						],
+					},
+					finish_reason: { reason: "tool_calls" },
+					usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+				};
+			}
+			return {
+				id: "mock-final",
+				model: TEST_MODEL_ID,
+				provider: TEST_PROVIDER_ID,
+				message: Msg.assistant("done"),
+				finish_reason: { reason: "stop" },
+				usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+			};
+		});
+
+		const resultTopic = agentResult(SESSION_ID, HANDLE_ID);
+		const resultPromise = parentClient.waitForMessage(resultTopic, 10_000);
+		const processPromise = runAgentProcess({
+			busUrl: server.url,
+			handleId: HANDLE_ID,
+			sessionId: SESSION_ID,
+			genomePath: genomeDir,
+			client: mockClient,
+			workDir: tempDir,
+		});
+
+		await waitForAgentReady();
+
+		const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
+		const startMsg: StartMessage = {
+			kind: "start",
+			handle_id: HANDLE_ID,
+			agent_name: "test-learner",
+			genome_path: genomeDir,
+			session_id: SESSION_ID,
+			caller: { agent_name: "root", depth: 0 },
+			goal: "Try to read a missing file",
+			shared: false,
+			agent_id: HANDLE_ID,
+			eval_mode: true,
+		};
+		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
+
+		const rawResult = await resultPromise;
+		const result: ResultMessage = JSON.parse(rawResult);
+		expect(result.success).toBe(true);
+
+		await expect(parentClient.waitForMessage(genomeMutations(SESSION_ID), 500)).rejects.toThrow(
+			"waitForMessage timed out",
+		);
+
+		await processPromise;
+	}, 15_000);
+
+	test("forwards learn signals for child agents when eval mode is off", async () => {
+		const learnerGenome = new Genome(genomeDir);
+		await learnerGenome.addAgent(LEARNING_AGENT_SPEC as any);
+
+		let callCount = 0;
+		const mockClient = buildMockClient(async (): Promise<Response> => {
+			callCount++;
+			if (callCount === 1) {
+				return {
+					id: "mock-tool-call",
+					model: TEST_MODEL_ID,
+					provider: TEST_PROVIDER_ID,
+					message: {
+						role: "assistant",
+						content: [
+							{
+								kind: ContentKind.TOOL_CALL,
+								tool_call: {
+									id: "call-1",
+									name: "read_file",
+									arguments: { path: "missing.txt" },
+								},
+							},
+						],
+					},
+					finish_reason: { reason: "tool_calls" },
+					usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+				};
+			}
+			return {
+				id: "mock-final",
+				model: TEST_MODEL_ID,
+				provider: TEST_PROVIDER_ID,
+				message: Msg.assistant("done"),
+				finish_reason: { reason: "stop" },
+				usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+			};
+		});
+
+		const mutationPromise = parentClient.waitForMessage(genomeMutations(SESSION_ID), 10_000);
+		const resultTopic = agentResult(SESSION_ID, HANDLE_ID);
+		const resultPromise = parentClient.waitForMessage(resultTopic, 10_000);
+		const processPromise = runAgentProcess({
+			busUrl: server.url,
+			handleId: HANDLE_ID,
+			sessionId: SESSION_ID,
+			genomePath: genomeDir,
+			client: mockClient,
+			workDir: tempDir,
+		});
+
+		await waitForAgentReady();
+
+		const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
+		const startMsg: StartMessage = {
+			kind: "start",
+			handle_id: HANDLE_ID,
+			agent_name: "test-learner",
+			genome_path: genomeDir,
+			session_id: SESSION_ID,
+			caller: { agent_name: "root", depth: 0 },
+			goal: "Try to read a missing file",
+			shared: false,
+			agent_id: HANDLE_ID,
+		};
+		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
+
+		const rawResult = await resultPromise;
+		const result: ResultMessage = JSON.parse(rawResult);
+		expect(result.success).toBe(true);
+
+		const mutation = JSON.parse(await mutationPromise);
+		expect(mutation.kind).toBe("learn_request");
+
 		await processPromise;
 	}, 15_000);
 

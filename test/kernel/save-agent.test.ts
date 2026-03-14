@@ -33,6 +33,16 @@ describe("save_agent primitive", () => {
 		expect(plainRegistry.names()).not.toContain("save_agent");
 	});
 
+	test("save_agent is not registered in eval mode", () => {
+		const env = new LocalExecutionEnvironment(tempDir);
+		const evalRegistry = createPrimitiveRegistry(
+			env,
+			{ genome, agentName: "qm-fabricator" },
+			{ evalMode: true },
+		);
+		expect(evalRegistry.names()).not.toContain("save_agent");
+	});
+
 	test("saves a valid agent and registers it in the genome", async () => {
 		const spec = `
 name: test-agent

@@ -100,6 +100,8 @@ export interface AgentOptions {
 	genomePath?: string;
 	/** Per-project data directory (sessions, logs, memory). */
 	projectDataDir?: string;
+	/** Disable learning and genome mutation for evaluation runs. */
+	evalMode?: boolean;
 	/** Override the agent_id used for event emission (used by parent to assign unique child IDs). */
 	agentId?: string;
 	/** Pre-fetched model map for tier resolution. */
@@ -149,6 +151,7 @@ export class Agent {
 	private readonly spawner?: AgentSpawner;
 	private readonly genomePath?: string;
 	private readonly projectDataDir?: string;
+	private readonly evalMode: boolean;
 	private readonly agentId?: string;
 	private readonly initialHistory?: Message[];
 	private readonly rootDir?: string;
@@ -188,6 +191,7 @@ export class Agent {
 		this.spawner = options.spawner;
 		this.genomePath = options.genomePath;
 		this.projectDataDir = options.projectDataDir;
+		this.evalMode = options.evalMode === true;
 		this.agentId = options.agentId;
 		this.rootDir = options.rootDir;
 		this.agentTree = options.agentTree;
@@ -694,6 +698,7 @@ export class Agent {
 				genomePostscripts: this.genomePostscripts,
 				providerIdOverride: this.resolved.provider,
 				resolverSettings: this.resolverSettings,
+				evalMode: this.evalMode,
 				agentId: childId,
 				logger: this.logger,
 				rootDir: this.rootDir,
@@ -857,6 +862,7 @@ export class Agent {
 				agentId: childId,
 				rootDir: this.rootDir,
 				mnemonicName: mnemonicName ?? undefined,
+				evalMode: this.evalMode,
 				providerIdOverride: this.resolved.provider,
 				resolverSettings: this.resolverSettings,
 			});

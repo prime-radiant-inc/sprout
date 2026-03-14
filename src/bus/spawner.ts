@@ -33,6 +33,7 @@ export interface SpawnAgentOptions {
 	rootDir?: string;
 	/** Mnemonic codename for this agent (historical figure surname). */
 	mnemonicName?: string;
+	evalMode?: boolean;
 	/** Selected provider context inherited from the caller. */
 	providerIdOverride?: string;
 	/** Provider tier defaults and enabled-provider state inherited from the caller. */
@@ -69,6 +70,7 @@ export interface AgentHandle {
 	resultTopic?: string;
 	/** Mnemonic codename assigned at delegation time. */
 	mnemonicName?: string;
+	evalMode?: boolean;
 	providerIdOverride?: string;
 	resolverSettings?: ResolverSettings;
 }
@@ -241,6 +243,7 @@ export class AgentSpawner {
 			rootDir: opts.rootDir,
 			projectDataDir: opts.projectDataDir,
 			mnemonicName: opts.mnemonicName,
+			evalMode: opts.evalMode,
 			providerIdOverride: opts.providerIdOverride,
 			resolverSettings: opts.resolverSettings,
 		};
@@ -283,6 +286,7 @@ export class AgentSpawner {
 			hints: opts.hints,
 			shared: opts.shared,
 			agent_id: agentId,
+			eval_mode: opts.evalMode,
 			provider_id: opts.providerIdOverride,
 			resolver_settings: opts.resolverSettings,
 		};
@@ -426,6 +430,7 @@ export class AgentSpawner {
 			goal: message,
 			shared: handle.shared,
 			agent_id: handle.agentId,
+			eval_mode: handle.evalMode,
 			provider_id: handle.providerIdOverride,
 			resolver_settings: handle.resolverSettings,
 		};
@@ -452,6 +457,7 @@ export class AgentSpawner {
 			caller: CallerIdentity;
 			workDir: string;
 			agentId?: string;
+			evalMode?: boolean;
 		},
 	): void {
 		// Skip if the handle already exists (e.g. re-spawned since the
@@ -472,6 +478,7 @@ export class AgentSpawner {
 			genomePath: spawnInfo?.genomePath ?? "",
 			caller: spawnInfo?.caller ?? { agent_name: ownerId, depth: 0 },
 			workDir: spawnInfo?.workDir ?? "",
+			evalMode: spawnInfo?.evalMode,
 		};
 		this.handles.set(handleId, handle);
 	}

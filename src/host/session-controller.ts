@@ -72,6 +72,7 @@ export interface AgentFactoryOptions {
 	spawner?: AgentSpawner;
 	/** Pre-loaded Genome instance. If provided, skips loading from disk. */
 	genome?: import("../genome/genome.ts").Genome;
+	evalMode?: boolean;
 	/** Completed child handles from a previous session, to pre-register in the spawner. */
 	completedHandles?: Array<{
 		handleId: string;
@@ -112,6 +113,7 @@ export interface SessionControllerOptions {
 	spawner?: AgentSpawner;
 	/** Pre-loaded Genome instance to forward to the agent factory. */
 	genome?: import("../genome/genome.ts").Genome;
+	evalMode?: boolean;
 	/** Completed child handles from a previous session, to pre-register in the spawner. */
 	completedHandles?: Array<{
 		handleId: string;
@@ -171,6 +173,7 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 		resolverSettings: options.resolverSettings,
 		spawner: options.spawner,
 		genome: options.genome,
+		evalMode: options.evalMode,
 		logger: options.logger,
 		client: options.client,
 	});
@@ -208,6 +211,7 @@ export class SessionController {
 	private readonly factory: AgentFactory;
 	private readonly spawner?: AgentSpawner;
 	private readonly genome?: import("../genome/genome.ts").Genome;
+	private readonly evalMode: boolean;
 	private readonly completedHandles?: SessionControllerOptions["completedHandles"];
 	private readonly logger?: import("./logger.ts").Logger;
 	private readonly client?: import("../llm/client.ts").Client;
@@ -243,6 +247,7 @@ export class SessionController {
 		this.factory = options.factory ?? defaultFactory;
 		this.spawner = options.spawner;
 		this.genome = options.genome;
+		this.evalMode = options.evalMode === true;
 		this.completedHandles = options.completedHandles;
 		this.logger = options.logger;
 		this.client = options.client;
@@ -471,6 +476,7 @@ export class SessionController {
 				resolverSettings: this.getResolverSettings?.(),
 				spawner: this.spawner,
 				genome: this.genome,
+				evalMode: this.evalMode,
 				completedHandles: this.completedHandles,
 				logger: this.logger,
 				client: this.client,

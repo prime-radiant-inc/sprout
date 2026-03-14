@@ -34,9 +34,14 @@ export interface PrimitiveRegistry {
 	): Promise<PrimitiveResult>;
 }
 
+export interface PrimitiveRegistryOptions {
+	evalMode?: boolean;
+}
+
 export function createPrimitiveRegistry(
 	env: ExecutionEnvironment,
 	genomeContext?: GenomeContext,
+	options?: PrimitiveRegistryOptions,
 ): PrimitiveRegistry {
 	const primitives = new Map<string, Primitive>();
 
@@ -44,7 +49,7 @@ export function createPrimitiveRegistry(
 		primitives.set(prim.name, prim);
 	}
 
-	if (genomeContext) {
+	if (genomeContext && !options?.evalMode) {
 		for (const prim of buildWorkspacePrimitives(genomeContext)) {
 			primitives.set(prim.name, prim);
 		}

@@ -8,6 +8,7 @@ import { BusClient } from "../../src/bus/client.ts";
 import { BusServer } from "../../src/bus/server.ts";
 import type { SpawnAgentOptions } from "../../src/bus/spawner.ts";
 import { AgentSpawner } from "../../src/bus/spawner.ts";
+import { agentInbox, agentReady } from "../../src/bus/topics.ts";
 import type { EventMessage, ResultMessage } from "../../src/bus/types.ts";
 import { Genome } from "../../src/genome/genome.ts";
 import type { Client } from "../../src/llm/client.ts";
@@ -245,6 +246,59 @@ describe("AgentSpawner", () => {
 			expect(userMessages).toContain("hint one");
 			expect(userMessages).toContain("hint two");
 		}, 15_000);
+
+		test("propagates eval mode in the start message", async () => {
+			const handleId = "01SPAWNERATIFTEST000000000";
+			const childBus = new BusClient(server.url);
+			const observerBus = new BusClient(server.url);
+			await childBus.connect();
+			await observerBus.connect();
+			let readyTimer: ReturnType<typeof setInterval> | undefined;
+			try {
+				spawner = new AgentSpawner(
+					bus,
+					server.url,
+					SESSION_ID,
+					(_spawnedHandleId) => {
+						readyTimer = setInterval(() => {
+							void childBus.publish(agentReady(SESSION_ID, handleId), JSON.stringify({ ok: true }));
+						}, 10);
+						return {
+							kill: () => {
+								if (readyTimer) clearInterval(readyTimer);
+							},
+							exited: Promise.resolve(0),
+						};
+					},
+				);
+
+				const inboxPromise = observerBus.waitForMessage(agentInbox(SESSION_ID, handleId), 5_000);
+
+				const spawnPromise = spawner.spawnAgent({
+					agentName: "test-leaf",
+					genomePath: genomeDir,
+					caller: { agent_name: "root", depth: 0 },
+					goal: "Benchmark task",
+					blocking: false,
+					shared: false,
+					workDir: tempDir,
+					handleId,
+					evalMode: true,
+					providerIdOverride: TEST_PROVIDER_ID,
+					resolverSettings: TEST_RESOLVER_SETTINGS,
+				});
+
+				await expect(spawnPromise).resolves.toBe(handleId);
+
+				const startMessage = JSON.parse(await inboxPromise);
+				if (readyTimer) clearInterval(readyTimer);
+				expect(startMessage.eval_mode).toBe(true);
+			} finally {
+				if (readyTimer) clearInterval(readyTimer);
+				await observerBus.disconnect();
+				await childBus.disconnect();
+			}
+		});
 
 		test("generates unique handle IDs for each spawn", async () => {
 			const mockClient = createMockClient("Done.");

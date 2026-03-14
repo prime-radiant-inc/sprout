@@ -20,6 +20,7 @@ export interface StartMessage {
 	shared: boolean;
 	/** Stable agent_id for events emitted by this handle. */
 	agent_id: string;
+	eval_mode?: boolean;
 	/** Selected provider context inherited from the caller. */
 	provider_id?: string;
 	/** Provider tier defaults and enabled-provider state inherited from the caller. */

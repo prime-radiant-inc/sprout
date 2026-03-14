@@ -5,6 +5,7 @@ import { loadPreambles, scanAgentTree } from "../agents/loader.ts";
 import { renderCallerIdentity } from "../agents/plan.ts";
 import { loadProjectDocs } from "../agents/project-doc.ts";
 import { Genome } from "../genome/genome.ts";
+import { createReadOnlyGenome } from "../genome/read-only-genome.ts";
 import { SessionLogger } from "../host/logger.ts";
 import {
 	createSecretStoreRuntime,
@@ -134,12 +135,14 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 		}
 
 		const startMsg = parseBusMessage(startPayload) as StartMessage;
+		const evalMode = startMsg.eval_mode === true;
 
 		// Load genome and find agent spec
 		const genome = new Genome(genomePath, config.rootDir);
 		await genome.loadFromDisk();
+		const runtimeGenome = evalMode ? createReadOnlyGenome(genome) : genome;
 
-		const loadedSpec = genome.getAgent(startMsg.agent_name);
+		const loadedSpec = runtimeGenome.getAgent(startMsg.agent_name);
 		if (!loadedSpec) {
 			// Publish error result and exit
 			const errorResult: ResultMessage = {
@@ -163,11 +166,11 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 
 		// Wire up the agent
 		const env = new LocalExecutionEnvironment(workDir);
-		const registry = createPrimitiveRegistry(env);
+		const registry = createPrimitiveRegistry(env, undefined, { evalMode });
 		const events = new AgentEventEmitter();
 		const preambles = config.rootDir ? await loadPreambles(config.rootDir) : undefined;
 		const projectDocs = await loadProjectDocs({ cwd: workDir });
-		const genomePostscripts = await genome.loadPostscripts();
+		const genomePostscripts = await runtimeGenome.loadPostscripts();
 		const dataDir = config.projectDataDir ?? genomePath;
 		await ensureProjectDirs(dataDir);
 		const logBasePath = join(dataDir, "logs", sessionId, handleId);
@@ -197,7 +200,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 		childSpawner = new AgentSpawner(bus, busUrl, sessionId);
 
 		// Wire learn signal forwarding for agents that can learn
-		const learnProcess = agentSpec.constraints.can_learn
+		const learnProcess = !evalMode && agentSpec.constraints.can_learn
 			? new BusLearnForwarder(bus, sessionId)
 			: undefined;
 
@@ -223,8 +226,8 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 			env,
 			client,
 			primitiveRegistry: registry,
-			availableAgents: genome.allAgents(),
-			genome,
+			availableAgents: runtimeGenome.allAgents(),
+			genome: runtimeGenome,
 			events,
 			sessionId,
 			depth: startMsg.caller.depth + 1,
@@ -238,6 +241,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 			learnProcess,
 			initialHistory: initialHistory.length > 0 ? initialHistory : undefined,
 			agentId: startMsg.agent_id,
+			evalMode,
 			providerIdOverride: startMsg.provider_id,
 			resolverSettings: startMsg.resolver_settings,
 			logger: config.logger,

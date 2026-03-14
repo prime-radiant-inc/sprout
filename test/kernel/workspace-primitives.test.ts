@@ -34,6 +34,26 @@ describe("workspace primitives", () => {
 	});
 
 	describe("save_tool", () => {
+		test("workspace save primitives are not registered in eval mode", async () => {
+			const root = join(tempDir, "save-tool-eval");
+			const genome = new Genome(root);
+			await genome.init();
+			await genome.addAgent(makeSpec({ name: "editor" }));
+
+			const env = new LocalExecutionEnvironment(tempDir);
+			const registry = createPrimitiveRegistry(
+				env,
+				{
+					genome,
+					agentName: "editor",
+				},
+				{ evalMode: true },
+			);
+
+			expect(registry.names()).not.toContain("save_tool");
+			expect(registry.names()).not.toContain("save_file");
+		});
+
 		test("is registered when genomeContext is provided", async () => {
 			const root = join(tempDir, "save-tool-reg");
 			const genome = new Genome(root);

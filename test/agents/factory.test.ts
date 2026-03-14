@@ -247,4 +247,27 @@ describe("createAgent", () => {
 		const qmPostscript = await result.genome.loadAgentPostscript("quartermaster");
 		expect(qmPostscript).toContain(DEV_MODE_SENTINEL);
 	});
+
+	test("eval mode disables learning and skips dev-mode postscript mutation", async () => {
+		const genomePath = join(tempDir, "eval-mode-test");
+		const sproutRoot = join(import.meta.dir, "../..");
+		expect(await isDevMode(sproutRoot)).toBe(true);
+
+		const result = await createAgent({
+			genomePath,
+			rootDir,
+			workDir: sproutRoot,
+			evalMode: true,
+			client: sharedClient,
+			providerIdOverride: sharedResolverContext.providerId,
+			resolverSettings: sharedResolverContext.resolverSettings,
+		});
+
+		expect(result.learnProcess).toBeNull();
+		const qmPostscript = await result.genome.loadAgentPostscript("quartermaster");
+		expect(qmPostscript).not.toContain(DEV_MODE_SENTINEL);
+		await expect(
+			result.genome.savePostscript("agents/quartermaster.md", "mutate me"),
+		).rejects.toThrow("read-only genome");
+	});
 });

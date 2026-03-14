@@ -6,7 +6,7 @@ import type { LearnProcess } from "../learn/learn-process.ts";
 export interface SubmitOptions {
 	agent: Agent;
 	events: AgentEventEmitter;
-	learnProcess?: LearnProcess;
+	learnProcess?: LearnProcess | null;
 }
 
 /**
