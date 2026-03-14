@@ -255,22 +255,17 @@ describe("AgentSpawner", () => {
 			await observerBus.connect();
 			let readyTimer: ReturnType<typeof setInterval> | undefined;
 			try {
-				spawner = new AgentSpawner(
-					bus,
-					server.url,
-					SESSION_ID,
-					(_spawnedHandleId) => {
-						readyTimer = setInterval(() => {
-							void childBus.publish(agentReady(SESSION_ID, handleId), JSON.stringify({ ok: true }));
-						}, 10);
-						return {
-							kill: () => {
-								if (readyTimer) clearInterval(readyTimer);
-							},
-							exited: Promise.resolve(0),
-						};
-					},
-				);
+				spawner = new AgentSpawner(bus, server.url, SESSION_ID, (_spawnedHandleId) => {
+					readyTimer = setInterval(() => {
+						void childBus.publish(agentReady(SESSION_ID, handleId), JSON.stringify({ ok: true }));
+					}, 10);
+					return {
+						kill: () => {
+							if (readyTimer) clearInterval(readyTimer);
+						},
+						exited: Promise.resolve(0),
+					};
+				});
 
 				const inboxPromise = observerBus.waitForMessage(agentInbox(SESSION_ID, handleId), 5_000);
 

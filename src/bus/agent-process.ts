@@ -200,9 +200,10 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 		childSpawner = new AgentSpawner(bus, busUrl, sessionId);
 
 		// Wire learn signal forwarding for agents that can learn
-		const learnProcess = !evalMode && agentSpec.constraints.can_learn
-			? new BusLearnForwarder(bus, sessionId)
-			: undefined;
+		const learnProcess =
+			!evalMode && agentSpec.constraints.can_learn
+				? new BusLearnForwarder(bus, sessionId)
+				: undefined;
 
 		// Build agent tree so bus-spawned agents can resolve their child agents
 		// (e.g., tech-lead needs to discover engineer, spec-reviewer, quality-reviewer)

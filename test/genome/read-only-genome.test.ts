@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createReadOnlyGenome } from "../../src/genome/read-only-genome.ts";
 import { Genome } from "../../src/genome/genome.ts";
+import { createReadOnlyGenome } from "../../src/genome/read-only-genome.ts";
 
 describe("createReadOnlyGenome", () => {
 	let tempDir: string;
