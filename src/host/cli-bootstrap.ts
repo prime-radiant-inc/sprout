@@ -41,6 +41,8 @@ export interface SessionBootstrapOptions {
 	projectDataDir: string;
 	rootDir: string;
 	sessionId: string;
+	atifPath?: string;
+	evalMode?: boolean;
 	initialHistory?: Message[];
 	initialSelectionRequest?: SessionSelectionRequest;
 	completedHandles?: Array<{ handleId: string; result: ResultMessage; ownerId: string }>;

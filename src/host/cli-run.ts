@@ -140,6 +140,8 @@ export async function runCli(command: CliCommand, deps: Partial<CliRunDeps> = {}
 				projectDataDir: projectDataDirPath,
 				rootDir,
 				sessionId: resumeState?.sessionId ?? command.sessionId,
+				atifPath: command.atifPath,
+				evalMode: command.evalMode,
 				initialHistory: resumeState?.history,
 				initialSelectionRequest: resumeState?.selectionRequest,
 				completedHandles: resumeState?.completedHandles,

@@ -154,6 +154,56 @@ describe("parseArgs", () => {
 		});
 	});
 
+	test("--log-atif and --eval-mode on headless runs are parsed", () => {
+		const result = parseArgs([
+			"-p",
+			"solve",
+			"--log-atif",
+			"/tmp/trajectory.json",
+			"--eval-mode",
+		]);
+		expect(result).toEqual({
+			kind: "headless",
+			goal: "solve",
+			genomePath: defaultGenomePath,
+			atifPath: "/tmp/trajectory.json",
+			evalMode: true,
+		});
+	});
+
+	test("--resume with --prompt and --log-atif returns headless resume mode", () => {
+		const result = parseArgs([
+			"--resume",
+			"01ABC123",
+			"--prompt",
+			"continue",
+			"--log-atif",
+			"/tmp/trajectory.json",
+		]);
+		expect(result).toEqual({
+			kind: "headless",
+			sessionId: "01ABC123",
+			goal: "continue",
+			genomePath: defaultGenomePath,
+			atifPath: "/tmp/trajectory.json",
+		});
+	});
+
+	test("--log-atif without a prompt returns help", () => {
+		const result = parseArgs(["--log-atif", "/tmp/trajectory.json"]);
+		expect(result).toEqual({ kind: "help" });
+	});
+
+	test("--eval-mode without a prompt returns help", () => {
+		const result = parseArgs(["--eval-mode"]);
+		expect(result).toEqual({ kind: "help" });
+	});
+
+	test("interactive flags cannot be combined with --log-atif", () => {
+		const result = parseArgs(["--web", "-p", "solve", "--log-atif", "/tmp/trajectory.json"]);
+		expect(result).toEqual({ kind: "help" });
+	});
+
 	test("--resume-last returns help", () => {
 		const result = parseArgs(["--resume-last"]);
 		expect(result).toEqual({ kind: "help" });

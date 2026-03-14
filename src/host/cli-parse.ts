@@ -27,7 +27,14 @@ export interface LogFlags {
 
 export type CliCommand =
 	| ({ kind: "interactive"; genomePath: string } & WebFlags & LogFlags)
-	| { kind: "headless"; goal: string; genomePath: string; sessionId?: string }
+	| {
+			kind: "headless";
+			goal: string;
+			genomePath: string;
+			sessionId?: string;
+			atifPath?: string;
+			evalMode?: true;
+	  }
 	| ({ kind: "resume"; sessionId: string; genomePath: string } & WebFlags & LogFlags)
 	| { kind: "list"; genomePath: string }
 	| GenomeCommand
@@ -36,6 +43,8 @@ export type CliCommand =
 interface ParseState {
 	genomePath: string;
 	prompt?: string;
+	atifPath?: string;
+	evalMode?: true;
 	resumeRequested: boolean;
 	resumeSessionId?: string;
 	web?: boolean;
@@ -138,6 +147,21 @@ export function parseArgs(argv: string[]): CliCommand {
 			return { kind: "help" };
 		}
 
+		if (token === "--log-atif") {
+			if (state.atifPath !== undefined) return { kind: "help" };
+			const value = argv[index + 1];
+			if (!value || value.startsWith("-")) return { kind: "help" };
+			state.atifPath = value;
+			index += 2;
+			continue;
+		}
+
+		if (token === "--eval-mode") {
+			state.evalMode = true;
+			index += 1;
+			continue;
+		}
+
 		if (token === "--genome") {
 			if (state.genomeCommand) return { kind: "help" };
 			const subcommand = argv[index + 1];
@@ -227,7 +251,13 @@ export function parseArgs(argv: string[]): CliCommand {
 	}
 
 	if (state.genomeCommand) {
-		if (state.prompt !== undefined || state.resumeRequested || hasInteractiveOnlyFlags(state)) {
+		if (
+			state.prompt !== undefined ||
+			state.resumeRequested ||
+			hasInteractiveOnlyFlags(state) ||
+			state.atifPath !== undefined ||
+			state.evalMode === true
+		) {
 			return { kind: "help" };
 		}
 		return state.genomeCommand;
@@ -241,14 +271,19 @@ export function parseArgs(argv: string[]): CliCommand {
 			goal: state.prompt,
 			genomePath: state.genomePath,
 			sessionId: state.resumeSessionId,
+			...(state.atifPath !== undefined ? { atifPath: state.atifPath } : {}),
+			...(state.evalMode === true ? { evalMode: true as const } : {}),
 		};
 	}
 
 	if (state.resumeRequested) {
 		if (!state.resumeSessionId) {
-			if (hasInteractiveOnlyFlags(state)) return { kind: "help" };
+			if (hasInteractiveOnlyFlags(state) || state.atifPath !== undefined || state.evalMode === true) {
+				return { kind: "help" };
+			}
 			return { kind: "list", genomePath: state.genomePath };
 		}
+		if (state.atifPath !== undefined || state.evalMode === true) return { kind: "help" };
 		return {
 			kind: "resume",
 			sessionId: state.resumeSessionId,
@@ -256,6 +291,8 @@ export function parseArgs(argv: string[]): CliCommand {
 			...collectInteractiveFlags(state),
 		};
 	}
+
+	if (state.atifPath !== undefined || state.evalMode === true) return { kind: "help" };
 
 	return {
 		kind: "interactive",

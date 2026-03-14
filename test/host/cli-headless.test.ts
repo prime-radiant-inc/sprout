@@ -137,6 +137,45 @@ describe("runHeadlessMode", () => {
 		);
 	});
 
+	test("passes atifPath and evalMode into the shared runtime bootstrap", async () => {
+		await runHeadlessMode(
+			{
+				goal: "benchmark task",
+				genomePath: "/tmp/genome",
+				projectDataDir: "/tmp/project",
+				rootDir: "/tmp/root",
+				atifPath: "/tmp/trajectory.json",
+				evalMode: true,
+				startBusInfrastructure: async () => ({
+					spawner: { id: "spawner" } as any,
+					genome: { id: "genome" } as any,
+					cleanup: async () => {},
+				}),
+			},
+			{
+				createSessionId: () => "01ATIF",
+				bootstrapRuntime: async (opts) => {
+					expect(opts.atifPath).toBe("/tmp/trajectory.json");
+					expect(opts.evalMode).toBe(true);
+					return {
+						controller: {
+							runGoal: async () => ({
+								sessionId: "01ATIF",
+								output: "done",
+								success: true,
+								stumbles: 0,
+								turns: 1,
+								timedOut: false,
+							}),
+						},
+					};
+				},
+				writeStdout: () => {},
+				writeStderr: () => {},
+			},
+		);
+	});
+
 	test("cleans up infra and rethrows when the run fails", async () => {
 		let cleanupCount = 0;
 
