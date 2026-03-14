@@ -1,8 +1,9 @@
-import { mkdir, rm } from "node:fs/promises";
+import { copyFile, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 
 const repoRoot = join(import.meta.dir, "..");
 const distDir = join(repoRoot, "tools/harbor/dist");
+const harborDir = join(repoRoot, "tools/harbor");
 const entrypoint = join(repoRoot, "src", "host", "cli.ts");
 
 async function main(): Promise<void> {
@@ -13,6 +14,9 @@ async function main(): Promise<void> {
 
 	await buildBinary("bun-linux-x64", join(distDir, "sprout-linux-x64"));
 	await buildBinary("bun-linux-arm64", join(distDir, "sprout-linux-arm64"));
+
+	await stageHarborBinary("sprout-linux-x64");
+	await stageHarborBinary("sprout-linux-arm64");
 }
 
 async function buildBinary(target: string, outfile: string): Promise<void> {
@@ -33,6 +37,10 @@ async function buildBinary(target: string, outfile: string): Promise<void> {
 		const messages = result.logs.map((log) => log.message).join("\n");
 		throw new Error(`Failed to build ${target} binary:\n${messages}`);
 	}
+}
+
+async function stageHarborBinary(name: string): Promise<void> {
+	await copyFile(join(distDir, name), join(harborDir, name));
 }
 
 async function run(command: string[]): Promise<void> {

@@ -25,6 +25,12 @@ describe("Sprout Harbor artifacts", () => {
 		expect(script).toContain("tools/harbor/dist");
 	});
 
+	test("build script stages uploadable binaries in tools/harbor", async () => {
+		const script = await readFile(join(repoRoot, "scripts", "build-sprout-binary.ts"), "utf-8");
+		expect(script).toContain('const harborDir = join(repoRoot, "tools/harbor")');
+		expect(script).toContain("copyFile(join(distDir, name), join(harborDir, name))");
+	});
+
 	test("adapter command includes the headless eval flags", async () => {
 		const adapter = await readFile(join(repoRoot, "tools", "harbor", "sprout_agent.py"), "utf-8");
 		expect(adapter).toContain("--prompt");
