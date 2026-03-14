@@ -124,7 +124,8 @@ export async function bootstrapSessionRuntime(
 	const d: InteractiveBootstrapDeps = {
 		createBus: deps.createBus ?? (() => new EventBus()),
 		createSettingsStore: deps.createSettingsStore ?? (() => new SettingsStore()),
-		createSecretStore: deps.createSecretStore ?? (() => createSecretStoreRuntime()),
+		createSecretStore:
+			deps.createSecretStore ?? (() => createSecretStoreRuntime({ env: process.env })),
 		importSettingsFromEnv:
 			deps.importSettingsFromEnv ??
 			(async ({ secretStore, secretBackend }) => {
@@ -228,9 +229,11 @@ export async function bootstrapSessionRuntime(
 			secretBackend: secretRefBackend,
 		});
 		if (imported.settings.providers.length > 0) {
-			await settingsStore.save(imported.settings);
 			settings = imported.settings;
 			initialValidationErrors = imported.validationErrorsByProvider;
+			if (secretRefBackend !== "memory") {
+				await settingsStore.save(imported.settings);
+			}
 		}
 	}
 

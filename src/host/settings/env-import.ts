@@ -31,6 +31,12 @@ interface EnvProviderSource {
 
 const ENV_PROVIDER_SOURCES: EnvProviderSource[] = [
 	{
+		kind: "openrouter",
+		id: "openrouter",
+		label: "OpenRouter",
+		envKeys: ["OPENROUTER_API_KEY"],
+	},
+	{
 		kind: "anthropic",
 		id: "anthropic",
 		label: "Anthropic",
@@ -75,9 +81,39 @@ export async function importSettingsFromEnv(options: EnvImportOptions): Promise<
 		settings.providers.push(provider);
 	}
 
+	applyDefaultModelsFromEnv(settings, env);
+
 	return {
 		settings,
 		validationErrorsByProvider,
+	};
+}
+
+function applyDefaultModelsFromEnv(
+	settings: SproutSettings,
+	env: Record<string, string | undefined>,
+): void {
+	const defaults = {
+		best: parseModelRef(env.SPROUT_DEFAULT_BEST_MODEL),
+		balanced: parseModelRef(env.SPROUT_DEFAULT_BALANCED_MODEL),
+		fast: parseModelRef(env.SPROUT_DEFAULT_FAST_MODEL),
+	};
+
+	if (defaults.best) settings.defaults.best = defaults.best;
+	if (defaults.balanced) settings.defaults.balanced = defaults.balanced;
+	if (defaults.fast) settings.defaults.fast = defaults.fast;
+}
+
+function parseModelRef(value: string | undefined): SproutSettings["defaults"]["best"] {
+	const trimmed = value?.trim();
+	if (!trimmed) return undefined;
+	const delimiter = trimmed.indexOf(":");
+	if (delimiter <= 0 || delimiter === trimmed.length - 1) {
+		throw new Error(`Invalid default model reference: ${trimmed}`);
+	}
+	return {
+		providerId: trimmed.slice(0, delimiter),
+		modelId: trimmed.slice(delimiter + 1),
 	};
 }
 

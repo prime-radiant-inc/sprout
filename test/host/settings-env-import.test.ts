@@ -78,4 +78,38 @@ describe("importSettingsFromEnv", () => {
 			anthropic: ["Credential migration failed: keychain unavailable"],
 		});
 	});
+
+	test("imports openrouter credentials and default-model tuples from env", async () => {
+		const secretStore = createSecretStore({ backend: "memory", platform: "linux" });
+		const result = await importSettingsFromEnv({
+			env: {
+				OPENROUTER_API_KEY: "openrouter-secret",
+				SPROUT_DEFAULT_BEST_MODEL: "openrouter:openai/gpt-4o-mini",
+				SPROUT_DEFAULT_BALANCED_MODEL: "openrouter:openai/gpt-4o-mini",
+				SPROUT_DEFAULT_FAST_MODEL: "openrouter:openai/gpt-4o-mini",
+			},
+			secretStore,
+			secretBackend: "memory",
+			now: () => "2026-03-14T12:00:00.000Z",
+		});
+
+		expect(result.settings.providers).toEqual([
+			{
+				id: "openrouter",
+				kind: "openrouter",
+				label: "OpenRouter",
+				enabled: true,
+				createdAt: "2026-03-14T12:00:00.000Z",
+				updatedAt: "2026-03-14T12:00:00.000Z",
+			},
+		]);
+		expect(result.settings.defaults).toEqual({
+			best: { providerId: "openrouter", modelId: "openai/gpt-4o-mini" },
+			balanced: { providerId: "openrouter", modelId: "openai/gpt-4o-mini" },
+			fast: { providerId: "openrouter", modelId: "openai/gpt-4o-mini" },
+		});
+		expect(await secretStore.getSecret(createProviderSecretRef("openrouter", "memory"))).toBe(
+			"openrouter-secret",
+		);
+	});
 });

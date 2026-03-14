@@ -15,6 +15,7 @@ import { runInteractiveMode } from "./cli-interactive.ts";
 import { runListMode } from "./cli-list.ts";
 import { type CliCommand, USAGE } from "./cli-parse.ts";
 import { loadResumeState } from "./cli-resume.ts";
+import { resolveRuntimeRootDir } from "./embedded-root.ts";
 import { loadSessionSummaries } from "./session-metadata.ts";
 
 interface CliRunDeps {
@@ -101,7 +102,9 @@ export async function runCli(command: CliCommand, deps: Partial<CliRunDeps> = {}
 
 	await d.loadDotenv();
 
-	const rootDir = join(import.meta.dir, "../../root");
+	const rootDir = await resolveRuntimeRootDir({
+		sourceRootDir: join(import.meta.dir, "../../root"),
+	});
 	const projectDir = await d.resolveProjectDir();
 	const projectDataDirPath = computeProjectDataDir(command.genomePath, projectDir);
 	const sessionsDir = join(projectDataDirPath, "sessions");

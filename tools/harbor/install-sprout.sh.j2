@@ -1,0 +1,59 @@
+#!/bin/bash
+# Install the Sprout binary and common benchmark packages.
+set -euo pipefail
+
+DOCKER_GW=$(awk '$2=="00000000" {printf "%d.%d.%d.%d", "0x"substr($3,7,2), "0x"substr($3,5,2), "0x"substr($3,3,2), "0x"substr($3,1,2); exit}' /proc/net/route 2>/dev/null)
+if [ -n "$DOCKER_GW" ]; then
+	cat > /usr/local/bin/apt-proxy-detect <<PROXYEOF
+#!/bin/sh
+if timeout 2 bash -c "echo >/dev/tcp/${DOCKER_GW}/3142" 2>/dev/null; then
+	echo "http://${DOCKER_GW}:3142"
+else
+	echo "DIRECT"
+fi
+PROXYEOF
+	chmod +x /usr/local/bin/apt-proxy-detect
+	echo 'Acquire::http::ProxyAutoDetect "/usr/local/bin/apt-proxy-detect";' > /etc/apt/apt.conf.d/01proxy
+fi
+
+apt-get update -qq
+apt-get install -y -qq \
+	ca-certificates \
+	curl \
+	wget \
+	git \
+	jq \
+	vim \
+	build-essential \
+	python3-pip \
+	python3-venv \
+	unzip \
+	file \
+	netcat-openbsd \
+	socat \
+	2>&1 | tail -5 || true
+
+rm -rf /var/lib/apt/lists/*
+
+ln -sf /usr/bin/python3 /usr/bin/python 2>/dev/null || true
+
+ARCH=$(uname -m)
+case "$ARCH" in
+	x86_64) BINARY="/installed-agent/sprout-linux-x64" ;;
+	aarch64) BINARY="/installed-agent/sprout-linux-arm64" ;;
+	*) echo "Unsupported architecture: $ARCH" >&2; exit 1 ;;
+esac
+
+if [ ! -f "$BINARY" ]; then
+	echo "Binary not found: $BINARY" >&2
+	exit 1
+fi
+
+cp "$BINARY" /usr/local/bin/sprout
+chmod +x /usr/local/bin/sprout
+
+git config --global safe.directory '*' 2>/dev/null || true
+
+mkdir -p /logs/agent/agent-state
+
+echo "sprout installed for $ARCH"

@@ -38,6 +38,7 @@
     "test:watch": "bun test --watch",
     "postinstall": "cd web && bun install",
     "precommit": "bun run check && bun run typecheck && bun run test:unit:parallel",
+    "build:harbor-agent": "bun scripts/build-sprout-binary.ts",
     "web:build": "cd web && bun run build",
     "web:dev": "cd web && bun run dev"
   },
@@ -48,7 +49,8 @@
     "@types/react-dom": "^19.1.6",
     "ink-testing-library": "^4.0.0",
     "knip": "^5.85.0",
-    "madge": "^8.0.0"
+    "madge": "^8.0.0",
+    "react-devtools-core": "^7.0.1"
   },
   "peerDependencies": {
     "typescript": "^5"

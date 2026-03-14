@@ -160,4 +160,18 @@ describe("SecretStore", () => {
 			message: "Unsupported secret backend: secret-service",
 		});
 	});
+
+	test("runtime creation honors SPROUT_SECRET_BACKEND from env", () => {
+		const runtime = createSecretStoreRuntime({
+			platform: "darwin",
+			env: {
+				SPROUT_SECRET_BACKEND: "memory",
+			},
+		});
+
+		expect(runtime.secretBackendState).toEqual({
+			backend: "memory",
+			available: true,
+		});
+	});
 });

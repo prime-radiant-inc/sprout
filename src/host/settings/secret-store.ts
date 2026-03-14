@@ -37,6 +37,7 @@ export type RunCommand = (cmd: string, args: string[], stdin?: string) => Promis
 export interface CreateSecretStoreOptions {
 	backend: SecretStorageBackend;
 	platform?: NodeJS.Platform;
+	env?: Record<string, string | undefined>;
 	runCommand?: RunCommand;
 }
 
@@ -86,25 +87,27 @@ export function createSecretStoreRuntime(
 	options: Partial<CreateSecretStoreOptions> = {},
 ): SecretStoreRuntime {
 	const platform = options.platform ?? process.platform;
-	if (options.backend) {
+	const envBackend = options.env?.SPROUT_SECRET_BACKEND?.trim();
+	const requestedBackend = options.backend ?? parseSecretBackend(envBackend);
+	if (requestedBackend) {
 		try {
 			return {
-				secretRefBackend: options.backend,
+				secretRefBackend: requestedBackend,
 				secretBackendState: {
-					backend: options.backend,
+					backend: requestedBackend,
 					available: true,
 				},
 				secretStore: createSecretStore({
-					backend: options.backend,
+					backend: requestedBackend,
 					platform,
 					runCommand: options.runCommand,
 				}),
 			};
 		} catch (error) {
 			return {
-				secretRefBackend: options.backend,
+				secretRefBackend: requestedBackend,
 				secretBackendState: {
-					backend: options.backend,
+					backend: requestedBackend,
 					available: false,
 					message: error instanceof Error ? error.message : String(error),
 				},
@@ -140,6 +143,20 @@ export function createSecretStoreRuntime(
 				error instanceof Error ? error.message : String(error),
 			),
 		};
+	}
+}
+
+function parseSecretBackend(value: string | undefined): SecretStorageBackend | undefined {
+	switch (value) {
+		case undefined:
+		case "":
+			return undefined;
+		case "memory":
+		case "macos-keychain":
+		case "secret-service":
+			return value;
+		default:
+			throw new Error(`Unsupported secret backend: ${value}`);
 	}
 }
 

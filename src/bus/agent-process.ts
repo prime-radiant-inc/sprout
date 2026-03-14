@@ -7,6 +7,7 @@ import { loadProjectDocs } from "../agents/project-doc.ts";
 import { Genome } from "../genome/genome.ts";
 import { createReadOnlyGenome } from "../genome/read-only-genome.ts";
 import { SessionLogger } from "../host/logger.ts";
+import { importSettingsFromEnv } from "../host/settings/env-import.ts";
 import {
 	createSecretStoreRuntime,
 	type SecretStoreRuntime,
@@ -53,6 +54,7 @@ export interface AgentProcessConfig {
 interface AgentProcessClientDeps {
 	createSettingsStore?: () => Pick<SettingsStore, "load">;
 	createSecretStoreRuntime?: () => SecretStoreRuntime;
+	importSettingsFromEnv?: typeof importSettingsFromEnv;
 	createProviderRegistry?: (options: ConstructorParameters<typeof ProviderRegistry>[0]) => {
 		getEntries(): Promise<ProviderRegistryEntry[]>;
 	};
@@ -68,16 +70,29 @@ export async function createAgentProcessClient(
 ): Promise<Client> {
 	const settingsStore = deps.createSettingsStore?.() ?? new SettingsStore();
 	const settingsLoadResult = (await settingsStore.load()) as SettingsLoadResult;
-	const secretStoreRuntime = deps.createSecretStoreRuntime?.() ?? createSecretStoreRuntime();
+	const secretStoreRuntime =
+		deps.createSecretStoreRuntime?.() ?? createSecretStoreRuntime({ env: process.env });
+	const importFromEnv = deps.importSettingsFromEnv ?? importSettingsFromEnv;
+	let settings = settingsLoadResult.settings;
+	if (settingsLoadResult.source === "missing") {
+		const imported = await importFromEnv({
+			env: process.env,
+			secretStore: secretStoreRuntime.secretStore,
+			secretBackend: secretStoreRuntime.secretRefBackend,
+		});
+		if (imported.settings.providers.length > 0) {
+			settings = imported.settings;
+		}
+	}
 	const registry =
 		deps.createProviderRegistry?.({
-			settings: settingsLoadResult.settings,
+			settings,
 			secretStore: secretStoreRuntime.secretStore,
 			secretBackend: secretStoreRuntime.secretRefBackend,
 			secretBackendState: secretStoreRuntime.secretBackendState,
 		}) ??
 		new ProviderRegistry({
-			settings: settingsLoadResult.settings,
+			settings,
 			secretStore: secretStoreRuntime.secretStore,
 			secretBackend: secretStoreRuntime.secretRefBackend,
 			secretBackendState: secretStoreRuntime.secretBackendState,

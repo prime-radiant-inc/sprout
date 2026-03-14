@@ -499,6 +499,69 @@ describe("runAgentProcess", () => {
 		}
 	});
 
+	test("imports env-backed provider settings for child-process clients when settings are missing", async () => {
+		const logger = new SessionLogger({
+			logPath: join(tempDir, "session.log.jsonl"),
+			component: "agent-process-test",
+			sessionId: SESSION_ID,
+		});
+		const secretStore = createSecretStore({ backend: "memory", platform: "linux" });
+
+		const client = await createAgentProcessClient(logger, {
+			createSettingsStore: () => ({
+				load: async () =>
+					({
+						settings: {
+							version: 2,
+							providers: [],
+							defaults: {},
+						},
+						skipEnvImport: false,
+						source: "missing",
+					}) satisfies {
+						settings: SproutSettings;
+						skipEnvImport: boolean;
+						source: "missing" | "loaded" | "recovered";
+					},
+			}),
+			createSecretStoreRuntime: () =>
+				({
+					secretRefBackend: "memory",
+					secretBackendState: {
+						backend: "memory",
+						available: true,
+					},
+					secretStore,
+				}) satisfies SecretStoreRuntime,
+			importSettingsFromEnv: async ({ secretStore, secretBackend }) => {
+				await secretStore.setSecret(
+					createProviderSecretRef("openrouter", secretBackend),
+					"openrouter-secret",
+				);
+				return {
+					settings: {
+						version: 2,
+						providers: [
+							{
+								id: "openrouter",
+								kind: "openrouter",
+								label: "OpenRouter",
+								enabled: true,
+								createdAt: "2026-03-14T12:00:00.000Z",
+								updatedAt: "2026-03-14T12:00:00.000Z",
+							},
+						],
+						defaults: {},
+					},
+					validationErrorsByProvider: {},
+				};
+			},
+		});
+
+		expect(client.providers()).toEqual(["openrouter"]);
+		expect(client.adapter("openrouter")?.providerId).toBe("openrouter");
+	});
+
 	test("publishes events during agent execution", async () => {
 		const mockClient = createMockClient("Done.");
 

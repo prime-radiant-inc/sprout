@@ -61,6 +61,27 @@ function memorySecretStore() {
 	};
 }
 
+function keychainSecretStore() {
+	const secrets = new Map<string, string>();
+	return {
+		secretRefBackend: "macos-keychain" as const,
+		secretBackendState: {
+			backend: "macos-keychain" as const,
+			available: true,
+		},
+		secretStore: {
+			getSecret: async (ref: ProviderSecretRef) => secrets.get(ref.storageKey),
+			setSecret: async (ref: ProviderSecretRef, value: string) => {
+				secrets.set(ref.storageKey, value);
+			},
+			deleteSecret: async (ref: ProviderSecretRef) => {
+				secrets.delete(ref.storageKey);
+			},
+			hasSecret: async (ref: ProviderSecretRef) => secrets.has(ref.storageKey),
+		},
+	};
+}
+
 function unavailableSecretStore(message = "Unsupported secret backend for platform: win32") {
 	return {
 		secretRefBackend: "memory" as const,
@@ -130,7 +151,7 @@ describe("bootstrapSessionRuntime", () => {
 			{
 				createBus: () => ({ id: "bus" }),
 				createSettingsStore: () => emptySettingsStore(),
-				createSecretStore: () => memorySecretStore(),
+				createSecretStore: () => keychainSecretStore(),
 				createProviderRegistry: () => emptyRegistry(),
 				createLogger: (opts) => {
 					created.loggerOpts = opts;
@@ -176,7 +197,7 @@ describe("bootstrapSessionRuntime", () => {
 			{
 				createBus: () => ({ id: "bus" }),
 				createSettingsStore: () => emptySettingsStore(),
-				createSecretStore: () => memorySecretStore(),
+				createSecretStore: () => keychainSecretStore(),
 				createProviderRegistry: () => emptyRegistry(),
 				createLogger: (opts) => {
 					created.loggerOpts = opts;
@@ -235,7 +256,7 @@ describe("bootstrapSessionRuntime", () => {
 						created.savedSettings = settings;
 					},
 				}),
-				createSecretStore: () => memorySecretStore(),
+				createSecretStore: () => keychainSecretStore(),
 				importSettingsFromEnv: async () => {
 					created.importCalled = true;
 					return {
@@ -248,6 +269,66 @@ describe("bootstrapSessionRuntime", () => {
 
 		expect(created.importCalled).toBe(true);
 		expect(created.savedSettings).toEqual(importedSettings);
+	});
+
+	test("does not persist env-backed settings when using the memory secret backend", async () => {
+		const created: Record<string, unknown> = {};
+		const importedSettings = {
+			...createEmptySettings(),
+			providers: [
+				{
+					id: "openrouter",
+					kind: "openrouter" as const,
+					label: "OpenRouter",
+					enabled: true,
+					createdAt: "2026-03-14T12:34:56.000Z",
+					updatedAt: "2026-03-14T12:34:56.000Z",
+				},
+			],
+			defaults: {
+				best: { providerId: "openrouter", modelId: "openai/gpt-4o-mini" },
+			},
+		};
+
+		await bootstrapSessionRuntime(
+			{
+				genomePath: "/tmp/genome",
+				projectDataDir: "/tmp/project",
+				rootDir: "/tmp/root",
+				sessionId: "01BOOT",
+				infra: { spawner: { id: "spawner" } as any, genome: { id: "genome" } as any },
+			},
+			{
+				createBus: () => ({ id: "bus" }),
+				createLogger: () => ({ info: () => {} }),
+				createClient: async () => ({ id: "client" }),
+				createSettingsControlPlane: () => ({ id: "control-plane" }),
+				createController: () => ({ sessionId: "01BOOT" }),
+				loadAvailableModels: async () => [],
+				createProviderRegistry: () => emptyRegistry(),
+				createSettingsStore: () => ({
+					load: async () => ({
+						settings: createEmptySettings(),
+						skipEnvImport: false,
+						source: "missing" as const,
+					}),
+					save: async () => {
+						created.saved = true;
+					},
+				}),
+				createSecretStore: () => memorySecretStore(),
+				importSettingsFromEnv: async () => {
+					created.importCalled = true;
+					return {
+						settings: importedSettings,
+						validationErrorsByProvider: {},
+					};
+				},
+			},
+		);
+
+		expect(created.importCalled).toBe(true);
+		expect(created.saved).toBeUndefined();
 	});
 
 	test("does not import env-backed settings after invalid-file recovery", async () => {
