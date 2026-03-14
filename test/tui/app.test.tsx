@@ -468,9 +468,7 @@ describe("App", () => {
 		stdin.write("/model");
 		await flush();
 		stdin.write("\r");
-		await flush();
-
-		expect(lastFrame()).toContain("Select model");
+		await waitFor(() => lastFrame()?.includes("Select model") ?? false);
 
 		stdin.write("\x1B[B");
 		await flush();
@@ -483,7 +481,7 @@ describe("App", () => {
 		stdin.write("\x1B[B");
 		await flush();
 		stdin.write("\r");
-		await flush();
+		await waitFor(() => commands.some((c) => c.kind === "switch_model"));
 
 		// switch_model command should have been emitted
 		const switchCmd = commands.find((c) => c.kind === "switch_model");
@@ -497,7 +495,7 @@ describe("App", () => {
 		});
 
 		// Picker should be hidden, input area should be back
-		expect(lastFrame()).not.toContain("Select model");
+		await waitFor(() => !(lastFrame()?.includes("Select model") ?? false));
 		expect(lastFrame()).toContain(">");
 	});
 

@@ -7,8 +7,9 @@ interface EmbeddedRootFile {
 	content: string;
 }
 
+const repoRoot = join(import.meta.dir, "..");
+
 async function main(): Promise<void> {
-	const repoRoot = join(import.meta.dir, "..");
 	const rootDir = join(repoRoot, "root");
 	const outputPath = join(repoRoot, "src", "generated", "embedded-root.ts");
 	const files = await collectFiles(rootDir, rootDir);
@@ -26,10 +27,13 @@ async function main(): Promise<void> {
 		`\tversion: ${JSON.stringify(bundleHash)},`,
 		`\thash: ${JSON.stringify(bundleHash)},`,
 		"\tfiles: [",
-		...files.map(
-			(file) =>
-				`\t\t{ path: ${JSON.stringify(file.path)}, content: ${JSON.stringify(file.content)} },`,
-		),
+		...files.flatMap((file) => [
+			"\t\t{",
+			`\t\t\tpath: ${JSON.stringify(file.path)},`,
+			"\t\t\tcontent:",
+			`\t\t\t\t${JSON.stringify(file.content)},`,
+			"\t\t},",
+		]),
 		"\t],",
 		"} as const;",
 		"",
@@ -37,6 +41,7 @@ async function main(): Promise<void> {
 
 	await mkdir(join(repoRoot, "src", "generated"), { recursive: true });
 	await writeFile(outputPath, output);
+	await run([join(repoRoot, "node_modules", ".bin", "biome"), "format", "--write", outputPath]);
 }
 
 async function collectFiles(rootDir: string, currentDir: string): Promise<EmbeddedRootFile[]> {
@@ -57,6 +62,18 @@ async function collectFiles(rootDir: string, currentDir: string): Promise<Embedd
 	}
 
 	return files;
+}
+
+async function run(command: string[]): Promise<void> {
+	const proc = Bun.spawn(command, {
+		cwd: repoRoot,
+		stdout: "inherit",
+		stderr: "inherit",
+	});
+	const exitCode = await proc.exited;
+	if (exitCode !== 0) {
+		throw new Error(`Command failed (${exitCode}): ${command.join(" ")}`);
+	}
 }
 
 await main();
