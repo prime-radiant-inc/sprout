@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { access, readFile } from "node:fs/promises";
 import { constants } from "node:fs";
+import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const repoRoot = join(import.meta.dir, "../../..");

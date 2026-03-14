@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { extractEmbeddedRoot, type EmbeddedRootBundle } from "../../src/host/embedded-root.ts";
+import { type EmbeddedRootBundle, extractEmbeddedRoot } from "../../src/host/embedded-root.ts";
 
 function createBundle(hash: string, rootContent = "# Root\n"): EmbeddedRootBundle {
 	return {

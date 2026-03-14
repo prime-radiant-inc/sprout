@@ -1,6 +1,6 @@
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { embeddedRootBundle as generatedEmbeddedRootBundle } from "../generated/embedded-root.ts";
 
 export interface EmbeddedRootFile {
@@ -16,10 +16,9 @@ export interface EmbeddedRootBundle {
 
 const BUNDLE_MARKER = ".embedded-root.json";
 
-export async function extractEmbeddedRoot(options: {
-	cacheDir?: string;
-	bundle?: EmbeddedRootBundle;
-} = {}): Promise<string> {
+export async function extractEmbeddedRoot(
+	options: { cacheDir?: string; bundle?: EmbeddedRootBundle } = {},
+): Promise<string> {
 	const bundle = options.bundle ?? normalizeGeneratedBundle(generatedEmbeddedRootBundle);
 	const cacheDir = options.cacheDir ?? resolveEmbeddedRootCacheDir();
 	const outputDir = join(cacheDir, `${bundle.version}-${bundle.hash}`);
@@ -54,11 +53,9 @@ export async function extractEmbeddedRoot(options: {
 	return outputDir;
 }
 
-export async function resolveRuntimeRootDir(options: {
-	sourceRootDir?: string;
-	cacheDir?: string;
-	bundle?: EmbeddedRootBundle;
-} = {}): Promise<string> {
+export async function resolveRuntimeRootDir(
+	options: { sourceRootDir?: string; cacheDir?: string; bundle?: EmbeddedRootBundle } = {},
+): Promise<string> {
 	const sourceRootDir = options.sourceRootDir ?? join(import.meta.dir, "../../root");
 	if (await pathExists(join(sourceRootDir, "root.md"))) {
 		return sourceRootDir;

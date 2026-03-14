@@ -21,6 +21,7 @@ async function main(): Promise<void> {
 	}
 	const bundleHash = hash.digest("hex");
 	const output = [
+		"// biome-ignore-all lint/suspicious/noTemplateCurlyInString: embedded root files contain literal source text.",
 		"export const embeddedRootBundle = {",
 		`\tversion: ${JSON.stringify(bundleHash)},`,
 		`\thash: ${JSON.stringify(bundleHash)},`,
