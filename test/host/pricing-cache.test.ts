@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadPricingTable } from "../../src/host/pricing-cache.ts";
+import { loadPricingSnapshot } from "../../src/host/pricing-cache.ts";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/models";
 const LLM_PRICES_URL = "https://www.llm-prices.com/current-v1.json";
@@ -23,7 +23,7 @@ const llmPricesPayload = {
 	prices: [{ id: "gpt-4o", vendor: "openai", name: "GPT-4o", input: 2.5, output: 10 }],
 };
 
-describe("loadPricingTable", () => {
+describe("loadPricingSnapshot", () => {
 	let tempDir: string;
 	const originalFetch = globalThis.fetch;
 
@@ -58,15 +58,17 @@ describe("loadPricingTable", () => {
 			return null;
 		});
 
-		const table = await loadPricingTable(tempDir);
-		expect(table).not.toBeNull();
+		const snapshot = await loadPricingSnapshot(tempDir);
+		expect(snapshot).not.toBeNull();
+		expect(snapshot?.source).toBe("live");
+		expect(snapshot?.upstreams).toEqual(["openrouter", "llm-prices"]);
 		// OpenRouter produces 2 entries (full + stripped), llm-prices produces 1
-		expect(table!.length).toBeGreaterThanOrEqual(3);
+		expect(snapshot!.table.length).toBeGreaterThanOrEqual(3);
 		// OpenRouter entries come first
-		expect(table![0]![0]).toBe("anthropic/claude-sonnet-4-6");
-		expect(table![1]![0]).toBe("claude-sonnet-4-6");
+		expect(snapshot!.table[0]![0]).toBe("anthropic/claude-sonnet-4-6");
+		expect(snapshot!.table[1]![0]).toBe("claude-sonnet-4-6");
 		// llm-prices entry after
-		expect(table![2]![0]).toBe("gpt-4o");
+		expect(snapshot!.table[2]![0]).toBe("gpt-4o");
 	});
 
 	test("OpenRouter fails → llm-prices data returned", async () => {
@@ -78,10 +80,12 @@ describe("loadPricingTable", () => {
 			return null;
 		});
 
-		const table = await loadPricingTable(tempDir);
-		expect(table).not.toBeNull();
-		expect(table!.length).toBeGreaterThanOrEqual(1);
-		expect(table![0]![0]).toBe("gpt-4o");
+		const snapshot = await loadPricingSnapshot(tempDir);
+		expect(snapshot).not.toBeNull();
+		expect(snapshot?.source).toBe("live");
+		expect(snapshot?.upstreams).toEqual(["llm-prices"]);
+		expect(snapshot!.table.length).toBeGreaterThanOrEqual(1);
+		expect(snapshot!.table[0]![0]).toBe("gpt-4o");
 	});
 
 	test("llm-prices fails → OpenRouter data returned", async () => {
@@ -93,11 +97,13 @@ describe("loadPricingTable", () => {
 			return null;
 		});
 
-		const table = await loadPricingTable(tempDir);
-		expect(table).not.toBeNull();
-		expect(table!.length).toBeGreaterThanOrEqual(2);
-		expect(table![0]![0]).toBe("anthropic/claude-sonnet-4-6");
-		expect(table![1]![0]).toBe("claude-sonnet-4-6");
+		const snapshot = await loadPricingSnapshot(tempDir);
+		expect(snapshot).not.toBeNull();
+		expect(snapshot?.source).toBe("live");
+		expect(snapshot?.upstreams).toEqual(["openrouter"]);
+		expect(snapshot!.table.length).toBeGreaterThanOrEqual(2);
+		expect(snapshot!.table[0]![0]).toBe("anthropic/claude-sonnet-4-6");
+		expect(snapshot!.table[1]![0]).toBe("claude-sonnet-4-6");
 	});
 
 	test("both sources fail → disk cache returned", async () => {
@@ -105,7 +111,9 @@ describe("loadPricingTable", () => {
 		const cacheDir = join(tempDir, "cache");
 		await mkdir(cacheDir, { recursive: true });
 		const cached = {
+			source: "live",
 			fetchedAt: "2025-01-01T00:00:00Z",
+			upstreams: ["openrouter"],
 			table: [["cached-model", { input: 1, output: 2 }]] as [
 				string,
 				{ input: number; output: number },
@@ -115,16 +123,18 @@ describe("loadPricingTable", () => {
 
 		mockFetch(() => null); // all fetches fail
 
-		const table = await loadPricingTable(tempDir);
-		expect(table).not.toBeNull();
-		expect(table).toHaveLength(1);
-		expect(table![0]).toEqual(["cached-model", { input: 1, output: 2 }]);
+		const snapshot = await loadPricingSnapshot(tempDir);
+		expect(snapshot).not.toBeNull();
+		expect(snapshot?.source).toBe("cache");
+		expect(snapshot?.upstreams).toEqual(["openrouter"]);
+		expect(snapshot?.table).toHaveLength(1);
+		expect(snapshot?.table[0]).toEqual(["cached-model", { input: 1, output: 2 }]);
 	});
 
 	test("both sources fail + no cache → null returned", async () => {
 		mockFetch(() => null); // all fetches fail, no cache file exists
 
-		const table = await loadPricingTable(tempDir);
-		expect(table).toBeNull();
+		const snapshot = await loadPricingSnapshot(tempDir);
+		expect(snapshot).toBeNull();
 	});
 });

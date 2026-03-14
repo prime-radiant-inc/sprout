@@ -155,13 +155,7 @@ describe("parseArgs", () => {
 	});
 
 	test("--log-atif and --eval-mode on headless runs are parsed", () => {
-		const result = parseArgs([
-			"-p",
-			"solve",
-			"--log-atif",
-			"/tmp/trajectory.json",
-			"--eval-mode",
-		]);
+		const result = parseArgs(["-p", "solve", "--log-atif", "/tmp/trajectory.json", "--eval-mode"]);
 		expect(result).toEqual({
 			kind: "headless",
 			goal: "solve",

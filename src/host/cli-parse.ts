@@ -278,7 +278,11 @@ export function parseArgs(argv: string[]): CliCommand {
 
 	if (state.resumeRequested) {
 		if (!state.resumeSessionId) {
-			if (hasInteractiveOnlyFlags(state) || state.atifPath !== undefined || state.evalMode === true) {
+			if (
+				hasInteractiveOnlyFlags(state) ||
+				state.atifPath !== undefined ||
+				state.evalMode === true
+			) {
 				return { kind: "help" };
 			}
 			return { kind: "list", genomePath: state.genomePath };

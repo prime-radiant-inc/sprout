@@ -12,7 +12,7 @@ import type {
 import type { SlashCommand } from "../tui/slash-commands.ts";
 import { registerInteractiveSigint } from "./cli-sigint.ts";
 import { buildWebOpenUrl, runWebOnlyMode } from "./cli-web.ts";
-import { loadPricingTable } from "./pricing-cache.ts";
+import { loadPricingSnapshot } from "./pricing-cache.ts";
 
 type SlashAction = "none" | "show_model_picker" | "start_web" | "stop_web" | "exit";
 
@@ -264,7 +264,8 @@ export async function runInteractiveMode(
 		});
 	};
 
-	const pricingTable = await loadPricingTable(opts.command.genomePath);
+	const pricingSnapshot = await loadPricingSnapshot(opts.command.genomePath);
+	const pricingTable = pricingSnapshot?.table ?? null;
 
 	if (opts.command.web || opts.command.webOnly) {
 		const staleWebBuildWarning = await d.checkWebBuildFreshness(staticDir);

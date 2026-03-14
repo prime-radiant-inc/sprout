@@ -36,6 +36,22 @@ describe("transformPrices", () => {
 		]);
 		expect(result).toHaveLength(1);
 	});
+
+	test("preserves cached input pricing when present", () => {
+		const result = transformPrices([
+			{
+				id: "gpt-4o",
+				vendor: "openai",
+				name: "GPT-4o",
+				input: 2.5,
+				output: 10,
+				input_cached: 1.25,
+			},
+		]);
+		expect(result).toEqual([
+			["gpt-4o", { input: 2.5, output: 10, cached_input: 1.25 }],
+		]);
+	});
 });
 
 describe("longestPrefixMatch", () => {

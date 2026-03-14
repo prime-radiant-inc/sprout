@@ -1,6 +1,7 @@
 export interface ModelPricing {
 	input: number;
 	output: number;
+	cached_input?: number;
 }
 
 export type PricingTable = [string, ModelPricing][];
@@ -35,7 +36,11 @@ export interface OpenRouterResponse {
 export function transformPrices(prices: LlmPriceEntry[]): PricingTable {
 	const table: PricingTable = [];
 	for (const entry of prices) {
-		const pricing: ModelPricing = { input: entry.input, output: entry.output };
+		const pricing: ModelPricing = {
+			input: entry.input,
+			output: entry.output,
+			cached_input: entry.input_cached ?? undefined,
+		};
 		table.push([entry.id, pricing]);
 		const dotIdx = entry.id.lastIndexOf(".");
 		if (dotIdx > 0) {
