@@ -33,6 +33,8 @@ describe("Sprout Harbor artifacts", () => {
 
 	test("adapter command includes the headless eval flags", async () => {
 		const adapter = await readFile(join(repoRoot, "tools", "harbor", "sprout_agent.py"), "utf-8");
+		expect(adapter).toContain('_AGENT_DIR.glob("sprout-linux-*")');
+		expect(adapter).not.toContain('_AGENT_DIR / "dist"');
 		expect(adapter).toContain("--prompt");
 		expect(adapter).toContain("--log-atif /logs/agent/agent-state/trajectory.json");
 		expect(adapter).toContain("--eval-mode");

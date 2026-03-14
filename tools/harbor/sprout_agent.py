@@ -54,7 +54,7 @@ class SproutAgent(BaseInstalledAgent):
 
     async def setup(self, environment: BaseEnvironment) -> None:
         await environment.exec(command="mkdir -p /installed-agent")
-        for binary in sorted((_AGENT_DIR / "dist").glob("sprout-linux-*")):
+        for binary in sorted(_AGENT_DIR.glob("sprout-linux-*")):
             await environment.upload_file(
                 source_path=binary,
                 target_path=f"/installed-agent/{binary.name}",
