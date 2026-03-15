@@ -1,4 +1,5 @@
 import type { EventKind } from "../kernel/types.ts";
+import type { ReplayTurnRecord } from "../host/replay/types.ts";
 import type {
 	Request as LLMRequest,
 	Response as LLMResponse,
@@ -11,6 +12,7 @@ import { getContextWindowSize } from "./context-window.ts";
 import { buildPlanRequest } from "./plan.ts";
 
 export interface ExecutePlanningTurnInput {
+	sessionId?: string;
 	turn: number;
 	agentId: string;
 	depth: number;
@@ -29,6 +31,7 @@ export interface ExecutePlanningTurnInput {
 		turn: number;
 		signal: AbortSignal | undefined;
 	}) => Promise<{ response: LLMResponse; latencyMs: number } | "interrupted">;
+	recordReplay?: (record: ReplayTurnRecord) => void;
 	logger: {
 		debug(category: "llm", message: string, data?: Record<string, unknown>): void;
 	};
@@ -84,6 +87,23 @@ export async function executePlanningTurn(
 	}
 
 	const { response, latencyMs } = planResult;
+	const { signal: _signal, ...requestForReplay } = request;
+	input.recordReplay?.({
+		schema_version: "sprout-replay-v1",
+		timestamp: new Date().toISOString(),
+		session_id: input.sessionId ?? input.agentId,
+		agent_id: input.agentId,
+		depth: input.depth,
+		turn: input.turn,
+		request_context: {
+			system_prompt: input.systemPrompt,
+			history: [...input.history],
+			agent_tools: input.agentTools,
+			primitive_tools: input.primitiveTools,
+		},
+		request: requestForReplay,
+		response,
+	});
 	input.emit("llm_end", input.agentId, input.depth, {
 		model: input.model,
 		provider: input.provider,
