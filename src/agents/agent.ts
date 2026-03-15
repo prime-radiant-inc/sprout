@@ -38,6 +38,7 @@ import type {
 import { Msg, messageText } from "../llm/types.ts";
 import { getToolDisplayName } from "../shared/tool-display.ts";
 import { ulid } from "../util/ulid.ts";
+import { createReplayRecorder, type ReplayRecorder } from "../replay/recorder.ts";
 import { getContextWindowSize } from "./context-window.ts";
 import { AgentEventEmitter } from "./events.ts";
 import type { AgentTreeEntry, Preambles } from "./loader.ts";
@@ -145,6 +146,7 @@ export class Agent {
 	private agentTools: ToolDefinition[];
 	private readonly primitiveTools: ToolDefinition[];
 	private readonly logBasePath?: string;
+	private readonly replayRecorder?: ReplayRecorder;
 	private readonly preambles?: Preambles;
 	private readonly projectDocs?: string;
 	private readonly genomePostscripts?: { global: string; orchestrator: string; worker: string };
@@ -185,6 +187,9 @@ export class Agent {
 		this.sessionId = options.sessionId ?? ulid();
 		this.learnProcess = options.learnProcess;
 		this.logBasePath = options.logBasePath;
+		this.replayRecorder = options.logBasePath
+			? createReplayRecorder({ logBasePath: options.logBasePath })
+			: undefined;
 		this.preambles = options.preambles;
 		this.projectDocs = options.projectDocs;
 		this.genomePostscripts = options.genomePostscripts;
@@ -1509,6 +1514,7 @@ export class Agent {
 
 				// Plan: build request and call LLM
 				const planningResult = await executePlanningTurn({
+					sessionId: this.sessionId,
 					turn: turns,
 					agentId,
 					depth: this.depth,
@@ -1522,6 +1528,9 @@ export class Agent {
 					signal,
 					emit: this.emitAndLog.bind(this),
 					requestPlanResponse: this.requestPlanResponse.bind(this),
+					recordReplay: (record) => {
+						this.replayRecorder?.record(record);
+					},
 					logger: this.logger,
 				});
 				if (planningResult.kind === "interrupted") {
@@ -1643,6 +1652,7 @@ export class Agent {
 				output: lastOutput,
 			});
 			await this.flushLog();
+			await this.replayRecorder?.flush();
 			throw err;
 		} finally {
 			clearTimeout(timeoutTimer);
@@ -1664,6 +1674,7 @@ export class Agent {
 		this.emitAndLog("session_end", agentId, this.depth, finalization.sessionEndData);
 
 		await this.flushLog();
+		await this.replayRecorder?.flush();
 
 		return finalization.agentResult;
 	}

@@ -1,4 +1,4 @@
-import type { Message, Request, Response, ToolDefinition } from "../../llm/types.ts";
+import type { Message, Request, Response, ToolDefinition } from "../llm/types.ts";
 
 export const REPLAY_SCHEMA_VERSION = "sprout-replay-v1";
 

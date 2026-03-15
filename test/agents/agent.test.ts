@@ -16,6 +16,7 @@ import { Client } from "../../src/llm/client.ts";
 import { StreamReadTimeoutError } from "../../src/llm/stream-timeout.ts";
 import type { Message, Request, Response } from "../../src/llm/types.ts";
 import { ContentKind, Msg } from "../../src/llm/types.ts";
+import { resolveReplayPath } from "../../src/replay/paths.ts";
 import { leafSpec, rootSpec, withDefaultResolverContext } from "./fixtures.ts";
 import "../helpers/test-env.ts";
 
@@ -462,6 +463,8 @@ describe("Agent", () => {
 			// Log file should exist at logBasePath.jsonl
 			const logFile = `${logBasePath}.jsonl`;
 			expect(existsSync(logFile)).toBe(true);
+			const replayLog = resolveReplayPath(logFile);
+			expect(existsSync(replayLog)).toBe(true);
 
 			const content = await readFile(logFile, "utf-8");
 			const lines = content.trim().split("\n");
@@ -476,6 +479,16 @@ describe("Agent", () => {
 
 			const lastEvent = JSON.parse(lines[lines.length - 1]!);
 			expect(lastEvent.kind).toBe("session_end");
+
+			const replayContent = await readFile(replayLog, "utf-8");
+			const replayLines = replayContent.trim().split("\n");
+			expect(replayLines).toHaveLength(1);
+			const replayRecord = JSON.parse(replayLines[0]!);
+			expect(replayRecord.agent_id).toBe("leaf");
+			expect(replayRecord.turn).toBe(1);
+			expect(replayRecord.request.model).toBe("claude-haiku-4-5-20251001");
+			expect(replayRecord.request.provider).toBe("anthropic");
+			expect(replayRecord.response.message).toEqual(mockResponse.message);
 		} finally {
 			await rm(tempDir, { recursive: true, force: true });
 		}
@@ -1249,16 +1262,29 @@ describe("Agent", () => {
 			// Find the subagent log file (name is a generated ULID)
 			const { readdir } = await import("node:fs/promises");
 			const subFiles = await readdir(subagentsDir);
-			const jsonlFiles = subFiles.filter((f) => f.endsWith(".jsonl"));
-			expect(jsonlFiles.length).toBe(1);
+			const eventLogFiles = subFiles.filter(
+				(f) => f.endsWith(".jsonl") && !f.endsWith(".replay.jsonl"),
+			);
+			const replayLogFiles = subFiles.filter((f) => f.endsWith(".replay.jsonl"));
+			expect(eventLogFiles.length).toBe(1);
+			expect(replayLogFiles.length).toBe(1);
 
 			// Verify subagent log content
-			const subContent = await readFile(join(subagentsDir, jsonlFiles[0]!), "utf-8");
+			const subLogPath = join(subagentsDir, eventLogFiles[0]!);
+			const subContent = await readFile(subLogPath, "utf-8");
 			const subLines = subContent.trim().split("\n");
 			const subFirstEvent = JSON.parse(subLines[0]!);
 			expect(subFirstEvent.kind).toBe("session_start");
 			// Child agent uses the parent-assigned child_id (a ULID) as its agent_id
 			expect(subFirstEvent.agent_id).toHaveLength(26);
+
+			const subReplayPath = resolveReplayPath(subLogPath);
+			expect(existsSync(subReplayPath)).toBe(true);
+			const subReplayContent = await readFile(subReplayPath, "utf-8");
+			const subReplayLines = subReplayContent.trim().split("\n");
+			expect(subReplayLines.length).toBeGreaterThanOrEqual(1);
+			const subReplayRecord = JSON.parse(subReplayLines[0]!);
+			expect(subReplayRecord.agent_id).toBe(subFirstEvent.agent_id);
 		} finally {
 			await rm(tempDir, { recursive: true, force: true });
 		}

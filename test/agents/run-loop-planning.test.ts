@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { executePlanningTurn } from "../../src/agents/run-loop-planning.ts";
-import type { ReplayTurnRecord } from "../../src/host/replay/types.ts";
 import { ContentKind, Msg, type Request, type Response } from "../../src/llm/types.ts";
+import type { ReplayTurnRecord } from "../../src/shared/replay.ts";
 
 describe("executePlanningTurn", () => {
 	test("success path emits planning events, appends assistant message, and returns tool calls", async () => {

@@ -1,5 +1,4 @@
 import type { EventKind } from "../kernel/types.ts";
-import type { ReplayTurnRecord } from "../host/replay/types.ts";
 import type {
 	Request as LLMRequest,
 	Response as LLMResponse,
@@ -8,6 +7,7 @@ import type {
 	ToolDefinition,
 } from "../llm/types.ts";
 import { messageReasoning, messageText, messageToolCalls } from "../llm/types.ts";
+import type { ReplayTurnRecord } from "../shared/replay.ts";
 import { getContextWindowSize } from "./context-window.ts";
 import { buildPlanRequest } from "./plan.ts";
 

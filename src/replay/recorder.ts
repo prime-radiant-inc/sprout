@@ -1,7 +1,7 @@
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
+import type { ReplayTurnRecord } from "../shared/replay.ts";
 import { replayPathFromLogBase } from "./paths.ts";
-import type { ReplayTurnRecord } from "./types.ts";
 
 export interface CreateReplayRecorderOptions {
 	logBasePath: string;
@@ -16,17 +16,18 @@ export class ReplayRecorder {
 		this.outputPath = replayPathFromLogBase(options.logBasePath);
 	}
 
-	async record(record: ReplayTurnRecord): Promise<void> {
+	record(record: ReplayTurnRecord): void {
 		const sanitized = sanitizeReplayRecord(record);
 		const line = `${JSON.stringify(sanitized)}\n`;
-		this.writeChain = this.writeChain.then(async () => {
-			if (!this.dirReady) {
-				await mkdir(dirname(this.outputPath), { recursive: true });
-				this.dirReady = true;
-			}
-			await appendFile(this.outputPath, line);
-		});
-		return this.writeChain;
+		this.writeChain = this.writeChain
+			.then(async () => {
+				if (!this.dirReady) {
+					await mkdir(dirname(this.outputPath), { recursive: true });
+					this.dirReady = true;
+				}
+				await appendFile(this.outputPath, line);
+			})
+			.catch(() => {});
 	}
 
 	async flush(): Promise<void> {
