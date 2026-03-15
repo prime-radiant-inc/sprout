@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { access, mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { homedir, platform as osPlatform, release } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 
 export interface ExecResult {
 	stdout: string;
@@ -289,7 +289,7 @@ export class LocalExecutionEnvironment implements ExecutionEnvironment {
 
 		const withStats = await Promise.all(
 			matches.map(async (m) => {
-				const fullPath = join(basePath, m);
+				const fullPath = isAbsolute(m) ? m : join(basePath, m);
 				const s = await stat(fullPath);
 				return { path: m, mtime: s.mtimeMs };
 			}),

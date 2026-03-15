@@ -157,6 +157,16 @@ describe("LocalExecutionEnvironment", () => {
 		expect(files.some((f) => f.endsWith("b.ts"))).toBe(true);
 	});
 
+	test("glob supports absolute patterns without resolving them under the work dir", async () => {
+		await env.write_file("absolute-glob/found.txt", "absolute match");
+		const absolutePattern = `${join(tempDir, "absolute-glob")}/*.txt`;
+		const absoluteMatch = join(tempDir, "absolute-glob", "found.txt");
+
+		const files = await env.glob(absolutePattern);
+
+		expect(files).toContain(absoluteMatch);
+	});
+
 	test("glob returns empty for no matches", async () => {
 		const files = await env.glob("**/*.zzz");
 		expect(files).toEqual([]);
