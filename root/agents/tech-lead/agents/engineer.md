@@ -55,6 +55,8 @@ When asking editors to make changes:
 When asking command-runners to inspect or verify:
 - ask for concise findings first, not full transcripts
 - request raw output only for failures or for the specific proof you need
+- for long-running successful commands, ask for the shortest exact proof lines
+  that demonstrate success instead of the full raw transcript
 - group routine capability checks into a single inspection pass
 - Do not ask for redundant child-path checks once a parent path is confirmed missing
 
