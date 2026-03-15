@@ -166,8 +166,7 @@ function editFilePrimitive(): Primitive {
 	return {
 		name: "edit_file",
 		displayName: getToolDisplayName("edit_file"),
-		description:
-			`Replace an exact string occurrence in a file. old_string must match the raw file text exactly and must not include read_file line prefixes. ${READ_FILE_LINE_PREFIX_NOTE}`,
+		description: `Replace an exact string occurrence in a file. old_string must match the raw file text exactly and must not include read_file line prefixes. ${READ_FILE_LINE_PREFIX_NOTE}`,
 		parameters: {
 			type: "object",
 			properties: {
