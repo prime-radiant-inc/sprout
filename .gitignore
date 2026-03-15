@@ -39,3 +39,9 @@ genome-data/
 # Temp files from dynamic import cache busting
 _tmp_*
 .worktrees
+inspo
+
+# Harbor local build artifacts
+tools/harbor/dist/
+tools/harbor/sprout-linux-*
+tools/harbor/__pycache__/
