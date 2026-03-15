@@ -5,7 +5,7 @@ import { Genome, git } from "../genome/genome.ts";
 import { createReadOnlyGenome } from "../genome/read-only-genome.ts";
 import { LocalExecutionEnvironment } from "../kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../kernel/primitives.ts";
-import type { ModelRef } from "../kernel/types.ts";
+import type { AgentSpec, ModelRef } from "../kernel/types.ts";
 import { LearnProcess } from "../learn/learn-process.ts";
 import { MetricsStore } from "../learn/metrics-store.ts";
 import { Client } from "../llm/client.ts";
@@ -47,6 +47,8 @@ export interface CreateAgentOptions {
 	genome?: Genome;
 	/** Disable learning and genome mutation for evaluation runs. */
 	evalMode?: boolean;
+	/** Headless/non-interactive root session. */
+	nonInteractive?: boolean;
 	/** Structured logger for LLM call logging and diagnostics. */
 	logger?: import("../core/logger.ts").Logger;
 	/** Per-project data directory (sessions, logs, memory). Defaults to genomePath. */
@@ -61,6 +63,29 @@ export interface CreateAgentResult {
 	client: Client;
 	model: string;
 	provider: string;
+}
+
+function withNonInteractiveRootGuidance(spec: AgentSpec): AgentSpec {
+	return {
+		...spec,
+		system_prompt: `${spec.system_prompt}
+
+## Non-interactive run
+
+There is no human available to answer follow-up questions or run commands for you during this run.
+
+When delegating:
+- Pass complete, definitive instructions the first time whenever you already have the needed context.
+- Include exact literals, file contents, requirements, and permissions or authority you already have instead of making subagents ask for them again.
+- When the task includes exact file contents, commands, paths, or other literal values, forward them verbatim.
+- Do not replace exact values with placeholders like "the exact contents provided" or otherwise imply a literal was supplied when you did not quote it.
+- Tell subagents they must use their available tools to complete the task autonomously.
+- For commands that may require privileges, tell subagents to run directly when they already have the needed permissions and only use sudo when it is truly needed and available.
+- If a command fails because of an environment assumption, tell subagents to adapt and retry before escalating unless there is a real missing capability or permission boundary.
+- Do not ask subagents to hand work back to the user.
+- Treat "ask the user to run this" as failure unless there is a real missing capability or permission boundary.
+`,
+	};
 }
 
 async function hasGenomeRepo(genomePath: string): Promise<boolean> {
@@ -179,7 +204,7 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 		: undefined;
 
 	const agent = new Agent({
-		spec: rootSpec,
+		spec: options.nonInteractive ? withNonInteractiveRootGuidance(rootSpec) : rootSpec,
 		env,
 		client,
 		primitiveRegistry: registry,

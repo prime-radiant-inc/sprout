@@ -121,6 +121,7 @@ export async function runHeadlessMode(
 			sessionId,
 			atifPath: opts.atifPath,
 			evalMode: opts.evalMode,
+			nonInteractive: true,
 			initialHistory: opts.initialHistory,
 			initialSelectionRequest: opts.initialSelectionRequest,
 			completedHandles: opts.completedHandles,

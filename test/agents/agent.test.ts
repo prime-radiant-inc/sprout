@@ -14,7 +14,7 @@ import { createPrimitiveRegistry } from "../../src/kernel/primitives.ts";
 import { type AgentSpec, DEFAULT_CONSTRAINTS } from "../../src/kernel/types.ts";
 import { Client } from "../../src/llm/client.ts";
 import { StreamReadTimeoutError } from "../../src/llm/stream-timeout.ts";
-import type { Message, Response } from "../../src/llm/types.ts";
+import type { Message, Request, Response } from "../../src/llm/types.ts";
 import { ContentKind, Msg } from "../../src/llm/types.ts";
 import { leafSpec, rootSpec, withDefaultResolverContext } from "./fixtures.ts";
 import "../helpers/test-env.ts";
@@ -2369,6 +2369,50 @@ describe("Agent", () => {
 		expect(history[1]!.role).toBe("assistant");
 		expect(history[2]!.role).toBe("user");
 		expect(history[3]!.role).toBe("assistant");
+	});
+
+	test("continue() frames follow-up as additional context for the same task", async () => {
+		const capturedRequests: Request[] = [];
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (request: Request): Promise<Response> => {
+				capturedRequests.push(request);
+				callCount++;
+				return {
+					id: `mock-follow-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant(`Response ${callCount}.`),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: leafSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+			events,
+		});
+
+		await agent.run("initial task");
+		await agent.continue("here is the missing file content");
+
+		expect(capturedRequests).toHaveLength(2);
+		const secondRequest = capturedRequests[1]!;
+		const secondRequestJson = JSON.stringify(secondRequest.messages);
+		expect(secondRequestJson).toContain("Follow-up context from your caller");
+		expect(secondRequestJson).toContain("Continue the same task");
+		expect(secondRequestJson).toContain("here is the missing file content");
 	});
 
 	test("continue() emits session_start but not recall", async () => {

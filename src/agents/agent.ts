@@ -1169,6 +1169,9 @@ export class Agent {
 
 		const agentId = this.agentId ?? this.spec.name;
 		this.signal = signal;
+		const followUpMessage =
+			`Follow-up context from your caller for the same task:\n\n${message}\n\n` +
+			"Continue the same task using this new information. Do not discard prior context unless this message explicitly supersedes it.";
 
 		// Emit session_start (same as run() — so stats reset for the new session)
 		this.emitAndLog("session_start", agentId, this.depth, {
@@ -1177,8 +1180,9 @@ export class Agent {
 			model: this.resolved.model,
 		});
 
-		// Append the new user message
-		this.history.push(Msg.user(message));
+		// Append the new user message with explicit continuation framing so the
+		// model treats it as added context for the same task, not a new task.
+		this.history.push(Msg.user(followUpMessage));
 
 		// Emit perceive for the new message
 		this.emitAndLog("perceive", agentId, this.depth, { goal: message });

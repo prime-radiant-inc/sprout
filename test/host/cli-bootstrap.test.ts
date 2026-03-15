@@ -331,6 +331,68 @@ describe("bootstrapSessionRuntime", () => {
 		expect(created.saved).toBeUndefined();
 	});
 
+	test("retains env-imported default models even when no providers were imported", async () => {
+		const created: Record<string, unknown> = {};
+		const importedSettings = {
+			...createEmptySettings(),
+			defaults: {
+				best: { providerId: "openrouter", modelId: "openai/gpt-5-mini" },
+			},
+		};
+
+		await bootstrapSessionRuntime(
+			{
+				genomePath: "/tmp/genome",
+				projectDataDir: "/tmp/project",
+				rootDir: "/tmp/root",
+				sessionId: "01BOOT",
+				infra: { spawner: { id: "spawner" } as any, genome: { id: "genome" } as any },
+			},
+			{
+				createBus: () => ({ id: "bus" }),
+				createLogger: () => ({ info: () => {} }),
+				createClient: async () => ({ id: "client" }),
+				createSettingsControlPlane: (options) => {
+					created.controlPlaneOptions = options;
+					return {
+						id: "control-plane",
+						getSelectionContext: () => ({
+							settings: {
+								providers: [],
+								defaults: options.initialSettings.defaults,
+							},
+							catalog: [],
+						}),
+					};
+				},
+				createController: (opts) => {
+					created.resolverSettings = opts.getResolverSettings?.();
+					return { sessionId: "01BOOT" };
+				},
+				loadAvailableModels: async () => [],
+				createProviderRegistry: () => emptyRegistry(),
+				createSettingsStore: () => ({
+					load: async () => ({
+						settings: createEmptySettings(),
+						skipEnvImport: false,
+						source: "missing" as const,
+					}),
+					save: async () => {},
+				}),
+				createSecretStore: () => memorySecretStore(),
+				importSettingsFromEnv: async () => ({
+					settings: importedSettings,
+					validationErrorsByProvider: {},
+				}),
+			},
+		);
+
+		expect((created.controlPlaneOptions as any).initialSettings.defaults.best).toEqual(
+			importedSettings.defaults.best,
+		);
+		expect((created.resolverSettings as any).defaults.best).toEqual(importedSettings.defaults.best);
+	});
+
 	test("does not import env-backed settings after invalid-file recovery", async () => {
 		const created: Record<string, unknown> = {};
 

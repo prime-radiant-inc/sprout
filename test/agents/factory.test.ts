@@ -270,4 +270,64 @@ describe("createAgent", () => {
 			result.genome.savePostscript("agents/quartermaster.md", "mutate me"),
 		).rejects.toThrow("read-only genome");
 	});
+
+	test("injects non-interactive execution guidance into the root prompt only", async () => {
+		let capturedSystemPrompt = "";
+		const response = {
+			message: {
+				role: "assistant",
+				content: [{ kind: "text", text: "done" }],
+			},
+			finish_reason: { reason: "stop" },
+			usage: {
+				input_tokens: 1,
+				output_tokens: 1,
+				total_tokens: 2,
+				reasoning_tokens: 0,
+			},
+		};
+		const promptClient = {
+			providers: () => ["anthropic"],
+			listModelsByProvider: async () => new Map([["anthropic", []]]),
+			complete: async (req: { messages: { role: string; content: { text?: string }[] }[] }) => {
+				const sysMsg = req.messages.find((message) => message.role === "system");
+				if (sysMsg) {
+					capturedSystemPrompt = sysMsg.content.map((part) => part.text ?? "").join("");
+				}
+				return response;
+			},
+			stream: async function* (req: {
+				messages: { role: string; content: { text?: string }[] }[];
+			}) {
+				const sysMsg = req.messages.find((message) => message.role === "system");
+				if (sysMsg) {
+					capturedSystemPrompt = sysMsg.content.map((part) => part.text ?? "").join("");
+				}
+				yield { type: "finish", response };
+			},
+		} as unknown as Client;
+
+		const result = await createAgent({
+			genomePath: sharedGenomePath,
+			rootDir,
+			workDir: tempDir,
+			client: promptClient,
+			providerIdOverride: sharedResolverContext.providerId,
+			resolverSettings: sharedResolverContext.resolverSettings,
+			nonInteractive: true,
+		});
+
+		await result.agent.run("test non-interactive guidance");
+
+		expect(capturedSystemPrompt).toContain("Non-interactive run");
+		expect(capturedSystemPrompt).toContain("There is no human available");
+		expect(capturedSystemPrompt).toContain("When delegating");
+		expect(capturedSystemPrompt).toContain("Pass complete, definitive instructions");
+		expect(capturedSystemPrompt).toContain("Include exact literals");
+		expect(capturedSystemPrompt).toContain("permissions or authority");
+		expect(capturedSystemPrompt).toContain("only use sudo when it is truly needed");
+		expect(capturedSystemPrompt).toContain("adapt and retry");
+		expect(capturedSystemPrompt).toContain("forward them verbatim");
+		expect(capturedSystemPrompt).toContain("Do not replace exact values with placeholders");
+	});
 });

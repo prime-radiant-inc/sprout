@@ -43,6 +43,7 @@ export interface SessionBootstrapOptions {
 	sessionId: string;
 	atifPath?: string;
 	evalMode?: boolean;
+	nonInteractive?: boolean;
 	initialHistory?: Message[];
 	initialSelectionRequest?: SessionSelectionRequest;
 	completedHandles?: Array<{ handleId: string; result: ResultMessage; ownerId: string }>;
@@ -96,6 +97,7 @@ interface InteractiveBootstrapDeps {
 		rootDir: string;
 		sessionId: string;
 		evalMode?: boolean;
+		nonInteractive?: boolean;
 		initialHistory?: Message[];
 		initialSelection?: SessionSelectionSnapshot;
 		resolveSelection?: (selection: SessionSelectionRequest) => SessionSelectionSnapshot;
@@ -169,6 +171,7 @@ export async function bootstrapSessionRuntime(
 					rootDir: controllerOpts.rootDir,
 					sessionId: controllerOpts.sessionId,
 					evalMode: controllerOpts.evalMode,
+					nonInteractive: controllerOpts.nonInteractive,
 					initialHistory: controllerOpts.initialHistory,
 					initialSelection: controllerOpts.initialSelection,
 					resolveSelection: controllerOpts.resolveSelection,
@@ -228,10 +231,15 @@ export async function bootstrapSessionRuntime(
 			secretStore,
 			secretBackend: secretRefBackend,
 		});
-		if (imported.settings.providers.length > 0) {
+		const importedHasSettings =
+			imported.settings.providers.length > 0 ||
+			imported.settings.defaults.best !== undefined ||
+			imported.settings.defaults.balanced !== undefined ||
+			imported.settings.defaults.fast !== undefined;
+		if (importedHasSettings) {
 			settings = imported.settings;
 			initialValidationErrors = imported.validationErrorsByProvider;
-			if (secretRefBackend !== "memory") {
+			if (secretRefBackend !== "memory" && imported.settings.providers.length > 0) {
 				await settingsStore.save(imported.settings);
 			}
 		}
@@ -280,6 +288,7 @@ export async function bootstrapSessionRuntime(
 		rootDir: opts.rootDir,
 		sessionId: opts.sessionId,
 		evalMode: opts.evalMode,
+		nonInteractive: opts.nonInteractive,
 		initialHistory: opts.initialHistory,
 		initialSelection,
 		resolveSelection,

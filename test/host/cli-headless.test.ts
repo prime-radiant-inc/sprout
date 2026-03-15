@@ -158,6 +158,7 @@ describe("runHeadlessMode", () => {
 				bootstrapRuntime: async (opts) => {
 					expect(opts.atifPath).toBe("/tmp/trajectory.json");
 					expect(opts.evalMode).toBe(true);
+					expect(opts.nonInteractive).toBe(true);
 					return {
 						bus: {
 							onEvent: () => () => {},
