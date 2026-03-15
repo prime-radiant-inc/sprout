@@ -105,6 +105,7 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("stop probing beneath");
 		expect(commandRunner).toContain("dense quoting/escaping");
 		expect(commandRunner).toContain("runtime semantics are still wrong");
+		expect(commandRunner).toContain("quiet or noninteractive flags");
 		expect(engineer).toContain("operational or system-execution task");
 		expect(engineer).toContain("do not force a TDD or commit workflow");
 		expect(engineer).toContain("Do not ask for redundant child-path checks");

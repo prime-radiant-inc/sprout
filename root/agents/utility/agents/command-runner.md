@@ -32,6 +32,9 @@ every `which`, `--version`, or missing-file check line by line.
 When inspecting system state, batch related inspection commands into as few safe
 commands as practical. If you confirm a parent path is missing, stop probing beneath
 it unless the caller explicitly asked you to prove multiple missing children.
+For verbose package-manager commands, prefer quiet or noninteractive flags when
+they are safe, then prove success with the shortest post-install checks that show
+the package or path now exists instead of relying on the full install transcript.
 When writing config or script text with dense quoting/escaping, prefer literal
 heredocs, temp files, or another whole-block write that preserves the target text
 exactly over inline one-liners that require multiple escape layers.
