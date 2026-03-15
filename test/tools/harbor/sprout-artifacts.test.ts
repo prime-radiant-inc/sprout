@@ -41,6 +41,14 @@ describe("Sprout Harbor artifacts", () => {
 		expect(adapter).toContain("--genome-path /logs/agent/agent-state/genome");
 	});
 
+	test("embedded tool wrappers use sprout internal commands instead of bun-run source files", async () => {
+		const bundle = await readFile(join(repoRoot, "src", "generated", "embedded-root.ts"), "utf-8");
+		expect(bundle).toContain("--internal-task-cli");
+		expect(bundle).toContain("--internal-mcp-cli");
+		expect(bundle).not.toContain('exec bun run "$TOOL_DIR/cli.ts"');
+		expect(bundle).not.toContain('exec bun run "$TOOL_DIR/mcp-cli.ts"');
+	});
+
 	test("python adapter syntax is valid when python3 is available", async () => {
 		if (!Bun.which("python3")) return;
 		const proc = Bun.spawn(["python3", "-m", "py_compile", "tools/harbor/sprout_agent.py"], {

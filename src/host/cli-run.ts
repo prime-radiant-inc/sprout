@@ -1,13 +1,6 @@
 import { join } from "node:path";
 import { projectDataDir as computeProjectDataDir } from "../util/project-id.ts";
 import { ulid } from "../util/ulid.ts";
-import {
-	buildInteractiveModeRuntime,
-	handleSlashCommand,
-	inputHistoryPath,
-	resolveProjectDir,
-	startBusInfrastructure,
-} from "./cli.ts";
 import { bootstrapSessionRuntime } from "./cli-bootstrap.ts";
 import { isGenomeCommand, runGenomeCommand } from "./cli-genome.ts";
 import { runHeadlessMode } from "./cli-headless.ts";
@@ -15,6 +8,13 @@ import { runInteractiveMode } from "./cli-interactive.ts";
 import { runListMode } from "./cli-list.ts";
 import { type CliCommand, USAGE } from "./cli-parse.ts";
 import { loadResumeState } from "./cli-resume.ts";
+import {
+	buildInteractiveModeRuntime,
+	handleSlashCommand,
+	inputHistoryPath,
+	resolveProjectDir,
+	startBusInfrastructure,
+} from "./cli-shared.ts";
 import { resolveRuntimeRootDir } from "./embedded-root.ts";
 import { loadSessionSummaries } from "./session-metadata.ts";
 

@@ -494,22 +494,23 @@ async function idleLoop(
 }
 
 // --- Subprocess entry point ---
-// When run as `bun src/bus/agent-process.ts`, reads config from env vars.
 
-if (import.meta.main) {
-	const busUrl = process.env.SPROUT_BUS_URL;
-	const handleId = process.env.SPROUT_HANDLE_ID;
-	const sessionId = process.env.SPROUT_SESSION_ID;
-	const genomePath = process.env.SPROUT_GENOME_PATH;
-	const workDir = process.env.SPROUT_WORK_DIR ?? process.cwd();
-	const rootDir = process.env.SPROUT_ROOT_DIR;
-	const projectDataDir = process.env.SPROUT_PROJECT_DATA_DIR;
+export async function runAgentProcessFromEnvironment(
+	env: NodeJS.ProcessEnv = process.env,
+): Promise<number> {
+	const busUrl = env.SPROUT_BUS_URL;
+	const handleId = env.SPROUT_HANDLE_ID;
+	const sessionId = env.SPROUT_SESSION_ID;
+	const genomePath = env.SPROUT_GENOME_PATH;
+	const workDir = env.SPROUT_WORK_DIR ?? process.cwd();
+	const rootDir = env.SPROUT_ROOT_DIR;
+	const projectDataDir = env.SPROUT_PROJECT_DATA_DIR;
 
 	if (!busUrl || !handleId || !sessionId || !genomePath) {
 		console.error(
 			"Missing required env vars: SPROUT_BUS_URL, SPROUT_HANDLE_ID, SPROUT_SESSION_ID, SPROUT_GENOME_PATH",
 		);
-		process.exit(1);
+		return 1;
 	}
 
 	const controller = new AbortController();
@@ -520,24 +521,27 @@ if (import.meta.main) {
 	const logPath = join(dataDir, "logs", sessionId, handleId, "session.log.jsonl");
 	const logger = new SessionLogger({ logPath, component: "agent-process", sessionId });
 
-	createAgentProcessClient(logger)
-		.then((client) =>
-			runAgentProcess({
-				busUrl,
-				handleId,
-				sessionId,
-				genomePath,
-				client,
-				workDir,
-				rootDir,
-				projectDataDir,
-				signal: controller.signal,
-				logger,
-			}),
-		)
-		.then(() => process.exit(0))
-		.catch((err) => {
-			console.error("Agent process error:", err);
-			process.exit(1);
+	try {
+		const client = await createAgentProcessClient(logger);
+		await runAgentProcess({
+			busUrl,
+			handleId,
+			sessionId,
+			genomePath,
+			client,
+			workDir,
+			rootDir,
+			projectDataDir,
+			signal: controller.signal,
+			logger,
 		});
+		return 0;
+	} catch (err) {
+		console.error("Agent process error:", err);
+		return 1;
+	}
+}
+
+if (import.meta.main) {
+	process.exit(await runAgentProcessFromEnvironment());
 }

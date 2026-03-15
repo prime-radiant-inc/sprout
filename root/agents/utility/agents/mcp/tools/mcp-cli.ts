@@ -32,6 +32,8 @@ interface McpJson {
 	mcpServers: Record<string, ServerConfig>;
 }
 
+class McpCliError extends Error {}
+
 function findFlag(args: string[], flag: string): string | undefined {
 	const idx = args.indexOf(flag);
 	if (idx !== -1 && idx + 1 < args.length) return args[idx + 1];
@@ -44,18 +46,19 @@ function loadConfig(args: string[]): McpJson {
 		const raw = readFileSync(configPath, "utf-8");
 		const parsed = JSON.parse(raw);
 		if (!parsed.mcpServers || typeof parsed.mcpServers !== "object") {
-			console.error(`Invalid config: missing "mcpServers" key in ${configPath}`);
-			process.exit(1);
+			throw new McpCliError(`Invalid config: missing "mcpServers" key in ${configPath}`);
 		}
 		return parsed as McpJson;
 	} catch (err: unknown) {
+		if (err instanceof McpCliError) {
+			throw err;
+		}
 		const code = (err as NodeJS.ErrnoException).code;
 		if (code === "ENOENT") {
-			console.error(`Config file not found: ${configPath}`);
+			throw new McpCliError(`Config file not found: ${configPath}`);
 		} else {
-			console.error(`Failed to read config: ${err}`);
+			throw new McpCliError(`Failed to read config: ${err}`);
 		}
-		process.exit(1);
 	}
 }
 
@@ -119,17 +122,15 @@ async function cmdListServers(args: string[]) {
 async function cmdListTools(args: string[]) {
 	const serverName = args[0];
 	if (!serverName) {
-		console.error("Usage: sprout-mcp list-tools <server> [--config path]");
-		process.exit(1);
+		throw new McpCliError("Usage: sprout-mcp list-tools <server> [--config path]");
 	}
 
 	const config = loadConfig(args);
 	const serverCfg = config.mcpServers[serverName];
 	if (!serverCfg) {
-		console.error(
+		throw new McpCliError(
 			`Server '${serverName}' not found. Available: ${Object.keys(config.mcpServers).join(", ")}`,
 		);
-		process.exit(1);
 	}
 
 	const client = await connectToServer(serverName, serverCfg);
@@ -162,17 +163,15 @@ async function cmdCallTool(args: string[]) {
 	const jsonArgs = rest.join(" ").trim();
 
 	if (!serverName || !toolName) {
-		console.error("Usage: sprout-mcp call-tool <server> <tool> [json-args] [--config path]");
-		process.exit(1);
+		throw new McpCliError("Usage: sprout-mcp call-tool <server> <tool> [json-args] [--config path]");
 	}
 
 	const config = loadConfig(args);
 	const serverCfg = config.mcpServers[serverName];
 	if (!serverCfg) {
-		console.error(
+		throw new McpCliError(
 			`Server '${serverName}' not found. Available: ${Object.keys(config.mcpServers).join(", ")}`,
 		);
-		process.exit(1);
 	}
 
 	let parsedArgs: Record<string, unknown> = {};
@@ -180,8 +179,7 @@ async function cmdCallTool(args: string[]) {
 		try {
 			parsedArgs = JSON.parse(jsonArgs);
 		} catch {
-			console.error(`Invalid JSON arguments: ${jsonArgs}`);
-			process.exit(1);
+			throw new McpCliError(`Invalid JSON arguments: ${jsonArgs}`);
 		}
 	}
 
@@ -190,9 +188,7 @@ async function cmdCallTool(args: string[]) {
 		const result = await client.callTool({ name: toolName, arguments: parsedArgs });
 
 		if (result.isError) {
-			console.error("Tool error:");
-			console.error(formatContent(result.content));
-			process.exit(1);
+			throw new McpCliError(`Tool error:\n${formatContent(result.content)}`);
 		}
 
 		console.log(formatContent(result.content));
@@ -201,22 +197,8 @@ async function cmdCallTool(args: string[]) {
 	}
 }
 
-// ── Main ────────────────────────────────────────────────────────────────────
-
-const [command, ...rest] = process.argv.slice(2);
-
-switch (command) {
-	case "list-servers":
-		await cmdListServers(rest);
-		break;
-	case "list-tools":
-		await cmdListTools(rest);
-		break;
-	case "call-tool":
-		await cmdCallTool(rest);
-		break;
-	default:
-		console.log(`sprout-mcp — MCP server client
+function helpText(): string {
+	return `sprout-mcp — MCP server client
 
 Usage:
   sprout-mcp list-servers           List configured MCP servers
@@ -240,9 +222,37 @@ The config file uses the standard mcpServers format:
         "headers": { "Authorization": "Bearer ..." }
       }
     }
-  }`);
-		if (command && command !== "--help" && command !== "help") {
-			process.exit(1);
+  }`;
+}
+
+export async function runSproutMcpCli(args: string[]): Promise<number> {
+	const [command, ...rest] = args;
+
+	try {
+		switch (command) {
+			case "list-servers":
+				await cmdListServers(rest);
+				return 0;
+			case "list-tools":
+				await cmdListTools(rest);
+				return 0;
+			case "call-tool":
+				await cmdCallTool(rest);
+				return 0;
+			default:
+				console.log(helpText());
+				if (command && command !== "--help" && command !== "help") {
+					return 1;
+				}
+				return 0;
 		}
-		break;
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		console.error(message);
+		return 1;
+	}
+}
+
+if (import.meta.main) {
+	process.exit(await runSproutMcpCli(process.argv.slice(2)));
 }

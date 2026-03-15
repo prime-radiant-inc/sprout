@@ -4,5 +4,15 @@ description: "Connect to MCP servers and invoke their tools"
 interpreter: bash
 ---
 #!/bin/bash
-TOOL_DIR="${SPROUT_TOOL_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)}"
-exec bun run "$TOOL_DIR/mcp-cli.ts" "$@"
+set -euo pipefail
+
+if [ -z "${SPROUT_SELF_EXECUTABLE:-}" ]; then
+  echo "Error: SPROUT_SELF_EXECUTABLE is not set" >&2
+  exit 1
+fi
+
+if [ -n "${SPROUT_SELF_ENTRYPOINT:-}" ]; then
+  exec "$SPROUT_SELF_EXECUTABLE" "$SPROUT_SELF_ENTRYPOINT" --internal-mcp-cli "$@"
+fi
+
+exec "$SPROUT_SELF_EXECUTABLE" --internal-mcp-cli "$@"

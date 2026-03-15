@@ -1,5 +1,5 @@
-import { resolve } from "node:path";
 import type { ResolverSettings } from "../agents/model-resolver.ts";
+import { buildInternalSproutCommand } from "../util/self-command.ts";
 import { ulid } from "../util/ulid.ts";
 import type { BusClient } from "./client.ts";
 import { agentInbox, agentReady, agentResult, sessionEvents } from "./topics.ts";
@@ -92,8 +92,7 @@ function defaultSpawnFn(
 	kill: () => void;
 	exited: Promise<number>;
 } {
-	const agentProcessPath = resolve(import.meta.dir, "agent-process.ts");
-	const proc = Bun.spawn(["bun", "run", agentProcessPath], {
+	const proc = Bun.spawn(buildInternalSproutCommand("agent-process"), {
 		env: { ...process.env, ...env },
 		stdout: "inherit",
 		stderr: "inherit",

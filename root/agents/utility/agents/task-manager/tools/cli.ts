@@ -36,29 +36,44 @@ function parseArgs(argv: string[]): { flags: Record<string, string>; command: st
 	return { flags, command };
 }
 
-async function main(): Promise<void> {
-	const args = process.argv.slice(2);
+interface TaskCliIo {
+	log(line: string): void;
+	error(line: string): void;
+}
+
+export async function runTaskCli(
+	args: string[],
+	options: {
+		env?: NodeJS.ProcessEnv;
+		io?: TaskCliIo;
+	} = {},
+): Promise<number> {
+	const env = options.env ?? process.env;
+	const io = options.io ?? {
+		log: (line: string) => console.log(line),
+		error: (line: string) => console.error(line),
+	};
 	const { flags, command } = parseArgs(args);
 
-	const dataDir = process.env.SPROUT_PROJECT_DATA_DIR ?? process.env.SPROUT_GENOME_PATH;
+	const dataDir = env.SPROUT_PROJECT_DATA_DIR ?? env.SPROUT_GENOME_PATH;
 	const tasksFile =
 		flags["tasks-file"] ??
-		(dataDir && process.env.SPROUT_SESSION_ID
-			? `${dataDir}/logs/${process.env.SPROUT_SESSION_ID}/tasks.json`
+		(dataDir && env.SPROUT_SESSION_ID
+			? `${dataDir}/logs/${env.SPROUT_SESSION_ID}/tasks.json`
 			: undefined);
 	if (!tasksFile) {
-		console.error(
+		io.error(
 			JSON.stringify({
 				error:
 					"No tasks file: pass --tasks-file or set SPROUT_GENOME_PATH and SPROUT_SESSION_ID",
 			}),
 		);
-		process.exit(1);
+		return 1;
 	}
 
 	if (!command) {
-		console.error(JSON.stringify({ error: `No command specified.\n${usage()}` }));
-		process.exit(1);
+		io.error(JSON.stringify({ error: `No command specified.\n${usage()}` }));
+		return 1;
 	}
 
 	const store = new TaskStore(tasksFile);
@@ -68,44 +83,44 @@ async function main(): Promise<void> {
 			case "create": {
 				const description = flags.description;
 				if (!description) {
-					console.error(JSON.stringify({ error: "create requires --description" }));
-					process.exit(1);
+					io.error(JSON.stringify({ error: "create requires --description" }));
+					return 1;
 				}
 				const task = await store.create(description, flags.prompt, flags["assigned-to"]);
-				console.log(JSON.stringify(task, null, 2));
+				io.log(JSON.stringify(task, null, 2));
 				break;
 			}
 
 			case "list": {
 				const status = flags.status as "new" | "in_progress" | "done" | "cancelled" | undefined;
 				const tasks = await store.list(status);
-				console.log(JSON.stringify(tasks, null, 2));
+				io.log(JSON.stringify(tasks, null, 2));
 				break;
 			}
 
 			case "get": {
 				const id = flags.id;
 				if (!id) {
-					console.error(JSON.stringify({ error: "get requires --id" }));
-					process.exit(1);
+					io.error(JSON.stringify({ error: "get requires --id" }));
+					return 1;
 				}
 				const task = await store.get(id);
-				console.log(JSON.stringify(task, null, 2));
+				io.log(JSON.stringify(task, null, 2));
 				break;
 			}
 
 			case "update": {
 				const id = flags.id;
 				if (!id) {
-					console.error(JSON.stringify({ error: "update requires --id" }));
-					process.exit(1);
+					io.error(JSON.stringify({ error: "update requires --id" }));
+					return 1;
 				}
 				const fields: Record<string, string | null> = {};
 				if (flags.status) fields.status = flags.status;
 				if (flags["assigned-to"] !== undefined) fields.assigned_to = flags["assigned-to"];
 				if (flags.description) fields.description = flags.description;
 				const task = await store.update(id, fields);
-				console.log(JSON.stringify(task, null, 2));
+				io.log(JSON.stringify(task, null, 2));
 				break;
 			}
 
@@ -113,22 +128,26 @@ async function main(): Promise<void> {
 				const id = flags.id;
 				const text = flags.text;
 				if (!id || !text) {
-					console.error(JSON.stringify({ error: "comment requires --id and --text" }));
-					process.exit(1);
+					io.error(JSON.stringify({ error: "comment requires --id and --text" }));
+					return 1;
 				}
 				const task = await store.comment(id, text);
-				console.log(JSON.stringify(task, null, 2));
+				io.log(JSON.stringify(task, null, 2));
 				break;
 			}
 
 			default:
-				console.error(JSON.stringify({ error: `Unknown command: ${command}\n${usage()}` }));
-				process.exit(1);
+				io.error(JSON.stringify({ error: `Unknown command: ${command}\n${usage()}` }));
+				return 1;
 		}
 	} catch (err) {
-		console.error(JSON.stringify({ error: String(err) }));
-		process.exit(1);
+		io.error(JSON.stringify({ error: String(err) }));
+		return 1;
 	}
+
+	return 0;
 }
 
-main();
+if (import.meta.main) {
+	process.exit(await runTaskCli(process.argv.slice(2)));
+}
