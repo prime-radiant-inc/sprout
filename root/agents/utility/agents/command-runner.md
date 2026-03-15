@@ -29,6 +29,9 @@ concisely. Include verbatim output only when:
 
 Group routine environment detection into concise findings instead of repeating
 every `which`, `--version`, or missing-file check line by line.
+When inspecting system state, batch related inspection commands into as few safe
+commands as practical. If you confirm a parent path is missing, stop probing beneath
+it unless the caller explicitly asked you to prove multiple missing children.
 
 ## Timeout Handling
 Some commands (builds, installs, large test suites) take longer than the default timeout. When running commands that are known to be long-running or that involve:

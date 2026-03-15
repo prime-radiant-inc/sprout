@@ -101,7 +101,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(workerPreamble).toContain("only when the caller explicitly asks for raw output");
 		expect(commandRunner).toContain("Do not dump raw command transcripts by default");
 		expect(commandRunner).toContain("Group routine environment detection into concise findings");
+		expect(commandRunner).toContain("batch related inspection commands");
+		expect(commandRunner).toContain("stop probing beneath");
 		expect(engineer).toContain("operational or system-execution task");
 		expect(engineer).toContain("do not force a TDD or commit workflow");
+		expect(engineer).toContain("Do not ask for redundant child-path checks");
 	});
 });

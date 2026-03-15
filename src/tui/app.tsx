@@ -1,5 +1,5 @@
 import { Box, Text } from "ink";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { SessionBus } from "../host/event-bus.ts";
 import {
 	createDefaultSessionSelectionSnapshot,
@@ -98,16 +98,33 @@ export function App({
 	const [showSettings, setShowSettings] = useState(false);
 	const [exitHintVisible, setExitHintVisible] = useState(false);
 	const [toolsCollapsed, setToolsCollapsed] = useState(false);
+	const settingsLoad = useRef<Promise<SettingsCommandResult> | null>(null);
+
+	const loadSettings = useCallback(async (): Promise<SettingsCommandResult | null> => {
+		if (!settingsControlPlane) return null;
+		if (settingsLoad.current) {
+			return settingsLoad.current;
+		}
+		const request = settingsControlPlane
+			.execute({ kind: "get_settings", data: {} })
+			.then((result) => {
+				setLastSettingsResult(result);
+				if (result.ok) {
+					setSettingsSnapshot(result.snapshot);
+				}
+				return result;
+			})
+			.finally(() => {
+				settingsLoad.current = null;
+			});
+		settingsLoad.current = request;
+		return request;
+	}, [settingsControlPlane]);
 
 	useEffect(() => {
 		if (!settingsControlPlane) return;
-		void settingsControlPlane.execute({ kind: "get_settings", data: {} }).then((result) => {
-			setLastSettingsResult(result);
-			if (result.ok) {
-				setSettingsSnapshot(result.snapshot);
-			}
-		});
-	}, [settingsControlPlane]);
+		void loadSettings();
+	}, [loadSettings, settingsControlPlane]);
 
 	useEffect(() => {
 		return bus.onEvent((event: SessionEvent) => {
@@ -187,16 +204,18 @@ export function App({
 				});
 				return;
 			}
-			void settingsControlPlane.execute({ kind: "get_settings", data: {} }).then((result) => {
-				setLastSettingsResult(result);
-				if (result.ok) {
-					setSettingsSnapshot(result.snapshot);
-				}
+			void loadSettings().then(() => {
 				setShowSettings(true);
 			});
 			return;
 		}
 		if (cmd.kind === "switch_model" && !cmd.selection) {
+			if (settingsControlPlane && !settingsSnapshot) {
+				void loadSettings().then(() => {
+					setShowModelPicker(true);
+				});
+				return;
+			}
 			setShowModelPicker(true);
 			return;
 		}

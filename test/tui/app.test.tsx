@@ -78,6 +78,31 @@ function createRecordingSettingsControlPlane() {
 	};
 }
 
+function createDelayedSettingsControlPlane() {
+	const snapshot = makeSettingsSnapshot();
+	const commands: Array<{ kind: string; data: Record<string, unknown> }> = [];
+	let resolveGetSettings:
+		| ((result: { ok: true; snapshot: ReturnType<typeof makeSettingsSnapshot> }) => void)
+		| undefined;
+	return {
+		commands,
+		resolve() {
+			resolveGetSettings?.({ ok: true, snapshot });
+		},
+		execute: (command: { kind: string; data: Record<string, unknown> }) => {
+			commands.push(command);
+			if (command.kind === "get_settings") {
+				return new Promise<{ ok: true; snapshot: ReturnType<typeof makeSettingsSnapshot> }>(
+					(resolve) => {
+						resolveGetSettings = resolve;
+					},
+				);
+			}
+			return Promise.resolve({ ok: true as const, snapshot });
+		},
+	};
+}
+
 /** Wait for React to flush state updates. */
 async function flush() {
 	await sleep(15);
@@ -497,6 +522,67 @@ describe("App", () => {
 		// Picker should be hidden, input area should be back
 		await waitFor(() => !(lastFrame()?.includes("Select model") ?? false));
 		expect(lastFrame()).toContain(">");
+	});
+
+	test("opening model picker waits for the initial settings snapshot before showing fallback options", async () => {
+		const commands: any[] = [];
+		const bus = new EventBus();
+		bus.onCommand((cmd) => commands.push(cmd));
+		const settingsControlPlane = createDelayedSettingsControlPlane();
+
+		const { lastFrame, stdin } = render(
+			<App
+				bus={bus}
+				sessionId="01ABCDEF12345678ABCDEF1234"
+				onSubmit={() => {}}
+				onSlashCommand={() => {}}
+				onExit={() => {}}
+				knownModels={[
+					"best",
+					"balanced",
+					"fast",
+					"anthropic-main:claude-sonnet-4-6",
+					"lmstudio:qwen2.5-coder",
+				]}
+				settingsControlPlane={settingsControlPlane as any}
+				initialSelection={makeSelectionSnapshot()}
+			/>,
+		);
+
+		stdin.write("/model");
+		await flush();
+		stdin.write("\r");
+		await flush();
+
+		expect(lastFrame()?.includes("Select model") ?? false).toBe(false);
+		expect(
+			settingsControlPlane.commands.filter((command) => command.kind === "get_settings").length,
+		).toBe(1);
+
+		settingsControlPlane.resolve();
+		await waitFor(() => lastFrame()?.includes("Select model") ?? false);
+
+		stdin.write("\x1B[B");
+		await flush();
+		stdin.write("\x1B[B");
+		await flush();
+		stdin.write("\x1B[B");
+		await flush();
+		stdin.write("\x1B[B");
+		await flush();
+		stdin.write("\x1B[B");
+		await flush();
+		stdin.write("\r");
+		await waitFor(() => commands.some((command) => command.kind === "switch_model"));
+
+		const switchCmd = commands.find((command) => command.kind === "switch_model");
+		expect(switchCmd?.data.selection).toEqual({
+			kind: "model",
+			model: {
+				providerId: "lmstudio",
+				modelId: "qwen2.5-coder",
+			},
+		});
 	});
 
 	test("/settings opens the provider settings mode", async () => {

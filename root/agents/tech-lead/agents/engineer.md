@@ -48,6 +48,7 @@ When asking command-runners to inspect or verify:
 - ask for concise findings first, not full transcripts
 - request raw output only for failures or for the specific proof you need
 - group routine capability checks into a single inspection pass
+- Do not ask for redundant child-path checks once a parent path is confirmed missing
 
 ## Test-Driven Development
 
