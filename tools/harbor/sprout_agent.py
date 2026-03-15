@@ -32,10 +32,30 @@ _ARTIFACT_EXCLUDES = [
 ]
 
 
+def _parse_model_ref(model_ref: str, label: str) -> tuple[str, str]:
+    if ":" not in model_ref:
+        raise ValueError(
+            f"Invalid {label}: {model_ref!r}. Expected a full provider:model reference."
+        )
+
+    provider, model = model_ref.split(":", 1)
+    if not provider or not model:
+        raise ValueError(
+            f"Invalid {label}: {model_ref!r}. Expected a full provider:model reference."
+        )
+
+    return provider, model
+
+
 class SproutAgent(BaseInstalledAgent):
     """Sprout agent: headless coding agent with native ATIF logging."""
 
     def __init__(self, *args, **kwargs):
+        self._default_model_overrides = {
+            "best": kwargs.pop("best_model", None),
+            "balanced": kwargs.pop("balanced_model", None),
+            "fast": kwargs.pop("fast_model", None),
+        }
         super().__init__(*args, **kwargs)
         if self._parsed_model_provider:
             self._provider = self._parsed_model_provider
@@ -43,6 +63,8 @@ class SproutAgent(BaseInstalledAgent):
         else:
             self._provider = os.environ.get("SPROUT_PROVIDER", "openai")
             self._model = self._parsed_model_name or "gpt-5-mini"
+
+        self._resolved_default_models = self._resolve_default_models()
 
     @staticmethod
     def name() -> str:
@@ -64,20 +86,22 @@ class SproutAgent(BaseInstalledAgent):
 
     def create_run_agent_commands(self, instruction: str) -> list[ExecInput]:
         escaped_instruction = shlex.quote(instruction)
-        provider_env_key = PROVIDER_ENV_KEYS.get(self._provider)
-        if not provider_env_key:
-            raise ValueError(f"Unsupported Sprout benchmark provider: {self._provider}")
 
         env = {
             "SPROUT_SECRET_BACKEND": "memory",
-            "SPROUT_DEFAULT_BEST_MODEL": f"{self._provider}:{self._model}",
-            "SPROUT_DEFAULT_BALANCED_MODEL": f"{self._provider}:{self._model}",
-            "SPROUT_DEFAULT_FAST_MODEL": f"{self._provider}:{self._model}",
+            "SPROUT_DEFAULT_BEST_MODEL": self._resolved_default_models["best"],
+            "SPROUT_DEFAULT_BALANCED_MODEL": self._resolved_default_models["balanced"],
+            "SPROUT_DEFAULT_FAST_MODEL": self._resolved_default_models["fast"],
             "XDG_CONFIG_HOME": f"{_CONTAINER_STATE_DIR}/config",
         }
-        api_key = os.environ.get(provider_env_key)
-        if api_key:
-            env[provider_env_key] = api_key
+
+        for provider in self._referenced_providers():
+            provider_env_key = PROVIDER_ENV_KEYS.get(provider)
+            if not provider_env_key:
+                raise ValueError(f"Unsupported Sprout benchmark provider: {provider}")
+            api_key = os.environ.get(provider_env_key)
+            if api_key:
+                env[provider_env_key] = api_key
 
         return [
             ExecInput(
@@ -141,6 +165,25 @@ class SproutAgent(BaseInstalledAgent):
         context.n_input_tokens = metrics.get("total_prompt_tokens", 0)
         context.n_output_tokens = metrics.get("total_completion_tokens", 0)
         context.n_cache_tokens = metrics.get("total_cached_tokens", 0)
+
+    def _fallback_model_ref(self) -> str:
+        return f"{self._provider}:{self._model}"
+
+    def _resolve_default_models(self) -> dict[str, str]:
+        defaults: dict[str, str] = {}
+        fallback = self._fallback_model_ref()
+        for slot, override in self._default_model_overrides.items():
+            model_ref = fallback if override is None else override
+            provider, model = _parse_model_ref(model_ref, f"{slot}_model")
+            defaults[slot] = f"{provider}:{model}"
+        return defaults
+
+    def _referenced_providers(self) -> set[str]:
+        providers: set[str] = set()
+        for model_ref in self._resolved_default_models.values():
+            provider, _ = _parse_model_ref(model_ref, "default model")
+            providers.add(provider)
+        return providers
 
 
 def _prune_artifacts(root: Path, excludes: list[str]) -> None:
