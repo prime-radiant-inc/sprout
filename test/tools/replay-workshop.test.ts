@@ -1,8 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-	type ReplayWorkshopCliDeps,
-	runReplayWorkshopCli,
-} from "../../tools/replay-workshop.ts";
+import { type ReplayWorkshopCliDeps, runReplayWorkshopCli } from "../../tools/replay-workshop.ts";
 
 function createIo() {
 	const stdout: string[] = [];
