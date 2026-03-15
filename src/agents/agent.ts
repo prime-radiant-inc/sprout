@@ -36,9 +36,9 @@ import type {
 	ToolDefinition,
 } from "../llm/types.ts";
 import { Msg, messageText } from "../llm/types.ts";
+import { createReplayRecorder, type ReplayRecorder } from "../replay/recorder.ts";
 import { getToolDisplayName } from "../shared/tool-display.ts";
 import { ulid } from "../util/ulid.ts";
-import { createReplayRecorder, type ReplayRecorder } from "../replay/recorder.ts";
 import { getContextWindowSize } from "./context-window.ts";
 import { AgentEventEmitter } from "./events.ts";
 import type { AgentTreeEntry, Preambles } from "./loader.ts";

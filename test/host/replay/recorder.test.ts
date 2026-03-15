@@ -3,8 +3,8 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ContentKind, type Message, type Request, type Response } from "../../../src/llm/types.ts";
-import { createReplayRecorder } from "../../../src/replay/recorder.ts";
 import { replayPathFromLogBase, resolveReplayPath } from "../../../src/replay/paths.ts";
+import { createReplayRecorder } from "../../../src/replay/recorder.ts";
 import type { ReplayTurnRecord } from "../../../src/shared/replay.ts";
 
 function makeMessage(role: Message["role"], text: string): Message {
