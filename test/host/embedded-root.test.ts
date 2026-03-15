@@ -81,4 +81,27 @@ describe("extractEmbeddedRoot", () => {
 		expect(await readFile(join(newRootDir, "root.md"), "utf-8")).toBe("# New Root\n");
 		expect(await Bun.file(join(newRootDir, "sentinel.txt")).exists()).toBe(false);
 	});
+
+	test("embeds concise execution reporting guidance for delegated workers", async () => {
+		const cacheDir = await mkdtemp(join(tmpdir(), "sprout-embedded-root-"));
+		tempDirs.push(cacheDir);
+
+		const rootDir = await extractEmbeddedRoot({ cacheDir });
+		const workerPreamble = await readFile(join(rootDir, "preambles", "worker.md"), "utf-8");
+		const commandRunner = await readFile(
+			join(rootDir, "agents", "utility", "agents", "command-runner.md"),
+			"utf-8",
+		);
+		const engineer = await readFile(
+			join(rootDir, "agents", "tech-lead", "agents", "engineer.md"),
+			"utf-8",
+		);
+
+		expect(workerPreamble).toContain("default to concise findings");
+		expect(workerPreamble).toContain("only when the caller explicitly asks for raw output");
+		expect(commandRunner).toContain("Do not dump raw command transcripts by default");
+		expect(commandRunner).toContain("Group routine environment detection into concise findings");
+		expect(engineer).toContain("operational or system-execution task");
+		expect(engineer).toContain("do not force a TDD or commit workflow");
+	});
 });

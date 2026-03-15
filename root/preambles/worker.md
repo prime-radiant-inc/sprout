@@ -14,3 +14,8 @@ editorialize unless the caller explicitly asks for analysis or interpretation.
 If the goal specifies a format or level of detail, match it exactly.
 If the goal is ambiguous about what to return, return the concrete output
 (file contents, command output, search results) rather than a description of it.
+
+When reporting results upward to another agent, default to concise findings.
+Include raw output only when the caller explicitly asks for raw output, when
+the output itself is the evidence they need, or when a command failed and the
+error text matters for the next step.
