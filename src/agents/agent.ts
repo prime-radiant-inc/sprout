@@ -1579,7 +1579,20 @@ export class Agent {
 
 				// Natural completion: no tool calls means the agent is done
 				if (toolCalls.length === 0) {
-					lastOutput = messageText(assistantMessage);
+					const finalOutput = messageText(assistantMessage);
+					if (finalOutput.trim() === "") {
+						this.history.push(
+							Msg.user(
+								"Your last response was empty. Return the requested result explicitly, or use a tool if more work is needed.",
+							),
+						);
+						this.emitAndLog("warning", agentId, this.depth, {
+							message: "Agent returned an empty final response. Asking for an explicit answer.",
+						});
+						stumbles++;
+						continue;
+					}
+					lastOutput = finalOutput;
 					break;
 				}
 

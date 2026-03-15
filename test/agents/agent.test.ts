@@ -527,6 +527,61 @@ describe("Agent", () => {
 		expect(events.collected().length).toBeGreaterThan(0);
 	});
 
+	test("empty stop response does not count as successful completion", async () => {
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				if (callCount === 1) {
+					return {
+						id: "mock-empty-stop-1",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: {
+							role: "assistant",
+							content: [],
+						},
+						finish_reason: { reason: "stop" },
+						usage: { input_tokens: 10, output_tokens: 0, total_tokens: 10 },
+					};
+				}
+				return {
+					id: "mock-empty-stop-2",
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant("Done."),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 12, output_tokens: 5, total_tokens: 17 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: leafSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+			events,
+		});
+
+		const result = await agent.run("answer the question");
+
+		expect(callCount).toBe(2);
+		expect(result.output).toBe("Done.");
+		expect(result.success).toBe(true);
+		const warnings = events.collected().filter((event) => event.kind === "warning");
+		expect(warnings.some((event) => String(event.data.message).includes("empty final response"))).toBe(
+			true,
+		);
+	});
+
 	test("agent times out after timeout_ms", async () => {
 		const timeoutSpec: AgentSpec = {
 			name: "timeout-root",
