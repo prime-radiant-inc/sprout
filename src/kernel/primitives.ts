@@ -6,6 +6,9 @@ import type { ExecutionEnvironment } from "./execution-env.ts";
 import { truncateToolOutput } from "./truncation.ts";
 import type { PrimitiveResult } from "./types.ts";
 
+const READ_FILE_LINE_PREFIX_NOTE =
+	'read_file prefixes each line as "<line_number>\\t<line_text>"; remove everything through the first tab on each line before reusing text in edit_file or apply_patch.';
+
 export interface GenomeContext {
 	genome: Genome;
 	agentName: string;
@@ -99,7 +102,7 @@ function readFilePrimitive(): Primitive {
 	return {
 		name: "read_file",
 		displayName: getToolDisplayName("read_file"),
-		description: "Read a file from the filesystem. Returns line-numbered content.",
+		description: `Read a file from the filesystem. Returns line-numbered content. ${READ_FILE_LINE_PREFIX_NOTE}`,
 		parameters: {
 			type: "object",
 			properties: {
@@ -163,7 +166,8 @@ function editFilePrimitive(): Primitive {
 	return {
 		name: "edit_file",
 		displayName: getToolDisplayName("edit_file"),
-		description: "Replace an exact string occurrence in a file.",
+		description:
+			`Replace an exact string occurrence in a file. old_string must match the raw file text exactly and must not include read_file line prefixes. ${READ_FILE_LINE_PREFIX_NOTE}`,
 		parameters: {
 			type: "object",
 			properties: {
@@ -192,7 +196,9 @@ function editFilePrimitive(): Primitive {
 					return {
 						output: "",
 						success: false,
-						error: `String not found in ${path}: "${oldStr.slice(0, 100)}"`,
+						error:
+							`String not found in ${path}: "${oldStr.slice(0, 100)}". ` +
+							READ_FILE_LINE_PREFIX_NOTE,
 					};
 				}
 

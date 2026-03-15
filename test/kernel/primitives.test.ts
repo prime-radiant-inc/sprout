@@ -75,6 +75,14 @@ describe("primitives", () => {
 			expect(result.success).toBe(false);
 			expect(result.error).toBeDefined();
 		});
+
+		test("description warns that line prefixes must be stripped before exact edits", () => {
+			const prim = registry.get("read_file");
+			expect(prim).toBeDefined();
+			expect(prim!.description).toContain("line-numbered");
+			expect(prim!.description).toContain("edit_file");
+			expect(prim!.description).toContain("first tab");
+		});
 	});
 
 	// -- write_file --
@@ -103,6 +111,13 @@ describe("primitives", () => {
 	// -- edit_file --
 
 	describe("edit_file", () => {
+		test("description warns old_string must use raw file text", () => {
+			const prim = registry.get("edit_file");
+			expect(prim).toBeDefined();
+			expect(prim!.description).toContain("raw file text");
+			expect(prim!.description).toContain("read_file");
+		});
+
 		test("replaces exact string match", async () => {
 			await env.write_file("test-edit.txt", "hello world\ngoodbye world");
 			const result = await registry.execute("edit_file", {
@@ -142,6 +157,18 @@ describe("primitives", () => {
 			});
 			expect(result.success).toBe(false);
 			expect(result.error).toContain("not found");
+		});
+
+		test("not found error explains read_file line prefixes for indented matches", async () => {
+			await env.write_file("test-edit-indented.txt", "\t# server_tokens off;\n");
+			const result = await registry.execute("edit_file", {
+				path: "test-edit-indented.txt",
+				old_string: "\t\t# server_tokens off;",
+				new_string: "\tserver_tokens off;",
+			});
+			expect(result.success).toBe(false);
+			expect(result.error).toContain("read_file");
+			expect(result.error).toContain("first tab");
 		});
 
 		test("errors when old_string matches multiple times without replace_all", async () => {
