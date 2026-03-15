@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { BusClient } from "../../src/bus/client.ts";
 import { checkHandleCompleted, extractChildHandles } from "../../src/bus/resume.ts";
+import { BusServer } from "../../src/bus/server.ts";
 import {
 	buildInteractiveModeRuntime,
 	configureTerminal,
@@ -1720,6 +1722,7 @@ describe("startBusInfrastructure", () => {
 			expect(infra.server).toBeDefined();
 			expect(infra.bus).toBeDefined();
 			expect(infra.bus.connected).toBe(true);
+			expect(infra.server.url).toMatch(/^ws:\/\/127\.0\.0\.1:\d+$/);
 			expect(infra.spawner).toBeDefined();
 			expect(typeof infra.cleanup).toBe("function");
 		} finally {
@@ -1773,6 +1776,36 @@ describe("startBusInfrastructure", () => {
 			expect(infra.spawner.getHandles()).toEqual([]);
 		} finally {
 			await infra.cleanup();
+		}
+	});
+
+	test("stops the server when client connection fails during startup", async () => {
+		const genomePath = join(tempDir, "genome-failure");
+		await mkdir(join(genomePath, ".git"), { recursive: true });
+
+		const originalConnect = BusClient.prototype.connect;
+		const originalStop = BusServer.prototype.stop;
+		let stopCount = 0;
+
+		BusClient.prototype.connect = async function connectFailure() {
+			throw new Error("socket failed");
+		};
+		BusServer.prototype.stop = async function trackedStop() {
+			stopCount++;
+			return originalStop.call(this);
+		};
+
+		try {
+			await expect(
+				startBusInfrastructure({
+					genomePath,
+					sessionId: "test-session-failure",
+				}),
+			).rejects.toThrow("socket failed");
+			expect(stopCount).toBe(1);
+		} finally {
+			BusClient.prototype.connect = originalConnect;
+			BusServer.prototype.stop = originalStop;
 		}
 	});
 });

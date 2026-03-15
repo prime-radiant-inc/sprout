@@ -39,37 +39,52 @@ export async function startBusInfrastructure(
 	const { GenomeMutationService } = await import("../bus/genome-service.ts");
 	const { Genome } = await import("../genome/genome.ts");
 
-	const server = new BusServer({ port: 0 });
-	await server.start();
-
-	const bus = new BusClient(server.url);
-	await bus.connect();
-
-	// Load the genome for the mutation service
+	const server = new BusServer({ port: 0, hostname: "127.0.0.1" });
+	let bus: InstanceType<typeof BusClient> | null = null;
+	let genomeService: InstanceType<typeof GenomeMutationService> | null = null;
+	let spawner: InstanceType<typeof AgentSpawner> | null = null;
 	const genome = new Genome(options.genomePath, options.rootDir);
+
 	try {
-		await genome.loadFromDisk();
-	} catch {
-		// Genome may not exist yet; init will happen in createAgent
+		await server.start();
+
+		bus = new BusClient(server.url);
+		await bus.connect();
+
+		try {
+			await genome.loadFromDisk();
+		} catch {
+			// Genome may not exist yet; init will happen in createAgent
+		}
+
+		genomeService = new GenomeMutationService({
+			bus,
+			genome,
+			sessionId: options.sessionId,
+		});
+		await genomeService.start();
+
+		spawner = new AgentSpawner(bus, server.url, options.sessionId);
+
+		const cleanup = async () => {
+			await genomeService?.stop();
+			spawner?.shutdown();
+			if (bus) {
+				await bus.disconnect();
+			}
+			await server.stop();
+		};
+
+		return { server, bus, spawner, genome, cleanup };
+	} catch (error) {
+		await genomeService?.stop().catch(() => {});
+		spawner?.shutdown();
+		if (bus) {
+			await bus.disconnect().catch(() => {});
+		}
+		await server.stop().catch(() => {});
+		throw error;
 	}
-
-	const genomeService = new GenomeMutationService({
-		bus,
-		genome,
-		sessionId: options.sessionId,
-	});
-	await genomeService.start();
-
-	const spawner = new AgentSpawner(bus, server.url, options.sessionId);
-
-	const cleanup = async () => {
-		await genomeService.stop();
-		spawner.shutdown();
-		await bus.disconnect();
-		await server.stop();
-	};
-
-	return { server, bus, spawner, genome, cleanup };
 }
 
 /**
