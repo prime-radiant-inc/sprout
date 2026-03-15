@@ -110,6 +110,7 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("Do not ask for redundant child-path checks");
 		expect(engineer).toContain("first establish decisive prerequisites");
 		expect(engineer).toContain("Only ask for exact file contents");
+		expect(engineer).toContain("Do not launch dependent config inspection");
 		expect(engineer).toContain("dense quoting or escaping");
 	});
 });

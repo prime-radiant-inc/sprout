@@ -33,6 +33,8 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - ask for concise findings and only the raw output needed to prove the result
 - first establish decisive prerequisites such as package manager, service manager,
   and top-level path existence before asking for exact file contents
+- Do not launch dependent config inspection, file-reading, or verification work
+  until the prerequisite inspection confirms the relevant paths or services exist
 - Only ask for exact file contents or child-path checks after you know the paths
   exist and that the contents are needed for the next step
 - when editing config with dense quoting or escaping, prefer literal whole-block
