@@ -31,6 +31,12 @@ If the task is primarily an operational or system-execution task rather than a
 code-change task, do not force a TDD or commit workflow. In that case:
 - use command-runner to inspect, execute, and verify directly
 - ask for concise findings and only the raw output needed to prove the result
+- first establish decisive prerequisites such as package manager, service manager,
+  and top-level path existence before asking for exact file contents
+- Only ask for exact file contents or child-path checks after you know the paths
+  exist and that the contents are needed for the next step
+- when editing config with dense quoting or escaping, prefer literal whole-block
+  writes or temp-file/heredoc replacements over repeated escape-heavy line surgery
 - still validate requirements incrementally before reporting DONE
 
 ## Delegating to Sub-Agents

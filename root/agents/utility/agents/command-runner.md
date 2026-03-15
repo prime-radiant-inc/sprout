@@ -32,6 +32,11 @@ every `which`, `--version`, or missing-file check line by line.
 When inspecting system state, batch related inspection commands into as few safe
 commands as practical. If you confirm a parent path is missing, stop probing beneath
 it unless the caller explicitly asked you to prove multiple missing children.
+When writing config or script text with dense quoting/escaping, prefer literal
+heredocs, temp files, or another whole-block write that preserves the target text
+exactly over inline one-liners that require multiple escape layers.
+If syntax can succeed while runtime semantics are still wrong, verify the runtime
+output that matters instead of stopping at the syntax check.
 
 ## Timeout Handling
 Some commands (builds, installs, large test suites) take longer than the default timeout. When running commands that are known to be long-running or that involve:
