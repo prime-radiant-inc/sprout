@@ -122,6 +122,24 @@ Copy this block for each task run:
 - Rationale: The decisive work happened in the depth-3 `command-runner` cleanup branch. That branch recovered from an initial `git filter-branch` warning, completed the history/object cleanup, and produced the proof lines that the later verifier confirmed independently. The task passed end-to-end in Harbor, so this run belongs in the success path even though the helper path was not especially efficient.
 - Secondary observations: `gpt-5-mini` handled the critical cleanup branch correctly but chose a heavier-than-necessary `git filter-branch` rewrite and first stumbled on the warning prompt before retrying with `FILTER_BRANCH_SQUELCH_WARNING=1`. The independent verifier passed, but it still spent a lot of tokens returning exact command transcripts instead of compressed evidence.
 
+#### vulnerable-secret
+
+- Selector: `vulnerable-secret`
+- Run directory: `/tmp/harbor-local-vulnerable-secret.uHts9a/sprout-batch-vulnerable-secret/vulnerable-secret__DagWa2b`
+- Result: `PASS`
+- Reward: `1.0`
+- Duration: `2m 55s` agent execution (`4m 19s` wall)
+- Tokens:
+  - Input: `178,931`
+  - Output: `12,913`
+- Per-model split: `openai:gpt-5.4 = 5 calls / 13,407 input / 651 output; openai:gpt-5-mini = 28 calls / 165,524 input / 12,262 output`
+- Estimated cost: `$0.1092` total (`$0.0433` gpt-5.4 + `$0.0659` gpt-5-mini)
+- Meaningful branch: `logs/01KKTF1AB9REBE64ZWYPNCBD38/01KKTF1QEQDCB2ZMVM6HMQN66N.jsonl`
+- Replay log: `logs/01KKTF1AB9REBE64ZWYPNCBD38/01KKTF1QEQDCB2ZMVM6HMQN66N.replay.jsonl`
+- Primary category: `SUCCESS_PATH`
+- Rationale: The decisive work happened in the depth-2 `command-runner` branch under the debugger. That branch ultimately solved the task by switching from failed format-string probing to direct binary inspection, locating obfuscated bytes in `.data`, XOR-decoding them to `FLAG{b4ff3r_0v3rfl0w_m4st3r_k3y_2024}`, and writing the exact flag to `/app/results.txt`. Harbor verified the result, so this belongs in the success path even though the branch took several exploratory turns first.
+- Secondary observations: The helper initially burned time on exploit-style input probing, including segmentation faults and quoting mistakes, before a later static-analysis pivot found the real answer quickly. This task shape is functionally solid, but it suggests the mixed-model debugger stack still overcommits to dynamic probing before checking cheaper binary-inspection paths.
+
 ## Verified Runtime Findings
 
 - Harbor can now install and launch the compiled Sprout binary successfully.
