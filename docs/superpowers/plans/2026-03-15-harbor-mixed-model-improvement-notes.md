@@ -147,6 +147,57 @@
   - the next prompt changes should focus on forwarding exact command names and
     suppressing upward conversational filler
 
+### Cycle 16
+
+- Experiment: require `command-runner` to treat caller-supplied decisive facts
+  as established unless later steps may have changed them.
+- Result: canceled early after enough evidence.
+- Improvement:
+  - `engineer` passed exact facts like `apt-get`, `service`, `root`, and
+    `no sudo` into the main execution branch
+- Remaining waste:
+  - the main worker still spent its first turn re-checking facts the caller had
+    already established, including whether `nginx` was present
+- Practical conclusion:
+  - the next fix needed to land in `command-runner`, not `engineer`
+
+### Cycle 17
+
+- Experiment: stop `command-runner` from re-checking decisive established facts.
+- Result: full local Harbor mixed-model run completed, but reward was `0.0`.
+- Harbor result:
+  - `112,722` input tokens
+  - `18,913` output tokens
+- Verifier failure:
+  - expected index page content `Welcome to the benchmark webserver`
+  - got `Welcome to the benchmark webserver.`
+  - expected 404 page content `Page not found - Please check your URL`
+  - got `Page not found - Please check your URL.`
+- Root cause:
+  - exact file-content literals lost their delimiters as they moved through the
+    orchestration chain, so sentence punctuation bled into the contents
+  - root delegated `exact content Welcome to the benchmark webserver` and
+    `exact content Page not found - Please check your URL` with no quotes
+  - `tech-lead` and `engineer` then treated those as ordinary prose rather than
+    immutable literals
+- Practical conclusion:
+  - exact-literal preservation must be a standard orchestration rule, not just
+    a generic non-interactive reminder
+
+### Cycle 18
+
+- Experiment: add a shared non-interactive rule in `factory.ts` telling root to
+  wrap short exact literals in quotes and preserve those delimiters.
+- Result: canceled after enough replay evidence.
+- What the replay logs showed:
+  - root still stripped both quoted file contents in its first delegation
+  - `tech-lead` then preserved one literal but mutated the other into
+    `"Page not found - Please check your URL."`
+- Practical conclusion:
+  - the generic non-interactive addendum was still too weak
+  - root and `tech-lead` need an explicit built-in delegation rule with a
+    concrete good/bad exact-literal example
+
 ## Replay Workshop Value
 
 - The replay JSONL artifacts are sufficient to inspect a real leaf turn without reconstructing the request from indirect logs.
@@ -169,16 +220,31 @@
   - `command-runner` now treats caller-supplied decisive environment facts as
     established unless contradicted by a real command result, and it forbids
     upward `if you want...` closers.
+- `167104b` (`fix: stop rechecking delegated execution facts`)
+  - `command-runner` now avoids spending turns re-checking decisive facts the
+    caller already established.
+- `e635bcc` (`fix: preserve exact literals in delegated prompts`)
+  - the non-interactive root guidance now explicitly tells root to quote short
+    exact literals and preserve those delimiters when delegating.
 
 ## Next Loop
 
-1. Re-run the local mixed-model Harbor task from commit `67b1689`.
-2. Inspect the new replay logs for the first depth-3 `gpt-5-mini` helper branches.
-3. Keep tightening the standard delegation/reporting contracts instead of adding benchmark-only behavior.
-4. Re-validate locally before spending another AWS run.
+1. Land the standard orchestrator exact-literal rule in `root.md` and
+   `tech-lead.md`, then regenerate the embedded root bundle.
+2. Re-run the local mixed-model Harbor task from that checkpoint once the
+   OpenAI key has quota again.
+3. Inspect the new root and `tech-lead` replay logs before waiting for the full
+   verifier result.
+4. Keep tightening the standard delegation/reporting contracts instead of
+   adding benchmark-only behavior.
 
 ## What To Watch Next
 
 - Whether the new spawner crash propagation removes the old "non-zero agent exit with no reward" failure class completely.
 - Whether the next waste is still transcript-heavy command output or has moved to a different agent boundary.
 - Whether `gpt-5-mini` remains viable for `fast_model` after the prompt-contract tightening.
+- Whether the next root and `tech-lead` delegations preserve quoted exact file
+  contents without adding sentence punctuation.
+- Whether the OpenAI key has enough quota for replay-workshop iterations; the
+  current key started returning `429 You exceeded your current quota` during
+  live replay experiments on the captured cycle-18 root turn.
