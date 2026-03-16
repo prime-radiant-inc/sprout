@@ -107,20 +107,20 @@ Copy this block for each task run:
 #### git-leak-recovery
 
 - Selector: `git-leak-recovery`
-- Run directory: `/tmp/harbor-local-git-leak-recovery.8c8cVv/sprout-batch-git-leak-recovery/git-leak-recovery__zrn6gwK`
+- Run directory: `/tmp/harbor-local-git-leak-recovery-rerun1.Hiv1IW/sprout-batch-git-leak-recovery-rerun1/git-leak-recovery__zEd4htx`
 - Result: `PASS`
 - Reward: `1.0`
-- Duration: `10m 50s` agent execution (`12m 41s` wall)
+- Duration: `6m 09s` agent execution (`7m 57s` wall)
 - Tokens:
-  - Input: `281,284`
-  - Output: `60,810`
-- Per-model split: `openai:gpt-5.4 = 30 calls / 96,215 input / 8,385 output; openai:gpt-5-mini = 67 calls / 185,069 input / 52,425 output`
-- Estimated cost: `$0.5174` total (`$0.3663` gpt-5.4 + `$0.1511` gpt-5-mini)
-- Meaningful branch: `logs/01KKTE56Q69N1SE9E1M57PHFPG/01KKTEH7XAT0KTND24FVEM6AAT.jsonl`
-- Replay log: `logs/01KKTE56Q69N1SE9E1M57PHFPG/01KKTEH7XAT0KTND24FVEM6AAT.replay.jsonl`
+  - Input: `117,255`
+  - Output: `28,369`
+- Per-model split: `openai:gpt-5.4 = 8 calls / 29,932 input / 2,243 output; openai:gpt-5-mini = 28 calls / 87,323 input / 26,126 output`
+- Estimated cost: `$0.1826` total (`$0.1085` gpt-5.4 + `$0.0741` gpt-5-mini)
+- Meaningful branch: `logs/01KKWGQ9Q95C48H5Q4F7PGZFX7/01KKWGV4V5TSB41XZD7EGJ4YYK.jsonl`
+- Replay log: `logs/01KKWGQ9Q95C48H5Q4F7PGZFX7/01KKWGV4V5TSB41XZD7EGJ4YYK.replay.jsonl`
 - Primary category: `SUCCESS_PATH`
-- Rationale: The decisive work happened in the depth-3 `command-runner` cleanup branch. That branch recovered from an initial `git filter-branch` warning, completed the history/object cleanup, and produced the proof lines that the later verifier confirmed independently. The task passed end-to-end in Harbor, so this run belongs in the success path even though the helper path was not especially efficient.
-- Secondary observations: `gpt-5-mini` handled the critical cleanup branch correctly but chose a heavier-than-necessary `git filter-branch` rewrite and first stumbled on the warning prompt before retrying with `FILTER_BRANCH_SQUELCH_WARNING=1`. The independent verifier passed, but it still spent a lot of tokens returning exact command transcripts instead of compressed evidence.
+- Rationale: The decisive work again happened in the depth-3 `command-runner` cleanup branch, but this time it took the smaller garbage-collection path instead of a history rewrite. That branch recovered the secret, wrote `/app/secret.txt`, expired reflogs, ran `git gc --prune=now --aggressive`, and then proved the old blob/object were gone with `git fsck`, `git cat-file`, and content searches. Harbor verified the result, so this run belongs in the success path.
+- Secondary observations: The helper was still more verbose than necessary. After `git fsck --full --no-reflogs` became clean, it kept spending turns checking the previously removed blob/object by SHA before wrapping up. Functionally this is solid, but there is still token waste in post-success proof gathering.
 
 #### vulnerable-secret
 
