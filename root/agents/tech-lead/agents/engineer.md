@@ -124,6 +124,11 @@ When asking command-runners to inspect or verify:
   archives, do not send a reader to raw-read them. Use a command-runner with an
   appropriate runtime or library to inspect schema or sample rows safely, then
   pass those concrete findings forward.
+- treat caller-supplied input paths or datasets as read-only inputs unless the
+  task explicitly says to modify them
+- Do not ask a helper to rewrite an input file, seed replacement rows, or
+  normalize source data in place just to make the implementation pass. Repair
+  the implementation or outputs instead.
 
 When delegating work that includes exact literals like file contents, commands,
 paths, or log formats:

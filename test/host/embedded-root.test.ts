@@ -155,6 +155,12 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("dense quoting/escaping");
 		expect(commandRunner).toContain("shell-variable loops or `sh -c` wrappers");
 		expect(commandRunner).toContain("Prefer simple explicit per-file checks");
+		expect(commandRunner).toContain("Treat caller-supplied input files and datasets as read-only");
+		expect(commandRunner).toContain("Do not rewrite, overwrite, seed, normalize,");
+		expect(commandRunner).toContain("or simplify those inputs");
+		expect(commandRunner).toContain("Never modify benchmark or task inputs");
+		expect(commandRunner).toContain("if the current outputs are wrong, write");
+		expect(commandRunner).toContain("the fix to the implementation or outputs instead");
 		expect(commandRunner).toContain("produces contradictory facts");
 		expect(commandRunner).toContain("Rerun a simpler explicit check");
 		expect(commandRunner).toContain("runtime semantics are still wrong");
@@ -206,6 +212,12 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("opaque binary inputs like parquet");
 		expect(engineer).toContain("do not send a reader to raw-read them");
 		expect(engineer).toContain("Use a command-runner with an");
+		expect(engineer).toContain("caller-supplied input paths or datasets");
+		expect(engineer).toContain("read-only inputs unless the");
+		expect(engineer).toContain("task explicitly says to modify them");
+		expect(engineer).toContain("Do not ask a helper to rewrite an input file");
+		expect(engineer).toContain("Repair");
+		expect(engineer).toContain("the implementation or outputs instead");
 		expect(engineer).toContain("absolute paths or structured formats");
 		expect(engineer).toContain("rediscover them from the repo");
 		expect(engineer).toContain("exact literals like file contents");

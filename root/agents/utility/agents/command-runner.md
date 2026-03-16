@@ -46,6 +46,11 @@ If the caller gives an absolute path, treat that absolute path as authoritative.
 Do not rewrite it under the working directory, drop its leading slash, or infer
 that they meant a sibling path unless a real command result proves the provided
 path is wrong and you report that contradiction explicitly.
+Treat caller-supplied input files and datasets as read-only unless the caller
+explicitly asks you to modify them. Do not rewrite, overwrite, seed, normalize,
+or simplify those inputs to make implementation or verification easier.
+Never modify benchmark or task inputs; if the current outputs are wrong, write
+the fix to the implementation or outputs instead.
 Do not spend turns re-checking decisive facts the caller already established
 unless later steps may have changed them or the caller explicitly asked for
 fresh confirmation.
