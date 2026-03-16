@@ -65,6 +65,9 @@ When asking command-runners to inspect or verify:
 - Do not ask for redundant child-path checks once a parent path is confirmed missing
 - when you already know the current privilege level or other decisive environment
   facts, tell the command-runner explicitly so it can act without re-probing them
+- when prerequisite inspection establishes exact command names or missing tools,
+  pass those exact facts forward instead of generic labels like "the service
+  manager" or "use sudo if needed"
 
 ## Test-Driven Development
 

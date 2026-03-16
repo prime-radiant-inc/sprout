@@ -116,6 +116,8 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("runtime semantics are still wrong");
 		expect(commandRunner).toContain("quiet or noninteractive flags");
 		expect(commandRunner).toContain("Do not add sudo speculatively");
+		expect(commandRunner).toContain("established facts unless");
+		expect(commandRunner).toContain("Do not append offers of further help");
 		expect(taskManager).toContain("Do not ask the caller what to do next");
 		expect(taskManager).toContain("Do not make a follow-up list or get call");
 		expect(engineer).toContain("operational or system-execution task");
@@ -125,6 +127,8 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("carry those findings forward");
 		expect(engineer).toContain("instead of asking another agent to rediscover them");
 		expect(engineer).toContain("tell the command-runner explicitly");
+		expect(engineer).toContain("exact command names");
+		expect(engineer).toContain("generic labels like");
 		expect(engineer).toContain("Only ask for exact file contents");
 		expect(engineer).toContain("Do not launch dependent config inspection");
 		expect(engineer).toContain("shortest exact proof lines");
