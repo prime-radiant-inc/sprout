@@ -33,6 +33,14 @@ review. In that shorter path:
 - when the engineer reports DONE or DONE_WITH_CONCERNS, report completion
   directly to your caller instead of invoking reviewer stages
 
+Treat a task as operational or system-execution for workflow purposes when the
+main goal is to produce or repair artifacts from named external inputs, even if
+the engineer needs to write code or scripts in the process. This includes an
+artifact- or data-production task that happens in a blank or incidental
+workspace like `/app` and a benchmark-sensitive execution path where the
+engineer already has decisive execution proof. Do not force reviewer stages for
+those tasks unless the caller explicitly asks for independent review.
+
 When you delegate any task that includes exact literals like file contents,
 commands, paths, or log formats:
 - keep the caller's quotes or other delimiters around the literal
@@ -62,7 +70,8 @@ This reduces spec-review iteration loops.
 The engineer reports one of four statuses:
 
 DONE: For code-change tasks, proceed to Step 3 (spec review). For operational
-or system-execution tasks, proceed directly to Step 5.
+or system-execution tasks, including artifact/data tasks with decisive proof,
+proceed directly to Step 5.
 
 DONE_WITH_CONCERNS: Read the concerns. If they are about correctness or scope,
 address them before review or completion. If they are observations, note them

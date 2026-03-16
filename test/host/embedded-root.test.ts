@@ -112,6 +112,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(techLead).toContain("operational or system-execution task");
 		expect(techLead).toContain("do not force spec-review");
 		expect(techLead).toContain("quality-review ceremony");
+		expect(techLead).toContain("artifact- or data-production task");
+		expect(techLead).toContain("workspace like `/app`");
+		expect(techLead).toContain("benchmark-sensitive execution path");
+		expect(techLead).toContain("decisive execution proof");
 		expect(techLead).toContain("Do not ask for exact command lists");
 		expect(techLead).toContain("exact literals like file contents");
 		expect(techLead).toContain('exact content "Welcome to the benchmark webserver"');
