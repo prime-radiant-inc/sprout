@@ -562,9 +562,11 @@ describe("buildWaitAgentTool", () => {
 		const tool = buildWaitAgentTool();
 		expect(tool.name).toBe("wait_agent");
 		expect(tool.description).toBeTruthy();
+		expect(tool.description).toContain("continued in the background");
 		const props = (tool.parameters as any).properties;
 		expect(props.handle).toBeDefined();
 		expect(props.handle.type).toBe("string");
+		expect(props.handle.description).toContain("continued in the background");
 		expect((tool.parameters as any).required).toEqual(["handle"]);
 	});
 });
@@ -574,9 +576,11 @@ describe("buildMessageAgentTool", () => {
 		const tool = buildMessageAgentTool();
 		expect(tool.name).toBe("message_agent");
 		expect(tool.description).toBeTruthy();
+		expect(tool.description).toContain("backgrounded");
 		const props = (tool.parameters as any).properties;
 		expect(props.handle).toBeDefined();
 		expect(props.handle.type).toBe("string");
+		expect(props.handle.description).toContain("timed out");
 		expect(props.message).toBeDefined();
 		expect(props.message.type).toBe("string");
 		expect(props.blocking).toBeDefined();

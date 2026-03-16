@@ -68,13 +68,15 @@ export function buildWaitAgentTool(): ToolDefinition {
 	return {
 		name: WAIT_AGENT_TOOL_NAME,
 		displayName: getToolDisplayName(WAIT_AGENT_TOOL_NAME),
-		description: "Wait for a non-blocking agent to finish and return its result.",
+		description:
+			"Wait for an agent handle that is already running in the background to finish and return its result. Use this for handles returned by non-blocking delegate calls and for blocking delegates that timed out and continued in the background.",
 		parameters: {
 			type: "object",
 			properties: {
 				handle: {
 					type: "string",
-					description: "The handle returned by a non-blocking delegate call",
+					description:
+						"The handle returned by a non-blocking delegate call or by a blocking delegate that continued in the background after timing out",
 				},
 			},
 			required: ["handle"],
@@ -90,13 +92,14 @@ export function buildMessageAgentTool(): ToolDefinition {
 		name: MESSAGE_AGENT_TOOL_NAME,
 		displayName: getToolDisplayName(MESSAGE_AGENT_TOOL_NAME),
 		description:
-			"Send a follow-up message to an agent (running, idle, or completed) and receive its response. Completed agents are automatically resumed with their prior conversation history.",
+			"Send a follow-up message to an agent handle (running, idle, backgrounded, or completed) and receive its response. Completed agents are automatically resumed with their prior conversation history.",
 		parameters: {
 			type: "object",
 			properties: {
 				handle: {
 					type: "string",
-					description: "The handle of the agent",
+					description:
+						"The handle of the agent, including handles returned when a blocking delegate timed out and continued in the background",
 				},
 				message: {
 					type: "string",

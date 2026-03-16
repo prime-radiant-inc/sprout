@@ -2915,7 +2915,9 @@ describe("Agent", () => {
 
 		const spawnCalls: SpawnAgentOptions[] = [];
 		const spawner = {
-			spawnAgent: async (opts: SpawnAgentOptions): Promise<ResultMessage | string | { handleId: string; continuedInBackground: true }> => {
+			spawnAgent: async (
+				opts: SpawnAgentOptions,
+			): Promise<ResultMessage | string | { handleId: string; continuedInBackground: true }> => {
 				spawnCalls.push(opts);
 				return {
 					handleId: "handle-deferred",
@@ -2964,6 +2966,9 @@ describe("Agent", () => {
 			: null;
 		const resultText = resultPart ? (resultPart as any).tool_result.content : "";
 		expect(resultText).toContain("Blocking wait timed out");
+		expect(resultText).toContain("now non-blocking");
+		expect(resultText).toContain("wait_agent");
+		expect(resultText).toContain("message_agent");
 		expect(resultText).toContain("handle-deferred");
 
 		const collected = events.collected();
