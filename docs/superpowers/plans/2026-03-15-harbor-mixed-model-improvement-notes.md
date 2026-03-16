@@ -158,6 +158,50 @@ Copy this block for each task run:
 - Rationale: The decisive branch was the second depth-3 `command-runner` repair branch, because it produced the final `summary.csv` artifact that Harbor verified and failed. The earlier pivoted two-row CSV branch was superseded by root’s correction loop. The repair branch fixed the file shape and row order, but it still counted raw severity words anywhere in the line with `grep -w ERROR|WARNING|INFO` instead of counting the bracketed severity field. Real log messages contain extra words like `Next attempt will ERROR`, so the helper overcounted immediately (`today,ERROR,414` vs verifier-expected `370`) even though the CSV structure was otherwise correct.
 - Secondary observations: The same repair branch first burned a turn on a broken shell script (`syntax error in conditional expression`) before retrying with an epoch-based script. This task also kept the heavy `tech-lead -> engineer -> command-runner` stack for a straightforward aggregation problem, but the final failure was the log-parsing semantics, not orchestration alone.
 
+#### multi-source-data-merger
+
+- Selector: `multi-source-data-merger`
+- Run directory: `/tmp/harbor-local-multi-source-data-merger.mDjMIu/sprout-batch-multi-source-data-merger/multi-source-data-merger__QHVsvaW`
+- Result: `FAIL`
+- Reward: `0.0`
+- Duration: `15m 00s` agent execution timeout (`16m 55s` wall)
+- Tokens:
+  - Input: `630,998`
+  - Output: `73,321`
+- Per-model split: `openai:gpt-5.4 = 46 calls / 323,286 input / 23,761 output; openai:gpt-5-mini = 95 calls / 307,712 input / 49,560 output`
+- Estimated cost: `$1.3407` total (`$1.1646` gpt-5.4 + `$0.1760` gpt-5-mini)
+- Meaningful branch: `logs/01KKTG6DPYW7QYY8HR3053SB65/01KKTG6N4GVWDTC0JX22SDPSQ5.jsonl`
+- Replay log: `logs/01KKTG6DPYW7QYY8HR3053SB65/01KKTG6N4GVWDTC0JX22SDPSQ5.replay.jsonl`
+- Primary category: `verification sequencing failure`
+- Rationale: The decisive branch is the depth-1 `tech-lead` log because it shows the functionally successful engineer result arriving with passing tests and correct output evidence, then immediately launching a `spec-reviewer` instead of returning control to root. Harbor timed out at the full 900-second agent budget with `AgentTimeoutError`, even though the engineer branch had already produced `/app/merged_users.parquet` and `/app/conflicts.json` with the expected merged rows and conflict entries. This is not a task-logic miss; it is review ceremony consuming the benchmark budget after the task was already effectively done.
+- Secondary observations: The run also exposed two earlier inefficiencies before the timeout. First, the engineer initially treated empty `/app` as a repo-pattern search problem, spawning a `reader` branch that searched for project files and asked what to do next instead of going straight at the `/data` inputs. Second, the first “verify implementation” `command-runner` branch drifted into code mutation, trying to patch `merge_task.py` itself and even calling nonexistent `applypatch` via `exec`. Those were recovered, but they added substantial token and wall-clock waste before the timeout-causing review phase.
+
+### Cross-Task Synthesis
+
+- Batch result: `2 PASS / 2 FAIL`
+  - `git-leak-recovery`: pass
+  - `vulnerable-secret`: pass
+  - `log-summary-date-ranges`: fail
+  - `multi-source-data-merger`: fail
+- The two failures are meaningfully different:
+  - `log-summary-date-ranges` failed on task-specific parsing semantics after producing a nearly correct artifact.
+  - `multi-source-data-merger` functionally succeeded, then lost the benchmark on post-implementation review/verification sequencing.
+- The most important general issue exposed by the batch is orchestration overhead after success:
+  - on data-shaping tasks rooted at an empty `/app`, the current `root -> tech-lead -> engineer` path spends too much time on repo-pattern discovery, review ceremony, and helper verification loops after the implementation evidence already exists
+  - that is now a correctness issue, not just an efficiency complaint, because it can turn a benchmark-correct solution into a timeout
+- The second general issue is empty-workspace misframing:
+  - both data tasks showed strong pressure toward treating `/app` as a codebase to inspect first
+  - when `/app` is effectively blank and the real task inputs live elsewhere, that default framing wastes turns before the agent engages with the actual task surface
+- `gpt-5-mini` remains functionally viable as `fast_model`, but it is still responsible for most helper churn:
+  - in the three completed batch runs that required substantial helper work, it carried the majority of depth-3 calls and a large share of output tokens
+  - the problem is not simple correctness; it is that the current helper contracts let it spend too much budget on transcripts, retries, and secondary reporting
+
+### Next Fix Targets From The Batch
+
+1. Stop `tech-lead` from spending benchmark wall-clock on mandatory review stages after the engineer already has decisive execution proof for a non-interactive task.
+2. Tighten the empty-workspace delegation contract so `engineer` does not start with repo-pattern discovery when the task spec already names external input files and `/app` is blank.
+3. Keep `command-runner` in a strict execution/inspection role during verification branches; it should not drift into editing files when its job is to confirm outputs.
+
 ## Verified Runtime Findings
 
 - Harbor can now install and launch the compiled Sprout binary successfully.
