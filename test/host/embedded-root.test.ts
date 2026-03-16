@@ -87,6 +87,7 @@ describe("extractEmbeddedRoot", () => {
 		tempDirs.push(cacheDir);
 
 		const rootDir = await extractEmbeddedRoot({ cacheDir });
+		const root = await readFile(join(rootDir, "root.md"), "utf-8");
 		const workerPreamble = await readFile(join(rootDir, "preambles", "worker.md"), "utf-8");
 		const commandRunner = await readFile(
 			join(rootDir, "agents", "utility", "agents", "command-runner.md"),
@@ -102,10 +103,16 @@ describe("extractEmbeddedRoot", () => {
 			"utf-8",
 		);
 
+		expect(root).toContain("exact literals like file contents");
+		expect(root).toContain('exact content "Welcome to the benchmark webserver"');
+		expect(root).toContain("Never move trailing punctuation inside");
 		expect(techLead).toContain("operational or system-execution task");
 		expect(techLead).toContain("do not force spec-review");
 		expect(techLead).toContain("quality-review ceremony");
 		expect(techLead).toContain("Do not ask for exact command lists");
+		expect(techLead).toContain("exact literals like file contents");
+		expect(techLead).toContain('exact content "Welcome to the benchmark webserver"');
+		expect(techLead).toContain("Never move trailing punctuation inside");
 		expect(workerPreamble).toContain("default to concise findings");
 		expect(workerPreamble).toContain("only when the caller explicitly asks for raw output");
 		expect(commandRunner).toContain("Do not dump raw command transcripts by default");

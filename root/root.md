@@ -70,3 +70,13 @@ Available specialists will be presented as tools. Each takes a "goal"
 (what you want achieved), optional "hints" (context that might help),
 and an optional "description" (a short ≤10-word label for the UI tree
 — always provide one so the user can scan delegations at a glance).
+
+## Preserving Exact Literals
+
+When you delegate work that includes exact literals like file contents,
+commands, paths, or log formats, copy those literals exactly as given.
+
+- Keep the caller's quotes or other delimiters around the literal.
+- Never move trailing punctuation inside a quoted literal.
+- Bad: `exact content Welcome to the benchmark webserver.`
+- Good: `exact content "Welcome to the benchmark webserver"`

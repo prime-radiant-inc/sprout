@@ -33,6 +33,13 @@ review. In that shorter path:
 - when the engineer reports DONE or DONE_WITH_CONCERNS, report completion
   directly to your caller instead of invoking reviewer stages
 
+When you delegate any task that includes exact literals like file contents,
+commands, paths, or log formats:
+- keep the caller's quotes or other delimiters around the literal
+- Never move trailing punctuation inside a quoted literal
+- Bad: `exact content Welcome to the benchmark webserver.`
+- Good: `exact content "Welcome to the benchmark webserver"`
+
 ## Your Process
 
 ### Step 1: Dispatch the Engineer
