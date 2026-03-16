@@ -147,6 +147,9 @@ describe("extractEmbeddedRoot", () => {
 		expect(techLead).toContain("Do not tell the engineer to use a best");
 		expect(techLead).toContain("instead of inventing substitute keys");
 		expect(techLead).toContain("keys like `field`, `values`, and `selected`");
+		expect(techLead).toContain("one list entry per conflicting field");
+		expect(techLead).toContain("do not collapse multiple field conflicts");
+		expect(techLead).toContain("single per-user object");
 		expect(techLead).toContain("exact literals like file contents");
 		expect(techLead).toContain('exact content "Welcome to the benchmark webserver"');
 		expect(techLead).toContain("Never move trailing punctuation inside");
@@ -196,6 +199,9 @@ describe("extractEmbeddedRoot", () => {
 		expect(verifier).toContain("exact output schema or report shape");
 		expect(verifier).toContain("required keys, nesting, and field names");
 		expect(verifier).toContain("instead of accepting a near match");
+		expect(verifier).toContain("required record cardinality");
+		expect(verifier).toContain("requires one conflict");
+		expect(verifier).toContain("single per-user object with nested");
 		expect(editor).toContain("treat those inputs as authoritative");
 		expect(editor).toContain("do not re-read unrelated files just");
 		expect(editor).toContain("do not use read_file on opaque binary inputs");
@@ -246,6 +252,9 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("chosen_value");
 		expect(engineer).toContain("chosen_source");
 		expect(engineer).toContain("values_by_source");
+		expect(engineer).toContain("required record cardinality");
+		expect(engineer).toContain("one list entry per conflicting field");
+		expect(engineer).toContain("single per-user object");
 		expect(engineer).toContain("absolute paths or structured formats");
 		expect(engineer).toContain("rediscover them from the repo");
 		expect(engineer).toContain("exact literals like file contents");

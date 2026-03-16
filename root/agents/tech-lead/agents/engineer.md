@@ -49,6 +49,9 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - Do not invent substitute keys such as `chosen_value`, `chosen_source`, or
   `values_by_source` when the caller already specified keys like `field`,
   `values`, and `selected`
+- Treat required record cardinality as part of the exact schema. If the caller
+  expects one list entry per conflicting field, emit one list entry per
+  conflicting field rather than a single per-user object with nested field groups
 - when the task is driven by named external inputs and does not name any
   existing files under the working directory, keep the initial prerequisite
   inspection focused on those external inputs and the available runtime. The

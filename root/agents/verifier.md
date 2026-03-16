@@ -69,6 +69,8 @@ When checking that requirements are met:
   required keys, nesting, and field names instead of accepting a near match
 - Do not accept substitute keys or implementation-defined structures when the
   caller provided an exact schema
+- Verify required record cardinality too. If the schema requires one conflict
+  object per field, do not accept a single per-user object with nested field groups
 - Report which are met and which are not
 
 ## Red Flags — Words You Never Use Without Evidence

@@ -75,6 +75,9 @@ structure specified by the user."
   substitute keys or nesting stand in for the required structure.
 - If the caller specifies keys like `field`, `values`, and `selected`, forward
   those exact keys instead of inventing substitute keys.
+- Treat required record cardinality the same way. If the caller's schema implies
+  one list entry per conflicting field, do not collapse multiple field conflicts
+  into a single per-user object with nested field groups.
 
 When you delegate any task that includes exact literals like file contents,
 commands, paths, or log formats:
