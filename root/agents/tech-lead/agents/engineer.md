@@ -42,6 +42,9 @@ code-change task, do not force a TDD or commit workflow. In that case:
   output paths, repeat those exact paths in every delegated goal and do not
   replace them with generic references like "the datasets" or "the files"
 - do not replace them with generic references once you know the exact paths
+- Bad: "inspect the three input data files"
+- Good: "inspect '/data/source_a/users.json', '/data/source_b/users.csv', and
+  '/data/source_c/users.parquet'"
 - Do not launch dependent config inspection, file-reading, or verification work
   until the prerequisite inspection confirms the relevant paths or services exist
 - Only ask for exact file contents or child-path checks after you know the paths
@@ -65,8 +68,10 @@ When asking editors to make changes:
   them into phrases like "map fields into the unified schema"
 - When helper findings reveal concrete source schemas or field variants, turn
   them into an explicit per-source mapping list for the implementer instead of
-  leaving the mapping implicit. For example: source_a: id -> user_id,
-  full_name -> name, registration_date -> created_date.
+  leaving the mapping implicit. Do not just say "the given field mappings".
+  For example: source_a: id -> user_id, full_name -> name,
+  registration_date -> created_date; source_b: user_id -> user_id,
+  email_address -> email, created_at -> created_date.
 
 When asking command-runners to inspect or verify:
 - ask for concise findings first, not full transcripts

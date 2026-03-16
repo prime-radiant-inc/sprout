@@ -169,8 +169,12 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain('phrases like "map fields into the unified schema"');
 		expect(engineer).toContain("repeat those exact paths");
 		expect(engineer).toContain("do not replace them with generic references");
+		expect(engineer).toContain('Bad: "inspect the three input data files"');
+		expect(engineer).toContain('Good: "inspect \'/data/source_a/users.json\'');
 		expect(engineer).toContain("When helper findings reveal concrete source schemas");
 		expect(engineer).toContain("explicit per-source mapping list");
 		expect(engineer).toContain("source_a: id -> user_id");
+		expect(engineer).toContain("source_b: user_id -> user_id");
+		expect(engineer).toContain('Do not just say "the given field mappings"');
 	});
 });
