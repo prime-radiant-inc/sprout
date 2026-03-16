@@ -60,6 +60,13 @@ shows it is needed and `command -v sudo` succeeds.
 When writing config or script text with dense quoting/escaping, prefer literal
 heredocs, temp files, or another whole-block write that preserves the target text
 exactly over inline one-liners that require multiple escape layers.
+When checking whether a small set of named files exists or changed, avoid
+shell-variable loops or `sh -c` wrappers that add another layer of quoting
+unless the caller explicitly needs them. Prefer simple explicit per-file checks.
+If a command sequence produces contradictory facts, such as a successful write
+step followed by a claim that the named outputs are missing, do not treat that
+as decisive immediately. Rerun a simpler explicit check for the exact paths
+before concluding that the outputs are absent.
 If syntax can succeed while runtime semantics are still wrong, verify the runtime
 output that matters instead of stopping at the syntax check.
 Do not append offers of further help, optional next steps, or "if you want"

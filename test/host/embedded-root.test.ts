@@ -149,6 +149,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("batch related inspection commands");
 		expect(commandRunner).toContain("stop probing beneath");
 		expect(commandRunner).toContain("dense quoting/escaping");
+		expect(commandRunner).toContain("shell-variable loops or `sh -c` wrappers");
+		expect(commandRunner).toContain("Prefer simple explicit per-file checks");
+		expect(commandRunner).toContain("produces contradictory facts");
+		expect(commandRunner).toContain("Rerun a simpler explicit check");
 		expect(commandRunner).toContain("runtime semantics are still wrong");
 		expect(commandRunner).toContain("quiet or noninteractive flags");
 		expect(commandRunner).toContain("Do not add sudo speculatively");
