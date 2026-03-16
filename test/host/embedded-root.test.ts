@@ -139,6 +139,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(techLead).toContain("structured literal block");
 		expect(techLead).toContain("do not replace them with");
 		expect(techLead).toContain("do not dispatch helpers to rediscover");
+		expect(techLead).toContain("caller-provided schema block is already authoritative context");
+		expect(techLead).toContain("Do not ask the engineer to rediscover it from the repo");
+		expect(techLead).toContain("do not tell the");
+		expect(techLead).toContain("engineer to return NEEDS_CONTEXT");
 		expect(techLead).toContain("exact literals like file contents");
 		expect(techLead).toContain('exact content "Welcome to the benchmark webserver"');
 		expect(techLead).toContain("Never move trailing punctuation inside");
@@ -218,6 +222,11 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("Do not ask a helper to rewrite an input file");
 		expect(engineer).toContain("Repair");
 		expect(engineer).toContain("the implementation or outputs instead");
+		expect(engineer).toContain("exact structured format, schema block, or");
+		expect(engineer).toContain("example payload");
+		expect(engineer).toContain("that task text is already authoritative context");
+		expect(engineer).toContain("Do not send a helper to rediscover whether");
+		expect(engineer).toContain("Do not return NEEDS_CONTEXT just because");
 		expect(engineer).toContain("absolute paths or structured formats");
 		expect(engineer).toContain("rediscover them from the repo");
 		expect(engineer).toContain("exact literals like file contents");

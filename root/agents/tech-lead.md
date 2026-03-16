@@ -66,6 +66,10 @@ structure specified by the user."
 - If the caller already supplied the required output format, schema, or sample
   payload, do not dispatch helpers to rediscover that same format from the repo.
   Forward the caller's exact structure instead.
+- A caller-provided schema block is already authoritative context.
+  Do not ask the engineer to rediscover it from the repo, and do not tell the
+  engineer to return NEEDS_CONTEXT merely because that same schema is absent
+  from project files.
 
 When you delegate any task that includes exact literals like file contents,
 commands, paths, or log formats:

@@ -38,6 +38,12 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - when the task spec already includes absolute paths or structured formats such
   as JSON, CSV, YAML, or schema examples, carry them forward verbatim and do
   not ask another agent to rediscover them from the repo
+- when the task already includes an exact structured format, schema block, or
+  example payload, that task text is already authoritative context
+- Do not send a helper to rediscover whether that same schema exists elsewhere
+  in the repo
+- Do not return NEEDS_CONTEXT just because the caller-provided schema block is
+  absent from project files
 - when the task is driven by named external inputs and does not name any
   existing files under the working directory, keep the initial prerequisite
   inspection focused on those external inputs and the available runtime. The
