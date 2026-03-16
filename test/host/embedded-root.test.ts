@@ -122,6 +122,9 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("do not force a TDD or commit workflow");
 		expect(engineer).toContain("Do not ask for redundant child-path checks");
 		expect(engineer).toContain("first establish decisive prerequisites");
+		expect(engineer).toContain("carry those findings forward");
+		expect(engineer).toContain("instead of asking another agent to rediscover them");
+		expect(engineer).toContain("tell the command-runner explicitly");
 		expect(engineer).toContain("Only ask for exact file contents");
 		expect(engineer).toContain("Do not launch dependent config inspection");
 		expect(engineer).toContain("shortest exact proof lines");

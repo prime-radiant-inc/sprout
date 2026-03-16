@@ -33,6 +33,8 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - ask for concise findings and only the raw output needed to prove the result
 - first establish decisive prerequisites such as package manager, service manager,
   and top-level path existence before asking for exact file contents
+- when those prerequisites are known, carry those findings forward into the next
+  delegated goal instead of asking another agent to rediscover them
 - Do not launch dependent config inspection, file-reading, or verification work
   until the prerequisite inspection confirms the relevant paths or services exist
 - Only ask for exact file contents or child-path checks after you know the paths
@@ -61,6 +63,8 @@ When asking command-runners to inspect or verify:
   that demonstrate success instead of the full raw transcript
 - group routine capability checks into a single inspection pass
 - Do not ask for redundant child-path checks once a parent path is confirmed missing
+- when you already know the current privilege level or other decisive environment
+  facts, tell the command-runner explicitly so it can act without re-probing them
 
 ## Test-Driven Development
 
