@@ -80,6 +80,11 @@ commands, paths, or log formats, copy those literals exactly as given.
 - Never move trailing punctuation inside a quoted literal.
 - Bad: `exact content Welcome to the benchmark webserver.`
 - Good: `exact content "Welcome to the benchmark webserver"`
+- If the caller provides a structured literal block such as JSON, YAML, CSV,
+  CLI output, or a schema example, forward it verbatim instead of replacing it
+  with phrases like "the exact structure specified by the user."
+- Treat caller-supplied absolute paths as exact literals too. Forward them
+  verbatim and never rewrite them under a working directory.
 
 ## Verification Sequencing
 

@@ -35,6 +35,9 @@ code-change task, do not force a TDD or commit workflow. In that case:
   and top-level path existence before asking for exact file contents
 - when those prerequisites are known, carry those findings forward into the next
   delegated goal instead of asking another agent to rediscover them
+- when the task spec already includes absolute paths or structured formats such
+  as JSON, CSV, YAML, or schema examples, carry them forward verbatim and do
+  not ask another agent to rediscover them from the repo
 - Do not launch dependent config inspection, file-reading, or verification work
   until the prerequisite inspection confirms the relevant paths or services exist
 - Only ask for exact file contents or child-path checks after you know the paths
@@ -75,6 +78,9 @@ paths, or log formats:
 - Never move trailing punctuation inside a quoted literal
 - Bad: `exact content Welcome to the benchmark webserver.`
 - Good: `exact content "Welcome to the benchmark webserver"`
+- Treat caller-supplied absolute paths or structured formats as exact literals.
+  Do not rewrite absolute paths under the working directory or replace a
+  concrete schema block with a summary.
 
 ## Test-Driven Development
 

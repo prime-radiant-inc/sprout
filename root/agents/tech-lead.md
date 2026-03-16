@@ -41,12 +41,19 @@ workspace like `/app` and a benchmark-sensitive execution path where the
 engineer already has decisive execution proof. Do not force reviewer stages for
 those tasks unless the caller explicitly asks for independent review.
 
+When the task spec includes an exact path list, structured literal block,
+schema example, or sample payload, forward it verbatim to the engineer. Keep
+those literals intact and do not replace them with phrases like "the exact
+structure specified by the user."
+
 When you delegate any task that includes exact literals like file contents,
 commands, paths, or log formats:
 - keep the caller's quotes or other delimiters around the literal
 - Never move trailing punctuation inside a quoted literal
 - Bad: `exact content Welcome to the benchmark webserver.`
 - Good: `exact content "Welcome to the benchmark webserver"`
+- Treat caller-supplied absolute paths as exact literals and keep them
+  unchanged instead of rewriting them under the working directory.
 
 ## Your Process
 

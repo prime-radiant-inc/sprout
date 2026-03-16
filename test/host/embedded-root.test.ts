@@ -106,6 +106,8 @@ describe("extractEmbeddedRoot", () => {
 		expect(root).toContain("exact literals like file contents");
 		expect(root).toContain('exact content "Welcome to the benchmark webserver"');
 		expect(root).toContain("Never move trailing punctuation inside");
+		expect(root).toContain("structured literal block");
+		expect(root).toContain("forward it verbatim");
 		expect(root).toContain("Wait for implementation evidence before delegating verification");
 		expect(root).toContain("Do not dispatch verifier in parallel");
 		expect(root).toContain("explicitly asked for a baseline");
@@ -117,6 +119,8 @@ describe("extractEmbeddedRoot", () => {
 		expect(techLead).toContain("benchmark-sensitive execution path");
 		expect(techLead).toContain("decisive execution proof");
 		expect(techLead).toContain("Do not ask for exact command lists");
+		expect(techLead).toContain("structured literal block");
+		expect(techLead).toContain("do not replace them with");
 		expect(techLead).toContain("exact literals like file contents");
 		expect(techLead).toContain('exact content "Welcome to the benchmark webserver"');
 		expect(techLead).toContain("Never move trailing punctuation inside");
@@ -130,6 +134,8 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("runtime semantics are still wrong");
 		expect(commandRunner).toContain("quiet or noninteractive flags");
 		expect(commandRunner).toContain("Do not add sudo speculatively");
+		expect(commandRunner).toContain("absolute path");
+		expect(commandRunner).toContain("Do not rewrite it under the working directory");
 		expect(commandRunner).toContain("established facts unless");
 		expect(commandRunner).toContain("Do not spend turns re-checking");
 		expect(commandRunner).toContain("Do not repeat the literal command text or exit code");
@@ -153,6 +159,8 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("shortest exact proof lines");
 		expect(engineer).toContain("Do not ask command-runners to enumerate exact commands");
 		expect(engineer).toContain("dense quoting or escaping");
+		expect(engineer).toContain("absolute paths or structured formats");
+		expect(engineer).toContain("rediscover them from the repo");
 		expect(engineer).toContain("exact literals like file contents");
 		expect(engineer).toContain('exact content "Welcome to the benchmark webserver"');
 		expect(engineer).toContain("Never move trailing punctuation inside");

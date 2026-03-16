@@ -42,6 +42,10 @@ it unless the caller explicitly asked you to prove multiple missing children.
 If the caller provides decisive environment facts such as the current privilege
 level, package manager, service command, or the absence of `sudo`, treat them as
 established facts unless a real command result contradicts them.
+If the caller gives an absolute path, treat that absolute path as authoritative.
+Do not rewrite it under the working directory, drop its leading slash, or infer
+that they meant a sibling path unless a real command result proves the provided
+path is wrong and you report that contradiction explicitly.
 Do not spend turns re-checking decisive facts the caller already established
 unless later steps may have changed them or the caller explicitly asked for
 fresh confirmation.
