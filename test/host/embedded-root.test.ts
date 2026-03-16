@@ -164,5 +164,8 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("exact literals like file contents");
 		expect(engineer).toContain('exact content "Welcome to the benchmark webserver"');
 		expect(engineer).toContain("Never move trailing punctuation inside");
+		expect(engineer).toContain("field or schema mapping table");
+		expect(engineer).toContain("source-to-target direction");
+		expect(engineer).toContain('phrases like "map fields into the unified schema"');
 	});
 });

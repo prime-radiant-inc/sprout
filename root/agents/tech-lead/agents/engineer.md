@@ -56,6 +56,9 @@ When asking editors to make changes:
 - Describe the intent ("add X to function Y") and let them figure out the mechanics
 - Ask for the diff back so you can verify what changed
 - Don't micromanage line numbers — describe what should change and why
+- When the task depends on an exact field or schema mapping table, include the
+  mapping pairs verbatim in source-to-target direction instead of compressing
+  them into phrases like "map fields into the unified schema"
 
 When asking command-runners to inspect or verify:
 - ask for concise findings first, not full transcripts
@@ -81,6 +84,9 @@ paths, or log formats:
 - Treat caller-supplied absolute paths or structured formats as exact literals.
   Do not rewrite absolute paths under the working directory or replace a
   concrete schema block with a summary.
+- Treat explicit field-mapping or schema-mapping tables the same way. Keep the
+  exact pairs and their source-to-target direction instead of restating them
+  from memory.
 
 ## Test-Driven Development
 
