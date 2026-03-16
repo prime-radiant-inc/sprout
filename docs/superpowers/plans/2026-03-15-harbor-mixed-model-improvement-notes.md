@@ -45,6 +45,73 @@
 - A concise "be shorter" addendum barely helps. The standard prompts need tighter default reporting rules.
 - Delegating to `task-manager` is not itself a bug. The problem is whether the delegated agent receives a precise task and returns concise, useful evidence.
 
+## Cycle Notes After `67b1689`
+
+### Cycle 11b
+
+- Local Harbor mixed-model run passed with reward `1.0`.
+- Replay totals:
+  - `18` calls
+  - `58,879` input tokens
+  - `13,600` output tokens
+- Model split:
+  - `gpt-5.4`: `7` calls / `21,680` input / `2,589` output
+  - `gpt-5-mini`: `11` calls / `37,199` input / `11,011` output
+- Main waste:
+  - a depth-1 `task-manager` branch created tasks, then spent a second turn returning IDs and asking what to do next
+
+### Cycle 12
+
+- Local Harbor mixed-model run passed with reward `1.0` in about `5m 04s`.
+- Replay totals:
+  - `22` calls
+  - `92,015` input tokens
+  - `14,291` output tokens
+- Model split:
+  - `gpt-5.4`: `7` calls / `22,034` input / `2,708` output
+  - `gpt-5-mini`: `15` calls / `69,981` input / `11,583` output
+- Improvements over cycle 11b:
+  - the old wasteful `task-manager` bookkeeping branch disappeared
+  - root used only two turns
+  - the top-level tree shape was cleaner
+- Remaining waste:
+  - one depth-3 `gpt-5-mini` execution branch still took `12` turns to install, configure, test, and report
+  - it still inserted optional extra proof collection and a final narrative longer than the caller needed
+- Practical conclusion:
+  - cycle 12 is the best known local mixed-model baseline so far
+
+### Cycle 13
+
+- Experiment: strengthen `command-runner` with explicit batching guidance for bounded operational workflows and an instruction not to spend extra commands gathering already-requested proof.
+- Result: regression.
+- Observed behavior:
+  - `gpt-5-mini` started emitting giant all-in-one `bash -c` scripts
+  - those scripts contained broken quoting and nested shell bugs
+  - the branch got stuck retrying broken monolithic commands
+- This was not a subtle regression:
+  - the prompt change encouraged exactly the wrong behavior for `gpt-5-mini`
+- Practical conclusion:
+  - do not tell `command-runner` to batch whole operational workflows into one script
+
+### Cycle 14
+
+- Experiment: narrow the failed batching guidance into "a few focused commands or short scripts, not one monolithic script."
+- Result: still worse than cycle 12.
+- Partial replay totals before cancel:
+  - `35` calls
+  - `195,770` input tokens
+  - `18,115` output tokens
+- Model split:
+  - `gpt-5.4`: `5` calls / `14,446` input / `1,568` output
+  - `gpt-5-mini`: `30` calls / `181,324` input / `16,547` output
+- Observed behavior:
+  - the run did not produce the cycle-13-style giant broken shell script
+  - but it still over-expanded the depth-3 `gpt-5-mini` executor into a long, serial, inspection-heavy branch
+  - by the time it was canceled, one depth-3 executor branch had already reached `20+` tool-call turns and was still growing
+- Practical conclusion:
+  - even the narrowed batching wording is not an improvement over cycle 12
+  - the remaining problem is no longer a simple `command-runner` wording issue
+
 ## Replay Workshop Value
 
 - The replay JSONL artifacts are sufficient to inspect a real leaf turn without reconstructing the request from indirect logs.
