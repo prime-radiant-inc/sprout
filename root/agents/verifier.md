@@ -60,6 +60,11 @@ When checking that requirements are met:
 - Prefer targeted checks per requirement over one giant script or transcript
 - Recompute independently only when that is needed to settle the requirement or
   the caller explicitly asked for it
+- If the task includes source-specific field mappings, carry those exact
+  mappings into the verification step instead of assuming heterogeneous raw
+  inputs already use the canonical field names
+- When delegating verification of heterogeneous inputs, repeat the source-
+  specific column names or schema variants that matter for the check
 - Report which are met and which are not
 
 ## Red Flags — Words You Never Use Without Evidence

@@ -183,6 +183,12 @@ describe("extractEmbeddedRoot", () => {
 		expect(verifier).toContain("Do not require exact command lists or exit codes by default");
 		expect(verifier).toContain("only the decisive proof lines or file excerpts");
 		expect(verifier).toContain("Prefer targeted checks per requirement");
+		expect(verifier).toContain("source-specific field mappings");
+		expect(verifier).toContain("carry those exact");
+		expect(verifier).toContain("mappings into the verification step");
+		expect(verifier).toContain("instead of assuming heterogeneous raw");
+		expect(verifier).toContain("inputs already use the canonical field names");
+		expect(verifier).toContain("the canonical field names");
 		expect(editor).toContain("treat those inputs as authoritative");
 		expect(editor).toContain("do not re-read unrelated files just");
 		expect(editor).toContain("do not use read_file on opaque binary inputs");
