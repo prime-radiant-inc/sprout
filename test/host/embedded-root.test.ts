@@ -106,6 +106,9 @@ describe("extractEmbeddedRoot", () => {
 		expect(root).toContain("exact literals like file contents");
 		expect(root).toContain('exact content "Welcome to the benchmark webserver"');
 		expect(root).toContain("Never move trailing punctuation inside");
+		expect(root).toContain("Wait for implementation evidence before delegating verification");
+		expect(root).toContain("Do not dispatch verifier in parallel");
+		expect(root).toContain("explicitly asked for a baseline");
 		expect(techLead).toContain("operational or system-execution task");
 		expect(techLead).toContain("do not force spec-review");
 		expect(techLead).toContain("quality-review ceremony");

@@ -80,3 +80,14 @@ commands, paths, or log formats, copy those literals exactly as given.
 - Never move trailing punctuation inside a quoted literal.
 - Bad: `exact content Welcome to the benchmark webserver.`
 - Good: `exact content "Welcome to the benchmark webserver"`
+
+## Verification Sequencing
+
+Wait for implementation evidence before delegating verification.
+
+- Do not dispatch verifier in parallel with an implementation branch that is
+  creating the thing to be verified.
+- First wait for the implementing specialist to report concrete actions or
+  evidence, then send verifier to check the resulting state.
+- The only normal exception is when the caller explicitly asked for a baseline
+  measurement before any changes are made.
