@@ -462,10 +462,7 @@ describe("SessionController", () => {
 			// Use bus command so the error is caught by handleCommand
 			bus.emitCommand({ kind: "submit_goal", data: { goal: "Fix the bug" } });
 
-			// Give async submitGoal time to run and fail
-			await sleep(20);
-
-			expect(errorEvents.length).toBeGreaterThanOrEqual(1);
+			await waitFor(() => errorEvents.length >= 1);
 			expect(errorEvents[0].data.error).toBeDefined();
 			expect(typeof errorEvents[0].data.error).toBe("string");
 			expect(errorEvents[0].data.error).toContain("LLM failed");

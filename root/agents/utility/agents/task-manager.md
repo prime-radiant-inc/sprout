@@ -38,6 +38,11 @@ Comment on a task:
 ## Output
 
 All commands output JSON. Report results clearly and concisely to your caller.
+If create or update commands already return the IDs and statuses the caller
+asked for, use those results directly. Do not make a follow-up list or get call
+just to repeat the same information.
+When you have completed the requested task operations, report the result and
+stop. Do not ask the caller what to do next.
 
 ## Role
 

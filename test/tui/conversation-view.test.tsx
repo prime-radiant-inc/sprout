@@ -115,7 +115,7 @@ describe("ConversationView", () => {
 		const { lastFrame } = render(<ConversationView bus={bus} />);
 
 		bus.emitEvent("warning", "agent", 0, { message: "old content" });
-		await flush();
+		await waitFor(() => (lastFrame() ?? "").includes("old content"));
 		expect(lastFrame()).toContain("old content");
 
 		bus.emitEvent("session_clear", "session", 0, { new_session_id: "abc" });

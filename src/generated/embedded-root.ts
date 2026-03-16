@@ -1,7 +1,7 @@
 // biome-ignore-all lint/suspicious/noTemplateCurlyInString: embedded root files contain literal source text.
 export const embeddedRootBundle = {
-	version: "4c4cc4af9ded65f249744aed8e4e8271dccf1c00db1624bdf388114904f9e602",
-	hash: "4c4cc4af9ded65f249744aed8e4e8271dccf1c00db1624bdf388114904f9e602",
+	version: "24089ea355ba19fbfbfef746e9801b3b5d40e7ef7cd9037ffb5aa57c629dfed6",
+	hash: "24089ea355ba19fbfbfef746e9801b3b5d40e7ef7cd9037ffb5aa57c629dfed6",
 	files: [
 		{
 			path: "agents/architect.md",
@@ -136,7 +136,7 @@ export const embeddedRootBundle = {
 		{
 			path: "agents/utility/agents/task-manager.md",
 			content:
-				'---\nname: task-manager\ndescription: "Ask to track work items for this session — create tasks, list them by status, update progress, assign to agents, and add comments"\nmodel: fast\ntools: []\nagents: []\nconstraints:\n  max_turns: 20\n  can_spawn: false\n  timeout_ms: 60000\ntags:\n  - core\n  - task-management\nversion: 1\n---\nYou manage a task list for the current session using your task-cli tool.\n\nThe tasks file path is resolved automatically from the session environment.\nYou do not need to specify --tasks-file.\n\n## Commands\n\nCreate a task:\n  task-cli create --description "..." [--prompt "..."] [--assigned-to <agent>]\n\nList all tasks:\n  task-cli list [--status new|in_progress|done|cancelled]\n\nGet a specific task:\n  task-cli get --id <task-id>\n\nUpdate a task:\n  task-cli update --id <task-id> [--status <status>] [--assigned-to <agent>] [--description "..."]\n\nComment on a task:\n  task-cli comment --id <task-id> --text "..."\n\n## Output\n\nAll commands output JSON. Report results clearly and concisely to your caller.\n\n## Role\n\nYou are a data store, not a decision maker. Execute the requested operations\nand report the results. Do not make judgments about task priority or ordering.\n',
+				'---\nname: task-manager\ndescription: "Ask to track work items for this session — create tasks, list them by status, update progress, assign to agents, and add comments"\nmodel: fast\ntools: []\nagents: []\nconstraints:\n  max_turns: 20\n  can_spawn: false\n  timeout_ms: 60000\ntags:\n  - core\n  - task-management\nversion: 1\n---\nYou manage a task list for the current session using your task-cli tool.\n\nThe tasks file path is resolved automatically from the session environment.\nYou do not need to specify --tasks-file.\n\n## Commands\n\nCreate a task:\n  task-cli create --description "..." [--prompt "..."] [--assigned-to <agent>]\n\nList all tasks:\n  task-cli list [--status new|in_progress|done|cancelled]\n\nGet a specific task:\n  task-cli get --id <task-id>\n\nUpdate a task:\n  task-cli update --id <task-id> [--status <status>] [--assigned-to <agent>] [--description "..."]\n\nComment on a task:\n  task-cli comment --id <task-id> --text "..."\n\n## Output\n\nAll commands output JSON. Report results clearly and concisely to your caller.\nIf create or update commands already return the IDs and statuses the caller\nasked for, use those results directly. Do not make a follow-up list or get call\njust to repeat the same information.\nWhen you have completed the requested task operations, report the result and\nstop. Do not ask the caller what to do next.\n\n## Role\n\nYou are a data store, not a decision maker. Execute the requested operations\nand report the results. Do not make judgments about task priority or ordering.\n',
 		},
 		{
 			path: "agents/utility/agents/transcript-analyst/tools/load-transcript",

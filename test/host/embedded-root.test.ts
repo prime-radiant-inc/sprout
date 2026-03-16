@@ -92,6 +92,10 @@ describe("extractEmbeddedRoot", () => {
 			join(rootDir, "agents", "utility", "agents", "command-runner.md"),
 			"utf-8",
 		);
+		const taskManager = await readFile(
+			join(rootDir, "agents", "utility", "agents", "task-manager.md"),
+			"utf-8",
+		);
 		const techLead = await readFile(join(rootDir, "agents", "tech-lead.md"), "utf-8");
 		const engineer = await readFile(
 			join(rootDir, "agents", "tech-lead", "agents", "engineer.md"),
@@ -112,6 +116,8 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("runtime semantics are still wrong");
 		expect(commandRunner).toContain("quiet or noninteractive flags");
 		expect(commandRunner).toContain("Do not add sudo speculatively");
+		expect(taskManager).toContain("Do not ask the caller what to do next");
+		expect(taskManager).toContain("Do not make a follow-up list or get call");
 		expect(engineer).toContain("operational or system-execution task");
 		expect(engineer).toContain("do not force a TDD or commit workflow");
 		expect(engineer).toContain("Do not ask for redundant child-path checks");
