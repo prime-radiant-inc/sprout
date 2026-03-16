@@ -32,6 +32,8 @@ review. In that shorter path:
   literal command text
 - when the engineer reports DONE or DONE_WITH_CONCERNS, report completion
   directly to your caller instead of invoking reviewer stages
+- do not dispatch spec-reviewer or quality-reviewer in that path; the caller's
+  acceptance checks decide whether the produced artifacts are correct
 
 Treat a task as operational or system-execution for workflow purposes when the
 main goal is to produce or repair artifacts from named external inputs, even if
@@ -40,6 +42,9 @@ artifact- or data-production task that happens in a blank or incidental
 workspace like `/app` and a benchmark-sensitive execution path where the
 engineer already has decisive execution proof. Do not force reviewer stages for
 those tasks unless the caller explicitly asks for independent review.
+Do not send quality-reviewer to reopen scope with hermetic tests, refactors, or
+general hardening on those tasks unless the caller explicitly asked for that
+kind of review.
 
 When the task is driven by named external inputs and does not name any existing
 files under the working directory:
@@ -110,6 +115,9 @@ caller with the details. Do not try to force it.
 
 ### Step 3: Spec Compliance Review
 
+Skip this step for operational or system-execution tasks that use the shorter
+path above.
+
 Dispatch a spec-reviewer with:
 - The original task specification
 - The engineer's report of what they built
@@ -121,6 +129,9 @@ If the spec reviewer reports FAIL:
 - Never reuse a reviewer instance — always dispatch fresh
 
 ### Step 4: Code Quality Review
+
+Skip this step for operational or system-execution tasks that use the shorter
+path above.
 
 Only after spec compliance passes, dispatch a quality-reviewer with:
 - The task specification (for context)

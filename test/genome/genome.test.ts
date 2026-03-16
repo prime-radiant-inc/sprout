@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "yaml";
 import { parseAgentMarkdown, serializeAgentMarkdown } from "../../src/agents/markdown-loader.ts";
-import { Genome, git } from "../../src/genome/genome.ts";
+import { Genome, git, sanitizeGitEnv } from "../../src/genome/genome.ts";
 import { loadManifest } from "../../src/genome/root-manifest.ts";
 import type { AgentSpec, Memory, RoutingRule } from "../../src/kernel/types.ts";
 import { makeSpec } from "../helpers/make-spec.ts";
@@ -104,6 +104,27 @@ describe("Genome", () => {
 			const content = await readFile(join(root, "routing", "rules.yaml"), "utf-8");
 			const parsed = parse(content);
 			expect(parsed).toEqual([]);
+		});
+	});
+
+	describe("git helper", () => {
+		test("strips inherited git repo selection env", () => {
+			const sanitized = sanitizeGitEnv({
+				...process.env,
+				GIT_DIR: "/tmp/outer/.git",
+				GIT_WORK_TREE: "/tmp/outer",
+				GIT_INDEX_FILE: "/tmp/outer/.git/index",
+				GIT_COMMON_DIR: "/tmp/outer/.git",
+				GIT_PREFIX: "nested/",
+				KEEP_ME: "yes",
+			});
+
+			expect(sanitized.GIT_DIR).toBeUndefined();
+			expect(sanitized.GIT_WORK_TREE).toBeUndefined();
+			expect(sanitized.GIT_INDEX_FILE).toBeUndefined();
+			expect(sanitized.GIT_COMMON_DIR).toBeUndefined();
+			expect(sanitized.GIT_PREFIX).toBeUndefined();
+			expect(sanitized.KEEP_ME).toBe("yes");
 		});
 	});
 

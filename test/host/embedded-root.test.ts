@@ -138,6 +138,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(techLead).toContain("exact literals like file contents");
 		expect(techLead).toContain('exact content "Welcome to the benchmark webserver"');
 		expect(techLead).toContain("Never move trailing punctuation inside");
+		expect(techLead).toContain("produce or repair artifacts from named external inputs");
+		expect(techLead).toContain("do not dispatch spec-reviewer or quality-reviewer");
+		expect(techLead).toContain("reopen scope with hermetic tests");
+		expect(techLead).toContain("general hardening");
 		expect(workerPreamble).toContain("default to concise findings");
 		expect(workerPreamble).toContain("only when the caller explicitly asks for raw output");
 		expect(commandRunner).toContain("Do not dump raw command transcripts by default");
