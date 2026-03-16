@@ -173,7 +173,9 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("do not replace them with generic references");
 		expect(engineer).toContain('Bad: "inspect the three input data files"');
 		expect(engineer).toContain("Good: \"inspect '/data/source_a/users.json'");
-		expect(engineer).toContain('Bad: "inspect the input files, available runtime, and whether /app already');
+		expect(engineer).toContain(
+			'Bad: "inspect the input files, available runtime, and whether /app already',
+		);
 		expect(engineer).toContain("inspect the exact input files and available runtime first");
 		expect(engineer).toContain("When helper findings reveal concrete source schemas");
 		expect(engineer).toContain("explicit per-source mapping list");
