@@ -97,6 +97,10 @@ describe("extractEmbeddedRoot", () => {
 			join(rootDir, "agents", "utility", "agents", "task-manager.md"),
 			"utf-8",
 		);
+		const editor = await readFile(
+			join(rootDir, "agents", "utility", "agents", "editor.md"),
+			"utf-8",
+		);
 		const techLead = await readFile(join(rootDir, "agents", "tech-lead.md"), "utf-8");
 		const engineer = await readFile(
 			join(rootDir, "agents", "tech-lead", "agents", "engineer.md"),
@@ -121,8 +125,12 @@ describe("extractEmbeddedRoot", () => {
 		expect(techLead).toContain("Do not ask for exact command lists");
 		expect(techLead).toContain("do not reframe it as an existing `/app` project");
 		expect(techLead).toContain("do not ask the engineer to inspect `/app` scaffolds");
-		expect(techLead).toContain('Bad: "This is a code-change task in the /app project; inspect whether /app');
-		expect(techLead).toContain('Good: "This task is driven by the named input files; inspect the exact inputs');
+		expect(techLead).toContain(
+			'Bad: "This is a code-change task in the /app project; inspect whether /app',
+		);
+		expect(techLead).toContain(
+			'Good: "This task is driven by the named input files; inspect the exact inputs',
+		);
 		expect(techLead).toContain("structured literal block");
 		expect(techLead).toContain("do not replace them with");
 		expect(techLead).toContain("do not dispatch helpers to rediscover");
@@ -148,6 +156,11 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("stop after the first decisive available command");
 		expect(commandRunner).toContain('Do not add a "commands used" appendix');
 		expect(commandRunner).toContain("Do not append offers of further help");
+		expect(editor).toContain("treat those inputs as authoritative");
+		expect(editor).toContain("do not re-read unrelated files just");
+		expect(editor).toContain("do not use read_file on opaque binary inputs");
+		expect(editor).toContain('Bad: "glob /data, read the JSON and CSV, then read the Parquet file bytes');
+		expect(editor).toContain('Good: "use the caller-provided paths, mappings, and schema summary');
 		expect(taskManager).toContain("Do not ask the caller what to do next");
 		expect(taskManager).toContain("Do not make a follow-up list or get call");
 		expect(engineer).toContain("operational or system-execution task");

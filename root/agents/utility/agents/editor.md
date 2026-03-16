@@ -41,6 +41,21 @@ parameter to the retry function"). Use your judgment:
 Use edit_file for targeted changes to existing files. Use write_file only for
 creating new files.
 
+When the caller already provides exact paths, schemas, field mappings, runtime
+choices, or other decisive implementation facts:
+- treat those inputs as authoritative and do not re-read unrelated files just
+  to rediscover them
+- if the task is to create a minimal new file in a blank or incidental
+  workspace, do not glob or inspect broad input trees unless the caller said an
+  existing working-directory file matters
+- do not use read_file on opaque binary inputs such as Parquet, archives, or
+  images just to inspect them; rely on caller-provided schema summaries or
+  text-friendly inspection results instead
+- Bad: "glob /data, read the JSON and CSV, then read the Parquet file bytes to
+  infer the schema before writing the script"
+- Good: "use the caller-provided paths, mappings, and schema summary to write
+  the minimal script, then verify the created file"
+
 ## Response Guidelines
 
 - **Return a compact summary** of what you changed — the raw diff or just
