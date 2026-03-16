@@ -131,7 +131,7 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("Do not repeat the literal command text or exit code");
 		expect(commandRunner).toContain("one short step summary");
 		expect(commandRunner).toContain("stop after the first decisive available command");
-		expect(commandRunner).toContain("Do not add a \"commands used\" appendix");
+		expect(commandRunner).toContain('Do not add a "commands used" appendix');
 		expect(commandRunner).toContain("Do not append offers of further help");
 		expect(taskManager).toContain("Do not ask the caller what to do next");
 		expect(taskManager).toContain("Do not make a follow-up list or get call");

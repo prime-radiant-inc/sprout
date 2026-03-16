@@ -50,7 +50,7 @@ Notes:
 - Harbor can now install and launch the compiled Sprout binary successfully.
 - Sprout can emit `trajectory.json` and replay logs during benchmark runs.
 - The AWS smoke run passes with all defaults on `openai:gpt-5.4`.
-- The AWS smoke run also passes when only `fast_model` uses `openai:gpt-5-mini`, but it is materially slower and far more verbose.
+- The AWS smoke run also passes when only `fast_model` uses `openai:gpt-5-mini`.
 - `gpt-5-mini` is mostly being used in depth-3 helper branches, not at root or the main coordination layer.
 
 ## Root Causes Already Fixed
@@ -255,6 +255,69 @@ Notes:
 - Targeted prompt regressions passed:
   - `bun test test/host/embedded-root.test.ts test/agents/factory.test.ts`
 
+### Cycle 21
+
+- Result: passed with reward `1.0`.
+- Harbor result:
+  - about `9m 36s` agent execution
+  - `174,057` input tokens
+  - `33,191` output tokens
+- Model split:
+  - `gpt-5.4`: `11` calls / `38,540` input / `3,868` output
+  - `gpt-5-mini`: `39` calls / `135,517` input / `29,323` output
+- What improved:
+  - root no longer launched verifier before implementation evidence existed
+  - the engineer-level exact-literal rule held in the live Harbor run
+  - the mixed-model configuration is now proven viable again after the later
+    orchestration fixes
+- Cost takeaway using the current working price assumptions:
+  - `gpt-5.4` at `$2.50/$15.00` per million input/output tokens is about `$0.154`
+  - `gpt-5-mini` at `$0.25/$2.00` per million input/output tokens is about `$0.092`
+  - estimated total run cost is about `$0.247`
+  - this is still materially cheaper than the earlier all-`gpt-5.4` smoke, even
+    though the mixed run used many more tokens
+- Remaining waste:
+  - the helper layer still spends too many turns on proof-heavy execution and
+    verification reports
+  - the next improvement target should be reliability and concise upward
+    reporting inside the standard helper prompts, not benchmark-specific logic
+
+### Cycle 22
+
+- Purpose: validate `6a2b142` (`fix: shorten command runner success reports`).
+- Result: canceled as obsolete after the first useful replay evidence.
+- What the early replay showed:
+  - the old prerequisite helper still ran on the pre-`fc01bac` prompt
+  - it exhaustively probed absent package-manager and service-manager commands
+  - it still appended a `Commands used ...` transcript-style footer
+- Practical conclusion:
+  - `6a2b142` alone did not touch the main prerequisite waste
+  - the next change needed to stop exhaustive capability probing and command-list
+    appendices explicitly
+
+### Cycle 23
+
+- Purpose: validate `fc01bac` (`fix: stop exhaustive helper capability probes`).
+- Result: canceled after enough replay evidence.
+- What improved immediately:
+  - the prerequisite helper collapsed into four batched checks and a short
+    findings-only report
+  - it stopped enumerating every missing package manager and dropped the
+    `commands used` appendix
+- New regression exposed:
+  - the main execution helper delegated from `engineer` still received the
+    instruction `minimal command count`
+  - it interpreted that as license to build a brittle monolithic shell script
+  - that script reintroduced exact-literal corruption:
+    - `Welcome to the benchmark webserver .`
+    - `Page not found - Please check your URL .`
+  - it also mangled the `$binary_remote_addr` literal and needed a repair turn
+- Practical conclusion:
+  - the next function-first fix is to remove or rewrite `minimal command count`
+    guidance so helpers prefer a small number of focused commands over a single
+    fragile script
+  - this is a functionality problem, not a cost-optimization problem
+
 ## Replay Workshop Value
 
 - The replay JSONL artifacts are sufficient to inspect a real leaf turn without reconstructing the request from indirect logs.
@@ -286,14 +349,13 @@ Notes:
 
 ## Next Loop
 
-1. Land the standard orchestrator exact-literal rule in `root.md` and
-   `tech-lead.md`, then regenerate the embedded root bundle.
-2. Re-run the local mixed-model Harbor task from that checkpoint once the
-   OpenAI key has quota again.
-3. Inspect the new root and `tech-lead` replay logs before waiting for the full
-   verifier result.
-4. Keep tightening the standard delegation/reporting contracts instead of
-   adding benchmark-only behavior.
+1. Shift from cost-first tuning to function-first testing.
+2. Remove or rewrite the remaining `minimal command count` guidance that pushes
+   helpers into brittle monolithic shell scripts.
+3. Re-run the local mixed-model Harbor task and judge changes primarily on
+   correctness and workflow stability.
+4. Use estimated cost only as a secondary metric once the function-first path
+   is stable.
 
 ## What To Watch Next
 
@@ -302,6 +364,8 @@ Notes:
 - Whether `gpt-5-mini` remains viable for `fast_model` after the prompt-contract tightening.
 - Whether the next root and `tech-lead` delegations preserve quoted exact file
   contents without adding sentence punctuation.
-- Whether the OpenAI key has enough quota for replay-workshop iterations; the
-  current key started returning `429 You exceeded your current quota` during
-  live replay experiments on the captured cycle-18 root turn.
+- Whether the next helper prompt change reduces `gpt-5-mini` proof chatter
+  without causing the old literal-preservation or early-verifier regressions.
+- Whether the remaining `minimal command count` wording appears anywhere else in
+  the standard delegation chain and keeps incentivizing brittle all-in-one
+  scripts.
