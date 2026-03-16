@@ -59,12 +59,22 @@ workspace as decisive context, not missing context.
 - Do not return NEEDS_CONTEXT just because `/app` has no manifest, entrypoint,
   or scaffold yet
 - Do not ask helpers to ask which language or project layout to use in that case
+- Once prerequisite inspection already confirms the named external inputs and
+  available runtime, do not spend another helper turn inspecting whether `/app`
+  is a git repo or what project files are missing just to decide whether to
+  start. Treat the empty or incidental workspace as permission to create the
+  minimal files you need.
 - choose the smallest reasonable implementation approach from the available
   tooling and continue
 - Bad: "The workspace is empty; tell me which language and entrypoint to use."
 - Good: "The workspace is empty and the task authorizes a minimal runnable
   implementation, so I will create the smallest viable project structure and
   proceed."
+- Bad: "Before implementing, inspect whether `/app` is a git repo and what
+  project files already exist."
+- Good: "I already know the input files and runtime support, so I will create
+  the minimal implementation in `/app` directly and only inspect existing files
+  if I encounter evidence that they matter."
 
 ## Delegating to Sub-Agents
 

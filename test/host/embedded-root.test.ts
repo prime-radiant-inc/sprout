@@ -180,8 +180,12 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("workspace as decisive context");
 		expect(engineer).toContain("Do not return NEEDS_CONTEXT");
 		expect(engineer).toContain("Do not ask helpers to ask which language");
+		expect(engineer).toContain("do not spend another helper turn");
+		expect(engineer).toContain("whether `/app` is a git repo");
 		expect(engineer).toContain("choose the smallest reasonable implementation approach");
 		expect(engineer).toContain('Bad: "The workspace is empty; tell me which language');
 		expect(engineer).toContain('Good: "The workspace is empty and the task authorizes');
+		expect(engineer).toContain('Bad: "Before implementing, inspect whether `/app` is a git repo');
+		expect(engineer).toContain("I already know the input files and runtime support");
 	});
 });
