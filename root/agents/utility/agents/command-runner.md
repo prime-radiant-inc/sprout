@@ -35,6 +35,9 @@ it unless the caller explicitly asked you to prove multiple missing children.
 If the caller provides decisive environment facts such as the current privilege
 level, package manager, service command, or the absence of `sudo`, treat them as
 established facts unless a real command result contradicts them.
+Do not spend turns re-checking decisive facts the caller already established
+unless later steps may have changed them or the caller explicitly asked for
+fresh confirmation.
 For verbose package-manager commands, prefer quiet or noninteractive flags when
 they are safe, then prove success with the shortest post-install checks that show
 the package or path now exists instead of relying on the full install transcript.

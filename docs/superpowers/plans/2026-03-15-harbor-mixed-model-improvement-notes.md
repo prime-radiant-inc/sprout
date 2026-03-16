@@ -112,6 +112,41 @@
   - even the narrowed batching wording is not an improvement over cycle 12
   - the remaining problem is no longer a simple `command-runner` wording issue
 
+### Cycle 15
+
+- Experiment: tighten `engineer` so prerequisite findings must be carried into the
+  next delegated goal instead of being rediscovered.
+- Result: passed with reward `1.0`, but still worse than cycle 12 overall.
+- Harbor result:
+  - about `5m 33s` agent execution
+  - `160,891` input tokens
+  - `25,259` output tokens
+- Immediate improvement:
+  - the engineer created a separate prerequisite pass
+  - the prerequisite helper returned the decisive facts in two turns:
+    - current user `root`
+    - `sudo` absent
+    - package manager `apt-get`
+    - service manager `service`
+    - nginx absent
+    - key paths missing
+  - the main executor no longer spent turns rechecking `sudo`, `id`, or package
+    manager basics
+- Remaining waste:
+  - the engineer still forwarded generic labels like "the service manager" rather
+    than the exact `service` command, so the main executor later tried
+    `systemctl restart nginx.service`
+  - the main executor still spent `20` turns and reached `113,973` input /
+    `10,227` output tokens on its own replay log before reporting upward
+  - the first config edit still used a brittle quoted `awk` one-liner and
+    stumbled with `runaway string constant`
+  - the final worker report still ended with a human-facing
+    `If any step should be changed...` tail
+- Practical conclusion:
+  - carrying forward prerequisites is necessary and helped
+  - the next prompt changes should focus on forwarding exact command names and
+    suppressing upward conversational filler
+
 ## Replay Workshop Value
 
 - The replay JSONL artifacts are sufficient to inspect a real leaf turn without reconstructing the request from indirect logs.
@@ -122,6 +157,18 @@
 
 - Commit: `67b1689` (`fix: harden benchmark delegation and spawner exits`)
 - That commit includes the spawner crash-propagation fix, the Harbor x64 baseline build fix, and the latest prompt tightening that still passes `bun run precommit`.
+
+### Later prompt checkpoints
+
+- `a25c60a` (`fix: carry prerequisite facts into delegated execution`)
+  - `engineer` now requires operational prerequisite findings to be carried
+    into the next delegated goal.
+- `95b5b01` (`fix: forward decisive execution facts to workers`)
+  - `engineer` now tells workers to pass exact command names and missing-tool
+    facts instead of generic labels.
+  - `command-runner` now treats caller-supplied decisive environment facts as
+    established unless contradicted by a real command result, and it forbids
+    upward `if you want...` closers.
 
 ## Next Loop
 
