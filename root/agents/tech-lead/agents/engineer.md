@@ -120,6 +120,10 @@ When asking command-runners to inspect or verify:
 - when prerequisite inspection establishes exact command names or missing tools,
   pass those exact facts forward instead of generic labels like "the service
   manager" or "use sudo if needed"
+- if the task depends on opaque binary inputs like parquet, sqlite, images, or
+  archives, do not send a reader to raw-read them. Use a command-runner with an
+  appropriate runtime or library to inspect schema or sample rows safely, then
+  pass those concrete findings forward.
 
 When delegating work that includes exact literals like file contents, commands,
 paths, or log formats:

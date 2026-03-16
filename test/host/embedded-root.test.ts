@@ -102,6 +102,10 @@ describe("extractEmbeddedRoot", () => {
 			join(rootDir, "agents", "utility", "agents", "editor.md"),
 			"utf-8",
 		);
+		const reader = await readFile(
+			join(rootDir, "agents", "utility", "agents", "reader.md"),
+			"utf-8",
+		);
 		const techLead = await readFile(join(rootDir, "agents", "tech-lead.md"), "utf-8");
 		const engineer = await readFile(
 			join(rootDir, "agents", "tech-lead", "agents", "engineer.md"),
@@ -176,6 +180,10 @@ describe("extractEmbeddedRoot", () => {
 			'Bad: "glob /data, read the JSON and CSV, then read the Parquet file bytes',
 		);
 		expect(editor).toContain('Good: "use the caller-provided paths, mappings, and schema summary');
+		expect(reader).toContain("opaque binary input such as parquet");
+		expect(reader).toContain("do not use read_file on them");
+		expect(reader).toContain("explicitly asked for raw bytes");
+		expect(reader).toContain("Say so clearly");
 		expect(taskManager).toContain("Do not ask the caller what to do next");
 		expect(taskManager).toContain("Do not make a follow-up list or get call");
 		expect(engineer).toContain("operational or system-execution task");
@@ -195,6 +203,9 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("shortest exact proof lines");
 		expect(engineer).toContain("Do not ask command-runners to enumerate exact commands");
 		expect(engineer).toContain("dense quoting or escaping");
+		expect(engineer).toContain("opaque binary inputs like parquet");
+		expect(engineer).toContain("do not send a reader to raw-read them");
+		expect(engineer).toContain("Use a command-runner with an");
 		expect(engineer).toContain("absolute paths or structured formats");
 		expect(engineer).toContain("rediscover them from the repo");
 		expect(engineer).toContain("exact literals like file contents");
