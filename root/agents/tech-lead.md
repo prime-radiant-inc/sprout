@@ -41,10 +41,26 @@ workspace like `/app` and a benchmark-sensitive execution path where the
 engineer already has decisive execution proof. Do not force reviewer stages for
 those tasks unless the caller explicitly asks for independent review.
 
+When the task is driven by named external inputs and does not name any existing
+files under the working directory:
+- do not reframe it as an existing `/app` project or codebase unless the caller
+  actually named existing project files there
+- do not ask the engineer to inspect `/app` scaffolds, manifests, entrypoints,
+  or repo state in the first prerequisite pass just to decide whether work can
+  begin
+- Bad: "This is a code-change task in the /app project; inspect whether /app
+  already has a scaffold that should guide conventions"
+- Good: "This task is driven by the named input files; inspect the exact inputs
+  and available runtime first, then create the smallest implementation needed
+  in /app if no existing project files prove relevant"
+
 When the task spec includes an exact path list, structured literal block,
 schema example, or sample payload, forward it verbatim to the engineer. Keep
 those literals intact and do not replace them with phrases like "the exact
 structure specified by the user."
+- If the caller already supplied the required output format, schema, or sample
+  payload, do not dispatch helpers to rediscover that same format from the repo.
+  Forward the caller's exact structure instead.
 
 When you delegate any task that includes exact literals like file contents,
 commands, paths, or log formats:

@@ -119,8 +119,13 @@ describe("extractEmbeddedRoot", () => {
 		expect(techLead).toContain("benchmark-sensitive execution path");
 		expect(techLead).toContain("decisive execution proof");
 		expect(techLead).toContain("Do not ask for exact command lists");
+		expect(techLead).toContain("do not reframe it as an existing `/app` project");
+		expect(techLead).toContain("do not ask the engineer to inspect `/app` scaffolds");
+		expect(techLead).toContain('Bad: "This is a code-change task in the /app project; inspect whether /app');
+		expect(techLead).toContain('Good: "This task is driven by the named input files; inspect the exact inputs');
 		expect(techLead).toContain("structured literal block");
 		expect(techLead).toContain("do not replace them with");
+		expect(techLead).toContain("do not dispatch helpers to rediscover");
 		expect(techLead).toContain("exact literals like file contents");
 		expect(techLead).toContain('exact content "Welcome to the benchmark webserver"');
 		expect(techLead).toContain("Never move trailing punctuation inside");
