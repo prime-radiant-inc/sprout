@@ -132,6 +132,7 @@ describe("runInteractiveMode", () => {
 						clearPending: () => {},
 						dispose: () => {},
 					}) as any,
+				loadPricingSnapshot: async () => null,
 				buildWebOpenUrl: (port, webToken, host) =>
 					`http://${host ?? "localhost"}:${port}${webToken ? `/?token=${webToken}` : ""}`,
 				openUrl: () => {},
@@ -198,6 +199,7 @@ describe("runInteractiveMode", () => {
 						clearPending: () => {},
 						dispose: () => {},
 					}) as any,
+				loadPricingSnapshot: async () => null,
 				buildWebOpenUrl: (port, webToken, host) =>
 					`http://${host ?? "localhost"}:${port}${webToken ? `/?token=${webToken}` : ""}`,
 				openUrl: () => {},
@@ -259,6 +261,7 @@ describe("runInteractiveMode", () => {
 						clearPending: () => {},
 						dispose: () => {},
 					}) as any,
+				loadPricingSnapshot: async () => null,
 				buildWebOpenUrl: () => "http://localhost:7777",
 				openUrl: () => {},
 				logError: (line) => {
@@ -335,6 +338,7 @@ describe("runInteractiveMode", () => {
 							called.push("sigint-dispose");
 						},
 					}) as any,
+				loadPricingSnapshot: async () => null,
 				buildWebOpenUrl: () => "http://localhost:7777",
 				openUrl: () => {},
 				logError: () => {},
@@ -441,6 +445,7 @@ describe("runInteractiveMode", () => {
 						clearPending: () => {},
 						dispose: () => {},
 					}) as any,
+				loadPricingSnapshot: async () => null,
 				buildWebOpenUrl: () => "http://localhost:7777",
 				openUrl: () => {},
 				logError: () => {},
@@ -537,6 +542,7 @@ describe("runInteractiveMode", () => {
 						clearPending: () => {},
 						dispose: () => {},
 					}) as any,
+				loadPricingSnapshot: async () => null,
 				buildWebOpenUrl: () => "http://localhost:7777",
 				openUrl: () => {},
 				logError: () => {},
@@ -606,6 +612,7 @@ describe("runInteractiveMode", () => {
 						clearPending: () => {},
 						dispose: () => {},
 					}) as any,
+				loadPricingSnapshot: async () => null,
 				buildWebOpenUrl: () => "http://localhost:7777",
 				openUrl: () => {},
 				logError: () => {},
@@ -670,6 +677,7 @@ describe("runInteractiveMode", () => {
 						dispose: () => {},
 					}) as any,
 				checkWebBuildFreshness: async () => undefined,
+				loadPricingSnapshot: async () => null,
 				buildWebOpenUrl: () => "http://localhost:7777",
 				openUrl: () => {},
 				logError: (line) => {

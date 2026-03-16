@@ -143,6 +143,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(techLead).toContain("Do not ask the engineer to rediscover it from the repo");
 		expect(techLead).toContain("do not tell the");
 		expect(techLead).toContain("engineer to return NEEDS_CONTEXT");
+		expect(techLead).toContain("exact output schema or report shape");
+		expect(techLead).toContain("Do not tell the engineer to use a best");
+		expect(techLead).toContain("instead of inventing substitute keys");
+		expect(techLead).toContain("keys like `field`, `values`, and `selected`");
 		expect(techLead).toContain("exact literals like file contents");
 		expect(techLead).toContain('exact content "Welcome to the benchmark webserver"');
 		expect(techLead).toContain("Never move trailing punctuation inside");
@@ -189,6 +193,9 @@ describe("extractEmbeddedRoot", () => {
 		expect(verifier).toContain("instead of assuming heterogeneous raw");
 		expect(verifier).toContain("inputs already use the canonical field names");
 		expect(verifier).toContain("the canonical field names");
+		expect(verifier).toContain("exact output schema or report shape");
+		expect(verifier).toContain("required keys, nesting, and field names");
+		expect(verifier).toContain("instead of accepting a near match");
 		expect(editor).toContain("treat those inputs as authoritative");
 		expect(editor).toContain("do not re-read unrelated files just");
 		expect(editor).toContain("do not use read_file on opaque binary inputs");
@@ -233,6 +240,12 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("that task text is already authoritative context");
 		expect(engineer).toContain("Do not send a helper to rediscover whether");
 		expect(engineer).toContain("Do not return NEEDS_CONTEXT just because");
+		expect(engineer).toContain("exact output schema or report shape");
+		expect(engineer).toContain("implement it with the exact required keys");
+		expect(engineer).toContain("Do not invent substitute keys");
+		expect(engineer).toContain("chosen_value");
+		expect(engineer).toContain("chosen_source");
+		expect(engineer).toContain("values_by_source");
 		expect(engineer).toContain("absolute paths or structured formats");
 		expect(engineer).toContain("rediscover them from the repo");
 		expect(engineer).toContain("exact literals like file contents");

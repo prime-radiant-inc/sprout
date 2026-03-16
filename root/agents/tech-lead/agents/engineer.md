@@ -44,6 +44,11 @@ code-change task, do not force a TDD or commit workflow. In that case:
   in the repo
 - Do not return NEEDS_CONTEXT just because the caller-provided schema block is
   absent from project files
+- when the task already includes an exact output schema or report shape,
+  implement it with the exact required keys, nesting, and field names
+- Do not invent substitute keys such as `chosen_value`, `chosen_source`, or
+  `values_by_source` when the caller already specified keys like `field`,
+  `values`, and `selected`
 - when the task is driven by named external inputs and does not name any
   existing files under the working directory, keep the initial prerequisite
   inspection focused on those external inputs and the available runtime. The

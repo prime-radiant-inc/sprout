@@ -70,6 +70,11 @@ structure specified by the user."
   Do not ask the engineer to rediscover it from the repo, and do not tell the
   engineer to return NEEDS_CONTEXT merely because that same schema is absent
   from project files.
+- Treat a caller-provided exact output schema or report shape the same way.
+  Do not tell the engineer to use a best-effort interpretation, and do not let
+  substitute keys or nesting stand in for the required structure.
+- If the caller specifies keys like `field`, `values`, and `selected`, forward
+  those exact keys instead of inventing substitute keys.
 
 When you delegate any task that includes exact literals like file contents,
 commands, paths, or log formats:

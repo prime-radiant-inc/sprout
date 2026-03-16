@@ -65,6 +65,10 @@ When checking that requirements are met:
   inputs already use the canonical field names
 - When delegating verification of heterogeneous inputs, repeat the source-
   specific column names or schema variants that matter for the check
+- If the task includes an exact output schema or report shape, verify the exact
+  required keys, nesting, and field names instead of accepting a near match
+- Do not accept substitute keys or implementation-defined structures when the
+  caller provided an exact schema
 - Report which are met and which are not
 
 ## Red Flags — Words You Never Use Without Evidence
