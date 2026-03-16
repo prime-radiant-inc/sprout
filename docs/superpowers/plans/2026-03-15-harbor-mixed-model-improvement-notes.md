@@ -45,6 +45,65 @@ Notes:
 - `PYTHONPATH` must include `tools/harbor` so Harbor can import `sprout_agent:SproutAgent`.
 - Keep the job shape fixed while iterating on prompt changes so token and runtime comparisons stay meaningful.
 
+## Functionality Batch
+
+### Fixed Baseline Order
+
+Run these four local Harbor tasks in this exact order before changing prompts,
+code, or model routing:
+
+1. `git-leak-recovery`
+2. `vulnerable-secret`
+3. `log-summary-date-ranges`
+4. `multi-source-data-merger`
+
+### Fixed Baseline Run Contract
+
+- Dataset: `terminal-bench@2.0`
+- Task selector: exact `-t <task-name>` from the list above, no wildcards
+- Harbor fallback model: `openai/gpt-5.4`
+- Sprout defaults:
+  - `best_model=openai:gpt-5.4`
+  - `balanced_model=openai:gpt-5.4`
+  - `fast_model=openai:gpt-5-mini`
+- `-l 1`
+- replay logging enabled
+
+### Baseline Policy
+
+- Do not change prompts, code, or model routing until all four tasks have a
+  completed baseline record.
+- `INFRA_BLOCKED` runs do not satisfy a task's baseline record.
+- If an `INFRA_BLOCKED` run is caused only by artifact or Harbor/runtime
+  plumbing, fix it and rerun that same task, keeping both attempts in these
+  notes.
+- If an infrastructure fix changes actual agent/runtime task behavior, restart
+  the full four-task baseline from task 1.
+
+### Per-Task Record Template
+
+Copy this block for each task run:
+
+```markdown
+#### <task-name>
+
+- Selector: `<task-name>`
+- Run directory: `<path>`
+- Result: `PASS` | `FAIL` | `INFRA_BLOCKED`
+- Reward: `<value-or-unavailable>`
+- Duration: `<value-or-unavailable>`
+- Tokens:
+  - Input: `<value-or-unavailable>`
+  - Output: `<value-or-unavailable>`
+- Per-model split: `<value-or-unavailable>`
+- Estimated cost: `<value-or-unavailable>`
+- Meaningful branch: `<relative-event-log-path>`
+- Replay log: `<relative-replay-log-path-or-missing>`
+- Primary category: `SUCCESS_PATH` | `delegation/context failure` | `exact-literal or exact-output corruption` | `monolithic-script brittleness` | `over-reporting or transcript bloat` | `verification sequencing failure` | `task-specific domain failure` | `infrastructure failure` | `UNCLASSIFIED`
+- Rationale: `<one short paragraph explaining why this branch and category were chosen>`
+- Secondary observations: `<optional>`
+```
+
 ## Verified Runtime Findings
 
 - Harbor can now install and launch the compiled Sprout binary successfully.
