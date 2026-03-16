@@ -12,6 +12,39 @@
   - `balanced_model=openai:gpt-5.4`
   - `fast_model=openai:gpt-5-mini`
 
+## Local Harbor Rerun Recipe
+
+From the repo root:
+
+```bash
+bun run build:harbor-agent
+tmpdir=$(mktemp -d /tmp/harbor-local-mixed-cycleNN.XXXXXX)
+set -a
+source .env
+set +a
+export PYTHONPATH="/Users/jesse/Documents/GitHub/prime-radiant-inc/sprout/tools/harbor${PYTHONPATH:+:$PYTHONPATH}"
+cd inspo/harbor
+uv run harbor run \
+  --job-name sprout-mixed-cycleNN \
+  --jobs-dir "$tmpdir" \
+  --orchestrator local \
+  -n 1 \
+  -k 1 \
+  --agent-import-path sprout_agent:SproutAgent \
+  -m openai/gpt-5.4 \
+  --ak best_model=openai:gpt-5.4 \
+  --ak balanced_model=openai:gpt-5.4 \
+  --ak fast_model=openai:gpt-5-mini \
+  -d terminal-bench@2.0 \
+  -t nginx-request-logging \
+  -l 1
+```
+
+Notes:
+- The repo `.env` is the intended source of `OPENAI_API_KEY` for local reruns.
+- `PYTHONPATH` must include `tools/harbor` so Harbor can import `sprout_agent:SproutAgent`.
+- Keep the job shape fixed while iterating on prompt changes so token and runtime comparisons stay meaningful.
+
 ## Verified Runtime Findings
 
 - Harbor can now install and launch the compiled Sprout binary successfully.
@@ -197,6 +230,30 @@
   - the generic non-interactive addendum was still too weak
   - root and `tech-lead` need an explicit built-in delegation rule with a
     concrete good/bad exact-literal example
+
+### Cycle 19
+
+- Result: passed with reward `1.0`, but exposed a real orchestration bug.
+- Harbor result:
+  - about `5m 23s` agent execution
+  - `102,178` input tokens
+  - `34,040` output tokens
+- What the logs showed:
+  - the exact-literal fix worked end-to-end
+  - root still dispatched `verifier` immediately, before implementation evidence existed
+  - verifier correctly reported that nginx was absent and `localhost:8080` was unreachable
+  - implementation completed successfully afterward
+  - root then waited for the stale verifier result and ended with a contradictory final narrative instead of re-verifying the implemented state
+- Practical conclusion:
+  - root must not dispatch `verifier` in parallel with a branch that is creating the thing to be verified
+  - verification should start only after the implementing specialist reports concrete actions or evidence, unless the caller explicitly asked for a baseline
+
+### Cycle 20 checkpoint
+
+- Commit `a794b6c` (`fix: delay verifier until implementation evidence exists`)
+  added the standard root sequencing rule and regenerated the embedded bundle.
+- Targeted prompt regressions passed:
+  - `bun test test/host/embedded-root.test.ts test/agents/factory.test.ts`
 
 ## Replay Workshop Value
 
