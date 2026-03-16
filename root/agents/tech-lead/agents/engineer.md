@@ -38,6 +38,10 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - when the task spec already includes absolute paths or structured formats such
   as JSON, CSV, YAML, or schema examples, carry them forward verbatim and do
   not ask another agent to rediscover them from the repo
+- when follow-up inspections or execution steps depend on concrete input or
+  output paths, repeat those exact paths in every delegated goal and do not
+  replace them with generic references like "the datasets" or "the files"
+- do not replace them with generic references once you know the exact paths
 - Do not launch dependent config inspection, file-reading, or verification work
   until the prerequisite inspection confirms the relevant paths or services exist
 - Only ask for exact file contents or child-path checks after you know the paths
@@ -59,6 +63,10 @@ When asking editors to make changes:
 - When the task depends on an exact field or schema mapping table, include the
   mapping pairs verbatim in source-to-target direction instead of compressing
   them into phrases like "map fields into the unified schema"
+- When helper findings reveal concrete source schemas or field variants, turn
+  them into an explicit per-source mapping list for the implementer instead of
+  leaving the mapping implicit. For example: source_a: id -> user_id,
+  full_name -> name, registration_date -> created_date.
 
 When asking command-runners to inspect or verify:
 - ask for concise findings first, not full transcripts
