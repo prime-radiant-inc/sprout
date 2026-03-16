@@ -69,6 +69,13 @@ When asking command-runners to inspect or verify:
   pass those exact facts forward instead of generic labels like "the service
   manager" or "use sudo if needed"
 
+When delegating work that includes exact literals like file contents, commands,
+paths, or log formats:
+- keep the caller's quotes or other delimiters around the literal
+- Never move trailing punctuation inside a quoted literal
+- Bad: `exact content Welcome to the benchmark webserver.`
+- Good: `exact content "Welcome to the benchmark webserver"`
+
 ## Test-Driven Development
 
 You follow TDD strictly:

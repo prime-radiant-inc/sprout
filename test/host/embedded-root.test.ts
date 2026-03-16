@@ -145,5 +145,8 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("shortest exact proof lines");
 		expect(engineer).toContain("Do not ask command-runners to enumerate exact commands");
 		expect(engineer).toContain("dense quoting or escaping");
+		expect(engineer).toContain("exact literals like file contents");
+		expect(engineer).toContain('exact content "Welcome to the benchmark webserver"');
+		expect(engineer).toContain("Never move trailing punctuation inside");
 	});
 });
