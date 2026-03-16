@@ -40,12 +40,16 @@ You may be asked to verify:
 For every claim you verify:
 
 1. IDENTIFY: What command or check proves this claim?
-2. RUN: Execute the command fresh and completely
-3. READ: Full output — check exit codes, count failures, read error messages
+2. RUN: Execute the smallest decisive checks fresh and completely
+3. READ: Focus on the decisive proof lines, failure text, or file excerpts that answer the claim
 4. VERIFY: Does the output actually confirm the claim?
    - If NO: Report the actual state with evidence
    - If YES: Report the confirmed state with evidence
 5. ONLY THEN: State your finding
+
+Prefer the smallest decisive checks first. If a targeted existence, schema,
+behavior, or output check already settles a requirement, stop there instead of
+expanding into exhaustive recomputation.
 
 ## Verifying Requirements
 
@@ -53,6 +57,9 @@ When checking that requirements are met:
 - Re-read the original specification or plan
 - Create a checklist of every requirement
 - Verify each one individually with evidence
+- Prefer targeted checks per requirement over one giant script or transcript
+- Recompute independently only when that is needed to settle the requirement or
+  the caller explicitly asked for it
 - Report which are met and which are not
 
 ## Red Flags — Words You Never Use Without Evidence
@@ -69,9 +76,11 @@ Report:
 - FAILED: Which claims failed, with evidence showing actual state
 - PARTIAL: Which claims passed and which failed, with evidence
 
-Always include the actual command output or file contents that prove
-your findings. Your report must contain enough evidence that someone
-reading it can independently confirm your conclusions.
+Include only the decisive proof lines or file excerpts needed to support your
+findings. Do not require exact command lists or exit codes by default. Include
+verbatim command output only when the caller explicitly asked for it, the
+failure text itself is the evidence, or a short snippet is necessary to prove a
+claim.
 
 ## What You Do NOT Do
 

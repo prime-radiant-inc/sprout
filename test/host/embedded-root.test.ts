@@ -93,6 +93,7 @@ describe("extractEmbeddedRoot", () => {
 			join(rootDir, "agents", "utility", "agents", "command-runner.md"),
 			"utf-8",
 		);
+		const verifier = await readFile(join(rootDir, "agents", "verifier.md"), "utf-8");
 		const taskManager = await readFile(
 			join(rootDir, "agents", "utility", "agents", "task-manager.md"),
 			"utf-8",
@@ -156,10 +157,16 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("stop after the first decisive available command");
 		expect(commandRunner).toContain('Do not add a "commands used" appendix');
 		expect(commandRunner).toContain("Do not append offers of further help");
+		expect(verifier).toContain("Prefer the smallest decisive checks");
+		expect(verifier).toContain("Do not require exact command lists or exit codes by default");
+		expect(verifier).toContain("only the decisive proof lines or file excerpts");
+		expect(verifier).toContain("Prefer targeted checks per requirement");
 		expect(editor).toContain("treat those inputs as authoritative");
 		expect(editor).toContain("do not re-read unrelated files just");
 		expect(editor).toContain("do not use read_file on opaque binary inputs");
-		expect(editor).toContain('Bad: "glob /data, read the JSON and CSV, then read the Parquet file bytes');
+		expect(editor).toContain(
+			'Bad: "glob /data, read the JSON and CSV, then read the Parquet file bytes',
+		);
 		expect(editor).toContain('Good: "use the caller-provided paths, mappings, and schema summary');
 		expect(taskManager).toContain("Do not ask the caller what to do next");
 		expect(taskManager).toContain("Do not make a follow-up list or get call");
