@@ -28,7 +28,7 @@ describe("ConversationView", () => {
 		const { lastFrame } = render(<ConversationView bus={bus} />);
 
 		bus.emitEvent("warning", "cli", 0, { message: "hello world" });
-		await flush();
+		await waitFor(() => (lastFrame() ?? "").includes("hello world"));
 
 		expect(lastFrame()).toContain("hello world");
 	});
@@ -39,7 +39,10 @@ describe("ConversationView", () => {
 
 		bus.emitEvent("perceive", "root", 0, { goal: "do something" });
 		bus.emitEvent("warning", "cli", 0, { message: "heads up" });
-		await flush();
+		await waitFor(() => {
+			const frame = lastFrame() ?? "";
+			return frame.includes("do something") && frame.includes("heads up");
+		});
 
 		const frame = lastFrame()!;
 		const goalIdx = frame.indexOf("do something");
@@ -69,7 +72,10 @@ describe("ConversationView", () => {
 
 		bus.emitEvent("error", "root", 0, { error: "something broke" });
 		bus.emitEvent("warning", "cli", 0, { message: "heads up" });
-		await flush();
+		await waitFor(() => {
+			const frame = lastFrame() ?? "";
+			return frame.includes("something broke") && frame.includes("heads up");
+		});
 
 		const frame = lastFrame()!;
 		expect(frame).toContain("something broke");
@@ -113,7 +119,10 @@ describe("ConversationView", () => {
 		expect(lastFrame()).toContain("old content");
 
 		bus.emitEvent("session_clear", "session", 0, { new_session_id: "abc" });
-		await flush();
+		await waitFor(() => {
+			const frame = lastFrame() ?? "";
+			return frame.includes("old content") && frame.includes("New session");
+		});
 		// Static items can't be removed — old content persists alongside separator
 		expect(lastFrame()).toContain("old content");
 		expect(lastFrame()).toContain("New session");
@@ -190,7 +199,10 @@ describe("ConversationView", () => {
 
 		bus.emitEvent("primitive_start", "root", 0, { name: "exec", args: { command: "ls" } });
 		bus.emitEvent("primitive_end", "root", 0, { name: "exec", success: true });
-		await flush();
+		await waitFor(() => {
+			const frame = lastFrame() ?? "";
+			return frame.includes("✓") && frame.includes("s");
+		});
 
 		const frame = lastFrame()!;
 		expect(frame).toContain("s");

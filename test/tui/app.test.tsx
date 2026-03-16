@@ -331,7 +331,10 @@ describe("App", () => {
 			turn: 1,
 			usage: { input_tokens: 1000, output_tokens: 500, total_tokens: 1500 },
 		});
-		await flush();
+		await waitFor(() => {
+			const frame = lastFrame() ?? "";
+			return frame.includes("↑1.0k") && frame.includes("↓500");
+		});
 
 		const frame = lastFrame();
 		// Should show only the new session's tokens, not accumulated from previous
@@ -451,7 +454,10 @@ describe("App", () => {
 		stdin.write("/model");
 		await flush();
 		stdin.write("\r");
-		await flush();
+		await waitFor(() => {
+			const frame = lastFrame() ?? "";
+			return frame.includes("Select model") && frame.includes("Qwen 2.5 Coder");
+		});
 
 		// Model picker should be visible
 		const frame = lastFrame()!;
@@ -493,7 +499,10 @@ describe("App", () => {
 		stdin.write("/model");
 		await flush();
 		stdin.write("\r");
-		await waitFor(() => lastFrame()?.includes("Select model") ?? false);
+		await waitFor(() => {
+			const frame = lastFrame() ?? "";
+			return frame.includes("Select model") && frame.includes("Qwen 2.5 Coder");
+		});
 
 		stdin.write("\x1B[B");
 		await flush();
@@ -560,7 +569,10 @@ describe("App", () => {
 		).toBe(1);
 
 		settingsControlPlane.resolve();
-		await waitFor(() => lastFrame()?.includes("Select model") ?? false);
+		await waitFor(() => {
+			const frame = lastFrame() ?? "";
+			return frame.includes("Select model") && frame.includes("Qwen 2.5 Coder");
+		});
 
 		stdin.write("\x1B[B");
 		await flush();
@@ -595,7 +607,14 @@ describe("App", () => {
 		stdin.write("/settings");
 		await flush();
 		stdin.write("\r");
-		await flush();
+		await waitFor(() => {
+			const frame = lastFrame() ?? "";
+			return (
+				frame.includes("Provider settings") &&
+				frame.includes("Default models") &&
+				frame.includes("shortcut>")
+			);
+		});
 
 		const frame = lastFrame()!;
 		expect(frame).toContain("Provider settings");
@@ -664,12 +683,12 @@ describe("App", () => {
 		stdin.write("/model");
 		await flush();
 		stdin.write("\r");
-		await flush();
+		await waitFor(() => lastFrame()?.includes("Select model") ?? false);
 		expect(lastFrame()).toContain("Select model");
 
 		// Press Escape to cancel
 		stdin.write("\x1B");
-		await flush();
+		await waitFor(() => !(lastFrame()?.includes("Select model") ?? false));
 
 		// Picker should be hidden
 		expect(lastFrame()).not.toContain("Select model");

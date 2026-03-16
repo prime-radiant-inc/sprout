@@ -23,6 +23,10 @@ describe("Sprout Harbor artifacts", () => {
 	test("build script targets tools/harbor/dist", async () => {
 		const script = await readFile(join(repoRoot, "scripts", "build-sprout-binary.ts"), "utf-8");
 		expect(script).toContain("tools/harbor/dist");
+		expect(script).toContain(
+			'buildBinary("bun-linux-x64-baseline", join(distDir, "sprout-linux-x64"))',
+		);
+		expect(script).toContain('buildBinary("bun-linux-arm64", join(distDir, "sprout-linux-arm64"))');
 	});
 
 	test("build script stages uploadable binaries in tools/harbor", async () => {

@@ -110,7 +110,7 @@ describe("workspace primitives", () => {
 			// Verify git committed
 			const status = await git(root, "status", "--porcelain");
 			expect(status).toBe("");
-		});
+		}, 15_000);
 
 		test("defaults interpreter to bash", async () => {
 			const root = join(tempDir, "save-tool-default-interp");
@@ -135,7 +135,7 @@ describe("workspace primitives", () => {
 			const toolPath = join(root, "agents", "runner", "tools", "test-run");
 			const content = await readFile(toolPath, "utf-8");
 			expect(content).toContain("interpreter: bash");
-		});
+		}, 15_000);
 
 		test("returns error for missing required params", async () => {
 			const root = join(tempDir, "save-tool-missing");

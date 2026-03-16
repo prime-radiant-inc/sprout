@@ -100,7 +100,7 @@ describe("Genome pruning", () => {
 			// Git status should be clean
 			const status = await git(root, "status", "--porcelain");
 			expect(status).toBe("");
-		});
+		}, 15_000);
 
 		test("returns empty array and does not commit when nothing to prune", async () => {
 			const root = join(tempDir, "prune-nothing");

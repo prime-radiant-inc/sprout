@@ -12,7 +12,7 @@ async function main(): Promise<void> {
 	await rm(distDir, { recursive: true, force: true });
 	await mkdir(distDir, { recursive: true });
 
-	await buildBinary("bun-linux-x64", join(distDir, "sprout-linux-x64"));
+	await buildBinary("bun-linux-x64-baseline", join(distDir, "sprout-linux-x64"));
 	await buildBinary("bun-linux-arm64", join(distDir, "sprout-linux-arm64"));
 
 	await stageHarborBinary("sprout-linux-x64");

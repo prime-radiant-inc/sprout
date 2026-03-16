@@ -27,6 +27,7 @@ import type { SproutSettings } from "../../src/host/settings/types.ts";
 import type { Client } from "../../src/llm/client.ts";
 import type { Request, Response } from "../../src/llm/types.ts";
 import { ContentKind, Msg } from "../../src/llm/types.ts";
+import { waitFor } from "../helpers/wait-for.ts";
 
 // Minimal agent spec for testing -- leaf agent with no delegation
 const MINIMAL_AGENT_SPEC = {
@@ -1048,9 +1049,8 @@ describe("runAgentProcess", () => {
 		};
 		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
 
-		// Wait for the first LLM call to be in progress, then send a steer.
-		// The mock client delay gives us time.
-		await delay(60);
+		// Wait until the first LLM request has actually started before sending steer.
+		await waitFor(() => requests.length === 1);
 		await parentClient.publish(
 			inboxTopic,
 			JSON.stringify({ kind: "steer", message: "Urgent: pivot to security review" }),

@@ -35,6 +35,9 @@ it unless the caller explicitly asked you to prove multiple missing children.
 For verbose package-manager commands, prefer quiet or noninteractive flags when
 they are safe, then prove success with the shortest post-install checks that show
 the package or path now exists instead of relying on the full install transcript.
+Do not add sudo speculatively. Use the current shell privileges first, and only
+reach for sudo when the caller explicitly says it exists or a permission failure
+shows it is needed and `command -v sudo` succeeds.
 When writing config or script text with dense quoting/escaping, prefer literal
 heredocs, temp files, or another whole-block write that preserves the target text
 exactly over inline one-liners that require multiple escape layers.

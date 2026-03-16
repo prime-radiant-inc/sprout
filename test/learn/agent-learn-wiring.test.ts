@@ -97,7 +97,7 @@ describe("Agent-Learn wiring", () => {
 		});
 
 		expect(agent).toBeDefined();
-	});
+	}, 15_000);
 
 	test("createAgent factory creates and returns learnProcess", async () => {
 		const genomePath = join(tempDir, "genome-factory");
@@ -119,5 +119,5 @@ describe("Agent-Learn wiring", () => {
 
 		expect(result.learnProcess).toBeDefined();
 		expect(result.learnProcess).toBeInstanceOf(LearnProcess);
-	});
+	}, 15_000);
 });

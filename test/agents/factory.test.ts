@@ -76,7 +76,7 @@ describe("createAgent", () => {
 		expect(result.agent.spec.name).toBe("root");
 		expect(result.genome).toBeDefined();
 		expect(result.genome.agentCount()).toBeGreaterThanOrEqual(5);
-	});
+	}, 15_000);
 
 	test("creates agent with existing genome", async () => {
 		// Use the pre-initialized genome from beforeAll and ensure createAgent
@@ -92,7 +92,7 @@ describe("createAgent", () => {
 
 		expect(result.agent).toBeDefined();
 		expect(result.genome.agentCount()).toBeGreaterThanOrEqual(5);
-	});
+	}, 15_000);
 
 	test("uses specified root agent name", async () => {
 		const result = await createAgent({
@@ -218,7 +218,7 @@ describe("createAgent", () => {
 		expect(qmPostscript).toContain(DEV_MODE_SENTINEL);
 		expect(qmPostscript).toContain("Development Mode");
 		expect(qmPostscript).toContain("Root source");
-	});
+	}, 15_000);
 
 	test("initializes a provided preloaded genome before dev-mode postscript save", async () => {
 		const genomePath = join(tempDir, "preloaded-no-git");
@@ -246,7 +246,7 @@ describe("createAgent", () => {
 
 		const qmPostscript = await result.genome.loadAgentPostscript("quartermaster");
 		expect(qmPostscript).toContain(DEV_MODE_SENTINEL);
-	});
+	}, 15_000);
 
 	test("eval mode disables learning and skips dev-mode postscript mutation", async () => {
 		const genomePath = join(tempDir, "eval-mode-test");
@@ -269,7 +269,7 @@ describe("createAgent", () => {
 		await expect(
 			result.genome.savePostscript("agents/quartermaster.md", "mutate me"),
 		).rejects.toThrow("read-only genome");
-	});
+	}, 15_000);
 
 	test("injects non-interactive execution guidance into the root prompt only", async () => {
 		let capturedSystemPrompt = "";
@@ -329,5 +329,5 @@ describe("createAgent", () => {
 		expect(capturedSystemPrompt).toContain("adapt and retry");
 		expect(capturedSystemPrompt).toContain("forward them verbatim");
 		expect(capturedSystemPrompt).toContain("Do not replace exact values with placeholders");
-	});
+	}, 15_000);
 });

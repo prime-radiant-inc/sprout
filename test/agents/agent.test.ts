@@ -577,9 +577,9 @@ describe("Agent", () => {
 		expect(result.output).toBe("Done.");
 		expect(result.success).toBe(true);
 		const warnings = events.collected().filter((event) => event.kind === "warning");
-		expect(warnings.some((event) => String(event.data.message).includes("empty final response"))).toBe(
-			true,
-		);
+		expect(
+			warnings.some((event) => String(event.data.message).includes("empty final response")),
+		).toBe(true);
 	});
 
 	test("agent times out after timeout_ms", async () => {
@@ -1035,11 +1035,34 @@ describe("Agent", () => {
 
 		const DELAY_MS = 50;
 		let callCount = 0;
+		let rootTurnCount = 0;
+		let subagentTurnCount = 0;
 		const mockClient = {
 			providers: () => ["anthropic"],
-			complete: async (): Promise<Response> => {
+			complete: async (request: Request): Promise<Response> => {
 				callCount++;
-				if (callCount === 1) {
+				const systemPrompt =
+					request.messages
+						.find((message) => message.role === "system")
+						?.content.map((part) => ("text" in part ? (part.text ?? "") : ""))
+						.join("") ?? "";
+				if (systemPrompt.includes("You assign codenames to AI agents")) {
+					return {
+						id: `mock-conc-name-${callCount}`,
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: Msg.assistant("Turing"),
+						finish_reason: { reason: "stop" as const },
+						usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+					};
+				}
+				const isRoot = systemPrompt.includes(rootWithTwoLeaves.system_prompt);
+				if (isRoot) {
+					rootTurnCount++;
+				} else {
+					subagentTurnCount++;
+				}
+				if (isRoot && rootTurnCount === 1) {
 					// Root: return two delegations
 					return {
 						id: "mock-conc-1",
@@ -1050,21 +1073,21 @@ describe("Agent", () => {
 						usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
 					};
 				}
-				if (callCount <= 3) {
-					// Subagent calls (2 and 3): each delays then completes
+				if (!isRoot) {
+					// Subagent calls: each delays then completes
 					await new Promise((resolve) => setTimeout(resolve, DELAY_MS));
 					return {
-						id: `mock-conc-${callCount}`,
+						id: `mock-conc-subagent-${subagentTurnCount}`,
 						model: "claude-haiku-4-5-20251001",
 						provider: "anthropic",
-						message: Msg.assistant(`Done from subagent call ${callCount}.`),
+						message: Msg.assistant(`Done from subagent call ${subagentTurnCount}.`),
 						finish_reason: { reason: "stop" as const },
 						usage: { input_tokens: 5, output_tokens: 3, total_tokens: 8 },
 					};
 				}
 				// Root: done
 				return {
-					id: `mock-conc-${callCount}`,
+					id: `mock-conc-root-${rootTurnCount}`,
 					model: "claude-haiku-4-5-20251001",
 					provider: "anthropic",
 					message: rootDoneMsg,

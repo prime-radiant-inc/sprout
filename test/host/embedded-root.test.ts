@@ -92,11 +92,16 @@ describe("extractEmbeddedRoot", () => {
 			join(rootDir, "agents", "utility", "agents", "command-runner.md"),
 			"utf-8",
 		);
+		const techLead = await readFile(join(rootDir, "agents", "tech-lead.md"), "utf-8");
 		const engineer = await readFile(
 			join(rootDir, "agents", "tech-lead", "agents", "engineer.md"),
 			"utf-8",
 		);
 
+		expect(techLead).toContain("operational or system-execution task");
+		expect(techLead).toContain("do not force spec-review");
+		expect(techLead).toContain("quality-review ceremony");
+		expect(techLead).toContain("Do not ask for exact command lists");
 		expect(workerPreamble).toContain("default to concise findings");
 		expect(workerPreamble).toContain("only when the caller explicitly asks for raw output");
 		expect(commandRunner).toContain("Do not dump raw command transcripts by default");
@@ -106,6 +111,7 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("dense quoting/escaping");
 		expect(commandRunner).toContain("runtime semantics are still wrong");
 		expect(commandRunner).toContain("quiet or noninteractive flags");
+		expect(commandRunner).toContain("Do not add sudo speculatively");
 		expect(engineer).toContain("operational or system-execution task");
 		expect(engineer).toContain("do not force a TDD or commit workflow");
 		expect(engineer).toContain("Do not ask for redundant child-path checks");
@@ -113,6 +119,7 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("Only ask for exact file contents");
 		expect(engineer).toContain("Do not launch dependent config inspection");
 		expect(engineer).toContain("shortest exact proof lines");
+		expect(engineer).toContain("Do not ask command-runners to enumerate exact commands");
 		expect(engineer).toContain("dense quoting or escaping");
 	});
 });

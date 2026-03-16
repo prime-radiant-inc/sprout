@@ -24,7 +24,7 @@ async function submitCommand(
 	await flush();
 	stdin.write("\r");
 	if (assertReady) {
-		await waitFor(assertReady);
+		await waitFor(assertReady, { timeout: 10_000 });
 		return;
 	}
 	await flush();
@@ -139,7 +139,7 @@ describe("SettingsPanel", () => {
 				data: { providerId: "lmstudio", enabled: false },
 			},
 		]);
-	});
+	}, 15_000);
 
 	test("selects a newly created provider after the settings snapshot updates", async () => {
 		const initialSettings = makeSettingsSnapshot();

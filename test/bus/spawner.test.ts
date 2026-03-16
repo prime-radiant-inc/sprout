@@ -254,6 +254,7 @@ describe("AgentSpawner", () => {
 			await childBus.connect();
 			await observerBus.connect();
 			let readyTimer: ReturnType<typeof setInterval> | undefined;
+			let resolveExit: ((code: number) => void) | undefined;
 			try {
 				spawner = new AgentSpawner(bus, server.url, SESSION_ID, (_spawnedHandleId) => {
 					readyTimer = setInterval(() => {
@@ -262,8 +263,11 @@ describe("AgentSpawner", () => {
 					return {
 						kill: () => {
 							if (readyTimer) clearInterval(readyTimer);
+							resolveExit?.(0);
 						},
-						exited: Promise.resolve(0),
+						exited: new Promise<number>((resolve) => {
+							resolveExit = resolve;
+						}),
 					};
 				});
 
@@ -355,6 +359,33 @@ describe("AgentSpawner", () => {
 			const handle = spawner.getHandle(handleId);
 			expect(handle).toBeDefined();
 			expect(handle!.mnemonicName).toBe("Curie");
+		}, 15_000);
+
+		test("rejects promptly when spawned process exits before signaling ready", async () => {
+			spawner = new AgentSpawner(
+				bus,
+				server.url,
+				SESSION_ID,
+				() => ({
+					kill: () => {},
+					exited: new Promise<number>((resolve) => setTimeout(() => resolve(132), 50)),
+				}),
+				200,
+			);
+
+			const startedAt = Date.now();
+			await expect(
+				spawnWithResolver({
+					agentName: "test-leaf",
+					genomePath: genomeDir,
+					caller: { agent_name: "root", depth: 0 },
+					goal: "Crash before ready",
+					blocking: false,
+					shared: false,
+					workDir: tempDir,
+				}),
+			).rejects.toThrow(/exited before ready/i);
+			expect(Date.now() - startedAt).toBeLessThan(2_000);
 		}, 15_000);
 	});
 
@@ -499,6 +530,50 @@ describe("AgentSpawner", () => {
 			expect(r1.output).toBe("Shared result.");
 			expect(r2.output).toBe("Shared result.");
 			expect(r3.output).toBe("Shared result.");
+		}, 15_000);
+
+		test("returns an unsuccessful result when a ready child exits before publishing a result", async () => {
+			const handleId = "01SPAWNERCRASHREADY00000000";
+			const childBus = new BusClient(server.url);
+			await childBus.connect();
+			let readyTimer: ReturnType<typeof setInterval> | undefined;
+			try {
+				spawner = new AgentSpawner(
+					bus,
+					server.url,
+					SESSION_ID,
+					(_spawnedHandleId) => {
+						readyTimer = setInterval(() => {
+							void childBus.publish(agentReady(SESSION_ID, handleId), JSON.stringify({ ok: true }));
+						}, 10);
+						return {
+							kill: () => {
+								if (readyTimer) clearInterval(readyTimer);
+							},
+							exited: new Promise<number>((resolve) => setTimeout(() => resolve(137), 75)),
+						};
+					},
+					200,
+				);
+
+				const result = (await spawnWithResolver({
+					agentName: "test-leaf",
+					genomePath: genomeDir,
+					caller: { agent_name: "root", depth: 0 },
+					goal: "Crash after ready",
+					blocking: true,
+					shared: false,
+					workDir: tempDir,
+					handleId,
+				})) as ResultMessage;
+
+				expect(result.success).toBe(false);
+				expect(result.output).toContain("exited with code 137");
+				expect(result.timed_out).toBe(false);
+			} finally {
+				if (readyTimer) clearInterval(readyTimer);
+				await childBus.disconnect();
+			}
 		}, 15_000);
 	});
 

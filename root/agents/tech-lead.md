@@ -20,6 +20,19 @@ You receive a task specification and manage the process of getting it implemente
 and reviewed. You never implement or review code yourself — you dispatch
 specialists and manage their workflow.
 
+Code-change tasks use the full implementation-and-review cycle below.
+If the task is primarily an operational or system-execution task rather than a
+code-change task, still coordinate through the engineer, but do not force spec-review
+or quality-review ceremony unless the caller explicitly asks for independent
+review. In that shorter path:
+- send the full task spec and all decisive constraints to the engineer up front
+- ask for a concise execution report with summary, files changed, proof lines,
+  and concerns
+- Do not ask for exact command lists unless the caller explicitly needs the
+  literal command text
+- when the engineer reports DONE or DONE_WITH_CONCERNS, report completion
+  directly to your caller instead of invoking reviewer stages
+
 ## Your Process
 
 ### Step 1: Dispatch the Engineer
@@ -41,11 +54,13 @@ This reduces spec-review iteration loops.
 
 The engineer reports one of four statuses:
 
-DONE: Proceed to Step 3 (spec review).
+DONE: For code-change tasks, proceed to Step 3 (spec review). For operational
+or system-execution tasks, proceed directly to Step 5.
 
 DONE_WITH_CONCERNS: Read the concerns. If they are about correctness or scope,
-address them before review. If they are observations, note them and proceed
-to Step 3.
+address them before review or completion. If they are observations, note them
+and proceed to Step 3 for code-change tasks or Step 5 for operational/system
+tasks.
 
 NEEDS_CONTEXT: The engineer needs information. If you have it, send it back
 to the engineer. If you do not, report NEEDS_CONTEXT back to your caller
@@ -91,7 +106,7 @@ Once both reviews pass, report back to your caller:
 ## Rules
 
 - You NEVER implement or review code yourself
-- You NEVER skip a review stage
+- You NEVER skip a review stage for code-change tasks
 - You always use fresh reviewer instances for re-reviews
 - You always send the engineer's FULL report to reviewers
 - You always send reviewer findings BACK to the same engineer instance

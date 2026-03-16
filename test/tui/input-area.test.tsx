@@ -179,11 +179,11 @@ describe("InputArea", () => {
 
 		// Up arrow = ESC [ A
 		stdin.write("\x1B[A");
-		await flush();
+		await waitFor(() => (lastFrame() ?? "").includes("second goal"));
 		expect(lastFrame()).toContain("second goal");
 
 		stdin.write("\x1B[A");
-		await flush();
+		await waitFor(() => (lastFrame() ?? "").includes("first goal"));
 		expect(lastFrame()).toContain("first goal");
 	});
 
@@ -199,14 +199,14 @@ describe("InputArea", () => {
 
 		// Go up twice
 		stdin.write("\x1B[A");
-		await flush();
+		await waitFor(() => (lastFrame() ?? "").includes("second goal"));
 		stdin.write("\x1B[A");
-		await flush();
+		await waitFor(() => (lastFrame() ?? "").includes("first goal"));
 		expect(lastFrame()).toContain("first goal");
 
 		// Down arrow = ESC [ B
 		stdin.write("\x1B[B");
-		await flush();
+		await waitFor(() => (lastFrame() ?? "").includes("second goal"));
 		expect(lastFrame()).toContain("second goal");
 	});
 

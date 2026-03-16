@@ -47,6 +47,8 @@ interface PendingWaiter {
 	timer: ReturnType<typeof setTimeout>;
 }
 
+const PROCESS_EXIT_RESULT_GRACE_MS = 25;
+
 /** Internal tracking record for a spawned agent */
 export interface AgentHandle {
 	handleId: string;
@@ -118,6 +120,84 @@ export class AgentSpawner {
 	private readonly handles = new Map<string, AgentHandle>();
 	private sessionEventsCallback?: (event: EventMessage) => void;
 	private currentSessionEventsTopic?: string;
+
+	private monitorProcessExit(
+		handleId: string,
+		process: { kill: () => void; exited: Promise<number> },
+	): void {
+		void process.exited.then(
+			(code) => {
+				setTimeout(
+					() => this.handleProcessExit(handleId, process, code),
+					PROCESS_EXIT_RESULT_GRACE_MS,
+				);
+			},
+			(error) => {
+				setTimeout(
+					() => this.handleProcessExit(handleId, process, undefined, error),
+					PROCESS_EXIT_RESULT_GRACE_MS,
+				);
+			},
+		);
+	}
+
+	private handleProcessExit(
+		handleId: string,
+		process: { kill: () => void; exited: Promise<number> },
+		code?: number,
+		error?: unknown,
+	): void {
+		const handle = this.handles.get(handleId);
+		if (!handle || handle.process !== process) {
+			return;
+		}
+
+		if (handle.result) {
+			handle.status = "completed";
+			return;
+		}
+
+		const reason =
+			error !== undefined
+				? `exited with error: ${String(error)}`
+				: `exited with code ${code ?? "unknown"}`;
+		const result: ResultMessage = {
+			kind: "result",
+			handle_id: handleId,
+			output: `Agent process ${handleId} ${reason}`,
+			success: false,
+			stumbles: 1,
+			turns: 0,
+			timed_out: false,
+		};
+		handle.result = result;
+		handle.status = "completed";
+		for (const waiter of handle.pendingWaiters) {
+			clearTimeout(waiter.timer);
+			waiter.resolve(result);
+		}
+		handle.pendingWaiters = [];
+	}
+
+	private async waitForReadyOrExit(
+		handleId: string,
+		process: { kill: () => void; exited: Promise<number> },
+	): Promise<void> {
+		const readyTopic = agentReady(this.sessionId, handleId);
+		await Promise.race([
+			this.bus.waitForMessage(readyTopic, 10_000).then(() => undefined),
+			process.exited.then(
+				(code) => {
+					throw new Error(`Agent process ${handleId} exited before ready with code ${code}`);
+				},
+				(error) => {
+					throw new Error(
+						`Agent process ${handleId} exited before ready with error: ${String(error)}`,
+					);
+				},
+			),
+		]);
+	}
 
 	constructor(
 		bus: BusClient,
@@ -247,6 +327,7 @@ export class AgentSpawner {
 			resolverSettings: opts.resolverSettings,
 		};
 		this.handles.set(handleId, handle);
+		this.monitorProcessExit(handleId, proc);
 
 		// Subscribe to result topic to track status
 		const resultTopic = agentResult(this.sessionId, handleId);
@@ -269,8 +350,7 @@ export class AgentSpawner {
 		});
 
 		// Wait for the agent process to signal it's ready (subscribed to inbox)
-		const readyTopic = agentReady(this.sessionId, handleId);
-		await this.bus.waitForMessage(readyTopic, 10_000);
+		await this.waitForReadyOrExit(handleId, proc);
 
 		// Publish start message to the agent's inbox
 		const inboxTopic = agentInbox(this.sessionId, handleId);
@@ -415,9 +495,9 @@ export class AgentSpawner {
 		handle.process = proc;
 		handle.result = undefined;
 		handle.status = "running";
+		this.monitorProcessExit(handleId, proc);
 
-		const readyTopic = agentReady(this.sessionId, handleId);
-		await this.bus.waitForMessage(readyTopic, 10_000);
+		await this.waitForReadyOrExit(handleId, proc);
 
 		const startMsg: StartMessage = {
 			kind: "start",

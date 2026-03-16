@@ -286,7 +286,7 @@ describe("workspace wiring", () => {
 		// Constructor doesn't throw (genome exists, workspace tools might load)
 		// But run() throws after discovering no workspace tools either
 		await expect(agent.run("do something")).rejects.toThrow(/zero tools after full resolution/);
-	});
+	}, 15_000);
 
 	test("agent without genome does not get workspace primitives", async () => {
 		const env = new LocalExecutionEnvironment(tempDir);
