@@ -9,6 +9,8 @@ describe("primitives", () => {
 	let env: LocalExecutionEnvironment;
 	let registry: PrimitiveRegistry;
 	let tempDir: string;
+	let fetchServer: ReturnType<typeof Bun.serve> | undefined;
+	let fetchServerUrl = "";
 
 	beforeAll(async () => {
 		tempDir = await mkdtemp(join(tmpdir(), "sprout-prim-"));
@@ -17,6 +19,7 @@ describe("primitives", () => {
 	});
 
 	afterAll(async () => {
+		await fetchServer?.stop(true);
 		await rm(tempDir, { recursive: true });
 	});
 
@@ -306,13 +309,32 @@ describe("primitives", () => {
 	// -- fetch --
 
 	describe("fetch", () => {
+		beforeAll(() => {
+			fetchServer = Bun.serve({
+				port: 0,
+				fetch(request) {
+					return new Response(
+						JSON.stringify({
+							ok: true,
+							path: new URL(request.url).pathname,
+						}),
+						{
+							status: 200,
+							headers: { "content-type": "application/json" },
+						},
+					);
+				},
+			});
+			fetchServerUrl = fetchServer.url.toString();
+		});
+
 		test("fetches a URL", async () => {
-			// Use httpbin or a reliable test endpoint
 			const result = await registry.execute("fetch", {
-				url: "https://httpbin.org/get",
+				url: `${fetchServerUrl}get`,
 			});
 			expect(result.success).toBe(true);
-			expect(result.output).toContain("httpbin");
+			expect(result.output).toContain('"ok":true');
+			expect(result.output).toContain('"path":"/get"');
 		});
 
 		test("returns error for bad URL", async () => {
