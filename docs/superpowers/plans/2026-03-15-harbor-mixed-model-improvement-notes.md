@@ -140,6 +140,24 @@ Copy this block for each task run:
 - Rationale: The decisive work happened in the depth-2 `command-runner` branch under the debugger. That branch ultimately solved the task by switching from failed format-string probing to direct binary inspection, locating obfuscated bytes in `.data`, XOR-decoding them to `FLAG{b4ff3r_0v3rfl0w_m4st3r_k3y_2024}`, and writing the exact flag to `/app/results.txt`. Harbor verified the result, so this belongs in the success path even though the branch took several exploratory turns first.
 - Secondary observations: The helper initially burned time on exploit-style input probing, including segmentation faults and quoting mistakes, before a later static-analysis pivot found the real answer quickly. This task shape is functionally solid, but it suggests the mixed-model debugger stack still overcommits to dynamic probing before checking cheaper binary-inspection paths.
 
+#### log-summary-date-ranges
+
+- Selector: `log-summary-date-ranges`
+- Run directory: `/tmp/harbor-local-log-summary-date-ranges.kaalt4/sprout-batch-log-summary-date-ranges/log-summary-date-ranges__78teZLh`
+- Result: `FAIL`
+- Reward: `0.0`
+- Duration: `5m 49s` agent execution (`7m 42s` wall)
+- Tokens:
+  - Input: `86,547`
+  - Output: `20,260`
+- Per-model split: `openai:gpt-5.4 = 12 calls / 40,441 input / 3,685 output; openai:gpt-5-mini = 13 calls / 46,106 input / 16,575 output`
+- Estimated cost: `$0.2011` total (`$0.1564` gpt-5.4 + `$0.0447` gpt-5-mini)
+- Meaningful branch: `logs/01KKTFDHZ5H80J2TPCPXG4R9D3/01KKTFN9EP028DM8Z1RPACM1DD.jsonl`
+- Replay log: `logs/01KKTFDHZ5H80J2TPCPXG4R9D3/01KKTFN9EP028DM8Z1RPACM1DD.replay.jsonl`
+- Primary category: `task-specific domain failure`
+- Rationale: The decisive branch was the second depth-3 `command-runner` repair branch, because it produced the final `summary.csv` artifact that Harbor verified and failed. The earlier pivoted two-row CSV branch was superseded by root’s correction loop. The repair branch fixed the file shape and row order, but it still counted raw severity words anywhere in the line with `grep -w ERROR|WARNING|INFO` instead of counting the bracketed severity field. Real log messages contain extra words like `Next attempt will ERROR`, so the helper overcounted immediately (`today,ERROR,414` vs verifier-expected `370`) even though the CSV structure was otherwise correct.
+- Secondary observations: The same repair branch first burned a turn on a broken shell script (`syntax error in conditional expression`) before retrying with an epoch-based script. This task also kept the heavy `tech-lead -> engineer -> command-runner` stack for a straightforward aggregation problem, but the final failure was the log-parsing semantics, not orchestration alone.
+
 ## Verified Runtime Findings
 
 - Harbor can now install and launch the compiled Sprout binary successfully.

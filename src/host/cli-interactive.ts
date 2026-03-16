@@ -122,6 +122,7 @@ interface InteractiveModeDeps {
 	registerInteractiveSigint: typeof registerInteractiveSigint;
 	buildWebOpenUrl: typeof buildWebOpenUrl;
 	checkWebBuildFreshness: (staticDir: string) => Promise<string | undefined>;
+	loadPricingSnapshot: typeof loadPricingSnapshot;
 	openUrl: (url: string) => void;
 	logOut: (line: string) => void;
 	logError: (line: string) => void;
@@ -239,6 +240,7 @@ export async function runInteractiveMode(
 		registerInteractiveSigint: deps.registerInteractiveSigint ?? registerInteractiveSigint,
 		buildWebOpenUrl: deps.buildWebOpenUrl ?? buildWebOpenUrl,
 		checkWebBuildFreshness: deps.checkWebBuildFreshness ?? checkWebBuildFreshness,
+		loadPricingSnapshot: deps.loadPricingSnapshot ?? loadPricingSnapshot,
 		openUrl: deps.openUrl ?? ((url) => void Bun.spawn(["open", url])),
 		logOut: deps.logOut ?? ((line) => console.log(line)),
 		logError: deps.logError ?? ((line) => console.error(line)),
@@ -264,7 +266,7 @@ export async function runInteractiveMode(
 		});
 	};
 
-	const pricingSnapshot = await loadPricingSnapshot(opts.command.genomePath);
+	const pricingSnapshot = await d.loadPricingSnapshot(opts.command.genomePath);
 	const pricingTable = pricingSnapshot?.table ?? null;
 
 	if (opts.command.web || opts.command.webOnly) {

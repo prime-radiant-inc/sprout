@@ -63,6 +63,7 @@ describe("runInteractiveMode", () => {
 				createInputHistory: async () => {
 					throw new Error("history should not be created in web-only mode");
 				},
+				loadPricingSnapshot: async () => null,
 				renderApp: async () => {
 					throw new Error("renderApp should not run in web-only mode");
 				},
