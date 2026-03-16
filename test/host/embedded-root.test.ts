@@ -152,7 +152,8 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("carry those findings forward");
 		expect(engineer).toContain("instead of asking another agent to rediscover them");
 		expect(engineer).toContain("driven by named external inputs");
-		expect(engineer).toContain("ask for `/app` repo state");
+		expect(engineer).toContain("first prerequisite helper turn should not ask about `/app` at all");
+		expect(engineer).toContain("`/app` repo state, git status");
 		expect(engineer).toContain("tell the command-runner explicitly");
 		expect(engineer).toContain("exact command names");
 		expect(engineer).toContain("generic labels like");
@@ -176,7 +177,7 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain(
 			'Bad: "inspect the input files, available runtime, and whether /app already',
 		);
-		expect(engineer).toContain("inspect the exact input files and available runtime first");
+		expect(engineer).toContain('Good: "inspect the exact input files and available runtime first"');
 		expect(engineer).toContain("When helper findings reveal concrete source schemas");
 		expect(engineer).toContain("explicit per-source mapping list");
 		expect(engineer).toContain("source_a: id -> user_id");

@@ -40,9 +40,11 @@ code-change task, do not force a TDD or commit workflow. In that case:
   not ask another agent to rediscover them from the repo
 - when the task is driven by named external inputs and does not name any
   existing files under the working directory, keep the initial prerequisite
-  inspection focused on those external inputs and the available runtime. Do not
-  ask for `/app` repo state, git status, or top-level workspace listings just
-  to confirm that you can start.
+  inspection focused on those external inputs and the available runtime. The
+  first prerequisite helper turn should not ask about `/app` at all unless the
+  task already names an existing file under the working directory. Do not ask
+  for `/app` repo state, git status, top-level workspace listings, or whether
+  `/app` contains relevant project files just to confirm that you can start.
 - when follow-up inspections or execution steps depend on concrete input or
   output paths, repeat those exact paths in every delegated goal and do not
   replace them with generic references like "the datasets" or "the files"
@@ -52,8 +54,7 @@ code-change task, do not force a TDD or commit workflow. In that case:
   '/data/source_c/users.parquet'"
 - Bad: "inspect the input files, available runtime, and whether /app already
   contains relevant project files"
-- Good: "inspect the exact input files and available runtime first; inspect
-  `/app` only later if I find evidence that an existing project file matters"
+- Good: "inspect the exact input files and available runtime first"
 - Do not launch dependent config inspection, file-reading, or verification work
   until the prerequisite inspection confirms the relevant paths or services exist
 - Only ask for exact file contents or child-path checks after you know the paths
