@@ -38,6 +38,11 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - when the task spec already includes absolute paths or structured formats such
   as JSON, CSV, YAML, or schema examples, carry them forward verbatim and do
   not ask another agent to rediscover them from the repo
+- when the task is driven by named external inputs and does not name any
+  existing files under the working directory, keep the initial prerequisite
+  inspection focused on those external inputs and the available runtime. Do not
+  ask for `/app` repo state, git status, or top-level workspace listings just
+  to confirm that you can start.
 - when follow-up inspections or execution steps depend on concrete input or
   output paths, repeat those exact paths in every delegated goal and do not
   replace them with generic references like "the datasets" or "the files"
@@ -45,6 +50,10 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - Bad: "inspect the three input data files"
 - Good: "inspect '/data/source_a/users.json', '/data/source_b/users.csv', and
   '/data/source_c/users.parquet'"
+- Bad: "inspect the input files, available runtime, and whether /app already
+  contains relevant project files"
+- Good: "inspect the exact input files and available runtime first; inspect
+  `/app` only later if I find evidence that an existing project file matters"
 - Do not launch dependent config inspection, file-reading, or verification work
   until the prerequisite inspection confirms the relevant paths or services exist
 - Only ask for exact file contents or child-path checks after you know the paths
