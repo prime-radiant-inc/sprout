@@ -2965,7 +2965,8 @@ describe("Agent", () => {
 			? toolContent.find((c: any) => c.kind === ContentKind.TOOL_RESULT)
 			: null;
 		const resultText = resultPart ? (resultPart as any).tool_result.content : "";
-		expect(resultText).toContain("Blocking wait timed out");
+		expect(resultText).toContain("started in blocking mode");
+		expect(resultText).toContain("blocking wait timed out");
 		expect(resultText).toContain("now non-blocking");
 		expect(resultText).toContain("wait_agent");
 		expect(resultText).toContain("message_agent");

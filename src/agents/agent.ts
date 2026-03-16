@@ -892,7 +892,7 @@ export class Agent {
 			if ("continuedInBackground" in result) {
 				const toolResultMsg = Msg.toolResult(
 					delegation.call_id,
-					`Blocking wait timed out; agent continues in background. This handle is now non-blocking. Use wait_agent to wait for completion or message_agent to follow up. Handle: ${result.handleId}`,
+					`This delegate started in blocking mode, but the blocking wait timed out. The agent continues in the background, and this handle is now non-blocking. Use wait_agent to wait for completion or message_agent to follow up. Handle: ${result.handleId}`,
 				);
 				this.emitAndLog("act_end", agentId, this.depth, {
 					agent_name: delegation.agent_name,
