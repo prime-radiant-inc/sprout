@@ -329,5 +329,7 @@ describe("createAgent", () => {
 		expect(capturedSystemPrompt).toContain("adapt and retry");
 		expect(capturedSystemPrompt).toContain("forward them verbatim");
 		expect(capturedSystemPrompt).toContain("Do not replace exact values with placeholders");
+		expect(capturedSystemPrompt).toContain("wrap them in quotes");
+		expect(capturedSystemPrompt).toContain("preserve that delimiter");
 	}, 15_000);
 });

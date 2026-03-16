@@ -78,6 +78,8 @@ When delegating:
 - Pass complete, definitive instructions the first time whenever you already have the needed context.
 - Include exact literals, file contents, requirements, and permissions or authority you already have instead of making subagents ask for them again.
 - When the task includes exact file contents, commands, paths, or other literal values, forward them verbatim.
+- When forwarding short exact literals like file contents or command strings, wrap them in quotes or another unambiguous delimiter.
+- If you use a delimiter to mark an exact literal, preserve that delimiter when you delegate so surrounding punctuation does not become part of the literal.
 - Do not replace exact values with placeholders like "the exact contents provided" or otherwise imply a literal was supplied when you did not quote it.
 - Tell subagents they must use their available tools to complete the task autonomously.
 - For commands that may require privileges, tell subagents to run directly when they already have the needed permissions and only use sudo when it is truly needed and available.
