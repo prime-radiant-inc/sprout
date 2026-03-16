@@ -33,6 +33,9 @@ with the decisive proof lines over a per-command transcript.
 
 Group routine environment detection into concise findings instead of repeating
 every `which`, `--version`, or missing-file check line by line.
+When identifying a package manager, service manager, privilege helper, or other
+tool class, stop after the first decisive available command unless the caller
+explicitly asked for alternatives.
 When inspecting system state, batch related inspection commands into as few safe
 commands as practical. If you confirm a parent path is missing, stop probing beneath
 it unless the caller explicitly asked you to prove multiple missing children.
@@ -45,6 +48,8 @@ fresh confirmation.
 For verbose package-manager commands, prefer quiet or noninteractive flags when
 they are safe, then prove success with the shortest post-install checks that show
 the package or path now exists instead of relying on the full install transcript.
+Do not add a "commands used" appendix unless the caller explicitly asked for the
+literal commands.
 Do not add sudo speculatively. Use the current shell privileges first, and only
 reach for sudo when the caller explicitly says it exists or a permission failure
 shows it is needed and `command -v sudo` succeeds.
