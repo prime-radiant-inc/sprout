@@ -104,6 +104,24 @@ Copy this block for each task run:
 - Secondary observations: `<optional>`
 ```
 
+#### git-leak-recovery
+
+- Selector: `git-leak-recovery`
+- Run directory: `/tmp/harbor-local-git-leak-recovery.8c8cVv/sprout-batch-git-leak-recovery/git-leak-recovery__zrn6gwK`
+- Result: `PASS`
+- Reward: `1.0`
+- Duration: `10m 50s` agent execution (`12m 41s` wall)
+- Tokens:
+  - Input: `281,284`
+  - Output: `60,810`
+- Per-model split: `openai:gpt-5.4 = 30 calls / 96,215 input / 8,385 output; openai:gpt-5-mini = 67 calls / 185,069 input / 52,425 output`
+- Estimated cost: `$0.5174` total (`$0.3663` gpt-5.4 + `$0.1511` gpt-5-mini)
+- Meaningful branch: `logs/01KKTE56Q69N1SE9E1M57PHFPG/01KKTEH7XAT0KTND24FVEM6AAT.jsonl`
+- Replay log: `logs/01KKTE56Q69N1SE9E1M57PHFPG/01KKTEH7XAT0KTND24FVEM6AAT.replay.jsonl`
+- Primary category: `SUCCESS_PATH`
+- Rationale: The decisive work happened in the depth-3 `command-runner` cleanup branch. That branch recovered from an initial `git filter-branch` warning, completed the history/object cleanup, and produced the proof lines that the later verifier confirmed independently. The task passed end-to-end in Harbor, so this run belongs in the success path even though the helper path was not especially efficient.
+- Secondary observations: `gpt-5-mini` handled the critical cleanup branch correctly but chose a heavier-than-necessary `git filter-branch` rewrite and first stumbled on the warning prompt before retrying with `FILTER_BRANCH_SQUELCH_WARNING=1`. The independent verifier passed, but it still spent a lot of tokens returning exact command transcripts instead of compressed evidence.
+
 ## Verified Runtime Findings
 
 - Harbor can now install and launch the compiled Sprout binary successfully.
