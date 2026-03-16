@@ -2870,6 +2870,112 @@ describe("Agent", () => {
 		expect(resultText).toContain("handle-123");
 	});
 
+	test("with spawner, blocking delegate can downgrade to a live handle", async () => {
+		const delegateMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-spawn-timeout-1",
+						name: "delegate",
+						arguments: JSON.stringify({
+							agent_name: "leaf",
+							goal: "do the long task",
+							blocking: true,
+						}),
+					},
+				},
+			],
+		};
+		const rootDoneMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "Detached." }],
+		};
+
+		let callCount = 0;
+		let capturedHistory: Message[] = [];
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (request: any): Promise<Response> => {
+				callCount++;
+				capturedHistory = request.messages;
+				const msg = callCount === 1 ? delegateMsg : rootDoneMsg;
+				return {
+					id: `mock-deferred-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: msg,
+					finish_reason: { reason: callCount === 1 ? "tool_calls" : "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const spawnCalls: SpawnAgentOptions[] = [];
+		const spawner = {
+			spawnAgent: async (opts: SpawnAgentOptions): Promise<ResultMessage | string | { handleId: string; continuedInBackground: true }> => {
+				spawnCalls.push(opts);
+				return {
+					handleId: "handle-deferred",
+					continuedInBackground: true,
+				};
+			},
+			waitAgent: async (_handleId: string): Promise<ResultMessage> => ({
+				kind: "result",
+				handle_id: "handle-deferred",
+				output: "unused",
+				success: true,
+				stumbles: 0,
+				turns: 1,
+				timed_out: false,
+			}),
+			messageAgent: async () => undefined,
+			getHandles: () => [],
+			getHandle: (handleId: string) => ({ agentId: `agent-${handleId}` }),
+			shutdown: () => {},
+		} as unknown as AgentSpawner;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: rootSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [rootSpec, leafSpec],
+			depth: 0,
+			events,
+			spawner,
+		});
+
+		const result = await agent.run("blocking spawn fallback test");
+		expect(result.success).toBe(true);
+		expect(spawnCalls).toHaveLength(1);
+		expect(spawnCalls[0]!.blocking).toBe(true);
+
+		const toolResultMsgs = capturedHistory.filter((m) => m.role === "tool");
+		expect(toolResultMsgs).toHaveLength(1);
+		const toolContent = toolResultMsgs[0]!.content;
+		const resultPart = Array.isArray(toolContent)
+			? toolContent.find((c: any) => c.kind === ContentKind.TOOL_RESULT)
+			: null;
+		const resultText = resultPart ? (resultPart as any).tool_result.content : "";
+		expect(resultText).toContain("Blocking wait timed out");
+		expect(resultText).toContain("handle-deferred");
+
+		const collected = events.collected();
+		const actEndEvents = collected.filter(
+			(e) => e.kind === "act_end" && (e.data.agent_name as string) === "leaf",
+		);
+		expect(actEndEvents).toHaveLength(1);
+		expect(actEndEvents[0]!.data.success).toBe(true);
+		expect(actEndEvents[0]!.data.handle_id).toBe("handle-deferred");
+		expect(actEndEvents[0]!.data.continued_in_background).toBe(true);
+	});
+
 	test("with spawner, non-blocking delegate returns handle ID as tool output", async () => {
 		const delegateMsg: Message = {
 			role: "assistant",

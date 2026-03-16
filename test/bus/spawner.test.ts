@@ -487,6 +487,50 @@ describe("AgentSpawner", () => {
 			await spawner.getHandle(handleId)!.process.exited;
 		}, 15_000);
 
+		test("blocking spawn falls back to a live handle after waitTimeoutMs", async () => {
+			const mockClient = {
+				complete: async (_request: Request): Promise<Response> => {
+					await new Promise(() => {}); // never resolves
+					throw new Error("unreachable");
+				},
+				stream: async function* () {
+					yield { type: "stream_start" as const };
+					await new Promise(() => {}); // never resolves
+				},
+				providers: () => ["anthropic"],
+			} as unknown as Client;
+
+			spawner = new AgentSpawner(
+				bus,
+				server.url,
+				SESSION_ID,
+				createInProcessSpawnFn(mockClient),
+				200,
+			);
+
+			const start = Date.now();
+			const result = await spawnWithResolver({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: { agent_name: "root", depth: 0 },
+				goal: "Task that should continue in background",
+				blocking: true,
+				shared: false,
+				workDir: tempDir,
+			});
+			const elapsed = Date.now() - start;
+
+			expect(typeof result).toBe("object");
+			expect((result as { continuedInBackground: true }).continuedInBackground).toBe(true);
+			expect((result as { handleId: string }).handleId).toHaveLength(26);
+			expect(elapsed).toBeLessThan(2000);
+			expect(elapsed).toBeGreaterThanOrEqual(150);
+			expect(spawner.getHandle((result as { handleId: string }).handleId)?.status).toBe("running");
+
+			spawner.shutdown();
+			await spawner.getHandle((result as { handleId: string }).handleId)!.process.exited;
+		}, 15_000);
+
 		test("multiple concurrent waitAgent calls all resolve with the same result", async () => {
 			let resolveFirstCall: (() => void) | null = null;
 			const mockClient = buildMockClient(async (_request: Request): Promise<Response> => {

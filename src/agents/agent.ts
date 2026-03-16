@@ -872,23 +872,39 @@ export class Agent {
 				resolverSettings: this.resolverSettings,
 			});
 
-			if (!blocking) {
-				// Non-blocking: result is a handle ID string
-				const handleId = result as string;
+			if (typeof result === "string") {
 				const toolResultMsg = Msg.toolResult(
 					delegation.call_id,
-					`Agent started. Handle: ${handleId}`,
+					`Agent started. Handle: ${result}`,
 				);
 				this.emitAndLog("act_end", agentId, this.depth, {
 					agent_name: delegation.agent_name,
 					success: true,
-					handle_id: handleId,
+					handle_id: result,
 					child_id: childId,
 					...descData,
 					...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
 					tool_result_message: toolResultMsg,
 				});
-				return { toolResultMsg, stumbles: 0, output: handleId };
+				return { toolResultMsg, stumbles: 0, output: result };
+			}
+
+			if ("continuedInBackground" in result) {
+				const toolResultMsg = Msg.toolResult(
+					delegation.call_id,
+					`Blocking wait timed out; agent continues in background. Handle: ${result.handleId}`,
+				);
+				this.emitAndLog("act_end", agentId, this.depth, {
+					agent_name: delegation.agent_name,
+					success: true,
+					handle_id: result.handleId,
+					child_id: childId,
+					continued_in_background: true,
+					...descData,
+					...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
+					tool_result_message: toolResultMsg,
+				});
+				return { toolResultMsg, stumbles: 0, output: result.handleId };
 			}
 
 			// Blocking: result is a ResultMessage

@@ -42,9 +42,14 @@ export interface SpawnAgentOptions {
 
 /** A pending waitAgent() promise that can be resolved or rejected. */
 interface PendingWaiter {
-	resolve: (result: ResultMessage) => void;
+	resolve: (result: ResultMessage | string | DeferredSpawnResult) => void;
 	reject: (error: Error) => void;
 	timer: ReturnType<typeof setTimeout>;
+}
+
+export interface DeferredSpawnResult {
+	handleId: string;
+	continuedInBackground: true;
 }
 
 const PROCESS_EXIT_RESULT_GRACE_MS = 25;
@@ -290,7 +295,7 @@ export class AgentSpawner {
 	 * If blocking: waits for the agent to produce a result and returns it.
 	 * If non-blocking: returns the handle ID string immediately.
 	 */
-	async spawnAgent(opts: SpawnAgentOptions): Promise<ResultMessage | string> {
+	async spawnAgent(opts: SpawnAgentOptions): Promise<ResultMessage | string | DeferredSpawnResult> {
 		const handleId = opts.handleId ?? ulid();
 		const agentId = opts.agentId ?? handleId;
 
@@ -372,10 +377,41 @@ export class AgentSpawner {
 		await this.bus.publish(inboxTopic, JSON.stringify(startMsg));
 
 		if (opts.blocking) {
-			return this.waitAgent(handleId);
+			return this.waitForBlockingSpawn(handleId);
 		}
 
 		return handleId;
+	}
+
+	private waitForBlockingSpawn(handleId: string): Promise<ResultMessage | DeferredSpawnResult> {
+		const handle = this.handles.get(handleId);
+		if (!handle) {
+			throw new Error(`Unknown handle: ${handleId}`);
+		}
+
+		if (handle.result) {
+			return Promise.resolve(handle.result);
+		}
+
+		return new Promise<ResultMessage | DeferredSpawnResult>((resolve, reject) => {
+			const waiter: PendingWaiter = {
+				resolve: (result) => resolve(result as ResultMessage | DeferredSpawnResult),
+				reject,
+				timer: setTimeout(() => {
+					const idx = handle.pendingWaiters.indexOf(waiter);
+					if (idx !== -1) handle.pendingWaiters.splice(idx, 1);
+					if (!handle.result && handle.status === "running") {
+						resolve({
+							handleId,
+							continuedInBackground: true,
+						});
+						return;
+					}
+					reject(new Error(`waitAgent timed out for handle ${handleId}`));
+				}, this.waitTimeoutMs),
+			};
+			handle.pendingWaiters.push(waiter);
+		});
 	}
 
 	/**
@@ -403,7 +439,7 @@ export class AgentSpawner {
 
 		return new Promise<ResultMessage>((resolve, reject) => {
 			const waiter: PendingWaiter = {
-				resolve,
+				resolve: (result) => resolve(result as ResultMessage),
 				reject,
 				timer: setTimeout(() => {
 					const idx = handle.pendingWaiters.indexOf(waiter);
