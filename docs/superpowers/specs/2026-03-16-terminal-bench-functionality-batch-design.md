@@ -44,7 +44,8 @@ Run exactly these four tasks first:
 3. `log-summary-date-ranges`
 4. `multi-source-data-merger`
 
-Use these canonical Harbor task `path` selectors for the batch:
+Use these canonical Harbor task names for the batch, within dataset
+`terminal-bench@2.0`:
 
 - `git-leak-recovery`
 - `vulnerable-secret`
@@ -90,9 +91,9 @@ behavior with model-routing changes.
 The batch should use task-specific job names and temp directories so artifacts
 stay attributable. For each task, the run command should select exactly one task
 with Harbor's task filter, not a multi-task local run. The selector must be the
-canonical Harbor `path` string listed in this spec, not the display `name`, not
-a substring, and not a wildcard. This avoids collisions with sample tasks such
-as `sample/log-summary-date-ranges`.
+exact task name listed in this spec, with dataset pinned to `terminal-bench@2.0`
+and no wildcards. The sample-task collision does not apply once the dataset is
+fixed to `terminal-bench@2.0`.
 
 ## Batch Policy
 
@@ -108,10 +109,11 @@ The baseline batch means:
 - record the outcome of each run first
 - only then decide which fixes deserve implementation
 
-The only exception is infrastructure failure before Sprout produces usable
-artifacts. If a run fails before it writes a root event log or `trajectory.json`,
-stop and fix that infrastructure/runtime problem before continuing the batch,
-because there is no comparable task signal yet.
+The only exception is infrastructure failure before Sprout produces a
+baseline-evaluable artifact set. If a run fails before it writes the artifacts
+required by `Evaluable Artifact Set`, stop and fix that infrastructure/runtime
+problem before continuing the batch, because there is no comparable task signal
+yet.
 
 An `INFRA_BLOCKED` attempt does not satisfy that task's baseline run. After the
 infrastructure problem is fixed, rerun the same task and keep both records in
@@ -139,10 +141,15 @@ Each task must receive one primary outcome category. Use one of these buckets:
 - verification sequencing failure
 - task-specific domain failure
 - infrastructure failure
+- `UNCLASSIFIED`
 
-Use `SUCCESS_PATH` only when the task passes. For failed or blocked runs, use
-the most specific non-success category available. If none fit cleanly, the notes
-should say so explicitly instead of forcing the wrong category.
+Use `SUCCESS_PATH` for every passing task. Record any noteworthy weakness from a
+passing run as a secondary observation in the notes, not as the primary
+category.
+
+For failed or blocked runs, use the most specific non-success category
+available. If none fit cleanly, the notes should use `UNCLASSIFIED` and explain
+why.
 
 Apply this precedence when multiple categories seem true:
 
@@ -153,13 +160,15 @@ Apply this precedence when multiple categories seem true:
 5. `verification sequencing failure`
 6. `over-reporting or transcript bloat`
 7. `task-specific domain failure`
+8. `UNCLASSIFIED`
 
 Examples:
 
 - If one brittle all-in-one script both breaks quoting and corrupts exact file
   contents, classify it as `monolithic-script brittleness`.
 - If a task succeeds but returns a huge command transcript with no earlier
-  execution defect, classify it as `over-reporting or transcript bloat`.
+  execution defect, classify it as `SUCCESS_PATH` and note
+  `over-reporting or transcript bloat` as a secondary observation.
 - If a parent coordinator chooses the wrong branching strategy and that drives
   the failure, classify it as `delegation/context failure` even if one leaf also
   contains a local mistake.
@@ -179,6 +188,8 @@ Use one explicit rule so results stay comparable:
   - record the highest-token branch that performed the core implementation
   - only fall back to the highest-token verification branch if implementation
     stayed trivial and verification is what dominated the successful path
+  - if token counts tie, prefer the shallower branch
+  - if the root branch itself is decisive, record the root branch
 
 This rule avoids mixing harmless false starts with the branch that actually
 determined the run result.
@@ -205,6 +216,7 @@ For each task, record:
 - agent execution duration
 - total input and output tokens
 - per-model token split when available from replay logs
+- estimated cost when available
 - first meaningful failing branch or the clean success path
 - the most likely root cause category
 
@@ -219,8 +231,10 @@ Each task entry in the running notes must include:
 - run directory
 - result: `PASS`, `FAIL`, or `INFRA_BLOCKED`
 - reward if present
+- duration if present
 - total input and output tokens if present
 - per-model token split, or `unavailable`
+- estimated cost, or `unavailable`
 - chosen meaningful branch id/path
 - root-cause category
 - one short paragraph explaining why that branch was chosen
@@ -231,12 +245,14 @@ tokens and mark the split as unavailable. That is a valid result.
 Treat Harbor outcomes this way:
 
 - `PASS`
+  - the run is baseline-evaluable
+  - `result.json` exists
   - verifier reward is present and equal to `1.0`
 - `FAIL`
-  - verifier reward is present and not equal to `1.0`
-  - or Sprout produced usable artifacts but the run still ended unsuccessfully
+  - the run is baseline-evaluable
+  - and it is not `PASS`
 - `INFRA_BLOCKED`
-  - Sprout did not produce a root event log or `trajectory.json`
+  - Sprout did not produce a baseline-evaluable artifact set
 
 If a run is infra-blocked before usable replay exists, record:
 
@@ -252,7 +268,7 @@ If a run is infra-blocked before usable replay exists, record:
 
 A run is baseline-evaluable only if it has:
 
-- Harbor `result.json` or an equivalent trial-level failure symptom
+- Harbor `result.json`
 - a root event log JSONL
 - at least one replay JSONL for the branch chosen as meaningful
 
@@ -266,6 +282,44 @@ When available, record the sibling replay-log path next to that identifier.
 If a run has a root event log or `trajectory.json` but no replay JSONL for the
 chosen branch, classify it as `INFRA_BLOCKED` for batch purposes and rerun after
 the logging problem is fixed. Branch analysis is a required part of this batch.
+
+## Infrastructure Fix Scope
+
+An infrastructure fix during the batch is allowed only to restore baseline
+artifact production or Harbor/runtime execution plumbing.
+
+Examples that preserve already completed baseline task results:
+
+- Harbor job/trial directory wiring
+- replay-log persistence
+- ATIF or native log artifact writing
+- installed-binary launch plumbing
+
+Examples that invalidate already completed baseline task results and therefore
+require restarting the batch from task 1:
+
+- root or child agent prompt changes
+- model-routing changes
+- changes to delegation behavior
+- changes to tool behavior that can affect task execution
+
+If an infrastructure fix changes actual agent/runtime task behavior rather than
+just artifact production or launch plumbing, restart the full four-task baseline
+batch after applying the fix.
+
+## Required Run Contract
+
+Each batch run must use:
+
+- `-d terminal-bench@2.0`
+- exactly one `-t <task-name>` selector from this spec
+- no wildcard task selectors
+- `-l 1`
+- fallback model `openai/gpt-5.4`
+- `best_model=openai:gpt-5.4`
+- `balanced_model=openai:gpt-5.4`
+- `fast_model=openai:gpt-5-mini`
+- replay logging left enabled
 
 ## Non-Goals
 
