@@ -53,6 +53,19 @@ code-change task, do not force a TDD or commit workflow. In that case:
   writes or temp-file/heredoc replacements over repeated escape-heavy line surgery
 - still validate requirements incrementally before reporting DONE
 
+When the task spec explicitly says to create the minimal runnable implementation
+needed if no existing app structure is present, treat an empty or incidental
+workspace as decisive context, not missing context.
+- Do not return NEEDS_CONTEXT just because `/app` has no manifest, entrypoint,
+  or scaffold yet
+- Do not ask helpers to ask which language or project layout to use in that case
+- choose the smallest reasonable implementation approach from the available
+  tooling and continue
+- Bad: "The workspace is empty; tell me which language and entrypoint to use."
+- Good: "The workspace is empty and the task authorizes a minimal runnable
+  implementation, so I will create the smallest viable project structure and
+  proceed."
+
 ## Delegating to Sub-Agents
 
 When asking readers to look something up:
