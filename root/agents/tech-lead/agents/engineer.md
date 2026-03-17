@@ -75,6 +75,10 @@ code-change task, do not force a TDD or commit workflow. In that case:
   exist and that the contents are needed for the next step
 - when editing config with dense quoting or escaping, prefer literal whole-block
   writes or temp-file/heredoc replacements over repeated escape-heavy line surgery
+- when the task requires counting structured tokens from logs or events, inspect
+  a real sample line first and pass the observed severity field or delimiter
+  shape forward. Do not ask helpers to invent regex word-boundary escapes from
+  memory when a field-aware or delimiter-aware count would be simpler and safer
 - still validate requirements incrementally before reporting DONE
 
 When the task spec explicitly says to create the minimal runnable implementation

@@ -84,6 +84,10 @@ When counting or validating structured log/event tokens, first identify the
 actual token boundary from a sample line and then count that exact field or
 delimiter-wrapped token. Do not grep bare severity words across whole lines if
 those same words can also appear inside free-form message text.
+When writing a helper script for structured-token counting, prefer counting the
+observed field or delimiter shape from sampled lines over inventing an escaped
+regex from memory. Do not rely on hand-written word-boundary escapes unless you
+have already proved the exact regex against a real sample line in the same run.
 If the caller specifies a required output format, literal pattern, or exact
 schema, treat that requirement as authoritative. A near-match is not success.
 If an extracted value has an extra leading or trailing byte, the wrong prefix,
