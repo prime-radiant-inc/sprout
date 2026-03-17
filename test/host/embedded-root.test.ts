@@ -191,6 +191,8 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("observed field or delimiter shape");
 		expect(commandRunner).toContain("escaped");
 		expect(commandRunner).toContain("regex from memory");
+		expect(commandRunner).toContain("bracketed severity field");
+		expect(commandRunner).toContain("exact bracketed field shape");
 		expect(commandRunner).toContain("quiet or noninteractive flags");
 		expect(commandRunner).toContain("Do not add sudo speculatively");
 		expect(commandRunner).toContain("absolute path");
@@ -272,6 +274,8 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("sample line first");
 		expect(engineer).toContain("word-boundary escapes from");
 		expect(engineer).toContain("memory");
+		expect(engineer).toContain("bracketed severity field");
+		expect(engineer).toContain("exact bracketed field shape");
 		expect(engineer).toContain("opaque binary inputs like parquet");
 		expect(engineer).toContain("do not send a reader to raw-read them");
 		expect(engineer).toContain("Use a command-runner with an");

@@ -88,6 +88,9 @@ When writing a helper script for structured-token counting, prefer counting the
 observed field or delimiter shape from sampled lines over inventing an escaped
 regex from memory. Do not rely on hand-written word-boundary escapes unless you
 have already proved the exact regex against a real sample line in the same run.
+If sampled log lines show a bracketed severity field such as `[ERROR]`, count
+that exact bracketed field shape instead of bare severity words elsewhere in
+the line body.
 If the caller specifies a required output format, literal pattern, or exact
 schema, treat that requirement as authoritative. A near-match is not success.
 If an extracted value has an extra leading or trailing byte, the wrong prefix,

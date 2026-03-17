@@ -79,6 +79,9 @@ code-change task, do not force a TDD or commit workflow. In that case:
   a real sample line first and pass the observed severity field or delimiter
   shape forward. Do not ask helpers to invent regex word-boundary escapes from
   memory when a field-aware or delimiter-aware count would be simpler and safer
+- if the sampled lines show a bracketed severity field such as `[ERROR]`, tell
+  the helper to count that exact bracketed field shape rather than bare words
+  in the free-form message body
 - still validate requirements incrementally before reporting DONE
 
 When the task spec explicitly says to create the minimal runnable implementation
