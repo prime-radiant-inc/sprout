@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { Msg, type Request, type Response } from "../src/llm/types.ts";
 import type { ProviderAdapter } from "../src/llm/types.ts";
+import type { ProviderRegistryEntry } from "../src/llm/provider-registry.ts";
 import { Client } from "../src/llm/client.ts";
 import { ProviderRegistry } from "../src/llm/provider-registry.ts";
 import { resolveReplayPath } from "../src/replay/paths.ts";
@@ -151,34 +152,52 @@ function buildReplayRequest(
 async function loadWorkshopClient(): Promise<Pick<Client, "complete">> {
 	const settingsStore = new SettingsStore();
 	const settingsLoadResult = await settingsStore.load();
-	const { secretRefBackend, secretBackendState, secretStore } = createSecretStoreRuntime({
+	const loadedRuntime = createSecretStoreRuntime({
 		env: process.env,
 	});
+	const providers = providersFromEntries(
+		await new ProviderRegistry({
+			settings: settingsLoadResult.settings,
+			secretStore: loadedRuntime.secretStore,
+			secretBackend: loadedRuntime.secretRefBackend,
+			secretBackendState: loadedRuntime.secretBackendState,
+		}).getEntries(),
+	);
 
-	let settings = settingsLoadResult.settings;
-	if (settingsLoadResult.source === "missing") {
-		const imported = await importSettingsFromEnv({
-			env: process.env,
-			secretStore,
-			secretBackend: secretRefBackend,
-		});
-		if (imported.settings.providers.length > 0) {
-			settings = imported.settings;
+	const envRuntime = createSecretStoreRuntime({
+		env: process.env,
+		backend: "memory",
+	});
+	const imported = await importSettingsFromEnv({
+		env: process.env,
+		secretStore: envRuntime.secretStore,
+		secretBackend: envRuntime.secretRefBackend,
+	});
+	if (imported.settings.providers.length > 0) {
+		const envProviders = providersFromEntries(
+			await new ProviderRegistry({
+				settings: imported.settings,
+				secretStore: envRuntime.secretStore,
+				secretBackend: envRuntime.secretRefBackend,
+				secretBackendState: envRuntime.secretBackendState,
+			}).getEntries(),
+		);
+		for (const [providerId, adapter] of Object.entries(envProviders)) {
+			providers[providerId] = adapter;
 		}
 	}
+	return Client.fromProviders(providers);
+}
 
-	const registry = new ProviderRegistry({
-		settings,
-		secretStore,
-		secretBackend: secretRefBackend,
-		secretBackendState,
-	});
+export function providersFromEntries(
+	entries: ProviderRegistryEntry[],
+): Record<string, ProviderAdapter> {
 	const providers: Record<string, ProviderAdapter> = {};
-	for (const entry of await registry.getEntries()) {
+	for (const entry of entries) {
 		if (!entry.adapter || !entry.provider.enabled || entry.validationErrors.length > 0) {
 			continue;
 		}
 		providers[entry.provider.id] = entry.adapter;
 	}
-	return Client.fromProviders(providers);
+	return providers;
 }

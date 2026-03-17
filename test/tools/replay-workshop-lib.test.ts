@@ -3,10 +3,12 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ContentKind, type Message, type Request, type Response } from "../../src/llm/types.ts";
+import type { ProviderRegistryEntry } from "../../src/llm/provider-registry.ts";
 import type { ReplayTurnRecord } from "../../src/shared/replay.ts";
 import {
 	listReplayTurns,
 	loadReplayLog,
+	providersFromEntries,
 	replayTurn,
 	showReplayTurn,
 } from "../../tools/replay-workshop-lib.ts";
@@ -199,5 +201,52 @@ describe("replay workshop library", () => {
 		});
 		expect(result.request).toEqual(requests[0]!);
 		expect(result.response).toEqual(replayedResponse);
+	});
+
+	test("keeps only enabled valid adapters when building workshop providers", () => {
+		const loadedAdapter = { complete: async () => makeRecord(1).response } as any;
+		const envAdapter = { complete: async () => makeRecord(2).response } as any;
+		const entries: ProviderRegistryEntry[] = [
+			{
+				provider: {
+					id: "openai",
+					kind: "openai",
+					label: "OpenAI",
+					enabled: true,
+					createdAt: "now",
+					updatedAt: "now",
+				},
+				adapter: loadedAdapter,
+				validationErrors: [],
+			},
+			{
+				provider: {
+					id: "broken",
+					kind: "openai",
+					label: "Broken",
+					enabled: true,
+					createdAt: "now",
+					updatedAt: "now",
+				},
+				adapter: envAdapter,
+				validationErrors: ["bad secret"],
+			},
+			{
+				provider: {
+					id: "disabled",
+					kind: "openai",
+					label: "Disabled",
+					enabled: false,
+					createdAt: "now",
+					updatedAt: "now",
+				},
+				adapter: envAdapter,
+				validationErrors: [],
+			},
+		];
+
+		expect(providersFromEntries(entries)).toEqual({
+			openai: loadedAdapter,
+		});
 	});
 });
