@@ -259,6 +259,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("Do not launch dependent config inspection");
 		expect(engineer).toContain("shortest exact proof lines");
 		expect(engineer).toContain("Do not ask command-runners to enumerate exact commands");
+		expect(engineer).toContain("may match many files");
+		expect(engineer).toContain("match list by default");
+		expect(engineer).toContain("total match count");
+		expect(engineer).toContain("boundary proof lines");
 		expect(engineer).toContain("dense quoting or escaping");
 		expect(engineer).toContain("opaque binary inputs like parquet");
 		expect(engineer).toContain("do not send a reader to raw-read them");

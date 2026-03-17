@@ -129,6 +129,10 @@ When asking command-runners to inspect or verify:
   that demonstrate success instead of the full raw transcript
 - group routine capability checks into a single inspection pass
 - Do not ask for redundant child-path checks once a parent path is confirmed missing
+- when a prerequisite inspection may match many files, do not ask for the full
+  match list by default. Ask for the total match count, whether any non-matches
+  exist, and only the shortest boundary proof lines needed to show the match
+  shape, unless the full file list is itself required output
 - when you already know the current privilege level or other decisive environment
   facts, tell the command-runner explicitly so it can act without re-probing them
 - when prerequisite inspection establishes exact command names or missing tools,
