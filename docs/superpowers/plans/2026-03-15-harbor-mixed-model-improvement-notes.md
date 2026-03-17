@@ -125,20 +125,20 @@ Copy this block for each task run:
 #### vulnerable-secret
 
 - Selector: `vulnerable-secret`
-- Run directory: `/tmp/harbor-local-vulnerable-secret.uHts9a/sprout-batch-vulnerable-secret/vulnerable-secret__DagWa2b`
+- Run directory: `/tmp/harbor-local-vulnerable-secret-rerun2.84o4JZ/sprout-batch-vulnerable-secret-rerun2/vulnerable-secret__N4SWizx`
 - Result: `PASS`
 - Reward: `1.0`
-- Duration: `2m 55s` agent execution (`4m 19s` wall)
+- Duration: `4m 09s` agent execution (`5m 28s` wall)
 - Tokens:
-  - Input: `178,931`
-  - Output: `12,913`
-- Per-model split: `openai:gpt-5.4 = 5 calls / 13,407 input / 651 output; openai:gpt-5-mini = 28 calls / 165,524 input / 12,262 output`
-- Estimated cost: `$0.1092` total (`$0.0433` gpt-5.4 + `$0.0659` gpt-5-mini)
-- Meaningful branch: `logs/01KKTF1AB9REBE64ZWYPNCBD38/01KKTF1QEQDCB2ZMVM6HMQN66N.jsonl`
-- Replay log: `logs/01KKTF1AB9REBE64ZWYPNCBD38/01KKTF1QEQDCB2ZMVM6HMQN66N.replay.jsonl`
+  - Input: `207,532`
+  - Output: `18,577`
+- Per-model split: `openai:gpt-5.4 = 6 calls / 21,199 input / 820 output; openai:gpt-5-mini = 28 calls / 186,333 input / 17,757 output`
+- Estimated cost: `$0.1474` total (`$0.0653` gpt-5.4 + `$0.0821` gpt-5-mini)
+- Meaningful branch: `logs/01KKWHSET7HT9ETK9FRF01X5WN/01KKWHTD8B1ZN6B6D6NA2Y9K10.jsonl`
+- Replay log: `logs/01KKWHSET7HT9ETK9FRF01X5WN/01KKWHTD8B1ZN6B6D6NA2Y9K10.replay.jsonl`
 - Primary category: `SUCCESS_PATH`
-- Rationale: The decisive work happened in the depth-2 `command-runner` branch under the debugger. That branch ultimately solved the task by switching from failed format-string probing to direct binary inspection, locating obfuscated bytes in `.data`, XOR-decoding them to `FLAG{b4ff3r_0v3rfl0w_m4st3r_k3y_2024}`, and writing the exact flag to `/app/results.txt`. Harbor verified the result, so this belongs in the success path even though the branch took several exploratory turns first.
-- Secondary observations: The helper initially burned time on exploit-style input probing, including segmentation faults and quoting mistakes, before a later static-analysis pivot found the real answer quickly. This task shape is functionally solid, but it suggests the mixed-model debugger stack still overcommits to dynamic probing before checking cheaper binary-inspection paths.
+- Rationale: The decisive work happened in the depth-2 `command-runner` branch under the debugger, but only after the exact-format prompt fix forced it to treat `BFLAG{...}` as an incomplete extraction instead of a valid answer. The branch kept tracing the decode offset, corrected the off-by-one mistake, produced `FLAG{b4ff3r_0v3rfl0w_m4st3r_k3y_2024}`, and Harbor verified the result. That makes this a real success-path confirmation of the new prompt contract.
+- Secondary observations: The helper still spent many turns on dynamic probing and exploratory disassembly before the static decode converged. The prompt fix solved correctness, but there is still token waste from starting with exploit-style interaction before cheaper binary inspection.
 
 #### log-summary-date-ranges
 
