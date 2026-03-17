@@ -91,6 +91,11 @@ have already proved the exact regex against a real sample line in the same run.
 If sampled log lines show a bracketed severity field such as `[ERROR]`, count
 that exact bracketed field shape instead of bare severity words elsewhere in
 the line body.
+- Do not count `ERROR`, `WARNING`, or `INFO` with `grep -w` or another bare-word
+  search when the sampled line format shows bracketed severity markers.
+- Bad: `grep -w ERROR ...`
+- Good: count `[ERROR]`, `[WARNING]`, and `[INFO]` as the observed severity
+  field
 If the caller specifies a required output format, literal pattern, or exact
 schema, treat that requirement as authoritative. A near-match is not success.
 If the caller enumerates the exact allowed labels, periods, severities, or row

@@ -88,6 +88,11 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - if the sampled lines show a bracketed severity field such as `[ERROR]`, tell
   the helper to count that exact bracketed field shape rather than bare words
   in the free-form message body
+- Do not ask helpers to count bare severity words with `grep -w` when the
+  sampled line format already shows bracketed severity markers
+- Bad: `grep -w ERROR ...`
+- Good: count `[ERROR]`, `[WARNING]`, and `[INFO]` as the observed severity
+  field
 - still validate requirements incrementally before reporting DONE
 
 When the task spec explicitly says to create the minimal runnable implementation

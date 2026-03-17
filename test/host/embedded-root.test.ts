@@ -199,6 +199,9 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("regex from memory");
 		expect(commandRunner).toContain("bracketed severity field");
 		expect(commandRunner).toContain("exact bracketed field shape");
+		expect(commandRunner).toContain("Do not count `ERROR`, `WARNING`, or `INFO`");
+		expect(commandRunner).toContain("grep -w");
+		expect(commandRunner).toContain("count `[ERROR]`, `[WARNING]`, and `[INFO]`");
 		expect(commandRunner).toContain("enumerates the exact allowed labels");
 		expect(commandRunner).toContain("preserve that set exactly");
 		expect(commandRunner).toContain("Do not rename, collapse, reorder");
@@ -290,6 +293,9 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("memory");
 		expect(engineer).toContain("bracketed severity field");
 		expect(engineer).toContain("exact bracketed field shape");
+		expect(engineer).toContain("Do not ask helpers to count bare severity words");
+		expect(engineer).toContain("grep -w");
+		expect(engineer).toContain("count `[ERROR]`, `[WARNING]`, and `[INFO]`");
 		expect(engineer).toContain("opaque binary inputs like parquet");
 		expect(engineer).toContain("do not send a reader to raw-read them");
 		expect(engineer).toContain("Use a command-runner with an");
