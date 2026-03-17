@@ -71,6 +71,14 @@ BEFORE attempting ANY fix:
 3. Verify before continuing — did it work? If not, form a NEW hypothesis.
    Do NOT add more fixes on top.
 
+When the task specifies a required output format, literal pattern, or exact
+schema, treat that requirement as part of the evidence. If your current result
+is only a near-match, such as the right payload with an extra byte or wrong
+prefix, do not report success yet. Treat the mismatch as proof that the
+extraction or decoding is still incomplete and keep tracing the source of the
+bad byte until the result matches or you have decisive evidence that the task
+expectation itself is wrong.
+
 ## Phase 4: Implementation
 
 1. Write a failing test case that reproduces the bug

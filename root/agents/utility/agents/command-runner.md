@@ -74,6 +74,12 @@ as decisive immediately. Rerun a simpler explicit check for the exact paths
 before concluding that the outputs are absent.
 If syntax can succeed while runtime semantics are still wrong, verify the runtime
 output that matters instead of stopping at the syntax check.
+If the caller specifies a required output format, literal pattern, or exact
+schema, treat that requirement as authoritative. A near-match is not success.
+If an extracted value has an extra leading or trailing byte, the wrong prefix,
+or another off-by-one mismatch against the required output format, continue
+tracing the offset, delimiter, or decoding step instead of reporting or writing
+the near-match as final.
 Do not append offers of further help, optional next steps, or "if you want"
 closers when reporting upward. Stop after the requested findings.
 

@@ -94,6 +94,7 @@ describe("extractEmbeddedRoot", () => {
 			"utf-8",
 		);
 		const verifier = await readFile(join(rootDir, "agents", "verifier.md"), "utf-8");
+		const debuggerPrompt = await readFile(join(rootDir, "agents", "debugger.md"), "utf-8");
 		const taskManager = await readFile(
 			join(rootDir, "agents", "utility", "agents", "task-manager.md"),
 			"utf-8",
@@ -160,6 +161,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(workerPreamble).toContain("default to concise findings");
 		expect(workerPreamble).toContain("only when the caller explicitly asks for raw output");
 		expect(commandRunner).toContain("Do not dump raw command transcripts by default");
+		expect(commandRunner).toContain("required output format");
+		expect(commandRunner).toContain("near-match");
+		expect(commandRunner).toContain("extra leading or trailing byte");
+		expect(commandRunner).toContain("tracing the offset, delimiter, or decoding step");
 		expect(commandRunner).toContain("Group routine environment detection into concise findings");
 		expect(commandRunner).toContain("batch related inspection commands");
 		expect(commandRunner).toContain("stop probing beneath");
@@ -202,6 +207,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(verifier).toContain("required record cardinality");
 		expect(verifier).toContain("requires one conflict");
 		expect(verifier).toContain("single per-user object with nested");
+		expect(debuggerPrompt).toContain("required output format");
+		expect(debuggerPrompt).toContain("near-match");
+		expect(debuggerPrompt).toContain("extra byte");
+		expect(debuggerPrompt).toContain("do not report success yet");
 		expect(editor).toContain("treat those inputs as authoritative");
 		expect(editor).toContain("do not re-read unrelated files just");
 		expect(editor).toContain("do not use read_file on opaque binary inputs");
