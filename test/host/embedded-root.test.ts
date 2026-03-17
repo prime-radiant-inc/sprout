@@ -218,6 +218,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(debuggerPrompt).toContain("near-match");
 		expect(debuggerPrompt).toContain("extra byte");
 		expect(debuggerPrompt).toContain("do not report success yet");
+		expect(debuggerPrompt).toContain("structured logs or records");
+		expect(debuggerPrompt).toContain("real field or token");
+		expect(debuggerPrompt).toContain("boundary from sample lines");
+		expect(debuggerPrompt).toContain("bare word matches across whole lines");
 		expect(editor).toContain("treat those inputs as authoritative");
 		expect(editor).toContain("do not re-read unrelated files just");
 		expect(editor).toContain("do not use read_file on opaque binary inputs");

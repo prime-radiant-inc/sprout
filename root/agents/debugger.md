@@ -79,6 +79,12 @@ extraction or decoding is still incomplete and keep tracing the source of the
 bad byte until the result matches or you have decisive evidence that the task
 expectation itself is wrong.
 
+When diagnosing structured logs or records, identify the real field or token
+boundary from sample lines before counting or comparing values. Do not treat
+bare word matches across whole lines as proof of an exact token if those same
+words can also appear inside free-form message text. Carry the exact field
+pattern you verified into any delegated counting or verification step.
+
 ## Phase 4: Implementation
 
 1. Write a failing test case that reproduces the bug
