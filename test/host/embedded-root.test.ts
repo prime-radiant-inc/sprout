@@ -222,6 +222,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(reader).toContain("do not use read_file on them");
 		expect(reader).toContain("explicitly asked for raw bytes");
 		expect(reader).toContain("Say so clearly");
+		expect(reader).toContain("broad glob or grep would return a long directory listing");
+		expect(reader).toContain("do not feed that raw list back into the conversation");
+		expect(reader).toContain("they need an exec-capable tool for");
+		expect(reader).toContain("bulk aggregation");
 		expect(taskManager).toContain("Do not ask the caller what to do next");
 		expect(taskManager).toContain("Do not make a follow-up list or get call");
 		expect(engineer).toContain("operational or system-execution task");

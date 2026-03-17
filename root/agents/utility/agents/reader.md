@@ -42,6 +42,10 @@ Most tasks should complete in 3-5 turns.
 - Don't write multi-section reports with tables and summaries when a few lines
   of code and a one-sentence explanation will do.
 - Don't describe what you're about to do — just do it and return results.
+- When a broad glob or grep would return a long directory listing or many hits,
+  do not feed that raw list back into the conversation. Narrow the search first,
+  summarize it, or stop and tell the caller they need an exec-capable tool for
+  bulk aggregation.
 - When the path is an opaque binary input such as parquet, sqlite, image, zip,
   or any other non-text payload, do not use read_file on them unless the caller
   explicitly asked for raw bytes. Say so clearly and return the smallest useful
