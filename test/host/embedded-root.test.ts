@@ -158,6 +158,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(techLead).toContain("do not collapse multiple field conflicts");
 		expect(techLead).toContain("single per-user object");
 		expect(techLead).toContain("exact literals like file contents");
+		expect(techLead).toContain("exact config token, placeholder, or variable name");
+		expect(techLead).toContain("Do not treat a semantically similar token as good enough");
+		expect(techLead).toContain("If an engineer reports that an exact literal");
+		expect(techLead).toContain("do not report DONE");
 		expect(techLead).toContain('exact content "Welcome to the benchmark webserver"');
 		expect(techLead).toContain("Never move trailing punctuation inside");
 		expect(techLead).toContain("produce or repair artifacts from named external inputs");
@@ -169,6 +173,8 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("Do not dump raw command transcripts by default");
 		expect(commandRunner).toContain("required output format");
 		expect(commandRunner).toContain("near-match");
+		expect(commandRunner).toContain("exact config token, placeholder, or variable name");
+		expect(commandRunner).toContain("Do not replace it with a semantically similar");
 		expect(commandRunner).toContain("extra leading or trailing byte");
 		expect(commandRunner).toContain("tracing the offset, delimiter, or decoding step");
 		expect(commandRunner).toContain("Group routine environment detection into concise findings");
@@ -345,6 +351,8 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("one list entry per conflicting field");
 		expect(engineer).toContain("single per-user object");
 		expect(engineer).toContain("absolute paths or structured formats");
+		expect(engineer).toContain("exact config token, placeholder, or variable name");
+		expect(engineer).toContain("Do not substitute a semantically similar token");
 		expect(engineer).toContain("rediscover them from the repo");
 		expect(engineer).toContain("exact literals like file contents");
 		expect(engineer).toContain('exact content "Welcome to the benchmark webserver"');

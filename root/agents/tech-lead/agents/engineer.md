@@ -180,6 +180,11 @@ paths, or log formats:
 - Never move trailing punctuation inside a quoted literal
 - Bad: `exact content Welcome to the benchmark webserver.`
 - Good: `exact content "Welcome to the benchmark webserver"`
+- Treat an exact config token, placeholder, or variable name the same way.
+  Do not substitute a semantically similar token, shorthand, or combined field
+  just because it appears to contain the same information.
+- Bad: `$request`
+- Good: `$request_method`
 - Treat caller-supplied absolute paths or structured formats as exact literals.
   Do not rewrite absolute paths under the working directory or replace a
   concrete schema block with a summary.

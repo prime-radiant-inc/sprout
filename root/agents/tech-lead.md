@@ -91,6 +91,12 @@ commands, paths, or log formats:
 - Never move trailing punctuation inside a quoted literal
 - Bad: `exact content Welcome to the benchmark webserver.`
 - Good: `exact content "Welcome to the benchmark webserver"`
+- Treat an exact config token, placeholder, or variable name the same way.
+  Keep the exact token verbatim instead of swapping in an equivalent-looking
+  alternative.
+- Do not treat a semantically similar token as good enough.
+- Bad: `$request`
+- Good: `$request_method`
 - Treat caller-supplied absolute paths as exact literals and keep them
   unchanged instead of rewriting them under the working directory.
 
@@ -123,6 +129,9 @@ DONE_WITH_CONCERNS: Read the concerns. If they are about correctness or scope,
 address them before review or completion. If they are observations, note them
 and proceed to Step 3 for code-change tasks or Step 5 for operational/system
 tasks.
+- If an engineer reports that an exact literal, config token, path, schema key,
+  or required field shape was not preserved, treat that as a correctness issue;
+  do not report DONE until it is fixed.
 
 NEEDS_CONTEXT: The engineer needs information. If you have it, send it back
 to the engineer. If you do not, report NEEDS_CONTEXT back to your caller

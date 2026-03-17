@@ -107,6 +107,11 @@ shape before any aggregate count or output write. Treat this as a hard
 prerequisite, not an optional refinement.
 If the caller specifies a required output format, literal pattern, or exact
 schema, treat that requirement as authoritative. A near-match is not success.
+Treat an exact config token, placeholder, or variable name the same way.
+Do not replace it with a semantically similar shorthand or combined field just
+because it appears to contain the same information.
+- Bad: `$request`
+- Good: `$request_method`
 If the caller enumerates the exact allowed labels, periods, severities, or row
 set, preserve that set exactly. Do not rename, collapse, reorder, or add
 categories unless the caller explicitly asked for that transformation.
