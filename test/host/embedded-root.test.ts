@@ -171,6 +171,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("dense quoting/escaping");
 		expect(commandRunner).toContain("shell-variable loops or `sh -c` wrappers");
 		expect(commandRunner).toContain("Prefer simple explicit per-file checks");
+		expect(commandRunner).toContain("large match set such as many files under one directory");
+		expect(commandRunner).toContain("Summarize the decisive facts instead");
+		expect(commandRunner).toContain("total match count");
+		expect(commandRunner).toContain("first and last relevant matches");
 		expect(commandRunner).toContain("Treat caller-supplied input files and datasets as read-only");
 		expect(commandRunner).toContain("Do not rewrite, overwrite, seed, normalize,");
 		expect(commandRunner).toContain("or simplify those inputs");

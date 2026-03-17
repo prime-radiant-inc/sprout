@@ -68,6 +68,12 @@ exactly over inline one-liners that require multiple escape layers.
 When checking whether a small set of named files exists or changed, avoid
 shell-variable loops or `sh -c` wrappers that add another layer of quoting
 unless the caller explicitly needs them. Prefer simple explicit per-file checks.
+When inspecting a large match set such as many files under one directory, do
+not enumerate every match by default. Summarize the decisive facts instead:
+total match count, whether any non-matches exist, and only the shortest proof
+lines needed to show the first and last relevant matches or another clear
+boundary sample. Only list every match when the caller explicitly asks for the
+full set or the full set itself is the required output.
 If a command sequence produces contradictory facts, such as a successful write
 step followed by a claim that the named outputs are missing, do not treat that
 as decisive immediately. Rerun a simpler explicit check for the exact paths
