@@ -305,6 +305,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("observed severity field shape");
 		expect(engineer).toContain("Do not send a counting helper straight from filename discovery");
 		expect(engineer).toContain("whole-word");
+		expect(engineer).toContain("two-step helper flow");
+		expect(engineer).toContain("first helper turn samples representative lines");
+		expect(engineer).toContain("second helper turn may count only after");
+		expect(engineer).toContain("reference the observed field shape explicitly");
 		expect(engineer).toContain("opaque binary inputs like parquet");
 		expect(engineer).toContain("do not send a reader to raw-read them");
 		expect(engineer).toContain("Use a command-runner with an");

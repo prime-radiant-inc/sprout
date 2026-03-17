@@ -97,6 +97,10 @@ code-change task, do not force a TDD or commit workflow. In that case:
   the observed severity field shape before asking for aggregate counts
 - Do not send a counting helper straight from filename discovery to a
   whole-word grep or bulk counting script
+- Use a two-step helper flow for structured log counting:
+  first helper turn samples representative lines and returns the observed
+  severity field shape; second helper turn may count only after that first
+  result is in hand and must reference the observed field shape explicitly
 - still validate requirements incrementally before reporting DONE
 
 When the task spec explicitly says to create the minimal runnable implementation
