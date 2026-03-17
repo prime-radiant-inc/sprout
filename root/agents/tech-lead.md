@@ -73,6 +73,12 @@ structure specified by the user."
 - Treat a caller-provided exact output schema or report shape the same way.
   Do not tell the engineer to use a best-effort interpretation, and do not let
   substitute keys or nesting stand in for the required structure.
+- If the caller enumerates the exact allowed labels or row set, treat those
+  enumerated labels as part of the authoritative schema. Do not substitute
+  synonyms, collapse ranges, or add extra categories.
+- Bad: `before/on/after` with `DEBUG`
+- Good: `today/last_7_days/last_30_days/month_to_date/total` with only the
+  caller-specified severities
 - If the caller specifies keys like `field`, `values`, and `selected`, forward
   those exact keys instead of inventing substitute keys.
 - Treat required record cardinality the same way. If the caller's schema implies

@@ -46,6 +46,12 @@ code-change task, do not force a TDD or commit workflow. In that case:
   absent from project files
 - when the task already includes an exact output schema or report shape,
   implement it with the exact required keys, nesting, and field names
+- when the task enumerates exact labels, periods, severities, or rows, carry
+  those exact labels forward verbatim and preserve that exact set
+- Do not substitute synonyms, collapse date ranges, or add extra categories
+- Bad: `before/on/after` or adding `DEBUG`
+- Good: `today/last_7_days/last_30_days/month_to_date/total` with only the
+  caller-specified severities
 - Do not invent substitute keys such as `chosen_value`, `chosen_source`, or
   `values_by_source` when the caller already specified keys like `field`,
   `values`, and `selected`

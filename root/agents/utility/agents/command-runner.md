@@ -93,6 +93,12 @@ that exact bracketed field shape instead of bare severity words elsewhere in
 the line body.
 If the caller specifies a required output format, literal pattern, or exact
 schema, treat that requirement as authoritative. A near-match is not success.
+If the caller enumerates the exact allowed labels, periods, severities, or row
+set, preserve that set exactly. Do not rename, collapse, reorder, or add
+categories unless the caller explicitly asked for that transformation.
+- Bad: `before/on/after` or adding `DEBUG`
+- Good: `today/last_7_days/last_30_days/month_to_date/total` with only the
+  caller-specified severities
 If an extracted value has an extra leading or trailing byte, the wrong prefix,
 or another off-by-one mismatch against the required output format, continue
 tracing the offset, delimiter, or decoding step instead of reporting or writing
