@@ -162,6 +162,8 @@ describe("extractEmbeddedRoot", () => {
 		expect(techLead).toContain("Do not treat a semantically similar token as good enough");
 		expect(techLead).toContain("If an engineer reports that an exact literal");
 		expect(techLead).toContain("do not report DONE");
+		expect(techLead).toContain("low-confidence fragments or placeholder values");
+		expect(techLead).toContain("count as recovered rows");
 		expect(techLead).toContain('exact content "Welcome to the benchmark webserver"');
 		expect(techLead).toContain("Never move trailing punctuation inside");
 		expect(techLead).toContain("produce or repair artifacts from named external inputs");
@@ -177,6 +179,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("Do not replace it with a semantically similar");
 		expect(commandRunner).toContain("extra leading or trailing byte");
 		expect(commandRunner).toContain("tracing the offset, delimiter, or decoding step");
+		expect(commandRunner).toContain("structured records from a corrupted binary");
+		expect(commandRunner).toContain("Do not stop at raw string scraping");
+		expect(commandRunner).toContain("mostly empty, punctuation-only,");
+		expect(commandRunner).toContain("ambiguous fragments");
 		expect(commandRunner).toContain("Group routine environment detection into concise findings");
 		expect(commandRunner).toContain("batch related inspection commands");
 		expect(commandRunner).toContain("stop probing beneath");
@@ -328,6 +334,9 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("Do not ask a helper to rewrite an input file");
 		expect(engineer).toContain("Repair");
 		expect(engineer).toContain("the implementation or outputs instead");
+		expect(engineer).toContain("recovery quality");
+		expect(engineer).toContain("low-confidence fragments or placeholder values");
+		expect(engineer).toContain("real recovered field values");
 		expect(engineer).toContain("exact structured format, schema block, or");
 		expect(engineer).toContain("example payload");
 		expect(engineer).toContain("that task text is already authoritative context");

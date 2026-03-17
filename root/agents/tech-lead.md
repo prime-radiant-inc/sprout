@@ -132,6 +132,9 @@ tasks.
 - If an engineer reports that an exact literal, config token, path, schema key,
   or required field shape was not preserved, treat that as a correctness issue;
   do not report DONE until it is fixed.
+- If an engineer reports low-confidence fragments or placeholder values on a
+  structured recovery task, treat that as a correctness issue; those are not enough
+  to count as recovered rows.
 
 NEEDS_CONTEXT: The engineer needs information. If you have it, send it back
 to the engineer. If you do not, report NEEDS_CONTEXT back to your caller

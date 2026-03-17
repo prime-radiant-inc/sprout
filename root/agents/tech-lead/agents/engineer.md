@@ -46,6 +46,10 @@ code-change task, do not force a TDD or commit workflow. In that case:
   absent from project files
 - when the task already includes an exact output schema or report shape,
   implement it with the exact required keys, nesting, and field names
+- when the task is a structured recovery or extraction task, check semantic
+  recovery quality, not just output shape
+- low-confidence fragments or placeholder values are not enough to count as recovered
+  rows when the task expects real recovered field values
 - when the task enumerates exact labels, periods, severities, or rows, carry
   those exact labels forward verbatim and preserve that exact set
 - Do not substitute synonyms, collapse date ranges, or add extra categories

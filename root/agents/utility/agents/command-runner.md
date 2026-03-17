@@ -122,6 +122,16 @@ If an extracted value has an extra leading or trailing byte, the wrong prefix,
 or another off-by-one mismatch against the required output format, continue
 tracing the offset, delimiter, or decoding step instead of reporting or writing
 the near-match as final.
+When recovering structured records from a corrupted binary or container format
+such as sqlite, parquet, or an archive, prefer the most structure-aware recovery
+method available before falling back to raw string scraping.
+Do not stop at raw string scraping if the task requires semantically correct
+field values and the current output is mostly empty, punctuation-only, or
+otherwise ambiguous fragments.
+If your current recovery only proves output shape while the recovered values are
+still low-confidence fragments or placeholder values, report that limitation
+clearly and continue with a stronger recovery method when one is available
+instead of reporting the task as successfully recovered.
 Do not append offers of further help, optional next steps, or "if you want"
 closers when reporting upward. Stop after the requested findings.
 
