@@ -50,6 +50,13 @@ code-change task, do not force a TDD or commit workflow. In that case:
   recovery quality, not just output shape
 - low-confidence fragments or placeholder values are not enough to count as recovered
   rows when the task expects real recovered field values
+- when recovering structured records from corrupted binary or container data,
+  infer the local record structure from repeated patterns and validate
+  candidate field boundaries across multiple examples before guessing from
+  arbitrary nearby bytes
+- if a candidate field appears numeric, prefer standard decodings such as
+  common integer widths or IEEE floating-point layouts before falling back to
+  ad hoc byte heuristics
 - when the task enumerates exact labels, periods, severities, or rows, carry
   those exact labels forward verbatim and preserve that exact set
 - Do not substitute synonyms, collapse date ranges, or add extra categories

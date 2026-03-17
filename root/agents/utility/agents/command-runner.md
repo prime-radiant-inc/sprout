@@ -132,6 +132,12 @@ If your current recovery only proves output shape while the recovered values are
 still low-confidence fragments or placeholder values, report that limitation
 clearly and continue with a stronger recovery method when one is available
 instead of reporting the task as successfully recovered.
+When recovering structured records from corrupted binary or container data,
+infer the local record structure from repeated patterns and validate candidate
+field boundaries across multiple examples before guessing from arbitrary nearby
+bytes.
+If a candidate field appears numeric, prefer standard decodings such as common
+integer widths or IEEE floating-point layouts over ad hoc byte heuristics.
 Do not append offers of further help, optional next steps, or "if you want"
 closers when reporting upward. Stop after the requested findings.
 

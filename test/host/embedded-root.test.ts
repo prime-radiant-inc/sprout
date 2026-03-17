@@ -183,6 +183,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("Do not stop at raw string scraping");
 		expect(commandRunner).toContain("mostly empty, punctuation-only,");
 		expect(commandRunner).toContain("ambiguous fragments");
+		expect(commandRunner).toContain("infer the local record structure");
+		expect(commandRunner).toContain("validate candidate");
+		expect(commandRunner).toContain("across multiple examples");
+		expect(commandRunner).toContain("IEEE floating-point layouts");
 		expect(commandRunner).toContain("Group routine environment detection into concise findings");
 		expect(commandRunner).toContain("batch related inspection commands");
 		expect(commandRunner).toContain("stop probing beneath");
@@ -337,6 +341,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("recovery quality");
 		expect(engineer).toContain("low-confidence fragments or placeholder values");
 		expect(engineer).toContain("real recovered field values");
+		expect(engineer).toContain("infer the local record structure");
+		expect(engineer).toContain("validate");
+		expect(engineer).toContain("across multiple examples");
+		expect(engineer).toContain("IEEE floating-point layouts");
 		expect(engineer).toContain("exact structured format, schema block, or");
 		expect(engineer).toContain("example payload");
 		expect(engineer).toContain("that task text is already authoritative context");
