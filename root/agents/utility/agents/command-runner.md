@@ -74,6 +74,10 @@ as decisive immediately. Rerun a simpler explicit check for the exact paths
 before concluding that the outputs are absent.
 If syntax can succeed while runtime semantics are still wrong, verify the runtime
 output that matters instead of stopping at the syntax check.
+When counting or validating structured log/event tokens, first identify the
+actual token boundary from a sample line and then count that exact field or
+delimiter-wrapped token. Do not grep bare severity words across whole lines if
+those same words can also appear inside free-form message text.
 If the caller specifies a required output format, literal pattern, or exact
 schema, treat that requirement as authoritative. A near-match is not success.
 If an extracted value has an extra leading or trailing byte, the wrong prefix,

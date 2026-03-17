@@ -71,6 +71,10 @@ When checking that requirements are met:
   caller provided an exact schema
 - Verify required record cardinality too. If the schema requires one conflict
   object per field, do not accept a single per-user object with nested field groups
+- When verifying counts from structured log lines or records, identify the real
+  token boundary from sample lines first and preserve that boundary in the
+  delegated check. Do not verify by grepping bare words across whole lines when
+  those words can also appear inside free-form messages.
 - Report which are met and which are not
 
 ## Red Flags — Words You Never Use Without Evidence

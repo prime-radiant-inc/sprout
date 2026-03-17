@@ -180,6 +180,9 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("produces contradictory facts");
 		expect(commandRunner).toContain("Rerun a simpler explicit check");
 		expect(commandRunner).toContain("runtime semantics are still wrong");
+		expect(commandRunner).toContain("structured log/event tokens");
+		expect(commandRunner).toContain("actual token boundary from a sample line");
+		expect(commandRunner).toContain("Do not grep bare severity words across whole lines");
 		expect(commandRunner).toContain("quiet or noninteractive flags");
 		expect(commandRunner).toContain("Do not add sudo speculatively");
 		expect(commandRunner).toContain("absolute path");
@@ -207,6 +210,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(verifier).toContain("required record cardinality");
 		expect(verifier).toContain("requires one conflict");
 		expect(verifier).toContain("single per-user object with nested");
+		expect(verifier).toContain("structured log lines or records");
+		expect(verifier).toContain("identify the real");
+		expect(verifier).toContain("token boundary from sample lines first");
+		expect(verifier).toContain("Do not verify by grepping bare words across whole lines");
 		expect(debuggerPrompt).toContain("required output format");
 		expect(debuggerPrompt).toContain("near-match");
 		expect(debuggerPrompt).toContain("extra byte");
