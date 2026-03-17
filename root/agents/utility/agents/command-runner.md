@@ -96,6 +96,10 @@ the line body.
 - Bad: `grep -w ERROR ...`
 - Good: count `[ERROR]`, `[WARNING]`, and `[INFO]` as the observed severity
   field
+For structured log counting, the first counting pass must sample one or two real
+lines from the target files and show the observed field shape before any
+aggregate count. Do not jump straight from filename enumeration to a whole-word
+grep or bulk counting script.
 If the caller specifies a required output format, literal pattern, or exact
 schema, treat that requirement as authoritative. A near-match is not success.
 If the caller enumerates the exact allowed labels, periods, severities, or row

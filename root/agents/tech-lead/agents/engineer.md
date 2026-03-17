@@ -93,6 +93,10 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - Bad: `grep -w ERROR ...`
 - Good: count `[ERROR]`, `[WARNING]`, and `[INFO]` as the observed severity
   field
+- For structured log counting, first ask for one or two real sample lines and
+  the observed severity field shape before asking for aggregate counts
+- Do not send a counting helper straight from filename discovery to a
+  whole-word grep or bulk counting script
 - still validate requirements incrementally before reporting DONE
 
 When the task spec explicitly says to create the minimal runnable implementation
