@@ -207,6 +207,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("Do not jump straight from filename enumeration");
 		expect(commandRunner).toContain("whole-word");
 		expect(commandRunner).toContain("bulk counting script");
+		expect(commandRunner).toContain("If the caller asks you to count structured log");
+		expect(commandRunner).toContain("has not already supplied the observed field shape");
+		expect(commandRunner).toContain("sample one or two real lines yourself first");
+		expect(commandRunner).toContain("before any aggregate count or output write");
 		expect(commandRunner).toContain("enumerates the exact allowed labels");
 		expect(commandRunner).toContain("preserve that set exactly");
 		expect(commandRunner).toContain("Do not rename, collapse, reorder");
