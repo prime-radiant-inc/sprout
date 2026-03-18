@@ -96,6 +96,13 @@ a hint for where to look next.
 If covering the remaining cases would require relaxing a validated structural
 constraint, run a smaller discriminating check first and keep that constraint
 fixed until new evidence justifies changing it.
+When writing structured output with multiple fields, identify what evidence
+supports each field before you write the final artifact.
+Keep field roles separate unless decisive evidence shows those fields are the
+same thing or directly coupled.
+If one field already has strong evidence, keep that evidence anchored to that
+field instead of reusing it as a substitute for another field whose support is
+still unresolved.
 Do not spend turns re-checking decisive facts the caller already established
 unless later steps may have changed them or the caller explicitly asked for
 fresh confirmation.

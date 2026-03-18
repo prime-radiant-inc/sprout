@@ -100,6 +100,13 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - If covering the remaining cases would require relaxing a validated
   structural constraint, ask for a smaller discriminating check first and keep
   that constraint fixed until new evidence justifies changing it
+- When writing structured output with multiple fields, identify what evidence
+  supports each field before you ask for the final artifact
+- Keep field roles separate unless decisive evidence shows those fields are the
+  same thing or directly coupled
+- If one field already has strong evidence, keep that evidence anchored to
+  that field instead of reusing it as a substitute for another field whose
+  support is still unresolved
 - when recovering structured records from corrupted binary or container data,
   infer the local record structure from repeated patterns and validate
   candidate field boundaries across multiple examples before guessing from
