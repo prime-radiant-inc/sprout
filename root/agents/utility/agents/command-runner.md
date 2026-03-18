@@ -129,6 +129,14 @@ After any install, build, or packaging step that could mutate that
 environment, re-check the stated invariant before you report success.
 If a step broke an invariant, report that breakage immediately instead of
 continuing as if later progress canceled it out.
+When the caller asks you to confirm that an expected source change is present
+before a build, install, package, or test step, treat that confirmation as a
+hard gate.
+If the live file state still shows the old lines, missing files, or otherwise
+contradicts the expected source change, report the mismatch immediately.
+Do not continue into build, install, package, or test as if the change had
+already landed.
+Repair the live source state first, then re-confirm it before proceeding.
 Treat the current best interpretation as a working hypothesis until a
 discriminating check resolves the remaining alternatives.
 If more than one interpretation still fits the evidence, do not write the

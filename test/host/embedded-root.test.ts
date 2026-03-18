@@ -289,6 +289,11 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("reuses the already-satisfied environment");
 		expect(commandRunner).toContain("re-check the stated invariant");
 		expect(commandRunner).toContain("before you report success");
+		expect(commandRunner).toContain("expected source change is present");
+		expect(commandRunner).toContain("treat that confirmation as a hard gate");
+		expect(commandRunner).toContain("live file state still shows the old lines");
+		expect(commandRunner).toContain("Do not continue into build, install, package, or test");
+		expect(commandRunner).toContain("report the mismatch immediately");
 		expect(commandRunner).toContain("working hypothesis");
 		expect(commandRunner).toContain("If more than one interpretation still fits the");
 		expect(commandRunner).toContain("evidence, do not write the");
