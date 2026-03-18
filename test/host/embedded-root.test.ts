@@ -302,6 +302,11 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("live file state still shows the old lines");
 		expect(commandRunner).toContain("Do not continue into build, install, package, or test");
 		expect(commandRunner).toContain("report the mismatch immediately");
+		expect(commandRunner).toContain("live runtime traceback or failing check");
+		expect(commandRunner).toContain("exact file, line, or symbol");
+		expect(commandRunner).toContain("smallest local action");
+		expect(commandRunner).toContain("rerun that same failing check");
+		expect(commandRunner).toContain("repo-wide compatibility census");
 		expect(commandRunner).toContain("working hypothesis");
 		expect(commandRunner).toContain("If more than one interpretation still fits the");
 		expect(commandRunner).toContain("evidence, do not write the");
@@ -563,6 +568,11 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("rerun the same failing build, import, or test step");
 		expect(engineer).toContain("Do not widen into source analysis");
 		expect(engineer).toContain("reader-only investigation");
+		expect(engineer).toContain("fresh runtime or test failure already identifies");
+		expect(engineer).toContain("exact file, line, or symbol");
+		expect(engineer).toContain("smallest local fix");
+		expect(engineer).toContain("rerun that same failing check");
+		expect(engineer).toContain("repo-wide audit");
 		expect(engineer).toContain("Do not ask a helper to use blanket dependency suppression");
 		expect(engineer).toContain("such as `--no-deps`");
 		expect(engineer).toContain("unless the caller explicitly required it");

@@ -113,6 +113,11 @@ code-change task, do not force a TDD or commit workflow. In that case:
   for the next step
 - Ask for the smallest local fix and rerun that same failing check before
   broadening scope
+- Treat that live runtime traceback or failing check as the current frontier
+  of the work
+- Keep the next delegated goal anchored to that exact file, line, or symbol
+  until you have either repaired it and rerun that same failing check or
+  proved that the same failure already implicates multiple exact sites
 - Do not broaden into a hotspot search, compatibility census, or repo-wide
   audit until that local fix has been tried and rerun, unless the same
   failure already proves multiple exact sites at once

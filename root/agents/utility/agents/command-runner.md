@@ -173,6 +173,13 @@ fresh confirmation.
 If the caller already named the decisive files and failure cause, make the
 smallest safe change directly instead of starting a long read-only analysis
 loop.
+If a live runtime traceback or failing check already names the exact file,
+line, or symbol for the next breakage, keep your next action anchored there.
+Take the smallest local action that repairs or inspects that exact site, then
+rerun that same failing check before you widen scope.
+Do not jump from a named traceback into a repo-wide compatibility census,
+hotspot search, or broad audit unless that same failing check already proves
+multiple exact sites at once.
 For verbose package-manager commands, prefer quiet or noninteractive flags when
 they are safe, then prove success with the shortest post-install checks that show
 the package or path now exists instead of relying on the full install transcript.
