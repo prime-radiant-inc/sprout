@@ -120,6 +120,11 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - If a field would be filled from another field's cleanup, suffix, byte
   position, or neighboring raw byte, ask for another check instead of the
   final artifact
+- Preserve semantic consistency within each output field
+- If the same field starts taking incompatible kinds or meanings across rows,
+  treat that as evidence that the interpretation is still unresolved
+- Ask for another discriminating check instead of the final artifact while
+  that field still mixes inconsistent domains
 - Keep source evidence and output values distinct
 - If a raw fragment, local substring, or decoded token has unexplained extra
   characters, corruption markers, or other unresolved noise, treat it as

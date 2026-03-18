@@ -116,6 +116,11 @@ different field's contents.
 If a field would be filled from another field's cleanup, suffix, byte
 position, or neighboring raw byte, gather another check instead of writing the
 final artifact.
+Preserve semantic consistency within each output field.
+If the same field starts taking incompatible kinds or meanings across rows,
+treat that as evidence that the interpretation is still unresolved.
+Do another discriminating check instead of writing the final artifact while
+that field still mixes inconsistent domains.
 Keep source evidence and output values distinct.
 If a raw fragment, local substring, or decoded token has unexplained extra
 characters, corruption markers, or other unresolved noise, treat it as
