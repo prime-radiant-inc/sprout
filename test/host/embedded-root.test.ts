@@ -259,6 +259,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("characters, corruption markers");
 		expect(commandRunner).toContain("supports each field before");
 		expect(commandRunner).toContain("Keep field roles separate");
+		expect(commandRunner).toContain("Track evidence provenance per output field");
+		expect(commandRunner).toContain("Cleanup, suffixes, offsets, adjacency");
+		expect(commandRunner).toContain("different field's contents");
+		expect(commandRunner).toContain("neighboring raw byte");
 		expect(commandRunner).toContain("broadest well-supported form");
 		expect(commandRunner).toContain("Do not coerce recovered or inferred values");
 		expect(commandRunner).toContain("produces contradictory facts");
@@ -464,6 +468,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("characters, corruption markers");
 		expect(engineer).toContain("supports each field before");
 		expect(engineer).toContain("Keep field roles separate");
+		expect(engineer).toContain("Track evidence provenance per output field");
+		expect(engineer).toContain("Cleanup, suffixes, offsets, adjacency");
+		expect(engineer).toContain("different field's contents");
+		expect(engineer).toContain("neighboring raw byte");
 		expect(engineer).toContain("broadest well-supported form");
 		expect(engineer).toContain("Do not ask a helper to coerce");
 		expect(engineer).toContain("exact structured format, schema block, or");

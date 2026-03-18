@@ -113,6 +113,13 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - If one field already has strong evidence, keep that evidence anchored to
   that field instead of reusing it as a substitute for another field whose
   support is still unresolved
+- Track evidence provenance per output field
+- Cleanup, suffixes, offsets, adjacency, and other location cues can help you
+  find a record or improve that same field candidate, but they do not justify
+  a different field's contents
+- If a field would be filled from another field's cleanup, suffix, byte
+  position, or neighboring raw byte, ask for another check instead of the
+  final artifact
 - Keep source evidence and output values distinct
 - If a raw fragment, local substring, or decoded token has unexplained extra
   characters, corruption markers, or other unresolved noise, treat it as
