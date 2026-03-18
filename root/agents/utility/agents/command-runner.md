@@ -114,6 +114,10 @@ Preserve distinctions. Collapse them only when the task and the evidence
 justify it.
 When the caller names an existing shared environment and exact dependency or
 tool versions there, treat those versions as hard invariants.
+If the caller fixes one dependency or tool version, keep the fixed version as an invariant.
+Then satisfy other missing declared prerequisites that do not conflict with it.
+Do not default to blanket dependency suppression such as `--no-deps` just
+because one package version is pinned.
 Do not upgrade, downgrade, or otherwise rewrite that environment in place
 unless the caller explicitly authorized that change.
 After any install, build, or packaging step that could mutate that
@@ -153,6 +157,9 @@ recovered values into the final artifact.
 Do not spend turns re-checking decisive facts the caller already established
 unless later steps may have changed them or the caller explicitly asked for
 fresh confirmation.
+If the caller already named the decisive files and failure cause, make the
+smallest safe change directly instead of starting a long read-only analysis
+loop.
 For verbose package-manager commands, prefer quiet or noninteractive flags when
 they are safe, then prove success with the shortest post-install checks that show
 the package or path now exists instead of relying on the full install transcript.

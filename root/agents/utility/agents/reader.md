@@ -46,6 +46,10 @@ Most tasks should complete in 3-5 turns.
   do not feed that raw list back into the conversation. Narrow the search first,
   summarize it, or stop and tell the caller they need an exec-capable tool for
   bulk aggregation.
+- When the caller already points you at named files and exact failure
+  pattern, Stop once you have the decisive file lines, failure cause, and
+  minimal fix direction.
+- Do not keep searching for exhaustive supporting examples after that point.
 - When the path is an opaque binary input such as parquet, sqlite, image, zip,
   or any other non-text payload, do not use read_file on them unless the caller
   explicitly asked for raw bytes. Say so clearly and return the smallest useful

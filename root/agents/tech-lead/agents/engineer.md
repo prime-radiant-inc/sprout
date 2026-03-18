@@ -116,6 +116,12 @@ code-change task, do not force a TDD or commit workflow. In that case:
   justify it
 - When the caller names an existing shared environment and exact dependency or
   tool versions there, treat those versions as hard invariants
+- If the caller fixes one dependency or tool version, keep that fixed version
+  unchanged and satisfy any other missing declared prerequisites that do not
+  conflict with it
+- Do not ask a helper to use blanket dependency suppression such as `--no-deps`
+  unless the caller explicitly required it or you already proved the
+  prerequisites are present
 - Do not ask a helper to rewrite that environment in place just to fit an
   easier plan
 - After any install, build, or packaging step that could change that

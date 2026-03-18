@@ -21,6 +21,10 @@ function createBundle(hash: string, rootContent = "# Root\n"): EmbeddedRootBundl
 	};
 }
 
+function normalizeEmbeddedText(content: string): string {
+	return content.replaceAll(/\s+/g, " ").trim();
+}
+
 describe("extractEmbeddedRoot", () => {
 	const tempDirs: string[] = [];
 
@@ -87,30 +91,48 @@ describe("extractEmbeddedRoot", () => {
 		tempDirs.push(cacheDir);
 
 		const rootDir = await extractEmbeddedRoot({ cacheDir });
-		const root = await readFile(join(rootDir, "root.md"), "utf-8");
-		const workerPreamble = await readFile(join(rootDir, "preambles", "worker.md"), "utf-8");
-		const commandRunner = await readFile(
+		const root = normalizeEmbeddedText(await readFile(join(rootDir, "root.md"), "utf-8"));
+		const workerPreamble = normalizeEmbeddedText(
+			await readFile(join(rootDir, "preambles", "worker.md"), "utf-8"),
+		);
+		const commandRunner = normalizeEmbeddedText(
+			await readFile(
 			join(rootDir, "agents", "utility", "agents", "command-runner.md"),
 			"utf-8",
+			),
 		);
-		const verifier = await readFile(join(rootDir, "agents", "verifier.md"), "utf-8");
-		const debuggerPrompt = await readFile(join(rootDir, "agents", "debugger.md"), "utf-8");
-		const taskManager = await readFile(
+		const verifier = normalizeEmbeddedText(
+			await readFile(join(rootDir, "agents", "verifier.md"), "utf-8"),
+		);
+		const debuggerPrompt = normalizeEmbeddedText(
+			await readFile(join(rootDir, "agents", "debugger.md"), "utf-8"),
+		);
+		const taskManager = normalizeEmbeddedText(
+			await readFile(
 			join(rootDir, "agents", "utility", "agents", "task-manager.md"),
 			"utf-8",
+			),
 		);
-		const editor = await readFile(
+		const editor = normalizeEmbeddedText(
+			await readFile(
 			join(rootDir, "agents", "utility", "agents", "editor.md"),
 			"utf-8",
+			),
 		);
-		const reader = await readFile(
+		const reader = normalizeEmbeddedText(
+			await readFile(
 			join(rootDir, "agents", "utility", "agents", "reader.md"),
 			"utf-8",
+			),
 		);
-		const techLead = await readFile(join(rootDir, "agents", "tech-lead.md"), "utf-8");
-		const engineer = await readFile(
+		const techLead = normalizeEmbeddedText(
+			await readFile(join(rootDir, "agents", "tech-lead.md"), "utf-8"),
+		);
+		const engineer = normalizeEmbeddedText(
+			await readFile(
 			join(rootDir, "agents", "tech-lead", "agents", "engineer.md"),
 			"utf-8",
+			),
 		);
 
 		expect(root).toContain("exact literals like file contents");
@@ -265,6 +287,12 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("hard invariants");
 		expect(commandRunner).toContain("Do not upgrade, downgrade");
 		expect(commandRunner).toContain("rewrite that environment in place");
+		expect(commandRunner).toContain("fixed version as an invariant");
+		expect(commandRunner).toContain("satisfy other missing declared prerequisites");
+		expect(commandRunner).toContain("that do not conflict with it");
+		expect(commandRunner).toContain("Do not default to blanket dependency suppression");
+		expect(commandRunner).toContain("such as `--no-deps`");
+		expect(commandRunner).toContain("just because one package version is pinned");
 		expect(commandRunner).toContain("re-check the stated invariant");
 		expect(commandRunner).toContain("before you report success");
 		expect(commandRunner).toContain("working hypothesis");
@@ -330,6 +358,11 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("Do not spend turns re-checking");
 		expect(commandRunner).toContain("Do not repeat the literal command text or exit code");
 		expect(commandRunner).toContain("one short step summary");
+		expect(commandRunner).toContain("If the caller already named the decisive");
+		expect(commandRunner).toContain("files and failure cause");
+		expect(commandRunner).toContain("make the smallest safe change directly");
+		expect(commandRunner).toContain("instead of starting a long");
+		expect(commandRunner).toContain("read-only analysis loop");
 		expect(commandRunner).toContain("stop after the first decisive available command");
 		expect(commandRunner).toContain('Do not add a "commands used" appendix');
 		expect(commandRunner).toContain("Do not append offers of further help");
@@ -372,6 +405,12 @@ describe("extractEmbeddedRoot", () => {
 		expect(editor).toContain("treat those inputs as authoritative");
 		expect(editor).toContain("do not re-read unrelated files just");
 		expect(editor).toContain("do not use read_file on opaque binary inputs");
+		expect(editor).toContain("already provides the exact file paths");
+		expect(editor).toContain("failure mode, and replacement direction");
+		expect(editor).toContain("make the smallest confirming read");
+		expect(editor).toContain("then patch directly");
+		expect(editor).toContain("Do not spend turns on extra read-only");
+		expect(editor).toContain("analysis or design prose");
 		expect(editor).toContain(
 			'Bad: "glob /data, read the JSON and CSV, then read the Parquet file bytes',
 		);
@@ -384,6 +423,12 @@ describe("extractEmbeddedRoot", () => {
 		expect(reader).toContain("do not feed that raw list back into the conversation");
 		expect(reader).toContain("they need an exec-capable tool for");
 		expect(reader).toContain("bulk aggregation");
+		expect(reader).toContain("named files and exact failure pattern");
+		expect(reader).toContain("Stop once you have the decisive");
+		expect(reader).toContain("file lines, failure cause, and");
+		expect(reader).toContain("minimal fix direction");
+		expect(reader).toContain("Do not keep searching for exhaustive");
+		expect(reader).toContain("supporting examples after that point");
 		expect(taskManager).toContain("Do not ask the caller what to do next");
 		expect(taskManager).toContain("Do not make a follow-up list or get call");
 		expect(engineer).toContain("operational or system-execution task");
@@ -496,6 +541,14 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("existing shared environment");
 		expect(engineer).toContain("hard invariants");
 		expect(engineer).toContain("Do not ask a helper to rewrite that environment");
+		expect(engineer).toContain("keep that fixed version unchanged");
+		expect(engineer).toContain("satisfy any other missing");
+		expect(engineer).toContain("declared prerequisites");
+		expect(engineer).toContain("that do not conflict");
+		expect(engineer).toContain("Do not ask a helper to use blanket dependency suppression");
+		expect(engineer).toContain("such as `--no-deps`");
+		expect(engineer).toContain("unless the caller explicitly required it");
+		expect(engineer).toContain("or you already proved the prerequisites are present");
 		expect(engineer).toContain("After any install, build, or packaging step");
 		expect(engineer).toContain("re-check those invariants immediately");
 		expect(engineer).toContain("the branch is not DONE");

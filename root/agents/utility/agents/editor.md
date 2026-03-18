@@ -45,6 +45,11 @@ When the caller already provides exact paths, schemas, field mappings, runtime
 choices, or other decisive implementation facts:
 - treat those inputs as authoritative and do not re-read unrelated files just
   to rediscover them
+- when the caller already provides the exact file paths, failure mode, and
+  replacement direction, make the smallest confirming read you need and then
+  patch directly
+- Do not spend turns on extra read-only analysis or design prose once the
+  decisive edit target is already known
 - if the task is to create a minimal new file in a blank or incidental
   workspace, do not glob or inspect broad input trees unless the caller said an
   existing working-directory file matters
