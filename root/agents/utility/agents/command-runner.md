@@ -81,6 +81,13 @@ requested output, stay inside that model for the next step. Use the smallest
 discriminating check that can resolve the remaining cases before writing the
 final artifact instead of narrowing to the first subtype or heuristic that
 produces a valid-looking subset.
+When a task asks to recover or extract as many valid items as possible and
+earlier evidence has already surfaced concrete candidate items, treat an empty
+or sharply reduced result as partial until those candidate items are
+decisively ruled out under the requested contract.
+In that state, do not write the final artifact as complete output.
+Run another discriminating check or report the output as partial with the
+unresolved candidate items called out explicitly.
 Preserve the most faithful representation the evidence supports.
 If the requested output does not require a narrower subtype, encoding, or unit,
 keep recovered or inferred values in the broadest well-supported form and carry

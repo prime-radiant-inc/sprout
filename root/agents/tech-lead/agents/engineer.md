@@ -83,6 +83,13 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - Ask the next helper for the smallest discriminating check that resolves the
   remaining cases within that same model instead of narrowing to the first
   subtype or heuristic that produces a valid-looking subset
+- If earlier reconnaissance or helper findings already surfaced concrete
+  candidate items and the current result is empty or sharply reduced, do not
+  accept that result as complete unless those candidate items were decisively
+  ruled out under the requested contract
+- In that state, do not report DONE
+- Ask for another discriminating check instead of accepting the current
+  artifact as final
 - Preserve the most faithful representation the evidence supports
 - If the requested output does not require a narrower subtype, encoding, or
   unit, keep recovered or inferred values in the broadest well-supported form

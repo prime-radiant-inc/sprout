@@ -228,6 +228,11 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("Never modify benchmark or task inputs");
 		expect(commandRunner).toContain("if the current outputs are wrong, write");
 		expect(commandRunner).toContain("the fix to the implementation or outputs instead");
+		expect(commandRunner).toContain("treat an empty");
+		expect(commandRunner).toContain("or sharply reduced result as partial");
+		expect(commandRunner).toContain("concrete candidate items");
+		expect(commandRunner).toContain("decisively ruled out");
+		expect(commandRunner).toContain("do not write the final artifact as complete output");
 		expect(commandRunner).toContain("stronger structural anchors");
 		expect(commandRunner).toContain("exact");
 		expect(commandRunner).toContain("offsets, record boundaries");
@@ -411,6 +416,12 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("Do not ask a helper to rewrite an input file");
 		expect(engineer).toContain("Repair");
 		expect(engineer).toContain("the implementation or outputs instead");
+		expect(engineer).toContain("current result is empty or sharply reduced");
+		expect(engineer).toContain("concrete");
+		expect(engineer).toContain("candidate items");
+		expect(engineer).toContain("were decisively");
+		expect(engineer).toContain("ruled out");
+		expect(engineer).toContain("do not report DONE");
 		expect(engineer).toContain("recovery quality");
 		expect(engineer).toContain("low-confidence fragments or placeholder values");
 		expect(engineer).toContain("real recovered field values");
