@@ -81,6 +81,13 @@ requested output, stay inside that model for the next step. Use the smallest
 discriminating check that can resolve the remaining cases before writing the
 final artifact instead of narrowing to the first subtype or heuristic that
 produces a valid-looking subset.
+Preserve the most faithful representation the evidence supports.
+If the requested output does not require a narrower subtype, encoding, or unit,
+keep recovered or inferred values in the broadest well-supported form and carry
+unresolved subtype questions forward until decisive evidence resolves them.
+Do not coerce recovered or inferred values into a narrower subtype just because
+one valid subset happens to fit it. Narrow only when the caller's contract or
+decisive evidence requires that narrower form.
 Do not spend turns re-checking decisive facts the caller already established
 unless later steps may have changed them or the caller explicitly asked for
 fresh confirmation.

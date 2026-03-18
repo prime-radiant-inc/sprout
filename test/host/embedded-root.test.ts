@@ -236,6 +236,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("smallest");
 		expect(commandRunner).toContain("discriminating check");
 		expect(commandRunner).toContain("remaining cases");
+		expect(commandRunner).toContain("most faithful representation the evidence supports");
+		expect(commandRunner).toContain("does not require a narrower subtype");
+		expect(commandRunner).toContain("broadest well-supported form");
+		expect(commandRunner).toContain("Do not coerce recovered or inferred values");
 		expect(commandRunner).toContain("produces contradictory facts");
 		expect(commandRunner).toContain("Rerun a simpler explicit check");
 		expect(commandRunner).toContain("runtime semantics are still wrong");
@@ -420,6 +424,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("do not delegate final artifact writing yet");
 		expect(engineer).toContain("smallest discriminating check");
 		expect(engineer).toContain("remaining cases within that same model");
+		expect(engineer).toContain("most faithful representation the evidence supports");
+		expect(engineer).toContain("does not require a narrower subtype");
+		expect(engineer).toContain("broadest well-supported form");
+		expect(engineer).toContain("Do not ask a helper to coerce");
 		expect(engineer).toContain("exact structured format, schema block, or");
 		expect(engineer).toContain("example payload");
 		expect(engineer).toContain("that task text is already authoritative context");

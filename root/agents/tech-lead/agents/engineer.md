@@ -83,6 +83,15 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - Ask the next helper for the smallest discriminating check that resolves the
   remaining cases within that same model instead of narrowing to the first
   subtype or heuristic that produces a valid-looking subset
+- Preserve the most faithful representation the evidence supports
+- If the requested output does not require a narrower subtype, encoding, or
+  unit, keep recovered or inferred values in the broadest well-supported form
+  and carry unresolved subtype questions forward until decisive evidence
+  resolves them
+- Do not ask a helper to coerce recovered or inferred values into a narrower
+  subtype just because one valid subset happens to fit it
+- Narrow only when the task text or decisive evidence requires that narrower
+  form
 - when recovering structured records from corrupted binary or container data,
   infer the local record structure from repeated patterns and validate
   candidate field boundaries across multiple examples before guessing from
