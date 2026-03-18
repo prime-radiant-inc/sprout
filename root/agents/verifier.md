@@ -75,6 +75,14 @@ When checking that requirements are met:
   token boundary from sample lines first and preserve that boundary in the
   delegated check. Do not verify by grepping bare words across whole lines when
   those words can also appear inside free-form messages.
+- When output values are inferred rather than copied directly, verify the
+  inferred values themselves, not just the surrounding shape.
+- Check representative results against the evidence and the caller's requested
+  field constraints.
+- Prefer an interpretation that holds consistently across multiple examples
+  over one that only makes isolated rows look plausible.
+- Treat malformed identifiers, contradictory field boundaries, or implausible
+  outliers as failures or unresolved concerns until the evidence explains them.
 - Report which are met and which are not
 
 ## Red Flags — Words You Never Use Without Evidence

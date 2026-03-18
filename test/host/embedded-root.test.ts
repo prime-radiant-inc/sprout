@@ -284,6 +284,14 @@ describe("extractEmbeddedRoot", () => {
 		expect(verifier).toContain("identify the real");
 		expect(verifier).toContain("token boundary from sample lines first");
 		expect(verifier).toContain("Do not verify by grepping bare words across whole lines");
+		expect(verifier).toContain("output values are inferred");
+		expect(verifier).toContain("verify the");
+		expect(verifier).toContain("inferred values themselves");
+		expect(verifier).toContain("representative results against the evidence");
+		expect(verifier).toContain("multiple examples");
+		expect(verifier).toContain("malformed identifiers");
+		expect(verifier).toContain("implausible");
+		expect(verifier).toContain("outliers");
 		expect(debuggerPrompt).toContain("required output format");
 		expect(debuggerPrompt).toContain("near-match");
 		expect(debuggerPrompt).toContain("extra byte");
