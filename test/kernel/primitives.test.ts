@@ -247,6 +247,16 @@ describe("primitives", () => {
 			expect(result.output).toContain("hello");
 		});
 
+		test("forwards cwd to the execution environment", async () => {
+			await env.write_file("exec-cwd/nested/sentinel.txt", "ok");
+			const result = await registry.execute("exec", {
+				command: "pwd && test -f sentinel.txt",
+				cwd: "exec-cwd/nested",
+			});
+			expect(result.success).toBe(true);
+			expect(result.output).toContain("exec-cwd/nested");
+		});
+
 		test("returns error info on command failure", async () => {
 			const result = await registry.execute("exec", { command: "exit 1" });
 			expect(result.success).toBe(false);

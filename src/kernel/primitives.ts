@@ -457,6 +457,8 @@ function execPrimitive(): Primitive {
 			type: "object",
 			properties: {
 				command: { type: "string", description: "The command to run" },
+				cwd: { type: "string", description: "Working directory for the command" },
+				working_dir: { type: "string", description: "Working directory for the command" },
 				timeout_ms: { type: "integer", description: "Override default timeout" },
 			},
 			required: ["command"],
@@ -464,6 +466,7 @@ function execPrimitive(): Primitive {
 		async execute(args, env, signal?) {
 			try {
 				const result = await env.exec_command(args.command as string, {
+					working_dir: (args.cwd as string | undefined) ?? (args.working_dir as string | undefined),
 					timeout_ms: args.timeout_ms as number | undefined,
 					signal,
 				});
