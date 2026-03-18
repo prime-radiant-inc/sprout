@@ -88,6 +88,14 @@ unresolved subtype questions forward until decisive evidence resolves them.
 Do not coerce recovered or inferred values into a narrower subtype just because
 one valid subset happens to fit it. Narrow only when the caller's contract or
 decisive evidence requires that narrower form.
+Preserve the strongest validated constraints while extending coverage.
+When some cases remain unresolved, broaden only the unresolved dimension and
+carry forward every independent constraint the evidence already established.
+Use the strongest current model as a filter for new candidates, not merely as
+a hint for where to look next.
+If covering the remaining cases would require relaxing a validated structural
+constraint, run a smaller discriminating check first and keep that constraint
+fixed until new evidence justifies changing it.
 Do not spend turns re-checking decisive facts the caller already established
 unless later steps may have changed them or the caller explicitly asked for
 fresh confirmation.

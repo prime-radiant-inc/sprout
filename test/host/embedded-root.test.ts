@@ -238,6 +238,9 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("remaining cases");
 		expect(commandRunner).toContain("most faithful representation the evidence supports");
 		expect(commandRunner).toContain("does not require a narrower subtype");
+		expect(commandRunner).toContain("Preserve the strongest validated constraints");
+		expect(commandRunner).toContain("broaden only the unresolved dimension");
+		expect(commandRunner).toContain("Use the strongest current model as a filter");
 		expect(commandRunner).toContain("broadest well-supported form");
 		expect(commandRunner).toContain("Do not coerce recovered or inferred values");
 		expect(commandRunner).toContain("produces contradictory facts");
@@ -426,6 +429,9 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("remaining cases within that same model");
 		expect(engineer).toContain("most faithful representation the evidence supports");
 		expect(engineer).toContain("does not require a narrower subtype");
+		expect(engineer).toContain("strongest validated constraints");
+		expect(engineer).toContain("broaden only the unresolved dimension");
+		expect(engineer).toContain("strongest current model as a filter");
 		expect(engineer).toContain("broadest well-supported form");
 		expect(engineer).toContain("Do not ask a helper to coerce");
 		expect(engineer).toContain("exact structured format, schema block, or");

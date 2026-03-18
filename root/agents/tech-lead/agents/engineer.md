@@ -92,6 +92,14 @@ code-change task, do not force a TDD or commit workflow. In that case:
   subtype just because one valid subset happens to fit it
 - Narrow only when the task text or decisive evidence requires that narrower
   form
+- Preserve the strongest validated constraints while extending coverage
+- When some cases remain unresolved, broaden only the unresolved dimension and
+  carry forward every independent constraint the evidence already established
+- Use the strongest current model as a filter for additional cases, not merely
+  as a hint for where to look next
+- If covering the remaining cases would require relaxing a validated
+  structural constraint, ask for a smaller discriminating check first and keep
+  that constraint fixed until new evidence justifies changing it
 - when recovering structured records from corrupted binary or container data,
   infer the local record structure from repeated patterns and validate
   candidate field boundaries across multiple examples before guessing from
