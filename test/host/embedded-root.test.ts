@@ -249,6 +249,11 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("Collapse them only when");
 		expect(commandRunner).toContain("task and the evidence");
 		expect(commandRunner).toContain("justify it");
+		expect(commandRunner).toContain("working hypothesis");
+		expect(commandRunner).toContain("If more than one interpretation still fits the");
+		expect(commandRunner).toContain("evidence, do not write the");
+		expect(commandRunner).toContain("final artifact yet");
+		expect(commandRunner).toContain("discriminating check resolves");
 		expect(commandRunner).toContain("supports each field before");
 		expect(commandRunner).toContain("Keep field roles separate");
 		expect(commandRunner).toContain("broadest well-supported form");
@@ -446,6 +451,11 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("Collapse them only when");
 		expect(engineer).toContain("task and the evidence");
 		expect(engineer).toContain("justify it");
+		expect(engineer).toContain("working hypothesis");
+		expect(engineer).toContain("If more than one interpretation still fits the");
+		expect(engineer).toContain("evidence, do not write the");
+		expect(engineer).toContain("final artifact yet");
+		expect(engineer).toContain("discriminating check resolves");
 		expect(engineer).toContain("supports each field before");
 		expect(engineer).toContain("Keep field roles separate");
 		expect(engineer).toContain("broadest well-supported form");

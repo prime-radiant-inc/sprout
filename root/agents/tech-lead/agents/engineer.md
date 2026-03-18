@@ -102,6 +102,10 @@ code-change task, do not force a TDD or commit workflow. In that case:
   that constraint fixed until new evidence justifies changing it
 - Preserve distinctions. Collapse them only when the task and the evidence
   justify it
+- Treat the current best interpretation as a working hypothesis until a
+  discriminating check resolves the remaining alternatives
+- If more than one interpretation still fits the evidence, do not write the
+  final artifact yet
 - When writing structured output with multiple fields, identify what evidence
   supports each field before you ask for the final artifact
 - Keep field roles separate unless decisive evidence shows those fields are the
