@@ -46,6 +46,13 @@ If the caller gives an absolute path, treat that absolute path as authoritative.
 Do not rewrite it under the working directory, drop its leading slash, or infer
 that they meant a sibling path unless a real command result proves the provided
 path is wrong and you report that contradiction explicitly.
+When a build, test, install, packaging, or other repo-local command depends on
+relative paths from a project tree, run it from the directory those paths are
+defined against.
+If the caller names the project root, set `cwd` to that directory or otherwise
+make that directory the working directory before you run the command.
+An absolute path to the entrypoint is not a substitute for the correct working
+directory when the command still resolves relative paths from the project root.
 Treat caller-supplied input files and datasets as read-only unless the caller
 explicitly asks you to modify them. Do not rewrite, overwrite, seed, normalize,
 or simplify those inputs to make implementation or verification easier.

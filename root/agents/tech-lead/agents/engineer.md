@@ -38,6 +38,11 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - when the task spec already includes absolute paths or structured formats such
   as JSON, CSV, YAML, or schema examples, carry them forward verbatim and do
   not ask another agent to rediscover them from the repo
+- when a repo-local build, test, install, or packaging command depends on
+  relative paths, include the exact project root and tell the helper to run
+  from that directory
+- Do not assume invoking an absolute script path from another directory
+  preserves the same relative-path semantics
 - when the task already includes an exact structured format, schema block, or
   example payload, that task text is already authoritative context
 - Do not send a helper to rediscover whether that same schema exists elsewhere

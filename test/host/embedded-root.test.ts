@@ -322,6 +322,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("Do not add sudo speculatively");
 		expect(commandRunner).toContain("absolute path");
 		expect(commandRunner).toContain("Do not rewrite it under the working directory");
+		expect(commandRunner).toContain("relative paths from a project tree");
+		expect(commandRunner).toContain("directory those paths are");
+		expect(commandRunner).toContain("absolute path to the entrypoint is not a substitute");
+		expect(commandRunner).toContain("set `cwd` to that directory");
 		expect(commandRunner).toContain("established facts unless");
 		expect(commandRunner).toContain("Do not spend turns re-checking");
 		expect(commandRunner).toContain("Do not repeat the literal command text or exit code");
@@ -412,6 +416,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("Do not ask helpers to count bare severity words");
 		expect(engineer).toContain("grep -w");
 		expect(engineer).toContain("count `[ERROR]`, `[WARNING]`, and `[INFO]`");
+		expect(engineer).toContain("repo-local build, test, install, or packaging command");
+		expect(engineer).toContain("exact project root and tell the helper to run");
+		expect(engineer).toContain("from that directory");
+		expect(engineer).toContain("absolute script path from another directory");
 		expect(engineer).toContain("first ask for one or two real");
 		expect(engineer).toContain("observed severity field shape");
 		expect(engineer).toContain("Do not send a counting helper straight from filename discovery");
