@@ -67,6 +67,8 @@ When the task spec includes an exact path list, structured literal block,
 schema example, or sample payload, forward it verbatim to the engineer. Keep
 those literals intact and do not replace them with phrases like "the exact
 structure specified by the user."
+Preserve distinctions. Collapse them only when the task and the evidence
+justify it.
 - If the caller already supplied the required output format, schema, or sample
   payload, do not dispatch helpers to rediscover that same format from the repo.
   Forward the caller's exact structure instead.

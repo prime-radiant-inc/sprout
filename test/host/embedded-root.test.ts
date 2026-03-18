@@ -160,6 +160,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(techLead).toContain("exact literals like file contents");
 		expect(techLead).toContain("exact config token, placeholder, or variable name");
 		expect(techLead).toContain("Do not treat a semantically similar token as good enough");
+		expect(techLead).toContain("Preserve distinctions.");
+		expect(techLead).toContain("Collapse them only when");
+		expect(techLead).toContain("task and the evidence");
+		expect(techLead).toContain("justify it");
 		expect(techLead).toContain("If an engineer reports that an exact literal");
 		expect(techLead).toContain("do not report DONE");
 		expect(techLead).toContain("low-confidence fragments or placeholder values");
@@ -241,6 +245,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("Preserve the strongest validated constraints");
 		expect(commandRunner).toContain("broaden only the unresolved dimension");
 		expect(commandRunner).toContain("Use the strongest current model as a filter");
+		expect(commandRunner).toContain("Preserve distinctions.");
+		expect(commandRunner).toContain("Collapse them only when");
+		expect(commandRunner).toContain("task and the evidence");
+		expect(commandRunner).toContain("justify it");
 		expect(commandRunner).toContain("supports each field before");
 		expect(commandRunner).toContain("Keep field roles separate");
 		expect(commandRunner).toContain("broadest well-supported form");
@@ -434,6 +442,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("strongest validated constraints");
 		expect(engineer).toContain("broaden only the unresolved dimension");
 		expect(engineer).toContain("strongest current model as a filter");
+		expect(engineer).toContain("Preserve distinctions.");
+		expect(engineer).toContain("Collapse them only when");
+		expect(engineer).toContain("task and the evidence");
+		expect(engineer).toContain("justify it");
 		expect(engineer).toContain("supports each field before");
 		expect(engineer).toContain("Keep field roles separate");
 		expect(engineer).toContain("broadest well-supported form");
