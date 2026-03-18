@@ -254,6 +254,9 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("evidence, do not write the");
 		expect(commandRunner).toContain("final artifact yet");
 		expect(commandRunner).toContain("discriminating check resolves");
+		expect(commandRunner).toContain("Keep source evidence and output values distinct");
+		expect(commandRunner).toContain("unexplained extra");
+		expect(commandRunner).toContain("characters, corruption markers");
 		expect(commandRunner).toContain("supports each field before");
 		expect(commandRunner).toContain("Keep field roles separate");
 		expect(commandRunner).toContain("broadest well-supported form");
@@ -456,6 +459,9 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("evidence, do not write the");
 		expect(engineer).toContain("final artifact yet");
 		expect(engineer).toContain("discriminating check resolves");
+		expect(engineer).toContain("Keep source evidence and output values distinct");
+		expect(engineer).toContain("unexplained extra");
+		expect(engineer).toContain("characters, corruption markers");
 		expect(engineer).toContain("supports each field before");
 		expect(engineer).toContain("Keep field roles separate");
 		expect(engineer).toContain("broadest well-supported form");

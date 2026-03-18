@@ -109,6 +109,13 @@ same thing or directly coupled.
 If one field already has strong evidence, keep that evidence anchored to that
 field instead of reusing it as a substitute for another field whose support is
 still unresolved.
+Keep source evidence and output values distinct.
+If a raw fragment, local substring, or decoded token has unexplained extra
+characters, corruption markers, or other unresolved noise, treat it as
+evidence for another check, not as a final output value.
+If the caller provides example values or another demonstrated value shape,
+use that demonstrated shape as an admissibility check before you write
+recovered values into the final artifact.
 Do not spend turns re-checking decisive facts the caller already established
 unless later steps may have changed them or the caller explicitly asked for
 fresh confirmation.

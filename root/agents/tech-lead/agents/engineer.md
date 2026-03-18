@@ -113,6 +113,13 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - If one field already has strong evidence, keep that evidence anchored to
   that field instead of reusing it as a substitute for another field whose
   support is still unresolved
+- Keep source evidence and output values distinct
+- If a raw fragment, local substring, or decoded token has unexplained extra
+  characters, corruption markers, or other unresolved noise, treat it as
+  evidence for another check, not as a final output value
+- If the task provides example values or another demonstrated value shape,
+  use that shape as an admissibility check before you ask for the final
+  artifact
 - when recovering structured records from corrupted binary or container data,
   infer the local record structure from repeated patterns and validate
   candidate field boundaries across multiple examples before guessing from
