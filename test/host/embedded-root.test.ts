@@ -608,6 +608,11 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("do not spend another helper turn");
 		expect(engineer).toContain("whether `/app` is a git repo");
 		expect(engineer).toContain("choose the smallest reasonable implementation approach");
+		expect(engineer).toContain("When a helper reports a targeted source patch");
+		expect(engineer).toContain("do not trust the diff summary alone");
+		expect(engineer).toContain("confirm the live file state");
+		expect(engineer).toContain("same workspace the next build");
+		expect(engineer).toContain("restate the expected post-patch lines");
 		expect(engineer).toContain('Bad: "The workspace is empty; tell me which language');
 		expect(engineer).toContain('Good: "The workspace is empty and the task authorizes');
 		expect(engineer).toContain('Bad: "Before implementing, inspect whether `/app` is a git repo');

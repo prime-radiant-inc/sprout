@@ -43,6 +43,13 @@ code-change task, do not force a TDD or commit workflow. In that case:
   from that directory
 - Do not assume invoking an absolute script path from another directory
   preserves the same relative-path semantics
+- When a helper reports a targeted source patch that the next build, install,
+  or verification step depends on, do not trust the diff summary alone
+- In the next delegated goal, restate the expected post-patch lines or
+  behavior and ask the helper to confirm the live file state in the same
+  workspace the next build or test step will use before continuing
+- If that confirmation fails, treat the patch as not yet applied and repair
+  the live source state before proceeding
 - when the task already includes an exact structured format, schema block, or
   example payload, that task text is already authoritative context
 - Do not send a helper to rediscover whether that same schema exists elsewhere
