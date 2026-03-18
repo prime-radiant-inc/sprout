@@ -281,6 +281,12 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("Do not default to blanket dependency suppression");
 		expect(commandRunner).toContain("such as `--no-deps`");
 		expect(commandRunner).toContain("just because one package version is pinned");
+		expect(commandRunner).toContain("candidate install, reinstall, or packaging command");
+		expect(commandRunner).toContain("would uninstall, upgrade, downgrade");
+		expect(commandRunner).toContain("or otherwise replace a fixed invariant dependency");
+		expect(commandRunner).toContain("do not run it");
+		expect(commandRunner).toContain("Choose a build/install path that preserves");
+		expect(commandRunner).toContain("reuses the already-satisfied environment");
 		expect(commandRunner).toContain("re-check the stated invariant");
 		expect(commandRunner).toContain("before you report success");
 		expect(commandRunner).toContain("working hypothesis");
@@ -548,6 +554,11 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("such as `--no-deps`");
 		expect(engineer).toContain("unless the caller explicitly required it");
 		expect(engineer).toContain("or you already proved the prerequisites are present");
+		expect(engineer).toContain("install, reinstall, or packaging strategy");
+		expect(engineer).toContain("would replace a fixed invariant dependency");
+		expect(engineer).toContain("do not ask the helper to run it");
+		expect(engineer).toContain("preserves the invariant");
+		expect(engineer).toContain("reuses the already-satisfied");
 		expect(engineer).toContain("After any install, build, or packaging step");
 		expect(engineer).toContain("re-check those invariants immediately");
 		expect(engineer).toContain("the branch is not DONE");

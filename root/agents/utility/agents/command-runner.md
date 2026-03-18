@@ -118,6 +118,11 @@ If the caller fixes one dependency or tool version, keep the fixed version as an
 Then satisfy other missing declared prerequisites that do not conflict with it.
 Do not default to blanket dependency suppression such as `--no-deps` just
 because one package version is pinned.
+If a candidate install, reinstall, or packaging command would uninstall,
+upgrade, downgrade, or otherwise replace a fixed invariant dependency, do not
+run it.
+Choose a build/install path that preserves the invariant and reuses the
+already-satisfied environment when possible.
 Do not upgrade, downgrade, or otherwise rewrite that environment in place
 unless the caller explicitly authorized that change.
 After any install, build, or packaging step that could mutate that

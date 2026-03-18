@@ -137,6 +137,10 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - Do not ask a helper to use blanket dependency suppression such as `--no-deps`
   unless the caller explicitly required it or you already proved the
   prerequisites are present
+- If an install, reinstall, or packaging strategy would replace a fixed
+  invariant dependency, do not ask the helper to run it
+- Ask for a path that preserves the invariant and reuses the already-satisfied
+  environment when possible
 - Do not ask a helper to rewrite that environment in place just to fit an
   easier plan
 - After any install, build, or packaging step that could change that
