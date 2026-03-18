@@ -96,10 +96,7 @@ describe("extractEmbeddedRoot", () => {
 			await readFile(join(rootDir, "preambles", "worker.md"), "utf-8"),
 		);
 		const commandRunner = normalizeEmbeddedText(
-			await readFile(
-			join(rootDir, "agents", "utility", "agents", "command-runner.md"),
-			"utf-8",
-			),
+			await readFile(join(rootDir, "agents", "utility", "agents", "command-runner.md"), "utf-8"),
 		);
 		const verifier = normalizeEmbeddedText(
 			await readFile(join(rootDir, "agents", "verifier.md"), "utf-8"),
@@ -108,31 +105,19 @@ describe("extractEmbeddedRoot", () => {
 			await readFile(join(rootDir, "agents", "debugger.md"), "utf-8"),
 		);
 		const taskManager = normalizeEmbeddedText(
-			await readFile(
-			join(rootDir, "agents", "utility", "agents", "task-manager.md"),
-			"utf-8",
-			),
+			await readFile(join(rootDir, "agents", "utility", "agents", "task-manager.md"), "utf-8"),
 		);
 		const editor = normalizeEmbeddedText(
-			await readFile(
-			join(rootDir, "agents", "utility", "agents", "editor.md"),
-			"utf-8",
-			),
+			await readFile(join(rootDir, "agents", "utility", "agents", "editor.md"), "utf-8"),
 		);
 		const reader = normalizeEmbeddedText(
-			await readFile(
-			join(rootDir, "agents", "utility", "agents", "reader.md"),
-			"utf-8",
-			),
+			await readFile(join(rootDir, "agents", "utility", "agents", "reader.md"), "utf-8"),
 		);
 		const techLead = normalizeEmbeddedText(
 			await readFile(join(rootDir, "agents", "tech-lead.md"), "utf-8"),
 		);
 		const engineer = normalizeEmbeddedText(
-			await readFile(
-			join(rootDir, "agents", "tech-lead", "agents", "engineer.md"),
-			"utf-8",
-			),
+			await readFile(join(rootDir, "agents", "tech-lead", "agents", "engineer.md"), "utf-8"),
 		);
 
 		expect(root).toContain("exact literals like file contents");
