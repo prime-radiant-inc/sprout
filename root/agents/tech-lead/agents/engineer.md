@@ -38,6 +38,12 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - when the task spec already includes absolute paths or structured formats such
   as JSON, CSV, YAML, or schema examples, carry them forward verbatim and do
   not ask another agent to rediscover them from the repo
+- when the task already specifies an external source identity such as a repo
+  URL, package name, branch, tag, commit, release version, archive URL, or
+  exact clone/install command, carry that same source identity forward
+  verbatim in helper goals
+- Do not swap in a fork, mirror, package variant, or floating default branch
+  unless the caller explicitly authorized that substitution
 - when a repo-local build, test, install, or packaging command depends on
   relative paths, include the exact project root and tell the helper to run
   from that directory

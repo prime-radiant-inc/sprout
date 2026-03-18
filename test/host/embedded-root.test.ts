@@ -125,6 +125,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(root).toContain("Never move trailing punctuation inside");
 		expect(root).toContain("structured literal block");
 		expect(root).toContain("forward it verbatim");
+		expect(root).toContain("external source identity");
+		expect(root).toContain("repo URL, package name, branch, tag, commit");
+		expect(root).toContain("Do not substitute a different upstream");
+		expect(root).toContain("floating default branch");
 		expect(root).toContain("Wait for implementation evidence before delegating verification");
 		expect(root).toContain("Do not dispatch verifier in parallel");
 		expect(root).toContain("explicitly asked for a baseline");
@@ -147,6 +151,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(techLead).toContain("structured literal block");
 		expect(techLead).toContain("do not replace them with");
 		expect(techLead).toContain("do not dispatch helpers to rediscover");
+		expect(techLead).toContain("external source identity");
+		expect(techLead).toContain("Forward that identity verbatim");
+		expect(techLead).toContain("Do not swap in a different upstream");
+		expect(techLead).toContain("default branch");
 		expect(techLead).toContain("caller-provided schema block is already authoritative context");
 		expect(techLead).toContain("Do not ask the engineer to rediscover it from the repo");
 		expect(techLead).toContain("do not tell the");
@@ -613,6 +621,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("Do not substitute a semantically similar token");
 		expect(engineer).toContain("rediscover them from the repo");
 		expect(engineer).toContain("exact literals like file contents");
+		expect(engineer).toContain("external source identity");
+		expect(engineer).toContain("repo URL, package name, branch, tag, commit");
+		expect(engineer).toContain("same source identity");
+		expect(engineer).toContain("Do not swap in a fork");
 		expect(engineer).toContain('exact content "Welcome to the benchmark webserver"');
 		expect(engineer).toContain("Never move trailing punctuation inside");
 		expect(engineer).toContain("field or schema mapping table");

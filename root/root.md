@@ -85,6 +85,12 @@ commands, paths, or log formats, copy those literals exactly as given.
   with phrases like "the exact structure specified by the user."
 - Treat caller-supplied absolute paths as exact literals too. Forward them
   verbatim and never rewrite them under a working directory.
+- Treat caller-specified external source identity the same way. If the caller
+  names an exact repo URL, package name, branch, tag, commit, release version,
+  archive URL, or exact clone/install command, forward that source identity
+  verbatim.
+- Do not substitute a different upstream, mirror, fork, package name, or
+  floating default branch.
 
 ## Verification Sequencing
 

@@ -67,8 +67,14 @@ When the task spec includes an exact path list, structured literal block,
 schema example, or sample payload, forward it verbatim to the engineer. Keep
 those literals intact and do not replace them with phrases like "the exact
 structure specified by the user."
+When the task names an exact external source identity such as a repo URL,
+package name, branch, tag, commit, release version, archive URL, or exact
+clone/install command, treat that source identity as authoritative context too.
+Forward that identity verbatim to the engineer.
 Preserve distinctions. Collapse them only when the task and the evidence
 justify it.
+- Do not swap in a different upstream, mirror, fork, package name, or default
+  branch unless the caller explicitly authorized that substitution.
 - When the caller names an existing shared environment and exact dependency or
   tool versions there, treat those versions as hard invariants.
 - Forward those invariants verbatim to the engineer, do not rewrite that
