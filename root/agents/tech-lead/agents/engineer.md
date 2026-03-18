@@ -78,6 +78,11 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - Do not send the next helper back to weaker local patterns like raw
   substrings, isolated byte markers, or neighborhood scans to rediscover the
   same structure
+- If the strongest current model explains only a lower-bound subset of the
+  requested output, do not delegate final artifact writing yet
+- Ask the next helper for the smallest discriminating check that resolves the
+  remaining cases within that same model instead of narrowing to the first
+  subtype or heuristic that produces a valid-looking subset
 - when recovering structured records from corrupted binary or container data,
   infer the local record structure from repeated patterns and validate
   candidate field boundaries across multiple examples before guessing from

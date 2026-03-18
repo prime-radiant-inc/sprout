@@ -76,6 +76,11 @@ When the caller already provides stronger structural anchors such as exact
 offsets, record boundaries, row counts, or parsed field positions, use those
 anchors directly instead of re-anchoring on weaker local substrings, byte
 markers, or neighborhood scans.
+When the strongest current model explains only a lower-bound subset of the
+requested output, stay inside that model for the next step. Use the smallest
+discriminating check that can resolve the remaining cases before writing the
+final artifact instead of narrowing to the first subtype or heuristic that
+produces a valid-looking subset.
 Do not spend turns re-checking decisive facts the caller already established
 unless later steps may have changed them or the caller explicitly asked for
 fresh confirmation.
