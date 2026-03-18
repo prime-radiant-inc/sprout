@@ -472,6 +472,12 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("candidate items");
 		expect(engineer).toContain("were decisively");
 		expect(engineer).toContain("ruled out");
+		expect(engineer).toContain("fresh runtime or test failure");
+		expect(engineer).toContain("already identifies the exact file");
+		expect(engineer).toContain("smallest local fix");
+		expect(engineer).toContain("rerun that same failing check");
+		expect(engineer).toContain("Do not broaden into a hotspot search");
+		expect(engineer).toContain("compatibility census");
 		expect(engineer).toContain("do not report DONE");
 		expect(engineer).toContain("recovery quality");
 		expect(engineer).toContain("low-confidence fragments or placeholder values");

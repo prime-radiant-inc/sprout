@@ -102,6 +102,14 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - In that state, do not report DONE
 - Ask for another discriminating check instead of accepting the current
   artifact as final
+- When a fresh runtime or test failure already identifies the exact file,
+  line, or symbol causing the next breakage, treat that as decisive evidence
+  for the next step
+- Ask for the smallest local fix and rerun that same failing check before
+  broadening scope
+- Do not broaden into a hotspot search, compatibility census, or repo-wide
+  audit until that local fix has been tried and rerun, unless the same
+  failure already proves multiple exact sites at once
 - Preserve the most faithful representation the evidence supports
 - If the requested output does not require a narrower subtype, encoding, or
   unit, keep recovered or inferred values in the broadest well-supported form
