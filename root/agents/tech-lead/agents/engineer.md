@@ -72,6 +72,12 @@ code-change task, do not force a TDD or commit workflow. In that case:
   delegating low-fidelity content heuristics
 - Only fall back once the stronger structure-aware path has been tried or the
   evidence rules it out
+- When helper findings already establish stronger structural anchors such as
+  exact offsets, record boundaries, row counts, or parsed field positions,
+  carry those anchors forward into the next delegated goal explicitly
+- Do not send the next helper back to weaker local patterns like raw
+  substrings, isolated byte markers, or neighborhood scans to rediscover the
+  same structure
 - when recovering structured records from corrupted binary or container data,
   infer the local record structure from repeated patterns and validate
   candidate field boundaries across multiple examples before guessing from

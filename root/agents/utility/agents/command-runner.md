@@ -72,6 +72,10 @@ than the whole conclusion. If the source still plausibly matches a known
 format, keep using that format's internal structure and prefer the strongest
 structure-aware methods the current evidence supports before falling back to
 low-fidelity content heuristics.
+When the caller already provides stronger structural anchors such as exact
+offsets, record boundaries, row counts, or parsed field positions, use those
+anchors directly instead of re-anchoring on weaker local substrings, byte
+markers, or neighborhood scans.
 Do not spend turns re-checking decisive facts the caller already established
 unless later steps may have changed them or the caller explicitly asked for
 fresh confirmation.

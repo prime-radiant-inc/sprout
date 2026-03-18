@@ -221,6 +221,13 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("Never modify benchmark or task inputs");
 		expect(commandRunner).toContain("if the current outputs are wrong, write");
 		expect(commandRunner).toContain("the fix to the implementation or outputs instead");
+		expect(commandRunner).toContain("stronger structural anchors");
+		expect(commandRunner).toContain("exact");
+		expect(commandRunner).toContain("offsets, record boundaries");
+		expect(commandRunner).toContain("parsed field positions");
+		expect(commandRunner).toContain("use those");
+		expect(commandRunner).toContain("anchors directly");
+		expect(commandRunner).toContain("weaker local substrings");
 		expect(commandRunner).toContain("produces contradictory facts");
 		expect(commandRunner).toContain("Rerun a simpler explicit check");
 		expect(commandRunner).toContain("runtime semantics are still wrong");
@@ -390,6 +397,13 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("format's internal structure");
 		expect(engineer).toContain("low-fidelity content heuristics");
 		expect(engineer).toContain("structure-aware path");
+		expect(engineer).toContain("stronger structural anchors");
+		expect(engineer).toContain("exact offsets");
+		expect(engineer).toContain("record boundaries");
+		expect(engineer).toContain("row counts, or parsed field positions");
+		expect(engineer).toContain("carry those");
+		expect(engineer).toContain("anchors forward");
+		expect(engineer).toContain("weaker local patterns");
 		expect(engineer).toContain("exact structured format, schema block, or");
 		expect(engineer).toContain("example payload");
 		expect(engineer).toContain("that task text is already authoritative context");
