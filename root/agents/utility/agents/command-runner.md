@@ -174,6 +174,10 @@ exactly over inline one-liners that require multiple escape layers.
 When checking whether a small set of named files exists or changed, avoid
 shell-variable loops or `sh -c` wrappers that add another layer of quoting
 unless the caller explicitly needs them. Prefer simple explicit per-file checks.
+`exec` already runs in bash. Do not wrap a multi-line command in another
+`bash -lc`, `bash -c`, or `sh -c` unless the caller explicitly needs a second
+shell context. When you need a multi-line script, pass the script directly as
+the command body.
 When inspecting a large match set such as many files under one directory, do
 not enumerate every match by default. Summarize the decisive facts instead:
 total match count, whether any non-matches exist, and only the shortest proof

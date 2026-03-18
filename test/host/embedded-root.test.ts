@@ -231,6 +231,9 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("stop probing beneath");
 		expect(commandRunner).toContain("dense quoting/escaping");
 		expect(commandRunner).toContain("shell-variable loops or `sh -c` wrappers");
+		expect(commandRunner).toContain("`exec` already runs in bash");
+		expect(commandRunner).toContain("Do not wrap a multi-line command in another `bash -lc`");
+		expect(commandRunner).toContain("pass the script directly as the command body");
 		expect(commandRunner).toContain("Prefer simple explicit per-file checks");
 		expect(commandRunner).toContain("large match set such as many files under one directory");
 		expect(commandRunner).toContain("Summarize the decisive facts instead");
