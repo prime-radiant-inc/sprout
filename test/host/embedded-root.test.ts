@@ -170,6 +170,9 @@ describe("extractEmbeddedRoot", () => {
 		expect(techLead).toContain("do not dispatch spec-reviewer or quality-reviewer");
 		expect(techLead).toContain("reopen scope with hermetic tests");
 		expect(techLead).toContain("general hardening");
+		expect(techLead).toContain("decisive correctness evidence");
+		expect(techLead).toContain("unresolved semantic ambiguity");
+		expect(techLead).toContain("shape-correct artifact is not enough");
 		expect(workerPreamble).toContain("default to concise findings");
 		expect(workerPreamble).toContain("only when the caller explicitly asks for raw output");
 		expect(commandRunner).toContain("Do not dump raw command transcripts by default");
@@ -374,6 +377,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("recovery quality");
 		expect(engineer).toContain("low-confidence fragments or placeholder values");
 		expect(engineer).toContain("real recovered field values");
+		expect(engineer).toContain("unresolved semantic ambiguity");
+		expect(engineer).toContain("fallback interpretation");
+		expect(engineer).toContain("do not report");
+		expect(engineer).toContain("DONE or DONE_WITH_CONCERNS");
 		expect(engineer).toContain("infer the local record structure");
 		expect(engineer).toContain("validate");
 		expect(engineer).toContain("across multiple examples");

@@ -302,6 +302,12 @@ Always report back with:
 - Any issues or concerns
 
 Use DONE_WITH_CONCERNS if you completed the work but have doubts.
+Use DONE_WITH_CONCERNS only for observations that do not put correctness or
+completeness at risk.
+If unresolved semantic ambiguity remains, or the result still depends on a
+fallback interpretation instead of decisive correctness evidence, do not report
+DONE or DONE_WITH_CONCERNS. Keep investigating or report BLOCKED /
+NEEDS_CONTEXT.
 Use BLOCKED if you cannot complete the task.
 Use NEEDS_CONTEXT if you need information that was not provided.
 Never silently produce work you are unsure about.

@@ -31,7 +31,11 @@ review. In that shorter path:
 - Do not ask for exact command lists unless the caller explicitly needs the
   literal command text
 - when the engineer reports DONE or DONE_WITH_CONCERNS, report completion
-  directly to your caller instead of invoking reviewer stages
+  directly to your caller instead of invoking reviewer stages only if the
+  report includes decisive correctness evidence and no unresolved semantic
+  ambiguity
+- a shape-correct artifact is not enough when the report still relies on a
+  fallback interpretation or unresolved ambiguity about what the values mean
 - do not dispatch spec-reviewer or quality-reviewer in that path; the caller's
   acceptance checks decide whether the produced artifacts are correct
 
@@ -135,6 +139,10 @@ tasks.
 - If an engineer reports low-confidence fragments or placeholder values on a
   structured recovery task, treat that as a correctness issue; those are not enough
   to count as recovered rows.
+- If an engineer reports unresolved semantic ambiguity, a fallback
+  interpretation, or a shape-correct artifact without decisive correctness
+  evidence, treat that as a correctness issue; do not report DONE until it is
+  resolved.
 
 NEEDS_CONTEXT: The engineer needs information. If you have it, send it back
 to the engineer. If you do not, report NEEDS_CONTEXT back to your caller
