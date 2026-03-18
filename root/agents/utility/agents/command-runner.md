@@ -105,6 +105,14 @@ constraint, run a smaller discriminating check first and keep that constraint
 fixed until new evidence justifies changing it.
 Preserve distinctions. Collapse them only when the task and the evidence
 justify it.
+When the caller names an existing shared environment and exact dependency or
+tool versions there, treat those versions as hard invariants.
+Do not upgrade, downgrade, or otherwise rewrite that environment in place
+unless the caller explicitly authorized that change.
+After any install, build, or packaging step that could mutate that
+environment, re-check the stated invariant before you report success.
+If a step broke an invariant, report that breakage immediately instead of
+continuing as if later progress canceled it out.
 Treat the current best interpretation as a working hypothesis until a
 discriminating check resolves the remaining alternatives.
 If more than one interpretation still fits the evidence, do not write the

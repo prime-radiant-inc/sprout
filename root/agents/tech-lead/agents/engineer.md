@@ -109,6 +109,15 @@ code-change task, do not force a TDD or commit workflow. In that case:
   that constraint fixed until new evidence justifies changing it
 - Preserve distinctions. Collapse them only when the task and the evidence
   justify it
+- When the caller names an existing shared environment and exact dependency or
+  tool versions there, treat those versions as hard invariants
+- Do not ask a helper to rewrite that environment in place just to fit an
+  easier plan
+- After any install, build, or packaging step that could change that
+  environment, re-check those invariants immediately
+- If a helper breaks one of those invariants, the branch is not DONE or
+  DONE_WITH_CONCERNS until the invariant is restored or the caller explicitly
+  approves changing it
 - Treat the current best interpretation as a working hypothesis until a
   discriminating check resolves the remaining alternatives
 - If more than one interpretation still fits the evidence, do not write the

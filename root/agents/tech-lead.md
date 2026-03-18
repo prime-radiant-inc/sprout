@@ -69,6 +69,12 @@ those literals intact and do not replace them with phrases like "the exact
 structure specified by the user."
 Preserve distinctions. Collapse them only when the task and the evidence
 justify it.
+- When the caller names an existing shared environment and exact dependency or
+  tool versions there, treat those versions as hard invariants.
+- Forward those invariants verbatim to the engineer, do not rewrite that
+  environment to fit the plan, and require the engineer to re-check those
+  invariants immediately after any install, build, or packaging step that
+  could change them.
 - If the caller already supplied the required output format, schema, or sample
   payload, do not dispatch helpers to rediscover that same format from the repo.
   Forward the caller's exact structure instead.
