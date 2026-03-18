@@ -174,7 +174,7 @@ export class LocalExecutionEnvironment implements ExecutionEnvironment {
 		const start = performance.now();
 
 		return new Promise<ExecResult>((resolve) => {
-			const proc = spawn("/bin/sh", ["-c", command], {
+			const proc = spawn("/bin/bash", ["-c", command], {
 				cwd,
 				env: mergedEnv,
 				stdio: ["ignore", "pipe", "pipe"],

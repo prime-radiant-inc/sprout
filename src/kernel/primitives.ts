@@ -452,7 +452,7 @@ function execPrimitive(): Primitive {
 	return {
 		name: "exec",
 		displayName: getToolDisplayName("exec"),
-		description: "Execute a shell command. Returns stdout, stderr, and exit code.",
+		description: "Execute a bash command. Returns stdout, stderr, and exit code.",
 		parameters: {
 			type: "object",
 			properties: {

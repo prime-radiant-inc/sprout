@@ -100,10 +100,16 @@ describe("LocalExecutionEnvironment", () => {
 	});
 
 	test("exec_command resolves PATH (shell execution)", async () => {
-		// This verifies the /bin/sh -c pattern from Appendix D.13
+		// This verifies the default shell resolves PATH for command execution.
 		const result = await env.exec_command("which ls");
 		expect(result.exit_code).toBe(0);
 		expect(result.stdout.trim()).toContain("ls");
+	});
+
+	test("exec_command runs commands under bash", async () => {
+		const result = await env.exec_command('printf "%s\\n" "$0"');
+		expect(result.exit_code).toBe(0);
+		expect(result.stdout.trim()).toBe("/bin/bash");
 	});
 
 	test("exec_command uses working directory", async () => {
