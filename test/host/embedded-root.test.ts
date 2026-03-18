@@ -536,6 +536,11 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("satisfy any other missing");
 		expect(engineer).toContain("declared prerequisites");
 		expect(engineer).toContain("that do not conflict");
+		expect(engineer).toContain("fresh failure is a missing standard prerequisite");
+		expect(engineer).toContain("restore that prerequisite in the named environment");
+		expect(engineer).toContain("rerun the same failing build, import, or test step");
+		expect(engineer).toContain("Do not widen into source analysis");
+		expect(engineer).toContain("reader-only investigation");
 		expect(engineer).toContain("Do not ask a helper to use blanket dependency suppression");
 		expect(engineer).toContain("such as `--no-deps`");
 		expect(engineer).toContain("unless the caller explicitly required it");

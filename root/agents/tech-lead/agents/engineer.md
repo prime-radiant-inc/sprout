@@ -144,6 +144,14 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - If a helper breaks one of those invariants, the branch is not DONE or
   DONE_WITH_CONCERNS until the invariant is restored or the caller explicitly
   approves changing it
+- When a fresh failure is a missing standard prerequisite in the named
+  environment, treat that missing prerequisite as the next decisive blocker
+- Ask the helper to restore that prerequisite in the named environment without
+  disturbing the stated invariants, then rerun the same failing build, import,
+  or test step before deeper diagnosis
+- Do not widen into source analysis, reader-only investigation, or a
+  compatibility census while that same step is still blocked by the missing
+  prerequisite
 - Treat the current best interpretation as a working hypothesis until a
   discriminating check resolves the remaining alternatives
 - If more than one interpretation still fits the evidence, do not write the
