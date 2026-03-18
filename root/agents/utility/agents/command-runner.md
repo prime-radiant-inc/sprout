@@ -67,6 +67,11 @@ reconnaissance pass before you write the main script or final output.
 - If more than one interpretation remains plausible after the first probe,
   compare the smallest decisive checks first and only then write the main
   script or output.
+When a standard parser or validator fails, treat that as one datapoint rather
+than the whole conclusion. If the source still plausibly matches a known
+format, keep using that format's internal structure and prefer the strongest
+structure-aware methods the current evidence supports before falling back to
+low-fidelity content heuristics.
 Do not spend turns re-checking decisive facts the caller already established
 unless later steps may have changed them or the caller explicitly asked for
 fresh confirmation.

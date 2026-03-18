@@ -65,6 +65,13 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - Do not let the first implementation helper jump directly to a monolithic
   script that hard-codes one unverified interpretation just because it
   produces a partial valid subset
+- If a standard parser or top-level validator fails but the source still
+  plausibly matches a known format, keep the next step anchored to that
+  format's internal structure
+- Prefer the strongest structure-aware path the evidence still supports before
+  delegating low-fidelity content heuristics
+- Only fall back once the stronger structure-aware path has been tried or the
+  evidence rules it out
 - when recovering structured records from corrupted binary or container data,
   infer the local record structure from repeated patterns and validate
   candidate field boundaries across multiple examples before guessing from

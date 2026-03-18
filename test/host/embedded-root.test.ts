@@ -200,6 +200,11 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("final artifact");
 		expect(commandRunner).toContain("or output");
 		expect(commandRunner).toContain("file.");
+		expect(commandRunner).toContain("standard parser or validator");
+		expect(commandRunner).toContain("matches a known");
+		expect(commandRunner).toContain("format's internal structure");
+		expect(commandRunner).toContain("low-fidelity content heuristics");
+		expect(commandRunner).toContain("structure-aware methods");
 		expect(commandRunner).toContain("Group routine environment detection into concise findings");
 		expect(commandRunner).toContain("batch related inspection commands");
 		expect(commandRunner).toContain("stop probing beneath");
@@ -372,6 +377,11 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("final artifact");
 		expect(engineer).toContain("or");
 		expect(engineer).toContain("output file");
+		expect(engineer).toContain("standard parser or top-level validator");
+		expect(engineer).toContain("matches a known");
+		expect(engineer).toContain("format's internal structure");
+		expect(engineer).toContain("low-fidelity content heuristics");
+		expect(engineer).toContain("structure-aware path");
 		expect(engineer).toContain("exact structured format, schema block, or");
 		expect(engineer).toContain("example payload");
 		expect(engineer).toContain("that task text is already authoritative context");
