@@ -50,6 +50,21 @@ code-change task, do not force a TDD or commit workflow. In that case:
   recovery quality, not just output shape
 - low-confidence fragments or placeholder values are not enough to count as recovered
   rows when the task expects real recovered field values
+- when the task requires deriving structured output from existing data and the
+  correct interpretation is not yet decisive, ask for a short reconnaissance
+  pass before the main implementation helper
+- make that first helper turn reconnaissance-only unless the correct
+  interpretation is already decisive from the caller's evidence
+- that first helper turn must not write the main script, final artifact, or
+  output file
+- that first helper turn should inspect a few concrete source examples,
+  restate the requested output contract, and report any competing
+  interpretations that still fit the evidence
+- Only after that reconnaissance result is in hand should you ask for the main
+  script or output write
+- Do not let the first implementation helper jump directly to a monolithic
+  script that hard-codes one unverified interpretation just because it
+  produces a partial valid subset
 - when recovering structured records from corrupted binary or container data,
   infer the local record structure from repeated patterns and validate
   candidate field boundaries across multiple examples before guessing from

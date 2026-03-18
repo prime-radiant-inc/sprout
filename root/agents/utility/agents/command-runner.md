@@ -51,6 +51,22 @@ explicitly asks you to modify them. Do not rewrite, overwrite, seed, normalize,
 or simplify those inputs to make implementation or verification easier.
 Never modify benchmark or task inputs; if the current outputs are wrong, write
 the fix to the implementation or outputs instead.
+When a task requires deriving structured output from existing data and the
+correct interpretation is not already decisive, begin with a bounded
+reconnaissance pass before you write the main script or final output.
+- Make the first turn reconnaissance-only unless the correct interpretation is
+  already decisive from the caller's evidence.
+- In that first turn, do not write the main script, final artifact, or output
+  file.
+- Use that pass to inspect a few concrete examples from the source, restate the
+  requested output contract, and note any competing interpretations that the
+  current evidence still supports.
+- Keep that reconnaissance pass separate from the main implementation.
+- Do not let the first full script hard-code one unverified interpretation just
+  because it produces a partial valid subset.
+- If more than one interpretation remains plausible after the first probe,
+  compare the smallest decisive checks first and only then write the main
+  script or output.
 Do not spend turns re-checking decisive facts the caller already established
 unless later steps may have changed them or the caller explicitly asked for
 fresh confirmation.
