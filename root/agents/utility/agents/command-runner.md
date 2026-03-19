@@ -248,6 +248,22 @@ categories unless the caller explicitly asked for that transformation.
 - Bad: `before/on/after` or adding `DEBUG`
 - Good: `today/last_7_days/last_30_days/month_to_date/total` with only the
   caller-specified severities
+When the caller asks you to verify a snippet, import path, command, test run,
+or other execution path, run that exact verification path in the real runtime
+context first.
+Do not simulate success by injecting stubs, preloading modules, loading
+artifacts directly, or otherwise constructing an alternate execution context
+unless the caller explicitly asked for that lower-level probe.
+If the exact requested verification fails, report that exact failure as the
+result.
+You may run a smaller diagnostic afterward, but keep it clearly labeled as
+diagnosis and do not replace the requested verification result with the
+diagnostic result.
+When the caller supplies exact ignored paths, excluded files, or a concrete
+test file set, preserve those exact exclusions across reruns.
+Do not replace them with semantic approximations such as `-k` filters, renamed
+categories, or newly discovered file globs unless the caller explicitly
+authorized that change.
 If an extracted value has an extra leading or trailing byte, the wrong prefix,
 or another off-by-one mismatch against the required output format, continue
 tracing the offset, delimiter, or decoding step instead of reporting or writing

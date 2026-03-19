@@ -138,6 +138,19 @@ code-change task, do not force a TDD or commit workflow. In that case:
   subtype just because one valid subset happens to fit it
 - Narrow only when the task text or decisive evidence requires that narrower
   form
+- When delegating a verification step, carry the exact requested execution
+  path forward verbatim: the real snippet, import path, command, test run, and
+  exact ignored paths or excluded files
+- Do not ask helpers to simulate success with stubs, direct artifact loading,
+  synthetic import contexts, or looser alternate checks when the task asks for
+  the real execution path
+- If the exact requested verification fails, treat that exact failure as
+  decisive and ask for a separate bounded diagnosis if needed
+- Do not accept a helper's alternate proof in place of the failed requested
+  verification
+- Do not replace exact ignored paths, excluded files, or named test files with
+  semantic approximations such as `-k` filters or discovered file globs unless
+  the caller explicitly authorized that change
 - Preserve the strongest validated constraints while extending coverage
 - When some cases remain unresolved, broaden only the unresolved dimension and
   carry forward every independent constraint the evidence already established
