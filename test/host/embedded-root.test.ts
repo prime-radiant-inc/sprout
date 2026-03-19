@@ -512,6 +512,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(editor).toContain("verification read appears contradictory");
 		expect(editor).toContain("re-read the exact changed lines");
 		expect(editor).toContain("simpler local check");
+		expect(editor).toContain("Do not loop on the same contradictory");
+		expect(editor).toContain("Switch to the other local file-check primitive");
+		expect(editor).toContain("retry one bounded edit");
+		expect(editor).toContain("report the contradiction clearly");
 		expect(editor).toContain("Do not escalate into a whole-file rewrite");
 		expect(editor).toContain("Do not spend turns on extra read-only");
 		expect(editor).toContain("analysis or design prose");

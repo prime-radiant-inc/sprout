@@ -56,6 +56,9 @@ choices, or other decisive implementation facts:
 - if a targeted edit succeeds but a later verification read appears
   contradictory, re-read the exact changed lines or run a simpler local check
   for that same file first
+- Do not loop on the same contradictory read or grep result
+- Switch to the other local file-check primitive for that exact file once
+- Then either retry one bounded edit or report the contradiction clearly
 - Do not escalate into a whole-file rewrite for an existing file until that
   contradiction is resolved
 - Do not spend turns on extra read-only analysis or design prose once the
