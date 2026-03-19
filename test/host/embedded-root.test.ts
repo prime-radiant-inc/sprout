@@ -444,7 +444,9 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("prove those exact deliverables");
 		expect(commandRunner).toContain("immediately after the rebuild, deploy, or install step");
 		expect(commandRunner).toContain("authoritative gate");
-		expect(commandRunner).toContain("first proof in the operating context where success is defined");
+		expect(commandRunner).toContain(
+			"first proof in the operating context where success is defined",
+		);
 		expect(commandRunner).toContain("If those required deliverables are still missing");
 		expect(commandRunner).toContain("keep the rebuild/install frontier active");
 		expect(commandRunner).toContain("Do not widen into broader repair work yet");
