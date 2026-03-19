@@ -86,6 +86,8 @@ commands, paths, or log formats, copy those literals exactly as given.
 - Treat an exact snippet, command text, or test invocation the same way.
   When that literal content is already known, carry that literal content
   forward verbatim.
+- If a specific code block is part of the acceptance criteria, copy that code
+  block itself into the delegated goal and later verification request.
 - Do not replace it with phrases like "the user's exact snippet" or
   "the exact required command."
 - Treat caller-supplied absolute paths as exact literals too. Forward them

@@ -70,6 +70,8 @@ structure specified by the user."
 Treat an exact snippet, command text, or test invocation the same way. When
 that literal content is already known, carry that literal content forward
 verbatim to the engineer.
+If a specific code block is part of the acceptance criteria, copy that code
+block itself into the engineer goal and later verification request.
 Do not replace it with phrases like "the user's exact snippet" or "the exact
 required command."
 When the task names an exact external source identity such as a repo URL,

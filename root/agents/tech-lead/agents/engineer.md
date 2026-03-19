@@ -148,6 +148,8 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - When that exact verification content is already known, carry the literal
   snippet, command text, or test invocation forward verbatim in follow-up
   helper goals
+- If a specific code block is part of the acceptance criteria, carry that code
+  block itself into helper goals and later exact verification requests
 - Do not refer to it only as "the exact required snippet" or another abstract
   label once the literal content is available
 - Do not ask a helper to substitute a convenience probe, sibling import, or

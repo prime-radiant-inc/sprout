@@ -127,6 +127,8 @@ describe("extractEmbeddedRoot", () => {
 		expect(root).toContain("forward it verbatim");
 		expect(root).toContain("exact snippet, command text, or test invocation");
 		expect(root).toContain("carry that literal content forward verbatim");
+		expect(root).toContain("specific code block is part of the acceptance criteria");
+		expect(root).toContain("copy that code block itself into the delegated goal");
 		expect(root).toContain("Do not replace it with");
 		expect(root).toContain("the user's exact snippet");
 		expect(root).toContain("external source identity");
@@ -155,6 +157,8 @@ describe("extractEmbeddedRoot", () => {
 		expect(techLead).toContain("structured literal block");
 		expect(techLead).toContain("exact snippet, command text, or test invocation");
 		expect(techLead).toContain("carry that literal content forward verbatim");
+		expect(techLead).toContain("specific code block is part of the acceptance criteria");
+		expect(techLead).toContain("copy that code block itself into the engineer goal");
 		expect(techLead).toContain("Do not replace it with");
 		expect(techLead).toContain("the user's exact snippet");
 		expect(techLead).toContain("do not replace them with");
@@ -699,6 +703,8 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain(
 			"carry the literal snippet, command text, or test invocation forward verbatim",
 		);
+		expect(engineer).toContain("specific code block is part of the acceptance criteria");
+		expect(engineer).toContain("carry that code block itself into helper goals");
 		expect(engineer).toContain("Do not refer to it only as");
 		expect(engineer).toContain("the exact required snippet");
 		expect(engineer).toContain("same compatibility class");
