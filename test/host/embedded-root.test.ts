@@ -293,6 +293,11 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("would uninstall, upgrade, downgrade");
 		expect(commandRunner).toContain("or otherwise replace a fixed invariant dependency");
 		expect(commandRunner).toContain("do not run it");
+		expect(commandRunner).toContain("build or reinstall a local source tree");
+		expect(commandRunner).toContain("existing constrained environment");
+		expect(commandRunner).toContain("full dependency re-resolution");
+		expect(commandRunner).toContain("task explicitly calls for changing");
+		expect(commandRunner).toContain("preserve the fixed invariant dependencies");
 		expect(commandRunner).toContain("Choose a build/install path that preserves");
 		expect(commandRunner).toContain("reuses the already-satisfied environment");
 		expect(commandRunner).toContain("re-check the stated invariant");
@@ -649,6 +654,12 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("install, reinstall, or packaging strategy");
 		expect(engineer).toContain("would replace a fixed invariant dependency");
 		expect(engineer).toContain("do not ask the helper to run it");
+		expect(engineer).toContain("build or reinstall a local source tree");
+		expect(engineer).toContain("existing constrained environment");
+		expect(engineer).toContain("full dependency re-resolution");
+		expect(engineer).toContain("task explicitly calls for");
+		expect(engineer).toContain("broader resolution");
+		expect(engineer).toContain("preserve the fixed invariant dependencies");
 		expect(engineer).toContain("preserves the invariant");
 		expect(engineer).toContain("reuses the already-satisfied");
 		expect(engineer).toContain("After any install, build, or packaging step");

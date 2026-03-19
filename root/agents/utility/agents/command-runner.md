@@ -121,6 +121,11 @@ because one package version is pinned.
 If a candidate install, reinstall, or packaging command would uninstall,
 upgrade, downgrade, or otherwise replace a fixed invariant dependency, do not
 run it.
+When the task is to build or reinstall a local source tree inside an existing
+constrained environment, do not broaden that step into a full dependency
+re-resolution unless the task explicitly calls for changing that environment or
+you already proved the broader resolution will preserve the fixed invariant
+dependencies.
 Choose a build/install path that preserves the invariant and reuses the
 already-satisfied environment when possible.
 Do not upgrade, downgrade, or otherwise rewrite that environment in place
