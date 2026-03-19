@@ -168,9 +168,12 @@ code-change task, do not force a TDD or commit workflow. In that case:
   that same exact gate
 - After a direct local repair on a task that requires compiled, native,
   generated, or installed outputs, source-tree progress alone is not enough
-- Ask for the required build or reinstall step next, rerun the required build
-  or reinstall step, and re-establish the named
-  compiled or installed proof before widening into other repair work
+- If that source edit can affect required compiled, generated, or installed
+  outputs, earlier proof for those outputs is now stale
+- Ask for the required build or reinstall step next
+- Then rerun the required build or reinstall step in the required context
+- Re-establish that proof after the next rebuild or reinstall before widening
+  into other repair work
 - Do not dispatch a fresh helper just to restate the next exact local site in
   that same loop
 - Do not broaden into other same-class files until rerunning that same exact
@@ -203,6 +206,11 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - If the task requires named compiled modules or other installed outputs, ask
   for proof that they are importable from the installed global environment
   immediately after the rebuild/install step
+- Treat that first clean-context global import proof after the rebuild/install
+  step as the authoritative gate for whether those installed outputs are ready
+- If those named installed outputs are still missing at that gate, keep the
+  rebuild/install frontier active
+- Do not widen into broader repair work yet
 - Treat proof from `build/lib`, an editable install, or repo-local pytest as
   supporting evidence only when those paths could still be shadowed by the
   repo tree or staging artifacts

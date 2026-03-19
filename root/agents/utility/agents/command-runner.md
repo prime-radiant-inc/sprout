@@ -217,9 +217,12 @@ that same loop through rebuild or reinstall and rerunning that same exact
 gate.
 After a direct local repair on a task that requires compiled, native,
 generated, or installed outputs, source-tree progress alone is not enough.
-Run the required build or reinstall step next, rerun the required build or
-reinstall step, and re-establish the named
-compiled or installed proof before widening into other repair work.
+If that source edit can affect required compiled, generated, or installed
+outputs, earlier proof for those outputs is now stale.
+Run the required build or reinstall step next.
+Then rerun the required build or reinstall step in the required context.
+Re-establish that proof after the next rebuild or reinstall before widening
+into other repair work.
 Do not stop for a new reconnaissance pass between those directly named local
 sites unless the rerun makes the next site unclear.
 Do not broaden into other same-class files until rerunning that same exact
@@ -323,6 +326,11 @@ outside the source tree before the install-proof run.
 If the task requires named compiled modules or other installed outputs, make
 them importable from the installed global environment immediately after the
 rebuild/install step.
+Treat that first clean-context global import proof after the rebuild/install
+step as the authoritative gate for whether those installed outputs are ready.
+If those named installed outputs are still missing at that gate, keep the
+rebuild/install frontier active.
+Do not widen into broader repair work yet.
 Treat proof from `build/lib`, an editable install, or repo-local pytest as
 supporting evidence only when those paths could still be shadowed by the repo
 tree or staging artifacts.
