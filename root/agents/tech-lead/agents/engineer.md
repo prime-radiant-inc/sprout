@@ -166,6 +166,11 @@ code-change task, do not force a TDD or commit workflow. In that case:
   with direct replacement direction, keep the same helper on that direct
   repair loop and continue through patch, rebuild or reinstall, and rerunning
   that same exact gate
+- After a direct local repair on a task that requires compiled, native,
+  generated, or installed outputs, source-tree progress alone is not enough
+- Ask for the required build or reinstall step next, rerun the required build
+  or reinstall step, and re-establish the named
+  compiled or installed proof before widening into other repair work
 - Do not dispatch a fresh helper just to restate the next exact local site in
   that same loop
 - Do not broaden into other same-class files until rerunning that same exact

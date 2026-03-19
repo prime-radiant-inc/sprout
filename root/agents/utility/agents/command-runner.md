@@ -215,6 +215,11 @@ If the same exact gate now leaves only a small set of concrete local sites
 with direct replacement direction, continue with the next bounded local fix in
 that same loop through rebuild or reinstall and rerunning that same exact
 gate.
+After a direct local repair on a task that requires compiled, native,
+generated, or installed outputs, source-tree progress alone is not enough.
+Run the required build or reinstall step next, rerun the required build or
+reinstall step, and re-establish the named
+compiled or installed proof before widening into other repair work.
 Do not stop for a new reconnaissance pass between those directly named local
 sites unless the rerun makes the next site unclear.
 Do not broaden into other same-class files until rerunning that same exact

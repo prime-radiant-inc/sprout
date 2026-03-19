@@ -354,6 +354,11 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("continue with the next bounded local fix");
 		expect(commandRunner).toContain("same loop");
 		expect(commandRunner).toContain("Do not stop for a new reconnaissance pass");
+		expect(commandRunner).toContain("After a direct local repair");
+		expect(commandRunner).toContain("compiled, native, generated, or installed outputs");
+		expect(commandRunner).toContain("source-tree progress alone is not enough");
+		expect(commandRunner).toContain("rerun the required build or reinstall step");
+		expect(commandRunner).toContain("re-establish the named compiled or installed proof");
 		expect(commandRunner).toContain("optional dependency block the requested path");
 		expect(commandRunner).toContain("working hypothesis");
 		expect(commandRunner).toContain("If more than one interpretation still fits the");
@@ -754,6 +759,11 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("exact modules, files, artifacts, or outputs");
 		expect(engineer).toContain("private implementation modules");
 		expect(engineer).toContain("public target");
+		expect(engineer).toContain("After a direct local repair");
+		expect(engineer).toContain("compiled, native, generated, or installed outputs");
+		expect(engineer).toContain("source-tree progress alone is not enough");
+		expect(engineer).toContain("rerun the required build or reinstall step");
+		expect(engineer).toContain("re-establish the named compiled or installed proof");
 		expect(engineer).toContain("repo-wide audit");
 		expect(engineer).toContain("Do not ask a helper to bypass dependency evaluation wholesale");
 		expect(engineer).toContain("unless the caller explicitly required it");
