@@ -143,6 +143,15 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - Take the smallest direct remediation that preserves the stated invariants,
   then rerun that same exact verification path before you widen into reader-only
   investigation
+- When the task gives an exact required command, snippet, import path, or test
+  path, that same path remains the gate after each repair step
+- Do not ask a helper to substitute a convenience probe, sibling import, or
+  narrower related check just because it is faster
+- If the exact failing path and its directly named breakages clearly share the
+  same compatibility class, ask for one bounded repair pass over the directly
+  named same-class sites before the next reinstall or end-to-end rerun
+- Keep that sweep bounded to the files and symbols already implicated
+- Do not turn it into a repo-wide audit
 - If the same traceback already names the local file or import chain causing an
   optional dependency to block the requested path, do not dispatch a separate
   reader pass just to restate that chain before you try the bounded fix

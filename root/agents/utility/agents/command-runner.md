@@ -191,6 +191,18 @@ to that named prerequisite or import frontier.
 Take the smallest direct remediation that preserves the stated invariants, then
 rerun that same exact verification path before you widen into generic
 inspection.
+When the caller's exact required command, snippet, import path, or test path
+is the acceptance gate, rerun that same exact gate after each repair step.
+That exact required command, snippet, import path, or test path remains the
+gate after each repair step.
+Do not substitute a convenience probe, sibling import, or narrower related
+check just because it is faster.
+If the current exact failing check and the directly named breakages clearly
+share the same compatibility class, repair the directly named same-class sites
+in one bounded repair pass before the next expensive rebuild, reinstall, or
+end-to-end rerun.
+Keep that sweep bounded to the already implicated files and symbols.
+Do not turn it into a repo-wide audit.
 If the same traceback already names the local file or import chain that makes
 an optional dependency block the requested path, do not start a separate
 read-only pass just to rediscover that chain before you try the bounded fix.
