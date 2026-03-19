@@ -125,6 +125,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(root).toContain("Never move trailing punctuation inside");
 		expect(root).toContain("structured literal block");
 		expect(root).toContain("forward it verbatim");
+		expect(root).toContain("exact snippet, command text, or test invocation");
+		expect(root).toContain("carry that literal content forward verbatim");
+		expect(root).toContain("Do not replace it with");
+		expect(root).toContain("the user's exact snippet");
 		expect(root).toContain("external source identity");
 		expect(root).toContain("repo URL, package name, branch, tag, commit");
 		expect(root).toContain("Do not substitute a different upstream");
@@ -149,6 +153,10 @@ describe("extractEmbeddedRoot", () => {
 			'Good: "This task is driven by the named input files; inspect the exact inputs',
 		);
 		expect(techLead).toContain("structured literal block");
+		expect(techLead).toContain("exact snippet, command text, or test invocation");
+		expect(techLead).toContain("carry that literal content forward verbatim");
+		expect(techLead).toContain("Do not replace it with");
+		expect(techLead).toContain("the user's exact snippet");
 		expect(techLead).toContain("do not replace them with");
 		expect(techLead).toContain("do not dispatch helpers to rediscover");
 		expect(techLead).toContain("external source identity");

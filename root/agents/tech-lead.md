@@ -67,6 +67,11 @@ When the task spec includes an exact path list, structured literal block,
 schema example, or sample payload, forward it verbatim to the engineer. Keep
 those literals intact and do not replace them with phrases like "the exact
 structure specified by the user."
+Treat an exact snippet, command text, or test invocation the same way. When
+that literal content is already known, carry that literal content forward
+verbatim to the engineer.
+Do not replace it with phrases like "the user's exact snippet" or "the exact
+required command."
 When the task names an exact external source identity such as a repo URL,
 package name, branch, tag, commit, release version, archive URL, or exact
 clone/install command, treat that source identity as authoritative context too.

@@ -83,6 +83,11 @@ commands, paths, or log formats, copy those literals exactly as given.
 - If the caller provides a structured literal block such as JSON, YAML, CSV,
   CLI output, or a schema example, forward it verbatim instead of replacing it
   with phrases like "the exact structure specified by the user."
+- Treat an exact snippet, command text, or test invocation the same way.
+  When that literal content is already known, carry that literal content
+  forward verbatim.
+- Do not replace it with phrases like "the user's exact snippet" or
+  "the exact required command."
 - Treat caller-supplied absolute paths as exact literals too. Forward them
   verbatim and never rewrite them under a working directory.
 - Treat caller-specified external source identity the same way. If the caller
