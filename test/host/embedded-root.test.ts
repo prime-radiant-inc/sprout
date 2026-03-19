@@ -437,6 +437,13 @@ describe("extractEmbeddedRoot", () => {
 			"Do not return success until the end-to-end exact check passes",
 		);
 		expect(commandRunner).toContain("If the caller requires installed-location proof");
+		expect(commandRunner).toContain("build/lib");
+		expect(commandRunner).toContain("editable install");
+		expect(commandRunner).toContain("repo-local pytest");
+		expect(commandRunner).toContain("supporting evidence only");
+		expect(commandRunner).toContain("named compiled modules");
+		expect(commandRunner).toContain("importable from the installed global environment");
+		expect(commandRunner).toContain("immediately after the rebuild/install step");
 		expect(commandRunner).toContain("source tree or build tree as failure");
 		expect(commandRunner).toContain("exact modules, files, artifacts, or outputs");
 		expect(commandRunner).toContain("private implementation modules");
@@ -756,6 +763,13 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("component-level proofs as supporting evidence only");
 		expect(engineer).toContain("Do not accept them as completion");
 		expect(engineer).toContain("installed-location proof");
+		expect(engineer).toContain("build/lib");
+		expect(engineer).toContain("editable install");
+		expect(engineer).toContain("repo-local pytest");
+		expect(engineer).toContain("supporting evidence only");
+		expect(engineer).toContain("named compiled modules");
+		expect(engineer).toContain("installed global environment");
+		expect(engineer).toContain("immediately after the rebuild/install step");
 		expect(engineer).toContain("exact modules, files, artifacts, or outputs");
 		expect(engineer).toContain("private implementation modules");
 		expect(engineer).toContain("public target");

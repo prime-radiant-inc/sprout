@@ -320,6 +320,12 @@ checkout or build tree.
 If the current working directory, source tree, or build tree could satisfy the
 check without the installed artifact, switch to a clean working directory
 outside the source tree before the install-proof run.
+If the task requires named compiled modules or other installed outputs, make
+them importable from the installed global environment immediately after the
+rebuild/install step.
+Treat proof from `build/lib`, an editable install, or repo-local pytest as
+supporting evidence only when those paths could still be shadowed by the repo
+tree or staging artifacts.
 When the caller names exact modules, files, artifacts, or outputs, keep those
 exact identities through build and verification.
 Do not substitute private implementation modules, inferred build outputs, or
