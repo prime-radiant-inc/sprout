@@ -251,6 +251,14 @@ categories unless the caller explicitly asked for that transformation.
 When the caller asks you to verify a snippet, import path, command, test run,
 or other execution path, run that exact verification path in the real runtime
 context first.
+When proving something is installed into an existing environment, preserve the
+verification context that proves the installed artifact rather than the source
+checkout or build tree.
+If the current working directory, source tree, or build tree could satisfy the
+check without the installed artifact, switch to a clean working directory
+outside the source tree before the install-proof run.
+Do not replace an exact snippet or import path with a sibling module probe,
+partial import, or another alternate check.
 Do not simulate success by injecting stubs, preloading modules, loading
 artifacts directly, or otherwise constructing an alternate execution context
 unless the caller explicitly asked for that lower-level probe.

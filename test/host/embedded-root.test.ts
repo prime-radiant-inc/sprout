@@ -354,6 +354,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("preserve that set exactly");
 		expect(commandRunner).toContain("verify a snippet, import path, command, test run,");
 		expect(commandRunner).toContain("run that exact verification path in the real runtime");
+		expect(commandRunner).toContain("proving something is installed into an existing environment");
+		expect(commandRunner).toContain("clean working directory outside the source tree");
+		expect(commandRunner).toContain("Do not replace an exact snippet or import path");
+		expect(commandRunner).toContain("sibling module probe");
 		expect(commandRunner).toContain("Do not simulate success by injecting stubs");
 		expect(commandRunner).toContain("constructing an alternate execution context");
 		expect(commandRunner).toContain("keep it clearly labeled as");
@@ -588,6 +592,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("exact file, line, or symbol");
 		expect(engineer).toContain("smallest local fix");
 		expect(engineer).toContain("rerun that same failing check");
+		expect(engineer).toContain("prove installation into an existing environment");
+		expect(engineer).toContain("clean context outside the source tree");
+		expect(engineer).toContain("Do not ask helpers to substitute sibling");
+		expect(engineer).toContain("import probes for an exact snippet");
 		expect(engineer).toContain("repo-wide audit");
 		expect(engineer).toContain("Do not ask a helper to use blanket dependency suppression");
 		expect(engineer).toContain("such as `--no-deps`");

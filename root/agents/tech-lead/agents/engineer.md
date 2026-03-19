@@ -141,6 +141,11 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - When delegating a verification step, carry the exact requested execution
   path forward verbatim: the real snippet, import path, command, test run, and
   exact ignored paths or excluded files
+- When a task asks you to prove installation into an existing environment, ask
+  for at least one verification run from a clean context outside the source
+  tree or build tree so local files cannot shadow the installed artifact
+- Do not ask helpers to substitute sibling import probes for an exact snippet
+  or exact import path when the install proof itself is required
 - Do not ask helpers to simulate success with stubs, direct artifact loading,
   synthetic import contexts, or looser alternate checks when the task asks for
   the real execution path
