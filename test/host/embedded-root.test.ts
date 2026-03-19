@@ -344,6 +344,8 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("one bounded repair pass");
 		expect(commandRunner).toContain("before the next expensive rebuild");
 		expect(commandRunner).toContain("Keep that sweep bounded");
+		expect(commandRunner).toContain("patch the named site first");
+		expect(commandRunner).toContain("before you scan for same-class siblings");
 		expect(commandRunner).toContain("Do not turn it into a repo-wide audit");
 		expect(commandRunner).toContain("optional dependency block the requested path");
 		expect(commandRunner).toContain("working hypothesis");
@@ -419,7 +421,9 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("Do not replace an exact snippet or import path");
 		expect(commandRunner).toContain("sibling module probe");
 		expect(commandRunner).toContain("Component-level proofs are supporting evidence only");
-		expect(commandRunner).toContain("Do not return success until the end-to-end exact check passes");
+		expect(commandRunner).toContain(
+			"Do not return success until the end-to-end exact check passes",
+		);
 		expect(commandRunner).toContain("If the caller requires installed-location proof");
 		expect(commandRunner).toContain("source tree or build tree as failure");
 		expect(commandRunner).toContain("exact modules, files, artifacts, or outputs");
@@ -715,6 +719,8 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("one bounded repair pass");
 		expect(engineer).toContain("before the next reinstall");
 		expect(engineer).toContain("Keep that sweep bounded");
+		expect(engineer).toContain("patch the named site first");
+		expect(engineer).toContain("before asking for same-class siblings");
 		expect(engineer).toContain("Do not turn it into a repo-wide audit");
 		expect(engineer).toContain("do not dispatch a separate");
 		expect(engineer).toContain("reader pass just to restate that chain");
