@@ -126,6 +126,13 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - Keep the next delegated goal anchored to that exact file, line, or symbol
   until you have either repaired it and rerun that same failing check or
   proved that the same failure already implicates multiple exact sites
+- If that same failure already identifies the exact file, line, or symbol and
+  the local replacement direction is already clear, Do not split off a
+  separate reconnaissance pass just to rediscover nearby sites
+- In that state, ask the editing helper for the bounded patch first and rerun
+  that same failing check before widening the search
+- Only widen after that direct patch if the rerun still implicates additional
+  exact sites or the replacement direction remains unclear
 - Do not broaden into a hotspot search, compatibility census, or repo-wide
   audit until that local fix has been tried and rerun, unless the same
   failure already proves multiple exact sites at once

@@ -48,6 +48,16 @@ choices, or other decisive implementation facts:
 - when the caller already provides the exact file paths, failure mode, and
   replacement direction, make the smallest confirming read you need and then
   patch directly
+- when that is a targeted edit on an existing file, prefer edit_file for the
+  exact existing-file edit
+- Do not rewrite the whole file with write_file for a targeted edit on an
+  existing file unless the caller explicitly asked for full replacement or the
+  bounded edit cannot express the required change
+- if a targeted edit succeeds but a later verification read appears
+  contradictory, re-read the exact changed lines or run a simpler local check
+  for that same file first
+- Do not escalate into a whole-file rewrite for an existing file until that
+  contradiction is resolved
 - Do not spend turns on extra read-only analysis or design prose once the
   decisive edit target is already known
 - if the task is to create a minimal new file in a blank or incidental

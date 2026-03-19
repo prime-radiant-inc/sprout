@@ -434,6 +434,14 @@ describe("extractEmbeddedRoot", () => {
 		expect(editor).toContain("failure mode, and replacement direction");
 		expect(editor).toContain("make the smallest confirming read");
 		expect(editor).toContain("then patch directly");
+		expect(editor).toContain("exact existing-file edit");
+		expect(editor).toContain("prefer edit_file");
+		expect(editor).toContain("Do not rewrite the whole file with write_file");
+		expect(editor).toContain("targeted edit on an existing file");
+		expect(editor).toContain("verification read appears contradictory");
+		expect(editor).toContain("re-read the exact changed lines");
+		expect(editor).toContain("simpler local check");
+		expect(editor).toContain("Do not escalate into a whole-file rewrite");
 		expect(editor).toContain("Do not spend turns on extra read-only");
 		expect(editor).toContain("analysis or design prose");
 		expect(editor).toContain(
@@ -523,6 +531,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("already identifies the exact file");
 		expect(engineer).toContain("smallest local fix");
 		expect(engineer).toContain("rerun that same failing check");
+		expect(engineer).toContain("local replacement direction is already clear");
+		expect(engineer).toContain("Do not split off a separate reconnaissance pass");
+		expect(engineer).toContain("ask the editing helper for the bounded patch first");
+		expect(engineer).toContain("Only widen after that direct patch");
 		expect(engineer).toContain("Do not broaden into a hotspot search");
 		expect(engineer).toContain("compatibility census");
 		expect(engineer).toContain("do not report DONE");
