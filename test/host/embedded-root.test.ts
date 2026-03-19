@@ -418,6 +418,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("clean working directory outside the source tree");
 		expect(commandRunner).toContain("Do not replace an exact snippet or import path");
 		expect(commandRunner).toContain("sibling module probe");
+		expect(commandRunner).toContain("Component-level proofs are supporting evidence only");
+		expect(commandRunner).toContain("Do not return success until the end-to-end exact check passes");
+		expect(commandRunner).toContain("If the caller requires installed-location proof");
+		expect(commandRunner).toContain("source tree or build tree as failure");
 		expect(commandRunner).toContain("exact modules, files, artifacts, or outputs");
 		expect(commandRunner).toContain("private implementation modules");
 		expect(commandRunner).toContain("public target");
@@ -718,6 +722,9 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("clean context outside the source tree");
 		expect(engineer).toContain("Do not ask helpers to substitute sibling");
 		expect(engineer).toContain("import probes for an exact snippet");
+		expect(engineer).toContain("component-level proofs as supporting evidence only");
+		expect(engineer).toContain("Do not accept them as completion");
+		expect(engineer).toContain("installed-location proof");
 		expect(engineer).toContain("exact modules, files, artifacts, or outputs");
 		expect(engineer).toContain("private implementation modules");
 		expect(engineer).toContain("public target");

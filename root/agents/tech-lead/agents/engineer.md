@@ -189,6 +189,13 @@ code-change task, do not force a TDD or commit workflow. In that case:
   they seem related
 - Do not ask helpers to substitute sibling import probes for an exact snippet
   or exact import path when the install proof itself is required
+- When the task requires both an exact end-to-end check and narrower
+  component-level proofs, treat the component-level proofs as supporting
+  evidence only
+- Do not accept them as completion unless the end-to-end exact check also
+  passes in the required context
+- If the task requires installed-location proof, treat source-tree or build-
+  tree paths as failure to prove installation and ask for a clean-context rerun
 - Do not ask helpers to simulate success with stubs, direct artifact loading,
   synthetic import contexts, or looser alternate checks when the task asks for
   the real execution path

@@ -308,6 +308,13 @@ Do not substitute private implementation modules, inferred build outputs, or
 neighboring paths for the named public target just because they seem related.
 Do not replace an exact snippet or import path with a sibling module probe,
 partial import, or another alternate check.
+Component-level proofs are supporting evidence only when the caller also
+requires an end-to-end exact check.
+Do not return success until the end-to-end exact check passes in the required
+context.
+If the caller requires installed-location proof, treat any path that still
+resolves inside the source tree or build tree as failure, not proof of
+installation.
 Do not simulate success by injecting stubs, preloading modules, loading
 artifacts directly, or otherwise constructing an alternate execution context
 unless the caller explicitly asked for that lower-level probe.
