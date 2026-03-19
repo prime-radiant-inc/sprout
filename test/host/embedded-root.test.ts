@@ -319,6 +319,9 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("remains the gate after each repair step");
 		expect(commandRunner).toContain("Do not substitute a convenience probe");
 		expect(commandRunner).toContain("sibling import, or narrower related check");
+		expect(commandRunner).toContain("If the caller says an exact snippet or command is required");
+		expect(commandRunner).toContain("but the literal text is not present in the current goal");
+		expect(commandRunner).toContain("Do not invent or guess a proxy");
 		expect(commandRunner).toContain("same compatibility class");
 		expect(commandRunner).toContain("one bounded repair pass");
 		expect(commandRunner).toContain("before the next expensive rebuild");
@@ -652,6 +655,9 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("remains the gate after each repair step");
 		expect(engineer).toContain("Do not ask a helper to substitute a convenience probe");
 		expect(engineer).toContain("sibling import, or narrower related check");
+		expect(engineer).toContain("carry the literal snippet, command text, or test invocation forward verbatim");
+		expect(engineer).toContain("Do not refer to it only as");
+		expect(engineer).toContain("the exact required snippet");
 		expect(engineer).toContain("same compatibility class");
 		expect(engineer).toContain("one bounded repair pass");
 		expect(engineer).toContain("before the next reinstall");

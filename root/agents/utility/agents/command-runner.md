@@ -195,6 +195,9 @@ When the caller's exact required command, snippet, import path, or test path
 is the acceptance gate, rerun that same exact gate after each repair step.
 That exact required command, snippet, import path, or test path remains the
 gate after each repair step.
+If the caller says an exact snippet or command is required but the literal
+text is not present in the current goal, Do not invent or guess a proxy.
+Report that the exact verification content is missing from the current goal.
 Do not substitute a convenience probe, sibling import, or narrower related
 check just because it is faster.
 If the current exact failing check and the directly named breakages clearly
