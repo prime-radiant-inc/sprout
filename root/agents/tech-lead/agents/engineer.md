@@ -157,9 +157,13 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - If the exact failing path and its directly named breakages clearly share the
   same compatibility class, ask for one bounded repair pass over the directly
   named same-class sites before the next reinstall or end-to-end rerun
+- Keep that first pass inside the exact failing file or the directly
+  implicated import chain
 - When the same failing check already names one concrete site and the local
   replacement direction is direct, patch the named site first before asking
   for same-class siblings
+- Do not broaden into other same-class files until rerunning that same exact
+  gate still proves they matter
 - Keep that sweep bounded to the files and symbols already implicated
 - Do not turn it into a repo-wide audit
 - If the same traceback already names the local file or import chain causing an

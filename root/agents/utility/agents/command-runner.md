@@ -206,9 +206,13 @@ If the current exact failing check and the directly named breakages clearly
 share the same compatibility class, repair the directly named same-class sites
 in one bounded repair pass before the next expensive rebuild, reinstall, or
 end-to-end rerun.
+Keep that first pass inside the exact failing file or the directly implicated
+import chain.
 When the same failing check already names one concrete site and the local
 replacement direction is direct, patch the named site first before you scan
 for same-class siblings.
+Do not broaden into other same-class files until rerunning that same exact
+gate still proves they matter.
 Keep that sweep bounded to the already implicated files and symbols.
 Do not turn it into a repo-wide audit.
 If the same traceback already names the local file or import chain that makes

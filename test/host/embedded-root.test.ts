@@ -346,6 +346,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("Keep that sweep bounded");
 		expect(commandRunner).toContain("patch the named site first");
 		expect(commandRunner).toContain("before you scan for same-class siblings");
+		expect(commandRunner).toContain("exact failing file");
+		expect(commandRunner).toContain("directly implicated import chain");
+		expect(commandRunner).toContain("Do not broaden into other same-class files");
+		expect(commandRunner).toContain("until rerunning that same exact gate");
 		expect(commandRunner).toContain("Do not turn it into a repo-wide audit");
 		expect(commandRunner).toContain("optional dependency block the requested path");
 		expect(commandRunner).toContain("working hypothesis");
@@ -725,6 +729,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("Keep that sweep bounded");
 		expect(engineer).toContain("patch the named site first");
 		expect(engineer).toContain("before asking for same-class siblings");
+		expect(engineer).toContain("exact failing file");
+		expect(engineer).toContain("directly implicated import chain");
+		expect(engineer).toContain("Do not broaden into other same-class files");
+		expect(engineer).toContain("until rerunning that same exact gate");
 		expect(engineer).toContain("Do not turn it into a repo-wide audit");
 		expect(engineer).toContain("do not dispatch a separate");
 		expect(engineer).toContain("reader pass just to restate that chain");
