@@ -206,6 +206,12 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - Do not widen into source analysis, reader-only investigation, or a
   compatibility census while that same step is still blocked by the missing
   prerequisite
+- If a successful command output still says the required capability, artifact,
+  or performance path was skipped, disabled, or replaced with a fallback,
+  treat that as the current frontier, not as success
+- If that same output names the direct remediation, missing prerequisite, or
+  same-step rerun needed to reach the required capability, ask for that
+  remediation and rerun before any reader-only investigation
 - Treat the current best interpretation as a working hypothesis until a
   discriminating check resolves the remaining alternatives
 - If more than one interpretation still fits the evidence, do not write the

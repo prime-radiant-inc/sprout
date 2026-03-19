@@ -210,6 +210,12 @@ as decisive immediately. Rerun a simpler explicit check for the exact paths
 before concluding that the outputs are absent.
 If syntax can succeed while runtime semantics are still wrong, verify the runtime
 output that matters instead of stopping at the syntax check.
+If a command exits successfully but explicitly says the required capability,
+artifact, or optimized path was skipped, disabled, or replaced with a fallback,
+treat that message as the current failure frontier, not as success.
+If that same output names the direct remediation, missing prerequisite, or
+same-step rerun needed to reach the required capability, take that remediation
+and rerun before widening into source analysis.
 When counting or validating structured log/event tokens, first identify the
 actual token boundary from a sample line and then count that exact field or
 delimiter-wrapped token. Do not grep bare severity words across whole lines if
