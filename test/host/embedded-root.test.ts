@@ -655,7 +655,9 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("remains the gate after each repair step");
 		expect(engineer).toContain("Do not ask a helper to substitute a convenience probe");
 		expect(engineer).toContain("sibling import, or narrower related check");
-		expect(engineer).toContain("carry the literal snippet, command text, or test invocation forward verbatim");
+		expect(engineer).toContain(
+			"carry the literal snippet, command text, or test invocation forward verbatim",
+		);
 		expect(engineer).toContain("Do not refer to it only as");
 		expect(engineer).toContain("the exact required snippet");
 		expect(engineer).toContain("same compatibility class");
