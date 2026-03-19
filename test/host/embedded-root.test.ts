@@ -445,6 +445,13 @@ describe("extractEmbeddedRoot", () => {
 		expect(taskManager).toContain("Do not make a follow-up list or get call");
 		expect(engineer).toContain("operational or system-execution task");
 		expect(engineer).toContain("do not force a TDD or commit workflow");
+		expect(engineer).toContain("keep ownership of stateful repair loops");
+		expect(engineer).toContain("use command-runner only for the next bounded");
+		expect(engineer).toContain("do not hand command-runner the whole remaining");
+		expect(engineer).toContain("mixed repair/install/test loop");
+		expect(engineer).toContain("later source fixes may still be needed");
+		expect(engineer).toContain("next concrete failing step");
+		expect(engineer).toContain("next edit or rerun");
 		expect(engineer).toContain("Do not ask for redundant child-path checks");
 		expect(engineer).toContain("first establish decisive prerequisites");
 		expect(engineer).toContain("carry those findings forward");
