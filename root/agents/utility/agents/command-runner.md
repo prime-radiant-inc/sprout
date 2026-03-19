@@ -323,18 +323,20 @@ checkout or build tree.
 If the current working directory, source tree, or build tree could satisfy the
 check without the installed artifact, switch to a clean working directory
 outside the source tree before the install-proof run.
-If the task requires named compiled modules or other built, generated,
-deployed, or installed outputs in a target environment, prove those exact
-outputs in that target environment immediately after the rebuild, deploy, or
-install step.
-Treat that first clean-context target-environment proof after the rebuild,
-deploy, or install step as the authoritative gate for whether those outputs
-are ready.
-If those named installed outputs are still missing at that gate, keep the
+If the task requires proof of required deliverables or other built, generated,
+deployed, or installed outputs in a target environment, prove those exact deliverables
+in the operating context where success is defined immediately after the
+rebuild, deploy, or install step.
+Treat that first proof in the operating context where success is defined after
+the rebuild, deploy, or install step as the authoritative gate for whether
+those deliverables are ready.
+If those required deliverables are still missing at that gate, keep the
 rebuild/install frontier active.
 Do not widen into broader repair work yet.
 Treat proof from any context that could still be satisfied by shadowed,
 staged, or another non-target artifact path as supporting evidence only.
+Let that supporting evidence guide diagnosis, but do not treat it as
+satisfying the contract while the operating-context proof can still diverge.
 When the caller names exact modules, files, artifacts, or outputs, keep those
 exact identities through build and verification.
 Do not substitute private implementation modules, inferred build outputs, or
@@ -345,9 +347,9 @@ Component-level proofs are supporting evidence only when the caller also
 requires an end-to-end exact check.
 Do not return success until the end-to-end exact check passes in the required
 context.
-If the caller requires installed-location proof, treat any path that still
-resolves inside the source tree or build tree as failure, not proof of
-installation.
+If the caller requires proof in a specific operating context, treat any path
+that still resolves inside the source tree or build tree as failure, not
+proof that the deliverable works there.
 Do not simulate success by injecting stubs, preloading modules, loading
 artifacts directly, or otherwise constructing an alternate execution context
 unless the caller explicitly asked for that lower-level probe.

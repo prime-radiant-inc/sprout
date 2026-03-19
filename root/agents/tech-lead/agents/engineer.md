@@ -203,18 +203,21 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - When a task asks you to prove installation into an existing environment, ask
   for at least one verification run from a clean context outside the source
   tree or build tree so local files cannot shadow the installed artifact
-- If the task requires named compiled modules or other built, generated,
+- If the task requires proof of required deliverables or other built,
+  generated,
   deployed, or installed outputs in a target environment, ask for proof of
-  those exact outputs in that target environment immediately after the
-  rebuild, deploy, or install step
-- Treat that first clean-context target-environment proof after the rebuild,
-  deploy, or install step as the authoritative gate for whether those outputs
-  are ready
-- If those named installed outputs are still missing at that gate, keep the
+  those exact deliverables in the operating context where success is defined
+  immediately after the rebuild, deploy, or install step
+- Treat that first proof in the operating context where success is defined
+  after the rebuild, deploy, or install step as the authoritative gate for
+  whether those deliverables are ready
+- If those required deliverables are still missing at that gate, keep the
   rebuild/install frontier active
 - Do not widen into broader repair work yet
 - Treat proof from any context that could still be satisfied by shadowed,
   staged, or another non-target artifact path as supporting evidence only
+- Let that supporting evidence guide diagnosis, but do not treat it as
+  satisfying the contract while the operating-context proof can still diverge
 - When the caller names exact modules, files, artifacts, or outputs, keep
   those exact identities in helper goals and follow-up checks
 - Do not ask helpers to substitute private implementation modules, inferred
@@ -227,8 +230,9 @@ code-change task, do not force a TDD or commit workflow. In that case:
   evidence only
 - Do not accept them as completion unless the end-to-end exact check also
   passes in the required context
-- If the task requires installed-location proof, treat source-tree or build-
-  tree paths as failure to prove installation and ask for a clean-context rerun
+- If the task requires proof in a specific operating context, treat source-
+  tree or build-tree paths as failure to prove those deliverables there and
+  ask for a rerun in the operating context where success is defined
 - Do not ask helpers to simulate success with stubs, direct artifact loading,
   synthetic import contexts, or looser alternate checks when the task asks for
   the real execution path

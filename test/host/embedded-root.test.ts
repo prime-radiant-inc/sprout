@@ -436,16 +436,16 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain(
 			"Do not return success until the end-to-end exact check passes",
 		);
-		expect(commandRunner).toContain("If the caller requires installed-location proof");
+		expect(commandRunner).toContain("operating context where success is defined");
 		expect(commandRunner).toContain("target environment");
 		expect(commandRunner).toContain("shadowed, staged, or another non-target");
 		expect(commandRunner).toContain("supporting evidence only");
-		expect(commandRunner).toContain("named compiled modules");
-		expect(commandRunner).toContain("prove those exact outputs in that target environment");
+		expect(commandRunner).toContain("required deliverables");
+		expect(commandRunner).toContain("prove those exact deliverables");
 		expect(commandRunner).toContain("immediately after the rebuild, deploy, or install step");
 		expect(commandRunner).toContain("authoritative gate");
-		expect(commandRunner).toContain("first clean-context target-environment proof");
-		expect(commandRunner).toContain("If those named installed outputs are still missing");
+		expect(commandRunner).toContain("first proof in the operating context where success is defined");
+		expect(commandRunner).toContain("If those required deliverables are still missing");
 		expect(commandRunner).toContain("keep the rebuild/install frontier active");
 		expect(commandRunner).toContain("Do not widen into broader repair work yet");
 		expect(commandRunner).toContain("source edit can affect required compiled");
@@ -769,16 +769,16 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("import probes for an exact snippet");
 		expect(engineer).toContain("component-level proofs as supporting evidence only");
 		expect(engineer).toContain("Do not accept them as completion");
-		expect(engineer).toContain("installed-location proof");
+		expect(engineer).toContain("operating context where success is defined");
 		expect(engineer).toContain("target environment");
 		expect(engineer).toContain("shadowed, staged, or another non-target");
 		expect(engineer).toContain("supporting evidence only");
-		expect(engineer).toContain("named compiled modules");
-		expect(engineer).toContain("proof of those exact outputs in that target environment");
+		expect(engineer).toContain("required deliverables");
+		expect(engineer).toContain("proof of those exact deliverables");
 		expect(engineer).toContain("immediately after the rebuild, deploy, or install step");
 		expect(engineer).toContain("authoritative gate");
-		expect(engineer).toContain("first clean-context target-environment proof");
-		expect(engineer).toContain("If those named installed outputs are still missing");
+		expect(engineer).toContain("first proof in the operating context where success is defined");
+		expect(engineer).toContain("If those required deliverables are still missing");
 		expect(engineer).toContain("keep the rebuild/install frontier active");
 		expect(engineer).toContain("Do not widen into broader repair work yet");
 		expect(engineer).toContain("source edit can affect required compiled");
