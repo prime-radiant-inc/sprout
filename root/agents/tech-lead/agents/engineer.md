@@ -203,17 +203,18 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - When a task asks you to prove installation into an existing environment, ask
   for at least one verification run from a clean context outside the source
   tree or build tree so local files cannot shadow the installed artifact
-- If the task requires named compiled modules or other installed outputs, ask
-  for proof that they are importable from the installed global environment
-  immediately after the rebuild/install step
-- Treat that first clean-context global import proof after the rebuild/install
-  step as the authoritative gate for whether those installed outputs are ready
+- If the task requires named compiled modules or other built, generated,
+  deployed, or installed outputs in a target environment, ask for proof of
+  those exact outputs in that target environment immediately after the
+  rebuild, deploy, or install step
+- Treat that first clean-context target-environment proof after the rebuild,
+  deploy, or install step as the authoritative gate for whether those outputs
+  are ready
 - If those named installed outputs are still missing at that gate, keep the
   rebuild/install frontier active
 - Do not widen into broader repair work yet
-- Treat proof from `build/lib`, an editable install, or repo-local pytest as
-  supporting evidence only when those paths could still be shadowed by the
-  repo tree or staging artifacts
+- Treat proof from any context that could still be satisfied by shadowed,
+  staged, or another non-target artifact path as supporting evidence only
 - When the caller names exact modules, files, artifacts, or outputs, keep
   those exact identities in helper goals and follow-up checks
 - Do not ask helpers to substitute private implementation modules, inferred

@@ -323,17 +323,18 @@ checkout or build tree.
 If the current working directory, source tree, or build tree could satisfy the
 check without the installed artifact, switch to a clean working directory
 outside the source tree before the install-proof run.
-If the task requires named compiled modules or other installed outputs, make
-them importable from the installed global environment immediately after the
-rebuild/install step.
-Treat that first clean-context global import proof after the rebuild/install
-step as the authoritative gate for whether those installed outputs are ready.
+If the task requires named compiled modules or other built, generated,
+deployed, or installed outputs in a target environment, prove those exact
+outputs in that target environment immediately after the rebuild, deploy, or
+install step.
+Treat that first clean-context target-environment proof after the rebuild,
+deploy, or install step as the authoritative gate for whether those outputs
+are ready.
 If those named installed outputs are still missing at that gate, keep the
 rebuild/install frontier active.
 Do not widen into broader repair work yet.
-Treat proof from `build/lib`, an editable install, or repo-local pytest as
-supporting evidence only when those paths could still be shadowed by the repo
-tree or staging artifacts.
+Treat proof from any context that could still be satisfied by shadowed,
+staged, or another non-target artifact path as supporting evidence only.
 When the caller names exact modules, files, artifacts, or outputs, keep those
 exact identities through build and verification.
 Do not substitute private implementation modules, inferred build outputs, or
