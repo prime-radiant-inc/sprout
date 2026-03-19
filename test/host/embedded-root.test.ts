@@ -367,12 +367,16 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("same-step rerun needed to reach the required capability");
 		expect(commandRunner).toContain("take that remediation and rerun");
 		expect(commandRunner).toContain("before widening into source analysis");
-		expect(commandRunner).toContain("requires named native, compiled, generated, or optimized outputs");
+		expect(commandRunner).toContain(
+			"requires named native, compiled, generated, or optimized outputs",
+		);
 		expect(commandRunner).toContain("successful install, package, or editable step");
 		expect(commandRunner).toContain("still leaves those named outputs absent");
 		expect(commandRunner).toContain("pure-Python or metadata-only result");
 		expect(commandRunner).toContain("direct step that produces or proves");
-		expect(commandRunner).toContain("build metadata or command output names the missing prerequisite");
+		expect(commandRunner).toContain(
+			"build metadata or command output names the missing prerequisite",
+		);
 		expect(commandRunner).toContain("restore that prerequisite");
 		expect(commandRunner).toContain("rerun the direct output-producing step");
 		expect(commandRunner).toContain("structured log/event tokens");
