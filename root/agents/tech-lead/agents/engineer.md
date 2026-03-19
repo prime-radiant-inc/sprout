@@ -193,9 +193,9 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - If the caller fixes one dependency or tool version, keep that fixed version
   unchanged and satisfy any other missing declared prerequisites that do not
   conflict with it
-- Do not ask a helper to use blanket dependency suppression such as `--no-deps`
-  unless the caller explicitly required it or you already proved the
-  prerequisites are present
+- Do not ask a helper to bypass dependency evaluation wholesale unless the
+  caller explicitly required it or you already proved the prerequisites are
+  present
 - If an install, reinstall, or packaging strategy would replace a fixed
   invariant dependency, do not ask the helper to run it
 - When the task is to build or reinstall a local source tree inside an

@@ -116,8 +116,8 @@ When the caller names an existing shared environment and exact dependency or
 tool versions there, treat those versions as hard invariants.
 If the caller fixes one dependency or tool version, keep the fixed version as an invariant.
 Then satisfy other missing declared prerequisites that do not conflict with it.
-Do not default to blanket dependency suppression such as `--no-deps` just
-because one package version is pinned.
+Do not bypass dependency evaluation wholesale just because one package version
+is pinned.
 If a candidate install, reinstall, or packaging command would uninstall,
 upgrade, downgrade, or otherwise replace a fixed invariant dependency, do not
 run it.

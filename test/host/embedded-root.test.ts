@@ -286,8 +286,7 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("fixed version as an invariant");
 		expect(commandRunner).toContain("satisfy other missing declared prerequisites");
 		expect(commandRunner).toContain("that do not conflict with it");
-		expect(commandRunner).toContain("Do not default to blanket dependency suppression");
-		expect(commandRunner).toContain("such as `--no-deps`");
+		expect(commandRunner).toContain("Do not bypass dependency evaluation wholesale");
 		expect(commandRunner).toContain("just because one package version is pinned");
 		expect(commandRunner).toContain("candidate install, reinstall, or packaging command");
 		expect(commandRunner).toContain("would uninstall, upgrade, downgrade");
@@ -647,8 +646,7 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("Do not ask helpers to substitute sibling");
 		expect(engineer).toContain("import probes for an exact snippet");
 		expect(engineer).toContain("repo-wide audit");
-		expect(engineer).toContain("Do not ask a helper to use blanket dependency suppression");
-		expect(engineer).toContain("such as `--no-deps`");
+		expect(engineer).toContain("Do not ask a helper to bypass dependency evaluation wholesale");
 		expect(engineer).toContain("unless the caller explicitly required it");
 		expect(engineer).toContain("or you already proved the prerequisites are present");
 		expect(engineer).toContain("install, reinstall, or packaging strategy");
