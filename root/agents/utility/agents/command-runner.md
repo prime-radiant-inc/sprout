@@ -180,6 +180,15 @@ rerun that same failing check before you widen scope.
 Do not jump from a named traceback into a repo-wide compatibility census,
 hotspot search, or broad audit unless that same failing check already proves
 multiple exact sites at once.
+If an exact failing verification path instead names a missing module, package,
+test runner, CLI tool, or other prerequisite, keep your next action anchored
+to that named prerequisite or import frontier.
+Take the smallest direct remediation that preserves the stated invariants, then
+rerun that same exact verification path before you widen into generic
+inspection.
+If the same traceback already names the local file or import chain that makes
+an optional dependency block the requested path, do not start a separate
+read-only pass just to rediscover that chain before you try the bounded fix.
 For verbose package-manager commands, prefer quiet or noninteractive flags when
 they are safe, then prove success with the shortest post-install checks that show
 the package or path now exists instead of relying on the full install transcript.

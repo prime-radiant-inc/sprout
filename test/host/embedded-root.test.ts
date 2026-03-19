@@ -307,6 +307,11 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("smallest local action");
 		expect(commandRunner).toContain("rerun that same failing check");
 		expect(commandRunner).toContain("repo-wide compatibility census");
+		expect(commandRunner).toContain("missing module, package,");
+		expect(commandRunner).toContain("test runner, CLI tool");
+		expect(commandRunner).toContain("named prerequisite or import frontier");
+		expect(commandRunner).toContain("same exact verification path");
+		expect(commandRunner).toContain("optional dependency block the requested path");
 		expect(commandRunner).toContain("working hypothesis");
 		expect(commandRunner).toContain("If more than one interpretation still fits the");
 		expect(commandRunner).toContain("evidence, do not write the");
@@ -626,6 +631,12 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("exact file, line, or symbol");
 		expect(engineer).toContain("smallest local fix");
 		expect(engineer).toContain("rerun that same failing check");
+		expect(engineer).toContain("missing module,");
+		expect(engineer).toContain("package, test runner, CLI tool");
+		expect(engineer).toContain("next concrete blocker");
+		expect(engineer).toContain("same exact verification path");
+		expect(engineer).toContain("do not dispatch a separate");
+		expect(engineer).toContain("reader pass just to restate that chain");
 		expect(engineer).toContain("prove installation into an existing environment");
 		expect(engineer).toContain("clean context outside the source tree");
 		expect(engineer).toContain("Do not ask helpers to substitute sibling");

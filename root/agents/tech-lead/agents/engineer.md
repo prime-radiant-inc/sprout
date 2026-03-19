@@ -137,6 +137,15 @@ code-change task, do not force a TDD or commit workflow. In that case:
   that same failing check before widening the search
 - Use the editor as the first bounded helper there; a confirming read inside
   that edit branch is enough
+- If an exact failing verification path instead names a missing module,
+  package, test runner, CLI tool, or other prerequisite, treat that named
+  prerequisite or import frontier as the next concrete blocker
+- Take the smallest direct remediation that preserves the stated invariants,
+  then rerun that same exact verification path before you widen into reader-only
+  investigation
+- If the same traceback already names the local file or import chain causing an
+  optional dependency to block the requested path, do not dispatch a separate
+  reader pass just to restate that chain before you try the bounded fix
 - Only widen after that direct patch if the rerun still implicates additional
   exact sites or the replacement direction remains unclear
 - Do not broaden into a hotspot search, compatibility census, or repo-wide
