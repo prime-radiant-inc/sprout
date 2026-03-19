@@ -78,6 +78,8 @@ clone/install command, treat that source identity as authoritative context too.
 Forward that identity verbatim to the engineer.
 Preserve distinctions. Collapse them only when the task and the evidence
 justify it.
+Choose the simplest intervention that satisfies the contract and preserves
+invariants.
 - Do not swap in a different upstream, mirror, fork, package name, or default
   branch unless the caller explicitly authorized that substitution.
 - When the caller names an existing shared environment and exact dependency or

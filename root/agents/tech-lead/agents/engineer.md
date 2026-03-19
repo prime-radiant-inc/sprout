@@ -202,6 +202,8 @@ code-change task, do not force a TDD or commit workflow. In that case:
   that constraint fixed until new evidence justifies changing it
 - Preserve distinctions. Collapse them only when the task and the evidence
   justify it
+- Choose the simplest intervention that satisfies the contract and preserves
+  invariants
 - When the caller names an existing shared environment and exact dependency or
   tool versions there, treat those versions as hard invariants
 - If the caller fixes one dependency or tool version, keep that fixed version

@@ -187,6 +187,9 @@ describe("extractEmbeddedRoot", () => {
 		expect(techLead).toContain("Collapse them only when");
 		expect(techLead).toContain("task and the evidence");
 		expect(techLead).toContain("justify it");
+		expect(techLead).toContain("Choose the simplest intervention");
+		expect(techLead).toContain("satisfies the contract");
+		expect(techLead).toContain("preserves invariants");
 		expect(techLead).toContain("existing shared environment");
 		expect(techLead).toContain("hard invariants");
 		expect(techLead).toContain("do not rewrite that");
@@ -214,6 +217,9 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("near-match");
 		expect(commandRunner).toContain("exact config token, placeholder, or variable name");
 		expect(commandRunner).toContain("Do not replace it with a semantically similar");
+		expect(commandRunner).toContain("Choose the simplest intervention");
+		expect(commandRunner).toContain("satisfies the contract");
+		expect(commandRunner).toContain("preserves invariants");
 		expect(commandRunner).toContain("extra leading or trailing byte");
 		expect(commandRunner).toContain("tracing the offset, delimiter, or decoding step");
 		expect(commandRunner).toContain("structured records from a corrupted binary");
@@ -642,6 +648,9 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("Collapse them only when");
 		expect(engineer).toContain("task and the evidence");
 		expect(engineer).toContain("justify it");
+		expect(engineer).toContain("Choose the simplest intervention");
+		expect(engineer).toContain("satisfies the contract");
+		expect(engineer).toContain("preserves invariants");
 		expect(engineer).toContain("existing shared environment");
 		expect(engineer).toContain("hard invariants");
 		expect(engineer).toContain("Do not ask a helper to rewrite that environment");
