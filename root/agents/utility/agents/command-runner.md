@@ -302,6 +302,10 @@ checkout or build tree.
 If the current working directory, source tree, or build tree could satisfy the
 check without the installed artifact, switch to a clean working directory
 outside the source tree before the install-proof run.
+When the caller names exact modules, files, artifacts, or outputs, keep those
+exact identities through build and verification.
+Do not substitute private implementation modules, inferred build outputs, or
+neighboring paths for the named public target just because they seem related.
 Do not replace an exact snippet or import path with a sibling module probe,
 partial import, or another alternate check.
 Do not simulate success by injecting stubs, preloading modules, loading

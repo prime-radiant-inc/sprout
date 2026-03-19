@@ -414,6 +414,9 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("clean working directory outside the source tree");
 		expect(commandRunner).toContain("Do not replace an exact snippet or import path");
 		expect(commandRunner).toContain("sibling module probe");
+		expect(commandRunner).toContain("exact modules, files, artifacts, or outputs");
+		expect(commandRunner).toContain("private implementation modules");
+		expect(commandRunner).toContain("public target");
 		expect(commandRunner).toContain("Do not simulate success by injecting stubs");
 		expect(commandRunner).toContain("constructing an alternate execution context");
 		expect(commandRunner).toContain("keep it clearly labeled as");
@@ -709,6 +712,9 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("clean context outside the source tree");
 		expect(engineer).toContain("Do not ask helpers to substitute sibling");
 		expect(engineer).toContain("import probes for an exact snippet");
+		expect(engineer).toContain("exact modules, files, artifacts, or outputs");
+		expect(engineer).toContain("private implementation modules");
+		expect(engineer).toContain("public target");
 		expect(engineer).toContain("repo-wide audit");
 		expect(engineer).toContain("Do not ask a helper to bypass dependency evaluation wholesale");
 		expect(engineer).toContain("unless the caller explicitly required it");

@@ -180,6 +180,11 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - When a task asks you to prove installation into an existing environment, ask
   for at least one verification run from a clean context outside the source
   tree or build tree so local files cannot shadow the installed artifact
+- When the caller names exact modules, files, artifacts, or outputs, keep
+  those exact identities in helper goals and follow-up checks
+- Do not ask helpers to substitute private implementation modules, inferred
+  build outputs, or neighboring paths for the named public target just because
+  they seem related
 - Do not ask helpers to substitute sibling import probes for an exact snippet
   or exact import path when the install proof itself is required
 - Do not ask helpers to simulate success with stubs, direct artifact loading,
