@@ -129,8 +129,14 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - If that same failure already identifies the exact file, line, or symbol and
   the local replacement direction is already clear, Do not split off a
   separate reconnaissance pass just to rediscover nearby sites
+- If the decisive failure is a removed import, API, or symbol and the
+  smallest compatible replacement is already clear from that same traceback or
+  from standard library/runtime expectations, Do not ask for a focused
+  code-reading pass before editing
 - In that state, ask the editing helper for the bounded patch first and rerun
   that same failing check before widening the search
+- Use the editor as the first bounded helper there; a confirming read inside
+  that edit branch is enough
 - Only widen after that direct patch if the rerun still implicates additional
   exact sites or the replacement direction remains unclear
 - Do not broaden into a hotspot search, compatibility census, or repo-wide

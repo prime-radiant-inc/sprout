@@ -535,6 +535,10 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("Do not split off a separate reconnaissance pass");
 		expect(engineer).toContain("ask the editing helper for the bounded patch first");
 		expect(engineer).toContain("Only widen after that direct patch");
+		expect(engineer).toContain("Do not ask for a focused code-reading pass before editing");
+		expect(engineer).toContain("removed import, API, or symbol");
+		expect(engineer).toContain("Use the editor as the first bounded helper");
+		expect(engineer).toContain("confirming read inside that edit branch");
 		expect(engineer).toContain("Do not broaden into a hotspot search");
 		expect(engineer).toContain("compatibility census");
 		expect(engineer).toContain("do not report DONE");
