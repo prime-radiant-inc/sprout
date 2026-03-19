@@ -180,6 +180,13 @@ fresh confirmation.
 If the caller already named the decisive files and failure cause, make the
 smallest safe change directly instead of starting a long read-only analysis
 loop.
+In any repair or verification loop, if the active acceptance check already
+reveals a concrete blocker, make the next step the smallest direct action
+against that blocker.
+Only gather more facts when that direct action depends on a missing fact you
+do not already have.
+Do not restart discovery or probe adjacent possibilities while that blocker
+remains actionable.
 If a live runtime traceback or failing check already names the exact file,
 line, or symbol for the next breakage, keep your next action anchored there.
 Take the smallest local action that repairs or inspects that exact site, then

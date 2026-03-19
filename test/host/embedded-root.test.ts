@@ -487,6 +487,13 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("make the smallest safe change directly");
 		expect(commandRunner).toContain("instead of starting a long");
 		expect(commandRunner).toContain("read-only analysis loop");
+		expect(commandRunner).toContain("active acceptance check already reveals");
+		expect(commandRunner).toContain("concrete blocker");
+		expect(commandRunner).toContain("make the next step the smallest direct action");
+		expect(commandRunner).toContain("Only gather more facts when");
+		expect(commandRunner).toContain("direct action depends on a missing fact");
+		expect(commandRunner).toContain("Do not restart discovery");
+		expect(commandRunner).toContain("probe adjacent possibilities");
 		expect(commandRunner).toContain("stop after the first decisive available command");
 		expect(commandRunner).toContain('Do not add a "commands used" appendix');
 		expect(commandRunner).toContain("Do not append offers of further help");
@@ -737,6 +744,13 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("exact file, line, or symbol");
 		expect(engineer).toContain("smallest local fix");
 		expect(engineer).toContain("rerun that same failing check");
+		expect(engineer).toContain("active acceptance check already reveals");
+		expect(engineer).toContain("concrete blocker");
+		expect(engineer).toContain("make the next step the smallest direct action");
+		expect(engineer).toContain("Only gather more facts when");
+		expect(engineer).toContain("direct action depends on a missing fact");
+		expect(engineer).toContain("Do not restart discovery");
+		expect(engineer).toContain("probe adjacent possibilities");
 		expect(engineer).toContain("missing module,");
 		expect(engineer).toContain("package, test runner, CLI tool");
 		expect(engineer).toContain("next concrete blocker");

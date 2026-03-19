@@ -109,6 +109,13 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - Ask the next helper for the smallest discriminating check that resolves the
   remaining cases within that same model instead of narrowing to the first
   subtype or heuristic that produces a valid-looking subset
+- In any repair or verification loop, if the active acceptance check already
+  reveals a concrete blocker, make the next step the smallest direct action
+  against that blocker
+- Only gather more facts when that direct action depends on a missing fact you
+  do not already have
+- Do not restart discovery or probe adjacent possibilities while that blocker
+  remains actionable
 - If earlier reconnaissance or helper findings already surfaced concrete
   candidate items and the current result is empty or sharply reduced, do not
   accept that result as complete unless those candidate items were decisively
