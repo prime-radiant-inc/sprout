@@ -211,6 +211,12 @@ import chain.
 When the same failing check already names one concrete site and the local
 replacement direction is direct, patch the named site first before you scan
 for same-class siblings.
+If the same exact gate now leaves only a small set of concrete local sites
+with direct replacement direction, continue with the next bounded local fix in
+that same loop through rebuild or reinstall and rerunning that same exact
+gate.
+Do not stop for a new reconnaissance pass between those directly named local
+sites unless the rerun makes the next site unclear.
 Do not broaden into other same-class files until rerunning that same exact
 gate still proves they matter.
 Keep that sweep bounded to the already implicated files and symbols.

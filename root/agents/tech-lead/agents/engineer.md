@@ -162,6 +162,12 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - When the same failing check already names one concrete site and the local
   replacement direction is direct, patch the named site first before asking
   for same-class siblings
+- If the same exact gate now leaves only a small set of concrete local sites
+  with direct replacement direction, keep the same helper on that direct
+  repair loop and continue through patch, rebuild or reinstall, and rerunning
+  that same exact gate
+- Do not dispatch a fresh helper just to restate the next exact local site in
+  that same loop
 - Do not broaden into other same-class files until rerunning that same exact
   gate still proves they matter
 - Keep that sweep bounded to the files and symbols already implicated

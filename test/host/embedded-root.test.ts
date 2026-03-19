@@ -351,6 +351,9 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("Do not broaden into other same-class files");
 		expect(commandRunner).toContain("until rerunning that same exact gate");
 		expect(commandRunner).toContain("Do not turn it into a repo-wide audit");
+		expect(commandRunner).toContain("continue with the next bounded local fix");
+		expect(commandRunner).toContain("same loop");
+		expect(commandRunner).toContain("Do not stop for a new reconnaissance pass");
 		expect(commandRunner).toContain("optional dependency block the requested path");
 		expect(commandRunner).toContain("working hypothesis");
 		expect(commandRunner).toContain("If more than one interpretation still fits the");
@@ -546,6 +549,11 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("operational or system-execution task");
 		expect(engineer).toContain("do not force a TDD or commit workflow");
 		expect(engineer).toContain("keep ownership of stateful repair loops");
+		expect(engineer).toContain("keep the same helper on that direct repair loop");
+		expect(engineer).toContain("Do not dispatch a fresh helper");
+		expect(engineer).toContain("restate the next exact local site");
+		expect(engineer).toContain("continue through patch, rebuild");
+		expect(engineer).toContain("and rerunning that same exact gate");
 		expect(engineer).toContain("use command-runner only for the next bounded");
 		expect(engineer).toContain("do not hand command-runner the whole remaining");
 		expect(engineer).toContain("mixed repair/install/test loop");
