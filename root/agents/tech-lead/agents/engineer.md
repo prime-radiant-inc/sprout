@@ -240,6 +240,14 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - If that same output names the direct remediation, missing prerequisite, or
   same-step rerun needed to reach the required capability, ask for that
   remediation and rerun before any reader-only investigation
+- If the task requires named native, compiled, generated, or optimized outputs,
+  then a successful install, package, or editable step that still leaves those
+  named outputs absent is not success
+- Treat a pure-Python or metadata-only result as the current frontier and ask
+  for the direct step that produces or proves the named outputs
+- If build metadata or command output names the missing prerequisite that gates
+  those outputs, restore that prerequisite and rerun the direct
+  output-producing step before widening into reader-only investigation
 - Treat the current best interpretation as a working hypothesis until a
   discriminating check resolves the remaining alternatives
 - If more than one interpretation still fits the evidence, do not write the

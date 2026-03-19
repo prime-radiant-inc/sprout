@@ -245,6 +245,14 @@ treat that message as the current failure frontier, not as success.
 If that same output names the direct remediation, missing prerequisite, or
 same-step rerun needed to reach the required capability, take that remediation
 and rerun before widening into source analysis.
+If the task requires named native, compiled, generated, or optimized outputs,
+then a successful install, package, or editable step that still leaves those
+named outputs absent is not success.
+Treat a pure-Python or metadata-only result as the current frontier and switch
+to the direct step that produces or proves the named outputs.
+If build metadata or command output names the missing prerequisite that gates
+those outputs, restore that prerequisite and rerun the direct
+output-producing step before widening into source analysis.
 When counting or validating structured log/event tokens, first identify the
 actual token boundary from a sample line and then count that exact field or
 delimiter-wrapped token. Do not grep bare severity words across whole lines if
