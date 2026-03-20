@@ -388,6 +388,9 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("not as success");
 		expect(commandRunner).toContain("names the direct remediation");
 		expect(commandRunner).toContain("missing prerequisite");
+		expect(commandRunner).toContain("keep the same owner on that loop");
+		expect(commandRunner).toContain("direct action and the immediate recheck");
+		expect(commandRunner).toContain("different capability or a missing fact blocks progress");
 		expect(commandRunner).toContain("same-step rerun needed to reach the required capability");
 		expect(commandRunner).toContain("take that remediation and rerun");
 		expect(commandRunner).toContain("before widening into source analysis");
@@ -915,6 +918,9 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("confirm the live file state");
 		expect(engineer).toContain("same workspace the next build");
 		expect(engineer).toContain("restate the expected post-patch lines");
+		expect(engineer).toContain("keep one owner on that loop");
+		expect(engineer).toContain("direct action and the immediate recheck");
+		expect(engineer).toContain("different capability or a missing fact blocks progress");
 		expect(engineer).toContain('Bad: "The workspace is empty; tell me which language');
 		expect(engineer).toContain('Good: "The workspace is empty and the task authorizes');
 		expect(engineer).toContain('Bad: "Before implementing, inspect whether `/app` is a git repo');

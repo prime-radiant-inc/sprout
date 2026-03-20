@@ -183,6 +183,10 @@ loop.
 In any repair or verification loop, if the active acceptance check already
 reveals a concrete blocker, make the next step the smallest direct action
 against that blocker.
+If that blocker already gives you a direct next action, keep the same owner on
+that loop through the direct action and the immediate recheck.
+Hand off only when the next step genuinely requires a different capability or
+a missing fact blocks progress.
 Only gather more facts when that direct action depends on a missing fact you
 do not already have.
 Do not restart discovery or probe adjacent possibilities while that blocker
