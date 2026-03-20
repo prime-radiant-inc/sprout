@@ -224,6 +224,10 @@ code-change task, do not force a TDD or commit workflow. In that case:
   whether those deliverables are ready
 - If those required deliverables are still missing at that gate, keep the
   rebuild/install frontier active
+- Keep the next step on the smallest action that can produce that deliverable
+  in the context where success is defined
+- Stay on that frontier until that action either succeeds there or reveals a
+  new decisive blocker
 - Do not widen into broader repair work yet
 - Treat proof from any context that could still be satisfied by shadowed,
   staged, or another non-target artifact path as supporting evidence only

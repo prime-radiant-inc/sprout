@@ -453,6 +453,8 @@ describe("extractEmbeddedRoot", () => {
 		expect(commandRunner).toContain("If those required deliverables are still missing");
 		expect(commandRunner).toContain("keep the rebuild/install frontier active");
 		expect(commandRunner).toContain("Do not widen into broader repair work yet");
+		expect(commandRunner).toContain("smallest action that can produce that deliverable");
+		expect(commandRunner).toContain("reveals a new decisive blocker");
 		expect(commandRunner).toContain("source edit can affect required compiled");
 		expect(commandRunner).toContain("earlier proof for those outputs");
 		expect(commandRunner).toContain("after the next rebuild or reinstall");
@@ -800,6 +802,8 @@ describe("extractEmbeddedRoot", () => {
 		expect(engineer).toContain("If those required deliverables are still missing");
 		expect(engineer).toContain("keep the rebuild/install frontier active");
 		expect(engineer).toContain("Do not widen into broader repair work yet");
+		expect(engineer).toContain("smallest action that can produce that deliverable");
+		expect(engineer).toContain("reveals a new decisive blocker");
 		expect(engineer).toContain("source edit can affect required compiled");
 		expect(engineer).toContain("earlier proof for those outputs");
 		expect(engineer).toContain("after the next rebuild or reinstall");
