@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT_DIR/scripts/test-paths.sh"
 cd "$ROOT_DIR"
 
 if [[ -n "${TEST_JOBS:-}" ]]; then
@@ -33,11 +34,11 @@ fi
 declare -a files=()
 if (( $# > 0 )); then
   for path in "$@"; do
-    files+=("$path")
+    files+=("$(normalize_test_path "$path")")
   done
 else
   while IFS= read -r path; do
-    files+=("$path")
+    files+=("$(normalize_test_path "$path")")
   done < <(find test web/src -type f \( -name '*.test.ts' -o -name '*.test.tsx' \) | sort)
 fi
 
