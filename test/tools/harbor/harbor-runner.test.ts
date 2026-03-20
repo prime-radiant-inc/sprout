@@ -8,9 +8,11 @@ describe("harbor runner task filtering", () => {
 	test("launch script exposes task-name forwarding", async () => {
 		const script = await readFile(join(repoRoot, "inspo", "harbor-runner", "launch.sh"), "utf-8");
 		expect(script).toContain("--task-name STR");
-		expect(script).toContain('TASK_NAMES=()');
+		expect(script).toContain("TASK_NAMES=()");
 		expect(script).toContain('--task-name)       TASK_NAMES+=("$2"); shift 2 ;;');
-		expect(script).toContain('TASK_NAME_LINES+="HARBOR_CMD+=\\" --task-name $escaped_task_name\\"\\n"');
+		expect(script).toContain(
+			'TASK_NAME_LINES+="HARBOR_CMD+=\\" --task-name $escaped_task_name\\"\\n"',
+		);
 		expect(script).toContain('| sed "s|__TASK_NAME_FLAGS__|$(echo -e "$TASK_NAME_LINES")|g" \\');
 	});
 
