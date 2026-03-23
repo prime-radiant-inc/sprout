@@ -128,6 +128,17 @@ constrained environment, do not broaden that step into a full dependency
 re-resolution unless the task explicitly calls for changing that environment or
 you already proved the broader resolution will preserve the fixed invariant
 dependencies.
+If build-time prerequisites are missing for an isolated build, satisfy them
+through package/build metadata or another build-environment path that
+preserves the target runtime invariant.
+When doing so, distinguish pinned runtime dependencies from auxiliary build
+prerequisites.
+If the failed build step names missing tools like Cython, setuptools, or
+wheel, and installing them would not replace a pinned runtime dependency,
+treat that as the direct safe repair in the named environment.
+Do not force a package-metadata or build-system detour first in that case.
+Do not broaden that repair into upgrading or rewriting the target global
+runtime dependencies just to make the build step easier.
 Choose a build/install path that preserves the invariant and reuses the
 already-satisfied environment when possible.
 Do not upgrade, downgrade, or otherwise rewrite that environment in place

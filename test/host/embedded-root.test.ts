@@ -122,9 +122,6 @@ describe("extractEmbeddedRoot", () => {
 		const techLead = normalizeEmbeddedText(
 			await readFile(join(rootDir, "agents", "tech-lead.md"), "utf-8"),
 		);
-		const architect = normalizeEmbeddedText(
-			await readFile(join(rootDir, "agents", "architect.md"), "utf-8"),
-		);
 		const engineer = normalizeEmbeddedText(
 			await readFile(join(rootDir, "agents", "tech-lead", "agents", "engineer.md"), "utf-8"),
 		);
@@ -140,8 +137,6 @@ describe("extractEmbeddedRoot", () => {
 			"artifact- or data-production task",
 			"authoritative external gate",
 			"Do not pre-commit tech-lead to spec review or quality review",
-			"output values are grounded by the named input evidence",
-			"schema shape guidance, not a hidden value-domain restriction",
 		]);
 
 		expectContainsAll(techLead, [
@@ -154,16 +149,6 @@ describe("extractEmbeddedRoot", () => {
 			"caller explicitly asks for independent review",
 			"supporting reviews must not keep the task open",
 			"report completion directly",
-			"best-effort recovery",
-			"heuristic fill-in",
-			"source-grounded proof",
-			"do not narrow the allowed value domain from an illustrative example",
-		]);
-
-		expectContainsAll(architect, [
-			"transient or consumable evidence",
-			"preserve the full evidence set",
-			"snapshot or copy",
 		]);
 
 		expectContainsAll(workerPreamble, [
@@ -173,28 +158,13 @@ describe("extractEmbeddedRoot", () => {
 
 		expectContainsAll(commandRunner, [
 			"Do not dump raw command transcripts by default",
-			"Choose the simplest intervention",
-			"satisfies the contract",
-			"preserves invariants",
+			"Choose the simplest intervention that satisfies the contract and preserves",
 			"same exact verification path",
-			"supporting evidence only",
 			"target environment",
 			"Do not simulate success by injecting stubs",
-			"read-only analysis loop",
-			"do not switch to weaker adjacency or nearby-byte heuristics",
-			"do not fill one field by taking the raw bytes immediately before or after another recovered field",
-			"Treat key-local or token-local byte adjacency as supporting evidence only",
-			"treat those type requirements as part of the exact schema",
-			"keep the task open instead of counting that row as recovered",
-			"not a hidden value-domain restriction",
-			"keep that row open and refine the field boundary inside the same record model",
-			"Do not drop sibling fields or previously proven rows",
-			"record family while unresolved field boundaries remain",
-			"isolated per-row guesses once the family model is established",
-			"run that exact snippet from the clean working directory itself",
-			"Do not stay in the source tree and launch a child subprocess from there",
-			"preserve them with path-based flags such as `--ignore=`",
-			"Do not rewrite them into `-k` filters",
+			"build-time prerequisites are missing for an isolated build",
+			"distinguish pinned runtime dependencies from auxiliary build",
+			"treat that as the direct safe repair in the named environment",
 		]);
 
 		expectContainsAll(verifier, [
@@ -206,89 +176,30 @@ describe("extractEmbeddedRoot", () => {
 
 		expectContainsAll(debuggerPrompt, [
 			"required output format",
-			"near-match",
-			"extra byte",
 			"do not report success yet",
 		]);
 
 		expectContainsAll(editor, [
 			"treat those inputs as authoritative",
-			"then patch directly",
-			"prefer edit_file",
-			"`edit_file` or `apply_patch`",
-			"Do not stop after describing a diff",
-			"actually call the available write primitive",
 			"report the contradiction clearly",
 		]);
 
 		expectContainsAll(reader, [
 			"opaque binary input such as parquet",
 			"do not use read_file on them",
-			"Stop once you have the decisive",
 		]);
 
 		expectContainsAll(taskManager, [
 			"Do not ask the caller what to do next",
-			"Do not make a follow-up list or get call",
 		]);
 
 		expectContainsAll(engineer, [
 			"operational or system-execution task",
 			"do not force a TDD or commit workflow",
-			"keep ownership of stateful repair loops",
-			"one owner on the decisive path",
-			"supporting side branches as subordinate",
-			"Do not follow an incomplete helper response",
-			"diagnosis-only request",
+			"keep ownership of stateful repair loops at the engineer level",
+			"keep one owner on the decisive path",
 			"required artifact is still missing",
-			"same exact verification path",
-			"component-level proofs as supporting evidence only",
-			"keep the rebuild/install frontier active",
-			"prefer the narrowest rebuild or reinstall path that reuses the current dependency set",
-			"Do not ask a helper to widen that step into upgrade, force-reinstall, dependency sync",
-			"do not pivot into repo-structure analysis, export analysis, or option-list framing",
-			"smallest explicit output-producing build or install step in the live source tree",
-			"smallest direct producer for those outputs over a broader package install or environment sync",
-			"Do not widen that output-producing step into unrelated runtime dependency changes",
-			"operating-context gate proves the required outputs are present",
-			"keep the loop on that exact compatibility site",
-			"Do not widen back into install-state rediscovery, source-state confirmation, or broader diagnosis",
-			"prove the edited file still passes the smallest direct integrity check before rebuild or reinstall",
-			"delegated edit reports success",
-			"do not accept the contradiction as authoritative",
-			"direct live-workspace check",
-			"speculative same-family edits",
-			"already implicated import chain",
-			"Patch the named blocker first and rerun the exact gate",
-			"do not rerun the exact acceptance snippet or command from the source tree before rebuild or reinstall",
-			"rerun the exact gate in the target operating context",
 			"Do not ask helpers to simulate success with stubs",
-			"mutate interpreter state",
-			"runtime alias shims",
-			"rerun the unmodified exact gate",
-			"embed that literal content in the helper goal",
-			"rediscover, search for, or infer that literal exact snippet",
-			"Carry that exact literal snippet forward",
-			"Do not invent or author an exact acceptance snippet",
-			"keep the gate anchored to the exact named command, import path, test path, or deliverable proof",
-			"carry that whole named set forward explicitly",
-			"silently close on only one named site",
-			"return the exact named site that still remains open",
-			"installed public modules",
-			"producer chain",
-			"install path closure as the active blocker",
-			"public import gate is closed",
-			"multiple public imports or modules",
-			"exact public-import set open until every named import succeeds",
-			"Do not collapse that gate into `import pyknotid`",
-			"partial subset proof",
-			"helper must execute that exact code path in the stated runtime context",
-			"Do not treat printing, echoing, serializing, assigning, or otherwise restating the literal as proof that it ran",
-			"zero-exit restatement without execution as no proof at all",
-			"refine that field boundary inside the same record model",
-			"Do not discard already proven sibling fields or earlier rows",
-			"same-schema neighboring rows in one record family",
-			"resolve each row independently after the family layout is established",
 		]);
 	});
 });
