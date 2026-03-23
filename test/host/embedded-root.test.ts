@@ -140,6 +140,8 @@ describe("extractEmbeddedRoot", () => {
 			"artifact- or data-production task",
 			"authoritative external gate",
 			"Do not pre-commit tech-lead to spec review or quality review",
+			"output values are grounded by the named input evidence",
+			"schema shape guidance, not a hidden value-domain restriction",
 		]);
 
 		expectContainsAll(techLead, [
@@ -152,6 +154,10 @@ describe("extractEmbeddedRoot", () => {
 			"caller explicitly asks for independent review",
 			"supporting reviews must not keep the task open",
 			"report completion directly",
+			"best-effort recovery",
+			"heuristic fill-in",
+			"source-grounded proof",
+			"do not narrow the allowed value domain from an illustrative example",
 		]);
 
 		expectContainsAll(architect, [
@@ -175,6 +181,12 @@ describe("extractEmbeddedRoot", () => {
 			"target environment",
 			"Do not simulate success by injecting stubs",
 			"read-only analysis loop",
+			"do not switch to weaker adjacency or nearby-byte heuristics",
+			"do not fill one field by taking the raw bytes immediately before or after another recovered field",
+			"Treat key-local or token-local byte adjacency as supporting evidence only",
+			"treat those type requirements as part of the exact schema",
+			"keep the task open instead of counting that row as recovered",
+			"not a hidden value-domain restriction",
 		]);
 
 		expectContainsAll(verifier, [
@@ -213,6 +225,9 @@ describe("extractEmbeddedRoot", () => {
 			"operational or system-execution task",
 			"do not force a TDD or commit workflow",
 			"keep ownership of stateful repair loops",
+			"one owner on the decisive path",
+			"supporting side branches as subordinate",
+			"required artifact is still missing",
 			"same exact verification path",
 			"component-level proofs as supporting evidence only",
 			"keep the rebuild/install frontier active",

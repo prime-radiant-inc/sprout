@@ -114,6 +114,13 @@ code-change task, do not force a TDD or commit workflow. In that case:
   against that blocker
 - If that blocker already gives you a direct next action, keep one owner on
   that loop through the direct action and the immediate recheck
+- When a preserved evidence set already exists and the required artifact is
+  still missing, keep one owner on the decisive path from that evidence to the
+  artifact
+- Treat supporting side branches as subordinate while the required artifact is
+  still missing
+- Do not let clue extraction, broader diagnosis, or parallel helper work
+  displace that owner unless the owner is blocked on a specific missing fact
 - Hand off only when the next step genuinely requires a different capability
   or a missing fact blocks progress
 - Only gather more facts when that direct action depends on a missing fact you

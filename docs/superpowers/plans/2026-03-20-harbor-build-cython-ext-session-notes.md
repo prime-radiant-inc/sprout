@@ -1923,3 +1923,153 @@ Operational note on Harbor support:
   `uv run harbor run` from the shared Harbor checkout
 - the unreliable piece was the ad hoc detached shell launcher, not missing
   Harbor runner support
+
+Checkpoint after runtime fix:
+
+- commit: `6a6d6b4` `fix: resume completed delegated handles`
+- scope:
+  - restore completed delegated handles during resume for nested agents
+  - carry enough spawn metadata to re-message resumed handles correctly
+  - subscribe to result topics when respawning pre-registered completed handles
+
+`exp126` `multi-source-data-merger` confirmation from the runtime-fix checkpoint:
+
+- candidate branch: `wip/active-eval-loop-mainline` at `6a6d6b4`
+- control branch: `main` at `35f7cd1`
+- task: `multi-source-data-merger`
+- model shape:
+  - `best_model=openai:gpt-5.4`
+  - `balanced_model=openai:gpt-5.4`
+  - `fast_model=openai:gpt-5-mini`
+- launch dirs:
+  - candidate A: `/tmp/sprout-exp126-candidate-a.vfxxy6bi`
+  - candidate B: `/tmp/sprout-exp126-candidate-b.jvl75cwf`
+  - control A: `/tmp/sprout-exp126-control-a.8em7f21f`
+  - control B: `/tmp/sprout-exp126-control-b.os52fh9p`
+- trial dirs created successfully:
+  - candidate A: `multi-source-data-merger__29N98um`
+  - candidate B: `multi-source-data-merger__Pwewnqb`
+  - control A: `multi-source-data-merger__HBgKeoq`
+  - control B: `multi-source-data-merger__amSX7zo`
+
+`exp126` completed outcome:
+
+- candidate A: clean green, reward `1.0`
+- candidate B: clean green, reward `1.0`
+- control A: clean green, reward `1.0`
+- control B: failed, reward `0.0`
+  - verifier frontier: conflict report schema drift
+  - concrete failure: `KeyError: 'field'` in `test_conflict_report_values`
+
+Interpretation:
+
+- `6a6d6b4` is a real keep on `multi-source-data-merger`
+- the runtime root cause was real:
+  resumed delegated-child handles now survive replay/resume without losing the
+  saved spawn identity or the result-topic subscription
+- the candidate no longer exhibits the old `Unknown handle` / completed-child
+  respawn failure shape
+- the task itself is somewhat forgiving because one `main` control rep also went
+  green, so the next task should stress recovery and control flow more directly
+
+Next task after the `exp126` keep:
+
+- move from `multi-source-data-merger` to `db-wal-recovery`
+- keep the candidate at `6a6d6b4` in the long-lived experiment worktree
+- keep `main` at `35f7cd1` as the control
+- use the same local Harbor harness path, but on the harsher recovery task
+
+`exp127` `db-wal-recovery` generalization wave:
+
+- candidate branch: `wip/active-eval-loop-mainline` at `3f5b0bf`
+  - effective runtime change under test still comes from `6a6d6b4`
+- control branch: `main` at `35f7cd1`
+- task: `db-wal-recovery`
+- model shape:
+  - `best_model=openai:gpt-5.4`
+  - `balanced_model=openai:gpt-5.4`
+  - `fast_model=openai:gpt-5-mini`
+- launch dirs:
+  - candidate A: `/tmp/sprout-exp127-candidate-a.PnmHy1`
+  - candidate B: `/tmp/sprout-exp127-candidate-b.arWNgk`
+  - control A: `/tmp/sprout-exp127-control-a.dEknNW`
+  - control B: `/tmp/sprout-exp127-control-b.fWFuk0`
+- launch method:
+  - one managed local shell session keeps all four `uv run harbor run` processes
+    alive and waits on them together
+  - this avoids opening four additional long-lived Codex exec sessions just to
+    babysit parallel local Harbor runs
+- early runtime check:
+  - Harbor created all four job dirs successfully
+  - one candidate lane has already crossed from install into the real task
+    prompt
+  - the batch is valid and no longer looks like a launcher false start
+
+`exp127` partial results:
+
+- candidate A: clean green, reward `1.0`
+  - verifier passed all 7 checks
+  - `exception_info: null`
+  - successful path:
+    - preserved evidence first
+    - identified single-byte XOR key `66` on the WAL bytes
+    - decoded the WAL on a work copy
+    - let SQLite apply the decoded WAL to recover all 11 rows
+    - wrote `/app/recovered.json`
+- control A: hard fail, reward `0.0`
+  - verifier frontier: no `/app/recovered.json`
+- control B: hard fail, reward `0.0`
+  - verifier frontier: no `/app/recovered.json`
+  - dominant failure shape:
+    - extended diagnosis and conditional next steps
+    - no decisive artifact write
+- candidate B: still in flight at this checkpoint
+  - stronger than control on task shape
+  - has already escalated into deeper byte-level recovery work
+  - but one delegated recovery branch stumbled on a Python indentation error
+
+Interim interpretation:
+
+- `6a6d6b4` is already beating `main` on the harsher `db-wal-recovery` task
+  in at least one clean rep
+- the candidate prompt can now hit the correct forensic loop:
+  preserve evidence, decode WAL on copies, recover rows, and write the exact
+  artifact
+- both controls failed the same way:
+  they never produced `/app/recovered.json`
+- the remaining question for `exp127` is reliability, not capability
+
+`exp127` final outcome:
+
+- candidate A: clean green, reward `1.0`
+- candidate B: fail, reward `0.0`, `AgentTimeoutError`
+  - wrote `/app/recovered.json`, but only with the 5 base rows
+  - verifier frontier:
+    - `Expected 11 records, got 5`
+    - `Only base data recovered - WAL decryption failed`
+- control A: fail, reward `0.0`
+  - no `/app/recovered.json`
+- control B: fail, reward `0.0`
+  - no `/app/recovered.json`
+
+Root-cause split exposed by `exp127`:
+
+- the candidate prompt is directionally better than `main`, but not yet stable
+- the winning lane kept a single decisive owner on the preserved-evidence ->
+  decode -> verify -> artifact path
+- the failing candidate lane drifted into supporting parallel branches:
+  - clue extraction
+  - byte-level parser experiments
+  - deeper delegation churn
+- that branch still wrote an artifact, but it regressed to the 5-row base DB
+  and timed out before the real WAL recovery landed
+- both controls failed earlier and worse:
+  the task never reached an output artifact at all
+
+Decision after `exp127`:
+
+- not a clean keep yet
+- do not promote from a `1/2` candidate split even though both controls lost
+- next experiment should strengthen one-owner decisive recovery on preserved
+  evidence and demote supporting side quests until the authoritative artifact
+  exists
