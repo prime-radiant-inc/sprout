@@ -233,6 +233,12 @@ code-change task, do not force a TDD or commit workflow. In that case:
   rebuild/install frontier active
 - Keep the next step on the smallest action that can produce that deliverable
   in the context where success is defined
+- If the exact gate still says named compiled, native, generated, or
+  installed outputs are missing, do not pivot into repo-structure analysis,
+  export analysis, or option-list framing while those outputs remain missing
+- In that state, ask for the smallest explicit output-producing build or
+  install step in the live source tree, plus any directly named missing
+  prerequisite, then rerun that same exact gate
 - Stay on that frontier until that action either succeeds there or reveals a
   new decisive blocker
 - Do not widen into broader repair work yet

@@ -1742,3 +1742,1276 @@ Next task after `exp122`:
   - this is broader than SQLite and directly useful for any typed extraction
     task
   - the same task remains the fastest confirmation target
+
+Commit after `exp122`:
+
+- `94d2a3b` `fix: keep type-invalid rows from closing schemas`
+
+`exp123` `sqlite-db-truncate` rerun after schema-type gate fix:
+
+- candidate branch: `wip/active-eval-loop-mainline` at `94d2a3b`
+- control branch: `main`
+- task: `sqlite-db-truncate`
+- model shape:
+  - `best_model=openai:gpt-5.4`
+  - `balanced_model=openai:gpt-5.4`
+  - `fast_model=openai:gpt-5-mini`
+- launch dirs:
+  - candidate A: `/tmp/sprout-exp123-candidate-a.9ep9yrma`
+  - candidate B: `/tmp/sprout-exp123-candidate-b.dlbvka84`
+  - control A: `/tmp/sprout-exp123-control-a.rx4nvl_b`
+  - control B: `/tmp/sprout-exp123-control-b.787u5502`
+
+`exp123` outcome:
+
+- candidate A: clean pass, reward `1.0`, no exception
+- candidate B: reward `0.0`, no exception
+- control A: reward `0.0`, no exception, verifier score `2`
+- control B: reward `0.0`, no exception, verifier score `0`
+
+Interpretation:
+
+- `94d2a3b` is a real keep
+- candidate batch: `1 pass / 1 fail`
+- control batch: `0 pass / 2 fail`
+- this is the first sqlite rerun in the recent sequence where the candidate
+  clearly outperformed `main` across the batch rather than merely tying it
+
+Root-cause note confirmed by `exp123`:
+
+- the exact-schema type gate changes behavior in a useful way
+- one candidate lane that previously would have closed on `null`/string
+  placeholders instead kept digging and reached a clean pass
+- `main` still closed early on partial or narrowly grounded outputs and never
+  got a pass in the same wave
+
+Keep checkpoint:
+
+- `94d2a3b` `fix: keep type-invalid rows from closing schemas`
+
+Next task after `exp123`:
+
+- move the active baseline to `94d2a3b`
+- switch to `log-summary-date-ranges`
+- reason:
+  - it was the remaining failure in the earlier broad-functionality batch that
+    still looks like an exact-structure/exact-semantics task
+  - that makes it a good generalization target for the new schema-validity
+    baseline before chasing another recovery-only frontier
+
+`exp124` `log-summary-date-ranges` from the new baseline:
+
+- candidate branch: `wip/active-eval-loop-mainline` at `94d2a3b`
+- control branch: `main`
+- task: `log-summary-date-ranges`
+- model shape:
+  - `best_model=openai:gpt-5.4`
+  - `balanced_model=openai:gpt-5.4`
+  - `fast_model=openai:gpt-5-mini`
+- launch dirs:
+  - candidate A: `/tmp/sprout-exp124-candidate-a.66apsbe5`
+  - candidate B: `/tmp/sprout-exp124-candidate-b.faa_fs2l`
+  - control A: `/tmp/sprout-exp124-control-a.dlvm8iyg`
+  - control B: `/tmp/sprout-exp124-control-b.vcg2igta`
+
+`exp124` outcome:
+
+- candidate A: verifier green (`2 passed / 0 failed`), `exception_info: null`
+- candidate B: verifier green (`2 passed / 0 failed`), `exception_info: null`
+- control A: verifier green (`2 passed / 0 failed`), `exception_info: null`
+- control B: verifier green (`2 passed / 0 failed`), `exception_info: null`
+- note:
+  - Harbor again left `reward: null` in all four `result.json` files
+  - for this run family, the trustworthy success signal was green verifier output
+    plus `exception_info: null`
+
+Interpretation:
+
+- clean `2/2` tie between active baseline `94d2a3b` and `main`
+- the new schema-validity keep does not regress this exact-structure reporting
+  task
+- `log-summary-date-ranges` is no longer the best frontier for further
+  hill-climbing from this baseline
+
+Next task after `exp124`:
+
+- `multi-source-data-merger`
+- reason:
+  - it was an earlier broad-batch failure on `main`
+  - the active branch already has a real keep on this task family (`dd15817`)
+  - rerunning it from the newer `94d2a3b` baseline is the next clean check for
+    whether the accumulated keeps still preserve that earlier reliability edge
+
+Operational note before `exp125`:
+
+- the direct backgrounded shell launcher path is not trustworthy for local
+  Harbor runs in this environment
+- foreground `uv run harbor run ...` holds and creates trials correctly
+- detached launches also hold when started with a fresh session
+  (`subprocess.Popen(..., start_new_session=True)`)
+- use the documented local Harbor workflow plus a fresh session for background
+  runs instead of plain `nohup ... &`
+
+`exp125` `multi-source-data-merger` from the `94d2a3b` baseline:
+
+- candidate branch: `wip/active-eval-loop-mainline` at `94d2a3b`
+- control branch: `main` at `35f7cd1`
+- task: `multi-source-data-merger`
+- model shape:
+  - `best_model=openai:gpt-5.4`
+  - `balanced_model=openai:gpt-5.4`
+  - `fast_model=openai:gpt-5-mini`
+- launch dirs:
+  - candidate A: `/tmp/sprout-exp125-debug.svIsbJ`
+  - candidate B: `/tmp/sprout-exp125-candidate-b.2foxcqy3`
+  - control A: `/tmp/sprout-exp125-control-a.0xk56dhs`
+  - control B: `/tmp/sprout-exp125-control-b.sfu79pu2`
+
+`exp125` outcome:
+
+- candidate A: verifier green (`3 passed / 0 failed`), `exception_info: null`
+- candidate B: verifier green (`3 passed / 0 failed`), `exception_info: null`
+- control A: failed (`merged_users.parquet` and `conflicts.json` missing)
+- control B: failed (`merged_users.parquet` and `conflicts.json` missing)
+- note:
+  - Harbor again left `reward`, `status`, and `completed_at` unset in
+    `result.json`, so the trustworthy signal stayed verifier output plus
+    `exception_info`
+
+Interpretation:
+
+- the active baseline still clearly beats `main` on `multi-source-data-merger`
+- candidate B also surfaced a real bus-resume defect during the run, even
+  though that particular rep still got home:
+  - a resumed nested coordinator attempted `message_agent` on a previously
+    delegated child handle and got `Unknown handle`
+  - the visible failure showed up in
+    `/tmp/sprout-exp125-candidate-b.2foxcqy3/.../01KMCDZHDF61WM1916M8CM6RCM.jsonl`
+
+Resume/runtime root cause found after `exp125`:
+
+- resumed agent processes were only replaying their own history
+- they were not reliably reconstructing the completed delegated child handles
+  visible in that history for nested non-root agents
+- and even when a completed handle was pre-registered into the spawner, the
+  respawn path for that handle did not subscribe to its result topic
+- that meant `messageAgent()` on a resumed completed handle could fall through
+  to the synthetic `Agent process ... exited with code 0` failure even though
+  the respawned child actually completed
+
+Runtime fix work after `exp125`:
+
+- generalized child-handle extraction to the resumed agent's own depth instead
+  of hardcoded root depth
+- added completed-handle loading with agent metadata
+- pre-registered completed child handles during nested agent resume
+- fixed `AgentSpawner` so respawning a pre-registered completed handle
+  subscribes to its result topic before waiting for the next result
+
+Repo verification for the runtime fix:
+
+- `bun test test/host/cli-resume.test.ts test/bus/spawner.test.ts test/bus/resume.test.ts`
+  - `75 pass / 0 fail`
+- `bun test test/bus/agent-process.test.ts test/host/cli-resume.test.ts test/bus/spawner.test.ts test/bus/resume.test.ts`
+  - `96 pass / 0 fail`
+
+Operational note on Harbor support:
+
+- the repo does have a real Harbor runner harness under `inspo/harbor-runner`,
+  but that path is the AWS spot-instance runner
+- for local hill-climbing, the stable supported path remains direct
+  `uv run harbor run` from the shared Harbor checkout
+- the unreliable piece was the ad hoc detached shell launcher, not missing
+  Harbor runner support
+
+Checkpoint after runtime fix:
+
+- commit: `6a6d6b4` `fix: resume completed delegated handles`
+- scope:
+  - restore completed delegated handles during resume for nested agents
+  - carry enough spawn metadata to re-message resumed handles correctly
+  - subscribe to result topics when respawning pre-registered completed handles
+
+`exp126` `multi-source-data-merger` confirmation from the runtime-fix checkpoint:
+
+- candidate branch: `wip/active-eval-loop-mainline` at `6a6d6b4`
+- control branch: `main` at `35f7cd1`
+- task: `multi-source-data-merger`
+- model shape:
+  - `best_model=openai:gpt-5.4`
+  - `balanced_model=openai:gpt-5.4`
+  - `fast_model=openai:gpt-5-mini`
+- launch dirs:
+  - candidate A: `/tmp/sprout-exp126-candidate-a.vfxxy6bi`
+  - candidate B: `/tmp/sprout-exp126-candidate-b.jvl75cwf`
+  - control A: `/tmp/sprout-exp126-control-a.8em7f21f`
+  - control B: `/tmp/sprout-exp126-control-b.os52fh9p`
+- trial dirs created successfully:
+  - candidate A: `multi-source-data-merger__29N98um`
+  - candidate B: `multi-source-data-merger__Pwewnqb`
+  - control A: `multi-source-data-merger__HBgKeoq`
+  - control B: `multi-source-data-merger__amSX7zo`
+
+`exp126` completed outcome:
+
+- candidate A: clean green, reward `1.0`
+- candidate B: clean green, reward `1.0`
+- control A: clean green, reward `1.0`
+- control B: failed, reward `0.0`
+  - verifier frontier: conflict report schema drift
+  - concrete failure: `KeyError: 'field'` in `test_conflict_report_values`
+
+Interpretation:
+
+- `6a6d6b4` is a real keep on `multi-source-data-merger`
+- the runtime root cause was real:
+  resumed delegated-child handles now survive replay/resume without losing the
+  saved spawn identity or the result-topic subscription
+- the candidate no longer exhibits the old `Unknown handle` / completed-child
+  respawn failure shape
+- the task itself is somewhat forgiving because one `main` control rep also went
+  green, so the next task should stress recovery and control flow more directly
+
+Next task after the `exp126` keep:
+
+- move from `multi-source-data-merger` to `db-wal-recovery`
+- keep the candidate at `6a6d6b4` in the long-lived experiment worktree
+- keep `main` at `35f7cd1` as the control
+- use the same local Harbor harness path, but on the harsher recovery task
+
+`exp127` `db-wal-recovery` generalization wave:
+
+- candidate branch: `wip/active-eval-loop-mainline` at `3f5b0bf`
+  - effective runtime change under test still comes from `6a6d6b4`
+- control branch: `main` at `35f7cd1`
+- task: `db-wal-recovery`
+- model shape:
+  - `best_model=openai:gpt-5.4`
+  - `balanced_model=openai:gpt-5.4`
+  - `fast_model=openai:gpt-5-mini`
+- launch dirs:
+  - candidate A: `/tmp/sprout-exp127-candidate-a.PnmHy1`
+  - candidate B: `/tmp/sprout-exp127-candidate-b.arWNgk`
+  - control A: `/tmp/sprout-exp127-control-a.dEknNW`
+  - control B: `/tmp/sprout-exp127-control-b.fWFuk0`
+- launch method:
+  - one managed local shell session keeps all four `uv run harbor run` processes
+    alive and waits on them together
+  - this avoids opening four additional long-lived Codex exec sessions just to
+    babysit parallel local Harbor runs
+- early runtime check:
+  - Harbor created all four job dirs successfully
+  - one candidate lane has already crossed from install into the real task
+    prompt
+  - the batch is valid and no longer looks like a launcher false start
+
+`exp127` partial results:
+
+- candidate A: clean green, reward `1.0`
+  - verifier passed all 7 checks
+  - `exception_info: null`
+  - successful path:
+    - preserved evidence first
+    - identified single-byte XOR key `66` on the WAL bytes
+    - decoded the WAL on a work copy
+    - let SQLite apply the decoded WAL to recover all 11 rows
+    - wrote `/app/recovered.json`
+- control A: hard fail, reward `0.0`
+  - verifier frontier: no `/app/recovered.json`
+- control B: hard fail, reward `0.0`
+  - verifier frontier: no `/app/recovered.json`
+  - dominant failure shape:
+    - extended diagnosis and conditional next steps
+    - no decisive artifact write
+- candidate B: still in flight at this checkpoint
+  - stronger than control on task shape
+  - has already escalated into deeper byte-level recovery work
+  - but one delegated recovery branch stumbled on a Python indentation error
+
+Interim interpretation:
+
+- `6a6d6b4` is already beating `main` on the harsher `db-wal-recovery` task
+  in at least one clean rep
+- the candidate prompt can now hit the correct forensic loop:
+  preserve evidence, decode WAL on copies, recover rows, and write the exact
+  artifact
+- both controls failed the same way:
+  they never produced `/app/recovered.json`
+- the remaining question for `exp127` is reliability, not capability
+
+`exp127` final outcome:
+
+- candidate A: clean green, reward `1.0`
+- candidate B: fail, reward `0.0`, `AgentTimeoutError`
+  - wrote `/app/recovered.json`, but only with the 5 base rows
+  - verifier frontier:
+    - `Expected 11 records, got 5`
+    - `Only base data recovered - WAL decryption failed`
+- control A: fail, reward `0.0`
+  - no `/app/recovered.json`
+- control B: fail, reward `0.0`
+  - no `/app/recovered.json`
+
+Root-cause split exposed by `exp127`:
+
+- the candidate prompt is directionally better than `main`, but not yet stable
+- the winning lane kept a single decisive owner on the preserved-evidence ->
+  decode -> verify -> artifact path
+- the failing candidate lane drifted into supporting parallel branches:
+  - clue extraction
+  - byte-level parser experiments
+  - deeper delegation churn
+- that branch still wrote an artifact, but it regressed to the 5-row base DB
+  and timed out before the real WAL recovery landed
+- both controls failed earlier and worse:
+  the task never reached an output artifact at all
+
+Decision after `exp127`:
+
+- not a clean keep yet
+- do not promote from a `1/2` candidate split even though both controls lost
+- next experiment should strengthen one-owner decisive recovery on preserved
+  evidence and demote supporting side quests until the authoritative artifact
+  exists
+
+Follow-up prompt change after `exp127`:
+
+- commit: `aea1560` `fix: keep decisive artifact loops single-owner`
+- change:
+  - when a preserved evidence set already exists and the required artifact is
+    still missing, keep one owner on the decisive path from that evidence to
+    the artifact
+  - treat supporting side branches as subordinate while the required artifact
+    is still missing
+  - do not let clue extraction, broader diagnosis, or parallel helper work
+    displace that owner unless that owner is blocked on a specific missing fact
+- focused regression:
+  - `bun test ./test/host/embedded-root.test.ts`
+  - red before the prompt patch
+  - green after regeneration
+
+`exp128` `db-wal-recovery` confirmation wave:
+
+- candidate branch: `wip/active-eval-loop-mainline` at `aea1560`
+- control branch: `main` at `35f7cd1`
+- task: `db-wal-recovery`
+- model shape:
+  - `best_model=openai:gpt-5.4`
+  - `balanced_model=openai:gpt-5.4`
+  - `fast_model=openai:gpt-5-mini`
+- launch dirs:
+  - candidate A: `/tmp/sprout-exp128-candidate-a.JmV6aF`
+  - candidate B: `/tmp/sprout-exp128-candidate-b.UTYdpr`
+  - control A: `/tmp/sprout-exp128-control-a.spbjIm`
+  - control B: `/tmp/sprout-exp128-control-b.zgwRFr`
+
+`exp128` confirmed keep on the candidate side:
+
+- candidate A: clean green, reward `1.0`, `exception_info: null`
+- candidate B: clean green, reward `1.0`, `exception_info: null`
+- control A: fail, verifier never found `/app/recovered.json`,
+  `exception_info: null`
+- control B: fail, verifier found only the base 5 rows in
+  `/app/recovered.json`, `exception_info: null`
+
+Why this is a keep:
+
+- `db-wal-recovery` had been stuck at `1/2` candidate reliability on the prior
+  prompt version
+- `aea1560` is the first `2/2` clean candidate on this task
+- the winning behavior matches the intended general rule:
+  keep one owner on the decisive preserved-evidence -> artifact path and keep
+  supporting side branches subordinate while the required artifact is still
+  missing
+
+Interpretation:
+
+- `aea1560` is a real keep on `db-wal-recovery`
+- the candidate cleared the reliability bar cleanly with `2/2` green runs
+- `main` still shows both old failure families on this task:
+  - complete artifact miss
+  - partial base-only recovery without WAL reconstruction
+
+Next task after `exp128`:
+
+- `log-summary-date-ranges`
+- Why:
+  - it is a different task family from the evidence-preserving recovery loop
+  - it is still a good check on exact structure plus semantic extraction
+  - it helps confirm that the new single-owner decisive-loop rule generalizes
+    without regressing an older broad-batch reporting task
+
+Operational correction before `exp129`:
+
+- do not rely on ignored worktree-local state for Harbor launch setup
+- source the repo-root `.env` explicitly
+- when a comparison worktree does not carry `inspo/harbor`, run Harbor from the
+  shared repo-root checkout while still pointing `PYTHONPATH` at the target
+  worktree's `tools/harbor`
+
+`exp129` `log-summary-date-ranges` generalization check:
+
+- candidate branch: `wip/active-eval-loop-mainline` at `74ac854`
+- control branch: `main` at `35f7cd1`
+- task: `log-summary-date-ranges`
+- model shape:
+  - `best_model=openai:gpt-5.4`
+  - `balanced_model=openai:gpt-5.4`
+  - `fast_model=openai:gpt-5-mini`
+- launch dirs:
+  - candidate A: `/tmp/sprout-exp129-candidate-a.02e93e`
+  - candidate B: `/tmp/sprout-exp129-candidate-b.7d8279`
+  - control A rerun: `/tmp/sprout-exp129-control-a-rerun.8e323f`
+  - control B rerun: `/tmp/sprout-exp129-control-b-rerun.8b1b72`
+
+Early live signal:
+
+- the first control launch attempt died in setup because the control worktree
+  did not have an ignored `.env`
+- both candidate lanes created real Harbor trial dirs on the first launch
+- both control lanes were relaunched with repo-root `.env` plus shared
+  repo-root Harbor checkout
+
+`exp129` outcome:
+
+- candidate A: verifier green (`2 passed / 0 failed`), `exception_info: null`
+- candidate B: verifier green (`2 passed / 0 failed`), `exception_info: null`
+- control A rerun: verifier green (`2 passed / 0 failed`), `exception_info: null`
+- control B rerun: verifier green (`2 passed / 0 failed`), `exception_info: null`
+
+Interpretation:
+
+- clean `2/2` tie between active baseline `74ac854` and `main`
+- the `aea1560` decisive-artifact-loop keep does not regress
+  `log-summary-date-ranges`
+- this task is still not the best hill-climbing frontier because `main` is
+  already robust here once the run reaches the real files and bracketed
+  severity tokens
+
+Next task after `exp129`:
+
+- `sqlite-db-truncate`
+- Why:
+  - it is still an exact typed-extraction task with a real earlier keep
+    (`94d2a3b`)
+  - it is a better outward generalization target than another reporting tie
+  - it should tell us whether the newer decisive-loop keep compounds cleanly
+    with the older exact-schema extraction keeps
+
+`exp130` `sqlite-db-truncate` outward check:
+
+- candidate branch: `wip/active-eval-loop-mainline` at `f56ece3`
+- control branch: `main` at `35f7cd1`
+- task: `sqlite-db-truncate`
+- model shape:
+  - `best_model=openai:gpt-5.4`
+  - `balanced_model=openai:gpt-5.4`
+  - `fast_model=openai:gpt-5-mini`
+- launcher shape:
+  - source repo-root `.env`
+  - run Harbor from the shared repo-root checkout
+  - point `PYTHONPATH` at the target worktree's `tools/harbor`
+- launch dirs:
+  - candidate A: `/tmp/sprout-exp130-candidate-a.389214`
+  - candidate B: `/tmp/sprout-exp130-candidate-b.55fc7f`
+  - control A: `/tmp/sprout-exp130-control-a.9a813f`
+  - control B: `/tmp/sprout-exp130-control-b.cb6148`
+
+Early live signal:
+
+- all four lanes created real Harbor trial dirs on the first try
+- this wave is using the stabilized local launcher contract instead of
+  worktree-local ignored state
+
+`exp130` outcome:
+
+- candidate A: fail, verifier score `5`, `exception_info: null`
+- candidate B: fail, verifier score `2`, `exception_info: null`
+- control A: clean pass, reward `1.0`, `exception_info: null`
+- control B: clean pass, reward `1.0`, `exception_info: null`
+
+Interpretation:
+
+- `f56ece3` is a discard on `sqlite-db-truncate`
+- active branch lost cleanly to `main`: `0/2` candidates vs `2/2` controls
+- the decisive-artifact-loop keep does not yet compound cleanly with the older
+  typed-schema extraction keeps on this task family
+
+Root-cause note from `exp130`:
+
+- candidate A kept exact `word` boundaries for rows `00` through `07` but then
+  dropped the last two float rows entirely because it did not keep refining
+  value proof inside the same record model
+- candidate B recovered the float values `99.99` and `0.5` but let adjacent
+  junk bytes stay attached to the `word` field, producing near-matches like
+  `testword08@X`
+- the passing control stayed on intact leaf-page record pairs and closed exact
+  `word` plus `value` tuples
+- the next general fix is therefore not a broader recovery strategy change
+- it is to keep exact field-boundary refinement inside a known record model,
+  instead of either dropping proven rows or accepting extra-byte junk in the
+  field
+
+Prompt fix after `exp130`:
+
+- commit: `4cd642a` `fix: keep record-field boundaries exact`
+- change:
+  - if a known record model already yields a coherent row except one field
+    still has extra leading or trailing bytes, keep that row open and refine
+    the field boundary inside the same record model
+  - do not drop sibling fields or previously proven rows just because one
+    field from that row still needs boundary cleanup
+- focused regression:
+  - `bun test ./test/host/embedded-root.test.ts`
+  - red before the prompt patch
+  - green after regeneration
+
+Next task after `exp130`:
+
+- rerun `sqlite-db-truncate`
+- Why:
+  - the failure family is now narrow and methodologically clean
+  - the new prompt fix directly targets the surviving exact field-boundary gap
+  - rerunning the same task is the fastest honest confirmation signal
+
+`exp131` `sqlite-db-truncate` confirmation rerun:
+
+- candidate branch: `wip/active-eval-loop-mainline` at `4cd642a`
+- control branch: `main` at `35f7cd1`
+- task: `sqlite-db-truncate`
+- model shape:
+  - `best_model=openai:gpt-5.4`
+  - `balanced_model=openai:gpt-5.4`
+  - `fast_model=openai:gpt-5-mini`
+- launcher shape:
+  - source repo-root `.env`
+  - run Harbor from the shared repo-root checkout
+  - point `PYTHONPATH` at the target worktree's `tools/harbor`
+- launch dirs:
+  - candidate A: `/tmp/sprout-exp131-candidate-a.573c26`
+  - candidate B: `/tmp/sprout-exp131-candidate-b.3e5546`
+  - control A: `/tmp/sprout-exp131-control-a.2baa74`
+  - control B: `/tmp/sprout-exp131-control-b.736204`
+
+Early live signal:
+
+- all four lanes created real Harbor trial dirs on the first try
+- the candidate Harbor agent was rebuilt after `4cd642a` before launch
+
+`exp131` outcome:
+
+- candidate A: fail, verifier score `2`, `exception_info: null`
+- candidate B: fail, verifier score `0`, `exception_info: null`
+- control A: fail, verifier score `0`, `exception_info: null`
+- control B: fail, verifier score `0`, `exception_info: null`
+
+Interpretation:
+
+- `4cd642a` is a discard on `sqlite-db-truncate`
+- this was not a launcher or verifier failure
+- `exp130` proved the same `main` control recipe can pass cleanly minutes
+  earlier, so `exp131` is real model-path variance, not a broken harness
+- the shared local recipe remains acceptable for the loop, but this task now
+  needs variance-aware confirmation instead of a single 2x2 confirmation rerun
+
+Root-cause note from `exp131`:
+
+- control A regressed to a bad low-fidelity path: it regex-matched `testword`
+  strings, inferred values from trailing label digits, and wrote a zero-score
+  artifact
+- control B also regressed to low-fidelity salvage, preserving labels but
+  emitting wrong value types and adjacent junk
+- candidate B kept more row structure than the controls, but still allowed
+  label/value contamination and wrong numeric closure across sibling rows
+- candidate A over-corrected in the other direction and kept only two
+  high-confidence float rows plus forensic metadata, dropping the rest of the
+  family
+- the common surviving gap is not generic exactness anymore
+- it is failure to hold neighboring same-schema rows inside one record-family
+  model once that family is already plausible
+- the next general fix is therefore to keep same-schema neighboring rows in one
+  record family while unresolved field boundaries remain, instead of either
+  resolving each row independently or discarding the family down to only the
+  most obvious exemplars
+
+Prompt fix after `exp131`:
+
+- working tree candidate after `4cd642a`
+- change:
+  - when neighboring rows plausibly share the same schema and record layout,
+    keep them in one record family while unresolved field boundaries remain
+  - do not switch to isolated per-row guesses once the family model is
+    established
+- focused regression:
+  - `bun test ./test/host/embedded-root.test.ts`
+  - red before the prompt patch
+  - green after regeneration
+
+Next task after `exp131`:
+
+- rerun `sqlite-db-truncate`
+- Why:
+  - `exp131` showed the remaining gap is family-consistent closure, not raw
+    field-boundary awareness alone
+  - the new prompt patch directly targets the split between over-pruning and
+    per-row guessing
+  - the task is still the fastest honest way to verify whether this more
+    general family-consistency rule compounds with the earlier exact-schema
+    recovery gains
+
+`exp132` setup:
+
+- candidate commit: `bdab82b` `fix: keep record families coherent`
+- control commit: `35f7cd1` on `main`
+- task: `sqlite-db-truncate`
+- long-lived candidate worktree:
+  - `/Users/jesse/Documents/GitHub/prime-radiant-inc/sprout/.worktrees/active-eval-loop`
+- control worktree:
+  - `/Users/jesse/Documents/GitHub/prime-radiant-inc/sprout/.worktrees/integrate-harness-fix`
+- launch dirs:
+  - candidate A: `/tmp/sprout-exp132-candidate-a.b3d854`
+  - candidate B: `/tmp/sprout-exp132-candidate-b.06f495`
+  - control A: `/tmp/sprout-exp132-control-a.32a7cb`
+  - control B: `/tmp/sprout-exp132-control-b.5cfe4e`
+
+`exp132` live root-cause signal:
+
+- candidate A recovered the exact 10-row set from the surviving SQLite table
+  leaf page and Harbor scored it `1.0`
+- candidate B reached the same 10-row recovery and passed the verifier on the
+  downloaded artifact path
+- control A regressed to the old ambiguous-family failure mode and wrote `[]`,
+  which the verifier scored `0.0`
+- control B eventually passed cleanly on the same task, so the final comparison
+  settled at `2/2` candidate passes versus a split `1/2` on `main`
+
+`exp132` outcome:
+
+- `bdab82b` is a keep
+- decisive general win:
+  - when neighboring rows plausibly share one schema and layout, keep them in a
+    single record family until the field boundaries are resolved
+  - do not collapse into isolated per-row guesses or prune the family down to
+    only the most obvious exemplar rows
+- why it worked:
+  - both candidate reps held the same surviving-page model through completion
+    and decoded all 10 rows from SQLite cell structure
+  - the failing `main` control lost that family model and treated the same page
+    as too ambiguous to recover safely
+- recovered row set:
+  - `testword00=1`
+  - `testword01=2`
+  - `testword02=10`
+  - `testword03=25`
+  - `testword04=42`
+  - `testword05=50`
+  - `testword06=75`
+  - `testword07=99`
+  - `testword08=99.99`
+  - `testword09=0.5`
+
+Next task after `exp132`:
+
+- move off `sqlite-db-truncate`
+- Why:
+  - the active branch now has a stable 2/2 pass on this task
+  - the remaining value is to test whether the new record-family discipline
+    transfers to the next failing task rather than overfitting this one
+
+`exp133` setup:
+
+- candidate branch: `wip/active-eval-loop-mainline` at `03001d4`
+- control branch: `main` at `35f7cd1`
+- task: `build-cython-ext`
+- model shape:
+  - `best_model=openai:gpt-5.4`
+  - `balanced_model=openai:gpt-5.4`
+  - `fast_model=openai:gpt-5-mini`
+- launch dirs:
+  - candidate A: `/tmp/sprout-exp133-candidate-a.f2a573`
+  - candidate B: `/tmp/sprout-exp133-candidate-b.77a72b`
+  - control A: `/tmp/sprout-exp133-control-a.c827b8`
+  - control B: `/tmp/sprout-exp133-control-b.418bac`
+
+Early live signal:
+
+- all four lanes created real Harbor trial dirs successfully on the first try
+- this is a clean re-entry measurement wave, not a new prompt edit yet
+- the purpose is to measure how far the accumulated active-branch keeps now
+  generalize back into the old `build-cython-ext` frontier before designing the
+  next prompt change there
+
+`exp133` mid-wave observations:
+
+- no `result.json` or verifier artifacts yet, but all four trajectories are
+  still advancing
+- candidate A is on the healthiest visible path so far:
+  - it installed Cython into the global environment without disturbing NumPy
+    `2.3.0`
+  - it is now in the exact rebuild/install/prove loop for the compiled
+    extensions from `/app/pyknotid`
+- candidate B is less trustworthy:
+  - it drifted into proxy import checks from inside `/app/pyknotid`
+  - it tried top-level imports like `chelpers` instead of staying on the exact
+    installed-package proof path
+- control A caught up farther than the earlier `main` waves:
+  - it reached the installed-package compatibility frontier at `np.float` in
+    `spacecurve.py`
+  - that means `main` is not failing only at bootstrap anymore
+- control B spent time repairing prerequisite and optional-import blockers:
+  - first `Cython` missing
+  - then `vispy` import pressure from `visualise.py`
+  - then the global rebuild/install loop
+- the likely next prompt experiment, if this wave comes back mixed, is to
+  strengthen exact import-target preservation in the requested operating
+  context:
+  - when the caller asks for proof of specific installed package imports, do not
+    shorten them, reinterpret them, or substitute source-tree proxy imports
+- sharper root cause from candidate B:
+  - the parent delegation did not inline the exact verification snippet into
+    the leaf goal
+  - it referred abstractly to "the provided Python snippet" and "exact import
+    checks"
+  - the leaf then concluded no exact snippet had been provided and substituted
+    a proxy probe from `/app/pyknotid`
+  - the likely next general fix is therefore at delegation time:
+  - when a downstream step must run an exact snippet, import list, or test
+      invocation, embed that literal content in the helper goal instead of
+      referring to it abstractly
+
+`exp133` outcome:
+
+- no keep
+- all four lanes finished with `reward 0.0` and `AgentTimeoutError`
+- candidate A regressed badly:
+  - `2 passed / 9 failed`
+  - missing compiled installed modules plus `fractions.gcd` remained
+- candidate B reached the narrower frontier but did not beat `main`:
+  - `7 passed / 4 failed`
+  - remaining failures were mainly NumPy alias fallout such as `np.float`
+- control A and control B both also reached `7 passed / 4 failed`
+- the active branch therefore did not materially outperform `main` on this
+  task yet
+
+Sharper root cause from `exp133`:
+
+- the live split in candidate B was not only a leaf-level proof mistake
+- the parent delegation abstracted the required runtime proof as "the provided
+  Python snippet" and "exact import checks" instead of embedding the literal
+  snippet and import targets in the helper goal
+- the leaf then truthfully concluded no literal snippet had been provided in
+  its own goal and substituted proxy import probes from the source checkout
+- the next candidate should therefore strengthen literal handoff at delegation
+  time rather than only restating target-context proof rules again
+
+Prompt fix after `exp133`:
+
+- candidate commit: `f322aee` `fix: inline exact verification literals in
+  helper goals`
+- change:
+  - if an exact verification depends on a literal snippet, import list, or test
+    invocation already present in the task or prior findings, embed that
+    literal content in the helper goal instead of referring to it abstractly as
+    "the provided snippet", "exact import checks", or similar shorthand
+- focused regression:
+  - red before the prompt patch in `./test/host/embedded-root.test.ts`
+  - green after regeneration with `bun run scripts/generate-embedded-root.ts`
+    and `bun test ./test/host/embedded-root.test.ts`
+
+`exp134` setup:
+
+- candidate commit: `f322aee` `fix: inline exact verification literals in
+  helper goals`
+- control commit: `35f7cd1` on `main`
+- task: `build-cython-ext`
+- model shape:
+  - `best_model=openai:gpt-5.4`
+  - `balanced_model=openai:gpt-5.4`
+  - `fast_model=openai:gpt-5-mini`
+- launch dirs:
+  - candidate A: `/tmp/sprout-exp134-candidate-a.7a8465`
+  - candidate B: `/tmp/sprout-exp134-candidate-b.5bbe4b`
+  - control A: `/tmp/sprout-exp134-control-a.a8f4a3`
+  - control B: `/tmp/sprout-exp134-control-b.00debd`
+
+`exp134` live signal:
+
+- the canonical local harness for these runs is still the documented
+  `uv run harbor run` path with the packaged `tools/harbor` adapter
+- the repo already had that support; the repeated launcher mistakes came from
+  drifting into ad hoc shell orchestration rather than reusing the established
+  Harbor workflow
+- candidate A is still showing a bad control-flow shape after the new prompt:
+  - it proved that a rebuild path replaced NumPy `2.3.0` with `2.4.3`
+  - but then it collapsed into a prose summary of the blocker instead of
+    continuing the exact required verification loop from that decisive
+    invariant break
+- candidate B is showing the intended literal-handoff improvement:
+  - the live replay contains the exact bounded operational request with the
+    required files, environment, compiled-extension names, exact README
+    snippet, and repo-test exclusions
+  - this is materially better than the `exp133` failure mode where the helper
+    only received abstract labels such as "the provided Python snippet" and
+    "exact import checks"
+- the remaining question for `exp134` is therefore not whether the prompt knob
+  took
+- it did
+- the real question is whether preserving the literal operational request
+  translates into verifier-level progress rather than better-looking internal
+  execution traces only
+
+`exp134` resolved outcome:
+
+- no keep
+- all four lanes finished with `reward 0.0` and `AgentTimeoutError`
+- candidate A regressed badly:
+  - `3 passed / 8 failed`
+  - compiled installed modules were still missing and `fractions.gcd` remained
+- candidate B was best:
+  - `10 passed / 1 failed`
+  - the remaining frontier was the old narrow `ccomplexity` / `np.int` path
+- control A also regressed:
+  - `3 passed / 8 failed`
+- control B landed in the middle:
+  - `7 passed / 4 failed`
+
+Sharper root cause from `exp134`:
+
+- the literal-handoff rule was directionally right
+- candidate B shows it can preserve the exact operational request into the live
+  branch
+- candidate A shows a different remaining control-flow failure:
+  - a helper inside an active operational repair loop returned blocker prose
+    after proving an invariant break
+  - the parent then followed with another diagnosis-oriented request instead of
+    restating the still-open direct repair loop on the same exact gate
+- the next candidate should therefore strengthen engineer behavior at that
+  handoff point:
+  - if a helper in an active operational repair loop returns incomplete
+    findings, blocker prose, or diagnosis without taking the still-open direct
+    action, do not follow with another diagnosis-only request
+  - restate the still-open operational steps, current invariants, and the same
+    exact gate, and ask for the next direct repair loop instead
+
+Harness correction after `exp134`:
+
+- the repo already had the right Harbor support for this loop
+- the intended local path is the documented `uv run harbor run` flow under
+  `inspo/harbor` with the packaged `tools/harbor` adapter
+- `inspo/harbor-runner/launch.sh` is the AWS spot launcher, not the canonical
+  local loop
+- future local experiment waves should use the documented local Harbor command
+  rather than ad hoc shell orchestration
+
+## March 23 `exp135` Live Wave
+
+Candidate under test:
+
+- `ef07ef7` `fix: keep operational repair loops active`
+
+Control:
+
+- `35f7cd1` on `main`
+
+Harness notes:
+
+- the clean local Harbor path is the documented `uv run harbor run` flow under
+  `inspo/harbor`, with `tools/harbor` on `PYTHONPATH`
+- `--n-attempts` / `-k` is Harbor's attempt-per-trial knob, not a clean
+  independent-repetition knob
+- this live wave therefore began as one candidate job and one control job with
+  retry headroom, not a true 2x2 rep structure
+
+Launch dirs:
+
+- candidate: `/tmp/sprout-exp135-candidate.doyHYh`
+- control: `/tmp/sprout-exp135-control.UeoYXW`
+
+Current live signal before verifier output:
+
+- both lanes are genuinely running in Harbor with real trial dirs and
+  `trajectory.json`
+- candidate stayed closer to the intended direct repair shape:
+  - after the exact `fractions.gcd` blocker was surfaced in
+    `pyknotid/make/torus.py`, the next helper goal kept the loop anchored to
+    that exact file and exact blocker
+  - the current failure inside that loop is no longer broad diagnosis drift; it
+    is a bounded but bad patch mechanism:
+    - the helper tried to patch through `command-runner` with a shell
+      `git apply` envelope that did not apply
+- control is showing a different churn pattern:
+  - it is still spending turns on broader install/build remediation and
+    environment/package-manager steps such as `Cython`, `setuptools`, and
+    reinstall flow
+  - it has not shown the same degree of exact-blocker focus on `torus.py`
+
+Provisional root cause surfaced by `exp135` live replay:
+
+- `engineer` is now better about keeping ownership of an active repair loop
+- but it can still hand a required source edit to `command-runner`
+- `command-runner` only has `exec`, so when the next decisive step is a source
+  patch it may flail with shell patch mechanics instead of using the bounded
+  editing path
+- if the final verifier outcome agrees, the next experiment should likely test
+  a cleaner boundary:
+  - when the next direct action is a source edit, keep the repair loop at
+    engineer level and use `editor` for that bounded patch
+  - then return to `command-runner` for the immediate rebuild/install/recheck
+
+`exp135` first-attempt result:
+
+- candidate first attempt `build-cython-ext__wn3KhhM` timed out at
+  `2 passed / 9 failed`
+- control first attempt `build-cython-ext__7en8oiP` timed out at
+  `9 passed / 2 failed`
+- the control first attempt reached the narrow old frontier:
+  - installed compiled extensions present
+  - remaining failures concentrated in `ccomplexity` / NumPy alias fallout and
+    the repo-test tail
+- the candidate first attempt lost badly despite better exact-blocker focus:
+  - it burned time inside a `torus.py` direct-repair loop after handing the
+    required source edit to `command-runner`
+  - the helper then failed on shell patch mechanics instead of executing a
+    bounded editor-mediated source patch and immediate rerun
+
+Current judgment while Harbor retry attempts are still running:
+
+- `ef07ef7` is losing badly so far
+- unless the retry attempt reverses the outcome materially, the next general
+  prompt fix should test a cleaner helper boundary than "keep ownership alone"
+
+Second-attempt live follow-up:
+
+- these Harbor jobs are still genuinely active; the second attempts have not
+  yet emitted `result.json`
+- candidate second attempt `build-cython-ext__XFRJT8B` is currently deeper on a
+  narrow operational frontier:
+  - it is holding the exact extension-build loop open in `/app/pyknotid`
+  - the decisive blocker is now the missing `setuptools` prerequisite while
+    preserving the global NumPy `2.3.0` invariant
+- control second attempt `build-cython-ext__YYqVeRV` is still using a broader
+  source-compatibility sweep over NumPy alias sites under `pyknotid/`
+- this strengthens the current hypothesis:
+  - the missing capability is not more blocker emphasis by itself
+  - it is a cleaner boundary between bounded source edits and bounded execution
+    helpers, so direct file edits do not get routed through `command-runner`
+
+Editor root cause surfaced during the retry:
+
+- the candidate retry did correct the helper boundary at the engineer layer:
+  - it routed the named `torus.py` source patch to `editor` instead of
+    `command-runner`
+- but the `editor` child then exposed a second prompt-level failure:
+  - it never called a write primitive at all
+  - it only read `pyknotid/make/torus.py`, described the minimal
+    `fractions.gcd -> math.gcd` diff, re-read the unchanged live file, and then
+    reported that the edit had not persisted
+- that means the problem was not a broken Harbor file-write primitive in this
+  case; it was an `editor` contract that still allowed "describe the diff" to
+  masquerade as "make the edit"
+- the static editor prompt also carried a provider mismatch:
+  - OpenAI workers get `apply_patch` instead of `edit_file`
+  - but the prompt only taught "prefer edit_file" and did not explicitly say to
+    call the available write primitive
+
+Prompt fix cut from this root cause:
+
+- strengthen `root/agents/utility/agents/editor.md` so the editor:
+  - uses the targeted existing-file edit primitive available to it
+    (`edit_file` or `apply_patch`)
+  - does not stop after describing a diff or hypothetical patch
+  - actually calls the write primitive
+  - re-reads the exact changed lines after the write call to confirm the live
+    file changed
+- added a focused semantic regression in
+  `test/host/embedded-root.test.ts`
+- regenerated `src/generated/embedded-root.ts`
+
+Resolved `exp135` outcome:
+
+- candidate retry `build-cython-ext__XFRJT8B` reached a full verifier green:
+  - `11 passed / 0 failed`
+  - but Harbor still recorded `AgentTimeoutError`
+- control retry `build-cython-ext__YYqVeRV` stayed much worse:
+  - NumPy drifted to `2.4.3`
+  - compiled extensions were still missing
+  - verifier ended at `6 failed / 5 passed`
+- so `ef07ef7` is still not a clean keep, but it did move the product all the
+  way to a verifier-clean state before failing to close the loop
+- that makes the next experiment target narrower:
+  - preserve the improved source-edit routing
+  - eliminate the "describe diff / fail to write / keep running after green"
+    behavior
+
+Next live wave from the new editor-contract fix:
+
+- candidate commit: `b9f3d5b` `fix: require editor write calls for edits`
+- control commit: `35f7cd1` on `main`
+- current Harbor jobs:
+  - candidate A2: `/tmp/sprout-exp136-candidate-a2.YjDLas`
+  - candidate B2: `/tmp/sprout-exp136-candidate-b2.aSwKzC`
+  - control A2: `/tmp/sprout-exp136-control-a2.hmhOJe`
+  - control B2: `/tmp/sprout-exp136-control-b2.eSYnMo`
+
+Harness clarification and first live `exp136` signal:
+
+- the repo does already have a real Harbor batch harness under
+  `inspo/harbor-runner`, but that launcher is the AWS spot-instance path
+- the canonical local micro-benchmark loop is still the documented direct
+  adapter path:
+  - `bun run build:harbor-agent`
+  - `cd inspo/harbor`
+  - `uv run harbor run ... --agent-import-path sprout_agent:SproutAgent`
+- the practical correction here is not to swap local work onto
+  `inspo/harbor-runner`, but to keep local runs on the staged `tools/harbor`
+  adapter and stop inventing alternate launch mechanics beyond what is needed
+  to detach a local run cleanly
+
+Mid-run `exp136` evidence:
+
+- all four `exp136` lanes are still genuinely active
+- the root and child log trees are already multi-megabyte, so these are not
+  dead launches or empty containers
+- the first causal signal from the candidate is good:
+  - candidate A2 replay now contains `apply_patch`
+  - candidate B2 replay now contains explicit write-primitive references
+- that is the exact behavior the editor prompt fix was meant to force
+- this does not prove a keep yet, but it does show the old
+  "describe the diff without ever calling a write primitive" failure mode is
+  no longer the only observed path in the candidate branch
+
+Helper-layer follow-up cut while `exp136` was live:
+
+- mid-run replay evidence exposed a second helper-layer gap after the editor
+  fix started taking effect:
+  - install-proof snippets could still be launched from inside the source tree
+    instead of a clean directory outside it
+  - exact ignored test paths could still be rewritten into `-k` filters instead
+    of preserved as exact path-based exclusions
+- tightened `root/agents/utility/agents/command-runner.md` so it now says:
+  - run an exact install-proof snippet from the clean working directory itself
+  - do not stay in the source tree and launch a child subprocess from there
+  - preserve exact ignored paths with path-based flags such as `--ignore=` when
+    the runner supports them
+  - do not rewrite exact ignored paths into `-k` filters or other
+    content-based approximations
+- added matching semantic anchors to `test/host/embedded-root.test.ts`
+- regenerated `src/generated/embedded-root.ts`
+- focused regression and full `bun run precommit` both passed in the active
+  eval worktree
+
+First finished `exp136` control lane:
+
+- control A2 `build-cython-ext__MnhzMPD` finished with `reward 0.0`,
+  `exception_info: null`, and `7 passed / 4 failed`
+- it confirmed the control is still on the older narrow frontier rather than a
+  better one:
+  - `ccomplexity` still dies on `np.int`
+  - `pyknotid.make.torus` still imports `fractions.gcd`
+  - example usage and repo tests fail downstream from those same issues
+- this means the current helper-layer prompt fix is still causally relevant:
+  the control is not already solving the snippet-context or exact-ignore-path
+  problems that surfaced in the live candidate logs
+
+`exp137` outcome and next root cause:
+
+- candidate commit: `04bae63` `fix: preserve exact install and test contexts`
+- control commit: `35f7cd1` on `main`
+- valid Harbor jobs:
+  - candidate A: `/tmp/sprout-exp137-candidate-a.PNRt98`
+  - candidate B: `/tmp/sprout-exp137-candidate-b.8FLDAh`
+  - control A2: `/tmp/sprout-exp137-control-a2.CKxJDX`
+  - control B2: `/tmp/sprout-exp137-control-b2.H5JT7k`
+- invalid early control tmpdirs from the first broken launch should be ignored:
+  - `/tmp/sprout-exp137-control-a.YRKAe5`
+  - `/tmp/sprout-exp137-control-b.eIfEuJ`
+
+`exp137` results:
+
+- candidate A reached the best technical frontier of the batch but still timed
+  out:
+  - `reward 0.0`
+  - `9 passed / 2 failed`
+  - remaining verifier failures were `np.complex` in
+    `pyknotid/invariants.py` plus repo-test tail fallout
+- candidate B regressed hard:
+  - `reward 0.0`
+  - timeout
+  - `2 passed / 9 failed`
+  - broad `ModuleNotFoundError: No module named 'pyknotid'` family again
+- control A2 ended at `7 passed / 4 failed`
+- control B2 ended at `3 passed / 8 failed`
+
+Interpretation:
+
+- `04bae63` is directionally better than `main` because candidate A beat both
+  controls on the technical frontier
+- `04bae63` is still not a keep because both candidate reps timed out and
+  candidate B fell off the install frontier
+
+Decisive new root cause from the candidate split:
+
+- candidate B invented an "exact acceptance snippet" even though the task had
+  never supplied one
+- it searched for an acceptance snippet conceptually, then substituted its own
+  surrogate import check (`import pyknotid`, `import pyknotid.knot`) as if that
+  were the exact gate
+- that displaced the real deliverable proof and led the run back into the broad
+  install-failure family
+- candidate A did not take that detour and stayed on the narrower frontier
+
+Narrow next fix:
+
+- the command-runner prompt already forbids inventing a proxy when exact
+  snippet content is absent
+- the missing rule is at the engineer layer, where delegation goals were still
+  allowed to speak as though an exact acceptance snippet existed without any
+  literal snippet content from the task or verifier
+- next candidate will make that rule explicit:
+  - do not invent or author an exact acceptance snippet when none was supplied
+  - if no literal exact snippet exists, keep the gate anchored to the exact
+    named command, import path, test path, or deliverable proof already
+    provided by the task or failing check
+
+`exp138` outcome and current reinstall root cause:
+
+- candidate commit: `dc16707` `fix: forbid invented exact acceptance snippets`
+- control commit: `35f7cd1` on `main`
+- Harbor jobs:
+  - candidate A: `/tmp/sprout-exp138-candidate-a.1GqIYT`
+  - candidate B: `/tmp/sprout-exp138-candidate-b.bOtOBW`
+  - control A: `/tmp/sprout-exp138-control-a.dzDjFa`
+  - control B: `/tmp/sprout-exp138-control-b.kG0S0Z`
+
+`exp138` results:
+
+- candidate A:
+  - `reward 0.0`
+  - timeout
+  - `8 passed / 3 failed`
+  - remaining failures were the tighter NumPy alias tail:
+    `np.int` in `ccomplexity`, `np.float` in `cinvariants`, and example-usage
+    fallout
+- candidate B:
+  - `reward 0.0`
+  - timeout
+  - `7 passed / 4 failed`
+  - it widened the environment and drifted NumPy to `2.4.3`
+- control A:
+  - `reward 0.0`
+  - timeout
+  - `7 passed / 4 failed`
+- control B:
+  - `reward 0.0`
+  - timeout
+  - `3 passed / 8 failed`
+
+Interpretation:
+
+- `dc16707` is directionally better than `main`
+- it removed the invented-snippet failure family and improved the best
+  technical frontier
+- it is still not a keep because both candidate reps timed out and candidate B
+  regressed by breaking the fixed environment invariant
+
+Decisive split inside `exp138`:
+
+- candidate A stayed on the direct live repair loop:
+  - it used a bounded live edit for `pyknotid/make/torus.py`
+  - it preserved the existing environment with
+    `python3 -m pip install --no-deps --force-reinstall .`
+  - NumPy stayed at `2.3.0`
+- candidate B hit an editor contradiction on the same torus import, then later
+  widened into `python -m pip install --upgrade --force-reinstall .`
+- that broader reinstall re-resolved unrelated packages and pulled NumPy to
+  `2.4.3`, which reopened a worse frontier
+
+Engineering lesson:
+
+- after local source fixes in a constrained existing environment, the next
+  rebuild or reinstall step must preserve the already-resolved dependency set
+- broad upgrade or full dependency re-resolution is a different move and must
+  not be chosen unless the active gate already proves a missing prerequisite or
+  version conflict requires it
+
+Next candidate:
+
+- add an engineer-layer rule to prefer the narrowest rebuild or reinstall that
+  reuses the current dependency set
+- explicitly forbid widening that step into upgrade, force-reinstall,
+  dependency sync, or other unrelated package re-resolution unless the active
+  gate proves it is necessary
+
+Candidate checkpoint and next wave:
+
+- committed candidate `c7d2b34` `fix: preserve dependency invariants during reinstall`
+- focused regression and full `bun run precommit` both passed before commit
+- both active and control worktrees rebuilt Harbor artifacts with
+  `bun run build:harbor-agent`
+- launched the next 2x2 local Harbor wave from the persistent supervisor shell
+  using the documented `uv run harbor run` path under each worktree's
+  `inspo/harbor`
+- Harbor tmpdirs:
+  - candidate A: `/tmp/sprout-exp139-candidate-a.qy2G06`
+  - candidate B: `/tmp/sprout-exp139-candidate-b.W7PM9y`
+  - control A: `/tmp/sprout-exp139-control-a.5sPpm6`
+  - control B: `/tmp/sprout-exp139-control-b.6EbaVK`
+
+`exp139` results and next root cause:
+
+- candidate commit: `c7d2b34` `fix: preserve dependency invariants during reinstall`
+- control commit: `35f7cd1` on `main`
+
+Results:
+
+- candidate A:
+  - `reward 0.0`
+  - timeout
+  - `3 passed / 8 failed`
+  - it fell off the output-producing frontier and never got the compiled
+    extensions installed
+- candidate B:
+  - `reward 0.0`
+  - timeout
+  - `7 passed / 4 failed`
+  - it preserved the environment better than the bad rep and reached the
+    narrower alias/import frontier
+- control A:
+  - `reward 0.0`
+  - timeout
+  - `7 passed / 4 failed`
+- control B:
+  - `reward 0.0`
+  - timeout
+  - `7 passed / 4 failed`
+  - but one remaining failure was the NumPy version invariant itself, so it is
+    not equivalent to the better control frontier
+
+Interpretation:
+
+- `c7d2b34` is not a keep
+- the new rule removed one bad move, but it did not stabilize the loop
+- candidate B only tied the stronger controls, and candidate A regressed badly
+
+Decisive new root cause:
+
+- candidate A saw the exact gate still failing because the named compiled
+  modules were absent
+- instead of taking the next explicit output-producing build or install step in
+  the live source tree, it pivoted into repository-structure analysis,
+  package-export analysis, and option-list framing
+- that burned the remaining budget while the named outputs were still missing
+- candidate B did better because it stayed closer to the explicit build frontier:
+  it checked the build prerequisites, ran the smallest explicit extension build
+  command, and only then moved back to runtime verification
+
+Next candidate:
+
+- keep the reinstall-invariant rule from `c7d2b34`
+- add a stronger output-frontier rule at the engineer layer:
+  - when the exact gate still says named compiled, native, generated, or
+    installed outputs are missing, do not pivot into repo-structure analysis,
+    export analysis, or option lists
+  - take the smallest explicit output-producing build or install step in the
+    live source tree, plus any directly named missing prerequisite, and rerun
+    the same exact gate

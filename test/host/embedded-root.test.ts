@@ -187,6 +187,14 @@ describe("extractEmbeddedRoot", () => {
 			"treat those type requirements as part of the exact schema",
 			"keep the task open instead of counting that row as recovered",
 			"not a hidden value-domain restriction",
+			"keep that row open and refine the field boundary inside the same record model",
+			"Do not drop sibling fields or previously proven rows",
+			"record family while unresolved field boundaries remain",
+			"isolated per-row guesses once the family model is established",
+			"run that exact snippet from the clean working directory itself",
+			"Do not stay in the source tree and launch a child subprocess from there",
+			"preserve them with path-based flags such as `--ignore=`",
+			"Do not rewrite them into `-k` filters",
 		]);
 
 		expectContainsAll(verifier, [
@@ -207,6 +215,9 @@ describe("extractEmbeddedRoot", () => {
 			"treat those inputs as authoritative",
 			"then patch directly",
 			"prefer edit_file",
+			"`edit_file` or `apply_patch`",
+			"Do not stop after describing a diff",
+			"actually call the available write primitive",
 			"report the contradiction clearly",
 		]);
 
@@ -225,10 +236,26 @@ describe("extractEmbeddedRoot", () => {
 			"operational or system-execution task",
 			"do not force a TDD or commit workflow",
 			"keep ownership of stateful repair loops",
+			"one owner on the decisive path",
+			"supporting side branches as subordinate",
+			"Do not follow an incomplete helper response",
+			"diagnosis-only request",
+			"required artifact is still missing",
 			"same exact verification path",
 			"component-level proofs as supporting evidence only",
 			"keep the rebuild/install frontier active",
+			"prefer the narrowest rebuild or reinstall path that reuses the current dependency set",
+			"Do not ask a helper to widen that step into upgrade, force-reinstall, dependency sync",
+			"do not pivot into repo-structure analysis, export analysis, or option-list framing",
+			"smallest explicit output-producing build or install step in the live source tree",
 			"Do not ask helpers to simulate success with stubs",
+			"embed that literal content in the helper goal",
+			"Do not invent or author an exact acceptance snippet",
+			"keep the gate anchored to the exact named command, import path, test path, or deliverable proof",
+			"refine that field boundary inside the same record model",
+			"Do not discard already proven sibling fields or earlier rows",
+			"same-schema neighboring rows in one record family",
+			"resolve each row independently after the family layout is established",
 		]);
 	});
 });
