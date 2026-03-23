@@ -202,6 +202,160 @@ Resume from two threads:
    - judge new ideas primarily on whether they improve convergence after the run
      reaches named compatibility failures
 
+## Active Eval Loop Continuation
+
+The current long-lived experiment worktree is:
+
+- `wip/active-eval-loop-mainline`
+- `/Users/jesse/Documents/GitHub/prime-radiant-inc/sprout/.worktrees/active-eval-loop`
+
+The control worktree for current Harbor A/B runs is:
+
+- `main`
+- `/Users/jesse/Documents/GitHub/prime-radiant-inc/sprout/.worktrees/integrate-harness-fix`
+
+### `exp138` outcome
+
+Candidate:
+
+- `dc16707` `fix: forbid invented exact acceptance snippets`
+
+Controls stayed on `main` at `35f7cd1`.
+
+Results:
+
+- candidate A: `8 passed / 3 failed`, timeout
+- candidate B: `7 passed / 4 failed`, timeout
+- control A: `7 passed / 4 failed`, timeout
+- control B: `3 passed / 8 failed`, timeout
+
+Useful root cause:
+
+- the better candidate rep preserved the constrained environment and used a
+  narrow live reinstall after local source edits
+- the worse candidate rep widened into `python -m pip install --upgrade
+  --force-reinstall .`, re-resolved unrelated packages, and drifted NumPy to
+  `2.4.3`
+
+Checkpoint that followed:
+
+- `c7d2b34` `fix: preserve dependency invariants during reinstall`
+
+### `exp139` outcome
+
+Candidate:
+
+- `c7d2b34` `fix: preserve dependency invariants during reinstall`
+
+Control:
+
+- `35f7cd1` on `main`
+
+Harbor tmpdirs:
+
+- candidate A: `/tmp/sprout-exp139-candidate-a.qy2G06`
+- candidate B: `/tmp/sprout-exp139-candidate-b.W7PM9y`
+- control A: `/tmp/sprout-exp139-control-a.5sPpm6`
+- control B: `/tmp/sprout-exp139-control-b.6EbaVK`
+
+Results:
+
+- candidate A: `3 passed / 8 failed`, timeout
+- candidate B: `7 passed / 4 failed`, timeout
+- control A: `7 passed / 4 failed`, timeout
+- control B: `7 passed / 4 failed`, timeout, but one remaining failure was the
+  NumPy version invariant itself
+
+Decisive new root cause:
+
+- when the exact gate still said named compiled modules were missing, the bad
+  rep pivoted into repository-structure analysis, package-export analysis, and
+  option-list framing instead of taking the next explicit output-producing build
+  or install step in the live source tree
+- the better rep stayed closer to the build frontier by checking prerequisites,
+  running the smallest explicit extension build step, and only then moving back
+  to runtime verification
+
+Checkpoint that followed:
+
+- `238bffc` `fix: keep missing outputs on the build frontier`
+
+### `exp140` launch
+
+Candidate:
+
+- `238bffc` `fix: keep missing outputs on the build frontier`
+
+Control:
+
+- `35f7cd1` on `main`
+
+Before launch:
+
+- rebuilt Harbor agent artifacts in both active and control worktrees with
+  `bun run build:harbor-agent`
+- switched back to the documented local Harbor harness under each worktree's
+  `inspo/harbor`
+
+Launcher correction:
+
+- active worktree runs can source their local `.env`
+- control worktree runs cannot; the control lanes must source the repo-root
+  `/Users/jesse/Documents/GitHub/prime-radiant-inc/sprout/.env`
+
+Current live tmpdirs:
+
+- candidate A: `/tmp/sprout-exp140-candidate-a.ljBIOv`
+- candidate B: `/tmp/sprout-exp140-candidate-b.Zbziwm`
+- control A: `/tmp/sprout-exp140-control-a.scG4Uv`
+- control B: `/tmp/sprout-exp140-control-b.Wk8C3h`
+
+### `exp140` outcome
+
+Candidate:
+
+- `238bffc` `fix: keep missing outputs on the build frontier`
+
+Control:
+
+- `35f7cd1` on `main`
+
+Results:
+
+- candidate A: `6 passed / 5 failed`, timeout
+- candidate B: `9 passed / 2 failed`, timeout
+- control A: `2 passed / 9 failed`, timeout
+- control B: `3 passed / 8 failed`, timeout
+
+Keep decision:
+
+- `238bffc` is a real keep
+- both candidate reps beat both controls by a wide margin
+- candidate B reached the narrow installed-path compatibility frontier at
+  `np.float` in `cinvariants` / example usage
+
+Decisive split inside the keep:
+
+- candidate A widened into the broader `python3 -m pip install .` path
+- that path also mutated unrelated runtime dependencies and reopened the NumPy
+  version failure
+- candidate B took the narrower direct producer path:
+  - install only the missing build prerequisites
+  - rerun `python3 setup.py build_ext --inplace`
+  - keep the environment invariant intact
+  - then continue on the installed-path compatibility frontier
+
+Next candidate:
+
+- keep `238bffc` as the new baseline
+- add a stronger engineer rule:
+  - when output generation itself is the blocker, prefer the smallest direct
+    producer for those outputs over a broader package install or environment
+    sync that can also mutate unrelated runtime dependencies
+  - do not widen that output-producing step into unrelated runtime dependency
+    changes unless the exact gate names those dependencies as the blocker or
+    prerequisite
+
 ## March 22 `exp92` Live Wave
 
 The next active candidate is `3cbce3b`.

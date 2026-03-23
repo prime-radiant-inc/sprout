@@ -239,6 +239,12 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - In that state, ask for the smallest explicit output-producing build or
   install step in the live source tree, plus any directly named missing
   prerequisite, then rerun that same exact gate
+- Prefer the smallest direct producer for those outputs over a broader package
+  install or environment sync that can also mutate unrelated runtime
+  dependencies
+- Do not widen that output-producing step into unrelated runtime dependency
+  changes unless the exact gate names one of those dependencies as the blocker
+  or prerequisite
 - Stay on that frontier until that action either succeeds there or reveals a
   new decisive blocker
 - Do not widen into broader repair work yet

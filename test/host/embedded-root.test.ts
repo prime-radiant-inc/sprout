@@ -248,6 +248,8 @@ describe("extractEmbeddedRoot", () => {
 			"Do not ask a helper to widen that step into upgrade, force-reinstall, dependency sync",
 			"do not pivot into repo-structure analysis, export analysis, or option-list framing",
 			"smallest explicit output-producing build or install step in the live source tree",
+			"smallest direct producer for those outputs over a broader package install or environment sync",
+			"Do not widen that output-producing step into unrelated runtime dependency changes",
 			"Do not ask helpers to simulate success with stubs",
 			"embed that literal content in the helper goal",
 			"Do not invent or author an exact acceptance snippet",
