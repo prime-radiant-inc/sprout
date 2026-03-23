@@ -356,6 +356,207 @@ Next candidate:
     changes unless the exact gate names those dependencies as the blocker or
     prerequisite
 
+### `exp141` launch
+
+Candidate:
+
+- `5e22108` `fix: prefer direct output producers over broad installs`
+
+Control:
+
+- `35f7cd1` on `main`
+
+Harbor tmpdirs:
+
+- candidate A: `/tmp/sprout-exp141-candidate-a.zoQgew`
+- candidate B: `/tmp/sprout-exp141-candidate-b.V96iPn`
+- control A: `/tmp/sprout-exp141-control-a.5eIWIP`
+- control B: `/tmp/sprout-exp141-control-b.rxMxWD`
+
+Launch notes:
+
+- rebuilt Harbor agent artifacts in active and control worktrees before launch
+- all four lanes source the repo-root `.env`
+- all four lanes use the documented local Harbor path under each worktree's
+  `inspo/harbor`
+
+Interim operational notes while `exp141` is still running:
+
+- the local supported Harbor path remains direct `uv run harbor run` from the
+  shared Harbor checkout with the worktree's `tools/harbor` on `PYTHONPATH`
+- `inspo/harbor-runner/launch.sh` is still the AWS spot runner, not the
+  canonical local hill-climb harness
+- Harbor has not emitted `result.json` yet, but this is not a dead launcher:
+  all four local containers are still up and still have live
+  `sprout --internal-agent-process` children
+- the verifier directories are still empty, so Harbor has not crossed into the
+  verifier-output phase yet
+
+Live branch split already visible inside `exp141`:
+
+- candidate A stayed closer to the intended output-production loop, but after
+  the narrower build/install repair it is now failing at the exact repo-test
+  frontier on a concrete NumPy alias in `spacecurve.py` (`np.float`)
+- candidate B is doing a more disciplined live-source confirmation before the
+  next rebuild/install step:
+  - confirm whether `pyknotid/make/torus.py` still says
+    `from fractions import gcd` or now says `from math import gcd`
+  - only then take the smallest required next rebuild/reinstall step and rerun
+    the exact acceptance snippet from `/`
+- control A widened into a broader rebuild/reinstall workflow that also asks
+  for git-status / persistence proof
+- control B is still spending turns on diagnosis-only reader work instead of
+  moving directly on the live build/install frontier
+
+Provisional interpretation before verifier results:
+
+- `5e22108` is already pushing more work onto the real output-producing frontier
+  than `main`
+- if this wave comes back mixed, the next likely generalization is not about
+  output production itself, but about what to do after that frontier is healthy:
+  when the exact repo-test gate reopens a concrete compatibility alias, keep the
+  loop on that exact failing code path instead of rediscovering install state
+  or broadening back into diagnostics
+
+### `exp141` outcome
+
+Candidate:
+
+- `5e22108` `fix: prefer direct output producers over broad installs`
+
+Control:
+
+- `35f7cd1` on `main`
+
+Results:
+
+- candidate A:
+  - `reward 0.0`
+  - timeout
+  - `7 passed / 4 failed`
+  - but the remaining failures were already deeper than `main`: the old
+    `fractions.gcd` frontier was gone and the run had reopened on the later
+    `np.float` compatibility path
+- candidate B:
+  - `reward 0.0`
+  - timeout
+  - `8 passed / 3 failed`
+  - remaining frontier: `fractions.gcd` in installed `torus.py` plus the repo
+    test tail
+- control A:
+  - `reward 0.0`
+  - timeout
+  - `7 passed / 4 failed`
+  - remaining frontier still included both `np.float` and `fractions.gcd`
+- control B:
+  - `reward 0.0`
+  - timeout
+  - `7 passed / 4 failed`
+  - same mixed `np.float` plus `fractions.gcd` frontier as control A
+
+Keep decision:
+
+- `5e22108` is a real keep
+- both candidate reps improved the frontier over `main` when judged by failure
+  reason, not just count
+- candidate B beat both controls outright
+- candidate A tied the control count but had already eliminated the older
+  `fractions.gcd` failure family and advanced to the deeper `np.float`
+  compatibility frontier
+
+Decisive split after the keep:
+
+- the missing-output drift is now under better control
+- the remaining instability is what happens after the operating-context gate has
+  already proved the compiled/install outputs are present
+- candidate A got farther downstream and reopened on a concrete compatibility
+  alias in `spacecurve.py`
+- candidate B spent more budget rediscovering whether the live `torus.py` patch
+  had actually persisted before taking the next rebuild/reinstall step
+- the next improvement should keep the loop on that exact reopened
+  compatibility site once output/install proof is already in hand, instead of
+  widening back into install-state rediscovery, source-state confirmation, or
+  broader diagnosis
+
+Checkpoint that followed:
+
+- committed candidate `8013d36`
+  `fix: stay on exact reopened compatibility sites`
+
+### `exp142` launch
+
+Candidate:
+
+- `8013d36` `fix: stay on exact reopened compatibility sites`
+
+Control:
+
+- `35f7cd1` on `main`
+
+Launch notes:
+
+- rebuilt Harbor agent artifacts in both active and control worktrees with
+  `bun run build:harbor-agent`
+- launched from the same local Harbor path as the prior wave:
+  direct `uv run harbor run` under each worktree's `inspo/harbor` with the
+  worktree's `tools/harbor` on `PYTHONPATH`
+- all four lanes source the repo-root
+  `/Users/jesse/Documents/GitHub/prime-radiant-inc/sprout/.env`
+- all four trial directories were created successfully, so the wave is valid
+
+Harbor tmpdirs:
+
+- candidate A: `/tmp/sprout-exp142-candidate-a.5VuvaW`
+- candidate B: `/tmp/sprout-exp142-candidate-b.6pQmHh`
+- control A: `/tmp/sprout-exp142-control-a.rlvM39`
+- control B: `/tmp/sprout-exp142-control-b.U7MV3x`
+
+Interim operational note while `exp142` is still in flight:
+
+- re-checked the repo harness support after a user prompt to verify the local
+  launch path was still the intended one
+- `tools/harbor/README.md` still documents the canonical local workflow:
+  rebuild with `bun run build:harbor-agent`, then run `uv run harbor run`
+  under the chosen worktree's `inspo/harbor` with that worktree's
+  `tools/harbor` on `PYTHONPATH`
+- `inspo/harbor-runner` is the AWS spot runner, not the canonical local
+  hill-climb harness
+- that means the current local eval loop is on the right harness path; the
+  current blocker is still run completion and failure-shape stability, not a
+  wrong launcher family
+
+Early branch split already visible inside `exp142` before Harbor wrote
+`result.json`:
+
+- candidate B reopened on a new concrete failure family:
+  `SyntaxError: '(' was never closed` in `pyknotid/visualise.py`
+- that is a worse and different frontier than the intended installed-context
+  compatibility-site focus
+- the wave therefore already contains at least one bad candidate lane even
+  before the verifier files land
+
+Next candidate prepared while `exp142` is still waiting on Harbor completion:
+
+- live root cause from the `exp142` split:
+  - candidate B patched `visualise.py` and only rechecked a few expected lines,
+    but it never proved the edited file still parsed before continuing
+  - candidate A widened back into prerequisite rediscovery (`Cython`, `pytest`,
+    `pyproject.toml`) instead of holding the exact reopened compatibility site
+- new engineer rule added:
+  - after a local source repair that the next build, install, or verification
+    step depends on, prove the edited file still passes the smallest direct
+    integrity check before rebuild or reinstall
+  - if that integrity check fails, keep the loop on that same file until the
+    file-local breakage is repaired
+- focused regression update:
+  - relaxed prompt regression tests remain semantic anchors only
+  - added anchor:
+    `prove the edited file still passes the smallest direct integrity check before rebuild or reinstall`
+- verification:
+  - `bun test test/host/embedded-root.test.ts` red then green
+  - `bun run build:harbor-agent`
+  - `bun run precommit`
+
 ## March 22 `exp92` Live Wave
 
 The next active candidate is `3cbce3b`.

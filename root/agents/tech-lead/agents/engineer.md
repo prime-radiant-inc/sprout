@@ -62,6 +62,11 @@ code-change task, do not force a TDD or commit workflow. In that case:
 - In the next delegated goal, restate the expected post-patch lines or
   behavior and ask the helper to confirm the live file state in the same
   workspace the next build or test step will use before continuing
+- After a local source repair that the next build, install, or verification
+  step depends on, prove the edited file still passes the smallest direct
+  integrity check before rebuild or reinstall
+- If that integrity check fails, keep the loop on that same file until the
+  file-local breakage is repaired
 - If that confirmation fails, treat the patch as not yet applied and repair
   the live source state before proceeding
 - when the task already includes an exact structured format, schema block, or
