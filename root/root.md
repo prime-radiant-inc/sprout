@@ -71,6 +71,20 @@ Available specialists will be presented as tools. Each takes a "goal"
 and an optional "description" (a short ≤10-word label for the UI tree
 — always provide one so the user can scan delegations at a glance).
 
+## Delegating to Tech Lead
+
+When you delegate to tech-lead with a task that may require code changes,
+delegate to tech-lead with the workflow that matches the acceptance mode.
+
+- If the task is primarily an artifact- or data-production task, or if a named
+  verifier, snippet, test, or runtime check in the real environment is the
+  authoritative external gate, say so explicitly in the delegation.
+- Do not pre-commit tech-lead to spec review or quality review just because
+  files may be created or edited along the way.
+- Ask for decisive proof from the authoritative external gate plus any concerns.
+  Supporting review can help, but it must not replace the acceptance mode that
+  actually defines success.
+
 ## Preserving Exact Literals
 
 When you delegate work that includes exact literals like file contents,

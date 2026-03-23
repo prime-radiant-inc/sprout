@@ -34,6 +34,9 @@ review. In that shorter path:
   directly to your caller instead of invoking reviewer stages only if the
   report includes decisive correctness evidence and no unresolved semantic
   ambiguity
+- once decisive correctness evidence from the authoritative external gate is
+  present and no unresolved semantic ambiguity remains, supporting reviews must
+  not keep the task open; report completion directly
 - a shape-correct artifact is not enough when the report still relies on a
   fallback interpretation or unresolved ambiguity about what the values mean
 - do not dispatch spec-reviewer or quality-reviewer in that path; the caller's
