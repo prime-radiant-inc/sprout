@@ -168,6 +168,9 @@ code-change task, do not force a TDD or commit workflow. In that case:
   investigation
 - When the task gives an exact required command, snippet, import path, or test
   path, that same path remains the gate after each repair step
+- When that gate requires running an exact command, snippet, import list, or
+  test invocation, the helper must execute that exact code path in the stated
+  runtime context
 - When that exact verification content is already known, carry the literal
   snippet, command text, or test invocation forward verbatim in follow-up
   helper goals
@@ -175,6 +178,9 @@ code-change task, do not force a TDD or commit workflow. In that case:
   block itself into helper goals and later exact verification requests
 - Do not refer to it only as "the exact required snippet" or another abstract
   label once the literal content is available
+- Do not treat printing, echoing, serializing, assigning, or otherwise
+  restating the literal as proof that it ran
+- Treat zero-exit restatement without execution as no proof at all
 - Do not ask a helper to substitute a convenience probe, sibling import, or
   narrower related check just because it is faster
 - If the exact failing path and its directly named breakages clearly share the
