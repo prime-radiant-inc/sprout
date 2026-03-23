@@ -89,6 +89,7 @@ describe("runHeadlessMode", () => {
 					{
 						handleId: "h1",
 						ownerId: "root",
+						agentName: "worker",
 						result: {
 							kind: "result",
 							handle_id: "h1",

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
 	checkHandleCompleted,
 	extractChildHandles,
+	loadCompletedChildHandles,
 	readHandleResult,
 	replayHandleLog,
 } from "../../src/bus/resume.ts";
@@ -220,8 +221,49 @@ describe("extractChildHandles", () => {
 		expect(handles[0]).toEqual({
 			handleId: "handle-abc",
 			agentName: "code-editor",
+			agentId: undefined,
 			completed: true,
 		});
+	});
+
+	test("extracts completed child handles from a resumed non-root agent log", async () => {
+		const logPath = join(tempDir, "handle.jsonl");
+		await writeEventLog(logPath, [
+			event("perceive", { goal: "Coordinator follow-up" }, 2),
+			event(
+				"act_start",
+				{
+					agent_name: "engineer",
+					handle_id: "handle-nested",
+					child_id: "child-nested",
+				},
+				2,
+			),
+			event(
+				"act_end",
+				{
+					agent_name: "engineer",
+					success: true,
+					handle_id: "handle-nested",
+					child_id: "child-nested",
+					turns: 4,
+					timed_out: false,
+					tool_result_message: Msg.toolResult("c1", "completed"),
+				},
+				2,
+			),
+		]);
+
+		const handles = await extractChildHandles(logPath);
+
+		expect(handles).toEqual([
+			{
+				handleId: "handle-nested",
+				agentName: "engineer",
+				agentId: "child-nested",
+				completed: true,
+			},
+		]);
 	});
 
 	test("extracts non-blocking delegation handle as not completed", async () => {
@@ -413,7 +455,7 @@ describe("extractChildHandles", () => {
 		expect(handles).toEqual([]);
 	});
 
-	test("ignores act_start events at non-zero depth", async () => {
+	test("extracts act_start events at the resumed agent depth", async () => {
 		const logPath = join(tempDir, "session.jsonl");
 		await writeEventLog(logPath, [
 			event(
@@ -422,6 +464,7 @@ describe("extractChildHandles", () => {
 					agent_name: "helper",
 					goal: "sub task",
 					handle_id: "handle-sub",
+					child_id: "child-sub",
 				},
 				1,
 			),
@@ -429,7 +472,14 @@ describe("extractChildHandles", () => {
 
 		const handles = await extractChildHandles(logPath);
 
-		expect(handles).toEqual([]);
+		expect(handles).toEqual([
+			{
+				handleId: "handle-sub",
+				agentName: "helper",
+				agentId: "child-sub",
+				completed: false,
+			},
+		]);
 	});
 
 	test("marks blocking delegation as completed when turns field is present", async () => {
@@ -453,6 +503,89 @@ describe("extractChildHandles", () => {
 
 		expect(handles).toHaveLength(1);
 		expect(handles[0]!.completed).toBe(true);
+	});
+});
+
+describe("loadCompletedChildHandles", () => {
+	let tempDir: string;
+
+	beforeEach(async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "sprout-completed-handles-"));
+	});
+
+	afterEach(async () => {
+		await rm(tempDir, { recursive: true, force: true });
+	});
+
+	test("loads completed handle results with agent metadata for resume", async () => {
+		const logPath = join(tempDir, "handle.jsonl");
+		const handleLogDir = join(tempDir, "children");
+		await mkdir(handleLogDir, { recursive: true });
+
+		await writeEventLog(logPath, [
+			event("perceive", { goal: "Resume coordinator" }, 1),
+			event(
+				"act_start",
+				{
+					agent_name: "engineer",
+					handle_id: "handle-resume",
+					child_id: "child-resume",
+				},
+				1,
+			),
+			event(
+				"act_end",
+				{
+					agent_name: "engineer",
+					success: true,
+					handle_id: "handle-resume",
+					child_id: "child-resume",
+					turns: 3,
+					timed_out: false,
+					tool_result_message: Msg.toolResult("c1", "done"),
+				},
+				1,
+			),
+		]);
+
+		await writeEventLog(join(handleLogDir, "handle-resume.jsonl"), [
+			event("session_start", {}, 2),
+			event(
+				"session_end",
+				{
+					output: "done",
+					success: true,
+					stumbles: 0,
+					turns: 3,
+					timed_out: false,
+				},
+				2,
+			),
+		]);
+
+		const handles = await loadCompletedChildHandles({
+			logPath,
+			handleLogDir,
+			ownerId: "tech-lead",
+		});
+
+		expect(handles).toEqual([
+			{
+				handleId: "handle-resume",
+				ownerId: "tech-lead",
+				agentName: "engineer",
+				agentId: "child-resume",
+				result: {
+					kind: "result",
+					handle_id: "handle-resume",
+					output: "done",
+					success: true,
+					stumbles: 0,
+					turns: 3,
+					timed_out: false,
+				},
+			},
+		]);
 	});
 });
 

@@ -53,22 +53,26 @@ describe("loadResumeState", () => {
 					},
 				],
 				extractChildHandles: async () => [
-					{ handleId: "h1", agentName: "worker", completed: false },
-					{ handleId: "h2", agentName: "worker2", completed: true },
+					{ handleId: "h1", agentName: "worker", completed: true },
+					{ handleId: "h2", agentName: "worker2", completed: false },
 				],
-				checkHandleCompleted: async (_dir, handleId) => handleId === "h1",
-				readHandleResult: async (_dir, handleId) =>
-					handleId === "h1"
-						? {
-								kind: "result",
-								handle_id: "h1",
-								output: "done",
-								success: true,
-								stumbles: 0,
-								turns: 2,
-								timed_out: false,
-							}
-						: null,
+				loadCompletedChildHandles: async () => [
+					{
+						handleId: "h1",
+						ownerId: "root",
+						agentName: "worker",
+						agentId: "child-1",
+						result: {
+							kind: "result",
+							handle_id: "h1",
+							output: "done",
+							success: true,
+							stumbles: 0,
+							turns: 2,
+							timed_out: false,
+						},
+					},
+				],
 				loadAllEventLogs: async () => [
 					{
 						kind: "perceive",
@@ -89,6 +93,8 @@ describe("loadResumeState", () => {
 			{
 				handleId: "h1",
 				ownerId: "root",
+				agentName: "worker",
+				agentId: "child-1",
 				result: {
 					kind: "result",
 					handle_id: "h1",
@@ -101,7 +107,7 @@ describe("loadResumeState", () => {
 			},
 		]);
 		expect(messages[0]).toContain("Resumed session 01ABC with 1 messages");
-		expect(messages[1]).toContain("Child handles: 2 total, 2 completed, 0 pending");
+		expect(messages[1]).toContain("Child handles: 2 total, 1 completed, 1 pending");
 	});
 
 	test("resume loads a canonical selection request from persisted metadata", async () => {
@@ -131,8 +137,7 @@ describe("loadResumeState", () => {
 				loadEventLog: async () => [],
 				loadAllEventLogs: async () => [],
 				extractChildHandles: async () => [],
-				checkHandleCompleted: async () => false,
-				readHandleResult: async () => null,
+				loadCompletedChildHandles: async () => [],
 			},
 		);
 

@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { checkHandleCompleted, extractChildHandles, readHandleResult } from "../bus/resume.ts";
+import { extractChildHandles, loadCompletedChildHandles } from "../bus/resume.ts";
 import type { ResultMessage } from "../bus/types.ts";
 import { loadEventLog } from "../kernel/event-replay.ts";
 import type { SessionEvent } from "../kernel/types.ts";
@@ -29,6 +29,8 @@ export interface ResumeState {
 				handleId: string;
 				result: ResultMessage;
 				ownerId: string;
+				agentName: string;
+				agentId?: string;
 		  }>
 		| undefined;
 }
@@ -38,8 +40,7 @@ interface ResumeDeps {
 	replayEventLog: typeof replayEventLog;
 	loadEventLog: typeof loadEventLog;
 	extractChildHandles: typeof extractChildHandles;
-	checkHandleCompleted: typeof checkHandleCompleted;
-	readHandleResult: typeof readHandleResult;
+	loadCompletedChildHandles: typeof loadCompletedChildHandles;
 	loadAllEventLogs: typeof loadAllEventLogs;
 }
 
@@ -62,8 +63,7 @@ export async function loadResumeState(
 		replayEventLog: deps.replayEventLog ?? replayEventLog,
 		loadEventLog: deps.loadEventLog ?? loadEventLog,
 		extractChildHandles: deps.extractChildHandles ?? extractChildHandles,
-		checkHandleCompleted: deps.checkHandleCompleted ?? checkHandleCompleted,
-		readHandleResult: deps.readHandleResult ?? readHandleResult,
+		loadCompletedChildHandles: deps.loadCompletedChildHandles ?? loadCompletedChildHandles,
 		loadAllEventLogs: deps.loadAllEventLogs ?? loadAllEventLogs,
 	};
 
@@ -79,29 +79,18 @@ export async function loadResumeState(
 	const history = await d.replayEventLog(logPath);
 	opts.onInfo?.(`Resumed session ${sessionId} with ${history.length} messages of history`);
 
-	const childHandles = await d.extractChildHandles(logPath);
 	let completedHandles: ResumeState["completedHandles"];
+	const completed = await d.loadCompletedChildHandles({
+		logPath,
+		handleLogDir: join(opts.projectDataDir, "logs", sessionId),
+		ownerId: "root",
+	});
+	if (completed.length > 0) {
+		completedHandles = completed;
+	}
+	const childHandles = await d.extractChildHandles(logPath);
 	if (childHandles.length > 0) {
-		const handleLogDir = join(opts.projectDataDir, "logs", sessionId);
-		const completed = (
-			await Promise.all(
-				childHandles.map(async (handle) => {
-					if (!handle.completed) {
-						handle.completed = await d.checkHandleCompleted(handleLogDir, handle.handleId);
-					}
-					if (!handle.completed) return null;
-
-					const result = await d.readHandleResult(handleLogDir, handle.handleId);
-					if (!result) return null;
-
-					return { handleId: handle.handleId, result, ownerId: "root" as const };
-				}),
-			)
-		).filter((handle): handle is NonNullable<typeof handle> => handle !== null);
-		if (completed.length > 0) {
-			completedHandles = completed;
-		}
-		const completedCount = childHandles.filter((h) => h.completed).length;
+		const completedCount = completed.length;
 		const pendingCount = childHandles.length - completedCount;
 		opts.onInfo?.(
 			`  Child handles: ${childHandles.length} total, ${completedCount} completed, ${pendingCount} pending`,

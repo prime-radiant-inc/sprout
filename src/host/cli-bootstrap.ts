@@ -46,7 +46,13 @@ export interface SessionBootstrapOptions {
 	nonInteractive?: boolean;
 	initialHistory?: Message[];
 	initialSelectionRequest?: SessionSelectionRequest;
-	completedHandles?: Array<{ handleId: string; result: ResultMessage; ownerId: string }>;
+	completedHandles?: Array<{
+		handleId: string;
+		result: ResultMessage;
+		ownerId: string;
+		agentName: string;
+		agentId?: string;
+	}>;
 	infra: { spawner: AgentSpawner; genome: Genome };
 	logStderr?: boolean;
 	debug?: boolean;
@@ -104,7 +110,13 @@ interface InteractiveBootstrapDeps {
 		getResolverSettings?: () => ReturnType<typeof createResolverSettings>;
 		spawner: AgentSpawner;
 		genome: Genome;
-		completedHandles?: Array<{ handleId: string; result: ResultMessage; ownerId: string }>;
+		completedHandles?: Array<{
+			handleId: string;
+			result: ResultMessage;
+			ownerId: string;
+			agentName: string;
+			agentId?: string;
+		}>;
 		logger: unknown;
 		client: unknown;
 	}) => unknown;

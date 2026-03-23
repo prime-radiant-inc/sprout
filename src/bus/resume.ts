@@ -9,12 +9,21 @@ import type { ResultMessage } from "./types.ts";
 export interface ChildHandleInfo {
 	handleId: string;
 	agentName: string;
+	agentId?: string;
 	completed: boolean;
 }
 
+export interface CompletedChildHandleInfo {
+	handleId: string;
+	result: ResultMessage;
+	ownerId: string;
+	agentName: string;
+	agentId?: string;
+}
+
 /**
- * Scan a root agent's JSONL event log for act_start and act_end events
- * at depth 0 that contain a handle_id field (spawner-delegated agents).
+ * Scan an agent's JSONL event log for act_start and act_end events
+ * at that agent's own depth that contain a handle_id field (spawner-delegated agents).
  *
  * act_start events record the handle_id at delegation time, so in-flight
  * delegations (where the agent died before act_end) are still visible.
@@ -30,6 +39,7 @@ export async function extractChildHandles(logPath: string): Promise<ChildHandleI
 
 	const lines = raw.split("\n").filter((line) => line.trim() !== "");
 	const handleMap = new Map<string, ChildHandleInfo>();
+	let agentDepth: number | undefined;
 
 	for (const line of lines) {
 		let event: SessionEvent;
@@ -39,7 +49,10 @@ export async function extractChildHandles(logPath: string): Promise<ChildHandleI
 			continue;
 		}
 
-		if (event.depth !== 0) continue;
+		if (agentDepth == null) {
+			agentDepth = event.depth;
+		}
+		if (event.depth !== agentDepth) continue;
 
 		if (event.kind === "act_start") {
 			const handleId = event.data.handle_id as string | undefined;
@@ -47,6 +60,7 @@ export async function extractChildHandles(logPath: string): Promise<ChildHandleI
 				handleMap.set(handleId, {
 					handleId,
 					agentName: (event.data.agent_name as string) ?? "unknown",
+					agentId: event.data.child_id as string | undefined,
 					completed: false,
 				});
 			}
@@ -59,11 +73,15 @@ export async function extractChildHandles(logPath: string): Promise<ChildHandleI
 			const existing = handleMap.get(handleId);
 			if (existing) {
 				existing.completed = event.data.turns != null;
+				if (!existing.agentId) {
+					existing.agentId = event.data.child_id as string | undefined;
+				}
 			} else {
 				// act_end without act_start (shouldn't happen, but handle gracefully)
 				handleMap.set(handleId, {
 					handleId,
 					agentName: (event.data.agent_name as string) ?? "unknown",
+					agentId: event.data.child_id as string | undefined,
 					completed: event.data.turns != null,
 				});
 			}
@@ -148,4 +166,39 @@ export async function readHandleResult(
 	}
 
 	return null;
+}
+
+export async function loadCompletedChildHandles(opts: {
+	logPath: string;
+	handleLogDir: string;
+	ownerId: string;
+}): Promise<CompletedChildHandleInfo[]> {
+	const childHandles = await extractChildHandles(opts.logPath);
+	if (childHandles.length === 0) {
+		return [];
+	}
+
+	const completed = (
+		await Promise.all(
+			childHandles.map(async (handle) => {
+				if (!handle.completed) {
+					handle.completed = await checkHandleCompleted(opts.handleLogDir, handle.handleId);
+				}
+				if (!handle.completed) return null;
+
+				const result = await readHandleResult(opts.handleLogDir, handle.handleId);
+				if (!result) return null;
+
+				return {
+					handleId: handle.handleId,
+					result,
+					ownerId: opts.ownerId,
+					agentName: handle.agentName,
+					agentId: handle.agentId,
+				} satisfies CompletedChildHandleInfo;
+			}),
+		)
+	).filter((handle): handle is NonNullable<typeof handle> => handle !== null);
+
+	return completed;
 }

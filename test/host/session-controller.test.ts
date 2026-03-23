@@ -1517,6 +1517,7 @@ describe("SessionController", () => {
 					timed_out: false,
 				},
 				ownerId: "root",
+				agentName: "worker",
 			},
 		];
 

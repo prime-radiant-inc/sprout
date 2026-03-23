@@ -79,6 +79,8 @@ export interface AgentFactoryOptions {
 		handleId: string;
 		result: import("../bus/types.ts").ResultMessage;
 		ownerId: string;
+		agentName: string;
+		agentId?: string;
 	}>;
 	/** Structured logger for LLM call logging and diagnostics. */
 	logger?: import("./logger.ts").Logger;
@@ -121,6 +123,8 @@ export interface SessionControllerOptions {
 		handleId: string;
 		result: import("../bus/types.ts").ResultMessage;
 		ownerId: string;
+		agentName: string;
+		agentId?: string;
 	}>;
 	/** Structured logger for LLM call logging and diagnostics. */
 	logger?: import("./logger.ts").Logger;
@@ -155,8 +159,19 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 	if (options.spawner) {
 		// Pre-register completed child handles from a previous session
 		if (options.completedHandles) {
-			for (const { handleId, result, ownerId } of options.completedHandles) {
-				options.spawner.registerCompletedHandle(handleId, result, ownerId);
+			for (const { handleId, result, ownerId, agentName, agentId } of options.completedHandles) {
+				options.spawner.registerCompletedHandle(handleId, result, ownerId, {
+					agentName,
+					genomePath: options.genomePath,
+					caller: { agent_name: ownerId, depth: 0 },
+					workDir: options.workDir,
+					agentId,
+					evalMode: options.evalMode,
+					rootDir: options.rootDir,
+					projectDataDir: options.projectDataDir,
+					providerIdOverride: options.providerIdOverride,
+					resolverSettings: options.resolverSettings,
+				});
 			}
 		}
 	}

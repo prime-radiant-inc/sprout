@@ -1210,6 +1210,41 @@ describe("AgentSpawner", () => {
 
 			expect(spawner.getHandles()).toContain("01HANDLELIST0000000000000000");
 		});
+
+		test("messageAgent can respawn a pre-registered completed handle with saved spawn info", async () => {
+			const mockClient = createMockClient("Respawned from completed handle.");
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			const handleId = "01RESPAWNRESUME000000000000";
+			const result: ResultMessage = {
+				kind: "result",
+				handle_id: handleId,
+				output: "Completed in a previous process",
+				success: true,
+				stumbles: 0,
+				turns: 2,
+				timed_out: false,
+			};
+
+			spawner.registerCompletedHandle(handleId, result, "root", {
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: { agent_name: "root", depth: 0 },
+				workDir: tempDir,
+				providerIdOverride: TEST_PROVIDER_ID,
+				resolverSettings: TEST_RESOLVER_SETTINGS,
+			});
+
+			const continued = await spawner.messageAgent(
+				handleId,
+				"Continue from the restored completed state",
+				{ agent_name: "root", depth: 0 },
+				true,
+			);
+
+			expect(continued?.output).toBe("Respawned from completed handle.");
+			expect(continued?.success).toBe(true);
+		}, 15_000);
 	});
 
 	describe("clearHandles", () => {

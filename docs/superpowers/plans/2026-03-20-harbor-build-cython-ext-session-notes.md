@@ -1289,3 +1289,637 @@ Next candidate after `exp114`:
 - once decisive correctness evidence from the authoritative external gate
   exists and no unresolved ambiguity remains, supporting reviews must not keep
   the task open
+
+`exp115` `multi-source-data-merger` confirmation:
+
+- candidate commit `dd15817` is a real keep on this task family
+- candidate lanes:
+  - candidate A: clean pass, reward `1.0`, no exception
+  - candidate B: clean pass, reward `1.0`, no exception
+- main control lanes:
+  - control A: failed, reward `0.0`
+  - control B: clean pass, reward `1.0`, no exception
+- interpretation:
+  - `main` can still pass this task, but it is materially less reliable
+  - the active branch improvement is reliability, not just a lucky single lane
+  - the accepted general rule is:
+    - root must delegate to `tech-lead` with the workflow that matches the
+      authoritative acceptance mode
+    - artifact- or data-production tasks must not be pre-committed to the full
+      spec-review / quality-review ceremony
+    - once decisive external proof exists and no unresolved ambiguity remains,
+      supporting review must not keep the task open
+
+Operational note from `exp115`:
+
+- worktrees do not carry the ignored `inspo/harbor` checkout
+- for local control runs, the correct pattern is:
+  - build the agent binary inside the worktree being tested
+  - run Harbor from the shared repo checkout
+  - point `PYTHONPATH` at the specific worktree's `tools/harbor`
+
+Next task after `multi-source-data-merger`:
+
+- `vulnerable-secret`
+- reason:
+  - it is still in the original broad local-functionality batch
+  - it exercises a different task family from the artifact/data merge path
+  - it is a good test of whether the new workflow-closing keep helps only the
+    current task or improves broader benchmark reliability
+
+`exp116` `vulnerable-secret` generalization check:
+
+- candidate branch: `wip/active-eval-loop-mainline` at `dd15817`
+- control branch: `main`
+- task: `vulnerable-secret`
+- model shape:
+  - `best_model=openai:gpt-5.4`
+  - `balanced_model=openai:gpt-5.4`
+  - `fast_model=openai:gpt-5-mini`
+- run shape:
+  - Harbor executed from the shared repo checkout
+  - `PYTHONPATH` pointed at the branch-specific `tools/harbor`
+  - this kept the tested branch isolated without depending on ignored
+    `inspo/harbor` contents inside a worktree
+
+`exp116` outcome:
+
+- candidate A: clean pass, reward `1.0`, no exception
+- candidate B: clean pass, reward `1.0`, no exception
+- control A: clean pass, reward `1.0`, no exception
+- control B: clean pass, reward `1.0`, no exception
+
+Interpretation:
+
+- `dd15817` did not buy a reliability edge on `vulnerable-secret`
+- it also did not regress the task
+- this is neutral generalization signal:
+  - the `multi-source-data-merger` keep appears task-family-specific so far
+  - `vulnerable-secret` is already robust enough that the workflow-closing
+    improvement does not change the result distribution
+
+Operational decision after `exp116`:
+
+- stop using ad hoc detached shell launch patterns when the repo already has a
+  documented local Harbor workflow
+- prefer:
+  - build the agent binary in the branch being tested
+  - run `uv run harbor run` from the shared Harbor checkout
+  - track completion from trial `result.json` and verifier artifacts
+
+Next task after `vulnerable-secret`:
+
+- `log-summary-date-ranges`
+- reason:
+  - it was one of the original broad-batch failures
+  - its frontier was artifact semantics, not secret extraction
+  - it is a better test of whether `dd15817` helps tasks whose acceptance gate
+    is an externally checked output artifact
+
+`exp117` `log-summary-date-ranges` generalization check:
+
+- candidate branch: `wip/active-eval-loop-mainline` at `dd15817`
+- control branch: `main`
+- task: `log-summary-date-ranges`
+- model shape:
+  - `best_model=openai:gpt-5.4`
+  - `balanced_model=openai:gpt-5.4`
+  - `fast_model=openai:gpt-5-mini`
+- run shape:
+  - same documented local Harbor workflow as `exp116`
+  - Harbor from the shared checkout
+  - branch-specific `PYTHONPATH` for `tools/harbor`
+
+`exp117` outcome:
+
+- candidate A: clean pass, reward `1.0`, no exception
+- candidate B: clean pass, reward `1.0`, no exception
+- control A: clean pass, reward `1.0`, no exception
+- control B: clean pass, reward `1.0`, no exception
+
+Interpretation:
+
+- this is another neutral generalization check
+- `dd15817` does not improve a task family that is already robust on `main`
+- the candidate and control reached the same accepted artifact outcome
+- the interesting branch-local behavior difference was earlier in the repair
+  path:
+  - one candidate lane recovered from a shell-script stumble by transforming an
+    already-produced artifact into the exact verifier shape
+  - control lanes delegated the counting/writing path more conservatively
+  - despite different internal routes, the final benchmark outcome was still
+    `4/4` clean green
+
+Operational note from `exp117`:
+
+- local Harbor startup for this task can spend over a minute in container
+  bootstrap before `trajectory.json` appears
+- empty `job.log`, empty `trial.log`, and missing `trajectory.json` are not by
+  themselves evidence of a dead run during that setup window
+- the decisive liveness check was the container process table inside the local
+  Docker environment
+
+Next task after `log-summary-date-ranges`:
+
+- `sqlite-db-truncate`
+- reason:
+  - it still ends in an externally verified artifact, so the acceptance-mode
+    keep remains relevant
+  - it requires more recovery work than the already-robust ops tasks
+  - it is a better chance of seeing whether `dd15817` matters once the task is
+    not already trivially green on `main`
+
+`exp118` `sqlite-db-truncate` regression check:
+
+- candidate branch: `wip/active-eval-loop-mainline` at `dd15817`
+- control branch: `main`
+- task: `sqlite-db-truncate`
+- model shape:
+  - `best_model=openai:gpt-5.4`
+  - `balanced_model=openai:gpt-5.4`
+  - `fast_model=openai:gpt-5-mini`
+- run shape:
+  - same documented local Harbor workflow as `exp116` and `exp117`
+  - Harbor from the shared checkout
+  - branch-specific `PYTHONPATH` for `tools/harbor`
+
+`exp118` outcome:
+
+- candidate A: reward `0.0`, no exception, verifier score `0`
+- candidate B: reward `0.0`, no exception, verifier score `0`
+- control A: reward `0.0`, no exception, verifier score `6`
+- control B: reward `0.0`, no exception, verifier score `2`
+
+Interpretation:
+
+- `dd15817` regresses this recovery task family relative to `main`
+- the active branch closes too easily on a plausible-looking recovery artifact
+  even when the recovered values are not grounded by decisive source evidence
+- `main` is still not good enough to pass the task, but it holds the repair
+  loop on structure-aware evidence much longer and materially outperforms the
+  active branch
+- this is not a close call:
+  - both active lanes produced `0` exact tuple matches
+  - `main` recovered `6` matches in one lane and `2` in the other
+
+Root-cause note from `exp118`:
+
+- the current workflow-closing keep overgeneralizes from "artifact exists and
+  external gate is authoritative" to "plausible-looking artifact is good enough
+  to report"
+- on recovery tasks, that is wrong
+- a shape-correct JSON artifact with guessed normalization, placeholder values,
+  null padding, or heuristic fill-in is still supporting evidence only until
+  the recovered values themselves are tied back to the named input evidence
+
+Prompt fix after `exp118`:
+
+- strengthen root delegation so recovery or extraction tasks require proof that
+  output values are grounded by the named input evidence
+- strengthen `tech-lead` so best-effort recovery, heuristic fill-in, guessed
+  normalization, or null-padded artifacts cannot close the task without
+  source-grounded proof
+
+Next task after `exp118`:
+
+- rerun `sqlite-db-truncate`
+- reason:
+  - this is the right local confirmation target for the new guardrail
+  - the failure family is now specific and repeatable
+  - moving to a new task before retesting would throw away clean causal signal
+
+`exp119` `sqlite-db-truncate` rerun after heuristic-recovery guardrail:
+
+- candidate branch: `wip/active-eval-loop-mainline` at `70f0cfc`
+- control branch: `main`
+- task: `sqlite-db-truncate`
+- model shape:
+  - `best_model=openai:gpt-5.4`
+  - `balanced_model=openai:gpt-5.4`
+  - `fast_model=openai:gpt-5-mini`
+
+`exp119` outcome:
+
+- candidate A: reward `0.0`, no exception, verifier score `6`
+- candidate B: reward `0.0`, no exception, verifier score `0`
+- control A: reward `0.0`, no exception, verifier score `0`
+- control B: clean pass, reward `1.0`, no exception
+
+Interpretation:
+
+- `70f0cfc` is not a keep
+- the new guardrail changed behavior in the right direction but was not stable
+- candidate B avoided the old plausible full-artifact failure and stopped at a
+  smaller grounded subset
+- candidate A got materially closer to the pass threshold than the old
+  candidate baseline by recovering `6` exact rows
+- but `main` still won the batch because one control lane passed cleanly
+
+Root-cause note from `exp119`:
+
+- candidate A decoded the last two rows correctly from the bytes:
+  - `testword08 -> 99.99`
+  - `testword09 -> 0.5`
+- it then discarded them because it treated the user's integer-shaped example
+  (`"value": M`) as an implicit integer-only domain constraint
+- that is the wrong abstraction:
+  - the example defines schema shape
+  - it does not silently narrow the allowed value domain when direct source
+    evidence establishes additional values of the same field
+- control B continued on the established structure-aware path and kept the
+  float rows, which is why it passed
+
+Prompt fix after `exp119`:
+
+- root: for recovery tasks, treat example rows or sample values as schema-shape
+  guidance, not a hidden value-domain restriction, unless the caller
+  explicitly constrains the domain or type
+- `tech-lead`: when direct source evidence recovers additional values that
+  still fit the required schema, do not exclude them just because the example
+  was narrower or integer-shaped
+
+Next task after `exp119`:
+
+- rerun `sqlite-db-truncate`
+- reason:
+  - this is still the cleanest confirmation target for the new root-cause fix
+  - the decisive failure mode is now specific: over-reading examples as domain
+    restrictions
+  - the batch should tell us quickly whether this becomes a real keep or just a
+    narrower near-miss
+
+`exp120` `sqlite-db-truncate` rerun after value-domain fix:
+
+- candidate branch: `wip/active-eval-loop-mainline` at `8b5f33e`
+- control branch: `main`
+- task: `sqlite-db-truncate`
+- model shape:
+  - `best_model=openai:gpt-5.4`
+  - `balanced_model=openai:gpt-5.4`
+  - `fast_model=openai:gpt-5-mini`
+
+`exp120` outcome:
+
+- candidate A: reward `0.0`, no exception, verifier score `0`
+- candidate B: reward `0.0`, no exception, verifier score `6`
+- control A: clean pass, reward `1.0`, no exception
+- control B: reward `0.0`, no exception, verifier score `0`
+
+Interpretation:
+
+- `8b5f33e` is not a keep
+- it improved one candidate lane materially:
+  - candidate B reached the same `6`-match near-miss frontier
+  - while one control lane stayed at `0`
+- but candidate A still regressed badly, so the patch is not stable enough
+- this means the higher-level example-value fix is directionally right, but a
+  lower-layer agent contract is still allowing the wrong method on some paths
+
+Root-cause note from `exp120`:
+
+- candidate A reopened a weaker recovery method after the stronger SQLite
+  leaf-page / serial-type decode had already been established
+- instead of staying inside the proven record structure, it switched to a
+  looser nearby-byte interpretation and produced garbage like:
+  - `testword07c`
+  - `testword06K`
+  - `testword052`
+  - large nonsensical integers
+- that exposes a lower-layer contract bug in `command-runner`:
+  - the current prompt still allows a structured recovery task to fall back to
+    weaker adjacency heuristics after a stronger model is already known
+  - it also still phrases example-value shape too much like an admissibility
+    gate instead of a field-role/schema check
+
+Prompt fix after `exp120`:
+
+- `command-runner`: once a structure-aware decode has established field
+  boundaries, record layout, or typed field decoders, do not switch to weaker
+  adjacency or nearby-byte heuristics for those same fields unless new
+  evidence breaks the stronger model
+- `command-runner`: example values are a field-role/schema check, not a hidden
+  value-domain restriction unless the caller explicitly says only certain
+  values or types are allowed
+
+Next task after `exp120`:
+
+- rerun `sqlite-db-truncate`
+- reason:
+  - the remaining instability is now isolated to the lower execution layer
+  - this new fix is still general and directly tied to the observed failure
+  - rerunning the same task gives the cleanest confirmation signal before
+    widening again
+
+`exp121` `sqlite-db-truncate` rerun after lower-layer decode fix:
+
+- candidate branch: `wip/active-eval-loop-mainline` at `c0fc1bc`
+- control branch: `main`
+- task: `sqlite-db-truncate`
+- model shape:
+  - `best_model=openai:gpt-5.4`
+  - `balanced_model=openai:gpt-5.4`
+  - `fast_model=openai:gpt-5-mini`
+
+`exp121` partial outcome:
+
+- candidate A: clean pass, reward `1.0`, no exception
+- candidate B: reward `0.0`, no exception, verifier score `2`
+- control B: clean pass, reward `1.0`, no exception
+- control A: reward `0.0`, no exception
+
+Interpretation:
+
+- `c0fc1bc` is not a keep
+- it materially improved one candidate lane all the way to a clean pass
+- but the second candidate lane still collapsed into a weaker, wrong decoding
+  method, so the fix is not stable enough
+
+Root-cause note from `exp121`:
+
+- candidate A stayed on the structured SQLite leaf-page decode and recovered:
+  - `testword00 -> 1`
+  - ...
+  - `testword08 -> 99.99`
+  - `testword09 -> 0.5`
+- candidate B surfaced the correct keys, then abandoned record structure and
+  paired each recovered key with the next 8 raw bytes after the string,
+  interpreting those adjacent bytes as doubles
+- that produced the classic wrong-shape numeric garbage like:
+  - `8.960515547256254e-299`
+  - `3.151125814673771e-260`
+- so the remaining lower-layer bug is narrower than `exp120`:
+  - the prompt now discourages broad weaker adjacency fallbacks
+  - but it still allows one field to be filled from bytes immediately adjacent
+    to another recovered field even when the container structure is already
+    known or still parseable
+
+Prompt fix after `exp121`:
+
+- `command-runner`: if a structured container or record model is already known
+  or still directly parseable, do not fill one field from the raw bytes
+  immediately before or after another recovered field just because those bytes
+  are nearby
+- `command-runner`: treat key-local or token-local byte adjacency as
+  supporting evidence only until record framing or another structure-aware
+  decode directly supports that field value
+
+Next task after `exp121`:
+
+- rerun `sqlite-db-truncate`
+- reason:
+  - the new failure is a clean generalization of the surviving bad path
+  - the candidate/control split is now methodologically sharp
+  - the same task is still the fastest way to confirm whether this narrower
+    adjacency rule becomes a real keep
+
+Commit after `exp121`:
+
+- `2cd47f7` `fix: keep adjacent bytes from closing structured fields`
+
+`exp122` `sqlite-db-truncate` rerun after adjacency-field fix:
+
+- candidate branch: `wip/active-eval-loop-mainline` at `2cd47f7`
+- control branch: `main`
+- task: `sqlite-db-truncate`
+- model shape:
+  - `best_model=openai:gpt-5.4`
+  - `balanced_model=openai:gpt-5.4`
+  - `fast_model=openai:gpt-5-mini`
+- launch dirs:
+  - candidate A: `/tmp/sprout-exp122-candidate-a.qp0an4pk`
+  - candidate B: `/tmp/sprout-exp122-candidate-b.s7uzvga_`
+  - control A: `/tmp/sprout-exp122-control-a.zq5k2pur`
+  - control B: `/tmp/sprout-exp122-control-b.43mzm21d`
+
+`exp122` outcome:
+
+- candidate A: reward `0.0`, no exception, verifier score `0`
+- candidate B: reward `0.0`, no exception, verifier score `6`
+- control A: reward `0.0`, no exception, verifier score `0`
+- control B: reward `0.0`, no exception, verifier score `6`
+
+Interpretation:
+
+- `2cd47f7` is not a keep
+- the adjacency-field fix did not improve the batch over `main`
+- both branches still split between:
+  - fully wrong typed/semantic values
+  - near-pass outputs that still violate the exact field contract on the last
+    unresolved rows
+
+Root-cause note from `exp122`:
+
+- candidate A wrote all 10 `word` values but filled `value` with strings like:
+  - `"?"`
+  - `"@X"`
+  - `"0x19"`
+  - `""`
+- candidate B wrote mostly correct numeric rows but still used:
+  - `null` for unresolved numeric values
+- both candidate lanes then reported the output as being in the required
+  format because the array/object shape and keys matched
+- that exposes the next lower-layer contract bug:
+  - shape-only validation is still outranking exact field-type requirements
+  - a required numeric field is being treated as satisfied by any placeholder
+    that preserves object shape
+  - rows with wrong-typed fields are still being counted as recovered rows
+
+Prompt fix after `exp122`:
+
+- `command-runner`: when the caller specifies exact field types, treat those
+  types as part of the exact schema, not as optional refinements
+- `command-runner`: do not report success or “required format” when keys match
+  but a required field is still `null`, stringly-typed, a raw marker, or
+  another placeholder for an unresolved typed value
+- `command-runner`: if a required typed field is unresolved, keep the task
+  open and treat that row as partial instead of counting it as recovered
+
+Next task after `exp122`:
+
+- rerun `sqlite-db-truncate`
+- reason:
+  - the remaining failure is now a pure schema-validity contract issue
+  - this is broader than SQLite and directly useful for any typed extraction
+    task
+  - the same task remains the fastest confirmation target
+
+Commit after `exp122`:
+
+- `94d2a3b` `fix: keep type-invalid rows from closing schemas`
+
+`exp123` `sqlite-db-truncate` rerun after schema-type gate fix:
+
+- candidate branch: `wip/active-eval-loop-mainline` at `94d2a3b`
+- control branch: `main`
+- task: `sqlite-db-truncate`
+- model shape:
+  - `best_model=openai:gpt-5.4`
+  - `balanced_model=openai:gpt-5.4`
+  - `fast_model=openai:gpt-5-mini`
+- launch dirs:
+  - candidate A: `/tmp/sprout-exp123-candidate-a.9ep9yrma`
+  - candidate B: `/tmp/sprout-exp123-candidate-b.dlbvka84`
+  - control A: `/tmp/sprout-exp123-control-a.rx4nvl_b`
+  - control B: `/tmp/sprout-exp123-control-b.787u5502`
+
+`exp123` outcome:
+
+- candidate A: clean pass, reward `1.0`, no exception
+- candidate B: reward `0.0`, no exception
+- control A: reward `0.0`, no exception, verifier score `2`
+- control B: reward `0.0`, no exception, verifier score `0`
+
+Interpretation:
+
+- `94d2a3b` is a real keep
+- candidate batch: `1 pass / 1 fail`
+- control batch: `0 pass / 2 fail`
+- this is the first sqlite rerun in the recent sequence where the candidate
+  clearly outperformed `main` across the batch rather than merely tying it
+
+Root-cause note confirmed by `exp123`:
+
+- the exact-schema type gate changes behavior in a useful way
+- one candidate lane that previously would have closed on `null`/string
+  placeholders instead kept digging and reached a clean pass
+- `main` still closed early on partial or narrowly grounded outputs and never
+  got a pass in the same wave
+
+Keep checkpoint:
+
+- `94d2a3b` `fix: keep type-invalid rows from closing schemas`
+
+Next task after `exp123`:
+
+- move the active baseline to `94d2a3b`
+- switch to `log-summary-date-ranges`
+- reason:
+  - it was the remaining failure in the earlier broad-functionality batch that
+    still looks like an exact-structure/exact-semantics task
+  - that makes it a good generalization target for the new schema-validity
+    baseline before chasing another recovery-only frontier
+
+`exp124` `log-summary-date-ranges` from the new baseline:
+
+- candidate branch: `wip/active-eval-loop-mainline` at `94d2a3b`
+- control branch: `main`
+- task: `log-summary-date-ranges`
+- model shape:
+  - `best_model=openai:gpt-5.4`
+  - `balanced_model=openai:gpt-5.4`
+  - `fast_model=openai:gpt-5-mini`
+- launch dirs:
+  - candidate A: `/tmp/sprout-exp124-candidate-a.66apsbe5`
+  - candidate B: `/tmp/sprout-exp124-candidate-b.faa_fs2l`
+  - control A: `/tmp/sprout-exp124-control-a.dlvm8iyg`
+  - control B: `/tmp/sprout-exp124-control-b.vcg2igta`
+
+`exp124` outcome:
+
+- candidate A: verifier green (`2 passed / 0 failed`), `exception_info: null`
+- candidate B: verifier green (`2 passed / 0 failed`), `exception_info: null`
+- control A: verifier green (`2 passed / 0 failed`), `exception_info: null`
+- control B: verifier green (`2 passed / 0 failed`), `exception_info: null`
+- note:
+  - Harbor again left `reward: null` in all four `result.json` files
+  - for this run family, the trustworthy success signal was green verifier output
+    plus `exception_info: null`
+
+Interpretation:
+
+- clean `2/2` tie between active baseline `94d2a3b` and `main`
+- the new schema-validity keep does not regress this exact-structure reporting
+  task
+- `log-summary-date-ranges` is no longer the best frontier for further
+  hill-climbing from this baseline
+
+Next task after `exp124`:
+
+- `multi-source-data-merger`
+- reason:
+  - it was an earlier broad-batch failure on `main`
+  - the active branch already has a real keep on this task family (`dd15817`)
+  - rerunning it from the newer `94d2a3b` baseline is the next clean check for
+    whether the accumulated keeps still preserve that earlier reliability edge
+
+Operational note before `exp125`:
+
+- the direct backgrounded shell launcher path is not trustworthy for local
+  Harbor runs in this environment
+- foreground `uv run harbor run ...` holds and creates trials correctly
+- detached launches also hold when started with a fresh session
+  (`subprocess.Popen(..., start_new_session=True)`)
+- use the documented local Harbor workflow plus a fresh session for background
+  runs instead of plain `nohup ... &`
+
+`exp125` `multi-source-data-merger` from the `94d2a3b` baseline:
+
+- candidate branch: `wip/active-eval-loop-mainline` at `94d2a3b`
+- control branch: `main` at `35f7cd1`
+- task: `multi-source-data-merger`
+- model shape:
+  - `best_model=openai:gpt-5.4`
+  - `balanced_model=openai:gpt-5.4`
+  - `fast_model=openai:gpt-5-mini`
+- launch dirs:
+  - candidate A: `/tmp/sprout-exp125-debug.svIsbJ`
+  - candidate B: `/tmp/sprout-exp125-candidate-b.2foxcqy3`
+  - control A: `/tmp/sprout-exp125-control-a.0xk56dhs`
+  - control B: `/tmp/sprout-exp125-control-b.sfu79pu2`
+
+`exp125` outcome:
+
+- candidate A: verifier green (`3 passed / 0 failed`), `exception_info: null`
+- candidate B: verifier green (`3 passed / 0 failed`), `exception_info: null`
+- control A: failed (`merged_users.parquet` and `conflicts.json` missing)
+- control B: failed (`merged_users.parquet` and `conflicts.json` missing)
+- note:
+  - Harbor again left `reward`, `status`, and `completed_at` unset in
+    `result.json`, so the trustworthy signal stayed verifier output plus
+    `exception_info`
+
+Interpretation:
+
+- the active baseline still clearly beats `main` on `multi-source-data-merger`
+- candidate B also surfaced a real bus-resume defect during the run, even
+  though that particular rep still got home:
+  - a resumed nested coordinator attempted `message_agent` on a previously
+    delegated child handle and got `Unknown handle`
+  - the visible failure showed up in
+    `/tmp/sprout-exp125-candidate-b.2foxcqy3/.../01KMCDZHDF61WM1916M8CM6RCM.jsonl`
+
+Resume/runtime root cause found after `exp125`:
+
+- resumed agent processes were only replaying their own history
+- they were not reliably reconstructing the completed delegated child handles
+  visible in that history for nested non-root agents
+- and even when a completed handle was pre-registered into the spawner, the
+  respawn path for that handle did not subscribe to its result topic
+- that meant `messageAgent()` on a resumed completed handle could fall through
+  to the synthetic `Agent process ... exited with code 0` failure even though
+  the respawned child actually completed
+
+Runtime fix work after `exp125`:
+
+- generalized child-handle extraction to the resumed agent's own depth instead
+  of hardcoded root depth
+- added completed-handle loading with agent metadata
+- pre-registered completed child handles during nested agent resume
+- fixed `AgentSpawner` so respawning a pre-registered completed handle
+  subscribes to its result topic before waiting for the next result
+
+Repo verification for the runtime fix:
+
+- `bun test test/host/cli-resume.test.ts test/bus/spawner.test.ts test/bus/resume.test.ts`
+  - `75 pass / 0 fail`
+- `bun test test/bus/agent-process.test.ts test/host/cli-resume.test.ts test/bus/spawner.test.ts test/bus/resume.test.ts`
+  - `96 pass / 0 fail`
+
+Operational note on Harbor support:
+
+- the repo does have a real Harbor runner harness under `inspo/harbor-runner`,
+  but that path is the AWS spot-instance runner
+- for local hill-climbing, the stable supported path remains direct
+  `uv run harbor run` from the shared Harbor checkout
+- the unreliable piece was the ad hoc detached shell launcher, not missing
+  Harbor runner support

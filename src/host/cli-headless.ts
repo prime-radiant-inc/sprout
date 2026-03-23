@@ -30,6 +30,8 @@ export interface RunHeadlessOptions {
 		handleId: string;
 		result: ResultMessage;
 		ownerId: string;
+		agentName: string;
+		agentId?: string;
 	}>;
 	startBusInfrastructure: (options: {
 		genomePath: string;

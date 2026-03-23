@@ -289,6 +289,31 @@ export class AgentSpawner {
 		});
 	}
 
+	private async subscribeToResultTopic(handle: AgentHandle): Promise<void> {
+		if (handle.resultTopic) {
+			return;
+		}
+
+		const resultTopic = agentResult(this.sessionId, handle.handleId);
+		handle.resultTopic = resultTopic;
+		await this.bus.subscribe(resultTopic, (payload) => {
+			try {
+				const msg = parseBusMessage(payload);
+				if (msg.kind === "result") {
+					handle.result = msg;
+					handle.status = handle.shared ? "idle" : "completed";
+					for (const waiter of handle.pendingWaiters) {
+						clearTimeout(waiter.timer);
+						waiter.resolve(msg);
+					}
+					handle.pendingWaiters = [];
+				}
+			} catch {
+				// Ignore malformed messages
+			}
+		});
+	}
+
 	/**
 	 * Spawn a new agent process.
 	 *
@@ -335,24 +360,7 @@ export class AgentSpawner {
 		this.monitorProcessExit(handleId, proc);
 
 		// Subscribe to result topic to track status
-		const resultTopic = agentResult(this.sessionId, handleId);
-		handle.resultTopic = resultTopic;
-		await this.bus.subscribe(resultTopic, (payload) => {
-			try {
-				const msg = parseBusMessage(payload);
-				if (msg.kind === "result") {
-					handle.result = msg;
-					handle.status = opts.shared ? "idle" : "completed";
-					for (const waiter of handle.pendingWaiters) {
-						clearTimeout(waiter.timer);
-						waiter.resolve(msg);
-					}
-					handle.pendingWaiters = [];
-				}
-			} catch {
-				// Ignore malformed messages
-			}
-		});
+		await this.subscribeToResultTopic(handle);
 
 		// Wait for the agent process to signal it's ready (subscribed to inbox)
 		await this.waitForReadyOrExit(handleId, proc);
@@ -532,6 +540,7 @@ export class AgentSpawner {
 		handle.result = undefined;
 		handle.status = "running";
 		this.monitorProcessExit(handleId, proc);
+		await this.subscribeToResultTopic(handle);
 
 		await this.waitForReadyOrExit(handleId, proc);
 
@@ -573,6 +582,10 @@ export class AgentSpawner {
 			workDir: string;
 			agentId?: string;
 			evalMode?: boolean;
+			rootDir?: string;
+			projectDataDir?: string;
+			providerIdOverride?: string;
+			resolverSettings?: ResolverSettings;
 		},
 	): void {
 		// Skip if the handle already exists (e.g. re-spawned since the
@@ -593,7 +606,11 @@ export class AgentSpawner {
 			genomePath: spawnInfo?.genomePath ?? "",
 			caller: spawnInfo?.caller ?? { agent_name: ownerId, depth: 0 },
 			workDir: spawnInfo?.workDir ?? "",
+			rootDir: spawnInfo?.rootDir,
+			projectDataDir: spawnInfo?.projectDataDir,
 			evalMode: spawnInfo?.evalMode,
+			providerIdOverride: spawnInfo?.providerIdOverride,
+			resolverSettings: spawnInfo?.resolverSettings,
 		};
 		this.handles.set(handleId, handle);
 	}

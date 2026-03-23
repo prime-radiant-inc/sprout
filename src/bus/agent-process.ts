@@ -22,7 +22,7 @@ import type { ProviderAdapter } from "../llm/types.ts";
 import { ensureProjectDirs } from "../util/project-id.ts";
 import { BusClient } from "./client.ts";
 import { BusLearnForwarder } from "./learn-forwarder.ts";
-import { replayHandleLog } from "./resume.ts";
+import { loadCompletedChildHandles, replayHandleLog } from "./resume.ts";
 import { AgentSpawner } from "./spawner.ts";
 import { agentEvents, agentInbox, agentReady, agentResult, sessionEvents } from "./topics.ts";
 import type { ContinueMessage, EventMessage, ResultMessage, StartMessage } from "./types.ts";
@@ -193,6 +193,12 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 		// Check for a prior log — if this handle ran before, replay its history
 		const priorLogPath = `${logBasePath}.jsonl`;
 		const initialHistory = await replayHandleLog(priorLogPath);
+		const currentAgentDepth = startMsg.caller.depth + 1;
+		const resumedCompletedHandles = await loadCompletedChildHandles({
+			logPath: priorLogPath,
+			handleLogDir: join(dataDir, "logs", sessionId),
+			ownerId: startMsg.agent_name,
+		});
 
 		// Forward agent events to the bus (best-effort; ignore if disconnected).
 		// Publishes to both the per-handle topic (for spawner result tracking)
@@ -213,6 +219,20 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 
 		// Create a spawner so this agent can delegate to other agents via the bus
 		childSpawner = new AgentSpawner(bus, busUrl, sessionId);
+		for (const { handleId, result, agentName, agentId } of resumedCompletedHandles) {
+			childSpawner.registerCompletedHandle(handleId, result, startMsg.agent_name, {
+				agentName,
+				genomePath,
+				caller: { agent_name: startMsg.agent_name, depth: currentAgentDepth },
+				workDir,
+				agentId,
+				evalMode,
+				rootDir: config.rootDir,
+				projectDataDir: config.projectDataDir,
+				providerIdOverride: startMsg.provider_id,
+				resolverSettings: startMsg.resolver_settings,
+			});
+		}
 
 		// Wire learn signal forwarding for agents that can learn
 		const learnProcess =
@@ -246,7 +266,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 			genome: runtimeGenome,
 			events,
 			sessionId,
-			depth: startMsg.caller.depth + 1,
+			depth: currentAgentDepth,
 			logBasePath,
 			preambles,
 			projectDocs,
