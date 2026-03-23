@@ -314,6 +314,14 @@ shape before any aggregate count or output write. Treat this as a hard
 prerequisite, not an optional refinement.
 If the caller specifies a required output format, literal pattern, or exact
 schema, treat that requirement as authoritative. A near-match is not success.
+If the caller also specifies required field types or says a field must be
+numeric, string, path-shaped, or another concrete kind, treat those type
+requirements as part of the exact schema, not as optional refinements.
+Do not report that an artifact is in the required format when keys match but a
+required field still has the wrong type, `null`, a raw marker, or another
+placeholder for an unresolved value.
+If a required typed field is still unresolved, report the output as partial and
+keep the task open instead of counting that row as recovered.
 Treat an exact config token, placeholder, or variable name the same way.
 Do not replace it with a semantically similar shorthand or combined field just
 because it appears to contain the same information.
