@@ -174,10 +174,7 @@ describe("extractEmbeddedRoot", () => {
 			"Do not verify by grepping bare words across whole lines",
 		]);
 
-		expectContainsAll(debuggerPrompt, [
-			"required output format",
-			"do not report success yet",
-		]);
+		expectContainsAll(debuggerPrompt, ["required output format", "do not report success yet"]);
 
 		expectContainsAll(editor, [
 			"treat those inputs as authoritative",
@@ -189,9 +186,7 @@ describe("extractEmbeddedRoot", () => {
 			"do not use read_file on them",
 		]);
 
-		expectContainsAll(taskManager, [
-			"Do not ask the caller what to do next",
-		]);
+		expectContainsAll(taskManager, ["Do not ask the caller what to do next"]);
 
 		expectContainsAll(engineer, [
 			"operational or system-execution task",
