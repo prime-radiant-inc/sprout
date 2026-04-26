@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { GenomeCommand } from "./cli-genome.ts";
+import type { GenomeCommand, GenomeMaintainScope } from "./cli-genome.ts";
 
 export function defaultGenomePathFromEnv(env: NodeJS.ProcessEnv = process.env): string {
 	const explicitGenomePath = env.SPROUT_GENOME_PATH?.trim();
@@ -75,6 +75,82 @@ function parsePort(token: string | undefined): number | undefined {
 	const port = Number(token);
 	if (!Number.isInteger(port) || port <= 0) return undefined;
 	return port;
+}
+
+function parsePositiveInt(token: string | undefined): number | undefined {
+	if (token === undefined) return undefined;
+	const value = Number(token);
+	if (!Number.isInteger(value) || value <= 0) return undefined;
+	return value;
+}
+
+function parseGenomeMaintainCommand(
+	argv: string[],
+	startIndex: number,
+	genomePath: string,
+): { command?: GenomeCommand; nextIndex: number } {
+	let index = startIndex;
+	let apply = false;
+	let decisionFile: string | undefined;
+	let scope: GenomeMaintainScope = "all";
+	let limit: number | undefined;
+
+	while (index < argv.length) {
+		const token = argv[index];
+		if (token === undefined) break;
+
+		if (token === "--dry-run") {
+			if (apply) return { nextIndex: index };
+			index++;
+			continue;
+		}
+
+		if (token === "--apply") {
+			apply = true;
+			index++;
+			continue;
+		}
+
+		if (token === "--decision-file") {
+			const value = argv[index + 1];
+			if (!value || value.startsWith("-")) return { nextIndex: index };
+			decisionFile = value;
+			index += 2;
+			continue;
+		}
+
+		if (token === "--only") {
+			const value = argv[index + 1];
+			if (value !== "consolidation" && value !== "entity-gc") return { nextIndex: index };
+			scope = value;
+			index += 2;
+			continue;
+		}
+
+		if (token === "--limit") {
+			const value = parsePositiveInt(argv[index + 1]);
+			if (value === undefined) return { nextIndex: index };
+			limit = value;
+			index += 2;
+			continue;
+		}
+
+		return { nextIndex: index };
+	}
+
+	if (apply && decisionFile === undefined) return { nextIndex: startIndex };
+
+	return {
+		command: {
+			kind: "genome-maintain",
+			genomePath,
+			apply,
+			scope,
+			...(decisionFile !== undefined ? { decisionFile } : {}),
+			...(limit !== undefined ? { limit } : {}),
+		},
+		nextIndex: index,
+	};
 }
 
 function collectInteractiveFlags(state: ParseState): WebFlags & LogFlags {
@@ -183,6 +259,13 @@ export function parseArgs(argv: string[]): CliCommand {
 			if (subcommand === "sync") {
 				state.genomeCommand = { kind: "genome-sync", genomePath: state.genomePath };
 				index += 2;
+				continue;
+			}
+			if (subcommand === "maintain") {
+				const parsed = parseGenomeMaintainCommand(argv, index + 2, state.genomePath);
+				if (!parsed.command || parsed.nextIndex !== argv.length) return { kind: "help" };
+				state.genomeCommand = parsed.command;
+				index = parsed.nextIndex;
 				continue;
 			}
 			if (subcommand === "rollback") {
@@ -322,6 +405,7 @@ Genome management:
   sprout --genome sync                  Sync root agents to runtime genome
   sprout --genome rollback <commit>     Revert a genome commit
   sprout --genome export                Show learnings that evolved beyond root specs
+  sprout --genome maintain [options]    Review or apply memory consolidation/entity GC
 
 Web interface:
   --web                  Start web server alongside TUI
@@ -337,4 +421,9 @@ Logging:
 
 Options:
   --genome-path <path>   Path to genome directory (default: $SPROUT_GENOME_PATH or $XDG_DATA_HOME/sprout-genome or ~/.local/share/sprout-genome)
+  --dry-run              For --genome maintain, print candidates without mutating (default)
+  --apply                For --genome maintain, apply reviewed decisions
+  --decision-file <path> JSON decisions for --genome maintain --apply
+  --only <scope>         For --genome maintain, scope is consolidation or entity-gc
+  --limit <n>            For --genome maintain, cap candidates per maintenance type
   --help                 Show this help message`;

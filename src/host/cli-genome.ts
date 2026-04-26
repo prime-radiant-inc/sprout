@@ -1,13 +1,23 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+export type GenomeMaintainScope = "all" | "consolidation" | "entity-gc";
 
 export type GenomeCommand =
 	| { kind: "genome-list"; genomePath: string }
 	| { kind: "genome-log"; genomePath: string }
 	| { kind: "genome-rollback"; genomePath: string; commit: string }
 	| { kind: "genome-export"; genomePath: string }
-	| { kind: "genome-sync"; genomePath: string };
+	| { kind: "genome-sync"; genomePath: string }
+	| {
+			kind: "genome-maintain";
+			genomePath: string;
+			apply: boolean;
+			decisionFile?: string;
+			scope: GenomeMaintainScope;
+			limit?: number;
+	  };
 
 export function isGenomeCommand<T extends { kind: string }>(
 	command: T,
@@ -17,7 +27,8 @@ export function isGenomeCommand<T extends { kind: string }>(
 		command.kind === "genome-log" ||
 		command.kind === "genome-rollback" ||
 		command.kind === "genome-export" ||
-		command.kind === "genome-sync"
+		command.kind === "genome-sync" ||
+		command.kind === "genome-maintain"
 	);
 }
 
@@ -88,6 +99,49 @@ export async function runGenomeCommand(command: GenomeCommand): Promise<void> {
 		}
 		if (result.conflicts.length > 0) {
 			console.log(`Conflicts (genome preserved): ${result.conflicts.join(", ")}`);
+		}
+		return;
+	}
+
+	if (command.kind === "genome-maintain") {
+		const { Genome } = await import("../genome/genome.ts");
+		const {
+			applyMemoryMaintenanceDecisions,
+			discoverMemoryMaintenancePlan,
+			parseMemoryMaintenanceDecisionFile,
+			renderMemoryMaintenancePlan,
+		} = await import("../genome/maintenance.ts");
+		const rootDir = join(import.meta.dir, "../../root");
+		const includeConsolidation = command.scope === "all" || command.scope === "consolidation";
+		const includeEntityGc = command.scope === "all" || command.scope === "entity-gc";
+
+		try {
+			const genome = new Genome(command.genomePath, rootDir);
+			await genome.loadFromDisk();
+			const plan = discoverMemoryMaintenancePlan(genome, {
+				includeConsolidation,
+				includeEntityGc,
+				...(command.limit !== undefined ? { limit: command.limit } : {}),
+			});
+
+			if (!command.apply) {
+				console.log(renderMemoryMaintenancePlan(plan));
+				return;
+			}
+
+			if (!command.decisionFile) {
+				throw new Error("--genome maintain --apply requires --decision-file <path>");
+			}
+			const decisions = parseMemoryMaintenanceDecisionFile(
+				await readFile(command.decisionFile, "utf-8"),
+			);
+			const result = await applyMemoryMaintenanceDecisions(genome, plan, decisions);
+			console.log(JSON.stringify(result, null, 2));
+		} catch (err) {
+			console.error(
+				`Memory maintenance failed: ${err instanceof Error ? err.message : String(err)}`,
+			);
+			process.exitCode = 1;
 		}
 		return;
 	}

@@ -10,6 +10,14 @@ describe("isGenomeCommand", () => {
 		).toBe(true);
 		expect(isGenomeCommand({ kind: "genome-export", genomePath: "/tmp/g" })).toBe(true);
 		expect(isGenomeCommand({ kind: "genome-sync", genomePath: "/tmp/g" })).toBe(true);
+		expect(
+			isGenomeCommand({
+				kind: "genome-maintain",
+				genomePath: "/tmp/g",
+				apply: false,
+				scope: "all",
+			}),
+		).toBe(true);
 	});
 
 	test("returns false for non-genome commands", () => {

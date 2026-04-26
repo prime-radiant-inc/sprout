@@ -496,6 +496,49 @@ describe("parseArgs", () => {
 		});
 	});
 
+	test("--genome maintain defaults to dry run for all maintenance", () => {
+		const cmd = parseArgs(["--genome", "maintain"]);
+		expect(cmd).toEqual({
+			kind: "genome-maintain",
+			genomePath: defaultGenomePath,
+			apply: false,
+			scope: "all",
+		});
+	});
+
+	test("--genome maintain accepts scope and limit", () => {
+		const cmd = parseArgs([
+			"--genome-path",
+			"/custom/path",
+			"--genome",
+			"maintain",
+			"--only",
+			"entity-gc",
+			"--limit",
+			"3",
+		]);
+		expect(cmd).toEqual({
+			kind: "genome-maintain",
+			genomePath: "/custom/path",
+			apply: false,
+			scope: "entity-gc",
+			limit: 3,
+		});
+	});
+
+	test("--genome maintain apply requires a decision file", () => {
+		expect(parseArgs(["--genome", "maintain", "--apply"])).toEqual({ kind: "help" });
+		expect(
+			parseArgs(["--genome", "maintain", "--apply", "--decision-file", "/tmp/decisions.json"]),
+		).toEqual({
+			kind: "genome-maintain",
+			genomePath: defaultGenomePath,
+			apply: true,
+			decisionFile: "/tmp/decisions.json",
+			scope: "all",
+		});
+	});
+
 	test("uses SPROUT_GENOME_PATH as default genome path", () => {
 		const prevSproutGenome = process.env.SPROUT_GENOME_PATH;
 		const prevXdgDataHome = process.env.XDG_DATA_HOME;
