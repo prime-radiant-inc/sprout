@@ -32,7 +32,10 @@ export interface MemoryMaintenancePlan {
 	entityGcGroups: EntityGcGroup[];
 }
 
-export type MaintenanceConsolidationDecision = { cluster_id: string } & ConsolidationDecision;
+export type MaintenanceConsolidationDecision = {
+	cluster_id: string;
+	confirmed_memory_ids?: string[];
+} & ConsolidationDecision;
 export type MaintenanceEntityGcDecision = { group_id: string } & EntityGcDecision;
 
 export interface MemoryMaintenanceDecisionFile {
@@ -182,7 +185,12 @@ function validateMemoryMaintenanceDecisions(
 			if (!decision.memory) {
 				throw new Error(`Merge decision for '${decision.cluster_id}' is missing memory`);
 			}
-			validateConsolidationMergeDecision(cluster, memoryById, consolidationMergeMemoryIds);
+			validateConsolidationMergeDecision(
+				cluster,
+				decision,
+				memoryById,
+				consolidationMergeMemoryIds,
+			);
 			consolidations.push({
 				decision: { ...decision, action: "merge", memory: decision.memory },
 				cluster,
@@ -207,21 +215,32 @@ function validateMemoryMaintenanceDecisions(
 
 function validateConsolidationMergeDecision(
 	cluster: ConsolidationCluster,
+	decision: MaintenanceConsolidationDecision,
 	memoryById: ReadonlyMap<string, Memory>,
 	seenMergedMemoryIds: Set<string>,
 ): void {
 	if (cluster.memory_ids.length < 2) {
 		throw new Error(`Consolidation cluster '${cluster.id}' has fewer than two memories`);
 	}
+	const confirmedMemoryIds = new Set(decision.confirmed_memory_ids ?? []);
 	for (const memoryId of cluster.memory_ids) {
 		const memory = memoryById.get(memoryId);
 		if (!memory) throw new Error(`Cannot consolidate missing memory '${memoryId}'`);
 		if (memory.archived_at) throw new Error(`Cannot consolidate archived memory '${memoryId}'`);
+		if (isProtectedManualMemory(memory) && !confirmedMemoryIds.has(memoryId)) {
+			throw new Error(
+				`Cannot consolidate manual memory '${memoryId}' without explicit confirmation`,
+			);
+		}
 		if (seenMergedMemoryIds.has(memoryId)) {
 			throw new Error(`Memory '${memoryId}' appears in multiple consolidation merge decisions`);
 		}
 		seenMergedMemoryIds.add(memoryId);
 	}
+}
+
+function isProtectedManualMemory(memory: Memory): boolean {
+	return memory.source === "manual" || memory.source.startsWith("user:");
 }
 
 function validateEntityGcMergeDecision(
@@ -363,9 +382,18 @@ function parseConsolidationDecisions(value: unknown): MaintenanceConsolidationDe
 			cluster_id: clusterId,
 			action: "merge",
 			reasoning,
+			...parseConfirmedMemoryIds(item, `consolidations[${index}]`),
 			memory: parseConsolidationMemoryDraft(item.memory, `consolidations[${index}].memory`),
 		};
 	});
+}
+
+function parseConfirmedMemoryIds(
+	item: Record<string, unknown>,
+	path: string,
+): { confirmed_memory_ids?: string[] } {
+	const confirmed = optionalStringArray(item.confirmed_memory_ids, `${path}.confirmed_memory_ids`);
+	return confirmed ? { confirmed_memory_ids: confirmed } : {};
 }
 
 function parseConsolidationMemoryDraft(value: unknown, path: string): ConsolidationMemoryDraft {

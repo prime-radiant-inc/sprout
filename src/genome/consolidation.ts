@@ -514,7 +514,7 @@ function isEntityType(value: unknown): value is EntityLinkEntry["type"] {
 }
 
 function entityUuid(type: EntityLinkEntry["type"], name: string): string {
-	return `${type.toLowerCase()}_${name
+	return `entity_${type.toLowerCase()}_${name
 		.toLowerCase()
 		.replace(/[^a-z0-9]+/g, "_")
 		.replace(/(^_|_$)/g, "")}`;

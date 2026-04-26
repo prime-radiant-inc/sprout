@@ -120,6 +120,35 @@ describe("memory consolidation", () => {
 		}
 	});
 
+	test("merge draft entities use extraction-compatible UUIDs", async () => {
+		const root = await mkdtemp(join(tmpdir(), "sprout-consolidation-entities-"));
+		try {
+			const genome = createTestGenome(root);
+			await genome.init();
+			await genome.addMemory(memory({ id: "entity-old-a", content: "Sprout memory uses SQLite." }));
+			await genome.addMemory(memory({ id: "entity-old-b", content: "Sprout memory uses SQLite." }));
+			const cluster = discoverConsolidationClusters(genome.memories.all(), {
+				fuzzyThreshold: 0.8,
+			})[0]!;
+
+			const result = await applyConsolidationMerge(
+				genome,
+				cluster,
+				{
+					text: "Sprout memory uses SQLite.",
+					entities: [{ name: "Sprout", type: "PROJECT" }],
+				},
+				{ id: "merged-entity", now: 1234, reasoning: "safe duplicate consolidation" },
+			);
+
+			expect(result.consolidated.entity_links).toEqual([
+				{ uuid: "entity_project_sprout", name: "Sprout", type: "PROJECT" },
+			]);
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
 	test("rejected clusters increment rejection counters", async () => {
 		const root = await mkdtemp(join(tmpdir(), "sprout-consolidation-reject-"));
 		try {
