@@ -216,6 +216,12 @@ describe("entity GC", () => {
 				}),
 			);
 			const group = discoverEntityGcGroups(genome.memories.all())[0]!;
+			await genome.addMemory(
+				memory({
+					id: "out-of-scope-alias",
+					entity_links: [{ uuid: "entity_sprout_alias", type: "PROJECT", name: "sprout" }],
+				}),
+			);
 
 			const result = await applyEntityGcDecision(
 				genome,
@@ -244,6 +250,9 @@ describe("entity GC", () => {
 					},
 				],
 			});
+			expect(genome.memories.getById("out-of-scope-alias")?.entity_links).toEqual([
+				{ uuid: "entity_sprout_alias", type: "PROJECT", name: "sprout" },
+			]);
 		} finally {
 			await rm(root, { recursive: true, force: true });
 		}
@@ -267,6 +276,12 @@ describe("entity GC", () => {
 				}),
 			);
 			const group = discoverEntityGcGroups(genome.memories.all())[0]!;
+			await genome.addMemory(
+				memory({
+					id: "out-of-scope-alias",
+					entity_links: [{ uuid: "entity_sprout_alias", type: "PROJECT", name: "sprout" }],
+				}),
+			);
 
 			const result = await applyEntityGcDecision(
 				genome,
@@ -284,6 +299,7 @@ describe("entity GC", () => {
 				created_at: 4000,
 				source: "memory-maintenance",
 			});
+			expect(genome.memories.getById("out-of-scope-alias")?.annotations).toEqual([]);
 		} finally {
 			await rm(root, { recursive: true, force: true });
 		}

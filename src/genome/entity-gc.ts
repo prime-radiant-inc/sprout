@@ -228,10 +228,12 @@ export async function applyEntityGcDecision(
 	const aliasKeys = new Set(
 		decision.aliases.map((alias) => entityKey({ ...alias, type: group.type })),
 	);
+	const reviewedMemoryIds = entityGcGroupMemoryIds(group);
 	const updatedIds: string[] = [];
 	const archivedAliases: EntityAliasEntry[] = [];
 
 	for (const memory of genome.memories.all()) {
+		if (!reviewedMemoryIds.has(memory.id)) continue;
 		if (!isActiveMemoryForRecall(memory) || !memory.entity_links?.length) continue;
 		const aliasesInMemory = memory.entity_links.filter((entity) =>
 			aliasKeys.has(entityKey(entity)),
@@ -287,9 +289,11 @@ async function rejectEntityGcGroup(
 ): Promise<EntityGcApplyResult> {
 	const now = options.now ?? Date.now();
 	const candidateKeys = new Set(group.candidates.map(entityKey));
+	const reviewedMemoryIds = entityGcGroupMemoryIds(group);
 	const updatedIds: string[] = [];
 
 	for (const memory of genome.memories.all()) {
+		if (!reviewedMemoryIds.has(memory.id)) continue;
 		if (
 			!isActiveMemoryForRecall(memory) ||
 			!memory.entity_links?.some((entity) => candidateKeys.has(entityKey(entity)))
@@ -314,6 +318,10 @@ async function rejectEntityGcGroup(
 		await genome.saveMemoryMutation(`genome: reject entity GC group '${group.id}'`);
 	}
 	return { updated_memory_ids: updatedIds, archived_aliases: [] };
+}
+
+function entityGcGroupMemoryIds(group: EntityGcGroup): Set<string> {
+	return new Set(group.candidates.flatMap((candidate) => candidate.memory_ids));
 }
 
 export function projectDueForEntityGc(
