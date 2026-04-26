@@ -39,6 +39,8 @@ export interface GenomeMutationServiceOptions {
 	stopDrainTimeoutMs?: number;
 	/** Poll interval while waiting for queue drain during stop(). Default: 10ms. */
 	stopDrainPollMs?: number;
+	/** Short delay for bus event delivery to catch terminal evidence after a signal. Default: 100ms. */
+	signalEvidenceGraceMs?: number;
 }
 
 /**
@@ -57,6 +59,7 @@ export class GenomeMutationService {
 	private readonly resolverSettings: ResolverSettings | undefined;
 	private readonly stopDrainTimeoutMs: number;
 	private readonly stopDrainPollMs: number;
+	private readonly signalEvidenceGraceMs: number;
 	private readonly queue: LearnRequest[] = [];
 	private readonly events: SessionEvent[] = [];
 	private resolvedModel: ResolvedModel | undefined;
@@ -73,6 +76,7 @@ export class GenomeMutationService {
 		this.resolverSettings = options.resolverSettings;
 		this.stopDrainTimeoutMs = options.stopDrainTimeoutMs ?? 5_000;
 		this.stopDrainPollMs = options.stopDrainPollMs ?? 10;
+		this.signalEvidenceGraceMs = options.signalEvidenceGraceMs ?? 100;
 	}
 
 	/** Start subscribing to the mutations topic. */
@@ -220,6 +224,9 @@ export class GenomeMutationService {
 		}
 		const request_id = req.request_id;
 		try {
+			if (this.signalEvidenceGraceMs > 0) {
+				await new Promise((resolve) => setTimeout(resolve, this.signalEvidenceGraceMs));
+			}
 			const messages = learnSignalExtractionMessages({
 				signal: req.payload.signal,
 				events: this.events,
@@ -322,7 +329,9 @@ function defaultModelTiers(
 	providerIds: readonly string[],
 	modelsByProvider: Map<string, ProviderModel[]>,
 ): ResolverSettings["defaults"] {
-	const providerId = providerIds.find((id) => modelsByProvider.has(id)) ?? providerIds[0];
+	const providerId =
+		providerIds.find((id) => (modelsByProvider.get(id)?.length ?? 0) > 0) ??
+		[...modelsByProvider.entries()].find(([, models]) => models.length > 0)?.[0];
 	const modelId = providerId ? modelsByProvider.get(providerId)?.[0]?.id : undefined;
 	if (!providerId || !modelId) return {};
 	return {

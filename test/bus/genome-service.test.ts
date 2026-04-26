@@ -16,7 +16,7 @@ import type { LearnSignal, SessionEvent } from "../../src/kernel/types.ts";
 import type { LearnMutation } from "../../src/learn/learn-process.ts";
 import type { Client } from "../../src/llm/client.ts";
 import type { ProviderModel, Request, Response } from "../../src/llm/types.ts";
-import { Msg } from "../../src/llm/types.ts";
+import { Msg, messageText } from "../../src/llm/types.ts";
 import { createTestGenome } from "../helpers/test-genome.ts";
 
 function makeMockResponse(text: string): Response {
@@ -30,13 +30,20 @@ function makeMockResponse(text: string): Response {
 	};
 }
 
-function makeMockClient(responseTexts: string[], onRequest?: (request: Request) => void): Client {
+function makeMockClient(
+	responseTexts: string[],
+	onRequest?: (request: Request) => void,
+	options: { providers?: string[]; modelsByProvider?: Map<string, ProviderModel[]> } = {},
+): Client {
 	let index = 0;
-	const modelsByProvider = new Map<string, ProviderModel[]>([
-		["anthropic", [{ id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", source: "remote" }]],
-	]);
+	const providerIds = options.providers ?? ["anthropic"];
+	const modelsByProvider =
+		options.modelsByProvider ??
+		new Map<string, ProviderModel[]>([
+			["anthropic", [{ id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", source: "remote" }]],
+		]);
 	return {
-		providers: () => ["anthropic"],
+		providers: () => providerIds,
 		listModelsByProvider: async () => modelsByProvider,
 		complete: async (request: Request) => {
 			onRequest?.(request);
@@ -74,6 +81,10 @@ function event(
 	agent_id = depth === 0 ? "root" : "worker-a",
 ): SessionEvent {
 	return { kind, timestamp, agent_id, depth, data };
+}
+
+function requestText(request: Request): string {
+	return request.messages.map((message) => messageText(message)).join("\n");
 }
 
 describe("GenomeMutationService", () => {
@@ -203,7 +214,11 @@ describe("GenomeMutationService", () => {
 		);
 	}
 
-	function replaceService(options: { client?: Client; clientFactory?: () => Client }): void {
+	function replaceService(options: {
+		client?: Client;
+		clientFactory?: () => Client;
+		signalEvidenceGraceMs?: number;
+	}): void {
 		service = new GenomeMutationService({
 			bus: serviceBus,
 			genome,
@@ -453,6 +468,108 @@ describe("GenomeMutationService", () => {
 		expect(memories[0]!.content).toContain("stabilize the pipeline");
 		expect(memories[0]!.source).toBe("learn:extraction");
 		expect(memories[0]!.embedding?.status).toBe("ready");
+	}, 10_000);
+
+	test("signal extraction selects a later provider when the first provider has no models", async () => {
+		replaceService({
+			client: makeMockClient(
+				[
+					JSON.stringify([
+						{
+							text: "Worker-a should use the populated provider model for bus extraction.",
+							tags: ["provider"],
+						},
+					]),
+				],
+				undefined,
+				{
+					providers: ["empty-provider", "anthropic"],
+					modelsByProvider: new Map<string, ProviderModel[]>([
+						["empty-provider", []],
+						[
+							"anthropic",
+							[{ id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", source: "remote" }],
+						],
+					]),
+				},
+			),
+			signalEvidenceGraceMs: 0,
+		});
+		await service.start();
+		const confirmationPromise = testBus.waitForMessage(genomeEvents(SESSION_ID), 5000);
+		const signal = makeSignal({ session_id: SESSION_ID, timestamp: Date.now() });
+		await publishEvidenceWindow(signal);
+		await waitForServiceEvents(4);
+
+		await publishSignal(signal, "req-signal-provider-fallback");
+
+		const raw = await confirmationPromise;
+		const confirmation = JSON.parse(raw);
+		expect(confirmation.success).toBe(true);
+		expect(confirmation.extracted_count).toBe(1);
+		expect(genome.memories.all()[0]?.content).toContain("populated provider model");
+	}, 10_000);
+
+	test("signal extraction waits briefly for terminal bus events after the signal", async () => {
+		const prompts: string[] = [];
+		replaceService({
+			client: makeMockClient(
+				[
+					JSON.stringify([
+						{
+							text: "Worker-a terminal delegation output should ground bus extraction.",
+							tags: ["bus", "evidence"],
+						},
+					]),
+				],
+				(request) => prompts.push(requestText(request)),
+			),
+			signalEvidenceGraceMs: 25,
+		});
+		await service.start();
+		const confirmationPromise = testBus.waitForMessage(genomeEvents(SESSION_ID), 5000);
+		const signal = makeSignal({ session_id: SESSION_ID, timestamp: Date.now() });
+		await publishSessionEvent(
+			event("session_start", signal.timestamp - 10, {
+				session_id: signal.session_id,
+				goal: signal.goal,
+				model: "claude-sonnet-4-6",
+			}),
+		);
+		await waitForServiceEvents(1);
+
+		await publishSignal(signal, "req-signal-before-terminal");
+		await publishSessionEvent(
+			event("act_end", signal.timestamp + 1, {
+				agent_name: "worker-a",
+				goal: signal.goal,
+				success: false,
+				turns: 2,
+				timed_out: false,
+				output: "late delegation output after signal",
+				tool_result_message: Msg.toolResult(
+					"delegate-1",
+					"late delegation output after signal",
+					true,
+				),
+			}),
+		);
+		await publishSessionEvent(
+			event("session_end", signal.timestamp + 2, {
+				session_id: signal.session_id,
+				success: false,
+				stumbles: 1,
+				turns: 2,
+				timed_out: false,
+				output: "late terminal failed state after signal",
+			}),
+		);
+
+		const raw = await confirmationPromise;
+		const confirmation = JSON.parse(raw);
+		expect(confirmation.success).toBe(true);
+		expect(prompts[0]).toContain("late delegation output after signal");
+		expect(prompts[0]).toContain("late terminal failed state after signal");
 	}, 10_000);
 
 	test("publishes an error for signal requests without extraction dependencies", async () => {
