@@ -687,7 +687,7 @@ export class MemoryIndex {
 
 function entityIndexRows(memories: readonly Memory[]): EntityIndexRow[] {
 	const byId = new Map<string, EntityIndexRow>();
-	for (const memory of memories) {
+	for (const memory of memories.filter(isActiveMemoryForRecall)) {
 		for (const entity of memory.entity_links ?? []) {
 			const id = entity.uuid;
 			const key = `${entity.type}:${id}`;

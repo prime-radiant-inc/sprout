@@ -1,6 +1,8 @@
 import { appendFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { basename, dirname } from "node:path";
 
+let rewriteTempCounter = 0;
+
 export class JsonlStore<T> {
 	constructor(readonly path: string) {}
 
@@ -41,7 +43,8 @@ export class JsonlStore<T> {
 
 	async rewrite(records: T[]): Promise<void> {
 		await mkdir(dirname(this.path), { recursive: true });
-		const tempPath = `${this.path}.${process.pid}.${Date.now()}.tmp`;
+		rewriteTempCounter = (rewriteTempCounter + 1) % Number.MAX_SAFE_INTEGER;
+		const tempPath = `${this.path}.${process.pid}.${Date.now()}.${rewriteTempCounter}.tmp`;
 		const content =
 			records.length > 0 ? `${records.map((record) => JSON.stringify(record)).join("\n")}\n` : "";
 		await writeFile(tempPath, content);

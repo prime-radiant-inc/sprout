@@ -44,6 +44,22 @@ describe("JsonlStore", () => {
 		expect(await store.load()).toEqual([{ id: "new-1" }, { id: "new-2" }]);
 	});
 
+	test("same-millisecond rewrites use unique temp paths", async () => {
+		const path = join(tempDir, "rewrite-collision.jsonl");
+		const store = new JsonlStore<{ id: string }>(path);
+		const originalNow = Date.now;
+		Date.now = () => 1234;
+		try {
+			await Promise.all([store.rewrite([{ id: "first" }]), store.rewrite([{ id: "second" }])]);
+		} finally {
+			Date.now = originalNow;
+		}
+
+		const records = await store.load();
+		expect(records).toHaveLength(1);
+		expect(["first", "second"]).toContain(records[0]!.id);
+	});
+
 	test("reports malformed JSON with filename and line number", async () => {
 		const path = join(tempDir, "bad.jsonl");
 		await writeFile(path, '{"id":"ok"}\nnot json\n');

@@ -173,6 +173,18 @@ describe("MemoryIndex", () => {
 					content: "sqlite work",
 					entity_links: [{ uuid: "entity-sqlite", type: "TECHNOLOGY", name: "SQLite" }],
 				}),
+				makeMemory({
+					id: "idx-retired-entity",
+					content: "retired work",
+					archived_at: 123,
+					entity_links: [{ uuid: "entity-retired", type: "PROJECT", name: "Retired Sprout" }],
+				}),
+				makeMemory({
+					id: "idx-superseded-entity",
+					content: "stale work",
+					superseded_by: "idx-sprout",
+					entity_links: [{ uuid: "entity-stale", type: "PROJECT", name: "Stale Sprout" }],
+				}),
 			]);
 
 			expect(index.searchEntities("sprout", { type: "PROJECT" })).toEqual([
@@ -183,6 +195,8 @@ describe("MemoryIndex", () => {
 					rank: expect.any(Number),
 				},
 			]);
+			expect(index.searchEntities("retired", { type: "PROJECT" })).toEqual([]);
+			expect(index.searchEntities("stale", { type: "PROJECT" })).toEqual([]);
 		} finally {
 			index.close();
 		}
