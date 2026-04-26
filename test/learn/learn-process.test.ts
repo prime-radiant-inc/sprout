@@ -95,6 +95,19 @@ function emitLearnEvidenceEvents(events: AgentEventEmitter, signal: LearnSignal)
 		display_name: "exec",
 		args: { command: "bun test" },
 	});
+	events.emit("session_start", "child", 1, {
+		session_id: signal.session_id,
+		goal: "nested investigation",
+		model: "claude-sonnet-4-6",
+	});
+	events.emit("session_end", "child", 1, {
+		session_id: signal.session_id,
+		success: true,
+		stumbles: 0,
+		turns: 1,
+		timed_out: false,
+		output: "Nested investigation completed before parent tool failure.",
+	});
 	events.emit("primitive_end", "root", 0, {
 		name: "exec",
 		display_name: "exec",
@@ -608,7 +621,7 @@ describe("LearnProcess", () => {
 			details: {
 				agent_name: "root",
 				goal: "stabilize local embeddings",
-				output: "2 retried tool calls detected",
+				output: `2 retried tool calls detected with OPENAI_API_KEY=sk-${"a".repeat(32)}`,
 				success: true,
 				stumbles: 2,
 				turns: 7,
@@ -626,6 +639,8 @@ describe("LearnProcess", () => {
 		expect(prompts[0]).toContain("Signal kind: retry");
 		expect(prompts[0]).toContain("stabilize local embeddings");
 		expect(prompts[0]).toContain("2 retried tool calls detected");
+		expect(prompts[0]).toContain("OPENAI_API_KEY=[REDACTED_API_KEY]");
+		expect(prompts[0]).not.toContain(`sk-${"a".repeat(32)}`);
 		expect(prompts[0]).toContain("Tool exploded");
 		expect(prompts[0]).toContain("local embedding assertion failed");
 		expect(prompts[0]).toContain("Delegated result: local embeddings were not initialized");

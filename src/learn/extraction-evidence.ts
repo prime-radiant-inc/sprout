@@ -25,9 +25,9 @@ export function learnSignalExtractionMessages(
 			content: [
 				"The following is a learn-pipeline observation.",
 				`Signal kind: ${input.signal.kind}`,
-				`Signal agent: ${input.signal.agent_name}`,
-				`Signal goal: ${input.signal.goal}`,
-				`Signal output: ${input.signal.details.output}`,
+				`Signal agent: ${signalField(input.signal.agent_name)}`,
+				`Signal goal: ${signalField(input.signal.goal)}`,
+				`Signal output: ${signalField(input.signal.details.output)}`,
 				`Signal success: ${input.signal.details.success}`,
 				`Signal stumbles: ${input.signal.details.stumbles}`,
 				`Signal turns: ${input.signal.details.turns}`,
@@ -58,15 +58,19 @@ export function renderLearnEvidenceEvents(events: readonly SessionEvent[]): stri
 function eventsForSession(events: readonly SessionEvent[], sessionId: string): SessionEvent[] {
 	const sorted = [...events].sort((a, b) => a.timestamp - b.timestamp);
 	const sessionEvents: SessionEvent[] = [];
-	let active = false;
+	let activeCount = 0;
 
 	for (const event of sorted) {
 		if (event.kind === "session_start" && stringValue(event.data.session_id) === sessionId) {
-			active = true;
+			activeCount++;
 		}
-		if (active) sessionEvents.push(event);
-		if (event.kind === "session_end" && stringValue(event.data.session_id) === sessionId) {
-			active = false;
+		if (activeCount > 0) sessionEvents.push(event);
+		if (
+			event.kind === "session_end" &&
+			stringValue(event.data.session_id) === sessionId &&
+			activeCount > 0
+		) {
+			activeCount--;
 		}
 	}
 
@@ -125,6 +129,10 @@ function addLine(lines: string[], label: string, value: string | undefined): voi
 	const normalized = value?.trim();
 	if (!normalized) return;
 	lines.push(`${label}: ${escapeXml(truncate(redactSensitiveTranscriptContent(normalized)))}`);
+}
+
+function signalField(value: string): string {
+	return truncate(redactSensitiveTranscriptContent(value));
 }
 
 function signalSummary(value: unknown): string | undefined {
