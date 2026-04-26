@@ -11,7 +11,7 @@ Phase 1 — Foundation (in progress)
 ## Current branch / commit
 
 - Branch: `jesse/pri-1354-implement-mira-memory-port-phase-1-foundation`
-- Last verified commit: not yet verified
+- Last verified commit: `4b1af89`
 
 ## Open issues
 
@@ -27,6 +27,7 @@ Phase 1 — Foundation (in progress)
 
 - 2026-04-26: `bun test test/genome/memory-index.test.ts test/genome/memory-schema.test.ts test/genome/jsonl-store.test.ts test/genome/memory-store.test.ts test/genome/recall.test.ts` passed
 - 2026-04-26: `bun run typecheck` passed
+- 2026-04-26: `bun test test/genome/index-builder.test.ts test/genome/memory-index.test.ts test/genome/memory-schema.test.ts test/genome/jsonl-store.test.ts test/genome/memory-store.test.ts test/genome/recall.test.ts test/genome/genome.test.ts` passed
 - 2026-04-26: `bun test` failed on 3 unrelated existing/environment checks:
   `test/host/cli-compiled.test.ts` cannot resolve `react-devtools-core` during
   compiled CLI build, and `test/tools/harbor/harbor-runner.test.ts` expects
@@ -39,3 +40,5 @@ Phase 1 — Foundation (in progress)
 - Added generic JSONL store primitive with append/rewrite/load behavior
 - Updated `MemoryStore` to normalize legacy and extended records on load/add
 - Added SQLite/FTS5 memory index skeleton with JSONL rebuild tests
+- Added index-builder helper that rebuilds `genome/.cache/index.db` from JSONL
+- Added `.cache/` genome initialization and gitignore coverage

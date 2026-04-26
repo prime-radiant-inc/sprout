@@ -61,7 +61,15 @@ describe("Genome", () => {
 			await genome.init();
 
 			const entries = await readdir(root);
-			for (const dir of ["agents", "memories", "routing", "embeddings", "metrics", "logs"]) {
+			for (const dir of [
+				"agents",
+				"memories",
+				"routing",
+				"embeddings",
+				"metrics",
+				"logs",
+				".cache",
+			]) {
 				expect(entries).toContain(dir);
 			}
 		});
@@ -73,6 +81,7 @@ describe("Genome", () => {
 
 			const content = await readFile(join(root, ".gitignore"), "utf-8");
 			expect(content).toContain("logs/");
+			expect(content).toContain(".cache/");
 		});
 
 		test("initializes git repo with initial commit", async () => {
