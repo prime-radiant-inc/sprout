@@ -813,6 +813,21 @@ describe("Genome", () => {
 			expect(reloaded.find((m) => m.id === "used-1")!.use_count).toBe(1);
 			expect(reloaded.find((m) => m.id === "used-2")!.use_count).toBe(1);
 		});
+
+		test("recordMemoryMentions commits mention-count metadata", async () => {
+			const root = join(tempDir, "mem-mentions-commit");
+			const genome = await createInitializedGenome(root);
+			await genome.addMemory(makeMemory({ id: "mention-memory", content: "cited fact" }));
+			const shortId = genome.memories.getById("mention-memory")?.short_id;
+			expect(shortId).toBeTruthy();
+
+			const mentioned = await genome.recordMemoryMentions([shortId!]);
+
+			expect(mentioned).toEqual(["mention-memory"]);
+			expect(await git(root, "status", "--porcelain")).toBe("");
+			const log = await git(root, "log", "--oneline");
+			expect(log).toContain("genome: record memory mentions");
+		});
 	});
 
 	// --- Rollback tests ---

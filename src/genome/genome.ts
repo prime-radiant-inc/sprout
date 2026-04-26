@@ -575,7 +575,7 @@ export class Genome {
 		return result;
 	}
 
-	/** Track assistant-visible memory citations by short id. No git commit. */
+	/** Track assistant-visible memory citations by short id. */
 	async recordMemoryMentions(shortIds: string[]): Promise<string[]> {
 		if (shortIds.length === 0) return [];
 		return this.withMemoryWriteLock(async () => {
@@ -583,6 +583,12 @@ export class Genome {
 			const mentioned = this.memories.markMentioned(shortIds);
 			if (mentioned.length === 0) return [];
 			await this.memories.save();
+			const memoriesPath = join(this.rootPath, "memories", "memories.jsonl");
+			await git(this.rootPath, "add", memoriesPath);
+			const status = await git(this.rootPath, "status", "--porcelain", "--", memoriesPath);
+			if (status.trim()) {
+				await git(this.rootPath, "commit", "-m", "genome: record memory mentions");
+			}
 			await rebuildMemoryIndexFromJsonl(this.rootPath);
 			return mentioned;
 		});

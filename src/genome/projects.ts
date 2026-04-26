@@ -291,11 +291,11 @@ export async function detectProjectFromCwd(input: {
 	const metadata = explicitProject(input.metadataProject, "metadata");
 	if (metadata) return metadata;
 
-	const [gitRoot, packageName, remoteUrl] = await Promise.all([
+	const [gitRoot, remoteUrl] = await Promise.all([
 		readGitValue(input.cwd, ["rev-parse", "--show-toplevel"]),
-		readPackageName(input.cwd),
 		readGitValue(input.cwd, ["config", "--get", "remote.origin.url"]),
 	]);
+	const packageName = await readPackageName(gitRoot ?? input.cwd);
 
 	return detectProject({
 		cwd: input.cwd,

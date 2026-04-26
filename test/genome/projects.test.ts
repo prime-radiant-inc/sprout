@@ -92,6 +92,22 @@ describe("project detection", () => {
 		});
 	});
 
+	test("reads package metadata from git root when cwd is a subdirectory", async () => {
+		const repo = join(tempDir, "package-root");
+		const subdir = join(repo, "src", "feature");
+		await mkdir(subdir, { recursive: true });
+		await gitInit(repo);
+		await writeFile(join(repo, "package.json"), JSON.stringify({ name: "sprout-root-pkg" }));
+
+		const project = await detectProjectFromCwd({ cwd: subdir });
+
+		expect(project).toMatchObject({
+			id: "sprout-root-pkg",
+			name: "sprout-root-pkg",
+			source: "package",
+		});
+	});
+
 	test("git inference ignores inherited repository selection env", async () => {
 		const actual = join(tempDir, "actual-project");
 		const wrong = join(tempDir, "wrong-project");
