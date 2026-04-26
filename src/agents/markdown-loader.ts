@@ -1,5 +1,9 @@
 import { parse, stringify } from "yaml";
-import { type AgentSpec, normalizeAgentConstraints } from "../kernel/types.ts";
+import {
+	type AgentSpec,
+	type AgentSubcorticalRecallConfig,
+	normalizeAgentConstraints,
+} from "../kernel/types.ts";
 import { parseAgentModelInput } from "../shared/session-selection.ts";
 
 /**
@@ -65,7 +69,7 @@ export function parseAgentMarkdown(content: string, source: string): AgentSpec {
 		spec.prompt_cache = raw.prompt_cache;
 	}
 	if (raw.subcortical_recall !== undefined) {
-		spec.subcortical_recall = raw.subcortical_recall;
+		spec.subcortical_recall = normalizeSubcorticalRecallConfig(raw.subcortical_recall, source);
 	}
 
 	const extra: Record<string, unknown> = {};
@@ -79,6 +83,43 @@ export function parseAgentMarkdown(content: string, source: string): AgentSpec {
 	}
 
 	return spec;
+}
+
+function normalizeSubcorticalRecallConfig(
+	raw: unknown,
+	source: string,
+): boolean | AgentSubcorticalRecallConfig {
+	if (typeof raw === "boolean") return raw;
+	if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+		throw new Error(
+			`Invalid agent markdown at ${source}: 'subcortical_recall' must be a boolean or object`,
+		);
+	}
+
+	const config = raw as Record<string, unknown>;
+	for (const key of Object.keys(config)) {
+		if (key !== "enabled" && key !== "max_tokens") {
+			throw new Error(
+				`Invalid agent markdown at ${source}: unknown subcortical_recall key '${key}'`,
+			);
+		}
+	}
+	if (config.enabled !== undefined && typeof config.enabled !== "boolean") {
+		throw new Error(
+			`Invalid agent markdown at ${source}: 'subcortical_recall.enabled' must be a boolean`,
+		);
+	}
+	const maxTokens = config.max_tokens;
+	if (
+		maxTokens !== undefined &&
+		(typeof maxTokens !== "number" || !Number.isInteger(maxTokens) || maxTokens <= 0)
+	) {
+		throw new Error(
+			`Invalid agent markdown at ${source}: 'subcortical_recall.max_tokens' must be a positive integer`,
+		);
+	}
+
+	return config as AgentSubcorticalRecallConfig;
 }
 
 const KNOWN_FIELDS = new Set([

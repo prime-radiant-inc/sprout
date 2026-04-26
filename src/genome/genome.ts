@@ -594,8 +594,8 @@ export class Genome {
 	}
 
 	async recordProjectActivity(project: DetectedProject, date = new Date()): Promise<boolean> {
-		const record = this.projects.recordActiveDay(project, date);
-		return record !== undefined;
+		const activity = this.projects.recordActiveDay(project, date);
+		return activity?.changed === true;
 	}
 
 	async saveProjectActivityMutation(commitMessage: string): Promise<void> {

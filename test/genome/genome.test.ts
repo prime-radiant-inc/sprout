@@ -797,6 +797,25 @@ describe("Genome", () => {
 			expect(log).toContain("genome: record project activity 'sprout'");
 		});
 
+		test("project activity does not report a change for an already recorded local day", async () => {
+			const root = join(tempDir, "project-activity-same-day");
+			const genome = await createInitializedGenome(root);
+			const project = {
+				id: "sprout",
+				name: "Sprout",
+				confidence: 1,
+				source: "explicit" as const,
+			};
+
+			const first = await genome.recordProjectActivity(project, new Date("2026-04-26T10:00:00Z"));
+			await genome.saveProjectActivityMutation("genome: record project activity 'sprout'");
+			const second = await genome.recordProjectActivity(project, new Date("2026-04-26T18:00:00Z"));
+
+			expect(first).toBe(true);
+			expect(second).toBe(false);
+			expect(await git(root, "status", "--porcelain")).toBe("");
+		});
+
 		test("project activity mutation restores JSONL when commit fails", async () => {
 			const root = join(tempDir, "project-activity-commit-fails");
 			const genome = await createInitializedGenome(root);

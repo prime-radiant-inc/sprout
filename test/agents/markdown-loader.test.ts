@@ -174,6 +174,29 @@ describe("parseAgentMarkdown", () => {
 		expect(spec.subcortical_recall).toEqual({ enabled: true, max_tokens: 300 });
 	});
 
+	test("rejects invalid subcortical recall config", () => {
+		const cases: Array<[string, RegExp]> = [
+			['subcortical_recall: "false"', /subcortical_recall.*boolean or object/],
+			["subcortical_recall:\n  enabled: yes", /subcortical_recall\.enabled.*boolean/],
+			["subcortical_recall:\n  max_tokens: 0", /subcortical_recall\.max_tokens.*positive/],
+			["subcortical_recall:\n  model: fast", /unknown subcortical_recall key 'model'/],
+		];
+
+		for (const [frontmatter, error] of cases) {
+			const content = [
+				"---",
+				"name: root",
+				'description: "coordinates work"',
+				"model: best",
+				frontmatter,
+				"---",
+				"Coordinate work.",
+			].join("\n");
+
+			expect(() => parseAgentMarkdown(content, "root.md")).toThrow(error);
+		}
+	});
+
 	test("accepts provider-qualified model refs in frontmatter", () => {
 		const content = [
 			"---",

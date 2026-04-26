@@ -140,11 +140,14 @@ describe("project detection", () => {
 		await store.load();
 		const project = detectProject({ explicitProject: "Sprout" });
 
-		store.recordActiveDay(project, new Date("2026-04-26T10:00:00Z"));
-		store.recordActiveDay(project, new Date("2026-04-26T18:00:00Z"));
-		store.recordActiveDay(project, new Date("2026-04-27T10:00:00Z"));
+		const first = store.recordActiveDay(project, new Date("2026-04-26T10:00:00Z"));
+		const second = store.recordActiveDay(project, new Date("2026-04-26T18:00:00Z"));
+		const third = store.recordActiveDay(project, new Date("2026-04-27T10:00:00Z"));
 		await store.save();
 
+		expect(first?.changed).toBe(true);
+		expect(second?.changed).toBe(false);
+		expect(third?.changed).toBe(true);
 		const reloaded = new ProjectActivityStore(join(tempDir, "projects.jsonl"));
 		await reloaded.load();
 		expect(reloaded.getById("sprout")).toMatchObject({

@@ -38,6 +38,11 @@ export interface ProjectActivityRecord {
 	last_entity_gc_active_day?: number;
 }
 
+export interface ProjectActivityChange {
+	record: ProjectActivityRecord;
+	changed: boolean;
+}
+
 export interface ProjectActivityStoreOptions {
 	timeZone?: string;
 }
@@ -86,10 +91,11 @@ export class ProjectActivityStore {
 		return this.entries.find((entry) => entry.id === id);
 	}
 
-	recordActiveDay(project: DetectedProject, date: Date): ProjectActivityRecord | undefined {
+	recordActiveDay(project: DetectedProject, date: Date): ProjectActivityChange | undefined {
 		if (project.id === "unknown" || project.id === "global") return undefined;
 		const activeDate = projectActivityDateKey(date, this.timeZone);
 		let record = this.getById(project.id);
+		let changed = false;
 		if (!record) {
 			record = {
 				id: project.id,
@@ -98,8 +104,12 @@ export class ProjectActivityStore {
 				active_dates: [],
 			};
 			this.entries.push(record);
+			changed = true;
 		}
-		record.name = project.name;
+		if (record.name !== project.name) {
+			record.name = project.name;
+			changed = true;
+		}
 		const activeDates = new Set(record.active_dates ?? []);
 		if (record.last_active_date) activeDates.add(record.last_active_date);
 		if (!activeDates.has(activeDate)) {
@@ -111,8 +121,9 @@ export class ProjectActivityStore {
 				record.active_dates.length,
 			);
 			record.last_active_date = record.active_dates.at(-1);
+			changed = true;
 		}
-		return record;
+		return { record, changed };
 	}
 
 	markConsolidated(projectId: string): ProjectActivityRecord | undefined {
