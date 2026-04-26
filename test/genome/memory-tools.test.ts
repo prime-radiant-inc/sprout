@@ -155,6 +155,57 @@ describe("memory tools", () => {
 		expect(result.error).toContain("confirmation");
 	});
 
+	test("memory_link persists valid relationship types", async () => {
+		const ctx = makeContext([
+			memory({ id: "memory-alpha", short_id: "mem_alpha00" }),
+			memory({ id: "memory-beta", short_id: "mem_beta000" }),
+		]);
+
+		const result = await runTool(ctx, "memory_link", {
+			from_id: "memory-alpha",
+			to_id: "memory-beta",
+			type: "refines",
+			reasoning: "adds implementation detail",
+			explicit_instruction: true,
+		});
+
+		expect(result.success).toBe(true);
+		expect(ctx.genome.memories.all()[0]?.outbound_links?.[0]).toMatchObject({
+			uuid: "memory-beta",
+			type: "refines",
+		});
+		expect(ctx.genome.memories.all()[1]?.inbound_links?.[0]).toMatchObject({
+			uuid: "memory-alpha",
+			type: "refines",
+		});
+	});
+
+	test("memory_link rejects null and unknown relationship types", async () => {
+		const ctx = makeContext([
+			memory({ id: "memory-alpha", short_id: "mem_alpha00" }),
+			memory({ id: "memory-beta", short_id: "mem_beta000" }),
+		]);
+
+		const nullResult = await runTool(ctx, "memory_link", {
+			from_id: "memory-alpha",
+			to_id: "memory-beta",
+			type: "null",
+			reasoning: "no actionable relationship",
+			explicit_instruction: true,
+		});
+		const unknownResult = await runTool(ctx, "memory_link", {
+			from_id: "memory-alpha",
+			to_id: "memory-beta",
+			type: "adjacent",
+			reasoning: "invalid relation",
+			explicit_instruction: true,
+		});
+
+		expect(nullResult.success).toBe(false);
+		expect(unknownResult.success).toBe(false);
+		expect(ctx.genome.memories.all()[0]?.outbound_links).toBeUndefined();
+	});
+
 	test("read-only specs cannot see write tools", () => {
 		const ctx = makeContext();
 		const primitiveNames = [

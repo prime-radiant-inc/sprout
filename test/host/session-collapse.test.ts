@@ -190,4 +190,80 @@ describe("session collapse transcript", () => {
 		expect(memory.project_ids).toContain("sprout-memory");
 		expect(memory.embedding?.status).toBe("ready");
 	});
+
+	test("collapses only transcript events newer than the latest segment for continued sessions", async () => {
+		const genomeDir = join(tempDir, "genome-continued");
+		const rootDir = join(import.meta.dir, "../../root");
+		const workDir = join(tempDir, "work-continued");
+		await mkdir(workDir, { recursive: true });
+		await writeFile(join(workDir, "package.json"), JSON.stringify({ name: "sprout-memory" }));
+		const genome = createTestGenome(genomeDir, rootDir);
+		await genome.init();
+		await genome.initFromRoot();
+		const client = makeClientSequence([
+			JSON.stringify({
+				summary: "First run summary.",
+				title: "First run",
+				complexity: 1,
+			}),
+			"[]",
+			JSON.stringify({
+				summary: "Second run summary.",
+				title: "Second run",
+				complexity: 2,
+			}),
+			"[]",
+		]);
+		const firstRunEvents = [
+			event("perceive", 100, { goal: "Start memory work." }),
+			event("session_end", 200, { output: "First run done." }),
+		];
+		const secondRunEvents = [
+			event("perceive", 300, { goal: "Continue memory work." }),
+			event("session_end", 400, { output: "Second run done." }),
+		];
+
+		const first = await collapseSessionToMemory({
+			events: firstRunEvents,
+			genome,
+			client,
+			model: "claude-sonnet-4-6",
+			provider: "anthropic",
+			sessionId: "session-collapse-continued",
+			cwd: workDir,
+			now: 500,
+		});
+		expect(first).not.toBe("skipped");
+
+		const duplicate = await collapseSessionToMemory({
+			events: firstRunEvents,
+			genome,
+			client,
+			model: "claude-sonnet-4-6",
+			provider: "anthropic",
+			sessionId: "session-collapse-continued",
+			cwd: workDir,
+			now: 600,
+		});
+		expect(duplicate).toBe("skipped");
+
+		const continued = await collapseSessionToMemory({
+			events: [...firstRunEvents, ...secondRunEvents],
+			genome,
+			client,
+			model: "claude-sonnet-4-6",
+			provider: "anthropic",
+			sessionId: "session-collapse-continued",
+			cwd: workDir,
+			now: 700,
+		});
+
+		expect(continued).not.toBe("skipped");
+		expect(genome.segments.all().map((segment) => segment.summary)).toEqual([
+			"First run summary.",
+			"Second run summary.",
+		]);
+		expect(genome.segments.all()[1]?.started_at).toBe(300);
+		expect(genome.segments.all()[1]?.message_count).toBe(2);
+	});
 });

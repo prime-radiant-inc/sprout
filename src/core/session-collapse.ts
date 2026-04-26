@@ -71,7 +71,13 @@ ${escapeXml(message.content)}
 export async function collapseSessionToMemory(
 	input: CollapseSessionToMemoryInput,
 ): Promise<CollapseSessionToMemoryResult | "skipped"> {
-	const transcript = buildCollapseTranscript(input.events);
+	const collapsedThrough = latestCollapsedTranscriptTimestamp(
+		input.genome.segments.all(),
+		input.sessionId,
+	);
+	const transcript = buildCollapseTranscript(input.events).filter(
+		(message) => message.timestamp > collapsedThrough,
+	);
 	if (transcript.length === 0) return "skipped";
 
 	const now = input.now ?? Date.now();
@@ -134,6 +140,19 @@ export async function collapseSessionToMemory(
 		project,
 		extractedMemoryCount: filtered.length,
 	};
+}
+
+function latestCollapsedTranscriptTimestamp(
+	segments: readonly MemorySegment[],
+	sessionId: string,
+): number {
+	let latest = -Infinity;
+	for (const segment of segments) {
+		if (segment.session_id === sessionId && segment.ended_at > latest) {
+			latest = segment.ended_at;
+		}
+	}
+	return latest;
 }
 
 async function summarizeTranscript(input: {

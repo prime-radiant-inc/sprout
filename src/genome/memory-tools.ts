@@ -1,5 +1,11 @@
 import type { Primitive } from "../kernel/primitives.ts";
-import type { AnnotationEntry, Memory, MemoryLinkEntry, PrimitiveResult } from "../kernel/types.ts";
+import type {
+	AnnotationEntry,
+	Memory,
+	MemoryLinkEntry,
+	PrimitiveResult,
+	RelationshipType,
+} from "../kernel/types.ts";
 import { traverseMemoryLinks } from "./linking.ts";
 import { memoryShortId } from "./memory-schema.ts";
 import { authorizeMemoryWrite } from "./memory-write-policy.ts";
@@ -23,6 +29,19 @@ export interface MemoryToolContext {
 	agentName: string;
 	sessionId: string;
 }
+
+const MANUAL_MEMORY_LINK_TYPES = [
+	"corroborates",
+	"conflicts",
+	"supersedes",
+	"refines",
+	"precedes",
+	"contextualizes",
+	"exemplifies",
+	"extraction_ref",
+] as const satisfies readonly RelationshipType[];
+
+const MANUAL_MEMORY_LINK_TYPE_SET = new Set<string>(MANUAL_MEMORY_LINK_TYPES);
 
 export function buildReadMemoryPrimitives(ctx: MemoryToolContext): Primitive[] {
 	return [
@@ -124,7 +143,7 @@ function memoryEntityQueryPrimitive(ctx: MemoryToolContext): Primitive {
 			type: "object",
 			properties: {
 				name: { type: "string" },
-				type: { type: "string" },
+				type: { type: "string", enum: MANUAL_MEMORY_LINK_TYPES },
 			},
 			required: ["name"],
 		},
@@ -261,9 +280,15 @@ function memoryLinkPrimitive(ctx: MemoryToolContext): Primitive {
 				memory: from,
 			});
 			if (!auth.allowed) return fail(auth.reason ?? "memory write blocked");
+			const relationshipType = stringArg(args.type)?.toLowerCase();
+			if (!relationshipType || !MANUAL_MEMORY_LINK_TYPE_SET.has(relationshipType)) {
+				return fail(
+					`invalid relationship type: expected one of ${MANUAL_MEMORY_LINK_TYPES.join(", ")}`,
+				);
+			}
 			const link: MemoryLinkEntry = {
 				uuid: to.id,
-				type: (stringArg(args.type) as MemoryLinkEntry["type"]) ?? "contextualizes",
+				type: relationshipType as MemoryLinkEntry["type"],
 				reasoning: stringArg(args.reasoning) ?? "",
 				created_at: Date.now(),
 			};
