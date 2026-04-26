@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Phase 5 — Memory-tools and archivist (starting)
+Phase 6 — Link graph (starting)
 
 ## Phase log
 
@@ -10,18 +10,17 @@ Phase 5 — Memory-tools and archivist (starting)
 - Phase 2 — Extraction: completed 2026-04-26
 - Phase 3 — Segment collapse: completed 2026-04-26
 - Phase 4 — Surfacing pipeline: completed 2026-04-26
-- Phase 5 — Memory-tools and archivist: starting
+- Phase 5 — Memory-tools and archivist: completed 2026-04-26
+- Phase 6 — Link graph: starting
 
 ## Current branch / commit
 
 - Branch: `jesse/pri-1354-implement-mira-memory-port-phase-1-foundation`
-- Last verified commit: `add3d69`
+- Last verified commit: `d420c10`
 
 ## Open issues
 
 - `§14.1` session-start surfacing on resume — not needed for the current Phase 1 slice
-- `§14.5` qm-reconciler scope — not needed until Phase 5
-- `§14.12` recursive archivist — not needed until Phase 5
 
 ## Deviations from design
 
@@ -96,6 +95,10 @@ Phase 5 — Memory-tools and archivist (starting)
   tracking
 - 2026-04-26: `bun run typecheck` passed after Phase 4 surfacing
 - 2026-04-26: `bun run check` passed after Phase 4 surfacing
+- 2026-04-26: `bun test test/genome/memory-tools.test.ts test/genome/memory-write-policy.test.ts test/genome/genome.test.ts test/kernel/workspace-primitives.test.ts test/kernel/save-agent.test.ts test/agents/archivist.test.ts test/agents/agent-construction.test.ts test/agents/agent.test.ts`
+  passed after adding memory tools, archivist, and archivist delegation wiring
+- 2026-04-26: `bun run typecheck` passed after Phase 5 archivist wiring
+- 2026-04-26: `bun run check` passed after Phase 5 archivist wiring
 
 ## Completed in current slice
 
@@ -130,3 +133,13 @@ Phase 5 — Memory-tools and archivist (starting)
   MIRA-style XML memory blocks with `mem_XXXXXXXX` citations, per-session
   surfaced block propagation to delegated agents, and assistant citation
   mention tracking without git commits
+- Added deterministic read memory tools, archivist-only write/synthesis tools,
+  code-level memory write authorization, and committed/index-rebuilt memory
+  mutation persistence
+- Added the bounded `archivist` specialist with prompt-file policy, no surfaced
+  memory block injection, read/write memory tools, and no recursive delegation
+- Added read-only memory tools to engineer, architect, debugger, and verifier;
+  wired archivist delegation only for root, quartermaster family, architect, and
+  debugger
+- Updated agent tool resolution so explicit deterministic primitives can coexist
+  with delegation where agent specs require both
