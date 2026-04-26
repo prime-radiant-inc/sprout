@@ -129,4 +129,17 @@ describe("memory dedup", () => {
 			"Local embeddings are required",
 		]);
 	});
+
+	test("filters vector duplicates within the same extraction batch", async () => {
+		const filtered = await filterDuplicateDrafts(
+			[
+				makeDraft("Use SQLite for durable agent memory"),
+				makeDraft("Persist long-term recall in a local relational database"),
+			],
+			[],
+			{ embeddingProvider: slotProvider(0) },
+		);
+
+		expect(filtered.map((draft) => draft.text)).toEqual(["Use SQLite for durable agent memory"]);
+	});
 });

@@ -279,12 +279,16 @@ export function buildPlanRequest(opts: {
 	};
 
 	const providerOptions: Record<string, unknown> = {};
-	if (opts.sessionId && opts.agentName && opts.promptCache?.enabled !== false) {
-		const cacheKey = `${opts.sessionId}:${opts.agentName}`;
-		providerOptions.openai = { prompt_cache_key: cacheKey };
-		providerOptions.anthropic = {
-			cache: { enabled: true, ...(opts.promptCache?.ttl ? { ttl: opts.promptCache.ttl } : {}) },
-		};
+	if (opts.sessionId && opts.agentName) {
+		if (opts.promptCache?.enabled === false) {
+			providerOptions.anthropic = { cache: { enabled: false } };
+		} else {
+			const cacheKey = `${opts.sessionId}:${opts.agentName}`;
+			providerOptions.openai = { prompt_cache_key: cacheKey };
+			providerOptions.anthropic = {
+				cache: { enabled: true, ...(opts.promptCache?.ttl ? { ttl: opts.promptCache.ttl } : {}) },
+			};
+		}
 	}
 
 	if (opts.thinking) {

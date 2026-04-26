@@ -42,21 +42,8 @@ export async function findDuplicateMemory(
 
 	if (options.embeddingProvider) {
 		const vectorThreshold = options.vectorThreshold ?? VECTOR_DUPLICATE_THRESHOLD;
-		const [embedding] = await options.embeddingProvider.embedBatch([draft.text], {
-			kind: "document",
-		});
-		if (!embedding) {
-			throw new Error(
-				`Embedding provider '${options.embeddingProvider.provider}' returned no dedup vector`,
-			);
-		}
-		for (const memory of existing) {
-			const vector = readyMemoryVector(memory);
-			const score = cosineSimilarity(embedding.vector, vector);
-			if (score >= vectorThreshold) {
-				return { duplicate: true, reason: "vector", existingId: memory.id, score };
-			}
-		}
+		const embedding = await embedDraft(draft.text, options.embeddingProvider);
+		return findVectorDuplicate(embedding.vector, existing, vectorThreshold);
 	}
 
 	return { duplicate: false };
@@ -68,6 +55,7 @@ export async function filterDuplicateDrafts(
 	options: DedupOptions = {},
 ): Promise<ExtractedMemoryDraft[]> {
 	const accepted: ExtractedMemoryDraft[] = [];
+	const acceptedVectors: Array<{ id: string; vector: Float32Array }> = [];
 	for (const draft of drafts) {
 		const textDuplicate = await findDuplicateMemory(
 			draft,
@@ -76,10 +64,23 @@ export async function filterDuplicateDrafts(
 		);
 		if (textDuplicate.duplicate) continue;
 
-		const duplicate = options.embeddingProvider
-			? await findDuplicateMemory(draft, existing, options)
-			: { duplicate: false };
-		if (!duplicate.duplicate) accepted.push(draft);
+		if (options.embeddingProvider) {
+			const vectorThreshold = options.vectorThreshold ?? VECTOR_DUPLICATE_THRESHOLD;
+			const embedding = await embedDraft(draft.text, options.embeddingProvider);
+			const existingDuplicate = findVectorDuplicate(embedding.vector, existing, vectorThreshold);
+			if (existingDuplicate.duplicate) continue;
+
+			const batchDuplicate = findAcceptedVectorDuplicate(
+				embedding.vector,
+				acceptedVectors,
+				vectorThreshold,
+			);
+			if (batchDuplicate.duplicate) continue;
+
+			acceptedVectors.push({ id: `accepted-${accepted.length}`, vector: embedding.vector });
+		}
+
+		accepted.push(draft);
 	}
 	return accepted;
 }
@@ -107,6 +108,42 @@ function acceptedAsMemories(drafts: readonly ExtractedMemoryDraft[]): Memory[] {
 		use_count: 0,
 		confidence: 1,
 	}));
+}
+
+async function embedDraft(text: string, embeddingProvider: EmbeddingProvider) {
+	const [embedding] = await embeddingProvider.embedBatch([text], { kind: "document" });
+	if (!embedding) {
+		throw new Error(`Embedding provider '${embeddingProvider.provider}' returned no dedup vector`);
+	}
+	return embedding;
+}
+
+function findVectorDuplicate(
+	vector: Float32Array,
+	existing: readonly Memory[],
+	vectorThreshold: number,
+): DuplicateCheckResult {
+	for (const memory of existing) {
+		const score = cosineSimilarity(vector, readyMemoryVector(memory));
+		if (score >= vectorThreshold) {
+			return { duplicate: true, reason: "vector", existingId: memory.id, score };
+		}
+	}
+	return { duplicate: false };
+}
+
+function findAcceptedVectorDuplicate(
+	vector: Float32Array,
+	acceptedVectors: readonly { id: string; vector: Float32Array }[],
+	vectorThreshold: number,
+): DuplicateCheckResult {
+	for (const accepted of acceptedVectors) {
+		const score = cosineSimilarity(vector, accepted.vector);
+		if (score >= vectorThreshold) {
+			return { duplicate: true, reason: "vector", existingId: accepted.id, score };
+		}
+	}
+	return { duplicate: false };
 }
 
 function readyMemoryVector(memory: Memory): Float32Array {

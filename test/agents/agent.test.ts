@@ -443,6 +443,116 @@ describe("Agent", () => {
 		expect(toolResultMsg.role).toBe("tool");
 	});
 
+	test("delegated agents execute workspace primitives against their own agent workspace", async () => {
+		const tempGenomeDir = await mkdtemp(join(tmpdir(), "sprout-agent-scoped-registry-"));
+		try {
+			const genome = new Genome(tempGenomeDir);
+			await genome.init();
+			const coordinator: AgentSpec = {
+				...rootSpec,
+				name: "coordinator",
+				agents: ["worker"],
+				constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5, can_spawn: true },
+			};
+			const worker: AgentSpec = {
+				...leafSpec,
+				name: "worker",
+				tools: ["save_file"],
+				agents: [],
+				constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5, can_spawn: false },
+			};
+			await genome.addAgent(coordinator);
+			await genome.addAgent(worker);
+
+			const delegateMsg: Message = {
+				role: "assistant",
+				content: [
+					{
+						kind: ContentKind.TOOL_CALL,
+						tool_call: {
+							id: "call-root-delegate",
+							name: "delegate",
+							arguments: JSON.stringify({
+								agent_name: "worker",
+								goal: "Save the scoped reference file.",
+							}),
+						},
+					},
+				],
+			};
+			const saveFileMsg: Message = {
+				role: "assistant",
+				content: [
+					{
+						kind: ContentKind.TOOL_CALL,
+						tool_call: {
+							id: "call-worker-save-file",
+							name: "save_file",
+							arguments: JSON.stringify({
+								name: "scope.md",
+								content: "worker scoped content",
+							}),
+						},
+					},
+				],
+			};
+
+			let callCount = 0;
+			const mnemonicMsg = Msg.assistant("Curie");
+			const mockClient = {
+				providers: () => ["anthropic"],
+				complete: async (): Promise<Response> => {
+					callCount++;
+					const message =
+						callCount === 1
+							? delegateMsg
+							: callCount === 2
+								? mnemonicMsg
+								: callCount === 3
+									? saveFileMsg
+									: Msg.assistant(callCount === 4 ? "Worker done." : "Root done.");
+					return {
+						id: `mock-scoped-registry-${callCount}`,
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message,
+						finish_reason: {
+							reason: callCount === 1 || callCount === 3 ? "tool_calls" : "stop",
+						},
+						usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+					};
+				},
+				stream: async function* () {},
+			} as unknown as Client;
+			const env = new LocalExecutionEnvironment(tmpdir());
+			const registry = createPrimitiveRegistry(env, {
+				genome,
+				agentName: "coordinator",
+				sessionId: "session-scoped-registry",
+			});
+			const agent = new Agent({
+				spec: coordinator,
+				env,
+				client: mockClient,
+				primitiveRegistry: registry,
+				availableAgents: [coordinator, worker],
+				genome,
+			});
+
+			const result = await agent.run("delegate a save_file call");
+
+			expect(result.success).toBe(true);
+			expect(
+				await readFile(join(tempGenomeDir, "agents", "worker", "files", "scope.md"), "utf-8"),
+			).toBe("worker scoped content");
+			expect(existsSync(join(tempGenomeDir, "agents", "coordinator", "files", "scope.md"))).toBe(
+				false,
+			);
+		} finally {
+			await rm(tempGenomeDir, { recursive: true, force: true });
+		}
+	});
+
 	test("constructor accepts genome option", async () => {
 		const tempGenomeDir = await mkdtemp(join(tmpdir(), "sprout-agent-genome-"));
 		try {

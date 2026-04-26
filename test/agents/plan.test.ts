@@ -386,6 +386,24 @@ describe("buildPlanRequest", () => {
 		});
 	});
 
+	test("threads disabled prompt cache into Anthropic provider options", () => {
+		const req = buildPlanRequest({
+			systemPrompt: "System prompt.",
+			history: [],
+			agentTools: [],
+			primitiveTools: [],
+			model: "claude-sonnet-4-6",
+			provider: "anthropic",
+			sessionId: "01SESSION",
+			agentName: "debugger",
+			promptCache: { enabled: false },
+		});
+
+		expect(req.provider_options).toEqual({
+			anthropic: { cache: { enabled: false } },
+		});
+	});
+
 	test("merges prompt cache context with anthropic thinking options", () => {
 		const req = buildPlanRequest({
 			systemPrompt: "System prompt.",

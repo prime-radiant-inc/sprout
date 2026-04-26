@@ -252,7 +252,7 @@ interface AnthropicCacheSettings {
 function resolveAnthropicCacheSettings(request: Request): AnthropicCacheSettings {
 	const anthropicOpts = asRecord(request.provider_options?.anthropic);
 	const cacheOpts = asRecord(anthropicOpts.cache);
-	const enabled = cacheOpts.enabled !== false;
+	const enabled = cacheOpts.enabled === true;
 	const ttl = cacheOpts.ttl === "1h" || cacheOpts.ttl === "5m" ? cacheOpts.ttl : undefined;
 	return {
 		enabled,

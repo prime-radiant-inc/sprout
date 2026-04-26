@@ -87,6 +87,31 @@ describe("AnthropicAdapter", () => {
 		expect(((messages[4]!.content as any[]).at(-1) as any).cache_control).toBeUndefined();
 	});
 
+	test("build request omits cache markers unless explicitly enabled", () => {
+		const tools = [
+			{
+				name: "read_file",
+				description: "Read a file",
+				parameters: { type: "object", properties: { path: { type: "string" } } },
+			},
+		];
+		const request: Request = {
+			model: "claude-sonnet-4-6",
+			messages: [],
+			tools,
+			max_tokens: 1000,
+		};
+		const params = buildAnthropicRequest(request, "system prompt", [
+			{ role: "user", content: [{ kind: ContentKind.TEXT, text: "turn 1" }] },
+			{ role: "assistant", content: [{ kind: ContentKind.TEXT, text: "answer 1" }] },
+			{ role: "user", content: [{ kind: ContentKind.TEXT, text: "turn 2" }] },
+		]);
+
+		expect((params.system as any[])[0].cache_control).toBeUndefined();
+		expect((params.tools as any[])[0].cache_control).toBeUndefined();
+		expect(((params.messages[0]!.content as any[]).at(-1) as any).cache_control).toBeUndefined();
+	});
+
 	test("complete returns a text response", async () => {
 		const vcr = vcrFor("complete-returns-a-text-response", realAdapter);
 		const req: Request = {

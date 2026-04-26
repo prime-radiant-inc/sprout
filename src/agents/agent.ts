@@ -10,7 +10,7 @@ import { type RecallOptions, recall } from "../genome/recall.ts";
 import { extractMemoryReferences } from "../genome/render-memory-block.ts";
 import type { ExecutionEnvironment } from "../kernel/execution-env.ts";
 import { checkPathConstraint, validateConstraints } from "../kernel/path-constraints.js";
-import type { PrimitiveRegistry } from "../kernel/primitives.ts";
+import { createPrimitiveRegistry, type PrimitiveRegistry } from "../kernel/primitives.ts";
 import { buildAgentToolPrimitives } from "../kernel/tool-loading.ts";
 import { truncateToolOutput } from "../kernel/truncation.ts";
 import {
@@ -711,7 +711,7 @@ export class Agent {
 				spec: subagentSpec,
 				env: this.env,
 				client: this.client,
-				primitiveRegistry: this.primitiveRegistry,
+				primitiveRegistry: this.primitiveRegistryForAgent(subagentSpec.name),
 				availableAgents: this.genome ? this.genome.allAgents() : this.availableAgents,
 				genome: this.genome,
 				depth: this.depth + 1,
@@ -800,6 +800,15 @@ export class Agent {
 			});
 			return { toolResultMsg, stumbles: 1 };
 		}
+	}
+
+	private primitiveRegistryForAgent(agentName: string): PrimitiveRegistry {
+		if (!this.genome) return this.primitiveRegistry;
+		return createPrimitiveRegistry(
+			this.env,
+			{ genome: this.genome, agentName, sessionId: this.sessionId },
+			{ evalMode: this.evalMode },
+		);
 	}
 
 	/**
