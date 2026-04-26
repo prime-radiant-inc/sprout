@@ -217,9 +217,16 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 		collapseMemory: isVcrReplayClient(result.client)
 			? undefined
 			: async ({ sessionId, cwd }) => {
+					const project = await detectProjectFromCwd({ cwd });
+					const projectActivityChanged = await result.genome.recordProjectActivity(project);
+					if (projectActivityChanged) {
+						await result.genome.saveProjectActivityMutation(
+							`genome: record project activity '${project.id}'`,
+						);
+					}
 					const logBasePath = join(options.projectDataDir ?? options.genomePath, "logs", sessionId);
 					const events = await loadAllEventLogs(`${logBasePath}.jsonl`, logBasePath);
-					return collapseSessionToMemory({
+					const collapse = await collapseSessionToMemory({
 						events,
 						genome: result.genome,
 						client: result.client,
@@ -227,18 +234,12 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 						provider: result.provider,
 						sessionId,
 						cwd,
-					}).then(async (collapse) => {
-						if (collapse === "skipped") return collapse;
-						const project = await detectProjectFromCwd({ cwd });
-						const projectActivityChanged = await result.genome.recordProjectActivity(project);
-						if (projectActivityChanged) {
-							await result.genome.saveProjectActivityMutation(
-								`genome: record project activity '${project.id}'`,
-							);
-						}
-						await result.genome.recomputeMemoryScores();
-						return collapse;
+						project,
 					});
+					if (collapse !== "skipped" || projectActivityChanged) {
+						await result.genome.recomputeMemoryScores();
+					}
+					return collapse;
 				},
 	};
 }

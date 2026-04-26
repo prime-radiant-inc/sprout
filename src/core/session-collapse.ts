@@ -31,6 +31,7 @@ export interface CollapseSessionToMemoryInput {
 	cwd: string;
 	explicitProject?: string;
 	metadataProject?: string;
+	project?: DetectedProject;
 	now?: number;
 }
 
@@ -117,11 +118,13 @@ export async function collapseSessionToMemory(
 	if (transcript.length === 0) return "skipped";
 
 	const now = input.now ?? Date.now();
-	const project = await detectProjectFromCwd({
-		cwd: input.cwd,
-		explicitProject: input.explicitProject,
-		metadataProject: input.metadataProject,
-	});
+	const project =
+		input.project ??
+		(await detectProjectFromCwd({
+			cwd: input.cwd,
+			explicitProject: input.explicitProject,
+			metadataProject: input.metadataProject,
+		}));
 	const summary = await summarizeTranscript({
 		client: input.client,
 		model: input.model,

@@ -797,6 +797,30 @@ describe("Genome", () => {
 			expect(log).toContain("genome: record project activity 'sprout'");
 		});
 
+		test("project activity mutation restores JSONL when commit fails", async () => {
+			const root = join(tempDir, "project-activity-commit-fails");
+			const genome = await createInitializedGenome(root);
+			await genome.recordProjectActivity({
+				id: "sprout",
+				name: "Sprout",
+				confidence: 1,
+				source: "explicit",
+			});
+			const hookPath = join(root, ".git", "hooks", "pre-commit");
+			await writeFile(hookPath, "#!/bin/sh\nexit 1\n");
+			await chmod(hookPath, 0o755);
+
+			await expect(
+				genome.saveProjectActivityMutation("genome: record project activity 'sprout'"),
+			).rejects.toThrow("git commit");
+
+			expect(genome.projects.getById("sprout")).toBeUndefined();
+			expect(await readOptionalFile(join(root, "memories", "projects.jsonl"))).not.toContain(
+				"sprout",
+			);
+			expect(await git(root, "status", "--porcelain")).toBe("");
+		});
+
 		test("project activity commit preserves records from another loaded genome", async () => {
 			const root = join(tempDir, "project-activity-merge");
 			const writer = await createInitializedGenome(root);

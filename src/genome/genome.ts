@@ -600,13 +600,28 @@ export class Genome {
 
 	async saveProjectActivityMutation(commitMessage: string): Promise<void> {
 		await this.withMemoryWriteLock(async () => {
-			await this.projects.mergeLatestFromDisk();
 			const projectsPath = join(this.rootPath, "memories", "projects.jsonl");
-			await this.projects.save();
-			await git(this.rootPath, "add", projectsPath);
-			const status = await git(this.rootPath, "status", "--porcelain", "--", projectsPath);
-			if (!status.trim()) return;
-			await git(this.rootPath, "commit", "-m", commitMessage);
+			const snapshots = await snapshotTextFiles([projectsPath]);
+			let committed = false;
+			try {
+				await this.projects.mergeLatestFromDisk();
+				await this.projects.save();
+				await git(this.rootPath, "add", projectsPath);
+				const status = await git(this.rootPath, "status", "--porcelain", "--", projectsPath);
+				if (!status.trim()) {
+					committed = true;
+					return;
+				}
+				await git(this.rootPath, "commit", "-m", commitMessage);
+				committed = true;
+			} catch (error) {
+				if (!committed) {
+					await restoreTextFiles(snapshots);
+					await git(this.rootPath, "reset", "--", projectsPath);
+					await this.projects.load();
+				}
+				throw error;
+			}
 		});
 	}
 
