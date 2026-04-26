@@ -64,6 +64,7 @@ const GENERIC_PROJECT_NAMES = new Set([
 
 export class ProjectActivityStore {
 	private entries: ProjectActivityRecord[] = [];
+	private loadedFingerprints = new Map<string, string>();
 	private readonly jsonl: JsonlStore<unknown>;
 	private readonly timeZone: string | undefined;
 
@@ -74,6 +75,7 @@ export class ProjectActivityStore {
 
 	async load(): Promise<void> {
 		this.entries = (await this.jsonl.load()).map(normalizeProjectActivityRecord);
+		this.refreshLoadedFingerprints();
 	}
 
 	all(): ProjectActivityRecord[] {
@@ -153,7 +155,94 @@ export class ProjectActivityStore {
 
 	async save(): Promise<void> {
 		await this.jsonl.rewrite(this.entries);
+		this.refreshLoadedFingerprints();
 	}
+
+	async mergeLatestFromDisk(): Promise<void> {
+		const latest = new ProjectActivityStore(this.jsonl.path, { timeZone: this.timeZone });
+		await latest.load();
+		const latestEntries = latest.all();
+		const merged = [...latestEntries];
+		const mergedIndexById = new Map(merged.map((record, index) => [record.id, index]));
+
+		for (const record of this.changedSinceLoad()) {
+			const existingIndex = mergedIndexById.get(record.id);
+			if (existingIndex === undefined) {
+				mergedIndexById.set(record.id, merged.length);
+				merged.push(record);
+			} else {
+				merged[existingIndex] = mergeProjectActivityRecords(merged[existingIndex]!, record);
+			}
+		}
+
+		this.entries = merged.map(normalizeProjectActivityRecord);
+	}
+
+	private changedSinceLoad(): ProjectActivityRecord[] {
+		return this.entries.filter((record) => {
+			const loaded = this.loadedFingerprints.get(record.id);
+			return loaded === undefined || loaded !== projectActivityFingerprint(record);
+		});
+	}
+
+	private refreshLoadedFingerprints(): void {
+		this.loadedFingerprints = new Map(
+			this.entries.map((record) => [record.id, projectActivityFingerprint(record)]),
+		);
+	}
+}
+
+function mergeProjectActivityRecords(
+	latest: ProjectActivityRecord,
+	pending: ProjectActivityRecord,
+): ProjectActivityRecord {
+	const activeDates = sortedUnique([
+		...(latest.active_dates ?? []),
+		...(pending.active_dates ?? []),
+		...(latest.last_active_date ? [latest.last_active_date] : []),
+		...(pending.last_active_date ? [pending.last_active_date] : []),
+	]);
+	const cumulativeActiveDays = Math.max(
+		latest.cumulative_active_days,
+		pending.cumulative_active_days,
+		activeDates.length,
+	);
+	const lastActiveDate = activeDates.at(-1) ?? latest.last_active_date ?? pending.last_active_date;
+	return {
+		id: latest.id,
+		name: pending.name,
+		cumulative_active_days: cumulativeActiveDays,
+		...(lastActiveDate ? { last_active_date: lastActiveDate } : {}),
+		...(activeDates.length > 0 ? { active_dates: activeDates } : {}),
+		...maxOptionalField(
+			"last_consolidated_active_day",
+			latest.last_consolidated_active_day,
+			pending.last_consolidated_active_day,
+		),
+		...maxOptionalField(
+			"last_entity_gc_active_day",
+			latest.last_entity_gc_active_day,
+			pending.last_entity_gc_active_day,
+		),
+	};
+}
+
+function maxOptionalField<K extends string>(
+	key: K,
+	left: number | undefined,
+	right: number | undefined,
+): Record<K, number> | object {
+	const values = [left, right].filter((value): value is number => value !== undefined);
+	if (values.length === 0) return {};
+	return { [key]: Math.max(...values) } as Record<K, number>;
+}
+
+function sortedUnique(values: readonly string[]): string[] {
+	return [...new Set(values)].sort();
+}
+
+function projectActivityFingerprint(record: ProjectActivityRecord): string {
+	return JSON.stringify(record);
 }
 
 export function projectActivityDateKey(date: Date, timeZone?: string): string {
@@ -317,8 +406,7 @@ function normalizeProjectActivityRecord(raw: unknown): ProjectActivityRecord {
 	return {
 		id,
 		name,
-		cumulative_active_days:
-			activeDates.length > 0 ? activeDates.length : Math.max(0, Math.floor(days)),
+		cumulative_active_days: Math.max(activeDates.length, Math.max(0, Math.floor(days))),
 		...(lastActiveDate ? { last_active_date: lastActiveDate } : {}),
 		...(activeDates.length > 0 ? { active_dates: activeDates } : {}),
 		...numberField(raw, "last_consolidated_active_day"),

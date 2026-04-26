@@ -190,6 +190,11 @@ describe("project detection", () => {
 			last_active_date: "2026-04-26",
 			active_dates: ["2026-04-26"],
 		});
+
+		await store.save();
+		const reloaded = new ProjectActivityStore(join(tempDir, "projects-legacy-count.jsonl"));
+		await reloaded.load();
+		expect(reloaded.getById("sprout")?.cumulative_active_days).toBe(11);
 	});
 
 	test("unknown project does not advance a project-specific decay clock", async () => {

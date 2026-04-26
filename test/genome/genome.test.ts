@@ -659,6 +659,67 @@ describe("Genome", () => {
 			expect(log).toContain("genome: record project activity 'sprout'");
 		});
 
+		test("project activity commit preserves records from another loaded genome", async () => {
+			const root = join(tempDir, "project-activity-merge");
+			const writer = await createInitializedGenome(root);
+			const staleGenome = new Genome(root);
+			await staleGenome.loadFromDisk();
+			await writer.recordProjectActivity({
+				id: "sprout",
+				name: "Sprout",
+				confidence: 1,
+				source: "explicit",
+			});
+			await writer.saveProjectActivityMutation("genome: record project activity 'sprout'");
+
+			await staleGenome.recordProjectActivity({
+				id: "docs",
+				name: "Docs",
+				confidence: 1,
+				source: "explicit",
+			});
+			await staleGenome.saveProjectActivityMutation("genome: record project activity 'docs'");
+
+			const reloaded = new Genome(root);
+			await reloaded.loadFromDisk();
+			expect(reloaded.projects.getById("sprout")?.cumulative_active_days).toBe(1);
+			expect(reloaded.projects.getById("docs")?.cumulative_active_days).toBe(1);
+		});
+
+		test("project activity commit merges maintenance cadence with newer activity", async () => {
+			const root = join(tempDir, "project-activity-maintenance-merge");
+			const writer = await createInitializedGenome(root);
+			const staleGenome = new Genome(root);
+			await staleGenome.loadFromDisk();
+			await writer.recordProjectActivity(
+				{
+					id: "sprout",
+					name: "Sprout",
+					confidence: 1,
+					source: "explicit",
+				},
+				new Date("2026-04-26T10:00:00Z"),
+			);
+			await writer.saveProjectActivityMutation("genome: record project activity 'sprout'");
+
+			staleGenome.projects.upsertMaintenanceRecord({
+				id: "sprout",
+				name: "Sprout",
+				cumulative_active_days: 1,
+			});
+			staleGenome.projects.markConsolidated("sprout");
+			await staleGenome.saveProjectActivityMutation("genome: update maintenance cadence");
+
+			const reloaded = new Genome(root);
+			await reloaded.loadFromDisk();
+			expect(reloaded.projects.getById("sprout")).toMatchObject({
+				cumulative_active_days: 1,
+				last_active_date: "2026-04-26",
+				active_dates: ["2026-04-26"],
+				last_consolidated_active_day: 1,
+			});
+		});
+
 		test("addSegmentWithMemories restores JSONL files when save fails", async () => {
 			const root = join(tempDir, "segment-memory-save-fails");
 			const genome = await createInitializedGenome(root);

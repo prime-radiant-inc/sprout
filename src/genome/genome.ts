@@ -510,18 +510,19 @@ export class Genome {
 
 	async recordProjectActivity(project: DetectedProject, date = new Date()): Promise<boolean> {
 		const record = this.projects.recordActiveDay(project, date);
-		if (!record) return false;
-		await this.projects.save();
-		return true;
+		return record !== undefined;
 	}
 
 	async saveProjectActivityMutation(commitMessage: string): Promise<void> {
-		const projectsPath = join(this.rootPath, "memories", "projects.jsonl");
-		await this.projects.save();
-		await git(this.rootPath, "add", projectsPath);
-		const status = await git(this.rootPath, "status", "--porcelain", "--", projectsPath);
-		if (!status.trim()) return;
-		await git(this.rootPath, "commit", "-m", commitMessage);
+		await this.withMemoryWriteLock(async () => {
+			await this.projects.mergeLatestFromDisk();
+			const projectsPath = join(this.rootPath, "memories", "projects.jsonl");
+			await this.projects.save();
+			await git(this.rootPath, "add", projectsPath);
+			const status = await git(this.rootPath, "status", "--porcelain", "--", projectsPath);
+			if (!status.trim()) return;
+			await git(this.rootPath, "commit", "-m", commitMessage);
+		});
 	}
 
 	async recomputeMemoryScores(options: { now?: number; minImportance?: number } = {}): Promise<{

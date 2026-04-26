@@ -39,14 +39,16 @@ const MUTATING_MEMORY_METHODS = new Set([
 	"markUsed",
 	"markMentioned",
 	"save",
+	"mergeLatestFromDisk",
 	"pruneByConfidence",
 ]);
-const MUTATING_SEGMENT_METHODS = new Set(["add", "save"]);
+const MUTATING_SEGMENT_METHODS = new Set(["add", "stage", "save"]);
 const MUTATING_PROJECT_METHODS = new Set([
 	"recordActiveDay",
 	"markConsolidated",
 	"markEntityGc",
 	"upsertMaintenanceRecord",
+	"mergeLatestFromDisk",
 	"save",
 ]);
 

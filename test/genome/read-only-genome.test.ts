@@ -102,7 +102,9 @@ describe("createReadOnlyGenome", () => {
 			"read-only genome",
 		);
 		expect(() => readOnlyGenome.memories.stage(memory)).toThrow("read-only genome");
+		expect(() => readOnlyGenome.memories.mergeLatestFromDisk()).toThrow("read-only genome");
 		expect(() => readOnlyGenome.segments.add(segment)).toThrow("read-only genome");
+		expect(() => readOnlyGenome.segments.stage(segment)).toThrow("read-only genome");
 	});
 
 	test("rejects project and operational memory mutations", async () => {
@@ -122,6 +124,7 @@ describe("createReadOnlyGenome", () => {
 		);
 		expect(() => readOnlyGenome.projects.markConsolidated("sprout")).toThrow("read-only genome");
 		expect(() => readOnlyGenome.projects.markEntityGc("sprout")).toThrow("read-only genome");
+		expect(() => readOnlyGenome.projects.mergeLatestFromDisk()).toThrow("read-only genome");
 		expect(() =>
 			readOnlyGenome.projects.upsertMaintenanceRecord({
 				id: "sprout",
