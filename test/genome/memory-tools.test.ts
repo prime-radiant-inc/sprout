@@ -228,7 +228,11 @@ describe("memory tools", () => {
 		const additiveTools = buildWriteMemoryPrimitives(makeContext()).map((item) => item.name);
 		const destructiveTools = buildWriteMemoryPrimitives({
 			...makeContext(),
-			writeAuthorization: { destructive: true },
+			writeAuthorization: {
+				destructive: true,
+				allowedMemoryIds: ["mem_alpha00"],
+				allowedOperations: ["archive", "consolidate", "supersede"] as const,
+			},
 		}).map((item) => item.name);
 
 		expect(additiveTools).toContain("memory_annotate");
@@ -278,7 +282,11 @@ describe("memory tools", () => {
 				memory({ id: "new-memory", short_id: "mem_new000" }),
 				memory({ id: "old-memory", short_id: "mem_old000" }),
 			]),
-			writeAuthorization: { destructive: true },
+			writeAuthorization: {
+				destructive: true,
+				allowedMemoryIds: ["mem_new000", "mem_old000"],
+				allowedOperations: ["supersede"] as const,
+			},
 		};
 
 		const result = await runTool(ctx, "memory_link", {
@@ -314,13 +322,45 @@ describe("memory tools", () => {
 		expect(ctx.genome.memories.getById("old-memory")?.superseded_by).toBeUndefined();
 	});
 
+	test("destructive tools enforce trusted memory id scope", async () => {
+		const ctx = {
+			...makeContext([
+				memory({ id: "allowed-memory", short_id: "mem_allow0" }),
+				memory({ id: "blocked-memory", short_id: "mem_block0" }),
+			]),
+			writeAuthorization: {
+				destructive: true,
+				allowedMemoryIds: ["mem_allow0"],
+				allowedOperations: ["archive"] as const,
+			},
+		};
+
+		const blocked = await runTool(ctx, "memory_archive", {
+			id: "blocked-memory",
+			reason: "not actually authorized",
+		});
+		const allowed = await runTool(ctx, "memory_archive", {
+			id: "allowed-memory",
+			reason: "authorized",
+		});
+
+		expect(blocked.success).toBe(false);
+		expect(ctx.genome.memories.getById("blocked-memory")?.archived_at).toBeUndefined();
+		expect(allowed.success).toBe(true);
+		expect(typeof ctx.genome.memories.getById("allowed-memory")?.archived_at).toBe("number");
+	});
+
 	test("memory_consolidate stages merged memory and archives sources in one mutation", async () => {
 		const ctx = {
 			...makeContext([
 				memory({ id: "old-a", short_id: "mem_olda00", content: "Sprout uses SQLite." }),
 				memory({ id: "old-b", short_id: "mem_oldb00", content: "Sprout uses local SQLite." }),
 			]),
-			writeAuthorization: { destructive: true },
+			writeAuthorization: {
+				destructive: true,
+				allowedMemoryIds: ["mem_olda00", "mem_oldb00"],
+				allowedOperations: ["consolidate"] as const,
+			},
 		};
 		const commits: string[] = [];
 		ctx.genome.saveMemoryMutation = async (message) => {

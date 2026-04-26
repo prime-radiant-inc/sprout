@@ -67,25 +67,26 @@ export function mergeAndRankMemories(
 	limit: number,
 	options: { pinnedPool?: readonly Memory[] } = {},
 ): Memory[] {
+	const safeLimit = Math.max(limit, 0);
+	if (safeLimit === 0) return [];
+	const reservedPinned = uniqueActivePinned(options.pinnedPool ?? []).slice(0, safeLimit);
+	const reservedPinnedIds = new Set(reservedPinned.map((memory) => memory.id));
 	const ranked = new Map<string, RankedMemory>();
-	for (const [index, memory] of (options.pinnedPool ?? []).entries()) {
-		addRanked(ranked, memory, 2 / (index + 1));
-	}
 	for (const [index, memory] of similarityPool.entries()) {
 		addRanked(ranked, memory, 1 / (index + 1));
 	}
 	for (const [index, memory] of hubPool.entries()) {
 		addRanked(ranked, memory, 0.8 / (index + 1));
 	}
-	return [...ranked.values()]
-		.filter(({ memory }) => isActiveMemoryForRecall(memory))
+	const rankedNonPinned = [...ranked.values()]
+		.filter(({ memory }) => isActiveMemoryForRecall(memory) && !reservedPinnedIds.has(memory.id))
 		.map(({ memory, score }) => ({
 			memory,
 			score: adjustedScore(memory, score),
 		}))
 		.sort((a, b) => b.score - a.score || a.memory.id.localeCompare(b.memory.id))
-		.slice(0, Math.max(limit, 0))
 		.map(({ memory }) => memory);
+	return [...reservedPinned, ...rankedNonPinned.slice(0, safeLimit - reservedPinned.length)];
 }
 
 function addRanked(ranked: Map<string, RankedMemory>, memory: Memory, score: number): void {
@@ -111,6 +112,17 @@ function adjustedScore(memory: Memory, retrievalScore: number): number {
 
 function hasSupersedesInbound(memory: Memory): boolean {
 	return (memory.inbound_links ?? []).some((link) => link.type === "supersedes");
+}
+
+function uniqueActivePinned(memories: readonly Memory[]): Memory[] {
+	const seen = new Set<string>();
+	const pinned: Memory[] = [];
+	for (const memory of memories) {
+		if (!isActiveMemoryForRecall(memory) || seen.has(memory.id)) continue;
+		seen.add(memory.id);
+		pinned.push(memory);
+	}
+	return pinned;
 }
 
 function allGenomeMemories(genome: Genome): Memory[] {

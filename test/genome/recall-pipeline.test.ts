@@ -82,6 +82,15 @@ describe("recall pipeline", () => {
 		expect(merged.map((item) => item.id)).toEqual(["pinned"]);
 	});
 
+	test("pinned memories reserve final slots instead of only receiving a score boost", () => {
+		const pinned = memory({ id: "pinned", content: "Pinned prior memory", confidence: 0.1 });
+		const strongA = memory({ id: "strong-a", content: "Strong match A", confidence: 10 });
+		const strongB = memory({ id: "strong-b", content: "Strong match B", confidence: 9 });
+		const merged = mergeAndRankMemories([strongA, strongB], [], 2, { pinnedPool: [pinned] });
+
+		expect(merged.map((item) => item.id)).toEqual(["pinned", "strong-a"]);
+	});
+
 	test("renders MIRA-style XML memory blocks with stable short ids", () => {
 		const shortId = memoryShortId("12345678-1234");
 		const rendered = renderMemoryBlock([

@@ -26,7 +26,11 @@ describe("memory write authorization derivation", () => {
 				agentName: "archivist",
 				userInstruction: "annotate memory mem_alpha00 with the current SQLite decision",
 			}),
-		).toEqual({ additive: true });
+		).toEqual({
+			additive: true,
+			allowedMemoryIds: ["mem_alpha00"],
+			allowedOperations: ["annotate"],
+		});
 	});
 
 	test("requires explicit confirmation for destructive memory mutations", () => {
@@ -35,12 +39,35 @@ describe("memory write authorization derivation", () => {
 				agentName: "archivist",
 				userInstruction: "archive memory mem_alpha00 because it is stale",
 			}),
-		).toEqual({ additive: true });
+		).toBeUndefined();
 		expect(
 			deriveTrustedMemoryWriteAuthorization({
 				agentName: "archivist",
 				userInstruction: "I confirm: archive memory mem_alpha00 because it is stale",
 			}),
-		).toEqual({ destructive: true });
+		).toEqual({
+			destructive: true,
+			allowedMemoryIds: ["mem_alpha00"],
+			allowedOperations: ["archive"],
+		});
+	});
+
+	test("scopes destructive authorization to referenced memory ids and operations", () => {
+		expect(
+			deriveTrustedMemoryWriteAuthorization({
+				agentName: "archivist",
+				userInstruction: "I confirm: supersede mem_old000 with memory mem_new000",
+			}),
+		).toEqual({
+			destructive: true,
+			allowedMemoryIds: ["mem_old000", "mem_new000"],
+			allowedOperations: ["supersede"],
+		});
+		expect(
+			deriveTrustedMemoryWriteAuthorization({
+				agentName: "archivist",
+				userInstruction: "I confirm: archive the stale memory",
+			}),
+		).toBeUndefined();
 	});
 });

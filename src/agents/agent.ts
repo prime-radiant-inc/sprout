@@ -1268,6 +1268,7 @@ export class Agent {
 	}
 
 	private async trackMemoryMentions(message: Message): Promise<void> {
+		if (this.evalMode) return;
 		if (!this.genome || typeof this.genome.recordMemoryMentions !== "function") return;
 		const refs = extractMemoryReferences(messageText(message));
 		if (refs.length === 0) return;

@@ -10,7 +10,10 @@ import type {
 import { traverseMemoryLinks } from "./linking.ts";
 import { isActiveMemoryForRecall } from "./memory-lifecycle.ts";
 import { memoryShortId } from "./memory-schema.ts";
-import type { MemoryWriteAuthorization } from "./memory-write-authorization.ts";
+import type {
+	MemoryWriteAuthorization,
+	MemoryWriteOperation,
+} from "./memory-write-authorization.ts";
 import { authorizeMemoryWrite } from "./memory-write-policy.ts";
 import type { MemorySegment } from "./segments.ts";
 
@@ -71,16 +74,16 @@ export function buildReadMemoryPrimitives(ctx: MemoryToolContext): Primitive[] {
 
 export function buildWriteMemoryPrimitives(ctx: MemoryToolContext): Primitive[] {
 	if (ctx.agentName !== "archivist") return [];
-	if (!trustedAdditiveWrite(ctx) && !trustedDestructiveWrite(ctx)) return [];
-	if (trustedDestructiveWrite(ctx)) {
-		return [
-			memoryAnnotatePrimitive(ctx),
-			memoryArchivePrimitive(ctx),
-			memoryLinkPrimitive(ctx),
-			memoryConsolidatePrimitive(ctx),
-		];
+	const primitives: Primitive[] = [];
+	if (operationAllowed(ctx, "annotate", false)) primitives.push(memoryAnnotatePrimitive(ctx));
+	if (operationAllowed(ctx, "link", false) || operationAllowed(ctx, "supersede", true)) {
+		primitives.push(memoryLinkPrimitive(ctx));
 	}
-	return [memoryAnnotatePrimitive(ctx), memoryLinkPrimitive(ctx)];
+	if (operationAllowed(ctx, "archive", true)) primitives.push(memoryArchivePrimitive(ctx));
+	if (operationAllowed(ctx, "consolidate", true)) {
+		primitives.push(memoryConsolidatePrimitive(ctx));
+	}
+	return primitives;
 }
 
 function memorySearchPrimitive(ctx: MemoryToolContext): Primitive {
@@ -223,10 +226,10 @@ function memoryAnnotatePrimitive(ctx: MemoryToolContext): Primitive {
 		async execute(args) {
 			const memory = findMemory(ctx, stringArg(args.id));
 			if (!memory) return fail("memory not found");
+			const scoped = additiveScopeAllows(ctx, "annotate", [memory]);
 			const auth = authorizeMemoryWrite({
 				operation: "annotate",
-				explicitInstruction: trustedAdditiveWrite(ctx),
-				confirmed: trustedDestructiveWrite(ctx),
+				explicitInstruction: scoped,
 				memory,
 			});
 			if (!auth.allowed) return fail(auth.reason ?? "memory write blocked");
@@ -257,10 +260,11 @@ function memoryArchivePrimitive(ctx: MemoryToolContext): Primitive {
 		async execute(args) {
 			const memory = findMemory(ctx, stringArg(args.id));
 			if (!memory) return fail("memory not found");
+			const scoped = destructiveScopeAllows(ctx, "archive", [memory]);
 			const auth = authorizeMemoryWrite({
 				operation: "archive",
-				explicitInstruction: trustedAdditiveWrite(ctx),
-				confirmed: trustedDestructiveWrite(ctx),
+				explicitInstruction: scoped,
+				confirmed: scoped,
 				memory,
 			});
 			if (!auth.allowed) return fail(auth.reason ?? "memory write blocked");
@@ -291,24 +295,33 @@ function memoryLinkPrimitive(ctx: MemoryToolContext): Primitive {
 			const to = findMemory(ctx, stringArg(args.to_id));
 			if (!from || !to) return fail("source or target memory not found");
 			if (from.id === to.id) return fail("cannot link a memory to itself");
-			const auth = authorizeMemoryWrite({
-				operation: "link",
-				explicitInstruction: trustedAdditiveWrite(ctx),
-				confirmed: trustedDestructiveWrite(ctx),
-				memory: from,
-			});
-			if (!auth.allowed) return fail(auth.reason ?? "memory write blocked");
 			const relationshipType = stringArg(args.type)?.toLowerCase();
 			if (!relationshipType || !MANUAL_MEMORY_LINK_TYPE_SET.has(relationshipType)) {
 				return fail(
 					`invalid relationship type: expected one of ${MANUAL_MEMORY_LINK_TYPES.join(", ")}`,
 				);
 			}
-			if (relationshipType === "supersedes") {
+			const supersedes = relationshipType === "supersedes";
+			const scoped = supersedes
+				? destructiveScopeAllows(ctx, "supersede", [from, to])
+				: additiveScopeAllows(ctx, "link", [from, to]);
+			if (supersedes && !scoped) {
+				return fail(
+					"target memory supersession blocked: memory write outside trusted authorization scope",
+				);
+			}
+			const auth = authorizeMemoryWrite({
+				operation: supersedes ? "archive" : "link",
+				explicitInstruction: scoped,
+				confirmed: supersedes ? scoped : false,
+				memory: from,
+			});
+			if (!auth.allowed) return fail(auth.reason ?? "memory write blocked");
+			if (supersedes) {
 				const targetAuth = authorizeMemoryWrite({
 					operation: "archive",
-					explicitInstruction: trustedAdditiveWrite(ctx),
-					confirmed: trustedDestructiveWrite(ctx),
+					explicitInstruction: scoped,
+					confirmed: scoped,
 					memory: to,
 				});
 				if (!targetAuth.allowed) {
@@ -323,7 +336,7 @@ function memoryLinkPrimitive(ctx: MemoryToolContext): Primitive {
 			};
 			from.outbound_links = [...(from.outbound_links ?? []), link];
 			to.inbound_links = [...(to.inbound_links ?? []), { ...link, uuid: from.id }];
-			if (relationshipType === "supersedes") {
+			if (supersedes) {
 				to.superseded_by = from.id;
 				to.updated_at = link.created_at;
 			}
@@ -357,10 +370,11 @@ function memoryConsolidatePrimitive(ctx: MemoryToolContext): Primitive {
 			if (sources.length < 2) return fail("consolidation requires at least two source memories");
 			const text = stringArg(args.text);
 			if (!text) return fail("text is required");
+			const scoped = destructiveScopeAllows(ctx, "consolidate", sources);
 			const auth = authorizeMemoryWrite({
 				operation: "consolidate",
-				explicitInstruction: trustedAdditiveWrite(ctx),
-				confirmed: trustedDestructiveWrite(ctx),
+				explicitInstruction: scoped,
+				confirmed: scoped,
 				memory: sources[0],
 			});
 			if (!auth.allowed) return fail(auth.reason ?? "memory write blocked");
@@ -484,6 +498,45 @@ function trustedAdditiveWrite(ctx: MemoryToolContext): boolean {
 
 function trustedDestructiveWrite(ctx: MemoryToolContext): boolean {
 	return ctx.writeAuthorization?.destructive === true;
+}
+
+function additiveScopeAllows(
+	ctx: MemoryToolContext,
+	operation: MemoryWriteOperation,
+	memories: readonly Memory[],
+): boolean {
+	if (!operationAllowed(ctx, operation, false)) return false;
+	return memories.every((memory) => memoryAllowed(ctx, memory, false));
+}
+
+function destructiveScopeAllows(
+	ctx: MemoryToolContext,
+	operation: MemoryWriteOperation,
+	memories: readonly Memory[],
+): boolean {
+	if (!operationAllowed(ctx, operation, true)) return false;
+	return memories.every((memory) => memoryAllowed(ctx, memory, true));
+}
+
+function operationAllowed(
+	ctx: MemoryToolContext,
+	operation: MemoryWriteOperation,
+	destructive: boolean,
+): boolean {
+	if (destructive ? !trustedDestructiveWrite(ctx) : !trustedAdditiveWrite(ctx)) return false;
+	const operations = ctx.writeAuthorization?.allowedOperations;
+	if (!operations || operations.length === 0) return !destructive;
+	return operations.includes(operation);
+}
+
+function memoryAllowed(ctx: MemoryToolContext, memory: Memory, destructive: boolean): boolean {
+	const allowedIds = ctx.writeAuthorization?.allowedMemoryIds;
+	if (!allowedIds || allowedIds.length === 0) return !destructive;
+	const normalized = new Set(allowedIds.map((id) => id.toLowerCase()));
+	return (
+		normalized.has(memory.id.toLowerCase()) ||
+		normalized.has((memory.short_id ?? memoryShortId(memory.id)).toLowerCase())
+	);
 }
 
 function stringArg(value: unknown): string | undefined {
