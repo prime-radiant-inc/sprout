@@ -3,13 +3,13 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentEventEmitter } from "../../src/agents/events.ts";
-import { Genome } from "../../src/genome/genome.ts";
 import type { LearnSignal } from "../../src/kernel/types.ts";
 import { LearnProcess } from "../../src/learn/learn-process.ts";
 import { MetricsStore } from "../../src/learn/metrics-store.ts";
 import { Client } from "../../src/llm/client.ts";
 import { buildTestResolverContext } from "../helpers/resolver-context.ts";
 import "../helpers/test-env.ts";
+import { createTestGenome } from "../helpers/test-genome.ts";
 import { createVcr } from "../helpers/vcr.ts";
 
 const FIXTURE_DIR = join(import.meta.dir, "../fixtures/vcr/learn");
@@ -47,7 +47,7 @@ describe("Learn Integration", () => {
 
 		const genomeDir = join(tempDir, "genome-failure");
 		const rootDir = join(import.meta.dir, "../../root");
-		const genome = new Genome(genomeDir, rootDir);
+		const genome = createTestGenome(genomeDir, rootDir);
 		await genome.init();
 		await genome.initFromRoot();
 
@@ -118,7 +118,7 @@ describe("Learn Integration", () => {
 
 		const genomeDir = join(tempDir, "genome-skip");
 		const rootDir = join(import.meta.dir, "../../root");
-		const genome = new Genome(genomeDir, rootDir);
+		const genome = createTestGenome(genomeDir, rootDir);
 		await genome.init();
 		await genome.initFromRoot();
 

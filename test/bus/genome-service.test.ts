@@ -8,8 +8,9 @@ import { createMutationLearnRequest } from "../../src/bus/learn-contract.ts";
 import { BusLearnForwarder } from "../../src/bus/learn-forwarder.ts";
 import { BusServer } from "../../src/bus/server.ts";
 import { genomeEvents, genomeMutations } from "../../src/bus/topics.ts";
-import { Genome } from "../../src/genome/genome.ts";
+import type { Genome } from "../../src/genome/genome.ts";
 import type { LearnMutation } from "../../src/learn/learn-process.ts";
+import { createTestGenome } from "../helpers/test-genome.ts";
 
 describe("GenomeMutationService", () => {
 	let server: BusServer;
@@ -23,7 +24,7 @@ describe("GenomeMutationService", () => {
 
 	beforeEach(async () => {
 		tempDir = await mkdtemp(join(tmpdir(), "sprout-genome-svc-"));
-		genome = new Genome(tempDir);
+		genome = createTestGenome(tempDir);
 		await genome.init();
 
 		// Add a bootstrap agent so we can test update_agent

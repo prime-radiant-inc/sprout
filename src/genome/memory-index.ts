@@ -275,7 +275,7 @@ export class MemoryIndex {
 			)
 			.all();
 		if (rows.length === 0) {
-			throw new Error("Memory index has no embeddings; run the memory migration first");
+			throw new Error("Memory index has no embeddings; memory writes must create ready vectors");
 		}
 		const memoryCount = this.count("memories");
 		if (rows.length !== memoryCount) {

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { Genome } from "../../src/genome/genome.ts";
 import { recall, renderMemories, renderRoutingHints } from "../../src/genome/recall.ts";
 import { type AgentSpec, DEFAULT_CONSTRAINTS, type Memory } from "../../src/kernel/types.ts";
+import { createTestGenome } from "../helpers/test-genome.ts";
 
 function makeSpec(name: string): AgentSpec {
 	return {
@@ -59,7 +60,7 @@ describe("recall", () => {
 
 	test("returns matching memories by keyword", async () => {
 		const root = join(tempDir, "recall-memories");
-		const genome = new Genome(root);
+		const genome = createTestGenome(root);
 		await genome.init();
 		await genome.addMemory(makeMemory("m1", "this project uses pytest for testing"));
 		await genome.addMemory(makeMemory("m2", "the auth module is at src/auth"));
@@ -90,7 +91,7 @@ describe("recall", () => {
 
 	test("marks used memories", async () => {
 		const root = join(tempDir, "recall-mark");
-		const genome = new Genome(root);
+		const genome = createTestGenome(root);
 		await genome.init();
 		await genome.addMemory(makeMemory("m1", "testing fact", []));
 
@@ -103,7 +104,7 @@ describe("recall", () => {
 
 	test("returns empty memories and routing when none match", async () => {
 		const root = join(tempDir, "recall-empty");
-		const genome = new Genome(root);
+		const genome = createTestGenome(root);
 		await genome.init();
 		await genome.addMemory(makeMemory("m1", "unrelated topic"));
 

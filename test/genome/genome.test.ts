@@ -5,9 +5,13 @@ import { join } from "node:path";
 import { parse } from "yaml";
 import { parseAgentMarkdown, serializeAgentMarkdown } from "../../src/agents/markdown-loader.ts";
 import { Genome, git, sanitizeGitEnv } from "../../src/genome/genome.ts";
+import { memoryIndexPath } from "../../src/genome/index-builder.ts";
+import { MemoryIndex } from "../../src/genome/memory-index.ts";
 import { loadManifest } from "../../src/genome/root-manifest.ts";
 import type { AgentSpec, Memory, RoutingRule } from "../../src/kernel/types.ts";
+import type { EmbeddingProvider } from "../../src/llm/embeddings.ts";
 import { makeSpec } from "../helpers/make-spec.ts";
+import { createTestGenome } from "../helpers/test-genome.ts";
 
 function makeMemory(overrides: Partial<Memory> = {}): Memory {
 	return {
@@ -49,7 +53,7 @@ describe("Genome", () => {
 
 	async function createInitializedGenome(rootPath: string, rootDir?: string): Promise<Genome> {
 		await cp(initTemplateDir, rootPath, { recursive: true });
-		return new Genome(rootPath, rootDir);
+		return createTestGenome(rootPath, rootDir);
 	}
 
 	// --- Init tests ---
@@ -447,10 +451,42 @@ describe("Genome", () => {
 			// Verify file exists
 			const content = await readFile(join(root, "memories", "memories.jsonl"), "utf-8");
 			expect(content).toContain("genome-mem-1");
+			const parsed = JSON.parse(content.trim()) as Memory;
+			expect(parsed.embedding?.status).toBe("ready");
+			expect(parsed.embedding?.provider).toBe("fake");
+			expect(parsed.embedding?.vector).toHaveLength(768);
 
 			// Git log
 			const log = await git(root, "log", "--oneline");
 			expect(log).toContain("genome: add memory 'genome-mem-1'");
+
+			const index = MemoryIndex.open(memoryIndexPath(root));
+			try {
+				expect(index.stats()).toMatchObject({ memoryCount: 1, embeddingCount: 1 });
+			} finally {
+				index.close();
+			}
+		});
+
+		test("addMemory fails before writing when embedding generation fails", async () => {
+			const root = join(tempDir, "mem-add-embedding-fails");
+			await cp(initTemplateDir, root, { recursive: true });
+			const brokenProvider: EmbeddingProvider = {
+				provider: "broken",
+				model: "broken",
+				dimensions: 768,
+				embedBatch: async () => {
+					throw new Error("embedding model unavailable");
+				},
+			};
+			const genome = new Genome(root, undefined, { embeddingProvider: brokenProvider });
+
+			await expect(
+				genome.addMemory(makeMemory({ id: "bad-memory", content: "will not persist" })),
+			).rejects.toThrow("embedding model unavailable");
+
+			expect(genome.memories.all()).toEqual([]);
+			await expect(readFile(join(root, "memories", "memories.jsonl"), "utf-8")).rejects.toThrow();
 		});
 
 		test("markMemoriesUsed updates use_count and persists to disk", async () => {

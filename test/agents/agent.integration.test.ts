@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { Agent } from "../../src/agents/agent.ts";
 import { AgentEventEmitter } from "../../src/agents/events.ts";
 import { loadRootAgents, scanAgentTree } from "../../src/agents/loader.ts";
-import { Genome } from "../../src/genome/genome.ts";
+import type { Genome } from "../../src/genome/genome.ts";
 import { LocalExecutionEnvironment } from "../../src/kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../../src/kernel/primitives.ts";
 import type { AgentSpec } from "../../src/kernel/types.ts";
@@ -13,6 +13,7 @@ import { Client } from "../../src/llm/client.ts";
 import { ContentKind, type Message, Msg, type Response } from "../../src/llm/types.ts";
 import "../helpers/test-env.ts";
 import { buildTestResolverContext } from "../helpers/resolver-context.ts";
+import { createTestGenome } from "../helpers/test-genome.ts";
 import { createVcr } from "../helpers/vcr.ts";
 
 const VCR_FIXTURE_DIR = join(import.meta.dir, "../fixtures/vcr/agent-integration");
@@ -219,7 +220,7 @@ describe("Agent with Genome Integration", () => {
 		}
 
 		// Create fresh genome with bootstrap agents
-		genome = new Genome(genomeDir, join(import.meta.dir, "../../root"));
+		genome = createTestGenome(genomeDir, join(import.meta.dir, "../../root"));
 		await genome.init();
 		await genome.initFromRoot();
 	});

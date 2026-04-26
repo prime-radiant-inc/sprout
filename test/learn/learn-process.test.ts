@@ -12,6 +12,7 @@ import { MetricsStore } from "../../src/learn/metrics-store.ts";
 import type { Client } from "../../src/llm/client.ts";
 import type { ProviderModel, Request, Response } from "../../src/llm/types.ts";
 import { buildTestResolverContext } from "../helpers/resolver-context.ts";
+import { createTestGenome } from "../helpers/test-genome.ts";
 
 function makeSignal(overrides: Partial<LearnSignal> = {}): LearnSignal {
 	return {
@@ -82,7 +83,7 @@ let genomeTemplateDir: string;
 async function setupGenome(tempDir: string, name: string) {
 	const genomeDir = join(tempDir, name);
 	await cp(genomeTemplateDir, genomeDir, { recursive: true });
-	const genome = new Genome(genomeDir, ROOT_DIR);
+	const genome = createTestGenome(genomeDir, ROOT_DIR);
 	await genome.loadFromDisk();
 	const metrics = new MetricsStore(join(genomeDir, "metrics", "metrics.jsonl"));
 	await metrics.load();
@@ -95,7 +96,7 @@ async function setupGenome(tempDir: string, name: string) {
 async function setupGenomeWithClient(tempDir: string, name: string, client: Client) {
 	const genomeDir = join(tempDir, name);
 	await cp(genomeTemplateDir, genomeDir, { recursive: true });
-	const genome = new Genome(genomeDir, ROOT_DIR);
+	const genome = createTestGenome(genomeDir, ROOT_DIR);
 	await genome.loadFromDisk();
 	const metrics = new MetricsStore(join(genomeDir, "metrics", "metrics.jsonl"));
 	await metrics.load();

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Genome, git } from "../../src/genome/genome.ts";
 import type { Memory, RoutingRule } from "../../src/kernel/types.ts";
+import { createTestGenome } from "../helpers/test-genome.ts";
 
 function makeMemory(overrides: Partial<Memory> = {}): Memory {
 	return {
@@ -42,7 +43,7 @@ describe("Genome pruning", () => {
 	describe("pruneMemories", () => {
 		test("removes memories below effective confidence threshold", async () => {
 			const root = join(tempDir, "prune-confidence");
-			const genome = new Genome(root);
+			const genome = createTestGenome(root);
 			await genome.init();
 
 			const ninetyDaysAgo = Date.now() - 90 * 86400000;
@@ -77,7 +78,7 @@ describe("Genome pruning", () => {
 
 		test("commits when memories are pruned", async () => {
 			const root = join(tempDir, "prune-commit");
-			const genome = new Genome(root);
+			const genome = createTestGenome(root);
 			await genome.init();
 
 			const ninetyDaysAgo = Date.now() - 90 * 86400000;
@@ -104,7 +105,7 @@ describe("Genome pruning", () => {
 
 		test("returns empty array and does not commit when nothing to prune", async () => {
 			const root = join(tempDir, "prune-nothing");
-			const genome = new Genome(root);
+			const genome = createTestGenome(root);
 			await genome.init();
 
 			await genome.addMemory(
@@ -126,7 +127,7 @@ describe("Genome pruning", () => {
 
 		test("uses default threshold of 0.2 when no argument provided", async () => {
 			const root = join(tempDir, "prune-default");
-			const genome = new Genome(root);
+			const genome = createTestGenome(root);
 			await genome.init();
 
 			const ninetyDaysAgo = Date.now() - 90 * 86400000;

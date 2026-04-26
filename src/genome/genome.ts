@@ -9,13 +9,20 @@ import {
 } from "../agents/loader.ts";
 import { parseAgentMarkdown, serializeAgentMarkdown } from "../agents/markdown-loader.ts";
 import type { AgentSpec, Memory, RoutingRule } from "../kernel/types.ts";
+import { type EmbeddingProvider, LocalEmbeddingProvider } from "../llm/embeddings.ts";
 import { getToolDisplayName } from "../shared/tool-display.ts";
+import { rebuildMemoryIndexFromJsonl } from "./index-builder.ts";
+import { attachReadyMemoryEmbedding } from "./memory-embedding.ts";
 import { MemoryStore } from "./memory-store.ts";
 import { buildManifestFromSpecs, loadManifest, saveManifest } from "./root-manifest.ts";
 
 export interface SyncRootResult {
 	added: string[];
 	conflicts: string[];
+}
+
+export interface GenomeOptions {
+	embeddingProvider?: EmbeddingProvider;
 }
 
 const GIT_REPO_SELECTION_ENV_VARS = [
@@ -77,6 +84,7 @@ const DIRS = [
 export class Genome {
 	private readonly rootPath: string;
 	private readonly rootDir?: string;
+	private readonly embeddingProvider: EmbeddingProvider;
 	private readonly agents = new Map<string, AgentSpec>();
 	private readonly rootAgents = new Map<string, AgentSpec>();
 	readonly memories: MemoryStore;
@@ -84,9 +92,10 @@ export class Genome {
 	private _generation = 0;
 	private _knownAgentFiles: Set<string> = new Set();
 
-	constructor(rootPath: string, rootDir?: string) {
+	constructor(rootPath: string, rootDir?: string, options: GenomeOptions = {}) {
 		this.rootPath = rootPath;
 		this.rootDir = rootDir;
+		this.embeddingProvider = options.embeddingProvider ?? new LocalEmbeddingProvider();
 		this.memories = new MemoryStore(join(rootPath, "memories", "memories.jsonl"));
 	}
 
@@ -279,9 +288,11 @@ export class Genome {
 
 	/** Add a memory, committing the JSONL file. */
 	async addMemory(memory: Memory): Promise<void> {
-		await this.memories.add(memory);
+		const embeddedMemory = await attachReadyMemoryEmbedding(memory, this.embeddingProvider);
+		await this.memories.add(embeddedMemory);
 		await git(this.rootPath, "add", join(this.rootPath, "memories", "memories.jsonl"));
-		await git(this.rootPath, "commit", "-m", `genome: add memory '${memory.id}'`);
+		await git(this.rootPath, "commit", "-m", `genome: add memory '${embeddedMemory.id}'`);
+		await rebuildMemoryIndexFromJsonl(this.rootPath);
 	}
 
 	/** Mark memories as used by id, saving to disk. No git commit — this is operational metadata. */
@@ -291,6 +302,7 @@ export class Genome {
 			this.memories.markUsed(id);
 		}
 		await this.memories.save();
+		await rebuildMemoryIndexFromJsonl(this.rootPath);
 	}
 
 	// --- Pruning ---
@@ -307,6 +319,7 @@ export class Genome {
 				"-m",
 				`genome: prune ${pruned.length} low-confidence memories`,
 			);
+			await rebuildMemoryIndexFromJsonl(this.rootPath);
 		}
 		return pruned;
 	}

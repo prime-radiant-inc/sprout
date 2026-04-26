@@ -29,6 +29,9 @@ Phase 1 — Foundation (in progress)
   extension loading is disabled. The vector lane now stores 768-dimensional
   embedding BLOBs in SQLite and performs cosine ranking in TypeScript as the
   production path.
+- There are no legacy users for this port. The one-shot migration script is
+  removed from scope; Phase 1 now embeds new memory writes directly and keeps
+  schema normalization only as a tolerant parser/test convenience.
 
 ## Verification
 
@@ -62,13 +65,17 @@ Phase 1 — Foundation (in progress)
 - 2026-04-26: `bun test` ran 2545 tests: 2543 passed, 2 failed in unrelated
   existing/environment checks because `test/tools/harbor/harbor-runner.test.ts`
   expects missing `inspo/harbor-runner/launch.sh` and `userdata.sh.tpl`
+- 2026-04-26: `bun test test/llm/embeddings.test.ts test/genome/memory-embedding.test.ts test/genome/index-builder.test.ts test/genome/memory-index.test.ts test/genome/memory-schema.test.ts test/genome/jsonl-store.test.ts test/genome/memory-store.test.ts test/genome/genome.test.ts test/genome/recall.test.ts test/genome/pruning.test.ts test/bus/genome-service.test.ts test/learn/learn-process.test.ts`
+  passed after routing new memory writes through required embeddings
+- 2026-04-26: `bun run check` passed after embedded memory write changes
+- 2026-04-26: `bun run typecheck` passed after embedded memory write changes
 
 ## Completed in current slice
 
-- Added legacy memory fixture for migration coverage
+- Added memory fixture coverage for schema normalization
 - Added extended memory schema normalization helpers
 - Added generic JSONL store primitive with append/rewrite/load behavior
-- Updated `MemoryStore` to normalize legacy and extended records on load/add
+- Updated `MemoryStore` to normalize minimal and extended records on load/add
 - Added SQLite/FTS5 memory index skeleton with JSONL rebuild tests
 - Added index-builder helper that rebuilds `genome/.cache/index.db` from JSONL
 - Added `.cache/` genome initialization and gitignore coverage
@@ -78,3 +85,6 @@ Phase 1 — Foundation (in progress)
   tests
 - Added SQLite-backed embedding vector storage and vector/hybrid search helpers
   with fail-fast behavior when vector-required search has no indexed embeddings
+- Added required embedding generation to `Genome.addMemory`; new memory writes
+  now persist ready local embedding metadata/vectors and rebuild the derived
+  SQLite index after memory mutations
