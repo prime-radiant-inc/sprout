@@ -331,10 +331,12 @@ Override validation:
   error.
 - Disabled providers fail startup/settings bootstrap with a clear env-var-specific
   error.
-- If a provider catalog is populated, missing model IDs fail startup/settings
-  bootstrap.
-- If a provider catalog is empty, exact model refs are allowed and displayed with
-  the raw model id, matching existing exact-model resolver behavior.
+- Catalog membership is not a startup blocker. If a provider catalog is empty,
+  the exact model ref is treated as an operator assertion and displayed with the
+  raw model id. If a populated catalog does not contain the model id, the
+  settings snapshot reports the model as catalog-missing and the resolver fails
+  when that model is used. This rule applies equally to stored refs and
+  env-overridden refs.
 - Provider delete/disable commands must be rejected when an active env override
   still references that provider, because settings cannot remove environment
   state. The error should tell the operator which env var to unset first.
@@ -353,8 +355,9 @@ export interface ModelConfigOverride {
 	source: "env";
 	envVar: string;
 	model: ModelRef;
-	catalogValidated: boolean;
+	catalogStatus: "not_loaded" | "matched" | "missing";
 	displayLabel?: string;
+	diagnostic?: string;
 }
 
 export interface SettingsRuntimeSnapshot {
@@ -364,10 +367,11 @@ export interface SettingsRuntimeSnapshot {
 }
 ```
 
-`catalogValidated` is `false` only when the referenced provider has no loaded
-catalog entries and the exact model ref is therefore accepted as an operator
-assertion. Snapshot data contains provider/model ids but no secrets, so it is
-safe to expose to every client that can already view provider settings.
+`catalogStatus: "missing"` is a diagnostic state, not a fallback. Runtime
+resolution for that model still fails until the stored setting or env override
+is corrected or the catalog is refreshed with that model. Snapshot data contains
+provider/model ids but no secrets, so it is safe to expose to every client that
+can already view provider settings.
 
 ## Web Config UI
 
@@ -390,6 +394,8 @@ Panel behavior:
 - Field errors render under the corresponding purpose.
 - If an env override is active for a purpose, show the stored setting in the
   select and display a non-editable note with the effective override value.
+- If a stored or overridden model is catalog-missing, show a warning note for
+  that row.
 - The explanatory text must be explicit that these are hidden memory-system LLM
   calls and that they do not change the active chat/session/agent model.
 - If no enabled providers have refreshed models, show the same refresh guidance
@@ -444,10 +450,14 @@ state, but not ids.
   is rejected until the env var is removed.
 - Provider disable removes stored defaults and stored memory models for that
   provider unless an active env override references it, in which case disable is
-  rejected until the env var is removed.
+  rejected until the env var is removed. This is intentionally a persistent
+  settings edit, matching current global-default behavior; temporary provider
+  outages should be handled by leaving the provider enabled and fixing the
+  credential/network issue.
 - Provider catalog refresh does not mutate stored model refs. If a refreshed
-  catalog no longer contains a stored or env-overridden model, resolution fails
-  loudly the next time that model is used.
+  catalog no longer contains a stored or env-overridden model, settings
+  snapshots show a catalog-missing diagnostic and resolution fails loudly the
+  next time that model is used.
 
 ## Production Call-Site Wiring
 
@@ -557,8 +567,10 @@ Settings/schema:
   from global defaults.
 - Env model overrides affect effective resolver settings without mutating stored
   `SproutSettings`.
-- Invalid env model overrides fail startup/settings bootstrap with the env var
-  name in the error.
+- Env overrides with unknown or disabled providers fail startup/settings
+  bootstrap with the env var name in the error.
+- Env overrides with catalog-missing model ids appear in runtime diagnostics and
+  fail at resolution time.
 - Existing settings files plus env model vars do not persist env values back to
   disk.
 - Missing settings files may still be initialized from existing
@@ -566,6 +578,8 @@ Settings/schema:
 - Runtime snapshots expose active model overrides for UI display.
 - Provider delete/disable rejects when active env overrides reference the
   provider.
+- Catalog refresh that removes a configured model does not mutate settings but
+  makes the affected stored/env model visibly catalog-missing and unresolved.
 
 Resolver:
 
@@ -593,6 +607,7 @@ Web UI:
 - Field errors render for memory purposes.
 - Active env overrides render as effective-value notes without changing the
   stored select value.
+- Catalog-missing stored and env-overridden models render warning notes.
 - Existing default-model tests remain green.
 
 TUI:
@@ -622,6 +637,8 @@ Memory call sites:
   config UI.
 - Stored model configuration lives in `SproutSettings`; env vars only override
   effective runtime model choices and are visible as overrides.
+- Unset optional memory purposes and catalog-missing models are visible in
+  settings diagnostics with actionable remediation text.
 - Every hidden memory LLM call uses the configured exact purpose model.
 - No hidden memory LLM call inherits the active agent/session model.
 - No hidden memory LLM call falls back to global `best`, `balanced`, or `fast`.
