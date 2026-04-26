@@ -563,7 +563,9 @@ excluded and allow failed/timed-out terminal sessions.
 
 - [ ] Add controller error handling around `result.agent.run()` so terminal
   thrown errors can still trigger collapse before the error is rethrown or
-  surfaced. Do not swallow the original error.
+  surfaced. Do not swallow the original error. The catch path must first verify
+  that a terminal `session_end` event exists for the session; setup/runtime
+  exceptions before terminal evidence must not collapse.
 
 Target shape:
 
@@ -576,7 +578,7 @@ try {
 	}
 	return toSessionRunResult(runResult);
 } catch (error) {
-	if (!signal.aborted) {
+	if (!signal.aborted && hasTerminalSessionEnd(this._sessionId)) {
 		await stopLearnProcess();
 		await this.collapseMemoryAfterRun(result);
 	}
@@ -585,7 +587,8 @@ try {
 ```
 
 Use existing local helpers/types if they exist; the example is shape, not exact
-code.
+code. If `collapseMemoryAfterRun()` is the cleaner place for this guard, make it
+a no-op unless the event log contains terminal `session_end`.
 
 - [ ] Evaluate whether an actual idle watcher is necessary. If Sprout's current
   root run model emits `session_end` for every terminal run and does not keep a
