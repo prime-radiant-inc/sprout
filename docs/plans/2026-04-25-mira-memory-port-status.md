@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Phase 7 — Decay (starting)
+Phase 8 — Cache strategy (starting)
 
 ## Phase log
 
@@ -12,12 +12,13 @@ Phase 7 — Decay (starting)
 - Phase 4 — Surfacing pipeline: completed 2026-04-26
 - Phase 5 — Memory-tools and archivist: completed 2026-04-26
 - Phase 6 — Link graph: completed 2026-04-26
-- Phase 7 — Decay: starting
+- Phase 7 — Decay: completed 2026-04-26
+- Phase 8 — Cache strategy: starting
 
 ## Current branch / commit
 
 - Branch: `jesse/pri-1354-implement-mira-memory-port-phase-1-foundation`
-- Last verified commit: `8897cde`
+- Last verified commit: `90aa86f`
 
 ## Open issues
 
@@ -105,6 +106,11 @@ Phase 7 — Decay (starting)
   link persistence, traversal, and dead-link healing
 - 2026-04-26: `bun run typecheck` passed after Phase 6 link graph
 - 2026-04-26: `bun run check` passed after Phase 6 link graph
+- 2026-04-26: `bun test test/genome/projects.test.ts test/genome/scoring.test.ts test/genome/genome.test.ts`
+  passed after adding per-project activity counters, scoring, access snapshots,
+  and session-lifecycle score recompute
+- 2026-04-26: `bun run typecheck` passed after Phase 7 decay
+- 2026-04-26: `bun run check` passed after Phase 7 decay
 
 ## Completed in current slice
 
@@ -156,3 +162,9 @@ Phase 7 — Decay (starting)
 - Added JSONL-authoritative link persistence with inbound/outbound refs,
   supersession markers, SQLite index rebuilds, dead-ref healing, and weighted
   traversal
+- Added JSONL-backed per-project activity counters that advance once per
+  project-local active date and skip `unknown`/`global` project heuristics
+- Added TypeScript importance scoring with access, mention, link hub,
+  entity-hub, newness, recency, and expiration components
+- Added creation/access activity-day snapshots, recall-hit access clock updates,
+  low-score archival, and a session-lifecycle recompute hook
