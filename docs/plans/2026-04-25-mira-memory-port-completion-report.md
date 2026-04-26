@@ -58,6 +58,8 @@ Remediated items:
 - The relationship classifier now has a 50-row deterministic fixture, explicit
   `extraction_ref` exclusion as a system-generated relationship, and a
   skipped-by-default live agreement eval harness.
+- The 50-pair live relationship classifier eval passed against Anthropic
+  `claude-haiku-4-5-20251001`, satisfying the 80% agreement quality gate.
 
 ## Verification
 
@@ -89,16 +91,15 @@ Follow-up verification after the completion pass:
 - Review remediation `bun run check` passed.
 - Review remediation `bun run precommit` passed: Biome check, TypeScript checks,
   and all five unit shards, with 2246 tests passed and 3 skipped.
+- Live relationship classifier eval passed:
+  `SPROUT_LIVE_RELATIONSHIP_EVAL=1 SPROUT_RELATIONSHIP_EVAL_PROVIDER=anthropic SPROUT_RELATIONSHIP_EVAL_MODEL=claude-haiku-4-5-20251001 bun test test/genome/relationship-classifier-eval.test.ts`
+  returned 4 passed, 0 failed, and completed in 59.55 seconds.
 - Roborev review was run after each remediation commit. The latest review job
   for the eval-timeout fix passed; the prior timeout finding was fixed and
   closed.
 
 ## Residual Risks
 
-- Phase 6 relationship-classifier quality is not yet proven by a recorded or
-  live actual-classifier run. The deterministic 50-pair fixture and opt-in live
-  eval harness exist, but the 80% agreement quality gate remains unsatisfied
-  until `SPROUT_LIVE_RELATIONSHIP_EVAL=1` or an equivalent VCR replay passes.
 - Subcortical recall remains opt-in for live agents. This avoids silently adding
   an LLM call to every existing agent loop; enable it per agent with
   `subcortical_recall: true` or `{ enabled: true, max_tokens: N }`.
@@ -110,12 +111,10 @@ Follow-up verification after the completion pass:
 
 ## Recommended Next Steps
 
-1. Run or record the 50-pair relationship classifier quality gate and require at
-   least 80% agreement before calling Phase 6 quality complete.
-2. Re-run the OpenAI cache eval once quota is available.
-3. Decide which specific agents should opt into `subcortical_recall` after
+1. Re-run the OpenAI cache eval once quota is available.
+2. Decide which specific agents should opt into `subcortical_recall` after
    monitoring latency/cost.
-4. Use `sprout --genome maintain --dry-run` during dogfood and apply only
+3. Use `sprout --genome maintain --dry-run` during dogfood and apply only
    reviewed decision files.
-5. Monitor real sessions for recall precision, consolidation candidate quality,
+4. Monitor real sessions for recall precision, consolidation candidate quality,
    and cache-token telemetry before broad rollout.

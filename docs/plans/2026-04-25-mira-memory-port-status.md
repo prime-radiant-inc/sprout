@@ -24,9 +24,6 @@ Through Phase 10 — completed
 
 ## Open issues
 
-- Phase 6 relationship classifier quality gate — fixture coverage now exists,
-  and an opt-in live eval harness is skipped by default, but no recorded or live
-  actual-classifier run has proven the 50-pair 80% agreement gate yet
 - `§14.1` session-start surfacing on resume — not needed for the current Phase 1 slice
 
 ## Review remediation pass
@@ -47,6 +44,8 @@ Through Phase 10 — completed
 - 2026-04-26: expanded the relationship classifier fixture to 50 labeled pairs,
   documented `extraction_ref` as system-generated, and added deterministic
   fixture/prompt tests plus a skipped-by-default live agreement eval.
+- 2026-04-26: ran the 50-pair live relationship classifier eval against
+  Anthropic `claude-haiku-4-5-20251001`; it passed the 80% agreement gate.
 
 ## Deviations from design
 
@@ -174,6 +173,9 @@ Through Phase 10 — completed
 - 2026-04-26: `bun run precommit` passed after the review remediation pass:
   Biome check, TypeScript checks, and all five unit shards passed with 2246
   tests passed and 3 skipped
+- 2026-04-26: `SPROUT_LIVE_RELATIONSHIP_EVAL=1 SPROUT_RELATIONSHIP_EVAL_PROVIDER=anthropic SPROUT_RELATIONSHIP_EVAL_MODEL=claude-haiku-4-5-20251001 bun test test/genome/relationship-classifier-eval.test.ts`
+  passed; 4 tests passed, 0 failed, and the live 50-pair classifier agreement
+  test completed in 59.55 seconds
 
 ## Completed in current slice
 
