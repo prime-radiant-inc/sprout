@@ -18,6 +18,20 @@ describe("memory write authorization derivation", () => {
 				userInstruction: "search memories for prior SQLite decisions",
 			}),
 		).toBeUndefined();
+		for (const userInstruction of [
+			"What annotation exists on memory mem_alpha00?",
+			"Does mem_alpha00 conflict with mem_beta00?",
+			"How does mem_alpha00 refine memory mem_beta00?",
+			"Explain whether memory mem_alpha00 contextualizes memory mem_beta00",
+			"How does mem_alpha00 relate to mem_beta00?",
+		]) {
+			expect(
+				deriveTrustedMemoryWriteAuthorization({
+					agentName: "archivist",
+					userInstruction,
+				}),
+			).toBeUndefined();
+		}
 	});
 
 	test("authorizes additive memory mutations from explicit user instructions", () => {
@@ -37,6 +51,46 @@ describe("memory write authorization derivation", () => {
 				userInstruction: "ask the archivist to annotate relevant memories with this context",
 			}),
 		).toBeUndefined();
+		expect(
+			deriveTrustedMemoryWriteAuthorization({
+				agentName: "archivist",
+				userInstruction: "link memory mem_alpha00 to memory mem_beta00 as related",
+			}),
+		).toEqual({
+			additive: true,
+			allowedMemoryIds: ["mem_alpha00", "mem_beta00"],
+			allowedOperations: ["link"],
+		});
+		expect(
+			deriveTrustedMemoryWriteAuthorization({
+				agentName: "archivist",
+				userInstruction: "mark mem_alpha00 as conflicting with mem_beta00",
+			}),
+		).toEqual({
+			additive: true,
+			allowedMemoryIds: ["mem_alpha00", "mem_beta00"],
+			allowedOperations: ["link"],
+		});
+		expect(
+			deriveTrustedMemoryWriteAuthorization({
+				agentName: "archivist",
+				userInstruction: "please relate mem_alpha00 to mem_beta00",
+			}),
+		).toEqual({
+			additive: true,
+			allowedMemoryIds: ["mem_alpha00", "mem_beta00"],
+			allowedOperations: ["link"],
+		});
+		expect(
+			deriveTrustedMemoryWriteAuthorization({
+				agentName: "archivist",
+				userInstruction: "add annotation to memory mem_alpha00 with the current decision",
+			}),
+		).toEqual({
+			additive: true,
+			allowedMemoryIds: ["mem_alpha00"],
+			allowedOperations: ["annotate"],
+		});
 	});
 
 	test("rejects negated additive memory mutation instructions", () => {

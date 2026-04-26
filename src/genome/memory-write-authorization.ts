@@ -9,8 +9,20 @@ export interface MemoryWriteAuthorization {
 
 const MEMORY_REFERENCE_PATTERN =
 	/\b(memory|memories|long[- ]term memory|mem_[a-z0-9]+|archivist)\b/i;
-const ADDITIVE_MUTATION_PATTERN =
-	/\b(annotate|annotation|link|relate|corroborate|conflict|contextualize|refine|supersede|supersedes|archive|consolidate|merge)\b/i;
+const REQUEST_PREFIX_PATTERN_SOURCE =
+	"(?:^|\\b(?:please|can you|could you|would you|ask(?: the)? archivist to|have(?: the)? archivist|tell(?: the)? archivist to)\\b[\\s\\S]{0,40})";
+const ANNOTATE_MUTATION_PATTERN = new RegExp(
+	`${REQUEST_PREFIX_PATTERN_SOURCE}\\b(?:annotate|add\\s+(?:an?\\s+)?annotation)\\b[\\s\\S]{0,80}\\b(memory|memories|mem_[a-z0-9]+)\\b`,
+	"i",
+);
+const LINK_MUTATION_PATTERN = new RegExp(
+	`${REQUEST_PREFIX_PATTERN_SOURCE}\\b(link|relate)\\b[\\s\\S]{0,80}\\b(memory|memories|mem_[a-z0-9]+)\\b`,
+	"i",
+);
+const MARK_RELATIONSHIP_MUTATION_PATTERN = new RegExp(
+	`${REQUEST_PREFIX_PATTERN_SOURCE}\\bmark\\b[\\s\\S]{0,80}\\b(memory|memories|mem_[a-z0-9]+)\\b[\\s\\S]{0,80}\\b(conflicting|conflicts|corroborating|corroborates|refining|refines|contextualizing|contextualizes|related)\\b`,
+	"i",
+);
 const DESTRUCTIVE_MUTATION_PATTERN =
 	/\b(archive|consolidate|merge|supersede|supersedes|superseded|replace|deprecate|prune)\b/i;
 const AFFIRMATIVE_CONFIRMATION_PATTERN =
@@ -30,8 +42,7 @@ export function deriveTrustedMemoryWriteAuthorization(input: {
 	if (input.agentName !== "archivist") return undefined;
 	const text = input.userInstruction?.trim();
 	if (!text) return undefined;
-	if (!MEMORY_REFERENCE_PATTERN.test(text) || !ADDITIVE_MUTATION_PATTERN.test(text))
-		return undefined;
+	if (!MEMORY_REFERENCE_PATTERN.test(text)) return undefined;
 	const allowedMemoryIds = extractMemoryIds(text);
 	const allowedOperations = extractAllowedOperations(text);
 	if (allowedOperations.length === 0 || hasNegatedMutation(text, allowedOperations)) {
@@ -74,9 +85,9 @@ function hasNegatedMutation(
 function operationPattern(operation: MemoryWriteOperation): RegExp {
 	switch (operation) {
 		case "annotate":
-			return /\b(annotate|annotation|contextualize|refine)\b/gi;
+			return /\b(annotate|add\s+(?:an?\s+)?annotation)\b/gi;
 		case "link":
-			return /\b(link|relate|corroborate|conflict|contextualize|refine)\b/gi;
+			return /\b(link|relate|mark)\b/gi;
 		case "archive":
 			return /\b(archive|deprecate|prune)\b/gi;
 		case "consolidate":
@@ -88,9 +99,10 @@ function operationPattern(operation: MemoryWriteOperation): RegExp {
 
 function extractAllowedOperations(text: string): MemoryWriteOperation[] {
 	const operations = new Set<MemoryWriteOperation>();
-	if (/\b(annotate|annotation|contextualize|refine)\b/i.test(text)) operations.add("annotate");
-	if (/\b(link|relate|corroborate|conflict|contextualize|refine)\b/i.test(text))
+	if (ANNOTATE_MUTATION_PATTERN.test(text)) operations.add("annotate");
+	if (LINK_MUTATION_PATTERN.test(text) || MARK_RELATIONSHIP_MUTATION_PATTERN.test(text)) {
 		operations.add("link");
+	}
 	if (/\b(archive|deprecate|prune)\b/i.test(text)) operations.add("archive");
 	if (/\b(consolidate|merge)\b/i.test(text)) operations.add("consolidate");
 	if (/\b(supersede|supersedes|superseded|replace)\b/i.test(text)) operations.add("supersede");

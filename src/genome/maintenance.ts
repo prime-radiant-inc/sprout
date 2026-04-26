@@ -106,8 +106,8 @@ export async function applyMemoryMaintenanceDecisions(
 	plan: MemoryMaintenancePlan,
 	decisions: MemoryMaintenanceDecisionFile,
 ): Promise<MemoryMaintenanceApplyResult> {
-	const validated = validateMemoryMaintenanceDecisions(plan, decisions);
 	const memoryById = new Map(genome.memories.all().map((memory) => [memory.id, memory]));
+	const validated = validateMemoryMaintenanceDecisions(plan, decisions, memoryById);
 	const consolidatedProjectIds = new Set<string>();
 	const entityGcProjectIds = new Set<string>();
 	const result: MemoryMaintenanceApplyResult = {
@@ -164,6 +164,7 @@ export async function applyMemoryMaintenanceDecisions(
 function validateMemoryMaintenanceDecisions(
 	plan: MemoryMaintenancePlan,
 	decisions: MemoryMaintenanceDecisionFile,
+	memoryById: ReadonlyMap<string, Memory>,
 ): {
 	consolidations: ValidatedMaintenanceConsolidation[];
 	entityGc: Array<{ decision: MaintenanceEntityGcDecision; group: EntityGcGroup }>;
@@ -172,6 +173,7 @@ function validateMemoryMaintenanceDecisions(
 	const groupById = new Map(plan.entityGcGroups.map((group) => [group.id, group]));
 	const consolidations: ValidatedMaintenanceConsolidation[] = [];
 	const entityGc: Array<{ decision: MaintenanceEntityGcDecision; group: EntityGcGroup }> = [];
+	const consolidationMergeMemoryIds = new Set<string>();
 
 	for (const decision of decisions.consolidations ?? []) {
 		const cluster = clusterById.get(decision.cluster_id);
@@ -180,6 +182,7 @@ function validateMemoryMaintenanceDecisions(
 			if (!decision.memory) {
 				throw new Error(`Merge decision for '${decision.cluster_id}' is missing memory`);
 			}
+			validateConsolidationMergeDecision(cluster, memoryById, consolidationMergeMemoryIds);
 			consolidations.push({
 				decision: { ...decision, action: "merge", memory: decision.memory },
 				cluster,
@@ -195,10 +198,51 @@ function validateMemoryMaintenanceDecisions(
 		if (decision.action === "merge" && (!decision.canonical || !decision.aliases?.length)) {
 			throw new Error(`Merge decision for '${decision.group_id}' is missing canonical or aliases`);
 		}
+		if (decision.action === "merge") validateEntityGcMergeDecision(group, decision);
 		entityGc.push({ decision, group });
 	}
 
 	return { consolidations, entityGc };
+}
+
+function validateConsolidationMergeDecision(
+	cluster: ConsolidationCluster,
+	memoryById: ReadonlyMap<string, Memory>,
+	seenMergedMemoryIds: Set<string>,
+): void {
+	if (cluster.memory_ids.length < 2) {
+		throw new Error(`Consolidation cluster '${cluster.id}' has fewer than two memories`);
+	}
+	for (const memoryId of cluster.memory_ids) {
+		const memory = memoryById.get(memoryId);
+		if (!memory) throw new Error(`Cannot consolidate missing memory '${memoryId}'`);
+		if (memory.archived_at) throw new Error(`Cannot consolidate archived memory '${memoryId}'`);
+		if (seenMergedMemoryIds.has(memoryId)) {
+			throw new Error(`Memory '${memoryId}' appears in multiple consolidation merge decisions`);
+		}
+		seenMergedMemoryIds.add(memoryId);
+	}
+}
+
+function validateEntityGcMergeDecision(
+	group: EntityGcGroup,
+	decision: MaintenanceEntityGcDecision,
+): void {
+	if (decision.action !== "merge" || !decision.canonical || !decision.aliases?.length) return;
+	const candidateUuids = new Set(group.candidates.map((candidate) => candidate.uuid));
+	if (!candidateUuids.has(decision.canonical.uuid)) {
+		throw new Error(
+			`Entity GC merge decision canonical '${decision.canonical.uuid}' is not in group`,
+		);
+	}
+	for (const alias of decision.aliases) {
+		if (alias.uuid === decision.canonical.uuid) {
+			throw new Error(`Entity GC merge decision alias '${alias.uuid}' matches canonical`);
+		}
+		if (!candidateUuids.has(alias.uuid)) {
+			throw new Error(`Entity GC merge decision alias '${alias.uuid}' is not in group`);
+		}
+	}
 }
 
 function maintenanceProjectIds(projectIds: readonly string[]): string[] {
