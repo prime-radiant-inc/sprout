@@ -164,14 +164,20 @@ function extractionItems(payload: unknown): unknown[] {
 
 function normalizeEntities(value: unknown): EntityLinkEntry[] {
 	if (!Array.isArray(value)) return [];
-	return value.flatMap((entity, index) => {
-		if (!isRecord(entity)) return [];
+	const entities = new Map<string, EntityLinkEntry>();
+	for (const entity of value) {
+		if (!isRecord(entity)) continue;
 		const raw = entity as RawExtractionEntity;
 		const name = stringValue(raw.name);
 		const type = normalizeEntityType(raw.type);
-		if (!name || !type) return [];
-		return [{ uuid: `entity_${type.toLowerCase()}_${slug(name)}_${index}`, name, type }];
-	});
+		if (!name || !type) continue;
+		const uuid = `entity_${type.toLowerCase()}_${slug(name)}`;
+		const key = `${type}:${uuid}`;
+		if (!entities.has(key)) {
+			entities.set(key, { uuid, name, type });
+		}
+	}
+	return [...entities.values()];
 }
 
 function normalizeEntityType(value: unknown): EntityLinkEntry["type"] | undefined {

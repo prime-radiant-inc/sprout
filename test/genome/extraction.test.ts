@@ -72,7 +72,7 @@ describe("memory extraction", () => {
 		expect(drafts).toHaveLength(1);
 		expect(drafts[0]!.tags).toEqual(["sprout", "memory"]);
 		expect(drafts[0]!.entity_links).toEqual([
-			{ uuid: "entity_project_sprout_0", name: "Sprout", type: "PROJECT" },
+			{ uuid: "entity_project_sprout", name: "Sprout", type: "PROJECT" },
 		]);
 		expect(drafts[0]!.happens_at).toBe(Date.parse("2026-04-26T00:00:00.000Z"));
 	});
@@ -87,9 +87,32 @@ describe("memory extraction", () => {
 		});
 
 		expect(drafts[0]!.entity_links.map((entity) => entity.uuid)).toEqual([
-			"entity_project_sprout_0",
-			"entity_technology_sprout_1",
+			"entity_project_sprout",
+			"entity_technology_sprout",
 		]);
+	});
+
+	test("generates stable entity UUIDs and deduplicates repeated entities", () => {
+		const [first] = normalizeExtractionPayload({
+			text: "Sprout uses SQLite",
+			entities: [
+				{ name: "SQLite", type: "TECHNOLOGY" },
+				{ name: "Sprout", type: "PROJECT" },
+				{ name: "SQLite", type: "TECHNOLOGY" },
+			],
+		});
+		const [second] = normalizeExtractionPayload({
+			text: "Sprout uses SQLite",
+			entities: [
+				{ name: "Sprout", type: "PROJECT" },
+				{ name: "SQLite", type: "TECHNOLOGY" },
+			],
+		});
+
+		expect(first!.entity_links.map((entity) => entity.uuid).sort()).toEqual(
+			second!.entity_links.map((entity) => entity.uuid).sort(),
+		);
+		expect(first!.entity_links).toHaveLength(2);
 	});
 
 	test("calls the client with system and rendered user prompts", async () => {
@@ -119,7 +142,7 @@ describe("memory extraction", () => {
 			{
 				text: "Sprout stores MIRA memories in SQLite-backed JSONL",
 				tags: ["memory"],
-				entity_links: [{ uuid: "entity_sprout_0", name: "Sprout", type: "PROJECT" }],
+				entity_links: [{ uuid: "entity_sprout", name: "Sprout", type: "PROJECT" }],
 			},
 			{ id: "learn-1", source: "learn:extraction", now: 123 },
 		);

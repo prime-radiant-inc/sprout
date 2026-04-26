@@ -531,7 +531,7 @@ describe("Genome", () => {
 
 			const index = MemoryIndex.open(memoryIndexPath(root));
 			try {
-				expect(index.stats()).toMatchObject({ memoryCount: 1, embeddingCount: 1 });
+				expect(index.stats()).toMatchObject({ memoryCount: 1, embeddingCount: 0 });
 			} finally {
 				index.close();
 			}

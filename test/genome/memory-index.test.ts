@@ -395,6 +395,34 @@ describe("MemoryIndex", () => {
 		}
 	});
 
+	test("rebuild skips invalid embedding metadata on archived memories", () => {
+		const index = MemoryIndex.open(":memory:");
+		try {
+			index.rebuild([
+				makeMemory({
+					id: "idx-active-vector",
+					content: "active memory",
+					embedding: makeEmbedding(0),
+				}),
+				makeMemory({
+					id: "idx-archived-pending",
+					content: "archived memory",
+					archived_at: 123,
+					embedding: {
+						provider: "local",
+						model: "MongoDB/mdbr-leaf-ir",
+						dimensions: 768,
+						status: "pending",
+					},
+				}),
+			]);
+
+			expect(index.stats()).toMatchObject({ memoryCount: 2, embeddingCount: 1 });
+		} finally {
+			index.close();
+		}
+	});
+
 	test("rebuild fails when embedding status is not ready", () => {
 		const index = MemoryIndex.open(":memory:");
 		try {

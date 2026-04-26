@@ -679,6 +679,7 @@ function entityIndexRows(memories: readonly Memory[]): EntityIndexRow[] {
 }
 
 function memoryEmbeddingVector(memory: Memory): Float32Array | undefined {
+	if (memory.archived_at) return undefined;
 	const embedding = memory.embedding;
 	if (!embedding) return undefined;
 	if (embedding.status !== "ready") {
