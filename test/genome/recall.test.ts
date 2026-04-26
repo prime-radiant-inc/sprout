@@ -173,10 +173,10 @@ describe("renderMemories", () => {
 			makeMemory("m2", "auth module at src/auth"),
 		];
 		const rendered = renderMemories(memories);
-		expect(rendered).toContain("<memories>");
+		expect(rendered).toContain("<memory_context>");
 		expect(rendered).toContain("this project uses pytest");
 		expect(rendered).toContain("auth module at src/auth");
-		expect(rendered).toContain("</memories>");
+		expect(rendered).toContain("</memory_context>");
 	});
 
 	test("returns empty string when no memories", () => {

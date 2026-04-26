@@ -119,6 +119,8 @@ export interface AgentOptions {
 	agentTreeSelfPath?: string;
 	/** Use streaming LLM calls and emit throttled llm_chunk events. */
 	enableStreaming?: boolean;
+	/** Cached MIRA-format surfaced memory block from the root session. */
+	surfacedMemoryBlock?: string;
 	/** Override retry backoff settings for LLM calls (tests/tuning). */
 	llmRetryOptions?: Omit<RetryOptions, "signal" | "onRetry">;
 }
@@ -161,11 +163,13 @@ export class Agent {
 	private readonly agentTreeChildren?: string[];
 	private readonly agentTreeSelfPath?: string;
 	private readonly enableStreaming: boolean;
+	private readonly initialSurfacedMemoryBlock?: string;
 	private readonly llmRetryOptions?: Omit<RetryOptions, "signal" | "onRetry">;
 	private readonly logger: Logger;
 	private readonly resolverSettings: ResolverSettings;
 	private history: Message[] = [];
 	private systemPrompt?: string;
+	private surfacedMemoryBlock?: string;
 	private signal?: AbortSignal;
 	private logWriteChain: Promise<void> = Promise.resolve();
 	private steeringQueue: string[] = [];
@@ -203,6 +207,7 @@ export class Agent {
 		this.agentTreeChildren = options.agentTreeChildren;
 		this.agentTreeSelfPath = options.agentTreeSelfPath;
 		this.enableStreaming = options.enableStreaming ?? false;
+		this.initialSurfacedMemoryBlock = options.surfacedMemoryBlock;
 		this.llmRetryOptions = options.llmRetryOptions;
 		this.initialHistory = options.initialHistory ? [...options.initialHistory] : undefined;
 		this.logger = (options.logger ?? new NullLogger()).child({
@@ -711,6 +716,7 @@ export class Agent {
 				agentTreeChildren: subTreeChildren,
 				agentTreeSelfPath: subTreeSelfPath,
 				enableStreaming: this.enableStreaming,
+				surfacedMemoryBlock: this.surfacedMemoryBlock,
 			});
 
 			const subResult = await subagent.run(subGoal, this.signal);
@@ -1086,18 +1092,34 @@ export class Agent {
 		this.emitAndLog("perceive", agentId, this.depth, { goal });
 
 		// Recall: search genome for relevant context
-		let recallContext: { memories?: Memory[]; routingHints?: RoutingRule[] } | undefined;
+		let recallContext:
+			| { memories?: Memory[]; routingHints?: RoutingRule[]; memoryBlock?: string }
+			| undefined;
 		if (this.genome) {
-			const recallResult = await recall(this.genome, goal);
-			recallContext = {
-				memories: recallResult.memories,
-				routingHints: recallResult.routing_hints,
-			};
-			this.emitAndLog("recall", agentId, this.depth, {
-				agent_count: recallResult.agents.length,
-				memory_count: recallResult.memories.length,
-				routing_hint_count: recallResult.routing_hints.length,
-			});
+			if (this.initialSurfacedMemoryBlock !== undefined) {
+				this.surfacedMemoryBlock = this.initialSurfacedMemoryBlock;
+				recallContext = { memoryBlock: this.surfacedMemoryBlock };
+				this.emitAndLog("recall", agentId, this.depth, {
+					agent_count: this.availableAgents.length,
+					memory_count: 0,
+					routing_hint_count: 0,
+					cached: true,
+				});
+			} else {
+				const recallResult = await recall(this.genome, goal);
+				this.surfacedMemoryBlock = recallResult.memory_block;
+				recallContext = {
+					memories: recallResult.memories,
+					routingHints: recallResult.routing_hints,
+					memoryBlock: recallResult.memory_block,
+				};
+				this.emitAndLog("recall", agentId, this.depth, {
+					agent_count: recallResult.agents.length,
+					memory_count: recallResult.memories.length,
+					routing_hint_count: recallResult.routing_hints.length,
+					cached: false,
+				});
+			}
 		}
 
 		// Load workspace tools created by the quartermaster for this agent

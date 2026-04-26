@@ -121,6 +121,8 @@ export interface RecallResult {
 	agents: AgentSpec[];
 	memories: Memory[];
 	routing_hints: RoutingRule[];
+	memory_block?: string;
+	surfaced_memory_ids?: string[];
 }
 
 /** A delegation from Plan to Act — goal-directed, not instruction-directed */

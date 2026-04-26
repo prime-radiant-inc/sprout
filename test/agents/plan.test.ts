@@ -195,9 +195,9 @@ describe("buildSystemPrompt", () => {
 			},
 		];
 		const prompt = buildSystemPrompt({ ...defaults, recallContext: { memories } });
-		expect(prompt).toContain("<memories>");
+		expect(prompt).toContain("<memory_context>");
 		expect(prompt).toContain("this project uses vitest");
-		expect(prompt).toContain("</memories>");
+		expect(prompt).toContain("</memory_context>");
 	});
 
 	test("includes rendered routing hints in system prompt", () => {

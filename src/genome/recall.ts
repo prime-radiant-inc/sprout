@@ -1,5 +1,7 @@
 import type { Memory, RecallResult, RoutingRule } from "../kernel/types.ts";
 import type { Genome } from "./genome.ts";
+import { surfaceMemories } from "./recall-pipeline.ts";
+import { renderMemoryBlock } from "./render-memory-block.ts";
 
 /**
  * Search the genome for context relevant to the query.
@@ -7,15 +9,16 @@ import type { Genome } from "./genome.ts";
  *
  * Default strategy (spec Section 5.3):
  * 1. If < 20 agents, return all. Else return all (placeholder for embedding search).
- * 2. Search memories through the local hybrid index (limit 5, minConfidence 0.3).
+ * 2. Surface memories through the local hybrid index plus entity-hub merge.
  * 3. Match routing rules by keyword.
  */
 export async function recall(genome: Genome, query: string): Promise<RecallResult> {
 	// 1. Agents: return all (placeholder until embeddings)
 	const agents = genome.allAgents();
 
-	// 2. Search memories
-	const memories = await genome.searchMemories(query, 5, 0.3);
+	// 2. Surface memories
+	const surface = await surfaceMemories(genome, query, { limit: 5 });
+	const memories = surface.memories;
 
 	// 3. Match routing rules
 	const routing_hints = genome.matchRoutingRules(query);
@@ -25,7 +28,13 @@ export async function recall(genome: Genome, query: string): Promise<RecallResul
 		await genome.markMemoriesUsed(memories.map((m) => m.id));
 	}
 
-	return { agents, memories, routing_hints };
+	return {
+		agents,
+		memories,
+		routing_hints,
+		memory_block: surface.rendered,
+		surfaced_memory_ids: memories.map((memory) => memory.id),
+	};
 }
 
 /**
@@ -33,9 +42,7 @@ export async function recall(genome: Genome, query: string): Promise<RecallResul
  * Spec Section 5.4: <memories>...</memories>
  */
 export function renderMemories(memories: Memory[]): string {
-	if (memories.length === 0) return "";
-	const items = memories.map((m) => `- ${m.content}`).join("\n");
-	return `\n<memories>\n${items}\n</memories>`;
+	return renderMemoryBlock(memories);
 }
 
 /**

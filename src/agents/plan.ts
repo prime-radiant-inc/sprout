@@ -172,7 +172,7 @@ export interface SystemPromptOptions {
 	workDir: string;
 	platform: string;
 	osVersion: string;
-	recallContext?: { memories?: Memory[]; routingHints?: RoutingRule[] };
+	recallContext?: { memories?: Memory[]; routingHints?: RoutingRule[]; memoryBlock?: string };
 	preambles?: Preambles;
 	projectDocs?: string;
 	postscripts?: Postscripts;
@@ -229,7 +229,9 @@ Today's date: ${today}
 		prompt += `\n<project-instructions>\n${projectDocs}\n</project-instructions>`;
 	}
 
-	if (recallContext?.memories && recallContext.memories.length > 0) {
+	if (recallContext?.memoryBlock) {
+		prompt += recallContext.memoryBlock;
+	} else if (recallContext?.memories && recallContext.memories.length > 0) {
 		prompt += renderMemories(recallContext.memories);
 	}
 	if (recallContext?.routingHints && recallContext.routingHints.length > 0) {
