@@ -63,10 +63,12 @@ describe("bus message types", () => {
 			kind: "continue",
 			message: "Now fix the other bug too",
 			caller: { agent_name: "root", depth: 0 },
+			trusted_user_instruction: "Search memory only; do not mutate anything",
 		};
 		expect(msg.kind).toBe("continue");
 		expect(msg.message).toBe("Now fix the other bug too");
 		expect(msg.caller.depth).toBe(0);
+		expect(msg.trusted_user_instruction).toBe("Search memory only; do not mutate anything");
 	});
 
 	test("SteerMessage carries injected message", () => {
@@ -200,10 +202,12 @@ describe("parseBusMessage", () => {
 			kind: "continue",
 			message: "keep going",
 			caller: { agent_name: "root", depth: 0 },
+			trusted_user_instruction: "current trusted instruction",
 		});
 		const msg = parseBusMessage(raw);
 		expect(msg.kind).toBe("continue");
 		expect((msg as ContinueMessage).message).toBe("keep going");
+		expect((msg as ContinueMessage).trusted_user_instruction).toBe("current trusted instruction");
 	});
 
 	test("parses a valid SteerMessage", () => {

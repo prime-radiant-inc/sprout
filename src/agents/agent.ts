@@ -361,7 +361,7 @@ export class Agent {
 
 	private frameworkGenomePrimitiveNames(): string[] {
 		if (!this.genome) return [];
-		return createPrimitiveRegistry(
+		const readOnlyNames = createPrimitiveRegistry(
 			this.env,
 			{
 				genome: this.genome,
@@ -370,6 +370,22 @@ export class Agent {
 			},
 			{ evalMode: this.evalMode },
 		).names();
+		const writeAuthorizedNames = createPrimitiveRegistry(
+			this.env,
+			{
+				genome: this.genome,
+				agentName: this.spec.name,
+				sessionId: this.sessionId,
+				writeAuthorization: {
+					additive: true,
+					destructive: true,
+					allowedMemoryIds: ["mem_framework"],
+					allowedOperations: ["annotate", "archive", "consolidate", "link", "supersede"],
+				},
+			},
+			{ evalMode: this.evalMode },
+		).names();
+		return [...new Set([...readOnlyNames, ...writeAuthorizedNames])];
 	}
 
 	private currentMemoryWriteAuthorization(): MemoryWriteAuthorization | undefined {
@@ -401,7 +417,7 @@ export class Agent {
 		this.refreshPrimitiveToolList();
 	}
 
-	private updateTrustedUserInstruction(instruction: string): void {
+	private updateTrustedUserInstruction(instruction: string | undefined): void {
 		this.trustedUserInstruction = instruction;
 		this.rebuildPrimitiveRegistryForCurrentAgent();
 	}
@@ -904,7 +920,7 @@ export class Agent {
 		writeAuthorization?: MemoryWriteAuthorization,
 	): PrimitiveRegistry {
 		if (!this.genome) return this.primitiveRegistry;
-		return createPrimitiveRegistry(
+		const registry = createPrimitiveRegistry(
 			this.env,
 			{
 				genome: this.genome,
@@ -914,6 +930,10 @@ export class Agent {
 			},
 			{ evalMode: this.evalMode },
 		);
+		for (const prim of this.callerPrimitivePrimitives) {
+			registry.register(prim);
+		}
+		return registry;
 	}
 
 	/**
@@ -1157,7 +1177,13 @@ export class Agent {
 
 			// message_agent
 			const blocking = cmd.blocking !== false; // default true
-			const result = await this.spawner.messageAgent(cmd.handle, cmd.message, caller, blocking);
+			const result = await this.spawner.messageAgent(
+				cmd.handle,
+				cmd.message,
+				caller,
+				blocking,
+				this.trustedUserInstruction,
+			);
 
 			if (!blocking || !result) {
 				const toolResultMsg = Msg.toolResult(cmd.call_id, "Message sent.");
@@ -1357,16 +1383,20 @@ export class Agent {
 	}
 
 	/** Continue a conversation by appending a new message and running the planning loop again. */
-	async continue(message: string, signal?: AbortSignal): Promise<AgentResult> {
+	async continue(
+		message: string,
+		signal?: AbortSignal,
+		options: { trustedUserInstruction?: string } = {},
+	): Promise<AgentResult> {
 		if (!this.systemPrompt) {
 			throw new Error("Cannot call continue() before run() has been called");
 		}
 
 		const agentId = this.agentId ?? this.spec.name;
 		this.signal = signal;
-		if (this.depth === 0) {
-			this.updateTrustedUserInstruction(message);
-		}
+		this.updateTrustedUserInstruction(
+			options.trustedUserInstruction ?? (this.depth === 0 ? message : undefined),
+		);
 		const followUpMessage =
 			`Follow-up context from your caller for the same task:\n\n${message}\n\n` +
 			"Continue the same task using this new information. Do not discard prior context unless this message explicitly supersedes it.";

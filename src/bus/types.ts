@@ -36,6 +36,8 @@ export interface ContinueMessage {
 	kind: "continue";
 	message: string;
 	caller: CallerIdentity;
+	/** Current trusted user instruction for deterministic runtime policy gates. */
+	trusted_user_instruction?: string;
 }
 
 /** Injected between turns of a running agent */
@@ -110,6 +112,13 @@ export function parseBusMessage(raw: string): BusMessage {
 		case "continue":
 			requireFields(obj, ["message", "caller"]);
 			validateCallerIdentity(obj);
+			if (
+				"trusted_user_instruction" in obj &&
+				obj.trusted_user_instruction !== undefined &&
+				typeof obj.trusted_user_instruction !== "string"
+			) {
+				throw new Error("'trusted_user_instruction' must be a string when present");
+			}
 			break;
 		case "steer":
 			requireFields(obj, ["message"]);

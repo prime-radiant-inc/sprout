@@ -468,7 +468,9 @@ async function idleLoop(
 			const continueMsg = continueQueue.shift()!;
 			try {
 				await genome.loadFromDisk();
-				const result = await agent.continue(continueMsg.message, signal);
+				const result = await agent.continue(continueMsg.message, signal, {
+					trustedUserInstruction: continueMsg.trusted_user_instruction,
+				});
 				if (!bus.connected) break;
 				const resultMsg: ResultMessage = {
 					kind: "result",

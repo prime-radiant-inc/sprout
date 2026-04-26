@@ -667,6 +667,57 @@ describe("AgentSpawner", () => {
 			expect(continueResult!.output).toBe("Continued.");
 		}, 15_000);
 
+		test("continue refreshes trusted memory authorization for shared bus agents", async () => {
+			const genome = new Genome(genomeDir);
+			await genome.loadFromDisk();
+			await genome.addAgent({
+				...AGENT_SPEC,
+				name: "archivist",
+				tools: ["memory_search", "memory_archive"],
+			} as any);
+			const requestToolNames: string[][] = [];
+			let callCount = 0;
+			const mockClient = buildMockClient(async (request: Request): Promise<Response> => {
+				callCount++;
+				requestToolNames.push(request.tools?.map((tool) => tool.name) ?? []);
+				return {
+					id: `mock-archivist-continue-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant(callCount === 1 ? "First." : "Continued."),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+				};
+			});
+
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+			const initialResult = await spawnWithResolver({
+				agentName: "archivist",
+				genomePath: genomeDir,
+				caller: { agent_name: "root", depth: 0 },
+				goal: "Initial archive task",
+				blocking: true,
+				shared: true,
+				workDir: tempDir,
+				trustedUserInstruction: "I confirm: archive memory mem_old123 because it is stale",
+			});
+			expect((initialResult as ResultMessage).output).toBe("First.");
+
+			const handleId = spawner.getHandles()[0]!;
+			const continueResult = await spawner.messageAgent(
+				handleId,
+				"Search memory only",
+				{ agent_name: "root", depth: 0 },
+				true,
+				"Search memory only; do not mutate anything",
+			);
+
+			expect(continueResult!.output).toBe("Continued.");
+			expect(requestToolNames[0]).toContain("memory_archive");
+			expect(requestToolNames[1]).toContain("memory_search");
+			expect(requestToolNames[1]).not.toContain("memory_archive");
+		}, 15_000);
+
 		test("sends steer message to running agent (non-blocking)", async () => {
 			let resolveFirstCall: (() => void) | null = null;
 			let callCount = 0;

@@ -15,7 +15,7 @@ import { type AgentSpec, DEFAULT_CONSTRAINTS } from "../../src/kernel/types.ts";
 import { Client } from "../../src/llm/client.ts";
 import { StreamReadTimeoutError } from "../../src/llm/stream-timeout.ts";
 import type { Message, Request, Response } from "../../src/llm/types.ts";
-import { ContentKind, Msg } from "../../src/llm/types.ts";
+import { ContentKind, Msg, messageText } from "../../src/llm/types.ts";
 import { resolveReplayPath } from "../../src/replay/paths.ts";
 import { leafSpec, rootSpec, withDefaultResolverContext } from "./fixtures.ts";
 import "../helpers/test-env.ts";
@@ -2222,6 +2222,101 @@ describe("Agent", () => {
 		expect(toolNames).toContain("custom_tool");
 	});
 
+	test("in-process delegated agents receive caller-supplied primitives", async () => {
+		const childSpec: AgentSpec = {
+			...leafSpec,
+			name: "custom-child",
+			system_prompt: "You are the custom child.",
+			tools: ["custom_tool"],
+			agents: [],
+			constraints: { ...leafSpec.constraints, can_spawn: false },
+		};
+		const customRootSpec: AgentSpec = {
+			...rootSpec,
+			name: "root",
+			agents: ["custom-child"],
+			constraints: { ...rootSpec.constraints, can_spawn: true },
+		};
+		const delegateMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-custom-child",
+						name: "delegate",
+						arguments: JSON.stringify({
+							agent_name: "custom-child",
+							goal: "use custom tool",
+							blocking: true,
+						}),
+					},
+				},
+			],
+		};
+		const childDone = Msg.assistant("Child done.");
+		const rootDone = Msg.assistant("Root done.");
+		let callCount = 0;
+		let childToolNames: string[] = [];
+		let sawChildRequest = false;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (request: Request): Promise<Response> => {
+				callCount++;
+				const systemText = messageText(request.messages[0]!);
+				if (systemText.includes("custom child")) {
+					sawChildRequest = true;
+					childToolNames = request.tools?.map((tool) => tool.name) ?? [];
+				}
+				return {
+					id: `mock-custom-delegation-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: callCount === 1 ? delegateMsg : sawChildRequest ? rootDone : childDone,
+					finish_reason: { reason: callCount === 1 ? "tool_calls" : "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+		const fakeGenome = {
+			generation: 0,
+			allAgents: () => [customRootSpec, childSpec],
+			searchMemories: async () => [],
+			matchRoutingRules: () => [],
+			markMemoriesUsed: async () => {},
+			refreshIfDiskChanged: async () => false,
+			loadAgentTools: async () => [],
+			agentDir: () => tmpdir(),
+			memories: { all: () => [] },
+		} as unknown as Genome;
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env, {
+			genome: fakeGenome,
+			agentName: "root",
+			sessionId: "session-test",
+		});
+		registry.register({
+			name: "custom_tool",
+			description: "Injected custom primitive",
+			parameters: { type: "object", properties: {} },
+			execute: async () => ({ output: "custom", success: true }),
+		});
+		const agent = new Agent({
+			spec: customRootSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [customRootSpec, childSpec],
+			genome: fakeGenome,
+			events: new AgentEventEmitter(),
+		});
+
+		await agent.run("delegate to custom child");
+
+		expect(childToolNames).toContain("custom_tool");
+	});
+
 	test("agent respects requestCompaction() flag", async () => {
 		// Pad initial history so compactHistory has enough messages to summarize
 		const priorHistory: Message[] = [
@@ -3204,6 +3299,7 @@ describe("Agent", () => {
 			message: string;
 			caller: CallerIdentity;
 			blocking: boolean;
+			trustedUserInstruction?: string;
 		}[] = [];
 
 		const cannedResult: ResultMessage = {
@@ -3233,8 +3329,9 @@ describe("Agent", () => {
 				message: string,
 				caller: CallerIdentity,
 				blocking: boolean,
+				trustedUserInstruction?: string,
 			): Promise<ResultMessage | undefined> => {
-				messageCalls.push({ handleId, message, caller, blocking });
+				messageCalls.push({ handleId, message, caller, blocking, trustedUserInstruction });
 				if (blocking) {
 					return cannedResult;
 				}
@@ -3694,6 +3791,7 @@ describe("Agent", () => {
 		expect(messageCalls[0]!.handleId).toBe("handle-xyz");
 		expect(messageCalls[0]!.message).toBe("follow up question");
 		expect(messageCalls[0]!.blocking).toBe(true);
+		expect(messageCalls[0]!.trustedUserInstruction).toBe("message agent test");
 
 		// Verify act_end was emitted with tool_result_message
 		const collected = events.collected();

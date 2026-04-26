@@ -483,6 +483,7 @@ export class AgentSpawner {
 		message: string,
 		caller: CallerIdentity,
 		blocking: boolean,
+		trustedUserInstruction?: string,
 	): Promise<ResultMessage | undefined> {
 		const handle = this.handles.get(handleId);
 		if (!handle) {
@@ -494,6 +495,7 @@ export class AgentSpawner {
 		}
 
 		const inboxTopic = agentInbox(this.sessionId, handleId);
+		handle.trustedUserInstruction = trustedUserInstruction;
 
 		if (handle.status === "running") {
 			// Agent is actively processing — send a steer message
@@ -524,6 +526,7 @@ export class AgentSpawner {
 				kind: "continue",
 				message,
 				caller,
+				trusted_user_instruction: trustedUserInstruction,
 			};
 			await this.bus.publish(inboxTopic, JSON.stringify(continueMsg));
 
