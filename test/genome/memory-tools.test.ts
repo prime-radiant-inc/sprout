@@ -199,6 +199,25 @@ describe("memory tools", () => {
 		});
 	});
 
+	test("memory_link marks target superseded for supersedes relationships", async () => {
+		const ctx = makeContext([
+			memory({ id: "new-memory", short_id: "mem_new000" }),
+			memory({ id: "old-memory", short_id: "mem_old000" }),
+		]);
+
+		const result = await runTool(ctx, "memory_link", {
+			from_id: "new-memory",
+			to_id: "old-memory",
+			type: "supersedes",
+			reasoning: "newer decision replaces the old one",
+			explicit_instruction: true,
+		});
+
+		expect(result.success).toBe(true);
+		expect(ctx.genome.memories.getById("old-memory")?.superseded_by).toBe("new-memory");
+		expect(typeof ctx.genome.memories.getById("old-memory")?.updated_at).toBe("number");
+	});
+
 	test("memory_link rejects null and unknown relationship types", async () => {
 		const ctx = makeContext([
 			memory({ id: "memory-alpha", short_id: "mem_alpha00" }),

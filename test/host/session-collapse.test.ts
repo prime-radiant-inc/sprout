@@ -68,12 +68,14 @@ describe("session collapse transcript", () => {
 			event("perceive", 100, { goal: "Run tests" }),
 			event("primitive_end", 400, {
 				name: "exec_command",
-				tool_result_message: Msg.toolResult("tool-1", "bun test passed"),
+				success: true,
+				tool_result_message: Msg.toolResult("tool-1", "SECRET_TOKEN=bun-test-passed"),
 			}),
 			event("plan_end", 250, { text: "child internal analysis" }, 1, "engineer"),
 			event("act_end", 500, {
 				agent_name: "engineer",
-				tool_result_message: Msg.toolResult("delegate-1", "implemented feature"),
+				success: true,
+				tool_result_message: Msg.toolResult("delegate-1", "implemented feature with secret"),
 			}),
 			event("session_end", 600, { output: "Done" }),
 		]);
@@ -81,10 +83,11 @@ describe("session collapse transcript", () => {
 		expect(messages.map((message) => `${message.role}:${message.content}`)).toEqual([
 			"user:Run tests",
 			"assistant:I will inspect package.json.",
-			"assistant:bun test passed",
-			"assistant:implemented feature",
+			"assistant:Tool exec_command completed successfully.",
+			"assistant:Delegated agent engineer completed successfully.",
 			"assistant:Done",
 		]);
+		expect(messages.map((message) => message.content).join("\n")).not.toContain("SECRET_TOKEN");
 		expect(messages.every((message) => message.timestamp >= 100)).toBe(true);
 		expect(messages.some((message) => message.content === "child internal analysis")).toBe(false);
 	});

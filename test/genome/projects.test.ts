@@ -6,6 +6,7 @@ import {
 	detectProject,
 	detectProjectFromCwd,
 	ProjectActivityStore,
+	projectActivityDateKey,
 } from "../../src/genome/projects.ts";
 
 describe("project detection", () => {
@@ -94,6 +95,25 @@ describe("project detection", () => {
 		const reloaded = new ProjectActivityStore(join(tempDir, "projects.jsonl"));
 		await reloaded.load();
 		expect(reloaded.getById("sprout")).toMatchObject({
+			cumulative_active_days: 2,
+			last_active_date: "2026-04-27",
+		});
+	});
+
+	test("project activity dates can be derived in a configured timezone", async () => {
+		const store = new ProjectActivityStore(join(tempDir, "projects-la.jsonl"), {
+			timeZone: "America/Los_Angeles",
+		});
+		await store.load();
+		const project = detectProject({ explicitProject: "Sprout" });
+
+		store.recordActiveDay(project, new Date("2026-04-27T02:30:00Z"));
+		store.recordActiveDay(project, new Date("2026-04-27T20:00:00Z"));
+
+		expect(projectActivityDateKey(new Date("2026-04-27T02:30:00Z"), "America/Los_Angeles")).toBe(
+			"2026-04-26",
+		);
+		expect(store.getById("sprout")).toMatchObject({
 			cumulative_active_days: 2,
 			last_active_date: "2026-04-27",
 		});

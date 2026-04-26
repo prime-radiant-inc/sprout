@@ -36,6 +36,10 @@ export interface ProjectActivityRecord {
 	last_entity_gc_active_day?: number;
 }
 
+export interface ProjectActivityStoreOptions {
+	timeZone?: string;
+}
+
 const UNKNOWN_PROJECT: DetectedProject = {
 	id: "unknown",
 	name: "unknown",
@@ -59,9 +63,11 @@ const GENERIC_PROJECT_NAMES = new Set([
 export class ProjectActivityStore {
 	private entries: ProjectActivityRecord[] = [];
 	private readonly jsonl: JsonlStore<unknown>;
+	private readonly timeZone: string | undefined;
 
-	constructor(jsonlPath: string) {
+	constructor(jsonlPath: string, options: ProjectActivityStoreOptions = {}) {
 		this.jsonl = new JsonlStore(jsonlPath);
+		this.timeZone = options.timeZone;
 	}
 
 	async load(): Promise<void> {
@@ -78,7 +84,7 @@ export class ProjectActivityStore {
 
 	recordActiveDay(project: DetectedProject, date: Date): ProjectActivityRecord | undefined {
 		if (project.id === "unknown" || project.id === "global") return undefined;
-		const activeDate = date.toISOString().slice(0, 10);
+		const activeDate = projectActivityDateKey(date, this.timeZone);
 		let record = this.getById(project.id);
 		if (!record) {
 			record = {
@@ -113,6 +119,17 @@ export class ProjectActivityStore {
 	async save(): Promise<void> {
 		await this.jsonl.rewrite(this.entries);
 	}
+}
+
+export function projectActivityDateKey(date: Date, timeZone?: string): string {
+	const parts = new Intl.DateTimeFormat("en-CA", {
+		timeZone,
+		year: "numeric",
+		month: "2-digit",
+		day: "2-digit",
+	}).formatToParts(date);
+	const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "00";
+	return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
 export function detectProject(input: ProjectDetectionInput): DetectedProject {

@@ -306,6 +306,10 @@ function memoryLinkPrimitive(ctx: MemoryToolContext): Primitive {
 			};
 			from.outbound_links = [...(from.outbound_links ?? []), link];
 			to.inbound_links = [...(to.inbound_links ?? []), { ...link, uuid: from.id }];
+			if (relationshipType === "supersedes") {
+				to.superseded_by = from.id;
+				to.updated_at = link.created_at;
+			}
 			await ctx.genome.saveMemoryMutation(`genome: link memories '${from.id}' '${to.id}'`);
 			return ok({ linked: from.id, target: to.id, type: link.type });
 		},

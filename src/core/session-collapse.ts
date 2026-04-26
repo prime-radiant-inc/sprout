@@ -215,19 +215,30 @@ function eventToTranscriptMessage(
 				stringValue(event.data.text) ?? messageContent(event.data.assistant_message),
 			);
 		case "act_end":
+			return fromText(event, "assistant", actMetadata(event));
 		case "primitive_end":
-			return fromText(
-				event,
-				"assistant",
-				messageContent(event.data.tool_result_message) ??
-					stringValue(event.data.output) ??
-					stringValue(event.data.error),
-			);
+			return fromText(event, "assistant", primitiveMetadata(event));
 		case "session_end":
 			return fromText(event, "assistant", stringValue(event.data.output));
 		default:
 			return [];
 	}
+}
+
+function primitiveMetadata(event: SessionEvent): string | undefined {
+	const name = stringValue(event.data.display_name) ?? stringValue(event.data.name) ?? "tool";
+	const success = event.data.success === true;
+	if (success) return `Tool ${name} completed successfully.`;
+	if (event.data.success === false) return `Tool ${name} failed.`;
+	return `Tool ${name} completed.`;
+}
+
+function actMetadata(event: SessionEvent): string | undefined {
+	const name = stringValue(event.data.agent_name) ?? "agent";
+	const success = event.data.success === true;
+	if (success) return `Delegated agent ${name} completed successfully.`;
+	if (event.data.success === false) return `Delegated agent ${name} failed.`;
+	return `Delegated agent ${name} completed.`;
 }
 
 function fromText(
