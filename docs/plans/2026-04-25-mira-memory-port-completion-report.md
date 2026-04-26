@@ -94,9 +94,8 @@ Follow-up verification after the completion pass:
 - Live relationship classifier eval passed:
   `SPROUT_LIVE_RELATIONSHIP_EVAL=1 SPROUT_RELATIONSHIP_EVAL_PROVIDER=anthropic SPROUT_RELATIONSHIP_EVAL_MODEL=claude-haiku-4-5-20251001 bun test test/genome/relationship-classifier-eval.test.ts`
   returned 4 passed, 0 failed, and completed in 59.55 seconds.
-- Roborev review was run after each remediation commit. The latest review job
-  for the eval-timeout fix passed; the prior timeout finding was fixed and
-  closed.
+- Roborev review was run after each remediation commit. The eval-timeout finding
+  was fixed and closed, and the live-eval documentation commit passed review.
 
 ## Residual Risks
 
