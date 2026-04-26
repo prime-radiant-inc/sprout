@@ -108,17 +108,13 @@ export function parseBusMessage(raw: string): BusMessage {
 				"agent_id",
 			]);
 			validateCallerIdentity(obj);
+			validateOptionalString(obj, "trusted_user_instruction");
+			validateOptionalString(obj, "surfaced_memory_block");
 			break;
 		case "continue":
 			requireFields(obj, ["message", "caller"]);
 			validateCallerIdentity(obj);
-			if (
-				"trusted_user_instruction" in obj &&
-				obj.trusted_user_instruction !== undefined &&
-				typeof obj.trusted_user_instruction !== "string"
-			) {
-				throw new Error("'trusted_user_instruction' must be a string when present");
-			}
+			validateOptionalString(obj, "trusted_user_instruction");
 			break;
 		case "steer":
 			requireFields(obj, ["message"]);
@@ -132,6 +128,12 @@ export function parseBusMessage(raw: string): BusMessage {
 	}
 
 	return obj as unknown as BusMessage;
+}
+
+function validateOptionalString(obj: Record<string, unknown>, field: string): void {
+	if (field in obj && obj[field] !== undefined && typeof obj[field] !== "string") {
+		throw new Error(`'${field}' must be a string when present`);
+	}
 }
 
 function validateCallerIdentity(obj: Record<string, unknown>): void {

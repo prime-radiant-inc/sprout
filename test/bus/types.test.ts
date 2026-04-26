@@ -191,10 +191,16 @@ describe("parseBusMessage", () => {
 			caller: { agent_name: "root", depth: 0 },
 			goal: "do stuff",
 			shared: false,
+			trusted_user_instruction: "current trusted instruction",
+			surfaced_memory_block: "<memory_context>cached</memory_context>",
 		});
 		const msg = parseBusMessage(raw);
 		expect(msg.kind).toBe("start");
 		expect((msg as StartMessage).goal).toBe("do stuff");
+		expect((msg as StartMessage).trusted_user_instruction).toBe("current trusted instruction");
+		expect((msg as StartMessage).surfaced_memory_block).toBe(
+			"<memory_context>cached</memory_context>",
+		);
 	});
 
 	test("parses a valid ContinueMessage", () => {
@@ -275,6 +281,26 @@ describe("parseBusMessage", () => {
 	test("throws on missing required StartMessage fields", () => {
 		const partial = JSON.stringify({ kind: "start", handle_id: "h1" });
 		expect(() => parseBusMessage(partial)).toThrow();
+	});
+
+	test("throws on non-string optional StartMessage memory fields", () => {
+		const base = {
+			kind: "start",
+			handle_id: "h1",
+			agent_id: "h1",
+			agent_name: "editor",
+			genome_path: "/g",
+			session_id: "s1",
+			caller: { agent_name: "root", depth: 0 },
+			goal: "do stuff",
+			shared: false,
+		};
+		expect(() =>
+			parseBusMessage(JSON.stringify({ ...base, trusted_user_instruction: 123 })),
+		).toThrow("trusted_user_instruction");
+		expect(() =>
+			parseBusMessage(JSON.stringify({ ...base, surfaced_memory_block: { text: "bad" } })),
+		).toThrow("surfaced_memory_block");
 	});
 
 	test("throws on missing required ContinueMessage fields", () => {

@@ -507,8 +507,7 @@ export class Genome {
 				`genome: archive ${result.archived.length} low-importance memories`,
 			);
 		} else if (result.updated.length > 0) {
-			await this.memories.save();
-			await rebuildMemoryIndexFromJsonl(this.rootPath);
+			await this.saveMemoryMutation("genome: update memory importance scores");
 		}
 		return result;
 	}

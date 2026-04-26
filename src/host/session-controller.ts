@@ -229,7 +229,12 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 						cwd,
 					}).then(async (collapse) => {
 						const project = await detectProjectFromCwd({ cwd });
-						await result.genome.recordProjectActivity(project);
+						const projectActivityChanged = await result.genome.recordProjectActivity(project);
+						if (projectActivityChanged) {
+							await result.genome.saveProjectActivityMutation(
+								`genome: record project activity '${project.id}'`,
+							);
+						}
 						await result.genome.recomputeMemoryScores();
 						return collapse;
 					});

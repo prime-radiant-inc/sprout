@@ -553,6 +553,47 @@ describe("Genome", () => {
 			expect(log).toContain("genome: archive 1 low-importance memories");
 		});
 
+		test("recomputeMemoryScores commits score-only metadata updates", async () => {
+			const root = join(tempDir, "mem-score-update");
+			const genome = await createInitializedGenome(root);
+			await genome.addMemory(
+				makeMemory({
+					id: "score-only-memory",
+					content: "recent useful fact",
+					importance_score: 0,
+					effective_importance: 0,
+				}),
+			);
+
+			const result = await genome.recomputeMemoryScores({ now: 12345, minImportance: 0 });
+
+			expect(result.updated).toEqual(["score-only-memory"]);
+			expect(result.archived).toEqual([]);
+			const status = await git(root, "status", "--porcelain");
+			expect(status).toBe("");
+			const log = await git(root, "log", "--oneline");
+			expect(log).toContain("genome: update memory importance scores");
+		});
+
+		test("project activity mutations can be committed cleanly", async () => {
+			const root = join(tempDir, "project-activity-commit");
+			const genome = await createInitializedGenome(root);
+			const changed = await genome.recordProjectActivity({
+				id: "sprout",
+				name: "Sprout",
+				confidence: 1,
+				source: "explicit",
+			});
+
+			expect(changed).toBe(true);
+			await genome.saveProjectActivityMutation("genome: record project activity 'sprout'");
+
+			const status = await git(root, "status", "--porcelain");
+			expect(status).toBe("");
+			const log = await git(root, "log", "--oneline");
+			expect(log).toContain("genome: record project activity 'sprout'");
+		});
+
 		test("addMemory fails before writing when embedding generation fails", async () => {
 			const root = join(tempDir, "mem-add-embedding-fails");
 			await cp(initTemplateDir, root, { recursive: true });
