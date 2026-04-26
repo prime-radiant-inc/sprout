@@ -43,7 +43,11 @@ function makeContext(memories: Memory[] = [memory()]): MemoryToolContext {
 	return {
 		agentName: "archivist",
 		sessionId: "session-test",
-		writeAuthorization: { additive: true },
+		writeAuthorization: {
+			additive: true,
+			allowedMemoryIds: memories.map((item) => item.short_id ?? item.id),
+			allowedOperations: ["annotate", "link"],
+		},
 		genome: {
 			searchMemories: async () => memories,
 			memories: {

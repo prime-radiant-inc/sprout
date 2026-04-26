@@ -56,8 +56,11 @@ export function createPrimitiveRegistry(
 		primitives.set(prim.name, prim);
 	}
 
-	if (genomeContext && !options?.evalMode) {
-		for (const prim of buildWorkspacePrimitives(genomeContext)) {
+	if (genomeContext) {
+		const workspacePrimitives = options?.evalMode
+			? buildReadMemoryPrimitives(genomeContext)
+			: buildWorkspacePrimitives(genomeContext);
+		for (const prim of workspacePrimitives) {
 			primitives.set(prim.name, prim);
 		}
 	}

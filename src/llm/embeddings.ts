@@ -1,5 +1,3 @@
-import { pipeline } from "@huggingface/transformers";
-
 export const DEFAULT_EMBEDDING_PROVIDER = "local";
 export const DEFAULT_EMBEDDING_MODEL = "MongoDB/mdbr-leaf-ir";
 export const DEFAULT_EMBEDDING_DIMENSIONS = 768;
@@ -230,6 +228,7 @@ async function loadTransformersModel(
 	model: string,
 	options: { dtype: LocalEmbeddingDType; denseLayerPath: string | null },
 ): Promise<{ extractor: LocalFeatureExtractor; denseLayer?: DenseLayer }> {
+	const { pipeline } = await import("@huggingface/transformers");
 	const [extractor, denseLayer] = await Promise.all([
 		pipeline("feature-extraction", model, { dtype: options.dtype }),
 		options.denseLayerPath ? fetchDenseLayer(model, options.denseLayerPath) : undefined,

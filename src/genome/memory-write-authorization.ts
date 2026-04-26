@@ -37,6 +37,7 @@ export function deriveTrustedMemoryWriteAuthorization(input: {
 		if (!CONFIRMATION_PATTERN.test(text) || allowedMemoryIds.length === 0) return undefined;
 		return { destructive: true, allowedMemoryIds, allowedOperations };
 	}
+	if (allowedMemoryIds.length === 0) return undefined;
 	return { additive: true, allowedMemoryIds, allowedOperations };
 }
 

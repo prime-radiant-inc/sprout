@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Genome, git } from "../../src/genome/genome.ts";
+import type { MemoryWriteAuthorization } from "../../src/genome/memory-write-authorization.ts";
 import { LocalExecutionEnvironment } from "../../src/kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../../src/kernel/primitives.ts";
 import type { AgentSpec } from "../../src/kernel/types.ts";
@@ -25,7 +26,7 @@ function makeSpec(overrides: Partial<AgentSpec> = {}): AgentSpec {
 function genomeContext(
 	genome: Genome,
 	agentName: string,
-	writeAuthorization?: { additive?: boolean; destructive?: boolean },
+	writeAuthorization?: MemoryWriteAuthorization,
 ) {
 	return {
 		genome,
@@ -60,6 +61,8 @@ describe("workspace primitives", () => {
 
 			expect(registry.names()).not.toContain("save_tool");
 			expect(registry.names()).not.toContain("save_file");
+			expect(registry.names()).toContain("memory_search");
+			expect(registry.names()).toContain("memory_get");
 		});
 
 		test("is registered when genomeContext is provided", async () => {
@@ -165,7 +168,11 @@ describe("workspace primitives", () => {
 			const untrusted = createPrimitiveRegistry(env, genomeContext(genome, "archivist"));
 			const trusted = createPrimitiveRegistry(
 				env,
-				genomeContext(genome, "archivist", { additive: true }),
+				genomeContext(genome, "archivist", {
+					additive: true,
+					allowedMemoryIds: ["mem_alpha00"],
+					allowedOperations: ["annotate"],
+				}),
 			);
 
 			expect(untrusted.names()).toContain("memory_synthesize_answer");

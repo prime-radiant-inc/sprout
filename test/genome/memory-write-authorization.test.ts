@@ -31,6 +31,12 @@ describe("memory write authorization derivation", () => {
 			allowedMemoryIds: ["mem_alpha00"],
 			allowedOperations: ["annotate"],
 		});
+		expect(
+			deriveTrustedMemoryWriteAuthorization({
+				agentName: "archivist",
+				userInstruction: "ask the archivist to annotate relevant memories with this context",
+			}),
+		).toBeUndefined();
 	});
 
 	test("requires explicit confirmation for destructive memory mutations", () => {
