@@ -570,6 +570,7 @@ Choose the most appropriate improvement. Prefer creating memories for factual le
 			prompts,
 			messages: [{ role: "user", content: mutation.content, timestamp: now }],
 		});
+		if (drafts.length === 0) return false;
 		const filtered = await filterDuplicateDrafts(drafts, this.genome.memories.all(), {
 			embeddingProvider: await this.genome.memoryEmbeddingProvider(),
 		});

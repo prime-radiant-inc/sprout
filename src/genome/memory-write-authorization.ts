@@ -13,8 +13,11 @@ const ADDITIVE_MUTATION_PATTERN =
 	/\b(annotate|annotation|link|relate|corroborate|conflict|contextualize|refine|supersede|supersedes|archive|consolidate|merge)\b/i;
 const DESTRUCTIVE_MUTATION_PATTERN =
 	/\b(archive|consolidate|merge|supersede|supersedes|superseded|replace|deprecate|prune)\b/i;
-const CONFIRMATION_PATTERN =
-	/\b(i confirm|confirmed|explicitly confirm|explicit confirmation|i approve|approved|explicitly approve|go ahead|you have confirmation)\b/i;
+const AFFIRMATIVE_CONFIRMATION_PATTERN =
+	/\b(i explicitly confirm|i confirm|i explicitly approve|i approve|you have confirmation)\b/i;
+const NEGATED_CONFIRMATION_PREFIX_PATTERN =
+	/\b(not|never|no|without|unless|until|if|only if|do not|don't)\b[\s\S]{0,40}$/i;
+const CONDITIONAL_CONFIRMATION_SUFFIX_PATTERN = /\b(only if|unless|until|provided that)\b/i;
 const SHORT_MEMORY_ID_PATTERN = /\bmem_[a-z0-9]+\b/gi;
 const NAMED_MEMORY_ID_PATTERN = /\bmem(?:ory|ories)\s+([a-z0-9][a-z0-9_-]*[0-9_-][a-z0-9_-]*)\b/gi;
 
@@ -34,11 +37,20 @@ export function deriveTrustedMemoryWriteAuthorization(input: {
 	);
 
 	if (destructive || DESTRUCTIVE_MUTATION_PATTERN.test(text)) {
-		if (!CONFIRMATION_PATTERN.test(text) || allowedMemoryIds.length === 0) return undefined;
+		if (!hasExplicitConfirmation(text) || allowedMemoryIds.length === 0) return undefined;
 		return { destructive: true, allowedMemoryIds, allowedOperations };
 	}
 	if (allowedMemoryIds.length === 0) return undefined;
 	return { additive: true, allowedMemoryIds, allowedOperations };
+}
+
+function hasExplicitConfirmation(text: string): boolean {
+	const match = AFFIRMATIVE_CONFIRMATION_PATTERN.exec(text);
+	if (!match) return false;
+	const prefix = text.slice(Math.max(0, match.index - 48), match.index);
+	if (NEGATED_CONFIRMATION_PREFIX_PATTERN.test(prefix)) return false;
+	const suffix = text.slice(match.index + match[0].length, match.index + match[0].length + 48);
+	return !CONDITIONAL_CONFIRMATION_SUFFIX_PATTERN.test(suffix);
 }
 
 function extractAllowedOperations(text: string): MemoryWriteOperation[] {

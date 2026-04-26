@@ -56,6 +56,19 @@ describe("memory write authorization derivation", () => {
 			allowedMemoryIds: ["mem_alpha00"],
 			allowedOperations: ["archive"],
 		});
+		for (const userInstruction of [
+			"archive memory mem_alpha00 because it is not approved",
+			"archive memory mem_alpha00 unless approved",
+			"do not go ahead and archive memory mem_alpha00",
+			"I confirm only if memory mem_alpha00 is stale: archive it",
+		]) {
+			expect(
+				deriveTrustedMemoryWriteAuthorization({
+					agentName: "archivist",
+					userInstruction,
+				}),
+			).toBeUndefined();
+		}
 	});
 
 	test("scopes destructive authorization to referenced memory ids and operations", () => {

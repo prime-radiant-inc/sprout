@@ -8,6 +8,7 @@ import {
 	normalizeSegmentSummary,
 	renderCollapseTranscript,
 } from "../../src/core/session-collapse.ts";
+import type { Genome } from "../../src/genome/genome.ts";
 import type { SessionEvent } from "../../src/kernel/types.ts";
 import type { Client } from "../../src/llm/client.ts";
 import type { EmbeddingProvider } from "../../src/llm/embeddings.ts";
@@ -272,6 +273,57 @@ describe("session collapse transcript", () => {
 		expect(prompts[1]).toContain("User says Sprout memory must stay local.");
 		expect(prompts[1]).not.toContain("Assistant inferred a separate durable policy.");
 		expect(prompts[1]).not.toContain("Assistant finished with implementation details.");
+	});
+
+	test("skips duplicate embedding work when extraction returns no drafts", async () => {
+		const workDir = join(tempDir, "work-no-drafts");
+		await mkdir(workDir, { recursive: true });
+		const client = makeClientSequence([
+			JSON.stringify({
+				summary: "No durable memory was extracted.",
+				title: "No memory",
+				complexity: 1,
+			}),
+			"[]",
+		]);
+		let persistedMemoryCount: number | undefined;
+		const genome = {
+			segments: { all: () => [] },
+			memories: { all: () => [] },
+			loadSegmentSummaryPrompts: async () => ({
+				system: "Summarize.",
+				user: "{formatted_messages}",
+			}),
+			loadMemoryExtractionPrompts: async () => ({
+				system: "Extract.",
+				user: "{formatted_messages}",
+			}),
+			memoryEmbeddingProvider: async () => {
+				throw new Error("embedding provider should not be loaded for empty drafts");
+			},
+			addSegmentWithMemories: async (_segment: unknown, memories: readonly unknown[]) => {
+				persistedMemoryCount = memories.length;
+			},
+		} as unknown as Genome;
+
+		const result = await collapseSessionToMemory({
+			events: [
+				event("perceive", 100, { goal: "Check whether anything should be remembered." }),
+				event("session_end", 200, { output: "Nothing durable." }),
+			],
+			genome,
+			client,
+			model: "claude-sonnet-4-6",
+			provider: "anthropic",
+			sessionId: "session-collapse-no-drafts",
+			cwd: workDir,
+			now: 300,
+		});
+
+		expect(result).not.toBe("skipped");
+		if (result === "skipped") return;
+		expect(result.extractedMemoryCount).toBe(0);
+		expect(persistedMemoryCount).toBe(0);
 	});
 
 	test("collapses only transcript events newer than the latest segment for continued sessions", async () => {

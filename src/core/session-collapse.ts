@@ -118,9 +118,12 @@ export async function collapseSessionToMemory(
 					prompts: await input.genome.loadMemoryExtractionPrompts(),
 					messages: extractionMessages,
 				});
-	const filtered = await filterDuplicateDrafts(extractionDrafts, input.genome.memories.all(), {
-		embeddingProvider: await input.genome.memoryEmbeddingProvider(),
-	});
+	const filtered =
+		extractionDrafts.length === 0
+			? []
+			: await filterDuplicateDrafts(extractionDrafts, input.genome.memories.all(), {
+					embeddingProvider: await input.genome.memoryEmbeddingProvider(),
+				});
 
 	const memories = filtered.map((draft, index) => {
 		const memory = memoryFromDraft(draft, {

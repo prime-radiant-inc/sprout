@@ -462,6 +462,39 @@ describe("LearnProcess", () => {
 		expect(memory.embedding?.vector).toHaveLength(768);
 	});
 
+	test("skips embedding provider when memory extraction returns no drafts", async () => {
+		const client = makeMockClientSequence([
+			'{"type": "create_memory", "content": "No durable fact", "tags": ["memory"]}',
+			"[]",
+		]);
+		const { genome, learn } = await setupGenomeWithClient(tempDir, "extract-empty", client);
+		(
+			genome as unknown as { memoryEmbeddingProvider: () => Promise<never> }
+		).memoryEmbeddingProvider = async () => {
+			throw new Error("embedding provider should not be loaded for empty drafts");
+		};
+
+		learn.push(
+			makeSignal({
+				kind: "failure",
+				agent_name: "root",
+				goal: "inspect memory",
+				details: {
+					agent_name: "root",
+					goal: "inspect memory",
+					output: "no durable fact",
+					success: false,
+					stumbles: 1,
+					turns: 3,
+					timed_out: false,
+				},
+			}),
+		);
+
+		await expect(learn.processNext()).resolves.toBe("skipped");
+		expect(genome.memories.all()).toHaveLength(0);
+	});
+
 	describe("mutation validation", () => {
 		function makeFailureSignal() {
 			return makeSignal({
