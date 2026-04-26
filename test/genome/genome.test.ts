@@ -879,6 +879,30 @@ describe("Genome", () => {
 			}
 		});
 
+		test("addSegment restores JSONL and index when commit fails after rebuild", async () => {
+			const root = join(tempDir, "segment-add-commit-fails");
+			const genome = await createInitializedGenome(root);
+			const hookPath = join(root, ".git", "hooks", "pre-commit");
+			await writeFile(hookPath, "#!/bin/sh\nexit 1\n");
+			await chmod(hookPath, 0o755);
+
+			await expect(genome.addSegment(makeSegment({ id: "segment-commit-fail" }))).rejects.toThrow(
+				"git commit",
+			);
+
+			expect(genome.segments.getById("segment-commit-fail")).toBeUndefined();
+			expect(await readOptionalFile(join(root, "memories", "segments.jsonl"))).not.toContain(
+				"segment-commit-fail",
+			);
+			expect(await git(root, "status", "--porcelain")).toBe("");
+			const index = MemoryIndex.open(memoryIndexPath(root));
+			try {
+				expect(index.stats().segmentCount).toBe(0);
+			} finally {
+				index.close();
+			}
+		});
+
 		test("addSegmentWithMemories restores JSONL files when save fails", async () => {
 			const root = join(tempDir, "segment-memory-save-fails");
 			const genome = await createInitializedGenome(root);

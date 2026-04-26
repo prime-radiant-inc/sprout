@@ -403,17 +403,30 @@ export class Genome {
 			segment,
 			await this.getEmbeddingProvider(),
 		);
+		const segmentsPath = join(this.rootPath, "memories", "segments.jsonl");
 		await this.withMemoryWriteLock(async () => {
-			await this.segments.load();
-			await this.segments.add(embeddedSegment);
-			await git(this.rootPath, "add", join(this.rootPath, "memories", "segments.jsonl"));
-			await git(
-				this.rootPath,
-				"commit",
-				"-m",
-				`genome: add memory segment '${embeddedSegment.id}'`,
-			);
-			await rebuildMemoryIndexFromJsonl(this.rootPath);
+			const snapshots = await snapshotTextFiles([segmentsPath]);
+			let committed = false;
+			try {
+				await this.segments.load();
+				this.segments.stage(embeddedSegment);
+				await this.segments.save();
+				await git(this.rootPath, "add", segmentsPath);
+				await rebuildMemoryIndexFromJsonl(this.rootPath);
+				await git(
+					this.rootPath,
+					"commit",
+					"-m",
+					`genome: add memory segment '${embeddedSegment.id}'`,
+				);
+				committed = true;
+			} catch (error) {
+				if (!committed) {
+					await restoreUncommittedMemoryMutation(this.rootPath, snapshots, [segmentsPath]);
+					await this.segments.load();
+				}
+				throw error;
+			}
 		});
 	}
 

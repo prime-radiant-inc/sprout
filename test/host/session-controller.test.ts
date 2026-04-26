@@ -197,6 +197,20 @@ describe("SessionController", () => {
 		expect(bus.collected().some((event) => event.data.memory_collapse === "completed")).toBe(true);
 	});
 
+	test("does not emit completed memory collapse event for skipped collapse", async () => {
+		const fake = makeFakeAgent();
+		const factory: AgentFactory = async () => ({
+			agent: fake.agent as any,
+			learnProcess: null,
+			collapseMemory: async () => "skipped",
+		});
+		const { bus, controller } = makeController({ factory });
+
+		await controller.runGoal("No new memory");
+
+		expect(bus.collected().some((event) => event.data.memory_collapse === "completed")).toBe(false);
+	});
+
 	test("stops learn process before collapsing completed sessions to memory", async () => {
 		const calls: string[] = [];
 		const factory: AgentFactory = async () => ({

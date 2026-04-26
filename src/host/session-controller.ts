@@ -228,6 +228,7 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 						sessionId,
 						cwd,
 					}).then(async (collapse) => {
+						if (collapse === "skipped") return collapse;
 						const project = await detectProjectFromCwd({ cwd });
 						const projectActivityChanged = await result.genome.recordProjectActivity(project);
 						if (projectActivityChanged) {
