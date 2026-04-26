@@ -4,6 +4,7 @@ import { Msg, messageText } from "../llm/types.ts";
 import { ulid } from "../util/ulid.ts";
 import { trigramDiceSimilarity } from "./dedup.ts";
 import type { Genome } from "./genome.ts";
+import { isActiveMemoryForRecall } from "./memory-lifecycle.ts";
 import type { ProjectActivityRecord } from "./projects.ts";
 
 export type ConsolidationClusterReason = "exact" | "fuzzy" | "vector" | "link";
@@ -72,7 +73,7 @@ export function discoverConsolidationClusters(
 	memories: readonly Memory[],
 	options: ConsolidationDiscoveryOptions = {},
 ): ConsolidationCluster[] {
-	const active = memories.filter((memory) => !memory.archived_at && !memory.superseded_by);
+	const active = memories.filter(isActiveMemoryForRecall);
 	const parent = new Map(active.map((memory) => [memory.id, memory.id]));
 	const edges = new Map<string, { reasons: Set<ConsolidationClusterReason>; score: number }>();
 	const byId = new Map(active.map((memory) => [memory.id, memory]));
@@ -156,7 +157,7 @@ export function discoverConsolidationClusters(
 }
 
 export function estimateDuplicateRate(memories: readonly Memory[], fuzzyThreshold = 0.86): number {
-	const active = memories.filter((memory) => !memory.archived_at && !memory.superseded_by);
+	const active = memories.filter(isActiveMemoryForRecall);
 	if (active.length === 0) return 0;
 	const duplicateIds = new Set<string>();
 	for (let leftIndex = 0; leftIndex < active.length; leftIndex++) {

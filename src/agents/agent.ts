@@ -443,7 +443,6 @@ export class Agent {
 	steer(text: string, trustedUserInstruction?: string): void {
 		const effectiveTrustedInstruction =
 			trustedUserInstruction ?? (this.depth === 0 ? text : undefined);
-		this.updateTrustedUserInstruction(effectiveTrustedInstruction);
 		this.steeringQueue.push({ text, trustedUserInstruction: effectiveTrustedInstruction });
 	}
 

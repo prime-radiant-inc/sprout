@@ -457,6 +457,7 @@ export class Genome {
 				await this.segments.save();
 				if (embeddedMemories.length > 0) await this.memories.save();
 				await git(this.rootPath, "add", ...filesToAdd);
+				await rebuildMemoryIndexFromJsonl(this.rootPath);
 				await git(
 					this.rootPath,
 					"commit",
@@ -464,13 +465,11 @@ export class Genome {
 					`genome: add memory segment '${embeddedSegment.id}' with ${embeddedMemories.length} memories`,
 				);
 				committed = true;
-				await rebuildMemoryIndexFromJsonl(this.rootPath);
 			} catch (err) {
 				if (!committed) {
-					await restoreTextFiles(snapshots);
+					await restoreUncommittedMemoryMutation(this.rootPath, snapshots, filesToAdd);
 					await this.segments.load();
 					await this.memories.load();
-					await git(this.rootPath, "reset", "--", ...filesToAdd);
 				}
 				throw err;
 			}

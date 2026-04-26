@@ -929,6 +929,36 @@ describe("Genome", () => {
 			expect(await git(root, "status", "--porcelain")).toBe("");
 		});
 
+		test("addSegmentWithMemories restores JSONL and index when commit fails after rebuild", async () => {
+			const root = join(tempDir, "segment-memory-commit-fails");
+			const genome = await createInitializedGenome(root);
+			const hookPath = join(root, ".git", "hooks", "pre-commit");
+			await writeFile(hookPath, "#!/bin/sh\nexit 1\n");
+			await chmod(hookPath, 0o755);
+
+			await expect(
+				genome.addSegmentWithMemories(makeSegment({ id: "segment-memory-commit-fail" }), [
+					makeMemory({ id: "segment-memory-write-fail", content: "will not persist" }),
+				]),
+			).rejects.toThrow("git commit");
+
+			expect(genome.segments.getById("segment-memory-commit-fail")).toBeUndefined();
+			expect(genome.memories.getById("segment-memory-write-fail")).toBeUndefined();
+			expect(await readOptionalFile(join(root, "memories", "segments.jsonl"))).not.toContain(
+				"segment-memory-commit-fail",
+			);
+			expect(await readOptionalFile(join(root, "memories", "memories.jsonl"))).not.toContain(
+				"segment-memory-write-fail",
+			);
+			expect(await git(root, "status", "--porcelain")).toBe("");
+			const index = MemoryIndex.open(memoryIndexPath(root));
+			try {
+				expect(index.stats()).toMatchObject({ memoryCount: 0, segmentCount: 0 });
+			} finally {
+				index.close();
+			}
+		});
+
 		test("addMemory fails before writing when embedding generation fails", async () => {
 			const root = join(tempDir, "mem-add-embedding-fails");
 			await cp(initTemplateDir, root, { recursive: true });

@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Agent, type AgentOptions } from "../../src/agents/agent.ts";
 import { AgentEventEmitter } from "../../src/agents/events.ts";
+import { Genome } from "../../src/genome/genome.ts";
 import { LocalExecutionEnvironment } from "../../src/kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../../src/kernel/primitives.ts";
 import type { AgentSpec } from "../../src/kernel/types.ts";
@@ -33,6 +35,7 @@ function makeAgent(opts?: {
 	events?: AgentEventEmitter;
 	client?: Client;
 	spec?: AgentSpec;
+	genome?: Genome;
 }): Agent {
 	const env = new LocalExecutionEnvironment(tmpdir());
 	const client =
@@ -57,6 +60,7 @@ function makeAgent(opts?: {
 			client,
 			primitiveRegistry: registry,
 			availableAgents: [],
+			genome: opts?.genome,
 			depth: 0,
 			events: opts?.events,
 		} satisfies AgentOptions),
@@ -154,6 +158,22 @@ describe("Steering queue", () => {
 		const steeringEvents = collected.filter((e) => e.kind === "steering");
 		// Should be exactly 1 steering event, not repeated on second turn
 		expect(steeringEvents.length).toBe(1);
+	});
+
+	test("steer defers trusted memory authorization until the next planning turn", () => {
+		const agent = makeAgent({
+			genome: new Genome(join(tmpdir(), "sprout-steering-auth")),
+			spec: {
+				...leafSpec,
+				name: "archivist",
+				tools: ["memory_archive"],
+			},
+		});
+		const primitiveNames = () => (agent as any).primitiveRegistry.names() as string[];
+
+		expect(primitiveNames()).not.toContain("memory_archive");
+		agent.steer("I confirm: archive memory mem_alpha00 because it is stale");
+		expect(primitiveNames()).not.toContain("memory_archive");
 	});
 });
 

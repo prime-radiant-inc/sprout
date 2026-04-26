@@ -60,6 +60,25 @@ describe("memory consolidation", () => {
 		expect(estimateDuplicateRateAfterConsolidation(memories, clusters, 0.99)).toBeLessThan(0.05);
 	});
 
+	test("discovery and duplicate rate ignore inbound-superseded memories", () => {
+		const memories = [
+			memory({
+				id: "active-memory",
+				content: "Sprout stores memory in SQLite.",
+			}),
+			memory({
+				id: "retired-memory",
+				content: "Sprout stores memory in SQLite.",
+				inbound_links: [
+					{ uuid: "replacement", type: "supersedes", reasoning: "retired", created_at: 1 },
+				],
+			}),
+		];
+
+		expect(discoverConsolidationClusters(memories, { fuzzyThreshold: 0.99 })).toEqual([]);
+		expect(estimateDuplicateRate(memories, 0.99)).toBe(0);
+	});
+
 	test("normalizes merge and rejection decisions from JSON", () => {
 		const merge = normalizeConsolidationDecisionPayload(`\`\`\`json
 {"action":"merge","memory":{"text":"Sprout uses local SQLite memory.","tags":["memory"],"confidence":0.8},"reasoning":"The duplicate facts are identical."}
