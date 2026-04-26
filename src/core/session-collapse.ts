@@ -7,6 +7,8 @@ import type { SessionEvent } from "../kernel/types.ts";
 import type { Client } from "../llm/client.ts";
 import { ContentKind, type Message, Msg, messageText } from "../llm/types.ts";
 
+const MAX_COLLAPSE_OUTCOME_CHARS = 2000;
+
 export type CollapseTranscriptRole = "user" | "assistant";
 
 export interface CollapseTranscriptMessage {
@@ -140,13 +142,11 @@ export async function collapseSessionToMemory(
 		now,
 	});
 
-	const extractionMessages = transcript
-		.filter((message) => message.role === "user")
-		.map((message) => ({
-			role: message.role,
-			content: message.content,
-			timestamp: message.timestamp,
-		}));
+	const extractionMessages = transcript.map((message) => ({
+		role: message.role,
+		content: message.content,
+		timestamp: message.timestamp,
+	}));
 	const extractionDrafts =
 		extractionMessages.length === 0
 			? []
@@ -278,17 +278,44 @@ function eventToTranscriptMessage(
 function primitiveMetadata(event: SessionEvent): string | undefined {
 	const name = stringValue(event.data.display_name) ?? stringValue(event.data.name) ?? "tool";
 	const success = event.data.success === true;
-	if (success) return `Tool ${name} completed successfully.`;
-	if (event.data.success === false) return `Tool ${name} failed.`;
-	return `Tool ${name} completed.`;
+	const status = success
+		? `Tool ${name} completed successfully.`
+		: event.data.success === false
+			? `Tool ${name} failed.`
+			: `Tool ${name} completed.`;
+	const outcome = boundedOutcomeText(event);
+	return outcome ? `${status}\nOutput: ${outcome}` : status;
 }
 
 function actMetadata(event: SessionEvent): string | undefined {
 	const name = stringValue(event.data.agent_name) ?? "agent";
 	const success = event.data.success === true;
-	if (success) return `Delegated agent ${name} completed successfully.`;
-	if (event.data.success === false) return `Delegated agent ${name} failed.`;
-	return `Delegated agent ${name} completed.`;
+	const status = success
+		? `Delegated agent ${name} completed successfully.`
+		: event.data.success === false
+			? `Delegated agent ${name} failed.`
+			: `Delegated agent ${name} completed.`;
+	const goal = stringValue(event.data.goal);
+	const outcome = boundedOutcomeText(event);
+	return [status, goal ? `Goal: ${goal}` : undefined, outcome ? `Output: ${outcome}` : undefined]
+		.filter((line) => line !== undefined)
+		.join("\n");
+}
+
+function boundedOutcomeText(event: SessionEvent): string | undefined {
+	const raw =
+		messageContent(event.data.tool_result_message) ??
+		stringValue(event.data.output) ??
+		stringValue(event.data.error);
+	if (!raw) return undefined;
+	const normalized = raw.trim();
+	if (!normalized) return undefined;
+	return truncateTranscriptOutcome(redactSensitiveTranscriptContent(normalized));
+}
+
+function truncateTranscriptOutcome(value: string): string {
+	if (value.length <= MAX_COLLAPSE_OUTCOME_CHARS) return value;
+	return `${value.slice(0, MAX_COLLAPSE_OUTCOME_CHARS).trimEnd()}\n[truncated]`;
 }
 
 function fromText(

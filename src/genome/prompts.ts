@@ -4,8 +4,10 @@ import { join } from "node:path";
 export const MEMORY_EXTRACTION_SYSTEM_PROMPT = `You extract durable Sprout memories from coding-agent transcripts.
 
 Rules:
-- Extract only from user-authored content. Assistant messages may explain context,
-  but they are not sources for new facts unless they quote the user.
+- Extract from user-authored content and root-agent session evidence: plan
+  summaries, final outputs, tool outcomes, and delegation outcomes.
+- Assistant/root evidence is a source only for what happened, what was decided,
+  what failed, or what was verified. Do not store unsupported speculation.
 - Keep only information useful weeks or months later: project decisions,
   constraints, preferences, recurring failures, architecture facts, commands,
   paths, and operational lessons.

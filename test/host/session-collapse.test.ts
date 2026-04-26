@@ -112,11 +112,11 @@ describe("session collapse transcript", () => {
 		expect(messages.map((message) => `${message.role}:${message.content}`)).toEqual([
 			"user:Run tests",
 			"assistant:I will inspect package.json.",
-			"assistant:Tool exec_command completed successfully.",
-			"assistant:Delegated agent engineer completed successfully.",
+			"assistant:Tool exec_command completed successfully.\nOutput: SECRET_TOKEN=[REDACTED_SECRET]",
+			"assistant:Delegated agent engineer completed successfully.\nOutput: implemented feature with secret",
 			"assistant:Done",
 		]);
-		expect(messages.map((message) => message.content).join("\n")).not.toContain("SECRET_TOKEN");
+		expect(messages.map((message) => message.content).join("\n")).not.toContain("bun-test-passed");
 		expect(messages.every((message) => message.timestamp >= 100)).toBe(true);
 		expect(messages.some((message) => message.content === "child internal analysis")).toBe(false);
 	});
@@ -245,7 +245,7 @@ abc123
 		expect(memory.embedding?.status).toBe("ready");
 	});
 
-	test("grounds memory extraction only in user-authored transcript messages", async () => {
+	test("grounds memory extraction in user and root evidence", async () => {
 		const genomeDir = join(tempDir, "genome-user-grounded");
 		const rootDir = join(import.meta.dir, "../../root");
 		const workDir = join(tempDir, "work-user-grounded");
@@ -281,8 +281,29 @@ abc123
 		await collapseSessionToMemory({
 			events: [
 				event("perceive", 100, { goal: "User says Sprout memory must stay local." }),
-				event("plan_end", 200, { text: "Assistant inferred a separate durable policy." }),
-				event("session_end", 300, { output: "Assistant finished with implementation details." }),
+				event("plan_end", 200, {
+					text: "Root verified the memory implementation uses SQLite cache rebuilds.",
+				}),
+				event("primitive_end", 250, {
+					name: "exec_command",
+					success: true,
+					tool_result_message: Msg.toolResult(
+						"tool-1",
+						"bun test confirmed local embedding writes are ready.",
+					),
+				}),
+				event("act_end", 275, {
+					agent_name: "engineer",
+					goal: "check collapse evidence",
+					success: true,
+					tool_result_message: Msg.toolResult(
+						"delegate-1",
+						"Engineer found delegation outcomes include durable implementation facts.",
+					),
+				}),
+				event("session_end", 300, {
+					output: "Root finished with local SQLite implementation details.",
+				}),
 			],
 			genome,
 			client,
@@ -294,8 +315,11 @@ abc123
 		});
 
 		expect(prompts[1]).toContain("User says Sprout memory must stay local.");
-		expect(prompts[1]).not.toContain("Assistant inferred a separate durable policy.");
-		expect(prompts[1]).not.toContain("Assistant finished with implementation details.");
+		expect(prompts[1]).toContain("Root verified the memory implementation uses SQLite");
+		expect(prompts[1]).toContain("bun test confirmed local embedding writes are ready.");
+		expect(prompts[1]).toContain("check collapse evidence");
+		expect(prompts[1]).toContain("delegation outcomes include durable implementation facts.");
+		expect(prompts[1]).toContain("Root finished with local SQLite implementation details.");
 	});
 
 	test("skips duplicate embedding work when extraction returns no drafts", async () => {

@@ -25,6 +25,16 @@ describe("genome prompt loading", () => {
 		expect(prompts.user).toContain("{formatted_messages}");
 	});
 
+	test("default extraction prompt allows root-agent evidence without unsupported speculation", () => {
+		expect(MEMORY_EXTRACTION_SYSTEM_PROMPT).toContain("root-agent session evidence");
+		expect(MEMORY_EXTRACTION_SYSTEM_PROMPT).toContain("tool outcomes");
+		expect(MEMORY_EXTRACTION_SYSTEM_PROMPT).toContain("delegation outcomes");
+		expect(MEMORY_EXTRACTION_SYSTEM_PROMPT).toContain("Do not store unsupported speculation");
+		expect(MEMORY_EXTRACTION_SYSTEM_PROMPT).not.toContain(
+			"Extract only from user-authored content",
+		);
+	});
+
 	test("prefers genome prompt files over root prompt files", async () => {
 		const genomeRoot = join(tempDir, "genome");
 		const rootDir = join(tempDir, "root");

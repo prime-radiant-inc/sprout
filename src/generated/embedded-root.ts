@@ -1,7 +1,7 @@
 // biome-ignore-all lint/suspicious/noTemplateCurlyInString: embedded root files contain literal source text.
 export const embeddedRootBundle = {
-	version: "0a1b4949982706c2ee7803037e2a8ef88c0f784d211e2229c56c7afd46e4e2cc",
-	hash: "0a1b4949982706c2ee7803037e2a8ef88c0f784d211e2229c56c7afd46e4e2cc",
+	version: "16c078e6de1e6b4dc581d4cb56a15617eaca04690138c3a9e5a57fcf31ac1e75",
+	hash: "16c078e6de1e6b4dc581d4cb56a15617eaca04690138c3a9e5a57fcf31ac1e75",
 	files: [
 		{
 			path: "agents/architect.md",
@@ -191,7 +191,7 @@ export const embeddedRootBundle = {
 		{
 			path: "prompts/memory_extraction_system.txt",
 			content:
-				'You extract durable Sprout memories from coding-agent transcripts.\n\nRules:\n- Extract only from user-authored content. Assistant messages may explain context,\n  but they are not sources for new facts unless they quote the user.\n- Keep only information useful weeks or months later: project decisions,\n  constraints, preferences, recurring failures, architecture facts, commands,\n  paths, and operational lessons.\n- Skip ephemeral task status, generic reference facts, and one-off actions that\n  do not reveal a durable pattern.\n- Write each memory as a direct factual statement. Lead with the core fact.\n- Preserve precise nouns: file paths, commands, APIs, model names, thresholds,\n  error messages, and project names.\n- Do not use relative time words like today, yesterday, or tomorrow.\n- Do not invent implications that are not grounded in the transcript.\n\nRespond with only valid JSON. No markdown, no code fences.\n\nReturn an array. If nothing should be stored, return [].\n\nEach item:\n{\n  "text": "string",\n  "tags": ["optional", "strings"],\n  "entities": [\n    {\n      "name": "string",\n      "type": "PROJECT|LIBRARY|FILE_PATH|COMMAND|ERROR_TYPE|TECHNOLOGY|PERSON"\n    }\n  ],\n  "happens_at": "optional ISO-8601 timestamp",\n  "expires_at": "optional ISO-8601 timestamp"\n}\n',
+				'You extract durable Sprout memories from coding-agent transcripts.\n\nRules:\n- Extract from user-authored content and root-agent session evidence: plan\n  summaries, final outputs, tool outcomes, and delegation outcomes.\n- Assistant/root evidence is a source only for what happened, what was decided,\n  what failed, or what was verified. Do not store unsupported speculation.\n- Keep only information useful weeks or months later: project decisions,\n  constraints, preferences, recurring failures, architecture facts, commands,\n  paths, and operational lessons.\n- Skip ephemeral task status, generic reference facts, and one-off actions that\n  do not reveal a durable pattern.\n- Write each memory as a direct factual statement. Lead with the core fact.\n- Preserve precise nouns: file paths, commands, APIs, model names, thresholds,\n  error messages, and project names.\n- Do not use relative time words like today, yesterday, or tomorrow.\n- Do not invent implications that are not grounded in the transcript.\n\nRespond with only valid JSON. No markdown, no code fences.\n\nReturn an array. If nothing should be stored, return [].\n\nEach item:\n{\n  "text": "string",\n  "tags": ["optional", "strings"],\n  "entities": [\n    {\n      "name": "string",\n      "type": "PROJECT|LIBRARY|FILE_PATH|COMMAND|ERROR_TYPE|TECHNOLOGY|PERSON"\n    }\n  ],\n  "happens_at": "optional ISO-8601 timestamp",\n  "expires_at": "optional ISO-8601 timestamp"\n}\n',
 		},
 		{
 			path: "prompts/memory_extraction_user.txt",
