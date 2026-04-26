@@ -43,20 +43,13 @@ describe("learn contract", () => {
 		expect(resolveLearnMutation(parsed)).toEqual(request.payload.mutation);
 	});
 
-	test("parses signal request and resolves to create_memory mutation", () => {
+	test("parses signal request without resolving to raw memory mutation", () => {
 		const request = createSignalLearnRequest(makeSignal(), "req-2");
 
 		const parsed = parseLearnRequest(JSON.stringify(request));
 		expect(parsed).toEqual(request);
 		if (!parsed) throw new Error("expected request");
-		const mutation = resolveLearnMutation(parsed);
-
-		expect(mutation.type).toBe("create_memory");
-		if (mutation.type === "create_memory") {
-			expect(mutation.content).toContain("Learn signal (error)");
-			expect(mutation.content).toContain("Goal: write test");
-			expect(mutation.tags).toEqual(["learn-signal", "error", "worker"]);
-		}
+		expect(resolveLearnMutation(parsed)).toBeNull();
 	});
 
 	test("returns null for malformed payload", () => {

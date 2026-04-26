@@ -4,13 +4,77 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BusClient } from "../../src/bus/client.ts";
 import { GenomeMutationService } from "../../src/bus/genome-service.ts";
-import { createMutationLearnRequest } from "../../src/bus/learn-contract.ts";
+import {
+	createMutationLearnRequest,
+	createSignalLearnRequest,
+} from "../../src/bus/learn-contract.ts";
 import { BusLearnForwarder } from "../../src/bus/learn-forwarder.ts";
 import { BusServer } from "../../src/bus/server.ts";
-import { genomeEvents, genomeMutations } from "../../src/bus/topics.ts";
+import { genomeEvents, genomeMutations, sessionEvents } from "../../src/bus/topics.ts";
 import type { Genome } from "../../src/genome/genome.ts";
+import type { LearnSignal, SessionEvent } from "../../src/kernel/types.ts";
 import type { LearnMutation } from "../../src/learn/learn-process.ts";
+import type { Client } from "../../src/llm/client.ts";
+import type { ProviderModel, Request, Response } from "../../src/llm/types.ts";
+import { Msg } from "../../src/llm/types.ts";
 import { createTestGenome } from "../helpers/test-genome.ts";
+
+function makeMockResponse(text: string): Response {
+	return {
+		id: "mock",
+		model: "test",
+		provider: "anthropic",
+		message: Msg.assistant(text),
+		finish_reason: { reason: "stop" },
+		usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+	};
+}
+
+function makeMockClient(responseTexts: string[], onRequest?: (request: Request) => void): Client {
+	let index = 0;
+	const modelsByProvider = new Map<string, ProviderModel[]>([
+		["anthropic", [{ id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", source: "remote" }]],
+	]);
+	return {
+		providers: () => ["anthropic"],
+		listModelsByProvider: async () => modelsByProvider,
+		complete: async (request: Request) => {
+			onRequest?.(request);
+			const responseText = responseTexts[index] ?? responseTexts.at(-1) ?? "[]";
+			index++;
+			return makeMockResponse(responseText);
+		},
+	} as unknown as Client;
+}
+
+function makeSignal(overrides: Partial<LearnSignal> = {}): LearnSignal {
+	return {
+		kind: overrides.kind ?? "failure",
+		goal: overrides.goal ?? "stabilize pipeline",
+		agent_name: overrides.agent_name ?? "worker-a",
+		details: overrides.details ?? {
+			agent_name: "worker-a",
+			goal: "stabilize pipeline",
+			output: "command failed",
+			success: false,
+			stumbles: 1,
+			turns: 2,
+			timed_out: false,
+		},
+		session_id: overrides.session_id ?? "genome-svc-test",
+		timestamp: overrides.timestamp ?? Date.now(),
+	};
+}
+
+function event(
+	kind: SessionEvent["kind"],
+	timestamp: number,
+	data: Record<string, unknown>,
+	depth = 0,
+	agent_id = depth === 0 ? "root" : "worker-a",
+): SessionEvent {
+	return { kind, timestamp, agent_id, depth, data };
+}
 
 describe("GenomeMutationService", () => {
 	let server: BusServer;
@@ -81,6 +145,75 @@ describe("GenomeMutationService", () => {
 		);
 	}
 
+	async function publishSessionEvent(sessionEvent: SessionEvent): Promise<void> {
+		await testBus.publish(
+			sessionEvents(SESSION_ID),
+			JSON.stringify({ kind: "event", handle_id: "handle-1", event: sessionEvent }),
+		);
+	}
+
+	async function publishSignal(signal: LearnSignal, requestId: string): Promise<void> {
+		await testBus.publish(
+			genomeMutations(SESSION_ID),
+			JSON.stringify(createSignalLearnRequest(signal, requestId)),
+		);
+	}
+
+	async function publishEvidenceWindow(signal: LearnSignal): Promise<void> {
+		const base = signal.timestamp - 50;
+		await publishSessionEvent(
+			event("session_start", base, {
+				session_id: signal.session_id,
+				goal: signal.goal,
+				model: "claude-sonnet-4-6",
+			}),
+		);
+		await publishSessionEvent(event("perceive", base + 5, { goal: signal.goal }));
+		await publishSessionEvent(
+			event("primitive_end", base + 20, {
+				name: "exec",
+				display_name: "exec",
+				success: false,
+				stumbled: true,
+				output: "command failed while stabilizing pipeline",
+				error: "exit 1",
+				tool_result_message: Msg.toolResult(
+					"tool-1",
+					"Error: exit 1\ncommand failed while stabilizing pipeline",
+					true,
+				),
+			}),
+		);
+		await publishSessionEvent(
+			event("session_end", base + 80, {
+				session_id: signal.session_id,
+				success: false,
+				stumbles: signal.details.stumbles,
+				turns: signal.details.turns,
+				timed_out: signal.details.timed_out,
+				output: "terminal failed state",
+			}),
+		);
+	}
+
+	async function waitForServiceEvents(count: number): Promise<void> {
+		await waitUntil(
+			() => ((service as unknown as { events: SessionEvent[] }).events?.length ?? 0) >= count,
+			5000,
+		);
+	}
+
+	function replaceService(options: { client?: Client; clientFactory?: () => Client }): void {
+		service = new GenomeMutationService({
+			bus: serviceBus,
+			genome,
+			sessionId: SESSION_ID,
+			stopDrainTimeoutMs: 100,
+			stopDrainPollMs: 1,
+			...options,
+		});
+	}
+
 	test("processes a create_memory mutation", async () => {
 		await service.start();
 
@@ -109,6 +242,7 @@ describe("GenomeMutationService", () => {
 		expect(memories.length).toBe(1);
 		expect(memories[0]!.content).toBe("Always use strict mode in TypeScript");
 		expect(memories[0]!.tags).toEqual(["typescript", "best-practice"]);
+		expect(memories[0]!.embedding?.status).toBe("ready");
 	}, 10_000);
 
 	test("processes mutations serially", async () => {
@@ -286,27 +420,25 @@ describe("GenomeMutationService", () => {
 	}, 10_000);
 
 	test("consumes BusLearnForwarder signal requests end-to-end", async () => {
+		replaceService({
+			client: makeMockClient([
+				JSON.stringify([
+					{
+						text: "Worker-a should stabilize the pipeline by investigating failed commands.",
+						tags: ["pipeline", "debugging"],
+					},
+				]),
+			]),
+		});
 		await service.start();
 
 		const forwarder = new BusLearnForwarder(testBus, SESSION_ID);
 		const confirmationPromise = testBus.waitForMessage(genomeEvents(SESSION_ID), 5000);
+		const signal = makeSignal({ session_id: SESSION_ID, timestamp: Date.now() });
+		await publishEvidenceWindow(signal);
+		await waitForServiceEvents(4);
 
-		forwarder.push({
-			kind: "failure",
-			goal: "stabilize pipeline",
-			agent_name: "worker-a",
-			details: {
-				agent_name: "worker-a",
-				goal: "stabilize pipeline",
-				output: "command failed",
-				success: false,
-				stumbles: 1,
-				turns: 2,
-				timed_out: false,
-			},
-			session_id: SESSION_ID,
-			timestamp: Date.now(),
-		});
+		forwarder.push(signal);
 
 		const raw = await confirmationPromise;
 		const confirmation = JSON.parse(raw);
@@ -314,12 +446,57 @@ describe("GenomeMutationService", () => {
 		expect(confirmation.kind).toBe("mutation_confirmed");
 		expect(confirmation.success).toBe(true);
 		expect(confirmation.mutation_type).toBe("create_memory");
+		expect(confirmation.extracted_count).toBe(1);
 
 		const memories = genome.memories.all();
 		expect(memories.length).toBe(1);
-		expect(memories[0]!.content).toContain("Learn signal (failure)");
-		expect(memories[0]!.content).toContain("Goal: stabilize pipeline");
-		expect(memories[0]!.tags).toEqual(["learn-signal", "failure", "worker-a"]);
+		expect(memories[0]!.content).toContain("stabilize the pipeline");
+		expect(memories[0]!.source).toBe("learn:extraction");
+		expect(memories[0]!.embedding?.status).toBe("ready");
+	}, 10_000);
+
+	test("publishes an error for signal requests without extraction dependencies", async () => {
+		replaceService({
+			clientFactory: () => {
+				throw new Error("missing extraction client");
+			},
+		});
+		await service.start();
+		const confirmationPromise = testBus.waitForMessage(genomeEvents(SESSION_ID), 5000);
+		const signal = makeSignal({ session_id: SESSION_ID, timestamp: Date.now() });
+		await publishEvidenceWindow(signal);
+		await waitForServiceEvents(4);
+
+		await publishSignal(signal, "req-signal-missing-client");
+
+		const raw = await confirmationPromise;
+		const confirmation = JSON.parse(raw);
+		expect(confirmation.kind).toBe("mutation_confirmed");
+		expect(confirmation.request_id).toBe("req-signal-missing-client");
+		expect(confirmation.mutation_type).toBe("learn_signal");
+		expect(confirmation.success).toBe(false);
+		expect(confirmation.error).toContain("missing extraction client");
+		expect(genome.memories.all()).toHaveLength(0);
+	}, 10_000);
+
+	test("publishes an error for signal requests without event-window evidence", async () => {
+		replaceService({
+			client: makeMockClient(["[]"]),
+		});
+		await service.start();
+		const confirmationPromise = testBus.waitForMessage(genomeEvents(SESSION_ID), 5000);
+		const signal = makeSignal({ session_id: SESSION_ID, timestamp: Date.now() });
+
+		await publishSignal(signal, "req-signal-no-events");
+
+		const raw = await confirmationPromise;
+		const confirmation = JSON.parse(raw);
+		expect(confirmation.kind).toBe("mutation_confirmed");
+		expect(confirmation.request_id).toBe("req-signal-no-events");
+		expect(confirmation.mutation_type).toBe("learn_signal");
+		expect(confirmation.success).toBe(false);
+		expect(confirmation.error).toContain("No event-window evidence");
+		expect(genome.memories.all()).toHaveLength(0);
 	}, 10_000);
 });
 

@@ -92,21 +92,10 @@ export function parseLearnRequest(payload: string): LearnRequest | null {
 	return null;
 }
 
-/** Resolve a learn request to a concrete mutation that can be applied to the genome. */
-export function resolveLearnMutation(request: LearnRequest): LearnMutation {
+/** Resolve an explicit learn request to a concrete mutation that can be applied to the genome. */
+export function resolveLearnMutation(request: LearnRequest): LearnMutation | null {
 	if (request.payload.kind === "mutation") {
 		return request.payload.mutation;
 	}
-	return mutationFromSignal(request.payload.signal);
-}
-
-function mutationFromSignal(signal: LearnSignal): LearnMutation {
-	return {
-		type: "create_memory",
-		content:
-			`Learn signal (${signal.kind}) from ${signal.agent_name}.\n` +
-			`Goal: ${signal.goal}\n` +
-			`Output: ${signal.details.output}`,
-		tags: ["learn-signal", signal.kind, signal.agent_name],
-	};
+	return null;
 }
