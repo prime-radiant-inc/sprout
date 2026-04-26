@@ -202,6 +202,15 @@ describe("memory tools", () => {
 		expect(JSON.parse(result.output).memories[0].id).toBe("memory-alpha");
 	});
 
+	test("memory_find_by_segment fails for unknown segments", async () => {
+		const result = await runTool(makeContext(), "memory_find_by_segment", {
+			segment_id: "missing-segment",
+		});
+
+		expect(result.success).toBe(false);
+		expect(result.error).toContain("not found");
+	});
+
 	test("authorized annotation persists with archivist audit source", async () => {
 		const ctx = makeContext();
 		const result = await runTool(ctx, "memory_annotate", {

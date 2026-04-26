@@ -202,6 +202,7 @@ function memoryFindBySegmentPrimitive(ctx: MemoryToolContext): Primitive {
 			const segmentId = stringArg(args.segment_id);
 			if (!segmentId) return fail("segment_id is required");
 			const segment = ctx.genome.segments.getById(segmentId);
+			if (!segment) return fail(`memory segment '${segmentId}' not found`);
 			const memories = ctx.genome.memories
 				.all()
 				.filter((memory) => memory.source_segment_id === segmentId)

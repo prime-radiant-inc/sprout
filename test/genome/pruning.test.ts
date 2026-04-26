@@ -105,6 +105,52 @@ describe("Genome pruning", () => {
 			expect(status).toBe("");
 		}, 15_000);
 
+		test("removes surviving links that reference pruned memories", async () => {
+			const root = join(tempDir, "prune-linked-memory");
+			const genome = createTestGenome(root);
+			await genome.init();
+			const ninetyDaysAgo = Date.now() - 90 * 86400000;
+			await genome.addMemory({
+				...makeMemory({
+					id: "stale-superseding-memory",
+					content: "Stale replacement fact",
+					last_used: ninetyDaysAgo,
+					created: ninetyDaysAgo,
+					use_count: 1,
+					confidence: 0.5,
+				}),
+				outbound_links: [
+					{
+						uuid: "surviving-memory",
+						type: "supersedes",
+						reasoning: "old replacement",
+						created_at: 1,
+					},
+				],
+			});
+			await genome.addMemory({
+				...makeMemory({ id: "surviving-memory", content: "Recoverable target fact" }),
+				superseded_by: "stale-superseding-memory",
+				inbound_links: [
+					{
+						uuid: "stale-superseding-memory",
+						type: "supersedes",
+						reasoning: "old replacement",
+						created_at: 1,
+					},
+				],
+			});
+
+			const pruned = await genome.pruneMemories(0.2);
+
+			expect(pruned).toEqual(["stale-superseding-memory"]);
+			expect(genome.memories.getById("surviving-memory")?.superseded_by).toBeUndefined();
+			expect(genome.memories.getById("surviving-memory")?.inbound_links).toEqual([]);
+			expect(
+				(await genome.searchMemories("Recoverable target", 1)).map((memory) => memory.id),
+			).toEqual(["surviving-memory"]);
+		}, 15_000);
+
 		test("restores JSONL and index when prune commit fails after rebuild", async () => {
 			const root = join(tempDir, "prune-commit-fails");
 			const genome = createTestGenome(root);

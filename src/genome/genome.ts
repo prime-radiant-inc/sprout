@@ -695,6 +695,7 @@ export class Genome {
 			await this.memories.load();
 			const pruned = this.memories.pruneByConfidence(minConfidence);
 			if (pruned.length > 0) {
+				removeLinksReferencingMemoryIds(this.memories.all(), new Set(pruned), Date.now());
 				const snapshots = await snapshotTextFiles([memoriesPath]);
 				let committed = false;
 				try {
@@ -1222,6 +1223,33 @@ function assertCanStageMemoryBatch(
 			);
 		}
 		shortIds.set(shortId, memory.id);
+	}
+}
+
+function removeLinksReferencingMemoryIds(
+	memories: readonly Memory[],
+	deletedIds: ReadonlySet<string>,
+	now: number,
+): void {
+	for (const memory of memories) {
+		let changed = false;
+		const outboundLinks = memory.outbound_links ?? [];
+		const inboundLinks = memory.inbound_links ?? [];
+		const retainedOutbound = outboundLinks.filter((link) => !deletedIds.has(link.uuid));
+		const retainedInbound = inboundLinks.filter((link) => !deletedIds.has(link.uuid));
+		if (retainedOutbound.length !== outboundLinks.length) {
+			memory.outbound_links = retainedOutbound;
+			changed = true;
+		}
+		if (retainedInbound.length !== inboundLinks.length) {
+			memory.inbound_links = retainedInbound;
+			changed = true;
+		}
+		if (memory.superseded_by && deletedIds.has(memory.superseded_by)) {
+			memory.superseded_by = undefined;
+			changed = true;
+		}
+		if (changed) memory.updated_at = now;
 	}
 }
 
