@@ -65,6 +65,65 @@ export const SEGMENT_SUMMARY_USER_PROMPT = `<session_transcript>
 
 Summarize this completed session for future recall. Return only JSON.`;
 
+export const MEMORY_RELATIONSHIP_CLASSIFICATION_PROMPT = `Classify the relationship between two memories from a user's long-term memory system.
+
+CRITICAL CONTEXT: These pairs were surfaced by similarity search. Every pair shares topic overlap. Topical similarity is the baseline, not a signal. Your job: determine whether the similarity constitutes a specific, actionable relationship -- or whether it's just proximity that doesn't warrant a link. Most pairs should be null.
+
+RELATIONSHIP TYPES:
+
+conflicts -- Direct logical contradiction. One memory, if true, makes the other false.
+supersedes -- Temporal replacement. The newer memory explicitly replaces the older.
+corroborates -- Independent evidence that increases confidence in the other memory.
+refines -- Actionable detail that changes how the other memory should be used.
+precedes -- Temporal sequence where one event happened before the other.
+contextualizes -- Cross-domain framing that changes how to act on the other memory.
+exemplifies -- A specific instance of a general pattern, or vice versa.
+null -- Similar topic, but no actionable relationship.
+
+DECISION PROCESS:
+1. Check for contradiction -> conflicts
+2. Check for explicit temporal replacement -> supersedes
+3. Ask: "Would one change what I DO with the other?" If no -> null
+4. If yes, choose the single best relationship type
+5. If uncertain, use null
+
+OUTPUT: Respond with only a valid JSON object.
+{"relationship_type": "null", "reasoning": "Both about home automation but knowing one does not change advice on the other"}
+
+WORKED EXAMPLES:
+
+NEW: "The user wants the MIRA port to use SQLite rather than Postgres."
+EXISTING: "The MIRA reference implementation stores memory in Postgres."
+{"relationship_type":"supersedes","reasoning":"The newer implementation preference replaces the storage decision that would otherwise be copied from the reference."}
+
+NEW: "The user says no fallbacks should be added to the local embedding provider."
+EXISTING: "The embedding adapter previously returned empty vectors when the provider failed."
+{"relationship_type":"conflicts","reasoning":"The no-fallback requirement directly contradicts fail-soft empty-vector behavior."}
+
+NEW: "The Phase 4 gate proved delegated agents reuse the same surfaced memory block."
+EXISTING: "The surfacing design requires recall to run once and fan out to delegated agents."
+{"relationship_type":"corroborates","reasoning":"The test result independently supports the design requirement."}
+
+NEW: "The local embedding provider uses MongoDB/mdbr-leaf-ir with 768 dimensions."
+EXISTING: "Sprout uses local embeddings for memory search."
+{"relationship_type":"refines","reasoning":"The model and dimension details change how local embedding code should be configured."}
+
+NEW: "Phase 2 routed learn memory writes through extraction."
+EXISTING: "Phase 1 added embedded memory writes and the SQLite-derived index."
+{"relationship_type":"precedes","reasoning":"The index foundation had to exist before learn writes could route through embedded extraction."}
+
+NEW: "The user strongly rejects hidden fallback behavior."
+EXISTING: "The memory port needs a relationship classifier that fails loud on invalid JSON."
+{"relationship_type":"contextualizes","reasoning":"The user's general engineering preference changes how classifier errors should be handled."}
+
+NEW: "The user asked to use CodeMira as a template without blindly copying decisions."
+EXISTING: "The user prefers SQLite for this MIRA port."
+{"relationship_type":"exemplifies","reasoning":"Choosing SQLite instead of Postgres is a concrete instance of adapting CodeMira rather than copying it."}
+
+NEW: "The archivist prompt requires cited answers."
+EXISTING: "Segment collapse stores summaries in memories/segments.jsonl."
+{"relationship_type":"null","reasoning":"Both involve memory architecture, but knowing one does not change how to act on the other."}`;
+
 export interface PromptSet {
 	system: string;
 	user: string;
@@ -75,6 +134,7 @@ const DEFAULT_PROMPTS: Record<string, string> = {
 	"memory_extraction_user.txt": MEMORY_EXTRACTION_USER_PROMPT,
 	"segment_summary_system.txt": SEGMENT_SUMMARY_SYSTEM_PROMPT,
 	"segment_summary_user.txt": SEGMENT_SUMMARY_USER_PROMPT,
+	"memory_relationship_classification.txt": MEMORY_RELATIONSHIP_CLASSIFICATION_PROMPT,
 };
 
 export async function loadMemoryExtractionPrompts(
@@ -95,6 +155,13 @@ export async function loadSegmentSummaryPrompts(
 		system: await loadPrompt(genomeRoot, rootDir, "segment_summary_system.txt"),
 		user: await loadPrompt(genomeRoot, rootDir, "segment_summary_user.txt"),
 	};
+}
+
+export async function loadRelationshipClassificationPrompt(
+	genomeRoot: string,
+	rootDir?: string,
+): Promise<string> {
+	return loadPrompt(genomeRoot, rootDir, "memory_relationship_classification.txt");
 }
 
 export async function loadPrompt(

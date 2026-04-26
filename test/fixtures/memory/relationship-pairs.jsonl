@@ -1,0 +1,8 @@
+{"source":"The user wants the MIRA port to use SQLite rather than Postgres.","target":"The MIRA reference implementation stores memory in Postgres.","relationship_type":"supersedes"}
+{"source":"The user says no fallbacks should be added to the local embedding provider.","target":"The embedding adapter previously returned empty vectors when the provider failed.","relationship_type":"conflicts"}
+{"source":"The Phase 4 gate proved delegated agents reuse the same surfaced memory block.","target":"The surfacing design requires recall to run once and fan out to delegated agents.","relationship_type":"corroborates"}
+{"source":"The local embedding provider uses MongoDB/mdbr-leaf-ir with 768 dimensions.","target":"Sprout uses local embeddings for memory search.","relationship_type":"refines"}
+{"source":"Phase 2 routed learn memory writes through extraction.","target":"Phase 1 added embedded memory writes and the SQLite-derived index.","relationship_type":"precedes"}
+{"source":"The user strongly rejects hidden fallback behavior.","target":"The memory port needs a relationship classifier that fails loud on invalid JSON.","relationship_type":"contextualizes"}
+{"source":"The user asked to use CodeMira as a template without blindly copying decisions.","target":"The user prefers SQLite for this MIRA port.","relationship_type":"exemplifies"}
+{"source":"The archivist prompt requires cited answers.","target":"Segment collapse stores summaries in memories/segments.jsonl.","relationship_type":"null"}

@@ -1,5 +1,6 @@
 import type { Primitive } from "../kernel/primitives.ts";
 import type { AnnotationEntry, Memory, MemoryLinkEntry, PrimitiveResult } from "../kernel/types.ts";
+import { traverseMemoryLinks } from "./linking.ts";
 import { memoryShortId } from "./memory-schema.ts";
 import { authorizeMemoryWrite } from "./memory-write-policy.ts";
 import type { MemorySegment } from "./segments.ts";
@@ -86,17 +87,30 @@ function memoryTraceLinksPrimitive(ctx: MemoryToolContext): Primitive {
 		description: "Return inbound and outbound memory links for a memory.",
 		parameters: {
 			type: "object",
-			properties: { id: { type: "string" } },
+			properties: {
+				id: { type: "string" },
+				depth: { type: "integer" },
+			},
 			required: ["id"],
 		},
 		async execute(args) {
 			const memory = findMemory(ctx, stringArg(args.id));
 			if (!memory) return fail("memory not found");
+			const related = traverseMemoryLinks(ctx.genome.memories.all(), memory.id, {
+				depth: intArg(args.depth, 2),
+			}).map((result) => ({
+				...memorySummary(result.memory),
+				distance: result.distance,
+				via: result.via,
+				type: result.type,
+				score: result.score,
+			}));
 			return ok({
 				id: memory.id,
 				short_id: memory.short_id ?? memoryShortId(memory.id),
 				outbound_links: memory.outbound_links ?? [],
 				inbound_links: memory.inbound_links ?? [],
+				related,
 			});
 		},
 	};
