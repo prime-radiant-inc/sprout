@@ -60,6 +60,11 @@ Remediated items:
   skipped-by-default live agreement eval harness.
 - The 50-pair live relationship classifier eval passed against Anthropic
   `claude-haiku-4-5-20251001`, satisfying the 80% agreement quality gate.
+- A broader manual Phase 6 dogfood pass simulated 23 user sessions and 68
+  session-derived memories, then tested hand-labeled relationships, discovered
+  candidates, and link persistence. The classifier hit 56/59 strict agreement,
+  including all supersedes and conflicts; candidate discovery surfaced 43/45
+  positive labeled pairs.
 
 ## Verification
 
@@ -94,11 +99,22 @@ Follow-up verification after the completion pass:
 - Live relationship classifier eval passed:
   `SPROUT_LIVE_RELATIONSHIP_EVAL=1 SPROUT_RELATIONSHIP_EVAL_PROVIDER=anthropic SPROUT_RELATIONSHIP_EVAL_MODEL=claude-haiku-4-5-20251001 bun test test/genome/relationship-classifier-eval.test.ts`
   returned 4 passed, 0 failed, and completed in 59.55 seconds.
+- Manual Phase 6 dogfood using Anthropic `claude-haiku-4-5-20251001` returned
+  56/59 strict agreement over 59 hand-labeled pairs from 68 memories across 23
+  simulated user sessions. Supersedes and conflicts were exact, null handling was
+  13/14 exact, candidate discovery surfaced 43/45 positive labeled pairs, and a
+  temp-genome persistence smoke added 20 non-null links with traversal returning
+  linked memories.
 - Roborev review was run after each remediation commit. The eval-timeout finding
   was fixed and closed, and the live-eval documentation commit passed review.
 
 ## Residual Risks
 
+- Manual Phase 6 exploratory candidate review found one clear false positive:
+  a TypeScript-only overlap between web UI implementation and prompt constants
+  was classified as `contextualizes` instead of `null`. This did not affect the
+  hand-labeled gate, but real-session monitoring should watch for broad shared
+  technology/entity overlap producing weak contextual links.
 - Subcortical recall remains opt-in for live agents. This avoids silently adding
   an LLM call to every existing agent loop; enable it per agent with
   `subcortical_recall: true` or `{ enabled: true, max_tokens: N }`.

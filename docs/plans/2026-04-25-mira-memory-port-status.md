@@ -46,6 +46,9 @@ Through Phase 10 — completed
   fixture/prompt tests plus a skipped-by-default live agreement eval.
 - 2026-04-26: ran the 50-pair live relationship classifier eval against
   Anthropic `claude-haiku-4-5-20251001`; it passed the 80% agreement gate.
+- 2026-04-26: ran manual Phase 6 relationship-classifier dogfood over 68
+  memories from 23 simulated user sessions, including hand-labeled pairs,
+  discovered candidates, and a link-persistence smoke pass.
 
 ## Deviations from design
 
@@ -176,6 +179,14 @@ Through Phase 10 — completed
 - 2026-04-26: `SPROUT_LIVE_RELATIONSHIP_EVAL=1 SPROUT_RELATIONSHIP_EVAL_PROVIDER=anthropic SPROUT_RELATIONSHIP_EVAL_MODEL=claude-haiku-4-5-20251001 bun test test/genome/relationship-classifier-eval.test.ts`
   passed; 4 tests passed, 0 failed, and the live 50-pair classifier agreement
   test completed in 59.55 seconds
+- 2026-04-26: manual Phase 6 dogfood using Anthropic
+  `claude-haiku-4-5-20251001` passed the practical bar: 56/59 strict agreement
+  on hand-labeled session-derived pairs, 10/10 supersedes exact, 6/6 conflicts
+  exact, 13/14 null exact, 43/45 positive labeled pairs surfaced by candidate
+  discovery, 20 non-null links persisted in a temp genome, and traversal returned
+  linked memories. One exploratory discovered-candidate false positive was noted:
+  a TypeScript-only overlap between web UI implementation and prompt constants
+  was classified as `contextualizes` instead of `null`.
 
 ## Completed in current slice
 
