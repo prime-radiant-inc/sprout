@@ -52,6 +52,16 @@ interface RunnableAgent {
 	}>;
 }
 
+type AgentRunResult = Awaited<ReturnType<RunnableAgent["run"]>>;
+
+function shouldCollapseRun(_result: AgentRunResult, signal: AbortSignal): boolean {
+	return !signal.aborted;
+}
+
+function shouldCollapseThrownRun(signal: AbortSignal, terminalSessionEndSeen: boolean): boolean {
+	return !signal.aborted && terminalSessionEndSeen;
+}
+
 /** Options passed to the agent factory. */
 export interface AgentFactoryOptions {
 	genomePath: string;
@@ -286,6 +296,7 @@ export class SessionController {
 	private running = false;
 	private selectionSnapshot: SessionSelectionSnapshot;
 	private hasRun = false;
+	private terminalSessionEndSeen = false;
 	/** Suppresses event accumulation after /clear until the next submitGoal. */
 	private suppressEvents = false;
 	/** Incremented on each submitGoal; the finally block only writes shared
@@ -456,6 +467,13 @@ export class SessionController {
 				},
 			});
 		}
+		if (
+			event.kind === "session_end" &&
+			event.depth === 0 &&
+			(event.data.session_id === undefined || event.data.session_id === this._sessionId)
+		) {
+			this.terminalSessionEndSeen = true;
+		}
 	}
 
 	private interrupt(): void {
@@ -519,6 +537,7 @@ export class SessionController {
 		this.running = true;
 		this.runGeneration++;
 		const generation = this.runGeneration;
+		this.terminalSessionEndSeen = false;
 		await persistRunningMetadata(this.metadata);
 
 		let learnProcess: AgentFactoryResult["learnProcess"] = null;
@@ -565,8 +584,17 @@ export class SessionController {
 				learnProcess.startBackground();
 			}
 
-			const runResult = await result.agent.run(goal, signal);
-			if (runResult.success && !runResult.timed_out && !signal.aborted) {
+			let runResult: AgentRunResult;
+			try {
+				runResult = await result.agent.run(goal, signal);
+			} catch (error) {
+				if (shouldCollapseThrownRun(signal, this.terminalSessionEndSeen)) {
+					await stopLearnProcess();
+					await this.collapseMemoryAfterRun(result);
+				}
+				throw error;
+			}
+			if (shouldCollapseRun(runResult, signal)) {
 				await stopLearnProcess();
 				await this.collapseMemoryAfterRun(result);
 			}

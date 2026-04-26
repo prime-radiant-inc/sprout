@@ -267,7 +267,7 @@ describe("SessionController", () => {
 		expect(collapsed[0]?.cwd).toBe(workDir);
 	});
 
-	test("skips memory collapse after timed-out runs", async () => {
+	test("runs memory collapse after timed-out terminal runs", async () => {
 		const fake = makeFakeAgent({
 			runResult: {
 				output: "timed out",
@@ -290,11 +290,11 @@ describe("SessionController", () => {
 
 		await controller.runGoal("Remember this session");
 
-		expect(collapsed).toHaveLength(0);
-		expect(bus.collected().some((event) => event.data.memory_collapse === "completed")).toBe(false);
+		expect(collapsed).toHaveLength(1);
+		expect(bus.collected().some((event) => event.data.memory_collapse === "completed")).toBe(true);
 	});
 
-	test("skips memory collapse after failed runs", async () => {
+	test("runs memory collapse after failed terminal runs", async () => {
 		const fake = makeFakeAgent({
 			runResult: {
 				output: "failed",
@@ -317,8 +317,8 @@ describe("SessionController", () => {
 
 		await controller.runGoal("Remember this session");
 
-		expect(collapsed).toHaveLength(0);
-		expect(bus.collected().some((event) => event.data.memory_collapse === "completed")).toBe(false);
+		expect(collapsed).toHaveLength(1);
+		expect(bus.collected().some((event) => event.data.memory_collapse === "completed")).toBe(true);
 	});
 
 	test("skips memory collapse after interrupted runs", async () => {
@@ -820,6 +820,85 @@ describe("SessionController", () => {
 		} catch {
 			// Expected
 		}
+		expect(calls).toEqual(["start", "run", "stop"]);
+	});
+
+	test("collapses non-aborted thrown runs after terminal session_end evidence", async () => {
+		const calls: string[] = [];
+		const bus = new EventBus();
+		const sessionId = "terminal-throw-session";
+		const factory: AgentFactory = async () => ({
+			agent: {
+				steer() {},
+				requestCompaction() {},
+				async run() {
+					calls.push("run");
+					bus.emitEvent("session_end", "root", 0, {
+						session_id: sessionId,
+						success: false,
+						stumbles: 1,
+						turns: 1,
+						timed_out: false,
+						output: "terminal failure before throw",
+					});
+					throw new Error("agent failed after terminal event");
+				},
+			} as any,
+			learnProcess: {
+				startBackground() {
+					calls.push("start");
+				},
+				async stopBackground() {
+					calls.push("stop");
+				},
+			},
+			collapseMemory: async () => {
+				calls.push("collapse");
+				return { ok: true };
+			},
+		});
+		const controller = new SessionController({
+			bus,
+			genomePath: join(tempDir, "genome"),
+			projectDataDir: tempDir,
+			sessionId,
+			factory,
+		});
+
+		await expect(controller.runGoal("test")).rejects.toThrow("agent failed after terminal event");
+
+		expect(calls).toEqual(["start", "run", "stop", "collapse"]);
+		expect(bus.collected().some((event) => event.data.memory_collapse === "completed")).toBe(true);
+	});
+
+	test("does not collapse thrown runs without terminal session_end evidence", async () => {
+		const calls: string[] = [];
+		const factory: AgentFactory = async () => ({
+			agent: {
+				steer() {},
+				requestCompaction() {},
+				async run() {
+					calls.push("run");
+					throw new Error("setup failed before terminal event");
+				},
+			} as any,
+			learnProcess: {
+				startBackground() {
+					calls.push("start");
+				},
+				async stopBackground() {
+					calls.push("stop");
+				},
+			},
+			collapseMemory: async () => {
+				calls.push("collapse");
+				return { ok: true };
+			},
+		});
+		const { controller } = makeController({ factory });
+
+		await expect(controller.runGoal("test")).rejects.toThrow("setup failed before terminal event");
+
 		expect(calls).toEqual(["start", "run", "stop"]);
 	});
 
