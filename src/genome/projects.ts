@@ -100,16 +100,16 @@ export class ProjectActivityStore {
 			this.entries.push(record);
 		}
 		record.name = project.name;
-		const hadActiveDateHistory = Array.isArray(record.active_dates);
 		const activeDates = new Set(record.active_dates ?? []);
 		if (record.last_active_date) activeDates.add(record.last_active_date);
 		if (!activeDates.has(activeDate)) {
-			const knownDateCount = activeDates.size;
+			const previousCumulativeDays = record.cumulative_active_days;
 			activeDates.add(activeDate);
 			record.active_dates = [...activeDates].sort();
-			record.cumulative_active_days = hadActiveDateHistory
-				? record.active_dates.length
-				: Math.max(record.cumulative_active_days, knownDateCount) + 1;
+			record.cumulative_active_days = Math.max(
+				previousCumulativeDays + 1,
+				record.active_dates.length,
+			);
 			record.last_active_date = record.active_dates.at(-1);
 		}
 		return record;

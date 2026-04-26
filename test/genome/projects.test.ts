@@ -200,17 +200,18 @@ describe("project detection", () => {
 
 		store.recordActiveDay(project, new Date("2026-04-26T10:00:00Z"));
 		store.recordActiveDay(project, new Date("2026-04-26T18:00:00Z"));
+		store.recordActiveDay(project, new Date("2026-04-27T10:00:00Z"));
 
 		expect(store.getById("sprout")).toMatchObject({
-			cumulative_active_days: 11,
-			last_active_date: "2026-04-26",
-			active_dates: ["2026-04-26"],
+			cumulative_active_days: 12,
+			last_active_date: "2026-04-27",
+			active_dates: ["2026-04-26", "2026-04-27"],
 		});
 
 		await store.save();
 		const reloaded = new ProjectActivityStore(join(tempDir, "projects-legacy-count.jsonl"));
 		await reloaded.load();
-		expect(reloaded.getById("sprout")?.cumulative_active_days).toBe(11);
+		expect(reloaded.getById("sprout")?.cumulative_active_days).toBe(12);
 	});
 
 	test("unknown project does not advance a project-specific decay clock", async () => {
