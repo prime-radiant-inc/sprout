@@ -4239,6 +4239,70 @@ describe("Agent", () => {
 		expect(spawnCalls[0]!.surfacedMemoryBlock).toBe("");
 	});
 
+	test("with spawner, archivist path aliases suppress surfaced memory block", async () => {
+		const rootWithArchivistAlias: AgentSpec = { ...rootSpec, agents: ["utility/archivist"] };
+		const archivistSpec: AgentSpec = {
+			...leafSpec,
+			name: "archivist",
+			tools: [],
+			agents: [],
+		};
+		const delegateMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-archivist-alias-spawn",
+						name: "delegate",
+						arguments: JSON.stringify({
+							agent_name: "utility/archivist",
+							goal: "investigate memory",
+							blocking: true,
+						}),
+					},
+				},
+			],
+		};
+		const rootDoneMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "Done." }],
+		};
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				return {
+					id: `mock-archivist-alias-spawn-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: callCount === 1 ? delegateMsg : rootDoneMsg,
+					finish_reason: { reason: callCount === 1 ? "tool_calls" : "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+		const { spawner, spawnCalls } = createMockSpawner();
+		const agent = new Agent({
+			spec: rootWithArchivistAlias,
+			env: new LocalExecutionEnvironment(tmpdir()),
+			client: mockClient,
+			primitiveRegistry: createPrimitiveRegistry(new LocalExecutionEnvironment(tmpdir())),
+			availableAgents: [rootWithArchivistAlias, archivistSpec],
+			depth: 0,
+			spawner,
+			surfacedMemoryBlock: "<memory_context>cached</memory_context>",
+		});
+
+		await agent.run("archivist alias spawn test");
+
+		expect(spawnCalls).toHaveLength(1);
+		expect(spawnCalls[0]!.agentName).toBe("utility/archivist");
+		expect(spawnCalls[0]!.surfacedMemoryBlock).toBe("");
+	});
+
 	test("continue scopes trusted memory authorization to the current user turn", async () => {
 		const rootWithArchivist: AgentSpec = { ...rootSpec, agents: ["archivist"] };
 		const archivistSpec: AgentSpec = {

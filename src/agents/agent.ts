@@ -1045,7 +1045,7 @@ export class Agent {
 				providerIdOverride: this.resolved.provider,
 				resolverSettings: this.resolverSettings,
 				trustedUserInstruction: this.trustedUserInstruction,
-				surfacedMemoryBlock: this.childSurfacedMemoryBlock(delegation.agent_name),
+				surfacedMemoryBlock: this.childSurfacedMemoryBlock(target.spec.name),
 			});
 
 			if (typeof result === "string") {
