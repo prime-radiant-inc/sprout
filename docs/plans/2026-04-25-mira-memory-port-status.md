@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Phase 6 — Link graph (starting)
+Phase 7 — Decay (starting)
 
 ## Phase log
 
@@ -11,12 +11,13 @@ Phase 6 — Link graph (starting)
 - Phase 3 — Segment collapse: completed 2026-04-26
 - Phase 4 — Surfacing pipeline: completed 2026-04-26
 - Phase 5 — Memory-tools and archivist: completed 2026-04-26
-- Phase 6 — Link graph: starting
+- Phase 6 — Link graph: completed 2026-04-26
+- Phase 7 — Decay: starting
 
 ## Current branch / commit
 
 - Branch: `jesse/pri-1354-implement-mira-memory-port-phase-1-foundation`
-- Last verified commit: `d420c10`
+- Last verified commit: `8897cde`
 
 ## Open issues
 
@@ -99,6 +100,11 @@ Phase 6 — Link graph (starting)
   passed after adding memory tools, archivist, and archivist delegation wiring
 - 2026-04-26: `bun run typecheck` passed after Phase 5 archivist wiring
 - 2026-04-26: `bun run check` passed after Phase 5 archivist wiring
+- 2026-04-26: `bun test test/genome/linking.test.ts test/genome/relationship-classifier.test.ts test/genome/memory-tools.test.ts`
+  passed after adding link candidate discovery, relationship classification,
+  link persistence, traversal, and dead-link healing
+- 2026-04-26: `bun run typecheck` passed after Phase 6 link graph
+- 2026-04-26: `bun run check` passed after Phase 6 link graph
 
 ## Completed in current slice
 
@@ -143,3 +149,10 @@ Phase 6 — Link graph (starting)
   debugger
 - Updated agent tool resolution so explicit deterministic primitives can coexist
   with delegation where agent specs require both
+- Added link candidate discovery across vector similarity, entity co-occurrence,
+  and TF-IDF overlap
+- Added prompt-file backed relationship classification with strict JSON
+  normalization and a hand-labeled fixture set
+- Added JSONL-authoritative link persistence with inbound/outbound refs,
+  supersession markers, SQLite index rebuilds, dead-ref healing, and weighted
+  traversal
