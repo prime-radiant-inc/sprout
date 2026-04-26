@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { OpenAIAdapter } from "../../src/llm/openai.ts";
+import { buildResponsesInput, buildResponsesParams, OpenAIAdapter } from "../../src/llm/openai.ts";
 import type { ProviderAdapter } from "../../src/llm/types.ts";
 import { ContentKind, messageText, messageToolCalls, type Request } from "../../src/llm/types.ts";
 import "../helpers/test-env.ts";
@@ -37,6 +37,32 @@ describe("OpenAIAdapter", () => {
 		const vcr = vcrFor("adapter-name-is-openai", realAdapter);
 		expect(vcr.adapter.name).toBe("openai");
 		await vcr.afterTest();
+	});
+
+	test("build request passes prompt cache key", () => {
+		const request: Request = {
+			model: "gpt-4.1-mini",
+			messages: [
+				{
+					role: "system",
+					content: [{ kind: ContentKind.TEXT, text: "system prompt" }],
+				},
+				{
+					role: "user",
+					content: [{ kind: ContentKind.TEXT, text: "hello" }],
+				},
+			],
+			provider_options: {
+				openai: {
+					prompt_cache_key: "01SESSION:engineer",
+					prompt_cache_retention: "in_memory",
+				},
+			},
+		};
+
+		const params = buildResponsesParams(request, buildResponsesInput(request));
+		expect((params as any).prompt_cache_key).toBe("01SESSION:engineer");
+		expect((params as any).prompt_cache_retention).toBe("in_memory");
 	});
 
 	test("complete returns a text response", async () => {

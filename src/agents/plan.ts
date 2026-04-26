@@ -1,7 +1,14 @@
 import type { CallerIdentity } from "../bus/types.ts";
 import type { AgentFileInfo, AgentToolDefinition } from "../genome/genome.ts";
 import { renderMemories, renderRoutingHints } from "../genome/recall.ts";
-import type { AgentCommand, AgentSpec, Delegation, Memory, RoutingRule } from "../kernel/types.ts";
+import type {
+	AgentCommand,
+	AgentPromptCacheConfig,
+	AgentSpec,
+	Delegation,
+	Memory,
+	RoutingRule,
+} from "../kernel/types.ts";
 import type { Message, Request, ToolCall, ToolDefinition } from "../llm/types.ts";
 import { Msg } from "../llm/types.ts";
 import { getToolDisplayName } from "../shared/tool-display.ts";
@@ -258,6 +265,9 @@ export function buildPlanRequest(opts: {
 	provider: string;
 	maxTokens?: number;
 	thinking?: boolean | { budget_tokens: number };
+	sessionId?: string;
+	agentName?: string;
+	promptCache?: AgentPromptCacheConfig;
 }): Request {
 	const request: Request = {
 		model: opts.model,
@@ -268,12 +278,20 @@ export function buildPlanRequest(opts: {
 		max_tokens: opts.maxTokens ?? 16384,
 	};
 
+	const providerOptions: Record<string, unknown> = {};
+	if (opts.sessionId && opts.agentName && opts.promptCache?.enabled !== false) {
+		const cacheKey = `${opts.sessionId}:${opts.agentName}`;
+		providerOptions.openai = { prompt_cache_key: cacheKey };
+		providerOptions.anthropic = {
+			cache: { enabled: true, ...(opts.promptCache?.ttl ? { ttl: opts.promptCache.ttl } : {}) },
+		};
+	}
+
 	if (opts.thinking) {
 		const budgetTokens = typeof opts.thinking === "object" ? opts.thinking.budget_tokens : 10000;
-		request.provider_options = {
-			anthropic: {
-				thinking: { type: "enabled", budget_tokens: budgetTokens },
-			},
+		providerOptions.anthropic = {
+			...asRecord(providerOptions.anthropic),
+			thinking: { type: "enabled", budget_tokens: budgetTokens },
 		};
 		// Anthropic requires max_tokens >= budget_tokens + some headroom
 		if (request.max_tokens && request.max_tokens < budgetTokens + 4096) {
@@ -281,7 +299,18 @@ export function buildPlanRequest(opts: {
 		}
 	}
 
+	if (Object.keys(providerOptions).length > 0) {
+		request.provider_options = providerOptions;
+	}
+
 	return request;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+	if (value && typeof value === "object" && !Array.isArray(value)) {
+		return value as Record<string, unknown>;
+	}
+	return {};
 }
 
 /** A delegation that failed validation (missing args, etc.) */

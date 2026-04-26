@@ -1,4 +1,4 @@
-import type { EventKind } from "../kernel/types.ts";
+import type { AgentPromptCacheConfig, EventKind } from "../kernel/types.ts";
 import type {
 	Request as LLMRequest,
 	Response as LLMResponse,
@@ -15,6 +15,7 @@ export interface ExecutePlanningTurnInput {
 	sessionId?: string;
 	turn: number;
 	agentId: string;
+	agentName: string;
 	depth: number;
 	systemPrompt: string;
 	history: Message[];
@@ -23,6 +24,7 @@ export interface ExecutePlanningTurnInput {
 	model: string;
 	provider: string;
 	thinking?: boolean | { budget_tokens: number };
+	promptCache?: AgentPromptCacheConfig;
 	signal?: AbortSignal;
 	emit: (kind: EventKind, agentId: string, depth: number, data: Record<string, unknown>) => void;
 	requestPlanResponse: (opts: {
@@ -67,6 +69,9 @@ export async function executePlanningTurn(
 		model: input.model,
 		provider: input.provider,
 		thinking: input.thinking,
+		sessionId: input.sessionId,
+		agentName: input.agentName,
+		promptCache: input.promptCache,
 	});
 
 	input.emit("llm_start", input.agentId, input.depth, {

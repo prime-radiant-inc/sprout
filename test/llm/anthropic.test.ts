@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { AnthropicAdapter } from "../../src/llm/anthropic.ts";
+import { AnthropicAdapter, buildAnthropicRequest } from "../../src/llm/anthropic.ts";
 import type { ProviderAdapter } from "../../src/llm/types.ts";
 import {
 	ContentKind,
@@ -44,6 +44,47 @@ describe("AnthropicAdapter", () => {
 		const vcr = vcrFor("adapter-name-is-anthropic", realAdapter);
 		expect(vcr.adapter.name).toBe("anthropic");
 		await vcr.afterTest();
+	});
+
+	test("build request places cache markers on system, tools, and stable history", () => {
+		const tools = [
+			{
+				name: "read_file",
+				description: "Read a file",
+				parameters: { type: "object", properties: { path: { type: "string" } } },
+			},
+		];
+		const request: Request = {
+			model: "claude-sonnet-4-6",
+			messages: [],
+			tools,
+			max_tokens: 1000,
+			provider_options: {
+				anthropic: {
+					cache: { enabled: true, ttl: "1h" },
+				},
+			},
+		};
+		const params = buildAnthropicRequest(request, "system prompt", [
+			{ role: "user", content: [{ kind: ContentKind.TEXT, text: "turn 1" }] },
+			{ role: "assistant", content: [{ kind: ContentKind.TEXT, text: "answer 1" }] },
+			{ role: "user", content: [{ kind: ContentKind.TEXT, text: "turn 2" }] },
+			{ role: "assistant", content: [{ kind: ContentKind.TEXT, text: "answer 2" }] },
+			{ role: "user", content: [{ kind: ContentKind.TEXT, text: "live turn" }] },
+		]);
+
+		expect((params.system as any[])[0].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+		expect((params.tools as any[])[0].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+		const messages = params.messages;
+		expect(((messages[2]!.content as any[]).at(-1) as any).cache_control).toEqual({
+			type: "ephemeral",
+			ttl: "1h",
+		});
+		expect(((messages[3]!.content as any[]).at(-1) as any).cache_control).toEqual({
+			type: "ephemeral",
+			ttl: "1h",
+		});
+		expect(((messages[4]!.content as any[]).at(-1) as any).cache_control).toBeUndefined();
 	});
 
 	test("complete returns a text response", async () => {

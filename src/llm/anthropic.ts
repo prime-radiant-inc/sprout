@@ -172,19 +172,26 @@ function extractSystemAndMessages(messages: Message[]): ExtractedMessages {
 	return { system, messages: filtered };
 }
 
-function buildAnthropicRequest(
+export function buildAnthropicRequest(
 	request: Request,
 	system: string | undefined,
 	messages: Message[],
 ): Anthropic.MessageCreateParams {
+	const cacheSettings = resolveAnthropicCacheSettings(request);
 	const params: Anthropic.MessageCreateParams = {
 		model: request.model,
 		max_tokens: request.max_tokens ?? 4096,
-		messages: convertMessages(messages),
+		messages: convertMessages(messages, cacheSettings),
 	};
 
 	if (system) {
-		params.system = [{ type: "text", text: system, cache_control: { type: "ephemeral" } }];
+		params.system = [
+			{
+				type: "text",
+				text: system,
+				...(cacheSettings.enabled ? { cache_control: cacheSettings.cacheControl } : {}),
+			},
+		];
 	}
 
 	if (request.tools?.length) {
@@ -194,9 +201,8 @@ function buildAnthropicRequest(
 				description: t.description,
 				input_schema: t.parameters as Anthropic.Tool["input_schema"],
 			};
-			// Cache breakpoint on the last tool definition
-			if (i === request.tools!.length - 1) {
-				tool.cache_control = { type: "ephemeral" };
+			if (cacheSettings.enabled && i === request.tools!.length - 1) {
+				tool.cache_control = cacheSettings.cacheControl;
 			}
 			return tool;
 		});
@@ -237,7 +243,35 @@ function buildAnthropicRequest(
 	return params;
 }
 
-function convertMessages(messages: Message[]): Anthropic.MessageParam[] {
+interface AnthropicCacheSettings {
+	enabled: boolean;
+	cacheControl: Anthropic.CacheControlEphemeral;
+	historyBreakpoints: number;
+}
+
+function resolveAnthropicCacheSettings(request: Request): AnthropicCacheSettings {
+	const anthropicOpts = asRecord(request.provider_options?.anthropic);
+	const cacheOpts = asRecord(anthropicOpts.cache);
+	const enabled = cacheOpts.enabled !== false;
+	const ttl = cacheOpts.ttl === "1h" || cacheOpts.ttl === "5m" ? cacheOpts.ttl : undefined;
+	return {
+		enabled,
+		cacheControl: ttl ? { type: "ephemeral", ttl } : { type: "ephemeral" },
+		historyBreakpoints: 2,
+	};
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+	if (value && typeof value === "object" && !Array.isArray(value)) {
+		return value as Record<string, unknown>;
+	}
+	return {};
+}
+
+function convertMessages(
+	messages: Message[],
+	cacheSettings: AnthropicCacheSettings,
+): Anthropic.MessageParam[] {
 	const result: Anthropic.MessageParam[] = [];
 
 	for (const msg of messages) {
@@ -259,7 +293,41 @@ function convertMessages(messages: Message[]): Anthropic.MessageParam[] {
 		}
 	}
 
+	if (cacheSettings.enabled) {
+		addHistoryCacheBreakpoints(result, cacheSettings);
+	}
+
 	return result;
+}
+
+function addHistoryCacheBreakpoints(
+	messages: Anthropic.MessageParam[],
+	cacheSettings: AnthropicCacheSettings,
+): void {
+	let marked = 0;
+	for (let index = messages.length - 2; index >= 0; index--) {
+		if (marked >= cacheSettings.historyBreakpoints) return;
+		const message = messages[index];
+		if (!message || !Array.isArray(message.content)) continue;
+		if (markLastCacheableContentBlock(message.content, cacheSettings.cacheControl)) {
+			marked++;
+		}
+	}
+}
+
+function markLastCacheableContentBlock(
+	content: Anthropic.ContentBlockParam[],
+	cacheControl: Anthropic.CacheControlEphemeral,
+): boolean {
+	for (let index = content.length - 1; index >= 0; index--) {
+		const block = content[index];
+		if (!block || block.type === "thinking" || block.type === "redacted_thinking") continue;
+		(
+			block as Anthropic.ContentBlockParam & { cache_control?: Anthropic.CacheControlEphemeral }
+		).cache_control = { ...cacheControl };
+		return true;
+	}
+	return false;
 }
 
 function convertContentParts(msg: Message): Anthropic.ContentBlockParam[] {

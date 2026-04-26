@@ -366,6 +366,47 @@ describe("buildPlanRequest", () => {
 		expect(req.messages[1]!.role).toBe("user");
 		expect(req.messages[2]!.role).toBe("assistant");
 	});
+
+	test("threads prompt cache context into provider options", () => {
+		const req = buildPlanRequest({
+			systemPrompt: "System prompt.",
+			history: [],
+			agentTools: [],
+			primitiveTools: [],
+			model: "gpt-4.1-mini",
+			provider: "openai",
+			sessionId: "01SESSION",
+			agentName: "engineer",
+			promptCache: { ttl: "1h" },
+		});
+
+		expect(req.provider_options).toEqual({
+			openai: { prompt_cache_key: "01SESSION:engineer" },
+			anthropic: { cache: { enabled: true, ttl: "1h" } },
+		});
+	});
+
+	test("merges prompt cache context with anthropic thinking options", () => {
+		const req = buildPlanRequest({
+			systemPrompt: "System prompt.",
+			history: [],
+			agentTools: [],
+			primitiveTools: [],
+			model: "claude-sonnet-4-6",
+			provider: "anthropic",
+			sessionId: "01SESSION",
+			agentName: "architect",
+			thinking: { budget_tokens: 7000 },
+		});
+
+		expect(req.provider_options).toEqual({
+			openai: { prompt_cache_key: "01SESSION:architect" },
+			anthropic: {
+				cache: { enabled: true },
+				thinking: { type: "enabled", budget_tokens: 7000 },
+			},
+		});
+	});
 });
 
 describe("parsePlanResponse", () => {

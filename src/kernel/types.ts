@@ -56,6 +56,13 @@ export const DEFAULT_CONSTRAINTS: AgentConstraints = {
 /** Absolute agent tree depth limit. Root is depth 0, deepest allowed child is depth 8. */
 export const MAX_AGENT_DEPTH = 8;
 
+export type PromptCacheTtl = "5m" | "1h";
+
+export interface AgentPromptCacheConfig {
+	enabled?: boolean;
+	ttl?: PromptCacheTtl;
+}
+
 const AGENT_CONSTRAINT_KEYS = new Set([
 	"max_turns",
 	"timeout_ms",
@@ -96,6 +103,8 @@ export interface AgentSpec {
 	version: number;
 	/** Enable extended thinking (Anthropic models). Budget tokens default to 10000. */
 	thinking?: boolean | { budget_tokens: number };
+	/** Prompt cache control for providers that support explicit cache routing. */
+	prompt_cache?: AgentPromptCacheConfig;
 	/** Primitive tool names this agent can use. */
 	tools: string[];
 	/** Sub-agent names this agent can delegate to. */

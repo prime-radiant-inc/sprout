@@ -159,7 +159,7 @@ export class OpenAIAdapter implements ProviderAdapter {
 
 type ResponsesInput = OpenAI.Responses.ResponseInputItem[];
 
-function buildResponsesInput(request: Request): ResponsesInput {
+export function buildResponsesInput(request: Request): ResponsesInput {
 	const input: ResponsesInput = [];
 
 	for (const msg of request.messages) {
@@ -244,7 +244,7 @@ function buildResponsesInput(request: Request): ResponsesInput {
 	return input;
 }
 
-function buildResponsesParams(
+export function buildResponsesParams(
 	request: Request,
 	input: ResponsesInput,
 ): OpenAI.Responses.ResponseCreateParams {
@@ -305,7 +305,25 @@ function buildResponsesParams(
 		(params as any).reasoning = { effort: request.reasoning_effort };
 	}
 
+	const openaiOpts = asRecord(request.provider_options?.openai);
+	if (typeof openaiOpts.prompt_cache_key === "string" && openaiOpts.prompt_cache_key.trim()) {
+		(params as any).prompt_cache_key = openaiOpts.prompt_cache_key.trim();
+	}
+	if (
+		openaiOpts.prompt_cache_retention === "in_memory" ||
+		openaiOpts.prompt_cache_retention === "24h"
+	) {
+		(params as any).prompt_cache_retention = openaiOpts.prompt_cache_retention;
+	}
+
 	return params;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+	if (value && typeof value === "object" && !Array.isArray(value)) {
+		return value as Record<string, unknown>;
+	}
+	return {};
 }
 
 // ---------------------------------------------------------------------------

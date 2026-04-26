@@ -61,6 +61,9 @@ export function parseAgentMarkdown(content: string, source: string): AgentSpec {
 	if (raw.thinking !== undefined) {
 		spec.thinking = raw.thinking;
 	}
+	if (raw.prompt_cache !== undefined) {
+		spec.prompt_cache = raw.prompt_cache;
+	}
 
 	const extra: Record<string, unknown> = {};
 	for (const key of Object.keys(raw)) {
@@ -85,6 +88,7 @@ const KNOWN_FIELDS = new Set([
 	"tags",
 	"version",
 	"thinking",
+	"prompt_cache",
 	"system_prompt",
 ]);
 
@@ -106,6 +110,9 @@ export function serializeAgentMarkdown(spec: AgentSpec): string {
 	};
 	if (spec.thinking !== undefined) {
 		fm.thinking = spec.thinking;
+	}
+	if (spec.prompt_cache !== undefined) {
+		fm.prompt_cache = spec.prompt_cache;
 	}
 	if (spec._extra) {
 		for (const [key, value] of Object.entries(spec._extra)) {
