@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Phase 10 — Subcortical pre-pass (starting)
+Through Phase 10 — completed
 
 ## Phase log
 
@@ -15,12 +15,12 @@ Phase 10 — Subcortical pre-pass (starting)
 - Phase 7 — Decay: completed 2026-04-26
 - Phase 8 — Cache strategy: completed 2026-04-26
 - Phase 9 — Consolidation and entity GC: completed 2026-04-26
-- Phase 10 — Subcortical pre-pass: starting
+- Phase 10 — Subcortical pre-pass: completed 2026-04-26
 
 ## Current branch / commit
 
 - Branch: `jesse/pri-1354-implement-mira-memory-port-phase-1-foundation`
-- Last verified commit: `16f40ff`
+- Last verified commit: `6fbfb40`
 
 ## Open issues
 
@@ -123,6 +123,12 @@ Phase 10 — Subcortical pre-pass (starting)
   cadence checks, and FTS5 entity lookup
 - 2026-04-26: `bun run typecheck` passed after Phase 9 maintenance
 - 2026-04-26: `bun run check` passed after Phase 9 maintenance
+- 2026-04-26: `bun test test/genome/subcortical-eval.test.ts test/genome/subcortical.test.ts test/genome/recall-pipeline.test.ts test/genome/recall.test.ts test/genome/prompts.test.ts`
+  passed after adding opt-in subcortical query expansion, entity-hint hub
+  discovery, pinned-memory retention, and a deterministic 30-query side-by-side
+  eval
+- 2026-04-26: `bun run typecheck` passed after Phase 10 subcortical recall
+- 2026-04-26: `bun run check` passed after Phase 10 subcortical recall
 
 ## Completed in current slice
 
@@ -188,3 +194,7 @@ Phase 10 — Subcortical pre-pass (starting)
   archives source memories, rejection counters, project-active-day maintenance
   cadence helpers, FTS5-backed entity lookup, and entity alias GC that preserves
   archived alias metadata on canonical entity links
+- Added strict, opt-in subcortical recall query expansion with prompt-file
+  loading, expanded query fusion, entity hints wired directly into hub discovery,
+  pinned-memory retention across additional-context refreshes, and a 30-query
+  deterministic side-by-side eval showing known misses become hits
