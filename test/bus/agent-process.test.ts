@@ -16,6 +16,7 @@ import {
 } from "../../src/bus/topics.ts";
 import type { ResultMessage, StartMessage } from "../../src/bus/types.ts";
 import { Genome } from "../../src/genome/genome.ts";
+import { memoryIndexPath } from "../../src/genome/index-builder.ts";
 import type { LogEntry } from "../../src/host/logger.ts";
 import { SessionLogger } from "../../src/host/logger.ts";
 import {
@@ -276,6 +277,47 @@ describe("runAgentProcess", () => {
 		expect(result.timed_out).toBe(false);
 
 		// Non-shared agent process should exit on its own
+		await processPromise;
+	}, 15_000);
+
+	test("eval mode refreshes the memory index before wrapping the genome read-only", async () => {
+		await rm(memoryIndexPath(genomeDir), { force: true });
+		expect(await exists(memoryIndexPath(genomeDir))).toBe(false);
+		const mockClient = createMockClient("eval done");
+
+		const resultTopic = agentResult(SESSION_ID, HANDLE_ID);
+		const resultPromise = parentClient.waitForMessage(resultTopic, 10_000);
+		const processPromise = runAgentProcess({
+			busUrl: server.url,
+			handleId: HANDLE_ID,
+			sessionId: SESSION_ID,
+			genomePath: genomeDir,
+			client: mockClient,
+			workDir: tempDir,
+		});
+
+		await waitForAgentReady();
+
+		const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
+		const startMsg: StartMessage = {
+			kind: "start",
+			handle_id: HANDLE_ID,
+			agent_name: "test-leaf",
+			genome_path: genomeDir,
+			session_id: SESSION_ID,
+			caller: { agent_name: "root", depth: 0 },
+			goal: "Run in eval mode",
+			shared: false,
+			agent_id: HANDLE_ID,
+			eval_mode: true,
+		};
+		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
+
+		const rawResult = await resultPromise;
+		const result: ResultMessage = JSON.parse(rawResult);
+		expect(result.success).toBe(true);
+		expect(await exists(memoryIndexPath(genomeDir))).toBe(true);
+
 		await processPromise;
 	}, 15_000);
 

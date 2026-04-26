@@ -5,6 +5,7 @@ import { loadPreambles, scanAgentTree } from "../agents/loader.ts";
 import { renderCallerIdentity } from "../agents/plan.ts";
 import { loadProjectDocs } from "../agents/project-doc.ts";
 import { Genome } from "../genome/genome.ts";
+import { ensureMemoryIndexFresh } from "../genome/index-builder.ts";
 import { deriveTrustedMemoryWriteAuthorization } from "../genome/memory-write-authorization.ts";
 import { createReadOnlyGenome } from "../genome/read-only-genome.ts";
 import { SessionLogger } from "../host/logger.ts";
@@ -156,6 +157,9 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 		// Load genome and find agent spec
 		const genome = new Genome(genomePath, config.rootDir);
 		await genome.loadFromDisk();
+		if (evalMode) {
+			await ensureMemoryIndexFresh(genomePath);
+		}
 		const runtimeGenome = evalMode ? createReadOnlyGenome(genome) : genome;
 
 		const loadedSpec = runtimeGenome.getAgent(startMsg.agent_name);

@@ -1,5 +1,6 @@
 import type { Memory } from "../kernel/types.ts";
 import { JsonlStore } from "./jsonl-store.ts";
+import { isActiveMemoryForRecall } from "./memory-lifecycle.ts";
 import { memoryShortId, normalizeMemory } from "./memory-schema.ts";
 
 const HALF_LIFE_DAYS = 30;
@@ -68,6 +69,7 @@ export class MemoryStore {
 		const scored: { memory: Memory; score: number }[] = [];
 
 		for (const memory of this.entries) {
+			if (!isActiveMemoryForRecall(memory)) continue;
 			if (this.effectiveConfidence(memory) < minConfidence) continue;
 
 			const haystack = `${memory.content} ${memory.tags.join(" ")}`.toLowerCase();

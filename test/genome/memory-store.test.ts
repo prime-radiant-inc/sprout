@@ -148,6 +148,38 @@ describe("MemoryStore", () => {
 		expect(ids).not.toContain("c2"); // 0.5 * 0.5^(60/30) = 0.5 * 0.25 = 0.125 < 0.3
 	});
 
+	test("search() excludes archived and superseded memories", async () => {
+		const store = new MemoryStore(join(tempDir, "search-inactive.jsonl"));
+		await store.load();
+
+		await store.add(makeMemory({ id: "active", content: "durable sqlite memory" }));
+		await store.add(
+			makeMemory({
+				id: "archived",
+				content: "durable sqlite memory",
+				archived_at: 123,
+			}),
+		);
+		await store.add(
+			makeMemory({
+				id: "superseded-field",
+				content: "durable sqlite memory",
+				superseded_by: "active",
+			}),
+		);
+		await store.add(
+			makeMemory({
+				id: "superseded-inbound",
+				content: "durable sqlite memory",
+				inbound_links: [
+					{ uuid: "active", type: "supersedes", reasoning: "replaced", created_at: 1 },
+				],
+			}),
+		);
+
+		expect(store.search("sqlite").map((memory) => memory.id)).toEqual(["active"]);
+	});
+
 	test("search() respects limit", async () => {
 		const store = new MemoryStore(join(tempDir, "search-limit.jsonl"));
 		await store.load();
