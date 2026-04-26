@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { JsonlStore } from "../../src/genome/jsonl-store.ts";
 import { MemoryIndex } from "../../src/genome/memory-index.ts";
 import { normalizeMemory } from "../../src/genome/memory-schema.ts";
+import { type MemorySegment, normalizeSegment } from "../../src/genome/segments.ts";
 import type { Memory } from "../../src/kernel/types.ts";
 
 function makeMemory(overrides: Partial<Memory> = {}): Memory {
@@ -35,6 +36,24 @@ function makeEmbedding(slot: number): NonNullable<Memory["embedding"]> {
 		status: "ready",
 		vector: embeddingVector(slot),
 	};
+}
+
+function makeSegment(overrides: Partial<MemorySegment> = {}): MemorySegment {
+	return normalizeSegment({
+		id: overrides.id ?? "seg-1",
+		session_id: overrides.session_id ?? "session-1",
+		title: overrides.title ?? "Session summary",
+		summary: overrides.summary ?? "local memory work",
+		started_at: overrides.started_at ?? Date.now(),
+		ended_at: overrides.ended_at ?? Date.now(),
+		created_at: overrides.created_at ?? Date.now(),
+		message_count: overrides.message_count ?? 2,
+		project_id: overrides.project_id ?? "sprout",
+		project_confidence: overrides.project_confidence ?? 0.9,
+		complexity: overrides.complexity ?? 2,
+		source: "session-collapse",
+		...overrides,
+	});
 }
 
 describe("MemoryIndex", () => {
@@ -70,9 +89,11 @@ describe("MemoryIndex", () => {
 
 			expect(index.stats()).toEqual({
 				memoryCount: 2,
+				segmentCount: 0,
 				entityCount: 1,
 				linkCount: 1,
 				embeddingCount: 0,
+				segmentEmbeddingCount: 0,
 			});
 		} finally {
 			index.close();
@@ -145,6 +166,32 @@ describe("MemoryIndex", () => {
 			expect(index.stats().embeddingCount).toBe(2);
 			expect(results.map((result) => result.id)).toEqual(["idx-vector-a", "idx-vector-b"]);
 			expect(results[0]!.distance).toBeCloseTo(0, 5);
+		} finally {
+			index.close();
+		}
+	});
+
+	test("indexes collapsed session segments with text and vectors", () => {
+		const index = MemoryIndex.open(":memory:");
+		try {
+			index.rebuild(
+				[makeMemory({ id: "idx-memory", content: "memory content" })],
+				[
+					makeSegment({
+						id: "seg-sqlite",
+						title: "SQLite memory work",
+						summary: "Implemented SQLite segment indexing",
+						embedding: makeEmbedding(0),
+					}),
+				],
+			);
+
+			expect(index.stats().segmentCount).toBe(1);
+			expect(index.stats().segmentEmbeddingCount).toBe(1);
+			expect(index.searchSegmentsText("sqlite", 5)).toEqual(["seg-sqlite"]);
+			expect(index.searchSegmentsVector(Float32Array.from(embeddingVector(0)), 1)[0]?.id).toBe(
+				"seg-sqlite",
+			);
 		} finally {
 			index.close();
 		}

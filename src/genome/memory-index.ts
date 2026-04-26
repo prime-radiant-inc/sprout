@@ -3,6 +3,8 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { Memory } from "../kernel/types.ts";
 import { MEMORY_SCHEMA_VERSION, normalizeMemory } from "./memory-schema.ts";
+import type { MemorySegment } from "./segments.ts";
+import { normalizeSegment } from "./segments.ts";
 
 const INDEX_SCHEMA_VERSION = 2;
 const VECTOR_DIMENSIONS = 768;
@@ -11,9 +13,11 @@ const RRF_K = 60;
 
 export interface MemoryIndexStats {
 	memoryCount: number;
+	segmentCount: number;
 	entityCount: number;
 	linkCount: number;
 	embeddingCount: number;
+	segmentEmbeddingCount: number;
 }
 
 export interface VectorSearchResult {
@@ -41,6 +45,11 @@ interface MemorySearchRow {
 
 interface MemoryEmbeddingRow {
 	memory_id: string;
+	embedding: Uint8Array;
+}
+
+interface SegmentEmbeddingRow {
+	segment_id: string;
 	embedding: Uint8Array;
 }
 
@@ -93,6 +102,37 @@ export class MemoryIndex {
 		this.db.run(`
 			CREATE TABLE IF NOT EXISTS memory_embeddings (
 				memory_id TEXT PRIMARY KEY,
+				provider TEXT NOT NULL,
+				model TEXT NOT NULL,
+				dimensions INTEGER NOT NULL,
+				embedding BLOB NOT NULL
+			)
+		`);
+		this.db.run(`
+			CREATE TABLE IF NOT EXISTS memory_segments (
+				id TEXT PRIMARY KEY,
+				session_id TEXT NOT NULL,
+				title TEXT NOT NULL,
+				summary TEXT NOT NULL,
+				started_at INTEGER NOT NULL,
+				ended_at INTEGER NOT NULL,
+				message_count INTEGER NOT NULL,
+				project_id TEXT NOT NULL,
+				project_confidence REAL NOT NULL,
+				complexity REAL NOT NULL
+			)
+		`);
+		this.db.run(`
+			CREATE VIRTUAL TABLE IF NOT EXISTS memory_segments_fts USING fts5(
+				id UNINDEXED,
+				title,
+				summary,
+				project_id
+			)
+		`);
+		this.db.run(`
+			CREATE TABLE IF NOT EXISTS memory_segment_embeddings (
+				segment_id TEXT PRIMARY KEY,
 				provider TEXT NOT NULL,
 				model TEXT NOT NULL,
 				dimensions INTEGER NOT NULL,
@@ -154,7 +194,7 @@ export class MemoryIndex {
 		);
 	}
 
-	rebuild(memories: readonly Memory[]): void {
+	rebuild(memories: readonly Memory[], segments: readonly MemorySegment[] = []): void {
 		const insertMemory = this.db.prepare(
 			`INSERT INTO memories (
 				id,
@@ -183,6 +223,32 @@ export class MemoryIndex {
 				embedding
 			) VALUES (?, ?, ?, ?, ?)`,
 		);
+		const insertSegment = this.db.prepare(
+			`INSERT INTO memory_segments (
+				id,
+				session_id,
+				title,
+				summary,
+				started_at,
+				ended_at,
+				message_count,
+				project_id,
+				project_confidence,
+				complexity
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		);
+		const insertSegmentFts = this.db.prepare(
+			"INSERT INTO memory_segments_fts (id, title, summary, project_id) VALUES (?, ?, ?, ?)",
+		);
+		const insertSegmentEmbedding = this.db.prepare(
+			`INSERT INTO memory_segment_embeddings (
+				segment_id,
+				provider,
+				model,
+				dimensions,
+				embedding
+			) VALUES (?, ?, ?, ?, ?)`,
+		);
 		const insertMemoryEntity = this.db.prepare(
 			`INSERT OR REPLACE INTO memory_entities (
 				memory_id,
@@ -204,53 +270,81 @@ export class MemoryIndex {
 			"INSERT INTO annotations (memory_id, text, source, created_at) VALUES (?, ?, ?, ?)",
 		);
 
-		const run = this.db.transaction((records: readonly Memory[]) => {
-			this.clear();
-			for (const record of records) {
-				const memory = normalizeMemory(record);
-				insertMemory.run(
-					memory.id,
-					memory.short_id ?? memory.id,
-					memory.content,
-					JSON.stringify(memory.tags),
-					memory.source,
-					memory.created,
-					memory.last_used,
-					memory.use_count,
-					memory.confidence,
-					memory.schema_version ?? MEMORY_SCHEMA_VERSION,
-					memory.importance_score ?? null,
-					memory.archived_at ?? null,
-				);
-				insertFts.run(memory.id, memory.content, memory.tags.join(" "));
-				const embedding = memoryEmbeddingVector(memory);
-				if (embedding) {
-					insertEmbedding.run(
+		const run = this.db.transaction(
+			(input: { memories: readonly Memory[]; segments: readonly MemorySegment[] }) => {
+				this.clear();
+				for (const record of input.memories) {
+					const memory = normalizeMemory(record);
+					insertMemory.run(
 						memory.id,
-						memory.embedding?.provider ?? "unknown",
-						memory.embedding?.model ?? "unknown",
-						embedding.length,
-						encodeVector(embedding),
+						memory.short_id ?? memory.id,
+						memory.content,
+						JSON.stringify(memory.tags),
+						memory.source,
+						memory.created,
+						memory.last_used,
+						memory.use_count,
+						memory.confidence,
+						memory.schema_version ?? MEMORY_SCHEMA_VERSION,
+						memory.importance_score ?? null,
+						memory.archived_at ?? null,
 					);
+					insertFts.run(memory.id, memory.content, memory.tags.join(" "));
+					const embedding = memoryEmbeddingVector(memory);
+					if (embedding) {
+						insertEmbedding.run(
+							memory.id,
+							memory.embedding?.provider ?? "unknown",
+							memory.embedding?.model ?? "unknown",
+							embedding.length,
+							encodeVector(embedding),
+						);
+					}
+					for (const entity of memory.entity_links ?? []) {
+						insertMemoryEntity.run(memory.id, entity.uuid, entity.type, entity.name);
+					}
+					for (const link of memory.outbound_links ?? []) {
+						insertLink.run(memory.id, link.uuid, link.type, link.reasoning, link.created_at);
+					}
+					for (const annotation of memory.annotations ?? []) {
+						insertAnnotation.run(
+							memory.id,
+							annotation.text,
+							annotation.source,
+							annotation.created_at,
+						);
+					}
 				}
-				for (const entity of memory.entity_links ?? []) {
-					insertMemoryEntity.run(memory.id, entity.uuid, entity.type, entity.name);
-				}
-				for (const link of memory.outbound_links ?? []) {
-					insertLink.run(memory.id, link.uuid, link.type, link.reasoning, link.created_at);
-				}
-				for (const annotation of memory.annotations ?? []) {
-					insertAnnotation.run(
-						memory.id,
-						annotation.text,
-						annotation.source,
-						annotation.created_at,
+				for (const record of input.segments) {
+					const segment = normalizeSegment(record);
+					insertSegment.run(
+						segment.id,
+						segment.session_id,
+						segment.title,
+						segment.summary,
+						segment.started_at,
+						segment.ended_at,
+						segment.message_count,
+						segment.project_id,
+						segment.project_confidence,
+						segment.complexity,
 					);
+					insertSegmentFts.run(segment.id, segment.title, segment.summary, segment.project_id);
+					const embedding = segmentEmbeddingVector(segment);
+					if (embedding) {
+						insertSegmentEmbedding.run(
+							segment.id,
+							segment.embedding?.provider ?? "unknown",
+							segment.embedding?.model ?? "unknown",
+							embedding.length,
+							encodeVector(embedding),
+						);
+					}
 				}
-			}
-		});
+			},
+		);
 
-		run(memories);
+		run({ memories, segments });
 	}
 
 	searchText(query: string, limit: number): string[] {
@@ -287,6 +381,47 @@ export class MemoryIndex {
 		return rows
 			.map((row) => ({
 				id: row.memory_id,
+				distance: cosineDistance(queryEmbedding, decodeVector(row.embedding)),
+			}))
+			.sort((a, b) => a.distance - b.distance || a.id.localeCompare(b.id))
+			.slice(0, limit)
+			.map((result, index) => ({ ...result, rank: index + 1 }));
+	}
+
+	searchSegmentsText(query: string, limit: number): string[] {
+		const normalized = toFtsQuery(query);
+		if (!normalized) return [];
+		const rows = this.db
+			.query<MemorySearchRow, [string, number]>(
+				`SELECT id, bm25(memory_segments_fts) AS rank
+				 FROM memory_segments_fts
+				 WHERE memory_segments_fts MATCH ?
+				 ORDER BY rank
+				 LIMIT ?`,
+			)
+			.all(normalized, limit);
+		return rows.map((row) => row.id);
+	}
+
+	searchSegmentsVector(queryEmbedding: Float32Array, limit: number): VectorSearchResult[] {
+		validateVector(queryEmbedding, "query embedding");
+		const rows = this.db
+			.query<SegmentEmbeddingRow, []>(
+				"SELECT segment_id, embedding FROM memory_segment_embeddings WHERE dimensions = 768",
+			)
+			.all();
+		if (rows.length === 0) {
+			throw new Error("Memory index has no segment embeddings");
+		}
+		const segmentCount = this.count("memory_segments");
+		if (rows.length !== segmentCount) {
+			throw new Error(
+				`Memory index segment embeddings are incomplete: ${rows.length}/${segmentCount} segments have vectors`,
+			);
+		}
+		return rows
+			.map((row) => ({
+				id: row.segment_id,
 				distance: cosineDistance(queryEmbedding, decodeVector(row.embedding)),
 			}))
 			.sort((a, b) => a.distance - b.distance || a.id.localeCompare(b.id))
@@ -338,9 +473,11 @@ export class MemoryIndex {
 	stats(): MemoryIndexStats {
 		return {
 			memoryCount: this.count("memories"),
+			segmentCount: this.count("memory_segments"),
 			entityCount: this.count("memory_entities"),
 			linkCount: this.count("memory_links"),
 			embeddingCount: this.count("memory_embeddings"),
+			segmentEmbeddingCount: this.count("memory_segment_embeddings"),
 		};
 	}
 
@@ -348,6 +485,9 @@ export class MemoryIndex {
 		this.db.run("DELETE FROM memories");
 		this.db.run("DELETE FROM memories_fts");
 		this.db.run("DELETE FROM memory_embeddings");
+		this.db.run("DELETE FROM memory_segments");
+		this.db.run("DELETE FROM memory_segments_fts");
+		this.db.run("DELETE FROM memory_segment_embeddings");
 		this.db.run("DELETE FROM memory_entities");
 		this.db.run("DELETE FROM memory_links");
 		this.db.run("DELETE FROM annotations");
@@ -375,6 +515,25 @@ function memoryEmbeddingVector(memory: Memory): Float32Array | undefined {
 	}
 	const vector = Float32Array.from(embedding.vector);
 	validateVector(vector, `memory '${memory.id}' embedding`);
+	return vector;
+}
+
+function segmentEmbeddingVector(segment: MemorySegment): Float32Array | undefined {
+	const embedding = segment.embedding;
+	if (!embedding) return undefined;
+	if (embedding.status !== "ready") {
+		throw new Error(`Segment '${segment.id}' embedding status '${embedding.status}' is not ready`);
+	}
+	if (!embedding.vector) {
+		throw new Error(`Segment '${segment.id}' has ready embedding metadata without a vector`);
+	}
+	if (embedding.dimensions !== VECTOR_DIMENSIONS) {
+		throw new Error(
+			`Segment '${segment.id}' embedding dimensions ${embedding.dimensions} do not match ${VECTOR_DIMENSIONS}`,
+		);
+	}
+	const vector = Float32Array.from(embedding.vector);
+	validateVector(vector, `segment '${segment.id}' embedding`);
 	return vector;
 }
 

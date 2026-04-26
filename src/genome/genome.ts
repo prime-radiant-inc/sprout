@@ -17,6 +17,7 @@ import { MemoryIndex } from "./memory-index.ts";
 import { MemoryStore } from "./memory-store.ts";
 import { loadMemoryExtractionPrompts, type PromptSet } from "./prompts.ts";
 import { buildManifestFromSpecs, loadManifest, saveManifest } from "./root-manifest.ts";
+import { attachReadySegmentEmbedding, type MemorySegment, SegmentStore } from "./segments.ts";
 
 export interface SyncRootResult {
 	added: string[];
@@ -91,6 +92,7 @@ export class Genome {
 	private readonly agents = new Map<string, AgentSpec>();
 	private readonly rootAgents = new Map<string, AgentSpec>();
 	readonly memories: MemoryStore;
+	readonly segments: SegmentStore;
 	private routingRules: RoutingRule[] = [];
 	private _generation = 0;
 	private _knownAgentFiles: Set<string> = new Set();
@@ -100,6 +102,7 @@ export class Genome {
 		this.rootDir = rootDir;
 		this.embeddingProvider = options.embeddingProvider;
 		this.memories = new MemoryStore(join(rootPath, "memories", "memories.jsonl"));
+		this.segments = new SegmentStore(join(rootPath, "memories", "segments.jsonl"));
 	}
 
 	get generation(): number {
@@ -301,6 +304,18 @@ export class Genome {
 		await rebuildMemoryIndexFromJsonl(this.rootPath);
 	}
 
+	/** Add a collapsed session segment, committing the JSONL file. */
+	async addSegment(segment: MemorySegment): Promise<void> {
+		const embeddedSegment = await attachReadySegmentEmbedding(
+			segment,
+			await this.getEmbeddingProvider(),
+		);
+		await this.segments.add(embeddedSegment);
+		await git(this.rootPath, "add", join(this.rootPath, "memories", "segments.jsonl"));
+		await git(this.rootPath, "commit", "-m", `genome: add memory segment '${embeddedSegment.id}'`);
+		await rebuildMemoryIndexFromJsonl(this.rootPath);
+	}
+
 	private async getEmbeddingProvider(): Promise<EmbeddingProvider> {
 		if (!this.embeddingProvider) {
 			const { LocalEmbeddingProvider } = await import("../llm/embeddings.ts");
@@ -471,6 +486,7 @@ export class Genome {
 
 		// Load memories
 		await this.memories.load();
+		await this.segments.load();
 
 		// Load routing rules
 		const rulesPath = join(this.rootPath, "routing", "rules.yaml");
