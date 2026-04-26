@@ -2,6 +2,7 @@ import { join } from "node:path";
 import type { AgentSpawner } from "../bus/spawner.ts";
 import { DEV_MODE_POSTSCRIPT, DEV_MODE_SENTINEL, isDevMode } from "../genome/dev-mode.ts";
 import { Genome, git } from "../genome/genome.ts";
+import { ensureMemoryIndexFresh } from "../genome/index-builder.ts";
 import { createReadOnlyGenome } from "../genome/read-only-genome.ts";
 import { LocalExecutionEnvironment } from "../kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../kernel/primitives.ts";
@@ -149,6 +150,10 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 		if (!existingPostscript.includes(DEV_MODE_SENTINEL)) {
 			await genome.savePostscript("agents/quartermaster.md", DEV_MODE_POSTSCRIPT);
 		}
+	}
+
+	if (options.evalMode) {
+		await ensureMemoryIndexFresh(options.genomePath);
 	}
 
 	const runtimeGenome = options.evalMode ? createReadOnlyGenome(genome) : genome;

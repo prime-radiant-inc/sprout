@@ -197,6 +197,37 @@ describe("SessionController", () => {
 		expect(bus.collected().some((event) => event.data.memory_collapse === "completed")).toBe(true);
 	});
 
+	test("stops learn process before collapsing completed sessions to memory", async () => {
+		const calls: string[] = [];
+		const factory: AgentFactory = async () => ({
+			agent: {
+				steer() {},
+				requestCompaction() {},
+				async run() {
+					calls.push("run");
+					return { output: "done", success: true, stumbles: 0, turns: 1, timed_out: false };
+				},
+			} as any,
+			learnProcess: {
+				startBackground() {
+					calls.push("start");
+				},
+				async stopBackground() {
+					calls.push("stop");
+				},
+			},
+			collapseMemory: async () => {
+				calls.push("collapse");
+				return { ok: true };
+			},
+		});
+		const { controller } = makeController({ factory });
+
+		await controller.runGoal("Remember this session");
+
+		expect(calls).toEqual(["start", "run", "stop", "collapse"]);
+	});
+
 	test("runs memory collapse with the configured work directory", async () => {
 		const fake = makeFakeAgent();
 		const workDir = join(tempDir, "configured-workdir");

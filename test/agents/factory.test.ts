@@ -7,6 +7,7 @@ import { createAgent } from "../../src/agents/factory.ts";
 import { scanAgentTree } from "../../src/agents/loader.ts";
 import { DEV_MODE_SENTINEL, isDevMode } from "../../src/genome/dev-mode.ts";
 import { Genome } from "../../src/genome/genome.ts";
+import { memoryIndexPath } from "../../src/genome/index-builder.ts";
 import type { Client } from "../../src/llm/client.ts";
 import type { ProviderModel } from "../../src/llm/types.ts";
 import "../helpers/test-env.ts";
@@ -269,6 +270,44 @@ describe("createAgent", () => {
 		await expect(
 			result.genome.savePostscript("agents/quartermaster.md", "mutate me"),
 		).rejects.toThrow("read-only genome");
+	}, 15_000);
+
+	test("eval mode prebuilds missing memory index before read-only recall", async () => {
+		const genomePath = join(tempDir, "eval-mode-index-test");
+		const genome = new Genome(genomePath, rootDir);
+		await genome.init();
+		await genome.initFromRoot();
+		const now = Date.now();
+		await genome.addMemory({
+			id: "eval-readonly-index",
+			content: "Eval read-only recall should prebuild a missing memory index cache.",
+			tags: ["memory"],
+			source: "test",
+			created: now,
+			last_used: now,
+			use_count: 0,
+			confidence: 1,
+		});
+		const indexPath = memoryIndexPath(genomePath);
+		await rm(indexPath, { force: true });
+		await rm(`${indexPath}-shm`, { force: true });
+		await rm(`${indexPath}-wal`, { force: true });
+		expect(existsSync(indexPath)).toBe(false);
+
+		const result = await createAgent({
+			genomePath,
+			rootDir,
+			workDir: tempDir,
+			evalMode: true,
+			genome,
+			client: sharedClient,
+			providerIdOverride: sharedResolverContext.providerId,
+			resolverSettings: sharedResolverContext.resolverSettings,
+		});
+
+		expect(existsSync(indexPath)).toBe(true);
+		const memories = await result.genome.searchMemories("read-only memory index cache");
+		expect(memories.map((memory) => memory.id)).toContain("eval-readonly-index");
 	}, 15_000);
 
 	test("injects non-interactive execution guidance into the root prompt only", async () => {

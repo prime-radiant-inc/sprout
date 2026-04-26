@@ -520,6 +520,12 @@ export class SessionController {
 		await persistRunningMetadata(this.metadata);
 
 		let learnProcess: AgentFactoryResult["learnProcess"] = null;
+		const stopLearnProcess = async (): Promise<void> => {
+			const process = learnProcess;
+			if (!process) return;
+			learnProcess = null;
+			await process.stopBackground();
+		};
 		// Capture metadata before the try block so the finally writes to the
 		// correct session even if /clear replaces this.metadata mid-run.
 		const metadata = this.metadata;
@@ -559,6 +565,7 @@ export class SessionController {
 
 			const runResult = await result.agent.run(goal, signal);
 			if (!runResult.timed_out && !signal.aborted) {
+				await stopLearnProcess();
 				await this.collapseMemoryAfterRun(result);
 			}
 			this.logger?.info("session", "Agent run completed");
@@ -571,9 +578,7 @@ export class SessionController {
 				timedOut: runResult.timed_out,
 			};
 		} finally {
-			if (learnProcess) {
-				await learnProcess.stopBackground();
-			}
+			await stopLearnProcess();
 			// Only update shared state if no /clear has started a newer run.
 			// Without this guard, the old finally block would clobber the
 			// new run's this.running and this.agent.
