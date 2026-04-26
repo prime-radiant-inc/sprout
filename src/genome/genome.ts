@@ -15,6 +15,7 @@ import { memoryIndexPath, rebuildMemoryIndexFromJsonl } from "./index-builder.ts
 import { attachReadyMemoryEmbedding } from "./memory-embedding.ts";
 import { MemoryIndex } from "./memory-index.ts";
 import { MemoryStore } from "./memory-store.ts";
+import { loadMemoryExtractionPrompts, type PromptSet } from "./prompts.ts";
 import { buildManifestFromSpecs, loadManifest, saveManifest } from "./root-manifest.ts";
 
 export interface SyncRootResult {
@@ -79,6 +80,7 @@ const DIRS = [
 	"metrics",
 	"logs",
 	"postscripts",
+	"prompts",
 	".cache",
 ] as const;
 
@@ -792,6 +794,10 @@ export class Genome {
 		} catch {
 			return "";
 		}
+	}
+
+	async loadMemoryExtractionPrompts(): Promise<PromptSet> {
+		return loadMemoryExtractionPrompts(this.rootPath, this.rootDir);
 	}
 
 	/**

@@ -1,0 +1,5 @@
+<conversation>
+{formatted_messages}
+</conversation>
+
+Extract new durable memories from the conversation above. Return only JSON.

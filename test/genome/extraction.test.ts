@@ -1,0 +1,117 @@
+import { describe, expect, test } from "bun:test";
+import {
+	extractMemoryDrafts,
+	formatExtractionMessages,
+	memoryFromDraft,
+	normalizeExtractionPayload,
+	parseExtractionJson,
+	renderExtractionUserPrompt,
+} from "../../src/genome/extraction.ts";
+import type { Client } from "../../src/llm/client.ts";
+import { Msg, type Request, type Response } from "../../src/llm/types.ts";
+
+function makeClient(json: string, onRequest?: (request: Request) => void): Client {
+	return {
+		complete: async (request: Request): Promise<Response> => {
+			onRequest?.(request);
+			return {
+				id: "extract-test",
+				model: "test",
+				provider: "test",
+				message: Msg.assistant(json),
+				finish_reason: { reason: "stop" },
+				usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+			};
+		},
+		providers: () => ["test"],
+		listModelsByProvider: async () => new Map(),
+	} as unknown as Client;
+}
+
+describe("memory extraction", () => {
+	test("formats transcript messages with role and timestamp", () => {
+		const formatted = formatExtractionMessages([
+			{ role: "user", content: "Use SQLite <not Postgres>", timestamp: 1700000000000 },
+		]);
+
+		expect(formatted).toContain('role="user"');
+		expect(formatted).toContain('time="2023-11-14T22:13:20.000Z"');
+		expect(formatted).toContain("SQLite &lt;not Postgres&gt;");
+	});
+
+	test("renders the user prompt template", () => {
+		const prompt = renderExtractionUserPrompt("Before\n{formatted_messages}\nAfter", [
+			{ role: "user", content: "remember this" },
+		]);
+
+		expect(prompt).toContain("Before");
+		expect(prompt).toContain("remember this");
+		expect(prompt).toContain("After");
+	});
+
+	test("parses valid, wrapped, and repairable JSON", () => {
+		expect(parseExtractionJson('[{"text":"alpha"}]')).toEqual([{ text: "alpha" }]);
+		expect(parseExtractionJson('```json\n{"memories":[{"text":"beta"}]}\n```')).toEqual({
+			memories: [{ text: "beta" }],
+		});
+		expect(parseExtractionJson("[{“text”: “gamma”,}]")).toEqual([{ text: "gamma" }]);
+	});
+
+	test("normalizes arrays, wrapper objects, single objects, tags, entities, and dates", () => {
+		const drafts = normalizeExtractionPayload({
+			memories: [
+				{
+					text: "Sprout uses local embeddings",
+					tags: ["sprout", 123, "memory"],
+					entities: [{ name: "Sprout", type: "PROJECT" }],
+					happens_at: "2026-04-26T00:00:00.000Z",
+				},
+			],
+		});
+
+		expect(drafts).toHaveLength(1);
+		expect(drafts[0]!.tags).toEqual(["sprout", "memory"]);
+		expect(drafts[0]!.entity_links).toEqual([
+			{ uuid: "entity_sprout_0", name: "Sprout", type: "PROJECT" },
+		]);
+		expect(drafts[0]!.happens_at).toBe(Date.parse("2026-04-26T00:00:00.000Z"));
+	});
+
+	test("calls the client with system and rendered user prompts", async () => {
+		let captured: Request | undefined;
+		const drafts = await extractMemoryDrafts({
+			client: makeClient('[{"text":"User prefers SQLite for MIRA memory"}]', (request) => {
+				captured = request;
+			}),
+			model: "model",
+			provider: "provider",
+			prompts: {
+				system: "system prompt",
+				user: "<conversation>{formatted_messages}</conversation>",
+			},
+			messages: [{ role: "user", content: "Use SQLite" }],
+		});
+
+		expect(captured).toBeDefined();
+		expect(captured!.messages[0]!.role).toBe("system");
+		expect(captured!.messages[1]!.role).toBe("user");
+		expect(captured!.messages[1]!.content[0]!.text).toContain("Use SQLite");
+		expect(drafts[0]!.text).toBe("User prefers SQLite for MIRA memory");
+	});
+
+	test("builds Memory records from extraction drafts", () => {
+		const memory = memoryFromDraft(
+			{
+				text: "Sprout stores MIRA memories in SQLite-backed JSONL",
+				tags: ["memory"],
+				entity_links: [{ uuid: "entity_sprout_0", name: "Sprout", type: "PROJECT" }],
+			},
+			{ id: "learn-1", source: "learn:extraction", now: 123 },
+		);
+
+		expect(memory.id).toBe("learn-1");
+		expect(memory.content).toBe("Sprout stores MIRA memories in SQLite-backed JSONL");
+		expect(memory.source).toBe("learn:extraction");
+		expect(memory.project_ids).toEqual(["entity_sprout_0"]);
+	});
+});
