@@ -627,18 +627,28 @@ export class Genome {
 	/** Track assistant-visible memory citations by short id. */
 	async recordMemoryMentions(shortIds: string[]): Promise<string[]> {
 		if (shortIds.length === 0) return [];
+		const memoriesPath = join(this.rootPath, "memories", "memories.jsonl");
 		return this.withMemoryWriteLock(async () => {
 			await this.memories.load();
 			const mentioned = this.memories.markMentioned(shortIds);
 			if (mentioned.length === 0) return [];
-			await this.memories.save();
-			const memoriesPath = join(this.rootPath, "memories", "memories.jsonl");
-			await git(this.rootPath, "add", memoriesPath);
-			const status = await git(this.rootPath, "status", "--porcelain", "--", memoriesPath);
-			if (status.trim()) {
+			const snapshots = await snapshotTextFiles([memoriesPath]);
+			let committed = false;
+			try {
+				await this.memories.save();
+				await git(this.rootPath, "add", memoriesPath);
+				const status = await git(this.rootPath, "status", "--porcelain", "--", memoriesPath);
+				if (!status.trim()) return mentioned;
+				await rebuildMemoryIndexFromJsonl(this.rootPath);
 				await git(this.rootPath, "commit", "-m", "genome: record memory mentions");
+				committed = true;
+			} catch (error) {
+				if (!committed) {
+					await restoreUncommittedMemoryMutation(this.rootPath, snapshots, [memoriesPath]);
+					await this.memories.load();
+				}
+				throw error;
 			}
-			await rebuildMemoryIndexFromJsonl(this.rootPath);
 			return mentioned;
 		});
 	}

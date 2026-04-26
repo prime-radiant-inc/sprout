@@ -245,6 +245,44 @@ describe("Agent", () => {
 		expect(mentioned).toEqual([["mem_abcdef12"]]);
 	});
 
+	test("assistant memory mention tracking failures do not fail the turn", async () => {
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => ({
+				id: "mock-memory-ref-fails",
+				model: "claude-haiku-4-5-20251001",
+				provider: "anthropic",
+				message: Msg.assistant("Use mem_ABCDEF12 for context."),
+				finish_reason: { reason: "stop" },
+				usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+			}),
+			stream: async function* () {},
+		} as unknown as Client;
+		const fakeGenome = {
+			allAgents: () => [],
+			searchMemories: async () => [],
+			matchRoutingRules: () => [],
+			markMemoriesUsed: async () => {},
+			recordMemoryMentions: async () => {
+				throw new Error("mention tracking failed");
+			},
+			refreshIfDiskChanged: async () => false,
+			loadAgentTools: async () => [],
+			agentDir: () => tmpdir(),
+		} as unknown as Genome;
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const agent = new Agent({
+			spec: leafSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: createPrimitiveRegistry(env),
+			availableAgents: [],
+			genome: fakeGenome,
+		});
+
+		await expect(agent.run("cite memory")).resolves.toMatchObject({ success: true });
+	});
+
 	test("eval mode skips assistant memory mention tracking", async () => {
 		const mockClient = {
 			providers: () => ["anthropic"],

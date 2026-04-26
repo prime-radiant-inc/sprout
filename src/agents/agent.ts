@@ -1398,7 +1398,13 @@ export class Agent {
 		if (!this.genome || typeof this.genome.recordMemoryMentions !== "function") return;
 		const refs = extractMemoryReferences(messageText(message));
 		if (refs.length === 0) return;
-		await this.genome.recordMemoryMentions(refs);
+		try {
+			await this.genome.recordMemoryMentions(refs);
+		} catch (error) {
+			this.logger.warn("agent", "Memory mention tracking failed", {
+				error: error instanceof Error ? error.message : String(error),
+			});
+		}
 	}
 
 	/** Continue a conversation by appending a new message and running the planning loop again. */

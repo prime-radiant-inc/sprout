@@ -1020,6 +1020,29 @@ describe("Genome", () => {
 			const log = await git(root, "log", "--oneline");
 			expect(log).toContain("genome: record memory mentions");
 		});
+
+		test("recordMemoryMentions restores JSONL and index when commit fails after rebuild", async () => {
+			const root = join(tempDir, "mem-mentions-commit-fails");
+			const genome = await createInitializedGenome(root);
+			await genome.addMemory(makeMemory({ id: "mention-fail-memory", content: "cited fact" }));
+			const shortId = genome.memories.getById("mention-fail-memory")?.short_id;
+			const before = await readFile(join(root, "memories", "memories.jsonl"), "utf-8");
+			const hookPath = join(root, ".git", "hooks", "pre-commit");
+			await writeFile(hookPath, "#!/bin/sh\nexit 1\n");
+			await chmod(hookPath, 0o755);
+
+			await expect(genome.recordMemoryMentions([shortId!])).rejects.toThrow("git commit");
+
+			expect(genome.memories.getById("mention-fail-memory")?.mention_count ?? 0).toBe(0);
+			expect(await readFile(join(root, "memories", "memories.jsonl"), "utf-8")).toBe(before);
+			expect(await git(root, "status", "--porcelain")).toBe("");
+			const index = MemoryIndex.open(memoryIndexPath(root));
+			try {
+				expect(index.stats().memoryCount).toBe(1);
+			} finally {
+				index.close();
+			}
+		});
 	});
 
 	// --- Rollback tests ---
