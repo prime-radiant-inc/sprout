@@ -259,6 +259,14 @@ export interface EntityLinkEntry {
 	uuid: string;
 	type: "PROJECT" | "LIBRARY" | "FILE_PATH" | "COMMAND" | "ERROR_TYPE" | "TECHNOLOGY" | "PERSON";
 	name: string;
+	archived_aliases?: EntityAliasEntry[];
+}
+
+export interface EntityAliasEntry {
+	uuid: string;
+	name: string;
+	archived_at: number;
+	reason: string;
 }
 
 export interface AnnotationEntry {

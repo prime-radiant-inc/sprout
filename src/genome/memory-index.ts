@@ -53,6 +53,31 @@ interface SegmentEmbeddingRow {
 	embedding: Uint8Array;
 }
 
+export interface EntitySearchResult {
+	uuid: string;
+	type: EntitySearchType;
+	name: string;
+	rank: number;
+}
+
+type EntitySearchType = NonNullable<Memory["entity_links"]>[number]["type"];
+
+interface EntitySearchRow {
+	uuid: string;
+	type: EntitySearchType;
+	name: string;
+	rank: number;
+}
+
+interface EntityIndexRow {
+	id: string;
+	name: string;
+	type: EntitySearchType;
+	linkCount: number;
+	createdAt: number;
+	lastLinkedAt: number;
+}
+
 export class MemoryIndex {
 	private constructor(private readonly db: Database) {}
 
@@ -159,6 +184,13 @@ export class MemoryIndex {
 			)
 		`);
 		this.db.run(`
+			CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(
+				entity_id UNINDEXED,
+				name,
+				entity_type
+			)
+		`);
+		this.db.run(`
 			CREATE TABLE IF NOT EXISTS memory_links (
 				source_id TEXT NOT NULL,
 				target_id TEXT NOT NULL,
@@ -257,6 +289,19 @@ export class MemoryIndex {
 				name
 			) VALUES (?, ?, ?, ?)`,
 		);
+		const insertEntity = this.db.prepare(
+			`INSERT OR REPLACE INTO entities (
+				id,
+				name,
+				entity_type,
+				link_count,
+				last_linked_at,
+				created_at
+			) VALUES (?, ?, ?, ?, ?, ?)`,
+		);
+		const insertEntityFts = this.db.prepare(
+			"INSERT INTO entities_fts (entity_id, name, entity_type) VALUES (?, ?, ?)",
+		);
 		const insertLink = this.db.prepare(
 			`INSERT OR REPLACE INTO memory_links (
 				source_id,
@@ -273,6 +318,7 @@ export class MemoryIndex {
 		const run = this.db.transaction(
 			(input: { memories: readonly Memory[]; segments: readonly MemorySegment[] }) => {
 				this.clear();
+				const entityRows = entityIndexRows(input.memories);
 				for (const record of input.memories) {
 					const memory = normalizeMemory(record);
 					insertMemory.run(
@@ -314,6 +360,17 @@ export class MemoryIndex {
 							annotation.created_at,
 						);
 					}
+				}
+				for (const entity of entityRows) {
+					insertEntity.run(
+						entity.id,
+						entity.name,
+						entity.type,
+						entity.linkCount,
+						entity.lastLinkedAt,
+						entity.createdAt,
+					);
+					insertEntityFts.run(entity.id, entity.name, entity.type);
 				}
 				for (const record of input.segments) {
 					const segment = normalizeSegment(record);
@@ -360,6 +417,35 @@ export class MemoryIndex {
 			)
 			.all(normalized, limit);
 		return rows.map((row) => row.id);
+	}
+
+	searchEntities(
+		query: string,
+		options: { type?: EntitySearchType; limit?: number } = {},
+	): EntitySearchResult[] {
+		const normalized = toFtsQuery(query);
+		if (!normalized) return [];
+		const limit = options.limit ?? 20;
+		if (options.type) {
+			return this.db
+				.query<EntitySearchRow, [string, EntitySearchType, number]>(
+					`SELECT entity_id AS uuid, entity_type AS type, name, bm25(entities_fts) AS rank
+					 FROM entities_fts
+					 WHERE entities_fts MATCH ? AND entity_type = ?
+					 ORDER BY rank
+					 LIMIT ?`,
+				)
+				.all(normalized, options.type, limit);
+		}
+		return this.db
+			.query<EntitySearchRow, [string, number]>(
+				`SELECT entity_id AS uuid, entity_type AS type, name, bm25(entities_fts) AS rank
+				 FROM entities_fts
+				 WHERE entities_fts MATCH ?
+				 ORDER BY rank
+				 LIMIT ?`,
+			)
+			.all(normalized, limit);
 	}
 
 	searchVector(queryEmbedding: Float32Array, limit: number): VectorSearchResult[] {
@@ -488,6 +574,8 @@ export class MemoryIndex {
 		this.db.run("DELETE FROM memory_segments");
 		this.db.run("DELETE FROM memory_segments_fts");
 		this.db.run("DELETE FROM memory_segment_embeddings");
+		this.db.run("DELETE FROM entities");
+		this.db.run("DELETE FROM entities_fts");
 		this.db.run("DELETE FROM memory_entities");
 		this.db.run("DELETE FROM memory_links");
 		this.db.run("DELETE FROM annotations");
@@ -497,6 +585,33 @@ export class MemoryIndex {
 		const row = this.db.query<CountRow, []>(`SELECT COUNT(*) AS count FROM ${table}`).get();
 		return row?.count ?? 0;
 	}
+}
+
+function entityIndexRows(memories: readonly Memory[]): EntityIndexRow[] {
+	const byId = new Map<string, EntityIndexRow>();
+	for (const memory of memories) {
+		for (const entity of memory.entity_links ?? []) {
+			const id = entity.uuid;
+			const existing = byId.get(id);
+			if (existing) {
+				existing.linkCount++;
+				existing.lastLinkedAt = Math.max(
+					existing.lastLinkedAt,
+					memory.updated_at ?? memory.created,
+				);
+				continue;
+			}
+			byId.set(id, {
+				id,
+				name: entity.name,
+				type: entity.type,
+				linkCount: 1,
+				createdAt: memory.created,
+				lastLinkedAt: memory.updated_at ?? memory.created,
+			});
+		}
+	}
+	return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
 
 function memoryEmbeddingVector(memory: Memory): Float32Array | undefined {

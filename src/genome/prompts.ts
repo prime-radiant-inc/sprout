@@ -124,6 +124,37 @@ NEW: "The archivist prompt requires cited answers."
 EXISTING: "Segment collapse stores summaries in memories/segments.jsonl."
 {"relationship_type":"null","reasoning":"Both involve memory architecture, but knowing one does not change how to act on the other."}`;
 
+export const MEMORY_CONSOLIDATION_PROMPT = `You review clusters of Sprout long-term memories and decide whether they should be merged.
+
+Rules:
+- Merge only when a single durable memory can preserve every actionable fact.
+- Reject if the memories are merely related, if nuance would be lost, or if the cluster was previously rejected for good reason.
+- Never delete information. A merge creates one consolidated memory and archives the source memories.
+- Preserve exact project names, commands, paths, models, dates, thresholds, and user preferences.
+- Prefer one direct factual sentence unless the durable content genuinely needs more detail.
+
+Respond with only valid JSON. No markdown.
+
+For a safe merge:
+{
+  "action": "merge",
+  "memory": {
+    "text": "single consolidated durable memory",
+    "tags": ["optional", "strings"],
+    "entities": [
+      {"name": "Sprout", "type": "PROJECT"}
+    ],
+    "confidence": 0.9
+  },
+  "reasoning": "one sentence explaining why no nuance is lost"
+}
+
+For a rejected merge:
+{
+  "action": "reject",
+  "reasoning": "one sentence explaining why these memories should remain separate"
+}`;
+
 export interface PromptSet {
 	system: string;
 	user: string;
@@ -135,6 +166,7 @@ const DEFAULT_PROMPTS: Record<string, string> = {
 	"segment_summary_system.txt": SEGMENT_SUMMARY_SYSTEM_PROMPT,
 	"segment_summary_user.txt": SEGMENT_SUMMARY_USER_PROMPT,
 	"memory_relationship_classification.txt": MEMORY_RELATIONSHIP_CLASSIFICATION_PROMPT,
+	"memory_consolidation.txt": MEMORY_CONSOLIDATION_PROMPT,
 };
 
 export async function loadMemoryExtractionPrompts(
@@ -162,6 +194,13 @@ export async function loadRelationshipClassificationPrompt(
 	rootDir?: string,
 ): Promise<string> {
 	return loadPrompt(genomeRoot, rootDir, "memory_relationship_classification.txt");
+}
+
+export async function loadMemoryConsolidationPrompt(
+	genomeRoot: string,
+	rootDir?: string,
+): Promise<string> {
+	return loadPrompt(genomeRoot, rootDir, "memory_consolidation.txt");
 }
 
 export async function loadPrompt(

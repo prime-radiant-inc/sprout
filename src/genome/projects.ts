@@ -32,6 +32,8 @@ export interface ProjectActivityRecord {
 	name: string;
 	cumulative_active_days: number;
 	last_active_date?: string;
+	last_consolidated_active_day?: number;
+	last_entity_gc_active_day?: number;
 }
 
 const UNKNOWN_PROJECT: DetectedProject = {
@@ -91,6 +93,20 @@ export class ProjectActivityStore {
 			record.cumulative_active_days += 1;
 			record.last_active_date = activeDate;
 		}
+		return record;
+	}
+
+	markConsolidated(projectId: string): ProjectActivityRecord | undefined {
+		const record = this.getById(projectId);
+		if (!record) return undefined;
+		record.last_consolidated_active_day = record.cumulative_active_days;
+		return record;
+	}
+
+	markEntityGc(projectId: string): ProjectActivityRecord | undefined {
+		const record = this.getById(projectId);
+		if (!record) return undefined;
+		record.last_entity_gc_active_day = record.cumulative_active_days;
 		return record;
 	}
 
@@ -249,7 +265,15 @@ function normalizeProjectActivityRecord(raw: unknown): ProjectActivityRecord {
 		name,
 		cumulative_active_days: Math.max(0, Math.floor(days)),
 		...(lastActiveDate ? { last_active_date: lastActiveDate } : {}),
+		...numberField(raw, "last_consolidated_active_day"),
+		...numberField(raw, "last_entity_gc_active_day"),
 	};
+}
+
+function numberField(raw: Record<string, unknown>, key: string): Record<string, number> {
+	const value = raw[key];
+	if (typeof value !== "number" || !Number.isFinite(value)) return {};
+	return { [key]: Math.max(0, Math.floor(value)) };
 }
 
 function isUsefulName(value: string): boolean {

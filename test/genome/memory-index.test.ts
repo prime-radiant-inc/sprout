@@ -114,6 +114,35 @@ describe("MemoryIndex", () => {
 		}
 	});
 
+	test("searches canonical entities with FTS5", () => {
+		const index = MemoryIndex.open(":memory:");
+		try {
+			index.rebuild([
+				makeMemory({
+					id: "idx-sprout",
+					content: "memory work",
+					entity_links: [{ uuid: "entity-sprout", type: "PROJECT", name: "Sprout" }],
+				}),
+				makeMemory({
+					id: "idx-sqlite",
+					content: "sqlite work",
+					entity_links: [{ uuid: "entity-sqlite", type: "TECHNOLOGY", name: "SQLite" }],
+				}),
+			]);
+
+			expect(index.searchEntities("sprout", { type: "PROJECT" })).toEqual([
+				{
+					uuid: "entity-sprout",
+					type: "PROJECT",
+					name: "Sprout",
+					rank: expect.any(Number),
+				},
+			]);
+		} finally {
+			index.close();
+		}
+	});
+
 	test("rebuilds from JSONL-loaded legacy fixture records", async () => {
 		const fixture = new JsonlStore<unknown>(
 			join(process.cwd(), "test/fixtures/memory/legacy-memories.jsonl"),
