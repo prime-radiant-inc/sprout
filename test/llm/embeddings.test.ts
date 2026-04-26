@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
 	applyDenseLayer,
 	DEFAULT_EMBEDDING_DIMENSIONS,
@@ -10,6 +13,7 @@ import {
 	deterministicEmbedding,
 	FakeEmbeddingProvider,
 	LocalEmbeddingProvider,
+	loadDenseLayer,
 	parseDenseLayerSafetensors,
 } from "../../src/llm/embeddings.ts";
 
@@ -138,6 +142,38 @@ describe("Embedding providers", () => {
 		expect(projected).toHaveLength(3);
 		expect(projected[0]).toBeCloseTo(Math.SQRT1_2, 5);
 		expect(projected[2]).toBeCloseTo(Math.SQRT1_2, 5);
+	});
+
+	test("dense layer loader reads cached projection before fetching", async () => {
+		const cacheRoot = await mkdtemp(join(tmpdir(), "sprout-dense-cache-"));
+		let fetchCount = 0;
+		const buffer = makeDenseSafetensors({
+			bias: Float32Array.from([0, 0, 0]),
+			weight: Float32Array.from([1, 0, 0, 1, 1, 1]),
+			inputDimensions: 2,
+			outputDimensions: 3,
+		});
+		try {
+			const first = await loadDenseLayer("test/model", DEFAULT_LOCAL_DENSE_LAYER_PATH, {
+				cacheRoot,
+				fetcher: async () => {
+					fetchCount++;
+					return new Response(buffer);
+				},
+			});
+			const second = await loadDenseLayer("test/model", DEFAULT_LOCAL_DENSE_LAYER_PATH, {
+				cacheRoot,
+				fetcher: async () => {
+					throw new Error("network should not be used after cache is populated");
+				},
+			});
+
+			expect(fetchCount).toBe(1);
+			expect(first.outputDimensions).toBe(3);
+			expect(second.outputDimensions).toBe(3);
+		} finally {
+			await rm(cacheRoot, { recursive: true, force: true });
+		}
 	});
 });
 

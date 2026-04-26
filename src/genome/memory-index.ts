@@ -36,6 +36,7 @@ export interface HybridSearchResult {
 
 interface CandidateFilter {
 	candidateIds?: ReadonlySet<string>;
+	allowPartialEmbeddings?: boolean;
 }
 
 interface HybridSearchOptions extends CandidateFilter {
@@ -515,10 +516,11 @@ export class MemoryIndex {
 			? rows.filter((row) => candidateIds.has(row.memory_id))
 			: rows;
 		if (eligibleRows.length === 0) {
+			if (options.allowPartialEmbeddings) return [];
 			throw new Error("Memory index has no embeddings; memory writes must create ready vectors");
 		}
 		const expectedCount = candidateIds?.size ?? this.count("memories");
-		if (eligibleRows.length !== expectedCount) {
+		if (!options.allowPartialEmbeddings && eligibleRows.length !== expectedCount) {
 			throw new Error(
 				`Memory index embeddings are incomplete: ${eligibleRows.length}/${expectedCount} memories have vectors`,
 			);
@@ -585,9 +587,10 @@ export class MemoryIndex {
 		const laneLimit = Math.max(limit * 2, limit);
 		const candidateFilter = options.candidateIds ? { candidateIds: options.candidateIds } : {};
 		const textIds = this.searchText(query, laneLimit, candidateFilter);
-		const vectorResults = this.searchVector(queryEmbedding, laneLimit, candidateFilter).filter(
-			(result) => 1 - result.distance >= minVectorSimilarity,
-		);
+		const vectorResults = this.searchVector(queryEmbedding, laneLimit, {
+			...candidateFilter,
+			allowPartialEmbeddings: true,
+		}).filter((result) => 1 - result.distance >= minVectorSimilarity);
 		const fused = new Map<string, HybridSearchResult>();
 
 		for (const [index, id] of textIds.entries()) {

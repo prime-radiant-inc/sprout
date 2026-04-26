@@ -316,6 +316,30 @@ describe("MemoryIndex", () => {
 		}
 	});
 
+	test("hybrid search keeps FTS results when active candidates lack embeddings", () => {
+		const index = MemoryIndex.open(":memory:");
+		try {
+			index.rebuild([
+				makeMemory({
+					id: "idx-vector-present",
+					content: "semantic sqlite memory",
+					embedding: makeEmbedding(0),
+				}),
+				makeMemory({
+					id: "idx-vector-missing",
+					content: "database migration command",
+				}),
+			]);
+
+			const results = index.searchHybrid("database", Float32Array.from(embeddingVector(0)), 2);
+
+			expect(results.map((result) => result.id)).toContain("idx-vector-missing");
+			expect(results.find((result) => result.id === "idx-vector-missing")?.textRank).toBe(1);
+		} finally {
+			index.close();
+		}
+	});
+
 	test("vector search fails when no embeddings are indexed", () => {
 		const index = MemoryIndex.open(":memory:");
 		try {

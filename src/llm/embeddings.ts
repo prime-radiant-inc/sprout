@@ -1,3 +1,7 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+
 export const DEFAULT_EMBEDDING_PROVIDER = "local";
 export const DEFAULT_EMBEDDING_MODEL = "MongoDB/mdbr-leaf-ir";
 export const DEFAULT_EMBEDDING_DIMENSIONS = 768;
@@ -60,6 +64,13 @@ export type LocalEmbeddingModelLoader = (
 		denseLayerPath: string | null;
 	},
 ) => Promise<{ extractor: LocalFeatureExtractor; denseLayer?: DenseLayer }>;
+
+interface DenseLayerResponse {
+	readonly ok: boolean;
+	readonly status: number;
+	readonly statusText: string;
+	arrayBuffer(): Promise<ArrayBuffer>;
+}
 
 export class LocalEmbeddingProvider implements EmbeddingProvider {
 	readonly provider = DEFAULT_EMBEDDING_PROVIDER;
@@ -231,7 +242,7 @@ async function loadTransformersModel(
 	const { pipeline } = await import("@huggingface/transformers");
 	const [extractor, denseLayer] = await Promise.all([
 		pipeline("feature-extraction", model, { dtype: options.dtype }),
-		options.denseLayerPath ? fetchDenseLayer(model, options.denseLayerPath) : undefined,
+		options.denseLayerPath ? loadDenseLayer(model, options.denseLayerPath) : undefined,
 	]);
 	return {
 		extractor: extractor as LocalFeatureExtractor,
@@ -239,14 +250,47 @@ async function loadTransformersModel(
 	};
 }
 
-async function fetchDenseLayer(model: string, denseLayerPath: string): Promise<DenseLayer> {
-	const response = await fetch(`https://huggingface.co/${model}/resolve/main/${denseLayerPath}`);
+export async function loadDenseLayer(
+	model: string,
+	denseLayerPath: string,
+	options: {
+		cacheRoot?: string;
+		fetcher?: (url: string) => Promise<DenseLayerResponse>;
+	} = {},
+): Promise<DenseLayer> {
+	const cachePath = denseLayerCachePath(model, denseLayerPath, options.cacheRoot);
+	const cached = await readCachedDenseLayer(cachePath);
+	if (cached) return parseDenseLayerSafetensors(cached);
+	const response = await (options.fetcher ?? fetch)(
+		`https://huggingface.co/${model}/resolve/main/${denseLayerPath}`,
+	);
 	if (!response.ok) {
 		throw new Error(
 			`Failed to fetch dense embedding layer ${denseLayerPath}: ${response.status} ${response.statusText}`,
 		);
 	}
-	return parseDenseLayerSafetensors(await response.arrayBuffer());
+	const buffer = await response.arrayBuffer();
+	await mkdir(dirname(cachePath), { recursive: true });
+	await writeFile(cachePath, new Uint8Array(buffer));
+	return parseDenseLayerSafetensors(buffer);
+}
+
+function denseLayerCachePath(model: string, denseLayerPath: string, cacheRoot?: string): string {
+	const root =
+		cacheRoot ?? join(Bun.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "sprout", "embeddings");
+	return join(root, encodeURIComponent(model), denseLayerPath);
+}
+
+async function readCachedDenseLayer(path: string): Promise<ArrayBuffer | undefined> {
+	try {
+		const bytes = await readFile(path);
+		return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+	} catch (err) {
+		if (err && typeof err === "object" && "code" in err && err.code === "ENOENT") {
+			return undefined;
+		}
+		throw err;
+	}
 }
 
 function splitTensor(tensor: TensorLike, batchSize: number): Float32Array[] {
