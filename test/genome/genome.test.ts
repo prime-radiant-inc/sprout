@@ -720,6 +720,27 @@ describe("Genome", () => {
 			});
 		});
 
+		test("addSegment commits and rebuilds the derived index", async () => {
+			const root = join(tempDir, "segment-add-index");
+			const genome = await createInitializedGenome(root);
+
+			await genome.addSegment(makeSegment({ id: "segment-indexed" }));
+
+			const status = await git(root, "status", "--porcelain");
+			expect(status).toBe("");
+			const log = await git(root, "log", "--oneline");
+			expect(log).toContain("genome: add memory segment 'segment-indexed'");
+			const index = MemoryIndex.open(memoryIndexPath(root));
+			try {
+				expect(index.stats()).toMatchObject({
+					segmentCount: 1,
+					segmentEmbeddingCount: 1,
+				});
+			} finally {
+				index.close();
+			}
+		});
+
 		test("addSegmentWithMemories restores JSONL files when save fails", async () => {
 			const root = join(tempDir, "segment-memory-save-fails");
 			const genome = await createInitializedGenome(root);

@@ -366,10 +366,18 @@ export class Genome {
 			segment,
 			await this.getEmbeddingProvider(),
 		);
-		await this.segments.add(embeddedSegment);
-		await git(this.rootPath, "add", join(this.rootPath, "memories", "segments.jsonl"));
-		await git(this.rootPath, "commit", "-m", `genome: add memory segment '${embeddedSegment.id}'`);
-		await rebuildMemoryIndexFromJsonl(this.rootPath);
+		await this.withMemoryWriteLock(async () => {
+			await this.segments.load();
+			await this.segments.add(embeddedSegment);
+			await git(this.rootPath, "add", join(this.rootPath, "memories", "segments.jsonl"));
+			await git(
+				this.rootPath,
+				"commit",
+				"-m",
+				`genome: add memory segment '${embeddedSegment.id}'`,
+			);
+			await rebuildMemoryIndexFromJsonl(this.rootPath);
+		});
 	}
 
 	/** Add a collapsed segment and extracted memories in one verified genome mutation. */
@@ -406,6 +414,7 @@ export class Genome {
 					`genome: add memory segment '${embeddedSegment.id}' with ${embeddedMemories.length} memories`,
 				);
 				committed = true;
+				await rebuildMemoryIndexFromJsonl(this.rootPath);
 			} catch (err) {
 				if (!committed) {
 					await restoreTextFiles(snapshots);
@@ -416,7 +425,6 @@ export class Genome {
 				throw err;
 			}
 		});
-		await rebuildMemoryIndexFromJsonl(this.rootPath);
 	}
 
 	private assertCanAddSegmentWithMemories(
