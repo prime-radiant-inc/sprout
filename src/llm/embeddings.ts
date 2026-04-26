@@ -87,7 +87,10 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
 		this.dimensions = options.dimensions ?? DEFAULT_EMBEDDING_DIMENSIONS;
 		this.dtype = options.dtype ?? DEFAULT_LOCAL_EMBEDDING_DTYPE;
 		this.queryPrefix = options.queryPrefix ?? LOCAL_QUERY_PREFIX;
-		this.denseLayerPath = options.denseLayerPath ?? DEFAULT_LOCAL_DENSE_LAYER_PATH;
+		this.denseLayerPath =
+			options.denseLayerPath === undefined
+				? DEFAULT_LOCAL_DENSE_LAYER_PATH
+				: options.denseLayerPath;
 		this.loader = options.loader ?? loadTransformersModel;
 	}
 

@@ -88,6 +88,21 @@ describe("Embedding providers", () => {
 		await expect(provider.embedBatch(["alpha"])).rejects.toThrow("do not match expected 3");
 	});
 
+	test("local provider preserves explicit null dense layer path", async () => {
+		const provider = new LocalEmbeddingProvider({
+			dimensions: 2,
+			denseLayerPath: null,
+			loader: async (_model, options) => {
+				expect(options.denseLayerPath).toBeNull();
+				return {
+					extractor: async () => ({ data: Float32Array.from([1, 0]), dims: [1, 2] }),
+				};
+			},
+		});
+
+		await expect(provider.embedBatch(["alpha"])).resolves.toHaveLength(1);
+	});
+
 	test("fake provider returns deterministic vectors with provider metadata", async () => {
 		const provider = new FakeEmbeddingProvider(8);
 
