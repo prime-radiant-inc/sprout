@@ -11,6 +11,7 @@ import { parseAgentMarkdown, serializeAgentMarkdown } from "../agents/markdown-l
 import type { AgentSpec, Memory, RoutingRule } from "../kernel/types.ts";
 import type { EmbeddingProvider } from "../llm/embeddings.ts";
 import { getToolDisplayName } from "../shared/tool-display.ts";
+import { filterDuplicateMemories } from "./dedup.ts";
 import { acquireDirectoryLock } from "./file-lock.ts";
 import { sanitizeGitEnv } from "./git-env.ts";
 import {
@@ -432,7 +433,7 @@ export class Genome {
 	}
 
 	/** Add a collapsed segment and extracted memories in one verified genome mutation. */
-	async addSegmentWithMemories(segment: MemorySegment, memories: Memory[]): Promise<void> {
+	async addSegmentWithMemories(segment: MemorySegment, memories: Memory[]): Promise<Memory[]> {
 		const provider = await this.getEmbeddingProvider();
 		const embeddedSegment = await attachReadySegmentEmbedding(segment, provider);
 		const embeddedMemories: Memory[] = [];
@@ -443,30 +444,33 @@ export class Genome {
 
 		const segmentsPath = join(this.rootPath, "memories", "segments.jsonl");
 		const memoriesPath = join(this.rootPath, "memories", "memories.jsonl");
-		const filesToAdd = embeddedMemories.length > 0 ? [segmentsPath, memoriesPath] : [segmentsPath];
-		await this.withMemoryWriteLock(async () => {
+		return this.withMemoryWriteLock(async () => {
 			await this.segments.load();
 			await this.memories.load();
-			this.assertCanAddSegmentWithMemories(embeddedSegment, embeddedMemories);
+			const memoriesToStage = await filterDuplicateMemories(embeddedMemories, this.memories.all());
+			this.assertCanAddSegmentWithMemories(embeddedSegment, memoriesToStage);
+			const filesToAdd = memoriesToStage.length > 0 ? [segmentsPath, memoriesPath] : [segmentsPath];
 			const snapshots = await snapshotTextFiles(filesToAdd);
 			let committed = false;
 			try {
 				this.segments.stage(embeddedSegment);
-				for (const memory of embeddedMemories) {
-					this.memories.stage(memory);
+				const savedMemories: Memory[] = [];
+				for (const memory of memoriesToStage) {
+					savedMemories.push(this.memories.stage(memory));
 				}
-				if (embeddedMemories.length > 0) await this.memories.mergeLatestFromDisk();
+				if (memoriesToStage.length > 0) await this.memories.mergeLatestFromDisk();
 				await this.segments.save();
-				if (embeddedMemories.length > 0) await this.memories.save();
+				if (memoriesToStage.length > 0) await this.memories.save();
 				await git(this.rootPath, "add", ...filesToAdd);
 				await rebuildMemoryIndexFromJsonl(this.rootPath, { assumeMemoryWriteLock: true });
 				await git(
 					this.rootPath,
 					"commit",
 					"-m",
-					`genome: add memory segment '${embeddedSegment.id}' with ${embeddedMemories.length} memories`,
+					`genome: add memory segment '${embeddedSegment.id}' with ${memoriesToStage.length} memories`,
 				);
 				committed = true;
+				return savedMemories;
 			} catch (err) {
 				if (!committed) {
 					await restoreUncommittedMemoryMutation(this.rootPath, snapshots, filesToAdd);

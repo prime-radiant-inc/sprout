@@ -92,6 +92,43 @@ export async function filterDuplicateDrafts(
 	return accepted;
 }
 
+export async function filterDuplicateMemories(
+	memories: readonly Memory[],
+	existing: readonly Memory[],
+	options: DedupOptions = {},
+): Promise<Memory[]> {
+	const accepted: Memory[] = [];
+	for (const memory of memories) {
+		const textDuplicate = await findDuplicateMemory(
+			{ text: memory.content },
+			[...existing, ...accepted],
+			{ ...options, embeddingProvider: undefined },
+		);
+		if (textDuplicate.duplicate) continue;
+
+		const vector = memoryVectorForDedup(memory);
+		if (vector) {
+			const vectorThreshold = options.vectorThreshold ?? VECTOR_DUPLICATE_THRESHOLD;
+			const existingDuplicate = findVectorDuplicate(
+				vector,
+				existing.filter(isActiveMemoryForRecall),
+				vectorThreshold,
+			);
+			if (existingDuplicate.duplicate) continue;
+
+			const batchDuplicate = findVectorDuplicate(
+				vector,
+				accepted.filter(isActiveMemoryForRecall),
+				vectorThreshold,
+			);
+			if (batchDuplicate.duplicate) continue;
+		}
+
+		accepted.push(memory);
+	}
+	return accepted;
+}
+
 export function trigramDiceSimilarity(left: string, right: string): number {
 	const a = trigrams(normalizeText(left));
 	const b = trigrams(normalizeText(right));

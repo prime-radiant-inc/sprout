@@ -182,12 +182,12 @@ export async function collapseSessionToMemory(
 		};
 	});
 
-	await input.genome.addSegmentWithMemories(segment, memories);
+	const persistedMemories = await input.genome.addSegmentWithMemories(segment, memories);
 
 	return {
 		segment,
 		project,
-		extractedMemoryCount: filtered.length,
+		extractedMemoryCount: persistedMemories.length,
 	};
 }
 

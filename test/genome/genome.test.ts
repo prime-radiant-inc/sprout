@@ -1006,6 +1006,27 @@ describe("Genome", () => {
 			expect(await git(root, "status", "--porcelain")).toBe("");
 		});
 
+		test("addSegmentWithMemories deduplicates against fresh locked disk state", async () => {
+			const root = join(tempDir, "segment-memory-fresh-dedup");
+			const writer = await createInitializedGenome(root);
+			const staleGenome = createTestGenome(root);
+			await staleGenome.loadFromDisk();
+			await writer.addMemory(makeMemory({ id: "fresh-duplicate", content: "already present" }));
+
+			const persisted = await staleGenome.addSegmentWithMemories(
+				makeSegment({ id: "dedup-segment" }),
+				[makeMemory({ id: "stale-duplicate", content: "already present" })],
+			);
+
+			expect(persisted).toEqual([]);
+			expect(staleGenome.segments.getById("dedup-segment")).toBeDefined();
+			expect(staleGenome.memories.getById("stale-duplicate")).toBeUndefined();
+			expect(await readOptionalFile(join(root, "memories", "memories.jsonl"))).not.toContain(
+				"stale-duplicate",
+			);
+			expect(await git(root, "status", "--porcelain")).toBe("");
+		});
+
 		test("addSegmentWithMemories restores JSONL and index when commit fails after rebuild", async () => {
 			const root = join(tempDir, "segment-memory-commit-fails");
 			const genome = await createInitializedGenome(root);

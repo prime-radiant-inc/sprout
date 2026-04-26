@@ -326,6 +326,7 @@ abc123
 			},
 			addSegmentWithMemories: async (_segment: unknown, memories: readonly unknown[]) => {
 				persistedMemoryCount = memories.length;
+				return memories;
 			},
 		} as unknown as Genome;
 
@@ -390,7 +391,7 @@ abc123
 			memoryEmbeddingProvider: async () => {
 				throw new Error("empty extraction should not load embeddings");
 			},
-			addSegmentWithMemories: async () => {},
+			addSegmentWithMemories: async () => [],
 		} as unknown as Genome;
 
 		await collapseSessionToMemory({

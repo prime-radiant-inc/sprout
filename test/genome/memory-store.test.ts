@@ -333,7 +333,7 @@ describe("MemoryStore", () => {
 		const store = new MemoryStore(filePath);
 		await store.load();
 		await store.add(makeMemory({ id: "dup-1", content: "first" }));
-		expect(store.add(makeMemory({ id: "dup-1", content: "second" }))).rejects.toThrow(
+		await expect(store.add(makeMemory({ id: "dup-1", content: "second" }))).rejects.toThrow(
 			/already exists/,
 		);
 	});
