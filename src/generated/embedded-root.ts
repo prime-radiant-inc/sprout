@@ -1,7 +1,7 @@
 // biome-ignore-all lint/suspicious/noTemplateCurlyInString: embedded root files contain literal source text.
 export const embeddedRootBundle = {
-	version: "5921d488e07c782430d4f197d2e1e79aa0e74c28eff37531f268598089ec7fa8",
-	hash: "5921d488e07c782430d4f197d2e1e79aa0e74c28eff37531f268598089ec7fa8",
+	version: "cb9f42916aede0655d2e61ccbe323da2a4977b889d8af4822640072caea9ac20",
+	hash: "cb9f42916aede0655d2e61ccbe323da2a4977b889d8af4822640072caea9ac20",
 	files: [
 		{
 			path: "agents/architect.md",
@@ -212,6 +212,11 @@ export const embeddedRootBundle = {
 			path: "prompts/segment_summary_user.txt",
 			content:
 				"<session_transcript>\n{formatted_messages}\n</session_transcript>\n\nSummarize this completed session for future recall. Return only JSON.\n",
+		},
+		{
+			path: "prompts/subcortical_recall.txt",
+			content:
+				'You are Sprout\'s subcortical memory-recall pre-pass.\n\nYour job is query expansion only. Do not answer the user.\n\nGiven a user goal and optional retained context, produce:\n- an expanded memory-search query with concrete synonyms, project names, file paths, technologies, and likely durable facts\n- entity hints that should feed entity-hub recall directly\n- pinned memory ids that must be retained if the context already names them\n\nRules:\n- Preserve exact literals from the goal and additional context.\n- Add only plausible recall terms; do not invent facts.\n- Prefer storage/project/technology synonyms that improve retrieval.\n- Keep output compact.\n- Return only valid JSON. No markdown.\n\nSchema:\n{\n  "expanded_query": "compact search query",\n  "entities": [\n    {"name": "Sprout", "type": "PROJECT"}\n  ],\n  "pinned_memory_ids": ["optional-full-memory-id-or-mem_shortid"],\n  "reasoning": "short reason"\n}\n',
 		},
 		{
 			path: "root.md",

@@ -2,6 +2,7 @@ import type { Memory } from "../kernel/types.ts";
 import type { Genome } from "./genome.ts";
 import { discoverEntityHubMemories } from "./hub-discovery.ts";
 import { renderMemoryBlock } from "./render-memory-block.ts";
+import { expandedRecallQuery, type SubcorticalRecallExpansion } from "./subcortical.ts";
 
 export interface SurfacedMemoryBlock {
 	memories: Memory[];
@@ -9,6 +10,7 @@ export interface SurfacedMemoryBlock {
 	stats: {
 		similarityCount: number;
 		hubCount: number;
+		pinnedCount: number;
 		finalCount: number;
 	};
 }
@@ -21,20 +23,34 @@ interface RankedMemory {
 export async function surfaceMemories(
 	genome: Genome,
 	query: string,
-	options: { limit?: number } = {},
+	options: {
+		limit?: number;
+		subcorticalExpansion?: SubcorticalRecallExpansion;
+		pinnedMemoryIds?: readonly string[];
+	} = {},
 ): Promise<SurfacedMemoryBlock> {
 	const limit = options.limit ?? 5;
-	const similarityPool = await genome.searchMemories(query, limit * 2, 0.3);
-	const hubPool = discoverEntityHubMemories(allGenomeMemories(genome), query, limit * 2).map(
+	const allMemories = allGenomeMemories(genome);
+	const recallQuery = options.subcorticalExpansion
+		? expandedRecallQuery(query, options.subcorticalExpansion)
+		: query;
+	const entityHints = options.subcorticalExpansion?.entities.map((entity) => entity.name) ?? [];
+	const pinnedPool = pinnedMemories(allMemories, [
+		...(options.pinnedMemoryIds ?? []),
+		...(options.subcorticalExpansion?.pinned_memory_ids ?? []),
+	]);
+	const similarityPool = await genome.searchMemories(recallQuery, limit * 2, 0.3);
+	const hubPool = discoverEntityHubMemories(allMemories, recallQuery, limit * 2, entityHints).map(
 		(result) => result.memory,
 	);
-	const memories = mergeAndRankMemories(similarityPool, hubPool, limit);
+	const memories = mergeAndRankMemories(similarityPool, hubPool, limit, { pinnedPool });
 	return {
 		memories,
 		rendered: renderMemoryBlock(memories),
 		stats: {
 			similarityCount: similarityPool.length,
 			hubCount: hubPool.length,
+			pinnedCount: pinnedPool.length,
 			finalCount: memories.length,
 		},
 	};
@@ -44,8 +60,12 @@ export function mergeAndRankMemories(
 	similarityPool: readonly Memory[],
 	hubPool: readonly Memory[],
 	limit: number,
+	options: { pinnedPool?: readonly Memory[] } = {},
 ): Memory[] {
 	const ranked = new Map<string, RankedMemory>();
+	for (const [index, memory] of (options.pinnedPool ?? []).entries()) {
+		addRanked(ranked, memory, 2 / (index + 1));
+	}
 	for (const [index, memory] of similarityPool.entries()) {
 		addRanked(ranked, memory, 1 / (index + 1));
 	}
@@ -91,4 +111,16 @@ function hasSupersedesInbound(memory: Memory): boolean {
 function allGenomeMemories(genome: Genome): Memory[] {
 	const maybeStore = (genome as unknown as { memories?: { all?: () => Memory[] } }).memories;
 	return typeof maybeStore?.all === "function" ? maybeStore.all() : [];
+}
+
+function pinnedMemories(memories: readonly Memory[], ids: readonly string[]): Memory[] {
+	if (ids.length === 0) return [];
+	const normalized = new Set(ids.map((id) => id.toLowerCase()));
+	return memories.filter((memory) => {
+		if (memory.archived_at) return false;
+		return (
+			normalized.has(memory.id.toLowerCase()) ||
+			normalized.has((memory.short_id ?? "").toLowerCase())
+		);
+	});
 }

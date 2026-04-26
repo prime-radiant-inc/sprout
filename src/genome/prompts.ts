@@ -155,6 +155,32 @@ For a rejected merge:
   "reasoning": "one sentence explaining why these memories should remain separate"
 }`;
 
+export const SUBCORTICAL_RECALL_PROMPT = `You are Sprout's subcortical memory-recall pre-pass.
+
+Your job is query expansion only. Do not answer the user.
+
+Given a user goal and optional retained context, produce:
+- an expanded memory-search query with concrete synonyms, project names, file paths, technologies, and likely durable facts
+- entity hints that should feed entity-hub recall directly
+- pinned memory ids that must be retained if the context already names them
+
+Rules:
+- Preserve exact literals from the goal and additional context.
+- Add only plausible recall terms; do not invent facts.
+- Prefer storage/project/technology synonyms that improve retrieval.
+- Keep output compact.
+- Return only valid JSON. No markdown.
+
+Schema:
+{
+  "expanded_query": "compact search query",
+  "entities": [
+    {"name": "Sprout", "type": "PROJECT"}
+  ],
+  "pinned_memory_ids": ["optional-full-memory-id-or-mem_shortid"],
+  "reasoning": "short reason"
+}`;
+
 export interface PromptSet {
 	system: string;
 	user: string;
@@ -167,6 +193,7 @@ const DEFAULT_PROMPTS: Record<string, string> = {
 	"segment_summary_user.txt": SEGMENT_SUMMARY_USER_PROMPT,
 	"memory_relationship_classification.txt": MEMORY_RELATIONSHIP_CLASSIFICATION_PROMPT,
 	"memory_consolidation.txt": MEMORY_CONSOLIDATION_PROMPT,
+	"subcortical_recall.txt": SUBCORTICAL_RECALL_PROMPT,
 };
 
 export async function loadMemoryExtractionPrompts(
@@ -201,6 +228,13 @@ export async function loadMemoryConsolidationPrompt(
 	rootDir?: string,
 ): Promise<string> {
 	return loadPrompt(genomeRoot, rootDir, "memory_consolidation.txt");
+}
+
+export async function loadSubcorticalRecallPrompt(
+	genomeRoot: string,
+	rootDir?: string,
+): Promise<string> {
+	return loadPrompt(genomeRoot, rootDir, "subcortical_recall.txt");
 }
 
 export async function loadPrompt(

@@ -43,6 +43,23 @@ describe("recall pipeline", () => {
 		expect(result[0]?.matchedEntities).toEqual(["Sprout"]);
 	});
 
+	test("entity hints feed hub discovery even when query omits the entity name", () => {
+		const result = discoverEntityHubMemories(
+			[
+				memory({
+					id: "m-sprout",
+					content: "Sprout uses SQLite for memory",
+					entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
+				}),
+			],
+			"What database should the memory port use?",
+			10,
+			["Sprout"],
+		);
+
+		expect(result.map((item) => item.memory.id)).toEqual(["m-sprout"]);
+	});
+
 	test("merges similarity and hub pools with debut boost and supersedes penalty", () => {
 		const newMemory = memory({ id: "new", content: "new local embedding decision" });
 		const superseded = memory({
@@ -54,6 +71,14 @@ describe("recall pipeline", () => {
 		const merged = mergeAndRankMemories([superseded], [newMemory], 2);
 
 		expect(merged.map((item) => item.id)).toEqual(["new", "old"]);
+	});
+
+	test("pinned memories are retained ahead of weak recall matches", () => {
+		const pinned = memory({ id: "pinned", content: "Pinned prior memory", confidence: 0.4 });
+		const weak = memory({ id: "weak", content: "Weak match", confidence: 0.8 });
+		const merged = mergeAndRankMemories([weak], [], 1, { pinnedPool: [pinned] });
+
+		expect(merged.map((item) => item.id)).toEqual(["pinned"]);
 	});
 
 	test("renders MIRA-style XML memory blocks with stable short ids", () => {

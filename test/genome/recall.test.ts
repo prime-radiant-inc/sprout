@@ -5,7 +5,9 @@ import { join } from "node:path";
 import { Genome } from "../../src/genome/genome.ts";
 import { recall, renderMemories, renderRoutingHints } from "../../src/genome/recall.ts";
 import { type AgentSpec, DEFAULT_CONSTRAINTS, type Memory } from "../../src/kernel/types.ts";
+import type { Client } from "../../src/llm/client.ts";
 import type { EmbeddingProvider } from "../../src/llm/embeddings.ts";
+import { ContentKind, type Request, type Response } from "../../src/llm/types.ts";
 import { createTestGenome } from "../helpers/test-genome.ts";
 
 function makeSpec(name: string): AgentSpec {
@@ -53,6 +55,42 @@ function createRecallEmbeddingProvider(): EmbeddingProvider {
 				};
 			}),
 	};
+}
+
+function createSqliteExpansionProvider(): EmbeddingProvider {
+	return {
+		provider: "test-sqlite-expansion",
+		model: "test-sqlite-expansion",
+		dimensions: 768,
+		embedBatch: async (texts, options = {}) =>
+			texts.map((text) => {
+				const vector = new Float32Array(768);
+				const normalized = text.toLowerCase();
+				const slot =
+					normalized.includes("sqlite") && (options.kind ?? "document") === "query" ? 11 : 12;
+				vector[normalized.includes("sqlite") ? 11 : slot] = 1;
+				return {
+					text,
+					vector,
+					provider: "test-sqlite-expansion",
+					model: "test-sqlite-expansion",
+					dimensions: 768,
+				};
+			}),
+	};
+}
+
+function clientReturning(json: string): Client {
+	return {
+		complete: async (request: Request): Promise<Response> => ({
+			id: "recall-subcortical-test",
+			model: request.model,
+			provider: request.provider ?? "test",
+			message: { role: "assistant", content: [{ kind: ContentKind.TEXT, text: json }] },
+			finish_reason: { reason: "stop" },
+			usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+		}),
+	} as unknown as Client;
 }
 
 function slotForText(text: string, kind: "query" | "document"): number {
@@ -116,6 +154,31 @@ describe("recall", () => {
 		const result = await recall(genome, "dependency injection");
 
 		expect(result.memories.map((memory) => memory.id)).toEqual(["m1"]);
+	});
+
+	test("subcortical expansion surfaces memories that the original query misses", async () => {
+		const root = join(tempDir, "recall-subcortical");
+		const genome = createTestGenome(root, undefined, {
+			embeddingProvider: createSqliteExpansionProvider(),
+		});
+		await genome.init();
+		await genome.addMemory(makeMemory("m-sqlite", "The MIRA port persists facts in SQLite."));
+
+		const query = "what backing store should codemira style have?";
+		const withoutExpansion = await recall(genome, query);
+		const withExpansion = await recall(genome, query, {
+			subcortical: {
+				prompt: "expand recall",
+				client: clientReturning(
+					`{"expanded_query":"SQLite local database persistence facts","entities":[],"pinned_memory_ids":[]}`,
+				),
+				model: "fast-model",
+				provider: "test",
+			},
+		});
+
+		expect(withoutExpansion.memories).toHaveLength(0);
+		expect(withExpansion.memories.map((memory) => memory.id)).toEqual(["m-sqlite"]);
 	});
 
 	test("returns matching routing hints", async () => {

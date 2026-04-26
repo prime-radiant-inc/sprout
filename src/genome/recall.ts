@@ -1,7 +1,22 @@
 import type { Memory, RecallResult, RoutingRule } from "../kernel/types.ts";
+import type { Client } from "../llm/client.ts";
 import type { Genome } from "./genome.ts";
 import { surfaceMemories } from "./recall-pipeline.ts";
 import { renderMemoryBlock } from "./render-memory-block.ts";
+import { runSubcorticalPrepass, type SubcorticalRecallExpansion } from "./subcortical.ts";
+
+export interface RecallOptions {
+	limit?: number;
+	pinnedMemoryIds?: readonly string[];
+	additionalContext?: string;
+	subcortical?: {
+		prompt: string;
+		client: Client;
+		model: string;
+		provider: string;
+		maxTokens?: number;
+	};
+}
 
 /**
  * Search the genome for context relevant to the query.
@@ -12,12 +27,28 @@ import { renderMemoryBlock } from "./render-memory-block.ts";
  * 2. Surface memories through the local hybrid index plus entity-hub merge.
  * 3. Match routing rules by keyword.
  */
-export async function recall(genome: Genome, query: string): Promise<RecallResult> {
+export async function recall(
+	genome: Genome,
+	query: string,
+	options: RecallOptions = {},
+): Promise<RecallResult> {
 	// 1. Agents: return all (placeholder until embeddings)
 	const agents = genome.allAgents();
 
+	const subcorticalExpansion: SubcorticalRecallExpansion | undefined = options.subcortical
+		? await runSubcorticalPrepass({
+				query,
+				additionalContext: options.additionalContext,
+				...options.subcortical,
+			})
+		: undefined;
+
 	// 2. Surface memories
-	const surface = await surfaceMemories(genome, query, { limit: 5 });
+	const surface = await surfaceMemories(genome, query, {
+		limit: options.limit ?? 5,
+		subcorticalExpansion,
+		pinnedMemoryIds: options.pinnedMemoryIds,
+	});
 	const memories = surface.memories;
 
 	// 3. Match routing rules

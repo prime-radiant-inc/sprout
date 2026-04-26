@@ -10,15 +10,22 @@ export function discoverEntityHubMemories(
 	memories: readonly Memory[],
 	query: string,
 	limit = 10,
+	entityHints: readonly string[] = [],
 ): HubMemoryResult[] {
 	const normalizedQuery = query.toLowerCase();
-	if (!normalizedQuery.trim()) return [];
+	const normalizedHints = new Set(
+		entityHints.map((hint) => hint.toLowerCase().trim()).filter((hint) => hint.length > 0),
+	);
+	if (!normalizedQuery.trim() && normalizedHints.size === 0) return [];
 
 	return memories
 		.flatMap((memory) => {
 			if (memory.archived_at) return [];
 			const matchedEntities = (memory.entity_links ?? [])
-				.filter((entity) => normalizedQuery.includes(entity.name.toLowerCase()))
+				.filter((entity) => {
+					const name = entity.name.toLowerCase();
+					return normalizedQuery.includes(name) || normalizedHints.has(name);
+				})
 				.map((entity) => entity.name);
 			if (matchedEntities.length === 0) return [];
 			return [
