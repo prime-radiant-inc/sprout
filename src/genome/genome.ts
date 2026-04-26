@@ -14,6 +14,7 @@ import { getToolDisplayName } from "../shared/tool-display.ts";
 import { memoryIndexPath, rebuildMemoryIndexFromJsonl } from "./index-builder.ts";
 import { attachReadyMemoryEmbedding } from "./memory-embedding.ts";
 import { MemoryIndex } from "./memory-index.ts";
+import { memoryShortId } from "./memory-schema.ts";
 import { MemoryStore } from "./memory-store.ts";
 import { type DetectedProject, ProjectActivityStore } from "./projects.ts";
 import {
@@ -341,6 +342,63 @@ export class Genome {
 		await git(this.rootPath, "add", join(this.rootPath, "memories", "segments.jsonl"));
 		await git(this.rootPath, "commit", "-m", `genome: add memory segment '${embeddedSegment.id}'`);
 		await rebuildMemoryIndexFromJsonl(this.rootPath);
+	}
+
+	/** Add a collapsed segment and extracted memories in one verified genome mutation. */
+	async addSegmentWithMemories(segment: MemorySegment, memories: Memory[]): Promise<void> {
+		const provider = await this.getEmbeddingProvider();
+		const embeddedSegment = await attachReadySegmentEmbedding(segment, provider);
+		const embeddedMemories: Memory[] = [];
+		for (const memory of memories) {
+			stampMemoryActivitySnapshots(memory, this.projects.all());
+			embeddedMemories.push(await attachReadyMemoryEmbedding(memory, provider));
+		}
+		this.assertCanAddSegmentWithMemories(embeddedSegment, embeddedMemories);
+
+		await this.segments.add(embeddedSegment);
+		for (const memory of embeddedMemories) {
+			await this.memories.add(memory);
+		}
+
+		const segmentsPath = join(this.rootPath, "memories", "segments.jsonl");
+		const memoriesPath = join(this.rootPath, "memories", "memories.jsonl");
+		const filesToAdd = embeddedMemories.length > 0 ? [segmentsPath, memoriesPath] : [segmentsPath];
+		await git(this.rootPath, "add", ...filesToAdd);
+		await git(
+			this.rootPath,
+			"commit",
+			"-m",
+			`genome: add memory segment '${embeddedSegment.id}' with ${embeddedMemories.length} memories`,
+		);
+		await rebuildMemoryIndexFromJsonl(this.rootPath);
+	}
+
+	private assertCanAddSegmentWithMemories(
+		segment: MemorySegment,
+		memories: readonly Memory[],
+	): void {
+		if (this.segments.getById(segment.id)) {
+			throw new Error(`Memory segment with id '${segment.id}' already exists`);
+		}
+		const existingMemories = this.memories.all();
+		const existingMemoryIds = new Set(existingMemories.map((memory) => memory.id));
+		const existingShortIds = new Set(
+			existingMemories.map((memory) => (memory.short_id ?? memoryShortId(memory.id)).toLowerCase()),
+		);
+		const newMemoryIds = new Set<string>();
+		const newShortIds = new Set<string>();
+
+		for (const memory of memories) {
+			if (existingMemoryIds.has(memory.id) || newMemoryIds.has(memory.id)) {
+				throw new Error(`Memory with id '${memory.id}' already exists`);
+			}
+			const shortId = (memory.short_id ?? memoryShortId(memory.id)).toLowerCase();
+			if (existingShortIds.has(shortId) || newShortIds.has(shortId)) {
+				throw new Error(`Memory short id collision '${shortId}' for '${memory.id}'`);
+			}
+			newMemoryIds.add(memory.id);
+			newShortIds.add(shortId);
+		}
 	}
 
 	private async getEmbeddingProvider(): Promise<EmbeddingProvider> {

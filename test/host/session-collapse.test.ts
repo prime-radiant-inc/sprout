@@ -10,6 +10,7 @@ import {
 } from "../../src/core/session-collapse.ts";
 import type { SessionEvent } from "../../src/kernel/types.ts";
 import type { Client } from "../../src/llm/client.ts";
+import type { EmbeddingProvider } from "../../src/llm/embeddings.ts";
 import type { ProviderModel, Request, Response } from "../../src/llm/types.ts";
 import { Msg } from "../../src/llm/types.ts";
 import { createTestGenome } from "../helpers/test-genome.ts";
@@ -49,6 +50,32 @@ function makeClientSequence(responses: string[]): Client {
 			return makeResponse(response);
 		},
 	} as unknown as Client;
+}
+
+function embeddingProviderThatFailsOnCall(failCall: number): EmbeddingProvider {
+	let callCount = 0;
+	return {
+		provider: "failing",
+		model: "failing",
+		dimensions: 768,
+		embedBatch: async (texts) => {
+			callCount++;
+			if (callCount === failCall) throw new Error("embedding boom");
+			return texts.map((text) => ({
+				text,
+				vector: Float32Array.from(unitVector()),
+				provider: "failing",
+				model: "failing",
+				dimensions: 768,
+			}));
+		},
+	};
+}
+
+function unitVector(): number[] {
+	const vector = new Array<number>(768).fill(0);
+	vector[0] = 1;
+	return vector;
 }
 
 describe("session collapse transcript", () => {
@@ -302,6 +329,45 @@ describe("session collapse transcript", () => {
 				now: 300,
 			}),
 		).rejects.toThrow();
+
+		expect(genome.segments.all()).toHaveLength(0);
+		expect(genome.memories.all()).toHaveLength(0);
+	});
+
+	test("does not persist partial collapse state when memory embedding fails", async () => {
+		const genomeDir = join(tempDir, "genome-embedding-fail");
+		const rootDir = join(import.meta.dir, "../../root");
+		const workDir = join(tempDir, "work-embedding-fail");
+		await mkdir(workDir, { recursive: true });
+		const genome = createTestGenome(genomeDir, rootDir, {
+			embeddingProvider: embeddingProviderThatFailsOnCall(3),
+		});
+		await genome.init();
+		await genome.initFromRoot();
+		const client = makeClientSequence([
+			JSON.stringify({
+				summary: "Summary before embedding failure.",
+				title: "Embedding failure",
+				complexity: 1,
+			}),
+			JSON.stringify([{ text: "Persist this extracted memory.", tags: ["memory"] }]),
+		]);
+
+		await expect(
+			collapseSessionToMemory({
+				events: [
+					event("perceive", 100, { goal: "Remember this." }),
+					event("session_end", 200, { output: "Done." }),
+				],
+				genome,
+				client,
+				model: "claude-sonnet-4-6",
+				provider: "anthropic",
+				sessionId: "session-collapse-embedding-fail",
+				cwd: workDir,
+				now: 300,
+			}),
+		).rejects.toThrow("embedding boom");
 
 		expect(genome.segments.all()).toHaveLength(0);
 		expect(genome.memories.all()).toHaveLength(0);

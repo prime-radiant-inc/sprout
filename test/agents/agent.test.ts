@@ -1867,6 +1867,7 @@ describe("Agent", () => {
 	test("delegated agents reuse the root surfaced memory block", async () => {
 		let callCount = 0;
 		let memorySearches = 0;
+		const routingRuleQueries: string[] = [];
 		const delegateCalls = Array.from({ length: 5 }, (_, index) => ({
 			kind: ContentKind.TOOL_CALL,
 			tool_call: {
@@ -1918,7 +1919,20 @@ describe("Agent", () => {
 					},
 				];
 			},
-			matchRoutingRules: () => [],
+			matchRoutingRules: (query: string) => {
+				routingRuleQueries.push(query);
+				return query.startsWith("subtask")
+					? [
+							{
+								id: "route-subtask",
+								condition: "subtask",
+								preference: "use leaf",
+								strength: 1,
+								source: "test",
+							},
+						]
+					: [];
+			},
 			markMemoriesUsed: async () => {},
 			refreshIfDiskChanged: async () => false,
 			loadAgentTools: async () => [],
@@ -1939,8 +1953,21 @@ describe("Agent", () => {
 		await agent.run("coordinate five delegates");
 
 		expect(memorySearches).toBe(1);
+		expect(routingRuleQueries).toEqual([
+			"coordinate five delegates",
+			"subtask 0",
+			"subtask 1",
+			"subtask 2",
+			"subtask 3",
+			"subtask 4",
+		]);
 		const recallEvents = events.collected().filter((event) => event.kind === "recall");
 		expect(recallEvents.filter((event) => event.data.cached === true)).toHaveLength(5);
+		expect(
+			recallEvents
+				.filter((event) => event.data.cached === true)
+				.every((event) => event.data.routing_hint_count === 1),
+		).toBe(true);
 	});
 
 	test("archivist delegations do not receive the surfaced memory block", async () => {

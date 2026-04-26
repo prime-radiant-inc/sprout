@@ -1122,11 +1122,15 @@ export class Agent {
 		if (this.genome) {
 			if (this.initialSurfacedMemoryBlock !== undefined) {
 				this.surfacedMemoryBlock = this.initialSurfacedMemoryBlock;
-				recallContext = { memoryBlock: this.surfacedMemoryBlock };
+				const routingHints = this.genome.matchRoutingRules(goal);
+				recallContext = {
+					memoryBlock: this.surfacedMemoryBlock,
+					routingHints,
+				};
 				this.emitAndLog("recall", agentId, this.depth, {
 					agent_count: this.availableAgents.length,
 					memory_count: 0,
-					routing_hint_count: 0,
+					routing_hint_count: routingHints.length,
 					cached: true,
 				});
 			} else {

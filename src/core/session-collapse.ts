@@ -134,10 +134,7 @@ export async function collapseSessionToMemory(
 		};
 	});
 
-	for (const memory of memories) {
-		await input.genome.addMemory(memory);
-	}
-	await input.genome.addSegment(segment);
+	await input.genome.addSegmentWithMemories(segment, memories);
 
 	return {
 		segment,
