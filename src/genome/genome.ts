@@ -318,19 +318,25 @@ export class Genome {
 		}
 		await this.withMemoryWriteLock(async () => {
 			await this.memories.load();
-			for (const memory of embeddedMemories) {
-				this.memories.stage(memory);
+			try {
+				assertCanStageMemoryBatch(this.memories.all(), embeddedMemories);
+				for (const memory of embeddedMemories) {
+					this.memories.stage(memory);
+				}
+				await this.memories.mergeLatestFromDisk();
+				await this.memories.save();
+				const memoriesPath = join(this.rootPath, "memories", "memories.jsonl");
+				await git(this.rootPath, "add", memoriesPath);
+				const status = await git(this.rootPath, "status", "--porcelain", "--", memoriesPath);
+				if (!status) {
+					throw new Error("memory mutation produced no changes");
+				}
+				await git(this.rootPath, "commit", "-m", commitMessage);
+				await rebuildMemoryIndexFromJsonl(this.rootPath);
+			} catch (error) {
+				await this.memories.load();
+				throw error;
 			}
-			await this.memories.mergeLatestFromDisk();
-			await this.memories.save();
-			const memoriesPath = join(this.rootPath, "memories", "memories.jsonl");
-			await git(this.rootPath, "add", memoriesPath);
-			const status = await git(this.rootPath, "status", "--porcelain", "--", memoriesPath);
-			if (!status) {
-				throw new Error("memory mutation produced no changes");
-			}
-			await git(this.rootPath, "commit", "-m", commitMessage);
-			await rebuildMemoryIndexFromJsonl(this.rootPath);
 		});
 	}
 
@@ -1129,6 +1135,33 @@ async function acquireDirectoryLock(lockDir: string): Promise<() => Promise<void
 
 async function sleep(ms: number): Promise<void> {
 	await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function assertCanStageMemoryBatch(
+	existingMemories: readonly Memory[],
+	newMemories: readonly Memory[],
+): void {
+	const ids = new Set(existingMemories.map((memory) => memory.id));
+	const shortIds = new Map(
+		existingMemories.map((memory) => [
+			(memory.short_id ?? memoryShortId(memory.id)).toLowerCase(),
+			memory.id,
+		]),
+	);
+	for (const memory of newMemories) {
+		if (ids.has(memory.id)) {
+			throw new Error(`Memory with id '${memory.id}' already exists`);
+		}
+		ids.add(memory.id);
+		const shortId = (memory.short_id ?? memoryShortId(memory.id)).toLowerCase();
+		const collision = shortIds.get(shortId);
+		if (collision) {
+			throw new Error(
+				`Memory short id collision '${shortId}' for '${memory.id}' and '${collision}'`,
+			);
+		}
+		shortIds.set(shortId, memory.id);
+	}
 }
 
 async function snapshotTextFiles(paths: readonly string[]): Promise<Map<string, TextFileSnapshot>> {

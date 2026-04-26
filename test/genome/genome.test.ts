@@ -499,6 +499,32 @@ describe("Genome", () => {
 			}
 		});
 
+		test("addMemories rolls back in-memory state when batch validation fails", async () => {
+			const root = join(tempDir, "mem-add-batch-rollback");
+			const genome = await createInitializedGenome(root);
+			const head = await git(root, "rev-parse", "HEAD");
+			const first = {
+				...makeMemory({ id: "batch-memory-a", content: "batch fact a" }),
+				short_id: "mem_batch",
+			};
+			const second = {
+				...makeMemory({ id: "batch-memory-b", content: "batch fact b" }),
+				short_id: "mem_batch",
+			};
+
+			await expect(
+				genome.addMemories([first, second], "genome: add invalid memory batch"),
+			).rejects.toThrow("short id collision");
+
+			expect(genome.memories.getById("batch-memory-a")).toBeUndefined();
+			expect(genome.memories.getById("batch-memory-b")).toBeUndefined();
+			expect(await readOptionalFile(join(root, "memories", "memories.jsonl"))).not.toContain(
+				"batch-memory",
+			);
+			expect(await git(root, "rev-parse", "HEAD")).toBe(head);
+			expect(await git(root, "status", "--porcelain")).toBe("");
+		});
+
 		test("searchMemories reuses a fresh derived index", async () => {
 			const root = join(tempDir, "mem-search-index-fresh");
 			const genome = await createInitializedGenome(root);

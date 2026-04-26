@@ -65,6 +65,52 @@ describe("OpenAIAdapter", () => {
 		expect((params as any).prompt_cache_retention).toBe("in_memory");
 	});
 
+	test("reads Responses API cached input token telemetry", async () => {
+		const rawResponse = {
+			id: "resp-cache",
+			model: "gpt-4.1-mini",
+			status: "completed",
+			output: [
+				{
+					type: "message",
+					content: [{ type: "output_text", text: "cached" }],
+				},
+			],
+			usage: {
+				input_tokens: 100,
+				output_tokens: 5,
+				input_tokens_details: { cached_tokens: 42 },
+				prompt_tokens_details: { cached_tokens: 7 },
+			},
+		};
+		async function* streamResponse() {
+			yield { type: "response.output_text.delta", delta: "cached" };
+			yield { type: "response.output_item.done", item: { type: "message" } };
+			yield { type: "response.completed", response: rawResponse };
+		}
+		const adapter = new OpenAIAdapter("test-key");
+		(adapter as any).client = {
+			responses: {
+				create: async (params: { stream?: boolean }) =>
+					params.stream ? streamResponse() : rawResponse,
+			},
+		};
+		const request: Request = {
+			model: "gpt-4.1-mini",
+			messages: [{ role: "user", content: [{ kind: ContentKind.TEXT, text: "hello" }] }],
+		};
+
+		const complete = await adapter.complete(request);
+		const streamEvents = [];
+		for await (const event of adapter.stream(request)) {
+			streamEvents.push(event);
+		}
+		const finish = streamEvents.find((event) => event.type === "finish");
+
+		expect(complete.usage.cache_read_tokens).toBe(42);
+		expect(finish?.usage?.cache_read_tokens).toBe(42);
+	});
+
 	test("complete returns a text response", async () => {
 		const vcr = vcrFor("complete-returns-a-text-response", realAdapter);
 		const req: Request = {

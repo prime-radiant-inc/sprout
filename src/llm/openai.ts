@@ -111,7 +111,7 @@ export class OpenAIAdapter implements ProviderAdapter {
 					output_tokens: resp.usage?.output_tokens ?? 0,
 					total_tokens: (resp.usage?.input_tokens ?? 0) + (resp.usage?.output_tokens ?? 0),
 					reasoning_tokens: (resp.usage as any)?.output_tokens_details?.reasoning_tokens,
-					cache_read_tokens: (resp.usage as any)?.prompt_tokens_details?.cached_tokens,
+					cache_read_tokens: cachedInputTokens(resp.usage),
 				};
 			}
 		}
@@ -363,7 +363,7 @@ function parseResponsesResponse(raw: OpenAI.Responses.Response, provider: Provid
 		output_tokens: raw.usage?.output_tokens ?? 0,
 		total_tokens: (raw.usage?.input_tokens ?? 0) + (raw.usage?.output_tokens ?? 0),
 		reasoning_tokens: (raw.usage as any)?.output_tokens_details?.reasoning_tokens,
-		cache_read_tokens: (raw.usage as any)?.prompt_tokens_details?.cached_tokens,
+		cache_read_tokens: cachedInputTokens(raw.usage),
 	};
 
 	return {
@@ -375,6 +375,18 @@ function parseResponsesResponse(raw: OpenAI.Responses.Response, provider: Provid
 		usage,
 		raw: raw as unknown as Record<string, unknown>,
 	};
+}
+
+function cachedInputTokens(usage: unknown): number | undefined {
+	const record = usage as
+		| {
+				input_tokens_details?: { cached_tokens?: number };
+				prompt_tokens_details?: { cached_tokens?: number };
+		  }
+		| undefined;
+	return (
+		record?.input_tokens_details?.cached_tokens ?? record?.prompt_tokens_details?.cached_tokens
+	);
 }
 
 function mapOpenAIFinishReason(status: string): FinishReason {
