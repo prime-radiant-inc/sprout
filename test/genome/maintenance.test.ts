@@ -316,7 +316,7 @@ describe("memory maintenance operator flow", () => {
 				memory({
 					id: "manual-b",
 					content: "Sprout memory uses SQLite.",
-					source: "user:manual",
+					source: "user",
 					project_ids: ["sprout"],
 				}),
 			);

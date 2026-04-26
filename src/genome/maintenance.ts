@@ -16,6 +16,7 @@ import {
 	projectDueForEntityGc,
 } from "./entity-gc.ts";
 import type { Genome } from "./genome.ts";
+import { isProtectedManualMemory } from "./memory-write-policy.ts";
 import type { ProjectActivityRecord } from "./projects.ts";
 
 const GLOBAL_MAINTENANCE_PROJECT_ID = "__global__";
@@ -237,10 +238,6 @@ function validateConsolidationMergeDecision(
 		}
 		seenMergedMemoryIds.add(memoryId);
 	}
-}
-
-function isProtectedManualMemory(memory: Memory): boolean {
-	return memory.source === "manual" || memory.source.startsWith("user:");
 }
 
 function validateEntityGcMergeDecision(

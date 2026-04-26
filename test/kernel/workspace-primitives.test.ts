@@ -171,6 +171,7 @@ describe("workspace primitives", () => {
 				genomeContext(genome, "archivist", {
 					additive: true,
 					allowedMemoryIds: ["mem_alpha00"],
+					allowedMemoryIdsByOperation: { annotate: ["mem_alpha00"] },
 					allowedOperations: ["annotate"],
 				}),
 			);

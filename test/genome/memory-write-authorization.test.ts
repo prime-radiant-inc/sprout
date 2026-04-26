@@ -47,6 +47,7 @@ describe("memory write authorization derivation", () => {
 		).toEqual({
 			additive: true,
 			allowedMemoryIds: ["mem_alpha00"],
+			allowedMemoryIdsByOperation: { annotate: ["mem_alpha00"] },
 			allowedOperations: ["annotate"],
 		});
 		expect(
@@ -63,6 +64,7 @@ describe("memory write authorization derivation", () => {
 		).toEqual({
 			additive: true,
 			allowedMemoryIds: ["mem_alpha00", "mem_beta00"],
+			allowedMemoryIdsByOperation: { link: ["mem_alpha00", "mem_beta00"] },
 			allowedOperations: ["link"],
 		});
 		expect(
@@ -73,6 +75,7 @@ describe("memory write authorization derivation", () => {
 		).toEqual({
 			additive: true,
 			allowedMemoryIds: ["mem_alpha00", "mem_beta00"],
+			allowedMemoryIdsByOperation: { link: ["mem_alpha00", "mem_beta00"] },
 			allowedOperations: ["link"],
 		});
 		expect(
@@ -83,6 +86,7 @@ describe("memory write authorization derivation", () => {
 		).toEqual({
 			additive: true,
 			allowedMemoryIds: ["mem_alpha00", "mem_beta00"],
+			allowedMemoryIdsByOperation: { link: ["mem_alpha00", "mem_beta00"] },
 			allowedOperations: ["link"],
 		});
 		expect(
@@ -93,6 +97,7 @@ describe("memory write authorization derivation", () => {
 		).toEqual({
 			additive: true,
 			allowedMemoryIds: ["mem_alpha00"],
+			allowedMemoryIdsByOperation: { annotate: ["mem_alpha00"] },
 			allowedOperations: ["annotate"],
 		});
 		expect(
@@ -103,6 +108,7 @@ describe("memory write authorization derivation", () => {
 		).toEqual({
 			additive: true,
 			allowedMemoryIds: ["mem_alpha00"],
+			allowedMemoryIdsByOperation: { annotate: ["mem_alpha00"] },
 			allowedOperations: ["annotate"],
 		});
 	});
@@ -137,6 +143,7 @@ describe("memory write authorization derivation", () => {
 		).toEqual({
 			destructive: true,
 			allowedMemoryIds: ["mem_alpha00"],
+			allowedMemoryIdsByOperation: { archive: ["mem_alpha00"] },
 			allowedOperations: ["archive"],
 		});
 		for (const userInstruction of [
@@ -169,7 +176,23 @@ describe("memory write authorization derivation", () => {
 		).toEqual({
 			destructive: true,
 			allowedMemoryIds: ["mem_old000", "mem_new000"],
+			allowedMemoryIdsByOperation: { supersede: ["mem_old000", "mem_new000"] },
 			allowedOperations: ["supersede"],
+		});
+		expect(
+			deriveTrustedMemoryWriteAuthorization({
+				agentName: "archivist",
+				userInstruction:
+					"I confirm: archive memory mem_alpha00 and link memory mem_beta00 to mem_gamma00",
+			}),
+		).toEqual({
+			destructive: true,
+			allowedMemoryIds: ["mem_alpha00", "mem_beta00", "mem_gamma00"],
+			allowedMemoryIdsByOperation: {
+				archive: ["mem_alpha00"],
+				link: ["mem_beta00", "mem_gamma00"],
+			},
+			allowedOperations: ["link", "archive"],
 		});
 		expect(
 			deriveTrustedMemoryWriteAuthorization({

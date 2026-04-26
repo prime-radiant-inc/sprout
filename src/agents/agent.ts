@@ -384,6 +384,13 @@ export class Agent {
 					additive: true,
 					destructive: true,
 					allowedMemoryIds: ["mem_framework"],
+					allowedMemoryIdsByOperation: {
+						annotate: ["mem_framework"],
+						archive: ["mem_framework"],
+						consolidate: ["mem_framework"],
+						link: ["mem_framework"],
+						supersede: ["mem_framework"],
+					},
 					allowedOperations: ["annotate", "archive", "consolidate", "link", "supersede"],
 				},
 			},

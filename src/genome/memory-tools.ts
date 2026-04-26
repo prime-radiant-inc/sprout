@@ -518,7 +518,7 @@ function additiveScopeAllows(
 	memories: readonly Memory[],
 ): boolean {
 	if (!operationAllowed(ctx, operation, false)) return false;
-	return memories.every((memory) => memoryAllowed(ctx, memory));
+	return memories.every((memory) => memoryAllowed(ctx, operation, memory));
 }
 
 function destructiveScopeAllows(
@@ -527,7 +527,7 @@ function destructiveScopeAllows(
 	memories: readonly Memory[],
 ): boolean {
 	if (!operationAllowed(ctx, operation, true)) return false;
-	return memories.every((memory) => memoryAllowed(ctx, memory));
+	return memories.every((memory) => memoryAllowed(ctx, operation, memory));
 }
 
 function operationAllowed(
@@ -536,20 +536,31 @@ function operationAllowed(
 	destructive: boolean,
 ): boolean {
 	if (destructive ? !trustedDestructiveWrite(ctx) : !trustedAdditiveWrite(ctx)) return false;
-	if (!ctx.writeAuthorization?.allowedMemoryIds?.length) return false;
+	if (operationMemoryIds(ctx, operation).length === 0) return false;
 	const operations = ctx.writeAuthorization?.allowedOperations;
 	if (!operations || operations.length === 0) return false;
 	return operations.includes(operation);
 }
 
-function memoryAllowed(ctx: MemoryToolContext, memory: Memory): boolean {
-	const allowedIds = ctx.writeAuthorization?.allowedMemoryIds;
-	if (!allowedIds || allowedIds.length === 0) return false;
+function memoryAllowed(
+	ctx: MemoryToolContext,
+	operation: MemoryWriteOperation,
+	memory: Memory,
+): boolean {
+	const allowedIds = operationMemoryIds(ctx, operation);
+	if (allowedIds.length === 0) return false;
 	const normalized = new Set(allowedIds.map((id) => id.toLowerCase()));
 	return (
 		normalized.has(memory.id.toLowerCase()) ||
 		normalized.has((memory.short_id ?? memoryShortId(memory.id)).toLowerCase())
 	);
+}
+
+function operationMemoryIds(
+	ctx: MemoryToolContext,
+	operation: MemoryWriteOperation,
+): readonly string[] {
+	return ctx.writeAuthorization?.allowedMemoryIdsByOperation?.[operation] ?? [];
 }
 
 function hasMemoryLink(

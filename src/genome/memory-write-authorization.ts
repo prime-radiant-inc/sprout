@@ -1,9 +1,11 @@
 export type MemoryWriteOperation = "annotate" | "archive" | "consolidate" | "link" | "supersede";
+export type MemoryWriteOperationIds = Partial<Record<MemoryWriteOperation, readonly string[]>>;
 
 export interface MemoryWriteAuthorization {
 	additive?: boolean;
 	destructive?: boolean;
 	allowedMemoryIds?: readonly string[];
+	allowedMemoryIdsByOperation?: MemoryWriteOperationIds;
 	allowedOperations?: readonly MemoryWriteOperation[];
 }
 
@@ -23,6 +25,8 @@ const LINK_MUTATION_PATTERN = new RegExp(
 	`${REQUEST_PREFIX_PATTERN_SOURCE}\\b(link|relate)\\b[\\s\\S]{0,80}\\b(memory|memories|mem_[a-z0-9]+)\\b`,
 	"i",
 );
+const LINK_MEMORY_ID_CLAUSE_PATTERN =
+	/\b(link|relate)\b[\s\S]{0,80}\b(memory|memories|mem_[a-z0-9]+)\b/i;
 const MARK_RELATIONSHIP_MUTATION_PATTERN = new RegExp(
 	`${REQUEST_PREFIX_PATTERN_SOURCE}\\bmark\\b[\\s\\S]{0,80}\\b(memory|memories|mem_[a-z0-9]+)\\b[\\s\\S]{0,80}\\b(conflicting|conflicts|corroborating|corroborates|refining|refines|contextualizing|contextualizes|related)\\b`,
 	"i",
@@ -50,21 +54,41 @@ export function deriveTrustedMemoryWriteAuthorization(input: {
 	if (META_QUESTION_PATTERN.test(text) && MEMORY_WRITE_VERB_PATTERN.test(text)) {
 		return undefined;
 	}
-	const allowedMemoryIds = extractMemoryIds(text);
 	const allowedOperations = extractAllowedOperations(text);
 	if (allowedOperations.length === 0 || hasNegatedMutation(text, allowedOperations)) {
 		return undefined;
 	}
-	const destructive = allowedOperations.some((operation) =>
+	const allowedMemoryIdsByOperation = extractMemoryIdsByOperation(text, allowedOperations);
+	const scopedAllowedOperations = allowedOperations.filter(
+		(operation) => (allowedMemoryIdsByOperation[operation]?.length ?? 0) > 0,
+	);
+	if (scopedAllowedOperations.length === 0) return undefined;
+	const scopedMemoryIdSet = new Set(
+		scopedAllowedOperations.flatMap((operation) => [
+			...(allowedMemoryIdsByOperation[operation] ?? []),
+		]),
+	);
+	const allowedMemoryIds = extractMemoryIds(text).filter((id) => scopedMemoryIdSet.has(id));
+	const destructive = scopedAllowedOperations.some((operation) =>
 		["archive", "consolidate", "supersede"].includes(operation),
 	);
 
 	if (destructive || DESTRUCTIVE_MUTATION_PATTERN.test(text)) {
 		if (!hasExplicitConfirmation(text) || allowedMemoryIds.length === 0) return undefined;
-		return { destructive: true, allowedMemoryIds, allowedOperations };
+		return {
+			destructive: true,
+			allowedMemoryIds,
+			allowedMemoryIdsByOperation,
+			allowedOperations: scopedAllowedOperations,
+		};
 	}
 	if (allowedMemoryIds.length === 0) return undefined;
-	return { additive: true, allowedMemoryIds, allowedOperations };
+	return {
+		additive: true,
+		allowedMemoryIds,
+		allowedMemoryIdsByOperation,
+		allowedOperations: scopedAllowedOperations,
+	};
 }
 
 function hasExplicitConfirmation(text: string): boolean {
@@ -107,13 +131,45 @@ function operationPattern(operation: MemoryWriteOperation): RegExp {
 function extractAllowedOperations(text: string): MemoryWriteOperation[] {
 	const operations = new Set<MemoryWriteOperation>();
 	if (ANNOTATE_MUTATION_PATTERN.test(text)) operations.add("annotate");
-	if (LINK_MUTATION_PATTERN.test(text) || MARK_RELATIONSHIP_MUTATION_PATTERN.test(text)) {
+	if (
+		LINK_MUTATION_PATTERN.test(text) ||
+		LINK_MEMORY_ID_CLAUSE_PATTERN.test(text) ||
+		MARK_RELATIONSHIP_MUTATION_PATTERN.test(text)
+	) {
 		operations.add("link");
 	}
 	if (/\b(archive|deprecate|prune)\b/i.test(text)) operations.add("archive");
 	if (/\b(consolidate|merge)\b/i.test(text)) operations.add("consolidate");
 	if (/\b(supersede|supersedes|superseded|replace)\b/i.test(text)) operations.add("supersede");
 	return [...operations];
+}
+
+function extractMemoryIdsByOperation(
+	text: string,
+	operations: readonly MemoryWriteOperation[],
+): MemoryWriteOperationIds {
+	const spans = operations
+		.flatMap((operation) =>
+			[...text.matchAll(operationPattern(operation))].map((match) => ({
+				operation,
+				index: match.index ?? 0,
+			})),
+		)
+		.sort((a, b) => a.index - b.index);
+	const idsByOperation: MemoryWriteOperationIds = {};
+	for (let index = 0; index < spans.length; index++) {
+		const span = spans[index];
+		if (!span) continue;
+		const nextSpan = spans[index + 1];
+		const segment = text.slice(span.index, nextSpan?.index ?? text.length);
+		const ids = extractMemoryIds(segment);
+		if (ids.length === 0) continue;
+		idsByOperation[span.operation] = uniqueStrings([
+			...(idsByOperation[span.operation] ?? []),
+			...ids,
+		]);
+	}
+	return idsByOperation;
 }
 
 function extractMemoryIds(text: string): string[] {
@@ -126,4 +182,8 @@ function extractMemoryIds(text: string): string[] {
 		if (id) ids.add(id.toLowerCase());
 	}
 	return [...ids];
+}
+
+function uniqueStrings(values: readonly string[]): string[] {
+	return [...new Set(values)];
 }

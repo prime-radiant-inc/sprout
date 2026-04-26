@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { authorizeMemoryWrite } from "../../src/genome/memory-write-policy.ts";
+import {
+	authorizeMemoryWrite,
+	isProtectedManualMemory,
+} from "../../src/genome/memory-write-policy.ts";
 import type { Memory } from "../../src/kernel/types.ts";
 
 function memory(source: string): Memory {
@@ -53,6 +56,9 @@ describe("memory write policy", () => {
 			allowed: false,
 			reason: "user-authored/manual memories require explicit confirmation",
 		});
+		expect(isProtectedManualMemory(memory("user"))).toBe(true);
+		expect(isProtectedManualMemory(memory("user:manual"))).toBe(true);
+		expect(isProtectedManualMemory(memory("manual:import"))).toBe(true);
 	});
 
 	test("manual memories allow explicit additive curation without confirmation", () => {

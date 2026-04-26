@@ -24,6 +24,7 @@ function memory(overrides: Partial<Memory> = {}): Memory {
 }
 
 function makeContext(memories: Memory[] = [memory()]): MemoryToolContext {
+	const allowedMemoryIds = memories.map((item) => item.short_id ?? item.id);
 	const segments = [
 		{
 			id: "segment-1",
@@ -45,7 +46,11 @@ function makeContext(memories: Memory[] = [memory()]): MemoryToolContext {
 		sessionId: "session-test",
 		writeAuthorization: {
 			additive: true,
-			allowedMemoryIds: memories.map((item) => item.short_id ?? item.id),
+			allowedMemoryIds,
+			allowedMemoryIdsByOperation: {
+				annotate: allowedMemoryIds,
+				link: allowedMemoryIds,
+			},
 			allowedOperations: ["annotate", "link"],
 		},
 		genome: {
@@ -235,6 +240,11 @@ describe("memory tools", () => {
 			writeAuthorization: {
 				destructive: true,
 				allowedMemoryIds: ["mem_alpha00"],
+				allowedMemoryIdsByOperation: {
+					archive: ["mem_alpha00"],
+					consolidate: ["mem_alpha00"],
+					supersede: ["mem_alpha00"],
+				},
 				allowedOperations: ["archive", "consolidate", "supersede"] as const,
 			},
 		}).map((item) => item.name);
@@ -316,6 +326,7 @@ describe("memory tools", () => {
 			writeAuthorization: {
 				destructive: true,
 				allowedMemoryIds: ["mem_new000", "mem_old000"],
+				allowedMemoryIdsByOperation: { supersede: ["mem_new000", "mem_old000"] },
 				allowedOperations: ["supersede"] as const,
 			},
 		};
@@ -362,6 +373,7 @@ describe("memory tools", () => {
 			writeAuthorization: {
 				destructive: true,
 				allowedMemoryIds: ["mem_allow0"],
+				allowedMemoryIdsByOperation: { archive: ["mem_allow0"] },
 				allowedOperations: ["archive"] as const,
 			},
 		};
@@ -381,6 +393,45 @@ describe("memory tools", () => {
 		expect(typeof ctx.genome.memories.getById("allowed-memory")?.archived_at).toBe("number");
 	});
 
+	test("mixed write authorization scopes memory ids per operation", async () => {
+		const ctx = {
+			...makeContext([
+				memory({ id: "archive-memory", short_id: "mem_archive" }),
+				memory({ id: "link-source", short_id: "mem_linksrc" }),
+				memory({ id: "link-target", short_id: "mem_linktgt" }),
+			]),
+			writeAuthorization: {
+				destructive: true,
+				allowedMemoryIds: ["mem_archive", "mem_linksrc", "mem_linktgt"],
+				allowedMemoryIdsByOperation: {
+					archive: ["mem_archive"],
+					link: ["mem_linksrc", "mem_linktgt"],
+				},
+				allowedOperations: ["archive", "link"] as const,
+			},
+		};
+
+		const blockedArchive = await runTool(ctx, "memory_archive", {
+			id: "link-source",
+			reason: "wrong operation scope",
+		});
+		const allowedLink = await runTool(ctx, "memory_link", {
+			from_id: "link-source",
+			to_id: "link-target",
+			type: "refines",
+			reasoning: "authorized link scope",
+		});
+		const allowedArchive = await runTool(ctx, "memory_archive", {
+			id: "archive-memory",
+			reason: "authorized archive scope",
+		});
+
+		expect(blockedArchive.success).toBe(false);
+		expect(ctx.genome.memories.getById("link-source")?.archived_at).toBeUndefined();
+		expect(allowedLink.success).toBe(true);
+		expect(allowedArchive.success).toBe(true);
+	});
+
 	test("memory_consolidate stages merged memory and archives sources in one mutation", async () => {
 		const ctx = {
 			...makeContext([
@@ -390,6 +441,7 @@ describe("memory tools", () => {
 			writeAuthorization: {
 				destructive: true,
 				allowedMemoryIds: ["mem_olda00", "mem_oldb00"],
+				allowedMemoryIdsByOperation: { consolidate: ["mem_olda00", "mem_oldb00"] },
 				allowedOperations: ["consolidate"] as const,
 			},
 		};

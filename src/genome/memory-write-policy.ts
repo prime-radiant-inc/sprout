@@ -36,12 +36,13 @@ export function authorizeMemoryWrite(
 	return { allowed: true };
 }
 
-function isProtectedManualMemory(memory: Memory | undefined): boolean {
+export function isProtectedManualMemory(memory: Memory | undefined): boolean {
 	if (!memory) return false;
 	return (
 		memory.source === "manual" ||
 		memory.source === "user" ||
 		memory.source === "user:manual" ||
-		memory.source.startsWith("manual:")
+		memory.source.startsWith("manual:") ||
+		memory.source.startsWith("user:")
 	);
 }
