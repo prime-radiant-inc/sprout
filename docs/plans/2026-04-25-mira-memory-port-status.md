@@ -21,7 +21,9 @@ Phase 1 — Foundation (in progress)
 
 ## Deviations from design
 
-- None yet
+- The original draft defaulted embeddings to OpenAI. User direction and CodeMira
+  review changed Phase 1 to local-first embeddings: `MongoDB/mdbr-leaf-ir`
+  through Bun/Transformers.js, 768 dimensions, OpenAI as explicit fallback only.
 
 ## Verification
 
@@ -29,10 +31,17 @@ Phase 1 — Foundation (in progress)
 - 2026-04-26: `bun run typecheck` passed
 - 2026-04-26: `bun test test/genome/index-builder.test.ts test/genome/memory-index.test.ts test/genome/memory-schema.test.ts test/genome/jsonl-store.test.ts test/genome/memory-store.test.ts test/genome/recall.test.ts test/genome/genome.test.ts` passed
 - 2026-04-26: `bun test test/llm/embeddings.test.ts test/genome/index-builder.test.ts test/genome/memory-index.test.ts test/genome/memory-schema.test.ts test/genome/jsonl-store.test.ts test/genome/memory-store.test.ts` passed
-- 2026-04-26: `bun test` failed on 3 unrelated existing/environment checks:
-  `test/host/cli-compiled.test.ts` cannot resolve `react-devtools-core` during
-  compiled CLI build, and `test/tools/harbor/harbor-runner.test.ts` expects
-  missing `inspo/harbor-runner/*` files
+- 2026-04-26: `bun test test/llm/embeddings.test.ts` passed after switching
+  embeddings to local mdbr defaults
+- 2026-04-26: `bun run typecheck` passed after local embedding adapter update
+- 2026-04-26: manual local smoke check returned 768-dimensional query and
+  document embeddings from `MongoDB/mdbr-leaf-ir`, with query/document vectors
+  differing
+- 2026-04-26: `bun test test/host/cli-compiled.test.ts` passed after adding
+  the local embedding dependency
+- 2026-04-26: `bun test` ran 2545 tests: 2543 passed, 2 failed in unrelated
+  existing/environment checks because `test/tools/harbor/harbor-runner.test.ts`
+  expects missing `inspo/harbor-runner/launch.sh` and `userdata.sh.tpl`
 
 ## Completed in current slice
 
@@ -43,4 +52,6 @@ Phase 1 — Foundation (in progress)
 - Added SQLite/FTS5 memory index skeleton with JSONL rebuild tests
 - Added index-builder helper that rebuilds `genome/.cache/index.db` from JSONL
 - Added `.cache/` genome initialization and gitignore coverage
-- Added embedding provider abstraction with OpenAI default metadata and deterministic fake embeddings for tests
+- Added local-first embedding provider abstraction with `MongoDB/mdbr-leaf-ir`
+  default metadata, 768-dimensional dense projection, query/document prompt
+  asymmetry, OpenAI fallback adapter, and deterministic fake embeddings for tests
