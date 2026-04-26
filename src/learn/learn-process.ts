@@ -15,6 +15,7 @@ import { DEFAULT_CONSTRAINTS, validateAgentName } from "../kernel/types.ts";
 import type { Client } from "../llm/client.ts";
 import type { ProviderModel } from "../llm/types.ts";
 import { Msg, messageText } from "../llm/types.ts";
+import { learnSignalExtractionMessages } from "./extraction-evidence.ts";
 import type { MetricsStore } from "./metrics-store.ts";
 import { shouldLearn } from "./should-learn.ts";
 
@@ -41,6 +42,8 @@ export type LearnMutation =
 			tags: string[];
 	  }
 	| { type: "create_routing_rule"; condition: string; preference: string; strength: number };
+
+type ReasonedLearnMutation = Exclude<LearnMutation, { type: "create_memory" }>;
 
 export interface PendingEvaluation {
 	agentName: string;
@@ -317,19 +320,15 @@ export class LearnProcess {
 		});
 
 		try {
+			const memoryApplied = await this.extractAndApplyLearnMemories(signal);
 			const mutation = await this.reasonAboutImprovement(signal);
-			if (!mutation) {
-				this.events.emit("learn_end", signal.agent_name, 0, { result: "skipped" });
-				return "skipped";
+			let mutationApplied = false;
+			if (mutation) {
+				await this.applyMutation(mutation);
+				mutationApplied = true;
 			}
 
-			let applied = true;
-			if (mutation.type === "create_memory") {
-				applied = await this.applyExtractedMemoryMutation(mutation);
-			} else {
-				await this.applyMutation(mutation);
-			}
-			if (!applied) {
+			if (!memoryApplied && !mutationApplied) {
 				this.events.emit("learn_end", signal.agent_name, 0, { result: "skipped" });
 				return "skipped";
 			}
@@ -339,7 +338,8 @@ export class LearnProcess {
 
 			this.events.emit("learn_end", signal.agent_name, 0, {
 				result: "applied",
-				mutation_type: mutation.type,
+				mutation_type: mutation?.type ?? "create_memory",
+				extracted_memories: memoryApplied,
 			});
 			return "applied";
 		} catch (err) {
@@ -352,7 +352,7 @@ export class LearnProcess {
 	}
 
 	/** Ask the LLM to reason about what mutation to make given a stumble signal. */
-	private async reasonAboutImprovement(signal: LearnSignal): Promise<LearnMutation | null> {
+	private async reasonAboutImprovement(signal: LearnSignal): Promise<ReasonedLearnMutation | null> {
 		if (!this.client || !this.resolvedModel) return null;
 
 		// Gather genome context for the LLM
@@ -391,24 +391,23 @@ A stumble signal has been detected:
 - Stumbles: ${signal.details.stumbles}
 - Turns used: ${signal.details.turns}
 
-Based on this signal and the current system state, decide what improvement to make. Respond with ONLY a JSON object (no markdown, no explanation) matching one of these formats:
+Factual memory extraction already runs separately from event-window evidence. Do not create memories here.
 
-1. Create a memory (learned fact):
-{"type": "create_memory", "content": "...", "tags": ["...", "..."]}
+Based on this signal and the current system state, decide what non-memory improvement to make. Respond with ONLY a JSON object (no markdown, no explanation) matching one of these formats:
 
-2. Update an agent's system prompt:
+1. Update an agent's system prompt:
 {"type": "update_agent", "agent_name": "...", "system_prompt": "..."}
 
-3. Create a new specialized agent:
+2. Create a new specialized agent:
 {"type": "create_agent", "name": "...", "description": "...", "system_prompt": "...", "model": "fast", "tools": ["..."], "agents": ["..."], "tags": ["..."]}
 
-4. Create a routing rule (prefer an agent for certain tasks):
+3. Create a routing rule (prefer an agent for certain tasks):
 {"type": "create_routing_rule", "condition": "...", "preference": "...", "strength": 0.8}
 
-5. Skip (no improvement needed):
+4. Skip (no improvement needed):
 {"type": "skip"}
 
-Choose the most appropriate improvement. Prefer creating memories for factual learnings, updating agents for behavioral changes, and routing rules for delegation patterns.`;
+Choose the most appropriate non-memory improvement. Use skip for factual learnings that do not require an agent, subagent, or routing-rule change.`;
 
 		const response = await this.client.complete({
 			model: this.resolvedModel.model,
@@ -433,8 +432,7 @@ Choose the most appropriate improvement. Prefer creating memories for factual le
 
 			// Validate required fields for each mutation type
 			if (parsed.type === "create_memory") {
-				if (typeof parsed.content !== "string") return null;
-				if (!Array.isArray(parsed.tags)) parsed.tags = [];
+				return null;
 			} else if (parsed.type === "update_agent") {
 				if (typeof parsed.agent_name !== "string") return null;
 				if (typeof parsed.system_prompt !== "string") return null;
@@ -463,7 +461,7 @@ Choose the most appropriate improvement. Prefer creating memories for factual le
 			} else {
 				return null; // unknown type
 			}
-			return parsed as LearnMutation;
+			return parsed as ReasonedLearnMutation;
 		} catch {
 			return null;
 		}
@@ -555,20 +553,24 @@ Choose the most appropriate improvement. Prefer creating memories for factual le
 		this.events.emit("learn_mutation", "learn", 0, { mutation_type: mutation.type });
 	}
 
-	private async applyExtractedMemoryMutation(
-		mutation: Extract<LearnMutation, { type: "create_memory" }>,
-	): Promise<boolean> {
+	private async extractAndApplyLearnMemories(signal: LearnSignal): Promise<boolean> {
 		if (!this.client || !this.resolvedModel) return false;
 
 		const now = Date.now();
 		const random = Math.random().toString(36).slice(2, 8);
+		const messages = learnSignalExtractionMessages({
+			signal,
+			events: this.events.collected(),
+		});
+		if (messages.length === 0) return false;
+
 		const prompts = await this.genome.loadMemoryExtractionPrompts();
 		const drafts = await extractMemoryDrafts({
 			client: this.client,
 			model: this.resolvedModel.model,
 			provider: this.resolvedModel.provider,
 			prompts,
-			messages: [{ role: "user", content: mutation.content, timestamp: now }],
+			messages,
 		});
 		if (drafts.length === 0) return false;
 		const filtered = await filterDuplicateDrafts(drafts, this.genome.memories.all(), {
@@ -589,14 +591,14 @@ Choose the most appropriate improvement. Prefer creating memories for factual le
 		const commitHash = await this.genome.lastCommitHash();
 		this._pendingEvaluations.push({
 			agentName: "learn",
-			mutationType: mutation.type,
+			mutationType: "create_memory",
 			timestamp: now,
 			commitHash,
 			description: `Extracted ${filtered.length} memories from learn signal`,
 		});
 		await this.savePendingEvaluations();
 		this.events.emit("learn_mutation", "learn", 0, {
-			mutation_type: mutation.type,
+			mutation_type: "create_memory",
 			extracted_count: filtered.length,
 		});
 		return true;

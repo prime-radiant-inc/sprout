@@ -11,6 +11,7 @@ import { LearnProcess } from "../../src/learn/learn-process.ts";
 import { MetricsStore } from "../../src/learn/metrics-store.ts";
 import type { Client } from "../../src/llm/client.ts";
 import type { ProviderModel, Request, Response } from "../../src/llm/types.ts";
+import { Msg, messageText } from "../../src/llm/types.ts";
 import { buildTestResolverContext } from "../helpers/resolver-context.ts";
 import { createTestGenome } from "../helpers/test-genome.ts";
 
@@ -80,6 +81,63 @@ function makeMockClientSequence(
 
 function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function emitLearnEvidenceEvents(events: AgentEventEmitter, signal: LearnSignal): void {
+	events.emit("session_start", "root", 0, {
+		session_id: signal.session_id,
+		goal: signal.goal,
+		model: "claude-sonnet-4-6",
+	});
+	events.emit("perceive", "root", 0, { goal: signal.goal });
+	events.emit("primitive_start", "root", 0, {
+		name: "exec",
+		display_name: "exec",
+		args: { command: "bun test" },
+	});
+	events.emit("primitive_end", "root", 0, {
+		name: "exec",
+		display_name: "exec",
+		success: false,
+		stumbled: true,
+		output: "stderr: local embedding assertion failed",
+		error: "Tool exploded",
+		tool_result_message: Msg.toolResult(
+			"tool-1",
+			"Error: Tool exploded\nstderr: local embedding assertion failed",
+			true,
+		),
+	});
+	events.emit("act_start", "root", 0, {
+		agent_name: "engineer",
+		goal: "investigate local embedding failure",
+	});
+	events.emit("act_end", "root", 0, {
+		agent_name: "engineer",
+		goal: "investigate local embedding failure",
+		success: false,
+		turns: 4,
+		timed_out: false,
+		output: "Delegated result: local embeddings were not initialized before recall.",
+		tool_result_message: Msg.toolResult(
+			"delegate-1",
+			"Delegated result: local embeddings were not initialized before recall.",
+			true,
+		),
+	});
+	events.emit("learn_signal", "root", 0, { signal });
+	events.emit("session_end", "root", 0, {
+		session_id: signal.session_id,
+		success: false,
+		stumbles: signal.details.stumbles,
+		turns: signal.details.turns,
+		timed_out: signal.details.timed_out,
+		output: "Terminal state: failed after retrying local embedding setup.",
+	});
+}
+
+function requestText(request: Request): string {
+	return request.messages.map((message) => messageText(message)).join("\n");
 }
 
 async function waitForCondition(
@@ -357,11 +415,8 @@ describe("LearnProcess", () => {
 
 	test("handles markdown-wrapped JSON responses", async () => {
 		const wrappedJson =
-			'```json\n{"type": "create_memory", "content": "test insight", "tags": ["test"]}\n```';
-		const client = makeMockClientSequence([
-			wrappedJson,
-			'[{"text":"test insight","tags":["test"]}]',
-		]);
+			'```json\n{"type": "create_routing_rule", "condition": "test failures", "preference": "debugger", "strength": 0.8}\n```';
+		const client = makeMockClient(wrappedJson);
 
 		const { genome, learn } = await setupGenomeWithClient(tempDir, "md-json", client);
 
@@ -383,17 +438,13 @@ describe("LearnProcess", () => {
 		const result = await learn.processNext();
 
 		expect(result).toBe("applied");
-		const memories = genome.memories.all();
-		expect(memories.some((m) => m.content === "test insight")).toBe(true);
+		expect(genome.allRoutingRules().some((rule) => rule.condition === "test failures")).toBe(true);
 	});
 
 	test("handles markdown-wrapped JSON without language tag", async () => {
 		const wrappedJson =
-			'```\n{"type": "create_memory", "content": "bare block insight", "tags": ["test"]}\n```';
-		const client = makeMockClientSequence([
-			wrappedJson,
-			'[{"text":"bare block insight","tags":["test"]}]',
-		]);
+			'```\n{"type": "update_agent", "agent_name": "root", "system_prompt": "Updated root prompt."}\n```';
+		const client = makeMockClient(wrappedJson);
 
 		const { genome, learn } = await setupGenomeWithClient(tempDir, "md-bare", client);
 
@@ -415,13 +466,11 @@ describe("LearnProcess", () => {
 		const result = await learn.processNext();
 
 		expect(result).toBe("applied");
-		const memories = genome.memories.all();
-		expect(memories.some((m) => m.content === "bare block insight")).toBe(true);
+		expect(genome.getAgent("root")?.system_prompt).toBe("Updated root prompt.");
 	});
 
 	test("learned memories are extracted with entities and ready embeddings", async () => {
 		const client = makeMockClientSequence([
-			'{"type": "create_memory", "content": "Sprout should use local embeddings for memory recall", "tags": ["memory"]}',
 			JSON.stringify([
 				{
 					text: "Sprout should use local embeddings for memory recall",
@@ -429,25 +478,30 @@ describe("LearnProcess", () => {
 					entities: [{ name: "Sprout", type: "PROJECT" }],
 				},
 			]),
+			'{"type": "skip"}',
 		]);
-		const { genome, learn } = await setupGenomeWithClient(tempDir, "extract-entity", client);
+		const { events, genome, learn } = await setupGenomeWithClient(
+			tempDir,
+			"extract-entity",
+			client,
+		);
 
-		learn.push(
-			makeSignal({
-				kind: "failure",
+		const signal = makeSignal({
+			kind: "failure",
+			agent_name: "root",
+			goal: "implement memory",
+			details: {
 				agent_name: "root",
 				goal: "implement memory",
-				details: {
-					agent_name: "root",
-					goal: "implement memory",
-					output: "missed local embedding requirement",
-					success: false,
-					stumbles: 1,
-					turns: 3,
-					timed_out: false,
-				},
-			}),
-		);
+				output: "missed local embedding requirement",
+				success: false,
+				stumbles: 1,
+				turns: 3,
+				timed_out: false,
+			},
+		});
+		emitLearnEvidenceEvents(events, signal);
+		learn.push(signal);
 
 		const result = await learn.processNext();
 
@@ -464,34 +518,34 @@ describe("LearnProcess", () => {
 
 	test("extracted memory drafts are committed as one pending evaluation", async () => {
 		const client = makeMockClientSequence([
-			'{"type": "create_memory", "content": "Sprout should remember two durable facts", "tags": ["memory"]}',
 			JSON.stringify([
 				{ text: "Sprout uses local embeddings for recall", tags: ["memory"] },
 				{ text: "Sprout stores memories in JSONL", tags: ["memory"] },
 			]),
+			'{"type": "skip"}',
 		]);
-		const { genome, genomeDir, learn } = await setupGenomeWithClient(
+		const { events, genome, genomeDir, learn } = await setupGenomeWithClient(
 			tempDir,
 			"extract-batched",
 			client,
 		);
 
-		learn.push(
-			makeSignal({
-				kind: "failure",
+		const signal = makeSignal({
+			kind: "failure",
+			agent_name: "root",
+			goal: "implement memory",
+			details: {
 				agent_name: "root",
 				goal: "implement memory",
-				details: {
-					agent_name: "root",
-					goal: "implement memory",
-					output: "missed memory requirements",
-					success: false,
-					stumbles: 1,
-					turns: 3,
-					timed_out: false,
-				},
-			}),
-		);
+				output: "missed memory requirements",
+				success: false,
+				stumbles: 1,
+				turns: 3,
+				timed_out: false,
+			},
+		});
+		emitLearnEvidenceEvents(events, signal);
+		learn.push(signal);
 
 		const result = await learn.processNext();
 
@@ -508,36 +562,124 @@ describe("LearnProcess", () => {
 	});
 
 	test("skips embedding provider when memory extraction returns no drafts", async () => {
-		const client = makeMockClientSequence([
-			'{"type": "create_memory", "content": "No durable fact", "tags": ["memory"]}',
-			"[]",
-		]);
-		const { genome, learn } = await setupGenomeWithClient(tempDir, "extract-empty", client);
+		const client = makeMockClientSequence(["[]", '{"type": "skip"}']);
+		const { events, genome, learn } = await setupGenomeWithClient(tempDir, "extract-empty", client);
 		(
 			genome as unknown as { memoryEmbeddingProvider: () => Promise<never> }
 		).memoryEmbeddingProvider = async () => {
 			throw new Error("embedding provider should not be loaded for empty drafts");
 		};
 
-		learn.push(
-			makeSignal({
-				kind: "failure",
+		const signal = makeSignal({
+			kind: "failure",
+			agent_name: "root",
+			goal: "inspect memory",
+			details: {
 				agent_name: "root",
 				goal: "inspect memory",
-				details: {
-					agent_name: "root",
-					goal: "inspect memory",
-					output: "no durable fact",
-					success: false,
-					stumbles: 1,
-					turns: 3,
-					timed_out: false,
-				},
-			}),
-		);
+				output: "no durable fact",
+				success: false,
+				stumbles: 1,
+				turns: 3,
+				timed_out: false,
+			},
+		});
+		emitLearnEvidenceEvents(events, signal);
+		learn.push(signal);
 
 		await expect(learn.processNext()).resolves.toBe("skipped");
 		expect(genome.memories.all()).toHaveLength(0);
+	});
+
+	test("learn extraction prompt includes signal details and event-window evidence", async () => {
+		const prompts: string[] = [];
+		const client = makeMockClientSequence(["[]", '{"type": "skip"}'], (request) => {
+			prompts.push(requestText(request));
+		});
+		const { events, learn, metrics } = await setupGenomeWithClient(
+			tempDir,
+			"extract-evidence",
+			client,
+		);
+		const signal = makeSignal({
+			kind: "retry",
+			agent_name: "root",
+			goal: "stabilize local embeddings",
+			details: {
+				agent_name: "root",
+				goal: "stabilize local embeddings",
+				output: "2 retried tool calls detected",
+				success: true,
+				stumbles: 2,
+				turns: 7,
+				timed_out: false,
+			},
+		});
+		emitLearnEvidenceEvents(events, signal);
+		await metrics.recordStumble("root", "retry");
+		await metrics.recordStumble("root", "retry");
+		learn.push(signal);
+
+		const result = await learn.processNext();
+
+		expect(result).toBe("skipped");
+		expect(prompts[0]).toContain("Signal kind: retry");
+		expect(prompts[0]).toContain("stabilize local embeddings");
+		expect(prompts[0]).toContain("2 retried tool calls detected");
+		expect(prompts[0]).toContain("Tool exploded");
+		expect(prompts[0]).toContain("local embedding assertion failed");
+		expect(prompts[0]).toContain("Delegated result: local embeddings were not initialized");
+		expect(prompts[0]).toContain("Terminal state: failed after retrying local embedding setup.");
+	});
+
+	test("learn extraction can persist memories and still apply non-memory mutations", async () => {
+		const client = makeMockClientSequence([
+			JSON.stringify([
+				{
+					text: "Sprout local embeddings must be initialized before memory recall.",
+					tags: ["memory", "embeddings"],
+				},
+			]),
+			JSON.stringify({
+				type: "create_routing_rule",
+				condition: "local embedding failures",
+				preference: "debugger",
+				strength: 0.85,
+			}),
+		]);
+		const { events, genome, learn } = await setupGenomeWithClient(
+			tempDir,
+			"extract-and-route",
+			client,
+		);
+		const signal = makeSignal({
+			kind: "failure",
+			agent_name: "root",
+			goal: "debug local embeddings",
+			details: {
+				agent_name: "root",
+				goal: "debug local embeddings",
+				output: "local embedding recall failed",
+				success: false,
+				stumbles: 1,
+				turns: 4,
+				timed_out: false,
+			},
+		});
+		emitLearnEvidenceEvents(events, signal);
+		learn.push(signal);
+
+		const result = await learn.processNext();
+
+		expect(result).toBe("applied");
+		expect(
+			genome.memories
+				.all()
+				.some((memory) => memory.content.includes("initialized before memory recall")),
+		).toBe(true);
+		expect(
+			genome.allRoutingRules().some((rule) => rule.condition === "local embedding failures"),
+		).toBe(true);
 	});
 
 	describe("mutation validation", () => {
@@ -558,27 +700,17 @@ describe("LearnProcess", () => {
 			});
 		}
 
-		test("rejects create_memory missing content", async () => {
-			const client = makeMockClient('{"type": "create_memory", "tags": ["test"]}');
-			const { learn } = await setupGenomeWithClient(tempDir, "val-mem-no-content", client);
+		test("ignores create_memory responses from non-memory reasoner", async () => {
+			const client = makeMockClient('{"type": "create_memory", "content": "learned fact"}');
+			const { learn, genome } = await setupGenomeWithClient(
+				tempDir,
+				"val-reasoner-create-memory",
+				client,
+			);
 			learn.push(makeFailureSignal());
 			const result = await learn.processNext();
 			expect(result).toBe("skipped");
-		});
-
-		test("defaults create_memory tags to empty array", async () => {
-			const client = makeMockClientSequence([
-				'{"type": "create_memory", "content": "learned fact"}',
-				'[{"text":"learned fact"}]',
-			]);
-			const { learn, genome } = await setupGenomeWithClient(tempDir, "val-mem-no-tags", client);
-			learn.push(makeFailureSignal());
-			const result = await learn.processNext();
-			expect(result).toBe("applied");
-			const memories = genome.memories.all();
-			const mem = memories.find((m) => m.content === "learned fact");
-			expect(mem).toBeDefined();
-			expect(mem!.tags).toEqual([]);
+			expect(genome.memories.all()).toHaveLength(0);
 		});
 
 		test("rejects update_agent missing agent_name", async () => {
