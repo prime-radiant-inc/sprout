@@ -46,7 +46,7 @@ export function buildWriteMemoryPrimitives(ctx: MemoryToolContext): Primitive[] 
 
 function memorySearchPrimitive(ctx: MemoryToolContext): Primitive {
 	return {
-		name: "memory.search",
+		name: "memory_search",
 		description: "Search long-term memories using Sprout's deterministic hybrid memory index.",
 		parameters: {
 			type: "object",
@@ -67,7 +67,7 @@ function memorySearchPrimitive(ctx: MemoryToolContext): Primitive {
 
 function memoryGetPrimitive(ctx: MemoryToolContext): Primitive {
 	return {
-		name: "memory.get",
+		name: "memory_get",
 		description: "Fetch one memory by full id or mem_XXXXXXXX short id.",
 		parameters: {
 			type: "object",
@@ -83,7 +83,7 @@ function memoryGetPrimitive(ctx: MemoryToolContext): Primitive {
 
 function memoryTraceLinksPrimitive(ctx: MemoryToolContext): Primitive {
 	return {
-		name: "memory.trace_links",
+		name: "memory_trace_links",
 		description: "Return inbound and outbound memory links for a memory.",
 		parameters: {
 			type: "object",
@@ -118,7 +118,7 @@ function memoryTraceLinksPrimitive(ctx: MemoryToolContext): Primitive {
 
 function memoryEntityQueryPrimitive(ctx: MemoryToolContext): Primitive {
 	return {
-		name: "memory.entity_query",
+		name: "memory_entity_query",
 		description: "Find memories linked to an entity name and optional entity type.",
 		parameters: {
 			type: "object",
@@ -147,7 +147,7 @@ function memoryEntityQueryPrimitive(ctx: MemoryToolContext): Primitive {
 
 function memoryFindBySegmentPrimitive(ctx: MemoryToolContext): Primitive {
 	return {
-		name: "memory.find_by_segment",
+		name: "memory_find_by_segment",
 		description: "Find memories extracted from a collapsed session segment.",
 		parameters: {
 			type: "object",
@@ -169,7 +169,7 @@ function memoryFindBySegmentPrimitive(ctx: MemoryToolContext): Primitive {
 
 function memoryAnnotatePrimitive(ctx: MemoryToolContext): Primitive {
 	return {
-		name: "memory.annotate",
+		name: "memory_annotate",
 		description: "Archivist-only: add a non-destructive annotation to a memory.",
 		parameters: {
 			type: "object",
@@ -205,7 +205,7 @@ function memoryAnnotatePrimitive(ctx: MemoryToolContext): Primitive {
 
 function memoryArchivePrimitive(ctx: MemoryToolContext): Primitive {
 	return {
-		name: "memory.archive",
+		name: "memory_archive",
 		description: "Archivist-only: archive a memory after explicit user confirmation.",
 		parameters: {
 			type: "object",
@@ -237,7 +237,7 @@ function memoryArchivePrimitive(ctx: MemoryToolContext): Primitive {
 
 function memoryLinkPrimitive(ctx: MemoryToolContext): Primitive {
 	return {
-		name: "memory.link",
+		name: "memory_link",
 		description: "Archivist-only: add a typed relationship from one memory to another.",
 		parameters: {
 			type: "object",
@@ -277,7 +277,7 @@ function memoryLinkPrimitive(ctx: MemoryToolContext): Primitive {
 
 function memoryConsolidatePrimitive(ctx: MemoryToolContext): Primitive {
 	return {
-		name: "memory.consolidate",
+		name: "memory_consolidate",
 		description:
 			"Archivist-only: create a synthesized memory and archive sources after confirmation.",
 		parameters: {
@@ -335,7 +335,7 @@ function memoryConsolidatePrimitive(ctx: MemoryToolContext): Primitive {
 
 function memorySynthesizeAnswerPrimitive(ctx: MemoryToolContext): Primitive {
 	return {
-		name: "memory.synthesize_answer",
+		name: "memory_synthesize_answer",
 		description: "Archivist-only: synthesize a cited answer from selected memories.",
 		parameters: {
 			type: "object",

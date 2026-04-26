@@ -1,6 +1,6 @@
 import type { Memory } from "../kernel/types.ts";
 import { JsonlStore } from "./jsonl-store.ts";
-import { normalizeMemory } from "./memory-schema.ts";
+import { memoryShortId, normalizeMemory } from "./memory-schema.ts";
 
 const HALF_LIFE_DAYS = 30;
 
@@ -15,6 +15,7 @@ export class MemoryStore {
 	/** Read JSONL lines from disk, parsing each as a Memory. */
 	async load(): Promise<void> {
 		this.entries = (await this.jsonl.load()).map((record) => normalizeMemory(record));
+		this.assertUniqueShortIds();
 	}
 
 	/** Append a memory to the in-memory list and to the JSONL file on disk. */
@@ -22,6 +23,15 @@ export class MemoryStore {
 		const normalized = normalizeMemory(memory);
 		if (this.entries.some((m) => m.id === normalized.id)) {
 			throw new Error(`Memory with id '${normalized.id}' already exists`);
+		}
+		const shortId = (normalized.short_id ?? memoryShortId(normalized.id)).toLowerCase();
+		const collision = this.entries.find(
+			(memory) => (memory.short_id ?? memoryShortId(memory.id)).toLowerCase() === shortId,
+		);
+		if (collision) {
+			throw new Error(
+				`Memory short id collision '${shortId}' for '${normalized.id}' and '${collision.id}'`,
+			);
 		}
 		this.entries.push(normalized);
 		await this.jsonl.append(normalized);
@@ -115,5 +125,19 @@ export class MemoryStore {
 	/** Find a memory by its id. */
 	getById(id: string): Memory | undefined {
 		return this.entries.find((m) => m.id === id);
+	}
+
+	private assertUniqueShortIds(): void {
+		const byShortId = new Map<string, string>();
+		for (const memory of this.entries) {
+			const shortId = (memory.short_id ?? memoryShortId(memory.id)).toLowerCase();
+			const existing = byShortId.get(shortId);
+			if (existing && existing !== memory.id) {
+				throw new Error(
+					`Memory short id collision '${shortId}' for '${memory.id}' and '${existing}'`,
+				);
+			}
+			byShortId.set(shortId, memory.id);
+		}
 	}
 }

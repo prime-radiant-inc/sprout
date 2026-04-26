@@ -23,7 +23,7 @@ describe("memory schema normalization", () => {
 		expect(normalized.content).toBe("Sprout uses Bun tests.");
 		expect(normalized.text).toBe("Sprout uses Bun tests.");
 		expect(normalized.tags).toEqual(["testing", "bun"]);
-		expect(normalized.short_id).toBe("mem_legacydu");
+		expect(normalized.short_id).toBe(memoryShortId("legacy-durable"));
 		expect(normalized.project_ids).toEqual([]);
 		expect(normalized.entity_links).toEqual([]);
 		expect(normalized.outbound_links).toEqual([]);
@@ -72,8 +72,12 @@ describe("memory schema normalization", () => {
 	});
 
 	test("derives stable short ids from arbitrary ids", () => {
-		expect(memoryShortId("learn-1700000000-abcdef")).toBe("mem_learn170");
+		const first = memoryShortId("learn-1700000000-abcdef");
+		const second = memoryShortId("learn-1700000000-abcdeg");
+		expect(first).toMatch(/^mem_[a-f0-9]{8}$/);
+		expect(second).toMatch(/^mem_[a-f0-9]{8}$/);
+		expect(second).not.toBe(first);
 		expect(memoryShortId("mem_deadbeef")).toBe("mem_deadbeef");
-		expect(memoryShortId("!!!")).toBe("mem_memory00");
+		expect(memoryShortId("!!!")).toMatch(/^mem_[a-f0-9]{8}$/);
 	});
 });

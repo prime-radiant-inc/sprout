@@ -37,8 +37,13 @@ function recordValue<T>(record: RawRecord, key: string): T | undefined {
 
 export function memoryShortId(id: string): string {
 	if (/^mem_[a-zA-Z0-9]{8}$/.test(id)) return id.toLowerCase();
-	const compact = id.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
-	return `mem_${(compact || "memory").slice(0, 8).padEnd(8, "0")}`;
+	const normalized = id.trim().toLowerCase();
+	let hash = 0x811c9dc5;
+	for (let index = 0; index < normalized.length; index++) {
+		hash ^= normalized.charCodeAt(index);
+		hash = Math.imul(hash, 0x01000193) >>> 0;
+	}
+	return `mem_${hash.toString(16).padStart(8, "0")}`;
 }
 
 export function normalizeMemory(raw: unknown, options: { now?: number } = {}): Memory {

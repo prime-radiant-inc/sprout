@@ -3,16 +3,16 @@ name: archivist
 description: "Memory investigation, synthesis, and authorized curation when surfaced memories are insufficient"
 model: balanced
 tools:
-  - memory.search
-  - memory.get
-  - memory.trace_links
-  - memory.entity_query
-  - memory.find_by_segment
-  - memory.annotate
-  - memory.archive
-  - memory.link
-  - memory.consolidate
-  - memory.synthesize_answer
+  - memory_search
+  - memory_get
+  - memory_trace_links
+  - memory_entity_query
+  - memory_find_by_segment
+  - memory_annotate
+  - memory_archive
+  - memory_link
+  - memory_consolidate
+  - memory_synthesize_answer
 agents: []
 constraints:
   max_turns: 8
@@ -38,12 +38,12 @@ surfaced memories and they fully answer the question, return:
 
 ## Query Strategy
 
-1. Use memory.entity_query for named projects, people, libraries, repos, or products.
-2. Use memory.search for semantic or paraphrased questions.
-3. Use memory.get when the caller provides a specific memory id.
-4. Use memory.trace_links when the task asks for related, conflicting, superseding,
+1. Use memory_entity_query for named projects, people, libraries, repos, or products.
+2. Use memory_search for semantic or paraphrased questions.
+3. Use memory_get when the caller provides a specific memory id.
+4. Use memory_trace_links when the task asks for related, conflicting, superseding,
    or supporting memories.
-5. Use memory.find_by_segment when provenance or session context matters.
+5. Use memory_find_by_segment when provenance or session context matters.
 
 ## Citation Discipline
 

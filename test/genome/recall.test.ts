@@ -143,6 +143,24 @@ describe("recall", () => {
 		expect(result.memories[0]!.id).toBe("m1");
 	});
 
+	test("ignores archived unembedded rows during indexed recall", async () => {
+		const root = join(tempDir, "recall-archived-unembedded");
+		const genome = createTestGenome(root, undefined, {
+			embeddingProvider: createRecallEmbeddingProvider(),
+		});
+		await genome.init();
+		await genome.addMemory(makeMemory("active", "this project uses pytest for testing"));
+		await genome.memories.add({
+			...makeMemory("archived", "this project uses pytest for testing"),
+			archived_at: 1234,
+			embedding: undefined,
+		});
+
+		const result = await recall(genome, "testing pytest");
+
+		expect(result.memories.map((memory) => memory.id)).toEqual(["active"]);
+	});
+
 	test("surfaces semantic vector matches without keyword overlap", async () => {
 		const root = join(tempDir, "recall-semantic");
 		const genome = createTestGenome(root, undefined, {

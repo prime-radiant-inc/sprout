@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { discoverEntityHubMemories } from "../../src/genome/hub-discovery.ts";
+import { memoryShortId } from "../../src/genome/memory-schema.ts";
 import { mergeAndRankMemories } from "../../src/genome/recall-pipeline.ts";
 import {
 	extractMemoryReferences,
@@ -82,6 +83,7 @@ describe("recall pipeline", () => {
 	});
 
 	test("renders MIRA-style XML memory blocks with stable short ids", () => {
+		const shortId = memoryShortId("12345678-1234");
 		const rendered = renderMemoryBlock([
 			memory({
 				id: "12345678-1234",
@@ -92,7 +94,7 @@ describe("recall pipeline", () => {
 		]);
 
 		expect(rendered).toContain("<memory_context>");
-		expect(rendered).toContain("[mem_12345678]");
+		expect(rendered).toContain(`[${shortId}]`);
 		expect(rendered).toContain("TECHNOLOGY:SQLite");
 		expect(rendered).toContain("</memory_context>");
 	});

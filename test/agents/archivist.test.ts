@@ -7,17 +7,17 @@ import type { AgentSpec } from "../../src/kernel/types.ts";
 
 const ROOT_DIR = join(process.cwd(), "root");
 const READ_MEMORY_TOOLS = [
-	"memory.search",
-	"memory.get",
-	"memory.trace_links",
-	"memory.entity_query",
-	"memory.find_by_segment",
+	"memory_search",
+	"memory_get",
+	"memory_trace_links",
+	"memory_entity_query",
+	"memory_find_by_segment",
 ] as const;
 const WRITE_MEMORY_TOOLS = [
-	"memory.annotate",
-	"memory.archive",
-	"memory.link",
-	"memory.consolidate",
+	"memory_annotate",
+	"memory_archive",
+	"memory_link",
+	"memory_consolidate",
 ] as const;
 
 function byName(specs: AgentSpec[], name: string): AgentSpec {
@@ -54,7 +54,7 @@ describe("archivist root agent wiring", () => {
 		for (const tool of WRITE_MEMORY_TOOLS) {
 			expect(archivist.tools).toContain(tool);
 		}
-		expect(archivist.tools).toContain("memory.synthesize_answer");
+		expect(archivist.tools).toContain("memory_synthesize_answer");
 		expect(archivist.agents).toEqual([]);
 		expect(archivist.constraints.max_turns).toBe(8);
 		expect(archivist.constraints.can_spawn).toBe(false);

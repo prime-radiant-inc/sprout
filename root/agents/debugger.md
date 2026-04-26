@@ -3,11 +3,11 @@ name: debugger
 description: "Systematically diagnose and fix bugs: find root cause before attempting any fix"
 model: best
 tools:
-  - memory.search
-  - memory.get
-  - memory.trace_links
-  - memory.entity_query
-  - memory.find_by_segment
+  - memory_search
+  - memory_get
+  - memory_trace_links
+  - memory_entity_query
+  - memory_find_by_segment
 agents:
   - archivist
   - utility/reader

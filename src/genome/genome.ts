@@ -364,6 +364,7 @@ export class Genome {
 			return !memory.archived_at && this.effectiveMemoryConfidence(memory) >= minConfidence;
 		});
 		if (candidates.length === 0) return [];
+		const candidateIds = new Set(candidates.map((memory) => memory.id));
 
 		await rebuildMemoryIndexFromJsonl(this.rootPath);
 		const embeddingProvider = await this.getEmbeddingProvider();
@@ -378,7 +379,9 @@ export class Genome {
 
 		const index = MemoryIndex.open(memoryIndexPath(this.rootPath));
 		try {
-			const ranked = index.searchHybrid(normalizedQuery, queryEmbedding.vector, limit * 2);
+			const ranked = index.searchHybrid(normalizedQuery, queryEmbedding.vector, limit * 2, {
+				candidateIds,
+			});
 			const memories: Memory[] = [];
 			for (const result of ranked) {
 				const memory = this.memories.getById(result.id);

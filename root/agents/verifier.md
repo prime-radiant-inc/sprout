@@ -3,11 +3,11 @@ name: verifier
 description: "Verify that work is complete by gathering fresh evidence — run tests, check requirements, confirm claims"
 model: balanced
 tools:
-  - memory.search
-  - memory.get
-  - memory.trace_links
-  - memory.entity_query
-  - memory.find_by_segment
+  - memory_search
+  - memory_get
+  - memory_trace_links
+  - memory_entity_query
+  - memory_find_by_segment
 agents:
   - utility/reader
   - utility/command-runner

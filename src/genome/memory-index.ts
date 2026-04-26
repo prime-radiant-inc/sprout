@@ -34,6 +34,14 @@ export interface HybridSearchResult {
 	vectorDistance?: number;
 }
 
+interface CandidateFilter {
+	candidateIds?: ReadonlySet<string>;
+}
+
+interface HybridSearchOptions extends CandidateFilter {
+	minVectorSimilarity?: number;
+}
+
 interface CountRow {
 	count: number;
 }
@@ -404,9 +412,23 @@ export class MemoryIndex {
 		run({ memories, segments });
 	}
 
-	searchText(query: string, limit: number): string[] {
+	searchText(query: string, limit: number, options: CandidateFilter = {}): string[] {
 		const normalized = toFtsQuery(query);
 		if (!normalized) return [];
+		if (options.candidateIds) {
+			const rows = this.db
+				.query<MemorySearchRow, [string]>(
+					`SELECT id, bm25(memories_fts) AS rank
+				 FROM memories_fts
+				 WHERE memories_fts MATCH ?
+				 ORDER BY rank`,
+				)
+				.all(normalized);
+			return rows
+				.map((row) => row.id)
+				.filter((id) => options.candidateIds!.has(id))
+				.slice(0, limit);
+		}
 		const rows = this.db
 			.query<MemorySearchRow, [string, number]>(
 				`SELECT id, bm25(memories_fts) AS rank
@@ -448,23 +470,32 @@ export class MemoryIndex {
 			.all(normalized, limit);
 	}
 
-	searchVector(queryEmbedding: Float32Array, limit: number): VectorSearchResult[] {
+	searchVector(
+		queryEmbedding: Float32Array,
+		limit: number,
+		options: CandidateFilter = {},
+	): VectorSearchResult[] {
 		validateVector(queryEmbedding, "query embedding");
+		const candidateIds = options.candidateIds;
+		if (candidateIds?.size === 0) return [];
 		const rows = this.db
 			.query<MemoryEmbeddingRow, []>(
 				"SELECT memory_id, embedding FROM memory_embeddings WHERE dimensions = 768",
 			)
 			.all();
-		if (rows.length === 0) {
+		const eligibleRows = candidateIds
+			? rows.filter((row) => candidateIds.has(row.memory_id))
+			: rows;
+		if (eligibleRows.length === 0) {
 			throw new Error("Memory index has no embeddings; memory writes must create ready vectors");
 		}
-		const memoryCount = this.count("memories");
-		if (rows.length !== memoryCount) {
+		const expectedCount = candidateIds?.size ?? this.count("memories");
+		if (eligibleRows.length !== expectedCount) {
 			throw new Error(
-				`Memory index embeddings are incomplete: ${rows.length}/${memoryCount} memories have vectors`,
+				`Memory index embeddings are incomplete: ${eligibleRows.length}/${expectedCount} memories have vectors`,
 			);
 		}
-		return rows
+		return eligibleRows
 			.map((row) => ({
 				id: row.memory_id,
 				distance: cosineDistance(queryEmbedding, decodeVector(row.embedding)),
@@ -519,13 +550,14 @@ export class MemoryIndex {
 		query: string,
 		queryEmbedding: Float32Array,
 		limit: number,
-		options: { minVectorSimilarity?: number } = {},
+		options: HybridSearchOptions = {},
 	): HybridSearchResult[] {
 		if (limit <= 0) return [];
 		const minVectorSimilarity = options.minVectorSimilarity ?? DEFAULT_MIN_VECTOR_SIMILARITY;
 		const laneLimit = Math.max(limit * 2, limit);
-		const textIds = this.searchText(query, laneLimit);
-		const vectorResults = this.searchVector(queryEmbedding, laneLimit).filter(
+		const candidateFilter = options.candidateIds ? { candidateIds: options.candidateIds } : {};
+		const textIds = this.searchText(query, laneLimit, candidateFilter);
+		const vectorResults = this.searchVector(queryEmbedding, laneLimit, candidateFilter).filter(
 			(result) => 1 - result.distance >= minVectorSimilarity,
 		);
 		const fused = new Map<string, HybridSearchResult>();

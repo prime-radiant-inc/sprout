@@ -71,8 +71,8 @@ async function runTool(ctx: MemoryToolContext, name: string, args: Record<string
 }
 
 describe("memory tools", () => {
-	test("memory.search returns deterministic summaries", async () => {
-		const result = await runTool(makeContext(), "memory.search", { query: "sqlite", limit: 3 });
+	test("memory_search returns deterministic summaries", async () => {
+		const result = await runTool(makeContext(), "memory_search", { query: "sqlite", limit: 3 });
 
 		expect(result.success).toBe(true);
 		expect(JSON.parse(result.output)[0]).toMatchObject({
@@ -81,8 +81,8 @@ describe("memory tools", () => {
 		});
 	});
 
-	test("memory.get fetches by short id", async () => {
-		const result = await runTool(makeContext(), "memory.get", { id: "mem_alpha00" });
+	test("memory_get fetches by short id", async () => {
+		const result = await runTool(makeContext(), "memory_get", { id: "mem_alpha00" });
 
 		expect(JSON.parse(result.output)).toMatchObject({
 			id: "memory-alpha",
@@ -90,7 +90,7 @@ describe("memory tools", () => {
 		});
 	});
 
-	test("memory.trace_links returns inbound and outbound links", async () => {
+	test("memory_trace_links returns inbound and outbound links", async () => {
 		const ctx = makeContext([
 			memory({
 				outbound_links: [
@@ -104,34 +104,37 @@ describe("memory tools", () => {
 			}),
 		]);
 
-		const result = await runTool(ctx, "memory.trace_links", { id: "memory-alpha" });
+		const result = await runTool(ctx, "memory_trace_links", { id: "memory-alpha" });
 
 		expect(JSON.parse(result.output).outbound_links[0].uuid).toBe("memory-beta");
 	});
 
-	test("memory.entity_query returns memories linked to an entity", async () => {
+	test("memory_entity_query returns memories linked to an entity", async () => {
 		const ctx = makeContext([
 			memory({
 				entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
 			}),
 		]);
 
-		const result = await runTool(ctx, "memory.entity_query", { name: "Sprout", type: "PROJECT" });
+		const result = await runTool(ctx, "memory_entity_query", {
+			name: "Sprout",
+			type: "PROJECT",
+		});
 
 		expect(JSON.parse(result.output)[0].id).toBe("memory-alpha");
 	});
 
-	test("memory.find_by_segment returns segment provenance", async () => {
+	test("memory_find_by_segment returns segment provenance", async () => {
 		const ctx = makeContext([memory({ source_segment_id: "segment-1" })]);
 
-		const result = await runTool(ctx, "memory.find_by_segment", { segment_id: "segment-1" });
+		const result = await runTool(ctx, "memory_find_by_segment", { segment_id: "segment-1" });
 
 		expect(JSON.parse(result.output).memories[0].id).toBe("memory-alpha");
 	});
 
 	test("authorized annotation persists with archivist audit source", async () => {
 		const ctx = makeContext();
-		const result = await runTool(ctx, "memory.annotate", {
+		const result = await runTool(ctx, "memory_annotate", {
 			id: "memory-alpha",
 			text: "Useful during memory debugging.",
 			explicit_instruction: true,
@@ -142,7 +145,7 @@ describe("memory tools", () => {
 	});
 
 	test("unauthorized archive is blocked", async () => {
-		const result = await runTool(makeContext(), "memory.archive", {
+		const result = await runTool(makeContext(), "memory_archive", {
 			id: "memory-alpha",
 			reason: "stale",
 			explicit_instruction: true,
@@ -158,9 +161,9 @@ describe("memory tools", () => {
 			...buildReadMemoryPrimitives(ctx),
 			...buildWriteMemoryPrimitives(ctx),
 		].map((primitive) => primitive.name);
-		const tools = primitivesForAgent(["memory.search", "memory.get"], primitiveNames, "anthropic");
+		const tools = primitivesForAgent(["memory_search", "memory_get"], primitiveNames, "anthropic");
 
-		expect(tools).toEqual(["memory.search", "memory.get"]);
-		expect(tools).not.toContain("memory.archive");
+		expect(tools).toEqual(["memory_search", "memory_get"]);
+		expect(tools).not.toContain("memory_archive");
 	});
 });

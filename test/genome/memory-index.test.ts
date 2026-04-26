@@ -253,6 +253,32 @@ describe("MemoryIndex", () => {
 		}
 	});
 
+	test("hybrid search only ranks eligible candidate ids", () => {
+		const index = MemoryIndex.open(":memory:");
+		try {
+			index.rebuild([
+				makeMemory({
+					id: "idx-active",
+					content: "database migration command",
+					embedding: makeEmbedding(1),
+				}),
+				makeMemory({
+					id: "idx-archived-missing-vector",
+					content: "database migration command",
+					archived_at: 1234,
+				}),
+			]);
+
+			const results = index.searchHybrid("database", Float32Array.from(embeddingVector(1)), 2, {
+				candidateIds: new Set(["idx-active"]),
+			});
+
+			expect(results.map((result) => result.id)).toEqual(["idx-active"]);
+		} finally {
+			index.close();
+		}
+	});
+
 	test("vector search fails when no embeddings are indexed", () => {
 		const index = MemoryIndex.open(":memory:");
 		try {

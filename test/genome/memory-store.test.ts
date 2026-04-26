@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { memoryShortId } from "../../src/genome/memory-schema.ts";
 import { MemoryStore } from "../../src/genome/memory-store.ts";
 import type { Memory } from "../../src/kernel/types.ts";
 
@@ -15,6 +16,7 @@ function makeMemory(overrides: Partial<Memory> = {}): Memory {
 		last_used: overrides.last_used ?? Date.now(),
 		use_count: overrides.use_count ?? 0,
 		confidence: overrides.confidence ?? 1.0,
+		...overrides,
 	};
 }
 
@@ -80,7 +82,7 @@ describe("MemoryStore", () => {
 		expect(all).toHaveLength(4);
 		expect(all[0]!.schema_version).toBe(2);
 		expect(all[0]!.text).toBe(all[0]!.content);
-		expect(all[0]!.short_id).toBe("mem_legacydu");
+		expect(all[0]!.short_id).toBe(memoryShortId("legacy-durable"));
 		expect(all[0]!.entity_links).toEqual([]);
 		expect(all[0]!.project_ids).toEqual([]);
 	});
@@ -175,7 +177,10 @@ describe("MemoryStore", () => {
 		await store.load();
 		await store.add(makeMemory({ id: "mention-target", content: "cited memory" }));
 
-		const mentioned = store.markMentioned(["mem_mentiont", "mem_missing0"], 1700000000000);
+		const mentioned = store.markMentioned(
+			[memoryShortId("mention-target"), "mem_missing0"],
+			1700000000000,
+		);
 
 		expect(mentioned).toEqual(["mention-target"]);
 		const updated = store.getById("mention-target")!;
@@ -188,9 +193,20 @@ describe("MemoryStore", () => {
 		await store.load();
 		await store.add(makeMemory({ id: "repeat-target", content: "cited memory" }));
 
-		store.markMentioned(["mem_repeatta", "mem_repeatta"]);
+		const shortId = memoryShortId("repeat-target");
+		store.markMentioned([shortId, shortId]);
 
 		expect(store.getById("repeat-target")?.mention_count).toBe(1);
+	});
+
+	test("add() rejects short id collisions", async () => {
+		const store = new MemoryStore(join(tempDir, "short-id-collision.jsonl"));
+		await store.load();
+		await store.add(makeMemory({ id: "first", short_id: "mem_deadbeef" }));
+
+		await expect(store.add(makeMemory({ id: "second", short_id: "mem_deadbeef" }))).rejects.toThrow(
+			"short id collision",
+		);
 	});
 
 	test("effectiveConfidence() decays based on time since last use", () => {

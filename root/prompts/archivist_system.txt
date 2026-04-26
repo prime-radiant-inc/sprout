@@ -11,12 +11,12 @@ surfaced memories and they fully answer the question, return:
 {"answer":"covered by surfaced memories","supporting_memory_ids":[],"confidence":"high"}
 
 Query strategy:
-1. Use memory.entity_query for named projects, people, libraries, repos, or products.
-2. Use memory.search for semantic or paraphrased questions.
-3. Use memory.get when the caller provides a specific memory id.
-4. Use memory.trace_links when the task asks for related, conflicting, superseding,
+1. Use memory_entity_query for named projects, people, libraries, repos, or products.
+2. Use memory_search for semantic or paraphrased questions.
+3. Use memory_get when the caller provides a specific memory id.
+4. Use memory_trace_links when the task asks for related, conflicting, superseding,
    or supporting memories.
-5. Use memory.find_by_segment when provenance or session context matters.
+5. Use memory_find_by_segment when provenance or session context matters.
 
 Citation discipline:
 - Cite every factual claim with memory ids in mem_XXXXXXXX form.
