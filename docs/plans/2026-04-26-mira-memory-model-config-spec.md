@@ -187,6 +187,28 @@ changes. The migration is simple and local:
 
 Because there are no legacy memory users, no memory data migration is required.
 
+## Runtime and Upgrade Behavior
+
+Startup must not require every memory model purpose to be configured. Missing
+memory purposes are valid stored settings because some features are optional or
+not invoked in every run. The strict rule applies at the moment a hidden memory
+LLM call is needed.
+
+Unset purpose behavior:
+
+| Purpose | When unset | Operator remediation |
+| --- | --- | --- |
+| `summary` | Session collapse cannot summarize; collapse records/logs a visible memory-collapse failure and does not create a segment. The already-completed user session is not retroactively failed. | Configure `Segment summary` in web settings or set `SPROUT_MEMORY_SUMMARY_MODEL`. |
+| `extraction` | Session collapse and learn/bus memory creation fail before any memory write. Learn/bus paths emit warning/failure events and persist no fallback memory. | Configure `Memory extraction` or set `SPROUT_MEMORY_EXTRACTION_MODEL`. |
+| `relationship` | Relationship classification actions fail before LLM call and persist no links. Deterministic candidate discovery may still run. | Configure `Relationship classifier` or set `SPROUT_MEMORY_RELATIONSHIP_MODEL`. |
+| `consolidation` | LLM-drafted consolidation review is unavailable. Reviewed JSON apply mode remains available because it does not call an LLM. | Configure `Consolidation reviewer` or set `SPROUT_MEMORY_CONSOLIDATION_MODEL`. |
+| `entityGc` | LLM-drafted entity-GC review is unavailable. Reviewed JSON apply mode remains available because it does not call an LLM. | Configure `Entity GC reviewer` or set `SPROUT_MEMORY_ENTITY_GC_MODEL`. |
+| `subcortical` | Agents that opt into `subcortical_recall` fail recall with a clear configuration error instead of silently skipping the pre-pass. Agents without the opt-in are unaffected. | Configure `Subcortical recall` or disable `subcortical_recall` for that agent. |
+
+The web settings UI should make unset purposes visually acceptable but explain
+that the corresponding feature will fail when invoked. This preserves the
+no-fallback rule without blocking startup or unrelated work.
+
 ## Strict Resolver
 
 Add a memory-specific resolver next to the existing model resolver:
@@ -302,6 +324,51 @@ Runtime override handling:
   at runtime, but the web UI should still show the stored purpose as unset and
   mark the effective value as env-overridden.
 
+Override validation:
+
+- Env override values must parse as exact `{ providerId, modelId }` refs.
+- Unknown providers fail startup/settings bootstrap with a clear env-var-specific
+  error.
+- Disabled providers fail startup/settings bootstrap with a clear env-var-specific
+  error.
+- If a provider catalog is populated, missing model IDs fail startup/settings
+  bootstrap.
+- If a provider catalog is empty, exact model refs are allowed and displayed with
+  the raw model id, matching existing exact-model resolver behavior.
+- Provider delete/disable commands must be rejected when an active env override
+  still references that provider, because settings cannot remove environment
+  state. The error should tell the operator which env var to unset first.
+- Invalid env overrides are never ignored and never downgraded to stored
+  settings.
+
+Runtime snapshot contract:
+
+```ts
+export interface ModelConfigOverrides {
+	defaults: Partial<Record<Tier, ModelConfigOverride>>;
+	memoryModels: Partial<Record<MemoryModelPurpose, ModelConfigOverride>>;
+}
+
+export interface ModelConfigOverride {
+	source: "env";
+	envVar: string;
+	model: ModelRef;
+	catalogValidated: boolean;
+	displayLabel?: string;
+}
+
+export interface SettingsRuntimeSnapshot {
+	secretBackend: SecretBackendState;
+	warnings: SettingsRuntimeWarning[];
+	modelOverrides: ModelConfigOverrides;
+}
+```
+
+`catalogValidated` is `false` only when the referenced provider has no loaded
+catalog entries and the exact model ref is therefore accepted as an operator
+assertion. Snapshot data contains provider/model ids but no secrets, so it is
+safe to expose to every client that can already view provider settings.
+
 ## Web Config UI
 
 Add a `MemoryModelsPanel` sibling to `DefaultModelsPanel`.
@@ -365,6 +432,23 @@ Minimum acceptable TUI work:
 This keeps the terminal settings panel consistent with the web control plane
 without adding a second bespoke editor.
 
+## Provider Lifecycle Policy
+
+Provider ids are immutable in the current settings UI and control plane.
+Operators can edit labels, URLs, headers, secrets, enabled state, and catalog
+state, but not ids.
+
+- Provider label changes do not affect model config.
+- Provider delete removes stored defaults and stored memory models for that
+  provider unless an active env override references it, in which case deletion
+  is rejected until the env var is removed.
+- Provider disable removes stored defaults and stored memory models for that
+  provider unless an active env override references it, in which case disable is
+  rejected until the env var is removed.
+- Provider catalog refresh does not mutate stored model refs. If a refreshed
+  catalog no longer contains a stored or env-overridden model, resolution fails
+  loudly the next time that model is used.
+
 ## Production Call-Site Wiring
 
 All production hidden memory LLM calls must receive a resolved memory-purpose
@@ -398,15 +482,22 @@ Bus genome service:
 
 Relationship classification:
 
-- Add a production runner/service entry point that resolves
-  `memoryModels.relationship` before calling `classifyMemoryRelationship()`.
+- Add the minimal production wrapper in `src/genome/linking.ts` or the existing
+  caller that owns candidate discovery and link persistence. It resolves
+  `memoryModels.relationship`, calls `classifyMemoryRelationship()`, and passes
+  the classified results to `persistMemoryRelationships()`.
 - Tests may keep low-level explicit model/provider injection, but production
   code should not manually pass arbitrary current-agent model values.
 
 Maintenance LLM review:
 
-- Consolidation decision generation resolves `memoryModels.consolidation`.
-- Entity-GC decision generation resolves `memoryModels.entityGc`.
+- Keep `src/genome/consolidation.ts` and `src/genome/entity-gc.ts` as low-level
+  pure request/parse/apply modules that accept explicit model/provider inputs
+  for tests.
+- Production orchestration belongs in `src/genome/maintenance.ts` and
+  `src/host/cli-genome.ts`. If an operator command asks Sprout to draft
+  decisions with an LLM, that wrapper resolves `memoryModels.consolidation` or
+  `memoryModels.entityGc` before calling the low-level request function.
 - Existing dry-run/apply maintenance with reviewed JSON decisions remains valid
   and should not require LLM config unless it actually asks the LLM to draft
   decisions.
@@ -424,14 +515,33 @@ Subcortical recall:
 Existing LLM events already carry provider/model. Memory-purpose routing should
 make failures and usage easy to diagnose.
 
-Add where low-cost:
+Required labels:
 
 - Error messages include the memory purpose key.
+- Every hidden memory LLM request path that already emits LLM metadata must
+  include a stable purpose label.
+- Required labels are:
+  - `memory.summary`
+  - `memory.extraction`
+  - `memory.relationship`
+  - `memory.consolidation`
+  - `memory.entityGc`
+  - `memory.subcortical`
 - Tests assert the provider/model seen by fake clients for each purpose.
-- If memory LLM calls emit existing request metadata, include a stable purpose
-  label such as `memory.extraction` or `memory.relationship`.
 
 Do not add a new metrics subsystem as part of this fix.
+
+## Documentation Updates
+
+- Update the provider settings UI copy to explain that stored settings are the
+  durable model config and env vars are runtime overrides.
+- Update CLI/settings help for `memory-model`.
+- Update the MIRA memory completion report or status tracker with this
+  production-readiness fix once implemented.
+- Document the six memory model env vars in the same location as existing
+  `SPROUT_DEFAULT_*_MODEL` variables.
+- Include the unset-purpose runtime behavior table in operator-facing docs or
+  help text so configuration failures are actionable.
 
 ## Test Plan
 
@@ -447,7 +557,15 @@ Settings/schema:
   from global defaults.
 - Env model overrides affect effective resolver settings without mutating stored
   `SproutSettings`.
+- Invalid env model overrides fail startup/settings bootstrap with the env var
+  name in the error.
+- Existing settings files plus env model vars do not persist env values back to
+  disk.
+- Missing settings files may still be initialized from existing
+  `SPROUT_DEFAULT_*_MODEL` env vars as first-run seed behavior.
 - Runtime snapshots expose active model overrides for UI display.
+- Provider delete/disable rejects when active env overrides reference the
+  provider.
 
 Resolver:
 
@@ -495,6 +613,8 @@ Memory call sites:
 - Relationship/consolidation/entity-GC production wrappers use their purpose
   models.
 - Missing configured purpose causes a clear failure and no fallback write.
+- Hidden memory LLM requests that emit metadata include the expected purpose
+  label.
 
 ## Acceptance Criteria
 
@@ -508,6 +628,26 @@ Memory call sites:
 - Existing user-facing model selection still works unchanged.
 - Local embeddings remain fixed and fail-fast.
 - Targeted tests, `bun run typecheck`, and `bun run check` pass.
+
+## Implementation Staging
+
+The implementation should land in small verified slices:
+
+1. Schema/types/migration: add `memoryModels`, schema v3 normalization, and
+   settings validation tests.
+2. Env override layer: parse global and memory model override env vars, validate
+   centrally, expose `SettingsRuntimeSnapshot.modelOverrides`, and preserve
+   first-run env seeding semantics.
+3. Resolver: add `resolveMemoryModel()` and effective resolver settings with
+   focused tests proving no default-tier fallback.
+4. Control plane/protocol: add `set_memory_model`, provider lifecycle cleanup,
+   env-override delete/disable guards, and protocol validation tests.
+5. Web/TUI surfaces: add memory-model configuration UI and override display
+   notes.
+6. Production call-site wiring: session collapse, learn, bus, subcortical,
+   relationship, consolidation, and entity-GC wrappers.
+7. Integration/docs cleanup: targeted memory-call tests, operator docs/status
+   updates, typecheck, check, and relevant unit suites.
 
 ## Implementation Risks
 
