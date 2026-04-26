@@ -3,18 +3,14 @@ export type { ClientOptions, Middleware } from "./client.ts";
 export { Client } from "./client.ts";
 export type {
 	DenseLayer,
-	EmbeddingBatchResult,
-	EmbeddingFailure,
 	EmbeddingInputKind,
 	EmbeddingOptions,
 	EmbeddingProvider,
-	EmbeddingSuccess,
 	EmbeddingVector,
 	LocalEmbeddingDType,
 	LocalEmbeddingModelLoader,
 	LocalEmbeddingProviderOptions,
 	LocalFeatureExtractor,
-	OpenAIEmbeddingProviderOptions,
 } from "./embeddings.ts";
 export {
 	applyDenseLayer,
@@ -27,9 +23,6 @@ export {
 	FakeEmbeddingProvider,
 	LOCAL_QUERY_PREFIX,
 	LocalEmbeddingProvider,
-	OPENAI_EMBEDDING_DIMENSIONS,
-	OPENAI_EMBEDDING_MODEL,
-	OpenAIEmbeddingProvider,
 	parseDenseLayerSafetensors,
 } from "./embeddings.ts";
 export { GeminiAdapter } from "./gemini.ts";

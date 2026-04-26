@@ -10,9 +10,6 @@ import {
 	deterministicEmbedding,
 	FakeEmbeddingProvider,
 	LocalEmbeddingProvider,
-	OPENAI_EMBEDDING_DIMENSIONS,
-	OPENAI_EMBEDDING_MODEL,
-	OpenAIEmbeddingProvider,
 	parseDenseLayerSafetensors,
 } from "../../src/llm/embeddings.ts";
 
@@ -66,21 +63,16 @@ describe("Embedding providers", () => {
 		const queryResult = await provider.embedBatch(["sqlite memory"], { kind: "query" });
 		const documentResult = await provider.embedBatch(["sqlite memory"], { kind: "document" });
 
-		expect(queryResult.ok).toBe(true);
-		expect(documentResult.ok).toBe(true);
-		if (!queryResult.ok || !documentResult.ok) return;
 		expect(loadCount).toBe(1);
 		expect(calls).toEqual([["query: sqlite memory"], ["sqlite memory"]]);
-		expect(queryResult.embeddings[0]!.dimensions).toBe(3);
-		expect(documentResult.embeddings[0]!.dimensions).toBe(3);
-		expect([...queryResult.embeddings[0]!.vector]).not.toEqual([
-			...documentResult.embeddings[0]!.vector,
-		]);
-		expect(queryResult.embeddings[0]!.vector[0]).toBeCloseTo(Math.SQRT1_2, 5);
-		expect(documentResult.embeddings[0]!.vector[1]).toBeCloseTo(Math.SQRT1_2, 5);
+		expect(queryResult[0]!.dimensions).toBe(3);
+		expect(documentResult[0]!.dimensions).toBe(3);
+		expect([...queryResult[0]!.vector]).not.toEqual([...documentResult[0]!.vector]);
+		expect(queryResult[0]!.vector[0]).toBeCloseTo(Math.SQRT1_2, 5);
+		expect(documentResult[0]!.vector[1]).toBeCloseTo(Math.SQRT1_2, 5);
 	});
 
-	test("local provider reports dimension mismatches as embedding failures", async () => {
+	test("local provider throws on dimension mismatches", async () => {
 		const provider = new LocalEmbeddingProvider({
 			dimensions: 3,
 			denseLayerPath: null,
@@ -89,11 +81,7 @@ describe("Embedding providers", () => {
 			}),
 		});
 
-		const result = await provider.embedBatch(["alpha"]);
-
-		expect(result.ok).toBe(false);
-		if (result.ok) return;
-		expect(result.error).toContain("do not match expected 3");
+		expect(provider.embedBatch(["alpha"])).rejects.toThrow("do not match expected 3");
 	});
 
 	test("fake provider returns deterministic vectors with provider metadata", async () => {
@@ -101,14 +89,12 @@ describe("Embedding providers", () => {
 
 		const result = await provider.embedBatch(["alpha", "alpha", "beta"]);
 
-		expect(result.ok).toBe(true);
-		if (!result.ok) return;
-		expect(result.embeddings).toHaveLength(3);
-		expect(result.embeddings[0]!.provider).toBe("fake");
-		expect(result.embeddings[0]!.model).toBe("fake-deterministic");
-		expect(result.embeddings[0]!.dimensions).toBe(8);
-		expect([...result.embeddings[0]!.vector]).toEqual([...result.embeddings[1]!.vector]);
-		expect([...result.embeddings[0]!.vector]).not.toEqual([...result.embeddings[2]!.vector]);
+		expect(result).toHaveLength(3);
+		expect(result[0]!.provider).toBe("fake");
+		expect(result[0]!.model).toBe("fake-deterministic");
+		expect(result[0]!.dimensions).toBe(8);
+		expect([...result[0]!.vector]).toEqual([...result[1]!.vector]);
+		expect([...result[0]!.vector]).not.toEqual([...result[2]!.vector]);
 	});
 
 	test("fake provider separates query and document embeddings", async () => {
@@ -117,10 +103,7 @@ describe("Embedding providers", () => {
 		const query = await provider.embedBatch(["alpha"], { kind: "query" });
 		const document = await provider.embedBatch(["alpha"], { kind: "document" });
 
-		expect(query.ok).toBe(true);
-		expect(document.ok).toBe(true);
-		if (!query.ok || !document.ok) return;
-		expect([...query.embeddings[0]!.vector]).not.toEqual([...document.embeddings[0]!.vector]);
+		expect([...query[0]!.vector]).not.toEqual([...document[0]!.vector]);
 	});
 
 	test("fake provider handles empty batches", async () => {
@@ -128,7 +111,7 @@ describe("Embedding providers", () => {
 
 		const result = await provider.embedBatch([]);
 
-		expect(result).toEqual({ ok: true, embeddings: [] });
+		expect(result).toEqual([]);
 	});
 
 	test("deterministicEmbedding normalizes non-empty vectors", () => {
@@ -155,14 +138,6 @@ describe("Embedding providers", () => {
 		expect(projected).toHaveLength(3);
 		expect(projected[0]).toBeCloseTo(Math.SQRT1_2, 5);
 		expect(projected[2]).toBeCloseTo(Math.SQRT1_2, 5);
-	});
-
-	test("OpenAI provider is available as an explicit non-default fallback", () => {
-		const provider = new OpenAIEmbeddingProvider("test-key");
-
-		expect(provider.provider).toBe("openai");
-		expect(provider.model).toBe(OPENAI_EMBEDDING_MODEL);
-		expect(provider.dimensions).toBe(OPENAI_EMBEDDING_DIMENSIONS);
 	});
 });
 

@@ -23,7 +23,8 @@ Phase 1 — Foundation (in progress)
 
 - The original draft defaulted embeddings to OpenAI. User direction and CodeMira
   review changed Phase 1 to local-first embeddings: `MongoDB/mdbr-leaf-ir`
-  through Bun/Transformers.js, 768 dimensions, OpenAI as explicit fallback only.
+  through Bun/Transformers.js, 768 dimensions, and no alternate production
+  embedding provider.
 
 ## Verification
 
@@ -37,6 +38,16 @@ Phase 1 — Foundation (in progress)
 - 2026-04-26: manual local smoke check returned 768-dimensional query and
   document embeddings from `MongoDB/mdbr-leaf-ir`, with query/document vectors
   differing
+- 2026-04-26: `bun test test/llm/embeddings.test.ts test/genome/memory-schema.test.ts`
+  passed after removing embedding provider fallbacks and fail-soft result types
+- 2026-04-26: `bun run typecheck` passed after removing embedding provider
+  fallbacks
+- 2026-04-26: manual local smoke check returned 768-dimensional query and
+  document embeddings from `MongoDB/mdbr-leaf-ir` after the fail-fast adapter
+  change
+- 2026-04-26: `bun test test/llm/embeddings.test.ts test/genome/memory-schema.test.ts test/genome/index-builder.test.ts test/genome/memory-index.test.ts test/genome/jsonl-store.test.ts test/genome/memory-store.test.ts`
+  passed after removing embedding provider fallbacks
+- 2026-04-26: `bun run typecheck` passed after the final no-fallback cleanup
 - 2026-04-26: `bun test test/host/cli-compiled.test.ts` passed after adding
   the local embedding dependency
 - 2026-04-26: `bun test` ran 2545 tests: 2543 passed, 2 failed in unrelated
@@ -54,4 +65,5 @@ Phase 1 — Foundation (in progress)
 - Added `.cache/` genome initialization and gitignore coverage
 - Added local-first embedding provider abstraction with `MongoDB/mdbr-leaf-ir`
   default metadata, 768-dimensional dense projection, query/document prompt
-  asymmetry, OpenAI fallback adapter, and deterministic fake embeddings for tests
+  asymmetry, fail-fast production errors, and deterministic fake embeddings for
+  tests

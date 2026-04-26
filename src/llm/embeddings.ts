@@ -1,5 +1,4 @@
 import { pipeline } from "@huggingface/transformers";
-import OpenAI from "openai";
 
 export const DEFAULT_EMBEDDING_PROVIDER = "local";
 export const DEFAULT_EMBEDDING_MODEL = "MongoDB/mdbr-leaf-ir";
@@ -7,8 +6,6 @@ export const DEFAULT_EMBEDDING_DIMENSIONS = 768;
 export const DEFAULT_LOCAL_EMBEDDING_DTYPE = "q4";
 export const DEFAULT_LOCAL_DENSE_LAYER_PATH = "2_Dense/model.safetensors";
 export const LOCAL_QUERY_PREFIX = "Represent this sentence for searching relevant passages: ";
-export const OPENAI_EMBEDDING_MODEL = "text-embedding-3-small";
-export const OPENAI_EMBEDDING_DIMENSIONS = 1536;
 
 export type EmbeddingInputKind = "query" | "document";
 export type LocalEmbeddingDType = "fp32" | "fp16" | "q8" | "q4" | "q4f16";
@@ -25,25 +22,11 @@ export interface EmbeddingVector {
 	dimensions: number;
 }
 
-export interface EmbeddingFailure {
-	ok: false;
-	provider: string;
-	model: string;
-	error: string;
-}
-
-export interface EmbeddingSuccess {
-	ok: true;
-	embeddings: EmbeddingVector[];
-}
-
-export type EmbeddingBatchResult = EmbeddingSuccess | EmbeddingFailure;
-
 export interface EmbeddingProvider {
 	readonly provider: string;
 	readonly model: string;
 	readonly dimensions: number;
-	embedBatch(texts: readonly string[], options?: EmbeddingOptions): Promise<EmbeddingBatchResult>;
+	embedBatch(texts: readonly string[], options?: EmbeddingOptions): Promise<EmbeddingVector[]>;
 }
 
 export interface LocalEmbeddingProviderOptions {
@@ -102,46 +85,32 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
 	async embedBatch(
 		texts: readonly string[],
 		options: EmbeddingOptions = {},
-	): Promise<EmbeddingBatchResult> {
-		if (texts.length === 0) return { ok: true, embeddings: [] };
-		try {
-			const loaded = await this.load();
-			const kind = options.kind ?? "document";
-			const prepared = texts.map((text) =>
-				kind === "query" ? `${this.queryPrefix}${text}` : text,
-			);
-			const output = await loaded.extractor(prepared, { pooling: "mean", normalize: true });
-			const baseVectors = splitTensor(output, texts.length);
-			const denseLayer = loaded.denseLayer;
-			const vectors = denseLayer
-				? baseVectors.map((vector) => applyDenseLayer(vector, denseLayer))
-				: baseVectors;
+	): Promise<EmbeddingVector[]> {
+		if (texts.length === 0) return [];
+		const loaded = await this.load();
+		const kind = options.kind ?? "document";
+		const prepared = texts.map((text) => (kind === "query" ? `${this.queryPrefix}${text}` : text));
+		const output = await loaded.extractor(prepared, { pooling: "mean", normalize: true });
+		const baseVectors = splitTensor(output, texts.length);
+		const denseLayer = loaded.denseLayer;
+		const vectors = denseLayer
+			? baseVectors.map((vector) => applyDenseLayer(vector, denseLayer))
+			: baseVectors;
 
+		return vectors.map((vector, index) => {
+			if (vector.length !== this.dimensions) {
+				throw new Error(
+					`Embedding vector dimensions ${vector.length} do not match expected ${this.dimensions}`,
+				);
+			}
 			return {
-				ok: true,
-				embeddings: vectors.map((vector, index) => {
-					if (vector.length !== this.dimensions) {
-						throw new Error(
-							`Embedding vector dimensions ${vector.length} do not match expected ${this.dimensions}`,
-						);
-					}
-					return {
-						text: texts[index] ?? "",
-						vector,
-						provider: this.provider,
-						model: this.model,
-						dimensions: vector.length,
-					};
-				}),
-			};
-		} catch (error: unknown) {
-			return {
-				ok: false,
+				text: texts[index] ?? "",
+				vector,
 				provider: this.provider,
 				model: this.model,
-				error: error instanceof Error ? error.message : String(error),
+				dimensions: vector.length,
 			};
-		}
+		});
 	}
 
 	private load(): Promise<{ extractor: LocalFeatureExtractor; denseLayer?: DenseLayer }> {
@@ -150,58 +119,6 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
 			denseLayerPath: this.denseLayerPath,
 		});
 		return this.loaded;
-	}
-}
-
-export interface OpenAIEmbeddingProviderOptions {
-	model?: string;
-	dimensions?: number;
-	baseUrl?: string;
-	headers?: Record<string, string>;
-}
-
-export class OpenAIEmbeddingProvider implements EmbeddingProvider {
-	readonly provider = "openai";
-	readonly model: string;
-	readonly dimensions: number;
-	private readonly client: OpenAI;
-
-	constructor(apiKey: string, options: OpenAIEmbeddingProviderOptions = {}) {
-		this.model = options.model ?? OPENAI_EMBEDDING_MODEL;
-		this.dimensions = options.dimensions ?? OPENAI_EMBEDDING_DIMENSIONS;
-		this.client = new OpenAI({
-			apiKey,
-			baseURL: options.baseUrl,
-			defaultHeaders: options.headers,
-		});
-	}
-
-	async embedBatch(texts: readonly string[]): Promise<EmbeddingBatchResult> {
-		if (texts.length === 0) return { ok: true, embeddings: [] };
-		try {
-			const response = await this.client.embeddings.create({
-				model: this.model,
-				input: [...texts],
-			});
-			const embeddings = response.data.map((item, index) => {
-				const vector = Float32Array.from(item.embedding);
-				return {
-					text: texts[index] ?? "",
-					vector,
-					provider: this.provider,
-					model: this.model,
-					dimensions: vector.length,
-				};
-			});
-			return { ok: true, embeddings };
-		} catch (error: unknown) {
-			return {
-				ok: false,
-				provider: this.provider,
-				model: this.model,
-				error: error instanceof Error ? error.message : String(error),
-			};
-		}
 	}
 }
 
@@ -214,18 +131,15 @@ export class FakeEmbeddingProvider implements EmbeddingProvider {
 	async embedBatch(
 		texts: readonly string[],
 		options: EmbeddingOptions = {},
-	): Promise<EmbeddingBatchResult> {
+	): Promise<EmbeddingVector[]> {
 		const kind = options.kind ?? "document";
-		return {
-			ok: true,
-			embeddings: texts.map((text) => ({
-				text,
-				vector: deterministicEmbedding(`${kind}:${text}`, this.dimensions),
-				provider: this.provider,
-				model: this.model,
-				dimensions: this.dimensions,
-			})),
-		};
+		return texts.map((text) => ({
+			text,
+			vector: deterministicEmbedding(`${kind}:${text}`, this.dimensions),
+			provider: this.provider,
+			model: this.model,
+			dimensions: this.dimensions,
+		}));
 	}
 }
 

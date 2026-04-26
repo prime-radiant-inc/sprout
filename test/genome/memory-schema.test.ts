@@ -47,9 +47,9 @@ describe("memory schema normalization", () => {
 			project_ids: ["sprout"],
 			entity_links: [{ uuid: "entity-1", type: "PROJECT", name: "Sprout" }],
 			embedding: {
-				provider: "openai",
-				model: "text-embedding-3-small",
-				dimensions: 1536,
+				provider: "local",
+				model: "MongoDB/mdbr-leaf-ir",
+				dimensions: 768,
 				status: "ready",
 				vector_id: "mem_abc12345",
 			},
