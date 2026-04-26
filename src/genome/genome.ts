@@ -15,12 +15,18 @@ import { memoryIndexPath, rebuildMemoryIndexFromJsonl } from "./index-builder.ts
 import { attachReadyMemoryEmbedding } from "./memory-embedding.ts";
 import { MemoryIndex } from "./memory-index.ts";
 import { MemoryStore } from "./memory-store.ts";
+import { type DetectedProject, ProjectActivityStore } from "./projects.ts";
 import {
 	loadMemoryExtractionPrompts,
 	loadSegmentSummaryPrompts,
 	type PromptSet,
 } from "./prompts.ts";
 import { buildManifestFromSpecs, loadManifest, saveManifest } from "./root-manifest.ts";
+import {
+	applyMemoryScores,
+	markMemoryAccessActivity,
+	stampMemoryActivitySnapshots,
+} from "./scoring.ts";
 import { attachReadySegmentEmbedding, type MemorySegment, SegmentStore } from "./segments.ts";
 
 export interface SyncRootResult {
@@ -97,6 +103,7 @@ export class Genome {
 	private readonly rootAgents = new Map<string, AgentSpec>();
 	readonly memories: MemoryStore;
 	readonly segments: SegmentStore;
+	readonly projects: ProjectActivityStore;
 	private routingRules: RoutingRule[] = [];
 	private _generation = 0;
 	private _knownAgentFiles: Set<string> = new Set();
@@ -107,6 +114,7 @@ export class Genome {
 		this.embeddingProvider = options.embeddingProvider;
 		this.memories = new MemoryStore(join(rootPath, "memories", "memories.jsonl"));
 		this.segments = new SegmentStore(join(rootPath, "memories", "segments.jsonl"));
+		this.projects = new ProjectActivityStore(join(rootPath, "memories", "projects.jsonl"));
 	}
 
 	get generation(): number {
@@ -298,6 +306,7 @@ export class Genome {
 
 	/** Add a memory, committing the JSONL file. */
 	async addMemory(memory: Memory): Promise<void> {
+		stampMemoryActivitySnapshots(memory, this.projects.all());
 		const embeddedMemory = await attachReadyMemoryEmbedding(
 			memory,
 			await this.getEmbeddingProvider(),
@@ -388,9 +397,30 @@ export class Genome {
 		if (ids.length === 0) return;
 		for (const id of ids) {
 			this.memories.markUsed(id);
+			const memory = this.memories.getById(id);
+			if (memory) markMemoryAccessActivity(memory, this.projects.all());
 		}
 		await this.memories.save();
 		await rebuildMemoryIndexFromJsonl(this.rootPath);
+	}
+
+	async recordProjectActivity(project: DetectedProject, date = new Date()): Promise<boolean> {
+		const record = this.projects.recordActiveDay(project, date);
+		if (!record) return false;
+		await this.projects.save();
+		return true;
+	}
+
+	async recomputeMemoryScores(options: { now?: number; minImportance?: number } = {}): Promise<{
+		updated: string[];
+		archived: string[];
+	}> {
+		const result = applyMemoryScores(this.memories.all(), this.projects.all(), options);
+		if (result.updated.length > 0 || result.archived.length > 0) {
+			await this.memories.save();
+			await rebuildMemoryIndexFromJsonl(this.rootPath);
+		}
+		return result;
 	}
 
 	/** Track assistant-visible memory citations by short id. No git commit. */
@@ -514,6 +544,7 @@ export class Genome {
 		// Load memories
 		await this.memories.load();
 		await this.segments.load();
+		await this.projects.load();
 
 		// Load routing rules
 		const rulesPath = join(this.rootPath, "routing", "rules.yaml");

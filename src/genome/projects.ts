@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
+import { JsonlStore } from "./jsonl-store.ts";
 
 export type ProjectDetectionSource =
 	| "explicit"
@@ -26,6 +27,13 @@ export interface DetectedProject {
 	remote?: string;
 }
 
+export interface ProjectActivityRecord {
+	id: string;
+	name: string;
+	cumulative_active_days: number;
+	last_active_date?: string;
+}
+
 const UNKNOWN_PROJECT: DetectedProject = {
 	id: "unknown",
 	name: "unknown",
@@ -45,6 +53,51 @@ const GENERIC_PROJECT_NAMES = new Set([
 	"workspace",
 	"worktree",
 ]);
+
+export class ProjectActivityStore {
+	private entries: ProjectActivityRecord[] = [];
+	private readonly jsonl: JsonlStore<unknown>;
+
+	constructor(jsonlPath: string) {
+		this.jsonl = new JsonlStore(jsonlPath);
+	}
+
+	async load(): Promise<void> {
+		this.entries = (await this.jsonl.load()).map(normalizeProjectActivityRecord);
+	}
+
+	all(): ProjectActivityRecord[] {
+		return [...this.entries];
+	}
+
+	getById(id: string): ProjectActivityRecord | undefined {
+		return this.entries.find((entry) => entry.id === id);
+	}
+
+	recordActiveDay(project: DetectedProject, date: Date): ProjectActivityRecord | undefined {
+		if (project.id === "unknown" || project.id === "global") return undefined;
+		const activeDate = date.toISOString().slice(0, 10);
+		let record = this.getById(project.id);
+		if (!record) {
+			record = {
+				id: project.id,
+				name: project.name,
+				cumulative_active_days: 0,
+			};
+			this.entries.push(record);
+		}
+		record.name = project.name;
+		if (record.last_active_date !== activeDate) {
+			record.cumulative_active_days += 1;
+			record.last_active_date = activeDate;
+		}
+		return record;
+	}
+
+	async save(): Promise<void> {
+		await this.jsonl.rewrite(this.entries);
+	}
+}
 
 export function detectProject(input: ProjectDetectionInput): DetectedProject {
 	const explicit = explicitProject(input.explicitProject, "explicit");
@@ -178,7 +231,32 @@ function projectId(value: string): string {
 		.slice(0, 96);
 }
 
+function normalizeProjectActivityRecord(raw: unknown): ProjectActivityRecord {
+	if (!isRecord(raw)) throw new Error("Project activity record must be an object");
+	const id = typeof raw.id === "string" && raw.id.trim() ? raw.id : undefined;
+	if (!id) throw new Error("Project activity record is missing id");
+	const name = typeof raw.name === "string" && raw.name.trim() ? raw.name : id;
+	const days =
+		typeof raw.cumulative_active_days === "number" && Number.isFinite(raw.cumulative_active_days)
+			? raw.cumulative_active_days
+			: 0;
+	const lastActiveDate =
+		typeof raw.last_active_date === "string" && raw.last_active_date.trim()
+			? raw.last_active_date
+			: undefined;
+	return {
+		id,
+		name,
+		cumulative_active_days: Math.max(0, Math.floor(days)),
+		...(lastActiveDate ? { last_active_date: lastActiveDate } : {}),
+	};
+}
+
 function isUsefulName(value: string): boolean {
 	const id = projectId(value);
 	return id.length >= 3 && !GENERIC_PROJECT_NAMES.has(id);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { detectProject, detectProjectFromCwd } from "../../src/genome/projects.ts";
+import {
+	detectProject,
+	detectProjectFromCwd,
+	ProjectActivityStore,
+} from "../../src/genome/projects.ts";
 
 describe("project detection", () => {
 	let tempDir: string;
@@ -75,5 +79,33 @@ describe("project detection", () => {
 			name: "sprout-memory",
 			source: "package",
 		});
+	});
+
+	test("project activity counter increments once per local day", async () => {
+		const store = new ProjectActivityStore(join(tempDir, "projects.jsonl"));
+		await store.load();
+		const project = detectProject({ explicitProject: "Sprout" });
+
+		store.recordActiveDay(project, new Date("2026-04-26T10:00:00Z"));
+		store.recordActiveDay(project, new Date("2026-04-26T18:00:00Z"));
+		store.recordActiveDay(project, new Date("2026-04-27T10:00:00Z"));
+		await store.save();
+
+		const reloaded = new ProjectActivityStore(join(tempDir, "projects.jsonl"));
+		await reloaded.load();
+		expect(reloaded.getById("sprout")).toMatchObject({
+			cumulative_active_days: 2,
+			last_active_date: "2026-04-27",
+		});
+	});
+
+	test("unknown project does not advance a project-specific decay clock", async () => {
+		const store = new ProjectActivityStore(join(tempDir, "projects.jsonl"));
+		await store.load();
+
+		const record = store.recordActiveDay(detectProject({ cwd: "/tmp/src" }), new Date());
+
+		expect(record).toBeUndefined();
+		expect(store.all()).toEqual([]);
 	});
 });

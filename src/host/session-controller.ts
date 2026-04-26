@@ -4,6 +4,7 @@ import { createAgent } from "../agents/factory.ts";
 import type { ResolverSettings } from "../agents/model-resolver.ts";
 import type { AgentSpawner } from "../bus/spawner.ts";
 import { collapseSessionToMemory } from "../core/session-collapse.ts";
+import { detectProjectFromCwd } from "../genome/projects.ts";
 import type { Command, ModelRef, SessionEvent } from "../kernel/types.ts";
 import type { Message } from "../llm/types.ts";
 import type { SessionSelectionRequest } from "../shared/session-selection.ts";
@@ -224,6 +225,11 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 						provider: result.provider,
 						sessionId,
 						cwd,
+					}).then(async (collapse) => {
+						const project = await detectProjectFromCwd({ cwd });
+						await result.genome.recordProjectActivity(project);
+						await result.genome.recomputeMemoryScores();
+						return collapse;
 					});
 				},
 	};
