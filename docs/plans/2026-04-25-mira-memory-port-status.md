@@ -2,18 +2,19 @@
 
 ## Current phase
 
-Phase 3 — Segment collapse (starting)
+Phase 4 — Surfacing pipeline (starting)
 
 ## Phase log
 
 - Phase 1 — Foundation: completed 2026-04-26
 - Phase 2 — Extraction: completed 2026-04-26
-- Phase 3 — Segment collapse: starting
+- Phase 3 — Segment collapse: completed 2026-04-26
+- Phase 4 — Surfacing pipeline: starting
 
 ## Current branch / commit
 
 - Branch: `jesse/pri-1354-implement-mira-memory-port-phase-1-foundation`
-- Last verified commit: `262d4fd`
+- Last verified commit: `4082b8c`
 
 ## Open issues
 
@@ -86,6 +87,9 @@ Phase 3 — Segment collapse (starting)
   deduplication
 - 2026-04-26: `bun run typecheck` passed after the Phase 2 learn write rewire
 - 2026-04-26: `bun run check` passed after the Phase 2 learn write rewire
+- 2026-04-26: `bun test test/host/session-collapse.test.ts test/genome/segments.test.ts test/genome/projects.test.ts test/genome/memory-index.test.ts test/genome/index-builder.test.ts`
+  passed after adding segment collapse, segment indexing, and project detection
+- 2026-04-26: `bun run typecheck` passed after Phase 3 segment collapse
 
 ## Completed in current slice
 
@@ -112,3 +116,7 @@ Phase 3 — Segment collapse (starting)
   extraction draft normalization, three-stage duplicate filtering, and learn
   write-path integration that turns LLM-selected `create_memory` mutations into
   extracted, entity-linked, embedded memories
+- Added collapsed session segment storage in `memories/segments.jsonl`,
+  SQLite segment indexing, deterministic root-only transcript building,
+  package/remote/git project detection, segment summary prompts, and a
+  session-end collapse flow that extracts segment-linked memories
