@@ -537,6 +537,12 @@ export class Genome {
 		const normalizedQuery = query.trim();
 		if (!normalizedQuery) return [];
 
+		if (allowIndexRebuild) {
+			await ensureMemoryIndexFresh(this.rootPath);
+		} else {
+			await requireMemoryIndexFresh(this.rootPath);
+		}
+		await this.memories.load();
 		const candidates = this.memories.all().filter((memory) => {
 			return (
 				isActiveMemoryForRecall(memory) && this.effectiveMemoryConfidence(memory) >= minConfidence
@@ -545,11 +551,6 @@ export class Genome {
 		if (candidates.length === 0) return [];
 		const candidateIds = new Set(candidates.map((memory) => memory.id));
 
-		if (allowIndexRebuild) {
-			await ensureMemoryIndexFresh(this.rootPath);
-		} else {
-			await requireMemoryIndexFresh(this.rootPath);
-		}
 		const embeddingProvider = await this.getEmbeddingProvider();
 		const [queryEmbedding] = await embeddingProvider.embedBatch([normalizedQuery], {
 			kind: "query",

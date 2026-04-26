@@ -626,6 +626,20 @@ describe("Genome", () => {
 			expect(afterSecondSearch).toBe(before);
 		});
 
+		test("searchMemories refreshes stale in-memory candidates from disk", async () => {
+			const root = join(tempDir, "mem-search-stale-instance");
+			const writer = await createInitializedGenome(root);
+			const staleGenome = createTestGenome(root);
+			await staleGenome.loadFromDisk();
+			await writer.addMemory(
+				makeMemory({ id: "fresh-recall-memory", content: "Fresh SQLite recall fact" }),
+			);
+
+			const results = await staleGenome.searchMemories("Fresh SQLite recall", 1);
+
+			expect(results.map((memory) => memory.id)).toEqual(["fresh-recall-memory"]);
+		});
+
 		test("searchMemories excludes superseded recall candidates", async () => {
 			const root = join(tempDir, "mem-search-superseded");
 			const genome = await createInitializedGenome(root);
