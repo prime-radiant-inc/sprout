@@ -8,7 +8,12 @@ import { filterDuplicateDrafts } from "../genome/dedup.ts";
 import { extractMemoryDrafts, memoryFromDraft } from "../genome/extraction.ts";
 import type { Genome } from "../genome/genome.ts";
 import { EVENT_CAP } from "../kernel/constants.ts";
-import { DEFAULT_CONSTRAINTS, type SessionEvent, validateAgentName } from "../kernel/types.ts";
+import {
+	DEFAULT_CONSTRAINTS,
+	type LearnSignal,
+	type SessionEvent,
+	validateAgentName,
+} from "../kernel/types.ts";
 import { learnSignalExtractionMessages } from "../learn/extraction-evidence.ts";
 import { Client } from "../llm/client.ts";
 import type { ProviderModel } from "../llm/types.ts";
@@ -16,6 +21,8 @@ import type { BusClient } from "./client.ts";
 import { type LearnRequest, parseLearnRequest, resolveLearnMutation } from "./learn-contract.ts";
 import { genomeEvents, genomeMutations, sessionEvents } from "./topics.ts";
 import { parseBusMessage } from "./types.ts";
+
+const DEFAULT_SIGNAL_EVIDENCE_WAIT_MS = 30_000;
 
 /** A confirmation event published after processing a mutation request. */
 export interface MutationConfirmation {
@@ -39,8 +46,8 @@ export interface GenomeMutationServiceOptions {
 	stopDrainTimeoutMs?: number;
 	/** Poll interval while waiting for queue drain during stop(). Default: 10ms. */
 	stopDrainPollMs?: number;
-	/** Short delay for bus event delivery to catch terminal evidence after a signal. Default: 100ms. */
-	signalEvidenceGraceMs?: number;
+	/** Max time to wait for terminal evidence after a signal. Default: 30s. */
+	signalEvidenceWaitMs?: number;
 }
 
 /**
@@ -59,7 +66,7 @@ export class GenomeMutationService {
 	private readonly resolverSettings: ResolverSettings | undefined;
 	private readonly stopDrainTimeoutMs: number;
 	private readonly stopDrainPollMs: number;
-	private readonly signalEvidenceGraceMs: number;
+	private readonly signalEvidenceWaitMs: number;
 	private readonly queue: LearnRequest[] = [];
 	private readonly events: SessionEvent[] = [];
 	private resolvedModel: ResolvedModel | undefined;
@@ -76,7 +83,7 @@ export class GenomeMutationService {
 		this.resolverSettings = options.resolverSettings;
 		this.stopDrainTimeoutMs = options.stopDrainTimeoutMs ?? 5_000;
 		this.stopDrainPollMs = options.stopDrainPollMs ?? 10;
-		this.signalEvidenceGraceMs = options.signalEvidenceGraceMs ?? 100;
+		this.signalEvidenceWaitMs = options.signalEvidenceWaitMs ?? DEFAULT_SIGNAL_EVIDENCE_WAIT_MS;
 	}
 
 	/** Start subscribing to the mutations topic. */
@@ -224,9 +231,7 @@ export class GenomeMutationService {
 		}
 		const request_id = req.request_id;
 		try {
-			if (this.signalEvidenceGraceMs > 0) {
-				await new Promise((resolve) => setTimeout(resolve, this.signalEvidenceGraceMs));
-			}
+			await this.waitForTerminalSignalEvidence(req.payload.signal);
 			const messages = learnSignalExtractionMessages({
 				signal: req.payload.signal,
 				events: this.events,
@@ -320,9 +325,31 @@ export class GenomeMutationService {
 		return this.resolvedModel;
 	}
 
+	private async waitForTerminalSignalEvidence(signal: LearnSignal): Promise<void> {
+		if (this.signalEvidenceWaitMs <= 0 || this.hasTerminalSessionEnd(signal)) return;
+		const deadline = Date.now() + this.signalEvidenceWaitMs;
+		while (Date.now() < deadline) {
+			await new Promise((resolve) => setTimeout(resolve, Math.min(25, deadline - Date.now())));
+			if (this.hasTerminalSessionEnd(signal)) return;
+		}
+	}
+
+	private hasTerminalSessionEnd(signal: LearnSignal): boolean {
+		return this.events.some(
+			(event) =>
+				event.kind === "session_end" &&
+				stringValue(event.data.session_id) === signal.session_id &&
+				event.timestamp >= signal.timestamp,
+		);
+	}
+
 	private async publishConfirmation(confirmation: MutationConfirmation): Promise<void> {
 		await this.bus.publish(genomeEvents(this.sessionId), JSON.stringify(confirmation));
 	}
+}
+
+function stringValue(value: unknown): string | undefined {
+	return typeof value === "string" ? value : undefined;
 }
 
 function defaultModelTiers(

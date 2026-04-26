@@ -217,7 +217,7 @@ describe("GenomeMutationService", () => {
 	function replaceService(options: {
 		client?: Client;
 		clientFactory?: () => Client;
-		signalEvidenceGraceMs?: number;
+		signalEvidenceWaitMs?: number;
 	}): void {
 		service = new GenomeMutationService({
 			bus: serviceBus,
@@ -493,7 +493,7 @@ describe("GenomeMutationService", () => {
 					]),
 				},
 			),
-			signalEvidenceGraceMs: 0,
+			signalEvidenceWaitMs: 0,
 		});
 		await service.start();
 		const confirmationPromise = testBus.waitForMessage(genomeEvents(SESSION_ID), 5000);
@@ -510,7 +510,7 @@ describe("GenomeMutationService", () => {
 		expect(genome.memories.all()[0]?.content).toContain("populated provider model");
 	}, 10_000);
 
-	test("signal extraction waits briefly for terminal bus events after the signal", async () => {
+	test("signal extraction waits for terminal bus events after the signal", async () => {
 		const prompts: string[] = [];
 		replaceService({
 			client: makeMockClient(
@@ -524,7 +524,7 @@ describe("GenomeMutationService", () => {
 				],
 				(request) => prompts.push(requestText(request)),
 			),
-			signalEvidenceGraceMs: 25,
+			signalEvidenceWaitMs: 500,
 		});
 		await service.start();
 		const confirmationPromise = testBus.waitForMessage(genomeEvents(SESSION_ID), 5000);
@@ -539,31 +539,34 @@ describe("GenomeMutationService", () => {
 		await waitForServiceEvents(1);
 
 		await publishSignal(signal, "req-signal-before-terminal");
-		await publishSessionEvent(
-			event("act_end", signal.timestamp + 1, {
-				agent_name: "worker-a",
-				goal: signal.goal,
-				success: false,
-				turns: 2,
-				timed_out: false,
-				output: "late delegation output after signal",
-				tool_result_message: Msg.toolResult(
-					"delegate-1",
-					"late delegation output after signal",
-					true,
+		setTimeout(() => {
+			void publishSessionEvent(
+				event("act_end", signal.timestamp + 1, {
+					agent_name: "worker-a",
+					goal: signal.goal,
+					success: false,
+					turns: 2,
+					timed_out: false,
+					output: "late delegation output after signal",
+					tool_result_message: Msg.toolResult(
+						"delegate-1",
+						"late delegation output after signal",
+						true,
+					),
+				}),
+			).then(() =>
+				publishSessionEvent(
+					event("session_end", signal.timestamp + 2, {
+						session_id: signal.session_id,
+						success: false,
+						stumbles: 1,
+						turns: 2,
+						timed_out: false,
+						output: "late terminal failed state after signal",
+					}),
 				),
-			}),
-		);
-		await publishSessionEvent(
-			event("session_end", signal.timestamp + 2, {
-				session_id: signal.session_id,
-				success: false,
-				stumbles: 1,
-				turns: 2,
-				timed_out: false,
-				output: "late terminal failed state after signal",
-			}),
-		);
+			);
+		}, 150);
 
 		const raw = await confirmationPromise;
 		const confirmation = JSON.parse(raw);
@@ -577,6 +580,7 @@ describe("GenomeMutationService", () => {
 			clientFactory: () => {
 				throw new Error("missing extraction client");
 			},
+			signalEvidenceWaitMs: 0,
 		});
 		await service.start();
 		const confirmationPromise = testBus.waitForMessage(genomeEvents(SESSION_ID), 5000);
@@ -599,6 +603,7 @@ describe("GenomeMutationService", () => {
 	test("publishes an error for signal requests without event-window evidence", async () => {
 		replaceService({
 			client: makeMockClient(["[]"]),
+			signalEvidenceWaitMs: 0,
 		});
 		await service.start();
 		const confirmationPromise = testBus.waitForMessage(genomeEvents(SESSION_ID), 5000);
