@@ -170,6 +170,29 @@ describe("MemoryStore", () => {
 		expect(updated.last_used).toBeGreaterThanOrEqual(before);
 	});
 
+	test("markMentioned() increments mention count by short id", async () => {
+		const store = new MemoryStore(join(tempDir, "mentions.jsonl"));
+		await store.load();
+		await store.add(makeMemory({ id: "mention-target", content: "cited memory" }));
+
+		const mentioned = store.markMentioned(["mem_mentiont", "mem_missing0"], 1700000000000);
+
+		expect(mentioned).toEqual(["mention-target"]);
+		const updated = store.getById("mention-target")!;
+		expect(updated.mention_count).toBe(1);
+		expect(updated.updated_at).toBe(1700000000000);
+	});
+
+	test("markMentioned() deduplicates repeated short ids per response", async () => {
+		const store = new MemoryStore(join(tempDir, "mentions-dedupe.jsonl"));
+		await store.load();
+		await store.add(makeMemory({ id: "repeat-target", content: "cited memory" }));
+
+		store.markMentioned(["mem_repeatta", "mem_repeatta"]);
+
+		expect(store.getById("repeat-target")?.mention_count).toBe(1);
+	});
+
 	test("effectiveConfidence() decays based on time since last use", () => {
 		const store = new MemoryStore(join(tempDir, "decay.jsonl"));
 

@@ -69,6 +69,20 @@ export class MemoryStore {
 		memory.access_count = memory.use_count;
 	}
 
+	/** Increment mention_count for memories whose short ids appeared in assistant text. */
+	markMentioned(shortIds: readonly string[], now = Date.now()): string[] {
+		const wanted = new Set(shortIds.map((id) => id.toLowerCase()));
+		const mentioned: string[] = [];
+		for (const memory of this.entries) {
+			const shortId = (memory.short_id ?? "").toLowerCase();
+			if (!shortId || !wanted.has(shortId)) continue;
+			memory.mention_count = (memory.mention_count ?? 0) + 1;
+			memory.updated_at = now;
+			mentioned.push(memory.id);
+		}
+		return mentioned;
+	}
+
 	/** Rewrite the entire JSONL file from the in-memory entries. */
 	async save(): Promise<void> {
 		await this.jsonl.rewrite(this.entries);

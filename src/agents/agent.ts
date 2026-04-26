@@ -7,6 +7,7 @@ import type { Logger } from "../core/logger.ts";
 import { NullLogger } from "../core/logger.ts";
 import type { Genome } from "../genome/genome.ts";
 import { recall } from "../genome/recall.ts";
+import { extractMemoryReferences } from "../genome/render-memory-block.ts";
 import type { ExecutionEnvironment } from "../kernel/execution-env.ts";
 import { checkPathConstraint, validateConstraints } from "../kernel/path-constraints.js";
 import type { PrimitiveRegistry } from "../kernel/primitives.ts";
@@ -1204,6 +1205,13 @@ export class Agent {
 		return this.runLoop(goal);
 	}
 
+	private async trackMemoryMentions(message: Message): Promise<void> {
+		if (!this.genome || typeof this.genome.recordMemoryMentions !== "function") return;
+		const refs = extractMemoryReferences(messageText(message));
+		if (refs.length === 0) return;
+		await this.genome.recordMemoryMentions(refs);
+	}
+
 	/** Continue a conversation by appending a new message and running the planning loop again. */
 	async continue(message: string, signal?: AbortSignal): Promise<AgentResult> {
 		if (!this.systemPrompt) {
@@ -1585,6 +1593,7 @@ export class Agent {
 				}
 				const { response, assistantMessage, toolCalls } = planningResult;
 				resetInactivityTimer();
+				await this.trackMemoryMentions(assistantMessage);
 
 				// If response was truncated (hit max_tokens), tool calls are likely incomplete.
 				// Don't attempt to execute them — tell the LLM to break the task into smaller steps.

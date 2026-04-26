@@ -203,6 +203,48 @@ describe("Agent", () => {
 		expect(planEnd!.data.reasoning).toBe("Let me think about this...");
 	});
 
+	test("assistant memory references are tracked without reading tool results", async () => {
+		const mentioned: string[][] = [];
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => ({
+				id: "mock-memory-ref",
+				model: "claude-haiku-4-5-20251001",
+				provider: "anthropic",
+				message: Msg.assistant("Use mem_ABCDEF12 and mem_abcdef12 for context."),
+				finish_reason: { reason: "stop" },
+				usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+			}),
+			stream: async function* () {},
+		} as unknown as Client;
+		const fakeGenome = {
+			allAgents: () => [],
+			searchMemories: async () => [],
+			matchRoutingRules: () => [],
+			markMemoriesUsed: async () => {},
+			recordMemoryMentions: async (refs: string[]) => {
+				mentioned.push(refs);
+				return [];
+			},
+			refreshIfDiskChanged: async () => false,
+			loadAgentTools: async () => [],
+			agentDir: () => tmpdir(),
+		} as unknown as Genome;
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const agent = new Agent({
+			spec: leafSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: createPrimitiveRegistry(env),
+			availableAgents: [],
+			genome: fakeGenome,
+		});
+
+		await agent.run("cite memory");
+
+		expect(mentioned).toEqual([["mem_abcdef12"]]);
+	});
+
 	test("primitive_end event includes tool_result_message", async () => {
 		const toolCallMsg: Message = {
 			role: "assistant",
@@ -1710,6 +1752,85 @@ describe("Agent", () => {
 
 		// Agent should have completed successfully (continued after compaction)
 		expect(result.success).toBe(true);
+	});
+
+	test("delegated agents reuse the root surfaced memory block", async () => {
+		let callCount = 0;
+		let memorySearches = 0;
+		const delegateCalls = Array.from({ length: 5 }, (_, index) => ({
+			kind: ContentKind.TOOL_CALL,
+			tool_call: {
+				id: `call-${index}`,
+				name: "delegate",
+				arguments: {
+					agent_name: "leaf",
+					goal: `subtask ${index}`,
+				},
+			},
+		}));
+		const rootDelegateMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "Delegating." }, ...delegateCalls],
+		};
+		const leafDoneMsg = Msg.assistant("Leaf done.");
+		const rootDoneMsg = Msg.assistant("Root done.");
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				const message =
+					callCount === 1 ? rootDelegateMsg : callCount <= 6 ? leafDoneMsg : rootDoneMsg;
+				return {
+					id: `mock-cache-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message,
+					finish_reason: { reason: callCount === 1 ? "tool_calls" : "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+		const fakeGenome = {
+			allAgents: () => [rootSpec, leafSpec],
+			searchMemories: async () => {
+				memorySearches++;
+				return [
+					{
+						id: "memory-cache",
+						content: "Root surfaced memory",
+						tags: [],
+						source: "test",
+						created: Date.now(),
+						last_used: Date.now(),
+						use_count: 0,
+						confidence: 1,
+					},
+				];
+			},
+			matchRoutingRules: () => [],
+			markMemoriesUsed: async () => {},
+			refreshIfDiskChanged: async () => false,
+			loadAgentTools: async () => [],
+			agentDir: () => tmpdir(),
+		} as unknown as Genome;
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const agent = new Agent({
+			spec: rootSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: createPrimitiveRegistry(env),
+			availableAgents: [rootSpec, leafSpec],
+			genome: fakeGenome,
+			events,
+		});
+
+		await agent.run("coordinate five delegates");
+
+		expect(memorySearches).toBe(1);
+		const recallEvents = events.collected().filter((event) => event.kind === "recall");
+		expect(recallEvents.filter((event) => event.data.cached === true)).toHaveLength(5);
 	});
 
 	test("agent respects requestCompaction() flag", async () => {

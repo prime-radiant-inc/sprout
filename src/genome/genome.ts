@@ -380,6 +380,16 @@ export class Genome {
 		await rebuildMemoryIndexFromJsonl(this.rootPath);
 	}
 
+	/** Track assistant-visible memory citations by short id. No git commit. */
+	async recordMemoryMentions(shortIds: string[]): Promise<string[]> {
+		if (shortIds.length === 0) return [];
+		const mentioned = this.memories.markMentioned(shortIds);
+		if (mentioned.length === 0) return [];
+		await this.memories.save();
+		await rebuildMemoryIndexFromJsonl(this.rootPath);
+		return mentioned;
+	}
+
 	private effectiveMemoryConfidence(memory: Memory): number {
 		return this.memories.effectiveConfidence(memory);
 	}
