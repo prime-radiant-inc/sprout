@@ -22,6 +22,7 @@ export interface MemoryScoreOptions {
 }
 
 const DEFAULT_MIN_IMPORTANCE = 0.1;
+const SYNTHETIC_MAINTENANCE_PROJECT_IDS = new Set(["__global__"]);
 
 export function projectActivityDaysForMemory(
 	memory: Memory,
@@ -36,7 +37,9 @@ export function projectActivityDaysForMemory(
 			),
 		);
 	}
-	return projects.reduce((sum, project) => sum + project.cumulative_active_days, 0);
+	return projects
+		.filter((project) => !SYNTHETIC_MAINTENANCE_PROJECT_IDS.has(project.id))
+		.reduce((sum, project) => sum + project.cumulative_active_days, 0);
 }
 
 export function stampMemoryActivitySnapshots(

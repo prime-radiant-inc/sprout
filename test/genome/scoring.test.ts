@@ -53,6 +53,15 @@ describe("memory scoring", () => {
 		expect(projectActivityDaysForMemory(memory({ project_ids: ["sprout"] }), PROJECTS)).toBe(1);
 	});
 
+	test("global memories ignore synthetic maintenance project clocks", () => {
+		expect(
+			projectActivityDaysForMemory(memory(), [
+				...PROJECTS,
+				{ id: "__global__", name: "Global memories", cumulative_active_days: 91 },
+			]),
+		).toBe(91);
+	});
+
 	test("access, mention, links, and entities boost the score", () => {
 		const plain = scoreMemory(memory({ activity_days_at_creation: 10 }), [
 			{ id: "sprout", name: "Sprout", cumulative_active_days: 30 },
