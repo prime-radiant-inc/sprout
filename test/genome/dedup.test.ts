@@ -58,6 +58,18 @@ describe("memory dedup", () => {
 		expect(result).toMatchObject({ duplicate: true, reason: "exact", existingId: "existing" });
 	});
 
+	test("ignores superseded memories during text dedup", async () => {
+		const result = await findDuplicateMemory(makeDraft("Sprout uses SQLite for memory recall"), [
+			makeMemory({
+				id: "superseded",
+				content: "Sprout uses SQLite for memory recall",
+				superseded_by: "replacement",
+			}),
+		]);
+
+		expect(result.duplicate).toBe(false);
+	});
+
 	test("detects near duplicates with trigram similarity", async () => {
 		const result = await findDuplicateMemory(
 			makeDraft("Sprout uses SQLite for memory retrieval"),
@@ -114,7 +126,7 @@ describe("memory dedup", () => {
 		expect(result.duplicate).toBe(false);
 	});
 
-	test("ignores archived and unembedded memories during vector dedup", async () => {
+	test("ignores inactive and unembedded memories during vector dedup", async () => {
 		const result = await findDuplicateMemory(
 			makeDraft("Use an embedded local database for recall"),
 			[
@@ -122,6 +134,18 @@ describe("memory dedup", () => {
 					id: "archived-vector-duplicate",
 					content: "Archived duplicate",
 					archived_at: 123,
+					embedding: {
+						provider: "slot",
+						model: "slot",
+						dimensions: 768,
+						status: "ready",
+						vector: vector(0),
+					},
+				}),
+				makeMemory({
+					id: "superseded-vector-duplicate",
+					content: "Superseded duplicate",
+					superseded_by: "replacement",
 					embedding: {
 						provider: "slot",
 						model: "slot",

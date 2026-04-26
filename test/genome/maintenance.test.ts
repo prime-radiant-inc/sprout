@@ -172,6 +172,61 @@ describe("memory maintenance operator flow", () => {
 		}
 	});
 
+	test("apply validates all decisions before mutating memories", async () => {
+		const root = await mkdtemp(join(tmpdir(), "sprout-maintenance-prevalidate-"));
+		try {
+			const genome = createTestGenome(root);
+			await genome.init();
+			recordActiveDays(genome);
+			await genome.addMemory(
+				memory({
+					id: "old-a",
+					content: "Sprout memory uses SQLite.",
+					project_ids: ["sprout"],
+				}),
+			);
+			await genome.addMemory(
+				memory({
+					id: "old-b",
+					content: "Sprout memory uses SQLite.",
+					project_ids: ["sprout"],
+				}),
+			);
+			const plan = discoverMemoryMaintenancePlan(genome, { includeEntityGc: false });
+			const cluster = plan.consolidationClusters[0]!;
+			const head = await git(root, "rev-parse", "HEAD");
+
+			await expect(
+				applyMemoryMaintenanceDecisions(genome, plan, {
+					consolidations: [
+						{
+							cluster_id: cluster.id,
+							action: "merge",
+							memory: {
+								text: "Sprout memory uses SQLite.",
+								tags: ["memory"],
+								confidence: 0.95,
+							},
+							reasoning: "Reviewed duplicate memories.",
+						},
+						{
+							cluster_id: "missing-cluster",
+							action: "reject",
+							reasoning: "Invalid later decision.",
+						},
+					],
+				}),
+			).rejects.toThrow("Unknown consolidation cluster");
+
+			expect(genome.memories.getById("old-a")?.superseded_by).toBeUndefined();
+			expect(genome.memories.getById("old-b")?.superseded_by).toBeUndefined();
+			expect(await git(root, "rev-parse", "HEAD")).toBe(head);
+			expect(await git(root, "status", "--porcelain")).toBe("");
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
 	test("apply marks project entity-GC cadence after reviewed decisions", async () => {
 		const root = await mkdtemp(join(tmpdir(), "sprout-maintenance-entity-gc-"));
 		try {

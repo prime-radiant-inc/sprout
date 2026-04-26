@@ -1,6 +1,7 @@
 import type { Memory } from "../kernel/types.ts";
 import type { EmbeddingProvider } from "../llm/embeddings.ts";
 import type { ExtractedMemoryDraft } from "./extraction.ts";
+import { isActiveMemoryForRecall } from "./memory-lifecycle.ts";
 
 export const FUZZY_DUPLICATE_THRESHOLD = 0.86;
 export const VECTOR_DUPLICATE_THRESHOLD = 0.92;
@@ -25,7 +26,7 @@ export async function findDuplicateMemory(
 	existing: readonly Memory[],
 	options: DedupOptions = {},
 ): Promise<DuplicateCheckResult> {
-	const activeExisting = existing.filter((memory) => !memory.archived_at);
+	const activeExisting = existing.filter(isActiveMemoryForRecall);
 	const normalizedDraft = normalizeText(draft.text);
 	for (const memory of activeExisting) {
 		if (normalizeText(memory.content) === normalizedDraft) {
@@ -44,7 +45,7 @@ export async function findDuplicateMemory(
 	if (options.embeddingProvider) {
 		const vectorThreshold = options.vectorThreshold ?? VECTOR_DUPLICATE_THRESHOLD;
 		const embedding = await embedDraft(draft.text, options.embeddingProvider);
-		return findVectorDuplicate(embedding.vector, existing, vectorThreshold);
+		return findVectorDuplicate(embedding.vector, activeExisting, vectorThreshold);
 	}
 
 	return { duplicate: false };
@@ -68,7 +69,12 @@ export async function filterDuplicateDrafts(
 		if (options.embeddingProvider) {
 			const vectorThreshold = options.vectorThreshold ?? VECTOR_DUPLICATE_THRESHOLD;
 			const embedding = await embedDraft(draft.text, options.embeddingProvider);
-			const existingDuplicate = findVectorDuplicate(embedding.vector, existing, vectorThreshold);
+			const activeExisting = existing.filter(isActiveMemoryForRecall);
+			const existingDuplicate = findVectorDuplicate(
+				embedding.vector,
+				activeExisting,
+				vectorThreshold,
+			);
 			if (existingDuplicate.duplicate) continue;
 
 			const batchDuplicate = findAcceptedVectorDuplicate(
