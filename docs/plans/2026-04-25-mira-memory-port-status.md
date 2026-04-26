@@ -2,16 +2,17 @@
 
 ## Current phase
 
-Phase 1 — Foundation (in progress)
+Phase 2 — Extraction (starting)
 
 ## Phase log
 
-- Phase 1 — Foundation: in progress
+- Phase 1 — Foundation: completed 2026-04-26
+- Phase 2 — Extraction: starting
 
 ## Current branch / commit
 
 - Branch: `jesse/pri-1354-implement-mira-memory-port-phase-1-foundation`
-- Last verified commit: `faed6d6`
+- Last verified commit: `6cba668`
 
 ## Open issues
 
@@ -69,6 +70,16 @@ Phase 1 — Foundation (in progress)
   passed after routing new memory writes through required embeddings
 - 2026-04-26: `bun run check` passed after embedded memory write changes
 - 2026-04-26: `bun run typecheck` passed after embedded memory write changes
+- 2026-04-26: `bun test test/host/cli-compiled.test.ts test/agents/agent.test.ts test/llm/embeddings.test.ts test/genome/memory-embedding.test.ts test/genome/index-builder.test.ts test/genome/memory-index.test.ts test/genome/memory-schema.test.ts test/genome/jsonl-store.test.ts test/genome/memory-store.test.ts test/genome/genome.test.ts test/genome/recall.test.ts test/genome/pruning.test.ts test/bus/genome-service.test.ts test/learn/learn-process.test.ts`
+  passed after routing recall through the hybrid index
+- 2026-04-26: `bun run typecheck` passed after routing recall through the
+  hybrid index
+- 2026-04-26: `bun test test/host/cli-compiled.test.ts` passed after lazy-loading
+  the local embedding provider so CLI help does not load ONNX runtime
+- 2026-04-26: `bun run precommit` passed `check`, `typecheck`, and all unit
+  shards except the pre-existing `test/tools/harbor/harbor-runner.test.ts`
+  failures for missing `inspo/harbor-runner/launch.sh` and
+  `inspo/harbor-runner/userdata.sh.tpl`
 
 ## Completed in current slice
 
@@ -88,3 +99,6 @@ Phase 1 — Foundation (in progress)
 - Added required embedding generation to `Genome.addMemory`; new memory writes
   now persist ready local embedding metadata/vectors and rebuild the derived
   SQLite index after memory mutations
+- Routed `recall()` memory lookup through `Genome.searchMemories()`, local query
+  embeddings, SQLite FTS/vector hybrid search, and a MIRA-style vector
+  similarity threshold
