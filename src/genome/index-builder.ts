@@ -5,6 +5,8 @@ import { MemoryIndex, type MemoryIndexStats } from "./memory-index.ts";
 import { MemoryStore } from "./memory-store.ts";
 import { SegmentStore } from "./segments.ts";
 
+const SOURCE_FINGERPRINTS_META_KEY = "source_fingerprints";
+
 export interface MemoryIndexBuildResult {
 	indexPath: string;
 	stats: MemoryIndexStats;
@@ -40,8 +42,12 @@ async function memoryIndexStaleReason(genomeRoot: string): Promise<string | unde
 		return "schema";
 	}
 	const sourcePaths = memoryIndexSourcePaths(genomeRoot);
-	const sourceMtimes = await Promise.all(sourcePaths.map((path) => fileMtimeMs(path)));
-	if (sourceMtimes.some((mtime) => mtime !== undefined && mtime > indexMtime)) {
+	const currentFingerprints = await sourceFingerprints(sourcePaths);
+	const storedFingerprints = parseSourceFingerprints(
+		MemoryIndex.readMeta(indexPath, SOURCE_FINGERPRINTS_META_KEY),
+	);
+	if (!storedFingerprints) return "source metadata";
+	if (!sameSourceFingerprints(storedFingerprints, currentFingerprints)) {
 		return "stale";
 	}
 	return undefined;
@@ -76,22 +82,36 @@ async function rebuildMemoryIndexFromJsonlLocked(
 		await Promise.all([store.load(), segments.load()]);
 
 		const tempIndexPath = temporaryMemoryIndexPath(indexPath);
-		let stats: MemoryIndexStats;
+		let stats: MemoryIndexStats | undefined;
+		let sourcesChangedDuringBuild = false;
+		let rebuildError: unknown;
 		const index = MemoryIndex.open(tempIndexPath);
 		try {
 			index.rebuild(store.all(), segments.all());
 			stats = index.stats();
+			const after = await sourceFingerprints(sourcePaths);
+			if (!sameSourceFingerprints(before, after)) {
+				sourcesChangedDuringBuild = true;
+			} else {
+				index.setMeta(SOURCE_FINGERPRINTS_META_KEY, serializeSourceFingerprints(after));
+			}
 		} catch (err) {
-			await removeSqliteFiles(tempIndexPath);
-			throw err;
+			rebuildError = err;
 		} finally {
 			index.close();
 		}
 
-		const after = await sourceFingerprints(sourcePaths);
-		if (!sameSourceFingerprints(before, after)) {
+		if (rebuildError) {
+			await removeSqliteFiles(tempIndexPath);
+			throw rebuildError;
+		}
+		if (sourcesChangedDuringBuild) {
 			await removeSqliteFiles(tempIndexPath);
 			continue;
+		}
+		if (!stats) {
+			await removeSqliteFiles(tempIndexPath);
+			throw new Error("Memory index rebuild did not produce stats");
 		}
 
 		try {
@@ -192,4 +212,36 @@ function sameSourceFingerprints(
 			);
 		})
 	);
+}
+
+function serializeSourceFingerprints(fingerprints: readonly SourceFingerprint[]): string {
+	return JSON.stringify(
+		fingerprints.map((fingerprint) => ({
+			exists: fingerprint.exists,
+			...(fingerprint.size !== undefined ? { size: fingerprint.size.toString() } : {}),
+			...(fingerprint.mtimeNs !== undefined ? { mtimeNs: fingerprint.mtimeNs.toString() } : {}),
+		})),
+	);
+}
+
+function parseSourceFingerprints(raw: string | undefined): SourceFingerprint[] | undefined {
+	if (!raw) return undefined;
+	try {
+		const parsed = JSON.parse(raw) as unknown;
+		if (!Array.isArray(parsed)) return undefined;
+		return parsed.map((item): SourceFingerprint => {
+			if (!item || typeof item !== "object" || !("exists" in item)) {
+				throw new Error("invalid source fingerprint");
+			}
+			const record = item as Record<string, unknown>;
+			if (typeof record.exists !== "boolean") throw new Error("invalid source fingerprint");
+			return {
+				exists: record.exists,
+				...(typeof record.size === "string" ? { size: BigInt(record.size) } : {}),
+				...(typeof record.mtimeNs === "string" ? { mtimeNs: BigInt(record.mtimeNs) } : {}),
+			};
+		});
+	} catch {
+		return undefined;
+	}
 }

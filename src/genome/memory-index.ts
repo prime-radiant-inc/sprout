@@ -113,17 +113,20 @@ export class MemoryIndex {
 	}
 
 	static readSchemaVersion(path: string): number | undefined {
+		const value = MemoryIndex.readMeta(path, "schema_version");
+		if (value === undefined) return undefined;
+		const version = Number(value);
+		return Number.isInteger(version) ? version : undefined;
+	}
+
+	static readMeta(path: string, key: string): string | undefined {
 		let db: Database | undefined;
 		try {
 			db = new Database(path, { readonly: true, create: false });
 			const row = db
-				.query<{ value: string }, []>(
-					"SELECT value FROM memory_index_meta WHERE key = 'schema_version'",
-				)
-				.get();
-			if (!row) return undefined;
-			const version = Number(row.value);
-			return Number.isInteger(version) ? version : undefined;
+				.query<{ value: string }, [string]>("SELECT value FROM memory_index_meta WHERE key = ?")
+				.get(key);
+			return row?.value;
 		} catch {
 			return undefined;
 		} finally {
@@ -267,6 +270,13 @@ export class MemoryIndex {
 			"INSERT OR REPLACE INTO memory_index_meta (key, value) VALUES ('memory_schema_version', ?)",
 			[String(MEMORY_SCHEMA_VERSION)],
 		);
+	}
+
+	setMeta(key: string, value: string): void {
+		this.db.run("INSERT OR REPLACE INTO memory_index_meta (key, value) VALUES (?, ?)", [
+			key,
+			value,
+		]);
 	}
 
 	rebuild(memories: readonly Memory[], segments: readonly MemorySegment[] = []): void {

@@ -80,6 +80,27 @@ describe("index-builder", () => {
 		expect(MemoryIndex.readSchemaVersion(indexPath)).toBe(MemoryIndex.currentSchemaVersion());
 	});
 
+	test("rebuilds when a source JSONL file disappears after indexing", async () => {
+		const genomeRoot = join(tempDir, "deleted-source-genome");
+		const memoriesDir = join(genomeRoot, "memories");
+		const memoriesPath = join(memoriesDir, "memories.jsonl");
+		await mkdir(memoriesDir, { recursive: true });
+		await writeFile(memoriesPath, `${memoryJson("deleted-source-memory", "vanishingterm")}\n`);
+		const indexPath = memoryIndexPath(genomeRoot);
+		await rebuildMemoryIndexFromJsonl(genomeRoot);
+		await rm(memoriesPath);
+
+		await ensureMemoryIndexFresh(genomeRoot);
+
+		const index = MemoryIndex.open(indexPath);
+		try {
+			expect(index.stats().memoryCount).toBe(0);
+			expect(index.searchText("vanishingterm", 5)).toEqual([]);
+		} finally {
+			index.close();
+		}
+	});
+
 	test("removes stale SQLite sidecars before publishing rebuilt index", async () => {
 		const genomeRoot = join(tempDir, "sidecar-stale-genome");
 		const memoriesDir = join(genomeRoot, "memories");

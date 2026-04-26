@@ -688,19 +688,33 @@ export class Genome {
 
 	/** Remove memories whose effective confidence is below the threshold. */
 	async pruneMemories(minConfidence = 0.2): Promise<string[]> {
+		const memoriesPath = join(this.rootPath, "memories", "memories.jsonl");
 		return this.withMemoryWriteLock(async () => {
 			await this.memories.load();
 			const pruned = this.memories.pruneByConfidence(minConfidence);
 			if (pruned.length > 0) {
-				await this.memories.save();
-				await git(this.rootPath, "add", join(this.rootPath, "memories", "memories.jsonl"));
-				await git(
-					this.rootPath,
-					"commit",
-					"-m",
-					`genome: prune ${pruned.length} low-confidence memories`,
-				);
-				await rebuildMemoryIndexFromJsonl(this.rootPath, { assumeMemoryWriteLock: true });
+				const snapshots = await snapshotTextFiles([memoriesPath]);
+				let committed = false;
+				try {
+					await this.memories.save();
+					await git(this.rootPath, "add", memoriesPath);
+					const status = await git(this.rootPath, "status", "--porcelain", "--", memoriesPath);
+					if (!status.trim()) return pruned;
+					await rebuildMemoryIndexFromJsonl(this.rootPath, { assumeMemoryWriteLock: true });
+					await git(
+						this.rootPath,
+						"commit",
+						"-m",
+						`genome: prune ${pruned.length} low-confidence memories`,
+					);
+					committed = true;
+				} catch (error) {
+					if (!committed) {
+						await restoreUncommittedMemoryMutation(this.rootPath, snapshots, [memoriesPath]);
+						await this.memories.load();
+					}
+					throw error;
+				}
 			}
 			return pruned;
 		});

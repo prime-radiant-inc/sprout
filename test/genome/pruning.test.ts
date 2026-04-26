@@ -1,8 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Genome, git } from "../../src/genome/genome.ts";
+import { memoryIndexPath } from "../../src/genome/index-builder.ts";
+import { MemoryIndex } from "../../src/genome/memory-index.ts";
 import type { Memory, RoutingRule } from "../../src/kernel/types.ts";
 import { createTestGenome } from "../helpers/test-genome.ts";
 
@@ -101,6 +103,41 @@ describe("Genome pruning", () => {
 			// Git status should be clean
 			const status = await git(root, "status", "--porcelain");
 			expect(status).toBe("");
+		}, 15_000);
+
+		test("restores JSONL and index when prune commit fails after rebuild", async () => {
+			const root = join(tempDir, "prune-commit-fails");
+			const genome = createTestGenome(root);
+			await genome.init();
+
+			const ninetyDaysAgo = Date.now() - 90 * 86400000;
+			await genome.addMemory(
+				makeMemory({
+					id: "stale-commit-fail",
+					content: "old info",
+					last_used: ninetyDaysAgo,
+					created: ninetyDaysAgo,
+					use_count: 1,
+					confidence: 0.5,
+				}),
+			);
+			await genome.addMemory(makeMemory({ id: "fresh-commit-fail", content: "fresh info" }));
+			const before = await readFile(join(root, "memories", "memories.jsonl"), "utf-8");
+			const hookPath = join(root, ".git", "hooks", "pre-commit");
+			await writeFile(hookPath, "#!/bin/sh\nexit 1\n");
+			await chmod(hookPath, 0o755);
+
+			await expect(genome.pruneMemories(0.2)).rejects.toThrow("git commit");
+
+			expect(genome.memories.getById("stale-commit-fail")).toBeDefined();
+			expect(await readFile(join(root, "memories", "memories.jsonl"), "utf-8")).toBe(before);
+			expect(await git(root, "status", "--porcelain")).toBe("");
+			const index = MemoryIndex.open(memoryIndexPath(root));
+			try {
+				expect(index.stats().memoryCount).toBe(2);
+			} finally {
+				index.close();
+			}
 		}, 15_000);
 
 		test("returns empty array and does not commit when nothing to prune", async () => {
