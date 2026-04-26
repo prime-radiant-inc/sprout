@@ -93,8 +93,8 @@ export class MemoryStore {
 		const wanted = new Set(shortIds.map((id) => id.toLowerCase()));
 		const mentioned: string[] = [];
 		for (const memory of this.entries) {
-			const shortId = (memory.short_id ?? "").toLowerCase();
-			if (!shortId || !wanted.has(shortId)) continue;
+			const shortId = (memory.short_id ?? memoryShortId(memory.id)).toLowerCase();
+			if (!wanted.has(shortId)) continue;
 			memory.mention_count = (memory.mention_count ?? 0) + 1;
 			memory.updated_at = now;
 			mentioned.push(memory.id);

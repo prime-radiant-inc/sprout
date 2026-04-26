@@ -199,6 +199,20 @@ describe("MemoryStore", () => {
 		expect(store.getById("repeat-target")?.mention_count).toBe(1);
 	});
 
+	test("markMentioned() falls back to derived short id when short_id is missing", async () => {
+		const store = new MemoryStore(join(tempDir, "mentions-derived-short-id.jsonl"));
+		await store.load();
+		await store.add(makeMemory({ id: "derived-target", content: "cited memory" }));
+		const memory = store.getById("derived-target")!;
+		delete memory.short_id;
+
+		const mentioned = store.markMentioned([memoryShortId("derived-target")], 1700000000000);
+
+		expect(mentioned).toEqual(["derived-target"]);
+		expect(memory.mention_count).toBe(1);
+		expect(memory.updated_at).toBe(1700000000000);
+	});
+
 	test("add() rejects short id collisions", async () => {
 		const store = new MemoryStore(join(tempDir, "short-id-collision.jsonl"));
 		await store.load();
