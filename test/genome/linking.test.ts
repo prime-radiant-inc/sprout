@@ -205,6 +205,53 @@ describe("memory link graph", () => {
 		}
 	});
 
+	test("persists reciprocal and superseded repairs when outbound link already exists", async () => {
+		const root = await mkdtemp(join(tmpdir(), "sprout-link-repair-"));
+		try {
+			const genome = createTestGenome(root);
+			await genome.init();
+			await genome.addMemory(memory({ id: "old-memory", created: 100 }));
+			await genome.addMemory(
+				memory({
+					id: "new-memory",
+					created: 200,
+					outbound_links: [
+						{
+							uuid: "old-memory",
+							type: "supersedes",
+							reasoning: "existing outbound",
+							created_at: 1,
+						},
+					],
+				}),
+			);
+
+			const added = await persistMemoryLinks(
+				genome,
+				[
+					{
+						source_id: "new-memory",
+						target_id: "old-memory",
+						relationship_type: "supersedes",
+						reasoning: "existing outbound",
+					},
+				],
+				{ now: 1234 },
+			);
+
+			expect(added).toBe(0);
+			const reloaded = createTestGenome(root);
+			await reloaded.loadFromDisk();
+			expect(reloaded.memories.getById("old-memory")?.superseded_by).toBe("new-memory");
+			expect(reloaded.memories.getById("old-memory")?.inbound_links?.[0]).toMatchObject({
+				uuid: "new-memory",
+				type: "supersedes",
+			});
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
 	test("traverses linked memories by relationship weight and ignores dead refs", () => {
 		const start = memory({
 			id: "start",

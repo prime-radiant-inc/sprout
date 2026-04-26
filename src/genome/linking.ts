@@ -94,6 +94,7 @@ export async function persistMemoryLinks(
 	const byId = new Map(memories.map((memory) => [memory.id, memory]));
 	const now = options.now ?? Date.now();
 	let added = 0;
+	let changed = false;
 
 	for (const relationship of relationships) {
 		if (relationship.relationship_type === "null") continue;
@@ -114,20 +115,25 @@ export async function persistMemoryLinks(
 		if (!hasLink(source.outbound_links, outbound.uuid, outbound.type)) {
 			source.outbound_links = [...(source.outbound_links ?? []), outbound];
 			added++;
+			changed = true;
 		}
 
 		const inbound: MemoryLinkEntry = { ...outbound, uuid: source.id };
 		if (!hasLink(target.inbound_links, inbound.uuid, inbound.type)) {
 			target.inbound_links = [...(target.inbound_links ?? []), inbound];
+			changed = true;
 		}
-		if (relationship.relationship_type === "supersedes") {
+		if (relationship.relationship_type === "supersedes" && target.superseded_by !== source.id) {
 			target.superseded_by = source.id;
+			changed = true;
 		}
 	}
 
-	if (added > 0) {
+	if (changed) {
 		await genome.saveMemoryMutation(
-			`genome: link ${added} memory relationship${added === 1 ? "" : "s"}`,
+			added > 0
+				? `genome: link ${added} memory relationship${added === 1 ? "" : "s"}`
+				: "genome: repair memory link metadata",
 		);
 	}
 	return added;
