@@ -194,7 +194,13 @@ export function normalizeEntityGcDecisionPayload(
 					uuid: typeof alias.uuid === "string" ? alias.uuid.trim() : "",
 					name: typeof alias.name === "string" ? alias.name.trim() : "",
 				}))
-				.filter((alias) => alias.uuid && alias.name && candidateKeys.has(alias.uuid))
+				.filter(
+					(alias) =>
+						alias.uuid &&
+						alias.name &&
+						alias.uuid !== canonical.uuid &&
+						candidateKeys.has(alias.uuid),
+				)
 		: group.candidates
 				.filter((candidate) => candidate.uuid !== canonical.uuid)
 				.map((candidate) => ({ uuid: candidate.uuid, name: candidate.name }));

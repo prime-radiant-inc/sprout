@@ -14,25 +14,35 @@ export function memoryIndexPath(genomeRoot: string): string {
 }
 
 export async function ensureMemoryIndexFresh(genomeRoot: string): Promise<void> {
+	const staleReason = await memoryIndexStaleReason(genomeRoot);
+	if (staleReason) {
+		await rebuildMemoryIndexFromJsonl(genomeRoot);
+	}
+}
+
+export async function requireMemoryIndexFresh(genomeRoot: string): Promise<void> {
+	const staleReason = await memoryIndexStaleReason(genomeRoot);
+	if (staleReason) {
+		throw new Error(`Memory index is not fresh (${staleReason}); rebuild required`);
+	}
+}
+
+async function memoryIndexStaleReason(genomeRoot: string): Promise<string | undefined> {
 	const indexPath = memoryIndexPath(genomeRoot);
 	const indexMtime = await fileMtimeMs(indexPath);
-	if (indexMtime === undefined) {
-		await rebuildMemoryIndexFromJsonl(genomeRoot);
-		return;
-	}
+	if (indexMtime === undefined) return "missing";
 	if (MemoryIndex.readSchemaVersion(indexPath) !== MemoryIndex.currentSchemaVersion()) {
-		await rebuildMemoryIndexFromJsonl(genomeRoot);
-		return;
+		return "schema";
 	}
-
 	const sourcePaths = [
 		join(genomeRoot, "memories", "memories.jsonl"),
 		join(genomeRoot, "memories", "segments.jsonl"),
 	];
 	const sourceMtimes = await Promise.all(sourcePaths.map((path) => fileMtimeMs(path)));
 	if (sourceMtimes.some((mtime) => mtime !== undefined && mtime > indexMtime)) {
-		await rebuildMemoryIndexFromJsonl(genomeRoot);
+		return "stale";
 	}
+	return undefined;
 }
 
 export async function rebuildMemoryIndexFromJsonl(

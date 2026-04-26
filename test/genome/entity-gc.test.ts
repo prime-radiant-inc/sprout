@@ -71,6 +71,45 @@ describe("entity GC", () => {
 		expect(decision.aliases).toEqual([{ uuid: "entity_sprout_alias", name: "sprout" }]);
 	});
 
+	test("filters canonical entity from explicit merge aliases", () => {
+		const group = discoverEntityGcGroups([
+			memory({
+				id: "a",
+				entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
+			}),
+			memory({
+				id: "b",
+				entity_links: [{ uuid: "entity_sprout_alias", type: "PROJECT", name: "sprout" }],
+			}),
+		])[0]!;
+
+		const decision = normalizeEntityGcDecisionPayload(
+			group,
+			JSON.stringify({
+				action: "merge",
+				canonical: { uuid: "entity_sprout", name: "Sprout" },
+				aliases: [
+					{ uuid: "entity_sprout", name: "Sprout" },
+					{ uuid: "entity_sprout_alias", name: "sprout" },
+				],
+				reasoning: "Only capitalization differs.",
+			}),
+		);
+
+		expect(decision.aliases).toEqual([{ uuid: "entity_sprout_alias", name: "sprout" }]);
+		expect(() =>
+			normalizeEntityGcDecisionPayload(
+				group,
+				JSON.stringify({
+					action: "merge",
+					canonical: { uuid: "entity_sprout", name: "Sprout" },
+					aliases: [{ uuid: "entity_sprout", name: "Sprout" }],
+					reasoning: "Only capitalization differs.",
+				}),
+			),
+		).toThrow("no aliases");
+	});
+
 	test("merge rewrites aliases to canonical entity and archives alias metadata", async () => {
 		const root = await mkdtemp(join(tmpdir(), "sprout-entity-gc-"));
 		try {

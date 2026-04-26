@@ -185,6 +185,7 @@ export class Agent {
 	private signal?: AbortSignal;
 	private logWriteChain: Promise<void> = Promise.resolve();
 	private steeringQueue: string[] = [];
+	private readonly callerPrimitivePrimitives: Primitive[] = [];
 	private workspaceToolPrimitives: Primitive[] = [];
 	private workspaceToolDefinitions: ToolDefinition[] = [];
 	private compactionRequested = false;
@@ -225,6 +226,9 @@ export class Agent {
 		this.trustedUserInstruction = options.trustedUserInstruction;
 		this.llmRetryOptions = options.llmRetryOptions;
 		this.initialHistory = options.initialHistory ? [...options.initialHistory] : undefined;
+		this.callerPrimitivePrimitives = this.captureCallerPrimitivePrimitives(
+			options.primitiveRegistry,
+		);
 		this.logger = (options.logger ?? new NullLogger()).child({
 			component: "agent",
 			agentId: this.agentId ?? this.spec.name,
@@ -341,6 +345,33 @@ export class Agent {
 		this.primitiveTools = [...this.specPrimitiveTools(), ...this.workspaceToolDefinitions];
 	}
 
+	private captureCallerPrimitivePrimitives(registry: PrimitiveRegistry): Primitive[] {
+		const frameworkNames = new Set(createPrimitiveRegistry(this.env).names());
+		if (this.genome) {
+			for (const name of this.frameworkGenomePrimitiveNames()) {
+				frameworkNames.add(name);
+			}
+		}
+		return registry.names().flatMap((name) => {
+			if (frameworkNames.has(name)) return [];
+			const prim = registry.get(name);
+			return prim ? [prim] : [];
+		});
+	}
+
+	private frameworkGenomePrimitiveNames(): string[] {
+		if (!this.genome) return [];
+		return createPrimitiveRegistry(
+			this.env,
+			{
+				genome: this.genome,
+				agentName: this.spec.name,
+				sessionId: this.sessionId,
+			},
+			{ evalMode: this.evalMode },
+		).names();
+	}
+
 	private currentMemoryWriteAuthorization(): MemoryWriteAuthorization | undefined {
 		return deriveTrustedMemoryWriteAuthorization({
 			agentName: this.spec.name,
@@ -361,6 +392,9 @@ export class Agent {
 			},
 			{ evalMode: this.evalMode },
 		);
+		for (const prim of this.callerPrimitivePrimitives) {
+			this.primitiveRegistry.register(prim);
+		}
 		for (const prim of this.workspaceToolPrimitives) {
 			this.primitiveRegistry.register(prim);
 		}

@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Genome } from "../../src/genome/genome.ts";
+import type { Genome } from "../../src/genome/genome.ts";
+import { memoryIndexPath } from "../../src/genome/index-builder.ts";
 import { createReadOnlyGenome } from "../../src/genome/read-only-genome.ts";
 import type { MemorySegment } from "../../src/genome/segments.ts";
+import { createTestGenome } from "../helpers/test-genome.ts";
 
 describe("createReadOnlyGenome", () => {
 	let tempDir: string;
@@ -12,7 +15,7 @@ describe("createReadOnlyGenome", () => {
 
 	beforeEach(async () => {
 		tempDir = await mkdtemp(join(tmpdir(), "sprout-read-only-genome-"));
-		genome = new Genome(tempDir);
+		genome = createTestGenome(tempDir);
 		await genome.init();
 		await genome.addAgent({
 			name: "reader",
@@ -115,5 +118,28 @@ describe("createReadOnlyGenome", () => {
 			"read-only genome",
 		);
 		expect(() => readOnlyGenome.projects.markConsolidated("sprout")).toThrow("read-only genome");
+	});
+
+	test("searchMemories does not rebuild a missing derived index", async () => {
+		const now = Date.now();
+		await genome.addMemory({
+			id: "memory-readonly-search",
+			content: "Read-only search should not rebuild the memory index.",
+			tags: ["memory"],
+			source: "test",
+			created: now,
+			last_used: now,
+			use_count: 0,
+			confidence: 1,
+		});
+		const indexPath = memoryIndexPath(tempDir);
+		await rm(indexPath, { force: true });
+		await rm(`${indexPath}-shm`, { force: true });
+		await rm(`${indexPath}-wal`, { force: true });
+		const readOnlyGenome = createReadOnlyGenome(genome);
+
+		await expect(readOnlyGenome.searchMemories("memory index")).rejects.toThrow("not fresh");
+
+		expect(existsSync(indexPath)).toBe(false);
 	});
 });

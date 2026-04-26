@@ -16,6 +16,7 @@ import {
 	ensureMemoryIndexFresh,
 	memoryIndexPath,
 	rebuildMemoryIndexFromJsonl,
+	requireMemoryIndexFresh,
 } from "./index-builder.ts";
 import { attachReadyMemoryEmbedding } from "./memory-embedding.ts";
 import { MemoryIndex } from "./memory-index.ts";
@@ -409,6 +410,20 @@ export class Genome {
 
 	/** Search memories through the derived hybrid index using local query embeddings. */
 	async searchMemories(query: string, limit = 5, minConfidence = 0.3): Promise<Memory[]> {
+		return this.searchMemoriesWithIndexPolicy(query, limit, minConfidence, true);
+	}
+
+	/** Search memories without mutating the derived index; used by read-only/eval genomes. */
+	async searchMemoriesReadOnly(query: string, limit = 5, minConfidence = 0.3): Promise<Memory[]> {
+		return this.searchMemoriesWithIndexPolicy(query, limit, minConfidence, false);
+	}
+
+	private async searchMemoriesWithIndexPolicy(
+		query: string,
+		limit: number,
+		minConfidence: number,
+		allowIndexRebuild: boolean,
+	): Promise<Memory[]> {
 		const normalizedQuery = query.trim();
 		if (!normalizedQuery) return [];
 
@@ -420,7 +435,11 @@ export class Genome {
 		if (candidates.length === 0) return [];
 		const candidateIds = new Set(candidates.map((memory) => memory.id));
 
-		await ensureMemoryIndexFresh(this.rootPath);
+		if (allowIndexRebuild) {
+			await ensureMemoryIndexFresh(this.rootPath);
+		} else {
+			await requireMemoryIndexFresh(this.rootPath);
+		}
 		const embeddingProvider = await this.getEmbeddingProvider();
 		const [queryEmbedding] = await embeddingProvider.embedBatch([normalizedQuery], {
 			kind: "query",

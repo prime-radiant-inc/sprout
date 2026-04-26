@@ -2160,6 +2160,68 @@ describe("Agent", () => {
 		expect(toolNames).toContain("memory_archive");
 	});
 
+	test("root authorization refresh preserves caller-supplied primitives", async () => {
+		const customSpec: AgentSpec = {
+			...leafSpec,
+			name: "root",
+			tools: ["custom_tool"],
+			agents: [],
+			constraints: { ...leafSpec.constraints, can_spawn: false },
+		};
+		let toolNames: string[] = [];
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (request: Request): Promise<Response> => {
+				toolNames = request.tools?.map((tool) => tool.name) ?? [];
+				return {
+					id: "mock-custom-primitive-auth-refresh",
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant("Done."),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+		const fakeGenome = {
+			generation: 0,
+			allAgents: () => [customSpec],
+			searchMemories: async () => [],
+			matchRoutingRules: () => [],
+			markMemoriesUsed: async () => {},
+			refreshIfDiskChanged: async () => false,
+			loadAgentTools: async () => [],
+			agentDir: () => tmpdir(),
+			memories: { all: () => [] },
+		} as unknown as Genome;
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env, {
+			genome: fakeGenome,
+			agentName: "root",
+			sessionId: "session-test",
+		});
+		registry.register({
+			name: "custom_tool",
+			description: "Injected custom primitive",
+			parameters: { type: "object", properties: {} },
+			execute: async () => ({ output: "custom", success: true }),
+		});
+		const agent = new Agent({
+			spec: customSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [customSpec],
+			genome: fakeGenome,
+			events: new AgentEventEmitter(),
+		});
+
+		await agent.run("run with custom primitive");
+
+		expect(toolNames).toContain("custom_tool");
+	});
+
 	test("agent respects requestCompaction() flag", async () => {
 		// Pad initial history so compactHistory has enough messages to summarize
 		const priorHistory: Message[] = [

@@ -71,6 +71,10 @@ export function createReadOnlyGenome(genome: Genome): Genome {
 			}
 
 			const value = Reflect.get(target, property, receiver);
+			if (property === "searchMemories") {
+				const readOnlySearch = Reflect.get(target, "searchMemoriesReadOnly", receiver);
+				return typeof readOnlySearch === "function" ? readOnlySearch.bind(target) : value;
+			}
 			if (typeof property === "string" && MUTATING_GENOME_METHODS.has(property)) {
 				return async () => Promise.reject(new Error(READ_ONLY_ERROR));
 			}
