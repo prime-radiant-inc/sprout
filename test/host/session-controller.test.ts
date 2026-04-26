@@ -294,6 +294,33 @@ describe("SessionController", () => {
 		expect(bus.collected().some((event) => event.data.memory_collapse === "completed")).toBe(false);
 	});
 
+	test("skips memory collapse after failed runs", async () => {
+		const fake = makeFakeAgent({
+			runResult: {
+				output: "failed",
+				success: false,
+				stumbles: 1,
+				turns: 1,
+				timed_out: false,
+			},
+		});
+		const collapsed: Array<{ sessionId: string; cwd: string }> = [];
+		const factory: AgentFactory = async () => ({
+			agent: fake.agent as any,
+			learnProcess: null,
+			collapseMemory: async (input) => {
+				collapsed.push(input);
+				return { ok: true };
+			},
+		});
+		const { bus, controller } = makeController({ factory });
+
+		await controller.runGoal("Remember this session");
+
+		expect(collapsed).toHaveLength(0);
+		expect(bus.collected().some((event) => event.data.memory_collapse === "completed")).toBe(false);
+	});
+
 	test("skips memory collapse after interrupted runs", async () => {
 		const fake = makeFakeAgent({ runDelay: 20 });
 		const collapsed: Array<{ sessionId: string; cwd: string }> = [];

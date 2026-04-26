@@ -565,7 +565,7 @@ export class SessionController {
 			}
 
 			const runResult = await result.agent.run(goal, signal);
-			if (!runResult.timed_out && !signal.aborted) {
+			if (runResult.success && !runResult.timed_out && !signal.aborted) {
 				await stopLearnProcess();
 				await this.collapseMemoryAfterRun(result);
 			}
