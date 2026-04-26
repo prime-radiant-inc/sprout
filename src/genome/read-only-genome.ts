@@ -19,6 +19,7 @@ const MUTATING_GENOME_METHODS = new Set([
 	"addSegmentWithMemories",
 	"markMemoriesUsed",
 	"recordProjectActivity",
+	"saveProjectActivityMutation",
 	"recomputeMemoryScores",
 	"recordMemoryMentions",
 	"pruneMemories",
@@ -45,6 +46,7 @@ const MUTATING_PROJECT_METHODS = new Set([
 	"recordActiveDay",
 	"markConsolidated",
 	"markEntityGc",
+	"upsertMaintenanceRecord",
 	"save",
 ]);
 

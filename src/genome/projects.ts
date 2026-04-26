@@ -123,6 +123,30 @@ export class ProjectActivityStore {
 		return record;
 	}
 
+	upsertMaintenanceRecord(record: ProjectActivityRecord): ProjectActivityRecord {
+		let existing = this.getById(record.id);
+		if (!existing) {
+			existing = {
+				id: record.id,
+				name: record.name,
+				cumulative_active_days: Math.max(0, Math.floor(record.cumulative_active_days)),
+			};
+			this.entries.push(existing);
+		}
+		existing.name = record.name;
+		existing.cumulative_active_days = Math.max(
+			existing.cumulative_active_days,
+			Math.floor(record.cumulative_active_days),
+		);
+		if (record.last_consolidated_active_day !== undefined) {
+			existing.last_consolidated_active_day = record.last_consolidated_active_day;
+		}
+		if (record.last_entity_gc_active_day !== undefined) {
+			existing.last_entity_gc_active_day = record.last_entity_gc_active_day;
+		}
+		return existing;
+	}
+
 	async save(): Promise<void> {
 		await this.jsonl.rewrite(this.entries);
 	}

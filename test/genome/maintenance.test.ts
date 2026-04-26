@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Genome } from "../../src/genome/genome.ts";
+import { type Genome, git } from "../../src/genome/genome.ts";
 import {
 	applyMemoryMaintenanceDecisions,
 	discoverMemoryMaintenancePlan,
@@ -103,6 +103,24 @@ describe("memory maintenance operator flow", () => {
 		}
 	});
 
+	test("dry run includes unscoped memories on the global cadence", async () => {
+		const root = await mkdtemp(join(tmpdir(), "sprout-maintenance-global-dry-run-"));
+		try {
+			const genome = createTestGenome(root);
+			await genome.init();
+			recordActiveDays(genome);
+			await genome.addMemory(memory({ id: "global-a", content: "Global memory uses SQLite." }));
+			await genome.addMemory(memory({ id: "global-b", content: "Global memory uses SQLite." }));
+
+			const plan = discoverMemoryMaintenancePlan(genome, { includeEntityGc: false });
+
+			expect(plan.consolidationClusters).toHaveLength(1);
+			expect(plan.consolidationClusters[0]?.project_ids).toEqual([]);
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
 	test("apply uses reviewed decision files instead of automerging", async () => {
 		const root = await mkdtemp(join(tmpdir(), "sprout-maintenance-apply-"));
 		try {
@@ -148,6 +166,7 @@ describe("memory maintenance operator flow", () => {
 			expect(result.consolidation.archived_memory_ids).toEqual(["old-a", "old-b"]);
 			expect(genome.memories.getById("old-a")?.superseded_by).toBeDefined();
 			expect(genome.projects.getById("sprout")?.last_consolidated_active_day).toBe(14);
+			expect(await git(root, "status", "--porcelain")).toBe("");
 		} finally {
 			await rm(root, { recursive: true, force: true });
 		}
@@ -188,6 +207,37 @@ describe("memory maintenance operator flow", () => {
 
 			expect(result.entity_gc.rejected).toBe(1);
 			expect(genome.projects.getById("sprout")?.last_entity_gc_active_day).toBe(30);
+			expect(await git(root, "status", "--porcelain")).toBe("");
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
+	test("apply marks and commits global maintenance cadence for unscoped memories", async () => {
+		const root = await mkdtemp(join(tmpdir(), "sprout-maintenance-global-apply-"));
+		try {
+			const genome = createTestGenome(root);
+			await genome.init();
+			recordActiveDays(genome);
+			await genome.addMemory(memory({ id: "global-a", content: "Global memory uses SQLite." }));
+			await genome.addMemory(memory({ id: "global-b", content: "Global memory uses SQLite." }));
+			const plan = discoverMemoryMaintenancePlan(genome, { includeEntityGc: false });
+			const cluster = plan.consolidationClusters[0]!;
+
+			const result = await applyMemoryMaintenanceDecisions(genome, plan, {
+				consolidations: [
+					{
+						cluster_id: cluster.id,
+						action: "reject",
+						reasoning: "Reviewed as globally relevant separate memories.",
+					},
+				],
+			});
+
+			const globalProject = genome.projects.getById("__global__");
+			expect(result.consolidation.rejected).toBe(1);
+			expect(globalProject?.last_consolidated_active_day).toBe(30);
+			expect(await git(root, "status", "--porcelain")).toBe("");
 		} finally {
 			await rm(root, { recursive: true, force: true });
 		}

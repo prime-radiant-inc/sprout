@@ -488,6 +488,15 @@ export class Genome {
 		return true;
 	}
 
+	async saveProjectActivityMutation(commitMessage: string): Promise<void> {
+		const projectsPath = join(this.rootPath, "memories", "projects.jsonl");
+		await this.projects.save();
+		await git(this.rootPath, "add", projectsPath);
+		const status = await git(this.rootPath, "status", "--porcelain", "--", projectsPath);
+		if (!status.trim()) return;
+		await git(this.rootPath, "commit", "-m", commitMessage);
+	}
+
 	async recomputeMemoryScores(options: { now?: number; minImportance?: number } = {}): Promise<{
 		updated: string[];
 		archived: string[];

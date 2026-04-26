@@ -110,6 +110,9 @@ describe("createReadOnlyGenome", () => {
 		const project = { id: "sprout", name: "Sprout", confidence: 1, source: "explicit" as const };
 
 		await expect(readOnlyGenome.recordProjectActivity(project)).rejects.toThrow("read-only genome");
+		await expect(readOnlyGenome.saveProjectActivityMutation("blocked")).rejects.toThrow(
+			"read-only genome",
+		);
 		await expect(readOnlyGenome.recomputeMemoryScores()).rejects.toThrow("read-only genome");
 		await expect(readOnlyGenome.recordMemoryMentions(["mem_abc1234"])).rejects.toThrow(
 			"read-only genome",
@@ -118,6 +121,14 @@ describe("createReadOnlyGenome", () => {
 			"read-only genome",
 		);
 		expect(() => readOnlyGenome.projects.markConsolidated("sprout")).toThrow("read-only genome");
+		expect(() => readOnlyGenome.projects.markEntityGc("sprout")).toThrow("read-only genome");
+		expect(() =>
+			readOnlyGenome.projects.upsertMaintenanceRecord({
+				id: "sprout",
+				name: "Sprout",
+				cumulative_active_days: 1,
+			}),
+		).toThrow("read-only genome");
 	});
 
 	test("searchMemories does not rebuild a missing derived index", async () => {

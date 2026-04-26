@@ -16,6 +16,10 @@ import {
 	projectDueForEntityGc,
 } from "./entity-gc.ts";
 import type { Genome } from "./genome.ts";
+import type { ProjectActivityRecord } from "./projects.ts";
+
+const GLOBAL_MAINTENANCE_PROJECT_ID = "__global__";
+const GLOBAL_MAINTENANCE_PROJECT_NAME = "Global memories";
 
 export interface MemoryMaintenanceOptions {
 	includeConsolidation?: boolean;
@@ -58,22 +62,28 @@ export function discoverMemoryMaintenancePlan(
 	const includeEntityGc = options.includeEntityGc ?? true;
 	const memories = genome.memories.all();
 	const projects = genome.projects.all();
+	const globalProject = globalMaintenanceProject(projects);
 	const consolidationProjectIds = new Set(
 		projects.filter((project) => projectDueForConsolidation(project)).map((project) => project.id),
 	);
 	const entityGcProjectIds = new Set(
 		projects.filter((project) => projectDueForEntityGc(project)).map((project) => project.id),
 	);
+	const unscopedMemories = memories.filter((memory) => (memory.project_ids ?? []).length === 0);
+	const consolidationMemories = [
+		...filterMemoriesByProjects(memories, consolidationProjectIds),
+		...(globalProject && projectDueForConsolidation(globalProject) ? unscopedMemories : []),
+	];
+	const entityGcMemories = [
+		...filterMemoriesByProjects(memories, entityGcProjectIds),
+		...(globalProject && projectDueForEntityGc(globalProject) ? unscopedMemories : []),
+	];
 	return {
 		consolidationClusters: includeConsolidation
-			? discoverConsolidationClusters(filterMemoriesByProjects(memories, consolidationProjectIds), {
-					limit: options.limit,
-				})
+			? discoverConsolidationClusters(consolidationMemories, { limit: options.limit })
 			: [],
 		entityGcGroups: includeEntityGc
-			? discoverEntityGcGroups(filterMemoriesByProjects(memories, entityGcProjectIds), {
-					limit: options.limit,
-				})
+			? discoverEntityGcGroups(entityGcMemories, { limit: options.limit })
 			: [],
 	};
 }
@@ -96,7 +106,9 @@ export async function applyMemoryMaintenanceDecisions(
 	for (const decision of decisions.consolidations ?? []) {
 		const cluster = clusterById.get(decision.cluster_id);
 		if (!cluster) throw new Error(`Unknown consolidation cluster '${decision.cluster_id}'`);
-		for (const projectId of cluster.project_ids) consolidatedProjectIds.add(projectId);
+		for (const projectId of maintenanceProjectIds(cluster.project_ids)) {
+			consolidatedProjectIds.add(projectId);
+		}
 		if (decision.action === "merge") {
 			if (!decision.memory) {
 				throw new Error(`Merge decision for '${decision.cluster_id}' is missing memory`);
@@ -118,7 +130,7 @@ export async function applyMemoryMaintenanceDecisions(
 	for (const decision of decisions.entity_gc ?? []) {
 		const group = groupById.get(decision.group_id);
 		if (!group) throw new Error(`Unknown entity GC group '${decision.group_id}'`);
-		for (const projectId of entityGcGroupProjectIds(group, memoryById)) {
+		for (const projectId of maintenanceProjectIds(entityGcGroupProjectIds(group, memoryById))) {
 			entityGcProjectIds.add(projectId);
 		}
 		const applied = await applyEntityGcDecision(genome, group, decision, {
@@ -135,12 +147,17 @@ export async function applyMemoryMaintenanceDecisions(
 
 	result.consolidation.archived_memory_ids = sortedUnique(result.consolidation.archived_memory_ids);
 	result.entity_gc.updated_memory_ids = sortedUnique(result.entity_gc.updated_memory_ids);
+	ensureGlobalMaintenanceRecord(genome, consolidatedProjectIds, entityGcProjectIds);
 	for (const projectId of consolidatedProjectIds) genome.projects.markConsolidated(projectId);
 	for (const projectId of entityGcProjectIds) genome.projects.markEntityGc(projectId);
 	if (consolidatedProjectIds.size > 0 || entityGcProjectIds.size > 0) {
-		await genome.projects.save();
+		await genome.saveProjectActivityMutation("genome: update memory maintenance cadence");
 	}
 	return result;
+}
+
+function maintenanceProjectIds(projectIds: readonly string[]): string[] {
+	return projectIds.length > 0 ? [...projectIds] : [GLOBAL_MAINTENANCE_PROJECT_ID];
 }
 
 function filterMemoriesByProjects(
@@ -160,6 +177,53 @@ function entityGcGroupProjectIds(
 			candidate.memory_ids.flatMap((memoryId) => memoryById.get(memoryId)?.project_ids ?? []),
 		),
 	);
+}
+
+function globalMaintenanceProject(
+	projects: readonly ProjectActivityRecord[],
+): ProjectActivityRecord | undefined {
+	const existing = projects.find((project) => project.id === GLOBAL_MAINTENANCE_PROJECT_ID);
+	const activeDays = Math.max(
+		existing?.cumulative_active_days ?? 0,
+		totalProjectActiveDays(projects),
+	);
+	if (activeDays <= 0) return existing;
+	return {
+		id: GLOBAL_MAINTENANCE_PROJECT_ID,
+		name: GLOBAL_MAINTENANCE_PROJECT_NAME,
+		cumulative_active_days: activeDays,
+		...(existing?.last_consolidated_active_day !== undefined
+			? { last_consolidated_active_day: existing.last_consolidated_active_day }
+			: {}),
+		...(existing?.last_entity_gc_active_day !== undefined
+			? { last_entity_gc_active_day: existing.last_entity_gc_active_day }
+			: {}),
+	};
+}
+
+function totalProjectActiveDays(projects: readonly ProjectActivityRecord[]): number {
+	return projects
+		.filter((project) => project.id !== GLOBAL_MAINTENANCE_PROJECT_ID)
+		.reduce((sum, project) => sum + project.cumulative_active_days, 0);
+}
+
+function ensureGlobalMaintenanceRecord(
+	genome: Genome,
+	consolidatedProjectIds: ReadonlySet<string>,
+	entityGcProjectIds: ReadonlySet<string>,
+): void {
+	if (
+		!consolidatedProjectIds.has(GLOBAL_MAINTENANCE_PROJECT_ID) &&
+		!entityGcProjectIds.has(GLOBAL_MAINTENANCE_PROJECT_ID)
+	) {
+		return;
+	}
+	const globalProject = globalMaintenanceProject(genome.projects.all()) ?? {
+		id: GLOBAL_MAINTENANCE_PROJECT_ID,
+		name: GLOBAL_MAINTENANCE_PROJECT_NAME,
+		cumulative_active_days: 1,
+	};
+	genome.projects.upsertMaintenanceRecord(globalProject);
 }
 
 export function parseMemoryMaintenanceDecisionFile(text: string): MemoryMaintenanceDecisionFile {
