@@ -13,7 +13,7 @@ import type { EventMessage, ResultMessage } from "../../src/bus/types.ts";
 import { Genome } from "../../src/genome/genome.ts";
 import type { Client } from "../../src/llm/client.ts";
 import type { Request, Response } from "../../src/llm/types.ts";
-import { Msg } from "../../src/llm/types.ts";
+import { ContentKind, Msg } from "../../src/llm/types.ts";
 
 const AGENT_SPEC = {
 	name: "test-leaf",
@@ -770,6 +770,84 @@ describe("AgentSpawner", () => {
 			// Wait for the agent to finish
 			const result = await spawner.waitAgent(handleId);
 			expect(result.success).toBe(true);
+		}, 15_000);
+
+		test("steer refreshes trusted memory authorization for running shared agents", async () => {
+			const genome = new Genome(genomeDir);
+			await genome.loadFromDisk();
+			await genome.addAgent({
+				...AGENT_SPEC,
+				name: "archivist",
+				tools: ["memory_search", "memory_archive"],
+			} as any);
+			const requestToolNames: string[][] = [];
+			let callCount = 0;
+			let resolveFirstCall: (() => void) | undefined;
+			let markFirstCallStarted: (() => void) | undefined;
+			const firstCallStarted = new Promise<void>((resolve) => {
+				markFirstCallStarted = resolve;
+			});
+			const searchToolCall = {
+				role: "assistant" as const,
+				content: [
+					{
+						kind: ContentKind.TOOL_CALL,
+						tool_call: {
+							id: "call-memory-search",
+							name: "memory_search",
+							arguments: JSON.stringify({ query: "sqlite" }),
+						},
+					},
+				],
+			};
+			const mockClient = buildMockClient(async (request: Request): Promise<Response> => {
+				callCount++;
+				requestToolNames.push(request.tools?.map((tool) => tool.name) ?? []);
+				if (callCount === 1) {
+					markFirstCallStarted?.();
+					await new Promise<void>((resolve) => {
+						resolveFirstCall = resolve;
+					});
+				}
+				return {
+					id: `mock-archivist-steer-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: callCount === 1 ? searchToolCall : Msg.assistant("Done."),
+					finish_reason: { reason: callCount === 1 ? "tool_calls" : "stop" },
+					usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+				};
+			});
+
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+			const handleId = (await spawnWithResolver({
+				agentName: "archivist",
+				genomePath: genomeDir,
+				caller: { agent_name: "root", depth: 0 },
+				goal: "Initial archive task",
+				blocking: false,
+				shared: true,
+				workDir: tempDir,
+				trustedUserInstruction: "I confirm: archive memory mem_old123 because it is stale",
+			})) as string;
+			await firstCallStarted;
+			const steerResult = await spawner.messageAgent(
+				handleId,
+				"Search memory only",
+				{ agent_name: "root", depth: 0 },
+				false,
+				"Search memory only; do not mutate anything",
+			);
+			expect(steerResult).toBeUndefined();
+			await delay(25);
+			resolveFirstCall?.();
+
+			const result = await spawner.waitAgent(handleId, { agent_name: "root", depth: 0 });
+
+			expect(result.output).toBe("Done.");
+			expect(requestToolNames[0]).toContain("memory_archive");
+			expect(requestToolNames[1]).toContain("memory_search");
+			expect(requestToolNames[1]).not.toContain("memory_archive");
 		}, 15_000);
 
 		test("re-spawns completed agent and returns result with history", async () => {

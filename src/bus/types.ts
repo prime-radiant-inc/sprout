@@ -44,6 +44,8 @@ export interface ContinueMessage {
 export interface SteerMessage {
 	kind: "steer";
 	message: string;
+	/** Current trusted user instruction for deterministic runtime policy gates. */
+	trusted_user_instruction?: string;
 }
 
 /** Published by an agent on completion */
@@ -118,6 +120,7 @@ export function parseBusMessage(raw: string): BusMessage {
 			break;
 		case "steer":
 			requireFields(obj, ["message"]);
+			validateOptionalString(obj, "trusted_user_instruction");
 			break;
 		case "result":
 			requireFields(obj, ["handle_id", "output", "success", "stumbles", "turns", "timed_out"]);

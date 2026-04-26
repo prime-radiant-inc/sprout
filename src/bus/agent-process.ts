@@ -322,7 +322,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 				try {
 					const msg = parseBusMessage(payload);
 					if (msg.kind === "steer") {
-						agent.steer(msg.message);
+						agent.steer(msg.message, msg.trusted_user_instruction);
 					}
 				} catch {
 					// Ignore malformed messages
@@ -506,7 +506,7 @@ async function idleLoop(
 
 			// Steer messages are queued regardless of processing state
 			if (msg.kind === "steer") {
-				agent.steer(msg.message);
+				agent.steer(msg.message, msg.trusted_user_instruction);
 				return;
 			}
 

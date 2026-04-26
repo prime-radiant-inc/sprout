@@ -502,6 +502,7 @@ export class AgentSpawner {
 			const steerMsg: SteerMessage = {
 				kind: "steer",
 				message,
+				trusted_user_instruction: trustedUserInstruction,
 			};
 
 			if (blocking) {

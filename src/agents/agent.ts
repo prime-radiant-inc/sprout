@@ -184,7 +184,7 @@ export class Agent {
 	private surfacedMemoryBlock?: string;
 	private signal?: AbortSignal;
 	private logWriteChain: Promise<void> = Promise.resolve();
-	private steeringQueue: string[] = [];
+	private steeringQueue: Array<{ text: string; trustedUserInstruction?: string }> = [];
 	private readonly callerPrimitivePrimitives: Primitive[] = [];
 	private workspaceToolPrimitives: Primitive[] = [];
 	private workspaceToolDefinitions: ToolDefinition[] = [];
@@ -423,8 +423,11 @@ export class Agent {
 	}
 
 	/** Inject a steering message into the agent loop for the next iteration. */
-	steer(text: string): void {
-		this.steeringQueue.push(text);
+	steer(text: string, trustedUserInstruction?: string): void {
+		const effectiveTrustedInstruction =
+			trustedUserInstruction ?? (this.depth === 0 ? text : undefined);
+		this.updateTrustedUserInstruction(effectiveTrustedInstruction);
+		this.steeringQueue.push({ text, trustedUserInstruction: effectiveTrustedInstruction });
 	}
 
 	/** Request compaction on the next iteration (for manual /compact command). */
@@ -457,7 +460,7 @@ export class Agent {
 	}
 
 	/** Return and clear all queued steering messages. */
-	private drainSteering(): string[] {
+	private drainSteering(): Array<{ text: string; trustedUserInstruction?: string }> {
 		const queued = this.steeringQueue.splice(0);
 		return queued;
 	}
@@ -1704,10 +1707,10 @@ export class Agent {
 
 				// Drain steering messages and inject as user messages
 				const steered = this.drainSteering();
-				for (const text of steered) {
-					if (this.depth === 0) {
-						this.updateTrustedUserInstruction(text);
-					}
+				for (const { text, trustedUserInstruction } of steered) {
+					this.updateTrustedUserInstruction(
+						trustedUserInstruction ?? (this.depth === 0 ? text : undefined),
+					);
 					this.history.push(Msg.user(text));
 					this.emitAndLog("steering", agentId, this.depth, { text });
 				}

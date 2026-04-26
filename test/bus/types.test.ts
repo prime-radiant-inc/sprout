@@ -75,9 +75,11 @@ describe("bus message types", () => {
 		const msg: SteerMessage = {
 			kind: "steer",
 			message: "Focus on the login module first",
+			trusted_user_instruction: "Search memory only; do not mutate anything",
 		};
 		expect(msg.kind).toBe("steer");
 		expect(msg.message).toBe("Focus on the login module first");
+		expect(msg.trusted_user_instruction).toBe("Search memory only; do not mutate anything");
 	});
 
 	test("ResultMessage carries completion data", () => {
@@ -220,10 +222,12 @@ describe("parseBusMessage", () => {
 		const raw = JSON.stringify({
 			kind: "steer",
 			message: "focus on tests",
+			trusted_user_instruction: "current trusted instruction",
 		});
 		const msg = parseBusMessage(raw);
 		expect(msg.kind).toBe("steer");
 		expect((msg as SteerMessage).message).toBe("focus on tests");
+		expect((msg as SteerMessage).trusted_user_instruction).toBe("current trusted instruction");
 	});
 
 	test("parses a valid ResultMessage", () => {
@@ -311,6 +315,15 @@ describe("parseBusMessage", () => {
 	test("throws on missing required SteerMessage fields", () => {
 		const partial = JSON.stringify({ kind: "steer" });
 		expect(() => parseBusMessage(partial)).toThrow();
+	});
+
+	test("throws on non-string optional SteerMessage trusted instruction", () => {
+		const partial = JSON.stringify({
+			kind: "steer",
+			message: "focus",
+			trusted_user_instruction: false,
+		});
+		expect(() => parseBusMessage(partial)).toThrow("trusted_user_instruction");
 	});
 
 	test("throws on missing required ResultMessage fields", () => {

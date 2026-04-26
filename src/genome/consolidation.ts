@@ -362,15 +362,19 @@ export async function rejectConsolidationCluster(
 ): Promise<string[]> {
 	const now = options.now ?? Date.now();
 	const updated: string[] = [];
+	const markerText = `Rejected consolidation cluster ${cluster.id}: ${reason}`;
 	for (const id of cluster.memory_ids) {
 		const memory = genome.memories.getById(id);
 		if (!memory || memory.archived_at) continue;
+		if ((memory.annotations ?? []).some((annotation) => annotation.text === markerText)) {
+			continue;
+		}
 		memory.consolidation_rejection_count = (memory.consolidation_rejection_count ?? 0) + 1;
 		memory.updated_at = now;
 		memory.annotations = [
 			...(memory.annotations ?? []),
 			{
-				text: `Rejected consolidation cluster ${cluster.id}: ${reason}`,
+				text: markerText,
 				created_at: now,
 				source: options.source ?? "memory-consolidation",
 			},

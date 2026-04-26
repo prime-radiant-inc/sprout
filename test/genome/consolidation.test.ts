@@ -148,6 +148,37 @@ describe("memory consolidation", () => {
 		}
 	});
 
+	test("rejected clusters are idempotent for the same cluster and reason", async () => {
+		const root = await mkdtemp(join(tmpdir(), "sprout-consolidation-reject-idempotent-"));
+		try {
+			const genome = createTestGenome(root);
+			await genome.init();
+			await genome.addMemory(memory({ id: "candidate-a", content: "Use SQLite memory." }));
+			await genome.addMemory(memory({ id: "candidate-b", content: "Use SQLite memory." }));
+			const cluster = discoverConsolidationClusters(genome.memories.all())[0]!;
+			await rejectConsolidationCluster(genome, cluster, "Distinct provenance matters.", {
+				now: 2000,
+			});
+			const head = await git(root, "rev-parse", "HEAD");
+
+			const updated = await rejectConsolidationCluster(
+				genome,
+				cluster,
+				"Distinct provenance matters.",
+				{
+					now: 3000,
+				},
+			);
+
+			expect(updated).toEqual([]);
+			expect(genome.memories.getById("candidate-a")?.consolidation_rejection_count).toBe(1);
+			expect(genome.memories.getById("candidate-a")?.annotations).toHaveLength(1);
+			expect(await git(root, "rev-parse", "HEAD")).toBe(head);
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
 	test("project-active-day schedule controls consolidation cadence", () => {
 		expect(
 			projectDueForConsolidation({
