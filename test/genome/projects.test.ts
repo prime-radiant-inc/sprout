@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -8,6 +8,16 @@ import {
 	ProjectActivityStore,
 	projectActivityDateKey,
 } from "../../src/genome/projects.ts";
+
+async function gitInit(cwd: string): Promise<void> {
+	const proc = Bun.spawn(["git", "init"], { cwd, stdout: "pipe", stderr: "pipe" });
+	const [, stderr, exitCode] = await Promise.all([
+		new Response(proc.stdout).text(),
+		new Response(proc.stderr).text(),
+		proc.exited,
+	]);
+	if (exitCode !== 0) throw new Error(`git init failed: ${stderr.trim()}`);
+}
 
 describe("project detection", () => {
 	let tempDir: string;
@@ -80,6 +90,33 @@ describe("project detection", () => {
 			name: "sprout-memory",
 			source: "package",
 		});
+	});
+
+	test("git inference ignores inherited repository selection env", async () => {
+		const actual = join(tempDir, "actual-project");
+		const wrong = join(tempDir, "wrong-project");
+		await mkdir(actual);
+		await mkdir(wrong);
+		await gitInit(actual);
+		await gitInit(wrong);
+		const previousGitDir = process.env.GIT_DIR;
+		const previousGitWorkTree = process.env.GIT_WORK_TREE;
+		process.env.GIT_DIR = join(wrong, ".git");
+		process.env.GIT_WORK_TREE = wrong;
+		try {
+			const project = await detectProjectFromCwd({ cwd: actual });
+
+			expect(project).toMatchObject({
+				id: "actual-project",
+				name: "actual-project",
+				source: "git",
+			});
+		} finally {
+			if (previousGitDir === undefined) delete process.env.GIT_DIR;
+			else process.env.GIT_DIR = previousGitDir;
+			if (previousGitWorkTree === undefined) delete process.env.GIT_WORK_TREE;
+			else process.env.GIT_WORK_TREE = previousGitWorkTree;
+		}
 	});
 
 	test("project activity counter increments once per local day", async () => {

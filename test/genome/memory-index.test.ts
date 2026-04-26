@@ -418,6 +418,9 @@ describe("MemoryIndex", () => {
 			]);
 
 			expect(index.stats()).toMatchObject({ memoryCount: 2, embeddingCount: 1 });
+			expect(index.searchVector(Float32Array.from(embeddingVector(0)), 5)).toMatchObject([
+				{ id: "idx-active-vector" },
+			]);
 		} finally {
 			index.close();
 		}

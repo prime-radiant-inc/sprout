@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
+import { sanitizeGitEnv } from "./git-env.ts";
 import { JsonlStore } from "./jsonl-store.ts";
 
 export type ProjectDetectionSource =
@@ -252,6 +253,7 @@ async function readPackageName(cwd: string): Promise<string | undefined> {
 async function readGitValue(cwd: string, args: string[]): Promise<string | undefined> {
 	const proc = Bun.spawn(["git", ...args], {
 		cwd,
+		env: sanitizeGitEnv(),
 		stdout: "pipe",
 		stderr: "pipe",
 	});

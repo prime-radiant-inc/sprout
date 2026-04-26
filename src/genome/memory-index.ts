@@ -57,6 +57,10 @@ interface MemoryEmbeddingRow {
 	embedding: Uint8Array;
 }
 
+interface MemoryIdRow {
+	id: string;
+}
+
 interface SegmentEmbeddingRow {
 	segment_id: string;
 	embedding: Uint8Array;
@@ -512,14 +516,18 @@ export class MemoryIndex {
 				"SELECT memory_id, embedding FROM memory_embeddings WHERE dimensions = 768",
 			)
 			.all();
+		const activeIds = this.activeMemoryIds();
 		const eligibleRows = candidateIds
-			? rows.filter((row) => candidateIds.has(row.memory_id))
-			: rows;
+			? rows.filter((row) => candidateIds.has(row.memory_id) && activeIds.has(row.memory_id))
+			: rows.filter((row) => activeIds.has(row.memory_id));
+		const expectedCount = candidateIds
+			? [...candidateIds].filter((id) => activeIds.has(id)).length
+			: activeIds.size;
+		if (expectedCount === 0) return [];
 		if (eligibleRows.length === 0) {
 			if (options.allowPartialEmbeddings) return [];
 			throw new Error("Memory index has no embeddings; memory writes must create ready vectors");
 		}
-		const expectedCount = candidateIds?.size ?? this.count("memories");
 		if (!options.allowPartialEmbeddings && eligibleRows.length !== expectedCount) {
 			throw new Error(
 				`Memory index embeddings are incomplete: ${eligibleRows.length}/${expectedCount} memories have vectors`,
@@ -647,6 +655,13 @@ export class MemoryIndex {
 	private count(table: string): number {
 		const row = this.db.query<CountRow, []>(`SELECT COUNT(*) AS count FROM ${table}`).get();
 		return row?.count ?? 0;
+	}
+
+	private activeMemoryIds(): Set<string> {
+		const rows = this.db
+			.query<MemoryIdRow, []>("SELECT id FROM memories WHERE archived_at IS NULL")
+			.all();
+		return new Set(rows.map((row) => row.id));
 	}
 }
 
