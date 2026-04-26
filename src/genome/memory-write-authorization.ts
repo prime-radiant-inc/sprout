@@ -9,6 +9,10 @@ export interface MemoryWriteAuthorization {
 
 const MEMORY_REFERENCE_PATTERN =
 	/\b(memory|memories|long[- ]term memory|mem_[a-z0-9]+|archivist)\b/i;
+const MEMORY_WRITE_VERB_PATTERN =
+	/\b(annotate|annotation|link|relate|mark|archive|consolidate|merge|supersede|supersedes|superseded|replace|deprecate|prune)\b/i;
+const META_QUESTION_PATTERN =
+	/^\s*(?:please\s+)?(?:(?:can|could|would)\s+you\s+)?(?:explain|show me|tell me|what|why|whether|how(?:\s+(?:to|do|does|would|can))?)\b/i;
 const REQUEST_PREFIX_PATTERN_SOURCE =
 	"(?:^|\\b(?:please|can you|could you|would you|ask(?: the)? archivist to|have(?: the)? archivist|tell(?: the)? archivist to)\\b[\\s\\S]{0,40})";
 const ANNOTATE_MUTATION_PATTERN = new RegExp(
@@ -43,6 +47,9 @@ export function deriveTrustedMemoryWriteAuthorization(input: {
 	const text = input.userInstruction?.trim();
 	if (!text) return undefined;
 	if (!MEMORY_REFERENCE_PATTERN.test(text)) return undefined;
+	if (META_QUESTION_PATTERN.test(text) && MEMORY_WRITE_VERB_PATTERN.test(text)) {
+		return undefined;
+	}
 	const allowedMemoryIds = extractMemoryIds(text);
 	const allowedOperations = extractAllowedOperations(text);
 	if (allowedOperations.length === 0 || hasNegatedMutation(text, allowedOperations)) {

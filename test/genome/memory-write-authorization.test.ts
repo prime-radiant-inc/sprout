@@ -24,6 +24,10 @@ describe("memory write authorization derivation", () => {
 			"How does mem_alpha00 refine memory mem_beta00?",
 			"Explain whether memory mem_alpha00 contextualizes memory mem_beta00",
 			"How does mem_alpha00 relate to mem_beta00?",
+			"Can you explain how to annotate memory mem_alpha00?",
+			"Show me how to link memory mem_alpha00 to memory mem_beta00",
+			"What happens if I archive memory mem_alpha00?",
+			"Whether to mark mem_alpha00 as conflicting with mem_beta00",
 		]) {
 			expect(
 				deriveTrustedMemoryWriteAuthorization({
@@ -85,6 +89,16 @@ describe("memory write authorization derivation", () => {
 			deriveTrustedMemoryWriteAuthorization({
 				agentName: "archivist",
 				userInstruction: "add annotation to memory mem_alpha00 with the current decision",
+			}),
+		).toEqual({
+			additive: true,
+			allowedMemoryIds: ["mem_alpha00"],
+			allowedOperations: ["annotate"],
+		});
+		expect(
+			deriveTrustedMemoryWriteAuthorization({
+				agentName: "archivist",
+				userInstruction: "can you annotate memory mem_alpha00 with the current decision",
 			}),
 		).toEqual({
 			additive: true,

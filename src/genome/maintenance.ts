@@ -377,6 +377,9 @@ function parseConsolidationMemoryDraft(value: unknown, path: string): Consolidat
 		value.confidence === undefined
 			? undefined
 			: finiteNumber(value.confidence, `${path}.confidence`);
+	if (confidence !== undefined && (confidence < 0 || confidence > 1)) {
+		throw new Error(`${path}.confidence must be between 0 and 1`);
+	}
 	return {
 		text,
 		...(tags ? { tags } : {}),

@@ -36,6 +36,28 @@ function recordActiveDays(genome: Genome, projectId = "sprout", count = 30): voi
 }
 
 describe("memory maintenance operator flow", () => {
+	test("parse rejects consolidation merge confidence outside 0..1", () => {
+		for (const confidence of [-1, 999]) {
+			expect(() =>
+				parseMemoryMaintenanceDecisionFile(
+					JSON.stringify({
+						consolidations: [
+							{
+								cluster_id: "cluster-a",
+								action: "merge",
+								reasoning: "Reviewed duplicate memories.",
+								memory: {
+									text: "Sprout stores memory in SQLite.",
+									confidence,
+								},
+							},
+						],
+					}),
+				),
+			).toThrow("confidence must be between 0 and 1");
+		}
+	});
+
 	test("dry run renders consolidation and entity GC candidates", async () => {
 		const root = await mkdtemp(join(tmpdir(), "sprout-maintenance-dry-run-"));
 		try {
