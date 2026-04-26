@@ -922,6 +922,7 @@ describe("Agent", () => {
 		const mockGenome = {
 			getAgent: (name: string) => genomeAgents.get(name),
 			allAgents: () => [...genomeAgents.values()],
+			searchMemories: async () => [],
 			memories: { search: () => [] },
 			matchRoutingRules: () => [],
 			markMemoriesUsed: async () => {},
@@ -4176,6 +4177,7 @@ describe("Agent", () => {
 		const mockGenome = {
 			getAgent: (name: string) => (name === "reader" ? overlayReader : undefined),
 			allAgents: () => [orchestratorSpec, overlayReader],
+			searchMemories: async () => [],
 			memories: {
 				search: () => [],
 			},

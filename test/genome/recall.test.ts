@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { Genome } from "../../src/genome/genome.ts";
 import { recall, renderMemories, renderRoutingHints } from "../../src/genome/recall.ts";
 import { type AgentSpec, DEFAULT_CONSTRAINTS, type Memory } from "../../src/kernel/types.ts";
+import type { EmbeddingProvider } from "../../src/llm/embeddings.ts";
 import { createTestGenome } from "../helpers/test-genome.ts";
 
 function makeSpec(name: string): AgentSpec {
@@ -34,6 +35,37 @@ function makeMemory(id: string, content: string, tags: string[] = []): Memory {
 	};
 }
 
+function createRecallEmbeddingProvider(): EmbeddingProvider {
+	return {
+		provider: "test-slot",
+		model: "test-slot",
+		dimensions: 768,
+		embedBatch: async (texts, options = {}) =>
+			texts.map((text) => {
+				const vector = new Float32Array(768);
+				vector[slotForText(text, options.kind ?? "document")] = 1;
+				return {
+					text,
+					vector,
+					provider: "test-slot",
+					model: "test-slot",
+					dimensions: 768,
+				};
+			}),
+	};
+}
+
+function slotForText(text: string, kind: "query" | "document"): number {
+	const normalized = text.toLowerCase();
+	if (kind === "query" && normalized === "testing framework") return 1;
+	if (normalized.includes("dependency injection") || normalized.includes("provider override"))
+		return 5;
+	if (normalized.includes("pytest") || normalized.includes("testing fact")) return 0;
+	if (normalized.includes("auth")) return 2;
+	if (normalized.includes("unrelated")) return 3;
+	return 4;
+}
+
 describe("recall", () => {
 	let tempDir: string;
 
@@ -60,7 +92,9 @@ describe("recall", () => {
 
 	test("returns matching memories by keyword", async () => {
 		const root = join(tempDir, "recall-memories");
-		const genome = createTestGenome(root);
+		const genome = createTestGenome(root, undefined, {
+			embeddingProvider: createRecallEmbeddingProvider(),
+		});
 		await genome.init();
 		await genome.addMemory(makeMemory("m1", "this project uses pytest for testing"));
 		await genome.addMemory(makeMemory("m2", "the auth module is at src/auth"));
@@ -69,6 +103,19 @@ describe("recall", () => {
 
 		expect(result.memories).toHaveLength(1);
 		expect(result.memories[0]!.id).toBe("m1");
+	});
+
+	test("surfaces semantic vector matches without keyword overlap", async () => {
+		const root = join(tempDir, "recall-semantic");
+		const genome = createTestGenome(root, undefined, {
+			embeddingProvider: createRecallEmbeddingProvider(),
+		});
+		await genome.init();
+		await genome.addMemory(makeMemory("m1", "constructor accepts provider override"));
+
+		const result = await recall(genome, "dependency injection");
+
+		expect(result.memories.map((memory) => memory.id)).toEqual(["m1"]);
 	});
 
 	test("returns matching routing hints", async () => {
@@ -91,7 +138,9 @@ describe("recall", () => {
 
 	test("marks used memories", async () => {
 		const root = join(tempDir, "recall-mark");
-		const genome = createTestGenome(root);
+		const genome = createTestGenome(root, undefined, {
+			embeddingProvider: createRecallEmbeddingProvider(),
+		});
 		await genome.init();
 		await genome.addMemory(makeMemory("m1", "testing fact", []));
 
@@ -104,7 +153,9 @@ describe("recall", () => {
 
 	test("returns empty memories and routing when none match", async () => {
 		const root = join(tempDir, "recall-empty");
-		const genome = createTestGenome(root);
+		const genome = createTestGenome(root, undefined, {
+			embeddingProvider: createRecallEmbeddingProvider(),
+		});
 		await genome.init();
 		await genome.addMemory(makeMemory("m1", "unrelated topic"));
 

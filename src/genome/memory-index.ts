@@ -6,6 +6,7 @@ import { MEMORY_SCHEMA_VERSION, normalizeMemory } from "./memory-schema.ts";
 
 const INDEX_SCHEMA_VERSION = 2;
 const VECTOR_DIMENSIONS = 768;
+const DEFAULT_MIN_VECTOR_SIMILARITY = 0.42;
 const RRF_K = 60;
 
 export interface MemoryIndexStats {
@@ -293,11 +294,19 @@ export class MemoryIndex {
 			.map((result, index) => ({ ...result, rank: index + 1 }));
 	}
 
-	searchHybrid(query: string, queryEmbedding: Float32Array, limit: number): HybridSearchResult[] {
+	searchHybrid(
+		query: string,
+		queryEmbedding: Float32Array,
+		limit: number,
+		options: { minVectorSimilarity?: number } = {},
+	): HybridSearchResult[] {
 		if (limit <= 0) return [];
+		const minVectorSimilarity = options.minVectorSimilarity ?? DEFAULT_MIN_VECTOR_SIMILARITY;
 		const laneLimit = Math.max(limit * 2, limit);
 		const textIds = this.searchText(query, laneLimit);
-		const vectorResults = this.searchVector(queryEmbedding, laneLimit);
+		const vectorResults = this.searchVector(queryEmbedding, laneLimit).filter(
+			(result) => 1 - result.distance >= minVectorSimilarity,
+		);
 		const fused = new Map<string, HybridSearchResult>();
 
 		for (const [index, id] of textIds.entries()) {

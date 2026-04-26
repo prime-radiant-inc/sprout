@@ -9,10 +9,11 @@ import {
 } from "../agents/loader.ts";
 import { parseAgentMarkdown, serializeAgentMarkdown } from "../agents/markdown-loader.ts";
 import type { AgentSpec, Memory, RoutingRule } from "../kernel/types.ts";
-import { type EmbeddingProvider, LocalEmbeddingProvider } from "../llm/embeddings.ts";
+import type { EmbeddingProvider } from "../llm/embeddings.ts";
 import { getToolDisplayName } from "../shared/tool-display.ts";
-import { rebuildMemoryIndexFromJsonl } from "./index-builder.ts";
+import { memoryIndexPath, rebuildMemoryIndexFromJsonl } from "./index-builder.ts";
 import { attachReadyMemoryEmbedding } from "./memory-embedding.ts";
+import { MemoryIndex } from "./memory-index.ts";
 import { MemoryStore } from "./memory-store.ts";
 import { buildManifestFromSpecs, loadManifest, saveManifest } from "./root-manifest.ts";
 
@@ -84,7 +85,7 @@ const DIRS = [
 export class Genome {
 	private readonly rootPath: string;
 	private readonly rootDir?: string;
-	private readonly embeddingProvider: EmbeddingProvider;
+	private embeddingProvider?: EmbeddingProvider;
 	private readonly agents = new Map<string, AgentSpec>();
 	private readonly rootAgents = new Map<string, AgentSpec>();
 	readonly memories: MemoryStore;
@@ -95,7 +96,7 @@ export class Genome {
 	constructor(rootPath: string, rootDir?: string, options: GenomeOptions = {}) {
 		this.rootPath = rootPath;
 		this.rootDir = rootDir;
-		this.embeddingProvider = options.embeddingProvider ?? new LocalEmbeddingProvider();
+		this.embeddingProvider = options.embeddingProvider;
 		this.memories = new MemoryStore(join(rootPath, "memories", "memories.jsonl"));
 	}
 
@@ -288,11 +289,60 @@ export class Genome {
 
 	/** Add a memory, committing the JSONL file. */
 	async addMemory(memory: Memory): Promise<void> {
-		const embeddedMemory = await attachReadyMemoryEmbedding(memory, this.embeddingProvider);
+		const embeddedMemory = await attachReadyMemoryEmbedding(
+			memory,
+			await this.getEmbeddingProvider(),
+		);
 		await this.memories.add(embeddedMemory);
 		await git(this.rootPath, "add", join(this.rootPath, "memories", "memories.jsonl"));
 		await git(this.rootPath, "commit", "-m", `genome: add memory '${embeddedMemory.id}'`);
 		await rebuildMemoryIndexFromJsonl(this.rootPath);
+	}
+
+	private async getEmbeddingProvider(): Promise<EmbeddingProvider> {
+		if (!this.embeddingProvider) {
+			const { LocalEmbeddingProvider } = await import("../llm/embeddings.ts");
+			this.embeddingProvider = new LocalEmbeddingProvider();
+		}
+		return this.embeddingProvider;
+	}
+
+	/** Search memories through the derived hybrid index using local query embeddings. */
+	async searchMemories(query: string, limit = 5, minConfidence = 0.3): Promise<Memory[]> {
+		const normalizedQuery = query.trim();
+		if (!normalizedQuery) return [];
+
+		const candidates = this.memories.all().filter((memory) => {
+			return !memory.archived_at && this.effectiveMemoryConfidence(memory) >= minConfidence;
+		});
+		if (candidates.length === 0) return [];
+
+		await rebuildMemoryIndexFromJsonl(this.rootPath);
+		const embeddingProvider = await this.getEmbeddingProvider();
+		const [queryEmbedding] = await embeddingProvider.embedBatch([normalizedQuery], {
+			kind: "query",
+		});
+		if (!queryEmbedding) {
+			throw new Error(
+				`Embedding provider '${embeddingProvider.provider}' returned no query vector`,
+			);
+		}
+
+		const index = MemoryIndex.open(memoryIndexPath(this.rootPath));
+		try {
+			const ranked = index.searchHybrid(normalizedQuery, queryEmbedding.vector, limit * 2);
+			const memories: Memory[] = [];
+			for (const result of ranked) {
+				const memory = this.memories.getById(result.id);
+				if (!memory || memory.archived_at) continue;
+				if (this.effectiveMemoryConfidence(memory) < minConfidence) continue;
+				memories.push(memory);
+				if (memories.length >= limit) break;
+			}
+			return memories;
+		} finally {
+			index.close();
+		}
 	}
 
 	/** Mark memories as used by id, saving to disk. No git commit — this is operational metadata. */
@@ -303,6 +353,10 @@ export class Genome {
 		}
 		await this.memories.save();
 		await rebuildMemoryIndexFromJsonl(this.rootPath);
+	}
+
+	private effectiveMemoryConfidence(memory: Memory): number {
+		return this.memories.effectiveConfidence(memory);
 	}
 
 	// --- Pruning ---

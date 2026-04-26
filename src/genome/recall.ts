@@ -7,7 +7,7 @@ import type { Genome } from "./genome.ts";
  *
  * Default strategy (spec Section 5.3):
  * 1. If < 20 agents, return all. Else return all (placeholder for embedding search).
- * 2. Search memories by keyword (limit 5, minConfidence 0.3).
+ * 2. Search memories through the local hybrid index (limit 5, minConfidence 0.3).
  * 3. Match routing rules by keyword.
  */
 export async function recall(genome: Genome, query: string): Promise<RecallResult> {
@@ -15,7 +15,7 @@ export async function recall(genome: Genome, query: string): Promise<RecallResul
 	const agents = genome.allAgents();
 
 	// 2. Search memories
-	const memories = genome.memories.search(query, 5, 0.3);
+	const memories = await genome.searchMemories(query, 5, 0.3);
 
 	// 3. Match routing rules
 	const routing_hints = genome.matchRoutingRules(query);
