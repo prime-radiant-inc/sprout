@@ -20,11 +20,33 @@ Through Phase 10 — completed
 ## Current branch / commit
 
 - Branch: `jesse/pri-1354-implement-mira-memory-port-phase-1-foundation`
-- Last verified code/test commit: `98d3a39`
+- Last verified code/test commit: `3ae05e2`
 
 ## Open issues
 
+- Phase 6 relationship classifier quality gate — fixture coverage now exists,
+  and an opt-in live eval harness is skipped by default, but no recorded or live
+  actual-classifier run has proven the 50-pair 80% agreement gate yet
 - `§14.1` session-start surfacing on resume — not needed for the current Phase 1 slice
+
+## Review remediation pass
+
+- 2026-04-26: fixed memory extraction source policy so collapse extraction can
+  use durable user content plus root-agent session evidence without treating
+  unsupported assistant speculation as fact.
+- 2026-04-26: expanded collapse evidence to include bounded, redacted root
+  plan/final, delegation, and primitive outcome text.
+- 2026-04-26: added previous-segment continuity to segment summaries and passed
+  the current summary to extraction as non-authoritative context.
+- 2026-04-26: rerouted automatic learn memory writes through extraction over
+  event-window evidence; the non-memory reasoner no longer creates memories.
+- 2026-04-26: rerouted bus learn signals through the same extraction path and
+  removed the raw `Learn signal (...)` memory write path.
+- 2026-04-26: corrected collapse lifecycle semantics so non-aborted terminal
+  success, failure, timeout, and thrown runs with `session_end` evidence collapse.
+- 2026-04-26: expanded the relationship classifier fixture to 50 labeled pairs,
+  documented `extraction_ref` as system-generated, and added deterministic
+  fixture/prompt tests plus a skipped-by-default live agreement eval.
 
 ## Deviations from design
 
@@ -144,6 +166,14 @@ Through Phase 10 — completed
 - 2026-04-26: `bun run precommit` passed after resolving the external
   harbor-runner fixture blocker and stale quartermaster-orchestrator test
   invariant
+- 2026-04-26: `bun test test/host/session-collapse.test.ts test/host/session-controller.test.ts test/learn/learn-process.test.ts test/bus/learn-contract.test.ts test/bus/genome-service.test.ts test/genome/extraction.test.ts test/genome/dedup.test.ts test/genome/prompts.test.ts test/genome/relationship-classifier.test.ts test/genome/relationship-classifier-eval.test.ts`
+  passed after the review remediation pass; 172 tests passed and the opt-in live
+  relationship eval remained skipped by default
+- 2026-04-26: `bun run typecheck` passed after the review remediation pass
+- 2026-04-26: `bun run check` passed after the review remediation pass
+- 2026-04-26: `bun run precommit` passed after the review remediation pass:
+  Biome check, TypeScript checks, and all five unit shards passed with 2246
+  tests passed and 3 skipped
 
 ## Completed in current slice
 
@@ -218,3 +248,6 @@ Through Phase 10 — completed
   and entity-GC decisions
 - Added `subcortical_recall` agent frontmatter as the Phase 10 live-agent
   default policy: disabled unless an agent opts in explicitly
+- Added post-review remediation for collapse evidence, segment continuity, learn
+  extraction, bus signal extraction, terminal-run collapse semantics, and
+  relationship-classifier fixture coverage

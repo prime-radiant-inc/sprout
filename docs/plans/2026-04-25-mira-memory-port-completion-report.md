@@ -36,6 +36,29 @@ Completed capabilities:
   discovery, pinned-memory retention, deterministic 30-query side-by-side eval,
   and agent frontmatter config via `subcortical_recall`.
 
+## Post-Review Remediation
+
+A fresh branch review found several behavioral gaps after the initial Phase 10
+completion pass. The remediation pass fixed the implementation without changing
+the core architecture: JSONL remains authoritative, SQLite remains rebuildable
+derived state, and local embeddings remain the only production embedding path.
+
+Remediated items:
+
+- Collapse extraction now uses durable root-agent session evidence, including
+  bounded/redacted plan, final, delegation, and primitive outcome text.
+- Segment collapse now passes recent prior summaries into the summary prompt and
+  passes the current summary into extraction as non-authoritative context.
+- Automatic learn memory creation now runs extraction over event-window evidence
+  instead of accepting LLM-authored `create_memory` mutations.
+- Bus learn signals now route through extraction and no longer persist raw
+  `Learn signal (...)` memories.
+- Terminal non-aborted success, failure, timeout, and thrown runs with
+  `session_end` evidence now trigger collapse; user-aborted runs do not.
+- The relationship classifier now has a 50-row deterministic fixture, explicit
+  `extraction_ref` exclusion as a system-generated relationship, and a
+  skipped-by-default live agreement eval harness.
+
 ## Verification
 
 Targeted phase gates passed after each phase. The final Phase 10 gate included:
@@ -59,9 +82,23 @@ Follow-up verification after the completion pass:
   available from this environment.
 - `bun run precommit` passed: Biome check, TypeScript checks, and all five unit
   shards.
+- Review remediation focused suite passed:
+  `bun test test/host/session-collapse.test.ts test/host/session-controller.test.ts test/learn/learn-process.test.ts test/bus/learn-contract.test.ts test/bus/genome-service.test.ts test/genome/extraction.test.ts test/genome/dedup.test.ts test/genome/prompts.test.ts test/genome/relationship-classifier.test.ts test/genome/relationship-classifier-eval.test.ts`
+  returned 172 passed, 1 skipped.
+- Review remediation `bun run typecheck` passed.
+- Review remediation `bun run check` passed.
+- Review remediation `bun run precommit` passed: Biome check, TypeScript checks,
+  and all five unit shards, with 2246 tests passed and 3 skipped.
+- Roborev review was run after each remediation commit. The latest review job
+  for the eval-timeout fix passed; the prior timeout finding was fixed and
+  closed.
 
 ## Residual Risks
 
+- Phase 6 relationship-classifier quality is not yet proven by a recorded or
+  live actual-classifier run. The deterministic 50-pair fixture and opt-in live
+  eval harness exist, but the 80% agreement quality gate remains unsatisfied
+  until `SPROUT_LIVE_RELATIONSHIP_EVAL=1` or an equivalent VCR replay passes.
 - Subcortical recall remains opt-in for live agents. This avoids silently adding
   an LLM call to every existing agent loop; enable it per agent with
   `subcortical_recall: true` or `{ enabled: true, max_tokens: N }`.
@@ -73,10 +110,12 @@ Follow-up verification after the completion pass:
 
 ## Recommended Next Steps
 
-1. Re-run the OpenAI cache eval once quota is available.
-2. Decide which specific agents should opt into `subcortical_recall` after
+1. Run or record the 50-pair relationship classifier quality gate and require at
+   least 80% agreement before calling Phase 6 quality complete.
+2. Re-run the OpenAI cache eval once quota is available.
+3. Decide which specific agents should opt into `subcortical_recall` after
    monitoring latency/cost.
-3. Use `sprout --genome maintain --dry-run` during dogfood and apply only
+4. Use `sprout --genome maintain --dry-run` during dogfood and apply only
    reviewed decision files.
-4. Monitor real sessions for recall precision, consolidation candidate quality,
+5. Monitor real sessions for recall precision, consolidation candidate quality,
    and cache-token telemetry before broad rollout.
