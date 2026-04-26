@@ -576,16 +576,15 @@ Choose the most appropriate improvement. Prefer creating memories for factual le
 		});
 		if (filtered.length === 0) return false;
 
-		for (const [index, draft] of filtered.entries()) {
-			await this.genome.addMemory(
-				memoryFromDraft(draft, {
-					id: `learn-${now}-${random}-${index}`,
-					source: "learn:extraction",
-					now,
-					confidence: 0.8,
-				}),
-			);
-		}
+		const memories = filtered.map((draft, index) =>
+			memoryFromDraft(draft, {
+				id: `learn-${now}-${random}-${index}`,
+				source: "learn:extraction",
+				now,
+				confidence: 0.8,
+			}),
+		);
+		await this.genome.addMemories(memories, `genome: extract ${filtered.length} learned memories`);
 
 		const commitHash = await this.genome.lastCommitHash();
 		this._pendingEvaluations.push({

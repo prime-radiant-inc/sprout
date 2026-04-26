@@ -307,6 +307,33 @@ export class Genome {
 		});
 	}
 
+	/** Add multiple memories in a single commit. */
+	async addMemories(memories: Memory[], commitMessage: string): Promise<void> {
+		if (memories.length === 0) return;
+		const provider = await this.getEmbeddingProvider();
+		const embeddedMemories: Memory[] = [];
+		for (const memory of memories) {
+			stampMemoryActivitySnapshots(memory, this.projects.all());
+			embeddedMemories.push(await attachReadyMemoryEmbedding(memory, provider));
+		}
+		await this.withMemoryWriteLock(async () => {
+			await this.memories.load();
+			for (const memory of embeddedMemories) {
+				this.memories.stage(memory);
+			}
+			await this.memories.mergeLatestFromDisk();
+			await this.memories.save();
+			const memoriesPath = join(this.rootPath, "memories", "memories.jsonl");
+			await git(this.rootPath, "add", memoriesPath);
+			const status = await git(this.rootPath, "status", "--porcelain", "--", memoriesPath);
+			if (!status) {
+				throw new Error("memory mutation produced no changes");
+			}
+			await git(this.rootPath, "commit", "-m", commitMessage);
+			await rebuildMemoryIndexFromJsonl(this.rootPath);
+		});
+	}
+
 	/** Stage a new memory for callers that commit it together with other memory mutations. */
 	async stageMemoryForMutation(memory: Memory): Promise<Memory> {
 		stampMemoryActivitySnapshots(memory, this.projects.all());

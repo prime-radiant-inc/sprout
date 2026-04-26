@@ -13,6 +13,7 @@ const MUTATING_GENOME_METHODS = new Set([
 	"addRoutingRule",
 	"removeRoutingRule",
 	"addMemory",
+	"addMemories",
 	"stageMemoryForMutation",
 	"saveMemoryMutation",
 	"addSegment",

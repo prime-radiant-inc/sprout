@@ -95,6 +95,9 @@ describe("createReadOnlyGenome", () => {
 		};
 
 		await expect(readOnlyGenome.addMemory(memory)).rejects.toThrow("read-only genome");
+		await expect(readOnlyGenome.addMemories([memory], "blocked")).rejects.toThrow(
+			"read-only genome",
+		);
 		await expect(readOnlyGenome.stageMemoryForMutation(memory)).rejects.toThrow("read-only genome");
 		await expect(readOnlyGenome.saveMemoryMutation("blocked")).rejects.toThrow("read-only genome");
 		await expect(readOnlyGenome.addSegment(segment)).rejects.toThrow("read-only genome");

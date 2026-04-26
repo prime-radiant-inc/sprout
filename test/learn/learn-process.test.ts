@@ -3,7 +3,7 @@ import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentEventEmitter } from "../../src/agents/events.ts";
-import { Genome } from "../../src/genome/genome.ts";
+import { Genome, git } from "../../src/genome/genome.ts";
 import type { LearnSignal } from "../../src/kernel/types.ts";
 import { DEFAULT_CONSTRAINTS } from "../../src/kernel/types.ts";
 import type { LearnMutation, PendingEvaluation } from "../../src/learn/learn-process.ts";
@@ -460,6 +460,51 @@ describe("LearnProcess", () => {
 		]);
 		expect(memory.embedding?.status).toBe("ready");
 		expect(memory.embedding?.vector).toHaveLength(768);
+	});
+
+	test("extracted memory drafts are committed as one pending evaluation", async () => {
+		const client = makeMockClientSequence([
+			'{"type": "create_memory", "content": "Sprout should remember two durable facts", "tags": ["memory"]}',
+			JSON.stringify([
+				{ text: "Sprout uses local embeddings for recall", tags: ["memory"] },
+				{ text: "Sprout stores memories in JSONL", tags: ["memory"] },
+			]),
+		]);
+		const { genome, genomeDir, learn } = await setupGenomeWithClient(
+			tempDir,
+			"extract-batched",
+			client,
+		);
+
+		learn.push(
+			makeSignal({
+				kind: "failure",
+				agent_name: "root",
+				goal: "implement memory",
+				details: {
+					agent_name: "root",
+					goal: "implement memory",
+					output: "missed memory requirements",
+					success: false,
+					stumbles: 1,
+					turns: 3,
+					timed_out: false,
+				},
+			}),
+		);
+
+		const result = await learn.processNext();
+
+		expect(result).toBe("applied");
+		expect(genome.memories.all()).toHaveLength(2);
+		expect(learn.pendingEvaluations()).toHaveLength(1);
+		const log = await git(
+			genomeDir,
+			"log",
+			"--oneline",
+			"--grep=genome: extract 2 learned memories",
+		);
+		expect(log.split("\n").filter(Boolean)).toHaveLength(1);
 	});
 
 	test("skips embedding provider when memory extraction returns no drafts", async () => {
