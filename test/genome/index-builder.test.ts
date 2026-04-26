@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { cp, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -78,5 +78,46 @@ describe("index-builder", () => {
 		await ensureMemoryIndexFresh(genomeRoot);
 
 		expect(MemoryIndex.readSchemaVersion(indexPath)).toBe(MemoryIndex.currentSchemaVersion());
+	});
+
+	test("preserves an existing index when rebuild fails", async () => {
+		const genomeRoot = join(tempDir, "rebuild-failure-genome");
+		const memoriesDir = join(genomeRoot, "memories");
+		await mkdir(memoriesDir, { recursive: true });
+		const memoriesPath = join(memoriesDir, "memories.jsonl");
+		await cp(join(process.cwd(), "test/fixtures/memory/legacy-memories.jsonl"), memoriesPath);
+		const indexPath = memoryIndexPath(genomeRoot);
+		await rebuildMemoryIndexFromJsonl(genomeRoot);
+
+		await writeFile(
+			memoriesPath,
+			`${JSON.stringify({
+				id: "bad-embedding",
+				content: "This row should fail the index rebuild.",
+				tags: ["memory"],
+				source: "test",
+				created: Date.now(),
+				last_used: Date.now(),
+				use_count: 0,
+				confidence: 1,
+				embedding: {
+					status: "ready",
+					provider: "test",
+					model: "test",
+					dimensions: 3,
+					vector: [0, 0, 0],
+				},
+			})}\n`,
+		);
+
+		await expect(rebuildMemoryIndexFromJsonl(genomeRoot)).rejects.toThrow("embedding dimensions");
+
+		expect(existsSync(indexPath)).toBe(true);
+		const index = MemoryIndex.open(indexPath);
+		try {
+			expect(index.searchText("typecheck", 5)).toEqual(["legacy-learn"]);
+		} finally {
+			index.close();
+		}
 	});
 });

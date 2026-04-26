@@ -132,6 +132,10 @@ describe("memory write authorization derivation", () => {
 			"I confirm: do not archive memory mem_alpha00",
 			"I confirm: never consolidate memory mem_alpha00 with memory mem_beta00",
 			"I confirm only if memory mem_alpha00 is stale: archive it",
+			"I confirm: archive memory mem_alpha00 if it is stale",
+			"I confirm: archive memory mem_alpha00 because it is stale if the project is active",
+			"I confirm: supersede mem_old000 with memory mem_new000 provided that it is duplicate",
+			"I confirm: merge memory mem_alpha00 with memory mem_beta00 until reviewed",
 		]) {
 			expect(
 				deriveTrustedMemoryWriteAuthorization({

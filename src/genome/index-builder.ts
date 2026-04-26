@@ -1,4 +1,4 @@
-import { rm, stat } from "node:fs/promises";
+import { rename, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { MemoryIndex, type MemoryIndexStats } from "./memory-index.ts";
 import { MemoryStore } from "./memory-store.ts";
@@ -53,21 +53,49 @@ export async function rebuildMemoryIndexFromJsonl(
 	await Promise.all([store.load(), segments.load()]);
 
 	const indexPath = memoryIndexPath(genomeRoot);
-	await Promise.all([
-		rm(indexPath, { force: true }),
-		rm(`${indexPath}-shm`, { force: true }),
-		rm(`${indexPath}-wal`, { force: true }),
-	]);
-	const index = MemoryIndex.open(indexPath);
+	const tempIndexPath = temporaryMemoryIndexPath(indexPath);
+	let stats: MemoryIndexStats;
+	const index = MemoryIndex.open(tempIndexPath);
 	try {
 		index.rebuild(store.all(), segments.all());
-		return {
-			indexPath,
-			stats: index.stats(),
-		};
+		stats = index.stats();
+	} catch (err) {
+		await removeSqliteFiles(tempIndexPath);
+		throw err;
 	} finally {
 		index.close();
 	}
+	try {
+		await replaceMemoryIndex(indexPath, tempIndexPath);
+		return {
+			indexPath,
+			stats,
+		};
+	} catch (err) {
+		await removeSqliteFiles(tempIndexPath);
+		throw err;
+	}
+}
+
+function temporaryMemoryIndexPath(indexPath: string): string {
+	return `${indexPath}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
+}
+
+async function replaceMemoryIndex(indexPath: string, tempIndexPath: string): Promise<void> {
+	await rename(tempIndexPath, indexPath);
+	await Promise.all([
+		rm(`${indexPath}-shm`, { force: true }),
+		rm(`${indexPath}-wal`, { force: true }),
+	]);
+	await removeSqliteFiles(tempIndexPath);
+}
+
+async function removeSqliteFiles(path: string): Promise<void> {
+	await Promise.all([
+		rm(path, { force: true }),
+		rm(`${path}-shm`, { force: true }),
+		rm(`${path}-wal`, { force: true }),
+	]);
 }
 
 async function fileMtimeMs(path: string): Promise<number | undefined> {

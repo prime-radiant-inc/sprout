@@ -29,7 +29,7 @@ const AFFIRMATIVE_CONFIRMATION_PATTERN =
 	/\b(i explicitly confirm|i confirm|i explicitly approve|i approve|you have confirmation)\b/i;
 const NEGATED_CONFIRMATION_PREFIX_PATTERN =
 	/\b(not|never|no|without|unless|until|if|only if|do not|don't)\b[\s\S]{0,40}$/i;
-const CONDITIONAL_CONFIRMATION_SUFFIX_PATTERN = /\b(only if|unless|until|provided that)\b/i;
+const CONDITIONAL_CONFIRMATION_SUFFIX_PATTERN = /\b(only if|if|unless|until|provided that)\b/i;
 const NEGATED_MUTATION_PREFIX_PATTERN =
 	/\b(not|never|no|without|unless|until|if|only if|do not|don't)\b[\s\S]{0,48}$/i;
 const SHORT_MEMORY_ID_PATTERN = /\bmem_[a-z0-9]+\b/gi;
@@ -65,7 +65,7 @@ function hasExplicitConfirmation(text: string): boolean {
 	if (!match) return false;
 	const prefix = text.slice(Math.max(0, match.index - 48), match.index);
 	if (NEGATED_CONFIRMATION_PREFIX_PATTERN.test(prefix)) return false;
-	const suffix = text.slice(match.index + match[0].length, match.index + match[0].length + 48);
+	const suffix = text.slice(match.index + match[0].length);
 	return !CONDITIONAL_CONFIRMATION_SUFFIX_PATTERN.test(suffix);
 }
 
