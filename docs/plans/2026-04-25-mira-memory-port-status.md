@@ -25,6 +25,10 @@ Phase 1 — Foundation (in progress)
   review changed Phase 1 to local-first embeddings: `MongoDB/mdbr-leaf-ir`
   through Bun/Transformers.js, 768 dimensions, and no alternate production
   embedding provider.
+- `sqlite-vec` is not usable with the current Bun SQLite build because dynamic
+  extension loading is disabled. The vector lane now stores 768-dimensional
+  embedding BLOBs in SQLite and performs cosine ranking in TypeScript as the
+  production path.
 
 ## Verification
 
@@ -48,6 +52,11 @@ Phase 1 — Foundation (in progress)
 - 2026-04-26: `bun test test/llm/embeddings.test.ts test/genome/memory-schema.test.ts test/genome/index-builder.test.ts test/genome/memory-index.test.ts test/genome/jsonl-store.test.ts test/genome/memory-store.test.ts`
   passed after removing embedding provider fallbacks
 - 2026-04-26: `bun run typecheck` passed after the final no-fallback cleanup
+- 2026-04-26: `bun test test/genome/memory-index.test.ts` passed after adding
+  SQLite-backed embedding BLOB storage and vector/hybrid search
+- 2026-04-26: `bun test test/genome/memory-index.test.ts test/genome/index-builder.test.ts test/genome/memory-schema.test.ts test/genome/jsonl-store.test.ts test/genome/memory-store.test.ts test/llm/embeddings.test.ts`
+  passed after adding the vector lane
+- 2026-04-26: `bun run typecheck` passed after adding the vector lane
 - 2026-04-26: `bun test test/host/cli-compiled.test.ts` passed after adding
   the local embedding dependency
 - 2026-04-26: `bun test` ran 2545 tests: 2543 passed, 2 failed in unrelated
@@ -67,3 +76,5 @@ Phase 1 — Foundation (in progress)
   default metadata, 768-dimensional dense projection, query/document prompt
   asymmetry, fail-fast production errors, and deterministic fake embeddings for
   tests
+- Added SQLite-backed embedding vector storage and vector/hybrid search helpers
+  with fail-fast behavior when vector-required search has no indexed embeddings

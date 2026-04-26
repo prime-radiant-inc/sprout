@@ -230,6 +230,7 @@ export interface MemoryEmbeddingRef {
 	model: string;
 	dimensions: number;
 	status: "pending" | "ready" | "failed";
+	vector?: number[];
 	vector_id?: string;
 	embedded_at?: number;
 	error?: string;

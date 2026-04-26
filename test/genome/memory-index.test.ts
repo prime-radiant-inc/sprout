@@ -21,6 +21,22 @@ function makeMemory(overrides: Partial<Memory> = {}): Memory {
 	});
 }
 
+function embeddingVector(slot: number): number[] {
+	const vector = new Array<number>(768).fill(0);
+	vector[slot] = 1;
+	return vector;
+}
+
+function makeEmbedding(slot: number): NonNullable<Memory["embedding"]> {
+	return {
+		provider: "local",
+		model: "MongoDB/mdbr-leaf-ir",
+		dimensions: 768,
+		status: "ready",
+		vector: embeddingVector(slot),
+	};
+}
+
 describe("MemoryIndex", () => {
 	let tempDir: string;
 
@@ -56,6 +72,7 @@ describe("MemoryIndex", () => {
 				memoryCount: 2,
 				entityCount: 1,
 				linkCount: 1,
+				embeddingCount: 0,
 			});
 		} finally {
 			index.close();
@@ -99,8 +116,139 @@ describe("MemoryIndex", () => {
 			index.rebuild([makeMemory({ id: "new", content: "new content" })]);
 
 			expect(index.stats().memoryCount).toBe(1);
+			expect(index.stats().embeddingCount).toBe(0);
 			expect(index.searchText("old", 5)).toEqual([]);
 			expect(index.searchText("new", 5)).toEqual(["new"]);
+		} finally {
+			index.close();
+		}
+	});
+
+	test("stores memory embeddings and searches by cosine distance", () => {
+		const index = MemoryIndex.open(":memory:");
+		try {
+			index.rebuild([
+				makeMemory({
+					id: "idx-vector-a",
+					content: "typescript compiler error",
+					embedding: makeEmbedding(0),
+				}),
+				makeMemory({
+					id: "idx-vector-b",
+					content: "python runtime failure",
+					embedding: makeEmbedding(1),
+				}),
+			]);
+
+			const results = index.searchVector(Float32Array.from(embeddingVector(0)), 2);
+
+			expect(index.stats().embeddingCount).toBe(2);
+			expect(results.map((result) => result.id)).toEqual(["idx-vector-a", "idx-vector-b"]);
+			expect(results[0]!.distance).toBeCloseTo(0, 5);
+		} finally {
+			index.close();
+		}
+	});
+
+	test("hybrid search can surface vector results without keyword overlap", () => {
+		const index = MemoryIndex.open(":memory:");
+		try {
+			index.rebuild([
+				makeMemory({
+					id: "idx-semantic",
+					content: "use raw sqlite for local memory indexes",
+					embedding: makeEmbedding(0),
+				}),
+				makeMemory({
+					id: "idx-keyword",
+					content: "database migration command",
+					embedding: makeEmbedding(1),
+				}),
+			]);
+
+			const results = index.searchHybrid("database", Float32Array.from(embeddingVector(0)), 2);
+			const semantic = results.find((result) => result.id === "idx-semantic");
+
+			expect(results.map((result) => result.id)).toContain("idx-semantic");
+			expect(semantic?.vectorRank).toBe(1);
+			expect(semantic?.textRank).toBeUndefined();
+		} finally {
+			index.close();
+		}
+	});
+
+	test("vector search fails when no embeddings are indexed", () => {
+		const index = MemoryIndex.open(":memory:");
+		try {
+			index.rebuild([makeMemory({ id: "idx-no-vector", content: "plain text only" })]);
+
+			expect(() => index.searchVector(Float32Array.from(embeddingVector(0)), 5)).toThrow(
+				"no embeddings",
+			);
+		} finally {
+			index.close();
+		}
+	});
+
+	test("vector search fails when only some memories have embeddings", () => {
+		const index = MemoryIndex.open(":memory:");
+		try {
+			index.rebuild([
+				makeMemory({
+					id: "idx-vector-present",
+					content: "embedded",
+					embedding: makeEmbedding(0),
+				}),
+				makeMemory({ id: "idx-vector-missing", content: "missing embedding" }),
+			]);
+
+			expect(() => index.searchVector(Float32Array.from(embeddingVector(0)), 5)).toThrow(
+				"embeddings are incomplete",
+			);
+		} finally {
+			index.close();
+		}
+	});
+
+	test("rebuild fails when ready embedding metadata has no vector", () => {
+		const index = MemoryIndex.open(":memory:");
+		try {
+			expect(() =>
+				index.rebuild([
+					makeMemory({
+						id: "idx-missing-vector",
+						content: "bad embedding",
+						embedding: {
+							provider: "local",
+							model: "MongoDB/mdbr-leaf-ir",
+							dimensions: 768,
+							status: "ready",
+						},
+					}),
+				]),
+			).toThrow("without a vector");
+		} finally {
+			index.close();
+		}
+	});
+
+	test("rebuild fails when embedding status is not ready", () => {
+		const index = MemoryIndex.open(":memory:");
+		try {
+			expect(() =>
+				index.rebuild([
+					makeMemory({
+						id: "idx-pending-vector",
+						content: "pending embedding",
+						embedding: {
+							provider: "local",
+							model: "MongoDB/mdbr-leaf-ir",
+							dimensions: 768,
+							status: "pending",
+						},
+					}),
+				]),
+			).toThrow("is not ready");
 		} finally {
 			index.close();
 		}
