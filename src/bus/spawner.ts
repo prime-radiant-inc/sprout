@@ -38,6 +38,8 @@ export interface SpawnAgentOptions {
 	providerIdOverride?: string;
 	/** Provider tier defaults and enabled-provider state inherited from the caller. */
 	resolverSettings?: ResolverSettings;
+	/** Original user instruction, trusted for deterministic runtime policy gates. */
+	trustedUserInstruction?: string;
 }
 
 /** A pending waitAgent() promise that can be resolved or rejected. */
@@ -80,6 +82,7 @@ export interface AgentHandle {
 	evalMode?: boolean;
 	providerIdOverride?: string;
 	resolverSettings?: ResolverSettings;
+	trustedUserInstruction?: string;
 }
 
 /**
@@ -355,6 +358,7 @@ export class AgentSpawner {
 			evalMode: opts.evalMode,
 			providerIdOverride: opts.providerIdOverride,
 			resolverSettings: opts.resolverSettings,
+			trustedUserInstruction: opts.trustedUserInstruction,
 		};
 		this.handles.set(handleId, handle);
 		this.monitorProcessExit(handleId, proc);
@@ -381,6 +385,7 @@ export class AgentSpawner {
 			eval_mode: opts.evalMode,
 			provider_id: opts.providerIdOverride,
 			resolver_settings: opts.resolverSettings,
+			trusted_user_instruction: opts.trustedUserInstruction,
 		};
 		await this.bus.publish(inboxTopic, JSON.stringify(startMsg));
 
@@ -557,6 +562,7 @@ export class AgentSpawner {
 			eval_mode: handle.evalMode,
 			provider_id: handle.providerIdOverride,
 			resolver_settings: handle.resolverSettings,
+			trusted_user_instruction: handle.trustedUserInstruction,
 		};
 		await this.bus.publish(inboxTopic, JSON.stringify(startMsg));
 
@@ -586,6 +592,7 @@ export class AgentSpawner {
 			projectDataDir?: string;
 			providerIdOverride?: string;
 			resolverSettings?: ResolverSettings;
+			trustedUserInstruction?: string;
 		},
 	): void {
 		// Skip if the handle already exists (e.g. re-spawned since the
@@ -611,6 +618,7 @@ export class AgentSpawner {
 			evalMode: spawnInfo?.evalMode,
 			providerIdOverride: spawnInfo?.providerIdOverride,
 			resolverSettings: spawnInfo?.resolverSettings,
+			trustedUserInstruction: spawnInfo?.trustedUserInstruction,
 		};
 		this.handles.set(handleId, handle);
 	}

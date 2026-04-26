@@ -22,8 +22,17 @@ function makeSpec(overrides: Partial<AgentSpec> = {}): AgentSpec {
 	};
 }
 
-function genomeContext(genome: Genome, agentName: string) {
-	return { genome, agentName, sessionId: "session-test" };
+function genomeContext(
+	genome: Genome,
+	agentName: string,
+	writeAuthorization?: { additive?: boolean; destructive?: boolean },
+) {
+	return {
+		genome,
+		agentName,
+		sessionId: "session-test",
+		...(writeAuthorization ? { writeAuthorization } : {}),
+	};
 }
 
 describe("workspace primitives", () => {
@@ -143,6 +152,25 @@ describe("workspace primitives", () => {
 
 			expect(result.success).toBe(false);
 			expect(result.error).toContain("script");
+		});
+	});
+
+	describe("memory primitives", () => {
+		test("archivist only receives mutating memory primitives with trusted authorization", async () => {
+			const root = join(tempDir, "memory-auth-reg");
+			const genome = new Genome(root);
+			await genome.init();
+
+			const env = new LocalExecutionEnvironment(tempDir);
+			const untrusted = createPrimitiveRegistry(env, genomeContext(genome, "archivist"));
+			const trusted = createPrimitiveRegistry(
+				env,
+				genomeContext(genome, "archivist", { additive: true }),
+			);
+
+			expect(untrusted.names()).toContain("memory_synthesize_answer");
+			expect(untrusted.names()).not.toContain("memory_annotate");
+			expect(trusted.names()).toContain("memory_annotate");
 		});
 	});
 

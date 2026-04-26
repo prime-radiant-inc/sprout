@@ -5,6 +5,7 @@ import { loadPreambles, scanAgentTree } from "../agents/loader.ts";
 import { renderCallerIdentity } from "../agents/plan.ts";
 import { loadProjectDocs } from "../agents/project-doc.ts";
 import { Genome } from "../genome/genome.ts";
+import { deriveTrustedMemoryWriteAuthorization } from "../genome/memory-write-authorization.ts";
 import { createReadOnlyGenome } from "../genome/read-only-genome.ts";
 import { SessionLogger } from "../host/logger.ts";
 import { importSettingsFromEnv } from "../host/settings/env-import.ts";
@@ -181,7 +182,20 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 
 		// Wire up the agent
 		const env = new LocalExecutionEnvironment(workDir);
-		const registry = createPrimitiveRegistry(env, undefined, { evalMode });
+		const writeAuthorization = deriveTrustedMemoryWriteAuthorization({
+			agentName: startMsg.agent_name,
+			userInstruction: startMsg.trusted_user_instruction,
+		});
+		const registry = createPrimitiveRegistry(
+			env,
+			{
+				genome: runtimeGenome,
+				agentName: startMsg.agent_name,
+				sessionId,
+				...(writeAuthorization ? { writeAuthorization } : {}),
+			},
+			{ evalMode },
+		);
 		const events = new AgentEventEmitter();
 		const preambles = config.rootDir ? await loadPreambles(config.rootDir) : undefined;
 		const projectDocs = await loadProjectDocs({ cwd: workDir });
@@ -231,6 +245,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 				projectDataDir: config.projectDataDir,
 				providerIdOverride: startMsg.provider_id,
 				resolverSettings: startMsg.resolver_settings,
+				trustedUserInstruction: startMsg.trusted_user_instruction,
 			});
 		}
 
@@ -286,6 +301,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 			agentTreeChildren,
 			agentTreeSelfPath,
 			enableStreaming: true,
+			trustedUserInstruction: startMsg.trusted_user_instruction,
 		});
 
 		// Build goal with hints

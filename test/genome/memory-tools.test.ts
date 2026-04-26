@@ -156,35 +156,38 @@ describe("memory tools", () => {
 		expect(ctx.genome.memories.all()[0]?.annotations?.[0]?.source).toBe("archivist:session-test");
 	});
 
-	test("model-supplied authorization booleans do not grant write access", async () => {
-		const ctx = { ...makeContext(), writeAuthorization: undefined };
-		const primitive = buildWriteMemoryPrimitives(ctx).find(
+	test("untrusted contexts do not register mutating write primitives", () => {
+		const ctx = { ...makeContext() };
+		delete ctx.writeAuthorization;
+
+		expect(buildWriteMemoryPrimitives(ctx)).toEqual([]);
+		expect(buildReadMemoryPrimitives(ctx).map((item) => item.name)).toContain(
+			"memory_synthesize_answer",
+		);
+	});
+
+	test("trusted schemas do not expose authorization booleans", () => {
+		const primitive = buildWriteMemoryPrimitives(makeContext()).find(
 			(item) => item.name === "memory_annotate",
 		)!;
 
 		expect(primitive.parameters.properties).not.toHaveProperty("explicit_instruction");
 		expect(primitive.parameters.properties).not.toHaveProperty("confirmed");
-
-		const result = await runTool(ctx, "memory_annotate", {
-			id: "memory-alpha",
-			text: "Injected mutation",
-			explicit_instruction: true,
-			confirmed: true,
-		});
-
-		expect(result.success).toBe(false);
-		expect(result.error).toContain("explicit caller instruction");
 	});
 
-	test("unauthorized archive is blocked", async () => {
-		const result = await runTool(makeContext(), "memory_archive", {
-			id: "memory-alpha",
-			reason: "stale",
-			explicit_instruction: true,
-		});
+	test("destructive primitives require destructive authorization", () => {
+		const additiveTools = buildWriteMemoryPrimitives(makeContext()).map((item) => item.name);
+		const destructiveTools = buildWriteMemoryPrimitives({
+			...makeContext(),
+			writeAuthorization: { destructive: true },
+		}).map((item) => item.name);
 
-		expect(result.success).toBe(false);
-		expect(result.error).toContain("confirmation");
+		expect(additiveTools).toContain("memory_annotate");
+		expect(additiveTools).toContain("memory_link");
+		expect(additiveTools).not.toContain("memory_archive");
+		expect(additiveTools).not.toContain("memory_consolidate");
+		expect(destructiveTools).toContain("memory_archive");
+		expect(destructiveTools).toContain("memory_consolidate");
 	});
 
 	test("write memory primitives are only built for archivist", () => {
@@ -192,7 +195,7 @@ describe("memory tools", () => {
 		expect(buildWriteMemoryPrimitives({ ...ctx, agentName: "engineer" })).toEqual([]);
 		expect(
 			buildWriteMemoryPrimitives({ ...ctx, agentName: "archivist" }).map((item) => item.name),
-		).toContain("memory_archive");
+		).toContain("memory_annotate");
 	});
 
 	test("memory_link persists valid relationship types", async () => {
@@ -221,10 +224,13 @@ describe("memory tools", () => {
 	});
 
 	test("memory_link marks target superseded for supersedes relationships", async () => {
-		const ctx = makeContext([
-			memory({ id: "new-memory", short_id: "mem_new000" }),
-			memory({ id: "old-memory", short_id: "mem_old000" }),
-		]);
+		const ctx = {
+			...makeContext([
+				memory({ id: "new-memory", short_id: "mem_new000" }),
+				memory({ id: "old-memory", short_id: "mem_old000" }),
+			]),
+			writeAuthorization: { destructive: true },
+		};
 
 		const result = await runTool(ctx, "memory_link", {
 			from_id: "new-memory",
@@ -237,6 +243,26 @@ describe("memory tools", () => {
 		expect(result.success).toBe(true);
 		expect(ctx.genome.memories.getById("old-memory")?.superseded_by).toBe("new-memory");
 		expect(typeof ctx.genome.memories.getById("old-memory")?.updated_at).toBe("number");
+	});
+
+	test("memory_link requires destructive target authorization for supersedes", async () => {
+		const ctx = makeContext([
+			memory({ id: "new-memory", short_id: "mem_new000" }),
+			memory({ id: "old-memory", short_id: "mem_old000" }),
+		]);
+
+		const result = await runTool(ctx, "memory_link", {
+			from_id: "new-memory",
+			to_id: "old-memory",
+			type: "supersedes",
+			reasoning: "newer decision replaces the old one",
+			explicit_instruction: true,
+			confirmed: true,
+		});
+
+		expect(result.success).toBe(false);
+		expect(result.error).toContain("target memory supersession blocked");
+		expect(ctx.genome.memories.getById("old-memory")?.superseded_by).toBeUndefined();
 	});
 
 	test("memory_link rejects null and unknown relationship types", async () => {

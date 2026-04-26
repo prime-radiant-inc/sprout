@@ -25,6 +25,8 @@ export interface StartMessage {
 	provider_id?: string;
 	/** Provider tier defaults and enabled-provider state inherited from the caller. */
 	resolver_settings?: ResolverSettings;
+	/** Original user instruction, trusted for deterministic runtime policy gates. */
+	trusted_user_instruction?: string;
 }
 
 /** Sent to a completed/idle agent to continue conversation */

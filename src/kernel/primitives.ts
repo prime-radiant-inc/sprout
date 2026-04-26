@@ -2,6 +2,7 @@ import { readFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import type { Genome } from "../genome/genome.ts";
 import { buildReadMemoryPrimitives, buildWriteMemoryPrimitives } from "../genome/memory-tools.ts";
+import type { MemoryWriteAuthorization } from "../genome/memory-write-authorization.ts";
 import { getToolDisplayName } from "../shared/tool-display.ts";
 import type { ExecutionEnvironment } from "./execution-env.ts";
 import { truncateToolOutput } from "./truncation.ts";
@@ -14,6 +15,7 @@ export interface GenomeContext {
 	genome: Genome;
 	agentName: string;
 	sessionId: string;
+	writeAuthorization?: MemoryWriteAuthorization;
 }
 
 export interface Primitive {

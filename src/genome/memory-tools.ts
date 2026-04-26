@@ -9,6 +9,7 @@ import type {
 } from "../kernel/types.ts";
 import { traverseMemoryLinks } from "./linking.ts";
 import { memoryShortId } from "./memory-schema.ts";
+import type { MemoryWriteAuthorization } from "./memory-write-authorization.ts";
 import { authorizeMemoryWrite } from "./memory-write-policy.ts";
 import type { MemorySegment } from "./segments.ts";
 
@@ -29,10 +30,7 @@ export interface MemoryToolContext {
 	};
 	agentName: string;
 	sessionId: string;
-	writeAuthorization?: {
-		additive?: boolean;
-		destructive?: boolean;
-	};
+	writeAuthorization?: MemoryWriteAuthorization;
 }
 
 const MANUAL_MEMORY_LINK_TYPES = [
@@ -65,18 +63,22 @@ export function buildReadMemoryPrimitives(ctx: MemoryToolContext): Primitive[] {
 		memoryTraceLinksPrimitive(ctx),
 		memoryEntityQueryPrimitive(ctx),
 		memoryFindBySegmentPrimitive(ctx),
+		memorySynthesizeAnswerPrimitive(ctx),
 	];
 }
 
 export function buildWriteMemoryPrimitives(ctx: MemoryToolContext): Primitive[] {
 	if (ctx.agentName !== "archivist") return [];
-	return [
-		memoryAnnotatePrimitive(ctx),
-		memoryArchivePrimitive(ctx),
-		memoryLinkPrimitive(ctx),
-		memoryConsolidatePrimitive(ctx),
-		memorySynthesizeAnswerPrimitive(ctx),
-	];
+	if (!trustedAdditiveWrite(ctx) && !trustedDestructiveWrite(ctx)) return [];
+	if (trustedDestructiveWrite(ctx)) {
+		return [
+			memoryAnnotatePrimitive(ctx),
+			memoryArchivePrimitive(ctx),
+			memoryLinkPrimitive(ctx),
+			memoryConsolidatePrimitive(ctx),
+		];
+	}
+	return [memoryAnnotatePrimitive(ctx), memoryLinkPrimitive(ctx)];
 }
 
 function memorySearchPrimitive(ctx: MemoryToolContext): Primitive {
@@ -297,6 +299,17 @@ function memoryLinkPrimitive(ctx: MemoryToolContext): Primitive {
 				return fail(
 					`invalid relationship type: expected one of ${MANUAL_MEMORY_LINK_TYPES.join(", ")}`,
 				);
+			}
+			if (relationshipType === "supersedes") {
+				const targetAuth = authorizeMemoryWrite({
+					operation: "archive",
+					explicitInstruction: trustedAdditiveWrite(ctx),
+					confirmed: trustedDestructiveWrite(ctx),
+					memory: to,
+				});
+				if (!targetAuth.allowed) {
+					return fail(`target memory supersession blocked: ${targetAuth.reason}`);
+				}
 			}
 			const link: MemoryLinkEntry = {
 				uuid: to.id,

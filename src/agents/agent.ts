@@ -6,6 +6,10 @@ import { compactHistory } from "../core/compaction.ts";
 import type { Logger } from "../core/logger.ts";
 import { NullLogger } from "../core/logger.ts";
 import type { Genome } from "../genome/genome.ts";
+import {
+	deriveTrustedMemoryWriteAuthorization,
+	type MemoryWriteAuthorization,
+} from "../genome/memory-write-authorization.ts";
 import { type RecallOptions, recall } from "../genome/recall.ts";
 import { extractMemoryReferences } from "../genome/render-memory-block.ts";
 import type { ExecutionEnvironment } from "../kernel/execution-env.ts";
@@ -122,6 +126,8 @@ export interface AgentOptions {
 	enableStreaming?: boolean;
 	/** Cached MIRA-format surfaced memory block from the root session. */
 	surfacedMemoryBlock?: string;
+	/** Original user instruction, trusted for deterministic runtime policy gates. */
+	trustedUserInstruction?: string;
 	/** Override retry backoff settings for LLM calls (tests/tuning). */
 	llmRetryOptions?: Omit<RetryOptions, "signal" | "onRetry">;
 }
@@ -165,6 +171,7 @@ export class Agent {
 	private readonly agentTreeSelfPath?: string;
 	private readonly enableStreaming: boolean;
 	private readonly initialSurfacedMemoryBlock?: string;
+	private trustedUserInstruction?: string;
 	private readonly llmRetryOptions?: Omit<RetryOptions, "signal" | "onRetry">;
 	private readonly logger: Logger;
 	private readonly resolverSettings: ResolverSettings;
@@ -209,6 +216,7 @@ export class Agent {
 		this.agentTreeSelfPath = options.agentTreeSelfPath;
 		this.enableStreaming = options.enableStreaming ?? false;
 		this.initialSurfacedMemoryBlock = options.surfacedMemoryBlock;
+		this.trustedUserInstruction = options.trustedUserInstruction;
 		this.llmRetryOptions = options.llmRetryOptions;
 		this.initialHistory = options.initialHistory ? [...options.initialHistory] : undefined;
 		this.logger = (options.logger ?? new NullLogger()).child({
@@ -706,12 +714,16 @@ export class Agent {
 				subTreeSelfPath = treeEntry.path;
 				subTreeChildren = treeEntry.children;
 			}
+			const writeAuthorization = deriveTrustedMemoryWriteAuthorization({
+				agentName: subagentSpec.name,
+				userInstruction: this.trustedUserInstruction,
+			});
 
 			const subagent = new Agent({
 				spec: subagentSpec,
 				env: this.env,
 				client: this.client,
-				primitiveRegistry: this.primitiveRegistryForAgent(subagentSpec.name),
+				primitiveRegistry: this.primitiveRegistryForAgent(subagentSpec.name, writeAuthorization),
 				availableAgents: this.genome ? this.genome.allAgents() : this.availableAgents,
 				genome: this.genome,
 				depth: this.depth + 1,
@@ -732,6 +744,7 @@ export class Agent {
 				agentTreeSelfPath: subTreeSelfPath,
 				enableStreaming: this.enableStreaming,
 				surfacedMemoryBlock: subagentSpec.name === "archivist" ? "" : this.surfacedMemoryBlock,
+				trustedUserInstruction: this.trustedUserInstruction,
 			});
 
 			const subResult = await subagent.run(subGoal, this.signal);
@@ -802,11 +815,19 @@ export class Agent {
 		}
 	}
 
-	private primitiveRegistryForAgent(agentName: string): PrimitiveRegistry {
+	private primitiveRegistryForAgent(
+		agentName: string,
+		writeAuthorization?: MemoryWriteAuthorization,
+	): PrimitiveRegistry {
 		if (!this.genome) return this.primitiveRegistry;
 		return createPrimitiveRegistry(
 			this.env,
-			{ genome: this.genome, agentName, sessionId: this.sessionId },
+			{
+				genome: this.genome,
+				agentName,
+				sessionId: this.sessionId,
+				...(writeAuthorization ? { writeAuthorization } : {}),
+			},
 			{ evalMode: this.evalMode },
 		);
 	}
@@ -900,6 +921,7 @@ export class Agent {
 				evalMode: this.evalMode,
 				providerIdOverride: this.resolved.provider,
 				resolverSettings: this.resolverSettings,
+				trustedUserInstruction: this.trustedUserInstruction,
 			});
 
 			if (typeof result === "string") {
@@ -1096,6 +1118,9 @@ export class Agent {
 	async run(goal: string, signal?: AbortSignal): Promise<AgentResult> {
 		const agentId = this.agentId ?? this.spec.name;
 		this.signal = signal;
+		if (this.depth === 0 && this.trustedUserInstruction === undefined) {
+			this.trustedUserInstruction = goal;
+		}
 
 		// Ensure log directory exists
 		if (this.logBasePath) {
