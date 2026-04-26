@@ -282,7 +282,13 @@ export async function applyConsolidationMerge(
 	genome: Genome,
 	cluster: Pick<ConsolidationCluster, "memory_ids">,
 	draft: ConsolidationMemoryDraft,
-	options: { now?: number; source?: string; id?: string; reasoning?: string } = {},
+	options: {
+		now?: number;
+		source?: string;
+		id?: string;
+		reasoning?: string;
+		commit?: boolean;
+	} = {},
 ): Promise<ConsolidationMergeResult> {
 	const now = options.now ?? Date.now();
 	const sources = cluster.memory_ids.map((id) => {
@@ -348,9 +354,11 @@ export async function applyConsolidationMerge(
 			{ uuid: consolidatedId, type: "supersedes", reasoning, created_at: now },
 		];
 	}
-	await genome.saveMemoryMutation(
-		`genome: consolidate ${sources.length} memories into '${consolidatedId}'`,
-	);
+	if (options.commit ?? true) {
+		await genome.saveMemoryMutation(
+			`genome: consolidate ${sources.length} memories into '${consolidatedId}'`,
+		);
+	}
 
 	return { consolidated: saved, archived_ids: sources.map((memory) => memory.id) };
 }
@@ -359,7 +367,7 @@ export async function rejectConsolidationCluster(
 	genome: Genome,
 	cluster: Pick<ConsolidationCluster, "id" | "memory_ids">,
 	reason: string,
-	options: { now?: number; source?: string } = {},
+	options: { now?: number; source?: string; commit?: boolean } = {},
 ): Promise<string[]> {
 	const now = options.now ?? Date.now();
 	const updated: string[] = [];
@@ -382,7 +390,7 @@ export async function rejectConsolidationCluster(
 		];
 		updated.push(id);
 	}
-	if (updated.length > 0) {
+	if (updated.length > 0 && (options.commit ?? true)) {
 		await genome.saveMemoryMutation(`genome: reject memory consolidation cluster '${cluster.id}'`);
 	}
 	return updated;

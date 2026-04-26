@@ -39,6 +39,14 @@ describe("memory extraction", () => {
 		expect(formatted).toContain("SQLite &lt;not Postgres&gt;");
 	});
 
+	test("formats epoch transcript timestamps", () => {
+		const formatted = formatExtractionMessages([
+			{ role: "assistant", content: "epoch memory", timestamp: 0 },
+		]);
+
+		expect(formatted).toContain('time="1970-01-01T00:00:00.000Z"');
+	});
+
 	test("renders the user prompt template", () => {
 		const prompt = renderExtractionUserPrompt("Before\n{formatted_messages}\nAfter", [
 			{ role: "user", content: "remember this" },

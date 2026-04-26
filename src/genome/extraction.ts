@@ -81,9 +81,10 @@ export function renderExtractionUserPrompt(
 export function formatExtractionMessages(messages: readonly ExtractionMessage[]): string {
 	return messages
 		.map((message) => {
-			const timestamp = message.timestamp
-				? ` time="${new Date(message.timestamp).toISOString()}"`
-				: "";
+			const timestamp =
+				message.timestamp !== undefined
+					? ` time="${new Date(message.timestamp).toISOString()}"`
+					: "";
 			return `<message role="${message.role}"${timestamp}>\n${escapeXml(message.content)}\n</message>`;
 		})
 		.join("\n");

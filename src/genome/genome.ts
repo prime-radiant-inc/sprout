@@ -627,6 +627,51 @@ export class Genome {
 		});
 	}
 
+	/**
+	 * Run memory and project-activity edits under one lock and commit both JSONL
+	 * files together. If either save, index rebuild, or git commit fails, both
+	 * files and the derived memory index are restored to their pre-mutation state.
+	 */
+	async applyMemoryAndProjectActivityMutation<T>(
+		commitMessage: string,
+		mutate: () => Promise<T>,
+	): Promise<T> {
+		const memoriesPath = join(this.rootPath, "memories", "memories.jsonl");
+		const projectsPath = join(this.rootPath, "memories", "projects.jsonl");
+		const paths = [memoriesPath, projectsPath];
+		return this.withMemoryWriteLock(async () => {
+			const snapshots = await snapshotTextFiles(paths);
+			let committed = false;
+			try {
+				const result = await mutate();
+				await this.memories.mergeLatestFromDisk();
+				await this.projects.mergeLatestFromDisk();
+				await this.memories.save();
+				await this.projects.save();
+				await git(this.rootPath, "add", ...paths);
+				const status = await git(this.rootPath, "status", "--porcelain", "--", ...paths);
+				if (!status.trim()) {
+					committed = true;
+					return result;
+				}
+				const memoryStatus = await git(this.rootPath, "status", "--porcelain", "--", memoriesPath);
+				if (memoryStatus.trim()) {
+					await rebuildMemoryIndexFromJsonl(this.rootPath, { assumeMemoryWriteLock: true });
+				}
+				await git(this.rootPath, "commit", "-m", commitMessage);
+				committed = true;
+				return result;
+			} catch (error) {
+				if (!committed) {
+					await restoreUncommittedMemoryMutation(this.rootPath, snapshots, paths);
+					await this.memories.load();
+					await this.projects.load();
+				}
+				throw error;
+			}
+		});
+	}
+
 	async recomputeMemoryScores(options: { now?: number; minImportance?: number } = {}): Promise<{
 		updated: string[];
 		archived: string[];

@@ -110,61 +110,68 @@ export async function applyMemoryMaintenanceDecisions(
 	plan: MemoryMaintenancePlan,
 	decisions: MemoryMaintenanceDecisionFile,
 ): Promise<MemoryMaintenanceApplyResult> {
-	const memoryById = new Map(genome.memories.all().map((memory) => [memory.id, memory]));
-	const validated = validateMemoryMaintenanceDecisions(plan, decisions, memoryById);
-	const consolidatedProjectIds = new Set<string>();
-	const entityGcProjectIds = new Set<string>();
-	const result: MemoryMaintenanceApplyResult = {
-		consolidation: { merged: 0, rejected: 0, archived_memory_ids: [] },
-		entity_gc: { merged: 0, rejected: 0, updated_memory_ids: [], archived_alias_count: 0 },
-	};
+	return genome.applyMemoryAndProjectActivityMutation(
+		"genome: apply memory maintenance decisions",
+		async () => {
+			const memoryById = new Map(genome.memories.all().map((memory) => [memory.id, memory]));
+			const validated = validateMemoryMaintenanceDecisions(plan, decisions, memoryById);
+			const consolidatedProjectIds = new Set<string>();
+			const entityGcProjectIds = new Set<string>();
+			const result: MemoryMaintenanceApplyResult = {
+				consolidation: { merged: 0, rejected: 0, archived_memory_ids: [] },
+				entity_gc: { merged: 0, rejected: 0, updated_memory_ids: [], archived_alias_count: 0 },
+			};
 
-	for (const { decision, cluster } of validated.consolidations) {
-		for (const projectId of maintenanceProjectIds(cluster.project_ids)) {
-			consolidatedProjectIds.add(projectId);
-		}
-		if (decision.action === "merge") {
-			const merge = await applyConsolidationMerge(genome, cluster, decision.memory, {
-				reasoning: decision.reasoning,
-				source: "memory-maintenance",
-			});
-			result.consolidation.merged++;
-			result.consolidation.archived_memory_ids.push(...merge.archived_ids);
-		} else {
-			await rejectConsolidationCluster(genome, cluster, decision.reasoning, {
-				source: "memory-maintenance",
-			});
-			result.consolidation.rejected++;
-		}
-	}
+			for (const { decision, cluster } of validated.consolidations) {
+				for (const projectId of maintenanceProjectIds(cluster.project_ids)) {
+					consolidatedProjectIds.add(projectId);
+				}
+				if (decision.action === "merge") {
+					const merge = await applyConsolidationMerge(genome, cluster, decision.memory, {
+						reasoning: decision.reasoning,
+						source: "memory-maintenance",
+						commit: false,
+					});
+					result.consolidation.merged++;
+					result.consolidation.archived_memory_ids.push(...merge.archived_ids);
+				} else {
+					await rejectConsolidationCluster(genome, cluster, decision.reasoning, {
+						source: "memory-maintenance",
+						commit: false,
+					});
+					result.consolidation.rejected++;
+				}
+			}
 
-	for (const { decision, group } of validated.entityGc) {
-		const applied = await applyEntityGcDecision(genome, group, decision, {
-			source: "memory-maintenance",
-		});
-		const changed = applied.updated_memory_ids.length > 0;
-		if (!changed) continue;
-		for (const projectId of maintenanceProjectIds(entityGcGroupProjectIds(group, memoryById))) {
-			entityGcProjectIds.add(projectId);
-		}
-		if (decision.action === "merge") {
-			result.entity_gc.merged++;
-			result.entity_gc.updated_memory_ids.push(...applied.updated_memory_ids);
-			result.entity_gc.archived_alias_count += applied.archived_aliases.length;
-		} else {
-			result.entity_gc.rejected++;
-		}
-	}
+			for (const { decision, group } of validated.entityGc) {
+				const applied = await applyEntityGcDecision(genome, group, decision, {
+					source: "memory-maintenance",
+					commit: false,
+				});
+				const changed = applied.updated_memory_ids.length > 0;
+				if (!changed) continue;
+				for (const projectId of maintenanceProjectIds(entityGcGroupProjectIds(group, memoryById))) {
+					entityGcProjectIds.add(projectId);
+				}
+				if (decision.action === "merge") {
+					result.entity_gc.merged++;
+					result.entity_gc.updated_memory_ids.push(...applied.updated_memory_ids);
+					result.entity_gc.archived_alias_count += applied.archived_aliases.length;
+				} else {
+					result.entity_gc.rejected++;
+				}
+			}
 
-	result.consolidation.archived_memory_ids = sortedUnique(result.consolidation.archived_memory_ids);
-	result.entity_gc.updated_memory_ids = sortedUnique(result.entity_gc.updated_memory_ids);
-	ensureGlobalMaintenanceRecord(genome, consolidatedProjectIds, entityGcProjectIds);
-	for (const projectId of consolidatedProjectIds) genome.projects.markConsolidated(projectId);
-	for (const projectId of entityGcProjectIds) genome.projects.markEntityGc(projectId);
-	if (consolidatedProjectIds.size > 0 || entityGcProjectIds.size > 0) {
-		await genome.saveProjectActivityMutation("genome: update memory maintenance cadence");
-	}
-	return result;
+			result.consolidation.archived_memory_ids = sortedUnique(
+				result.consolidation.archived_memory_ids,
+			);
+			result.entity_gc.updated_memory_ids = sortedUnique(result.entity_gc.updated_memory_ids);
+			ensureGlobalMaintenanceRecord(genome, consolidatedProjectIds, entityGcProjectIds);
+			for (const projectId of consolidatedProjectIds) genome.projects.markConsolidated(projectId);
+			for (const projectId of entityGcProjectIds) genome.projects.markEntityGc(projectId);
+			return result;
+		},
+	);
 }
 
 function validateMemoryMaintenanceDecisions(

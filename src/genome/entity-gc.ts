@@ -216,7 +216,7 @@ export async function applyEntityGcDecision(
 	genome: Genome,
 	group: EntityGcGroup,
 	decision: EntityGcDecision,
-	options: { now?: number; source?: string } = {},
+	options: { now?: number; source?: string; commit?: boolean } = {},
 ): Promise<EntityGcApplyResult> {
 	if (decision.action === "reject") {
 		return rejectEntityGcGroup(genome, group, decision.reasoning, options);
@@ -275,7 +275,7 @@ export async function applyEntityGcDecision(
 		updatedIds.push(memory.id);
 	}
 
-	if (updatedIds.length > 0) {
+	if (updatedIds.length > 0 && (options.commit ?? true)) {
 		await genome.saveMemoryMutation(`genome: merge ${archivedAliases.length} entity aliases`);
 	}
 	return { updated_memory_ids: updatedIds, archived_aliases: archivedAliases };
@@ -285,7 +285,7 @@ async function rejectEntityGcGroup(
 	genome: Genome,
 	group: EntityGcGroup,
 	reasoning: string,
-	options: { now?: number; source?: string } = {},
+	options: { now?: number; source?: string; commit?: boolean } = {},
 ): Promise<EntityGcApplyResult> {
 	const now = options.now ?? Date.now();
 	const candidateKeys = new Set(group.candidates.map(entityKey));
@@ -314,7 +314,7 @@ async function rejectEntityGcGroup(
 		updatedIds.push(memory.id);
 	}
 
-	if (updatedIds.length > 0) {
+	if (updatedIds.length > 0 && (options.commit ?? true)) {
 		await genome.saveMemoryMutation(`genome: reject entity GC group '${group.id}'`);
 	}
 	return { updated_memory_ids: updatedIds, archived_aliases: [] };

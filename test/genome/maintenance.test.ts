@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Genome, git } from "../../src/genome/genome.ts";
@@ -303,6 +303,72 @@ describe("memory maintenance operator flow", () => {
 			expect(genome.memories.getById("old-a")?.superseded_by).toBeUndefined();
 			expect(genome.memories.getById("old-b")?.superseded_by).toBeUndefined();
 			expect(await git(root, "rev-parse", "HEAD")).toBe(head);
+			expect(await git(root, "status", "--porcelain")).toBe("");
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
+	test("apply restores all memory edits when cadence save fails", async () => {
+		const root = await mkdtemp(join(tmpdir(), "sprout-maintenance-transaction-"));
+		try {
+			const genome = createTestGenome(root);
+			await genome.init();
+			recordActiveDays(genome, "sprout", 14);
+			await genome.addMemory(
+				memory({
+					id: "old-a",
+					content: "Sprout memory uses SQLite.",
+					project_ids: ["sprout"],
+				}),
+			);
+			await genome.addMemory(
+				memory({
+					id: "old-b",
+					content: "Sprout memory uses SQLite.",
+					project_ids: ["sprout"],
+				}),
+			);
+			const plan = discoverMemoryMaintenancePlan(genome, { includeEntityGc: false });
+			const cluster = plan.consolidationClusters[0]!;
+			const beforeHead = await git(root, "rev-parse", "HEAD");
+			const beforeMemories = await readFile(join(root, "memories", "memories.jsonl"), "utf-8");
+			const originalProjectSave = genome.projects.save.bind(genome.projects);
+			genome.projects.save = async () => {
+				await originalProjectSave();
+				throw new Error("project cadence save failed");
+			};
+
+			try {
+				await expect(
+					applyMemoryMaintenanceDecisions(genome, plan, {
+						consolidations: [
+							{
+								cluster_id: cluster.id,
+								action: "merge",
+								memory: {
+									text: "Sprout memory uses SQLite.",
+									tags: ["memory"],
+									confidence: 0.95,
+								},
+								reasoning: "Reviewed duplicate memories.",
+							},
+						],
+					}),
+				).rejects.toThrow("project cadence save failed");
+			} finally {
+				genome.projects.save = originalProjectSave;
+			}
+
+			expect(genome.memories.getById("old-a")?.superseded_by).toBeUndefined();
+			expect(genome.memories.getById("old-b")?.superseded_by).toBeUndefined();
+			expect(
+				genome.memories.all().some((candidate) => candidate.consolidates_memory_ids?.length),
+			).toBe(false);
+			expect(await readFile(join(root, "memories", "memories.jsonl"), "utf-8")).toBe(
+				beforeMemories,
+			);
+			expect(await git(root, "rev-parse", "HEAD")).toBe(beforeHead);
 			expect(await git(root, "status", "--porcelain")).toBe("");
 		} finally {
 			await rm(root, { recursive: true, force: true });
