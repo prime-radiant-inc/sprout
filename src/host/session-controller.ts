@@ -3,6 +3,7 @@ import { AgentEventEmitter } from "../agents/events.ts";
 import { createAgent } from "../agents/factory.ts";
 import type { ResolverSettings } from "../agents/model-resolver.ts";
 import type { AgentSpawner } from "../bus/spawner.ts";
+import { collapseSessionToMemory } from "../core/session-collapse.ts";
 import type { Command, ModelRef, SessionEvent } from "../kernel/types.ts";
 import type { Message } from "../llm/types.ts";
 import type { SessionSelectionRequest } from "../shared/session-selection.ts";
@@ -31,6 +32,7 @@ import {
 	applyHistoryShadowUpdate,
 	beginSubmitGoalTransition,
 	clearSessionShadowState,
+	loadAllEventLogs,
 } from "./session-state.ts";
 
 /** Minimal agent interface used by the SessionController. */
@@ -97,6 +99,8 @@ export interface AgentFactoryResult {
 		history: Message[],
 		logPath: string,
 	) => Promise<{ summary: string; beforeCount: number; afterCount: number }>;
+	/** Collapse the completed root session into long-term memory. */
+	collapseMemory?: (input: { sessionId: string; cwd: string }) => Promise<unknown>;
 }
 
 /** Factory function that creates an agent. Injectable for testing. */
@@ -207,7 +211,31 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 				provider: result.provider,
 				logPath,
 			}),
+		collapseMemory: isVcrReplayClient(result.client)
+			? undefined
+			: async ({ sessionId, cwd }) => {
+					const logBasePath = join(options.projectDataDir ?? options.genomePath, "logs", sessionId);
+					const events = await loadAllEventLogs(`${logBasePath}.jsonl`, logBasePath);
+					return collapseSessionToMemory({
+						events,
+						genome: result.genome,
+						client: result.client,
+						model: result.model,
+						provider: result.provider,
+						sessionId,
+						cwd,
+					});
+				},
 	};
+}
+
+function isVcrReplayClient(client: unknown): boolean {
+	return (
+		typeof client === "object" &&
+		client !== null &&
+		"__sproutVcrMode" in client &&
+		(client as { __sproutVcrMode?: unknown }).__sproutVcrMode === "replay"
+	);
 }
 
 /**
@@ -515,6 +543,7 @@ export class SessionController {
 			}
 
 			const runResult = await result.agent.run(goal, signal);
+			await this.collapseMemoryAfterRun(result);
 			this.logger?.info("session", "Agent run completed");
 			return {
 				sessionId: this._sessionId,
@@ -536,6 +565,25 @@ export class SessionController {
 				this.agent = null;
 			}
 			await persistTerminalMetadata(metadata, signal.aborted);
+		}
+	}
+
+	private async collapseMemoryAfterRun(result: AgentFactoryResult): Promise<void> {
+		if (!result.collapseMemory || this.evalMode) return;
+		try {
+			const collapse = await result.collapseMemory({
+				sessionId: this._sessionId,
+				cwd: process.cwd(),
+			});
+			if (collapse !== "skipped") {
+				this.bus.emitEvent("context_update", "session", 0, {
+					memory_collapse: "completed",
+				});
+			}
+		} catch (err) {
+			this.bus.emitEvent("warning", "session", 0, {
+				message: `Memory collapse failed: ${err instanceof Error ? err.message : String(err)}`,
+			});
 		}
 	}
 

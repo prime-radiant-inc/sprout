@@ -15,7 +15,11 @@ import { memoryIndexPath, rebuildMemoryIndexFromJsonl } from "./index-builder.ts
 import { attachReadyMemoryEmbedding } from "./memory-embedding.ts";
 import { MemoryIndex } from "./memory-index.ts";
 import { MemoryStore } from "./memory-store.ts";
-import { loadMemoryExtractionPrompts, type PromptSet } from "./prompts.ts";
+import {
+	loadMemoryExtractionPrompts,
+	loadSegmentSummaryPrompts,
+	type PromptSet,
+} from "./prompts.ts";
 import { buildManifestFromSpecs, loadManifest, saveManifest } from "./root-manifest.ts";
 import { attachReadySegmentEmbedding, type MemorySegment, SegmentStore } from "./segments.ts";
 
@@ -818,6 +822,10 @@ export class Genome {
 
 	async loadMemoryExtractionPrompts(): Promise<PromptSet> {
 		return loadMemoryExtractionPrompts(this.rootPath, this.rootDir);
+	}
+
+	async loadSegmentSummaryPrompts(): Promise<PromptSet> {
+		return loadSegmentSummaryPrompts(this.rootPath, this.rootDir);
 	}
 
 	/**

@@ -1,0 +1,5 @@
+<session_transcript>
+{formatted_messages}
+</session_transcript>
+
+Summarize this completed session for future recall. Return only JSON.

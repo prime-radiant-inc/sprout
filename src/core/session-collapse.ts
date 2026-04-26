@@ -1,5 +1,11 @@
+import { filterDuplicateDrafts } from "../genome/dedup.ts";
+import { extractMemoryDrafts, memoryFromDraft, parseExtractionJson } from "../genome/extraction.ts";
+import type { Genome } from "../genome/genome.ts";
+import { type DetectedProject, detectProjectFromCwd } from "../genome/projects.ts";
+import type { MemorySegment } from "../genome/segments.ts";
 import type { SessionEvent } from "../kernel/types.ts";
-import { ContentKind, type Message, messageText } from "../llm/types.ts";
+import type { Client } from "../llm/client.ts";
+import { ContentKind, type Message, Msg, messageText } from "../llm/types.ts";
 
 export type CollapseTranscriptRole = "user" | "assistant";
 
@@ -13,6 +19,31 @@ export interface CollapseTranscriptMessage {
 
 export interface BuildCollapseTranscriptOptions {
 	includeSubagents?: boolean;
+}
+
+export interface CollapseSessionToMemoryInput {
+	events: readonly SessionEvent[];
+	genome: Genome;
+	client: Client;
+	model: string;
+	provider: string;
+	sessionId: string;
+	cwd: string;
+	explicitProject?: string;
+	metadataProject?: string;
+	now?: number;
+}
+
+export interface SegmentSummaryResult {
+	summary: string;
+	title: string;
+	complexity: number;
+}
+
+export interface CollapseSessionToMemoryResult {
+	segment: MemorySegment;
+	project: DetectedProject;
+	extractedMemoryCount: number;
 }
 
 export function buildCollapseTranscript(
@@ -35,6 +66,112 @@ ${escapeXml(message.content)}
 </message>`;
 		})
 		.join("\n");
+}
+
+export async function collapseSessionToMemory(
+	input: CollapseSessionToMemoryInput,
+): Promise<CollapseSessionToMemoryResult | "skipped"> {
+	const transcript = buildCollapseTranscript(input.events);
+	if (transcript.length === 0) return "skipped";
+
+	const now = input.now ?? Date.now();
+	const project = await detectProjectFromCwd({
+		cwd: input.cwd,
+		explicitProject: input.explicitProject,
+		metadataProject: input.metadataProject,
+	});
+	const summary = await summarizeTranscript({
+		client: input.client,
+		model: input.model,
+		provider: input.provider,
+		prompts: await input.genome.loadSegmentSummaryPrompts(),
+		transcript,
+	});
+	const segment = buildSegmentRecord({
+		sessionId: input.sessionId,
+		transcript,
+		summary,
+		project,
+		now,
+	});
+	await input.genome.addSegment(segment);
+
+	const extractionDrafts = await extractMemoryDrafts({
+		client: input.client,
+		model: input.model,
+		provider: input.provider,
+		prompts: await input.genome.loadMemoryExtractionPrompts(),
+		messages: transcript.map((message) => ({
+			role: message.role,
+			content: message.content,
+			timestamp: message.timestamp,
+		})),
+	});
+	const filtered = await filterDuplicateDrafts(extractionDrafts, input.genome.memories.all(), {
+		embeddingProvider: await input.genome.memoryEmbeddingProvider(),
+	});
+
+	for (const [index, draft] of filtered.entries()) {
+		const memory = memoryFromDraft(draft, {
+			id: `${segment.id}-mem-${index}`,
+			source: `segment:${input.sessionId}`,
+			now,
+			confidence: 0.82,
+			sourceSessionId: input.sessionId,
+			sourceSegmentId: segment.id,
+		});
+		await input.genome.addMemory({
+			...memory,
+			project_ids:
+				project.id === "unknown"
+					? memory.project_ids
+					: [...new Set([...(memory.project_ids ?? []), project.id])],
+		});
+	}
+
+	return {
+		segment,
+		project,
+		extractedMemoryCount: filtered.length,
+	};
+}
+
+async function summarizeTranscript(input: {
+	client: Client;
+	model: string;
+	provider: string;
+	prompts: { system: string; user: string };
+	transcript: readonly CollapseTranscriptMessage[];
+}): Promise<SegmentSummaryResult> {
+	const response = await input.client.complete({
+		model: input.model,
+		provider: input.provider,
+		messages: [
+			Msg.system(input.prompts.system),
+			Msg.user(
+				input.prompts.user.replace(
+					"{formatted_messages}",
+					renderCollapseTranscript(input.transcript),
+				),
+			),
+		],
+		temperature: 0.1,
+		max_tokens: 1200,
+	});
+	return normalizeSegmentSummary(parseExtractionJson(messageText(response.message)));
+}
+
+export function normalizeSegmentSummary(payload: unknown): SegmentSummaryResult {
+	if (!isRecord(payload)) {
+		throw new Error("Segment summary response must be a JSON object");
+	}
+	const summary = stringValue(payload.summary) ?? stringValue(payload.synopsis);
+	if (!summary) throw new Error("Segment summary response is missing summary");
+	return {
+		summary,
+		title: stringValue(payload.title) ?? stringValue(payload.display_title) ?? "Session segment",
+		complexity: clampComplexity(numberValue(payload.complexity)),
+	};
 }
 
 function eventToTranscriptMessage(
@@ -114,6 +251,54 @@ function isMessage(value: unknown): value is Message {
 
 function stringValue(value: unknown): string | undefined {
 	return typeof value === "string" ? value : undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function buildSegmentRecord(input: {
+	sessionId: string;
+	transcript: readonly CollapseTranscriptMessage[];
+	summary: SegmentSummaryResult;
+	project: DetectedProject;
+	now: number;
+}): MemorySegment {
+	const startedAt = input.transcript[0]?.timestamp ?? input.now;
+	const endedAt = input.transcript.at(-1)?.timestamp ?? startedAt;
+	return {
+		id: `segment-${slug(input.sessionId)}-${startedAt}`,
+		session_id: input.sessionId,
+		summary: input.summary.summary,
+		title: input.summary.title,
+		started_at: startedAt,
+		ended_at: endedAt,
+		created_at: input.now,
+		message_count: input.transcript.length,
+		project_id: input.project.id,
+		project_confidence: input.project.confidence,
+		complexity: input.summary.complexity,
+		source: "session-collapse",
+	};
+}
+
+function clampComplexity(value: number | undefined): number {
+	if (value === undefined) return 1;
+	return Math.min(3, Math.max(1, value));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function slug(value: string): string {
+	return (
+		value
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, "-")
+			.replace(/(^-|-$)/g, "")
+			.slice(0, 48) || "session"
+	);
 }
 
 function escapeXml(value: string): string {

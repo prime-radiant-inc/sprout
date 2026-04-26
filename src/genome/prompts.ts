@@ -41,6 +41,30 @@ export const MEMORY_EXTRACTION_USER_PROMPT = `<conversation>
 
 Extract new durable memories from the conversation above. Return only JSON.`;
 
+export const SEGMENT_SUMMARY_SYSTEM_PROMPT = `You summarize completed Sprout coding-agent sessions for long-term memory.
+
+Return only valid JSON. No markdown.
+
+The JSON object must contain:
+{
+  "summary": "A compact factual synopsis of the durable work, decisions, constraints, and outcomes.",
+  "title": "Short display title",
+  "complexity": 1
+}
+
+Rules:
+- Preserve exact project names, commands, file paths, APIs, and constraints.
+- Prefer concrete outcomes over narration.
+- Do not invent facts not present in the transcript.
+- Use absolute dates if dates are important.
+- Complexity is 1 for simple, 2 for moderate, 3 for complex.`;
+
+export const SEGMENT_SUMMARY_USER_PROMPT = `<session_transcript>
+{formatted_messages}
+</session_transcript>
+
+Summarize this completed session for future recall. Return only JSON.`;
+
 export interface PromptSet {
 	system: string;
 	user: string;
@@ -49,6 +73,8 @@ export interface PromptSet {
 const DEFAULT_PROMPTS: Record<string, string> = {
 	"memory_extraction_system.txt": MEMORY_EXTRACTION_SYSTEM_PROMPT,
 	"memory_extraction_user.txt": MEMORY_EXTRACTION_USER_PROMPT,
+	"segment_summary_system.txt": SEGMENT_SUMMARY_SYSTEM_PROMPT,
+	"segment_summary_user.txt": SEGMENT_SUMMARY_USER_PROMPT,
 };
 
 export async function loadMemoryExtractionPrompts(
@@ -58,6 +84,16 @@ export async function loadMemoryExtractionPrompts(
 	return {
 		system: await loadPrompt(genomeRoot, rootDir, "memory_extraction_system.txt"),
 		user: await loadPrompt(genomeRoot, rootDir, "memory_extraction_user.txt"),
+	};
+}
+
+export async function loadSegmentSummaryPrompts(
+	genomeRoot: string,
+	rootDir?: string,
+): Promise<PromptSet> {
+	return {
+		system: await loadPrompt(genomeRoot, rootDir, "segment_summary_system.txt"),
+		user: await loadPrompt(genomeRoot, rootDir, "segment_summary_user.txt"),
 	};
 }
 
