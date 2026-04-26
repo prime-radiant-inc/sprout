@@ -1,5 +1,15 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { cp, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import {
+	chmod,
+	cp,
+	mkdir,
+	mkdtemp,
+	readdir,
+	readFile,
+	rm,
+	stat,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "yaml";
@@ -525,6 +535,81 @@ describe("Genome", () => {
 			expect(await git(root, "status", "--porcelain")).toBe("");
 		});
 
+		test("addMemory restores JSONL when save fails after writing", async () => {
+			const root = join(tempDir, "mem-add-save-fails");
+			const genome = await createInitializedGenome(root);
+			const originalSave = genome.memories.save.bind(genome.memories);
+			genome.memories.save = async () => {
+				await originalSave();
+				throw new Error("memory save failed after write");
+			};
+
+			try {
+				await expect(
+					genome.addMemory(makeMemory({ id: "write-fail-memory", content: "will not persist" })),
+				).rejects.toThrow("memory save failed after write");
+			} finally {
+				genome.memories.save = originalSave;
+			}
+
+			expect(genome.memories.getById("write-fail-memory")).toBeUndefined();
+			expect(await readOptionalFile(join(root, "memories", "memories.jsonl"))).not.toContain(
+				"write-fail-memory",
+			);
+			expect(await git(root, "status", "--porcelain")).toBe("");
+		});
+
+		test("addMemory restores JSONL and index when commit fails after rebuild", async () => {
+			const root = join(tempDir, "mem-add-commit-fails");
+			const genome = await createInitializedGenome(root);
+			const hookPath = join(root, ".git", "hooks", "pre-commit");
+			await writeFile(hookPath, "#!/bin/sh\nexit 1\n");
+			await chmod(hookPath, 0o755);
+
+			await expect(
+				genome.addMemory(makeMemory({ id: "commit-fail-memory", content: "will not persist" })),
+			).rejects.toThrow("git commit");
+
+			expect(genome.memories.getById("commit-fail-memory")).toBeUndefined();
+			expect(await readOptionalFile(join(root, "memories", "memories.jsonl"))).not.toContain(
+				"commit-fail-memory",
+			);
+			expect(await git(root, "status", "--porcelain")).toBe("");
+			const index = MemoryIndex.open(memoryIndexPath(root));
+			try {
+				expect(index.stats().memoryCount).toBe(0);
+			} finally {
+				index.close();
+			}
+		});
+
+		test("addMemories restores JSONL when save fails after writing", async () => {
+			const root = join(tempDir, "mem-add-many-save-fails");
+			const genome = await createInitializedGenome(root);
+			const originalSave = genome.memories.save.bind(genome.memories);
+			genome.memories.save = async () => {
+				await originalSave();
+				throw new Error("memory batch save failed after write");
+			};
+
+			try {
+				await expect(
+					genome.addMemories(
+						[makeMemory({ id: "batch-write-fail", content: "will not persist" })],
+						"genome: add failing batch",
+					),
+				).rejects.toThrow("memory batch save failed after write");
+			} finally {
+				genome.memories.save = originalSave;
+			}
+
+			expect(genome.memories.getById("batch-write-fail")).toBeUndefined();
+			expect(await readOptionalFile(join(root, "memories", "memories.jsonl"))).not.toContain(
+				"batch-write-fail",
+			);
+			expect(await git(root, "status", "--porcelain")).toBe("");
+		});
+
 		test("searchMemories reuses a fresh derived index", async () => {
 			const root = join(tempDir, "mem-search-index-fresh");
 			const genome = await createInitializedGenome(root);
@@ -591,6 +676,33 @@ describe("Genome", () => {
 			} finally {
 				index.close();
 			}
+		});
+
+		test("saveMemoryMutation restores JSONL when save fails after writing", async () => {
+			const root = join(tempDir, "mem-mutation-save-fails");
+			const genome = await createInitializedGenome(root);
+			await genome.addMemory(makeMemory({ id: "mutation-write-fail", content: "mutable fact" }));
+			const before = await readFile(join(root, "memories", "memories.jsonl"), "utf-8");
+			const memory = genome.memories.getById("mutation-write-fail")!;
+			memory.archived_at = 12345;
+			memory.archived_reason = "mutation test";
+			const originalSave = genome.memories.save.bind(genome.memories);
+			genome.memories.save = async () => {
+				await originalSave();
+				throw new Error("mutation save failed after write");
+			};
+
+			try {
+				await expect(
+					genome.saveMemoryMutation("genome: archive memory 'mutation-write-fail'"),
+				).rejects.toThrow("mutation save failed after write");
+			} finally {
+				genome.memories.save = originalSave;
+			}
+
+			expect(genome.memories.getById("mutation-write-fail")?.archived_at).toBeUndefined();
+			expect(await readFile(join(root, "memories", "memories.jsonl"), "utf-8")).toBe(before);
+			expect(await git(root, "status", "--porcelain")).toBe("");
 		});
 
 		test("saveMemoryMutation preserves memories added by another loaded genome", async () => {

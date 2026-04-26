@@ -298,12 +298,26 @@ export class Genome {
 			memory,
 			await this.getEmbeddingProvider(),
 		);
+		const memoriesPath = join(this.rootPath, "memories", "memories.jsonl");
 		await this.withMemoryWriteLock(async () => {
-			await this.memories.load();
-			await this.memories.add(embeddedMemory);
-			await git(this.rootPath, "add", join(this.rootPath, "memories", "memories.jsonl"));
-			await git(this.rootPath, "commit", "-m", `genome: add memory '${embeddedMemory.id}'`);
-			await rebuildMemoryIndexFromJsonl(this.rootPath);
+			const snapshots = await snapshotTextFiles([memoriesPath]);
+			let committed = false;
+			try {
+				await this.memories.load();
+				assertCanStageMemoryBatch(this.memories.all(), [embeddedMemory]);
+				this.memories.stage(embeddedMemory);
+				await this.memories.save();
+				await git(this.rootPath, "add", memoriesPath);
+				await rebuildMemoryIndexFromJsonl(this.rootPath);
+				await git(this.rootPath, "commit", "-m", `genome: add memory '${embeddedMemory.id}'`);
+				committed = true;
+			} catch (error) {
+				if (!committed) {
+					await restoreUncommittedMemoryMutation(this.rootPath, snapshots, [memoriesPath]);
+					await this.memories.load();
+				}
+				throw error;
+			}
 		});
 	}
 
@@ -318,6 +332,9 @@ export class Genome {
 		}
 		await this.withMemoryWriteLock(async () => {
 			await this.memories.load();
+			const memoriesPath = join(this.rootPath, "memories", "memories.jsonl");
+			const snapshots = await snapshotTextFiles([memoriesPath]);
+			let committed = false;
 			try {
 				assertCanStageMemoryBatch(this.memories.all(), embeddedMemories);
 				for (const memory of embeddedMemories) {
@@ -325,16 +342,19 @@ export class Genome {
 				}
 				await this.memories.mergeLatestFromDisk();
 				await this.memories.save();
-				const memoriesPath = join(this.rootPath, "memories", "memories.jsonl");
 				await git(this.rootPath, "add", memoriesPath);
 				const status = await git(this.rootPath, "status", "--porcelain", "--", memoriesPath);
 				if (!status) {
 					throw new Error("memory mutation produced no changes");
 				}
-				await git(this.rootPath, "commit", "-m", commitMessage);
 				await rebuildMemoryIndexFromJsonl(this.rootPath);
+				await git(this.rootPath, "commit", "-m", commitMessage);
+				committed = true;
 			} catch (error) {
-				await this.memories.load();
+				if (!committed) {
+					await restoreUncommittedMemoryMutation(this.rootPath, snapshots, [memoriesPath]);
+					await this.memories.load();
+				}
 				throw error;
 			}
 		});
@@ -352,17 +372,28 @@ export class Genome {
 
 	/** Persist memory metadata mutations, committing JSONL and rebuilding the derived index. */
 	async saveMemoryMutation(commitMessage: string): Promise<void> {
+		const memoriesPath = join(this.rootPath, "memories", "memories.jsonl");
 		await this.withMemoryWriteLock(async () => {
-			await this.memories.mergeLatestFromDisk();
-			await this.memories.save();
-			const memoriesPath = join(this.rootPath, "memories", "memories.jsonl");
-			await git(this.rootPath, "add", memoriesPath);
-			const status = await git(this.rootPath, "status", "--porcelain", "--", memoriesPath);
-			if (!status) {
-				throw new Error("memory mutation produced no changes");
+			const snapshots = await snapshotTextFiles([memoriesPath]);
+			let committed = false;
+			try {
+				await this.memories.mergeLatestFromDisk();
+				await this.memories.save();
+				await git(this.rootPath, "add", memoriesPath);
+				const status = await git(this.rootPath, "status", "--porcelain", "--", memoriesPath);
+				if (!status) {
+					throw new Error("memory mutation produced no changes");
+				}
+				await rebuildMemoryIndexFromJsonl(this.rootPath);
+				await git(this.rootPath, "commit", "-m", commitMessage);
+				committed = true;
+			} catch (error) {
+				if (!committed) {
+					await restoreUncommittedMemoryMutation(this.rootPath, snapshots, [memoriesPath]);
+					await this.memories.load();
+				}
+				throw error;
 			}
-			await git(this.rootPath, "commit", "-m", commitMessage);
-			await rebuildMemoryIndexFromJsonl(this.rootPath);
 		});
 	}
 
@@ -1180,6 +1211,16 @@ async function restoreTextFiles(snapshots: ReadonlyMap<string, TextFileSnapshot>
 			await rm(path, { force: true });
 		}
 	}
+}
+
+async function restoreUncommittedMemoryMutation(
+	rootPath: string,
+	snapshots: ReadonlyMap<string, TextFileSnapshot>,
+	paths: readonly string[],
+): Promise<void> {
+	await restoreTextFiles(snapshots);
+	await git(rootPath, "reset", "--", ...paths);
+	await rebuildMemoryIndexFromJsonl(rootPath);
 }
 
 async function readTextFileSnapshot(path: string): Promise<TextFileSnapshot> {
