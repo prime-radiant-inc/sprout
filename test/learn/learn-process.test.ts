@@ -58,6 +58,26 @@ function makeMockClient(responseText: string, onComplete?: (req: Request) => voi
 	} as unknown as Client;
 }
 
+function makeMockClientSequence(
+	responseTexts: string[],
+	onComplete?: (req: Request) => void,
+): Client {
+	let index = 0;
+	const modelsByProvider = new Map<string, ProviderModel[]>([
+		["anthropic", [{ id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", source: "remote" }]],
+	]);
+	return {
+		providers: () => ["anthropic"],
+		listModelsByProvider: async () => modelsByProvider,
+		complete: async (request: Request) => {
+			onComplete?.(request);
+			const responseText = responseTexts[index] ?? responseTexts[responseTexts.length - 1] ?? "[]";
+			index++;
+			return makeMockResponse(responseText);
+		},
+	} as unknown as Client;
+}
+
 function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -338,7 +358,10 @@ describe("LearnProcess", () => {
 	test("handles markdown-wrapped JSON responses", async () => {
 		const wrappedJson =
 			'```json\n{"type": "create_memory", "content": "test insight", "tags": ["test"]}\n```';
-		const client = makeMockClient(wrappedJson);
+		const client = makeMockClientSequence([
+			wrappedJson,
+			'[{"text":"test insight","tags":["test"]}]',
+		]);
 
 		const { genome, learn } = await setupGenomeWithClient(tempDir, "md-json", client);
 
@@ -367,7 +390,10 @@ describe("LearnProcess", () => {
 	test("handles markdown-wrapped JSON without language tag", async () => {
 		const wrappedJson =
 			'```\n{"type": "create_memory", "content": "bare block insight", "tags": ["test"]}\n```';
-		const client = makeMockClient(wrappedJson);
+		const client = makeMockClientSequence([
+			wrappedJson,
+			'[{"text":"bare block insight","tags":["test"]}]',
+		]);
 
 		const { genome, learn } = await setupGenomeWithClient(tempDir, "md-bare", client);
 
@@ -391,6 +417,49 @@ describe("LearnProcess", () => {
 		expect(result).toBe("applied");
 		const memories = genome.memories.all();
 		expect(memories.some((m) => m.content === "bare block insight")).toBe(true);
+	});
+
+	test("learned memories are extracted with entities and ready embeddings", async () => {
+		const client = makeMockClientSequence([
+			'{"type": "create_memory", "content": "Sprout should use local embeddings for memory recall", "tags": ["memory"]}',
+			JSON.stringify([
+				{
+					text: "Sprout should use local embeddings for memory recall",
+					tags: ["memory", "embeddings"],
+					entities: [{ name: "Sprout", type: "PROJECT" }],
+				},
+			]),
+		]);
+		const { genome, learn } = await setupGenomeWithClient(tempDir, "extract-entity", client);
+
+		learn.push(
+			makeSignal({
+				kind: "failure",
+				agent_name: "root",
+				goal: "implement memory",
+				details: {
+					agent_name: "root",
+					goal: "implement memory",
+					output: "missed local embedding requirement",
+					success: false,
+					stumbles: 1,
+					turns: 3,
+					timed_out: false,
+				},
+			}),
+		);
+
+		const result = await learn.processNext();
+
+		expect(result).toBe("applied");
+		const memory = genome.memories.all()[0]!;
+		expect(memory.content).toBe("Sprout should use local embeddings for memory recall");
+		expect(memory.source).toBe("learn:extraction");
+		expect(memory.entity_links).toEqual([
+			{ uuid: "entity_sprout_0", name: "Sprout", type: "PROJECT" },
+		]);
+		expect(memory.embedding?.status).toBe("ready");
+		expect(memory.embedding?.vector).toHaveLength(768);
 	});
 
 	describe("mutation validation", () => {
@@ -420,7 +489,10 @@ describe("LearnProcess", () => {
 		});
 
 		test("defaults create_memory tags to empty array", async () => {
-			const client = makeMockClient('{"type": "create_memory", "content": "learned fact"}');
+			const client = makeMockClientSequence([
+				'{"type": "create_memory", "content": "learned fact"}',
+				'[{"text":"learned fact"}]',
+			]);
 			const { learn, genome } = await setupGenomeWithClient(tempDir, "val-mem-no-tags", client);
 			learn.push(makeFailureSignal());
 			const result = await learn.processNext();

@@ -309,6 +309,10 @@ export class Genome {
 		return this.embeddingProvider;
 	}
 
+	async memoryEmbeddingProvider(): Promise<EmbeddingProvider> {
+		return this.getEmbeddingProvider();
+	}
+
 	/** Search memories through the derived hybrid index using local query embeddings. */
 	async searchMemories(query: string, limit = 5, minConfidence = 0.3): Promise<Memory[]> {
 		const normalizedQuery = query.trim();

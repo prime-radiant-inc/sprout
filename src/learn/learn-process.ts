@@ -7,6 +7,8 @@ import {
 	type ResolverSettings,
 	resolveModel,
 } from "../agents/model-resolver.ts";
+import { filterDuplicateDrafts } from "../genome/dedup.ts";
+import { extractMemoryDrafts, memoryFromDraft } from "../genome/extraction.ts";
 import type { Genome } from "../genome/genome.ts";
 import type { LearnSignal } from "../kernel/types.ts";
 import { DEFAULT_CONSTRAINTS, validateAgentName } from "../kernel/types.ts";
@@ -321,7 +323,16 @@ export class LearnProcess {
 				return "skipped";
 			}
 
-			await this.applyMutation(mutation);
+			let applied = true;
+			if (mutation.type === "create_memory") {
+				applied = await this.applyExtractedMemoryMutation(mutation);
+			} else {
+				await this.applyMutation(mutation);
+			}
+			if (!applied) {
+				this.events.emit("learn_end", signal.agent_name, 0, { result: "skipped" });
+				return "skipped";
+			}
 
 			// Mark this agent+kind as recently addressed to prevent redundant improvements
 			this.recentImprovements.add(`${signal.agent_name}:${signal.kind}`);
@@ -542,5 +553,52 @@ Choose the most appropriate improvement. Prefer creating memories for factual le
 		await this.savePendingEvaluations();
 
 		this.events.emit("learn_mutation", "learn", 0, { mutation_type: mutation.type });
+	}
+
+	private async applyExtractedMemoryMutation(
+		mutation: Extract<LearnMutation, { type: "create_memory" }>,
+	): Promise<boolean> {
+		if (!this.client || !this.resolvedModel) return false;
+
+		const now = Date.now();
+		const random = Math.random().toString(36).slice(2, 8);
+		const prompts = await this.genome.loadMemoryExtractionPrompts();
+		const drafts = await extractMemoryDrafts({
+			client: this.client,
+			model: this.resolvedModel.model,
+			provider: this.resolvedModel.provider,
+			prompts,
+			messages: [{ role: "user", content: mutation.content, timestamp: now }],
+		});
+		const filtered = await filterDuplicateDrafts(drafts, this.genome.memories.all(), {
+			embeddingProvider: await this.genome.memoryEmbeddingProvider(),
+		});
+		if (filtered.length === 0) return false;
+
+		for (const [index, draft] of filtered.entries()) {
+			await this.genome.addMemory(
+				memoryFromDraft(draft, {
+					id: `learn-${now}-${random}-${index}`,
+					source: "learn:extraction",
+					now,
+					confidence: 0.8,
+				}),
+			);
+		}
+
+		const commitHash = await this.genome.lastCommitHash();
+		this._pendingEvaluations.push({
+			agentName: "learn",
+			mutationType: mutation.type,
+			timestamp: now,
+			commitHash,
+			description: `Extracted ${filtered.length} memories from learn signal`,
+		});
+		await this.savePendingEvaluations();
+		this.events.emit("learn_mutation", "learn", 0, {
+			mutation_type: mutation.type,
+			extracted_count: filtered.length,
+		});
+		return true;
 	}
 }
