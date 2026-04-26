@@ -6,6 +6,7 @@ import {
 	buildCollapseTranscript,
 	collapseSessionToMemory,
 	normalizeSegmentSummary,
+	redactSensitiveTranscriptContent,
 	renderCollapseTranscript,
 } from "../../src/core/session-collapse.ts";
 import type { Genome } from "../../src/genome/genome.ts";
@@ -159,6 +160,25 @@ describe("session collapse transcript", () => {
 			title: "Memory extraction",
 			complexity: 3,
 		});
+	});
+
+	test("redacts common secret formats deterministically", () => {
+		const redacted = redactSensitiveTranscriptContent(`OPENAI_API_KEY=sk-${"a".repeat(32)}
+Authorization: Bearer eyJ${"a".repeat(20)}.eyJ${"b".repeat(20)}.${"c".repeat(20)}
+AWS_ACCESS_KEY_ID=AKIA1234567890ABCDEF
+github_token: ghp_${"d".repeat(36)}
+-----BEGIN PRIVATE KEY-----
+abc123
+-----END PRIVATE KEY-----`);
+
+		expect(redacted).toContain("OPENAI_API_KEY=[REDACTED_SECRET]");
+		expect(redacted).toContain("Bearer [REDACTED_TOKEN]");
+		expect(redacted).toContain("AWS_ACCESS_KEY_ID=[REDACTED_SECRET]");
+		expect(redacted).toContain("github_token: [REDACTED_GITHUB_TOKEN]");
+		expect(redacted).toContain("[REDACTED_PRIVATE_KEY]");
+		expect(redacted).not.toContain(`sk-${"a".repeat(32)}`);
+		expect(redacted).not.toContain(`ghp_${"d".repeat(36)}`);
+		expect(redacted).not.toContain("abc123");
 	});
 
 	test("collapses a completed session into a segment and extracted memories", async () => {
@@ -324,6 +344,76 @@ describe("session collapse transcript", () => {
 		if (result === "skipped") return;
 		expect(result.extractedMemoryCount).toBe(0);
 		expect(persistedMemoryCount).toBe(0);
+	});
+
+	test("redacts secrets before summary and extraction prompts", async () => {
+		const workDir = join(tempDir, "work-redacted");
+		await mkdir(workDir, { recursive: true });
+		const prompts: string[] = [];
+		const client = {
+			providers: () => ["anthropic"],
+			listModelsByProvider: async () =>
+				new Map<string, ProviderModel[]>([
+					[
+						"anthropic",
+						[{ id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", source: "remote" }],
+					],
+				]),
+			complete: async (request: Request) => {
+				const prompt = request.messages[1];
+				prompts.push(prompt ? messageText(prompt) : "");
+				return makeResponse(
+					prompts.length === 1
+						? JSON.stringify({
+								summary: "The user shared a redacted credential incident.",
+								title: "Redacted credential",
+								complexity: 1,
+							})
+						: "[]",
+				);
+			},
+		} as unknown as Client;
+		const genome = {
+			segments: { all: () => [] },
+			memories: { all: () => [] },
+			loadSegmentSummaryPrompts: async () => ({
+				system: "Summarize.",
+				user: "{formatted_messages}",
+			}),
+			loadMemoryExtractionPrompts: async () => ({
+				system: "Extract.",
+				user: "{formatted_messages}",
+			}),
+			memoryEmbeddingProvider: async () => {
+				throw new Error("empty extraction should not load embeddings");
+			},
+			addSegmentWithMemories: async () => {},
+		} as unknown as Genome;
+
+		await collapseSessionToMemory({
+			events: [
+				event("perceive", 100, {
+					goal: `Remember OPENAI_API_KEY=sk-${"a".repeat(32)} and Bearer eyJ${"a".repeat(
+						20,
+					)}.eyJ${"b".repeat(20)}.${"c".repeat(20)}`,
+				}),
+			],
+			genome,
+			client,
+			model: "claude-sonnet-4-6",
+			provider: "anthropic",
+			sessionId: "session-collapse-redacted",
+			cwd: workDir,
+			now: 300,
+		});
+
+		expect(prompts).toHaveLength(2);
+		for (const prompt of prompts) {
+			expect(prompt).toContain("OPENAI_API_KEY=[REDACTED_SECRET]");
+			expect(prompt).toContain("Bearer [REDACTED_TOKEN]");
+			expect(prompt).not.toContain(`sk-${"a".repeat(32)}`);
+			expect(prompt).not.toContain(`eyJ${"a".repeat(20)}`);
+		}
 	});
 
 	test("collapses only transcript events newer than the latest segment for continued sessions", async () => {

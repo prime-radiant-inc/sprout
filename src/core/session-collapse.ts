@@ -68,6 +68,28 @@ ${escapeXml(message.content)}
 		.join("\n");
 }
 
+export function redactSensitiveTranscriptContent(content: string): string {
+	return content
+		.replace(
+			/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
+			"[REDACTED_PRIVATE_KEY]",
+		)
+		.replace(
+			/\b([A-Z0-9_]*(?:API[_-]?KEY|ACCESS[_-]?KEY|ACCESS[_-]?TOKEN|AUTH[_-]?TOKEN|SECRET|PASSWORD|PASSWD|TOKEN|PRIVATE[_-]?KEY)[A-Z0-9_]*)\s*=\s*("[^"\n]*"|'[^'\n]*'|[^\s]+)/gi,
+			"$1=[REDACTED_SECRET]",
+		)
+		.replace(
+			/(["']?\b(?:api[_-]?key|access[_-]?key|access[_-]?token|auth[_-]?token|secret|password|passwd|token|private[_-]?key)\b["']?\s*[:=]\s*)(["'][^"'\n]*["']|[^\s,}]+)/gi,
+			"$1[REDACTED_SECRET]",
+		)
+		.replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{20,}/g, "Bearer [REDACTED_TOKEN]")
+		.replace(/\b(?:sk-ant|sk)-[A-Za-z0-9_-]{20,}/g, "[REDACTED_API_KEY]")
+		.replace(/\bAKIA[0-9A-Z]{16}\b/g, "[REDACTED_AWS_KEY]")
+		.replace(/\bgh[pousr]_[A-Za-z0-9_]{20,}\b/g, "[REDACTED_GITHUB_TOKEN]")
+		.replace(/\bxox[baprs]-[A-Za-z0-9-]{20,}\b/g, "[REDACTED_SLACK_TOKEN]")
+		.replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, "[REDACTED_JWT]");
+}
+
 export async function collapseSessionToMemory(
 	input: CollapseSessionToMemoryInput,
 ): Promise<CollapseSessionToMemoryResult | "skipped"> {
@@ -75,9 +97,9 @@ export async function collapseSessionToMemory(
 		input.genome.segments.all(),
 		input.sessionId,
 	);
-	const transcript = buildCollapseTranscript(input.events).filter(
-		(message) => message.timestamp > collapsedThrough,
-	);
+	const transcript = buildCollapseTranscript(input.events)
+		.filter((message) => message.timestamp > collapsedThrough)
+		.map(redactTranscriptMessage);
 	if (transcript.length === 0) return "skipped";
 
 	const now = input.now ?? Date.now();
@@ -163,6 +185,11 @@ function latestCollapsedTranscriptTimestamp(
 		}
 	}
 	return latest;
+}
+
+function redactTranscriptMessage(message: CollapseTranscriptMessage): CollapseTranscriptMessage {
+	const content = redactSensitiveTranscriptContent(message.content);
+	return content === message.content ? message : { ...message, content };
 }
 
 async function summarizeTranscript(input: {
