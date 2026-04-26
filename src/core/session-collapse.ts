@@ -101,17 +101,23 @@ export async function collapseSessionToMemory(
 		now,
 	});
 
-	const extractionDrafts = await extractMemoryDrafts({
-		client: input.client,
-		model: input.model,
-		provider: input.provider,
-		prompts: await input.genome.loadMemoryExtractionPrompts(),
-		messages: transcript.map((message) => ({
+	const extractionMessages = transcript
+		.filter((message) => message.role === "user")
+		.map((message) => ({
 			role: message.role,
 			content: message.content,
 			timestamp: message.timestamp,
-		})),
-	});
+		}));
+	const extractionDrafts =
+		extractionMessages.length === 0
+			? []
+			: await extractMemoryDrafts({
+					client: input.client,
+					model: input.model,
+					provider: input.provider,
+					prompts: await input.genome.loadMemoryExtractionPrompts(),
+					messages: extractionMessages,
+				});
 	const filtered = await filterDuplicateDrafts(extractionDrafts, input.genome.memories.all(), {
 		embeddingProvider: await input.genome.memoryEmbeddingProvider(),
 	});

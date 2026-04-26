@@ -495,7 +495,11 @@ export class Genome {
 		archived: string[];
 	}> {
 		const result = applyMemoryScores(this.memories.all(), this.projects.all(), options);
-		if (result.updated.length > 0 || result.archived.length > 0) {
+		if (result.archived.length > 0) {
+			await this.saveMemoryMutation(
+				`genome: archive ${result.archived.length} low-importance memories`,
+			);
+		} else if (result.updated.length > 0) {
 			await this.memories.save();
 			await rebuildMemoryIndexFromJsonl(this.rootPath);
 		}

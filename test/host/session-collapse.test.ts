@@ -12,7 +12,7 @@ import type { SessionEvent } from "../../src/kernel/types.ts";
 import type { Client } from "../../src/llm/client.ts";
 import type { EmbeddingProvider } from "../../src/llm/embeddings.ts";
 import type { ProviderModel, Request, Response } from "../../src/llm/types.ts";
-import { Msg } from "../../src/llm/types.ts";
+import { Msg, messageText } from "../../src/llm/types.ts";
 import { createTestGenome } from "../helpers/test-genome.ts";
 
 function event(
@@ -219,6 +219,59 @@ describe("session collapse transcript", () => {
 		expect(memory.source_session_id).toBe("session-collapse-1");
 		expect(memory.project_ids).toContain("sprout-memory");
 		expect(memory.embedding?.status).toBe("ready");
+	});
+
+	test("grounds memory extraction only in user-authored transcript messages", async () => {
+		const genomeDir = join(tempDir, "genome-user-grounded");
+		const rootDir = join(import.meta.dir, "../../root");
+		const workDir = join(tempDir, "work-user-grounded");
+		await mkdir(workDir, { recursive: true });
+		const genome = createTestGenome(genomeDir, rootDir);
+		await genome.init();
+		await genome.initFromRoot();
+		const prompts: string[] = [];
+		const client = {
+			providers: () => ["anthropic"],
+			listModelsByProvider: async () =>
+				new Map<string, ProviderModel[]>([
+					[
+						"anthropic",
+						[{ id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", source: "remote" }],
+					],
+				]),
+			complete: async (request: Request) => {
+				const prompt = request.messages[1];
+				prompts.push(prompt ? messageText(prompt) : "");
+				return makeResponse(
+					prompts.length === 1
+						? JSON.stringify({
+								summary: "Collapsed session.",
+								title: "Collapse",
+								complexity: 1,
+							})
+						: "[]",
+				);
+			},
+		} as unknown as Client;
+
+		await collapseSessionToMemory({
+			events: [
+				event("perceive", 100, { goal: "User says Sprout memory must stay local." }),
+				event("plan_end", 200, { text: "Assistant inferred a separate durable policy." }),
+				event("session_end", 300, { output: "Assistant finished with implementation details." }),
+			],
+			genome,
+			client,
+			model: "claude-sonnet-4-6",
+			provider: "anthropic",
+			sessionId: "session-collapse-user-grounded",
+			cwd: workDir,
+			now: 400,
+		});
+
+		expect(prompts[1]).toContain("User says Sprout memory must stay local.");
+		expect(prompts[1]).not.toContain("Assistant inferred a separate durable policy.");
+		expect(prompts[1]).not.toContain("Assistant finished with implementation details.");
 	});
 
 	test("collapses only transcript events newer than the latest segment for continued sessions", async () => {

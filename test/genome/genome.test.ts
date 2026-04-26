@@ -537,6 +537,22 @@ describe("Genome", () => {
 			}
 		});
 
+		test("recomputeMemoryScores commits score-based archival mutations", async () => {
+			const root = join(tempDir, "mem-score-archive");
+			const genome = await createInitializedGenome(root);
+			await genome.addMemory(
+				makeMemory({ id: "low-importance-memory", content: "old minor fact" }),
+			);
+
+			const result = await genome.recomputeMemoryScores({ now: 12345, minImportance: 1 });
+
+			expect(result.archived).toEqual(["low-importance-memory"]);
+			const status = await git(root, "status", "--porcelain");
+			expect(status).toBe("");
+			const log = await git(root, "log", "--oneline");
+			expect(log).toContain("genome: archive 1 low-importance memories");
+		});
+
 		test("addMemory fails before writing when embedding generation fails", async () => {
 			const root = join(tempDir, "mem-add-embedding-fails");
 			await cp(initTemplateDir, root, { recursive: true });

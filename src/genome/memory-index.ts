@@ -102,6 +102,29 @@ export class MemoryIndex {
 		return new MemoryIndex(new Database(path, { readonly: true, create: false }));
 	}
 
+	static currentSchemaVersion(): number {
+		return INDEX_SCHEMA_VERSION;
+	}
+
+	static readSchemaVersion(path: string): number | undefined {
+		let db: Database | undefined;
+		try {
+			db = new Database(path, { readonly: true, create: false });
+			const row = db
+				.query<{ value: string }, []>(
+					"SELECT value FROM memory_index_meta WHERE key = 'schema_version'",
+				)
+				.get();
+			if (!row) return undefined;
+			const version = Number(row.value);
+			return Number.isInteger(version) ? version : undefined;
+		} catch {
+			return undefined;
+		} finally {
+			db?.close();
+		}
+	}
+
 	close(): void {
 		this.db.close();
 	}

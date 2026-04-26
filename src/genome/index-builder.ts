@@ -1,4 +1,4 @@
-import { stat } from "node:fs/promises";
+import { rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { MemoryIndex, type MemoryIndexStats } from "./memory-index.ts";
 import { MemoryStore } from "./memory-store.ts";
@@ -17,6 +17,10 @@ export async function ensureMemoryIndexFresh(genomeRoot: string): Promise<void> 
 	const indexPath = memoryIndexPath(genomeRoot);
 	const indexMtime = await fileMtimeMs(indexPath);
 	if (indexMtime === undefined) {
+		await rebuildMemoryIndexFromJsonl(genomeRoot);
+		return;
+	}
+	if (MemoryIndex.readSchemaVersion(indexPath) !== MemoryIndex.currentSchemaVersion()) {
 		await rebuildMemoryIndexFromJsonl(genomeRoot);
 		return;
 	}
@@ -39,6 +43,11 @@ export async function rebuildMemoryIndexFromJsonl(
 	await Promise.all([store.load(), segments.load()]);
 
 	const indexPath = memoryIndexPath(genomeRoot);
+	await Promise.all([
+		rm(indexPath, { force: true }),
+		rm(`${indexPath}-shm`, { force: true }),
+		rm(`${indexPath}-wal`, { force: true }),
+	]);
 	const index = MemoryIndex.open(indexPath);
 	try {
 		index.rebuild(store.all(), segments.all());
