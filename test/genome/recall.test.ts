@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Genome } from "../../src/genome/genome.ts";
 import { recall, renderMemories, renderRoutingHints } from "../../src/genome/recall.ts";
+import { surfaceMemories } from "../../src/genome/recall-pipeline.ts";
 import { type AgentSpec, DEFAULT_CONSTRAINTS, type Memory } from "../../src/kernel/types.ts";
 import type { Client } from "../../src/llm/client.ts";
 import type { EmbeddingProvider } from "../../src/llm/embeddings.ts";
@@ -109,6 +110,32 @@ describe("recall", () => {
 
 	beforeAll(async () => {
 		tempDir = await mkdtemp(join(tmpdir(), "sprout-recall-"));
+	});
+
+	test("surfaceMemories returns immediately for zero limit", async () => {
+		const genome = {
+			memories: {
+				all: () => {
+					throw new Error("should not read memories");
+				},
+			},
+			searchMemories: async () => {
+				throw new Error("should not search memories");
+			},
+		} as unknown as Genome;
+
+		const result = await surfaceMemories(genome, "sqlite", { limit: 0 });
+
+		expect(result).toEqual({
+			memories: [],
+			rendered: "",
+			stats: {
+				similarityCount: 0,
+				hubCount: 0,
+				pinnedCount: 0,
+				finalCount: 0,
+			},
+		});
 	});
 
 	afterAll(async () => {

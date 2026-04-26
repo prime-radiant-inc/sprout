@@ -30,7 +30,19 @@ export async function surfaceMemories(
 		pinnedMemoryIds?: readonly string[];
 	} = {},
 ): Promise<SurfacedMemoryBlock> {
-	const limit = options.limit ?? 5;
+	const limit = Math.max(options.limit ?? 5, 0);
+	if (limit === 0) {
+		return {
+			memories: [],
+			rendered: renderMemoryBlock([]),
+			stats: {
+				similarityCount: 0,
+				hubCount: 0,
+				pinnedCount: 0,
+				finalCount: 0,
+			},
+		};
+	}
 	const allMemories = allGenomeMemories(genome);
 	const activeMemories = allMemories.filter(isActiveMemoryForRecall);
 	const recallQuery = options.subcorticalExpansion
