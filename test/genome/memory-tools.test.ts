@@ -57,6 +57,10 @@ function makeContext(memories: Memory[] = [memory()]): MemoryToolContext {
 			addMemory: async (item) => {
 				memories.push(item);
 			},
+			stageMemoryForMutation: async (item) => {
+				memories.push(item);
+				return item;
+			},
 			saveMemoryMutation: async () => {},
 			recordMemoryMentions: async () => [],
 		},
@@ -263,6 +267,37 @@ describe("memory tools", () => {
 		expect(result.success).toBe(false);
 		expect(result.error).toContain("target memory supersession blocked");
 		expect(ctx.genome.memories.getById("old-memory")?.superseded_by).toBeUndefined();
+	});
+
+	test("memory_consolidate stages merged memory and archives sources in one mutation", async () => {
+		const ctx = {
+			...makeContext([
+				memory({ id: "old-a", short_id: "mem_olda00", content: "Sprout uses SQLite." }),
+				memory({ id: "old-b", short_id: "mem_oldb00", content: "Sprout uses local SQLite." }),
+			]),
+			writeAuthorization: { destructive: true },
+		};
+		const commits: string[] = [];
+		ctx.genome.saveMemoryMutation = async (message) => {
+			commits.push(message);
+		};
+
+		const result = await runTool(ctx, "memory_consolidate", {
+			source_ids: ["old-a", "old-b"],
+			text: "Sprout uses local SQLite.",
+		});
+
+		expect(result.success).toBe(true);
+		expect(commits).toHaveLength(1);
+		const payload = JSON.parse(result.output);
+		const consolidated = ctx.genome.memories.getById(payload.consolidated);
+		expect(consolidated?.consolidates_memory_ids?.sort()).toEqual(["old-a", "old-b"]);
+		expect(consolidated?.outbound_links?.map((link) => link.uuid).sort()).toEqual([
+			"old-a",
+			"old-b",
+		]);
+		expect(ctx.genome.memories.getById("old-a")?.superseded_by).toBe(payload.consolidated);
+		expect(typeof ctx.genome.memories.getById("old-b")?.archived_at).toBe("number");
 	});
 
 	test("memory_link rejects null and unknown relationship types", async () => {

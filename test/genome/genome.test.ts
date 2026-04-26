@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "yaml";
@@ -467,6 +467,22 @@ describe("Genome", () => {
 			} finally {
 				index.close();
 			}
+		});
+
+		test("searchMemories reuses a fresh derived index", async () => {
+			const root = join(tempDir, "mem-search-index-fresh");
+			const genome = await createInitializedGenome(root);
+			await genome.addMemory(makeMemory({ id: "indexed-memory", content: "SQLite recall fact" }));
+			const indexPath = memoryIndexPath(root);
+			const before = (await stat(indexPath)).mtimeMs;
+
+			expect(await genome.searchMemories("SQLite recall", 1)).toHaveLength(1);
+			const afterFirstSearch = (await stat(indexPath)).mtimeMs;
+			expect(await genome.searchMemories("SQLite recall", 1)).toHaveLength(1);
+			const afterSecondSearch = (await stat(indexPath)).mtimeMs;
+
+			expect(afterFirstSearch).toBe(before);
+			expect(afterSecondSearch).toBe(before);
 		});
 
 		test("saveMemoryMutation commits JSONL changes and rebuilds index", async () => {

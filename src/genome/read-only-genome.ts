@@ -1,5 +1,7 @@
 import type { Genome } from "./genome.ts";
 import type { MemoryStore } from "./memory-store.ts";
+import type { ProjectActivityStore } from "./projects.ts";
+import type { SegmentStore } from "./segments.ts";
 
 const READ_ONLY_ERROR = "read-only genome";
 
@@ -12,7 +14,13 @@ const MUTATING_GENOME_METHODS = new Set([
 	"removeRoutingRule",
 	"addMemory",
 	"stageMemoryForMutation",
+	"saveMemoryMutation",
+	"addSegment",
+	"addSegmentWithMemories",
 	"markMemoriesUsed",
+	"recordProjectActivity",
+	"recomputeMemoryScores",
+	"recordMemoryMentions",
 	"pruneMemories",
 	"pruneUnusedRoutingRules",
 	"rollback",
@@ -24,13 +32,42 @@ const MUTATING_GENOME_METHODS = new Set([
 	"savePostscript",
 ]);
 
-const MUTATING_MEMORY_METHODS = new Set(["add", "stage", "markUsed", "save", "pruneByConfidence"]);
+const MUTATING_MEMORY_METHODS = new Set([
+	"add",
+	"stage",
+	"markUsed",
+	"markMentioned",
+	"save",
+	"pruneByConfidence",
+]);
+const MUTATING_SEGMENT_METHODS = new Set(["add", "save"]);
+const MUTATING_PROJECT_METHODS = new Set([
+	"recordActiveDay",
+	"markConsolidated",
+	"markEntityGc",
+	"save",
+]);
 
 export function createReadOnlyGenome(genome: Genome): Genome {
 	return new Proxy(genome, {
 		get(target, property, receiver) {
 			if (property === "memories") {
-				return createReadOnlyMemoryStore(Reflect.get(target, property, receiver) as MemoryStore);
+				return createReadOnlyStore(
+					Reflect.get(target, property, receiver) as MemoryStore,
+					MUTATING_MEMORY_METHODS,
+				);
+			}
+			if (property === "segments") {
+				return createReadOnlyStore(
+					Reflect.get(target, property, receiver) as SegmentStore,
+					MUTATING_SEGMENT_METHODS,
+				);
+			}
+			if (property === "projects") {
+				return createReadOnlyStore(
+					Reflect.get(target, property, receiver) as ProjectActivityStore,
+					MUTATING_PROJECT_METHODS,
+				);
 			}
 
 			const value = Reflect.get(target, property, receiver);
@@ -45,11 +82,11 @@ export function createReadOnlyGenome(genome: Genome): Genome {
 	}) as Genome;
 }
 
-function createReadOnlyMemoryStore(memories: MemoryStore): MemoryStore {
-	return new Proxy(memories, {
+function createReadOnlyStore<T extends object>(store: T, mutatingMethods: Set<string>): T {
+	return new Proxy(store, {
 		get(target, property, receiver) {
 			const value = Reflect.get(target, property, receiver);
-			if (typeof property === "string" && MUTATING_MEMORY_METHODS.has(property)) {
+			if (typeof property === "string" && mutatingMethods.has(property)) {
 				return () => {
 					throw new Error(READ_ONLY_ERROR);
 				};
@@ -59,5 +96,5 @@ function createReadOnlyMemoryStore(memories: MemoryStore): MemoryStore {
 			}
 			return value;
 		},
-	}) as MemoryStore;
+	}) as T;
 }

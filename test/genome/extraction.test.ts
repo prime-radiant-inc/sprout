@@ -127,6 +127,6 @@ describe("memory extraction", () => {
 		expect(memory.id).toBe("learn-1");
 		expect(memory.content).toBe("Sprout stores MIRA memories in SQLite-backed JSONL");
 		expect(memory.source).toBe("learn:extraction");
-		expect(memory.project_ids).toEqual(["entity_sprout_0"]);
+		expect(memory.project_ids).toBeUndefined();
 	});
 });

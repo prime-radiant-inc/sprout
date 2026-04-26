@@ -148,9 +148,6 @@ export function memoryFromDraft(
 		access_count: 0,
 		confidence: options.confidence ?? 0.8,
 		entity_links: draft.entity_links,
-		project_ids: draft.entity_links
-			.filter((entity) => entity.type === "PROJECT")
-			.map((entity) => entity.uuid),
 		...(draft.happens_at !== undefined ? { happens_at: draft.happens_at } : {}),
 		...(draft.expires_at !== undefined ? { expires_at: draft.expires_at } : {}),
 		...(options.sourceSessionId ? { source_session_id: options.sourceSessionId } : {}),

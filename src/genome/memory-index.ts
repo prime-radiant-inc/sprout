@@ -98,6 +98,10 @@ export class MemoryIndex {
 		return index;
 	}
 
+	static openReadOnly(path: string): MemoryIndex {
+		return new MemoryIndex(new Database(path, { readonly: true, create: false }));
+	}
+
 	close(): void {
 		this.db.close();
 	}

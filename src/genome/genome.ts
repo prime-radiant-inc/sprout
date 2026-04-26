@@ -11,7 +11,11 @@ import { parseAgentMarkdown, serializeAgentMarkdown } from "../agents/markdown-l
 import type { AgentSpec, Memory, RoutingRule } from "../kernel/types.ts";
 import type { EmbeddingProvider } from "../llm/embeddings.ts";
 import { getToolDisplayName } from "../shared/tool-display.ts";
-import { memoryIndexPath, rebuildMemoryIndexFromJsonl } from "./index-builder.ts";
+import {
+	ensureMemoryIndexFresh,
+	memoryIndexPath,
+	rebuildMemoryIndexFromJsonl,
+} from "./index-builder.ts";
 import { attachReadyMemoryEmbedding } from "./memory-embedding.ts";
 import { MemoryIndex } from "./memory-index.ts";
 import { memoryShortId } from "./memory-schema.ts";
@@ -434,7 +438,7 @@ export class Genome {
 		if (candidates.length === 0) return [];
 		const candidateIds = new Set(candidates.map((memory) => memory.id));
 
-		await rebuildMemoryIndexFromJsonl(this.rootPath);
+		await ensureMemoryIndexFresh(this.rootPath);
 		const embeddingProvider = await this.getEmbeddingProvider();
 		const [queryEmbedding] = await embeddingProvider.embedBatch([normalizedQuery], {
 			kind: "query",
@@ -445,7 +449,7 @@ export class Genome {
 			);
 		}
 
-		const index = MemoryIndex.open(memoryIndexPath(this.rootPath));
+		const index = MemoryIndex.openReadOnly(memoryIndexPath(this.rootPath));
 		try {
 			const ranked = index.searchHybrid(normalizedQuery, queryEmbedding.vector, limit * 2, {
 				candidateIds,

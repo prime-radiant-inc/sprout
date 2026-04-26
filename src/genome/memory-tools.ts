@@ -25,6 +25,7 @@ export interface MemoryToolContext {
 			getById(id: string): MemorySegment | undefined;
 		};
 		addMemory(memory: Memory): Promise<void>;
+		stageMemoryForMutation(memory: Memory): Promise<Memory>;
 		saveMemoryMutation(commitMessage: string): Promise<void>;
 		recordMemoryMentions(shortIds: string[]): Promise<string[]>;
 	};
@@ -361,7 +362,7 @@ function memoryConsolidatePrimitive(ctx: MemoryToolContext): Primitive {
 			});
 			if (!auth.allowed) return fail(auth.reason ?? "memory write blocked");
 			const now = Date.now();
-			await ctx.genome.addMemory({
+			const consolidated = await ctx.genome.stageMemoryForMutation({
 				id: `archivist-consolidated-${now}`,
 				content: text,
 				text,
@@ -372,15 +373,32 @@ function memoryConsolidatePrimitive(ctx: MemoryToolContext): Primitive {
 				use_count: 0,
 				confidence: 0.85,
 				consolidates_memory_ids: sources.map((memory) => memory.id),
+				outbound_links: sources.map((memory) => ({
+					uuid: memory.id,
+					type: "supersedes",
+					reasoning: "consolidated by archivist",
+					created_at: now,
+				})),
 			});
 			for (const source of sources) {
 				source.archived_at = now;
 				source.archived_reason = "consolidated by archivist";
+				source.superseded_by = consolidated.id;
+				source.updated_at = now;
+				source.inbound_links = [
+					...(source.inbound_links ?? []),
+					{
+						uuid: consolidated.id,
+						type: "supersedes",
+						reasoning: "consolidated by archivist",
+						created_at: now,
+					},
+				];
 			}
 			await ctx.genome.saveMemoryMutation(
-				`genome: archive ${sources.length} consolidated memories`,
+				`genome: consolidate ${sources.length} memories into '${consolidated.id}'`,
 			);
-			return ok({ consolidated: sources.map((memory) => memory.id) });
+			return ok({ consolidated: consolidated.id, archived: sources.map((memory) => memory.id) });
 		},
 	};
 }

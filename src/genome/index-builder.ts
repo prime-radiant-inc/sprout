@@ -1,3 +1,4 @@
+import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { MemoryIndex, type MemoryIndexStats } from "./memory-index.ts";
 import { MemoryStore } from "./memory-store.ts";
@@ -10,6 +11,24 @@ export interface MemoryIndexBuildResult {
 
 export function memoryIndexPath(genomeRoot: string): string {
 	return join(genomeRoot, ".cache", "index.db");
+}
+
+export async function ensureMemoryIndexFresh(genomeRoot: string): Promise<void> {
+	const indexPath = memoryIndexPath(genomeRoot);
+	const indexMtime = await fileMtimeMs(indexPath);
+	if (indexMtime === undefined) {
+		await rebuildMemoryIndexFromJsonl(genomeRoot);
+		return;
+	}
+
+	const sourcePaths = [
+		join(genomeRoot, "memories", "memories.jsonl"),
+		join(genomeRoot, "memories", "segments.jsonl"),
+	];
+	const sourceMtimes = await Promise.all(sourcePaths.map((path) => fileMtimeMs(path)));
+	if (sourceMtimes.some((mtime) => mtime !== undefined && mtime > indexMtime)) {
+		await rebuildMemoryIndexFromJsonl(genomeRoot);
+	}
 }
 
 export async function rebuildMemoryIndexFromJsonl(
@@ -29,5 +48,16 @@ export async function rebuildMemoryIndexFromJsonl(
 		};
 	} finally {
 		index.close();
+	}
+}
+
+async function fileMtimeMs(path: string): Promise<number | undefined> {
+	try {
+		return (await stat(path)).mtimeMs;
+	} catch (err) {
+		if (err && typeof err === "object" && "code" in err && err.code === "ENOENT") {
+			return undefined;
+		}
+		throw err;
 	}
 }
