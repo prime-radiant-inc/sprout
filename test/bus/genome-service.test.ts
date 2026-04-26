@@ -536,7 +536,17 @@ describe("GenomeMutationService", () => {
 				model: "claude-sonnet-4-6",
 			}),
 		);
-		await waitForServiceEvents(1);
+		await publishSessionEvent(
+			event("primitive_end", signal.timestamp - 5, {
+				name: "exec",
+				display_name: "exec",
+				success: false,
+				stumbled: true,
+				output: "unrelated primitive evidence before delegation signal",
+				error: "unrelated failure",
+			}),
+		);
+		await waitForServiceEvents(2);
 
 		await publishSignal(signal, "req-signal-before-terminal");
 		setTimeout(() => {

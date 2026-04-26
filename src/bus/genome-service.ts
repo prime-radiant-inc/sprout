@@ -345,7 +345,9 @@ export class GenomeMutationService {
 					(event.kind === "act_end" &&
 						event.timestamp >= signal.timestamp &&
 						stringValue(event.data.agent_name) === signal.agent_name) ||
-					(event.kind === "primitive_end" && event.timestamp <= signal.timestamp)),
+					(event.kind === "primitive_end" &&
+						event.timestamp <= signal.timestamp &&
+						stringValue(event.data.name) === signal.agent_name)),
 		);
 	}
 
