@@ -2,17 +2,18 @@
 
 ## Current phase
 
-Phase 2 — Extraction (starting)
+Phase 3 — Segment collapse (starting)
 
 ## Phase log
 
 - Phase 1 — Foundation: completed 2026-04-26
-- Phase 2 — Extraction: starting
+- Phase 2 — Extraction: completed 2026-04-26
+- Phase 3 — Segment collapse: starting
 
 ## Current branch / commit
 
 - Branch: `jesse/pri-1354-implement-mira-memory-port-phase-1-foundation`
-- Last verified commit: `6cba668`
+- Last verified commit: `262d4fd`
 
 ## Open issues
 
@@ -80,6 +81,11 @@ Phase 2 — Extraction (starting)
   shards except the pre-existing `test/tools/harbor/harbor-runner.test.ts`
   failures for missing `inspo/harbor-runner/launch.sh` and
   `inspo/harbor-runner/userdata.sh.tpl`
+- 2026-04-26: `bun test test/learn test/bus/genome-service.test.ts test/genome/extraction.test.ts test/genome/dedup.test.ts test/genome/recall.test.ts test/genome/genome.test.ts`
+  passed after routing learn-generated memory writes through extraction and
+  deduplication
+- 2026-04-26: `bun run typecheck` passed after the Phase 2 learn write rewire
+- 2026-04-26: `bun run check` passed after the Phase 2 learn write rewire
 
 ## Completed in current slice
 
@@ -102,3 +108,7 @@ Phase 2 — Extraction (starting)
 - Routed `recall()` memory lookup through `Genome.searchMemories()`, local query
   embeddings, SQLite FTS/vector hybrid search, and a MIRA-style vector
   similarity threshold
+- Added prompt-file backed memory extraction, strict JSON parsing/repair,
+  extraction draft normalization, three-stage duplicate filtering, and learn
+  write-path integration that turns LLM-selected `create_memory` mutations into
+  extracted, entity-linked, embedded memories
