@@ -80,6 +80,26 @@ describe("index-builder", () => {
 		expect(MemoryIndex.readSchemaVersion(indexPath)).toBe(MemoryIndex.currentSchemaVersion());
 	});
 
+	test("removes stale SQLite sidecars before publishing rebuilt index", async () => {
+		const genomeRoot = join(tempDir, "sidecar-stale-genome");
+		const memoriesDir = join(genomeRoot, "memories");
+		await mkdir(memoriesDir, { recursive: true });
+		await cp(
+			join(process.cwd(), "test/fixtures/memory/legacy-memories.jsonl"),
+			join(memoriesDir, "memories.jsonl"),
+		);
+		const indexPath = memoryIndexPath(genomeRoot);
+		await rebuildMemoryIndexFromJsonl(genomeRoot);
+		await writeFile(`${indexPath}-wal`, "stale wal");
+		await writeFile(`${indexPath}-shm`, "stale shm");
+
+		await rebuildMemoryIndexFromJsonl(genomeRoot);
+
+		expect(existsSync(indexPath)).toBe(true);
+		expect(existsSync(`${indexPath}-wal`)).toBe(false);
+		expect(existsSync(`${indexPath}-shm`)).toBe(false);
+	});
+
 	test("preserves an existing index when rebuild fails", async () => {
 		const genomeRoot = join(tempDir, "rebuild-failure-genome");
 		const memoriesDir = join(genomeRoot, "memories");

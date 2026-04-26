@@ -126,6 +126,9 @@ export class MemoryStore {
 			const latestFingerprint = latestMemory ? memoryFingerprint(latestMemory) : undefined;
 			const loadedFingerprint = this.loadedFingerprints.get(memory.id);
 			const pendingFingerprint = memoryFingerprint(memory);
+			if (loadedFingerprint && !latestFingerprint) {
+				throw new Error(`Memory '${memory.id}' was removed on disk; reload before saving mutation`);
+			}
 			if (
 				latestFingerprint &&
 				loadedFingerprint &&

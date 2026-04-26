@@ -82,11 +82,11 @@ function temporaryMemoryIndexPath(indexPath: string): string {
 }
 
 async function replaceMemoryIndex(indexPath: string, tempIndexPath: string): Promise<void> {
-	await rename(tempIndexPath, indexPath);
 	await Promise.all([
 		rm(`${indexPath}-shm`, { force: true }),
 		rm(`${indexPath}-wal`, { force: true }),
 	]);
+	await rename(tempIndexPath, indexPath);
 	await removeSqliteFiles(tempIndexPath);
 }
 

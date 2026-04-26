@@ -256,6 +256,21 @@ describe("MemoryStore", () => {
 		expect(reloaded.use_count).toBe(1);
 	});
 
+	test("mergeLatestFromDisk rejects stale edits to memories removed on disk", async () => {
+		const filePath = join(tempDir, "merge-removed.jsonl");
+		const staleStore = new MemoryStore(filePath);
+		await staleStore.load();
+		await staleStore.add(makeMemory({ id: "removed-memory", confidence: 0.1 }));
+		const deletingStore = new MemoryStore(filePath);
+		await deletingStore.load();
+		const removed = deletingStore.pruneByConfidence(0.2);
+		await deletingStore.save();
+		staleStore.getById("removed-memory")!.archived_at = Date.now();
+
+		expect(removed).toEqual(["removed-memory"]);
+		await expect(staleStore.mergeLatestFromDisk()).rejects.toThrow("removed on disk");
+	});
+
 	test("add() throws on duplicate id", async () => {
 		const filePath = join(tempDir, `memories-${Date.now()}.jsonl`);
 		const store = new MemoryStore(filePath);
