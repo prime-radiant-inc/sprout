@@ -132,7 +132,7 @@ function addLine(lines: string[], label: string, value: string | undefined): voi
 }
 
 function signalField(value: string): string {
-	return truncate(redactSensitiveTranscriptContent(value));
+	return escapeXml(truncate(redactSensitiveTranscriptContent(value)));
 }
 
 function signalSummary(value: unknown): string | undefined {
