@@ -23,8 +23,14 @@ export class MemoryStore {
 	/** Append a memory to the in-memory list and to the JSONL file on disk. */
 	async add(memory: Memory): Promise<void> {
 		const normalized = this.stage(memory);
-		await this.jsonl.append(normalized);
-		this.refreshLoadedFingerprints();
+		try {
+			await this.jsonl.append(normalized);
+			this.refreshLoadedFingerprints();
+		} catch (err) {
+			this.entries = this.entries.filter((entry) => entry !== normalized);
+			this.refreshLoadedFingerprints();
+			throw err;
+		}
 	}
 
 	/** Add a memory only in memory; caller must save/commit the enclosing mutation. */

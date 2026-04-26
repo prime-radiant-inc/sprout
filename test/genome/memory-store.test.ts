@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { memoryShortId } from "../../src/genome/memory-schema.ts";
@@ -55,6 +55,17 @@ describe("MemoryStore", () => {
 		const parsed = JSON.parse(raw.trim());
 		expect(parsed.id).toBe("mem-add-1");
 		expect(parsed.content).toBe("first memory");
+	});
+
+	test("add() rolls back in-memory state when append fails", async () => {
+		const directoryPath = join(tempDir, "append-failure-directory");
+		await mkdir(directoryPath, { recursive: true });
+		const store = new MemoryStore(directoryPath);
+
+		await expect(store.add(makeMemory({ id: "phantom-memory" }))).rejects.toThrow();
+
+		expect(store.getById("phantom-memory")).toBeUndefined();
+		expect(store.all()).toEqual([]);
 	});
 
 	test("load() reads existing JSONL file", async () => {

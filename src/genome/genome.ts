@@ -11,6 +11,7 @@ import { parseAgentMarkdown, serializeAgentMarkdown } from "../agents/markdown-l
 import type { AgentSpec, Memory, RoutingRule } from "../kernel/types.ts";
 import type { EmbeddingProvider } from "../llm/embeddings.ts";
 import { getToolDisplayName } from "../shared/tool-display.ts";
+import { acquireDirectoryLock } from "./file-lock.ts";
 import { sanitizeGitEnv } from "./git-env.ts";
 import {
 	ensureMemoryIndexFresh,
@@ -308,7 +309,7 @@ export class Genome {
 				this.memories.stage(embeddedMemory);
 				await this.memories.save();
 				await git(this.rootPath, "add", memoriesPath);
-				await rebuildMemoryIndexFromJsonl(this.rootPath);
+				await rebuildMemoryIndexFromJsonl(this.rootPath, { assumeMemoryWriteLock: true });
 				await git(this.rootPath, "commit", "-m", `genome: add memory '${embeddedMemory.id}'`);
 				committed = true;
 			} catch (error) {
@@ -347,7 +348,7 @@ export class Genome {
 				if (!status) {
 					throw new Error("memory mutation produced no changes");
 				}
-				await rebuildMemoryIndexFromJsonl(this.rootPath);
+				await rebuildMemoryIndexFromJsonl(this.rootPath, { assumeMemoryWriteLock: true });
 				await git(this.rootPath, "commit", "-m", commitMessage);
 				committed = true;
 			} catch (error) {
@@ -384,7 +385,7 @@ export class Genome {
 				if (!status) {
 					throw new Error("memory mutation produced no changes");
 				}
-				await rebuildMemoryIndexFromJsonl(this.rootPath);
+				await rebuildMemoryIndexFromJsonl(this.rootPath, { assumeMemoryWriteLock: true });
 				await git(this.rootPath, "commit", "-m", commitMessage);
 				committed = true;
 			} catch (error) {
@@ -412,7 +413,7 @@ export class Genome {
 				this.segments.stage(embeddedSegment);
 				await this.segments.save();
 				await git(this.rootPath, "add", segmentsPath);
-				await rebuildMemoryIndexFromJsonl(this.rootPath);
+				await rebuildMemoryIndexFromJsonl(this.rootPath, { assumeMemoryWriteLock: true });
 				await git(
 					this.rootPath,
 					"commit",
@@ -457,7 +458,7 @@ export class Genome {
 				await this.segments.save();
 				if (embeddedMemories.length > 0) await this.memories.save();
 				await git(this.rootPath, "add", ...filesToAdd);
-				await rebuildMemoryIndexFromJsonl(this.rootPath);
+				await rebuildMemoryIndexFromJsonl(this.rootPath, { assumeMemoryWriteLock: true });
 				await git(
 					this.rootPath,
 					"commit",
@@ -588,7 +589,7 @@ export class Genome {
 				if (memory) markMemoryAccessActivity(memory, this.projects.all());
 			}
 			await this.memories.save();
-			await rebuildMemoryIndexFromJsonl(this.rootPath);
+			await rebuildMemoryIndexFromJsonl(this.rootPath, { assumeMemoryWriteLock: true });
 		});
 	}
 
@@ -639,7 +640,7 @@ export class Genome {
 				await git(this.rootPath, "add", memoriesPath);
 				const status = await git(this.rootPath, "status", "--porcelain", "--", memoriesPath);
 				if (!status.trim()) return mentioned;
-				await rebuildMemoryIndexFromJsonl(this.rootPath);
+				await rebuildMemoryIndexFromJsonl(this.rootPath, { assumeMemoryWriteLock: true });
 				await git(this.rootPath, "commit", "-m", "genome: record memory mentions");
 				committed = true;
 			} catch (error) {
@@ -684,7 +685,7 @@ export class Genome {
 					"-m",
 					`genome: prune ${pruned.length} low-confidence memories`,
 				);
-				await rebuildMemoryIndexFromJsonl(this.rootPath);
+				await rebuildMemoryIndexFromJsonl(this.rootPath, { assumeMemoryWriteLock: true });
 			}
 			return pruned;
 		});
@@ -1166,30 +1167,6 @@ interface TextFileSnapshot {
 	content: string;
 }
 
-async function acquireDirectoryLock(lockDir: string): Promise<() => Promise<void>> {
-	const deadline = Date.now() + 30_000;
-	while (true) {
-		try {
-			await mkdir(lockDir);
-			return async () => {
-				await rm(lockDir, { recursive: true, force: true });
-			};
-		} catch (err) {
-			if (!(err instanceof Error) || !("code" in err) || err.code !== "EEXIST") {
-				throw err;
-			}
-			if (Date.now() >= deadline) {
-				throw new Error(`Timed out waiting for memory write lock at ${lockDir}`);
-			}
-			await sleep(25);
-		}
-	}
-}
-
-async function sleep(ms: number): Promise<void> {
-	await new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 function assertCanStageMemoryBatch(
 	existingMemories: readonly Memory[],
 	newMemories: readonly Memory[],
@@ -1242,7 +1219,7 @@ async function restoreUncommittedMemoryMutation(
 ): Promise<void> {
 	await restoreTextFiles(snapshots);
 	await git(rootPath, "reset", "--", ...paths);
-	await rebuildMemoryIndexFromJsonl(rootPath);
+	await rebuildMemoryIndexFromJsonl(rootPath, { assumeMemoryWriteLock: true });
 }
 
 async function readTextFileSnapshot(path: string): Promise<TextFileSnapshot> {
