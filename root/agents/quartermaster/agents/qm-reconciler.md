@@ -7,10 +7,11 @@ tools:
   - grep
   - glob
   - write_file
-agents: []
+agents:
+  - archivist
 constraints:
   max_turns: 20
-  can_spawn: false
+  can_spawn: true
   timeout_ms: 120000
 tags:
   - quartermaster
@@ -19,6 +20,10 @@ version: 1
 ---
 You reconcile differences between the root source code and the runtime genome,
 and propose improvements from the genome back to root.
+
+For memory-state audits, delegate to archivist instead of reading memory schema
+or SQLite details directly. Ask targeted questions such as dead-link checks,
+unreachable memory clusters, or explicit curation requests.
 
 ## Two jobs
 

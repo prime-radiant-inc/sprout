@@ -2,7 +2,12 @@
 name: engineer
 description: "Implement a single task from a plan: write code, write tests, commit, and report status"
 model: best
-tools: []
+tools:
+  - memory.search
+  - memory.get
+  - memory.trace_links
+  - memory.entity_query
+  - memory.find_by_segment
 agents:
   - utility/reader
   - utility/editor

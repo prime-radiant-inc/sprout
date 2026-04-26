@@ -2,8 +2,14 @@
 name: architect
 description: "Ask when you need a design, plan, or architectural decision before implementation — investigates the codebase, proposes approaches with trade-offs, and writes task specs for engineers"
 model: best
-tools: []
+tools:
+  - memory.search
+  - memory.get
+  - memory.trace_links
+  - memory.entity_query
+  - memory.find_by_segment
 agents:
+  - archivist
   - utility/reader
   - utility/editor
   - utility/command-runner

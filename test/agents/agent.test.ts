@@ -1833,6 +1833,99 @@ describe("Agent", () => {
 		expect(recallEvents.filter((event) => event.data.cached === true)).toHaveLength(5);
 	});
 
+	test("archivist delegations do not receive the surfaced memory block", async () => {
+		const rootWithArchivist: AgentSpec = {
+			...rootSpec,
+			agents: ["archivist"],
+		};
+		const archivistSpec: AgentSpec = {
+			...leafSpec,
+			name: "archivist",
+			description: "Memory investigation",
+			tools: ["read_file"],
+			agents: [],
+		};
+		let callCount = 0;
+		let archivistSystemPrompt = "";
+		const rootDelegateMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-archivist",
+						name: "delegate",
+						arguments: {
+							agent_name: "archivist",
+							goal: "investigate memory",
+						},
+					},
+				},
+			],
+		};
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (request: Request): Promise<Response> => {
+				callCount++;
+				const system = request.messages.find((message) => message.role === "system");
+				const systemText =
+					system?.content.map((part) => ("text" in part ? part.text : "")).join("") ?? "";
+				if (callCount === 2) {
+					archivistSystemPrompt = systemText;
+				}
+				return {
+					id: `mock-archivist-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message:
+						callCount === 1
+							? rootDelegateMsg
+							: callCount === 2
+								? Msg.assistant("Archivist done.")
+								: Msg.assistant("Root done."),
+					finish_reason: { reason: callCount === 1 ? "tool_calls" : "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+		const fakeGenome = {
+			allAgents: () => [rootWithArchivist, archivistSpec],
+			searchMemories: async () => [
+				{
+					id: "memory-archivist",
+					content: "Do not inject this into archivist.",
+					tags: [],
+					source: "test",
+					created: Date.now(),
+					last_used: Date.now(),
+					use_count: 0,
+					confidence: 1,
+				},
+			],
+			matchRoutingRules: () => [],
+			markMemoriesUsed: async () => {},
+			refreshIfDiskChanged: async () => false,
+			loadAgentTools: async () => [],
+			agentDir: () => tmpdir(),
+		} as unknown as Genome;
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const agent = new Agent({
+			spec: rootWithArchivist,
+			env,
+			client: mockClient,
+			primitiveRegistry: createPrimitiveRegistry(env),
+			availableAgents: [rootWithArchivist, archivistSpec],
+			genome: fakeGenome,
+			events: new AgentEventEmitter(),
+		});
+
+		await agent.run("coordinate archivist");
+
+		expect(archivistSystemPrompt).not.toContain("<memory_context>");
+		expect(archivistSystemPrompt).not.toContain("Do not inject this into archivist.");
+	});
+
 	test("agent respects requestCompaction() flag", async () => {
 		// Pad initial history so compactHistory has enough messages to summarize
 		const priorHistory: Message[] = [

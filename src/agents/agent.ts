@@ -271,26 +271,24 @@ export class Agent {
 			this.lastGenomeGeneration = this.genome.generation;
 		}
 
-		// Build primitive tool list (provider-aligned).
-		// Agents that delegate don't get primitives — primitives live on subagents only.
+		// Build primitive tool list (provider-aligned). Agents may combine
+		// delegation with explicitly granted deterministic primitives.
 		this.primitiveTools = [];
-		if (this.agentTools.length === 0) {
-			const filteredPrimitiveNames = primitivesForAgent(
-				this.spec.tools,
-				this.primitiveRegistry.names(),
-				this.resolved.provider,
-			);
+		const filteredPrimitiveNames = primitivesForAgent(
+			this.spec.tools,
+			this.primitiveRegistry.names(),
+			this.resolved.provider,
+		);
 
-			for (const name of filteredPrimitiveNames) {
-				const prim = this.primitiveRegistry.get(name);
-				if (prim) {
-					this.primitiveTools.push({
-						name: prim.name,
-						displayName: prim.displayName,
-						description: prim.description,
-						parameters: prim.parameters,
-					});
-				}
+		for (const name of filteredPrimitiveNames) {
+			const prim = this.primitiveRegistry.get(name);
+			if (prim) {
+				this.primitiveTools.push({
+					name: prim.name,
+					displayName: prim.displayName,
+					description: prim.description,
+					parameters: prim.parameters,
+				});
 			}
 		}
 
@@ -525,14 +523,6 @@ export class Agent {
 			this.agentTools.push(buildMessageAgentTool());
 		}
 
-		// If this agent previously had no delegates, it was given primitive
-		// tools (the constructor rule: "agents that delegate don't get
-		// primitives").  Now that it has delegation tools, clear primitives
-		// to preserve that invariant.
-		if (this.primitiveTools.length > 0) {
-			this.primitiveTools.length = 0;
-		}
-
 		this.lastDelegateNames = newNames;
 		return added.map((a) => ({ name: a.name, description: a.description }));
 	}
@@ -717,7 +707,7 @@ export class Agent {
 				agentTreeChildren: subTreeChildren,
 				agentTreeSelfPath: subTreeSelfPath,
 				enableStreaming: this.enableStreaming,
-				surfacedMemoryBlock: this.surfacedMemoryBlock,
+				surfacedMemoryBlock: subagentSpec.name === "archivist" ? "" : this.surfacedMemoryBlock,
 			});
 
 			const subResult = await subagent.run(subGoal, this.signal);

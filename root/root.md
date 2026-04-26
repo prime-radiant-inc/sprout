@@ -4,6 +4,7 @@ description: "Decompose tasks into subgoals and delegate to specialist agents"
 model: best
 tools: []
 agents:
+  - archivist
   - utility/reader
   - utility/web-reader
   - utility/mcp

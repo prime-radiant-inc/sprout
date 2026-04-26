@@ -4,6 +4,7 @@ description: "Ask when you need to know what tools, agents, or MCP servers are a
 model: best
 tools: []
 agents:
+  - archivist
   - utility/reader
   - project-explorer
 constraints:

@@ -35,7 +35,7 @@ describe("Agent construction and tool resolution", () => {
 		expect(names).not.toContain("root");
 	});
 
-	test("delegating agent does not get primitive tools", () => {
+	test("delegating agent keeps explicitly granted primitive tools", () => {
 		const mixedSpec: AgentSpec = {
 			name: "mixed",
 			description: "Has both agents and primitive tools",
@@ -54,8 +54,8 @@ describe("Agent construction and tool resolution", () => {
 		const tools = agent.resolvedTools();
 		const names = tools.map((t) => t.name);
 		expect(names).toContain("delegate");
-		expect(names).not.toContain("read_file");
-		expect(names).not.toContain("grep");
+		expect(names).toContain("read_file");
+		expect(names).toContain("grep");
 	});
 
 	test("resolves primitive tools from tools list", () => {
