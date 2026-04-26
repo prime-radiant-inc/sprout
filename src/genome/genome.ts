@@ -319,6 +319,16 @@ export class Genome {
 		await rebuildMemoryIndexFromJsonl(this.rootPath);
 	}
 
+	/** Stage a new memory for callers that commit it together with other memory mutations. */
+	async stageMemoryForMutation(memory: Memory): Promise<Memory> {
+		stampMemoryActivitySnapshots(memory, this.projects.all());
+		const embeddedMemory = await attachReadyMemoryEmbedding(
+			memory,
+			await this.getEmbeddingProvider(),
+		);
+		return this.memories.stage(embeddedMemory);
+	}
+
 	/** Persist memory metadata mutations, committing JSONL and rebuilding the derived index. */
 	async saveMemoryMutation(commitMessage: string): Promise<void> {
 		await this.memories.save();

@@ -11,6 +11,7 @@ const MUTATING_GENOME_METHODS = new Set([
 	"addRoutingRule",
 	"removeRoutingRule",
 	"addMemory",
+	"stageMemoryForMutation",
 	"markMemoriesUsed",
 	"pruneMemories",
 	"pruneUnusedRoutingRules",
@@ -23,7 +24,7 @@ const MUTATING_GENOME_METHODS = new Set([
 	"savePostscript",
 ]);
 
-const MUTATING_MEMORY_METHODS = new Set(["add", "markUsed", "save", "pruneByConfidence"]);
+const MUTATING_MEMORY_METHODS = new Set(["add", "stage", "markUsed", "save", "pruneByConfidence"]);
 
 export function createReadOnlyGenome(genome: Genome): Genome {
 	return new Proxy(genome, {

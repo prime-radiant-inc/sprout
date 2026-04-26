@@ -335,9 +335,7 @@ export async function applyConsolidationMerge(
 		],
 	};
 
-	await genome.addMemory(consolidated);
-	const saved = genome.memories.getById(consolidatedId);
-	if (!saved) throw new Error(`Consolidated memory '${consolidatedId}' was not saved`);
+	const saved = await genome.stageMemoryForMutation(consolidated);
 
 	for (const memory of sources) {
 		memory.archived_at = now;

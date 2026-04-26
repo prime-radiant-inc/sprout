@@ -12,7 +12,17 @@ import { Msg, type ProviderModel, type Response } from "../../src/llm/types.ts";
 import { sleep, waitFor } from "../helpers/wait-for.ts";
 
 /** Minimal fake agent that satisfies the RunnableAgent interface. */
-function makeFakeAgent(options?: { runDelay?: number; runError?: Error }) {
+function makeFakeAgent(options?: {
+	runDelay?: number;
+	runError?: Error;
+	runResult?: {
+		output: string;
+		success: boolean;
+		stumbles: number;
+		turns: number;
+		timed_out: boolean;
+	};
+}) {
 	const steered: string[] = [];
 	let runCalled = false;
 	let runGoal = "";
@@ -37,7 +47,15 @@ function makeFakeAgent(options?: { runDelay?: number; runError?: Error }) {
 				if (options?.runError) {
 					throw options.runError;
 				}
-				return { output: "done", success: true, stumbles: 0, turns: 1, timed_out: false };
+				return (
+					options?.runResult ?? {
+						output: "done",
+						success: true,
+						stumbles: 0,
+						turns: 1,
+						timed_out: false,
+					}
+				);
 			},
 		},
 		get steered() {
@@ -176,6 +194,54 @@ describe("SessionController", () => {
 		expect(collapsed).toHaveLength(1);
 		expect(collapsed[0]?.sessionId).toBe(controller.sessionId);
 		expect(bus.collected().some((event) => event.data.memory_collapse === "completed")).toBe(true);
+	});
+
+	test("skips memory collapse after timed-out runs", async () => {
+		const fake = makeFakeAgent({
+			runResult: {
+				output: "timed out",
+				success: false,
+				stumbles: 0,
+				turns: 1,
+				timed_out: true,
+			},
+		});
+		const collapsed: Array<{ sessionId: string; cwd: string }> = [];
+		const factory: AgentFactory = async () => ({
+			agent: fake.agent as any,
+			learnProcess: null,
+			collapseMemory: async (input) => {
+				collapsed.push(input);
+				return { ok: true };
+			},
+		});
+		const { bus, controller } = makeController({ factory });
+
+		await controller.runGoal("Remember this session");
+
+		expect(collapsed).toHaveLength(0);
+		expect(bus.collected().some((event) => event.data.memory_collapse === "completed")).toBe(false);
+	});
+
+	test("skips memory collapse after interrupted runs", async () => {
+		const fake = makeFakeAgent({ runDelay: 20 });
+		const collapsed: Array<{ sessionId: string; cwd: string }> = [];
+		const factory: AgentFactory = async () => ({
+			agent: fake.agent as any,
+			learnProcess: null,
+			collapseMemory: async (input) => {
+				collapsed.push(input);
+				return { ok: true };
+			},
+		});
+		const { bus, controller } = makeController({ factory });
+
+		const promise = controller.submitGoal("Remember this session");
+		await waitFor(() => fake.runCalled);
+		bus.emitCommand({ kind: "interrupt", data: {} });
+		await promise;
+
+		expect(collapsed).toHaveLength(0);
 	});
 
 	test("default factory forwards resolver settings into createAgent for tier-based root models", async () => {

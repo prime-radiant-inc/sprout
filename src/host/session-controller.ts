@@ -549,7 +549,9 @@ export class SessionController {
 			}
 
 			const runResult = await result.agent.run(goal, signal);
-			await this.collapseMemoryAfterRun(result);
+			if (!runResult.timed_out && !signal.aborted) {
+				await this.collapseMemoryAfterRun(result);
+			}
 			this.logger?.info("session", "Agent run completed");
 			return {
 				sessionId: this._sessionId,

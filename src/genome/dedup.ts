@@ -25,15 +25,16 @@ export async function findDuplicateMemory(
 	existing: readonly Memory[],
 	options: DedupOptions = {},
 ): Promise<DuplicateCheckResult> {
+	const activeExisting = existing.filter((memory) => !memory.archived_at);
 	const normalizedDraft = normalizeText(draft.text);
-	for (const memory of existing) {
+	for (const memory of activeExisting) {
 		if (normalizeText(memory.content) === normalizedDraft) {
 			return { duplicate: true, reason: "exact", existingId: memory.id, score: 1 };
 		}
 	}
 
 	const fuzzyThreshold = options.fuzzyThreshold ?? FUZZY_DUPLICATE_THRESHOLD;
-	for (const memory of existing) {
+	for (const memory of activeExisting) {
 		const score = trigramDiceSimilarity(draft.text, memory.content);
 		if (score >= fuzzyThreshold) {
 			return { duplicate: true, reason: "fuzzy", existingId: memory.id, score };
@@ -57,11 +58,11 @@ export async function filterDuplicateDrafts(
 	const accepted: ExtractedMemoryDraft[] = [];
 	const acceptedVectors: Array<{ id: string; vector: Float32Array }> = [];
 	for (const draft of drafts) {
-		const textDuplicate = await findDuplicateMemory(
-			draft,
-			[...existing, ...acceptedAsMemories(accepted)],
-			{ ...options, embeddingProvider: undefined },
-		);
+		const existingCandidates = [...existing, ...acceptedAsMemories(accepted)];
+		const textDuplicate = await findDuplicateMemory(draft, existingCandidates, {
+			...options,
+			embeddingProvider: undefined,
+		});
 		if (textDuplicate.duplicate) continue;
 
 		if (options.embeddingProvider) {
@@ -124,7 +125,9 @@ function findVectorDuplicate(
 	vectorThreshold: number,
 ): DuplicateCheckResult {
 	for (const memory of existing) {
-		const score = cosineSimilarity(vector, readyMemoryVector(memory));
+		const memoryVector = memoryVectorForDedup(memory);
+		if (!memoryVector || memoryVector.length !== vector.length) continue;
+		const score = cosineSimilarity(vector, memoryVector);
 		if (score >= vectorThreshold) {
 			return { duplicate: true, reason: "vector", existingId: memory.id, score };
 		}
@@ -146,18 +149,9 @@ function findAcceptedVectorDuplicate(
 	return { duplicate: false };
 }
 
-function readyMemoryVector(memory: Memory): Float32Array {
-	if (!memory.embedding) {
-		throw new Error(`Memory '${memory.id}' is missing an embedding for vector dedup`);
-	}
-	if (memory.embedding.status !== "ready") {
-		throw new Error(
-			`Memory '${memory.id}' embedding status '${memory.embedding.status}' is not ready`,
-		);
-	}
-	if (!memory.embedding.vector) {
-		throw new Error(`Memory '${memory.id}' has ready embedding metadata without a vector`);
-	}
+function memoryVectorForDedup(memory: Memory): Float32Array | undefined {
+	if (memory.archived_at || !memory.embedding) return undefined;
+	if (memory.embedding.status !== "ready" || !memory.embedding.vector) return undefined;
 	return Float32Array.from(memory.embedding.vector);
 }
 

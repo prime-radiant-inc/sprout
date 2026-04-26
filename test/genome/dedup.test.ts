@@ -114,6 +114,33 @@ describe("memory dedup", () => {
 		expect(result.duplicate).toBe(false);
 	});
 
+	test("ignores archived and unembedded memories during vector dedup", async () => {
+		const result = await findDuplicateMemory(
+			makeDraft("Use an embedded local database for recall"),
+			[
+				makeMemory({
+					id: "archived-vector-duplicate",
+					content: "Archived duplicate",
+					archived_at: 123,
+					embedding: {
+						provider: "slot",
+						model: "slot",
+						dimensions: 768,
+						status: "ready",
+						vector: vector(0),
+					},
+				}),
+				makeMemory({
+					id: "manual-unembedded",
+					content: "Manually edited memory without an embedding",
+				}),
+			],
+			{ embeddingProvider: slotProvider(0) },
+		);
+
+		expect(result.duplicate).toBe(false);
+	});
+
 	test("filters duplicates within a batch and against existing memories", async () => {
 		const filtered = await filterDuplicateDrafts(
 			[

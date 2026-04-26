@@ -11,6 +11,7 @@ import {
 	projectDueForConsolidation,
 	rejectConsolidationCluster,
 } from "../../src/genome/consolidation.ts";
+import { git } from "../../src/genome/genome.ts";
 import { memoryIndexPath } from "../../src/genome/index-builder.ts";
 import { MemoryIndex } from "../../src/genome/memory-index.ts";
 import type { Memory } from "../../src/kernel/types.ts";
@@ -82,6 +83,7 @@ describe("memory consolidation", () => {
 			const cluster = discoverConsolidationClusters(genome.memories.all(), {
 				fuzzyThreshold: 0.8,
 			})[0]!;
+			const commitsBefore = Number(await git(root, "rev-list", "--count", "HEAD"));
 
 			const result = await applyConsolidationMerge(
 				genome,
@@ -101,6 +103,8 @@ describe("memory consolidation", () => {
 			expect(genome.memories.getById("old-b")?.superseded_by).toBe("merged-sqlite");
 			expect(result.consolidated.consolidates_memory_ids?.sort()).toEqual(["old-a", "old-b"]);
 			expect(result.consolidated.embedding?.status).toBe("ready");
+			const commitsAfter = Number(await git(root, "rev-list", "--count", "HEAD"));
+			expect(commitsAfter - commitsBefore).toBe(1);
 
 			const content = await readFile(join(root, "memories", "memories.jsonl"), "utf-8");
 			expect(content).toContain('"archived_reason":"consolidated into merged-sqlite"');

@@ -20,6 +20,12 @@ export class MemoryStore {
 
 	/** Append a memory to the in-memory list and to the JSONL file on disk. */
 	async add(memory: Memory): Promise<void> {
+		const normalized = this.stage(memory);
+		await this.jsonl.append(normalized);
+	}
+
+	/** Add a memory only in memory; caller must save/commit the enclosing mutation. */
+	stage(memory: Memory): Memory {
 		const normalized = normalizeMemory(memory);
 		if (this.entries.some((m) => m.id === normalized.id)) {
 			throw new Error(`Memory with id '${normalized.id}' already exists`);
@@ -34,7 +40,7 @@ export class MemoryStore {
 			);
 		}
 		this.entries.push(normalized);
-		await this.jsonl.append(normalized);
+		return normalized;
 	}
 
 	/**
