@@ -479,6 +479,14 @@ export function renderToolBoundaries(
 ): string {
 	const hasDelegate = agentTools.some((t) => t.name === DELEGATE_TOOL_NAME);
 	const allToolNames = [...agentTools, ...primitiveTools].map((t) => t.name);
+	const memoryWriteToolNames = new Set([
+		"memory_annotate",
+		"memory_archive",
+		"memory_link",
+		"memory_consolidate",
+	]);
+	const hasMemoryTools = allToolNames.some((name) => name.startsWith("memory_"));
+	const hasMemoryWriteTools = allToolNames.some((name) => memoryWriteToolNames.has(name));
 	const lines: string[] = [];
 
 	if (!hasDelegate) {
@@ -495,6 +503,11 @@ export function renderToolBoundaries(
 	if (!allToolNames.includes("write_file") && !allToolNames.includes("edit_file")) {
 		lines.push(
 			"You do NOT have access to write_file or edit_file. Do not pretend to write or edit files.",
+		);
+	}
+	if (hasMemoryTools && !hasMemoryWriteTools) {
+		lines.push(
+			"You do NOT have access to memory write tools. Do not annotate, archive, link, consolidate, or otherwise mutate memories.",
 		);
 	}
 

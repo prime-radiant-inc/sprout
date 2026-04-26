@@ -180,6 +180,7 @@ export class Agent {
 	private readonly logger: Logger;
 	private readonly resolverSettings: ResolverSettings;
 	private history: Message[] = [];
+	private systemPromptBase?: string;
 	private systemPrompt?: string;
 	private surfacedMemoryBlock?: string;
 	private signal?: AbortSignal;
@@ -423,6 +424,12 @@ export class Agent {
 	private updateTrustedUserInstruction(instruction: string | undefined): void {
 		this.trustedUserInstruction = instruction;
 		this.rebuildPrimitiveRegistryForCurrentAgent();
+	}
+
+	private renderCurrentSystemPrompt(): string {
+		const base = this.systemPromptBase ?? this.systemPrompt;
+		if (!base) throw new Error("Cannot render system prompt before run() has been called");
+		return `${base}${renderToolBoundaries(this.agentTools, this.primitiveTools)}`;
 	}
 
 	/** Inject a steering message into the agent loop for the next iteration. */
@@ -1351,7 +1358,7 @@ export class Agent {
 		}
 
 		// Build system prompt with recall context (memories and routing hints)
-		this.systemPrompt = buildSystemPrompt({
+		let systemPrompt = buildSystemPrompt({
 			spec: this.spec,
 			workDir: this.env.working_directory(),
 			platform: this.env.platform(),
@@ -1366,16 +1373,16 @@ export class Agent {
 		// Append available agent descriptions to system prompt
 		if (this.spec.constraints.can_spawn) {
 			const delegatableAgents = this.getDelegatableAgents();
-			this.systemPrompt += renderAgentsForPrompt(delegatableAgents);
+			systemPrompt += renderAgentsForPrompt(delegatableAgents);
 		}
 
 		// Append workspace tools to system prompt (tools created by the quartermaster)
 		if (wsToolDefs.length > 0) {
-			this.systemPrompt += renderWorkspaceTools(wsToolDefs);
+			systemPrompt += renderWorkspaceTools(wsToolDefs);
 		}
 
-		// Inject anti-hallucination guardrails based on actual tool availability
-		this.systemPrompt += renderToolBoundaries(this.agentTools, this.primitiveTools);
+		this.systemPromptBase = systemPrompt;
+		this.systemPrompt = this.renderCurrentSystemPrompt();
 
 		return this.runLoop(goal);
 	}
@@ -1670,7 +1677,6 @@ export class Agent {
 	/** Core planning loop shared by run() and continue(). */
 	private async runLoop(goal: string): Promise<AgentResult> {
 		const agentId = this.agentId ?? this.spec.name;
-		const systemPrompt = this.systemPrompt!;
 		const externalSignal = this.signal;
 		const startTime = performance.now();
 		const callHistory: CallRecord[] = [];
@@ -1745,6 +1751,8 @@ export class Agent {
 				}
 
 				// Plan: build request and call LLM
+				const systemPrompt = this.renderCurrentSystemPrompt();
+				this.systemPrompt = systemPrompt;
 				const planningResult = await executePlanningTurn({
 					sessionId: this.sessionId,
 					turn: turns,

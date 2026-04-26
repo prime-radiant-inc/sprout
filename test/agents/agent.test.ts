@@ -2160,6 +2160,71 @@ describe("Agent", () => {
 		expect(toolNames).toContain("memory_archive");
 	});
 
+	test("continue refreshes memory write tool boundaries in the system prompt", async () => {
+		const archivistSpec: AgentSpec = {
+			...leafSpec,
+			name: "archivist",
+			description: "Memory investigation",
+			tools: ["memory_search", "memory_archive"],
+			agents: [],
+		};
+		const requests: Request[] = [];
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (request: Request): Promise<Response> => {
+				requests.push(request);
+				return {
+					id: `mock-root-archivist-boundary-${requests.length}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant("Done."),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+		const fakeGenome = {
+			generation: 0,
+			allAgents: () => [archivistSpec],
+			searchMemories: async () => [],
+			matchRoutingRules: () => [],
+			markMemoriesUsed: async () => {},
+			refreshIfDiskChanged: async () => false,
+			loadAgentTools: async () => [],
+			agentDir: () => tmpdir(),
+			memories: { all: () => [] },
+		} as unknown as Genome;
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const agent = new Agent({
+			spec: archivistSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: createPrimitiveRegistry(env, {
+				genome: fakeGenome,
+				agentName: "archivist",
+				sessionId: "session-test",
+			}),
+			availableAgents: [archivistSpec],
+			genome: fakeGenome,
+			events: new AgentEventEmitter(),
+		});
+
+		await agent.run("I confirm: archive memory mem_old123 because it is stale");
+		await agent.continue("Search memory only; do not mutate anything");
+
+		const firstToolNames = requests[0]?.tools?.map((tool) => tool.name) ?? [];
+		const secondToolNames = requests[1]?.tools?.map((tool) => tool.name) ?? [];
+		const firstSystemPrompt = requests[0]?.messages[0] ? messageText(requests[0].messages[0]) : "";
+		const secondSystemPrompt = requests[1]?.messages[0] ? messageText(requests[1].messages[0]) : "";
+
+		expect(firstToolNames).toContain("memory_archive");
+		expect(firstSystemPrompt).not.toContain("do NOT have access to memory write tools");
+		expect(secondToolNames).toContain("memory_search");
+		expect(secondToolNames).not.toContain("memory_archive");
+		expect(secondSystemPrompt).toContain("do NOT have access to memory write tools");
+	});
+
 	test("root authorization refresh preserves caller-supplied primitives", async () => {
 		const customSpec: AgentSpec = {
 			...leafSpec,

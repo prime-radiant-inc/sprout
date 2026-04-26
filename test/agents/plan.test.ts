@@ -674,6 +674,23 @@ describe("renderToolBoundaries", () => {
 		expect(result).toContain("do NOT have access to write_file or edit_file");
 	});
 
+	test("warns when memory tools are read-only", () => {
+		const readOnly = renderToolBoundaries(
+			[],
+			[{ name: "memory_search", description: "", parameters: {} }],
+		);
+		expect(readOnly).toContain("do NOT have access to memory write tools");
+
+		const writable = renderToolBoundaries(
+			[],
+			[
+				{ name: "memory_search", description: "", parameters: {} },
+				{ name: "memory_archive", description: "", parameters: {} },
+			],
+		);
+		expect(writable).not.toContain("do NOT have access to memory write tools");
+	});
+
 	test("returns empty string when agent has all capabilities", () => {
 		const agentTools = [{ name: "delegate", description: "", parameters: {} }];
 		const primitiveTools = [
