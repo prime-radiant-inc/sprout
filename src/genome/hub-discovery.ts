@@ -12,9 +12,9 @@ export function discoverEntityHubMemories(
 	limit = 10,
 	entityHints: readonly string[] = [],
 ): HubMemoryResult[] {
-	const normalizedQuery = query.toLowerCase();
+	const normalizedQuery = normalizeForEntityMatch(query);
 	const normalizedHints = new Set(
-		entityHints.map((hint) => hint.toLowerCase().trim()).filter((hint) => hint.length > 0),
+		entityHints.map(normalizeForEntityMatch).filter((hint) => hint.length > 0),
 	);
 	if (!normalizedQuery.trim() && normalizedHints.size === 0) return [];
 
@@ -23,8 +23,8 @@ export function discoverEntityHubMemories(
 			if (memory.archived_at) return [];
 			const matchedEntities = (memory.entity_links ?? [])
 				.filter((entity) => {
-					const name = entity.name.toLowerCase();
-					return normalizedQuery.includes(name) || normalizedHints.has(name);
+					const name = normalizeForEntityMatch(entity.name);
+					return normalizedHints.has(name) || entityNameMatchesQuery(name, normalizedQuery);
 				})
 				.map((entity) => entity.name);
 			if (matchedEntities.length === 0) return [];
@@ -44,4 +44,22 @@ export function discoverEntityHubMemories(
 				a.memory.id.localeCompare(b.memory.id),
 		)
 		.slice(0, limit);
+}
+
+function entityNameMatchesQuery(name: string, normalizedQuery: string): boolean {
+	if (!name || !normalizedQuery) return false;
+	const phrasePattern = new RegExp(`(^| )${escapeRegExp(name)}( |$)`);
+	return phrasePattern.test(normalizedQuery);
+}
+
+function normalizeForEntityMatch(value: string): string {
+	return value
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, " ")
+		.trim()
+		.replace(/\s+/g, " ");
+}
+
+function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

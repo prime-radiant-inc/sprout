@@ -170,7 +170,7 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 	const sessionId = options.sessionId ?? ulid();
 	const registry = createPrimitiveRegistry(
 		env,
-		{ genome, agentName: rootName, sessionId },
+		{ genome: runtimeGenome, agentName: rootName, sessionId },
 		{ evalMode: options.evalMode },
 	);
 	const preambles = options.rootDir ? await loadPreambles(options.rootDir) : undefined;

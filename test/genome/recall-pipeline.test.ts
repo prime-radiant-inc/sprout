@@ -61,6 +61,35 @@ describe("recall pipeline", () => {
 		expect(result.map((item) => item.memory.id)).toEqual(["m-sprout"]);
 	});
 
+	test("matches short entity names only on token boundaries or exact hints", () => {
+		const memories = [
+			memory({
+				id: "m-go",
+				content: "Go runtime preference",
+				entity_links: [{ uuid: "entity_go", type: "TECHNOLOGY", name: "Go" }],
+			}),
+			memory({
+				id: "m-ai",
+				content: "AI tooling preference",
+				entity_links: [{ uuid: "entity_ai", type: "TECHNOLOGY", name: "AI" }],
+			}),
+		];
+
+		expect(
+			discoverEntityHubMemories(memories, "ongoing migrations and plain artificial text").map(
+				(item) => item.memory.id,
+			),
+		).toEqual([]);
+		expect(discoverEntityHubMemories(memories, "Go runtime").map((item) => item.memory.id)).toEqual(
+			["m-go"],
+		);
+		expect(
+			discoverEntityHubMemories(memories, "tooling preference", 10, ["AI"]).map(
+				(item) => item.memory.id,
+			),
+		).toEqual(["m-ai"]);
+	});
+
 	test("merges similarity and hub pools while excluding superseded memories", () => {
 		const newMemory = memory({ id: "new", content: "new local embedding decision" });
 		const superseded = memory({
