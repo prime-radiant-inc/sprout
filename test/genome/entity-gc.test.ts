@@ -122,6 +122,46 @@ describe("entity GC", () => {
 		}
 	});
 
+	test("reject persists a marker so the same alias group is suppressed", async () => {
+		const root = await mkdtemp(join(tmpdir(), "sprout-entity-gc-reject-"));
+		try {
+			const genome = createTestGenome(root);
+			await genome.init();
+			await genome.addMemory(
+				memory({
+					id: "canonical-memory",
+					entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
+				}),
+			);
+			await genome.addMemory(
+				memory({
+					id: "alias-memory",
+					entity_links: [{ uuid: "entity_sprout_alias", type: "PROJECT", name: "sprout" }],
+				}),
+			);
+			const group = discoverEntityGcGroups(genome.memories.all())[0]!;
+
+			const result = await applyEntityGcDecision(
+				genome,
+				group,
+				{
+					action: "reject",
+					reasoning: "These names intentionally refer to separate project contexts.",
+				},
+				{ now: 4000, source: "memory-maintenance" },
+			);
+
+			expect(result.updated_memory_ids.sort()).toEqual(["alias-memory", "canonical-memory"]);
+			expect(discoverEntityGcGroups(genome.memories.all())).toEqual([]);
+			expect(genome.memories.getById("canonical-memory")?.annotations?.[0]).toMatchObject({
+				created_at: 4000,
+				source: "memory-maintenance",
+			});
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
 	test("project-active-day schedule controls entity GC cadence", () => {
 		expect(
 			projectDueForEntityGc({

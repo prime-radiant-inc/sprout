@@ -1,6 +1,7 @@
 import type { Primitive } from "../kernel/primitives.ts";
 import type {
 	AnnotationEntry,
+	EntityLinkEntry,
 	Memory,
 	MemoryLinkEntry,
 	PrimitiveResult,
@@ -43,6 +44,16 @@ const MANUAL_MEMORY_LINK_TYPES = [
 
 const MANUAL_MEMORY_LINK_TYPE_SET = new Set<string>(MANUAL_MEMORY_LINK_TYPES);
 
+const ENTITY_TYPES = [
+	"PROJECT",
+	"LIBRARY",
+	"FILE_PATH",
+	"COMMAND",
+	"ERROR_TYPE",
+	"TECHNOLOGY",
+	"PERSON",
+] as const satisfies readonly EntityLinkEntry["type"][];
+
 export function buildReadMemoryPrimitives(ctx: MemoryToolContext): Primitive[] {
 	return [
 		memorySearchPrimitive(ctx),
@@ -54,6 +65,7 @@ export function buildReadMemoryPrimitives(ctx: MemoryToolContext): Primitive[] {
 }
 
 export function buildWriteMemoryPrimitives(ctx: MemoryToolContext): Primitive[] {
+	if (ctx.agentName !== "archivist") return [];
 	return [
 		memoryAnnotatePrimitive(ctx),
 		memoryArchivePrimitive(ctx),
@@ -143,7 +155,7 @@ function memoryEntityQueryPrimitive(ctx: MemoryToolContext): Primitive {
 			type: "object",
 			properties: {
 				name: { type: "string" },
-				type: { type: "string", enum: MANUAL_MEMORY_LINK_TYPES },
+				type: { type: "string", enum: ENTITY_TYPES },
 			},
 			required: ["name"],
 		},

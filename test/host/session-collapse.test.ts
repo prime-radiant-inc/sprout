@@ -266,4 +266,41 @@ describe("session collapse transcript", () => {
 		expect(genome.segments.all()[1]?.started_at).toBe(300);
 		expect(genome.segments.all()[1]?.message_count).toBe(2);
 	});
+
+	test("does not persist segment marker when extraction fails", async () => {
+		const genomeDir = join(tempDir, "genome-extraction-fail");
+		const rootDir = join(import.meta.dir, "../../root");
+		const workDir = join(tempDir, "work-extraction-fail");
+		await mkdir(workDir, { recursive: true });
+		const genome = createTestGenome(genomeDir, rootDir);
+		await genome.init();
+		await genome.initFromRoot();
+		const client = makeClientSequence([
+			JSON.stringify({
+				summary: "Summary before extraction failure.",
+				title: "Extraction failure",
+				complexity: 1,
+			}),
+			"not json",
+		]);
+
+		await expect(
+			collapseSessionToMemory({
+				events: [
+					event("perceive", 100, { goal: "Remember this." }),
+					event("session_end", 200, { output: "Done." }),
+				],
+				genome,
+				client,
+				model: "claude-sonnet-4-6",
+				provider: "anthropic",
+				sessionId: "session-collapse-fail",
+				cwd: workDir,
+				now: 300,
+			}),
+		).rejects.toThrow();
+
+		expect(genome.segments.all()).toHaveLength(0);
+		expect(genome.memories.all()).toHaveLength(0);
+	});
 });

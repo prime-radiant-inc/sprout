@@ -100,7 +100,6 @@ export async function collapseSessionToMemory(
 		project,
 		now,
 	});
-	await input.genome.addSegment(segment);
 
 	const extractionDrafts = await extractMemoryDrafts({
 		client: input.client,
@@ -117,7 +116,7 @@ export async function collapseSessionToMemory(
 		embeddingProvider: await input.genome.memoryEmbeddingProvider(),
 	});
 
-	for (const [index, draft] of filtered.entries()) {
+	const memories = filtered.map((draft, index) => {
 		const memory = memoryFromDraft(draft, {
 			id: `${segment.id}-mem-${index}`,
 			source: `segment:${input.sessionId}`,
@@ -126,14 +125,19 @@ export async function collapseSessionToMemory(
 			sourceSessionId: input.sessionId,
 			sourceSegmentId: segment.id,
 		});
-		await input.genome.addMemory({
+		return {
 			...memory,
 			project_ids:
 				project.id === "unknown"
 					? memory.project_ids
 					: [...new Set([...(memory.project_ids ?? []), project.id])],
-		});
+		};
+	});
+
+	for (const memory of memories) {
+		await input.genome.addMemory(memory);
 	}
+	await input.genome.addSegment(segment);
 
 	return {
 		segment,

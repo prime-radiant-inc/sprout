@@ -98,7 +98,7 @@ export function buildWorkspacePrimitives(ctx: GenomeContext): Primitive[] {
 		saveFilePrimitive(ctx),
 		saveAgentPrimitive(ctx),
 		...buildReadMemoryPrimitives(ctx),
-		...buildWriteMemoryPrimitives(ctx),
+		...(ctx.agentName === "archivist" ? buildWriteMemoryPrimitives(ctx) : []),
 	];
 }
 

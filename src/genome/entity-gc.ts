@@ -54,12 +54,14 @@ export interface EntityGcApplyResult {
 }
 
 const DEFAULT_FUZZY_THRESHOLD = 0.78;
+const ENTITY_GC_REJECT_PREFIX = "Entity GC rejected ";
 
 export function discoverEntityGcGroups(
 	memories: readonly Memory[],
 	options: EntityGcDiscoveryOptions = {},
 ): EntityGcGroup[] {
 	const occurrences = collectEntityOccurrences(memories);
+	const memoryById = new Map(memories.map((memory) => [memory.id, memory]));
 	const groups: EntityGcGroup[] = [];
 	const byType = new Map<EntityLinkEntry["type"], EntityOccurrence[]>();
 	for (const occurrence of occurrences) {
@@ -99,8 +101,10 @@ export function discoverEntityGcGroups(
 			const candidates = component.sort(
 				(a, b) => b.count - a.count || a.name.localeCompare(b.name) || a.uuid.localeCompare(b.uuid),
 			);
+			const id = `entity-gc-${type.toLowerCase()}-${slug(canonical.name)}`;
+			if (hasRejectedEntityGcGroup(id, component, memoryById)) continue;
 			groups.push({
-				id: `entity-gc-${type.toLowerCase()}-${slug(canonical.name)}`,
+				id,
 				type,
 				canonical,
 				candidates,
@@ -205,7 +209,7 @@ export async function applyEntityGcDecision(
 	options: { now?: number; source?: string } = {},
 ): Promise<EntityGcApplyResult> {
 	if (decision.action === "reject") {
-		return { updated_memory_ids: [], archived_aliases: [] };
+		return rejectEntityGcGroup(genome, group, decision.reasoning, options);
 	}
 	if (!decision.canonical || !decision.aliases?.length) {
 		throw new Error("Entity GC merge decision missing canonical or aliases");
@@ -265,12 +269,66 @@ export async function applyEntityGcDecision(
 	return { updated_memory_ids: updatedIds, archived_aliases: archivedAliases };
 }
 
+async function rejectEntityGcGroup(
+	genome: Genome,
+	group: EntityGcGroup,
+	reasoning: string,
+	options: { now?: number; source?: string } = {},
+): Promise<EntityGcApplyResult> {
+	const now = options.now ?? Date.now();
+	const candidateKeys = new Set(group.candidates.map(entityKey));
+	const updatedIds: string[] = [];
+
+	for (const memory of genome.memories.all()) {
+		if (
+			memory.archived_at ||
+			!memory.entity_links?.some((entity) => candidateKeys.has(entityKey(entity)))
+		) {
+			continue;
+		}
+		const text = `${ENTITY_GC_REJECT_PREFIX}${group.id}: ${reasoning}`;
+		if ((memory.annotations ?? []).some((annotation) => annotation.text === text)) continue;
+		memory.annotations = [
+			...(memory.annotations ?? []),
+			{
+				text,
+				created_at: now,
+				source: options.source ?? "entity-gc",
+			},
+		];
+		memory.updated_at = now;
+		updatedIds.push(memory.id);
+	}
+
+	if (updatedIds.length > 0) {
+		await genome.saveMemoryMutation(`genome: reject entity GC group '${group.id}'`);
+	}
+	return { updated_memory_ids: updatedIds, archived_aliases: [] };
+}
+
 export function projectDueForEntityGc(
 	project: ProjectActivityRecord,
 	cadenceActiveDays = 30,
 ): boolean {
 	const lastRun = project.last_entity_gc_active_day ?? 0;
 	return project.cumulative_active_days - lastRun >= cadenceActiveDays;
+}
+
+function hasRejectedEntityGcGroup(
+	groupId: string,
+	occurrences: readonly EntityOccurrence[],
+	memoryById: ReadonlyMap<string, Memory>,
+): boolean {
+	const marker = `${ENTITY_GC_REJECT_PREFIX}${groupId}:`;
+	for (const occurrence of occurrences) {
+		for (const memoryId of occurrence.memory_ids) {
+			const memory = memoryById.get(memoryId);
+			if (memory?.annotations?.some((annotation) => annotation.text.startsWith(marker))) {
+				return true;
+			}
+		}
+	}
+	return false;
 }
 
 function collectEntityOccurrences(memories: readonly Memory[]): EntityOccurrence[] {

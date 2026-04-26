@@ -124,6 +124,17 @@ describe("memory tools", () => {
 		expect(JSON.parse(result.output)[0].id).toBe("memory-alpha");
 	});
 
+	test("memory_entity_query schema advertises entity types", () => {
+		const primitive = buildReadMemoryPrimitives(makeContext()).find(
+			(item) => item.name === "memory_entity_query",
+		)!;
+		const properties = primitive.parameters.properties as Record<string, { enum?: string[] }>;
+
+		expect(properties.type?.enum).toContain("PROJECT");
+		expect(properties.type?.enum).toContain("TECHNOLOGY");
+		expect(properties.type?.enum).not.toContain("refines");
+	});
+
 	test("memory_find_by_segment returns segment provenance", async () => {
 		const ctx = makeContext([memory({ source_segment_id: "segment-1" })]);
 
@@ -153,6 +164,14 @@ describe("memory tools", () => {
 
 		expect(result.success).toBe(false);
 		expect(result.error).toContain("confirmation");
+	});
+
+	test("write memory primitives are only built for archivist", () => {
+		const ctx = makeContext();
+		expect(buildWriteMemoryPrimitives({ ...ctx, agentName: "engineer" })).toEqual([]);
+		expect(
+			buildWriteMemoryPrimitives({ ...ctx, agentName: "archivist" }).map((item) => item.name),
+		).toContain("memory_archive");
 	});
 
 	test("memory_link persists valid relationship types", async () => {
