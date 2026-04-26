@@ -510,7 +510,7 @@ describe("GenomeMutationService", () => {
 		expect(genome.memories.all()[0]?.content).toContain("populated provider model");
 	}, 10_000);
 
-	test("signal extraction waits for terminal bus events after the signal", async () => {
+	test("signal extraction waits for post-signal act_end without session_end", async () => {
 		const prompts: string[] = [];
 		replaceService({
 			client: makeMockClient(
@@ -554,17 +554,6 @@ describe("GenomeMutationService", () => {
 						true,
 					),
 				}),
-			).then(() =>
-				publishSessionEvent(
-					event("session_end", signal.timestamp + 2, {
-						session_id: signal.session_id,
-						success: false,
-						stumbles: 1,
-						turns: 2,
-						timed_out: false,
-						output: "late terminal failed state after signal",
-					}),
-				),
 			);
 		}, 150);
 
@@ -572,7 +561,7 @@ describe("GenomeMutationService", () => {
 		const confirmation = JSON.parse(raw);
 		expect(confirmation.success).toBe(true);
 		expect(prompts[0]).toContain("late delegation output after signal");
-		expect(prompts[0]).toContain("late terminal failed state after signal");
+		expect(prompts[0]).not.toContain("late terminal failed state after signal");
 	}, 10_000);
 
 	test("publishes an error for signal requests without extraction dependencies", async () => {

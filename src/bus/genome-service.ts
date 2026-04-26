@@ -326,20 +326,26 @@ export class GenomeMutationService {
 	}
 
 	private async waitForTerminalSignalEvidence(signal: LearnSignal): Promise<void> {
-		if (this.signalEvidenceWaitMs <= 0 || this.hasTerminalSessionEnd(signal)) return;
+		if (this.signalEvidenceWaitMs <= 0 || this.hasSufficientSignalEvidence(signal)) return;
 		const deadline = Date.now() + this.signalEvidenceWaitMs;
 		while (Date.now() < deadline) {
 			await new Promise((resolve) => setTimeout(resolve, Math.min(25, deadline - Date.now())));
-			if (this.hasTerminalSessionEnd(signal)) return;
+			if (this.hasSufficientSignalEvidence(signal)) return;
 		}
 	}
 
-	private hasTerminalSessionEnd(signal: LearnSignal): boolean {
+	private hasSufficientSignalEvidence(signal: LearnSignal): boolean {
+		const windowStart = signal.timestamp - 5 * 60 * 1000;
 		return this.events.some(
 			(event) =>
-				event.kind === "session_end" &&
-				stringValue(event.data.session_id) === signal.session_id &&
-				event.timestamp >= signal.timestamp,
+				event.timestamp >= windowStart &&
+				((event.kind === "session_end" &&
+					stringValue(event.data.session_id) === signal.session_id &&
+					event.timestamp >= signal.timestamp) ||
+					(event.kind === "act_end" &&
+						event.timestamp >= signal.timestamp &&
+						stringValue(event.data.agent_name) === signal.agent_name) ||
+					(event.kind === "primitive_end" && event.timestamp <= signal.timestamp)),
 		);
 	}
 
