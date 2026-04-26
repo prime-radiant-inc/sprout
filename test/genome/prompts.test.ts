@@ -5,6 +5,8 @@ import { join } from "node:path";
 import {
 	loadMemoryExtractionPrompts,
 	MEMORY_EXTRACTION_SYSTEM_PROMPT,
+	MEMORY_EXTRACTION_USER_PROMPT,
+	SEGMENT_SUMMARY_USER_PROMPT,
 } from "../../src/genome/prompts.ts";
 
 describe("genome prompt loading", () => {
@@ -29,7 +31,11 @@ describe("genome prompt loading", () => {
 		expect(MEMORY_EXTRACTION_SYSTEM_PROMPT).toContain("root-agent session evidence");
 		expect(MEMORY_EXTRACTION_SYSTEM_PROMPT).toContain("tool outcomes");
 		expect(MEMORY_EXTRACTION_SYSTEM_PROMPT).toContain("delegation outcomes");
+		expect(MEMORY_EXTRACTION_SYSTEM_PROMPT).toContain("Segment summary context");
+		expect(MEMORY_EXTRACTION_SYSTEM_PROMPT).toContain("source for new facts");
 		expect(MEMORY_EXTRACTION_SYSTEM_PROMPT).toContain("Do not store unsupported speculation");
+		expect(MEMORY_EXTRACTION_USER_PROMPT).toContain("{segment_summary}");
+		expect(SEGMENT_SUMMARY_USER_PROMPT).toContain("{previous_summaries}");
 		expect(MEMORY_EXTRACTION_SYSTEM_PROMPT).not.toContain(
 			"Extract only from user-authored content",
 		);

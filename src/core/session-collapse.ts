@@ -133,6 +133,7 @@ export async function collapseSessionToMemory(
 		provider: input.provider,
 		prompts: await input.genome.loadSegmentSummaryPrompts(),
 		transcript,
+		previousSummaries: recentSegmentSummaries(input.genome.segments.all()),
 	});
 	const segment = buildSegmentRecord({
 		sessionId: input.sessionId,
@@ -156,6 +157,7 @@ export async function collapseSessionToMemory(
 					provider: input.provider,
 					prompts: await input.genome.loadMemoryExtractionPrompts(),
 					messages: extractionMessages,
+					segmentSummary: summary.summary,
 				});
 	const filtered =
 		extractionDrafts.length === 0
@@ -215,6 +217,7 @@ async function summarizeTranscript(input: {
 	provider: string;
 	prompts: { system: string; user: string };
 	transcript: readonly CollapseTranscriptMessage[];
+	previousSummaries: string;
 }): Promise<SegmentSummaryResult> {
 	const response = await input.client.complete({
 		model: input.model,
@@ -222,16 +225,21 @@ async function summarizeTranscript(input: {
 		messages: [
 			Msg.system(input.prompts.system),
 			Msg.user(
-				input.prompts.user.replace(
-					"{formatted_messages}",
-					renderCollapseTranscript(input.transcript),
-				),
+				input.prompts.user
+					.replace("{formatted_messages}", renderCollapseTranscript(input.transcript))
+					.replace("{previous_summaries}", input.previousSummaries),
 			),
 		],
 		temperature: 0.1,
 		max_tokens: 1200,
 	});
 	return normalizeSegmentSummary(parseExtractionJson(messageText(response.message)));
+}
+
+function recentSegmentSummaries(segments: readonly MemorySegment[]): string {
+	const recent = [...segments].sort((a, b) => a.ended_at - b.ended_at).slice(-5);
+	if (recent.length === 0) return "(none)";
+	return recent.map((segment) => `- ${escapeXml(segment.summary)}`).join("\n");
 }
 
 export function normalizeSegmentSummary(payload: unknown): SegmentSummaryResult {

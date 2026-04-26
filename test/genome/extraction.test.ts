@@ -57,6 +57,19 @@ describe("memory extraction", () => {
 		expect(prompt).toContain("After");
 	});
 
+	test("renders non-authoritative segment summary context", () => {
+		const prompt = renderExtractionUserPrompt(
+			"<segment_summary_context>\n{segment_summary}\n</segment_summary_context>\n{formatted_messages}",
+			[{ role: "user", content: "Use SQLite" }],
+			{ segmentSummary: "Current <summary> & decisions" },
+		);
+		const noSummaryPrompt = renderExtractionUserPrompt("{segment_summary}", []);
+
+		expect(prompt).toContain("Current &lt;summary&gt; &amp; decisions");
+		expect(prompt).toContain("Use SQLite");
+		expect(noSummaryPrompt).toBe("(none)");
+	});
+
 	test("parses valid, wrapped, and repairable JSON", () => {
 		expect(parseExtractionJson('[{"text":"alpha"}]')).toEqual([{ text: "alpha" }]);
 		expect(parseExtractionJson('```json\n{"memories":[{"text":"beta"}]}\n```')).toEqual({

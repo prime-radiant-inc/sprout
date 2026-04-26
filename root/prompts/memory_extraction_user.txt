@@ -1,3 +1,7 @@
+<segment_summary_context>
+{segment_summary}
+</segment_summary_context>
+
 <conversation>
 {formatted_messages}
 </conversation>

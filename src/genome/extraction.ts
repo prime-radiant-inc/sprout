@@ -13,6 +13,7 @@ export interface ExtractionMessage {
 
 export interface ExtractionRequest {
 	messages: readonly ExtractionMessage[];
+	segmentSummary?: string;
 	prompts: PromptSet;
 	client: Client;
 	model: string;
@@ -62,7 +63,15 @@ export async function extractMemoryDrafts(
 		provider: request.provider,
 		messages: [
 			Msg.system(request.prompts.system),
-			Msg.user(renderExtractionUserPrompt(request.prompts.user, request.messages)),
+			Msg.user(
+				renderExtractionUserPrompt(
+					request.prompts.user,
+					request.messages,
+					request.segmentSummary === undefined
+						? undefined
+						: { segmentSummary: request.segmentSummary },
+				),
+			),
 		],
 		temperature: 0.1,
 		max_tokens: request.maxTokens ?? 2048,
@@ -74,8 +83,11 @@ export async function extractMemoryDrafts(
 export function renderExtractionUserPrompt(
 	template: string,
 	messages: readonly ExtractionMessage[],
+	options: { segmentSummary?: string } = {},
 ): string {
-	return template.replace("{formatted_messages}", formatExtractionMessages(messages));
+	return template
+		.replace("{formatted_messages}", formatExtractionMessages(messages))
+		.replace("{segment_summary}", formattedSegmentSummary(options.segmentSummary));
 }
 
 export function formatExtractionMessages(messages: readonly ExtractionMessage[]): string {
@@ -97,6 +109,11 @@ export function parseExtractionJson(text: string): unknown {
 	} catch {
 		return JSON.parse(repairJson(stripped));
 	}
+}
+
+function formattedSegmentSummary(summary: string | undefined): string {
+	const trimmed = summary?.trim();
+	return trimmed ? escapeXml(trimmed) : "(none)";
 }
 
 export function normalizeExtractionPayload(payload: unknown): ExtractedMemoryDraft[] {

@@ -10,6 +10,7 @@ import {
 	renderCollapseTranscript,
 } from "../../src/core/session-collapse.ts";
 import type { Genome } from "../../src/genome/genome.ts";
+import type { MemorySegment } from "../../src/genome/segments.ts";
 import type { SessionEvent } from "../../src/kernel/types.ts";
 import type { Client } from "../../src/llm/client.ts";
 import type { EmbeddingProvider } from "../../src/llm/embeddings.ts";
@@ -38,7 +39,7 @@ function makeResponse(text: string): Response {
 	};
 }
 
-function makeClientSequence(responses: string[]): Client {
+function makeClientSequence(responses: string[], onRequest?: (request: Request) => void): Client {
 	let index = 0;
 	const modelsByProvider = new Map<string, ProviderModel[]>([
 		["anthropic", [{ id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", source: "remote" }]],
@@ -46,12 +47,31 @@ function makeClientSequence(responses: string[]): Client {
 	return {
 		providers: () => ["anthropic"],
 		listModelsByProvider: async () => modelsByProvider,
-		complete: async (_request: Request) => {
+		complete: async (request: Request) => {
+			onRequest?.(request);
 			const response = responses[index] ?? responses.at(-1) ?? "[]";
 			index++;
 			return makeResponse(response);
 		},
 	} as unknown as Client;
+}
+
+function memorySegment(
+	fields: Partial<MemorySegment> & { id: string; summary: string },
+): MemorySegment {
+	return {
+		session_id: "previous-session",
+		title: "Previous segment",
+		started_at: 0,
+		ended_at: 0,
+		created_at: 0,
+		message_count: 1,
+		project_id: "sprout",
+		project_confidence: 1,
+		complexity: 1,
+		source: "session-collapse",
+		...fields,
+	};
 }
 
 function embeddingProviderThatFailsOnCall(failCall: number): EmbeddingProvider {
@@ -320,6 +340,75 @@ abc123
 		expect(prompts[1]).toContain("check collapse evidence");
 		expect(prompts[1]).toContain("delegation outcomes include durable implementation facts.");
 		expect(prompts[1]).toContain("Root finished with local SQLite implementation details.");
+	});
+
+	test("passes previous segment summaries and current summary context to collapse prompts", async () => {
+		const workDir = join(tempDir, "work-continuity");
+		await mkdir(workDir, { recursive: true });
+		const prompts: string[] = [];
+		const client = makeClientSequence(
+			[
+				JSON.stringify({
+					summary: "Current <summary> keeps SQLite continuity.",
+					title: "Current continuity",
+					complexity: 1,
+				}),
+				"[]",
+			],
+			(request) => {
+				const prompt = request.messages[1];
+				prompts.push(prompt ? messageText(prompt) : "");
+			},
+		);
+		const previousSegments = [
+			memorySegment({ id: "previous-0", summary: "Oldest excluded summary", ended_at: 10 }),
+			memorySegment({ id: "previous-1", summary: "Summary one", ended_at: 20 }),
+			memorySegment({ id: "previous-2", summary: "Summary two", ended_at: 30 }),
+			memorySegment({ id: "previous-3", summary: "Summary three", ended_at: 40 }),
+			memorySegment({ id: "previous-4", summary: "Summary four", ended_at: 50 }),
+			memorySegment({ id: "previous-5", summary: "Summary <five>", ended_at: 60 }),
+		];
+		const genome = {
+			segments: { all: () => previousSegments },
+			memories: { all: () => [] },
+			loadSegmentSummaryPrompts: async () => ({
+				system: "Summarize.",
+				user: "<previous_segment_summaries>\n{previous_summaries}\n</previous_segment_summaries>\n{formatted_messages}",
+			}),
+			loadMemoryExtractionPrompts: async () => ({
+				system: "Extract.",
+				user: "<segment_summary_context>\n{segment_summary}\n</segment_summary_context>\n{formatted_messages}",
+			}),
+			memoryEmbeddingProvider: async () => {
+				throw new Error("empty extraction should not load embeddings");
+			},
+			addSegmentWithMemories: async (_segment: unknown, memories: readonly unknown[]) => memories,
+		} as unknown as Genome;
+
+		const result = await collapseSessionToMemory({
+			events: [
+				event("perceive", 100, { goal: "Continue the SQLite memory implementation." }),
+				event("session_end", 200, { output: "Continuity prompt wired." }),
+			],
+			genome,
+			client,
+			model: "claude-sonnet-4-6",
+			provider: "anthropic",
+			sessionId: "session-collapse-continuity",
+			cwd: workDir,
+			project: { id: "sprout", name: "sprout", confidence: 1, source: "explicit" },
+			now: 300,
+		});
+
+		expect(result).not.toBe("skipped");
+		expect(prompts[0]).not.toContain("Oldest excluded summary");
+		expect(prompts[0]).toContain("- Summary one");
+		expect(prompts[0]).toContain("- Summary two");
+		expect(prompts[0]).toContain("- Summary three");
+		expect(prompts[0]).toContain("- Summary four");
+		expect(prompts[0]).toContain("- Summary &lt;five&gt;");
+		expect(prompts[1]).toContain("Current &lt;summary&gt; keeps SQLite continuity.");
+		expect(prompts[1]).toContain("Continue the SQLite memory implementation.");
 	});
 
 	test("skips duplicate embedding work when extraction returns no drafts", async () => {

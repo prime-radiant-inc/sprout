@@ -8,6 +8,9 @@ Rules:
   summaries, final outputs, tool outcomes, and delegation outcomes.
 - Assistant/root evidence is a source only for what happened, what was decided,
   what failed, or what was verified. Do not store unsupported speculation.
+- Segment summary context, if present, helps interpret the transcript but is not
+  a source for new facts. Extracted memories must be grounded in transcript
+  messages.
 - Keep only information useful weeks or months later: project decisions,
   constraints, preferences, recurring failures, architecture facts, commands,
   paths, and operational lessons.
@@ -37,7 +40,11 @@ Each item:
   "expires_at": "optional ISO-8601 timestamp"
 }`;
 
-export const MEMORY_EXTRACTION_USER_PROMPT = `<conversation>
+export const MEMORY_EXTRACTION_USER_PROMPT = `<segment_summary_context>
+{segment_summary}
+</segment_summary_context>
+
+<conversation>
 {formatted_messages}
 </conversation>
 
@@ -61,7 +68,11 @@ Rules:
 - Use absolute dates if dates are important.
 - Complexity is 1 for simple, 2 for moderate, 3 for complex.`;
 
-export const SEGMENT_SUMMARY_USER_PROMPT = `<session_transcript>
+export const SEGMENT_SUMMARY_USER_PROMPT = `<previous_segment_summaries>
+{previous_summaries}
+</previous_segment_summaries>
+
+<session_transcript>
 {formatted_messages}
 </session_transcript>
 

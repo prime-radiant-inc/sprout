@@ -1,7 +1,7 @@
 // biome-ignore-all lint/suspicious/noTemplateCurlyInString: embedded root files contain literal source text.
 export const embeddedRootBundle = {
-	version: "16c078e6de1e6b4dc581d4cb56a15617eaca04690138c3a9e5a57fcf31ac1e75",
-	hash: "16c078e6de1e6b4dc581d4cb56a15617eaca04690138c3a9e5a57fcf31ac1e75",
+	version: "aefe96821f7b0feb677999f9f09f1d7ea38b313975cdd62e2c09683689a3a473",
+	hash: "aefe96821f7b0feb677999f9f09f1d7ea38b313975cdd62e2c09683689a3a473",
 	files: [
 		{
 			path: "agents/architect.md",
@@ -191,12 +191,12 @@ export const embeddedRootBundle = {
 		{
 			path: "prompts/memory_extraction_system.txt",
 			content:
-				'You extract durable Sprout memories from coding-agent transcripts.\n\nRules:\n- Extract from user-authored content and root-agent session evidence: plan\n  summaries, final outputs, tool outcomes, and delegation outcomes.\n- Assistant/root evidence is a source only for what happened, what was decided,\n  what failed, or what was verified. Do not store unsupported speculation.\n- Keep only information useful weeks or months later: project decisions,\n  constraints, preferences, recurring failures, architecture facts, commands,\n  paths, and operational lessons.\n- Skip ephemeral task status, generic reference facts, and one-off actions that\n  do not reveal a durable pattern.\n- Write each memory as a direct factual statement. Lead with the core fact.\n- Preserve precise nouns: file paths, commands, APIs, model names, thresholds,\n  error messages, and project names.\n- Do not use relative time words like today, yesterday, or tomorrow.\n- Do not invent implications that are not grounded in the transcript.\n\nRespond with only valid JSON. No markdown, no code fences.\n\nReturn an array. If nothing should be stored, return [].\n\nEach item:\n{\n  "text": "string",\n  "tags": ["optional", "strings"],\n  "entities": [\n    {\n      "name": "string",\n      "type": "PROJECT|LIBRARY|FILE_PATH|COMMAND|ERROR_TYPE|TECHNOLOGY|PERSON"\n    }\n  ],\n  "happens_at": "optional ISO-8601 timestamp",\n  "expires_at": "optional ISO-8601 timestamp"\n}\n',
+				'You extract durable Sprout memories from coding-agent transcripts.\n\nRules:\n- Extract from user-authored content and root-agent session evidence: plan\n  summaries, final outputs, tool outcomes, and delegation outcomes.\n- Assistant/root evidence is a source only for what happened, what was decided,\n  what failed, or what was verified. Do not store unsupported speculation.\n- Segment summary context, if present, helps interpret the transcript but is not\n  a source for new facts. Extracted memories must be grounded in transcript\n  messages.\n- Keep only information useful weeks or months later: project decisions,\n  constraints, preferences, recurring failures, architecture facts, commands,\n  paths, and operational lessons.\n- Skip ephemeral task status, generic reference facts, and one-off actions that\n  do not reveal a durable pattern.\n- Write each memory as a direct factual statement. Lead with the core fact.\n- Preserve precise nouns: file paths, commands, APIs, model names, thresholds,\n  error messages, and project names.\n- Do not use relative time words like today, yesterday, or tomorrow.\n- Do not invent implications that are not grounded in the transcript.\n\nRespond with only valid JSON. No markdown, no code fences.\n\nReturn an array. If nothing should be stored, return [].\n\nEach item:\n{\n  "text": "string",\n  "tags": ["optional", "strings"],\n  "entities": [\n    {\n      "name": "string",\n      "type": "PROJECT|LIBRARY|FILE_PATH|COMMAND|ERROR_TYPE|TECHNOLOGY|PERSON"\n    }\n  ],\n  "happens_at": "optional ISO-8601 timestamp",\n  "expires_at": "optional ISO-8601 timestamp"\n}\n',
 		},
 		{
 			path: "prompts/memory_extraction_user.txt",
 			content:
-				"<conversation>\n{formatted_messages}\n</conversation>\n\nExtract new durable memories from the conversation above. Return only JSON.\n",
+				"<segment_summary_context>\n{segment_summary}\n</segment_summary_context>\n\n<conversation>\n{formatted_messages}\n</conversation>\n\nExtract new durable memories from the conversation above. Return only JSON.\n",
 		},
 		{
 			path: "prompts/memory_relationship_classification.txt",
@@ -211,7 +211,7 @@ export const embeddedRootBundle = {
 		{
 			path: "prompts/segment_summary_user.txt",
 			content:
-				"<session_transcript>\n{formatted_messages}\n</session_transcript>\n\nSummarize this completed session for future recall. Return only JSON.\n",
+				"<previous_segment_summaries>\n{previous_summaries}\n</previous_segment_summaries>\n\n<session_transcript>\n{formatted_messages}\n</session_transcript>\n\nSummarize this completed session for future recall. Return only JSON.\n",
 		},
 		{
 			path: "prompts/subcortical_recall.txt",

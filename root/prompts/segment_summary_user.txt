@@ -1,3 +1,7 @@
+<previous_segment_summaries>
+{previous_summaries}
+</previous_segment_summaries>
+
 <session_transcript>
 {formatted_messages}
 </session_transcript>

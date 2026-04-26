@@ -5,6 +5,9 @@ Rules:
   summaries, final outputs, tool outcomes, and delegation outcomes.
 - Assistant/root evidence is a source only for what happened, what was decided,
   what failed, or what was verified. Do not store unsupported speculation.
+- Segment summary context, if present, helps interpret the transcript but is not
+  a source for new facts. Extracted memories must be grounded in transcript
+  messages.
 - Keep only information useful weeks or months later: project decisions,
   constraints, preferences, recurring failures, architecture facts, commands,
   paths, and operational lessons.
