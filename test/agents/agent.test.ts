@@ -2102,6 +2102,64 @@ describe("Agent", () => {
 		expect(archivistSystemPrompt).not.toContain("Do not inject this into archivist.");
 	});
 
+	test("direct root archivist gains authorized memory write tools from the run goal", async () => {
+		const archivistSpec: AgentSpec = {
+			...leafSpec,
+			name: "archivist",
+			description: "Memory investigation",
+			tools: ["memory_search", "memory_archive"],
+			agents: [],
+		};
+		let toolNames: string[] = [];
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (request: Request): Promise<Response> => {
+				toolNames = request.tools?.map((tool) => tool.name) ?? [];
+				return {
+					id: "mock-root-archivist-auth",
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant("Done."),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+		const fakeGenome = {
+			generation: 0,
+			allAgents: () => [archivistSpec],
+			searchMemories: async () => [],
+			matchRoutingRules: () => [],
+			markMemoriesUsed: async () => {},
+			refreshIfDiskChanged: async () => false,
+			loadAgentTools: async () => [],
+			agentDir: () => tmpdir(),
+			memories: { all: () => [] },
+		} as unknown as Genome;
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env, {
+			genome: fakeGenome,
+			agentName: "archivist",
+			sessionId: "session-test",
+		});
+		expect(registry.names()).not.toContain("memory_archive");
+		const agent = new Agent({
+			spec: archivistSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [archivistSpec],
+			genome: fakeGenome,
+			events: new AgentEventEmitter(),
+		});
+
+		await agent.run("I confirm: archive memory mem_old123 because it is stale");
+
+		expect(toolNames).toContain("memory_search");
+		expect(toolNames).toContain("memory_archive");
+	});
+
 	test("agent respects requestCompaction() flag", async () => {
 		// Pad initial history so compactHistory has enough messages to summarize
 		const priorHistory: Message[] = [
@@ -3977,6 +4035,72 @@ describe("Agent", () => {
 
 		await agent.run("I confirm: archive memory mem_old123 because it is stale");
 		await agent.continue("Search memory only; do not mutate anything");
+
+		expect(spawnCalls).toHaveLength(1);
+		expect(spawnCalls[0]!.trustedUserInstruction).toBe(
+			"Search memory only; do not mutate anything",
+		);
+	});
+
+	test("root steering scopes trusted memory authorization to the latest steering message", async () => {
+		const rootWithArchivist: AgentSpec = { ...rootSpec, agents: ["archivist"] };
+		const archivistSpec: AgentSpec = {
+			...leafSpec,
+			name: "archivist",
+			tools: [],
+			agents: [],
+		};
+		const delegateMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-archivist-steering",
+						name: "delegate",
+						arguments: JSON.stringify({
+							agent_name: "archivist",
+							goal: "curate memory",
+							blocking: true,
+						}),
+					},
+				},
+			],
+		};
+		const doneMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "Done." }],
+		};
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				return {
+					id: `mock-steering-trusted-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: callCount === 1 ? delegateMsg : doneMsg,
+					finish_reason: { reason: callCount === 1 ? "tool_calls" : "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+		const { spawner, spawnCalls } = createMockSpawner();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const agent = new Agent({
+			spec: rootWithArchivist,
+			env,
+			client: mockClient,
+			primitiveRegistry: createPrimitiveRegistry(env),
+			availableAgents: [rootWithArchivist, archivistSpec],
+			depth: 0,
+			spawner,
+		});
+
+		agent.steer("Search memory only; do not mutate anything");
+		await agent.run("I confirm: archive memory mem_old123 because it is stale");
 
 		expect(spawnCalls).toHaveLength(1);
 		expect(spawnCalls[0]!.trustedUserInstruction).toBe(

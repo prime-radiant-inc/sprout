@@ -14,7 +14,11 @@ import { type RecallOptions, recall } from "../genome/recall.ts";
 import { extractMemoryReferences } from "../genome/render-memory-block.ts";
 import type { ExecutionEnvironment } from "../kernel/execution-env.ts";
 import { checkPathConstraint, validateConstraints } from "../kernel/path-constraints.js";
-import { createPrimitiveRegistry, type PrimitiveRegistry } from "../kernel/primitives.ts";
+import {
+	createPrimitiveRegistry,
+	type Primitive,
+	type PrimitiveRegistry,
+} from "../kernel/primitives.ts";
 import { buildAgentToolPrimitives } from "../kernel/tool-loading.ts";
 import { truncateToolOutput } from "../kernel/truncation.ts";
 import {
@@ -144,7 +148,7 @@ export class Agent {
 	readonly spec: AgentSpec;
 	private readonly env: ExecutionEnvironment;
 	private readonly client: Client;
-	private readonly primitiveRegistry: PrimitiveRegistry;
+	private primitiveRegistry: PrimitiveRegistry;
 	private readonly availableAgents: AgentSpec[];
 	private readonly genome?: Genome;
 	private readonly depth: number;
@@ -153,7 +157,7 @@ export class Agent {
 	private readonly learnProcess?: LearnSink;
 	private readonly resolved: ResolvedModel;
 	private agentTools: ToolDefinition[];
-	private readonly primitiveTools: ToolDefinition[];
+	private primitiveTools: ToolDefinition[];
 	private readonly logBasePath?: string;
 	private readonly replayRecorder?: ReplayRecorder;
 	private readonly preambles?: Preambles;
@@ -181,6 +185,8 @@ export class Agent {
 	private signal?: AbortSignal;
 	private logWriteChain: Promise<void> = Promise.resolve();
 	private steeringQueue: string[] = [];
+	private workspaceToolPrimitives: Primitive[] = [];
+	private workspaceToolDefinitions: ToolDefinition[] = [];
 	private compactionRequested = false;
 	private turnsSinceCompaction = Infinity;
 	private lastGenomeGeneration = 0;
@@ -282,23 +288,7 @@ export class Agent {
 		// Build primitive tool list (provider-aligned). Agents may combine
 		// delegation with explicitly granted deterministic primitives.
 		this.primitiveTools = [];
-		const filteredPrimitiveNames = primitivesForAgent(
-			this.spec.tools,
-			this.primitiveRegistry.names(),
-			this.resolved.provider,
-		);
-
-		for (const name of filteredPrimitiveNames) {
-			const prim = this.primitiveRegistry.get(name);
-			if (prim) {
-				this.primitiveTools.push({
-					name: prim.name,
-					displayName: prim.displayName,
-					description: prim.description,
-					parameters: prim.parameters,
-				});
-			}
-		}
+		this.refreshPrimitiveToolList();
 
 		// Safety: an agent with zero tools will hallucinate — never allow this silently.
 		// If genome exists, workspace tools may load later in run(), so defer the check.
@@ -325,6 +315,61 @@ export class Agent {
 	/** Returns a shallow copy of the current conversation history. */
 	currentHistory(): Message[] {
 		return [...this.history];
+	}
+
+	private specPrimitiveTools(): ToolDefinition[] {
+		const filteredPrimitiveNames = primitivesForAgent(
+			this.spec.tools,
+			this.primitiveRegistry.names(),
+			this.resolved.provider,
+		);
+		return filteredPrimitiveNames.flatMap((name) => {
+			const prim = this.primitiveRegistry.get(name);
+			if (!prim) return [];
+			return [
+				{
+					name: prim.name,
+					displayName: prim.displayName,
+					description: prim.description,
+					parameters: prim.parameters,
+				},
+			];
+		});
+	}
+
+	private refreshPrimitiveToolList(): void {
+		this.primitiveTools = [...this.specPrimitiveTools(), ...this.workspaceToolDefinitions];
+	}
+
+	private currentMemoryWriteAuthorization(): MemoryWriteAuthorization | undefined {
+		return deriveTrustedMemoryWriteAuthorization({
+			agentName: this.spec.name,
+			userInstruction: this.trustedUserInstruction,
+		});
+	}
+
+	private rebuildPrimitiveRegistryForCurrentAgent(): void {
+		if (!this.genome) return;
+		const writeAuthorization = this.currentMemoryWriteAuthorization();
+		this.primitiveRegistry = createPrimitiveRegistry(
+			this.env,
+			{
+				genome: this.genome,
+				agentName: this.spec.name,
+				sessionId: this.sessionId,
+				...(writeAuthorization ? { writeAuthorization } : {}),
+			},
+			{ evalMode: this.evalMode },
+		);
+		for (const prim of this.workspaceToolPrimitives) {
+			this.primitiveRegistry.register(prim);
+		}
+		this.refreshPrimitiveToolList();
+	}
+
+	private updateTrustedUserInstruction(instruction: string): void {
+		this.trustedUserInstruction = instruction;
+		this.rebuildPrimitiveRegistryForCurrentAgent();
 	}
 
 	/** Inject a steering message into the agent loop for the next iteration. */
@@ -1125,7 +1170,7 @@ export class Agent {
 		const agentId = this.agentId ?? this.spec.name;
 		this.signal = signal;
 		if (this.depth === 0) {
-			this.trustedUserInstruction = goal;
+			this.updateTrustedUserInstruction(goal);
 		}
 
 		// Ensure log directory exists
@@ -1197,15 +1242,17 @@ export class Agent {
 					env: this.env,
 					agentName: this.spec.name,
 				});
+				this.workspaceToolPrimitives = toolPrims;
+				this.workspaceToolDefinitions = toolPrims.map((prim) => ({
+					name: prim.name,
+					displayName: prim.displayName,
+					description: prim.description,
+					parameters: prim.parameters,
+				}));
 				for (const prim of toolPrims) {
 					this.primitiveRegistry.register(prim);
-					this.primitiveTools.push({
-						name: prim.name,
-						displayName: prim.displayName,
-						description: prim.description,
-						parameters: prim.parameters,
-					});
 				}
+				this.refreshPrimitiveToolList();
 			}
 
 			// Add both genome and root tool directories to PATH
@@ -1284,7 +1331,7 @@ export class Agent {
 		const agentId = this.agentId ?? this.spec.name;
 		this.signal = signal;
 		if (this.depth === 0) {
-			this.trustedUserInstruction = message;
+			this.updateTrustedUserInstruction(message);
 		}
 		const followUpMessage =
 			`Follow-up context from your caller for the same task:\n\n${message}\n\n` +
@@ -1594,6 +1641,9 @@ export class Agent {
 				// Drain steering messages and inject as user messages
 				const steered = this.drainSteering();
 				for (const text of steered) {
+					if (this.depth === 0) {
+						this.updateTrustedUserInstruction(text);
+					}
 					this.history.push(Msg.user(text));
 					this.emitAndLog("steering", agentId, this.depth, { text });
 				}
