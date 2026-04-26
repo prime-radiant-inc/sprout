@@ -40,6 +40,8 @@ export interface SpawnAgentOptions {
 	resolverSettings?: ResolverSettings;
 	/** Original user instruction, trusted for deterministic runtime policy gates. */
 	trustedUserInstruction?: string;
+	/** Precomputed memory context inherited from the root session. Empty string suppresses it. */
+	surfacedMemoryBlock?: string;
 }
 
 /** A pending waitAgent() promise that can be resolved or rejected. */
@@ -83,6 +85,7 @@ export interface AgentHandle {
 	providerIdOverride?: string;
 	resolverSettings?: ResolverSettings;
 	trustedUserInstruction?: string;
+	surfacedMemoryBlock?: string;
 }
 
 /**
@@ -359,6 +362,7 @@ export class AgentSpawner {
 			providerIdOverride: opts.providerIdOverride,
 			resolverSettings: opts.resolverSettings,
 			trustedUserInstruction: opts.trustedUserInstruction,
+			surfacedMemoryBlock: opts.surfacedMemoryBlock,
 		};
 		this.handles.set(handleId, handle);
 		this.monitorProcessExit(handleId, proc);
@@ -386,6 +390,7 @@ export class AgentSpawner {
 			provider_id: opts.providerIdOverride,
 			resolver_settings: opts.resolverSettings,
 			trusted_user_instruction: opts.trustedUserInstruction,
+			surfaced_memory_block: opts.surfacedMemoryBlock,
 		};
 		await this.bus.publish(inboxTopic, JSON.stringify(startMsg));
 
@@ -563,6 +568,7 @@ export class AgentSpawner {
 			provider_id: handle.providerIdOverride,
 			resolver_settings: handle.resolverSettings,
 			trusted_user_instruction: handle.trustedUserInstruction,
+			surfaced_memory_block: handle.surfacedMemoryBlock,
 		};
 		await this.bus.publish(inboxTopic, JSON.stringify(startMsg));
 
@@ -593,6 +599,7 @@ export class AgentSpawner {
 			providerIdOverride?: string;
 			resolverSettings?: ResolverSettings;
 			trustedUserInstruction?: string;
+			surfacedMemoryBlock?: string;
 		},
 	): void {
 		// Skip if the handle already exists (e.g. re-spawned since the
@@ -619,6 +626,7 @@ export class AgentSpawner {
 			providerIdOverride: spawnInfo?.providerIdOverride,
 			resolverSettings: spawnInfo?.resolverSettings,
 			trustedUserInstruction: spawnInfo?.trustedUserInstruction,
+			surfacedMemoryBlock: spawnInfo?.surfacedMemoryBlock,
 		};
 		this.handles.set(handleId, handle);
 	}

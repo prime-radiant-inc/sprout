@@ -61,7 +61,7 @@ describe("recall pipeline", () => {
 		expect(result.map((item) => item.memory.id)).toEqual(["m-sprout"]);
 	});
 
-	test("merges similarity and hub pools with debut boost and supersedes penalty", () => {
+	test("merges similarity and hub pools while excluding superseded memories", () => {
 		const newMemory = memory({ id: "new", content: "new local embedding decision" });
 		const superseded = memory({
 			id: "old",
@@ -71,7 +71,7 @@ describe("recall pipeline", () => {
 		});
 		const merged = mergeAndRankMemories([superseded], [newMemory], 2);
 
-		expect(merged.map((item) => item.id)).toEqual(["new", "old"]);
+		expect(merged.map((item) => item.id)).toEqual(["new"]);
 	});
 
 	test("pinned memories are retained ahead of weak recall matches", () => {

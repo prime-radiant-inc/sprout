@@ -743,7 +743,7 @@ export class Agent {
 				agentTreeChildren: subTreeChildren,
 				agentTreeSelfPath: subTreeSelfPath,
 				enableStreaming: this.enableStreaming,
-				surfacedMemoryBlock: subagentSpec.name === "archivist" ? "" : this.surfacedMemoryBlock,
+				surfacedMemoryBlock: this.childSurfacedMemoryBlock(subagentSpec.name),
 				trustedUserInstruction: this.trustedUserInstruction,
 			});
 
@@ -813,6 +813,11 @@ export class Agent {
 			});
 			return { toolResultMsg, stumbles: 1 };
 		}
+	}
+
+	private childSurfacedMemoryBlock(agentName: string): string | undefined {
+		if (agentName === "archivist") return "";
+		return this.surfacedMemoryBlock ?? this.initialSurfacedMemoryBlock;
 	}
 
 	private primitiveRegistryForAgent(
@@ -922,6 +927,7 @@ export class Agent {
 				providerIdOverride: this.resolved.provider,
 				resolverSettings: this.resolverSettings,
 				trustedUserInstruction: this.trustedUserInstruction,
+				surfacedMemoryBlock: this.childSurfacedMemoryBlock(delegation.agent_name),
 			});
 
 			if (typeof result === "string") {

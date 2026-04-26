@@ -27,6 +27,8 @@ export interface StartMessage {
 	resolver_settings?: ResolverSettings;
 	/** Original user instruction, trusted for deterministic runtime policy gates. */
 	trusted_user_instruction?: string;
+	/** Precomputed memory context inherited from the root session. Empty string suppresses it. */
+	surfaced_memory_block?: string;
 }
 
 /** Sent to a completed/idle agent to continue conversation */

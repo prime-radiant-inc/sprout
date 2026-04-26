@@ -246,6 +246,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 				providerIdOverride: startMsg.provider_id,
 				resolverSettings: startMsg.resolver_settings,
 				trustedUserInstruction: startMsg.trusted_user_instruction,
+				surfacedMemoryBlock: startMsg.surfaced_memory_block,
 			});
 		}
 
@@ -301,6 +302,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 			agentTreeChildren,
 			agentTreeSelfPath,
 			enableStreaming: true,
+			surfacedMemoryBlock: startMsg.surfaced_memory_block,
 			trustedUserInstruction: startMsg.trusted_user_instruction,
 		});
 

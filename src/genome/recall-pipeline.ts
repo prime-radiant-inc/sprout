@@ -1,6 +1,7 @@
 import type { Memory } from "../kernel/types.ts";
 import type { Genome } from "./genome.ts";
 import { discoverEntityHubMemories } from "./hub-discovery.ts";
+import { isActiveMemoryForRecall } from "./memory-lifecycle.ts";
 import { renderMemoryBlock } from "./render-memory-block.ts";
 import { expandedRecallQuery, type SubcorticalRecallExpansion } from "./subcortical.ts";
 
@@ -31,18 +32,22 @@ export async function surfaceMemories(
 ): Promise<SurfacedMemoryBlock> {
 	const limit = options.limit ?? 5;
 	const allMemories = allGenomeMemories(genome);
+	const activeMemories = allMemories.filter(isActiveMemoryForRecall);
 	const recallQuery = options.subcorticalExpansion
 		? expandedRecallQuery(query, options.subcorticalExpansion)
 		: query;
 	const entityHints = options.subcorticalExpansion?.entities.map((entity) => entity.name) ?? [];
-	const pinnedPool = pinnedMemories(allMemories, [
+	const pinnedPool = pinnedMemories(activeMemories, [
 		...(options.pinnedMemoryIds ?? []),
 		...(options.subcorticalExpansion?.pinned_memory_ids ?? []),
 	]);
 	const similarityPool = await genome.searchMemories(recallQuery, limit * 2, 0.3);
-	const hubPool = discoverEntityHubMemories(allMemories, recallQuery, limit * 2, entityHints).map(
-		(result) => result.memory,
-	);
+	const hubPool = discoverEntityHubMemories(
+		activeMemories,
+		recallQuery,
+		limit * 2,
+		entityHints,
+	).map((result) => result.memory);
 	const memories = mergeAndRankMemories(similarityPool, hubPool, limit, { pinnedPool });
 	return {
 		memories,
@@ -73,7 +78,7 @@ export function mergeAndRankMemories(
 		addRanked(ranked, memory, 0.8 / (index + 1));
 	}
 	return [...ranked.values()]
-		.filter(({ memory }) => !memory.archived_at)
+		.filter(({ memory }) => isActiveMemoryForRecall(memory))
 		.map(({ memory, score }) => ({
 			memory,
 			score: adjustedScore(memory, score),
@@ -117,7 +122,7 @@ function pinnedMemories(memories: readonly Memory[], ids: readonly string[]): Me
 	if (ids.length === 0) return [];
 	const normalized = new Set(ids.map((id) => id.toLowerCase()));
 	return memories.filter((memory) => {
-		if (memory.archived_at) return false;
+		if (!isActiveMemoryForRecall(memory)) return false;
 		return (
 			normalized.has(memory.id.toLowerCase()) ||
 			normalized.has((memory.short_id ?? "").toLowerCase())

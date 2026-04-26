@@ -3804,6 +3804,7 @@ describe("Agent", () => {
 			availableAgents: [rootSpec, leafSpec],
 			depth: 0,
 			spawner,
+			surfacedMemoryBlock: "<memory_context>cached</memory_context>",
 		});
 
 		await agent.run("hints test");
@@ -3811,6 +3812,71 @@ describe("Agent", () => {
 		expect(spawnCalls).toHaveLength(1);
 		expect(spawnCalls[0]!.hints).toEqual(["hint one", "hint two"]);
 		expect(spawnCalls[0]!.shared).toBe(true);
+		expect(spawnCalls[0]!.surfacedMemoryBlock).toBe("<memory_context>cached</memory_context>");
+	});
+
+	test("with spawner, archivist delegation suppresses surfaced memory block", async () => {
+		const rootWithArchivist: AgentSpec = { ...rootSpec, agents: ["archivist"] };
+		const archivistSpec: AgentSpec = {
+			...leafSpec,
+			name: "archivist",
+			tools: [],
+			agents: [],
+		};
+		const delegateMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-archivist-spawn",
+						name: "delegate",
+						arguments: JSON.stringify({
+							agent_name: "archivist",
+							goal: "investigate memory",
+							blocking: true,
+						}),
+					},
+				},
+			],
+		};
+		const rootDoneMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "Done." }],
+		};
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				return {
+					id: `mock-archivist-spawn-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: callCount === 1 ? delegateMsg : rootDoneMsg,
+					finish_reason: { reason: callCount === 1 ? "tool_calls" : "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+		const { spawner, spawnCalls } = createMockSpawner();
+		const agent = new Agent({
+			spec: rootWithArchivist,
+			env: new LocalExecutionEnvironment(tmpdir()),
+			client: mockClient,
+			primitiveRegistry: createPrimitiveRegistry(new LocalExecutionEnvironment(tmpdir())),
+			availableAgents: [rootWithArchivist, archivistSpec],
+			depth: 0,
+			spawner,
+			surfacedMemoryBlock: "<memory_context>cached</memory_context>",
+		});
+
+		await agent.run("archivist spawn test");
+
+		expect(spawnCalls).toHaveLength(1);
+		expect(spawnCalls[0]!.agentName).toBe("archivist");
+		expect(spawnCalls[0]!.surfacedMemoryBlock).toBe("");
 	});
 
 	test("with spawner, blocking delegation emits verify and learn_signal events on failure", async () => {
