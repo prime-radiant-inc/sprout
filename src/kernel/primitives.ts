@@ -1,6 +1,7 @@
 import { readFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import type { Genome } from "../genome/genome.ts";
+import { buildReadMemoryPrimitives, buildWriteMemoryPrimitives } from "../genome/memory-tools.ts";
 import { getToolDisplayName } from "../shared/tool-display.ts";
 import type { ExecutionEnvironment } from "./execution-env.ts";
 import { truncateToolOutput } from "./truncation.ts";
@@ -12,6 +13,7 @@ const READ_FILE_LINE_PREFIX_NOTE =
 export interface GenomeContext {
 	genome: Genome;
 	agentName: string;
+	sessionId: string;
 }
 
 export interface Primitive {
@@ -91,7 +93,13 @@ function buildPrimitives(_env: ExecutionEnvironment): Primitive[] {
 }
 
 export function buildWorkspacePrimitives(ctx: GenomeContext): Primitive[] {
-	return [saveToolPrimitive(ctx), saveFilePrimitive(ctx), saveAgentPrimitive(ctx)];
+	return [
+		saveToolPrimitive(ctx),
+		saveFilePrimitive(ctx),
+		saveAgentPrimitive(ctx),
+		...buildReadMemoryPrimitives(ctx),
+		...buildWriteMemoryPrimitives(ctx),
+	];
 }
 
 // ---------------------------------------------------------------------------

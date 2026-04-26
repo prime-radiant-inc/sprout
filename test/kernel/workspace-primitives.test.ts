@@ -22,6 +22,10 @@ function makeSpec(overrides: Partial<AgentSpec> = {}): AgentSpec {
 	};
 }
 
+function genomeContext(genome: Genome, agentName: string) {
+	return { genome, agentName, sessionId: "session-test" };
+}
+
 describe("workspace primitives", () => {
 	let tempDir: string;
 
@@ -41,14 +45,9 @@ describe("workspace primitives", () => {
 			await genome.addAgent(makeSpec({ name: "editor" }));
 
 			const env = new LocalExecutionEnvironment(tempDir);
-			const registry = createPrimitiveRegistry(
-				env,
-				{
-					genome,
-					agentName: "editor",
-				},
-				{ evalMode: true },
-			);
+			const registry = createPrimitiveRegistry(env, genomeContext(genome, "editor"), {
+				evalMode: true,
+			});
 
 			expect(registry.names()).not.toContain("save_tool");
 			expect(registry.names()).not.toContain("save_file");
@@ -61,10 +60,7 @@ describe("workspace primitives", () => {
 			await genome.addAgent(makeSpec({ name: "editor" }));
 
 			const env = new LocalExecutionEnvironment(tempDir);
-			const registry = createPrimitiveRegistry(env, {
-				genome,
-				agentName: "editor",
-			});
+			const registry = createPrimitiveRegistry(env, genomeContext(genome, "editor"));
 
 			expect(registry.names()).toContain("save_tool");
 		});
@@ -83,10 +79,7 @@ describe("workspace primitives", () => {
 			await genome.addAgent(makeSpec({ name: "editor" }));
 
 			const env = new LocalExecutionEnvironment(tempDir);
-			const registry = createPrimitiveRegistry(env, {
-				genome,
-				agentName: "editor",
-			});
+			const registry = createPrimitiveRegistry(env, genomeContext(genome, "editor"));
 
 			const result = await registry.execute("save_tool", {
 				name: "lint-fix",
@@ -119,10 +112,7 @@ describe("workspace primitives", () => {
 			await genome.addAgent(makeSpec({ name: "runner" }));
 
 			const env = new LocalExecutionEnvironment(tempDir);
-			const registry = createPrimitiveRegistry(env, {
-				genome,
-				agentName: "runner",
-			});
+			const registry = createPrimitiveRegistry(env, genomeContext(genome, "runner"));
 
 			const result = await registry.execute("save_tool", {
 				name: "test-run",
@@ -144,10 +134,7 @@ describe("workspace primitives", () => {
 			await genome.addAgent(makeSpec({ name: "editor" }));
 
 			const env = new LocalExecutionEnvironment(tempDir);
-			const registry = createPrimitiveRegistry(env, {
-				genome,
-				agentName: "editor",
-			});
+			const registry = createPrimitiveRegistry(env, genomeContext(genome, "editor"));
 
 			const result = await registry.execute("save_tool", {
 				name: "missing-script",
@@ -167,10 +154,7 @@ describe("workspace primitives", () => {
 			await genome.addAgent(makeSpec({ name: "editor" }));
 
 			const env = new LocalExecutionEnvironment(tempDir);
-			const registry = createPrimitiveRegistry(env, {
-				genome,
-				agentName: "editor",
-			});
+			const registry = createPrimitiveRegistry(env, genomeContext(genome, "editor"));
 
 			expect(registry.names()).toContain("save_file");
 		});
@@ -189,10 +173,7 @@ describe("workspace primitives", () => {
 			await genome.addAgent(makeSpec({ name: "editor" }));
 
 			const env = new LocalExecutionEnvironment(tempDir);
-			const registry = createPrimitiveRegistry(env, {
-				genome,
-				agentName: "editor",
-			});
+			const registry = createPrimitiveRegistry(env, genomeContext(genome, "editor"));
 
 			const result = await registry.execute("save_file", {
 				name: "style-guide.md",
@@ -218,10 +199,7 @@ describe("workspace primitives", () => {
 			await genome.addAgent(makeSpec({ name: "editor" }));
 
 			const env = new LocalExecutionEnvironment(tempDir);
-			const registry = createPrimitiveRegistry(env, {
-				genome,
-				agentName: "editor",
-			});
+			const registry = createPrimitiveRegistry(env, genomeContext(genome, "editor"));
 
 			const result = await registry.execute("save_file", {
 				name: "notes.md",

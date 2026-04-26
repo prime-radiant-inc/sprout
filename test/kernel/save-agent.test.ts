@@ -16,7 +16,11 @@ describe("save_agent primitive", () => {
 		genome = new Genome(tempDir);
 		await genome.init();
 		const env = new LocalExecutionEnvironment(tempDir);
-		registry = createPrimitiveRegistry(env, { genome, agentName: "qm-fabricator" });
+		registry = createPrimitiveRegistry(env, {
+			genome,
+			agentName: "qm-fabricator",
+			sessionId: "session-test",
+		});
 	});
 
 	afterEach(async () => {
@@ -37,7 +41,7 @@ describe("save_agent primitive", () => {
 		const env = new LocalExecutionEnvironment(tempDir);
 		const evalRegistry = createPrimitiveRegistry(
 			env,
-			{ genome, agentName: "qm-fabricator" },
+			{ genome, agentName: "qm-fabricator", sessionId: "session-test" },
 			{ evalMode: true },
 		);
 		expect(evalRegistry.names()).not.toContain("save_agent");

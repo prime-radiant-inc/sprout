@@ -167,7 +167,12 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 	const workDir = options.workDir ?? process.cwd();
 	const env = new LocalExecutionEnvironment(workDir);
 	const client = options.client ?? Client.fromEnv();
-	const registry = createPrimitiveRegistry(env, undefined, { evalMode: options.evalMode });
+	const sessionId = options.sessionId ?? ulid();
+	const registry = createPrimitiveRegistry(
+		env,
+		{ genome, agentName: rootName, sessionId },
+		{ evalMode: options.evalMode },
+	);
 	const preambles = options.rootDir ? await loadPreambles(options.rootDir) : undefined;
 	const projectDocs = await loadProjectDocs({ cwd: workDir });
 	const genomePostscripts = await runtimeGenome.loadPostscripts();
@@ -194,7 +199,6 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 				logger: options.logger,
 			});
 
-	const sessionId = options.sessionId ?? ulid();
 	const logBasePath = join(dataDir, "logs", sessionId);
 
 	// Scan the agent tree for path-based delegation resolution

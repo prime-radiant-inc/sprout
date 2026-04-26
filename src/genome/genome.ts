@@ -308,6 +308,19 @@ export class Genome {
 		await rebuildMemoryIndexFromJsonl(this.rootPath);
 	}
 
+	/** Persist memory metadata mutations, committing JSONL and rebuilding the derived index. */
+	async saveMemoryMutation(commitMessage: string): Promise<void> {
+		await this.memories.save();
+		const memoriesPath = join(this.rootPath, "memories", "memories.jsonl");
+		await git(this.rootPath, "add", memoriesPath);
+		const status = await git(this.rootPath, "status", "--porcelain", "--", memoriesPath);
+		if (!status) {
+			throw new Error("memory mutation produced no changes");
+		}
+		await git(this.rootPath, "commit", "-m", commitMessage);
+		await rebuildMemoryIndexFromJsonl(this.rootPath);
+	}
+
 	/** Add a collapsed session segment, committing the JSONL file. */
 	async addSegment(segment: MemorySegment): Promise<void> {
 		const embeddedSegment = await attachReadySegmentEmbedding(

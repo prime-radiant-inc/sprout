@@ -468,6 +468,32 @@ describe("Genome", () => {
 			}
 		});
 
+		test("saveMemoryMutation commits JSONL changes and rebuilds index", async () => {
+			const root = join(tempDir, "mem-mutation");
+			const genome = await createInitializedGenome(root);
+
+			await genome.addMemory(makeMemory({ id: "genome-mem-mutate", content: "mutable fact" }));
+			const memory = genome.memories.getById("genome-mem-mutate");
+			expect(memory).toBeDefined();
+			memory!.archived_at = 12345;
+			memory!.archived_reason = "mutation test";
+			await genome.saveMemoryMutation("genome: archive memory 'genome-mem-mutate'");
+
+			const status = await git(root, "status", "--porcelain");
+			expect(status).toBe("");
+			const log = await git(root, "log", "--oneline");
+			expect(log).toContain("genome: archive memory 'genome-mem-mutate'");
+			const content = await readFile(join(root, "memories", "memories.jsonl"), "utf-8");
+			expect(content).toContain('"archived_at":12345');
+
+			const index = MemoryIndex.open(memoryIndexPath(root));
+			try {
+				expect(index.stats()).toMatchObject({ memoryCount: 1, embeddingCount: 1 });
+			} finally {
+				index.close();
+			}
+		});
+
 		test("addMemory fails before writing when embedding generation fails", async () => {
 			const root = join(tempDir, "mem-add-embedding-fails");
 			await cp(initTemplateDir, root, { recursive: true });
