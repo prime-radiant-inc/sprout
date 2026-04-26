@@ -972,6 +972,26 @@ describe("Genome", () => {
 			expect(await git(root, "status", "--porcelain")).toBe("");
 		});
 
+		test("addSegmentWithMemories validates memories against fresh locked disk state", async () => {
+			const root = join(tempDir, "segment-memory-fresh-validation");
+			const writer = await createInitializedGenome(root);
+			const staleGenome = createTestGenome(root);
+			await staleGenome.loadFromDisk();
+			await writer.addMemory(makeMemory({ id: "fresh-disk-memory", content: "already present" }));
+
+			await expect(
+				staleGenome.addSegmentWithMemories(makeSegment({ id: "stale-segment" }), [
+					makeMemory({ id: "fresh-disk-memory", content: "duplicate from stale genome" }),
+				]),
+			).rejects.toThrow("already exists");
+
+			expect(staleGenome.segments.getById("stale-segment")).toBeUndefined();
+			expect(await readOptionalFile(join(root, "memories", "segments.jsonl"))).not.toContain(
+				"stale-segment",
+			);
+			expect(await git(root, "status", "--porcelain")).toBe("");
+		});
+
 		test("addSegmentWithMemories restores JSONL and index when commit fails after rebuild", async () => {
 			const root = join(tempDir, "segment-memory-commit-fails");
 			const genome = await createInitializedGenome(root);

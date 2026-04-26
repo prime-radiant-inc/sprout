@@ -440,16 +440,17 @@ export class Genome {
 			stampMemoryActivitySnapshots(memory, this.projects.all());
 			embeddedMemories.push(await attachReadyMemoryEmbedding(memory, provider));
 		}
-		this.assertCanAddSegmentWithMemories(embeddedSegment, embeddedMemories);
 
 		const segmentsPath = join(this.rootPath, "memories", "segments.jsonl");
 		const memoriesPath = join(this.rootPath, "memories", "memories.jsonl");
 		const filesToAdd = embeddedMemories.length > 0 ? [segmentsPath, memoriesPath] : [segmentsPath];
 		await this.withMemoryWriteLock(async () => {
+			await this.segments.load();
+			await this.memories.load();
+			this.assertCanAddSegmentWithMemories(embeddedSegment, embeddedMemories);
 			const snapshots = await snapshotTextFiles(filesToAdd);
 			let committed = false;
 			try {
-				await this.segments.load();
 				this.segments.stage(embeddedSegment);
 				for (const memory of embeddedMemories) {
 					this.memories.stage(memory);
