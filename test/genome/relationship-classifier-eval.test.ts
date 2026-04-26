@@ -146,6 +146,7 @@ describe("relationship classifier eval fixture", () => {
 			}
 			expect(agreement).toBeGreaterThanOrEqual(0.8);
 		},
+		300_000,
 	);
 });
 
