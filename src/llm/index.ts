@@ -1,6 +1,21 @@
 export { AnthropicAdapter } from "./anthropic.ts";
 export type { ClientOptions, Middleware } from "./client.ts";
 export { Client } from "./client.ts";
+export type {
+	EmbeddingBatchResult,
+	EmbeddingFailure,
+	EmbeddingProvider,
+	EmbeddingSuccess,
+	EmbeddingVector,
+	OpenAIEmbeddingProviderOptions,
+} from "./embeddings.ts";
+export {
+	DEFAULT_EMBEDDING_DIMENSIONS,
+	DEFAULT_EMBEDDING_MODEL,
+	deterministicEmbedding,
+	FakeEmbeddingProvider,
+	OpenAIEmbeddingProvider,
+} from "./embeddings.ts";
 export { GeminiAdapter } from "./gemini.ts";
 export { OpenAIAdapter } from "./openai.ts";
 export type { RetryOptions } from "./retry.ts";
