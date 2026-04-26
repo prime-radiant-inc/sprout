@@ -334,13 +334,25 @@ function memoryLinkPrimitive(ctx: MemoryToolContext): Primitive {
 				reasoning: stringArg(args.reasoning) ?? "",
 				created_at: Date.now(),
 			};
-			from.outbound_links = [...(from.outbound_links ?? []), link];
-			to.inbound_links = [...(to.inbound_links ?? []), { ...link, uuid: from.id }];
-			if (supersedes) {
-				to.superseded_by = from.id;
-				to.updated_at = link.created_at;
+			let changed = false;
+			if (!hasMemoryLink(from.outbound_links, link.uuid, link.type)) {
+				from.outbound_links = [...(from.outbound_links ?? []), link];
+				changed = true;
 			}
-			await ctx.genome.saveMemoryMutation(`genome: link memories '${from.id}' '${to.id}'`);
+			if (!hasMemoryLink(to.inbound_links, from.id, link.type)) {
+				to.inbound_links = [...(to.inbound_links ?? []), { ...link, uuid: from.id }];
+				changed = true;
+			}
+			if (supersedes) {
+				if (to.superseded_by !== from.id) {
+					to.superseded_by = from.id;
+					to.updated_at = link.created_at;
+					changed = true;
+				}
+			}
+			if (changed) {
+				await ctx.genome.saveMemoryMutation(`genome: link memories '${from.id}' '${to.id}'`);
+			}
 			return ok({ linked: from.id, target: to.id, type: link.type });
 		},
 	};
@@ -538,6 +550,14 @@ function memoryAllowed(ctx: MemoryToolContext, memory: Memory): boolean {
 		normalized.has(memory.id.toLowerCase()) ||
 		normalized.has((memory.short_id ?? memoryShortId(memory.id)).toLowerCase())
 	);
+}
+
+function hasMemoryLink(
+	links: readonly MemoryLinkEntry[] | undefined,
+	uuid: string,
+	type: RelationshipType,
+): boolean {
+	return (links ?? []).some((link) => link.uuid === uuid && link.type === type);
 }
 
 function stringArg(value: unknown): string | undefined {

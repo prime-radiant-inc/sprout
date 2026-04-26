@@ -280,6 +280,33 @@ describe("memory tools", () => {
 		});
 	});
 
+	test("memory_link is idempotent for existing relationship links", async () => {
+		const ctx = makeContext([
+			memory({ id: "memory-alpha", short_id: "mem_alpha00" }),
+			memory({ id: "memory-beta", short_id: "mem_beta000" }),
+		]);
+		const commits: string[] = [];
+		ctx.genome.saveMemoryMutation = async (message) => {
+			commits.push(message);
+		};
+		const args = {
+			from_id: "memory-alpha",
+			to_id: "memory-beta",
+			type: "refines",
+			reasoning: "adds implementation detail",
+			explicit_instruction: true,
+		};
+
+		const first = await runTool(ctx, "memory_link", args);
+		const second = await runTool(ctx, "memory_link", args);
+
+		expect(first.success).toBe(true);
+		expect(second.success).toBe(true);
+		expect(ctx.genome.memories.all()[0]?.outbound_links).toHaveLength(1);
+		expect(ctx.genome.memories.all()[1]?.inbound_links).toHaveLength(1);
+		expect(commits).toHaveLength(1);
+	});
+
 	test("memory_link marks target superseded for supersedes relationships", async () => {
 		const ctx = {
 			...makeContext([

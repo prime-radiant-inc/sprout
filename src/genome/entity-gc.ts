@@ -187,6 +187,9 @@ export function normalizeEntityGcDecisionPayload(
 				: group.canonical.name,
 	};
 	const candidateKeys = new Set(group.candidates.map((candidate) => candidate.uuid));
+	if (!candidateKeys.has(canonical.uuid)) {
+		throw new Error("Entity GC merge decision canonical is not in the candidate group");
+	}
 	const aliases = Array.isArray(parsed.aliases)
 		? parsed.aliases
 				.filter(isRecord)

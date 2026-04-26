@@ -110,6 +110,31 @@ describe("entity GC", () => {
 		).toThrow("no aliases");
 	});
 
+	test("rejects merge decisions with invented canonical entities", () => {
+		const group = discoverEntityGcGroups([
+			memory({
+				id: "a",
+				entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
+			}),
+			memory({
+				id: "b",
+				entity_links: [{ uuid: "entity_sprout_alias", type: "PROJECT", name: "sprout" }],
+			}),
+		])[0]!;
+
+		expect(() =>
+			normalizeEntityGcDecisionPayload(
+				group,
+				JSON.stringify({
+					action: "merge",
+					canonical: { uuid: "entity_invented", name: "Invented" },
+					aliases: [{ uuid: "entity_sprout_alias", name: "sprout" }],
+					reasoning: "Only capitalization differs.",
+				}),
+			),
+		).toThrow("canonical is not in the candidate group");
+	});
+
 	test("merge rewrites aliases to canonical entity and archives alias metadata", async () => {
 		const root = await mkdtemp(join(tmpdir(), "sprout-entity-gc-"));
 		try {
