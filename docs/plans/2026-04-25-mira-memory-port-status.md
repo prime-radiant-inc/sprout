@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Phase 9 — Consolidation and entity GC (starting)
+Phase 10 — Subcortical pre-pass (starting)
 
 ## Phase log
 
@@ -14,12 +14,13 @@ Phase 9 — Consolidation and entity GC (starting)
 - Phase 6 — Link graph: completed 2026-04-26
 - Phase 7 — Decay: completed 2026-04-26
 - Phase 8 — Cache strategy: completed 2026-04-26
-- Phase 9 — Consolidation and entity GC: starting
+- Phase 9 — Consolidation and entity GC: completed 2026-04-26
+- Phase 10 — Subcortical pre-pass: starting
 
 ## Current branch / commit
 
 - Branch: `jesse/pri-1354-implement-mira-memory-port-phase-1-foundation`
-- Last verified commit: `6f796ea`
+- Last verified commit: `16f40ff`
 
 ## Open issues
 
@@ -117,6 +118,11 @@ Phase 9 — Consolidation and entity GC (starting)
   breakpoints
 - 2026-04-26: `bun run typecheck` passed after Phase 8 cache routing
 - 2026-04-26: `bun run check` passed after Phase 8 cache routing
+- 2026-04-26: `bun test test/genome/consolidation.test.ts test/genome/entity-gc.test.ts test/genome/memory-index.test.ts test/genome/projects.test.ts test/genome/prompts.test.ts`
+  passed after adding consolidation, entity GC, project-active-day maintenance
+  cadence checks, and FTS5 entity lookup
+- 2026-04-26: `bun run typecheck` passed after Phase 9 maintenance
+- 2026-04-26: `bun run check` passed after Phase 9 maintenance
 
 ## Completed in current slice
 
@@ -177,3 +183,8 @@ Phase 9 — Consolidation and entity GC (starting)
 - Added session+agent prompt-cache context plumbing, Anthropic system/tool plus
   moving history cache breakpoints, OpenAI `prompt_cache_key` threading, and
   cache-token telemetry coverage through existing LLM events/logging
+- Added connected-component memory consolidation discovery, strict consolidation
+  prompt/decision parsing, merge handling that creates a new embedded memory and
+  archives source memories, rejection counters, project-active-day maintenance
+  cadence helpers, FTS5-backed entity lookup, and entity alias GC that preserves
+  archived alias metadata on canonical entity links
