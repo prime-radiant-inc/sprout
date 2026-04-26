@@ -167,17 +167,20 @@ describe("session collapse transcript", () => {
 Authorization: Bearer eyJ${"a".repeat(20)}.eyJ${"b".repeat(20)}.${"c".repeat(20)}
 AWS_ACCESS_KEY_ID=AKIA1234567890ABCDEF
 github_token: ghp_${"d".repeat(36)}
+GITHUB_TOKEN=ghp_${"e".repeat(36)}
 -----BEGIN PRIVATE KEY-----
 abc123
 -----END PRIVATE KEY-----`);
 
-		expect(redacted).toContain("OPENAI_API_KEY=[REDACTED_SECRET]");
+		expect(redacted).toContain("OPENAI_API_KEY=[REDACTED_API_KEY]");
 		expect(redacted).toContain("Bearer [REDACTED_TOKEN]");
-		expect(redacted).toContain("AWS_ACCESS_KEY_ID=[REDACTED_SECRET]");
+		expect(redacted).toContain("AWS_ACCESS_KEY_ID=[REDACTED_AWS_KEY]");
 		expect(redacted).toContain("github_token: [REDACTED_GITHUB_TOKEN]");
+		expect(redacted).toContain("GITHUB_TOKEN=[REDACTED_GITHUB_TOKEN]");
 		expect(redacted).toContain("[REDACTED_PRIVATE_KEY]");
 		expect(redacted).not.toContain(`sk-${"a".repeat(32)}`);
 		expect(redacted).not.toContain(`ghp_${"d".repeat(36)}`);
+		expect(redacted).not.toContain(`ghp_${"e".repeat(36)}`);
 		expect(redacted).not.toContain("abc123");
 	});
 
@@ -409,7 +412,7 @@ abc123
 
 		expect(prompts).toHaveLength(2);
 		for (const prompt of prompts) {
-			expect(prompt).toContain("OPENAI_API_KEY=[REDACTED_SECRET]");
+			expect(prompt).toContain("OPENAI_API_KEY=[REDACTED_API_KEY]");
 			expect(prompt).toContain("Bearer [REDACTED_TOKEN]");
 			expect(prompt).not.toContain(`sk-${"a".repeat(32)}`);
 			expect(prompt).not.toContain(`eyJ${"a".repeat(20)}`);

@@ -83,6 +83,84 @@ describe("memory link graph", () => {
 		expect(sqlitePair?.axes).toContain("tfidf");
 	});
 
+	test("discovery and traversal ignore superseded memories", () => {
+		const active = memory({
+			id: "active",
+			created: 300,
+			content: "Sprout memory uses SQLite and local embeddings.",
+			embedding: {
+				provider: "test",
+				model: "test",
+				dimensions: 3,
+				status: "ready",
+				vector: [1, 0, 0],
+			},
+			entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
+			outbound_links: [
+				{ uuid: "detail", type: "refines", reasoning: "active detail", created_at: 1 },
+				{ uuid: "stale-field", type: "refines", reasoning: "retired", created_at: 1 },
+				{ uuid: "stale-inbound", type: "refines", reasoning: "retired", created_at: 1 },
+			],
+		});
+		const detail = memory({
+			id: "detail",
+			created: 200,
+			content: "The MIRA port stores long-term memory in SQLite.",
+			embedding: {
+				provider: "test",
+				model: "test",
+				dimensions: 3,
+				status: "ready",
+				vector: [0.98, 0.02, 0],
+			},
+			entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
+		});
+		const staleField = memory({
+			id: "stale-field",
+			created: 100,
+			content: "Sprout memory uses SQLite and local embeddings.",
+			superseded_by: "replacement",
+			embedding: {
+				provider: "test",
+				model: "test",
+				dimensions: 3,
+				status: "ready",
+				vector: [1, 0, 0],
+			},
+			entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
+		});
+		const staleInbound = memory({
+			id: "stale-inbound",
+			created: 90,
+			content: "Sprout memory uses SQLite and local embeddings.",
+			inbound_links: [
+				{ uuid: "replacement", type: "supersedes", reasoning: "retired", created_at: 1 },
+			],
+			embedding: {
+				provider: "test",
+				model: "test",
+				dimensions: 3,
+				status: "ready",
+				vector: [1, 0, 0],
+			},
+			entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
+		});
+
+		const candidates = discoverLinkCandidates([active, detail, staleField, staleInbound], {
+			minVectorSimilarity: 0.95,
+			minTfIdfSimilarity: 0.01,
+		});
+		const candidateIds = candidates.flatMap((candidate) => [
+			candidate.source_id,
+			candidate.target_id,
+		]);
+		expect(candidateIds).not.toContain("stale-field");
+		expect(candidateIds).not.toContain("stale-inbound");
+
+		const traversed = traverseMemoryLinks([active, detail, staleField, staleInbound], "active");
+		expect(traversed.map((result) => result.memory.id)).toEqual(["detail"]);
+	});
+
 	test("persists classified relationships to JSONL and the SQLite index", async () => {
 		const root = await mkdtemp(join(tmpdir(), "sprout-linking-"));
 		try {

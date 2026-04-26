@@ -50,6 +50,69 @@ describe("entity GC", () => {
 		]);
 	});
 
+	test("ignores superseded memories during discovery and apply", async () => {
+		expect(
+			discoverEntityGcGroups([
+				memory({
+					id: "canonical-memory",
+					entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
+				}),
+				memory({
+					id: "stale-alias",
+					superseded_by: "replacement",
+					entity_links: [{ uuid: "entity_sprout_alias", type: "PROJECT", name: "sprout" }],
+				}),
+			]),
+		).toEqual([]);
+
+		const root = await mkdtemp(join(tmpdir(), "sprout-entity-gc-stale-"));
+		try {
+			const genome = createTestGenome(root);
+			await genome.init();
+			await genome.addMemory(
+				memory({
+					id: "canonical-memory",
+					entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
+				}),
+			);
+			await genome.addMemory(
+				memory({
+					id: "alias-memory",
+					entity_links: [{ uuid: "entity_sprout_alias", type: "PROJECT", name: "sprout" }],
+				}),
+			);
+			await genome.addMemory(
+				memory({
+					id: "stale-alias",
+					inbound_links: [
+						{ uuid: "replacement", type: "supersedes", reasoning: "retired", created_at: 1 },
+					],
+					entity_links: [{ uuid: "entity_sprout_alias", type: "PROJECT", name: "sprout" }],
+				}),
+			);
+			const group = discoverEntityGcGroups(genome.memories.all())[0]!;
+
+			const result = await applyEntityGcDecision(
+				genome,
+				group,
+				{
+					action: "merge",
+					canonical: { uuid: "entity_sprout", name: "Sprout" },
+					aliases: [{ uuid: "entity_sprout_alias", name: "sprout" }],
+					reasoning: "Only capitalization differs.",
+				},
+				{ now: 3000 },
+			);
+
+			expect(result.updated_memory_ids).toEqual(["alias-memory"]);
+			expect(genome.memories.getById("stale-alias")?.entity_links).toEqual([
+				{ uuid: "entity_sprout_alias", type: "PROJECT", name: "sprout" },
+			]);
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
 	test("normalizes LLM merge decisions and defaults aliases from group", () => {
 		const group = discoverEntityGcGroups([
 			memory({

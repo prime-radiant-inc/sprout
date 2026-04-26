@@ -1,5 +1,6 @@
 import type { Memory, MemoryLinkEntry, RelationshipType } from "../kernel/types.ts";
 import type { Genome } from "./genome.ts";
+import { isActiveMemoryForRecall } from "./memory-lifecycle.ts";
 
 export type LinkCandidateAxis = "vector" | "entity" | "tfidf";
 
@@ -55,7 +56,7 @@ export function discoverLinkCandidates(
 	memories: readonly Memory[],
 	options: LinkDiscoveryOptions = {},
 ): LinkCandidate[] {
-	const active = memories.filter((memory) => !memory.archived_at);
+	const active = memories.filter(isActiveMemoryForRecall);
 	const candidates = new Map<string, LinkCandidate>();
 	const minVectorSimilarity = options.minVectorSimilarity ?? DEFAULT_MIN_VECTOR_SIMILARITY;
 	const minEntityScore = options.minEntityScore ?? DEFAULT_MIN_ENTITY_SCORE;
@@ -164,7 +165,7 @@ export function traverseMemoryLinks(
 	options: { depth?: number; limit?: number } = {},
 ): LinkTraversalResult[] {
 	const byId = new Map(
-		memories.filter((memory) => !memory.archived_at).map((memory) => [memory.id, memory]),
+		memories.filter(isActiveMemoryForRecall).map((memory) => [memory.id, memory]),
 	);
 	const start = byId.get(startId);
 	if (!start) return [];

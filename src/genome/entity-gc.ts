@@ -3,6 +3,7 @@ import type { Client } from "../llm/client.ts";
 import { Msg, messageText } from "../llm/types.ts";
 import { trigramDiceSimilarity } from "./dedup.ts";
 import type { Genome } from "./genome.ts";
+import { isActiveMemoryForRecall } from "./memory-lifecycle.ts";
 import type { ProjectActivityRecord } from "./projects.ts";
 
 export interface EntityOccurrence {
@@ -231,7 +232,7 @@ export async function applyEntityGcDecision(
 	const archivedAliases: EntityAliasEntry[] = [];
 
 	for (const memory of genome.memories.all()) {
-		if (memory.archived_at || !memory.entity_links?.length) continue;
+		if (!isActiveMemoryForRecall(memory) || !memory.entity_links?.length) continue;
 		const aliasesInMemory = memory.entity_links.filter((entity) =>
 			aliasKeys.has(entityKey(entity)),
 		);
@@ -290,7 +291,7 @@ async function rejectEntityGcGroup(
 
 	for (const memory of genome.memories.all()) {
 		if (
-			memory.archived_at ||
+			!isActiveMemoryForRecall(memory) ||
 			!memory.entity_links?.some((entity) => candidateKeys.has(entityKey(entity)))
 		) {
 			continue;
@@ -343,7 +344,7 @@ function hasRejectedEntityGcGroup(
 function collectEntityOccurrences(memories: readonly Memory[]): EntityOccurrence[] {
 	const byKey = new Map<string, EntityOccurrence>();
 	for (const memory of memories) {
-		if (memory.archived_at) continue;
+		if (!isActiveMemoryForRecall(memory)) continue;
 		for (const entity of memory.entity_links ?? []) {
 			const key = entityKey(entity);
 			const occurrence = byKey.get(key) ?? {
