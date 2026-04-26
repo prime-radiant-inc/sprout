@@ -15,10 +15,10 @@ Related docs:
 
 The MIRA memory port is implemented through Phase 10, but the memory LLM calls
 do not yet have MIRA-style internal model routing. Sprout currently has global
-`best`, `balanced`, and `fast` defaults plus exact session/agent model
-selection. Hidden memory work still inherits the root/session model, resolves
-global `best`, or accepts manually injected model/provider pairs in tests and
-low-level functions.
+`best`, `balanced`, and `fast` defaults stored in settings plus exact
+session/agent model selection. Hidden memory work still inherits the
+root/session model, resolves global `best`, or accepts manually injected
+model/provider pairs in tests and low-level functions.
 
 That is not production-ready. Memory extraction, summary, relationship
 classification, consolidation, entity GC, and subcortical recall have different
@@ -93,6 +93,10 @@ This fix must avoid these failure modes:
 
 - Add exact provider/model settings for every implemented hidden memory LLM
   purpose.
+- Keep Sprout settings as the durable source of truth for all configured model
+  choices.
+- Allow environment variables only as explicit runtime overrides of stored
+  settings, never as a hidden fallback or alternate persisted config store.
 - Expose those settings in the web provider settings UI.
 - Resolve memory models through one strict helper with no implicit fallbacks.
 - Wire every production memory LLM call to that helper.
@@ -243,6 +247,8 @@ Control-plane behavior:
 - Field errors use keys like `memoryModels.extraction`.
 - `getSelectionContext()` includes `memoryModels` so session/bootstrap/spawner
   wiring can pass one resolver settings object everywhere.
+- `SettingsRuntimeSnapshot` includes active model env overrides, grouped into
+  global defaults and memory models, for read-only UI display.
 - Deleting or disabling a provider removes any global defaults and memory model
   settings that referenced that provider. This mirrors the current
   global-default behavior and avoids persisting dangling config after an
@@ -258,7 +264,7 @@ Protocol validation:
 
 Environment import:
 
-- Support explicit env vars only:
+- Support explicit memory model env vars only:
   - `SPROUT_MEMORY_SUMMARY_MODEL`
   - `SPROUT_MEMORY_EXTRACTION_MODEL`
   - `SPROUT_MEMORY_RELATIONSHIP_MODEL`
@@ -266,8 +272,35 @@ Environment import:
   - `SPROUT_MEMORY_ENTITY_GC_MODEL`
   - `SPROUT_MEMORY_SUBCORTICAL_MODEL`
 - Values use the existing `provider-id:model-id` format.
+- These env vars are runtime overrides over `settings.memoryModels`; they are
+  not written back into `sprout` settings.
 - Do not infer any memory model from `SPROUT_DEFAULT_*_MODEL`.
 - Malformed memory model env vars throw with a memory-specific error message.
+
+Global model env vars:
+
+- Existing `SPROUT_DEFAULT_BEST_MODEL`, `SPROUT_DEFAULT_BALANCED_MODEL`, and
+  `SPROUT_DEFAULT_FAST_MODEL` should follow the same policy: they may override
+  effective runtime defaults, but durable configured defaults live in
+  `SproutSettings.defaults`.
+- If the current bootstrap path seeds a missing settings file from env, keep
+  that behavior only as first-run initialization. Once a settings file exists,
+  env model vars are overlays, not persisted mutations.
+
+Runtime override handling:
+
+- Add a small `ModelConfigOverrides` overlay parsed from env during startup.
+- Effective resolver settings are:
+  stored settings plus explicit env overrides for matching keys.
+- `SettingsSnapshot.settings` remains the stored settings object. Runtime code
+  that resolves models uses the effective settings object with overrides
+  applied.
+- The overlay must be visible in `SettingsRuntimeSnapshot` so UIs can explain
+  when a select's stored value differs from the effective runtime value.
+- Settings commands always edit stored settings, not env overrides.
+- A stored missing memory purpose plus an env override for that purpose is valid
+  at runtime, but the web UI should still show the stored purpose as unset and
+  mark the effective value as env-overridden.
 
 ## Web Config UI
 
@@ -288,6 +321,8 @@ Panel behavior:
 - The empty option is `Not configured`.
 - Changing a select sends `set_memory_model`.
 - Field errors render under the corresponding purpose.
+- If an env override is active for a purpose, show the stored setting in the
+  select and display a non-editable note with the effective override value.
 - The explanatory text must be explicit that these are hidden memory-system LLM
   calls and that they do not change the active chat/session/agent model.
 - If no enabled providers have refreshed models, show the same refresh guidance
@@ -306,6 +341,11 @@ The UI should not suggest default recommendations in code. Operators choose
 exact models. Future docs may recommend model classes, but the product should
 not silently apply them.
 
+Also update `DefaultModelsPanel` to render env override notes for
+`best`/`balanced`/`fast` if global default model env vars are active. The select
+continues to edit the stored setting; the note explains the effective runtime
+override.
+
 ## TUI Settings Surface
 
 The user specifically requires the web config UI. The TUI should still avoid
@@ -314,6 +354,8 @@ becoming misleading once the settings schema changes.
 Minimum acceptable TUI work:
 
 - Display the configured memory models below global defaults.
+- Display active env overrides for global and memory model settings as
+  read-only effective values.
 - Add command parsing for:
   `memory-model <purpose> <provider-id:model-id|none>`
 - Emit `set_memory_model`.
@@ -401,8 +443,11 @@ Settings/schema:
   rejected by command/protocol validation.
 - Disabled/unknown providers in `memoryModels` fail settings-file validation.
 - Provider deletion and provider disable remove matching memory model entries.
-- Env import parses all six explicit memory vars and does not infer from global
-  defaults.
+- Env override parsing handles all six explicit memory vars and does not infer
+  from global defaults.
+- Env model overrides affect effective resolver settings without mutating stored
+  `SproutSettings`.
+- Runtime snapshots expose active model overrides for UI display.
 
 Resolver:
 
@@ -428,6 +473,8 @@ Web UI:
 - Selecting a model emits `set_memory_model` with exact provider/model.
 - Selecting empty emits `set_memory_model` without model.
 - Field errors render for memory purposes.
+- Active env overrides render as effective-value notes without changing the
+  stored select value.
 - Existing default-model tests remain green.
 
 TUI:
@@ -453,6 +500,8 @@ Memory call sites:
 
 - Operators can set, unset, and view all six memory model purposes in the web
   config UI.
+- Stored model configuration lives in `SproutSettings`; env vars only override
+  effective runtime model choices and are visible as overrides.
 - Every hidden memory LLM call uses the configured exact purpose model.
 - No hidden memory LLM call inherits the active agent/session model.
 - No hidden memory LLM call falls back to global `best`, `balanced`, or `fast`.
