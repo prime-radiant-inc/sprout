@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Phase 8 — Cache strategy (starting)
+Phase 9 — Consolidation and entity GC (starting)
 
 ## Phase log
 
@@ -13,12 +13,13 @@ Phase 8 — Cache strategy (starting)
 - Phase 5 — Memory-tools and archivist: completed 2026-04-26
 - Phase 6 — Link graph: completed 2026-04-26
 - Phase 7 — Decay: completed 2026-04-26
-- Phase 8 — Cache strategy: starting
+- Phase 8 — Cache strategy: completed 2026-04-26
+- Phase 9 — Consolidation and entity GC: starting
 
 ## Current branch / commit
 
 - Branch: `jesse/pri-1354-implement-mira-memory-port-phase-1-foundation`
-- Last verified commit: `90aa86f`
+- Last verified commit: `6f796ea`
 
 ## Open issues
 
@@ -111,6 +112,11 @@ Phase 8 — Cache strategy (starting)
   and session-lifecycle score recompute
 - 2026-04-26: `bun run typecheck` passed after Phase 7 decay
 - 2026-04-26: `bun run check` passed after Phase 7 decay
+- 2026-04-26: `bun test test/llm/anthropic.test.ts test/llm/openai.test.ts test/agents/plan.test.ts test/agents/run-loop-planning.test.ts`
+  passed after adding provider prompt-cache routing and Anthropic history
+  breakpoints
+- 2026-04-26: `bun run typecheck` passed after Phase 8 cache routing
+- 2026-04-26: `bun run check` passed after Phase 8 cache routing
 
 ## Completed in current slice
 
@@ -168,3 +174,6 @@ Phase 8 — Cache strategy (starting)
   entity-hub, newness, recency, and expiration components
 - Added creation/access activity-day snapshots, recall-hit access clock updates,
   low-score archival, and a session-lifecycle recompute hook
+- Added session+agent prompt-cache context plumbing, Anthropic system/tool plus
+  moving history cache breakpoints, OpenAI `prompt_cache_key` threading, and
+  cache-token telemetry coverage through existing LLM events/logging
