@@ -367,6 +367,12 @@ abc123
 			memorySegment({ id: "previous-3", summary: "Summary three", ended_at: 40 }),
 			memorySegment({ id: "previous-4", summary: "Summary four", ended_at: 50 }),
 			memorySegment({ id: "previous-5", summary: "Summary <five>", ended_at: 60 }),
+			memorySegment({
+				id: "unrelated-project",
+				summary: "Unrelated project summary",
+				ended_at: 70,
+				project_id: "unrelated",
+			}),
 		];
 		const genome = {
 			segments: { all: () => previousSegments },
@@ -402,6 +408,7 @@ abc123
 
 		expect(result).not.toBe("skipped");
 		expect(prompts[0]).not.toContain("Oldest excluded summary");
+		expect(prompts[0]).not.toContain("Unrelated project summary");
 		expect(prompts[0]).toContain("- Summary one");
 		expect(prompts[0]).toContain("- Summary two");
 		expect(prompts[0]).toContain("- Summary three");

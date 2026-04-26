@@ -133,7 +133,10 @@ export async function collapseSessionToMemory(
 		provider: input.provider,
 		prompts: await input.genome.loadSegmentSummaryPrompts(),
 		transcript,
-		previousSummaries: recentSegmentSummaries(input.genome.segments.all()),
+		previousSummaries: recentSegmentSummaries(input.genome.segments.all(), {
+			project,
+			sessionId: input.sessionId,
+		}),
 	});
 	const segment = buildSegmentRecord({
 		sessionId: input.sessionId,
@@ -236,8 +239,16 @@ async function summarizeTranscript(input: {
 	return normalizeSegmentSummary(parseExtractionJson(messageText(response.message)));
 }
 
-function recentSegmentSummaries(segments: readonly MemorySegment[]): string {
-	const recent = [...segments].sort((a, b) => a.ended_at - b.ended_at).slice(-5);
+function recentSegmentSummaries(
+	segments: readonly MemorySegment[],
+	context: { project: DetectedProject; sessionId: string },
+): string {
+	const relevant = segments.filter(
+		(segment) =>
+			segment.session_id === context.sessionId ||
+			(context.project.id !== "unknown" && segment.project_id === context.project.id),
+	);
+	const recent = relevant.sort((a, b) => a.ended_at - b.ended_at).slice(-5);
 	if (recent.length === 0) return "(none)";
 	return recent.map((segment) => `- ${escapeXml(segment.summary)}`).join("\n");
 }
