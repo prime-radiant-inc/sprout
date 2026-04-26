@@ -139,12 +139,14 @@ export async function applyMemoryMaintenanceDecisions(
 	}
 
 	for (const { decision, group } of validated.entityGc) {
-		for (const projectId of maintenanceProjectIds(entityGcGroupProjectIds(group, memoryById))) {
-			entityGcProjectIds.add(projectId);
-		}
 		const applied = await applyEntityGcDecision(genome, group, decision, {
 			source: "memory-maintenance",
 		});
+		const changed = applied.updated_memory_ids.length > 0;
+		if (!changed) continue;
+		for (const projectId of maintenanceProjectIds(entityGcGroupProjectIds(group, memoryById))) {
+			entityGcProjectIds.add(projectId);
+		}
 		if (decision.action === "merge") {
 			result.entity_gc.merged++;
 			result.entity_gc.updated_memory_ids.push(...applied.updated_memory_ids);

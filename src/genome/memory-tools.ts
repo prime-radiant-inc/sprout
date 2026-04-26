@@ -305,7 +305,7 @@ function memoryLinkPrimitive(ctx: MemoryToolContext): Primitive {
 			const scoped = supersedes
 				? destructiveScopeAllows(ctx, "supersede", [from, to])
 				: additiveScopeAllows(ctx, "link", [from, to]);
-			if (supersedes && !scoped) {
+			if (supersedes && (!scoped || !supersedeDirectionAllows(ctx, from, to))) {
 				return fail(
 					"target memory supersession blocked: memory write outside trusted authorization scope",
 				);
@@ -553,6 +553,23 @@ function memoryAllowed(
 	return (
 		normalized.has(memory.id.toLowerCase()) ||
 		normalized.has((memory.short_id ?? memoryShortId(memory.id)).toLowerCase())
+	);
+}
+
+function supersedeDirectionAllows(ctx: MemoryToolContext, from: Memory, to: Memory): boolean {
+	const directions = ctx.writeAuthorization?.supersedeDirections ?? [];
+	return directions.some(
+		(direction) =>
+			memoryMatchesAuthorizedId(from, direction.fromId) &&
+			memoryMatchesAuthorizedId(to, direction.toId),
+	);
+}
+
+function memoryMatchesAuthorizedId(memory: Memory, id: string): boolean {
+	const normalized = id.toLowerCase();
+	return (
+		normalized === memory.id.toLowerCase() ||
+		normalized === (memory.short_id ?? memoryShortId(memory.id)).toLowerCase()
 	);
 }
 

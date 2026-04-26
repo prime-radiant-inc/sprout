@@ -178,6 +178,7 @@ describe("memory write authorization derivation", () => {
 			allowedMemoryIds: ["mem_old000", "mem_new000"],
 			allowedMemoryIdsByOperation: { supersede: ["mem_old000", "mem_new000"] },
 			allowedOperations: ["supersede"],
+			supersedeDirections: [{ fromId: "mem_new000", toId: "mem_old000" }],
 		});
 		expect(
 			deriveTrustedMemoryWriteAuthorization({

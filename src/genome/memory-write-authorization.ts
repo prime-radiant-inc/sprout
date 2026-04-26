@@ -1,12 +1,18 @@
 export type MemoryWriteOperation = "annotate" | "archive" | "consolidate" | "link" | "supersede";
 export type MemoryWriteOperationIds = Partial<Record<MemoryWriteOperation, readonly string[]>>;
 
+export interface MemorySupersedeDirection {
+	fromId: string;
+	toId: string;
+}
+
 export interface MemoryWriteAuthorization {
 	additive?: boolean;
 	destructive?: boolean;
 	allowedMemoryIds?: readonly string[];
 	allowedMemoryIdsByOperation?: MemoryWriteOperationIds;
 	allowedOperations?: readonly MemoryWriteOperation[];
+	supersedeDirections?: readonly MemorySupersedeDirection[];
 }
 
 const MEMORY_REFERENCE_PATTERN =
@@ -42,6 +48,20 @@ const NEGATED_MUTATION_PREFIX_PATTERN =
 	/\b(not|never|no|without|unless|until|if|only if|do not|don't)\b[\s\S]{0,48}$/i;
 const SHORT_MEMORY_ID_PATTERN = /\bmem_[a-z0-9]+\b/gi;
 const NAMED_MEMORY_ID_PATTERN = /\bmem(?:ory|ories)\s+([a-z0-9][a-z0-9_-]*[0-9_-][a-z0-9_-]*)\b/gi;
+const MEMORY_ID_SOURCE =
+	"(?:mem_[a-z0-9]+|mem(?:ory|ories)\\s+[a-z0-9][a-z0-9_-]*[0-9_-][a-z0-9_-]*)";
+const SUPERSEDE_WITH_PATTERN = new RegExp(
+	`\\b(?:supersede|replace|deprecate)\\s+(${MEMORY_ID_SOURCE})\\s+with\\s+(${MEMORY_ID_SOURCE})`,
+	"gi",
+);
+const SUPERSEDES_PATTERN = new RegExp(
+	`(${MEMORY_ID_SOURCE})\\s+\\b(?:supersedes|replaces)\\b\\s+(${MEMORY_ID_SOURCE})`,
+	"gi",
+);
+const SUPERSEDED_BY_PATTERN = new RegExp(
+	`(${MEMORY_ID_SOURCE})\\s+\\b(?:is\\s+)?superseded\\s+by\\b\\s+(${MEMORY_ID_SOURCE})`,
+	"gi",
+);
 
 export function deriveTrustedMemoryWriteAuthorization(input: {
 	agentName: string;
@@ -72,6 +92,13 @@ export function deriveTrustedMemoryWriteAuthorization(input: {
 	const destructive = scopedAllowedOperations.some((operation) =>
 		["archive", "consolidate", "supersede"].includes(operation),
 	);
+	const supersedeDirections = extractSupersedeDirections(
+		text,
+		allowedMemoryIdsByOperation.supersede ?? [],
+	);
+	if (scopedAllowedOperations.includes("supersede") && supersedeDirections.length === 0) {
+		return undefined;
+	}
 
 	if (destructive || DESTRUCTIVE_MUTATION_PATTERN.test(text)) {
 		if (!hasExplicitConfirmation(text) || allowedMemoryIds.length === 0) return undefined;
@@ -80,6 +107,7 @@ export function deriveTrustedMemoryWriteAuthorization(input: {
 			allowedMemoryIds,
 			allowedMemoryIdsByOperation,
 			allowedOperations: scopedAllowedOperations,
+			...(supersedeDirections.length > 0 ? { supersedeDirections } : {}),
 		};
 	}
 	if (allowedMemoryIds.length === 0) return undefined;
@@ -182,6 +210,49 @@ function extractMemoryIds(text: string): string[] {
 		if (id) ids.add(id.toLowerCase());
 	}
 	return [...ids];
+}
+
+function extractSupersedeDirections(
+	text: string,
+	allowedSupersedeIds: readonly string[],
+): MemorySupersedeDirection[] {
+	if (allowedSupersedeIds.length === 0) return [];
+	const allowed = new Set(allowedSupersedeIds.map((id) => id.toLowerCase()));
+	const directions: MemorySupersedeDirection[] = [];
+	const addDirection = (fromId: string | undefined, toId: string | undefined) => {
+		if (!fromId || !toId) return;
+		if (!allowed.has(fromId) || !allowed.has(toId)) return;
+		directions.push({ fromId, toId });
+	};
+	for (const match of text.matchAll(SUPERSEDE_WITH_PATTERN)) {
+		addDirection(normalizeMemoryReference(match[2]), normalizeMemoryReference(match[1]));
+	}
+	for (const match of text.matchAll(SUPERSEDES_PATTERN)) {
+		addDirection(normalizeMemoryReference(match[1]), normalizeMemoryReference(match[2]));
+	}
+	for (const match of text.matchAll(SUPERSEDED_BY_PATTERN)) {
+		addDirection(normalizeMemoryReference(match[2]), normalizeMemoryReference(match[1]));
+	}
+	return uniqueSupersedeDirections(directions);
+}
+
+function normalizeMemoryReference(value: string | undefined): string | undefined {
+	if (!value) return undefined;
+	return extractMemoryIds(value)[0];
+}
+
+function uniqueSupersedeDirections(
+	directions: readonly MemorySupersedeDirection[],
+): MemorySupersedeDirection[] {
+	const seen = new Set<string>();
+	const unique: MemorySupersedeDirection[] = [];
+	for (const direction of directions) {
+		const key = `${direction.fromId}->${direction.toId}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		unique.push(direction);
+	}
+	return unique;
 }
 
 function uniqueStrings(values: readonly string[]): string[] {

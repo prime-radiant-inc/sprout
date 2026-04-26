@@ -49,6 +49,6 @@ describe("JsonlStore", () => {
 		await writeFile(path, '{"id":"ok"}\nnot json\n');
 		const store = new JsonlStore<{ id: string }>(path);
 
-		expect(store.load()).rejects.toThrow(/bad\.jsonl:2/);
+		await expect(store.load()).rejects.toThrow(/bad\.jsonl:2/);
 	});
 });

@@ -328,6 +328,7 @@ describe("memory tools", () => {
 				allowedMemoryIds: ["mem_new000", "mem_old000"],
 				allowedMemoryIdsByOperation: { supersede: ["mem_new000", "mem_old000"] },
 				allowedOperations: ["supersede"] as const,
+				supersedeDirections: [{ fromId: "mem_new000", toId: "mem_old000" }],
 			},
 		};
 
@@ -342,6 +343,34 @@ describe("memory tools", () => {
 		expect(result.success).toBe(true);
 		expect(ctx.genome.memories.getById("old-memory")?.superseded_by).toBe("new-memory");
 		expect(typeof ctx.genome.memories.getById("old-memory")?.updated_at).toBe("number");
+	});
+
+	test("memory_link blocks reversed supersede direction", async () => {
+		const ctx = {
+			...makeContext([
+				memory({ id: "new-memory", short_id: "mem_new000" }),
+				memory({ id: "old-memory", short_id: "mem_old000" }),
+			]),
+			writeAuthorization: {
+				destructive: true,
+				allowedMemoryIds: ["mem_new000", "mem_old000"],
+				allowedMemoryIdsByOperation: { supersede: ["mem_new000", "mem_old000"] },
+				allowedOperations: ["supersede"] as const,
+				supersedeDirections: [{ fromId: "mem_new000", toId: "mem_old000" }],
+			},
+		};
+
+		const result = await runTool(ctx, "memory_link", {
+			from_id: "old-memory",
+			to_id: "new-memory",
+			type: "supersedes",
+			reasoning: "wrong direction",
+		});
+
+		expect(result.success).toBe(false);
+		expect(result.error).toContain("supersession blocked");
+		expect(ctx.genome.memories.getById("new-memory")?.superseded_by).toBeUndefined();
+		expect(ctx.genome.memories.getById("old-memory")?.superseded_by).toBeUndefined();
 	});
 
 	test("memory_link requires destructive target authorization for supersedes", async () => {

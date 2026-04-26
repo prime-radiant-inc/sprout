@@ -194,6 +194,66 @@ describe("memory maintenance operator flow", () => {
 		}
 	});
 
+	test("apply does not advance entity-GC cadence when consolidation retires the same memories", async () => {
+		const root = await mkdtemp(join(tmpdir(), "sprout-maintenance-overlap-entity-gc-"));
+		try {
+			const genome = createTestGenome(root);
+			await genome.init();
+			recordActiveDays(genome);
+			await genome.addMemory(
+				memory({
+					id: "old-a",
+					content: "Sprout memory uses SQLite.",
+					project_ids: ["sprout"],
+					entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
+				}),
+			);
+			await genome.addMemory(
+				memory({
+					id: "old-b",
+					content: "Sprout memory uses SQLite.",
+					project_ids: ["sprout"],
+					entity_links: [{ uuid: "entity_sprout_alias", type: "PROJECT", name: "sprout" }],
+				}),
+			);
+			const plan = discoverMemoryMaintenancePlan(genome);
+			const cluster = plan.consolidationClusters[0]!;
+			const group = plan.entityGcGroups[0]!;
+
+			const result = await applyMemoryMaintenanceDecisions(genome, plan, {
+				consolidations: [
+					{
+						cluster_id: cluster.id,
+						action: "merge",
+						memory: {
+							text: "Sprout memory uses SQLite.",
+							tags: ["memory"],
+							entities: [],
+							confidence: 0.95,
+						},
+						reasoning: "Reviewed duplicate memories.",
+					},
+				],
+				entity_gc: [
+					{
+						group_id: group.id,
+						action: "reject",
+						reasoning: "Would have reviewed aliases if memories remained active.",
+					},
+				],
+			});
+
+			expect(result.consolidation.merged).toBe(1);
+			expect(result.entity_gc.rejected).toBe(0);
+			expect(result.entity_gc.updated_memory_ids).toEqual([]);
+			expect(genome.projects.getById("sprout")?.last_consolidated_active_day).toBe(30);
+			expect(genome.projects.getById("sprout")?.last_entity_gc_active_day).toBeUndefined();
+			expect(await git(root, "status", "--porcelain")).toBe("");
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
 	test("apply validates all decisions before mutating memories", async () => {
 		const root = await mkdtemp(join(tmpdir(), "sprout-maintenance-prevalidate-"));
 		try {
