@@ -342,7 +342,10 @@ export class Agent {
 	}
 
 	private refreshPrimitiveToolList(): void {
-		this.primitiveTools = [...this.specPrimitiveTools(), ...this.workspaceToolDefinitions];
+		this.primitiveTools = uniqueToolDefinitions([
+			...this.specPrimitiveTools(),
+			...this.workspaceToolDefinitions,
+		]);
 	}
 
 	private captureCallerPrimitivePrimitives(registry: PrimitiveRegistry): Primitive[] {
@@ -1923,4 +1926,13 @@ export class Agent {
 
 		return finalization.agentResult;
 	}
+}
+
+function uniqueToolDefinitions(tools: readonly ToolDefinition[]): ToolDefinition[] {
+	const seen = new Set<string>();
+	return tools.filter((tool) => {
+		if (seen.has(tool.name)) return false;
+		seen.add(tool.name);
+		return true;
+	});
 }

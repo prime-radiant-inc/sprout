@@ -10,7 +10,7 @@ import { createPrimitiveRegistry } from "../../src/kernel/primitives.ts";
 import type { AgentSpec } from "../../src/kernel/types.ts";
 import { DEFAULT_CONSTRAINTS } from "../../src/kernel/types.ts";
 import type { Client } from "../../src/llm/client.ts";
-import type { Message } from "../../src/llm/types.ts";
+import type { Message, Request } from "../../src/llm/types.ts";
 import { ContentKind, Msg } from "../../src/llm/types.ts";
 import { withDefaultResolverContext } from "./fixtures.ts";
 
@@ -118,6 +118,45 @@ describe("workspace wiring", () => {
 		expect(primEnd).toBeDefined();
 		expect(primEnd!.data.success).toBe(true);
 		expect(primEnd!.data.output as string).toContain("formatted");
+	});
+
+	test("workspace tool listed in spec is exposed only once", async () => {
+		const root = join(tempDir, "ws-dedupe");
+		const genome = new Genome(root);
+		await genome.init();
+		await genome.addAgent(makeSpec({ name: "editor", tools: ["format"] }));
+		await genome.saveAgentTool("editor", {
+			name: "format",
+			description: "Format code",
+			script: '#!/bin/bash\necho "formatted"',
+			interpreter: "bash",
+		});
+		const env = new LocalExecutionEnvironment(tempDir);
+		const registry = createPrimitiveRegistry(env);
+		let toolNames: string[] = [];
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (request: Request) => {
+				toolNames = request.tools?.map((tool) => tool.name) ?? [];
+				return {
+					message: Msg.assistant("done"),
+					finish_reason: { reason: "stop" },
+					usage: USAGE,
+				};
+			},
+		} as unknown as Client;
+		const agent = new Agent({
+			spec: makeSpec({ name: "editor", tools: ["format"] }),
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [makeSpec({ name: "editor", tools: ["format"] })],
+			genome,
+		});
+
+		await agent.run("format the code");
+
+		expect(toolNames.filter((name) => name === "format")).toHaveLength(1);
 	});
 
 	test("system prompt includes workspace tools and files", async () => {

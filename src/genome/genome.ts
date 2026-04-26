@@ -350,21 +350,35 @@ export class Genome {
 		}
 		this.assertCanAddSegmentWithMemories(embeddedSegment, embeddedMemories);
 
-		await this.segments.add(embeddedSegment);
-		for (const memory of embeddedMemories) {
-			await this.memories.add(memory);
-		}
-
 		const segmentsPath = join(this.rootPath, "memories", "segments.jsonl");
 		const memoriesPath = join(this.rootPath, "memories", "memories.jsonl");
 		const filesToAdd = embeddedMemories.length > 0 ? [segmentsPath, memoriesPath] : [segmentsPath];
-		await git(this.rootPath, "add", ...filesToAdd);
-		await git(
-			this.rootPath,
-			"commit",
-			"-m",
-			`genome: add memory segment '${embeddedSegment.id}' with ${embeddedMemories.length} memories`,
-		);
+		const snapshots = await snapshotTextFiles(filesToAdd);
+		let committed = false;
+		try {
+			this.segments.stage(embeddedSegment);
+			for (const memory of embeddedMemories) {
+				this.memories.stage(memory);
+			}
+			await this.segments.save();
+			if (embeddedMemories.length > 0) await this.memories.save();
+			await git(this.rootPath, "add", ...filesToAdd);
+			await git(
+				this.rootPath,
+				"commit",
+				"-m",
+				`genome: add memory segment '${embeddedSegment.id}' with ${embeddedMemories.length} memories`,
+			);
+			committed = true;
+		} catch (err) {
+			if (!committed) {
+				await restoreTextFiles(snapshots);
+				await this.segments.load();
+				await this.memories.load();
+				await git(this.rootPath, "reset", "--", ...filesToAdd);
+			}
+			throw err;
+		}
 		await rebuildMemoryIndexFromJsonl(this.rootPath);
 	}
 
@@ -1014,6 +1028,40 @@ export interface AgentFileInfo {
 	name: string;
 	size: number;
 	path: string;
+}
+
+interface TextFileSnapshot {
+	existed: boolean;
+	content: string;
+}
+
+async function snapshotTextFiles(paths: readonly string[]): Promise<Map<string, TextFileSnapshot>> {
+	const snapshots = new Map<string, TextFileSnapshot>();
+	for (const path of paths) {
+		snapshots.set(path, await readTextFileSnapshot(path));
+	}
+	return snapshots;
+}
+
+async function restoreTextFiles(snapshots: ReadonlyMap<string, TextFileSnapshot>): Promise<void> {
+	for (const [path, snapshot] of snapshots) {
+		if (snapshot.existed) {
+			await writeFile(path, snapshot.content);
+		} else {
+			await rm(path, { force: true });
+		}
+	}
+}
+
+async function readTextFileSnapshot(path: string): Promise<TextFileSnapshot> {
+	try {
+		return { existed: true, content: await readFile(path, "utf-8") };
+	} catch (err) {
+		if (err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT") {
+			return { existed: false, content: "" };
+		}
+		throw err;
+	}
 }
 
 /** JSON.stringify with sorted keys for deterministic comparison regardless of key insertion order. */

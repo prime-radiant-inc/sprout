@@ -116,12 +116,17 @@ export class SegmentStore {
 	}
 
 	async add(segment: MemorySegment): Promise<void> {
+		const normalized = this.stage(segment);
+		await this.jsonl.append(normalized);
+	}
+
+	stage(segment: MemorySegment): MemorySegment {
 		const normalized = normalizeSegment(segment);
 		if (this.entries.some((entry) => entry.id === normalized.id)) {
 			throw new Error(`Memory segment with id '${normalized.id}' already exists`);
 		}
 		this.entries.push(normalized);
-		await this.jsonl.append(normalized);
+		return normalized;
 	}
 
 	async save(): Promise<void> {

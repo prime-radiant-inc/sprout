@@ -8,6 +8,7 @@ import { Genome, git, sanitizeGitEnv } from "../../src/genome/genome.ts";
 import { memoryIndexPath } from "../../src/genome/index-builder.ts";
 import { MemoryIndex } from "../../src/genome/memory-index.ts";
 import { loadManifest } from "../../src/genome/root-manifest.ts";
+import type { MemorySegment } from "../../src/genome/segments.ts";
 import type { AgentSpec, Memory, RoutingRule } from "../../src/kernel/types.ts";
 import type { EmbeddingProvider } from "../../src/llm/embeddings.ts";
 import { makeSpec } from "../helpers/make-spec.ts";
@@ -24,6 +25,35 @@ function makeMemory(overrides: Partial<Memory> = {}): Memory {
 		use_count: overrides.use_count ?? 0,
 		confidence: overrides.confidence ?? 1.0,
 	};
+}
+
+function makeSegment(overrides: Partial<MemorySegment> = {}): MemorySegment {
+	return {
+		id: overrides.id ?? "segment-1",
+		session_id: overrides.session_id ?? "session-1",
+		summary: overrides.summary ?? "Implemented memory persistence.",
+		title: overrides.title ?? "Memory persistence",
+		started_at: overrides.started_at ?? 100,
+		ended_at: overrides.ended_at ?? 200,
+		created_at: overrides.created_at ?? 200,
+		message_count: overrides.message_count ?? 3,
+		project_id: overrides.project_id ?? "sprout",
+		project_confidence: overrides.project_confidence ?? 1,
+		complexity: overrides.complexity ?? 2,
+		source: "session-collapse",
+		...overrides,
+	};
+}
+
+async function readOptionalFile(path: string): Promise<string> {
+	try {
+		return await readFile(path, "utf-8");
+	} catch (err) {
+		if (err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT") {
+			return "";
+		}
+		throw err;
+	}
 }
 
 function makeRule(overrides: Partial<RoutingRule> = {}): RoutingRule {
@@ -592,6 +622,32 @@ describe("Genome", () => {
 			expect(status).toBe("");
 			const log = await git(root, "log", "--oneline");
 			expect(log).toContain("genome: record project activity 'sprout'");
+		});
+
+		test("addSegmentWithMemories restores JSONL files when save fails", async () => {
+			const root = join(tempDir, "segment-memory-save-fails");
+			const genome = await createInitializedGenome(root);
+			const originalSave = genome.memories.save.bind(genome.memories);
+			genome.memories.save = async () => {
+				throw new Error("memory save failed");
+			};
+
+			await expect(
+				genome.addSegmentWithMemories(makeSegment({ id: "segment-fail" }), [
+					makeMemory({ id: "memory-fail", content: "will not persist" }),
+				]),
+			).rejects.toThrow("memory save failed");
+			genome.memories.save = originalSave;
+
+			expect(genome.segments.getById("segment-fail")).toBeUndefined();
+			expect(genome.memories.getById("memory-fail")).toBeUndefined();
+			expect(await readOptionalFile(join(root, "memories", "segments.jsonl"))).not.toContain(
+				"segment-fail",
+			);
+			expect(await readOptionalFile(join(root, "memories", "memories.jsonl"))).not.toContain(
+				"memory-fail",
+			);
+			expect(await git(root, "status", "--porcelain")).toBe("");
 		});
 
 		test("addMemory fails before writing when embedding generation fails", async () => {
