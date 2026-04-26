@@ -1124,7 +1124,7 @@ export class Agent {
 	async run(goal: string, signal?: AbortSignal): Promise<AgentResult> {
 		const agentId = this.agentId ?? this.spec.name;
 		this.signal = signal;
-		if (this.depth === 0 && this.trustedUserInstruction === undefined) {
+		if (this.depth === 0) {
 			this.trustedUserInstruction = goal;
 		}
 
@@ -1166,7 +1166,10 @@ export class Agent {
 				});
 			} else {
 				const subcortical = await this.subcorticalRecallOptions();
-				const recallResult = await recall(this.genome, goal, subcortical ? { subcortical } : {});
+				const recallResult = await recall(this.genome, goal, {
+					...(subcortical ? { subcortical } : {}),
+					markUsed: !this.evalMode,
+				});
 				this.surfacedMemoryBlock = recallResult.memory_block;
 				recallContext = {
 					memories: recallResult.memories,
@@ -1279,6 +1282,9 @@ export class Agent {
 
 		const agentId = this.agentId ?? this.spec.name;
 		this.signal = signal;
+		if (this.depth === 0) {
+			this.trustedUserInstruction = message;
+		}
 		const followUpMessage =
 			`Follow-up context from your caller for the same task:\n\n${message}\n\n` +
 			"Continue the same task using this new information. Do not discard prior context unless this message explicitly supersedes it.";

@@ -3879,6 +3879,72 @@ describe("Agent", () => {
 		expect(spawnCalls[0]!.surfacedMemoryBlock).toBe("");
 	});
 
+	test("continue scopes trusted memory authorization to the current user turn", async () => {
+		const rootWithArchivist: AgentSpec = { ...rootSpec, agents: ["archivist"] };
+		const archivistSpec: AgentSpec = {
+			...leafSpec,
+			name: "archivist",
+			tools: [],
+			agents: [],
+		};
+		const delegateMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-archivist-continue",
+						name: "delegate",
+						arguments: JSON.stringify({
+							agent_name: "archivist",
+							goal: "curate memory",
+							blocking: true,
+						}),
+					},
+				},
+			],
+		};
+		const doneMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "Done." }],
+		};
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				return {
+					id: `mock-continue-trusted-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: callCount === 2 ? delegateMsg : doneMsg,
+					finish_reason: { reason: callCount === 2 ? "tool_calls" : "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+		const { spawner, spawnCalls } = createMockSpawner();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const agent = new Agent({
+			spec: rootWithArchivist,
+			env,
+			client: mockClient,
+			primitiveRegistry: createPrimitiveRegistry(env),
+			availableAgents: [rootWithArchivist, archivistSpec],
+			depth: 0,
+			spawner,
+		});
+
+		await agent.run("I confirm: archive memory mem_old123 because it is stale");
+		await agent.continue("Search memory only; do not mutate anything");
+
+		expect(spawnCalls).toHaveLength(1);
+		expect(spawnCalls[0]!.trustedUserInstruction).toBe(
+			"Search memory only; do not mutate anything",
+		);
+	});
+
 	test("with spawner, blocking delegation emits verify and learn_signal events on failure", async () => {
 		const delegateMsg: Message = {
 			role: "assistant",

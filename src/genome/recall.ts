@@ -9,6 +9,7 @@ export interface RecallOptions {
 	limit?: number;
 	pinnedMemoryIds?: readonly string[];
 	additionalContext?: string;
+	markUsed?: boolean;
 	subcortical?: {
 		prompt: string;
 		client: Client;
@@ -55,7 +56,7 @@ export async function recall(
 	const routing_hints = genome.matchRoutingRules(query);
 
 	// Mark used memories (spec: confidence refreshed on use)
-	if (memories.length > 0) {
+	if (options.markUsed !== false && memories.length > 0) {
 		await genome.markMemoriesUsed(memories.map((m) => m.id));
 	}
 

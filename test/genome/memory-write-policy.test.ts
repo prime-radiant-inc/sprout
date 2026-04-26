@@ -54,4 +54,21 @@ describe("memory write policy", () => {
 			reason: "user-authored/manual memories require explicit confirmation",
 		});
 	});
+
+	test("manual memories allow explicit additive curation without confirmation", () => {
+		expect(
+			authorizeMemoryWrite({
+				operation: "annotate",
+				explicitInstruction: true,
+				memory: memory("manual"),
+			}),
+		).toEqual({ allowed: true });
+		expect(
+			authorizeMemoryWrite({
+				operation: "link",
+				explicitInstruction: true,
+				memory: memory("user:manual"),
+			}),
+		).toEqual({ allowed: true });
+	});
 });

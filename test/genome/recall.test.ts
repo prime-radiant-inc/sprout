@@ -232,6 +232,21 @@ describe("recall", () => {
 		expect(after).toBe(before + 1);
 	});
 
+	test("can skip usage writes for eval/read-only recall", async () => {
+		const root = join(tempDir, "recall-no-mark");
+		const genome = createTestGenome(root, undefined, {
+			embeddingProvider: createRecallEmbeddingProvider(),
+		});
+		await genome.init();
+		await genome.addMemory(makeMemory("m1", "testing fact", []));
+
+		const before = genome.memories.getById("m1")!.use_count;
+		await recall(genome, "testing", { markUsed: false });
+		const after = genome.memories.getById("m1")!.use_count;
+
+		expect(after).toBe(before);
+	});
+
 	test("returns empty memories and routing when none match", async () => {
 		const root = join(tempDir, "recall-empty");
 		const genome = createTestGenome(root, undefined, {

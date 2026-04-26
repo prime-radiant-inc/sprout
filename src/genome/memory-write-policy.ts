@@ -20,13 +20,14 @@ export function authorizeMemoryWrite(
 	if (!input.explicitInstruction) {
 		return { allowed: false, reason: "memory write requires an explicit caller instruction" };
 	}
-	if (isProtectedManualMemory(input.memory) && !input.confirmed) {
+	const destructive = input.operation === "archive" || input.operation === "consolidate";
+	if (destructive && isProtectedManualMemory(input.memory) && !input.confirmed) {
 		return {
 			allowed: false,
 			reason: "user-authored/manual memories require explicit confirmation",
 		};
 	}
-	if ((input.operation === "archive" || input.operation === "consolidate") && !input.confirmed) {
+	if (destructive && !input.confirmed) {
 		return {
 			allowed: false,
 			reason: `${input.operation} requires explicit user confirmation`,
