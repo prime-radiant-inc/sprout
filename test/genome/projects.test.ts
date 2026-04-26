@@ -119,6 +119,22 @@ describe("project detection", () => {
 		});
 	});
 
+	test("project activity counter does not double-count out-of-order dates", async () => {
+		const store = new ProjectActivityStore(join(tempDir, "projects-out-of-order.jsonl"));
+		await store.load();
+		const project = detectProject({ explicitProject: "Sprout" });
+
+		store.recordActiveDay(project, new Date("2026-04-27T10:00:00Z"));
+		store.recordActiveDay(project, new Date("2026-04-26T10:00:00Z"));
+		store.recordActiveDay(project, new Date("2026-04-27T18:00:00Z"));
+
+		expect(store.getById("sprout")).toMatchObject({
+			cumulative_active_days: 2,
+			last_active_date: "2026-04-27",
+			active_dates: ["2026-04-26", "2026-04-27"],
+		});
+	});
+
 	test("unknown project does not advance a project-specific decay clock", async () => {
 		const store = new ProjectActivityStore(join(tempDir, "projects.jsonl"));
 		await store.load();

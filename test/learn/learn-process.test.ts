@@ -456,7 +456,7 @@ describe("LearnProcess", () => {
 		expect(memory.content).toBe("Sprout should use local embeddings for memory recall");
 		expect(memory.source).toBe("learn:extraction");
 		expect(memory.entity_links).toEqual([
-			{ uuid: "entity_sprout_0", name: "Sprout", type: "PROJECT" },
+			{ uuid: "entity_project_sprout_0", name: "Sprout", type: "PROJECT" },
 		]);
 		expect(memory.embedding?.status).toBe("ready");
 		expect(memory.embedding?.vector).toHaveLength(768);

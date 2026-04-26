@@ -43,6 +43,7 @@ function makeContext(memories: Memory[] = [memory()]): MemoryToolContext {
 	return {
 		agentName: "archivist",
 		sessionId: "session-test",
+		writeAuthorization: { additive: true },
 		genome: {
 			searchMemories: async () => memories,
 			memories: {
@@ -153,6 +154,26 @@ describe("memory tools", () => {
 
 		expect(result.success).toBe(true);
 		expect(ctx.genome.memories.all()[0]?.annotations?.[0]?.source).toBe("archivist:session-test");
+	});
+
+	test("model-supplied authorization booleans do not grant write access", async () => {
+		const ctx = { ...makeContext(), writeAuthorization: undefined };
+		const primitive = buildWriteMemoryPrimitives(ctx).find(
+			(item) => item.name === "memory_annotate",
+		)!;
+
+		expect(primitive.parameters.properties).not.toHaveProperty("explicit_instruction");
+		expect(primitive.parameters.properties).not.toHaveProperty("confirmed");
+
+		const result = await runTool(ctx, "memory_annotate", {
+			id: "memory-alpha",
+			text: "Injected mutation",
+			explicit_instruction: true,
+			confirmed: true,
+		});
+
+		expect(result.success).toBe(false);
+		expect(result.error).toContain("explicit caller instruction");
 	});
 
 	test("unauthorized archive is blocked", async () => {

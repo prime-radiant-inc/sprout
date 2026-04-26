@@ -174,12 +174,13 @@ export class MemoryIndex {
 		`);
 		this.db.run(`
 			CREATE TABLE IF NOT EXISTS entities (
-				id TEXT PRIMARY KEY,
+				id TEXT NOT NULL,
 				name TEXT NOT NULL,
 				entity_type TEXT NOT NULL,
 				link_count INTEGER NOT NULL DEFAULT 0,
 				last_linked_at INTEGER,
-				created_at INTEGER NOT NULL
+				created_at INTEGER NOT NULL,
+				PRIMARY KEY (id, entity_type)
 			)
 		`);
 		this.db.run(`
@@ -188,7 +189,7 @@ export class MemoryIndex {
 				entity_id TEXT NOT NULL,
 				entity_type TEXT NOT NULL,
 				name TEXT NOT NULL,
-				PRIMARY KEY (memory_id, entity_id)
+				PRIMARY KEY (memory_id, entity_id, entity_type)
 			)
 		`);
 		this.db.run(`
@@ -624,7 +625,8 @@ function entityIndexRows(memories: readonly Memory[]): EntityIndexRow[] {
 	for (const memory of memories) {
 		for (const entity of memory.entity_links ?? []) {
 			const id = entity.uuid;
-			const existing = byId.get(id);
+			const key = `${entity.type}:${id}`;
+			const existing = byId.get(key);
 			if (existing) {
 				existing.linkCount++;
 				existing.lastLinkedAt = Math.max(
@@ -633,7 +635,7 @@ function entityIndexRows(memories: readonly Memory[]): EntityIndexRow[] {
 				);
 				continue;
 			}
-			byId.set(id, {
+			byId.set(key, {
 				id,
 				name: entity.name,
 				type: entity.type,

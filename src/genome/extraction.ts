@@ -173,7 +173,7 @@ function normalizeEntities(value: unknown): EntityLinkEntry[] {
 		const name = stringValue(raw.name);
 		const type = normalizeEntityType(raw.type);
 		if (!name || !type) return [];
-		return [{ uuid: `entity_${slug(name)}_${index}`, name, type }];
+		return [{ uuid: `entity_${type.toLowerCase()}_${slug(name)}_${index}`, name, type }];
 	});
 }
 

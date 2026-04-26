@@ -32,6 +32,7 @@ export interface ProjectActivityRecord {
 	name: string;
 	cumulative_active_days: number;
 	last_active_date?: string;
+	active_dates?: string[];
 	last_consolidated_active_day?: number;
 	last_entity_gc_active_day?: number;
 }
@@ -91,13 +92,18 @@ export class ProjectActivityStore {
 				id: project.id,
 				name: project.name,
 				cumulative_active_days: 0,
+				active_dates: [],
 			};
 			this.entries.push(record);
 		}
 		record.name = project.name;
-		if (record.last_active_date !== activeDate) {
-			record.cumulative_active_days += 1;
-			record.last_active_date = activeDate;
+		const activeDates = new Set(record.active_dates ?? []);
+		if (record.last_active_date) activeDates.add(record.last_active_date);
+		if (!activeDates.has(activeDate)) {
+			activeDates.add(activeDate);
+			record.active_dates = [...activeDates].sort();
+			record.cumulative_active_days = record.active_dates.length;
+			record.last_active_date = record.active_dates.at(-1);
 		}
 		return record;
 	}
@@ -277,14 +283,28 @@ function normalizeProjectActivityRecord(raw: unknown): ProjectActivityRecord {
 		typeof raw.last_active_date === "string" && raw.last_active_date.trim()
 			? raw.last_active_date
 			: undefined;
+	const activeDates = stringArray(raw.active_dates);
 	return {
 		id,
 		name,
-		cumulative_active_days: Math.max(0, Math.floor(days)),
+		cumulative_active_days:
+			activeDates.length > 0 ? activeDates.length : Math.max(0, Math.floor(days)),
 		...(lastActiveDate ? { last_active_date: lastActiveDate } : {}),
+		...(activeDates.length > 0 ? { active_dates: activeDates } : {}),
 		...numberField(raw, "last_consolidated_active_day"),
 		...numberField(raw, "last_entity_gc_active_day"),
 	};
+}
+
+function stringArray(value: unknown): string[] {
+	if (!Array.isArray(value)) return [];
+	return [
+		...new Set(
+			value.filter((item): item is string => typeof item === "string" && item.trim().length > 0),
+		),
+	]
+		.map((item) => item.trim())
+		.sort();
 }
 
 function numberField(raw: Record<string, unknown>, key: string): Record<string, number> {

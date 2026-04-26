@@ -29,6 +29,10 @@ export interface MemoryToolContext {
 	};
 	agentName: string;
 	sessionId: string;
+	writeAuthorization?: {
+		additive?: boolean;
+		destructive?: boolean;
+	};
 }
 
 const MANUAL_MEMORY_LINK_TYPES = [
@@ -207,18 +211,16 @@ function memoryAnnotatePrimitive(ctx: MemoryToolContext): Primitive {
 			properties: {
 				id: { type: "string" },
 				text: { type: "string" },
-				explicit_instruction: { type: "boolean" },
-				confirmed: { type: "boolean" },
 			},
-			required: ["id", "text", "explicit_instruction"],
+			required: ["id", "text"],
 		},
 		async execute(args) {
 			const memory = findMemory(ctx, stringArg(args.id));
 			if (!memory) return fail("memory not found");
 			const auth = authorizeMemoryWrite({
 				operation: "annotate",
-				explicitInstruction: booleanArg(args.explicit_instruction),
-				confirmed: booleanArg(args.confirmed),
+				explicitInstruction: trustedAdditiveWrite(ctx),
+				confirmed: trustedDestructiveWrite(ctx),
 				memory,
 			});
 			if (!auth.allowed) return fail(auth.reason ?? "memory write blocked");
@@ -243,18 +245,16 @@ function memoryArchivePrimitive(ctx: MemoryToolContext): Primitive {
 			properties: {
 				id: { type: "string" },
 				reason: { type: "string" },
-				explicit_instruction: { type: "boolean" },
-				confirmed: { type: "boolean" },
 			},
-			required: ["id", "reason", "explicit_instruction", "confirmed"],
+			required: ["id", "reason"],
 		},
 		async execute(args) {
 			const memory = findMemory(ctx, stringArg(args.id));
 			if (!memory) return fail("memory not found");
 			const auth = authorizeMemoryWrite({
 				operation: "archive",
-				explicitInstruction: booleanArg(args.explicit_instruction),
-				confirmed: booleanArg(args.confirmed),
+				explicitInstruction: trustedAdditiveWrite(ctx),
+				confirmed: trustedDestructiveWrite(ctx),
 				memory,
 			});
 			if (!auth.allowed) return fail(auth.reason ?? "memory write blocked");
@@ -277,9 +277,8 @@ function memoryLinkPrimitive(ctx: MemoryToolContext): Primitive {
 				to_id: { type: "string" },
 				type: { type: "string" },
 				reasoning: { type: "string" },
-				explicit_instruction: { type: "boolean" },
 			},
-			required: ["from_id", "to_id", "type", "reasoning", "explicit_instruction"],
+			required: ["from_id", "to_id", "type", "reasoning"],
 		},
 		async execute(args) {
 			const from = findMemory(ctx, stringArg(args.from_id));
@@ -288,7 +287,8 @@ function memoryLinkPrimitive(ctx: MemoryToolContext): Primitive {
 			if (from.id === to.id) return fail("cannot link a memory to itself");
 			const auth = authorizeMemoryWrite({
 				operation: "link",
-				explicitInstruction: booleanArg(args.explicit_instruction),
+				explicitInstruction: trustedAdditiveWrite(ctx),
+				confirmed: trustedDestructiveWrite(ctx),
 				memory: from,
 			});
 			if (!auth.allowed) return fail(auth.reason ?? "memory write blocked");
@@ -326,10 +326,8 @@ function memoryConsolidatePrimitive(ctx: MemoryToolContext): Primitive {
 			properties: {
 				source_ids: { type: "array", items: { type: "string" } },
 				text: { type: "string" },
-				explicit_instruction: { type: "boolean" },
-				confirmed: { type: "boolean" },
 			},
-			required: ["source_ids", "text", "explicit_instruction", "confirmed"],
+			required: ["source_ids", "text"],
 		},
 		async execute(args) {
 			const sourceIds = stringArrayArg(args.source_ids);
@@ -344,8 +342,8 @@ function memoryConsolidatePrimitive(ctx: MemoryToolContext): Primitive {
 			if (!text) return fail("text is required");
 			const auth = authorizeMemoryWrite({
 				operation: "consolidate",
-				explicitInstruction: booleanArg(args.explicit_instruction),
-				confirmed: booleanArg(args.confirmed),
+				explicitInstruction: trustedAdditiveWrite(ctx),
+				confirmed: trustedDestructiveWrite(ctx),
 				memory: sources[0],
 			});
 			if (!auth.allowed) return fail(auth.reason ?? "memory write blocked");
@@ -446,16 +444,20 @@ function archivistSource(ctx: MemoryToolContext): string {
 	return `archivist:${ctx.sessionId}`;
 }
 
+function trustedAdditiveWrite(ctx: MemoryToolContext): boolean {
+	return ctx.writeAuthorization?.additive === true || ctx.writeAuthorization?.destructive === true;
+}
+
+function trustedDestructiveWrite(ctx: MemoryToolContext): boolean {
+	return ctx.writeAuthorization?.destructive === true;
+}
+
 function stringArg(value: unknown): string | undefined {
 	return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 function intArg(value: unknown, fallback: number): number {
 	return typeof value === "number" && Number.isInteger(value) ? value : fallback;
-}
-
-function booleanArg(value: unknown): boolean {
-	return value === true;
 }
 
 function stringArrayArg(value: unknown): string[] {

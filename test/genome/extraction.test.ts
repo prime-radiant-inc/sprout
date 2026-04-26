@@ -72,9 +72,24 @@ describe("memory extraction", () => {
 		expect(drafts).toHaveLength(1);
 		expect(drafts[0]!.tags).toEqual(["sprout", "memory"]);
 		expect(drafts[0]!.entity_links).toEqual([
-			{ uuid: "entity_sprout_0", name: "Sprout", type: "PROJECT" },
+			{ uuid: "entity_project_sprout_0", name: "Sprout", type: "PROJECT" },
 		]);
 		expect(drafts[0]!.happens_at).toBe(Date.parse("2026-04-26T00:00:00.000Z"));
+	});
+
+	test("includes entity type in generated UUIDs", () => {
+		const drafts = normalizeExtractionPayload({
+			text: "Different typed entities can share names",
+			entities: [
+				{ name: "Sprout", type: "PROJECT" },
+				{ name: "Sprout", type: "TECHNOLOGY" },
+			],
+		});
+
+		expect(drafts[0]!.entity_links.map((entity) => entity.uuid)).toEqual([
+			"entity_project_sprout_0",
+			"entity_technology_sprout_1",
+		]);
 	});
 
 	test("calls the client with system and rendered user prompts", async () => {

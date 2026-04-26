@@ -143,6 +143,43 @@ describe("MemoryIndex", () => {
 		}
 	});
 
+	test("keeps same-uuid entities separate by type", () => {
+		const index = MemoryIndex.open(":memory:");
+		try {
+			index.rebuild([
+				makeMemory({
+					id: "idx-project-sprout",
+					content: "project memory",
+					entity_links: [{ uuid: "entity-sprout", type: "PROJECT", name: "Sprout" }],
+				}),
+				makeMemory({
+					id: "idx-tech-sprout",
+					content: "technology memory",
+					entity_links: [{ uuid: "entity-sprout", type: "TECHNOLOGY", name: "Sprout" }],
+				}),
+			]);
+
+			expect(index.searchEntities("sprout", { type: "PROJECT" })).toEqual([
+				{
+					uuid: "entity-sprout",
+					type: "PROJECT",
+					name: "Sprout",
+					rank: expect.any(Number),
+				},
+			]);
+			expect(index.searchEntities("sprout", { type: "TECHNOLOGY" })).toEqual([
+				{
+					uuid: "entity-sprout",
+					type: "TECHNOLOGY",
+					name: "Sprout",
+					rank: expect.any(Number),
+				},
+			]);
+		} finally {
+			index.close();
+		}
+	});
+
 	test("rebuilds from JSONL-loaded legacy fixture records", async () => {
 		const fixture = new JsonlStore<unknown>(
 			join(process.cwd(), "test/fixtures/memory/legacy-memories.jsonl"),
