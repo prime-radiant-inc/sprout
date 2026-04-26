@@ -85,7 +85,7 @@ describe("Embedding providers", () => {
 			}),
 		});
 
-		expect(provider.embedBatch(["alpha"])).rejects.toThrow("do not match expected 3");
+		await expect(provider.embedBatch(["alpha"])).rejects.toThrow("do not match expected 3");
 	});
 
 	test("fake provider returns deterministic vectors with provider metadata", async () => {

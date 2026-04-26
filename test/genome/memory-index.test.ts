@@ -114,6 +114,51 @@ describe("MemoryIndex", () => {
 		}
 	});
 
+	test("direct memory searches exclude archived and superseded memories", () => {
+		const index = MemoryIndex.open(":memory:");
+		try {
+			index.rebuild([
+				makeMemory({
+					id: "idx-active",
+					content: "database migration command",
+					embedding: makeEmbedding(0),
+				}),
+				makeMemory({
+					id: "idx-archived",
+					content: "database migration command",
+					archived_at: 123,
+					embedding: makeEmbedding(0),
+				}),
+				makeMemory({
+					id: "idx-superseded-field",
+					content: "database migration command",
+					superseded_by: "idx-active",
+					embedding: makeEmbedding(0),
+				}),
+				makeMemory({
+					id: "idx-superseded-link",
+					content: "database migration command",
+					inbound_links: [
+						{ uuid: "idx-active", type: "supersedes", reasoning: "replacement", created_at: 1 },
+					],
+					embedding: makeEmbedding(0),
+				}),
+			]);
+
+			expect(index.searchText("database", 10)).toEqual(["idx-active"]);
+			expect(
+				index.searchVector(Float32Array.from(embeddingVector(0)), 10).map((row) => row.id),
+			).toEqual(["idx-active"]);
+			expect(
+				index
+					.searchHybrid("database", Float32Array.from(embeddingVector(0)), 10)
+					.map((row) => row.id),
+			).toEqual(["idx-active"]);
+		} finally {
+			index.close();
+		}
+	});
+
 	test("searches canonical entities with FTS5", () => {
 		const index = MemoryIndex.open(":memory:");
 		try {

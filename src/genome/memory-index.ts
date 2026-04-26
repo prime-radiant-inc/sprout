@@ -2,11 +2,12 @@ import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { Memory } from "../kernel/types.ts";
+import { isActiveMemoryForRecall } from "./memory-lifecycle.ts";
 import { MEMORY_SCHEMA_VERSION, normalizeMemory } from "./memory-schema.ts";
 import type { MemorySegment } from "./segments.ts";
 import { normalizeSegment } from "./segments.ts";
 
-const INDEX_SCHEMA_VERSION = 2;
+const INDEX_SCHEMA_VERSION = 3;
 const VECTOR_DIMENSIONS = 768;
 const DEFAULT_MIN_VECTOR_SIMILARITY = 0.42;
 const RRF_K = 60;
@@ -152,11 +153,12 @@ export class MemoryIndex {
 				last_used INTEGER NOT NULL,
 				use_count INTEGER NOT NULL,
 				confidence REAL NOT NULL,
-				schema_version INTEGER NOT NULL,
-				importance_score REAL,
-				archived_at INTEGER
-			)
-		`);
+					schema_version INTEGER NOT NULL,
+					importance_score REAL,
+					archived_at INTEGER,
+					superseded_by TEXT
+				)
+			`);
 		this.db.run(`
 			CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
 				id UNINDEXED,
@@ -279,10 +281,11 @@ export class MemoryIndex {
 				last_used,
 				use_count,
 				confidence,
-				schema_version,
-				importance_score,
-				archived_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+					schema_version,
+					importance_score,
+					archived_at,
+					superseded_by
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		);
 		const insertFts = this.db.prepare(
 			"INSERT INTO memories_fts (id, content, tags) VALUES (?, ?, ?)",
@@ -375,6 +378,7 @@ export class MemoryIndex {
 						memory.schema_version ?? MEMORY_SCHEMA_VERSION,
 						memory.importance_score ?? null,
 						memory.archived_at ?? null,
+						memory.superseded_by ?? null,
 					);
 					insertFts.run(memory.id, memory.content, memory.tags.join(" "));
 					const embedding = memoryEmbeddingVector(memory);
@@ -392,6 +396,9 @@ export class MemoryIndex {
 					}
 					for (const link of memory.outbound_links ?? []) {
 						insertLink.run(memory.id, link.uuid, link.type, link.reasoning, link.created_at);
+					}
+					for (const link of memory.inbound_links ?? []) {
+						insertLink.run(link.uuid, memory.id, link.type, link.reasoning, link.created_at);
 					}
 					for (const annotation of memory.annotations ?? []) {
 						insertAnnotation.run(
@@ -448,30 +455,22 @@ export class MemoryIndex {
 	searchText(query: string, limit: number, options: CandidateFilter = {}): string[] {
 		const normalized = toFtsQuery(query);
 		if (!normalized) return [];
-		if (options.candidateIds) {
-			const rows = this.db
-				.query<MemorySearchRow, [string]>(
-					`SELECT id, bm25(memories_fts) AS rank
-				 FROM memories_fts
-				 WHERE memories_fts MATCH ?
-				 ORDER BY rank`,
-				)
-				.all(normalized);
-			return rows
-				.map((row) => row.id)
-				.filter((id) => options.candidateIds!.has(id))
-				.slice(0, limit);
-		}
+		const candidateIds = options.candidateIds;
+		if (candidateIds?.size === 0) return [];
+		const activeIds = this.activeMemoryIds();
+		if (activeIds.size === 0) return [];
 		const rows = this.db
-			.query<MemorySearchRow, [string, number]>(
+			.query<MemorySearchRow, [string]>(
 				`SELECT id, bm25(memories_fts) AS rank
-				 FROM memories_fts
-				 WHERE memories_fts MATCH ?
-				 ORDER BY rank
-				 LIMIT ?`,
+					 FROM memories_fts
+					 WHERE memories_fts MATCH ?
+					 ORDER BY rank`,
 			)
-			.all(normalized, limit);
-		return rows.map((row) => row.id);
+			.all(normalized);
+		return rows
+			.map((row) => row.id)
+			.filter((id) => activeIds.has(id) && (!candidateIds || candidateIds.has(id)))
+			.slice(0, limit);
 	}
 
 	searchEntities(
@@ -659,7 +658,18 @@ export class MemoryIndex {
 
 	private activeMemoryIds(): Set<string> {
 		const rows = this.db
-			.query<MemoryIdRow, []>("SELECT id FROM memories WHERE archived_at IS NULL")
+			.query<MemoryIdRow, []>(
+				`SELECT memories.id
+				 FROM memories
+				 WHERE memories.archived_at IS NULL
+				   AND memories.superseded_by IS NULL
+				   AND NOT EXISTS (
+					 SELECT 1
+					 FROM memory_links
+					 WHERE memory_links.target_id = memories.id
+					   AND memory_links.type = 'supersedes'
+				   )`,
+			)
 			.all();
 		return new Set(rows.map((row) => row.id));
 	}
@@ -694,7 +704,7 @@ function entityIndexRows(memories: readonly Memory[]): EntityIndexRow[] {
 }
 
 function memoryEmbeddingVector(memory: Memory): Float32Array | undefined {
-	if (memory.archived_at) return undefined;
+	if (!isActiveMemoryForRecall(memory)) return undefined;
 	const embedding = memory.embedding;
 	if (!embedding) return undefined;
 	if (embedding.status !== "ready") {
