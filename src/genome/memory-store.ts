@@ -6,6 +6,7 @@ const HALF_LIFE_DAYS = 30;
 
 export class MemoryStore {
 	private entries: Memory[] = [];
+	private loadedFingerprints = new Map<string, string>();
 	private readonly jsonl: JsonlStore<unknown>;
 
 	constructor(jsonlPath: string) {
@@ -16,12 +17,14 @@ export class MemoryStore {
 	async load(): Promise<void> {
 		this.entries = (await this.jsonl.load()).map((record) => normalizeMemory(record));
 		this.assertUniqueShortIds();
+		this.refreshLoadedFingerprints();
 	}
 
 	/** Append a memory to the in-memory list and to the JSONL file on disk. */
 	async add(memory: Memory): Promise<void> {
 		const normalized = this.stage(memory);
 		await this.jsonl.append(normalized);
+		this.refreshLoadedFingerprints();
 	}
 
 	/** Add a memory only in memory; caller must save/commit the enclosing mutation. */
@@ -102,6 +105,49 @@ export class MemoryStore {
 	/** Rewrite the entire JSONL file from the in-memory entries. */
 	async save(): Promise<void> {
 		await this.jsonl.rewrite(this.entries);
+		this.refreshLoadedFingerprints();
+	}
+
+	/**
+	 * Merge pending local memory edits over the latest on-disk JSONL snapshot.
+	 * This preserves unrelated writes from other processes while rejecting same-id
+	 * conflicts instead of silently overwriting them.
+	 */
+	async mergeLatestFromDisk(): Promise<void> {
+		const latest = new MemoryStore(this.jsonl.path);
+		await latest.load();
+		const latestEntries = latest.all();
+		const latestById = new Map(latestEntries.map((memory) => [memory.id, memory]));
+		const merged = [...latestEntries];
+		const mergedIndexById = new Map(merged.map((memory, index) => [memory.id, index]));
+
+		for (const memory of this.changedSinceLoad()) {
+			const latestMemory = latestById.get(memory.id);
+			const latestFingerprint = latestMemory ? memoryFingerprint(latestMemory) : undefined;
+			const loadedFingerprint = this.loadedFingerprints.get(memory.id);
+			const pendingFingerprint = memoryFingerprint(memory);
+			if (
+				latestFingerprint &&
+				loadedFingerprint &&
+				latestFingerprint !== loadedFingerprint &&
+				pendingFingerprint !== latestFingerprint
+			) {
+				throw new Error(`Memory '${memory.id}' changed on disk; reload before saving mutation`);
+			}
+			if (latestFingerprint && !loadedFingerprint && latestFingerprint !== pendingFingerprint) {
+				throw new Error(`Memory '${memory.id}' already exists on disk`);
+			}
+			const existingIndex = mergedIndexById.get(memory.id);
+			if (existingIndex === undefined) {
+				mergedIndexById.set(memory.id, merged.length);
+				merged.push(memory);
+			} else {
+				merged[existingIndex] = memory;
+			}
+		}
+
+		this.entries = merged.map((memory) => normalizeMemory(memory));
+		this.assertUniqueShortIds();
 	}
 
 	/** Calculate confidence decayed by time since last use (30-day half-life). */
@@ -146,4 +192,21 @@ export class MemoryStore {
 			byShortId.set(shortId, memory.id);
 		}
 	}
+
+	private changedSinceLoad(): Memory[] {
+		return this.entries.filter((memory) => {
+			const loaded = this.loadedFingerprints.get(memory.id);
+			return loaded === undefined || loaded !== memoryFingerprint(memory);
+		});
+	}
+
+	private refreshLoadedFingerprints(): void {
+		this.loadedFingerprints = new Map(
+			this.entries.map((memory) => [memory.id, memoryFingerprint(memory)]),
+		);
+	}
+}
+
+function memoryFingerprint(memory: Memory): string {
+	return JSON.stringify(memory);
 }

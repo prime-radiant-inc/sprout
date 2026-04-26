@@ -2,7 +2,7 @@ import { appendFile, mkdir, readFile, rename, writeFile } from "node:fs/promises
 import { basename, dirname } from "node:path";
 
 export class JsonlStore<T> {
-	constructor(private readonly path: string) {}
+	constructor(readonly path: string) {}
 
 	async load(): Promise<T[]> {
 		let raw: string;

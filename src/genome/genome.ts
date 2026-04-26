@@ -298,10 +298,13 @@ export class Genome {
 			memory,
 			await this.getEmbeddingProvider(),
 		);
-		await this.memories.add(embeddedMemory);
-		await git(this.rootPath, "add", join(this.rootPath, "memories", "memories.jsonl"));
-		await git(this.rootPath, "commit", "-m", `genome: add memory '${embeddedMemory.id}'`);
-		await rebuildMemoryIndexFromJsonl(this.rootPath);
+		await this.withMemoryWriteLock(async () => {
+			await this.memories.load();
+			await this.memories.add(embeddedMemory);
+			await git(this.rootPath, "add", join(this.rootPath, "memories", "memories.jsonl"));
+			await git(this.rootPath, "commit", "-m", `genome: add memory '${embeddedMemory.id}'`);
+			await rebuildMemoryIndexFromJsonl(this.rootPath);
+		});
 	}
 
 	/** Stage a new memory for callers that commit it together with other memory mutations. */
@@ -316,15 +319,18 @@ export class Genome {
 
 	/** Persist memory metadata mutations, committing JSONL and rebuilding the derived index. */
 	async saveMemoryMutation(commitMessage: string): Promise<void> {
-		await this.memories.save();
-		const memoriesPath = join(this.rootPath, "memories", "memories.jsonl");
-		await git(this.rootPath, "add", memoriesPath);
-		const status = await git(this.rootPath, "status", "--porcelain", "--", memoriesPath);
-		if (!status) {
-			throw new Error("memory mutation produced no changes");
-		}
-		await git(this.rootPath, "commit", "-m", commitMessage);
-		await rebuildMemoryIndexFromJsonl(this.rootPath);
+		await this.withMemoryWriteLock(async () => {
+			await this.memories.mergeLatestFromDisk();
+			await this.memories.save();
+			const memoriesPath = join(this.rootPath, "memories", "memories.jsonl");
+			await git(this.rootPath, "add", memoriesPath);
+			const status = await git(this.rootPath, "status", "--porcelain", "--", memoriesPath);
+			if (!status) {
+				throw new Error("memory mutation produced no changes");
+			}
+			await git(this.rootPath, "commit", "-m", commitMessage);
+			await rebuildMemoryIndexFromJsonl(this.rootPath);
+		});
 	}
 
 	/** Add a collapsed session segment, committing the JSONL file. */
@@ -353,32 +359,36 @@ export class Genome {
 		const segmentsPath = join(this.rootPath, "memories", "segments.jsonl");
 		const memoriesPath = join(this.rootPath, "memories", "memories.jsonl");
 		const filesToAdd = embeddedMemories.length > 0 ? [segmentsPath, memoriesPath] : [segmentsPath];
-		const snapshots = await snapshotTextFiles(filesToAdd);
-		let committed = false;
-		try {
-			this.segments.stage(embeddedSegment);
-			for (const memory of embeddedMemories) {
-				this.memories.stage(memory);
-			}
-			await this.segments.save();
-			if (embeddedMemories.length > 0) await this.memories.save();
-			await git(this.rootPath, "add", ...filesToAdd);
-			await git(
-				this.rootPath,
-				"commit",
-				"-m",
-				`genome: add memory segment '${embeddedSegment.id}' with ${embeddedMemories.length} memories`,
-			);
-			committed = true;
-		} catch (err) {
-			if (!committed) {
-				await restoreTextFiles(snapshots);
+		await this.withMemoryWriteLock(async () => {
+			const snapshots = await snapshotTextFiles(filesToAdd);
+			let committed = false;
+			try {
 				await this.segments.load();
-				await this.memories.load();
-				await git(this.rootPath, "reset", "--", ...filesToAdd);
+				this.segments.stage(embeddedSegment);
+				for (const memory of embeddedMemories) {
+					this.memories.stage(memory);
+				}
+				if (embeddedMemories.length > 0) await this.memories.mergeLatestFromDisk();
+				await this.segments.save();
+				if (embeddedMemories.length > 0) await this.memories.save();
+				await git(this.rootPath, "add", ...filesToAdd);
+				await git(
+					this.rootPath,
+					"commit",
+					"-m",
+					`genome: add memory segment '${embeddedSegment.id}' with ${embeddedMemories.length} memories`,
+				);
+				committed = true;
+			} catch (err) {
+				if (!committed) {
+					await restoreTextFiles(snapshots);
+					await this.segments.load();
+					await this.memories.load();
+					await git(this.rootPath, "reset", "--", ...filesToAdd);
+				}
+				throw err;
 			}
-			throw err;
-		}
+		});
 		await rebuildMemoryIndexFromJsonl(this.rootPath);
 	}
 
@@ -486,13 +496,16 @@ export class Genome {
 	/** Mark memories as used by id, saving to disk. No git commit — this is operational metadata. */
 	async markMemoriesUsed(ids: string[]): Promise<void> {
 		if (ids.length === 0) return;
-		for (const id of ids) {
-			this.memories.markUsed(id);
-			const memory = this.memories.getById(id);
-			if (memory) markMemoryAccessActivity(memory, this.projects.all());
-		}
-		await this.memories.save();
-		await rebuildMemoryIndexFromJsonl(this.rootPath);
+		await this.withMemoryWriteLock(async () => {
+			await this.memories.load();
+			for (const id of ids) {
+				this.memories.markUsed(id);
+				const memory = this.memories.getById(id);
+				if (memory) markMemoryAccessActivity(memory, this.projects.all());
+			}
+			await this.memories.save();
+			await rebuildMemoryIndexFromJsonl(this.rootPath);
+		});
 	}
 
 	async recordProjectActivity(project: DetectedProject, date = new Date()): Promise<boolean> {
@@ -529,11 +542,25 @@ export class Genome {
 	/** Track assistant-visible memory citations by short id. No git commit. */
 	async recordMemoryMentions(shortIds: string[]): Promise<string[]> {
 		if (shortIds.length === 0) return [];
-		const mentioned = this.memories.markMentioned(shortIds);
-		if (mentioned.length === 0) return [];
-		await this.memories.save();
-		await rebuildMemoryIndexFromJsonl(this.rootPath);
-		return mentioned;
+		return this.withMemoryWriteLock(async () => {
+			await this.memories.load();
+			const mentioned = this.memories.markMentioned(shortIds);
+			if (mentioned.length === 0) return [];
+			await this.memories.save();
+			await rebuildMemoryIndexFromJsonl(this.rootPath);
+			return mentioned;
+		});
+	}
+
+	private async withMemoryWriteLock<T>(fn: () => Promise<T>): Promise<T> {
+		const lockDir = join(this.rootPath, ".cache", "memory-write.lock");
+		await mkdir(join(this.rootPath, ".cache"), { recursive: true });
+		const release = await acquireDirectoryLock(lockDir);
+		try {
+			return await fn();
+		} finally {
+			await release();
+		}
 	}
 
 	private effectiveMemoryConfidence(memory: Memory): number {
@@ -544,19 +571,22 @@ export class Genome {
 
 	/** Remove memories whose effective confidence is below the threshold. */
 	async pruneMemories(minConfidence = 0.2): Promise<string[]> {
-		const pruned = this.memories.pruneByConfidence(minConfidence);
-		if (pruned.length > 0) {
-			await this.memories.save();
-			await git(this.rootPath, "add", join(this.rootPath, "memories", "memories.jsonl"));
-			await git(
-				this.rootPath,
-				"commit",
-				"-m",
-				`genome: prune ${pruned.length} low-confidence memories`,
-			);
-			await rebuildMemoryIndexFromJsonl(this.rootPath);
-		}
-		return pruned;
+		return this.withMemoryWriteLock(async () => {
+			await this.memories.load();
+			const pruned = this.memories.pruneByConfidence(minConfidence);
+			if (pruned.length > 0) {
+				await this.memories.save();
+				await git(this.rootPath, "add", join(this.rootPath, "memories", "memories.jsonl"));
+				await git(
+					this.rootPath,
+					"commit",
+					"-m",
+					`genome: prune ${pruned.length} low-confidence memories`,
+				);
+				await rebuildMemoryIndexFromJsonl(this.rootPath);
+			}
+			return pruned;
+		});
 	}
 
 	/** Remove routing rules that have never been triggered (not in the used set). */
@@ -1033,6 +1063,30 @@ export interface AgentFileInfo {
 interface TextFileSnapshot {
 	existed: boolean;
 	content: string;
+}
+
+async function acquireDirectoryLock(lockDir: string): Promise<() => Promise<void>> {
+	const deadline = Date.now() + 30_000;
+	while (true) {
+		try {
+			await mkdir(lockDir);
+			return async () => {
+				await rm(lockDir, { recursive: true, force: true });
+			};
+		} catch (err) {
+			if (!(err instanceof Error) || !("code" in err) || err.code !== "EEXIST") {
+				throw err;
+			}
+			if (Date.now() >= deadline) {
+				throw new Error(`Timed out waiting for memory write lock at ${lockDir}`);
+			}
+			await sleep(25);
+		}
+	}
+}
+
+async function sleep(ms: number): Promise<void> {
+	await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function snapshotTextFiles(paths: readonly string[]): Promise<Map<string, TextFileSnapshot>> {

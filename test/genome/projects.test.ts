@@ -172,6 +172,26 @@ describe("project detection", () => {
 		});
 	});
 
+	test("project activity preserves cumulative count when active date history is absent", async () => {
+		const store = new ProjectActivityStore(join(tempDir, "projects-legacy-count.jsonl"));
+		await store.load();
+		store.upsertMaintenanceRecord({
+			id: "sprout",
+			name: "Sprout",
+			cumulative_active_days: 10,
+		});
+		const project = detectProject({ explicitProject: "Sprout" });
+
+		store.recordActiveDay(project, new Date("2026-04-26T10:00:00Z"));
+		store.recordActiveDay(project, new Date("2026-04-26T18:00:00Z"));
+
+		expect(store.getById("sprout")).toMatchObject({
+			cumulative_active_days: 11,
+			last_active_date: "2026-04-26",
+			active_dates: ["2026-04-26"],
+		});
+	});
+
 	test("unknown project does not advance a project-specific decay clock", async () => {
 		const store = new ProjectActivityStore(join(tempDir, "projects.jsonl"));
 		await store.load();

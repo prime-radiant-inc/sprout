@@ -567,6 +567,41 @@ describe("Genome", () => {
 			}
 		});
 
+		test("saveMemoryMutation preserves memories added by another loaded genome", async () => {
+			const root = join(tempDir, "mem-mutation-merge");
+			const writer = await createInitializedGenome(root);
+			await writer.addMemory(makeMemory({ id: "shared-memory", content: "shared fact" }));
+			const staleGenome = new Genome(root);
+			await staleGenome.loadFromDisk();
+			await writer.addMemory(makeMemory({ id: "newer-memory", content: "newer fact" }));
+
+			const memory = staleGenome.memories.getById("shared-memory")!;
+			memory.archived_at = 12345;
+			memory.archived_reason = "mutation test";
+			await staleGenome.saveMemoryMutation("genome: archive stale shared memory");
+
+			const reloaded = new Genome(root);
+			await reloaded.loadFromDisk();
+			expect(reloaded.memories.getById("shared-memory")?.archived_at).toBe(12345);
+			expect(reloaded.memories.getById("newer-memory")?.content).toBe("newer fact");
+		});
+
+		test("markMemoriesUsed preserves memories added by another loaded genome", async () => {
+			const root = join(tempDir, "mem-used-merge");
+			const writer = await createInitializedGenome(root);
+			await writer.addMemory(makeMemory({ id: "used-shared", content: "shared fact" }));
+			const staleGenome = new Genome(root);
+			await staleGenome.loadFromDisk();
+			await writer.addMemory(makeMemory({ id: "used-newer", content: "newer fact" }));
+
+			await staleGenome.markMemoriesUsed(["used-shared"]);
+
+			const reloaded = new Genome(root);
+			await reloaded.loadFromDisk();
+			expect(reloaded.memories.getById("used-shared")?.use_count).toBe(1);
+			expect(reloaded.memories.getById("used-newer")?.content).toBe("newer fact");
+		});
+
 		test("recomputeMemoryScores commits score-based archival mutations", async () => {
 			const root = join(tempDir, "mem-score-archive");
 			const genome = await createInitializedGenome(root);
