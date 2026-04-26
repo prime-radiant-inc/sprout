@@ -70,6 +70,21 @@ describe("MemoryStore", () => {
 		expect(all[1]!.id).toBe("load-2");
 	});
 
+	test("load() normalizes legacy fixture records", async () => {
+		const store = new MemoryStore(
+			join(process.cwd(), "test/fixtures/memory/legacy-memories.jsonl"),
+		);
+		await store.load();
+
+		const all = store.all();
+		expect(all).toHaveLength(4);
+		expect(all[0]!.schema_version).toBe(2);
+		expect(all[0]!.text).toBe(all[0]!.content);
+		expect(all[0]!.short_id).toBe("mem_legacydu");
+		expect(all[0]!.entity_links).toEqual([]);
+		expect(all[0]!.project_ids).toEqual([]);
+	});
+
 	test("search() finds by keyword in content", async () => {
 		const store = new MemoryStore(join(tempDir, "search-content.jsonl"));
 		await store.load();

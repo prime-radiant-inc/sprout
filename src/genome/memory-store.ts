@@ -1,47 +1,30 @@
-import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
 import type { Memory } from "../kernel/types.ts";
+import { JsonlStore } from "./jsonl-store.ts";
+import { normalizeMemory } from "./memory-schema.ts";
 
 const HALF_LIFE_DAYS = 30;
 
 export class MemoryStore {
 	private entries: Memory[] = [];
-	private readonly path: string;
+	private readonly jsonl: JsonlStore<unknown>;
 
 	constructor(jsonlPath: string) {
-		this.path = jsonlPath;
+		this.jsonl = new JsonlStore(jsonlPath);
 	}
 
 	/** Read JSONL lines from disk, parsing each as a Memory. */
 	async load(): Promise<void> {
-		let raw: string;
-		try {
-			raw = await readFile(this.path, "utf-8");
-		} catch (err: unknown) {
-			if (
-				err instanceof Error &&
-				"code" in err &&
-				(err as NodeJS.ErrnoException).code === "ENOENT"
-			) {
-				this.entries = [];
-				return;
-			}
-			throw err;
-		}
-		this.entries = raw
-			.split("\n")
-			.filter((line) => line.trim().length > 0)
-			.map((line) => JSON.parse(line) as Memory);
+		this.entries = (await this.jsonl.load()).map((record) => normalizeMemory(record));
 	}
 
 	/** Append a memory to the in-memory list and to the JSONL file on disk. */
 	async add(memory: Memory): Promise<void> {
-		if (this.entries.some((m) => m.id === memory.id)) {
-			throw new Error(`Memory with id '${memory.id}' already exists`);
+		const normalized = normalizeMemory(memory);
+		if (this.entries.some((m) => m.id === normalized.id)) {
+			throw new Error(`Memory with id '${normalized.id}' already exists`);
 		}
-		this.entries.push(memory);
-		await mkdir(dirname(this.path), { recursive: true });
-		await appendFile(this.path, `${JSON.stringify(memory)}\n`);
+		this.entries.push(normalized);
+		await this.jsonl.append(normalized);
 	}
 
 	/**
@@ -82,14 +65,13 @@ export class MemoryStore {
 		if (!memory) return;
 		memory.last_used = Date.now();
 		memory.use_count++;
+		memory.last_accessed_at = memory.last_used;
+		memory.access_count = memory.use_count;
 	}
 
 	/** Rewrite the entire JSONL file from the in-memory entries. */
 	async save(): Promise<void> {
-		await mkdir(dirname(this.path), { recursive: true });
-		const content =
-			this.entries.length > 0 ? `${this.entries.map((m) => JSON.stringify(m)).join("\n")}\n` : "";
-		await writeFile(this.path, content);
+		await this.jsonl.rewrite(this.entries);
 	}
 
 	/** Calculate confidence decayed by time since last use (30-day half-life). */

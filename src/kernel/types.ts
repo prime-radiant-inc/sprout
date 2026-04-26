@@ -196,7 +196,77 @@ export interface Memory {
 	last_used: number;
 	use_count: number;
 	confidence: number;
+	schema_version?: number;
+	short_id?: string;
+	text?: string;
+	created_at?: number;
+	updated_at?: number;
+	last_accessed_at?: number;
+	access_count?: number;
+	mention_count?: number;
+	importance_score?: number;
+	effective_importance?: number;
+	embedding?: MemoryEmbeddingRef;
+	outbound_links?: MemoryLinkEntry[];
+	inbound_links?: MemoryLinkEntry[];
+	entity_links?: EntityLinkEntry[];
+	annotations?: AnnotationEntry[];
+	project_ids?: string[];
+	source_segment_id?: string;
+	source_session_id?: string;
+	happens_at?: number;
+	expires_at?: number;
+	archived_at?: number;
+	archived_reason?: string;
+	superseded_by?: string;
+	consolidates_memory_ids?: string[];
+	consolidation_rejection_count?: number;
+	activity_days_at_creation?: number;
+	activity_days_at_last_access?: number;
 }
+
+export interface MemoryEmbeddingRef {
+	provider: string;
+	model: string;
+	dimensions: number;
+	status: "pending" | "ready" | "failed";
+	vector_id?: string;
+	embedded_at?: number;
+	error?: string;
+}
+
+export interface MemoryLinkEntry {
+	uuid: string;
+	type: RelationshipType;
+	reasoning: string;
+	created_at: number;
+	extraction_bond?: string;
+}
+
+export interface EntityLinkEntry {
+	uuid: string;
+	type: "PROJECT" | "LIBRARY" | "FILE_PATH" | "COMMAND" | "ERROR_TYPE" | "TECHNOLOGY" | "PERSON";
+	name: string;
+}
+
+export interface AnnotationEntry {
+	text: string;
+	created_at: number;
+	source: string;
+	archived_source_ids?: string[];
+	source_segment_ids?: string[];
+}
+
+export type RelationshipType =
+	| "corroborates"
+	| "conflicts"
+	| "supersedes"
+	| "refines"
+	| "precedes"
+	| "contextualizes"
+	| "exemplifies"
+	| "extraction_ref"
+	| "null";
 
 /** A learned preference for agent selection */
 export interface RoutingRule {

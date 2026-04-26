@@ -1,0 +1,4 @@
+{"id":"legacy-durable","content":"Sprout uses Bun's built-in test runner for unit tests.","tags":["testing","bun"],"source":"manual","created":1700000000000,"last_used":1700000000000,"use_count":4,"confidence":0.95}
+{"id":"legacy-low-confidence","content":"Old transient note that should no longer rank highly.","tags":["transient"],"source":"manual","created":1600000000000,"last_used":1600000000000,"use_count":0,"confidence":0.2}
+{"id":"legacy-tags","content":"Memory with several tags for migration coverage.","tags":["migration","schema","jsonl"],"source":"test","created":1710000000000,"last_used":1710000100000,"use_count":1,"confidence":0.8}
+{"id":"legacy-learn","content":"When TypeScript strict mode fails, run bun run typecheck before retrying tests.","tags":["learn","typescript","strict"],"source":"learn","created":1720000000000,"last_used":1720000000000,"use_count":2,"confidence":0.85}
