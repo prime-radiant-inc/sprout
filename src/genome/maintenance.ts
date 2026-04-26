@@ -1,10 +1,11 @@
-import type { EntityLinkEntry } from "../kernel/types.ts";
+import type { EntityLinkEntry, Memory } from "../kernel/types.ts";
 import {
 	applyConsolidationMerge,
 	type ConsolidationCluster,
 	type ConsolidationDecision,
 	type ConsolidationMemoryDraft,
 	discoverConsolidationClusters,
+	projectDueForConsolidation,
 	rejectConsolidationCluster,
 } from "./consolidation.ts";
 import {
@@ -12,6 +13,7 @@ import {
 	discoverEntityGcGroups,
 	type EntityGcDecision,
 	type EntityGcGroup,
+	projectDueForEntityGc,
 } from "./entity-gc.ts";
 import type { Genome } from "./genome.ts";
 
@@ -55,12 +57,23 @@ export function discoverMemoryMaintenancePlan(
 	const includeConsolidation = options.includeConsolidation ?? true;
 	const includeEntityGc = options.includeEntityGc ?? true;
 	const memories = genome.memories.all();
+	const projects = genome.projects.all();
+	const consolidationProjectIds = new Set(
+		projects.filter((project) => projectDueForConsolidation(project)).map((project) => project.id),
+	);
+	const entityGcProjectIds = new Set(
+		projects.filter((project) => projectDueForEntityGc(project)).map((project) => project.id),
+	);
 	return {
 		consolidationClusters: includeConsolidation
-			? discoverConsolidationClusters(memories, { limit: options.limit })
+			? discoverConsolidationClusters(filterMemoriesByProjects(memories, consolidationProjectIds), {
+					limit: options.limit,
+				})
 			: [],
 		entityGcGroups: includeEntityGc
-			? discoverEntityGcGroups(memories, { limit: options.limit })
+			? discoverEntityGcGroups(filterMemoriesByProjects(memories, entityGcProjectIds), {
+					limit: options.limit,
+				})
 			: [],
 	};
 }
@@ -72,6 +85,9 @@ export async function applyMemoryMaintenanceDecisions(
 ): Promise<MemoryMaintenanceApplyResult> {
 	const clusterById = new Map(plan.consolidationClusters.map((cluster) => [cluster.id, cluster]));
 	const groupById = new Map(plan.entityGcGroups.map((group) => [group.id, group]));
+	const memoryById = new Map(genome.memories.all().map((memory) => [memory.id, memory]));
+	const consolidatedProjectIds = new Set<string>();
+	const entityGcProjectIds = new Set<string>();
 	const result: MemoryMaintenanceApplyResult = {
 		consolidation: { merged: 0, rejected: 0, archived_memory_ids: [] },
 		entity_gc: { merged: 0, rejected: 0, updated_memory_ids: [], archived_alias_count: 0 },
@@ -80,6 +96,7 @@ export async function applyMemoryMaintenanceDecisions(
 	for (const decision of decisions.consolidations ?? []) {
 		const cluster = clusterById.get(decision.cluster_id);
 		if (!cluster) throw new Error(`Unknown consolidation cluster '${decision.cluster_id}'`);
+		for (const projectId of cluster.project_ids) consolidatedProjectIds.add(projectId);
 		if (decision.action === "merge") {
 			if (!decision.memory) {
 				throw new Error(`Merge decision for '${decision.cluster_id}' is missing memory`);
@@ -101,6 +118,9 @@ export async function applyMemoryMaintenanceDecisions(
 	for (const decision of decisions.entity_gc ?? []) {
 		const group = groupById.get(decision.group_id);
 		if (!group) throw new Error(`Unknown entity GC group '${decision.group_id}'`);
+		for (const projectId of entityGcGroupProjectIds(group, memoryById)) {
+			entityGcProjectIds.add(projectId);
+		}
 		const applied = await applyEntityGcDecision(genome, group, decision, {
 			source: "memory-maintenance",
 		});
@@ -115,7 +135,31 @@ export async function applyMemoryMaintenanceDecisions(
 
 	result.consolidation.archived_memory_ids = sortedUnique(result.consolidation.archived_memory_ids);
 	result.entity_gc.updated_memory_ids = sortedUnique(result.entity_gc.updated_memory_ids);
+	for (const projectId of consolidatedProjectIds) genome.projects.markConsolidated(projectId);
+	for (const projectId of entityGcProjectIds) genome.projects.markEntityGc(projectId);
+	if (consolidatedProjectIds.size > 0 || entityGcProjectIds.size > 0) {
+		await genome.projects.save();
+	}
 	return result;
+}
+
+function filterMemoriesByProjects(
+	memories: readonly Memory[],
+	projectIds: ReadonlySet<string>,
+): Memory[] {
+	if (projectIds.size === 0) return [];
+	return memories.filter((memory) => (memory.project_ids ?? []).some((id) => projectIds.has(id)));
+}
+
+function entityGcGroupProjectIds(
+	group: EntityGcGroup,
+	memoryById: ReadonlyMap<string, Memory>,
+): string[] {
+	return sortedUnique(
+		group.candidates.flatMap((candidate) =>
+			candidate.memory_ids.flatMap((memoryId) => memoryById.get(memoryId)?.project_ids ?? []),
+		),
+	);
 }
 
 export function parseMemoryMaintenanceDecisionFile(text: string): MemoryMaintenanceDecisionFile {

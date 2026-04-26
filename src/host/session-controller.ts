@@ -112,6 +112,8 @@ export interface SessionControllerOptions {
 	genomePath: string;
 	/** Per-project data directory (sessions, logs, memory). Defaults to genomePath. */
 	projectDataDir?: string;
+	/** Working directory for project detection and agent execution. Defaults to process.cwd(). */
+	workDir?: string;
 	rootDir?: string;
 	rootAgent?: string;
 	factory?: AgentFactory;
@@ -258,6 +260,7 @@ export class SessionController {
 	private readonly bus: SessionBus;
 	private readonly genomePath: string;
 	private readonly projectDataDir: string;
+	private readonly workDir: string;
 	private readonly rootDir?: string;
 	private readonly rootAgentName?: string;
 	private readonly factory: AgentFactory;
@@ -295,6 +298,7 @@ export class SessionController {
 		this.bus = options.bus;
 		this.genomePath = options.genomePath;
 		this.projectDataDir = options.projectDataDir ?? options.genomePath;
+		this.workDir = options.workDir ?? process.cwd();
 		this.rootDir = options.rootDir;
 		this.rootAgentName = options.rootAgent;
 		this.factory = options.factory ?? defaultFactory;
@@ -520,7 +524,7 @@ export class SessionController {
 				genomePath: this.genomePath,
 				projectDataDir: this.projectDataDir,
 				rootDir: this.rootDir,
-				workDir: process.cwd(),
+				workDir: this.workDir,
 				rootAgent: this.rootAgentName,
 				events: this.bus,
 				sessionId: this._sessionId,
@@ -581,7 +585,7 @@ export class SessionController {
 		try {
 			const collapse = await result.collapseMemory({
 				sessionId: this._sessionId,
-				cwd: process.cwd(),
+				cwd: this.workDir,
 			});
 			if (collapse !== "skipped") {
 				this.bus.emitEvent("context_update", "session", 0, {

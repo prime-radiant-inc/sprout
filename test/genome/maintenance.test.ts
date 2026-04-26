@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Genome } from "../../src/genome/genome.ts";
 import {
 	applyMemoryMaintenanceDecisions,
 	discoverMemoryMaintenancePlan,
@@ -25,16 +26,27 @@ function memory(overrides: Partial<Memory> = {}): Memory {
 	};
 }
 
+function recordActiveDays(genome: Genome, projectId = "sprout", count = 30): void {
+	for (let index = 0; index < count; index++) {
+		genome.projects.recordActiveDay(
+			{ id: projectId, name: projectId, confidence: 1, source: "explicit" },
+			new Date(Date.UTC(2026, 0, index + 1)),
+		);
+	}
+}
+
 describe("memory maintenance operator flow", () => {
 	test("dry run renders consolidation and entity GC candidates", async () => {
 		const root = await mkdtemp(join(tmpdir(), "sprout-maintenance-dry-run-"));
 		try {
 			const genome = createTestGenome(root);
 			await genome.init();
+			recordActiveDays(genome);
 			await genome.addMemory(
 				memory({
 					id: "memory-a",
 					content: "Sprout memory uses SQLite.",
+					project_ids: ["sprout"],
 					entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
 				}),
 			);
@@ -42,6 +54,7 @@ describe("memory maintenance operator flow", () => {
 				memory({
 					id: "memory-b",
 					content: "Sprout memory uses SQLite.",
+					project_ids: ["sprout"],
 					entity_links: [{ uuid: "entity_sprout_alias", type: "PROJECT", name: "sprout" }],
 				}),
 			);
@@ -58,13 +71,58 @@ describe("memory maintenance operator flow", () => {
 		}
 	});
 
+	test("dry run skips projects before their active-day cadence", async () => {
+		const root = await mkdtemp(join(tmpdir(), "sprout-maintenance-not-due-"));
+		try {
+			const genome = createTestGenome(root);
+			await genome.init();
+			recordActiveDays(genome, "sprout", 13);
+			await genome.addMemory(
+				memory({
+					id: "memory-a",
+					content: "Sprout memory uses SQLite.",
+					project_ids: ["sprout"],
+					entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
+				}),
+			);
+			await genome.addMemory(
+				memory({
+					id: "memory-b",
+					content: "Sprout memory uses SQLite.",
+					project_ids: ["sprout"],
+					entity_links: [{ uuid: "entity_sprout_alias", type: "PROJECT", name: "sprout" }],
+				}),
+			);
+
+			const plan = discoverMemoryMaintenancePlan(genome);
+
+			expect(plan.consolidationClusters).toHaveLength(0);
+			expect(plan.entityGcGroups).toHaveLength(0);
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
 	test("apply uses reviewed decision files instead of automerging", async () => {
 		const root = await mkdtemp(join(tmpdir(), "sprout-maintenance-apply-"));
 		try {
 			const genome = createTestGenome(root);
 			await genome.init();
-			await genome.addMemory(memory({ id: "old-a", content: "Sprout memory uses SQLite." }));
-			await genome.addMemory(memory({ id: "old-b", content: "Sprout memory uses SQLite." }));
+			recordActiveDays(genome, "sprout", 14);
+			await genome.addMemory(
+				memory({
+					id: "old-a",
+					content: "Sprout memory uses SQLite.",
+					project_ids: ["sprout"],
+				}),
+			);
+			await genome.addMemory(
+				memory({
+					id: "old-b",
+					content: "Sprout memory uses SQLite.",
+					project_ids: ["sprout"],
+				}),
+			);
 			const plan = discoverMemoryMaintenancePlan(genome, { includeEntityGc: false });
 			const cluster = plan.consolidationClusters[0]!;
 			const decisions = parseMemoryMaintenanceDecisionFile(
@@ -89,6 +147,47 @@ describe("memory maintenance operator flow", () => {
 			expect(result.consolidation.merged).toBe(1);
 			expect(result.consolidation.archived_memory_ids).toEqual(["old-a", "old-b"]);
 			expect(genome.memories.getById("old-a")?.superseded_by).toBeDefined();
+			expect(genome.projects.getById("sprout")?.last_consolidated_active_day).toBe(14);
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
+	test("apply marks project entity-GC cadence after reviewed decisions", async () => {
+		const root = await mkdtemp(join(tmpdir(), "sprout-maintenance-entity-gc-"));
+		try {
+			const genome = createTestGenome(root);
+			await genome.init();
+			recordActiveDays(genome);
+			await genome.addMemory(
+				memory({
+					id: "entity-a",
+					project_ids: ["sprout"],
+					entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
+				}),
+			);
+			await genome.addMemory(
+				memory({
+					id: "entity-b",
+					project_ids: ["sprout"],
+					entity_links: [{ uuid: "entity_sprout_alias", type: "PROJECT", name: "sprout" }],
+				}),
+			);
+			const plan = discoverMemoryMaintenancePlan(genome, { includeConsolidation: false });
+			const group = plan.entityGcGroups[0]!;
+
+			const result = await applyMemoryMaintenanceDecisions(genome, plan, {
+				entity_gc: [
+					{
+						group_id: group.id,
+						action: "reject",
+						reasoning: "Reviewed as separate project entities.",
+					},
+				],
+			});
+
+			expect(result.entity_gc.rejected).toBe(1);
+			expect(genome.projects.getById("sprout")?.last_entity_gc_active_day).toBe(30);
 		} finally {
 			await rm(root, { recursive: true, force: true });
 		}

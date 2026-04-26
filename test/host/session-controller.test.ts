@@ -95,13 +95,14 @@ describe("SessionController", () => {
 		await rm(tempDir, { recursive: true, force: true });
 	});
 
-	function makeController(overrides?: { factory?: AgentFactory }) {
+	function makeController(overrides?: { factory?: AgentFactory; workDir?: string }) {
 		const bus = new EventBus();
 		const sessionsDir = join(tempDir, "sessions");
 		const controller = new SessionController({
 			bus,
 			genomePath: join(tempDir, "genome"),
 			projectDataDir: tempDir,
+			...(overrides?.workDir ? { workDir: overrides.workDir } : {}),
 			factory: overrides?.factory,
 		});
 		return { bus, controller, sessionsDir };
@@ -194,6 +195,31 @@ describe("SessionController", () => {
 		expect(collapsed).toHaveLength(1);
 		expect(collapsed[0]?.sessionId).toBe(controller.sessionId);
 		expect(bus.collected().some((event) => event.data.memory_collapse === "completed")).toBe(true);
+	});
+
+	test("runs memory collapse with the configured work directory", async () => {
+		const fake = makeFakeAgent();
+		const workDir = join(tempDir, "configured-workdir");
+		await mkdir(workDir, { recursive: true });
+		let factoryWorkDir = "";
+		const collapsed: Array<{ sessionId: string; cwd: string }> = [];
+		const factory: AgentFactory = async (options) => {
+			factoryWorkDir = options.workDir;
+			return {
+				agent: fake.agent as any,
+				learnProcess: null,
+				collapseMemory: async (input) => {
+					collapsed.push(input);
+					return { ok: true };
+				},
+			};
+		};
+		const { controller } = makeController({ factory, workDir });
+
+		await controller.runGoal("Remember this session");
+
+		expect(factoryWorkDir).toBe(workDir);
+		expect(collapsed[0]?.cwd).toBe(workDir);
 	});
 
 	test("skips memory collapse after timed-out runs", async () => {

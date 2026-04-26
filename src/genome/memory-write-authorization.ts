@@ -18,6 +18,8 @@ const AFFIRMATIVE_CONFIRMATION_PATTERN =
 const NEGATED_CONFIRMATION_PREFIX_PATTERN =
 	/\b(not|never|no|without|unless|until|if|only if|do not|don't)\b[\s\S]{0,40}$/i;
 const CONDITIONAL_CONFIRMATION_SUFFIX_PATTERN = /\b(only if|unless|until|provided that)\b/i;
+const NEGATED_MUTATION_PREFIX_PATTERN =
+	/\b(not|never|no|without|unless|until|if|only if|do not|don't)\b[\s\S]{0,48}$/i;
 const SHORT_MEMORY_ID_PATTERN = /\bmem_[a-z0-9]+\b/gi;
 const NAMED_MEMORY_ID_PATTERN = /\bmem(?:ory|ories)\s+([a-z0-9][a-z0-9_-]*[0-9_-][a-z0-9_-]*)\b/gi;
 
@@ -32,6 +34,9 @@ export function deriveTrustedMemoryWriteAuthorization(input: {
 		return undefined;
 	const allowedMemoryIds = extractMemoryIds(text);
 	const allowedOperations = extractAllowedOperations(text);
+	if (allowedOperations.length === 0 || hasNegatedMutation(text, allowedOperations)) {
+		return undefined;
+	}
 	const destructive = allowedOperations.some((operation) =>
 		["archive", "consolidate", "supersede"].includes(operation),
 	);
@@ -51,6 +56,34 @@ function hasExplicitConfirmation(text: string): boolean {
 	if (NEGATED_CONFIRMATION_PREFIX_PATTERN.test(prefix)) return false;
 	const suffix = text.slice(match.index + match[0].length, match.index + match[0].length + 48);
 	return !CONDITIONAL_CONFIRMATION_SUFFIX_PATTERN.test(suffix);
+}
+
+function hasNegatedMutation(
+	text: string,
+	allowedOperations: readonly MemoryWriteOperation[],
+): boolean {
+	return allowedOperations.some((operation) => {
+		for (const match of text.matchAll(operationPattern(operation))) {
+			const prefix = text.slice(Math.max(0, (match.index ?? 0) - 64), match.index);
+			if (NEGATED_MUTATION_PREFIX_PATTERN.test(prefix)) return true;
+		}
+		return false;
+	});
+}
+
+function operationPattern(operation: MemoryWriteOperation): RegExp {
+	switch (operation) {
+		case "annotate":
+			return /\b(annotate|annotation|contextualize|refine)\b/gi;
+		case "link":
+			return /\b(link|relate|corroborate|conflict|contextualize|refine)\b/gi;
+		case "archive":
+			return /\b(archive|deprecate|prune)\b/gi;
+		case "consolidate":
+			return /\b(consolidate|merge)\b/gi;
+		case "supersede":
+			return /\b(supersede|supersedes|superseded|replace)\b/gi;
+	}
 }
 
 function extractAllowedOperations(text: string): MemoryWriteOperation[] {

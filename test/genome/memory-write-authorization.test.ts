@@ -39,6 +39,21 @@ describe("memory write authorization derivation", () => {
 		).toBeUndefined();
 	});
 
+	test("rejects negated additive memory mutation instructions", () => {
+		for (const userInstruction of [
+			"do not annotate memory mem_alpha00",
+			"never link memory mem_alpha00 to memory mem_beta00",
+			"without refining memory mem_alpha00, just search it",
+		]) {
+			expect(
+				deriveTrustedMemoryWriteAuthorization({
+					agentName: "archivist",
+					userInstruction,
+				}),
+			).toBeUndefined();
+		}
+	});
+
 	test("requires explicit confirmation for destructive memory mutations", () => {
 		expect(
 			deriveTrustedMemoryWriteAuthorization({
@@ -60,6 +75,8 @@ describe("memory write authorization derivation", () => {
 			"archive memory mem_alpha00 because it is not approved",
 			"archive memory mem_alpha00 unless approved",
 			"do not go ahead and archive memory mem_alpha00",
+			"I confirm: do not archive memory mem_alpha00",
+			"I confirm: never consolidate memory mem_alpha00 with memory mem_beta00",
 			"I confirm only if memory mem_alpha00 is stale: archive it",
 		]) {
 			expect(
