@@ -19,6 +19,7 @@ import { type DetectedProject, ProjectActivityStore } from "./projects.ts";
 import {
 	loadMemoryExtractionPrompts,
 	loadSegmentSummaryPrompts,
+	loadSubcorticalRecallPrompt,
 	type PromptSet,
 } from "./prompts.ts";
 import { buildManifestFromSpecs, loadManifest, saveManifest } from "./root-manifest.ts";
@@ -880,6 +881,10 @@ export class Genome {
 
 	async loadSegmentSummaryPrompts(): Promise<PromptSet> {
 		return loadSegmentSummaryPrompts(this.rootPath, this.rootDir);
+	}
+
+	async loadSubcorticalRecallPrompt(): Promise<string> {
+		return loadSubcorticalRecallPrompt(this.rootPath, this.rootDir);
 	}
 
 	/**

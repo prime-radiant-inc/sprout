@@ -64,6 +64,9 @@ export function parseAgentMarkdown(content: string, source: string): AgentSpec {
 	if (raw.prompt_cache !== undefined) {
 		spec.prompt_cache = raw.prompt_cache;
 	}
+	if (raw.subcortical_recall !== undefined) {
+		spec.subcortical_recall = raw.subcortical_recall;
+	}
 
 	const extra: Record<string, unknown> = {};
 	for (const key of Object.keys(raw)) {
@@ -89,6 +92,7 @@ const KNOWN_FIELDS = new Set([
 	"version",
 	"thinking",
 	"prompt_cache",
+	"subcortical_recall",
 	"system_prompt",
 ]);
 
@@ -113,6 +117,9 @@ export function serializeAgentMarkdown(spec: AgentSpec): string {
 	}
 	if (spec.prompt_cache !== undefined) {
 		fm.prompt_cache = spec.prompt_cache;
+	}
+	if (spec.subcortical_recall !== undefined) {
+		fm.subcortical_recall = spec.subcortical_recall;
 	}
 	if (spec._extra) {
 		for (const [key, value] of Object.entries(spec._extra)) {

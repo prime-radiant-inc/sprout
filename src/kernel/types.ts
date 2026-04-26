@@ -63,6 +63,11 @@ export interface AgentPromptCacheConfig {
 	ttl?: PromptCacheTtl;
 }
 
+export interface AgentSubcorticalRecallConfig {
+	enabled?: boolean;
+	max_tokens?: number;
+}
+
 const AGENT_CONSTRAINT_KEYS = new Set([
 	"max_turns",
 	"timeout_ms",
@@ -105,6 +110,8 @@ export interface AgentSpec {
 	thinking?: boolean | { budget_tokens: number };
 	/** Prompt cache control for providers that support explicit cache routing. */
 	prompt_cache?: AgentPromptCacheConfig;
+	/** Optional LLM pre-pass that expands the root recall query before deterministic recall. */
+	subcortical_recall?: boolean | AgentSubcorticalRecallConfig;
 	/** Primitive tool names this agent can use. */
 	tools: string[];
 	/** Sub-agent names this agent can delegate to. */

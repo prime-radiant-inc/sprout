@@ -6,7 +6,7 @@ import { compactHistory } from "../core/compaction.ts";
 import type { Logger } from "../core/logger.ts";
 import { NullLogger } from "../core/logger.ts";
 import type { Genome } from "../genome/genome.ts";
-import { recall } from "../genome/recall.ts";
+import { type RecallOptions, recall } from "../genome/recall.ts";
 import { extractMemoryReferences } from "../genome/render-memory-block.ts";
 import type { ExecutionEnvironment } from "../kernel/execution-env.ts";
 import { checkPathConstraint, validateConstraints } from "../kernel/path-constraints.js";
@@ -327,6 +327,30 @@ export class Agent {
 	/** Request compaction on the next iteration (for manual /compact command). */
 	requestCompaction(): void {
 		this.compactionRequested = true;
+	}
+
+	private async subcorticalRecallOptions(): Promise<RecallOptions["subcortical"] | undefined> {
+		const config = this.spec.subcortical_recall;
+		if (!config || !this.genome) return undefined;
+		if (typeof config === "object" && config.enabled === false) return undefined;
+
+		let maxTokens: number | undefined;
+		if (typeof config === "object" && config.max_tokens !== undefined) {
+			if (!Number.isInteger(config.max_tokens) || config.max_tokens <= 0) {
+				throw new Error(
+					`Agent '${this.spec.name}' has invalid subcortical_recall.max_tokens: ${config.max_tokens}`,
+				);
+			}
+			maxTokens = config.max_tokens;
+		}
+
+		return {
+			prompt: await this.genome.loadSubcorticalRecallPrompt(),
+			client: this.client,
+			model: this.resolved.model,
+			provider: this.resolved.provider,
+			...(maxTokens !== undefined ? { maxTokens } : {}),
+		};
 	}
 
 	/** Return and clear all queued steering messages. */
@@ -1097,7 +1121,8 @@ export class Agent {
 					cached: true,
 				});
 			} else {
-				const recallResult = await recall(this.genome, goal);
+				const subcortical = await this.subcorticalRecallOptions();
+				const recallResult = await recall(this.genome, goal, subcortical ? { subcortical } : {});
 				this.surfacedMemoryBlock = recallResult.memory_block;
 				recallContext = {
 					memories: recallResult.memories,

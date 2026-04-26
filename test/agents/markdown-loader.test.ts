@@ -158,6 +158,22 @@ describe("parseAgentMarkdown", () => {
 		expect(spec.thinking).toEqual({ budget_tokens: 5000 });
 	});
 
+	test("parses subcortical recall config when present", () => {
+		const content = [
+			"---",
+			"name: root",
+			'description: "coordinates work"',
+			"model: best",
+			"subcortical_recall:",
+			"  enabled: true",
+			"  max_tokens: 300",
+			"---",
+			"Coordinate work.",
+		].join("\n");
+		const spec = parseAgentMarkdown(content, "root.md");
+		expect(spec.subcortical_recall).toEqual({ enabled: true, max_tokens: 300 });
+	});
+
 	test("accepts provider-qualified model refs in frontmatter", () => {
 		const content = [
 			"---",

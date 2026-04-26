@@ -62,6 +62,13 @@ describe("serializeAgentMarkdown", () => {
 		expect(parsed.thinking).toBe(true);
 	});
 
+	test("subcortical recall config preserved through round-trip", () => {
+		const spec = makeSpec({ subcortical_recall: { enabled: true, max_tokens: 300 } });
+		const serialized = serializeAgentMarkdown(spec);
+		const parsed = parseAgentMarkdown(serialized, "subcortical.md");
+		expect(parsed.subcortical_recall).toEqual({ enabled: true, max_tokens: 300 });
+	});
+
 	test("unknown frontmatter fields survive via _extra", () => {
 		const content = [
 			"---",
