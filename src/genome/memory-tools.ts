@@ -8,6 +8,7 @@ import type {
 	RelationshipType,
 } from "../kernel/types.ts";
 import { traverseMemoryLinks } from "./linking.ts";
+import { isActiveMemoryForRecall } from "./memory-lifecycle.ts";
 import { memoryShortId } from "./memory-schema.ts";
 import type { MemoryWriteAuthorization } from "./memory-write-authorization.ts";
 import { authorizeMemoryWrite } from "./memory-write-policy.ts";
@@ -172,10 +173,12 @@ function memoryEntityQueryPrimitive(ctx: MemoryToolContext): Primitive {
 			if (!name) return fail("name is required");
 			const matches = ctx.genome.memories
 				.all()
-				.filter((memory) =>
-					(memory.entity_links ?? []).some(
-						(entity) => entity.name.toLowerCase() === name && (!type || entity.type === type),
-					),
+				.filter(
+					(memory) =>
+						isActiveMemoryForRecall(memory) &&
+						(memory.entity_links ?? []).some(
+							(entity) => entity.name.toLowerCase() === name && (!type || entity.type === type),
+						),
 				)
 				.map(memorySummary);
 			return ok(matches);

@@ -485,6 +485,32 @@ describe("Genome", () => {
 			expect(afterSecondSearch).toBe(before);
 		});
 
+		test("searchMemories excludes superseded recall candidates", async () => {
+			const root = join(tempDir, "mem-search-superseded");
+			const genome = await createInitializedGenome(root);
+			await genome.addMemory(
+				makeMemory({ id: "old-memory", content: "Obsolete SQLite recall decision" }),
+			);
+			await genome.addMemory(
+				makeMemory({ id: "new-memory", content: "Current memory decision uses SQLite recall" }),
+			);
+			const oldMemory = genome.memories.getById("old-memory")!;
+			oldMemory.superseded_by = "new-memory";
+			oldMemory.inbound_links = [
+				{
+					uuid: "new-memory",
+					type: "supersedes",
+					reasoning: "replaced",
+					created_at: 123,
+				},
+			];
+			await genome.saveMemoryMutation("genome: supersede old memory");
+
+			const results = await genome.searchMemories("Obsolete SQLite recall", 5);
+
+			expect(results.map((memory) => memory.id)).not.toContain("old-memory");
+		});
+
 		test("saveMemoryMutation commits JSONL changes and rebuilds index", async () => {
 			const root = join(tempDir, "mem-mutation");
 			const genome = await createInitializedGenome(root);

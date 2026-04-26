@@ -18,6 +18,7 @@ import {
 } from "./index-builder.ts";
 import { attachReadyMemoryEmbedding } from "./memory-embedding.ts";
 import { MemoryIndex } from "./memory-index.ts";
+import { isActiveMemoryForRecall } from "./memory-lifecycle.ts";
 import { memoryShortId } from "./memory-schema.ts";
 import { MemoryStore } from "./memory-store.ts";
 import { type DetectedProject, ProjectActivityStore } from "./projects.ts";
@@ -433,7 +434,9 @@ export class Genome {
 		if (!normalizedQuery) return [];
 
 		const candidates = this.memories.all().filter((memory) => {
-			return !memory.archived_at && this.effectiveMemoryConfidence(memory) >= minConfidence;
+			return (
+				isActiveMemoryForRecall(memory) && this.effectiveMemoryConfidence(memory) >= minConfidence
+			);
 		});
 		if (candidates.length === 0) return [];
 		const candidateIds = new Set(candidates.map((memory) => memory.id));

@@ -129,6 +129,51 @@ describe("memory tools", () => {
 		expect(JSON.parse(result.output)[0].id).toBe("memory-alpha");
 	});
 
+	test("memory_entity_query excludes archived and superseded memories", async () => {
+		const entity = { uuid: "entity_sprout", type: "PROJECT" as const, name: "Sprout" };
+		const ctx = makeContext([
+			memory({
+				id: "active-memory",
+				short_id: "mem_active",
+				entity_links: [entity],
+			}),
+			memory({
+				id: "archived-memory",
+				short_id: "mem_archive",
+				entity_links: [entity],
+				archived_at: 123,
+			}),
+			memory({
+				id: "superseded-memory",
+				short_id: "mem_super",
+				entity_links: [entity],
+				superseded_by: "active-memory",
+			}),
+			memory({
+				id: "inbound-superseded-memory",
+				short_id: "mem_inbound",
+				entity_links: [entity],
+				inbound_links: [
+					{
+						uuid: "active-memory",
+						type: "supersedes",
+						reasoning: "replaced",
+						created_at: 123,
+					},
+				],
+			}),
+		]);
+
+		const result = await runTool(ctx, "memory_entity_query", {
+			name: "Sprout",
+			type: "PROJECT",
+		});
+
+		expect(JSON.parse(result.output).map((item: { id: string }) => item.id)).toEqual([
+			"active-memory",
+		]);
+	});
+
 	test("memory_entity_query schema advertises entity types", () => {
 		const primitive = buildReadMemoryPrimitives(makeContext()).find(
 			(item) => item.name === "memory_entity_query",
