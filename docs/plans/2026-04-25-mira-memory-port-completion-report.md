@@ -30,9 +30,11 @@ Completed capabilities:
 - Phase 8: Anthropic cache breakpoints, OpenAI `prompt_cache_key`, cache-token
   telemetry through existing events/logging.
 - Phase 9: consolidation clusters, merge/reject handlers, entity GC, FTS5 entity
-  lookup, project-active-day maintenance cadence.
+  lookup, project-active-day maintenance cadence, and `sprout --genome maintain`
+  dry-run/apply operator flow with reviewed decision files.
 - Phase 10: opt-in subcortical recall pre-pass, query expansion, entity-hint hub
-  discovery, pinned-memory retention, deterministic 30-query side-by-side eval.
+  discovery, pinned-memory retention, deterministic 30-query side-by-side eval,
+  and agent frontmatter config via `subcortical_recall`.
 
 ## Verification
 
@@ -42,26 +44,39 @@ Targeted phase gates passed after each phase. The final Phase 10 gate included:
 - `bun run typecheck`
 - `bun run check`
 
-Known full-suite caveat: `bun run precommit` still reaches the pre-existing
-harbor fixture failures for missing `inspo/harbor-runner/launch.sh` and
-`inspo/harbor-runner/userdata.sh.tpl`; those files are unrelated to the MIRA
-memory port.
+Follow-up verification after the completion pass:
+
+- `bun test test/host/cli.test.ts test/host/cli-genome.test.ts test/genome/maintenance.test.ts test/agents/markdown-loader.test.ts test/agents/markdown-serializer.test.ts test/tools/harbor/harbor-runner.test.ts`
+  passed, 141 tests.
+- Local-embedding dogfood passed against a temporary genome using
+  `local`/`MongoDB/mdbr-leaf-ir`/768d embeddings: add memories, recall through
+  hybrid search, discover one consolidation candidate and one entity-GC
+  candidate, then apply one reviewed consolidation decision.
+- Live Anthropic 10-turn cache eval passed on `claude-haiku-4-5-20251001`:
+  10/10 turns had cache reads, totaling 370,520 cache-read tokens.
+- Live OpenAI cache eval was attempted with `gpt-4.1-mini` but the configured
+  API account returned `insufficient_quota`, so no OpenAI cache measurement is
+  available from this environment.
+- `bun run precommit` passed: Biome check, TypeScript checks, and all five unit
+  shards.
 
 ## Residual Risks
 
-- Subcortical recall is implemented as an opt-in recall option, not enabled by
-  default for live agents. This avoids silently adding an LLM call to every
-  existing VCR-backed agent loop.
-- Cache effectiveness was verified structurally with adapter tests. A live
-  10-turn Anthropic/OpenAI token-savings run still needs API-backed measurement.
-- Consolidation and entity GC expose strict handlers and tests; a production
-  scheduler/CLI wrapper should decide when to run them automatically.
+- Subcortical recall remains opt-in for live agents. This avoids silently adding
+  an LLM call to every existing agent loop; enable it per agent with
+  `subcortical_recall: true` or `{ enabled: true, max_tokens: N }`.
+- OpenAI live cache measurement is blocked until the configured API account has
+  quota.
+- Consolidation and entity GC now have a CLI, but apply mode intentionally
+  requires reviewed JSON decisions instead of automerging.
 - Gemini explicit cached-content creation remains deferred as designed.
 
 ## Recommended Next Steps
 
-1. Run a live cache-savings measurement on a 10-turn engineer loop with API keys.
-2. Decide which agents, if any, should enable subcortical recall by default.
-3. Add a thin maintenance command for consolidation/entity GC once operator UX is
-   clear.
-4. Run branch review before merging because this is a broad memory-system slice.
+1. Re-run the OpenAI cache eval once quota is available.
+2. Decide which specific agents should opt into `subcortical_recall` after
+   monitoring latency/cost.
+3. Use `sprout --genome maintain --dry-run` during dogfood and apply only
+   reviewed decision files.
+4. Monitor real sessions for recall precision, consolidation candidate quality,
+   and cache-token telemetry before broad rollout.

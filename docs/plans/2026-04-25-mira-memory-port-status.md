@@ -20,7 +20,7 @@ Through Phase 10 — completed
 ## Current branch / commit
 
 - Branch: `jesse/pri-1354-implement-mira-memory-port-phase-1-foundation`
-- Last verified commit: `6fbfb40`
+- Last verified code/test commit: `98d3a39`
 
 ## Open issues
 
@@ -129,6 +129,21 @@ Through Phase 10 — completed
   eval
 - 2026-04-26: `bun run typecheck` passed after Phase 10 subcortical recall
 - 2026-04-26: `bun run check` passed after Phase 10 subcortical recall
+- 2026-04-26: `bun test test/host/cli.test.ts test/host/cli-genome.test.ts test/genome/maintenance.test.ts test/agents/markdown-loader.test.ts test/agents/markdown-serializer.test.ts test/tools/harbor/harbor-runner.test.ts`
+  passed after adding the maintenance CLI, subcortical recall frontmatter config,
+  and optional external harbor-runner fixture handling
+- 2026-04-26: local dogfood passed on a temporary genome using default local
+  embeddings (`local`, `MongoDB/mdbr-leaf-ir`, 768 dimensions), hybrid recall,
+  consolidation discovery, entity-GC discovery, and one reviewed consolidation
+  apply
+- 2026-04-26: live Anthropic 10-turn cache eval passed on
+  `claude-haiku-4-5-20251001`; all 10 turns had cache reads, totaling 370,520
+  cache-read tokens
+- 2026-04-26: live OpenAI cache eval attempted on `gpt-4.1-mini`, but the
+  configured API account returned `insufficient_quota`
+- 2026-04-26: `bun run precommit` passed after resolving the external
+  harbor-runner fixture blocker and stale quartermaster-orchestrator test
+  invariant
 
 ## Completed in current slice
 
@@ -198,3 +213,8 @@ Through Phase 10 — completed
   loading, expanded query fusion, entity hints wired directly into hub discovery,
   pinned-memory retention across additional-context refreshes, and a 30-query
   deterministic side-by-side eval showing known misses become hits
+- Added `sprout --genome maintain` with dry-run candidate rendering and
+  fail-fast `--apply --decision-file <json>` support for reviewed consolidation
+  and entity-GC decisions
+- Added `subcortical_recall` agent frontmatter as the Phase 10 live-agent
+  default policy: disabled unless an agent opts in explicitly
