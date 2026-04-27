@@ -2997,6 +2997,102 @@ describe("SessionController session-wide event wiring", () => {
 		expect(serializedCall).toContain("custom root result");
 	});
 
+	test("root and delegate observer configs for the same agent use distinct handles", async () => {
+		const bus = new EventBus();
+		await mkdir(join(tempDir, "sessions"), { recursive: true });
+		const spawnCalls: Array<{ handleId?: string }> = [];
+		const fakeSpawner = {
+			getHandles: () => [],
+			subscribeSessionEvents: async () => {},
+			subscribeRootMessages: async () => {},
+			updateSessionId: async () => {},
+			clearHandles: async () => {},
+			spawnAgent: async (options: { handleId?: string }) => {
+				spawnCalls.push(options);
+				return options.handleId ?? "observer";
+			},
+			messageAgent: async () => undefined,
+		} as any;
+		const fakeGenome = {
+			getAgent: (name: string) => {
+				if (name === "root") {
+					return {
+						name: "root",
+						model: "best",
+						observers: [
+							{
+								agent: "metacognitive",
+								target: "root",
+								events: ["plan_end"],
+								trigger: { every: 1, event: "plan_end" },
+							},
+						],
+						observe_delegates: [
+							{
+								agent: "metacognitive",
+								trigger: "on_delegate_final",
+								events: ["plan_end", "act_end"],
+							},
+						],
+					};
+				}
+				if (name === "metacognitive") {
+					return { name: "metacognitive", model: "observer.metacognitive" };
+				}
+				return undefined;
+			},
+		} as any;
+
+		new SessionController({
+			bus,
+			genomePath: join(tempDir, "genome"),
+			projectDataDir: tempDir,
+			factory: makeFakeFactory(makeFakeAgent()),
+			spawner: fakeSpawner,
+			genome: fakeGenome,
+			getResolverSettings: () =>
+				createResolverSettings(
+					[{ id: "anthropic", enabled: true }],
+					{},
+					{},
+					{
+						"observer.metacognitive": {
+							providerId: "anthropic",
+							modelId: "claude-sonnet-4-6",
+						},
+					},
+				),
+		});
+		let contextUpdates = 0;
+		bus.onEvent((event) => {
+			if (event.kind === "context_update") contextUpdates++;
+		});
+
+		bus.emitEvent("plan_end", "child-1", 1, {
+			turn: 1,
+			finish_reason: "stop",
+			text: "child final text",
+		});
+		bus.emitEvent("plan_end", "root", 0, {
+			turn: 1,
+			finish_reason: "stop",
+			text: "root plan text",
+		});
+		bus.emitEvent("act_end", "root", 0, {
+			agent_name: "engineer",
+			success: true,
+			child_id: "child-1",
+			tool_result_message: Msg.toolResult("delegate_1", "delegate result"),
+		});
+
+		await waitFor(() => spawnCalls.length === 2);
+		await waitFor(() => contextUpdates === 1);
+		expect(spawnCalls.map((call) => call.handleId).sort()).toEqual([
+			"observer-metacognitive",
+			"observer-metacognitive-delegates",
+		]);
+	});
+
 	test("retains interleaved delegate events until each delegate completes", async () => {
 		const bus = new EventBus();
 		const spawnCalls: unknown[] = [];

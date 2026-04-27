@@ -113,14 +113,17 @@ function buildStaticObserverConfigs(
 		};
 	});
 
-	const delegateObserverConfigs = (rootSpec.observe_delegates ?? []).map((config) => {
+	const delegateObserverConfigs = (rootSpec.observe_delegates ?? []).map((config, index) => {
 		const observerSpec = genome?.getAgent(config.agent);
 		if (!observerSpec) {
 			throw new Error(
 				`Delegate observer agent '${config.agent}' configured by '${rootAgentName}' was not found`,
 			);
 		}
-		const handleId = `observer-${config.agent}`;
+		const handleId =
+			index === 0
+				? `observer-${config.agent}-delegates`
+				: `observer-${config.agent}-delegates-${index + 1}`;
 		return {
 			agentName: config.agent,
 			target: "caller_delegates" as const,
