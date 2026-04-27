@@ -12,6 +12,10 @@ export function makeSettingsSnapshot(): SettingsSnapshot {
 				available: true,
 			},
 			warnings: [],
+			modelOverrides: {
+				defaults: {},
+				memoryModels: {},
+			},
 		},
 		settings: {
 			version: 3,

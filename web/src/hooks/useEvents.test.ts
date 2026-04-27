@@ -29,6 +29,10 @@ function makeSettingsSnapshot(): SettingsSnapshot {
 				available: true,
 			},
 			warnings: [],
+			modelOverrides: {
+				defaults: {},
+				memoryModels: {},
+			},
 		},
 		settings: createEmptySettings(),
 		providers: [],

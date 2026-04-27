@@ -21,6 +21,11 @@ import {
 import { SettingsControlPlane } from "./settings/control-plane.ts";
 import { type EnvImportResult, importSettingsFromEnv } from "./settings/env-import.ts";
 import {
+	parseModelConfigOverrides,
+	validateModelConfigOverrides,
+	type ModelConfigOverrides,
+} from "./settings/model-overrides.ts";
+import {
 	createSecretStoreRuntime,
 	type SecretBackendState,
 	type SecretStorageBackend,
@@ -73,6 +78,7 @@ interface InteractiveBootstrapDeps {
 		secretStore: SecretStore;
 		secretBackend: SecretStorageBackend;
 	}) => Promise<EnvImportResult>;
+	parseModelConfigOverrides: () => ModelConfigOverrides;
 	createProviderRegistry: (options: {
 		settings: SproutSettings;
 		secretStore: SecretStore;
@@ -145,6 +151,8 @@ export async function bootstrapSessionRuntime(
 			(async ({ secretStore, secretBackend }) => {
 				return importSettingsFromEnv({ secretStore, secretBackend });
 			}),
+		parseModelConfigOverrides:
+			deps.parseModelConfigOverrides ?? (() => parseModelConfigOverrides()),
 		createProviderRegistry:
 			deps.createProviderRegistry ??
 			((options) => {
@@ -257,6 +265,9 @@ export async function bootstrapSessionRuntime(
 		}
 	}
 
+	const modelOverrides = d.parseModelConfigOverrides();
+	validateModelConfigOverrides(modelOverrides, settings);
+
 	let registry = d.createProviderRegistry({
 		settings,
 		...registryOptions,
@@ -270,6 +281,8 @@ export async function bootstrapSessionRuntime(
 		secretBackend: secretRefBackend,
 		secretBackendState,
 		initialSettings: settings,
+		initialCatalog: startupState.catalog,
+		modelOverrides,
 		runtimeWarnings,
 		initialValidationErrors: {
 			...initialValidationErrors,

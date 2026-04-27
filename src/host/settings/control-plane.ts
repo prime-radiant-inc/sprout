@@ -4,7 +4,20 @@ import {
 	type SecretStorageBackend,
 	type SecretStore,
 } from "./secret-store.ts";
-import type { ModelRef, ProviderConfig, SproutSettings, Tier } from "./types.ts";
+import {
+	applyModelConfigOverrides,
+	buildModelConfigOverrideSnapshot,
+	createEmptyModelConfigOverrides,
+	findModelConfigOverridesForProvider,
+	type ModelConfigOverrides,
+} from "./model-overrides.ts";
+import {
+	MEMORY_MODEL_PURPOSES,
+	type ModelRef,
+	type ProviderConfig,
+	type SproutSettings,
+	type Tier,
+} from "./types.ts";
 import {
 	providerRequiresSecret,
 	validateProviderConfig,
@@ -48,10 +61,11 @@ export interface SettingsRuntimeWarning {
 export interface SettingsRuntimeSnapshot {
 	secretBackend: SecretBackendState;
 	warnings: SettingsRuntimeWarning[];
+	modelOverrides: ModelConfigOverrides;
 }
 
 export interface SelectionContextSnapshot {
-	settings: Pick<SproutSettings, "providers" | "defaults">;
+	settings: Pick<SproutSettings, "providers" | "defaults" | "memoryModels">;
 	catalog: ProviderCatalogEntry[];
 }
 
@@ -106,7 +120,9 @@ export interface SettingsControlPlaneOptions {
 	secretBackend: SecretStorageBackend;
 	secretBackendState?: SecretBackendState;
 	initialSettings: SproutSettings;
+	initialCatalog?: ProviderCatalogEntry[];
 	initialValidationErrors?: Record<string, string[]>;
+	modelOverrides?: ModelConfigOverrides;
 	runtimeWarnings?: SettingsRuntimeWarning[];
 	onSettingsUpdated?: (snapshot: SettingsSnapshot) => void | Promise<void>;
 	checkConnection?: (provider: ProviderConfig, secret?: string) => Promise<void>;
@@ -121,6 +137,7 @@ export class SettingsControlPlane {
 	private readonly secretBackend: SecretStorageBackend;
 	private readonly secretBackendState: SecretBackendState;
 	private initialValidationErrors: Record<string, string[]>;
+	private readonly modelOverrides: ModelConfigOverrides;
 	private runtimeWarnings: SettingsRuntimeWarning[];
 	private readonly onSettingsUpdated?: (snapshot: SettingsSnapshot) => void | Promise<void>;
 	private readonly checkConnection?: (provider: ProviderConfig, secret?: string) => Promise<void>;
@@ -144,6 +161,9 @@ export class SettingsControlPlane {
 			},
 		);
 		this.initialValidationErrors = structuredClone(options.initialValidationErrors ?? {});
+		this.modelOverrides = structuredClone(
+			options.modelOverrides ?? createEmptyModelConfigOverrides(),
+		);
 		this.runtimeWarnings = structuredClone(options.runtimeWarnings ?? []);
 		this.onSettingsUpdated = options.onSettingsUpdated;
 		this.checkConnection = options.checkConnection;
@@ -156,14 +176,20 @@ export class SettingsControlPlane {
 				catalogStatus: "never-loaded",
 			});
 		}
+		for (const entry of options.initialCatalog ?? []) {
+			this.providerCatalog.set(entry.providerId, structuredClone(entry));
+			if (entry.models.length > 0) {
+				this.providerState.set(entry.providerId, {
+					connectionStatus: "ok",
+					catalogStatus: "current",
+				});
+			}
+		}
 	}
 
 	getSelectionContext(): SelectionContextSnapshot {
 		return {
-			settings: {
-				providers: structuredClone(this.settings.providers),
-				defaults: structuredClone(this.settings.defaults),
-			},
+			settings: applyModelConfigOverrides(this.settings, this.modelOverrides),
 			catalog: this.buildCatalogEntries(),
 		};
 	}
@@ -238,12 +264,16 @@ export class SettingsControlPlane {
 	}
 
 	private async deleteProvider(providerId: string): Promise<SettingsCommandResult> {
+		const blockingResult = this.rejectProviderLifecycleBlockedByEnvOverrides(providerId, "delete");
+		if (blockingResult) return blockingResult;
+
 		const next = structuredClone(this.settings);
 		const providerIndex = next.providers.findIndex((provider) => provider.id === providerId);
 		if (providerIndex === -1) return this.error("not_found", `Unknown provider: ${providerId}`);
 
 		next.providers.splice(providerIndex, 1);
 		next.defaults = removeDefaultsForProvider(next.defaults, providerId);
+		next.memoryModels = removeMemoryModelsForProvider(next.memoryModels, providerId);
 
 		this.providerState.delete(providerId);
 		this.providerCatalog.delete(providerId);
@@ -332,6 +362,14 @@ export class SettingsControlPlane {
 		providerId: string,
 		enabled: boolean,
 	): Promise<SettingsCommandResult> {
+		if (!enabled) {
+			const blockingResult = this.rejectProviderLifecycleBlockedByEnvOverrides(
+				providerId,
+				"disable",
+			);
+			if (blockingResult) return blockingResult;
+		}
+
 		const next = structuredClone(this.settings);
 		const provider = next.providers.find((candidate) => candidate.id === providerId);
 		if (!provider) return this.error("not_found", `Unknown provider: ${providerId}`);
@@ -349,6 +387,7 @@ export class SettingsControlPlane {
 			}
 		} else {
 			next.defaults = removeDefaultsForProvider(next.defaults, providerId);
+			next.memoryModels = removeMemoryModelsForProvider(next.memoryModels, providerId);
 		}
 
 		return this.persistSettings(next, [providerId], true);
@@ -479,6 +518,10 @@ export class SettingsControlPlane {
 			runtime: {
 				secretBackend: structuredClone(this.secretBackendState),
 				warnings: this.buildRuntimeWarnings(),
+				modelOverrides: buildModelConfigOverrideSnapshot(
+					this.modelOverrides,
+					this.buildCatalogEntries(),
+				),
 			},
 			providers,
 			catalog: this.buildCatalogEntries(),
@@ -570,6 +613,23 @@ export class SettingsControlPlane {
 		return undefined;
 	}
 
+	private rejectProviderLifecycleBlockedByEnvOverrides(
+		providerId: string,
+		action: "delete" | "disable",
+	): SettingsCommandResult | undefined {
+		const blockers = findModelConfigOverridesForProvider(this.modelOverrides, providerId);
+		if (blockers.length === 0) return undefined;
+		const envVars = [...new Set(blockers.map((override) => override.envVar))].sort();
+		const verb = action === "delete" ? "delete" : "disable";
+		return this.error(
+			"env_override_active",
+			`Cannot ${verb} provider '${providerId}' while env override ${envVars.join(", ")} references it`,
+			{
+				providerId: `Unset ${envVars.join(", ")} before ${action === "delete" ? "deleting" : "disabling"} this provider`,
+			},
+		);
+	}
+
 	private buildRuntimeWarnings(): SettingsRuntimeWarning[] {
 		const warnings = [...this.runtimeWarnings];
 		if (!this.secretBackendState.available) {
@@ -640,6 +700,19 @@ function removeDefaultsForProvider(
 		const modelRef = defaults[tier];
 		if (!modelRef || modelRef.providerId === providerId) continue;
 		next[tier] = modelRef;
+	}
+	return next;
+}
+
+function removeMemoryModelsForProvider(
+	memoryModels: SproutSettings["memoryModels"],
+	providerId: string,
+): SproutSettings["memoryModels"] {
+	const next: SproutSettings["memoryModels"] = {};
+	for (const purpose of MEMORY_MODEL_PURPOSES) {
+		const modelRef = memoryModels[purpose];
+		if (!modelRef || modelRef.providerId === providerId) continue;
+		next[purpose] = modelRef;
 	}
 	return next;
 }

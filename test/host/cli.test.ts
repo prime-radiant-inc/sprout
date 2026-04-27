@@ -49,6 +49,10 @@ describe("buildInteractiveModeRuntime", () => {
 							available: true,
 						},
 						warnings: [],
+						modelOverrides: {
+							defaults: {},
+							memoryModels: {},
+						},
 					},
 						settings: {
 							version: 3 as const,

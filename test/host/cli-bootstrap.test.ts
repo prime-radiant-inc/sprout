@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { bootstrapSessionRuntime } from "../../src/host/cli-bootstrap.ts";
+import { applyModelConfigOverrides } from "../../src/host/settings/model-overrides.ts";
 import type { ProviderSecretRef } from "../../src/host/settings/secret-store.ts";
 import { createEmptySettings } from "../../src/host/settings/types.ts";
 import type { ProviderRegistryEntry } from "../../src/llm/provider-registry.ts";
@@ -361,6 +362,7 @@ describe("bootstrapSessionRuntime", () => {
 							settings: {
 								providers: [],
 								defaults: options.initialSettings.defaults,
+								memoryModels: options.initialSettings.memoryModels,
 							},
 							catalog: [],
 						}),
@@ -392,6 +394,188 @@ describe("bootstrapSessionRuntime", () => {
 			importedSettings.defaults.best,
 		);
 		expect((created.resolverSettings as any).defaults.best).toEqual(importedSettings.defaults.best);
+	});
+
+	test("applies env model overrides to runtime resolver settings without persisting them", async () => {
+		const created: Record<string, unknown> = {};
+		const settings = {
+			...createEmptySettings(),
+			providers: [
+				{
+					id: "openrouter",
+					kind: "openrouter" as const,
+					label: "OpenRouter",
+					enabled: true,
+					createdAt: "2026-03-11T12:00:00.000Z",
+					updatedAt: "2026-03-11T12:00:00.000Z",
+				},
+			],
+			defaults: {
+				best: { providerId: "openrouter", modelId: "stored-model" },
+			},
+			memoryModels: {},
+		};
+
+		await bootstrapSessionRuntime(
+			{
+				genomePath: "/tmp/genome",
+				projectDataDir: "/tmp/project",
+				rootDir: "/tmp/root",
+				sessionId: "01BOOT",
+				infra: { spawner: { id: "spawner" } as any, genome: { id: "genome" } as any },
+			},
+			{
+				createBus: () => ({ id: "bus" }),
+				createLogger: () => ({ info: () => {} }),
+				createClient: async () => ({ id: "client" }),
+				createSettingsControlPlane: (options) => {
+					created.controlPlaneOptions = options;
+					return {
+						id: "control-plane",
+						getSelectionContext: () => ({
+							settings: applyModelConfigOverrides(
+								options.initialSettings,
+								options.modelOverrides!,
+							),
+							catalog: [],
+						}),
+					};
+				},
+				createController: (opts) => {
+					created.resolverSettings = opts.getResolverSettings?.();
+					return { sessionId: "01BOOT" };
+				},
+				loadAvailableModels: async () => [],
+				createProviderRegistry: () => emptyRegistry(),
+				createSettingsStore: () => ({
+					load: async () => ({
+						settings,
+						skipEnvImport: false,
+						source: "loaded" as const,
+					}),
+					save: async () => {
+						created.saved = true;
+					},
+				}),
+				createSecretStore: () => memorySecretStore(),
+				parseModelConfigOverrides: () => ({
+					defaults: {
+						best: {
+							source: "env",
+							envVar: "SPROUT_DEFAULT_BEST_MODEL",
+							model: { providerId: "openrouter", modelId: "env-model" },
+							catalogStatus: "not_loaded",
+						},
+					},
+					memoryModels: {
+						extraction: {
+							source: "env",
+							envVar: "SPROUT_MEMORY_EXTRACTION_MODEL",
+							model: { providerId: "openrouter", modelId: "env-extraction" },
+							catalogStatus: "not_loaded",
+						},
+					},
+				}),
+			},
+		);
+
+		expect(created.saved).toBeUndefined();
+		expect((created.controlPlaneOptions as any).initialSettings.defaults.best).toEqual({
+			providerId: "openrouter",
+			modelId: "stored-model",
+		});
+		expect((created.controlPlaneOptions as any).initialSettings.memoryModels).toEqual({});
+		expect((created.resolverSettings as any).defaults.best).toEqual({
+			providerId: "openrouter",
+			modelId: "env-model",
+		});
+	});
+
+	test("fails bootstrap when env model overrides reference unknown or disabled providers", async () => {
+		const disabledSettings = {
+			...createEmptySettings(),
+			providers: [
+				{
+					id: "openrouter",
+					kind: "openrouter" as const,
+					label: "OpenRouter",
+					enabled: false,
+					createdAt: "2026-03-11T12:00:00.000Z",
+					updatedAt: "2026-03-11T12:00:00.000Z",
+				},
+			],
+		};
+		const baseOptions = {
+			genomePath: "/tmp/genome",
+			projectDataDir: "/tmp/project",
+			rootDir: "/tmp/root",
+			sessionId: "01BOOT",
+			infra: { spawner: { id: "spawner" } as any, genome: { id: "genome" } as any },
+		};
+		const baseDeps = {
+			createBus: () => ({ id: "bus" }),
+			createLogger: () => ({ info: () => {} }),
+			createClient: async () => ({ id: "client" }),
+			createSettingsControlPlane: () => ({ id: "control-plane" }),
+			createController: () => ({ sessionId: "01BOOT" }),
+			loadAvailableModels: async () => [],
+			createProviderRegistry: () => emptyRegistry(),
+			createSecretStore: () => memorySecretStore(),
+		};
+
+		await expect(
+			bootstrapSessionRuntime(baseOptions, {
+				...baseDeps,
+				createSettingsStore: () => ({
+					load: async () => ({
+						settings: createEmptySettings(),
+						skipEnvImport: false,
+						source: "loaded" as const,
+					}),
+					save: async () => {},
+				}),
+				parseModelConfigOverrides: () => ({
+					defaults: {},
+					memoryModels: {
+						extraction: {
+							source: "env",
+							envVar: "SPROUT_MEMORY_EXTRACTION_MODEL",
+							model: { providerId: "missing", modelId: "claude-sonnet-4-6" },
+							catalogStatus: "not_loaded",
+						},
+					},
+				}),
+			}),
+		).rejects.toThrow(
+			"SPROUT_MEMORY_EXTRACTION_MODEL references unknown provider 'missing'",
+		);
+
+		await expect(
+			bootstrapSessionRuntime(baseOptions, {
+				...baseDeps,
+				createSettingsStore: () => ({
+					load: async () => ({
+						settings: disabledSettings,
+						skipEnvImport: false,
+						source: "loaded" as const,
+					}),
+					save: async () => {},
+				}),
+				parseModelConfigOverrides: () => ({
+					defaults: {
+						fast: {
+							source: "env",
+							envVar: "SPROUT_DEFAULT_FAST_MODEL",
+							model: { providerId: "openrouter", modelId: "openai/gpt-4o-mini" },
+							catalogStatus: "not_loaded",
+						},
+					},
+					memoryModels: {},
+				}),
+			}),
+		).rejects.toThrow(
+			"SPROUT_DEFAULT_FAST_MODEL references disabled provider 'openrouter'",
+		);
 	});
 
 	test("does not import env-backed settings after invalid-file recovery", async () => {

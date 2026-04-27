@@ -37,6 +37,10 @@ function makeSettings(): SettingsSnapshot {
 				available: true,
 			},
 			warnings: [],
+			modelOverrides: {
+				defaults: {},
+				memoryModels: {},
+			},
 		},
 		settings: {
 			version: 3,

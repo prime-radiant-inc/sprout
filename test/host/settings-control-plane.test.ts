@@ -7,6 +7,10 @@ import {
 	type SettingsSnapshot,
 } from "../../src/host/settings/control-plane.ts";
 import {
+	parseModelConfigOverrides,
+	type ModelConfigOverrides,
+} from "../../src/host/settings/model-overrides.ts";
+import {
 	createProviderSecretRef,
 	createSecretStore,
 	type SecretStore,
@@ -32,6 +36,8 @@ async function makePlane(
 			typeof SettingsControlPlane
 		>[0]["secretBackendState"];
 		runtimeWarnings?: ConstructorParameters<typeof SettingsControlPlane>[0]["runtimeWarnings"];
+		modelOverrides?: ModelConfigOverrides;
+		initialCatalog?: ConstructorParameters<typeof SettingsControlPlane>[0]["initialCatalog"];
 		onSettingsUpdated?: (snapshot: SettingsSnapshot) => void;
 		checkConnection?: ConstructorParameters<typeof SettingsControlPlane>[0]["checkConnection"];
 		refreshModels?: ConstructorParameters<typeof SettingsControlPlane>[0]["refreshModels"];
@@ -53,6 +59,8 @@ async function makePlane(
 		secretBackend: options.secretBackend ?? "memory",
 		secretBackendState: options.secretBackendState,
 		runtimeWarnings: options.runtimeWarnings,
+		modelOverrides: options.modelOverrides,
+		initialCatalog: options.initialCatalog,
 		initialSettings: options.initialSettings ?? createEmptySettings(),
 		onSettingsUpdated: options.onSettingsUpdated,
 		checkConnection: options.checkConnection,
@@ -284,6 +292,198 @@ describe("SettingsControlPlane", () => {
 			snapshot: {
 				settings: {
 					defaults: {},
+				},
+			},
+		});
+	});
+
+	test("clears stored memory models that reference a disabled or deleted provider", async () => {
+		const plane = await makePlane({
+			initialSettings: {
+				version: 3,
+				providers: [
+					{
+						id: "anthropic",
+						kind: "anthropic",
+						label: "Anthropic",
+						enabled: true,
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+					{
+						id: "lmstudio",
+						kind: "openai-compatible",
+						label: "LM Studio",
+						enabled: true,
+						baseUrl: "http://127.0.0.1:1234/v1",
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {},
+				memoryModels: {
+					extraction: {
+						providerId: "anthropic",
+						modelId: "claude-sonnet-4-6",
+					},
+					subcortical: {
+						providerId: "lmstudio",
+						modelId: "qwen2.5-coder",
+					},
+				},
+			},
+		});
+
+		const disabled = await plane.execute({
+			kind: "set_provider_enabled",
+			data: { providerId: "lmstudio", enabled: false },
+		});
+		expect(disabled).toMatchObject({
+			ok: true,
+			snapshot: {
+				settings: {
+					memoryModels: {
+						extraction: {
+							providerId: "anthropic",
+							modelId: "claude-sonnet-4-6",
+						},
+					},
+				},
+			},
+		});
+
+		const deleted = await plane.execute({
+			kind: "delete_provider",
+			data: { providerId: "anthropic" },
+		});
+		expect(deleted).toMatchObject({
+			ok: true,
+			snapshot: {
+				settings: {
+					memoryModels: {},
+				},
+			},
+		});
+	});
+
+	test("rejects provider delete or disable when an env model override references it", async () => {
+		const modelOverrides = parseModelConfigOverrides({
+			SPROUT_DEFAULT_FAST_MODEL: "lmstudio:qwen2.5-coder",
+			SPROUT_MEMORY_EXTRACTION_MODEL: "lmstudio:qwen2.5-coder",
+		});
+		const plane = await makePlane({
+			modelOverrides,
+			initialSettings: {
+				version: 3,
+				providers: [
+					{
+						id: "lmstudio",
+						kind: "openai-compatible",
+						label: "LM Studio",
+						enabled: true,
+						baseUrl: "http://127.0.0.1:1234/v1",
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {},
+				memoryModels: {},
+			},
+		});
+
+		const disabled = await plane.execute({
+			kind: "set_provider_enabled",
+			data: { providerId: "lmstudio", enabled: false },
+		});
+		expect(disabled).toEqual({
+			ok: false,
+			code: "env_override_active",
+			message:
+				"Cannot disable provider 'lmstudio' while env override SPROUT_DEFAULT_FAST_MODEL, SPROUT_MEMORY_EXTRACTION_MODEL references it",
+			fieldErrors: {
+				providerId:
+					"Unset SPROUT_DEFAULT_FAST_MODEL, SPROUT_MEMORY_EXTRACTION_MODEL before disabling this provider",
+			},
+		});
+
+		const deleted = await plane.execute({
+			kind: "delete_provider",
+			data: { providerId: "lmstudio" },
+		});
+		expect(deleted).toEqual({
+			ok: false,
+			code: "env_override_active",
+			message:
+				"Cannot delete provider 'lmstudio' while env override SPROUT_DEFAULT_FAST_MODEL, SPROUT_MEMORY_EXTRACTION_MODEL references it",
+			fieldErrors: {
+				providerId:
+					"Unset SPROUT_DEFAULT_FAST_MODEL, SPROUT_MEMORY_EXTRACTION_MODEL before deleting this provider",
+			},
+		});
+	});
+
+	test("exposes env model overrides in runtime snapshots with catalog diagnostics", async () => {
+		const plane = await makePlane({
+			modelOverrides: parseModelConfigOverrides({
+				SPROUT_DEFAULT_BEST_MODEL: "openrouter:openai/gpt-4o-mini",
+				SPROUT_MEMORY_RELATIONSHIP_MODEL: "openrouter:missing-model",
+			}),
+			initialSettings: {
+				version: 3,
+				providers: [
+					{
+						id: "openrouter",
+						kind: "openrouter",
+						label: "OpenRouter",
+						enabled: true,
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {},
+				memoryModels: {},
+			},
+			initialCatalog: [
+				{
+					providerId: "openrouter",
+					models: [
+						{
+							id: "openai/gpt-4o-mini",
+							label: "GPT-4o mini",
+							source: "remote",
+						},
+					],
+				},
+			],
+		});
+
+		const snapshot = await plane.execute({ kind: "get_settings", data: {} });
+
+		expect(snapshot).toMatchObject({
+			ok: true,
+			snapshot: {
+				settings: {
+					defaults: {},
+					memoryModels: {},
+				},
+				runtime: {
+					modelOverrides: {
+						defaults: {
+							best: {
+								envVar: "SPROUT_DEFAULT_BEST_MODEL",
+								catalogStatus: "matched",
+								displayLabel: "GPT-4o mini",
+							},
+						},
+						memoryModels: {
+							relationship: {
+								envVar: "SPROUT_MEMORY_RELATIONSHIP_MODEL",
+								catalogStatus: "missing",
+								diagnostic:
+									"Model 'missing-model' is not in the loaded catalog for provider 'openrouter'",
+							},
+						},
+					},
 				},
 			},
 		});
