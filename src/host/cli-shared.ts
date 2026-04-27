@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { BusClient } from "../bus/client.ts";
 import type { BusServer } from "../bus/server.ts";
 import type { AgentSpawner } from "../bus/spawner.ts";
+import type { ResolverSettings } from "../agents/model-resolver.ts";
 import { formatSessionSelectionRequest } from "../shared/session-selection.ts";
 import type { bootstrapSessionRuntime } from "./cli-bootstrap.ts";
 import type { InteractiveModeOptions } from "./cli-interactive.ts";
@@ -22,6 +23,9 @@ export interface BusInfrastructure {
 	server: BusServer;
 	bus: BusClient;
 	spawner: AgentSpawner;
+	genomeService?: {
+		updateResolverSettings(resolverSettings: ResolverSettings | undefined): void;
+	};
 	genome: import("../genome/genome.ts").Genome;
 	cleanup: () => Promise<void>;
 }
@@ -75,7 +79,7 @@ export async function startBusInfrastructure(
 			await server.stop();
 		};
 
-		return { server, bus, spawner, genome, cleanup };
+		return { server, bus, spawner, genomeService, genome, cleanup };
 	} catch (error) {
 		await genomeService?.stop().catch(() => {});
 		spawner?.shutdown();

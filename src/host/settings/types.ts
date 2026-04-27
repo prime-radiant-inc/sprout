@@ -9,6 +9,8 @@ import {
 
 export * from "../../shared/provider-settings.ts";
 
+const RESERVED_PROVIDER_IDS = new Set(["memory"]);
+
 export function createEmptySettings(): SproutSettings {
 	return {
 		version: SETTINGS_SCHEMA_VERSION,
@@ -23,6 +25,9 @@ export function validateSproutSettings(settings: SproutSettings): void {
 	const enabledProviderIds = new Set<string>();
 
 	for (const provider of settings.providers) {
+		if (RESERVED_PROVIDER_IDS.has(provider.id)) {
+			throw new Error(`Provider id is reserved: ${provider.id}`);
+		}
 		if (providerIds.has(provider.id)) {
 			throw new Error(`Duplicate provider id: ${provider.id}`);
 		}

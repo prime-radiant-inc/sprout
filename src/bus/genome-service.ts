@@ -2,7 +2,7 @@ import {
 	createResolverSettings,
 	type ResolvedModel,
 	type ResolverSettings,
-	resolveModel,
+	resolveMemoryModel,
 } from "../agents/model-resolver.ts";
 import { filterDuplicateDrafts } from "../genome/dedup.ts";
 import { extractMemoryDrafts, memoryFromDraft } from "../genome/extraction.ts";
@@ -63,7 +63,7 @@ export class GenomeMutationService {
 	private client: Client | undefined;
 	private readonly clientFactory: () => Client;
 	private readonly modelsByProvider: Map<string, ProviderModel[]> | undefined;
-	private readonly resolverSettings: ResolverSettings | undefined;
+	private resolverSettings: ResolverSettings | undefined;
 	private readonly stopDrainTimeoutMs: number;
 	private readonly stopDrainPollMs: number;
 	private readonly signalEvidenceWaitMs: number;
@@ -84,6 +84,11 @@ export class GenomeMutationService {
 		this.stopDrainTimeoutMs = options.stopDrainTimeoutMs ?? 5_000;
 		this.stopDrainPollMs = options.stopDrainPollMs ?? 10;
 		this.signalEvidenceWaitMs = options.signalEvidenceWaitMs ?? DEFAULT_SIGNAL_EVIDENCE_WAIT_MS;
+	}
+
+	updateResolverSettings(resolverSettings: ResolverSettings | undefined): void {
+		this.resolverSettings = resolverSettings;
+		this.resolvedModel = undefined;
 	}
 
 	/** Start subscribing to the mutations topic. */
@@ -319,9 +324,8 @@ export class GenomeMutationService {
 					id: providerId,
 					enabled: true,
 				})),
-				defaultModelTiers(client.providers(), modelMap),
 			);
-		this.resolvedModel = resolveModel("best", resolverSettings, modelMap);
+		this.resolvedModel = resolveMemoryModel("extraction", resolverSettings, modelMap);
 		return this.resolvedModel;
 	}
 
@@ -358,20 +362,4 @@ export class GenomeMutationService {
 
 function stringValue(value: unknown): string | undefined {
 	return typeof value === "string" ? value : undefined;
-}
-
-function defaultModelTiers(
-	providerIds: readonly string[],
-	modelsByProvider: Map<string, ProviderModel[]>,
-): ResolverSettings["defaults"] {
-	const providerId =
-		providerIds.find((id) => (modelsByProvider.get(id)?.length ?? 0) > 0) ??
-		[...modelsByProvider.entries()].find(([, models]) => models.length > 0)?.[0];
-	const modelId = providerId ? modelsByProvider.get(providerId)?.[0]?.id : undefined;
-	if (!providerId || !modelId) return {};
-	return {
-		best: { providerId, modelId },
-		balanced: { providerId, modelId },
-		fast: { providerId, modelId },
-	};
 }

@@ -150,7 +150,10 @@ describe("bootstrapSessionRuntime", () => {
 						},
 					},
 				],
-				infra: { spawner: { id: "spawner" } as any, genome: { id: "genome" } as any },
+				infra: {
+					spawner: { id: "spawner" } as any,
+					genome: { id: "genome" } as any,
+				},
 				logStderr: true,
 				debug: false,
 			},
@@ -196,7 +199,10 @@ describe("bootstrapSessionRuntime", () => {
 				projectDataDir: "/tmp/project",
 				rootDir: "/tmp/root",
 				sessionId: "01BOOT",
-				infra: { spawner: { id: "spawner" } as any, genome: { id: "genome" } as any },
+				infra: {
+					spawner: { id: "spawner" } as any,
+					genome: { id: "genome" } as any,
+				},
 				logStderr: false,
 				debug: true,
 			},
@@ -242,7 +248,10 @@ describe("bootstrapSessionRuntime", () => {
 				projectDataDir: "/tmp/project",
 				rootDir: "/tmp/root",
 				sessionId: "01BOOT",
-				infra: { spawner: { id: "spawner" } as any, genome: { id: "genome" } as any },
+				infra: {
+					spawner: { id: "spawner" } as any,
+					genome: { id: "genome" } as any,
+				},
 			},
 			{
 				createBus: () => ({ id: "bus" }),
@@ -502,7 +511,15 @@ describe("bootstrapSessionRuntime", () => {
 				projectDataDir: "/tmp/project",
 				rootDir: "/tmp/root",
 				sessionId: "01BOOT",
-				infra: { spawner: { id: "spawner" } as any, genome: { id: "genome" } as any },
+				infra: {
+					spawner: { id: "spawner" } as any,
+					genome: { id: "genome" } as any,
+					genomeService: {
+						updateResolverSettings: (resolverSettings) => {
+							created.genomeResolverSettings = resolverSettings;
+						},
+					},
+				},
 			},
 			{
 				createBus: () => ({ id: "bus" }),
@@ -568,6 +585,10 @@ describe("bootstrapSessionRuntime", () => {
 		expect((created.resolverSettings as any).defaults.best).toEqual({
 			providerId: "openrouter",
 			modelId: "env-model",
+		});
+		expect((created.genomeResolverSettings as any).memoryModels.extraction).toEqual({
+			providerId: "openrouter",
+			modelId: "env-extraction",
 		});
 	});
 

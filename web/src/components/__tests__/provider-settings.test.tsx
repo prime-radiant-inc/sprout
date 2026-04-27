@@ -316,6 +316,34 @@ describe("MemoryModelsPanel", () => {
 			},
 		});
 	});
+
+	test("keeps stale memory model values visible when no model catalog is loaded", () => {
+		const settings = makeSettings();
+		settings.catalog = settings.catalog.map((entry) => ({ ...entry, models: [] }));
+		settings.settings.memoryModels = {
+			extraction: {
+				providerId: "anthropic-main",
+				modelId: "claude-sonnet-4-6",
+			},
+		};
+		settings.runtime.modelOverrides.memoryModels.extraction = {
+			source: "env",
+			envVar: "SPROUT_MEMORY_EXTRACTION_MODEL",
+			model: {
+				providerId: "anthropic-main",
+				modelId: "claude-sonnet-4-6",
+			},
+			catalogStatus: "not_loaded",
+		};
+
+		const html = renderToStaticMarkup(
+			<MemoryModelsPanel settings={settings} onCommand={() => {}} />,
+		);
+
+		expect(html).toContain("Refresh models to configure memory models.");
+		expect(html).toContain("Stored: anthropic-main:claude-sonnet-4-6");
+		expect(html).toContain("SPROUT_MEMORY_EXTRACTION_MODEL");
+	});
 });
 
 describe("ProviderEditor helpers", () => {

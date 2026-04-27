@@ -67,56 +67,72 @@ export function MemoryModelsPanel({
 
 			{message && <div className={styles.errorBanner}>{message}</div>}
 
-			{!hasModelOptions ? (
+			{!hasModelOptions && (
 				<div className={styles.emptyState}>Refresh models to configure memory models.</div>
-			) : (
-				<div className={styles.formGrid}>
-					{MEMORY_MODEL_PURPOSES.map((purpose) => {
-						const stored = settings.settings.memoryModels[purpose];
-						const override = settings.runtime.modelOverrides.memoryModels[purpose];
-						const storedDiagnostic = describeStoredModelDiagnostic(settings, stored);
-						return (
-							<div className={styles.field} key={purpose}>
-								<label className={styles.fieldLabel} htmlFor={`memory-model-${purpose}`}>
-									{MEMORY_MODEL_LABELS[purpose]}
-								</label>
-								<select
-									id={`memory-model-${purpose}`}
-									className={styles.fieldSelect}
-									value={formatModelRef(stored)}
-									onChange={(event) =>
-										onCommand(createSetMemoryModelCommand(purpose, event.target.value))
-									}
-								>
-									<option value="">Not configured</option>
-									{providersWithModels.map(({ provider, catalogEntry }) => (
-										<optgroup key={provider.id} label={provider.label}>
-											{catalogEntry?.models.map((model) => (
-												<option
-													key={`${purpose}-${provider.id}-${model.id}`}
-													value={`${provider.id}:${model.id}`}
-												>
-													{model.label}
-												</option>
-											))}
-										</optgroup>
-									))}
-								</select>
-								{override && <OverrideNote override={override} />}
-								{storedDiagnostic && (
-									<div className={styles.messageBanner}>{storedDiagnostic}</div>
-								)}
-								{fieldErrors?.[`memoryModels.${purpose}`] && (
-									<div className={styles.fieldError}>
-										{fieldErrors[`memoryModels.${purpose}`]}
-									</div>
-								)}
-							</div>
-						);
-					})}
-				</div>
 			)}
+
+			<div className={styles.formGrid}>
+				{MEMORY_MODEL_PURPOSES.map((purpose) => {
+					const stored = settings.settings.memoryModels[purpose];
+					const override = settings.runtime.modelOverrides.memoryModels[purpose];
+					const storedDiagnostic = describeStoredModelDiagnostic(settings, stored);
+					const storedValue = formatModelRef(stored);
+					return (
+						<div className={styles.field} key={purpose}>
+							<label className={styles.fieldLabel} htmlFor={`memory-model-${purpose}`}>
+								{MEMORY_MODEL_LABELS[purpose]}
+							</label>
+							<select
+								id={`memory-model-${purpose}`}
+								className={styles.fieldSelect}
+								value={storedValue}
+								onChange={(event) =>
+									onCommand(createSetMemoryModelCommand(purpose, event.target.value))
+								}
+							>
+								<option value="">Not configured</option>
+								{stored && !hasModelOption(providersWithModels, stored) && (
+									<option value={storedValue}>Stored: {storedValue}</option>
+								)}
+								{providersWithModels.map(({ provider, catalogEntry }) => (
+									<optgroup key={provider.id} label={provider.label}>
+										{catalogEntry?.models.map((model) => (
+											<option
+												key={`${purpose}-${provider.id}-${model.id}`}
+												value={`${provider.id}:${model.id}`}
+											>
+												{model.label}
+											</option>
+										))}
+									</optgroup>
+								))}
+							</select>
+							{override && <OverrideNote override={override} />}
+							{storedDiagnostic && <div className={styles.messageBanner}>{storedDiagnostic}</div>}
+							{fieldErrors?.[`memoryModels.${purpose}`] && (
+								<div className={styles.fieldError}>
+									{fieldErrors[`memoryModels.${purpose}`]}
+								</div>
+							)}
+						</div>
+					);
+				})}
+			</div>
 		</div>
+	);
+}
+
+function hasModelOption(
+	providersWithModels: Array<{
+		provider: SettingsSnapshot["settings"]["providers"][number];
+		catalogEntry: SettingsSnapshot["catalog"][number] | undefined;
+	}>,
+	modelRef: ModelRef,
+): boolean {
+	return providersWithModels.some(
+		({ provider, catalogEntry }) =>
+			provider.id === modelRef.providerId &&
+			(catalogEntry?.models.some((model) => model.id === modelRef.modelId) ?? false),
 	);
 }
 

@@ -145,6 +145,18 @@ describe("validateSproutSettings", () => {
 		expect(() => validateSproutSettings(settings)).toThrow("Duplicate provider id: lmstudio");
 	});
 
+	test("rejects provider ids reserved for settings views", () => {
+		const settings = createEmptySettings();
+		settings.providers = [
+			makeProvider({
+				id: "memory",
+				enabled: true,
+			}),
+		];
+
+		expect(() => validateSproutSettings(settings)).toThrow("Provider id is reserved: memory");
+	});
+
 	test("allows explicit default model tuples for enabled providers", () => {
 		const settings = createEmptySettings();
 		settings.providers = [

@@ -58,7 +58,13 @@ export interface SessionBootstrapOptions {
 		agentName: string;
 		agentId?: string;
 	}>;
-	infra: { spawner: AgentSpawner; genome: Genome };
+	infra: {
+		spawner: AgentSpawner;
+		genome: Genome;
+		genomeService?: {
+			updateResolverSettings(resolverSettings: ReturnType<typeof createResolverSettings>): void;
+		};
+	};
 	logStderr?: boolean;
 	debug?: boolean;
 }
@@ -271,6 +277,18 @@ export async function bootstrapSessionRuntime(
 	const startupState = await loadStartupProvidersAndCatalog(registry);
 	const llmClient = await d.createClient({ logger, providers: startupState.providers });
 	const availableModels = await d.loadAvailableModels(startupState.catalog);
+	let settingsControlPlaneRef:
+		| { getSelectionContext?: () => SessionSelectionContext }
+		| undefined;
+	const getCurrentResolverSettings = () => {
+		const context = settingsControlPlaneRef?.getSelectionContext?.();
+		if (!context) return createResolverSettings([]);
+		return createResolverSettings(
+			context.settings.providers,
+			context.settings.defaults,
+			context.settings.memoryModels,
+		);
+	};
 	const settingsControlPlane = d.createSettingsControlPlane({
 		settingsStore,
 		secretStore,
@@ -294,8 +312,13 @@ export async function bootstrapSessionRuntime(
 			const updatedProviders = await loadRuntimeProviders(registry);
 			replaceRuntimeClientProviders(llmClient, updatedProviders);
 			replaceArrayContents(availableModels, await d.loadAvailableModels(snapshot.catalog));
+			opts.infra.genomeService?.updateResolverSettings(getCurrentResolverSettings());
 		},
 	});
+	settingsControlPlaneRef = settingsControlPlane as {
+		getSelectionContext?: () => SessionSelectionContext;
+	};
+	opts.infra.genomeService?.updateResolverSettings(getCurrentResolverSettings());
 	const resolveSelection = createSelectionResolver(
 		settingsControlPlane as { getSelectionContext?: () => SessionSelectionContext },
 	);
@@ -313,19 +336,7 @@ export async function bootstrapSessionRuntime(
 		initialHistory: opts.initialHistory,
 		initialSelection,
 		resolveSelection,
-		getResolverSettings: () => {
-			const context = (
-				settingsControlPlane as { getSelectionContext?: () => SessionSelectionContext }
-			).getSelectionContext?.();
-			if (!context) {
-				return createResolverSettings([]);
-			}
-			return createResolverSettings(
-				context.settings.providers,
-				context.settings.defaults,
-				context.settings.memoryModels,
-			);
-		},
+		getResolverSettings: getCurrentResolverSettings,
 		spawner: opts.infra.spawner,
 		genome: opts.infra.genome,
 		completedHandles: opts.completedHandles,

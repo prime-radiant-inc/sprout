@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createResolverSettings, type ResolverSettings } from "../../src/agents/model-resolver.ts";
 import { BusClient } from "../../src/bus/client.ts";
 import { GenomeMutationService } from "../../src/bus/genome-service.ts";
 import {
@@ -85,6 +86,19 @@ function event(
 
 function requestText(request: Request): string {
 	return request.messages.map((message) => messageText(message)).join("\n");
+}
+
+function extractionResolverSettings(
+	providerId = "anthropic",
+	modelId = "claude-sonnet-4-6",
+): ResolverSettings {
+	return createResolverSettings(
+		[{ id: providerId, enabled: true }],
+		{},
+		{
+			extraction: { providerId, modelId },
+		},
+	);
 }
 
 describe("GenomeMutationService", () => {
@@ -217,6 +231,7 @@ describe("GenomeMutationService", () => {
 	function replaceService(options: {
 		client?: Client;
 		clientFactory?: () => Client;
+		resolverSettings?: ResolverSettings;
 		signalEvidenceWaitMs?: number;
 	}): void {
 		service = new GenomeMutationService({
@@ -444,6 +459,7 @@ describe("GenomeMutationService", () => {
 					},
 				]),
 			]),
+			resolverSettings: extractionResolverSettings(),
 		});
 		await service.start();
 
@@ -470,7 +486,8 @@ describe("GenomeMutationService", () => {
 		expect(memories[0]!.embedding?.status).toBe("ready");
 	}, 10_000);
 
-	test("signal extraction selects a later provider when the first provider has no models", async () => {
+	test("signal extraction uses the configured memory extraction provider", async () => {
+		const requests: Request[] = [];
 		replaceService({
 			client: makeMockClient(
 				[
@@ -481,7 +498,7 @@ describe("GenomeMutationService", () => {
 						},
 					]),
 				],
-				undefined,
+				(request) => requests.push(request),
 				{
 					providers: ["empty-provider", "anthropic"],
 					modelsByProvider: new Map<string, ProviderModel[]>([
@@ -493,6 +510,7 @@ describe("GenomeMutationService", () => {
 					]),
 				},
 			),
+			resolverSettings: extractionResolverSettings(),
 			signalEvidenceWaitMs: 0,
 		});
 		await service.start();
@@ -507,6 +525,8 @@ describe("GenomeMutationService", () => {
 		const confirmation = JSON.parse(raw);
 		expect(confirmation.success).toBe(true);
 		expect(confirmation.extracted_count).toBe(1);
+		expect(requests[0]?.provider).toBe("anthropic");
+		expect(requests[0]?.model).toBe("claude-sonnet-4-6");
 		expect(genome.memories.all()[0]?.content).toContain("populated provider model");
 	}, 10_000);
 
@@ -524,6 +544,7 @@ describe("GenomeMutationService", () => {
 				],
 				(request) => prompts.push(requestText(request)),
 			),
+			resolverSettings: extractionResolverSettings(),
 			signalEvidenceWaitMs: 500,
 		});
 		await service.start();
@@ -596,6 +617,29 @@ describe("GenomeMutationService", () => {
 		expect(confirmation.mutation_type).toBe("learn_signal");
 		expect(confirmation.success).toBe(false);
 		expect(confirmation.error).toContain("missing extraction client");
+		expect(genome.memories.all()).toHaveLength(0);
+	}, 10_000);
+
+	test("publishes an error for signal requests without a configured extraction model", async () => {
+		replaceService({
+			client: makeMockClient(["[]"]),
+			signalEvidenceWaitMs: 0,
+		});
+		await service.start();
+		const confirmationPromise = testBus.waitForMessage(genomeEvents(SESSION_ID), 5000);
+		const signal = makeSignal({ session_id: SESSION_ID, timestamp: Date.now() });
+		await publishEvidenceWindow(signal);
+		await waitForServiceEvents(4);
+
+		await publishSignal(signal, "req-signal-missing-extraction-model");
+
+		const raw = await confirmationPromise;
+		const confirmation = JSON.parse(raw);
+		expect(confirmation.kind).toBe("mutation_confirmed");
+		expect(confirmation.request_id).toBe("req-signal-missing-extraction-model");
+		expect(confirmation.mutation_type).toBe("learn_signal");
+		expect(confirmation.success).toBe(false);
+		expect(confirmation.error).toContain("No memory 'extraction' model is configured");
 		expect(genome.memories.all()).toHaveLength(0);
 	}, 10_000);
 
