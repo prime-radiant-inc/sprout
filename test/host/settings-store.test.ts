@@ -213,6 +213,52 @@ describe("SettingsStore", () => {
 		});
 	});
 
+	test("load recovers settings with null memory model purpose values", async () => {
+		const { store, settingsPath } = await makeStore();
+		await writeFile(
+			settingsPath,
+			JSON.stringify({
+				...createEmptySettings(),
+				memoryModels: {
+					extraction: null,
+				},
+			}),
+			"utf-8",
+		);
+
+		const result = await store.load();
+
+		expect(result.source).toBe("recovered");
+		expect(result.settings).toEqual(createEmptySettings());
+		expect(result.recoveredInvalidFilePath).toBe(
+			join(tempDir!, "settings.invalid.2026-03-11T12-34-56Z.json"),
+		);
+		expect(result.skipEnvImport).toBe(true);
+	});
+
+	test("load recovers settings with scalar memory model purpose values", async () => {
+		const { store, settingsPath } = await makeStore();
+		await writeFile(
+			settingsPath,
+			JSON.stringify({
+				...createEmptySettings(),
+				memoryModels: {
+					extraction: "anthropic/claude-sonnet-4-6",
+				},
+			}),
+			"utf-8",
+		);
+
+		const result = await store.load();
+
+		expect(result.source).toBe("recovered");
+		expect(result.settings).toEqual(createEmptySettings());
+		expect(result.recoveredInvalidFilePath).toBe(
+			join(tempDir!, "settings.invalid.2026-03-11T12-34-56Z.json"),
+		);
+		expect(result.skipEnvImport).toBe(true);
+	});
+
 	test("load leaves env import enabled when settings file is absent", async () => {
 		const { store } = await makeStore();
 

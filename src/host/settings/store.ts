@@ -136,16 +136,21 @@ export class SettingsStore {
 function normalizeMemoryModels(memoryModels: MemoryModelsConfig | undefined): MemoryModelsConfig {
 	const normalized: MemoryModelsConfig = {};
 	if (!memoryModels) return normalized;
+	const raw = memoryModels as Record<string, unknown>;
 	for (const purpose of MEMORY_MODEL_PURPOSES) {
-		const modelRef = memoryModels[purpose];
-		if (modelRef) normalized[purpose] = normalizeModelRef(modelRef);
+		if (!Object.hasOwn(raw, purpose)) continue;
+		normalized[purpose] = normalizeModelRef(raw[purpose], purpose);
 	}
 	return normalized;
 }
 
-function normalizeModelRef(modelRef: ModelRef): ModelRef {
+function normalizeModelRef(modelRef: unknown, purpose: string): ModelRef {
+	if (typeof modelRef !== "object" || modelRef === null || Array.isArray(modelRef)) {
+		throw new Error(`Memory model '${purpose}' must be a model reference object`);
+	}
+	const raw = modelRef as Partial<ModelRef>;
 	return {
-		providerId: modelRef.providerId,
-		modelId: modelRef.modelId,
+		providerId: raw.providerId as string,
+		modelId: raw.modelId as string,
 	};
 }
