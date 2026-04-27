@@ -68,6 +68,43 @@ export interface AgentSubcorticalRecallConfig {
 	max_tokens?: number;
 }
 
+export type ObserverTargetConfig = "root" | "session";
+export type ObserverCommentRecipient = "root" | "target" | "caller";
+
+export interface ObserverDeliveryConfig {
+	max_events?: number;
+	max_chars?: number;
+}
+
+export interface ObserverCommentPolicyConfig {
+	can_message?: ObserverCommentRecipient[];
+	default_recipient?: ObserverCommentRecipient;
+}
+
+export interface ObserverEveryTriggerConfig {
+	every: number;
+	event: EventKind;
+}
+
+export interface AgentObserverConfig {
+	agent: string;
+	target: ObserverTargetConfig;
+	events: EventKind[];
+	trigger: ObserverEveryTriggerConfig;
+	delivery?: ObserverDeliveryConfig;
+	comments?: ObserverCommentPolicyConfig;
+}
+
+export interface AgentDelegateObserverConfig {
+	agent: string;
+	trigger: "on_delegate_final";
+	events: EventKind[];
+	delivery?: ObserverDeliveryConfig;
+	comments?: ObserverCommentPolicyConfig;
+}
+
+export type ObserverSubscriptionConfig = AgentObserverConfig | AgentDelegateObserverConfig;
+
 const AGENT_CONSTRAINT_KEYS = new Set([
 	"max_turns",
 	"timeout_ms",
@@ -112,6 +149,10 @@ export interface AgentSpec {
 	prompt_cache?: AgentPromptCacheConfig;
 	/** Optional LLM pre-pass that expands the root recall query before deterministic recall. */
 	subcortical_recall?: boolean | AgentSubcorticalRecallConfig;
+	/** Static observer agents attached to this agent or session. */
+	observers?: AgentObserverConfig[];
+	/** Observer agents attached to delegations made by this agent. */
+	observe_delegates?: AgentDelegateObserverConfig[];
 	/** Primitive tool names this agent can use. */
 	tools: string[];
 	/** Sub-agent names this agent can delegate to. */
@@ -311,39 +352,42 @@ export interface PrimitiveResult {
 	error?: string;
 }
 
+export const EVENT_KINDS = [
+	"session_start",
+	"session_end",
+	"perceive",
+	"recall",
+	"plan_start",
+	"plan_delta",
+	"plan_end",
+	"llm_start",
+	"llm_chunk",
+	"llm_end",
+	"act_start",
+	"act_end",
+	"primitive_start",
+	"primitive_end",
+	"verify",
+	"learn_signal",
+	"learn_start",
+	"learn_mutation",
+	"learn_end",
+	"steering",
+	"agent_message",
+	"warning",
+	"error",
+	"session_resume",
+	"session_clear",
+	"context_update",
+	"compaction",
+	"interrupted",
+	"exit_hint",
+	"log",
+	"task_update",
+] as const;
+
 /** All event kinds emitted by the agent loop */
-export type EventKind =
-	| "session_start"
-	| "session_end"
-	| "perceive"
-	| "recall"
-	| "plan_start"
-	| "plan_delta"
-	| "plan_end"
-	| "llm_start"
-	| "llm_chunk"
-	| "llm_end"
-	| "act_start"
-	| "act_end"
-	| "primitive_start"
-	| "primitive_end"
-	| "verify"
-	| "learn_signal"
-	| "learn_start"
-	| "learn_mutation"
-	| "learn_end"
-	| "steering"
-	| "agent_message"
-	| "warning"
-	| "error"
-	| "session_resume"
-	| "session_clear"
-	| "context_update"
-	| "compaction"
-	| "interrupted"
-	| "exit_hint"
-	| "log"
-	| "task_update";
+export type EventKind = (typeof EVENT_KINDS)[number];
 
 /** A typed event emitted by the agent for host application consumption */
 export interface SessionEvent {

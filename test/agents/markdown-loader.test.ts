@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseAgentMarkdown } from "../../src/agents/markdown-loader.ts";
+import { parseAgentMarkdown, serializeAgentMarkdown } from "../../src/agents/markdown-loader.ts";
 
 describe("parseAgentMarkdown", () => {
 	test("parses frontmatter and markdown body", () => {
@@ -235,5 +235,138 @@ describe("parseAgentMarkdown", () => {
 		].join("\n");
 
 		expect(() => parseAgentMarkdown(content, "coder.md")).toThrow(/inherit/);
+	});
+
+	test("parses static observer configs", () => {
+		const content = [
+			"---",
+			"name: root",
+			'description: "coordinates work"',
+			"model: best",
+			"observers:",
+			"  - agent: metacognitive",
+			"    target: root",
+			"    events: [plan_end, warning, error, primitive_end, act_end, compaction, interrupted]",
+			"    trigger:",
+			"      every: 3",
+			"      event: plan_end",
+			"    delivery:",
+			"      max_events: 24",
+			"      max_chars: 6000",
+			"    comments:",
+			"      can_message: [root]",
+			"      default_recipient: root",
+			"observe_delegates:",
+			"  - agent: metacognitive",
+			"    trigger: on_delegate_final",
+			"    events: [plan_end, warning, error, act_end]",
+			"    delivery:",
+			"      max_events: 12",
+			"      max_chars: 3000",
+			"    comments:",
+			"      can_message: [caller]",
+			"      default_recipient: caller",
+			"---",
+			"Coordinate work.",
+		].join("\n");
+
+		const spec = parseAgentMarkdown(content, "root.md");
+		expect(spec.observers).toEqual([
+			{
+				agent: "metacognitive",
+				target: "root",
+				events: [
+					"plan_end",
+					"warning",
+					"error",
+					"primitive_end",
+					"act_end",
+					"compaction",
+					"interrupted",
+				],
+				trigger: { every: 3, event: "plan_end" },
+				delivery: { max_events: 24, max_chars: 6000 },
+				comments: { can_message: ["root"], default_recipient: "root" },
+			},
+		]);
+		expect(spec.observe_delegates).toEqual([
+			{
+				agent: "metacognitive",
+				trigger: "on_delegate_final",
+				events: ["plan_end", "warning", "error", "act_end"],
+				delivery: { max_events: 12, max_chars: 3000 },
+				comments: { can_message: ["caller"], default_recipient: "caller" },
+			},
+		]);
+	});
+
+	test("serializes observer configs as known frontmatter", () => {
+		const spec = parseAgentMarkdown(
+			[
+				"---",
+				"name: root",
+				'description: "coordinates work"',
+				"model: best",
+				"observers:",
+				"  - agent: metacognitive",
+				"    target: session",
+				"    events: [plan_end]",
+				"    trigger:",
+				"      every: 1",
+				"      event: plan_end",
+				"---",
+				"Coordinate work.",
+			].join("\n"),
+			"root.md",
+		);
+
+		const serialized = serializeAgentMarkdown(spec);
+		expect(serialized).toContain("observers:");
+		expect(serialized).toContain("target: session");
+		expect(serialized).not.toContain("_extra");
+	});
+
+	test("rejects invalid observer configs", () => {
+		const cases: Array<[string, RegExp]> = [
+			["observers: nope", /observers.*array/],
+			[
+				"observers:\n  - agent: metacognitive\n    target: delegate\n    events: [plan_end]\n    trigger:\n      every: 1\n      event: plan_end",
+				/target.*root or session/,
+			],
+			[
+				"observers:\n  - agent: metacognitive\n    target: root\n    events: [not_real]\n    trigger:\n      every: 1\n      event: not_real",
+				/not a known event kind/,
+			],
+			[
+				"observers:\n  - agent: metacognitive\n    target: root\n    events: [warning]\n    trigger:\n      every: 1\n      event: plan_end",
+				/trigger.*event.*listed in events/,
+			],
+			[
+				"observers:\n  - agent: metacognitive\n    target: root\n    events: [plan_end]\n    trigger:\n      every: 0\n      event: plan_end",
+				/every.*positive integer/,
+			],
+			[
+				"observers:\n  - agent: metacognitive\n    target: root\n    events: [plan_end]\n    trigger:\n      every: 1\n      event: plan_end\n    comments:\n      can_message: [root]\n      default_recipient: caller",
+				/default_recipient.*can_message/,
+			],
+			[
+				"observe_delegates:\n  - agent: metacognitive\n    trigger: every_turn\n    events: [act_end]",
+				/observe_delegates\[0\]\.trigger.*on_delegate_final/,
+			],
+		];
+
+		for (const [frontmatter, error] of cases) {
+			const content = [
+				"---",
+				"name: root",
+				'description: "coordinates work"',
+				"model: best",
+				frontmatter,
+				"---",
+				"Coordinate work.",
+			].join("\n");
+
+			expect(() => parseAgentMarkdown(content, "root.md")).toThrow(error);
+		}
 	});
 });
