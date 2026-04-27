@@ -17,7 +17,7 @@ import type { SessionSelectionRequest } from "../shared/session-selection.ts";
 import { ulid } from "../util/ulid.ts";
 import { compactHistory } from "./compaction.ts";
 import type { SessionBus } from "./event-bus.ts";
-import { ObserverDispatcher } from "./observer-dispatcher.ts";
+import { ObserverRegistry } from "./observer-registry.ts";
 import {
 	createSessionCommandHandlers,
 	type SessionCommandHandlers,
@@ -378,7 +378,7 @@ export class SessionController {
 	private runGeneration = 0;
 	private compactFn?: AgentFactoryResult["compact"];
 	private spawnerReady?: Promise<void>;
-	private observerDispatcher?: ObserverDispatcher;
+	private observerRegistry?: ObserverRegistry;
 	private readonly commandHandlers: SessionCommandHandlers;
 
 	get sessionId(): string {
@@ -420,7 +420,7 @@ export class SessionController {
 		// This must be in the constructor, not the factory, to avoid accumulating
 		// subscriptions on each submitGoal call.
 		if (this.spawner) {
-			this.observerDispatcher = new ObserverDispatcher({
+			this.observerRegistry = new ObserverRegistry({
 				sessionId: this._sessionId,
 				spawner: this.spawner,
 				genomePath: this.genomePath,
@@ -535,7 +535,7 @@ export class SessionController {
 					console.error("[SessionController] Failed spawner reset after clear:", err);
 				});
 		}
-		this.observerDispatcher?.reset(this._sessionId);
+		this.observerRegistry?.reset(this._sessionId);
 		this.bus.emitEvent("session_clear", "session", 0, {
 			new_session_id: this._sessionId,
 		});
@@ -548,7 +548,7 @@ export class SessionController {
 
 		// Accumulate history synchronously before async operations.
 		this.history = applyHistoryShadowUpdate(this.history, event);
-		this.observerDispatcher?.handleEvent(event);
+		this.observerRegistry?.handleEvent(event);
 
 		if (event.kind === "plan_end" && event.depth === 0) {
 			const turn = (event.data.turn as number) ?? 0;
