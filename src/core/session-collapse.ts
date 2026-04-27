@@ -56,9 +56,9 @@ export function buildCollapseTranscript(
 	events: readonly SessionEvent[],
 	options: BuildCollapseTranscriptOptions = {},
 ): CollapseTranscriptMessage[] {
-	return [...events]
-		.sort((a, b) => a.timestamp - b.timestamp)
-		.flatMap((event) => eventToTranscriptMessage(event, options));
+	const sorted = [...events].sort((a, b) => a.timestamp - b.timestamp);
+	const observerAgentIds = collectObserverAgentIds(sorted);
+	return sorted.flatMap((event) => eventToTranscriptMessage(event, options, observerAgentIds));
 }
 
 export function renderCollapseTranscript(messages: readonly CollapseTranscriptMessage[]): string {
@@ -237,7 +237,9 @@ export function normalizeSegmentSummary(payload: unknown): SegmentSummaryResult 
 function eventToTranscriptMessage(
 	event: SessionEvent,
 	options: BuildCollapseTranscriptOptions,
+	observerAgentIds: ReadonlySet<string>,
 ): CollapseTranscriptMessage[] {
+	if (event.data.observer === true || observerAgentIds.has(event.agent_id)) return [];
 	if (!options.includeSubagents && event.depth !== 0) return [];
 
 	switch (event.kind) {
@@ -260,6 +262,18 @@ function eventToTranscriptMessage(
 		default:
 			return [];
 	}
+}
+
+function collectObserverAgentIds(events: readonly SessionEvent[]): Set<string> {
+	const ids = new Set<string>();
+	for (const event of events) {
+		if (event.kind !== "act_start" || event.data.observer !== true) continue;
+		const childId = stringValue(event.data.child_id);
+		const handleId = stringValue(event.data.handle_id);
+		if (childId) ids.add(childId);
+		if (handleId) ids.add(handleId);
+	}
+	return ids;
 }
 
 function primitiveMetadata(event: SessionEvent): string | undefined {

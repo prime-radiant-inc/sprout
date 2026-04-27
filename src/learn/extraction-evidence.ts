@@ -42,11 +42,12 @@ export function learnSignalExtractionMessages(
 
 export function learnSignalEvidenceWindow(input: LearnSignalExtractionInput): SessionEvent[] {
 	const sessionEvents = eventsForSession(input.events, input.signal.session_id);
+	const observerAgentIds = collectObserverAgentIds(sessionEvents);
 	const start = input.signal.timestamp - EVIDENCE_WINDOW_BEFORE_MS;
 	const end = input.signal.timestamp + EVIDENCE_WINDOW_AFTER_MS;
 	return sessionEvents
 		.filter((event) => event.timestamp >= start && event.timestamp <= end)
-		.filter(isLearnEvidenceEvent)
+		.filter((event) => isLearnEvidenceEvent(event, observerAgentIds))
 		.sort((a, b) => a.timestamp - b.timestamp)
 		.slice(-MAX_EVIDENCE_EVENTS);
 }
@@ -78,7 +79,8 @@ function eventsForSession(events: readonly SessionEvent[], sessionId: string): S
 	return sorted.filter((event) => stringValue(event.data.session_id) === sessionId);
 }
 
-function isLearnEvidenceEvent(event: SessionEvent): boolean {
+function isLearnEvidenceEvent(event: SessionEvent, observerAgentIds: ReadonlySet<string>): boolean {
+	if (event.data.observer === true || observerAgentIds.has(event.agent_id)) return false;
 	return (
 		event.kind === "session_start" ||
 		event.kind === "session_end" ||
@@ -93,6 +95,18 @@ function isLearnEvidenceEvent(event: SessionEvent): boolean {
 		event.kind === "warning" ||
 		event.kind === "error"
 	);
+}
+
+function collectObserverAgentIds(events: readonly SessionEvent[]): Set<string> {
+	const ids = new Set<string>();
+	for (const event of events) {
+		if (event.kind !== "act_start" || event.data.observer !== true) continue;
+		const childId = stringValue(event.data.child_id);
+		const handleId = stringValue(event.data.handle_id);
+		if (childId) ids.add(childId);
+		if (handleId) ids.add(handleId);
+	}
+	return ids;
 }
 
 function renderLearnEvidenceEvent(event: SessionEvent): string {

@@ -172,6 +172,26 @@ describe("groupEvents", () => {
 			expect(result[1]!.isLastInGroup).toBe(true);
 		});
 
+		test("root agent messages remain visible in the main view", () => {
+			const tree = makeTree();
+			const events: SessionEvent[] = [
+				makeEvent(
+					"agent_message",
+					{
+						from_agent_name: "metacognitive",
+						to_agent_name: "root",
+						text_preview: "Potential ambiguity detected",
+					},
+					{ agent_id: "root", depth: 0, timestamp: 1000 },
+				),
+			];
+			const result = groupEvents(events, undefined, tree);
+
+			expect(result).toHaveLength(1);
+			expect(result[0]!.event.kind).toBe("agent_message");
+			expect(result[0]!.event.data.text_preview).toBe("Potential ambiguity detected");
+		});
+
 		test("plan_delta is standalone", () => {
 			const events: SessionEvent[] = [
 				makeEvent("plan_start", {}, { timestamp: 1000 }),

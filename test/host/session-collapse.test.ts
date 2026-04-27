@@ -158,6 +158,65 @@ describe("session collapse transcript", () => {
 		expect(messages.map((message) => message.agent_id)).toEqual(["root", "engineer"]);
 	});
 
+	test("excludes observer telemetry from collapse transcripts", () => {
+		const messages = buildCollapseTranscript(
+			[
+				event("perceive", 100, { goal: "Root goal" }),
+				event("agent_message", 150, {
+					from_agent_name: "metacognitive",
+					to_agent_name: "root",
+					text_preview: "observer notification should not collapse",
+				}),
+				event("act_start", 200, {
+					agent_name: "metacognitive",
+					child_id: "observer-metacognitive",
+					handle_id: "observer-metacognitive",
+					observer: true,
+					goal: "observer frame should not collapse",
+				}),
+				event(
+					"perceive",
+					250,
+					{ goal: "<observer_frame>hidden observer frame</observer_frame>" },
+					1,
+					"observer-metacognitive",
+				),
+				event(
+					"plan_end",
+					300,
+					{ text: "observer analysis should not collapse" },
+					1,
+					"observer-metacognitive",
+				),
+				event("act_end", 350, {
+					agent_name: "metacognitive",
+					child_id: "observer-metacognitive",
+					observer: true,
+					success: true,
+					output: "observer output should not collapse",
+				}),
+				event("act_start", 400, {
+					agent_name: "worker",
+					child_id: "worker-1",
+					goal: "normal child work",
+				}),
+				event("plan_end", 450, { text: "normal child detail" }, 1, "worker-1"),
+				event("plan_end", 500, { text: "root reply" }),
+			],
+			{ includeSubagents: true },
+		);
+
+		const transcript = messages.map((message) => message.content).join("\n");
+		expect(transcript).toContain("Root goal");
+		expect(transcript).toContain("normal child detail");
+		expect(transcript).toContain("root reply");
+		expect(transcript).not.toContain("observer notification should not collapse");
+		expect(transcript).not.toContain("observer frame should not collapse");
+		expect(transcript).not.toContain("hidden observer frame");
+		expect(transcript).not.toContain("observer analysis should not collapse");
+		expect(transcript).not.toContain("observer output should not collapse");
+	});
+
 	test("renders absolute timestamps for summary prompts", () => {
 		const rendered = renderCollapseTranscript([
 			{

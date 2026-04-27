@@ -119,6 +119,30 @@ describe("buildAgentTree", () => {
 			expect(child.children).toEqual([]);
 		});
 
+		test("observer act_start creates a normal observable child node", () => {
+			resetTimestamps();
+			const events = [
+				makeEvent("perceive", "root", 0, { goal: "Fix everything" }),
+				makeEvent("act_start", "root", 0, {
+					agent_name: "metacognitive",
+					child_id: "observer-metacognitive",
+					handle_id: "observer-metacognitive",
+					description: "observe root turns",
+					goal: "Review root activity for self-awareness diagnostics",
+					observer: true,
+				}),
+			];
+			const { tree } = buildAgentTree(events);
+
+			expect(tree.children).toHaveLength(1);
+			const child = tree.children[0]!;
+			expect(child.agentId).toBe("observer-metacognitive");
+			expect(child.agentName).toBe("metacognitive");
+			expect(child.depth).toBe(1);
+			expect(child.description).toBe("observe root turns");
+			expect(child.status).toBe("running");
+		});
+
 		test("act_end marks child as completed with success=true", () => {
 			resetTimestamps();
 			const events = [

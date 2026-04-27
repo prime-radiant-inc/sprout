@@ -797,6 +797,20 @@ describe("EventLine", () => {
 		expect(html).toContain('data-kind="steering"');
 	});
 
+	test("renders agent_message as compact system telemetry", () => {
+		const event = makeEvent("agent_message", {
+			from_agent_name: "metacognitive",
+			to_agent_name: "root",
+			text_preview: "Potential ambiguity detected",
+		});
+		const html = renderToStaticMarkup(
+			<EventLine event={event} durationMs={null} />,
+		);
+		expect(html).toContain("metacognitive -&gt; root");
+		expect(html).toContain("Potential ambiguity detected");
+		expect(html).toContain('data-kind="agent_message"');
+	});
+
 	test("renders plan_end with text as AssistantMessage", () => {
 		const event = makeEvent("plan_end", { text: "Here is the **plan**" });
 		const html = renderToStaticMarkup(
