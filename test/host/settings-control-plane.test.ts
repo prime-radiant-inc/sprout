@@ -7,8 +7,8 @@ import {
 	type SettingsSnapshot,
 } from "../../src/host/settings/control-plane.ts";
 import {
-	parseModelConfigOverrides,
 	type ModelConfigOverrides,
+	parseModelConfigOverrides,
 } from "../../src/host/settings/model-overrides.ts";
 import {
 	createProviderSecretRef,
@@ -619,8 +619,7 @@ describe("SettingsControlPlane", () => {
 			code: "validation_failed",
 			message: "Unknown model 'missing-model' for provider 'anthropic'",
 			fieldErrors: {
-				"memoryModels.extraction":
-					"Unknown model 'missing-model' for provider 'anthropic'",
+				"memoryModels.extraction": "Unknown model 'missing-model' for provider 'anthropic'",
 			},
 		});
 	});

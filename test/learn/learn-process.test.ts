@@ -3,6 +3,7 @@ import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentEventEmitter } from "../../src/agents/events.ts";
+import { createResolverSettings } from "../../src/agents/model-resolver.ts";
 import { Genome, git } from "../../src/genome/genome.ts";
 import type { LearnSignal } from "../../src/kernel/types.ts";
 import { DEFAULT_CONSTRAINTS } from "../../src/kernel/types.ts";
@@ -62,13 +63,17 @@ function makeMockClient(responseText: string, onComplete?: (req: Request) => voi
 function makeMockClientSequence(
 	responseTexts: string[],
 	onComplete?: (req: Request) => void,
+	options: { providers?: string[]; modelsByProvider?: Map<string, ProviderModel[]> } = {},
 ): Client {
 	let index = 0;
-	const modelsByProvider = new Map<string, ProviderModel[]>([
-		["anthropic", [{ id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", source: "remote" }]],
-	]);
+	const providers = options.providers ?? ["anthropic"];
+	const modelsByProvider =
+		options.modelsByProvider ??
+		new Map<string, ProviderModel[]>([
+			["anthropic", [{ id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", source: "remote" }]],
+		]);
 	return {
-		providers: () => ["anthropic"],
+		providers: () => providers,
 		listModelsByProvider: async () => modelsByProvider,
 		complete: async (request: Request) => {
 			onComplete?.(request);
@@ -701,6 +706,65 @@ OPENAI_API_KEY=sk-${"a".repeat(32)}`,
 		expect(
 			genome.allRoutingRules().some((rule) => rule.condition === "local embedding failures"),
 		).toBe(true);
+	});
+
+	test("uses the configured extraction model separately from the learn reasoner", async () => {
+		const requests: Request[] = [];
+		const modelsByProvider = new Map<string, ProviderModel[]>([
+			["anthropic", [{ id: "reason-model", label: "Reason model", source: "remote" }]],
+			["openrouter", [{ id: "extract-model", label: "Extract model", source: "remote" }]],
+		]);
+		const client = makeMockClientSequence(
+			["[]", '{"type": "skip"}'],
+			(request) => requests.push(request),
+			{ providers: ["anthropic", "openrouter"], modelsByProvider },
+		);
+		const genomeDir = join(tempDir, "extract-purpose-models");
+		await cp(genomeTemplateDir, genomeDir, { recursive: true });
+		const genome = createTestGenome(genomeDir, ROOT_DIR);
+		await genome.loadFromDisk();
+		const metrics = new MetricsStore(join(genomeDir, "metrics", "metrics.jsonl"));
+		await metrics.load();
+		const events = new AgentEventEmitter();
+		const learn = new LearnProcess({
+			genome,
+			metrics,
+			events,
+			client,
+			modelsByProvider,
+			resolverSettings: createResolverSettings(
+				[
+					{ id: "anthropic", enabled: true },
+					{ id: "openrouter", enabled: true },
+				],
+				{ best: { providerId: "anthropic", modelId: "reason-model" } },
+				{ extraction: { providerId: "openrouter", modelId: "extract-model" } },
+			),
+		});
+		const signal = makeSignal({
+			kind: "failure",
+			agent_name: "root",
+			goal: "route learn calls",
+			details: {
+				agent_name: "root",
+				goal: "route learn calls",
+				output: "learn model routing failed",
+				success: false,
+				stumbles: 1,
+				turns: 4,
+				timed_out: false,
+			},
+		});
+		emitLearnEvidenceEvents(events, signal);
+		learn.push(signal);
+
+		await expect(learn.processNext()).resolves.toBe("skipped");
+		expect(
+			requests.map((request) => ({ model: request.model, provider: request.provider })),
+		).toEqual([
+			{ model: "extract-model", provider: "openrouter" },
+			{ model: "reason-model", provider: "anthropic" },
+		]);
 	});
 
 	describe("mutation validation", () => {

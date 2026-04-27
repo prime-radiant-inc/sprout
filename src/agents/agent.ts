@@ -57,6 +57,7 @@ import {
 	createResolverSettings,
 	type ResolvedModel,
 	type ResolverSettings,
+	resolveMemoryModel,
 	resolveModel,
 } from "./model-resolver.ts";
 import type { Postscripts } from "./plan.ts";
@@ -179,6 +180,7 @@ export class Agent {
 	private readonly llmRetryOptions?: Omit<RetryOptions, "signal" | "onRetry">;
 	private readonly logger: Logger;
 	private readonly resolverSettings: ResolverSettings;
+	private readonly modelsByProvider: Map<string, ProviderModel[]>;
 	private history: Message[] = [];
 	private systemPromptBase?: string;
 	private systemPrompt?: string;
@@ -254,6 +256,7 @@ export class Agent {
 				modelMap.set(providerId, []);
 			}
 		}
+		this.modelsByProvider = modelMap;
 		const resolverSettings =
 			options.resolverSettings ??
 			createResolverSettings(
@@ -469,8 +472,7 @@ export class Agent {
 		return {
 			prompt: await this.genome.loadSubcorticalRecallPrompt(),
 			client: this.client,
-			model: this.resolved.model,
-			provider: this.resolved.provider,
+			...resolveMemoryModel("subcortical", this.resolverSettings, this.modelsByProvider),
 			...(maxTokens !== undefined ? { maxTokens } : {}),
 		};
 	}

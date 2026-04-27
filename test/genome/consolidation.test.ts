@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createResolverSettings } from "../../src/agents/model-resolver.ts";
 import {
 	applyConsolidationMerge,
 	discoverConsolidationClusters,
@@ -10,11 +11,15 @@ import {
 	normalizeConsolidationDecisionPayload,
 	projectDueForConsolidation,
 	rejectConsolidationCluster,
+	requestConsolidationDecisionWithSettings,
 } from "../../src/genome/consolidation.ts";
 import { git } from "../../src/genome/genome.ts";
 import { memoryIndexPath } from "../../src/genome/index-builder.ts";
 import { MemoryIndex } from "../../src/genome/memory-index.ts";
 import type { Memory } from "../../src/kernel/types.ts";
+import type { Client } from "../../src/llm/client.ts";
+import type { Request, Response } from "../../src/llm/types.ts";
+import { Msg } from "../../src/llm/types.ts";
 import { createTestGenome } from "../helpers/test-genome.ts";
 
 function memory(overrides: Partial<Memory> = {}): Memory {
@@ -90,6 +95,54 @@ describe("memory consolidation", () => {
 		expect(merge.action).toBe("merge");
 		expect(merge.memory?.text).toContain("SQLite");
 		expect(reject.action).toBe("reject");
+	});
+
+	test("settings wrapper resolves the consolidation memory model", async () => {
+		let captured: Request | undefined;
+		const client = {
+			providers: () => ["openrouter"],
+			complete: async (request: Request): Promise<Response> => {
+				captured = request;
+				return {
+					id: "consolidation-test",
+					model: request.model,
+					provider: request.provider ?? "openrouter",
+					message: Msg.assistant(
+						JSON.stringify({
+							action: "reject",
+							reasoning: "The memories should remain separate.",
+						}),
+					),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+				};
+			},
+		} as unknown as Client;
+
+		await requestConsolidationDecisionWithSettings({
+			cluster: {
+				id: "cluster-a-b",
+				memory_ids: ["a", "b"],
+				memories: [memory({ id: "a" }), memory({ id: "b" })],
+				reasons: ["fuzzy"],
+				score: 0.9,
+				rejection_count: 0,
+				project_ids: [],
+			},
+			prompt: "consolidate",
+			client,
+			resolverSettings: createResolverSettings(
+				[{ id: "openrouter", enabled: true }],
+				{},
+				{ consolidation: { providerId: "openrouter", modelId: "consolidation-model" } },
+			),
+			modelsByProvider: new Map([
+				["openrouter", [{ id: "consolidation-model", label: "Consolidation", source: "remote" }]],
+			]),
+		});
+
+		expect(captured?.provider).toBe("openrouter");
+		expect(captured?.model).toBe("consolidation-model");
 	});
 
 	test("merge creates a consolidated memory and archives sources", async () => {

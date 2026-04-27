@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { type AgentOptions, Agent as RawAgent } from "../../src/agents/agent.ts";
 import { AgentEventEmitter } from "../../src/agents/events.ts";
 import type { AgentTreeEntry } from "../../src/agents/loader.ts";
+import { createResolverSettings } from "../../src/agents/model-resolver.ts";
 import type { AgentSpawner, SpawnAgentOptions } from "../../src/bus/spawner.ts";
 import type { CallerIdentity, ResultMessage } from "../../src/bus/types.ts";
 import { Genome } from "../../src/genome/genome.ts";
@@ -320,6 +321,94 @@ describe("Agent", () => {
 		});
 
 		await expect(agent.run("cite memory")).resolves.toMatchObject({ success: true });
+	});
+
+	test("subcortical recall uses the configured memory model", async () => {
+		const requests: Request[] = [];
+		const mockClient = {
+			providers: () => ["anthropic", "openrouter"],
+			listModelsByProvider: async () =>
+				new Map([
+					["anthropic", [{ id: "agent-model", label: "Agent model", source: "remote" as const }]],
+					[
+						"openrouter",
+						[{ id: "subcortical-model", label: "Subcortical model", source: "remote" as const }],
+					],
+				]),
+			complete: async (request: Request): Promise<Response> => {
+				requests.push(request);
+				if (request.model === "subcortical-model") {
+					return {
+						id: "mock-subcortical",
+						model: request.model,
+						provider: request.provider ?? "openrouter",
+						message: Msg.assistant(
+							JSON.stringify({
+								expanded_query: "sqlite local embeddings",
+								entities: [{ name: "SQLite", type: "TECHNOLOGY" }],
+								pinned_memory_ids: [],
+								reasoning: "expand recall",
+							}),
+						),
+						finish_reason: { reason: "stop" },
+						usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+					};
+				}
+				return {
+					id: "mock-agent",
+					model: request.model,
+					provider: request.provider ?? "anthropic",
+					message: Msg.assistant("Done."),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+		const fakeGenome = {
+			allAgents: () => [],
+			memories: { all: () => [] },
+			searchMemories: async () => [],
+			matchRoutingRules: () => [],
+			markMemoriesUsed: async () => {},
+			recordMemoryMentions: async () => [],
+			refreshIfDiskChanged: async () => false,
+			loadAgentTools: async () => [],
+			loadSubcorticalRecallPrompt: async () => "Expand recall.",
+			agentDir: () => tmpdir(),
+		} as unknown as Genome;
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const agent = new Agent({
+			spec: { ...leafSpec, subcortical_recall: { enabled: true, max_tokens: 123 } },
+			env,
+			client: mockClient,
+			primitiveRegistry: createPrimitiveRegistry(env),
+			availableAgents: [],
+			genome: fakeGenome,
+			resolverSettings: createResolverSettings(
+				[
+					{ id: "anthropic", enabled: true },
+					{ id: "openrouter", enabled: true },
+				],
+				{ fast: { providerId: "anthropic", modelId: "agent-model" } },
+				{ subcortical: { providerId: "openrouter", modelId: "subcortical-model" } },
+			),
+			modelsByProvider: new Map([
+				["anthropic", [{ id: "agent-model", label: "Agent model", source: "remote" }]],
+				["openrouter", [{ id: "subcortical-model", label: "Subcortical model", source: "remote" }]],
+			]),
+		});
+
+		await expect(agent.run("recall local sqlite memory")).resolves.toMatchObject({
+			success: true,
+		});
+		expect(
+			requests.map((request) => ({ model: request.model, provider: request.provider })),
+		).toEqual([
+			{ model: "subcortical-model", provider: "openrouter" },
+			{ model: "agent-model", provider: "anthropic" },
+		]);
+		expect(requests[0]?.max_tokens).toBe(123);
 	});
 
 	test("primitive_end event includes tool_result_message", async () => {

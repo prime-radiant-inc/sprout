@@ -131,7 +131,9 @@ export function findModelConfigOverridesForProvider(
 	overrides: ModelConfigOverrides,
 	providerId: string,
 ): ModelConfigOverride[] {
-	return enumerateOverrides(overrides).filter((override) => override.model.providerId === providerId);
+	return enumerateOverrides(overrides).filter(
+		(override) => override.model.providerId === providerId,
+	);
 }
 
 function createEnvOverride(envVar: string, model: ModelRef): ModelConfigOverride {

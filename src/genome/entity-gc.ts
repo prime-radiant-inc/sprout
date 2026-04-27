@@ -1,6 +1,7 @@
+import { type ResolverSettings, resolveMemoryModel } from "../agents/model-resolver.ts";
 import type { EntityAliasEntry, EntityLinkEntry, Memory } from "../kernel/types.ts";
 import type { Client } from "../llm/client.ts";
-import { Msg, messageText } from "../llm/types.ts";
+import { Msg, messageText, type ProviderModel } from "../llm/types.ts";
 import { trigramDiceSimilarity } from "./dedup.ts";
 import type { Genome } from "./genome.ts";
 import { isActiveMemoryForRecall } from "./memory-lifecycle.ts";
@@ -47,6 +48,11 @@ export interface EntityGcReviewRequest {
 	model: string;
 	provider: string;
 	maxTokens?: number;
+}
+
+export interface EntityGcSettingsRequest extends Omit<EntityGcReviewRequest, "model" | "provider"> {
+	resolverSettings: ResolverSettings;
+	modelsByProvider: Map<string, ProviderModel[]>;
 }
 
 export interface EntityGcApplyResult {
@@ -133,6 +139,13 @@ export async function requestEntityGcDecision(
 		max_tokens: request.maxTokens ?? 700,
 	});
 	return normalizeEntityGcDecisionPayload(request.group, messageText(response.message));
+}
+
+export async function requestEntityGcDecisionWithSettings(
+	request: EntityGcSettingsRequest,
+): Promise<EntityGcDecision> {
+	const model = resolveMemoryModel("entityGc", request.resolverSettings, request.modelsByProvider);
+	return requestEntityGcDecision({ ...request, model: model.model, provider: model.provider });
 }
 
 export function renderEntityGcReviewUserPrompt(group: EntityGcGroup): string {

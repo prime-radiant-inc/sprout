@@ -21,9 +21,9 @@ import {
 import { SettingsControlPlane } from "./settings/control-plane.ts";
 import { type EnvImportResult, importSettingsFromEnv } from "./settings/env-import.ts";
 import {
+	type ModelConfigOverrides,
 	parseModelConfigOverrides,
 	validateModelConfigOverrides,
-	type ModelConfigOverrides,
 } from "./settings/model-overrides.ts";
 import {
 	createSecretStoreRuntime,
@@ -62,7 +62,10 @@ export interface SessionBootstrapOptions {
 		spawner: AgentSpawner;
 		genome: Genome;
 		genomeService?: {
-			updateResolverSettings(resolverSettings: ReturnType<typeof createResolverSettings>): void;
+			updateRuntimeClient(
+				client: Client,
+				resolverSettings: ReturnType<typeof createResolverSettings>,
+			): void;
 		};
 	};
 	logStderr?: boolean;
@@ -277,9 +280,7 @@ export async function bootstrapSessionRuntime(
 	const startupState = await loadStartupProvidersAndCatalog(registry);
 	const llmClient = await d.createClient({ logger, providers: startupState.providers });
 	const availableModels = await d.loadAvailableModels(startupState.catalog);
-	let settingsControlPlaneRef:
-		| { getSelectionContext?: () => SessionSelectionContext }
-		| undefined;
+	let settingsControlPlaneRef: { getSelectionContext?: () => SessionSelectionContext } | undefined;
 	const getCurrentResolverSettings = () => {
 		const context = settingsControlPlaneRef?.getSelectionContext?.();
 		if (!context) return createResolverSettings([]);
@@ -287,6 +288,12 @@ export async function bootstrapSessionRuntime(
 			context.settings.providers,
 			context.settings.defaults,
 			context.settings.memoryModels,
+		);
+	};
+	const updateGenomeServiceRuntime = () => {
+		opts.infra.genomeService?.updateRuntimeClient(
+			llmClient as Client,
+			getCurrentResolverSettings(),
 		);
 	};
 	const settingsControlPlane = d.createSettingsControlPlane({
@@ -312,13 +319,13 @@ export async function bootstrapSessionRuntime(
 			const updatedProviders = await loadRuntimeProviders(registry);
 			replaceRuntimeClientProviders(llmClient, updatedProviders);
 			replaceArrayContents(availableModels, await d.loadAvailableModels(snapshot.catalog));
-			opts.infra.genomeService?.updateResolverSettings(getCurrentResolverSettings());
+			updateGenomeServiceRuntime();
 		},
 	});
 	settingsControlPlaneRef = settingsControlPlane as {
 		getSelectionContext?: () => SessionSelectionContext;
 	};
-	opts.infra.genomeService?.updateResolverSettings(getCurrentResolverSettings());
+	updateGenomeServiceRuntime();
 	const resolveSelection = createSelectionResolver(
 		settingsControlPlane as { getSelectionContext?: () => SessionSelectionContext },
 	);

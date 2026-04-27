@@ -1,6 +1,7 @@
+import { type ResolverSettings, resolveMemoryModel } from "../agents/model-resolver.ts";
 import type { Memory, RelationshipType } from "../kernel/types.ts";
 import type { Client } from "../llm/client.ts";
-import { Msg, messageText } from "../llm/types.ts";
+import { Msg, messageText, type ProviderModel } from "../llm/types.ts";
 import type { LinkCandidate } from "./linking.ts";
 
 export interface RelationshipClassificationRequest {
@@ -20,6 +21,12 @@ export interface RelationshipClassificationResult {
 	relationship_type: RelationshipType;
 	reasoning: string;
 	extraction_bond?: string;
+}
+
+export interface RelationshipClassificationSettingsRequest
+	extends Omit<RelationshipClassificationRequest, "model" | "provider"> {
+	resolverSettings: ResolverSettings;
+	modelsByProvider: Map<string, ProviderModel[]>;
 }
 
 const CLASSIFIER_RELATIONSHIP_TYPES = new Set<RelationshipType>([
@@ -59,6 +66,17 @@ export async function classifyMemoryRelationship(
 		request.target.id,
 		request.candidate?.extraction_bond,
 	);
+}
+
+export async function classifyMemoryRelationshipWithSettings(
+	request: RelationshipClassificationSettingsRequest,
+): Promise<RelationshipClassificationResult> {
+	const model = resolveMemoryModel(
+		"relationship",
+		request.resolverSettings,
+		request.modelsByProvider,
+	);
+	return classifyMemoryRelationship({ ...request, model: model.model, provider: model.provider });
 }
 
 export async function classifyMemoryRelationships(

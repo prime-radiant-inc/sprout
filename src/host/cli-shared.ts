@@ -1,10 +1,11 @@
 import { appendFile, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { ResolverSettings } from "../agents/model-resolver.ts";
 import type { BusClient } from "../bus/client.ts";
 import type { BusServer } from "../bus/server.ts";
 import type { AgentSpawner } from "../bus/spawner.ts";
-import type { ResolverSettings } from "../agents/model-resolver.ts";
+import type { Client } from "../llm/client.ts";
 import { formatSessionSelectionRequest } from "../shared/session-selection.ts";
 import type { bootstrapSessionRuntime } from "./cli-bootstrap.ts";
 import type { InteractiveModeOptions } from "./cli-interactive.ts";
@@ -25,6 +26,7 @@ export interface BusInfrastructure {
 	spawner: AgentSpawner;
 	genomeService?: {
 		updateResolverSettings(resolverSettings: ResolverSettings | undefined): void;
+		updateRuntimeClient(client: Client, resolverSettings: ResolverSettings | undefined): void;
 	};
 	genome: import("../genome/genome.ts").Genome;
 	cleanup: () => Promise<void>;

@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { createResolverSettings } from "../../src/agents/model-resolver.ts";
 import { loadRelationshipClassificationPrompt } from "../../src/genome/prompts.ts";
 import {
 	classifyMemoryRelationship,
+	classifyMemoryRelationshipWithSettings,
 	normalizeRelationshipClassificationPayload,
 	renderRelationshipClassificationUserPrompt,
 } from "../../src/genome/relationship-classifier.ts";
@@ -91,6 +93,32 @@ describe("relationship classifier", () => {
 		});
 		expect(captured?.temperature).toBe(0);
 		expect(captured?.max_tokens).toBe(500);
+	});
+
+	test("settings wrapper resolves the relationship memory model", async () => {
+		let captured: Request | undefined;
+		await classifyMemoryRelationshipWithSettings({
+			source: memory("new", "Sprout uses SQLite now.", 200),
+			target: memory("old", "The reference uses Postgres.", 100),
+			prompt: "classification prompt",
+			client: clientReturning(
+				'{"relationship_type":"supersedes","reasoning":"The newer memory replaces the older storage decision."}',
+				(request) => {
+					captured = request;
+				},
+			),
+			resolverSettings: createResolverSettings(
+				[{ id: "openrouter", enabled: true }],
+				{},
+				{ relationship: { providerId: "openrouter", modelId: "relationship-model" } },
+			),
+			modelsByProvider: new Map([
+				["openrouter", [{ id: "relationship-model", label: "Relationship", source: "remote" }]],
+			]),
+		});
+
+		expect(captured?.provider).toBe("openrouter");
+		expect(captured?.model).toBe("relationship-model");
 	});
 
 	test("rejects invalid relationship types", () => {

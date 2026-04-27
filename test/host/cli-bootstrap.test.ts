@@ -370,10 +370,7 @@ describe("bootstrapSessionRuntime", () => {
 					return {
 						id: "control-plane",
 						getSelectionContext: () => ({
-							settings: applyModelConfigOverrides(
-								options.initialSettings,
-								options.modelOverrides!,
-							),
+							settings: applyModelConfigOverrides(options.initialSettings, options.modelOverrides!),
 							catalog: [],
 						}),
 					};
@@ -515,7 +512,8 @@ describe("bootstrapSessionRuntime", () => {
 					spawner: { id: "spawner" } as any,
 					genome: { id: "genome" } as any,
 					genomeService: {
-						updateResolverSettings: (resolverSettings) => {
+						updateRuntimeClient: (client, resolverSettings) => {
+							created.genomeClient = client;
 							created.genomeResolverSettings = resolverSettings;
 						},
 					},
@@ -530,10 +528,7 @@ describe("bootstrapSessionRuntime", () => {
 					return {
 						id: "control-plane",
 						getSelectionContext: () => ({
-							settings: applyModelConfigOverrides(
-								options.initialSettings,
-								options.modelOverrides!,
-							),
+							settings: applyModelConfigOverrides(options.initialSettings, options.modelOverrides!),
 							catalog: [],
 						}),
 					};
@@ -586,6 +581,7 @@ describe("bootstrapSessionRuntime", () => {
 			providerId: "openrouter",
 			modelId: "env-model",
 		});
+		expect(created.genomeClient).toEqual({ id: "client" });
 		expect((created.genomeResolverSettings as any).memoryModels.extraction).toEqual({
 			providerId: "openrouter",
 			modelId: "env-extraction",
@@ -647,9 +643,7 @@ describe("bootstrapSessionRuntime", () => {
 					},
 				}),
 			}),
-		).rejects.toThrow(
-			"SPROUT_MEMORY_EXTRACTION_MODEL references unknown provider 'missing'",
-		);
+		).rejects.toThrow("SPROUT_MEMORY_EXTRACTION_MODEL references unknown provider 'missing'");
 
 		await expect(
 			bootstrapSessionRuntime(baseOptions, {
@@ -674,9 +668,7 @@ describe("bootstrapSessionRuntime", () => {
 					memoryModels: {},
 				}),
 			}),
-		).rejects.toThrow(
-			"SPROUT_DEFAULT_FAST_MODEL references disabled provider 'openrouter'",
-		);
+		).rejects.toThrow("SPROUT_DEFAULT_FAST_MODEL references disabled provider 'openrouter'");
 	});
 
 	test("does not import env-backed settings after invalid-file recovery", async () => {
@@ -1063,13 +1055,30 @@ describe("bootstrapSessionRuntime", () => {
 		const registrySettings: string[][] = [];
 		const checkConnectionCalls: string[] = [];
 		const clientUpdates: string[][] = [];
+		const genomeRuntimeUpdates: Array<{ client: unknown; providers: string[] }> = [];
+		const runtimeClient = {
+			replaceProviders(nextProviders: Record<string, unknown>) {
+				clientUpdates.push(Object.keys(nextProviders));
+			},
+		};
 		const runtime = await bootstrapSessionRuntime(
 			{
 				genomePath: "/tmp/genome",
 				projectDataDir: "/tmp/project",
 				rootDir: "/tmp/root",
 				sessionId: "01BOOT",
-				infra: { spawner: { id: "spawner" } as any, genome: { id: "genome" } as any },
+				infra: {
+					spawner: { id: "spawner" } as any,
+					genome: { id: "genome" } as any,
+					genomeService: {
+						updateRuntimeClient: (client, resolverSettings) => {
+							genomeRuntimeUpdates.push({
+								client,
+								providers: resolverSettings.providers.map((provider) => provider.id),
+							});
+						},
+					},
+				},
 			},
 			{
 				createBus: () => ({ id: "bus" }),
@@ -1111,12 +1120,7 @@ describe("bootstrapSessionRuntime", () => {
 						},
 					};
 				},
-				createClient: async ({ providers }) => ({
-					replaceProviders(nextProviders: Record<string, unknown>) {
-						clientUpdates.push(Object.keys(nextProviders));
-					},
-					providers,
-				}),
+				createClient: async () => runtimeClient,
 				createController: () => ({ sessionId: "01BOOT" }),
 			},
 		);
@@ -1139,6 +1143,11 @@ describe("bootstrapSessionRuntime", () => {
 
 		expect(registrySettings).toEqual([[], ["openai-compatible"], ["openai-compatible"]]);
 		expect(clientUpdates).toEqual([["openai-compatible"], ["openai-compatible"]]);
+		expect(genomeRuntimeUpdates).toEqual([
+			{ client: runtimeClient, providers: [] },
+			{ client: runtimeClient, providers: ["openai-compatible"] },
+			{ client: runtimeClient, providers: ["openai-compatible"] },
+		]);
 		expect(checkConnectionCalls).toEqual(["openai-compatible"]);
 		expect(connection).toMatchObject({
 			ok: true,

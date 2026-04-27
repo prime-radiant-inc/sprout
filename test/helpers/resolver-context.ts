@@ -39,6 +39,9 @@ export async function buildTestResolverContext(
 				balanced: { providerId, modelId: defaultModelId },
 				fast: { providerId, modelId: defaultModelId },
 			},
+			{
+				extraction: { providerId, modelId: defaultModelId },
+			},
 		),
 	};
 }

@@ -62,7 +62,7 @@ export class GenomeMutationService {
 	private readonly sessionId: string;
 	private client: Client | undefined;
 	private readonly clientFactory: () => Client;
-	private readonly modelsByProvider: Map<string, ProviderModel[]> | undefined;
+	private modelsByProvider: Map<string, ProviderModel[]> | undefined;
 	private resolverSettings: ResolverSettings | undefined;
 	private readonly stopDrainTimeoutMs: number;
 	private readonly stopDrainPollMs: number;
@@ -88,6 +88,13 @@ export class GenomeMutationService {
 
 	updateResolverSettings(resolverSettings: ResolverSettings | undefined): void {
 		this.resolverSettings = resolverSettings;
+		this.resolvedModel = undefined;
+	}
+
+	updateRuntimeClient(client: Client, resolverSettings: ResolverSettings | undefined): void {
+		this.client = client;
+		this.resolverSettings = resolverSettings;
+		this.modelsByProvider = undefined;
 		this.resolvedModel = undefined;
 	}
 

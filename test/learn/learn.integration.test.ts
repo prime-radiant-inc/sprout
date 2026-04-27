@@ -71,6 +71,7 @@ describe("Learn Integration", () => {
 			resolverSettings: resolverContext.resolverSettings,
 		});
 
+		const timestamp = Date.now();
 		const signal: LearnSignal = {
 			kind: "failure",
 			goal: "Run the project's test suite",
@@ -85,8 +86,29 @@ describe("Learn Integration", () => {
 				timed_out: false,
 			},
 			session_id: "int-test-1",
-			timestamp: Date.now(),
+			timestamp,
 		};
+		events.emit("session_start", "root", 0, {
+			session_id: signal.session_id,
+			goal: signal.goal,
+			model: "claude-opus-4-6",
+		});
+		events.emit("primitive_end", "root", 0, {
+			name: "exec",
+			display_name: "exec",
+			success: false,
+			stumbled: true,
+			output: signal.details.output,
+			error: signal.details.output,
+		});
+		events.emit("session_end", "root", 0, {
+			session_id: signal.session_id,
+			success: false,
+			stumbles: signal.details.stumbles,
+			turns: signal.details.turns,
+			timed_out: signal.details.timed_out,
+			output: signal.details.output,
+		});
 
 		learn.push(signal);
 		const result = await learn.processNext();

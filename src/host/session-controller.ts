@@ -1,7 +1,11 @@
 import { join } from "node:path";
 import { AgentEventEmitter } from "../agents/events.ts";
 import { createAgent } from "../agents/factory.ts";
-import type { ResolverSettings } from "../agents/model-resolver.ts";
+import {
+	createResolverSettings,
+	type ResolverSettings,
+	resolveMemoryModel,
+} from "../agents/model-resolver.ts";
 import type { AgentSpawner } from "../bus/spawner.ts";
 import { collapseSessionToMemory } from "../core/session-collapse.ts";
 import { detectProjectFromCwd } from "../genome/projects.ts";
@@ -236,12 +240,23 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 					}
 					const logBasePath = join(options.projectDataDir ?? options.genomePath, "logs", sessionId);
 					const events = await loadAllEventLogs(`${logBasePath}.jsonl`, logBasePath);
+					const modelMap = await result.client.listModelsByProvider();
+					const resolverSettings =
+						options.resolverSettings ??
+						createResolverSettings(
+							[...modelMap.keys()].map((providerId) => ({
+								id: providerId,
+								enabled: true,
+							})),
+						);
+					const summaryModel = resolveMemoryModel("summary", resolverSettings, modelMap);
+					const extractionModel = resolveMemoryModel("extraction", resolverSettings, modelMap);
 					const collapse = await collapseSessionToMemory({
 						events,
 						genome: result.genome,
 						client: result.client,
-						model: result.model,
-						provider: result.provider,
+						summaryModel,
+						extractionModel,
 						sessionId,
 						cwd,
 						project,

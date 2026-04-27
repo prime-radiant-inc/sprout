@@ -5,6 +5,7 @@ import {
 	createResolverSettings,
 	type ResolvedModel,
 	type ResolverSettings,
+	resolveMemoryModel,
 	resolveModel,
 } from "../agents/model-resolver.ts";
 import { filterDuplicateDrafts } from "../genome/dedup.ts";
@@ -81,7 +82,8 @@ export class LearnProcess {
 	private readonly metrics: MetricsStore;
 	private readonly events: AgentEventEmitter;
 	private readonly client?: Client;
-	private readonly resolvedModel?: ResolvedModel;
+	private readonly reasonerModel?: ResolvedModel;
+	private readonly extractionModel?: ResolvedModel;
 	private readonly queue: LearnSignal[] = [];
 	private readonly recentImprovements = new Set<string>();
 	private readonly pendingEvaluationsPath?: string;
@@ -113,9 +115,14 @@ export class LearnProcess {
 					})),
 				);
 			try {
-				this.resolvedModel = resolveModel("best", resolverSettings, modelMap);
+				this.reasonerModel = resolveModel("best", resolverSettings, modelMap);
 			} catch {
-				this.resolvedModel = undefined;
+				this.reasonerModel = undefined;
+			}
+			try {
+				this.extractionModel = resolveMemoryModel("extraction", resolverSettings, modelMap);
+			} catch {
+				this.extractionModel = undefined;
 			}
 		}
 	}
@@ -353,7 +360,7 @@ export class LearnProcess {
 
 	/** Ask the LLM to reason about what mutation to make given a stumble signal. */
 	private async reasonAboutImprovement(signal: LearnSignal): Promise<ReasonedLearnMutation | null> {
-		if (!this.client || !this.resolvedModel) return null;
+		if (!this.client || !this.reasonerModel) return null;
 
 		// Gather genome context for the LLM
 		const agents = this.genome.allAgents();
@@ -410,8 +417,8 @@ Based on this signal and the current system state, decide what non-memory improv
 Choose the most appropriate non-memory improvement. Use skip for factual learnings that do not require an agent, subagent, or routing-rule change.`;
 
 		const response = await this.client.complete({
-			model: this.resolvedModel.model,
-			provider: this.resolvedModel.provider,
+			model: this.reasonerModel.model,
+			provider: this.reasonerModel.provider,
 			messages: [Msg.user(prompt)],
 			temperature: 0.3,
 			max_tokens: 1024,
@@ -554,7 +561,7 @@ Choose the most appropriate non-memory improvement. Use skip for factual learnin
 	}
 
 	private async extractAndApplyLearnMemories(signal: LearnSignal): Promise<boolean> {
-		if (!this.client || !this.resolvedModel) return false;
+		if (!this.client || !this.extractionModel) return false;
 
 		const now = Date.now();
 		const random = Math.random().toString(36).slice(2, 8);
@@ -567,8 +574,8 @@ Choose the most appropriate non-memory improvement. Use skip for factual learnin
 		const prompts = await this.genome.loadMemoryExtractionPrompts();
 		const drafts = await extractMemoryDrafts({
 			client: this.client,
-			model: this.resolvedModel.model,
-			provider: this.resolvedModel.provider,
+			model: this.extractionModel.model,
+			provider: this.extractionModel.provider,
 			prompts,
 			messages,
 		});

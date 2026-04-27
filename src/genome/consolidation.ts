@@ -1,6 +1,7 @@
+import { type ResolverSettings, resolveMemoryModel } from "../agents/model-resolver.ts";
 import type { EntityLinkEntry, Memory, RelationshipType } from "../kernel/types.ts";
 import type { Client } from "../llm/client.ts";
-import { Msg, messageText } from "../llm/types.ts";
+import { Msg, messageText, type ProviderModel } from "../llm/types.ts";
 import { ulid } from "../util/ulid.ts";
 import { trigramDiceSimilarity } from "./dedup.ts";
 import type { Genome } from "./genome.ts";
@@ -52,6 +53,12 @@ export interface MemoryConsolidationRequest {
 	model: string;
 	provider: string;
 	maxTokens?: number;
+}
+
+export interface MemoryConsolidationSettingsRequest
+	extends Omit<MemoryConsolidationRequest, "model" | "provider"> {
+	resolverSettings: ResolverSettings;
+	modelsByProvider: Map<string, ProviderModel[]>;
 }
 
 export interface ConsolidationMergeResult {
@@ -202,6 +209,21 @@ export async function requestConsolidationDecision(
 		max_tokens: request.maxTokens ?? 900,
 	});
 	return normalizeConsolidationDecisionPayload(messageText(response.message));
+}
+
+export async function requestConsolidationDecisionWithSettings(
+	request: MemoryConsolidationSettingsRequest,
+): Promise<ConsolidationDecision> {
+	const model = resolveMemoryModel(
+		"consolidation",
+		request.resolverSettings,
+		request.modelsByProvider,
+	);
+	return requestConsolidationDecision({
+		...request,
+		model: model.model,
+		provider: model.provider,
+	});
 }
 
 export function renderMemoryConsolidationUserPrompt(cluster: ConsolidationCluster): string {

@@ -5,9 +5,9 @@ import { buildInvalidSettingsPath, resolveSettingsPath } from "./paths.ts";
 import {
 	createEmptySettings,
 	MEMORY_MODEL_PURPOSES,
-	SETTINGS_SCHEMA_VERSION,
 	type MemoryModelsConfig,
 	type ModelRef,
+	SETTINGS_SCHEMA_VERSION,
 	type SproutSettings,
 	validateSproutSettings,
 } from "./types.ts";

@@ -136,8 +136,7 @@ describe("model config env overrides", () => {
 		});
 		expect(snapshot.memoryModels.relationship).toMatchObject({
 			catalogStatus: "missing",
-			diagnostic:
-				"Model 'missing-model' is not in the loaded catalog for provider 'anthropic'",
+			diagnostic: "Model 'missing-model' is not in the loaded catalog for provider 'anthropic'",
 		});
 		expect(snapshot.memoryModels.subcortical).toMatchObject({
 			catalogStatus: "not_loaded",
@@ -151,9 +150,7 @@ describe("model config env overrides", () => {
 		});
 
 		expect(
-			findModelConfigOverridesForProvider(overrides, "lmstudio").map(
-				(override) => override.envVar,
-			),
+			findModelConfigOverridesForProvider(overrides, "lmstudio").map((override) => override.envVar),
 		).toEqual(["SPROUT_DEFAULT_FAST_MODEL", "SPROUT_MEMORY_SUBCORTICAL_MODEL"]);
 		expect(findModelConfigOverridesForProvider(overrides, "anthropic")).toEqual([]);
 	});

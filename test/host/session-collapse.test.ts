@@ -56,6 +56,11 @@ function makeClientSequence(responses: string[], onRequest?: (request: Request) 
 	} as unknown as Client;
 }
 
+const DEFAULT_MEMORY_MODELS = {
+	summaryModel: { model: "claude-sonnet-4-6", provider: "anthropic" },
+	extractionModel: { model: "claude-sonnet-4-6", provider: "anthropic" },
+};
+
 function memorySegment(
 	fields: Partial<MemorySegment> & { id: string; summary: string },
 ): MemorySegment {
@@ -242,8 +247,7 @@ abc123
 			],
 			genome,
 			client,
-			model: "claude-sonnet-4-6",
-			provider: "anthropic",
+			...DEFAULT_MEMORY_MODELS,
 			sessionId: "session-collapse-1",
 			cwd: workDir,
 			now: 400,
@@ -263,6 +267,58 @@ abc123
 		expect(memory.source_session_id).toBe("session-collapse-1");
 		expect(memory.project_ids).toContain("sprout-memory");
 		expect(memory.embedding?.status).toBe("ready");
+	});
+
+	test("uses separate configured models for summary and extraction calls", async () => {
+		const workDir = join(tempDir, "work-purpose-models");
+		await mkdir(workDir, { recursive: true });
+		const requests: Request[] = [];
+		const client = makeClientSequence(
+			[
+				JSON.stringify({
+					summary: "Purpose-routed collapse summary.",
+					title: "Purpose routing",
+					complexity: 1,
+				}),
+				"[]",
+			],
+			(request) => requests.push(request),
+		);
+		const genome = {
+			segments: { all: () => [] },
+			memories: { all: () => [] },
+			loadSegmentSummaryPrompts: async () => ({
+				system: "Summarize.",
+				user: "{formatted_messages}",
+			}),
+			loadMemoryExtractionPrompts: async () => ({
+				system: "Extract.",
+				user: "{formatted_messages}",
+			}),
+			memoryEmbeddingProvider: async () => {
+				throw new Error("empty extraction should not load embeddings");
+			},
+			addSegmentWithMemories: async (_segment: unknown, memories: readonly unknown[]) => memories,
+		} as unknown as Genome;
+
+		const result = await collapseSessionToMemory({
+			events: [event("perceive", 100, { goal: "Route memory LLM calls by purpose." })],
+			genome,
+			client,
+			summaryModel: { model: "summary-model", provider: "anthropic" },
+			extractionModel: { model: "extract-model", provider: "openrouter" },
+			sessionId: "session-collapse-purpose-models",
+			cwd: workDir,
+			now: 300,
+		});
+
+		expect(result).not.toBe("skipped");
+		expect(
+			requests.map((request) => ({ model: request.model, provider: request.provider })),
+		).toEqual([
+			{ model: "summary-model", provider: "anthropic" },
+			{ model: "extract-model", provider: "openrouter" },
+		]);
 	});
 
 	test("grounds memory extraction in user and root evidence", async () => {
@@ -327,8 +383,7 @@ abc123
 			],
 			genome,
 			client,
-			model: "claude-sonnet-4-6",
-			provider: "anthropic",
+			...DEFAULT_MEMORY_MODELS,
 			sessionId: "session-collapse-user-grounded",
 			cwd: workDir,
 			now: 400,
@@ -398,8 +453,7 @@ abc123
 			],
 			genome,
 			client,
-			model: "claude-sonnet-4-6",
-			provider: "anthropic",
+			...DEFAULT_MEMORY_MODELS,
 			sessionId: "session-collapse-continuity",
 			cwd: workDir,
 			project: { id: "sprout", name: "sprout", confidence: 1, source: "explicit" },
@@ -457,8 +511,7 @@ abc123
 			],
 			genome,
 			client,
-			model: "claude-sonnet-4-6",
-			provider: "anthropic",
+			...DEFAULT_MEMORY_MODELS,
 			sessionId: "session-collapse-no-drafts",
 			cwd: workDir,
 			now: 300,
@@ -524,8 +577,7 @@ abc123
 			],
 			genome,
 			client,
-			model: "claude-sonnet-4-6",
-			provider: "anthropic",
+			...DEFAULT_MEMORY_MODELS,
 			sessionId: "session-collapse-redacted",
 			cwd: workDir,
 			now: 300,
@@ -576,8 +628,7 @@ abc123
 			events: firstRunEvents,
 			genome,
 			client,
-			model: "claude-sonnet-4-6",
-			provider: "anthropic",
+			...DEFAULT_MEMORY_MODELS,
 			sessionId: "session-collapse-continued",
 			cwd: workDir,
 			now: 500,
@@ -588,8 +639,7 @@ abc123
 			events: firstRunEvents,
 			genome,
 			client,
-			model: "claude-sonnet-4-6",
-			provider: "anthropic",
+			...DEFAULT_MEMORY_MODELS,
 			sessionId: "session-collapse-continued",
 			cwd: workDir,
 			now: 600,
@@ -600,8 +650,7 @@ abc123
 			events: [...firstRunEvents, ...secondRunEvents],
 			genome,
 			client,
-			model: "claude-sonnet-4-6",
-			provider: "anthropic",
+			...DEFAULT_MEMORY_MODELS,
 			sessionId: "session-collapse-continued",
 			cwd: workDir,
 			now: 700,
@@ -641,8 +690,7 @@ abc123
 				],
 				genome,
 				client,
-				model: "claude-sonnet-4-6",
-				provider: "anthropic",
+				...DEFAULT_MEMORY_MODELS,
 				sessionId: "session-collapse-fail",
 				cwd: workDir,
 				now: 300,
@@ -680,8 +728,7 @@ abc123
 				],
 				genome,
 				client,
-				model: "claude-sonnet-4-6",
-				provider: "anthropic",
+				...DEFAULT_MEMORY_MODELS,
 				sessionId: "session-collapse-embedding-fail",
 				cwd: workDir,
 				now: 300,

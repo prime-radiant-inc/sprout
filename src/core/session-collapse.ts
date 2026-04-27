@@ -30,8 +30,8 @@ export interface CollapseSessionToMemoryInput {
 	events: readonly SessionEvent[];
 	genome: Genome;
 	client: Client;
-	model: string;
-	provider: string;
+	summaryModel: { model: string; provider: string };
+	extractionModel: { model: string; provider: string };
 	sessionId: string;
 	cwd: string;
 	explicitProject?: string;
@@ -96,8 +96,8 @@ export async function collapseSessionToMemory(
 		}));
 	const summary = await summarizeTranscript({
 		client: input.client,
-		model: input.model,
-		provider: input.provider,
+		model: input.summaryModel.model,
+		provider: input.summaryModel.provider,
 		prompts: await input.genome.loadSegmentSummaryPrompts(),
 		transcript,
 		previousSummaries: recentSegmentSummaries(input.genome.segments.all(), {
@@ -123,8 +123,8 @@ export async function collapseSessionToMemory(
 			? []
 			: await extractMemoryDrafts({
 					client: input.client,
-					model: input.model,
-					provider: input.provider,
+					model: input.extractionModel.model,
+					provider: input.extractionModel.provider,
 					prompts: await input.genome.loadMemoryExtractionPrompts(),
 					messages: extractionMessages,
 					segmentSummary: summary.summary,
