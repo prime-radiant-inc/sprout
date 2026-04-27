@@ -2920,6 +2920,83 @@ describe("SessionController session-wide event wiring", () => {
 		expect(serializedCall).toContain("delegate final says done");
 	});
 
+	test("delegate-final observers work with a custom root agent name", async () => {
+		const bus = new EventBus();
+		const spawnCalls: unknown[] = [];
+		const fakeSpawner = {
+			getHandles: () => [],
+			subscribeSessionEvents: async () => {},
+			subscribeRootMessages: async () => {},
+			updateSessionId: async () => {},
+			clearHandles: async () => {},
+			spawnAgent: async (options: unknown) => {
+				spawnCalls.push(options);
+				return "observer-metacognitive";
+			},
+			messageAgent: async () => undefined,
+		} as any;
+		const fakeGenome = {
+			getAgent: (name: string) => {
+				if (name === "coordinator") {
+					return {
+						name: "coordinator",
+						model: "best",
+						observe_delegates: [
+							{
+								agent: "metacognitive",
+								trigger: "on_delegate_final",
+								events: ["plan_end", "act_end"],
+							},
+						],
+					};
+				}
+				if (name === "metacognitive") {
+					return { name: "metacognitive", model: "observer.metacognitive" };
+				}
+				return undefined;
+			},
+		} as any;
+
+		new SessionController({
+			bus,
+			genomePath: join(tempDir, "genome"),
+			projectDataDir: tempDir,
+			rootAgent: "coordinator",
+			factory: makeFakeFactory(makeFakeAgent()),
+			spawner: fakeSpawner,
+			genome: fakeGenome,
+			getResolverSettings: () =>
+				createResolverSettings(
+					[{ id: "anthropic", enabled: true }],
+					{},
+					{},
+					{
+						"observer.metacognitive": {
+							providerId: "anthropic",
+							modelId: "claude-sonnet-4-6",
+						},
+					},
+				),
+		});
+
+		bus.emitEvent("plan_end", "child-1", 1, {
+			turn: 1,
+			finish_reason: "stop",
+			text: "custom root child final text",
+		});
+		bus.emitEvent("act_end", "root", 0, {
+			agent_name: "engineer",
+			success: true,
+			child_id: "child-1",
+			tool_result_message: Msg.toolResult("delegate_1", "custom root result"),
+		});
+
+		await waitFor(() => spawnCalls.length === 1);
+		const serializedCall = JSON.stringify(spawnCalls[0]);
+		expect(serializedCall).toContain("custom root child final text");
+		expect(serializedCall).toContain("custom root result");
+	});
+
 	test("retains interleaved delegate events until each delegate completes", async () => {
 		const bus = new EventBus();
 		const spawnCalls: unknown[] = [];

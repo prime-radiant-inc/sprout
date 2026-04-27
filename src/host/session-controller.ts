@@ -132,7 +132,6 @@ function buildStaticObserverConfigs(
 			agentId: handleId,
 			modelPurpose: observerModelPurpose(observerSpec),
 			description: `observes ${rootAgentName} delegate completions`,
-			callerAgentId: rootAgentName,
 			callerDepth: 0,
 		};
 	});
