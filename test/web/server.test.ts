@@ -691,6 +691,103 @@ describe("WebServer", () => {
 			expect(messages.map((message) => message.type)).toContain("settings_updated");
 		});
 
+		test("memory model settings commands reach the settings control plane", async () => {
+			const received: SettingsCommand[] = [];
+			const settingsSnapshot: SettingsSnapshot = {
+				...makeSettingsSnapshot(),
+				settings: {
+					...createEmptySettings(),
+					providers: [
+						{
+							id: "openrouter-main",
+							kind: "openrouter",
+							label: "OpenRouter",
+							enabled: true,
+							createdAt: "2026-03-11T00:00:00.000Z",
+							updatedAt: "2026-03-11T00:00:00.000Z",
+						},
+					],
+					memoryModels: {
+						extraction: {
+							providerId: "openrouter-main",
+							modelId: "openai/gpt-4.1",
+						},
+					},
+				},
+				providers: [
+					{
+						providerId: "openrouter-main",
+						hasSecret: true,
+						validationErrors: [],
+						connectionStatus: "ok",
+						catalogStatus: "current",
+					},
+				],
+				catalog: [
+					{
+						providerId: "openrouter-main",
+						models: [{ id: "openai/gpt-4.1", label: "GPT-4.1", source: "remote" }],
+						lastRefreshAt: "2026-03-11T00:00:00.000Z",
+					},
+				],
+			};
+
+			server = new WebServer({
+				bus,
+				port,
+				staticDir,
+				sessionId: "test-session",
+				settingsControlPlane: {
+					execute: async (command: SettingsCommand): Promise<SettingsCommandResult> => {
+						received.push(command);
+						return {
+							ok: true,
+							snapshot: settingsSnapshot,
+						};
+					},
+				},
+				getSessionSelection: () => makeCurrentSelection(),
+			} as any);
+
+			await startServer();
+			const ws = await connectClient();
+			const messages = collectMessages(ws);
+
+			await delay(50);
+			received.length = 0;
+			ws.send(
+				JSON.stringify({
+					type: "command",
+					command: {
+						kind: "set_memory_model",
+						data: {
+							purpose: "extraction",
+							model: {
+								providerId: "openrouter-main",
+								modelId: "openai/gpt-4.1",
+							},
+						},
+					},
+				}),
+			);
+			await delay(100);
+
+			expect(received).toEqual([
+				{
+					kind: "set_memory_model",
+					data: {
+						purpose: "extraction",
+						model: {
+							providerId: "openrouter-main",
+							modelId: "openai/gpt-4.1",
+						},
+					},
+				},
+			]);
+			expect(messages.map((message) => message.type)).toContain("settings_result");
+			expect(messages.map((message) => message.type)).toContain("settings_updated");
+		});
+
 		test("settings command failures return an error result instead of hanging", async () => {
 			server = new WebServer({
 				bus,
