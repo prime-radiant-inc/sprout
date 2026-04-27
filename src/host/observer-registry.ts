@@ -28,11 +28,12 @@ interface ObserverSubscriptionState {
 	config: ObserverAttachmentConfig;
 	includeKinds: Set<EventKind>;
 	pendingEvents: SessionEvent[];
+	childEventsByAgentId: Map<string, SessionEvent[]>;
 	triggerCount: number;
 	observerStarted: boolean;
 	deliveryInFlight: boolean;
 	flushRequested: boolean;
-	queuedTriggerEvents: SessionEvent[];
+	queuedDeliveries: Array<{ events: SessionEvent[] }>;
 	warningEmitted: boolean;
 }
 
@@ -105,6 +106,11 @@ export class ObserverRegistry {
 		for (const subscription of this.subscriptions) {
 			if (!subscription.includeKinds.has(event.kind)) continue;
 			subscription.pendingEvents.push(event);
+			if (event.depth > 0) {
+				const childEvents = subscription.childEventsByAgentId.get(event.agent_id) ?? [];
+				childEvents.push(event);
+				subscription.childEventsByAgentId.set(event.agent_id, childEvents);
+			}
 			this.trimPendingEvents(subscription);
 
 			if (!this.shouldTrigger(subscription, event)) continue;
@@ -118,11 +124,12 @@ export class ObserverRegistry {
 		this.sessionId = sessionId;
 		for (const subscription of this.subscriptions) {
 			subscription.pendingEvents = [];
+			subscription.childEventsByAgentId.clear();
 			subscription.triggerCount = 0;
 			subscription.observerStarted = false;
 			subscription.deliveryInFlight = false;
 			subscription.flushRequested = false;
-			subscription.queuedTriggerEvents = [];
+			subscription.queuedDeliveries = [];
 			subscription.warningEmitted = false;
 		}
 		this.startedHandles.clear();
@@ -142,15 +149,19 @@ export class ObserverRegistry {
 	private async flush(
 		subscription: ObserverSubscriptionState,
 		triggerEvent?: SessionEvent,
+		preselectedEvents?: SessionEvent[],
 	): Promise<void> {
 		if (subscription.deliveryInFlight) {
-			subscription.flushRequested = true;
 			if (triggerEvent) {
-				subscription.queuedTriggerEvents.push(triggerEvent);
+				const delivery = this.takeEventsForDelivery(subscription, triggerEvent);
+				subscription.pendingEvents = delivery.retainedEvents;
+				subscription.queuedDeliveries.push({ events: delivery.events });
+				return;
 			}
+			subscription.flushRequested = true;
 			return;
 		}
-		if (subscription.pendingEvents.length === 0) return;
+		if (!preselectedEvents && subscription.pendingEvents.length === 0) return;
 
 		const resolverSettings = this.getResolverSettings?.();
 		if (
@@ -162,9 +173,12 @@ export class ObserverRegistry {
 		}
 
 		const generation = this.generation;
-		const delivery = this.takeEventsForDelivery(subscription, triggerEvent);
-		const events = delivery.events;
-		subscription.pendingEvents = delivery.retainedEvents;
+		let events = preselectedEvents;
+		if (!events) {
+			const delivery = this.takeEventsForDelivery(subscription, triggerEvent);
+			events = delivery.events;
+			subscription.pendingEvents = delivery.retainedEvents;
+		}
 		subscription.deliveryInFlight = true;
 		try {
 			const frame = buildObserverFrame({
@@ -191,10 +205,9 @@ export class ObserverRegistry {
 		} finally {
 			if (this.generation === generation) {
 				subscription.deliveryInFlight = false;
-				const queuedTriggerEvent = subscription.queuedTriggerEvents.shift();
-				if (queuedTriggerEvent) {
-					subscription.flushRequested = subscription.queuedTriggerEvents.length > 0;
-					void this.flush(subscription, queuedTriggerEvent);
+				const queuedDelivery = subscription.queuedDeliveries.shift();
+				if (queuedDelivery) {
+					void this.flush(subscription, undefined, queuedDelivery.events);
 				} else if (subscription.flushRequested) {
 					subscription.flushRequested = false;
 					void this.flush(subscription);
@@ -259,8 +272,14 @@ export class ObserverRegistry {
 
 	private trimPendingEvents(subscription: ObserverSubscriptionState): void {
 		const maxPendingEvents = subscription.config.maxEvents * 4;
-		if (subscription.pendingEvents.length <= maxPendingEvents) return;
-		subscription.pendingEvents = subscription.pendingEvents.slice(-maxPendingEvents);
+		if (subscription.pendingEvents.length > maxPendingEvents) {
+			subscription.pendingEvents = subscription.pendingEvents.slice(-maxPendingEvents);
+		}
+		for (const [agentId, events] of subscription.childEventsByAgentId) {
+			if (events.length > maxPendingEvents) {
+				subscription.childEventsByAgentId.set(agentId, events.slice(-maxPendingEvents));
+			}
+		}
 	}
 
 	private observerHandleId(config: ObserverAttachmentConfig): string {
@@ -280,21 +299,15 @@ export class ObserverRegistry {
 		}
 		const childId = stringData(triggerEvent, "child_id");
 		const events: SessionEvent[] = [];
-		const retainedEvents: SessionEvent[] = [];
-		for (const event of subscription.pendingEvents) {
-			if (event === triggerEvent) {
-				events.push(event);
-				continue;
-			}
-			if (childId && event.agent_id === childId && event.depth === triggerEvent.depth + 1) {
-				events.push(event);
-				continue;
-			}
-			retainedEvents.push(event);
+		if (childId) {
+			events.push(...(subscription.childEventsByAgentId.get(childId) ?? []));
+			subscription.childEventsByAgentId.delete(childId);
 		}
 		if (!events.includes(triggerEvent)) {
 			events.push(triggerEvent);
 		}
+		const delivered = new Set(events);
+		const retainedEvents = subscription.pendingEvents.filter((event) => !delivered.has(event));
 		return { events, retainedEvents };
 	}
 
@@ -322,11 +335,12 @@ function createSubscriptionState(config: ObserverAttachmentConfig): ObserverSubs
 		config,
 		includeKinds: new Set(config.events),
 		pendingEvents: [],
+		childEventsByAgentId: new Map(),
 		triggerCount: 0,
 		observerStarted: false,
 		deliveryInFlight: false,
 		flushRequested: false,
-		queuedTriggerEvents: [],
+		queuedDeliveries: [],
 		warningEmitted: false,
 	};
 }

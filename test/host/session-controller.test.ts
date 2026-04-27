@@ -2992,6 +2992,11 @@ describe("SessionController session-wide event wiring", () => {
 			finish_reason: "stop",
 			text: "child two final text",
 		});
+		bus.emitEvent("plan_end", "child-3", 1, {
+			turn: 1,
+			finish_reason: "stop",
+			text: "child three final text",
+		});
 		bus.emitEvent("act_end", "root", 0, {
 			agent_name: "engineer",
 			success: true,
@@ -3085,6 +3090,11 @@ describe("SessionController session-wide event wiring", () => {
 			finish_reason: "stop",
 			text: "child two final text",
 		});
+		bus.emitEvent("plan_end", "child-3", 1, {
+			turn: 1,
+			finish_reason: "stop",
+			text: "child three final text",
+		});
 		bus.emitEvent("act_end", "root", 0, {
 			agent_name: "engineer",
 			success: true,
@@ -3097,14 +3107,24 @@ describe("SessionController session-wide event wiring", () => {
 			child_id: "child-2",
 			tool_result_message: Msg.toolResult("delegate_2", "child two result"),
 		});
+		bus.emitEvent("act_end", "root", 0, {
+			agent_name: "architect",
+			success: true,
+			child_id: "child-3",
+			tool_result_message: Msg.toolResult("delegate_3", "child three result"),
+		});
 		expect(messages).toHaveLength(0);
 
 		resolveSpawn!("observer-metacognitive");
 
-		await waitFor(() => messages.length === 1);
+		await waitFor(() => messages.length === 2);
 		expect(messages[0]).toContain("child two final text");
 		expect(messages[0]).toContain("child two result");
 		expect(messages[0]).not.toContain("child one final text");
+		expect(messages[0]).not.toContain("child three final text");
+		expect(messages[1]).toContain("child three final text");
+		expect(messages[1]).toContain("child three result");
+		expect(messages[1]).not.toContain("child two final text");
 	});
 
 	test("/clear command calls clearHandles then updateSessionId sequentially", async () => {
