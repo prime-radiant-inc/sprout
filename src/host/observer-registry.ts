@@ -160,8 +160,9 @@ export class ObserverRegistry {
 		}
 
 		const generation = this.generation;
-		const events = this.eventsForDelivery(subscription, triggerEvent);
-		subscription.pendingEvents = [];
+		const delivery = this.takeEventsForDelivery(subscription, triggerEvent);
+		const events = delivery.events;
+		subscription.pendingEvents = delivery.retainedEvents;
 		subscription.deliveryInFlight = true;
 		try {
 			const frame = buildObserverFrame({
@@ -266,19 +267,31 @@ export class ObserverRegistry {
 		return config.agentId ?? this.observerHandleId(config);
 	}
 
-	private eventsForDelivery(
+	private takeEventsForDelivery(
 		subscription: ObserverSubscriptionState,
 		triggerEvent: SessionEvent | undefined,
-	): SessionEvent[] {
+	): { events: SessionEvent[]; retainedEvents: SessionEvent[] } {
 		if (subscription.config.target !== "caller_delegates" || !triggerEvent) {
-			return subscription.pendingEvents;
+			return { events: subscription.pendingEvents, retainedEvents: [] };
 		}
 		const childId = stringData(triggerEvent, "child_id");
-		return subscription.pendingEvents.filter((event) => {
-			if (event === triggerEvent) return true;
-			if (!childId) return false;
-			return event.agent_id === childId && event.depth === triggerEvent.depth + 1;
-		});
+		const events: SessionEvent[] = [];
+		const retainedEvents: SessionEvent[] = [];
+		for (const event of subscription.pendingEvents) {
+			if (event === triggerEvent) {
+				events.push(event);
+				continue;
+			}
+			if (childId && event.agent_id === childId && event.depth === triggerEvent.depth + 1) {
+				events.push(event);
+				continue;
+			}
+			retainedEvents.push(event);
+		}
+		if (!events.includes(triggerEvent)) {
+			events.push(triggerEvent);
+		}
+		return { events, retainedEvents };
 	}
 
 	private isObservedDelegateFinal(
