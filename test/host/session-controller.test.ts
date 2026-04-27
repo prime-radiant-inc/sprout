@@ -2628,8 +2628,8 @@ describe("SessionController session-wide event wiring", () => {
 		await waitFor(() => contextUpdates === 3);
 		expect(spawnCalls[0]).toMatchObject({
 			agentName: "metacognitive",
-			handleId: "observer-metacognitive",
-			agentId: "observer-metacognitive",
+			handleId: "observer-root-1-metacognitive",
+			agentId: "observer-root-1-metacognitive",
 			shared: true,
 			blocking: false,
 			surfacedMemoryBlock: "",
@@ -2766,7 +2766,7 @@ describe("SessionController session-wide event wiring", () => {
 		await waitFor(() => spawnCalls.length === 1);
 		expect(spawnCalls[0]).toMatchObject({
 			agentName: "metacognitive",
-			handleId: "observer-metacognitive",
+			handleId: "observer-root-1-metacognitive",
 		});
 	});
 
@@ -2838,7 +2838,7 @@ describe("SessionController session-wide event wiring", () => {
 		await waitFor(() => spawnCalls.length === 1);
 		expect(spawnCalls[0]).toMatchObject({
 			agentName: "metacognitive",
-			handleId: "observer-metacognitive",
+			handleId: "observer-session-1-metacognitive",
 		});
 		expect(JSON.stringify(spawnCalls[0])).toContain("session_resume");
 	});
@@ -2997,7 +2997,7 @@ describe("SessionController session-wide event wiring", () => {
 		expect(serializedCall).toContain("custom root result");
 	});
 
-	test("root and delegate observer configs for the same agent use distinct handles", async () => {
+	test("root and delegate observer handles use collision-proof namespaces", async () => {
 		const bus = new EventBus();
 		await mkdir(join(tempDir, "sessions"), { recursive: true });
 		const spawnCalls: Array<{ handleId?: string }> = [];
@@ -3021,7 +3021,7 @@ describe("SessionController session-wide event wiring", () => {
 						model: "best",
 						observers: [
 							{
-								agent: "metacognitive",
+								agent: "metacognitive-delegates",
 								target: "root",
 								events: ["plan_end"],
 								trigger: { every: 1, event: "plan_end" },
@@ -3038,6 +3038,9 @@ describe("SessionController session-wide event wiring", () => {
 				}
 				if (name === "metacognitive") {
 					return { name: "metacognitive", model: "observer.metacognitive" };
+				}
+				if (name === "metacognitive-delegates") {
+					return { name: "metacognitive-delegates", model: "observer.metacognitive" };
 				}
 				return undefined;
 			},
@@ -3088,8 +3091,8 @@ describe("SessionController session-wide event wiring", () => {
 		await waitFor(() => spawnCalls.length === 2);
 		await waitFor(() => contextUpdates === 1);
 		expect(spawnCalls.map((call) => call.handleId).sort()).toEqual([
-			"observer-metacognitive",
-			"observer-metacognitive-delegates",
+			"observer-delegate-1-metacognitive",
+			"observer-root-1-metacognitive-delegates",
 		]);
 	});
 

@@ -81,6 +81,14 @@ const DEFAULT_OBSERVER_MAX_CHARS = 6000;
 const DEFAULT_DELEGATE_OBSERVER_MAX_EVENTS = 12;
 const DEFAULT_DELEGATE_OBSERVER_MAX_CHARS = 3000;
 
+function staticObserverHandleId(
+	scope: "root" | "session" | "delegate",
+	index: number,
+	agentName: string,
+): string {
+	return `observer-${scope}-${index + 1}-${agentName}`;
+}
+
 function buildStaticObserverConfigs(
 	genome: Genome | undefined,
 	rootAgentName: string,
@@ -95,7 +103,7 @@ function buildStaticObserverConfigs(
 				`Observer agent '${config.agent}' configured by '${rootAgentName}' was not found`,
 			);
 		}
-		const handleId = index === 0 ? `observer-${config.agent}` : `observer-${config.agent}-${index + 1}`;
+		const handleId = staticObserverHandleId(config.target, index, config.agent);
 		return {
 			agentName: config.agent,
 			target: config.target,
@@ -120,10 +128,7 @@ function buildStaticObserverConfigs(
 				`Delegate observer agent '${config.agent}' configured by '${rootAgentName}' was not found`,
 			);
 		}
-		const handleId =
-			index === 0
-				? `observer-${config.agent}-delegates`
-				: `observer-${config.agent}-delegates-${index + 1}`;
+		const handleId = staticObserverHandleId("delegate", index, config.agent);
 		return {
 			agentName: config.agent,
 			target: "caller_delegates" as const,
