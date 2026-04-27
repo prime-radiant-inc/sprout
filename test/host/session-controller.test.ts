@@ -3013,6 +3013,100 @@ describe("SessionController session-wide event wiring", () => {
 		expect(messages[0]).not.toContain("child one final text");
 	});
 
+	test("queues delegate-final triggers while observer delivery is in flight", async () => {
+		const bus = new EventBus();
+		const messages: string[] = [];
+		let resolveSpawn: ((value: string) => void) | undefined;
+		const spawnPromise = new Promise<string>((resolve) => {
+			resolveSpawn = resolve;
+		});
+		const fakeSpawner = {
+			getHandles: () => [],
+			subscribeSessionEvents: async () => {},
+			subscribeRootMessages: async () => {},
+			updateSessionId: async () => {},
+			clearHandles: async () => {},
+			spawnAgent: async () => spawnPromise,
+			messageAgent: async (_handleId: string, message: string) => {
+				messages.push(message);
+				return undefined;
+			},
+		} as any;
+		const fakeGenome = {
+			getAgent: (name: string) => {
+				if (name === "root") {
+					return {
+						name: "root",
+						model: "best",
+						observe_delegates: [
+							{
+								agent: "metacognitive",
+								trigger: "on_delegate_final",
+								events: ["plan_end", "act_end"],
+							},
+						],
+					};
+				}
+				if (name === "metacognitive") {
+					return { name: "metacognitive", model: "observer.metacognitive" };
+				}
+				return undefined;
+			},
+		} as any;
+
+		new SessionController({
+			bus,
+			genomePath: join(tempDir, "genome"),
+			projectDataDir: tempDir,
+			factory: makeFakeFactory(makeFakeAgent()),
+			spawner: fakeSpawner,
+			genome: fakeGenome,
+			getResolverSettings: () =>
+				createResolverSettings(
+					[{ id: "anthropic", enabled: true }],
+					{},
+					{},
+					{
+						"observer.metacognitive": {
+							providerId: "anthropic",
+							modelId: "claude-sonnet-4-6",
+						},
+					},
+				),
+		});
+
+		bus.emitEvent("plan_end", "child-1", 1, {
+			turn: 1,
+			finish_reason: "stop",
+			text: "child one final text",
+		});
+		bus.emitEvent("plan_end", "child-2", 1, {
+			turn: 1,
+			finish_reason: "stop",
+			text: "child two final text",
+		});
+		bus.emitEvent("act_end", "root", 0, {
+			agent_name: "engineer",
+			success: true,
+			child_id: "child-1",
+			tool_result_message: Msg.toolResult("delegate_1", "child one result"),
+		});
+		bus.emitEvent("act_end", "root", 0, {
+			agent_name: "reviewer",
+			success: true,
+			child_id: "child-2",
+			tool_result_message: Msg.toolResult("delegate_2", "child two result"),
+		});
+		expect(messages).toHaveLength(0);
+
+		resolveSpawn!("observer-metacognitive");
+
+		await waitFor(() => messages.length === 1);
+		expect(messages[0]).toContain("child two final text");
+		expect(messages[0]).toContain("child two result");
+		expect(messages[0]).not.toContain("child one final text");
+	});
+
 	test("/clear command calls clearHandles then updateSessionId sequentially", async () => {
 		const bus = new EventBus();
 

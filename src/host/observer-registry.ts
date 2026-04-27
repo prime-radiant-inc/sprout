@@ -32,7 +32,7 @@ interface ObserverSubscriptionState {
 	observerStarted: boolean;
 	deliveryInFlight: boolean;
 	flushRequested: boolean;
-	queuedTriggerEvent?: SessionEvent;
+	queuedTriggerEvents: SessionEvent[];
 	warningEmitted: boolean;
 }
 
@@ -122,7 +122,7 @@ export class ObserverRegistry {
 			subscription.observerStarted = false;
 			subscription.deliveryInFlight = false;
 			subscription.flushRequested = false;
-			subscription.queuedTriggerEvent = undefined;
+			subscription.queuedTriggerEvents = [];
 			subscription.warningEmitted = false;
 		}
 		this.startedHandles.clear();
@@ -145,7 +145,9 @@ export class ObserverRegistry {
 	): Promise<void> {
 		if (subscription.deliveryInFlight) {
 			subscription.flushRequested = true;
-			subscription.queuedTriggerEvent = triggerEvent;
+			if (triggerEvent) {
+				subscription.queuedTriggerEvents.push(triggerEvent);
+			}
 			return;
 		}
 		if (subscription.pendingEvents.length === 0) return;
@@ -189,11 +191,13 @@ export class ObserverRegistry {
 		} finally {
 			if (this.generation === generation) {
 				subscription.deliveryInFlight = false;
-				if (subscription.flushRequested) {
-					subscription.flushRequested = false;
-					const queuedTriggerEvent = subscription.queuedTriggerEvent;
-					subscription.queuedTriggerEvent = undefined;
+				const queuedTriggerEvent = subscription.queuedTriggerEvents.shift();
+				if (queuedTriggerEvent) {
+					subscription.flushRequested = subscription.queuedTriggerEvents.length > 0;
 					void this.flush(subscription, queuedTriggerEvent);
+				} else if (subscription.flushRequested) {
+					subscription.flushRequested = false;
+					void this.flush(subscription);
 				}
 			}
 		}
@@ -322,7 +326,7 @@ function createSubscriptionState(config: ObserverAttachmentConfig): ObserverSubs
 		observerStarted: false,
 		deliveryInFlight: false,
 		flushRequested: false,
-		queuedTriggerEvent: undefined,
+		queuedTriggerEvents: [],
 		warningEmitted: false,
 	};
 }
