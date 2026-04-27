@@ -270,7 +270,7 @@ export class Agent {
 			resolverSettings,
 			modelMap,
 		);
-		if (subcorticalRecallEnabled(this.spec.subcortical_recall)) {
+		if (this.genome && subcorticalRecallEnabled(this.spec.subcortical_recall)) {
 			try {
 				this.subcorticalMemoryModel = resolveMemoryModel("subcortical", resolverSettings, modelMap);
 			} catch (error) {
