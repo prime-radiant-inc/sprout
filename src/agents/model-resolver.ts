@@ -2,6 +2,8 @@ import type { ProviderCatalogEntry } from "../llm/model-catalog.ts";
 import type { ProviderModel } from "../llm/types.ts";
 import type {
 	DefaultsConfig,
+	MemoryModelPurpose,
+	MemoryModelsConfig,
 	ModelRef,
 	ProviderConfig,
 	Tier,
@@ -20,12 +22,14 @@ export interface ResolverProvider {
 export interface ResolverSettings {
 	providers: ResolverProvider[];
 	defaults: DefaultsConfig;
+	memoryModels: MemoryModelsConfig;
 }
 const TIER_NAMES: readonly Tier[] = ["best", "balanced", "fast"];
 
 export function createResolverSettings(
 	providers: Pick<ProviderConfig, "id" | "enabled">[],
 	defaults: DefaultsConfig = {},
+	memoryModels: MemoryModelsConfig = {},
 ): ResolverSettings {
 	return {
 		providers: providers.map((provider) => ({
@@ -33,6 +37,7 @@ export function createResolverSettings(
 			enabled: provider.enabled,
 		})),
 		defaults: { ...defaults },
+		memoryModels: { ...memoryModels },
 	};
 }
 
@@ -55,6 +60,18 @@ export function resolveModel(
 		return resolveExplicitModelRef(explicitModel, settings, catalogMap);
 	}
 	throw new Error(`Exact model '${selection}' requires an explicit provider`);
+}
+
+export function resolveMemoryModel(
+	purpose: MemoryModelPurpose,
+	settings: ResolverSettings,
+	catalog: ProviderCatalogEntry[] | Map<string, ProviderModel[]>,
+): ResolvedModel {
+	const modelRef = settings.memoryModels[purpose];
+	if (!modelRef) {
+		throw new Error(`No memory '${purpose}' model is configured`);
+	}
+	return resolveExplicitModelRef(modelRef, settings, toCatalogMap(catalog));
 }
 
 export function getAvailableModels(

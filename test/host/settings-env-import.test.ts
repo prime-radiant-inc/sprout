@@ -79,7 +79,7 @@ describe("importSettingsFromEnv", () => {
 		});
 	});
 
-	test("imports openrouter credentials and default-model tuples from env", async () => {
+	test("imports openrouter credentials without persisting model override env vars", async () => {
 		const secretStore = createSecretStore({ backend: "memory", platform: "linux" });
 		const result = await importSettingsFromEnv({
 			env: {
@@ -103,11 +103,7 @@ describe("importSettingsFromEnv", () => {
 				updatedAt: "2026-03-14T12:00:00.000Z",
 			},
 		]);
-		expect(result.settings.defaults).toEqual({
-			best: { providerId: "openrouter", modelId: "openai/gpt-4o-mini" },
-			balanced: { providerId: "openrouter", modelId: "openai/gpt-4o-mini" },
-			fast: { providerId: "openrouter", modelId: "openai/gpt-4o-mini" },
-		});
+		expect(result.settings.defaults).toEqual({});
 		expect(await secretStore.getSecret(createProviderSecretRef("openrouter", "memory"))).toBe(
 			"openrouter-secret",
 		);

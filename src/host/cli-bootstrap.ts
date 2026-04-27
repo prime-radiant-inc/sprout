@@ -251,11 +251,7 @@ export async function bootstrapSessionRuntime(
 			secretStore,
 			secretBackend: secretRefBackend,
 		});
-		const importedHasSettings =
-			imported.settings.providers.length > 0 ||
-			imported.settings.defaults.best !== undefined ||
-			imported.settings.defaults.balanced !== undefined ||
-			imported.settings.defaults.fast !== undefined;
+		const importedHasSettings = imported.settings.providers.length > 0;
 		if (importedHasSettings) {
 			settings = imported.settings;
 			initialValidationErrors = imported.validationErrorsByProvider;
@@ -324,7 +320,11 @@ export async function bootstrapSessionRuntime(
 			if (!context) {
 				return createResolverSettings([]);
 			}
-			return createResolverSettings(context.settings.providers, context.settings.defaults);
+			return createResolverSettings(
+				context.settings.providers,
+				context.settings.defaults,
+				context.settings.memoryModels,
+			);
 		},
 		spawner: opts.infra.spawner,
 		genome: opts.infra.genome,

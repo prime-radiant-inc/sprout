@@ -23,6 +23,7 @@ function selectionContext(
 		settings: {
 			providers: overrides.settings?.providers ?? [provider()],
 			defaults: overrides.settings?.defaults ?? {},
+			memoryModels: overrides.settings?.memoryModels ?? {},
 		},
 		catalog: overrides.catalog ?? [],
 	};
@@ -187,6 +188,7 @@ describe("loadResumeState", () => {
 								modelId: "gpt-4.1",
 							},
 						},
+						memoryModels: {},
 					},
 					catalog: [
 						{

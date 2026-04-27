@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { resolveModel } from "../../src/agents/model-resolver.ts";
+import { resolveMemoryModel, resolveModel } from "../../src/agents/model-resolver.ts";
 import type { ModelRef, ProviderConfig, SproutSettings } from "../../src/host/settings/types.ts";
 import type { ProviderCatalogEntry } from "../../src/llm/model-catalog.ts";
 import type { ProviderModel } from "../../src/llm/types.ts";
@@ -19,12 +19,13 @@ function provider(overrides: Partial<ProviderConfig> = {}): ProviderConfig {
 function settingsFor(
 	providers: ProviderConfig[],
 	defaults: SproutSettings["defaults"] = {},
+	memoryModels: SproutSettings["memoryModels"] = {},
 ): SproutSettings {
 	return {
 		version: 3,
 		providers,
 		defaults,
-		memoryModels: {},
+		memoryModels,
 	};
 }
 
@@ -185,5 +186,142 @@ describe("resolveModel", () => {
 				catalog([{ providerId: "anthropic-main", models: [model("claude-sonnet-4-6")] }]),
 			),
 		).toThrow(/provider/i);
+	});
+});
+
+describe("resolveMemoryModel", () => {
+	test("resolves every configured memory purpose to its exact provider and model", () => {
+		const settings = settingsFor(
+			[
+				provider({
+					id: "anthropic-main",
+					kind: "anthropic",
+				}),
+				provider({
+					id: "lmstudio",
+					kind: "openai-compatible",
+					label: "LM Studio",
+				}),
+			],
+			{},
+			{
+				summary: { providerId: "anthropic-main", modelId: "claude-opus-4-6" },
+				extraction: { providerId: "anthropic-main", modelId: "claude-sonnet-4-6" },
+				relationship: { providerId: "lmstudio", modelId: "qwen2.5-coder" },
+				consolidation: { providerId: "anthropic-main", modelId: "claude-sonnet-4-6" },
+				entityGc: { providerId: "lmstudio", modelId: "qwen2.5-coder" },
+				subcortical: { providerId: "lmstudio", modelId: "qwen2.5-coder" },
+			},
+		);
+
+		const models = catalog([
+			{
+				providerId: "anthropic-main",
+				models: [model("claude-opus-4-6"), model("claude-sonnet-4-6")],
+			},
+			{
+				providerId: "lmstudio",
+				models: [model("qwen2.5-coder")],
+			},
+		]);
+
+		expect(resolveMemoryModel("summary", settings, models)).toEqual({
+			provider: "anthropic-main",
+			model: "claude-opus-4-6",
+		});
+		expect(resolveMemoryModel("extraction", settings, models)).toEqual({
+			provider: "anthropic-main",
+			model: "claude-sonnet-4-6",
+		});
+		expect(resolveMemoryModel("relationship", settings, models)).toEqual({
+			provider: "lmstudio",
+			model: "qwen2.5-coder",
+		});
+		expect(resolveMemoryModel("consolidation", settings, models)).toEqual({
+			provider: "anthropic-main",
+			model: "claude-sonnet-4-6",
+		});
+		expect(resolveMemoryModel("entityGc", settings, models)).toEqual({
+			provider: "lmstudio",
+			model: "qwen2.5-coder",
+		});
+		expect(resolveMemoryModel("subcortical", settings, models)).toEqual({
+			provider: "lmstudio",
+			model: "qwen2.5-coder",
+		});
+	});
+
+	test("fails clearly when a memory purpose is missing", () => {
+		expect(() => resolveMemoryModel("summary", settingsFor([provider()]), catalog([]))).toThrow(
+			"No memory 'summary' model is configured",
+		);
+	});
+
+	test("does not fall back to global defaults for memory purposes", () => {
+		const settings = settingsFor(
+			[provider()],
+			{
+				best: {
+					providerId: "anthropic-main",
+					modelId: "claude-opus-4-6",
+				},
+			},
+			{},
+		);
+
+		expect(() => resolveMemoryModel("extraction", settings, catalog([]))).toThrow(
+			"No memory 'extraction' model is configured",
+		);
+	});
+
+	test("rejects memory refs with unknown or disabled providers", () => {
+		expect(() =>
+			resolveMemoryModel(
+				"extraction",
+				settingsFor([], {}, { extraction: { providerId: "missing", modelId: "model" } }),
+				catalog([]),
+			),
+		).toThrow("Unknown provider 'missing'");
+
+		expect(() =>
+			resolveMemoryModel(
+				"extraction",
+				settingsFor(
+					[provider({ id: "anthropic-main", enabled: false })],
+					{},
+					{ extraction: { providerId: "anthropic-main", modelId: "model" } },
+				),
+				catalog([]),
+			),
+		).toThrow("Provider 'anthropic-main' is disabled");
+	});
+
+	test("allows exact memory refs before a provider catalog is loaded", () => {
+		const settings = settingsFor(
+			[provider()],
+			{},
+			{ extraction: { providerId: "anthropic-main", modelId: "operator-asserted-model" } },
+		);
+
+		expect(resolveMemoryModel("extraction", settings, catalog([]))).toEqual({
+			provider: "anthropic-main",
+			model: "operator-asserted-model",
+		});
+	});
+
+	test("rejects memory refs missing from a populated provider catalog", () => {
+		const settings = settingsFor(
+			[provider()],
+			{},
+			{ extraction: { providerId: "anthropic-main", modelId: "missing-model" } },
+		);
+
+		expect(() =>
+			resolveMemoryModel(
+				"extraction",
+				settings,
+				catalog([{ providerId: "anthropic-main", models: [model("claude-sonnet-4-6")] }]),
+			),
+		).toThrow("Missing model 'missing-model' for provider 'anthropic-main'");
 	});
 });

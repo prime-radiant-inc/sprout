@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { bootstrapSessionRuntime } from "../../src/host/cli-bootstrap.ts";
-import { applyModelConfigOverrides } from "../../src/host/settings/model-overrides.ts";
+import { importSettingsFromEnv } from "../../src/host/settings/env-import.ts";
+import {
+	applyModelConfigOverrides,
+	parseModelConfigOverrides,
+} from "../../src/host/settings/model-overrides.ts";
 import type { ProviderSecretRef } from "../../src/host/settings/secret-store.ts";
 import { createEmptySettings } from "../../src/host/settings/types.ts";
 import type { ProviderRegistryEntry } from "../../src/llm/provider-registry.ts";
@@ -333,7 +337,85 @@ describe("bootstrapSessionRuntime", () => {
 		expect(created.saved).toBeUndefined();
 	});
 
-	test("retains env-imported default models even when no providers were imported", async () => {
+	test("keeps default model env vars as runtime-only overrides during first-run import", async () => {
+		const created: Record<string, unknown> = {};
+		const env = {
+			OPENROUTER_API_KEY: "openrouter-secret",
+			SPROUT_DEFAULT_BEST_MODEL: "openrouter:openai/gpt-4o-mini",
+		};
+
+		await bootstrapSessionRuntime(
+			{
+				genomePath: "/tmp/genome",
+				projectDataDir: "/tmp/project",
+				rootDir: "/tmp/root",
+				sessionId: "01BOOT",
+				infra: { spawner: { id: "spawner" } as any, genome: { id: "genome" } as any },
+			},
+			{
+				createBus: () => ({ id: "bus" }),
+				createLogger: () => ({ info: () => {} }),
+				createClient: async () => ({ id: "client" }),
+				createSettingsControlPlane: (options) => {
+					created.controlPlaneOptions = options;
+					return {
+						id: "control-plane",
+						getSelectionContext: () => ({
+							settings: applyModelConfigOverrides(
+								options.initialSettings,
+								options.modelOverrides!,
+							),
+							catalog: [],
+						}),
+					};
+				},
+				createController: (opts) => {
+					created.resolverSettings = opts.getResolverSettings?.();
+					return { sessionId: "01BOOT" };
+				},
+				loadAvailableModels: async () => [],
+				createProviderRegistry: () => emptyRegistry(),
+				createSettingsStore: () => ({
+					load: async () => ({
+						settings: createEmptySettings(),
+						skipEnvImport: false,
+						source: "missing" as const,
+					}),
+					save: async (settings) => {
+						created.savedSettings = settings;
+					},
+				}),
+				createSecretStore: () => keychainSecretStore(),
+				importSettingsFromEnv: async ({ secretStore, secretBackend }) =>
+					importSettingsFromEnv({
+						env,
+						secretStore,
+						secretBackend,
+						now: () => "2026-03-14T12:00:00.000Z",
+					}),
+				parseModelConfigOverrides: () => parseModelConfigOverrides(env),
+			},
+		);
+
+		expect((created.savedSettings as any).providers).toEqual([
+			{
+				id: "openrouter",
+				kind: "openrouter",
+				label: "OpenRouter",
+				enabled: true,
+				createdAt: "2026-03-14T12:00:00.000Z",
+				updatedAt: "2026-03-14T12:00:00.000Z",
+			},
+		]);
+		expect((created.savedSettings as any).defaults).toEqual({});
+		expect((created.controlPlaneOptions as any).initialSettings.defaults).toEqual({});
+		expect((created.resolverSettings as any).defaults.best).toEqual({
+			providerId: "openrouter",
+			modelId: "openai/gpt-4o-mini",
+		});
+	});
+
+	test("ignores default-only env imports when no providers were imported", async () => {
 		const created: Record<string, unknown> = {};
 		const importedSettings = {
 			...createEmptySettings(),
@@ -390,10 +472,8 @@ describe("bootstrapSessionRuntime", () => {
 			},
 		);
 
-		expect((created.controlPlaneOptions as any).initialSettings.defaults.best).toEqual(
-			importedSettings.defaults.best,
-		);
-		expect((created.resolverSettings as any).defaults.best).toEqual(importedSettings.defaults.best);
+		expect((created.controlPlaneOptions as any).initialSettings.defaults).toEqual({});
+		expect((created.resolverSettings as any).defaults).toEqual({});
 	});
 
 	test("applies env model overrides to runtime resolver settings without persisting them", async () => {
@@ -910,6 +990,12 @@ describe("bootstrapSessionRuntime", () => {
 						settings: {
 							providers: settings.providers,
 							defaults: settings.defaults,
+							memoryModels: {
+								extraction: {
+									providerId: "openai",
+									modelId: "gpt-4.1-mini",
+								},
+							},
 						},
 						catalog: [],
 					}),
@@ -941,6 +1027,12 @@ describe("bootstrapSessionRuntime", () => {
 				best: {
 					providerId: "anthropic",
 					modelId: "claude-opus-4-6",
+				},
+			},
+			memoryModels: {
+				extraction: {
+					providerId: "openai",
+					modelId: "gpt-4.1-mini",
 				},
 			},
 		});
