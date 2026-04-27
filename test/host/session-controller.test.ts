@@ -618,14 +618,15 @@ describe("SessionController", () => {
 		const subscriptionReady = new Promise<void>((resolve) => {
 			releaseSubscription = resolve;
 		});
-		const fakeSpawner = {
-			getHandles: () => [],
-			subscribeSessionEvents: async () => {
-				await subscriptionReady;
-			},
-			updateSessionId: async () => {},
-			clearHandles: async () => {},
-		} as any;
+			const fakeSpawner = {
+				getHandles: () => [],
+				subscribeSessionEvents: async () => {
+					await subscriptionReady;
+				},
+				subscribeRootMessages: async () => {},
+				updateSessionId: async () => {},
+				clearHandles: async () => {},
+			} as any;
 
 		let runSignal: AbortSignal | undefined;
 		const factory: AgentFactory = async () => ({
@@ -2501,14 +2502,15 @@ describe("SessionController session-wide event wiring", () => {
 
 		// Track what the spawner's subscribeSessionEvents receives
 		let capturedCallback: ((event: EventMessage) => void) | undefined;
-		const fakeSpawner = {
-			getHandles: () => [],
-			subscribeSessionEvents: async (cb: (event: EventMessage) => void) => {
-				capturedCallback = cb;
-			},
-			updateSessionId: async () => {},
-			clearHandles: async () => {},
-		} as any;
+			const fakeSpawner = {
+				getHandles: () => [],
+				subscribeSessionEvents: async (cb: (event: EventMessage) => void) => {
+					capturedCallback = cb;
+				},
+				subscribeRootMessages: async () => {},
+				updateSessionId: async () => {},
+				clearHandles: async () => {},
+			} as any;
 
 		const fake = makeFakeAgent();
 		new SessionController({
@@ -2553,12 +2555,13 @@ describe("SessionController session-wide event wiring", () => {
 		const bus = new EventBus();
 
 		const callOrder: string[] = [];
-		const fakeSpawner = {
-			getHandles: () => [],
-			subscribeSessionEvents: async () => {},
-			updateSessionId: async (newId: string) => {
-				callOrder.push(`update:${newId}`);
-			},
+			const fakeSpawner = {
+				getHandles: () => [],
+				subscribeSessionEvents: async () => {},
+				subscribeRootMessages: async () => {},
+				updateSessionId: async (newId: string) => {
+					callOrder.push(`update:${newId}`);
+				},
 			clearHandles: async () => {
 				callOrder.push("clear");
 			},

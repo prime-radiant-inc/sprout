@@ -17,6 +17,7 @@ import type { SessionSelectionRequest } from "../shared/session-selection.ts";
 import { ulid } from "../util/ulid.ts";
 import { compactHistory } from "./compaction.ts";
 import type { SessionBus } from "./event-bus.ts";
+import { ObserverDispatcher } from "./observer-dispatcher.ts";
 import {
 	createSessionCommandHandlers,
 	type SessionCommandHandlers,
@@ -377,6 +378,7 @@ export class SessionController {
 	private runGeneration = 0;
 	private compactFn?: AgentFactoryResult["compact"];
 	private spawnerReady?: Promise<void>;
+	private observerDispatcher?: ObserverDispatcher;
 	private readonly commandHandlers: SessionCommandHandlers;
 
 	get sessionId(): string {
@@ -418,6 +420,19 @@ export class SessionController {
 		// This must be in the constructor, not the factory, to avoid accumulating
 		// subscriptions on each submitGoal call.
 		if (this.spawner) {
+			this.observerDispatcher = new ObserverDispatcher({
+				sessionId: this._sessionId,
+				spawner: this.spawner,
+				genomePath: this.genomePath,
+				workDir: this.workDir,
+				projectDataDir: this.projectDataDir,
+				rootDir: this.rootDir,
+				evalMode: this.evalMode,
+				getResolverSettings: this.getResolverSettings,
+				emitEvent: (kind, agentId, depth, data) => {
+					this.bus.emitEvent(kind, agentId, depth, data);
+				},
+			});
 			const sessionEventsReady = this.spawner
 				.subscribeSessionEvents((eventMsg) => {
 					const ev = eventMsg.event;
@@ -520,6 +535,7 @@ export class SessionController {
 					console.error("[SessionController] Failed spawner reset after clear:", err);
 				});
 		}
+		this.observerDispatcher?.reset(this._sessionId);
 		this.bus.emitEvent("session_clear", "session", 0, {
 			new_session_id: this._sessionId,
 		});
@@ -532,6 +548,7 @@ export class SessionController {
 
 		// Accumulate history synchronously before async operations.
 		this.history = applyHistoryShadowUpdate(this.history, event);
+		this.observerDispatcher?.handleEvent(event);
 
 		if (event.kind === "plan_end" && event.depth === 0) {
 			const turn = (event.data.turn as number) ?? 0;
