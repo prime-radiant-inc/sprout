@@ -98,7 +98,7 @@ async function collectChildLogs(dir: string): Promise<SessionEvent[]> {
 			if (entry.isDirectory()) {
 				return collectChildLogs(fullPath);
 			}
-			if (entry.isFile() && entry.name.endsWith(".jsonl") && entry.name !== "session.log.jsonl") {
+			if (entry.isFile() && isEventLogFile(entry.name)) {
 				return loadEventLog(fullPath);
 			}
 			return [];
@@ -122,4 +122,8 @@ export async function loadAllEventLogs(
 	const allEvents = [...rootEvents, ...childEvents];
 	allEvents.sort((a, b) => a.timestamp - b.timestamp);
 	return allEvents;
+}
+
+function isEventLogFile(name: string): boolean {
+	return name.endsWith(".jsonl") && name !== "session.log.jsonl" && !name.endsWith(".replay.jsonl");
 }

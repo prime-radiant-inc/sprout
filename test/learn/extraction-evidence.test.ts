@@ -15,6 +15,16 @@ function event(
 	return { kind, timestamp, agent_id, depth, data };
 }
 
+function replayRecord(timestamp: number): SessionEvent {
+	return {
+		schema_version: "sprout-replay-v1",
+		timestamp,
+		agent_id: "root",
+		depth: 0,
+		request_context: { system_prompt: "replay prompt should not be evidence" },
+	} as unknown as SessionEvent;
+}
+
 function signal(timestamp: number): LearnSignal {
 	return {
 		kind: "failure",
@@ -39,6 +49,7 @@ describe("learn signal extraction evidence", () => {
 		const events: SessionEvent[] = [
 			event("session_start", 100, { session_id: "session-1" }, 0, "session"),
 			event("perceive", 150, { goal: "Root task" }),
+			replayRecord(175),
 			event("agent_message", 200, {
 				from_agent_name: "metacognitive",
 				to_agent_name: "root",
@@ -87,6 +98,7 @@ describe("learn signal extraction evidence", () => {
 		expect(rendered).toContain("Root task");
 		expect(rendered).toContain("normal child work should remain evidence");
 		expect(rendered).toContain("normal command failed");
+		expect(rendered).not.toContain("replay prompt should not be evidence");
 		expect(rendered).not.toContain("observer notification should not be evidence");
 		expect(rendered).not.toContain("observer frame should not be evidence");
 		expect(rendered).not.toContain("hidden observer frame");

@@ -28,6 +28,16 @@ function event(
 	return { kind, timestamp, agent_id, depth, data };
 }
 
+function replayRecord(timestamp: number): SessionEvent {
+	return {
+		schema_version: "sprout-replay-v1",
+		timestamp,
+		agent_id: "root",
+		depth: 0,
+		request_context: { system_prompt: "replay prompt should not collapse" },
+	} as unknown as SessionEvent;
+}
+
 function makeResponse(text: string): Response {
 	return {
 		id: "mock",
@@ -156,6 +166,16 @@ describe("session collapse transcript", () => {
 		);
 
 		expect(messages.map((message) => message.agent_id)).toEqual(["root", "engineer"]);
+	});
+
+	test("ignores replay records loaded beside event logs", () => {
+		const messages = buildCollapseTranscript([
+			event("perceive", 100, { goal: "Root goal" }),
+			replayRecord(150),
+			event("plan_end", 200, { text: "Root answer" }),
+		]);
+
+		expect(messages.map((message) => message.content)).toEqual(["Root goal", "Root answer"]);
 	});
 
 	test("excludes observer telemetry from collapse transcripts", () => {

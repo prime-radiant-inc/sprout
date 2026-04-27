@@ -239,26 +239,27 @@ function eventToTranscriptMessage(
 	options: BuildCollapseTranscriptOptions,
 	observerAgentIds: ReadonlySet<string>,
 ): CollapseTranscriptMessage[] {
-	if (event.data.observer === true || observerAgentIds.has(event.agent_id)) return [];
+	const data = eventData(event);
+	if (data.observer === true || observerAgentIds.has(event.agent_id)) return [];
 	if (!options.includeSubagents && event.depth !== 0) return [];
 
 	switch (event.kind) {
 		case "perceive":
-			return fromText(event, "user", stringValue(event.data.goal));
+			return fromText(event, "user", stringValue(data.goal));
 		case "steering":
-			return fromText(event, "user", stringValue(event.data.text));
+			return fromText(event, "user", stringValue(data.text));
 		case "plan_end":
 			return fromText(
 				event,
 				"assistant",
-				stringValue(event.data.text) ?? messageContent(event.data.assistant_message),
+				stringValue(data.text) ?? messageContent(data.assistant_message),
 			);
 		case "act_end":
 			return fromText(event, "assistant", actMetadata(event));
 		case "primitive_end":
 			return fromText(event, "assistant", primitiveMetadata(event));
 		case "session_end":
-			return fromText(event, "assistant", stringValue(event.data.output));
+			return fromText(event, "assistant", stringValue(data.output));
 		default:
 			return [];
 	}
@@ -267,9 +268,10 @@ function eventToTranscriptMessage(
 function collectObserverAgentIds(events: readonly SessionEvent[]): Set<string> {
 	const ids = new Set<string>();
 	for (const event of events) {
-		if (event.kind !== "act_start" || event.data.observer !== true) continue;
-		const childId = stringValue(event.data.child_id);
-		const handleId = stringValue(event.data.handle_id);
+		const data = eventData(event);
+		if (event.kind !== "act_start" || data.observer !== true) continue;
+		const childId = stringValue(data.child_id);
+		const handleId = stringValue(data.handle_id);
 		if (childId) ids.add(childId);
 		if (handleId) ids.add(handleId);
 	}
@@ -277,11 +279,12 @@ function collectObserverAgentIds(events: readonly SessionEvent[]): Set<string> {
 }
 
 function primitiveMetadata(event: SessionEvent): string | undefined {
-	const name = stringValue(event.data.display_name) ?? stringValue(event.data.name) ?? "tool";
-	const success = event.data.success === true;
+	const data = eventData(event);
+	const name = stringValue(data.display_name) ?? stringValue(data.name) ?? "tool";
+	const success = data.success === true;
 	const status = success
 		? `Tool ${name} completed successfully.`
-		: event.data.success === false
+		: data.success === false
 			? `Tool ${name} failed.`
 			: `Tool ${name} completed.`;
 	const outcome = boundedOutcomeText(event);
@@ -289,14 +292,15 @@ function primitiveMetadata(event: SessionEvent): string | undefined {
 }
 
 function actMetadata(event: SessionEvent): string | undefined {
-	const name = stringValue(event.data.agent_name) ?? "agent";
-	const success = event.data.success === true;
+	const data = eventData(event);
+	const name = stringValue(data.agent_name) ?? "agent";
+	const success = data.success === true;
 	const status = success
 		? `Delegated agent ${name} completed successfully.`
-		: event.data.success === false
+		: data.success === false
 			? `Delegated agent ${name} failed.`
 			: `Delegated agent ${name} completed.`;
-	const goal = stringValue(event.data.goal);
+	const goal = stringValue(data.goal);
 	const outcome = boundedOutcomeText(event);
 	return [status, goal ? `Goal: ${goal}` : undefined, outcome ? `Output: ${outcome}` : undefined]
 		.filter((line) => line !== undefined)
@@ -304,10 +308,9 @@ function actMetadata(event: SessionEvent): string | undefined {
 }
 
 function boundedOutcomeText(event: SessionEvent): string | undefined {
+	const data = eventData(event);
 	const raw =
-		messageContent(event.data.tool_result_message) ??
-		stringValue(event.data.output) ??
-		stringValue(event.data.error);
+		messageContent(data.tool_result_message) ?? stringValue(data.output) ?? stringValue(data.error);
 	if (!raw) return undefined;
 	const normalized = raw.trim();
 	if (!normalized) return undefined;
@@ -401,6 +404,10 @@ function clampComplexity(value: number | undefined): number {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function eventData(event: SessionEvent): Record<string, unknown> {
+	return isRecord(event.data) ? event.data : {};
 }
 
 function slug(value: string): string {

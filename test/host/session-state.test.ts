@@ -176,4 +176,27 @@ describe("loadAllEventLogs", () => {
 		expect(events).toHaveLength(3);
 		expect(events.map((e) => e.timestamp)).toEqual([100, 200, 300]);
 	});
+
+	test("ignores nested replay JSONL files", async () => {
+		const tmp = await mkdtemp(join(tmpdir(), "sprout-test-"));
+		const rootLog = join(tmp, "root.jsonl");
+		const sessionDir = join(tmp, "session");
+		const handleDir = join(sessionDir, "01HANDLE");
+		await mkdir(handleDir, { recursive: true });
+		await writeFile(rootLog, eventLine("plan_start", 100));
+		await writeFile(join(handleDir, "child.jsonl"), eventLine("plan_start", 200));
+		await writeFile(
+			join(handleDir, "child.replay.jsonl"),
+			JSON.stringify({
+				schema_version: "sprout-replay-v1",
+				timestamp: 150,
+				request_context: { system_prompt: "not a session event" },
+			}),
+		);
+
+		const events = await loadAllEventLogs(rootLog, sessionDir);
+
+		expect(events).toHaveLength(2);
+		expect(events.map((e) => e.timestamp)).toEqual([100, 200]);
+	});
 });

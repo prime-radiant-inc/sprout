@@ -62,13 +62,14 @@ function eventsForSession(events: readonly SessionEvent[], sessionId: string): S
 	let activeCount = 0;
 
 	for (const event of sorted) {
-		if (event.kind === "session_start" && stringValue(event.data.session_id) === sessionId) {
+		const data = eventData(event);
+		if (event.kind === "session_start" && stringValue(data.session_id) === sessionId) {
 			activeCount++;
 		}
 		if (activeCount > 0) sessionEvents.push(event);
 		if (
 			event.kind === "session_end" &&
-			stringValue(event.data.session_id) === sessionId &&
+			stringValue(data.session_id) === sessionId &&
 			activeCount > 0
 		) {
 			activeCount--;
@@ -76,11 +77,12 @@ function eventsForSession(events: readonly SessionEvent[], sessionId: string): S
 	}
 
 	if (sessionEvents.length > 0) return sessionEvents;
-	return sorted.filter((event) => stringValue(event.data.session_id) === sessionId);
+	return sorted.filter((event) => stringValue(eventData(event).session_id) === sessionId);
 }
 
 function isLearnEvidenceEvent(event: SessionEvent, observerAgentIds: ReadonlySet<string>): boolean {
-	if (event.data.observer === true || observerAgentIds.has(event.agent_id)) return false;
+	const data = eventData(event);
+	if (data.observer === true || observerAgentIds.has(event.agent_id)) return false;
 	return (
 		event.kind === "session_start" ||
 		event.kind === "session_end" ||
@@ -100,9 +102,10 @@ function isLearnEvidenceEvent(event: SessionEvent, observerAgentIds: ReadonlySet
 function collectObserverAgentIds(events: readonly SessionEvent[]): Set<string> {
 	const ids = new Set<string>();
 	for (const event of events) {
-		if (event.kind !== "act_start" || event.data.observer !== true) continue;
-		const childId = stringValue(event.data.child_id);
-		const handleId = stringValue(event.data.handle_id);
+		const data = eventData(event);
+		if (event.kind !== "act_start" || data.observer !== true) continue;
+		const childId = stringValue(data.child_id);
+		const handleId = stringValue(data.handle_id);
 		if (childId) ids.add(childId);
 		if (handleId) ids.add(handleId);
 	}
@@ -118,24 +121,25 @@ ${renderEventLines(event)}
 
 function renderEventLines(event: SessionEvent): string {
 	const lines: string[] = [];
-	addLine(lines, "session_id", stringValue(event.data.session_id));
-	addLine(lines, "goal", stringValue(event.data.goal));
-	addLine(lines, "text", stringValue(event.data.text));
-	addLine(lines, "agent_name", stringValue(event.data.agent_name));
-	addLine(lines, "primitive", stringValue(event.data.name));
-	addLine(lines, "display_name", stringValue(event.data.display_name));
-	addLine(lines, "description", stringValue(event.data.description));
-	addLine(lines, "success", primitiveValue(event.data.success));
-	addLine(lines, "stumbled", primitiveValue(event.data.stumbled));
-	addLine(lines, "stumbles", primitiveValue(event.data.stumbles));
-	addLine(lines, "turns", primitiveValue(event.data.turns));
-	addLine(lines, "timed_out", primitiveValue(event.data.timed_out));
-	addLine(lines, "output", stringValue(event.data.output));
-	addLine(lines, "error", stringValue(event.data.error));
-	addLine(lines, "message", stringValue(event.data.message));
-	addLine(lines, "tool_result", messageContent(event.data.tool_result_message));
-	addLine(lines, "signal", signalSummary(event.data.signal));
-	addLine(lines, "args", jsonValue(event.data.args));
+	const data = eventData(event);
+	addLine(lines, "session_id", stringValue(data.session_id));
+	addLine(lines, "goal", stringValue(data.goal));
+	addLine(lines, "text", stringValue(data.text));
+	addLine(lines, "agent_name", stringValue(data.agent_name));
+	addLine(lines, "primitive", stringValue(data.name));
+	addLine(lines, "display_name", stringValue(data.display_name));
+	addLine(lines, "description", stringValue(data.description));
+	addLine(lines, "success", primitiveValue(data.success));
+	addLine(lines, "stumbled", primitiveValue(data.stumbled));
+	addLine(lines, "stumbles", primitiveValue(data.stumbles));
+	addLine(lines, "turns", primitiveValue(data.turns));
+	addLine(lines, "timed_out", primitiveValue(data.timed_out));
+	addLine(lines, "output", stringValue(data.output));
+	addLine(lines, "error", stringValue(data.error));
+	addLine(lines, "message", stringValue(data.message));
+	addLine(lines, "tool_result", messageContent(data.tool_result_message));
+	addLine(lines, "signal", signalSummary(data.signal));
+	addLine(lines, "args", jsonValue(data.args));
 	return lines.length > 0 ? lines.join("\n") : "(no selected fields)";
 }
 
@@ -211,6 +215,10 @@ function stringValue(value: unknown): string | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function eventData(event: SessionEvent): Record<string, unknown> {
+	return isRecord(event.data) ? event.data : {};
 }
 
 function truncate(value: string): string {
