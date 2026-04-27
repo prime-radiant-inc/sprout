@@ -2,14 +2,19 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createResolverSettings } from "../../src/agents/model-resolver.ts";
 import { type Genome, git } from "../../src/genome/genome.ts";
 import {
 	applyMemoryMaintenanceDecisions,
 	discoverMemoryMaintenancePlan,
 	parseMemoryMaintenanceDecisionFile,
 	renderMemoryMaintenancePlan,
+	reviewMemoryMaintenancePlanWithSettings,
 } from "../../src/genome/maintenance.ts";
 import type { Memory } from "../../src/kernel/types.ts";
+import type { Client } from "../../src/llm/client.ts";
+import type { Request, Response } from "../../src/llm/types.ts";
+import { Msg } from "../../src/llm/types.ts";
 import { createTestGenome } from "../helpers/test-genome.ts";
 
 function memory(overrides: Partial<Memory> = {}): Memory {
@@ -88,6 +93,94 @@ describe("memory maintenance operator flow", () => {
 			expect(plan.entityGcGroups).toHaveLength(1);
 			expect(rendered).toContain("Consolidation clusters: 1");
 			expect(rendered).toContain("Entity GC groups: 1");
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
+	test("configured maintenance models review discovered consolidation and entity GC candidates", async () => {
+		const root = await mkdtemp(join(tmpdir(), "sprout-maintenance-review-"));
+		try {
+			const genome = createTestGenome(root);
+			await genome.init();
+			recordActiveDays(genome);
+			await genome.addMemory(
+				memory({
+					id: "memory-a",
+					content: "Sprout memory uses SQLite.",
+					project_ids: ["sprout"],
+					entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
+				}),
+			);
+			await genome.addMemory(
+				memory({
+					id: "memory-b",
+					content: "Sprout memory uses SQLite.",
+					project_ids: ["sprout"],
+					entity_links: [{ uuid: "entity_sprout_alias", type: "PROJECT", name: "sprout" }],
+				}),
+			);
+			const captured: Request[] = [];
+			const client = {
+				providers: () => ["openrouter"],
+				complete: async (request: Request): Promise<Response> => {
+					captured.push(request);
+					return {
+						id: "maintenance-review",
+						model: request.model,
+						provider: request.provider ?? "openrouter",
+						message: Msg.assistant(
+							JSON.stringify({
+								action: "reject",
+								reasoning: "The candidates should remain separate.",
+							}),
+						),
+						finish_reason: { reason: "stop" },
+						usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+					};
+				},
+			} as unknown as Client;
+
+			const decisions = await reviewMemoryMaintenancePlanWithSettings({
+				plan: discoverMemoryMaintenancePlan(genome),
+				client,
+				resolverSettings: createResolverSettings(
+					[{ id: "openrouter", enabled: true }],
+					{},
+					{
+						consolidation: {
+							providerId: "openrouter",
+							modelId: "consolidation-model",
+						},
+						entityGc: {
+							providerId: "openrouter",
+							modelId: "entity-gc-model",
+						},
+					},
+				),
+				modelsByProvider: new Map([
+					[
+						"openrouter",
+						[
+							{ id: "consolidation-model", label: "Consolidation", source: "remote" },
+							{ id: "entity-gc-model", label: "Entity GC", source: "remote" },
+						],
+					],
+				]),
+				consolidationPrompt: "consolidate",
+				entityGcPrompt: "entity gc",
+			});
+
+			expect(decisions.consolidations).toHaveLength(1);
+			expect(decisions.entity_gc).toHaveLength(1);
+			expect(captured.map((request) => request.metadata?.purpose)).toEqual([
+				"memory.consolidation",
+				"memory.entityGc",
+			]);
+			expect(captured.map((request) => request.model)).toEqual([
+				"consolidation-model",
+				"entity-gc-model",
+			]);
 		} finally {
 			await rm(root, { recursive: true, force: true });
 		}

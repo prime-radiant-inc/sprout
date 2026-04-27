@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createResolverSettings } from "../../src/agents/model-resolver.ts";
 import { loadRelationshipClassificationPrompt } from "../../src/genome/prompts.ts";
 import {
+	classifyAndPersistMemoryLinksWithSettings,
 	classifyMemoryRelationship,
 	classifyMemoryRelationshipWithSettings,
 	normalizeRelationshipClassificationPayload,
@@ -11,6 +15,7 @@ import type { Memory } from "../../src/kernel/types.ts";
 import type { Client } from "../../src/llm/client.ts";
 import type { Request, Response } from "../../src/llm/types.ts";
 import { Msg } from "../../src/llm/types.ts";
+import { createTestGenome } from "../helpers/test-genome.ts";
 
 function memory(id: string, content: string, created: number): Memory {
 	return {
@@ -120,6 +125,71 @@ describe("relationship classifier", () => {
 		expect(captured?.provider).toBe("openrouter");
 		expect(captured?.model).toBe("relationship-model");
 		expect(captured?.metadata?.purpose).toBe("memory.relationship");
+	});
+
+	test("configured relationship model is used by the discover-classify-persist path", async () => {
+		const root = await mkdtemp(join(tmpdir(), "sprout-link-classify-"));
+		try {
+			const genome = createTestGenome(root);
+			await genome.init();
+			await genome.addMemory({
+				...memory("new", "Sprout memory uses SQLite and local embeddings.", 200),
+				embedding: {
+					provider: "test",
+					model: "test",
+					dimensions: 3,
+					status: "ready",
+					vector: [1, 0, 0],
+				},
+				entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
+			});
+			await genome.addMemory({
+				...memory("old", "The MIRA port stores long-term memory in SQLite.", 100),
+				embedding: {
+					provider: "test",
+					model: "test",
+					dimensions: 3,
+					status: "ready",
+					vector: [0.98, 0.02, 0],
+				},
+				entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
+			});
+
+			let captured: Request | undefined;
+			const result = await classifyAndPersistMemoryLinksWithSettings({
+				genome,
+				prompt: "classification prompt",
+				client: clientReturning(
+					'{"relationship_type":"refines","reasoning":"The newer memory adds local embedding detail."}',
+					(request) => {
+						captured = request;
+					},
+				),
+				resolverSettings: createResolverSettings(
+					[{ id: "openrouter", enabled: true }],
+					{},
+					{ relationship: { providerId: "openrouter", modelId: "relationship-model" } },
+				),
+				modelsByProvider: new Map([
+					["openrouter", [{ id: "relationship-model", label: "Relationship", source: "remote" }]],
+				]),
+				discovery: { minVectorSimilarity: 0.95, minTfIdfSimilarity: 0.01 },
+				now: 1234,
+			});
+
+			expect(result.candidates).toHaveLength(1);
+			expect(result.relationships[0]?.relationship_type).toBe("refines");
+			expect(result.added).toBe(1);
+			expect(captured?.provider).toBe("openrouter");
+			expect(captured?.model).toBe("relationship-model");
+			expect(captured?.metadata?.purpose).toBe("memory.relationship");
+			expect(genome.memories.getById("new")?.outbound_links?.[0]).toMatchObject({
+				uuid: "old",
+				type: "refines",
+			});
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
 	});
 
 	test("rejects invalid relationship types", () => {

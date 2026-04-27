@@ -2,7 +2,13 @@ import { type ResolverSettings, resolveMemoryModel } from "../agents/model-resol
 import type { Memory, RelationshipType } from "../kernel/types.ts";
 import type { Client } from "../llm/client.ts";
 import { Msg, messageText, type ProviderModel } from "../llm/types.ts";
-import type { LinkCandidate } from "./linking.ts";
+import type { Genome } from "./genome.ts";
+import {
+	discoverLinkCandidates,
+	type LinkCandidate,
+	type LinkDiscoveryOptions,
+	persistMemoryLinks,
+} from "./linking.ts";
 
 export interface RelationshipClassificationRequest {
 	source: Memory;
@@ -27,6 +33,24 @@ export interface RelationshipClassificationSettingsRequest
 	extends Omit<RelationshipClassificationRequest, "model" | "provider"> {
 	resolverSettings: ResolverSettings;
 	modelsByProvider: Map<string, ProviderModel[]>;
+}
+
+export interface ClassifyAndPersistMemoryLinksSettingsRequest {
+	genome: Genome;
+	prompt: string;
+	client: Client;
+	resolverSettings: ResolverSettings;
+	modelsByProvider: Map<string, ProviderModel[]>;
+	discovery?: LinkDiscoveryOptions;
+	maxTokens?: number;
+	now?: number;
+	source?: string;
+}
+
+export interface ClassifyAndPersistMemoryLinksResult {
+	candidates: LinkCandidate[];
+	relationships: RelationshipClassificationResult[];
+	added: number;
 }
 
 const CLASSIFIER_RELATIONSHIP_TYPES = new Set<RelationshipType>([
@@ -88,6 +112,43 @@ export async function classifyMemoryRelationships(
 		results.push(await classifyMemoryRelationship(request));
 	}
 	return results;
+}
+
+export async function classifyAndPersistMemoryLinksWithSettings(
+	request: ClassifyAndPersistMemoryLinksSettingsRequest,
+): Promise<ClassifyAndPersistMemoryLinksResult> {
+	const memories = request.genome.memories.all();
+	const memoriesById = new Map(memories.map((memory) => [memory.id, memory]));
+	const candidates = discoverLinkCandidates(memories, request.discovery);
+	const relationships: RelationshipClassificationResult[] = [];
+
+	for (const candidate of candidates) {
+		const source = memoriesById.get(candidate.source_id);
+		const target = memoriesById.get(candidate.target_id);
+		if (!source || !target) {
+			throw new Error(
+				`Cannot classify missing memories: ${candidate.source_id} -> ${candidate.target_id}`,
+			);
+		}
+		relationships.push(
+			await classifyMemoryRelationshipWithSettings({
+				source,
+				target,
+				candidate,
+				prompt: request.prompt,
+				client: request.client,
+				resolverSettings: request.resolverSettings,
+				modelsByProvider: request.modelsByProvider,
+				maxTokens: request.maxTokens,
+			}),
+		);
+	}
+
+	const added = await persistMemoryLinks(request.genome, relationships, {
+		source: request.source ?? "memory-relationship-classifier",
+		...(request.now !== undefined ? { now: request.now } : {}),
+	});
+	return { candidates, relationships, added };
 }
 
 export function renderRelationshipClassificationUserPrompt(
