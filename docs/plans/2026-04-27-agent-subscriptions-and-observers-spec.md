@@ -1,4 +1,4 @@
-# Agent Subscriptions and Observer Agents Spec
+# Observer Agents Spec
 
 **Status:** Implementation-ready design/spec
 **Date:** 2026-04-27
@@ -12,9 +12,9 @@ and send agent-to-agent messages without treating those messages as user
 steering. Use that facility to implement MIRA-style metacognitive observation
 in a way that is fully visible to the human in the UI.
 
-The design should make watchers ordinary Sprout agents with subscriptions, not
-a new actor class. The special thing is the subscription relationship, not the
-agent.
+The design should make watchers ordinary Sprout agents with runtime-managed
+observation, not a new actor class. The special thing is the observer
+relationship, not the agent.
 
 ## Current Architecture
 
@@ -51,11 +51,12 @@ Useful anchors:
 
 1. Watchers are normal agents.
 2. Watching is an input source, not an actor kind.
-3. Subscription lifecycle is runtime-owned, not model-owned.
+3. Observer lifecycle is runtime-owned, not model-owned.
 4. `message_agent` remains the tool for agent-to-agent messages.
 5. Agent-originated messages must not be injected as user steering.
 6. Every watcher and notification must be visible in the UI.
-7. Frames must be bounded, ordered, redacted, and referenceable.
+7. Frames must be bounded, ordered, redacted, and quotable. Agents should not
+   reason over raw event ids.
 8. Durable memory systems remain durable memory systems. Observers do not
    replace recall, extraction, indexing, or archivist authorization.
 9. Model choice is configuration, not code. Observer and memory model purposes
@@ -93,84 +94,54 @@ interface DelegationEdge {
 ```
 
 The edge is already implicit in `act_start`/`act_end`, handle metadata, and the
-UI tree. The subscription facility should make this relationship explicit in
-runtime bookkeeping, but it does not need to be persisted as a new durable
-record in v1.
+UI tree. V1 does not need a new durable delegation-edge record.
 
-### Subscription
+### Observer Attachment
 
-A runtime rule that turns selected events into bounded message frames for an
-agent.
+V1 has one runtime attachment: a metacognitive observer watches the session-wide
+event stream and receives bounded frames every few root turns.
 
 ```ts
-type SubscriptionSource =
-	| { scope: "session" }
-	| { scope: "agent"; agentId: string }
-	| { scope: "delegation"; handleId: string; side: "caller" | "callee" };
-
-interface AgentSubscription {
-	source: SubscriptionSource;
-	events: SessionEventKindSelector[];
-	delivery: "frame";
-	trigger: "immediate" | { every: number; event: EventKind };
-	maxEvents?: number;
-	maxChars?: number;
-	include?: "final" | "summary" | "full";
+interface ObserverAttachmentConfig {
+	agentName: "metacognitive";
+	events: EventKind[];
+	trigger: { every: number; event: EventKind };
+	maxEvents: number;
+	maxChars: number;
 }
 ```
 
-V1 should support only:
+This is deliberately not a general subscription DSL. Do not add
+`AgentSpec.subscriptions`, model-owned subscribe/unsubscribe tools, delegation
+subscriptions, or multiple delivery modes until there are at least two real
+subscribers with different needs.
 
-- `source.scope = "session"` for the root metacognitive watcher.
-- `source.scope = "agent"` for a specific target agent id if easy.
-- `delivery = "frame"`.
-- `include = "summary" | "final"`.
+### Observer Frame
 
-Do not implement model-owned subscribe/unsubscribe tools in v1.
-
-### Subscription Frame
-
-A bounded, redacted, model-readable summary of events.
+A bounded, redacted, model-readable summary of recent events.
 
 ```ts
-interface SubscriptionFrame {
-	frameId: string;
+interface ObserverFrame {
 	sessionId: string;
-	subscriptionName: string;
-	source: SubscriptionSource;
-	createdAt: string;
-	events: SubscriptionFrameEvent[];
+	events: ObserverFrameEvent[];
 	truncated: boolean;
 }
 
-interface SubscriptionFrameEvent {
-	eventId: string;
+interface ObserverFrameEvent {
+	index: number;
 	kind: EventKind;
 	timestamp: number;
 	agentId: string;
 	depth: number;
 	summary: string;
-	references?: Reference[];
+	quote?: string;
 }
 ```
 
-Frames are delivered as normal inbound messages to the subscribed agent, but
-rendered in a structured prompt block. They are not user messages.
-
-### Reference
-
-Use `references`, not `evidence`.
-
-```ts
-type Reference =
-	| { type: "event"; id: string }
-	| { type: "agent"; id: string }
-	| { type: "handle"; id: string }
-	| { type: "memory"; id: string }
-	| { type: "segment"; id: string };
-```
-
-V1 only needs `{ type: "event", id }`.
+Frames are delivered as normal inbound messages to the observer, but rendered in
+a structured prompt block. They are not user messages. The rendered frame should
+show local indexes and short quotes. The observer should normally quote the
+observed behavior in its guidance rather than citing opaque identifiers.
 
 ### Agent Message
 
@@ -179,7 +150,6 @@ tool and surfaced as agent-originated context.
 
 ```ts
 interface AgentMessage {
-	messageId: string;
 	from: {
 		agentId: string;
 		agentName: string;
@@ -190,41 +160,35 @@ interface AgentMessage {
 		handleId?: string;
 	};
 	text: string;
-	references: Reference[];
 	createdAt: string;
-	expiresAfterTurns?: number;
 }
 ```
 
 This is not a new public tool. It is the internal payload shape behind
-`message_agent` when the caller is another agent.
+`message_agent` when the caller is another agent. V1 queues messages for one
+planning turn, renders them once, and clears them.
 
 ## Facility Architecture
 
-The facility has four small runtime pieces:
+The facility has three small runtime pieces:
 
-1. **Subscription registry.**
-   Builds active subscription records from loaded agent specs and runtime
-   session configuration. It owns no model logic and makes no LLM calls.
+1. **Observer dispatcher.**
+   Consumes the session-wide event stream, keeps a small rolling buffer, applies
+   the metacognitive trigger rule, and delivers frames. It is session-scoped and
+   resets on `/clear`.
 
-2. **Subscription dispatcher.**
-   Consumes the session-wide event stream, maintains per-subscription buffers,
-   applies trigger rules, and delivers frames. It is session-scoped and resets
-   on `/clear`.
+2. **Observer frame builder.**
+   A pure formatter for bounded quoted event frames. It owns no model logic and
+   writes no memory.
 
-3. **Subscription frame builder.**
-   A pure formatter for bounded event frames. This should be reusable by memory
-   collapse and learn evidence code, but behavior-preserving refactors should
-   happen after the observer path works.
-
-4. **Agent-message inbox.**
+3. **Agent-message inbox.**
    A typed inbound queue on each running agent. Agent-originated guidance is
    rendered in a prompt surface, not appended to user history.
 
 Data flow:
 
 ```text
-SessionEvent -> SubscriptionDispatcher -> SubscriptionFrameBuilder
+SessionEvent -> ObserverDispatcher -> ObserverFrameBuilder
   -> observer handle inbox -> observer LLM/tool call
   -> message_agent -> target AgentMessage queue -> target prompt surface
 ```
@@ -235,41 +199,31 @@ prompt surface, not in a second tool family.
 
 ## Protocol Changes
 
-### 1. Add Stable Event IDs
+### 1. Add Ordered Observer Frames and `agent_message`
 
-Extend `SessionEvent`:
+Do not add raw event ids to `SessionEvent` in v1.
 
-```ts
-interface SessionEvent {
-	event_id: string;
-	kind: EventKind;
-	timestamp: number;
-	agent_id: string;
-	depth: number;
-	data: Record<string, unknown>;
-}
-```
+Instead, the observer dispatcher relies on the existing ordered event stream and
+tracks `lastDeliveredIndex` against its own rolling buffer. Replayed logs use
+their natural line order. This is sufficient for v1 dedupe, ordered delivery,
+and deterministic tests.
 
-Both `AgentEventEmitter` and `EventBus` should assign event ids at emission.
-Replayed old logs without `event_id` can synthesize deterministic ephemeral ids
-while loading, but new logs must persist real ids.
+Add an `agent_message` event kind for UI visibility when a typed agent message
+is delivered.
 
-Also add an `agent_message` event kind for UI visibility when a typed agent
-message is delivered.
+Rationale: the runtime only needs ordered delivery. The model needs quoted
+context. Raw event ids and cursor objects solve neither user-facing problem well
+and are unnecessary for v1.
 
-Rationale: subscriptions, references, UI deep links, and observer messages need
-stable anchors.
+### 2. Reuse `message_agent`
 
-### 2. Extend `message_agent`
-
-Keep the tool name and core shape. Add optional references.
+Keep the tool name and existing public shape. Do not add `references` in v1.
 
 ```ts
 message_agent({
 	handle: string,
 	message: string,
-	blocking?: boolean,
-	references?: Reference[]
+	blocking?: boolean
 })
 ```
 
@@ -301,8 +255,7 @@ Tool availability change:
 Addressability rules:
 
 - Existing shared-handle restrictions remain.
-- The root session must be addressable through the same handle registry, either
-  as a synthetic root handle or an equivalent canonical alias.
+- The root session is addressable as canonical `handle: "root"`.
 - Observer handles are normal handles. Other agents can message them only if the
   handle is shared or if an explicit runtime policy grants that address.
 - Replies are just `message_agent` calls back to an addressable handle. Do not
@@ -317,14 +270,15 @@ Before each planning turn, render queued messages into the system prompt:
 
 ```xml
 <sprout:agent-messages>
-<message from="metacognitive" references="evt_...">
-You may be drifting away from the architectural question. Answer the design
-question before proposing implementation steps.
+<message from="metacognitive">
+You may be drifting away from the architectural question. You wrote: "I'll
+start implementing the dispatcher now." Answer the design question before
+proposing implementation steps.
 </message>
 </sprout:agent-messages>
 ```
 
-Then clear or age the queue according to `expiresAfterTurns`.
+Then clear the queue. V1 does not need message ids or TTL.
 
 Do not add these messages to conversation history. They are system-owned
 briefing notes, similar to MIRA's HUD guidance.
@@ -337,61 +291,28 @@ emit("agent_message", targetAgentId, targetDepth, {
 	from_agent_name: "metacognitive",
 	to_agent_id: "...",
 	to_handle_id: "...",
-	text_preview: "...",
-	references: [{ type: "event", id: "evt_..." }]
+	text_preview: "..."
 });
 ```
 
 The UI can render this as an observable runtime event without displaying raw
 observer frames in the main user thread.
 
-### 4. Add Subscription Descriptors to Agent Specs
+### 4. Add Observer Model Purpose
 
-Extend `AgentSpec`:
+The metacognitive observer needs its own configurable model purpose. Reuse the
+existing settings/control-plane/env-override/UI model-purpose machinery used by
+memory models; do not create parallel validators or selector components.
 
-```ts
-interface AgentSpec {
-	// existing fields...
-	subscriptions?: AgentSubscription[];
-}
-```
-
-Markdown frontmatter example:
-
-```yaml
-subscriptions:
-  - name: root-turns
-    source:
-      scope: session
-    events:
-      - plan_end
-      - warning
-      - error
-      - primitive_end
-      - act_end
-    trigger:
-      every: 3
-      event: plan_end
-    include: summary
-    max_events: 24
-    max_chars: 6000
-```
-
-Default: no subscriptions.
-
-### 5. Add Internal Model Purposes
-
-The metacognitive observer needs its own configurable model purpose. This is
-not the same as the memory models, but it should use the same settings pattern.
-
-Extend settings with internal agent model purposes:
+The persisted schema may either generalize purpose models or add an agent-model
+purpose map:
 
 ```ts
-type InternalAgentModelPurpose = "observer.metacognitive";
+type AgentModelPurpose = "observer.metacognitive";
 
 interface SproutSettings {
 	// existing fields...
-	internalAgentModels: Partial<Record<InternalAgentModelPurpose, ModelRef>>;
+	agentModels: Partial<Record<AgentModelPurpose, ModelRef>>;
 }
 ```
 
@@ -414,17 +335,18 @@ Resolution rules:
   into generated/default settings explicitly rather than hard-coding resolver
   fallback behavior.
 
-### 6. Add Runtime Subscription Dispatcher
+### 5. Add Runtime Observer Dispatcher
 
-Create `src/agents/subscriptions.ts` or `src/host/subscriptions.ts`.
+Create `src/agents/observers.ts` or `src/host/observers.ts`.
 
 Responsibilities:
 
 - consume `SessionEvent`s from the existing bus stream
-- assign events to active subscriptions
-- coalesce triggers
+- keep a bounded rolling event buffer
+- trigger the metacognitive observer every configured number of root `plan_end`
+  events
 - construct bounded frames
-- send frames to subscriber handles through the existing inbox/message path
+- send frames to the observer handle through the existing inbox/message path
 - reset on `/clear`
 - stop on session shutdown
 
@@ -436,7 +358,7 @@ It should not:
 - parse arbitrary model outputs
 - subscribe/unsubscribe based on model tool calls
 
-### 7. Make Runtime-Started Watchers Visible
+### 6. Make Runtime-Started Watchers Visible
 
 Runtime-started watcher agents should emit normal lifecycle events so the UI can
 show them.
@@ -492,24 +414,26 @@ tags:
   - observer
   - diagnostics
 version: 1
-subscriptions:
-  - name: root-metacognition
-    source:
-      scope: session
-    events:
-      - plan_end
-      - warning
-      - error
-      - primitive_end
-      - act_end
-      - compaction
-      - interrupted
-    trigger:
-      every: 3
-      event: plan_end
-    include: summary
-    max_events: 24
-    max_chars: 6000
+```
+
+Runtime attachment config:
+
+```ts
+const METACOGNITIVE_OBSERVER: ObserverAttachmentConfig = {
+	agentName: "metacognitive",
+	events: [
+		"plan_end",
+		"warning",
+		"error",
+		"primitive_end",
+		"act_end",
+		"compaction",
+		"interrupted",
+	],
+	trigger: { every: 3, event: "plan_end" },
+	maxEvents: 24,
+	maxChars: 6000,
+};
 ```
 
 ### Prompt
@@ -522,7 +446,7 @@ The prompt should say:
 - Do not write memory.
 - Only message the root when guidance is likely to change the next turn.
 - Prefer silence over noise.
-- Be concrete and refer to event references when useful.
+- Be concrete and quote the observed behavior when useful.
 - Good reasons to message:
   - the root is answering a different question than the user asked
   - repeated tool failures indicate a wrong approach
@@ -545,10 +469,9 @@ The observer uses `message_agent`:
 
 ```json
 {
-  "handle": "<root-handle>",
-  "message": "You are drifting into implementation before answering the user's architectural question. First explain the clean relationship between subscriptions, watchers, and message_agent.",
-  "blocking": false,
-  "references": [{ "type": "event", "id": "evt_..." }]
+  "handle": "root",
+  "message": "You are drifting into implementation before answering the user's architectural question. You wrote: \"I'll start implementing the dispatcher now.\" First explain the clean relationship between observers, watchers, and message_agent.",
+  "blocking": false
 }
 ```
 
@@ -556,15 +479,15 @@ No severity. No human target. No separate `notify_agent`.
 
 ## Relationship to MIRA Memory
 
-The memory system should treat subscriptions as shared event plumbing, not as a
-replacement for memory semantics.
+The observer facility is process guidance, not a replacement for memory
+semantics.
 
-### What This Can Replace or Simplify
+### What This Can Simplify Later
 
 1. **Duplicated event-window plumbing.**
    Collapse transcripts, learn evidence windows, and bus learn buffers all build
-   slices of the same session event stream. A shared `SubscriptionFrameBuilder`
-   can become the common formatter.
+   slices of the same session event stream. A shared formatter may eventually
+   reduce duplication, but that is not part of v1 observer delivery.
 
 2. **Live diagnostics.**
    `qm-session-analyst`, `qm-session-doctor`, and `qm-sprout-architect` stay as
@@ -573,32 +496,15 @@ replacement for memory semantics.
 
 3. **Memory mention tracking location.**
    Memory mention tracking can move from `Agent.trackMemoryMentions()` to a
-   subscriber over `plan_end` events. This is cleaner because mention tracking
-   is event-derived bookkeeping, not agent reasoning.
+   later event subscriber if that proves useful. Do not move it in v1.
 
 4. **MIRA HUD/trinket substrate.**
-   Agent-message prompt surfaces plus subscription-fed state are Sprout's
+   Agent-message prompt surfaces plus observer-fed state are Sprout's
    equivalent of MIRA's notification center. The implementation should not copy
    MIRA's trinket classes, but it should preserve the same separation:
    event-aware state feeds prompt briefing sections.
 
-### Memory Integration Design
-
-The correct integration is a common event-frame substrate under the existing
-memory pipeline:
-
-```text
-SessionEvent stream
-  -> SubscriptionFrameBuilder
-     -> observer frames for live sidecar agents
-     -> collapse transcript formatting
-     -> learn extraction evidence windows
-     -> memory mention bookkeeping
-```
-
-This is a formatter and selection refactor, not a semantic rewrite. The
-following behavior must remain identical unless a later memory-specific spec
-changes it:
+### V1 Memory Integration
 
 - JSONL memory logs remain the durable source of truth.
 - SQLite/FTS/vector state remains derived and rebuildable.
@@ -619,14 +525,9 @@ excluded from automatic memory extraction by default. If an observer catches a
 durable fact, the root agent must incorporate that fact into its normal answer
 or action before collapse can learn it.
 
-Implementation order:
-
-1. Build the observer facility without changing memory behavior.
-2. Add tests proving observer events do not pollute collapse or extraction.
-3. Refactor collapse/evidence/mention tracking onto shared frame formatting in
-   small behavior-preserving commits.
-4. Compare old and new transcript/evidence output on representative sessions
-   before deleting the duplicated code paths.
+Do not refactor collapse transcript construction, learn evidence windows, or
+memory mention tracking as part of v1. Add only exclusion tests proving observer
+frames and `agent_message` events do not pollute collapse or extraction.
 
 ### What This Must Not Replace
 
@@ -640,9 +541,8 @@ Implementation order:
    by subcortical query expansion.
 
 3. **Session collapse and extraction.**
-   Subscriptions can provide shared frame formatting, but summary, extraction,
-   deduplication, project tagging, embeddings, and persistence remain memory
-   system responsibilities.
+   Summary, extraction, deduplication, project tagging, embeddings, and
+   persistence remain memory system responsibilities.
 
 4. **Archivist.**
    Archivist remains the targeted memory investigation and authorized mutation
@@ -650,8 +550,8 @@ Implementation order:
 
 5. **Relationship classification, consolidation, entity GC, project clocks, and
    memory-log compaction.**
-   These are durable memory maintenance systems. Subscription frames can feed
-   evidence into them, but they do not replace the maintenance logic.
+   These are durable memory maintenance systems. Observer frames do not feed
+   them in v1.
 
 6. **Surfaced memory fan-out.**
    The cached root memory surface should continue to fan out to delegates.
@@ -659,25 +559,22 @@ Implementation order:
 
 ## Test Suite Design
 
-### Unit Tests: Event IDs
+### Unit Tests: Observer Frame Ordering
 
 Files:
 
-- `test/agents/events.test.ts`
-- `test/host/event-bus.test.ts`
-- `test/kernel/event-replay.test.ts`
+- `test/agents/observers.test.ts`
 
 Cases:
 
-- emitted events include stable `event_id`
-- `event_id`s are unique across rapid emissions
-- persisted JSONL contains `event_id`
-- replayed old events without `event_id` get deterministic synthetic ids or are
-  safely normalized
+- observer frames preserve input event order
+- dispatcher does not redeliver events already included in the previous frame
+- replayed events use their existing order without adding event ids or cursors
+- rendered frames show local indexes and quotes
 
-### Unit Tests: Subscription Frame Builder
+### Unit Tests: Observer Frame Builder
 
-File: `test/agents/subscriptions.test.ts`
+File: `test/agents/observers.test.ts`
 
 Cases:
 
@@ -687,11 +584,12 @@ Cases:
 - applies `max_events`
 - applies `max_chars`
 - redacts sensitive content using existing redaction helpers
-- includes event references
+- includes short quotes when source text is available
+- includes local indexes
 - marks `truncated: true` when limits apply
 - summarizes `primitive_end`, `act_end`, `plan_end`, `warning`, `error`
 
-### Unit Tests: Agent Spec Parsing
+### Unit Tests: Agent Model Purpose Parsing
 
 Files:
 
@@ -701,14 +599,10 @@ Files:
 
 Cases:
 
-- subscriptions parse from frontmatter
-- unknown subscription keys fail loudly
-- invalid event kind fails loudly
-- missing source defaults are rejected unless an explicit default is chosen
-- serialization round-trips subscriptions
 - `model: observer.metacognitive` parses only as an internal model purpose
 - observer model purpose resolution fails loudly when settings are missing
-- observer model purpose resolution uses `internalAgentModels`, not global tiers
+- observer model purpose resolution uses configured agent model purposes, not
+  global tiers
 
 ### Unit Tests: Agent Messages
 
@@ -724,8 +618,8 @@ Cases:
 - human frontend steer still queues steering as user-like input
 - agent messages render into `<sprout:agent-messages>`
 - agent messages do not enter `history`
-- agent messages expire after their TTL
-- agent messages include `from` and `references`
+- agent messages render once and are cleared
+- agent messages include `from` and quoted observed behavior
 - `message_agent` can be granted to `can_spawn: false` agents by listing it in
   `tools`
 - `message_agent` access does not grant `delegate` or `wait_agent`
@@ -733,6 +627,7 @@ Cases:
 - `blocking: true` for running target has defined behavior, likely reject or
   wait for the next result only when the target actually continues
 - queued agent messages emit an `agent_message` event for UI visibility
+- `handle: "root"` queues guidance to the root agent-message inbox
 
 YAGNI decision: for v1, make observer messages `blocking: false`. If a normal
 agent sends `blocking: true` to a running target, keep existing wait semantics
@@ -750,14 +645,14 @@ Files:
 
 Cases:
 
-- `internalAgentModels.observer.metacognitive` validates provider/model shape
+- `agentModels.observer.metacognitive` validates provider/model shape
 - env override `SPROUT_OBSERVER_METACOGNITIVE_MODEL` wins over stored settings
 - deleting a provider removes dependent internal agent model settings
 - settings snapshots include stored and overridden internal agent model purposes
 - web settings UI can set, clear, and display env override state for the
   metacognitive observer model
 
-### Integration Tests: Runtime Subscription Dispatcher
+### Integration Tests: Runtime Observer Dispatcher
 
 Files:
 
@@ -773,7 +668,7 @@ Cases:
 - dispatcher coalesces repeated events while watcher is busy
 - dispatcher stops/reset on `/clear`
 - dispatcher does not deliver stale events from a suppressed old run
-- subprocess child events are visible to subscriptions through session-wide
+- subprocess child events are visible to the observer through session-wide
   event relay
 
 ### UI Tests
@@ -799,16 +694,12 @@ Files:
 - `test/core/session-collapse.test.ts`
 - `test/learn/extraction-evidence.test.ts`
 - `test/bus/genome-service.test.ts`
-- `test/genome/memory-mentions.test.ts` if split out
 
 Cases:
 
-- shared frame builder can reproduce current collapse transcript behavior
-- shared frame builder can reproduce learn evidence windows
 - observer messages are excluded from collapse transcripts by default
 - `agent_message` events are excluded from memory extraction by default
 - observer frames do not produce memory extraction by themselves
-- memory mention tracking still increments from assistant `plan_end`
 - archived/superseded compaction remains unchanged
 
 ### Live/Manual Tests
@@ -826,38 +717,38 @@ Scenarios:
 
 ## Implementation Phases
 
-### Phase 1: Event IDs and Frame Builder
+### Phase 1: Observer Frame Builder
 
-- Add `event_id` to `SessionEvent`.
-- Update emitters and replay normalization.
-- Implement `SubscriptionFrameBuilder`.
-- Add unit tests for event ids and frames.
+- Implement `ObserverFrameBuilder`.
+- Format ordered, bounded, redacted frame items with local indexes and quotes.
+- Add unit tests for filtering, ordering, truncation, redaction, summaries, and
+  quotes.
 
 ### Phase 2: Agent Message Surface
 
-- Extend `message_agent` parser with `references`.
 - Make explicit `message_agent` tool access independent of `can_spawn` while
   leaving `delegate` and `wait_agent` gated by delegation rights.
-- Add typed agent-message queue to `Agent`.
+- Add a minimal typed agent-message queue to `Agent`.
 - Render `<sprout:agent-messages>` before planning turns.
+- Clear queued agent messages after one render.
 - Keep human steering unchanged.
 - Emit `agent_message` events for observability.
 - Add tests proving agent messages are not user history.
 
-### Phase 3: Model Purpose and Subscription Spec Parsing
+### Phase 3: Observer Model Purpose
 
-- Add `internalAgentModels` settings support for `observer.metacognitive`.
+- Add settings support for `observer.metacognitive` using the existing
+  model-purpose settings/control-plane/UI patterns.
 - Add env override support with no fallback behavior.
 - Expose the observer model purpose in the web settings UI.
 - Extend model parsing/resolution for internal agent purposes.
-- Extend `AgentSpec` with `subscriptions`.
-- Parse and validate subscription frontmatter.
-- Add serialization round-trip coverage.
 
-### Phase 4: Subscription Dispatcher
+### Phase 4: Observer Dispatcher
 
 - Add dispatcher owned by `SessionController` or adjacent runtime bootstrap.
-- Register watcher subscriptions for active agents.
+- Start the metacognitive watcher at session start when configured.
+- Keep a bounded rolling session-event buffer.
+- Trigger frames after the configured number of root `plan_end` events.
 - Deliver frames through the existing bus/handle path.
 - Reset on clear/shutdown.
 - Add integration tests.
@@ -870,48 +761,29 @@ Scenarios:
   orchestrator.
 - Add UI visibility tests.
 
-### Phase 6: Memory Integration Cleanup
+### Phase 6: Memory Exclusion Tests
 
-- Refactor collapse transcript and learn evidence construction to use shared
-  frame/event formatting where it reduces duplication without behavior changes.
-- Optionally move memory mention tracking to an event subscriber.
+- Add exclusion tests for observer frames and `agent_message` events.
 - Do not change recall ranking, extraction prompts, archivist behavior, or
   maintenance algorithms in this phase.
 
 ## Open Decisions
 
-1. **Root handle identity.**
-   `message_agent` currently addresses spawned handles. The root session needs
-   an addressable handle if observers are going to message it through the same
-   tool. Options:
-   - register root as a synthetic handle in `AgentSpawner`
-   - add a runtime alias such as `handle: "root"`
-   - create a root inbox in `SessionController`
-
-   Recommendation: register a synthetic root handle so all messaging goes
-   through the same handle registry.
-
-2. **Watcher discovery location.**
+1. **Watcher discovery location.**
    Should watcher agents live in `root/agents/` or a new `root/watchers/`?
 
    Recommendation: keep them in `root/agents/` initially so they use existing
    markdown loading, tools, model resolution, and UI names. They are not exposed
    as normal delegates unless listed in an agent's `agents` allowlist.
 
-3. **Default subscriptions.**
-   Should watchers default to final-turn-only or no subscription?
-
-   Recommendation: no implicit default for normal agents. Runtime-started
-   watcher configs must declare subscriptions. This avoids surprising costs.
-
-4. **Prompt surface location.**
+2. **Prompt surface location.**
    Agent messages can be appended to the system prompt alongside environment and
    memory, or injected as a post-history assistant-style message.
 
    Recommendation: system prompt block in v1. It is closest to MIRA's HUD rule:
    briefing notes, not something the assistant said.
 
-5. **Blocking messages to running agents.**
+3. **Blocking messages to running agents.**
    Existing `message_agent` supports `blocking`. Agent-to-agent observer
    guidance should use `blocking: false`. Broader blocking semantics need a
    separate decision.
@@ -921,7 +793,10 @@ Scenarios:
 
 ## Non-Goals
 
+- No raw event ids, event cursors, or model-authored references in v1.
+- No general `AgentSpec.subscriptions` DSL in v1.
 - No model-owned subscribe/unsubscribe tools.
+- No `message_agent` schema expansion for references in v1.
 - No human notifications/toasts/badges in v1.
 - No separate `notify_agent` or `reply_to_notification` tools.
 - No broad handle capability system.
@@ -941,5 +816,4 @@ Scenarios:
 - Observer messages do not contaminate session collapse or memory extraction by
   default.
 - Existing delegation, resume, and child-thread UI behavior remains intact.
-- Memory recall and maintenance behavior is unchanged except for optional shared
-  frame-building refactors.
+- Memory recall and maintenance behavior is unchanged.
