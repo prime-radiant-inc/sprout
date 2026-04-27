@@ -55,7 +55,11 @@ export interface SettingsSnapshot {
 }
 
 export interface SettingsRuntimeWarning {
-	code: "secret_backend_unavailable" | "invalid_settings_recovered" | "secret_cleanup_failed";
+	code:
+		| "secret_backend_unavailable"
+		| "invalid_settings_recovered"
+		| "secret_cleanup_failed"
+		| "memory_models_incomplete";
 	message: string;
 }
 
@@ -685,6 +689,15 @@ export class SettingsControlPlane {
 				message: this.secretBackendState.message ?? "Secret storage backend is unavailable",
 			});
 		}
+		const missingMemoryModels = missingConfiguredMemoryModels(
+			applyModelConfigOverrides(this.settings, this.modelOverrides),
+		);
+		if (missingMemoryModels.length > 0) {
+			warnings.push({
+				code: "memory_models_incomplete",
+				message: `Memory model settings incomplete. Configure exact models for: ${missingMemoryModels.join(", ")}`,
+			});
+		}
 		return warnings.filter(
 			(warning, index, all) =>
 				all.findIndex(
@@ -766,6 +779,13 @@ function removeMemoryModelsForProvider(
 
 function dedupe(values: string[]): string[] {
 	return [...new Set(values)];
+}
+
+function missingConfiguredMemoryModels(
+	settings: Pick<SproutSettings, "providers" | "memoryModels">,
+): MemoryModelPurpose[] {
+	if (!settings.providers.some((provider) => provider.enabled)) return [];
+	return MEMORY_MODEL_PURPOSES.filter((purpose) => !settings.memoryModels[purpose]);
 }
 
 function dedupeWarnings(warnings: SettingsRuntimeWarning[]): SettingsRuntimeWarning[] {

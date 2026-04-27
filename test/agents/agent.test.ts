@@ -411,6 +411,33 @@ describe("Agent", () => {
 		expect(requests[0]?.max_tokens).toBe(123);
 	});
 
+	test("subcortical recall requires an explicit subcortical memory model", () => {
+		const env = new LocalExecutionEnvironment(tmpdir());
+
+		expect(
+			() =>
+				new Agent({
+					spec: { ...leafSpec, subcortical_recall: true },
+					env,
+					client: {
+						providers: () => ["anthropic"],
+						complete: async () => {
+							throw new Error("should not call LLM");
+						},
+						stream: async function* () {},
+					} as unknown as Client,
+					primitiveRegistry: createPrimitiveRegistry(env),
+					availableAgents: [],
+					genome: {
+						allAgents: () => [],
+						agentDir: () => tmpdir(),
+					} as unknown as Genome,
+				}),
+		).toThrow(
+			"Agent 'leaf' has subcortical_recall enabled but memory model 'subcortical' is not configured",
+		);
+	});
+
 	test("primitive_end event includes tool_result_message", async () => {
 		const toolCallMsg: Message = {
 			role: "assistant",

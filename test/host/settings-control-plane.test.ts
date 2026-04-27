@@ -139,6 +139,80 @@ describe("SettingsControlPlane", () => {
 		expect(snapshots).toHaveLength(2);
 	});
 
+	test("warns when enabled providers exist without explicit memory models", async () => {
+		const plane = await makePlane({
+			initialSettings: {
+				version: 3,
+				providers: [
+					{
+						id: "anthropic",
+						kind: "anthropic",
+						label: "Anthropic",
+						enabled: true,
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {},
+				memoryModels: {},
+			},
+		});
+
+		const result = await plane.execute({ kind: "get_settings", data: {} });
+
+		expect(result).toMatchObject({
+			ok: true,
+			snapshot: {
+				runtime: {
+					warnings: [
+						{
+							code: "memory_models_incomplete",
+							message:
+								"Memory model settings incomplete. Configure exact models for: summary, extraction, relationship, consolidation, entityGc, subcortical",
+						},
+					],
+				},
+			},
+		});
+	});
+
+	test("does not warn about memory models covered by env overrides", async () => {
+		const plane = await makePlane({
+			modelOverrides: parseModelConfigOverrides({
+				SPROUT_MEMORY_SUMMARY_MODEL: "anthropic:claude-sonnet-4-6",
+				SPROUT_MEMORY_EXTRACTION_MODEL: "anthropic:claude-sonnet-4-6",
+				SPROUT_MEMORY_RELATIONSHIP_MODEL: "anthropic:claude-sonnet-4-6",
+				SPROUT_MEMORY_CONSOLIDATION_MODEL: "anthropic:claude-sonnet-4-6",
+				SPROUT_MEMORY_ENTITY_GC_MODEL: "anthropic:claude-sonnet-4-6",
+				SPROUT_MEMORY_SUBCORTICAL_MODEL: "anthropic:claude-sonnet-4-6",
+			}),
+			initialSettings: {
+				version: 3,
+				providers: [
+					{
+						id: "anthropic",
+						kind: "anthropic",
+						label: "Anthropic",
+						enabled: true,
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {},
+				memoryModels: {},
+			},
+		});
+
+		const result = await plane.execute({ kind: "get_settings", data: {} });
+
+		if (!result.ok) throw new Error(result.message);
+		expect(
+			result.snapshot.runtime.warnings.some(
+				(warning) => warning.code === "memory_models_incomplete",
+			),
+		).toBe(false);
+	});
+
 	test("sets default models, clears them on delete, and removes stored secrets", async () => {
 		const secretStore = createSecretStore({ backend: "memory", platform: "darwin" });
 		await secretStore.setSecret(createProviderSecretRef("openai", "memory"), "openai-secret");
@@ -983,13 +1057,12 @@ describe("SettingsControlPlane", () => {
 				baseUrl: "http://127.0.0.1:1234/v1",
 			},
 		});
-		expect(created).toMatchObject({
-			ok: true,
-			snapshot: {
-				runtime: {
-					warnings: [warning],
-				},
-			},
-		});
+		if (!created.ok) throw new Error(created.message);
+		expect(created.snapshot.runtime.warnings).toEqual(
+			expect.arrayContaining([
+				warning,
+				expect.objectContaining({ code: "memory_models_incomplete" }),
+			]),
+		);
 	});
 });

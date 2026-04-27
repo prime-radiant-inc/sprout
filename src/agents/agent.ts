@@ -180,7 +180,7 @@ export class Agent {
 	private readonly llmRetryOptions?: Omit<RetryOptions, "signal" | "onRetry">;
 	private readonly logger: Logger;
 	private readonly resolverSettings: ResolverSettings;
-	private readonly modelsByProvider: Map<string, ProviderModel[]>;
+	private readonly subcorticalMemoryModel?: ResolvedModel;
 	private history: Message[] = [];
 	private systemPromptBase?: string;
 	private systemPrompt?: string;
@@ -256,7 +256,6 @@ export class Agent {
 				modelMap.set(providerId, []);
 			}
 		}
-		this.modelsByProvider = modelMap;
 		const resolverSettings =
 			options.resolverSettings ??
 			createResolverSettings(
@@ -271,6 +270,17 @@ export class Agent {
 			resolverSettings,
 			modelMap,
 		);
+		if (subcorticalRecallEnabled(this.spec.subcortical_recall)) {
+			try {
+				this.subcorticalMemoryModel = resolveMemoryModel("subcortical", resolverSettings, modelMap);
+			} catch (error) {
+				throw new Error(
+					`Agent '${this.spec.name}' has subcortical_recall enabled but memory model 'subcortical' is not configured: ${
+						error instanceof Error ? error.message : String(error)
+					}`,
+				);
+			}
+		}
 
 		// Build delegate tool (single tool for all agent delegations)
 		this.agentTools = [];
@@ -469,10 +479,16 @@ export class Agent {
 			maxTokens = config.max_tokens;
 		}
 
+		const model = this.subcorticalMemoryModel;
+		if (!model) {
+			throw new Error(
+				`Agent '${this.spec.name}' has subcortical_recall enabled but memory model 'subcortical' is not configured`,
+			);
+		}
 		return {
 			prompt: await this.genome.loadSubcorticalRecallPrompt(),
 			client: this.client,
-			...resolveMemoryModel("subcortical", this.resolverSettings, this.modelsByProvider),
+			...model,
 			...(maxTokens !== undefined ? { maxTokens } : {}),
 		};
 	}
@@ -1957,4 +1973,9 @@ function uniqueToolDefinitions(tools: readonly ToolDefinition[]): ToolDefinition
 		seen.add(tool.name);
 		return true;
 	});
+}
+
+function subcorticalRecallEnabled(config: AgentSpec["subcortical_recall"]): boolean {
+	if (!config) return false;
+	return !(typeof config === "object" && config.enabled === false);
 }
