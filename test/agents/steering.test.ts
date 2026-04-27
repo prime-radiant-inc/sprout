@@ -207,6 +207,8 @@ describe("Agent message queue", () => {
 		await agent.run("test goal");
 
 		const firstSystem = messageText(requests[0]!.messages[0]!);
+		expect(firstSystem).toContain("<IMPORTANT>\n<sprout:agent-messages>");
+		expect(firstSystem).toContain("</sprout:agent-messages>\n</IMPORTANT>");
 		expect(firstSystem).toContain("<sprout:agent-messages>");
 		expect(firstSystem).toContain('<message from="metacognitive">');
 		expect(firstSystem).toContain("&lt;start coding&gt;");
@@ -247,6 +249,7 @@ describe("Agent message queue", () => {
 		await agent.run("Do not delete files. Answer safely.");
 
 		const firstSystem = messageText(requests[0]!.messages[0]!);
+		expect(firstSystem).toContain("<IMPORTANT>\n<sprout:agent-messages>");
 		expect(firstSystem).toContain(
 			"Take them seriously as process guidance, especially observer messages",
 		);

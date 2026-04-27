@@ -544,7 +544,7 @@ export class Agent {
 					)}\n</message>`,
 			)
 			.join("\n");
-		return `\n\n<sprout:agent-messages>\n${guidance}\n${entries}\n</sprout:agent-messages>`;
+		return `\n\n<IMPORTANT>\n<sprout:agent-messages>\n${guidance}\n${entries}\n</sprout:agent-messages>\n</IMPORTANT>`;
 	}
 
 	/** Emit an event and append it to the log file if logging is enabled. */
