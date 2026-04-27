@@ -4,7 +4,10 @@ import type { SettingsPathOptions } from "./paths.ts";
 import { buildInvalidSettingsPath, resolveSettingsPath } from "./paths.ts";
 import {
 	createEmptySettings,
+	MEMORY_MODEL_PURPOSES,
 	SETTINGS_SCHEMA_VERSION,
+	type MemoryModelsConfig,
+	type ModelRef,
 	type SproutSettings,
 	validateSproutSettings,
 } from "./types.ts";
@@ -94,6 +97,15 @@ export class SettingsStore {
 			this.validateSettings(settings);
 			return settings;
 		}
+		if (parsed.version === 2) {
+			const settings = this.normalizeSettings({
+				...(parsed as Omit<SproutSettings, "version" | "memoryModels">),
+				version: SETTINGS_SCHEMA_VERSION,
+				memoryModels: {},
+			} as SproutSettings);
+			this.validateSettings(settings);
+			return settings;
+		}
 		throw new Error(`Unsupported settings schema version: ${String(parsed.version)}`);
 	}
 
@@ -106,6 +118,7 @@ export class SettingsStore {
 				...(settings.defaults.balanced ? { balanced: settings.defaults.balanced } : {}),
 				...(settings.defaults.fast ? { fast: settings.defaults.fast } : {}),
 			},
+			memoryModels: normalizeMemoryModels(settings.memoryModels),
 		};
 	}
 
@@ -118,4 +131,21 @@ export class SettingsStore {
 		}
 		validateSproutSettings(settings);
 	}
+}
+
+function normalizeMemoryModels(memoryModels: MemoryModelsConfig | undefined): MemoryModelsConfig {
+	const normalized: MemoryModelsConfig = {};
+	if (!memoryModels) return normalized;
+	for (const purpose of MEMORY_MODEL_PURPOSES) {
+		const modelRef = memoryModels[purpose];
+		if (modelRef) normalized[purpose] = normalizeModelRef(modelRef);
+	}
+	return normalized;
+}
+
+function normalizeModelRef(modelRef: ModelRef): ModelRef {
+	return {
+		providerId: modelRef.providerId,
+		modelId: modelRef.modelId,
+	};
 }

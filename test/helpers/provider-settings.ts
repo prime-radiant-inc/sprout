@@ -14,7 +14,7 @@ export function makeSettingsSnapshot(): SettingsSnapshot {
 			warnings: [],
 		},
 		settings: {
-			version: 2,
+			version: 3,
 			providers: [
 				{
 					id: "anthropic-main",
@@ -48,6 +48,7 @@ export function makeSettingsSnapshot(): SettingsSnapshot {
 					modelId: "qwen2.5-coder",
 				},
 			},
+			memoryModels: {},
 		},
 		providers: [
 			{

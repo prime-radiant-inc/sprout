@@ -30,7 +30,7 @@ function makeSettings(): SettingsSnapshot {
 			warnings: [],
 		},
 		settings: {
-			version: 2,
+			version: 3,
 			providers: [
 				{
 					id: "anthropic-main",
@@ -64,6 +64,7 @@ function makeSettings(): SettingsSnapshot {
 					modelId: "qwen2.5-coder",
 				},
 			},
+			memoryModels: {},
 		},
 		providers: [
 			{
@@ -161,15 +162,16 @@ describe("ProviderSettingsPanel", () => {
 		expect(
 			renderToStaticMarkup(
 				<ProviderSettingsPanel
-					settings={{
-						...makeSettings(),
-						settings: {
-							version: 2,
+						settings={{
+							...makeSettings(),
+							settings: {
+								version: 3,
+								providers: [],
+								defaults: {},
+								memoryModels: {},
+							},
 							providers: [],
-							defaults: {},
-						},
-						providers: [],
-						catalog: [],
+							catalog: [],
 					}}
 					lastResult={null}
 					onCommand={() => {}}

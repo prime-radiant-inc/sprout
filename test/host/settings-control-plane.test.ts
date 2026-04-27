@@ -142,7 +142,7 @@ describe("SettingsControlPlane", () => {
 				return [];
 			},
 			initialSettings: {
-				version: 2,
+				version: 3,
 				providers: [
 					{
 						id: "openai",
@@ -163,6 +163,7 @@ describe("SettingsControlPlane", () => {
 					},
 				],
 				defaults: {},
+				memoryModels: {},
 			},
 		});
 
@@ -222,7 +223,7 @@ describe("SettingsControlPlane", () => {
 				return [];
 			},
 			initialSettings: {
-				version: 2,
+				version: 3,
 				providers: [
 					{
 						id: "openrouter",
@@ -252,6 +253,7 @@ describe("SettingsControlPlane", () => {
 						modelId: "qwen2.5-coder",
 					},
 				},
+				memoryModels: {},
 			},
 		});
 
@@ -290,7 +292,7 @@ describe("SettingsControlPlane", () => {
 	test("surfaces provider health failures in snapshots without failing the command", async () => {
 		const plane = await makePlane({
 			initialSettings: {
-				version: 2,
+				version: 3,
 				providers: [
 					{
 						id: "lmstudio",
@@ -303,6 +305,7 @@ describe("SettingsControlPlane", () => {
 					},
 				],
 				defaults: {},
+				memoryModels: {},
 			},
 			checkConnection: async () => {
 				throw new Error("connection refused");
@@ -383,7 +386,7 @@ describe("SettingsControlPlane", () => {
 		const plane = await makePlane({
 			secretStore,
 			initialSettings: {
-				version: 2,
+				version: 3,
 				providers: [
 					{
 						id: "openai",
@@ -395,6 +398,7 @@ describe("SettingsControlPlane", () => {
 					},
 				],
 				defaults: {},
+				memoryModels: {},
 			},
 			settingsStore: {
 				async save() {
@@ -431,7 +435,7 @@ describe("SettingsControlPlane", () => {
 				},
 			},
 			initialSettings: {
-				version: 2,
+				version: 3,
 				providers: [
 					{
 						id: "openai",
@@ -443,6 +447,7 @@ describe("SettingsControlPlane", () => {
 					},
 				],
 				defaults: {},
+				memoryModels: {},
 			},
 		});
 
@@ -532,7 +537,7 @@ describe("SettingsControlPlane", () => {
 				message,
 			},
 			initialSettings: {
-				version: 2,
+				version: 3,
 				providers: [
 					{
 						id: "openai",
@@ -544,6 +549,7 @@ describe("SettingsControlPlane", () => {
 					},
 				],
 				defaults: {},
+				memoryModels: {},
 			},
 		});
 

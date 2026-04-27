@@ -15,9 +15,10 @@ afterEach(() => {
 
 function makeSettings(providers: ProviderConfig[]): SproutSettings {
 	return {
-		version: 2,
+		version: 3,
 		providers,
 		defaults: {},
+		memoryModels: {},
 	};
 }
 

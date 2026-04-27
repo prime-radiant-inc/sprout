@@ -39,7 +39,7 @@ function makeSettings(): SettingsSnapshot {
 			warnings: [],
 		},
 		settings: {
-			version: 2,
+			version: 3,
 			providers: [
 				{
 					id: "anthropic-main",
@@ -68,6 +68,7 @@ function makeSettings(): SettingsSnapshot {
 					modelId: "claude-sonnet-4-6",
 				},
 			},
+			memoryModels: {},
 		},
 		providers: [
 			{

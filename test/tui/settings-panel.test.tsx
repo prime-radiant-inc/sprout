@@ -55,9 +55,10 @@ describe("SettingsPanel", () => {
 						warnings: [],
 					},
 					settings: {
-						version: 2,
+						version: 3,
 						providers: [],
 						defaults: {},
+						memoryModels: {},
 					},
 					providers: [],
 					catalog: [],

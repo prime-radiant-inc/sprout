@@ -50,11 +50,12 @@ describe("buildInteractiveModeRuntime", () => {
 						},
 						warnings: [],
 					},
-					settings: {
-						version: 2 as const,
-						providers: [],
-						defaults: {},
-					},
+						settings: {
+							version: 3 as const,
+							providers: [],
+							defaults: {},
+							memoryModels: {},
+						},
 					providers: [],
 					catalog: [],
 				},

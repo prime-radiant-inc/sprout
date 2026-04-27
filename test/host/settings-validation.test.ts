@@ -198,4 +198,72 @@ describe("validateSproutSettings", () => {
 			"Default model 'fast' must reference an enabled provider: lmstudio",
 		);
 	});
+
+	test("allows memory model tuples for enabled providers", () => {
+		const settings = createEmptySettings();
+		settings.providers = [
+			makeProvider({
+				id: "anthropic",
+				kind: "anthropic",
+				baseUrl: undefined,
+				enabled: true,
+			}),
+		];
+		settings.memoryModels = {
+			summary: {
+				providerId: "anthropic",
+				modelId: "claude-sonnet-4-6",
+			},
+			relationship: {
+				providerId: "anthropic",
+				modelId: "claude-haiku-4-5",
+			},
+		};
+
+		expect(() => validateSproutSettings(settings)).not.toThrow();
+	});
+
+	test("rejects memory models that reference missing or disabled providers", () => {
+		const settings = createEmptySettings();
+		settings.providers = [
+			makeProvider({
+				id: "anthropic",
+				kind: "anthropic",
+				baseUrl: undefined,
+				enabled: false,
+			}),
+		];
+		settings.memoryModels = {
+			extraction: {
+				providerId: "anthropic",
+				modelId: "claude-sonnet-4-6",
+			},
+		};
+
+		expect(() => validateSproutSettings(settings)).toThrow(
+			"Memory model 'extraction' must reference an enabled provider: anthropic",
+		);
+	});
+
+	test("rejects malformed memory model refs", () => {
+		const settings = createEmptySettings();
+		settings.providers = [
+			makeProvider({
+				id: "anthropic",
+				kind: "anthropic",
+				baseUrl: undefined,
+				enabled: true,
+			}),
+		];
+		settings.memoryModels = {
+			subcortical: {
+				providerId: "",
+				modelId: "claude-haiku-4-5",
+			},
+		};
+
+		expect(() => validateSproutSettings(settings)).toThrow(
+			"Memory model 'subcortical' must include a non-empty providerId",
+		);
+	});
 });

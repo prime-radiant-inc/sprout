@@ -122,6 +122,97 @@ describe("SettingsStore", () => {
 		expect(result.skipEnvImport).toBe(true);
 	});
 
+	test("load migrates v2 settings to v3 with empty memory models", async () => {
+		const { store, settingsPath } = await makeStore();
+		await writeFile(
+			settingsPath,
+			JSON.stringify({
+				version: 2,
+				providers: [
+					{
+						id: "openai",
+						kind: "openai",
+						label: "OpenAI",
+						enabled: true,
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {
+					best: {
+						providerId: "openai",
+						modelId: "gpt-4.1",
+					},
+				},
+			}),
+			"utf-8",
+		);
+
+		const result = await store.load();
+
+		expect(result.source).toBe("loaded");
+		expect(result.settings).toEqual({
+			version: 3,
+			providers: [
+				{
+					id: "openai",
+					kind: "openai",
+					label: "OpenAI",
+					enabled: true,
+					createdAt: "2026-03-11T12:00:00.000Z",
+					updatedAt: "2026-03-11T12:00:00.000Z",
+				},
+			],
+			defaults: {
+				best: {
+					providerId: "openai",
+					modelId: "gpt-4.1",
+				},
+			},
+			memoryModels: {},
+		});
+	});
+
+	test("save preserves known memory models and drops unknown purpose keys", async () => {
+		const { store, settingsPath } = await makeStore();
+		const settings = {
+			...createEmptySettings(),
+			providers: [
+				{
+					id: "anthropic",
+					kind: "anthropic" as const,
+					label: "Anthropic",
+					enabled: true,
+					createdAt: "2026-03-11T12:00:00.000Z",
+					updatedAt: "2026-03-11T12:00:00.000Z",
+				},
+			],
+			memoryModels: {
+				extraction: {
+					providerId: "anthropic",
+					modelId: "claude-sonnet-4-6",
+				},
+				notAPurpose: {
+					providerId: "anthropic",
+					modelId: "bad",
+				},
+			},
+		};
+
+		await store.save(settings);
+
+		expect(JSON.parse(await readFile(settingsPath, "utf-8"))).toEqual({
+			...createEmptySettings(),
+			providers: settings.providers,
+			memoryModels: {
+				extraction: {
+					providerId: "anthropic",
+					modelId: "claude-sonnet-4-6",
+				},
+			},
+		});
+	});
+
 	test("load leaves env import enabled when settings file is absent", async () => {
 		const { store } = await makeStore();
 
