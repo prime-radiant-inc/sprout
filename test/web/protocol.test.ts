@@ -194,6 +194,22 @@ describe("canonical protocol module", () => {
 					},
 				},
 			},
+			{
+				kind: "set_memory_model",
+				data: {
+					purpose: "extraction",
+					model: {
+						providerId: "openrouter-main",
+						modelId: "openai/gpt-4.1-mini",
+					},
+				},
+			},
+			{
+				kind: "set_memory_model",
+				data: {
+					purpose: "subcortical",
+				},
+			},
 		];
 
 		for (const command of commands) {
@@ -279,6 +295,38 @@ describe("canonical protocol module", () => {
 				}),
 			),
 		).toThrow("slot");
+
+		expect(() =>
+			parseCanonicalCommandMessage(
+				JSON.stringify({
+					type: "command",
+					command: {
+						kind: "set_memory_model",
+						data: {
+							purpose: "archivist",
+						},
+					},
+				}),
+			),
+		).toThrow("purpose");
+
+		expect(() =>
+			parseCanonicalCommandMessage(
+				JSON.stringify({
+					type: "command",
+					command: {
+						kind: "set_memory_model",
+						data: {
+							purpose: "extraction",
+							model: {
+								providerId: "",
+								modelId: "claude-sonnet-4-6",
+							},
+						},
+					},
+				}),
+			),
+		).toThrow("providerId");
 	});
 });
 

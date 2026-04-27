@@ -5,11 +5,12 @@ import type {
 	SettingsSnapshot,
 } from "@kernel/types.ts";
 import { DefaultModelsPanel } from "./DefaultModelsPanel.tsx";
+import { MemoryModelsPanel } from "./MemoryModelsPanel.tsx";
 import { describePendingProviderAction, ProviderEditor } from "./ProviderEditor.tsx";
 import styles from "./ProviderSettingsPanel.module.css";
 import { ProviderList } from "./ProviderList.tsx";
 
-type SelectedView = "defaults" | "create" | string;
+type SelectedView = "defaults" | "memory" | "create" | string;
 
 export interface ProviderSettingsPanelProps {
 	settings: SettingsSnapshot | null;
@@ -54,7 +55,9 @@ export function ProviderSettingsPanel({
 			setSelectedView(createdProviderId);
 			return;
 		}
-		if (selectedView === "defaults" || selectedView === "create") return;
+		if (selectedView === "defaults" || selectedView === "memory" || selectedView === "create") {
+			return;
+		}
 		if (!settings.settings.providers.some((provider) => provider.id === selectedView)) {
 			setSelectedView(selectInitialView(settings));
 		}
@@ -144,6 +147,7 @@ export function ProviderSettingsPanel({
 							settings={settings}
 							selectedKey={selectedView}
 							onSelectDefaults={() => setSelectedView("defaults")}
+							onSelectMemory={() => setSelectedView("memory")}
 							onSelectProvider={(providerId) => setSelectedView(providerId)}
 							onCreateProvider={() => setSelectedView("create")}
 						/>
@@ -166,6 +170,13 @@ export function ProviderSettingsPanel({
 
 						{selectedView === "defaults" ? (
 							<DefaultModelsPanel
+								settings={settings}
+								message={message}
+								fieldErrors={fieldErrors}
+								onCommand={handleCommand}
+							/>
+						) : selectedView === "memory" ? (
+							<MemoryModelsPanel
 								settings={settings}
 								message={message}
 								fieldErrors={fieldErrors}

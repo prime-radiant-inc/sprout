@@ -91,9 +91,19 @@ export function DefaultModelsPanel({
 												{model.label}
 											</option>
 										))}
-									</optgroup>
+								</optgroup>
 								))}
 							</select>
+							{settings.runtime.modelOverrides.defaults[tier] && (
+								<div className={styles.hint}>
+									Env override {settings.runtime.modelOverrides.defaults[tier].envVar}:{" "}
+									{formatModelRef(settings.runtime.modelOverrides.defaults[tier].model)}
+									{settings.runtime.modelOverrides.defaults[tier].catalogStatus === "missing" &&
+									settings.runtime.modelOverrides.defaults[tier].diagnostic
+										? ` (${settings.runtime.modelOverrides.defaults[tier].diagnostic})`
+										: ""}
+								</div>
+							)}
 							{fieldErrors?.[tier] && (
 								<div className={styles.fieldError}>{fieldErrors[tier]}</div>
 							)}

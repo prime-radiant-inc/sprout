@@ -377,6 +377,7 @@ export type {
 } from "../host/settings/control-plane.ts";
 export type {
 	ModelRef,
+	MemoryModelPurpose,
 	ProviderConfig,
 	ProviderKind,
 	SessionModelSelection,

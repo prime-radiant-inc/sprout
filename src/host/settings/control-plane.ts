@@ -13,6 +13,7 @@ import {
 } from "./model-overrides.ts";
 import {
 	MEMORY_MODEL_PURPOSES,
+	type MemoryModelPurpose,
 	type ModelRef,
 	type ProviderConfig,
 	type SproutSettings,
@@ -97,7 +98,11 @@ export type SettingsCommand =
 	| { kind: "set_provider_enabled"; data: { providerId: string; enabled: boolean } }
 	| { kind: "test_provider_connection"; data: { providerId: string } }
 	| { kind: "refresh_provider_models"; data: { providerId: string } }
-	| { kind: "set_default_model"; data: { slot: Tier; model?: ModelRef } };
+	| { kind: "set_default_model"; data: { slot: Tier; model?: ModelRef } }
+	| {
+			kind: "set_memory_model";
+			data: { purpose: MemoryModelPurpose; model?: ModelRef };
+	  };
 
 export type SettingsCommandResult =
 	| { ok: true; snapshot: SettingsSnapshot }
@@ -216,6 +221,8 @@ export class SettingsControlPlane {
 				return this.refreshProviderModels(command.data.providerId);
 			case "set_default_model":
 				return this.setDefaultModel(command.data.slot, command.data.model);
+			case "set_memory_model":
+				return this.setMemoryModel(command.data.purpose, command.data.model);
 		}
 	}
 
@@ -430,6 +437,30 @@ export class SettingsControlPlane {
 		return this.persistSettings(next, [], true);
 	}
 
+	private async setMemoryModel(
+		purpose: MemoryModelPurpose,
+		model?: ModelRef,
+	): Promise<SettingsCommandResult> {
+		const next = structuredClone(this.settings);
+		if (!model) {
+			delete next.memoryModels[purpose];
+			return this.persistSettings(next, [], true);
+		}
+
+		const fieldKey = `memoryModels.${purpose}`;
+		const validation = this.validateConfiguredModel(
+			next,
+			model,
+			fieldKey,
+			`memory '${purpose}' model`,
+			"Refresh models to configure memory models",
+		);
+		if (validation) return validation;
+
+		next.memoryModels[purpose] = model;
+		return this.persistSettings(next, [], true);
+	}
+
 	private async refreshProviderModels(providerId: string): Promise<SettingsCommandResult> {
 		const provider = this.settings.providers.find((candidate) => candidate.id === providerId);
 		if (!provider) return this.error("not_found", `Unknown provider: ${providerId}`);
@@ -579,26 +610,42 @@ export class SettingsControlPlane {
 		slot: Tier,
 		model: ModelRef,
 	): SettingsCommandResult | undefined {
+		return this.validateConfiguredModel(
+			settings,
+			model,
+			slot,
+			`default '${slot}' model`,
+			"Refresh models to configure default models",
+		);
+	}
+
+	private validateConfiguredModel(
+		settings: SproutSettings,
+		model: ModelRef,
+		fieldKey: string,
+		label: string,
+		missingCatalogMessage: string,
+	): SettingsCommandResult | undefined {
 		const provider = settings.providers.find((candidate) => candidate.id === model.providerId);
 		if (!provider) {
 			return this.error(
 				"validation_failed",
-				`Unknown provider '${model.providerId}' for default '${slot}' model`,
-				{ [slot]: `Unknown provider '${model.providerId}' for default '${slot}' model` },
+				`Unknown provider '${model.providerId}' for ${label}`,
+				{ [fieldKey]: `Unknown provider '${model.providerId}' for ${label}` },
 			);
 		}
 		if (!provider.enabled) {
 			return this.error(
 				"validation_failed",
-				`Provider '${model.providerId}' must be enabled before setting '${slot}'`,
-				{ [slot]: `Provider '${model.providerId}' must be enabled before setting '${slot}'` },
+				`Provider '${model.providerId}' must be enabled before setting ${label}`,
+				{ [fieldKey]: `Provider '${model.providerId}' must be enabled before setting ${label}` },
 			);
 		}
 
 		const availableModels = this.providerCatalog.get(provider.id)?.models ?? [];
 		if (availableModels.length === 0) {
-			return this.error("validation_failed", "Refresh models to configure default models", {
-				[slot]: "Refresh models to configure default models",
+			return this.error("validation_failed", missingCatalogMessage, {
+				[fieldKey]: missingCatalogMessage,
 			});
 		}
 
@@ -606,7 +653,7 @@ export class SettingsControlPlane {
 			return this.error(
 				"validation_failed",
 				`Unknown model '${model.modelId}' for provider '${model.providerId}'`,
-				{ [slot]: `Unknown model '${model.modelId}' for provider '${model.providerId}'` },
+				{ [fieldKey]: `Unknown model '${model.modelId}' for provider '${model.providerId}'` },
 			);
 		}
 

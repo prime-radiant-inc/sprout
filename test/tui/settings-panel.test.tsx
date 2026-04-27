@@ -123,10 +123,19 @@ describe("SettingsPanel", () => {
 
 		await submitCommand(stdin, "model fast lmstudio:qwen2.5-coder", () => commands.length === 1);
 
+		await submitCommand(stdin, "memory", () => (lastFrame() ?? "").includes("memory-model"));
+		expect(lastFrame()).toContain("Memory extraction");
+
+		await submitCommand(
+			stdin,
+			"memory-model extraction anthropic-main:claude-sonnet-4-6",
+			() => commands.length === 2,
+		);
+
 		await submitCommand(stdin, "open lmstudio", () => (lastFrame() ?? "").includes("LM Studio"));
 		expect(lastFrame()).toContain("LM Studio");
 
-		await submitCommand(stdin, "disable", () => commands.length === 2);
+		await submitCommand(stdin, "disable", () => commands.length === 3);
 
 		expect(commands).toEqual([
 			{
@@ -136,6 +145,16 @@ describe("SettingsPanel", () => {
 					model: {
 						providerId: "lmstudio",
 						modelId: "qwen2.5-coder",
+					},
+				},
+			},
+			{
+				kind: "set_memory_model",
+				data: {
+					purpose: "extraction",
+					model: {
+						providerId: "anthropic-main",
+						modelId: "claude-sonnet-4-6",
 					},
 				},
 			},

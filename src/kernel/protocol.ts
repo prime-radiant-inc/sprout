@@ -74,6 +74,7 @@ const VALID_COMMAND_KINDS = new Set([
 	"test_provider_connection",
 	"refresh_provider_models",
 	"set_default_model",
+	"set_memory_model",
 ]);
 
 const SETTINGS_COMMAND_KINDS = new Set([
@@ -87,6 +88,7 @@ const SETTINGS_COMMAND_KINDS = new Set([
 	"test_provider_connection",
 	"refresh_provider_models",
 	"set_default_model",
+	"set_memory_model",
 ]);
 
 const PROVIDER_KINDS = new Set([
@@ -97,6 +99,14 @@ const PROVIDER_KINDS = new Set([
 	"gemini",
 ]);
 const TIERS = new Set(["best", "balanced", "fast"]);
+const MEMORY_MODEL_PURPOSES = new Set([
+	"summary",
+	"extraction",
+	"relationship",
+	"consolidation",
+	"entityGc",
+	"subcortical",
+]);
 /** Build a command envelope for transport from browser to server. */
 export function createCommandMessage(command: BrowserCommand): CommandMessage {
 	return { type: "command", command };
@@ -197,6 +207,11 @@ function validateSettingsCommand(kind: string, data: Record<string, unknown>): v
 		case "set_default_model":
 			assertOnlyKnownKeys(data, ["slot", "model"], "command.data");
 			assertEnum(data.slot, TIERS, "command.data.slot");
+			assertOptionalModelRef(data.model, "command.data.model");
+			return;
+		case "set_memory_model":
+			assertOnlyKnownKeys(data, ["purpose", "model"], "command.data");
+			assertEnum(data.purpose, MEMORY_MODEL_PURPOSES, "command.data.purpose");
 			assertOptionalModelRef(data.model, "command.data.model");
 			return;
 	}

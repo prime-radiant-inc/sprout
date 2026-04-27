@@ -1,6 +1,7 @@
 import { Box, Text, useInput } from "ink";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SettingsCommand, SettingsCommandResult, SettingsSnapshot } from "../kernel/types.ts";
+import { MEMORY_MODEL_LABELS, MEMORY_MODEL_PURPOSES } from "../shared/provider-settings.ts";
 import {
 	applyProviderEditorCommand,
 	createProviderEditorDraft,
@@ -8,7 +9,7 @@ import {
 	ProviderSettingsEditor,
 } from "./provider-settings-editor.tsx";
 
-type SelectedView = "defaults" | "create" | string;
+type SelectedView = "defaults" | "memory" | "create" | string;
 
 export interface SettingsPanelProps {
 	settings: SettingsSnapshot | null;
@@ -86,6 +87,7 @@ export function SettingsPanel({ settings, lastResult, onCommand, onClose }: Sett
 		}
 		if (
 			selectedView !== "defaults" &&
+			selectedView !== "memory" &&
 			selectedView !== "create" &&
 			!settings.settings.providers.some((provider) => provider.id === selectedView)
 		) {
@@ -167,6 +169,19 @@ export function SettingsPanel({ settings, lastResult, onCommand, onClose }: Sett
 			return;
 		}
 
+		if (currentView === "memory") {
+			const next = applyMemoryModelCommand(commandText, currentSettings);
+			if (next.error) {
+				setMessage(next.error);
+				return;
+			}
+			if (next.command) {
+				onCommand(next.command);
+				setMessage(null);
+			}
+			return;
+		}
+
 		if (currentView === "create") {
 			const result = applyProviderEditorCommand(commandText, createDraftRef.current, "create");
 			setCreateDraft(result.draft);
@@ -212,6 +227,10 @@ export function SettingsPanel({ settings, lastResult, onCommand, onClose }: Sett
 						{selectedView === "defaults" ? "> " : "  "}
 						Default models
 					</Text>
+					<Text color={selectedView === "memory" ? "cyan" : undefined}>
+						{selectedView === "memory" ? "> " : "  "}
+						Memory models
+					</Text>
 					{settings.settings.providers.map((provider) => (
 						<Text key={provider.id} color={selectedView === provider.id ? "cyan" : undefined}>
 							{selectedView === provider.id ? "> " : "  "}
@@ -227,6 +246,8 @@ export function SettingsPanel({ settings, lastResult, onCommand, onClose }: Sett
 				<Box flexDirection="column" flexGrow={1}>
 					{selectedView === "defaults" ? (
 						<DefaultModelsSummary settings={settings} lastResult={lastResult} />
+					) : selectedView === "memory" ? (
+						<MemoryModelsSummary settings={settings} lastResult={lastResult} />
 					) : (
 						<ProviderSettingsEditor
 							mode={selectedView === "create" ? "create" : "edit"}
@@ -246,10 +267,52 @@ export function SettingsPanel({ settings, lastResult, onCommand, onClose }: Sett
 
 			{message && <Text color="yellow">{message}</Text>}
 			<Text color="gray">
-				Navigation: defaults · create · open &lt;provider-id&gt; · next · prev · close
+				Navigation: defaults · memory · create · open &lt;provider-id&gt; · next · prev · close
 			</Text>
 			<Text color="gray">Shortcuts are optional; use them when you already know the action.</Text>
 			<Text>shortcut&gt; {input}</Text>
+		</Box>
+	);
+}
+
+function MemoryModelsSummary({
+	settings,
+	lastResult,
+}: {
+	settings: SettingsSnapshot;
+	lastResult: SettingsCommandResult | null;
+}) {
+	return (
+		<Box flexDirection="column" gap={1}>
+			<Text bold>Memory models</Text>
+			{lastResult && !lastResult.ok && <Text color="red">{lastResult.message}</Text>}
+			{MEMORY_MODEL_PURPOSES.map((purpose) => {
+				const modelRef = settings.settings.memoryModels[purpose];
+				const override = settings.runtime.modelOverrides.memoryModels[purpose];
+				const label = MEMORY_MODEL_LABELS[purpose];
+				if (!modelRef) {
+					return (
+						<Text key={purpose} color="gray">
+							{label}: not configured{override ? ` (env: ${formatModelRef(override.model)})` : ""}
+						</Text>
+					);
+				}
+				const provider = settings.settings.providers.find(
+					(candidate) => candidate.id === modelRef.providerId,
+				);
+				const model = settings.catalog
+					.find((entry) => entry.providerId === modelRef.providerId)
+					?.models.find((candidate) => candidate.id === modelRef.modelId);
+				return (
+					<Text key={purpose}>
+						{label}: {provider?.label ?? modelRef.providerId} · {model?.label ?? modelRef.modelId}
+						{override ? ` (env: ${formatModelRef(override.model)})` : ""}
+					</Text>
+				);
+			})}
+			<Text color="gray">
+				Commands: memory-model &lt;purpose&gt; &lt;provider-id:model-id|none&gt;
+			</Text>
 		</Box>
 	);
 }
@@ -331,6 +394,10 @@ function applyGlobalCommand(
 		setSelectedView("defaults");
 		return { handled: true };
 	}
+	if (trimmed === "memory") {
+		setSelectedView("memory");
+		return { handled: true };
+	}
 	if (trimmed === "close") {
 		onClose();
 		return { handled: true };
@@ -338,6 +405,7 @@ function applyGlobalCommand(
 	if (trimmed === "next" || trimmed === "prev") {
 		const order = [
 			"defaults",
+			"memory",
 			...settings.settings.providers.map((provider) => provider.id),
 			"create",
 		];
@@ -357,6 +425,54 @@ function applyGlobalCommand(
 		return { handled: true };
 	}
 	return { handled: false };
+}
+
+function applyMemoryModelCommand(
+	input: string,
+	settings: SettingsSnapshot,
+): { command?: SettingsCommand; error?: string } {
+	const trimmed = input.trim();
+	if (trimmed.startsWith("memory-model ")) {
+		const [command, purpose, target] = trimmed.split(/\s+/, 3);
+		if (command !== "memory-model" || !purpose || !target) {
+			return { error: "Use: memory-model <purpose> <provider-id:model-id|none>" };
+		}
+		if (!MEMORY_MODEL_PURPOSES.includes(purpose as never)) {
+			return { error: `Unknown memory model purpose: ${purpose}` };
+		}
+		const selectionPurpose = purpose as (typeof MEMORY_MODEL_PURPOSES)[number];
+		if (target === "none") {
+			return {
+				command: {
+					kind: "set_memory_model",
+					data: { purpose: selectionPurpose },
+				},
+			};
+		}
+		const parsed = parseProviderModelTarget(target);
+		if (!parsed) return { error: "Memory model targets must use provider-id:model-id." };
+		const provider = settings.settings.providers.find(
+			(candidate) => candidate.id === parsed.providerId,
+		);
+		if (!provider) return { error: `Unknown provider: ${parsed.providerId}` };
+		if (!provider.enabled) {
+			return { error: `Memory-model provider must be enabled: ${parsed.providerId}` };
+		}
+		const model = settings.catalog
+			.find((entry) => entry.providerId === parsed.providerId)
+			?.models.find((candidate) => candidate.id === parsed.modelId);
+		if (!model) return { error: `Unknown model for ${parsed.providerId}: ${parsed.modelId}` };
+		return {
+			command: {
+				kind: "set_memory_model",
+				data: {
+					purpose: selectionPurpose,
+					model: parsed,
+				},
+			},
+		};
+	}
+	return { error: "Unknown memory model command." };
 }
 
 function applyDefaultModelCommand(
@@ -381,12 +497,9 @@ function applyDefaultModelCommand(
 				},
 			};
 		}
-		const separatorIndex = target.indexOf(":");
-		if (separatorIndex <= 0 || separatorIndex === target.length - 1) {
-			return { error: "Tier targets must use provider-id:model-id." };
-		}
-		const providerId = target.slice(0, separatorIndex);
-		const modelId = target.slice(separatorIndex + 1);
+		const parsed = parseProviderModelTarget(target);
+		if (!parsed) return { error: "Tier targets must use provider-id:model-id." };
+		const { providerId, modelId } = parsed;
 		const provider = settings.settings.providers.find((candidate) => candidate.id === providerId);
 		if (!provider) {
 			return { error: `Unknown provider: ${providerId}` };
@@ -417,4 +530,17 @@ function applyDefaultModelCommand(
 		return { error: "Unknown defaults command." };
 	}
 	return { error: "Use: model <best|balanced|fast> <provider-id:model-id|none>" };
+}
+
+function parseProviderModelTarget(target: string): { providerId: string; modelId: string } | null {
+	const separatorIndex = target.indexOf(":");
+	if (separatorIndex <= 0 || separatorIndex === target.length - 1) return null;
+	return {
+		providerId: target.slice(0, separatorIndex),
+		modelId: target.slice(separatorIndex + 1),
+	};
+}
+
+function formatModelRef(model: { providerId: string; modelId: string }): string {
+	return `${model.providerId}:${model.modelId}`;
 }

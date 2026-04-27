@@ -16,7 +16,11 @@ import {
 	type SecretStore,
 } from "../../src/host/settings/secret-store.ts";
 import { SettingsStore } from "../../src/host/settings/store.ts";
-import { createEmptySettings, type SproutSettings } from "../../src/host/settings/types.ts";
+import {
+	createEmptySettings,
+	MEMORY_MODEL_PURPOSES,
+	type SproutSettings,
+} from "../../src/host/settings/types.ts";
 
 let tempDir: string | undefined;
 
@@ -485,6 +489,138 @@ describe("SettingsControlPlane", () => {
 						},
 					},
 				},
+			},
+		});
+	});
+
+	test("sets and unsets stored memory models through the control plane", async () => {
+		const plane = await makePlane({
+			initialSettings: {
+				version: 3,
+				providers: [
+					{
+						id: "anthropic",
+						kind: "anthropic",
+						label: "Anthropic",
+						enabled: true,
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {},
+				memoryModels: {},
+			},
+			initialCatalog: [
+				{
+					providerId: "anthropic",
+					models: [
+						{
+							id: "claude-sonnet-4-6",
+							label: "Claude Sonnet 4.6",
+							source: "remote",
+						},
+					],
+				},
+			],
+		});
+
+		for (const purpose of MEMORY_MODEL_PURPOSES) {
+			const set = await plane.execute({
+				kind: "set_memory_model",
+				data: {
+					purpose,
+					model: {
+						providerId: "anthropic",
+						modelId: "claude-sonnet-4-6",
+					},
+				},
+			});
+			expect(set).toMatchObject({
+				ok: true,
+				snapshot: {
+					settings: {
+						memoryModels: {
+							[purpose]: {
+								providerId: "anthropic",
+								modelId: "claude-sonnet-4-6",
+							},
+						},
+					},
+				},
+			});
+		}
+
+		const unset = await plane.execute({
+			kind: "set_memory_model",
+			data: { purpose: "extraction" },
+		});
+
+		expect(unset).toMatchObject({
+			ok: true,
+			snapshot: {
+				settings: {
+					memoryModels: {
+						summary: {
+							providerId: "anthropic",
+							modelId: "claude-sonnet-4-6",
+						},
+					},
+				},
+			},
+		});
+		if (!unset.ok) throw new Error("expected unset to succeed");
+		expect(unset.snapshot.settings.memoryModels.extraction).toBeUndefined();
+	});
+
+	test("returns memory model field errors for invalid stored memory model selections", async () => {
+		const plane = await makePlane({
+			initialSettings: {
+				version: 3,
+				providers: [
+					{
+						id: "anthropic",
+						kind: "anthropic",
+						label: "Anthropic",
+						enabled: true,
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {},
+				memoryModels: {},
+			},
+			initialCatalog: [
+				{
+					providerId: "anthropic",
+					models: [
+						{
+							id: "claude-sonnet-4-6",
+							label: "Claude Sonnet 4.6",
+							source: "remote",
+						},
+					],
+				},
+			],
+		});
+
+		const result = await plane.execute({
+			kind: "set_memory_model",
+			data: {
+				purpose: "extraction",
+				model: {
+					providerId: "anthropic",
+					modelId: "missing-model",
+				},
+			},
+		});
+
+		expect(result).toEqual({
+			ok: false,
+			code: "validation_failed",
+			message: "Unknown model 'missing-model' for provider 'anthropic'",
+			fieldErrors: {
+				"memoryModels.extraction":
+					"Unknown model 'missing-model' for provider 'anthropic'",
 			},
 		});
 	});

@@ -7,6 +7,10 @@ import type {
 import { renderToStaticMarkup } from "react-dom/server";
 import { DefaultModelsPanel } from "../settings/DefaultModelsPanel.tsx";
 import {
+	createSetMemoryModelCommand,
+	MemoryModelsPanel,
+} from "../settings/MemoryModelsPanel.tsx";
+import {
 	createDeleteProviderCommand,
 	createDeleteProviderSecretCommand,
 	createProviderSaveCommand,
@@ -204,6 +208,7 @@ describe("ProviderSettingsPanel", () => {
 		);
 
 		expect(html).toContain("Default models");
+		expect(html).toContain("Memory models");
 		expect(html).toContain("Recovered invalid settings file to /tmp/settings.invalid.json");
 	});
 
@@ -257,6 +262,59 @@ describe("DefaultModelsPanel", () => {
 		expect(html).toContain("Fast model");
 		expect(html).toContain("Claude Opus 4.6");
 		expect(html).toContain("Qwen 2.5 Coder");
+	});
+});
+
+describe("MemoryModelsPanel", () => {
+	test("renders memory model controls and env override notes", () => {
+		const settings = makeSettings();
+		settings.settings.memoryModels = {
+			extraction: {
+				providerId: "anthropic-main",
+				modelId: "claude-sonnet-4-6",
+			},
+		};
+		settings.runtime.modelOverrides.memoryModels.subcortical = {
+			source: "env",
+			envVar: "SPROUT_MEMORY_SUBCORTICAL_MODEL",
+			model: {
+				providerId: "lmstudio",
+				modelId: "qwen2.5-coder",
+			},
+			catalogStatus: "matched",
+			displayLabel: "Qwen 2.5 Coder",
+		};
+
+		const html = renderToStaticMarkup(
+			<MemoryModelsPanel settings={settings} onCommand={() => {}} />,
+		);
+
+		expect(html).toContain("Memory models");
+		expect(html).toContain("Memory extraction");
+		expect(html).toContain("Relationship classifier");
+		expect(html).toContain("Subcortical recall");
+		expect(html).toContain("SPROUT_MEMORY_SUBCORTICAL_MODEL");
+		expect(html).toContain("Qwen 2.5 Coder");
+	});
+
+	test("builds set memory model commands", () => {
+		expect(createSetMemoryModelCommand("extraction", "anthropic-main:claude-sonnet-4-6")).toEqual({
+			kind: "set_memory_model",
+			data: {
+				purpose: "extraction",
+				model: {
+					providerId: "anthropic-main",
+					modelId: "claude-sonnet-4-6",
+				},
+			},
+		});
+		expect(createSetMemoryModelCommand("subcortical", "")).toEqual({
+			kind: "set_memory_model",
+			data: {
+				purpose: "subcortical",
+				model: undefined,
+			},
+		});
 	});
 });
 

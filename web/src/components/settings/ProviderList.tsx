@@ -5,6 +5,7 @@ export interface ProviderListProps {
 	settings: SettingsSnapshot;
 	selectedKey: string;
 	onSelectDefaults: () => void;
+	onSelectMemory: () => void;
 	onSelectProvider: (providerId: string) => void;
 	onCreateProvider: () => void;
 }
@@ -33,6 +34,7 @@ export function ProviderList({
 	settings,
 	selectedKey,
 	onSelectDefaults,
+	onSelectMemory,
 	onSelectProvider,
 	onCreateProvider,
 }: ProviderListProps) {
@@ -46,6 +48,16 @@ export function ProviderList({
 			>
 				<span className={styles.listTitle}>Default models</span>
 				<span className={styles.listMeta}>Global best, balanced, and fast model choices</span>
+			</button>
+
+			<button
+				type="button"
+				className={`${styles.listItem} ${selectedKey === "memory" ? styles.listItemActive : ""}`}
+				data-action="select-memory"
+				onClick={onSelectMemory}
+			>
+				<span className={styles.listTitle}>Memory models</span>
+				<span className={styles.listMeta}>Internal summary, extraction, and recall choices</span>
 			</button>
 
 			{settings.settings.providers.map((provider) => {
