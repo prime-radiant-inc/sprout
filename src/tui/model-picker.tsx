@@ -1,6 +1,7 @@
 import { Box, Text, useInput } from "ink";
 import { useEffect, useState } from "react";
 import type {
+	ModelRef,
 	SessionModelSelection,
 	SessionSelectionSnapshot,
 	SettingsSnapshot,
@@ -47,6 +48,8 @@ const TIER_LABELS = {
 	fast: "Fast",
 } as const;
 
+type DefaultTier = keyof typeof TIER_LABELS;
+
 export function buildModelPickerOptions({
 	availableModels,
 	settings,
@@ -83,7 +86,7 @@ export function buildModelPickerOptions({
 	pushSelection({ kind: "inherit" }, formatDefaultSelectionLabel(currentModel));
 
 	for (const tier of ["best", "balanced", "fast"] as const) {
-		const modelRef = settings.settings.defaults[tier];
+		const modelRef = getEffectiveDefaultModelRef(settings, tier);
 		if (!modelRef) continue;
 		const provider = enabledProviders.find((candidate) => candidate.id === modelRef.providerId);
 		const model = settings.catalog
@@ -292,14 +295,12 @@ function formatSelectionLabel(
 		case "inherit":
 			return formatDefaultSelectionLabel();
 		case "tier": {
-			const providerId =
-				selection.resolved?.providerId ??
-				settings?.settings.defaults[currentSelection.tier]?.providerId;
+			const effectiveDefault = getEffectiveDefaultModelRef(settings, currentSelection.tier);
+			const providerId = selection.resolved?.providerId ?? effectiveDefault?.providerId;
 			const provider = providerId
 				? settings?.settings.providers.find((candidate) => candidate.id === providerId)
 				: undefined;
-			const modelId =
-				selection.resolved?.modelId ?? settings?.settings.defaults[currentSelection.tier]?.modelId;
+			const modelId = selection.resolved?.modelId ?? effectiveDefault?.modelId;
 			const model =
 				providerId && modelId
 					? settings?.catalog
@@ -327,4 +328,13 @@ function formatSelectionLabel(
 
 function formatDefaultSelectionLabel(currentModel?: string): string {
 	return currentModel ? `Use agent default · ${currentModel}` : "Use agent default";
+}
+
+function getEffectiveDefaultModelRef(
+	settings: SettingsSnapshot | null | undefined,
+	tier: DefaultTier,
+): ModelRef | undefined {
+	return (
+		settings?.runtime.modelOverrides.defaults[tier]?.model ?? settings?.settings.defaults[tier]
+	);
 }

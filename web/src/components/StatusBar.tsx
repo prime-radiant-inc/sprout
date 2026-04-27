@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type {
+	ModelRef,
 	SessionModelSelection,
 	SessionSelectionSnapshot,
 	SettingsSnapshot,
@@ -35,6 +36,8 @@ const TIER_LABELS = {
 	fast: "Fast",
 } as const;
 
+type DefaultTier = keyof typeof TIER_LABELS;
+
 function formatProviderModelLabel(
 	selection: { providerId: string; modelId: string },
 	settings: SettingsSnapshot | null | undefined,
@@ -54,10 +57,10 @@ function formatProviderModelLabel(
 }
 
 function formatTierLabel(
-	tier: keyof typeof TIER_LABELS,
+	tier: DefaultTier,
 	settings: SettingsSnapshot | null | undefined,
 ): string {
-	const modelRef = settings?.settings.defaults[tier];
+	const modelRef = getEffectiveDefaultModelRef(settings, tier);
 	const provider = modelRef
 		? settings?.settings.providers.find((candidate) => candidate.id === modelRef.providerId)
 		: undefined;
@@ -121,7 +124,7 @@ export function buildSessionSelectionOptions(
 	);
 
 	for (const tier of ["best", "balanced", "fast"] as const) {
-		if (!settings?.settings.defaults[tier]) continue;
+		if (!getEffectiveDefaultModelRef(settings, tier)) continue;
 		pushOption({ kind: "tier", tier }, formatTierLabel(tier, settings), "Default models");
 	}
 
@@ -172,6 +175,13 @@ export function buildSessionSelectionOptions(
 	}
 
 	return options;
+}
+
+function getEffectiveDefaultModelRef(
+	settings: SettingsSnapshot | null | undefined,
+	tier: DefaultTier,
+): ModelRef | undefined {
+	return settings?.runtime.modelOverrides.defaults[tier]?.model ?? settings?.settings.defaults[tier];
 }
 
 function groupSessionSelectionOptions(

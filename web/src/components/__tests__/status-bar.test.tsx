@@ -183,6 +183,49 @@ describe("StatusBar", () => {
 		]);
 	});
 
+	test("builds tier options from env-only default overrides", () => {
+		const settings = makeSettings();
+		delete settings.settings.defaults.best;
+		settings.runtime.modelOverrides.defaults.best = {
+			source: "env",
+			envVar: "SPROUT_DEFAULT_BEST_MODEL",
+			model: {
+				providerId: "openrouter-main",
+				modelId: "gpt-4.1",
+			},
+			catalogStatus: "matched",
+			displayLabel: "GPT-4.1",
+		};
+
+		const options = buildSessionSelectionOptions(
+			makeStatus({
+				availableModels: ["best"],
+				currentSelection: {
+					selection: { kind: "tier", tier: "best" },
+					source: "session",
+				},
+			}),
+			settings,
+		);
+
+		expect(options.find((option) => option.value === "best")).toEqual({
+			selection: { kind: "tier", tier: "best" },
+			value: "best",
+			label: "Best · OpenRouter · GPT-4.1",
+			group: "Default models",
+		});
+		expect(
+			formatSessionSelectionLabel(
+				{
+					selection: { kind: "tier", tier: "best" },
+					source: "session",
+				},
+				"gpt-4.1",
+				settings,
+			),
+		).toBe("Best · OpenRouter · GPT-4.1");
+	});
+
 	test("renders grouped default-model and exact-model selector", () => {
 		const status = makeStatus({
 			availableModels: [

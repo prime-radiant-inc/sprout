@@ -63,6 +63,30 @@ describe("ModelPicker", () => {
 		]);
 	});
 
+	test("uses env-only default overrides for tier options", () => {
+		const settings = makeSettingsSnapshot();
+		delete settings.settings.defaults.best;
+		settings.runtime.modelOverrides.defaults.best = {
+			source: "env",
+			envVar: "SPROUT_DEFAULT_BEST_MODEL",
+			model: {
+				providerId: "lmstudio",
+				modelId: "qwen2.5-coder",
+			},
+			catalogStatus: "matched",
+			displayLabel: "Qwen 2.5 Coder",
+		};
+
+		const options = buildModelPickerOptions({
+			availableModels: [],
+			settings,
+			currentSelection: makeSelectionSnapshot(),
+			currentModel: "claude-sonnet-4-6",
+		});
+
+		expect(options.map((option) => option.label)).toContain("Best · LM Studio · Qwen 2.5 Coder");
+	});
+
 	test("renders default-model labels alongside provider-grouped exact models", () => {
 		const { lastFrame } = render(
 			<ModelPicker
