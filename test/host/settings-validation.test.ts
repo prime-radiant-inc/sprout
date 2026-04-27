@@ -278,4 +278,46 @@ describe("validateSproutSettings", () => {
 			"Memory model 'subcortical' must include a non-empty providerId",
 		);
 	});
+
+	test("allows agent model tuples for enabled providers", () => {
+		const settings = createEmptySettings();
+		settings.providers = [
+			makeProvider({
+				id: "anthropic",
+				kind: "anthropic",
+				baseUrl: undefined,
+				enabled: true,
+			}),
+		];
+		settings.agentModels = {
+			"observer.metacognitive": {
+				providerId: "anthropic",
+				modelId: "claude-sonnet-4-6",
+			},
+		};
+
+		expect(() => validateSproutSettings(settings)).not.toThrow();
+	});
+
+	test("rejects agent models that reference missing or disabled providers", () => {
+		const settings = createEmptySettings();
+		settings.providers = [
+			makeProvider({
+				id: "anthropic",
+				kind: "anthropic",
+				baseUrl: undefined,
+				enabled: false,
+			}),
+		];
+		settings.agentModels = {
+			"observer.metacognitive": {
+				providerId: "anthropic",
+				modelId: "claude-sonnet-4-6",
+			},
+		};
+
+		expect(() => validateSproutSettings(settings)).toThrow(
+			"Agent model 'observer.metacognitive' must reference an enabled provider: anthropic",
+		);
+	});
 });

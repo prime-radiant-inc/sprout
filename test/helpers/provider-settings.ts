@@ -15,6 +15,7 @@ export function makeSettingsSnapshot(): SettingsSnapshot {
 			modelOverrides: {
 				defaults: {},
 				memoryModels: {},
+				agentModels: {},
 			},
 		},
 		settings: {
@@ -53,6 +54,7 @@ export function makeSettingsSnapshot(): SettingsSnapshot {
 				},
 			},
 			memoryModels: {},
+			agentModels: {},
 		},
 		providers: [
 			{

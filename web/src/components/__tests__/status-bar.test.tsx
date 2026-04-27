@@ -37,10 +37,11 @@ function makeSettings(): SettingsSnapshot {
 				available: true,
 			},
 			warnings: [],
-			modelOverrides: {
-				defaults: {},
-				memoryModels: {},
-			},
+				modelOverrides: {
+					defaults: {},
+					memoryModels: {},
+					agentModels: {},
+				},
 		},
 		settings: {
 			version: 3,
@@ -71,9 +72,10 @@ function makeSettings(): SettingsSnapshot {
 					providerId: "anthropic-main",
 					modelId: "claude-sonnet-4-6",
 				},
+				},
+				memoryModels: {},
+				agentModels: {},
 			},
-			memoryModels: {},
-		},
 		providers: [
 			{
 				providerId: "anthropic-main",

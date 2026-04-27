@@ -19,6 +19,7 @@ function makeSettings(providers: ProviderConfig[]): SproutSettings {
 		providers,
 		defaults: {},
 		memoryModels: {},
+		agentModels: {},
 	};
 }
 

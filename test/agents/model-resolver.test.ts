@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { resolveMemoryModel, resolveModel } from "../../src/agents/model-resolver.ts";
+import {
+	resolveAgentModel,
+	resolveMemoryModel,
+	resolveModel,
+} from "../../src/agents/model-resolver.ts";
 import type { ModelRef, ProviderConfig, SproutSettings } from "../../src/host/settings/types.ts";
 import type { ProviderCatalogEntry } from "../../src/llm/model-catalog.ts";
 import type { ProviderModel } from "../../src/llm/types.ts";
@@ -20,12 +24,14 @@ function settingsFor(
 	providers: ProviderConfig[],
 	defaults: SproutSettings["defaults"] = {},
 	memoryModels: SproutSettings["memoryModels"] = {},
+	agentModels: SproutSettings["agentModels"] = {},
 ): SproutSettings {
 	return {
 		version: 3,
 		providers,
 		defaults,
 		memoryModels,
+		agentModels,
 	};
 }
 
@@ -186,6 +192,50 @@ describe("resolveModel", () => {
 				catalog([{ providerId: "anthropic-main", models: [model("claude-sonnet-4-6")] }]),
 			),
 		).toThrow(/provider/i);
+	});
+});
+
+describe("resolveAgentModel", () => {
+	test("resolves configured agent model purposes without falling back to defaults", () => {
+		const settings = settingsFor(
+			[provider()],
+			{
+				fast: {
+					providerId: "anthropic-main",
+					modelId: "claude-haiku-4-5",
+				},
+			},
+			{},
+			{
+				"observer.metacognitive": {
+					providerId: "anthropic-main",
+					modelId: "claude-sonnet-4-6",
+				},
+			},
+		);
+
+		expect(
+			resolveAgentModel(
+				"observer.metacognitive",
+				settings,
+				catalog([
+					{
+						providerId: "anthropic-main",
+						models: [model("claude-sonnet-4-6")],
+					},
+				]),
+			),
+		).toEqual({ provider: "anthropic-main", model: "claude-sonnet-4-6" });
+		expect(resolveModel("observer.metacognitive", settings, catalog([]))).toEqual({
+			provider: "anthropic-main",
+			model: "claude-sonnet-4-6",
+		});
+	});
+
+	test("fails clearly when an agent model purpose is missing", () => {
+		expect(() =>
+			resolveAgentModel("observer.metacognitive", settingsFor([provider()]), catalog([])),
+		).toThrow("No agent 'observer.metacognitive' model is configured");
 	});
 });
 

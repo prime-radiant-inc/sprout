@@ -25,6 +25,7 @@ function makeSettingsSnapshot(): SettingsSnapshot {
 			modelOverrides: {
 				defaults: {},
 				memoryModels: {},
+				agentModels: {},
 			},
 		},
 		settings: createEmptySettings(),

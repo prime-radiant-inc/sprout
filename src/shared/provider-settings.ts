@@ -10,6 +10,7 @@ export type MemoryModelPurpose =
 	| "consolidation"
 	| "entityGc"
 	| "subcortical";
+export type AgentModelPurpose = "observer.metacognitive";
 
 export const MEMORY_MODEL_PURPOSES = [
 	"summary",
@@ -27,6 +28,14 @@ export const MEMORY_MODEL_LABELS: Record<MemoryModelPurpose, string> = {
 	consolidation: "Consolidation reviewer",
 	entityGc: "Entity GC reviewer",
 	subcortical: "Subcortical recall",
+};
+
+export const AGENT_MODEL_PURPOSES = [
+	"observer.metacognitive",
+] as const satisfies readonly AgentModelPurpose[];
+
+export const AGENT_MODEL_LABELS: Record<AgentModelPurpose, string> = {
+	"observer.metacognitive": "Metacognitive observer",
 };
 
 export interface ModelRef {
@@ -57,10 +66,12 @@ export interface DefaultsConfig {
 }
 
 export type MemoryModelsConfig = Partial<Record<MemoryModelPurpose, ModelRef>>;
+export type AgentModelsConfig = Partial<Record<AgentModelPurpose, ModelRef>>;
 
 export interface SproutSettings {
 	version: typeof SETTINGS_SCHEMA_VERSION;
 	providers: ProviderConfig[];
 	defaults: DefaultsConfig;
 	memoryModels: MemoryModelsConfig;
+	agentModels: AgentModelsConfig;
 }

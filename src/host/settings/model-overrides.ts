@@ -2,6 +2,8 @@ import type { ProviderCatalogEntry } from "../../llm/model-catalog.ts";
 import type { ProviderModel } from "../../llm/types.ts";
 import { backfillRequiredMemoryModels } from "./memory-model-defaults.ts";
 import {
+	AGENT_MODEL_PURPOSES,
+	type AgentModelPurpose,
 	MEMORY_MODEL_PURPOSES,
 	type MemoryModelPurpose,
 	type ModelRef,
@@ -21,6 +23,7 @@ export interface ModelConfigOverride {
 export interface ModelConfigOverrides {
 	defaults: Partial<Record<Tier, ModelConfigOverride>>;
 	memoryModels: Partial<Record<MemoryModelPurpose, ModelConfigOverride>>;
+	agentModels: Partial<Record<AgentModelPurpose, ModelConfigOverride>>;
 }
 
 const DEFAULT_MODEL_ENV_VARS: Record<Tier, string> = {
@@ -38,12 +41,17 @@ const MEMORY_MODEL_ENV_VARS: Record<MemoryModelPurpose, string> = {
 	subcortical: "SPROUT_MEMORY_SUBCORTICAL_MODEL",
 };
 
+const AGENT_MODEL_ENV_VARS: Record<AgentModelPurpose, string> = {
+	"observer.metacognitive": "SPROUT_OBSERVER_METACOGNITIVE_MODEL",
+};
+
 const TIERS = ["best", "balanced", "fast"] as const satisfies readonly Tier[];
 
 export function createEmptyModelConfigOverrides(): ModelConfigOverrides {
 	return {
 		defaults: {},
 		memoryModels: {},
+		agentModels: {},
 	};
 }
 
@@ -60,6 +68,11 @@ export function parseModelConfigOverrides(
 		const envVar = MEMORY_MODEL_ENV_VARS[purpose];
 		const model = parseModelRef(env[envVar], envVar);
 		if (model) overrides.memoryModels[purpose] = createEnvOverride(envVar, model);
+	}
+	for (const purpose of AGENT_MODEL_PURPOSES) {
+		const envVar = AGENT_MODEL_ENV_VARS[purpose];
+		const model = parseModelRef(env[envVar], envVar);
+		if (model) overrides.agentModels[purpose] = createEnvOverride(envVar, model);
 	}
 	return overrides;
 }
@@ -86,11 +99,12 @@ export function validateModelConfigOverrides(
 }
 
 export function applyModelConfigOverrides(
-	settings: Pick<SproutSettings, "providers" | "defaults" | "memoryModels">,
+	settings: Pick<SproutSettings, "providers" | "defaults" | "memoryModels" | "agentModels">,
 	overrides: ModelConfigOverrides,
-): Pick<SproutSettings, "providers" | "defaults" | "memoryModels"> {
+): Pick<SproutSettings, "providers" | "defaults" | "memoryModels" | "agentModels"> {
 	const defaults = structuredClone(settings.defaults);
 	const memoryModels = structuredClone(settings.memoryModels);
+	const agentModels = structuredClone(settings.agentModels ?? {});
 
 	for (const tier of TIERS) {
 		const override = overrides.defaults[tier];
@@ -100,11 +114,16 @@ export function applyModelConfigOverrides(
 		const override = overrides.memoryModels[purpose];
 		if (override) memoryModels[purpose] = override.model;
 	}
+	for (const purpose of AGENT_MODEL_PURPOSES) {
+		const override = overrides.agentModels[purpose];
+		if (override) agentModels[purpose] = override.model;
+	}
 
 	return {
 		providers: structuredClone(settings.providers),
 		defaults,
 		memoryModels: backfillRequiredMemoryModels(defaults, memoryModels),
+		agentModels,
 	};
 }
 
@@ -115,6 +134,7 @@ export function buildModelConfigOverrideSnapshot(
 	const catalogMap = new Map(catalog.map((entry) => [entry.providerId, entry.models]));
 	const defaults: ModelConfigOverrides["defaults"] = {};
 	const memoryModels: ModelConfigOverrides["memoryModels"] = {};
+	const agentModels: ModelConfigOverrides["agentModels"] = {};
 
 	for (const tier of TIERS) {
 		const override = overrides.defaults[tier];
@@ -124,8 +144,12 @@ export function buildModelConfigOverrideSnapshot(
 		const override = overrides.memoryModels[purpose];
 		if (override) memoryModels[purpose] = annotateOverride(override, catalogMap);
 	}
+	for (const purpose of AGENT_MODEL_PURPOSES) {
+		const override = overrides.agentModels[purpose];
+		if (override) agentModels[purpose] = annotateOverride(override, catalogMap);
+	}
 
-	return { defaults, memoryModels };
+	return { defaults, memoryModels, agentModels };
 }
 
 export function findModelConfigOverridesForProvider(
@@ -167,6 +191,10 @@ function enumerateOverrides(overrides: ModelConfigOverrides): ModelConfigOverrid
 	}
 	for (const purpose of MEMORY_MODEL_PURPOSES) {
 		const override = overrides.memoryModels[purpose];
+		if (override) values.push(override);
+	}
+	for (const purpose of AGENT_MODEL_PURPOSES) {
+		const override = overrides.agentModels[purpose];
 		if (override) values.push(override);
 	}
 	return values;

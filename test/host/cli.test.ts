@@ -52,6 +52,7 @@ describe("buildInteractiveModeRuntime", () => {
 						modelOverrides: {
 							defaults: {},
 							memoryModels: {},
+							agentModels: {},
 						},
 					},
 					settings: {
@@ -59,6 +60,7 @@ describe("buildInteractiveModeRuntime", () => {
 						providers: [],
 						defaults: {},
 						memoryModels: {},
+						agentModels: {},
 					},
 					providers: [],
 					catalog: [],

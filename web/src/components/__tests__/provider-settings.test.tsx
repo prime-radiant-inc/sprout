@@ -5,6 +5,10 @@ import type {
 	SettingsSnapshot,
 } from "@kernel/types.ts";
 import { renderToStaticMarkup } from "react-dom/server";
+import {
+	AgentModelsPanel,
+	createSetAgentModelCommand,
+} from "../settings/AgentModelsPanel.tsx";
 import { DefaultModelsPanel } from "../settings/DefaultModelsPanel.tsx";
 import {
 	createSetMemoryModelCommand,
@@ -35,6 +39,7 @@ function makeSettings(): SettingsSnapshot {
 			modelOverrides: {
 				defaults: {},
 				memoryModels: {},
+				agentModels: {},
 			},
 		},
 		settings: {
@@ -73,6 +78,7 @@ function makeSettings(): SettingsSnapshot {
 				},
 			},
 			memoryModels: {},
+			agentModels: {},
 		},
 		providers: [
 			{
@@ -177,6 +183,7 @@ describe("ProviderSettingsPanel", () => {
 								providers: [],
 								defaults: {},
 								memoryModels: {},
+								agentModels: {},
 							},
 							providers: [],
 							catalog: [],
@@ -209,6 +216,7 @@ describe("ProviderSettingsPanel", () => {
 
 		expect(html).toContain("Default models");
 		expect(html).toContain("Memory models");
+		expect(html).toContain("Agent models");
 		expect(html).toContain("Recovered invalid settings file to /tmp/settings.invalid.json");
 	});
 
@@ -366,6 +374,62 @@ describe("MemoryModelsPanel", () => {
 		expect(html).toContain("Refresh models to configure memory models.");
 		expect(html).toContain("Stored: anthropic-main:claude-sonnet-4-6");
 		expect(html).toContain("SPROUT_MEMORY_EXTRACTION_MODEL");
+	});
+});
+
+describe("AgentModelsPanel", () => {
+	test("renders agent model controls and env override notes", () => {
+		const settings = makeSettings();
+		settings.settings.agentModels = {
+			"observer.metacognitive": {
+				providerId: "anthropic-main",
+				modelId: "claude-sonnet-4-6",
+			},
+		};
+		settings.runtime.modelOverrides.agentModels["observer.metacognitive"] = {
+			source: "env",
+			envVar: "SPROUT_OBSERVER_METACOGNITIVE_MODEL",
+			model: {
+				providerId: "lmstudio",
+				modelId: "qwen2.5-coder",
+			},
+			catalogStatus: "matched",
+			displayLabel: "Qwen 2.5 Coder",
+		};
+
+		const html = renderToStaticMarkup(
+			<AgentModelsPanel settings={settings} onCommand={() => {}} />,
+		);
+
+		expect(html).toContain("Agent models");
+		expect(html).toContain("Metacognitive observer");
+		expect(html).toContain("SPROUT_OBSERVER_METACOGNITIVE_MODEL");
+		expect(html).toContain("Qwen 2.5 Coder");
+	});
+
+	test("builds set agent model commands", () => {
+		expect(
+			createSetAgentModelCommand(
+				"observer.metacognitive",
+				"anthropic-main:claude-sonnet-4-6",
+			),
+		).toEqual({
+			kind: "set_agent_model",
+			data: {
+				purpose: "observer.metacognitive",
+				model: {
+					providerId: "anthropic-main",
+					modelId: "claude-sonnet-4-6",
+				},
+			},
+		});
+		expect(createSetAgentModelCommand("observer.metacognitive", "")).toEqual({
+			kind: "set_agent_model",
+			data: {
+				purpose: "observer.metacognitive",
+				model: undefined,
+			},
+		});
 	});
 });
 

@@ -292,6 +292,7 @@ export async function bootstrapSessionRuntime(
 			context.settings.providers,
 			context.settings.defaults,
 			context.settings.memoryModels,
+			context.settings.agentModels,
 		);
 	};
 	const updateGenomeServiceRuntime = () => {

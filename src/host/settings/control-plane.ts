@@ -12,6 +12,8 @@ import {
 	type SecretStore,
 } from "./secret-store.ts";
 import {
+	AGENT_MODEL_PURPOSES,
+	type AgentModelPurpose,
 	MEMORY_MODEL_PURPOSES,
 	type MemoryModelPurpose,
 	type ModelRef,
@@ -59,7 +61,8 @@ export interface SettingsRuntimeWarning {
 		| "secret_backend_unavailable"
 		| "invalid_settings_recovered"
 		| "secret_cleanup_failed"
-		| "memory_models_incomplete";
+		| "memory_models_incomplete"
+		| "agent_models_incomplete";
 	message: string;
 }
 
@@ -70,7 +73,7 @@ export interface SettingsRuntimeSnapshot {
 }
 
 export interface SelectionContextSnapshot {
-	settings: Pick<SproutSettings, "providers" | "defaults" | "memoryModels">;
+	settings: Pick<SproutSettings, "providers" | "defaults" | "memoryModels" | "agentModels">;
 	catalog: ProviderCatalogEntry[];
 }
 
@@ -106,6 +109,10 @@ export type SettingsCommand =
 	| {
 			kind: "set_memory_model";
 			data: { purpose: MemoryModelPurpose; model?: ModelRef };
+	  }
+	| {
+			kind: "set_agent_model";
+			data: { purpose: AgentModelPurpose; model?: ModelRef };
 	  };
 
 export type SettingsCommandResult =
@@ -159,7 +166,11 @@ export class SettingsControlPlane {
 	private readonly providerCatalog = new Map<string, ProviderCatalogEntry>();
 
 	constructor(options: SettingsControlPlaneOptions) {
-		this.settings = structuredClone(options.initialSettings);
+		const initialSettings = structuredClone(options.initialSettings);
+		this.settings = {
+			...initialSettings,
+			agentModels: initialSettings.agentModels ?? {},
+		};
 		this.settingsStore = options.settingsStore;
 		this.secretStore = options.secretStore;
 		this.secretBackend = options.secretBackend;
@@ -227,6 +238,8 @@ export class SettingsControlPlane {
 				return this.setDefaultModel(command.data.slot, command.data.model);
 			case "set_memory_model":
 				return this.setMemoryModel(command.data.purpose, command.data.model);
+			case "set_agent_model":
+				return this.setAgentModel(command.data.purpose, command.data.model);
 		}
 	}
 
@@ -285,6 +298,7 @@ export class SettingsControlPlane {
 		next.providers.splice(providerIndex, 1);
 		next.defaults = removeDefaultsForProvider(next.defaults, providerId);
 		next.memoryModels = removeMemoryModelsForProvider(next.memoryModels, providerId);
+		next.agentModels = removeAgentModelsForProvider(next.agentModels, providerId);
 
 		this.providerState.delete(providerId);
 		this.providerCatalog.delete(providerId);
@@ -399,6 +413,7 @@ export class SettingsControlPlane {
 		} else {
 			next.defaults = removeDefaultsForProvider(next.defaults, providerId);
 			next.memoryModels = removeMemoryModelsForProvider(next.memoryModels, providerId);
+			next.agentModels = removeAgentModelsForProvider(next.agentModels, providerId);
 		}
 
 		return this.persistSettings(next, [providerId], true);
@@ -462,6 +477,30 @@ export class SettingsControlPlane {
 		if (validation) return validation;
 
 		next.memoryModels[purpose] = model;
+		return this.persistSettings(next, [], true);
+	}
+
+	private async setAgentModel(
+		purpose: AgentModelPurpose,
+		model?: ModelRef,
+	): Promise<SettingsCommandResult> {
+		const next = structuredClone(this.settings);
+		if (!model) {
+			delete next.agentModels[purpose];
+			return this.persistSettings(next, [], true);
+		}
+
+		const fieldKey = `agentModels.${purpose}`;
+		const validation = this.validateConfiguredModel(
+			next,
+			model,
+			fieldKey,
+			`agent '${purpose}' model`,
+			"Refresh models to configure agent models",
+		);
+		if (validation) return validation;
+
+		next.agentModels[purpose] = model;
 		return this.persistSettings(next, [], true);
 	}
 
@@ -698,6 +737,15 @@ export class SettingsControlPlane {
 				message: `Memory model settings incomplete. Configure exact models for: ${missingMemoryModels.join(", ")}`,
 			});
 		}
+		const missingAgentModels = missingConfiguredAgentModels(
+			applyModelConfigOverrides(this.settings, this.modelOverrides),
+		);
+		if (missingAgentModels.length > 0) {
+			warnings.push({
+				code: "agent_models_incomplete",
+				message: `Agent model settings incomplete. Configure exact models for: ${missingAgentModels.join(", ")}`,
+			});
+		}
 		return warnings.filter(
 			(warning, index, all) =>
 				all.findIndex(
@@ -777,6 +825,19 @@ function removeMemoryModelsForProvider(
 	return next;
 }
 
+function removeAgentModelsForProvider(
+	agentModels: SproutSettings["agentModels"],
+	providerId: string,
+): SproutSettings["agentModels"] {
+	const next: SproutSettings["agentModels"] = {};
+	for (const purpose of AGENT_MODEL_PURPOSES) {
+		const modelRef = agentModels[purpose];
+		if (!modelRef || modelRef.providerId === providerId) continue;
+		next[purpose] = modelRef;
+	}
+	return next;
+}
+
 function dedupe(values: string[]): string[] {
 	return [...new Set(values)];
 }
@@ -786,6 +847,13 @@ function missingConfiguredMemoryModels(
 ): MemoryModelPurpose[] {
 	if (!settings.providers.some((provider) => provider.enabled)) return [];
 	return MEMORY_MODEL_PURPOSES.filter((purpose) => !settings.memoryModels[purpose]);
+}
+
+function missingConfiguredAgentModels(
+	settings: Pick<SproutSettings, "providers" | "agentModels">,
+): AgentModelPurpose[] {
+	if (!settings.providers.some((provider) => provider.enabled)) return [];
+	return AGENT_MODEL_PURPOSES.filter((purpose) => !settings.agentModels[purpose]);
 }
 
 function dedupeWarnings(warnings: SettingsRuntimeWarning[]): SettingsRuntimeWarning[] {

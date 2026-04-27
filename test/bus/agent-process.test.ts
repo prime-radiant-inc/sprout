@@ -500,6 +500,7 @@ describe("runAgentProcess", () => {
 				],
 				defaults: {},
 				memoryModels: {},
+				agentModels: {},
 			};
 			const logger = new SessionLogger({
 				logPath: join(tempDir, "session.log.jsonl"),
@@ -560,6 +561,7 @@ describe("runAgentProcess", () => {
 							providers: [],
 							defaults: {},
 							memoryModels: {},
+							agentModels: {},
 						},
 						skipEnvImport: false,
 						source: "missing",
@@ -598,6 +600,7 @@ describe("runAgentProcess", () => {
 						],
 						defaults: {},
 						memoryModels: {},
+						agentModels: {},
 					},
 					validationErrorsByProvider: {},
 				};

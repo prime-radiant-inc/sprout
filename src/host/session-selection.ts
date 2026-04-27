@@ -9,7 +9,7 @@ import type { ProviderCatalogEntry } from "./settings/control-plane.ts";
 import type { ModelRef, SessionModelSelection, SproutSettings } from "./settings/types.ts";
 
 export interface SessionSelectionContext {
-	settings: Pick<SproutSettings, "providers" | "defaults" | "memoryModels">;
+	settings: Pick<SproutSettings, "providers" | "defaults" | "memoryModels" | "agentModels">;
 	catalog: ProviderCatalogEntry[];
 }
 

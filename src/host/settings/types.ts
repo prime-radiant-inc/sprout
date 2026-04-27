@@ -1,4 +1,6 @@
 import {
+	AGENT_MODEL_PURPOSES,
+	type AgentModelPurpose,
 	MEMORY_MODEL_PURPOSES,
 	type MemoryModelPurpose,
 	type ModelRef,
@@ -17,6 +19,7 @@ export function createEmptySettings(): SproutSettings {
 		providers: [],
 		defaults: {},
 		memoryModels: {},
+		agentModels: {},
 	};
 }
 
@@ -56,6 +59,17 @@ export function validateSproutSettings(settings: SproutSettings): void {
 			);
 		}
 	}
+
+	for (const purpose of AGENT_MODEL_PURPOSES) {
+		const modelRef = settings.agentModels[purpose];
+		if (!modelRef) continue;
+		validateModelRef(modelRef, `Agent model '${purpose}'`);
+		if (!enabledProviderIds.has(modelRef.providerId)) {
+			throw new Error(
+				`Agent model '${purpose}' must reference an enabled provider: ${modelRef.providerId}`,
+			);
+		}
+	}
 }
 
 function validateModelRef(modelRef: ModelRef, label: string): void {
@@ -71,4 +85,4 @@ function isNonEmptyString(value: unknown): value is string {
 	return typeof value === "string" && value.trim().length > 0;
 }
 
-export type { MemoryModelPurpose };
+export type { AgentModelPurpose, MemoryModelPurpose };

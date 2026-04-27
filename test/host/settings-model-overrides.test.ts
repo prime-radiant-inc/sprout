@@ -13,6 +13,7 @@ describe("model config env overrides", () => {
 		const overrides = parseModelConfigOverrides({
 			SPROUT_DEFAULT_BEST_MODEL: "openrouter:openai/gpt-4o-mini",
 			SPROUT_MEMORY_EXTRACTION_MODEL: "anthropic:claude-sonnet-4-6",
+			SPROUT_OBSERVER_METACOGNITIVE_MODEL: "anthropic:claude-haiku-4-5",
 		});
 
 		expect(overrides.defaults.best).toMatchObject({
@@ -33,6 +34,14 @@ describe("model config env overrides", () => {
 			},
 		});
 		expect(overrides.memoryModels.summary).toBeUndefined();
+		expect(overrides.agentModels["observer.metacognitive"]).toMatchObject({
+			source: "env",
+			envVar: "SPROUT_OBSERVER_METACOGNITIVE_MODEL",
+			model: {
+				providerId: "anthropic",
+				modelId: "claude-haiku-4-5",
+			},
+		});
 	});
 
 	test("rejects malformed env override values with the env var name", () => {
@@ -86,10 +95,14 @@ describe("model config env overrides", () => {
 			memoryModels: {
 				extraction: { providerId: "anthropic", modelId: "claude-sonnet-4-6" },
 			},
+			agentModels: {
+				"observer.metacognitive": { providerId: "anthropic", modelId: "claude-haiku-4-5" },
+			},
 		};
 		const overrides = parseModelConfigOverrides({
 			SPROUT_DEFAULT_BEST_MODEL: "openrouter:openai/gpt-4o-mini",
 			SPROUT_MEMORY_EXTRACTION_MODEL: "openrouter:openai/gpt-4o-mini",
+			SPROUT_OBSERVER_METACOGNITIVE_MODEL: "openrouter:openai/gpt-4o-mini",
 		});
 
 		const effective = applyModelConfigOverrides(settings, overrides);
@@ -106,6 +119,10 @@ describe("model config env overrides", () => {
 			providerId: "openrouter",
 			modelId: "openai/gpt-4o-mini",
 		});
+		expect(effective.agentModels["observer.metacognitive"]).toEqual({
+			providerId: "openrouter",
+			modelId: "openai/gpt-4o-mini",
+		});
 		expect(settings.defaults.best).toEqual({
 			providerId: "anthropic",
 			modelId: "claude-opus-4-6",
@@ -114,6 +131,10 @@ describe("model config env overrides", () => {
 			providerId: "anthropic",
 			modelId: "claude-sonnet-4-6",
 		});
+		expect(settings.agentModels["observer.metacognitive"]).toEqual({
+			providerId: "anthropic",
+			modelId: "claude-haiku-4-5",
+		});
 	});
 
 	test("annotates override catalog status for runtime snapshots", () => {
@@ -121,6 +142,7 @@ describe("model config env overrides", () => {
 			SPROUT_DEFAULT_BEST_MODEL: "openrouter:openai/gpt-4o-mini",
 			SPROUT_MEMORY_RELATIONSHIP_MODEL: "anthropic:missing-model",
 			SPROUT_MEMORY_SUBCORTICAL_MODEL: "local:qwen2.5-coder",
+			SPROUT_OBSERVER_METACOGNITIVE_MODEL: "anthropic:missing-model",
 		});
 
 		const snapshot = buildModelConfigOverrideSnapshot(overrides, [
@@ -145,17 +167,26 @@ describe("model config env overrides", () => {
 		expect(snapshot.memoryModels.subcortical).toMatchObject({
 			catalogStatus: "not_loaded",
 		});
+		expect(snapshot.agentModels["observer.metacognitive"]).toMatchObject({
+			catalogStatus: "missing",
+			diagnostic: "Model 'missing-model' is not in the loaded catalog for provider 'anthropic'",
+		});
 	});
 
 	test("finds env overrides that block provider lifecycle actions", () => {
 		const overrides = parseModelConfigOverrides({
 			SPROUT_DEFAULT_FAST_MODEL: "lmstudio:qwen2.5-coder",
 			SPROUT_MEMORY_SUBCORTICAL_MODEL: "lmstudio:qwen2.5-coder",
+			SPROUT_OBSERVER_METACOGNITIVE_MODEL: "lmstudio:qwen2.5-coder",
 		});
 
 		expect(
 			findModelConfigOverridesForProvider(overrides, "lmstudio").map((override) => override.envVar),
-		).toEqual(["SPROUT_DEFAULT_FAST_MODEL", "SPROUT_MEMORY_SUBCORTICAL_MODEL"]);
+		).toEqual([
+			"SPROUT_DEFAULT_FAST_MODEL",
+			"SPROUT_MEMORY_SUBCORTICAL_MODEL",
+			"SPROUT_OBSERVER_METACOGNITIVE_MODEL",
+		]);
 		expect(findModelConfigOverridesForProvider(overrides, "anthropic")).toEqual([]);
 	});
 });

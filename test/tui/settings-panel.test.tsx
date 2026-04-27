@@ -56,6 +56,7 @@ describe("SettingsPanel", () => {
 						modelOverrides: {
 							defaults: {},
 							memoryModels: {},
+							agentModels: {},
 						},
 					},
 					settings: {
@@ -63,6 +64,7 @@ describe("SettingsPanel", () => {
 						providers: [],
 						defaults: {},
 						memoryModels: {},
+						agentModels: {},
 					},
 					providers: [],
 					catalog: [],

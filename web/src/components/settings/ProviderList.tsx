@@ -6,6 +6,7 @@ export interface ProviderListProps {
 	selectedKey: string;
 	onSelectDefaults: () => void;
 	onSelectMemory: () => void;
+	onSelectAgents: () => void;
 	onSelectProvider: (providerId: string) => void;
 	onCreateProvider: () => void;
 }
@@ -35,6 +36,7 @@ export function ProviderList({
 	selectedKey,
 	onSelectDefaults,
 	onSelectMemory,
+	onSelectAgents,
 	onSelectProvider,
 	onCreateProvider,
 }: ProviderListProps) {
@@ -58,6 +60,16 @@ export function ProviderList({
 			>
 				<span className={styles.listTitle}>Memory models</span>
 				<span className={styles.listMeta}>Internal summary, extraction, and recall choices</span>
+			</button>
+
+			<button
+				type="button"
+				className={`${styles.listItem} ${selectedKey === "agents" ? styles.listItemActive : ""}`}
+				data-action="select-agents"
+				onClick={onSelectAgents}
+			>
+				<span className={styles.listTitle}>Agent models</span>
+				<span className={styles.listMeta}>Internal observer and sidecar agent choices</span>
 			</button>
 
 			{settings.settings.providers.map((provider) => {

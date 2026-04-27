@@ -567,6 +567,7 @@ describe("bootstrapSessionRuntime", () => {
 							catalogStatus: "not_loaded",
 						},
 					},
+					agentModels: {},
 				}),
 			},
 		);
@@ -641,6 +642,7 @@ describe("bootstrapSessionRuntime", () => {
 							catalogStatus: "not_loaded",
 						},
 					},
+					agentModels: {},
 				}),
 			}),
 		).rejects.toThrow("SPROUT_MEMORY_EXTRACTION_MODEL references unknown provider 'missing'");
@@ -666,6 +668,7 @@ describe("bootstrapSessionRuntime", () => {
 						},
 					},
 					memoryModels: {},
+					agentModels: {},
 				}),
 			}),
 		).rejects.toThrow("SPROUT_DEFAULT_FAST_MODEL references disabled provider 'openrouter'");
@@ -1048,6 +1051,7 @@ describe("bootstrapSessionRuntime", () => {
 					modelId: "gpt-4.1-mini",
 				},
 			},
+			agentModels: {},
 		});
 	});
 

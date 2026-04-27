@@ -175,6 +175,7 @@ describe("SettingsStore", () => {
 					modelId: "gpt-4.1",
 				},
 			},
+			agentModels: {},
 		});
 	});
 
@@ -262,6 +263,46 @@ describe("SettingsStore", () => {
 			providers: settings.providers,
 			memoryModels: {
 				extraction: {
+					providerId: "anthropic",
+					modelId: "claude-sonnet-4-6",
+				},
+			},
+		});
+	});
+
+	test("save preserves known agent models and drops unknown purpose keys", async () => {
+		const { store, settingsPath } = await makeStore();
+		const settings = {
+			...createEmptySettings(),
+			providers: [
+				{
+					id: "anthropic",
+					kind: "anthropic" as const,
+					label: "Anthropic",
+					enabled: true,
+					createdAt: "2026-03-11T12:00:00.000Z",
+					updatedAt: "2026-03-11T12:00:00.000Z",
+				},
+			],
+			agentModels: {
+				"observer.metacognitive": {
+					providerId: "anthropic",
+					modelId: "claude-sonnet-4-6",
+				},
+				notAPurpose: {
+					providerId: "anthropic",
+					modelId: "bad",
+				},
+			},
+		};
+
+		await store.save(settings);
+
+		expect(JSON.parse(await readFile(settingsPath, "utf-8"))).toEqual({
+			...createEmptySettings(),
+			providers: settings.providers,
+			agentModels: {
+				"observer.metacognitive": {
 					providerId: "anthropic",
 					modelId: "claude-sonnet-4-6",
 				},
