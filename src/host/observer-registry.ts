@@ -106,7 +106,7 @@ export class ObserverRegistry {
 		for (const subscription of this.subscriptions) {
 			if (!subscription.includeKinds.has(event.kind)) continue;
 			subscription.pendingEvents.push(event);
-			if (event.depth > 0) {
+			if (subscription.config.target === "caller_delegates" && event.depth > 0) {
 				const childEvents = subscription.childEventsByAgentId.get(event.agent_id) ?? [];
 				childEvents.push(event);
 				subscription.childEventsByAgentId.set(event.agent_id, childEvents);
@@ -275,6 +275,7 @@ export class ObserverRegistry {
 		if (subscription.pendingEvents.length > maxPendingEvents) {
 			subscription.pendingEvents = subscription.pendingEvents.slice(-maxPendingEvents);
 		}
+		if (subscription.config.target !== "caller_delegates") return;
 		for (const [agentId, events] of subscription.childEventsByAgentId) {
 			if (events.length > maxPendingEvents) {
 				subscription.childEventsByAgentId.set(agentId, events.slice(-maxPendingEvents));
