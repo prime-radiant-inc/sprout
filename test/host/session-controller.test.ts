@@ -6,7 +6,11 @@ import { createResolverSettings } from "../../src/agents/model-resolver.ts";
 import type { EventMessage } from "../../src/bus/types.ts";
 import { EventBus } from "../../src/host/event-bus.ts";
 import { type LogEntry, NullLogger, SessionLogger } from "../../src/host/logger.ts";
-import { type AgentFactory, SessionController } from "../../src/host/session-controller.ts";
+import {
+	type AgentFactory,
+	resolveCollapseMemoryModels,
+	SessionController,
+} from "../../src/host/session-controller.ts";
 import type { SessionMetadataSnapshot } from "../../src/host/session-metadata.ts";
 import { Msg, type ProviderModel, type Response } from "../../src/llm/types.ts";
 import { sleep, waitFor } from "../helpers/wait-for.ts";
@@ -401,15 +405,108 @@ describe("SessionController", () => {
 			rootDir,
 			client,
 			getResolverSettings: () =>
-				createResolverSettings([{ id: providerId, enabled: true }], {
-					best: {
-						providerId,
-						modelId,
+				createResolverSettings(
+					[{ id: providerId, enabled: true }],
+					{
+						best: {
+							providerId,
+							modelId,
+						},
 					},
-				}),
+					{
+						summary: {
+							providerId,
+							modelId,
+						},
+						extraction: {
+							providerId,
+							modelId,
+						},
+					},
+				),
 		});
 
 		await expect(controller.submitGoal("say hello")).resolves.toBeUndefined();
+	});
+
+	test("resolves session collapse memory models from exact memory settings", async () => {
+		const providerId = "local";
+		const client = {
+			listModelsByProvider: async () =>
+				new Map<string, ProviderModel[]>([
+					[
+						providerId,
+						[
+							{ id: "summary-model", label: "summary-model", source: "remote" },
+							{ id: "extract-model", label: "extract-model", source: "remote" },
+						],
+					],
+				]),
+		};
+		const models = await resolveCollapseMemoryModels(
+			client,
+			createResolverSettings(
+				[{ id: providerId, enabled: true }],
+				{},
+				{
+					summary: { providerId, modelId: "summary-model" },
+					extraction: { providerId, modelId: "extract-model" },
+				},
+			),
+		);
+
+		expect(models.summaryModel).toEqual({ provider: providerId, model: "summary-model" });
+		expect(models.extractionModel).toEqual({ provider: providerId, model: "extract-model" });
+	});
+
+	test("session collapse startup validation rejects missing summary model without fallback", async () => {
+		const providerId = "local";
+		const client = {
+			listModelsByProvider: async () =>
+				new Map<string, ProviderModel[]>([
+					[providerId, [{ id: "shared-model", label: "shared-model", source: "remote" }]],
+				]),
+		};
+
+		await expect(
+			resolveCollapseMemoryModels(
+				client,
+				createResolverSettings(
+					[{ id: providerId, enabled: true }],
+					{
+						best: { providerId, modelId: "shared-model" },
+					},
+					{
+						extraction: { providerId, modelId: "shared-model" },
+					},
+				),
+			),
+		).rejects.toThrow(/SPROUT_MEMORY_SUMMARY_MODEL/);
+	});
+
+	test("session collapse startup validation rejects missing extraction model without fallback", async () => {
+		const providerId = "local";
+		const client = {
+			listModelsByProvider: async () =>
+				new Map<string, ProviderModel[]>([
+					[providerId, [{ id: "shared-model", label: "shared-model", source: "remote" }]],
+				]),
+		};
+
+		await expect(
+			resolveCollapseMemoryModels(
+				client,
+				createResolverSettings(
+					[{ id: providerId, enabled: true }],
+					{
+						fast: { providerId, modelId: "shared-model" },
+					},
+					{
+						summary: { providerId, modelId: "shared-model" },
+					},
+				),
+			),
+		).rejects.toThrow(/SPROUT_MEMORY_EXTRACTION_MODEL/);
 	});
 
 	test("submitGoal routes as steer when already running", async () => {

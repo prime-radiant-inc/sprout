@@ -3,6 +3,7 @@ import { AgentEventEmitter } from "../agents/events.ts";
 import { createAgent } from "../agents/factory.ts";
 import {
 	createResolverSettings,
+	type ResolvedModel,
 	type ResolverSettings,
 	resolveMemoryModel,
 } from "../agents/model-resolver.ts";
@@ -10,7 +11,8 @@ import type { AgentSpawner } from "../bus/spawner.ts";
 import { collapseSessionToMemory } from "../core/session-collapse.ts";
 import { detectProjectFromCwd } from "../genome/projects.ts";
 import type { Command, ModelRef, SessionEvent } from "../kernel/types.ts";
-import type { Message } from "../llm/types.ts";
+import type { Client } from "../llm/client.ts";
+import type { Message, ProviderModel } from "../llm/types.ts";
 import type { SessionSelectionRequest } from "../shared/session-selection.ts";
 import { ulid } from "../util/ulid.ts";
 import { compactHistory } from "./compaction.ts";
@@ -121,6 +123,11 @@ export interface AgentFactoryResult {
 /** Factory function that creates an agent. Injectable for testing. */
 export type AgentFactory = (options: AgentFactoryOptions) => Promise<AgentFactoryResult>;
 
+interface CollapseMemoryModels {
+	summaryModel: ResolvedModel;
+	extractionModel: ResolvedModel;
+}
+
 export interface SessionControllerOptions {
 	bus: SessionBus;
 	genomePath: string;
@@ -216,6 +223,10 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 		logger: options.logger,
 		client: options.client,
 	});
+	const collapseModels =
+		options.evalMode || isVcrReplayClient(result.client)
+			? undefined
+			: await resolveCollapseMemoryModels(result.client, options.resolverSettings);
 
 	return {
 		agent: result.agent,
@@ -228,9 +239,8 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 				provider: result.provider,
 				logPath,
 			}),
-		collapseMemory: isVcrReplayClient(result.client)
-			? undefined
-			: async ({ sessionId, cwd }) => {
+		collapseMemory: collapseModels
+			? async ({ sessionId, cwd }) => {
 					const project = await detectProjectFromCwd({ cwd });
 					const projectActivityChanged = await result.genome.recordProjectActivity(project);
 					if (projectActivityChanged) {
@@ -240,23 +250,12 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 					}
 					const logBasePath = join(options.projectDataDir ?? options.genomePath, "logs", sessionId);
 					const events = await loadAllEventLogs(`${logBasePath}.jsonl`, logBasePath);
-					const modelMap = await result.client.listModelsByProvider();
-					const resolverSettings =
-						options.resolverSettings ??
-						createResolverSettings(
-							[...modelMap.keys()].map((providerId) => ({
-								id: providerId,
-								enabled: true,
-							})),
-						);
-					const summaryModel = resolveMemoryModel("summary", resolverSettings, modelMap);
-					const extractionModel = resolveMemoryModel("extraction", resolverSettings, modelMap);
 					const collapse = await collapseSessionToMemory({
 						events,
 						genome: result.genome,
 						client: result.client,
-						summaryModel,
-						extractionModel,
+						summaryModel: collapseModels.summaryModel,
+						extractionModel: collapseModels.extractionModel,
 						sessionId,
 						cwd,
 						project,
@@ -265,8 +264,50 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 						await result.genome.recomputeMemoryScores();
 					}
 					return collapse;
-				},
+				}
+			: undefined,
 	};
+}
+
+export async function resolveCollapseMemoryModels(
+	client: Pick<Client, "listModelsByProvider">,
+	resolverSettings?: ResolverSettings,
+): Promise<CollapseMemoryModels> {
+	const modelMap = await client.listModelsByProvider();
+	const effectiveResolverSettings =
+		resolverSettings ??
+		createResolverSettings(
+			[...modelMap.keys()].map((providerId) => ({
+				id: providerId,
+				enabled: true,
+			})),
+		);
+	return {
+		summaryModel: resolveRequiredCollapseModel("summary", effectiveResolverSettings, modelMap),
+		extractionModel: resolveRequiredCollapseModel(
+			"extraction",
+			effectiveResolverSettings,
+			modelMap,
+		),
+	};
+}
+
+function resolveRequiredCollapseModel(
+	purpose: "summary" | "extraction",
+	resolverSettings: ResolverSettings,
+	modelMap: Map<string, ProviderModel[]>,
+): ResolvedModel {
+	try {
+		return resolveMemoryModel(purpose, resolverSettings, modelMap);
+	} catch (error) {
+		const envVar =
+			purpose === "summary" ? "SPROUT_MEMORY_SUMMARY_MODEL" : "SPROUT_MEMORY_EXTRACTION_MODEL";
+		const detail = error instanceof Error ? error.message : String(error);
+		throw new Error(
+			`Memory collapse requires a configured memory '${purpose}' model before the session can run. ` +
+				`Configure Settings > Memory models or set ${envVar}. ${detail}`,
+		);
+	}
 }
 
 function isVcrReplayClient(client: unknown): boolean {
