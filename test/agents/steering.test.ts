@@ -203,6 +203,7 @@ describe("Agent message queue", () => {
 		agent.receiveAgentMessage("You wrote: <start coding>. Answer the design question first.", {
 			agent_name: "metacognitive",
 			depth: 1,
+			role: "observer",
 		});
 		await agent.run("test goal");
 
@@ -210,7 +211,7 @@ describe("Agent message queue", () => {
 		expect(firstSystem).toContain("<IMPORTANT>\n<sprout:agent-messages>");
 		expect(firstSystem).toContain("</sprout:agent-messages>\n</IMPORTANT>");
 		expect(firstSystem).toContain("<sprout:agent-messages>");
-		expect(firstSystem).toContain('<message from="metacognitive">');
+		expect(firstSystem).toContain('<message from="metacognitive" role="observer">');
 		expect(firstSystem).toContain("&lt;start coding&gt;");
 		expect(
 			agent.currentHistory().some((message) => JSON.stringify(message).includes("start coding")),
@@ -218,6 +219,7 @@ describe("Agent message queue", () => {
 		const agentMessageEvents = events.collected().filter((event) => event.kind === "agent_message");
 		expect(agentMessageEvents).toHaveLength(1);
 		expect(agentMessageEvents[0]!.data.from_agent_name).toBe("metacognitive");
+		expect(agentMessageEvents[0]!.data.from_role).toBe("observer");
 	});
 
 	test("observer messages are serious guidance, not blind instructions", async () => {
@@ -244,6 +246,7 @@ describe("Agent message queue", () => {
 			{
 				agent_name: "metacognitive",
 				depth: 1,
+				role: "observer",
 			},
 		);
 		await agent.run("Do not delete files. Answer safely.");
@@ -309,6 +312,7 @@ describe("Agent message queue", () => {
 		agent.receiveAgentMessage("One-time guidance", {
 			agent_name: "metacognitive",
 			depth: 1,
+			role: "observer",
 		});
 		await agent.run("test goal");
 

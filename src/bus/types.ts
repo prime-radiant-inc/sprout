@@ -5,6 +5,7 @@ import type { SessionEvent } from "../kernel/types.ts";
 export interface CallerIdentity {
 	agent_name: string;
 	depth: number;
+	role?: "observer";
 }
 
 /** Sent to a new agent's inbox to start it */
@@ -159,6 +160,9 @@ function validateCallerIdentity(obj: Record<string, unknown>): void {
 	const c = caller as Record<string, unknown>;
 	if (typeof c.agent_name !== "string" || typeof c.depth !== "number") {
 		throw new Error("'caller' must have agent_name (string) and depth (number)");
+	}
+	if (c.role !== undefined && c.role !== "observer") {
+		throw new Error("'caller.role' must be observer when present");
 	}
 }
 

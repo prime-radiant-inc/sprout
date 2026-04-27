@@ -482,9 +482,18 @@ export class Agent {
 		this.emitAndLog("agent_message", this.agentId ?? this.spec.name, this.depth, {
 			from_agent_name: from.agent_name,
 			from_depth: from.depth,
+			...(from.role ? { from_role: from.role } : {}),
 			to_agent_name: this.spec.name,
 			text_preview: truncateAgentMessagePreview(text),
 		});
+	}
+
+	private callerIdentity(): CallerIdentity {
+		return {
+			agent_name: this.spec.name,
+			depth: this.depth,
+			...(this.spec.tags.includes("observer") ? { role: "observer" as const } : {}),
+		};
 	}
 
 	/** Request compaction on the next iteration (for manual /compact command). */
@@ -538,10 +547,12 @@ export class Agent {
 		].join("\n");
 		const entries = queued
 			.map(
-				(message) =>
-					`<message from="${escapeXml(message.from.agent_name)}">\n${escapeXml(
+				(message) => {
+					const role = message.from.role ? ` role="${escapeXml(message.from.role)}"` : "";
+					return `<message from="${escapeXml(message.from.agent_name)}"${role}>\n${escapeXml(
 						message.text,
-					)}\n</message>`,
+					)}\n</message>`;
+				},
 			)
 			.join("\n");
 		return `\n\n<IMPORTANT>\n<sprout:agent-messages>\n${guidance}\n${entries}\n</sprout:agent-messages>\n</IMPORTANT>`;
@@ -1090,7 +1101,7 @@ export class Agent {
 			return { toolResultMsg, stumbles: 1 };
 		}
 
-		const caller: CallerIdentity = { agent_name: this.spec.name, depth: this.depth };
+		const caller = this.callerIdentity();
 		const blocking = delegation.blocking !== false; // default true
 		const shared = delegation.shared === true; // default false
 
@@ -1240,7 +1251,7 @@ export class Agent {
 			return { toolResultMsg, stumbles: 1 };
 		}
 
-		const caller: CallerIdentity = { agent_name: this.spec.name, depth: this.depth };
+		const caller = this.callerIdentity();
 		const handle = this.spawner.getHandle(cmd.handle);
 		const childAgentId = handle?.agentId;
 		const targetMnemonicName = handle?.mnemonicName;

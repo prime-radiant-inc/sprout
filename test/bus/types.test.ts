@@ -87,11 +87,12 @@ describe("bus message types", () => {
 		const msg: AgentMessageMessage = {
 			kind: "agent_message",
 			message: "You wrote: start coding too early.",
-			caller: { agent_name: "metacognitive", depth: 1 },
+			caller: { agent_name: "metacognitive", depth: 1, role: "observer" },
 		};
 		expect(msg.kind).toBe("agent_message");
 		expect(msg.message).toContain("start coding");
 		expect(msg.caller.agent_name).toBe("metacognitive");
+		expect(msg.caller.role).toBe("observer");
 	});
 
 	test("ResultMessage carries completion data", () => {
@@ -251,12 +252,13 @@ describe("parseBusMessage", () => {
 		const raw = JSON.stringify({
 			kind: "agent_message",
 			message: "observer guidance",
-			caller: { agent_name: "metacognitive", depth: 1 },
+			caller: { agent_name: "metacognitive", depth: 1, role: "observer" },
 		});
 		const msg = parseBusMessage(raw);
 		expect(msg.kind).toBe("agent_message");
 		expect((msg as AgentMessageMessage).message).toBe("observer guidance");
 		expect((msg as AgentMessageMessage).caller.agent_name).toBe("metacognitive");
+		expect((msg as AgentMessageMessage).caller.role).toBe("observer");
 	});
 
 	test("parses a valid ResultMessage", () => {
@@ -409,5 +411,14 @@ describe("parseBusMessage", () => {
 			caller: null,
 		});
 		expect(() => parseBusMessage(raw)).toThrow(/caller/);
+	});
+
+	test("throws on caller with invalid role", () => {
+		const raw = JSON.stringify({
+			kind: "agent_message",
+			message: "bad role",
+			caller: { agent_name: "metacognitive", depth: 1, role: "delegate" },
+		});
+		expect(() => parseBusMessage(raw)).toThrow(/caller\.role/);
 	});
 });
