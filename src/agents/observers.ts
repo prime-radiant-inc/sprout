@@ -12,6 +12,8 @@ export interface ObserverAttachmentConfig {
 	agentId?: string;
 	modelPurpose?: AgentModelPurpose;
 	description?: string;
+	callerAgentId?: string;
+	callerDepth?: number;
 }
 
 export interface ObserverFrame {
@@ -145,10 +147,38 @@ function extractQuote(event: SessionEvent): string | undefined {
 		stringData(event, "error"),
 		stringData(event, "output"),
 		stringData(event, "result"),
+		toolResultMessageContent(event.data.tool_result_message),
 	];
 	const raw = candidates.find((value) => value !== undefined && value.trim().length > 0);
 	if (!raw) return undefined;
 	return truncate(redactSensitiveTranscriptContent(raw.trim()), DEFAULT_QUOTE_MAX_CHARS);
+}
+
+function toolResultMessageContent(value: unknown): string | undefined {
+	if (!isRecord(value)) return undefined;
+	const content = value.content;
+	if (!Array.isArray(content)) return undefined;
+	for (const part of content) {
+		if (!isRecord(part) || part.kind !== "tool_result" || !isRecord(part.tool_result)) {
+			continue;
+		}
+		const toolContent = part.tool_result.content;
+		if (typeof toolContent === "string") return toolContent;
+		if (toolContent !== undefined) return safeStringify(toolContent);
+	}
+	return undefined;
+}
+
+function safeStringify(value: unknown): string | undefined {
+	try {
+		return JSON.stringify(value);
+	} catch {
+		return undefined;
+	}
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function stringData(event: SessionEvent, key: string): string | undefined {

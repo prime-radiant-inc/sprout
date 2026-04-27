@@ -2843,6 +2843,83 @@ describe("SessionController session-wide event wiring", () => {
 		expect(JSON.stringify(spawnCalls[0])).toContain("session_resume");
 	});
 
+	test("delivers delegate-final frames from observe_delegates config", async () => {
+		const bus = new EventBus();
+		const spawnCalls: unknown[] = [];
+		const fakeSpawner = {
+			getHandles: () => [],
+			subscribeSessionEvents: async () => {},
+			subscribeRootMessages: async () => {},
+			updateSessionId: async () => {},
+			clearHandles: async () => {},
+			spawnAgent: async (options: unknown) => {
+				spawnCalls.push(options);
+				return "observer-metacognitive";
+			},
+			messageAgent: async () => undefined,
+		} as any;
+		const fakeGenome = {
+			getAgent: (name: string) => {
+				if (name === "root") {
+					return {
+						name: "root",
+						model: "best",
+						observe_delegates: [
+							{
+								agent: "metacognitive",
+								trigger: "on_delegate_final",
+								events: ["plan_end", "act_end"],
+								delivery: { max_events: 12, max_chars: 3000 },
+							},
+						],
+					};
+				}
+				if (name === "metacognitive") {
+					return { name: "metacognitive", model: "observer.metacognitive" };
+				}
+				return undefined;
+			},
+		} as any;
+
+		new SessionController({
+			bus,
+			genomePath: join(tempDir, "genome"),
+			projectDataDir: tempDir,
+			factory: makeFakeFactory(makeFakeAgent()),
+			spawner: fakeSpawner,
+			genome: fakeGenome,
+			getResolverSettings: () =>
+				createResolverSettings(
+					[{ id: "anthropic", enabled: true }],
+					{},
+					{},
+					{
+						"observer.metacognitive": {
+							providerId: "anthropic",
+							modelId: "claude-sonnet-4-6",
+						},
+					},
+				),
+		});
+
+		bus.emitEvent("plan_end", "child-1", 1, {
+			turn: 1,
+			finish_reason: "stop",
+			text: "child final plan text",
+		});
+		bus.emitEvent("act_end", "root", 0, {
+			agent_name: "engineer",
+			success: true,
+			child_id: "child-1",
+			tool_result_message: Msg.toolResult("delegate_1", "delegate final says done"),
+		});
+
+		await waitFor(() => spawnCalls.length === 1);
+		const serializedCall = JSON.stringify(spawnCalls[0]);
+		expect(serializedCall).toContain("child final plan text");
+		expect(serializedCall).toContain("delegate final says done");
+	});
+
 	test("/clear command calls clearHandles then updateSessionId sequentially", async () => {
 		const bus = new EventBus();
 

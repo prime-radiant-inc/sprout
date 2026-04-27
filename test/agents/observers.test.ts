@@ -105,6 +105,36 @@ describe("observer frames", () => {
 		]);
 	});
 
+	test("quotes delegation tool result messages", () => {
+		const frame = buildObserverFrame({
+			sessionId: "sess_1",
+			events: [
+				event("act_end", "root", 0, {
+					agent_name: "engineer",
+					success: true,
+					tool_result_message: {
+						role: "tool",
+						content: [
+							{
+								kind: "tool_result",
+								tool_result: {
+									tool_call_id: "delegate_1",
+									content: "delegate final says done",
+									is_error: false,
+								},
+							},
+						],
+					},
+				}),
+			],
+			includeKinds: ["act_end"],
+			maxEvents: 10,
+			maxChars: 5000,
+		});
+
+		expect(frame.events[0]!.quote).toBe("delegate final says done");
+	});
+
 	test("renders XML-safe frame text", () => {
 		const frame = buildObserverFrame({
 			sessionId: "sess<&1",

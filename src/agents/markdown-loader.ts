@@ -205,6 +205,11 @@ function normalizeDelegateObserverConfig(
 		);
 	}
 	const events = normalizeEventKinds(config.events, source, `${path}.events`);
+	if (!events.includes("act_end")) {
+		throw new Error(
+			`Invalid agent markdown at ${source}: '${path}.events' must include act_end`,
+		);
+	}
 	const delivery = normalizeObserverDelivery(config.delivery, source, `${path}.delivery`);
 	const comments = normalizeObserverComments(config.comments, source, `${path}.comments`);
 

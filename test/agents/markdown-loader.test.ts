@@ -353,6 +353,10 @@ describe("parseAgentMarkdown", () => {
 				"observe_delegates:\n  - agent: metacognitive\n    trigger: every_turn\n    events: [act_end]",
 				/observe_delegates\[0\]\.trigger.*on_delegate_final/,
 			],
+			[
+				"observe_delegates:\n  - agent: metacognitive\n    trigger: on_delegate_final\n    events: [plan_end]",
+				/observe_delegates\[0\]\.events.*act_end/,
+			],
 		];
 
 		for (const [frontmatter, error] of cases) {

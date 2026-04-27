@@ -32,6 +32,7 @@ interface ObserverSubscriptionState {
 	observerStarted: boolean;
 	deliveryInFlight: boolean;
 	flushRequested: boolean;
+	queuedTriggerEvent?: SessionEvent;
 	warningEmitted: boolean;
 }
 
@@ -66,6 +67,7 @@ export class ObserverRegistry {
 	private readonly getResolverSettings?: () => ResolverSettings | undefined;
 	private readonly emitEvent: ObserverRegistryOptions["emitEvent"];
 	private preconfigureEvents: SessionEvent[] = [];
+	private startedHandles = new Set<string>();
 	private generation = 0;
 
 	constructor(options: ObserverRegistryOptions) {
@@ -108,7 +110,7 @@ export class ObserverRegistry {
 			if (!this.shouldTrigger(subscription, event)) continue;
 			subscription.triggerCount++;
 			if (subscription.triggerCount % subscription.config.trigger.every !== 0) continue;
-			void this.flush(subscription);
+			void this.flush(subscription, event);
 		}
 	}
 
@@ -120,8 +122,10 @@ export class ObserverRegistry {
 			subscription.observerStarted = false;
 			subscription.deliveryInFlight = false;
 			subscription.flushRequested = false;
+			subscription.queuedTriggerEvent = undefined;
 			subscription.warningEmitted = false;
 		}
+		this.startedHandles.clear();
 		this.generation++;
 		this.preconfigureEvents = [];
 	}
@@ -129,12 +133,19 @@ export class ObserverRegistry {
 	private shouldTrigger(subscription: ObserverSubscriptionState, event: SessionEvent): boolean {
 		if (event.kind !== subscription.config.trigger.event) return false;
 		if (subscription.config.target === "root" && event.depth !== 0) return false;
+		if (subscription.config.target === "caller_delegates") {
+			return this.isObservedDelegateFinal(subscription.config, event);
+		}
 		return true;
 	}
 
-	private async flush(subscription: ObserverSubscriptionState): Promise<void> {
+	private async flush(
+		subscription: ObserverSubscriptionState,
+		triggerEvent?: SessionEvent,
+	): Promise<void> {
 		if (subscription.deliveryInFlight) {
 			subscription.flushRequested = true;
+			subscription.queuedTriggerEvent = triggerEvent;
 			return;
 		}
 		if (subscription.pendingEvents.length === 0) return;
@@ -149,7 +160,7 @@ export class ObserverRegistry {
 		}
 
 		const generation = this.generation;
-		const events = subscription.pendingEvents;
+		const events = this.eventsForDelivery(subscription, triggerEvent);
 		subscription.pendingEvents = [];
 		subscription.deliveryInFlight = true;
 		try {
@@ -179,7 +190,9 @@ export class ObserverRegistry {
 				subscription.deliveryInFlight = false;
 				if (subscription.flushRequested) {
 					subscription.flushRequested = false;
-					void this.flush(subscription);
+					const queuedTriggerEvent = subscription.queuedTriggerEvent;
+					subscription.queuedTriggerEvent = undefined;
+					void this.flush(subscription, queuedTriggerEvent);
 				}
 			}
 		}
@@ -191,7 +204,7 @@ export class ObserverRegistry {
 		resolverSettings: ResolverSettings | undefined,
 	): Promise<void> {
 		const handleId = this.observerHandleId(subscription.config);
-		if (!subscription.observerStarted) {
+		if (!this.startedHandles.has(handleId)) {
 			this.emitObserverStart(subscription);
 			const result = await this.spawner.spawnAgent({
 				agentName: subscription.config.agentName,
@@ -212,10 +225,12 @@ export class ObserverRegistry {
 			if (typeof result !== "string") {
 				throw new Error(`Observer '${subscription.config.agentName}' did not return a handle id`);
 			}
+			this.startedHandles.add(handleId);
 			subscription.observerStarted = true;
 			return;
 		}
 
+		subscription.observerStarted = true;
 		await this.spawner.messageAgent(handleId, message, ROOT_CALLER, false);
 	}
 
@@ -250,6 +265,39 @@ export class ObserverRegistry {
 	private observerAgentId(config: ObserverAttachmentConfig): string {
 		return config.agentId ?? this.observerHandleId(config);
 	}
+
+	private eventsForDelivery(
+		subscription: ObserverSubscriptionState,
+		triggerEvent: SessionEvent | undefined,
+	): SessionEvent[] {
+		if (subscription.config.target !== "caller_delegates" || !triggerEvent) {
+			return subscription.pendingEvents;
+		}
+		const childId = stringData(triggerEvent, "child_id");
+		return subscription.pendingEvents.filter((event) => {
+			if (event === triggerEvent) return true;
+			if (!childId) return false;
+			return event.agent_id === childId && event.depth === triggerEvent.depth + 1;
+		});
+	}
+
+	private isObservedDelegateFinal(
+		config: ObserverAttachmentConfig,
+		event: SessionEvent,
+	): boolean {
+		if (event.kind !== "act_end") return false;
+		if (event.data.observer === true) return false;
+		const agentName = stringData(event, "agent_name");
+		if (agentName === "wait_agent" || agentName === "message_agent") return false;
+		if (config.callerAgentId && event.agent_id !== config.callerAgentId) return false;
+		if (config.callerDepth !== undefined && event.depth !== config.callerDepth) return false;
+		return typeof event.data.child_id === "string";
+	}
+}
+
+function stringData(event: SessionEvent, key: string): string | undefined {
+	const value = event.data[key];
+	return typeof value === "string" ? value : undefined;
 }
 
 function createSubscriptionState(config: ObserverAttachmentConfig): ObserverSubscriptionState {
@@ -261,6 +309,7 @@ function createSubscriptionState(config: ObserverAttachmentConfig): ObserverSubs
 		observerStarted: false,
 		deliveryInFlight: false,
 		flushRequested: false,
+		queuedTriggerEvent: undefined,
 		warningEmitted: false,
 	};
 }
