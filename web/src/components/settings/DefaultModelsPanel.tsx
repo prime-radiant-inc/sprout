@@ -14,6 +14,8 @@ const TIER_LABELS = {
 	fast: "Fast model",
 } as const;
 
+type DefaultModelTier = keyof typeof TIER_LABELS;
+
 function formatModelRef(model: ModelRef | undefined): string {
 	return model ? `${model.providerId}:${model.modelId}` : "";
 }
@@ -57,11 +59,15 @@ export function DefaultModelsPanel({
 
 			{message && <div className={styles.errorBanner}>{message}</div>}
 
-			{!hasModelOptions ? (
+			{!hasModelOptions && (
 				<div className={styles.emptyState}>Refresh models to configure default models.</div>
-			) : (
-				<div className={styles.formGrid}>
-					{(["best", "balanced", "fast"] as const).map((tier) => (
+			)}
+
+			<div className={styles.formGrid}>
+				{(["best", "balanced", "fast"] as const).map((tier) => {
+					const stored = settings.settings.defaults[tier];
+					const storedValue = formatModelRef(stored);
+					return (
 						<div className={styles.field} key={tier}>
 							<label className={styles.fieldLabel} htmlFor={`default-model-${tier}`}>
 								{TIER_LABELS[tier]}
@@ -81,6 +87,9 @@ export function DefaultModelsPanel({
 								}
 							>
 								<option value="">Not configured</option>
+								{stored && !hasModelOption(providersWithModels, stored) && (
+									<option value={storedValue}>Stored: {storedValue}</option>
+								)}
 								{providersWithModels.map(({ provider, catalogEntry }) => (
 									<optgroup key={provider.id} label={provider.label}>
 										{catalogEntry?.models.map((model) => (
@@ -91,26 +100,52 @@ export function DefaultModelsPanel({
 												{model.label}
 											</option>
 										))}
-								</optgroup>
+									</optgroup>
 								))}
 							</select>
 							{settings.runtime.modelOverrides.defaults[tier] && (
-								<div className={styles.hint}>
-									Env override {settings.runtime.modelOverrides.defaults[tier].envVar}:{" "}
-									{formatModelRef(settings.runtime.modelOverrides.defaults[tier].model)}
-									{settings.runtime.modelOverrides.defaults[tier].catalogStatus === "missing" &&
-									settings.runtime.modelOverrides.defaults[tier].diagnostic
-										? ` (${settings.runtime.modelOverrides.defaults[tier].diagnostic})`
-										: ""}
-								</div>
+								<OverrideNote override={settings.runtime.modelOverrides.defaults[tier]} />
 							)}
 							{fieldErrors?.[tier] && (
 								<div className={styles.fieldError}>{fieldErrors[tier]}</div>
 							)}
 						</div>
-					))}
-				</div>
-			)}
+					);
+				})}
+			</div>
+		</div>
+	);
+}
+
+function hasModelOption(
+	providersWithModels: Array<{
+		provider: SettingsSnapshot["settings"]["providers"][number];
+		catalogEntry: SettingsSnapshot["catalog"][number] | undefined;
+	}>,
+	modelRef: ModelRef,
+): boolean {
+	return providersWithModels.some(
+		({ provider, catalogEntry }) =>
+			provider.id === modelRef.providerId &&
+			(catalogEntry?.models.some((model) => model.id === modelRef.modelId) ?? false),
+	);
+}
+
+function OverrideNote({
+	override,
+}: {
+	override: SettingsSnapshot["runtime"]["modelOverrides"]["defaults"][DefaultModelTier];
+}) {
+	if (!override) return null;
+	const label = override.displayLabel
+		? `${override.model.providerId}:${override.displayLabel}`
+		: formatModelRef(override.model);
+	return (
+		<div className={styles.hint}>
+			Env override {override.envVar}: {label}
+			{override.catalogStatus === "missing" && override.diagnostic
+				? ` (${override.diagnostic})`
+				: ""}
 		</div>
 	);
 }

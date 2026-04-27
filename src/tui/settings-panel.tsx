@@ -343,10 +343,11 @@ function DefaultModelsSummary({
 			<Text bold>Default models</Text>
 			{(["best", "balanced", "fast"] as const).map((tier) => {
 				const modelRef = settings.settings.defaults[tier];
+				const override = settings.runtime.modelOverrides.defaults[tier];
 				if (!modelRef) {
 					return (
 						<Text key={tier} color="gray">
-							{tier}: not configured
+							{tier}: not configured{override ? formatOverrideSuffix(override) : ""}
 						</Text>
 					);
 				}
@@ -359,6 +360,7 @@ function DefaultModelsSummary({
 				return (
 					<Text key={tier}>
 						{tier}: {provider?.label ?? modelRef.providerId} · {model?.label ?? modelRef.modelId}
+						{override ? formatOverrideSuffix(override) : ""}
 					</Text>
 				);
 			})}
@@ -543,4 +545,15 @@ function parseProviderModelTarget(target: string): { providerId: string; modelId
 
 function formatModelRef(model: { providerId: string; modelId: string }): string {
 	return `${model.providerId}:${model.modelId}`;
+}
+
+function formatOverrideSuffix(override: {
+	model: { providerId: string; modelId: string };
+	envVar: string;
+	catalogStatus: string;
+	diagnostic?: string;
+}): string {
+	const diagnostic =
+		override.catalogStatus === "missing" && override.diagnostic ? `; ${override.diagnostic}` : "";
+	return ` (env ${override.envVar}: ${formatModelRef(override.model)}${diagnostic})`;
 }

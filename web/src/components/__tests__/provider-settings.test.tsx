@@ -263,6 +263,29 @@ describe("DefaultModelsPanel", () => {
 		expect(html).toContain("Claude Opus 4.6");
 		expect(html).toContain("Qwen 2.5 Coder");
 	});
+
+	test("keeps default model env override notes visible when no model catalog is loaded", () => {
+		const settings = makeSettings();
+		settings.catalog = settings.catalog.map((entry) => ({ ...entry, models: [] }));
+		settings.runtime.modelOverrides.defaults.best = {
+			source: "env",
+			envVar: "SPROUT_DEFAULT_BEST_MODEL",
+			model: {
+				providerId: "anthropic-main",
+				modelId: "claude-opus-4-6",
+			},
+			catalogStatus: "not_loaded",
+		};
+
+		const html = renderToStaticMarkup(
+			<DefaultModelsPanel settings={settings} onCommand={() => {}} />,
+		);
+
+		expect(html).toContain("Refresh models to configure default models.");
+		expect(html).toContain("Stored: anthropic-main:claude-opus-4-6");
+		expect(html).toContain("SPROUT_DEFAULT_BEST_MODEL");
+		expect(html).toContain("anthropic-main:claude-opus-4-6");
+	});
 });
 
 describe("MemoryModelsPanel", () => {

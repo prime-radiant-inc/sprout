@@ -97,6 +97,33 @@ describe("SettingsPanel", () => {
 		);
 	});
 
+	test("renders default model env override details in settings mode", () => {
+		const settings = makeSettingsSnapshot();
+		settings.runtime.modelOverrides.defaults.best = {
+			source: "env",
+			envVar: "SPROUT_DEFAULT_BEST_MODEL",
+			model: {
+				providerId: "lmstudio",
+				modelId: "qwen2.5-coder",
+			},
+			catalogStatus: "missing",
+			diagnostic: "Model is not in the loaded catalog.",
+		};
+
+		const { lastFrame } = render(
+			<SettingsPanel
+				settings={settings}
+				lastResult={null}
+				onCommand={() => {}}
+				onClose={() => {}}
+			/>,
+		);
+
+		expect(lastFrame()).toContain("SPROUT_DEFAULT_BEST_MODEL");
+		expect(lastFrame()).toContain("lmstudio:qwen2.5-coder");
+		expect(lastFrame()).toContain("Model is not in the loaded catalog.");
+	});
+
 	test("navigates between views and issues create, defaults, and edit commands", async () => {
 		const commands: unknown[] = [];
 		const { stdin, lastFrame } = render(
