@@ -8,8 +8,8 @@ import { LocalExecutionEnvironment } from "../../src/kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../../src/kernel/primitives.ts";
 import type { AgentSpec } from "../../src/kernel/types.ts";
 import type { Client } from "../../src/llm/client.ts";
-import type { Response } from "../../src/llm/types.ts";
-import { ContentKind, Msg } from "../../src/llm/types.ts";
+import type { Request, Response } from "../../src/llm/types.ts";
+import { ContentKind, Msg, messageText } from "../../src/llm/types.ts";
 import { withDefaultResolverContext } from "./fixtures.ts";
 import "../helpers/test-env.ts";
 
@@ -36,6 +36,7 @@ function makeAgent(opts?: {
 	client?: Client;
 	spec?: AgentSpec;
 	genome?: Genome;
+	spawner?: AgentOptions["spawner"];
 }): Agent {
 	const env = new LocalExecutionEnvironment(tmpdir());
 	const client =
@@ -63,6 +64,7 @@ function makeAgent(opts?: {
 			genome: opts?.genome,
 			depth: 0,
 			events: opts?.events,
+			spawner: opts?.spawner,
 		} satisfies AgentOptions),
 	);
 }
@@ -174,6 +176,118 @@ describe("Steering queue", () => {
 		expect(primitiveNames()).not.toContain("memory_archive");
 		agent.steer("I confirm: archive memory mem_alpha00 because it is stale");
 		expect(primitiveNames()).not.toContain("memory_archive");
+	});
+});
+
+describe("Agent message queue", () => {
+	test("agent messages render into the system prompt and do not enter history", async () => {
+		const events = new AgentEventEmitter();
+		const requests: Request[] = [];
+		const client = {
+			providers: () => ["anthropic"],
+			complete: async (request: Request): Promise<Response> => {
+				requests.push(request);
+				return {
+					id: "mock-agent-message",
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant("DONE"),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+		const agent = makeAgent({ events, client });
+
+		agent.receiveAgentMessage("You wrote: <start coding>. Answer the design question first.", {
+			agent_name: "metacognitive",
+			depth: 1,
+		});
+		await agent.run("test goal");
+
+		const firstSystem = messageText(requests[0]!.messages[0]!);
+		expect(firstSystem).toContain("<sprout:agent-messages>");
+		expect(firstSystem).toContain('<message from="metacognitive">');
+		expect(firstSystem).toContain("&lt;start coding&gt;");
+		expect(
+			agent.currentHistory().some((message) => JSON.stringify(message).includes("start coding")),
+		).toBe(false);
+		const agentMessageEvents = events.collected().filter((event) => event.kind === "agent_message");
+		expect(agentMessageEvents).toHaveLength(1);
+		expect(agentMessageEvents[0]!.data.from_agent_name).toBe("metacognitive");
+	});
+
+	test("agent messages render once and are cleared", async () => {
+		const requests: Request[] = [];
+		let callCount = 0;
+		const client = {
+			providers: () => ["anthropic"],
+			complete: async (request: Request): Promise<Response> => {
+				requests.push(request);
+				callCount++;
+				if (callCount === 1) {
+					return {
+						id: "mock-agent-message-tool",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: {
+							role: "assistant" as const,
+							content: [
+								{
+									kind: ContentKind.TOOL_CALL,
+									tool_call: {
+										id: "call-1",
+										name: "exec",
+										arguments: JSON.stringify({ command: "true" }),
+									},
+								},
+							],
+						},
+						finish_reason: { reason: "tool_calls" },
+						usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+					};
+				}
+				return {
+					id: "mock-agent-message-done",
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant("DONE"),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+		const agent = makeAgent({ client });
+
+		agent.receiveAgentMessage("One-time guidance", {
+			agent_name: "metacognitive",
+			depth: 1,
+		});
+		await agent.run("test goal");
+
+		expect(requests).toHaveLength(2);
+		expect(messageText(requests[0]!.messages[0]!)).toContain("One-time guidance");
+		expect(messageText(requests[1]!.messages[0]!)).not.toContain("One-time guidance");
+	});
+
+	test("message_agent can be explicitly granted without delegation rights", () => {
+		const agent = makeAgent({
+			spawner: {} as AgentOptions["spawner"],
+			spec: {
+				...leafSpec,
+				tools: ["message_agent"],
+				agents: [],
+				constraints: {
+					...leafSpec.constraints,
+					can_spawn: false,
+				},
+			},
+		});
+
+		const toolNames = agent.resolvedTools().map((tool) => tool.name);
+		expect(toolNames).toEqual(["message_agent"]);
 	});
 });
 

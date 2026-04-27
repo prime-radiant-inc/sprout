@@ -51,6 +51,16 @@ export function EventLine({ event, durationMs, streamingText, isFirstInGroup, ag
 				/>
 			);
 
+		case "agent_message":
+			return (
+				<SystemMessage
+					kind="agent_message"
+					message={`${String(data.from_agent_name ?? "agent")} -> ${String(
+						data.to_agent_name ?? "agent",
+					)}: ${String(data.text_preview ?? "")}`}
+				/>
+			);
+
 		case "plan_end": {
 			const text = data.text ? String(data.text) : undefined;
 			const reasoning = data.reasoning ? String(data.reasoning) : undefined;

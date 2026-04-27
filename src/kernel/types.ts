@@ -333,6 +333,7 @@ export type EventKind =
 	| "learn_mutation"
 	| "learn_end"
 	| "steering"
+	| "agent_message"
 	| "warning"
 	| "error"
 	| "session_resume"

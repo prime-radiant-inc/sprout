@@ -9,11 +9,11 @@ import { BusServer } from "../../src/bus/server.ts";
 import type { SpawnAgentOptions } from "../../src/bus/spawner.ts";
 import { AgentSpawner } from "../../src/bus/spawner.ts";
 import { agentInbox, agentReady } from "../../src/bus/topics.ts";
-import type { EventMessage, ResultMessage } from "../../src/bus/types.ts";
+import type { AgentMessageMessage, EventMessage, ResultMessage } from "../../src/bus/types.ts";
 import { Genome } from "../../src/genome/genome.ts";
 import type { Client } from "../../src/llm/client.ts";
 import type { Request, Response } from "../../src/llm/types.ts";
-import { ContentKind, Msg } from "../../src/llm/types.ts";
+import { ContentKind, Msg, messageText } from "../../src/llm/types.ts";
 
 const AGENT_SPEC = {
 	name: "test-leaf",
@@ -667,6 +667,47 @@ describe("AgentSpawner", () => {
 			expect(continueResult!.output).toBe("Continued.");
 		}, 15_000);
 
+		test("routes canonical root messages through the root inbox", async () => {
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID);
+			const received: AgentMessageMessage[] = [];
+			await spawner.subscribeRootMessages((message) => {
+				received.push(message);
+			});
+			const senderBus = new BusClient(server.url);
+			await senderBus.connect();
+			const senderSpawner = new AgentSpawner(senderBus, server.url, SESSION_ID);
+
+			const result = await senderSpawner.messageAgent(
+				"root",
+				"You wrote: start coding too early.",
+				{ agent_name: "metacognitive", depth: 1 },
+				false,
+			);
+
+			expect(result).toBeUndefined();
+			while (received.length === 0) await delay(10);
+			expect(received[0]).toMatchObject({
+				kind: "agent_message",
+				message: "You wrote: start coding too early.",
+				caller: { agent_name: "metacognitive", depth: 1 },
+			});
+			senderSpawner.shutdown();
+			await senderBus.disconnect();
+		});
+
+		test("rejects blocking root messages loudly", async () => {
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID);
+
+			await expect(
+				spawner.messageAgent(
+					"root",
+					"blocking root message",
+					{ agent_name: "metacognitive", depth: 1 },
+					true,
+				),
+			).rejects.toThrow("message_agent to root requires blocking=false");
+		});
+
 		test("continue refreshes trusted memory authorization for shared bus agents", async () => {
 			const genome = new Genome(genomeDir);
 			await genome.loadFromDisk();
@@ -718,7 +759,7 @@ describe("AgentSpawner", () => {
 			expect(requestToolNames[1]).not.toContain("memory_archive");
 		}, 15_000);
 
-		test("sends steer message to running agent (non-blocking)", async () => {
+		test("sends agent message to running agent (non-blocking)", async () => {
 			let resolveFirstCall: (() => void) | null = null;
 			let callCount = 0;
 			const mockClient = buildMockClient(async (_request: Request): Promise<Response> => {
@@ -755,14 +796,14 @@ describe("AgentSpawner", () => {
 			// Wait for agent to enter the mock client (blocking on first call)
 			while (!resolveFirstCall) await delay(10);
 
-			// Send steer (non-blocking) -- this should not throw even though agent is running
-			const steerResult = await spawner.messageAgent(
+			// Send agent message (non-blocking) -- this should not throw even though agent is running
+			const messageResult = await spawner.messageAgent(
 				handleId,
 				"Change priority",
 				{ agent_name: "root", depth: 0 },
 				false,
 			);
-			expect(steerResult).toBeUndefined();
+			expect(messageResult).toBeUndefined();
 
 			// Let the first call complete
 			(resolveFirstCall as () => void)();
@@ -772,7 +813,7 @@ describe("AgentSpawner", () => {
 			expect(result.success).toBe(true);
 		}, 15_000);
 
-		test("steer refreshes trusted memory authorization for running shared agents", async () => {
+		test("agent message does not refresh trusted memory authorization for running shared agents", async () => {
 			const genome = new Genome(genomeDir);
 			await genome.loadFromDisk();
 			await genome.addAgent({
@@ -781,6 +822,7 @@ describe("AgentSpawner", () => {
 				tools: ["memory_search", "memory_archive"],
 			} as any);
 			const requestToolNames: string[][] = [];
+			const requestSystems: string[] = [];
 			let callCount = 0;
 			let resolveFirstCall: (() => void) | undefined;
 			let markFirstCallStarted: (() => void) | undefined;
@@ -803,6 +845,7 @@ describe("AgentSpawner", () => {
 			const mockClient = buildMockClient(async (request: Request): Promise<Response> => {
 				callCount++;
 				requestToolNames.push(request.tools?.map((tool) => tool.name) ?? []);
+				requestSystems.push(messageText(request.messages[0]!));
 				if (callCount === 1) {
 					markFirstCallStarted?.();
 					await new Promise<void>((resolve) => {
@@ -831,14 +874,14 @@ describe("AgentSpawner", () => {
 				trustedUserInstruction: "I confirm: archive memory mem_old123 because it is stale",
 			})) as string;
 			await firstCallStarted;
-			const steerResult = await spawner.messageAgent(
+			const messageResult = await spawner.messageAgent(
 				handleId,
 				"Search memory only",
 				{ agent_name: "root", depth: 0 },
 				false,
 				"Search memory only; do not mutate anything",
 			);
-			expect(steerResult).toBeUndefined();
+			expect(messageResult).toBeUndefined();
 			await delay(25);
 			resolveFirstCall?.();
 
@@ -847,7 +890,8 @@ describe("AgentSpawner", () => {
 			expect(result.output).toBe("Done.");
 			expect(requestToolNames[0]).toContain("memory_archive");
 			expect(requestToolNames[1]).toContain("memory_search");
-			expect(requestToolNames[1]).not.toContain("memory_archive");
+			expect(requestToolNames[1]).toContain("memory_archive");
+			expect(requestSystems[1]).toContain("Search memory only");
 		}, 15_000);
 
 		test("re-spawns completed agent and returns result with history", async () => {

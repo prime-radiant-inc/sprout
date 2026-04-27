@@ -27,7 +27,13 @@ import { BusLearnForwarder } from "./learn-forwarder.ts";
 import { loadCompletedChildHandles, replayHandleLog } from "./resume.ts";
 import { AgentSpawner } from "./spawner.ts";
 import { agentEvents, agentInbox, agentReady, agentResult, sessionEvents } from "./topics.ts";
-import type { ContinueMessage, EventMessage, ResultMessage, StartMessage } from "./types.ts";
+import type {
+	AgentMessageMessage,
+	ContinueMessage,
+	EventMessage,
+	ResultMessage,
+	StartMessage,
+} from "./types.ts";
 import { parseBusMessage } from "./types.ts";
 
 export interface AgentProcessConfig {
@@ -327,6 +333,8 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 					const msg = parseBusMessage(payload);
 					if (msg.kind === "steer") {
 						agent.steer(msg.message, msg.trusted_user_instruction);
+					} else if (msg.kind === "agent_message") {
+						agent.receiveAgentMessage(msg.message, msg.caller);
 					}
 				} catch {
 					// Ignore malformed messages
@@ -511,6 +519,12 @@ async function idleLoop(
 			// Steer messages are queued regardless of processing state
 			if (msg.kind === "steer") {
 				agent.steer(msg.message, msg.trusted_user_instruction);
+				return;
+			}
+
+			if (msg.kind === "agent_message") {
+				const agentMessage = msg as AgentMessageMessage;
+				agent.receiveAgentMessage(agentMessage.message, agentMessage.caller);
 				return;
 			}
 

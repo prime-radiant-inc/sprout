@@ -143,6 +143,9 @@ export function renderEvent(event: SessionEvent): string | null {
 		case "steering":
 			return `${ind}\u276F ${data.text}`;
 
+		case "agent_message":
+			return `${ind}\u25C7 ${data.from_agent_name ?? "agent"} -> ${data.to_agent_name ?? "agent"}: ${data.text_preview ?? ""}`;
+
 		case "perceive":
 			return `${ind}\u276F ${data.goal}`;
 

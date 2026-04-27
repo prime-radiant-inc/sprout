@@ -4,12 +4,12 @@ import { ulid } from "../util/ulid.ts";
 import type { BusClient } from "./client.ts";
 import { agentInbox, agentReady, agentResult, sessionEvents } from "./topics.ts";
 import type {
+	AgentMessageMessage,
 	CallerIdentity,
 	ContinueMessage,
 	EventMessage,
 	ResultMessage,
 	StartMessage,
-	SteerMessage,
 } from "./types.ts";
 import { parseBusMessage } from "./types.ts";
 
@@ -130,7 +130,9 @@ export class AgentSpawner {
 	private readonly waitTimeoutMs: number;
 	private readonly handles = new Map<string, AgentHandle>();
 	private sessionEventsCallback?: (event: EventMessage) => void;
+	private rootMessageCallback?: (message: AgentMessageMessage) => void;
 	private currentSessionEventsTopic?: string;
+	private currentRootInboxTopic?: string;
 
 	private monitorProcessExit(
 		handleId: string,
@@ -239,6 +241,17 @@ export class AgentSpawner {
 	}
 
 	/**
+	 * Subscribe to canonical root messages from subprocess agents.
+	 * The root agent is in-process, so this bridges bus-delivered agent messages
+	 * back into SessionController instead of pretending root is a spawned handle.
+	 */
+	async subscribeRootMessages(callback: (message: AgentMessageMessage) => void): Promise<void> {
+		if (this.rootMessageCallback) return;
+		this.rootMessageCallback = callback;
+		await this.subscribeToRootInboxTopic();
+	}
+
+	/**
 	 * Update the session ID (e.g. after /clear).
 	 * Resubscribes to the new session-wide events topic if a callback
 	 * was previously registered. The old subscription becomes a no-op
@@ -248,6 +261,9 @@ export class AgentSpawner {
 		this.sessionId = newSessionId;
 		if (this.sessionEventsCallback) {
 			await this.subscribeToSessionTopic();
+		}
+		if (this.rootMessageCallback) {
+			await this.subscribeToRootInboxTopic();
 		}
 	}
 
@@ -287,6 +303,26 @@ export class AgentSpawner {
 			try {
 				const msg = parseBusMessage(payload);
 				if (msg.kind === "event") {
+					callback(msg);
+				}
+			} catch {
+				// Ignore malformed messages
+			}
+		});
+	}
+
+	private async subscribeToRootInboxTopic(): Promise<void> {
+		if (this.currentRootInboxTopic && this.bus.connected) {
+			await this.bus.unsubscribe(this.currentRootInboxTopic);
+		}
+
+		const callback = this.rootMessageCallback!;
+		const topic = agentInbox(this.sessionId, "root");
+		this.currentRootInboxTopic = topic;
+		await this.bus.subscribe(topic, (payload) => {
+			try {
+				const msg = parseBusMessage(payload);
+				if (msg.kind === "agent_message") {
 					callback(msg);
 				}
 			} catch {
@@ -472,7 +508,7 @@ export class AgentSpawner {
 	/**
 	 * Send a message to an existing agent.
 	 *
-	 * If the agent is running, sends a SteerMessage.
+	 * If the agent is running, sends an agent-originated message.
 	 * If the agent is idle or completed, sends a ContinueMessage.
 	 *
 	 * If blocking: waits for the next result.
@@ -485,6 +521,19 @@ export class AgentSpawner {
 		blocking: boolean,
 		trustedUserInstruction?: string,
 	): Promise<ResultMessage | undefined> {
+		if (handleId === "root") {
+			if (blocking) {
+				throw new Error("message_agent to root requires blocking=false");
+			}
+			const rootMsg: AgentMessageMessage = {
+				kind: "agent_message",
+				message,
+				caller,
+			};
+			await this.bus.publish(agentInbox(this.sessionId, "root"), JSON.stringify(rootMsg));
+			return undefined;
+		}
+
 		const handle = this.handles.get(handleId);
 		if (!handle) {
 			throw new Error(`Unknown handle: ${handleId}`);
@@ -495,30 +544,23 @@ export class AgentSpawner {
 		}
 
 		const inboxTopic = agentInbox(this.sessionId, handleId);
-		handle.trustedUserInstruction = trustedUserInstruction;
 
 		if (handle.status === "running") {
-			// Agent is actively processing — send a steer message
-			const steerMsg: SteerMessage = {
-				kind: "steer",
+			if (blocking) {
+				throw new Error("message_agent to a running agent requires blocking=false");
+			}
+			const agentMsg: AgentMessageMessage = {
+				kind: "agent_message",
 				message,
-				trusted_user_instruction: trustedUserInstruction,
+				caller,
 			};
 
-			if (blocking) {
-				// Clear cached result BEFORE publishing so a result arriving
-				// between publish and waitAgent doesn't get overwritten.
-				handle.result = undefined;
-			}
-			await this.bus.publish(inboxTopic, JSON.stringify(steerMsg));
-
-			if (blocking) {
-				return this.waitAgent(handleId);
-			}
+			await this.bus.publish(inboxTopic, JSON.stringify(agentMsg));
 			return Promise.resolve(undefined);
 		}
 
 		if (handle.status === "idle") {
+			handle.trustedUserInstruction = trustedUserInstruction;
 			// Agent process is alive — send continue message
 			handle.result = undefined;
 			handle.status = "running";
@@ -663,6 +705,9 @@ export class AgentSpawner {
 		}
 		if (this.currentSessionEventsTopic && this.bus.connected) {
 			this.bus.unsubscribe(this.currentSessionEventsTopic).catch(() => {});
+		}
+		if (this.currentRootInboxTopic && this.bus.connected) {
+			this.bus.unsubscribe(this.currentRootInboxTopic).catch(() => {});
 		}
 	}
 }

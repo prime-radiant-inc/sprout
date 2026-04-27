@@ -66,6 +66,7 @@ import {
 	buildMessageAgentTool,
 	buildSystemPrompt,
 	buildWaitAgentTool,
+	MESSAGE_AGENT_TOOL_NAME,
 	parsePlanResponse,
 	primitivesForAgent,
 	renderAgentsForPrompt,
@@ -191,6 +192,7 @@ export class Agent {
 	private signal?: AbortSignal;
 	private logWriteChain: Promise<void> = Promise.resolve();
 	private steeringQueue: Array<{ text: string; trustedUserInstruction?: string }> = [];
+	private agentMessageQueue: Array<{ from: CallerIdentity; text: string }> = [];
 	private readonly callerPrimitivePrimitives: Primitive[] = [];
 	private workspaceToolPrimitives: Primitive[] = [];
 	private workspaceToolDefinitions: ToolDefinition[] = [];
@@ -304,6 +306,7 @@ export class Agent {
 
 			this.lastDelegateNames = new Set(delegatableAgents.map((a) => a.name));
 		}
+		this.addExplicitMessageAgentTool();
 
 		if (this.genome) {
 			this.lastGenomeGeneration = this.genome.generation;
@@ -366,6 +369,12 @@ export class Agent {
 			...this.specPrimitiveTools(),
 			...this.workspaceToolDefinitions,
 		]);
+	}
+
+	private addExplicitMessageAgentTool(): void {
+		if (!this.spawner || !this.spec.tools.includes(MESSAGE_AGENT_TOOL_NAME)) return;
+		if (this.agentTools.some((tool) => tool.name === MESSAGE_AGENT_TOOL_NAME)) return;
+		this.agentTools.push(buildMessageAgentTool());
 	}
 
 	private captureCallerPrimitivePrimitives(registry: PrimitiveRegistry): Primitive[] {
@@ -452,10 +461,12 @@ export class Agent {
 		this.rebuildPrimitiveRegistryForCurrentAgent();
 	}
 
-	private renderCurrentSystemPrompt(): string {
+	private renderCurrentSystemPrompt(options: { drainAgentMessages?: boolean } = {}): string {
 		const base = this.systemPromptBase ?? this.systemPrompt;
 		if (!base) throw new Error("Cannot render system prompt before run() has been called");
-		return `${base}${renderToolBoundaries(this.agentTools, this.primitiveTools)}`;
+		const agentMessages =
+			options.drainAgentMessages === false ? "" : this.drainAgentMessagesForPrompt();
+		return `${base}${agentMessages}${renderToolBoundaries(this.agentTools, this.primitiveTools)}`;
 	}
 
 	/** Inject a steering message into the agent loop for the next iteration. */
@@ -463,6 +474,17 @@ export class Agent {
 		const effectiveTrustedInstruction =
 			trustedUserInstruction ?? (this.depth === 0 ? text : undefined);
 		this.steeringQueue.push({ text, trustedUserInstruction: effectiveTrustedInstruction });
+	}
+
+	/** Queue agent-originated guidance for the next planning turn without treating it as user input. */
+	receiveAgentMessage(text: string, from: CallerIdentity): void {
+		this.agentMessageQueue.push({ from, text });
+		this.emitAndLog("agent_message", this.agentId ?? this.spec.name, this.depth, {
+			from_agent_name: from.agent_name,
+			from_depth: from.depth,
+			to_agent_name: this.spec.name,
+			text_preview: truncateAgentMessagePreview(text),
+		});
 	}
 
 	/** Request compaction on the next iteration (for manual /compact command). */
@@ -503,6 +525,20 @@ export class Agent {
 	private drainSteering(): Array<{ text: string; trustedUserInstruction?: string }> {
 		const queued = this.steeringQueue.splice(0);
 		return queued;
+	}
+
+	private drainAgentMessagesForPrompt(): string {
+		const queued = this.agentMessageQueue.splice(0);
+		if (queued.length === 0) return "";
+		const entries = queued
+			.map(
+				(message) =>
+					`<message from="${escapeXml(message.from.agent_name)}">\n${escapeXml(
+						message.text,
+					)}\n</message>`,
+			)
+			.join("\n");
+		return `\n\n<sprout:agent-messages>\n${entries}\n</sprout:agent-messages>`;
 	}
 
 	/** Emit an event and append it to the log file if logging is enabled. */
@@ -692,6 +728,7 @@ export class Agent {
 			this.agentTools.push(buildWaitAgentTool());
 			this.agentTools.push(buildMessageAgentTool());
 		}
+		this.addExplicitMessageAgentTool();
 
 		this.lastDelegateNames = newNames;
 		return added.map((a) => ({ name: a.name, description: a.description }));
@@ -1421,7 +1458,7 @@ export class Agent {
 		}
 
 		this.systemPromptBase = systemPrompt;
-		this.systemPrompt = this.renderCurrentSystemPrompt();
+		this.systemPrompt = this.renderCurrentSystemPrompt({ drainAgentMessages: false });
 
 		return this.runLoop(goal);
 	}
@@ -1988,6 +2025,20 @@ function uniqueToolDefinitions(tools: readonly ToolDefinition[]): ToolDefinition
 		seen.add(tool.name);
 		return true;
 	});
+}
+
+function truncateAgentMessagePreview(text: string): string {
+	const normalized = text.trim().replace(/\s+/g, " ");
+	if (normalized.length <= 160) return normalized;
+	return `${normalized.slice(0, 157)}...`;
+}
+
+function escapeXml(value: string): string {
+	return value
+		.replaceAll("&", "&amp;")
+		.replaceAll("<", "&lt;")
+		.replaceAll(">", "&gt;")
+		.replaceAll('"', "&quot;");
 }
 
 function subcorticalRecallEnabled(config: AgentSpec["subcortical_recall"]): boolean {

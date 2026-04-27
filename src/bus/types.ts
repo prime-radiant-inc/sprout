@@ -48,6 +48,13 @@ export interface SteerMessage {
 	trusted_user_instruction?: string;
 }
 
+/** Agent-originated guidance injected between turns without becoming user steering. */
+export interface AgentMessageMessage {
+	kind: "agent_message";
+	message: string;
+	caller: CallerIdentity;
+}
+
 /** Published by an agent on completion */
 export interface ResultMessage {
 	kind: "result";
@@ -71,10 +78,11 @@ export type BusMessage =
 	| StartMessage
 	| ContinueMessage
 	| SteerMessage
+	| AgentMessageMessage
 	| ResultMessage
 	| EventMessage;
 
-const VALID_KINDS = new Set(["start", "continue", "steer", "result", "event"]);
+const VALID_KINDS = new Set(["start", "continue", "steer", "agent_message", "result", "event"]);
 
 /** Parse a JSON string into a validated BusMessage. Throws on invalid input. */
 export function parseBusMessage(raw: string): BusMessage {
@@ -121,6 +129,10 @@ export function parseBusMessage(raw: string): BusMessage {
 		case "steer":
 			requireFields(obj, ["message"]);
 			validateOptionalString(obj, "trusted_user_instruction");
+			break;
+		case "agent_message":
+			requireFields(obj, ["message", "caller"]);
+			validateCallerIdentity(obj);
 			break;
 		case "result":
 			requireFields(obj, ["handle_id", "output", "success", "stumbles", "turns", "timed_out"]);

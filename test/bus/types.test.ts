@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type {
+	AgentMessageMessage,
 	BusMessage,
 	CallerIdentity,
 	ContinueMessage,
@@ -82,6 +83,17 @@ describe("bus message types", () => {
 		expect(msg.trusted_user_instruction).toBe("Search memory only; do not mutate anything");
 	});
 
+	test("AgentMessageMessage carries agent-originated guidance", () => {
+		const msg: AgentMessageMessage = {
+			kind: "agent_message",
+			message: "You wrote: start coding too early.",
+			caller: { agent_name: "metacognitive", depth: 1 },
+		};
+		expect(msg.kind).toBe("agent_message");
+		expect(msg.message).toContain("start coding");
+		expect(msg.caller.agent_name).toBe("metacognitive");
+	});
+
 	test("ResultMessage carries completion data", () => {
 		const msg: ResultMessage = {
 			kind: "result",
@@ -155,6 +167,11 @@ describe("bus message types", () => {
 			},
 			{ kind: "steer", message: "focus" },
 			{
+				kind: "agent_message",
+				message: "observer guidance",
+				caller: { agent_name: "metacognitive", depth: 1 },
+			},
+			{
 				kind: "result",
 				handle_id: "h1",
 				output: "done",
@@ -175,9 +192,9 @@ describe("bus message types", () => {
 				},
 			},
 		];
-		expect(messages).toHaveLength(5);
+		expect(messages).toHaveLength(6);
 		const kinds = messages.map((m) => m.kind);
-		expect(kinds).toEqual(["start", "continue", "steer", "result", "event"]);
+		expect(kinds).toEqual(["start", "continue", "steer", "agent_message", "result", "event"]);
 	});
 });
 
@@ -228,6 +245,18 @@ describe("parseBusMessage", () => {
 		expect(msg.kind).toBe("steer");
 		expect((msg as SteerMessage).message).toBe("focus on tests");
 		expect((msg as SteerMessage).trusted_user_instruction).toBe("current trusted instruction");
+	});
+
+	test("parses a valid AgentMessageMessage", () => {
+		const raw = JSON.stringify({
+			kind: "agent_message",
+			message: "observer guidance",
+			caller: { agent_name: "metacognitive", depth: 1 },
+		});
+		const msg = parseBusMessage(raw);
+		expect(msg.kind).toBe("agent_message");
+		expect((msg as AgentMessageMessage).message).toBe("observer guidance");
+		expect((msg as AgentMessageMessage).caller.agent_name).toBe("metacognitive");
 	});
 
 	test("parses a valid ResultMessage", () => {
@@ -315,6 +344,13 @@ describe("parseBusMessage", () => {
 	test("throws on missing required SteerMessage fields", () => {
 		const partial = JSON.stringify({ kind: "steer" });
 		expect(() => parseBusMessage(partial)).toThrow();
+	});
+
+	test("throws on missing required AgentMessageMessage fields", () => {
+		expect(() => parseBusMessage(JSON.stringify({ kind: "agent_message" }))).toThrow();
+		expect(() => parseBusMessage(JSON.stringify({ kind: "agent_message", message: "hi" }))).toThrow(
+			/caller/,
+		);
 	});
 
 	test("throws on non-string optional SteerMessage trusted instruction", () => {

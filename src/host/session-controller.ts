@@ -45,6 +45,7 @@ import {
 /** Minimal agent interface used by the SessionController. */
 interface RunnableAgent {
 	steer(text: string): void;
+	receiveAgentMessage?(text: string, from: { agent_name: string; depth: number }): void;
 	requestCompaction(): void;
 	run(
 		goal: string,
@@ -417,7 +418,7 @@ export class SessionController {
 		// This must be in the constructor, not the factory, to avoid accumulating
 		// subscriptions on each submitGoal call.
 		if (this.spawner) {
-			this.spawnerReady = this.spawner
+			const sessionEventsReady = this.spawner
 				.subscribeSessionEvents((eventMsg) => {
 					const ev = eventMsg.event;
 					this.bus.emitEvent(ev.kind, ev.agent_id, ev.depth, ev.data);
@@ -425,6 +426,16 @@ export class SessionController {
 				.catch((err) => {
 					console.error("[SessionController] Failed to subscribe to session events:", err);
 				});
+			const rootMessagesReady = this.spawner
+				.subscribeRootMessages((message) => {
+					this.agent?.receiveAgentMessage?.(message.message, message.caller);
+				})
+				.catch((err) => {
+					console.error("[SessionController] Failed to subscribe to root messages:", err);
+				});
+			this.spawnerReady = Promise.all([sessionEventsReady, rootMessagesReady]).then(
+				() => undefined,
+			);
 		}
 
 		this.commandHandlers = createSessionCommandHandlers({
