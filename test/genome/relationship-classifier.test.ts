@@ -119,6 +119,7 @@ describe("relationship classifier", () => {
 
 		expect(captured?.provider).toBe("openrouter");
 		expect(captured?.model).toBe("relationship-model");
+		expect(captured?.metadata?.purpose).toBe("memory.relationship");
 	});
 
 	test("rejects invalid relationship types", () => {

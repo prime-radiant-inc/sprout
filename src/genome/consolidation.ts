@@ -207,6 +207,7 @@ export async function requestConsolidationDecision(
 		],
 		temperature: 0,
 		max_tokens: request.maxTokens ?? 900,
+		metadata: { purpose: "memory.consolidation" },
 	});
 	return normalizeConsolidationDecisionPayload(messageText(response.message));
 }

@@ -36,6 +36,7 @@ export async function runSubcorticalPrepass(
 		],
 		temperature: 0,
 		max_tokens: request.maxTokens ?? 350,
+		metadata: { purpose: "memory.subcortical" },
 	});
 	return normalizeSubcorticalRecallPayload(messageText(response.message));
 }

@@ -57,7 +57,7 @@ describe("loggingMiddleware", () => {
 		const response = makeResponse();
 		const next = async (_req: Request) => response;
 
-		const result = await mw(makeRequest(), next);
+		const result = await mw(makeRequest({ metadata: { purpose: "memory.extraction" } }), next);
 		await logger.flush();
 
 		expect(result).toBe(response);
@@ -71,6 +71,7 @@ describe("loggingMiddleware", () => {
 		expect(entry.message).toBe("LLM call completed");
 		expect(entry.data!.provider).toBe("anthropic");
 		expect(entry.data!.model).toBe("claude-sonnet-4-6");
+		expect(entry.data!.purpose).toBe("memory.extraction");
 		expect(entry.data!.inputTokens).toBe(100);
 		expect(entry.data!.outputTokens).toBe(50);
 		expect(entry.data!.finishReason).toBe("stop");
@@ -89,7 +90,9 @@ describe("loggingMiddleware", () => {
 			throw new Error("API rate limit");
 		};
 
-		await expect(mw(makeRequest(), next)).rejects.toThrow("API rate limit");
+		await expect(
+			mw(makeRequest({ metadata: { purpose: "memory.summary" } }), next),
+		).rejects.toThrow("API rate limit");
 		await logger.flush();
 
 		const entries = await readLogEntries(logPath);
@@ -99,6 +102,7 @@ describe("loggingMiddleware", () => {
 		expect(entry.level).toBe("error");
 		expect(entry.category).toBe("llm");
 		expect(entry.message).toBe("LLM call failed");
+		expect(entry.data!.purpose).toBe("memory.summary");
 		expect(entry.data!.error).toBe("API rate limit");
 		expect(typeof entry.data!.latencyMs).toBe("number");
 	});

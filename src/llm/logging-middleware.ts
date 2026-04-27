@@ -15,6 +15,7 @@ export function loggingMiddleware(logger: Logger): Middleware {
 			logger.info("llm", "LLM call completed", {
 				provider: request.provider,
 				model: request.model,
+				purpose: request.metadata?.purpose,
 				latencyMs,
 				inputTokens: response.usage.input_tokens,
 				outputTokens: response.usage.output_tokens,
@@ -30,6 +31,7 @@ export function loggingMiddleware(logger: Logger): Middleware {
 			logger.error("llm", "LLM call failed", {
 				provider: request.provider,
 				model: request.model,
+				purpose: request.metadata?.purpose,
 				latencyMs,
 				error: err instanceof Error ? err.message : String(err),
 				messageCount: request.messages.length,

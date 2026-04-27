@@ -58,6 +58,7 @@ export async function classifyMemoryRelationship(
 		],
 		temperature: 0,
 		max_tokens: request.maxTokens ?? 500,
+		metadata: { purpose: "memory.relationship" },
 	});
 
 	return normalizeRelationshipClassificationPayload(

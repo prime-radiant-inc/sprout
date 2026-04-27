@@ -202,6 +202,7 @@ async function summarizeTranscript(input: {
 		],
 		temperature: 0.1,
 		max_tokens: 1200,
+		metadata: { purpose: "memory.summary" },
 	});
 	return normalizeSegmentSummary(parseExtractionJson(messageText(response.message)));
 }

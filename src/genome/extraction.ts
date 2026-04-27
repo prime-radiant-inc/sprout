@@ -75,6 +75,7 @@ export async function extractMemoryDrafts(
 		],
 		temperature: 0.1,
 		max_tokens: request.maxTokens ?? 2048,
+		metadata: { purpose: "memory.extraction" },
 	});
 
 	return normalizeExtractionPayload(parseExtractionJson(messageText(response.message)));

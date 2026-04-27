@@ -760,10 +760,14 @@ OPENAI_API_KEY=sk-${"a".repeat(32)}`,
 
 		await expect(learn.processNext()).resolves.toBe("skipped");
 		expect(
-			requests.map((request) => ({ model: request.model, provider: request.provider })),
+			requests.map((request) => ({
+				model: request.model,
+				provider: request.provider,
+				purpose: request.metadata?.purpose,
+			})),
 		).toEqual([
-			{ model: "extract-model", provider: "openrouter" },
-			{ model: "reason-model", provider: "anthropic" },
+			{ model: "extract-model", provider: "openrouter", purpose: "memory.extraction" },
+			{ model: "reason-model", provider: "anthropic", purpose: undefined },
 		]);
 	});
 

@@ -120,6 +120,7 @@ describe("entity GC", () => {
 
 		expect(captured?.provider).toBe("openrouter");
 		expect(captured?.model).toBe("entity-gc-model");
+		expect(captured?.metadata?.purpose).toBe("memory.entityGc");
 	});
 
 	test("ignores superseded memories during discovery and apply", async () => {

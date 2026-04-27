@@ -143,6 +143,7 @@ describe("memory consolidation", () => {
 
 		expect(captured?.provider).toBe("openrouter");
 		expect(captured?.model).toBe("consolidation-model");
+		expect(captured?.metadata?.purpose).toBe("memory.consolidation");
 	});
 
 	test("merge creates a consolidated memory and archives sources", async () => {

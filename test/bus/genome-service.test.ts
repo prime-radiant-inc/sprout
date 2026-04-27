@@ -527,6 +527,7 @@ describe("GenomeMutationService", () => {
 		expect(confirmation.extracted_count).toBe(1);
 		expect(requests[0]?.provider).toBe("anthropic");
 		expect(requests[0]?.model).toBe("claude-sonnet-4-6");
+		expect(requests[0]?.metadata?.purpose).toBe("memory.extraction");
 		expect(genome.memories.all()[0]?.content).toContain("populated provider model");
 	}, 10_000);
 

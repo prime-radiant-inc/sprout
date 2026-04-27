@@ -137,6 +137,7 @@ export async function requestEntityGcDecision(
 		messages: [Msg.system(request.prompt), Msg.user(renderEntityGcReviewUserPrompt(request.group))],
 		temperature: 0,
 		max_tokens: request.maxTokens ?? 700,
+		metadata: { purpose: "memory.entityGc" },
 	});
 	return normalizeEntityGcDecisionPayload(request.group, messageText(response.message));
 }

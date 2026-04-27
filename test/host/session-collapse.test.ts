@@ -314,10 +314,14 @@ abc123
 
 		expect(result).not.toBe("skipped");
 		expect(
-			requests.map((request) => ({ model: request.model, provider: request.provider })),
+			requests.map((request) => ({
+				model: request.model,
+				provider: request.provider,
+				purpose: request.metadata?.purpose,
+			})),
 		).toEqual([
-			{ model: "summary-model", provider: "anthropic" },
-			{ model: "extract-model", provider: "openrouter" },
+			{ model: "summary-model", provider: "anthropic", purpose: "memory.summary" },
+			{ model: "extract-model", provider: "openrouter", purpose: "memory.extraction" },
 		]);
 	});
 

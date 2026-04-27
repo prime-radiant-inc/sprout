@@ -403,10 +403,14 @@ describe("Agent", () => {
 			success: true,
 		});
 		expect(
-			requests.map((request) => ({ model: request.model, provider: request.provider })),
+			requests.map((request) => ({
+				model: request.model,
+				provider: request.provider,
+				purpose: request.metadata?.purpose,
+			})),
 		).toEqual([
-			{ model: "subcortical-model", provider: "openrouter" },
-			{ model: "agent-model", provider: "anthropic" },
+			{ model: "subcortical-model", provider: "openrouter", purpose: "memory.subcortical" },
+			{ model: "agent-model", provider: "anthropic", purpose: undefined },
 		]);
 		expect(requests[0]?.max_tokens).toBe(123);
 	});
