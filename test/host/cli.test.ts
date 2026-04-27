@@ -1925,6 +1925,7 @@ describe("defaultFactory passes spawner to createAgent", () => {
 		const fakeSpawner = {
 			getHandles: () => [],
 			subscribeSessionEvents: async () => {},
+			subscribeRootMessages: async () => {},
 			updateSessionId: async () => {},
 			clearHandles: async () => {},
 		} as any;

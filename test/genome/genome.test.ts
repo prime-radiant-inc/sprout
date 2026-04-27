@@ -13,6 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "yaml";
+import { loadRootAgents } from "../../src/agents/loader.ts";
 import { parseAgentMarkdown, serializeAgentMarkdown } from "../../src/agents/markdown-loader.ts";
 import { Genome, git, sanitizeGitEnv } from "../../src/genome/genome.ts";
 import { memoryIndexPath } from "../../src/genome/index-builder.ts";
@@ -434,11 +435,12 @@ describe("Genome", () => {
 
 			await genome.initFromRoot();
 
-			// Should have loaded all 26 agents from root (via rootAgents)
-			expect(genome.agentCount()).toBe(26);
+			// Should have loaded every root agent through rootAgents.
+			expect(genome.agentCount()).toBe((await loadRootAgents(rootDir)).length);
 
 			expect(genome.getAgent("root")).toBeDefined();
 			expect(genome.getAgent("archivist")).toBeDefined();
+			expect(genome.getAgent("metacognitive")).toBeDefined();
 			expect(genome.getAgent("reader")).toBeDefined();
 			expect(genome.getAgent("editor")).toBeDefined();
 			expect(genome.getAgent("command-runner")).toBeDefined();
