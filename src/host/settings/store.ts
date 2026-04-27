@@ -135,7 +135,10 @@ export class SettingsStore {
 
 function normalizeMemoryModels(memoryModels: MemoryModelsConfig | undefined): MemoryModelsConfig {
 	const normalized: MemoryModelsConfig = {};
-	if (!memoryModels) return normalized;
+	if (memoryModels === undefined) return normalized;
+	if (typeof memoryModels !== "object" || memoryModels === null || Array.isArray(memoryModels)) {
+		throw new Error("memoryModels must be an object");
+	}
 	const raw = memoryModels as Record<string, unknown>;
 	for (const purpose of MEMORY_MODEL_PURPOSES) {
 		if (!Object.hasOwn(raw, purpose)) continue;
