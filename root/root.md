@@ -18,6 +18,19 @@ constraints:
 subcortical_recall:
   enabled: true
   max_tokens: 1024
+observers:
+  - agent: metacognitive
+    target: root
+    events: [plan_end, warning, error, primitive_end, act_end, compaction, interrupted]
+    trigger:
+      every: 3
+      event: plan_end
+    delivery:
+      max_events: 24
+      max_chars: 6000
+    comments:
+      can_message: [root]
+      default_recipient: root
 tags:
   - core
   - orchestration

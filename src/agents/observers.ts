@@ -1,12 +1,17 @@
 import { redactSensitiveTranscriptContent } from "../kernel/redaction.ts";
-import type { EventKind, SessionEvent } from "../kernel/types.ts";
+import type { AgentModelPurpose, EventKind, SessionEvent } from "../kernel/types.ts";
 
 export interface ObserverAttachmentConfig {
-	agentName: "metacognitive";
+	agentName: string;
+	target: "root" | "session" | "caller_delegates";
 	events: EventKind[];
 	trigger: { every: number; event: EventKind };
 	maxEvents: number;
 	maxChars: number;
+	handleId?: string;
+	agentId?: string;
+	modelPurpose?: AgentModelPurpose;
+	description?: string;
 }
 
 export interface ObserverFrame {

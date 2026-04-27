@@ -7,13 +7,15 @@ import {
 	type ResolverSettings,
 	resolveMemoryModel,
 } from "../agents/model-resolver.ts";
+import type { ObserverAttachmentConfig } from "../agents/observers.ts";
 import type { AgentSpawner } from "../bus/spawner.ts";
 import { collapseSessionToMemory } from "../core/session-collapse.ts";
+import type { Genome } from "../genome/genome.ts";
 import { detectProjectFromCwd } from "../genome/projects.ts";
-import type { Command, ModelRef, SessionEvent } from "../kernel/types.ts";
+import type { AgentModelPurpose, AgentSpec, Command, ModelRef, SessionEvent } from "../kernel/types.ts";
 import type { Client } from "../llm/client.ts";
 import type { Message, ProviderModel } from "../llm/types.ts";
-import type { SessionSelectionRequest } from "../shared/session-selection.ts";
+import { parseAgentModelInput, type SessionSelectionRequest } from "../shared/session-selection.ts";
 import { ulid } from "../util/ulid.ts";
 import { compactHistory } from "./compaction.ts";
 import type { SessionBus } from "./event-bus.ts";
@@ -72,6 +74,47 @@ function shouldCollapseThrownRun(signal: AbortSignal, terminalSessionEndSeen: bo
 
 function normalizeMemorySurfaceGoal(goal: string): string {
 	return goal.trim().replace(/\s+/g, " ");
+}
+
+const DEFAULT_OBSERVER_MAX_EVENTS = 24;
+const DEFAULT_OBSERVER_MAX_CHARS = 6000;
+
+function buildStaticObserverConfigs(
+	genome: Genome | undefined,
+	rootAgentName: string,
+): ObserverAttachmentConfig[] {
+	const rootSpec = genome?.getAgent(rootAgentName);
+	if (!rootSpec?.observers || rootSpec.observers.length === 0) return [];
+
+	return rootSpec.observers.map((config, index) => {
+		const observerSpec = genome?.getAgent(config.agent);
+		if (!observerSpec) {
+			throw new Error(
+				`Observer agent '${config.agent}' configured by '${rootAgentName}' was not found`,
+			);
+		}
+		const handleId = index === 0 ? `observer-${config.agent}` : `observer-${config.agent}-${index + 1}`;
+		return {
+			agentName: config.agent,
+			target: config.target,
+			events: config.events,
+			trigger: config.trigger,
+			maxEvents: config.delivery?.max_events ?? DEFAULT_OBSERVER_MAX_EVENTS,
+			maxChars: config.delivery?.max_chars ?? DEFAULT_OBSERVER_MAX_CHARS,
+			handleId,
+			agentId: handleId,
+			modelPurpose: observerModelPurpose(observerSpec),
+			description:
+				config.target === "root"
+					? `observes ${rootAgentName} turns`
+					: "observes session events",
+		};
+	});
+}
+
+function observerModelPurpose(spec: AgentSpec): AgentModelPurpose | undefined {
+	const parsed = parseAgentModelInput(spec.model);
+	return parsed.kind === "agent_purpose" ? parsed.purpose : undefined;
 }
 
 /** Options passed to the agent factory. */
@@ -420,6 +463,7 @@ export class SessionController {
 		// This must be in the constructor, not the factory, to avoid accumulating
 		// subscriptions on each submitGoal call.
 		if (this.spawner) {
+			const observerConfigs = buildStaticObserverConfigs(this.genome, this.rootAgentName ?? "root");
 			this.observerRegistry = new ObserverRegistry({
 				sessionId: this._sessionId,
 				spawner: this.spawner,
@@ -428,6 +472,7 @@ export class SessionController {
 				projectDataDir: this.projectDataDir,
 				rootDir: this.rootDir,
 				evalMode: this.evalMode,
+				configs: observerConfigs,
 				getResolverSettings: this.getResolverSettings,
 				emitEvent: (kind, agentId, depth, data) => {
 					this.bus.emitEvent(kind, agentId, depth, data);

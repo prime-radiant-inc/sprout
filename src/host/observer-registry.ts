@@ -10,15 +10,29 @@ import type { EventKind, SessionEvent } from "../kernel/types.ts";
 
 export const METACOGNITIVE_OBSERVER: ObserverAttachmentConfig = {
 	agentName: "metacognitive",
+	target: "root",
 	events: ["plan_end", "warning", "error", "primitive_end", "act_end", "compaction", "interrupted"],
 	trigger: { every: 3, event: "plan_end" },
 	maxEvents: 24,
 	maxChars: 6000,
+	handleId: "observer-metacognitive",
+	agentId: "observer-metacognitive",
+	modelPurpose: "observer.metacognitive",
+	description: "observes root turns",
 };
 
-const OBSERVER_HANDLE_ID = "observer-metacognitive";
-const OBSERVER_AGENT_ID = "observer-metacognitive";
 const ROOT_CALLER: CallerIdentity = { agent_name: "root", depth: 0 };
+
+interface ObserverSubscriptionState {
+	config: ObserverAttachmentConfig;
+	includeKinds: Set<EventKind>;
+	pendingEvents: SessionEvent[];
+	triggerCount: number;
+	observerStarted: boolean;
+	deliveryInFlight: boolean;
+	flushRequested: boolean;
+	warningEmitted: boolean;
+}
 
 export interface ObserverRegistryOptions {
 	sessionId: string;
@@ -29,6 +43,7 @@ export interface ObserverRegistryOptions {
 	rootDir?: string;
 	evalMode?: boolean;
 	config?: ObserverAttachmentConfig;
+	configs?: ObserverAttachmentConfig[];
 	getResolverSettings?: () => ResolverSettings | undefined;
 	emitEvent: (
 		kind: EventKind,
@@ -46,16 +61,9 @@ export class ObserverRegistry {
 	private readonly projectDataDir?: string;
 	private readonly rootDir?: string;
 	private readonly evalMode?: boolean;
-	private readonly config: ObserverAttachmentConfig;
+	private readonly subscriptions: ObserverSubscriptionState[];
 	private readonly getResolverSettings?: () => ResolverSettings | undefined;
 	private readonly emitEvent: ObserverRegistryOptions["emitEvent"];
-	private readonly includeKinds: Set<EventKind>;
-	private pendingEvents: SessionEvent[] = [];
-	private rootTriggerCount = 0;
-	private observerStarted = false;
-	private deliveryInFlight = false;
-	private flushRequested = false;
-	private warningEmitted = false;
 	private generation = 0;
 
 	constructor(options: ObserverRegistryOptions) {
@@ -66,89 +74,116 @@ export class ObserverRegistry {
 		this.projectDataDir = options.projectDataDir;
 		this.rootDir = options.rootDir;
 		this.evalMode = options.evalMode;
-		this.config = options.config ?? METACOGNITIVE_OBSERVER;
+		const configs = options.configs ?? (options.config ? [options.config] : []);
+		this.subscriptions = configs.map((config) => ({
+			config,
+			includeKinds: new Set(config.events),
+			pendingEvents: [],
+			triggerCount: 0,
+			observerStarted: false,
+			deliveryInFlight: false,
+			flushRequested: false,
+			warningEmitted: false,
+		}));
 		this.getResolverSettings = options.getResolverSettings;
 		this.emitEvent = options.emitEvent;
-		this.includeKinds = new Set(this.config.events);
 	}
 
 	handleEvent(event: SessionEvent): void {
-		if (!this.includeKinds.has(event.kind)) return;
-		this.pendingEvents.push(event);
-		this.trimPendingEvents();
+		for (const subscription of this.subscriptions) {
+			if (!subscription.includeKinds.has(event.kind)) continue;
+			subscription.pendingEvents.push(event);
+			this.trimPendingEvents(subscription);
 
-		if (event.kind !== this.config.trigger.event || event.depth !== 0) return;
-		this.rootTriggerCount++;
-		if (this.rootTriggerCount % this.config.trigger.every !== 0) return;
-		void this.flush();
+			if (!this.shouldTrigger(subscription, event)) continue;
+			subscription.triggerCount++;
+			if (subscription.triggerCount % subscription.config.trigger.every !== 0) continue;
+			void this.flush(subscription);
+		}
 	}
 
 	reset(sessionId: string): void {
 		this.sessionId = sessionId;
-		this.pendingEvents = [];
-		this.rootTriggerCount = 0;
-		this.observerStarted = false;
-		this.deliveryInFlight = false;
-		this.flushRequested = false;
-		this.warningEmitted = false;
+		for (const subscription of this.subscriptions) {
+			subscription.pendingEvents = [];
+			subscription.triggerCount = 0;
+			subscription.observerStarted = false;
+			subscription.deliveryInFlight = false;
+			subscription.flushRequested = false;
+			subscription.warningEmitted = false;
+		}
 		this.generation++;
 	}
 
-	private async flush(): Promise<void> {
-		if (this.deliveryInFlight) {
-			this.flushRequested = true;
+	private shouldTrigger(subscription: ObserverSubscriptionState, event: SessionEvent): boolean {
+		if (event.kind !== subscription.config.trigger.event) return false;
+		if (subscription.config.target === "root" && event.depth !== 0) return false;
+		return true;
+	}
+
+	private async flush(subscription: ObserverSubscriptionState): Promise<void> {
+		if (subscription.deliveryInFlight) {
+			subscription.flushRequested = true;
 			return;
 		}
-		if (this.pendingEvents.length === 0) return;
+		if (subscription.pendingEvents.length === 0) return;
 
 		const resolverSettings = this.getResolverSettings?.();
-		if (!resolverSettings?.agentModels["observer.metacognitive"]) {
-			this.emitMissingModelWarning();
+		if (
+			subscription.config.modelPurpose &&
+			!resolverSettings?.agentModels[subscription.config.modelPurpose]
+		) {
+			this.emitMissingModelWarning(subscription);
 			return;
 		}
 
 		const generation = this.generation;
-		const events = this.pendingEvents;
-		this.pendingEvents = [];
-		this.deliveryInFlight = true;
+		const events = subscription.pendingEvents;
+		subscription.pendingEvents = [];
+		subscription.deliveryInFlight = true;
 		try {
 			const frame = buildObserverFrame({
 				sessionId: this.sessionId,
 				events,
-				includeKinds: this.config.events,
-				maxEvents: this.config.maxEvents,
-				maxChars: this.config.maxChars,
+				includeKinds: subscription.config.events,
+				maxEvents: subscription.config.maxEvents,
+				maxChars: subscription.config.maxChars,
 			});
 			if (frame.events.length === 0) return;
 
 			const message = renderObserverFrame(frame);
-			await this.deliverFrame(message, resolverSettings);
+			await this.deliverFrame(subscription, message, resolverSettings);
 		} catch (error) {
 			if (this.generation === generation) {
-				this.pendingEvents = [...events, ...this.pendingEvents];
-				this.trimPendingEvents();
+				subscription.pendingEvents = [...events, ...subscription.pendingEvents];
+				this.trimPendingEvents(subscription);
 				this.emitEvent("warning", "session", 0, {
-					message: `Metacognitive observer delivery failed: ${
+					message: `Observer '${subscription.config.agentName}' delivery failed: ${
 						error instanceof Error ? error.message : String(error)
 					}`,
 				});
 			}
 		} finally {
 			if (this.generation === generation) {
-				this.deliveryInFlight = false;
-				if (this.flushRequested) {
-					this.flushRequested = false;
-					void this.flush();
+				subscription.deliveryInFlight = false;
+				if (subscription.flushRequested) {
+					subscription.flushRequested = false;
+					void this.flush(subscription);
 				}
 			}
 		}
 	}
 
-	private async deliverFrame(message: string, resolverSettings: ResolverSettings): Promise<void> {
-		if (!this.observerStarted) {
-			this.emitObserverStart();
+	private async deliverFrame(
+		subscription: ObserverSubscriptionState,
+		message: string,
+		resolverSettings: ResolverSettings | undefined,
+	): Promise<void> {
+		const handleId = this.observerHandleId(subscription.config);
+		if (!subscription.observerStarted) {
+			this.emitObserverStart(subscription);
 			const result = await this.spawner.spawnAgent({
-				agentName: this.config.agentName,
+				agentName: subscription.config.agentName,
 				goal: message,
 				genomePath: this.genomePath,
 				workDir: this.workDir,
@@ -157,44 +192,51 @@ export class ObserverRegistry {
 				caller: ROOT_CALLER,
 				shared: true,
 				blocking: false,
-				handleId: OBSERVER_HANDLE_ID,
-				agentId: OBSERVER_AGENT_ID,
+				handleId,
+				agentId: this.observerAgentId(subscription.config),
 				evalMode: this.evalMode,
 				resolverSettings,
 				surfacedMemoryBlock: "",
 			});
 			if (typeof result !== "string") {
-				throw new Error("Metacognitive observer did not return a handle id");
+				throw new Error(`Observer '${subscription.config.agentName}' did not return a handle id`);
 			}
-			this.observerStarted = true;
+			subscription.observerStarted = true;
 			return;
 		}
 
-		await this.spawner.messageAgent(OBSERVER_HANDLE_ID, message, ROOT_CALLER, false);
+		await this.spawner.messageAgent(handleId, message, ROOT_CALLER, false);
 	}
 
-	private emitObserverStart(): void {
+	private emitObserverStart(subscription: ObserverSubscriptionState): void {
 		this.emitEvent("act_start", "root", 0, {
-			agent_name: this.config.agentName,
-			child_id: OBSERVER_AGENT_ID,
-			handle_id: OBSERVER_HANDLE_ID,
-			description: "observes root turns",
+			agent_name: subscription.config.agentName,
+			child_id: this.observerAgentId(subscription.config),
+			handle_id: this.observerHandleId(subscription.config),
+			description: subscription.config.description ?? `observes ${subscription.config.target}`,
 			observer: true,
 		});
 	}
 
-	private emitMissingModelWarning(): void {
-		if (this.warningEmitted) return;
-		this.warningEmitted = true;
+	private emitMissingModelWarning(subscription: ObserverSubscriptionState): void {
+		if (subscription.warningEmitted) return;
+		subscription.warningEmitted = true;
 		this.emitEvent("warning", "session", 0, {
-			message:
-				"Metacognitive observer is not running because agent model 'observer.metacognitive' is not configured.",
+			message: `Observer '${subscription.config.agentName}' is not running because agent model '${subscription.config.modelPurpose}' is not configured.`,
 		});
 	}
 
-	private trimPendingEvents(): void {
-		const maxPendingEvents = this.config.maxEvents * 4;
-		if (this.pendingEvents.length <= maxPendingEvents) return;
-		this.pendingEvents = this.pendingEvents.slice(-maxPendingEvents);
+	private trimPendingEvents(subscription: ObserverSubscriptionState): void {
+		const maxPendingEvents = subscription.config.maxEvents * 4;
+		if (subscription.pendingEvents.length <= maxPendingEvents) return;
+		subscription.pendingEvents = subscription.pendingEvents.slice(-maxPendingEvents);
+	}
+
+	private observerHandleId(config: ObserverAttachmentConfig): string {
+		return config.handleId ?? `observer-${config.agentName}`;
+	}
+
+	private observerAgentId(config: ObserverAttachmentConfig): string {
+		return config.agentId ?? this.observerHandleId(config);
 	}
 }

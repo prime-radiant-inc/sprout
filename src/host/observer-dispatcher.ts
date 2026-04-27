@@ -1,2 +1,18 @@
-export { METACOGNITIVE_OBSERVER, ObserverRegistry as ObserverDispatcher } from "./observer-registry.ts";
-export type { ObserverRegistryOptions as ObserverDispatcherOptions } from "./observer-registry.ts";
+import {
+	METACOGNITIVE_OBSERVER,
+	ObserverRegistry,
+	type ObserverRegistryOptions,
+} from "./observer-registry.ts";
+
+export { METACOGNITIVE_OBSERVER };
+
+export type ObserverDispatcherOptions = ObserverRegistryOptions;
+
+export class ObserverDispatcher extends ObserverRegistry {
+	constructor(options: ObserverDispatcherOptions) {
+		super({
+			...options,
+			configs: options.configs ?? [options.config ?? METACOGNITIVE_OBSERVER],
+		});
+	}
+}
