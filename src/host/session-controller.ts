@@ -21,7 +21,7 @@ import {
 	createSessionCommandHandlers,
 	type SessionCommandHandlers,
 } from "./session-controller-commands.ts";
-import { SessionMetadata } from "./session-metadata.ts";
+import { type SessionMemorySurfaceSnapshot, SessionMetadata } from "./session-metadata.ts";
 import {
 	persistPlanEndMetadataUpdate,
 	persistRunningMetadata,
@@ -68,6 +68,10 @@ function shouldCollapseThrownRun(signal: AbortSignal, terminalSessionEndSeen: bo
 	return !signal.aborted && terminalSessionEndSeen;
 }
 
+function normalizeMemorySurfaceGoal(goal: string): string {
+	return goal.trim().replace(/\s+/g, " ");
+}
+
 /** Options passed to the agent factory. */
 export interface AgentFactoryOptions {
 	genomePath: string;
@@ -81,6 +85,8 @@ export interface AgentFactoryOptions {
 	events: SessionBus;
 	/** Prior conversation history for resume/continuation. */
 	initialHistory?: Message[];
+	/** Cached root memory surface for resume when the goal is unchanged. */
+	initialMemorySurface?: SessionMemorySurfaceSnapshot;
 	/** Model override from /model command. */
 	model?: string | ModelRef;
 	/** Default provider context for exact-model resolution. */
@@ -118,6 +124,11 @@ export interface AgentFactoryResult {
 	) => Promise<{ summary: string; beforeCount: number; afterCount: number }>;
 	/** Collapse the completed root session into long-term memory. */
 	collapseMemory?: (input: { sessionId: string; cwd: string }) => Promise<unknown>;
+	/** Opportunistically compact the memory JSONL source if the maintenance cadence is due. */
+	compactMemoryLogIfDue?: () => Promise<{
+		due: boolean;
+		result?: { removedIds: string[] };
+	}>;
 }
 
 /** Factory function that creates an agent. Injectable for testing. */
@@ -140,6 +151,7 @@ export interface SessionControllerOptions {
 	factory?: AgentFactory;
 	sessionId?: string;
 	initialHistory?: Message[];
+	initialMemorySurface?: SessionMemorySurfaceSnapshot;
 	/** Bus-based spawner to forward to the agent factory. */
 	spawner?: AgentSpawner;
 	/** Pre-loaded Genome instance to forward to the agent factory. */
@@ -213,6 +225,7 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 		events: agentEvents,
 		sessionId: options.sessionId,
 		initialHistory: options.initialHistory,
+		initialMemorySurface: options.initialMemorySurface,
 		model: options.model,
 		providerIdOverride: options.providerIdOverride,
 		resolverSettings: options.resolverSettings,
@@ -266,6 +279,7 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 					return collapse;
 				}
 			: undefined,
+		compactMemoryLogIfDue: () => result.genome.compactMemoryLogIfDue(),
 	};
 }
 
@@ -349,6 +363,7 @@ export class SessionController {
 	) => SessionSelectionSnapshot;
 	private readonly getResolverSettings?: () => ResolverSettings | undefined;
 	private history: Message[] = [];
+	private memorySurface?: SessionMemorySurfaceSnapshot;
 	private running = false;
 	private selectionSnapshot: SessionSelectionSnapshot;
 	private hasRun = false;
@@ -387,6 +402,7 @@ export class SessionController {
 		this.getResolverSettings = options.getResolverSettings;
 		this.selectionSnapshot = options.initialSelection ?? createDefaultSessionSelectionSnapshot();
 		this.history = options.initialHistory ? [...options.initialHistory] : [];
+		this.memorySurface = options.initialMemorySurface;
 
 		this.metadata = new SessionMetadata({
 			sessionId: this._sessionId,
@@ -471,6 +487,7 @@ export class SessionController {
 		this.running = false;
 		this.agent = null;
 		this.history = cleared.history;
+		this.memorySurface = undefined;
 		this.hasRun = cleared.hasRun;
 		this._sessionId = cleared.sessionId;
 		this.metadata = new SessionMetadata({
@@ -523,6 +540,9 @@ export class SessionController {
 				},
 			});
 		}
+		if (event.kind === "recall" && event.depth === 0 && event.data.cached !== true) {
+			await this.persistFreshMemorySurface(event);
+		}
 		if (
 			event.kind === "session_end" &&
 			event.depth === 0 &&
@@ -530,6 +550,25 @@ export class SessionController {
 		) {
 			this.terminalSessionEndSeen = true;
 		}
+	}
+
+	private async persistFreshMemorySurface(event: SessionEvent): Promise<void> {
+		const goal = typeof event.data.goal === "string" ? event.data.goal : undefined;
+		const memoryBlock =
+			typeof event.data.memory_block === "string" ? event.data.memory_block : undefined;
+		if (!goal || memoryBlock === undefined) return;
+		const surfacedIds = Array.isArray(event.data.surfaced_memory_ids)
+			? event.data.surfaced_memory_ids.filter((id): id is string => typeof id === "string")
+			: [];
+		this.memorySurface = {
+			goal,
+			normalizedGoal: normalizeMemorySurfaceGoal(goal),
+			generatedAt: new Date().toISOString(),
+			memoryBlock,
+			memoryIds: surfacedIds,
+		};
+		this.metadata.setMemorySurface(this.memorySurface);
+		await this.metadata.save();
 	}
 
 	private interrupt(): void {
@@ -595,6 +634,7 @@ export class SessionController {
 		const generation = this.runGeneration;
 		this.terminalSessionEndSeen = false;
 		await persistRunningMetadata(this.metadata);
+		const reusableMemorySurface = this.reusableMemorySurfaceForGoal(goal);
 
 		let learnProcess: AgentFactoryResult["learnProcess"] = null;
 		const stopLearnProcess = async (): Promise<void> => {
@@ -617,6 +657,7 @@ export class SessionController {
 				events: this.bus,
 				sessionId: this._sessionId,
 				initialHistory: this.history.length > 0 ? [...this.history] : undefined,
+				initialMemorySurface: reusableMemorySurface,
 				model: selectionSnapshotToModelOverride(this.selectionSnapshot),
 				providerIdOverride: selectionSnapshotToProviderId(this.selectionSnapshot),
 				resolverSettings: this.getResolverSettings?.(),
@@ -676,6 +717,16 @@ export class SessionController {
 		}
 	}
 
+	private reusableMemorySurfaceForGoal(goal: string): SessionMemorySurfaceSnapshot | undefined {
+		if (this.history.length === 0 || !this.memorySurface) return undefined;
+		if (this.memorySurface.normalizedGoal !== normalizeMemorySurfaceGoal(goal)) return undefined;
+		const generatedAt = Date.parse(this.memorySurface.generatedAt);
+		if (!Number.isFinite(generatedAt)) return undefined;
+		const ageMs = Date.now() - generatedAt;
+		if (ageMs < 0 || ageMs > 60 * 60 * 1000) return undefined;
+		return this.memorySurface;
+	}
+
 	private async collapseMemoryAfterRun(result: AgentFactoryResult): Promise<void> {
 		if (!result.collapseMemory || this.evalMode) return;
 		try {
@@ -686,6 +737,13 @@ export class SessionController {
 			if (collapse !== "skipped") {
 				this.bus.emitEvent("context_update", "session", 0, {
 					memory_collapse: "completed",
+				});
+			}
+			const compaction = await result.compactMemoryLogIfDue?.();
+			if (compaction?.result && compaction.result.removedIds.length > 0) {
+				this.bus.emitEvent("context_update", "session", 0, {
+					memory_log_compaction: "completed",
+					removed_memory_count: compaction.result.removedIds.length,
 				});
 			}
 		} catch (err) {

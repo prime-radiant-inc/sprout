@@ -383,6 +383,7 @@ describe("buildPlanRequest", () => {
 		expect(req.provider_options).toEqual({
 			openai: { prompt_cache_key: "01SESSION:engineer" },
 			anthropic: { cache: { enabled: true, ttl: "1h" } },
+			gemini: { cache: { enabled: true, key: "01SESSION:engineer", ttl: "3600s" } },
 		});
 	});
 
@@ -423,6 +424,7 @@ describe("buildPlanRequest", () => {
 				cache: { enabled: true },
 				thinking: { type: "enabled", budget_tokens: 7000 },
 			},
+			gemini: { cache: { enabled: true, key: "01SESSION:architect", ttl: "3600s" } },
 		});
 	});
 });

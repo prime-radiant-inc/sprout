@@ -17,6 +17,7 @@ export type GenomeCommand =
 			decisionFile?: string;
 			scope: GenomeMaintainScope;
 			limit?: number;
+			compact?: boolean;
 	  };
 
 export function isGenomeCommand<T extends { kind: string }>(
@@ -118,6 +119,11 @@ export async function runGenomeCommand(command: GenomeCommand): Promise<void> {
 		try {
 			const genome = new Genome(command.genomePath, rootDir);
 			await genome.loadFromDisk();
+			if (command.compact) {
+				const result = await genome.compactMemoryLog();
+				console.log(JSON.stringify(result, null, 2));
+				return;
+			}
 			const plan = discoverMemoryMaintenancePlan(genome, {
 				includeConsolidation,
 				includeEntityGc,

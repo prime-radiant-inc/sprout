@@ -9,6 +9,7 @@ import { VERSION } from "../version.ts";
 import { createAtifRecorder } from "./atif/recorder.ts";
 import { bootstrapSessionRuntime, type SessionBootstrapOptions } from "./cli-bootstrap.ts";
 import type { SessionRunResult } from "./session-controller.ts";
+import type { SessionMemorySurfaceSnapshot } from "./session-metadata.ts";
 
 export interface HeadlessInfrastructure {
 	spawner: AgentSpawner;
@@ -25,6 +26,7 @@ export interface RunHeadlessOptions {
 	atifPath?: string;
 	evalMode?: boolean;
 	initialHistory?: Message[];
+	initialMemorySurface?: SessionMemorySurfaceSnapshot;
 	initialSelectionRequest?: SessionSelectionRequest;
 	completedHandles?: Array<{
 		handleId: string;
@@ -125,6 +127,7 @@ export async function runHeadlessMode(
 			evalMode: opts.evalMode,
 			nonInteractive: true,
 			initialHistory: opts.initialHistory,
+			initialMemorySurface: opts.initialMemorySurface,
 			initialSelectionRequest: opts.initialSelectionRequest,
 			completedHandles: opts.completedHandles,
 			infra,

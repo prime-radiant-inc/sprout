@@ -15,6 +15,9 @@ constraints:
   max_turns: 200
   timeout_ms: 0
   can_learn: true
+subcortical_recall:
+  enabled: true
+  max_tokens: 1024
 tags:
   - core
   - orchestration
@@ -50,6 +53,9 @@ Common routing:
 - Need a command run as part of debugging or verification? → debugger or verifier
 - Need to track work items? → task-manager
 - Need to know what tools exist? → quartermaster
+- Need to understand Sprout internals or agent architecture? → quartermaster
+- Need to debug, search, or repair a past Sprout session? → quartermaster
+- Need to diagnose whether Sprout is learning effectively? → quartermaster
 
 ## Principles
 

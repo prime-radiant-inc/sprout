@@ -2,7 +2,13 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { GeminiAdapter } from "../../src/llm/gemini.ts";
 import type { ProviderAdapter } from "../../src/llm/types.ts";
-import { ContentKind, messageText, messageToolCalls, type Request } from "../../src/llm/types.ts";
+import {
+	ContentKind,
+	Msg,
+	messageText,
+	messageToolCalls,
+	type Request,
+} from "../../src/llm/types.ts";
 import "../helpers/test-env.ts";
 import { createAdapterVcr } from "../helpers/vcr.ts";
 
@@ -248,4 +254,80 @@ describe("GeminiAdapter", () => {
 		expect(finish?.usage).toBeDefined();
 		await vcr.afterTest();
 	}, 15_000);
+
+	test("complete creates and uses explicit cached content when Gemini cache is enabled", async () => {
+		const adapter = new GeminiAdapter("test-key");
+		const captured: { cache?: unknown; generate?: unknown } = {};
+		(adapter as any).client = {
+			caches: {
+				create: async (params: unknown) => {
+					captured.cache = params;
+					return { name: "cachedContents/sprout-cache-1" };
+				},
+			},
+			models: {
+				generateContent: async (params: unknown) => {
+					captured.generate = params;
+					return {
+						candidates: [{ content: { parts: [{ text: "ok" }] }, finishReason: "STOP" }],
+						usageMetadata: {
+							promptTokenCount: 10,
+							candidatesTokenCount: 1,
+							totalTokenCount: 11,
+							cachedContentTokenCount: 8,
+						},
+					};
+				},
+			},
+		};
+
+		const response = await adapter.complete({
+			model: "gemini-2.5-flash",
+			messages: [Msg.system("System prompt."), Msg.user("Hello")],
+			tools: [
+				{
+					name: "lookup",
+					description: "Lookup a value",
+					parameters: { type: "object", properties: {} },
+				},
+			],
+			provider_options: {
+				gemini: { cache: { enabled: true, key: "01SESSION:root", ttl: "3600s" } },
+			},
+		});
+
+		expect((captured.cache as any).model).toBe("gemini-2.5-flash");
+		expect((captured.cache as any).config.systemInstruction).toBe("System prompt.");
+		expect((captured.cache as any).config.tools).toHaveLength(1);
+		expect((captured.generate as any).config.cachedContent).toBe("cachedContents/sprout-cache-1");
+		expect((captured.generate as any).config.systemInstruction).toBeUndefined();
+		expect((captured.generate as any).config.tools).toBeUndefined();
+		expect(response.usage.cache_read_tokens).toBe(8);
+	});
+
+	test("complete fails loud when Gemini cache creation fails", async () => {
+		const adapter = new GeminiAdapter("test-key");
+		(adapter as any).client = {
+			caches: {
+				create: async () => {
+					throw new Error("cache rejected");
+				},
+			},
+			models: {
+				generateContent: async () => {
+					throw new Error("should not generate without cache");
+				},
+			},
+		};
+
+		await expect(
+			adapter.complete({
+				model: "gemini-2.5-flash",
+				messages: [Msg.system("System prompt."), Msg.user("Hello")],
+				provider_options: {
+					gemini: { cache: { enabled: true, key: "01SESSION:root", ttl: "3600s" } },
+				},
+			}),
+		).rejects.toThrow("Gemini prompt cache creation failed");
+	});
 });

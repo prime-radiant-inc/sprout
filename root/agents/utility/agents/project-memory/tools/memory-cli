@@ -1,108 +1,140 @@
 ---
 name: memory-cli
 description: "Manage project memory files: list, read, write, search"
-interpreter: bash
+interpreter: sprout-internal
 ---
-#!/bin/bash
-TOOL_DIR="${SPROUT_TOOL_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)}"
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { basename, join } from "node:path";
 
-set -euo pipefail
+type MemoryCommand = "list" | "read" | "write" | "search";
 
-if [ -z "${SPROUT_PROJECT_DATA_DIR:-}" ]; then
-  echo "Error: SPROUT_PROJECT_DATA_DIR is not set" >&2
-  exit 1
-fi
+function stringArg(args: Record<string, unknown>, key: string): string | undefined {
+	const value = args[key];
+	return typeof value === "string" ? value : undefined;
+}
 
-MEMORY_DIR="$SPROUT_PROJECT_DATA_DIR/memory"
+function commandArg(value: unknown): MemoryCommand | undefined {
+	return value === "list" || value === "read" || value === "write" || value === "search"
+		? value
+		: undefined;
+}
 
-command="${1:-}"
-# consume the command arg; ok if no args remain
-shift 2>/dev/null || true
+function validateFilename(filename: string): string {
+	if (!filename.trim()) throw new Error("filename must be non-empty");
+	if (filename !== basename(filename) || filename === "." || filename === "..") {
+		throw new Error("filename must be a simple basename (no path separators)");
+	}
+	if (filename.includes("\0")) throw new Error("filename must not contain NUL bytes");
+	return filename;
+}
 
-case "$command" in
-  list)
-    if [ ! -d "$MEMORY_DIR" ]; then
-      echo "No memory directory yet. Write a document to create it."
-      exit 0
-    fi
-    found=0
-    for f in "$MEMORY_DIR"/*.md; do
-      [ -f "$f" ] || continue
-      found=1
-      name="$(basename "$f")"
-      title="$(head -n 1 "$f")"
-      printf "%-30s %s\n" "$name" "$title"
-    done
-    if [ "$found" -eq 0 ]; then
-      echo "No memory documents found."
-    fi
-    ;;
+async function listDocuments(memoryDir: string): Promise<string> {
+	let entries: string[];
+	try {
+		entries = await readdir(memoryDir);
+	} catch {
+		return "No memory directory yet. Write a document to create it.";
+	}
 
-  read)
-    filename="${1:-}"
-    if [ -z "$filename" ]; then
-      echo "Error: usage: memory-cli read <filename>" >&2
-      exit 1
-    fi
-    if [[ "$filename" == */* || "$filename" == ..* ]]; then
-      echo "Error: filename must be a simple basename (no path separators)" >&2
-      exit 1
-    fi
-    filepath="$MEMORY_DIR/$filename"
-    if [ ! -f "$filepath" ]; then
-      echo "Error: file not found: $filename" >&2
-      exit 1
-    fi
-    cat "$filepath"
-    ;;
+	const rows: string[] = [];
+	for (const name of entries.filter((entry) => entry.endsWith(".md")).sort()) {
+		const content = await readFile(join(memoryDir, name), "utf-8");
+		const title = content.split("\n")[0] ?? "";
+		rows.push(`${name.padEnd(30)} ${title}`);
+	}
+	return rows.length > 0 ? rows.join("\n") : "No memory documents found.";
+}
 
-  write)
-    filename="${1:-}"
-    if [ -z "$filename" ]; then
-      echo "Error: usage: echo 'content' | memory-cli write <filename>" >&2
-      exit 1
-    fi
-    if [[ "$filename" == */* || "$filename" == ..* ]]; then
-      echo "Error: filename must be a simple basename (no path separators)" >&2
-      exit 1
-    fi
-    mkdir -p "$MEMORY_DIR"
-    filepath="$MEMORY_DIR/$filename"
-    cat > "$filepath"
-    echo "Wrote $filepath"
-    ;;
+async function readDocument(memoryDir: string, filename: string): Promise<string> {
+	const safeName = validateFilename(filename);
+	return readFile(join(memoryDir, safeName), "utf-8");
+}
 
-  search)
-    keyword="${1:-}"
-    if [ -z "$keyword" ]; then
-      echo "Error: usage: memory-cli search <keyword>" >&2
-      exit 1
-    fi
-    if [ ! -d "$MEMORY_DIR" ]; then
-      echo "No memory directory yet. Nothing to search."
-      exit 0
-    fi
-    matches="$(grep -rl --include="*.md" "$keyword" "$MEMORY_DIR" 2>/dev/null || true)"
-    if [ -z "$matches" ]; then
-      echo "No matches found."
-    else
-      echo "$matches" | while read -r f; do
-        name="$(basename "$f")"
-        echo "=== $name ==="
-        grep -n "$keyword" "$f"
-        echo ""
-      done
-    fi
-    ;;
+async function writeDocument(
+	memoryDir: string,
+	filename: string,
+	content: string,
+): Promise<string> {
+	const safeName = validateFilename(filename);
+	await mkdir(memoryDir, { recursive: true });
+	await writeFile(join(memoryDir, safeName), content, "utf-8");
+	return `Wrote ${safeName} (${content.length} bytes)`;
+}
 
-  *)
-    echo "Usage: memory-cli <command> [args]" >&2
-    echo "" >&2
-    echo "Commands:" >&2
-    echo "  list               List all memory documents" >&2
-    echo "  read <filename>    Read a memory document" >&2
-    echo "  write <filename>   Write a memory document (content from stdin)" >&2
-    echo "  search <keyword>   Search across all memory documents" >&2
-    exit 1
-    ;;
-esac
+async function searchDocuments(memoryDir: string, keyword: string): Promise<string> {
+	if (!keyword) throw new Error("search keyword must be non-empty");
+	let entries: string[];
+	try {
+		entries = await readdir(memoryDir);
+	} catch {
+		return "No memory directory yet. Nothing to search.";
+	}
+
+	const sections: string[] = [];
+	for (const name of entries.filter((entry) => entry.endsWith(".md")).sort()) {
+		const content = await readFile(join(memoryDir, name), "utf-8");
+		const matches = content
+			.split("\n")
+			.map((line, index) => ({ line, number: index + 1 }))
+			.filter(({ line }) => line.includes(keyword));
+		if (matches.length === 0) continue;
+		sections.push(
+			[`=== ${name} ===`, ...matches.map(({ line, number }) => `${number}:${line}`)].join("\n"),
+		);
+	}
+
+	return sections.length > 0 ? sections.join("\n\n") : "No matches found.";
+}
+
+export default async function memoryCli(ctx) {
+	const command = commandArg(ctx.args.command);
+	if (!command) {
+		return {
+			output:
+				'Error: args must be JSON with command "list", "read", "write", or "search"',
+			success: false,
+			error: "missing or invalid command",
+		};
+	}
+
+	const projectDataDir = ctx.projectDataDir;
+	if (typeof projectDataDir !== "string" || !projectDataDir.trim()) {
+		return {
+			output: "Error: project data directory is unavailable for project-memory",
+			success: false,
+			error: "missing projectDataDir",
+		};
+	}
+
+	try {
+		const memoryDir = join(projectDataDir, "memory");
+		if (command === "list") {
+			return { output: await listDocuments(memoryDir), success: true };
+		}
+
+		if (command === "read") {
+			const filename = stringArg(ctx.args, "filename");
+			if (!filename) throw new Error("read requires filename");
+			return { output: await readDocument(memoryDir, filename), success: true };
+		}
+
+		if (command === "write") {
+			const filename = stringArg(ctx.args, "filename");
+			const content = stringArg(ctx.args, "content");
+			if (!filename) throw new Error("write requires filename");
+			if (content === undefined) throw new Error("write requires content");
+			return { output: await writeDocument(memoryDir, filename, content), success: true };
+		}
+
+		const keyword = stringArg(ctx.args, "keyword");
+		if (!keyword) throw new Error("search requires keyword");
+		return { output: await searchDocuments(memoryDir, keyword), success: true };
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		return {
+			output: `Error: ${message}`,
+			success: false,
+			error: message,
+		};
+	}
+}

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { Content, FunctionCall, GenerateContentConfig, Part } from "@google/genai";
 import { GoogleGenAI } from "@google/genai";
 import type { ProviderKind } from "../shared/provider-settings.ts";
@@ -26,6 +27,7 @@ export class GeminiAdapter implements ProviderAdapter {
 	readonly providerId: string;
 	readonly kind: ProviderKind = "gemini";
 	private client: GoogleGenAI;
+	private cachedContents = new Map<string, { name: string; expiresAt: number }>();
 
 	// Gemini doesn't assign unique IDs to function calls.
 	// We generate synthetic ones and track the mapping per-instance.
@@ -68,13 +70,14 @@ export class GeminiAdapter implements ProviderAdapter {
 
 	async complete(request: Request): Promise<Response> {
 		const { systemInstruction, contents, config } = buildGeminiRequest(request, this.callIdToName);
+		const cached = await this.applyPromptCache(request, systemInstruction, config);
 
 		const result = await this.client.models.generateContent({
 			model: request.model,
 			contents,
 			config: {
-				...config,
-				systemInstruction,
+				...cached.config,
+				...(cached.systemInstruction ? { systemInstruction: cached.systemInstruction } : {}),
 			},
 		});
 
@@ -89,13 +92,14 @@ export class GeminiAdapter implements ProviderAdapter {
 
 	async *stream(request: Request): AsyncIterable<StreamEvent> {
 		const { systemInstruction, contents, config } = buildGeminiRequest(request, this.callIdToName);
+		const cached = await this.applyPromptCache(request, systemInstruction, config);
 
 		const stream = await this.client.models.generateContentStream({
 			model: request.model,
 			contents,
 			config: {
-				...config,
-				systemInstruction,
+				...cached.config,
+				...(cached.systemInstruction ? { systemInstruction: cached.systemInstruction } : {}),
 			},
 		});
 
@@ -173,6 +177,61 @@ export class GeminiAdapter implements ProviderAdapter {
 			response: finalResponse,
 		};
 	}
+
+	private async applyPromptCache(
+		request: Request,
+		systemInstruction: string | undefined,
+		config: GenerateContentConfig,
+	): Promise<{ systemInstruction?: string; config: GenerateContentConfig }> {
+		const cache = geminiCacheOptions(request.provider_options?.gemini);
+		if (!cache?.enabled) return { systemInstruction, config };
+
+		const stablePayload = JSON.stringify({
+			systemInstruction: systemInstruction ?? "",
+			tools: config.tools ?? [],
+		});
+		const hash = createHash("sha256").update(stablePayload).digest("hex");
+		const cacheKey = `${request.model}:${cache.key ?? "default"}:${hash}`;
+		const now = Date.now();
+		const existing = this.cachedContents.get(cacheKey);
+		if (existing && existing.expiresAt > now + 5_000) {
+			return {
+				config: withoutCacheablePromptParts({ ...config, cachedContent: existing.name }),
+			};
+		}
+
+		let created: { name?: string };
+		try {
+			created = await this.client.caches.create({
+				model: request.model,
+				config: {
+					displayName: `sprout-${hash.slice(0, 24)}`,
+					ttl: cache.ttl,
+					...(systemInstruction ? { systemInstruction } : {}),
+					...(config.tools ? { tools: config.tools as any } : {}),
+				},
+			});
+		} catch (error) {
+			throw new Error(
+				`Gemini prompt cache creation failed for ${request.model}: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+			);
+		}
+
+		if (!created.name) {
+			throw new Error(
+				`Gemini prompt cache creation failed for ${request.model}: missing cache name`,
+			);
+		}
+		this.cachedContents.set(cacheKey, {
+			name: created.name,
+			expiresAt: now + ttlMs(cache.ttl),
+		});
+		return {
+			config: withoutCacheablePromptParts({ ...config, cachedContent: created.name }),
+		};
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -236,6 +295,35 @@ function buildGeminiRequest(request: Request, callIdToName: Map<string, string>)
 	}
 
 	return { systemInstruction, contents, config };
+}
+
+interface GeminiCacheOptions {
+	enabled: boolean;
+	key?: string;
+	ttl: string;
+}
+
+function geminiCacheOptions(value: unknown): GeminiCacheOptions | undefined {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+	const cache = (value as { cache?: unknown }).cache;
+	if (!cache || typeof cache !== "object" || Array.isArray(cache)) return undefined;
+	const raw = cache as Record<string, unknown>;
+	if (raw.enabled === false) return { enabled: false, ttl: "3600s" };
+	const key = typeof raw.key === "string" && raw.key.trim() ? raw.key.trim() : undefined;
+	const ttl = typeof raw.ttl === "string" && raw.ttl.trim() ? raw.ttl.trim() : "3600s";
+	return { enabled: raw.enabled === true, ...(key ? { key } : {}), ttl };
+}
+
+function withoutCacheablePromptParts(config: GenerateContentConfig): GenerateContentConfig {
+	const next = { ...config };
+	delete next.tools;
+	return next;
+}
+
+function ttlMs(ttl: string): number {
+	const match = ttl.match(/^(\d+(?:\.\d+)?)s$/);
+	if (!match) return 60 * 60 * 1000;
+	return Number(match[1]) * 1000;
 }
 
 function convertToContents(messages: Message[], callIdToName: Map<string, string>): Content[] {

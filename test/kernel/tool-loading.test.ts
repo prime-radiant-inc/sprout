@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { cp, mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Genome } from "../../src/genome/genome.ts";
@@ -198,6 +198,79 @@ describe("tool loading", () => {
 			const parsed = JSON.parse(result.output);
 			expect(parsed.name).toBe("test");
 			expect(parsed.count).toBe(3);
+		});
+
+		test("sprout-internal tool receives project data directory and session id", async () => {
+			const { genome } = await setupGenome("internal-session-context");
+
+			await genome.saveAgentTool("runner", {
+				name: "echo-context",
+				description: "Echo context",
+				interpreter: "sprout-internal",
+				script: `export default async function(ctx) {
+  return { output: JSON.stringify({ projectDataDir: ctx.projectDataDir, sessionId: ctx.sessionId }), success: true };
+}`,
+			});
+
+			const toolDefs = await genome.loadAgentTools("runner");
+			const env = new LocalExecutionEnvironment(tempDir);
+			const projectDataDir = join(tempDir, "project-data");
+			const prims = buildAgentToolPrimitives(toolDefs, {
+				genome,
+				env,
+				agentName: "runner",
+				projectDataDir,
+				sessionId: "01SESSION",
+			});
+
+			const result = await prims[0]!.execute({ args: "{}" }, env);
+			expect(result.success).toBe(true);
+			expect(JSON.parse(result.output)).toEqual({
+				projectDataDir,
+				sessionId: "01SESSION",
+			});
+		});
+
+		test("project-memory tool writes content without stdin", async () => {
+			const { genome } = await setupGenome("project-memory-content");
+			const rootDir = join(import.meta.dir, "../../root");
+			const toolDefs = await genome.loadAgentToolsWithRoot("project-memory", rootDir);
+			const memoryTool = toolDefs.find((tool) => tool.name === "memory-cli");
+			expect(memoryTool?.interpreter).toBe("sprout-internal");
+
+			const env = new LocalExecutionEnvironment(tempDir);
+			const projectDataDir = join(tempDir, "project-memory-data");
+			const prims = buildAgentToolPrimitives([memoryTool!], {
+				genome,
+				env,
+				agentName: "project-memory",
+				projectDataDir,
+				sessionId: "01MEMORY",
+			});
+
+			const content = "# Architecture\n\nUse SQLite-derived indexes over JSONL source data.\n";
+			const write = await prims[0]!.execute(
+				{
+					args: JSON.stringify({
+						command: "write",
+						filename: "architecture.md",
+						content,
+					}),
+				},
+				env,
+			);
+			expect(write.success).toBe(true);
+			expect(write.output).toContain("Wrote architecture.md");
+
+			const stored = await readFile(join(projectDataDir, "memory", "architecture.md"), "utf-8");
+			expect(stored).toBe(content);
+
+			const read = await prims[0]!.execute(
+				{ args: JSON.stringify({ command: "read", filename: "architecture.md" }) },
+				env,
+			);
+			expect(read.success).toBe(true);
+			expect(read.output).toBe(content);
 		});
 
 		test("sprout-internal tool wraps thrown errors", async () => {

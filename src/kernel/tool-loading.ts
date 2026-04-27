@@ -10,6 +10,8 @@ export interface InternalToolContext {
 	genome: Genome;
 	env: ExecutionEnvironment;
 	agentName: string;
+	projectDataDir?: string;
+	sessionId?: string;
 }
 
 /** Extract the script body from a tool file, stripping the YAML frontmatter. */
@@ -180,6 +182,8 @@ export function buildAgentToolPrimitives(
 					args: parseJsonArgs(toolArgs),
 					genome: ctx.genome,
 					env: ctx.env,
+					projectDataDir: ctx.projectDataDir,
+					sessionId: ctx.sessionId,
 				};
 
 				try {

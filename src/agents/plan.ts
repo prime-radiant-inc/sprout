@@ -288,6 +288,13 @@ export function buildPlanRequest(opts: {
 			providerOptions.anthropic = {
 				cache: { enabled: true, ...(opts.promptCache?.ttl ? { ttl: opts.promptCache.ttl } : {}) },
 			};
+			providerOptions.gemini = {
+				cache: {
+					enabled: true,
+					key: cacheKey,
+					ttl: opts.promptCache?.ttl === "5m" ? "300s" : "3600s",
+				},
+			};
 		}
 	}
 

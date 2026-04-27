@@ -328,7 +328,25 @@ describe("createAgent", () => {
 		const promptClient = {
 			providers: () => ["anthropic"],
 			listModelsByProvider: async () => new Map([["anthropic", []]]),
-			complete: async (req: { messages: { role: string; content: { text?: string }[] }[] }) => {
+			complete: async (req: {
+				metadata?: { purpose?: string };
+				messages: { role: string; content: { text?: string }[] }[];
+			}) => {
+				if (req.metadata?.purpose === "memory.subcortical") {
+					return {
+						...response,
+						message: {
+							role: "assistant",
+							content: [
+								{
+									kind: "text",
+									text: `{"expanded_query":"test non-interactive guidance","entities":[],"pinned_memory_ids":[]}`,
+								},
+							],
+						},
+					};
+				}
+
 				const sysMsg = req.messages.find((message) => message.role === "system");
 				if (sysMsg) {
 					capturedSystemPrompt = sysMsg.content.map((part) => part.text ?? "").join("");

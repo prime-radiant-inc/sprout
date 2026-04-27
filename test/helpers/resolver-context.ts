@@ -41,6 +41,11 @@ export async function buildTestResolverContext(
 			},
 			{
 				extraction: { providerId, modelId: defaultModelId },
+				summary: { providerId, modelId: defaultModelId },
+				relationship: { providerId, modelId: defaultModelId },
+				consolidation: { providerId, modelId: defaultModelId },
+				entityGc: { providerId, modelId: defaultModelId },
+				subcortical: { providerId, modelId: defaultModelId },
 			},
 		),
 	};

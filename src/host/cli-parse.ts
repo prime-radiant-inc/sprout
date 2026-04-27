@@ -94,6 +94,8 @@ function parseGenomeMaintainCommand(
 	let decisionFile: string | undefined;
 	let scope: GenomeMaintainScope = "all";
 	let limit: number | undefined;
+	let compact = false;
+	let dryRun = false;
 
 	while (index < argv.length) {
 		const token = argv[index];
@@ -101,12 +103,19 @@ function parseGenomeMaintainCommand(
 
 		if (token === "--dry-run") {
 			if (apply) return { nextIndex: index };
+			dryRun = true;
 			index++;
 			continue;
 		}
 
 		if (token === "--apply") {
 			apply = true;
+			index++;
+			continue;
+		}
+
+		if (token === "--compact") {
+			compact = true;
 			index++;
 			continue;
 		}
@@ -139,6 +148,12 @@ function parseGenomeMaintainCommand(
 	}
 
 	if (apply && decisionFile === undefined) return { nextIndex: startIndex };
+	if (
+		compact &&
+		(dryRun || apply || decisionFile !== undefined || scope !== "all" || limit !== undefined)
+	) {
+		return { nextIndex: startIndex };
+	}
 
 	return {
 		command: {
@@ -146,6 +161,7 @@ function parseGenomeMaintainCommand(
 			genomePath,
 			apply,
 			scope,
+			...(compact ? { compact } : {}),
 			...(decisionFile !== undefined ? { decisionFile } : {}),
 			...(limit !== undefined ? { limit } : {}),
 		},
@@ -423,6 +439,7 @@ Options:
   --genome-path <path>   Path to genome directory (default: $SPROUT_GENOME_PATH or $XDG_DATA_HOME/sprout-genome or ~/.local/share/sprout-genome)
   --dry-run              For --genome maintain, print candidates without mutating (default)
   --apply                For --genome maintain, apply reviewed decisions
+  --compact              For --genome maintain, compact inactive memory rows
   --decision-file <path> JSON decisions for --genome maintain --apply
   --only <scope>         For --genome maintain, scope is consolidation or entity-gc
   --limit <n>            For --genome maintain, cap candidates per maintenance type

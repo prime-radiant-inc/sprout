@@ -6,6 +6,7 @@ import type { SessionEvent } from "../kernel/types.ts";
 import type { Message } from "../llm/types.ts";
 import type { SessionSelectionRequest } from "../shared/session-selection.ts";
 import { replayEventLog } from "./resume.ts";
+import type { SessionMemorySurfaceSnapshot } from "./session-metadata.ts";
 import { loadSessionMetadata, type SessionMetadataSnapshot } from "./session-metadata.ts";
 import {
 	resolveSessionSelectionRequest,
@@ -24,6 +25,7 @@ export interface ResumeState {
 	history: Message[];
 	events: SessionEvent[];
 	selectionRequest?: SessionSelectionRequest;
+	memorySurface?: SessionMemorySurfaceSnapshot;
 	completedHandles?:
 		| Array<{
 				handleId: string;
@@ -70,9 +72,11 @@ export async function loadResumeState(
 	const sessionId = opts.command.sessionId;
 
 	let selectionRequest: SessionSelectionRequest | undefined;
+	let memorySurface: SessionMemorySurfaceSnapshot | undefined;
 	try {
 		const snapshot = await d.loadSessionMetadata(join(opts.sessionsDir, `${sessionId}.meta.json`));
 		selectionRequest = metadataSnapshotToSelectionRequest(snapshot);
+		memorySurface = snapshot.memorySurface;
 	} catch {}
 
 	const logPath = join(opts.projectDataDir, "logs", `${sessionId}.jsonl`);
@@ -104,6 +108,7 @@ export async function loadResumeState(
 		history,
 		events,
 		selectionRequest,
+		memorySurface,
 		completedHandles,
 	};
 }

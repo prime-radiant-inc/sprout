@@ -36,6 +36,11 @@ export interface CreateAgentOptions {
 	sessionId?: string;
 	/** Prior conversation history for resume/continuation. */
 	initialHistory?: Message[];
+	/** Cached root memory surface for resume when the goal is unchanged. */
+	initialMemorySurface?: {
+		memoryBlock: string;
+		memoryIds: string[];
+	};
 	/** Model override — if provided, overrides the root agent's spec model. */
 	model?: string | ModelRef;
 	/** Default provider context for exact-model resolution. */
@@ -226,6 +231,8 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 		sessionId,
 		logBasePath,
 		initialHistory: options.initialHistory,
+		surfacedMemoryBlock: options.initialMemorySurface?.memoryBlock,
+		surfacedMemoryIds: options.initialMemorySurface?.memoryIds,
 		modelOverride: options.model,
 		providerIdOverride: options.providerIdOverride,
 		resolverSettings: options.resolverSettings,

@@ -102,6 +102,45 @@ describe("VCR", () => {
 		expect(r2.id).toBe("r2");
 	});
 
+	test("replay mode synthesizes subcortical recall without consuming recordings", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "vcr-test-"));
+		const fixtureDir = join(tempDir, "fixtures");
+
+		const responses = [makeResponse("First", "r1"), makeResponse("Second", "r2")];
+		let callIndex = 0;
+		const { client: recorder, afterTest: saveRecording } = createVcr({
+			fixtureDir,
+			testName: "subcortical-side-channel",
+			mode: "record",
+			realClient: {
+				complete: async () => responses[callIndex++]!,
+				providers: () => ["anthropic"],
+			},
+		});
+
+		await recorder.complete(makeRequest("First question"));
+		await recorder.complete(makeRequest("Second question"));
+		await saveRecording();
+
+		const { client: replayer } = createVcr({
+			fixtureDir,
+			testName: "subcortical-side-channel",
+			mode: "replay",
+		});
+
+		const first = await replayer.complete(makeRequest("First question"));
+		const recall = await replayer.complete({
+			...makeRequest(`<user_goal>\nFind memory context\n</user_goal>`),
+			metadata: { purpose: "memory.subcortical" },
+		});
+		const second = await replayer.complete(makeRequest("Second question"));
+
+		expect(first.id).toBe("r1");
+		expect(recall.id).toBe("vcr-subcortical-replay");
+		expect(recall.message.content[0]?.text).toContain("Find memory context");
+		expect(second.id).toBe("r2");
+	});
+
 	test("replay mode throws when fixture is missing", () => {
 		tempDir = join(tmpdir(), `vcr-nonexistent-${Date.now()}`);
 

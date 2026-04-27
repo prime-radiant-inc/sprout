@@ -531,6 +531,29 @@ describe("parseArgs", () => {
 		});
 	});
 
+	test("--genome maintain accepts explicit memory-log compaction", () => {
+		const cmd = parseArgs(["--genome-path", "/custom/path", "--genome", "maintain", "--compact"]);
+		expect(cmd).toEqual({
+			kind: "genome-maintain",
+			genomePath: "/custom/path",
+			apply: false,
+			scope: "all",
+			compact: true,
+		});
+	});
+
+	test("--genome maintain compact rejects mixed maintenance modes", () => {
+		expect(parseArgs(["--genome", "maintain", "--compact", "--dry-run"])).toEqual({
+			kind: "help",
+		});
+		expect(parseArgs(["--genome", "maintain", "--compact", "--apply"])).toEqual({
+			kind: "help",
+		});
+		expect(parseArgs(["--genome", "maintain", "--compact", "--only", "entity-gc"])).toEqual({
+			kind: "help",
+		});
+	});
+
 	test("--genome maintain apply requires a decision file", () => {
 		expect(parseArgs(["--genome", "maintain", "--apply"])).toEqual({ kind: "help" });
 		expect(

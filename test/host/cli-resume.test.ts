@@ -133,6 +133,13 @@ describe("loadResumeState", () => {
 					contextWindowSize: 0,
 					createdAt: new Date().toISOString(),
 					updatedAt: new Date().toISOString(),
+					memorySurface: {
+						goal: "Fix the bug",
+						normalizedGoal: "Fix the bug",
+						generatedAt: "2026-04-27T00:00:00.000Z",
+						memoryBlock: "<memory_context>cached</memory_context>",
+						memoryIds: ["mem_1"],
+					},
 				}),
 				replayEventLog: async () => [],
 				loadEventLog: async () => [],
@@ -146,6 +153,7 @@ describe("loadResumeState", () => {
 			kind: "model",
 			model: { providerId: "openai", modelId: "gpt-4o" },
 		});
+		expect(state?.memorySurface?.memoryBlock).toBe("<memory_context>cached</memory_context>");
 	});
 
 	test("resolveResumeSelection preserves explicit provider-qualified model selections", () => {

@@ -11,7 +11,10 @@ import {
 	resolveCollapseMemoryModels,
 	SessionController,
 } from "../../src/host/session-controller.ts";
-import type { SessionMetadataSnapshot } from "../../src/host/session-metadata.ts";
+import type {
+	SessionMemorySurfaceSnapshot,
+	SessionMetadataSnapshot,
+} from "../../src/host/session-metadata.ts";
 import { Msg, type ProviderModel, type Response } from "../../src/llm/types.ts";
 import { sleep, waitFor } from "../helpers/wait-for.ts";
 
@@ -199,6 +202,32 @@ describe("SessionController", () => {
 		expect(collapsed).toHaveLength(1);
 		expect(collapsed[0]?.sessionId).toBe(controller.sessionId);
 		expect(bus.collected().some((event) => event.data.memory_collapse === "completed")).toBe(true);
+	});
+
+	test("runs due memory-log compaction after memory collapse", async () => {
+		const fake = makeFakeAgent();
+		const factory: AgentFactory = async () => ({
+			agent: fake.agent as any,
+			learnProcess: null,
+			collapseMemory: async () => ({ ok: true }),
+			compactMemoryLogIfDue: async () => ({
+				due: true,
+				result: { removedIds: ["mem_archived", "mem_superseded"] },
+			}),
+		});
+		const { bus, controller } = makeController({ factory });
+
+		await controller.runGoal("Remember this session");
+
+		expect(
+			bus
+				.collected()
+				.some(
+					(event) =>
+						event.data.memory_log_compaction === "completed" &&
+						event.data.removed_memory_count === 2,
+				),
+		).toBe(true);
 	});
 
 	test("does not emit completed memory collapse event for skipped collapse", async () => {
@@ -680,6 +709,120 @@ describe("SessionController", () => {
 
 		expect(capturedSnapshot).not.toBeNull();
 		expect(capturedSnapshot!.status).toBe("running");
+	});
+
+	test("root recall events persist surfaced memory metadata", async () => {
+		const sessionsDir = join(tempDir, "sessions");
+		const factory: AgentFactory = async (options) => ({
+			agent: {
+				steer() {},
+				requestCompaction() {},
+				async run() {
+					options.events.emitEvent("recall", "root", 0, {
+						goal: "Fix   the bug",
+						memory_block: "<memory_context>fresh</memory_context>",
+						surfaced_memory_ids: ["mem_1", "mem_2"],
+						cached: false,
+					});
+					return { output: "done", success: true, stumbles: 0, turns: 1, timed_out: false };
+				},
+			},
+			learnProcess: null,
+		});
+		const controller = new SessionController({
+			bus: new EventBus(),
+			genomePath: join(tempDir, "genome"),
+			projectDataDir: tempDir,
+			factory,
+		});
+
+		await controller.submitGoal("Fix the bug");
+		const metaPath = join(sessionsDir, `${controller.sessionId}.meta.json`);
+		let snapshot: SessionMetadataSnapshot | undefined;
+		for (let attempt = 0; attempt < 50; attempt++) {
+			const current: SessionMetadataSnapshot = JSON.parse(await readFile(metaPath, "utf-8"));
+			snapshot = current;
+			if (current.memorySurface?.memoryBlock === "<memory_context>fresh</memory_context>") break;
+			await sleep(10);
+		}
+		expect(snapshot?.memorySurface?.memoryBlock).toBe("<memory_context>fresh</memory_context>");
+		expect(snapshot).toBeDefined();
+		expect(snapshot!.memorySurface).toMatchObject({
+			goal: "Fix   the bug",
+			normalizedGoal: "Fix the bug",
+			memoryBlock: "<memory_context>fresh</memory_context>",
+			memoryIds: ["mem_1", "mem_2"],
+		});
+	});
+
+	test("resumed matching goals reuse cached surfaced memory", async () => {
+		const memorySurface: SessionMemorySurfaceSnapshot = {
+			goal: "Fix the bug",
+			normalizedGoal: "Fix the bug",
+			generatedAt: new Date().toISOString(),
+			memoryBlock: "<memory_context>cached</memory_context>",
+			memoryIds: ["mem_1"],
+		};
+		let capturedSurface: SessionMemorySurfaceSnapshot | undefined;
+		const factory: AgentFactory = async (options) => {
+			capturedSurface = options.initialMemorySurface;
+			return {
+				agent: makeFakeAgent().agent as any,
+				learnProcess: null,
+			};
+		};
+		const controller = new SessionController({
+			bus: new EventBus(),
+			genomePath: join(tempDir, "genome"),
+			projectDataDir: tempDir,
+			factory,
+			initialHistory: [Msg.user("prior")],
+			initialMemorySurface: memorySurface,
+		});
+
+		await controller.submitGoal("  Fix\n the\tbug  ");
+
+		expect(capturedSurface).toEqual(memorySurface);
+	});
+
+	test("resumed stale or different goals do not reuse surfaced memory", async () => {
+		const staleSurface: SessionMemorySurfaceSnapshot = {
+			goal: "Fix the bug",
+			normalizedGoal: "Fix the bug",
+			generatedAt: new Date(Date.now() - 61 * 60 * 1000).toISOString(),
+			memoryBlock: "<memory_context>stale</memory_context>",
+			memoryIds: ["mem_1"],
+		};
+		const captured: Array<SessionMemorySurfaceSnapshot | undefined> = [];
+		const factory: AgentFactory = async (options) => {
+			captured.push(options.initialMemorySurface);
+			return {
+				agent: makeFakeAgent().agent as any,
+				learnProcess: null,
+			};
+		};
+
+		const staleController = new SessionController({
+			bus: new EventBus(),
+			genomePath: join(tempDir, "genome"),
+			projectDataDir: tempDir,
+			factory,
+			initialHistory: [Msg.user("prior")],
+			initialMemorySurface: staleSurface,
+		});
+		await staleController.submitGoal("Fix the bug");
+
+		const differentController = new SessionController({
+			bus: new EventBus(),
+			genomePath: join(tempDir, "genome"),
+			projectDataDir: tempDir,
+			factory,
+			initialHistory: [Msg.user("prior")],
+			initialMemorySurface: { ...staleSurface, generatedAt: new Date().toISOString() },
+		});
+		await differentController.submitGoal("Fix another bug");
+
+		expect(captured).toEqual([undefined, undefined]);
 	});
 
 	test("events from agent are visible on bus", async () => {

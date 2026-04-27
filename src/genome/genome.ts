@@ -49,7 +49,20 @@ export interface GenomeOptions {
 	embeddingProvider?: EmbeddingProvider;
 }
 
+export interface MemoryLogCompactionResult {
+	beforeCount: number;
+	afterCount: number;
+	removedIds: string[];
+}
+
+export interface MemoryLogCompactionDueResult {
+	due: boolean;
+	result?: MemoryLogCompactionResult;
+}
+
 export { sanitizeGitEnv } from "./git-env.ts";
+
+const MEMORY_LOG_COMPACTION_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** Run a git command in the given directory, returning trimmed stdout. */
 export async function git(cwd: string, ...args: string[]): Promise<string> {
@@ -772,6 +785,71 @@ export class Genome {
 		});
 	}
 
+	/** Physically remove archived/superseded memories from JSONL after their audit trail is in git. */
+	async compactMemoryLog(): Promise<MemoryLogCompactionResult> {
+		const memoriesPath = join(this.rootPath, "memories", "memories.jsonl");
+		return this.withMemoryWriteLock(async () => {
+			await this.memories.load();
+			const beforeCount = this.memories.all().length;
+			const removedIds = this.memories.removeArchivedOrSuperseded();
+			if (removedIds.length === 0) {
+				return { beforeCount, afterCount: beforeCount, removedIds: [] };
+			}
+
+			removeLinksReferencingMemoryIds(this.memories.all(), new Set(removedIds), Date.now());
+			const snapshots = await snapshotTextFiles([memoriesPath]);
+			let committed = false;
+			try {
+				await this.memories.save();
+				await git(this.rootPath, "add", memoriesPath);
+				const status = await git(this.rootPath, "status", "--porcelain", "--", memoriesPath);
+				const afterCount = this.memories.all().length;
+				if (!status.trim()) {
+					committed = true;
+					return { beforeCount, afterCount, removedIds };
+				}
+				await rebuildMemoryIndexFromJsonl(this.rootPath, { assumeMemoryWriteLock: true });
+				await git(
+					this.rootPath,
+					"commit",
+					"-m",
+					`genome: compact ${removedIds.length} inactive memories`,
+				);
+				committed = true;
+				return { beforeCount, afterCount, removedIds };
+			} catch (error) {
+				if (!committed) {
+					await restoreUncommittedMemoryMutation(this.rootPath, snapshots, [memoriesPath]);
+					await this.memories.load();
+				}
+				throw error;
+			}
+		});
+	}
+
+	/** Opportunistic weekly memory-log compaction check after session memory maintenance. */
+	async compactMemoryLogIfDue(now = Date.now()): Promise<MemoryLogCompactionDueResult> {
+		const statePath = join(this.rootPath, ".cache", "memory-compaction-state.json");
+		const lastCheckedAt = await readLastMemoryCompactionCheck(statePath);
+		if (lastCheckedAt !== undefined && now - lastCheckedAt < MEMORY_LOG_COMPACTION_INTERVAL_MS) {
+			return { due: false };
+		}
+		const result = await this.compactMemoryLog();
+		await mkdir(join(this.rootPath, ".cache"), { recursive: true });
+		await writeFile(
+			statePath,
+			`${JSON.stringify(
+				{
+					lastCheckedAt: now,
+					lastRemovedCount: result.removedIds.length,
+				},
+				null,
+				"\t",
+			)}\n`,
+		);
+		return { due: true, result };
+	}
+
 	/** Remove routing rules that have never been triggered (not in the used set). */
 	async pruneUnusedRoutingRules(usedRuleIds: Set<string>): Promise<string[]> {
 		const removed: string[] = [];
@@ -1299,6 +1377,17 @@ function removeLinksReferencingMemoryIds(
 			changed = true;
 		}
 		if (changed) memory.updated_at = now;
+	}
+}
+
+async function readLastMemoryCompactionCheck(path: string): Promise<number | undefined> {
+	try {
+		const raw = JSON.parse(await readFile(path, "utf-8")) as { lastCheckedAt?: unknown };
+		return typeof raw.lastCheckedAt === "number" && Number.isFinite(raw.lastCheckedAt)
+			? raw.lastCheckedAt
+			: undefined;
+	} catch {
+		return undefined;
 	}
 }
 

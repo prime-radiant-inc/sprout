@@ -1,7 +1,14 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { Client } from "../../src/llm/client.ts";
-import type { ProviderAdapter, Request, Response, StreamEvent } from "../../src/llm/types.ts";
+import {
+	ContentKind,
+	messageText,
+	type ProviderAdapter,
+	type Request,
+	type Response,
+	type StreamEvent,
+} from "../../src/llm/types.ts";
 
 type VcrMode = "record" | "replay" | "off";
 
@@ -156,6 +163,41 @@ function nextEntry(
 	return { entry, nextIndex: callIndex + 1 };
 }
 
+function isSubcorticalRecallRequest(request: Request): boolean {
+	return request.metadata?.purpose === "memory.subcortical";
+}
+
+function subcorticalRecallReplayResponse(request: Request): Response {
+	const userMessage = request.messages.findLast((message) => message.role === "user");
+	const userText = userMessage ? messageText(userMessage) : "";
+	const goal = userText.match(/<user_goal>\s*([\s\S]*?)\s*<\/user_goal>/)?.[1]?.trim();
+	const expandedQuery = goal || "test memory recall query";
+	return {
+		id: "vcr-subcortical-replay",
+		model: request.model,
+		provider: request.provider ?? "vcr",
+		message: {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TEXT,
+					text: JSON.stringify({
+						expanded_query: expandedQuery,
+						entities: [],
+						pinned_memory_ids: [],
+					}),
+				},
+			],
+		},
+		finish_reason: { reason: "stop" },
+		usage: {
+			input_tokens: 1,
+			output_tokens: 1,
+			total_tokens: 2,
+		},
+	};
+}
+
 // ---------------------------------------------------------------------------
 // Client VCR
 // ---------------------------------------------------------------------------
@@ -280,7 +322,11 @@ function createClientReplayer(
 	const client = tagClientMode(
 		{
 			__sproutVcrMode: "replay" as const,
-			complete: async (_request: Request): Promise<Response> => {
+			complete: async (request: Request): Promise<Response> => {
+				if (isSubcorticalRecallRequest(request)) {
+					return subcorticalRecallReplayResponse(request);
+				}
+
 				const { entry, nextIndex } = nextEntry(cassette, callIndex, opts.testName);
 				callIndex = nextIndex;
 

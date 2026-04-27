@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Through Phase 10 — completed
+Through Phase 10 plus Sprout backlog/self-awareness remediation — completed 2026-04-27
 
 ## Phase log
 
@@ -21,10 +21,32 @@ Through Phase 10 — completed
 
 - Branch: `jesse/pri-1354-implement-mira-memory-port-phase-1-foundation`
 - Last verified code/test commit: `3ae05e2`
+- Latest working-tree verification: 2026-04-27 full suite pass before the next
+  commit
 
 ## Open issues
 
-- `§14.1` session-start surfacing on resume — not needed for the current Phase 1 slice
+- No blocking implementation issues currently known. Cross-genome memory sync and
+  automatic consolidation/entity-GC application remain explicit non-goals.
+
+## 2026-04-27 Sprout backlog/self-awareness pass
+
+- Fixed `project-memory` writes by converting `memory-cli` to a
+  `sprout-internal` JSON-argument tool that accepts `content` directly. This
+  removes the broken stdin/heredoc dependency for agents without shell access.
+- Persisted root surfaced-memory metadata in session `.meta.json` and reused it
+  only on resumed sessions when the normalized goal matches and the cache is
+  under one hour old.
+- Added explicit `sprout --genome maintain --compact` memory-log compaction plus
+  an opportunistic weekly post-collapse due check. Compaction removes archived
+  or superseded JSONL rows after git history contains the audit trail.
+- Added Gemini explicit cached-content creation through the existing prompt-cache
+  provider-options path; cache creation fails loud instead of falling back.
+- Enabled subcortical recall only for `root` with separate memory-model
+  configuration.
+- Added Quartermaster self-awareness specialists: `qm-session-analyst`,
+  `qm-sprout-architect`, and `qm-session-doctor`, plus source-grounded
+  architecture resources under `sprout-architecture/`.
 
 ## Review remediation pass
 
@@ -187,6 +209,17 @@ Through Phase 10 — completed
   linked memories. One exploratory discovered-candidate false positive was noted:
   a TypeScript-only overlap between web UI implementation and prompt constants
   was classified as `contextualizes` instead of `null`.
+- 2026-04-27: `bun test test/kernel/tool-loading.test.ts test/host/session-metadata.test.ts test/host/cli-resume.test.ts test/host/session-controller.test.ts test/genome/memory-compaction.test.ts test/host/cli.test.ts test/agents/plan.test.ts test/llm/gemini.test.ts test/agents/loader.test.ts`
+  passed after the Sprout backlog/self-awareness pass.
+- 2026-04-27: `bun run check` passed after the Sprout backlog/self-awareness
+  pass.
+- 2026-04-27: `bun run typecheck` passed after the Sprout backlog/self-awareness
+  pass.
+- 2026-04-27: `bun test test/integration/e2e.test.ts test/agents/agent.integration.test.ts test/agents/factory.test.ts test/genome/genome.test.ts`
+  passed after updating deterministic subcortical recall handling in test VCR
+  replay and direct mocks.
+- 2026-04-27: `bun test` passed after the Sprout backlog/self-awareness pass:
+  2884 passed, 3 skipped, 0 failed across 202 files.
 
 ## Completed in current slice
 
@@ -264,3 +297,7 @@ Through Phase 10 — completed
 - Added post-review remediation for collapse evidence, segment continuity, learn
   extraction, bus signal extraction, terminal-run collapse semantics, and
   relationship-classifier fixture coverage
+- Added resume-safe surfaced-memory metadata reuse, explicit memory-log
+  compaction, Gemini cached-content support, root-only subcortical rollout,
+  project-memory direct-content writes, and Quartermaster self-awareness agents
+  with architecture resources

@@ -13,9 +13,18 @@ interface SessionMetadataBaseSnapshot {
 	updatedAt: string;
 }
 
+export interface SessionMemorySurfaceSnapshot {
+	goal: string;
+	normalizedGoal: string;
+	generatedAt: string;
+	memoryBlock: string;
+	memoryIds: string[];
+}
+
 export interface PersistedSessionMetadataSnapshot extends SessionMetadataBaseSnapshot {
 	selection: SessionModelSelection;
 	resolvedModel?: ModelRef;
+	memorySurface?: SessionMemorySurfaceSnapshot;
 }
 
 export type SessionMetadataSnapshot = PersistedSessionMetadataSnapshot;
@@ -40,6 +49,7 @@ export class SessionMetadata {
 	private contextWindowSize = 0;
 	private selection: SessionModelSelection;
 	private resolvedModel?: ModelRef;
+	private memorySurface?: SessionMemorySurfaceSnapshot;
 
 	constructor(options: SessionMetadataOptions) {
 		this.sessionId = options.sessionId;
@@ -65,6 +75,10 @@ export class SessionMetadata {
 		this.resolvedModel = resolvedModel;
 	}
 
+	setMemorySurface(memorySurface: SessionMemorySurfaceSnapshot | undefined): void {
+		this.memorySurface = memorySurface;
+	}
+
 	async save(): Promise<void> {
 		await mkdir(this.sessionsDir, { recursive: true });
 
@@ -79,6 +93,7 @@ export class SessionMetadata {
 			contextWindowSize: this.contextWindowSize,
 			createdAt: this.createdAt,
 			updatedAt: new Date().toISOString(),
+			...(this.memorySurface ? { memorySurface: this.memorySurface } : {}),
 		};
 
 		const filePath = join(this.sessionsDir, `${this.sessionId}.meta.json`);
@@ -93,6 +108,7 @@ export class SessionMetadata {
 		try {
 			const raw = await readFile(metaPath, "utf-8");
 			const snapshot: SessionMetadataSnapshot = JSON.parse(raw);
+			this.memorySurface = snapshot.memorySurface;
 			if (snapshot.status === "running") {
 				this.status = "interrupted";
 				await this.save();

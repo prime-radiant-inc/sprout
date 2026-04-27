@@ -6,6 +6,8 @@ export interface ToolContext {
 	args: Record<string, unknown>;
 	genome: Genome;
 	env: ExecutionEnvironment;
+	projectDataDir?: string;
+	sessionId?: string;
 }
 
 export interface ToolResult {

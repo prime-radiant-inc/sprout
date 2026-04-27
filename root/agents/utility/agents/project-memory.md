@@ -26,19 +26,19 @@ across sessions.
 
 List all memory documents:
 
-    memory-cli list
+    memory-cli {"command":"list"}
 
 Read a specific document:
 
-    memory-cli read <filename>
+    memory-cli {"command":"read","filename":"architecture.md"}
 
 Write (create or overwrite) a document:
 
-    echo 'content' | memory-cli write <filename>
+    memory-cli {"command":"write","filename":"architecture.md","content":"# Architecture\n\nThis project uses..."}
 
 Search across all documents:
 
-    memory-cli search <keyword>
+    memory-cli {"command":"search","keyword":"hexagonal"}
 
 ## Details
 
@@ -48,15 +48,10 @@ first line (title). Outputs nothing if no documents exist yet.
 **read** — Outputs the full contents of a memory file. The filename is
 just the basename (e.g. `architecture.md`), not a full path.
 
-**write** — Creates or overwrites a memory file. Content is read from
-stdin. The memory directory is created automatically if it doesn't exist.
-For multi-line content, use a heredoc:
-
-    cat <<'EOF' | memory-cli write architecture.md
-    # Architecture
-
-    This project uses a hexagonal architecture...
-    EOF
+**write** — Creates or overwrites a memory file. Pass the full document body
+as the JSON `content` string. The memory directory is created automatically if
+it doesn't exist. Do not use shell piping or heredocs; this agent does not have
+shell execution, and the tool accepts content directly.
 
 **search** — Greps across all memory files for a keyword. Shows matching
 filenames and lines.

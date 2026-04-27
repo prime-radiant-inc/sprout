@@ -12,6 +12,7 @@ import type { SessionSelectionRequest } from "../shared/session-selection.ts";
 import { EventBus } from "./event-bus.ts";
 import { SessionLogger } from "./logger.ts";
 import { SessionController } from "./session-controller.ts";
+import type { SessionMemorySurfaceSnapshot } from "./session-metadata.ts";
 import {
 	defaultResolveSessionSelectionRequest,
 	resolveSessionSelectionRequest,
@@ -50,6 +51,7 @@ export interface SessionBootstrapOptions {
 	evalMode?: boolean;
 	nonInteractive?: boolean;
 	initialHistory?: Message[];
+	initialMemorySurface?: SessionMemorySurfaceSnapshot;
 	initialSelectionRequest?: SessionSelectionRequest;
 	completedHandles?: Array<{
 		handleId: string;
@@ -120,6 +122,7 @@ interface InteractiveBootstrapDeps {
 		evalMode?: boolean;
 		nonInteractive?: boolean;
 		initialHistory?: Message[];
+		initialMemorySurface?: SessionMemorySurfaceSnapshot;
 		initialSelection?: SessionSelectionSnapshot;
 		resolveSelection?: (selection: SessionSelectionRequest) => SessionSelectionSnapshot;
 		getResolverSettings?: () => ReturnType<typeof createResolverSettings>;
@@ -202,6 +205,7 @@ export async function bootstrapSessionRuntime(
 					evalMode: controllerOpts.evalMode,
 					nonInteractive: controllerOpts.nonInteractive,
 					initialHistory: controllerOpts.initialHistory,
+					initialMemorySurface: controllerOpts.initialMemorySurface,
 					initialSelection: controllerOpts.initialSelection,
 					resolveSelection: controllerOpts.resolveSelection,
 					getResolverSettings: controllerOpts.getResolverSettings,
@@ -341,6 +345,7 @@ export async function bootstrapSessionRuntime(
 		evalMode: opts.evalMode,
 		nonInteractive: opts.nonInteractive,
 		initialHistory: opts.initialHistory,
+		initialMemorySurface: opts.initialMemorySurface,
 		initialSelection,
 		resolveSelection,
 		getResolverSettings: getCurrentResolverSettings,

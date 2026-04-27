@@ -37,6 +37,9 @@ describe("loadRootAgents", () => {
 		expect(names).toContain("qm-indexer");
 		expect(names).toContain("qm-planner");
 		expect(names).toContain("qm-fabricator");
+		expect(names).toContain("qm-session-analyst");
+		expect(names).toContain("qm-sprout-architect");
+		expect(names).toContain("qm-session-doctor");
 		expect(names).toContain("tech-lead");
 		expect(names).toContain("engineer");
 		expect(names).toContain("spec-reviewer");
@@ -75,6 +78,9 @@ describe("loadRootAgents", () => {
 			"qm-planner",
 			"qm-fabricator",
 			"qm-reconciler",
+			"qm-session-analyst",
+			"qm-sprout-architect",
+			"qm-session-doctor",
 			"tech-lead",
 			"engineer",
 			"spec-reviewer",
@@ -115,5 +121,40 @@ describe("loadRootAgents", () => {
 		expect(indexer!.tools).toContain("write_file");
 		expect(indexer!.constraints.can_spawn).toBe(true);
 		expect("max_depth" in indexer!.constraints).toBe(false);
+	});
+
+	test("QM self-awareness agents are context sinks without direct primitives", async () => {
+		const agents = await loadRootAgents(join(import.meta.dir, "../../root"));
+		const analyst = agents.find((a) => a.name === "qm-session-analyst");
+		const architect = agents.find((a) => a.name === "qm-sprout-architect");
+		const doctor = agents.find((a) => a.name === "qm-session-doctor");
+
+		expect(analyst).toBeDefined();
+		expect(analyst!.tools).toEqual([]);
+		expect(analyst!.agents).toEqual(["utility/reader", "utility/command-runner", "utility/editor"]);
+		expect(analyst!.constraints.can_spawn).toBe(true);
+		expect("max_depth" in analyst!.constraints).toBe(false);
+
+		expect(architect).toBeDefined();
+		expect(architect!.tools).toEqual([]);
+		expect(architect!.agents).toEqual(["utility/reader", "project-explorer"]);
+		expect(architect!.constraints.can_spawn).toBe(true);
+		expect("max_depth" in architect!.constraints).toBe(false);
+
+		expect(doctor).toBeDefined();
+		expect(doctor!.tools).toEqual([]);
+		expect(doctor!.agents).toEqual(["utility/reader", "utility/command-runner"]);
+		expect(doctor!.constraints.can_spawn).toBe(true);
+		expect("max_depth" in doctor!.constraints).toBe(false);
+	});
+
+	test("root is the only root spec with subcortical recall enabled", async () => {
+		const agents = await loadRootAgents(join(import.meta.dir, "../../root"));
+		const enabled = agents.filter((agent) => {
+			const config = agent.subcortical_recall;
+			return config === true || (typeof config === "object" && config.enabled !== false);
+		});
+		expect(enabled.map((agent) => agent.name)).toEqual(["root"]);
+		expect(enabled[0]!.subcortical_recall).toEqual({ enabled: true, max_tokens: 1024 });
 	});
 });

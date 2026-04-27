@@ -180,6 +180,19 @@ export class MemoryStore {
 		return pruned;
 	}
 
+	/** Remove lifecycle-inactive entries from the source log during explicit compaction. */
+	removeArchivedOrSuperseded(): string[] {
+		const removed: string[] = [];
+		this.entries = this.entries.filter((memory) => {
+			if (memory.archived_at || memory.superseded_by) {
+				removed.push(memory.id);
+				return false;
+			}
+			return true;
+		});
+		return removed;
+	}
+
 	/** Return a shallow copy of all entries. */
 	all(): Memory[] {
 		return [...this.entries];

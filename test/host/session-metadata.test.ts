@@ -110,6 +110,36 @@ describe("SessionMetadata", () => {
 		expect(snapshot.status).toBe("running");
 	});
 
+	test("setMemorySurface persists cached surfaced memory metadata", async () => {
+		const meta = new SessionMetadata({
+			sessionId: "01JTEST000000000000000003",
+			agentSpec: "root",
+			selection: defaultSelection,
+			resolvedModel: defaultSelection.model,
+			sessionsDir: tempDir,
+		});
+
+		meta.setMemorySurface({
+			goal: "Fix the bug",
+			normalizedGoal: "Fix the bug",
+			generatedAt: "2026-04-27T00:00:00.000Z",
+			memoryBlock: "<memory_context>cached</memory_context>",
+			memoryIds: ["mem_1"],
+		});
+		await meta.save();
+
+		const snapshot = await loadSessionMetadata(
+			join(tempDir, "01JTEST000000000000000003.meta.json"),
+		);
+		expect(snapshot.memorySurface).toEqual({
+			goal: "Fix the bug",
+			normalizedGoal: "Fix the bug",
+			generatedAt: "2026-04-27T00:00:00.000Z",
+			memoryBlock: "<memory_context>cached</memory_context>",
+			memoryIds: ["mem_1"],
+		});
+	});
+
 	test("updatedAt changes on save", async () => {
 		const meta = new SessionMetadata({
 			sessionId: "01JTEST000000000000000004",

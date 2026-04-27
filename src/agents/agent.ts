@@ -131,6 +131,8 @@ export interface AgentOptions {
 	enableStreaming?: boolean;
 	/** Cached MIRA-format surfaced memory block from the root session. */
 	surfacedMemoryBlock?: string;
+	/** Memory ids included in the cached surfaced memory block. */
+	surfacedMemoryIds?: string[];
 	/** Original user instruction, trusted for deterministic runtime policy gates. */
 	trustedUserInstruction?: string;
 	/** Override retry backoff settings for LLM calls (tests/tuning). */
@@ -176,6 +178,7 @@ export class Agent {
 	private readonly agentTreeSelfPath?: string;
 	private readonly enableStreaming: boolean;
 	private readonly initialSurfacedMemoryBlock?: string;
+	private readonly initialSurfacedMemoryIds?: string[];
 	private trustedUserInstruction?: string;
 	private readonly llmRetryOptions?: Omit<RetryOptions, "signal" | "onRetry">;
 	private readonly logger: Logger;
@@ -226,6 +229,9 @@ export class Agent {
 		this.agentTreeSelfPath = options.agentTreeSelfPath;
 		this.enableStreaming = options.enableStreaming ?? false;
 		this.initialSurfacedMemoryBlock = options.surfacedMemoryBlock;
+		this.initialSurfacedMemoryIds = options.surfacedMemoryIds
+			? [...options.surfacedMemoryIds]
+			: undefined;
 		this.trustedUserInstruction = options.trustedUserInstruction;
 		this.llmRetryOptions = options.llmRetryOptions;
 		this.initialHistory = options.initialHistory ? [...options.initialHistory] : undefined;
@@ -1305,6 +1311,9 @@ export class Agent {
 					memory_count: 0,
 					routing_hint_count: routingHints.length,
 					cached: true,
+					goal,
+					memory_block: this.surfacedMemoryBlock,
+					surfaced_memory_ids: this.initialSurfacedMemoryIds ?? [],
 				});
 			} else {
 				const subcortical = await this.subcorticalRecallOptions();
@@ -1323,6 +1332,9 @@ export class Agent {
 					memory_count: recallResult.memories.length,
 					routing_hint_count: recallResult.routing_hints.length,
 					cached: false,
+					goal,
+					memory_block: recallResult.memory_block,
+					surfaced_memory_ids: recallResult.surfaced_memory_ids ?? [],
 				});
 			}
 		}
@@ -1338,6 +1350,8 @@ export class Agent {
 					genome: this.genome,
 					env: this.env,
 					agentName: this.spec.name,
+					projectDataDir: this.projectDataDir,
+					sessionId: this.sessionId,
 				});
 				this.workspaceToolPrimitives = toolPrims;
 				this.workspaceToolDefinitions = toolPrims.map((prim) => ({
