@@ -2770,6 +2770,79 @@ describe("SessionController session-wide event wiring", () => {
 		});
 	});
 
+	test("replays pre-configuration events to factory-loaded observers", async () => {
+		const bus = new EventBus();
+		const spawnCalls: unknown[] = [];
+		const fakeSpawner = {
+			getHandles: () => [],
+			subscribeSessionEvents: async () => {},
+			subscribeRootMessages: async () => {},
+			updateSessionId: async () => {},
+			clearHandles: async () => {},
+			spawnAgent: async (options: unknown) => {
+				spawnCalls.push(options);
+				return "observer-metacognitive";
+			},
+			messageAgent: async () => undefined,
+		} as any;
+		const fakeGenome = {
+			getAgent: (name: string) => {
+				if (name === "root") {
+					return {
+						name: "root",
+						model: "best",
+						observers: [
+							{
+								agent: "metacognitive",
+								target: "session",
+								events: ["session_resume"],
+								trigger: { every: 1, event: "session_resume" },
+							},
+						],
+					};
+				}
+				if (name === "metacognitive") {
+					return { name: "metacognitive", model: "observer.metacognitive" };
+				}
+				return undefined;
+			},
+		} as any;
+		const factory: AgentFactory = async () => ({
+			agent: makeFakeAgent().agent as any,
+			learnProcess: null,
+			genome: fakeGenome,
+		});
+		const controller = new SessionController({
+			bus,
+			genomePath: join(tempDir, "genome"),
+			projectDataDir: tempDir,
+			factory,
+			spawner: fakeSpawner,
+			initialHistory: [Msg.user("prior")],
+			getResolverSettings: () =>
+				createResolverSettings(
+					[{ id: "anthropic", enabled: true }],
+					{},
+					{},
+					{
+						"observer.metacognitive": {
+							providerId: "anthropic",
+							modelId: "claude-sonnet-4-6",
+						},
+					},
+				),
+		});
+
+		await controller.submitGoal("resume with observer");
+
+		await waitFor(() => spawnCalls.length === 1);
+		expect(spawnCalls[0]).toMatchObject({
+			agentName: "metacognitive",
+			handleId: "observer-metacognitive",
+		});
+		expect(JSON.stringify(spawnCalls[0])).toContain("session_resume");
+	});
+
 	test("/clear command calls clearHandles then updateSessionId sequentially", async () => {
 		const bus = new EventBus();
 

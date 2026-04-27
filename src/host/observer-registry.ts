@@ -22,6 +22,7 @@ export const METACOGNITIVE_OBSERVER: ObserverAttachmentConfig = {
 };
 
 const ROOT_CALLER: CallerIdentity = { agent_name: "root", depth: 0 };
+const PRECONFIGURE_EVENT_LIMIT = 64;
 
 interface ObserverSubscriptionState {
 	config: ObserverAttachmentConfig;
@@ -64,6 +65,7 @@ export class ObserverRegistry {
 	private subscriptions: ObserverSubscriptionState[];
 	private readonly getResolverSettings?: () => ResolverSettings | undefined;
 	private readonly emitEvent: ObserverRegistryOptions["emitEvent"];
+	private preconfigureEvents: SessionEvent[] = [];
 	private generation = 0;
 
 	constructor(options: ObserverRegistryOptions) {
@@ -82,9 +84,22 @@ export class ObserverRegistry {
 
 	configure(configs: ObserverAttachmentConfig[]): void {
 		this.subscriptions = configs.map(createSubscriptionState);
+		if (this.subscriptions.length === 0) return;
+		const bufferedEvents = this.preconfigureEvents;
+		this.preconfigureEvents = [];
+		for (const event of bufferedEvents) {
+			this.handleEvent(event);
+		}
 	}
 
 	handleEvent(event: SessionEvent): void {
+		if (this.subscriptions.length === 0) {
+			this.preconfigureEvents.push(event);
+			if (this.preconfigureEvents.length > PRECONFIGURE_EVENT_LIMIT) {
+				this.preconfigureEvents = this.preconfigureEvents.slice(-PRECONFIGURE_EVENT_LIMIT);
+			}
+			return;
+		}
 		for (const subscription of this.subscriptions) {
 			if (!subscription.includeKinds.has(event.kind)) continue;
 			subscription.pendingEvents.push(event);
@@ -108,6 +123,7 @@ export class ObserverRegistry {
 			subscription.warningEmitted = false;
 		}
 		this.generation++;
+		this.preconfigureEvents = [];
 	}
 
 	private shouldTrigger(subscription: ObserverSubscriptionState, event: SessionEvent): boolean {
