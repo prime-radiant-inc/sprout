@@ -122,7 +122,7 @@ describe("SettingsStore", () => {
 		expect(result.skipEnvImport).toBe(true);
 	});
 
-	test("load migrates v2 settings to v3 with empty memory models", async () => {
+	test("load migrates v2 settings to v3 and backfills subcortical memory model", async () => {
 		const { store, settingsPath } = await makeStore();
 		await writeFile(
 			settingsPath,
@@ -169,7 +169,63 @@ describe("SettingsStore", () => {
 					modelId: "gpt-4.1",
 				},
 			},
-			memoryModels: {},
+			memoryModels: {
+				subcortical: {
+					providerId: "openai",
+					modelId: "gpt-4.1",
+				},
+			},
+		});
+	});
+
+	test("load backfills missing subcortical memory model from fast default first", async () => {
+		const { store, settingsPath } = await makeStore();
+		await writeFile(
+			settingsPath,
+			JSON.stringify({
+				...createEmptySettings(),
+				providers: [
+					{
+						id: "anthropic",
+						kind: "anthropic",
+						label: "Anthropic",
+						enabled: true,
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {
+					best: {
+						providerId: "anthropic",
+						modelId: "claude-opus-4-6",
+					},
+					fast: {
+						providerId: "anthropic",
+						modelId: "claude-haiku-4-5",
+					},
+				},
+				memoryModels: {
+					extraction: {
+						providerId: "anthropic",
+						modelId: "claude-sonnet-4-6",
+					},
+				},
+			}),
+			"utf-8",
+		);
+
+		const result = await store.load();
+
+		expect(result.source).toBe("loaded");
+		expect(result.settings.memoryModels).toEqual({
+			extraction: {
+				providerId: "anthropic",
+				modelId: "claude-sonnet-4-6",
+			},
+			subcortical: {
+				providerId: "anthropic",
+				modelId: "claude-haiku-4-5",
+			},
 		});
 	});
 

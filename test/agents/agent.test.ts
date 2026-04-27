@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type AgentOptions, Agent as RawAgent } from "../../src/agents/agent.ts";
 import { AgentEventEmitter } from "../../src/agents/events.ts";
-import type { AgentTreeEntry } from "../../src/agents/loader.ts";
+import { type AgentTreeEntry, scanAgentTree } from "../../src/agents/loader.ts";
 import { createResolverSettings } from "../../src/agents/model-resolver.ts";
 import type { AgentSpawner, SpawnAgentOptions } from "../../src/bus/spawner.ts";
 import type { CallerIdentity, ResultMessage } from "../../src/bus/types.ts";
@@ -768,6 +768,111 @@ describe("Agent", () => {
 			);
 		} finally {
 			await rm(tempGenomeDir, { recursive: true, force: true });
+		}
+	});
+
+	test("in-process project-memory delegation receives project data directory", async () => {
+		const tempGenomeDir = await mkdtemp(join(tmpdir(), "sprout-agent-project-memory-"));
+		const projectDataDir = await mkdtemp(join(tmpdir(), "sprout-project-data-"));
+		try {
+			const rootDir = join(import.meta.dir, "../../root");
+			const genome = new Genome(tempGenomeDir, rootDir);
+			await genome.init();
+			await genome.initFromRoot();
+			const agentTree = await scanAgentTree(rootDir);
+			const coordinator: AgentSpec = {
+				...rootSpec,
+				name: "coordinator",
+				agents: ["utility/project-memory"],
+				constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 5, can_spawn: true },
+				subcortical_recall: undefined,
+			};
+			const projectMemory = genome.getAgent("project-memory")!;
+
+			const delegateMsg: Message = {
+				role: "assistant",
+				content: [
+					{
+						kind: ContentKind.TOOL_CALL,
+						tool_call: {
+							id: "call-project-memory",
+							name: "delegate",
+							arguments: JSON.stringify({
+								agent_name: "utility/project-memory",
+								goal: "Write the handoff memory.",
+							}),
+						},
+					},
+				],
+			};
+			const memoryCliMsg: Message = {
+				role: "assistant",
+				content: [
+					{
+						kind: ContentKind.TOOL_CALL,
+						tool_call: {
+							id: "call-memory-cli",
+							name: "memory-cli",
+							arguments: JSON.stringify({
+								args: JSON.stringify({
+									command: "write",
+									filename: "handoff.md",
+									content: "# Handoff\n\nRemember the in-process project-memory path.",
+								}),
+							}),
+						},
+					},
+				],
+			};
+
+			let callCount = 0;
+			const mockClient = {
+				providers: () => ["anthropic"],
+				complete: async (): Promise<Response> => {
+					callCount++;
+					const message =
+						callCount === 1
+							? delegateMsg
+							: callCount === 2
+								? Msg.assistant("Memo")
+								: callCount === 3
+									? memoryCliMsg
+									: Msg.assistant(callCount === 4 ? "Memory written." : "Root done.");
+					return {
+						id: `mock-project-memory-${callCount}`,
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message,
+						finish_reason: {
+							reason: callCount === 1 || callCount === 3 ? "tool_calls" : "stop",
+						},
+						usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+					};
+				},
+				stream: async function* () {},
+			} as unknown as Client;
+			const env = new LocalExecutionEnvironment(tmpdir());
+			const agent = new Agent({
+				spec: coordinator,
+				env,
+				client: mockClient,
+				primitiveRegistry: createPrimitiveRegistry(env),
+				availableAgents: [coordinator, projectMemory],
+				genome,
+				rootDir,
+				agentTree,
+				projectDataDir,
+			});
+
+			const result = await agent.run("delegate memory write");
+
+			expect(result.success).toBe(true);
+			expect(await readFile(join(projectDataDir, "memory", "handoff.md"), "utf-8")).toBe(
+				"# Handoff\n\nRemember the in-process project-memory path.",
+			);
+		} finally {
+			await rm(tempGenomeDir, { recursive: true, force: true });
+			await rm(projectDataDir, { recursive: true, force: true });
 		}
 	});
 

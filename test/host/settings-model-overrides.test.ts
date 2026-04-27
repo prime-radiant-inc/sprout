@@ -102,6 +102,10 @@ describe("model config env overrides", () => {
 			providerId: "openrouter",
 			modelId: "openai/gpt-4o-mini",
 		});
+		expect(effective.memoryModels.subcortical).toEqual({
+			providerId: "openrouter",
+			modelId: "openai/gpt-4o-mini",
+		});
 		expect(settings.defaults.best).toEqual({
 			providerId: "anthropic",
 			modelId: "claude-opus-4-6",

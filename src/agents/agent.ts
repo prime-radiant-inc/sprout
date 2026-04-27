@@ -871,6 +871,7 @@ export class Agent {
 				logBasePath: subLogBasePath,
 				preambles: this.preambles,
 				genomePostscripts: this.genomePostscripts,
+				projectDataDir: this.projectDataDir,
 				providerIdOverride: this.resolved.provider,
 				resolverSettings: this.resolverSettings,
 				evalMode: this.evalMode,

@@ -1,5 +1,6 @@
 import type { ProviderCatalogEntry } from "../../llm/model-catalog.ts";
 import type { ProviderModel } from "../../llm/types.ts";
+import { backfillRequiredMemoryModels } from "./memory-model-defaults.ts";
 import {
 	MEMORY_MODEL_PURPOSES,
 	type MemoryModelPurpose,
@@ -103,7 +104,7 @@ export function applyModelConfigOverrides(
 	return {
 		providers: structuredClone(settings.providers),
 		defaults,
-		memoryModels,
+		memoryModels: backfillRequiredMemoryModels(defaults, memoryModels),
 	};
 }
 

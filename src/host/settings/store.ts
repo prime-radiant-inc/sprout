@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { backfillRequiredMemoryModels } from "./memory-model-defaults.ts";
 import type { SettingsPathOptions } from "./paths.ts";
 import { buildInvalidSettingsPath, resolveSettingsPath } from "./paths.ts";
 import {
@@ -110,15 +111,19 @@ export class SettingsStore {
 	}
 
 	private normalizeSettings(settings: SproutSettings): SproutSettings {
+		const defaults = {
+			...(settings.defaults.best ? { best: settings.defaults.best } : {}),
+			...(settings.defaults.balanced ? { balanced: settings.defaults.balanced } : {}),
+			...(settings.defaults.fast ? { fast: settings.defaults.fast } : {}),
+		};
 		return {
 			version: settings.version,
 			providers: settings.providers.map((provider) => normalizeProviderConfig(provider)),
-			defaults: {
-				...(settings.defaults.best ? { best: settings.defaults.best } : {}),
-				...(settings.defaults.balanced ? { balanced: settings.defaults.balanced } : {}),
-				...(settings.defaults.fast ? { fast: settings.defaults.fast } : {}),
-			},
-			memoryModels: normalizeMemoryModels(settings.memoryModels),
+			defaults,
+			memoryModels: backfillRequiredMemoryModels(
+				defaults,
+				normalizeMemoryModels(settings.memoryModels),
+			),
 		};
 	}
 
