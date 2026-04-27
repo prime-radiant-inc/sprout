@@ -2684,6 +2684,92 @@ describe("SessionController session-wide event wiring", () => {
 		expect(spawnCalls).toHaveLength(0);
 	});
 
+	test("configures observers from the factory-loaded genome before the run", async () => {
+		const bus = new EventBus();
+		const spawnCalls: unknown[] = [];
+		const fakeSpawner = {
+			getHandles: () => [],
+			subscribeSessionEvents: async () => {},
+			subscribeRootMessages: async () => {},
+			updateSessionId: async () => {},
+			clearHandles: async () => {},
+			spawnAgent: async (options: unknown) => {
+				spawnCalls.push(options);
+				return "observer-metacognitive";
+			},
+			messageAgent: async () => undefined,
+		} as any;
+		const fakeGenome = {
+			getAgent: (name: string) => {
+				if (name === "root") {
+					return {
+						name: "root",
+						model: "best",
+						observers: [
+							{
+								agent: "metacognitive",
+								target: "root",
+								events: ["plan_end"],
+								trigger: { every: 3, event: "plan_end" },
+								delivery: { max_events: 24, max_chars: 6000 },
+							},
+						],
+					};
+				}
+				if (name === "metacognitive") {
+					return { name: "metacognitive", model: "observer.metacognitive" };
+				}
+				return undefined;
+			},
+		} as any;
+		const factory: AgentFactory = async (options) => ({
+			agent: {
+				steer() {},
+				requestCompaction() {},
+				async run() {
+					for (let turn = 1; turn <= 3; turn++) {
+						options.events.emitEvent("plan_end", "root", 0, {
+							turn,
+							finish_reason: "stop",
+							text: `root plan ${turn}`,
+						});
+					}
+					return { output: "done", success: true, stumbles: 0, turns: 1, timed_out: false };
+				},
+			} as any,
+			learnProcess: null,
+			genome: fakeGenome,
+		});
+
+		const controller = new SessionController({
+			bus,
+			genomePath: join(tempDir, "genome"),
+			projectDataDir: tempDir,
+			factory,
+			spawner: fakeSpawner,
+			getResolverSettings: () =>
+				createResolverSettings(
+					[{ id: "anthropic", enabled: true }],
+					{},
+					{},
+					{
+						"observer.metacognitive": {
+							providerId: "anthropic",
+							modelId: "claude-sonnet-4-6",
+						},
+					},
+				),
+		});
+
+		await controller.submitGoal("exercise factory-loaded genome");
+
+		await waitFor(() => spawnCalls.length === 1);
+		expect(spawnCalls[0]).toMatchObject({
+			agentName: "metacognitive",
+			handleId: "observer-metacognitive",
+		});
+	});
+
 	test("/clear command calls clearHandles then updateSessionId sequentially", async () => {
 		const bus = new EventBus();
 

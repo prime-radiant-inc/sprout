@@ -61,7 +61,7 @@ export class ObserverRegistry {
 	private readonly projectDataDir?: string;
 	private readonly rootDir?: string;
 	private readonly evalMode?: boolean;
-	private readonly subscriptions: ObserverSubscriptionState[];
+	private subscriptions: ObserverSubscriptionState[];
 	private readonly getResolverSettings?: () => ResolverSettings | undefined;
 	private readonly emitEvent: ObserverRegistryOptions["emitEvent"];
 	private generation = 0;
@@ -75,18 +75,13 @@ export class ObserverRegistry {
 		this.rootDir = options.rootDir;
 		this.evalMode = options.evalMode;
 		const configs = options.configs ?? (options.config ? [options.config] : []);
-		this.subscriptions = configs.map((config) => ({
-			config,
-			includeKinds: new Set(config.events),
-			pendingEvents: [],
-			triggerCount: 0,
-			observerStarted: false,
-			deliveryInFlight: false,
-			flushRequested: false,
-			warningEmitted: false,
-		}));
+		this.subscriptions = configs.map(createSubscriptionState);
 		this.getResolverSettings = options.getResolverSettings;
 		this.emitEvent = options.emitEvent;
+	}
+
+	configure(configs: ObserverAttachmentConfig[]): void {
+		this.subscriptions = configs.map(createSubscriptionState);
 	}
 
 	handleEvent(event: SessionEvent): void {
@@ -239,4 +234,17 @@ export class ObserverRegistry {
 	private observerAgentId(config: ObserverAttachmentConfig): string {
 		return config.agentId ?? this.observerHandleId(config);
 	}
+}
+
+function createSubscriptionState(config: ObserverAttachmentConfig): ObserverSubscriptionState {
+	return {
+		config,
+		includeKinds: new Set(config.events),
+		pendingEvents: [],
+		triggerCount: 0,
+		observerStarted: false,
+		deliveryInFlight: false,
+		flushRequested: false,
+		warningEmitted: false,
+	};
 }

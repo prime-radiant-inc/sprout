@@ -162,6 +162,8 @@ export interface AgentFactoryOptions {
 export interface AgentFactoryResult {
 	agent: RunnableAgent;
 	learnProcess: { startBackground(): void; stopBackground(): Promise<void> } | null;
+	/** Runtime genome after factory initialization/loading. */
+	genome?: Genome;
 	/** Compact conversation history via LLM summarization. Available after agent creation. */
 	compact?: (
 		history: Message[],
@@ -289,6 +291,7 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 	return {
 		agent: result.agent,
 		learnProcess: result.learnProcess,
+		genome: result.genome,
 		compact: (history, logPath) =>
 			compactHistory({
 				history,
@@ -422,6 +425,7 @@ export class SessionController {
 	private compactFn?: AgentFactoryResult["compact"];
 	private spawnerReady?: Promise<void>;
 	private observerRegistry?: ObserverRegistry;
+	private observerRegistryConfigured = false;
 	private readonly commandHandlers: SessionCommandHandlers;
 
 	get sessionId(): string {
@@ -464,6 +468,7 @@ export class SessionController {
 		// subscriptions on each submitGoal call.
 		if (this.spawner) {
 			const observerConfigs = buildStaticObserverConfigs(this.genome, this.rootAgentName ?? "root");
+			this.observerRegistryConfigured = observerConfigs.length > 0;
 			this.observerRegistry = new ObserverRegistry({
 				sessionId: this._sessionId,
 				spawner: this.spawner,
@@ -743,6 +748,7 @@ export class SessionController {
 				client: this.client,
 			});
 
+			this.configureObserverRegistry(result.genome ?? this.genome);
 			this.agent = result.agent;
 			learnProcess = result.learnProcess;
 			this.logger?.info("session", "Agent created");
@@ -788,6 +794,14 @@ export class SessionController {
 			}
 			await persistTerminalMetadata(metadata, signal.aborted);
 		}
+	}
+
+	private configureObserverRegistry(genome: Genome | undefined): void {
+		if (!this.observerRegistry || this.observerRegistryConfigured) return;
+		const observerConfigs = buildStaticObserverConfigs(genome, this.rootAgentName ?? "root");
+		if (observerConfigs.length === 0) return;
+		this.observerRegistry.configure(observerConfigs);
+		this.observerRegistryConfigured = true;
 	}
 
 	private reusableMemorySurfaceForGoal(goal: string): SessionMemorySurfaceSnapshot | undefined {
