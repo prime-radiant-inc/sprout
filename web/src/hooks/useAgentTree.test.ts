@@ -143,6 +143,35 @@ describe("buildAgentTree", () => {
 			expect(child.status).toBe("running");
 		});
 
+		test("delegate observer appears as a selectable sibling thread", () => {
+			resetTimestamps();
+			const events = [
+				makeEvent("perceive", "root", 0, { goal: "Fix everything" }),
+				makeEvent("act_start", "root", 0, {
+					agent_name: "engineer",
+					child_id: "engineer-1",
+					goal: "Implement feature",
+				}),
+				makeEvent("act_start", "root", 0, {
+					agent_name: "metacognitive",
+					child_id: "observer-metacognitive",
+					handle_id: "observer-metacognitive",
+					description: "observes root delegate completions",
+					observer: true,
+				}),
+			];
+			const { tree } = buildAgentTree(events);
+
+			expect(tree.children.map((child) => child.agentId)).toEqual([
+				"engineer-1",
+				"observer-metacognitive",
+			]);
+			const observer = tree.children[1]!;
+			expect(observer.agentName).toBe("metacognitive");
+			expect(observer.description).toBe("observes root delegate completions");
+			expect(observer.status).toBe("running");
+		});
+
 		test("act_end marks child as completed with success=true", () => {
 			resetTimestamps();
 			const events = [
