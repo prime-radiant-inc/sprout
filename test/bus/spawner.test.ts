@@ -686,6 +686,70 @@ describe("AgentSpawner", () => {
 				await childBus.disconnect();
 			}
 		}, 15_000);
+
+		test("does not recover a stale result from a prior run of the same handle", async () => {
+			const handleId = "01SPAWNERSTALE00000000000";
+			const handleLogDir = join(tempDir, "logs", SESSION_ID);
+			await mkdir(handleLogDir, { recursive: true });
+			await writeFile(
+				join(handleLogDir, `${handleId}.jsonl`),
+				`${JSON.stringify({
+					kind: "session_end",
+					timestamp: Date.now() - 10_000,
+					agent_id: "child",
+					depth: 1,
+					data: {
+						output: "Previous run succeeded.",
+						success: true,
+						stumbles: 0,
+						turns: 1,
+						timed_out: false,
+					},
+				})}\n`,
+			);
+
+			const childBus = new BusClient(server.url);
+			await childBus.connect();
+			let readyTimer: ReturnType<typeof setInterval> | undefined;
+			try {
+				spawner = new AgentSpawner(
+					bus,
+					server.url,
+					SESSION_ID,
+					(_spawnedHandleId) => {
+						readyTimer = setInterval(() => {
+							void childBus.publish(agentReady(SESSION_ID, handleId), JSON.stringify({ ok: true }));
+						}, 10);
+						return {
+							kill: () => {
+								if (readyTimer) clearInterval(readyTimer);
+							},
+							exited: new Promise<number>((resolve) => setTimeout(() => resolve(137), 75)),
+						};
+					},
+					500,
+				);
+
+				const result = (await spawnWithResolver({
+					agentName: "test-leaf",
+					genomePath: genomeDir,
+					projectDataDir: tempDir,
+					caller: addr("root", 0),
+					goal: "Crash without writing a new result",
+					blocking: true,
+					shared: false,
+					workDir: tempDir,
+					handleId,
+				})) as ResultMessage;
+
+				expect(result.success).toBe(false);
+				expect(result.output).toContain("exited with code 137");
+				expect(result.output).not.toBe("Previous run succeeded.");
+			} finally {
+				if (readyTimer) clearInterval(readyTimer);
+				await childBus.disconnect();
+			}
+		}, 15_000);
 	});
 
 	describe("messageAgent", () => {

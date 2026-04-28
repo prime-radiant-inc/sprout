@@ -114,6 +114,7 @@ export interface AgentHandle {
 	resolverSettings?: ResolverSettings;
 	trustedUserInstruction?: string;
 	surfacedMemoryBlock?: string;
+	resultRecoverySince?: number;
 }
 
 /**
@@ -232,7 +233,9 @@ export class AgentSpawner {
 
 	private async readPersistedHandleResult(handle: AgentHandle): Promise<ResultMessage | null> {
 		const handleLogDir = join(handle.projectDataDir ?? handle.genomePath, "logs", this.sessionId);
-		return readHandleResult(handleLogDir, handle.handleId);
+		return readHandleResult(handleLogDir, handle.handleId, {
+			sinceTimestamp: handle.resultRecoverySince,
+		});
 	}
 
 	private settleHandleResult(
@@ -455,6 +458,8 @@ export class AgentSpawner {
 			...(opts.projectDataDir ? { SPROUT_PROJECT_DATA_DIR: opts.projectDataDir } : {}),
 		};
 
+		const resultRecoverySince = Date.now();
+
 		// Spawn the process
 		const proc = this.spawnFn(handleId, env);
 
@@ -481,6 +486,7 @@ export class AgentSpawner {
 			resolverSettings: opts.resolverSettings,
 			trustedUserInstruction: opts.trustedUserInstruction,
 			surfacedMemoryBlock: opts.surfacedMemoryBlock,
+			resultRecoverySince,
 		};
 		this.handles.set(handleId, handle);
 		this.monitorProcessExit(handleId, proc);
@@ -689,6 +695,7 @@ export class AgentSpawner {
 			// Agent process is alive — send continue message
 			handle.result = undefined;
 			handle.status = "running";
+			handle.resultRecoverySince = Date.now();
 
 			const continueMsg: ContinueMessage = {
 				kind: "continue",
@@ -706,6 +713,7 @@ export class AgentSpawner {
 
 		// Agent process has exited — re-spawn with the message as the new goal.
 		// The agent process auto-resumes from its prior event log.
+		const resultRecoverySince = Date.now();
 		const env: Record<string, string> = {
 			SPROUT_BUS_URL: this.busUrl,
 			SPROUT_HANDLE_ID: handleId,
@@ -720,6 +728,7 @@ export class AgentSpawner {
 		handle.process = proc;
 		handle.result = undefined;
 		handle.status = "running";
+		handle.resultRecoverySince = resultRecoverySince;
 		this.monitorProcessExit(handleId, proc);
 		await this.subscribeToResultTopic(handle);
 

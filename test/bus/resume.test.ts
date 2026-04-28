@@ -19,10 +19,15 @@ async function writeEventLog(path: string, events: SessionEvent[]): Promise<void
 }
 
 /** Helper: build a SessionEvent with defaults */
-function event(kind: SessionEvent["kind"], data: Record<string, unknown>, depth = 1): SessionEvent {
+function event(
+	kind: SessionEvent["kind"],
+	data: Record<string, unknown>,
+	depth = 1,
+	timestamp = Date.now(),
+): SessionEvent {
 	return {
 		kind,
-		timestamp: Date.now(),
+		timestamp,
 		agent_id: "code-editor",
 		depth,
 		data,
@@ -745,6 +750,47 @@ describe("readHandleResult", () => {
 		expect(result).not.toBeNull();
 		expect(result!.output).toBe("Second run");
 		expect(result!.turns).toBe(2);
+	});
+
+	test("ignores session_end events before the requested recovery timestamp", async () => {
+		const handleLogDir = join(tempDir, "logs", "session-1");
+		await mkdir(handleLogDir, { recursive: true });
+
+		const handleId = "handle-respawned";
+		const logPath = join(handleLogDir, `${handleId}.jsonl`);
+		await writeEventLog(logPath, [
+			event(
+				"session_end",
+				{
+					output: "Old run",
+					success: true,
+					stumbles: 0,
+					turns: 1,
+					timed_out: false,
+				},
+				1,
+				1_000,
+			),
+			event(
+				"session_end",
+				{
+					output: "Current run",
+					success: true,
+					stumbles: 0,
+					turns: 2,
+					timed_out: false,
+				},
+				1,
+				2_000,
+			),
+		]);
+
+		const result = await readHandleResult(handleLogDir, handleId, { sinceTimestamp: 1_500 });
+		const missing = await readHandleResult(handleLogDir, handleId, { sinceTimestamp: 3_000 });
+
+		expect(result).not.toBeNull();
+		expect(result!.output).toBe("Current run");
+		expect(missing).toBeNull();
 	});
 
 	test("returns null when log has no session_end event", async () => {

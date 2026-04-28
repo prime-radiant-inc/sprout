@@ -144,6 +144,7 @@ export async function replayHandleLog(logPath: string): Promise<Message[]> {
 export async function readHandleResult(
 	handleLogDir: string,
 	handleId: string,
+	options: { sinceTimestamp?: number } = {},
 ): Promise<ResultMessage | null> {
 	const logPath = join(handleLogDir, `${handleId}.jsonl`);
 	let raw: string;
@@ -159,6 +160,12 @@ export async function readHandleResult(
 		try {
 			const parsed = JSON.parse(line);
 			if (parsed.kind === "session_end") {
+				if (
+					options.sinceTimestamp !== undefined &&
+					(typeof parsed.timestamp !== "number" || parsed.timestamp < options.sinceTimestamp)
+				) {
+					continue;
+				}
 				result = {
 					kind: "result",
 					handle_id: handleId,
