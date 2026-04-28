@@ -157,7 +157,7 @@ export class ObserverRegistry {
 		preselectedDelivery?: QueuedObserverDelivery,
 	): Promise<void> {
 		if (subscription.deliveryInFlight) {
-			if (triggerEvent) {
+			if (triggerEvent && subscription.config.target === "caller_delegates") {
 				const delivery = this.takeEventsForDelivery(subscription, triggerEvent);
 				subscription.pendingEvents = delivery.retainedEvents;
 				subscription.queuedDeliveries.push({ events: delivery.events, failures: 0 });

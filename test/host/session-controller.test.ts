@@ -2686,6 +2686,91 @@ describe("SessionController session-wide event wiring", () => {
 		expect(spawnCalls).toHaveLength(0);
 	});
 
+	test("coalesces root observer triggers while delivery is in flight", async () => {
+		const bus = new EventBus();
+		await mkdir(join(tempDir, "sessions"), { recursive: true });
+		const messages: string[] = [];
+		let contextUpdates = 0;
+		let resolveSpawn: ((value: string) => void) | undefined;
+		const spawnPromise = new Promise<string>((resolve) => {
+			resolveSpawn = resolve;
+		});
+		const fakeSpawner = {
+			getHandles: () => [],
+			subscribeSessionEvents: async () => {},
+			subscribeRootMessages: async () => {},
+			updateSessionId: async () => {},
+			clearHandles: async () => {},
+			spawnAgent: async () => spawnPromise,
+			messageAgent: async (_handleId: string, message: string) => {
+				messages.push(message);
+				return undefined;
+			},
+		} as any;
+		const fakeGenome = {
+			getAgent: (name: string) => {
+				if (name === "root") {
+					return {
+						name: "root",
+						model: "best",
+						observers: [
+							{
+								agent: "metacognitive",
+								target: "root",
+								events: ["plan_end"],
+								trigger: { every: 1, event: "plan_end" },
+							},
+						],
+					};
+				}
+				if (name === "metacognitive") {
+					return { name: "metacognitive", model: "observer.metacognitive" };
+				}
+				return undefined;
+			},
+		} as any;
+
+		new SessionController({
+			bus,
+			genomePath: join(tempDir, "genome"),
+			projectDataDir: tempDir,
+			factory: makeFakeFactory(makeFakeAgent()),
+			spawner: fakeSpawner,
+			genome: fakeGenome,
+			getResolverSettings: () =>
+				createResolverSettings(
+					[{ id: "anthropic", enabled: true }],
+					{},
+					{},
+					{
+						"observer.metacognitive": {
+							providerId: "anthropic",
+							modelId: "claude-sonnet-4-6",
+						},
+					},
+				),
+		});
+		bus.onEvent((event) => {
+			if (event.kind === "context_update") contextUpdates++;
+		});
+
+		for (let turn = 1; turn <= 3; turn++) {
+			bus.emitEvent("plan_end", "root", 0, {
+				turn,
+				finish_reason: "stop",
+				text: `root plan ${turn}`,
+			});
+		}
+		expect(messages).toHaveLength(0);
+
+		resolveSpawn!("observer-metacognitive");
+
+		await waitFor(() => messages.length === 1);
+		await waitFor(() => contextUpdates === 3);
+		expect(messages[0]).toContain("root plan 2");
+		expect(messages[0]).toContain("root plan 3");
+	});
+
 	test("configures observers from the factory-loaded genome before the run", async () => {
 		const bus = new EventBus();
 		const spawnCalls: unknown[] = [];
