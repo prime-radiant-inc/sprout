@@ -98,6 +98,13 @@ describe("memory extraction", () => {
 		expect(() => parseExtractionJson("```ts\nexport {}\n```")).toThrow();
 	});
 
+	test("parses raw JSON before inspecting fenced snippets inside string values", () => {
+		const embeddedSnippet = 'Use this example:\n```json\n{"not":"the payload"}\n```';
+		const payload = JSON.stringify([{ text: embeddedSnippet }]);
+
+		expect(parseExtractionJson(payload)).toEqual([{ text: embeddedSnippet }]);
+	});
+
 	test("normalizes arrays, wrapper objects, single objects, tags, entities, and dates", () => {
 		const drafts = normalizeExtractionPayload({
 			memories: [

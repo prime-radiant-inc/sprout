@@ -104,11 +104,26 @@ export function formatExtractionMessages(messages: readonly ExtractionMessage[])
 }
 
 export function parseExtractionJson(text: string): unknown {
-	const stripped = stripCodeFence(text.trim());
+	const trimmed = text.trim();
+	const direct = tryParseJson(trimmed);
+	if (direct.ok) return direct.value;
+
+	const stripped = stripCodeFence(trimmed);
+	if (stripped === trimmed) throw direct.error;
+	const fenced = tryParseJson(stripped);
+	if (fenced.ok) return fenced.value;
+	throw fenced.error;
+}
+
+function tryParseJson(text: string): { ok: true; value: unknown } | { ok: false; error: unknown } {
 	try {
-		return JSON.parse(stripped);
-	} catch {
-		return JSON.parse(repairJson(stripped));
+		return { ok: true, value: JSON.parse(text) };
+	} catch (error) {
+		try {
+			return { ok: true, value: JSON.parse(repairJson(text)) };
+		} catch {
+			return { ok: false, error };
+		}
 	}
 }
 
