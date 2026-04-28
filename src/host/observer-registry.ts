@@ -33,8 +33,13 @@ interface ObserverSubscriptionState {
 	observerStarted: boolean;
 	deliveryInFlight: boolean;
 	flushRequested: boolean;
-	queuedDeliveries: Array<{ events: SessionEvent[] }>;
+	queuedDeliveries: QueuedObserverDelivery[];
 	warningEmitted: boolean;
+}
+
+interface QueuedObserverDelivery {
+	events: SessionEvent[];
+	failures: number;
 }
 
 export interface ObserverRegistryOptions {
@@ -149,19 +154,25 @@ export class ObserverRegistry {
 	private async flush(
 		subscription: ObserverSubscriptionState,
 		triggerEvent?: SessionEvent,
-		preselectedEvents?: SessionEvent[],
+		preselectedDelivery?: QueuedObserverDelivery,
 	): Promise<void> {
 		if (subscription.deliveryInFlight) {
 			if (triggerEvent) {
 				const delivery = this.takeEventsForDelivery(subscription, triggerEvent);
 				subscription.pendingEvents = delivery.retainedEvents;
-				subscription.queuedDeliveries.push({ events: delivery.events });
+				subscription.queuedDeliveries.push({ events: delivery.events, failures: 0 });
 				return;
 			}
 			subscription.flushRequested = true;
 			return;
 		}
-		if (!preselectedEvents && subscription.pendingEvents.length === 0) return;
+		if (
+			!preselectedDelivery &&
+			subscription.pendingEvents.length === 0 &&
+			subscription.queuedDeliveries.length === 0
+		) {
+			return;
+		}
 
 		const resolverSettings = this.getResolverSettings?.();
 		if (
@@ -173,13 +184,26 @@ export class ObserverRegistry {
 		}
 
 		const generation = this.generation;
-		let events = preselectedEvents;
+		let events = preselectedDelivery?.events;
+		let deliveryFailures = preselectedDelivery?.failures ?? 0;
 		if (!events) {
-			const delivery = this.takeEventsForDelivery(subscription, triggerEvent);
-			events = delivery.events;
-			subscription.pendingEvents = delivery.retainedEvents;
+			const queuedDelivery = subscription.queuedDeliveries.shift();
+			if (queuedDelivery) {
+				if (triggerEvent) {
+					const delivery = this.takeEventsForDelivery(subscription, triggerEvent);
+					subscription.pendingEvents = delivery.retainedEvents;
+					subscription.queuedDeliveries.push({ events: delivery.events, failures: 0 });
+				}
+				events = queuedDelivery.events;
+				deliveryFailures = queuedDelivery.failures;
+			} else {
+				const delivery = this.takeEventsForDelivery(subscription, triggerEvent);
+				events = delivery.events;
+				subscription.pendingEvents = delivery.retainedEvents;
+			}
 		}
 		subscription.deliveryInFlight = true;
+		let deliveryFailed = false;
 		try {
 			const frame = buildObserverFrame({
 				sessionId: this.sessionId,
@@ -195,7 +219,12 @@ export class ObserverRegistry {
 			await this.deliverFrame(subscription, message, resolverSettings);
 		} catch (error) {
 			if (this.generation === generation) {
-				subscription.pendingEvents = [...events, ...subscription.pendingEvents];
+				deliveryFailed = true;
+				if (subscription.config.target === "caller_delegates") {
+					subscription.queuedDeliveries.unshift({ events, failures: deliveryFailures + 1 });
+				} else {
+					subscription.pendingEvents = [...events, ...subscription.pendingEvents];
+				}
 				this.trimPendingEvents(subscription);
 				this.emitEvent("warning", "session", 0, {
 					message: `Observer '${subscription.config.agentName}' delivery failed: ${
@@ -206,12 +235,15 @@ export class ObserverRegistry {
 		} finally {
 			if (this.generation === generation) {
 				subscription.deliveryInFlight = false;
-				const queuedDelivery = subscription.queuedDeliveries.shift();
-				if (queuedDelivery) {
-					void this.flush(subscription, undefined, queuedDelivery.events);
-				} else if (subscription.flushRequested) {
-					subscription.flushRequested = false;
-					void this.flush(subscription);
+				const shouldDrainQueue = !deliveryFailed || deliveryFailures === 0;
+				if (shouldDrainQueue) {
+					const queuedDelivery = subscription.queuedDeliveries.shift();
+					if (queuedDelivery) {
+						void this.flush(subscription, undefined, queuedDelivery);
+					} else if (subscription.flushRequested) {
+						subscription.flushRequested = false;
+						void this.flush(subscription);
+					}
 				}
 			}
 		}
