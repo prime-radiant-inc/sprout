@@ -482,6 +482,14 @@ Prompt requirements:
   frame.
 - Prohibit memory writes and memory-write suggestions.
 
+Tool availability:
+
+- `message_agent` is available when explicitly listed in `tools`, even when
+  `constraints.can_spawn: false`.
+- This does not grant `delegate` or `wait_agent`.
+- The zero-tool safety check must treat explicit `message_agent` access as a
+  real tool so observer agents do not need fake primitives.
+
 ## Runtime Architecture
 
 ### Observer Frame Delivery
@@ -526,6 +534,10 @@ Required semantics:
   normal agent execution mechanics.
 - For root/session observers, delivery may be fire-and-forget after enqueueing
   the frame.
+- Frames for the same observer handle are processed in enqueue order. If a
+  delivery is already in flight, later frames queue behind it.
+- Fire-and-forget means the caller does not await completion; it does not permit
+  concurrent frame processing for the same observer handle.
 - For delegate-final observers, delivery must wait until the observer's turn
   completes or the timeout expires.
 - "Delivery complete" means the observer processed the frame and returned a turn
@@ -537,6 +549,7 @@ Required tests:
 
 - Frames delivered to a running observer do not appear in that observer's
   `<sprout:agent-messages>`.
+- Multiple frames delivered to the same observer are processed in enqueue order.
 - Delegate-final delivery waits for observer turn completion before the owner
   continues.
 - Timeout does not hang the owner.
@@ -818,6 +831,10 @@ type AgentModelPurpose = "observer.metacognitive";
 Rules:
 
 - Missing `observer.metacognitive` configuration fails loudly.
+- `observer.metacognitive` is stored in Sprout settings using existing
+  model-purpose settings patterns.
+- The web config UI exposes `observer.metacognitive` alongside the other model
+  purposes.
 - `SPROUT_OBSERVER_METACOGNITIVE_MODEL` remains the only observer env override.
 - Do not add new observer model purposes in V3.
 - Add a new purpose only after a committed observer demonstrates a real model
@@ -842,6 +859,9 @@ Required cases:
 
 - `AgentAddress` includes exact handle/id.
 - Private handle checks require exact owner `AgentAddress`.
+- An observer with `constraints.can_spawn: false` and `tools: [message_agent]`
+  can message `caller`.
+- An observer with `constraints.can_spawn: false` cannot delegate or wait.
 - `message_agent(handle: "caller", blocking: false)` reaches root for a
   root-owned observer.
 - `message_agent(handle: "caller", blocking: false)` reaches a non-root owner
@@ -862,6 +882,7 @@ Required cases:
 - Delegate-final frames include the correct child final output for interleaved
   delegates.
 - Observer telemetry is excluded from collapse and extraction.
+- Settings schema, resolver, and web UI include `observer.metacognitive`.
 
 ### Live Harness
 
@@ -942,21 +963,25 @@ Defer all broader catalog ideas:
 3. Store exact `owner: AgentAddress`, `keepAlive`, `visibility`, and
    `isObserver` on `AgentHandle`.
 4. Harden `wait_agent` and raw-handle `message_agent` ownership checks.
-5. Add `message_agent(handle: "caller", blocking: false)` alias resolution.
-6. Change metacognitive prompt/docs to `handle: "caller"`.
-7. Reject raw `handle: "root"` for model-originated non-root messages.
-8. Delete observer `comments` config, recipient policy types, and prompt-policy
+5. Keep explicit `message_agent` tool access independent of `can_spawn` without
+   granting `delegate` or `wait_agent`.
+6. Add `message_agent(handle: "caller", blocking: false)` alias resolution.
+7. Change metacognitive prompt/docs to `handle: "caller"`.
+8. Reject raw `handle: "root"` for model-originated non-root messages.
+9. Delete observer `comments` config, recipient policy types, and prompt-policy
    rendering.
-9. Add common internal `deliverObserverFrame` spawner primitive.
-10. Keep root/session observers in `ObserverRegistry`; remove grant-store and
+10. Add common internal `deliverObserverFrame` spawner primitive with
+    per-observer ordered delivery.
+11. Keep root/session observers in `ObserverRegistry`; remove grant-store and
     recipient-policy assumptions.
-11. Add owner-local long-lived delegate observer runtime and per-child event
+12. Add owner-local long-lived delegate observer runtime and per-child event
     capture.
-12. Add bounded delegate-final observer delivery before owner continuation.
-13. Add event/UI metadata for observer owner and agent-message routing.
-14. Harden memory/collapse/extraction observer exclusion by handle/id.
-15. Add deterministic tests.
-16. Add opt-in live harness with the narrowed caller-alias smoke scenarios.
+13. Add bounded delegate-final observer delivery before owner continuation.
+14. Add event/UI metadata for observer owner and agent-message routing.
+15. Harden memory/collapse/extraction observer exclusion by handle/id.
+16. Confirm settings schema, resolver, and web UI expose `observer.metacognitive`.
+17. Add deterministic tests.
+18. Add opt-in live harness with the narrowed caller-alias smoke scenarios.
 
 ## Completion Criteria
 
@@ -966,11 +991,13 @@ V3 is complete when:
 - Root/session observers receive bounded frames over time.
 - Non-root delegate observers receive bounded delegate-final frames over time.
 - Observers use `message_agent(handle: "caller", blocking: false)` for comments.
+- Observer agents can use explicit `message_agent` without `can_spawn`.
 - No observer-specific grant store exists.
 - Observer handles use `keepAlive: true`, `visibility: "private"`, and
   `isObserver: true`.
 - Observer frames are delivered through internal `deliverObserverFrame`, not
   public `message_agent`.
+- Observer frames for a single observer handle are processed in enqueue order.
 - Normal handle ownership uses exact `AgentAddress`, not agent name.
 - Raw `handle: "root"` is not a model-originated non-root side channel.
 - Root-owned observer comments reach root.
@@ -979,5 +1006,6 @@ V3 is complete when:
 - Observer advice appears in `<sprout:agent-messages>` exactly once per
   delivered comment.
 - UI can show observer threads and compact observer message events.
+- Settings and web config UI expose `observer.metacognitive`.
 - Observer telemetry remains excluded from memory extraction and collapse.
 - Deterministic tests and opt-in live validation pass.
