@@ -54,6 +54,10 @@ describe("runInteractiveMode", () => {
 						called.push("web-stop");
 					},
 				}),
+				ensureWebBuildFreshness: async () => {
+					called.push("web-assets");
+					return undefined;
+				},
 				runWebOnlyMode: async (opts) => {
 					called.push("web-only");
 					await opts.stopWebServer();
@@ -79,7 +83,14 @@ describe("runInteractiveMode", () => {
 			},
 		);
 
-		expect(called).toEqual(["web-start", "web-only", "web-stop", "cleanup", "resume"]);
+		expect(called).toEqual([
+			"web-assets",
+			"web-start",
+			"web-only",
+			"web-stop",
+			"cleanup",
+			"resume",
+		]);
 	});
 
 	test("non-local web bind prints nonce to stdout", async () => {
@@ -115,6 +126,7 @@ describe("runInteractiveMode", () => {
 					stop: async () => {},
 					getWebToken: () => "generated-nonce",
 				}),
+				ensureWebBuildFreshness: async () => undefined,
 				runWebOnlyMode: async (opts) => {
 					await opts.stopWebServer();
 					await opts.cleanupInfra();
@@ -182,6 +194,7 @@ describe("runInteractiveMode", () => {
 					stop: async () => {},
 					getWebToken: () => "generated-nonce",
 				}),
+				ensureWebBuildFreshness: async () => undefined,
 				runWebOnlyMode: async () => {},
 				createInputHistory: async () => ({
 					load: async () => {},
@@ -214,8 +227,9 @@ describe("runInteractiveMode", () => {
 		});
 	});
 
-	test("warns when built web assets are stale", async () => {
+	test("builds stale web assets before starting web server", async () => {
 		const bus = new FakeBus();
+		const called: string[] = [];
 		const stderr: string[] = [];
 
 		await runInteractiveMode(
@@ -241,11 +255,19 @@ describe("runInteractiveMode", () => {
 			},
 			{
 				createWebServer: async () => ({
-					start: async () => {},
-					stop: async () => {},
+					start: async () => {
+						called.push("web-start");
+					},
+					stop: async () => {
+						called.push("web-stop");
+					},
 				}),
-				checkWebBuildFreshness: async () => "Web UI assets are stale. Run `bun run web:build`.",
+				ensureWebBuildFreshness: async () => {
+					called.push("web-assets");
+					return "Web UI assets were stale; rebuilt web bundle.";
+				},
 				runWebOnlyMode: async (opts) => {
+					called.push("web-only");
 					await opts.stopWebServer();
 					await opts.cleanupInfra();
 				},
@@ -270,7 +292,8 @@ describe("runInteractiveMode", () => {
 			},
 		);
 
-		expect(stderr).toContain("Web UI assets are stale. Run `bun run web:build`.");
+		expect(called).toEqual(["web-assets", "web-start", "web-only", "web-stop"]);
+		expect(stderr).toContain("Web UI assets were stale; rebuilt web bundle.");
 	});
 
 	test("interactive TUI path loads/saves history, submits commands, and cleans up", async () => {
@@ -460,6 +483,7 @@ describe("runInteractiveMode", () => {
 
 	test("starting /web in a resumed TUI seeds WebServer with initialEvents", async () => {
 		const bus = new FakeBus();
+		let assetPrepareCount = 0;
 		const createWebServerCalls: Array<{
 			initialEvents?: unknown[];
 			settingsControlPlane?: unknown;
@@ -520,6 +544,10 @@ describe("runInteractiveMode", () => {
 						stop: async () => {},
 					};
 				},
+				ensureWebBuildFreshness: async () => {
+					assetPrepareCount++;
+					return undefined;
+				},
 				runWebOnlyMode: async () => {},
 				createInputHistory: async () => ({
 					load: async () => {},
@@ -549,6 +577,7 @@ describe("runInteractiveMode", () => {
 			},
 		);
 
+		expect(assetPrepareCount).toBe(1);
 		expect(createWebServerCalls).toHaveLength(1);
 		expect(createWebServerCalls[0]!.initialEvents).toEqual(resumedEvents);
 		expect(createWebServerCalls[0]!.settingsControlPlane).toBe(settingsControlPlane);
@@ -592,6 +621,7 @@ describe("runInteractiveMode", () => {
 						stop: async () => {},
 					};
 				},
+				ensureWebBuildFreshness: async () => undefined,
 				runWebOnlyMode: async () => {},
 				createInputHistory: async () => ({
 					load: async () => {},
@@ -676,7 +706,7 @@ describe("runInteractiveMode", () => {
 						clearPending: () => {},
 						dispose: () => {},
 					}) as any,
-				checkWebBuildFreshness: async () => undefined,
+				ensureWebBuildFreshness: async () => undefined,
 				loadPricingSnapshot: async () => null,
 				buildWebOpenUrl: () => "http://localhost:7777",
 				openUrl: () => {},
@@ -689,5 +719,69 @@ describe("runInteractiveMode", () => {
 		expect(cleanupCount).toBe(1);
 		expect(createdHistory).toBe(false);
 		expect(errors[0]).toContain("Failed to start web server: bind failed");
+	});
+
+	test("web asset build failure logs error and skips web startup", async () => {
+		const bus = new FakeBus();
+		let cleanupCount = 0;
+		const errors: string[] = [];
+		let createdHistory = false;
+
+		await runInteractiveMode(
+			{
+				command: { genomePath: "/tmp/genome", web: true },
+				sessionId: "01FAILASSETS",
+				projectDataDir: "/tmp/project-data",
+				runtime: {
+					bus: bus as any,
+					controller: { sessionId: "01FAILASSETS", isRunning: false, currentModel: undefined },
+					logger: { info: () => {} },
+					availableModels: [],
+				},
+				cleanupInfra: async () => {
+					cleanupCount++;
+				},
+				onResumeHint: () => {},
+				inputHistoryPath: () => "/tmp/history",
+				handleSlashCommand: async () => ({ action: "none" }),
+			},
+			{
+				createWebServer: async () => {
+					throw new Error("createWebServer should not run when asset build fails");
+				},
+				ensureWebBuildFreshness: async () => {
+					throw new Error("vite failed");
+				},
+				runWebOnlyMode: async () => {},
+				createInputHistory: async () => {
+					createdHistory = true;
+					return {
+						load: async () => {},
+						save: async () => {},
+						add: () => {},
+						all: () => [],
+					};
+				},
+				renderApp: async () => {
+					throw new Error("renderApp should not run when web asset build fails");
+				},
+				registerInteractiveSigint: () =>
+					({
+						onSignal: () => {},
+						clearPending: () => {},
+						dispose: () => {},
+					}) as any,
+				loadPricingSnapshot: async () => null,
+				buildWebOpenUrl: () => "http://localhost:7777",
+				openUrl: () => {},
+				logError: (line) => {
+					errors.push(line);
+				},
+			},
+		);
+
+		expect(cleanupCount).toBe(1);
+		expect(createdHistory).toBe(false);
+		expect(errors[0]).toContain("Failed to prepare web UI assets: vite failed");
 	});
 });

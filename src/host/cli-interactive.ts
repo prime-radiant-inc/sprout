@@ -121,12 +121,14 @@ interface InteractiveModeDeps {
 	}>;
 	registerInteractiveSigint: typeof registerInteractiveSigint;
 	buildWebOpenUrl: typeof buildWebOpenUrl;
-	checkWebBuildFreshness: (staticDir: string) => Promise<string | undefined>;
+	ensureWebBuildFreshness: (staticDir: string) => Promise<string | undefined>;
 	loadPricingSnapshot: typeof loadPricingSnapshot;
 	openUrl: (url: string) => void;
 	logOut: (line: string) => void;
 	logError: (line: string) => void;
 }
+
+type WebBuildFreshness = "fresh" | "missing" | "stale";
 
 async function latestFileMtimeMs(dir: string): Promise<number | undefined> {
 	let entries: Dirent[];
@@ -155,26 +157,71 @@ async function latestFileMtimeMs(dir: string): Promise<number | undefined> {
 	}, undefined);
 }
 
-async function checkWebBuildFreshness(staticDir: string): Promise<string | undefined> {
+async function checkWebBuildFreshness(staticDir: string): Promise<WebBuildFreshness> {
 	const webRoot = join(staticDir, "..");
-	const [distMtime, srcMtime, indexMtime] = await Promise.all([
+	const buildInputFiles = [
+		"bun.lock",
+		"index.html",
+		"package.json",
+		"tsconfig.json",
+		"vite-env.d.ts",
+		"vite.config.ts",
+	];
+	const [distMtime, srcMtime, ...buildInputMtimes] = await Promise.all([
 		latestFileMtimeMs(staticDir),
 		latestFileMtimeMs(join(webRoot, "src")),
-		stat(join(webRoot, "index.html"))
-			.then((info) => info.mtimeMs)
-			.catch(() => undefined),
+		...buildInputFiles.map((file) =>
+			stat(join(webRoot, file))
+				.then((info) => info.mtimeMs)
+				.catch(() => undefined),
+		),
 	]);
 
 	if (distMtime === undefined) {
-		return "Web UI assets are missing. Run `bun run web:build`.";
+		return "missing";
 	}
 
-	const sourceMtime = Math.max(srcMtime ?? 0, indexMtime ?? 0);
+	const sourceMtime = Math.max(srcMtime ?? 0, ...buildInputMtimes.map((mtime) => mtime ?? 0));
 	if (sourceMtime > distMtime) {
-		return "Web UI assets are stale. Run `bun run web:build`.";
+		return "stale";
 	}
 
-	return undefined;
+	return "fresh";
+}
+
+async function readProcessOutput(stream: ReadableStream<Uint8Array> | null): Promise<string> {
+	if (!stream) return "";
+	return new Response(stream).text();
+}
+
+async function ensureWebBuildFreshness(staticDir: string): Promise<string | undefined> {
+	const freshness = await checkWebBuildFreshness(staticDir);
+	if (freshness === "fresh") return undefined;
+
+	const webRoot = join(staticDir, "..");
+	const bunExecutable = Bun.which("bun") ?? process.execPath;
+	const build = Bun.spawn({
+		cmd: [bunExecutable, "run", "build"],
+		cwd: webRoot,
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	const [exitCode, stdout, stderr] = await Promise.all([
+		build.exited,
+		readProcessOutput(build.stdout),
+		readProcessOutput(build.stderr),
+	]);
+
+	if (exitCode !== 0) {
+		const output = [stdout.trim(), stderr.trim()].filter(Boolean).join("\n");
+		throw new Error(
+			`Web UI asset build failed with exit code ${exitCode}${output ? `:\n${output}` : "."}`,
+		);
+	}
+
+	return freshness === "missing"
+		? "Web UI assets were missing; built web bundle."
+		: "Web UI assets were stale; rebuilt web bundle.";
 }
 
 function isLoopbackHost(hostname: string | undefined): boolean {
@@ -239,7 +286,7 @@ export async function runInteractiveMode(
 			}),
 		registerInteractiveSigint: deps.registerInteractiveSigint ?? registerInteractiveSigint,
 		buildWebOpenUrl: deps.buildWebOpenUrl ?? buildWebOpenUrl,
-		checkWebBuildFreshness: deps.checkWebBuildFreshness ?? checkWebBuildFreshness,
+		ensureWebBuildFreshness: deps.ensureWebBuildFreshness ?? ensureWebBuildFreshness,
 		loadPricingSnapshot: deps.loadPricingSnapshot ?? loadPricingSnapshot,
 		openUrl: deps.openUrl ?? ((url) => void Bun.spawn(["open", url])),
 		logOut: deps.logOut ?? ((line) => console.log(line)),
@@ -270,9 +317,17 @@ export async function runInteractiveMode(
 	const pricingTable = pricingSnapshot?.table ?? null;
 
 	if (opts.command.web || opts.command.webOnly) {
-		const staleWebBuildWarning = await d.checkWebBuildFreshness(staticDir);
-		if (staleWebBuildWarning) {
-			d.logError(staleWebBuildWarning);
+		try {
+			const webBuildMessage = await d.ensureWebBuildFreshness(staticDir);
+			if (webBuildMessage) {
+				d.logError(webBuildMessage);
+			}
+		} catch (err) {
+			await opts.cleanupInfra();
+			d.logError(
+				`Failed to prepare web UI assets: ${err instanceof Error ? err.message : String(err)}`,
+			);
+			return;
 		}
 		webServer = await d.createWebServer({
 			bus: opts.runtime.bus,
@@ -365,6 +420,10 @@ export async function runInteractiveMode(
 					} else {
 						(async () => {
 							try {
+								const webBuildMessage = await d.ensureWebBuildFreshness(staticDir);
+								if (webBuildMessage) {
+									opts.runtime.bus.emitEvent("warning", "cli", 0, { message: webBuildMessage });
+								}
 								webServer = await d.createWebServer({
 									bus: opts.runtime.bus,
 									port: webPort,
