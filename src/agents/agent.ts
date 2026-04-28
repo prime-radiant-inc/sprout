@@ -401,7 +401,9 @@ export class Agent {
 	}
 
 	private canCompleteWithEmptyOutput(): boolean {
-		return this.isToollessObserver();
+		return (
+			this.isToollessObserver() && this.agentTools.length === 0 && this.primitiveTools.length === 0
+		);
 	}
 
 	private isToollessObserver(): boolean {

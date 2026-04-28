@@ -1195,6 +1195,89 @@ describe("Agent", () => {
 		).toBe(true);
 	});
 
+	test("observer with implicit resolved tools cannot silently complete empty", async () => {
+		const observerSpec: AgentSpec = {
+			...leafSpec,
+			name: "the-balcony",
+			description: "Private commentary observer with an implicit tool",
+			system_prompt: "Observe and comment only when useful.",
+			tools: [],
+			agents: [],
+			constraints: {
+				...DEFAULT_CONSTRAINTS,
+				can_spawn: false,
+				can_learn: false,
+				max_turns: 3,
+			},
+			tags: ["observer", "commentary"],
+		};
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				if (callCount === 1) {
+					return {
+						id: "mock-empty-implicit-tool-observer",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: {
+							role: "assistant",
+							content: [],
+						},
+						finish_reason: { reason: "stop" },
+						usage: { input_tokens: 10, output_tokens: 0, total_tokens: 10 },
+					};
+				}
+				return {
+					id: "mock-implicit-tool-observer-comment",
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant("The balcony has noticed the wrench on stage."),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 12, output_tokens: 8, total_tokens: 20 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: observerSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 1,
+			events,
+		});
+		(
+			agent as unknown as {
+				primitiveTools: Array<{
+					name: string;
+					description: string;
+					parameters: Record<string, never>;
+				}>;
+			}
+		).primitiveTools = [{ name: "implicit_tool", description: "Implicit tool", parameters: {} }];
+
+		const result = await agent.run("observe a root frame");
+
+		expect(callCount).toBe(2);
+		expect(result.success).toBe(true);
+		expect(result.output).toBe("The balcony has noticed the wrench on stage.");
+		expect(
+			events
+				.collected()
+				.some(
+					(event) =>
+						event.kind === "warning" && String(event.data.message).includes("empty final response"),
+				),
+		).toBe(true);
+	});
+
 	test("agent times out after timeout_ms", async () => {
 		const timeoutSpec: AgentSpec = {
 			name: "timeout-root",
