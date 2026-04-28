@@ -1,4 +1,5 @@
-import { join } from "node:path";
+import { appendFile, mkdir } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { AgentEventEmitter } from "../agents/events.ts";
 import { createAgent } from "../agents/factory.ts";
 import {
@@ -17,6 +18,7 @@ import type {
 	AgentModelPurpose,
 	AgentSpec,
 	Command,
+	EventKind,
 	ModelRef,
 	SessionEvent,
 } from "../kernel/types.ts";
@@ -446,6 +448,7 @@ export class SessionController {
 	private spawnerReady?: Promise<void>;
 	private observerRegistry?: ObserverRegistry;
 	private observerRegistryConfigured = false;
+	private controllerEventLogWriteChain: Promise<void> = Promise.resolve();
 	private readonly commandHandlers: SessionCommandHandlers;
 
 	get sessionId(): string {
@@ -501,7 +504,7 @@ export class SessionController {
 				configs: observerConfigs,
 				getResolverSettings: this.getResolverSettings,
 				emitEvent: (kind, agentId, depth, data) => {
-					this.bus.emitEvent(kind, agentId, depth, data);
+					this.emitAndPersistControllerEvent(kind, agentId, depth, data);
 				},
 			});
 			const sessionEventsReady = this.spawner
@@ -578,6 +581,31 @@ export class SessionController {
 		this.bus.emitEvent("warning", "session", 0, {
 			message: "Nothing to compact",
 		});
+	}
+
+	private emitAndPersistControllerEvent(
+		kind: EventKind,
+		agentId: string,
+		depth: number,
+		data: Record<string, unknown>,
+	): void {
+		this.bus.emitEvent(kind, agentId, depth, data);
+
+		const event: SessionEvent = {
+			kind,
+			timestamp: Date.now(),
+			agent_id: agentId,
+			depth,
+			data,
+		};
+		const logPath = join(this.projectDataDir, "logs", `${this._sessionId}.jsonl`);
+		const line = `${JSON.stringify(event)}\n`;
+		this.controllerEventLogWriteChain = this.controllerEventLogWriteChain
+			.then(async () => {
+				await mkdir(dirname(logPath), { recursive: true });
+				await appendFile(logPath, line);
+			})
+			.catch(() => {});
 	}
 
 	private clearSession(): void {

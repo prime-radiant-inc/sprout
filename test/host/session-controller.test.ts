@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -2610,10 +2611,12 @@ describe("SessionController session-wide event wiring", () => {
 			},
 		} as any;
 
+		const sessionId = "observer-static-config-session";
 		new SessionController({
 			bus,
 			genomePath: join(tempDir, "genome"),
 			projectDataDir: tempDir,
+			sessionId,
 			factory: makeFakeFactory(makeFakeAgent()),
 			spawner: fakeSpawner,
 			genome: fakeGenome,
@@ -2657,6 +2660,16 @@ describe("SessionController session-wide event wiring", () => {
 			surfacedMemoryBlock: "",
 		});
 		expect(JSON.stringify(spawnCalls[0])).not.toContain("Default recipient");
+
+		const rootEventLog = join(tempDir, "logs", `${sessionId}.jsonl`);
+		await waitFor(
+			() =>
+				existsSync(rootEventLog) && readFileSync(rootEventLog, "utf-8").includes('"observer":true'),
+		);
+		const loggedEvents = readFileSync(rootEventLog, "utf-8");
+		expect(loggedEvents).toContain('"kind":"act_start"');
+		expect(loggedEvents).toContain('"agent_name":"metacognitive"');
+		expect(loggedEvents).toContain('"child_id":"observer-root-1-metacognitive"');
 	});
 
 	test("does not attach a hard-coded observer without static config", async () => {
