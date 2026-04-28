@@ -66,6 +66,8 @@ type JsonCandidate = {
 	text: string;
 	priority: number;
 	order: number;
+	start: number;
+	end: number;
 };
 
 export async function extractMemoryDrafts(
@@ -129,21 +131,23 @@ export function parseExtractionJson(text: string): unknown {
 						value: parsed.value,
 						rank: candidate.priority + jsonPayloadScore(parsed.value),
 						order: candidate.order,
+						start: candidate.start,
+						end: candidate.end,
 					},
 				]
 			: [];
 	});
-	const best = parsedCandidates.reduce<{ value: unknown; rank: number; order: number } | undefined>(
-		(currentBest, candidate) => {
-			if (!currentBest) return candidate;
-			if (candidate.rank > currentBest.rank) return candidate;
-			if (candidate.rank === currentBest.rank && candidate.order > currentBest.order) {
-				return candidate;
-			}
-			return currentBest;
-		},
-		undefined,
-	);
+	const best = parsedCandidates.reduce<
+		{ value: unknown; rank: number; order: number; start: number; end: number } | undefined
+	>((currentBest, candidate) => {
+		if (!currentBest) return candidate;
+		if (candidate.rank > currentBest.rank) return candidate;
+		if (candidate.rank < currentBest.rank) return currentBest;
+		if (containsRange(candidate, currentBest)) return candidate;
+		if (containsRange(currentBest, candidate)) return currentBest;
+		if (candidate.order > currentBest.order) return candidate;
+		return currentBest;
+	}, undefined);
 	if (best) return best.value;
 	throw direct.error;
 }
@@ -266,23 +270,23 @@ function jsonExtractionCandidates(text: string): JsonCandidate[] {
 	const candidates: JsonCandidate[] = [];
 	const seen = new Set<string>();
 	let order = 0;
-	const add = (candidateText: string, priority: number) => {
+	const add = (candidateText: string, priority: number, start: number, end: number) => {
 		const trimmed = candidateText.trim();
 		if (!trimmed || seen.has(trimmed)) return;
 		seen.add(trimmed);
-		candidates.push({ text: trimmed, priority, order: order++ });
+		candidates.push({ text: trimmed, priority, start, end, order: order++ });
 	};
 	const blocks = codeFenceBlocks(text);
 	for (const block of blocks) {
 		if (block.language === "json") {
-			add(block.body, 300);
+			add(block.body, 300, block.start, block.end);
 		} else if (block.language === "" && startsLikeJson(block.body)) {
-			add(block.body, 250);
+			add(block.body, 250, block.start, block.end);
 		}
 	}
 	const outsideFences = removeRanges(text, blocks);
 	for (const span of balancedJsonSpans(outsideFences)) {
-		add(span, 100);
+		add(span.text, 100, span.start, span.end);
 	}
 	return candidates;
 }
@@ -347,14 +351,14 @@ function removeRanges(
 	return result + text.slice(cursor);
 }
 
-function balancedJsonSpans(text: string): string[] {
-	const spans: string[] = [];
+function balancedJsonSpans(text: string): Array<{ text: string; start: number; end: number }> {
+	const spans: Array<{ text: string; start: number; end: number }> = [];
 	for (let index = 0; index < text.length; index++) {
 		const char = text[index];
 		if (char !== "{" && char !== "[") continue;
 		const span = balancedJsonSpanAt(text, index);
 		if (!span) continue;
-		spans.push(span.text);
+		spans.push({ text: span.text, start: index, end: span.end });
 	}
 	return spans;
 }
@@ -411,6 +415,17 @@ function jsonPayloadScore(value: unknown): number {
 
 function hasMemoryText(value: unknown): boolean {
 	return isRecord(value) && (typeof value.text === "string" || typeof value.content === "string");
+}
+
+function containsRange(
+	outer: Pick<JsonCandidate, "start" | "end">,
+	inner: Pick<JsonCandidate, "start" | "end">,
+): boolean {
+	return (
+		outer.start <= inner.start &&
+		outer.end >= inner.end &&
+		outer.end - outer.start > inner.end - inner.start
+	);
 }
 
 function repairJson(text: string): string {

@@ -112,6 +112,14 @@ describe("memory extraction", () => {
 		).toEqual([{ text: "schema-ranked payload" }]);
 		expect(
 			parseExtractionJson(
+				'Wrapper prose: {"memories":[{"text":"real wrapper"}],"examples":[{"text":"nested example"}]}',
+			),
+		).toEqual({ memories: [{ text: "real wrapper" }], examples: [{ text: "nested example" }] });
+		expect(parseExtractionJson('Earlier: [{"text":"old"}]\nFinal: [{"text":"new"}]')).toEqual([
+			{ text: "new" },
+		]);
+		expect(
+			parseExtractionJson(
 				'No fence:\n{"summary":"Uses {braces}, [brackets], and \\"quoted\\" text","title":"Nested punctuation"}',
 			),
 		).toEqual({
