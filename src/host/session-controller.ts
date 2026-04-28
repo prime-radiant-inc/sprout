@@ -123,7 +123,6 @@ function buildStaticObserverConfigs(
 			modelPurpose: observerModelPurpose(observerSpec),
 			description:
 				config.target === "root" ? `observes ${rootAgentName} turns` : "observes session events",
-			comments: config.comments,
 		};
 	});
 
@@ -147,7 +146,6 @@ function buildStaticObserverConfigs(
 			modelPurpose: observerModelPurpose(observerSpec),
 			description: `observes ${rootAgentName} delegate completions`,
 			callerDepth: 0,
-			comments: config.comments,
 		};
 	});
 

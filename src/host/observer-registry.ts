@@ -211,11 +211,10 @@ export class ObserverRegistry {
 				includeKinds: subscription.config.events,
 				maxEvents: subscription.config.maxEvents,
 				maxChars: subscription.config.maxChars,
-				commentPolicy: subscription.config.comments,
 			});
 			if (frame.events.length === 0) return;
 
-			const message = renderObserverFrame(frame, subscription.config.comments);
+			const message = renderObserverFrame(frame);
 			await this.deliverFrame(subscription, message, resolverSettings);
 		} catch (error) {
 			if (this.generation === generation) {

@@ -253,9 +253,6 @@ describe("parseAgentMarkdown", () => {
 			"    delivery:",
 			"      max_events: 24",
 			"      max_chars: 6000",
-			"    comments:",
-			"      can_message: [root]",
-			"      default_recipient: root",
 			"observe_delegates:",
 			"  - agent: metacognitive",
 			"    trigger: on_delegate_final",
@@ -263,9 +260,6 @@ describe("parseAgentMarkdown", () => {
 			"    delivery:",
 			"      max_events: 12",
 			"      max_chars: 3000",
-			"    comments:",
-			"      can_message: [caller]",
-			"      default_recipient: caller",
 			"---",
 			"Coordinate work.",
 		].join("\n");
@@ -286,7 +280,6 @@ describe("parseAgentMarkdown", () => {
 				],
 				trigger: { every: 3, event: "plan_end" },
 				delivery: { max_events: 24, max_chars: 6000 },
-				comments: { can_message: ["root"], default_recipient: "root" },
 			},
 		]);
 		expect(spec.observe_delegates).toEqual([
@@ -295,7 +288,6 @@ describe("parseAgentMarkdown", () => {
 				trigger: "on_delegate_final",
 				events: ["plan_end", "warning", "error", "act_end"],
 				delivery: { max_events: 12, max_chars: 3000 },
-				comments: { can_message: ["caller"], default_recipient: "caller" },
 			},
 		]);
 	});
@@ -346,12 +338,8 @@ describe("parseAgentMarkdown", () => {
 				/every.*positive integer/,
 			],
 			[
-				"observers:\n  - agent: metacognitive\n    target: root\n    events: [plan_end]\n    trigger:\n      every: 1\n      event: plan_end\n    comments:\n      can_message: [root]\n      default_recipient: caller",
-				/default_recipient.*can_message/,
-			],
-			[
-				"observers:\n  - agent: metacognitive\n    target: root\n    events: [plan_end]\n    trigger:\n      every: 1\n      event: plan_end\n    comments:\n      can_message: [target]\n      default_recipient: target",
-				/must be root or caller/,
+				"observers:\n  - agent: metacognitive\n    target: root\n    events: [plan_end]\n    trigger:\n      every: 1\n      event: plan_end\n    comments:\n      can_message: [root]",
+				/unknown .* key 'comments'/,
 			],
 			[
 				"observe_delegates:\n  - agent: metacognitive\n    trigger: every_turn\n    events: [act_end]",

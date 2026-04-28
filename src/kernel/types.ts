@@ -69,16 +69,10 @@ export interface AgentSubcorticalRecallConfig {
 }
 
 export type ObserverTargetConfig = "root" | "session";
-export type ObserverCommentRecipient = "root" | "target" | "caller";
 
 export interface ObserverDeliveryConfig {
 	max_events?: number;
 	max_chars?: number;
-}
-
-export interface ObserverCommentPolicyConfig {
-	can_message?: ObserverCommentRecipient[];
-	default_recipient?: ObserverCommentRecipient;
 }
 
 export interface ObserverEveryTriggerConfig {
@@ -92,7 +86,6 @@ export interface AgentObserverConfig {
 	events: EventKind[];
 	trigger: ObserverEveryTriggerConfig;
 	delivery?: ObserverDeliveryConfig;
-	comments?: ObserverCommentPolicyConfig;
 }
 
 export interface AgentDelegateObserverConfig {
@@ -100,7 +93,6 @@ export interface AgentDelegateObserverConfig {
 	trigger: "on_delegate_final";
 	events: EventKind[];
 	delivery?: ObserverDeliveryConfig;
-	comments?: ObserverCommentPolicyConfig;
 }
 
 export type ObserverSubscriptionConfig = AgentObserverConfig | AgentDelegateObserverConfig;

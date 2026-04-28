@@ -149,43 +149,19 @@ describe("observer frames", () => {
 		expect(rendered).toContain("&quot;a &lt; b&quot; &amp; continue");
 	});
 
-	test("renders configured observer comment policy", () => {
+	test("does not render a dynamic observer comment policy", () => {
 		const frame = buildObserverFrame({
 			sessionId: "sess_1",
 			events: [event("plan_end", "root", 0, { text: "check assumptions" })],
 			includeKinds: ["plan_end"],
 			maxEvents: 10,
 			maxChars: 5000,
-			commentPolicy: { can_message: ["root"], default_recipient: "root" },
 		});
 
-		const rendered = renderObserverFrame(frame, {
-			can_message: ["root"],
-			default_recipient: "root",
-		});
-		expect(rendered).toContain("<sprout:observer-comment-policy>");
-		expect(rendered).toContain("Can message: root");
-		expect(rendered).toContain("Default recipient: root");
-		expect(rendered).toContain('message_agent with handle "caller"');
-	});
-
-	test("omits unsupported target comment recipients from rendered policy", () => {
-		const frame = buildObserverFrame({
-			sessionId: "sess_1",
-			events: [event("plan_end", "root", 0, { text: "check assumptions" })],
-			includeKinds: ["plan_end"],
-			maxEvents: 10,
-			maxChars: 5000,
-			commentPolicy: { can_message: ["target"], default_recipient: "target" },
-		});
-
-		const rendered = renderObserverFrame(frame, {
-			can_message: ["target"],
-			default_recipient: "target",
-		});
-		expect(rendered).toContain("Can message: none");
-		expect(rendered).toContain("Unsupported recipients omitted: target.");
-		expect(rendered).not.toContain("Default recipient: target");
+		const rendered = renderObserverFrame(frame);
+		expect(rendered).not.toContain("<sprout:observer-comment-policy>");
+		expect(rendered).not.toContain("can_message");
+		expect(rendered).not.toContain("default_recipient");
 	});
 
 	test("rejects invalid bounds loudly", () => {

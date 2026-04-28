@@ -2599,7 +2599,6 @@ describe("SessionController session-wide event wiring", () => {
 								events: ["plan_end"],
 								trigger: { every: 3, event: "plan_end" },
 								delivery: { max_events: 24, max_chars: 6000 },
-								comments: { can_message: ["root"], default_recipient: "root" },
 							},
 						],
 					};
@@ -2657,7 +2656,7 @@ describe("SessionController session-wide event wiring", () => {
 			blocking: true,
 			surfacedMemoryBlock: "",
 		});
-		expect(JSON.stringify(spawnCalls[0])).toContain("Default recipient: root");
+		expect(JSON.stringify(spawnCalls[0])).not.toContain("Default recipient");
 	});
 
 	test("does not attach a hard-coded observer without static config", async () => {

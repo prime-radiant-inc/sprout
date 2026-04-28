@@ -7,8 +7,6 @@ import {
 	EVENT_KINDS,
 	type EventKind,
 	normalizeAgentConstraints,
-	type ObserverCommentPolicyConfig,
-	type ObserverCommentRecipient,
 	type ObserverDeliveryConfig,
 	type ObserverTargetConfig,
 } from "../kernel/types.ts";
@@ -137,7 +135,6 @@ function normalizeSubcorticalRecallConfig(
 }
 
 const OBSERVER_TARGETS = new Set<ObserverTargetConfig>(["root", "session"]);
-const OBSERVER_COMMENT_RECIPIENTS = new Set<ObserverCommentRecipient>(["root", "caller"]);
 const EVENT_KIND_NAMES = new Set<string>(EVENT_KINDS);
 
 function normalizeObserverConfigs(raw: unknown, source: string): AgentObserverConfig[] {
@@ -149,23 +146,15 @@ function normalizeObserverConfigs(raw: unknown, source: string): AgentObserverCo
 
 function normalizeObserverConfig(raw: unknown, source: string, path: string): AgentObserverConfig {
 	const config = requireRecord(raw, source, path);
-	requireKnownKeys(config, source, path, [
-		"agent",
-		"target",
-		"events",
-		"trigger",
-		"delivery",
-		"comments",
-	]);
+	requireKnownKeys(config, source, path, ["agent", "target", "events", "trigger", "delivery"]);
 
 	const agent = normalizeObserverAgentName(config.agent, source, `${path}.agent`);
 	const target = normalizeObserverTarget(config.target, source, `${path}.target`);
 	const events = normalizeEventKinds(config.events, source, `${path}.events`);
 	const trigger = normalizeEveryTrigger(config.trigger, events, source, `${path}.trigger`);
 	const delivery = normalizeObserverDelivery(config.delivery, source, `${path}.delivery`);
-	const comments = normalizeObserverComments(config.comments, source, `${path}.comments`);
 
-	return { agent, target, events, trigger, delivery, comments };
+	return { agent, target, events, trigger, delivery };
 }
 
 function normalizeDelegateObserverConfigs(
@@ -186,7 +175,7 @@ function normalizeDelegateObserverConfig(
 	path: string,
 ): AgentDelegateObserverConfig {
 	const config = requireRecord(raw, source, path);
-	requireKnownKeys(config, source, path, ["agent", "trigger", "events", "delivery", "comments"]);
+	requireKnownKeys(config, source, path, ["agent", "trigger", "events", "delivery"]);
 
 	const agent = normalizeObserverAgentName(config.agent, source, `${path}.agent`);
 	if (config.trigger !== "on_delegate_final") {
@@ -199,9 +188,8 @@ function normalizeDelegateObserverConfig(
 		throw new Error(`Invalid agent markdown at ${source}: '${path}.events' must include act_end`);
 	}
 	const delivery = normalizeObserverDelivery(config.delivery, source, `${path}.delivery`);
-	const comments = normalizeObserverComments(config.comments, source, `${path}.comments`);
 
-	return { agent, trigger: "on_delegate_final", events, delivery, comments };
+	return { agent, trigger: "on_delegate_final", events, delivery };
 }
 
 function normalizeObserverAgentName(raw: unknown, source: string, path: string): string {
@@ -279,55 +267,6 @@ function normalizeObserverDelivery(
 		);
 	}
 	return normalized;
-}
-
-function normalizeObserverComments(
-	raw: unknown,
-	source: string,
-	path: string,
-): ObserverCommentPolicyConfig | undefined {
-	if (raw === undefined) return undefined;
-	const comments = requireRecord(raw, source, path);
-	requireKnownKeys(comments, source, path, ["can_message", "default_recipient"]);
-	const normalized: ObserverCommentPolicyConfig = {};
-	if (comments.can_message !== undefined) {
-		if (!Array.isArray(comments.can_message) || comments.can_message.length === 0) {
-			throw new Error(
-				`Invalid agent markdown at ${source}: '${path}.can_message' must be a non-empty array`,
-			);
-		}
-		normalized.can_message = comments.can_message.map((recipient, index) =>
-			normalizeCommentRecipient(recipient, source, `${path}.can_message[${index}]`),
-		);
-	}
-	if (comments.default_recipient !== undefined) {
-		const recipient = normalizeCommentRecipient(
-			comments.default_recipient,
-			source,
-			`${path}.default_recipient`,
-		);
-		if (normalized.can_message && !normalized.can_message.includes(recipient)) {
-			throw new Error(
-				`Invalid agent markdown at ${source}: '${path}.default_recipient' must be listed in can_message`,
-			);
-		}
-		normalized.default_recipient = recipient;
-	}
-	return normalized;
-}
-
-function normalizeCommentRecipient(
-	raw: unknown,
-	source: string,
-	path: string,
-): ObserverCommentRecipient {
-	if (
-		typeof raw !== "string" ||
-		!OBSERVER_COMMENT_RECIPIENTS.has(raw as ObserverCommentRecipient)
-	) {
-		throw new Error(`Invalid agent markdown at ${source}: '${path}' must be root or caller`);
-	}
-	return raw as ObserverCommentRecipient;
 }
 
 function normalizePositiveInteger(raw: unknown, source: string, path: string): number {

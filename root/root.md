@@ -28,9 +28,6 @@ observers:
     delivery:
       max_events: 24
       max_chars: 6000
-    comments:
-      can_message: [root]
-      default_recipient: root
 tags:
   - core
   - orchestration
