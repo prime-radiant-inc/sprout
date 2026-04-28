@@ -865,6 +865,89 @@ describe("SettingsControlPlane", () => {
 		expect(unset.snapshot.settings.agentModelOverrides.metacognitive).toBeUndefined();
 	});
 
+	test("sets tier agent models through env-backed default models", async () => {
+		const plane = await makePlane({
+			modelOverrides: parseModelConfigOverrides({
+				SPROUT_DEFAULT_FAST_MODEL: "anthropic:claude-haiku-4-5",
+			}),
+			initialSettings: {
+				version: 4,
+				providers: [
+					{
+						id: "anthropic",
+						kind: "anthropic",
+						label: "Anthropic",
+						enabled: true,
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {},
+				memoryModels: {},
+				agentModelOverrides: {},
+			},
+			initialCatalog: [
+				{
+					providerId: "anthropic",
+					models: [
+						{
+							id: "claude-haiku-4-5",
+							label: "Claude Haiku 4.5",
+							source: "remote",
+						},
+					],
+				},
+			],
+		});
+
+		const result = await plane.execute({
+			kind: "set_agent_model_override",
+			data: {
+				agentKey: "utility/reader",
+				override: { kind: "tier", tier: "fast" },
+			},
+		});
+
+		expect(result).toMatchObject({
+			ok: true,
+			snapshot: {
+				settings: {
+					agentModelOverrides: {
+						"utility/reader": {
+							kind: "tier",
+							tier: "fast",
+						},
+					},
+				},
+			},
+		});
+	});
+
+	test("unsets stale unknown stored agent model overrides", async () => {
+		const plane = await makePlane({
+			initialSettings: {
+				version: 4,
+				providers: [],
+				defaults: {},
+				memoryModels: {},
+				agentModelOverrides: {
+					reader: {
+						kind: "tier",
+						tier: "fast",
+					},
+				},
+			},
+		});
+
+		const result = await plane.execute({
+			kind: "set_agent_model_override",
+			data: { agentKey: "reader" },
+		});
+
+		if (!result.ok) throw new Error("expected stale override deletion to succeed");
+		expect(result.snapshot.settings.agentModelOverrides.reader).toBeUndefined();
+	});
+
 	test("rejects unknown and unresolved tier agent model overrides", async () => {
 		const plane = await makePlane({
 			initialSettings: {

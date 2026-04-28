@@ -509,6 +509,10 @@ export class SettingsControlPlane {
 				agentKey: "Agent key cannot contain padding",
 			});
 		}
+		if (!override) {
+			delete next.agentModelOverrides[agentKey];
+			return this.persistSettings(next, [], true);
+		}
 		const catalogEntry = (await this.buildAgentModelCatalog()).find(
 			(entry) => entry.key === agentKey,
 		);
@@ -516,10 +520,6 @@ export class SettingsControlPlane {
 			return this.error("validation_failed", `Unknown agent key '${agentKey}'`, {
 				agentKey: `Unknown agent key '${agentKey}'`,
 			});
-		}
-		if (!override) {
-			delete next.agentModelOverrides[agentKey];
-			return this.persistSettings(next, [], true);
 		}
 
 		if (override.kind === "model") {
@@ -548,6 +548,8 @@ export class SettingsControlPlane {
 	): SettingsCommandResult | undefined {
 		const candidateSettings = structuredClone(settings);
 		candidateSettings.agentModelOverrides[agentKey] = override;
+		const effectiveSettings = applyModelConfigOverrides(candidateSettings, this.modelOverrides);
+		effectiveSettings.agentModelOverrides[agentKey] = override;
 		try {
 			resolveAgentModelSelection(
 				{
@@ -555,10 +557,10 @@ export class SettingsControlPlane {
 					agentName: entry.name,
 					specModel: entry.defaultModel,
 					settings: createResolverSettings(
-						candidateSettings.providers,
-						candidateSettings.defaults,
-						candidateSettings.memoryModels,
-						candidateSettings.agentModelOverrides,
+						effectiveSettings.providers,
+						effectiveSettings.defaults,
+						effectiveSettings.memoryModels,
+						effectiveSettings.agentModelOverrides,
 					),
 				},
 				this.buildCatalogEntries(),
