@@ -235,9 +235,22 @@ function codeFenceBlocks(text: string): Array<{ language: string; body: string }
 
 function splitFenceContent(rawContent: string): { language: string; body: string } {
 	const content = rawContent.trim();
-	const match = content.match(/^([A-Za-z0-9_-]+)(?:[ \t]+|\r?\n)([\s\S]*)$/);
+	if (startsLikeJson(content)) return { language: "", body: content };
+
+	const newline = content.match(/\r?\n/);
+	if (newline?.index !== undefined) {
+		const info = content.slice(0, newline.index).trim();
+		const body = content.slice(newline.index + newline[0].length).trim();
+		return { language: fenceLanguage(info), body };
+	}
+
+	const match = content.match(/^([A-Za-z0-9_-]+)[ \t]+([\s\S]*)$/);
 	if (!match) return { language: "", body: content };
 	return { language: match[1]!.toLowerCase(), body: match[2]!.trim() };
+}
+
+function fenceLanguage(info: string): string {
+	return (info.split(/\s+/)[0] ?? "").toLowerCase();
 }
 
 function startsLikeJson(text: string): boolean {
