@@ -17,9 +17,12 @@ function resolverSettings() {
 		{},
 		{},
 		{
-			"observer.metacognitive": {
-				providerId: "anthropic",
-				modelId: "claude-sonnet-4-6",
+			metacognitive: {
+				kind: "model",
+				model: {
+					providerId: "anthropic",
+					modelId: "claude-sonnet-4-6",
+				},
 			},
 		},
 	);
@@ -162,19 +165,17 @@ describe("ObserverDispatcher", () => {
 		});
 	});
 
-	test("does not fall back when the observer model purpose is unconfigured", async () => {
+	test("still dispatches observers when resolver settings are unavailable", async () => {
 		const spawner = new FakeSpawner();
 		const { dispatcher, emitted } = makeDispatcher(spawner, { configured: false });
 
 		dispatcher.handleEvent(planEnd(1));
 		dispatcher.handleEvent(planEnd(2));
 		dispatcher.handleEvent(planEnd(3));
-		await waitFor(() => emitted.some((event) => event.kind === "warning"));
+		await waitFor(() => spawner.spawnCalls.length === 1);
 
-		expect(spawner.spawnCalls).toHaveLength(0);
-		expect(emitted.find((event) => event.kind === "warning")?.data.message).toContain(
-			"observer.metacognitive",
-		);
+		expect(emitted.some((event) => event.kind === "warning")).toBe(false);
+		expect(spawner.spawnCalls[0]?.resolverSettings).toBeUndefined();
 	});
 
 	test("sends later frames through the private observer delivery path", async () => {

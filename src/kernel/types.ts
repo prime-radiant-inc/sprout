@@ -413,7 +413,6 @@ export type {
 	SettingsSnapshot,
 } from "../host/settings/control-plane.ts";
 export type {
-	AgentModelPurpose,
 	MemoryModelPurpose,
 	ModelRef,
 	ProviderConfig,

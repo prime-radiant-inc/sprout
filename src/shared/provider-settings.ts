@@ -1,4 +1,4 @@
-export const SETTINGS_SCHEMA_VERSION = 3;
+export const SETTINGS_SCHEMA_VERSION = 4;
 
 export type ProviderKind = "anthropic" | "openai" | "openai-compatible" | "openrouter" | "gemini";
 
@@ -10,7 +10,6 @@ export type MemoryModelPurpose =
 	| "consolidation"
 	| "entityGc"
 	| "subcortical";
-export type AgentModelPurpose = "observer.metacognitive";
 
 export const MEMORY_MODEL_PURPOSES = [
 	"summary",
@@ -28,14 +27,6 @@ export const MEMORY_MODEL_LABELS: Record<MemoryModelPurpose, string> = {
 	consolidation: "Consolidation reviewer",
 	entityGc: "Entity GC reviewer",
 	subcortical: "Subcortical recall",
-};
-
-export const AGENT_MODEL_PURPOSES = [
-	"observer.metacognitive",
-] as const satisfies readonly AgentModelPurpose[];
-
-export const AGENT_MODEL_LABELS: Record<AgentModelPurpose, string> = {
-	"observer.metacognitive": "Metacognitive observer",
 };
 
 export interface ModelRef {
@@ -59,6 +50,8 @@ export type SessionModelSelection =
 	| { kind: "model"; model: ModelRef }
 	| { kind: "tier"; tier: Tier };
 
+export type AgentModelOverride = { kind: "model"; model: ModelRef } | { kind: "tier"; tier: Tier };
+
 export interface DefaultsConfig {
 	best?: ModelRef;
 	balanced?: ModelRef;
@@ -66,12 +59,35 @@ export interface DefaultsConfig {
 }
 
 export type MemoryModelsConfig = Partial<Record<MemoryModelPurpose, ModelRef>>;
-export type AgentModelsConfig = Partial<Record<AgentModelPurpose, ModelRef>>;
+export type AgentModelOverridesConfig = Record<string, AgentModelOverride>;
+
+export interface AgentModelDescriptor {
+	key: string;
+	name: string;
+	source: "root" | "tree" | "overlay";
+	path?: string;
+	description?: string;
+	defaultModel: string;
+	storedOverride?: AgentModelOverride;
+	runtimeOverride?: {
+		source: "env";
+		envVar: string;
+		selection: AgentModelOverride;
+		displayLabel?: string;
+		diagnostic?: string;
+	};
+	effective: {
+		selection: "default" | "tier" | "model";
+		label: string;
+		model?: ModelRef;
+		error?: string;
+	};
+}
 
 export interface SproutSettings {
 	version: typeof SETTINGS_SCHEMA_VERSION;
 	providers: ProviderConfig[];
 	defaults: DefaultsConfig;
 	memoryModels: MemoryModelsConfig;
-	agentModels: AgentModelsConfig;
+	agentModelOverrides: AgentModelOverridesConfig;
 }

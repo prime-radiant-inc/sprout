@@ -1,21 +1,12 @@
-import type {
-	AgentModelPurpose,
-	ModelRef,
-	SessionModelSelection,
-	Tier,
-} from "./provider-settings.ts";
+import type { ModelRef, SessionModelSelection, Tier } from "./provider-settings.ts";
 
 export type SessionSelectionRequest = SessionModelSelection;
 
-export type AgentModelInput =
-	| { kind: "tier"; tier: Tier }
-	| { kind: "model"; model: ModelRef }
-	| { kind: "agent_purpose"; purpose: AgentModelPurpose };
+export type AgentModelInput = { kind: "tier"; tier: Tier } | { kind: "model"; model: ModelRef };
 
 export type ModelOverride = string | ModelRef;
 
 const TIER_NAMES = new Set<Tier>(["best", "balanced", "fast"]);
-const AGENT_MODEL_PURPOSE_NAMES = new Set<AgentModelPurpose>(["observer.metacognitive"]);
 
 export function parseSessionSelectionRequest(input: string): SessionSelectionRequest {
 	const trimmed = requireNonEmptySelection(input, "Session model selection");
@@ -39,9 +30,6 @@ export function parseAgentModelInput(input: string): AgentModelInput {
 	}
 	if (isTier(trimmed)) {
 		return { kind: "tier", tier: trimmed };
-	}
-	if (isAgentModelPurpose(trimmed)) {
-		return { kind: "agent_purpose", purpose: trimmed };
 	}
 	const explicitModel = parseProviderQualifiedModel(trimmed);
 	if (explicitModel) {
@@ -92,10 +80,6 @@ function requireNonEmptySelection(input: string, label: string): string {
 
 function isTier(input: string): input is Tier {
 	return TIER_NAMES.has(input as Tier);
-}
-
-function isAgentModelPurpose(input: string): input is AgentModelPurpose {
-	return AGENT_MODEL_PURPOSE_NAMES.has(input as AgentModelPurpose);
 }
 
 function parseProviderQualifiedModel(input: string): ModelRef | null {

@@ -484,7 +484,7 @@ describe("runAgentProcess", () => {
 				"openrouter-secret",
 			);
 			const settings: SproutSettings = {
-				version: 3,
+				version: 4,
 				providers: [
 					{
 						id: "openrouter",
@@ -497,7 +497,7 @@ describe("runAgentProcess", () => {
 				],
 				defaults: {},
 				memoryModels: {},
-				agentModels: {},
+				agentModelOverrides: {},
 			};
 			const logger = new SessionLogger({
 				logPath: join(tempDir, "session.log.jsonl"),
@@ -554,11 +554,11 @@ describe("runAgentProcess", () => {
 				load: async () =>
 					({
 						settings: {
-							version: 3,
+							version: 4,
 							providers: [],
 							defaults: {},
 							memoryModels: {},
-							agentModels: {},
+							agentModelOverrides: {},
 						},
 						skipEnvImport: false,
 						source: "missing",
@@ -584,7 +584,7 @@ describe("runAgentProcess", () => {
 				);
 				return {
 					settings: {
-						version: 3,
+						version: 4,
 						providers: [
 							{
 								id: "openrouter",
@@ -597,7 +597,7 @@ describe("runAgentProcess", () => {
 						],
 						defaults: {},
 						memoryModels: {},
-						agentModels: {},
+						agentModelOverrides: {},
 					},
 					validationErrorsByProvider: {},
 				};

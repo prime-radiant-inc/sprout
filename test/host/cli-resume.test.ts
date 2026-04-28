@@ -24,7 +24,7 @@ function selectionContext(
 			providers: overrides.settings?.providers ?? [provider()],
 			defaults: overrides.settings?.defaults ?? {},
 			memoryModels: overrides.settings?.memoryModels ?? {},
-			agentModels: overrides.settings?.agentModels ?? {},
+			agentModelOverrides: overrides.settings?.agentModelOverrides ?? {},
 		},
 		catalog: overrides.catalog ?? [],
 	};
@@ -198,7 +198,7 @@ describe("loadResumeState", () => {
 							},
 						},
 						memoryModels: {},
-						agentModels: {},
+						agentModelOverrides: {},
 					},
 					catalog: [
 						{

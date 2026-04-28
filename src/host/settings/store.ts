@@ -1,11 +1,10 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { backfillRequiredMemoryModels } from "./memory-model-defaults.ts";
 import type { SettingsPathOptions } from "./paths.ts";
 import { buildInvalidSettingsPath, resolveSettingsPath } from "./paths.ts";
 import {
-	AGENT_MODEL_PURPOSES,
-	type AgentModelsConfig,
+	type AgentModelOverride,
+	type AgentModelOverridesConfig,
 	createEmptySettings,
 	MEMORY_MODEL_PURPOSES,
 	type MemoryModelsConfig,
@@ -100,16 +99,6 @@ export class SettingsStore {
 			this.validateSettings(settings);
 			return settings;
 		}
-		if (parsed.version === 2) {
-			const settings = this.normalizeSettings({
-				...(parsed as Omit<SproutSettings, "version" | "memoryModels" | "agentModels">),
-				version: SETTINGS_SCHEMA_VERSION,
-				memoryModels: {},
-				agentModels: {},
-			} as SproutSettings);
-			this.validateSettings(settings);
-			return settings;
-		}
 		throw new Error(`Unsupported settings schema version: ${String(parsed.version)}`);
 	}
 
@@ -123,11 +112,8 @@ export class SettingsStore {
 			version: settings.version,
 			providers: settings.providers.map((provider) => normalizeProviderConfig(provider)),
 			defaults,
-			memoryModels: backfillRequiredMemoryModels(
-				defaults,
-				normalizeMemoryModels(settings.memoryModels),
-			),
-			agentModels: normalizeAgentModels(settings.agentModels),
+			memoryModels: normalizeMemoryModels(settings.memoryModels),
+			agentModelOverrides: normalizeAgentModelOverrides(settings.agentModelOverrides),
 		};
 	}
 
@@ -156,18 +142,43 @@ function normalizeMemoryModels(memoryModels: MemoryModelsConfig | undefined): Me
 	return normalized;
 }
 
-function normalizeAgentModels(agentModels: AgentModelsConfig | undefined): AgentModelsConfig {
-	const normalized: AgentModelsConfig = {};
-	if (agentModels === undefined) return normalized;
-	if (typeof agentModels !== "object" || agentModels === null || Array.isArray(agentModels)) {
-		throw new Error("agentModels must be an object");
+function normalizeAgentModelOverrides(
+	agentModelOverrides: AgentModelOverridesConfig | undefined,
+): AgentModelOverridesConfig {
+	const normalized: AgentModelOverridesConfig = {};
+	if (agentModelOverrides === undefined) return normalized;
+	if (
+		typeof agentModelOverrides !== "object" ||
+		agentModelOverrides === null ||
+		Array.isArray(agentModelOverrides)
+	) {
+		throw new Error("agentModelOverrides must be an object");
 	}
-	const raw = agentModels as Record<string, unknown>;
-	for (const purpose of AGENT_MODEL_PURPOSES) {
-		if (!Object.hasOwn(raw, purpose)) continue;
-		normalized[purpose] = normalizeModelRef(raw[purpose], `Agent model '${purpose}'`);
+	const raw = agentModelOverrides as Record<string, unknown>;
+	for (const [agentKey, value] of Object.entries(raw)) {
+		if (agentKey.trim().length === 0) {
+			throw new Error("Agent model override keys must be non-empty strings");
+		}
+		normalized[agentKey] = normalizeAgentModelOverride(value, `Agent model override '${agentKey}'`);
 	}
 	return normalized;
+}
+
+function normalizeAgentModelOverride(value: unknown, label: string): AgentModelOverride {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		throw new Error(`${label} must be an agent model override object`);
+	}
+	const raw = value as Partial<AgentModelOverride>;
+	if (raw.kind === "tier") {
+		if (raw.tier !== "best" && raw.tier !== "balanced" && raw.tier !== "fast") {
+			throw new Error(`${label} tier must be best, balanced, or fast`);
+		}
+		return { kind: "tier", tier: raw.tier };
+	}
+	if (raw.kind === "model") {
+		return { kind: "model", model: normalizeModelRef(raw.model, label) };
+	}
+	throw new Error(`${label} kind must be tier or model`);
 }
 
 function normalizeModelRef(modelRef: unknown, label: string): ModelRef {

@@ -1,8 +1,8 @@
 import type { ProviderCatalogEntry } from "../llm/model-catalog.ts";
 import type { ProviderModel } from "../llm/types.ts";
 import type {
-	AgentModelPurpose,
-	AgentModelsConfig,
+	AgentModelOverride,
+	AgentModelOverridesConfig,
 	DefaultsConfig,
 	MemoryModelPurpose,
 	MemoryModelsConfig,
@@ -25,16 +25,15 @@ export interface ResolverSettings {
 	providers: ResolverProvider[];
 	defaults: DefaultsConfig;
 	memoryModels: MemoryModelsConfig;
-	agentModels: AgentModelsConfig;
+	agentModelOverrides: AgentModelOverridesConfig;
 }
 const TIER_NAMES: readonly Tier[] = ["best", "balanced", "fast"];
-const AGENT_MODEL_PURPOSE_NAMES: readonly AgentModelPurpose[] = ["observer.metacognitive"];
 
 export function createResolverSettings(
 	providers: Pick<ProviderConfig, "id" | "enabled">[],
 	defaults: DefaultsConfig = {},
 	memoryModels: MemoryModelsConfig = {},
-	agentModels: AgentModelsConfig = {},
+	agentModelOverrides: AgentModelOverridesConfig = {},
 ): ResolverSettings {
 	return {
 		providers: providers.map((provider) => ({
@@ -43,7 +42,7 @@ export function createResolverSettings(
 		})),
 		defaults: { ...defaults },
 		memoryModels: { ...memoryModels },
-		agentModels: { ...agentModels },
+		agentModelOverrides: structuredClone(agentModelOverrides),
 	};
 }
 
@@ -61,9 +60,6 @@ export function resolveModel(
 	if (TIER_NAMES.includes(selection as Tier)) {
 		return resolveTier(selection as Tier, settings, catalogMap);
 	}
-	if (AGENT_MODEL_PURPOSE_NAMES.includes(selection as AgentModelPurpose)) {
-		return resolveAgentModel(selection as AgentModelPurpose, settings, catalogMap);
-	}
 	const explicitModel = parseModelRef(selection);
 	if (explicitModel) {
 		return resolveExplicitModelRef(explicitModel, settings, catalogMap);
@@ -71,16 +67,28 @@ export function resolveModel(
 	throw new Error(`Exact model '${selection}' requires an explicit provider`);
 }
 
-export function resolveAgentModel(
-	purpose: AgentModelPurpose,
-	settings: ResolverSettings,
+export function resolveAgentModelSelection(
+	input: {
+		agentKey: string;
+		agentName: string;
+		specModel: string;
+		modelOverride?: string | ModelRef;
+		settings: ResolverSettings;
+	},
 	catalog: ProviderCatalogEntry[] | Map<string, ProviderModel[]>,
 ): ResolvedModel {
-	const modelRef = settings.agentModels[purpose];
-	if (!modelRef) {
-		throw new Error(`No agent '${purpose}' model is configured`);
+	if (input.modelOverride) {
+		return resolveModel(input.modelOverride, input.settings, catalog);
 	}
-	return resolveExplicitModelRef(modelRef, settings, toCatalogMap(catalog));
+	const override =
+		input.settings.agentModelOverrides[input.agentKey] ??
+		(input.agentName !== input.agentKey
+			? input.settings.agentModelOverrides[input.agentName]
+			: undefined);
+	if (override) {
+		return resolveAgentModelOverride(override, input.settings, catalog);
+	}
+	return resolveModel(input.specModel, input.settings, catalog);
 }
 
 export function resolveMemoryModel(
@@ -149,6 +157,17 @@ function resolveTier(
 	}
 	assertProviderModelAvailable(modelRef.providerId, modelRef.modelId, catalog);
 	return { provider: modelRef.providerId, model: modelRef.modelId };
+}
+
+function resolveAgentModelOverride(
+	override: AgentModelOverride,
+	settings: ResolverSettings,
+	catalog: ProviderCatalogEntry[] | Map<string, ProviderModel[]>,
+): ResolvedModel {
+	if (override.kind === "tier") {
+		return resolveTier(override.tier, settings, toCatalogMap(catalog));
+	}
+	return resolveExplicitModelRef(override.model, settings, toCatalogMap(catalog));
 }
 
 function getEnabledProvider(

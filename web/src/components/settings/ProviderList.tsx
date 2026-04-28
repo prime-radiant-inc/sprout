@@ -4,9 +4,7 @@ import styles from "./ProviderSettingsPanel.module.css";
 export interface ProviderListProps {
 	settings: SettingsSnapshot;
 	selectedKey: string;
-	onSelectDefaults: () => void;
-	onSelectMemory: () => void;
-	onSelectAgents: () => void;
+	onSelectModels: () => void;
 	onSelectProvider: (providerId: string) => void;
 	onCreateProvider: () => void;
 }
@@ -34,9 +32,7 @@ function providerStateTones(
 export function ProviderList({
 	settings,
 	selectedKey,
-	onSelectDefaults,
-	onSelectMemory,
-	onSelectAgents,
+	onSelectModels,
 	onSelectProvider,
 	onCreateProvider,
 }: ProviderListProps) {
@@ -44,32 +40,14 @@ export function ProviderList({
 		<div className={styles.list}>
 			<button
 				type="button"
-				className={`${styles.listItem} ${selectedKey === "defaults" ? styles.listItemActive : ""}`}
-				data-action="select-defaults"
-				onClick={onSelectDefaults}
+				className={`${styles.listItem} ${selectedKey === "models" ? styles.listItemActive : ""}`}
+				data-action="select-models"
+				onClick={onSelectModels}
 			>
-				<span className={styles.listTitle}>Default models</span>
-				<span className={styles.listMeta}>Global best, balanced, and fast model choices</span>
-			</button>
-
-			<button
-				type="button"
-				className={`${styles.listItem} ${selectedKey === "memory" ? styles.listItemActive : ""}`}
-				data-action="select-memory"
-				onClick={onSelectMemory}
-			>
-				<span className={styles.listTitle}>Memory models</span>
-				<span className={styles.listMeta}>Internal summary, extraction, and recall choices</span>
-			</button>
-
-			<button
-				type="button"
-				className={`${styles.listItem} ${selectedKey === "agents" ? styles.listItemActive : ""}`}
-				data-action="select-agents"
-				onClick={onSelectAgents}
-			>
-				<span className={styles.listTitle}>Agent models</span>
-				<span className={styles.listMeta}>Internal observer and sidecar agent choices</span>
+				<span className={styles.listTitle}>Models</span>
+				<span className={styles.listMeta}>
+					Default tiers, memory jobs, and agent type overrides
+				</span>
 			</button>
 
 			{settings.settings.providers.map((provider) => {

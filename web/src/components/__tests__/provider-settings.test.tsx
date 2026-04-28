@@ -39,11 +39,11 @@ function makeSettings(): SettingsSnapshot {
 			modelOverrides: {
 				defaults: {},
 				memoryModels: {},
-				agentModels: {},
+				agentModelOverrides: {},
 			},
 		},
 		settings: {
-			version: 3,
+			version: 4,
 			providers: [
 				{
 					id: "anthropic-main",
@@ -78,7 +78,7 @@ function makeSettings(): SettingsSnapshot {
 				},
 			},
 			memoryModels: {},
-			agentModels: {},
+			agentModelOverrides: {},
 		},
 		providers: [
 			{
@@ -126,6 +126,24 @@ function makeSettings(): SettingsSnapshot {
 				],
 			},
 		],
+		agentModels: [
+			{
+				key: "metacognitive",
+				name: "metacognitive",
+				source: "tree",
+				path: "metacognitive",
+				description: "Observe Sprout sessions",
+				defaultModel: "balanced",
+				effective: {
+					selection: "default",
+					label: "balanced",
+					model: {
+						providerId: "anthropic-main",
+						modelId: "claude-sonnet-4-6",
+					},
+				},
+			},
+		],
 	};
 }
 
@@ -157,7 +175,7 @@ describe("ProviderSettingsPanel", () => {
 					onClose={() => {}}
 				/>,
 			),
-		).toContain("Loading provider settings");
+		).toContain("Loading model settings");
 
 		expect(
 			renderToStaticMarkup(
@@ -171,7 +189,7 @@ describe("ProviderSettingsPanel", () => {
 					onClose={() => {}}
 				/>,
 			),
-		).toContain("Provider settings are unavailable");
+		).toContain("Model settings are unavailable");
 
 		expect(
 			renderToStaticMarkup(
@@ -179,14 +197,15 @@ describe("ProviderSettingsPanel", () => {
 						settings={{
 							...makeSettings(),
 							settings: {
-								version: 3,
+								version: 4,
 								providers: [],
 								defaults: {},
 								memoryModels: {},
-								agentModels: {},
+								agentModelOverrides: {},
 							},
 							providers: [],
 							catalog: [],
+							agentModels: [],
 					}}
 					lastResult={null}
 					onCommand={() => {}}
@@ -196,7 +215,7 @@ describe("ProviderSettingsPanel", () => {
 		).toContain("No providers configured");
 	});
 
-	test("renders the default models panel and runtime warnings", () => {
+	test("renders the unified models panel and runtime warnings", () => {
 		const settings = makeSettings();
 		settings.runtime.warnings = [
 			{
@@ -216,7 +235,7 @@ describe("ProviderSettingsPanel", () => {
 
 		expect(html).toContain("Default models");
 		expect(html).toContain("Memory models");
-		expect(html).toContain("Agent models");
+		expect(html).toContain("Agent types");
 		expect(html).toContain("Recovered invalid settings file to /tmp/settings.invalid.json");
 	});
 
@@ -380,20 +399,49 @@ describe("MemoryModelsPanel", () => {
 describe("AgentModelsPanel", () => {
 	test("renders agent model controls and env override notes", () => {
 		const settings = makeSettings();
-		settings.settings.agentModels = {
-			"observer.metacognitive": {
-				providerId: "anthropic-main",
-				modelId: "claude-sonnet-4-6",
+		settings.settings.agentModelOverrides = {
+			metacognitive: {
+				kind: "model",
+				model: {
+					providerId: "anthropic-main",
+					modelId: "claude-sonnet-4-6",
+				},
 			},
 		};
-		settings.runtime.modelOverrides.agentModels["observer.metacognitive"] = {
-			source: "env",
-			envVar: "SPROUT_OBSERVER_METACOGNITIVE_MODEL",
-			model: {
-				providerId: "lmstudio",
-				modelId: "qwen2.5-coder",
+		settings.agentModels[0] = {
+			...settings.agentModels[0]!,
+			storedOverride: settings.settings.agentModelOverrides.metacognitive,
+			runtimeOverride: {
+				source: "env",
+				envVar: "SPROUT_AGENT_MODEL_OVERRIDES",
+				selection: {
+					kind: "model",
+					model: {
+						providerId: "lmstudio",
+						modelId: "qwen2.5-coder",
+					},
+				},
+				displayLabel: "Qwen 2.5 Coder",
 			},
-			catalogStatus: "matched",
+			effective: {
+				selection: "model",
+				label: "lmstudio:qwen2.5-coder",
+				model: {
+					providerId: "lmstudio",
+					modelId: "qwen2.5-coder",
+				},
+			},
+		};
+		settings.runtime.modelOverrides.agentModelOverrides.metacognitive = {
+			source: "env",
+			envVar: "SPROUT_AGENT_MODEL_OVERRIDES",
+			selection: {
+				kind: "model",
+				model: {
+					providerId: "lmstudio",
+					modelId: "qwen2.5-coder",
+				},
+			},
 			displayLabel: "Qwen 2.5 Coder",
 		};
 
@@ -401,33 +449,42 @@ describe("AgentModelsPanel", () => {
 			<AgentModelsPanel settings={settings} onCommand={() => {}} />,
 		);
 
-		expect(html).toContain("Agent models");
-		expect(html).toContain("Metacognitive observer");
-		expect(html).toContain("SPROUT_OBSERVER_METACOGNITIVE_MODEL");
+		expect(html).toContain("Agent types");
+		expect(html).toContain("metacognitive");
+		expect(html).toContain("SPROUT_AGENT_MODEL_OVERRIDES");
 		expect(html).toContain("Qwen 2.5 Coder");
 	});
 
 	test("builds set agent model commands", () => {
 		expect(
 			createSetAgentModelCommand(
-				"observer.metacognitive",
+				"metacognitive",
 				"anthropic-main:claude-sonnet-4-6",
 			),
 		).toEqual({
-			kind: "set_agent_model",
+			kind: "set_agent_model_override",
 			data: {
-				purpose: "observer.metacognitive",
-				model: {
-					providerId: "anthropic-main",
-					modelId: "claude-sonnet-4-6",
+				agentKey: "metacognitive",
+				override: {
+					kind: "model",
+					model: {
+						providerId: "anthropic-main",
+						modelId: "claude-sonnet-4-6",
+					},
 				},
 			},
 		});
-		expect(createSetAgentModelCommand("observer.metacognitive", "")).toEqual({
-			kind: "set_agent_model",
+		expect(createSetAgentModelCommand("metacognitive", "fast")).toEqual({
+			kind: "set_agent_model_override",
 			data: {
-				purpose: "observer.metacognitive",
-				model: undefined,
+				agentKey: "metacognitive",
+				override: { kind: "tier", tier: "fast" },
+			},
+		});
+		expect(createSetAgentModelCommand("metacognitive", "")).toEqual({
+			kind: "set_agent_model_override",
+			data: {
+				agentKey: "metacognitive",
 			},
 		});
 	});

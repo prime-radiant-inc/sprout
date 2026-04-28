@@ -40,11 +40,11 @@ function makeSettings(): SettingsSnapshot {
 				modelOverrides: {
 					defaults: {},
 					memoryModels: {},
-					agentModels: {},
+					agentModelOverrides: {},
 				},
 		},
 		settings: {
-			version: 3,
+			version: 4,
 			providers: [
 				{
 					id: "anthropic-main",
@@ -74,7 +74,7 @@ function makeSettings(): SettingsSnapshot {
 				},
 				},
 				memoryModels: {},
-				agentModels: {},
+				agentModelOverrides: {},
 			},
 		providers: [
 			{
@@ -114,6 +114,7 @@ function makeSettings(): SettingsSnapshot {
 				],
 			},
 		],
+		agentModels: [],
 	};
 }
 

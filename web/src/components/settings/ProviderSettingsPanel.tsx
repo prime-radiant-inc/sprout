@@ -4,14 +4,12 @@ import type {
 	SettingsCommandResult,
 	SettingsSnapshot,
 } from "@kernel/types.ts";
-import { AgentModelsPanel } from "./AgentModelsPanel.tsx";
-import { DefaultModelsPanel } from "./DefaultModelsPanel.tsx";
-import { MemoryModelsPanel } from "./MemoryModelsPanel.tsx";
+import { ModelsPanel } from "./ModelsPanel.tsx";
 import { describePendingProviderAction, ProviderEditor } from "./ProviderEditor.tsx";
 import styles from "./ProviderSettingsPanel.module.css";
 import { ProviderList } from "./ProviderList.tsx";
 
-type SelectedView = "defaults" | "memory" | "agents" | "create" | string;
+type SelectedView = "models" | "create" | string;
 
 export interface ProviderSettingsPanelProps {
 	settings: SettingsSnapshot | null;
@@ -23,7 +21,7 @@ export interface ProviderSettingsPanelProps {
 function selectInitialView(settings: SettingsSnapshot | null): SelectedView {
 	if (!settings) return "create";
 	if (settings.settings.providers.length === 0) return "create";
-	return "defaults";
+	return "models";
 }
 
 export function ProviderSettingsPanel({
@@ -57,10 +55,7 @@ export function ProviderSettingsPanel({
 			return;
 		}
 		if (
-			selectedView === "defaults" ||
-			selectedView === "memory" ||
-			selectedView === "agents" ||
-			selectedView === "create"
+			selectedView === "models" || selectedView === "create"
 		) {
 			return;
 		}
@@ -98,8 +93,8 @@ export function ProviderSettingsPanel({
 					<div className={styles.panel} onClick={(event) => event.stopPropagation()}>
 						<div className={styles.header}>
 							<div className={styles.titleGroup}>
-								<h2 className={styles.title}>Provider settings</h2>
-								<span className={styles.subtitle}>Provider settings are unavailable</span>
+								<h2 className={styles.title}>Models & providers</h2>
+								<span className={styles.subtitle}>Model settings are unavailable</span>
 							</div>
 							<button type="button" className={styles.close} onClick={onClose}>
 								{"\u2715"}
@@ -117,8 +112,8 @@ export function ProviderSettingsPanel({
 				<div className={styles.panel} onClick={(event) => event.stopPropagation()}>
 					<div className={styles.header}>
 						<div className={styles.titleGroup}>
-							<h2 className={styles.title}>Provider settings</h2>
-							<span className={styles.subtitle}>Loading provider settings…</span>
+							<h2 className={styles.title}>Models & providers</h2>
+							<span className={styles.subtitle}>Loading model settings...</span>
 						</div>
 						<button type="button" className={styles.close} onClick={onClose}>
 							{"\u2715"}
@@ -137,9 +132,9 @@ export function ProviderSettingsPanel({
 			<div className={styles.panel} onClick={(event) => event.stopPropagation()}>
 				<div className={styles.header}>
 					<div className={styles.titleGroup}>
-						<h2 className={styles.title}>Provider settings</h2>
+						<h2 className={styles.title}>Models & providers</h2>
 						<span className={styles.subtitle}>
-							Manage global default models, provider credentials, and cached model lists.
+							Manage default tiers, memory models, agent type models, and providers.
 						</span>
 					</div>
 					<button type="button" className={styles.close} onClick={onClose}>
@@ -152,9 +147,7 @@ export function ProviderSettingsPanel({
 						<ProviderList
 							settings={settings}
 							selectedKey={selectedView}
-							onSelectDefaults={() => setSelectedView("defaults")}
-							onSelectMemory={() => setSelectedView("memory")}
-							onSelectAgents={() => setSelectedView("agents")}
+							onSelectModels={() => setSelectedView("models")}
 							onSelectProvider={(providerId) => setSelectedView(providerId)}
 							onCreateProvider={() => setSelectedView("create")}
 						/>
@@ -175,22 +168,8 @@ export function ProviderSettingsPanel({
 							<div className={styles.emptyState}>No providers configured</div>
 						)}
 
-						{selectedView === "defaults" ? (
-							<DefaultModelsPanel
-								settings={settings}
-								message={message}
-								fieldErrors={fieldErrors}
-								onCommand={handleCommand}
-							/>
-						) : selectedView === "memory" ? (
-							<MemoryModelsPanel
-								settings={settings}
-								message={message}
-								fieldErrors={fieldErrors}
-								onCommand={handleCommand}
-							/>
-						) : selectedView === "agents" ? (
-							<AgentModelsPanel
+						{selectedView === "models" ? (
+							<ModelsPanel
 								settings={settings}
 								message={message}
 								fieldErrors={fieldErrors}

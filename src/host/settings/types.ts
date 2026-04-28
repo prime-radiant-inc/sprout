@@ -1,6 +1,5 @@
 import {
-	AGENT_MODEL_PURPOSES,
-	type AgentModelPurpose,
+	type AgentModelOverride,
 	MEMORY_MODEL_PURPOSES,
 	type MemoryModelPurpose,
 	type ModelRef,
@@ -19,7 +18,7 @@ export function createEmptySettings(): SproutSettings {
 		providers: [],
 		defaults: {},
 		memoryModels: {},
-		agentModels: {},
+		agentModelOverrides: {},
 	};
 }
 
@@ -60,16 +59,33 @@ export function validateSproutSettings(settings: SproutSettings): void {
 		}
 	}
 
-	for (const purpose of AGENT_MODEL_PURPOSES) {
-		const modelRef = settings.agentModels[purpose];
-		if (!modelRef) continue;
-		validateModelRef(modelRef, `Agent model '${purpose}'`);
-		if (!enabledProviderIds.has(modelRef.providerId)) {
+	for (const [agentKey, override] of Object.entries(settings.agentModelOverrides)) {
+		validateAgentModelOverrideKey(agentKey);
+		const label = `Agent model override '${agentKey}'`;
+		validateAgentModelOverride(override, label);
+		if (override.kind === "tier") continue;
+		if (!enabledProviderIds.has(override.model.providerId)) {
 			throw new Error(
-				`Agent model '${purpose}' must reference an enabled provider: ${modelRef.providerId}`,
+				`Agent model override '${agentKey}' must reference an enabled provider: ${override.model.providerId}`,
 			);
 		}
 	}
+}
+
+function validateAgentModelOverrideKey(agentKey: string): void {
+	if (!isNonEmptyString(agentKey)) {
+		throw new Error("Agent model override keys must be non-empty strings");
+	}
+}
+
+export function validateAgentModelOverride(override: AgentModelOverride, label: string): void {
+	if (override.kind === "tier") {
+		if (!["best", "balanced", "fast"].includes(override.tier)) {
+			throw new Error(`${label} must reference best, balanced, or fast`);
+		}
+		return;
+	}
+	validateModelRef(override.model, label);
 }
 
 function validateModelRef(modelRef: ModelRef, label: string): void {
@@ -85,4 +101,4 @@ function isNonEmptyString(value: unknown): value is string {
 	return typeof value === "string" && value.trim().length > 0;
 }
 
-export type { AgentModelPurpose, MemoryModelPurpose };
+export type { MemoryModelPurpose };

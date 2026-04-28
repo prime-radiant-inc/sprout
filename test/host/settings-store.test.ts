@@ -122,7 +122,7 @@ describe("SettingsStore", () => {
 		expect(result.skipEnvImport).toBe(true);
 	});
 
-	test("load migrates v2 settings to v3 and backfills subcortical memory model", async () => {
+	test("load recovers v2 settings instead of migrating legacy schemas", async () => {
 		const { store, settingsPath } = await makeStore();
 		await writeFile(
 			settingsPath,
@@ -150,36 +150,11 @@ describe("SettingsStore", () => {
 
 		const result = await store.load();
 
-		expect(result.source).toBe("loaded");
-		expect(result.settings).toEqual({
-			version: 3,
-			providers: [
-				{
-					id: "openai",
-					kind: "openai",
-					label: "OpenAI",
-					enabled: true,
-					createdAt: "2026-03-11T12:00:00.000Z",
-					updatedAt: "2026-03-11T12:00:00.000Z",
-				},
-			],
-			defaults: {
-				best: {
-					providerId: "openai",
-					modelId: "gpt-4.1",
-				},
-			},
-			memoryModels: {
-				subcortical: {
-					providerId: "openai",
-					modelId: "gpt-4.1",
-				},
-			},
-			agentModels: {},
-		});
+		expect(result.source).toBe("recovered");
+		expect(result.settings).toEqual(createEmptySettings());
 	});
 
-	test("load backfills missing subcortical memory model from fast default first", async () => {
+	test("load does not backfill missing subcortical memory model from defaults", async () => {
 		const { store, settingsPath } = await makeStore();
 		await writeFile(
 			settingsPath,
@@ -222,10 +197,6 @@ describe("SettingsStore", () => {
 			extraction: {
 				providerId: "anthropic",
 				modelId: "claude-sonnet-4-6",
-			},
-			subcortical: {
-				providerId: "anthropic",
-				modelId: "claude-haiku-4-5",
 			},
 		});
 	});
@@ -270,7 +241,7 @@ describe("SettingsStore", () => {
 		});
 	});
 
-	test("save preserves known agent models and drops unknown purpose keys", async () => {
+	test("save preserves generic agent model overrides", async () => {
 		const { store, settingsPath } = await makeStore();
 		const settings = {
 			...createEmptySettings(),
@@ -284,14 +255,17 @@ describe("SettingsStore", () => {
 					updatedAt: "2026-03-11T12:00:00.000Z",
 				},
 			],
-			agentModels: {
-				"observer.metacognitive": {
-					providerId: "anthropic",
-					modelId: "claude-sonnet-4-6",
+			agentModelOverrides: {
+				metacognitive: {
+					kind: "model" as const,
+					model: {
+						providerId: "anthropic",
+						modelId: "claude-sonnet-4-6",
+					},
 				},
-				notAPurpose: {
-					providerId: "anthropic",
-					modelId: "bad",
+				"utility/reader": {
+					kind: "tier" as const,
+					tier: "fast" as const,
 				},
 			},
 		};
@@ -301,10 +275,17 @@ describe("SettingsStore", () => {
 		expect(JSON.parse(await readFile(settingsPath, "utf-8"))).toEqual({
 			...createEmptySettings(),
 			providers: settings.providers,
-			agentModels: {
-				"observer.metacognitive": {
-					providerId: "anthropic",
-					modelId: "claude-sonnet-4-6",
+			agentModelOverrides: {
+				metacognitive: {
+					kind: "model",
+					model: {
+						providerId: "anthropic",
+						modelId: "claude-sonnet-4-6",
+					},
+				},
+				"utility/reader": {
+					kind: "tier",
+					tier: "fast",
 				},
 			},
 		});

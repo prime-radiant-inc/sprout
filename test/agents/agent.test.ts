@@ -3949,7 +3949,7 @@ describe("Agent", () => {
 			name: "metacognitive",
 			description: "Observes delegate results",
 			system_prompt: "Observe and optionally message caller.",
-			model: "observer.metacognitive",
+			model: "balanced",
 			tools: ["message_agent"],
 			agents: [],
 			constraints: {
@@ -3984,9 +3984,12 @@ describe("Agent", () => {
 				},
 				{},
 				{
-					"observer.metacognitive": {
-						providerId: "anthropic",
-						modelId: "claude-haiku-4-5-20251001",
+					metacognitive: {
+						kind: "model",
+						model: {
+							providerId: "anthropic",
+							modelId: "claude-haiku-4-5-20251001",
+						},
 					},
 				},
 			),

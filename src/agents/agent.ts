@@ -25,7 +25,6 @@ import {
 	type ActResult,
 	type AgentCommand,
 	type AgentDelegateObserverConfig,
-	type AgentModelPurpose,
 	type AgentSpec,
 	type Delegation,
 	type EventKind,
@@ -49,7 +48,6 @@ import type {
 } from "../llm/types.ts";
 import { Msg, messageText } from "../llm/types.ts";
 import { createReplayRecorder, type ReplayRecorder } from "../replay/recorder.ts";
-import { parseAgentModelInput } from "../shared/session-selection.ts";
 import { getToolDisplayName } from "../shared/tool-display.ts";
 import { ulid } from "../util/ulid.ts";
 import { getContextWindowSize } from "./context-window.ts";
@@ -61,8 +59,8 @@ import {
 	createResolverSettings,
 	type ResolvedModel,
 	type ResolverSettings,
+	resolveAgentModelSelection,
 	resolveMemoryModel,
-	resolveModel,
 } from "./model-resolver.ts";
 import { buildObserverFrame, renderObserverFrame } from "./observers.ts";
 import type { Postscripts } from "./plan.ts";
@@ -137,6 +135,8 @@ export interface AgentOptions {
 	agentTreeChildren?: string[];
 	/** This agent's path in the tree (empty string for root). */
 	agentTreeSelfPath?: string;
+	/** Stable key used for per-agent model settings. Defaults to tree path, root, or spec name. */
+	agentModelKey?: string;
 	/** Use streaming LLM calls and emit throttled llm_chunk events. */
 	enableStreaming?: boolean;
 	/** Cached MIRA-format surfaced memory block from the root session. */
@@ -155,12 +155,19 @@ const DEFAULT_DELEGATE_OBSERVER_MAX_EVENTS = 12;
 const DEFAULT_DELEGATE_OBSERVER_MAX_CHARS = 3000;
 const DEFAULT_DELEGATE_OBSERVER_TIMEOUT_MS = 1500;
 
+function resolveAgentModelKey(options: AgentOptions): string {
+	if (options.agentModelKey) return options.agentModelKey;
+	if (options.agentTreeSelfPath !== undefined) {
+		return options.agentTreeSelfPath === "" ? "root" : options.agentTreeSelfPath;
+	}
+	return options.spec.name;
+}
+
 interface DelegateObserverRuntimeConfig {
 	config: AgentDelegateObserverConfig;
 	handleId: string;
 	agentId: string;
 	agentName: string;
-	modelPurpose?: AgentModelPurpose;
 	description: string;
 }
 
@@ -223,7 +230,6 @@ export class Agent {
 	private readonly delegateObserverConfigs: DelegateObserverRuntimeConfig[] = [];
 	private readonly delegateObserverTimeoutMs: number;
 	private readonly delegateObserverEventsByChildId = new Map<string, SessionEvent[]>();
-	private readonly delegateObserverMissingModelWarnings = new Set<string>();
 	private readonly startedDelegateObserverHandles = new Set<string>();
 	private delegateObserverEventCaptureReady?: Promise<void>;
 	private delegateObserverEventUnsubscribe?: () => void;
@@ -328,9 +334,14 @@ export class Agent {
 				})),
 			);
 		this.resolverSettings = resolverSettings;
-		this.resolved = resolveModel(
-			options.modelOverride ?? this.spec.model,
-			resolverSettings,
+		this.resolved = resolveAgentModelSelection(
+			{
+				agentKey: resolveAgentModelKey(options),
+				agentName: this.spec.name,
+				specModel: this.spec.model,
+				modelOverride: options.modelOverride,
+				settings: resolverSettings,
+			},
 			modelMap,
 		);
 		this.delegateObserverConfigs = this.buildDelegateObserverConfigs();
@@ -846,14 +857,12 @@ export class Agent {
 					`Delegate observer agent '${config.agent}' configured by '${this.spec.name}' was not found`,
 				);
 			}
-			const parsedModel = parseAgentModelInput(observerSpec.model);
 			const handleId = delegateObserverHandleId(this.selfAddress, index, config.agent);
 			return {
 				config,
 				handleId,
 				agentId: handleId,
 				agentName: config.agent,
-				modelPurpose: parsedModel.kind === "agent_purpose" ? parsedModel.purpose : undefined,
 				description: `observes ${this.spec.name} delegate completions`,
 			};
 		});
@@ -1246,10 +1255,6 @@ export class Agent {
 		events: SessionEvent[],
 	): Promise<void> {
 		if (!this.spawner) return;
-		if (runtime.modelPurpose && !this.resolverSettings.agentModels[runtime.modelPurpose]) {
-			this.emitMissingDelegateObserverModelWarning(runtime);
-			return;
-		}
 
 		if (!this.startedDelegateObserverHandles.has(runtime.handleId)) {
 			this.emitAndLog("act_start", this.agentId ?? this.spec.name, this.depth, {
@@ -1294,16 +1299,6 @@ export class Agent {
 				}`,
 			);
 		}
-	}
-
-	private emitMissingDelegateObserverModelWarning(runtime: DelegateObserverRuntimeConfig): void {
-		if (!runtime.modelPurpose || this.delegateObserverMissingModelWarnings.has(runtime.handleId)) {
-			return;
-		}
-		this.delegateObserverMissingModelWarnings.add(runtime.handleId);
-		this.emitDelegateObserverWarning(
-			`Observer '${runtime.agentName}' is not running because agent model '${runtime.modelPurpose}' is not configured.`,
-		);
 	}
 
 	private emitDelegateObserverWarning(message: string): void {

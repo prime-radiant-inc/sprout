@@ -19,6 +19,7 @@ import {
 	type SessionSelectionContext,
 	type SessionSelectionSnapshot,
 } from "./session-selection.ts";
+import { buildAgentModelCatalog } from "./settings/agent-model-catalog.ts";
 import { SettingsControlPlane } from "./settings/control-plane.ts";
 import { type EnvImportResult, importSettingsFromEnv } from "./settings/env-import.ts";
 import {
@@ -295,7 +296,7 @@ export async function bootstrapSessionRuntime(
 			context.settings.providers,
 			context.settings.defaults,
 			context.settings.memoryModels,
-			context.settings.agentModels,
+			context.settings.agentModelOverrides,
 		);
 	};
 	const updateGenomeServiceRuntime = () => {
@@ -319,6 +320,11 @@ export async function bootstrapSessionRuntime(
 		},
 		checkConnection: createRuntimeConnectionChecker(() => registry),
 		refreshModels: createRuntimeModelRefresher(() => registry),
+		loadAgentModelCatalog: () =>
+			buildAgentModelCatalog({
+				rootDir: opts.rootDir,
+				genome: opts.infra.genome,
+			}),
 		onSettingsUpdated: async (snapshot) => {
 			registry = d.createProviderRegistry({
 				settings: snapshot.settings,

@@ -1,9 +1,7 @@
 import type { ProviderCatalogEntry } from "../../llm/model-catalog.ts";
 import type { ProviderModel } from "../../llm/types.ts";
-import { backfillRequiredMemoryModels } from "./memory-model-defaults.ts";
 import {
-	AGENT_MODEL_PURPOSES,
-	type AgentModelPurpose,
+	type AgentModelOverride,
 	MEMORY_MODEL_PURPOSES,
 	type MemoryModelPurpose,
 	type ModelRef,
@@ -20,10 +18,18 @@ export interface ModelConfigOverride {
 	diagnostic?: string;
 }
 
+export interface AgentModelConfigOverride {
+	source: "env";
+	envVar: string;
+	selection: AgentModelOverride;
+	displayLabel?: string;
+	diagnostic?: string;
+}
+
 export interface ModelConfigOverrides {
 	defaults: Partial<Record<Tier, ModelConfigOverride>>;
 	memoryModels: Partial<Record<MemoryModelPurpose, ModelConfigOverride>>;
-	agentModels: Partial<Record<AgentModelPurpose, ModelConfigOverride>>;
+	agentModelOverrides: Record<string, AgentModelConfigOverride>;
 }
 
 const DEFAULT_MODEL_ENV_VARS: Record<Tier, string> = {
@@ -41,9 +47,7 @@ const MEMORY_MODEL_ENV_VARS: Record<MemoryModelPurpose, string> = {
 	subcortical: "SPROUT_MEMORY_SUBCORTICAL_MODEL",
 };
 
-const AGENT_MODEL_ENV_VARS: Record<AgentModelPurpose, string> = {
-	"observer.metacognitive": "SPROUT_OBSERVER_METACOGNITIVE_MODEL",
-};
+const AGENT_MODEL_OVERRIDES_ENV_VAR = "SPROUT_AGENT_MODEL_OVERRIDES";
 
 const TIERS = ["best", "balanced", "fast"] as const satisfies readonly Tier[];
 
@@ -51,7 +55,7 @@ export function createEmptyModelConfigOverrides(): ModelConfigOverrides {
 	return {
 		defaults: {},
 		memoryModels: {},
-		agentModels: {},
+		agentModelOverrides: {},
 	};
 }
 
@@ -69,11 +73,7 @@ export function parseModelConfigOverrides(
 		const model = parseModelRef(env[envVar], envVar);
 		if (model) overrides.memoryModels[purpose] = createEnvOverride(envVar, model);
 	}
-	for (const purpose of AGENT_MODEL_PURPOSES) {
-		const envVar = AGENT_MODEL_ENV_VARS[purpose];
-		const model = parseModelRef(env[envVar], envVar);
-		if (model) overrides.agentModels[purpose] = createEnvOverride(envVar, model);
-	}
+	overrides.agentModelOverrides = parseAgentModelOverridesEnv(env[AGENT_MODEL_OVERRIDES_ENV_VAR]);
 	return overrides;
 }
 
@@ -99,12 +99,12 @@ export function validateModelConfigOverrides(
 }
 
 export function applyModelConfigOverrides(
-	settings: Pick<SproutSettings, "providers" | "defaults" | "memoryModels" | "agentModels">,
+	settings: Pick<SproutSettings, "providers" | "defaults" | "memoryModels" | "agentModelOverrides">,
 	overrides: ModelConfigOverrides,
-): Pick<SproutSettings, "providers" | "defaults" | "memoryModels" | "agentModels"> {
+): Pick<SproutSettings, "providers" | "defaults" | "memoryModels" | "agentModelOverrides"> {
 	const defaults = structuredClone(settings.defaults);
 	const memoryModels = structuredClone(settings.memoryModels);
-	const agentModels = structuredClone(settings.agentModels ?? {});
+	const agentModelOverrides = structuredClone(settings.agentModelOverrides ?? {});
 
 	for (const tier of TIERS) {
 		const override = overrides.defaults[tier];
@@ -114,16 +114,15 @@ export function applyModelConfigOverrides(
 		const override = overrides.memoryModels[purpose];
 		if (override) memoryModels[purpose] = override.model;
 	}
-	for (const purpose of AGENT_MODEL_PURPOSES) {
-		const override = overrides.agentModels[purpose];
-		if (override) agentModels[purpose] = override.model;
+	for (const [agentKey, override] of Object.entries(overrides.agentModelOverrides)) {
+		agentModelOverrides[agentKey] = override.selection;
 	}
 
 	return {
 		providers: structuredClone(settings.providers),
 		defaults,
-		memoryModels: backfillRequiredMemoryModels(defaults, memoryModels),
-		agentModels,
+		memoryModels,
+		agentModelOverrides,
 	};
 }
 
@@ -134,7 +133,7 @@ export function buildModelConfigOverrideSnapshot(
 	const catalogMap = new Map(catalog.map((entry) => [entry.providerId, entry.models]));
 	const defaults: ModelConfigOverrides["defaults"] = {};
 	const memoryModels: ModelConfigOverrides["memoryModels"] = {};
-	const agentModels: ModelConfigOverrides["agentModels"] = {};
+	const agentModelOverrides: ModelConfigOverrides["agentModelOverrides"] = {};
 
 	for (const tier of TIERS) {
 		const override = overrides.defaults[tier];
@@ -144,12 +143,11 @@ export function buildModelConfigOverrideSnapshot(
 		const override = overrides.memoryModels[purpose];
 		if (override) memoryModels[purpose] = annotateOverride(override, catalogMap);
 	}
-	for (const purpose of AGENT_MODEL_PURPOSES) {
-		const override = overrides.agentModels[purpose];
-		if (override) agentModels[purpose] = annotateOverride(override, catalogMap);
+	for (const [agentKey, override] of Object.entries(overrides.agentModelOverrides)) {
+		agentModelOverrides[agentKey] = annotateAgentOverride(override, catalogMap);
 	}
 
-	return { defaults, memoryModels, agentModels };
+	return { defaults, memoryModels, agentModelOverrides };
 }
 
 export function findModelConfigOverridesForProvider(
@@ -183,6 +181,58 @@ function parseModelRef(value: string | undefined, envVar: string): ModelRef | un
 	};
 }
 
+function parseAgentModelOverridesEnv(
+	value: string | undefined,
+): Record<string, AgentModelConfigOverride> {
+	const trimmed = value?.trim();
+	if (!trimmed) return {};
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(trimmed);
+	} catch (error) {
+		throw new Error(
+			`${AGENT_MODEL_OVERRIDES_ENV_VAR} must be a JSON object: ${
+				error instanceof Error ? error.message : String(error)
+			}`,
+		);
+	}
+	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+		throw new Error(`${AGENT_MODEL_OVERRIDES_ENV_VAR} must be a JSON object`);
+	}
+	const overrides: Record<string, AgentModelConfigOverride> = {};
+	for (const [agentKey, rawSelection] of Object.entries(parsed as Record<string, unknown>)) {
+		if (agentKey.trim().length === 0) {
+			throw new Error(`${AGENT_MODEL_OVERRIDES_ENV_VAR} contains an empty agent key`);
+		}
+		if (typeof rawSelection !== "string") {
+			throw new Error(`${AGENT_MODEL_OVERRIDES_ENV_VAR}.${agentKey} must be a string`);
+		}
+		overrides[agentKey] = {
+			source: "env",
+			envVar: AGENT_MODEL_OVERRIDES_ENV_VAR,
+			selection: parseAgentModelOverrideString(
+				rawSelection,
+				`${AGENT_MODEL_OVERRIDES_ENV_VAR}.${agentKey}`,
+			),
+		};
+	}
+	return overrides;
+}
+
+function parseAgentModelOverrideString(value: string, label: string): AgentModelOverride {
+	const trimmed = value.trim();
+	if (trimmed === "best" || trimmed === "balanced" || trimmed === "fast") {
+		return { kind: "tier", tier: trimmed };
+	}
+	const model = parseModelRef(trimmed, label);
+	if (!model) {
+		throw new Error(
+			`${label} must be best, balanced, fast, or a provider-qualified model reference`,
+		);
+	}
+	return { kind: "model", model };
+}
+
 function enumerateOverrides(overrides: ModelConfigOverrides): ModelConfigOverride[] {
 	const values: ModelConfigOverride[] = [];
 	for (const tier of TIERS) {
@@ -193,9 +243,10 @@ function enumerateOverrides(overrides: ModelConfigOverrides): ModelConfigOverrid
 		const override = overrides.memoryModels[purpose];
 		if (override) values.push(override);
 	}
-	for (const purpose of AGENT_MODEL_PURPOSES) {
-		const override = overrides.agentModels[purpose];
-		if (override) values.push(override);
+	for (const override of Object.values(overrides.agentModelOverrides)) {
+		if (override.selection.kind === "model") {
+			values.push(createEnvOverride(override.envVar, override.selection.model));
+		}
 	}
 	return values;
 }
@@ -231,5 +282,25 @@ function annotateOverride(
 		model: structuredClone(override.model),
 		catalogStatus: "missing",
 		diagnostic: `Model '${override.model.modelId}' is not in the loaded catalog for provider '${override.model.providerId}'`,
+	};
+}
+
+function annotateAgentOverride(
+	override: AgentModelConfigOverride,
+	catalogMap: Map<string, ProviderModel[]>,
+): AgentModelConfigOverride {
+	if (override.selection.kind === "tier") {
+		return structuredClone(override);
+	}
+	const annotated = annotateOverride(
+		createEnvOverride(override.envVar, override.selection.model),
+		catalogMap,
+	);
+	return {
+		source: override.source,
+		envVar: override.envVar,
+		selection: structuredClone(override.selection),
+		displayLabel: annotated.displayLabel,
+		diagnostic: annotated.diagnostic,
 	};
 }

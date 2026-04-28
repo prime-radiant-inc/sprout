@@ -2605,7 +2605,7 @@ describe("SessionController session-wide event wiring", () => {
 					};
 				}
 				if (name === "metacognitive") {
-					return { name: "metacognitive", model: "observer.metacognitive" };
+					return { name: "metacognitive", model: "balanced" };
 				}
 				return undefined;
 			},
@@ -2626,9 +2626,12 @@ describe("SessionController session-wide event wiring", () => {
 					{},
 					{},
 					{
-						"observer.metacognitive": {
-							providerId: "anthropic",
-							modelId: "claude-sonnet-4-6",
+						metacognitive: {
+							kind: "model",
+							model: {
+								providerId: "anthropic",
+								modelId: "claude-sonnet-4-6",
+							},
 						},
 					},
 				),
@@ -2768,7 +2771,7 @@ describe("SessionController session-wide event wiring", () => {
 					};
 				}
 				if (name === "metacognitive") {
-					return { name: "metacognitive", model: "observer.metacognitive" };
+					return { name: "metacognitive", model: "balanced" };
 				}
 				return undefined;
 			},
@@ -2787,9 +2790,12 @@ describe("SessionController session-wide event wiring", () => {
 					{},
 					{},
 					{
-						"observer.metacognitive": {
-							providerId: "anthropic",
-							modelId: "claude-sonnet-4-6",
+						metacognitive: {
+							kind: "model",
+							model: {
+								providerId: "anthropic",
+								modelId: "claude-sonnet-4-6",
+							},
 						},
 					},
 				),
@@ -2849,7 +2855,7 @@ describe("SessionController session-wide event wiring", () => {
 					};
 				}
 				if (name === "metacognitive") {
-					return { name: "metacognitive", model: "observer.metacognitive" };
+					return { name: "metacognitive", model: "balanced" };
 				}
 				return undefined;
 			},
@@ -2885,9 +2891,12 @@ describe("SessionController session-wide event wiring", () => {
 					{},
 					{},
 					{
-						"observer.metacognitive": {
-							providerId: "anthropic",
-							modelId: "claude-sonnet-4-6",
+						metacognitive: {
+							kind: "model",
+							model: {
+								providerId: "anthropic",
+								modelId: "claude-sonnet-4-6",
+							},
 						},
 					},
 				),
@@ -2935,7 +2944,7 @@ describe("SessionController session-wide event wiring", () => {
 					};
 				}
 				if (name === "metacognitive") {
-					return { name: "metacognitive", model: "observer.metacognitive" };
+					return { name: "metacognitive", model: "balanced" };
 				}
 				return undefined;
 			},
@@ -2958,9 +2967,12 @@ describe("SessionController session-wide event wiring", () => {
 					{},
 					{},
 					{
-						"observer.metacognitive": {
-							providerId: "anthropic",
-							modelId: "claude-sonnet-4-6",
+						metacognitive: {
+							kind: "model",
+							model: {
+								providerId: "anthropic",
+								modelId: "claude-sonnet-4-6",
+							},
 						},
 					},
 				),

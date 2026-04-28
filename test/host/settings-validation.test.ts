@@ -279,7 +279,7 @@ describe("validateSproutSettings", () => {
 		);
 	});
 
-	test("allows agent model tuples for enabled providers", () => {
+	test("allows agent model overrides for enabled providers and tiers", () => {
 		const settings = createEmptySettings();
 		settings.providers = [
 			makeProvider({
@@ -289,17 +289,24 @@ describe("validateSproutSettings", () => {
 				enabled: true,
 			}),
 		];
-		settings.agentModels = {
-			"observer.metacognitive": {
-				providerId: "anthropic",
-				modelId: "claude-sonnet-4-6",
+		settings.agentModelOverrides = {
+			metacognitive: {
+				kind: "model",
+				model: {
+					providerId: "anthropic",
+					modelId: "claude-sonnet-4-6",
+				},
+			},
+			"utility/reader": {
+				kind: "tier",
+				tier: "fast",
 			},
 		};
 
 		expect(() => validateSproutSettings(settings)).not.toThrow();
 	});
 
-	test("rejects agent models that reference missing or disabled providers", () => {
+	test("rejects agent model overrides that reference missing or disabled providers", () => {
 		const settings = createEmptySettings();
 		settings.providers = [
 			makeProvider({
@@ -309,15 +316,32 @@ describe("validateSproutSettings", () => {
 				enabled: false,
 			}),
 		];
-		settings.agentModels = {
-			"observer.metacognitive": {
-				providerId: "anthropic",
-				modelId: "claude-sonnet-4-6",
+		settings.agentModelOverrides = {
+			metacognitive: {
+				kind: "model",
+				model: {
+					providerId: "anthropic",
+					modelId: "claude-sonnet-4-6",
+				},
 			},
 		};
 
 		expect(() => validateSproutSettings(settings)).toThrow(
-			"Agent model 'observer.metacognitive' must reference an enabled provider: anthropic",
+			"Agent model override 'metacognitive' must reference an enabled provider: anthropic",
+		);
+	});
+
+	test("rejects malformed agent model override tiers", () => {
+		const settings = createEmptySettings();
+		settings.agentModelOverrides = {
+			metacognitive: {
+				kind: "tier",
+				tier: "cheap",
+			},
+		} as unknown as typeof settings.agentModelOverrides;
+
+		expect(() => validateSproutSettings(settings)).toThrow(
+			"Agent model override 'metacognitive' must reference best, balanced, or fast",
 		);
 	});
 });

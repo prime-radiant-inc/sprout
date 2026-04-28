@@ -15,11 +15,11 @@ afterEach(() => {
 
 function makeSettings(providers: ProviderConfig[]): SproutSettings {
 	return {
-		version: 3,
+		version: 4,
 		providers,
 		defaults: {},
 		memoryModels: {},
-		agentModels: {},
+		agentModelOverrides: {},
 	};
 }
 

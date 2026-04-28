@@ -97,6 +97,12 @@
 	gap: var(--space-md);
 }
 
+.sectionStack {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-xl);
+}
+
 .sectionTitle {
 	margin: 0;
 	color: var(--color-text-primary);

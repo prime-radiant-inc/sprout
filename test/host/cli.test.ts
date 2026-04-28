@@ -52,18 +52,19 @@ describe("buildInteractiveModeRuntime", () => {
 						modelOverrides: {
 							defaults: {},
 							memoryModels: {},
-							agentModels: {},
+							agentModelOverrides: {},
 						},
 					},
 					settings: {
-						version: 3 as const,
+						version: 4 as const,
 						providers: [],
 						defaults: {},
 						memoryModels: {},
-						agentModels: {},
+						agentModelOverrides: {},
 					},
 					providers: [],
 					catalog: [],
+					agentModels: [],
 				},
 			}),
 		};

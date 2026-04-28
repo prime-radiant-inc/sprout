@@ -120,7 +120,7 @@ export class ProjectActivityStore {
 				previousCumulativeDays + 1,
 				record.active_dates.length,
 			);
-			record.last_active_date = record.active_dates.at(-1);
+			record.last_active_date = record.active_dates[record.active_dates.length - 1];
 			changed = true;
 		}
 		return { record, changed };
@@ -218,7 +218,8 @@ function mergeProjectActivityRecords(
 		pending.cumulative_active_days,
 		activeDates.length,
 	);
-	const lastActiveDate = activeDates.at(-1) ?? latest.last_active_date ?? pending.last_active_date;
+	const lastActiveDate =
+		activeDates[activeDates.length - 1] ?? latest.last_active_date ?? pending.last_active_date;
 	return {
 		id: latest.id,
 		name: pending.name,
@@ -346,7 +347,8 @@ function packageProjectName(value: string | undefined): DetectedProject | undefi
 function remoteProjectName(value: string | undefined): DetectedProject | undefined {
 	const remote = normalizeRemote(value);
 	if (!remote) return undefined;
-	const repoName = remote.split("/").at(-1) ?? "";
+	const remoteParts = remote.split("/");
+	const repoName = remoteParts[remoteParts.length - 1] ?? "";
 	if (!isUsefulName(repoName)) return undefined;
 	return {
 		id: projectId(remote),

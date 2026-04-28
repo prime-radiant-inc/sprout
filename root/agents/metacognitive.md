@@ -1,7 +1,7 @@
 ---
 name: metacognitive
 description: "Observe Sprout's live session behavior and send concise guidance when it is drifting, stuck, or missing an important instruction"
-model: observer.metacognitive
+model: balanced
 tools:
   - message_agent
 agents: []

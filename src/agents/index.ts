@@ -4,7 +4,7 @@ export { type CreateAgentOptions, type CreateAgentResult, createAgent } from "./
 export { loadRootAgents } from "./loader.ts";
 export {
 	type ResolvedModel,
-	resolveAgentModel,
+	resolveAgentModelSelection,
 	resolveMemoryModel,
 	resolveModel,
 } from "./model-resolver.ts";

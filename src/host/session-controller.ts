@@ -14,17 +14,10 @@ import type { AgentAddress } from "../bus/types.ts";
 import { collapseSessionToMemory } from "../core/session-collapse.ts";
 import type { Genome } from "../genome/genome.ts";
 import { detectProjectFromCwd } from "../genome/projects.ts";
-import type {
-	AgentModelPurpose,
-	AgentSpec,
-	Command,
-	EventKind,
-	ModelRef,
-	SessionEvent,
-} from "../kernel/types.ts";
+import type { Command, EventKind, ModelRef, SessionEvent } from "../kernel/types.ts";
 import type { Client } from "../llm/client.ts";
 import type { Message, ProviderModel } from "../llm/types.ts";
-import { parseAgentModelInput, type SessionSelectionRequest } from "../shared/session-selection.ts";
+import type { SessionSelectionRequest } from "../shared/session-selection.ts";
 import { ulid } from "../util/ulid.ts";
 import { compactHistory } from "./compaction.ts";
 import type { SessionBus } from "./event-bus.ts";
@@ -120,18 +113,12 @@ function buildStaticObserverConfigs(
 			maxChars: config.delivery?.max_chars ?? DEFAULT_OBSERVER_MAX_CHARS,
 			handleId,
 			agentId: handleId,
-			modelPurpose: observerModelPurpose(observerSpec),
 			description:
 				config.target === "root" ? `observes ${rootAgentName} turns` : "observes session events",
 		};
 	});
 
 	return observerConfigs;
-}
-
-function observerModelPurpose(spec: AgentSpec): AgentModelPurpose | undefined {
-	const parsed = parseAgentModelInput(spec.model);
-	return parsed.kind === "agent_purpose" ? parsed.purpose : undefined;
 }
 
 /** Options passed to the agent factory. */

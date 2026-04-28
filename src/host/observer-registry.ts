@@ -17,7 +17,6 @@ export const METACOGNITIVE_OBSERVER: ObserverAttachmentConfig = {
 	maxChars: 6000,
 	handleId: "observer-metacognitive",
 	agentId: "observer-metacognitive",
-	modelPurpose: "observer.metacognitive",
 	description: "observes root turns",
 };
 
@@ -31,7 +30,6 @@ interface ObserverSubscriptionState {
 	observerStarted: boolean;
 	deliveryInFlight: boolean;
 	flushRequested: boolean;
-	warningEmitted: boolean;
 }
 
 export interface ObserverRegistryOptions {
@@ -123,7 +121,6 @@ export class ObserverRegistry {
 			subscription.observerStarted = false;
 			subscription.deliveryInFlight = false;
 			subscription.flushRequested = false;
-			subscription.warningEmitted = false;
 		}
 		this.startedHandles.clear();
 		this.generation++;
@@ -144,13 +141,6 @@ export class ObserverRegistry {
 		if (subscription.pendingEvents.length === 0) return;
 
 		const resolverSettings = this.getResolverSettings?.();
-		if (
-			subscription.config.modelPurpose &&
-			!resolverSettings?.agentModels[subscription.config.modelPurpose]
-		) {
-			this.emitMissingModelWarning(subscription);
-			return;
-		}
 
 		const generation = this.generation;
 		const events = subscription.pendingEvents;
@@ -232,14 +222,6 @@ export class ObserverRegistry {
 		});
 	}
 
-	private emitMissingModelWarning(subscription: ObserverSubscriptionState): void {
-		if (subscription.warningEmitted) return;
-		subscription.warningEmitted = true;
-		this.emitEvent("warning", "session", 0, {
-			message: `Observer '${subscription.config.agentName}' is not running because agent model '${subscription.config.modelPurpose}' is not configured.`,
-		});
-	}
-
 	private trimPendingEvents(subscription: ObserverSubscriptionState): void {
 		const maxPendingEvents = subscription.config.maxEvents * 4;
 		if (subscription.pendingEvents.length > maxPendingEvents) {
@@ -265,6 +247,5 @@ function createSubscriptionState(config: ObserverAttachmentConfig): ObserverSubs
 		observerStarted: false,
 		deliveryInFlight: false,
 		flushRequested: false,
-		warningEmitted: false,
 	};
 }

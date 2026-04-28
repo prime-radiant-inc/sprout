@@ -17,7 +17,6 @@ import {
 } from "../../src/host/settings/secret-store.ts";
 import { SettingsStore } from "../../src/host/settings/store.ts";
 import {
-	AGENT_MODEL_PURPOSES,
 	createEmptySettings,
 	MEMORY_MODEL_PURPOSES,
 	type SproutSettings,
@@ -143,7 +142,7 @@ describe("SettingsControlPlane", () => {
 	test("warns when enabled providers exist without explicit memory models", async () => {
 		const plane = await makePlane({
 			initialSettings: {
-				version: 3,
+				version: 4,
 				providers: [
 					{
 						id: "anthropic",
@@ -156,7 +155,7 @@ describe("SettingsControlPlane", () => {
 				],
 				defaults: {},
 				memoryModels: {},
-				agentModels: {},
+				agentModelOverrides: {},
 			},
 		});
 
@@ -171,11 +170,6 @@ describe("SettingsControlPlane", () => {
 							code: "memory_models_incomplete",
 							message:
 								"Memory model settings incomplete. Configure exact models for: summary, extraction, relationship, consolidation, entityGc, subcortical",
-						},
-						{
-							code: "agent_models_incomplete",
-							message:
-								"Agent model settings incomplete. Configure exact models for: observer.metacognitive",
 						},
 					],
 				},
@@ -192,10 +186,9 @@ describe("SettingsControlPlane", () => {
 				SPROUT_MEMORY_CONSOLIDATION_MODEL: "anthropic:claude-sonnet-4-6",
 				SPROUT_MEMORY_ENTITY_GC_MODEL: "anthropic:claude-sonnet-4-6",
 				SPROUT_MEMORY_SUBCORTICAL_MODEL: "anthropic:claude-sonnet-4-6",
-				SPROUT_OBSERVER_METACOGNITIVE_MODEL: "anthropic:claude-sonnet-4-6",
 			}),
 			initialSettings: {
-				version: 3,
+				version: 4,
 				providers: [
 					{
 						id: "anthropic",
@@ -208,7 +201,7 @@ describe("SettingsControlPlane", () => {
 				],
 				defaults: {},
 				memoryModels: {},
-				agentModels: {},
+				agentModelOverrides: {},
 			},
 		});
 
@@ -218,11 +211,6 @@ describe("SettingsControlPlane", () => {
 		expect(
 			result.snapshot.runtime.warnings.some(
 				(warning) => warning.code === "memory_models_incomplete",
-			),
-		).toBe(false);
-		expect(
-			result.snapshot.runtime.warnings.some(
-				(warning) => warning.code === "agent_models_incomplete",
 			),
 		).toBe(false);
 	});
@@ -242,7 +230,7 @@ describe("SettingsControlPlane", () => {
 				return [];
 			},
 			initialSettings: {
-				version: 3,
+				version: 4,
 				providers: [
 					{
 						id: "openai",
@@ -264,7 +252,7 @@ describe("SettingsControlPlane", () => {
 				],
 				defaults: {},
 				memoryModels: {},
-				agentModels: {},
+				agentModelOverrides: {},
 			},
 		});
 
@@ -324,7 +312,7 @@ describe("SettingsControlPlane", () => {
 				return [];
 			},
 			initialSettings: {
-				version: 3,
+				version: 4,
 				providers: [
 					{
 						id: "openrouter",
@@ -355,7 +343,7 @@ describe("SettingsControlPlane", () => {
 					},
 				},
 				memoryModels: {},
-				agentModels: {},
+				agentModelOverrides: {},
 			},
 		});
 
@@ -394,7 +382,7 @@ describe("SettingsControlPlane", () => {
 	test("clears stored memory models that reference a disabled or deleted provider", async () => {
 		const plane = await makePlane({
 			initialSettings: {
-				version: 3,
+				version: 4,
 				providers: [
 					{
 						id: "anthropic",
@@ -425,10 +413,13 @@ describe("SettingsControlPlane", () => {
 						modelId: "qwen2.5-coder",
 					},
 				},
-				agentModels: {
-					"observer.metacognitive": {
-						providerId: "lmstudio",
-						modelId: "qwen2.5-coder",
+				agentModelOverrides: {
+					metacognitive: {
+						kind: "model",
+						model: {
+							providerId: "lmstudio",
+							modelId: "qwen2.5-coder",
+						},
 					},
 				},
 			},
@@ -448,7 +439,7 @@ describe("SettingsControlPlane", () => {
 							modelId: "claude-sonnet-4-6",
 						},
 					},
-					agentModels: {},
+					agentModelOverrides: {},
 				},
 			},
 		});
@@ -462,7 +453,7 @@ describe("SettingsControlPlane", () => {
 			snapshot: {
 				settings: {
 					memoryModels: {},
-					agentModels: {},
+					agentModelOverrides: {},
 				},
 			},
 		});
@@ -472,12 +463,14 @@ describe("SettingsControlPlane", () => {
 		const modelOverrides = parseModelConfigOverrides({
 			SPROUT_DEFAULT_FAST_MODEL: "lmstudio:qwen2.5-coder",
 			SPROUT_MEMORY_EXTRACTION_MODEL: "lmstudio:qwen2.5-coder",
-			SPROUT_OBSERVER_METACOGNITIVE_MODEL: "lmstudio:qwen2.5-coder",
+			SPROUT_AGENT_MODEL_OVERRIDES: JSON.stringify({
+				metacognitive: "lmstudio:qwen2.5-coder",
+			}),
 		});
 		const plane = await makePlane({
 			modelOverrides,
 			initialSettings: {
-				version: 3,
+				version: 4,
 				providers: [
 					{
 						id: "lmstudio",
@@ -491,7 +484,7 @@ describe("SettingsControlPlane", () => {
 				],
 				defaults: {},
 				memoryModels: {},
-				agentModels: {},
+				agentModelOverrides: {},
 			},
 		});
 
@@ -503,10 +496,10 @@ describe("SettingsControlPlane", () => {
 			ok: false,
 			code: "env_override_active",
 			message:
-				"Cannot disable provider 'lmstudio' while env override SPROUT_DEFAULT_FAST_MODEL, SPROUT_MEMORY_EXTRACTION_MODEL, SPROUT_OBSERVER_METACOGNITIVE_MODEL references it",
+				"Cannot disable provider 'lmstudio' while env override SPROUT_AGENT_MODEL_OVERRIDES, SPROUT_DEFAULT_FAST_MODEL, SPROUT_MEMORY_EXTRACTION_MODEL references it",
 			fieldErrors: {
 				providerId:
-					"Unset SPROUT_DEFAULT_FAST_MODEL, SPROUT_MEMORY_EXTRACTION_MODEL, SPROUT_OBSERVER_METACOGNITIVE_MODEL before disabling this provider",
+					"Unset SPROUT_AGENT_MODEL_OVERRIDES, SPROUT_DEFAULT_FAST_MODEL, SPROUT_MEMORY_EXTRACTION_MODEL before disabling this provider",
 			},
 		});
 
@@ -518,10 +511,10 @@ describe("SettingsControlPlane", () => {
 			ok: false,
 			code: "env_override_active",
 			message:
-				"Cannot delete provider 'lmstudio' while env override SPROUT_DEFAULT_FAST_MODEL, SPROUT_MEMORY_EXTRACTION_MODEL, SPROUT_OBSERVER_METACOGNITIVE_MODEL references it",
+				"Cannot delete provider 'lmstudio' while env override SPROUT_AGENT_MODEL_OVERRIDES, SPROUT_DEFAULT_FAST_MODEL, SPROUT_MEMORY_EXTRACTION_MODEL references it",
 			fieldErrors: {
 				providerId:
-					"Unset SPROUT_DEFAULT_FAST_MODEL, SPROUT_MEMORY_EXTRACTION_MODEL, SPROUT_OBSERVER_METACOGNITIVE_MODEL before deleting this provider",
+					"Unset SPROUT_AGENT_MODEL_OVERRIDES, SPROUT_DEFAULT_FAST_MODEL, SPROUT_MEMORY_EXTRACTION_MODEL before deleting this provider",
 			},
 		});
 	});
@@ -531,10 +524,12 @@ describe("SettingsControlPlane", () => {
 			modelOverrides: parseModelConfigOverrides({
 				SPROUT_DEFAULT_BEST_MODEL: "openrouter:openai/gpt-4o-mini",
 				SPROUT_MEMORY_RELATIONSHIP_MODEL: "openrouter:missing-model",
-				SPROUT_OBSERVER_METACOGNITIVE_MODEL: "openrouter:openai/gpt-4o-mini",
+				SPROUT_AGENT_MODEL_OVERRIDES: JSON.stringify({
+					metacognitive: "openrouter:openai/gpt-4o-mini",
+				}),
 			}),
 			initialSettings: {
-				version: 3,
+				version: 4,
 				providers: [
 					{
 						id: "openrouter",
@@ -547,7 +542,7 @@ describe("SettingsControlPlane", () => {
 				],
 				defaults: {},
 				memoryModels: {},
-				agentModels: {},
+				agentModelOverrides: {},
 			},
 			initialCatalog: [
 				{
@@ -571,7 +566,7 @@ describe("SettingsControlPlane", () => {
 				settings: {
 					defaults: {},
 					memoryModels: {},
-					agentModels: {},
+					agentModelOverrides: {},
 				},
 				runtime: {
 					modelOverrides: {
@@ -590,10 +585,16 @@ describe("SettingsControlPlane", () => {
 									"Model 'missing-model' is not in the loaded catalog for provider 'openrouter'",
 							},
 						},
-						agentModels: {
-							"observer.metacognitive": {
-								envVar: "SPROUT_OBSERVER_METACOGNITIVE_MODEL",
-								catalogStatus: "matched",
+						agentModelOverrides: {
+							metacognitive: {
+								envVar: "SPROUT_AGENT_MODEL_OVERRIDES",
+								selection: {
+									kind: "model",
+									model: {
+										providerId: "openrouter",
+										modelId: "openai/gpt-4o-mini",
+									},
+								},
 								displayLabel: "GPT-4o mini",
 							},
 						},
@@ -606,7 +607,7 @@ describe("SettingsControlPlane", () => {
 	test("sets and unsets stored memory models through the control plane", async () => {
 		const plane = await makePlane({
 			initialSettings: {
-				version: 3,
+				version: 4,
 				providers: [
 					{
 						id: "anthropic",
@@ -619,7 +620,7 @@ describe("SettingsControlPlane", () => {
 				],
 				defaults: {},
 				memoryModels: {},
-				agentModels: {},
+				agentModelOverrides: {},
 			},
 			initialCatalog: [
 				{
@@ -686,7 +687,7 @@ describe("SettingsControlPlane", () => {
 	test("returns memory model field errors for invalid stored memory model selections", async () => {
 		const plane = await makePlane({
 			initialSettings: {
-				version: 3,
+				version: 4,
 				providers: [
 					{
 						id: "anthropic",
@@ -699,7 +700,7 @@ describe("SettingsControlPlane", () => {
 				],
 				defaults: {},
 				memoryModels: {},
-				agentModels: {},
+				agentModelOverrides: {},
 			},
 			initialCatalog: [
 				{
@@ -739,7 +740,7 @@ describe("SettingsControlPlane", () => {
 	test("sets and unsets stored agent models through the control plane", async () => {
 		const plane = await makePlane({
 			initialSettings: {
-				version: 3,
+				version: 4,
 				providers: [
 					{
 						id: "anthropic",
@@ -752,7 +753,7 @@ describe("SettingsControlPlane", () => {
 				],
 				defaults: {},
 				memoryModels: {},
-				agentModels: {},
+				agentModelOverrides: {},
 			},
 			initialCatalog: [
 				{
@@ -768,45 +769,70 @@ describe("SettingsControlPlane", () => {
 			],
 		});
 
-		for (const purpose of AGENT_MODEL_PURPOSES) {
-			const set = await plane.execute({
-				kind: "set_agent_model",
-				data: {
-					purpose,
+		const set = await plane.execute({
+			kind: "set_agent_model_override",
+			data: {
+				agentKey: "metacognitive",
+				override: {
+					kind: "model",
 					model: {
 						providerId: "anthropic",
 						modelId: "claude-sonnet-4-6",
 					},
 				},
-			});
-			expect(set).toMatchObject({
-				ok: true,
-				snapshot: {
-					settings: {
-						agentModels: {
-							[purpose]: {
+			},
+		});
+		expect(set).toMatchObject({
+			ok: true,
+			snapshot: {
+				settings: {
+					agentModelOverrides: {
+						metacognitive: {
+							kind: "model",
+							model: {
 								providerId: "anthropic",
 								modelId: "claude-sonnet-4-6",
 							},
 						},
 					},
 				},
-			});
-		}
+			},
+		});
+
+		const setTier = await plane.execute({
+			kind: "set_agent_model_override",
+			data: {
+				agentKey: "utility/reader",
+				override: { kind: "tier", tier: "fast" },
+			},
+		});
+		expect(setTier).toMatchObject({
+			ok: true,
+			snapshot: {
+				settings: {
+					agentModelOverrides: {
+						"utility/reader": {
+							kind: "tier",
+							tier: "fast",
+						},
+					},
+				},
+			},
+		});
 
 		const unset = await plane.execute({
-			kind: "set_agent_model",
-			data: { purpose: "observer.metacognitive" },
+			kind: "set_agent_model_override",
+			data: { agentKey: "metacognitive" },
 		});
 
 		if (!unset.ok) throw new Error("expected unset to succeed");
-		expect(unset.snapshot.settings.agentModels["observer.metacognitive"]).toBeUndefined();
+		expect(unset.snapshot.settings.agentModelOverrides.metacognitive).toBeUndefined();
 	});
 
 	test("returns agent model field errors for invalid stored agent model selections", async () => {
 		const plane = await makePlane({
 			initialSettings: {
-				version: 3,
+				version: 4,
 				providers: [
 					{
 						id: "anthropic",
@@ -819,7 +845,7 @@ describe("SettingsControlPlane", () => {
 				],
 				defaults: {},
 				memoryModels: {},
-				agentModels: {},
+				agentModelOverrides: {},
 			},
 			initialCatalog: [
 				{
@@ -836,12 +862,15 @@ describe("SettingsControlPlane", () => {
 		});
 
 		const result = await plane.execute({
-			kind: "set_agent_model",
+			kind: "set_agent_model_override",
 			data: {
-				purpose: "observer.metacognitive",
-				model: {
-					providerId: "anthropic",
-					modelId: "missing-model",
+				agentKey: "metacognitive",
+				override: {
+					kind: "model",
+					model: {
+						providerId: "anthropic",
+						modelId: "missing-model",
+					},
 				},
 			},
 		});
@@ -851,16 +880,15 @@ describe("SettingsControlPlane", () => {
 			code: "validation_failed",
 			message: "Unknown model 'missing-model' for provider 'anthropic'",
 			fieldErrors: {
-				"agentModels.observer.metacognitive":
+				"agentModelOverrides.metacognitive":
 					"Unknown model 'missing-model' for provider 'anthropic'",
 			},
 		});
 	});
-
 	test("surfaces provider health failures in snapshots without failing the command", async () => {
 		const plane = await makePlane({
 			initialSettings: {
-				version: 3,
+				version: 4,
 				providers: [
 					{
 						id: "lmstudio",
@@ -874,7 +902,7 @@ describe("SettingsControlPlane", () => {
 				],
 				defaults: {},
 				memoryModels: {},
-				agentModels: {},
+				agentModelOverrides: {},
 			},
 			checkConnection: async () => {
 				throw new Error("connection refused");
@@ -955,7 +983,7 @@ describe("SettingsControlPlane", () => {
 		const plane = await makePlane({
 			secretStore,
 			initialSettings: {
-				version: 3,
+				version: 4,
 				providers: [
 					{
 						id: "openai",
@@ -968,7 +996,7 @@ describe("SettingsControlPlane", () => {
 				],
 				defaults: {},
 				memoryModels: {},
-				agentModels: {},
+				agentModelOverrides: {},
 			},
 			settingsStore: {
 				async save() {
@@ -1005,7 +1033,7 @@ describe("SettingsControlPlane", () => {
 				},
 			},
 			initialSettings: {
-				version: 3,
+				version: 4,
 				providers: [
 					{
 						id: "openai",
@@ -1018,7 +1046,7 @@ describe("SettingsControlPlane", () => {
 				],
 				defaults: {},
 				memoryModels: {},
-				agentModels: {},
+				agentModelOverrides: {},
 			},
 		});
 
@@ -1108,7 +1136,7 @@ describe("SettingsControlPlane", () => {
 				message,
 			},
 			initialSettings: {
-				version: 3,
+				version: 4,
 				providers: [
 					{
 						id: "openai",
@@ -1121,7 +1149,7 @@ describe("SettingsControlPlane", () => {
 				],
 				defaults: {},
 				memoryModels: {},
-				agentModels: {},
+				agentModelOverrides: {},
 			},
 		});
 

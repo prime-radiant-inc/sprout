@@ -15,11 +15,11 @@ export function makeSettingsSnapshot(): SettingsSnapshot {
 			modelOverrides: {
 				defaults: {},
 				memoryModels: {},
-				agentModels: {},
+				agentModelOverrides: {},
 			},
 		},
 		settings: {
-			version: 3,
+			version: 4,
 			providers: [
 				{
 					id: "anthropic-main",
@@ -54,7 +54,7 @@ export function makeSettingsSnapshot(): SettingsSnapshot {
 				},
 			},
 			memoryModels: {},
-			agentModels: {},
+			agentModelOverrides: {},
 		},
 		providers: [
 			{
@@ -96,6 +96,24 @@ export function makeSettingsSnapshot(): SettingsSnapshot {
 						source: "remote",
 					},
 				],
+			},
+		],
+		agentModels: [
+			{
+				key: "metacognitive",
+				name: "metacognitive",
+				source: "tree",
+				path: "metacognitive",
+				description: "Observe Sprout sessions",
+				defaultModel: "balanced",
+				effective: {
+					selection: "default",
+					label: "balanced",
+					model: {
+						providerId: "anthropic-main",
+						modelId: "claude-sonnet-4-6",
+					},
+				},
 			},
 		],
 	};

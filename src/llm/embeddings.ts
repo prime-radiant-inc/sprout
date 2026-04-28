@@ -302,7 +302,7 @@ function splitTensor(tensor: TensorLike, batchSize: number): Float32Array[] {
 		throw new Error("Local embedding tensor is missing data");
 	}
 	const data = raw instanceof Float32Array ? raw : Float32Array.from(raw);
-	const dimensions = tensor.dims?.at(-1);
+	const dimensions = tensor.dims?.[tensor.dims.length - 1];
 	if (!dimensions || dimensions <= 0) {
 		throw new Error(`Invalid embedding dimensions: ${dimensions ?? "missing"}`);
 	}

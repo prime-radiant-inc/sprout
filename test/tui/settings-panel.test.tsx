@@ -56,18 +56,19 @@ describe("SettingsPanel", () => {
 						modelOverrides: {
 							defaults: {},
 							memoryModels: {},
-							agentModels: {},
+							agentModelOverrides: {},
 						},
 					},
 					settings: {
-						version: 3,
+						version: 4,
 						providers: [],
 						defaults: {},
 						memoryModels: {},
-						agentModels: {},
+						agentModelOverrides: {},
 					},
 					providers: [],
 					catalog: [],
+					agentModels: [],
 				}}
 				lastResult={null}
 				onCommand={() => {}}

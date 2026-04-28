@@ -44,11 +44,8 @@ describe("parseAgentModelInput", () => {
 		});
 	});
 
-	test("accepts internal agent model purposes", () => {
-		expect(parseAgentModelInput("observer.metacognitive")).toEqual({
-			kind: "agent_purpose",
-			purpose: "observer.metacognitive",
-		});
+	test("rejects internal agent model purposes", () => {
+		expect(() => parseAgentModelInput("observer.metacognitive")).toThrow(/provider-qualified/);
 	});
 
 	test("rejects inherit", () => {

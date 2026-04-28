@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-	resolveAgentModel,
+	resolveAgentModelSelection,
 	resolveMemoryModel,
 	resolveModel,
 } from "../../src/agents/model-resolver.ts";
@@ -24,14 +24,14 @@ function settingsFor(
 	providers: ProviderConfig[],
 	defaults: SproutSettings["defaults"] = {},
 	memoryModels: SproutSettings["memoryModels"] = {},
-	agentModels: SproutSettings["agentModels"] = {},
+	agentModelOverrides: SproutSettings["agentModelOverrides"] = {},
 ): SproutSettings {
 	return {
-		version: 3,
+		version: 4,
 		providers,
 		defaults,
 		memoryModels,
-		agentModels,
+		agentModelOverrides,
 	};
 }
 
@@ -195,8 +195,8 @@ describe("resolveModel", () => {
 	});
 });
 
-describe("resolveAgentModel", () => {
-	test("resolves configured agent model purposes without falling back to defaults", () => {
+describe("resolveAgentModelSelection", () => {
+	test("resolves configured agent model overrides without falling back to defaults", () => {
 		const settings = settingsFor(
 			[provider()],
 			{
@@ -207,17 +207,24 @@ describe("resolveAgentModel", () => {
 			},
 			{},
 			{
-				"observer.metacognitive": {
-					providerId: "anthropic-main",
-					modelId: "claude-sonnet-4-6",
+				metacognitive: {
+					kind: "model",
+					model: {
+						providerId: "anthropic-main",
+						modelId: "claude-sonnet-4-6",
+					},
 				},
 			},
 		);
 
 		expect(
-			resolveAgentModel(
-				"observer.metacognitive",
-				settings,
+			resolveAgentModelSelection(
+				{
+					agentKey: "metacognitive",
+					agentName: "metacognitive",
+					specModel: "fast",
+					settings,
+				},
 				catalog([
 					{
 						providerId: "anthropic-main",
@@ -226,16 +233,20 @@ describe("resolveAgentModel", () => {
 				]),
 			),
 		).toEqual({ provider: "anthropic-main", model: "claude-sonnet-4-6" });
-		expect(resolveModel("observer.metacognitive", settings, catalog([]))).toEqual({
-			provider: "anthropic-main",
-			model: "claude-sonnet-4-6",
-		});
 	});
 
-	test("fails clearly when an agent model purpose is missing", () => {
+	test("uses markdown default when an agent override is missing", () => {
 		expect(() =>
-			resolveAgentModel("observer.metacognitive", settingsFor([provider()]), catalog([])),
-		).toThrow("No agent 'observer.metacognitive' model is configured");
+			resolveAgentModelSelection(
+				{
+					agentKey: "metacognitive",
+					agentName: "metacognitive",
+					specModel: "fast",
+					settings: settingsFor([provider()]),
+				},
+				catalog([]),
+			),
+		).toThrow("No global 'fast' model is configured");
 	});
 });
 
