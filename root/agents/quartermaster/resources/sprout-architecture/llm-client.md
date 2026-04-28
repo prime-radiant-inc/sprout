@@ -24,7 +24,7 @@ entityGc, and subcortical. Missing required memory models fail loudly.
 Source of truth:
 - `src/agents/model-resolver.ts`
 - `src/shared/provider-settings.ts`
-- `web/src/components/settings/MemoryModelsPanel.tsx`
+- `web/src/components/settings/ModelsPanel.tsx`
 
 ## Native Adapters
 

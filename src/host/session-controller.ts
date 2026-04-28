@@ -376,7 +376,7 @@ function resolveRequiredCollapseModel(
 		const detail = error instanceof Error ? error.message : String(error);
 		throw new Error(
 			`Memory collapse requires a configured memory '${purpose}' model before the session can run. ` +
-				`Configure Settings > Memory models or set ${envVar}. ${detail}`,
+				`Configure Settings > Models > Memory calls or set ${envVar}. ${detail}`,
 		);
 	}
 }

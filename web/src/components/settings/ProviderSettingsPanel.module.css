@@ -103,6 +103,70 @@
 	gap: var(--space-xl);
 }
 
+.modelAssignmentList {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-lg);
+}
+
+.modelAssignmentGroup {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-sm);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-md);
+	background: var(--color-canvas);
+	padding: var(--space-md);
+}
+
+.modelAssignmentGroupHeader {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: var(--space-md);
+	border-bottom: 1px solid var(--color-border);
+	padding-bottom: var(--space-sm);
+}
+
+.modelAssignmentGroupHeader h3 {
+	margin: 0;
+	color: var(--color-text-primary);
+	font-size: var(--font-size-sm);
+	font-weight: 650;
+}
+
+.modelAssignmentGroupHeader p {
+	margin: 0;
+	color: var(--color-text-tertiary);
+	font-size: var(--font-size-xs);
+	line-height: 1.5;
+	max-width: 520px;
+}
+
+.modelAssignmentRows {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-sm);
+}
+
+.modelAssignmentRow {
+	display: grid;
+	grid-template-columns: minmax(220px, 1fr) minmax(260px, 360px);
+	gap: var(--space-md);
+	align-items: start;
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-sm);
+	background: var(--color-surface);
+	padding: var(--space-md);
+}
+
+.modelAssignmentCopy {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-xs);
+	min-width: 0;
+}
+
 .sectionTitle {
 	margin: 0;
 	color: var(--color-text-primary);
@@ -418,5 +482,15 @@
 	.sidebar {
 		border-right: none;
 		border-bottom: 1px solid var(--color-border);
+	}
+
+	.modelAssignmentGroupHeader,
+	.modelAssignmentRow {
+		grid-template-columns: 1fr;
+	}
+
+	.modelAssignmentGroupHeader {
+		display: flex;
+		flex-direction: column;
 	}
 }

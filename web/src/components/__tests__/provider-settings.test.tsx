@@ -6,14 +6,10 @@ import type {
 } from "@kernel/types.ts";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
-	AgentModelsPanel,
 	createSetAgentModelCommand,
-} from "../settings/AgentModelsPanel.tsx";
-import { DefaultModelsPanel } from "../settings/DefaultModelsPanel.tsx";
-import {
 	createSetMemoryModelCommand,
-	MemoryModelsPanel,
-} from "../settings/MemoryModelsPanel.tsx";
+	ModelsPanel,
+} from "../settings/ModelsPanel.tsx";
 import {
 	createDeleteProviderCommand,
 	createDeleteProviderSecretCommand,
@@ -233,9 +229,12 @@ describe("ProviderSettingsPanel", () => {
 			/>,
 		);
 
-		expect(html).toContain("Default models");
-		expect(html).toContain("Memory models");
+		expect(html).toContain("Model assignments");
+		expect(html).toContain("Global tiers");
+		expect(html).toContain("Memory calls");
 		expect(html).toContain("Agent types");
+		expect(html).not.toContain("Default models");
+		expect(html).not.toContain("Memory models");
 		expect(html).toContain("Recovered invalid settings file to /tmp/settings.invalid.json");
 	});
 
@@ -276,47 +275,8 @@ describe("ProviderSettingsPanel", () => {
 	});
 });
 
-describe("DefaultModelsPanel", () => {
-	test("renders the current enabled default models controls", () => {
-		const html = renderToStaticMarkup(
-			<DefaultModelsPanel settings={makeSettings()} onCommand={() => {}} />,
-		);
-
-		expect(html).toContain("Default models");
-		expect(html).toContain("Anthropic");
-		expect(html).toContain("Best model");
-		expect(html).toContain("Balanced model");
-		expect(html).toContain("Fast model");
-		expect(html).toContain("Claude Opus 4.6");
-		expect(html).toContain("Qwen 2.5 Coder");
-	});
-
-	test("keeps default model env override notes visible when no model catalog is loaded", () => {
-		const settings = makeSettings();
-		settings.catalog = settings.catalog.map((entry) => ({ ...entry, models: [] }));
-		settings.runtime.modelOverrides.defaults.best = {
-			source: "env",
-			envVar: "SPROUT_DEFAULT_BEST_MODEL",
-			model: {
-				providerId: "anthropic-main",
-				modelId: "claude-opus-4-6",
-			},
-			catalogStatus: "not_loaded",
-		};
-
-		const html = renderToStaticMarkup(
-			<DefaultModelsPanel settings={settings} onCommand={() => {}} />,
-		);
-
-		expect(html).toContain("Refresh models to configure default models.");
-		expect(html).toContain("Stored: anthropic-main:claude-opus-4-6");
-		expect(html).toContain("SPROUT_DEFAULT_BEST_MODEL");
-		expect(html).toContain("anthropic-main:claude-opus-4-6");
-	});
-});
-
-describe("MemoryModelsPanel", () => {
-	test("renders memory model controls and env override notes", () => {
+describe("ModelsPanel", () => {
+	test("renders one unified model assignment surface", () => {
 		const settings = makeSettings();
 		settings.settings.memoryModels = {
 			extraction: {
@@ -336,19 +296,70 @@ describe("MemoryModelsPanel", () => {
 		};
 
 		const html = renderToStaticMarkup(
-			<MemoryModelsPanel settings={settings} onCommand={() => {}} />,
+			<ModelsPanel settings={settings} onCommand={() => {}} />,
 		);
 
-		expect(html).toContain("Memory models");
+		expect(html).toContain("Model assignments");
+		expect(html).toContain("Global tiers");
+		expect(html).toContain("Memory calls");
+		expect(html).toContain("Agent types");
+		expect(html).toContain("Best");
+		expect(html).toContain("Balanced");
+		expect(html).toContain("Fast");
 		expect(html).toContain("Memory extraction");
 		expect(html).toContain("Relationship classifier");
 		expect(html).toContain("Subcortical recall");
-		expect(html).toContain("SPROUT_MEMORY_SUBCORTICAL_MODEL");
+		expect(html).toContain("metacognitive");
+		expect(html).toContain("Claude Opus 4.6");
 		expect(html).toContain("Qwen 2.5 Coder");
+		expect(html).toContain("SPROUT_MEMORY_SUBCORTICAL_MODEL");
+		expect(html).not.toContain("Default models");
+		expect(html).not.toContain("Memory models");
+	});
+
+	test("keeps default and memory env override notes visible without a loaded catalog", () => {
+		const settings = makeSettings();
+		settings.catalog = settings.catalog.map((entry) => ({ ...entry, models: [] }));
+		settings.runtime.modelOverrides.defaults.best = {
+			source: "env",
+			envVar: "SPROUT_DEFAULT_BEST_MODEL",
+			model: {
+				providerId: "anthropic-main",
+				modelId: "claude-opus-4-6",
+			},
+			catalogStatus: "not_loaded",
+		};
+		settings.settings.memoryModels = {
+			extraction: {
+				providerId: "anthropic-main",
+				modelId: "claude-sonnet-4-6",
+			},
+		};
+		settings.runtime.modelOverrides.memoryModels.extraction = {
+			source: "env",
+			envVar: "SPROUT_MEMORY_EXTRACTION_MODEL",
+			model: {
+				providerId: "anthropic-main",
+				modelId: "claude-sonnet-4-6",
+			},
+			catalogStatus: "not_loaded",
+		};
+
+		const html = renderToStaticMarkup(
+			<ModelsPanel settings={settings} onCommand={() => {}} />,
+		);
+
+		expect(html).toContain("Refresh provider models to configure assignments.");
+		expect(html).toContain("Stored: anthropic-main:claude-opus-4-6");
+		expect(html).toContain("Stored: anthropic-main:claude-sonnet-4-6");
+		expect(html).toContain("SPROUT_DEFAULT_BEST_MODEL");
+		expect(html).toContain("SPROUT_MEMORY_EXTRACTION_MODEL");
 	});
 
 	test("builds set memory model commands", () => {
-		expect(createSetMemoryModelCommand("extraction", "anthropic-main:claude-sonnet-4-6")).toEqual({
+		expect(
+			createSetMemoryModelCommand("extraction", "anthropic-main:claude-sonnet-4-6"),
+		).toEqual({
 			kind: "set_memory_model",
 			data: {
 				purpose: "extraction",
@@ -367,36 +378,6 @@ describe("MemoryModelsPanel", () => {
 		});
 	});
 
-	test("keeps stale memory model values visible when no model catalog is loaded", () => {
-		const settings = makeSettings();
-		settings.catalog = settings.catalog.map((entry) => ({ ...entry, models: [] }));
-		settings.settings.memoryModels = {
-			extraction: {
-				providerId: "anthropic-main",
-				modelId: "claude-sonnet-4-6",
-			},
-		};
-		settings.runtime.modelOverrides.memoryModels.extraction = {
-			source: "env",
-			envVar: "SPROUT_MEMORY_EXTRACTION_MODEL",
-			model: {
-				providerId: "anthropic-main",
-				modelId: "claude-sonnet-4-6",
-			},
-			catalogStatus: "not_loaded",
-		};
-
-		const html = renderToStaticMarkup(
-			<MemoryModelsPanel settings={settings} onCommand={() => {}} />,
-		);
-
-		expect(html).toContain("Refresh models to configure memory models.");
-		expect(html).toContain("Stored: anthropic-main:claude-sonnet-4-6");
-		expect(html).toContain("SPROUT_MEMORY_EXTRACTION_MODEL");
-	});
-});
-
-describe("AgentModelsPanel", () => {
 	test("renders agent model controls and env override notes", () => {
 		const settings = makeSettings();
 		settings.settings.agentModelOverrides = {
@@ -446,7 +427,7 @@ describe("AgentModelsPanel", () => {
 		};
 
 		const html = renderToStaticMarkup(
-			<AgentModelsPanel settings={settings} onCommand={() => {}} />,
+			<ModelsPanel settings={settings} onCommand={() => {}} />,
 		);
 
 		expect(html).toContain("Agent types");
