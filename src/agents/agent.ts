@@ -226,6 +226,7 @@ export class Agent {
 	private readonly delegateObserverMissingModelWarnings = new Set<string>();
 	private readonly startedDelegateObserverHandles = new Set<string>();
 	private delegateObserverEventCaptureReady?: Promise<void>;
+	private delegateObserverEventUnsubscribe?: () => void;
 	private history: Message[] = [];
 	private systemPromptBase?: string;
 	private systemPrompt?: string;
@@ -1133,11 +1134,22 @@ export class Agent {
 	private async ensureDelegateObserverEventCapture(): Promise<void> {
 		if (!this.spawner) return;
 		if (!this.delegateObserverEventCaptureReady) {
-			this.delegateObserverEventCaptureReady = this.spawner.subscribeSessionEvents((eventMsg) => {
-				this.captureDelegateObserverBusEvent(eventMsg.event);
-			});
+			this.delegateObserverEventCaptureReady = this.spawner
+				.subscribeSessionEvents((eventMsg) => {
+					this.captureDelegateObserverBusEvent(eventMsg.event);
+				})
+				.then((unsubscribe) => {
+					this.delegateObserverEventUnsubscribe = unsubscribe;
+				});
 		}
 		await this.delegateObserverEventCaptureReady;
+	}
+
+	private stopDelegateObserverEventCapture(): void {
+		this.delegateObserverEventUnsubscribe?.();
+		this.delegateObserverEventUnsubscribe = undefined;
+		this.delegateObserverEventCaptureReady = undefined;
+		this.delegateObserverEventsByChildId.clear();
 	}
 
 	private captureDelegateObserverBusEvent(event: SessionEvent): void {
@@ -2345,6 +2357,7 @@ export class Agent {
 			throw err;
 		} finally {
 			clearTimeout(timeoutTimer);
+			this.stopDelegateObserverEventCapture();
 			this.signal = externalSignal;
 		}
 

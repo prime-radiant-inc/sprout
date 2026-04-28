@@ -1161,7 +1161,9 @@ describe("AgentSpawner", () => {
 			const firstCallback = (event: EventMessage) => events1.push(event);
 			await spawner.subscribeSessionEvents(firstCallback);
 			await spawner.subscribeSessionEvents(firstCallback);
-			await spawner.subscribeSessionEvents((event) => events2.push(event));
+			const unsubscribeSecond = await spawner.subscribeSessionEvents((event) =>
+				events2.push(event),
+			);
 
 			await spawnWithResolver({
 				agentName: "test-leaf",
@@ -1175,6 +1177,20 @@ describe("AgentSpawner", () => {
 
 			expect(events1.length).toBeGreaterThan(0);
 			expect(events2.length).toBe(events1.length);
+
+			unsubscribeSecond();
+			const secondCount = events2.length;
+			await spawnWithResolver({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: addr("root", 0),
+				goal: "Second callback unsubscribed",
+				blocking: true,
+				shared: false,
+				workDir: tempDir,
+			});
+			expect(events1.length).toBeGreaterThan(secondCount);
+			expect(events2.length).toBe(secondCount);
 		}, 15_000);
 	});
 

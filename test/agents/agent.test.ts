@@ -3675,8 +3675,16 @@ describe("Agent", () => {
 				}
 				return "handle-123";
 			},
-			subscribeSessionEvents: async (callback: (event: EventMessage) => void): Promise<void> => {
+			subscribeSessionEvents: async (
+				callback: (event: EventMessage) => void,
+			): Promise<() => void> => {
 				sessionEventCallbacks.push(callback);
+				return () => {
+					const index = sessionEventCallbacks.indexOf(callback);
+					if (index !== -1) {
+						sessionEventCallbacks.splice(index, 1);
+					}
+				};
 			},
 			deliverObserverFrame: async (opts: DeliverObserverFrameOptions): Promise<void> => {
 				observerDeliveryCalls.push(opts);
@@ -4007,6 +4015,7 @@ describe("Agent", () => {
 
 		await agent.run("observer timing test");
 
+		expect(sessionEventCallbacks).toHaveLength(0);
 		expect(observerDeliveryCalls).toHaveLength(1);
 		const message = observerDeliveryCalls[0]!.message;
 		expect(message).toContain('handle "caller"');

@@ -260,12 +260,22 @@ export class AgentSpawner {
 	 * Multiple independent runtime facilities can subscribe. Use updateSessionId()
 	 * to resubscribe after a session reset (e.g. /clear).
 	 */
-	async subscribeSessionEvents(callback: (event: EventMessage) => void): Promise<void> {
+	async subscribeSessionEvents(callback: (event: EventMessage) => void): Promise<() => void> {
 		const hadCallbacks = this.sessionEventsCallbacks.size > 0;
 		this.sessionEventsCallbacks.add(callback);
 		if (!hadCallbacks) {
 			await this.subscribeToSessionTopic();
 		}
+		return () => {
+			this.sessionEventsCallbacks.delete(callback);
+			if (this.sessionEventsCallbacks.size === 0 && this.currentSessionEventsTopic) {
+				const topic = this.currentSessionEventsTopic;
+				this.currentSessionEventsTopic = undefined;
+				if (this.bus.connected) {
+					this.bus.unsubscribe(topic).catch(() => {});
+				}
+			}
+		};
 	}
 
 	/**
