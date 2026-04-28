@@ -28,18 +28,11 @@ interface ObserverSubscriptionState {
 	config: ObserverAttachmentConfig;
 	includeKinds: Set<EventKind>;
 	pendingEvents: SessionEvent[];
-	childEventsByAgentId: Map<string, SessionEvent[]>;
 	triggerCount: number;
 	observerStarted: boolean;
 	deliveryInFlight: boolean;
 	flushRequested: boolean;
-	queuedDeliveries: QueuedObserverDelivery[];
 	warningEmitted: boolean;
-}
-
-interface QueuedObserverDelivery {
-	events: SessionEvent[];
-	failures: number;
 }
 
 export interface ObserverRegistryOptions {
@@ -111,17 +104,12 @@ export class ObserverRegistry {
 		for (const subscription of this.subscriptions) {
 			if (!subscription.includeKinds.has(event.kind)) continue;
 			subscription.pendingEvents.push(event);
-			if (subscription.config.target === "caller_delegates" && event.depth > 0) {
-				const childEvents = subscription.childEventsByAgentId.get(event.agent_id) ?? [];
-				childEvents.push(event);
-				subscription.childEventsByAgentId.set(event.agent_id, childEvents);
-			}
 			this.trimPendingEvents(subscription);
 
 			if (!this.shouldTrigger(subscription, event)) continue;
 			subscription.triggerCount++;
 			if (subscription.triggerCount % subscription.config.trigger.every !== 0) continue;
-			void this.flush(subscription, event);
+			void this.flush(subscription);
 		}
 	}
 
@@ -129,12 +117,10 @@ export class ObserverRegistry {
 		this.sessionId = sessionId;
 		for (const subscription of this.subscriptions) {
 			subscription.pendingEvents = [];
-			subscription.childEventsByAgentId.clear();
 			subscription.triggerCount = 0;
 			subscription.observerStarted = false;
 			subscription.deliveryInFlight = false;
 			subscription.flushRequested = false;
-			subscription.queuedDeliveries = [];
 			subscription.warningEmitted = false;
 		}
 		this.startedHandles.clear();
@@ -145,34 +131,15 @@ export class ObserverRegistry {
 	private shouldTrigger(subscription: ObserverSubscriptionState, event: SessionEvent): boolean {
 		if (event.kind !== subscription.config.trigger.event) return false;
 		if (subscription.config.target === "root" && event.depth !== 0) return false;
-		if (subscription.config.target === "caller_delegates") {
-			return this.isObservedDelegateFinal(subscription.config, event);
-		}
 		return true;
 	}
 
-	private async flush(
-		subscription: ObserverSubscriptionState,
-		triggerEvent?: SessionEvent,
-		preselectedDelivery?: QueuedObserverDelivery,
-	): Promise<void> {
+	private async flush(subscription: ObserverSubscriptionState): Promise<void> {
 		if (subscription.deliveryInFlight) {
-			if (triggerEvent && subscription.config.target === "caller_delegates") {
-				const delivery = this.takeEventsForDelivery(subscription, triggerEvent);
-				subscription.pendingEvents = delivery.retainedEvents;
-				subscription.queuedDeliveries.push({ events: delivery.events, failures: 0 });
-				return;
-			}
 			subscription.flushRequested = true;
 			return;
 		}
-		if (
-			!preselectedDelivery &&
-			subscription.pendingEvents.length === 0 &&
-			subscription.queuedDeliveries.length === 0
-		) {
-			return;
-		}
+		if (subscription.pendingEvents.length === 0) return;
 
 		const resolverSettings = this.getResolverSettings?.();
 		if (
@@ -184,24 +151,8 @@ export class ObserverRegistry {
 		}
 
 		const generation = this.generation;
-		let events = preselectedDelivery?.events;
-		let deliveryFailures = preselectedDelivery?.failures ?? 0;
-		if (!events) {
-			const queuedDelivery = this.shiftQueuedDelivery(subscription, triggerEvent !== undefined);
-			if (queuedDelivery) {
-				if (triggerEvent) {
-					const delivery = this.takeEventsForDelivery(subscription, triggerEvent);
-					subscription.pendingEvents = delivery.retainedEvents;
-					subscription.queuedDeliveries.push({ events: delivery.events, failures: 0 });
-				}
-				events = queuedDelivery.events;
-				deliveryFailures = queuedDelivery.failures;
-			} else {
-				const delivery = this.takeEventsForDelivery(subscription, triggerEvent);
-				events = delivery.events;
-				subscription.pendingEvents = delivery.retainedEvents;
-			}
-		}
+		const events = subscription.pendingEvents;
+		subscription.pendingEvents = [];
 		subscription.deliveryInFlight = true;
 		let deliveryFailed = false;
 		try {
@@ -219,16 +170,7 @@ export class ObserverRegistry {
 		} catch (error) {
 			if (this.generation === generation) {
 				deliveryFailed = true;
-				if (subscription.config.target === "caller_delegates") {
-					const failedDelivery = { events, failures: deliveryFailures + 1 };
-					if (deliveryFailures === 0) {
-						subscription.queuedDeliveries.unshift(failedDelivery);
-					} else {
-						subscription.queuedDeliveries.push(failedDelivery);
-					}
-				} else {
-					subscription.pendingEvents = [...events, ...subscription.pendingEvents];
-				}
+				subscription.pendingEvents = [...events, ...subscription.pendingEvents];
 				this.trimPendingEvents(subscription);
 				this.emitEvent("warning", "session", 0, {
 					message: `Observer '${subscription.config.agentName}' delivery failed: ${
@@ -239,30 +181,12 @@ export class ObserverRegistry {
 		} finally {
 			if (this.generation === generation) {
 				subscription.deliveryInFlight = false;
-				const queuedDelivery = this.shiftQueuedDelivery(
-					subscription,
-					deliveryFailed && deliveryFailures > 0,
-				);
-				if (queuedDelivery) {
-					void this.flush(subscription, undefined, queuedDelivery);
-				} else if (!deliveryFailed && subscription.flushRequested) {
+				if (!deliveryFailed && subscription.flushRequested) {
 					subscription.flushRequested = false;
 					void this.flush(subscription);
 				}
 			}
 		}
-	}
-
-	private shiftQueuedDelivery(
-		subscription: ObserverSubscriptionState,
-		skipRepeatedFailures: boolean,
-	): QueuedObserverDelivery | undefined {
-		if (!skipRepeatedFailures) return subscription.queuedDeliveries.shift();
-		const index = subscription.queuedDeliveries.findIndex((delivery) => delivery.failures <= 1);
-		if (index === -1) return undefined;
-		const delivery = subscription.queuedDeliveries[index];
-		subscription.queuedDeliveries.splice(index, 1);
-		return delivery;
 	}
 
 	private async deliverFrame(
@@ -299,6 +223,9 @@ export class ObserverRegistry {
 			child_id: this.observerAgentId(subscription.config),
 			handle_id: this.observerHandleId(subscription.config),
 			description: subscription.config.description ?? `observes ${subscription.config.target}`,
+			owner_handle_id: ROOT_CALLER.handleId,
+			owner_agent_id: ROOT_CALLER.agentId,
+			observed_target: subscription.config.target,
 			observer: true,
 		});
 	}
@@ -316,12 +243,6 @@ export class ObserverRegistry {
 		if (subscription.pendingEvents.length > maxPendingEvents) {
 			subscription.pendingEvents = subscription.pendingEvents.slice(-maxPendingEvents);
 		}
-		if (subscription.config.target !== "caller_delegates") return;
-		for (const [agentId, events] of subscription.childEventsByAgentId) {
-			if (events.length > maxPendingEvents) {
-				subscription.childEventsByAgentId.set(agentId, events.slice(-maxPendingEvents));
-			}
-		}
 	}
 
 	private observerHandleId(config: ObserverAttachmentConfig): string {
@@ -331,46 +252,6 @@ export class ObserverRegistry {
 	private observerAgentId(config: ObserverAttachmentConfig): string {
 		return config.agentId ?? this.observerHandleId(config);
 	}
-
-	private takeEventsForDelivery(
-		subscription: ObserverSubscriptionState,
-		triggerEvent: SessionEvent | undefined,
-	): { events: SessionEvent[]; retainedEvents: SessionEvent[] } {
-		if (subscription.config.target !== "caller_delegates" || !triggerEvent) {
-			return { events: subscription.pendingEvents, retainedEvents: [] };
-		}
-		const childId = stringData(triggerEvent, "child_id");
-		const events: SessionEvent[] = [];
-		if (childId) {
-			events.push(...(subscription.childEventsByAgentId.get(childId) ?? []));
-			subscription.childEventsByAgentId.delete(childId);
-		}
-		if (!events.includes(triggerEvent)) {
-			events.push(triggerEvent);
-		}
-		const delivered = new Set(events);
-		const retainedEvents = subscription.pendingEvents.filter((event) => !delivered.has(event));
-		return { events, retainedEvents };
-	}
-
-	private isObservedDelegateFinal(config: ObserverAttachmentConfig, event: SessionEvent): boolean {
-		if (event.kind !== "act_end") return false;
-		if (event.data.observer === true) return false;
-		const agentName = stringData(event, "agent_name");
-		if (agentName === "wait_agent" || agentName === "message_agent") return false;
-		if (config.callerAgentId && event.agent_id !== config.callerAgentId) return false;
-		if (config.callerDepth !== undefined && event.depth !== config.callerDepth) return false;
-		if (event.data.continued_in_background === true) return false;
-		if (typeof event.data.handle_id === "string" && typeof event.data.turns !== "number") {
-			return false;
-		}
-		return typeof event.data.child_id === "string";
-	}
-}
-
-function stringData(event: SessionEvent, key: string): string | undefined {
-	const value = event.data[key];
-	return typeof value === "string" ? value : undefined;
 }
 
 function createSubscriptionState(config: ObserverAttachmentConfig): ObserverSubscriptionState {
@@ -378,12 +259,10 @@ function createSubscriptionState(config: ObserverAttachmentConfig): ObserverSubs
 		config,
 		includeKinds: new Set(config.events),
 		pendingEvents: [],
-		childEventsByAgentId: new Map(),
 		triggerCount: 0,
 		observerStarted: false,
 		deliveryInFlight: false,
 		flushRequested: false,
-		queuedDeliveries: [],
 		warningEmitted: false,
 	};
 }

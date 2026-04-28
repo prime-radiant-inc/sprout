@@ -3,7 +3,7 @@ import type { AgentModelPurpose, EventKind, SessionEvent } from "../kernel/types
 
 export interface ObserverAttachmentConfig {
 	agentName: string;
-	target: "root" | "session" | "caller_delegates";
+	target: "root" | "session";
 	events: EventKind[];
 	trigger: { every: number; event: EventKind };
 	maxEvents: number;
@@ -12,8 +12,6 @@ export interface ObserverAttachmentConfig {
 	agentId?: string;
 	modelPurpose?: AgentModelPurpose;
 	description?: string;
-	callerAgentId?: string;
-	callerDepth?: number;
 }
 
 export interface ObserverFrame {

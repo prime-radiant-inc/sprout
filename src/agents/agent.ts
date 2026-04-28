@@ -24,6 +24,8 @@ import { truncateToolOutput } from "../kernel/truncation.ts";
 import {
 	type ActResult,
 	type AgentCommand,
+	type AgentDelegateObserverConfig,
+	type AgentModelPurpose,
 	type AgentSpec,
 	type Delegation,
 	type EventKind,
@@ -31,6 +33,7 @@ import {
 	type Memory,
 	type ModelRef,
 	type RoutingRule,
+	type SessionEvent,
 } from "../kernel/types.ts";
 import type { LearnSink } from "../learn/learn-process.ts";
 import type { Client } from "../llm/client.ts";
@@ -46,6 +49,7 @@ import type {
 } from "../llm/types.ts";
 import { Msg, messageText } from "../llm/types.ts";
 import { createReplayRecorder, type ReplayRecorder } from "../replay/recorder.ts";
+import { parseAgentModelInput } from "../shared/session-selection.ts";
 import { getToolDisplayName } from "../shared/tool-display.ts";
 import { ulid } from "../util/ulid.ts";
 import { getContextWindowSize } from "./context-window.ts";
@@ -60,6 +64,7 @@ import {
 	resolveMemoryModel,
 	resolveModel,
 } from "./model-resolver.ts";
+import { buildObserverFrame, renderObserverFrame } from "./observers.ts";
 import type { Postscripts } from "./plan.ts";
 import {
 	buildDelegateTool,
@@ -142,6 +147,30 @@ export interface AgentOptions {
 	trustedUserInstruction?: string;
 	/** Override retry backoff settings for LLM calls (tests/tuning). */
 	llmRetryOptions?: Omit<RetryOptions, "signal" | "onRetry">;
+	/** Override delegate observer wait timeout (tests/tuning). */
+	delegateObserverTimeoutMs?: number;
+}
+
+const DEFAULT_DELEGATE_OBSERVER_MAX_EVENTS = 12;
+const DEFAULT_DELEGATE_OBSERVER_MAX_CHARS = 3000;
+const DEFAULT_DELEGATE_OBSERVER_TIMEOUT_MS = 1500;
+
+interface DelegateObserverRuntimeConfig {
+	config: AgentDelegateObserverConfig;
+	handleId: string;
+	agentId: string;
+	agentName: string;
+	modelPurpose?: AgentModelPurpose;
+	description: string;
+}
+
+interface DelegateObserverContext {
+	delegation: Delegation;
+	childId: string;
+	childHandleId?: string;
+	childAgentName: string;
+	result: ResultMessage;
+	description?: string;
 }
 
 export interface AgentResult {
@@ -191,6 +220,12 @@ export class Agent {
 	private readonly logger: Logger;
 	private readonly resolverSettings: ResolverSettings;
 	private readonly subcorticalMemoryModel?: ResolvedModel;
+	private readonly delegateObserverConfigs: DelegateObserverRuntimeConfig[] = [];
+	private readonly delegateObserverTimeoutMs: number;
+	private readonly delegateObserverEventsByChildId = new Map<string, SessionEvent[]>();
+	private readonly delegateObserverMissingModelWarnings = new Set<string>();
+	private readonly startedDelegateObserverHandles = new Set<string>();
+	private delegateObserverEventCaptureReady?: Promise<void>;
 	private history: Message[] = [];
 	private systemPromptBase?: string;
 	private systemPrompt?: string;
@@ -252,6 +287,8 @@ export class Agent {
 			: undefined;
 		this.trustedUserInstruction = options.trustedUserInstruction;
 		this.llmRetryOptions = options.llmRetryOptions;
+		this.delegateObserverTimeoutMs =
+			options.delegateObserverTimeoutMs ?? DEFAULT_DELEGATE_OBSERVER_TIMEOUT_MS;
 		this.initialHistory = options.initialHistory ? [...options.initialHistory] : undefined;
 		this.callerPrimitivePrimitives = this.captureCallerPrimitivePrimitives(
 			options.primitiveRegistry,
@@ -294,6 +331,7 @@ export class Agent {
 			resolverSettings,
 			modelMap,
 		);
+		this.delegateObserverConfigs = this.buildDelegateObserverConfigs();
 		if (this.genome && subcorticalRecallEnabled(this.spec.subcortical_recall)) {
 			try {
 				this.subcorticalMemoryModel = resolveMemoryModel("subcortical", resolverSettings, modelMap);
@@ -764,6 +802,33 @@ export class Agent {
 		return this.genome.getAgent(spec.name) ?? spec;
 	}
 
+	private buildDelegateObserverConfigs(): DelegateObserverRuntimeConfig[] {
+		return (this.spec.observe_delegates ?? []).map((config, index) => {
+			const observerSpec = this.resolveObserverSpec(config.agent);
+			if (!observerSpec) {
+				throw new Error(
+					`Delegate observer agent '${config.agent}' configured by '${this.spec.name}' was not found`,
+				);
+			}
+			const parsedModel = parseAgentModelInput(observerSpec.model);
+			const handleId = delegateObserverHandleId(this.selfAddress, index, config.agent);
+			return {
+				config,
+				handleId,
+				agentId: handleId,
+				agentName: config.agent,
+				modelPurpose: parsedModel.kind === "agent_purpose" ? parsedModel.purpose : undefined,
+				description: `observes ${this.spec.name} delegate completions`,
+			};
+		});
+	}
+
+	private resolveObserverSpec(agentName: string): AgentSpec | undefined {
+		return (
+			this.genome?.getAgent(agentName) ?? this.availableAgents.find((a) => a.name === agentName)
+		);
+	}
+
 	/**
 	 * Resolve a delegation target against this agent's effective allowlist.
 	 *
@@ -1050,6 +1115,226 @@ export class Agent {
 		return registry;
 	}
 
+	private async beginDelegateObserverCapture(childId: string): Promise<boolean> {
+		if (!this.spawner || this.delegateObserverConfigs.length === 0) return false;
+		this.delegateObserverEventsByChildId.set(childId, []);
+		try {
+			await this.ensureDelegateObserverEventCapture();
+		} catch (error) {
+			this.emitDelegateObserverWarning(
+				`Delegate observer event capture failed: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+			);
+		}
+		return true;
+	}
+
+	private async ensureDelegateObserverEventCapture(): Promise<void> {
+		if (!this.spawner) return;
+		if (!this.delegateObserverEventCaptureReady) {
+			this.delegateObserverEventCaptureReady = this.spawner.subscribeSessionEvents((eventMsg) => {
+				this.captureDelegateObserverBusEvent(eventMsg.event);
+			});
+		}
+		await this.delegateObserverEventCaptureReady;
+	}
+
+	private captureDelegateObserverBusEvent(event: SessionEvent): void {
+		const events = this.delegateObserverEventsByChildId.get(event.agent_id);
+		if (!events) return;
+		this.appendDelegateObserverEvent(event.agent_id, event);
+	}
+
+	private captureDelegateObserverOwnerEvent(
+		childId: string,
+		kind: EventKind,
+		agentId: string,
+		depth: number,
+		data: Record<string, unknown>,
+	): void {
+		if (!this.delegateObserverEventsByChildId.has(childId)) return;
+		this.appendDelegateObserverEvent(childId, {
+			kind,
+			timestamp: Date.now(),
+			agent_id: agentId,
+			depth,
+			data,
+		});
+	}
+
+	private appendDelegateObserverEvent(childId: string, event: SessionEvent): void {
+		const events = this.delegateObserverEventsByChildId.get(childId);
+		if (!events) return;
+		events.push(event);
+		const limit = this.delegateObserverCaptureLimit();
+		if (events.length > limit) {
+			this.delegateObserverEventsByChildId.set(childId, events.slice(-limit));
+		}
+	}
+
+	private delegateObserverCaptureLimit(): number {
+		const maxEvents = Math.max(
+			...this.delegateObserverConfigs.map(
+				(runtime) => runtime.config.delivery?.max_events ?? DEFAULT_DELEGATE_OBSERVER_MAX_EVENTS,
+			),
+			DEFAULT_DELEGATE_OBSERVER_MAX_EVENTS,
+		);
+		return maxEvents * 4;
+	}
+
+	private async deliverDelegateObserverFrames(context: DelegateObserverContext): Promise<void> {
+		if (!this.spawner || this.delegateObserverConfigs.length === 0) return;
+		const events = [...(this.delegateObserverEventsByChildId.get(context.childId) ?? [])];
+		await Promise.all(
+			this.delegateObserverConfigs.map((runtime) =>
+				this.deliverDelegateObserverFrame(runtime, context, events),
+			),
+		);
+	}
+
+	private async deliverDelegateObserverFrame(
+		runtime: DelegateObserverRuntimeConfig,
+		context: DelegateObserverContext,
+		events: SessionEvent[],
+	): Promise<void> {
+		if (!this.spawner) return;
+		if (runtime.modelPurpose && !this.resolverSettings.agentModels[runtime.modelPurpose]) {
+			this.emitMissingDelegateObserverModelWarning(runtime);
+			return;
+		}
+
+		if (!this.startedDelegateObserverHandles.has(runtime.handleId)) {
+			this.emitAndLog("act_start", this.agentId ?? this.spec.name, this.depth, {
+				agent_name: runtime.agentName,
+				child_id: runtime.agentId,
+				handle_id: runtime.handleId,
+				description: runtime.description,
+				owner_handle_id: this.selfAddress.handleId,
+				owner_agent_id: this.selfAddress.agentId,
+				observed_target: "delegate",
+				observer: true,
+			});
+			this.startedDelegateObserverHandles.add(runtime.handleId);
+		}
+
+		const message = this.buildDelegateObserverFrameMessage(runtime, context, events);
+		const delivery = this.spawner.deliverObserverFrame({
+			agentName: runtime.agentName,
+			genomePath: this.genomePath ?? "",
+			projectDataDir: this.projectDataDir,
+			caller: this.selfAddress,
+			message,
+			handleId: runtime.handleId,
+			agentId: runtime.agentId,
+			workDir: this.env.working_directory(),
+			rootDir: this.rootDir,
+			evalMode: this.evalMode,
+			resolverSettings: this.resolverSettings,
+			surfacedMemoryBlock: "",
+		});
+		try {
+			await withTimeout(
+				delivery,
+				this.delegateObserverTimeoutMs,
+				`Delegate observer '${runtime.agentName}' timed out after ${this.delegateObserverTimeoutMs}ms`,
+			);
+		} catch (error) {
+			delivery.catch(() => {});
+			this.emitDelegateObserverWarning(
+				`Delegate observer '${runtime.agentName}' delivery failed: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+			);
+		}
+	}
+
+	private emitMissingDelegateObserverModelWarning(runtime: DelegateObserverRuntimeConfig): void {
+		if (!runtime.modelPurpose || this.delegateObserverMissingModelWarnings.has(runtime.handleId)) {
+			return;
+		}
+		this.delegateObserverMissingModelWarnings.add(runtime.handleId);
+		this.emitDelegateObserverWarning(
+			`Observer '${runtime.agentName}' is not running because agent model '${runtime.modelPurpose}' is not configured.`,
+		);
+	}
+
+	private emitDelegateObserverWarning(message: string): void {
+		this.emitAndLog("warning", this.agentId ?? this.spec.name, this.depth, { message });
+	}
+
+	private buildDelegateObserverFrameMessage(
+		runtime: DelegateObserverRuntimeConfig,
+		context: DelegateObserverContext,
+		events: SessionEvent[],
+	): string {
+		const maxEvents = runtime.config.delivery?.max_events ?? DEFAULT_DELEGATE_OBSERVER_MAX_EVENTS;
+		const maxChars = runtime.config.delivery?.max_chars ?? DEFAULT_DELEGATE_OBSERVER_MAX_CHARS;
+		const frame = buildObserverFrame({
+			sessionId: this.sessionId,
+			events,
+			includeKinds: runtime.config.events,
+			maxEvents,
+			maxChars,
+		});
+		const callerPlanText = this.latestVisiblePlanText();
+		const lines = [
+			"<sprout:delegate-observer-frame>",
+			"<instructions>",
+			'Observe this completed delegate result. If a short concrete nudge is likely to improve the caller\'s next turn, use message_agent with handle "caller" and blocking false.',
+			"Return exactly MESSAGE_SENT after messaging. Return exactly NO_MESSAGE if no intervention is warranted.",
+			"</instructions>",
+			"<caller>",
+			`Agent: ${escapeXml(this.spec.name)}`,
+			`Handle: ${escapeXml(this.selfAddress.handleId)}`,
+			`Agent ID: ${escapeXml(this.selfAddress.agentId)}`,
+			"</caller>",
+			"<delegation>",
+			`Target: ${escapeXml(context.childAgentName)}`,
+			`Goal: ${escapeXml(truncateForObserver(context.delegation.goal, 1600))}`,
+			...(context.description
+				? [`Description: ${escapeXml(truncateForObserver(context.description, 400))}`]
+				: []),
+			...(context.delegation.hints && context.delegation.hints.length > 0
+				? [
+						`Hints: ${escapeXml(
+							truncateForObserver(
+								context.delegation.hints.map((hint) => `- ${hint}`).join("\n"),
+								1000,
+							),
+						)}`,
+					]
+				: []),
+			...(callerPlanText
+				? [`Caller visible plan: ${escapeXml(truncateForObserver(callerPlanText, 1200))}`]
+				: []),
+			"</delegation>",
+			"<child-result>",
+			`Agent: ${escapeXml(context.childAgentName)}`,
+			`Handle: ${escapeXml(context.childHandleId ?? context.result.handle_id)}`,
+			`Child ID: ${escapeXml(context.childId)}`,
+			`Success: ${context.result.success ? "true" : "false"}`,
+			`Stumbles: ${context.result.stumbles}`,
+			`Turns: ${context.result.turns}`,
+			`Timed out: ${context.result.timed_out ? "true" : "false"}`,
+			`Output: ${escapeXml(truncateForObserver(context.result.output, 2000))}`,
+			"</child-result>",
+			renderObserverFrame(frame),
+			"</sprout:delegate-observer-frame>",
+		];
+		return lines.join("\n");
+	}
+
+	private latestVisiblePlanText(): string | undefined {
+		for (let i = this.history.length - 1; i >= 0; i--) {
+			const message = this.history[i];
+			if (!message || message.role !== "assistant") continue;
+			const text = messageText(message).trim();
+			if (text.length > 0) return text;
+		}
+		return undefined;
+	}
+
 	/**
 	 * Execute a delegation via the bus-based spawner. Returns the tool result message and stumble count.
 	 *
@@ -1063,6 +1348,12 @@ export class Agent {
 		const handleId = ulid();
 		const childId = ulid();
 		const descData = delegation.description ? { description: delegation.description } : {};
+		const caller = this.callerIdentity();
+		const blocking = delegation.blocking !== false; // default true
+		const shared = delegation.shared === true; // default false
+		const captureDelegateEvents = blocking
+			? await this.beginDelegateObserverCapture(childId)
+			: false;
 
 		const mnemonicName = await generateMnemonicName(
 			this.client,
@@ -1078,50 +1369,55 @@ export class Agent {
 		);
 		if (mnemonicName) this.usedMnemonicNames.add(mnemonicName);
 
-		this.emitAndLog("act_start", agentId, this.depth, {
+		const actStartData = {
 			agent_name: delegation.agent_name,
 			goal: delegation.goal,
 			...descData,
 			handle_id: handleId,
 			child_id: childId,
 			...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
-		});
+		};
+		this.captureDelegateObserverOwnerEvent(childId, "act_start", agentId, this.depth, actStartData);
+		this.emitAndLog("act_start", agentId, this.depth, actStartData);
 		const target = this.resolveDelegationTarget(delegation.agent_name);
-		if (!target.spec) {
-			const errorMsg = this.buildDelegationDeniedError(delegation.agent_name, target.allowedNames);
-			const toolResultMsg = Msg.toolResult(delegation.call_id, errorMsg, true);
-			this.emitAndLog("act_end", agentId, this.depth, {
-				agent_name: delegation.agent_name,
-				success: false,
-				error: errorMsg,
-				child_id: childId,
-				...descData,
-				...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
-				tool_result_message: toolResultMsg,
-			});
-			return { toolResultMsg, stumbles: 1 };
-		}
-
-		if (this.depth + 1 > MAX_AGENT_DEPTH) {
-			const errorMsg = this.buildDepthLimitError(delegation.agent_name);
-			const toolResultMsg = Msg.toolResult(delegation.call_id, errorMsg, true);
-			this.emitAndLog("act_end", agentId, this.depth, {
-				agent_name: delegation.agent_name,
-				success: false,
-				error: errorMsg,
-				child_id: childId,
-				...descData,
-				...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
-				tool_result_message: toolResultMsg,
-			});
-			return { toolResultMsg, stumbles: 1 };
-		}
-
-		const caller = this.callerIdentity();
-		const blocking = delegation.blocking !== false; // default true
-		const shared = delegation.shared === true; // default false
-
 		try {
+			if (!target.spec) {
+				const errorMsg = this.buildDelegationDeniedError(
+					delegation.agent_name,
+					target.allowedNames,
+				);
+				const toolResultMsg = Msg.toolResult(delegation.call_id, errorMsg, true);
+				const actEndData = {
+					agent_name: delegation.agent_name,
+					success: false,
+					error: errorMsg,
+					child_id: childId,
+					...descData,
+					...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
+					tool_result_message: toolResultMsg,
+				};
+				this.captureDelegateObserverOwnerEvent(childId, "act_end", agentId, this.depth, actEndData);
+				this.emitAndLog("act_end", agentId, this.depth, actEndData);
+				return { toolResultMsg, stumbles: 1 };
+			}
+
+			if (this.depth + 1 > MAX_AGENT_DEPTH) {
+				const errorMsg = this.buildDepthLimitError(delegation.agent_name);
+				const toolResultMsg = Msg.toolResult(delegation.call_id, errorMsg, true);
+				const actEndData = {
+					agent_name: delegation.agent_name,
+					success: false,
+					error: errorMsg,
+					child_id: childId,
+					...descData,
+					...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
+					tool_result_message: toolResultMsg,
+				};
+				this.captureDelegateObserverOwnerEvent(childId, "act_end", agentId, this.depth, actEndData);
+				this.emitAndLog("act_end", agentId, this.depth, actEndData);
+				return { toolResultMsg, stumbles: 1 };
+			}
+
 			const result = await this.spawner!.spawnAgent({
 				agentName: delegation.agent_name,
 				genomePath: this.genomePath ?? "",
@@ -1148,7 +1444,7 @@ export class Agent {
 					delegation.call_id,
 					`Agent started. Handle: ${result}`,
 				);
-				this.emitAndLog("act_end", agentId, this.depth, {
+				const actEndData = {
 					agent_name: delegation.agent_name,
 					success: true,
 					handle_id: result,
@@ -1156,7 +1452,9 @@ export class Agent {
 					...descData,
 					...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
 					tool_result_message: toolResultMsg,
-				});
+				};
+				this.captureDelegateObserverOwnerEvent(childId, "act_end", agentId, this.depth, actEndData);
+				this.emitAndLog("act_end", agentId, this.depth, actEndData);
 				return { toolResultMsg, stumbles: 0, output: result };
 			}
 
@@ -1165,7 +1463,7 @@ export class Agent {
 					delegation.call_id,
 					`This delegate started in blocking mode, but the blocking wait timed out. The agent continues in the background, and this handle is now non-blocking. Use wait_agent to wait for completion or message_agent to follow up. Handle: ${result.handleId}`,
 				);
-				this.emitAndLog("act_end", agentId, this.depth, {
+				const actEndData = {
 					agent_name: delegation.agent_name,
 					success: true,
 					handle_id: result.handleId,
@@ -1174,7 +1472,9 @@ export class Agent {
 					...descData,
 					...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
 					tool_result_message: toolResultMsg,
-				});
+				};
+				this.captureDelegateObserverOwnerEvent(childId, "act_end", agentId, this.depth, actEndData);
+				this.emitAndLog("act_end", agentId, this.depth, actEndData);
 				return { toolResultMsg, stumbles: 0, output: result.handleId };
 			}
 
@@ -1217,7 +1517,7 @@ export class Agent {
 			const content = `${truncated}\n\nHandle: ${resultMsg.handle_id}`;
 			const toolResultMsg = Msg.toolResult(delegation.call_id, content);
 
-			this.emitAndLog("act_end", agentId, this.depth, {
+			const actEndData = {
 				agent_name: delegation.agent_name,
 				success: resultMsg.success,
 				handle_id: resultMsg.handle_id,
@@ -1227,6 +1527,17 @@ export class Agent {
 				...descData,
 				...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
 				tool_result_message: toolResultMsg,
+			};
+			this.captureDelegateObserverOwnerEvent(childId, "act_end", agentId, this.depth, actEndData);
+			this.emitAndLog("act_end", agentId, this.depth, actEndData);
+
+			await this.deliverDelegateObserverFrames({
+				delegation,
+				childId,
+				childHandleId: resultMsg.handle_id,
+				childAgentName: target.spec.name,
+				result: resultMsg,
+				description: delegation.description,
 			});
 
 			return {
@@ -1237,7 +1548,7 @@ export class Agent {
 		} catch (err) {
 			const errorMsg = `Spawner delegation to '${delegation.agent_name}' failed: ${String(err)}`;
 			const toolResultMsg = Msg.toolResult(delegation.call_id, errorMsg, true);
-			this.emitAndLog("act_end", agentId, this.depth, {
+			const actEndData = {
 				agent_name: delegation.agent_name,
 				success: false,
 				error: errorMsg,
@@ -1245,8 +1556,14 @@ export class Agent {
 				...descData,
 				...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
 				tool_result_message: toolResultMsg,
-			});
+			};
+			this.captureDelegateObserverOwnerEvent(childId, "act_end", agentId, this.depth, actEndData);
+			this.emitAndLog("act_end", agentId, this.depth, actEndData);
 			return { toolResultMsg, stumbles: 1 };
+		} finally {
+			if (captureDelegateEvents) {
+				this.delegateObserverEventsByChildId.delete(childId);
+			}
 		}
 	}
 
@@ -2081,6 +2398,55 @@ function buildAgentAddress(options: {
 		agentId: options.agentId,
 		...(options.isObserver ? { role: "observer" as const } : {}),
 	};
+}
+
+function delegateObserverHandleId(
+	owner: AgentAddress,
+	configIndex: number,
+	observerAgentName: string,
+): string {
+	return [
+		"observer-delegate",
+		slugHandlePart(owner.handleId),
+		slugHandlePart(owner.agentId),
+		String(configIndex + 1),
+		slugHandlePart(observerAgentName),
+	].join("-");
+}
+
+function slugHandlePart(value: string): string {
+	const slug = value.replaceAll(/[^a-zA-Z0-9_-]/g, "-").replaceAll(/-+/g, "-");
+	return slug.length > 0 ? slug : "unknown";
+}
+
+function truncateForObserver(value: string, maxChars: number): string {
+	if (value.length <= maxChars) return value;
+	return `${value.slice(0, Math.max(0, maxChars - 3))}...`;
+}
+
+async function withTimeout<T>(
+	promise: Promise<T>,
+	timeoutMs: number,
+	timeoutMessage: string,
+): Promise<T> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	let didTimeout = false;
+	const timeout = new Promise<never>((_, reject) => {
+		timer = setTimeout(() => {
+			didTimeout = true;
+			reject(new Error(timeoutMessage));
+		}, timeoutMs);
+	});
+	try {
+		return await Promise.race([promise, timeout]);
+	} catch (error) {
+		if (didTimeout) {
+			promise.catch(() => {});
+		}
+		throw error;
+	} finally {
+		clearTimeout(timer);
+	}
 }
 
 function escapeXml(value: string): string {

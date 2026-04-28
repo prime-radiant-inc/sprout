@@ -767,7 +767,7 @@ interface AgentTreeNode {
 	// existing fields...
 	isObserver?: boolean;
 	ownerHandleId?: string;
-	observedTarget?: "root" | "session" | "caller_delegates";
+	observedTarget?: "root" | "session" | "delegate";
 }
 ```
 
@@ -783,7 +783,7 @@ Useful event metadata on observer `act_start`:
 	handle_id: "observer-delegate-...",
 	description: "observes caller delegate completions",
 	owner_handle_id: "01...",
-	observed_target: "caller_delegates"
+	observed_target: "delegate"
 }
 ```
 

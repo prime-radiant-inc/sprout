@@ -1151,15 +1151,16 @@ describe("AgentSpawner", () => {
 		}, 30_000);
 	});
 
-	describe("subscribeSessionEvents idempotency", () => {
-		test("second call is a no-op (does not duplicate events)", async () => {
+	describe("subscribeSessionEvents subscribers", () => {
+		test("multiple callbacks receive events without duplicating the same callback", async () => {
 			const mockClient = createMockClient("Idempotent test.");
 			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
 
 			const events1: EventMessage[] = [];
 			const events2: EventMessage[] = [];
-			await spawner.subscribeSessionEvents((event) => events1.push(event));
-			// Second call should be ignored
+			const firstCallback = (event: EventMessage) => events1.push(event);
+			await spawner.subscribeSessionEvents(firstCallback);
+			await spawner.subscribeSessionEvents(firstCallback);
 			await spawner.subscribeSessionEvents((event) => events2.push(event));
 
 			await spawnWithResolver({
@@ -1172,10 +1173,8 @@ describe("AgentSpawner", () => {
 				workDir: tempDir,
 			});
 
-			// First callback should receive events
 			expect(events1.length).toBeGreaterThan(0);
-			// Second callback should NOT receive events (was ignored)
-			expect(events2.length).toBe(0);
+			expect(events2.length).toBe(events1.length);
 		}, 15_000);
 	});
 

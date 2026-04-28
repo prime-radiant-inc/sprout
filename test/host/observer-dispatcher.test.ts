@@ -153,6 +153,9 @@ describe("ObserverDispatcher", () => {
 				child_id: "observer-metacognitive",
 				handle_id: "observer-metacognitive",
 				description: "observes root turns",
+				owner_handle_id: "root",
+				owner_agent_id: "root",
+				observed_target: "root",
 				observer: true,
 			},
 		});

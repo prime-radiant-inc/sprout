@@ -155,7 +155,7 @@ export class AgentSpawner {
 	private readonly waitTimeoutMs: number;
 	private readonly handles = new Map<string, AgentHandle>();
 	private readonly observerDeliveryChains = new Map<string, Promise<void>>();
-	private sessionEventsCallback?: (event: EventMessage) => void;
+	private readonly sessionEventsCallbacks = new Set<(event: EventMessage) => void>();
 	private rootMessageCallback?: (message: AgentMessageMessage) => void;
 	private currentSessionEventsTopic?: string;
 	private currentRootInboxTopic?: string;
@@ -257,13 +257,15 @@ export class AgentSpawner {
 	 * Every agent subprocess publishes here regardless of depth,
 	 * so this provides O(1) event delivery without relay chains.
 	 *
-	 * Can only be called once. Use updateSessionId() to resubscribe
-	 * after a session reset (e.g. /clear).
+	 * Multiple independent runtime facilities can subscribe. Use updateSessionId()
+	 * to resubscribe after a session reset (e.g. /clear).
 	 */
 	async subscribeSessionEvents(callback: (event: EventMessage) => void): Promise<void> {
-		if (this.sessionEventsCallback) return;
-		this.sessionEventsCallback = callback;
-		await this.subscribeToSessionTopic();
+		const hadCallbacks = this.sessionEventsCallbacks.size > 0;
+		this.sessionEventsCallbacks.add(callback);
+		if (!hadCallbacks) {
+			await this.subscribeToSessionTopic();
+		}
 	}
 
 	/**
@@ -285,7 +287,7 @@ export class AgentSpawner {
 	 */
 	async updateSessionId(newSessionId: string): Promise<void> {
 		this.sessionId = newSessionId;
-		if (this.sessionEventsCallback) {
+		if (this.sessionEventsCallbacks.size > 0) {
 			await this.subscribeToSessionTopic();
 		}
 		if (this.rootMessageCallback) {
@@ -322,14 +324,15 @@ export class AgentSpawner {
 			await this.bus.unsubscribe(this.currentSessionEventsTopic);
 		}
 
-		const callback = this.sessionEventsCallback!;
 		const topic = sessionEvents(this.sessionId);
 		this.currentSessionEventsTopic = topic;
 		await this.bus.subscribe(topic, (payload) => {
 			try {
 				const msg = parseBusMessage(payload);
 				if (msg.kind === "event") {
-					callback(msg);
+					for (const callback of this.sessionEventsCallbacks) {
+						callback(msg);
+					}
 				}
 			} catch {
 				// Ignore malformed messages

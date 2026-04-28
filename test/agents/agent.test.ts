@@ -7,8 +7,12 @@ import { type AgentOptions, Agent as RawAgent } from "../../src/agents/agent.ts"
 import { AgentEventEmitter } from "../../src/agents/events.ts";
 import { type AgentTreeEntry, scanAgentTree } from "../../src/agents/loader.ts";
 import { createResolverSettings } from "../../src/agents/model-resolver.ts";
-import type { AgentSpawner, SpawnAgentOptions } from "../../src/bus/spawner.ts";
-import type { AgentAddress, ResultMessage } from "../../src/bus/types.ts";
+import type {
+	AgentSpawner,
+	DeliverObserverFrameOptions,
+	SpawnAgentOptions,
+} from "../../src/bus/spawner.ts";
+import type { AgentAddress, EventMessage, ResultMessage } from "../../src/bus/types.ts";
 import { Genome } from "../../src/genome/genome.ts";
 import { LocalExecutionEnvironment } from "../../src/kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../../src/kernel/primitives.ts";
@@ -3642,6 +3646,8 @@ describe("Agent", () => {
 	/** Create a mock spawner that records calls and returns canned results. */
 	function createMockSpawner() {
 		const spawnCalls: SpawnAgentOptions[] = [];
+		const observerDeliveryCalls: DeliverObserverFrameOptions[] = [];
+		const sessionEventCallbacks: Array<(event: EventMessage) => void> = [];
 		const waitCalls: string[] = [];
 		const messageCalls: {
 			handleId: string;
@@ -3669,6 +3675,12 @@ describe("Agent", () => {
 				}
 				return "handle-123";
 			},
+			subscribeSessionEvents: async (callback: (event: EventMessage) => void): Promise<void> => {
+				sessionEventCallbacks.push(callback);
+			},
+			deliverObserverFrame: async (opts: DeliverObserverFrameOptions): Promise<void> => {
+				observerDeliveryCalls.push(opts);
+			},
 			waitAgent: async (handleId: string): Promise<ResultMessage> => {
 				waitCalls.push(handleId);
 				return cannedResult;
@@ -3691,7 +3703,77 @@ describe("Agent", () => {
 			shutdown: () => {},
 		} as unknown as AgentSpawner;
 
-		return { spawner, spawnCalls, waitCalls, messageCalls, cannedResult };
+		return {
+			spawner,
+			spawnCalls,
+			observerDeliveryCalls,
+			sessionEventCallbacks,
+			waitCalls,
+			messageCalls,
+			cannedResult,
+		};
+	}
+
+	function rootWithDelegateObserver(overrides: Partial<AgentSpec> = {}): {
+		root: AgentSpec;
+		observer: AgentSpec;
+		resolverSettings: ReturnType<typeof createResolverSettings>;
+	} {
+		const observer: AgentSpec = {
+			...leafSpec,
+			name: "metacognitive",
+			description: "Observes delegate results",
+			system_prompt: "Observe and optionally message caller.",
+			model: "observer.metacognitive",
+			tools: ["message_agent"],
+			agents: [],
+			constraints: {
+				...DEFAULT_CONSTRAINTS,
+				can_spawn: false,
+				can_learn: false,
+				max_turns: 2,
+			},
+			tags: ["observer"],
+		};
+		const root: AgentSpec = {
+			...rootSpec,
+			observe_delegates: [
+				{
+					agent: "metacognitive",
+					trigger: "on_delegate_final",
+					events: ["plan_end", "warning", "primitive_end", "act_end"],
+					delivery: { max_events: 12, max_chars: 3000 },
+				},
+			],
+			...overrides,
+		};
+		return {
+			root,
+			observer,
+			resolverSettings: createResolverSettings(
+				[{ id: "anthropic", enabled: true }],
+				{
+					best: { providerId: "anthropic", modelId: "claude-opus-4-6" },
+					balanced: { providerId: "anthropic", modelId: "claude-sonnet-4-6" },
+					fast: { providerId: "anthropic", modelId: "claude-haiku-4-5-20251001" },
+				},
+				{},
+				{
+					"observer.metacognitive": {
+						providerId: "anthropic",
+						modelId: "claude-haiku-4-5-20251001",
+					},
+				},
+			),
+		};
+	}
+
+	function eventMessage(handleId: string, event: EventMessage["event"]): EventMessage {
+		return {
+			kind: "event",
+			handle_id: handleId,
+			event,
+		};
 	}
 
 	test("with spawner, blocking delegate routes through spawner.spawnAgent", async () => {
@@ -3825,6 +3907,380 @@ describe("Agent", () => {
 			: null;
 		const resultText = resultPart ? (resultPart as any).tool_result.content : "";
 		expect(resultText).toContain("handle-123");
+	});
+
+	test("delegate observer receives blocking delegate frame before owner continues", async () => {
+		const { root, observer, resolverSettings } = rootWithDelegateObserver();
+		const delegateMsg: Message = {
+			role: "assistant",
+			content: [
+				{ kind: ContentKind.TEXT, text: "Plan expects ALPHA from the delegate." },
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-observe-1",
+						name: "delegate",
+						arguments: JSON.stringify({
+							agent_name: "leaf",
+							goal: "return ALPHA evidence",
+							blocking: true,
+						}),
+					},
+				},
+			],
+		};
+		const rootDoneMsg = Msg.assistant("Observer-aware final answer.");
+		let planningCalls = 0;
+		let observerDelivered = false;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (request: Request): Promise<Response> => {
+				if (request.tool_choice === "none") {
+					return {
+						id: "mock-mnemonic",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: Msg.assistant("Curie"),
+						finish_reason: { reason: "stop" },
+						usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+					};
+				}
+				planningCalls++;
+				if (planningCalls === 2) {
+					expect(observerDelivered).toBe(true);
+				}
+				return {
+					id: `mock-observe-${planningCalls}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: planningCalls === 1 ? delegateMsg : rootDoneMsg,
+					finish_reason: { reason: planningCalls === 1 ? "tool_calls" : "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const { spawner, spawnCalls, observerDeliveryCalls, sessionEventCallbacks, cannedResult } =
+			createMockSpawner();
+		(spawner as any).spawnAgent = async (opts: SpawnAgentOptions): Promise<ResultMessage> => {
+			spawnCalls.push(opts);
+			for (const callback of sessionEventCallbacks) {
+				callback(
+					eventMessage(opts.handleId ?? "handle", {
+						kind: "plan_end",
+						timestamp: Date.now(),
+						agent_id: opts.agentId ?? "child",
+						depth: 1,
+						data: {
+							turn: 1,
+							finish_reason: "stop",
+							text: "child evidence says BETA",
+						},
+					}),
+				);
+			}
+			return {
+				...cannedResult,
+				handle_id: opts.handleId ?? cannedResult.handle_id,
+				output: "delegate output says BETA",
+			};
+		};
+		(spawner as any).deliverObserverFrame = async (
+			opts: DeliverObserverFrameOptions,
+		): Promise<void> => {
+			observerDeliveryCalls.push(opts);
+			observerDelivered = true;
+		};
+
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const agent = new Agent({
+			spec: root,
+			env,
+			client: mockClient,
+			primitiveRegistry: createPrimitiveRegistry(env),
+			availableAgents: [root, leafSpec, observer],
+			depth: 0,
+			spawner,
+			resolverSettings,
+		});
+
+		await agent.run("observer timing test");
+
+		expect(observerDeliveryCalls).toHaveLength(1);
+		const message = observerDeliveryCalls[0]!.message;
+		expect(message).toContain('handle "caller"');
+		expect(message).toContain("return ALPHA evidence");
+		expect(message).toContain("Plan expects ALPHA");
+		expect(message).toContain("delegate output says BETA");
+		expect(message).toContain("child evidence says BETA");
+		expect(observerDeliveryCalls[0]!.handleId).toContain("observer-delegate-root-root");
+	});
+
+	test("delegate observer does not run for non-blocking handoffs", async () => {
+		const { root, observer, resolverSettings } = rootWithDelegateObserver();
+		const delegateMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-observe-async",
+						name: "delegate",
+						arguments: JSON.stringify({
+							agent_name: "leaf",
+							goal: "run async",
+							blocking: false,
+						}),
+					},
+				},
+			],
+		};
+		const doneMsg = Msg.assistant("Done.");
+		let planningCalls = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (request: Request): Promise<Response> => {
+				if (request.tool_choice === "none") {
+					return {
+						id: "mock-mnemonic",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: Msg.assistant("Curie"),
+						finish_reason: { reason: "stop" },
+						usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+					};
+				}
+				planningCalls++;
+				return {
+					id: `mock-observe-async-${planningCalls}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: planningCalls === 1 ? delegateMsg : doneMsg,
+					finish_reason: { reason: planningCalls === 1 ? "tool_calls" : "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const { spawner, observerDeliveryCalls } = createMockSpawner();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const agent = new Agent({
+			spec: root,
+			env,
+			client: mockClient,
+			primitiveRegistry: createPrimitiveRegistry(env),
+			availableAgents: [root, leafSpec, observer],
+			depth: 0,
+			spawner,
+			resolverSettings,
+		});
+
+		await agent.run("nonblocking observer test");
+
+		expect(observerDeliveryCalls).toHaveLength(0);
+	});
+
+	test("delegate observer timeout warns and does not hang owner", async () => {
+		const { root, observer, resolverSettings } = rootWithDelegateObserver();
+		const delegateMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-observe-timeout",
+						name: "delegate",
+						arguments: JSON.stringify({
+							agent_name: "leaf",
+							goal: "slow observer",
+							blocking: true,
+						}),
+					},
+				},
+			],
+		};
+		const doneMsg = Msg.assistant("Continued despite observer timeout.");
+		let planningCalls = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (request: Request): Promise<Response> => {
+				if (request.tool_choice === "none") {
+					return {
+						id: "mock-mnemonic",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: Msg.assistant("Curie"),
+						finish_reason: { reason: "stop" },
+						usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+					};
+				}
+				planningCalls++;
+				return {
+					id: `mock-observe-timeout-${planningCalls}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: planningCalls === 1 ? delegateMsg : doneMsg,
+					finish_reason: { reason: planningCalls === 1 ? "tool_calls" : "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const { spawner } = createMockSpawner();
+		(spawner as any).deliverObserverFrame = async (): Promise<void> => {
+			await new Promise(() => {});
+		};
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const agent = new Agent({
+			spec: root,
+			env,
+			client: mockClient,
+			primitiveRegistry: createPrimitiveRegistry(env),
+			availableAgents: [root, leafSpec, observer],
+			depth: 0,
+			events,
+			spawner,
+			resolverSettings,
+			delegateObserverTimeoutMs: 5,
+		});
+
+		const result = await agent.run("observer timeout test");
+
+		expect(result.success).toBe(true);
+		expect(planningCalls).toBe(2);
+		expect(
+			events
+				.collected()
+				.some(
+					(event) =>
+						event.kind === "warning" && String(event.data.message).includes("timed out after 5ms"),
+				),
+		).toBe(true);
+	});
+
+	test("delegate observer keeps interleaved child evidence isolated", async () => {
+		const { root, observer, resolverSettings } = rootWithDelegateObserver();
+		const delegateMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-child-one",
+						name: "delegate",
+						arguments: JSON.stringify({
+							agent_name: "leaf",
+							goal: "child one goal",
+							blocking: true,
+						}),
+					},
+				},
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-child-two",
+						name: "delegate",
+						arguments: JSON.stringify({
+							agent_name: "leaf",
+							goal: "child two goal",
+							blocking: true,
+						}),
+					},
+				},
+			],
+		};
+		const doneMsg = Msg.assistant("Done.");
+		let planningCalls = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (request: Request): Promise<Response> => {
+				if (request.tool_choice === "none") {
+					return {
+						id: "mock-mnemonic",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: Msg.assistant("Curie"),
+						finish_reason: { reason: "stop" },
+						usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+					};
+				}
+				planningCalls++;
+				return {
+					id: `mock-interleaved-${planningCalls}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: planningCalls === 1 ? delegateMsg : doneMsg,
+					finish_reason: { reason: planningCalls === 1 ? "tool_calls" : "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const { spawner, spawnCalls, observerDeliveryCalls, sessionEventCallbacks } =
+			createMockSpawner();
+		(spawner as any).spawnAgent = async (opts: SpawnAgentOptions): Promise<ResultMessage> => {
+			spawnCalls.push(opts);
+			const childId = opts.agentId ?? "child";
+			const marker = opts.goal.includes("one") ? "ONE" : "TWO";
+			for (const callback of sessionEventCallbacks) {
+				callback(
+					eventMessage(opts.handleId ?? "handle", {
+						kind: "plan_end",
+						timestamp: Date.now(),
+						agent_id: childId,
+						depth: 1,
+						data: {
+							turn: 1,
+							finish_reason: "stop",
+							text: `child ${marker} evidence`,
+						},
+					}),
+				);
+			}
+			return {
+				kind: "result",
+				handle_id: opts.handleId ?? `handle-${marker}`,
+				output: `child ${marker} output`,
+				success: true,
+				stumbles: 0,
+				turns: 1,
+				timed_out: false,
+			};
+		};
+		(spawner as any).deliverObserverFrame = async (
+			opts: DeliverObserverFrameOptions,
+		): Promise<void> => {
+			observerDeliveryCalls.push(opts);
+		};
+
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const agent = new Agent({
+			spec: root,
+			env,
+			client: mockClient,
+			primitiveRegistry: createPrimitiveRegistry(env),
+			availableAgents: [root, leafSpec, observer],
+			depth: 0,
+			spawner,
+			resolverSettings,
+		});
+
+		await agent.run("interleaved observer test");
+
+		expect(observerDeliveryCalls).toHaveLength(2);
+		const first = observerDeliveryCalls.find((call) => call.message.includes("child ONE output"));
+		const second = observerDeliveryCalls.find((call) => call.message.includes("child TWO output"));
+		expect(first).toBeDefined();
+		expect(second).toBeDefined();
+		expect(first!.message).toContain("child ONE evidence");
+		expect(first!.message).not.toContain("child TWO evidence");
+		expect(second!.message).toContain("child TWO evidence");
+		expect(second!.message).not.toContain("child ONE evidence");
 	});
 
 	test("with spawner, blocking delegate can downgrade to a live handle", async () => {

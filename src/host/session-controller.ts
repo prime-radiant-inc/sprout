@@ -85,11 +85,9 @@ function normalizeMemorySurfaceGoal(goal: string): string {
 
 const DEFAULT_OBSERVER_MAX_EVENTS = 24;
 const DEFAULT_OBSERVER_MAX_CHARS = 6000;
-const DEFAULT_DELEGATE_OBSERVER_MAX_EVENTS = 12;
-const DEFAULT_DELEGATE_OBSERVER_MAX_CHARS = 3000;
 
 function staticObserverHandleId(
-	scope: "root" | "session" | "delegate",
+	scope: "root" | "session",
 	index: number,
 	agentName: string,
 ): string {
@@ -126,30 +124,7 @@ function buildStaticObserverConfigs(
 		};
 	});
 
-	const delegateObserverConfigs = (rootSpec.observe_delegates ?? []).map((config, index) => {
-		const observerSpec = genome?.getAgent(config.agent);
-		if (!observerSpec) {
-			throw new Error(
-				`Delegate observer agent '${config.agent}' configured by '${rootAgentName}' was not found`,
-			);
-		}
-		const handleId = staticObserverHandleId("delegate", index, config.agent);
-		return {
-			agentName: config.agent,
-			target: "caller_delegates" as const,
-			events: config.events,
-			trigger: { every: 1, event: "act_end" as const },
-			maxEvents: config.delivery?.max_events ?? DEFAULT_DELEGATE_OBSERVER_MAX_EVENTS,
-			maxChars: config.delivery?.max_chars ?? DEFAULT_DELEGATE_OBSERVER_MAX_CHARS,
-			handleId,
-			agentId: handleId,
-			modelPurpose: observerModelPurpose(observerSpec),
-			description: `observes ${rootAgentName} delegate completions`,
-			callerDepth: 0,
-		};
-	});
-
-	return [...observerConfigs, ...delegateObserverConfigs];
+	return observerConfigs;
 }
 
 function observerModelPurpose(spec: AgentSpec): AgentModelPurpose | undefined {
