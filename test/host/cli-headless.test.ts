@@ -16,6 +16,7 @@ describe("runHeadlessMode", () => {
 				genomePath: "/tmp/genome",
 				projectDataDir: "/tmp/project",
 				rootDir: "/tmp/root",
+				workDir: "/tmp/work",
 				startBusInfrastructure: async () => ({
 					spawner: { id: "spawner" } as any,
 					genome: { id: "genome" } as any,
@@ -28,6 +29,7 @@ describe("runHeadlessMode", () => {
 				createSessionId: () => "01HEADLESS",
 				bootstrapRuntime: async (opts) => {
 					expect(opts.sessionId).toBe("01HEADLESS");
+					expect(opts.workDir).toBe("/tmp/work");
 					return {
 						controller: {
 							runGoal: async (goal: string) => {

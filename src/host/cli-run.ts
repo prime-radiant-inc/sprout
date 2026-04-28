@@ -13,16 +13,18 @@ import {
 	handleSlashCommand,
 	inputHistoryPath,
 	resolveProjectDir,
+	resolveStartupCwd,
 	startBusInfrastructure,
 } from "./cli-shared.ts";
 import { resolveRuntimeRootDir } from "./embedded-root.ts";
 import { loadSessionSummaries } from "./session-metadata.ts";
 
 interface CliRunDeps {
-	loadDotenv: () => void | Promise<void>;
+	loadDotenv: (cwd: string) => void | Promise<void>;
 	logError: (line: string) => void;
 	logOut: (line: string) => void;
 	resolveProjectDir: typeof resolveProjectDir;
+	resolveStartupCwd: typeof resolveStartupCwd;
 	runGenomeCommand: typeof runGenomeCommand;
 	runListMode: typeof runListMode;
 	loadSessionSummaries: typeof loadSessionSummaries;
@@ -47,13 +49,14 @@ export async function runCli(command: CliCommand, deps: Partial<CliRunDeps> = {}
 	const d: CliRunDeps = {
 		loadDotenv:
 			deps.loadDotenv ??
-			(async () => {
+			(async (cwd) => {
 				const { config } = await import("dotenv");
-				config({ quiet: true });
+				config({ path: join(cwd, ".env"), quiet: true });
 			}),
 		logError: deps.logError ?? ((line) => console.error(line)),
 		logOut: deps.logOut ?? ((line) => console.log(line)),
 		resolveProjectDir: deps.resolveProjectDir ?? resolveProjectDir,
+		resolveStartupCwd: deps.resolveStartupCwd ?? resolveStartupCwd,
 		runGenomeCommand: deps.runGenomeCommand ?? runGenomeCommand,
 		runListMode: deps.runListMode ?? runListMode,
 		loadSessionSummaries: deps.loadSessionSummaries ?? loadSessionSummaries,
@@ -75,8 +78,17 @@ export async function runCli(command: CliCommand, deps: Partial<CliRunDeps> = {}
 		return;
 	}
 
+	let workDir: string;
+	try {
+		workDir = await d.resolveStartupCwd(command.cwd);
+	} catch (error) {
+		d.logError(`Error: ${formatError(error)}`);
+		process.exitCode = 1;
+		return;
+	}
+
 	if (command.kind === "list") {
-		const listProjectDir = await d.resolveProjectDir();
+		const listProjectDir = await d.resolveProjectDir(workDir);
 		const listDataDir = computeProjectDataDir(command.genomePath, listProjectDir);
 		const sessionsDir = join(listDataDir, "sessions");
 		const logsDir = join(listDataDir, "logs");
@@ -90,6 +102,7 @@ export async function runCli(command: CliCommand, deps: Partial<CliRunDeps> = {}
 							kind: "resume",
 							sessionId: selectedId,
 							genomePath: command.genomePath,
+							...(command.cwd !== undefined ? { cwd: command.cwd } : {}),
 						},
 						deps,
 					);
@@ -100,12 +113,12 @@ export async function runCli(command: CliCommand, deps: Partial<CliRunDeps> = {}
 		return;
 	}
 
-	await d.loadDotenv();
+	await d.loadDotenv(workDir);
 
 	const rootDir = await resolveRuntimeRootDir({
 		sourceRootDir: join(import.meta.dir, "../../root"),
 	});
-	const projectDir = await d.resolveProjectDir();
+	const projectDir = await d.resolveProjectDir(workDir);
 	const projectDataDirPath = computeProjectDataDir(command.genomePath, projectDir);
 	const sessionsDir = join(projectDataDirPath, "sessions");
 
@@ -145,6 +158,7 @@ export async function runCli(command: CliCommand, deps: Partial<CliRunDeps> = {}
 				sessionId: resumeState?.sessionId ?? command.sessionId,
 				atifPath: command.atifPath,
 				evalMode: command.evalMode,
+				workDir,
 				initialHistory: resumeState?.history,
 				initialMemorySurface: resumeState?.memorySurface,
 				initialSelectionRequest: resumeState?.selectionRequest,
@@ -181,6 +195,7 @@ export async function runCli(command: CliCommand, deps: Partial<CliRunDeps> = {}
 			infra,
 			logStderr: command.logStderr,
 			debug: command.debug,
+			workDir,
 		});
 		interactiveModeOwnsInfra = true;
 		await d.runInteractiveMode({

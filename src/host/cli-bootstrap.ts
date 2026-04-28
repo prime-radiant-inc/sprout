@@ -47,6 +47,7 @@ export interface SessionBootstrapOptions {
 	projectDataDir: string;
 	rootDir: string;
 	sessionId: string;
+	workDir?: string;
 	atifPath?: string;
 	evalMode?: boolean;
 	nonInteractive?: boolean;
@@ -119,6 +120,7 @@ interface InteractiveBootstrapDeps {
 		projectDataDir: string;
 		rootDir: string;
 		sessionId: string;
+		workDir?: string;
 		evalMode?: boolean;
 		nonInteractive?: boolean;
 		initialHistory?: Message[];
@@ -201,6 +203,7 @@ export async function bootstrapSessionRuntime(
 					genomePath: controllerOpts.genomePath,
 					projectDataDir: controllerOpts.projectDataDir,
 					rootDir: controllerOpts.rootDir,
+					workDir: controllerOpts.workDir,
 					sessionId: controllerOpts.sessionId,
 					evalMode: controllerOpts.evalMode,
 					nonInteractive: controllerOpts.nonInteractive,
@@ -343,6 +346,7 @@ export async function bootstrapSessionRuntime(
 		projectDataDir: opts.projectDataDir,
 		rootDir: opts.rootDir,
 		sessionId: opts.sessionId,
+		workDir: opts.workDir,
 		evalMode: opts.evalMode,
 		nonInteractive: opts.nonInteractive,
 		initialHistory: opts.initialHistory,

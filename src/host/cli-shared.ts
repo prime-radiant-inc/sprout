@@ -1,6 +1,6 @@
-import { appendFile, readFile } from "node:fs/promises";
+import { appendFile, readFile, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { ResolverSettings } from "../agents/model-resolver.ts";
 import type { BusClient } from "../bus/client.ts";
 import type { BusServer } from "../bus/server.ts";
@@ -94,22 +94,46 @@ export async function startBusInfrastructure(
 }
 
 /**
+ * Resolve the startup working directory from the command line.
+ * Relative values are interpreted from the shell's current directory.
+ */
+export async function resolveStartupCwd(cwd?: string): Promise<string> {
+	const resolved = resolve(cwd ?? process.cwd());
+	let info: Awaited<ReturnType<typeof stat>>;
+	try {
+		info = await stat(resolved);
+	} catch (error) {
+		throw new Error(`Invalid --cwd '${cwd ?? resolved}': ${formatFsError(error)}`);
+	}
+	if (!info.isDirectory()) {
+		throw new Error(`Invalid --cwd '${cwd ?? resolved}': not a directory`);
+	}
+	return realpath(resolved).catch(() => resolved);
+}
+
+function formatFsError(error: unknown): string {
+	if (error instanceof Error) return error.message;
+	return String(error);
+}
+
+/**
  * Resolve the project root directory.
  * For git repos, uses the active checkout root (works for worktrees too).
  * Falls back to cwd.
  */
-export async function resolveProjectDir(): Promise<string> {
+export async function resolveProjectDir(cwd: string = process.cwd()): Promise<string> {
 	try {
 		const { execSync } = await import("node:child_process");
 		// git rev-parse --show-toplevel resolves to the active checkout root.
 		// In worktrees this is the worktree directory, not the main repo path.
 		const topLevel = execSync("git rev-parse --show-toplevel", {
+			cwd,
 			encoding: "utf-8",
 			stdio: ["ignore", "pipe", "ignore"],
 		}).trim();
 		return topLevel;
 	} catch {
-		return process.cwd();
+		return cwd;
 	}
 }
 

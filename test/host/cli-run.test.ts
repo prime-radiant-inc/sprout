@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { runCli } from "../../src/host/cli-run.ts";
 
 describe("runCli", () => {
@@ -71,6 +74,52 @@ describe("runCli", () => {
 			initialHistoryLength: 1,
 		});
 		expect(infos).toEqual([]);
+	});
+
+	test("uses --cwd for dotenv loading, project discovery, and headless workDir", async () => {
+		const rawWorkDir = await mkdtemp(join(tmpdir(), "sprout-cwd-"));
+		const expectedWorkDir = await realpath(rawWorkDir);
+		const projectRoot = join(expectedWorkDir, "repo-root");
+		let dotenvCwd: string | undefined;
+		let projectDiscoveryCwd: string | undefined;
+		let headlessWorkDir: string | undefined;
+
+		try {
+			await runCli(
+				{
+					kind: "headless",
+					goal: "work here",
+					genomePath: "/tmp/genome",
+					cwd: rawWorkDir,
+				},
+				{
+					loadDotenv: (cwd) => {
+						dotenvCwd = cwd;
+					},
+					resolveProjectDir: async (cwd) => {
+						projectDiscoveryCwd = cwd;
+						return projectRoot;
+					},
+					runHeadlessMode: async (opts) => {
+						headlessWorkDir = opts.workDir;
+						return {
+							sessionId: "01HEADLESS",
+							output: "done",
+							success: true,
+							stumbles: 0,
+							turns: 1,
+							timedOut: false,
+						};
+					},
+				},
+			);
+		} finally {
+			await rm(rawWorkDir, { recursive: true, force: true });
+		}
+
+		expect(dotenvCwd).toBe(expectedWorkDir);
+		expect(projectDiscoveryCwd).toBe(expectedWorkDir);
+		expect(headlessWorkDir).toBe(expectedWorkDir);
 	});
 
 	test("prints a clear error and exits non-zero when a resumed headless session is missing", async () => {

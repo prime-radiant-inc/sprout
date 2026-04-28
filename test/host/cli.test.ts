@@ -254,6 +254,49 @@ describe("parseArgs", () => {
 		});
 	});
 
+	test("--cwd with no args → interactive with startup cwd", () => {
+		const result = parseArgs(["--cwd", "/workspace/project"]);
+		expect(result).toEqual({
+			kind: "interactive",
+			genomePath: defaultGenomePath,
+			cwd: "/workspace/project",
+		});
+	});
+
+	test("--cwd with --prompt → headless with startup cwd", () => {
+		const result = parseArgs(["--cwd", "/workspace/project", "--prompt", "Fix bug"]);
+		expect(result).toEqual({
+			kind: "headless",
+			goal: "Fix bug",
+			genomePath: defaultGenomePath,
+			cwd: "/workspace/project",
+		});
+	});
+
+	test("--cwd with --resume → resume with startup cwd", () => {
+		const result = parseArgs(["--resume", "01ABC123", "--cwd", "/workspace/project"]);
+		expect(result).toEqual({
+			kind: "resume",
+			sessionId: "01ABC123",
+			genomePath: defaultGenomePath,
+			cwd: "/workspace/project",
+		});
+	});
+
+	test("--cwd with session picker → list with startup cwd", () => {
+		const result = parseArgs(["--cwd", "/workspace/project", "--resume"]);
+		expect(result).toEqual({
+			kind: "list",
+			genomePath: defaultGenomePath,
+			cwd: "/workspace/project",
+		});
+	});
+
+	test("--cwd with no value returns help", () => {
+		const result = parseArgs(["--cwd"]);
+		expect(result).toEqual({ kind: "help" });
+	});
+
 	test("--help → help", () => {
 		const result = parseArgs(["--help"]);
 		expect(result).toEqual({ kind: "help" });

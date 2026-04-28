@@ -23,6 +23,7 @@ export interface RunHeadlessOptions {
 	projectDataDir: string;
 	rootDir: string;
 	sessionId?: string;
+	workDir?: string;
 	atifPath?: string;
 	evalMode?: boolean;
 	initialHistory?: Message[];
@@ -123,6 +124,7 @@ export async function runHeadlessMode(
 			projectDataDir: opts.projectDataDir,
 			rootDir: opts.rootDir,
 			sessionId,
+			workDir: opts.workDir,
 			atifPath: opts.atifPath,
 			evalMode: opts.evalMode,
 			nonInteractive: true,

@@ -25,23 +25,28 @@ export interface LogFlags {
 	debug?: boolean;
 }
 
+export interface CwdFlag {
+	cwd?: string;
+}
+
 export type CliCommand =
-	| ({ kind: "interactive"; genomePath: string } & WebFlags & LogFlags)
-	| {
+	| ({ kind: "interactive"; genomePath: string } & WebFlags & LogFlags & CwdFlag)
+	| ({
 			kind: "headless";
 			goal: string;
 			genomePath: string;
 			sessionId?: string;
 			atifPath?: string;
 			evalMode?: true;
-	  }
-	| ({ kind: "resume"; sessionId: string; genomePath: string } & WebFlags & LogFlags)
-	| { kind: "list"; genomePath: string }
+	  } & CwdFlag)
+	| ({ kind: "resume"; sessionId: string; genomePath: string } & WebFlags & LogFlags & CwdFlag)
+	| ({ kind: "list"; genomePath: string } & CwdFlag)
 	| GenomeCommand
 	| { kind: "help" };
 
 interface ParseState {
 	genomePath: string;
+	cwd?: string;
 	prompt?: string;
 	atifPath?: string;
 	evalMode?: true;
@@ -181,6 +186,10 @@ function collectInteractiveFlags(state: ParseState): WebFlags & LogFlags {
 	return flags;
 }
 
+function collectCwdFlag(state: ParseState): CwdFlag {
+	return state.cwd !== undefined ? { cwd: state.cwd } : {};
+}
+
 function hasInteractiveOnlyFlags(state: ParseState): boolean {
 	return (
 		state.web === true ||
@@ -209,6 +218,15 @@ export function parseArgs(argv: string[]): CliCommand {
 			const value = argv[index + 1];
 			if (!value || value.startsWith("-")) return { kind: "help" };
 			state.genomePath = value;
+			index += 2;
+			continue;
+		}
+
+		if (token === "--cwd") {
+			if (state.cwd !== undefined) return { kind: "help" };
+			const value = argv[index + 1];
+			if (!value || value.startsWith("-")) return { kind: "help" };
+			state.cwd = value;
 			index += 2;
 			continue;
 		}
@@ -372,6 +390,7 @@ export function parseArgs(argv: string[]): CliCommand {
 			sessionId: state.resumeSessionId,
 			...(state.atifPath !== undefined ? { atifPath: state.atifPath } : {}),
 			...(state.evalMode === true ? { evalMode: true as const } : {}),
+			...collectCwdFlag(state),
 		};
 	}
 
@@ -384,7 +403,7 @@ export function parseArgs(argv: string[]): CliCommand {
 			) {
 				return { kind: "help" };
 			}
-			return { kind: "list", genomePath: state.genomePath };
+			return { kind: "list", genomePath: state.genomePath, ...collectCwdFlag(state) };
 		}
 		if (state.atifPath !== undefined || state.evalMode === true) return { kind: "help" };
 		return {
@@ -392,6 +411,7 @@ export function parseArgs(argv: string[]): CliCommand {
 			sessionId: state.resumeSessionId,
 			genomePath: state.genomePath,
 			...collectInteractiveFlags(state),
+			...collectCwdFlag(state),
 		};
 	}
 
@@ -401,6 +421,7 @@ export function parseArgs(argv: string[]): CliCommand {
 		kind: "interactive",
 		genomePath: state.genomePath,
 		...collectInteractiveFlags(state),
+		...collectCwdFlag(state),
 	};
 }
 
@@ -436,6 +457,7 @@ Logging:
   --debug                Include debug-level entries (use with --log-stderr)
 
 Options:
+  --cwd <path>           Run as if Sprout was started from this working directory
   --genome-path <path>   Path to genome directory (default: $SPROUT_GENOME_PATH or $XDG_DATA_HOME/sprout-genome or ~/.local/share/sprout-genome)
   --dry-run              For --genome maintain, print candidates without mutating (default)
   --apply                For --genome maintain, apply reviewed decisions
