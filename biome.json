@@ -7,7 +7,7 @@
 	},
 	"files": {
 		"ignoreUnknown": true,
-		"includes": ["src/**", "test/**", "bootstrap/**"]
+		"includes": ["src/**", "test/**", "bootstrap/**", "scripts/live-observer-validation.ts"]
 	},
 	"formatter": {
 		"enabled": true,
