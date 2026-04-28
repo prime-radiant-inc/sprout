@@ -1,6 +1,6 @@
 # Agent Observers V3 Spec
 
-**Status:** Revised follow-on spec
+**Status:** Revised implementation spec
 **Date:** 2026-04-28
 **Builds on:** `docs/plans/2026-04-27-agent-subscriptions-and-observers-spec.md`,
 `docs/plans/2026-04-27-agent-observers-v2-spec.md`
@@ -10,78 +10,70 @@
 Harden the V2 observer facility and extend it just far enough for non-root
 agents to observe their own delegates safely.
 
-V3 should ship with a small pilot observer set, but it should not become a broad
-observer platform yet. The core runtime work is:
+V3 has three deliverables:
 
-1. Checked-in validation, deterministic tests, authoring docs, and UI
-   inspection improvements.
-2. Non-root `observe_delegates` with precise owner identity, runtime messaging
-   grants, and bounded caller context in delegate-final frames.
-3. Two pilot specialized observers:
-   - `pm-observer`: a root-facing coordination-risk observer.
-   - `evidence-contradiction-observer`: a delegate-final observer for mismatches
-     between caller expectations and observed evidence.
+1. Hardening and inspection: checked-in validation, deterministic tests,
+   authoring docs, and UI/event metadata that make observer behavior auditable.
+2. Non-root delegate observation: owner-scoped `observe_delegates`, authenticated
+   caller identity, runtime message grants, deterministic delegate-final frames,
+   and bounded delivery before the owner moves on.
+3. Two opt-in pilot observers:
+   - `evidence-contradiction-observer`, for delegate result contradictions.
+   - `pm-observer`, for sparse root-facing coordination-risk comments.
 
 V3 intentionally does not add human notifications, severity levels, a persistent
 notification inbox, raw event ids, observer memory writes, model-owned
-subscribe/unsubscribe tools, or hard enforcement of observer advice.
+subscribe/unsubscribe tools, public specific-handle targets, delegate-subtree
+observation, additional observer model purposes, or hard enforcement of observer
+advice.
 
 ## Current State
 
-V2 is implemented around these decisions:
+V2 already provides:
 
-- Observers are normal agents.
-- Subscriptions are runtime-owned edges.
-- Observer comments use `message_agent`.
-- Agent-originated comments render in `<sprout:agent-messages>`.
-- Observer comments are advisory process guidance, not user messages and not
-  hard interrupts.
-- Static config supports root/session observation and root delegate-final
-  observation through `observers` and `observe_delegates`.
-- Observer model selection uses Sprout settings through
-  `observer.metacognitive`, with env override support and no fallback.
-- Observer telemetry is excluded from collapse and memory extraction evidence.
+- Observers as normal agents.
+- Runtime-owned subscription edges.
+- `message_agent` as the comment primitive.
+- `<sprout:agent-messages>` as the advisory prompt surface.
+- Static root/session and root delegate-final observer config through
+  `observers` and `observe_delegates`.
+- `observer.metacognitive` model-purpose configuration with env override and no
+  fallback.
+- Memory/collapse exclusion for current observer telemetry.
 
-Live validation has proved:
-
-- Root observers can see root/session events, inject messages, and be consumed
-  by root.
-- Delegate-final observers can see blocking delegate completion, inject
-  messages, and be consumed by root.
-- Root can reject deliberately wrong observer advice against stronger evidence.
-- Three distinct observer agents can run together.
-- Handle-only nonblocking delegate handoffs do not trigger delegate-final
-  observers.
+Live validation has proved root-centric delivery, multi-observer delivery,
+adversarial observer rejection by root, and nonblocking delegate negative
+controls.
 
 ## Review-Driven Corrections
 
-This revision incorporates the adversarial review findings:
+This revision incorporates the second adversarial review pass:
 
-- V3 scope is reduced. Scoped handle targets, delegate-subtree observation,
-  runtime-created subscriptions, a broad observer catalog, rate-limit APIs, and
-  extra model-purpose names are future work.
-- Non-root ownership is explicit. Subscriptions have a concrete owner record,
-  not a SessionController side table keyed by name/depth.
-- Observer messaging is authorized by runtime grants. Prompt-only comment policy
-  is not enough.
-- Live harness pass/fail criteria focus on delivery, frame inclusion,
-  `agent_message` emission, and prompt rendering. Target obedience is diagnostic
-  evidence, not the primary gate.
-- Delegate-final frames must include bounded caller context as well as child
-  output so contradiction observers are not blind.
-- UI requirements include a data-model contract, not name-based inference.
-- Memory exclusion requirements specify observer event metadata for non-root
-  observers too.
+- Runtime message grants require authenticated runtime caller handle identity.
+- Non-root observer ownership uses explicit attach/detach APIs.
+- Frame rendering receives resolved comment addresses; it does not infer root or
+  caller handles from text.
+- Delegate-final context is captured at delegation start and keyed by child id.
+- Blocking delegate-final observers get a bounded pre-next-plan/pre-terminal
+  flush so useful comments are not routinely delivered too late.
+- UI and `agent_message` events have enough sender/recipient metadata to prove
+  root versus non-root delivery.
+- Memory exclusion is by registered observer handle/agent id, not lifecycle flags
+  alone.
+- `target` is not a V3 comment recipient. V3 public recipients are only `root`
+  and `caller`.
+- Pilot observers use exact marker protocols in live tests, not vague semantic
+  assertions.
 
-## Design Principles
+## Principles
 
 - Preserve V2: observers are ordinary agents; subscriptions are the special
   runtime edge.
 - Keep the default observation set empty for normal agents.
-- Add power only where the owner, recipient, and frame contents are explicit.
-- Prefer static configuration over model-owned subscribe/unsubscribe tools.
-- Keep observer comments advisory. If hard intervention is ever needed, add a
-  separate runtime-intervention feature.
+- Add power only where owner, recipient, frame contents, and lifecycle are
+  explicit.
+- Keep observer comments advisory. A bounded flush makes delivery timely; it
+  does not make advice mandatory.
 - Keep memory boundaries intact. Observers do not write memory, feed extraction
   evidence, or replace recall/archivist/collapse.
 - Prefer prompt-level silence guidance before runtime rate-limit APIs.
@@ -91,16 +83,17 @@ This revision incorporates the adversarial review findings:
 ### In Scope
 
 - Checked-in manual live validation harness.
-- Deterministic multi-observer and non-root observer tests.
+- Deterministic tests for multi-observer and non-root observer behavior.
 - Observer authoring documentation.
-- UI inspection improvements for observer nodes, frames, and comments.
-- Root/session observer UI data contract.
-- Non-root caller-owned `observe_delegates`.
-- Subscription owner identity.
-- Subscription-scoped messaging grants.
-- Delegate-final frames with bounded caller context.
-- Pilot `pm-observer`.
+- UI/event data contracts for observer nodes, frames, and comments.
+- Runtime-controlled caller handle identity.
+- Subscription-scoped message grants.
+- Owner-scoped non-root `observe_delegates`.
+- Deterministic delegate-final snapshots.
+- Bounded pre-next-plan/pre-terminal observer flush for blocking delegate-final
+  observers.
 - Pilot `evidence-contradiction-observer`.
+- Pilot `pm-observer`.
 
 ### Out of Scope
 
@@ -111,7 +104,7 @@ This revision incorporates the adversarial review findings:
 - Observer memory writes.
 - Dynamic subscribe/unsubscribe tools.
 - `notify_agent`, `publish_observation`, or `reply_to_notification`.
-- Hard runtime enforcement of observer advice.
+- Public `target` comment recipient.
 - Public specific-handle target syntax.
 - Delegate-subtree observation.
 - Additional observer model purposes.
@@ -122,15 +115,13 @@ This revision incorporates the adversarial review findings:
 
 ### 1.1 Checked-In Manual Live Harness
 
-Add a checked-in manual harness for live provider validation.
-
-Recommended path:
+Add an opt-in live harness:
 
 ```text
 scripts/live-observer-validation.ts
 ```
 
-The harness should:
+The harness must:
 
 - Use Bun/TypeScript only.
 - Build temporary root and genome directories.
@@ -146,17 +137,21 @@ The harness should:
 Required live scenarios:
 
 - `metacognitive-correction`: observer delivery and prompt rendering with a
-  correct comment. Root behavior is recorded as diagnostic evidence.
+  correct comment. Target behavior is diagnostic.
 - `adversarial-comment`: wrong observer comment is delivered and appears in the
-  target prompt. Whether root rejects it is diagnostic, not the primary
-  pass/fail gate.
+  target prompt. Target rejection is diagnostic.
 - `multi-observer`: three distinct observers start, receive frames, emit
   role-tagged `agent_message` events, and render into root prompt context.
 - `nonblocking-negative`: handle-only nonblocking delegate handoff does not
   trigger delegate-final observers.
-- `non-root-delegate-observer`: a non-root caller owns a delegate observer,
-  receives a comment through a runtime grant, and root does not receive that
-  comment.
+- `non-root-delegate-observer`: a non-root owner receives a delegate observer
+  comment through a runtime grant; root does not receive that comment.
+- `evidence-contradiction-pilot`: fixed caller marker
+  `CALLER_EXPECTED_ALPHA`, fixed child marker `CHILD_RETURNED_BETA`, one
+  observer message quoting both markers.
+- `pm-observer-pilot`: fixed session markers proving a visible coordination
+  conflict, one PM observer message to root, and a normal-progress silence
+  control.
 
 Primary pass/fail assertions:
 
@@ -166,18 +161,16 @@ Primary pass/fail assertions:
 - Target replay/request context contains the observer message in
   `<sprout:agent-messages>`.
 - Negative controls have no observer start/message events.
-- Warning counts are reported and fail only for unexpected delivery/runtime
-  warnings.
+- Warning counts are reported and fail for unexpected delivery/runtime warnings.
+- Pilot cases use exact marker protocols and machine-checkable event facts.
 
 Behavioral assertions:
 
-- Root/caller response to observer advice may be checked with exact markers in
-  controlled cases, but those checks are labeled diagnostic. A target ignoring
-  advisory guidance is not a delivery failure.
+- Target obedience is diagnostic except for deterministic marker harnesses whose
+  prompts explicitly require a marker.
+- A target ignoring advisory guidance is not itself a delivery failure.
 
 ### 1.2 Deterministic Tests
-
-Live tests prove integration but cannot be the only guard.
 
 Recommended files:
 
@@ -185,6 +178,8 @@ Recommended files:
 - `test/host/session-controller.test.ts`
 - `test/agents/steering.test.ts`
 - `test/bus/spawner.test.ts`
+- `test/host/session-collapse.test.ts`
+- `test/learn/extraction-evidence.test.ts`
 - `web/src/hooks/useAgentTree.test.ts`
 
 Required cases:
@@ -194,21 +189,24 @@ Required cases:
 - A root observer and delegate observer for the same observer agent use distinct
   handles.
 - Multiple distinct observer agents can inject messages in the same root turn.
-- Agent messages preserve `role="observer"` and `from_agent_name`.
-- Target prompt receives all queued observer messages once, then clears them.
+- Agent messages preserve sender role, sender handle, and recipient handle.
+- Target prompt receives queued observer messages once, then clears them.
 - Nonblocking delegate `act_end` with a handle and no `turns` does not trigger
   delegate-final observers.
 - Observer delivery failure for one subscription does not block unrelated
   subscriptions.
-- Non-root observer configured with `can_message: [caller]` cannot message
-  `root`.
-- Non-root observer configured with `can_message: [caller]` can message the
-  owning caller through a runtime grant.
-- Delegate-final frames include bounded caller context and child final output.
+- Non-root observer configured with `can_message: [caller]` can message caller.
+- The same observer cannot message `root`.
+- An observer-like caller without the granted handle cannot spoof access to root
+  or caller.
+- Delegate-final frames include the correct caller snapshot and child final
+  output for interleaved delegates.
+- Observer telemetry is excluded from collapse and extraction for root and
+  non-root observers.
 
 ### 1.3 Observer Authoring Documentation
 
-Add a short guide:
+Add:
 
 ```text
 docs/agents/observer-authoring.md
@@ -223,13 +221,14 @@ The guide should cover:
   - `model: observer.metacognitive`
   - `can_spawn: false`
   - `can_learn: false`
-- How `observers` and `observe_delegates` attach observers.
-- How comment policy maps to runtime messaging grants.
-- Why observers should call `message_agent` with the handle named in the frame,
-  then finish with `MESSAGE_SENT`.
+- V3 comment recipients are only `root` and `caller`; `target` is future work
+  and must be rejected in V3 public config.
+- How comment policy becomes runtime messaging grants.
+- Why observers call `message_agent` with the handle named in the frame, then
+  finish with `MESSAGE_SENT`.
 - When to return `NO_MESSAGE`.
-- Why observers must quote visible evidence and avoid claims about hidden
-  prompts or hidden policy.
+- Why observers must quote visible evidence and avoid hidden prompt/policy
+  claims.
 - Why observers must not suggest memory writes.
 
 Acceptance criteria:
@@ -238,60 +237,90 @@ Acceptance criteria:
 - The guide includes one delegate-final observer example.
 - The guide includes one bad prompt example and explains the failure mode.
 
-## Phase 2: UI Inspection Improvements
+## Phase 2: Runtime Identity And Messaging Grants
 
-V2 made observers visible as normal child threads. V3 should make that
-inspection robust and low-noise.
+V3 grants are not enforceable unless `messageAgent` receives authenticated
+runtime caller identity.
 
-### 2.1 Data Contract
+### 2.1 Authenticated Caller Identity
 
-Tree construction should expose explicit observer metadata.
-
-Required fields:
+Extend bus/runtime caller identity with runtime-controlled fields:
 
 ```ts
-interface AgentTreeNode {
-	isObserver?: boolean;
-	subscriptionDescription?: string;
+interface CallerIdentity {
+	agent_name: string;
+	depth: number;
+	role?: "observer";
+	handle_id: string;
+	agent_id: string;
 }
 ```
 
-Source:
+Rules:
 
-- `isObserver` comes from `act_start.data.observer === true`.
-- `subscriptionDescription` comes from `act_start.data.description`.
-- UI must not infer observer status from agent name, handle prefix, or
-  description text.
+- `handle_id` and `agent_id` are populated by runtime/process context, not by
+  model-supplied tool arguments.
+- Root uses `handle_id: "root"` and the root agent id.
+- Observer processes use their stable observer handle id and agent id.
+- Bus validation rejects malformed caller identities.
+- Existing name/depth fields remain for display and compatibility, but
+  authorization uses handle/id fields.
 
-### 2.2 UI Behavior
+### 2.2 Message Grant Store
 
-Required behavior:
+`AgentSpawner` owns and enforces observer message grants because
+`AgentSpawner.messageAgent()` is the authorization boundary.
 
-- Observer rows show a low-noise observer badge.
-- Observer rows remain selectable like normal child threads.
-- Observer row subtitle includes the subscription description.
-- Main thread shows compact `agent_message` events, such as
-  `metacognitive -> root`.
-- Main thread does not inline raw observer frames.
-- Selected observer thread can show received frames, final observer responses,
-  and `message_agent` calls.
-- Raw observer frames are collapsed by default.
+```ts
+interface ObserverMessageGrant {
+	subscriptionId: string;
+	observerHandleId: string;
+	observerAgentId: string;
+	allowedRecipients: Array<{
+		recipient: "root" | "caller";
+		handleId: string;
+		agentId: string;
+		agentName: string;
+	}>;
+}
+```
 
-Acceptance criteria:
+Grant lifecycle:
 
-- Existing readable main-thread grouping remains intact.
-- Tests assert `isObserver` and `subscriptionDescription`.
-- Tests prove observer raw frame text is available on selection but not expanded
-  by default.
+- `ObserverRegistry` asks `AgentSpawner` to register a grant when starting an
+  observer handle.
+- `AgentSpawner` removes grants when the subscription is detached, the observer
+  handle closes, or the session resets.
+- Grant checks run before the root special case in `messageAgent`.
 
-## Phase 3: Non-Root Delegate Observers
+Authorization rule:
+
+`messageAgent(targetHandle, message, caller, ...)` may deliver an observer
+message through a grant only if:
+
+- `caller.role === "observer"`;
+- `caller.handle_id` equals `grant.observerHandleId`;
+- `caller.agent_id` equals `grant.observerAgentId`;
+- `targetHandle` appears in `grant.allowedRecipients`; and
+- the recipient is allowed by the subscription comment policy.
+
+Otherwise normal ownership/shared-handle rules apply.
+
+Required tests:
+
+- Granted observer can message caller.
+- Granted root-owned observer can message root when root is the caller.
+- Non-root observer with only caller grant cannot message root.
+- Caller identity with matching name/depth but wrong handle/id cannot use the
+  grant.
+- Grant check precedes `handleId === "root"` delivery.
+
+## Phase 3: Owner-Scoped Delegate Observers
 
 V3's main architecture extension is non-root ownership for `observe_delegates`.
-Do not add public specific-handle or delegate-subtree targets in this phase.
+Do not add public specific-handle or delegate-subtree targets.
 
 ### 3.1 Subscription Owner
-
-Every observer subscription has an owner.
 
 ```ts
 interface ObserverSubscriptionOwner {
@@ -305,17 +334,43 @@ interface ObserverSubscriptionOwner {
 
 Rules:
 
-- Root-owned subscriptions use `ownerHandleId: "root"` and the root agent id.
-- Non-root caller-owned subscriptions use the caller's actual runtime handle id
-  and agent id.
-- Subscription keys and observer handle ids must include either
-  `ownerHandleId` or `ownerAgentId` to avoid collisions between multiple
-  instances of the same spec.
-- The registry attaches owner-scoped subscriptions from the spawn/delegation
-  path. Do not build a separate SessionController side table keyed only by
-  agent name/depth.
+- Root-owned subscriptions use `ownerHandleId: "root"`.
+- Non-root subscriptions use the owning handle's actual runtime handle id and
+  agent id.
+- Subscription ids and observer handle ids include `ownerHandleId` or
+  `ownerAgentId` to avoid collisions.
+- The registry must not key ownership by spec name/depth alone.
 
-### 3.2 Agent-Owned Static Config
+### 3.2 Registry Attachment API
+
+Define explicit registry APIs:
+
+```ts
+interface ObserverRegistry {
+	attachOwner(
+		owner: ObserverSubscriptionOwner,
+		configs: AgentDelegateObserverConfig[],
+	): void;
+
+	detachOwner(ownerHandleId: string, reason: "completed" | "closed" | "reset"): void;
+}
+```
+
+Call sites:
+
+- Call `attachOwner()` immediately after a handle is allocated/started and the
+  owner agent spec is known.
+- Call `detachOwner()` from result/cleanup for terminal non-shared handles.
+- Shared handles keep owner subscriptions until close/reset.
+- Root static subscriptions may be represented as an attached root owner.
+
+Non-goals:
+
+- Do not create a SessionController side table keyed by agent name/depth.
+- Do not persist owner subscriptions across process restart in V3 unless
+  existing handle resume makes it trivial.
+
+### 3.3 Agent-Owned Static Config
 
 Any agent spec may define:
 
@@ -332,152 +387,233 @@ observe_delegates:
       default_recipient: caller
 ```
 
+V3 valid comment recipients:
+
+- `root`
+- `caller`
+
+`target` must be rejected by parser/validator in V3 public config.
+
 Semantics:
 
-- The subscription applies only to delegations made by that specific agent
-  instance.
+- The subscription applies only to delegations made by that owner handle.
 - The observer sees delegate-final frames for blocking delegate completions.
 - Handle-only nonblocking handoffs are excluded.
-- The observer may message only recipients allowed by its runtime messaging
-  grant.
-- The observer does not gain access to `root` unless a grant explicitly includes
-  root.
+- The observer may message only grant-approved recipients.
+- Non-root observers do not gain access to root unless a grant explicitly
+  includes root.
 
-### 3.3 Runtime Messaging Grants
+### 3.4 Comment Addresses In Frames
 
-Prompt-level comment policy is not sufficient authorization.
-
-When the registry starts an observer handle, it also registers a scoped grant:
+Frame rendering must receive resolved message addresses. It must not infer
+handles from comment policy alone.
 
 ```ts
-interface ObserverMessageGrant {
-	observerHandleId: string;
-	allowedRecipients: Array<{
-		recipient: "root" | "caller";
-		handleId: string;
-		agentId: string;
-	}>;
-	subscriptionId: string;
+interface ObserverCommentAddress {
+	recipient: "root" | "caller";
+	handleId: string;
+	agentId: string;
+	agentName: string;
+}
+
+interface BuildObserverFrameInput {
+	// existing fields...
+	commentAddresses?: ObserverCommentAddress[];
 }
 ```
 
-`messageAgent` must allow observer-originated messages to a recipient handle if:
+Rendering rules:
 
-- the caller handle is the observer handle;
-- the target handle appears in an active grant for that observer handle; and
-- the target is permitted by the subscription comment policy.
-
-Otherwise normal ownership/shared-handle rules apply.
-
-Required tests:
-
-- Non-root observer with `can_message: [caller]` can message caller.
-- The same observer cannot message `root`.
-- Root-owned delegate observer with `can_message: [caller]` can still message
-  `root` because root is the caller.
-- Grant is removed or invalidated when the subscription is removed.
-
-### 3.4 Caller Address Rendering
-
-Observer frames should name the address the observer is allowed to message.
-
-Root-owned caller policy:
-
-```text
-For caller comments in this subscription, call message_agent with handle "root"
-and blocking false.
-```
-
-Non-root caller policy:
-
-```text
-For caller comments in this subscription, call message_agent with handle
-"<ownerHandleId>" and blocking false.
-```
-
-The observer must not infer handles from raw events.
-
-### 3.5 Delegate-Final Frame Contents
-
-Delegate-final observers need enough context to compare caller intent with
-delegate evidence.
-
-A delegate-final frame should include:
-
-- The child final response or final tool-result content.
-- The caller `act_end` event.
-- Bounded latest caller goal or follow-up context when available.
-- Bounded latest caller `plan_end.text` before the delegation when available.
-- Warnings/errors emitted by the child during the delegated run.
-
-Bounds:
-
-- Caller context must be short and subject to `max_events`/`max_chars`.
-- Do not include full hidden prompts.
-- Do not include raw event ids.
-- Redaction applies to all quotes.
+- Root-owned caller policy renders `handle "root"` because root is the caller.
+- Non-root caller policy renders the actual owner handle id.
+- A non-root caller frame must not mention `handle "root"` unless root is also
+  an explicitly granted recipient.
+- Observer prompts should tell agents to use the rendered handle exactly.
 
 Required tests:
 
-- Frame includes child output and caller plan text.
-- Frame truncates caller context under bounds.
-- Frame does not include observer telemetry unless explicitly configured.
+- Non-root caller frame renders the owner handle.
+- Non-root caller frame does not render root when root is not granted.
+- Root-owned caller frame preserves current root behavior.
+
+### 3.5 Deterministic Delegate-Final Snapshots
+
+Delegate-final frames must be based on a snapshot captured at delegation start,
+not on "latest" caller events recovered later from a ring buffer.
+
+Capture on caller `act_start` for delegation:
+
+```ts
+interface DelegateObservationSnapshot {
+	childId: string;
+	childHandleId: string;
+	ownerHandleId: string;
+	ownerAgentId: string;
+	delegationGoal: string;
+	delegationHints?: string[];
+	callerGoal?: string;
+	callerPlanText?: string;
+	capturedAt: number;
+}
+```
+
+Correlation:
+
+- Snapshot is keyed by `childId` and `childHandleId`.
+- The frame for a child completion uses that child's snapshot only.
+- Interleaved delegates must not borrow each other's caller plan text.
+
+Structured frame sections:
+
+1. Comment policy and resolved message addresses.
+2. Caller/delegation snapshot:
+   - owner handle/name
+   - delegation goal
+   - delegation hints if present
+   - bounded caller goal/follow-up context if available
+   - bounded caller visible plan text before delegation if available
+3. Child terminal result:
+   - child `act_end` output/result
+   - success/timed-out fields if available
+4. Child evidence:
+   - final child `plan_end.text`
+   - child warnings/errors
+   - relevant failed `primitive_end` outputs
+
+Truncation priority:
+
+1. Always keep comment addresses.
+2. Always keep delegation goal.
+3. Always keep child terminal result summary.
+4. Keep caller plan text before lower-priority child evidence.
+5. Keep warnings/errors before successful primitive output.
+6. Drop oldest/lower-priority child evidence first.
+
+Required tests:
+
+- Frame includes delegation goal, caller plan snapshot, child output, and child
+  evidence.
+- Two interleaved delegates each receive the correct caller snapshot.
+- Frame truncates lower-priority evidence before core sections.
+- Frame excludes observer telemetry unless explicitly configured.
 
 ### 3.6 Delivery Timing
 
-Observer delivery after a delegate final event is asynchronous.
+Delegate-final observers are useful only if their comments usually arrive before
+the owner finalizes. V3 therefore adds a bounded flush for blocking
+delegate-final observers.
 
-V3 should not promise that a non-root caller receives an observer comment in the
-immediate next planning prompt unless the implementation adds an explicit
-synchronization point.
+Required behavior:
 
-Default semantics:
-
-- Delivery is best-effort eventual within the same running handle.
-- If the comment arrives before the next planning request is built, it appears
-  in that request.
-- If the caller has already started its next planning request, the comment
-  appears in the following turn or follow-up, if the handle is still alive.
-
-Optional future synchronization:
-
-- A later phase may add a bounded pre-plan observer flush for delegate-final
-  subscriptions, but V3 does not require it.
+- After a blocking delegate returns and before the owner builds the next planning
+  request or finalizes, the owner path calls a bounded observer flush for that
+  owner.
+- The flush waits only for delegate-final deliveries already queued for that
+  completed child.
+- The flush has a small timeout constant. Suggested default: 1500 ms.
+- If the flush times out, emit a warning and continue. Advice is still advisory;
+  the runtime must not block indefinitely.
+- Nonblocking handle-only delegates still do not trigger delegate-final
+  observers.
 
 Acceptance criteria:
 
-- Tests that require exact prompt-turn placement must use deterministic
-  synchronization.
-- Runtime tests may assert eventual prompt inclusion rather than immediate
-  next-turn inclusion.
+- Deterministic tests prove observer comments can appear in the owner's next
+  prompt before final answer.
+- Timeout path emits a warning and does not hang the owner.
+- Runtime/live tests report whether a pilot comment arrived before finalization.
 
 ### 3.7 Lifecycle
 
 Rules:
 
-- Create owner-scoped subscriptions when the owning agent starts.
-- Queue delegate-final deliveries before removing subscriptions for terminal
-  non-shared owners.
-- Terminal cleanup may remove the subscription only after queued delegate-final
-  deliveries drain or are explicitly dropped with a warning.
-- Keep subscriptions alive for shared handles until the handle is closed or the
-  session resets.
-- Reset all subscriptions and grants on `/clear`.
+- Create owner-scoped subscriptions when the owning handle starts.
+- Queue delegate-final deliveries before terminal cleanup for non-shared owners.
+- Terminal cleanup may remove a subscription only after queued delegate-final
+  deliveries drain or are dropped with a warning.
+- Shared handles keep owner subscriptions until close/reset.
+- Reset removes subscriptions and message grants.
 
 Required race test:
 
-- A non-shared caller completes after a blocking delegate final event while
-  observer delivery is in flight; the final frame is either delivered or a
-  warning explains why it was dropped. It must not disappear silently.
+- A non-shared owner completes after a blocking delegate final event while
+  observer delivery is in flight; the final frame is delivered or a warning
+  explains why it was dropped.
 
-## Phase 4: Pilot Specialized Observers
+## Phase 4: UI And Event Data Contracts
 
-V3 should ship at most two specialized observers. Both reuse
-`observer.metacognitive` initially. Do not add new model-purpose names until a
-live result proves the shared observer model is inadequate.
+### 4.1 Observer Tree Data
 
-Pilot observers are opt-in until live noise testing proves they are quiet enough
-for default root config.
+```ts
+interface AgentTreeNode {
+	isObserver?: boolean;
+	subscriptionDescription?: string;
+	subscriptionId?: string;
+	ownerHandleId?: string;
+	ownerAgentId?: string;
+	observedTarget?: "root" | "session" | "caller_delegates";
+}
+```
+
+Source:
+
+- `isObserver` comes from `act_start.data.observer === true`.
+- `subscriptionDescription` comes from `act_start.data.description`.
+- `subscriptionId`, `ownerHandleId`, `ownerAgentId`, and `observedTarget` come
+  from observer `act_start` data.
+- UI must not infer observer status from names, prefixes, or descriptions.
+
+Observer `act_start` data must include:
+
+- `observer: true`
+- `agent_name`
+- `child_id`
+- `handle_id`
+- `description`
+- `subscription_id`
+- `owner_handle_id`
+- `owner_agent_id`
+- `observed_target`
+
+### 4.2 Agent Message Event Data
+
+`agent_message` events must include enough data to prove recipient separation:
+
+```ts
+interface AgentMessageEventData {
+	from_agent_name: string;
+	from_role?: "observer";
+	from_handle_id?: string;
+	from_agent_id?: string;
+	to_agent_name?: string;
+	to_handle_id: string;
+	to_agent_id?: string;
+	subscription_id?: string;
+	text_preview: string;
+}
+```
+
+Required behavior:
+
+- Main thread shows compact `agent_message` events, e.g.
+  `metacognitive -> root`.
+- Non-root comments are attributable to their non-root recipient.
+- Tests can prove root did not receive a non-root-only observer comment.
+
+### 4.3 UI Behavior
+
+- Observer rows show a low-noise observer badge.
+- Observer rows remain selectable like normal child threads.
+- Observer row subtitle includes the subscription description.
+- Main thread does not inline raw observer frames.
+- Selected observer thread can show received frames, final observer responses,
+  and `message_agent` calls.
+- Raw observer frames are collapsed by default.
+
+## Phase 5: Pilot Specialized Observers
+
+V3 ships at most two opt-in pilot observers. Both use
+`model: observer.metacognitive`. Do not add new model-purpose names in V3.
 
 ### Shared Prompt Contract
 
@@ -490,85 +626,32 @@ Every observer prompt must include:
 - Prefer silence over noise.
 - Base comments on visible quoted evidence.
 - Do not claim knowledge of hidden prompts or hidden policy.
-- Use `message_agent` with the handle named in the observer comment policy.
+- Use `message_agent` with the handle named in the observer frame.
 - Use `blocking: false`.
+- Send at most one message per received frame.
 - After `message_agent`, finish with `MESSAGE_SENT`.
 - If no intervention is warranted, finish with `NO_MESSAGE`.
 
-### 4.1 PM Observer
-
-Purpose:
-
-- Watch session-level coordination and report only material coordination risks
-  to root.
-
-This is not a progress narrator. It should not summarize ordinary work, restate
-completed actions, or cheerlead. It is useful only when it sees evidence that
-root needs to change coordination behavior.
-
-Good comments:
-
-- "Two delegates are working on overlapping files. Decide ownership before the
-  next edit."
-- "The verifier found a failing gate, but root is preparing to report
-  completion. Resolve the gate first."
-- "A worker is blocked on missing context that root already has. Send the exact
-  constraint instead of starting a new parallel branch."
-
-Bad comments:
-
-- "Progress looks good."
-- "The engineer is still working."
-- Generic summaries of normal delegation.
-- Advice that requires hidden context not present in the frame.
-
-Recommended initial subscription:
-
-```yaml
-observers:
-  - agent: pm-observer
-    target: session
-    events: [plan_end, warning, error, act_end]
-    trigger:
-      every: 2
-      event: act_end
-    delivery:
-      max_events: 24
-      max_chars: 6000
-    comments:
-      can_message: [root]
-      default_recipient: root
-```
-
-Acceptance criteria:
-
-- Live scenario with two conflicting delegate results causes one concise PM
-  comment to root.
-- Normal short task produces `NO_MESSAGE`.
-- Normal successful delegate completion produces `NO_MESSAGE`.
-- PM observer never messages non-root agents in V3.
-
-### 4.2 Evidence-Contradiction Observer
+### 5.1 Evidence-Contradiction Observer
 
 Purpose:
 
 - Watch delegate-final frames and comment when child evidence contradicts the
   caller's visible plan, expectation, or intended final answer.
 
-Good comments:
+Good comment:
 
-- "The worker returned `BETA`, but the caller plan still says `ALPHA`. Use the
-  worker result or explain why it is not authoritative."
-- "The command output says the test failed, but the current summary says all
-  tests passed."
+- "The caller plan says `CALLER_EXPECTED_ALPHA`, but the child returned
+  `CHILD_RETURNED_BETA`. Use the child result or explain why it is not
+  authoritative."
 
 Bad comments:
 
 - Commenting when the caller explicitly explains why evidence is rejected.
 - Commenting on style.
-- Commenting without quoting both the caller expectation and child evidence.
+- Commenting without quoting both caller expectation and child evidence.
 
-Recommended initial subscription:
+Recommended subscription:
 
 ```yaml
 observe_delegates:
@@ -583,50 +666,125 @@ observe_delegates:
       default_recipient: caller
 ```
 
-Acceptance criteria:
+Deterministic pilot tests:
 
-- It comments when child output contradicts visible caller plan text.
-- It stays silent when child output agrees with caller plan text.
-- It stays silent when caller visibly rejects the child output with a reason.
-- It quotes both sides of the contradiction.
+- Contradiction case:
+  - caller snapshot contains `CALLER_EXPECTED_ALPHA`
+  - child output contains `CHILD_RETURNED_BETA`
+  - observer sends exactly one `message_agent`
+  - message quotes both markers
+  - observer final output is `MESSAGE_SENT`
+- Agreement case:
+  - caller and child both contain `EXPECTED_BETA`
+  - observer sends no `message_agent`
+  - observer final output is `NO_MESSAGE`
+- Rejection case:
+  - caller snapshot says child evidence will be rejected for a visible reason
+  - observer sends no `message_agent`
+  - observer final output is `NO_MESSAGE`
+
+### 5.2 PM Observer
+
+Purpose:
+
+- Watch bounded session-level evidence and report only material coordination
+  risks to root.
+
+This is not a progress narrator. It must not summarize ordinary work, restate
+completed actions, or cheerlead.
+
+Frame-realistic good comments:
+
+- "The frame shows `WORKER_A_OWNER=src/foo.ts` and
+  `WORKER_B_OWNER=src/foo.ts`. Decide file ownership before the next edit."
+- "The verifier result says `VERIFY_FAILED`, but the root plan says
+  `ROOT_READY_TO_REPORT`. Resolve the failed gate first."
+
+Bad comments:
+
+- "Progress looks good."
+- "The engineer is still working."
+- Generic summaries of normal delegation.
+- Advice that requires hidden context not present in the frame.
+
+Recommended subscription:
+
+```yaml
+observers:
+  - agent: pm-observer
+    target: session
+    events: [plan_end, warning, error, act_end, primitive_end]
+    trigger:
+      every: 2
+      event: act_end
+    delivery:
+      max_events: 24
+      max_chars: 6000
+    comments:
+      can_message: [root]
+      default_recipient: root
+```
+
+Deterministic pilot tests:
+
+- Coordination conflict:
+  - frame contains `WORKER_A_OWNER=src/foo.ts`
+  - frame contains `WORKER_B_OWNER=src/foo.ts`
+  - observer sends exactly one `message_agent` to root
+  - message quotes both markers
+  - observer final output is `MESSAGE_SENT`
+- Failed gate:
+  - frame contains `VERIFY_FAILED`
+  - frame contains `ROOT_READY_TO_REPORT`
+  - observer sends exactly one `message_agent` to root
+  - observer final output is `MESSAGE_SENT`
+- Normal progress:
+  - frame contains only successful non-conflicting delegate completions
+  - observer sends no `message_agent`
+  - observer final output is `NO_MESSAGE`
 
 ### Deferred Observer Ideas
 
-These are not V3 deliverables:
+Not V3 deliverables:
 
 - Failure-loop observer.
 - Instruction-drift observer.
 - Context-pressure observer.
 - Human-facing PM notification observer.
-- Observer agents with dedicated model purposes.
+- Dedicated observer model purposes.
 
 If pilot results show clear value and low noise, write a separate observer
-catalog spec for additional observers.
+catalog spec.
 
-## Phase 5: Memory And Event Metadata Requirements
+## Phase 6: Memory And Event Exclusion
 
-All observer lifecycle events, including non-root observers, must preserve the
-metadata used by memory and UI exclusion logic.
+Exclusion must be based on registered observer identity, not only lifecycle event
+flags.
 
-Required event data:
+Runtime requirements:
 
-- `observer: true`
-- stable `child_id`
-- stable `handle_id`
-- `agent_name`
-- `description`
+- Registry/spawner can provide the set of observer handle ids and observer agent
+  ids for the session.
+- Every observer process event uses the stable observer `agent_id`.
+- Every observer `agent_message` includes `from_role: "observer"` and
+  `from_handle_id`.
+- Observer lifecycle `act_start` events include the metadata listed in Phase 4.
 
 Required exclusions:
 
 - Observer lifecycle events do not become memory evidence.
 - Observer frames do not become memory evidence.
+- Observer `plan_end`, `primitive_end`, `act_end`, and final responses do not
+  become memory evidence.
 - Observer `agent_message` events do not become memory evidence.
 - Observer child logs are excluded from collapse transcripts.
 
 Required tests:
 
-- Non-root observer telemetry is excluded from collapse transcript.
-- Non-root observer telemetry is excluded from extraction evidence.
+- Root observer telemetry is excluded from collapse and extraction.
+- Non-root observer telemetry is excluded from collapse and extraction.
+- A non-root observer emits `plan_end`, `primitive_end`, `act_end`, and
+  `agent_message`; none enter collapse/extraction.
 - Normal non-observer delegate evidence is still preserved.
 
 ## Settings And Model Purposes
@@ -639,7 +797,7 @@ type AgentModelPurpose = "observer.metacognitive";
 
 Rules:
 
-- `pm-observer` and `evidence-contradiction-observer` initially use
+- `pm-observer` and `evidence-contradiction-observer` use
   `model: observer.metacognitive`.
 - Missing `observer.metacognitive` configuration fails loudly.
 - `SPROUT_OBSERVER_METACOGNITIVE_MODEL` remains the only observer env override.
@@ -669,63 +827,73 @@ follow-up spec for the smallest runtime control needed.
 ### Unit
 
 - Parser accepts agent-owned `observe_delegates` outside root.
-- Parser rejects unsupported targets and comment recipients.
-- Observer frame comment policy renders actual caller handle for non-root
-  caller subscriptions.
+- Parser rejects `target` as a V3 comment recipient.
+- Caller identity validation requires runtime handle/id.
+- Grant authorization checks handle/id before root special-case delivery.
+- Observer frame comment policy renders resolved non-root caller handle.
 - Observer registry filters delegate final events by owner.
 - Observer registry uses collision-proof handles for multiple owner instances.
-- Observer message grants permit caller and reject ungranted root messaging.
-- Delegate-final frame builder includes caller context and child output.
-- Observer telemetry exclusion tests cover non-root observers.
+- Delegate-final snapshot correlation handles interleaved delegates.
+- Delegate-final frame builder applies truncation priority.
+- Observer telemetry exclusion covers non-root observers.
 
 ### Integration
 
-- Non-root agent delegates to a worker and owns a delegate-final observer.
-- Observer comments to the non-root caller through a runtime grant.
-- Root does not receive that comment.
+- Non-root owner attaches delegate observer through `attachOwner()`.
+- Observer comments to non-root caller through grant.
+- Root does not receive non-root-only comment.
+- Spoofed observer-like caller cannot use another observer's grant.
 - Two instances of the same caller agent do not share observer state.
-- One observer delivery failure does not block another subscription.
-- Owner terminal cleanup does not silently drop a queued delegate-final frame.
+- Bounded flush puts deterministic observer comment into owner's next prompt.
+- Flush timeout warns and does not hang owner.
+- Owner terminal cleanup does not silently drop queued delegate-final frame.
 
 ### UI
 
 - Observer badge renders from `AgentTreeNode.isObserver`.
 - Observer subtitle renders from `subscriptionDescription`.
+- Observer owner metadata is available on observer tree nodes.
+- `agent_message` compact display uses explicit sender/recipient metadata.
+- UI can distinguish root recipient from non-root recipient.
 - Observer selected thread shows received frames.
 - Main root thread shows compact comments, not raw frames.
-- Delegate observer appears under the correct caller or observed delegate.
 
 ### Live Manual
 
 - Run checked-in live harness with multiple root/session observers.
 - Run non-root delegate observer live scenario.
-- Run PM observer conflict scenario and normal-task silence control.
-- Run evidence-contradiction observer contradiction scenario and agreement
-  silence control.
+- Run evidence-contradiction pilot contradiction/agreement/rejection cases.
+- Run PM observer conflict/failed-gate/normal-progress cases.
+- Report warning counts and whether pilot comments arrived before finalization.
 
 ## Rollout
 
 1. Check in validation harness and authoring docs.
 2. Add deterministic multi-observer tests for current V2 behavior.
-3. Add UI data contract and inspection improvements.
-4. Add runtime observer message grants.
-5. Add owner-scoped non-root `observe_delegates`.
-6. Add delegate-final caller context.
-7. Add `evidence-contradiction-observer` as opt-in.
-8. Add `pm-observer` as opt-in.
-9. Run live noise tests before enabling either pilot observer by default.
+3. Extend runtime caller identity with handle/id.
+4. Add `AgentSpawner` observer message grants.
+5. Add UI/event metadata contracts.
+6. Add owner-scoped `attachOwner()`/`detachOwner()`.
+7. Add deterministic delegate-final snapshots.
+8. Add bounded delegate-final observer flush.
+9. Add non-root memory/collapse exclusion tests.
+10. Add `evidence-contradiction-observer` as opt-in.
+11. Add `pm-observer` as opt-in.
+12. Run live noise tests before enabling either pilot observer by default.
 
 ## Success Criteria
 
 - Observer behavior is documented enough that a new observer can be authored
   without reading runtime code.
 - Multi-observer behavior has deterministic tests and a live validation script.
-- UI makes observer activity inspectable without polluting the main task thread.
+- Runtime grants are enforceable by unspoofable caller handle/id.
 - A non-root agent can observe and comment on its own delegate through an
-  explicit runtime grant.
+  explicit grant.
 - Non-root observer comments cannot reach root unless explicitly granted.
-- Delegate-final observers receive enough bounded caller context to detect
-  evidence contradictions.
-- PM observer and evidence-contradiction observer each pass one useful live
-  scenario and one silence control.
+- Delegate-final observers receive deterministic bounded caller context and
+  child output.
+- Bounded flush can deliver delegate-final comments before owner finalization.
+- UI makes observer activity inspectable without name-based inference.
+- PM observer and evidence-contradiction observer each pass deterministic useful
+  cases and silence controls.
 - Memory extraction and collapse remain unaffected by observer telemetry.
