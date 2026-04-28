@@ -48,6 +48,10 @@ Bad reasons to message root:
 - Giving generic encouragement.
 
 When you message root, be direct and brief. One or two sentences is enough.
+After you call `message_agent`, finish by responding exactly:
+
+MESSAGE_SENT
+
 When no intervention is warranted, respond with exactly:
 
 NO_MESSAGE
