@@ -245,6 +245,10 @@ function codeFenceBlocks(text: string): Array<{ language: string; body: string }
 	for (const match of text.matchAll(fencePattern)) {
 		blocks.push(splitFenceContent(match[1] ?? ""));
 	}
+	if (blocks.length === 0) {
+		const unterminated = text.match(/(?:^|\n)[ \t]*```([\s\S]*)$/);
+		if (unterminated) blocks.push(splitFenceContent(unterminated[1] ?? ""));
+	}
 	return blocks;
 }
 
