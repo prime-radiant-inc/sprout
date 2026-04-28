@@ -102,11 +102,39 @@ describe("memory extraction", () => {
 		expect(parseExtractionJson('```\n[{"text":"plain unterminated"}]\n')).toEqual([
 			{ text: "plain unterminated" },
 		]);
+		expect(parseExtractionJson('Here is the JSON: [{"text":"unfenced prose"}]')).toEqual([
+			{ text: "unfenced prose" },
+		]);
+		expect(
+			parseExtractionJson(
+				'Example: {"ignored":true}\nActual output: [{"text":"schema-ranked payload"}]',
+			),
+		).toEqual([{ text: "schema-ranked payload" }]);
+		expect(
+			parseExtractionJson(
+				'No fence:\n{"summary":"Uses {braces}, [brackets], and \\"quoted\\" text","title":"Nested punctuation"}',
+			),
+		).toEqual({
+			summary: 'Uses {braces}, [brackets], and "quoted" text',
+			title: "Nested punctuation",
+		});
+		expect(
+			parseExtractionJson(
+				'Example: {"summary":"wrong"}\n```json\n{"summary":"right","title":"JSON fence wins"}\n```',
+			),
+		).toEqual({ summary: "right", title: "JSON fence wins" });
+		expect(parseExtractionJson('Noise [not json] then [{"text":"after bad bracket"}]')).toEqual([
+			{ text: "after bad bracket" },
+		]);
+		expect(
+			parseExtractionJson('Noise [unterminated aside before [{"text":"after open bracket"}]'),
+		).toEqual([{ text: "after open bracket" }]);
 		expect(parseExtractionJson("[{“text”: “gamma”,}]")).toEqual([{ text: "gamma" }]);
 	});
 
 	test("does not treat arbitrary fenced code as JSON", () => {
 		expect(() => parseExtractionJson("```ts\nexport {}\n```")).toThrow();
+		expect(() => parseExtractionJson('```ts\n{"text":"not authoritative"}\n```')).toThrow();
 	});
 
 	test("parses raw JSON before inspecting fenced snippets inside string values", () => {

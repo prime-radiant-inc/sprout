@@ -55,6 +55,19 @@ const ENTITY_TYPES = new Set<EntityLinkEntry["type"]>([
 	"PERSON",
 ]);
 
+type CodeFenceBlock = {
+	language: string;
+	body: string;
+	start: number;
+	end: number;
+};
+
+type JsonCandidate = {
+	text: string;
+	priority: number;
+	order: number;
+};
+
 export async function extractMemoryDrafts(
 	request: ExtractionRequest,
 ): Promise<ExtractedMemoryDraft[]> {
@@ -108,11 +121,31 @@ export function parseExtractionJson(text: string): unknown {
 	const direct = tryParseJson(trimmed);
 	if (direct.ok) return direct.value;
 
-	const stripped = stripCodeFence(trimmed);
-	if (stripped === trimmed) throw direct.error;
-	const fenced = tryParseJson(stripped);
-	if (fenced.ok) return fenced.value;
-	throw fenced.error;
+	const parsedCandidates = jsonExtractionCandidates(trimmed).flatMap((candidate) => {
+		const parsed = tryParseJson(candidate.text);
+		return parsed.ok
+			? [
+					{
+						value: parsed.value,
+						rank: candidate.priority + jsonPayloadScore(parsed.value),
+						order: candidate.order,
+					},
+				]
+			: [];
+	});
+	const best = parsedCandidates.reduce<{ value: unknown; rank: number; order: number } | undefined>(
+		(currentBest, candidate) => {
+			if (!currentBest) return candidate;
+			if (candidate.rank > currentBest.rank) return candidate;
+			if (candidate.rank === currentBest.rank && candidate.order > currentBest.order) {
+				return candidate;
+			}
+			return currentBest;
+		},
+		undefined,
+	);
+	if (best) return best.value;
+	throw direct.error;
 }
 
 function tryParseJson(text: string): { ok: true; value: unknown } | { ok: false; error: unknown } {
@@ -229,27 +262,49 @@ function timestampValue(value: unknown): number | undefined {
 	return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-function stripCodeFence(text: string): string {
+function jsonExtractionCandidates(text: string): JsonCandidate[] {
+	const candidates: JsonCandidate[] = [];
+	const seen = new Set<string>();
+	let order = 0;
+	const add = (candidateText: string, priority: number) => {
+		const trimmed = candidateText.trim();
+		if (!trimmed || seen.has(trimmed)) return;
+		seen.add(trimmed);
+		candidates.push({ text: trimmed, priority, order: order++ });
+	};
 	const blocks = codeFenceBlocks(text);
-	if (blocks.length === 0) return text;
-
-	const jsonBlock = blocks.find((block) => block.language === "json");
-	const jsonLikeBlock = blocks.find((block) => startsLikeJson(block.body));
-
-	return (jsonBlock ?? jsonLikeBlock)?.body ?? text;
+	for (const block of blocks) {
+		if (block.language === "json") {
+			add(block.body, 300);
+		} else if (block.language === "" && startsLikeJson(block.body)) {
+			add(block.body, 250);
+		}
+	}
+	const outsideFences = removeRanges(text, blocks);
+	for (const span of balancedJsonSpans(outsideFences)) {
+		add(span, 100);
+	}
+	return candidates;
 }
 
-function codeFenceBlocks(text: string): Array<{ language: string; body: string }> {
-	const blocks: Array<{ language: string; body: string }> = [];
+function codeFenceBlocks(text: string): CodeFenceBlock[] {
+	const blocks: CodeFenceBlock[] = [];
 	const fencePattern = /```([\s\S]*?)```/g;
 	let lastClosedFenceEnd = 0;
 	for (const match of text.matchAll(fencePattern)) {
-		blocks.push(splitFenceContent(match[1] ?? ""));
-		lastClosedFenceEnd = (match.index ?? 0) + match[0].length;
+		const start = match.index ?? 0;
+		const end = start + match[0].length;
+		blocks.push({ ...splitFenceContent(match[1] ?? ""), start, end });
+		lastClosedFenceEnd = end;
 	}
 	const trailing = text.slice(lastClosedFenceEnd);
 	const unterminated = trailing.match(/(?:^|\n)[ \t]*```([\s\S]*)$/);
-	if (unterminated) blocks.push(splitFenceContent(unterminated[1] ?? ""));
+	if (unterminated) {
+		const matchOffset = unterminated.index ?? 0;
+		const fenceOffset = unterminated[0]?.indexOf("```") ?? 0;
+		const start = lastClosedFenceEnd + matchOffset + fenceOffset;
+		blocks.push({ ...splitFenceContent(unterminated[1] ?? ""), start, end: text.length });
+	}
 	return blocks;
 }
 
@@ -276,6 +331,86 @@ function fenceLanguage(info: string): string {
 function startsLikeJson(text: string): boolean {
 	const trimmed = text.trimStart();
 	return trimmed.startsWith("{") || trimmed.startsWith("[");
+}
+
+function removeRanges(
+	text: string,
+	ranges: readonly Pick<CodeFenceBlock, "start" | "end">[],
+): string {
+	let result = "";
+	let cursor = 0;
+	for (const range of ranges) {
+		result += text.slice(cursor, range.start);
+		result += " ".repeat(range.end - range.start);
+		cursor = range.end;
+	}
+	return result + text.slice(cursor);
+}
+
+function balancedJsonSpans(text: string): string[] {
+	const spans: string[] = [];
+	for (let index = 0; index < text.length; index++) {
+		const char = text[index];
+		if (char !== "{" && char !== "[") continue;
+		const span = balancedJsonSpanAt(text, index);
+		if (!span) continue;
+		spans.push(span.text);
+	}
+	return spans;
+}
+
+function balancedJsonSpanAt(
+	text: string,
+	start: number,
+): { text: string; end: number } | undefined {
+	const stack: string[] = [];
+	let inString = false;
+	let escaped = false;
+	for (let index = start; index < text.length; index++) {
+		const char = text[index];
+		if (inString) {
+			if (escaped) {
+				escaped = false;
+			} else if (char === "\\") {
+				escaped = true;
+			} else if (char === '"') {
+				inString = false;
+			}
+			continue;
+		}
+		if (char === '"') {
+			inString = true;
+			continue;
+		}
+		if (char === "{") {
+			stack.push("}");
+			continue;
+		}
+		if (char === "[") {
+			stack.push("]");
+			continue;
+		}
+		if (char !== "}" && char !== "]") continue;
+		const expected = stack.pop();
+		if (expected !== char) return undefined;
+		if (stack.length === 0) return { text: text.slice(start, index + 1), end: index + 1 };
+	}
+	return undefined;
+}
+
+function jsonPayloadScore(value: unknown): number {
+	if (Array.isArray(value)) {
+		return value.some(hasMemoryText) ? 100 : 60;
+	}
+	if (!isRecord(value)) return 0;
+	if (Array.isArray(value.memories)) return 100;
+	if (typeof value.summary === "string" || typeof value.title === "string") return 95;
+	if (hasMemoryText(value)) return 90;
+	return 50;
+}
+
+function hasMemoryText(value: unknown): boolean {
+	return isRecord(value) && (typeof value.text === "string" || typeof value.content === "string");
 }
 
 function repairJson(text: string): string {
