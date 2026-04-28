@@ -1,7 +1,9 @@
+import { join } from "node:path";
 import type { ResolverSettings } from "../agents/model-resolver.ts";
 import { buildInternalSproutCommand } from "../util/self-command.ts";
 import { ulid } from "../util/ulid.ts";
 import type { BusClient } from "./client.ts";
+import { readHandleResult } from "./resume.ts";
 import { agentInbox, agentMessageAck, agentReady, agentResult, sessionEvents } from "./topics.ts";
 import type {
 	AgentAddress,
@@ -169,25 +171,25 @@ export class AgentSpawner {
 		void process.exited.then(
 			(code) => {
 				setTimeout(
-					() => this.handleProcessExit(handleId, process, code),
+					() => void this.handleProcessExit(handleId, process, code),
 					PROCESS_EXIT_RESULT_GRACE_MS,
 				);
 			},
 			(error) => {
 				setTimeout(
-					() => this.handleProcessExit(handleId, process, undefined, error),
+					() => void this.handleProcessExit(handleId, process, undefined, error),
 					PROCESS_EXIT_RESULT_GRACE_MS,
 				);
 			},
 		);
 	}
 
-	private handleProcessExit(
+	private async handleProcessExit(
 		handleId: string,
 		process: { kill: () => void; exited: Promise<number> },
 		code?: number,
 		error?: unknown,
-	): void {
+	): Promise<void> {
 		const handle = this.handles.get(handleId);
 		if (!handle || handle.process !== process) {
 			return;
@@ -195,6 +197,20 @@ export class AgentSpawner {
 
 		if (handle.result) {
 			handle.status = "completed";
+			return;
+		}
+
+		const persistedResult = await this.readPersistedHandleResult(handle);
+		const current = this.handles.get(handleId);
+		if (!current || current.process !== process) {
+			return;
+		}
+		if (current.result) {
+			current.status = "completed";
+			return;
+		}
+		if (persistedResult) {
+			this.settleHandleResult(current, persistedResult, "completed");
 			return;
 		}
 
@@ -211,8 +227,21 @@ export class AgentSpawner {
 			turns: 0,
 			timed_out: false,
 		};
+		this.settleHandleResult(current, result, "completed");
+	}
+
+	private async readPersistedHandleResult(handle: AgentHandle): Promise<ResultMessage | null> {
+		const handleLogDir = join(handle.projectDataDir ?? handle.genomePath, "logs", this.sessionId);
+		return readHandleResult(handleLogDir, handle.handleId);
+	}
+
+	private settleHandleResult(
+		handle: AgentHandle,
+		result: ResultMessage,
+		status: AgentHandle["status"] = handle.keepAlive ? "idle" : "completed",
+	): void {
 		handle.result = result;
-		handle.status = "completed";
+		handle.status = status;
 		for (const waiter of handle.pendingWaiters) {
 			clearTimeout(waiter.timer);
 			waiter.resolve(result);
@@ -389,13 +418,7 @@ export class AgentSpawner {
 			try {
 				const msg = parseBusMessage(payload);
 				if (msg.kind === "result") {
-					handle.result = msg;
-					handle.status = handle.keepAlive ? "idle" : "completed";
-					for (const waiter of handle.pendingWaiters) {
-						clearTimeout(waiter.timer);
-						waiter.resolve(msg);
-					}
-					handle.pendingWaiters = [];
+					this.settleHandleResult(handle, msg);
 				}
 			} catch {
 				// Ignore malformed messages

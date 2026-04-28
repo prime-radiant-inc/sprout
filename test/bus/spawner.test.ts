@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createResolverSettings } from "../../src/agents/model-resolver.ts";
@@ -615,6 +615,72 @@ describe("AgentSpawner", () => {
 				expect(result.success).toBe(false);
 				expect(result.output).toContain("exited with code 137");
 				expect(result.timed_out).toBe(false);
+			} finally {
+				if (readyTimer) clearInterval(readyTimer);
+				await childBus.disconnect();
+			}
+		}, 15_000);
+
+		test("recovers a successful result from the handle log when result delivery loses the race to process exit", async () => {
+			const handleId = "01SPAWNERLOGRECOVER0000000";
+			const childBus = new BusClient(server.url);
+			await childBus.connect();
+			let readyTimer: ReturnType<typeof setInterval> | undefined;
+			try {
+				spawner = new AgentSpawner(
+					bus,
+					server.url,
+					SESSION_ID,
+					(_spawnedHandleId) => {
+						readyTimer = setInterval(() => {
+							void childBus.publish(agentReady(SESSION_ID, handleId), JSON.stringify({ ok: true }));
+						}, 10);
+						return {
+							kill: () => {
+								if (readyTimer) clearInterval(readyTimer);
+							},
+							exited: (async () => {
+								await delay(75);
+								const handleLogDir = join(tempDir, "logs", SESSION_ID);
+								await mkdir(handleLogDir, { recursive: true });
+								await writeFile(
+									join(handleLogDir, `${handleId}.jsonl`),
+									`${JSON.stringify({
+										kind: "session_end",
+										timestamp: Date.now(),
+										agent_id: "child",
+										depth: 1,
+										data: {
+											output: "Recovered from durable handle log.",
+											success: true,
+											stumbles: 0,
+											turns: 1,
+											timed_out: false,
+										},
+									})}\n`,
+								);
+								return 0;
+							})(),
+						};
+					},
+					500,
+				);
+
+				const result = (await spawnWithResolver({
+					agentName: "test-leaf",
+					genomePath: genomeDir,
+					projectDataDir: tempDir,
+					caller: addr("root", 0),
+					goal: "Finish and log result before bus result arrives",
+					blocking: true,
+					shared: false,
+					workDir: tempDir,
+					handleId,
+				})) as ResultMessage;
+
+				expect(result.success).toBe(true);
+				expect(result.output).toBe("Recovered from durable handle log.");
+				expect(result.turns).toBe(1);
 			} finally {
 				if (readyTimer) clearInterval(readyTimer);
 				await childBus.disconnect();

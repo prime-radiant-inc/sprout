@@ -716,6 +716,37 @@ describe("readHandleResult", () => {
 		expect(result!.timed_out).toBe(false);
 	});
 
+	test("returns the latest result from handles that ran multiple times", async () => {
+		const handleLogDir = join(tempDir, "logs", "session-1");
+		await mkdir(handleLogDir, { recursive: true });
+
+		const handleId = "handle-respawned";
+		const logPath = join(handleLogDir, `${handleId}.jsonl`);
+		await writeEventLog(logPath, [
+			event("session_end", {
+				output: "First run",
+				success: true,
+				stumbles: 0,
+				turns: 1,
+				timed_out: false,
+			}),
+			event("perceive", { goal: "continue" }),
+			event("session_end", {
+				output: "Second run",
+				success: true,
+				stumbles: 0,
+				turns: 2,
+				timed_out: false,
+			}),
+		]);
+
+		const result = await readHandleResult(handleLogDir, handleId);
+
+		expect(result).not.toBeNull();
+		expect(result!.output).toBe("Second run");
+		expect(result!.turns).toBe(2);
+	});
+
 	test("returns null when log has no session_end event", async () => {
 		const handleLogDir = join(tempDir, "logs", "session-1");
 		await mkdir(handleLogDir, { recursive: true });

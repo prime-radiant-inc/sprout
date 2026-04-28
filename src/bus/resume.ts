@@ -154,11 +154,12 @@ export async function readHandleResult(
 	}
 
 	const lines = raw.split("\n").filter((line) => line.trim() !== "");
+	let result: ResultMessage | null = null;
 	for (const line of lines) {
 		try {
 			const parsed = JSON.parse(line);
 			if (parsed.kind === "session_end") {
-				return {
+				result = {
 					kind: "result",
 					handle_id: handleId,
 					output: (parsed.data.output as string) ?? "",
@@ -171,7 +172,7 @@ export async function readHandleResult(
 		} catch {}
 	}
 
-	return null;
+	return result;
 }
 
 export async function loadCompletedChildHandles(opts: {
