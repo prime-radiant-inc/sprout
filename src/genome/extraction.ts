@@ -242,13 +242,14 @@ function stripCodeFence(text: string): string {
 function codeFenceBlocks(text: string): Array<{ language: string; body: string }> {
 	const blocks: Array<{ language: string; body: string }> = [];
 	const fencePattern = /```([\s\S]*?)```/g;
+	let lastClosedFenceEnd = 0;
 	for (const match of text.matchAll(fencePattern)) {
 		blocks.push(splitFenceContent(match[1] ?? ""));
+		lastClosedFenceEnd = (match.index ?? 0) + match[0].length;
 	}
-	if (blocks.length === 0) {
-		const unterminated = text.match(/(?:^|\n)[ \t]*```([\s\S]*)$/);
-		if (unterminated) blocks.push(splitFenceContent(unterminated[1] ?? ""));
-	}
+	const trailing = text.slice(lastClosedFenceEnd);
+	const unterminated = trailing.match(/(?:^|\n)[ \t]*```([\s\S]*)$/);
+	if (unterminated) blocks.push(splitFenceContent(unterminated[1] ?? ""));
 	return blocks;
 }
 

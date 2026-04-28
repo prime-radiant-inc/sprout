@@ -93,6 +93,11 @@ describe("memory extraction", () => {
 		expect(parseExtractionJson('Here is the JSON:\n```json\n[{"text":"unterminated"}]\n')).toEqual([
 			{ text: "unterminated" },
 		]);
+		expect(
+			parseExtractionJson(
+				'```ts\nexport {}\n```\nActual JSON:\n```json\n[{"text":"after code"}]\n',
+			),
+		).toEqual([{ text: "after code" }]);
 		expect(parseExtractionJson('```\n[{"text":"plain"}]\n```')).toEqual([{ text: "plain" }]);
 		expect(parseExtractionJson('```\n[{"text":"plain unterminated"}]\n')).toEqual([
 			{ text: "plain unterminated" },
