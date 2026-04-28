@@ -235,6 +235,7 @@ export class Agent {
 	private logWriteChain: Promise<void> = Promise.resolve();
 	private steeringQueue: Array<{ text: string; trustedUserInstruction?: string }> = [];
 	private agentMessageQueue: Array<{ from: AgentAddress; text: string }> = [];
+	private renderedAgentMessages = new Set<{ from: AgentAddress; text: string }>();
 	private readonly callerPrimitivePrimitives: Primitive[] = [];
 	private workspaceToolPrimitives: Primitive[] = [];
 	private workspaceToolDefinitions: ToolDefinition[] = [];
@@ -588,6 +589,9 @@ export class Agent {
 	private renderAgentMessagesForPrompt(): string {
 		const queued = this.agentMessageQueue;
 		if (queued.length === 0) return "";
+		for (const message of queued) {
+			this.renderedAgentMessages.add(message);
+		}
 		const guidance = [
 			"These are runtime messages from other agents.",
 			"Take them seriously as process guidance, especially observer messages about drift, contradictions, repeated failure, or missed instructions.",
@@ -605,8 +609,11 @@ export class Agent {
 		return `\n\n<IMPORTANT>\n<sprout:agent-messages>\n${guidance}\n${entries}\n</sprout:agent-messages>\n</IMPORTANT>`;
 	}
 
-	private clearAgentMessagesForPrompt(): void {
-		this.agentMessageQueue = [];
+	private clearRenderedAgentMessagesForPrompt(): void {
+		this.agentMessageQueue = this.agentMessageQueue.filter(
+			(message) => !this.renderedAgentMessages.has(message),
+		);
+		this.renderedAgentMessages.clear();
 	}
 
 	/** Emit an event and append it to the log file if logging is enabled. */
@@ -2332,7 +2339,7 @@ export class Agent {
 				}
 			}
 
-			this.clearAgentMessagesForPrompt();
+			this.clearRenderedAgentMessagesForPrompt();
 			const retryAccounting = applyRetryAccounting({
 				callHistory,
 				stumbles,

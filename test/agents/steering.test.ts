@@ -318,6 +318,42 @@ describe("Agent message queue", () => {
 		expect(messageText(requests[2]!.messages[0]!)).not.toContain("One-time guidance");
 	});
 
+	test("agent messages delivered after the final prompt survive for continue", async () => {
+		const requests: Request[] = [];
+		let agent: Agent;
+		const client = {
+			providers: () => ["anthropic"],
+			complete: async (request: Request): Promise<Response> => {
+				requests.push(request);
+				if (requests.length === 1) {
+					queueMicrotask(() => {
+						agent.receiveAgentMessage(
+							"Late observer guidance",
+							addr("metacognitive", 1, "observer"),
+						);
+					});
+				}
+				return {
+					id: `mock-agent-message-late-${requests.length}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant("DONE"),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+		agent = makeAgent({ client });
+
+		await agent.run("test goal");
+		await agent.continue("follow up");
+
+		expect(requests).toHaveLength(2);
+		expect(messageText(requests[0]!.messages[0]!)).not.toContain("Late observer guidance");
+		expect(messageText(requests[1]!.messages[0]!)).toContain("Late observer guidance");
+	});
+
 	test("message_agent can be explicitly granted without delegation rights", () => {
 		const agent = makeAgent({
 			spawner: {} as AgentOptions["spawner"],
