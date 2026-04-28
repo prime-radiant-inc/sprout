@@ -19,6 +19,15 @@ subcortical_recall:
   enabled: true
   max_tokens: 1024
 observers:
+  - agent: the-balcony
+    target: root
+    events: [plan_end, warning, error, primitive_end, act_end, compaction, interrupted]
+    trigger:
+      every: 1
+      event: plan_end
+    delivery:
+      max_events: 16
+      max_chars: 5000
   - agent: metacognitive
     target: root
     events: [plan_end, warning, error, primitive_end, act_end, compaction, interrupted]

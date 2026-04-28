@@ -1061,6 +1061,63 @@ describe("Agent", () => {
 		).toBe(true);
 	});
 
+	test("tool-less observer may complete silently with an empty response", async () => {
+		const observerSpec: AgentSpec = {
+			...leafSpec,
+			name: "the-balcony",
+			description: "Private commentary observer",
+			system_prompt: "Observe and comment only when useful.",
+			tools: [],
+			agents: [],
+			constraints: {
+				...DEFAULT_CONSTRAINTS,
+				can_spawn: false,
+				can_learn: false,
+				max_turns: 2,
+			},
+			tags: ["observer", "commentary"],
+		};
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => ({
+				id: "mock-empty-observer",
+				model: "claude-haiku-4-5-20251001",
+				provider: "anthropic",
+				message: {
+					role: "assistant",
+					content: [],
+				},
+				finish_reason: { reason: "stop" },
+				usage: { input_tokens: 10, output_tokens: 0, total_tokens: 10 },
+			}),
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: observerSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 1,
+			events,
+		});
+
+		expect(agent.resolvedTools()).toEqual([]);
+
+		const result = await agent.run("observe a root frame");
+
+		expect(result.success).toBe(true);
+		expect(result.output).toBe("");
+		expect(result.stumbles).toBe(0);
+		expect(events.collected().filter((event) => event.kind === "warning")).toEqual([]);
+		const planEnd = events.collected().find((event) => event.kind === "plan_end");
+		expect(planEnd?.data.text).toBe("");
+	});
+
 	test("agent times out after timeout_ms", async () => {
 		const timeoutSpec: AgentSpec = {
 			name: "timeout-root",

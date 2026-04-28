@@ -373,9 +373,15 @@ export class Agent {
 		this.primitiveTools = [];
 		this.refreshPrimitiveToolList();
 
-		// Safety: an agent with zero tools will hallucinate — never allow this silently.
+		// Safety: ordinary agents with zero tools will hallucinate. Tool-less observers are
+		// allowed because their only job may be to silently watch a frame and optionally comment.
 		// If genome exists, workspace tools may load later in run(), so defer the check.
-		if (this.agentTools.length === 0 && this.primitiveTools.length === 0 && !this.genome) {
+		if (
+			this.agentTools.length === 0 &&
+			this.primitiveTools.length === 0 &&
+			!this.genome &&
+			!this.canRunWithoutTools()
+		) {
 			throw new Error(
 				`Agent '${this.spec.name}' has zero tools: no primitives (tools: [${this.spec.tools.join(", ")}]) ` +
 					`and no delegatable agents (agents: [${this.spec.agents.join(", ")}], can_spawn: ${this.spec.constraints.can_spawn}). ` +
@@ -388,6 +394,14 @@ export class Agent {
 	/** Returns the resolved model and provider for this agent. */
 	get resolvedModel(): ResolvedModel {
 		return this.resolved;
+	}
+
+	private canRunWithoutTools(): boolean {
+		return this.spec.tags.includes("observer");
+	}
+
+	private canCompleteWithEmptyOutput(): boolean {
+		return this.spec.tags.includes("observer");
 	}
 
 	/** Returns all tools this agent can use (agent tools + primitive tools) */
@@ -1790,8 +1804,12 @@ export class Agent {
 		}
 
 		// Safety: after all tool sources are resolved (primitives + agents + workspace tools),
-		// an agent with zero tools would cause the LLM to hallucinate. Fail hard.
-		if (this.agentTools.length === 0 && this.primitiveTools.length === 0) {
+		// ordinary agents with zero tools would hallucinate. Tool-less observers may only comment.
+		if (
+			this.agentTools.length === 0 &&
+			this.primitiveTools.length === 0 &&
+			!this.canRunWithoutTools()
+		) {
 			throw new Error(
 				`Agent '${this.spec.name}' has zero tools after full resolution (including workspace tools). ` +
 					`Spec: tools=[${this.spec.tools.join(", ")}], agents=[${this.spec.agents.join(", ")}], ` +
@@ -2280,6 +2298,10 @@ export class Agent {
 				if (toolCalls.length === 0) {
 					const finalOutput = messageText(assistantMessage);
 					if (finalOutput.trim() === "") {
+						if (this.canCompleteWithEmptyOutput()) {
+							lastOutput = "";
+							break;
+						}
 						this.history.push(
 							Msg.user(
 								"Your last response was empty. Return the requested result explicitly, or use a tool if more work is needed.",

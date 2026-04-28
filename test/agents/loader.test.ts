@@ -48,6 +48,7 @@ describe("loadRootAgents", () => {
 		expect(names).toContain("verifier");
 		expect(names).toContain("debugger");
 		expect(names).toContain("task-manager");
+		expect(names).toContain("the-balcony");
 	});
 
 	test("all agents have valid constraints and system prompts", async () => {
@@ -67,6 +68,32 @@ describe("loadRootAgents", () => {
 		expect(root!.agents).toContain("utility/reader");
 		expect(root!.agents).not.toContain("utility/editor");
 		expect(root!.agents).not.toContain("utility/command-runner");
+	});
+
+	test("root attaches The Balcony as a non-steering observer", async () => {
+		const agents = await loadRootAgents(join(import.meta.dir, "../../root"));
+		const root = agents.find((a) => a.name === "root");
+		const balcony = agents.find((a) => a.name === "the-balcony");
+
+		expect(root?.observers?.[0]).toEqual({
+			agent: "the-balcony",
+			target: "root",
+			events: [
+				"plan_end",
+				"warning",
+				"error",
+				"primitive_end",
+				"act_end",
+				"compaction",
+				"interrupted",
+			],
+			trigger: { every: 1, event: "plan_end" },
+			delivery: { max_events: 16, max_chars: 5000 },
+		});
+		expect(balcony?.tools).toEqual([]);
+		expect(balcony?.agents).toEqual([]);
+		expect(balcony?.tags).toContain("observer");
+		expect(balcony?.tags).toContain("commentary");
 	});
 
 	test("leaf agents cannot spawn subagents", async () => {
