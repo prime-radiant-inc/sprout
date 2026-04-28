@@ -211,6 +211,7 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 			});
 
 	const logBasePath = join(dataDir, "logs", sessionId);
+	const rootAddress = rootAgentAddress(rootSpec.name);
 
 	// Scan the agent tree for path-based delegation resolution
 	const agentTree = options.rootDir ? await scanAgentTree(options.rootDir) : undefined;
@@ -245,8 +246,8 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 		genomePath: options.genomePath,
 		projectDataDir: options.projectDataDir,
 		agentId: "root",
-		self: rootAgentAddress(),
-		caller: rootAgentAddress(),
+		self: rootAddress,
+		caller: rootAddress,
 		logger: options.logger,
 		evalMode: options.evalMode,
 		rootDir: options.rootDir,

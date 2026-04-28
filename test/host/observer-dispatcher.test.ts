@@ -98,7 +98,7 @@ class FakeSpawner {
 
 function makeDispatcher(
 	spawner: FakeSpawner,
-	options: { configured?: boolean; sessionId?: string } = {},
+	options: { configured?: boolean; rootAgentName?: string; sessionId?: string } = {},
 ) {
 	const emitted: Array<{
 		kind: EventKind;
@@ -108,6 +108,7 @@ function makeDispatcher(
 	}> = [];
 	const dispatcher = new ObserverDispatcher({
 		sessionId: options.sessionId ?? "session-1",
+		rootAgentName: options.rootAgentName ?? "root",
 		spawner: spawner as unknown as AgentSpawner,
 		genomePath: "/tmp/genome",
 		workDir: "/tmp/work",
@@ -196,6 +197,23 @@ describe("ObserverDispatcher", () => {
 		});
 		expect(spawner.deliveries[1]!.message).toContain("root plan 6");
 		expect(spawner.deliveries[1]!.message).not.toContain("root plan 1");
+	});
+
+	test("uses the configured root agent name as the observer caller identity", async () => {
+		const spawner = new FakeSpawner();
+		const { dispatcher } = makeDispatcher(spawner, { rootAgentName: "editor" });
+
+		dispatcher.handleEvent(planEnd(1));
+		dispatcher.handleEvent(planEnd(2));
+		dispatcher.handleEvent(planEnd(3));
+		await waitFor(() => spawner.deliveries.length === 1);
+
+		expect(spawner.deliveries[0]!.caller).toEqual({
+			agentName: "editor",
+			depth: 0,
+			handleId: "root",
+			agentId: "root",
+		});
 	});
 
 	test("coalesces triggers while observer delivery is busy", async () => {

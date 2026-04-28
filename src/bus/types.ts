@@ -10,9 +10,9 @@ export interface AgentAddress {
 	role?: "observer";
 }
 
-export function rootAgentAddress(): AgentAddress {
+export function rootAgentAddress(agentName = "root"): AgentAddress {
 	return {
-		agentName: "root",
+		agentName,
 		depth: 0,
 		handleId: "root",
 		agentId: "root",

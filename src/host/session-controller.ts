@@ -491,6 +491,7 @@ export class SessionController {
 			this.observerRegistryConfigured = observerConfigs.length > 0;
 			this.observerRegistry = new ObserverRegistry({
 				sessionId: this._sessionId,
+				rootAgentName: this.rootAgentName ?? "root",
 				spawner: this.spawner,
 				genomePath: this.genomePath,
 				workDir: this.workDir,

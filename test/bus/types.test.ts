@@ -9,7 +9,7 @@ import type {
 	StartMessage,
 	SteerMessage,
 } from "../../src/bus/types.ts";
-import { parseBusMessage } from "../../src/bus/types.ts";
+import { parseBusMessage, rootAgentAddress } from "../../src/bus/types.ts";
 import type { SessionEvent } from "../../src/kernel/types.ts";
 import { addr } from "../helpers/agent-address.ts";
 
@@ -20,6 +20,15 @@ describe("bus message types", () => {
 		expect(caller.depth).toBe(0);
 		expect(caller.handleId).toBe("root");
 		expect(caller.agentId).toBe("root");
+	});
+
+	test("rootAgentAddress preserves custom root spec identity on the root handle", () => {
+		expect(rootAgentAddress("editor")).toEqual({
+			agentName: "editor",
+			depth: 0,
+			handleId: "root",
+			agentId: "root",
+		});
 	});
 
 	test("StartMessage has all required fields", () => {

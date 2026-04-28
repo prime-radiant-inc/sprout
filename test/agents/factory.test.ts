@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createAgent } from "../../src/agents/factory.ts";
 import { scanAgentTree } from "../../src/agents/loader.ts";
+import type { AgentAddress } from "../../src/bus/types.ts";
 import { DEV_MODE_SENTINEL, isDevMode } from "../../src/genome/dev-mode.ts";
 import { Genome } from "../../src/genome/genome.ts";
 import { memoryIndexPath } from "../../src/genome/index-builder.ts";
@@ -107,6 +108,17 @@ describe("createAgent", () => {
 		});
 
 		expect(result.agent.spec.name).toBe("editor");
+		const agentAddress = result.agent as unknown as {
+			selfAddress: AgentAddress;
+			callerAddress: AgentAddress;
+		};
+		expect(agentAddress.selfAddress).toEqual({
+			agentName: "editor",
+			depth: 0,
+			handleId: "root",
+			agentId: "root",
+		});
+		expect(agentAddress.callerAddress).toEqual(agentAddress.selfAddress);
 	});
 
 	test("accepts and forwards sessionId to agent", async () => {

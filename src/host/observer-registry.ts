@@ -5,7 +5,7 @@ import {
 	renderObserverFrame,
 } from "../agents/observers.ts";
 import type { AgentSpawner } from "../bus/spawner.ts";
-import { rootAgentAddress } from "../bus/types.ts";
+import { type AgentAddress, rootAgentAddress } from "../bus/types.ts";
 import type { EventKind, SessionEvent } from "../kernel/types.ts";
 
 export const METACOGNITIVE_OBSERVER: ObserverAttachmentConfig = {
@@ -21,7 +21,6 @@ export const METACOGNITIVE_OBSERVER: ObserverAttachmentConfig = {
 	description: "observes root turns",
 };
 
-const ROOT_CALLER = rootAgentAddress();
 const PRECONFIGURE_EVENT_LIMIT = 64;
 
 interface ObserverSubscriptionState {
@@ -37,6 +36,7 @@ interface ObserverSubscriptionState {
 
 export interface ObserverRegistryOptions {
 	sessionId: string;
+	rootAgentName: string;
 	spawner: AgentSpawner;
 	genomePath: string;
 	workDir: string;
@@ -62,6 +62,7 @@ export class ObserverRegistry {
 	private readonly projectDataDir?: string;
 	private readonly rootDir?: string;
 	private readonly evalMode?: boolean;
+	private readonly rootCaller: AgentAddress;
 	private subscriptions: ObserverSubscriptionState[];
 	private readonly getResolverSettings?: () => ResolverSettings | undefined;
 	private readonly emitEvent: ObserverRegistryOptions["emitEvent"];
@@ -77,6 +78,7 @@ export class ObserverRegistry {
 		this.projectDataDir = options.projectDataDir;
 		this.rootDir = options.rootDir;
 		this.evalMode = options.evalMode;
+		this.rootCaller = rootAgentAddress(options.rootAgentName);
 		const configs = options.configs ?? (options.config ? [options.config] : []);
 		this.subscriptions = configs.map(createSubscriptionState);
 		this.getResolverSettings = options.getResolverSettings;
@@ -206,7 +208,7 @@ export class ObserverRegistry {
 			workDir: this.workDir,
 			projectDataDir: this.projectDataDir,
 			rootDir: this.rootDir,
-			caller: ROOT_CALLER,
+			caller: this.rootCaller,
 			handleId,
 			agentId: this.observerAgentId(subscription.config),
 			evalMode: this.evalMode,
@@ -223,8 +225,8 @@ export class ObserverRegistry {
 			child_id: this.observerAgentId(subscription.config),
 			handle_id: this.observerHandleId(subscription.config),
 			description: subscription.config.description ?? `observes ${subscription.config.target}`,
-			owner_handle_id: ROOT_CALLER.handleId,
-			owner_agent_id: ROOT_CALLER.agentId,
+			owner_handle_id: this.rootCaller.handleId,
+			owner_agent_id: this.rootCaller.agentId,
 			observed_target: subscription.config.target,
 			observer: true,
 		});
