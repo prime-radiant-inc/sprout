@@ -455,6 +455,38 @@ describe("extractChildHandles", () => {
 		expect(handles).toEqual([]);
 	});
 
+	test("ignores observer lifecycle events with handle_id", async () => {
+		const logPath = join(tempDir, "session.jsonl");
+		await writeEventLog(logPath, [
+			event(
+				"act_start",
+				{
+					agent_name: "delegate-observer",
+					handle_id: "observer-handle",
+					child_id: "observer-agent-id",
+					observer: true,
+				},
+				1,
+			),
+			event(
+				"act_end",
+				{
+					agent_name: "delegate-observer",
+					success: true,
+					handle_id: "observer-handle",
+					child_id: "observer-agent-id",
+					turns: 1,
+					observer: true,
+				},
+				1,
+			),
+		]);
+
+		const handles = await extractChildHandles(logPath);
+
+		expect(handles).toEqual([]);
+	});
+
 	test("extracts act_start events at the resumed agent depth", async () => {
 		const logPath = join(tempDir, "session.jsonl");
 		await writeEventLog(logPath, [

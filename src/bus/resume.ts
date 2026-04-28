@@ -55,6 +55,7 @@ export async function extractChildHandles(logPath: string): Promise<ChildHandleI
 		if (event.depth !== agentDepth) continue;
 
 		if (event.kind === "act_start") {
+			if (isObserverLifecycleEvent(event)) continue;
 			const handleId = event.data.handle_id as string | undefined;
 			if (handleId) {
 				handleMap.set(handleId, {
@@ -67,6 +68,7 @@ export async function extractChildHandles(logPath: string): Promise<ChildHandleI
 		}
 
 		if (event.kind === "act_end") {
+			if (isObserverLifecycleEvent(event)) continue;
 			const handleId = event.data.handle_id as string | undefined;
 			if (!handleId) continue;
 
@@ -89,6 +91,10 @@ export async function extractChildHandles(logPath: string): Promise<ChildHandleI
 	}
 
 	return Array.from(handleMap.values());
+}
+
+function isObserverLifecycleEvent(event: SessionEvent): boolean {
+	return event.data.observer === true;
 }
 
 /**
