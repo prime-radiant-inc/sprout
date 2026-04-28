@@ -81,6 +81,12 @@ describe("observer frames", () => {
 		const frame = buildObserverFrame({
 			sessionId: "sess_1",
 			events: [
+				event("perceive", "root", 0, {
+					goal: "Audit the streamliner MCP in the current working directory.",
+				}),
+				event("steering", "root", 0, {
+					text: "Focus on correctness, not style.",
+				}),
 				event("primitive_end", "root", 0, {
 					tool: "read_file",
 					success: false,
@@ -93,16 +99,22 @@ describe("observer frames", () => {
 				}),
 				event("interrupted", "root", 0, { message: "Agent interrupted" }),
 			],
-			includeKinds: ["primitive_end", "act_end", "interrupted"],
+			includeKinds: ["perceive", "steering", "primitive_end", "act_end", "interrupted"],
 			maxEvents: 10,
 			maxChars: 5000,
 		});
 
 		expect(frame.events.map((e) => e.summary)).toEqual([
+			"User goal received.",
+			"User steering received.",
 			"read_file failed.",
 			"engineer delegation completed.",
 			"Agent was interrupted.",
 		]);
+		expect(frame.events[0]!.quote).toBe(
+			"Audit the streamliner MCP in the current working directory.",
+		);
+		expect(frame.events[1]!.quote).toBe("Focus on correctness, not style.");
 	});
 
 	test("quotes delegation tool result messages", () => {

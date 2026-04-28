@@ -11,7 +11,17 @@ import type { EventKind, SessionEvent } from "../kernel/types.ts";
 export const METACOGNITIVE_OBSERVER: ObserverAttachmentConfig = {
 	agentName: "metacognitive",
 	target: "root",
-	events: ["plan_end", "warning", "error", "primitive_end", "act_end", "compaction", "interrupted"],
+	events: [
+		"perceive",
+		"steering",
+		"plan_end",
+		"warning",
+		"error",
+		"primitive_end",
+		"act_end",
+		"compaction",
+		"interrupted",
+	],
 	trigger: { every: 3, event: "plan_end" },
 	maxEvents: 24,
 	maxChars: 6000,

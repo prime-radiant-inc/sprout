@@ -102,6 +102,10 @@ function buildFrameEvent(event: SessionEvent, index: number): ObserverFrameEvent
 
 function summarizeEvent(event: SessionEvent, quote: string | undefined): string {
 	switch (event.kind) {
+		case "perceive":
+			return "User goal received.";
+		case "steering":
+			return "User steering received.";
 		case "plan_end": {
 			const finishReason = stringData(event, "finish_reason");
 			return finishReason
@@ -139,6 +143,7 @@ function summarizeEvent(event: SessionEvent, quote: string | undefined): string 
 
 function extractQuote(event: SessionEvent): string | undefined {
 	const candidates = [
+		stringData(event, "goal"),
 		stringData(event, "text"),
 		stringData(event, "message"),
 		stringData(event, "error"),

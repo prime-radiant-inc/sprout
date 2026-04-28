@@ -79,6 +79,8 @@ describe("loadRootAgents", () => {
 			agent: "the-balcony",
 			target: "root",
 			events: [
+				"perceive",
+				"steering",
 				"plan_end",
 				"warning",
 				"error",
@@ -90,6 +92,10 @@ describe("loadRootAgents", () => {
 			trigger: { every: 1, event: "plan_end" },
 			delivery: { max_events: 16, max_chars: 5000 },
 		});
+		expect(root?.observers?.map((observer) => observer.events.slice(0, 2))).toEqual([
+			["perceive", "steering"],
+			["perceive", "steering"],
+		]);
 		expect(balcony?.tools).toEqual([]);
 		expect(balcony?.agents).toEqual([]);
 		expect(balcony?.tags).toContain("observer");
