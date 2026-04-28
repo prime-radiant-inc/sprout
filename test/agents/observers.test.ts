@@ -169,6 +169,25 @@ describe("observer frames", () => {
 		expect(rendered).toContain('message_agent with handle "root"');
 	});
 
+	test("omits unsupported target comment recipients from rendered policy", () => {
+		const frame = buildObserverFrame({
+			sessionId: "sess_1",
+			events: [event("plan_end", "root", 0, { text: "check assumptions" })],
+			includeKinds: ["plan_end"],
+			maxEvents: 10,
+			maxChars: 5000,
+			commentPolicy: { can_message: ["target"], default_recipient: "target" },
+		});
+
+		const rendered = renderObserverFrame(frame, {
+			can_message: ["target"],
+			default_recipient: "target",
+		});
+		expect(rendered).toContain("Can message: none");
+		expect(rendered).toContain("Unsupported recipients omitted: target.");
+		expect(rendered).not.toContain("Default recipient: target");
+	});
+
 	test("rejects invalid bounds loudly", () => {
 		expect(() =>
 			buildObserverFrame({

@@ -118,7 +118,7 @@ function renderCommentPolicy(commentPolicy: ObserverCommentPolicyConfig | undefi
 		"<sprout:observer-comment-policy>",
 		`Can message: ${canMessage.length > 0 ? canMessage.map(escapeXml).join(", ") : "none"}`,
 	];
-	if (commentPolicy.default_recipient) {
+	if (commentPolicy.default_recipient && commentPolicy.default_recipient !== "target") {
 		lines.push(`Default recipient: ${escapeXml(commentPolicy.default_recipient)}`);
 	}
 	if (canMessage.includes("root")) {
