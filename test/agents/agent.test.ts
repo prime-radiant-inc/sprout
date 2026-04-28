@@ -1118,6 +1118,83 @@ describe("Agent", () => {
 		expect(planEnd?.data.text).toBe("");
 	});
 
+	test("tool-capable observer empty response still follows explicit-output retry path", async () => {
+		const observerSpec: AgentSpec = {
+			...leafSpec,
+			name: "metacognitive",
+			description: "Steering observer",
+			system_prompt: "Use message_agent when needed, otherwise say NO_MESSAGE.",
+			tools: ["message_agent"],
+			agents: [],
+			constraints: {
+				...DEFAULT_CONSTRAINTS,
+				can_spawn: false,
+				can_learn: false,
+				max_turns: 3,
+			},
+			tags: ["observer"],
+		};
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				if (callCount === 1) {
+					return {
+						id: "mock-empty-tool-observer",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: {
+							role: "assistant",
+							content: [],
+						},
+						finish_reason: { reason: "stop" },
+						usage: { input_tokens: 10, output_tokens: 0, total_tokens: 10 },
+					};
+				}
+				return {
+					id: "mock-tool-observer-no-message",
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant("NO_MESSAGE"),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 12, output_tokens: 1, total_tokens: 13 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: observerSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 1,
+			events,
+			spawner: {} as AgentSpawner,
+		});
+
+		expect(agent.resolvedTools().map((tool) => tool.name)).toContain("message_agent");
+
+		const result = await agent.run("observe a root frame");
+
+		expect(callCount).toBe(2);
+		expect(result.success).toBe(true);
+		expect(result.output).toBe("NO_MESSAGE");
+		expect(
+			events
+				.collected()
+				.some(
+					(event) =>
+						event.kind === "warning" && String(event.data.message).includes("empty final response"),
+				),
+		).toBe(true);
+	});
+
 	test("agent times out after timeout_ms", async () => {
 		const timeoutSpec: AgentSpec = {
 			name: "timeout-root",

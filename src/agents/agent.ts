@@ -397,11 +397,19 @@ export class Agent {
 	}
 
 	private canRunWithoutTools(): boolean {
-		return this.spec.tags.includes("observer");
+		return this.isToollessObserver();
 	}
 
 	private canCompleteWithEmptyOutput(): boolean {
-		return this.spec.tags.includes("observer");
+		return this.isToollessObserver();
+	}
+
+	private isToollessObserver(): boolean {
+		return (
+			this.spec.tags.includes("observer") &&
+			this.spec.tools.length === 0 &&
+			this.spec.agents.length === 0
+		);
 	}
 
 	/** Returns all tools this agent can use (agent tools + primitive tools) */
