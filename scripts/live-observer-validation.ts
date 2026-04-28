@@ -35,7 +35,6 @@ interface Assertion {
 	name: string;
 	pass: boolean;
 	detail?: string;
-	diagnostic?: boolean;
 }
 
 interface ScenarioSummary {
@@ -86,7 +85,6 @@ const SCENARIOS: Scenario[] = [
 					"root saw observer message in prompt context",
 					result.output.includes("ROOT_ALIAS_ROOT_CONTEXT_RENDERED"),
 					result.output,
-					true,
 				),
 			];
 		},
@@ -124,7 +122,6 @@ const SCENARIOS: Scenario[] = [
 					"owner saw observer message in prompt context",
 					result.output.includes("OWNER_CONTEXT_RENDERED"),
 					result.output,
-					true,
 				),
 			];
 		},
@@ -205,7 +202,6 @@ const SCENARIOS: Scenario[] = [
 					"root completed the nonblocking negative control",
 					result.output.includes("NONBLOCKING_STARTED"),
 					result.output,
-					true,
 				),
 			];
 		},
@@ -214,6 +210,7 @@ const SCENARIOS: Scenario[] = [
 
 async function main(): Promise<void> {
 	const opts = parseArgs(Bun.argv.slice(2));
+	loadDotenv({ quiet: true });
 	if (!opts.live && process.env.SPROUT_RUN_LIVE_OBSERVER_TESTS !== "1") {
 		console.log(
 			"live observer validation skipped; pass --live or set SPROUT_RUN_LIVE_OBSERVER_TESTS=1",
@@ -221,7 +218,6 @@ async function main(): Promise<void> {
 		return;
 	}
 
-	loadDotenv({ quiet: true });
 	installSproutSelfInvocationEnv({
 		argv: [process.argv[0] ?? "bun", join(import.meta.dir, "../src/host/cli.ts")],
 	});
@@ -295,7 +291,7 @@ async function runScenario(scenario: Scenario): Promise<ScenarioSummary> {
 		const assertions = scenario.assert({ result, events, caseDir });
 		return {
 			...baseSummary,
-			pass: assertions.every((entry) => entry.pass || entry.diagnostic),
+			pass: assertions.every((entry) => entry.pass),
 			result,
 			assertions,
 			eventCounts: countEvents(events),
@@ -608,12 +604,11 @@ function findAgentMessage(
 	});
 }
 
-function assertion(name: string, pass: boolean, detail?: string, diagnostic = false): Assertion {
+function assertion(name: string, pass: boolean, detail?: string): Assertion {
 	return {
 		name,
 		pass,
 		...(detail ? { detail } : {}),
-		...(diagnostic ? { diagnostic } : {}),
 	};
 }
 
