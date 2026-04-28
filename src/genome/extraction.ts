@@ -215,8 +215,29 @@ function timestampValue(value: unknown): number | undefined {
 }
 
 function stripCodeFence(text: string): string {
-	const match = text.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/);
-	return match?.[1]?.trim() ?? text;
+	const blocks = codeFenceBlocks(text);
+	if (blocks.length === 0) return text;
+
+	const jsonBlock = blocks.find((block) => block.language === "json");
+	const jsonLikeBlock = blocks.find((block) => startsLikeJson(block.body));
+
+	return (jsonBlock ?? jsonLikeBlock)?.body ?? text;
+}
+
+function codeFenceBlocks(text: string): Array<{ language: string; body: string }> {
+	const blocks: Array<{ language: string; body: string }> = [];
+	const fencePattern = /```([^\n\r]*)\r?\n?([\s\S]*?)\r?\n```/g;
+	for (const match of text.matchAll(fencePattern)) {
+		const info = (match[1] ?? "").trim();
+		const language = (info.split(/\s+/)[0] ?? "").toLowerCase();
+		blocks.push({ language, body: (match[2] ?? "").trim() });
+	}
+	return blocks;
+}
+
+function startsLikeJson(text: string): boolean {
+	const trimmed = text.trimStart();
+	return trimmed.startsWith("{") || trimmed.startsWith("[");
 }
 
 function repairJson(text: string): string {

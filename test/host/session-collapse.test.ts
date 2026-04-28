@@ -383,6 +383,60 @@ abc123
 		expect(memory.embedding?.status).toBe("ready");
 	});
 
+	test("accepts fenced JSON variants from memory collapse calls", async () => {
+		const genomeDir = join(tempDir, "genome-fenced-collapse");
+		const rootDir = join(import.meta.dir, "../../root");
+		const workDir = join(tempDir, "work-fenced-collapse");
+		await mkdir(workDir, { recursive: true });
+		const genome = createTestGenome(genomeDir, rootDir);
+		await genome.init();
+		await genome.initFromRoot();
+		const client = makeClientSequence([
+			[
+				"```JSON",
+				JSON.stringify({
+					summary: "The user wants memory collapse to parse fenced JSON safely.",
+					title: "Fenced JSON collapse",
+					complexity: 1,
+				}),
+				"```",
+			].join("\n"),
+			[
+				"Here is the JSON:",
+				"``` json",
+				JSON.stringify([
+					{
+						text: "Memory collapse should accept JSON fenced with variant labels.",
+						tags: ["memory", "collapse"],
+						entities: [{ name: "Sprout", type: "PROJECT" }],
+					},
+				]),
+				"```",
+			].join("\n"),
+		]);
+
+		const result = await collapseSessionToMemory({
+			events: [
+				event("perceive", 100, {
+					goal: "Fix memory collapse when model output is fenced JSON.",
+				}),
+				event("session_end", 200, { output: "Implemented robust JSON fence parsing." }),
+			],
+			genome,
+			client,
+			...DEFAULT_MEMORY_MODELS,
+			sessionId: "session-collapse-fenced-json",
+			cwd: workDir,
+			now: 300,
+		});
+
+		expect(result).not.toBe("skipped");
+		if (result === "skipped") return;
+		expect(result.extractedMemoryCount).toBe(1);
+		expect(genome.segments.all()[0]!.summary).toContain("fenced JSON safely");
+		expect(genome.memories.all()[0]!.content).toContain("variant labels");
+	});
+
 	test("uses separate configured models for summary and extraction calls", async () => {
 		const workDir = join(tempDir, "work-purpose-models");
 		await mkdir(workDir, { recursive: true });

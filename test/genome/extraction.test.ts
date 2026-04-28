@@ -75,7 +75,21 @@ describe("memory extraction", () => {
 		expect(parseExtractionJson('```json\n{"memories":[{"text":"beta"}]}\n```')).toEqual({
 			memories: [{ text: "beta" }],
 		});
+		expect(parseExtractionJson('```JSON\n{"memories":[{"text":"upper"}]}\n```')).toEqual({
+			memories: [{ text: "upper" }],
+		});
+		expect(parseExtractionJson('``` json\n{"memories":[{"text":"spaced"}]}\n```')).toEqual({
+			memories: [{ text: "spaced" }],
+		});
+		expect(parseExtractionJson('Here is the JSON:\n```json\n[{"text":"prose"}]\n```')).toEqual([
+			{ text: "prose" },
+		]);
+		expect(parseExtractionJson('```\n[{"text":"plain"}]\n```')).toEqual([{ text: "plain" }]);
 		expect(parseExtractionJson("[{“text”: “gamma”,}]")).toEqual([{ text: "gamma" }]);
+	});
+
+	test("does not treat arbitrary fenced code as JSON", () => {
+		expect(() => parseExtractionJson("```ts\nexport {}\n```")).toThrow();
 	});
 
 	test("normalizes arrays, wrapper objects, single objects, tags, entities, and dates", () => {
