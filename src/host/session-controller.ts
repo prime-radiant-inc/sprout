@@ -513,7 +513,10 @@ export class SessionController {
 				});
 			const rootMessagesReady = this.spawner
 				.subscribeRootMessages((message) => {
-					this.agent?.receiveAgentMessage?.(message.message, message.from);
+					const agent = this.agent;
+					if (!agent?.receiveAgentMessage) return false;
+					agent.receiveAgentMessage(message.message, message.from);
+					return true;
 				})
 				.catch((err) => {
 					console.error("[SessionController] Failed to subscribe to root messages:", err);

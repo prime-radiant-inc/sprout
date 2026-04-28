@@ -820,6 +820,16 @@ describe("EventLine", () => {
 	test("renders observer frame perceive events collapsed by default", () => {
 		const event = makeEvent("perceive", {
 			goal: "<sprout:delegate-observer-frame>\nsecret frame\n</sprout:delegate-observer-frame>",
+			self: {
+				agentName: "metacognitive",
+				depth: 1,
+				handleId: "observer-metacognitive",
+				agentId: "observer-metacognitive",
+				role: "observer",
+			},
+		}, {
+			agent_id: "observer-metacognitive",
+			depth: 1,
 		});
 		const html = renderToStaticMarkup(
 			<EventLine event={event} durationMs={null} />,
@@ -829,6 +839,17 @@ describe("EventLine", () => {
 		expect(html).not.toContain("<details open");
 		expect(html).toContain("secret frame");
 		expect(html).toContain('data-kind="observer_frame"');
+	});
+
+	test("renders literal observer frame tags from root as user text", () => {
+		const event = makeEvent("perceive", {
+			goal: "<sprout:delegate-observer-frame>\nuser text\n</sprout:delegate-observer-frame>",
+		});
+		const html = renderToStaticMarkup(
+			<EventLine event={event} durationMs={null} />,
+		);
+		expect(html).toContain("user text");
+		expect(html).not.toContain('data-kind="observer_frame"');
 	});
 
 	test("renders plan_end with text as AssistantMessage", () => {

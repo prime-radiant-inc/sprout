@@ -337,6 +337,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 						agent.steer(msg.message, msg.trusted_user_instruction);
 					} else if (msg.kind === "agent_message") {
 						agent.receiveAgentMessage(msg.message, msg.from);
+						void ackAgentMessage(bus, msg);
 					}
 				} catch {
 					// Ignore malformed messages
@@ -527,6 +528,7 @@ async function idleLoop(
 			if (msg.kind === "agent_message") {
 				const agentMessage = msg as AgentMessageMessage;
 				agent.receiveAgentMessage(agentMessage.message, agentMessage.from);
+				await ackAgentMessage(bus, agentMessage);
 				return;
 			}
 
@@ -551,6 +553,11 @@ async function idleLoop(
 			signal.addEventListener("abort", () => resolve(), { once: true });
 		}
 	});
+}
+
+async function ackAgentMessage(bus: BusClient, message: AgentMessageMessage): Promise<void> {
+	if (!message.ack_topic || !bus.connected) return;
+	await bus.publish(message.ack_topic, "delivered").catch(() => {});
 }
 
 // --- Subprocess entry point ---

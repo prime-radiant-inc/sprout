@@ -37,7 +37,7 @@ export function EventLine({ event, durationMs, streamingText, isFirstInGroup, ag
 	switch (kind) {
 		case "perceive": {
 			const goal = String(data.goal ?? "");
-			if (isObserverFrame(goal)) {
+			if (isObserverFrameEvent(event, goal)) {
 				return (
 					<SystemMessage
 						kind="observer_frame"
@@ -230,6 +230,21 @@ export function EventLine({ event, durationMs, streamingText, isFirstInGroup, ag
 	}
 }
 
+function isObserverFrameEvent(event: SessionEvent, text: string): boolean {
+	if (event.depth === 0) return false;
+	if (!isObserverEventSource(event)) return false;
+	return isObserverFrame(text);
+}
+
+function isObserverEventSource(event: SessionEvent): boolean {
+	const data = event.data as Record<string, unknown>;
+	return (
+		event.agent_id.startsWith("observer-") ||
+		data.observer === true ||
+		isObserverAddressData(data.self)
+	);
+}
+
 function isObserverFrame(text: string): boolean {
 	const trimmed = text.trimStart();
 	return (
@@ -257,4 +272,8 @@ function isAgentAddressData(value: unknown): value is AgentAddressData {
 		"agentName" in value &&
 		typeof (value as AgentAddressData).agentName === "string"
 	);
+}
+
+function isObserverAddressData(value: unknown): boolean {
+	return isAgentAddressData(value) && value.role === "observer";
 }

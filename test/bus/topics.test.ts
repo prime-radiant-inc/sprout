@@ -3,6 +3,7 @@ import type { ParsedAgentTopic, ParsedSessionTopic } from "../../src/bus/topics.
 import {
 	agentEvents,
 	agentInbox,
+	agentMessageAck,
 	agentReady,
 	agentResult,
 	commandsTopic,
@@ -27,6 +28,10 @@ describe("topic builders", () => {
 
 	test("agentResult", () => {
 		expect(agentResult("S1", "H1")).toBe("session/S1/agent/H1/result");
+	});
+
+	test("agentMessageAck", () => {
+		expect(agentMessageAck("S1", "M1")).toBe("session/S1/agent-message-ack/M1");
 	});
 
 	test("commandsTopic", () => {
@@ -156,6 +161,14 @@ describe("parseTopic", () => {
 			expect(parsed.session_id).toBe("sess-42");
 			expect(parsed.handle_id).toBe("handle-7");
 			expect(parsed.channel).toBe("ready");
+		});
+
+		test("agentMessageAck round-trips", () => {
+			const topic = agentMessageAck("sess-42", "message-7");
+			const parsed = parseTopic(topic) as ParsedAgentTopic;
+			expect(parsed.session_id).toBe("sess-42");
+			expect(parsed.handle_id).toBe("message-7");
+			expect(parsed.channel).toBe("agent-message-ack");
 		});
 
 		test("genomeMutations round-trips", () => {

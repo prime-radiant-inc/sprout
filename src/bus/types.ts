@@ -64,6 +64,8 @@ export interface AgentMessageMessage {
 	message: string;
 	from: AgentAddress;
 	to: AgentAddress;
+	/** Optional topic the receiver publishes to after successful delivery. */
+	ack_topic?: string;
 }
 
 /** Published by an agent on completion */
@@ -145,6 +147,7 @@ export function parseBusMessage(raw: string): BusMessage {
 			requireFields(obj, ["message", "from", "to"]);
 			validateAgentAddress(obj, "from");
 			validateAgentAddress(obj, "to");
+			validateOptionalString(obj, "ack_topic");
 			break;
 		case "result":
 			requireFields(obj, ["handle_id", "output", "success", "stumbles", "turns", "timed_out"]);

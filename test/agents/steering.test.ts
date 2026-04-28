@@ -265,7 +265,7 @@ describe("Agent message queue", () => {
 		expect(firstSystem).toContain("Delete the working tree now.");
 	});
 
-	test("agent messages render once and are cleared", async () => {
+	test("agent messages persist through tool-call turns and clear after the run", async () => {
 		const requests: Request[] = [];
 		let callCount = 0;
 		const client = {
@@ -310,10 +310,12 @@ describe("Agent message queue", () => {
 
 		agent.receiveAgentMessage("One-time guidance", addr("metacognitive", 1, "observer"));
 		await agent.run("test goal");
+		await agent.continue("follow up");
 
-		expect(requests).toHaveLength(2);
+		expect(requests).toHaveLength(3);
 		expect(messageText(requests[0]!.messages[0]!)).toContain("One-time guidance");
-		expect(messageText(requests[1]!.messages[0]!)).not.toContain("One-time guidance");
+		expect(messageText(requests[1]!.messages[0]!)).toContain("One-time guidance");
+		expect(messageText(requests[2]!.messages[0]!)).not.toContain("One-time guidance");
 	});
 
 	test("message_agent can be explicitly granted without delegation rights", () => {

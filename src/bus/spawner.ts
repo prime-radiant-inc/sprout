@@ -2,7 +2,7 @@ import type { ResolverSettings } from "../agents/model-resolver.ts";
 import { buildInternalSproutCommand } from "../util/self-command.ts";
 import { ulid } from "../util/ulid.ts";
 import type { BusClient } from "./client.ts";
-import { agentInbox, agentReady, agentResult, sessionEvents } from "./topics.ts";
+import { agentInbox, agentMessageAck, agentReady, agentResult, sessionEvents } from "./topics.ts";
 import type {
 	AgentAddress,
 	AgentMessageMessage,
@@ -80,6 +80,7 @@ export interface DeferredSpawnResult {
 }
 
 const PROCESS_EXIT_RESULT_GRACE_MS = 25;
+const DEFAULT_AGENT_MESSAGE_ACK_TIMEOUT_MS = 5_000;
 
 /** Internal tracking record for a spawned agent */
 export interface AgentHandle {
@@ -153,10 +154,11 @@ export class AgentSpawner {
 	private sessionId: string;
 	private readonly spawnFn: SpawnFn;
 	private readonly waitTimeoutMs: number;
+	private readonly agentMessageAckTimeoutMs: number;
 	private readonly handles = new Map<string, AgentHandle>();
 	private readonly observerDeliveryChains = new Map<string, Promise<void>>();
 	private readonly sessionEventsCallbacks = new Set<(event: EventMessage) => void>();
-	private rootMessageCallback?: (message: AgentMessageMessage) => void;
+	private rootMessageCallback?: (message: AgentMessageMessage) => unknown;
 	private currentSessionEventsTopic?: string;
 	private currentRootInboxTopic?: string;
 
@@ -244,12 +246,15 @@ export class AgentSpawner {
 		sessionId: string,
 		spawnFn?: SpawnFn,
 		waitTimeoutMs?: number,
+		agentMessageAckTimeoutMs?: number,
 	) {
 		this.bus = bus;
 		this.busUrl = busUrl;
 		this.sessionId = sessionId;
 		this.spawnFn = spawnFn ?? defaultSpawnFn;
 		this.waitTimeoutMs = waitTimeoutMs ?? 900_000;
+		this.agentMessageAckTimeoutMs =
+			agentMessageAckTimeoutMs ?? DEFAULT_AGENT_MESSAGE_ACK_TIMEOUT_MS;
 	}
 
 	/**
@@ -283,7 +288,7 @@ export class AgentSpawner {
 	 * The root agent is in-process, so this bridges bus-delivered agent messages
 	 * back into SessionController instead of pretending root is a spawned handle.
 	 */
-	async subscribeRootMessages(callback: (message: AgentMessageMessage) => void): Promise<void> {
+	async subscribeRootMessages(callback: (message: AgentMessageMessage) => unknown): Promise<void> {
 		if (this.rootMessageCallback) return;
 		this.rootMessageCallback = callback;
 		await this.subscribeToRootInboxTopic();
@@ -362,7 +367,10 @@ export class AgentSpawner {
 			try {
 				const msg = parseBusMessage(payload);
 				if (msg.kind === "agent_message") {
-					callback(msg);
+					const delivered = callback(msg) !== false;
+					if (delivered) {
+						void this.ackAgentMessage(msg);
+					}
 				}
 			} catch {
 				// Ignore malformed messages
@@ -611,9 +619,10 @@ export class AgentSpawner {
 				from: caller,
 				to: callerTarget,
 			};
-			await this.bus.publish(
+			await this.publishAgentMessageWithAck(
 				agentInbox(this.sessionId, callerTarget.handleId),
-				JSON.stringify(callerMsg),
+				callerMsg,
+				`message_agent to caller '${callerTarget.agentName}' could not be delivered`,
 			);
 			return undefined;
 		}
@@ -890,5 +899,48 @@ export class AgentSpawner {
 		if (this.currentRootInboxTopic && this.bus.connected) {
 			this.bus.unsubscribe(this.currentRootInboxTopic).catch(() => {});
 		}
+	}
+
+	private async publishAgentMessageWithAck(
+		inboxTopic: string,
+		message: AgentMessageMessage,
+		timeoutMessage: string,
+	): Promise<void> {
+		const ackTopic = agentMessageAck(this.sessionId, ulid());
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		let settled = false;
+		let resolveAck: (() => void) | undefined;
+		let rejectAck: ((error: Error) => void) | undefined;
+		const ackPromise = new Promise<void>((resolve, reject) => {
+			resolveAck = resolve;
+			rejectAck = reject;
+		});
+		const onAck = () => {
+			if (settled) return;
+			settled = true;
+			if (timer) clearTimeout(timer);
+			resolveAck?.();
+		};
+
+		await this.bus.subscribe(ackTopic, onAck);
+		try {
+			timer = setTimeout(() => {
+				if (settled) return;
+				settled = true;
+				rejectAck?.(new Error(`${timeoutMessage} within ${this.agentMessageAckTimeoutMs}ms`));
+			}, this.agentMessageAckTimeoutMs);
+			await this.bus.publish(inboxTopic, JSON.stringify({ ...message, ack_topic: ackTopic }));
+			await ackPromise;
+		} finally {
+			if (timer) clearTimeout(timer);
+			if (this.bus.connected) {
+				await this.bus.unsubscribe(ackTopic).catch(() => {});
+			}
+		}
+	}
+
+	private async ackAgentMessage(message: AgentMessageMessage): Promise<void> {
+		if (!message.ack_topic || !this.bus.connected) return;
+		await this.bus.publish(message.ack_topic, "delivered").catch(() => {});
 	}
 }

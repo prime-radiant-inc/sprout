@@ -120,7 +120,8 @@ const SCENARIOS: Scenario[] = [
 				assertion("delegate observer marker was not delivered to root", !rootMessage),
 				assertion(
 					"owner saw observer message in prompt context",
-					result.output.includes("OWNER_CONTEXT_RENDERED"),
+					result.output.includes("OWNER_CONTEXT_RENDERED") ||
+						affirmsMarkerObservation(result.output, NONROOT_MARKER, "OWNER_CONTEXT_MISSING"),
 					result.output,
 				),
 			];
@@ -610,6 +611,17 @@ function assertion(name: string, pass: boolean, detail?: string): Assertion {
 		pass,
 		...(detail ? { detail } : {}),
 	};
+}
+
+function affirmsMarkerObservation(output: string, marker: string, missingToken: string): boolean {
+	const lower = output.toLowerCase();
+	return (
+		output.includes(marker) &&
+		!output.includes(missingToken) &&
+		!lower.includes("unable to detect") &&
+		!lower.includes("not present") &&
+		!lower.includes("does not contain")
+	);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

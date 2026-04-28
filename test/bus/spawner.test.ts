@@ -699,6 +699,62 @@ describe("AgentSpawner", () => {
 			await senderBus.disconnect();
 		});
 
+		test("rejects caller alias messages when the caller cannot receive them", async () => {
+			const senderBus = new BusClient(server.url);
+			await senderBus.connect();
+			const senderSpawner = new AgentSpawner(
+				senderBus,
+				server.url,
+				SESSION_ID,
+				undefined,
+				undefined,
+				25,
+			);
+
+			await expect(
+				senderSpawner.messageAgent(
+					"caller",
+					"You wrote: start coding too early.",
+					addr("metacognitive", 1),
+					false,
+					undefined,
+					addr("root", 0),
+				),
+			).rejects.toThrow("could not be delivered");
+
+			senderSpawner.shutdown();
+			await senderBus.disconnect();
+		});
+
+		test("rejects caller alias messages when root declines delivery", async () => {
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID);
+			await spawner.subscribeRootMessages(() => false);
+			const senderBus = new BusClient(server.url);
+			await senderBus.connect();
+			const senderSpawner = new AgentSpawner(
+				senderBus,
+				server.url,
+				SESSION_ID,
+				undefined,
+				undefined,
+				25,
+			);
+
+			await expect(
+				senderSpawner.messageAgent(
+					"caller",
+					"You wrote: start coding too early.",
+					addr("metacognitive", 1),
+					false,
+					undefined,
+					addr("root", 0),
+				),
+			).rejects.toThrow("could not be delivered");
+
+			senderSpawner.shutdown();
+			await senderBus.disconnect();
+		});
+
 		test("rejects raw root messages from non-root agents", async () => {
 			spawner = new AgentSpawner(bus, server.url, SESSION_ID);
 

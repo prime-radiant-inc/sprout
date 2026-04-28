@@ -32,6 +32,10 @@ export function agentResult(sessionId: string, handleId: string): string {
 	return `session/${sessionId}/agent/${handleId}/result`;
 }
 
+export function agentMessageAck(sessionId: string, messageId: string): string {
+	return `session/${sessionId}/agent-message-ack/${messageId}`;
+}
+
 export function commandsTopic(sessionId: string): string {
 	return `session/${sessionId}/commands`;
 }
@@ -51,6 +55,7 @@ export function sessionEvents(sessionId: string): string {
 // --- Parser ---
 
 const AGENT_RE = /^session\/([^/]+)\/agent\/([^/]+)\/(inbox|events|ready|result)$/;
+const AGENT_MESSAGE_ACK_RE = /^session\/([^/]+)\/agent-message-ack\/([^/]+)$/;
 const GENOME_RE = /^session\/([^/]+)\/(genome\/(?:mutations|events))$/;
 const SESSION_RE = /^session\/([^/]+)\/(commands|events)$/;
 
@@ -58,6 +63,10 @@ export function parseTopic(topic: string): ParsedTopic | null {
 	let m = AGENT_RE.exec(topic);
 	if (m) {
 		return { session_id: m[1]!, handle_id: m[2]!, channel: m[3]! };
+	}
+	m = AGENT_MESSAGE_ACK_RE.exec(topic);
+	if (m) {
+		return { session_id: m[1]!, handle_id: m[2]!, channel: "agent-message-ack" };
 	}
 	m = GENOME_RE.exec(topic);
 	if (m) {

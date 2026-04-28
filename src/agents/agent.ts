@@ -520,7 +520,7 @@ export class Agent {
 		const base = this.systemPromptBase ?? this.systemPrompt;
 		if (!base) throw new Error("Cannot render system prompt before run() has been called");
 		const agentMessages =
-			options.drainAgentMessages === false ? "" : this.drainAgentMessagesForPrompt();
+			options.drainAgentMessages === false ? "" : this.renderAgentMessagesForPrompt();
 		return `${base}${agentMessages}${renderToolBoundaries(this.agentTools, this.primitiveTools)}`;
 	}
 
@@ -585,8 +585,8 @@ export class Agent {
 		return queued;
 	}
 
-	private drainAgentMessagesForPrompt(): string {
-		const queued = this.agentMessageQueue.splice(0);
+	private renderAgentMessagesForPrompt(): string {
+		const queued = this.agentMessageQueue;
 		if (queued.length === 0) return "";
 		const guidance = [
 			"These are runtime messages from other agents.",
@@ -603,6 +603,10 @@ export class Agent {
 			})
 			.join("\n");
 		return `\n\n<IMPORTANT>\n<sprout:agent-messages>\n${guidance}\n${entries}\n</sprout:agent-messages>\n</IMPORTANT>`;
+	}
+
+	private clearAgentMessagesForPrompt(): void {
+		this.agentMessageQueue = [];
 	}
 
 	/** Emit an event and append it to the log file if logging is enabled. */
@@ -2328,6 +2332,7 @@ export class Agent {
 				}
 			}
 
+			this.clearAgentMessagesForPrompt();
 			const retryAccounting = applyRetryAccounting({
 				callHistory,
 				stumbles,

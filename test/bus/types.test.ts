@@ -102,11 +102,13 @@ describe("bus message types", () => {
 			message: "You wrote: start coding too early.",
 			from: addr("metacognitive", 1, "observer"),
 			to: addr("root", 0),
+			ack_topic: "session/s1/agent-message-ack/m1",
 		};
 		expect(msg.kind).toBe("agent_message");
 		expect(msg.message).toContain("start coding");
 		expect(msg.from.agentName).toBe("metacognitive");
 		expect(msg.from.role).toBe("observer");
+		expect(msg.ack_topic).toContain("agent-message-ack");
 	});
 
 	test("ResultMessage carries completion data", () => {
@@ -267,12 +269,14 @@ describe("parseBusMessage", () => {
 			message: "observer guidance",
 			from: addr("metacognitive", 1, "observer"),
 			to: addr("root", 0),
+			ack_topic: "session/s1/agent-message-ack/m1",
 		});
 		const msg = parseBusMessage(raw);
 		expect(msg.kind).toBe("agent_message");
 		expect((msg as AgentMessageMessage).message).toBe("observer guidance");
 		expect((msg as AgentMessageMessage).from.agentName).toBe("metacognitive");
 		expect((msg as AgentMessageMessage).from.role).toBe("observer");
+		expect((msg as AgentMessageMessage).ack_topic).toContain("agent-message-ack");
 	});
 
 	test("parses a valid ResultMessage", () => {
