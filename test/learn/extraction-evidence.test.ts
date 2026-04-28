@@ -51,9 +51,15 @@ describe("learn signal extraction evidence", () => {
 			event("perceive", 150, { goal: "Root task" }),
 			replayRecord(175),
 			event("agent_message", 200, {
-				from_agent_name: "metacognitive",
-				to_agent_name: "root",
-				text_preview: "observer notification should not be evidence",
+				from: {
+					agentName: "metacognitive",
+					depth: 1,
+					handleId: "observer-metacognitive",
+					agentId: "observer-metacognitive",
+					role: "observer",
+				},
+				to: { agentName: "root", depth: 0, handleId: "root", agentId: "root" },
+				textPreview: "observer notification should not be evidence",
 			}),
 			event("act_start", 250, {
 				agent_name: "metacognitive",
@@ -103,5 +109,51 @@ describe("learn signal extraction evidence", () => {
 		expect(rendered).not.toContain("observer frame should not be evidence");
 		expect(rendered).not.toContain("hidden observer frame");
 		expect(rendered).not.toContain("observer analysis should not be evidence");
+	});
+
+	test("excludes observer telemetry using ids learned outside the evidence window", () => {
+		const events: SessionEvent[] = [
+			event("session_start", 0, { session_id: "session-1" }, 0, "session"),
+			event("act_start", 1, {
+				agent_name: "metacognitive",
+				child_id: "observer-metacognitive",
+				handle_id: "observer-metacognitive",
+				observer: true,
+			}),
+			event(
+				"plan_end",
+				600_000,
+				{ text: "late observer analysis should not be evidence" },
+				1,
+				"observer-metacognitive",
+			),
+			event("act_end", 600_010, {
+				agent_name: "metacognitive",
+				child_id: "observer-metacognitive",
+				success: true,
+				output: "markerless observer completion should not be evidence",
+			}),
+			event("act_start", 600_020, {
+				agent_name: "worker",
+				child_id: "worker-1",
+				goal: "normal child work should remain evidence",
+			}),
+			event(
+				"primitive_end",
+				600_030,
+				{ name: "exec", success: false, output: "normal command failed" },
+				1,
+				"worker-1",
+			),
+			event("learn_signal", 600_040, { signal: "failure" }),
+		];
+
+		const evidence = learnSignalEvidenceWindow({ signal: signal(600_040), events });
+		const rendered = renderLearnEvidenceEvents(evidence);
+
+		expect(rendered).toContain("normal child work should remain evidence");
+		expect(rendered).toContain("normal command failed");
+		expect(rendered).not.toContain("late observer analysis should not be evidence");
+		expect(rendered).not.toContain("markerless observer completion should not be evidence");
 	});
 });

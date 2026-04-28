@@ -76,6 +76,7 @@ export function ThreadPanel({ agentId, tree, events, agentStats, onClose, onSele
 							<span className={styles.agentName}>
 								{mnemonicName ?? agentName}
 							</span>
+							{node?.isObserver && <span className={styles.observerBadge}>observer</span>}
 							{mnemonicName && (
 								<span className={styles.agentRole}>{agentName}</span>
 							)}
@@ -83,6 +84,12 @@ export function ThreadPanel({ agentId, tree, events, agentStats, onClose, onSele
 					</div>
 					{(description || goal) && (
 						<div className={styles.goal}>{description || goal}</div>
+					)}
+					{node?.isObserver && node.observedTarget && (
+						<div className={styles.observerMeta}>
+							watches {node.observedTarget}
+							{node.ownerHandleId ? ` from ${node.ownerHandleId.slice(0, 8)}` : ""}
+						</div>
 					)}
 					{tokenUsage && (
 						<div className={styles.headerStats} data-testid="header-stats">

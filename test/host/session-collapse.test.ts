@@ -183,9 +183,15 @@ describe("session collapse transcript", () => {
 			[
 				event("perceive", 100, { goal: "Root goal" }),
 				event("agent_message", 150, {
-					from_agent_name: "metacognitive",
-					to_agent_name: "root",
-					text_preview: "observer notification should not collapse",
+					from: {
+						agentName: "metacognitive",
+						depth: 1,
+						handleId: "observer-metacognitive",
+						agentId: "observer-metacognitive",
+						role: "observer",
+					},
+					to: { agentName: "root", depth: 0, handleId: "root", agentId: "root" },
+					textPreview: "observer notification should not collapse",
 				}),
 				event("act_start", 200, {
 					agent_name: "metacognitive",
@@ -211,7 +217,6 @@ describe("session collapse transcript", () => {
 				event("act_end", 350, {
 					agent_name: "metacognitive",
 					child_id: "observer-metacognitive",
-					observer: true,
 					success: true,
 					output: "observer output should not collapse",
 				}),
@@ -235,6 +240,36 @@ describe("session collapse transcript", () => {
 		expect(transcript).not.toContain("hidden observer frame");
 		expect(transcript).not.toContain("observer analysis should not collapse");
 		expect(transcript).not.toContain("observer output should not collapse");
+	});
+
+	test("excludes observer lifecycle completions by observed child id when marker is absent", () => {
+		const messages = buildCollapseTranscript(
+			[
+				event("act_start", 100, {
+					agent_name: "metacognitive",
+					child_id: "observer-metacognitive",
+					handle_id: "observer-metacognitive",
+					observer: true,
+				}),
+				event("act_end", 200, {
+					agent_name: "metacognitive",
+					child_id: "observer-metacognitive",
+					success: true,
+					output: "markerless observer completion should not collapse",
+				}),
+				event("act_end", 300, {
+					agent_name: "worker",
+					child_id: "worker-1",
+					success: true,
+					output: "normal delegate completion should collapse",
+				}),
+			],
+			{ includeSubagents: true },
+		);
+
+		const transcript = messages.map((message) => message.content).join("\n");
+		expect(transcript).toContain("normal delegate completion should collapse");
+		expect(transcript).not.toContain("markerless observer completion should not collapse");
 	});
 
 	test("renders absolute timestamps for summary prompts", () => {

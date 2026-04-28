@@ -799,16 +799,36 @@ describe("EventLine", () => {
 
 	test("renders agent_message as compact system telemetry", () => {
 		const event = makeEvent("agent_message", {
-			from_agent_name: "metacognitive",
-			to_agent_name: "root",
-			text_preview: "Potential ambiguity detected",
+			from: {
+				agentName: "metacognitive",
+				depth: 1,
+				handleId: "observer-metacognitive",
+				agentId: "observer-metacognitive",
+				role: "observer",
+			},
+			to: { agentName: "root", depth: 0, handleId: "root", agentId: "root" },
+			textPreview: "Potential ambiguity detected",
 		});
 		const html = renderToStaticMarkup(
 			<EventLine event={event} durationMs={null} />,
 		);
-		expect(html).toContain("metacognitive -&gt; root");
+		expect(html).toContain("metacognitive observer -&gt; root");
 		expect(html).toContain("Potential ambiguity detected");
 		expect(html).toContain('data-kind="agent_message"');
+	});
+
+	test("renders observer frame perceive events collapsed by default", () => {
+		const event = makeEvent("perceive", {
+			goal: "<sprout:delegate-observer-frame>\nsecret frame\n</sprout:delegate-observer-frame>",
+		});
+		const html = renderToStaticMarkup(
+			<EventLine event={event} durationMs={null} />,
+		);
+		expect(html).toContain("Delegate observer frame delivered");
+		expect(html).toContain("<details");
+		expect(html).not.toContain("<details open");
+		expect(html).toContain("secret frame");
+		expect(html).toContain('data-kind="observer_frame"');
 	});
 
 	test("renders plan_end with text as AssistantMessage", () => {

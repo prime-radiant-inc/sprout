@@ -134,6 +134,31 @@ describe("ThreadPanel status badge", () => {
 		const html = renderPanel(tree);
 		expect(html).not.toContain(">child-1<");
 	});
+
+	test("renders observer metadata in the thread header", () => {
+		const tree = makeNode({
+			agentId: "root",
+			agentName: "root",
+			children: [
+				makeNode({
+					agentId: "observer-metacognitive",
+					agentName: "metacognitive",
+					depth: 1,
+					status: "running",
+					goal: "",
+					description: "observes root turns",
+					isObserver: true,
+					ownerHandleId: "root",
+					ownerAgentId: "root",
+					observedTarget: "root",
+				}),
+			],
+		});
+		const html = renderPanel(tree, "observer-metacognitive");
+		expect(html).toContain(">observer<");
+		expect(html).toContain("observes root turns");
+		expect(html).toContain("watches root from root");
+	});
 });
 
 // --- ThreadPanel token usage ---

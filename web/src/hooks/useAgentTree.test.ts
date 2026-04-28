@@ -130,6 +130,9 @@ describe("buildAgentTree", () => {
 					description: "observe root turns",
 					goal: "Review root activity for self-awareness diagnostics",
 					observer: true,
+					owner_handle_id: "root",
+					owner_agent_id: "root",
+					observed_target: "root",
 				}),
 			];
 			const { tree } = buildAgentTree(events);
@@ -140,6 +143,10 @@ describe("buildAgentTree", () => {
 			expect(child.agentName).toBe("metacognitive");
 			expect(child.depth).toBe(1);
 			expect(child.description).toBe("observe root turns");
+			expect(child.isObserver).toBe(true);
+			expect(child.ownerHandleId).toBe("root");
+			expect(child.ownerAgentId).toBe("root");
+			expect(child.observedTarget).toBe("root");
 			expect(child.status).toBe("running");
 		});
 
@@ -158,6 +165,9 @@ describe("buildAgentTree", () => {
 					handle_id: "observer-metacognitive",
 					description: "observes root delegate completions",
 					observer: true,
+					owner_handle_id: "root",
+					owner_agent_id: "root",
+					observed_target: "delegate",
 				}),
 			];
 			const { tree } = buildAgentTree(events);
@@ -169,6 +179,8 @@ describe("buildAgentTree", () => {
 			const observer = tree.children[1]!;
 			expect(observer.agentName).toBe("metacognitive");
 			expect(observer.description).toBe("observes root delegate completions");
+			expect(observer.isObserver).toBe(true);
+			expect(observer.observedTarget).toBe("delegate");
 			expect(observer.status).toBe("running");
 		});
 

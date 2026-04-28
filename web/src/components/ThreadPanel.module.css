@@ -59,6 +59,19 @@
 	line-height: 1.4;
 }
 
+.observerBadge {
+	border: 1px solid var(--color-border-strong);
+	border-radius: var(--radius-full);
+	color: var(--color-text-tertiary);
+	font-family: var(--font-ui);
+	font-size: 9px;
+	font-weight: 600;
+	letter-spacing: 0.06em;
+	line-height: 1;
+	padding: 2px 5px;
+	text-transform: uppercase;
+}
+
 .tokenUsage {
 	font-family: var(--font-mono);
 	font-size: var(--font-size-xxs);
@@ -106,6 +119,12 @@
 	color: var(--color-text-secondary);
 	line-height: var(--line-height);
 	word-break: break-word;
+}
+
+.observerMeta {
+	color: var(--color-text-placeholder);
+	font-family: var(--font-mono);
+	font-size: var(--font-size-xxs);
 }
 
 .close {

@@ -3,6 +3,7 @@ import { extractMemoryDrafts, memoryFromDraft, parseExtractionJson } from "../ge
 import type { Genome } from "../genome/genome.ts";
 import { type DetectedProject, detectProjectFromCwd } from "../genome/projects.ts";
 import type { MemorySegment } from "../genome/segments.ts";
+import { collectObserverAgentIds, isObserverTelemetryEvent } from "../kernel/observer-telemetry.ts";
 import { redactSensitiveTranscriptContent } from "../kernel/redaction.ts";
 import type { SessionEvent } from "../kernel/types.ts";
 import type { Client } from "../llm/client.ts";
@@ -240,7 +241,7 @@ function eventToTranscriptMessage(
 	observerAgentIds: ReadonlySet<string>,
 ): CollapseTranscriptMessage[] {
 	const data = eventData(event);
-	if (data.observer === true || observerAgentIds.has(event.agent_id)) return [];
+	if (isObserverTelemetryEvent(event, observerAgentIds)) return [];
 	if (!options.includeSubagents && event.depth !== 0) return [];
 
 	switch (event.kind) {
@@ -263,19 +264,6 @@ function eventToTranscriptMessage(
 		default:
 			return [];
 	}
-}
-
-function collectObserverAgentIds(events: readonly SessionEvent[]): Set<string> {
-	const ids = new Set<string>();
-	for (const event of events) {
-		const data = eventData(event);
-		if (event.kind !== "act_start" || data.observer !== true) continue;
-		const childId = stringValue(data.child_id);
-		const handleId = stringValue(data.handle_id);
-		if (childId) ids.add(childId);
-		if (handleId) ids.add(handleId);
-	}
-	return ids;
 }
 
 function primitiveMetadata(event: SessionEvent): string | undefined {

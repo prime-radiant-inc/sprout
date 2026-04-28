@@ -1,4 +1,5 @@
 import type { ExtractionMessage } from "../genome/extraction.ts";
+import { collectObserverAgentIds, isObserverTelemetryEvent } from "../kernel/observer-telemetry.ts";
 import { redactSensitiveTranscriptContent } from "../kernel/redaction.ts";
 import type { LearnSignal, SessionEvent } from "../kernel/types.ts";
 import { ContentKind, type Message, messageText } from "../llm/types.ts";
@@ -81,8 +82,7 @@ function eventsForSession(events: readonly SessionEvent[], sessionId: string): S
 }
 
 function isLearnEvidenceEvent(event: SessionEvent, observerAgentIds: ReadonlySet<string>): boolean {
-	const data = eventData(event);
-	if (data.observer === true || observerAgentIds.has(event.agent_id)) return false;
+	if (isObserverTelemetryEvent(event, observerAgentIds)) return false;
 	return (
 		event.kind === "session_start" ||
 		event.kind === "session_end" ||
@@ -97,19 +97,6 @@ function isLearnEvidenceEvent(event: SessionEvent, observerAgentIds: ReadonlySet
 		event.kind === "warning" ||
 		event.kind === "error"
 	);
-}
-
-function collectObserverAgentIds(events: readonly SessionEvent[]): Set<string> {
-	const ids = new Set<string>();
-	for (const event of events) {
-		const data = eventData(event);
-		if (event.kind !== "act_start" || data.observer !== true) continue;
-		const childId = stringValue(data.child_id);
-		const handleId = stringValue(data.handle_id);
-		if (childId) ids.add(childId);
-		if (handleId) ids.add(handleId);
-	}
-	return ids;
 }
 
 function renderLearnEvidenceEvent(event: SessionEvent): string {

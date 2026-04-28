@@ -178,9 +178,15 @@ describe("groupEvents", () => {
 				makeEvent(
 					"agent_message",
 					{
-						from_agent_name: "metacognitive",
-						to_agent_name: "root",
-						text_preview: "Potential ambiguity detected",
+						from: {
+							agentName: "metacognitive",
+							depth: 1,
+							handleId: "observer-metacognitive",
+							agentId: "observer-metacognitive",
+							role: "observer",
+						},
+						to: { agentName: "root", depth: 0, handleId: "root", agentId: "root" },
+						textPreview: "Potential ambiguity detected",
 					},
 					{ agent_id: "root", depth: 0, timestamp: 1000 },
 				),
@@ -189,7 +195,7 @@ describe("groupEvents", () => {
 
 			expect(result).toHaveLength(1);
 			expect(result[0]!.event.kind).toBe("agent_message");
-			expect(result[0]!.event.data.text_preview).toBe("Potential ambiguity detected");
+			expect(result[0]!.event.data.textPreview).toBe("Potential ambiguity detected");
 		});
 
 		test("plan_delta is standalone", () => {

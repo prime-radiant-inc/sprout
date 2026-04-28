@@ -10,6 +10,10 @@ export interface AgentTreeNode {
 	/** Short label (≤10 words) for tree/headers; falls back to goal when absent */
 	description?: string;
 	mnemonicName?: string;
+	isObserver?: boolean;
+	ownerHandleId?: string;
+	ownerAgentId?: string;
+	observedTarget?: "root" | "session" | "delegate";
 	children: AgentTreeNode[];
 	turns?: number;
 	durationMs?: number;
@@ -111,6 +115,14 @@ export function buildAgentTree(events: SessionEvent[]): BuildAgentTreeResult {
 					goal: (event.data.goal as string) ?? "",
 					description: typeof event.data.description === "string" ? event.data.description : undefined,
 					mnemonicName: typeof event.data.mnemonic_name === "string" ? event.data.mnemonic_name : undefined,
+					isObserver: event.data.observer === true ? true : undefined,
+					ownerHandleId:
+						typeof event.data.owner_handle_id === "string"
+							? event.data.owner_handle_id
+							: undefined,
+					ownerAgentId:
+						typeof event.data.owner_agent_id === "string" ? event.data.owner_agent_id : undefined,
+					observedTarget: observedTargetFrom(event.data.observed_target),
 					children: [],
 				};
 				startTimestamps.set(node, event.timestamp);
@@ -196,6 +208,11 @@ function collectIds(node: AgentTreeNode, ids: Set<string>): void {
 	for (const child of node.children) {
 		collectIds(child, ids);
 	}
+}
+
+function observedTargetFrom(value: unknown): AgentTreeNode["observedTarget"] {
+	if (value === "root" || value === "session" || value === "delegate") return value;
+	return undefined;
 }
 
 // --- React hook ---

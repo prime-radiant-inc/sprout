@@ -6,6 +6,11 @@ import { SystemMessage } from "./SystemMessage.tsx";
 import { ToolCall } from "./ToolCall.tsx";
 import { UserMessage } from "./UserMessage.tsx";
 
+interface AgentAddressData {
+	agentName: string;
+	role?: "observer";
+}
+
 interface EventLineProps {
 	event: SessionEvent;
 	durationMs: number | null;
@@ -30,15 +35,26 @@ export function EventLine({ event, durationMs, streamingText, isFirstInGroup, ag
 	const { kind, data } = event;
 
 	switch (kind) {
-		case "perceive":
+		case "perceive": {
+			const goal = String(data.goal ?? "");
+			if (isObserverFrame(goal)) {
+				return (
+					<SystemMessage
+						kind="observer_frame"
+						message={observerFrameLabel(goal)}
+						details={goal}
+					/>
+				);
+			}
 			return (
 				<UserMessage
-					text={String(data.goal ?? "")}
+					text={goal}
 					isFirstInGroup={isFirstInGroup}
 					timestamp={event.timestamp}
 					name={userName}
 				/>
 			);
+		}
 
 		case "steering":
 			return (
@@ -55,9 +71,9 @@ export function EventLine({ event, durationMs, streamingText, isFirstInGroup, ag
 			return (
 				<SystemMessage
 					kind="agent_message"
-					message={`${String(data.from_agent_name ?? "agent")} -> ${String(
-						data.to_agent_name ?? "agent",
-					)}: ${String(data.text_preview ?? "")}`}
+					message={`${agentAddressName(data.from)} -> ${agentAddressName(data.to)}: ${String(
+						data.textPreview ?? "",
+					)}`}
 				/>
 			);
 
@@ -212,4 +228,33 @@ export function EventLine({ event, durationMs, streamingText, isFirstInGroup, ag
 			kind satisfies never;
 			return null;
 	}
+}
+
+function isObserverFrame(text: string): boolean {
+	const trimmed = text.trimStart();
+	return (
+		trimmed.startsWith("<sprout:observer-frame>") ||
+		trimmed.startsWith("<sprout:delegate-observer-frame>")
+	);
+}
+
+function observerFrameLabel(text: string): string {
+	return text.trimStart().startsWith("<sprout:delegate-observer-frame>")
+		? "Delegate observer frame delivered"
+		: "Observer frame delivered";
+}
+
+function agentAddressName(value: unknown): string {
+	if (!isAgentAddressData(value)) return "agent";
+	return value.role === "observer" ? `${value.agentName} observer` : value.agentName;
+}
+
+function isAgentAddressData(value: unknown): value is AgentAddressData {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		!Array.isArray(value) &&
+		"agentName" in value &&
+		typeof (value as AgentAddressData).agentName === "string"
+	);
 }

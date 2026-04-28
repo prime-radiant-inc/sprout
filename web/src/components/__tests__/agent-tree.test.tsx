@@ -205,6 +205,31 @@ describe("AgentTree", () => {
 		expect(html).toContain('data-agent-id="runner-1"');
 	});
 
+	test("renders observer nodes with explicit observer metadata", () => {
+		const tree = makeNode({
+			children: [
+				makeNode({
+					agentId: "observer-metacognitive",
+					agentName: "metacognitive",
+					depth: 1,
+					status: "running",
+					goal: "",
+					description: "observes root turns",
+					isObserver: true,
+					ownerHandleId: "root",
+					ownerAgentId: "root",
+					observedTarget: "root",
+				}),
+			],
+		});
+		const html = renderToStaticMarkup(
+			<AgentTree tree={tree} selectedAgent={null} onSelectAgent={() => {}} />,
+		);
+		expect(html).toContain('data-observer="true"');
+		expect(html).toContain(">observer<");
+		expect(html).toContain("watches root from root");
+	});
+
 	test("shows full goal text without truncation", () => {
 		const longGoal = "A".repeat(100);
 		const tree = makeNode({ goal: longGoal });

@@ -139,7 +139,11 @@ function TreeNode({
 
 	return (
 		<li>
-			<div className={`${styles.nodeRow} ${isSelected ? styles.selected : ""}`}>
+			<div
+				className={`${styles.nodeRow} ${isSelected ? styles.selected : ""} ${
+					node.isObserver ? styles.observerNode : ""
+				}`}
+			>
 				{hasChildren ? (
 					<button
 						type="button"
@@ -160,6 +164,7 @@ function TreeNode({
 					data-agent-id={node.agentId}
 					data-selected={isSelected ? "true" : undefined}
 					data-status={node.status}
+					data-observer={node.isObserver ? "true" : undefined}
 					onClick={() => onSelectAgent(node.agentId)}
 				>
 					<span className={styles.nodeHeader}>
@@ -170,6 +175,7 @@ function TreeNode({
 							<span className={styles.agentName}>
 								{node.mnemonicName ?? node.agentName}
 							</span>
+							{node.isObserver && <span className={styles.observerBadge}>observer</span>}
 							{node.mnemonicName && (
 								<span className={styles.agentRole}>{node.agentName}</span>
 							)}
@@ -185,6 +191,12 @@ function TreeNode({
 					</span>
 					{(node.description || node.goal) && (
 						<span className={styles.goal}>{node.description ?? node.goal}</span>
+					)}
+					{node.isObserver && node.observedTarget && (
+						<span className={styles.observerMeta}>
+							watches {node.observedTarget}
+							{node.ownerHandleId ? ` from ${node.ownerHandleId.slice(0, 8)}` : ""}
+						</span>
 					)}
 					{stats && <StatsLine stats={stats} status={node.status} pressure={pressure} />}
 				</button>
