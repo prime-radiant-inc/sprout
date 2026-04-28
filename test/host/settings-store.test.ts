@@ -154,6 +154,85 @@ describe("SettingsStore", () => {
 		expect(result.settings).toEqual(createEmptySettings());
 	});
 
+	test("load migrates v3 settings to generic agent model overrides", async () => {
+		const { store, settingsPath } = await makeStore();
+		await writeFile(
+			settingsPath,
+			JSON.stringify({
+				version: 3,
+				providers: [
+					{
+						id: "anthropic",
+						kind: "anthropic",
+						label: "Anthropic",
+						enabled: true,
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {
+					fast: {
+						providerId: "anthropic",
+						modelId: "claude-haiku-4-5",
+					},
+				},
+				memoryModels: {
+					extraction: {
+						providerId: "anthropic",
+						modelId: "claude-haiku-4-5",
+					},
+				},
+				agentModels: {
+					"observer.metacognitive": {
+						providerId: "anthropic",
+						modelId: "claude-sonnet-4-6",
+					},
+				},
+			}),
+			"utf-8",
+		);
+
+		const result = await store.load();
+
+		expect(result.source).toBe("loaded");
+		expect(result.skipEnvImport).toBe(false);
+		expect(result.recoveredInvalidFilePath).toBeUndefined();
+		expect(result.settings).toEqual({
+			...createEmptySettings(),
+			providers: [
+				{
+					id: "anthropic",
+					kind: "anthropic",
+					label: "Anthropic",
+					enabled: true,
+					createdAt: "2026-03-11T12:00:00.000Z",
+					updatedAt: "2026-03-11T12:00:00.000Z",
+				},
+			],
+			defaults: {
+				fast: {
+					providerId: "anthropic",
+					modelId: "claude-haiku-4-5",
+				},
+			},
+			memoryModels: {
+				extraction: {
+					providerId: "anthropic",
+					modelId: "claude-haiku-4-5",
+				},
+			},
+			agentModelOverrides: {
+				metacognitive: {
+					kind: "model",
+					model: {
+						providerId: "anthropic",
+						modelId: "claude-sonnet-4-6",
+					},
+				},
+			},
+		});
+	});
+
 	test("load does not backfill missing subcortical memory model from defaults", async () => {
 		const { store, settingsPath } = await makeStore();
 		await writeFile(

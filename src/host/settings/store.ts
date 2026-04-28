@@ -15,6 +15,14 @@ import {
 } from "./types.ts";
 import { normalizeProviderConfig, validateProviderConfig } from "./validation.ts";
 
+interface SproutSettingsV3 {
+	version: 3;
+	providers: SproutSettings["providers"];
+	defaults: SproutSettings["defaults"];
+	memoryModels?: MemoryModelsConfig;
+	agentModels?: Partial<Record<"observer.metacognitive", ModelRef>>;
+}
+
 export interface SettingsLoadResult {
 	settings: SproutSettings;
 	recoveredInvalidFilePath?: string;
@@ -99,7 +107,22 @@ export class SettingsStore {
 			this.validateSettings(settings);
 			return settings;
 		}
+		if (parsed.version === 3) {
+			const settings = this.migrateV3Settings(parsed as SproutSettingsV3);
+			this.validateSettings(settings);
+			return settings;
+		}
 		throw new Error(`Unsupported settings schema version: ${String(parsed.version)}`);
+	}
+
+	private migrateV3Settings(settings: SproutSettingsV3): SproutSettings {
+		return this.normalizeSettings({
+			version: SETTINGS_SCHEMA_VERSION,
+			providers: settings.providers,
+			defaults: settings.defaults,
+			memoryModels: settings.memoryModels ?? {},
+			agentModelOverrides: migrateV3AgentModels(settings.agentModels),
+		});
 	}
 
 	private normalizeSettings(settings: SproutSettings): SproutSettings {
@@ -160,6 +183,27 @@ function normalizeAgentModelOverrides(
 			throw new Error("Agent model override keys must be non-empty strings");
 		}
 		normalized[agentKey] = normalizeAgentModelOverride(value, `Agent model override '${agentKey}'`);
+	}
+	return normalized;
+}
+
+function migrateV3AgentModels(
+	agentModels: SproutSettingsV3["agentModels"] | undefined,
+): AgentModelOverridesConfig {
+	const normalized: AgentModelOverridesConfig = {};
+	if (agentModels === undefined) return normalized;
+	if (typeof agentModels !== "object" || agentModels === null || Array.isArray(agentModels)) {
+		throw new Error("agentModels must be an object");
+	}
+	const raw = agentModels as Record<string, unknown>;
+	if (Object.hasOwn(raw, "observer.metacognitive")) {
+		normalized.metacognitive = {
+			kind: "model",
+			model: normalizeModelRef(
+				raw["observer.metacognitive"],
+				"Agent model 'observer.metacognitive'",
+			),
+		};
 	}
 	return normalized;
 }
