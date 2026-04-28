@@ -79,6 +79,11 @@ Known weakness:
   handle/id.
 - `handle: "root"` is a global special case. V3 should migrate observer prompts
   to `handle: "caller"` and stop relying on a root side channel.
+- Current observer handles are kept alive with `shared: true`, but `shared`
+  also makes handles globally addressable. V3 must split persistence from
+  addressability.
+- Current observer frame delivery reuses `message_agent` to the observer handle.
+  That conflates runtime frame input with advisory agent messages.
 
 ## Core Decisions
 
@@ -90,6 +95,26 @@ context in its own transcript.
 
 V3 must not replace observers with "run an analyzer and parse its final text".
 That would lose the external, independent, over-time property we want.
+
+### Persistent, Not Shared
+
+Observer handles need persistence, not public addressability.
+
+Do not rely on `shared: true` to keep observer agents alive if `shared` means
+"any agent that learns the handle can message or wait on it." Add or reuse a
+runtime concept that keeps a handle alive/idle while leaving it private to its
+owner/runtime subscription.
+
+Rules:
+
+- Observer handles are private by default.
+- Only the runtime observer facility may send observer frames to observer
+  handles.
+- Observer agents may send advisory comments only through `handle: "caller"`.
+- Observers must not wait/message arbitrary raw handles, even shared handles.
+- If implementation needs temporary compatibility with existing shared observer
+  handles, the compatibility path must be narrow, tested, and removed from new
+  V3 behavior.
 
 ### Message Agent Stays
 
@@ -193,9 +218,19 @@ V3 threads these IDs into caller identity and ownership checks.
 
 ## Runtime Identity
 
-### CallerIdentity
+### Self Identity And Caller Address
 
-Extend caller identity with runtime-controlled fields:
+Separate two concepts that current code partially conflates:
+
+- **Self identity**: the runtime identity of the agent making a tool call or
+  emitting an event.
+- **Caller address**: the immutable parent/caller address used to resolve
+  `handle: "caller"`.
+
+The bus field currently named `caller` is sender identity for outbound
+`agent_message` payloads. Do not reuse it as the parent address.
+
+Self identity:
 
 ```ts
 interface CallerIdentity {
@@ -219,16 +254,37 @@ Rules:
   authority.
 - Bus validation rejects malformed caller identities.
 
+Caller address:
+
+```ts
+interface CallerAddress {
+	handleId: string;
+	agentId: string;
+	agentName: string;
+	depth: number;
+}
+```
+
+Rules:
+
+- `callerAddress` is captured from trusted runtime state when an agent starts.
+- Models cannot set or override `callerAddress`.
+- For root-owned observers, `callerAddress.handleId === "root"`.
+- For non-root delegate observers, `callerAddress` is the exact owner handle
+  that owns the observer subscription.
+- Tests must assert both sender and recipient handle/id on `agent_message`
+  events.
+
 ### Agent Options
 
-`Agent` needs its own runtime identity and its caller's runtime identity:
+`Agent` needs both its own runtime identity and its caller address:
 
 ```ts
 interface AgentOptions {
 	// existing fields...
 	handleId: string;
 	agentId?: string;
-	caller?: CallerIdentity;
+	callerAddress?: CallerAddress;
 }
 ```
 
@@ -237,13 +293,14 @@ For root:
 - `handleId` is `root`.
 - `agentId` is `root` unless the session controller already has a better stable
   root event id.
-- `caller` may be omitted or set to root itself.
+- `callerAddress` may be omitted or set to root itself.
 
 For subprocesses:
 
 - `handleId` comes from `StartMessage.handle_id`.
 - `agentId` comes from `StartMessage.agent_id`.
-- `caller` comes from `StartMessage.caller`.
+- `callerAddress` is derived from `StartMessage.caller` after validating that it
+  includes exact handle/id.
 
 ### Handle Ownership
 
@@ -263,8 +320,12 @@ interface AgentHandle {
 Rules:
 
 - Non-shared `wait_agent` and raw-handle `message_agent` are allowed only when
-  `caller.handle_id === handle.ownerHandleId`.
-- Shared handles remain addressable by other agents as they are today.
+  both `caller.handle_id === handle.ownerHandleId` and
+  `caller.agent_id === handle.ownerAgentId`.
+- Shared handles remain addressable by ordinary non-observer agents as they are
+  today.
+- Observer agents are narrower: they may not use raw handles at all in V3,
+  including shared handles. Their only public comment target is `caller`.
 - Name/depth-only ownership checks are removed.
 - Completed handle resume preserves owner handle/id when that data is available.
 - Older resumed handles that lack owner handle/id may use a clearly marked
@@ -276,6 +337,7 @@ Required tests:
   non-shared handles by name alone.
 - The owning runtime handle can wait/message its own non-shared child.
 - Shared handles remain accessible.
+- Observer attempts to message arbitrary raw shared handles fail clearly.
 - Resume preserves exact owner identity for completed child handles.
 
 ## Caller Alias
@@ -286,17 +348,6 @@ Required tests:
 current agent's runtime caller.
 
 This is a built-in address alias, not an observer grant.
-
-Resolution input:
-
-```ts
-interface CallerAddress {
-	handleId: string;
-	agentId: string;
-	agentName: string;
-	depth: number;
-}
-```
 
 The caller address is derived from trusted runtime state:
 
@@ -323,17 +374,26 @@ cross-handle messaging.
 
 Observer prompts should use `handle: "caller"`, not `handle: "root"`.
 
-V3 should retain enough compatibility for existing root observer tests during
-migration, but new observer prompts and docs must not depend on root as a
-global side channel.
+Raw `handle: "root"` is not a valid model-originated `message_agent` target in
+V3 for non-root agents. Root delivery must happen either through:
+
+- `handle: "caller"` when the runtime caller address is root; or
+- an internal runtime/session-controller path that is not available as a model
+  tool argument.
+
+Migration order matters: add the `caller` alias and update root observer prompts
+before rejecting raw root tool calls. If a short-lived compatibility path is
+needed, it must be restricted to runtime-verified root-owned observer handles and
+must not apply to arbitrary non-root agents.
 
 Required tests:
 
 - A root-owned observer can message `caller`, and root receives the message.
 - A non-root delegate observer can message `caller`, and the owning non-root
   agent receives the message.
-- A non-root observer using raw `handle: "root"` does not reach root through a
+- A non-root agent using raw `handle: "root"` does not reach root through a
   bypass.
+- A non-root observer using any raw handle other than `caller` fails clearly.
 - `caller` with `blocking: true` fails clearly.
 - `caller` alias cannot be spoofed through model-supplied arguments.
 
@@ -362,8 +422,12 @@ Rules:
 - `target: session` observes the session-wide event stream.
 - The observer's output channel is implicitly `caller`.
 - Do not add `comments` to new V3 examples.
-- Existing `comments` frontmatter may be tolerated during migration only if it
-  is equivalent to `caller`; new non-caller recipients are rejected.
+- Existing `comments.can_message` and `comments.default_recipient` are legacy
+  parser-only migration fields in V3.
+- Runtime frame rendering must not use legacy `comments` to produce recipient
+  instructions.
+- New configs should omit `comments`; configs with any non-caller recipient are
+  rejected.
 
 ### Delegate Observers
 
@@ -423,6 +487,48 @@ Prompt requirements:
 
 ## Runtime Architecture
 
+### Observer Frame Delivery
+
+Observer frames are runtime input, not advisory agent messages.
+
+Do not deliver observer frames through public `message_agent` semantics. Public
+`message_agent` sends `AgentMessageMessage` to running agents and can render in
+`<sprout:agent-messages>`, which is the wrong surface for observer frames.
+
+Add a runtime-only delivery path, e.g.:
+
+```ts
+interface ObserverFrameDeliveryOptions {
+	handleId: string;
+	frame: string;
+	timeoutMs?: number;
+	waitForTurn: boolean;
+}
+```
+
+Required semantics:
+
+- The frame enters the observer as the next task/follow-up input, not as
+  `<sprout:agent-messages>`.
+- The delivery path may start, resume, or continue the persistent observer
+  handle.
+- For root/session observers, delivery may be fire-and-forget after enqueueing
+  the frame.
+- For delegate-final observers, delivery must wait until the observer's turn
+  completes or the timeout expires.
+- "Delivery complete" means the observer processed the frame and returned a turn
+  result. If the observer called `message_agent(handle: "caller")`, that message
+  has been published to the caller inbox before completion returns.
+- Timeout emits a warning and leaves observer advice advisory.
+
+Required tests:
+
+- Frames delivered to a running observer do not appear in that observer's
+  `<sprout:agent-messages>`.
+- Delegate-final delivery waits for observer turn completion before the owner
+  continues.
+- Timeout does not hang the owner.
+
 ### Root/Session Observer Registry
 
 Keep `ObserverRegistry` for root/session observers.
@@ -432,8 +538,9 @@ Responsibilities:
 - Own active root/session subscriptions.
 - Consume the session-wide event stream.
 - Maintain bounded rolling buffers per subscription.
-- Start each observer as a shared long-lived handle on first delivery.
-- Deliver later frames to that observer handle.
+- Start each observer as a private persistent long-lived handle on first
+  delivery.
+- Deliver later frames through runtime-only observer frame delivery.
 - Emit normal `act_start` events with `observer: true`.
 - Reset on `/clear`.
 - Exclude observer telemetry unless explicitly configured otherwise.
@@ -465,7 +572,7 @@ delegation path.
 Responsibilities:
 
 - Load `observe_delegates` from the owner's resolved agent spec.
-- Start one shared long-lived observer handle per owner/config pair when the
+- Start one private persistent observer handle per owner/config pair when the
   first blocking delegate completion needs observation.
 - Reuse that observer handle for later delegate-final frames from the same
   owner.
@@ -473,6 +580,8 @@ Responsibilities:
 - Await delivery with a small timeout before the owner continues.
 - Emit warnings on timeout or delivery failure and continue.
 - Use the same frame builder/redaction helpers as root/session observers.
+- Capture bounded child events for the blocking delegate before invoking the
+  observer.
 
 Non-responsibilities:
 
@@ -481,6 +590,15 @@ Non-responsibilities:
 - It does not observe delegate subtrees.
 - It does not deliver every child event live.
 - It does not create a grant store.
+
+Child event capture:
+
+- Start capture when the owner emits the delegate `act_start`.
+- Capture child-process events where `event.agent_id === childId`.
+- Capture owner-side delegation events whose `data.child_id === childId`.
+- Stop capture after the blocking delegate result and owner `act_end` are known.
+- Bound captured events by `max_events` and `max_chars`.
+- Do not depend on a global non-root registry to reconstruct child evidence.
 
 Suggested handle shape:
 
@@ -530,6 +648,8 @@ Truncation priority:
 Required tests:
 
 - Frame includes delegation goal, child output, and child evidence.
+- Per-child event capture includes child-process events and owner-side
+  delegation events for the correct child id.
 - Interleaved delegates do not borrow each other's child evidence.
 - Frame truncates lower-priority evidence before core sections.
 - Frame excludes observer telemetry by default.
@@ -618,6 +738,20 @@ Required UI behavior:
 - Raw observer frames are collapsed by default.
 - UI must not infer observer status from names or prefixes.
 
+Tree data:
+
+```ts
+interface AgentTreeNode {
+	// existing fields...
+	isObserver?: boolean;
+	ownerHandleId?: string;
+	ownerAgentId?: string;
+	observedTarget?: "root" | "session" | "caller_delegates";
+}
+```
+
+`buildAgentTree` must preserve these fields from observer `act_start` data.
+
 Useful event metadata on observer `act_start`:
 
 ```ts
@@ -662,6 +796,8 @@ Required tests:
 
 - Root observer telemetry is excluded from collapse and extraction.
 - Non-root delegate observer telemetry is excluded from collapse and extraction.
+- Observer telemetry is excluded even when the `observer: true` lifecycle marker
+  is absent from, or outside, the collapse/extraction event window.
 - Normal delegate output remains learn/collapse evidence.
 
 ## Model Configuration
@@ -698,13 +834,18 @@ Recommended files:
 Required cases:
 
 - Runtime caller identity includes exact handle/id.
-- Non-shared handle checks use exact owner handle/id.
+- Non-shared handle checks require exact owner handle id and owner agent id.
 - `message_agent(handle: "caller", blocking: false)` reaches root for a
   root-owned observer.
 - `message_agent(handle: "caller", blocking: false)` reaches a non-root owner
   for a delegate observer.
 - `caller` with `blocking: true` fails clearly.
-- A non-root observer cannot reach root through raw `handle: "root"`.
+- A non-root agent cannot reach root through raw `handle: "root"`.
+- An observer cannot message arbitrary raw handles, including shared handles.
+- Observer frame delivery does not use `<sprout:agent-messages>` in the observer.
+- Delegate-final observer delivery waits for observer turn completion or timeout.
+- Per-child event capture feeds the correct child evidence to delegate-final
+  frames.
 - Two root/session subscriptions can be active without handle collisions.
 - Multiple observers can inject messages in the same root turn.
 - Target prompt receives queued observer messages once, then clears them.
@@ -738,15 +879,11 @@ The harness must:
 
 Required live scenarios:
 
-- `metacognitive-correction`: observer delivery and prompt rendering with a
-  correct comment.
-- `adversarial-comment`: wrong observer comment is delivered and appears in the
-  target prompt; target rejection is diagnostic.
-- `multi-observer`: distinct observers start, receive frames, emit
-  role-tagged `agent_message` events, and render into root prompt context.
 - `caller-alias-root`: root-owned observer messages `caller`; root receives it.
 - `caller-alias-non-root`: non-root delegate observer messages `caller`; the
   non-root owner receives it and root does not.
+- `multi-observer-smoke`: distinct observers start, receive frames, emit
+  role-tagged `agent_message` events, and render into prompt context.
 - `nonblocking-negative`: handle-only nonblocking delegate handoff does not
   trigger delegate-final observers.
 
@@ -754,6 +891,8 @@ Behavioral assertions:
 
 - Target obedience is diagnostic unless the test prompt uses exact markers.
 - A target ignoring advisory guidance is not itself a delivery failure.
+- Adversarial-obedience and pilot-specific live scenarios are deferred until
+  those pilots are enabled.
 
 ## Optional Pilot Observers
 
@@ -791,20 +930,24 @@ Defer all broader catalog ideas:
 ## Implementation Sequence
 
 1. Add runtime `handle_id` and `agent_id` to `CallerIdentity`.
-2. Pass `handleId` and trusted `caller` identity into `Agent`.
-3. Store exact owner handle/id on `AgentHandle`.
-4. Harden `wait_agent` and raw-handle `message_agent` ownership checks.
-5. Add `message_agent(handle: "caller", blocking: false)` alias resolution.
-6. Migrate metacognitive prompt/docs to `handle: "caller"`.
-7. Keep root/session observers in `ObserverRegistry`; remove grant-store
-   language and recipient policy assumptions.
-8. Add owner-local long-lived delegate observer runtime.
-9. Add bounded delegate-final delivery before owner continuation.
-10. Add event/UI metadata for observer owner and agent-message routing.
-11. Harden memory/collapse/extraction observer exclusion by handle/id.
-12. Add deterministic tests.
-13. Add opt-in live harness and run representative live scenarios.
-14. Add optional pilot observers only if the core substrate is passing.
+2. Add `callerAddress` separately from self/sender identity.
+3. Store exact owner handle/id and owner agent id on `AgentHandle`.
+4. Split private persistent observer handles from shared public handles.
+5. Harden `wait_agent` and raw-handle `message_agent` ownership checks.
+6. Add `message_agent(handle: "caller", blocking: false)` alias resolution.
+7. Migrate metacognitive prompt/docs to `handle: "caller"`.
+8. Reject raw `handle: "root"` for model-originated non-root messages.
+9. Add runtime-only observer frame delivery with wait-for-turn semantics.
+10. Keep root/session observers in `ObserverRegistry`; remove grant-store and
+    recipient-policy assumptions.
+11. Add owner-local long-lived delegate observer runtime and per-child event
+    capture.
+12. Add bounded delegate-final observer delivery before owner continuation.
+13. Add event/UI metadata for observer owner and agent-message routing.
+14. Harden memory/collapse/extraction observer exclusion by handle/id.
+15. Add deterministic tests.
+16. Add opt-in live harness with the narrowed caller-alias smoke scenarios.
+17. Add optional pilot observers only if the core substrate is passing.
 
 ## Completion Criteria
 
@@ -815,7 +958,11 @@ V3 is complete when:
 - Non-root delegate observers receive bounded delegate-final frames over time.
 - Observers use `message_agent(handle: "caller", blocking: false)` for comments.
 - No observer-specific grant store exists.
+- Observer handles are private persistent handles, not public shared handles.
+- Observer frames are delivered through a runtime-only frame path, not public
+  `message_agent`.
 - Normal handle ownership uses exact runtime handle/id, not agent name.
+- Raw `handle: "root"` is not a model-originated non-root side channel.
 - Root-owned observer comments reach root.
 - Non-root delegate observer comments reach the owning non-root handle and not
   root.
