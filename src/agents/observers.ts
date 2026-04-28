@@ -1,5 +1,10 @@
 import { redactSensitiveTranscriptContent } from "../kernel/redaction.ts";
-import type { AgentModelPurpose, EventKind, SessionEvent } from "../kernel/types.ts";
+import type {
+	AgentModelPurpose,
+	EventKind,
+	ObserverCommentPolicyConfig,
+	SessionEvent,
+} from "../kernel/types.ts";
 
 export interface ObserverAttachmentConfig {
 	agentName: string;
@@ -14,6 +19,7 @@ export interface ObserverAttachmentConfig {
 	description?: string;
 	callerAgentId?: string;
 	callerDepth?: number;
+	comments?: ObserverCommentPolicyConfig;
 }
 
 export interface ObserverFrame {
@@ -38,6 +44,7 @@ export interface BuildObserverFrameInput {
 	includeKinds: readonly EventKind[];
 	maxEvents: number;
 	maxChars: number;
+	commentPolicy?: ObserverCommentPolicyConfig;
 }
 
 const DEFAULT_QUOTE_MAX_CHARS = 600;
@@ -59,7 +66,7 @@ export function buildObserverFrame(input: BuildObserverFrameInput): ObserverFram
 
 	while (frameEvents.length > 0) {
 		const frame = { sessionId: input.sessionId, events: frameEvents, truncated };
-		if (renderObserverFrame(frame).length <= input.maxChars) {
+		if (renderObserverFrame(frame, input.commentPolicy).length <= input.maxChars) {
 			return frame;
 		}
 		truncated = true;
@@ -69,12 +76,19 @@ export function buildObserverFrame(input: BuildObserverFrameInput): ObserverFram
 	return { sessionId: input.sessionId, events: [], truncated };
 }
 
-export function renderObserverFrame(frame: ObserverFrame): string {
+export function renderObserverFrame(
+	frame: ObserverFrame,
+	commentPolicy?: ObserverCommentPolicyConfig,
+): string {
 	const lines = [
 		"<sprout:observer-frame>",
 		`Session: ${escapeXml(frame.sessionId)}`,
 		`Truncated: ${frame.truncated ? "yes" : "no"}`,
 	];
+	const commentPolicyLines = renderCommentPolicy(commentPolicy);
+	if (commentPolicyLines.length > 0) {
+		lines.push(...commentPolicyLines);
+	}
 
 	for (const event of frame.events) {
 		lines.push(
@@ -88,6 +102,32 @@ export function renderObserverFrame(frame: ObserverFrame): string {
 
 	lines.push("</sprout:observer-frame>");
 	return lines.join("\n");
+}
+
+function renderCommentPolicy(commentPolicy: ObserverCommentPolicyConfig | undefined): string[] {
+	if (!commentPolicy) return [];
+	const canMessage = [
+		...new Set(
+			commentPolicy.can_message ??
+				(commentPolicy.default_recipient ? [commentPolicy.default_recipient] : []),
+		),
+	];
+	const lines = [
+		"<sprout:observer-comment-policy>",
+		`Can message: ${canMessage.length > 0 ? canMessage.map(escapeXml).join(", ") : "none"}`,
+	];
+	if (commentPolicy.default_recipient) {
+		lines.push(`Default recipient: ${escapeXml(commentPolicy.default_recipient)}`);
+	}
+	if (canMessage.includes("root")) {
+		lines.push('For root comments, call message_agent with handle "root" and blocking false.');
+	}
+	if (canMessage.includes("caller")) {
+		lines.push('For caller comments in this subscription, call message_agent with handle "root" and blocking false.');
+	}
+	lines.push("Only comment when the observed evidence makes a short intervention useful.");
+	lines.push("</sprout:observer-comment-policy>");
+	return lines;
 }
 
 function buildFrameEvent(event: SessionEvent, index: number): ObserverFrameEvent {

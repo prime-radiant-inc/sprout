@@ -149,6 +149,26 @@ describe("observer frames", () => {
 		expect(rendered).toContain("&quot;a &lt; b&quot; &amp; continue");
 	});
 
+	test("renders configured observer comment policy", () => {
+		const frame = buildObserverFrame({
+			sessionId: "sess_1",
+			events: [event("plan_end", "root", 0, { text: "check assumptions" })],
+			includeKinds: ["plan_end"],
+			maxEvents: 10,
+			maxChars: 5000,
+			commentPolicy: { can_message: ["root"], default_recipient: "root" },
+		});
+
+		const rendered = renderObserverFrame(frame, {
+			can_message: ["root"],
+			default_recipient: "root",
+		});
+		expect(rendered).toContain("<sprout:observer-comment-policy>");
+		expect(rendered).toContain("Can message: root");
+		expect(rendered).toContain("Default recipient: root");
+		expect(rendered).toContain('message_agent with handle "root"');
+	});
+
 	test("rejects invalid bounds loudly", () => {
 		expect(() =>
 			buildObserverFrame({

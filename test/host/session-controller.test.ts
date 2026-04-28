@@ -2580,6 +2580,7 @@ describe("SessionController session-wide event wiring", () => {
 								events: ["plan_end"],
 								trigger: { every: 3, event: "plan_end" },
 								delivery: { max_events: 24, max_chars: 6000 },
+								comments: { can_message: ["root"], default_recipient: "root" },
 							},
 						],
 					};
@@ -2634,6 +2635,7 @@ describe("SessionController session-wide event wiring", () => {
 			blocking: false,
 			surfacedMemoryBlock: "",
 		});
+		expect(JSON.stringify(spawnCalls[0])).toContain("Default recipient: root");
 	});
 
 	test("does not attach a hard-coded observer without static config", async () => {
@@ -2995,6 +2997,110 @@ describe("SessionController session-wide event wiring", () => {
 		const serializedCall = JSON.stringify(spawnCalls[0]);
 		expect(serializedCall).toContain("custom root child final text");
 		expect(serializedCall).toContain("custom root result");
+	});
+
+	test("does not trigger delegate-final observers for background handoffs", async () => {
+		const bus = new EventBus();
+		const spawnCalls: unknown[] = [];
+		const fakeSpawner = {
+			getHandles: () => [],
+			subscribeSessionEvents: async () => {},
+			subscribeRootMessages: async () => {},
+			updateSessionId: async () => {},
+			clearHandles: async () => {},
+			spawnAgent: async (options: unknown) => {
+				spawnCalls.push(options);
+				return "observer-metacognitive";
+			},
+			messageAgent: async () => undefined,
+		} as any;
+		const fakeGenome = {
+			getAgent: (name: string) => {
+				if (name === "root") {
+					return {
+						name: "root",
+						model: "best",
+						observe_delegates: [
+							{
+								agent: "metacognitive",
+								trigger: "on_delegate_final",
+								events: ["plan_end", "act_end"],
+							},
+						],
+					};
+				}
+				if (name === "metacognitive") {
+					return { name: "metacognitive", model: "observer.metacognitive" };
+				}
+				return undefined;
+			},
+		} as any;
+
+		new SessionController({
+			bus,
+			genomePath: join(tempDir, "genome"),
+			projectDataDir: tempDir,
+			factory: makeFakeFactory(makeFakeAgent()),
+			spawner: fakeSpawner,
+			genome: fakeGenome,
+			getResolverSettings: () =>
+				createResolverSettings(
+					[{ id: "anthropic", enabled: true }],
+					{},
+					{},
+					{
+						"observer.metacognitive": {
+							providerId: "anthropic",
+							modelId: "claude-sonnet-4-6",
+						},
+					},
+				),
+		});
+
+		bus.emitEvent("plan_end", "child-1", 1, {
+			turn: 1,
+			finish_reason: "stop",
+			text: "non-blocking child is still running",
+		});
+		bus.emitEvent("act_end", "root", 0, {
+			agent_name: "engineer",
+			success: true,
+			handle_id: "handle-1",
+			child_id: "child-1",
+			tool_result_message: Msg.toolResult("delegate_1", "Agent started. Handle: handle-1"),
+		});
+		bus.emitEvent("act_end", "root", 0, {
+			agent_name: "reviewer",
+			success: true,
+			handle_id: "handle-2",
+			child_id: "child-2",
+			continued_in_background: true,
+			tool_result_message: Msg.toolResult("delegate_2", "continued in background"),
+		});
+		await sleep(5);
+		expect(spawnCalls).toHaveLength(0);
+
+		bus.emitEvent("plan_end", "child-3", 1, {
+			turn: 1,
+			finish_reason: "stop",
+			text: "completed child final text",
+		});
+		bus.emitEvent("act_end", "root", 0, {
+			agent_name: "architect",
+			success: true,
+			handle_id: "handle-3",
+			turns: 2,
+			timed_out: false,
+			child_id: "child-3",
+			tool_result_message: Msg.toolResult("delegate_3", "completed child result"),
+		});
+
+		await waitFor(() => spawnCalls.length === 1);
+		const serializedCall = JSON.stringify(spawnCalls[0]);
+		expect(serializedCall).toContain("completed child final text");
+		expect(serializedCall).toContain("completed child result");
+		expect(serializedCall).not.toContain("non-blocking child is still running");
+		expect(serializedCall).not.toContain("continued in background");
 	});
 
 	test("root and delegate observer handles use collision-proof namespaces", async () => {

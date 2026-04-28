@@ -187,10 +187,11 @@ export class ObserverRegistry {
 				includeKinds: subscription.config.events,
 				maxEvents: subscription.config.maxEvents,
 				maxChars: subscription.config.maxChars,
+				commentPolicy: subscription.config.comments,
 			});
 			if (frame.events.length === 0) return;
 
-			const message = renderObserverFrame(frame);
+			const message = renderObserverFrame(frame, subscription.config.comments);
 			await this.deliverFrame(subscription, message, resolverSettings);
 		} catch (error) {
 			if (this.generation === generation) {
@@ -322,6 +323,10 @@ export class ObserverRegistry {
 		if (agentName === "wait_agent" || agentName === "message_agent") return false;
 		if (config.callerAgentId && event.agent_id !== config.callerAgentId) return false;
 		if (config.callerDepth !== undefined && event.depth !== config.callerDepth) return false;
+		if (event.data.continued_in_background === true) return false;
+		if (typeof event.data.handle_id === "string" && typeof event.data.turns !== "number") {
+			return false;
+		}
 		return typeof event.data.child_id === "string";
 	}
 }
