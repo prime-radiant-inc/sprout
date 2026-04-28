@@ -1315,6 +1315,155 @@ describe("AgentSpawner", () => {
 			expect(handle!.owner.agentName).toBe("my-parent");
 			expect(handle!.owner.handleId).toBe("my-parent");
 		}, 15_000);
+
+		test("handle metadata separates keep-alive from visibility", async () => {
+			const mockClient = createMockClient("Done.");
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			const handleId = (await spawnWithResolver({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: addr("root", 0),
+				goal: "Work",
+				blocking: false,
+				shared: true,
+				workDir: tempDir,
+			})) as string;
+
+			const handle = spawner.getHandle(handleId);
+			expect(handle).toBeDefined();
+			expect(handle!.visibility).toBe("shared");
+			expect(handle!.keepAlive).toBe(true);
+			expect(handle!.isObserver).toBe(false);
+		}, 15_000);
+
+		test("observer callers cannot address raw shared handles", async () => {
+			const mockClient = createMockClient("Shared result.");
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			const handleId = (await spawnWithResolver({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: addr("root", 0),
+				goal: "Work",
+				blocking: false,
+				shared: true,
+				workDir: tempDir,
+			})) as string;
+			const observer = addr("metacognitive", 1, "observer", "observer-h", "observer-h");
+
+			expect(() => spawner.waitAgent(handleId, observer)).toThrow(/observer agents cannot wait/);
+			await expect(
+				spawner.messageAgent(handleId, "raw shared message", observer, false),
+			).rejects.toThrow('observer agents can only use message_agent with handle "caller"');
+		}, 15_000);
+	});
+
+	describe("deliverObserverFrame", () => {
+		test("starts a private kept-alive observer handle and waits for the frame result", async () => {
+			let callCount = 0;
+			const mockClient = buildMockClient(async (_request: Request): Promise<Response> => {
+				callCount++;
+				return {
+					id: `mock-observer-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant(callCount === 1 ? "NO_MESSAGE" : "MESSAGE_SENT"),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+				};
+			});
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+
+			await spawner.deliverObserverFrame({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: addr("root", 0),
+				message: "observer frame one",
+				handleId: "observer-test",
+				agentId: "observer-test",
+				workDir: tempDir,
+				resolverSettings: TEST_RESOLVER_SETTINGS,
+				surfacedMemoryBlock: "",
+			});
+
+			const handle = spawner.getHandle("observer-test");
+			expect(handle).toBeDefined();
+			expect(handle!.status).toBe("idle");
+			expect(handle!.visibility).toBe("private");
+			expect(handle!.keepAlive).toBe(true);
+			expect(handle!.isObserver).toBe(true);
+			expect(handle!.address.role).toBe("observer");
+
+			await spawner.deliverObserverFrame({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: addr("root", 0),
+				message: "observer frame two",
+				handleId: "observer-test",
+				agentId: "observer-test",
+				workDir: tempDir,
+				resolverSettings: TEST_RESOLVER_SETTINGS,
+				surfacedMemoryBlock: "",
+			});
+			expect(callCount).toBe(2);
+		}, 15_000);
+
+		test("serializes concurrent frames for the same observer handle", async () => {
+			let callCount = 0;
+			let releaseFirst: (() => void) | undefined;
+			const firstCallEntered = new Promise<void>((resolve) => {
+				const mockClient = buildMockClient(async (_request: Request): Promise<Response> => {
+					callCount++;
+					if (callCount === 1) {
+						resolve();
+						await new Promise<void>((release) => {
+							releaseFirst = release;
+						});
+					}
+					return {
+						id: `mock-observer-ordered-${callCount}`,
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: Msg.assistant("NO_MESSAGE"),
+						finish_reason: { reason: "stop" },
+						usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+					};
+				});
+				spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+			});
+
+			const firstDelivery = spawner.deliverObserverFrame({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: addr("root", 0),
+				message: "first observer frame",
+				handleId: "observer-ordered",
+				agentId: "observer-ordered",
+				workDir: tempDir,
+				resolverSettings: TEST_RESOLVER_SETTINGS,
+				surfacedMemoryBlock: "",
+			});
+			await firstCallEntered;
+
+			const secondDelivery = spawner.deliverObserverFrame({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: addr("root", 0),
+				message: "second observer frame",
+				handleId: "observer-ordered",
+				agentId: "observer-ordered",
+				workDir: tempDir,
+				resolverSettings: TEST_RESOLVER_SETTINGS,
+				surfacedMemoryBlock: "",
+			});
+			await delay(25);
+			expect(callCount).toBe(1);
+
+			releaseFirst!();
+			await Promise.all([firstDelivery, secondDelivery]);
+			expect(callCount).toBe(2);
+		}, 15_000);
 	});
 
 	describe("registerCompletedHandle", () => {

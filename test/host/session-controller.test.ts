@@ -91,6 +91,24 @@ function makeFakeFactory(fake: ReturnType<typeof makeFakeAgent>): AgentFactory {
 	});
 }
 
+function observerDeliveryCall(options: { message: string; [key: string]: unknown }) {
+	return {
+		...options,
+		goal: options.message,
+		shared: false,
+		keepAlive: true,
+		visibility: "private",
+		isObserver: true,
+		blocking: true,
+	};
+}
+
+function recordObserverDelivery(calls: unknown[]) {
+	return async (options: { message: string; [key: string]: unknown }) => {
+		calls.push(observerDeliveryCall(options));
+	};
+}
+
 describe("SessionController", () => {
 	let tempDir: string;
 
@@ -2566,6 +2584,7 @@ describe("SessionController session-wide event wiring", () => {
 				return "observer-metacognitive";
 			},
 			messageAgent: async () => undefined,
+			deliverObserverFrame: recordObserverDelivery(spawnCalls),
 		} as any;
 		const fakeGenome = {
 			getAgent: (name: string) => {
@@ -2631,8 +2650,11 @@ describe("SessionController session-wide event wiring", () => {
 			agentName: "metacognitive",
 			handleId: "observer-root-1-metacognitive",
 			agentId: "observer-root-1-metacognitive",
-			shared: true,
-			blocking: false,
+			shared: false,
+			keepAlive: true,
+			visibility: "private",
+			isObserver: true,
+			blocking: true,
 			surfacedMemoryBlock: "",
 		});
 		expect(JSON.stringify(spawnCalls[0])).toContain("Default recipient: root");
@@ -2653,6 +2675,7 @@ describe("SessionController session-wide event wiring", () => {
 				return "observer-metacognitive";
 			},
 			messageAgent: async () => undefined,
+			deliverObserverFrame: recordObserverDelivery(spawnCalls),
 		} as any;
 		const fakeGenome = {
 			getAgent: (name: string) =>
@@ -2692,6 +2715,7 @@ describe("SessionController session-wide event wiring", () => {
 		const messages: string[] = [];
 		let contextUpdates = 0;
 		let resolveSpawn: ((value: string) => void) | undefined;
+		let observerStarted = false;
 		const spawnPromise = new Promise<string>((resolve) => {
 			resolveSpawn = resolve;
 		});
@@ -2705,6 +2729,14 @@ describe("SessionController session-wide event wiring", () => {
 			messageAgent: async (_handleId: string, message: string) => {
 				messages.push(message);
 				return undefined;
+			},
+			deliverObserverFrame: async (options: { message: string }) => {
+				if (!observerStarted) {
+					await spawnPromise;
+					observerStarted = true;
+					return;
+				}
+				messages.push(options.message);
 			},
 		} as any;
 		const fakeGenome = {
@@ -2785,6 +2817,7 @@ describe("SessionController session-wide event wiring", () => {
 				return "observer-metacognitive";
 			},
 			messageAgent: async () => undefined,
+			deliverObserverFrame: recordObserverDelivery(spawnCalls),
 		} as any;
 		const fakeGenome = {
 			getAgent: (name: string) => {
@@ -2871,6 +2904,7 @@ describe("SessionController session-wide event wiring", () => {
 				return "observer-metacognitive";
 			},
 			messageAgent: async () => undefined,
+			deliverObserverFrame: recordObserverDelivery(spawnCalls),
 		} as any;
 		const fakeGenome = {
 			getAgent: (name: string) => {
@@ -2944,6 +2978,7 @@ describe("SessionController session-wide event wiring", () => {
 				return "observer-metacognitive";
 			},
 			messageAgent: async () => undefined,
+			deliverObserverFrame: recordObserverDelivery(spawnCalls),
 		} as any;
 		const fakeGenome = {
 			getAgent: (name: string) => {
@@ -3021,6 +3056,7 @@ describe("SessionController session-wide event wiring", () => {
 				return "observer-metacognitive";
 			},
 			messageAgent: async () => undefined,
+			deliverObserverFrame: recordObserverDelivery(spawnCalls),
 		} as any;
 		const fakeGenome = {
 			getAgent: (name: string) => {
@@ -3098,6 +3134,7 @@ describe("SessionController session-wide event wiring", () => {
 				return "observer-metacognitive";
 			},
 			messageAgent: async () => undefined,
+			deliverObserverFrame: recordObserverDelivery(spawnCalls),
 		} as any;
 		const fakeGenome = {
 			getAgent: (name: string) => {
@@ -3203,6 +3240,7 @@ describe("SessionController session-wide event wiring", () => {
 				return options.handleId ?? "observer";
 			},
 			messageAgent: async () => undefined,
+			deliverObserverFrame: recordObserverDelivery(spawnCalls),
 		} as any;
 		const fakeGenome = {
 			getAgent: (name: string) => {
@@ -3305,6 +3343,13 @@ describe("SessionController session-wide event wiring", () => {
 				messages.push(message);
 				return undefined;
 			},
+			deliverObserverFrame: async (options: { message: string; [key: string]: unknown }) => {
+				if (spawnCalls.length === 0) {
+					spawnCalls.push(observerDeliveryCall(options));
+					return;
+				}
+				messages.push(options.message);
+			},
 		} as any;
 		const fakeGenome = {
 			getAgent: (name: string) => {
@@ -3389,6 +3434,7 @@ describe("SessionController session-wide event wiring", () => {
 		const bus = new EventBus();
 		const messages: string[] = [];
 		let resolveSpawn: ((value: string) => void) | undefined;
+		let observerStarted = false;
 		const spawnPromise = new Promise<string>((resolve) => {
 			resolveSpawn = resolve;
 		});
@@ -3402,6 +3448,14 @@ describe("SessionController session-wide event wiring", () => {
 			messageAgent: async (_handleId: string, message: string) => {
 				messages.push(message);
 				return undefined;
+			},
+			deliverObserverFrame: async (options: { message: string }) => {
+				if (!observerStarted) {
+					await spawnPromise;
+					observerStarted = true;
+					return;
+				}
+				messages.push(options.message);
 			},
 		} as any;
 		const fakeGenome = {
@@ -3499,6 +3553,7 @@ describe("SessionController session-wide event wiring", () => {
 		const spawnGoals: string[] = [];
 		const messages: string[] = [];
 		let spawnAttempts = 0;
+		let observerStarted = false;
 		const fakeSpawner = {
 			getHandles: () => [],
 			subscribeSessionEvents: async () => {},
@@ -3516,6 +3571,18 @@ describe("SessionController session-wide event wiring", () => {
 			messageAgent: async (_handleId: string, message: string) => {
 				messages.push(message);
 				return undefined;
+			},
+			deliverObserverFrame: async (options: { message: string }) => {
+				if (!observerStarted) {
+					spawnGoals.push(options.message);
+					spawnAttempts++;
+					if (spawnAttempts === 1) {
+						throw new Error("transient observer spawn failure");
+					}
+					observerStarted = true;
+					return;
+				}
+				messages.push(options.message);
 			},
 		} as any;
 		const fakeGenome = {
@@ -3599,6 +3666,7 @@ describe("SessionController session-wide event wiring", () => {
 		const bus = new EventBus();
 		const spawnGoals: string[] = [];
 		const messages: string[] = [];
+		let observerStarted = false;
 		const fakeSpawner = {
 			getHandles: () => [],
 			subscribeSessionEvents: async () => {},
@@ -3615,6 +3683,17 @@ describe("SessionController session-wide event wiring", () => {
 			messageAgent: async (_handleId: string, message: string) => {
 				messages.push(message);
 				return undefined;
+			},
+			deliverObserverFrame: async (options: { message: string }) => {
+				if (!observerStarted) {
+					spawnGoals.push(options.message);
+					if (options.message.includes("child one final text")) {
+						throw new Error("persistent observer spawn failure");
+					}
+					observerStarted = true;
+					return;
+				}
+				messages.push(options.message);
 			},
 		} as any;
 		const fakeGenome = {

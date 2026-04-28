@@ -274,32 +274,24 @@ export class ObserverRegistry {
 		const handleId = this.observerHandleId(subscription.config);
 		if (!this.startedHandles.has(handleId)) {
 			this.emitObserverStart(subscription);
-			const result = await this.spawner.spawnAgent({
-				agentName: subscription.config.agentName,
-				goal: message,
-				genomePath: this.genomePath,
-				workDir: this.workDir,
-				projectDataDir: this.projectDataDir,
-				rootDir: this.rootDir,
-				caller: ROOT_CALLER,
-				shared: true,
-				blocking: false,
-				handleId,
-				agentId: this.observerAgentId(subscription.config),
-				evalMode: this.evalMode,
-				resolverSettings,
-				surfacedMemoryBlock: "",
-			});
-			if (typeof result !== "string") {
-				throw new Error(`Observer '${subscription.config.agentName}' did not return a handle id`);
-			}
-			this.startedHandles.add(handleId);
-			subscription.observerStarted = true;
-			return;
 		}
 
+		await this.spawner.deliverObserverFrame({
+			agentName: subscription.config.agentName,
+			message,
+			genomePath: this.genomePath,
+			workDir: this.workDir,
+			projectDataDir: this.projectDataDir,
+			rootDir: this.rootDir,
+			caller: ROOT_CALLER,
+			handleId,
+			agentId: this.observerAgentId(subscription.config),
+			evalMode: this.evalMode,
+			resolverSettings,
+			surfacedMemoryBlock: "",
+		});
+		this.startedHandles.add(handleId);
 		subscription.observerStarted = true;
-		await this.spawner.messageAgent(handleId, message, ROOT_CALLER, false);
 	}
 
 	private emitObserverStart(subscription: ObserverSubscriptionState): void {

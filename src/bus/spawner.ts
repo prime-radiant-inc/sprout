@@ -24,6 +24,12 @@ export interface SpawnAgentOptions {
 	hints?: string[];
 	blocking: boolean;
 	shared: boolean;
+	/** Keep the process alive after a result so it can receive follow-up continues. */
+	keepAlive?: boolean;
+	/** Whether ordinary non-owner agents may address this handle. */
+	visibility?: HandleVisibility;
+	/** Observer handles are ordinary agents but cannot use raw handle messaging. */
+	isObserver?: boolean;
 	workDir: string;
 	/** Pre-assigned handle ID. If omitted, a new ULID is generated. */
 	handleId?: string;
@@ -41,6 +47,23 @@ export interface SpawnAgentOptions {
 	/** Original user instruction, trusted for deterministic runtime policy gates. */
 	trustedUserInstruction?: string;
 	/** Precomputed memory context inherited from the root session. Empty string suppresses it. */
+	surfacedMemoryBlock?: string;
+}
+
+export type HandleVisibility = "private" | "shared";
+
+export interface DeliverObserverFrameOptions {
+	agentName: string;
+	genomePath: string;
+	projectDataDir?: string;
+	caller: AgentAddress;
+	message: string;
+	handleId: string;
+	agentId: string;
+	workDir: string;
+	rootDir?: string;
+	evalMode?: boolean;
+	resolverSettings?: ResolverSettings;
 	surfacedMemoryBlock?: string;
 }
 
@@ -67,7 +90,9 @@ export interface AgentHandle {
 	process: { kill: () => void; exited: Promise<number> };
 	status: "running" | "idle" | "completed";
 	result?: ResultMessage;
-	shared: boolean;
+	keepAlive: boolean;
+	visibility: HandleVisibility;
+	isObserver: boolean;
 	pendingWaiters: PendingWaiter[];
 	owner: AgentAddress;
 	/** Original spawn options needed for re-spawning completed agents */
@@ -129,6 +154,7 @@ export class AgentSpawner {
 	private readonly spawnFn: SpawnFn;
 	private readonly waitTimeoutMs: number;
 	private readonly handles = new Map<string, AgentHandle>();
+	private readonly observerDeliveryChains = new Map<string, Promise<void>>();
 	private sessionEventsCallback?: (event: EventMessage) => void;
 	private rootMessageCallback?: (message: AgentMessageMessage) => void;
 	private currentSessionEventsTopic?: string;
@@ -343,7 +369,7 @@ export class AgentSpawner {
 				const msg = parseBusMessage(payload);
 				if (msg.kind === "result") {
 					handle.result = msg;
-					handle.status = handle.shared ? "idle" : "completed";
+					handle.status = handle.keepAlive ? "idle" : "completed";
 					for (const waiter of handle.pendingWaiters) {
 						clearTimeout(waiter.timer);
 						waiter.resolve(msg);
@@ -365,11 +391,14 @@ export class AgentSpawner {
 	async spawnAgent(opts: SpawnAgentOptions): Promise<ResultMessage | string | DeferredSpawnResult> {
 		const handleId = opts.handleId ?? ulid();
 		const agentId = opts.agentId ?? handleId;
+		const visibility = opts.visibility ?? (opts.shared ? "shared" : "private");
+		const keepAlive = opts.keepAlive ?? opts.shared;
 		const self: AgentAddress = {
 			agentName: opts.agentName,
 			depth: opts.caller.depth + 1,
 			handleId,
 			agentId,
+			...(opts.isObserver ? { role: "observer" as const } : {}),
 		};
 
 		const env: Record<string, string> = {
@@ -391,7 +420,9 @@ export class AgentSpawner {
 			address: self,
 			process: proc,
 			status: "running",
-			shared: opts.shared,
+			keepAlive,
+			visibility,
+			isObserver: opts.isObserver === true,
 			pendingWaiters: [],
 			owner: opts.caller,
 			agentName: opts.agentName,
@@ -427,7 +458,7 @@ export class AgentSpawner {
 			caller: opts.caller,
 			goal: opts.goal,
 			hints: opts.hints,
-			shared: opts.shared,
+			shared: keepAlive,
 			eval_mode: opts.evalMode,
 			provider_id: opts.providerIdOverride,
 			resolver_settings: opts.resolverSettings,
@@ -488,10 +519,13 @@ export class AgentSpawner {
 		if (!handle) {
 			throw new Error(`Unknown handle: ${handleId}`);
 		}
+		if (caller?.role === "observer") {
+			throw new Error("observer agents cannot wait on raw handles");
+		}
 
 		if (
 			caller &&
-			!handle.shared &&
+			handle.visibility !== "shared" &&
 			(caller.handleId !== handle.owner.handleId || caller.agentId !== handle.owner.agentId)
 		) {
 			throw new Error(
@@ -570,6 +604,9 @@ export class AgentSpawner {
 			);
 			return undefined;
 		}
+		if (caller.role === "observer") {
+			throw new Error('observer agents can only use message_agent with handle "caller"');
+		}
 
 		const handle = this.handles.get(handleId);
 		if (!handle) {
@@ -577,7 +614,7 @@ export class AgentSpawner {
 		}
 
 		if (
-			!handle.shared &&
+			handle.visibility !== "shared" &&
 			(caller.handleId !== handle.owner.handleId || caller.agentId !== handle.owner.agentId)
 		) {
 			throw new Error(
@@ -651,7 +688,7 @@ export class AgentSpawner {
 			self: handle.address,
 			caller: handle.caller,
 			goal: message,
-			shared: handle.shared,
+			shared: handle.keepAlive,
 			eval_mode: handle.evalMode,
 			provider_id: handle.providerIdOverride,
 			resolver_settings: handle.resolverSettings,
@@ -664,6 +701,75 @@ export class AgentSpawner {
 			return this.waitAgent(handleId);
 		}
 		return Promise.resolve(undefined);
+	}
+
+	async deliverObserverFrame(opts: DeliverObserverFrameOptions): Promise<void> {
+		const previous = this.observerDeliveryChains.get(opts.handleId) ?? Promise.resolve();
+		const next = previous
+			.catch(() => {
+				// A failed frame must not permanently poison later observer delivery.
+			})
+			.then(() => this.deliverObserverFrameNow(opts));
+		this.observerDeliveryChains.set(opts.handleId, next);
+		try {
+			await next;
+		} finally {
+			if (this.observerDeliveryChains.get(opts.handleId) === next) {
+				this.observerDeliveryChains.delete(opts.handleId);
+			}
+		}
+	}
+
+	private async deliverObserverFrameNow(opts: DeliverObserverFrameOptions): Promise<void> {
+		const existing = this.handles.get(opts.handleId);
+		if (!existing) {
+			const result = await this.spawnAgent({
+				agentName: opts.agentName,
+				genomePath: opts.genomePath,
+				projectDataDir: opts.projectDataDir,
+				caller: opts.caller,
+				goal: opts.message,
+				blocking: true,
+				shared: false,
+				keepAlive: true,
+				visibility: "private",
+				isObserver: true,
+				workDir: opts.workDir,
+				handleId: opts.handleId,
+				agentId: opts.agentId,
+				rootDir: opts.rootDir,
+				evalMode: opts.evalMode,
+				resolverSettings: opts.resolverSettings,
+				surfacedMemoryBlock: opts.surfacedMemoryBlock,
+			});
+			if (typeof result === "string" || "continuedInBackground" in result) {
+				throw new Error(`Observer '${opts.agentName}' did not finish its frame turn`);
+			}
+			if (!result.success) {
+				throw new Error(result.output);
+			}
+			return;
+		}
+
+		if (!existing.isObserver) {
+			throw new Error(`Handle ${opts.handleId} is not an observer handle`);
+		}
+		if (
+			existing.owner.handleId !== opts.caller.handleId ||
+			existing.owner.agentId !== opts.caller.agentId
+		) {
+			throw new Error(
+				`Observer handle ${opts.handleId} is owned by '${existing.owner.agentName}', not '${opts.caller.agentName}'`,
+			);
+		}
+
+		const result = await this.messageAgent(opts.handleId, opts.message, opts.caller, true);
+		if (!result) {
+			throw new Error(`Observer '${opts.agentName}' did not return a frame result`);
+		}
+		if (!result.success) {
+			throw new Error(result.output);
+		}
 	}
 
 	/**
@@ -707,7 +813,9 @@ export class AgentSpawner {
 			process: { kill: () => {}, exited: Promise.resolve(0) },
 			status: "completed",
 			result,
-			shared: false,
+			keepAlive: false,
+			visibility: "private",
+			isObserver: false,
 			pendingWaiters: [],
 			owner: spawnInfo?.caller ?? {
 				agentName: ownerId,

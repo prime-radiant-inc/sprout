@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { createResolverSettings } from "../../src/agents/model-resolver.ts";
-import type { AgentSpawner, SpawnAgentOptions } from "../../src/bus/spawner.ts";
+import type {
+	AgentSpawner,
+	DeliverObserverFrameOptions,
+	SpawnAgentOptions,
+} from "../../src/bus/spawner.ts";
 import type { AgentAddress, ResultMessage } from "../../src/bus/types.ts";
 import { ObserverDispatcher } from "../../src/host/observer-dispatcher.ts";
 import type { EventKind, SessionEvent } from "../../src/kernel/types.ts";
@@ -38,12 +42,7 @@ function planEnd(index: number, overrides: Partial<SessionEvent> = {}): SessionE
 
 class FakeSpawner {
 	spawnCalls: SpawnAgentOptions[] = [];
-	messages: Array<{
-		handleId: string;
-		message: string;
-		caller: AgentAddress;
-		blocking: boolean;
-	}> = [];
+	deliveries: DeliverObserverFrameOptions[] = [];
 	spawnPromise: Promise<string | ResultMessage> | undefined;
 
 	async spawnAgent(opts: SpawnAgentOptions): Promise<string | ResultMessage> {
@@ -56,10 +55,44 @@ class FakeSpawner {
 		handleId: string,
 		message: string,
 		caller: AgentAddress,
-		blocking: boolean,
+		_blocking: boolean,
 	): Promise<ResultMessage | undefined> {
-		this.messages.push({ handleId, message, caller, blocking });
+		this.deliveries.push({
+			handleId,
+			message,
+			caller,
+			agentName: "metacognitive",
+			agentId: handleId,
+			genomePath: "/tmp/genome",
+			workDir: "/tmp/work",
+		});
 		return undefined;
+	}
+
+	async deliverObserverFrame(opts: DeliverObserverFrameOptions): Promise<void> {
+		this.deliveries.push(opts);
+		if (this.spawnPromise) await this.spawnPromise;
+		if (!this.spawnCalls.some((call) => call.handleId === opts.handleId)) {
+			this.spawnCalls.push({
+				agentName: opts.agentName,
+				genomePath: opts.genomePath,
+				projectDataDir: opts.projectDataDir,
+				caller: opts.caller,
+				goal: opts.message,
+				blocking: true,
+				shared: false,
+				keepAlive: true,
+				visibility: "private",
+				isObserver: true,
+				workDir: opts.workDir,
+				rootDir: opts.rootDir,
+				handleId: opts.handleId,
+				agentId: opts.agentId,
+				evalMode: opts.evalMode,
+				resolverSettings: opts.resolverSettings,
+				surfacedMemoryBlock: opts.surfacedMemoryBlock,
+			});
+		}
 	}
 }
 
@@ -102,8 +135,11 @@ describe("ObserverDispatcher", () => {
 			agentName: "metacognitive",
 			handleId: "observer-metacognitive",
 			agentId: "observer-metacognitive",
-			shared: true,
-			blocking: false,
+			shared: false,
+			keepAlive: true,
+			visibility: "private",
+			isObserver: true,
+			blocking: true,
 			surfacedMemoryBlock: "",
 		});
 		expect(spawner.spawnCalls[0]!.goal).toContain("<sprout:observer-frame>");
@@ -137,27 +173,26 @@ describe("ObserverDispatcher", () => {
 		);
 	});
 
-	test("sends later frames to the shared observer handle without redelivering prior events", async () => {
+	test("sends later frames through the private observer delivery path", async () => {
 		const spawner = new FakeSpawner();
 		const { dispatcher } = makeDispatcher(spawner);
 
 		dispatcher.handleEvent(planEnd(1));
 		dispatcher.handleEvent(planEnd(2));
 		dispatcher.handleEvent(planEnd(3));
-		await waitFor(() => spawner.spawnCalls.length === 1);
+		await waitFor(() => spawner.deliveries.length === 1);
 
 		dispatcher.handleEvent(planEnd(4));
 		dispatcher.handleEvent(planEnd(5));
 		dispatcher.handleEvent(planEnd(6));
-		await waitFor(() => spawner.messages.length === 1);
+		await waitFor(() => spawner.deliveries.length === 2);
 
-		expect(spawner.messages[0]).toMatchObject({
+		expect(spawner.deliveries[1]).toMatchObject({
 			handleId: "observer-metacognitive",
 			caller: addr("root", 0),
-			blocking: false,
 		});
-		expect(spawner.messages[0]!.message).toContain("root plan 6");
-		expect(spawner.messages[0]!.message).not.toContain("root plan 1");
+		expect(spawner.deliveries[1]!.message).toContain("root plan 6");
+		expect(spawner.deliveries[1]!.message).not.toContain("root plan 1");
 	});
 
 	test("coalesces triggers while observer delivery is busy", async () => {
@@ -171,16 +206,16 @@ describe("ObserverDispatcher", () => {
 		dispatcher.handleEvent(planEnd(1));
 		dispatcher.handleEvent(planEnd(2));
 		dispatcher.handleEvent(planEnd(3));
-		await waitFor(() => spawner.spawnCalls.length === 1);
+		await waitFor(() => spawner.deliveries.length === 1);
 
 		dispatcher.handleEvent(planEnd(4));
 		dispatcher.handleEvent(planEnd(5));
 		dispatcher.handleEvent(planEnd(6));
-		expect(spawner.messages).toHaveLength(0);
+		expect(spawner.deliveries).toHaveLength(1);
 
 		resolveSpawn("observer-metacognitive");
-		await waitFor(() => spawner.messages.length === 1);
-		expect(spawner.messages[0]!.message).toContain("root plan 6");
+		await waitFor(() => spawner.deliveries.length === 2);
+		expect(spawner.deliveries[1]!.message).toContain("root plan 6");
 	});
 
 	test("reset drops pending events and restarts the trigger count", async () => {
