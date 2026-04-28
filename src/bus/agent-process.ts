@@ -168,13 +168,13 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 		}
 		const runtimeGenome = evalMode ? createReadOnlyGenome(genome) : genome;
 
-		const loadedSpec = runtimeGenome.getAgent(startMsg.agent_name);
+		const loadedSpec = runtimeGenome.getAgent(startMsg.self.agentName);
 		if (!loadedSpec) {
 			// Publish error result and exit
 			const errorResult: ResultMessage = {
 				kind: "result",
 				handle_id: handleId,
-				output: `Agent '${startMsg.agent_name}' not found in genome`,
+				output: `Agent '${startMsg.self.agentName}' not found in genome`,
 				success: false,
 				stumbles: 0,
 				turns: 0,
@@ -193,14 +193,14 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 		// Wire up the agent
 		const env = new LocalExecutionEnvironment(workDir);
 		const writeAuthorization = deriveTrustedMemoryWriteAuthorization({
-			agentName: startMsg.agent_name,
+			agentName: startMsg.self.agentName,
 			userInstruction: startMsg.trusted_user_instruction,
 		});
 		const registry = createPrimitiveRegistry(
 			env,
 			{
 				genome: runtimeGenome,
-				agentName: startMsg.agent_name,
+				agentName: startMsg.self.agentName,
 				sessionId,
 				...(writeAuthorization ? { writeAuthorization } : {}),
 			},
@@ -217,11 +217,11 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 		// Check for a prior log — if this handle ran before, replay its history
 		const priorLogPath = `${logBasePath}.jsonl`;
 		const initialHistory = await replayHandleLog(priorLogPath);
-		const currentAgentDepth = startMsg.caller.depth + 1;
+		const currentAgentDepth = startMsg.self.depth;
 		const resumedCompletedHandles = await loadCompletedChildHandles({
 			logPath: priorLogPath,
 			handleLogDir: join(dataDir, "logs", sessionId),
-			ownerId: startMsg.agent_name,
+			ownerId: startMsg.self.agentName,
 		});
 
 		// Forward agent events to the bus (best-effort; ignore if disconnected).
@@ -244,10 +244,10 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 		// Create a spawner so this agent can delegate to other agents via the bus
 		childSpawner = new AgentSpawner(bus, busUrl, sessionId);
 		for (const { handleId, result, agentName, agentId } of resumedCompletedHandles) {
-			childSpawner.registerCompletedHandle(handleId, result, startMsg.agent_name, {
+			childSpawner.registerCompletedHandle(handleId, result, startMsg.self.agentName, {
 				agentName,
 				genomePath,
-				caller: { agent_name: startMsg.agent_name, depth: currentAgentDepth },
+				caller: startMsg.self,
 				workDir,
 				agentId,
 				evalMode,
@@ -302,7 +302,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 			projectDataDir: config.projectDataDir,
 			learnProcess,
 			initialHistory: initialHistory.length > 0 ? initialHistory : undefined,
-			agentId: startMsg.agent_id,
+			agentId: startMsg.self.agentId,
 			evalMode,
 			providerIdOverride: startMsg.provider_id,
 			resolverSettings: startMsg.resolver_settings,
@@ -314,6 +314,8 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 			enableStreaming: true,
 			surfacedMemoryBlock: startMsg.surfaced_memory_block,
 			trustedUserInstruction: startMsg.trusted_user_instruction,
+			self: startMsg.self,
+			caller: startMsg.caller,
 		});
 
 		// Build goal with hints
@@ -334,7 +336,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 					if (msg.kind === "steer") {
 						agent.steer(msg.message, msg.trusted_user_instruction);
 					} else if (msg.kind === "agent_message") {
-						agent.receiveAgentMessage(msg.message, msg.caller);
+						agent.receiveAgentMessage(msg.message, msg.from);
 					}
 				} catch {
 					// Ignore malformed messages
@@ -524,7 +526,7 @@ async function idleLoop(
 
 			if (msg.kind === "agent_message") {
 				const agentMessage = msg as AgentMessageMessage;
-				agent.receiveAgentMessage(agentMessage.message, agentMessage.caller);
+				agent.receiveAgentMessage(agentMessage.message, agentMessage.from);
 				return;
 			}
 

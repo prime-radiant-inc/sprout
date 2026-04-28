@@ -1,7 +1,7 @@
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { AgentSpawner } from "../bus/spawner.ts";
-import type { CallerIdentity, ResultMessage } from "../bus/types.ts";
+import type { AgentAddress, ResultMessage } from "../bus/types.ts";
 import { compactHistory } from "../core/compaction.ts";
 import type { Logger } from "../core/logger.ts";
 import { NullLogger } from "../core/logger.ts";
@@ -116,6 +116,10 @@ export interface AgentOptions {
 	evalMode?: boolean;
 	/** Override the agent_id used for event emission (used by parent to assign unique child IDs). */
 	agentId?: string;
+	/** Trusted runtime address for this agent handle. */
+	self?: AgentAddress;
+	/** Trusted runtime address for this agent's caller. */
+	caller?: AgentAddress;
 	/** Pre-fetched model map for tier resolution. */
 	modelsByProvider?: Map<string, ProviderModel[]>;
 	/** Structured logger for LLM call logging and diagnostics. */
@@ -172,6 +176,8 @@ export class Agent {
 	private readonly projectDataDir?: string;
 	private readonly evalMode: boolean;
 	private readonly agentId?: string;
+	private readonly selfAddress: AgentAddress;
+	private readonly callerAddress: AgentAddress;
 	private readonly initialHistory?: Message[];
 	private readonly rootDir?: string;
 	private readonly agentTree?: Map<string, AgentTreeEntry>;
@@ -192,7 +198,7 @@ export class Agent {
 	private signal?: AbortSignal;
 	private logWriteChain: Promise<void> = Promise.resolve();
 	private steeringQueue: Array<{ text: string; trustedUserInstruction?: string }> = [];
-	private agentMessageQueue: Array<{ from: CallerIdentity; text: string }> = [];
+	private agentMessageQueue: Array<{ from: AgentAddress; text: string }> = [];
 	private readonly callerPrimitivePrimitives: Primitive[] = [];
 	private workspaceToolPrimitives: Primitive[] = [];
 	private workspaceToolDefinitions: ToolDefinition[] = [];
@@ -225,6 +231,16 @@ export class Agent {
 		this.projectDataDir = options.projectDataDir;
 		this.evalMode = options.evalMode === true;
 		this.agentId = options.agentId;
+		this.selfAddress =
+			options.self ??
+			buildAgentAddress({
+				agentName: this.spec.name,
+				depth: this.depth,
+				handleId: this.depth === 0 ? "root" : (options.agentId ?? this.spec.name),
+				agentId: options.agentId ?? (this.depth === 0 ? "root" : this.spec.name),
+				isObserver: this.spec.tags.includes("observer"),
+			});
+		this.callerAddress = options.caller ?? this.selfAddress;
 		this.rootDir = options.rootDir;
 		this.agentTree = options.agentTree;
 		this.agentTreeChildren = options.agentTreeChildren;
@@ -477,23 +493,17 @@ export class Agent {
 	}
 
 	/** Queue agent-originated guidance for the next planning turn without treating it as user input. */
-	receiveAgentMessage(text: string, from: CallerIdentity): void {
+	receiveAgentMessage(text: string, from: AgentAddress): void {
 		this.agentMessageQueue.push({ from, text });
 		this.emitAndLog("agent_message", this.agentId ?? this.spec.name, this.depth, {
-			from_agent_name: from.agent_name,
-			from_depth: from.depth,
-			...(from.role ? { from_role: from.role } : {}),
-			to_agent_name: this.spec.name,
-			text_preview: truncateAgentMessagePreview(text),
+			from,
+			to: this.selfAddress,
+			textPreview: truncateAgentMessagePreview(text),
 		});
 	}
 
-	private callerIdentity(): CallerIdentity {
-		return {
-			agent_name: this.spec.name,
-			depth: this.depth,
-			...(this.spec.tags.includes("observer") ? { role: "observer" as const } : {}),
-		};
+	private callerIdentity(): AgentAddress {
+		return this.selfAddress;
 	}
 
 	/** Request compaction on the next iteration (for manual /compact command). */
@@ -546,14 +556,12 @@ export class Agent {
 			"If you reject an action-oriented message, briefly state why before taking your next action.",
 		].join("\n");
 		const entries = queued
-			.map(
-				(message) => {
-					const role = message.from.role ? ` role="${escapeXml(message.from.role)}"` : "";
-					return `<message from="${escapeXml(message.from.agent_name)}"${role}>\n${escapeXml(
-						message.text,
-					)}\n</message>`;
-				},
-			)
+			.map((message) => {
+				const role = message.from.role ? ` role="${escapeXml(message.from.role)}"` : "";
+				return `<message from="${escapeXml(message.from.agentName)}"${role}>\n${escapeXml(
+					message.text,
+				)}\n</message>`;
+			})
 			.join("\n");
 		return `\n\n<IMPORTANT>\n<sprout:agent-messages>\n${guidance}\n${entries}\n</sprout:agent-messages>\n</IMPORTANT>`;
 	}
@@ -930,6 +938,14 @@ export class Agent {
 				resolverSettings: this.resolverSettings,
 				evalMode: this.evalMode,
 				agentId: childId,
+				self: buildAgentAddress({
+					agentName: subagentSpec.name,
+					depth: this.depth + 1,
+					handleId: childId,
+					agentId: childId,
+					isObserver: subagentSpec.tags.includes("observer"),
+				}),
+				caller: this.selfAddress,
 				logger: this.logger,
 				rootDir: this.rootDir,
 				agentTree: this.agentTree,
@@ -1281,6 +1297,7 @@ export class Agent {
 				caller,
 				blocking,
 				this.trustedUserInstruction,
+				this.callerAddress,
 			);
 
 			if (!blocking || !result) {
@@ -2048,6 +2065,22 @@ function truncateAgentMessagePreview(text: string): string {
 	const normalized = text.trim().replace(/\s+/g, " ");
 	if (normalized.length <= 160) return normalized;
 	return `${normalized.slice(0, 157)}...`;
+}
+
+function buildAgentAddress(options: {
+	agentName: string;
+	depth: number;
+	handleId: string;
+	agentId: string;
+	isObserver: boolean;
+}): AgentAddress {
+	return {
+		agentName: options.agentName,
+		depth: options.depth,
+		handleId: options.handleId,
+		agentId: options.agentId,
+		...(options.isObserver ? { role: "observer" as const } : {}),
+	};
 }
 
 function escapeXml(value: string): string {

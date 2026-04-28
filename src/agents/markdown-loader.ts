@@ -6,11 +6,11 @@ import {
 	type AgentSubcorticalRecallConfig,
 	EVENT_KINDS,
 	type EventKind,
+	normalizeAgentConstraints,
 	type ObserverCommentPolicyConfig,
 	type ObserverCommentRecipient,
 	type ObserverDeliveryConfig,
 	type ObserverTargetConfig,
-	normalizeAgentConstraints,
 } from "../kernel/types.ts";
 import { parseAgentModelInput } from "../shared/session-selection.ts";
 
@@ -147,11 +147,7 @@ function normalizeObserverConfigs(raw: unknown, source: string): AgentObserverCo
 	return raw.map((entry, index) => normalizeObserverConfig(entry, source, `observers[${index}]`));
 }
 
-function normalizeObserverConfig(
-	raw: unknown,
-	source: string,
-	path: string,
-): AgentObserverConfig {
+function normalizeObserverConfig(raw: unknown, source: string, path: string): AgentObserverConfig {
 	const config = requireRecord(raw, source, path);
 	requireKnownKeys(config, source, path, [
 		"agent",
@@ -177,9 +173,7 @@ function normalizeDelegateObserverConfigs(
 	source: string,
 ): AgentDelegateObserverConfig[] {
 	if (!Array.isArray(raw)) {
-		throw new Error(
-			`Invalid agent markdown at ${source}: 'observe_delegates' must be an array`,
-		);
+		throw new Error(`Invalid agent markdown at ${source}: 'observe_delegates' must be an array`);
 	}
 	return raw.map((entry, index) =>
 		normalizeDelegateObserverConfig(entry, source, `observe_delegates[${index}]`),
@@ -202,9 +196,7 @@ function normalizeDelegateObserverConfig(
 	}
 	const events = normalizeEventKinds(config.events, source, `${path}.events`);
 	if (!events.includes("act_end")) {
-		throw new Error(
-			`Invalid agent markdown at ${source}: '${path}.events' must include act_end`,
-		);
+		throw new Error(`Invalid agent markdown at ${source}: '${path}.events' must include act_end`);
 	}
 	const delivery = normalizeObserverDelivery(config.delivery, source, `${path}.delivery`);
 	const comments = normalizeObserverComments(config.comments, source, `${path}.comments`);
@@ -219,11 +211,7 @@ function normalizeObserverAgentName(raw: unknown, source: string, path: string):
 	return raw.trim();
 }
 
-function normalizeObserverTarget(
-	raw: unknown,
-	source: string,
-	path: string,
-): ObserverTargetConfig {
+function normalizeObserverTarget(raw: unknown, source: string, path: string): ObserverTargetConfig {
 	if (typeof raw !== "string" || !OBSERVER_TARGETS.has(raw as ObserverTargetConfig)) {
 		throw new Error(`Invalid agent markdown at ${source}: '${path}' must be root or session`);
 	}
@@ -277,10 +265,18 @@ function normalizeObserverDelivery(
 	requireKnownKeys(delivery, source, path, ["max_events", "max_chars"]);
 	const normalized: ObserverDeliveryConfig = {};
 	if (delivery.max_events !== undefined) {
-		normalized.max_events = normalizePositiveInteger(delivery.max_events, source, `${path}.max_events`);
+		normalized.max_events = normalizePositiveInteger(
+			delivery.max_events,
+			source,
+			`${path}.max_events`,
+		);
 	}
 	if (delivery.max_chars !== undefined) {
-		normalized.max_chars = normalizePositiveInteger(delivery.max_chars, source, `${path}.max_chars`);
+		normalized.max_chars = normalizePositiveInteger(
+			delivery.max_chars,
+			source,
+			`${path}.max_chars`,
+		);
 	}
 	return normalized;
 }
@@ -325,7 +321,10 @@ function normalizeCommentRecipient(
 	source: string,
 	path: string,
 ): ObserverCommentRecipient {
-	if (typeof raw !== "string" || !OBSERVER_COMMENT_RECIPIENTS.has(raw as ObserverCommentRecipient)) {
+	if (
+		typeof raw !== "string" ||
+		!OBSERVER_COMMENT_RECIPIENTS.has(raw as ObserverCommentRecipient)
+	) {
 		throw new Error(`Invalid agent markdown at ${source}: '${path}' must be root or caller`);
 	}
 	return raw as ObserverCommentRecipient;

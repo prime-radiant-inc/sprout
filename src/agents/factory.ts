@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import type { AgentSpawner } from "../bus/spawner.ts";
+import { rootAgentAddress } from "../bus/types.ts";
 import { DEV_MODE_POSTSCRIPT, DEV_MODE_SENTINEL, isDevMode } from "../genome/dev-mode.ts";
 import { Genome, git } from "../genome/genome.ts";
 import { ensureMemoryIndexFresh } from "../genome/index-builder.ts";
@@ -244,6 +245,8 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 		genomePath: options.genomePath,
 		projectDataDir: options.projectDataDir,
 		agentId: "root",
+		self: rootAgentAddress(),
+		caller: rootAgentAddress(),
 		logger: options.logger,
 		evalMode: options.evalMode,
 		rootDir: options.rootDir,

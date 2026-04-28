@@ -1,4 +1,4 @@
-import type { CallerIdentity } from "../bus/types.ts";
+import type { AgentAddress } from "../bus/types.ts";
 import type { AgentFileInfo, AgentToolDefinition } from "../genome/genome.ts";
 import { renderMemories, renderRoutingHints } from "../genome/recall.ts";
 import type {
@@ -528,6 +528,6 @@ export function renderToolBoundaries(
 }
 
 /** Render caller identity as an XML block for injection into a sub-agent's system prompt. */
-export function renderCallerIdentity(caller: CallerIdentity): string {
-	return `\n\n<caller>\nAgent: ${caller.agent_name}\nDepth: ${caller.depth}\n</caller>`;
+export function renderCallerIdentity(caller: AgentAddress): string {
+	return `\n\n<caller>\nAgent: ${caller.agentName}\nDepth: ${caller.depth}\nHandle: ${caller.handleId}\n</caller>`;
 }

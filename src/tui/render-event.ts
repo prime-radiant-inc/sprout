@@ -36,6 +36,12 @@ export function formatDuration(durationMs: number | null): string | null {
 	return `${(durationMs / 1000).toFixed(1)}s`;
 }
 
+function agentAddressName(value: unknown): string {
+	if (!value || typeof value !== "object") return "agent";
+	const name = (value as { agentName?: unknown }).agentName;
+	return typeof name === "string" ? name : "agent";
+}
+
 /**
  * Render a SessionEvent as a terminal-friendly plain string.
  * Used by the one-shot CLI mode (--prompt). The TUI uses renderEventComponent instead.
@@ -144,7 +150,7 @@ export function renderEvent(event: SessionEvent): string | null {
 			return `${ind}\u276F ${data.text}`;
 
 		case "agent_message":
-			return `${ind}\u25C7 ${data.from_agent_name ?? "agent"} -> ${data.to_agent_name ?? "agent"}: ${data.text_preview ?? ""}`;
+			return `${ind}\u25C7 ${agentAddressName(data.from)} -> ${agentAddressName(data.to)}: ${data.textPreview ?? ""}`;
 
 		case "perceive":
 			return `${ind}\u276F ${data.goal}`;

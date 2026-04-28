@@ -4,8 +4,8 @@ import { ulid } from "../util/ulid.ts";
 import type { BusClient } from "./client.ts";
 import { agentInbox, agentReady, agentResult, sessionEvents } from "./topics.ts";
 import type {
+	AgentAddress,
 	AgentMessageMessage,
-	CallerIdentity,
 	ContinueMessage,
 	EventMessage,
 	ResultMessage,
@@ -19,7 +19,7 @@ export interface SpawnAgentOptions {
 	genomePath: string;
 	/** Per-project data directory (sessions, logs, memory). */
 	projectDataDir?: string;
-	caller: CallerIdentity;
+	caller: AgentAddress;
 	goal: string;
 	hints?: string[];
 	blocking: boolean;
@@ -63,17 +63,17 @@ export interface AgentHandle {
 	handleId: string;
 	/** Stable event identity for this handle across respawns. */
 	agentId: string;
+	address: AgentAddress;
 	process: { kill: () => void; exited: Promise<number> };
 	status: "running" | "idle" | "completed";
 	result?: ResultMessage;
 	shared: boolean;
 	pendingWaiters: PendingWaiter[];
-	/** agent_name of the parent who spawned this handle */
-	ownerId: string;
+	owner: AgentAddress;
 	/** Original spawn options needed for re-spawning completed agents */
 	agentName: string;
 	genomePath: string;
-	caller: CallerIdentity;
+	caller: AgentAddress;
 	workDir: string;
 	rootDir?: string;
 	projectDataDir?: string;
@@ -365,6 +365,12 @@ export class AgentSpawner {
 	async spawnAgent(opts: SpawnAgentOptions): Promise<ResultMessage | string | DeferredSpawnResult> {
 		const handleId = opts.handleId ?? ulid();
 		const agentId = opts.agentId ?? handleId;
+		const self: AgentAddress = {
+			agentName: opts.agentName,
+			depth: opts.caller.depth + 1,
+			handleId,
+			agentId,
+		};
 
 		const env: Record<string, string> = {
 			SPROUT_BUS_URL: this.busUrl,
@@ -382,11 +388,12 @@ export class AgentSpawner {
 		const handle: AgentHandle = {
 			handleId,
 			agentId,
+			address: self,
 			process: proc,
 			status: "running",
 			shared: opts.shared,
 			pendingWaiters: [],
-			ownerId: opts.caller.agent_name,
+			owner: opts.caller,
 			agentName: opts.agentName,
 			genomePath: opts.genomePath,
 			caller: opts.caller,
@@ -414,14 +421,13 @@ export class AgentSpawner {
 		const startMsg: StartMessage = {
 			kind: "start",
 			handle_id: handleId,
-			agent_name: opts.agentName,
 			genome_path: opts.genomePath,
 			session_id: this.sessionId,
+			self,
 			caller: opts.caller,
 			goal: opts.goal,
 			hints: opts.hints,
 			shared: opts.shared,
-			agent_id: agentId,
 			eval_mode: opts.evalMode,
 			provider_id: opts.providerIdOverride,
 			resolver_settings: opts.resolverSettings,
@@ -477,14 +483,20 @@ export class AgentSpawner {
 	 * non-shared handles reject callers other than the owner.
 	 * Internal calls (e.g. the blocking path in spawnAgent) omit caller to skip the check.
 	 */
-	waitAgent(handleId: string, caller?: CallerIdentity): Promise<ResultMessage> {
+	waitAgent(handleId: string, caller?: AgentAddress): Promise<ResultMessage> {
 		const handle = this.handles.get(handleId);
 		if (!handle) {
 			throw new Error(`Unknown handle: ${handleId}`);
 		}
 
-		if (caller && !handle.shared && caller.agent_name !== handle.ownerId) {
-			throw new Error(`Handle ${handleId} is not shared — only '${handle.ownerId}' can access it`);
+		if (
+			caller &&
+			!handle.shared &&
+			(caller.handleId !== handle.owner.handleId || caller.agentId !== handle.owner.agentId)
+		) {
+			throw new Error(
+				`Handle ${handleId} is not shared — only '${handle.owner.agentName}' can access it`,
+			);
 		}
 
 		if (handle.result) {
@@ -517,20 +529,45 @@ export class AgentSpawner {
 	async messageAgent(
 		handleId: string,
 		message: string,
-		caller: CallerIdentity,
+		caller: AgentAddress,
 		blocking: boolean,
 		trustedUserInstruction?: string,
+		callerTarget?: AgentAddress,
 	): Promise<ResultMessage | undefined> {
 		if (handleId === "root") {
+			if (caller.handleId !== "root") {
+				throw new Error('raw message_agent to root is only valid from root; use handle "caller"');
+			}
 			if (blocking) {
 				throw new Error("message_agent to root requires blocking=false");
 			}
 			const rootMsg: AgentMessageMessage = {
 				kind: "agent_message",
 				message,
-				caller,
+				from: caller,
+				to: caller,
 			};
 			await this.bus.publish(agentInbox(this.sessionId, "root"), JSON.stringify(rootMsg));
+			return undefined;
+		}
+
+		if (handleId === "caller") {
+			if (blocking) {
+				throw new Error("message_agent to caller requires blocking=false");
+			}
+			if (!callerTarget) {
+				throw new Error('message_agent handle "caller" requires a runtime caller address');
+			}
+			const callerMsg: AgentMessageMessage = {
+				kind: "agent_message",
+				message,
+				from: caller,
+				to: callerTarget,
+			};
+			await this.bus.publish(
+				agentInbox(this.sessionId, callerTarget.handleId),
+				JSON.stringify(callerMsg),
+			);
 			return undefined;
 		}
 
@@ -539,8 +576,13 @@ export class AgentSpawner {
 			throw new Error(`Unknown handle: ${handleId}`);
 		}
 
-		if (!handle.shared && caller.agent_name !== handle.ownerId) {
-			throw new Error(`Handle ${handleId} is not shared — only '${handle.ownerId}' can access it`);
+		if (
+			!handle.shared &&
+			(caller.handleId !== handle.owner.handleId || caller.agentId !== handle.owner.agentId)
+		) {
+			throw new Error(
+				`Handle ${handleId} is not shared — only '${handle.owner.agentName}' can access it`,
+			);
 		}
 
 		const inboxTopic = agentInbox(this.sessionId, handleId);
@@ -552,7 +594,8 @@ export class AgentSpawner {
 			const agentMsg: AgentMessageMessage = {
 				kind: "agent_message",
 				message,
-				caller,
+				from: caller,
+				to: handle.address,
 			};
 
 			await this.bus.publish(inboxTopic, JSON.stringify(agentMsg));
@@ -603,13 +646,12 @@ export class AgentSpawner {
 		const startMsg: StartMessage = {
 			kind: "start",
 			handle_id: handleId,
-			agent_name: handle.agentName,
 			genome_path: handle.genomePath,
 			session_id: this.sessionId,
+			self: handle.address,
 			caller: handle.caller,
 			goal: message,
 			shared: handle.shared,
-			agent_id: handle.agentId,
 			eval_mode: handle.evalMode,
 			provider_id: handle.providerIdOverride,
 			resolver_settings: handle.resolverSettings,
@@ -636,7 +678,7 @@ export class AgentSpawner {
 		spawnInfo?: {
 			agentName: string;
 			genomePath: string;
-			caller: CallerIdentity;
+			caller: AgentAddress;
 			workDir: string;
 			agentId?: string;
 			evalMode?: boolean;
@@ -656,15 +698,33 @@ export class AgentSpawner {
 		const handle: AgentHandle = {
 			handleId,
 			agentId: spawnInfo?.agentId ?? handleId,
+			address: {
+				agentName: spawnInfo?.agentName ?? "",
+				depth: (spawnInfo?.caller.depth ?? 0) + 1,
+				handleId,
+				agentId: spawnInfo?.agentId ?? handleId,
+			},
 			process: { kill: () => {}, exited: Promise.resolve(0) },
 			status: "completed",
 			result,
 			shared: false,
 			pendingWaiters: [],
-			ownerId,
+			owner: spawnInfo?.caller ?? {
+				agentName: ownerId,
+				depth: 0,
+				handleId: ownerId,
+				agentId: ownerId,
+			},
 			agentName: spawnInfo?.agentName ?? "",
 			genomePath: spawnInfo?.genomePath ?? "",
-			caller: spawnInfo?.caller ?? { agent_name: ownerId, depth: 0 },
+			caller:
+				spawnInfo?.caller ??
+				({
+					agentName: ownerId,
+					depth: 0,
+					handleId: ownerId,
+					agentId: ownerId,
+				} satisfies AgentAddress),
 			workDir: spawnInfo?.workDir ?? "",
 			rootDir: spawnInfo?.rootDir,
 			projectDataDir: spawnInfo?.projectDataDir,

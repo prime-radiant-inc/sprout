@@ -28,6 +28,7 @@ import type { SproutSettings } from "../../src/host/settings/types.ts";
 import type { Client } from "../../src/llm/client.ts";
 import type { Request, Response } from "../../src/llm/types.ts";
 import { ContentKind, Msg } from "../../src/llm/types.ts";
+import { addr } from "../helpers/agent-address.ts";
 import { waitFor } from "../helpers/wait-for.ts";
 
 // Minimal agent spec for testing -- leaf agent with no delegation
@@ -255,13 +256,12 @@ describe("runAgentProcess", () => {
 		const startMsg: StartMessage = {
 			kind: "start",
 			handle_id: HANDLE_ID,
-			agent_name: "test-leaf",
+			self: addr("test-leaf", 1, undefined, HANDLE_ID),
 			genome_path: genomeDir,
 			session_id: SESSION_ID,
-			caller: { agent_name: "root", depth: 0 },
+			caller: addr("root", 0),
 			goal: "Say hello",
 			shared: false,
-			agent_id: HANDLE_ID,
 		};
 		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
 
@@ -302,13 +302,12 @@ describe("runAgentProcess", () => {
 		const startMsg: StartMessage = {
 			kind: "start",
 			handle_id: HANDLE_ID,
-			agent_name: "test-leaf",
+			self: addr("test-leaf", 1, undefined, HANDLE_ID),
 			genome_path: genomeDir,
 			session_id: SESSION_ID,
-			caller: { agent_name: "root", depth: 0 },
+			caller: addr("root", 0),
 			goal: "Run in eval mode",
 			shared: false,
-			agent_id: HANDLE_ID,
 			eval_mode: true,
 		};
 		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
@@ -377,13 +376,12 @@ describe("runAgentProcess", () => {
 		const startMsg: StartMessage = {
 			kind: "start",
 			handle_id: HANDLE_ID,
-			agent_name: "test-learner",
+			self: addr("test-learner", 1, undefined, HANDLE_ID),
 			genome_path: genomeDir,
 			session_id: SESSION_ID,
-			caller: { agent_name: "root", depth: 0 },
+			caller: addr("root", 0),
 			goal: "Try to read a missing file",
 			shared: false,
-			agent_id: HANDLE_ID,
 			eval_mode: true,
 		};
 		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
@@ -456,13 +454,12 @@ describe("runAgentProcess", () => {
 		const startMsg: StartMessage = {
 			kind: "start",
 			handle_id: HANDLE_ID,
-			agent_name: "test-learner",
+			self: addr("test-learner", 1, undefined, HANDLE_ID),
 			genome_path: genomeDir,
 			session_id: SESSION_ID,
-			caller: { agent_name: "root", depth: 0 },
+			caller: addr("root", 0),
 			goal: "Try to read a missing file",
 			shared: false,
-			agent_id: HANDLE_ID,
 		};
 		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
 
@@ -638,13 +635,12 @@ describe("runAgentProcess", () => {
 		const startMsg: StartMessage = {
 			kind: "start",
 			handle_id: HANDLE_ID,
-			agent_name: "test-leaf",
+			self: addr("test-leaf", 1, undefined, HANDLE_ID),
 			genome_path: genomeDir,
 			session_id: SESSION_ID,
-			caller: { agent_name: "root", depth: 0 },
+			caller: addr("root", 0),
 			goal: "Do something",
 			shared: false,
-			agent_id: HANDLE_ID,
 		};
 		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
 
@@ -692,13 +688,12 @@ describe("runAgentProcess", () => {
 		const startMsg: StartMessage = {
 			kind: "start",
 			handle_id: HANDLE_ID,
-			agent_name: "test-leaf",
+			self: addr("test-leaf", 1, undefined, HANDLE_ID),
 			genome_path: genomeDir,
 			session_id: SESSION_ID,
-			caller: { agent_name: "root", depth: 0 },
+			caller: addr("root", 0),
 			goal: "Do something",
 			shared: false,
-			agent_id: HANDLE_ID,
 		};
 		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
 
@@ -747,13 +742,12 @@ describe("runAgentProcess", () => {
 		const startMsg: StartMessage = {
 			kind: "start",
 			handle_id: HANDLE_ID,
-			agent_name: "test-leaf",
+			self: addr("test-leaf", 1, undefined, HANDLE_ID),
 			genome_path: genomeDir,
 			session_id: SESSION_ID,
-			caller: { agent_name: "root", depth: 0 },
+			caller: addr("root", 0),
 			goal: "Session-wide test",
 			shared: false,
-			agent_id: HANDLE_ID,
 		};
 		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
 
@@ -819,13 +813,12 @@ describe("runAgentProcess", () => {
 		const startMsg: StartMessage = {
 			kind: "start",
 			handle_id: HANDLE_ID,
-			agent_name: "test-leaf",
+			self: addr("test-leaf", 1, undefined, HANDLE_ID),
 			genome_path: genomeDir,
 			session_id: SESSION_ID,
-			caller: { agent_name: "root", depth: 0 },
+			caller: addr("root", 0),
 			goal: "First task",
 			shared: true,
-			agent_id: HANDLE_ID,
 		};
 		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
 
@@ -837,7 +830,7 @@ describe("runAgentProcess", () => {
 		const continueMsg = {
 			kind: "continue",
 			message: "Now do the second thing",
-			caller: { agent_name: "root", depth: 0 },
+			caller: addr("root", 0),
 		};
 		await parentClient.publish(inboxTopic, JSON.stringify(continueMsg));
 
@@ -900,13 +893,12 @@ describe("runAgentProcess", () => {
 		const startMsg: StartMessage = {
 			kind: "start",
 			handle_id: HANDLE_ID,
-			agent_name: "test-leaf",
+			self: addr("test-leaf", 1, undefined, HANDLE_ID),
 			genome_path: genomeDir,
 			session_id: SESSION_ID,
-			caller: { agent_name: "root", depth: 0 },
+			caller: addr("root", 0),
 			goal: "Initial task",
 			shared: true,
-			agent_id: HANDLE_ID,
 		};
 		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
 
@@ -922,7 +914,7 @@ describe("runAgentProcess", () => {
 			JSON.stringify({
 				kind: "continue",
 				message: "First continue",
-				caller: { agent_name: "root", depth: 0 },
+				caller: addr("root", 0),
 			}),
 		);
 		await delay(20); // Small gap to ensure ordering
@@ -931,7 +923,7 @@ describe("runAgentProcess", () => {
 			JSON.stringify({
 				kind: "continue",
 				message: "Second continue",
-				caller: { agent_name: "root", depth: 0 },
+				caller: addr("root", 0),
 			}),
 		);
 
@@ -984,13 +976,12 @@ describe("runAgentProcess", () => {
 		const startMsg: StartMessage = {
 			kind: "start",
 			handle_id: HANDLE_ID,
-			agent_name: "test-leaf",
+			self: addr("test-leaf", 1, undefined, HANDLE_ID),
 			genome_path: genomeDir,
 			session_id: SESSION_ID,
-			caller: { agent_name: "root", depth: 0 },
+			caller: addr("root", 0),
 			goal: "Initial task",
 			shared: true,
-			agent_id: HANDLE_ID,
 		};
 		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
 
@@ -1010,7 +1001,7 @@ describe("runAgentProcess", () => {
 			JSON.stringify({
 				kind: "continue",
 				message: "Continue working",
-				caller: { agent_name: "root", depth: 0 },
+				caller: addr("root", 0),
 			}),
 		);
 
@@ -1087,13 +1078,12 @@ describe("runAgentProcess", () => {
 		const startMsg: StartMessage = {
 			kind: "start",
 			handle_id: HANDLE_ID,
-			agent_name: "test-leaf",
+			self: addr("test-leaf", 1, undefined, HANDLE_ID),
 			genome_path: genomeDir,
 			session_id: SESSION_ID,
-			caller: { agent_name: "root", depth: 0 },
+			caller: addr("root", 0),
 			goal: "Do something multi-turn",
 			shared: false,
-			agent_id: HANDLE_ID,
 		};
 		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
 
@@ -1142,13 +1132,12 @@ describe("runAgentProcess", () => {
 		const startMsg: StartMessage = {
 			kind: "start",
 			handle_id: HANDLE_ID,
-			agent_name: "nonexistent-agent",
+			self: addr("nonexistent-agent", 1, undefined, HANDLE_ID),
 			genome_path: genomeDir,
 			session_id: SESSION_ID,
-			caller: { agent_name: "root", depth: 0 },
+			caller: addr("root", 0),
 			goal: "Do something",
 			shared: false,
-			agent_id: HANDLE_ID,
 		};
 		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
 
@@ -1194,13 +1183,12 @@ describe("runAgentProcess", () => {
 		const startMsg: StartMessage = {
 			kind: "start",
 			handle_id: HANDLE_ID,
-			agent_name: "test-leaf",
+			self: addr("test-leaf", 1, undefined, HANDLE_ID),
 			genome_path: genomeDir,
 			session_id: SESSION_ID,
-			caller: { agent_name: "root", depth: 0 },
+			caller: addr("root", 0),
 			goal: "Do something",
 			shared: false,
-			agent_id: HANDLE_ID,
 		};
 		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
 
@@ -1279,13 +1267,12 @@ describe("runAgentProcess", () => {
 		const startMsg: StartMessage = {
 			kind: "start",
 			handle_id: HANDLE_ID,
-			agent_name: "test-leaf",
+			self: addr("test-leaf", 1, undefined, HANDLE_ID),
 			genome_path: genomeDir,
 			session_id: SESSION_ID,
-			caller: { agent_name: "root", depth: 0 },
+			caller: addr("root", 0),
 			goal: "First task",
 			shared: true,
-			agent_id: HANDLE_ID,
 		};
 		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
 
@@ -1297,7 +1284,7 @@ describe("runAgentProcess", () => {
 		const continueMsg = {
 			kind: "continue",
 			message: "Now do the second thing",
-			caller: { agent_name: "root", depth: 0 },
+			caller: addr("root", 0),
 		};
 		await parentClient.publish(inboxTopic, JSON.stringify(continueMsg));
 
@@ -1334,13 +1321,12 @@ describe("runAgentProcess", () => {
 		const startMsg: StartMessage = {
 			kind: "start",
 			handle_id: HANDLE_ID,
-			agent_name: "test-leaf",
+			self: addr("test-leaf", 1, undefined, HANDLE_ID),
 			genome_path: genomeDir,
 			session_id: SESSION_ID,
-			caller: { agent_name: "root", depth: 0 },
+			caller: addr("root", 0),
 			goal: "Log this",
 			shared: false,
-			agent_id: HANDLE_ID,
 		};
 		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
 
@@ -1401,13 +1387,12 @@ describe("runAgentProcess", () => {
 		const startMsg: StartMessage = {
 			kind: "start",
 			handle_id: HANDLE_ID,
-			agent_name: "test-orchestrator",
+			self: addr("test-orchestrator", 1, undefined, HANDLE_ID),
 			genome_path: genomeDir,
 			session_id: SESSION_ID,
-			caller: { agent_name: "root", depth: 0 },
+			caller: addr("root", 0),
 			goal: "Delegate to test-leaf",
 			shared: false,
-			agent_id: HANDLE_ID,
 		};
 		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
 
@@ -1459,13 +1444,12 @@ describe("runAgentProcess", () => {
 				withResolverContext({
 					kind: "start",
 					handle_id: HANDLE_ID,
-					agent_name: "test-leaf",
+					self: addr("test-leaf", 1, undefined, HANDLE_ID),
 					genome_path: genomeDir,
 					session_id: SESSION_ID,
-					caller: { agent_name: "root", depth: 0 },
+					caller: addr("root", 0),
 					goal: "First task",
 					shared: false,
-					agent_id: HANDLE_ID,
 				} satisfies StartMessage),
 			),
 		);
@@ -1490,13 +1474,12 @@ describe("runAgentProcess", () => {
 				withResolverContext({
 					kind: "start",
 					handle_id: HANDLE_ID,
-					agent_name: "test-leaf",
+					self: addr("test-leaf", 1, undefined, HANDLE_ID),
 					genome_path: genomeDir,
 					session_id: SESSION_ID,
-					caller: { agent_name: "root", depth: 0 },
+					caller: addr("root", 0),
 					goal: "Follow-up task",
 					shared: false,
-					agent_id: HANDLE_ID,
 				} satisfies StartMessage),
 			),
 		);
@@ -1541,13 +1524,12 @@ describe("runAgentProcess", () => {
 		const startMsg: StartMessage = {
 			kind: "start",
 			handle_id: HANDLE_ID,
-			agent_name: "test-leaf",
+			self: addr("test-leaf", 1, undefined, HANDLE_ID),
 			genome_path: genomeDir,
 			session_id: SESSION_ID,
-			caller: { agent_name: "root", depth: 0 },
+			caller: addr("root", 0),
 			goal: "Log this run",
 			shared: false,
-			agent_id: HANDLE_ID,
 		};
 		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
 
@@ -1674,13 +1656,12 @@ describe("runAgentProcess", () => {
 		const startMsg: StartMessage = {
 			kind: "start",
 			handle_id: HANDLE_ID,
-			agent_name: "test-orchestrator-tree",
+			self: addr("test-orchestrator-tree", 1, undefined, HANDLE_ID),
 			genome_path: genomeDir,
 			session_id: SESSION_ID,
-			caller: { agent_name: "root", depth: 0 },
+			caller: addr("root", 0),
 			goal: "Delegate to tree-child",
 			shared: false,
-			agent_id: HANDLE_ID,
 		};
 		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
 

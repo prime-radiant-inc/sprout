@@ -1,26 +1,35 @@
 import type { ResolverSettings } from "../agents/model-resolver.ts";
 import type { SessionEvent } from "../kernel/types.ts";
 
-/** Identity of the agent that initiated a message */
-export interface CallerIdentity {
-	agent_name: string;
+/** Runtime address for an agent handle. Field names carry meaning at call sites. */
+export interface AgentAddress {
+	agentName: string;
 	depth: number;
+	handleId: string;
+	agentId: string;
 	role?: "observer";
+}
+
+export function rootAgentAddress(): AgentAddress {
+	return {
+		agentName: "root",
+		depth: 0,
+		handleId: "root",
+		agentId: "root",
+	};
 }
 
 /** Sent to a new agent's inbox to start it */
 export interface StartMessage {
 	kind: "start";
 	handle_id: string;
-	agent_name: string;
 	genome_path: string;
 	session_id: string;
-	caller: CallerIdentity;
+	self: AgentAddress;
+	caller: AgentAddress;
 	goal: string;
 	hints?: string[];
 	shared: boolean;
-	/** Stable agent_id for events emitted by this handle. */
-	agent_id: string;
 	eval_mode?: boolean;
 	/** Selected provider context inherited from the caller. */
 	provider_id?: string;
@@ -36,7 +45,7 @@ export interface StartMessage {
 export interface ContinueMessage {
 	kind: "continue";
 	message: string;
-	caller: CallerIdentity;
+	caller: AgentAddress;
 	/** Current trusted user instruction for deterministic runtime policy gates. */
 	trusted_user_instruction?: string;
 }
@@ -53,7 +62,8 @@ export interface SteerMessage {
 export interface AgentMessageMessage {
 	kind: "agent_message";
 	message: string;
-	caller: CallerIdentity;
+	from: AgentAddress;
+	to: AgentAddress;
 }
 
 /** Published by an agent on completion */
@@ -110,21 +120,21 @@ export function parseBusMessage(raw: string): BusMessage {
 		case "start":
 			requireFields(obj, [
 				"handle_id",
-				"agent_name",
 				"genome_path",
 				"session_id",
+				"self",
 				"caller",
 				"goal",
 				"shared",
-				"agent_id",
 			]);
-			validateCallerIdentity(obj);
+			validateAgentAddress(obj, "self");
+			validateAgentAddress(obj, "caller");
 			validateOptionalString(obj, "trusted_user_instruction");
 			validateOptionalString(obj, "surfaced_memory_block");
 			break;
 		case "continue":
 			requireFields(obj, ["message", "caller"]);
-			validateCallerIdentity(obj);
+			validateAgentAddress(obj, "caller");
 			validateOptionalString(obj, "trusted_user_instruction");
 			break;
 		case "steer":
@@ -132,8 +142,9 @@ export function parseBusMessage(raw: string): BusMessage {
 			validateOptionalString(obj, "trusted_user_instruction");
 			break;
 		case "agent_message":
-			requireFields(obj, ["message", "caller"]);
-			validateCallerIdentity(obj);
+			requireFields(obj, ["message", "from", "to"]);
+			validateAgentAddress(obj, "from");
+			validateAgentAddress(obj, "to");
 			break;
 		case "result":
 			requireFields(obj, ["handle_id", "output", "success", "stumbles", "turns", "timed_out"]);
@@ -152,17 +163,24 @@ function validateOptionalString(obj: Record<string, unknown>, field: string): vo
 	}
 }
 
-function validateCallerIdentity(obj: Record<string, unknown>): void {
-	const caller = obj.caller;
-	if (caller === null || typeof caller !== "object" || Array.isArray(caller)) {
-		throw new Error("'caller' must be an object with agent_name (string) and depth (number)");
+function validateAgentAddress(obj: Record<string, unknown>, field: string): void {
+	const value = obj[field];
+	if (value === null || typeof value !== "object" || Array.isArray(value)) {
+		throw new Error(`'${field}' must be an object with agentName, depth, handleId, and agentId`);
 	}
-	const c = caller as Record<string, unknown>;
-	if (typeof c.agent_name !== "string" || typeof c.depth !== "number") {
-		throw new Error("'caller' must have agent_name (string) and depth (number)");
+	const address = value as Record<string, unknown>;
+	if (
+		typeof address.agentName !== "string" ||
+		typeof address.depth !== "number" ||
+		typeof address.handleId !== "string" ||
+		typeof address.agentId !== "string"
+	) {
+		throw new Error(
+			`'${field}' must have agentName (string), depth (number), handleId (string), and agentId (string)`,
+		);
 	}
-	if (c.role !== undefined && c.role !== "observer") {
-		throw new Error("'caller.role' must be observer when present");
+	if (address.role !== undefined && address.role !== "observer") {
+		throw new Error(`'${field}.role' must be observer when present`);
 	}
 }
 

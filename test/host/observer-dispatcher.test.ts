@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { createResolverSettings } from "../../src/agents/model-resolver.ts";
 import type { AgentSpawner, SpawnAgentOptions } from "../../src/bus/spawner.ts";
-import type { CallerIdentity, ResultMessage } from "../../src/bus/types.ts";
+import type { AgentAddress, ResultMessage } from "../../src/bus/types.ts";
 import { ObserverDispatcher } from "../../src/host/observer-dispatcher.ts";
 import type { EventKind, SessionEvent } from "../../src/kernel/types.ts";
+import { addr } from "../helpers/agent-address.ts";
 import { waitFor } from "../helpers/wait-for.ts";
 
 function resolverSettings() {
@@ -40,7 +41,7 @@ class FakeSpawner {
 	messages: Array<{
 		handleId: string;
 		message: string;
-		caller: CallerIdentity;
+		caller: AgentAddress;
 		blocking: boolean;
 	}> = [];
 	spawnPromise: Promise<string | ResultMessage> | undefined;
@@ -54,7 +55,7 @@ class FakeSpawner {
 	async messageAgent(
 		handleId: string,
 		message: string,
-		caller: CallerIdentity,
+		caller: AgentAddress,
 		blocking: boolean,
 	): Promise<ResultMessage | undefined> {
 		this.messages.push({ handleId, message, caller, blocking });
@@ -152,7 +153,7 @@ describe("ObserverDispatcher", () => {
 
 		expect(spawner.messages[0]).toMatchObject({
 			handleId: "observer-metacognitive",
-			caller: { agent_name: "root", depth: 0 },
+			caller: addr("root", 0),
 			blocking: false,
 		});
 		expect(spawner.messages[0]!.message).toContain("root plan 6");

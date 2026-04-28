@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type {
+	AgentAddress,
 	AgentMessageMessage,
 	BusMessage,
-	CallerIdentity,
 	ContinueMessage,
 	EventMessage,
 	ResultMessage,
@@ -11,32 +11,40 @@ import type {
 } from "../../src/bus/types.ts";
 import { parseBusMessage } from "../../src/bus/types.ts";
 import type { SessionEvent } from "../../src/kernel/types.ts";
+import { addr } from "../helpers/agent-address.ts";
 
 describe("bus message types", () => {
-	test("CallerIdentity carries agent name and depth", () => {
-		const caller: CallerIdentity = { agent_name: "root", depth: 0 };
-		expect(caller.agent_name).toBe("root");
+	test("AgentAddress carries exact runtime identity", () => {
+		const caller: AgentAddress = addr("root", 0);
+		expect(caller.agentName).toBe("root");
 		expect(caller.depth).toBe(0);
+		expect(caller.handleId).toBe("root");
+		expect(caller.agentId).toBe("root");
 	});
 
 	test("StartMessage has all required fields", () => {
 		const msg: StartMessage = {
 			kind: "start",
 			handle_id: "01JTEST000000000000000001",
-			agent_id: "01JTEST000000000000000001",
-			agent_name: "code-editor",
+			self: addr(
+				"code-editor",
+				1,
+				undefined,
+				"01JTEST000000000000000001",
+				"01JTEST000000000000000001",
+			),
 			genome_path: "/tmp/genome",
 			session_id: "session-1",
-			caller: { agent_name: "root", depth: 0 },
+			caller: addr("root", 0),
 			goal: "Fix the bug",
 			shared: false,
 		};
 		expect(msg.kind).toBe("start");
 		expect(msg.handle_id).toBe("01JTEST000000000000000001");
-		expect(msg.agent_name).toBe("code-editor");
+		expect(msg.self.agentName).toBe("code-editor");
 		expect(msg.genome_path).toBe("/tmp/genome");
 		expect(msg.session_id).toBe("session-1");
-		expect(msg.caller.agent_name).toBe("root");
+		expect(msg.caller.agentName).toBe("root");
 		expect(msg.goal).toBe("Fix the bug");
 		expect(msg.shared).toBe(false);
 		expect(msg.hints).toBeUndefined();
@@ -46,11 +54,16 @@ describe("bus message types", () => {
 		const msg: StartMessage = {
 			kind: "start",
 			handle_id: "01JTEST000000000000000002",
-			agent_id: "01JTEST000000000000000002",
-			agent_name: "code-reader",
+			self: addr(
+				"code-reader",
+				1,
+				undefined,
+				"01JTEST000000000000000002",
+				"01JTEST000000000000000002",
+			),
 			genome_path: "/tmp/genome",
 			session_id: "session-1",
-			caller: { agent_name: "root", depth: 0 },
+			caller: addr("root", 0),
 			goal: "Find the auth module",
 			hints: ["Check src/auth/"],
 			shared: true,
@@ -63,7 +76,7 @@ describe("bus message types", () => {
 		const msg: ContinueMessage = {
 			kind: "continue",
 			message: "Now fix the other bug too",
-			caller: { agent_name: "root", depth: 0 },
+			caller: addr("root", 0),
 			trusted_user_instruction: "Search memory only; do not mutate anything",
 		};
 		expect(msg.kind).toBe("continue");
@@ -87,12 +100,13 @@ describe("bus message types", () => {
 		const msg: AgentMessageMessage = {
 			kind: "agent_message",
 			message: "You wrote: start coding too early.",
-			caller: { agent_name: "metacognitive", depth: 1, role: "observer" },
+			from: addr("metacognitive", 1, "observer"),
+			to: addr("root", 0),
 		};
 		expect(msg.kind).toBe("agent_message");
 		expect(msg.message).toContain("start coding");
-		expect(msg.caller.agent_name).toBe("metacognitive");
-		expect(msg.caller.role).toBe("observer");
+		expect(msg.from.agentName).toBe("metacognitive");
+		expect(msg.from.role).toBe("observer");
 	});
 
 	test("ResultMessage carries completion data", () => {
@@ -153,24 +167,24 @@ describe("bus message types", () => {
 			{
 				kind: "start",
 				handle_id: "h1",
-				agent_id: "h1",
-				agent_name: "editor",
+				self: addr("editor", 1, undefined, "h1", "h1"),
 				genome_path: "/g",
 				session_id: "s1",
-				caller: { agent_name: "root", depth: 0 },
+				caller: addr("root", 0),
 				goal: "do stuff",
 				shared: false,
 			},
 			{
 				kind: "continue",
 				message: "more stuff",
-				caller: { agent_name: "root", depth: 0 },
+				caller: addr("root", 0),
 			},
 			{ kind: "steer", message: "focus" },
 			{
 				kind: "agent_message",
 				message: "observer guidance",
-				caller: { agent_name: "metacognitive", depth: 1 },
+				from: addr("metacognitive", 1),
+				to: addr("root", 0),
 			},
 			{
 				kind: "result",
@@ -204,11 +218,10 @@ describe("parseBusMessage", () => {
 		const raw = JSON.stringify({
 			kind: "start",
 			handle_id: "h1",
-			agent_id: "h1",
-			agent_name: "editor",
+			self: addr("editor", 1, undefined, "h1", "h1"),
 			genome_path: "/g",
 			session_id: "s1",
-			caller: { agent_name: "root", depth: 0 },
+			caller: addr("root", 0),
 			goal: "do stuff",
 			shared: false,
 			trusted_user_instruction: "current trusted instruction",
@@ -227,7 +240,7 @@ describe("parseBusMessage", () => {
 		const raw = JSON.stringify({
 			kind: "continue",
 			message: "keep going",
-			caller: { agent_name: "root", depth: 0 },
+			caller: addr("root", 0),
 			trusted_user_instruction: "current trusted instruction",
 		});
 		const msg = parseBusMessage(raw);
@@ -252,13 +265,14 @@ describe("parseBusMessage", () => {
 		const raw = JSON.stringify({
 			kind: "agent_message",
 			message: "observer guidance",
-			caller: { agent_name: "metacognitive", depth: 1, role: "observer" },
+			from: addr("metacognitive", 1, "observer"),
+			to: addr("root", 0),
 		});
 		const msg = parseBusMessage(raw);
 		expect(msg.kind).toBe("agent_message");
 		expect((msg as AgentMessageMessage).message).toBe("observer guidance");
-		expect((msg as AgentMessageMessage).caller.agent_name).toBe("metacognitive");
-		expect((msg as AgentMessageMessage).caller.role).toBe("observer");
+		expect((msg as AgentMessageMessage).from.agentName).toBe("metacognitive");
+		expect((msg as AgentMessageMessage).from.role).toBe("observer");
 	});
 
 	test("parses a valid ResultMessage", () => {
@@ -322,11 +336,10 @@ describe("parseBusMessage", () => {
 		const base = {
 			kind: "start",
 			handle_id: "h1",
-			agent_id: "h1",
-			agent_name: "editor",
+			self: addr("editor", 1, undefined, "h1", "h1"),
 			genome_path: "/g",
 			session_id: "s1",
-			caller: { agent_name: "root", depth: 0 },
+			caller: addr("root", 0),
 			goal: "do stuff",
 			shared: false,
 		};
@@ -351,7 +364,7 @@ describe("parseBusMessage", () => {
 	test("throws on missing required AgentMessageMessage fields", () => {
 		expect(() => parseBusMessage(JSON.stringify({ kind: "agent_message" }))).toThrow();
 		expect(() => parseBusMessage(JSON.stringify({ kind: "agent_message", message: "hi" }))).toThrow(
-			/caller/,
+			/from/,
 		);
 	});
 
@@ -378,8 +391,7 @@ describe("parseBusMessage", () => {
 		const raw = JSON.stringify({
 			kind: "start",
 			handle_id: "H1",
-			agent_id: "H1",
-			agent_name: "editor",
+			self: addr("editor", 1, undefined, "H1", "H1"),
 			genome_path: "/tmp",
 			session_id: "S1",
 			caller: "not-an-object",
@@ -389,12 +401,11 @@ describe("parseBusMessage", () => {
 		expect(() => parseBusMessage(raw)).toThrow(/caller/);
 	});
 
-	test("throws on start message with caller missing agent_name", () => {
+	test("throws on start message with caller missing agentName", () => {
 		const raw = JSON.stringify({
 			kind: "start",
 			handle_id: "H1",
-			agent_id: "H1",
-			agent_name: "editor",
+			self: addr("editor", 1, undefined, "H1", "H1"),
 			genome_path: "/tmp",
 			session_id: "S1",
 			caller: { depth: 0 },
@@ -413,12 +424,13 @@ describe("parseBusMessage", () => {
 		expect(() => parseBusMessage(raw)).toThrow(/caller/);
 	});
 
-	test("throws on caller with invalid role", () => {
+	test("throws on address with invalid role", () => {
 		const raw = JSON.stringify({
 			kind: "agent_message",
 			message: "bad role",
-			caller: { agent_name: "metacognitive", depth: 1, role: "delegate" },
+			from: { ...addr("metacognitive", 1), role: "delegate" },
+			to: addr("root", 0),
 		});
-		expect(() => parseBusMessage(raw)).toThrow(/caller\.role/);
+		expect(() => parseBusMessage(raw)).toThrow(/from\.role/);
 	});
 });

@@ -8,7 +8,7 @@ import { AgentEventEmitter } from "../../src/agents/events.ts";
 import { type AgentTreeEntry, scanAgentTree } from "../../src/agents/loader.ts";
 import { createResolverSettings } from "../../src/agents/model-resolver.ts";
 import type { AgentSpawner, SpawnAgentOptions } from "../../src/bus/spawner.ts";
-import type { CallerIdentity, ResultMessage } from "../../src/bus/types.ts";
+import type { AgentAddress, ResultMessage } from "../../src/bus/types.ts";
 import { Genome } from "../../src/genome/genome.ts";
 import { LocalExecutionEnvironment } from "../../src/kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../../src/kernel/primitives.ts";
@@ -3646,7 +3646,7 @@ describe("Agent", () => {
 		const messageCalls: {
 			handleId: string;
 			message: string;
-			caller: CallerIdentity;
+			caller: AgentAddress;
 			blocking: boolean;
 			trustedUserInstruction?: string;
 		}[] = [];
@@ -3676,7 +3676,7 @@ describe("Agent", () => {
 			messageAgent: async (
 				handleId: string,
 				message: string,
-				caller: CallerIdentity,
+				caller: AgentAddress,
 				blocking: boolean,
 				trustedUserInstruction?: string,
 			): Promise<ResultMessage | undefined> => {

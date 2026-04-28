@@ -9,10 +9,17 @@ import {
 } from "../agents/model-resolver.ts";
 import type { ObserverAttachmentConfig } from "../agents/observers.ts";
 import type { AgentSpawner } from "../bus/spawner.ts";
+import type { AgentAddress } from "../bus/types.ts";
 import { collapseSessionToMemory } from "../core/session-collapse.ts";
 import type { Genome } from "../genome/genome.ts";
 import { detectProjectFromCwd } from "../genome/projects.ts";
-import type { AgentModelPurpose, AgentSpec, Command, ModelRef, SessionEvent } from "../kernel/types.ts";
+import type {
+	AgentModelPurpose,
+	AgentSpec,
+	Command,
+	ModelRef,
+	SessionEvent,
+} from "../kernel/types.ts";
 import type { Client } from "../llm/client.ts";
 import type { Message, ProviderModel } from "../llm/types.ts";
 import { parseAgentModelInput, type SessionSelectionRequest } from "../shared/session-selection.ts";
@@ -48,7 +55,7 @@ import {
 /** Minimal agent interface used by the SessionController. */
 interface RunnableAgent {
 	steer(text: string): void;
-	receiveAgentMessage?(text: string, from: { agent_name: string; depth: number }): void;
+	receiveAgentMessage?(text: string, from: AgentAddress): void;
 	requestCompaction(): void;
 	run(
 		goal: string,
@@ -115,9 +122,7 @@ function buildStaticObserverConfigs(
 			agentId: handleId,
 			modelPurpose: observerModelPurpose(observerSpec),
 			description:
-				config.target === "root"
-					? `observes ${rootAgentName} turns`
-					: "observes session events",
+				config.target === "root" ? `observes ${rootAgentName} turns` : "observes session events",
 			comments: config.comments,
 		};
 	});
@@ -287,7 +292,12 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 				options.spawner.registerCompletedHandle(handleId, result, ownerId, {
 					agentName,
 					genomePath: options.genomePath,
-					caller: { agent_name: ownerId, depth: 0 },
+					caller: {
+						agentName: ownerId,
+						depth: 0,
+						handleId: ownerId,
+						agentId: ownerId,
+					},
 					workDir: options.workDir,
 					agentId,
 					evalMode: options.evalMode,
@@ -530,7 +540,7 @@ export class SessionController {
 				});
 			const rootMessagesReady = this.spawner
 				.subscribeRootMessages((message) => {
-					this.agent?.receiveAgentMessage?.(message.message, message.caller);
+					this.agent?.receiveAgentMessage?.(message.message, message.from);
 				})
 				.catch((err) => {
 					console.error("[SessionController] Failed to subscribe to root messages:", err);

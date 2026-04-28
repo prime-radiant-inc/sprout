@@ -14,6 +14,7 @@ import { Genome } from "../../src/genome/genome.ts";
 import type { Client } from "../../src/llm/client.ts";
 import type { Request, Response } from "../../src/llm/types.ts";
 import { ContentKind, Msg, messageText } from "../../src/llm/types.ts";
+import { addr } from "../helpers/agent-address.ts";
 
 const AGENT_SPEC = {
 	name: "test-leaf",
@@ -175,7 +176,7 @@ describe("AgentSpawner", () => {
 			const opts: SpawnAgentOptions = {
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-				caller: { agent_name: "root", depth: 0 },
+				caller: addr("root", 0),
 				goal: "Do the thing",
 				blocking: true,
 				shared: false,
@@ -196,7 +197,7 @@ describe("AgentSpawner", () => {
 			const opts: SpawnAgentOptions = {
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-				caller: { agent_name: "root", depth: 0 },
+				caller: addr("root", 0),
 				goal: "Do the thing in background",
 				blocking: false,
 				shared: false,
@@ -229,7 +230,7 @@ describe("AgentSpawner", () => {
 			const opts: SpawnAgentOptions = {
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-				caller: { agent_name: "root", depth: 0 },
+				caller: addr("root", 0),
 				goal: "Test with hints",
 				hints: ["hint one", "hint two"],
 				blocking: true,
@@ -276,7 +277,7 @@ describe("AgentSpawner", () => {
 				const spawnPromise = spawner.spawnAgent({
 					agentName: "test-leaf",
 					genomePath: genomeDir,
-					caller: { agent_name: "root", depth: 0 },
+					caller: addr("root", 0),
 					goal: "Benchmark task",
 					blocking: false,
 					shared: false,
@@ -306,7 +307,7 @@ describe("AgentSpawner", () => {
 			const baseOpts: SpawnAgentOptions = {
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-				caller: { agent_name: "root", depth: 0 },
+				caller: addr("root", 0),
 				goal: "Task",
 				blocking: false,
 				shared: false,
@@ -327,7 +328,7 @@ describe("AgentSpawner", () => {
 			const result = await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-				caller: { agent_name: "root", depth: 0 },
+				caller: addr("root", 0),
 				goal: "Use my handle ID",
 				blocking: true,
 				shared: false,
@@ -347,7 +348,7 @@ describe("AgentSpawner", () => {
 			const opts: SpawnAgentOptions = {
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-				caller: { agent_name: "root", depth: 0 },
+				caller: addr("root", 0),
 				goal: "Do a named thing",
 				blocking: false,
 				shared: false,
@@ -378,7 +379,7 @@ describe("AgentSpawner", () => {
 				spawnWithResolver({
 					agentName: "test-leaf",
 					genomePath: genomeDir,
-					caller: { agent_name: "root", depth: 0 },
+					caller: addr("root", 0),
 					goal: "Crash before ready",
 					blocking: false,
 					shared: false,
@@ -397,7 +398,7 @@ describe("AgentSpawner", () => {
 			const handleId = (await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-				caller: { agent_name: "root", depth: 0 },
+				caller: addr("root", 0),
 				goal: "Async task",
 				blocking: false,
 				shared: false,
@@ -417,7 +418,7 @@ describe("AgentSpawner", () => {
 			const handleId = (await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-				caller: { agent_name: "root", depth: 0 },
+				caller: addr("root", 0),
 				goal: "Quick task",
 				blocking: false,
 				shared: false,
@@ -466,7 +467,7 @@ describe("AgentSpawner", () => {
 			const handleId = (await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-				caller: { agent_name: "root", depth: 0 },
+				caller: addr("root", 0),
 				goal: "Task that never finishes",
 				blocking: false,
 				shared: false,
@@ -512,7 +513,7 @@ describe("AgentSpawner", () => {
 			const result = await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-				caller: { agent_name: "root", depth: 0 },
+				caller: addr("root", 0),
 				goal: "Task that should continue in background",
 				blocking: true,
 				shared: false,
@@ -553,7 +554,7 @@ describe("AgentSpawner", () => {
 			const handleId = (await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-				caller: { agent_name: "root", depth: 0 },
+				caller: addr("root", 0),
 				goal: "Concurrent wait task",
 				blocking: false,
 				shared: false,
@@ -603,7 +604,7 @@ describe("AgentSpawner", () => {
 				const result = (await spawnWithResolver({
 					agentName: "test-leaf",
 					genomePath: genomeDir,
-					caller: { agent_name: "root", depth: 0 },
+					caller: addr("root", 0),
 					goal: "Crash after ready",
 					blocking: true,
 					shared: false,
@@ -643,7 +644,7 @@ describe("AgentSpawner", () => {
 			const initialResult = await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-				caller: { agent_name: "root", depth: 0 },
+				caller: addr("root", 0),
 				goal: "Initial task",
 				blocking: true,
 				shared: true,
@@ -660,14 +661,14 @@ describe("AgentSpawner", () => {
 			const continueResult = await spawner.messageAgent(
 				handleId,
 				"Do the next thing",
-				{ agent_name: "root", depth: 0 },
+				addr("root", 0),
 				true,
 			);
 
 			expect(continueResult!.output).toBe("Continued.");
 		}, 15_000);
 
-		test("routes canonical root messages through the root inbox", async () => {
+		test("routes caller alias messages through the root inbox", async () => {
 			spawner = new AgentSpawner(bus, server.url, SESSION_ID);
 			const received: AgentMessageMessage[] = [];
 			await spawner.subscribeRootMessages((message) => {
@@ -678,10 +679,12 @@ describe("AgentSpawner", () => {
 			const senderSpawner = new AgentSpawner(senderBus, server.url, SESSION_ID);
 
 			const result = await senderSpawner.messageAgent(
-				"root",
+				"caller",
 				"You wrote: start coding too early.",
-				{ agent_name: "metacognitive", depth: 1 },
+				addr("metacognitive", 1),
 				false,
+				undefined,
+				addr("root", 0),
 			);
 
 			expect(result).toBeUndefined();
@@ -689,22 +692,26 @@ describe("AgentSpawner", () => {
 			expect(received[0]).toMatchObject({
 				kind: "agent_message",
 				message: "You wrote: start coding too early.",
-				caller: { agent_name: "metacognitive", depth: 1 },
+				from: addr("metacognitive", 1),
+				to: addr("root", 0),
 			});
 			senderSpawner.shutdown();
 			await senderBus.disconnect();
+		});
+
+		test("rejects raw root messages from non-root agents", async () => {
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID);
+
+			await expect(
+				spawner.messageAgent("root", "use caller instead", addr("metacognitive", 1), false),
+			).rejects.toThrow('use handle "caller"');
 		});
 
 		test("rejects blocking root messages loudly", async () => {
 			spawner = new AgentSpawner(bus, server.url, SESSION_ID);
 
 			await expect(
-				spawner.messageAgent(
-					"root",
-					"blocking root message",
-					{ agent_name: "metacognitive", depth: 1 },
-					true,
-				),
+				spawner.messageAgent("root", "blocking root message", addr("root", 0), true),
 			).rejects.toThrow("message_agent to root requires blocking=false");
 		});
 
@@ -735,7 +742,7 @@ describe("AgentSpawner", () => {
 			const initialResult = await spawnWithResolver({
 				agentName: "archivist",
 				genomePath: genomeDir,
-				caller: { agent_name: "root", depth: 0 },
+				caller: addr("root", 0),
 				goal: "Initial archive task",
 				blocking: true,
 				shared: true,
@@ -748,7 +755,7 @@ describe("AgentSpawner", () => {
 			const continueResult = await spawner.messageAgent(
 				handleId,
 				"Search memory only",
-				{ agent_name: "root", depth: 0 },
+				addr("root", 0),
 				true,
 				"Search memory only; do not mutate anything",
 			);
@@ -786,7 +793,7 @@ describe("AgentSpawner", () => {
 			const handleId = (await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-				caller: { agent_name: "root", depth: 0 },
+				caller: addr("root", 0),
 				goal: "Long running task",
 				blocking: false,
 				shared: false,
@@ -800,7 +807,7 @@ describe("AgentSpawner", () => {
 			const messageResult = await spawner.messageAgent(
 				handleId,
 				"Change priority",
-				{ agent_name: "root", depth: 0 },
+				addr("root", 0),
 				false,
 			);
 			expect(messageResult).toBeUndefined();
@@ -866,7 +873,7 @@ describe("AgentSpawner", () => {
 			const handleId = (await spawnWithResolver({
 				agentName: "archivist",
 				genomePath: genomeDir,
-				caller: { agent_name: "root", depth: 0 },
+				caller: addr("root", 0),
 				goal: "Initial archive task",
 				blocking: false,
 				shared: true,
@@ -877,7 +884,7 @@ describe("AgentSpawner", () => {
 			const messageResult = await spawner.messageAgent(
 				handleId,
 				"Search memory only",
-				{ agent_name: "root", depth: 0 },
+				addr("root", 0),
 				false,
 				"Search memory only; do not mutate anything",
 			);
@@ -885,7 +892,7 @@ describe("AgentSpawner", () => {
 			await delay(25);
 			resolveFirstCall?.();
 
-			const result = await spawner.waitAgent(handleId, { agent_name: "root", depth: 0 });
+			const result = await spawner.waitAgent(handleId, addr("root", 0));
 
 			expect(result.output).toBe("Done.");
 			expect(requestToolNames[0]).toContain("memory_archive");
@@ -916,7 +923,7 @@ describe("AgentSpawner", () => {
 			const initialResult = await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-				caller: { agent_name: "root", depth: 0 },
+				caller: addr("root", 0),
 				goal: "Initial task",
 				blocking: true,
 				shared: false,
@@ -934,7 +941,7 @@ describe("AgentSpawner", () => {
 			const continueResult = await spawner.messageAgent(
 				handleId,
 				"Follow-up message",
-				{ agent_name: "root", depth: 0 },
+				addr("root", 0),
 				true,
 			);
 
@@ -971,7 +978,7 @@ describe("AgentSpawner", () => {
 			await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-				caller: { agent_name: "root", depth: 0 },
+				caller: addr("root", 0),
 				goal: "Initial task",
 				blocking: true,
 				shared: false,
@@ -983,12 +990,7 @@ describe("AgentSpawner", () => {
 			const firstHandle = spawner.getHandle(handleId)!;
 			await firstHandle.process.exited;
 
-			await spawner.messageAgent(
-				handleId,
-				"Follow-up message",
-				{ agent_name: "root", depth: 0 },
-				true,
-			);
+			await spawner.messageAgent(handleId, "Follow-up message", addr("root", 0), true);
 
 			const logPath = join(genomeDir, "logs", SESSION_ID, `${handleId}.jsonl`);
 			const raw = await readFile(logPath, "utf8");
@@ -1008,9 +1010,9 @@ describe("AgentSpawner", () => {
 			const mockClient = createMockClient("Done.");
 			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
 
-			expect(() =>
-				spawner.messageAgent("nonexistent", "Hello", { agent_name: "root", depth: 0 }, false),
-			).toThrow(/unknown handle/i);
+			expect(() => spawner.messageAgent("nonexistent", "Hello", addr("root", 0), false)).toThrow(
+				/unknown handle/i,
+			);
 		});
 	});
 
@@ -1025,7 +1027,7 @@ describe("AgentSpawner", () => {
 			await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-				caller: { agent_name: "root", depth: 0 },
+				caller: addr("root", 0),
 				goal: "Say hello",
 				hints: [],
 				blocking: true,
@@ -1055,7 +1057,7 @@ describe("AgentSpawner", () => {
 			await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-				caller: { agent_name: "root", depth: 0 },
+				caller: addr("root", 0),
 				goal: "Handle ID check",
 				blocking: true,
 				shared: false,
@@ -1086,7 +1088,7 @@ describe("AgentSpawner", () => {
 			await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-				caller: { agent_name: "root", depth: 0 },
+				caller: addr("root", 0),
 				goal: "Post-update task",
 				blocking: true,
 				shared: false,
@@ -1117,7 +1119,7 @@ describe("AgentSpawner", () => {
 				spawnWithResolver({
 					agentName: "test-leaf",
 					genomePath: genomeDir,
-					caller: { agent_name: "root", depth: 0 },
+					caller: addr("root", 0),
 					goal: "Agent A task",
 					blocking: true,
 					shared: false,
@@ -1127,7 +1129,7 @@ describe("AgentSpawner", () => {
 				spawnWithResolver({
 					agentName: "test-leaf",
 					genomePath: genomeDir,
-					caller: { agent_name: "root", depth: 0 },
+					caller: addr("root", 0),
 					goal: "Agent B task",
 					blocking: true,
 					shared: false,
@@ -1163,7 +1165,7 @@ describe("AgentSpawner", () => {
 			await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-				caller: { agent_name: "root", depth: 0 },
+				caller: addr("root", 0),
 				goal: "Single callback test",
 				blocking: true,
 				shared: false,
@@ -1185,7 +1187,7 @@ describe("AgentSpawner", () => {
 			const handleId = (await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-				caller: { agent_name: "root", depth: 0 },
+				caller: addr("root", 0),
 				goal: "Work",
 				blocking: false,
 				shared: false,
@@ -1196,9 +1198,7 @@ describe("AgentSpawner", () => {
 			await spawner.waitAgent(handleId);
 
 			// A different caller should be rejected
-			expect(() => spawner.waitAgent(handleId, { agent_name: "other-agent", depth: 1 })).toThrow(
-				/not shared/,
-			);
+			expect(() => spawner.waitAgent(handleId, addr("other-agent", 1))).toThrow(/not shared/);
 		}, 15_000);
 
 		test("waitAgent allows owner on non-shared handle", async () => {
@@ -1208,7 +1208,7 @@ describe("AgentSpawner", () => {
 			const handleId = (await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-				caller: { agent_name: "root", depth: 0 },
+				caller: addr("root", 0),
 				goal: "Work",
 				blocking: false,
 				shared: false,
@@ -1216,7 +1216,7 @@ describe("AgentSpawner", () => {
 			})) as string;
 
 			// Owner should be allowed
-			const result = await spawner.waitAgent(handleId, { agent_name: "root", depth: 0 });
+			const result = await spawner.waitAgent(handleId, addr("root", 0));
 			expect(result.output).toBe("Owner result.");
 		}, 15_000);
 
@@ -1227,7 +1227,7 @@ describe("AgentSpawner", () => {
 			const handleId = (await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-				caller: { agent_name: "root", depth: 0 },
+				caller: addr("root", 0),
 				goal: "Work",
 				blocking: false,
 				shared: true,
@@ -1235,7 +1235,7 @@ describe("AgentSpawner", () => {
 			})) as string;
 
 			// Non-owner should be allowed on shared handle
-			const result = await spawner.waitAgent(handleId, { agent_name: "other-agent", depth: 1 });
+			const result = await spawner.waitAgent(handleId, addr("other-agent", 1));
 			expect(result.output).toBe("Shared result.");
 		}, 15_000);
 
@@ -1246,7 +1246,7 @@ describe("AgentSpawner", () => {
 			const handleId = (await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-				caller: { agent_name: "root", depth: 0 },
+				caller: addr("root", 0),
 				goal: "Work",
 				blocking: false,
 				shared: false,
@@ -1257,9 +1257,9 @@ describe("AgentSpawner", () => {
 			await spawner.waitAgent(handleId);
 
 			// A different caller should be rejected
-			expect(() =>
-				spawner.messageAgent(handleId, "hello", { agent_name: "other-agent", depth: 1 }, true),
-			).toThrow(/not shared/);
+			expect(() => spawner.messageAgent(handleId, "hello", addr("other-agent", 1), true)).toThrow(
+				/not shared/,
+			);
 		}, 15_000);
 
 		test("messageAgent allows non-owner on shared handle", async () => {
@@ -1282,7 +1282,7 @@ describe("AgentSpawner", () => {
 			await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-				caller: { agent_name: "root", depth: 0 },
+				caller: addr("root", 0),
 				goal: "Work",
 				blocking: true,
 				shared: true,
@@ -1292,23 +1292,18 @@ describe("AgentSpawner", () => {
 			const handleId = spawner.getHandles()[0]!;
 
 			// Non-owner should be allowed on shared handle
-			const result = await spawner.messageAgent(
-				handleId,
-				"continue",
-				{ agent_name: "other-agent", depth: 1 },
-				true,
-			);
+			const result = await spawner.messageAgent(handleId, "continue", addr("other-agent", 1), true);
 			expect(result!.output).toBe("Response 2.");
 		}, 15_000);
 
-		test("ownerId is set on AgentHandle from caller", async () => {
+		test("owner address is set on AgentHandle from caller", async () => {
 			const mockClient = createMockClient("Done.");
 			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
 
 			const handleId = (await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-				caller: { agent_name: "my-parent", depth: 2 },
+				caller: addr("my-parent", 2),
 				goal: "Work",
 				blocking: false,
 				shared: false,
@@ -1317,7 +1312,8 @@ describe("AgentSpawner", () => {
 
 			const handle = spawner.getHandle(handleId);
 			expect(handle).toBeDefined();
-			expect(handle!.ownerId).toBe("my-parent");
+			expect(handle!.owner.agentName).toBe("my-parent");
+			expect(handle!.owner.handleId).toBe("my-parent");
 		}, 15_000);
 	});
 
@@ -1342,7 +1338,8 @@ describe("AgentSpawner", () => {
 			expect(handle).toBeDefined();
 			expect(handle!.status).toBe("completed");
 			expect(handle!.result).toEqual(result);
-			expect(handle!.ownerId).toBe("root");
+			expect(handle!.owner.agentName).toBe("root");
+			expect(handle!.owner.handleId).toBe("root");
 		});
 
 		test("waitAgent returns pre-registered result immediately", async () => {
@@ -1402,7 +1399,7 @@ describe("AgentSpawner", () => {
 			spawner.registerCompletedHandle(handleId, result, "root", {
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-				caller: { agent_name: "root", depth: 0 },
+				caller: addr("root", 0),
 				workDir: tempDir,
 				providerIdOverride: TEST_PROVIDER_ID,
 				resolverSettings: TEST_RESOLVER_SETTINGS,
@@ -1411,7 +1408,7 @@ describe("AgentSpawner", () => {
 			const continued = await spawner.messageAgent(
 				handleId,
 				"Continue from the restored completed state",
-				{ agent_name: "root", depth: 0 },
+				addr("root", 0),
 				true,
 			);
 
@@ -1428,7 +1425,7 @@ describe("AgentSpawner", () => {
 			await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-				caller: { agent_name: "root", depth: 0 },
+				caller: addr("root", 0),
 				goal: "Task to clear",
 				blocking: true,
 				shared: false,
@@ -1449,7 +1446,7 @@ describe("AgentSpawner", () => {
 			const handleId = (await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-				caller: { agent_name: "root", depth: 0 },
+				caller: addr("root", 0),
 				goal: "Task to clear",
 				blocking: false,
 				shared: false,
@@ -1481,7 +1478,7 @@ describe("AgentSpawner", () => {
 			const handleId = (await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-				caller: { agent_name: "root", depth: 0 },
+				caller: addr("root", 0),
 				goal: "Blocking task",
 				blocking: false,
 				shared: false,
@@ -1514,7 +1511,7 @@ describe("AgentSpawner", () => {
 			await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-				caller: { agent_name: "root", depth: 0 },
+				caller: addr("root", 0),
 				goal: "Before update",
 				blocking: true,
 				shared: false,
@@ -1569,7 +1566,7 @@ describe("AgentSpawner", () => {
 			const handleId = (await spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
-				caller: { agent_name: "root", depth: 0 },
+				caller: addr("root", 0),
 				goal: "Long running task",
 				blocking: false,
 				shared: false,

@@ -5,7 +5,7 @@ import {
 	renderObserverFrame,
 } from "../agents/observers.ts";
 import type { AgentSpawner } from "../bus/spawner.ts";
-import type { CallerIdentity } from "../bus/types.ts";
+import { rootAgentAddress } from "../bus/types.ts";
 import type { EventKind, SessionEvent } from "../kernel/types.ts";
 
 export const METACOGNITIVE_OBSERVER: ObserverAttachmentConfig = {
@@ -21,7 +21,7 @@ export const METACOGNITIVE_OBSERVER: ObserverAttachmentConfig = {
 	description: "observes root turns",
 };
 
-const ROOT_CALLER: CallerIdentity = { agent_name: "root", depth: 0 };
+const ROOT_CALLER = rootAgentAddress();
 const PRECONFIGURE_EVENT_LIMIT = 64;
 
 interface ObserverSubscriptionState {
@@ -362,10 +362,7 @@ export class ObserverRegistry {
 		return { events, retainedEvents };
 	}
 
-	private isObservedDelegateFinal(
-		config: ObserverAttachmentConfig,
-		event: SessionEvent,
-	): boolean {
+	private isObservedDelegateFinal(config: ObserverAttachmentConfig, event: SessionEvent): boolean {
 		if (event.kind !== "act_end") return false;
 		if (event.data.observer === true) return false;
 		const agentName = stringData(event, "agent_name");
