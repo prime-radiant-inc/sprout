@@ -1215,6 +1215,7 @@ describe("Genome", () => {
 			const ps = await genome.loadPostscripts();
 			expect(ps.global).toBe("");
 			expect(ps.orchestrator).toBe("");
+			expect(ps.observer).toBe("");
 			expect(ps.worker).toBe("");
 		});
 
@@ -1223,11 +1224,13 @@ describe("Genome", () => {
 			const genome = await createInitializedGenome(root);
 
 			await writeFile(join(root, "postscripts", "global.md"), "global rules");
+			await writeFile(join(root, "postscripts", "observer.md"), "observer rules");
 			await writeFile(join(root, "postscripts", "worker.md"), "worker rules");
 
 			const ps = await genome.loadPostscripts();
 			expect(ps.global).toBe("global rules");
 			expect(ps.orchestrator).toBe("");
+			expect(ps.observer).toBe("observer rules");
 			expect(ps.worker).toBe("worker rules");
 		});
 

@@ -170,6 +170,7 @@ export function primitivesForAgent(
 export interface Postscripts {
 	global: string;
 	orchestrator: string;
+	observer: string;
 	worker: string;
 	agent: string;
 }
@@ -184,6 +185,14 @@ export interface SystemPromptOptions {
 	projectDocs?: string;
 	postscripts?: Postscripts;
 	rootDir?: string;
+}
+
+type PromptRole = "orchestrator" | "observer" | "worker";
+
+function promptRoleForSpec(spec: AgentSpec): PromptRole {
+	if (spec.tags.includes("observer")) return "observer";
+	if (spec.constraints.can_spawn) return "orchestrator";
+	return "worker";
 }
 
 /**
@@ -202,11 +211,12 @@ export function buildSystemPrompt(opts: SystemPromptOptions): string {
 		rootDir,
 	} = opts;
 	const today = new Date().toISOString().slice(0, 10);
+	const promptRole = promptRoleForSpec(spec);
 
 	// Compose preamble: global + role-specific
 	let preamble = "";
 	if (preambles) {
-		const role = spec.constraints.can_spawn ? preambles.orchestrator : preambles.worker;
+		const role = preambles[promptRole];
 		const parts = [preambles.global, role].filter((p) => p.length > 0);
 		if (parts.length > 0) {
 			preamble = `${parts.join("\n\n")}\n\n`;
@@ -216,7 +226,7 @@ export function buildSystemPrompt(opts: SystemPromptOptions): string {
 	// Compose postscript: global + role-specific + agent-specific
 	let postscript = "";
 	if (postscripts) {
-		const role = spec.constraints.can_spawn ? postscripts.orchestrator : postscripts.worker;
+		const role = postscripts[promptRole];
 		const parts = [postscripts.global, role, postscripts.agent].filter((p) => p.length > 0);
 		if (parts.length > 0) {
 			postscript = `\n\n${parts.join("\n\n")}`;

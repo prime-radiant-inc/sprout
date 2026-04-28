@@ -1231,10 +1231,15 @@ export class Genome {
 	// ── Postscripts ──────────────────────────────────────────────
 
 	/**
-	 * Load genome-level postscripts (global, orchestrator, worker).
+	 * Load genome-level postscripts (global, orchestrator, observer, worker).
 	 * Returns empty strings for missing files.
 	 */
-	async loadPostscripts(): Promise<{ global: string; orchestrator: string; worker: string }> {
+	async loadPostscripts(): Promise<{
+		global: string;
+		orchestrator: string;
+		observer: string;
+		worker: string;
+	}> {
 		const dir = join(this.rootPath, "postscripts");
 		const read = async (name: string): Promise<string> => {
 			try {
@@ -1244,12 +1249,13 @@ export class Genome {
 				return "";
 			}
 		};
-		const [global, orchestrator, worker] = await Promise.all([
+		const [global, orchestrator, observer, worker] = await Promise.all([
 			read("global.md"),
 			read("orchestrator.md"),
+			read("observer.md"),
 			read("worker.md"),
 		]);
-		return { global, orchestrator, worker };
+		return { global, orchestrator, observer, worker };
 	}
 
 	/**

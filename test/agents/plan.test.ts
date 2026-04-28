@@ -261,6 +261,7 @@ describe("buildSystemPrompt", () => {
 		const postscripts = {
 			global: "Be concise.",
 			orchestrator: "",
+			observer: "",
 			worker: "No fluff.",
 			agent: "Reader-specific.",
 		};
@@ -282,6 +283,7 @@ describe("buildSystemPrompt", () => {
 		const postscripts = {
 			global: "Global.",
 			orchestrator: "Orchestrator rule.",
+			observer: "Observer rule.",
 			worker: "Worker rule.",
 			agent: "",
 		};
@@ -302,10 +304,45 @@ describe("buildSystemPrompt", () => {
 	test("omits postscript section when all parts are empty", () => {
 		const prompt = buildSystemPrompt({
 			...defaults,
-			postscripts: { global: "", orchestrator: "", worker: "", agent: "" },
+			postscripts: { global: "", orchestrator: "", observer: "", worker: "", agent: "" },
 		});
 		// Should not have double newlines between prompt and environment
 		expect(prompt).toContain("You help find code.\n\n<environment>");
+	});
+
+	test("uses observer preamble and postscript for observer agents", () => {
+		const observerSpec: AgentSpec = {
+			...testAgent,
+			name: "the-balcony",
+			system_prompt: "Watch the session.",
+			constraints: { ...testAgent.constraints, can_spawn: false },
+			tags: ["observer", "commentary"],
+		};
+		const prompt = buildSystemPrompt({
+			...defaults,
+			spec: observerSpec,
+			preambles: {
+				global: "Global rule.",
+				orchestrator: "Orchestrator rule.",
+				observer: "Observer rule.",
+				worker: "Worker rule.",
+			},
+			postscripts: {
+				global: "",
+				orchestrator: "Orchestrator postscript.",
+				observer: "Observer postscript.",
+				worker: "Worker postscript.",
+				agent: "",
+			},
+		});
+
+		expect(prompt).toContain("Global rule.");
+		expect(prompt).toContain("Observer rule.");
+		expect(prompt).toContain("Observer postscript.");
+		expect(prompt).not.toContain("Orchestrator rule.");
+		expect(prompt).not.toContain("Worker rule.");
+		expect(prompt).not.toContain("Orchestrator postscript.");
+		expect(prompt).not.toContain("Worker postscript.");
 	});
 
 	test("system prompt built from markdown body includes preamble and body", () => {

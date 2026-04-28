@@ -3695,6 +3695,66 @@ describe("Agent", () => {
 		expect(secondRequestJson).toContain("here is the missing file content");
 	});
 
+	test("continue() frames observer follow-ups as fresh observations, not task continuations", async () => {
+		const observerSpec: AgentSpec = {
+			...leafSpec,
+			name: "the-balcony",
+			description: "Private commentary observer",
+			system_prompt: "Observe and comment only when useful.",
+			tools: [],
+			agents: [],
+			constraints: {
+				...DEFAULT_CONSTRAINTS,
+				can_spawn: false,
+				can_learn: false,
+				max_turns: 2,
+			},
+			tags: ["observer", "commentary"],
+		};
+		const capturedRequests: Request[] = [];
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (request: Request): Promise<Response> => {
+				capturedRequests.push(request);
+				callCount++;
+				return {
+					id: `mock-observer-follow-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant(`Observer response ${callCount}.`),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: observerSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 1,
+			events,
+		});
+
+		await agent.run("<sprout:observer-frame>first</sprout:observer-frame>");
+		await agent.continue("<sprout:observer-frame>second</sprout:observer-frame>");
+
+		expect(capturedRequests).toHaveLength(2);
+		const secondRequestJson = JSON.stringify(capturedRequests[1]!.messages);
+		expect(secondRequestJson).toContain("New observer frame from the observed session");
+		expect(secondRequestJson).toContain("do not produce a cumulative report");
+		expect(secondRequestJson).toContain("<sprout:observer-frame>second</sprout:observer-frame>");
+		expect(secondRequestJson).not.toContain("Follow-up context from your caller");
+		expect(secondRequestJson).not.toContain("Continue the same task");
+	});
+
 	test("continue() emits session_start but not recall", async () => {
 		let callCount = 0;
 		const mockClient = {

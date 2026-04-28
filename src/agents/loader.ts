@@ -77,18 +77,20 @@ export async function findRootToolsDir(rootDir: string, agentName: string): Prom
 export interface Preambles {
 	global: string;
 	orchestrator: string;
+	observer: string;
 	worker: string;
 }
 
 export async function loadPreambles(rootDir: string): Promise<Preambles> {
 	const dir = join(rootDir, "preambles");
 	const read = (name: string) => readFile(join(dir, name), "utf-8").catch(() => "");
-	const [global, orchestrator, worker] = await Promise.all([
+	const [global, orchestrator, observer, worker] = await Promise.all([
 		read("global.md"),
 		read("orchestrator.md"),
+		read("observer.md"),
 		read("worker.md"),
 	]);
-	return { global, orchestrator, worker };
+	return { global, orchestrator, observer, worker };
 }
 
 export interface AgentTreeEntry {

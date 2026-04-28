@@ -108,7 +108,7 @@ export interface AgentOptions {
 	/** AGENTS.md project documentation for top-level agent only. */
 	projectDocs?: string;
 	/** Genome postscript data (global + role, without agent-specific). */
-	genomePostscripts?: { global: string; orchestrator: string; worker: string };
+	genomePostscripts?: { global: string; orchestrator: string; observer: string; worker: string };
 	/** Bus-based spawner for running subagents as separate processes. */
 	spawner?: AgentSpawner;
 	/** Path to the genome directory (required when using a spawner). */
@@ -206,7 +206,12 @@ export class Agent {
 	private readonly replayRecorder?: ReplayRecorder;
 	private readonly preambles?: Preambles;
 	private readonly projectDocs?: string;
-	private readonly genomePostscripts?: { global: string; orchestrator: string; worker: string };
+	private readonly genomePostscripts?: {
+		global: string;
+		orchestrator: string;
+		observer: string;
+		worker: string;
+	};
 	private readonly spawner?: AgentSpawner;
 	private readonly genomePath?: string;
 	private readonly projectDataDir?: string;
@@ -1889,9 +1894,14 @@ export class Agent {
 		this.updateTrustedUserInstruction(
 			options.trustedUserInstruction ?? (this.depth === 0 ? message : undefined),
 		);
-		const followUpMessage =
-			`Follow-up context from your caller for the same task:\n\n${message}\n\n` +
-			"Continue the same task using this new information. Do not discard prior context unless this message explicitly supersedes it.";
+		const followUpMessage = this.spec.tags.includes("observer")
+			? `New observer frame from the observed session:\n\n${message}\n\n` +
+				"Respond only according to your observer role. Do not perform the observed task, " +
+				"do not fabricate tool calls or results, and do not produce a cumulative report " +
+				"unless your agent prompt explicitly asks for one. If there is nothing worth saying, " +
+				"produce no text."
+			: `Follow-up context from your caller for the same task:\n\n${message}\n\n` +
+				"Continue the same task using this new information. Do not discard prior context unless this message explicitly supersedes it.";
 
 		// Emit session_start (same as run() — so stats reset for the new session)
 		this.emitAndLog("session_start", agentId, this.depth, {
