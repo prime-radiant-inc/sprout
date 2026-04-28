@@ -695,7 +695,7 @@ describe("AgentSpawner", () => {
 				join(handleLogDir, `${handleId}.jsonl`),
 				`${JSON.stringify({
 					kind: "session_end",
-					timestamp: Date.now() - 10_000,
+					timestamp: Date.now(),
 					agent_id: "child",
 					depth: 1,
 					data: {

@@ -1,3 +1,4 @@
+import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { ResolverSettings } from "../agents/model-resolver.ts";
 import { buildInternalSproutCommand } from "../util/self-command.ts";
@@ -114,7 +115,7 @@ export interface AgentHandle {
 	resolverSettings?: ResolverSettings;
 	trustedUserInstruction?: string;
 	surfacedMemoryBlock?: string;
-	resultRecoverySince?: number;
+	resultRecoveryLogOffset?: number | null;
 }
 
 /**
@@ -143,6 +144,15 @@ function defaultSpawnFn(
 		kill: () => proc.kill(),
 		exited: proc.exited,
 	};
+}
+
+function isFileNotFound(error: unknown): boolean {
+	return (
+		typeof error === "object" &&
+		error !== null &&
+		"code" in error &&
+		(error as { code?: unknown }).code === "ENOENT"
+	);
 }
 
 /**
@@ -237,10 +247,28 @@ export class AgentSpawner {
 	}
 
 	private async readPersistedHandleResult(handle: AgentHandle): Promise<ResultMessage | null> {
+		if (handle.resultRecoveryLogOffset == null) {
+			return null;
+		}
 		const handleLogDir = join(handle.projectDataDir ?? handle.genomePath, "logs", this.sessionId);
 		return readHandleResult(handleLogDir, handle.handleId, {
-			sinceTimestamp: handle.resultRecoverySince,
+			afterByteOffset: handle.resultRecoveryLogOffset,
 		});
+	}
+
+	private async captureResultRecoveryLogOffset(
+		dataDir: string,
+		handleId: string,
+	): Promise<number | null> {
+		const logPath = join(dataDir, "logs", this.sessionId, `${handleId}.jsonl`);
+		try {
+			return (await stat(logPath)).size;
+		} catch (error) {
+			if (isFileNotFound(error)) {
+				return 0;
+			}
+			return null;
+		}
 	}
 
 	private settleHandleResult(
@@ -463,7 +491,10 @@ export class AgentSpawner {
 			...(opts.projectDataDir ? { SPROUT_PROJECT_DATA_DIR: opts.projectDataDir } : {}),
 		};
 
-		const resultRecoverySince = Date.now();
+		const resultRecoveryLogOffset = await this.captureResultRecoveryLogOffset(
+			opts.projectDataDir ?? opts.genomePath,
+			handleId,
+		);
 
 		// Spawn the process
 		const proc = this.spawnFn(handleId, env);
@@ -491,7 +522,7 @@ export class AgentSpawner {
 			resolverSettings: opts.resolverSettings,
 			trustedUserInstruction: opts.trustedUserInstruction,
 			surfacedMemoryBlock: opts.surfacedMemoryBlock,
-			resultRecoverySince,
+			resultRecoveryLogOffset,
 		};
 		this.handles.set(handleId, handle);
 		this.monitorProcessExit(handleId, proc);
@@ -698,9 +729,12 @@ export class AgentSpawner {
 		if (handle.status === "idle") {
 			handle.trustedUserInstruction = trustedUserInstruction;
 			// Agent process is alive — send continue message
+			handle.resultRecoveryLogOffset = await this.captureResultRecoveryLogOffset(
+				handle.projectDataDir ?? handle.genomePath,
+				handleId,
+			);
 			handle.result = undefined;
 			handle.status = "running";
-			handle.resultRecoverySince = Date.now();
 
 			const continueMsg: ContinueMessage = {
 				kind: "continue",
@@ -718,7 +752,10 @@ export class AgentSpawner {
 
 		// Agent process has exited — re-spawn with the message as the new goal.
 		// The agent process auto-resumes from its prior event log.
-		const resultRecoverySince = Date.now();
+		const resultRecoveryLogOffset = await this.captureResultRecoveryLogOffset(
+			handle.projectDataDir ?? handle.genomePath,
+			handleId,
+		);
 		const env: Record<string, string> = {
 			SPROUT_BUS_URL: this.busUrl,
 			SPROUT_HANDLE_ID: handleId,
@@ -733,7 +770,7 @@ export class AgentSpawner {
 		handle.process = proc;
 		handle.result = undefined;
 		handle.status = "running";
-		handle.resultRecoverySince = resultRecoverySince;
+		handle.resultRecoveryLogOffset = resultRecoveryLogOffset;
 		this.monitorProcessExit(handleId, proc);
 		await this.subscribeToResultTopic(handle);
 

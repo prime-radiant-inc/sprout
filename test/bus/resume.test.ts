@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -752,41 +752,41 @@ describe("readHandleResult", () => {
 		expect(result!.turns).toBe(2);
 	});
 
-	test("ignores session_end events before the requested recovery timestamp", async () => {
+	test("ignores session_end events before the requested recovery byte offset", async () => {
 		const handleLogDir = join(tempDir, "logs", "session-1");
 		await mkdir(handleLogDir, { recursive: true });
 
 		const handleId = "handle-respawned";
 		const logPath = join(handleLogDir, `${handleId}.jsonl`);
 		await writeEventLog(logPath, [
-			event(
-				"session_end",
-				{
-					output: "Old run",
-					success: true,
-					stumbles: 0,
-					turns: 1,
-					timed_out: false,
-				},
-				1,
-				1_000,
-			),
-			event(
-				"session_end",
-				{
+			event("session_end", {
+				output: "Old run",
+				success: true,
+				stumbles: 0,
+				turns: 1,
+				timed_out: false,
+			}),
+		]);
+		const { size: recoveryOffset } = await stat(logPath);
+		await appendFile(
+			logPath,
+			`${JSON.stringify(
+				event("session_end", {
 					output: "Current run",
 					success: true,
 					stumbles: 0,
 					turns: 2,
 					timed_out: false,
-				},
-				1,
-				2_000,
-			),
-		]);
+				}),
+			)}\n`,
+			"utf-8",
+		);
+		const { size: endOffset } = await stat(logPath);
 
-		const result = await readHandleResult(handleLogDir, handleId, { sinceTimestamp: 1_500 });
-		const missing = await readHandleResult(handleLogDir, handleId, { sinceTimestamp: 3_000 });
+		const result = await readHandleResult(handleLogDir, handleId, {
+			afterByteOffset: recoveryOffset,
+		});
+		const missing = await readHandleResult(handleLogDir, handleId, { afterByteOffset: endOffset });
 
 		expect(result).not.toBeNull();
 		expect(result!.output).toBe("Current run");

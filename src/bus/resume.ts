@@ -144,28 +144,26 @@ export async function replayHandleLog(logPath: string): Promise<Message[]> {
 export async function readHandleResult(
 	handleLogDir: string,
 	handleId: string,
-	options: { sinceTimestamp?: number } = {},
+	options: { afterByteOffset?: number } = {},
 ): Promise<ResultMessage | null> {
 	const logPath = join(handleLogDir, `${handleId}.jsonl`);
-	let raw: string;
+	let rawBytes: Buffer;
 	try {
-		raw = await readFile(logPath, "utf-8");
+		rawBytes = await readFile(logPath);
 	} catch {
 		return null;
 	}
 
+	const raw =
+		options.afterByteOffset !== undefined
+			? rawBytes.subarray(options.afterByteOffset).toString("utf-8")
+			: rawBytes.toString("utf-8");
 	const lines = raw.split("\n").filter((line) => line.trim() !== "");
 	let result: ResultMessage | null = null;
 	for (const line of lines) {
 		try {
 			const parsed = JSON.parse(line);
 			if (parsed.kind === "session_end") {
-				if (
-					options.sinceTimestamp !== undefined &&
-					(typeof parsed.timestamp !== "number" || parsed.timestamp < options.sinceTimestamp)
-				) {
-					continue;
-				}
 				result = {
 					kind: "result",
 					handle_id: handleId,
