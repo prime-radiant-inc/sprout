@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { runInteractiveMode } from "../../src/host/cli-interactive.ts";
+import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { checkWebBuildFreshness, runInteractiveMode } from "../../src/host/cli-interactive.ts";
 import { EVENT_CAP, TUI_INITIAL_EVENT_CAP } from "../../src/kernel/constants.ts";
 
 class FakeBus {
@@ -16,6 +19,44 @@ class FakeBus {
 }
 
 describe("runInteractiveMode", () => {
+	test("web freshness treats public files as build inputs", async () => {
+		const root = await mkdtemp(join(tmpdir(), "sprout-web-freshness-"));
+		try {
+			const webRoot = join(root, "web");
+			const staticDir = join(webRoot, "dist");
+			const publicFile = join(webRoot, "public", "mockups", "tool-row-treatments.html");
+			const oldInputs = [
+				join(webRoot, "bun.lock"),
+				join(webRoot, "index.html"),
+				join(webRoot, "package.json"),
+				join(webRoot, "src", "main.tsx"),
+				join(webRoot, "tsconfig.json"),
+				join(webRoot, "vite-env.d.ts"),
+				join(webRoot, "vite.config.ts"),
+			];
+			const distFile = join(staticDir, "index.html");
+			const oldTime = new Date("2026-01-01T00:00:00.000Z");
+			const buildTime = new Date("2026-01-02T00:00:00.000Z");
+			const publicTime = new Date("2026-01-03T00:00:00.000Z");
+
+			await mkdir(join(webRoot, "public", "mockups"), { recursive: true });
+			await mkdir(join(webRoot, "src"), { recursive: true });
+			await mkdir(staticDir, { recursive: true });
+			for (const file of oldInputs) {
+				await writeFile(file, "input");
+				await utimes(file, oldTime, oldTime);
+			}
+			await writeFile(distFile, "<html></html>");
+			await utimes(distFile, buildTime, buildTime);
+			await writeFile(publicFile, "<html>new public asset</html>");
+			await utimes(publicFile, publicTime, publicTime);
+
+			expect(await checkWebBuildFreshness(staticDir)).toBe("stale");
+		} finally {
+			await rm(root, { force: true, recursive: true });
+		}
+	});
+
 	test("web-only path delegates to runWebOnlyMode and skips TUI setup", async () => {
 		const bus = new FakeBus();
 		const called: string[] = [];

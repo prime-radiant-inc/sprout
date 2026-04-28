@@ -157,7 +157,7 @@ async function latestFileMtimeMs(dir: string): Promise<number | undefined> {
 	}, undefined);
 }
 
-async function checkWebBuildFreshness(staticDir: string): Promise<WebBuildFreshness> {
+export async function checkWebBuildFreshness(staticDir: string): Promise<WebBuildFreshness> {
 	const webRoot = join(staticDir, "..");
 	const buildInputFiles = [
 		"bun.lock",
@@ -167,8 +167,9 @@ async function checkWebBuildFreshness(staticDir: string): Promise<WebBuildFreshn
 		"vite-env.d.ts",
 		"vite.config.ts",
 	];
-	const [distMtime, srcMtime, ...buildInputMtimes] = await Promise.all([
+	const [distMtime, publicMtime, srcMtime, ...buildInputMtimes] = await Promise.all([
 		latestFileMtimeMs(staticDir),
+		latestFileMtimeMs(join(webRoot, "public")),
 		latestFileMtimeMs(join(webRoot, "src")),
 		...buildInputFiles.map((file) =>
 			stat(join(webRoot, file))
@@ -181,7 +182,11 @@ async function checkWebBuildFreshness(staticDir: string): Promise<WebBuildFreshn
 		return "missing";
 	}
 
-	const sourceMtime = Math.max(srcMtime ?? 0, ...buildInputMtimes.map((mtime) => mtime ?? 0));
+	const sourceMtime = Math.max(
+		publicMtime ?? 0,
+		srcMtime ?? 0,
+		...buildInputMtimes.map((mtime) => mtime ?? 0),
+	);
 	if (sourceMtime > distMtime) {
 		return "stale";
 	}
