@@ -187,7 +187,7 @@ export class ObserverRegistry {
 		let events = preselectedDelivery?.events;
 		let deliveryFailures = preselectedDelivery?.failures ?? 0;
 		if (!events) {
-			const queuedDelivery = subscription.queuedDeliveries.shift();
+			const queuedDelivery = this.shiftQueuedDelivery(subscription, triggerEvent !== undefined);
 			if (queuedDelivery) {
 				if (triggerEvent) {
 					const delivery = this.takeEventsForDelivery(subscription, triggerEvent);
@@ -221,7 +221,12 @@ export class ObserverRegistry {
 			if (this.generation === generation) {
 				deliveryFailed = true;
 				if (subscription.config.target === "caller_delegates") {
-					subscription.queuedDeliveries.unshift({ events, failures: deliveryFailures + 1 });
+					const failedDelivery = { events, failures: deliveryFailures + 1 };
+					if (deliveryFailures === 0) {
+						subscription.queuedDeliveries.unshift(failedDelivery);
+					} else {
+						subscription.queuedDeliveries.push(failedDelivery);
+					}
 				} else {
 					subscription.pendingEvents = [...events, ...subscription.pendingEvents];
 				}
@@ -235,18 +240,30 @@ export class ObserverRegistry {
 		} finally {
 			if (this.generation === generation) {
 				subscription.deliveryInFlight = false;
-				const shouldDrainQueue = !deliveryFailed || deliveryFailures === 0;
-				if (shouldDrainQueue) {
-					const queuedDelivery = subscription.queuedDeliveries.shift();
-					if (queuedDelivery) {
-						void this.flush(subscription, undefined, queuedDelivery);
-					} else if (subscription.flushRequested) {
-						subscription.flushRequested = false;
-						void this.flush(subscription);
-					}
+				const queuedDelivery = this.shiftQueuedDelivery(
+					subscription,
+					deliveryFailed && deliveryFailures > 0,
+				);
+				if (queuedDelivery) {
+					void this.flush(subscription, undefined, queuedDelivery);
+				} else if (!deliveryFailed && subscription.flushRequested) {
+					subscription.flushRequested = false;
+					void this.flush(subscription);
 				}
 			}
 		}
+	}
+
+	private shiftQueuedDelivery(
+		subscription: ObserverSubscriptionState,
+		skipRepeatedFailures: boolean,
+	): QueuedObserverDelivery | undefined {
+		if (!skipRepeatedFailures) return subscription.queuedDeliveries.shift();
+		const index = subscription.queuedDeliveries.findIndex((delivery) => delivery.failures <= 1);
+		if (index === -1) return undefined;
+		const delivery = subscription.queuedDeliveries[index];
+		subscription.queuedDeliveries.splice(index, 1);
+		return delivery;
 	}
 
 	private async deliverFrame(
