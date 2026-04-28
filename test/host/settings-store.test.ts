@@ -220,6 +220,10 @@ describe("SettingsStore", () => {
 					providerId: "anthropic",
 					modelId: "claude-haiku-4-5",
 				},
+				subcortical: {
+					providerId: "anthropic",
+					modelId: "claude-haiku-4-5",
+				},
 			},
 			agentModelOverrides: {
 				metacognitive: {

@@ -120,7 +120,7 @@ export class SettingsStore {
 			version: SETTINGS_SCHEMA_VERSION,
 			providers: settings.providers,
 			defaults: settings.defaults,
-			memoryModels: settings.memoryModels ?? {},
+			memoryModels: migrateV3MemoryModels(settings.defaults, settings.memoryModels),
 			agentModelOverrides: migrateV3AgentModels(settings.agentModels),
 		});
 	}
@@ -161,6 +161,23 @@ function normalizeMemoryModels(memoryModels: MemoryModelsConfig | undefined): Me
 	for (const purpose of MEMORY_MODEL_PURPOSES) {
 		if (!Object.hasOwn(raw, purpose)) continue;
 		normalized[purpose] = normalizeModelRef(raw[purpose], `Memory model '${purpose}'`);
+	}
+	return normalized;
+}
+
+function migrateV3MemoryModels(
+	defaults: SproutSettingsV3["defaults"],
+	memoryModels: MemoryModelsConfig | undefined,
+): MemoryModelsConfig {
+	const normalized = normalizeMemoryModels(memoryModels);
+	if (!normalized.subcortical) {
+		const modelRef = defaults.fast ?? defaults.balanced ?? defaults.best;
+		if (modelRef) {
+			normalized.subcortical = {
+				providerId: modelRef.providerId,
+				modelId: modelRef.modelId,
+			};
+		}
 	}
 	return normalized;
 }
