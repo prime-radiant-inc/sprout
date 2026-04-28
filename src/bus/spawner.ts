@@ -201,7 +201,12 @@ export class AgentSpawner {
 			return;
 		}
 
-		const persistedResult = await this.readPersistedHandleResult(handle);
+		let persistedResult: ResultMessage | null = null;
+		try {
+			persistedResult = await this.readPersistedHandleResult(handle);
+		} catch {
+			// Durable-log recovery is best-effort; process exit must still settle the handle.
+		}
 		const current = this.handles.get(handleId);
 		if (!current || current.process !== process) {
 			return;
