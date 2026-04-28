@@ -79,7 +79,8 @@ export function parseModelConfigOverrides(
 
 export function validateModelConfigOverrides(
 	overrides: ModelConfigOverrides,
-	settings: Pick<SproutSettings, "providers">,
+	settings: Pick<SproutSettings, "providers" | "defaults">,
+	options: { agentKeys?: Iterable<string> } = {},
 ): void {
 	for (const override of enumerateOverrides(overrides)) {
 		const provider = settings.providers.find(
@@ -93,6 +94,39 @@ export function validateModelConfigOverrides(
 		if (!provider.enabled) {
 			throw new Error(
 				`${override.envVar} references disabled provider '${override.model.providerId}'`,
+			);
+		}
+	}
+
+	const agentKeys = options.agentKeys ? new Set(options.agentKeys) : undefined;
+	const effectiveDefaults = {
+		...settings.defaults,
+		...Object.fromEntries(
+			Object.entries(overrides.defaults).map(([tier, override]) => [tier, override.model]),
+		),
+	};
+	for (const [agentKey, override] of Object.entries(overrides.agentModelOverrides)) {
+		if (agentKeys && !agentKeys.has(agentKey)) {
+			throw new Error(
+				`${AGENT_MODEL_OVERRIDES_ENV_VAR}.${agentKey} references unknown agent key '${agentKey}'`,
+			);
+		}
+		if (override.selection.kind !== "tier") continue;
+		const modelRef = effectiveDefaults[override.selection.tier];
+		if (!modelRef) {
+			throw new Error(
+				`${AGENT_MODEL_OVERRIDES_ENV_VAR}.${agentKey} references unconfigured global '${override.selection.tier}' model`,
+			);
+		}
+		const provider = settings.providers.find((candidate) => candidate.id === modelRef.providerId);
+		if (!provider) {
+			throw new Error(
+				`${AGENT_MODEL_OVERRIDES_ENV_VAR}.${agentKey} references global '${override.selection.tier}' model with unknown provider '${modelRef.providerId}'`,
+			);
+		}
+		if (!provider.enabled) {
+			throw new Error(
+				`${AGENT_MODEL_OVERRIDES_ENV_VAR}.${agentKey} references global '${override.selection.tier}' model with disabled provider '${modelRef.providerId}'`,
 			);
 		}
 	}
@@ -203,6 +237,9 @@ function parseAgentModelOverridesEnv(
 	for (const [agentKey, rawSelection] of Object.entries(parsed as Record<string, unknown>)) {
 		if (agentKey.trim().length === 0) {
 			throw new Error(`${AGENT_MODEL_OVERRIDES_ENV_VAR} contains an empty agent key`);
+		}
+		if (agentKey !== agentKey.trim()) {
+			throw new Error(`${AGENT_MODEL_OVERRIDES_ENV_VAR}.${agentKey} key cannot contain padding`);
 		}
 		if (typeof rawSelection !== "string") {
 			throw new Error(`${AGENT_MODEL_OVERRIDES_ENV_VAR}.${agentKey} must be a string`);

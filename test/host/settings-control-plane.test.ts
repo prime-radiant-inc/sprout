@@ -45,6 +45,9 @@ async function makePlane(
 		onSettingsUpdated?: (snapshot: SettingsSnapshot) => void;
 		checkConnection?: ConstructorParameters<typeof SettingsControlPlane>[0]["checkConnection"];
 		refreshModels?: ConstructorParameters<typeof SettingsControlPlane>[0]["refreshModels"];
+		loadAgentModelCatalog?: ConstructorParameters<
+			typeof SettingsControlPlane
+		>[0]["loadAgentModelCatalog"];
 		settingsStore?: Pick<SettingsStore, "save">;
 	} = {},
 ) {
@@ -69,6 +72,24 @@ async function makePlane(
 		onSettingsUpdated: options.onSettingsUpdated,
 		checkConnection: options.checkConnection,
 		refreshModels: options.refreshModels,
+		loadAgentModelCatalog:
+			options.loadAgentModelCatalog ??
+			(() => [
+				{
+					key: "metacognitive",
+					name: "metacognitive",
+					source: "tree" as const,
+					path: "metacognitive",
+					defaultModel: "balanced",
+				},
+				{
+					key: "utility/reader",
+					name: "reader",
+					source: "tree" as const,
+					path: "utility/reader",
+					defaultModel: "fast",
+				},
+			]),
 		now: () => "2026-03-11T12:34:56.000Z",
 	});
 }
@@ -153,7 +174,12 @@ describe("SettingsControlPlane", () => {
 						updatedAt: "2026-03-11T12:00:00.000Z",
 					},
 				],
-				defaults: {},
+				defaults: {
+					fast: {
+						providerId: "anthropic",
+						modelId: "claude-sonnet-4-6",
+					},
+				},
 				memoryModels: {},
 				agentModelOverrides: {},
 			},
@@ -199,7 +225,12 @@ describe("SettingsControlPlane", () => {
 						updatedAt: "2026-03-11T12:00:00.000Z",
 					},
 				],
-				defaults: {},
+				defaults: {
+					fast: {
+						providerId: "anthropic",
+						modelId: "claude-sonnet-4-6",
+					},
+				},
 				memoryModels: {},
 				agentModelOverrides: {},
 			},
@@ -751,7 +782,12 @@ describe("SettingsControlPlane", () => {
 						updatedAt: "2026-03-11T12:00:00.000Z",
 					},
 				],
-				defaults: {},
+				defaults: {
+					fast: {
+						providerId: "anthropic",
+						modelId: "claude-sonnet-4-6",
+					},
+				},
 				memoryModels: {},
 				agentModelOverrides: {},
 			},
@@ -827,6 +863,73 @@ describe("SettingsControlPlane", () => {
 
 		if (!unset.ok) throw new Error("expected unset to succeed");
 		expect(unset.snapshot.settings.agentModelOverrides.metacognitive).toBeUndefined();
+	});
+
+	test("rejects unknown and unresolved tier agent model overrides", async () => {
+		const plane = await makePlane({
+			initialSettings: {
+				version: 4,
+				providers: [
+					{
+						id: "anthropic",
+						kind: "anthropic",
+						label: "Anthropic",
+						enabled: true,
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {},
+				memoryModels: {},
+				agentModelOverrides: {},
+			},
+			initialCatalog: [
+				{
+					providerId: "anthropic",
+					models: [
+						{
+							id: "claude-sonnet-4-6",
+							label: "Claude Sonnet 4.6",
+							source: "remote",
+						},
+					],
+				},
+			],
+		});
+
+		await expect(
+			plane.execute({
+				kind: "set_agent_model_override",
+				data: {
+					agentKey: "reader",
+					override: { kind: "tier", tier: "fast" },
+				},
+			}),
+		).resolves.toEqual({
+			ok: false,
+			code: "validation_failed",
+			message: "Unknown agent key 'reader'",
+			fieldErrors: {
+				agentKey: "Unknown agent key 'reader'",
+			},
+		});
+
+		await expect(
+			plane.execute({
+				kind: "set_agent_model_override",
+				data: {
+					agentKey: "utility/reader",
+					override: { kind: "tier", tier: "fast" },
+				},
+			}),
+		).resolves.toEqual({
+			ok: false,
+			code: "validation_failed",
+			message: "No global 'fast' model is configured",
+			fieldErrors: {
+				"agentModelOverrides.utility/reader": "No global 'fast' model is configured",
+			},
+		});
 	});
 
 	test("returns agent model field errors for invalid stored agent model selections", async () => {

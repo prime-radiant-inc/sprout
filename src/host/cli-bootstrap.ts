@@ -279,7 +279,13 @@ export async function bootstrapSessionRuntime(
 	}
 
 	const modelOverrides = d.parseModelConfigOverrides();
-	validateModelConfigOverrides(modelOverrides, settings);
+	const initialAgentModelCatalog = await buildAgentModelCatalog({
+		rootDir: opts.rootDir,
+		genome: opts.infra.genome,
+	});
+	validateModelConfigOverrides(modelOverrides, settings, {
+		agentKeys: initialAgentModelCatalog.map((entry) => entry.key),
+	});
 
 	let registry = d.createProviderRegistry({
 		settings,

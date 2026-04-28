@@ -248,6 +248,45 @@ describe("resolveAgentModelSelection", () => {
 			),
 		).toThrow("No global 'fast' model is configured");
 	});
+
+	test("does not fall back from canonical agent key to leaf agent name", () => {
+		const settings = settingsFor(
+			[provider()],
+			{
+				fast: {
+					providerId: "anthropic-main",
+					modelId: "claude-haiku-4-5",
+				},
+			},
+			{},
+			{
+				reader: {
+					kind: "model",
+					model: {
+						providerId: "anthropic-main",
+						modelId: "claude-sonnet-4-6",
+					},
+				},
+			},
+		);
+
+		expect(
+			resolveAgentModelSelection(
+				{
+					agentKey: "utility/reader",
+					agentName: "reader",
+					specModel: "fast",
+					settings,
+				},
+				catalog([
+					{
+						providerId: "anthropic-main",
+						models: [model("claude-haiku-4-5"), model("claude-sonnet-4-6")],
+					},
+				]),
+			),
+		).toEqual({ provider: "anthropic-main", model: "claude-haiku-4-5" });
+	});
 });
 
 describe("resolveMemoryModel", () => {

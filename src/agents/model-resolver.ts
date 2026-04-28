@@ -80,11 +80,7 @@ export function resolveAgentModelSelection(
 	if (input.modelOverride) {
 		return resolveModel(input.modelOverride, input.settings, catalog);
 	}
-	const override =
-		input.settings.agentModelOverrides[input.agentKey] ??
-		(input.agentName !== input.agentKey
-			? input.settings.agentModelOverrides[input.agentName]
-			: undefined);
+	const override = input.settings.agentModelOverrides[input.agentKey];
 	if (override) {
 		return resolveAgentModelOverride(override, input.settings, catalog);
 	}

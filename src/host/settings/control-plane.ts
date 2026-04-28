@@ -1,3 +1,4 @@
+import { createResolverSettings, resolveAgentModelSelection } from "../../agents/model-resolver.ts";
 import { type AgentModelCatalogEntry, describeAgentModels } from "./agent-model-catalog.ts";
 import {
 	applyModelConfigOverrides,
@@ -497,9 +498,23 @@ export class SettingsControlPlane {
 		override?: AgentModelOverride,
 	): Promise<SettingsCommandResult> {
 		const next = structuredClone(this.settings);
+		const fieldKey = `agentModelOverrides.${agentKey}`;
 		if (agentKey.trim().length === 0) {
 			return this.error("validation_failed", "Agent key cannot be empty", {
 				agentKey: "Agent key cannot be empty",
+			});
+		}
+		if (agentKey !== agentKey.trim()) {
+			return this.error("validation_failed", "Agent key cannot contain padding", {
+				agentKey: "Agent key cannot contain padding",
+			});
+		}
+		const catalogEntry = (await this.buildAgentModelCatalog()).find(
+			(entry) => entry.key === agentKey,
+		);
+		if (!catalogEntry) {
+			return this.error("validation_failed", `Unknown agent key '${agentKey}'`, {
+				agentKey: `Unknown agent key '${agentKey}'`,
 			});
 		}
 		if (!override) {
@@ -508,7 +523,6 @@ export class SettingsControlPlane {
 		}
 
 		if (override.kind === "model") {
-			const fieldKey = `agentModelOverrides.${agentKey}`;
 			const validation = this.validateConfiguredModel(
 				next,
 				override.model,
@@ -517,10 +531,44 @@ export class SettingsControlPlane {
 				"Refresh models to configure agent model overrides",
 			);
 			if (validation) return validation;
+		} else {
+			const validation = this.validateAgentTierOverride(next, catalogEntry, agentKey, override);
+			if (validation) return validation;
 		}
 
 		next.agentModelOverrides[agentKey] = override;
 		return this.persistSettings(next, [], true);
+	}
+
+	private validateAgentTierOverride(
+		settings: SproutSettings,
+		entry: AgentModelCatalogEntry,
+		agentKey: string,
+		override: Extract<AgentModelOverride, { kind: "tier" }>,
+	): SettingsCommandResult | undefined {
+		const candidateSettings = structuredClone(settings);
+		candidateSettings.agentModelOverrides[agentKey] = override;
+		try {
+			resolveAgentModelSelection(
+				{
+					agentKey,
+					agentName: entry.name,
+					specModel: entry.defaultModel,
+					settings: createResolverSettings(
+						candidateSettings.providers,
+						candidateSettings.defaults,
+						candidateSettings.memoryModels,
+						candidateSettings.agentModelOverrides,
+					),
+				},
+				this.buildCatalogEntries(),
+			);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			const fieldKey = `agentModelOverrides.${agentKey}`;
+			return this.error("validation_failed", message, { [fieldKey]: message });
+		}
+		return undefined;
 	}
 
 	private async refreshProviderModels(providerId: string): Promise<SettingsCommandResult> {

@@ -96,6 +96,67 @@ describe("model config env overrides", () => {
 		).toThrow(/SPROUT_DEFAULT_FAST_MODEL references disabled provider 'openrouter'/);
 	});
 
+	test("validates agent override keys and tier defaults", () => {
+		const settings = {
+			...createEmptySettings(),
+			providers: [
+				{
+					id: "anthropic",
+					kind: "anthropic" as const,
+					label: "Anthropic",
+					enabled: true,
+					createdAt: "2026-03-11T12:00:00.000Z",
+					updatedAt: "2026-03-11T12:00:00.000Z",
+				},
+			],
+			defaults: {
+				balanced: {
+					providerId: "anthropic",
+					modelId: "claude-sonnet-4-6",
+				},
+			},
+		};
+
+		expect(() =>
+			validateModelConfigOverrides(
+				parseModelConfigOverrides({
+					SPROUT_AGENT_MODEL_OVERRIDES: JSON.stringify({
+						reader: "balanced",
+					}),
+				}),
+				settings,
+				{ agentKeys: ["utility/reader"] },
+			),
+		).toThrow(/SPROUT_AGENT_MODEL_OVERRIDES\.reader references unknown agent key 'reader'/);
+
+		expect(() =>
+			validateModelConfigOverrides(
+				parseModelConfigOverrides({
+					SPROUT_AGENT_MODEL_OVERRIDES: JSON.stringify({
+						"utility/reader": "fast",
+					}),
+				}),
+				settings,
+				{ agentKeys: ["utility/reader"] },
+			),
+		).toThrow(
+			/SPROUT_AGENT_MODEL_OVERRIDES\.utility\/reader references unconfigured global 'fast' model/,
+		);
+
+		expect(() =>
+			validateModelConfigOverrides(
+				parseModelConfigOverrides({
+					SPROUT_DEFAULT_FAST_MODEL: "anthropic:claude-haiku-4-5",
+					SPROUT_AGENT_MODEL_OVERRIDES: JSON.stringify({
+						"utility/reader": "fast",
+					}),
+				}),
+				settings,
+				{ agentKeys: ["utility/reader"] },
+			),
+		).not.toThrow();
+	});
+
 	test("applies env overrides to effective settings without mutating stored settings", () => {
 		const settings = {
 			...createEmptySettings(),
