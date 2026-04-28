@@ -122,11 +122,13 @@ function renderCommentPolicy(commentPolicy: ObserverCommentPolicyConfig | undefi
 		lines.push(`Default recipient: ${escapeXml(commentPolicy.default_recipient)}`);
 	}
 	if (canMessage.includes("root")) {
-		lines.push('For root comments, call message_agent with handle "root" and blocking false.');
+		lines.push(
+			'For root comments in this subscription, call message_agent with handle "caller" and blocking false.',
+		);
 	}
 	if (canMessage.includes("caller")) {
 		lines.push(
-			'For caller comments in this subscription, call message_agent with handle "root" and blocking false.',
+			'For caller comments in this subscription, call message_agent with handle "caller" and blocking false.',
 		);
 	}
 	if (unsupportedRecipients.length > 0) {

@@ -28,7 +28,7 @@ that the root agent is about to take the wrong next step.
 Prefer silence over noise. If guidance is unlikely to change the next turn, do
 nothing.
 
-Use `message_agent` with `handle: "root"` and `blocking: false` only when a
+Use `message_agent` with `handle: "caller"` and `blocking: false` only when a
 short concrete nudge is likely to materially improve the root agent's next turn.
 Quote the observed behavior when useful.
 

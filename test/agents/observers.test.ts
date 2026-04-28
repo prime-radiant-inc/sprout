@@ -166,7 +166,7 @@ describe("observer frames", () => {
 		expect(rendered).toContain("<sprout:observer-comment-policy>");
 		expect(rendered).toContain("Can message: root");
 		expect(rendered).toContain("Default recipient: root");
-		expect(rendered).toContain('message_agent with handle "root"');
+		expect(rendered).toContain('message_agent with handle "caller"');
 	});
 
 	test("omits unsupported target comment recipients from rendered policy", () => {
