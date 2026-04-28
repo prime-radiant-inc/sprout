@@ -226,13 +226,18 @@ function stripCodeFence(text: string): string {
 
 function codeFenceBlocks(text: string): Array<{ language: string; body: string }> {
 	const blocks: Array<{ language: string; body: string }> = [];
-	const fencePattern = /```([^\n\r]*)\r?\n?([\s\S]*?)\r?\n```/g;
+	const fencePattern = /```([\s\S]*?)```/g;
 	for (const match of text.matchAll(fencePattern)) {
-		const info = (match[1] ?? "").trim();
-		const language = (info.split(/\s+/)[0] ?? "").toLowerCase();
-		blocks.push({ language, body: (match[2] ?? "").trim() });
+		blocks.push(splitFenceContent(match[1] ?? ""));
 	}
 	return blocks;
+}
+
+function splitFenceContent(rawContent: string): { language: string; body: string } {
+	const content = rawContent.trim();
+	const match = content.match(/^([A-Za-z0-9_-]+)(?:[ \t]+|\r?\n)([\s\S]*)$/);
+	if (!match) return { language: "", body: content };
+	return { language: match[1]!.toLowerCase(), body: match[2]!.trim() };
 }
 
 function startsLikeJson(text: string): boolean {
