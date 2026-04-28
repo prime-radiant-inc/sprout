@@ -137,11 +137,7 @@ function normalizeSubcorticalRecallConfig(
 }
 
 const OBSERVER_TARGETS = new Set<ObserverTargetConfig>(["root", "session"]);
-const OBSERVER_COMMENT_RECIPIENTS = new Set<ObserverCommentRecipient>([
-	"root",
-	"target",
-	"caller",
-]);
+const OBSERVER_COMMENT_RECIPIENTS = new Set<ObserverCommentRecipient>(["root", "caller"]);
 const EVENT_KIND_NAMES = new Set<string>(EVENT_KINDS);
 
 function normalizeObserverConfigs(raw: unknown, source: string): AgentObserverConfig[] {
@@ -330,9 +326,7 @@ function normalizeCommentRecipient(
 	path: string,
 ): ObserverCommentRecipient {
 	if (typeof raw !== "string" || !OBSERVER_COMMENT_RECIPIENTS.has(raw as ObserverCommentRecipient)) {
-		throw new Error(
-			`Invalid agent markdown at ${source}: '${path}' must be root, target, or caller`,
-		);
+		throw new Error(`Invalid agent markdown at ${source}: '${path}' must be root or caller`);
 	}
 	return raw as ObserverCommentRecipient;
 }

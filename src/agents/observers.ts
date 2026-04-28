@@ -106,12 +106,14 @@ export function renderObserverFrame(
 
 function renderCommentPolicy(commentPolicy: ObserverCommentPolicyConfig | undefined): string[] {
 	if (!commentPolicy) return [];
-	const canMessage = [
+	const configuredRecipients = [
 		...new Set(
 			commentPolicy.can_message ??
 				(commentPolicy.default_recipient ? [commentPolicy.default_recipient] : []),
 		),
 	];
+	const canMessage = configuredRecipients.filter((recipient) => recipient !== "target");
+	const unsupportedRecipients = configuredRecipients.filter((recipient) => recipient === "target");
 	const lines = [
 		"<sprout:observer-comment-policy>",
 		`Can message: ${canMessage.length > 0 ? canMessage.map(escapeXml).join(", ") : "none"}`,
@@ -124,6 +126,11 @@ function renderCommentPolicy(commentPolicy: ObserverCommentPolicyConfig | undefi
 	}
 	if (canMessage.includes("caller")) {
 		lines.push('For caller comments in this subscription, call message_agent with handle "root" and blocking false.');
+	}
+	if (unsupportedRecipients.length > 0) {
+		lines.push(
+			`Unsupported recipients omitted: ${unsupportedRecipients.map(escapeXml).join(", ")}.`,
+		);
 	}
 	lines.push("Only comment when the observed evidence makes a short intervention useful.");
 	lines.push("</sprout:observer-comment-policy>");

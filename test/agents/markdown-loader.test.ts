@@ -350,6 +350,10 @@ describe("parseAgentMarkdown", () => {
 				/default_recipient.*can_message/,
 			],
 			[
+				"observers:\n  - agent: metacognitive\n    target: root\n    events: [plan_end]\n    trigger:\n      every: 1\n      event: plan_end\n    comments:\n      can_message: [target]\n      default_recipient: target",
+				/must be root or caller/,
+			],
+			[
 				"observe_delegates:\n  - agent: metacognitive\n    trigger: every_turn\n    events: [act_end]",
 				/observe_delegates\[0\]\.trigger.*on_delegate_final/,
 			],
