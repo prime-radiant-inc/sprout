@@ -5,10 +5,12 @@ import { join } from "node:path";
 import { memoryIndexPath } from "../../src/genome/index-builder.ts";
 import {
 	discoverLinkCandidates,
+	discoverLinkCandidatesForNewMemories,
 	healMemoryLinks,
 	persistMemoryLinks,
 	traverseMemoryLinks,
 } from "../../src/genome/linking.ts";
+import { memoryShortId } from "../../src/genome/memory-schema.ts";
 import { MemoryIndex } from "../../src/genome/memory-index.ts";
 import type { Memory } from "../../src/kernel/types.ts";
 import { createTestGenome } from "../helpers/test-genome.ts";
@@ -159,6 +161,242 @@ describe("memory link graph", () => {
 
 		const traversed = traverseMemoryLinks([active, detail, staleField, staleInbound], "active");
 		expect(traversed.map((result) => result.memory.id)).toEqual(["detail"]);
+	});
+
+	test("discovers only candidates involving newly accepted memories", () => {
+		const candidates = discoverLinkCandidatesForNewMemories({
+			memories: [
+				memory({
+					id: "new-sqlite",
+					created: 300,
+					content: "Sprout MIRA memory uses SQLite and local embeddings.",
+					embedding: {
+						provider: "test",
+						model: "test",
+						dimensions: 3,
+						status: "ready",
+						vector: [1, 0, 0],
+					},
+					entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
+				}),
+				memory({
+					id: "new-detail",
+					created: 310,
+					content: "MIRA extraction should resolve memory relationships before recall.",
+					embedding: {
+						provider: "test",
+						model: "test",
+						dimensions: 3,
+						status: "ready",
+						vector: [0.99, 0.01, 0],
+					},
+					entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
+				}),
+				memory({
+					id: "old-sqlite",
+					created: 100,
+					content: "The MIRA port stores long-term memory in SQLite.",
+					embedding: {
+						provider: "test",
+						model: "test",
+						dimensions: 3,
+						status: "ready",
+						vector: [0.98, 0.02, 0],
+					},
+					entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
+				}),
+				memory({
+					id: "existing-detail",
+					created: 200,
+					content: "The MIRA port stores memory relationship metadata in SQLite.",
+					embedding: {
+						provider: "test",
+						model: "test",
+						dimensions: 3,
+						status: "ready",
+						vector: [0.98, 0.02, 0],
+					},
+					entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
+				}),
+			],
+			newMemoryIds: new Set(["new-sqlite", "new-detail"]),
+			options: { minVectorSimilarity: 0.95, minTfIdfSimilarity: 0.01 },
+		});
+
+		const pairs = candidates.map((candidate) => [candidate.source_id, candidate.target_id]);
+		expect(pairs).toContainEqual(["new-sqlite", "old-sqlite"]);
+		expect(pairs).toContainEqual(["new-detail", "old-sqlite"]);
+		expect(pairs).toContainEqual(["new-detail", "new-sqlite"]);
+		expect(pairs).not.toContainEqual(["existing-detail", "old-sqlite"]);
+		expect(pairs).not.toContainEqual(["old-sqlite", "existing-detail"]);
+	});
+
+	test("new-memory discovery ignores inactive memories and dedupe-dropped new ids", () => {
+		const candidates = discoverLinkCandidatesForNewMemories({
+			memories: [
+				memory({
+					id: "accepted-new",
+					created: 400,
+					source_segment_id: "segment-1",
+					content: "Sprout MIRA memory stores relationships before recall.",
+					embedding: {
+						provider: "test",
+						model: "test",
+						dimensions: 3,
+						status: "ready",
+						vector: [1, 0, 0],
+					},
+				}),
+				memory({
+					id: "dropped-new",
+					created: 390,
+					source_segment_id: "segment-1",
+					content: "Dropped duplicate should not receive links.",
+					embedding: {
+						provider: "test",
+						model: "test",
+						dimensions: 3,
+						status: "ready",
+						vector: [1, 0, 0],
+					},
+				}),
+				memory({
+					id: "active-old",
+					created: 100,
+					content: "Sprout MIRA memory stores relationships before recall.",
+					embedding: {
+						provider: "test",
+						model: "test",
+						dimensions: 3,
+						status: "ready",
+						vector: [1, 0, 0],
+					},
+				}),
+				memory({
+					id: "archived-old",
+					created: 100,
+					content: "Sprout MIRA memory stores relationships before recall.",
+					archived_at: 123,
+					embedding: {
+						provider: "test",
+						model: "test",
+						dimensions: 3,
+						status: "ready",
+						vector: [1, 0, 0],
+					},
+				}),
+				memory({
+					id: "superseded-old",
+					created: 100,
+					content: "Sprout MIRA memory stores relationships before recall.",
+					superseded_by: "replacement",
+					embedding: {
+						provider: "test",
+						model: "test",
+						dimensions: 3,
+						status: "ready",
+						vector: [1, 0, 0],
+					},
+				}),
+			],
+			newMemoryIds: new Set(["accepted-new"]),
+			options: { minVectorSimilarity: 0.95, minTfIdfSimilarity: 0.01 },
+		});
+
+		const candidateIds = candidates.flatMap((candidate) => [
+			candidate.source_id,
+			candidate.target_id,
+		]);
+		expect(candidateIds).toContain("accepted-new");
+		expect(candidateIds).toContain("active-old");
+		expect(candidateIds).not.toContain("dropped-new");
+		expect(candidateIds).not.toContain("archived-old");
+		expect(candidateIds).not.toContain("superseded-old");
+	});
+
+	test("new-memory discovery preserves explicit references outside heuristic limits", () => {
+		const referencedByShortId = memory({
+			id: "old-by-short",
+			created: 100,
+			content: "Prior memory about Streamlinear auth.",
+		});
+		const referencedByBatch = memory({
+			id: "old-by-batch",
+			created: 120,
+			content: "Prior memory about Streamlinear bearer headers.",
+		});
+		const candidates = discoverLinkCandidatesForNewMemories({
+			memories: [
+				memory({
+					id: "new-correction",
+					created: 500,
+					content: `Streamlinear auth correction supersedes ${memoryShortId(
+						referencedByShortId.id,
+					)}.`,
+				}),
+				referencedByShortId,
+				referencedByBatch,
+			],
+			newMemoryIds: new Set(["new-correction"]),
+			explicitReferencesByNewMemoryId: new Map([["new-correction", ["old-by-batch"]]]),
+			options: { limit: 0, minVectorSimilarity: 1, minTfIdfSimilarity: 1 },
+		});
+
+		expect(candidates).toHaveLength(2);
+		expect(candidates).toContainEqual(
+			expect.objectContaining({
+				source_id: "new-correction",
+				target_id: "old-by-short",
+				axes: ["explicit"],
+			}),
+		);
+		expect(candidates).toContainEqual(
+			expect.objectContaining({
+				source_id: "new-correction",
+				target_id: "old-by-batch",
+				axes: ["explicit"],
+			}),
+		);
+	});
+
+	test("new-memory discovery keeps a new memory as source when timestamps tie", () => {
+		const candidates = discoverLinkCandidatesForNewMemories({
+			memories: [
+				memory({
+					id: "zzz-new",
+					created: 100,
+					content: "Sprout memory uses SQLite.",
+					embedding: {
+						provider: "test",
+						model: "test",
+						dimensions: 3,
+						status: "ready",
+						vector: [1, 0, 0],
+					},
+				}),
+				memory({
+					id: "aaa-existing",
+					created: 100,
+					content: "Sprout memory uses SQLite.",
+					embedding: {
+						provider: "test",
+						model: "test",
+						dimensions: 3,
+						status: "ready",
+						vector: [1, 0, 0],
+					},
+				}),
+			],
+			newMemoryIds: new Set(["zzz-new"]),
+			options: { minVectorSimilarity: 0.95, minTfIdfSimilarity: 0.01 },
+		});
+
+		expect(candidates).toContainEqual(
+			expect.objectContaining({
+				source_id: "zzz-new",
+				target_id: "aaa-existing",
+			}),
+		);
 	});
 
 	test("persists classified relationships to JSONL and the SQLite index", async () => {

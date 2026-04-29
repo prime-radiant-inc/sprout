@@ -1,8 +1,9 @@
 import type { Memory, MemoryLinkEntry, RelationshipType } from "../kernel/types.ts";
 import type { Genome } from "./genome.ts";
 import { isActiveMemoryForRecall } from "./memory-lifecycle.ts";
+import { memoryShortId } from "./memory-schema.ts";
 
-export type LinkCandidateAxis = "vector" | "entity" | "tfidf";
+export type LinkCandidateAxis = "vector" | "entity" | "tfidf" | "explicit";
 
 export interface LinkCandidate {
 	source_id: string;
@@ -27,6 +28,13 @@ export interface LinkDiscoveryOptions {
 	limit?: number;
 }
 
+export interface NewMemoryLinkDiscoveryInput {
+	memories: readonly Memory[];
+	newMemoryIds: ReadonlySet<string>;
+	explicitReferencesByNewMemoryId?: ReadonlyMap<string, readonly string[]>;
+	options?: LinkDiscoveryOptions;
+}
+
 export interface LinkTraversalResult {
 	memory: Memory;
 	distance: number;
@@ -39,6 +47,7 @@ const DEFAULT_MIN_VECTOR_SIMILARITY = 0.72;
 const DEFAULT_MIN_ENTITY_SCORE = 0.34;
 const DEFAULT_MIN_TFIDF_SIMILARITY = 0.18;
 const DEFAULT_LIMIT = 50;
+const DEFAULT_NEW_MEMORY_LINK_LIMIT = 12;
 
 const RELATIONSHIP_WEIGHTS: Record<RelationshipType, number> = {
 	conflicts: 1.1,
@@ -83,6 +92,66 @@ export function discoverLinkCandidates(
 	return [...candidates.values()]
 		.sort((a, b) => b.score - a.score || a.source_id.localeCompare(b.source_id))
 		.slice(0, options.limit ?? DEFAULT_LIMIT);
+}
+
+export function discoverLinkCandidatesForNewMemories(
+	input: NewMemoryLinkDiscoveryInput,
+): LinkCandidate[] {
+	const initiallyActive = input.memories.filter(isActiveMemoryForRecall);
+	const initialActiveById = new Map(initiallyActive.map((memory) => [memory.id, memory]));
+	const newMemoryIds = new Set([...input.newMemoryIds].filter((id) => initialActiveById.has(id)));
+	if (newMemoryIds.size === 0) return [];
+
+	const batchSegmentIds = sourceSegmentIdsForMemories(initialActiveById, newMemoryIds);
+	const active = initiallyActive.filter(
+		(memory) =>
+			newMemoryIds.has(memory.id) ||
+			!memory.source_segment_id ||
+			!batchSegmentIds.has(memory.source_segment_id),
+	);
+	const activeById = new Map(active.map((memory) => [memory.id, memory]));
+	const options = input.options ?? {};
+	const explicitCandidates = new Map<string, LinkCandidate>();
+	const heuristicCandidates = new Map<string, LinkCandidate>();
+	const minVectorSimilarity = options.minVectorSimilarity ?? DEFAULT_MIN_VECTOR_SIMILARITY;
+	const minEntityScore = options.minEntityScore ?? DEFAULT_MIN_ENTITY_SCORE;
+	const minTfIdfSimilarity = options.minTfIdfSimilarity ?? DEFAULT_MIN_TFIDF_SIMILARITY;
+
+	addExplicitReferenceCandidates(
+		explicitCandidates,
+		active,
+		activeById,
+		newMemoryIds,
+		input.explicitReferencesByNewMemoryId,
+	);
+
+	forEachMemoryPair(active, (left, right) => {
+		if (!pairIncludesNewMemory(left, right, newMemoryIds)) return;
+
+		const vectorScore = vectorSimilarity(left, right);
+		if (vectorScore !== undefined && vectorScore >= minVectorSimilarity) {
+			addCandidateForNewMemory(heuristicCandidates, left, right, newMemoryIds, "vector", vectorScore);
+		}
+
+		const entityScore = entityOverlapScore(left, right);
+		if (entityScore >= minEntityScore) {
+			addCandidateForNewMemory(heuristicCandidates, left, right, newMemoryIds, "entity", entityScore);
+		}
+	});
+
+	for (const { left, right, score } of tfidfPairs(active)) {
+		if (!pairIncludesNewMemory(left, right, newMemoryIds)) continue;
+		if (score >= minTfIdfSimilarity) {
+			addCandidateForNewMemory(heuristicCandidates, left, right, newMemoryIds, "tfidf", score);
+		}
+	}
+
+	const candidates = new Map(explicitCandidates);
+	const heuristicLimit = Math.max(0, options.limit ?? DEFAULT_NEW_MEMORY_LINK_LIMIT);
+	for (const candidate of sortedCandidates(heuristicCandidates).slice(0, heuristicLimit)) {
+		mergeCandidate(candidates, candidate);
+	}
+	return sortedCandidates(candidates);
 }
 
 export async function persistMemoryLinks(
@@ -233,6 +302,37 @@ function addCandidate(
 	score: number,
 ): void {
 	const [source, target] = orderPair(left, right);
+	addCandidateWithSource(candidates, source, target, axis, score);
+}
+
+function addCandidateForNewMemory(
+	candidates: Map<string, LinkCandidate>,
+	left: Memory,
+	right: Memory,
+	newMemoryIds: ReadonlySet<string>,
+	axis: LinkCandidateAxis,
+	score: number,
+): void {
+	const leftIsNew = newMemoryIds.has(left.id);
+	const rightIsNew = newMemoryIds.has(right.id);
+	if (leftIsNew && !rightIsNew) {
+		addCandidateWithSource(candidates, left, right, axis, score);
+		return;
+	}
+	if (rightIsNew && !leftIsNew) {
+		addCandidateWithSource(candidates, right, left, axis, score);
+		return;
+	}
+	addCandidate(candidates, left, right, axis, score);
+}
+
+function addCandidateWithSource(
+	candidates: Map<string, LinkCandidate>,
+	source: Memory,
+	target: Memory,
+	axis: LinkCandidateAxis,
+	score: number,
+): void {
 	const key = pairKey(source.id, target.id);
 	const existing = candidates.get(key);
 	if (existing) {
@@ -247,6 +347,99 @@ function addCandidate(
 		score,
 		extraction_bond: sharedBond(source, target),
 	});
+}
+
+function mergeCandidate(candidates: Map<string, LinkCandidate>, candidate: LinkCandidate): void {
+	const existing = candidates.get(pairKey(candidate.source_id, candidate.target_id));
+	if (!existing) {
+		candidates.set(pairKey(candidate.source_id, candidate.target_id), { ...candidate });
+		return;
+	}
+	for (const axis of candidate.axes) {
+		if (!existing.axes.includes(axis)) existing.axes.push(axis);
+	}
+	existing.score = Math.min(existing.score + candidate.score, 3);
+	existing.extraction_bond = existing.extraction_bond ?? candidate.extraction_bond;
+}
+
+function addExplicitReferenceCandidates(
+	candidates: Map<string, LinkCandidate>,
+	active: readonly Memory[],
+	activeById: ReadonlyMap<string, Memory>,
+	newMemoryIds: ReadonlySet<string>,
+	explicitReferencesByNewMemoryId: ReadonlyMap<string, readonly string[]> | undefined,
+): void {
+	const activeByShortId = new Map(
+		active.map((memory) => [(memory.short_id ?? memoryShortId(memory.id)).toLowerCase(), memory]),
+	);
+
+	for (const newMemoryId of newMemoryIds) {
+		const source = activeById.get(newMemoryId);
+		if (!source) continue;
+		const references = explicitReferencesForMemory(
+			source,
+			active,
+			explicitReferencesByNewMemoryId?.get(newMemoryId) ?? [],
+		);
+		for (const reference of references) {
+			const target = resolveMemoryReference(reference, activeById, activeByShortId);
+			if (!target || target.id === source.id) continue;
+			addCandidateForNewMemory(candidates, source, target, newMemoryIds, "explicit", 3);
+		}
+	}
+}
+
+function explicitReferencesForMemory(
+	memory: Memory,
+	active: readonly Memory[],
+	configuredReferences: readonly string[],
+): Set<string> {
+	const references = new Set(configuredReferences);
+	for (const match of memory.content.matchAll(/\bmem_[a-zA-Z0-9]{8}\b/g)) {
+		if (match[0]) references.add(match[0]);
+	}
+	for (const candidate of active) {
+		if (candidate.id !== memory.id && memory.content.includes(candidate.id)) {
+			references.add(candidate.id);
+		}
+	}
+	return references;
+}
+
+function resolveMemoryReference(
+	reference: string,
+	activeById: ReadonlyMap<string, Memory>,
+	activeByShortId: ReadonlyMap<string, Memory>,
+): Memory | undefined {
+	const trimmed = reference.trim();
+	if (!trimmed) return undefined;
+	return activeById.get(trimmed) ?? activeByShortId.get(trimmed.toLowerCase());
+}
+
+function pairIncludesNewMemory(
+	left: Memory,
+	right: Memory,
+	newMemoryIds: ReadonlySet<string>,
+): boolean {
+	return newMemoryIds.has(left.id) || newMemoryIds.has(right.id);
+}
+
+function sourceSegmentIdsForMemories(
+	memories: ReadonlyMap<string, Memory>,
+	memoryIds: ReadonlySet<string>,
+): Set<string> {
+	const segmentIds = new Set<string>();
+	for (const memoryId of memoryIds) {
+		const segmentId = memories.get(memoryId)?.source_segment_id;
+		if (segmentId) segmentIds.add(segmentId);
+	}
+	return segmentIds;
+}
+
+function sortedCandidates(candidates: ReadonlyMap<string, LinkCandidate>): LinkCandidate[] {
+	return [...candidates.values()].sort(
+		(a, b) => b.score - a.score || a.source_id.localeCompare(b.source_id),
+	);
 }
 
 function orderPair(left: Memory, right: Memory): [Memory, Memory] {
