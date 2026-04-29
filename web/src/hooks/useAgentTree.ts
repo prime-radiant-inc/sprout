@@ -61,13 +61,17 @@ export function buildAgentTree(events: SessionEvent[]): BuildAgentTreeResult {
 	// Maps for mnemonic name lookups
 	const handleToMnemonic = new Map<string, string>();
 	const childIdToMnemonic = new Map<string, string>();
+	let sawRootIdentityEvent = false;
 
 	for (const event of events) {
 		// Derive root identity from the first depth-0 event
-		if (event.depth === 0 && root.agentId === "root" && event.agent_id !== "root") {
-			root.agentId = event.agent_id;
-			root.agentName = event.agent_id;
-			nodeById.set(event.agent_id, root);
+		if (event.depth === 0 && !sawRootIdentityEvent) {
+			sawRootIdentityEvent = true;
+			if (event.agent_id !== "root") {
+				root.agentId = event.agent_id;
+				root.agentName = event.agent_id;
+				nodeById.set(event.agent_id, root);
+			}
 		}
 
 		switch (event.kind) {

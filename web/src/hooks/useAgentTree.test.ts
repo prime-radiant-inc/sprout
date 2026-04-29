@@ -73,6 +73,23 @@ describe("buildAgentTree", () => {
 			expect(tree.agentId).toBe("main-agent");
 		});
 
+		test("does not replace root identity with later learning events", () => {
+			const events = [
+				makeEvent("perceive", "root", 0, { goal: "Do work" }),
+				makeEvent("act_start", "root", 0, {
+					agent_name: "worker",
+					goal: "Fix tests",
+					child_id: "child-1",
+				}),
+				makeEvent("learn_start", "worker", 0, { kind: "error", goal: "Fix tests" }),
+			];
+			const { tree } = buildAgentTree(events);
+
+			expect(tree.agentId).toBe("root");
+			expect(tree.agentName).toBe("root");
+			expect(tree.children[0]!.agentId).toBe("child-1");
+		});
+
 		test("root status becomes completed on session_end", () => {
 			const events = [
 				makeEvent("session_start", "root", 0, { model: "claude" }),

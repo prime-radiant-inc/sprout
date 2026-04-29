@@ -20,6 +20,19 @@ export interface ToolCallSummary {
 	success: boolean;
 }
 
+export interface StumbleDetail {
+	toolName: string;
+	args: string;
+	error?: string;
+	output?: string;
+}
+
+export interface LearnDiagnosticSummary {
+	kind: "signal" | "start" | "mutation" | "end";
+	summary: string;
+	detail?: string;
+}
+
 export interface GroupedEvent {
 	event: SessionEvent;
 	isFirstInGroup: boolean;
@@ -34,6 +47,10 @@ export interface GroupedEvent {
 	livePeekTools?: ToolCallSummary[];
 	/** Number of failed child tool calls inside a delegation that still completed. */
 	stumbleCount?: number;
+	/** Failed child tool calls that contributed to a delegation stumble. */
+	stumbles?: StumbleDetail[];
+	/** Learn pipeline activity associated with delegation stumbles. */
+	learnEvents?: LearnDiagnosticSummary[];
 	/** Args from the matching primitive_start (primitive_end events don't carry args). */
 	args?: Record<string, unknown>;
 	/** Set when a delegation was still running at session_end (crash/abort). */
@@ -113,6 +130,73 @@ function buildParentMap(node: AgentTreeNode): Map<string, string> {
 	return map;
 }
 
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+	return value as Record<string, unknown>;
+}
+
+function optionalString(value: unknown): string | undefined {
+	return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function learnKey(agentName: string, goal: string): string {
+	return `${agentName}\0${goal}`;
+}
+
+function learnMutationSummary(mutationType: string): string {
+	switch (mutationType) {
+		case "create_memory":
+			return "Created memory";
+		case "update_agent":
+			return "Updated agent";
+		case "create_agent":
+			return "Created agent";
+		case "create_routing_rule":
+			return "Created routing rule";
+		case "evaluation":
+			return "Evaluated improvement";
+		case "rollback":
+			return "Rolled back improvement";
+		default:
+			return `Learn mutation: ${mutationType}`;
+	}
+}
+
+function learnEndSummary(result: string): string {
+	switch (result) {
+		case "applied":
+			return "Learning applied";
+		case "skipped":
+			return "Learning skipped";
+		case "error":
+			return "Learning errored";
+		default:
+			return `Learning ${result}`;
+	}
+}
+
+function learnSignalDetail(signal: Record<string, unknown>): string | undefined {
+	const details = recordValue(signal.details);
+	return optionalString(details?.output) ?? optionalString(signal.goal);
+}
+
+function learnMutationDetail(data: Record<string, unknown>): string | undefined {
+	if (typeof data.extracted_count === "number") {
+		return `${data.extracted_count} ${data.extracted_count === 1 ? "memory" : "memories"} extracted`;
+	}
+	return optionalString(data.description) ?? optionalString(data.error);
+}
+
+function learnEndDetail(data: Record<string, unknown>): string | undefined {
+	return (
+		optionalString(data.error) ??
+		optionalString(data.mutation_type) ??
+		(typeof data.extracted_memories === "boolean"
+			? `extracted_memories: ${data.extracted_memories}`
+			: undefined)
+	);
+}
+
 /**
  * Groups consecutive events from the same agent, inserting group boundaries
  * when the agent changes, event kind changes, a non-groupable event intervenes,
@@ -145,8 +229,96 @@ export function groupEvents(
 	const childPeek = new Map<string, string>(); // child_id -> latest activity summary
 	const childPeekTools = new Map<string, ToolCallSummary[]>(); // child_id -> recent tool calls
 	const childStumbleCounts = new Map<string, number>(); // child_id -> failed tool calls
+	const childStumbles = new Map<string, StumbleDetail[]>();
+	const childLearnEvents = new Map<string, LearnDiagnosticSummary[]>();
+	const childByLearnKey = new Map<string, string>();
+	const activeLearnByAgent = new Map<string, string>();
+	let latestActiveLearnChildId: string | undefined;
 	const pendingActStarts = new Map<string, number>(); // child_id -> index in result array
+	const completedActEntries = new Map<string, number>(); // child_id -> index in result array
 	const lastPrimitiveArgs = new Map<string, Record<string, unknown>>(); // agent_id:name -> args from primitive_start
+
+	function delegationExtras(childId: string): Partial<GroupedEvent> {
+		const stumbleCount = childStumbleCounts.get(childId) ?? 0;
+		const stumbles = childStumbles.get(childId);
+		const learnEvents = childLearnEvents.get(childId);
+		return {
+			...(stumbleCount > 0 ? { stumbleCount } : {}),
+			...(stumbles && stumbles.length > 0 ? { stumbles: [...stumbles] } : {}),
+			...(learnEvents && learnEvents.length > 0 ? { learnEvents: [...learnEvents] } : {}),
+		};
+	}
+
+	function refreshDelegationEntry(childId: string): void {
+		const idx = pendingActStarts.get(childId) ?? completedActEntries.get(childId);
+		if (idx === undefined) return;
+		const entry = result[idx];
+		if (!entry) return;
+		result[idx] = {
+			...entry,
+			...delegationExtras(childId),
+		};
+	}
+
+	function appendLearnEvent(childId: string | undefined, diagnostic: LearnDiagnosticSummary): void {
+		if (!childId) return;
+		const eventsForChild = childLearnEvents.get(childId) ?? [];
+		eventsForChild.push(diagnostic);
+		childLearnEvents.set(childId, eventsForChild);
+		refreshDelegationEntry(childId);
+	}
+
+	function trackLearnDiagnostic(event: SessionEvent): void {
+		if (event.kind === "learn_signal") {
+			const signal = recordValue(event.data.signal);
+			const agentName = optionalString(signal?.agent_name);
+			const goal = optionalString(signal?.goal);
+			if (!signal || !agentName || !goal) return;
+			appendLearnEvent(childByLearnKey.get(learnKey(agentName, goal)), {
+				kind: "signal",
+				summary: `Queued ${signal.kind ?? "unknown"} learn signal`,
+				...(learnSignalDetail(signal) ? { detail: learnSignalDetail(signal) } : {}),
+			});
+			return;
+		}
+
+		if (event.kind === "learn_start") {
+			const goal = optionalString(event.data.goal);
+			if (!goal) return;
+			const childId = childByLearnKey.get(learnKey(event.agent_id, goal));
+			if (!childId) return;
+			activeLearnByAgent.set(event.agent_id, childId);
+			latestActiveLearnChildId = childId;
+			appendLearnEvent(childId, {
+				kind: "start",
+				summary: "Learning started",
+				detail: `${event.data.kind ?? "unknown"} for ${goal}`,
+			});
+			return;
+		}
+
+		if (event.kind === "learn_mutation") {
+			const mutationType = optionalString(event.data.mutation_type) ?? "unknown";
+			appendLearnEvent(latestActiveLearnChildId, {
+				kind: "mutation",
+				summary: learnMutationSummary(mutationType),
+				...(learnMutationDetail(event.data) ? { detail: learnMutationDetail(event.data) } : {}),
+			});
+			return;
+		}
+
+		if (event.kind === "learn_end") {
+			const childId = activeLearnByAgent.get(event.agent_id) ?? latestActiveLearnChildId;
+			const result = optionalString(event.data.result) ?? "finished";
+			appendLearnEvent(childId, {
+				kind: "end",
+				summary: learnEndSummary(result),
+				...(learnEndDetail(event.data) ? { detail: learnEndDetail(event.data) } : {}),
+			});
+			activeLearnByAgent.delete(event.agent_id);
+			latestActiveLearnChildId = undefined;
+		}
+	}
 
 	for (let i = 0; i < events.length; i++) {
 		const event = events[i]!;
@@ -175,6 +347,16 @@ export function groupEvents(
 			(!rootAgentId || event.agent_id === rootAgentId)
 		) {
 			directChildIds.add(event.data.child_id);
+			if (typeof event.data.agent_name === "string" && typeof event.data.goal === "string") {
+				childByLearnKey.set(
+					learnKey(event.data.agent_name, event.data.goal),
+					event.data.child_id,
+				);
+			}
+		}
+
+		if (merging) {
+			trackLearnDiagnostic(event);
 		}
 
 		// In parent view, filter out events from direct children (but update peek first)
@@ -199,12 +381,21 @@ export function groupEvents(
 						event.agent_id,
 						(childStumbleCounts.get(event.agent_id) ?? 0) + 1,
 					);
+					const stumbles = childStumbles.get(event.agent_id) ?? [];
+					stumbles.push({
+						toolName,
+						args: argsStr,
+						...(optionalString(event.data.error) ? { error: optionalString(event.data.error) } : {}),
+						...(optionalString(event.data.output) ? { output: optionalString(event.data.output) } : {}),
+					});
+					childStumbles.set(event.agent_id, stumbles);
 				}
 				// Accumulate recent tool calls (keep last 3)
 				const tools = childPeekTools.get(event.agent_id) ?? [];
 				tools.push({ name: toolName, args: argsStr, success });
 				if (tools.length > 3) tools.shift();
 				childPeekTools.set(event.agent_id, tools);
+				refreshDelegationEntry(event.agent_id);
 			} else if (event.kind === "plan_end" && typeof event.data.text === "string") {
 				const text = event.data.text;
 				childPeek.set(event.agent_id, text.length > 60 ? `${text.slice(0, 60)}...` : text);
@@ -241,13 +432,12 @@ export function groupEvents(
 				if (entry) {
 					const peek = childPeek.get(childId);
 					const tools = childPeekTools.get(childId);
-					const stumbleCount = childStumbleCounts.get(childId) ?? 0;
 					result[idx] = {
 						...entry,
 						abandoned: true,
 						...(peek ? { livePeek: peek } : {}),
 						...(tools ? { livePeekTools: [...tools] } : {}),
-						...(stumbleCount > 0 ? { stumbleCount } : {}),
+						...delegationExtras(childId),
 					};
 				}
 			}
@@ -292,7 +482,6 @@ export function groupEvents(
 				if (startIdx !== undefined) {
 					const peek = childPeek.get(childId);
 					const tools = childPeekTools.get(childId);
-					const stumbleCount = childStumbleCounts.get(childId) ?? 0;
 					// Replace the act_start entry with the act_end entry
 					result[startIdx] = {
 						event,
@@ -302,9 +491,10 @@ export function groupEvents(
 						agentName: nameMap.get(event.agent_id),
 						...(peek ? { livePeek: peek } : {}),
 						...(tools ? { livePeekTools: [...tools] } : {}),
-						...(stumbleCount > 0 ? { stumbleCount } : {}),
+						...delegationExtras(childId),
 					};
 					pendingActStarts.delete(childId);
+					completedActEntries.set(childId, startIdx);
 					continue;
 				}
 			}
@@ -361,6 +551,7 @@ export function groupEvents(
 				...result[idx]!,
 				...(peek ? { livePeek: peek } : {}),
 				...(tools ? { livePeekTools: [...tools] } : {}),
+				...delegationExtras(childId),
 			};
 		}
 	}

@@ -773,6 +773,68 @@ describe("groupEvents", () => {
 				{ name: "exec", args: "bun test", success: false },
 			]);
 		});
+
+		test("completed delegations include stumble details and learning diagnostics", () => {
+			const childId = "child-learn";
+			const tree = treePlusChild(childId);
+			const signal = {
+				kind: "error",
+				agent_name: "worker",
+				goal: "work",
+				details: {
+					agent_name: "worker",
+					goal: "work",
+					output: "child recovered after failing tests",
+					success: true,
+					stumbles: 1,
+					turns: 2,
+					timed_out: false,
+				},
+				session_id: "session-1",
+				timestamp: 1500,
+			};
+			const events: SessionEvent[] = [
+				makeEvent("act_start", { agent_name: "worker", goal: "work", child_id: childId }, { timestamp: 1000 }),
+				makeEvent("primitive_start", { name: "exec", args: { command: "bun test" } }, { agent_id: childId, timestamp: 1100, depth: 1 }),
+				makeEvent(
+					"primitive_end",
+					{
+						name: "exec",
+						success: false,
+						stumbled: true,
+						output: "1 test failed",
+						error: "exit code 1",
+					},
+					{ agent_id: childId, timestamp: 1200, depth: 1 },
+				),
+				makeEvent("learn_signal", { signal }, { timestamp: 1300 }),
+				makeEvent("act_end", { agent_name: "worker", child_id: childId, success: true, turns: 2, goal: "work" }, { timestamp: 1400 }),
+				makeEvent("learn_start", { kind: "error", goal: "work" }, { agent_id: "worker", timestamp: 1500 }),
+				makeEvent("learn_mutation", { mutation_type: "create_memory", extracted_count: 1 }, { agent_id: "learn", timestamp: 1600 }),
+				makeEvent("learn_end", { result: "applied", mutation_type: "create_memory", extracted_memories: true }, { agent_id: "worker", timestamp: 1700 }),
+			];
+			const result = groupEvents(events, undefined, tree);
+
+			const delegation = result.find((g) => g.event.kind === "act_end");
+			expect(delegation).toBeTruthy();
+			expect(delegation!.stumbles).toEqual([
+				{
+					toolName: "exec",
+					args: "bun test",
+					error: "exit code 1",
+					output: "1 test failed",
+				},
+			]);
+			expect(delegation!.learnEvents?.map((event) => event.kind)).toEqual([
+				"signal",
+				"start",
+				"mutation",
+				"end",
+			]);
+			expect(delegation!.learnEvents![0]!.summary).toBe("Queued error learn signal");
+			expect(delegation!.learnEvents![2]!.summary).toBe("Created memory");
+			expect(delegation!.learnEvents![3]!.summary).toBe("Learning applied");
+		});
 	});
 
 	describe("session_end marks abandoned delegations", () => {

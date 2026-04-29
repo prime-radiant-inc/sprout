@@ -648,6 +648,39 @@ describe("DelegationBlock", () => {
 		expect(html).toContain("bun test");
 	});
 
+	test("renders detailed stumbles and learning diagnostics", () => {
+		const html = renderToStaticMarkup(
+			<DelegationBlock
+				agentName="code-editor"
+				goal="Refactor the parser"
+				status="completed"
+				stumbleCount={1}
+				stumbles={[
+					{
+						toolName: "exec",
+						args: "bun test",
+						error: "exit code 1",
+						output: "1 test failed",
+					},
+				]}
+				learnEvents={[
+					{ kind: "signal", summary: "Queued error learn signal", detail: "child recovered" },
+					{ kind: "mutation", summary: "Created memory", detail: "1 memory extracted" },
+					{ kind: "end", summary: "Learning applied", detail: "create_memory" },
+				]}
+			/>,
+		);
+		expect(html).toContain('data-status="completed"');
+		expect(html).toContain("Stumble details");
+		expect(html).toContain("Failed tool");
+		expect(html).toContain("exit code 1");
+		expect(html).toContain("1 test failed");
+		expect(html).toContain("Learning");
+		expect(html).toContain("Queued error learn signal");
+		expect(html).toContain("Created memory");
+		expect(html).toContain("Learning applied");
+	});
+
 	test("renders failed status with error styling", () => {
 		const html = renderToStaticMarkup(
 			<DelegationBlock
@@ -1357,6 +1390,49 @@ describe("ConversationView", () => {
 		const html = renderToStaticMarkup(<ConversationView events={events} tree={tree} />);
 		expect(html).toContain('data-status="running"');
 		expect(html).toContain('data-status="completed"');
+	});
+
+	test("renders delegation stumble and learning details from session events", () => {
+		const childId = "child-stumble-ui";
+		const signal = {
+			kind: "error",
+			agent_name: "worker",
+			goal: "do work",
+			details: {
+				agent_name: "worker",
+				goal: "do work",
+				output: "worker recovered",
+				success: true,
+				stumbles: 1,
+				turns: 2,
+				timed_out: false,
+			},
+			session_id: "session-1",
+			timestamp: 1300,
+		};
+		const events: SessionEvent[] = [
+			makeEvent("act_start", { agent_name: "worker", goal: "do work", child_id: childId }, { agent_id: "root", timestamp: 1000 }),
+			makeEvent("primitive_start", { name: "exec", args: { command: "bun test" } }, { agent_id: childId, depth: 1, timestamp: 1100 }),
+			makeEvent(
+				"primitive_end",
+				{ name: "exec", success: false, stumbled: true, output: "1 failed", error: "exit 1" },
+				{ agent_id: childId, depth: 1, timestamp: 1200 },
+			),
+			makeEvent("learn_signal", { signal }, { agent_id: "root", timestamp: 1300 }),
+			makeEvent("act_end", { agent_name: "worker", goal: "do work", child_id: childId, success: true, turns: 2 }, { agent_id: "root", timestamp: 1400 }),
+			makeEvent("learn_start", { kind: "error", goal: "do work" }, { agent_id: "worker", timestamp: 1500 }),
+			makeEvent("learn_mutation", { mutation_type: "create_memory", extracted_count: 1 }, { agent_id: "learn", timestamp: 1600 }),
+			makeEvent("learn_end", { result: "applied", mutation_type: "create_memory" }, { agent_id: "worker", timestamp: 1700 }),
+		];
+		const { tree } = buildAgentTree(events);
+		const html = renderToStaticMarkup(<ConversationView events={events} tree={tree} />);
+
+		expect(html).toContain('data-status="completed"');
+		expect(html).toContain("Stumble details");
+		expect(html).toContain("Failed tool");
+		expect(html).toContain("exit 1");
+		expect(html).toContain("Created memory");
+		expect(html).toContain("Learning applied");
 	});
 
 	test("passes onSelectAgent to delegation blocks as onOpenThread", () => {

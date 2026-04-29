@@ -135,6 +135,74 @@
 	border-top: 1px solid var(--color-border);
 }
 
+.diagnostics {
+	border-top: 1px solid var(--color-border);
+	padding-top: var(--space-xs);
+}
+
+.diagnosticsSummary {
+	cursor: pointer;
+	font-size: var(--font-size-xs);
+	font-weight: 600;
+	color: var(--color-warning);
+}
+
+.diagnosticsSection {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-xs);
+	padding-top: var(--space-sm);
+}
+
+.diagnosticsTitle {
+	font-size: var(--font-size-xxs);
+	font-weight: 700;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: var(--color-text-placeholder);
+}
+
+.diagnosticItem {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding: var(--space-xs);
+	border-radius: var(--radius-sm);
+	background: var(--color-inset);
+}
+
+.diagnosticLine {
+	display: flex;
+	align-items: baseline;
+	gap: var(--space-xs);
+	font-family: var(--font-mono);
+	font-size: var(--font-size-xs);
+	min-width: 0;
+}
+
+.diagnosticDetail {
+	margin: 0;
+	white-space: pre-wrap;
+	word-break: break-word;
+	font-family: var(--font-mono);
+	font-size: var(--font-size-xxs);
+	line-height: 1.4;
+	color: var(--color-text-secondary);
+}
+
+.learnKind {
+	color: var(--color-accent);
+	font-size: var(--font-size-xxs);
+	font-weight: 700;
+	text-transform: uppercase;
+	flex-shrink: 0;
+}
+
+.learnSummary {
+	color: var(--color-text-secondary);
+	font-weight: 500;
+}
+
 .footer {
 	padding-top: var(--space-xs);
 }

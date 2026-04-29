@@ -1,5 +1,9 @@
 import type { SessionEvent } from "@kernel/types.ts";
-import type { ToolCallSummary } from "./groupEvents.ts";
+import type {
+	LearnDiagnosticSummary,
+	StumbleDetail,
+	ToolCallSummary,
+} from "./groupEvents.ts";
 import { AssistantMessage } from "./AssistantMessage.tsx";
 import { DelegationBlock } from "./DelegationBlock.tsx";
 import { SystemMessage } from "./SystemMessage.tsx";
@@ -21,6 +25,8 @@ interface EventLineProps {
 	livePeek?: string;
 	livePeekTools?: ToolCallSummary[];
 	stumbleCount?: number;
+	stumbles?: StumbleDetail[];
+	learnEvents?: LearnDiagnosticSummary[];
 	/** Args from matching primitive_start (primitive_end events don't carry args). */
 	args?: Record<string, unknown>;
 	/** Whether this delegation was abandoned (session ended without act_end). */
@@ -32,7 +38,7 @@ interface EventLineProps {
  * Dispatcher: maps a SessionEvent to the appropriate display component.
  * Returns null for events that should not be displayed.
  */
-export function EventLine({ event, durationMs, streamingText, isFirstInGroup, agentName, userName, livePeek, livePeekTools, stumbleCount, args: groupedArgs, abandoned, onSelectAgent }: EventLineProps) {
+export function EventLine({ event, durationMs, streamingText, isFirstInGroup, agentName, userName, livePeek, livePeekTools, stumbleCount, stumbles, learnEvents, args: groupedArgs, abandoned, onSelectAgent }: EventLineProps) {
 	const { kind, data } = event;
 
 	switch (kind) {
@@ -120,6 +126,8 @@ export function EventLine({ event, durationMs, streamingText, isFirstInGroup, ag
 					livePeek={livePeek}
 					livePeekTools={livePeekTools}
 					stumbleCount={stumbleCount}
+					stumbles={stumbles}
+					learnEvents={learnEvents}
 					onOpenThread={onSelectAgent && typeof data.child_id === "string" ? () => onSelectAgent(data.child_id as string) : undefined}
 				/>
 			);
@@ -137,6 +145,8 @@ export function EventLine({ event, durationMs, streamingText, isFirstInGroup, ag
 					livePeek={livePeek}
 					livePeekTools={livePeekTools}
 					stumbleCount={stumbleCount}
+					stumbles={stumbles}
+					learnEvents={learnEvents}
 					onOpenThread={onSelectAgent && typeof data.child_id === "string" ? () => onSelectAgent(data.child_id as string) : undefined}
 				/>
 			);
