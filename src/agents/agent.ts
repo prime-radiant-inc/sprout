@@ -424,6 +424,10 @@ export class Agent {
 		return this.spec.tags.includes("observer");
 	}
 
+	private shouldSuppressNaturalObserverOutput(): boolean {
+		return this.spec.tags.includes("observer") && this.spec.tools.includes(MESSAGE_AGENT_TOOL_NAME);
+	}
+
 	/** Returns all tools this agent can use (agent tools + primitive tools) */
 	resolvedTools(): ToolDefinition[] {
 		return [...this.agentTools, ...this.primitiveTools];
@@ -2257,6 +2261,7 @@ export class Agent {
 						this.replayRecorder?.record(record);
 					},
 					logger: this.logger,
+					suppressNaturalAssistantText: this.shouldSuppressNaturalObserverOutput(),
 				});
 				if (planningResult.kind === "interrupted") {
 					if (timeoutController?.signal.aborted) {

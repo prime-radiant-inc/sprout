@@ -825,12 +825,14 @@ export class SessionController {
 			try {
 				runResult = await result.agent.run(goal, signal);
 			} catch (error) {
+				await this.drainObserversAfterRun(signal);
 				if (shouldCollapseThrownRun(signal, this.terminalSessionEndSeen)) {
 					await stopLearnProcess();
 					await this.collapseMemoryAfterRun(result);
 				}
 				throw error;
 			}
+			await this.drainObserversAfterRun(signal);
 			if (shouldCollapseRun(runResult, signal)) {
 				await stopLearnProcess();
 				await this.collapseMemoryAfterRun(result);
@@ -855,6 +857,12 @@ export class SessionController {
 			}
 			await persistTerminalMetadata(metadata, signal.aborted);
 		}
+	}
+
+	private async drainObserversAfterRun(signal: AbortSignal): Promise<void> {
+		if (signal.aborted) return;
+		await this.observerRegistry?.drain();
+		await this.controllerEventLogWriteChain;
 	}
 
 	private configureObserverRegistry(genome: Genome | undefined): void {

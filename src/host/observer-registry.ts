@@ -78,6 +78,7 @@ export class ObserverRegistry {
 	private readonly emitEvent: ObserverRegistryOptions["emitEvent"];
 	private preconfigureEvents: SessionEvent[] = [];
 	private startedHandles = new Set<string>();
+	private pendingFlushes = new Set<Promise<void>>();
 	private generation = 0;
 
 	constructor(options: ObserverRegistryOptions) {
@@ -122,7 +123,7 @@ export class ObserverRegistry {
 			if (!this.shouldTrigger(subscription, event)) continue;
 			subscription.triggerCount++;
 			if (subscription.triggerCount % subscription.config.trigger.every !== 0) continue;
-			void this.flush(subscription);
+			this.scheduleFlush(subscription);
 		}
 		if (event.kind === "session_end" && event.depth === 0) {
 			for (const subscription of this.subscriptions) {
@@ -144,8 +145,20 @@ export class ObserverRegistry {
 			subscription.completionRequested = false;
 		}
 		this.startedHandles.clear();
+		this.pendingFlushes.clear();
 		this.generation++;
 		this.preconfigureEvents = [];
+	}
+
+	async drain(): Promise<void> {
+		while (this.pendingFlushes.size > 0) {
+			await Promise.allSettled([...this.pendingFlushes]);
+		}
+		for (const subscription of this.subscriptions) {
+			if (subscription.completionRequested) {
+				this.completeObserverIfReady(subscription, { success: true });
+			}
+		}
 	}
 
 	private shouldTrigger(subscription: ObserverSubscriptionState, event: SessionEvent): boolean {
@@ -196,12 +209,21 @@ export class ObserverRegistry {
 				subscription.deliveryInFlight = false;
 				if (!deliveryFailed && subscription.flushRequested) {
 					subscription.flushRequested = false;
-					void this.flush(subscription);
+					this.scheduleFlush(subscription);
 				} else if (subscription.completionRequested) {
 					this.completeObserverIfReady(subscription, { success: !deliveryFailed });
 				}
 			}
 		}
+	}
+
+	private scheduleFlush(subscription: ObserverSubscriptionState): void {
+		const promise = this.flush(subscription);
+		this.pendingFlushes.add(promise);
+		void promise.then(
+			() => this.pendingFlushes.delete(promise),
+			() => this.pendingFlushes.delete(promise),
+		);
 	}
 
 	private async deliverFrame(

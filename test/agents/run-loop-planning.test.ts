@@ -130,4 +130,77 @@ describe("executePlanningTurn", () => {
 		expect(debugCalled).toBe(false);
 		expect(replayRecords).toEqual([]);
 	});
+
+	test("suppresses natural assistant text while preserving tool calls", async () => {
+		const events: Array<{ kind: string; data: Record<string, unknown> }> = [];
+		const history = [Msg.user("goal")];
+		const response: Response = {
+			id: "r1",
+			model: "claude-sonnet-4-5-20250929",
+			provider: "anthropic",
+			message: {
+				role: "assistant",
+				content: [
+					{ kind: ContentKind.TEXT, text: "I should notify the caller." },
+					{
+						kind: ContentKind.TOOL_CALL,
+						tool_call: {
+							id: "c1",
+							name: "message_agent",
+							arguments: { handle: "caller", message: "Check the assumption.", blocking: false },
+						},
+					},
+				],
+			},
+			finish_reason: { reason: "tool_calls" },
+			usage: { input_tokens: 11, output_tokens: 7, total_tokens: 18 },
+		};
+
+		const result = await executePlanningTurn({
+			sessionId: "01SESSION",
+			turn: 1,
+			agentId: "observer-root-1-metacognitive",
+			agentName: "metacognitive",
+			depth: 1,
+			systemPrompt: "sys",
+			history,
+			agentTools: [],
+			primitiveTools: [],
+			model: "claude-sonnet-4-5-20250929",
+			provider: "anthropic",
+			suppressNaturalAssistantText: true,
+			emit: (kind, _agentId, _depth, data) => {
+				events.push({ kind, data });
+			},
+			requestPlanResponse: async () => ({ response, latencyMs: 42 }),
+			logger: {
+				debug: () => {},
+			},
+		});
+
+		expect(events.find((event) => event.kind === "plan_end")?.data.text).toBe("");
+		expect(history.at(-1)).toEqual({
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "c1",
+						name: "message_agent",
+						arguments: { handle: "caller", message: "Check the assumption.", blocking: false },
+					},
+				},
+			],
+		});
+		expect(result.kind).toBe("success");
+		if (result.kind === "success") {
+			expect(result.toolCalls).toEqual([
+				{
+					id: "c1",
+					name: "message_agent",
+					arguments: { handle: "caller", message: "Check the assumption.", blocking: false },
+				},
+			]);
+		}
+	});
 });

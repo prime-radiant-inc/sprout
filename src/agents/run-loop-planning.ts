@@ -6,7 +6,7 @@ import type {
 	ToolCall,
 	ToolDefinition,
 } from "../llm/types.ts";
-import { messageReasoning, messageText, messageToolCalls } from "../llm/types.ts";
+import { ContentKind, messageReasoning, messageText, messageToolCalls } from "../llm/types.ts";
 import type { ReplayTurnRecord } from "../shared/replay.ts";
 import { getContextWindowSize } from "./context-window.ts";
 import { buildPlanRequest } from "./plan.ts";
@@ -37,6 +37,7 @@ export interface ExecutePlanningTurnInput {
 	logger: {
 		debug(category: "llm", message: string, data?: Record<string, unknown>): void;
 	};
+	suppressNaturalAssistantText?: boolean;
 }
 
 export type PlanningTurnResult =
@@ -120,7 +121,12 @@ export async function executePlanningTurn(
 		finish_reason: response.finish_reason.reason,
 	});
 
-	const assistantMessage = response.message;
+	const rawAssistantMessage = response.message;
+	const toolCalls = messageToolCalls(rawAssistantMessage);
+	const assistantMessage =
+		input.suppressNaturalAssistantText === true
+			? withoutTextParts(rawAssistantMessage)
+			: rawAssistantMessage;
 	input.history.push(assistantMessage);
 
 	input.logger.debug("llm", "Plan response received", {
@@ -148,6 +154,13 @@ export async function executePlanningTurn(
 		kind: "success",
 		response,
 		assistantMessage,
-		toolCalls: messageToolCalls(assistantMessage),
+		toolCalls,
+	};
+}
+
+function withoutTextParts(message: Message): Message {
+	return {
+		...message,
+		content: message.content.filter((part) => part.kind !== ContentKind.TEXT),
 	};
 }

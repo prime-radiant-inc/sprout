@@ -1178,6 +1178,66 @@ describe("Agent", () => {
 		expect(events.collected().filter((event) => event.kind === "warning")).toEqual([]);
 	});
 
+	test("tool-capable observer suppresses natural no-op text", async () => {
+		const observerSpec: AgentSpec = {
+			...leafSpec,
+			name: "metacognitive",
+			description: "Steering observer",
+			system_prompt: "Use message_agent when needed, otherwise stay silent.",
+			tools: ["message_agent"],
+			agents: [],
+			constraints: {
+				...DEFAULT_CONSTRAINTS,
+				can_spawn: false,
+				can_learn: false,
+				max_turns: 3,
+			},
+			tags: ["observer"],
+		};
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				return {
+					id: "mock-noop-tool-observer",
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant("No intervention warranted."),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 10, output_tokens: 4, total_tokens: 14 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: observerSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 1,
+			events,
+			spawner: {} as AgentSpawner,
+		});
+
+		const result = await agent.run("observe a root frame");
+		const planEnd = events.collected().find((event) => event.kind === "plan_end");
+		const assistantMessage = planEnd?.data.assistant_message as Message | undefined;
+
+		expect(callCount).toBe(1);
+		expect(result.success).toBe(true);
+		expect(result.output).toBe("");
+		expect(planEnd?.data.text).toBe("");
+		expect(messageText(assistantMessage!)).toBe("");
+		expect(JSON.stringify(planEnd)).not.toContain("No intervention warranted");
+		expect(events.collected().filter((event) => event.kind === "warning")).toEqual([]);
+	});
+
 	test("observer with implicit resolved tools may complete silently with an empty response", async () => {
 		const observerSpec: AgentSpec = {
 			...leafSpec,

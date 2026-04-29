@@ -2840,6 +2840,132 @@ describe("SessionController session-wide event wiring", () => {
 		});
 	});
 
+	test("runGoal waits for final observer delivery before returning", async () => {
+		const bus = new EventBus();
+		await mkdir(join(tempDir, "sessions"), { recursive: true });
+		const sessionId = "observer-drain-session";
+		const deliveries: unknown[] = [];
+		let deliveryStarted!: () => void;
+		let releaseDelivery!: () => void;
+		const deliveryStartedPromise = new Promise<void>((resolve) => {
+			deliveryStarted = resolve;
+		});
+		const releaseDeliveryPromise = new Promise<void>((resolve) => {
+			releaseDelivery = resolve;
+		});
+		const fakeSpawner = {
+			getHandles: () => [],
+			subscribeSessionEvents: async () => {},
+			subscribeRootMessages: async () => {},
+			updateSessionId: async () => {},
+			clearHandles: async () => {},
+			deliverObserverFrame: async (options: { message: string; [key: string]: unknown }) => {
+				deliveries.push(observerDeliveryCall(options));
+				deliveryStarted();
+				await releaseDeliveryPromise;
+			},
+		} as any;
+		const fakeGenome = {
+			getAgent: (name: string) => {
+				if (name === "root") {
+					return {
+						name: "root",
+						model: "best",
+						observers: [
+							{
+								agent: "metacognitive",
+								target: "root",
+								events: ["plan_end"],
+								trigger: { every: 1, event: "plan_end" },
+							},
+						],
+					};
+				}
+				if (name === "metacognitive") {
+					return { name: "metacognitive", model: "balanced" };
+				}
+				return undefined;
+			},
+		} as any;
+		const emitted: SessionEvent[] = [];
+		const factory: AgentFactory = async (options) => ({
+			agent: {
+				steer() {},
+				requestCompaction() {},
+				async run() {
+					options.events.emitEvent("plan_end", "root", 0, {
+						turn: 1,
+						finish_reason: "stop",
+						text: "final root turn",
+					});
+					options.events.emitEvent("session_end", "root", 0, {
+						session_id: sessionId,
+						success: true,
+						stumbles: 0,
+						turns: 1,
+						timed_out: false,
+						output: "done",
+					});
+					return { output: "done", success: true, stumbles: 0, turns: 1, timed_out: false };
+				},
+			} as any,
+			learnProcess: null,
+			genome: fakeGenome,
+		});
+
+		const controller = new SessionController({
+			bus,
+			genomePath: join(tempDir, "genome"),
+			projectDataDir: tempDir,
+			sessionId,
+			factory,
+			spawner: fakeSpawner,
+			genome: fakeGenome,
+			getResolverSettings: () =>
+				createResolverSettings(
+					[{ id: "anthropic", enabled: true }],
+					{},
+					{},
+					{
+						metacognitive: {
+							kind: "model",
+							model: {
+								providerId: "anthropic",
+								modelId: "claude-sonnet-4-6",
+							},
+						},
+					},
+				),
+		});
+		bus.onEvent((event) => emitted.push(event));
+
+		let resolved = false;
+		const runPromise = controller.runGoal("trigger final observer").then((result) => {
+			resolved = true;
+			return result;
+		});
+
+		await deliveryStartedPromise;
+		await sleep(20);
+		expect(deliveries).toHaveLength(1);
+		expect(resolved).toBe(false);
+
+		releaseDelivery();
+		const result = await runPromise;
+		expect(result.success).toBe(true);
+		expect(resolved).toBe(true);
+		const observerEnd = emitted.find(
+			(event) =>
+				event.kind === "act_end" && event.data.child_id === "observer-root-1-metacognitive",
+		);
+		expect(observerEnd?.data).toMatchObject({
+			agent_name: "metacognitive",
+			observer: true,
+			success: true,
+			timed_out: false,
+		});
+	});
+
 	test("does not attach a hard-coded observer without static config", async () => {
 		const bus = new EventBus();
 		await mkdir(join(tempDir, "sessions"), { recursive: true });
