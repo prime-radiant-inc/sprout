@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createResolverSettings } from "../../src/agents/model-resolver.ts";
 import {
 	buildCollapseTranscript,
 	collapseSessionToMemory,
@@ -11,6 +12,7 @@ import {
 	renderCollapseTranscript,
 } from "../../src/core/session-collapse.ts";
 import type { Genome } from "../../src/genome/genome.ts";
+import { memoryShortId } from "../../src/genome/memory-schema.ts";
 import type { MemorySegment } from "../../src/genome/segments.ts";
 import type { SessionEvent } from "../../src/kernel/types.ts";
 import type { Client } from "../../src/llm/client.ts";
@@ -74,6 +76,18 @@ const DEFAULT_MEMORY_MODELS = {
 	summaryModel: { model: "claude-sonnet-4-6", provider: "anthropic" },
 	extractionModel: { model: "claude-sonnet-4-6", provider: "anthropic" },
 };
+
+const RELATIONSHIP_MODELS_BY_PROVIDER = new Map<string, ProviderModel[]>([
+	["anthropic", [{ id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", source: "remote" }]],
+]);
+
+const DEFAULT_RELATIONSHIP_RESOLVER_SETTINGS = createResolverSettings(
+	[{ id: "anthropic", enabled: true }],
+	{},
+	{
+		relationship: { providerId: "anthropic", modelId: "claude-sonnet-4-6" },
+	},
+);
 
 function memorySegment(
 	fields: Partial<MemorySegment> & { id: string; summary: string },
@@ -382,6 +396,8 @@ abc123
 			genome,
 			client,
 			...DEFAULT_MEMORY_MODELS,
+			resolverSettings: DEFAULT_RELATIONSHIP_RESOLVER_SETTINGS,
+			modelsByProvider: RELATIONSHIP_MODELS_BY_PROVIDER,
 			sessionId: "session-collapse-1",
 			cwd: workDir,
 			now: 400,
@@ -401,6 +417,136 @@ abc123
 		expect(memory.source_session_id).toBe("session-collapse-1");
 		expect(memory.project_ids).toContain("sprout-memory");
 		expect(memory.embedding?.status).toBe("ready");
+	});
+
+	test("routes collapsed memories through relationship incorporation", async () => {
+		const genomeDir = join(tempDir, "genome-relationship-collapse");
+		const rootDir = join(import.meta.dir, "../../root");
+		const workDir = join(tempDir, "work-relationship-collapse");
+		await mkdir(workDir, { recursive: true });
+		const genome = createTestGenome(genomeDir, rootDir);
+		await genome.init();
+		await genome.initFromRoot();
+		await genome.addMemory({
+			id: "stale-auth-collapse",
+			content: "streamlinear uses Authorization: token header format.",
+			tags: ["streamlinear"],
+			source: "test",
+			created: 50,
+			last_used: 50,
+			use_count: 0,
+			confidence: 1,
+		});
+		const requests: Request[] = [];
+		const client = makeClientSequence(
+			[
+				JSON.stringify({
+					summary: "The session corrected streamlinear Authorization header memory.",
+					title: "Streamlinear auth correction",
+					complexity: 1,
+				}),
+				JSON.stringify([
+					{
+						text: "streamlinear sends a bare Authorization header value, no token prefix.",
+						tags: ["streamlinear", "auth"],
+					},
+				]),
+				JSON.stringify({
+					relationship_type: "supersedes",
+					reasoning: "The newer memory replaces the older token-prefix claim.",
+				}),
+			],
+			(request) => requests.push(request),
+		);
+
+		const result = await collapseSessionToMemory({
+			events: [
+				event("perceive", 100, {
+					goal: `Correct stale memory ${memoryShortId("stale-auth-collapse")}.`,
+				}),
+				event("session_end", 200, {
+					output: "streamlinear sends the bare Authorization value.",
+				}),
+			],
+			genome,
+			client,
+			...DEFAULT_MEMORY_MODELS,
+			resolverSettings: DEFAULT_RELATIONSHIP_RESOLVER_SETTINGS,
+			modelsByProvider: RELATIONSHIP_MODELS_BY_PROVIDER,
+			sessionId: "session-collapse-relationship",
+			cwd: workDir,
+			now: 300,
+		});
+
+		expect(result).not.toBe("skipped");
+		expect(genome.memories.getById("stale-auth-collapse")?.superseded_by).toBe(
+			"segment-session-collapse-relationship-100-mem-0",
+		);
+		expect(requests.map((request) => request.metadata?.purpose)).toEqual([
+			"memory.summary",
+			"memory.extraction",
+			"memory.relationship",
+		]);
+		expect(requests[2]?.model).toBe("claude-sonnet-4-6");
+	});
+
+	test("does not persist collapse state when relationship classification fails", async () => {
+		const genomeDir = join(tempDir, "genome-relationship-collapse-fail");
+		const rootDir = join(import.meta.dir, "../../root");
+		const workDir = join(tempDir, "work-relationship-collapse-fail");
+		await mkdir(workDir, { recursive: true });
+		const genome = createTestGenome(genomeDir, rootDir);
+		await genome.init();
+		await genome.initFromRoot();
+		await genome.addMemory({
+			id: "stale-auth-fail",
+			content: "streamlinear uses Authorization: token header format.",
+			tags: ["streamlinear"],
+			source: "test",
+			created: 50,
+			last_used: 50,
+			use_count: 0,
+			confidence: 1,
+		});
+		const client = makeClientSequence([
+			JSON.stringify({
+				summary: "The session corrected streamlinear Authorization header memory.",
+				title: "Streamlinear auth correction",
+				complexity: 1,
+			}),
+			JSON.stringify([
+				{
+					text: "streamlinear sends a bare Authorization header value, no token prefix.",
+					tags: ["streamlinear", "auth"],
+				},
+			]),
+			"not json",
+		]);
+
+		await expect(
+			collapseSessionToMemory({
+				events: [
+					event("perceive", 100, {
+						goal: `Correct stale memory ${memoryShortId("stale-auth-fail")}.`,
+					}),
+					event("session_end", 200, {
+						output: "streamlinear sends the bare Authorization value.",
+					}),
+				],
+				genome,
+				client,
+				...DEFAULT_MEMORY_MODELS,
+				resolverSettings: DEFAULT_RELATIONSHIP_RESOLVER_SETTINGS,
+				modelsByProvider: RELATIONSHIP_MODELS_BY_PROVIDER,
+				sessionId: "session-collapse-relationship-fail",
+				cwd: workDir,
+				now: 300,
+			}),
+		).rejects.toThrow();
+
+		expect(genome.segments.all()).toHaveLength(0);
+		expect(genome.memories.getById("segment-session-collapse-relationship-fail-100-mem-0")).toBeUndefined();
+		expect(genome.memories.getById("stale-auth-fail")?.superseded_by).toBeUndefined();
 	});
 
 	test("accepts fenced JSON variants from memory collapse calls", async () => {

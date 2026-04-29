@@ -188,6 +188,8 @@ export type AgentFactory = (options: AgentFactoryOptions) => Promise<AgentFactor
 interface CollapseMemoryModels {
 	summaryModel: ResolvedModel;
 	extractionModel: ResolvedModel;
+	resolverSettings: ResolverSettings;
+	modelsByProvider: Map<string, ProviderModel[]>;
 }
 
 export interface SessionControllerOptions {
@@ -326,6 +328,8 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 						client: result.client,
 						summaryModel: collapseModels.summaryModel,
 						extractionModel: collapseModels.extractionModel,
+						resolverSettings: collapseModels.resolverSettings,
+						modelsByProvider: collapseModels.modelsByProvider,
 						sessionId,
 						cwd,
 						project,
@@ -360,6 +364,8 @@ export async function resolveCollapseMemoryModels(
 			effectiveResolverSettings,
 			modelMap,
 		),
+		resolverSettings: effectiveResolverSettings,
+		modelsByProvider: modelMap,
 	};
 }
 

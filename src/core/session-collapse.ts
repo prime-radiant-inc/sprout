@@ -1,3 +1,4 @@
+import type { ResolverSettings } from "../agents/model-resolver.ts";
 import { filterDuplicateDrafts } from "../genome/dedup.ts";
 import {
 	type ExtractionMessage,
@@ -7,13 +8,14 @@ import {
 	parseExtractionJson,
 } from "../genome/extraction.ts";
 import type { Genome } from "../genome/genome.ts";
+import { incorporateExtractedMemories } from "../genome/memory-incorporation.ts";
 import { type DetectedProject, detectProjectFromCwd } from "../genome/projects.ts";
 import type { MemorySegment } from "../genome/segments.ts";
 import { collectObserverAgentIds, isObserverTelemetryEvent } from "../kernel/observer-telemetry.ts";
 import { redactSensitiveTranscriptContent } from "../kernel/redaction.ts";
 import type { SessionEvent } from "../kernel/types.ts";
 import type { Client } from "../llm/client.ts";
-import { ContentKind, type Message, Msg, messageText } from "../llm/types.ts";
+import { ContentKind, type Message, Msg, messageText, type ProviderModel } from "../llm/types.ts";
 
 export { redactSensitiveTranscriptContent } from "../kernel/redaction.ts";
 
@@ -41,6 +43,8 @@ export interface CollapseSessionToMemoryInput {
 	client: Client;
 	summaryModel: { model: string; provider: string };
 	extractionModel: { model: string; provider: string };
+	resolverSettings?: ResolverSettings;
+	modelsByProvider?: Map<string, ProviderModel[]>;
 	sessionId: string;
 	cwd: string;
 	explicitProject?: string;
@@ -167,13 +171,38 @@ export async function collapseSessionToMemory(
 		};
 	});
 
-	const persistedMemories = await input.genome.addSegmentWithMemories(segment, memories);
+	const persistedMemories =
+		memories.length === 0
+			? await input.genome.addSegmentWithMemories(segment, memories)
+			: (
+					await incorporateExtractedMemories({
+						genome: input.genome,
+						segment,
+						memories,
+						explicitReferenceIds: memoryReferenceIdsFromExtractionMessages(extractionMessages),
+						client: input.client,
+						resolverSettings: input.resolverSettings,
+						modelsByProvider: input.modelsByProvider,
+					})
+				).memories;
 
 	return {
 		segment,
 		project,
 		extractedMemoryCount: persistedMemories.length,
 	};
+}
+
+function memoryReferenceIdsFromExtractionMessages(
+	messages: readonly ExtractionMessage[],
+): string[] {
+	const references = new Set<string>();
+	for (const message of messages) {
+		for (const match of message.content.matchAll(/\bmem_[a-zA-Z0-9]{8}\b/g)) {
+			if (match[0]) references.add(match[0]);
+		}
+	}
+	return [...references];
 }
 
 function latestCollapsedTranscriptTimestamp(

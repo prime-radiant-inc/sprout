@@ -17,8 +17,8 @@ export interface IncorporateExtractedMemoriesInput {
 	memories: Memory[];
 	explicitReferenceIds?: readonly string[];
 	client: Client;
-	resolverSettings: ResolverSettings;
-	modelsByProvider: Map<string, ProviderModel[]>;
+	resolverSettings?: ResolverSettings;
+	modelsByProvider?: Map<string, ProviderModel[]>;
 	prompt?: string;
 	discovery?: LinkDiscoveryOptions;
 	commitMessage?: string;
@@ -40,6 +40,11 @@ export async function incorporateExtractedMemories(
 		...(input.commitMessage ? { commitMessage: input.commitMessage } : {}),
 		...(input.now !== undefined ? { now: input.now } : {}),
 		classifyRelationships: async ({ candidates, memoriesById }) => {
+			if (!input.resolverSettings || !input.modelsByProvider) {
+				throw new Error(
+					"Memory relationship model settings are required when relationship candidates exist",
+				);
+			}
 			relationshipModel ??= resolveMemoryModel(
 				"relationship",
 				input.resolverSettings,
