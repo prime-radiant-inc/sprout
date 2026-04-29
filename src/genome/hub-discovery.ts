@@ -1,4 +1,5 @@
 import type { Memory } from "../kernel/types.ts";
+import { isActiveMemoryForRecall } from "./memory-lifecycle.ts";
 
 export interface HubMemoryResult {
 	memory: Memory;
@@ -20,7 +21,7 @@ export function discoverEntityHubMemories(
 
 	return memories
 		.flatMap((memory) => {
-			if (memory.archived_at) return [];
+			if (!isActiveMemoryForRecall(memory)) return [];
 			const matchedEntities = (memory.entity_links ?? [])
 				.filter((entity) => {
 					const name = normalizeForEntityMatch(entity.name);

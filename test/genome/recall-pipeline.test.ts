@@ -61,6 +61,27 @@ describe("recall pipeline", () => {
 		expect(result.map((item) => item.memory.id)).toEqual(["m-sprout"]);
 	});
 
+	test("entity hub discovery excludes superseded memories from unfiltered pools", () => {
+		const result = discoverEntityHubMemories(
+			[
+				memory({
+					id: "m-current",
+					content: "Sprout uses local embeddings",
+					entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
+				}),
+				memory({
+					id: "m-stale",
+					content: "Sprout uses remote embeddings",
+					superseded_by: "m-current",
+					entity_links: [{ uuid: "entity_sprout", type: "PROJECT", name: "Sprout" }],
+				}),
+			],
+			"Sprout embeddings",
+		);
+
+		expect(result.map((item) => item.memory.id)).toEqual(["m-current"]);
+	});
+
 	test("matches short entity names only on token boundaries or exact hints", () => {
 		const memories = [
 			memory({

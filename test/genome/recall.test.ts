@@ -226,6 +226,40 @@ describe("recall", () => {
 		expect(withExpansion.memories.map((memory) => memory.id)).toEqual(["m-sqlite"]);
 	});
 
+	test("recall returns corrected memories without surfacing superseded stale claims", async () => {
+		const root = join(tempDir, "recall-superseded-correction");
+		const genome = createTestGenome(root, undefined, {
+			embeddingProvider: createRecallEmbeddingProvider(),
+		});
+		await genome.init();
+		await genome.addMemory(
+			makeMemory("stale-auth", "Streamlinear auth uses an Authorization token prefix."),
+		);
+		await genome.addMemory(
+			makeMemory(
+				"corrected-auth",
+				"Streamlinear auth sends a bare Authorization header without a token prefix.",
+			),
+		);
+		const stale = genome.memories.getById("stale-auth")!;
+		stale.superseded_by = "corrected-auth";
+		stale.inbound_links = [
+			{
+				uuid: "corrected-auth",
+				type: "supersedes",
+				reasoning: "Corrected after source verification.",
+				created_at: 123,
+			},
+		];
+		await genome.saveMemoryMutation("genome: supersede stale streamlinear auth memory");
+
+		const result = await recall(genome, "Streamlinear Authorization token prefix", {
+			markUsed: false,
+		});
+
+		expect(result.memories.map((memory) => memory.id)).toEqual(["corrected-auth"]);
+	});
+
 	test("returns matching routing hints", async () => {
 		const root = join(tempDir, "recall-routing");
 		const genome = new Genome(root);
