@@ -399,6 +399,34 @@ describe("memory link graph", () => {
 		);
 	});
 
+	test("new-memory discovery preserves explicit direction between new memories", () => {
+		const target = memory({
+			id: "aaa-target",
+			created: 100,
+			content: "The older-looking new memory is the target.",
+		});
+		const candidates = discoverLinkCandidatesForNewMemories({
+			memories: [
+				memory({
+					id: "zzz-source",
+					created: 100,
+					content: `This correction explicitly references ${memoryShortId(target.id)}.`,
+				}),
+				target,
+			],
+			newMemoryIds: new Set(["zzz-source", "aaa-target"]),
+			options: { limit: 0, minVectorSimilarity: 1, minTfIdfSimilarity: 1 },
+		});
+
+		expect(candidates).toContainEqual(
+			expect.objectContaining({
+				source_id: "zzz-source",
+				target_id: "aaa-target",
+				axes: ["explicit"],
+			}),
+		);
+	});
+
 	test("persists classified relationships to JSONL and the SQLite index", async () => {
 		const root = await mkdtemp(join(tmpdir(), "sprout-linking-"));
 		try {

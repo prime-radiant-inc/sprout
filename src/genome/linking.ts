@@ -384,7 +384,7 @@ function addExplicitReferenceCandidates(
 		for (const reference of references) {
 			const target = resolveMemoryReference(reference, activeById, activeByShortId);
 			if (!target || target.id === source.id) continue;
-			addCandidateForNewMemory(candidates, source, target, newMemoryIds, "explicit", 3);
+			addCandidateWithSource(candidates, source, target, "explicit", 3);
 		}
 	}
 }
