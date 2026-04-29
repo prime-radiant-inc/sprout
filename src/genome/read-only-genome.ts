@@ -18,6 +18,7 @@ const MUTATING_GENOME_METHODS = new Set([
 	"saveMemoryMutation",
 	"addSegment",
 	"addSegmentWithMemories",
+	"addExtractedMemoriesWithRelationships",
 	"markMemoriesUsed",
 	"recordProjectActivity",
 	"saveProjectActivityMutation",

@@ -104,6 +104,13 @@ describe("createReadOnlyGenome", () => {
 		await expect(readOnlyGenome.addSegmentWithMemories(segment, [memory])).rejects.toThrow(
 			"read-only genome",
 		);
+		await expect(
+			readOnlyGenome.addExtractedMemoriesWithRelationships({
+				segment,
+				memories: [memory],
+				classifyRelationships: async () => [],
+			}),
+		).rejects.toThrow("read-only genome");
 		expect(() => readOnlyGenome.memories.stage(memory)).toThrow("read-only genome");
 		expect(() => readOnlyGenome.memories.mergeLatestFromDisk()).toThrow("read-only genome");
 		expect(() => readOnlyGenome.segments.add(segment)).toThrow("read-only genome");

@@ -20,6 +20,13 @@ import {
 	rebuildMemoryIndexFromJsonl,
 	requireMemoryIndexFresh,
 } from "./index-builder.ts";
+import {
+	applyMemoryLinks,
+	discoverLinkCandidatesForNewMemories,
+	type ClassifiedMemoryRelationship,
+	type LinkCandidate,
+	type LinkDiscoveryOptions,
+} from "./linking.ts";
 import { attachReadyMemoryEmbedding } from "./memory-embedding.ts";
 import { MemoryIndex } from "./memory-index.ts";
 import { isActiveMemoryForRecall } from "./memory-lifecycle.ts";
@@ -47,6 +54,32 @@ export interface SyncRootResult {
 
 export interface GenomeOptions {
 	embeddingProvider?: EmbeddingProvider;
+}
+
+export interface ExtractedMemoryRelationshipClassificationInput {
+	candidates: readonly LinkCandidate[];
+	memoriesById: ReadonlyMap<string, Memory>;
+}
+
+export interface AddExtractedMemoriesWithRelationshipsInput {
+	segment?: MemorySegment;
+	memories: Memory[];
+	explicitReferenceIds?: readonly string[];
+	classifyRelationships: (
+		input: ExtractedMemoryRelationshipClassificationInput,
+	) => Promise<readonly ClassifiedMemoryRelationship[]>;
+	commitMessage?: string;
+	source?: string;
+	now?: number;
+	discovery?: LinkDiscoveryOptions;
+}
+
+export interface AddExtractedMemoriesWithRelationshipsResult {
+	segment?: MemorySegment;
+	memories: Memory[];
+	candidates: LinkCandidate[];
+	relationships: ClassifiedMemoryRelationship[];
+	linksAdded: number;
 }
 
 export interface MemoryLogCompactionResult {
@@ -484,6 +517,113 @@ export class Genome {
 				);
 				committed = true;
 				return savedMemories;
+			} catch (err) {
+				if (!committed) {
+					await restoreUncommittedMemoryMutation(this.rootPath, snapshots, filesToAdd);
+					await this.segments.load();
+					await this.memories.load();
+				}
+				throw err;
+			}
+		});
+	}
+
+	/** Add extracted memories and resolve their relationships in one atomic genome mutation. */
+	async addExtractedMemoriesWithRelationships(
+		input: AddExtractedMemoriesWithRelationshipsInput,
+	): Promise<AddExtractedMemoriesWithRelationshipsResult> {
+		const provider = await this.getEmbeddingProvider();
+		const embeddedSegment = input.segment
+			? await attachReadySegmentEmbedding(input.segment, provider)
+			: undefined;
+		const embeddedMemories: Memory[] = [];
+		for (const memory of input.memories) {
+			const memoryWithSegment =
+				embeddedSegment && !memory.source_segment_id
+					? { ...memory, source_segment_id: embeddedSegment.id }
+					: memory;
+			stampMemoryActivitySnapshots(memoryWithSegment, this.projects.all());
+			embeddedMemories.push(await attachReadyMemoryEmbedding(memoryWithSegment, provider));
+		}
+
+		const segmentsPath = join(this.rootPath, "memories", "segments.jsonl");
+		const memoriesPath = join(this.rootPath, "memories", "memories.jsonl");
+		return this.withMemoryWriteLock(async () => {
+			await this.segments.load();
+			await this.memories.load();
+			const memoriesToStage = await filterDuplicateMemories(embeddedMemories, this.memories.all());
+			if (!embeddedSegment && memoriesToStage.length === 0) {
+				return {
+					memories: [],
+					candidates: [],
+					relationships: [],
+					linksAdded: 0,
+				};
+			}
+
+			if (embeddedSegment) this.assertCanAddSegmentWithMemories(embeddedSegment, memoriesToStage);
+			else assertCanStageMemoryBatch(this.memories.all(), memoriesToStage);
+
+			const filesToAdd = embeddedSegment
+				? [segmentsPath, ...(memoriesToStage.length > 0 ? [memoriesPath] : [])]
+				: [memoriesPath];
+			const snapshots = await snapshotTextFiles(filesToAdd);
+			let committed = false;
+			try {
+				const savedMemories: Memory[] = [];
+				if (embeddedSegment) {
+					this.segments.stage(embeddedSegment);
+				}
+				for (const memory of memoriesToStage) {
+					savedMemories.push(this.memories.stage(memory));
+				}
+
+				const explicitReferencesByNewMemoryId = explicitReferenceMapForNewMemories(
+					savedMemories,
+					input.explicitReferenceIds ?? [],
+				);
+				const candidates = discoverLinkCandidatesForNewMemories({
+					memories: this.memories.all(),
+					newMemoryIds: new Set(savedMemories.map((memory) => memory.id)),
+					...(explicitReferencesByNewMemoryId
+						? { explicitReferencesByNewMemoryId }
+						: {}),
+					options: input.discovery,
+				});
+				const relationships =
+					candidates.length > 0
+						? [
+								...(await input.classifyRelationships({
+									candidates,
+									memoriesById: new Map(this.memories.all().map((memory) => [memory.id, memory])),
+								})),
+							]
+						: [];
+				const { added: linksAdded } = applyMemoryLinks(this.memories.all(), relationships, {
+					now: input.now,
+				});
+
+				if (embeddedSegment) await this.segments.save();
+				if (memoriesToStage.length > 0) await this.memories.save();
+				await git(this.rootPath, "add", ...filesToAdd);
+				await rebuildMemoryIndexFromJsonl(this.rootPath, { assumeMemoryWriteLock: true });
+				await git(
+					this.rootPath,
+					"commit",
+					"-m",
+					input.commitMessage ??
+						`genome: incorporate ${savedMemories.length} extracted memor${
+							savedMemories.length === 1 ? "y" : "ies"
+						}`,
+				);
+				committed = true;
+				return {
+					...(embeddedSegment ? { segment: embeddedSegment } : {}),
+					memories: savedMemories,
+					candidates,
+					relationships,
+					linksAdded,
+				};
 			} catch (err) {
 				if (!committed) {
 					await restoreUncommittedMemoryMutation(this.rootPath, snapshots, filesToAdd);
@@ -1357,6 +1497,14 @@ function assertCanStageMemoryBatch(
 		}
 		shortIds.set(shortId, memory.id);
 	}
+}
+
+function explicitReferenceMapForNewMemories(
+	memories: readonly Memory[],
+	explicitReferenceIds: readonly string[],
+): ReadonlyMap<string, readonly string[]> | undefined {
+	if (memories.length === 0 || explicitReferenceIds.length === 0) return undefined;
+	return new Map(memories.map((memory) => [memory.id, explicitReferenceIds]));
 }
 
 function removeLinksReferencingMemoryIds(
