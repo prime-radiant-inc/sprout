@@ -269,7 +269,7 @@ describe("GenomeMutationService", () => {
 				type: "create_memory",
 				content: "Always use strict mode in TypeScript",
 				tags: ["typescript", "best-practice"],
-			},
+			} as unknown as LearnMutation,
 			"req-001",
 		);
 
@@ -387,7 +387,7 @@ describe("GenomeMutationService", () => {
 				type: "create_memory",
 				content: "Correlation test",
 				tags: ["test"],
-			},
+			} as unknown as LearnMutation,
 			requestId,
 		);
 

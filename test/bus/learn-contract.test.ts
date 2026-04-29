@@ -30,9 +30,10 @@ describe("learn contract", () => {
 	test("parses mutation request and resolves mutation unchanged", () => {
 		const request = createMutationLearnRequest(
 			{
-				type: "create_memory",
-				content: "remember this",
-				tags: ["learned"],
+				type: "create_routing_rule",
+				condition: "learned condition",
+				preference: "worker",
+				strength: 0.8,
 			},
 			"req-1",
 		);

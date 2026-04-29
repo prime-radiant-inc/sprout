@@ -34,7 +34,6 @@ export interface LearnSink {
 }
 
 export type LearnMutation =
-	| { type: "create_memory"; content: string; tags: string[] }
 	| { type: "update_agent"; agent_name: string; system_prompt: string }
 	| {
 			type: "create_agent";
@@ -48,7 +47,7 @@ export type LearnMutation =
 	  }
 	| { type: "create_routing_rule"; condition: string; preference: string; strength: number };
 
-type ReasonedLearnMutation = Exclude<LearnMutation, { type: "create_memory" }>;
+type ReasonedLearnMutation = LearnMutation;
 
 export interface PendingEvaluation {
 	agentName: string;
@@ -494,19 +493,6 @@ Choose the most appropriate non-memory improvement. Use skip for factual learnin
 		const random = Math.random().toString(36).slice(2, 8);
 
 		switch (mutation.type) {
-			case "create_memory": {
-				await this.genome.addMemory({
-					id: `learn-${now}-${random}`,
-					content: mutation.content,
-					tags: mutation.tags,
-					source: "learn",
-					created: now,
-					last_used: now,
-					use_count: 0,
-					confidence: 0.8,
-				});
-				break;
-			}
 			case "update_agent": {
 				const existing = this.genome.getAgent(mutation.agent_name);
 				if (!existing) {
@@ -556,8 +542,6 @@ Choose the most appropriate non-memory improvement. Use skip for factual learnin
 		} else if (mutation.type === "create_agent") {
 			agentName = mutation.name;
 			description = `Created agent ${mutation.name}`;
-		} else if (mutation.type === "create_memory") {
-			description = `Created memory: ${mutation.content.slice(0, 80)}`;
 		} else if (mutation.type === "create_routing_rule") {
 			description = `Created routing rule: ${mutation.condition}`;
 		}

@@ -265,24 +265,6 @@ describe("LearnProcess", () => {
 		expect(result).toBe("empty");
 	});
 
-	test("applyMutation: create_memory adds memory with correct content/tags", async () => {
-		const { learn, genome } = await setupGenome(tempDir, "create-memory");
-		const mutation: LearnMutation = {
-			type: "create_memory",
-			content: "Always check file permissions before writing",
-			tags: ["filesystem", "permissions"],
-		};
-		await learn.applyMutation(mutation);
-		const memories = genome.memories.all();
-		expect(memories.length).toBe(1);
-		const mem = memories[0]!;
-		expect(mem.content).toBe("Always check file permissions before writing");
-		expect(mem.tags).toEqual(["filesystem", "permissions"]);
-		expect(mem.source).toBe("learn");
-		expect(mem.confidence).toBe(0.8);
-		expect(mem.id).toMatch(/^learn-/);
-	});
-
 	test("applyMutation: create_routing_rule adds rule", async () => {
 		const { learn, genome } = await setupGenome(tempDir, "create-rule");
 		const mutation: LearnMutation = {
@@ -352,15 +334,16 @@ describe("LearnProcess", () => {
 	test("emits learn_mutation event on applyMutation", async () => {
 		const { learn, events } = await setupGenome(tempDir, "emit-mutation");
 		const mutation: LearnMutation = {
-			type: "create_memory",
-			content: "test memory for events",
-			tags: ["test"],
+			type: "create_routing_rule",
+			condition: "event emission tasks",
+			preference: "code-editor",
+			strength: 0.8,
 		};
 		await learn.applyMutation(mutation);
 		const collected = events.collected();
 		const mutationEvents = collected.filter((e) => e.kind === "learn_mutation");
 		expect(mutationEvents.length).toBe(1);
-		expect(mutationEvents[0]!.data.mutation_type).toBe("create_memory");
+		expect(mutationEvents[0]!.data.mutation_type).toBe("create_routing_rule");
 	});
 
 	test("recordAction delegates to metrics", async () => {
@@ -1390,15 +1373,16 @@ OPENAI_API_KEY=sk-${"a".repeat(32)}`,
 		test("applyMutation adds a pending evaluation", async () => {
 			const { learn } = await setupGenome(tempDir, "pending-add");
 			const mutation: LearnMutation = {
-				type: "create_memory",
-				content: "test memory",
-				tags: ["test"],
+				type: "create_routing_rule",
+				condition: "pending evaluation tasks",
+				preference: "code-editor",
+				strength: 0.8,
 			};
 			await learn.applyMutation(mutation);
 
 			const pending = learn.pendingEvaluations();
 			expect(pending).toHaveLength(1);
-			expect(pending[0]!.mutationType).toBe("create_memory");
+			expect(pending[0]!.mutationType).toBe("create_routing_rule");
 			expect(pending[0]!.agentName).toBe("learn");
 			expect(typeof pending[0]!.timestamp).toBe("number");
 			expect(typeof pending[0]!.commitHash).toBe("string");
@@ -1422,16 +1406,17 @@ OPENAI_API_KEY=sk-${"a".repeat(32)}`,
 		test("pending evaluations persist to disk", async () => {
 			const { learn, pendingEvaluationsPath } = await setupGenome(tempDir, "pending-persist");
 			await learn.applyMutation({
-				type: "create_memory",
-				content: "persisted memory",
-				tags: ["test"],
+				type: "create_routing_rule",
+				condition: "persist pending evaluations",
+				preference: "code-editor",
+				strength: 0.8,
 			});
 
 			// Verify file exists on disk
 			const raw = await readFile(pendingEvaluationsPath, "utf-8");
 			const parsed = JSON.parse(raw) as PendingEvaluation[];
 			expect(parsed).toHaveLength(1);
-			expect(parsed[0]!.mutationType).toBe("create_memory");
+			expect(parsed[0]!.mutationType).toBe("create_routing_rule");
 		});
 
 		test("pending evaluations load across sessions", async () => {
@@ -1448,9 +1433,10 @@ OPENAI_API_KEY=sk-${"a".repeat(32)}`,
 				pendingEvaluationsPath,
 			});
 			await learn1.applyMutation({
-				type: "create_memory",
-				content: "cross-session memory",
-				tags: ["test"],
+				type: "create_routing_rule",
+				condition: "cross-session pending evaluation",
+				preference: "code-editor",
+				strength: 0.8,
 			});
 			expect(learn1.pendingEvaluations()).toHaveLength(1);
 
@@ -1463,7 +1449,7 @@ OPENAI_API_KEY=sk-${"a".repeat(32)}`,
 			});
 			await learn2.loadPendingEvaluations();
 			expect(learn2.pendingEvaluations()).toHaveLength(1);
-			expect(learn2.pendingEvaluations()[0]!.mutationType).toBe("create_memory");
+			expect(learn2.pendingEvaluations()[0]!.mutationType).toBe("create_routing_rule");
 		});
 	});
 

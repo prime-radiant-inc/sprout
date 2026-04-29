@@ -160,11 +160,11 @@ export class GenomeMutationService {
 
 			const now = Date.now();
 			const random = Math.random().toString(36).slice(2, 8);
+			if (isUnsupportedCreateMemoryMutation(mutation)) {
+				throw new Error("create_memory mutations are unsupported; send a learn signal");
+			}
 
 			switch (mutation.type) {
-				case "create_memory": {
-					throw new Error("create_memory mutations are unsupported; send a learn signal");
-				}
 				case "update_agent": {
 					const existing = this.genome.getAgent(mutation.agent_name);
 					if (!existing) {
@@ -390,4 +390,13 @@ export class GenomeMutationService {
 
 function stringValue(value: unknown): string | undefined {
 	return typeof value === "string" ? value : undefined;
+}
+
+function isUnsupportedCreateMemoryMutation(mutation: unknown): boolean {
+	return (
+		typeof mutation === "object" &&
+		mutation !== null &&
+		"type" in mutation &&
+		(mutation as { type?: unknown }).type === "create_memory"
+	);
 }
