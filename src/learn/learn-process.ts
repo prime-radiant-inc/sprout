@@ -88,6 +88,7 @@ export class LearnProcess {
 	private readonly client?: Client;
 	private readonly reasonerModel?: ResolvedModel;
 	private readonly extractionModel?: ResolvedModel;
+	private readonly relationshipModel?: ResolvedModel;
 	private readonly modelsByProvider?: Map<string, ProviderModel[]>;
 	private readonly resolverSettings?: ResolverSettings;
 	private readonly queue: LearnSignal[] = [];
@@ -131,6 +132,11 @@ export class LearnProcess {
 				this.extractionModel = resolveMemoryModel("extraction", resolverSettings, modelMap);
 			} catch {
 				this.extractionModel = undefined;
+			}
+			try {
+				this.relationshipModel = resolveMemoryModel("relationship", resolverSettings, modelMap);
+			} catch {
+				this.relationshipModel = undefined;
 			}
 		}
 	}
@@ -572,6 +578,9 @@ Choose the most appropriate non-memory improvement. Use skip for factual learnin
 		if (!this.client) return false;
 		if (!this.extractionModel) {
 			throw new Error("Learn memory extraction requires a configured memory 'extraction' model");
+		}
+		if (!this.relationshipModel) {
+			throw new Error("Learn memory extraction requires a configured memory 'relationship' model");
 		}
 
 		const now = Date.now();

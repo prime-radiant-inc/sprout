@@ -869,6 +869,55 @@ OPENAI_API_KEY=sk-${"a".repeat(32)}`,
 		expect(String(learnEnd?.data.error)).toContain("memory 'extraction' model");
 	});
 
+	test("missing relationship model after shouldLearn emits error instead of fallback writes", async () => {
+		const client = makeMockClientSequence(["[]"]);
+		const genomeDir = join(tempDir, "extract-missing-relationship-model");
+		await cp(genomeTemplateDir, genomeDir, { recursive: true });
+		const genome = createTestGenome(genomeDir, ROOT_DIR);
+		await genome.loadFromDisk();
+		const metrics = new MetricsStore(join(genomeDir, "metrics", "metrics.jsonl"));
+		await metrics.load();
+		const events = new AgentEventEmitter();
+		const learn = new LearnProcess({
+			genome,
+			metrics,
+			events,
+			client,
+			modelsByProvider: new Map([
+				["anthropic", [{ id: "shared-model", label: "Shared model", source: "remote" }]],
+			]),
+			resolverSettings: createResolverSettings(
+				[{ id: "anthropic", enabled: true }],
+				{ best: { providerId: "anthropic", modelId: "shared-model" } },
+				{ extraction: { providerId: "anthropic", modelId: "shared-model" } },
+			),
+		});
+		const signal = makeSignal({
+			kind: "failure",
+			agent_name: "root",
+			goal: "extract missing relationship model",
+			details: {
+				agent_name: "root",
+				goal: "extract missing relationship model",
+				output: "relationship model config missing",
+				success: false,
+				stumbles: 1,
+				turns: 4,
+				timed_out: false,
+			},
+		});
+		emitLearnEvidenceEvents(events, signal);
+		learn.push(signal);
+
+		const result = await learn.processNext();
+
+		expect(result).toBe("error");
+		const learnEnd = events.collected().findLast((event) => event.kind === "learn_end");
+		expect(learnEnd?.data.result).toBe("error");
+		expect(String(learnEnd?.data.error)).toContain("memory 'relationship' model");
+		expect(genome.memories.all()).toHaveLength(0);
+	});
+
 	test("learn extraction does not write through raw addMemories", async () => {
 		const client = makeMockClientSequence([
 			JSON.stringify([{ text: "Sprout stores learned facts through incorporation.", tags: [] }]),
@@ -911,7 +960,13 @@ OPENAI_API_KEY=sk-${"a".repeat(32)}`,
 		const requests: Request[] = [];
 		const modelsByProvider = new Map<string, ProviderModel[]>([
 			["anthropic", [{ id: "reason-model", label: "Reason model", source: "remote" }]],
-			["openrouter", [{ id: "extract-model", label: "Extract model", source: "remote" }]],
+			[
+				"openrouter",
+				[
+					{ id: "extract-model", label: "Extract model", source: "remote" },
+					{ id: "relationship-model", label: "Relationship model", source: "remote" },
+				],
+			],
 		]);
 		const client = makeMockClientSequence(
 			["[]", '{"type": "skip"}'],
@@ -937,7 +992,10 @@ OPENAI_API_KEY=sk-${"a".repeat(32)}`,
 					{ id: "openrouter", enabled: true },
 				],
 				{ best: { providerId: "anthropic", modelId: "reason-model" } },
-				{ extraction: { providerId: "openrouter", modelId: "extract-model" } },
+				{
+					extraction: { providerId: "openrouter", modelId: "extract-model" },
+					relationship: { providerId: "openrouter", modelId: "relationship-model" },
+				},
 			),
 		});
 		const signal = makeSignal({
