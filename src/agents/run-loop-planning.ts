@@ -127,7 +127,9 @@ export async function executePlanningTurn(
 		input.suppressNaturalAssistantText === true
 			? withoutTextParts(rawAssistantMessage)
 			: rawAssistantMessage;
-	input.history.push(assistantMessage);
+	if (assistantMessage.content.length > 0) {
+		input.history.push(assistantMessage);
+	}
 
 	input.logger.debug("llm", "Plan response received", {
 		model: input.model,

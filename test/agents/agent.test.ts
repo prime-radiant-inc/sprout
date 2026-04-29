@@ -1194,10 +1194,12 @@ describe("Agent", () => {
 			},
 			tags: ["observer"],
 		};
+		const capturedRequests: Request[] = [];
 		let callCount = 0;
 		const mockClient = {
 			providers: () => ["anthropic"],
-			complete: async (): Promise<Response> => {
+			complete: async (request: Request): Promise<Response> => {
+				capturedRequests.push(request);
 				callCount++;
 				return {
 					id: "mock-noop-tool-observer",
@@ -1236,6 +1238,14 @@ describe("Agent", () => {
 		expect(messageText(assistantMessage!)).toBe("");
 		expect(JSON.stringify(planEnd)).not.toContain("No intervention warranted");
 		expect(events.collected().filter((event) => event.kind === "warning")).toEqual([]);
+
+		const secondResult = await agent.continue("observe another root frame");
+		const secondRequestJson = JSON.stringify(capturedRequests[1]?.messages ?? []);
+		expect(secondResult.success).toBe(true);
+		expect(callCount).toBe(2);
+		expect(capturedRequests).toHaveLength(2);
+		expect(secondRequestJson).not.toContain('"role":"assistant","content":[]');
+		expect(secondRequestJson).not.toContain("No intervention warranted");
 	});
 
 	test("observer with implicit resolved tools may complete silently with an empty response", async () => {
