@@ -545,7 +545,9 @@ abc123
 		).rejects.toThrow();
 
 		expect(genome.segments.all()).toHaveLength(0);
-		expect(genome.memories.getById("segment-session-collapse-relationship-fail-100-mem-0")).toBeUndefined();
+		expect(
+			genome.memories.getById("segment-session-collapse-relationship-fail-100-mem-0"),
+		).toBeUndefined();
 		expect(genome.memories.getById("stale-auth-fail")?.superseded_by).toBeUndefined();
 	});
 

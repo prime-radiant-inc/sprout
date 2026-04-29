@@ -561,8 +561,7 @@ describe("LearnProcess", () => {
 				.collected()
 				.some(
 					(event) =>
-						event.kind === "learn_mutation" &&
-						event.data.mutation_type === "memory_extraction",
+						event.kind === "learn_mutation" && event.data.mutation_type === "memory_extraction",
 				),
 		).toBe(true);
 		const log = await git(

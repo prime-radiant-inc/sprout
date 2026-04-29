@@ -333,7 +333,10 @@ describe("GenomeMutationService", () => {
 		expect(confirmations[1]!.request_id).toBe("req-serial-2");
 		expect(confirmations[1]!.success).toBe(true);
 
-		const conditions = genome.allRoutingRules().map((rule) => rule.condition).sort();
+		const conditions = genome
+			.allRoutingRules()
+			.map((rule) => rule.condition)
+			.sort();
 		expect(conditions).toEqual(["first condition", "second condition"]);
 	}, 10_000);
 

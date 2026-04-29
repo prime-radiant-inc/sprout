@@ -89,10 +89,7 @@ const RELATIONSHIP_RESOLVER_SETTINGS = createResolverSettings(
 	{ relationship: { providerId: "openrouter", modelId: "relationship-model" } },
 );
 
-async function withGenome<T>(
-	name: string,
-	fn: (root: string) => Promise<T>,
-): Promise<T> {
+async function withGenome<T>(name: string, fn: (root: string) => Promise<T>): Promise<T> {
 	const root = await mkdtemp(join(tmpdir(), `sprout-${name}-`));
 	try {
 		return await fn(root);
@@ -463,9 +460,7 @@ describe("extracted memory incorporation", () => {
 		await withGenome("memory-incorporate-wrapper-invalid-json", async (root) => {
 			const genome = createTestGenome(root);
 			await genome.init();
-			await genome.addMemory(
-				memory({ id: "old-json", content: "Old JSON memory.", created: 100 }),
-			);
+			await genome.addMemory(memory({ id: "old-json", content: "Old JSON memory.", created: 100 }));
 
 			await expect(
 				incorporateExtractedMemories({

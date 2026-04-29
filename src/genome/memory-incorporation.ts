@@ -3,13 +3,10 @@ import { resolveMemoryModel } from "../agents/model-resolver.ts";
 import type { Memory } from "../kernel/types.ts";
 import type { Client } from "../llm/client.ts";
 import type { ProviderModel } from "../llm/types.ts";
-import type {
-	AddExtractedMemoriesWithRelationshipsResult,
-	Genome,
-} from "./genome.ts";
+import type { AddExtractedMemoriesWithRelationshipsResult, Genome } from "./genome.ts";
 import type { LinkDiscoveryOptions } from "./linking.ts";
-import type { MemorySegment } from "./segments.ts";
 import { classifyMemoryRelationship } from "./relationship-classifier.ts";
+import type { MemorySegment } from "./segments.ts";
 
 export interface IncorporateExtractedMemoriesInput {
 	genome: Genome;

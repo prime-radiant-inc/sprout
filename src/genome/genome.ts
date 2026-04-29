@@ -22,8 +22,8 @@ import {
 } from "./index-builder.ts";
 import {
 	applyMemoryLinks,
-	discoverLinkCandidatesForNewMemories,
 	type ClassifiedMemoryRelationship,
+	discoverLinkCandidatesForNewMemories,
 	type LinkCandidate,
 	type LinkDiscoveryOptions,
 } from "./linking.ts";
@@ -586,9 +586,7 @@ export class Genome {
 				const candidates = discoverLinkCandidatesForNewMemories({
 					memories: this.memories.all(),
 					newMemoryIds: new Set(savedMemories.map((memory) => memory.id)),
-					...(explicitReferencesByNewMemoryId
-						? { explicitReferencesByNewMemoryId }
-						: {}),
+					...(explicitReferencesByNewMemoryId ? { explicitReferencesByNewMemoryId } : {}),
 					options: input.discovery,
 				});
 				const relationships =

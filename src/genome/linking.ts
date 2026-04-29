@@ -135,12 +135,26 @@ export function discoverLinkCandidatesForNewMemories(
 
 		const vectorScore = vectorSimilarity(left, right);
 		if (vectorScore !== undefined && vectorScore >= minVectorSimilarity) {
-			addCandidateForNewMemory(heuristicCandidates, left, right, newMemoryIds, "vector", vectorScore);
+			addCandidateForNewMemory(
+				heuristicCandidates,
+				left,
+				right,
+				newMemoryIds,
+				"vector",
+				vectorScore,
+			);
 		}
 
 		const entityScore = entityOverlapScore(left, right);
 		if (entityScore >= minEntityScore) {
-			addCandidateForNewMemory(heuristicCandidates, left, right, newMemoryIds, "entity", entityScore);
+			addCandidateForNewMemory(
+				heuristicCandidates,
+				left,
+				right,
+				newMemoryIds,
+				"entity",
+				entityScore,
+			);
 		}
 	});
 

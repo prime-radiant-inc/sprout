@@ -11,8 +11,8 @@ import {
 	persistMemoryLinks,
 	traverseMemoryLinks,
 } from "../../src/genome/linking.ts";
-import { memoryShortId } from "../../src/genome/memory-schema.ts";
 import { MemoryIndex } from "../../src/genome/memory-index.ts";
+import { memoryShortId } from "../../src/genome/memory-schema.ts";
 import type { Memory } from "../../src/kernel/types.ts";
 import { createTestGenome } from "../helpers/test-genome.ts";
 
