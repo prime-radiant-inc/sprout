@@ -555,6 +555,16 @@ describe("LearnProcess", () => {
 		expect(result).toBe("applied");
 		expect(genome.memories.all()).toHaveLength(2);
 		expect(learn.pendingEvaluations()).toHaveLength(1);
+		expect(learn.pendingEvaluations()[0]?.mutationType).toBe("memory_extraction");
+		expect(
+			events
+				.collected()
+				.some(
+					(event) =>
+						event.kind === "learn_mutation" &&
+						event.data.mutation_type === "memory_extraction",
+				),
+		).toBe(true);
 		const log = await git(
 			genomeDir,
 			"log",

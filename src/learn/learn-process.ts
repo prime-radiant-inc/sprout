@@ -49,6 +49,8 @@ export type LearnMutation =
 
 type ReasonedLearnMutation = LearnMutation;
 
+const MEMORY_EXTRACTION_MUTATION_TYPE = "memory_extraction";
+
 export interface PendingEvaluation {
 	agentName: string;
 	mutationType: string;
@@ -358,7 +360,7 @@ export class LearnProcess {
 
 			this.events.emit("learn_end", signal.agent_name, 0, {
 				result: "applied",
-				mutation_type: mutation?.type ?? "create_memory",
+				mutation_type: mutation?.type ?? MEMORY_EXTRACTION_MUTATION_TYPE,
 				extracted_memories: memoryApplied,
 			});
 			return "applied";
@@ -611,14 +613,14 @@ Choose the most appropriate non-memory improvement. Use skip for factual learnin
 		const commitHash = await this.genome.lastCommitHash();
 		this._pendingEvaluations.push({
 			agentName: "learn",
-			mutationType: "create_memory",
+			mutationType: MEMORY_EXTRACTION_MUTATION_TYPE,
 			timestamp: now,
 			commitHash,
 			description: `Extracted ${result.memories.length} memories from learn signal`,
 		});
 		await this.savePendingEvaluations();
 		this.events.emit("learn_mutation", "learn", 0, {
-			mutation_type: "create_memory",
+			mutation_type: MEMORY_EXTRACTION_MUTATION_TYPE,
 			extracted_count: result.memories.length,
 		});
 		return true;
