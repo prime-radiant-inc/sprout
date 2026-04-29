@@ -102,6 +102,15 @@ describe("loadRootAgents", () => {
 		expect(balcony?.tags).toContain("commentary");
 	});
 
+	test("metacognitive observer stays silent without sentinel output", async () => {
+		const agents = await loadRootAgents(join(import.meta.dir, "../../root"));
+		const metacognitive = agents.find((a) => a.name === "metacognitive");
+
+		expect(metacognitive?.system_prompt).toContain("produce no text at all");
+		expect(metacognitive?.system_prompt).not.toContain("NO_MESSAGE");
+		expect(metacognitive?.system_prompt).not.toContain("MESSAGE_SENT");
+	});
+
 	test("leaf agents cannot spawn subagents", async () => {
 		const agents = await loadRootAgents(join(import.meta.dir, "../../root"));
 		const orchestrators = [

@@ -16,6 +16,7 @@ import type {
 	SessionMemorySurfaceSnapshot,
 	SessionMetadataSnapshot,
 } from "../../src/host/session-metadata.ts";
+import type { SessionEvent } from "../../src/kernel/types.ts";
 import { Msg, type ProviderModel, type Response } from "../../src/llm/types.ts";
 import { sleep, waitFor } from "../helpers/wait-for.ts";
 
@@ -2745,6 +2746,98 @@ describe("SessionController session-wide event wiring", () => {
 		expect(loggedEvents).toContain('"kind":"act_start"');
 		expect(loggedEvents).toContain('"agent_name":"metacognitive"');
 		expect(loggedEvents).toContain('"child_id":"observer-root-1-metacognitive"');
+	});
+
+	test("completes started static observers when the root session ends", async () => {
+		const bus = new EventBus();
+		await mkdir(join(tempDir, "sessions"), { recursive: true });
+		const spawnCalls: unknown[] = [];
+		const fakeSpawner = {
+			getHandles: () => [],
+			subscribeSessionEvents: async () => {},
+			subscribeRootMessages: async () => {},
+			updateSessionId: async () => {},
+			clearHandles: async () => {},
+			spawnAgent: async (options: unknown) => {
+				spawnCalls.push(options);
+				return "observer-metacognitive";
+			},
+			messageAgent: async () => undefined,
+			deliverObserverFrame: recordObserverDelivery(spawnCalls),
+		} as any;
+		const fakeGenome = {
+			getAgent: (name: string) => {
+				if (name === "root") {
+					return {
+						name: "root",
+						model: "best",
+						observers: [
+							{
+								agent: "metacognitive",
+								target: "root",
+								events: ["plan_end", "act_end"],
+								trigger: { every: 1, event: "plan_end" },
+							},
+						],
+					};
+				}
+				if (name === "metacognitive") {
+					return { name: "metacognitive", model: "balanced" };
+				}
+				return undefined;
+			},
+		} as any;
+		const emitted: SessionEvent[] = [];
+
+		new SessionController({
+			bus,
+			genomePath: join(tempDir, "genome"),
+			projectDataDir: tempDir,
+			factory: makeFakeFactory(makeFakeAgent()),
+			spawner: fakeSpawner,
+			genome: fakeGenome,
+			getResolverSettings: () =>
+				createResolverSettings(
+					[{ id: "anthropic", enabled: true }],
+					{},
+					{},
+					{
+						metacognitive: {
+							kind: "model",
+							model: {
+								providerId: "anthropic",
+								modelId: "claude-sonnet-4-6",
+							},
+						},
+					},
+				),
+		});
+		bus.onEvent((event) => emitted.push(event));
+
+		bus.emitEvent("plan_end", "root", 0, {
+			turn: 1,
+			finish_reason: "stop",
+			text: "root plan",
+		});
+		await waitFor(() => spawnCalls.length === 1);
+		bus.emitEvent("session_end", "root", 0, { success: true });
+
+		await waitFor(() =>
+			emitted.some(
+				(event) =>
+					event.kind === "act_end" && event.data.child_id === "observer-root-1-metacognitive",
+			),
+		);
+		const observerEnd = emitted.find(
+			(event) =>
+				event.kind === "act_end" && event.data.child_id === "observer-root-1-metacognitive",
+		);
+		expect(observerEnd?.data).toMatchObject({
+			agent_name: "metacognitive",
+			observer: true,
+			success: true,
+			timed_out: false,
+		});
 	});
 
 	test("does not attach a hard-coded observer without static config", async () => {

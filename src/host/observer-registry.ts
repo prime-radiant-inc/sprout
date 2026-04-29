@@ -38,8 +38,10 @@ interface ObserverSubscriptionState {
 	pendingEvents: SessionEvent[];
 	triggerCount: number;
 	observerStarted: boolean;
+	observerCompleted: boolean;
 	deliveryInFlight: boolean;
 	flushRequested: boolean;
+	completionRequested: boolean;
 }
 
 export interface ObserverRegistryOptions {
@@ -104,6 +106,7 @@ export class ObserverRegistry {
 	}
 
 	handleEvent(event: SessionEvent): void {
+		if (isObserverTelemetryEvent(event)) return;
 		if (this.subscriptions.length === 0) {
 			this.preconfigureEvents.push(event);
 			if (this.preconfigureEvents.length > PRECONFIGURE_EVENT_LIMIT) {
@@ -121,6 +124,12 @@ export class ObserverRegistry {
 			if (subscription.triggerCount % subscription.config.trigger.every !== 0) continue;
 			void this.flush(subscription);
 		}
+		if (event.kind === "session_end" && event.depth === 0) {
+			for (const subscription of this.subscriptions) {
+				subscription.completionRequested = true;
+				this.completeObserverIfReady(subscription, { success: true });
+			}
+		}
 	}
 
 	reset(sessionId: string): void {
@@ -129,8 +138,10 @@ export class ObserverRegistry {
 			subscription.pendingEvents = [];
 			subscription.triggerCount = 0;
 			subscription.observerStarted = false;
+			subscription.observerCompleted = false;
 			subscription.deliveryInFlight = false;
 			subscription.flushRequested = false;
+			subscription.completionRequested = false;
 		}
 		this.startedHandles.clear();
 		this.generation++;
@@ -186,6 +197,8 @@ export class ObserverRegistry {
 				if (!deliveryFailed && subscription.flushRequested) {
 					subscription.flushRequested = false;
 					void this.flush(subscription);
+				} else if (subscription.completionRequested) {
+					this.completeObserverIfReady(subscription, { success: !deliveryFailed });
 				}
 			}
 		}
@@ -199,6 +212,8 @@ export class ObserverRegistry {
 		const handleId = this.observerHandleId(subscription.config);
 		if (!this.startedHandles.has(handleId)) {
 			this.emitObserverStart(subscription);
+			this.startedHandles.add(handleId);
+			subscription.observerStarted = true;
 		}
 
 		await this.spawner.deliverObserverFrame({
@@ -215,8 +230,6 @@ export class ObserverRegistry {
 			resolverSettings,
 			surfacedMemoryBlock: "",
 		});
-		this.startedHandles.add(handleId);
-		subscription.observerStarted = true;
 	}
 
 	private emitObserverStart(subscription: ObserverSubscriptionState): void {
@@ -229,6 +242,29 @@ export class ObserverRegistry {
 			owner_agent_id: this.rootCaller.agentId,
 			observed_target: subscription.config.target,
 			observer: true,
+		});
+	}
+
+	private completeObserverIfReady(
+		subscription: ObserverSubscriptionState,
+		result: { success: boolean; error?: string },
+	): void {
+		if (!subscription.observerStarted || subscription.observerCompleted) return;
+		if (subscription.deliveryInFlight) return;
+		subscription.observerCompleted = true;
+		this.emitEvent("act_end", "root", 0, {
+			agent_name: subscription.config.agentName,
+			child_id: this.observerAgentId(subscription.config),
+			handle_id: this.observerHandleId(subscription.config),
+			description: subscription.config.description ?? `observes ${subscription.config.target}`,
+			owner_handle_id: this.rootCaller.handleId,
+			owner_agent_id: this.rootCaller.agentId,
+			observed_target: subscription.config.target,
+			observer: true,
+			success: result.success,
+			timed_out: false,
+			output: "",
+			...(result.error ? { error: result.error } : {}),
 		});
 	}
 
@@ -255,7 +291,24 @@ function createSubscriptionState(config: ObserverAttachmentConfig): ObserverSubs
 		pendingEvents: [],
 		triggerCount: 0,
 		observerStarted: false,
+		observerCompleted: false,
 		deliveryInFlight: false,
 		flushRequested: false,
+		completionRequested: false,
 	};
+}
+
+function isObserverTelemetryEvent(event: SessionEvent): boolean {
+	const data = event.data;
+	if (data.observer === true) return true;
+	if (event.agent_id.startsWith("observer-")) return true;
+	if (event.kind === "agent_message") {
+		return isObserverAddress(data.from) || isObserverAddress(data.to);
+	}
+	return false;
+}
+
+function isObserverAddress(value: unknown): boolean {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+	return (value as { role?: unknown }).role === "observer";
 }

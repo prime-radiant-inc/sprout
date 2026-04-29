@@ -417,9 +417,7 @@ export class Agent {
 	}
 
 	private canCompleteWithEmptyOutput(): boolean {
-		return (
-			this.isToollessObserver() && this.agentTools.length === 0 && this.primitiveTools.length === 0
-		);
+		return this.spec.tags.includes("observer");
 	}
 
 	private isToollessObserver(): boolean {
@@ -1329,7 +1327,7 @@ export class Agent {
 			"<sprout:delegate-observer-frame>",
 			"<instructions>",
 			'Observe this completed delegate result. If a short concrete nudge is likely to improve the caller\'s next turn, use message_agent with handle "caller" and blocking false.',
-			"Return exactly MESSAGE_SENT after messaging. Return exactly NO_MESSAGE if no intervention is warranted.",
+			"If no intervention is warranted, produce no text at all.",
 			"</instructions>",
 			"<caller>",
 			`Agent: ${escapeXml(this.spec.name)}`,

@@ -877,6 +877,90 @@ describe("groupEvents", () => {
 			expect(delegation).toBeTruthy();
 			expect(delegation!.abandoned).toBeUndefined();
 		});
+
+		test("observer lifecycle starts complete instead of becoming abandoned failures", () => {
+			const childId = "observer-metacognitive";
+			const tree = makeTree({
+				agentId: "root",
+				children: [
+					makeTree({
+						agentId: childId,
+						agentName: "metacognitive",
+						depth: 1,
+						isObserver: true,
+					}),
+				],
+			});
+			const events: SessionEvent[] = [
+				makeEvent(
+					"act_start",
+					{
+						agent_name: "metacognitive",
+						goal: "observe root turns",
+						child_id: childId,
+						observer: true,
+					},
+					{ timestamp: 1000 },
+				),
+				makeEvent("session_end", { success: true }, { timestamp: 2000 }),
+			];
+			const result = groupEvents(events, undefined, tree);
+			const delegation = result.find(
+				(g) => g.event.kind === "act_start" || g.event.kind === "act_end",
+			);
+
+			expect(delegation).toBeTruthy();
+			expect(delegation!.event.kind).toBe("act_end");
+			expect(delegation!.event.data.success).toBe(true);
+			expect(delegation!.abandoned).toBeUndefined();
+		});
+
+		test("real observer act_end after session_end replaces synthetic completion", () => {
+			const childId = "observer-metacognitive";
+			const tree = makeTree({
+				agentId: "root",
+				children: [
+					makeTree({
+						agentId: childId,
+						agentName: "metacognitive",
+						depth: 1,
+						isObserver: true,
+					}),
+				],
+			});
+			const events: SessionEvent[] = [
+				makeEvent(
+					"act_start",
+					{
+						agent_name: "metacognitive",
+						goal: "observe root turns",
+						child_id: childId,
+						observer: true,
+					},
+					{ timestamp: 1000 },
+				),
+				makeEvent("session_end", { success: true }, { timestamp: 2000 }),
+				makeEvent(
+					"act_end",
+					{
+						agent_name: "metacognitive",
+						child_id: childId,
+						observer: true,
+						success: true,
+						turns: 1,
+					},
+					{ timestamp: 2001 },
+				),
+			];
+			const result = groupEvents(events, undefined, tree);
+			const delegations = result.filter(
+				(g) => g.event.kind === "act_start" || g.event.kind === "act_end",
+			);
+
+			expect(delegations).toHaveLength(1);
+			expect(delegations[0]?.event.kind).toBe("act_end");
+			expect(delegations[0]?.event.data.turns).toBe(1);
+		});
 	});
 });
 

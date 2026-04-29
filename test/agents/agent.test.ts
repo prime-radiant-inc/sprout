@@ -1118,12 +1118,12 @@ describe("Agent", () => {
 		expect(planEnd?.data.text).toBe("");
 	});
 
-	test("tool-capable observer empty response still follows explicit-output retry path", async () => {
+	test("tool-capable observer may complete silently with an empty response", async () => {
 		const observerSpec: AgentSpec = {
 			...leafSpec,
 			name: "metacognitive",
 			description: "Steering observer",
-			system_prompt: "Use message_agent when needed, otherwise say NO_MESSAGE.",
+			system_prompt: "Use message_agent when needed, otherwise stay silent.",
 			tools: ["message_agent"],
 			agents: [],
 			constraints: {
@@ -1139,26 +1139,16 @@ describe("Agent", () => {
 			providers: () => ["anthropic"],
 			complete: async (): Promise<Response> => {
 				callCount++;
-				if (callCount === 1) {
-					return {
-						id: "mock-empty-tool-observer",
-						model: "claude-haiku-4-5-20251001",
-						provider: "anthropic",
-						message: {
-							role: "assistant",
-							content: [],
-						},
-						finish_reason: { reason: "stop" },
-						usage: { input_tokens: 10, output_tokens: 0, total_tokens: 10 },
-					};
-				}
 				return {
-					id: "mock-tool-observer-no-message",
+					id: "mock-empty-tool-observer",
 					model: "claude-haiku-4-5-20251001",
 					provider: "anthropic",
-					message: Msg.assistant("NO_MESSAGE"),
+					message: {
+						role: "assistant",
+						content: [],
+					},
 					finish_reason: { reason: "stop" },
-					usage: { input_tokens: 12, output_tokens: 1, total_tokens: 13 },
+					usage: { input_tokens: 10, output_tokens: 0, total_tokens: 10 },
 				};
 			},
 			stream: async function* () {},
@@ -1182,20 +1172,13 @@ describe("Agent", () => {
 
 		const result = await agent.run("observe a root frame");
 
-		expect(callCount).toBe(2);
+		expect(callCount).toBe(1);
 		expect(result.success).toBe(true);
-		expect(result.output).toBe("NO_MESSAGE");
-		expect(
-			events
-				.collected()
-				.some(
-					(event) =>
-						event.kind === "warning" && String(event.data.message).includes("empty final response"),
-				),
-		).toBe(true);
+		expect(result.output).toBe("");
+		expect(events.collected().filter((event) => event.kind === "warning")).toEqual([]);
 	});
 
-	test("observer with implicit resolved tools cannot silently complete empty", async () => {
+	test("observer with implicit resolved tools may complete silently with an empty response", async () => {
 		const observerSpec: AgentSpec = {
 			...leafSpec,
 			name: "the-balcony",
@@ -1216,26 +1199,16 @@ describe("Agent", () => {
 			providers: () => ["anthropic"],
 			complete: async (): Promise<Response> => {
 				callCount++;
-				if (callCount === 1) {
-					return {
-						id: "mock-empty-implicit-tool-observer",
-						model: "claude-haiku-4-5-20251001",
-						provider: "anthropic",
-						message: {
-							role: "assistant",
-							content: [],
-						},
-						finish_reason: { reason: "stop" },
-						usage: { input_tokens: 10, output_tokens: 0, total_tokens: 10 },
-					};
-				}
 				return {
-					id: "mock-implicit-tool-observer-comment",
+					id: "mock-empty-implicit-tool-observer",
 					model: "claude-haiku-4-5-20251001",
 					provider: "anthropic",
-					message: Msg.assistant("The balcony has noticed the wrench on stage."),
+					message: {
+						role: "assistant",
+						content: [],
+					},
 					finish_reason: { reason: "stop" },
-					usage: { input_tokens: 12, output_tokens: 8, total_tokens: 20 },
+					usage: { input_tokens: 10, output_tokens: 0, total_tokens: 10 },
 				};
 			},
 			stream: async function* () {},
@@ -1265,17 +1238,10 @@ describe("Agent", () => {
 
 		const result = await agent.run("observe a root frame");
 
-		expect(callCount).toBe(2);
+		expect(callCount).toBe(1);
 		expect(result.success).toBe(true);
-		expect(result.output).toBe("The balcony has noticed the wrench on stage.");
-		expect(
-			events
-				.collected()
-				.some(
-					(event) =>
-						event.kind === "warning" && String(event.data.message).includes("empty final response"),
-				),
-		).toBe(true);
+		expect(result.output).toBe("");
+		expect(events.collected().filter((event) => event.kind === "warning")).toEqual([]);
 	});
 
 	test("agent times out after timeout_ms", async () => {

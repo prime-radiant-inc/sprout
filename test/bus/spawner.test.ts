@@ -33,6 +33,15 @@ const AGENT_SPEC = {
 	system_prompt: "You are a test agent. Respond with a brief answer.",
 };
 
+const OBSERVER_AGENT_SPEC = {
+	...AGENT_SPEC,
+	name: "test-observer",
+	description: "A minimal observer agent",
+	tools: [],
+	tags: ["observer"],
+	system_prompt: "Observe and stay silent when no comment is warranted.",
+};
+
 const TEST_PROVIDER_ID = "anthropic";
 const TEST_MODEL_ID = "claude-haiku-4-5-20251001";
 const TEST_RESOLVER_SETTINGS = createResolverSettings(
@@ -136,6 +145,7 @@ describe("AgentSpawner", () => {
 		const genome = new Genome(genomeDir);
 		await genome.init();
 		await genome.addAgent(AGENT_SPEC as any);
+		await genome.addAgent(OBSERVER_AGENT_SPEC as any);
 
 		server = new BusServer({ port: 0 });
 		await server.start();
@@ -1620,15 +1630,15 @@ describe("AgentSpawner", () => {
 					id: `mock-observer-${callCount}`,
 					model: "claude-haiku-4-5-20251001",
 					provider: "anthropic",
-					message: Msg.assistant(callCount === 1 ? "NO_MESSAGE" : "MESSAGE_SENT"),
+					message: { role: "assistant", content: [] },
 					finish_reason: { reason: "stop" },
-					usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+					usage: { input_tokens: 100, output_tokens: 0, total_tokens: 100 },
 				};
 			});
 			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
 
 			await spawner.deliverObserverFrame({
-				agentName: "test-leaf",
+				agentName: "test-observer",
 				genomePath: genomeDir,
 				caller: addr("root", 0),
 				message: "observer frame one",
@@ -1648,7 +1658,7 @@ describe("AgentSpawner", () => {
 			expect(handle!.address.role).toBe("observer");
 
 			await spawner.deliverObserverFrame({
-				agentName: "test-leaf",
+				agentName: "test-observer",
 				genomePath: genomeDir,
 				caller: addr("root", 0),
 				message: "observer frame two",
@@ -1677,16 +1687,16 @@ describe("AgentSpawner", () => {
 						id: `mock-observer-ordered-${callCount}`,
 						model: "claude-haiku-4-5-20251001",
 						provider: "anthropic",
-						message: Msg.assistant("NO_MESSAGE"),
+						message: { role: "assistant", content: [] },
 						finish_reason: { reason: "stop" },
-						usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+						usage: { input_tokens: 100, output_tokens: 0, total_tokens: 100 },
 					};
 				});
 				spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
 			});
 
 			const firstDelivery = spawner.deliverObserverFrame({
-				agentName: "test-leaf",
+				agentName: "test-observer",
 				genomePath: genomeDir,
 				caller: addr("root", 0),
 				message: "first observer frame",
@@ -1699,7 +1709,7 @@ describe("AgentSpawner", () => {
 			await firstCallEntered;
 
 			const secondDelivery = spawner.deliverObserverFrame({
-				agentName: "test-leaf",
+				agentName: "test-observer",
 				genomePath: genomeDir,
 				caller: addr("root", 0),
 				message: "second observer frame",

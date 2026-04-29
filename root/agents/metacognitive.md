@@ -48,10 +48,6 @@ Bad reasons to message your caller:
 - Giving generic encouragement.
 
 When you message your caller, be direct and brief. One or two sentences is enough.
-After you call `message_agent`, finish by responding exactly:
+After you call `message_agent`, do not add commentary for the human transcript.
 
-MESSAGE_SENT
-
-When no intervention is warranted, respond with exactly:
-
-NO_MESSAGE
+When no intervention is warranted, produce no text at all.

@@ -432,13 +432,35 @@ export function groupEvents(
 				if (entry) {
 					const peek = childPeek.get(childId);
 					const tools = childPeekTools.get(childId);
-					result[idx] = {
-						...entry,
-						abandoned: true,
-						...(peek ? { livePeek: peek } : {}),
-						...(tools ? { livePeekTools: [...tools] } : {}),
-						...delegationExtras(childId),
-					};
+					if (entry.event.data.observer === true) {
+						result[idx] = {
+							event: {
+								...entry.event,
+								kind: "act_end",
+								data: {
+									...entry.event.data,
+									success: true,
+									timed_out: false,
+								},
+							},
+							durationMs: entry.durationMs,
+							isFirstInGroup: true,
+							isLastInGroup: true,
+							agentName: entry.agentName,
+							...(peek ? { livePeek: peek } : {}),
+							...(tools ? { livePeekTools: [...tools] } : {}),
+							...delegationExtras(childId),
+						};
+						completedActEntries.set(childId, idx);
+					} else {
+						result[idx] = {
+							...entry,
+							abandoned: true,
+							...(peek ? { livePeek: peek } : {}),
+							...(tools ? { livePeekTools: [...tools] } : {}),
+							...delegationExtras(childId),
+						};
+					}
 				}
 			}
 			pendingActStarts.clear();
@@ -495,6 +517,18 @@ export function groupEvents(
 					};
 					pendingActStarts.delete(childId);
 					completedActEntries.set(childId, startIdx);
+					continue;
+				}
+				const completedIdx = completedActEntries.get(childId);
+				if (completedIdx !== undefined) {
+					result[completedIdx] = {
+						event,
+						durationMs,
+						isFirstInGroup: true,
+						isLastInGroup: true,
+						agentName: nameMap.get(event.agent_id),
+						...delegationExtras(childId),
+					};
 					continue;
 				}
 			}

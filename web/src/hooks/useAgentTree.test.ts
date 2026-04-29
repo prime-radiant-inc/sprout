@@ -167,6 +167,28 @@ describe("buildAgentTree", () => {
 			expect(child.status).toBe("running");
 		});
 
+		test("session_end marks running observer nodes completed", () => {
+			resetTimestamps();
+			const events = [
+				makeEvent("perceive", "root", 0, { goal: "Fix everything" }),
+				makeEvent("act_start", "root", 0, {
+					agent_name: "metacognitive",
+					child_id: "observer-metacognitive",
+					handle_id: "observer-metacognitive",
+					description: "observe root turns",
+					goal: "Review root activity for self-awareness diagnostics",
+					observer: true,
+					owner_handle_id: "root",
+					owner_agent_id: "root",
+					observed_target: "root",
+				}),
+				makeEvent("session_end", "root", 0, { success: true }),
+			];
+			const { tree } = buildAgentTree(events);
+
+			expect(tree.children[0]?.status).toBe("completed");
+		});
+
 		test("delegate observer appears as a selectable sibling thread", () => {
 			resetTimestamps();
 			const events = [

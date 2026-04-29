@@ -92,6 +92,7 @@ export function buildAgentTree(events: SessionEvent[]): BuildAgentTreeResult {
 			case "session_end": {
 				if (event.depth === 0) {
 					root.status = event.data.success === false ? "failed" : "completed";
+					markRunningObserversCompleted(root);
 				}
 				break;
 			}
@@ -211,6 +212,15 @@ function collectIds(node: AgentTreeNode, ids: Set<string>): void {
 	ids.add(node.agentId);
 	for (const child of node.children) {
 		collectIds(child, ids);
+	}
+}
+
+function markRunningObserversCompleted(node: AgentTreeNode): void {
+	for (const child of node.children) {
+		if (child.isObserver && child.status === "running") {
+			child.status = "completed";
+		}
+		markRunningObserversCompleted(child);
 	}
 }
 

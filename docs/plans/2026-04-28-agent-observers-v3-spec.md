@@ -475,8 +475,8 @@ Prompt requirements:
 - State that the agent is an observer, not a worker.
 - Instruct it to use `message_agent` with `handle: "caller"` and
   `blocking: false` for comments.
-- Instruct it to return `MESSAGE_SENT` after messaging.
-- Instruct it to return `NO_MESSAGE` when no intervention is warranted.
+- Instruct it to produce no extra transcript text after messaging.
+- Instruct it to produce no text at all when no intervention is warranted.
 - Require quoted visible evidence for non-obvious claims.
 - Prohibit hidden prompt/policy claims unless the relevant text appears in the
   frame.
@@ -646,8 +646,8 @@ Required frame sections:
 
 1. Observer instructions:
    - use `message_agent(handle: "caller", blocking: false)` for comments;
-   - return `MESSAGE_SENT` after messaging;
-   - return `NO_MESSAGE` if no comment is warranted.
+   - produce no extra transcript text after messaging;
+   - produce no text at all if no comment is warranted.
 2. Caller/delegation context:
    - owner agent name and handle id;
    - delegation goal;
@@ -941,7 +941,7 @@ Pilot rules:
 
 - Both use `model: observer.metacognitive`.
 - Both use `message_agent(handle: "caller", blocking: false)`.
-- Both return `MESSAGE_SENT` after messaging and `NO_MESSAGE` otherwise.
+- Both produce no extra transcript text after messaging and no text otherwise.
 - Both quote visible evidence.
 - Both are opt-in through static config.
 - Both must pass exact-marker deterministic/live tests before being enabled
