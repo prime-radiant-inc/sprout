@@ -245,9 +245,15 @@ function keepRecentExtractionMessagesWithinLimit(
 function shrinkExtractionMessagesToLimit(
 	messages: readonly ExtractionMessage[],
 ): ExtractionMessage[] {
-	let cap = Math.max(200, Math.floor(MAX_COLLAPSE_EXTRACTION_RENDERED_CHARS / messages.length) - 200);
+	let cap = Math.max(
+		200,
+		Math.floor(MAX_COLLAPSE_EXTRACTION_RENDERED_CHARS / messages.length) - 200,
+	);
 	let current = capExtractionMessages(messages, cap);
-	while (formatExtractionMessages(current).length > MAX_COLLAPSE_EXTRACTION_RENDERED_CHARS && cap > 80) {
+	while (
+		formatExtractionMessages(current).length > MAX_COLLAPSE_EXTRACTION_RENDERED_CHARS &&
+		cap > 80
+	) {
 		cap = Math.max(80, Math.floor(cap * 0.75));
 		current = capExtractionMessages(messages, cap);
 	}

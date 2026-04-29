@@ -3,9 +3,9 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-	MAX_COLLAPSE_EXTRACTION_RENDERED_CHARS,
 	buildCollapseTranscript,
 	collapseSessionToMemory,
+	MAX_COLLAPSE_EXTRACTION_RENDERED_CHARS,
 	normalizeSegmentSummary,
 	redactSensitiveTranscriptContent,
 	renderCollapseTranscript,
