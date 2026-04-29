@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { AgentEventEmitter } from "../../src/agents/events.ts";
 import { createResolverSettings } from "../../src/agents/model-resolver.ts";
 import { Genome, git } from "../../src/genome/genome.ts";
+import { memoryShortId } from "../../src/genome/memory-schema.ts";
 import type { LearnSignal } from "../../src/kernel/types.ts";
 import { DEFAULT_CONSTRAINTS } from "../../src/kernel/types.ts";
 import type { LearnMutation, PendingEvaluation } from "../../src/learn/learn-process.ts";
@@ -540,6 +541,7 @@ describe("LearnProcess", () => {
 				{ text: "Sprout uses local embeddings for recall", tags: ["memory"] },
 				{ text: "Sprout stores memories in JSONL", tags: ["memory"] },
 			]),
+			'{"relationship_type":"null","reasoning":"The memories are merely co-extracted."}',
 			'{"type": "skip"}',
 		]);
 		const { events, genome, genomeDir, learn } = await setupGenomeWithClient(
@@ -705,6 +707,203 @@ OPENAI_API_KEY=sk-${"a".repeat(32)}`,
 		).toBe(true);
 		expect(
 			genome.allRoutingRules().some((rule) => rule.condition === "local embedding failures"),
+		).toBe(true);
+	});
+
+	test("learn extraction incorporates relationships from source evidence ids", async () => {
+		const client = makeMockClientSequence([
+			JSON.stringify([
+				{
+					text: "streamlinear sends a bare Authorization header value, no token prefix.",
+					tags: ["streamlinear", "auth"],
+				},
+			]),
+			JSON.stringify({
+				relationship_type: "supersedes",
+				reasoning: "The newer memory replaces the older token-prefix claim.",
+			}),
+			'{"type": "skip"}',
+		]);
+		const { events, genome, learn } = await setupGenomeWithClient(
+			tempDir,
+			"extract-relationship",
+			client,
+		);
+		await genome.addMemory({
+			id: "stale-learn-auth",
+			content: "streamlinear uses Authorization: token header format.",
+			tags: ["streamlinear"],
+			source: "test",
+			created: 50,
+			last_used: 50,
+			use_count: 0,
+			confidence: 1,
+		});
+		const signal = makeSignal({
+			kind: "failure",
+			agent_name: "root",
+			goal: `Correct stale memory ${memoryShortId("stale-learn-auth")}.`,
+			details: {
+				agent_name: "root",
+				goal: "correct stale auth memory",
+				output: "streamlinear sends the bare Authorization value.",
+				success: false,
+				stumbles: 1,
+				turns: 4,
+				timed_out: false,
+			},
+		});
+		emitLearnEvidenceEvents(events, signal);
+		learn.push(signal);
+
+		const result = await learn.processNext();
+
+		expect(result).toBe("applied");
+		const correction = genome.memories
+			.all()
+			.find((memory) => memory.content.includes("bare Authorization header value"));
+		expect(correction).toBeDefined();
+		expect(genome.memories.getById("stale-learn-auth")?.superseded_by).toBe(correction?.id);
+	});
+
+	test("learn extraction rolls back and emits error when relationship classification fails", async () => {
+		const client = makeMockClientSequence([
+			JSON.stringify([
+				{
+					text: "streamlinear sends a bare Authorization header value, no token prefix.",
+					tags: ["streamlinear", "auth"],
+				},
+			]),
+			"not json",
+		]);
+		const { events, genome, learn } = await setupGenomeWithClient(
+			tempDir,
+			"extract-relationship-fails",
+			client,
+		);
+		await genome.addMemory({
+			id: "stale-learn-fail",
+			content: "streamlinear uses Authorization: token header format.",
+			tags: ["streamlinear"],
+			source: "test",
+			created: 50,
+			last_used: 50,
+			use_count: 0,
+			confidence: 1,
+		});
+		const signal = makeSignal({
+			kind: "failure",
+			agent_name: "root",
+			goal: `Correct stale memory ${memoryShortId("stale-learn-fail")}.`,
+			details: {
+				agent_name: "root",
+				goal: "correct stale auth memory",
+				output: "streamlinear sends the bare Authorization value.",
+				success: false,
+				stumbles: 1,
+				turns: 4,
+				timed_out: false,
+			},
+		});
+		emitLearnEvidenceEvents(events, signal);
+		learn.push(signal);
+
+		const result = await learn.processNext();
+
+		expect(result).toBe("error");
+		expect(
+			genome.memories
+				.all()
+				.some((memory) => memory.content.includes("bare Authorization header value")),
+		).toBe(false);
+		expect(genome.memories.getById("stale-learn-fail")?.superseded_by).toBeUndefined();
+		const learnEnd = events.collected().findLast((event) => event.kind === "learn_end");
+		expect(learnEnd?.data.result).toBe("error");
+	});
+
+	test("missing extraction model after shouldLearn emits error instead of skipped", async () => {
+		const client = makeMockClientSequence(["[]"]);
+		const genomeDir = join(tempDir, "extract-missing-model");
+		await cp(genomeTemplateDir, genomeDir, { recursive: true });
+		const genome = createTestGenome(genomeDir, ROOT_DIR);
+		await genome.loadFromDisk();
+		const metrics = new MetricsStore(join(genomeDir, "metrics", "metrics.jsonl"));
+		await metrics.load();
+		const events = new AgentEventEmitter();
+		const learn = new LearnProcess({
+			genome,
+			metrics,
+			events,
+			client,
+			modelsByProvider: new Map([
+				["anthropic", [{ id: "reason-model", label: "Reason model", source: "remote" }]],
+			]),
+			resolverSettings: createResolverSettings(
+				[{ id: "anthropic", enabled: true }],
+				{ best: { providerId: "anthropic", modelId: "reason-model" } },
+				{},
+			),
+		});
+		const signal = makeSignal({
+			kind: "failure",
+			agent_name: "root",
+			goal: "extract missing model",
+			details: {
+				agent_name: "root",
+				goal: "extract missing model",
+				output: "model config missing",
+				success: false,
+				stumbles: 1,
+				turns: 4,
+				timed_out: false,
+			},
+		});
+		emitLearnEvidenceEvents(events, signal);
+		learn.push(signal);
+
+		const result = await learn.processNext();
+
+		expect(result).toBe("error");
+		const learnEnd = events.collected().findLast((event) => event.kind === "learn_end");
+		expect(learnEnd?.data.result).toBe("error");
+		expect(String(learnEnd?.data.error)).toContain("memory 'extraction' model");
+	});
+
+	test("learn extraction does not write through raw addMemories", async () => {
+		const client = makeMockClientSequence([
+			JSON.stringify([{ text: "Sprout stores learned facts through incorporation.", tags: [] }]),
+			'{"type": "skip"}',
+		]);
+		const { events, genome, learn } = await setupGenomeWithClient(
+			tempDir,
+			"extract-no-raw-addmemories",
+			client,
+		);
+		(genome as unknown as { addMemories: () => Promise<void> }).addMemories = async () => {
+			throw new Error("raw addMemories should not be used");
+		};
+		const signal = makeSignal({
+			kind: "failure",
+			agent_name: "root",
+			goal: "persist learned fact",
+			details: {
+				agent_name: "root",
+				goal: "persist learned fact",
+				output: "learned fact should persist",
+				success: false,
+				stumbles: 1,
+				turns: 4,
+				timed_out: false,
+			},
+		});
+		emitLearnEvidenceEvents(events, signal);
+		learn.push(signal);
+
+		await expect(learn.processNext()).resolves.toBe("applied");
+		expect(
+			genome.memories
+				.all()
+				.some((memory) => memory.content.includes("learned facts through incorporation")),
 		).toBe(true);
 	});
 

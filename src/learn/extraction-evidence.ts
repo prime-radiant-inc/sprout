@@ -41,6 +41,18 @@ export function learnSignalExtractionMessages(
 	];
 }
 
+export function memoryReferenceIdsFromExtractionMessages(
+	messages: readonly ExtractionMessage[],
+): string[] {
+	const references = new Set<string>();
+	for (const message of messages) {
+		for (const match of message.content.matchAll(/\bmem_[a-zA-Z0-9]{8}\b/gi)) {
+			if (match[0]) references.add(match[0].toLowerCase());
+		}
+	}
+	return [...references];
+}
+
 export function learnSignalEvidenceWindow(input: LearnSignalExtractionInput): SessionEvent[] {
 	const sessionEvents = eventsForSession(input.events, input.signal.session_id);
 	const observerAgentIds = collectObserverAgentIds(sessionEvents);

@@ -198,8 +198,8 @@ function memoryReferenceIdsFromExtractionMessages(
 ): string[] {
 	const references = new Set<string>();
 	for (const message of messages) {
-		for (const match of message.content.matchAll(/\bmem_[a-zA-Z0-9]{8}\b/g)) {
-			if (match[0]) references.add(match[0]);
+		for (const match of message.content.matchAll(/\bmem_[a-zA-Z0-9]{8}\b/gi)) {
+			if (match[0]) references.add(match[0].toLowerCase());
 		}
 	}
 	return [...references];

@@ -11,12 +11,16 @@ import {
 import { filterDuplicateDrafts } from "../genome/dedup.ts";
 import { extractMemoryDrafts, memoryFromDraft } from "../genome/extraction.ts";
 import type { Genome } from "../genome/genome.ts";
+import { incorporateExtractedMemories } from "../genome/memory-incorporation.ts";
 import type { LearnSignal } from "../kernel/types.ts";
 import { DEFAULT_CONSTRAINTS, validateAgentName } from "../kernel/types.ts";
 import type { Client } from "../llm/client.ts";
 import type { ProviderModel } from "../llm/types.ts";
 import { Msg, messageText } from "../llm/types.ts";
-import { learnSignalExtractionMessages } from "./extraction-evidence.ts";
+import {
+	learnSignalExtractionMessages,
+	memoryReferenceIdsFromExtractionMessages,
+} from "./extraction-evidence.ts";
 import type { MetricsStore } from "./metrics-store.ts";
 import { shouldLearn } from "./should-learn.ts";
 
@@ -84,6 +88,8 @@ export class LearnProcess {
 	private readonly client?: Client;
 	private readonly reasonerModel?: ResolvedModel;
 	private readonly extractionModel?: ResolvedModel;
+	private readonly modelsByProvider?: Map<string, ProviderModel[]>;
+	private readonly resolverSettings?: ResolverSettings;
 	private readonly queue: LearnSignal[] = [];
 	private readonly recentImprovements = new Set<string>();
 	private readonly pendingEvaluationsPath?: string;
@@ -114,6 +120,8 @@ export class LearnProcess {
 						enabled: true,
 					})),
 				);
+			this.modelsByProvider = modelMap;
+			this.resolverSettings = resolverSettings;
 			try {
 				this.reasonerModel = resolveModel("best", resolverSettings, modelMap);
 			} catch {
@@ -561,7 +569,10 @@ Choose the most appropriate non-memory improvement. Use skip for factual learnin
 	}
 
 	private async extractAndApplyLearnMemories(signal: LearnSignal): Promise<boolean> {
-		if (!this.client || !this.extractionModel) return false;
+		if (!this.client) return false;
+		if (!this.extractionModel) {
+			throw new Error("Learn memory extraction requires a configured memory 'extraction' model");
+		}
 
 		const now = Date.now();
 		const random = Math.random().toString(36).slice(2, 8);
@@ -593,7 +604,16 @@ Choose the most appropriate non-memory improvement. Use skip for factual learnin
 				confidence: 0.8,
 			}),
 		);
-		await this.genome.addMemories(memories, `genome: extract ${filtered.length} learned memories`);
+		const result = await incorporateExtractedMemories({
+			genome: this.genome,
+			memories,
+			explicitReferenceIds: memoryReferenceIdsFromExtractionMessages(messages),
+			client: this.client,
+			resolverSettings: this.resolverSettings,
+			modelsByProvider: this.modelsByProvider,
+			commitMessage: `genome: extract ${filtered.length} learned memories`,
+		});
+		if (result.memories.length === 0) return false;
 
 		const commitHash = await this.genome.lastCommitHash();
 		this._pendingEvaluations.push({
@@ -601,12 +621,12 @@ Choose the most appropriate non-memory improvement. Use skip for factual learnin
 			mutationType: "create_memory",
 			timestamp: now,
 			commitHash,
-			description: `Extracted ${filtered.length} memories from learn signal`,
+			description: `Extracted ${result.memories.length} memories from learn signal`,
 		});
 		await this.savePendingEvaluations();
 		this.events.emit("learn_mutation", "learn", 0, {
 			mutation_type: "create_memory",
-			extracted_count: filtered.length,
+			extracted_count: result.memories.length,
 		});
 		return true;
 	}

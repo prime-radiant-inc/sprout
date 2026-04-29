@@ -410,8 +410,8 @@ function explicitReferencesForMemory(
 	configuredReferences: readonly string[],
 ): Set<string> {
 	const references = new Set(configuredReferences);
-	for (const match of memory.content.matchAll(/\bmem_[a-zA-Z0-9]{8}\b/g)) {
-		if (match[0]) references.add(match[0]);
+	for (const match of memory.content.matchAll(/\bmem_[a-zA-Z0-9]{8}\b/gi)) {
+		if (match[0]) references.add(match[0].toLowerCase());
 	}
 	for (const candidate of active) {
 		if (candidate.id !== memory.id && memory.content.includes(candidate.id)) {

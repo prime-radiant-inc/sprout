@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { LearnSignal, SessionEvent } from "../../src/kernel/types.ts";
 import {
 	learnSignalEvidenceWindow,
+	memoryReferenceIdsFromExtractionMessages,
 	renderLearnEvidenceEvents,
 } from "../../src/learn/extraction-evidence.ts";
 
@@ -155,5 +156,22 @@ describe("learn signal extraction evidence", () => {
 		expect(rendered).toContain("normal command failed");
 		expect(rendered).not.toContain("late observer analysis should not be evidence");
 		expect(rendered).not.toContain("markerless observer completion should not be evidence");
+	});
+
+	test("extracts unique memory references from rendered evidence messages", () => {
+		const references = memoryReferenceIdsFromExtractionMessages([
+			{
+				role: "user",
+				timestamp: 1,
+				content: "Correction for mem_1234abcd and MEM_ABCDEF12.",
+			},
+			{
+				role: "assistant",
+				timestamp: 2,
+				content: "Duplicate mem_1234abcd should appear once.",
+			},
+		]);
+
+		expect(references).toEqual(["mem_1234abcd", "mem_abcdef12"]);
 	});
 });
