@@ -628,6 +628,26 @@ describe("DelegationBlock", () => {
 		expect(html).toContain("5.0s");
 	});
 
+	test("renders completed status with stumble diagnostics without marking failed", () => {
+		const html = renderToStaticMarkup(
+			<DelegationBlock
+				agentName="code-editor"
+				goal="Refactor the parser"
+				status="completed"
+				stumbleCount={1}
+				livePeekTools={[
+					{ name: "read_file", args: "a.ts", success: true },
+					{ name: "exec", args: "bun test", success: false },
+				]}
+			/>,
+		);
+		expect(html).toContain('data-status="completed"');
+		expect(html).not.toContain('data-status="failed"');
+		expect(html).toContain("1 stumble");
+		expect(html).toContain("exec");
+		expect(html).toContain("bun test");
+	});
+
 	test("renders failed status with error styling", () => {
 		const html = renderToStaticMarkup(
 			<DelegationBlock
@@ -932,6 +952,27 @@ describe("EventLine", () => {
 		expect(html).toContain("code-editor");
 		expect(html).toContain('data-status="completed"');
 		expect(html).toContain("5 turns");
+	});
+
+	test("renders successful act_end with stumbles as completed diagnostics", () => {
+		const event = makeEvent("act_end", {
+			agent_name: "code-editor",
+			goal: "write tests",
+			success: true,
+			turns: 5,
+		});
+		const html = renderToStaticMarkup(
+			<EventLine
+				event={event}
+				durationMs={3000}
+				stumbleCount={2}
+				livePeekTools={[{ name: "exec", args: "bun test", success: false }]}
+			/>,
+		);
+		expect(html).toContain('data-status="completed"');
+		expect(html).not.toContain('data-status="failed"');
+		expect(html).toContain("2 stumbles");
+		expect(html).toContain("exec");
 	});
 
 	test("renders act_end as failed DelegationBlock", () => {

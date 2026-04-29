@@ -68,6 +68,12 @@
 	font-weight: 600;
 }
 
+.stumble {
+	color: var(--color-warning);
+	font-size: var(--font-size-xs);
+	font-weight: 600;
+}
+
 .meta {
 	font-size: var(--font-size-xxs);
 	color: var(--color-text-placeholder);

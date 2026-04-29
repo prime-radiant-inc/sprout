@@ -47,7 +47,7 @@ export function ConversationView({
 
 	return (
 		<div className={styles.conversationView}>
-			{grouped.map(({ event, durationMs, streamingText, isFirstInGroup, agentName, userName, livePeek, livePeekTools, args, abandoned }, i) => (
+			{grouped.map(({ event, durationMs, streamingText, isFirstInGroup, agentName, userName, livePeek, livePeekTools, stumbleCount, args, abandoned }, i) => (
 				<EventErrorBoundary key={`${event.agent_id}-${event.kind}-${event.timestamp}-${i}`} eventKind={event.kind}>
 					<EventLine
 						event={event}
@@ -58,6 +58,7 @@ export function ConversationView({
 						userName={userName ?? defaultUserName}
 						livePeek={livePeek}
 						livePeekTools={livePeekTools}
+						stumbleCount={stumbleCount}
 						args={args}
 						abandoned={abandoned}
 						onSelectAgent={onSelectAgent}

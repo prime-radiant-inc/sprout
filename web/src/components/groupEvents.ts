@@ -32,6 +32,8 @@ export interface GroupedEvent {
 	livePeek?: string;
 	/** Recent tool calls for running delegations (richer display). */
 	livePeekTools?: ToolCallSummary[];
+	/** Number of failed child tool calls inside a delegation that still completed. */
+	stumbleCount?: number;
 	/** Args from the matching primitive_start (primitive_end events don't carry args). */
 	args?: Record<string, unknown>;
 	/** Set when a delegation was still running at session_end (crash/abort). */
@@ -142,6 +144,7 @@ export function groupEvents(
 	const directChildIds = new Set<string>();
 	const childPeek = new Map<string, string>(); // child_id -> latest activity summary
 	const childPeekTools = new Map<string, ToolCallSummary[]>(); // child_id -> recent tool calls
+	const childStumbleCounts = new Map<string, number>(); // child_id -> failed tool calls
 	const pendingActStarts = new Map<string, number>(); // child_id -> index in result array
 	const lastPrimitiveArgs = new Map<string, Record<string, unknown>>(); // agent_id:name -> args from primitive_start
 
@@ -191,6 +194,12 @@ export function groupEvents(
 				const argsStr = extractArgSummary(toolName, args);
 				const success = Boolean(event.data.success);
 				childPeek.set(event.agent_id, argsStr ? `${toolName} ${argsStr}` : toolName);
+				if (!success) {
+					childStumbleCounts.set(
+						event.agent_id,
+						(childStumbleCounts.get(event.agent_id) ?? 0) + 1,
+					);
+				}
 				// Accumulate recent tool calls (keep last 3)
 				const tools = childPeekTools.get(event.agent_id) ?? [];
 				tools.push({ name: toolName, args: argsStr, success });
@@ -232,11 +241,13 @@ export function groupEvents(
 				if (entry) {
 					const peek = childPeek.get(childId);
 					const tools = childPeekTools.get(childId);
+					const stumbleCount = childStumbleCounts.get(childId) ?? 0;
 					result[idx] = {
 						...entry,
 						abandoned: true,
 						...(peek ? { livePeek: peek } : {}),
 						...(tools ? { livePeekTools: [...tools] } : {}),
+						...(stumbleCount > 0 ? { stumbleCount } : {}),
 					};
 				}
 			}
@@ -279,6 +290,9 @@ export function groupEvents(
 			if (event.kind === "act_end") {
 				const startIdx = pendingActStarts.get(childId);
 				if (startIdx !== undefined) {
+					const peek = childPeek.get(childId);
+					const tools = childPeekTools.get(childId);
+					const stumbleCount = childStumbleCounts.get(childId) ?? 0;
 					// Replace the act_start entry with the act_end entry
 					result[startIdx] = {
 						event,
@@ -286,6 +300,9 @@ export function groupEvents(
 						isFirstInGroup: true,
 						isLastInGroup: true,
 						agentName: nameMap.get(event.agent_id),
+						...(peek ? { livePeek: peek } : {}),
+						...(tools ? { livePeekTools: [...tools] } : {}),
+						...(stumbleCount > 0 ? { stumbleCount } : {}),
 					};
 					pendingActStarts.delete(childId);
 					continue;

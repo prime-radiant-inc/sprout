@@ -13,14 +13,17 @@ interface DelegationBlockProps {
 	durationMs?: number | null;
 	livePeek?: string;
 	livePeekTools?: ToolCallSummary[];
+	stumbleCount?: number;
 	onOpenThread?: () => void;
 }
 
 /** Delegation block — status card with left accent stripe showing agent activity. */
 export function DelegationBlock(props: DelegationBlockProps) {
-	const { agentName, mnemonicName, goal, description, status, turns, durationMs, livePeek, livePeekTools, onOpenThread } = props;
+	const { agentName, mnemonicName, goal, description, status, turns, durationMs, livePeek, livePeekTools, stumbleCount, onOpenThread } = props;
 
 	const dur = formatDuration(durationMs ?? null);
+	const hasStumbles = (stumbleCount ?? 0) > 0;
+	const canShowDiagnostics = status === "running" || hasStumbles;
 
 	return (
 		<div className={styles.card} data-status={status}>
@@ -37,6 +40,11 @@ export function DelegationBlock(props: DelegationBlockProps) {
 				{status === "failed" && (
 					<span className={styles.failed}>failed</span>
 				)}
+				{hasStumbles && (
+					<span className={styles.stumble}>
+						{stumbleCount} {stumbleCount === 1 ? "stumble" : "stumbles"}
+					</span>
+				)}
 				{(turns != null || dur) && (
 					<span className={styles.meta}>
 						{turns != null && `${turns} turns`}
@@ -46,7 +54,7 @@ export function DelegationBlock(props: DelegationBlockProps) {
 				)}
 			</div>
 			<div className={styles.goal}>{description ?? goal}</div>
-			{livePeekTools && livePeekTools.length > 0 && status === "running" && (
+			{livePeekTools && livePeekTools.length > 0 && canShowDiagnostics && (
 				<div className={styles.toolList}>
 					{livePeekTools.map((tool, i) => (
 						<div key={i} className={styles.toolItem}>
@@ -59,7 +67,7 @@ export function DelegationBlock(props: DelegationBlockProps) {
 					))}
 				</div>
 			)}
-			{livePeek && !livePeekTools?.length && status === "running" && (
+			{livePeek && !livePeekTools?.length && canShowDiagnostics && (
 				<div className={styles.peek}>{livePeek}</div>
 			)}
 			{onOpenThread && (

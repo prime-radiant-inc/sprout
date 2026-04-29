@@ -20,6 +20,7 @@ interface EventLineProps {
 	userName?: string;
 	livePeek?: string;
 	livePeekTools?: ToolCallSummary[];
+	stumbleCount?: number;
 	/** Args from matching primitive_start (primitive_end events don't carry args). */
 	args?: Record<string, unknown>;
 	/** Whether this delegation was abandoned (session ended without act_end). */
@@ -31,7 +32,7 @@ interface EventLineProps {
  * Dispatcher: maps a SessionEvent to the appropriate display component.
  * Returns null for events that should not be displayed.
  */
-export function EventLine({ event, durationMs, streamingText, isFirstInGroup, agentName, userName, livePeek, livePeekTools, args: groupedArgs, abandoned, onSelectAgent }: EventLineProps) {
+export function EventLine({ event, durationMs, streamingText, isFirstInGroup, agentName, userName, livePeek, livePeekTools, stumbleCount, args: groupedArgs, abandoned, onSelectAgent }: EventLineProps) {
 	const { kind, data } = event;
 
 	switch (kind) {
@@ -118,6 +119,7 @@ export function EventLine({ event, durationMs, streamingText, isFirstInGroup, ag
 					status={abandoned ? "failed" : "running"}
 					livePeek={livePeek}
 					livePeekTools={livePeekTools}
+					stumbleCount={stumbleCount}
 					onOpenThread={onSelectAgent && typeof data.child_id === "string" ? () => onSelectAgent(data.child_id as string) : undefined}
 				/>
 			);
@@ -132,6 +134,9 @@ export function EventLine({ event, durationMs, streamingText, isFirstInGroup, ag
 					status={data.success ? "completed" : "failed"}
 					turns={typeof data.turns === "number" ? data.turns : undefined}
 					durationMs={durationMs}
+					livePeek={livePeek}
+					livePeekTools={livePeekTools}
+					stumbleCount={stumbleCount}
 					onOpenThread={onSelectAgent && typeof data.child_id === "string" ? () => onSelectAgent(data.child_id as string) : undefined}
 				/>
 			);

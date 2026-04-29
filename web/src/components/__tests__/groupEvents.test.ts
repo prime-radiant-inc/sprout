@@ -748,6 +748,31 @@ describe("groupEvents", () => {
 			expect(delegation!.livePeekTools).toHaveLength(1);
 			expect(delegation!.livePeekTools![0]).toEqual({ name: "write_file", args: "out.ts", success: true });
 		});
+
+		test("successful completed delegations keep child stumble diagnostics", () => {
+			const childId = "child-stumble";
+			const tree = treePlusChild(childId);
+			const events: SessionEvent[] = [
+				makeEvent("act_start", { agent_name: "worker", goal: "work", child_id: childId }, { timestamp: 1000 }),
+				makeEvent("primitive_start", { name: "read_file", args: { path: "a.ts" } }, { agent_id: childId, timestamp: 1100, depth: 1 }),
+				makeEvent("primitive_end", { name: "read_file", success: true }, { agent_id: childId, timestamp: 1200, depth: 1 }),
+				makeEvent("primitive_start", { name: "exec", args: { command: "bun test" } }, { agent_id: childId, timestamp: 1300, depth: 1 }),
+				makeEvent("primitive_end", { name: "exec", success: false }, { agent_id: childId, timestamp: 1400, depth: 1 }),
+				makeEvent("verify", { agent_name: "worker", success: true, stumbled: true }, { timestamp: 1500 }),
+				makeEvent("learn_signal", { kind: "error", agent_name: "worker" }, { timestamp: 1600 }),
+				makeEvent("act_end", { agent_name: "worker", child_id: childId, success: true, turns: 2, goal: "work" }, { timestamp: 2000 }),
+			];
+			const result = groupEvents(events, undefined, tree);
+
+			const delegation = result.find((g) => g.event.kind === "act_end");
+			expect(delegation).toBeTruthy();
+			expect(delegation!.event.data.success).toBe(true);
+			expect(delegation!.stumbleCount).toBe(1);
+			expect(delegation!.livePeekTools).toEqual([
+				{ name: "read_file", args: "a.ts", success: true },
+				{ name: "exec", args: "bun test", success: false },
+			]);
+		});
 	});
 
 	describe("session_end marks abandoned delegations", () => {
