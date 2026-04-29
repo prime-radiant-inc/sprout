@@ -263,6 +263,40 @@ describe("SessionController", () => {
 		expect(bus.collected().some((event) => event.data.memory_collapse === "completed")).toBe(false);
 	});
 
+	test("persists memory collapse failure warnings to the root event log", async () => {
+		const fake = makeFakeAgent();
+		const factory: AgentFactory = async () => ({
+			agent: fake.agent as any,
+			learnProcess: null,
+			collapseMemory: async () => {
+				throw new Error("truncated extraction response");
+			},
+		});
+		const { bus, controller } = makeController({ factory });
+
+		await controller.runGoal("Remember this session");
+
+		expect(
+			bus
+				.collected()
+				.some(
+					(event) =>
+						event.kind === "warning" &&
+						event.data.message === "Memory collapse failed: truncated extraction response",
+				),
+		).toBe(true);
+
+		const rootEventLog = join(tempDir, "logs", `${controller.sessionId}.jsonl`);
+		await waitFor(
+			() =>
+				existsSync(rootEventLog) &&
+				readFileSync(rootEventLog, "utf-8").includes("Memory collapse failed"),
+		);
+		const loggedEvents = readFileSync(rootEventLog, "utf-8");
+		expect(loggedEvents).toContain('"kind":"warning"');
+		expect(loggedEvents).toContain("Memory collapse failed: truncated extraction response");
+	});
+
 	test("stops learn process before collapsing completed sessions to memory", async () => {
 		const calls: string[] = [];
 		const factory: AgentFactory = async () => ({

@@ -873,7 +873,7 @@ export class SessionController {
 				});
 			}
 		} catch (err) {
-			this.bus.emitEvent("warning", "session", 0, {
+			this.emitAndPersistControllerEvent("warning", "session", 0, {
 				message: `Memory collapse failed: ${err instanceof Error ? err.message : String(err)}`,
 			});
 		}
