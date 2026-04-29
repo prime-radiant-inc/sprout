@@ -30,6 +30,8 @@ export interface ExtractedMemoryDraft {
 	expires_at?: number;
 }
 
+export const DEFAULT_MEMORY_EXTRACTION_MAX_TOKENS = 8192;
+
 export class MemoryExtractionTruncatedError extends Error {
 	constructor(input: { provider: string; model: string; reason: string; raw?: string }) {
 		const raw = input.raw ? `, raw=${input.raw}` : "";
@@ -100,7 +102,7 @@ export async function extractMemoryDrafts(
 			),
 		],
 		temperature: 0.1,
-		max_tokens: request.maxTokens ?? 2048,
+		max_tokens: request.maxTokens ?? DEFAULT_MEMORY_EXTRACTION_MAX_TOKENS,
 		metadata: { purpose: "memory.extraction" },
 	});
 	if (response.finish_reason.reason === "length") {

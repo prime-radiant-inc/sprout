@@ -11,6 +11,7 @@ import {
 	redactSensitiveTranscriptContent,
 	renderCollapseTranscript,
 } from "../../src/core/session-collapse.ts";
+import { DEFAULT_MEMORY_EXTRACTION_MAX_TOKENS } from "../../src/genome/extraction.ts";
 import type { Genome } from "../../src/genome/genome.ts";
 import { memoryShortId } from "../../src/genome/memory-schema.ts";
 import type { MemorySegment } from "../../src/genome/segments.ts";
@@ -793,6 +794,7 @@ abc123
 		const workDir = join(tempDir, "work-bounded-extraction");
 		await mkdir(workDir, { recursive: true });
 		const prompts: string[] = [];
+		const requests: Request[] = [];
 		const client = makeClientSequence(
 			[
 				JSON.stringify({
@@ -803,6 +805,7 @@ abc123
 				"[]",
 			],
 			(request) => {
+				requests.push(request);
 				const prompt = request.messages[1];
 				prompts.push(prompt ? messageText(prompt) : "");
 			},
@@ -855,6 +858,8 @@ abc123
 		expect(prompts[1]).toContain("Audit project");
 		expect(prompts[1]).toContain("Final audit report");
 		expect(prompts[1]!.match(/Final audit report/g)).toHaveLength(1);
+		expect(requests[1]?.metadata?.purpose).toBe("memory.extraction");
+		expect(requests[1]?.max_tokens).toBe(DEFAULT_MEMORY_EXTRACTION_MAX_TOKENS);
 	});
 
 	test("passes previous segment summaries and current summary context to collapse prompts", async () => {

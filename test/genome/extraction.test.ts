@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+	DEFAULT_MEMORY_EXTRACTION_MAX_TOKENS,
 	extractMemoryDrafts,
 	formatExtractionMessages,
 	memoryFromDraft,
@@ -233,7 +234,27 @@ describe("memory extraction", () => {
 		expect(captured!.messages[0]!.role).toBe("system");
 		expect(captured!.messages[1]!.role).toBe("user");
 		expect(captured!.messages[1]!.content[0]!.text).toContain("Use SQLite");
+		expect(captured!.max_tokens).toBe(DEFAULT_MEMORY_EXTRACTION_MAX_TOKENS);
 		expect(drafts[0]!.text).toBe("User prefers SQLite for MIRA memory");
+	});
+
+	test("allows callers to override the extraction output budget", async () => {
+		let captured: Request | undefined;
+		await extractMemoryDrafts({
+			client: makeClient("[]", (request) => {
+				captured = request;
+			}),
+			model: "model",
+			provider: "provider",
+			prompts: {
+				system: "system prompt",
+				user: "{formatted_messages}",
+			},
+			messages: [{ role: "user", content: "Use SQLite" }],
+			maxTokens: 12_000,
+		});
+
+		expect(captured!.max_tokens).toBe(12_000);
 	});
 
 	test("fails explicitly before parsing truncated extraction responses", async () => {
