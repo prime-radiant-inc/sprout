@@ -15,7 +15,7 @@ import type { MemorySegment } from "../../src/genome/segments.ts";
 import type { SessionEvent } from "../../src/kernel/types.ts";
 import type { Client } from "../../src/llm/client.ts";
 import type { EmbeddingProvider } from "../../src/llm/embeddings.ts";
-import type { ProviderModel, Request, Response } from "../../src/llm/types.ts";
+import type { FinishReason, ProviderModel, Request, Response } from "../../src/llm/types.ts";
 import { Msg, messageText } from "../../src/llm/types.ts";
 import { createTestGenome } from "../helpers/test-genome.ts";
 
@@ -39,18 +39,21 @@ function replayRecord(timestamp: number): SessionEvent {
 	} as unknown as SessionEvent;
 }
 
-function makeResponse(text: string): Response {
+function makeResponse(text: string, finishReason: FinishReason = { reason: "stop" }): Response {
 	return {
 		id: "mock",
 		model: "test-model",
 		provider: "anthropic",
 		message: Msg.assistant(text),
-		finish_reason: { reason: "stop" },
+		finish_reason: finishReason,
 		usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
 	};
 }
 
-function makeClientSequence(responses: string[], onRequest?: (request: Request) => void): Client {
+function makeClientSequence(
+	responses: Array<string | Response>,
+	onRequest?: (request: Request) => void,
+): Client {
 	let index = 0;
 	const modelsByProvider = new Map<string, ProviderModel[]>([
 		["anthropic", [{ id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", source: "remote" }]],
@@ -62,7 +65,7 @@ function makeClientSequence(responses: string[], onRequest?: (request: Request) 
 			onRequest?.(request);
 			const response = responses[index] ?? responses.at(-1) ?? "[]";
 			index++;
-			return makeResponse(response);
+			return typeof response === "string" ? makeResponse(response) : response;
 		},
 	} as unknown as Client;
 }
@@ -1005,6 +1008,45 @@ abc123
 				now: 300,
 			}),
 		).rejects.toThrow();
+
+		expect(genome.segments.all()).toHaveLength(0);
+		expect(genome.memories.all()).toHaveLength(0);
+	});
+
+	test("reports truncated extraction responses with configured model identity", async () => {
+		const genomeDir = join(tempDir, "genome-extraction-truncated");
+		const rootDir = join(import.meta.dir, "../../root");
+		const workDir = join(tempDir, "work-extraction-truncated");
+		await mkdir(workDir, { recursive: true });
+		const genome = createTestGenome(genomeDir, rootDir);
+		await genome.init();
+		await genome.initFromRoot();
+		const client = makeClientSequence([
+			JSON.stringify({
+				summary: "Summary before truncated extraction.",
+				title: "Extraction truncation",
+				complexity: 1,
+			}),
+			makeResponse('{"memories":[', { reason: "length", raw: "max_tokens" }),
+		]);
+
+		await expect(
+			collapseSessionToMemory({
+				events: [
+					event("perceive", 100, { goal: "Remember this." }),
+					event("session_end", 200, { output: "Done." }),
+				],
+				genome,
+				client,
+				summaryModel: { model: "summary-model", provider: "anthropic" },
+				extractionModel: { model: "extract-model", provider: "openrouter" },
+				sessionId: "session-collapse-truncated-extraction",
+				cwd: workDir,
+				now: 300,
+			}),
+		).rejects.toThrow(
+			"Memory extraction response from openrouter/extract-model was truncated (finish_reason=length, raw=max_tokens)",
+		);
 
 		expect(genome.segments.all()).toHaveLength(0);
 		expect(genome.memories.all()).toHaveLength(0);

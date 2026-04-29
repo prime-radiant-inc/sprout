@@ -30,6 +30,17 @@ export interface ExtractedMemoryDraft {
 	expires_at?: number;
 }
 
+export class MemoryExtractionTruncatedError extends Error {
+	constructor(input: { provider: string; model: string; reason: string; raw?: string }) {
+		const raw = input.raw ? `, raw=${input.raw}` : "";
+		super(
+			`Memory extraction response from ${input.provider}/${input.model} was truncated ` +
+				`(finish_reason=${input.reason}${raw})`,
+		);
+		this.name = "MemoryExtractionTruncatedError";
+	}
+}
+
 type RawExtractionEntity = {
 	name?: unknown;
 	type?: unknown;
@@ -92,6 +103,14 @@ export async function extractMemoryDrafts(
 		max_tokens: request.maxTokens ?? 2048,
 		metadata: { purpose: "memory.extraction" },
 	});
+	if (response.finish_reason.reason === "length") {
+		throw new MemoryExtractionTruncatedError({
+			provider: request.provider,
+			model: request.model,
+			reason: response.finish_reason.reason,
+			...(response.finish_reason.raw ? { raw: response.finish_reason.raw } : {}),
+		});
+	}
 
 	return normalizeExtractionPayload(parseExtractionJson(messageText(response.message)));
 }

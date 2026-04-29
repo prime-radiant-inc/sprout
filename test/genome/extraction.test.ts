@@ -8,9 +8,13 @@ import {
 	renderExtractionUserPrompt,
 } from "../../src/genome/extraction.ts";
 import type { Client } from "../../src/llm/client.ts";
-import { Msg, type Request, type Response } from "../../src/llm/types.ts";
+import { type FinishReason, Msg, type Request, type Response } from "../../src/llm/types.ts";
 
-function makeClient(json: string, onRequest?: (request: Request) => void): Client {
+function makeClient(
+	json: string,
+	onRequest?: (request: Request) => void,
+	finishReason: FinishReason = { reason: "stop" },
+): Client {
 	return {
 		complete: async (request: Request): Promise<Response> => {
 			onRequest?.(request);
@@ -19,7 +23,7 @@ function makeClient(json: string, onRequest?: (request: Request) => void): Clien
 				model: "test",
 				provider: "test",
 				message: Msg.assistant(json),
-				finish_reason: { reason: "stop" },
+				finish_reason: finishReason,
 				usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
 			};
 		},
@@ -230,6 +234,23 @@ describe("memory extraction", () => {
 		expect(captured!.messages[1]!.role).toBe("user");
 		expect(captured!.messages[1]!.content[0]!.text).toContain("Use SQLite");
 		expect(drafts[0]!.text).toBe("User prefers SQLite for MIRA memory");
+	});
+
+	test("fails explicitly before parsing truncated extraction responses", async () => {
+		await expect(
+			extractMemoryDrafts({
+				client: makeClient('{"memories":[', undefined, { reason: "length", raw: "max_tokens" }),
+				model: "extract-model",
+				provider: "anthropic",
+				prompts: {
+					system: "system prompt",
+					user: "{formatted_messages}",
+				},
+				messages: [{ role: "user", content: "Use SQLite" }],
+			}),
+		).rejects.toThrow(
+			"Memory extraction response from anthropic/extract-model was truncated (finish_reason=length, raw=max_tokens)",
+		);
 	});
 
 	test("builds Memory records from extraction drafts", () => {
