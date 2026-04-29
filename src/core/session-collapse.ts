@@ -1,5 +1,11 @@
 import { filterDuplicateDrafts } from "../genome/dedup.ts";
-import { extractMemoryDrafts, memoryFromDraft, parseExtractionJson } from "../genome/extraction.ts";
+import {
+	type ExtractionMessage,
+	extractMemoryDrafts,
+	formatExtractionMessages,
+	memoryFromDraft,
+	parseExtractionJson,
+} from "../genome/extraction.ts";
 import type { Genome } from "../genome/genome.ts";
 import { type DetectedProject, detectProjectFromCwd } from "../genome/projects.ts";
 import type { MemorySegment } from "../genome/segments.ts";
@@ -12,6 +18,8 @@ import { ContentKind, type Message, Msg, messageText } from "../llm/types.ts";
 export { redactSensitiveTranscriptContent } from "../kernel/redaction.ts";
 
 const MAX_COLLAPSE_OUTCOME_CHARS = 2000;
+const MAX_COLLAPSE_EXTRACTION_MESSAGE_CHARS = 1800;
+export const MAX_COLLAPSE_EXTRACTION_RENDERED_CHARS = 16_000;
 
 export type CollapseTranscriptRole = "user" | "assistant";
 
@@ -59,7 +67,9 @@ export function buildCollapseTranscript(
 ): CollapseTranscriptMessage[] {
 	const sorted = [...events].sort((a, b) => a.timestamp - b.timestamp);
 	const observerAgentIds = collectObserverAgentIds(sorted);
-	return sorted.flatMap((event) => eventToTranscriptMessage(event, options, observerAgentIds));
+	return dedupeRepeatedTerminalOutput(
+		sorted.flatMap((event) => eventToTranscriptMessage(event, options, observerAgentIds)),
+	);
 }
 
 export function renderCollapseTranscript(messages: readonly CollapseTranscriptMessage[]): string {
@@ -114,11 +124,13 @@ export async function collapseSessionToMemory(
 		now,
 	});
 
-	const extractionMessages = transcript.map((message) => ({
-		role: message.role,
-		content: message.content,
-		timestamp: message.timestamp,
-	}));
+	const extractionMessages = boundCollapseExtractionMessages(
+		transcript.map((message) => ({
+			role: message.role,
+			content: message.content,
+			timestamp: message.timestamp,
+		})),
+	);
 	const extractionDrafts =
 		extractionMessages.length === 0
 			? []
@@ -175,6 +187,94 @@ function latestCollapsedTranscriptTimestamp(
 		}
 	}
 	return latest;
+}
+
+function dedupeRepeatedTerminalOutput(
+	messages: readonly CollapseTranscriptMessage[],
+): CollapseTranscriptMessage[] {
+	const deduped: CollapseTranscriptMessage[] = [];
+	for (const message of messages) {
+		const previous = deduped.at(-1);
+		if (
+			message.event_kind === "session_end" &&
+			previous?.event_kind === "plan_end" &&
+			previous.role === "assistant" &&
+			message.role === "assistant" &&
+			previous.content.trim() === message.content.trim()
+		) {
+			deduped[deduped.length - 1] = message;
+			continue;
+		}
+		deduped.push(message);
+	}
+	return deduped;
+}
+
+function boundCollapseExtractionMessages(
+	messages: readonly ExtractionMessage[],
+): ExtractionMessage[] {
+	const capped = capExtractionMessages(messages, MAX_COLLAPSE_EXTRACTION_MESSAGE_CHARS);
+	if (formatExtractionMessages(capped).length <= MAX_COLLAPSE_EXTRACTION_RENDERED_CHARS) {
+		return capped;
+	}
+
+	const kept = keepRecentExtractionMessagesWithinLimit(capped);
+	if (formatExtractionMessages(kept).length <= MAX_COLLAPSE_EXTRACTION_RENDERED_CHARS) {
+		return kept;
+	}
+
+	return shrinkExtractionMessagesToLimit(kept);
+}
+
+function keepRecentExtractionMessagesWithinLimit(
+	messages: readonly ExtractionMessage[],
+): ExtractionMessage[] {
+	if (messages.length <= 2) return [...messages];
+
+	const keptIndexes = new Set<number>([0, messages.length - 1]);
+	for (let index = messages.length - 2; index > 0; index--) {
+		keptIndexes.add(index);
+		const selected = extractionMessagesByIndex(messages, keptIndexes);
+		if (formatExtractionMessages(selected).length > MAX_COLLAPSE_EXTRACTION_RENDERED_CHARS) {
+			keptIndexes.delete(index);
+		}
+	}
+	return extractionMessagesByIndex(messages, keptIndexes);
+}
+
+function shrinkExtractionMessagesToLimit(
+	messages: readonly ExtractionMessage[],
+): ExtractionMessage[] {
+	let cap = Math.max(200, Math.floor(MAX_COLLAPSE_EXTRACTION_RENDERED_CHARS / messages.length) - 200);
+	let current = capExtractionMessages(messages, cap);
+	while (formatExtractionMessages(current).length > MAX_COLLAPSE_EXTRACTION_RENDERED_CHARS && cap > 80) {
+		cap = Math.max(80, Math.floor(cap * 0.75));
+		current = capExtractionMessages(messages, cap);
+	}
+	return current;
+}
+
+function extractionMessagesByIndex(
+	messages: readonly ExtractionMessage[],
+	indexes: ReadonlySet<number>,
+): ExtractionMessage[] {
+	return messages.filter((_, index) => indexes.has(index));
+}
+
+function capExtractionMessages(
+	messages: readonly ExtractionMessage[],
+	maxContentChars: number,
+): ExtractionMessage[] {
+	return messages.map((message) => ({
+		...message,
+		content: truncateExtractionMessage(message.content, maxContentChars),
+	}));
+}
+
+function truncateExtractionMessage(content: string, maxChars: number): string {
+	if (content.length <= maxChars) return content;
+	const suffix = "\n[truncated for memory extraction]";
+	return `${content.slice(0, Math.max(0, maxChars - suffix.length)).trimEnd()}${suffix}`;
 }
 
 function redactTranscriptMessage(message: CollapseTranscriptMessage): CollapseTranscriptMessage {

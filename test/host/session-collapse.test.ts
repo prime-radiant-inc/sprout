@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+	MAX_COLLAPSE_EXTRACTION_RENDERED_CHARS,
 	buildCollapseTranscript,
 	collapseSessionToMemory,
 	normalizeSegmentSummary,
@@ -176,6 +177,22 @@ describe("session collapse transcript", () => {
 		]);
 
 		expect(messages.map((message) => message.content)).toEqual(["Root goal", "Root answer"]);
+	});
+
+	test("deduplicates terminal session output that repeats the final root answer", () => {
+		const finalOutput = "Final report with audit findings.";
+		const messages = buildCollapseTranscript([
+			event("perceive", 100, { goal: "Audit project" }),
+			event("plan_end", 200, { text: "Earlier root answer." }),
+			event("plan_end", 300, { text: finalOutput }),
+			event("session_end", 400, { output: finalOutput }),
+		]);
+
+		expect(messages.map((message) => `${message.event_kind}:${message.content}`)).toEqual([
+			"perceive:Audit project",
+			"plan_end:Earlier root answer.",
+			"session_end:Final report with audit findings.",
+		]);
 	});
 
 	test("excludes observer telemetry from collapse transcripts", () => {
@@ -619,6 +636,74 @@ abc123
 		expect(prompts[1]).toContain("check collapse evidence");
 		expect(prompts[1]).toContain("delegation outcomes include durable implementation facts.");
 		expect(prompts[1]).toContain("Root finished with local SQLite implementation details.");
+	});
+
+	test("bounds oversized collapse transcript before memory extraction", async () => {
+		const workDir = join(tempDir, "work-bounded-extraction");
+		await mkdir(workDir, { recursive: true });
+		const prompts: string[] = [];
+		const client = makeClientSequence(
+			[
+				JSON.stringify({
+					summary: "Collapsed oversized audit session.",
+					title: "Oversized audit",
+					complexity: 3,
+				}),
+				"[]",
+			],
+			(request) => {
+				const prompt = request.messages[1];
+				prompts.push(prompt ? messageText(prompt) : "");
+			},
+		);
+		const genome = {
+			segments: { all: () => [] },
+			memories: { all: () => [] },
+			loadSegmentSummaryPrompts: async () => ({
+				system: "Summarize.",
+				user: "{formatted_messages}",
+			}),
+			loadMemoryExtractionPrompts: async () => ({
+				system: "Extract.",
+				user: "{formatted_messages}",
+			}),
+			memoryEmbeddingProvider: async () => {
+				throw new Error("empty extraction should not load embeddings");
+			},
+			addSegmentWithMemories: async (_segment: unknown, memories: readonly unknown[]) => memories,
+		} as unknown as Genome;
+		const longFinal = `Final audit report\n${"A".repeat(12_000)}`;
+		const longDelegate = `Delegate findings\n${"B".repeat(6_000)}`;
+
+		await collapseSessionToMemory({
+			events: [
+				event("perceive", 100, { goal: "Audit project" }),
+				event("act_end", 200, {
+					agent_name: "reader",
+					success: true,
+					tool_result_message: Msg.toolResult("delegate-1", longDelegate),
+				}),
+				event("act_end", 300, {
+					agent_name: "reviewer",
+					success: true,
+					tool_result_message: Msg.toolResult("delegate-2", longDelegate),
+				}),
+				event("plan_end", 400, { text: longFinal }),
+				event("session_end", 500, { output: longFinal }),
+			],
+			genome,
+			client,
+			...DEFAULT_MEMORY_MODELS,
+			sessionId: "session-collapse-bounded-extraction",
+			cwd: workDir,
+			now: 600,
+		});
+
+		expect(prompts).toHaveLength(2);
+		expect(prompts[1]!.length).toBeLessThanOrEqual(MAX_COLLAPSE_EXTRACTION_RENDERED_CHARS);
+		expect(prompts[1]).toContain("Audit project");
+		expect(prompts[1]).toContain("Final audit report");
+		expect(prompts[1]!.match(/Final audit report/g)).toHaveLength(1);
 	});
 
 	test("passes previous segment summaries and current summary context to collapse prompts", async () => {
