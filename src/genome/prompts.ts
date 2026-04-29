@@ -16,6 +16,11 @@ Rules:
   paths, and operational lessons.
 - Skip ephemeral task status, generic reference facts, and one-off actions that
   do not reveal a durable pattern.
+- Extract fewer, higher-signal memories rather than exhaustive inventories.
+- Write each memory as one compact factual sentence unless the durable fact
+  genuinely needs more detail.
+- Anchor each memory with one concrete detail. Do not summarize the transcript
+  or preserve every detail.
 - Write each memory as a direct factual statement. Lead with the core fact.
 - Preserve precise nouns: file paths, commands, APIs, model names, thresholds,
   error messages, and project names.

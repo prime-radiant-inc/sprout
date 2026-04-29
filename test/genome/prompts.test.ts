@@ -41,6 +41,15 @@ describe("genome prompt loading", () => {
 		);
 	});
 
+	test("default extraction prompt tells the model to be compact and selective", () => {
+		expect(MEMORY_EXTRACTION_SYSTEM_PROMPT).toContain(
+			"Extract fewer, higher-signal memories rather than exhaustive inventories.",
+		);
+		expect(MEMORY_EXTRACTION_SYSTEM_PROMPT).toContain("one compact factual sentence");
+		expect(MEMORY_EXTRACTION_SYSTEM_PROMPT).toContain("one concrete detail");
+		expect(MEMORY_EXTRACTION_SYSTEM_PROMPT).toContain("Do not summarize the transcript");
+	});
+
 	test("prefers genome prompt files over root prompt files", async () => {
 		const genomeRoot = join(tempDir, "genome");
 		const rootDir = join(tempDir, "root");
