@@ -30,7 +30,8 @@ The background process loads pending evaluations, evaluates due improvements,
 then drains queued signals. For each accepted signal it:
 1. Extracts factual memory drafts from event-window evidence.
 2. Filters duplicate drafts.
-3. Writes embedded memories through the genome.
+3. Incorporates embedded memories through the memory write pipeline, including
+   relationship classification for newly discovered links.
 4. Asks the reasoner for a non-memory mutation.
 5. Applies the mutation and records a pending evaluation.
 
@@ -43,16 +44,20 @@ Source of truth:
 ## Mutation Types
 
 Supported mutations:
-- create memory
 - update existing agent prompt
 - create agent
 - create routing rule
+
+Factual memory creation is not a public learn mutation. It is a signal-driven
+extraction path that writes through the genome memory incorporation pipeline.
+Do not emit direct `create_memory` mutations from agents or bus clients.
 
 Routing-rule learning uses the normal `RoutingRule` genome path. Do not replace
 routing rules with memories or an alternate rule system.
 
 Source of truth:
 - `src/learn/learn-process.ts:LearnMutation`
+- `src/genome/memory-incorporation.ts:incorporateExtractedMemories()`
 - `src/genome/genome.ts:addRoutingRule()`
 
 ## Metrics
