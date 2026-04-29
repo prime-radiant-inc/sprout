@@ -583,7 +583,8 @@ function sparseCosine(left: Map<string, number>, right: Map<string, number>): nu
 function sharedBond(left: Memory, right: Memory): string | undefined {
 	const sharedEntities = [...entityKeys(left)].filter((entity) => entityKeys(right).has(entity));
 	if (sharedEntities[0]) {
-		return sharedEntities[0].split(":").at(-1)?.slice(0, 40);
+		const parts = sharedEntities[0].split(":");
+		return parts[parts.length - 1]?.slice(0, 40);
 	}
 	const sharedTokens = tokens(left).filter((token) => tokens(right).includes(token));
 	return sharedTokens.slice(0, 3).join(" ") || undefined;
