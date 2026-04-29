@@ -21,6 +21,11 @@ export interface ClassifiedMemoryRelationship {
 	extraction_bond?: string;
 }
 
+export interface ApplyMemoryLinksResult {
+	added: number;
+	changed: boolean;
+}
+
 export interface LinkDiscoveryOptions {
 	minVectorSimilarity?: number;
 	minEntityScore?: number;
@@ -159,7 +164,24 @@ export async function persistMemoryLinks(
 	relationships: readonly ClassifiedMemoryRelationship[],
 	options: { source?: string; now?: number } = {},
 ): Promise<number> {
-	const memories = genome.memories.all();
+	const { added, changed } = applyMemoryLinks(genome.memories.all(), relationships, {
+		now: options.now,
+	});
+	if (changed) {
+		await genome.saveMemoryMutation(
+			added > 0
+				? `genome: link ${added} memory relationship${added === 1 ? "" : "s"}`
+				: "genome: repair memory link metadata",
+		);
+	}
+	return added;
+}
+
+export function applyMemoryLinks(
+	memories: readonly Memory[],
+	relationships: readonly ClassifiedMemoryRelationship[],
+	options: { now?: number } = {},
+): ApplyMemoryLinksResult {
 	const byId = new Map(memories.map((memory) => [memory.id, memory]));
 	const now = options.now ?? Date.now();
 	let added = 0;
@@ -198,14 +220,7 @@ export async function persistMemoryLinks(
 		}
 	}
 
-	if (changed) {
-		await genome.saveMemoryMutation(
-			added > 0
-				? `genome: link ${added} memory relationship${added === 1 ? "" : "s"}`
-				: "genome: repair memory link metadata",
-		);
-	}
-	return added;
+	return { added, changed };
 }
 
 export async function healMemoryLinks(genome: Genome): Promise<number> {

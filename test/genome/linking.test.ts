@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { memoryIndexPath } from "../../src/genome/index-builder.ts";
 import {
+	applyMemoryLinks,
 	discoverLinkCandidates,
 	discoverLinkCandidatesForNewMemories,
 	healMemoryLinks,
@@ -425,6 +426,137 @@ describe("memory link graph", () => {
 				axes: ["explicit"],
 			}),
 		);
+	});
+
+	test("applies reciprocal refines links in memory", () => {
+		const source = memory({ id: "new-memory", created: 200 });
+		const target = memory({ id: "old-memory", created: 100 });
+		const result = applyMemoryLinks(
+			[source, target],
+			[
+				{
+					source_id: "new-memory",
+					target_id: "old-memory",
+					relationship_type: "refines",
+					reasoning: "The newer memory adds implementation detail.",
+				},
+			],
+			{ now: 1234 },
+		);
+
+		expect(result).toEqual({ added: 1, changed: true });
+		expect(source.outbound_links?.[0]).toMatchObject({
+			uuid: "old-memory",
+			type: "refines",
+			created_at: 1234,
+		});
+		expect(target.inbound_links?.[0]).toMatchObject({
+			uuid: "new-memory",
+			type: "refines",
+			created_at: 1234,
+		});
+	});
+
+	test("applies conflicts links without deactivating either memory", () => {
+		const source = memory({ id: "new-memory", created: 200 });
+		const target = memory({ id: "old-memory", created: 100 });
+		const result = applyMemoryLinks(
+			[source, target],
+			[
+				{
+					source_id: "new-memory",
+					target_id: "old-memory",
+					relationship_type: "conflicts",
+					reasoning: "The newer memory contradicts the older claim.",
+				},
+			],
+			{ now: 1234 },
+		);
+
+		expect(result).toEqual({ added: 1, changed: true });
+		expect(source.outbound_links?.[0]?.type).toBe("conflicts");
+		expect(target.inbound_links?.[0]?.type).toBe("conflicts");
+		expect(source.superseded_by).toBeUndefined();
+		expect(target.superseded_by).toBeUndefined();
+	});
+
+	test("applies supersedes links and deactivates the target memory", () => {
+		const source = memory({ id: "new-memory", created: 200 });
+		const target = memory({ id: "old-memory", created: 100 });
+		const result = applyMemoryLinks(
+			[source, target],
+			[
+				{
+					source_id: "new-memory",
+					target_id: "old-memory",
+					relationship_type: "supersedes",
+					reasoning: "The newer memory replaces the older claim.",
+				},
+			],
+			{ now: 1234 },
+		);
+
+		expect(result).toEqual({ added: 1, changed: true });
+		expect(source.outbound_links?.[0]?.type).toBe("supersedes");
+		expect(target.inbound_links?.[0]?.type).toBe("supersedes");
+		expect(target.superseded_by).toBe("new-memory");
+	});
+
+	test("ignores null links in memory", () => {
+		const source = memory({ id: "new-memory", created: 200 });
+		const target = memory({ id: "old-memory", created: 100 });
+		const result = applyMemoryLinks(
+			[source, target],
+			[
+				{
+					source_id: "new-memory",
+					target_id: "old-memory",
+					relationship_type: "null",
+					reasoning: "No meaningful relationship.",
+				},
+			],
+			{ now: 1234 },
+		);
+
+		expect(result).toEqual({ added: 0, changed: false });
+		expect(source.outbound_links).toBeUndefined();
+		expect(target.inbound_links).toBeUndefined();
+	});
+
+	test("repairs reciprocal metadata without incrementing added links", () => {
+		const source = memory({
+			id: "new-memory",
+			created: 200,
+			outbound_links: [
+				{
+					uuid: "old-memory",
+					type: "supersedes",
+					reasoning: "existing outbound",
+					created_at: 1,
+				},
+			],
+		});
+		const target = memory({ id: "old-memory", created: 100 });
+		const result = applyMemoryLinks(
+			[source, target],
+			[
+				{
+					source_id: "new-memory",
+					target_id: "old-memory",
+					relationship_type: "supersedes",
+					reasoning: "existing outbound",
+				},
+			],
+			{ now: 1234 },
+		);
+
+		expect(result).toEqual({ added: 0, changed: true });
+		expect(source.outbound_links).toHaveLength(1);
+		expect(target.inbound_links?.[0]).toMatchObject({
+			uuid: "new-memory",
+			type: "supersedes",
+		});
+		expect(target.superseded_by).toBe("new-memory");
 	});
 
 	test("persists classified relationships to JSONL and the SQLite index", async () => {
