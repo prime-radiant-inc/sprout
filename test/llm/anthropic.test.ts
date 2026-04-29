@@ -112,6 +112,38 @@ describe("AnthropicAdapter", () => {
 		expect(((params.messages[0]!.content as any[]).at(-1) as any).cache_control).toBeUndefined();
 	});
 
+	test("build request omits temperature for Anthropic models that reject it", () => {
+		const params = buildAnthropicRequest(
+			{
+				model: "claude-opus-4-7",
+				messages: [],
+				max_tokens: 30,
+				temperature: 0.9,
+				tool_choice: "none",
+			},
+			undefined,
+			[{ role: "user", content: [{ kind: ContentKind.TEXT, text: "Name this agent." }] }],
+		);
+
+		expect(params.temperature).toBeUndefined();
+	});
+
+	test("build request preserves temperature for Anthropic models that accept it", () => {
+		const params = buildAnthropicRequest(
+			{
+				model: "claude-sonnet-4-6",
+				messages: [],
+				max_tokens: 30,
+				temperature: 0.9,
+				tool_choice: "none",
+			},
+			undefined,
+			[{ role: "user", content: [{ kind: ContentKind.TEXT, text: "Name this agent." }] }],
+		);
+
+		expect(params.temperature).toBe(0.9);
+	});
+
 	test("complete returns a text response", async () => {
 		const vcr = vcrFor("complete-returns-a-text-response", realAdapter);
 		const req: Request = {

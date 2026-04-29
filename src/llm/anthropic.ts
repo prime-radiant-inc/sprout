@@ -221,7 +221,7 @@ export function buildAnthropicRequest(
 		}
 	}
 
-	if (request.temperature !== undefined) {
+	if (request.temperature !== undefined && acceptsAnthropicTemperature(request.model)) {
 		params.temperature = request.temperature;
 	}
 
@@ -241,6 +241,10 @@ export function buildAnthropicRequest(
 	}
 
 	return params;
+}
+
+function acceptsAnthropicTemperature(model: string): boolean {
+	return model !== "claude-opus-4-7" && !model.startsWith("claude-opus-4-7-");
 }
 
 interface AnthropicCacheSettings {
