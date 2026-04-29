@@ -188,6 +188,7 @@ export type AgentFactory = (options: AgentFactoryOptions) => Promise<AgentFactor
 interface CollapseMemoryModels {
 	summaryModel: ResolvedModel;
 	extractionModel: ResolvedModel;
+	relationshipModel: ResolvedModel;
 	resolverSettings: ResolverSettings;
 	modelsByProvider: Map<string, ProviderModel[]>;
 }
@@ -364,26 +365,41 @@ export async function resolveCollapseMemoryModels(
 			effectiveResolverSettings,
 			modelMap,
 		),
+		relationshipModel: resolveRequiredCollapseModel(
+			"relationship",
+			effectiveResolverSettings,
+			modelMap,
+		),
 		resolverSettings: effectiveResolverSettings,
 		modelsByProvider: modelMap,
 	};
 }
 
 function resolveRequiredCollapseModel(
-	purpose: "summary" | "extraction",
+	purpose: "summary" | "extraction" | "relationship",
 	resolverSettings: ResolverSettings,
 	modelMap: Map<string, ProviderModel[]>,
 ): ResolvedModel {
 	try {
 		return resolveMemoryModel(purpose, resolverSettings, modelMap);
 	} catch (error) {
-		const envVar =
-			purpose === "summary" ? "SPROUT_MEMORY_SUMMARY_MODEL" : "SPROUT_MEMORY_EXTRACTION_MODEL";
+		const envVar = collapseMemoryModelEnvVar(purpose);
 		const detail = error instanceof Error ? error.message : String(error);
 		throw new Error(
 			`Memory collapse requires a configured memory '${purpose}' model before the session can run. ` +
 				`Configure Settings > Models > Memory calls or set ${envVar}. ${detail}`,
 		);
+	}
+}
+
+function collapseMemoryModelEnvVar(purpose: "summary" | "extraction" | "relationship"): string {
+	switch (purpose) {
+		case "summary":
+			return "SPROUT_MEMORY_SUMMARY_MODEL";
+		case "extraction":
+			return "SPROUT_MEMORY_EXTRACTION_MODEL";
+		case "relationship":
+			return "SPROUT_MEMORY_RELATIONSHIP_MODEL";
 	}
 }
 

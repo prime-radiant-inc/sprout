@@ -504,6 +504,10 @@ describe("SessionController", () => {
 							providerId,
 							modelId,
 						},
+						relationship: {
+							providerId,
+							modelId,
+						},
 					},
 				),
 		});
@@ -521,6 +525,11 @@ describe("SessionController", () => {
 						[
 							{ id: "summary-model", label: "summary-model", source: "remote" },
 							{ id: "extract-model", label: "extract-model", source: "remote" },
+							{
+								id: "relationship-model",
+								label: "relationship-model",
+								source: "remote",
+							},
 						],
 					],
 				]),
@@ -533,12 +542,17 @@ describe("SessionController", () => {
 				{
 					summary: { providerId, modelId: "summary-model" },
 					extraction: { providerId, modelId: "extract-model" },
+					relationship: { providerId, modelId: "relationship-model" },
 				},
 			),
 		);
 
 		expect(models.summaryModel).toEqual({ provider: providerId, model: "summary-model" });
 		expect(models.extractionModel).toEqual({ provider: providerId, model: "extract-model" });
+		expect(models.relationshipModel).toEqual({
+			provider: providerId,
+			model: "relationship-model",
+		});
 	});
 
 	test("session collapse startup validation rejects missing summary model without fallback", async () => {
@@ -589,6 +603,30 @@ describe("SessionController", () => {
 				),
 			),
 		).rejects.toThrow(/SPROUT_MEMORY_EXTRACTION_MODEL/);
+	});
+
+	test("session collapse startup validation rejects missing relationship model without fallback", async () => {
+		const providerId = "local";
+		const client = {
+			listModelsByProvider: async () =>
+				new Map<string, ProviderModel[]>([
+					[providerId, [{ id: "shared-model", label: "shared-model", source: "remote" }]],
+				]),
+		};
+
+		await expect(
+			resolveCollapseMemoryModels(
+				client,
+				createResolverSettings(
+					[{ id: providerId, enabled: true }],
+					{},
+					{
+						summary: { providerId, modelId: "shared-model" },
+						extraction: { providerId, modelId: "shared-model" },
+					},
+				),
+			),
+		).rejects.toThrow(/SPROUT_MEMORY_RELATIONSHIP_MODEL/);
 	});
 
 	test("submitGoal routes as steer when already running", async () => {
