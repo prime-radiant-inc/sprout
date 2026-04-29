@@ -7,6 +7,7 @@ import {
 import { filterDuplicateDrafts } from "../genome/dedup.ts";
 import { extractMemoryDrafts, memoryFromDraft } from "../genome/extraction.ts";
 import type { Genome } from "../genome/genome.ts";
+import { incorporateExtractedMemories } from "../genome/memory-incorporation.ts";
 import { EVENT_CAP } from "../kernel/constants.ts";
 import {
 	DEFAULT_CONSTRAINTS,
@@ -14,7 +15,10 @@ import {
 	type SessionEvent,
 	validateAgentName,
 } from "../kernel/types.ts";
-import { learnSignalExtractionMessages } from "../learn/extraction-evidence.ts";
+import {
+	learnSignalExtractionMessages,
+	memoryReferenceIdsFromExtractionMessages,
+} from "../learn/extraction-evidence.ts";
 import { Client } from "../llm/client.ts";
 import type { ProviderModel } from "../llm/types.ts";
 import type { BusClient } from "./client.ts";
@@ -70,6 +74,7 @@ export class GenomeMutationService {
 	private readonly queue: LearnRequest[] = [];
 	private readonly events: SessionEvent[] = [];
 	private resolvedModel: ResolvedModel | undefined;
+	private resolvedRelationshipModel: ResolvedModel | undefined;
 	private processing = false;
 	private started = false;
 
@@ -89,6 +94,7 @@ export class GenomeMutationService {
 	updateResolverSettings(resolverSettings: ResolverSettings | undefined): void {
 		this.resolverSettings = resolverSettings;
 		this.resolvedModel = undefined;
+		this.resolvedRelationshipModel = undefined;
 	}
 
 	updateRuntimeClient(client: Client, resolverSettings: ResolverSettings | undefined): void {
@@ -96,6 +102,7 @@ export class GenomeMutationService {
 		this.resolverSettings = resolverSettings;
 		this.modelsByProvider = undefined;
 		this.resolvedModel = undefined;
+		this.resolvedRelationshipModel = undefined;
 	}
 
 	/** Start subscribing to the mutations topic. */
@@ -156,17 +163,7 @@ export class GenomeMutationService {
 
 			switch (mutation.type) {
 				case "create_memory": {
-					await this.genome.addMemory({
-						id: `learn-${now}-${random}`,
-						content: mutation.content,
-						tags: mutation.tags,
-						source: "learn",
-						created: now,
-						last_used: now,
-						use_count: 0,
-						confidence: 0.8,
-					});
-					break;
+					throw new Error("create_memory mutations are unsupported; send a learn signal");
 				}
 				case "update_agent": {
 					const existing = this.genome.getAgent(mutation.agent_name);
@@ -253,6 +250,7 @@ export class GenomeMutationService {
 			}
 
 			const model = await this.resolveModel();
+			await this.resolveRelationshipModel();
 			const drafts = await extractMemoryDrafts({
 				client: this.getClient(),
 				model: model.model,
@@ -277,12 +275,21 @@ export class GenomeMutationService {
 				}),
 			);
 			if (memories.length > 0) {
-				await this.genome.addMemories(memories, `genome: extract ${memories.length} bus memories`);
+				const result = await incorporateExtractedMemories({
+					genome: this.genome,
+					memories,
+					explicitReferenceIds: memoryReferenceIdsFromExtractionMessages(messages),
+					client: this.getClient(),
+					resolverSettings: this.resolverSettings,
+					modelsByProvider: this.modelsByProvider,
+					commitMessage: `genome: extract ${memories.length} bus memories`,
+				});
+				memories.splice(0, memories.length, ...result.memories);
 			}
 			await this.publishConfirmation({
 				kind: "mutation_confirmed",
 				request_id,
-				mutation_type: "create_memory",
+				mutation_type: "learn_signal",
 				success: true,
 				extracted_count: memories.length,
 			});
@@ -317,6 +324,19 @@ export class GenomeMutationService {
 
 	private async resolveModel(): Promise<ResolvedModel> {
 		if (this.resolvedModel) return this.resolvedModel;
+		this.resolvedModel = await this.resolveMemoryPurposeModel("extraction");
+		return this.resolvedModel;
+	}
+
+	private async resolveRelationshipModel(): Promise<ResolvedModel> {
+		if (this.resolvedRelationshipModel) return this.resolvedRelationshipModel;
+		this.resolvedRelationshipModel = await this.resolveMemoryPurposeModel("relationship");
+		return this.resolvedRelationshipModel;
+	}
+
+	private async resolveMemoryPurposeModel(
+		purpose: "extraction" | "relationship",
+	): Promise<ResolvedModel> {
 		const client = this.getClient();
 		const modelMap = this.modelsByProvider ?? (await client.listModelsByProvider());
 		for (const providerId of client.providers()) {
@@ -332,8 +352,9 @@ export class GenomeMutationService {
 					enabled: true,
 				})),
 			);
-		this.resolvedModel = resolveMemoryModel("extraction", resolverSettings, modelMap);
-		return this.resolvedModel;
+		this.modelsByProvider = modelMap;
+		this.resolverSettings = resolverSettings;
+		return resolveMemoryModel(purpose, resolverSettings, modelMap);
 	}
 
 	private async waitForTerminalSignalEvidence(signal: LearnSignal): Promise<void> {

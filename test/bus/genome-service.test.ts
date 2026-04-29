@@ -13,6 +13,7 @@ import { BusLearnForwarder } from "../../src/bus/learn-forwarder.ts";
 import { BusServer } from "../../src/bus/server.ts";
 import { genomeEvents, genomeMutations, sessionEvents } from "../../src/bus/topics.ts";
 import type { Genome } from "../../src/genome/genome.ts";
+import { memoryShortId } from "../../src/genome/memory-schema.ts";
 import type { LearnSignal, SessionEvent } from "../../src/kernel/types.ts";
 import type { LearnMutation } from "../../src/learn/learn-process.ts";
 import type { Client } from "../../src/llm/client.ts";
@@ -89,6 +90,20 @@ function requestText(request: Request): string {
 }
 
 function extractionResolverSettings(
+	providerId = "anthropic",
+	modelId = "claude-sonnet-4-6",
+): ResolverSettings {
+	return createResolverSettings(
+		[{ id: providerId, enabled: true }],
+		{},
+		{
+			extraction: { providerId, modelId },
+			relationship: { providerId, modelId },
+		},
+	);
+}
+
+function extractionOnlyResolverSettings(
 	providerId = "anthropic",
 	modelId = "claude-sonnet-4-6",
 ): ResolverSettings {
@@ -244,10 +259,9 @@ describe("GenomeMutationService", () => {
 		});
 	}
 
-	test("processes a create_memory mutation", async () => {
+	test("rejects direct create_memory mutations", async () => {
 		await service.start();
 
-		// Subscribe to confirmations before publishing the request
 		const confirmationPromise = testBus.waitForMessage(genomeEvents(SESSION_ID), 5000);
 
 		await publishMutation(
@@ -265,14 +279,9 @@ describe("GenomeMutationService", () => {
 		expect(confirmation.kind).toBe("mutation_confirmed");
 		expect(confirmation.request_id).toBe("req-001");
 		expect(confirmation.mutation_type).toBe("create_memory");
-		expect(confirmation.success).toBe(true);
-
-		// Verify the memory was actually added to the genome
-		const memories = genome.memories.all();
-		expect(memories.length).toBe(1);
-		expect(memories[0]!.content).toBe("Always use strict mode in TypeScript");
-		expect(memories[0]!.tags).toEqual(["typescript", "best-practice"]);
-		expect(memories[0]!.embedding?.status).toBe("ready");
+		expect(confirmation.success).toBe(false);
+		expect(confirmation.error).toContain("create_memory mutations are unsupported");
+		expect(genome.memories.all()).toHaveLength(0);
 	}, 10_000);
 
 	test("processes mutations serially", async () => {
@@ -291,9 +300,10 @@ describe("GenomeMutationService", () => {
 			JSON.stringify(
 				createMutationLearnRequest(
 					{
-						type: "create_memory",
-						content: "First memory",
-						tags: ["first"],
+						type: "create_routing_rule",
+						condition: "first condition",
+						preference: "code-editor",
+						strength: 0.7,
 					},
 					"req-serial-1",
 				),
@@ -304,9 +314,10 @@ describe("GenomeMutationService", () => {
 			JSON.stringify(
 				createMutationLearnRequest(
 					{
-						type: "create_memory",
-						content: "Second memory",
-						tags: ["second"],
+						type: "create_routing_rule",
+						condition: "second condition",
+						preference: "code-editor",
+						strength: 0.8,
 					},
 					"req-serial-2",
 				),
@@ -322,11 +333,8 @@ describe("GenomeMutationService", () => {
 		expect(confirmations[1]!.request_id).toBe("req-serial-2");
 		expect(confirmations[1]!.success).toBe(true);
 
-		// Both memories exist in the genome
-		const memories = genome.memories.all();
-		expect(memories.length).toBe(2);
-		const contents = memories.map((m) => m.content).sort();
-		expect(contents).toEqual(["First memory", "Second memory"]);
+		const conditions = genome.allRoutingRules().map((rule) => rule.condition).sort();
+		expect(conditions).toEqual(["first condition", "second condition"]);
 	}, 10_000);
 
 	test("publishes error for invalid mutation", async () => {
@@ -476,7 +484,7 @@ describe("GenomeMutationService", () => {
 
 		expect(confirmation.kind).toBe("mutation_confirmed");
 		expect(confirmation.success).toBe(true);
-		expect(confirmation.mutation_type).toBe("create_memory");
+		expect(confirmation.mutation_type).toBe("learn_signal");
 		expect(confirmation.extracted_count).toBe(1);
 
 		const memories = genome.memories.all();
@@ -484,6 +492,64 @@ describe("GenomeMutationService", () => {
 		expect(memories[0]!.content).toContain("stabilize the pipeline");
 		expect(memories[0]!.source).toBe("learn:extraction");
 		expect(memories[0]!.embedding?.status).toBe("ready");
+	}, 10_000);
+
+	test("signal extraction incorporates relationships from evidence ids", async () => {
+		await genome.addMemory({
+			id: "stale-bus-auth",
+			content: "streamlinear uses Authorization: token header format.",
+			tags: ["streamlinear"],
+			source: "test",
+			created: 50,
+			last_used: 50,
+			use_count: 0,
+			confidence: 1,
+		});
+		const requests: Request[] = [];
+		replaceService({
+			client: makeMockClient(
+				[
+					JSON.stringify([
+						{
+							text: "streamlinear sends a bare Authorization header value, no token prefix.",
+							tags: ["streamlinear", "auth"],
+						},
+					]),
+					JSON.stringify({
+						relationship_type: "supersedes",
+						reasoning: "The newer memory replaces the older token-prefix claim.",
+					}),
+				],
+				(request) => requests.push(request),
+			),
+			resolverSettings: extractionResolverSettings(),
+			signalEvidenceWaitMs: 0,
+		});
+		await service.start();
+		const confirmationPromise = testBus.waitForMessage(genomeEvents(SESSION_ID), 5000);
+		const signal = makeSignal({
+			session_id: SESSION_ID,
+			timestamp: Date.now(),
+			goal: `Correct stale memory ${memoryShortId("stale-bus-auth")}.`,
+		});
+		await publishEvidenceWindow(signal);
+		await waitForServiceEvents(4);
+
+		await publishSignal(signal, "req-signal-relationship");
+
+		const raw = await confirmationPromise;
+		const confirmation = JSON.parse(raw);
+		expect(confirmation.success).toBe(true);
+		expect(confirmation.mutation_type).toBe("learn_signal");
+		const correction = genome.memories
+			.all()
+			.find((memory) => memory.content.includes("bare Authorization header value"));
+		expect(correction).toBeDefined();
+		expect(genome.memories.getById("stale-bus-auth")?.superseded_by).toBe(correction?.id);
+		expect(requests.map((request) => request.metadata?.purpose)).toEqual([
+			"memory.extraction",
+			"memory.relationship",
+		]);
 	}, 10_000);
 
 	test("signal extraction uses the configured memory extraction provider", async () => {
@@ -641,6 +707,30 @@ describe("GenomeMutationService", () => {
 		expect(confirmation.mutation_type).toBe("learn_signal");
 		expect(confirmation.success).toBe(false);
 		expect(confirmation.error).toContain("No memory 'extraction' model is configured");
+		expect(genome.memories.all()).toHaveLength(0);
+	}, 10_000);
+
+	test("publishes an error for signal requests without a configured relationship model", async () => {
+		replaceService({
+			client: makeMockClient(["[]"]),
+			resolverSettings: extractionOnlyResolverSettings(),
+			signalEvidenceWaitMs: 0,
+		});
+		await service.start();
+		const confirmationPromise = testBus.waitForMessage(genomeEvents(SESSION_ID), 5000);
+		const signal = makeSignal({ session_id: SESSION_ID, timestamp: Date.now() });
+		await publishEvidenceWindow(signal);
+		await waitForServiceEvents(4);
+
+		await publishSignal(signal, "req-signal-missing-relationship-model");
+
+		const raw = await confirmationPromise;
+		const confirmation = JSON.parse(raw);
+		expect(confirmation.kind).toBe("mutation_confirmed");
+		expect(confirmation.request_id).toBe("req-signal-missing-relationship-model");
+		expect(confirmation.mutation_type).toBe("learn_signal");
+		expect(confirmation.success).toBe(false);
+		expect(confirmation.error).toContain("No memory 'relationship' model is configured");
 		expect(genome.memories.all()).toHaveLength(0);
 	}, 10_000);
 
