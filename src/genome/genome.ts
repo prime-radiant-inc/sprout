@@ -35,6 +35,7 @@ import { MemoryStore } from "./memory-store.ts";
 import { type DetectedProject, ProjectActivityStore } from "./projects.ts";
 import {
 	loadMemoryExtractionPrompts,
+	loadRelationshipClassificationPrompt,
 	loadSegmentSummaryPrompts,
 	loadSubcorticalRecallPrompt,
 	type PromptSet,
@@ -1420,6 +1421,10 @@ export class Genome {
 
 	async loadSegmentSummaryPrompts(): Promise<PromptSet> {
 		return loadSegmentSummaryPrompts(this.rootPath, this.rootDir);
+	}
+
+	async loadRelationshipClassificationPrompt(): Promise<string> {
+		return loadRelationshipClassificationPrompt(this.rootPath, this.rootDir);
 	}
 
 	async loadSubcorticalRecallPrompt(): Promise<string> {

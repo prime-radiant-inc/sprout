@@ -2,14 +2,19 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createResolverSettings } from "../../src/agents/model-resolver.ts";
 import { git } from "../../src/genome/genome.ts";
 import { memoryIndexPath } from "../../src/genome/index-builder.ts";
+import { incorporateExtractedMemories } from "../../src/genome/memory-incorporation.ts";
 import { MemoryIndex } from "../../src/genome/memory-index.ts";
 import { isActiveMemoryForRecall } from "../../src/genome/memory-lifecycle.ts";
 import { memoryShortId } from "../../src/genome/memory-schema.ts";
 import type { MemorySegment } from "../../src/genome/segments.ts";
 import type { Memory, RelationshipType } from "../../src/kernel/types.ts";
+import type { Client } from "../../src/llm/client.ts";
 import type { EmbeddingProvider, EmbeddingVector } from "../../src/llm/embeddings.ts";
+import type { Request, Response } from "../../src/llm/types.ts";
+import { Msg } from "../../src/llm/types.ts";
 import { createTestGenome } from "../helpers/test-genome.ts";
 
 function memory(overrides: Partial<Memory> = {}): Memory {
@@ -56,6 +61,33 @@ function relationships(type: RelationshipType) {
 			...(candidate.extraction_bond ? { extraction_bond: candidate.extraction_bond } : {}),
 		}));
 }
+
+function clientReturning(json: string, onRequest?: (request: Request) => void): Client {
+	return {
+		providers: () => ["openrouter"],
+		complete: async (request: Request): Promise<Response> => {
+			onRequest?.(request);
+			return {
+				id: "memory-incorporation-test",
+				model: request.model,
+				provider: request.provider ?? "openrouter",
+				message: Msg.assistant(json),
+				finish_reason: { reason: "stop" },
+				usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+			};
+		},
+	} as unknown as Client;
+}
+
+const MODELS_BY_PROVIDER = new Map([
+	["openrouter", [{ id: "relationship-model", label: "Relationship", source: "remote" as const }]],
+]);
+
+const RELATIONSHIP_RESOLVER_SETTINGS = createResolverSettings(
+	[{ id: "openrouter", enabled: true }],
+	{},
+	{ relationship: { providerId: "openrouter", modelId: "relationship-model" } },
+);
 
 async function withGenome<T>(
 	name: string,
@@ -335,6 +367,126 @@ describe("extracted memory incorporation", () => {
 			expect(genome.memories.getById("stale-token-header")?.superseded_by).toBe(
 				"bare-token-correction",
 			);
+		});
+	});
+
+	test("wrapper resolves and uses the configured relationship model when candidates exist", async () => {
+		await withGenome("memory-incorporate-wrapper-model", async (root) => {
+			const genome = createTestGenome(root);
+			await genome.init();
+			await genome.addMemory(
+				memory({ id: "old-storage", content: "Sprout memory uses Postgres.", created: 100 }),
+			);
+			let captured: Request | undefined;
+
+			const result = await incorporateExtractedMemories({
+				genome,
+				memories: [
+					memory({
+						id: "new-storage",
+						content: "The durable memory backend is SQLite, replacing the older storage note.",
+						created: 200,
+					}),
+				],
+				explicitReferenceIds: [memoryShortId("old-storage")],
+				client: clientReturning(
+					'{"relationship_type":"supersedes","reasoning":"The newer memory replaces the storage claim."}',
+					(request) => {
+						captured = request;
+					},
+				),
+				resolverSettings: RELATIONSHIP_RESOLVER_SETTINGS,
+				modelsByProvider: MODELS_BY_PROVIDER,
+				prompt: "relationship prompt",
+				commitMessage: "genome: test wrapper model",
+			});
+
+			expect(result.relationships[0]?.relationship_type).toBe("supersedes");
+			expect(captured?.provider).toBe("openrouter");
+			expect(captured?.model).toBe("relationship-model");
+			expect(captured?.metadata?.purpose).toBe("memory.relationship");
+			expect(genome.memories.getById("old-storage")?.superseded_by).toBe("new-storage");
+		});
+	});
+
+	test("wrapper does not resolve the relationship model when no candidates exist", async () => {
+		await withGenome("memory-incorporate-wrapper-no-candidates", async (root) => {
+			const genome = createTestGenome(root);
+			await genome.init();
+			let called = false;
+
+			const result = await incorporateExtractedMemories({
+				genome,
+				memories: [memory({ id: "standalone-wrapper", content: "Standalone wrapper memory." })],
+				client: clientReturning("{}", () => {
+					called = true;
+				}),
+				resolverSettings: createResolverSettings([{ id: "openrouter", enabled: true }]),
+				modelsByProvider: MODELS_BY_PROVIDER,
+				commitMessage: "genome: test wrapper no candidates",
+			});
+
+			expect(called).toBe(false);
+			expect(result.relationships).toEqual([]);
+			expect(genome.memories.getById("standalone-wrapper")).toBeDefined();
+		});
+	});
+
+	test("wrapper rejects missing relationship model before saving when candidates exist", async () => {
+		await withGenome("memory-incorporate-wrapper-missing-model", async (root) => {
+			const genome = createTestGenome(root);
+			await genome.init();
+			await genome.addMemory(
+				memory({ id: "old-model", content: "Old memory has a claim.", created: 100 }),
+			);
+
+			await expect(
+				incorporateExtractedMemories({
+					genome,
+					memories: [memory({ id: "new-model", content: "New memory corrects the claim." })],
+					explicitReferenceIds: [memoryShortId("old-model")],
+					client: clientReturning(
+						'{"relationship_type":"supersedes","reasoning":"Should not be called."}',
+					),
+					resolverSettings: createResolverSettings([{ id: "openrouter", enabled: true }]),
+					modelsByProvider: MODELS_BY_PROVIDER,
+					commitMessage: "genome: should reject missing relationship model",
+				}),
+			).rejects.toThrow("No memory 'relationship' model is configured");
+
+			expect(genome.memories.getById("new-model")).toBeUndefined();
+			expect(genome.memories.getById("old-model")?.superseded_by).toBeUndefined();
+		});
+	});
+
+	test("wrapper rejects invalid classifier JSON before saving when candidates exist", async () => {
+		await withGenome("memory-incorporate-wrapper-invalid-json", async (root) => {
+			const genome = createTestGenome(root);
+			await genome.init();
+			await genome.addMemory(
+				memory({ id: "old-json", content: "Old JSON memory.", created: 100 }),
+			);
+
+			await expect(
+				incorporateExtractedMemories({
+					genome,
+					memories: [
+						memory({
+							id: "new-json",
+							content: "A classifier response must be valid raw JSON before saving.",
+						}),
+					],
+					explicitReferenceIds: [memoryShortId("old-json")],
+					client: clientReturning("not json"),
+					resolverSettings: RELATIONSHIP_RESOLVER_SETTINGS,
+					modelsByProvider: MODELS_BY_PROVIDER,
+					prompt: "relationship prompt",
+					commitMessage: "genome: should reject invalid classifier JSON",
+				}),
+			).rejects.toThrow();
+
+			expect(genome.memories.getById("new-json")).toBeUndefined();
+			expect(genome.memories.getById("old-json")?.superseded_by).toBeUndefined();
 		});
 	});
 });
