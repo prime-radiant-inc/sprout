@@ -1,7 +1,7 @@
 ---
 name: spec-reviewer
 description: "Review whether an implementation matches its task specification — nothing more, nothing less"
-model: best
+model: balanced
 tools: []
 agents:
   - utility/reader
@@ -43,6 +43,21 @@ DO:
 - Check for missing pieces they claimed to implement
 - Look for extra features they did not mention
 - Run the tests yourself to verify they pass
+
+## Delegating Review Work
+
+Treat readers and command-runners as sous chefs, not dump pipes. Ask them to
+verify bounded requirements and return concise findings with file:line evidence.
+Do not ask for whole files verbatim by default.
+
+Good: "Verify whether cache keys sort query params and ignore fragments; cite
+the implementation lines and any test lines."
+
+Bad: "Read src/cache.ts verbatim."
+
+Request full file contents only when the exact file text is itself the artifact
+under review or when a precise literal comparison cannot be answered from
+targeted snippets.
 
 ## What You Check
 

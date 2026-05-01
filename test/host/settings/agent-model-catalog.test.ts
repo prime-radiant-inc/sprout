@@ -19,6 +19,36 @@ afterEach(async () => {
 });
 
 describe("agent model catalog", () => {
+	test("keeps engineer on the balanced tier by default", async () => {
+		const catalog = await buildAgentModelCatalog({
+			rootDir: join(import.meta.dir, "../../../root"),
+		});
+
+		expect(catalog.find((entry) => entry.key === "tech-lead/engineer")).toMatchObject({
+			name: "engineer",
+			defaultModel: "balanced",
+		});
+	});
+
+	test("keeps reviewers balanced and editor fast by default", async () => {
+		const catalog = await buildAgentModelCatalog({
+			rootDir: join(import.meta.dir, "../../../root"),
+		});
+
+		expect(catalog.find((entry) => entry.key === "tech-lead/spec-reviewer")).toMatchObject({
+			name: "spec-reviewer",
+			defaultModel: "balanced",
+		});
+		expect(catalog.find((entry) => entry.key === "tech-lead/quality-reviewer")).toMatchObject({
+			name: "quality-reviewer",
+			defaultModel: "balanced",
+		});
+		expect(catalog.find((entry) => entry.key === "utility/editor")).toMatchObject({
+			name: "editor",
+			defaultModel: "fast",
+		});
+	});
+
 	test("discovers root and tree agent model keys", async () => {
 		tempDir = await mkdtemp(join(tmpdir(), "sprout-agent-model-catalog-"));
 		await writeAgentRoot(tempDir);

@@ -143,6 +143,9 @@ describe("extractEmbeddedRoot", () => {
 			"operational or system-execution task",
 			"do not force spec-review",
 			"quality-review ceremony",
+			"The engineer is deliberately not the best-model planner",
+			"compact guidance",
+			"Do not solve that by writing the implementation for them",
 			"produce or repair artifacts from named external inputs",
 			"decisive correctness evidence",
 			"unresolved semantic ambiguity",
@@ -177,6 +180,7 @@ describe("extractEmbeddedRoot", () => {
 		expectContainsAll(debuggerPrompt, ["required output format", "do not report success yet"]);
 
 		expectContainsAll(editor, [
+			"model: fast",
 			"treat those inputs as authoritative",
 			"report the contradiction clearly",
 		]);
@@ -189,6 +193,13 @@ describe("extractEmbeddedRoot", () => {
 		expectContainsAll(taskManager, ["Do not ask the caller what to do next"]);
 
 		expectContainsAll(engineer, [
+			"model: balanced",
+			"deliberately a mid-tier implementer",
+			"best-model architecture",
+			"prefer intent-rich file briefs over full-file transcription",
+			"Do not send the editor a monolithic",
+			"You may batch multiple related file writes or edits into one editor",
+			"Batch related file writes or edits in one editor turn",
 			"operational or system-execution task",
 			"do not force a TDD or commit workflow",
 			"keep ownership of stateful repair loops at the engineer level",
