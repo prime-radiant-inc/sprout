@@ -167,4 +167,88 @@ describe("createAtifRecorder", () => {
 			message: "boom",
 		});
 	});
+
+	test("summarizes memory surfacing and observer activity in final metrics", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "atif-recorder-"));
+		tempDirs.push(dir);
+		const path = join(dir, "trajectory.json");
+
+		const recorder = await createAtifRecorder({
+			outputPath: path,
+			sessionId: "01ATIF",
+			agentName: "sprout",
+			agentVersion: "0.1.0",
+			pricingSnapshot,
+		});
+
+		recorder.recordEvent(
+			makeEvent("recall", {
+				memory_count: 2,
+				routing_hint_count: 1,
+				cached: false,
+				memory_block: "<memory_context>fresh</memory_context>",
+				surfaced_memory_ids: ["mem_a", "mem_b"],
+			}),
+		);
+		recorder.recordEvent(
+			makeEvent("recall", {
+				memory_count: 0,
+				routing_hint_count: 0,
+				cached: true,
+				memory_block: "<memory_context>fresh</memory_context>",
+				surfaced_memory_ids: ["mem_a", "mem_b"],
+			}),
+		);
+		recorder.recordEvent(
+			makeEvent("act_start", {
+				agent_name: "the-balcony",
+				child_id: "observer-root-1-the-balcony",
+				handle_id: "observer-root-1-the-balcony",
+				observed_target: "root",
+				observer: true,
+			}),
+		);
+		recorder.recordEvent(
+			makeEvent(
+				"llm_end",
+				{
+					model: "gpt-4o",
+					provider: "openai",
+					input_tokens: 90,
+					output_tokens: 20,
+					total_input_tokens: 90,
+					total_tokens: 110,
+				},
+				{ agent_id: "observer-root-1-the-balcony", depth: 1 },
+			),
+		);
+		recorder.recordEvent(
+			makeEvent("agent_message", {
+				from: {
+					agentName: "the-balcony",
+					agentId: "observer-root-1-the-balcony",
+					role: "observer",
+				},
+				to: { agentName: "root", agentId: "root", role: "agent" },
+				textPreview: "observer comment",
+			}),
+		);
+		await recorder.flush();
+
+		const json = await readJson(path);
+		expect(json.final_metrics.extra.memory_surface).toEqual({
+			recall_events: 2,
+			cached_recall_events: 1,
+			recall_events_with_memories: 2,
+			surfaced_memory_count: 4,
+			unique_surfaced_memory_ids: ["mem_a", "mem_b"],
+		});
+		expect(json.final_metrics.extra.observer_activity).toEqual({
+			observer_starts: 1,
+			observer_completions: 0,
+			observer_llm_calls: 1,
+			observer_messages: 1,
+			observers: ["observer-root-1-the-balcony", "the-balcony"],
+		});
+	});
 });

@@ -10,13 +10,18 @@ const pricingSnapshot: PricingSnapshot = {
 	table: [["gpt-4o", { input: 2.5, output: 10, cached_input: 1.25 }]],
 };
 
-function makeEvent(kind: SessionEvent["kind"], data: Record<string, unknown>): SessionEvent {
+function makeEvent(
+	kind: SessionEvent["kind"],
+	data: Record<string, unknown>,
+	overrides: Partial<SessionEvent> = {},
+): SessionEvent {
 	return {
 		kind,
 		timestamp: Date.parse("2026-03-14T12:00:00.000Z"),
 		agent_id: "root",
 		depth: 0,
 		data,
+		...overrides,
 	};
 }
 
@@ -180,5 +185,71 @@ describe("mapSessionEventToAtifStep", () => {
 		});
 
 		expect(step?.extra?.sprout_event).toEqual(event);
+	});
+
+	test("promotes recall events to structured memory surface telemetry", () => {
+		const step = mapSessionEventToAtifStep({
+			stepId: 8,
+			event: makeEvent("recall", {
+				agent_count: 12,
+				memory_count: 2,
+				routing_hint_count: 1,
+				cached: false,
+				memory_block: "<memory_context>hello</memory_context>",
+				surfaced_memory_ids: ["mem_a", "mem_b"],
+			}),
+			pricingSnapshot,
+		});
+
+		expect(step?.extra?.memory_surface).toEqual({
+			cached: false,
+			memory_count: 2,
+			routing_hint_count: 1,
+			surfaced_memory_ids: ["mem_a", "mem_b"],
+			memory_block_present: true,
+			memory_block_chars: 38,
+		});
+	});
+
+	test("promotes observer lifecycle and model calls to structured observer telemetry", () => {
+		const start = mapSessionEventToAtifStep({
+			stepId: 9,
+			event: makeEvent("act_start", {
+				agent_name: "the-balcony",
+				child_id: "observer-root-1-the-balcony",
+				handle_id: "observer-root-1-the-balcony",
+				observed_target: "root",
+				observer: true,
+			}),
+			pricingSnapshot,
+		});
+		const llm = mapSessionEventToAtifStep({
+			stepId: 10,
+			event: makeEvent(
+				"llm_end",
+				{
+					model: "claude-haiku-4-5",
+					provider: "anthropic",
+					input_tokens: 100,
+					output_tokens: 10,
+					total_tokens: 110,
+				},
+				{ agent_id: "observer-root-1-the-balcony", depth: 1 },
+			),
+			pricingSnapshot,
+		});
+
+		expect(start?.extra?.observer).toEqual({
+			event_kind: "act_start",
+			lifecycle: "start",
+			agent_name: "the-balcony",
+			agent_id: "observer-root-1-the-balcony",
+			handle_id: "observer-root-1-the-balcony",
+			observed_target: "root",
+		});
+		expect(llm?.extra?.observer).toEqual({
+			event_kind: "llm_end",
+			agent_id: "observer-root-1-the-balcony",
+		});
 	});
 });

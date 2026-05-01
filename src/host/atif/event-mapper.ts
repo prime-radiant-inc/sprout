@@ -27,6 +27,18 @@ export function mapSessionEventToAtifStep(
 		},
 	};
 
+	const memorySurface = extractMemorySurface(event);
+	if (memorySurface) {
+		step.extra ??= {};
+		step.extra.memory_surface = memorySurface;
+	}
+
+	const observerTelemetry = extractObserverTelemetry(event);
+	if (observerTelemetry) {
+		step.extra ??= {};
+		step.extra.observer = observerTelemetry;
+	}
+
 	if (event.kind === "plan_end") {
 		const reasoning = event.data.reasoning;
 		if (typeof reasoning === "string" && reasoning.length > 0) {
@@ -60,6 +72,55 @@ export function mapSessionEventToAtifStep(
 	}
 
 	return step;
+}
+
+function extractMemorySurface(event: SessionEvent): Record<string, unknown> | undefined {
+	if (event.kind !== "recall") return undefined;
+	const memoryBlock = event.data.memory_block;
+	const surfacedMemoryIds = readStringArray(event.data.surfaced_memory_ids);
+	return {
+		cached: event.data.cached === true,
+		memory_count: readNumber(event.data.memory_count),
+		routing_hint_count: readNumber(event.data.routing_hint_count),
+		surfaced_memory_ids: surfacedMemoryIds,
+		memory_block_present: typeof memoryBlock === "string" && memoryBlock.length > 0,
+		memory_block_chars: typeof memoryBlock === "string" ? memoryBlock.length : 0,
+	};
+}
+
+function extractObserverTelemetry(event: SessionEvent): Record<string, unknown> | undefined {
+	const lifecycle = observerLifecycle(event);
+	const from = isAgentAddress(event.data.from) ? event.data.from : undefined;
+	const to = isAgentAddress(event.data.to) ? event.data.to : undefined;
+	const observerAddress =
+		from?.role === "observer" ? from : to?.role === "observer" ? to : undefined;
+	const isObserver =
+		event.data.observer === true || event.agent_id.startsWith("observer-") || observerAddress;
+	if (!isObserver) return undefined;
+
+	const agentName = stringData(event, "agent_name") ?? observerAddress?.agentName;
+	const agentId =
+		stringData(event, "child_id") ??
+		observerAddress?.agentId ??
+		(event.agent_id.startsWith("observer-") ? event.agent_id : undefined);
+	const handleId = stringData(event, "handle_id") ?? observerAddress?.handleId;
+	const observedTarget = stringData(event, "observed_target");
+
+	return {
+		event_kind: event.kind,
+		...(lifecycle ? { lifecycle } : {}),
+		...(agentName ? { agent_name: agentName } : {}),
+		...(agentId ? { agent_id: agentId } : {}),
+		...(handleId ? { handle_id: handleId } : {}),
+		...(observedTarget ? { observed_target: observedTarget } : {}),
+	};
+}
+
+function observerLifecycle(event: SessionEvent): "start" | "end" | undefined {
+	if (event.data.observer !== true) return undefined;
+	if (event.kind === "act_start") return "start";
+	if (event.kind === "act_end") return "end";
+	return undefined;
 }
 
 function resolveStepSource(event: SessionEvent): AtifStep["source"] {
@@ -167,6 +228,32 @@ function readNumber(value: unknown): number {
 
 function readOptionalNumber(value: unknown): number | undefined {
 	return typeof value === "number" ? value : undefined;
+}
+
+function readStringArray(value: unknown): string[] {
+	if (!Array.isArray(value)) return [];
+	return value.filter((item): item is string => typeof item === "string");
+}
+
+function stringData(event: SessionEvent, key: string): string | undefined {
+	const value = event.data[key];
+	return typeof value === "string" ? value : undefined;
+}
+
+function isAgentAddress(value: unknown): value is {
+	agentName?: string;
+	agentId?: string;
+	handleId?: string;
+	role?: "observer";
+} {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+	const candidate = value as Record<string, unknown>;
+	return (
+		candidate.role === "observer" ||
+		typeof candidate.agentName === "string" ||
+		typeof candidate.agentId === "string" ||
+		typeof candidate.handleId === "string"
+	);
 }
 
 function isMessage(value: unknown): value is Message {
