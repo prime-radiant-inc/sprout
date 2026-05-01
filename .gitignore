@@ -32,6 +32,9 @@ __pycache__/
 # IntelliJ based IDEs
 .idea
 
+# Local Claude Code workspace preferences
+.claude/settings.local.json
+
 # Finder (MacOS) folder config
 .DS_Store
 
