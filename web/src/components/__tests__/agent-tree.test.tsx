@@ -523,6 +523,8 @@ function makeStats(overrides: Partial<AgentStats> = {}): AgentStats {
 		outputTokens: 0,
 		cacheReadTokens: 0,
 		cacheWriteTokens: 0,
+		cacheWrite5mTokens: 0,
+		cacheWrite1hTokens: 0,
 		currentTurn: 0,
 		llmCallStartedAt: null,
 		streamingChunks: 0,

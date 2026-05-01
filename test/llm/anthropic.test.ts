@@ -46,6 +46,45 @@ describe("AnthropicAdapter", () => {
 		await vcr.afterTest();
 	});
 
+	test("normalizes Anthropic cache usage telemetry", async () => {
+		const adapter = new AnthropicAdapter("test-key");
+		(adapter as any).client = {
+			messages: {
+				create: async () => ({
+					id: "msg-cache",
+					model: "claude-sonnet-4-6",
+					role: "assistant",
+					type: "message",
+					content: [{ type: "text", text: "ok" }],
+					stop_reason: "end_turn",
+					usage: {
+						input_tokens: 25,
+						output_tokens: 7,
+						cache_read_input_tokens: 100,
+						cache_creation_input_tokens: 30,
+						cache_creation: {
+							ephemeral_5m_input_tokens: 20,
+							ephemeral_1h_input_tokens: 10,
+						},
+					},
+				}),
+			},
+		};
+
+		const response = await adapter.complete({
+			model: "claude-sonnet-4-6",
+			messages: [{ role: "user", content: [{ kind: ContentKind.TEXT, text: "hello" }] }],
+		});
+
+		expect(response.usage.input_tokens).toBe(25);
+		expect(response.usage.cache_read_tokens).toBe(100);
+		expect(response.usage.cache_write_tokens).toBe(30);
+		expect(response.usage.cache_write_5m_tokens).toBe(20);
+		expect(response.usage.cache_write_1h_tokens).toBe(10);
+		expect(response.usage.total_input_tokens).toBe(155);
+		expect(response.usage.total_tokens).toBe(162);
+	});
+
 	test("build request places cache markers on system, tools, and stable history", () => {
 		const tools = [
 			{

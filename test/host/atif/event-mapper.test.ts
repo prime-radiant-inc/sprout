@@ -82,10 +82,10 @@ describe("mapSessionEventToAtifStep", () => {
 			event: makeEvent("llm_end", {
 				model: "gpt-4o",
 				provider: "openai",
-				input_tokens: 1200,
+				input_tokens: 1000,
 				output_tokens: 300,
+				total_input_tokens: 1200,
 				cache_read_tokens: 200,
-				cache_write_tokens: 100,
 			}),
 			pricingSnapshot,
 		});
@@ -97,13 +97,13 @@ describe("mapSessionEventToAtifStep", () => {
 			message: "llm_end",
 			model_name: "gpt-4o",
 			metrics: {
-				prompt_tokens: 1200,
+				prompt_tokens: 1000,
 				completion_tokens: 300,
 				cached_tokens: 200,
+				total_input_tokens: 1200,
 			},
 		});
 		expect(step?.metrics?.cost_usd).toBeCloseTo(0.00575, 8);
-		expect(step?.metrics?.extra?.cache_write_tokens).toBe(100);
 	});
 
 	test("maps primitive_end and act_end to observations", () => {

@@ -62,13 +62,15 @@ describe("loadPricingSnapshot", () => {
 		expect(snapshot).not.toBeNull();
 		expect(snapshot?.source).toBe("live");
 		expect(snapshot?.upstreams).toEqual(["openrouter", "llm-prices"]);
-		// OpenRouter produces 2 entries (full + stripped), llm-prices produces 1
-		expect(snapshot!.table.length).toBeGreaterThanOrEqual(3);
+		// OpenRouter produces full/stripped IDs plus semantic dotted/hyphen aliases.
+		expect(snapshot!.table.length).toBeGreaterThanOrEqual(5);
 		// OpenRouter entries come first
 		expect(snapshot!.table[0]![0]).toBe("anthropic/claude-sonnet-4-6");
-		expect(snapshot!.table[1]![0]).toBe("claude-sonnet-4-6");
+		expect(snapshot!.table[1]![0]).toBe("anthropic/claude-sonnet-4.6");
+		expect(snapshot!.table[2]![0]).toBe("claude-sonnet-4-6");
+		expect(snapshot!.table[3]![0]).toBe("claude-sonnet-4.6");
 		// llm-prices entry after
-		expect(snapshot!.table[2]![0]).toBe("gpt-4o");
+		expect(snapshot!.table[4]![0]).toBe("gpt-4o");
 	});
 
 	test("OpenRouter fails → llm-prices data returned", async () => {
@@ -101,9 +103,11 @@ describe("loadPricingSnapshot", () => {
 		expect(snapshot).not.toBeNull();
 		expect(snapshot?.source).toBe("live");
 		expect(snapshot?.upstreams).toEqual(["openrouter"]);
-		expect(snapshot!.table.length).toBeGreaterThanOrEqual(2);
+		expect(snapshot!.table.length).toBeGreaterThanOrEqual(4);
 		expect(snapshot!.table[0]![0]).toBe("anthropic/claude-sonnet-4-6");
-		expect(snapshot!.table[1]![0]).toBe("claude-sonnet-4-6");
+		expect(snapshot!.table[1]![0]).toBe("anthropic/claude-sonnet-4.6");
+		expect(snapshot!.table[2]![0]).toBe("claude-sonnet-4-6");
+		expect(snapshot!.table[3]![0]).toBe("claude-sonnet-4.6");
 	});
 
 	test("both sources fail → disk cache returned", async () => {

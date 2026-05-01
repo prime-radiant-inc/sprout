@@ -141,12 +141,16 @@ export class GeminiAdapter implements ProviderAdapter {
 			}
 
 			if (chunk.usageMetadata) {
+				const totalInputTokens = chunk.usageMetadata.promptTokenCount ?? 0;
+				const cacheReadTokens = (chunk.usageMetadata as any).cachedContentTokenCount ?? 0;
+				const outputTokens = chunk.usageMetadata.candidatesTokenCount ?? 0;
 				usage = {
-					input_tokens: chunk.usageMetadata.promptTokenCount ?? 0,
-					output_tokens: chunk.usageMetadata.candidatesTokenCount ?? 0,
-					total_tokens: chunk.usageMetadata.totalTokenCount ?? 0,
+					input_tokens: Math.max(0, totalInputTokens - cacheReadTokens),
+					output_tokens: outputTokens,
+					total_tokens: chunk.usageMetadata.totalTokenCount ?? totalInputTokens + outputTokens,
 					reasoning_tokens: (chunk.usageMetadata as any).thoughtsTokenCount,
-					cache_read_tokens: (chunk.usageMetadata as any).cachedContentTokenCount,
+					cache_read_tokens: cacheReadTokens,
+					total_input_tokens: totalInputTokens,
 				};
 			}
 		}
@@ -435,13 +439,17 @@ function parseGeminiResponse(
 	const finishReason = hasToolCalls
 		? ({ reason: "tool_calls" } as FinishReason)
 		: mapGeminiFinishReason(candidate?.finishReason);
+	const totalInputTokens = raw.usageMetadata?.promptTokenCount ?? 0;
+	const cacheReadTokens = raw.usageMetadata?.cachedContentTokenCount ?? 0;
+	const outputTokens = raw.usageMetadata?.candidatesTokenCount ?? 0;
 
 	const usage: Usage = {
-		input_tokens: raw.usageMetadata?.promptTokenCount ?? 0,
-		output_tokens: raw.usageMetadata?.candidatesTokenCount ?? 0,
-		total_tokens: raw.usageMetadata?.totalTokenCount ?? 0,
+		input_tokens: Math.max(0, totalInputTokens - cacheReadTokens),
+		output_tokens: outputTokens,
+		total_tokens: raw.usageMetadata?.totalTokenCount ?? totalInputTokens + outputTokens,
 		reasoning_tokens: raw.usageMetadata?.thoughtsTokenCount,
-		cache_read_tokens: raw.usageMetadata?.cachedContentTokenCount,
+		cache_read_tokens: cacheReadTokens,
+		total_input_tokens: totalInputTokens,
 	};
 
 	return {

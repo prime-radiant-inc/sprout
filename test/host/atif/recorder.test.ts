@@ -84,9 +84,10 @@ describe("createAtifRecorder", () => {
 			makeEvent("llm_end", {
 				model: "gpt-4o",
 				provider: "openai",
-				input_tokens: 100,
+				input_tokens: 90,
 				output_tokens: 20,
 				cache_read_tokens: 10,
+				total_input_tokens: 100,
 			}),
 		);
 		await recorder.flush();
@@ -96,9 +97,10 @@ describe("createAtifRecorder", () => {
 		expect(json.steps[0]).toMatchObject({ source: "user", message: "hello" });
 		expect(json.steps[1]).toMatchObject({ source: "system", message: "llm_end" });
 		expect(json.final_metrics).toMatchObject({
-			total_prompt_tokens: 100,
+			total_prompt_tokens: 90,
 			total_completion_tokens: 20,
 			total_cached_tokens: 10,
+			total_input_tokens: 100,
 			total_steps: 2,
 		});
 

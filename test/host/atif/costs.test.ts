@@ -15,18 +15,27 @@ describe("buildAtifMetrics", () => {
 			providerId: "openai",
 			modelId: "gpt-4o",
 			usage: {
-				input_tokens: 1200,
+				input_tokens: 1000,
 				output_tokens: 300,
 				total_tokens: 1500,
 				cache_read_tokens: 200,
+				total_input_tokens: 1200,
 			},
 			pricingSnapshot: snapshot,
 		});
 
-		expect(metrics?.prompt_tokens).toBe(1200);
+		expect(metrics?.prompt_tokens).toBe(1000);
 		expect(metrics?.completion_tokens).toBe(300);
 		expect(metrics?.cached_tokens).toBe(200);
+		expect(metrics?.total_input_tokens).toBe(1200);
 		expect(metrics?.cost_usd).toBeCloseTo(0.00575, 8);
+		expect(metrics?.extra?.cost_breakdown_usd).toEqual({
+			regular_input_cost_usd: 0.0025,
+			cache_read_cost_usd: 0.00025,
+			cache_write_5m_cost_usd: 0,
+			cache_write_1h_cost_usd: 0,
+			output_cost_usd: 0.003,
+		});
 		expect(metrics?.extra?.pricing_snapshot).toEqual({
 			source: "live",
 			fetched_at: "2026-03-14T12:00:00.000Z",
@@ -70,15 +79,125 @@ describe("buildAtifMetrics", () => {
 			usage: {
 				input_tokens: 600,
 				output_tokens: 150,
-				total_tokens: 750,
+				total_tokens: 1000,
 				cache_read_tokens: 100,
 				cache_write_tokens: 250,
+				cache_write_5m_tokens: 200,
+				cache_write_1h_tokens: 50,
+				total_input_tokens: 850,
 				reasoning_tokens: 75,
 			},
 			pricingSnapshot: snapshot,
 		});
 
+		expect(metrics?.cost_usd).toBeCloseTo(0.00513, 8);
+		expect(metrics?.cache_write_tokens).toBe(250);
+		expect(metrics?.total_input_tokens).toBe(850);
 		expect(metrics?.extra?.reasoning_tokens).toBe(75);
-		expect(metrics?.extra?.cache_write_tokens).toBe(250);
+		const breakdown = metrics?.extra?.cost_breakdown_usd as Record<string, number>;
+		expect(breakdown.regular_input_cost_usd).toBeCloseTo(0.0018, 8);
+		expect(breakdown.cache_read_cost_usd).toBeCloseTo(0.00003, 8);
+		expect(breakdown.cache_write_5m_cost_usd).toBeCloseTo(0.00075, 8);
+		expect(breakdown.cache_write_1h_cost_usd).toBeCloseTo(0.0003, 8);
+		expect(breakdown.output_cost_usd).toBeCloseTo(0.00225, 8);
+	});
+
+	test("marks cost partial when cache write tokens have no TTL bucket", () => {
+		const snapshot: PricingSnapshot = {
+			source: "cache",
+			fetchedAt: "2026-03-14T12:00:00.000Z",
+			upstreams: ["llm-prices"],
+			table: [["custom-model", { input: 2, output: 4 }]],
+		};
+
+		const metrics = buildAtifMetrics({
+			providerId: "custom",
+			modelId: "custom-model",
+			usage: {
+				input_tokens: 10,
+				output_tokens: 5,
+				total_tokens: 20,
+				cache_write_tokens: 5,
+			},
+			pricingSnapshot: snapshot,
+		});
+
+		expect(metrics?.cache_write_tokens).toBe(5);
+		expect(metrics?.cost_usd).toBeCloseTo(0.00004, 8);
+		expect(metrics?.extra?.cost_partial).toBe(true);
+		expect(metrics?.extra?.cost_partial_reasons).toEqual(["cache_write_tokens_missing_ttl_bucket"]);
+	});
+
+	test("falls back to built-in pricing when a live snapshot lacks the model alias", () => {
+		const snapshot: PricingSnapshot = {
+			source: "live",
+			fetchedAt: "2026-03-14T12:00:00.000Z",
+			upstreams: ["openrouter", "llm-prices"],
+			table: [["unrelated-model", { input: 9, output: 9 }]],
+		};
+
+		const metrics = buildAtifMetrics({
+			providerId: "anthropic",
+			modelId: "claude-haiku-4-5-20251001",
+			usage: {
+				input_tokens: 1_000,
+				output_tokens: 500,
+				total_tokens: 1_600,
+				cache_write_tokens: 100,
+				cache_write_5m_tokens: 100,
+				total_input_tokens: 1_100,
+			},
+			pricingSnapshot: snapshot,
+		});
+
+		expect(metrics?.cost_usd).toBeCloseTo(0.003625, 8);
+		expect(metrics?.extra?.cost_pricing_source).toBe("fallback");
+	});
+
+	test("uses dotted Opus semantic pricing for hyphenated model ids", () => {
+		const snapshot: PricingSnapshot = {
+			source: "live",
+			fetchedAt: "2026-05-01T18:18:44.325Z",
+			upstreams: ["openrouter", "llm-prices"],
+			table: [
+				[
+					"claude-opus-4.7",
+					{
+						input: 5,
+						output: 25,
+						cached_input: 0.5,
+						cache_write_5m: 6.25,
+						cache_write_1h: 10,
+					},
+				],
+				[
+					"claude-opus-4",
+					{
+						input: 15,
+						output: 75,
+						cached_input: 1.5,
+						cache_write_5m: 18.75,
+						cache_write_1h: 30,
+					},
+				],
+			],
+		};
+
+		const metrics = buildAtifMetrics({
+			providerId: "anthropic",
+			modelId: "claude-opus-4-7",
+			usage: {
+				input_tokens: 711,
+				output_tokens: 1_373,
+				total_tokens: 9_490,
+				cache_write_tokens: 7_406,
+				cache_write_5m_tokens: 7_406,
+				total_input_tokens: 8_117,
+			},
+			pricingSnapshot: snapshot,
+		});
+
+		expect(metrics?.cost_usd).toBeCloseTo(0.0841675, 8);
+		expect(metrics?.extra?.cost_pricing_source).toBe("snapshot");
 	});
 });

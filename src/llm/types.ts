@@ -168,12 +168,22 @@ export interface FinishReason {
 }
 
 export interface Usage {
+	/** Regular uncached input tokens billed at the provider's base input rate. */
 	input_tokens: number;
 	output_tokens: number;
+	/** Total input/context tokens plus output tokens when the provider exposes enough detail. */
 	total_tokens: number;
 	reasoning_tokens?: number;
+	/** Tokens read from a provider prompt/context cache. */
 	cache_read_tokens?: number;
+	/** Total tokens written to a provider prompt/context cache. */
 	cache_write_tokens?: number;
+	/** Anthropic 5-minute ephemeral cache writes. */
+	cache_write_5m_tokens?: number;
+	/** Anthropic 1-hour ephemeral cache writes. */
+	cache_write_1h_tokens?: number;
+	/** Regular input + cache reads + cache writes when known. */
+	total_input_tokens?: number;
 }
 
 export function addUsage(a: Usage, b: Usage): Usage {
@@ -184,6 +194,9 @@ export function addUsage(a: Usage, b: Usage): Usage {
 		reasoning_tokens: addOptional(a.reasoning_tokens, b.reasoning_tokens),
 		cache_read_tokens: addOptional(a.cache_read_tokens, b.cache_read_tokens),
 		cache_write_tokens: addOptional(a.cache_write_tokens, b.cache_write_tokens),
+		cache_write_5m_tokens: addOptional(a.cache_write_5m_tokens, b.cache_write_5m_tokens),
+		cache_write_1h_tokens: addOptional(a.cache_write_1h_tokens, b.cache_write_1h_tokens),
+		total_input_tokens: addOptional(a.total_input_tokens, b.total_input_tokens),
 	};
 }
 

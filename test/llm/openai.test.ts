@@ -108,7 +108,13 @@ describe("OpenAIAdapter", () => {
 		const finish = streamEvents.find((event) => event.type === "finish");
 
 		expect(complete.usage.cache_read_tokens).toBe(42);
+		expect(complete.usage.input_tokens).toBe(58);
+		expect(complete.usage.total_input_tokens).toBe(100);
+		expect(complete.usage.total_tokens).toBe(105);
 		expect(finish?.usage?.cache_read_tokens).toBe(42);
+		expect(finish?.usage?.input_tokens).toBe(58);
+		expect(finish?.usage?.total_input_tokens).toBe(100);
+		expect(finish?.usage?.total_tokens).toBe(105);
 	});
 
 	test("complete returns a text response", async () => {

@@ -115,8 +115,12 @@ export async function executePlanningTurn(
 		provider: input.provider,
 		input_tokens: response.usage?.input_tokens ?? 0,
 		output_tokens: response.usage?.output_tokens ?? 0,
+		total_tokens: response.usage?.total_tokens ?? 0,
+		total_input_tokens: response.usage?.total_input_tokens ?? response.usage?.input_tokens ?? 0,
 		cache_read_tokens: response.usage?.cache_read_tokens ?? 0,
 		cache_write_tokens: response.usage?.cache_write_tokens ?? 0,
+		cache_write_5m_tokens: response.usage?.cache_write_5m_tokens ?? 0,
+		cache_write_1h_tokens: response.usage?.cache_write_1h_tokens ?? 0,
 		latency_ms: latencyMs,
 		finish_reason: response.finish_reason.reason,
 	});
@@ -148,7 +152,7 @@ export async function executePlanningTurn(
 		text: messageText(assistantMessage),
 		reasoning: messageReasoning(assistantMessage),
 		assistant_message: assistantMessage,
-		context_tokens: response.usage?.input_tokens ?? 0,
+		context_tokens: response.usage?.total_input_tokens ?? response.usage?.input_tokens ?? 0,
 		context_window_size: getContextWindowSize(input.model),
 	});
 

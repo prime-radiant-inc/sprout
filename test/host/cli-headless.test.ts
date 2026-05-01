@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { runHeadlessMode } from "../../src/host/cli-headless.ts";
+import type { PricingSnapshot } from "../../src/host/pricing-cache.ts";
 import type { SessionEvent } from "../../src/kernel/types.ts";
 import type { Message } from "../../src/llm/types.ts";
 
@@ -189,6 +190,12 @@ describe("runHeadlessMode", () => {
 		let unsubscribeCount = 0;
 		let closeCount = 0;
 		let eventListener: ((event: SessionEvent) => void) | null = null;
+		const pricingSnapshot: PricingSnapshot = {
+			source: "cache",
+			fetchedAt: "2026-05-01T00:00:00.000Z",
+			upstreams: ["test"],
+			table: [["claude-sonnet-4", { input: 3, output: 15 }]],
+		};
 
 		await runHeadlessMode(
 			{
@@ -241,9 +248,14 @@ describe("runHeadlessMode", () => {
 						},
 					},
 				}),
+				loadPricingSnapshot: async (cacheDir) => {
+					expect(cacheDir).toBe("/tmp/genome");
+					return pricingSnapshot;
+				},
 				createAtifRecorder: async (options) => {
 					expect(options.outputPath).toBe("/tmp/trajectory.json");
 					expect(options.sessionId).toBe("01ATIF");
+					expect(options.pricingSnapshot).toBe(pricingSnapshot);
 					return {
 						recordEvent: (event) => {
 							recorded.push(event);

@@ -17,6 +17,8 @@ export interface AtifMetrics {
 	prompt_tokens?: number;
 	completion_tokens?: number;
 	cached_tokens?: number;
+	cache_write_tokens?: number;
+	total_input_tokens?: number;
 	cost_usd?: number;
 	extra?: Record<string, unknown>;
 }
@@ -38,6 +40,8 @@ export interface AtifFinalMetrics {
 	total_prompt_tokens?: number;
 	total_completion_tokens?: number;
 	total_cached_tokens?: number;
+	total_cache_write_tokens?: number;
+	total_input_tokens?: number;
 	total_cost_usd?: number;
 	total_steps?: number;
 	extra?: Record<string, unknown>;

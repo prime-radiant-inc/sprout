@@ -85,6 +85,8 @@ export class AtifRecorder {
 		addMetric(finalMetrics, "total_prompt_tokens", stepMetrics.prompt_tokens);
 		addMetric(finalMetrics, "total_completion_tokens", stepMetrics.completion_tokens);
 		addMetric(finalMetrics, "total_cached_tokens", stepMetrics.cached_tokens);
+		addMetric(finalMetrics, "total_cache_write_tokens", stepMetrics.cache_write_tokens);
+		addMetric(finalMetrics, "total_input_tokens", stepMetrics.total_input_tokens);
 		addMetric(finalMetrics, "total_cost_usd", stepMetrics.cost_usd);
 	}
 
@@ -105,7 +107,13 @@ export async function createAtifRecorder(
 
 function addMetric(
 	finalMetrics: AtifFinalMetrics,
-	key: "total_prompt_tokens" | "total_completion_tokens" | "total_cached_tokens" | "total_cost_usd",
+	key:
+		| "total_prompt_tokens"
+		| "total_completion_tokens"
+		| "total_cached_tokens"
+		| "total_cache_write_tokens"
+		| "total_input_tokens"
+		| "total_cost_usd",
 	value: number | undefined,
 ): void {
 	if (value === undefined) return;

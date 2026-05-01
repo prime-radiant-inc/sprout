@@ -11,17 +11,44 @@ describe("getModelPricing", () => {
 
 	test("matches model with version suffix", () => {
 		const p = getModelPricing("claude-sonnet-4-20250514");
-		expect(p).toEqual({ input: 3, output: 15 });
+		expect(p).toEqual({
+			input: 3,
+			output: 15,
+			cached_input: 0.3,
+			cache_write_5m: 3.75,
+			cache_write_1h: 6,
+		});
+	});
+
+	test("matches hyphenated Opus semantic versions to current pricing", () => {
+		const p = getModelPricing("claude-opus-4-7");
+		expect(p).toEqual({
+			input: 5,
+			output: 25,
+			cached_input: 0.5,
+			cache_write_5m: 6.25,
+			cache_write_1h: 10,
+		});
 	});
 
 	test("returns null for unknown model", () => {
 		expect(getModelPricing("unknown-model")).toBeNull();
 	});
 
+	test("does not invent pricing for local models", () => {
+		expect(getModelPricing("ollama/qwen3-coder")).toBeNull();
+	});
+
 	test("matches longest prefix when multiple could match", () => {
 		// "claude-sonnet-4" is longer than "claude-" if we ever had a shorter prefix
 		const p = getModelPricing("claude-sonnet-4-latest");
-		expect(p).toEqual({ input: 3, output: 15 });
+		expect(p).toEqual({
+			input: 3,
+			output: 15,
+			cached_input: 0.3,
+			cache_write_5m: 3.75,
+			cache_write_1h: 6,
+		});
 	});
 });
 
@@ -40,18 +67,28 @@ describe("computeCost", () => {
 		expect(computeCost("unknown-model", 1000, 1000)).toBeNull();
 	});
 
-	test("computes cost with cached tokens at reduced rates", () => {
-		// 1M total input, 800K cached reads, 100K cache writes, 100K uncached
-		// Uncached: 100K × $3/M = $0.30
-		// Cache reads: 800K × $3/M × 0.10 = $0.24
-		// Cache writes: 100K × $3/M × 0.25 = $0.075
-		// Total input: $0.615
-		// Output: 0
-		const cost = computeCost("claude-sonnet-4-6", 1_000_000, 0, 800_000, 100_000);
-		expect(cost).toBeCloseTo(0.615);
+	test("computes current Opus cost for hyphenated semantic model ids", () => {
+		const cost = computeCost("claude-opus-4-7", 1_000_000, 500_000);
+		expect(cost).toBeCloseTo(17.5);
 	});
 
-	test("cache tokens default to zero (backward compatible)", () => {
+	test("computes cost with normalized cached tokens and cache write TTL buckets", () => {
+		// 100K regular input, 800K cached reads, 100K 5m cache writes.
+		// Regular input: 100K × $3/M = $0.30
+		// Cache reads: 800K × $3/M × 0.10 = $0.24
+		// 5m cache writes: 100K × $3/M × 1.25 = $0.375
+		// Total input: $0.915
+		// Output: 0
+		const cost = computeCost("claude-sonnet-4-6", 100_000, 0, 800_000, 100_000, 100_000);
+		expect(cost).toBeCloseTo(0.915);
+	});
+
+	test("returns null when cache writes lack a TTL bucket", () => {
+		const cost = computeCost("claude-sonnet-4-6", 100_000, 0, 0, 100_000);
+		expect(cost).toBeNull();
+	});
+
+	test("cache token arguments default to zero", () => {
 		const cost = computeCost("claude-sonnet-4-20250514", 1_000_000, 500_000);
 		expect(cost).toBeCloseTo(10.5);
 	});
@@ -88,6 +125,8 @@ describe("computeSubtreeCost", () => {
 		outputTokens,
 		cacheReadTokens: 0,
 		cacheWriteTokens: 0,
+		cacheWrite5mTokens: 0,
+		cacheWrite1hTokens: 0,
 		currentTurn: 0,
 		llmCallStartedAt: null,
 		streamingChunks: 0,
@@ -113,10 +152,10 @@ describe("computeSubtreeCost", () => {
 		const tree = makeNode("root", [makeNode("child1"), makeNode("child2")]);
 		const stats = new Map([
 			["root", makeStats("claude-sonnet-4-6", 1_000_000, 0)],    // $3
-			["child1", makeStats("claude-haiku-4-5", 1_000_000, 0)],   // $0.80
-			["child2", makeStats("claude-haiku-4-5", 1_000_000, 0)],   // $0.80
+			["child1", makeStats("claude-haiku-4-5", 1_000_000, 0)],   // $1
+			["child2", makeStats("claude-haiku-4-5", 1_000_000, 0)],   // $1
 		]);
-		expect(computeSubtreeCost(tree, "root", stats)).toBeCloseTo(4.6);
+		expect(computeSubtreeCost(tree, "root", stats)).toBeCloseTo(5.0);
 	});
 
 	test("skips agents with unknown models", () => {
@@ -156,7 +195,13 @@ describe("setPricingTable", () => {
 		setPricingTable(null);
 		const p = getModelPricing("claude-sonnet-4-20250514");
 		// Should get fallback pricing, not server pricing
-		expect(p).toEqual({ input: 3, output: 15 });
+		expect(p).toEqual({
+			input: 3,
+			output: 15,
+			cached_input: 0.3,
+			cache_write_5m: 3.75,
+			cache_write_1h: 6,
+		});
 	});
 
 	test("server table takes priority over fallback for matching models", () => {
@@ -165,7 +210,13 @@ describe("setPricingTable", () => {
 		];
 		setPricingTable(serverTable);
 		const p = getModelPricing("claude-sonnet-4-20250514");
-		expect(p).toEqual({ input: 3.5, output: 16 });
+		expect(p).toEqual({
+			input: 3.5,
+			output: 16,
+			cached_input: 0.35,
+			cache_write_5m: 4.375,
+			cache_write_1h: 7,
+		});
 		// Falls back for non-matching models
 		expect(getModelPricing("o4-mini-2025")).toEqual({ input: 1.1, output: 4.4 });
 		setPricingTable(null);

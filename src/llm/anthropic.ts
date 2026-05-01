@@ -404,13 +404,25 @@ function parseAnthropicResponse(raw: Anthropic.Message, provider: ProviderKind):
 	const contentParts = parseContentBlocks(raw.content);
 
 	const finishReason = mapFinishReason(raw.stop_reason);
+	const cacheReadTokens = (raw.usage as any).cache_read_input_tokens ?? 0;
+	const cacheWriteTokens = (raw.usage as any).cache_creation_input_tokens ?? 0;
+	const cacheCreation = (raw.usage as any).cache_creation as
+		| {
+				ephemeral_5m_input_tokens?: number;
+				ephemeral_1h_input_tokens?: number;
+		  }
+		| undefined;
+	const totalInputTokens = raw.usage.input_tokens + cacheReadTokens + cacheWriteTokens;
 
 	const usage: Usage = {
 		input_tokens: raw.usage.input_tokens,
 		output_tokens: raw.usage.output_tokens,
-		total_tokens: raw.usage.input_tokens + raw.usage.output_tokens,
-		cache_read_tokens: (raw.usage as any).cache_read_input_tokens,
-		cache_write_tokens: (raw.usage as any).cache_creation_input_tokens,
+		total_tokens: totalInputTokens + raw.usage.output_tokens,
+		total_input_tokens: totalInputTokens,
+		cache_read_tokens: cacheReadTokens,
+		cache_write_tokens: cacheWriteTokens,
+		cache_write_5m_tokens: cacheCreation?.ephemeral_5m_input_tokens,
+		cache_write_1h_tokens: cacheCreation?.ephemeral_1h_input_tokens,
 	};
 
 	return {

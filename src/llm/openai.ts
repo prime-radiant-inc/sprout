@@ -106,12 +106,16 @@ export class OpenAIAdapter implements ProviderAdapter {
 				}
 			} else if (event.type === "response.completed") {
 				const resp = event.response;
+				const rawInputTokens = resp.usage?.input_tokens ?? 0;
+				const cacheReadTokens = cachedInputTokens(resp.usage) ?? 0;
+				const outputTokens = resp.usage?.output_tokens ?? 0;
 				usage = {
-					input_tokens: resp.usage?.input_tokens ?? 0,
-					output_tokens: resp.usage?.output_tokens ?? 0,
-					total_tokens: (resp.usage?.input_tokens ?? 0) + (resp.usage?.output_tokens ?? 0),
+					input_tokens: Math.max(0, rawInputTokens - cacheReadTokens),
+					output_tokens: outputTokens,
+					total_tokens: rawInputTokens + outputTokens,
 					reasoning_tokens: (resp.usage as any)?.output_tokens_details?.reasoning_tokens,
-					cache_read_tokens: cachedInputTokens(resp.usage),
+					cache_read_tokens: cacheReadTokens,
+					total_input_tokens: rawInputTokens,
 				};
 			}
 		}
@@ -357,13 +361,17 @@ function parseResponsesResponse(raw: OpenAI.Responses.Response, provider: Provid
 	const finishReason: FinishReason = hasToolCalls
 		? { reason: "tool_calls", raw: raw.status ?? undefined }
 		: mapOpenAIFinishReason(raw.status ?? "completed");
+	const rawInputTokens = raw.usage?.input_tokens ?? 0;
+	const cacheReadTokens = cachedInputTokens(raw.usage) ?? 0;
+	const outputTokens = raw.usage?.output_tokens ?? 0;
 
 	const usage: Usage = {
-		input_tokens: raw.usage?.input_tokens ?? 0,
-		output_tokens: raw.usage?.output_tokens ?? 0,
-		total_tokens: (raw.usage?.input_tokens ?? 0) + (raw.usage?.output_tokens ?? 0),
+		input_tokens: Math.max(0, rawInputTokens - cacheReadTokens),
+		output_tokens: outputTokens,
+		total_tokens: rawInputTokens + outputTokens,
 		reasoning_tokens: (raw.usage as any)?.output_tokens_details?.reasoning_tokens,
-		cache_read_tokens: cachedInputTokens(raw.usage),
+		cache_read_tokens: cacheReadTokens,
+		total_input_tokens: rawInputTokens,
 	};
 
 	return {

@@ -8,6 +8,7 @@ import { ulid } from "../util/ulid.ts";
 import { VERSION } from "../version.ts";
 import { createAtifRecorder } from "./atif/recorder.ts";
 import { bootstrapSessionRuntime, type SessionBootstrapOptions } from "./cli-bootstrap.ts";
+import { loadPricingSnapshot } from "./pricing-cache.ts";
 import type { SessionRunResult } from "./session-controller.ts";
 import type { SessionMemorySurfaceSnapshot } from "./session-metadata.ts";
 
@@ -84,7 +85,9 @@ interface HeadlessDeps {
 		sessionId: string;
 		agentName: string;
 		agentVersion: string;
+		pricingSnapshot?: Awaited<ReturnType<typeof loadPricingSnapshot>>;
 	}) => Promise<HeadlessAtifRecorder>;
+	loadPricingSnapshot: typeof loadPricingSnapshot;
 	writeStdout: (line: string) => void;
 	writeStderr: (line: string) => void;
 }
@@ -107,6 +110,7 @@ export async function runHeadlessMode(
 				};
 			}),
 		createAtifRecorder: deps.createAtifRecorder ?? createAtifRecorder,
+		loadPricingSnapshot: deps.loadPricingSnapshot ?? loadPricingSnapshot,
 		writeStdout: deps.writeStdout ?? ((line) => console.log(line)),
 		writeStderr: deps.writeStderr ?? ((line) => console.error(line)),
 	};
@@ -134,12 +138,14 @@ export async function runHeadlessMode(
 			completedHandles: opts.completedHandles,
 			infra,
 		});
+		const pricingSnapshot = opts.atifPath ? await d.loadPricingSnapshot(opts.genomePath) : null;
 		const recorder = opts.atifPath
 			? await d.createAtifRecorder({
 					outputPath: opts.atifPath,
 					sessionId,
 					agentName: "sprout",
 					agentVersion: VERSION,
+					pricingSnapshot,
 				})
 			: null;
 		const unsubscribeAtif = recorder

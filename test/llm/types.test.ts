@@ -117,9 +117,15 @@ describe("LLM types", () => {
 			output_tokens: 10,
 			total_tokens: 30,
 			cache_write_tokens: 100,
+			cache_write_5m_tokens: 60,
+			cache_write_1h_tokens: 40,
+			total_input_tokens: 120,
 		};
 		const sum = addUsage(a, b);
 		expect(sum.cache_write_tokens).toBe(100);
+		expect(sum.cache_write_5m_tokens).toBe(60);
+		expect(sum.cache_write_1h_tokens).toBe(40);
+		expect(sum.total_input_tokens).toBe(120);
 	});
 
 	test("FinishReason carries unified reason and raw provider value", () => {

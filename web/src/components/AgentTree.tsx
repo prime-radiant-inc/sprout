@@ -92,6 +92,8 @@ function StatsLine({
 					stats.outputTokens,
 					stats.cacheReadTokens,
 					stats.cacheWriteTokens,
+					stats.cacheWrite5mTokens,
+					stats.cacheWrite1hTokens,
 				);
 				return cost != null ? <span className={styles.cost}>{formatCost(cost)}</span> : null;
 			})()}

@@ -1,7 +1,11 @@
 import type { AgentStats } from "../hooks/useAgentStats.ts";
 import type { AgentTreeNode } from "../hooks/useAgentTree.ts";
 import { getDescendantIds } from "../hooks/useAgentTree.ts";
-import { FALLBACK_PRICING_TABLE, longestPrefixMatch } from "@kernel/pricing.ts";
+import {
+	FALLBACK_PRICING_TABLE,
+	longestPrefixMatch,
+	withAnthropicCachePricing,
+} from "@kernel/pricing.ts";
 import type { ModelPricing, PricingTable } from "@kernel/pricing.ts";
 
 export type { ModelPricing, PricingTable };
@@ -17,9 +21,10 @@ export function setPricingTable(table: PricingTable | null): void {
 export function getModelPricing(model: string): ModelPricing | null {
 	if (activePricingTable) {
 		const result = longestPrefixMatch(model, activePricingTable);
-		if (result) return result;
+		if (result) return withAnthropicCachePricing(undefined, model, result);
 	}
-	return longestPrefixMatch(model, FALLBACK_PRICING_TABLE);
+	const fallback = longestPrefixMatch(model, FALLBACK_PRICING_TABLE);
+	return fallback ? withAnthropicCachePricing(undefined, model, fallback) : null;
 }
 
 /** Compute dollar cost from token counts and model name. Returns null if model unknown. */
@@ -29,15 +34,24 @@ export function computeCost(
 	outputTokens: number,
 	cacheReadTokens = 0,
 	cacheWriteTokens = 0,
+	cacheWrite5mTokens = 0,
+	cacheWrite1hTokens = 0,
 ): number | null {
 	const pricing = getModelPricing(model);
 	if (!pricing) return null;
 
-	const uncachedInput = Math.max(0, inputTokens - cacheReadTokens - cacheWriteTokens);
+	if (cacheReadTokens > 0 && pricing.cached_input === undefined) return null;
+	if (cacheWrite5mTokens > 0 && pricing.cache_write_5m === undefined) return null;
+	if (cacheWrite1hTokens > 0 && pricing.cache_write_1h === undefined) return null;
+
+	const knownCacheWriteTokens = cacheWrite5mTokens + cacheWrite1hTokens;
+	if (cacheWriteTokens > knownCacheWriteTokens) return null;
+
 	const inputCost =
-		(uncachedInput * pricing.input +
-			cacheReadTokens * pricing.input * 0.1 +
-			cacheWriteTokens * pricing.input * 0.25) /
+		(inputTokens * pricing.input +
+			cacheReadTokens * (pricing.cached_input ?? 0) +
+			cacheWrite5mTokens * (pricing.cache_write_5m ?? 0) +
+			cacheWrite1hTokens * (pricing.cache_write_1h ?? 0)) /
 		1_000_000;
 	const outputCost = (outputTokens * pricing.output) / 1_000_000;
 
@@ -62,13 +76,22 @@ export function computeSubtreeCost(
 	for (const id of ids) {
 		const stats = agentStats.get(id);
 		if (!stats?.model) continue;
-		if (stats.inputTokens === 0 && stats.outputTokens === 0) continue;
+		if (
+			stats.inputTokens === 0 &&
+			stats.outputTokens === 0 &&
+			stats.cacheReadTokens === 0 &&
+			stats.cacheWriteTokens === 0
+		) {
+			continue;
+		}
 		const cost = computeCost(
 			stats.model,
 			stats.inputTokens,
 			stats.outputTokens,
 			stats.cacheReadTokens,
 			stats.cacheWriteTokens,
+			stats.cacheWrite5mTokens,
+			stats.cacheWrite1hTokens,
 		);
 		if (cost != null) {
 			total += cost;

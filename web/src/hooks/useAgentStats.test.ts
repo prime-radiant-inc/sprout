@@ -130,6 +130,27 @@ describe("buildAgentStats", () => {
 			expect(stats.get("root")!.outputTokens).toBe(50);
 		});
 
+		test("accumulates cache write TTL buckets from llm_end events", () => {
+			const events = [
+				makeEvent("session_start", "root", 0, { model: "claude" }),
+				makeEvent("llm_end", "root", 0, {
+					input_tokens: 100,
+					output_tokens: 50,
+					cache_read_tokens: 20,
+					cache_write_tokens: 15,
+					cache_write_5m_tokens: 10,
+					cache_write_1h_tokens: 5,
+					latency_ms: 200,
+					finish_reason: "stop",
+				}),
+			];
+			const stats = buildAgentStats(events);
+			expect(stats.get("root")!.cacheReadTokens).toBe(20);
+			expect(stats.get("root")!.cacheWriteTokens).toBe(15);
+			expect(stats.get("root")!.cacheWrite5mTokens).toBe(10);
+			expect(stats.get("root")!.cacheWrite1hTokens).toBe(5);
+		});
+
 		test("accumulates tokens across multiple llm_end events", () => {
 			const events = [
 				makeEvent("session_start", "root", 0, { model: "claude" }),

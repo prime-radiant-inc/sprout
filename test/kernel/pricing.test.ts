@@ -14,20 +14,39 @@ describe("transformPrices", () => {
 		expect(result).toEqual([["o3-pro", { input: 20, output: 80 }]]);
 	});
 
-	test("adds dot-truncated prefix for dotted IDs", () => {
+	test("adds semantic hyphen alias for dotted Claude versions without bare-major alias", () => {
 		const result = transformPrices([
 			{
-				id: "claude-sonnet-4.5",
+				id: "claude-opus-4.7",
 				vendor: "anthropic",
-				name: "Claude Sonnet 4.5",
-				input: 3,
-				output: 15,
+				name: "Claude Opus 4.7",
+				input: 5,
+				output: 25,
 			},
 		]);
 		expect(result).toEqual([
-			["claude-sonnet-4.5", { input: 3, output: 15 }],
-			["claude-sonnet-4", { input: 3, output: 15 }],
+			[
+				"claude-opus-4.7",
+				{
+					input: 5,
+					output: 25,
+					cached_input: 0.5,
+					cache_write_5m: 6.25,
+					cache_write_1h: 10,
+				},
+			],
+			[
+				"claude-opus-4-7",
+				{
+					input: 5,
+					output: 25,
+					cached_input: 0.5,
+					cache_write_5m: 6.25,
+					cache_write_1h: 10,
+				},
+			],
 		]);
+		expect(result.map(([id]) => id)).not.toContain("claude-opus-4");
 	});
 
 	test("non-dotted IDs produce exactly one entry", () => {
@@ -50,6 +69,22 @@ describe("transformPrices", () => {
 		]);
 		expect(result).toEqual([["gpt-4o", { input: 2.5, output: 10, cached_input: 1.25 }]]);
 	});
+
+	test("derives Anthropic cache pricing from documented multipliers", () => {
+		const result = transformPrices([
+			{
+				id: "claude-sonnet-4-6",
+				vendor: "anthropic",
+				name: "Claude Sonnet 4.6",
+				input: 3,
+				output: 15,
+			},
+		]);
+		expect(result[0]).toEqual([
+			"claude-sonnet-4-6",
+			{ input: 3, output: 15, cached_input: 0.3, cache_write_5m: 3.75, cache_write_1h: 6 },
+		]);
+	});
 });
 
 describe("longestPrefixMatch", () => {
@@ -64,11 +99,42 @@ describe("longestPrefixMatch", () => {
 		expect(longestPrefixMatch("claude-sonnet-4-6", FALLBACK_PRICING_TABLE)).toEqual({
 			input: 3,
 			output: 15,
+			cached_input: 0.3,
+			cache_write_5m: 3.75,
+			cache_write_1h: 6,
+		});
+	});
+
+	test("matches hyphenated Opus semantic version to current dotted pricing", () => {
+		expect(longestPrefixMatch("claude-opus-4-7", FALLBACK_PRICING_TABLE)).toEqual({
+			input: 5,
+			output: 25,
+			cached_input: 0.5,
+			cache_write_5m: 6.25,
+			cache_write_1h: 10,
+		});
+	});
+
+	test("does not price unknown Claude semantic minors from bare major fallback", () => {
+		expect(longestPrefixMatch("claude-opus-4-8", FALLBACK_PRICING_TABLE)).toBeNull();
+	});
+
+	test("still prices dated base-model snapshots from bare major fallback", () => {
+		expect(longestPrefixMatch("claude-opus-4-20250514", FALLBACK_PRICING_TABLE)).toEqual({
+			input: 15,
+			output: 75,
+			cached_input: 1.5,
+			cache_write_5m: 18.75,
+			cache_write_1h: 30,
 		});
 	});
 
 	test("returns null for unknown model", () => {
 		expect(longestPrefixMatch("unknown-model", FALLBACK_PRICING_TABLE)).toBeNull();
+	});
+
+	test("does not invent pricing for local models", () => {
+		expect(longestPrefixMatch("ollama/qwen3-coder", FALLBACK_PRICING_TABLE)).toBeNull();
 	});
 });
 
@@ -80,10 +146,18 @@ describe("transformOpenRouterPrices", () => {
 				pricing: { prompt: "0.000003", completion: "0.000015" },
 			},
 		]);
-		// Should have 2 entries: full ID and stripped
-		expect(result).toHaveLength(2);
-		expect(result[0]).toEqual(["anthropic/claude-sonnet-4-6", { input: 3, output: 15 }]);
-		expect(result[1]).toEqual(["claude-sonnet-4-6", { input: 3, output: 15 }]);
+		expect(result).toHaveLength(4);
+		const expected = {
+			input: 3,
+			output: 15,
+			cached_input: 0.3,
+			cache_write_5m: 3.75,
+			cache_write_1h: 6,
+		};
+		expect(result[0]).toEqual(["anthropic/claude-sonnet-4-6", expected]);
+		expect(result[1]).toEqual(["anthropic/claude-sonnet-4.6", expected]);
+		expect(result[2]).toEqual(["claude-sonnet-4-6", expected]);
+		expect(result[3]).toEqual(["claude-sonnet-4.6", expected]);
 	});
 
 	test("skips models with zero pricing", () => {

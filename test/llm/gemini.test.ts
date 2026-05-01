@@ -303,6 +303,9 @@ describe("GeminiAdapter", () => {
 		expect((captured.generate as any).config.systemInstruction).toBeUndefined();
 		expect((captured.generate as any).config.tools).toBeUndefined();
 		expect(response.usage.cache_read_tokens).toBe(8);
+		expect(response.usage.input_tokens).toBe(2);
+		expect(response.usage.total_input_tokens).toBe(10);
+		expect(response.usage.total_tokens).toBe(11);
 	});
 
 	test("complete fails loud when Gemini cache creation fails", async () => {
