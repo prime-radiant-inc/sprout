@@ -504,49 +504,50 @@ describe("AgentSpawner", () => {
 			await spawner.getHandle(handleId)!.process.exited;
 		}, 15_000);
 
-		test("blocking spawn falls back to a live handle after waitTimeoutMs", async () => {
-			const mockClient = {
-				complete: async (_request: Request): Promise<Response> => {
-					await new Promise(() => {}); // never resolves
-					throw new Error("unreachable");
-				},
-				stream: async function* () {
-					yield { type: "stream_start" as const };
-					await new Promise(() => {}); // never resolves
-				},
-				providers: () => ["anthropic"],
-				adapter: () => ({ kind: "anthropic" }),
-			} as unknown as Client;
+		test("blocking spawn waits past waitTimeoutMs for the child result", async () => {
+			let releaseChild: (() => void) | undefined;
+			const mockClient = buildMockClient(async (_request: Request): Promise<Response> => {
+				await new Promise<void>((resolve) => {
+					releaseChild = resolve;
+				});
+				return {
+					id: "mock-blocking-wait-1",
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant("Delayed blocking result."),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+				};
+			});
 
 			spawner = new AgentSpawner(
 				bus,
 				server.url,
 				SESSION_ID,
 				createInProcessSpawnFn(mockClient),
-				200,
+				50,
 			);
 
-			const start = Date.now();
-			const result = await spawnWithResolver({
+			const spawnPromise = spawnWithResolver({
 				agentName: "test-leaf",
 				genomePath: genomeDir,
 				caller: addr("root", 0),
-				goal: "Task that should continue in background",
+				goal: "Task that must remain blocking",
 				blocking: true,
 				shared: false,
 				workDir: tempDir,
 			});
-			const elapsed = Date.now() - start;
 
-			expect(typeof result).toBe("object");
-			expect((result as { continuedInBackground: true }).continuedInBackground).toBe(true);
-			expect((result as { handleId: string }).handleId).toHaveLength(26);
-			expect(elapsed).toBeLessThan(2000);
-			expect(elapsed).toBeGreaterThanOrEqual(150);
-			expect(spawner.getHandle((result as { handleId: string }).handleId)?.status).toBe("running");
+			while (!releaseChild) await delay(10);
+			await delay(120);
+			releaseChild();
 
-			spawner.shutdown();
-			await spawner.getHandle((result as { handleId: string }).handleId)!.process.exited;
+			const result = (await spawnPromise) as ResultMessage;
+
+			expect(result.output).toBe("Delayed blocking result.");
+			expect(result.success).toBe(true);
+			expect(result.handle_id).toHaveLength(26);
+			expect(spawner.getHandle(result.handle_id)?.status).toBe("completed");
 		}, 15_000);
 
 		test("multiple concurrent waitAgent calls all resolve with the same result", async () => {

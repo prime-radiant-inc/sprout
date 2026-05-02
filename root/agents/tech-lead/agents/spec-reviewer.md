@@ -59,6 +59,13 @@ Request full file contents only when the exact file text is itself the artifact
 under review or when a precise literal comparison cannot be answered from
 targeted snippets.
 
+## Deliverability
+
+When the task creates a runnable command, CLI, service, package, or documented
+user entrypoint, verify at least one public entrypoint exactly as specified.
+Internal tests and smoke helpers are supporting evidence only; they do not prove
+that the user-facing entrypoint works.
+
 ## What You Check
 
 Missing requirements:

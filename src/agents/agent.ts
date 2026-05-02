@@ -558,9 +558,24 @@ export class Agent {
 	private renderCurrentSystemPrompt(options: { drainAgentMessages?: boolean } = {}): string {
 		const base = this.systemPromptBase ?? this.systemPrompt;
 		if (!base) throw new Error("Cannot render system prompt before run() has been called");
+		const humanContract = this.renderHumanContractForPrompt();
 		const agentMessages =
 			options.drainAgentMessages === false ? "" : this.renderAgentMessagesForPrompt();
-		return `${base}${agentMessages}${renderToolBoundaries(this.agentTools, this.primitiveTools)}`;
+		return `${base}${humanContract}${agentMessages}${renderToolBoundaries(this.agentTools, this.primitiveTools)}`;
+	}
+
+	private renderHumanContractForPrompt(): string {
+		if (this.depth === 0 || !this.trustedUserInstruction?.trim()) return "";
+		return [
+			"",
+			"",
+			"<IMPORTANT>",
+			"<sprout:human-contract>",
+			"This is the original human instruction for the current root session. Treat it as authoritative acceptance context; do not replace it with a derived spec.",
+			escapeXml(this.trustedUserInstruction),
+			"</sprout:human-contract>",
+			"</IMPORTANT>",
+		].join("\n");
 	}
 
 	/** Inject a steering message into the agent loop for the next iteration. */
@@ -1503,26 +1518,6 @@ export class Agent {
 				return { toolResultMsg, stumbles: 0, output: result };
 			}
 
-			if ("continuedInBackground" in result) {
-				const toolResultMsg = Msg.toolResult(
-					delegation.call_id,
-					`This delegate started in blocking mode, but the blocking wait timed out. The agent continues in the background, and this handle is now non-blocking. Use wait_agent to wait for completion or message_agent to follow up. Handle: ${result.handleId}`,
-				);
-				const actEndData = {
-					agent_name: delegation.agent_name,
-					success: true,
-					handle_id: result.handleId,
-					child_id: childId,
-					continued_in_background: true,
-					...descData,
-					...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
-					tool_result_message: toolResultMsg,
-				};
-				this.captureDelegateObserverOwnerEvent(childId, "act_end", agentId, this.depth, actEndData);
-				this.emitAndLog("act_end", agentId, this.depth, actEndData);
-				return { toolResultMsg, stumbles: 0, output: result.handleId };
-			}
-
 			// Blocking: result is a ResultMessage
 			const resultMsg = result as ResultMessage;
 
@@ -2172,6 +2167,7 @@ export class Agent {
 		let lastOutput = "";
 		let interrupted = false;
 		let timedOut = false;
+		let usedToolThisRun = false;
 
 		const timeoutMs = this.spec.constraints.timeout_ms;
 		let timeoutController: AbortController | undefined;
@@ -2252,7 +2248,7 @@ export class Agent {
 					primitiveTools: this.primitiveTools,
 					model: this.resolved.model,
 					provider: this.resolved.provider,
-					providerKind: this.client.adapter(this.resolved.provider)?.kind,
+					providerKind: this.client.adapter?.(this.resolved.provider)?.kind,
 					thinking: this.spec.thinking,
 					promptCache: this.spec.prompt_cache,
 					signal,
@@ -2312,6 +2308,18 @@ export class Agent {
 				// Natural completion: no tool calls means the agent is done
 				if (toolCalls.length === 0) {
 					const finalOutput = messageText(assistantMessage);
+					if (this.spec.constraints.requires_tool_use && !usedToolThisRun) {
+						const warning = looksLikeTextualToolCall(finalOutput)
+							? "Agent printed text that looks like a tool call instead of making a real tool call. Asking it to use the provided tool-call mechanism."
+							: "Agent completed without using a required tool. Asking it to use one provided tool before reporting a result.";
+						const instruction = looksLikeTextualToolCall(finalOutput)
+							? "Your last response wrote text that looks like a tool call, but it was not an actual tool call. Use the provided tool-call mechanism to call one of your tools before reporting a result."
+							: "This agent must use at least one provided tool before reporting a result. Use a tool now, then report the result after the tool output is available.";
+						this.history.push(Msg.user(instruction));
+						this.emitAndLog("warning", agentId, this.depth, { message: warning });
+						stumbles++;
+						continue;
+					}
 					if (finalOutput.trim() === "") {
 						if (this.canCompleteWithEmptyOutput()) {
 							lastOutput = "";
@@ -2332,6 +2340,7 @@ export class Agent {
 					break;
 				}
 
+				usedToolThisRun = true;
 				const toolExecution = await this.executeToolCalls({
 					toolCalls,
 					agentId,
@@ -2444,6 +2453,10 @@ function truncateAgentMessagePreview(text: string): string {
 	const normalized = text.trim().replace(/\s+/g, " ");
 	if (normalized.length <= 160) return normalized;
 	return `${normalized.slice(0, 157)}...`;
+}
+
+function looksLikeTextualToolCall(text: string): boolean {
+	return /<function=|<tool_call|<\/tool_call>|<parameter=|"\s*tool_call\s*"/i.test(text);
 }
 
 function buildAgentAddress(options: {

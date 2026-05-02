@@ -180,41 +180,13 @@ export class Client {
 		return chain(request);
 	}
 
-	/** Send a request and return an async iterator of stream events.
-	 * NOTE: Only request-transforming middleware is applied for streaming.
-	 * Middleware that wraps or modifies the response will not take effect here. */
+	/** Send a request and return an async iterator of stream events. */
 	async *stream(request: Request): AsyncIterable<StreamEvent> {
-		// Apply middleware to transform the request, then stream with the result.
-		let finalRequest = request;
-
-		if (this.middlewareChain.length > 0) {
-			// Build a chain that captures the final transformed request
-			// instead of actually calling the adapter
-			const captureRequest = async (req: Request): Promise<Response> => {
-				finalRequest = req;
-				// Return a dummy response — we only need the request transformation
-				return {
-					id: "",
-					model: req.model,
-					provider: "",
-					message: { role: "assistant", content: [] },
-					finish_reason: { reason: "stop" },
-					usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
-				};
-			};
-
-			const chain = this.middlewareChain.reduceRight<(req: Request) => Promise<Response>>(
-				(next, mw) => (req) => mw(req, next),
-				captureRequest,
-			);
-			await chain(request);
-		}
-
-		const adapter = this.resolveAdapter(finalRequest);
-		const rawStream = adapter.stream(finalRequest);
+		const adapter = this.resolveAdapter(request);
+		const rawStream = adapter.stream(request);
 
 		if (this.streamReadTimeoutMs > 0) {
-			yield* withStreamReadTimeout(rawStream, this.streamReadTimeoutMs, finalRequest.signal);
+			yield* withStreamReadTimeout(rawStream, this.streamReadTimeoutMs, request.signal);
 		} else {
 			yield* rawStream;
 		}

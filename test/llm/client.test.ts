@@ -4,6 +4,7 @@ import { Client } from "../../src/llm/client.ts";
 import { StreamReadTimeoutError } from "../../src/llm/stream-timeout.ts";
 import {
 	ContentKind,
+	type Response as LLMResponse,
 	messageText,
 	type ProviderAdapter,
 	type ProviderModel,
@@ -317,6 +318,64 @@ describe("Client", () => {
 		expect(interceptedModel).toBe("claude-haiku-4-5-20251001");
 		await vcr.afterTest();
 	}, 15_000);
+
+	test("stream bypasses completion middleware without synthetic completion logging", async () => {
+		let middlewareCalls = 0;
+		let streamedModel = "";
+		const adapter: ProviderAdapter = {
+			name: "stream-only",
+			providerId: "stream-only",
+			kind: "openai",
+			async complete() {
+				throw new Error("not implemented");
+			},
+			async *stream(request: Request): AsyncIterable<StreamEvent> {
+				streamedModel = request.model;
+				yield { type: "stream_start" };
+				yield {
+					type: "finish",
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 4, output_tokens: 2, total_tokens: 6 },
+					response: {
+						id: "stream-test",
+						model: request.model,
+						provider: "stream-only",
+						message: { role: "assistant", content: [] },
+						finish_reason: { reason: "stop" },
+						usage: { input_tokens: 4, output_tokens: 2, total_tokens: 6 },
+					},
+				};
+			},
+			async listModels() {
+				return [];
+			},
+			async checkConnection() {
+				return { ok: true as const };
+			},
+		};
+		const client = new Client({
+			providers: { "stream-only": adapter },
+			middleware: [
+				async (request: Request, next: (request: Request) => Promise<LLMResponse>) => {
+					middlewareCalls++;
+					return next({ ...request, model: "mutated-by-middleware" });
+				},
+			],
+		});
+
+		const events: StreamEvent[] = [];
+		for await (const event of client.stream({
+			model: "original-model",
+			messages: [],
+			provider: "stream-only",
+		})) {
+			events.push(event);
+		}
+
+		expect(middlewareCalls).toBe(0);
+		expect(streamedModel).toBe("original-model");
+		expect(events.some((event) => event.type === "finish")).toBe(true);
+	});
 
 	test("middleware wraps stream calls", async () => {
 		let interceptedModel = "";

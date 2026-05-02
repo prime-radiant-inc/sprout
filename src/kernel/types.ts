@@ -39,6 +39,12 @@ export interface AgentConstraints {
 	timeout_ms: number;
 	can_spawn: boolean;
 	can_learn: boolean;
+	/**
+	 * If true, the agent must make at least one real tool call before it can
+	 * complete. This is for tool-specialist agents where text-only completion is
+	 * almost always a fabricated result.
+	 */
+	requires_tool_use?: boolean;
 	/** Glob patterns restricting which paths the agent can write to. If omitted, all paths allowed.
 	 * Paths are resolved (~ expanded, relative paths made absolute) before matching.
 	 * Incompatible with the exec capability — agents with exec can bypass file write restrictions. */
@@ -102,6 +108,7 @@ const AGENT_CONSTRAINT_KEYS = new Set([
 	"timeout_ms",
 	"can_spawn",
 	"can_learn",
+	"requires_tool_use",
 	"allowed_write_paths",
 ]);
 

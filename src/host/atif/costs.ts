@@ -19,6 +19,8 @@ const STANDARD_USAGE_FIELDS = new Set([
 	"total_input_tokens",
 ]);
 
+const UNPRICED_LOCAL_PROVIDER_PREFIXES = ["lmstudio", "ollama", "llamacpp"];
+
 export interface BuildAtifMetricsOptions {
 	providerId: string;
 	modelId: string;
@@ -99,6 +101,10 @@ function resolvePricing(
 	modelId: string,
 	pricingSnapshot: PricingSnapshot | null | undefined,
 ): { pricing: ModelPricing; source: "snapshot" | "fallback" } | null {
+	if (UNPRICED_LOCAL_PROVIDER_PREFIXES.some((prefix) => providerId.startsWith(prefix))) {
+		return null;
+	}
+
 	const snapshotPricing =
 		pricingSnapshot === null || pricingSnapshot === undefined
 			? null

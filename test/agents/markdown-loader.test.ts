@@ -15,6 +15,7 @@ describe("parseAgentMarkdown", () => {
 			"constraints:",
 			"  max_turns: 20",
 			"  can_spawn: false",
+			"  requires_tool_use: true",
 			"tags: [core]",
 			"version: 2",
 			"---",
@@ -32,6 +33,7 @@ describe("parseAgentMarkdown", () => {
 		expect(spec.agents).toEqual([]);
 		expect(spec.tools).toEqual(["read_file", "grep"]);
 		expect(spec.constraints.can_spawn).toBe(false);
+		expect(spec.constraints.requires_tool_use).toBe(true);
 	});
 
 	test("throws on missing frontmatter delimiter", () => {

@@ -76,6 +76,43 @@ describe("Agent", () => {
 		expect(capturedHistory[3]!.role).toBe("user");
 	});
 
+	test("non-root agents receive the original human contract in the system prompt", async () => {
+		let capturedSystemPrompt = "";
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (request: Request): Promise<Response> => {
+				capturedSystemPrompt = messageText(request.messages[0]!);
+				return {
+					id: "mock-human-contract",
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant("Done."),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const agent = new Agent({
+			spec: leafSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: createPrimitiveRegistry(env),
+			availableAgents: [],
+			depth: 1,
+			trustedUserInstruction: "Build exactly <server> and expose port 3000.",
+		});
+
+		const result = await agent.run("derived implementation packet");
+
+		expect(result.success).toBe(true);
+		expect(capturedSystemPrompt).toContain("<sprout:human-contract>");
+		expect(capturedSystemPrompt).toContain("authoritative acceptance context");
+		expect(capturedSystemPrompt).toContain("Build exactly &lt;server&gt; and expose port 3000.");
+	});
+
 	test("run() emits session_end with correct data", async () => {
 		const mockResponse: Response = {
 			id: "mock-1",
@@ -1116,6 +1153,102 @@ describe("Agent", () => {
 		expect(events.collected().filter((event) => event.kind === "warning")).toEqual([]);
 		const planEnd = events.collected().find((event) => event.kind === "plan_end");
 		expect(planEnd?.data.text).toBe("");
+	});
+
+	test("tool-required agents cannot complete by printing fake tool-call syntax", async () => {
+		const toolRequiredSpec: AgentSpec = {
+			...leafSpec,
+			name: "reader",
+			description: "Reads files",
+			system_prompt: "Read files with tools.",
+			tools: ["read_file"],
+			agents: [],
+			constraints: {
+				...DEFAULT_CONSTRAINTS,
+				can_spawn: false,
+				max_turns: 4,
+				requires_tool_use: true,
+			},
+		};
+		const tempDir = await mkdtemp(join(tmpdir(), "sprout-tool-required-"));
+		try {
+			const targetPath = join(tempDir, "target.txt");
+			await Bun.write(targetPath, "actual tool output");
+			let callCount = 0;
+			const mockClient = {
+				providers: () => ["anthropic"],
+				complete: async (): Promise<Response> => {
+					callCount++;
+					if (callCount === 1) {
+						return {
+							id: "mock-fake-tool-text",
+							model: "claude-haiku-4-5-20251001",
+							provider: "anthropic",
+							message: Msg.assistant(
+								"<function=read_file>\n<parameter=path>target.txt</parameter>\n</function>",
+							),
+							finish_reason: { reason: "stop" },
+							usage: { input_tokens: 10, output_tokens: 20, total_tokens: 30 },
+						};
+					}
+					if (callCount === 2) {
+						return {
+							id: "mock-real-tool-call",
+							model: "claude-haiku-4-5-20251001",
+							provider: "anthropic",
+							message: {
+								role: "assistant",
+								content: [
+									{
+										kind: ContentKind.TOOL_CALL,
+										tool_call: {
+											id: "read-target",
+											name: "read_file",
+											arguments: { path: "target.txt" },
+										},
+									},
+								],
+							},
+							finish_reason: { reason: "tool_calls" },
+							usage: { input_tokens: 20, output_tokens: 10, total_tokens: 30 },
+						};
+					}
+					return {
+						id: "mock-final-after-tool",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: Msg.assistant("Read target.txt: actual tool output"),
+						finish_reason: { reason: "stop" },
+						usage: { input_tokens: 30, output_tokens: 10, total_tokens: 40 },
+					};
+				},
+				stream: async function* () {},
+			} as unknown as Client;
+
+			const events = new AgentEventEmitter();
+			const env = new LocalExecutionEnvironment(tempDir);
+			const agent = new Agent({
+				spec: toolRequiredSpec,
+				env,
+				client: mockClient,
+				primitiveRegistry: createPrimitiveRegistry(env),
+				availableAgents: [],
+				depth: 0,
+				events,
+			});
+
+			const result = await agent.run("read target.txt");
+
+			expect(callCount).toBe(3);
+			expect(result.success).toBe(true);
+			expect(result.output).toContain("actual tool output");
+			const warnings = events.collected().filter((event) => event.kind === "warning");
+			expect(
+				warnings.some((event) => String(event.data.message).includes("looks like a tool call")),
+			).toBe(true);
+		} finally {
+			await rm(tempDir, { recursive: true, force: true });
+		}
 	});
 
 	test("tool-capable observer may complete silently with an empty response", async () => {
@@ -4608,7 +4741,7 @@ describe("Agent", () => {
 		expect(second!.message).not.toContain("child ONE evidence");
 	});
 
-	test("with spawner, blocking delegate can downgrade to a live handle", async () => {
+	test("with spawner, blocking delegate returns the child result", async () => {
 		const delegateMsg: Message = {
 			role: "assistant",
 			content: [
@@ -4653,13 +4786,16 @@ describe("Agent", () => {
 
 		const spawnCalls: SpawnAgentOptions[] = [];
 		const spawner = {
-			spawnAgent: async (
-				opts: SpawnAgentOptions,
-			): Promise<ResultMessage | string | { handleId: string; continuedInBackground: true }> => {
+			spawnAgent: async (opts: SpawnAgentOptions): Promise<ResultMessage | string> => {
 				spawnCalls.push(opts);
 				return {
-					handleId: "handle-deferred",
-					continuedInBackground: true,
+					kind: "result",
+					handle_id: "handle-blocking",
+					output: "child completed",
+					success: true,
+					stumbles: 0,
+					turns: 1,
+					timed_out: false,
 				};
 			},
 			waitAgent: async (_handleId: string): Promise<ResultMessage> => ({
@@ -4691,7 +4827,7 @@ describe("Agent", () => {
 			spawner,
 		});
 
-		const result = await agent.run("blocking spawn fallback test");
+		const result = await agent.run("blocking spawn test");
 		expect(result.success).toBe(true);
 		expect(spawnCalls).toHaveLength(1);
 		expect(spawnCalls[0]!.blocking).toBe(true);
@@ -4703,12 +4839,7 @@ describe("Agent", () => {
 			? toolContent.find((c: any) => c.kind === ContentKind.TOOL_RESULT)
 			: null;
 		const resultText = resultPart ? (resultPart as any).tool_result.content : "";
-		expect(resultText).toContain("started in blocking mode");
-		expect(resultText).toContain("blocking wait timed out");
-		expect(resultText).toContain("now non-blocking");
-		expect(resultText).toContain("wait_agent");
-		expect(resultText).toContain("message_agent");
-		expect(resultText).toContain("handle-deferred");
+		expect(resultText).toContain("child completed");
 
 		const collected = events.collected();
 		const actEndEvents = collected.filter(
@@ -4716,8 +4847,8 @@ describe("Agent", () => {
 		);
 		expect(actEndEvents).toHaveLength(1);
 		expect(actEndEvents[0]!.data.success).toBe(true);
-		expect(actEndEvents[0]!.data.handle_id).toBe("handle-deferred");
-		expect(actEndEvents[0]!.data.continued_in_background).toBe(true);
+		expect(actEndEvents[0]!.data.handle_id).toBe("handle-blocking");
+		expect("continued_in_background" in actEndEvents[0]!.data).toBe(false);
 	});
 
 	test("with spawner, non-blocking delegate returns handle ID as tool output", async () => {

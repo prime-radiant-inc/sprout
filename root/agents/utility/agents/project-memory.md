@@ -9,6 +9,7 @@ constraints:
   can_spawn: false
   can_learn: false
   timeout_ms: 60000
+  requires_tool_use: true
 tags:
   - core
   - memory

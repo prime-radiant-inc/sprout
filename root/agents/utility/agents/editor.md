@@ -14,6 +14,7 @@ constraints:
   timeout_ms: 300000
   can_spawn: false
   can_learn: false
+  requires_tool_use: true
 tags:
   - core
   - editing

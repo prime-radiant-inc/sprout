@@ -8,6 +8,7 @@ constraints:
   max_turns: 20
   can_spawn: false
   timeout_ms: 60000
+  requires_tool_use: true
 tags:
   - core
   - task-management

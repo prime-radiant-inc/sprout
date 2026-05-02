@@ -1,6 +1,11 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { buildResponsesInput, buildResponsesParams, OpenAIAdapter } from "../../src/llm/openai.ts";
+import {
+	buildChatCompletionsParams,
+	buildResponsesInput,
+	buildResponsesParams,
+	OpenAIAdapter,
+} from "../../src/llm/openai.ts";
 import type { ProviderAdapter } from "../../src/llm/types.ts";
 import { ContentKind, messageText, messageToolCalls, type Request } from "../../src/llm/types.ts";
 import "../helpers/test-env.ts";
@@ -63,6 +68,199 @@ describe("OpenAIAdapter", () => {
 		const params = buildResponsesParams(request, buildResponsesInput(request));
 		expect((params as any).prompt_cache_key).toBe("01SESSION:engineer");
 		expect((params as any).prompt_cache_retention).toBe("in_memory");
+	});
+
+	test("builds chat completions requests for openai-compatible providers", () => {
+		const request: Request = {
+			model: "qwen",
+			messages: [
+				{ role: "system", content: [{ kind: ContentKind.TEXT, text: "system prompt" }] },
+				{ role: "user", content: [{ kind: ContentKind.TEXT, text: "read a file" }] },
+			],
+			tools: [
+				{
+					name: "read_file",
+					description: "Read a file",
+					parameters: {
+						type: "object",
+						properties: { path: { type: "string" } },
+						required: ["path"],
+					},
+				},
+			],
+			tool_choice: "required",
+			max_tokens: 200,
+			provider_options: {
+				openai: {
+					extra_body: { seed: 123 },
+				},
+			},
+		};
+
+		const params = buildChatCompletionsParams(request);
+
+		expect(params.messages).toEqual([
+			{ role: "system", content: "system prompt" },
+			{ role: "user", content: "read a file" },
+		]);
+		expect(params.tools[0].function.name).toBe("read_file");
+		expect(params.tool_choice).toBe("required");
+		expect(params.max_tokens).toBe(200);
+		expect(params.seed).toBe(123);
+	});
+
+	test("openai-compatible complete uses chat completions and parses tool calls", async () => {
+		const adapter = new OpenAIAdapter("unused", {
+			providerId: "lmstudio",
+			kind: "openai-compatible",
+			baseUrl: "http://127.0.0.1:1234/v1",
+		});
+		let chatCalled = false;
+		let responsesCalled = false;
+		(adapter as any).client = {
+			responses: {
+				create: async () => {
+					responsesCalled = true;
+					throw new Error("responses should not be used");
+				},
+			},
+			chat: {
+				completions: {
+					create: async (params: any) => {
+						chatCalled = true;
+						expect(params.think).toBe(false);
+						return {
+							id: "chatcmpl-local",
+							model: "qwen",
+							choices: [
+								{
+									message: {
+										role: "assistant",
+										content: null,
+										tool_calls: [
+											{
+												id: "call_1",
+												type: "function",
+												function: {
+													name: "read_file",
+													arguments: '{"path":"README.md"}',
+												},
+											},
+										],
+									},
+									finish_reason: "tool_calls",
+								},
+							],
+							usage: {
+								prompt_tokens: 11,
+								completion_tokens: 4,
+								total_tokens: 15,
+							},
+						};
+					},
+				},
+			},
+		};
+
+		const response = await adapter.complete({
+			model: "qwen",
+			messages: [{ role: "user", content: [{ kind: ContentKind.TEXT, text: "read" }] }],
+			tools: [
+				{
+					name: "read_file",
+					description: "Read a file",
+					parameters: { type: "object", properties: {} },
+				},
+			],
+			tool_choice: "required",
+		});
+
+		expect(chatCalled).toBe(true);
+		expect(responsesCalled).toBe(false);
+		expect(response.provider).toBe("openai-compatible");
+		expect(response.finish_reason.reason).toBe("tool_calls");
+		const calls = messageToolCalls(response.message);
+		expect(calls).toHaveLength(1);
+		expect(calls[0]!.name).toBe("read_file");
+		expect(calls[0]!.arguments).toEqual({ path: "README.md" });
+		expect(response.usage.input_tokens).toBe(11);
+		expect(response.usage.output_tokens).toBe(4);
+	});
+
+	test("openai-compatible stream uses chat completions", async () => {
+		const adapter = new OpenAIAdapter("unused", {
+			providerId: "ollama",
+			kind: "openai-compatible",
+			baseUrl: "http://127.0.0.1:11434/v1",
+		});
+		let chatCalled = false;
+		(adapter as any).client = {
+			chat: {
+				completions: {
+					create: async function* () {
+						chatCalled = true;
+						yield {
+							choices: [{ delta: { content: "hello" }, finish_reason: null }],
+						};
+						yield {
+							choices: [{ delta: {}, finish_reason: "stop" }],
+							usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+						};
+					},
+				},
+			},
+		};
+
+		const events = [];
+		for await (const event of adapter.stream({
+			model: "qwen",
+			messages: [{ role: "user", content: [{ kind: ContentKind.TEXT, text: "hi" }] }],
+		})) {
+			events.push(event);
+		}
+
+		expect(chatCalled).toBe(true);
+		expect(events.some((event) => event.type === "text_delta")).toBe(true);
+		const finish = events.find((event) => event.type === "finish");
+		expect(finish?.usage?.input_tokens).toBe(3);
+		expect(finish?.usage?.output_tokens).toBe(1);
+	});
+
+	test("openai-compatible extra_body can override chat defaults", async () => {
+		const adapter = new OpenAIAdapter("unused", {
+			providerId: "ollama",
+			kind: "openai-compatible",
+			baseUrl: "http://127.0.0.1:11434/v1",
+		});
+		let capturedThink: unknown;
+		(adapter as any).client = {
+			chat: {
+				completions: {
+					create: async (params: any) => {
+						capturedThink = params.think;
+						return {
+							id: "chatcmpl-local",
+							model: "qwen",
+							choices: [
+								{
+									message: { role: "assistant", content: "ok" },
+									finish_reason: "stop",
+								},
+							],
+							usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+						};
+					},
+				},
+			},
+		};
+
+		await adapter.complete({
+			model: "qwen",
+			messages: [{ role: "user", content: [{ kind: ContentKind.TEXT, text: "hi" }] }],
+			provider_options: { openai: { extra_body: { think: true } } },
+		});
+
+		expect(capturedThink).toBe(true);
 	});
 
 	test("reads Responses API cached input token telemetry", async () => {

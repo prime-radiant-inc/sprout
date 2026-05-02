@@ -56,6 +56,14 @@ Prefer the smallest decisive checks first. If a targeted existence, schema,
 behavior, or output check already settles a requirement, stop there instead of
 expanding into exhaustive recomputation.
 
+## Deliverability Checks
+
+When a task creates a runnable command, CLI, service, package, or documented
+user entrypoint, verify at least one public entrypoint exactly as documented or
+requested. Internal smoke helpers are supporting evidence only; they do not
+prove deliverability when README, package, bin, route, or command wiring can
+diverge from the implementation.
+
 ## Verifying Requirements
 
 When checking that requirements are met:

@@ -10,6 +10,7 @@ agents: []
 constraints:
   max_turns: 30
   can_spawn: false
+  requires_tool_use: true
 tags:
   - core
   - reading

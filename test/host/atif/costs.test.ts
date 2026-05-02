@@ -128,6 +128,32 @@ describe("buildAtifMetrics", () => {
 		expect(metrics?.extra?.cost_partial_reasons).toEqual(["cache_write_tokens_missing_ttl_bucket"]);
 	});
 
+	test("does not apply public pricing snapshots to local openai-compatible providers", () => {
+		const snapshot: PricingSnapshot = {
+			source: "live",
+			fetchedAt: "2026-05-01T12:00:00.000Z",
+			upstreams: ["llm-prices"],
+			table: [["qwen3.6-35b-a3b", { input: 3, output: 6 }]],
+		};
+
+		const metrics = buildAtifMetrics({
+			providerId: "llamacpp",
+			modelId: "qwen3.6-35b-a3b",
+			usage: {
+				input_tokens: 10_000,
+				output_tokens: 2_000,
+				total_tokens: 12_000,
+			},
+			pricingSnapshot: snapshot,
+		});
+
+		expect(metrics?.prompt_tokens).toBe(10_000);
+		expect(metrics?.completion_tokens).toBe(2_000);
+		expect(metrics?.cost_usd).toBeUndefined();
+		expect(metrics?.extra?.cost_pricing_source).toBeUndefined();
+		expect(metrics?.extra?.cost_breakdown_usd).toBeUndefined();
+	});
+
 	test("falls back to built-in pricing when a live snapshot lacks the model alias", () => {
 		const snapshot: PricingSnapshot = {
 			source: "live",

@@ -11,6 +11,7 @@ constraints:
   max_turns: 40
   can_spawn: false
   timeout_ms: 600000
+  requires_tool_use: true
 tags:
   - core
   - reading

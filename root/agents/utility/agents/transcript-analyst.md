@@ -9,6 +9,7 @@ constraints:
   max_turns: 15
   can_spawn: false
   timeout_ms: 120000
+  requires_tool_use: true
 tags:
   - analysis
   - debugging

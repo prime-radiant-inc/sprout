@@ -72,14 +72,9 @@ export interface DeliverObserverFrameOptions {
 
 /** A pending waitAgent() promise that can be resolved or rejected. */
 interface PendingWaiter {
-	resolve: (result: ResultMessage | string | DeferredSpawnResult) => void;
+	resolve: (result: ResultMessage) => void;
 	reject: (error: Error) => void;
-	timer: ReturnType<typeof setTimeout>;
-}
-
-export interface DeferredSpawnResult {
-	handleId: string;
-	continuedInBackground: true;
+	timer?: ReturnType<typeof setTimeout>;
 }
 
 const PROCESS_EXIT_RESULT_GRACE_MS = 25;
@@ -332,7 +327,7 @@ export class AgentSpawner {
 		handle.result = result;
 		handle.status = status;
 		for (const waiter of handle.pendingWaiters) {
-			clearTimeout(waiter.timer);
+			if (waiter.timer) clearTimeout(waiter.timer);
 			waiter.resolve(result);
 		}
 		handle.pendingWaiters = [];
@@ -440,7 +435,7 @@ export class AgentSpawner {
 		for (const handle of this.handles.values()) {
 			// Reject pending waiters so they don't hang for the timeout duration
 			for (const waiter of handle.pendingWaiters) {
-				clearTimeout(waiter.timer);
+				if (waiter.timer) clearTimeout(waiter.timer);
 				waiter.reject(new Error("Session cleared"));
 			}
 			handle.pendingWaiters = [];
@@ -527,7 +522,7 @@ export class AgentSpawner {
 	 * If blocking: waits for the agent to produce a result and returns it.
 	 * If non-blocking: returns the handle ID string immediately.
 	 */
-	async spawnAgent(opts: SpawnAgentOptions): Promise<ResultMessage | string | DeferredSpawnResult> {
+	async spawnAgent(opts: SpawnAgentOptions): Promise<ResultMessage | string> {
 		const handleId = opts.handleId ?? ulid();
 		const agentId = opts.agentId ?? handleId;
 		const visibility = opts.visibility ?? (opts.shared ? "shared" : "private");
@@ -620,7 +615,7 @@ export class AgentSpawner {
 		return handleId;
 	}
 
-	private waitForBlockingSpawn(handleId: string): Promise<ResultMessage | DeferredSpawnResult> {
+	private waitForBlockingSpawn(handleId: string): Promise<ResultMessage> {
 		const handle = this.handles.get(handleId);
 		if (!handle) {
 			throw new Error(`Unknown handle: ${handleId}`);
@@ -630,22 +625,10 @@ export class AgentSpawner {
 			return Promise.resolve(handle.result);
 		}
 
-		return new Promise<ResultMessage | DeferredSpawnResult>((resolve, reject) => {
+		return new Promise<ResultMessage>((resolve, reject) => {
 			const waiter: PendingWaiter = {
-				resolve: (result) => resolve(result as ResultMessage | DeferredSpawnResult),
+				resolve,
 				reject,
-				timer: setTimeout(() => {
-					const idx = handle.pendingWaiters.indexOf(waiter);
-					if (idx !== -1) handle.pendingWaiters.splice(idx, 1);
-					if (!handle.result && handle.status === "running") {
-						resolve({
-							handleId,
-							continuedInBackground: true,
-						});
-						return;
-					}
-					reject(new Error(`waitAgent timed out for handle ${handleId}`));
-				}, this.waitTimeoutMs),
 			};
 			handle.pendingWaiters.push(waiter);
 		});
@@ -899,7 +882,7 @@ export class AgentSpawner {
 				resolverSettings: opts.resolverSettings,
 				surfacedMemoryBlock: opts.surfacedMemoryBlock,
 			});
-			if (typeof result === "string" || "continuedInBackground" in result) {
+			if (typeof result === "string") {
 				throw new Error(`Observer '${opts.agentName}' did not finish its frame turn`);
 			}
 			if (!result.success) {
@@ -1020,7 +1003,7 @@ export class AgentSpawner {
 		}> = [];
 		for (const handle of this.handles.values()) {
 			for (const waiter of handle.pendingWaiters) {
-				clearTimeout(waiter.timer);
+				if (waiter.timer) clearTimeout(waiter.timer);
 				waiter.reject(new Error("Spawner shutting down"));
 			}
 			handle.pendingWaiters = [];
