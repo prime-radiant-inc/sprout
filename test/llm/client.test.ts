@@ -145,6 +145,38 @@ describe("Client", () => {
 		}
 	});
 
+	test("fromProviders reads stream read timeout from SPROUT_STREAM_READ_TIMEOUT_MS", () => {
+		const saved = process.env.SPROUT_STREAM_READ_TIMEOUT_MS;
+		process.env.SPROUT_STREAM_READ_TIMEOUT_MS = "0";
+
+		try {
+			const client = Client.fromProviders({});
+			expect((client as any).streamReadTimeoutMs).toBe(0);
+		} finally {
+			if (saved === undefined) {
+				delete process.env.SPROUT_STREAM_READ_TIMEOUT_MS;
+			} else {
+				process.env.SPROUT_STREAM_READ_TIMEOUT_MS = saved;
+			}
+		}
+	});
+
+	test("fromProviders option streamReadTimeoutMs overrides SPROUT_STREAM_READ_TIMEOUT_MS", () => {
+		const saved = process.env.SPROUT_STREAM_READ_TIMEOUT_MS;
+		process.env.SPROUT_STREAM_READ_TIMEOUT_MS = "0";
+
+		try {
+			const client = Client.fromProviders({}, { streamReadTimeoutMs: 5000 });
+			expect((client as any).streamReadTimeoutMs).toBe(5000);
+		} finally {
+			if (saved === undefined) {
+				delete process.env.SPROUT_STREAM_READ_TIMEOUT_MS;
+			} else {
+				process.env.SPROUT_STREAM_READ_TIMEOUT_MS = saved;
+			}
+		}
+	});
+
 	test("fromEnv throws on invalid SPROUT_STREAM_READ_TIMEOUT_MS", () => {
 		const saved = process.env.SPROUT_STREAM_READ_TIMEOUT_MS;
 		process.env.SPROUT_STREAM_READ_TIMEOUT_MS = "not-a-number";

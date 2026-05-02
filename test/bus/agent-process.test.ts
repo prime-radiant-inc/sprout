@@ -130,6 +130,7 @@ function createMockClient(responseText: string): Client {
 			};
 		},
 		providers: () => ["anthropic"],
+		adapter: () => ({ kind: "anthropic" }),
 	} as unknown as Client;
 }
 
@@ -151,6 +152,7 @@ function buildMockClient(handler: (request: Request) => Promise<Response>): Clie
 			};
 		},
 		providers: () => ["anthropic"],
+		adapter: () => ({ kind: "anthropic" }),
 	} as unknown as Client;
 }
 
@@ -1163,6 +1165,7 @@ describe("runAgentProcess", () => {
 				(err as any).retryable = false;
 				throw err;
 			},
+			adapter: () => ({ kind: "anthropic" }),
 		} as unknown as Client;
 
 		const resultTopic = agentResult(SESSION_ID, HANDLE_ID);
@@ -1224,6 +1227,64 @@ describe("runAgentProcess", () => {
 		// Process should exit cleanly without throwing
 		await processPromise;
 	}, 5_000);
+
+	test("aborts an active run when the bus disconnects", async () => {
+		let enteredLlm = false;
+		let streamClosed = false;
+		const mockClient = {
+			complete: async (): Promise<Response> => {
+				throw new Error("complete should not be used");
+			},
+			stream: async function* (request: Request) {
+				enteredLlm = true;
+				try {
+					yield { type: "stream_start" as const };
+					await new Promise<void>((_resolve, reject) => {
+						request.signal?.addEventListener(
+							"abort",
+							() => reject(new DOMException("Aborted", "AbortError")),
+							{ once: true },
+						);
+					});
+				} finally {
+					streamClosed = true;
+				}
+			},
+			providers: () => ["anthropic"],
+			adapter: () => ({ kind: "anthropic" }),
+		} as unknown as Client;
+
+		const processPromise = runAgentProcess({
+			busUrl: server.url,
+			handleId: HANDLE_ID,
+			sessionId: SESSION_ID,
+			genomePath: genomeDir,
+			client: mockClient,
+			workDir: tempDir,
+		});
+
+		await waitForAgentReady();
+
+		const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
+		const startMsg: StartMessage = {
+			kind: "start",
+			handle_id: HANDLE_ID,
+			self: addr("test-leaf", 1, undefined, HANDLE_ID),
+			genome_path: genomeDir,
+			session_id: SESSION_ID,
+			caller: addr("root", 0),
+			goal: "Block until the bus dies",
+			shared: false,
+		};
+		await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
+		await waitForCondition(() => enteredLlm);
+
+		await server.stop();
+		await processPromise;
+		await waitForCondition(() => streamClosed);
+
+		expect(streamClosed).toBe(true);
+	}, 10_000);
 
 	test("publishes error result when continue fails in idle loop", async () => {
 		let callCount = 0;

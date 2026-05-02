@@ -84,6 +84,7 @@ export interface DeferredSpawnResult {
 
 const PROCESS_EXIT_RESULT_GRACE_MS = 25;
 const DEFAULT_AGENT_MESSAGE_ACK_TIMEOUT_MS = 5_000;
+const PROCESS_SHUTDOWN_GRACE_MS = 1_000;
 
 /** Internal tracking record for a spawned agent */
 export interface AgentHandle {
@@ -91,7 +92,7 @@ export interface AgentHandle {
 	/** Stable event identity for this handle across respawns. */
 	agentId: string;
 	address: AgentAddress;
-	process: { kill: () => void; exited: Promise<number> };
+	process: { kill: (signal?: "SIGTERM" | "SIGKILL") => void; exited: Promise<number> };
 	status: "running" | "idle" | "completed";
 	result?: ResultMessage;
 	keepAlive: boolean;
@@ -125,14 +126,14 @@ export interface AgentHandle {
 export type SpawnFn = (
 	handleId: string,
 	env: Record<string, string>,
-) => { kill: () => void; exited: Promise<number> };
+) => { kill: (signal?: "SIGTERM" | "SIGKILL") => void; exited: Promise<number> };
 
 /** Default spawn function using Bun.spawn() */
 function defaultSpawnFn(
 	_handleId: string,
 	env: Record<string, string>,
 ): {
-	kill: () => void;
+	kill: (signal?: "SIGTERM" | "SIGKILL") => void;
 	exited: Promise<number>;
 } {
 	const proc = Bun.spawn(buildInternalSproutCommand("agent-process"), {
@@ -141,9 +142,61 @@ function defaultSpawnFn(
 		stderr: "inherit",
 	});
 	return {
-		kill: () => proc.kill(),
+		kill: (signal = "SIGTERM") => proc.kill(signal),
 		exited: proc.exited,
 	};
+}
+
+async function waitForAllOrTimeout(
+	promises: Array<Promise<unknown>>,
+	timeoutMs: number,
+): Promise<void> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		await Promise.race([
+			Promise.allSettled(promises),
+			new Promise((resolve) => {
+				timer = setTimeout(resolve, timeoutMs);
+			}),
+		]);
+	} finally {
+		if (timer) clearTimeout(timer);
+	}
+}
+
+async function forceKillAfterGrace(
+	processes: Array<{
+		process: { kill: (signal?: "SIGTERM" | "SIGKILL") => void };
+		exited: Promise<number>;
+	}>,
+	graceMs: number,
+): Promise<void> {
+	if (processes.length === 0) return;
+
+	const tracked = processes.map((entry) => ({ ...entry, settled: false }));
+	for (const entry of tracked) {
+		void entry.exited.then(
+			() => {
+				entry.settled = true;
+			},
+			() => {
+				entry.settled = true;
+			},
+		);
+	}
+
+	await waitForAllOrTimeout(
+		tracked.map((entry) => entry.exited),
+		graceMs,
+	);
+
+	await Promise.allSettled(
+		tracked.map(async (entry) => {
+			if (entry.settled) return;
+			entry.process.kill("SIGKILL");
+			await waitForAllOrTimeout([entry.exited.catch(() => 1)], 250);
+		}),
+	);
 }
 
 function isFileNotFound(error: unknown): boolean {
@@ -177,7 +230,7 @@ export class AgentSpawner {
 
 	private monitorProcessExit(
 		handleId: string,
-		process: { kill: () => void; exited: Promise<number> },
+		process: { kill: (signal?: "SIGTERM" | "SIGKILL") => void; exited: Promise<number> },
 	): void {
 		void process.exited.then(
 			(code) => {
@@ -197,7 +250,7 @@ export class AgentSpawner {
 
 	private async handleProcessExit(
 		handleId: string,
-		process: { kill: () => void; exited: Promise<number> },
+		process: { kill: (signal?: "SIGTERM" | "SIGKILL") => void; exited: Promise<number> },
 		code?: number,
 		error?: unknown,
 	): Promise<void> {
@@ -380,6 +433,10 @@ export class AgentSpawner {
 	 * and kill any running processes. Called on session reset (/clear).
 	 */
 	async clearHandles(): Promise<void> {
+		const processesToStop: Array<{
+			process: AgentHandle["process"];
+			exited: Promise<number>;
+		}> = [];
 		for (const handle of this.handles.values()) {
 			// Reject pending waiters so they don't hang for the timeout duration
 			for (const waiter of handle.pendingWaiters) {
@@ -389,12 +446,14 @@ export class AgentSpawner {
 			handle.pendingWaiters = [];
 
 			if (handle.status === "running" || handle.status === "idle") {
-				handle.process.kill();
+				handle.process.kill("SIGTERM");
+				processesToStop.push({ process: handle.process, exited: handle.process.exited });
 			}
 			if (handle.resultTopic && this.bus.connected) {
 				this.bus.unsubscribe(handle.resultTopic).catch(() => {});
 			}
 		}
+		await forceKillAfterGrace(processesToStop, PROCESS_SHUTDOWN_GRACE_MS);
 		this.handles.clear();
 	}
 
@@ -487,6 +546,7 @@ export class AgentSpawner {
 			SPROUT_SESSION_ID: this.sessionId,
 			SPROUT_GENOME_PATH: opts.genomePath,
 			SPROUT_WORK_DIR: opts.workDir,
+			SPROUT_PARENT_PID: String(process.pid),
 			...(opts.rootDir ? { SPROUT_ROOT_DIR: opts.rootDir } : {}),
 			...(opts.projectDataDir ? { SPROUT_PROJECT_DATA_DIR: opts.projectDataDir } : {}),
 		};
@@ -762,6 +822,7 @@ export class AgentSpawner {
 			SPROUT_SESSION_ID: this.sessionId,
 			SPROUT_GENOME_PATH: handle.genomePath,
 			SPROUT_WORK_DIR: handle.workDir,
+			SPROUT_PARENT_PID: String(process.pid),
 			...(handle.rootDir ? { SPROUT_ROOT_DIR: handle.rootDir } : {}),
 			...(handle.projectDataDir ? { SPROUT_PROJECT_DATA_DIR: handle.projectDataDir } : {}),
 		};
@@ -952,7 +1013,11 @@ export class AgentSpawner {
 	}
 
 	/** Kill all running agent processes and clean up bus subscriptions. */
-	shutdown(): void {
+	async shutdown(): Promise<void> {
+		const processesToStop: Array<{
+			process: AgentHandle["process"];
+			exited: Promise<number>;
+		}> = [];
 		for (const handle of this.handles.values()) {
 			for (const waiter of handle.pendingWaiters) {
 				clearTimeout(waiter.timer);
@@ -961,12 +1026,14 @@ export class AgentSpawner {
 			handle.pendingWaiters = [];
 
 			if (handle.status === "running" || handle.status === "idle") {
-				handle.process.kill();
+				handle.process.kill("SIGTERM");
+				processesToStop.push({ process: handle.process, exited: handle.process.exited });
 			}
 			if (handle.resultTopic && this.bus.connected) {
 				this.bus.unsubscribe(handle.resultTopic).catch(() => {});
 			}
 		}
+		await forceKillAfterGrace(processesToStop, PROCESS_SHUTDOWN_GRACE_MS);
 		if (this.currentSessionEventsTopic && this.bus.connected) {
 			this.bus.unsubscribe(this.currentSessionEventsTopic).catch(() => {});
 		}

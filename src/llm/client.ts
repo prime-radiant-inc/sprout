@@ -17,13 +17,17 @@ export interface ClientOptions {
 	streamReadTimeoutMs?: number;
 }
 
-function parseStreamReadTimeoutFromEnv(raw: string | undefined): number | undefined {
+export function parseStreamReadTimeoutFromEnv(raw: string | undefined): number | undefined {
 	if (raw === undefined || raw.trim() === "") return undefined;
 	const parsed = Number(raw);
 	if (!Number.isFinite(parsed) || parsed < 0) {
 		throw new Error("SPROUT_STREAM_READ_TIMEOUT_MS must be >= 0 and finite (0 to disable)");
 	}
 	return parsed;
+}
+
+export function resolveStreamReadTimeoutOverride(explicit?: number): number | undefined {
+	return explicit ?? parseStreamReadTimeoutFromEnv(process.env.SPROUT_STREAM_READ_TIMEOUT_MS);
 }
 
 /**
@@ -63,9 +67,7 @@ export class Client {
 		options: { middleware?: Middleware[]; streamReadTimeoutMs?: number } = {},
 	): Client {
 		const providers: Record<string, ProviderAdapter> = {};
-		const streamReadTimeoutMs =
-			options.streamReadTimeoutMs ??
-			parseStreamReadTimeoutFromEnv(process.env.SPROUT_STREAM_READ_TIMEOUT_MS);
+		const streamReadTimeoutMs = resolveStreamReadTimeoutOverride(options.streamReadTimeoutMs);
 
 		const anthropicKey = process.env.ANTHROPIC_API_KEY;
 		if (anthropicKey) {
@@ -109,7 +111,7 @@ export class Client {
 			providers,
 			defaultProvider: options.defaultProvider,
 			middleware: options.middleware,
-			streamReadTimeoutMs: options.streamReadTimeoutMs,
+			streamReadTimeoutMs: resolveStreamReadTimeoutOverride(options.streamReadTimeoutMs),
 		});
 	}
 

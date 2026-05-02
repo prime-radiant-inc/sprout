@@ -82,6 +82,7 @@ function createMockClient(responseText: string): Client {
 			};
 		},
 		providers: () => ["anthropic"],
+		adapter: () => ({ kind: "anthropic" }),
 	} as unknown as Client;
 }
 
@@ -123,6 +124,7 @@ function buildMockClient(handler: (request: Request) => Promise<Response>): Clie
 			};
 		},
 		providers: () => ["anthropic"],
+		adapter: () => ({ kind: "anthropic" }),
 	} as unknown as Client;
 }
 
@@ -163,7 +165,7 @@ describe("AgentSpawner", () => {
 	}
 
 	afterEach(async () => {
-		spawner?.shutdown();
+		await spawner?.shutdown();
 		// Wait for all agent processes to fully exit before deleting the temp dir.
 		// Without this, in-flight mkdir calls inside runAgentProcess race with rm.
 		if (spawner) {
@@ -266,8 +268,10 @@ describe("AgentSpawner", () => {
 			await observerBus.connect();
 			let readyTimer: ReturnType<typeof setInterval> | undefined;
 			let resolveExit: ((code: number) => void) | undefined;
+			let spawnedEnv: Record<string, string> | undefined;
 			try {
-				spawner = new AgentSpawner(bus, server.url, SESSION_ID, (_spawnedHandleId) => {
+				spawner = new AgentSpawner(bus, server.url, SESSION_ID, (_spawnedHandleId, env) => {
+					spawnedEnv = env;
 					readyTimer = setInterval(() => {
 						void childBus.publish(agentReady(SESSION_ID, handleId), JSON.stringify({ ok: true }));
 					}, 10);
@@ -303,6 +307,7 @@ describe("AgentSpawner", () => {
 				const startMessage = JSON.parse(await inboxPromise);
 				if (readyTimer) clearInterval(readyTimer);
 				expect(startMessage.eval_mode).toBe(true);
+				expect(spawnedEnv?.SPROUT_PARENT_PID).toBe(String(process.pid));
 			} finally {
 				if (readyTimer) clearInterval(readyTimer);
 				await observerBus.disconnect();
@@ -464,6 +469,7 @@ describe("AgentSpawner", () => {
 					await new Promise(() => {}); // never resolves
 				},
 				providers: () => ["anthropic"],
+				adapter: () => ({ kind: "anthropic" }),
 			} as unknown as Client;
 
 			spawner = new AgentSpawner(
@@ -494,7 +500,7 @@ describe("AgentSpawner", () => {
 
 			// Kill the forever-blocking agent and wait for it to exit so
 			// afterEach cleanup doesn't race with its internal bus client
-			spawner.shutdown();
+			await spawner.shutdown();
 			await spawner.getHandle(handleId)!.process.exited;
 		}, 15_000);
 
@@ -509,6 +515,7 @@ describe("AgentSpawner", () => {
 					await new Promise(() => {}); // never resolves
 				},
 				providers: () => ["anthropic"],
+				adapter: () => ({ kind: "anthropic" }),
 			} as unknown as Client;
 
 			spawner = new AgentSpawner(
@@ -1882,6 +1889,7 @@ describe("AgentSpawner", () => {
 					await new Promise(() => {}); // never resolves
 				},
 				providers: () => ["anthropic"],
+				adapter: () => ({ kind: "anthropic" }),
 			} as unknown as Client;
 
 			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
@@ -1898,15 +1906,26 @@ describe("AgentSpawner", () => {
 
 			// Start waiting (will never resolve on its own since agent blocks)
 			const waitPromise = spawner.waitAgent(handleId);
+			let rejection: Error | undefined;
+			const rejected = waitPromise.catch((error) => {
+				rejection = error instanceof Error ? error : new Error(String(error));
+			});
 
 			// clearHandles should reject the pending waiter promptly
 			const start = Date.now();
-			await spawner.clearHandles();
-			await expect(waitPromise).rejects.toThrow(/session cleared/i);
-			const elapsed = Date.now() - start;
+			const clearPromise = spawner.clearHandles();
+			await Promise.race([
+				rejected,
+				delay(500).then(() => {
+					throw new Error("waitAgent was not rejected promptly");
+				}),
+			]);
+			const rejectElapsed = Date.now() - start;
+			await clearPromise;
 
 			// Should resolve almost immediately, not after the 15min timeout
-			expect(elapsed).toBeLessThan(2000);
+			expect(rejection?.message).toMatch(/session cleared/i);
+			expect(rejectElapsed).toBeLessThan(2000);
 		}, 15_000);
 	});
 
@@ -1996,6 +2015,55 @@ describe("AgentSpawner", () => {
 			// The handle should reflect the shutdown
 			const handle = spawner.getHandle(handleId);
 			expect(handle).toBeDefined();
+		}, 15_000);
+
+		test("force-kills processes that ignore graceful shutdown", async () => {
+			const handleId = "01SPAWNERSHUTDOWNKILL0000";
+			const childBus = new BusClient(server.url);
+			await childBus.connect();
+			const signals: Array<"SIGTERM" | "SIGKILL"> = [];
+			let readyTimer: ReturnType<typeof setInterval> | undefined;
+			let resolveExit: ((code: number) => void) | undefined;
+			try {
+				spawner = new AgentSpawner(bus, server.url, SESSION_ID, () => {
+					readyTimer = setInterval(() => {
+						void childBus.publish(agentReady(SESSION_ID, handleId), JSON.stringify({ ok: true }));
+					}, 10);
+					return {
+						kill: (signal = "SIGTERM") => {
+							signals.push(signal);
+							if (signal === "SIGKILL") {
+								if (readyTimer) clearInterval(readyTimer);
+								resolveExit?.(137);
+							}
+						},
+						exited: new Promise<number>((resolve) => {
+							resolveExit = resolve;
+						}),
+					};
+				});
+
+				await spawner.spawnAgent({
+					agentName: "test-leaf",
+					genomePath: genomeDir,
+					caller: addr("root", 0),
+					goal: "Long running task",
+					blocking: false,
+					shared: false,
+					workDir: tempDir,
+					handleId,
+					providerIdOverride: TEST_PROVIDER_ID,
+					resolverSettings: TEST_RESOLVER_SETTINGS,
+				});
+
+				if (readyTimer) clearInterval(readyTimer);
+				await spawner.shutdown();
+
+				expect(signals).toEqual(["SIGTERM", "SIGKILL"]);
+			} finally {
+				if (readyTimer) clearInterval(readyTimer);
+				await childBus.disconnect();
+			}
 		}, 15_000);
 	});
 });

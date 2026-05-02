@@ -55,6 +55,8 @@ export interface AgentProcessConfig {
 	projectDataDir?: string;
 	/** Abort signal for clean shutdown */
 	signal?: AbortSignal;
+	/** PID of the process that spawned this agent process. */
+	parentPid?: number;
 	/** Structured logger for LLM call logging and diagnostics. */
 	logger?: import("../host/logger.ts").Logger;
 }
@@ -70,6 +72,56 @@ interface AgentProcessClientDeps {
 		providers: Record<string, ProviderAdapter>;
 		logger: SessionLogger;
 	}) => Client;
+}
+
+function composeAbortSignal(...signals: Array<AbortSignal | undefined>): {
+	signal?: AbortSignal;
+	cleanup: () => void;
+} {
+	const activeSignals = signals.filter((sig): sig is AbortSignal => sig !== undefined);
+	if (activeSignals.length === 0) return { cleanup: () => {} };
+	if (activeSignals.length === 1) return { signal: activeSignals[0], cleanup: () => {} };
+
+	const controller = new AbortController();
+	const abort = () => controller.abort();
+	for (const sig of activeSignals) {
+		if (sig.aborted) {
+			controller.abort();
+			break;
+		}
+		sig.addEventListener("abort", abort, { once: true });
+	}
+
+	return {
+		signal: controller.signal,
+		cleanup: () => {
+			for (const sig of activeSignals) {
+				sig.removeEventListener("abort", abort);
+			}
+		},
+	};
+}
+
+function monitorParentProcess(
+	parentPid: number | undefined,
+	controller: AbortController,
+): () => void {
+	if (parentPid === undefined) return () => {};
+	const check = () => {
+		if (process.ppid !== parentPid) {
+			controller.abort();
+		}
+	};
+	check();
+	const timer = setInterval(check, 1000);
+	return () => clearInterval(timer);
+}
+
+function parseParentPid(raw: string | undefined): number | undefined {
+	if (raw === undefined || raw.trim() === "") return undefined;
+	const parsed = Number(raw);
+	if (!Number.isInteger(parsed) || parsed <= 0) return undefined;
+	return parsed;
 }
 
 export async function createAgentProcessClient(
@@ -137,10 +189,14 @@ export async function createAgentProcessClient(
  */
 export async function runAgentProcess(config: AgentProcessConfig): Promise<void> {
 	const { busUrl, handleId, sessionId, genomePath, client, workDir, signal } = config;
+	const lifecycleController = new AbortController();
+	const combined = composeAbortSignal(signal, lifecycleController.signal);
+	const runSignal = combined.signal;
+	const stopParentMonitor = monitorParentProcess(config.parentPid, lifecycleController);
 
 	// Connect to bus
 	const bus = new BusClient(busUrl);
-	await bus.connect();
+	let stopBusDisconnectAbort = () => {};
 
 	const inboxTopic = agentInbox(sessionId, handleId);
 	const eventsTopic = agentEvents(sessionId, handleId);
@@ -150,8 +206,17 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 	let childSpawner: AgentSpawner | undefined;
 
 	try {
+		await bus.connect();
+		stopBusDisconnectAbort = bus.onDisconnect(() => lifecycleController.abort());
+
 		// Subscribe to inbox and wait for start (or abort)
-		const startPayload = await waitForStartWithReady(bus, inboxTopic, readyTopic, handleId, signal);
+		const startPayload = await waitForStartWithReady(
+			bus,
+			inboxTopic,
+			readyTopic,
+			handleId,
+			runSignal,
+		);
 		if (!startPayload) {
 			// Aborted before receiving start
 			return;
@@ -348,7 +413,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 		// Run the agent
 		let agentResult_: Awaited<ReturnType<typeof agent.run>>;
 		try {
-			agentResult_ = await agent.run(goal, signal);
+			agentResult_ = await agent.run(goal, runSignal);
 		} catch (err) {
 			initialRunActive = false;
 			// Publish a failed result so the parent spawner doesn't hang waiting.
@@ -388,12 +453,15 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 
 		// Shared agent: enter idle loop, handle continue messages.
 		// Signal is required for shared agents — without it, idleLoop hangs forever.
-		if (!signal) {
+		if (!runSignal) {
 			throw new Error("Shared agents require an AbortSignal to exit the idle loop");
 		}
-		await idleLoop(bus, agent, genome, inboxTopic, resultTopic, handleId, signal);
+		await idleLoop(bus, agent, genome, inboxTopic, resultTopic, handleId, runSignal);
 	} finally {
-		childSpawner?.shutdown();
+		stopBusDisconnectAbort();
+		stopParentMonitor();
+		combined.cleanup();
+		await childSpawner?.shutdown();
 		await bus.disconnect();
 	}
 }
@@ -572,6 +640,7 @@ export async function runAgentProcessFromEnvironment(
 	const workDir = env.SPROUT_WORK_DIR ?? process.cwd();
 	const rootDir = env.SPROUT_ROOT_DIR;
 	const projectDataDir = env.SPROUT_PROJECT_DATA_DIR;
+	const parentPid = parseParentPid(env.SPROUT_PARENT_PID);
 
 	if (!busUrl || !handleId || !sessionId || !genomePath) {
 		console.error(
@@ -599,6 +668,7 @@ export async function runAgentProcessFromEnvironment(
 			workDir,
 			rootDir,
 			projectDataDir,
+			parentPid,
 			signal: controller.signal,
 			logger,
 		});

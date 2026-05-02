@@ -30,6 +30,22 @@ describe("BusClient", () => {
 		expect(client.connected).toBe(false);
 	});
 
+	test("onDisconnect fires when the server closes the socket", async () => {
+		const client = new BusClient(server.url);
+		await client.connect();
+
+		let disconnected = false;
+		client.onDisconnect(() => {
+			disconnected = true;
+		});
+
+		await server.stop();
+		await delay();
+
+		expect(disconnected).toBe(true);
+		expect(client.connected).toBe(false);
+	});
+
 	test("publish and subscribe between two clients", async () => {
 		const pub = new BusClient(server.url);
 		const sub = new BusClient(server.url);

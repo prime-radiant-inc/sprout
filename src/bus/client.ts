@@ -25,6 +25,7 @@ export class BusClient {
 	private ws: WebSocket | null = null;
 	private callbacks = new Map<string, Set<(payload: string) => void>>();
 	private pendingAcks = new Map<string, PendingAck[]>();
+	private disconnectCallbacks = new Set<() => void>();
 
 	constructor(url: string, options: BusClientOptions = {}) {
 		this.url = url;
@@ -46,6 +47,7 @@ export class BusClient {
 				ws.onclose = () => {
 					if (this.ws === ws) this.ws = null;
 					this.rejectAllPendingAcks("BusClient disconnected before subscribe acknowledgment");
+					this.notifyDisconnect();
 				};
 				resolve();
 			};
@@ -77,6 +79,13 @@ export class BusClient {
 			ws.onclose = () => resolve();
 			ws.close();
 		});
+	}
+
+	onDisconnect(callback: () => void): () => void {
+		this.disconnectCallbacks.add(callback);
+		return () => {
+			this.disconnectCallbacks.delete(callback);
+		};
 	}
 
 	/**
@@ -228,6 +237,16 @@ export class BusClient {
 			this.pendingAcks.set(topic, acks);
 		}
 		acks.push(waiter);
+	}
+
+	private notifyDisconnect(): void {
+		for (const callback of this.disconnectCallbacks) {
+			try {
+				callback();
+			} catch {
+				// Disconnect callbacks must not prevent cleanup.
+			}
+		}
 	}
 
 	private removeAck(topic: string, waiter: PendingAck): void {

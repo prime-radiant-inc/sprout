@@ -77,6 +77,7 @@ export async function executePlanningTurn(
 		agentName: input.agentName,
 		promptCache: input.promptCache,
 	});
+	request.signal = input.signal;
 
 	input.emit("llm_start", input.agentId, input.depth, {
 		model: input.model,

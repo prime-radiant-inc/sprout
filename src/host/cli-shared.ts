@@ -74,7 +74,7 @@ export async function startBusInfrastructure(
 
 		const cleanup = async () => {
 			await genomeService?.stop();
-			spawner?.shutdown();
+			await spawner?.shutdown();
 			if (bus) {
 				await bus.disconnect();
 			}
@@ -84,7 +84,7 @@ export async function startBusInfrastructure(
 		return { server, bus, spawner, genomeService, genome, cleanup };
 	} catch (error) {
 		await genomeService?.stop().catch(() => {});
-		spawner?.shutdown();
+		await spawner?.shutdown();
 		if (bus) {
 			await bus.disconnect().catch(() => {});
 		}
