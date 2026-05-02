@@ -310,23 +310,19 @@ export function buildPlanRequest(opts: {
 	}
 
 	const providerOptions: Record<string, unknown> = {};
-	if (opts.sessionId && opts.agentName) {
-		if (opts.promptCache?.enabled === false) {
-			providerOptions.anthropic = { cache: { enabled: false } };
-		} else {
-			const cacheKey = `${opts.sessionId}:${opts.agentName}`;
-			providerOptions.openai = { prompt_cache_key: cacheKey };
-			providerOptions.anthropic = {
-				cache: { enabled: true, ...(opts.promptCache?.ttl ? { ttl: opts.promptCache.ttl } : {}) },
-			};
-			providerOptions.gemini = {
-				cache: {
-					enabled: true,
-					key: cacheKey,
-					ttl: opts.promptCache?.ttl === "5m" ? "300s" : "3600s",
-				},
-			};
-		}
+	if (opts.promptCache?.enabled === true && opts.sessionId && opts.agentName) {
+		const cacheKey = `${opts.sessionId}:${opts.agentName}`;
+		providerOptions.openai = { prompt_cache_key: cacheKey };
+		providerOptions.anthropic = {
+			cache: { enabled: true, ...(opts.promptCache.ttl ? { ttl: opts.promptCache.ttl } : {}) },
+		};
+		providerOptions.gemini = {
+			cache: {
+				enabled: true,
+				key: cacheKey,
+				ttl: opts.promptCache.ttl === "5m" ? "300s" : "3600s",
+			},
+		};
 	}
 
 	if (opts.thinking && isAnthropicProvider(opts.providerKind, opts.provider)) {

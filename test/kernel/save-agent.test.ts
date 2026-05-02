@@ -56,6 +56,9 @@ sampling:
   temperature: 0
 output:
   max_tokens: 4096
+prompt_cache:
+  enabled: true
+  ttl: 1h
 task_payload: true
 tools:
   - read_file
@@ -83,6 +86,7 @@ version: 1
 		expect(saved!.model).toBe("fast");
 		expect(saved!.sampling).toEqual({ temperature: 0 });
 		expect(saved!.output).toEqual({ max_tokens: 4096 });
+		expect(saved!.prompt_cache).toEqual({ enabled: true, ttl: "1h" });
 		expect(saved!.task_payload).toBe(true);
 		expect(saved!.tools).toEqual(["read_file"]);
 		expect(saved!.agents).toEqual([]);
@@ -283,5 +287,21 @@ system_prompt: |
 		const result = await registry.execute("save_agent", { spec });
 		expect(result.success).toBe(false);
 		expect(result.error).toContain("output.max_tokens");
+	});
+
+	test("rejects invalid prompt_cache config", async () => {
+		const spec = `
+name: broken-cache-agent
+description: "Broken cache config"
+model: fast
+prompt_cache:
+  enabled: false
+system_prompt: |
+  Cache badly.
+`;
+
+		const result = await registry.execute("save_agent", { spec });
+		expect(result.success).toBe(false);
+		expect(result.error).toContain("prompt_cache.enabled");
 	});
 });

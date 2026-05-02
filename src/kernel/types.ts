@@ -65,7 +65,7 @@ export const MAX_AGENT_DEPTH = 8;
 export type PromptCacheTtl = "5m" | "1h";
 
 export interface AgentPromptCacheConfig {
-	enabled?: boolean;
+	enabled: true;
 	ttl?: PromptCacheTtl;
 }
 
@@ -115,6 +115,33 @@ export function normalizeAgentOutputConfig(raw: unknown, source: string): AgentO
 	}
 
 	return { max_tokens: maxTokens };
+}
+
+export function normalizeAgentPromptCacheConfig(
+	raw: unknown,
+	source: string,
+): AgentPromptCacheConfig {
+	if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+		throw new Error(`Invalid agent markdown at ${source}: 'prompt_cache' must be an object`);
+	}
+
+	const config = raw as Record<string, unknown>;
+	for (const key of Object.keys(config)) {
+		if (key !== "enabled" && key !== "ttl") {
+			throw new Error(`Invalid agent markdown at ${source}: unknown prompt_cache key '${key}'`);
+		}
+	}
+	if (config.enabled !== true) {
+		throw new Error(
+			`Invalid agent markdown at ${source}: 'prompt_cache.enabled' must be boolean true`,
+		);
+	}
+	const ttl = config.ttl;
+	if (ttl !== undefined && ttl !== "5m" && ttl !== "1h") {
+		throw new Error(`Invalid agent markdown at ${source}: 'prompt_cache.ttl' must be 5m or 1h`);
+	}
+
+	return ttl ? { enabled: true, ttl } : { enabled: true };
 }
 
 const ANTHROPIC_THINKING_MIN_BUDGET_TOKENS = 1024;

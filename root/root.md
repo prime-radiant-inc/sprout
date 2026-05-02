@@ -2,6 +2,8 @@
 name: root
 description: "Decompose tasks into subgoals and delegate to specialist agents"
 model: best
+prompt_cache:
+  enabled: true
 tools: []
 agents:
   - archivist

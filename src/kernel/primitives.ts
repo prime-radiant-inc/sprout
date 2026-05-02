@@ -751,6 +751,7 @@ function saveAgentPrimitive(ctx: GenomeContext): Primitive {
 				const {
 					normalizeAgentConstraints,
 					normalizeAgentOutputConfig,
+					normalizeAgentPromptCacheConfig,
 					normalizeAgentSamplingConfig,
 					normalizeAgentTaskPayloadConfig,
 					normalizeAgentThinkingConfig,
@@ -824,6 +825,12 @@ function saveAgentPrimitive(ctx: GenomeContext): Primitive {
 				if (raw.task_payload !== undefined) {
 					agentSpec.task_payload = normalizeAgentTaskPayloadConfig(
 						raw.task_payload,
+						`save_agent spec for '${raw.name as string}'`,
+					);
+				}
+				if (raw.prompt_cache !== undefined) {
+					agentSpec.prompt_cache = normalizeAgentPromptCacheConfig(
+						raw.prompt_cache,
 						`save_agent spec for '${raw.name as string}'`,
 					);
 				}

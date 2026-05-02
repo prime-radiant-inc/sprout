@@ -75,6 +75,7 @@ describe("loadRootAgents", () => {
 		const root = agents.find((a) => a.name === "root");
 		const balcony = agents.find((a) => a.name === "the-balcony");
 
+		expect(root?.prompt_cache).toEqual({ enabled: true });
 		expect(root?.observers?.[0]).toEqual({
 			agent: "the-balcony",
 			target: "root",

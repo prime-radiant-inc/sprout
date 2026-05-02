@@ -239,6 +239,48 @@ describe("parseAgentMarkdown", () => {
 		}
 	});
 
+	test("parses prompt_cache opt-in", () => {
+		const content = [
+			"---",
+			"name: root",
+			'description: "coordinates work"',
+			"model: best",
+			"prompt_cache:",
+			"  enabled: true",
+			"  ttl: 1h",
+			"---",
+			"Coordinate work.",
+		].join("\n");
+		const spec = parseAgentMarkdown(content, "root.md");
+		expect(spec.prompt_cache).toEqual({ enabled: true, ttl: "1h" });
+	});
+
+	test("rejects invalid prompt_cache config", () => {
+		const cases: Array<[string, RegExp]> = [
+			["prompt_cache: true", /prompt_cache.*object/],
+			["prompt_cache:\n  enabled: false", /prompt_cache\.enabled.*true/],
+			["prompt_cache:\n  ttl: 1h", /prompt_cache\.enabled.*true/],
+			["prompt_cache:\n  enabled: true\n  ttl: 10m", /prompt_cache\.ttl.*5m or 1h/],
+			[
+				"prompt_cache:\n  enabled: true\n  provider: anthropic",
+				/unknown prompt_cache key 'provider'/,
+			],
+		];
+
+		for (const [promptCache, error] of cases) {
+			const content = [
+				"---",
+				"name: root",
+				'description: "coordinates work"',
+				"model: best",
+				promptCache,
+				"---",
+				"Coordinate work.",
+			].join("\n");
+			expect(() => parseAgentMarkdown(content, "root.md")).toThrow(error);
+		}
+	});
+
 	test("parses task_payload opt-in", () => {
 		const content = [
 			"---",

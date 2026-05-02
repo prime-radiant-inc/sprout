@@ -8,6 +8,7 @@ import {
 	type EventKind,
 	normalizeAgentConstraints,
 	normalizeAgentOutputConfig,
+	normalizeAgentPromptCacheConfig,
 	normalizeAgentSamplingConfig,
 	normalizeAgentTaskPayloadConfig,
 	normalizeAgentThinkingConfig,
@@ -85,7 +86,7 @@ export function parseAgentMarkdown(content: string, source: string): AgentSpec {
 		spec.task_payload = normalizeAgentTaskPayloadConfig(raw.task_payload, source);
 	}
 	if (raw.prompt_cache !== undefined) {
-		spec.prompt_cache = raw.prompt_cache;
+		spec.prompt_cache = normalizeAgentPromptCacheConfig(raw.prompt_cache, source);
 	}
 	if (raw.subcortical_recall !== undefined) {
 		spec.subcortical_recall = normalizeSubcorticalRecallConfig(raw.subcortical_recall, source);

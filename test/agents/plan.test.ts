@@ -522,7 +522,7 @@ describe("buildPlanRequest", () => {
 		expect(req.messages[2]!.role).toBe("assistant");
 	});
 
-	test("threads prompt cache context into provider options", () => {
+	test("omits provider cache options when prompt_cache is absent", () => {
 		const req = buildPlanRequest({
 			systemPrompt: "System prompt.",
 			history: [],
@@ -532,7 +532,22 @@ describe("buildPlanRequest", () => {
 			provider: "openai",
 			sessionId: "01SESSION",
 			agentName: "engineer",
-			promptCache: { ttl: "1h" },
+		});
+
+		expect(req.provider_options).toBeUndefined();
+	});
+
+	test("threads enabled prompt cache context into provider options", () => {
+		const req = buildPlanRequest({
+			systemPrompt: "System prompt.",
+			history: [],
+			agentTools: [],
+			primitiveTools: [],
+			model: "gpt-4.1-mini",
+			provider: "openai",
+			sessionId: "01SESSION",
+			agentName: "engineer",
+			promptCache: { enabled: true, ttl: "1h" },
 		});
 
 		expect(req.provider_options).toEqual({
@@ -542,7 +557,7 @@ describe("buildPlanRequest", () => {
 		});
 	});
 
-	test("threads disabled prompt cache into Anthropic provider options", () => {
+	test("merges enabled prompt cache context with anthropic thinking options", () => {
 		const req = buildPlanRequest({
 			systemPrompt: "System prompt.",
 			history: [],
@@ -551,16 +566,22 @@ describe("buildPlanRequest", () => {
 			model: "claude-sonnet-4-6",
 			provider: "anthropic",
 			sessionId: "01SESSION",
-			agentName: "debugger",
-			promptCache: { enabled: false },
+			agentName: "architect",
+			thinking: { budget_tokens: 7000 },
+			promptCache: { enabled: true },
 		});
 
 		expect(req.provider_options).toEqual({
-			anthropic: { cache: { enabled: false } },
+			openai: { prompt_cache_key: "01SESSION:architect" },
+			anthropic: {
+				cache: { enabled: true },
+				thinking: { type: "enabled", budget_tokens: 7000 },
+			},
+			gemini: { cache: { enabled: true, key: "01SESSION:architect", ttl: "3600s" } },
 		});
 	});
 
-	test("merges prompt cache context with anthropic thinking options", () => {
+	test("does not enable prompt cache for thinking-only requests", () => {
 		const req = buildPlanRequest({
 			systemPrompt: "System prompt.",
 			history: [],
@@ -574,12 +595,9 @@ describe("buildPlanRequest", () => {
 		});
 
 		expect(req.provider_options).toEqual({
-			openai: { prompt_cache_key: "01SESSION:architect" },
 			anthropic: {
-				cache: { enabled: true },
 				thinking: { type: "enabled", budget_tokens: 7000 },
 			},
-			gemini: { cache: { enabled: true, key: "01SESSION:architect", ttl: "3600s" } },
 		});
 	});
 

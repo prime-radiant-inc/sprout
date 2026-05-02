@@ -76,6 +76,13 @@ describe("serializeAgentMarkdown", () => {
 		expect(parsed.output).toEqual({ max_tokens: 4096 });
 	});
 
+	test("prompt cache config preserved through round-trip", () => {
+		const spec = makeSpec({ prompt_cache: { enabled: true, ttl: "1h" } });
+		const serialized = serializeAgentMarkdown(spec);
+		const parsed = parseAgentMarkdown(serialized, "prompt-cache.md");
+		expect(parsed.prompt_cache).toEqual({ enabled: true, ttl: "1h" });
+	});
+
 	test("task_payload opt-in preserved through round-trip", () => {
 		const spec = makeSpec({ task_payload: true });
 		const serialized = serializeAgentMarkdown(spec);
