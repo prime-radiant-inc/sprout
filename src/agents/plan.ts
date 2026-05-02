@@ -295,15 +295,15 @@ export function buildPlanRequest(opts: {
 	agentName?: string;
 	promptCache?: AgentPromptCacheConfig;
 }): Request {
-	const hasExplicitOutputBudget =
-		opts.maxTokens !== undefined || opts.output?.max_tokens !== undefined;
+	const explicitOutputBudget = opts.maxTokens ?? opts.output?.max_tokens;
+	const hasExplicitOutputBudget = explicitOutputBudget !== undefined;
 	const request: Request = {
 		model: opts.model,
 		provider: opts.provider,
 		messages: [Msg.system(opts.systemPrompt), ...opts.history],
 		tools: [...opts.agentTools, ...opts.primitiveTools],
 		tool_choice: "auto",
-		max_tokens: opts.maxTokens ?? opts.output?.max_tokens ?? DEFAULT_PLAN_MAX_TOKENS,
+		max_tokens: resolveInitialPlanMaxTokens(explicitOutputBudget, opts.modelMaxOutputTokens),
 	};
 	if (opts.sampling?.temperature !== undefined) {
 		request.temperature = opts.sampling.temperature;
@@ -354,6 +354,21 @@ export function buildPlanRequest(opts: {
 	return request;
 }
 
+function resolveInitialPlanMaxTokens(
+	explicitMaxTokens: number | undefined,
+	modelMaxOutputTokens?: number,
+): number {
+	validateKnownModelOutputLimit(modelMaxOutputTokens);
+	if (explicitMaxTokens !== undefined) {
+		validatePlanMaxTokens(explicitMaxTokens, modelMaxOutputTokens);
+		return explicitMaxTokens;
+	}
+	if (modelMaxOutputTokens !== undefined) {
+		return Math.min(DEFAULT_PLAN_MAX_TOKENS, modelMaxOutputTokens);
+	}
+	return DEFAULT_PLAN_MAX_TOKENS;
+}
+
 function validatePlanMaxTokens(maxTokens: number | undefined, modelMaxOutputTokens?: number): void {
 	if (maxTokens === undefined) return;
 	if (!Number.isSafeInteger(maxTokens) || maxTokens <= 0) {
@@ -362,15 +377,22 @@ function validatePlanMaxTokens(maxTokens: number | undefined, modelMaxOutputToke
 	if (maxTokens > MAX_AGENT_OUTPUT_TOKENS) {
 		throw new Error(`Planning request max_tokens must be at most ${MAX_AGENT_OUTPUT_TOKENS}`);
 	}
+	validateKnownModelOutputLimit(modelMaxOutputTokens);
 	if (modelMaxOutputTokens !== undefined) {
-		if (!Number.isSafeInteger(modelMaxOutputTokens) || modelMaxOutputTokens <= 0) {
-			throw new Error("Known model output limit must be a positive safe integer");
-		}
 		if (maxTokens > modelMaxOutputTokens) {
 			throw new Error(
 				`Planning request max_tokens ${maxTokens} exceeds model output limit ${modelMaxOutputTokens}`,
 			);
 		}
+	}
+}
+
+function validateKnownModelOutputLimit(modelMaxOutputTokens: number | undefined): void {
+	if (
+		modelMaxOutputTokens !== undefined &&
+		(!Number.isSafeInteger(modelMaxOutputTokens) || modelMaxOutputTokens <= 0)
+	) {
+		throw new Error("Known model output limit must be a positive safe integer");
 	}
 }
 

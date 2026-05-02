@@ -449,6 +449,20 @@ describe("buildPlanRequest", () => {
 		).toThrow(/exceeds model output limit.*2048/);
 	});
 
+	test("caps implicit default output budget to a known model limit", () => {
+		const req = buildPlanRequest({
+			systemPrompt: "Use the small local model safely.",
+			history: [],
+			agentTools: [],
+			primitiveTools: [],
+			model: "tiny-model",
+			provider: "local",
+			modelMaxOutputTokens: 2048,
+		});
+
+		expect(req.max_tokens).toBe(2048);
+	});
+
 	test("rejects explicit output budgets too small for Anthropic thinking", () => {
 		expect(() =>
 			buildPlanRequest({
