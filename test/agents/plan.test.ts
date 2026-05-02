@@ -404,6 +404,20 @@ describe("buildPlanRequest", () => {
 		expect(req.max_tokens).toBe(65536);
 	});
 
+	test("makes openai-compatible planning deterministic by default", () => {
+		const req = buildPlanRequest({
+			systemPrompt: "You are a local model agent.",
+			history: [],
+			agentTools: [],
+			primitiveTools: [],
+			model: "qwen3:4b-instruct-2507-q4_K_M",
+			provider: "ollama",
+			providerKind: "openai-compatible",
+		});
+
+		expect(req.temperature).toBe(0);
+	});
+
 	test("includes history messages after system", () => {
 		const history = [Msg.user("hello"), Msg.assistant("hi")];
 		const req = buildPlanRequest({
