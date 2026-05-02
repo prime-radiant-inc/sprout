@@ -239,13 +239,13 @@ name: broken-thinker
 description: "Broken thinking config"
 model: best
 thinking:
-  budget_tokens: 0
+  budget_tokens: 1023
 system_prompt: |
   Think deeply.
 `;
 
 		const result = await registry.execute("save_agent", { spec });
 		expect(result.success).toBe(false);
-		expect(result.error).toContain("thinking.budget_tokens");
+		expect(result.error).toContain("at least 1024");
 	});
 });

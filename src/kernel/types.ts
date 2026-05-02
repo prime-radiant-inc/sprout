@@ -78,6 +78,8 @@ export interface AgentSamplingConfig {
 	temperature?: number;
 }
 
+const ANTHROPIC_THINKING_MIN_BUDGET_TOKENS = 1024;
+
 export type AgentThinkingConfig = boolean | { budget_tokens: number };
 
 export function normalizeAgentThinkingConfig(raw: unknown, source: string): AgentThinkingConfig {
@@ -96,6 +98,11 @@ export function normalizeAgentThinkingConfig(raw: unknown, source: string): Agen
 	if (typeof budgetTokens !== "number" || !Number.isInteger(budgetTokens) || budgetTokens <= 0) {
 		throw new Error(
 			`Invalid agent markdown at ${source}: 'thinking.budget_tokens' must be a positive integer`,
+		);
+	}
+	if (budgetTokens < ANTHROPIC_THINKING_MIN_BUDGET_TOKENS) {
+		throw new Error(
+			`Invalid agent markdown at ${source}: 'thinking.budget_tokens' must be at least ${ANTHROPIC_THINKING_MIN_BUDGET_TOKENS}`,
 		);
 	}
 

@@ -165,6 +165,7 @@ describe("parseAgentMarkdown", () => {
 			["thinking: maybe", /thinking.*boolean or object/],
 			["thinking:\n  enabled: true", /unknown thinking key 'enabled'/],
 			["thinking:\n  budget_tokens: 0", /thinking\.budget_tokens.*positive integer/],
+			["thinking:\n  budget_tokens: 1023", /thinking\.budget_tokens.*at least 1024/],
 			["thinking:\n  budget_tokens: 1.5", /thinking\.budget_tokens.*positive integer/],
 			["thinking:\n  budget_tokens: lots", /thinking\.budget_tokens.*positive integer/],
 		];
