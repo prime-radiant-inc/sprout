@@ -131,6 +131,7 @@ Rules:
 - Reject `undefined`, functions, symbols, bigint, non-finite numbers, class
   instances, and cycles.
 - Maximum serialized size is 64 KiB in v1.
+- Serialized size means UTF-8 byte length of the canonical JSON string.
 - Maximum nesting depth is 8.
 - Do not truncate or repair payloads. Invalid payloads fail before the child
   agent starts.
@@ -161,6 +162,8 @@ Surfaces:
 - Parent `act_start`, `act_end`, delegate observer owner events, summaries, and
   error/stumble records store metadata only.
 - Payload metadata shape is `{ present: true, bytes: number, key_count: number }`.
+- The `bytes` value uses the same UTF-8 canonical JSON byte length as
+  validation.
 - Top-level key names are not logged in v1; even keys can contain sensitive or
   proprietary labels.
 - Bus/spawner start messages may carry the full structured payload as transport
