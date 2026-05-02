@@ -543,6 +543,9 @@ When asking editors to make changes:
 - Batch related file writes or edits in one editor turn when the paths and
   requirements are already decided; do not spawn one editor per file by default.
 - Provide exact text when you have decided exact text is the right edit.
+- For exact targeted replacements, pass the edit contract as JSON text in the
+  editor goal with explicit `path`, `old_string`, and `new_string` fields so
+  the editor can copy those values directly into `edit_file`.
 - Let the editor figure out patch mechanics, formatting, and local consistency
   reads.
 - Ask for a concise summary, not a full file dump.

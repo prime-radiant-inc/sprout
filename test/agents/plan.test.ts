@@ -526,6 +526,45 @@ describe("parsePlanResponse", () => {
 		expect(result.errors[0]!.error).toContain("missing required 'goal'");
 	});
 
+	test("rejects structured goal objects but accepts serialized JSON goal strings", () => {
+		const objectGoal = parsePlanResponse([
+			{
+				id: "call_1",
+				name: "delegate",
+				arguments: {
+					agent_name: "code-editor",
+					description: "Patch join",
+					goal: {
+						path: "/tmp/editor-bench/src/cli.ts",
+						old_string: 'return argv.join(",");',
+						new_string: 'return argv.join("|");',
+					},
+				},
+			},
+		]);
+		expect(objectGoal.delegations).toHaveLength(0);
+		expect(objectGoal.errors[0]!.error).toContain("missing required 'goal'");
+
+		const serializedGoal = JSON.stringify({
+			path: "/tmp/editor-bench/src/cli.ts",
+			old_string: 'return argv.join(",");',
+			new_string: 'return argv.join("|");',
+		});
+		const stringGoal = parsePlanResponse([
+			{
+				id: "call_2",
+				name: "delegate",
+				arguments: {
+					agent_name: "code-editor",
+					description: "Patch join",
+					goal: serializedGoal,
+				},
+			},
+		]);
+		expect(stringGoal.errors).toHaveLength(0);
+		expect(stringGoal.delegations[0]!.goal).toBe(serializedGoal);
+	});
+
 	test("ignores non-array hints", () => {
 		const toolCalls = [
 			{
