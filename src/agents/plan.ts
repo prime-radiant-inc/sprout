@@ -6,6 +6,7 @@ import type {
 	AgentPromptCacheConfig,
 	AgentSamplingConfig,
 	AgentSpec,
+	AgentThinkingConfig,
 	Delegation,
 	Memory,
 	RoutingRule,
@@ -280,7 +281,7 @@ export function buildPlanRequest(opts: {
 	providerKind?: ProviderKind;
 	maxTokens?: number;
 	sampling?: AgentSamplingConfig;
-	thinking?: boolean | { budget_tokens: number };
+	thinking?: AgentThinkingConfig;
 	sessionId?: string;
 	agentName?: string;
 	promptCache?: AgentPromptCacheConfig;
@@ -317,7 +318,7 @@ export function buildPlanRequest(opts: {
 		}
 	}
 
-	if (opts.thinking) {
+	if (opts.thinking && isAnthropicProvider(opts.providerKind, opts.provider)) {
 		const budgetTokens = typeof opts.thinking === "object" ? opts.thinking.budget_tokens : 10000;
 		providerOptions.anthropic = {
 			...asRecord(providerOptions.anthropic),
@@ -340,6 +341,10 @@ function defaultPlanMaxTokens(providerKind: ProviderKind | undefined): number {
 	return providerKind === "openai-compatible"
 		? OPENAI_COMPATIBLE_PLAN_MAX_TOKENS
 		: DEFAULT_PLAN_MAX_TOKENS;
+}
+
+function isAnthropicProvider(providerKind: ProviderKind | undefined, provider: string): boolean {
+	return providerKind === "anthropic" || (providerKind === undefined && provider === "anthropic");
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

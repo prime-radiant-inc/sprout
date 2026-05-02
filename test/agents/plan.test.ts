@@ -508,6 +508,21 @@ describe("buildPlanRequest", () => {
 			gemini: { cache: { enabled: true, key: "01SESSION:architect", ttl: "3600s" } },
 		});
 	});
+
+	test("does not send Anthropic thinking options to non-Anthropic providers", () => {
+		const req = buildPlanRequest({
+			systemPrompt: "System prompt.",
+			history: [],
+			agentTools: [],
+			primitiveTools: [],
+			model: "qwen3.6:latest",
+			provider: "ollama",
+			providerKind: "openai-compatible",
+			thinking: { budget_tokens: 7000 },
+		});
+
+		expect(req.provider_options).toBeUndefined();
+	});
 });
 
 describe("parsePlanResponse", () => {

@@ -748,8 +748,12 @@ function saveAgentPrimitive(ctx: GenomeContext): Primitive {
 			try {
 				// Parse and validate agent spec fields
 				const { parse } = await import("yaml");
-				const { normalizeAgentConstraints, normalizeAgentSamplingConfig, validateAgentName } =
-					await import("./types.ts");
+				const {
+					normalizeAgentConstraints,
+					normalizeAgentSamplingConfig,
+					normalizeAgentThinkingConfig,
+					validateAgentName,
+				} = await import("./types.ts");
 				const raw = parse(spec);
 
 				for (const field of ["name", "description", "system_prompt", "model"]) {
@@ -798,7 +802,10 @@ function saveAgentPrimitive(ctx: GenomeContext): Primitive {
 					version: (raw.version as number) ?? 1,
 				};
 				if (raw.thinking !== undefined) {
-					agentSpec.thinking = raw.thinking;
+					agentSpec.thinking = normalizeAgentThinkingConfig(
+						raw.thinking,
+						`save_agent spec for '${raw.name as string}'`,
+					);
 				}
 				if (raw.sampling !== undefined) {
 					agentSpec.sampling = normalizeAgentSamplingConfig(

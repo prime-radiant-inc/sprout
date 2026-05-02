@@ -232,4 +232,20 @@ system_prompt: |
 		expect(saved).toBeDefined();
 		expect(saved!.thinking).toEqual({ budget_tokens: 4096 });
 	});
+
+	test("rejects invalid thinking config", async () => {
+		const spec = `
+name: broken-thinker
+description: "Broken thinking config"
+model: best
+thinking:
+  budget_tokens: 0
+system_prompt: |
+  Think deeply.
+`;
+
+		const result = await registry.execute("save_agent", { spec });
+		expect(result.success).toBe(false);
+		expect(result.error).toContain("thinking.budget_tokens");
+	});
 });

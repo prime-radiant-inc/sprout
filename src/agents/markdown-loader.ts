@@ -8,6 +8,7 @@ import {
 	type EventKind,
 	normalizeAgentConstraints,
 	normalizeAgentSamplingConfig,
+	normalizeAgentThinkingConfig,
 	type ObserverDeliveryConfig,
 	type ObserverTargetConfig,
 } from "../kernel/types.ts";
@@ -70,7 +71,7 @@ export function parseAgentMarkdown(content: string, source: string): AgentSpec {
 		version: raw.version ?? 1,
 	};
 	if (raw.thinking !== undefined) {
-		spec.thinking = raw.thinking;
+		spec.thinking = normalizeAgentThinkingConfig(raw.thinking, source);
 	}
 	if (raw.sampling !== undefined) {
 		spec.sampling = normalizeAgentSamplingConfig(raw.sampling, source);

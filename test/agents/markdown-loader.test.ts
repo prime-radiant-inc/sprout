@@ -160,6 +160,29 @@ describe("parseAgentMarkdown", () => {
 		expect(spec.thinking).toEqual({ budget_tokens: 5000 });
 	});
 
+	test("rejects invalid thinking config", () => {
+		const cases: Array<[string, RegExp]> = [
+			["thinking: maybe", /thinking.*boolean or object/],
+			["thinking:\n  enabled: true", /unknown thinking key 'enabled'/],
+			["thinking:\n  budget_tokens: 0", /thinking\.budget_tokens.*positive integer/],
+			["thinking:\n  budget_tokens: 1.5", /thinking\.budget_tokens.*positive integer/],
+			["thinking:\n  budget_tokens: lots", /thinking\.budget_tokens.*positive integer/],
+		];
+
+		for (const [thinking, error] of cases) {
+			const content = [
+				"---",
+				"name: thinker",
+				'description: "thinks"',
+				"model: best",
+				thinking,
+				"---",
+				"Think deeply.",
+			].join("\n");
+			expect(() => parseAgentMarkdown(content, "thinker.md")).toThrow(error);
+		}
+	});
+
 	test("parses sampling config when present", () => {
 		const content = [
 			"---",

@@ -78,6 +78,30 @@ export interface AgentSamplingConfig {
 	temperature?: number;
 }
 
+export type AgentThinkingConfig = boolean | { budget_tokens: number };
+
+export function normalizeAgentThinkingConfig(raw: unknown, source: string): AgentThinkingConfig {
+	if (typeof raw === "boolean") return raw;
+	if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+		throw new Error(`Invalid agent markdown at ${source}: 'thinking' must be a boolean or object`);
+	}
+
+	const config = raw as Record<string, unknown>;
+	for (const key of Object.keys(config)) {
+		if (key !== "budget_tokens") {
+			throw new Error(`Invalid agent markdown at ${source}: unknown thinking key '${key}'`);
+		}
+	}
+	const budgetTokens = config.budget_tokens;
+	if (typeof budgetTokens !== "number" || !Number.isInteger(budgetTokens) || budgetTokens <= 0) {
+		throw new Error(
+			`Invalid agent markdown at ${source}: 'thinking.budget_tokens' must be a positive integer`,
+		);
+	}
+
+	return { budget_tokens: budgetTokens };
+}
+
 export function normalizeAgentSamplingConfig(raw: unknown, source: string): AgentSamplingConfig {
 	if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
 		throw new Error(`Invalid agent markdown at ${source}: 'sampling' must be an object`);
@@ -174,8 +198,8 @@ export interface AgentSpec {
 	constraints: AgentConstraints;
 	tags: string[];
 	version: number;
-	/** Enable extended thinking (Anthropic models). Budget tokens default to 10000. */
-	thinking?: boolean | { budget_tokens: number };
+	/** Enable extended thinking for Anthropic models. Budget tokens default to 10000. */
+	thinking?: AgentThinkingConfig;
 	/** Optional sampling controls for this agent's planning requests. */
 	sampling?: AgentSamplingConfig;
 	/** Prompt cache control for providers that support explicit cache routing. */
