@@ -118,6 +118,7 @@ describe("loadRootAgents", () => {
 		for (const name of ["editor", "command-runner", "project-memory", "task-manager"]) {
 			expect(byName.get(name)?.sampling).toEqual({ temperature: 0 });
 		}
+		expect(byName.get("editor")?.task_payload).toBe(true);
 		expect(byName.get("engineer")?.sampling).toEqual({ temperature: 0 });
 		expect(byName.get("qm-fabricator")?.sampling).toEqual({ temperature: 0 });
 		expect(byName.get("the-balcony")?.sampling).toBeUndefined();

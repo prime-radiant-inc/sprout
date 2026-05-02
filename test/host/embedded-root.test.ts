@@ -178,8 +178,9 @@ describe("extractEmbeddedRoot", () => {
 
 		expectContainsAll(editor, [
 			"model: fast",
-			"JSON object with exact `edit_file` fields",
-			"Call `edit_file` with those field values copied verbatim",
+			"task_payload: true",
+			"<task_payload type=\"json\">",
+			"copy those values exactly",
 			"treat those inputs as authoritative",
 			"report the contradiction clearly",
 		]);

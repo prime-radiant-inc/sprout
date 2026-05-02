@@ -4,6 +4,7 @@ description: "Ask to create named files or make targeted edits — acts directly
 model: fast
 sampling:
   temperature: 0
+task_payload: true
 tools:
   - read_file
   - write_file
@@ -39,11 +40,9 @@ instruction ("change X to Y on line 30"), exact content to write, or a
 file-level brief ("add this parameter to this function, update these call
 sites, and include this test case"). Use your judgment:
 
-- If the caller provides a JSON object with exact `edit_file` fields such as
-  `path`, `old_string`, and `new_string`, treat that JSON object as an exact
-  tool contract. Call `edit_file` with those field values copied verbatim. Do
-  not infer, summarize, normalize punctuation, or derive the strings from the
-  surrounding prose.
+- If the caller provides a `<task_payload type="json">` block with exact
+  `edit_file` fields such as `path`, `old_string`, and `new_string`, treat it
+  as the tool contract and copy those values exactly.
 - If you know exactly where to edit, just do it.
 - If exact new-file paths and content or file-level responsibilities are given,
   create the files in the first turn. Do not glob or inspect the scaffold first.
