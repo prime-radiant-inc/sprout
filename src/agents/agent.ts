@@ -51,6 +51,11 @@ import { createReplayRecorder, type ReplayRecorder } from "../replay/recorder.ts
 import { getToolDisplayName } from "../shared/tool-display.ts";
 import { ulid } from "../util/ulid.ts";
 import { getContextWindowSize } from "./context-window.ts";
+import {
+	formatDelegationGoal,
+	type NormalizedTaskPayload,
+	normalizeTaskPayload,
+} from "./delegation-payload.ts";
 import { AgentEventEmitter } from "./events.ts";
 import type { AgentTreeEntry, Preambles } from "./loader.ts";
 import { findRootToolsDir, resolveRootToolsDir } from "./loader.ts";
@@ -1001,7 +1006,18 @@ export class Agent {
 			...delegation,
 			goal: this.humanContractReferenceGoal(),
 			hints: undefined,
+			payload: undefined,
 		};
+	}
+
+	private normalizeDelegationPayload(delegation: Delegation): NormalizedTaskPayload | undefined {
+		return delegation.payload
+			? normalizeTaskPayload(delegation.payload, `Agent delegation to '${delegation.agent_name}'`)
+			: undefined;
+	}
+
+	private buildTaskPayloadNotAcceptedError(delegation: Delegation): string {
+		return `Agent '${delegation.agent_name}' does not accept task_payload. Delegate without payload or choose an agent that declares task_payload: true.`;
 	}
 
 	/** Execute a single delegation to a subagent. Returns the tool result message and stumble count. */
@@ -1014,6 +1030,8 @@ export class Agent {
 		const target = this.resolveDelegationTarget(delegation.agent_name);
 		const subagentSpec = target.spec;
 		const effectiveDelegation = this.effectiveDelegationForExecution(delegation, subagentSpec);
+		const normalizedPayload = this.normalizeDelegationPayload(effectiveDelegation);
+		const payloadData = normalizedPayload ? { task_payload: normalizedPayload.metadata } : {};
 
 		// Generate mnemonic name for this child agent
 		const mnemonicName = await generateMnemonicName(
@@ -1034,6 +1052,7 @@ export class Agent {
 			agent_name: delegation.agent_name,
 			goal: effectiveDelegation.goal,
 			...(delegation.description ? { description: delegation.description } : {}),
+			...payloadData,
 			child_id: childId,
 			...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
 		});
@@ -1050,6 +1069,23 @@ export class Agent {
 				error: errorMsg,
 				child_id: childId,
 				...descData,
+				...payloadData,
+				tool_result_message: toolResultMsg,
+				...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
+			});
+			return { toolResultMsg, stumbles: 1 };
+		}
+
+		if (normalizedPayload && subagentSpec.task_payload !== true) {
+			const errorMsg = this.buildTaskPayloadNotAcceptedError(delegation);
+			const toolResultMsg = Msg.toolResult(delegation.call_id, errorMsg, true);
+			this.emitAndLog("act_end", agentId, this.depth, {
+				agent_name: delegation.agent_name,
+				success: false,
+				error: errorMsg,
+				child_id: childId,
+				...descData,
+				...payloadData,
 				tool_result_message: toolResultMsg,
 				...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
 			});
@@ -1065,6 +1101,7 @@ export class Agent {
 				error: errorMsg,
 				child_id: childId,
 				...descData,
+				...payloadData,
 				tool_result_message: toolResultMsg,
 				...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
 			});
@@ -1072,10 +1109,11 @@ export class Agent {
 		}
 
 		try {
-			let subGoal = effectiveDelegation.goal;
-			if (effectiveDelegation.hints && effectiveDelegation.hints.length > 0) {
-				subGoal += `\n\nHints:\n${effectiveDelegation.hints.map((h) => `- ${h}`).join("\n")}`;
-			}
+			const subGoal = formatDelegationGoal({
+				goal: effectiveDelegation.goal,
+				hints: effectiveDelegation.hints,
+				payload: normalizedPayload,
+			});
 
 			const subLogBasePath = this.logBasePath
 				? `${this.logBasePath}/subagents/${ulid()}`
@@ -1169,6 +1207,7 @@ export class Agent {
 				timed_out: subResult.timed_out,
 				child_id: childId,
 				...descData,
+				...payloadData,
 				tool_result_message: toolResultMsg,
 				...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
 			});
@@ -1462,6 +1501,8 @@ export class Agent {
 			: false;
 		const target = this.resolveDelegationTarget(delegation.agent_name);
 		const effectiveDelegation = this.effectiveDelegationForExecution(delegation, target.spec);
+		const normalizedPayload = this.normalizeDelegationPayload(effectiveDelegation);
+		const payloadData = normalizedPayload ? { task_payload: normalizedPayload.metadata } : {};
 
 		const mnemonicName = await generateMnemonicName(
 			this.client,
@@ -1481,6 +1522,7 @@ export class Agent {
 			agent_name: delegation.agent_name,
 			goal: effectiveDelegation.goal,
 			...descData,
+			...payloadData,
 			handle_id: handleId,
 			child_id: childId,
 			...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
@@ -1500,6 +1542,25 @@ export class Agent {
 					error: errorMsg,
 					child_id: childId,
 					...descData,
+					...payloadData,
+					...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
+					tool_result_message: toolResultMsg,
+				};
+				this.captureDelegateObserverOwnerEvent(childId, "act_end", agentId, this.depth, actEndData);
+				this.emitAndLog("act_end", agentId, this.depth, actEndData);
+				return { toolResultMsg, stumbles: 1 };
+			}
+
+			if (normalizedPayload && target.spec.task_payload !== true) {
+				const errorMsg = this.buildTaskPayloadNotAcceptedError(delegation);
+				const toolResultMsg = Msg.toolResult(delegation.call_id, errorMsg, true);
+				const actEndData = {
+					agent_name: delegation.agent_name,
+					success: false,
+					error: errorMsg,
+					child_id: childId,
+					...descData,
+					...payloadData,
 					...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
 					tool_result_message: toolResultMsg,
 				};
@@ -1517,6 +1578,7 @@ export class Agent {
 					error: errorMsg,
 					child_id: childId,
 					...descData,
+					...payloadData,
 					...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
 					tool_result_message: toolResultMsg,
 				};
@@ -1532,6 +1594,7 @@ export class Agent {
 				caller,
 				goal: effectiveDelegation.goal,
 				hints: effectiveDelegation.hints,
+				payload: normalizedPayload?.value,
 				blocking,
 				shared,
 				workDir: this.env.working_directory(),
@@ -1557,6 +1620,7 @@ export class Agent {
 					handle_id: result,
 					child_id: childId,
 					...descData,
+					...payloadData,
 					...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
 					tool_result_message: toolResultMsg,
 				};
@@ -1612,6 +1676,7 @@ export class Agent {
 				timed_out: resultMsg.timed_out,
 				child_id: childId,
 				...descData,
+				...payloadData,
 				...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
 				tool_result_message: toolResultMsg,
 			};
@@ -1641,6 +1706,7 @@ export class Agent {
 				error: errorMsg,
 				child_id: childId,
 				...descData,
+				...payloadData,
 				...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
 				tool_result_message: toolResultMsg,
 			};

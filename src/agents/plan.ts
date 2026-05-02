@@ -15,6 +15,7 @@ import type { Message, Request, ToolCall, ToolDefinition } from "../llm/types.ts
 import { Msg } from "../llm/types.ts";
 import type { ProviderKind } from "../shared/provider-settings.ts";
 import { getToolDisplayName } from "../shared/tool-display.ts";
+import { normalizeTaskPayload } from "./delegation-payload.ts";
 import type { Preambles } from "./loader.ts";
 
 export const DELEGATE_TOOL_NAME = "delegate";
@@ -56,6 +57,11 @@ export function buildDelegateTool(agents: AgentSpec[]): ToolDefinition {
 					type: "array",
 					items: { type: "string" },
 					description: "Optional context that might help",
+				},
+				payload: {
+					type: "object",
+					description:
+						"Optional exact structured JSON task payload. Use only for agents whose instructions say they accept task_payload.",
 				},
 				blocking: {
 					type: "boolean",
@@ -422,6 +428,21 @@ export function parsePlanResponse(
 				continue;
 			}
 			const hints = call.arguments.hints;
+			let payload: Record<string, unknown> | undefined;
+			if (call.arguments.payload !== undefined) {
+				try {
+					payload = normalizeTaskPayload(
+						call.arguments.payload,
+						`Agent delegation to '${agentName}'`,
+					).value;
+				} catch (error) {
+					errors.push({
+						call_id: call.id,
+						error: error instanceof Error ? error.message : String(error),
+					});
+					continue;
+				}
+			}
 			delegations.push({
 				call_id: call.id,
 				agent_name: agentName,
@@ -429,6 +450,7 @@ export function parsePlanResponse(
 				description:
 					typeof call.arguments.description === "string" ? call.arguments.description : undefined,
 				hints: Array.isArray(hints) ? hints : undefined,
+				payload,
 				blocking:
 					typeof call.arguments.blocking === "boolean" ? call.arguments.blocking : undefined,
 				shared: typeof call.arguments.shared === "boolean" ? call.arguments.shared : undefined,

@@ -25,6 +25,7 @@ export interface SpawnAgentOptions {
 	caller: AgentAddress;
 	goal: string;
 	hints?: string[];
+	payload?: Record<string, unknown>;
 	blocking: boolean;
 	shared: boolean;
 	/** Keep the process alive after a result so it can receive follow-up continues. */
@@ -599,6 +600,7 @@ export class AgentSpawner {
 			caller: opts.caller,
 			goal: opts.goal,
 			hints: opts.hints,
+			payload: opts.payload,
 			shared: keepAlive,
 			eval_mode: opts.evalMode,
 			provider_id: opts.providerIdOverride,

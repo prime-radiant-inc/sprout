@@ -263,6 +263,8 @@ export interface Delegation {
 	/** Short summary (≤10 words) shown in tree/headers instead of the full goal */
 	description?: string;
 	hints?: string[];
+	/** Structured JSON payload for agents that opt into task_payload. */
+	payload?: Record<string, unknown>;
 	/** If false, delegation runs asynchronously and returns a handle. Default: true */
 	blocking?: boolean;
 	/** If true, the agent stays alive after completion and can receive follow-up messages. Default: false */

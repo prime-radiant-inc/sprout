@@ -46,6 +46,8 @@ describe("buildDelegateTool", () => {
 		expect(props.agent_name).toBeDefined();
 		expect(props.goal).toBeDefined();
 		expect(props.goal.type).toBe("string");
+		expect(props.payload).toBeDefined();
+		expect(props.payload.type).toBe("object");
 		expect(props.hints).toBeDefined();
 		expect(props.hints.type).toBe("array");
 		expect((tool.parameters as any).required).toEqual(["agent_name", "goal", "description"]);
@@ -655,6 +657,45 @@ describe("parsePlanResponse", () => {
 		const result = parsePlanResponse(toolCalls);
 		expect(result.delegations[0]!.blocking).toBe(false);
 		expect(result.delegations[0]!.shared).toBe(true);
+	});
+
+	test("extracts structured task payload from delegate call", () => {
+		const result = parsePlanResponse([
+			{
+				id: "call_payload",
+				name: "delegate",
+				arguments: {
+					agent_name: "editor",
+					goal: "apply exact edit",
+					description: "Edit file",
+					payload: { new_string: 'return argv.join("|");', old_string: 'return argv.join(",");' },
+				},
+			},
+		]);
+
+		expect(result.errors).toEqual([]);
+		expect(result.delegations[0]!.payload).toEqual({
+			new_string: 'return argv.join("|");',
+			old_string: 'return argv.join(",");',
+		});
+	});
+
+	test("returns error for invalid structured task payload", () => {
+		const result = parsePlanResponse([
+			{
+				id: "call_payload",
+				name: "delegate",
+				arguments: {
+					agent_name: "editor",
+					goal: "apply exact edit",
+					description: "Edit file",
+					payload: ["not", "an", "object"],
+				},
+			},
+		]);
+
+		expect(result.delegations).toEqual([]);
+		expect(result.errors[0]?.error).toContain("payload");
 	});
 
 	test("delegation defaults blocking/shared when not provided", () => {

@@ -29,6 +29,7 @@ export interface StartMessage {
 	caller: AgentAddress;
 	goal: string;
 	hints?: string[];
+	payload?: Record<string, unknown>;
 	shared: boolean;
 	eval_mode?: boolean;
 	/** Selected provider context inherited from the caller. */
@@ -133,6 +134,7 @@ export function parseBusMessage(raw: string): BusMessage {
 			validateAgentAddress(obj, "caller");
 			validateOptionalString(obj, "trusted_user_instruction");
 			validateOptionalString(obj, "surfaced_memory_block");
+			validateOptionalPlainObject(obj, "payload");
 			break;
 		case "continue":
 			requireFields(obj, ["message", "caller"]);
@@ -163,6 +165,14 @@ export function parseBusMessage(raw: string): BusMessage {
 function validateOptionalString(obj: Record<string, unknown>, field: string): void {
 	if (field in obj && obj[field] !== undefined && typeof obj[field] !== "string") {
 		throw new Error(`'${field}' must be a string when present`);
+	}
+}
+
+function validateOptionalPlainObject(obj: Record<string, unknown>, field: string): void {
+	const value = obj[field];
+	if (value === undefined) return;
+	if (value === null || typeof value !== "object" || Array.isArray(value)) {
+		throw new Error(`'${field}' must be a plain object when present`);
 	}
 }
 

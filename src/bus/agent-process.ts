@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { Agent } from "../agents/agent.ts";
+import { formatDelegationGoal, normalizeTaskPayload } from "../agents/delegation-payload.ts";
 import { AgentEventEmitter } from "../agents/events.ts";
 import { loadPreambles, scanAgentTree } from "../agents/loader.ts";
 import { renderCallerIdentity } from "../agents/plan.ts";
@@ -383,11 +384,13 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 			caller: startMsg.caller,
 		});
 
-		// Build goal with hints
-		let goal = startMsg.goal;
-		if (startMsg.hints && startMsg.hints.length > 0) {
-			goal += `\n\nHints:\n${startMsg.hints.map((h) => `- ${h}`).join("\n")}`;
-		}
+		const goal = formatDelegationGoal({
+			goal: startMsg.goal,
+			hints: startMsg.hints,
+			payload: startMsg.payload
+				? normalizeTaskPayload(startMsg.payload, "agent start message")
+				: undefined,
+		});
 
 		// Forward steer messages from the inbox to the agent during the initial run.
 		// The idleLoop handles steers for shared agents after run() completes,

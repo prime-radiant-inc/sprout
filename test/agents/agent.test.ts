@@ -702,6 +702,148 @@ describe("Agent", () => {
 		expect(toolResultMsg.role).toBe("tool");
 	});
 
+	test("delegation payload is rendered only for agents that opt in", async () => {
+		const payloadLeaf: AgentSpec = { ...leafSpec, task_payload: true };
+		const delegateMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-payload-1",
+						name: "delegate",
+						arguments: JSON.stringify({
+							agent_name: "leaf",
+							goal: "apply exact edit",
+							description: "Payload edit",
+							payload: {
+								path: "src/cli.ts",
+								new_string: 'return argv.join("|");',
+								old_string: 'return argv.join(",");',
+							},
+						}),
+					},
+				},
+			],
+		};
+		const subDoneMsg = Msg.assistant("Edited.");
+		const rootDoneMsg = Msg.assistant("All done.");
+		const canonicalPayload =
+			'{"new_string":"return argv.join(\\"|\\");","old_string":"return argv.join(\\",\\");","path":"src/cli.ts"}';
+
+		let callCount = 0;
+		let childGoal = "";
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (request: Request): Promise<Response> => {
+				callCount++;
+				if (messageText(request.messages[0]!).includes("You do things.")) {
+					childGoal = messageText(request.messages.at(-1)!);
+				}
+				const msg = callCount === 1 ? delegateMsg : callCount === 2 ? subDoneMsg : rootDoneMsg;
+				return {
+					id: `mock-payload-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: msg,
+					finish_reason: { reason: callCount === 1 ? "tool_calls" : "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const agent = new Agent({
+			spec: rootSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: createPrimitiveRegistry(env),
+			availableAgents: [rootSpec, payloadLeaf],
+			depth: 0,
+			events,
+		});
+
+		await agent.run("delegate exact edit");
+
+		expect(childGoal).toContain('<task_payload type="json">');
+		expect(childGoal).toContain(canonicalPayload);
+		const actStart = events
+			.collected()
+			.find((event) => event.kind === "act_start" && event.data.agent_name === "leaf");
+		expect(actStart?.data.task_payload).toEqual({
+			present: true,
+			bytes: new TextEncoder().encode(canonicalPayload).byteLength,
+			key_count: 3,
+		});
+		expect(JSON.stringify(actStart?.data)).not.toContain("old_string");
+	});
+
+	test("delegation payload is rejected when the target agent has not opted in", async () => {
+		const delegateMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-payload-denied",
+						name: "delegate",
+						arguments: JSON.stringify({
+							agent_name: "leaf",
+							goal: "apply exact edit",
+							description: "Payload edit",
+							payload: { path: "src/cli.ts" },
+						}),
+					},
+				},
+			],
+		};
+		const doneMsg = Msg.assistant("Done.");
+
+		let callCount = 0;
+		let childRuns = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (request: Request): Promise<Response> => {
+				callCount++;
+				if (messageText(request.messages[0]!).includes("You do things.")) {
+					childRuns++;
+				}
+				return {
+					id: `mock-payload-denied-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: callCount === 1 ? delegateMsg : doneMsg,
+					finish_reason: { reason: callCount === 1 ? "tool_calls" : "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const agent = new Agent({
+			spec: rootSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: createPrimitiveRegistry(env),
+			availableAgents: [rootSpec, leafSpec],
+			depth: 0,
+			events,
+		});
+
+		await agent.run("delegate exact edit");
+
+		expect(callCount).toBeGreaterThanOrEqual(2);
+		expect(childRuns).toBe(0);
+		const actEnd = events.collected().find((event) => event.kind === "act_end");
+		expect(actEnd?.data.success).toBe(false);
+		expect(String(actEnd?.data.error)).toContain("does not accept task_payload");
+		expect(JSON.stringify(actEnd?.data)).not.toContain("src/cli.ts");
+	});
+
 	test("delegated agents execute workspace primitives against their own agent workspace", async () => {
 		const tempGenomeDir = await mkdtemp(join(tmpdir(), "sprout-agent-scoped-registry-"));
 		try {
