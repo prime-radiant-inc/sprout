@@ -46,9 +46,15 @@ export function formatDelegationGoal(input: {
 		parts.push(`Hints:\n${input.hints.map((hint) => `- ${hint}`).join("\n")}`);
 	}
 	if (input.payload) {
-		parts.push(`<task_payload type="json">\n${input.payload.canonicalJson}\n</task_payload>`);
+		parts.push(
+			`<task_payload type="json">\n${escapeJsonForTaggedBlock(input.payload.canonicalJson)}\n</task_payload>`,
+		);
 	}
 	return parts.join("\n\n");
+}
+
+function escapeJsonForTaggedBlock(json: string): string {
+	return json.replaceAll("&", "\\u0026").replaceAll("<", "\\u003c").replaceAll(">", "\\u003e");
 }
 
 function canonicalizePayloadValue(
@@ -82,7 +88,7 @@ function canonicalizePayloadValue(
 	if (seen.has(raw)) throw new Error(`${path}: payload must not contain cycles`);
 	seen.add(raw);
 
-	const output: Record<string, unknown> = {};
+	const output: Record<string, unknown> = Object.create(null);
 	for (const key of Object.keys(raw).sort()) {
 		const value = (raw as Record<string, unknown>)[key];
 		if (value === undefined) {
