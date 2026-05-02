@@ -168,6 +168,14 @@ function resolveAgentModelKey(options: AgentOptions): string {
 	return options.spec.name;
 }
 
+function findModelMaxOutputTokens(
+	modelsByProvider: Map<string, ProviderModel[]>,
+	resolved: ResolvedModel,
+): number | undefined {
+	return modelsByProvider.get(resolved.provider)?.find((model) => model.id === resolved.model)
+		?.maxOutputTokens;
+}
+
 interface DelegateObserverRuntimeConfig {
 	config: AgentDelegateObserverConfig;
 	handleId: string;
@@ -236,6 +244,7 @@ export class Agent {
 	private readonly llmRetryOptions?: Omit<RetryOptions, "signal" | "onRetry">;
 	private readonly logger: Logger;
 	private readonly resolverSettings: ResolverSettings;
+	private readonly planningModelMaxOutputTokens?: number;
 	private readonly subcorticalMemoryModel?: ResolvedModel;
 	private readonly delegateObserverConfigs: DelegateObserverRuntimeConfig[] = [];
 	private readonly delegateObserverTimeoutMs: number;
@@ -354,6 +363,7 @@ export class Agent {
 			},
 			modelMap,
 		);
+		this.planningModelMaxOutputTokens = findModelMaxOutputTokens(modelMap, this.resolved);
 		this.delegateObserverConfigs = this.buildDelegateObserverConfigs();
 		if (this.genome && subcorticalRecallEnabled(this.spec.subcortical_recall)) {
 			try {
@@ -2363,6 +2373,8 @@ export class Agent {
 					provider: this.resolved.provider,
 					providerKind: this.client.adapter?.(this.resolved.provider)?.kind,
 					sampling: this.spec.sampling,
+					output: this.spec.output,
+					modelMaxOutputTokens: this.planningModelMaxOutputTokens,
 					thinking: this.spec.thinking,
 					promptCache: this.spec.prompt_cache,
 					signal,

@@ -2,6 +2,8 @@
 name: metacognitive
 description: "Observe Sprout's live session behavior and send concise guidance when it is drifting, stuck, or missing an important instruction"
 model: balanced
+output:
+  max_tokens: 2048
 tools:
   - message_agent
 agents: []

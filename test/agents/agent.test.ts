@@ -22,7 +22,14 @@ import { StreamReadTimeoutError } from "../../src/llm/stream-timeout.ts";
 import type { Message, Request, Response } from "../../src/llm/types.ts";
 import { ContentKind, Msg, messageText } from "../../src/llm/types.ts";
 import { resolveReplayPath } from "../../src/replay/paths.ts";
-import { leafSpec, rootSpec, withDefaultResolverContext } from "./fixtures.ts";
+import {
+	createAgentFixture,
+	leafSpec,
+	makeMockClient,
+	rootSpec,
+	TEST_PROVIDER_ID,
+	withDefaultResolverContext,
+} from "./fixtures.ts";
 import "../helpers/test-env.ts";
 
 class Agent extends RawAgent {
@@ -2407,6 +2414,32 @@ describe("Agent", () => {
 		});
 		// leafSpec.model is "fast", which resolves to claude-haiku for anthropic
 		expect(agent.resolvedModel.model).toBe("claude-haiku-4-5-20251001");
+	});
+
+	test("agent output config sets planning max_tokens", async () => {
+		const requests: Request[] = [];
+		const client = {
+			...makeMockClient(),
+			complete: async (request: Request): Promise<Response> => {
+				requests.push(request);
+				return {
+					id: "output-budget",
+					model: request.model,
+					provider: request.provider ?? TEST_PROVIDER_ID,
+					message: Msg.assistant("Done."),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+		} as unknown as Client;
+		const { agent } = createAgentFixture({
+			spec: { ...leafSpec, output: { max_tokens: 4096 } },
+			client,
+		});
+
+		await agent.run("finish once");
+
+		expect(requests[0]?.max_tokens).toBe(4096);
 	});
 
 	test("act_end event includes tool_result_message on delegation error", async () => {

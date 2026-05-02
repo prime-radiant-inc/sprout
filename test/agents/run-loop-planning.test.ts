@@ -169,7 +169,7 @@ describe("executePlanningTurn", () => {
 			},
 		});
 
-		expect(capturedRequest?.max_tokens).toBe(65536);
+		expect(capturedRequest?.max_tokens).toBe(16384);
 	});
 
 	test("forwards explicit sampling config when building requests", async () => {
@@ -212,6 +212,48 @@ describe("executePlanningTurn", () => {
 		});
 
 		expect(capturedRequest?.temperature).toBe(0);
+	});
+
+	test("forwards explicit output config when building requests", async () => {
+		const history = [Msg.user("goal")];
+		let capturedRequest: Request | undefined;
+		const response: Response = {
+			id: "r1",
+			model: "qwen3.6:latest",
+			provider: "openai-compatible",
+			message: {
+				role: "assistant",
+				content: [{ kind: ContentKind.TEXT, text: "done" }],
+			},
+			finish_reason: { reason: "stop" },
+			usage: { input_tokens: 11, output_tokens: 7, total_tokens: 18 },
+		};
+
+		await executePlanningTurn({
+			sessionId: "01SESSION",
+			turn: 1,
+			agentId: "writer",
+			agentName: "writer",
+			depth: 0,
+			systemPrompt: "sys",
+			history,
+			agentTools: [],
+			primitiveTools: [],
+			model: "qwen3.6:latest",
+			provider: "ollama",
+			providerKind: "openai-compatible",
+			output: { max_tokens: 4096 },
+			emit: () => {},
+			requestPlanResponse: async (opts) => {
+				capturedRequest = opts.request;
+				return { response, latencyMs: 42 };
+			},
+			logger: {
+				debug: () => {},
+			},
+		});
+
+		expect(capturedRequest?.max_tokens).toBe(4096);
 	});
 
 	test("suppresses natural assistant text while preserving tool calls", async () => {

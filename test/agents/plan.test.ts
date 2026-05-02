@@ -392,7 +392,7 @@ describe("buildPlanRequest", () => {
 		expect(req.max_tokens).toBe(16384);
 	});
 
-	test("uses a larger default output budget for openai-compatible providers", () => {
+	test("uses the canonical default output budget for openai-compatible providers", () => {
 		const req = buildPlanRequest({
 			systemPrompt: "You are a local model agent.",
 			history: [],
@@ -403,7 +403,65 @@ describe("buildPlanRequest", () => {
 			providerKind: "openai-compatible",
 		});
 
-		expect(req.max_tokens).toBe(65536);
+		expect(req.max_tokens).toBe(16384);
+	});
+
+	test("uses an explicit output budget", () => {
+		const req = buildPlanRequest({
+			systemPrompt: "You are a concise agent.",
+			history: [],
+			agentTools: [],
+			primitiveTools: [],
+			model: "claude-haiku-4-5-20251001",
+			provider: "anthropic",
+			maxTokens: 4096,
+		});
+
+		expect(req.max_tokens).toBe(4096);
+	});
+
+	test("rejects output budgets above the global hard limit", () => {
+		expect(() =>
+			buildPlanRequest({
+				systemPrompt: "You are too verbose.",
+				history: [],
+				agentTools: [],
+				primitiveTools: [],
+				model: "claude-haiku-4-5-20251001",
+				provider: "anthropic",
+				maxTokens: 131073,
+			}),
+		).toThrow(/max_tokens.*at most 131072/);
+	});
+
+	test("rejects output budgets above a known model limit", () => {
+		expect(() =>
+			buildPlanRequest({
+				systemPrompt: "You are too verbose for this model.",
+				history: [],
+				agentTools: [],
+				primitiveTools: [],
+				model: "tiny-model",
+				provider: "local",
+				maxTokens: 4096,
+				modelMaxOutputTokens: 2048,
+			}),
+		).toThrow(/exceeds model output limit.*2048/);
+	});
+
+	test("rejects explicit output budgets too small for Anthropic thinking", () => {
+		expect(() =>
+			buildPlanRequest({
+				systemPrompt: "Think deeply.",
+				history: [],
+				agentTools: [],
+				primitiveTools: [],
+				model: "claude-sonnet-4-6",
+				provider: "anthropic",
+				maxTokens: 4096,
+				thinking: { budget_tokens: 4096 },
+			}),
+		).toThrow(/max_tokens.*8192.*thinking budget/);
 	});
 
 	test("does not make openai-compatible planning deterministic by provider kind alone", () => {

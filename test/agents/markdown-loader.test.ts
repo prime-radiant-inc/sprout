@@ -199,6 +199,46 @@ describe("parseAgentMarkdown", () => {
 		expect(spec.sampling).toEqual({ temperature: 0 });
 	});
 
+	test("parses output config when present", () => {
+		const content = [
+			"---",
+			"name: summarizer",
+			'description: "summarizes work"',
+			"model: fast",
+			"output:",
+			"  max_tokens: 4096",
+			"---",
+			"Summarize concisely.",
+		].join("\n");
+		const spec = parseAgentMarkdown(content, "summarizer.md");
+		expect(spec.output).toEqual({ max_tokens: 4096 });
+	});
+
+	test("rejects invalid output config", () => {
+		const cases: Array<[string, RegExp]> = [
+			["output: false", /output.*object/],
+			["output:\n  max_tokens: 0", /output\.max_tokens.*positive safe integer/],
+			["output:\n  max_tokens: -1", /output\.max_tokens.*positive safe integer/],
+			["output:\n  max_tokens: 1.5", /output\.max_tokens.*positive safe integer/],
+			["output:\n  max_tokens: many", /output\.max_tokens.*positive safe integer/],
+			["output:\n  max_tokens: 131073", /output\.max_tokens.*at most 131072/],
+			["output:\n  min_tokens: 1", /unknown output key 'min_tokens'/],
+		];
+
+		for (const [output, error] of cases) {
+			const content = [
+				"---",
+				"name: summarizer",
+				'description: "summarizes work"',
+				"model: fast",
+				output,
+				"---",
+				"Summarize concisely.",
+			].join("\n");
+			expect(() => parseAgentMarkdown(content, "summarizer.md")).toThrow(error);
+		}
+	});
+
 	test("parses task_payload opt-in", () => {
 		const content = [
 			"---",

@@ -136,6 +136,7 @@ export interface ProviderModel {
 	id: string;
 	label: string;
 	source: "remote";
+	maxOutputTokens?: number;
 }
 
 // ---------------------------------------------------------------------------

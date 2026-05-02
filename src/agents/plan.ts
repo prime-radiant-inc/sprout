@@ -3,6 +3,7 @@ import type { AgentFileInfo, AgentToolDefinition } from "../genome/genome.ts";
 import { renderMemories, renderRoutingHints } from "../genome/recall.ts";
 import type {
 	AgentCommand,
+	AgentOutputConfig,
 	AgentPromptCacheConfig,
 	AgentSamplingConfig,
 	AgentSpec,
@@ -11,6 +12,7 @@ import type {
 	Memory,
 	RoutingRule,
 } from "../kernel/types.ts";
+import { MAX_AGENT_OUTPUT_TOKENS } from "../kernel/types.ts";
 import type { Message, Request, ToolCall, ToolDefinition } from "../llm/types.ts";
 import { Msg } from "../llm/types.ts";
 import type { ProviderKind } from "../shared/provider-settings.ts";
@@ -22,7 +24,6 @@ export const DELEGATE_TOOL_NAME = "delegate";
 export const WAIT_AGENT_TOOL_NAME = "wait_agent";
 export const MESSAGE_AGENT_TOOL_NAME = "message_agent";
 const DEFAULT_PLAN_MAX_TOKENS = 16_384;
-const OPENAI_COMPATIBLE_PLAN_MAX_TOKENS = 65_536;
 
 /**
  * Build a single "delegate" tool definition that the LLM uses to delegate to any agent.
@@ -286,19 +287,23 @@ export function buildPlanRequest(opts: {
 	provider: string;
 	providerKind?: ProviderKind;
 	maxTokens?: number;
+	output?: AgentOutputConfig;
+	modelMaxOutputTokens?: number;
 	sampling?: AgentSamplingConfig;
 	thinking?: AgentThinkingConfig;
 	sessionId?: string;
 	agentName?: string;
 	promptCache?: AgentPromptCacheConfig;
 }): Request {
+	const hasExplicitOutputBudget =
+		opts.maxTokens !== undefined || opts.output?.max_tokens !== undefined;
 	const request: Request = {
 		model: opts.model,
 		provider: opts.provider,
 		messages: [Msg.system(opts.systemPrompt), ...opts.history],
 		tools: [...opts.agentTools, ...opts.primitiveTools],
 		tool_choice: "auto",
-		max_tokens: opts.maxTokens ?? defaultPlanMaxTokens(opts.providerKind),
+		max_tokens: opts.maxTokens ?? opts.output?.max_tokens ?? DEFAULT_PLAN_MAX_TOKENS,
 	};
 	if (opts.sampling?.temperature !== undefined) {
 		request.temperature = opts.sampling.temperature;
@@ -332,9 +337,15 @@ export function buildPlanRequest(opts: {
 		};
 		// Anthropic requires max_tokens >= budget_tokens + some headroom
 		if (request.max_tokens && request.max_tokens < budgetTokens + 4096) {
+			if (hasExplicitOutputBudget) {
+				throw new Error(
+					`Planning request max_tokens must be at least ${budgetTokens + 4096} for Anthropic thinking budget ${budgetTokens}`,
+				);
+			}
 			request.max_tokens = budgetTokens + 4096;
 		}
 	}
+	validatePlanMaxTokens(request.max_tokens, opts.modelMaxOutputTokens);
 
 	if (Object.keys(providerOptions).length > 0) {
 		request.provider_options = providerOptions;
@@ -343,10 +354,24 @@ export function buildPlanRequest(opts: {
 	return request;
 }
 
-function defaultPlanMaxTokens(providerKind: ProviderKind | undefined): number {
-	return providerKind === "openai-compatible"
-		? OPENAI_COMPATIBLE_PLAN_MAX_TOKENS
-		: DEFAULT_PLAN_MAX_TOKENS;
+function validatePlanMaxTokens(maxTokens: number | undefined, modelMaxOutputTokens?: number): void {
+	if (maxTokens === undefined) return;
+	if (!Number.isSafeInteger(maxTokens) || maxTokens <= 0) {
+		throw new Error("Planning request max_tokens must be a positive safe integer");
+	}
+	if (maxTokens > MAX_AGENT_OUTPUT_TOKENS) {
+		throw new Error(`Planning request max_tokens must be at most ${MAX_AGENT_OUTPUT_TOKENS}`);
+	}
+	if (modelMaxOutputTokens !== undefined) {
+		if (!Number.isSafeInteger(modelMaxOutputTokens) || modelMaxOutputTokens <= 0) {
+			throw new Error("Known model output limit must be a positive safe integer");
+		}
+		if (maxTokens > modelMaxOutputTokens) {
+			throw new Error(
+				`Planning request max_tokens ${maxTokens} exceeds model output limit ${modelMaxOutputTokens}`,
+			);
+		}
+	}
 }
 
 function isAnthropicProvider(providerKind: ProviderKind | undefined, provider: string): boolean {

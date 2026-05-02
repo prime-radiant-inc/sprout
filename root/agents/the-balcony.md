@@ -2,6 +2,8 @@
 name: the-balcony
 description: "Private sidecar commentator for the human; watches root sessions without steering them"
 model: fast
+output:
+  max_tokens: 1024
 tools: []
 agents: []
 constraints:

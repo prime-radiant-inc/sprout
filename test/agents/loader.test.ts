@@ -98,6 +98,7 @@ describe("loadRootAgents", () => {
 		]);
 		expect(balcony?.tools).toEqual([]);
 		expect(balcony?.agents).toEqual([]);
+		expect(balcony?.output).toEqual({ max_tokens: 1024 });
 		expect(balcony?.tags).toContain("observer");
 		expect(balcony?.tags).toContain("commentary");
 	});
@@ -107,6 +108,7 @@ describe("loadRootAgents", () => {
 		const metacognitive = agents.find((a) => a.name === "metacognitive");
 
 		expect(metacognitive?.system_prompt).toContain("produce no text at all");
+		expect(metacognitive?.output).toEqual({ max_tokens: 2048 });
 		expect(metacognitive?.system_prompt).not.toContain("NO_MESSAGE");
 		expect(metacognitive?.system_prompt).not.toContain("MESSAGE_SENT");
 	});

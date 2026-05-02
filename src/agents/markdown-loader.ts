@@ -7,6 +7,7 @@ import {
 	EVENT_KINDS,
 	type EventKind,
 	normalizeAgentConstraints,
+	normalizeAgentOutputConfig,
 	normalizeAgentSamplingConfig,
 	normalizeAgentTaskPayloadConfig,
 	normalizeAgentThinkingConfig,
@@ -76,6 +77,9 @@ export function parseAgentMarkdown(content: string, source: string): AgentSpec {
 	}
 	if (raw.sampling !== undefined) {
 		spec.sampling = normalizeAgentSamplingConfig(raw.sampling, source);
+	}
+	if (raw.output !== undefined) {
+		spec.output = normalizeAgentOutputConfig(raw.output, source);
 	}
 	if (raw.task_payload !== undefined) {
 		spec.task_payload = normalizeAgentTaskPayloadConfig(raw.task_payload, source);
@@ -317,6 +321,7 @@ const KNOWN_FIELDS = new Set([
 	"version",
 	"thinking",
 	"sampling",
+	"output",
 	"task_payload",
 	"prompt_cache",
 	"subcortical_recall",
@@ -346,6 +351,9 @@ export function serializeAgentMarkdown(spec: AgentSpec): string {
 	}
 	if (spec.sampling !== undefined) {
 		fm.sampling = spec.sampling;
+	}
+	if (spec.output !== undefined) {
+		fm.output = spec.output;
 	}
 	if (spec.task_payload !== undefined) {
 		fm.task_payload = spec.task_payload;

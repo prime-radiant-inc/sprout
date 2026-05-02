@@ -54,6 +54,8 @@ description: "A test agent"
 model: fast
 sampling:
   temperature: 0
+output:
+  max_tokens: 4096
 task_payload: true
 tools:
   - read_file
@@ -80,6 +82,7 @@ version: 1
 		expect(saved!.description).toBe("A test agent");
 		expect(saved!.model).toBe("fast");
 		expect(saved!.sampling).toEqual({ temperature: 0 });
+		expect(saved!.output).toEqual({ max_tokens: 4096 });
 		expect(saved!.task_payload).toBe(true);
 		expect(saved!.tools).toEqual(["read_file"]);
 		expect(saved!.agents).toEqual([]);
@@ -264,5 +267,21 @@ system_prompt: |
 		const result = await registry.execute("save_agent", { spec });
 		expect(result.success).toBe(false);
 		expect(result.error).toContain("task_payload");
+	});
+
+	test("rejects invalid output config", async () => {
+		const spec = `
+name: broken-output-agent
+description: "Broken output config"
+model: fast
+output:
+  max_tokens: 131073
+system_prompt: |
+  Say too much.
+`;
+
+		const result = await registry.execute("save_agent", { spec });
+		expect(result.success).toBe(false);
+		expect(result.error).toContain("output.max_tokens");
 	});
 });

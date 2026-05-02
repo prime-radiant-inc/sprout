@@ -69,6 +69,13 @@ describe("serializeAgentMarkdown", () => {
 		expect(parsed.sampling).toEqual({ temperature: 0 });
 	});
 
+	test("output config preserved through round-trip", () => {
+		const spec = makeSpec({ output: { max_tokens: 4096 } });
+		const serialized = serializeAgentMarkdown(spec);
+		const parsed = parseAgentMarkdown(serialized, "output.md");
+		expect(parsed.output).toEqual({ max_tokens: 4096 });
+	});
+
 	test("task_payload opt-in preserved through round-trip", () => {
 		const spec = makeSpec({ task_payload: true });
 		const serialized = serializeAgentMarkdown(spec);

@@ -78,11 +78,43 @@ export interface AgentSamplingConfig {
 	temperature?: number;
 }
 
+export const MAX_AGENT_OUTPUT_TOKENS = 131_072;
+
+export interface AgentOutputConfig {
+	max_tokens: number;
+}
+
 export function normalizeAgentTaskPayloadConfig(raw: unknown, source: string): true {
 	if (raw !== true) {
 		throw new Error(`Invalid agent markdown at ${source}: 'task_payload' must be boolean true`);
 	}
 	return true;
+}
+
+export function normalizeAgentOutputConfig(raw: unknown, source: string): AgentOutputConfig {
+	if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+		throw new Error(`Invalid agent markdown at ${source}: 'output' must be an object`);
+	}
+
+	const config = raw as Record<string, unknown>;
+	for (const key of Object.keys(config)) {
+		if (key !== "max_tokens") {
+			throw new Error(`Invalid agent markdown at ${source}: unknown output key '${key}'`);
+		}
+	}
+	const maxTokens = config.max_tokens;
+	if (typeof maxTokens !== "number" || !Number.isSafeInteger(maxTokens) || maxTokens <= 0) {
+		throw new Error(
+			`Invalid agent markdown at ${source}: 'output.max_tokens' must be a positive safe integer`,
+		);
+	}
+	if (maxTokens > MAX_AGENT_OUTPUT_TOKENS) {
+		throw new Error(
+			`Invalid agent markdown at ${source}: 'output.max_tokens' must be at most ${MAX_AGENT_OUTPUT_TOKENS}`,
+		);
+	}
+
+	return { max_tokens: maxTokens };
 }
 
 const ANTHROPIC_THINKING_MIN_BUDGET_TOKENS = 1024;
@@ -216,6 +248,8 @@ export interface AgentSpec {
 	thinking?: AgentThinkingConfig;
 	/** Optional sampling controls for this agent's planning requests. */
 	sampling?: AgentSamplingConfig;
+	/** Optional planning request output-token budget. */
+	output?: AgentOutputConfig;
 	/** Opt into structured delegation task payloads. */
 	task_payload?: true;
 	/** Prompt cache control for providers that support explicit cache routing. */
