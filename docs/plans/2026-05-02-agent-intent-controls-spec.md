@@ -100,7 +100,9 @@ Runtime behavior:
 - The `payload` field is accepted only when the target agent spec has
   `task_payload: true`.
 - The payload is preserved as structured JSON on `Delegation`.
-- The runtime renders it to the child in one deterministic block after the goal:
+- The payload must be a JSON-serializable object.
+- The runtime renders it to the child in one canonical deterministic block after
+  the goal:
 
   ```text
   <task_payload type="json">
@@ -108,13 +110,68 @@ Runtime behavior:
   </task_payload>
   ```
 
-- The runtime logs payload presence and top-level keys, not full payload content,
-  in `act_start` to avoid leaking large or sensitive data into summaries.
+- The runtime logs payload metadata only, never full payload content, on parent
+  delegation events.
 - The first consumer should be `editor`. Add other agents only when a real trace
   proves they need structured payloads.
 
 This is intentionally not a new arbitrary inter-agent data bus. It is only a
 cleaner representation of the delegation task.
+
+### Payload Validation
+
+Validation should be one small helper used by tool-call classification and both
+delegation execution paths.
+
+Rules:
+
+- Top-level payload must be a plain object.
+- Values must be JSON-serializable: string, number, boolean, null, arrays, and
+  plain objects.
+- Reject `undefined`, functions, symbols, bigint, non-finite numbers, class
+  instances, and cycles.
+- Maximum serialized size is 64 KiB in v1.
+- Maximum nesting depth is 8.
+- Do not truncate or repair payloads. Invalid payloads fail before the child
+  agent starts.
+
+Error messages must identify the failing field or limit without echoing payload
+content.
+
+### Canonical Rendering
+
+Use one canonical renderer:
+
+- Recursively sort object keys lexicographically.
+- Render with `JSON.stringify(canonicalPayload)` and no extra whitespace.
+- Preserve array order.
+- Preserve string contents exactly.
+- End the `<task_payload>` block with one newline before `</task_payload>`.
+
+The goal formatter should be a shared helper so in-process delegation,
+bus/spawner delegation, tests, and future tooling cannot drift.
+
+### Payload Observability Policy
+
+Full payload content is task input. It is necessary for the child agent, but it
+should not be duplicated into parent-level telemetry.
+
+Surfaces:
+
+- Parent `act_start`, `act_end`, delegate observer owner events, summaries, and
+  error/stumble records store metadata only.
+- Payload metadata shape is `{ present: true, bytes: number, key_count: number }`.
+- Top-level key names are not logged in v1; even keys can contain sensitive or
+  proprietary labels.
+- Bus/spawner start messages may carry the full structured payload as transport
+  data, but debug logs for those messages must use metadata only.
+- The child initial user message contains the full canonical payload block,
+  because that is the product behavior. Existing transcript or provider-request
+  logs that store child messages may therefore contain payload content; this spec
+  does not add new redaction infrastructure.
+- Observer subscriptions that receive child prompt/input events follow the same
+  rules as existing child prompt visibility. Parent delegation events still
+  expose metadata only.
 
 ### Prefer Removing
 
@@ -139,7 +196,11 @@ cleaner representation of the delegation task.
   the `Delegation` object and child-start message.
 - In-process delegation and spawner delegation render identical child goal text
   for the same structured payload.
-- `act_start` records `payload_keys` but not the full payload.
+- Canonical rendering is stable for differently ordered object keys.
+- Invalid payloads fail before child start: too large, too deep, non-finite
+  number, unsupported value, and cycle.
+- Parent `act_start` records only payload metadata and not payload keys or
+  content.
 - Markdown parser/serializer round-trips `task_payload: true`.
 - `save_agent` accepts and validates `task_payload`.
 
@@ -152,6 +213,7 @@ cleaner representation of the delegation task.
   payload.
 - `editor` opts in; no other agent opts in unless justified by a failing trace.
 - Existing editor prompt text is shorter, not longer.
+- Payload validation and observability behavior are covered by tests.
 - Focused tests pass.
 - A live Qwen editor trace that previously mutated exact edit strings succeeds
   without relying on provider-kind temperature heuristics.
@@ -166,6 +228,21 @@ cleaner representation of the delegation task.
 - The same behavior works through in-process and bus/spawner delegation.
 - If the caller does not provide `payload`, current delegation behavior is
   unchanged.
+- Parent-level logs become less sensitive than prose-only delegation logs, not
+  more sensitive.
+
+### Required Commit Split
+
+Structured payloads are broad enough that they must not be one large patch.
+Implement them as small reviewable commits:
+
+1. Add parser/serializer/`save_agent` support for `task_payload`.
+2. Add `Delegation.payload`, validation, canonical rendering, and unit tests.
+3. Add `delegate.payload` classification and shared goal formatting across both
+   execution paths.
+4. Add parent-event metadata logging and observability tests.
+5. Opt `editor` in, remove now-redundant prompt text, and run the live local
+   editor trace.
 
 ## Spec 2: Per-Agent Output Budgets
 
@@ -202,6 +279,12 @@ Runtime behavior:
 - The field is for agent planning turns only. Memory hidden calls keep their
   existing purpose-specific budgets until a separate memory-budget spec replaces
   them.
+- The global hard maximum is 131,072 output tokens. Values above that fail
+  validation; do not clamp them.
+- If the active provider/model catalog exposes a lower known output-token
+  maximum, request construction should fail before the LLM call with a clear
+  configuration error. If no model-specific maximum is known, use only the
+  global hard maximum.
 
 If an existing `maxTokens` route already covers every needed production path,
 prefer threading the existing route rather than adding this field.
@@ -226,6 +309,9 @@ prefer threading the existing route rather than adding this field.
   exact `max_tokens`.
 - Invalid values fail markdown parsing: zero, negative, fractional, string, or
   unknown `output` keys.
+- Values above 131,072 fail validation.
+- If a test catalog declares a lower model output limit, request construction
+  fails instead of clamping.
 - `save_agent` validates and preserves `output.max_tokens`.
 - An agent without `output.max_tokens` keeps the current default.
 - If provider-kind default removal is part of the patch, tests prove affected
@@ -238,6 +324,8 @@ prefer threading the existing route rather than adding this field.
 - Exactly the agents that need non-default output budgets declare them.
 - Provider adapters receive only the explicit request value; they do not choose
   budgets based on provider identity.
+- Over-limit budgets fail loudly before the provider call whenever Sprout knows
+  the relevant limit.
 - Focused tests pass.
 
 ### How To Know It Is Good
@@ -411,6 +499,13 @@ request with a session id and agent name.
 ### Smallest Viable Design
 
 Invert the default only after cache billing is correct.
+
+Prerequisite: Phase 1 of
+`docs/plans/2026-05-01-prompt-cache-cost-reduction-plan.md` must be complete.
+That means provider usage normalization tests pass, ATIF exposes cache read and
+write token totals, and cost output distinguishes regular input, cache reads,
+cache writes, and partial totals. Do not start this cache-policy inversion
+before those checks are green.
 
 Target behavior:
 
