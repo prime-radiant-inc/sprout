@@ -764,16 +764,25 @@ function saveAgentPrimitive(ctx: GenomeContext): Primitive {
 
 				validateAgentName(raw.name as string);
 
-				const tools: string[] =
-					raw.tools ??
-					(raw.capabilities
-						? (raw.capabilities as string[]).filter((c: string) => !c.includes("/"))
-						: []);
-				const agents: string[] =
-					raw.agents ??
-					(raw.capabilities
-						? (raw.capabilities as string[]).filter((c: string) => c.includes("/"))
-						: []);
+				if (raw.capabilities !== undefined) {
+					return {
+						output: "",
+						success: false,
+						error:
+							"Invalid agent spec: 'capabilities' was removed; use explicit 'tools' and 'agents' fields",
+					};
+				}
+				if (raw.requires_tool_use !== undefined) {
+					return {
+						output: "",
+						success: false,
+						error:
+							"Invalid agent spec: 'requires_tool_use' belongs under 'constraints.requires_tool_use'",
+					};
+				}
+
+				const tools: string[] = raw.tools ?? [];
+				const agents: string[] = raw.agents ?? [];
 				const agentSpec: import("./types.ts").AgentSpec = {
 					name: raw.name as string,
 					description: raw.description as string,

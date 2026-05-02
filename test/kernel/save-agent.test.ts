@@ -164,7 +164,7 @@ system_prompt: |
 		expect(result.error).toContain("max_depth");
 	});
 
-	test("falls back to capabilities when tools and agents are missing", async () => {
+	test("rejects legacy capabilities field", async () => {
 		const spec = `
 name: legacy-agent
 description: "Uses capabilities"
@@ -178,39 +178,25 @@ system_prompt: |
 `;
 
 		const result = await registry.execute("save_agent", { spec });
-		expect(result.success).toBe(true);
-
-		const agents = genome.allAgents();
-		const saved = agents.find((a) => a.name === "legacy-agent");
-		expect(saved).toBeDefined();
-		expect(saved!.tools).toEqual(["read_file", "grep"]);
-		expect(saved!.agents).toEqual(["code-editor/edit"]);
+		expect(result.success).toBe(false);
+		expect(result.error).toContain("capabilities");
 	});
 
-	test("tools and agents take precedence over capabilities", async () => {
+	test("rejects misplaced top-level requires_tool_use", async () => {
 		const spec = `
-name: explicit-agent
-description: "Has both tools and capabilities"
+name: misplaced-tool-use-agent
+description: "Misplaces the tool-use constraint"
 model: fast
 tools:
-  - exec
-agents:
-  - helper/assist
-capabilities:
   - read_file
-  - other/delegate
+requires_tool_use: true
 system_prompt: |
-  You are an explicit agent.
+  You are a broken agent.
 `;
 
 		const result = await registry.execute("save_agent", { spec });
-		expect(result.success).toBe(true);
-
-		const agents = genome.allAgents();
-		const saved = agents.find((a) => a.name === "explicit-agent");
-		expect(saved).toBeDefined();
-		expect(saved!.tools).toEqual(["exec"]);
-		expect(saved!.agents).toEqual(["helper/assist"]);
+		expect(result.success).toBe(false);
+		expect(result.error).toContain("requires_tool_use");
 	});
 
 	test("rejects agent name that shadows a kernel primitive", async () => {

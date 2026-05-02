@@ -13,6 +13,7 @@ constraints:
   max_turns: 20
   can_spawn: true
   timeout_ms: 120000
+  requires_tool_use: true
 tags:
   - quartermaster
   - reconciliation

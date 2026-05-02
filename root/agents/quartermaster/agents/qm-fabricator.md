@@ -15,6 +15,7 @@ constraints:
   max_turns: 20
   can_spawn: true
   timeout_ms: 120000
+  requires_tool_use: true
   allowed_write_paths:
     - "~/.local/share/sprout-genome/agents/*/tools/**"
 tags:

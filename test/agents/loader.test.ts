@@ -123,6 +123,31 @@ describe("loadRootAgents", () => {
 		expect(byName.get("the-balcony")?.sampling).toBeUndefined();
 	});
 
+	test("tool-specialist root agents require real tool use", async () => {
+		const agents = await loadRootAgents(join(import.meta.dir, "../../root"));
+		const byName = new Map(agents.map((agent) => [agent.name, agent]));
+
+		for (const name of [
+			"reader",
+			"editor",
+			"command-runner",
+			"web-reader",
+			"mcp",
+			"project-memory",
+			"task-manager",
+			"transcript-analyst",
+			"project-explorer",
+			"qm-fabricator",
+			"qm-indexer",
+			"qm-reconciler",
+		]) {
+			expect(byName.get(name)?.constraints.requires_tool_use).toBe(true);
+		}
+
+		expect(byName.get("metacognitive")?.constraints.requires_tool_use).toBeUndefined();
+		expect(byName.get("the-balcony")?.constraints.requires_tool_use).toBeUndefined();
+	});
+
 	test("leaf agents cannot spawn subagents", async () => {
 		const agents = await loadRootAgents(join(import.meta.dir, "../../root"));
 		const orchestrators = [
