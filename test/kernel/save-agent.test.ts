@@ -54,6 +54,7 @@ description: "A test agent"
 model: fast
 sampling:
   temperature: 0
+task_payload: true
 tools:
   - read_file
 constraints:
@@ -79,6 +80,7 @@ version: 1
 		expect(saved!.description).toBe("A test agent");
 		expect(saved!.model).toBe("fast");
 		expect(saved!.sampling).toEqual({ temperature: 0 });
+		expect(saved!.task_payload).toBe(true);
 		expect(saved!.tools).toEqual(["read_file"]);
 		expect(saved!.agents).toEqual([]);
 		expect(saved!.constraints.can_spawn).toBe(false);
@@ -247,5 +249,20 @@ system_prompt: |
 		const result = await registry.execute("save_agent", { spec });
 		expect(result.success).toBe(false);
 		expect(result.error).toContain("at least 1024");
+	});
+
+	test("rejects invalid task_payload config", async () => {
+		const spec = `
+name: broken-payload-agent
+description: "Broken task payload config"
+model: fast
+task_payload: false
+system_prompt: |
+  Edit files.
+`;
+
+		const result = await registry.execute("save_agent", { spec });
+		expect(result.success).toBe(false);
+		expect(result.error).toContain("task_payload");
 	});
 });

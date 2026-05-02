@@ -199,6 +199,33 @@ describe("parseAgentMarkdown", () => {
 		expect(spec.sampling).toEqual({ temperature: 0 });
 	});
 
+	test("parses task_payload opt-in", () => {
+		const content = [
+			"---",
+			"name: editor",
+			'description: "edits files"',
+			"model: fast",
+			"task_payload: true",
+			"---",
+			"Edit files.",
+		].join("\n");
+		const spec = parseAgentMarkdown(content, "editor.md");
+		expect(spec.task_payload).toBe(true);
+	});
+
+	test("rejects invalid task_payload config", () => {
+		const content = [
+			"---",
+			"name: editor",
+			'description: "edits files"',
+			"model: fast",
+			"task_payload: yes",
+			"---",
+			"Edit files.",
+		].join("\n");
+		expect(() => parseAgentMarkdown(content, "editor.md")).toThrow(/task_payload.*boolean true/);
+	});
+
 	test("rejects invalid sampling config", () => {
 		const cases: Array<[string, RegExp]> = [
 			["sampling: false", /sampling.*object/],

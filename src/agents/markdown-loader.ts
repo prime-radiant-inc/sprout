@@ -8,6 +8,7 @@ import {
 	type EventKind,
 	normalizeAgentConstraints,
 	normalizeAgentSamplingConfig,
+	normalizeAgentTaskPayloadConfig,
 	normalizeAgentThinkingConfig,
 	type ObserverDeliveryConfig,
 	type ObserverTargetConfig,
@@ -75,6 +76,9 @@ export function parseAgentMarkdown(content: string, source: string): AgentSpec {
 	}
 	if (raw.sampling !== undefined) {
 		spec.sampling = normalizeAgentSamplingConfig(raw.sampling, source);
+	}
+	if (raw.task_payload !== undefined) {
+		spec.task_payload = normalizeAgentTaskPayloadConfig(raw.task_payload, source);
 	}
 	if (raw.prompt_cache !== undefined) {
 		spec.prompt_cache = raw.prompt_cache;
@@ -313,6 +317,7 @@ const KNOWN_FIELDS = new Set([
 	"version",
 	"thinking",
 	"sampling",
+	"task_payload",
 	"prompt_cache",
 	"subcortical_recall",
 	"observers",
@@ -341,6 +346,9 @@ export function serializeAgentMarkdown(spec: AgentSpec): string {
 	}
 	if (spec.sampling !== undefined) {
 		fm.sampling = spec.sampling;
+	}
+	if (spec.task_payload !== undefined) {
+		fm.task_payload = spec.task_payload;
 	}
 	if (spec.prompt_cache !== undefined) {
 		fm.prompt_cache = spec.prompt_cache;

@@ -734,7 +734,7 @@ function saveAgentPrimitive(ctx: GenomeContext): Primitive {
 				spec: {
 					type: "string",
 					description:
-						"Complete agent definition as YAML. Must include: name, description, model, system_prompt. Optional: tools, agents, constraints, sampling, tags, version.",
+						"Complete agent definition as YAML. Must include: name, description, model, system_prompt. Optional: tools, agents, constraints, sampling, task_payload, tags, version.",
 				},
 			},
 			required: ["spec"],
@@ -751,6 +751,7 @@ function saveAgentPrimitive(ctx: GenomeContext): Primitive {
 				const {
 					normalizeAgentConstraints,
 					normalizeAgentSamplingConfig,
+					normalizeAgentTaskPayloadConfig,
 					normalizeAgentThinkingConfig,
 					validateAgentName,
 				} = await import("./types.ts");
@@ -810,6 +811,12 @@ function saveAgentPrimitive(ctx: GenomeContext): Primitive {
 				if (raw.sampling !== undefined) {
 					agentSpec.sampling = normalizeAgentSamplingConfig(
 						raw.sampling,
+						`save_agent spec for '${raw.name as string}'`,
+					);
+				}
+				if (raw.task_payload !== undefined) {
+					agentSpec.task_payload = normalizeAgentTaskPayloadConfig(
+						raw.task_payload,
 						`save_agent spec for '${raw.name as string}'`,
 					);
 				}

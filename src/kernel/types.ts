@@ -78,6 +78,13 @@ export interface AgentSamplingConfig {
 	temperature?: number;
 }
 
+export function normalizeAgentTaskPayloadConfig(raw: unknown, source: string): true {
+	if (raw !== true) {
+		throw new Error(`Invalid agent markdown at ${source}: 'task_payload' must be boolean true`);
+	}
+	return true;
+}
+
 const ANTHROPIC_THINKING_MIN_BUDGET_TOKENS = 1024;
 
 export type AgentThinkingConfig = boolean | { budget_tokens: number };
@@ -209,6 +216,8 @@ export interface AgentSpec {
 	thinking?: AgentThinkingConfig;
 	/** Optional sampling controls for this agent's planning requests. */
 	sampling?: AgentSamplingConfig;
+	/** Opt into structured delegation task payloads. */
+	task_payload?: true;
 	/** Prompt cache control for providers that support explicit cache routing. */
 	prompt_cache?: AgentPromptCacheConfig;
 	/** Optional LLM pre-pass that expands the root recall query before deterministic recall. */
