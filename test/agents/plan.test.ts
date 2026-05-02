@@ -390,6 +390,20 @@ describe("buildPlanRequest", () => {
 		expect(req.max_tokens).toBe(16384);
 	});
 
+	test("uses a larger default output budget for openai-compatible providers", () => {
+		const req = buildPlanRequest({
+			systemPrompt: "You are a local model agent.",
+			history: [],
+			agentTools: [],
+			primitiveTools: [],
+			model: "qwen3.6:latest",
+			provider: "ollama",
+			providerKind: "openai-compatible",
+		});
+
+		expect(req.max_tokens).toBe(65536);
+	});
+
 	test("includes history messages after system", () => {
 		const history = [Msg.user("hello"), Msg.assistant("hi")];
 		const req = buildPlanRequest({

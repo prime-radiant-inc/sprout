@@ -7,6 +7,7 @@ import type {
 	ToolDefinition,
 } from "../llm/types.ts";
 import { ContentKind, messageReasoning, messageText, messageToolCalls } from "../llm/types.ts";
+import type { ProviderKind } from "../shared/provider-settings.ts";
 import type { ReplayTurnRecord } from "../shared/replay.ts";
 import { getContextWindowSize } from "./context-window.ts";
 import { buildPlanRequest } from "./plan.ts";
@@ -23,6 +24,7 @@ export interface ExecutePlanningTurnInput {
 	primitiveTools: ToolDefinition[];
 	model: string;
 	provider: string;
+	providerKind?: ProviderKind;
 	thinking?: boolean | { budget_tokens: number };
 	promptCache?: AgentPromptCacheConfig;
 	signal?: AbortSignal;
@@ -69,6 +71,7 @@ export async function executePlanningTurn(
 		primitiveTools: input.primitiveTools,
 		model: input.model,
 		provider: input.provider,
+		providerKind: input.providerKind,
 		thinking: input.thinking,
 		sessionId: input.sessionId,
 		agentName: input.agentName,

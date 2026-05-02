@@ -131,6 +131,47 @@ describe("executePlanningTurn", () => {
 		expect(replayRecords).toEqual([]);
 	});
 
+	test("forwards provider kind when building local-compatible requests", async () => {
+		const history = [Msg.user("goal")];
+		let capturedRequest: Request | undefined;
+		const response: Response = {
+			id: "r1",
+			model: "qwen3.6:latest",
+			provider: "openai-compatible",
+			message: {
+				role: "assistant",
+				content: [{ kind: ContentKind.TEXT, text: "done" }],
+			},
+			finish_reason: { reason: "stop" },
+			usage: { input_tokens: 11, output_tokens: 7, total_tokens: 18 },
+		};
+
+		await executePlanningTurn({
+			sessionId: "01SESSION",
+			turn: 1,
+			agentId: "root",
+			agentName: "root",
+			depth: 0,
+			systemPrompt: "sys",
+			history,
+			agentTools: [],
+			primitiveTools: [],
+			model: "qwen3.6:latest",
+			provider: "ollama",
+			providerKind: "openai-compatible",
+			emit: () => {},
+			requestPlanResponse: async (opts) => {
+				capturedRequest = opts.request;
+				return { response, latencyMs: 42 };
+			},
+			logger: {
+				debug: () => {},
+			},
+		});
+
+		expect(capturedRequest?.max_tokens).toBe(65536);
+	});
+
 	test("suppresses natural assistant text while preserving tool calls", async () => {
 		const events: Array<{ kind: string; data: Record<string, unknown> }> = [];
 		const history = [Msg.user("goal")];

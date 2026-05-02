@@ -2252,6 +2252,7 @@ export class Agent {
 					primitiveTools: this.primitiveTools,
 					model: this.resolved.model,
 					provider: this.resolved.provider,
+					providerKind: this.client.adapter(this.resolved.provider)?.kind,
 					thinking: this.spec.thinking,
 					promptCache: this.spec.prompt_cache,
 					signal,

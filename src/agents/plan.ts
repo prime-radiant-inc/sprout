@@ -11,12 +11,15 @@ import type {
 } from "../kernel/types.ts";
 import type { Message, Request, ToolCall, ToolDefinition } from "../llm/types.ts";
 import { Msg } from "../llm/types.ts";
+import type { ProviderKind } from "../shared/provider-settings.ts";
 import { getToolDisplayName } from "../shared/tool-display.ts";
 import type { Preambles } from "./loader.ts";
 
 export const DELEGATE_TOOL_NAME = "delegate";
 export const WAIT_AGENT_TOOL_NAME = "wait_agent";
 export const MESSAGE_AGENT_TOOL_NAME = "message_agent";
+const DEFAULT_PLAN_MAX_TOKENS = 16_384;
+const OPENAI_COMPATIBLE_PLAN_MAX_TOKENS = 65_536;
 
 /**
  * Build a single "delegate" tool definition that the LLM uses to delegate to any agent.
@@ -273,6 +276,7 @@ export function buildPlanRequest(opts: {
 	primitiveTools: ToolDefinition[];
 	model: string;
 	provider: string;
+	providerKind?: ProviderKind;
 	maxTokens?: number;
 	thinking?: boolean | { budget_tokens: number };
 	sessionId?: string;
@@ -285,7 +289,7 @@ export function buildPlanRequest(opts: {
 		messages: [Msg.system(opts.systemPrompt), ...opts.history],
 		tools: [...opts.agentTools, ...opts.primitiveTools],
 		tool_choice: "auto",
-		max_tokens: opts.maxTokens ?? 16384,
+		max_tokens: opts.maxTokens ?? defaultPlanMaxTokens(opts.providerKind),
 	};
 
 	const providerOptions: Record<string, unknown> = {};
@@ -325,6 +329,12 @@ export function buildPlanRequest(opts: {
 	}
 
 	return request;
+}
+
+function defaultPlanMaxTokens(providerKind: ProviderKind | undefined): number {
+	return providerKind === "openai-compatible"
+		? OPENAI_COMPATIBLE_PLAN_MAX_TOKENS
+		: DEFAULT_PLAN_MAX_TOKENS;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
