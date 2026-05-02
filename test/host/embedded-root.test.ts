@@ -127,16 +127,13 @@ describe("extractEmbeddedRoot", () => {
 		);
 
 		expectContainsAll(root, [
-			"structured literal block",
-			"forward it verbatim",
-			"exact snippet, command text, or test invocation",
-			"external source identity",
-			"Wait for implementation evidence before delegating verification",
-			"Do not dispatch verifier in parallel",
-			"delegate to tech-lead with the workflow that matches the acceptance mode",
-			"artifact- or data-production task",
-			"authoritative external gate",
-			"Do not pre-commit tech-lead to spec review or quality review",
+			"Route work to the right owner",
+			"Give tech-lead the user's request as the contract plus the working directory",
+			"Do not summarize it into a project packet",
+			"derive file lists",
+			"Use architect only for consequential design questions",
+			"Use verifier only after implementation evidence exists",
+			"Do not become the implementer",
 		]);
 
 		expectContainsAll(techLead, [
@@ -147,11 +144,11 @@ describe("extractEmbeddedRoot", () => {
 			"compact guidance",
 			"Do not solve that by writing the implementation for them",
 			"produce or repair artifacts from named external inputs",
-			"decisive correctness evidence",
 			"unresolved semantic ambiguity",
 			"caller explicitly asks for independent review",
-			"supporting reviews must not keep the task open",
-			"report completion directly",
+			"engineer is executing the requested task directly",
+			"report completion directly to your caller instead of invoking reviewer stages",
+			"Do not generate a file-by-file plan",
 		]);
 
 		expectContainsAll(workerPreamble, [

@@ -4297,6 +4297,298 @@ describe("Agent", () => {
 		expect(spawnCalls[0]!.blocking).toBe(true);
 	});
 
+	test("root tech-lead initial handoff passes the human contract by reference", async () => {
+		const rootWithTechLead: AgentSpec = { ...rootSpec, agents: ["tech-lead"] };
+		const techLeadSpec: AgentSpec = { ...leafSpec, name: "tech-lead" };
+		const generatedPacket = [
+			"Build a production-quality Bun/TypeScript CLI project named cacheprobe.",
+			"Project structure:",
+			"- src/main.ts",
+			"- test/main.test.ts",
+		].join("\n");
+		const delegateMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-root-tech-lead-reference",
+						name: "delegate",
+						arguments: JSON.stringify({
+							agent_name: "tech-lead",
+							goal: generatedPacket,
+							hints: ["Create the exact files listed above"],
+							blocking: true,
+						}),
+					},
+				},
+			],
+		};
+		const doneMsg = Msg.assistant("All done.");
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				return {
+					id: `mock-root-tech-lead-reference-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: callCount === 1 ? delegateMsg : doneMsg,
+					finish_reason: { reason: callCount === 1 ? "tool_calls" : "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const { spawner, spawnCalls } = createMockSpawner();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const agent = new Agent({
+			spec: rootWithTechLead,
+			env,
+			client: mockClient,
+			primitiveRegistry: createPrimitiveRegistry(env),
+			availableAgents: [rootWithTechLead, techLeadSpec],
+			depth: 0,
+			spawner,
+		});
+		const humanContract = "Build cacheprobe exactly as specified by the user.";
+
+		await agent.run(humanContract);
+
+		const expectedGoal = [
+			"Use the original human contract in your system prompt as the task.",
+			`Working directory: ${env.working_directory()}`,
+		].join("\n\n");
+		expect(spawnCalls).toHaveLength(1);
+		expect(spawnCalls[0]!.agentName).toBe("tech-lead");
+		expect(spawnCalls[0]!.goal).toBe(expectedGoal);
+		expect(spawnCalls[0]!.goal).not.toContain("Project structure");
+		expect(spawnCalls[0]!.hints).toBeUndefined();
+		expect(spawnCalls[0]!.trustedUserInstruction).toBe(humanContract);
+	});
+
+	test("root tech-lead follow-up handoff preserves explicit recovery context", async () => {
+		const rootWithTechLead: AgentSpec = { ...rootSpec, agents: ["tech-lead"] };
+		const techLeadSpec: AgentSpec = { ...leafSpec, name: "tech-lead" };
+		const recoveryGoal = [
+			"Use the original human contract and fix this failed acceptance check.",
+			"Failure evidence: test/cacheprobe.test.ts reported ECONNREFUSED.",
+		].join("\n");
+		const delegateMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-root-tech-lead-recovery",
+						name: "delegate",
+						arguments: JSON.stringify({
+							agent_name: "tech-lead",
+							goal: recoveryGoal,
+							hints: ["The server was not listening before the fetch"],
+							blocking: true,
+						}),
+					},
+				},
+			],
+		};
+		const doneMsg = Msg.assistant("All done.");
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				return {
+					id: `mock-root-tech-lead-recovery-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: callCount === 1 ? delegateMsg : doneMsg,
+					finish_reason: { reason: callCount === 1 ? "tool_calls" : "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const { spawner, spawnCalls } = createMockSpawner();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const agent = new Agent({
+			spec: rootWithTechLead,
+			env,
+			client: mockClient,
+			primitiveRegistry: createPrimitiveRegistry(env),
+			availableAgents: [rootWithTechLead, techLeadSpec],
+			depth: 0,
+			spawner,
+			initialHistory: [
+				{
+					role: "assistant",
+					content: [
+						{
+							kind: ContentKind.TOOL_CALL,
+							tool_call: {
+								id: "prior-call",
+								name: "delegate",
+								arguments: JSON.stringify({
+									agent_name: "tech-lead",
+									goal: "Use the original human contract in your system prompt as the task.",
+								}),
+							},
+						},
+					],
+				},
+				Msg.toolResult("prior-call", "Failed: ECONNREFUSED"),
+			],
+		});
+
+		await agent.run("Build cacheprobe exactly as specified by the user.");
+
+		expect(spawnCalls).toHaveLength(1);
+		expect(spawnCalls[0]!.agentName).toBe("tech-lead");
+		expect(spawnCalls[0]!.goal).toBe(recoveryGoal);
+		expect(spawnCalls[0]!.hints).toEqual(["The server was not listening before the fetch"]);
+	});
+
+	test("tech-lead initial engineer handoff passes the human contract by reference", async () => {
+		const techLeadSpec: AgentSpec = { ...rootSpec, name: "tech-lead", agents: ["engineer"] };
+		const engineerSpec: AgentSpec = { ...leafSpec, name: "engineer" };
+		const generatedPacket = [
+			"Build a production-quality Bun/TypeScript CLI project named cacheprobe.",
+			"Module responsibilities:",
+			"- src/args.ts parses every command",
+			"- src/cache.ts owns cache storage",
+		].join("\n");
+		const delegateMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-tech-lead-engineer-reference",
+						name: "delegate",
+						arguments: JSON.stringify({
+							agent_name: "engineer",
+							goal: generatedPacket,
+							hints: ["Create these exact modules"],
+							blocking: true,
+						}),
+					},
+				},
+			],
+		};
+		const doneMsg = Msg.assistant("All done.");
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				return {
+					id: `mock-tech-lead-engineer-reference-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: callCount === 1 ? delegateMsg : doneMsg,
+					finish_reason: { reason: callCount === 1 ? "tool_calls" : "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const { spawner, spawnCalls } = createMockSpawner();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const agent = new Agent({
+			spec: techLeadSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: createPrimitiveRegistry(env),
+			availableAgents: [techLeadSpec, engineerSpec],
+			depth: 1,
+			spawner,
+			trustedUserInstruction: "Build cacheprobe exactly as specified by the user.",
+		});
+		const referenceGoal = [
+			"Use the original human contract in your system prompt as the task.",
+			`Working directory: ${env.working_directory()}`,
+		].join("\n\n");
+
+		await agent.run(referenceGoal);
+
+		expect(spawnCalls).toHaveLength(1);
+		expect(spawnCalls[0]!.agentName).toBe("engineer");
+		expect(spawnCalls[0]!.goal).toBe(referenceGoal);
+		expect(spawnCalls[0]!.goal).not.toContain("Module responsibilities");
+		expect(spawnCalls[0]!.hints).toBeUndefined();
+		expect(spawnCalls[0]!.trustedUserInstruction).toBe(
+			"Build cacheprobe exactly as specified by the user.",
+		);
+	});
+
+	test("tech-lead engineer handoff preserves architectural context when present", async () => {
+		const techLeadSpec: AgentSpec = { ...rootSpec, name: "tech-lead", agents: ["engineer"] };
+		const engineerSpec: AgentSpec = { ...leafSpec, name: "engineer" };
+		const architectConstrainedGoal = [
+			"Use the human contract and this architectural constraint.",
+			"Architecture decision: keep cache metadata in SQLite.",
+		].join("\n");
+		const delegateMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-tech-lead-engineer-architecture",
+						name: "delegate",
+						arguments: JSON.stringify({
+							agent_name: "engineer",
+							goal: architectConstrainedGoal,
+							hints: ["SQLite is a hard constraint"],
+							blocking: true,
+						}),
+					},
+				},
+			],
+		};
+		const doneMsg = Msg.assistant("All done.");
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				return {
+					id: `mock-tech-lead-engineer-architecture-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: callCount === 1 ? delegateMsg : doneMsg,
+					finish_reason: { reason: callCount === 1 ? "tool_calls" : "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const { spawner, spawnCalls } = createMockSpawner();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const agent = new Agent({
+			spec: techLeadSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: createPrimitiveRegistry(env),
+			availableAgents: [techLeadSpec, engineerSpec],
+			depth: 1,
+			spawner,
+			trustedUserInstruction: "Build cacheprobe exactly as specified by the user.",
+		});
+
+		await agent.run("Use the human contract plus architecture decision: SQLite.");
+
+		expect(spawnCalls).toHaveLength(1);
+		expect(spawnCalls[0]!.agentName).toBe("engineer");
+		expect(spawnCalls[0]!.goal).toBe(architectConstrainedGoal);
+		expect(spawnCalls[0]!.hints).toEqual(["SQLite is a hard constraint"]);
+	});
+
 	test("with spawner, blocking delegate includes handle ID in tool result", async () => {
 		// Blocking delegates should include the handle ID so the LLM can
 		// use message_agent to resume the completed agent later.

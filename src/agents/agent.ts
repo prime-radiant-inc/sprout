@@ -959,12 +959,61 @@ export class Agent {
 		return `Delegation to '${agentName}' would exceed global max depth: child_depth=${this.depth + 1}, limit=${MAX_AGENT_DEPTH}`;
 	}
 
+	private humanContractReferenceGoal(): string {
+		return [
+			"Use the original human contract in your system prompt as the task.",
+			`Working directory: ${this.env.working_directory()}`,
+		].join("\n\n");
+	}
+
+	private latestUserMessageText(): string | undefined {
+		for (let i = this.history.length - 1; i >= 0; i--) {
+			const message = this.history[i];
+			if (message?.role === "user") return messageText(message);
+		}
+		return undefined;
+	}
+
+	private currentTaskIsHumanContractReference(): boolean {
+		return this.latestUserMessageText()?.trim() === this.humanContractReferenceGoal();
+	}
+
+	private shouldDelegateHumanContractByReference(
+		delegation: Delegation,
+		targetSpec?: AgentSpec,
+	): boolean {
+		if (!this.trustedUserInstruction?.trim()) return false;
+		if (this.history.some((message) => message.role === "tool")) return false;
+
+		const targetName = targetSpec?.name ?? delegation.agent_name.split("/").pop();
+		if (this.depth === 0 && targetName === "tech-lead") return true;
+		return targetName === "engineer" && this.currentTaskIsHumanContractReference();
+	}
+
+	private effectiveDelegationForExecution(
+		delegation: Delegation,
+		targetSpec?: AgentSpec,
+	): Delegation {
+		if (!this.shouldDelegateHumanContractByReference(delegation, targetSpec)) {
+			return delegation;
+		}
+		return {
+			...delegation,
+			goal: this.humanContractReferenceGoal(),
+			hints: undefined,
+		};
+	}
+
 	/** Execute a single delegation to a subagent. Returns the tool result message and stumble count. */
 	private async executeDelegation(
 		delegation: Delegation,
 		agentId: string,
 	): Promise<{ toolResultMsg: Message; stumbles: number; output?: string }> {
 		const childId = ulid();
+		const descData = delegation.description ? { description: delegation.description } : {};
+		const target = this.resolveDelegationTarget(delegation.agent_name);
+		const subagentSpec = target.spec;
+		const effectiveDelegation = this.effectiveDelegationForExecution(delegation, subagentSpec);
 
 		// Generate mnemonic name for this child agent
 		const mnemonicName = await generateMnemonicName(
@@ -973,7 +1022,7 @@ export class Agent {
 			this.resolved.provider,
 			{
 				agentName: delegation.agent_name,
-				goal: delegation.goal,
+				goal: effectiveDelegation.goal,
 				description: delegation.description,
 				usedNames: [...this.usedMnemonicNames],
 			},
@@ -983,15 +1032,12 @@ export class Agent {
 
 		this.emitAndLog("act_start", agentId, this.depth, {
 			agent_name: delegation.agent_name,
-			goal: delegation.goal,
+			goal: effectiveDelegation.goal,
 			...(delegation.description ? { description: delegation.description } : {}),
 			child_id: childId,
 			...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
 		});
 
-		const descData = delegation.description ? { description: delegation.description } : {};
-		const target = this.resolveDelegationTarget(delegation.agent_name);
-		const subagentSpec = target.spec;
 		const treeEntry =
 			target.treePath && this.agentTree ? this.agentTree.get(target.treePath) : undefined;
 
@@ -1026,9 +1072,9 @@ export class Agent {
 		}
 
 		try {
-			let subGoal = delegation.goal;
-			if (delegation.hints && delegation.hints.length > 0) {
-				subGoal += `\n\nHints:\n${delegation.hints.map((h) => `- ${h}`).join("\n")}`;
+			let subGoal = effectiveDelegation.goal;
+			if (effectiveDelegation.hints && effectiveDelegation.hints.length > 0) {
+				subGoal += `\n\nHints:\n${effectiveDelegation.hints.map((h) => `- ${h}`).join("\n")}`;
 			}
 
 			const subLogBasePath = this.logBasePath
@@ -1088,7 +1134,7 @@ export class Agent {
 
 			const actResult: ActResult = {
 				agent_name: delegation.agent_name,
-				goal: delegation.goal,
+				goal: effectiveDelegation.goal,
 				output: subResult.output,
 				success: subResult.success,
 				stumbles: subResult.stumbles,
@@ -1414,6 +1460,8 @@ export class Agent {
 		const captureDelegateEvents = blocking
 			? await this.beginDelegateObserverCapture(childId)
 			: false;
+		const target = this.resolveDelegationTarget(delegation.agent_name);
+		const effectiveDelegation = this.effectiveDelegationForExecution(delegation, target.spec);
 
 		const mnemonicName = await generateMnemonicName(
 			this.client,
@@ -1421,7 +1469,7 @@ export class Agent {
 			this.resolved.provider,
 			{
 				agentName: delegation.agent_name,
-				goal: delegation.goal,
+				goal: effectiveDelegation.goal,
 				description: delegation.description,
 				usedNames: [...this.usedMnemonicNames],
 			},
@@ -1431,7 +1479,7 @@ export class Agent {
 
 		const actStartData = {
 			agent_name: delegation.agent_name,
-			goal: delegation.goal,
+			goal: effectiveDelegation.goal,
 			...descData,
 			handle_id: handleId,
 			child_id: childId,
@@ -1439,7 +1487,6 @@ export class Agent {
 		};
 		this.captureDelegateObserverOwnerEvent(childId, "act_start", agentId, this.depth, actStartData);
 		this.emitAndLog("act_start", agentId, this.depth, actStartData);
-		const target = this.resolveDelegationTarget(delegation.agent_name);
 		try {
 			if (!target.spec) {
 				const errorMsg = this.buildDelegationDeniedError(
@@ -1483,8 +1530,8 @@ export class Agent {
 				genomePath: this.genomePath ?? "",
 				projectDataDir: this.projectDataDir,
 				caller,
-				goal: delegation.goal,
-				hints: delegation.hints,
+				goal: effectiveDelegation.goal,
+				hints: effectiveDelegation.hints,
 				blocking,
 				shared,
 				workDir: this.env.working_directory(),
@@ -1524,7 +1571,7 @@ export class Agent {
 			// Verify and generate learn signals (parity with in-process delegation)
 			const actResult: ActResult = {
 				agent_name: delegation.agent_name,
-				goal: delegation.goal,
+				goal: effectiveDelegation.goal,
 				output: resultMsg.output,
 				success: resultMsg.success,
 				stumbles: resultMsg.stumbles,
@@ -1572,7 +1619,7 @@ export class Agent {
 			this.emitAndLog("act_end", agentId, this.depth, actEndData);
 
 			await this.deliverDelegateObserverFrames({
-				delegation,
+				delegation: effectiveDelegation,
 				childId,
 				childHandleId: resultMsg.handle_id,
 				childAgentName: target.spec.name,

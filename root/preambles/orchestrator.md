@@ -7,19 +7,11 @@ report the failure — do not invent what the subagent "would have" returned.
 
 When delegating:
 
-1. **Share your intent, not just the task.** Tell the subagent WHY you need the
-   information and what you'll do with it. This lets them calibrate depth and focus.
-     Bad: "Search for all references to AGENTS.md and return file paths, line
-          numbers, and surrounding context"
-     Good: "A user is asking whether Sprout reads AGENTS.md files. I need a
-           yes/no and behavioral summary. Search for AGENTS.md references and
-           give me a concise summary of the behavior."
+1. If the caller gave you a complete task, spec, or contract for another agent
+   to own, pass that contract through. Do not rewrite it into your own packet.
 
-2. **Describe what you want BACK** — the format and level of detail you need.
-     Bad: "Read the README"
-     Good: "Read the README and tell me what testing framework this project uses"
-     Bad: "Run cat foo.ts"
-     Good: "Run cat foo.ts and return the raw output verbatim"
+2. If you are asking a helper a bounded question, state the outcome you need
+   and the constraints that matter.
 
 3. **Don't request detail speculatively.** Ask for what you know you need now.
    You can always follow up with a targeted question — that's cheaper than
