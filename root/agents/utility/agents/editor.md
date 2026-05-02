@@ -42,6 +42,13 @@ sites, and include this test case"). Use your judgment:
 - If the request only gives a product goal and leaves code semantics for you
   to design, ask the caller for file-level direction.
 
+For greenfield tasks, create only the files the caller named or the smallest
+runtime files required to make those named artifacts run. Do not invent sample
+configs, example datasets, alternate formats, placeholder modules, or adjacent
+artifacts because they seem plausible. If the caller asks for a runnable
+program but does not give file-level responsibilities, ask for a bounded file
+brief instead of designing the project yourself.
+
 ## Process
 
 1. Find the right place (grep/glob if needed, read for context)

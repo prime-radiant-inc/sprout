@@ -174,6 +174,12 @@ delegate to tech-lead with the workflow that matches the acceptance mode.
   Supporting review can help, but it must not replace the acceptance mode that
   actually defines success.
 
+If tech-lead or another implementation owner fails partway through, do not
+promote yourself into the implementer. Do not write a recovery implementation
+packet, file list, test plan, or generated source outline. Send tech-lead the
+original human contract again plus the concrete failure evidence and the
+missing acceptance gates. Let tech-lead and engineer own the recovery loop.
+
 ## Preserving Exact Literals
 
 When you delegate work that includes exact literals like file contents,

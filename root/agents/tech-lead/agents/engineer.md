@@ -518,6 +518,21 @@ workspace as decisive context, not missing context.
   proceed."
 - Bad: "Before implementing, inspect whether `/app` is a git repo and what
   project files already exist."
+
+For greenfield implementation, keep the required deliverables from the human
+contract as the spine of the work. Create the named runnable entrypoints,
+tests, docs, and config only when they are required by the contract or by the
+runtime itself. Do not invent adjacent sample data, alternate config formats,
+or placeholder artifacts to make the project look fuller. If a required
+entrypoint or test suite is still missing, that is the active blocker; keep the
+next edit focused on producing or repairing that deliverable before asking for
+more inventory or broad readback.
+
+When using the editor for greenfield work, do not hand it the whole product
+brief and ask it to "create the project." Give it a bounded batch with exact
+target paths and file-level responsibilities. After each batch, run or delegate
+the smallest check that proves those files are syntactically usable before
+moving to the next batch.
 - Good: "I already know the input files and runtime support, so I will create
   the minimal implementation in `/app` directly and only inspect existing files
   if I encounter evidence that they matter."
