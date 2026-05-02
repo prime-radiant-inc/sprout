@@ -2,6 +2,8 @@
 name: task-manager
 description: "Ask to track work items for this session — create tasks, list them by status, update progress, assign to agents, and add comments"
 model: fast
+sampling:
+  temperature: 0
 tools: []
 agents: []
 constraints:

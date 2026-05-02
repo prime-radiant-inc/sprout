@@ -62,6 +62,13 @@ describe("serializeAgentMarkdown", () => {
 		expect(parsed.thinking).toBe(true);
 	});
 
+	test("sampling config preserved through round-trip", () => {
+		const spec = makeSpec({ sampling: { temperature: 0 } });
+		const serialized = serializeAgentMarkdown(spec);
+		const parsed = parseAgentMarkdown(serialized, "sampling.md");
+		expect(parsed.sampling).toEqual({ temperature: 0 });
+	});
+
 	test("subcortical recall config preserved through round-trip", () => {
 		const spec = makeSpec({ subcortical_recall: { enabled: true, max_tokens: 300 } });
 		const serialized = serializeAgentMarkdown(spec);

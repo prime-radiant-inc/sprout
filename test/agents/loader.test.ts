@@ -111,6 +111,18 @@ describe("loadRootAgents", () => {
 		expect(metacognitive?.system_prompt).not.toContain("MESSAGE_SENT");
 	});
 
+	test("exactness-sensitive agents opt into deterministic sampling", async () => {
+		const agents = await loadRootAgents(join(import.meta.dir, "../../root"));
+		const byName = new Map(agents.map((agent) => [agent.name, agent]));
+
+		for (const name of ["editor", "command-runner", "project-memory", "task-manager"]) {
+			expect(byName.get(name)?.sampling).toEqual({ temperature: 0 });
+		}
+		expect(byName.get("engineer")?.sampling).toEqual({ temperature: 0 });
+		expect(byName.get("qm-fabricator")?.sampling).toEqual({ temperature: 0 });
+		expect(byName.get("the-balcony")?.sampling).toBeUndefined();
+	});
+
 	test("leaf agents cannot spawn subagents", async () => {
 		const agents = await loadRootAgents(join(import.meta.dir, "../../root"));
 		const orchestrators = [

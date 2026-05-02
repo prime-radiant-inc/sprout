@@ -1,4 +1,4 @@
-import type { AgentPromptCacheConfig, EventKind } from "../kernel/types.ts";
+import type { AgentPromptCacheConfig, AgentSamplingConfig, EventKind } from "../kernel/types.ts";
 import type {
 	Request as LLMRequest,
 	Response as LLMResponse,
@@ -25,6 +25,7 @@ export interface ExecutePlanningTurnInput {
 	model: string;
 	provider: string;
 	providerKind?: ProviderKind;
+	sampling?: AgentSamplingConfig;
 	thinking?: boolean | { budget_tokens: number };
 	promptCache?: AgentPromptCacheConfig;
 	signal?: AbortSignal;
@@ -72,6 +73,7 @@ export async function executePlanningTurn(
 		model: input.model,
 		provider: input.provider,
 		providerKind: input.providerKind,
+		sampling: input.sampling,
 		thinking: input.thinking,
 		sessionId: input.sessionId,
 		agentName: input.agentName,

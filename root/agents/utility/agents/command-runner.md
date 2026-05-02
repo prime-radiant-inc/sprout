@@ -2,6 +2,8 @@
 name: command-runner
 description: "Ask to run shell commands — build, test, install, git, or any CLI tool — and get back execution findings"
 model: fast
+sampling:
+  temperature: 0
 tools:
   - exec
 agents: []

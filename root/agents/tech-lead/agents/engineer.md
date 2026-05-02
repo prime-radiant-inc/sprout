@@ -2,6 +2,8 @@
 name: engineer
 description: "Implement a single task from a plan: write code, write tests, commit, and report status"
 model: balanced
+sampling:
+  temperature: 0
 tools:
   - memory_search
   - memory_get

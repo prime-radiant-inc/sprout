@@ -2,6 +2,8 @@
 name: editor
 description: "Ask to create named files or make targeted edits — acts directly when targets are decisive, reads only when context is missing"
 model: fast
+sampling:
+  temperature: 0
 tools:
   - read_file
   - write_file

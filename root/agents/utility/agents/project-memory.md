@@ -2,6 +2,8 @@
 name: project-memory
 description: "Ask to manage project memory documents — list, read, write, or search .md files in the project memory directory"
 model: fast
+sampling:
+  temperature: 0
 tools: []
 agents: []
 constraints:

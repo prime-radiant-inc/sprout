@@ -52,6 +52,8 @@ describe("save_agent primitive", () => {
 name: test-agent
 description: "A test agent"
 model: fast
+sampling:
+  temperature: 0
 tools:
   - read_file
 constraints:
@@ -76,6 +78,7 @@ version: 1
 		expect(saved).toBeDefined();
 		expect(saved!.description).toBe("A test agent");
 		expect(saved!.model).toBe("fast");
+		expect(saved!.sampling).toEqual({ temperature: 0 });
 		expect(saved!.tools).toEqual(["read_file"]);
 		expect(saved!.agents).toEqual([]);
 		expect(saved!.constraints.can_spawn).toBe(false);

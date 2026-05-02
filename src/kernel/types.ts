@@ -74,6 +74,38 @@ export interface AgentSubcorticalRecallConfig {
 	max_tokens?: number;
 }
 
+export interface AgentSamplingConfig {
+	temperature?: number;
+}
+
+export function normalizeAgentSamplingConfig(raw: unknown, source: string): AgentSamplingConfig {
+	if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+		throw new Error(`Invalid agent markdown at ${source}: 'sampling' must be an object`);
+	}
+
+	const config = raw as Record<string, unknown>;
+	for (const key of Object.keys(config)) {
+		if (key !== "temperature") {
+			throw new Error(`Invalid agent markdown at ${source}: unknown sampling key '${key}'`);
+		}
+	}
+	const temperature = config.temperature;
+	if (temperature !== undefined) {
+		if (typeof temperature !== "number" || !Number.isFinite(temperature)) {
+			throw new Error(
+				`Invalid agent markdown at ${source}: 'sampling.temperature' must be a number`,
+			);
+		}
+		if (temperature < 0 || temperature > 2) {
+			throw new Error(
+				`Invalid agent markdown at ${source}: 'sampling.temperature' must be between 0 and 2`,
+			);
+		}
+	}
+
+	return config as AgentSamplingConfig;
+}
+
 export type ObserverTargetConfig = "root" | "session";
 
 export interface ObserverDeliveryConfig {
@@ -144,6 +176,8 @@ export interface AgentSpec {
 	version: number;
 	/** Enable extended thinking (Anthropic models). Budget tokens default to 10000. */
 	thinking?: boolean | { budget_tokens: number };
+	/** Optional sampling controls for this agent's planning requests. */
+	sampling?: AgentSamplingConfig;
 	/** Prompt cache control for providers that support explicit cache routing. */
 	prompt_cache?: AgentPromptCacheConfig;
 	/** Optional LLM pre-pass that expands the root recall query before deterministic recall. */

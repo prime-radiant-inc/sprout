@@ -160,6 +160,43 @@ describe("parseAgentMarkdown", () => {
 		expect(spec.thinking).toEqual({ budget_tokens: 5000 });
 	});
 
+	test("parses sampling config when present", () => {
+		const content = [
+			"---",
+			"name: exact-editor",
+			'description: "edits exactly"',
+			"model: fast",
+			"sampling:",
+			"  temperature: 0",
+			"---",
+			"Edit exactly.",
+		].join("\n");
+		const spec = parseAgentMarkdown(content, "exact-editor.md");
+		expect(spec.sampling).toEqual({ temperature: 0 });
+	});
+
+	test("rejects invalid sampling config", () => {
+		const cases: Array<[string, RegExp]> = [
+			["sampling: false", /sampling.*object/],
+			["sampling:\n  temperature: cold", /sampling\.temperature.*number/],
+			["sampling:\n  temperature: -1", /sampling\.temperature.*between 0 and 2/],
+			["sampling:\n  top_p: 0.5", /unknown sampling key 'top_p'/],
+		];
+
+		for (const [sampling, error] of cases) {
+			const content = [
+				"---",
+				"name: exact-editor",
+				'description: "edits exactly"',
+				"model: fast",
+				sampling,
+				"---",
+				"Edit exactly.",
+			].join("\n");
+			expect(() => parseAgentMarkdown(content, "exact-editor.md")).toThrow(error);
+		}
+	});
+
 	test("parses subcortical recall config when present", () => {
 		const content = [
 			"---",

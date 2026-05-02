@@ -4,6 +4,7 @@ import { renderMemories, renderRoutingHints } from "../genome/recall.ts";
 import type {
 	AgentCommand,
 	AgentPromptCacheConfig,
+	AgentSamplingConfig,
 	AgentSpec,
 	Delegation,
 	Memory,
@@ -20,7 +21,6 @@ export const WAIT_AGENT_TOOL_NAME = "wait_agent";
 export const MESSAGE_AGENT_TOOL_NAME = "message_agent";
 const DEFAULT_PLAN_MAX_TOKENS = 16_384;
 const OPENAI_COMPATIBLE_PLAN_MAX_TOKENS = 65_536;
-const OPENAI_COMPATIBLE_PLAN_TEMPERATURE = 0;
 
 /**
  * Build a single "delegate" tool definition that the LLM uses to delegate to any agent.
@@ -279,6 +279,7 @@ export function buildPlanRequest(opts: {
 	provider: string;
 	providerKind?: ProviderKind;
 	maxTokens?: number;
+	sampling?: AgentSamplingConfig;
 	thinking?: boolean | { budget_tokens: number };
 	sessionId?: string;
 	agentName?: string;
@@ -292,8 +293,8 @@ export function buildPlanRequest(opts: {
 		tool_choice: "auto",
 		max_tokens: opts.maxTokens ?? defaultPlanMaxTokens(opts.providerKind),
 	};
-	if (opts.providerKind === "openai-compatible") {
-		request.temperature = OPENAI_COMPATIBLE_PLAN_TEMPERATURE;
+	if (opts.sampling?.temperature !== undefined) {
+		request.temperature = opts.sampling.temperature;
 	}
 
 	const providerOptions: Record<string, unknown> = {};

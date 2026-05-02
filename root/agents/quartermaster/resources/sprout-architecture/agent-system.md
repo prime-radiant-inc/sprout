@@ -6,9 +6,12 @@ Bootstrap agents live under `root/`; runtime overlays live under
 
 ## Spec Format
 
-Frontmatter fields include `name`, `description`, `model`, `tools`, `agents`,
-`constraints`, `tags`, `version`, plus optional runtime controls like
-`prompt_cache` and `subcortical_recall`.
+Frontmatter fields include `name`, `description`, `model`, `sampling`, `tools`,
+`agents`, `constraints`, `tags`, `version`, plus optional runtime controls like
+`prompt_cache` and `subcortical_recall`. Use `sampling.temperature: 0` for agents
+that must preserve exact tool arguments, commands, file paths, schemas, JSON
+contracts, or generated YAML; leave it unset for expressive commentary or broad
+analysis agents.
 
 Source of truth:
 - `src/kernel/types.ts` defines `AgentSpec`, constraints, and events.

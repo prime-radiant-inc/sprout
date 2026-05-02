@@ -404,7 +404,7 @@ describe("buildPlanRequest", () => {
 		expect(req.max_tokens).toBe(65536);
 	});
 
-	test("makes openai-compatible planning deterministic by default", () => {
+	test("does not make openai-compatible planning deterministic by provider kind alone", () => {
 		const req = buildPlanRequest({
 			systemPrompt: "You are a local model agent.",
 			history: [],
@@ -413,6 +413,21 @@ describe("buildPlanRequest", () => {
 			model: "qwen3:4b-instruct-2507-q4_K_M",
 			provider: "ollama",
 			providerKind: "openai-compatible",
+		});
+
+		expect(req.temperature).toBeUndefined();
+	});
+
+	test("applies explicit sampling temperature", () => {
+		const req = buildPlanRequest({
+			systemPrompt: "You are an exact editing agent.",
+			history: [],
+			agentTools: [],
+			primitiveTools: [],
+			model: "qwen3:4b-instruct-2507-q4_K_M",
+			provider: "ollama",
+			providerKind: "openai-compatible",
+			sampling: { temperature: 0 },
 		});
 
 		expect(req.temperature).toBe(0);

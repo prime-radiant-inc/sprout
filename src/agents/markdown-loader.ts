@@ -7,6 +7,7 @@ import {
 	EVENT_KINDS,
 	type EventKind,
 	normalizeAgentConstraints,
+	normalizeAgentSamplingConfig,
 	type ObserverDeliveryConfig,
 	type ObserverTargetConfig,
 } from "../kernel/types.ts";
@@ -70,6 +71,9 @@ export function parseAgentMarkdown(content: string, source: string): AgentSpec {
 	};
 	if (raw.thinking !== undefined) {
 		spec.thinking = raw.thinking;
+	}
+	if (raw.sampling !== undefined) {
+		spec.sampling = normalizeAgentSamplingConfig(raw.sampling, source);
 	}
 	if (raw.prompt_cache !== undefined) {
 		spec.prompt_cache = raw.prompt_cache;
@@ -307,6 +311,7 @@ const KNOWN_FIELDS = new Set([
 	"tags",
 	"version",
 	"thinking",
+	"sampling",
 	"prompt_cache",
 	"subcortical_recall",
 	"observers",
@@ -332,6 +337,9 @@ export function serializeAgentMarkdown(spec: AgentSpec): string {
 	};
 	if (spec.thinking !== undefined) {
 		fm.thinking = spec.thinking;
+	}
+	if (spec.sampling !== undefined) {
+		fm.sampling = spec.sampling;
 	}
 	if (spec.prompt_cache !== undefined) {
 		fm.prompt_cache = spec.prompt_cache;

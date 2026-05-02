@@ -2296,6 +2296,7 @@ export class Agent {
 					model: this.resolved.model,
 					provider: this.resolved.provider,
 					providerKind: this.client.adapter?.(this.resolved.provider)?.kind,
+					sampling: this.spec.sampling,
 					thinking: this.spec.thinking,
 					promptCache: this.spec.prompt_cache,
 					signal,

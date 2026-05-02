@@ -11,6 +11,8 @@ Agent specs are YAML-fronted Markdown files. The YAML frontmatter defines struct
 name: my-agent
 description: "One-line summary shown to parent agents"
 model: fast
+sampling:
+  temperature: 0
 tools:
   - read_file
   - grep
@@ -37,12 +39,18 @@ You are my-agent. You do X.
 | `name` | string | yes | Unique kebab-case identifier |
 | `description` | string | yes | One-line summary visible to parent agents |
 | `model` | string | yes | `"fast"`, `"balanced"`, `"best"`, or a specific model ID |
+| `sampling` | object | no | Optional sampling controls such as `temperature: 0` |
 | `tools` | string[] | no | Primitives and local tool references (defaults to `[]`) |
 | `agents` | string[] | no | Explicit agent path references from root (defaults to `[]`) |
 | `constraints` | object | no | Execution limits (see below) |
 | `tags` | string[] | no | Informational labels |
 | `version` | int | no | Bumped by genome updates (defaults to `1`) |
 | `thinking` | bool/object | no | Extended thinking config (e.g. `{ budget_tokens: 5000 }`) |
+
+Use `sampling.temperature: 0` for agents that need exact tool calls, command
+strings, file paths, schemas, JSON contracts, or generated YAML. Leave
+`sampling` unset for expressive commentary, brainstorming, or broad analysis
+agents unless deterministic behavior is specifically desired.
 
 ### Constraints
 
