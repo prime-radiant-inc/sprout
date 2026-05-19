@@ -231,6 +231,16 @@ describe("loadRootAgents", () => {
 		expect("max_depth" in doctor!.constraints).toBe(false);
 	});
 
+	test("QM self-awareness agents use {{SPROUT_ROOT}} template for resource paths", async () => {
+		const agents = await loadRootAgents(join(import.meta.dir, "../../root"));
+		for (const name of ["qm-sprout-architect", "qm-session-analyst", "qm-session-doctor"]) {
+			const agent = agents.find((a) => a.name === name);
+			expect(agent).toBeDefined();
+			expect(agent!.system_prompt).toContain("{{SPROUT_ROOT}}");
+			expect(agent!.system_prompt).not.toContain("root/agents/");
+		}
+	});
+
 	test("root is the only root spec with subcortical recall enabled", async () => {
 		const agents = await loadRootAgents(join(import.meta.dir, "../../root"));
 		const enabled = agents.filter((agent) => {
