@@ -901,20 +901,21 @@ export class SessionController {
 	}
 
 	private async collapseMemoryAfterRun(result: AgentFactoryResult): Promise<void> {
+		const sessionId = this._sessionId;
 		if (!result.collapseMemory || this.evalMode) {
 			this.bus.emitEvent("context_update", "session", 0, {
 				memory_collapse: "skipped",
-				session_id: this._sessionId,
+				session_id: sessionId,
 			});
 			return;
 		}
 		this.bus.emitEvent("context_update", "session", 0, {
 			memory_collapse: "started",
-			session_id: this._sessionId,
+			session_id: sessionId,
 		});
 		try {
 			const collapse = await result.collapseMemory({
-				sessionId: this._sessionId,
+				sessionId,
 				cwd: this.workDir,
 			});
 			const terminalState = collapse === "skipped" ? "skipped" : "completed";
@@ -923,17 +924,17 @@ export class SessionController {
 				this.bus.emitEvent("context_update", "session", 0, {
 					memory_log_compaction: "completed",
 					removed_memory_count: compaction.result.removedIds.length,
-					session_id: this._sessionId,
+					session_id: sessionId,
 				});
 			}
 			this.bus.emitEvent("context_update", "session", 0, {
 				memory_collapse: terminalState,
-				session_id: this._sessionId,
+				session_id: sessionId,
 			});
 		} catch (err) {
 			this.bus.emitEvent("context_update", "session", 0, {
 				memory_collapse: "failed",
-				session_id: this._sessionId,
+				session_id: sessionId,
 			});
 			this.emitAndPersistControllerEvent("warning", "session", 0, {
 				message: `Memory collapse failed: ${err instanceof Error ? err.message : String(err)}`,

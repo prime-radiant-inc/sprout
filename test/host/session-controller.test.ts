@@ -248,6 +248,52 @@ describe("SessionController", () => {
 		).toEqual([controller.sessionId, controller.sessionId]);
 	});
 
+	test("keeps memory collapse lifecycle events on the original session after clear", async () => {
+		const fake = makeFakeAgent();
+		const collapseInputs: Array<{ sessionId: string; cwd: string }> = [];
+		let collapseStarted!: () => void;
+		let releaseCollapse!: () => void;
+		const collapseStartedPromise = new Promise<void>((resolve) => {
+			collapseStarted = resolve;
+		});
+		const releaseCollapsePromise = new Promise<unknown>((resolve) => {
+			releaseCollapse = () => resolve({ ok: true });
+		});
+		const factory: AgentFactory = async () => ({
+			agent: fake.agent as any,
+			learnProcess: null,
+			collapseMemory: async (input) => {
+				collapseInputs.push(input);
+				collapseStarted();
+				return await releaseCollapsePromise;
+			},
+		});
+		const { bus, controller } = makeController({ factory });
+		const oldSessionId = controller.sessionId;
+
+		const run = controller.runGoal("Remember this session");
+		await collapseStartedPromise;
+		bus.emitCommand({ kind: "clear", data: {} });
+		const newSessionId = controller.sessionId;
+		releaseCollapse();
+		await run;
+
+		expect(newSessionId).not.toBe(oldSessionId);
+		expect(collapseInputs.map((input) => input.sessionId)).toEqual([oldSessionId]);
+		expect(
+			bus
+				.collected()
+				.filter((event) => event.kind === "context_update" && event.data.memory_collapse)
+				.map((event) => ({
+					state: event.data.memory_collapse,
+					sessionId: event.data.session_id,
+				})),
+		).toEqual([
+			{ state: "started", sessionId: oldSessionId },
+			{ state: "completed", sessionId: oldSessionId },
+		]);
+	});
+
 	test("emits completed memory collapse only after memory-log compaction finishes", async () => {
 		const order: string[] = [];
 		const fake = makeFakeAgent();
