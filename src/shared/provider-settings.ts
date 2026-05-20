@@ -11,6 +11,15 @@ export const PROVIDER_KINDS = [
 
 export type ProviderKind = (typeof PROVIDER_KINDS)[number];
 
+export const PROVIDER_KIND_LABELS = {
+	anthropic: "Anthropic",
+	openai: "OpenAI",
+	"openai-codex": "OpenAI Codex",
+	"openai-compatible": "OpenAI-compatible",
+	openrouter: "OpenRouter",
+	gemini: "Gemini",
+} as const satisfies Record<ProviderKind, string>;
+
 export type Tier = "best" | "balanced" | "fast";
 export type MemoryModelPurpose =
 	| "summary"

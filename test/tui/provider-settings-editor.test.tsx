@@ -181,4 +181,43 @@ describe("ProviderSettingsEditor", () => {
 			data: { providerId: "lmstudio" },
 		});
 	});
+
+	test("does not expose generic secret shortcuts for OAuth-only providers", () => {
+		const draft = createProviderEditorDraft({
+			id: "openai-codex",
+			kind: "openai-codex",
+			label: "OpenAI Codex",
+			enabled: true,
+			createdAt: "2026-03-11T12:00:00.000Z",
+			updatedAt: "2026-03-11T12:00:00.000Z",
+		});
+
+		expect(applyProviderEditorCommand("secret sk-test", draft, "edit", "openai-codex")).toEqual({
+			draft,
+			error: "OpenAI Codex uses ChatGPT OAuth. Generic provider secret commands are not supported.",
+		});
+		expect(applyProviderEditorCommand("remove-secret", draft, "edit", "openai-codex")).toEqual({
+			draft,
+			error: "OpenAI Codex uses ChatGPT OAuth. Generic provider secret commands are not supported.",
+		});
+
+		const { lastFrame } = render(
+			<ProviderSettingsEditor
+				mode="edit"
+				draft={draft}
+				provider={{
+					id: "openai-codex",
+					kind: "openai-codex",
+					label: "OpenAI Codex",
+					enabled: true,
+					createdAt: "2026-03-11T12:00:00.000Z",
+					updatedAt: "2026-03-11T12:00:00.000Z",
+				}}
+			/>,
+		);
+		const frame = lastFrame()!;
+		expect(frame).toContain("Enable/disable · test · refresh · delete");
+		expect(frame).not.toContain("secret <token>");
+		expect(frame).not.toContain("remove-secret");
+	});
 });

@@ -5,16 +5,13 @@ import type {
 	SettingsCommand,
 	SettingsSnapshot,
 } from "@kernel/types.ts";
+import { PROVIDER_KINDS, PROVIDER_KIND_LABELS } from "@shared/provider-settings.ts";
 import { HeadersEditor, type HeaderDraft } from "./HeadersEditor.tsx";
 import styles from "./ProviderSettingsPanel.module.css";
 
-const PROVIDER_KIND_OPTIONS: Array<{ value: ProviderKind; label: string }> = [
-	{ value: "anthropic", label: "Anthropic" },
-	{ value: "openai", label: "OpenAI" },
-	{ value: "openai-compatible", label: "OpenAI-compatible" },
-	{ value: "openrouter", label: "OpenRouter" },
-	{ value: "gemini", label: "Gemini" },
-];
+const PROVIDER_KIND_OPTIONS: Array<{ value: ProviderKind; label: string }> = PROVIDER_KINDS.map(
+	(kind) => ({ value: kind, label: PROVIDER_KIND_LABELS[kind] }),
+);
 
 export interface ProviderEditorProps {
 	mode: "create" | "edit";

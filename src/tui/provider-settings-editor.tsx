@@ -1,4 +1,5 @@
 import { Box, Text } from "ink";
+import { providerSupportsSecretKind } from "../host/settings/provider-credentials.ts";
 import type {
 	ProviderConfig,
 	SettingsCommand,
@@ -121,12 +122,18 @@ export function applyProviderEditorCommand(
 				providerId: providerId ?? "",
 			});
 		case "secret":
+			if (!supportsGenericSecret(draft.kind)) {
+				return { draft, error: unsupportedGenericSecretMessage(draft.kind) };
+			}
 			if (!argument) return { draft, error: "Secret cannot be empty." };
 			return providerCommand(draft, providerId, "set_provider_secret", {
 				providerId: providerId ?? "",
 				secret: argument,
 			});
 		case "remove-secret":
+			if (!supportsGenericSecret(draft.kind)) {
+				return { draft, error: unsupportedGenericSecretMessage(draft.kind) };
+			}
 			return providerCommand(draft, providerId, "delete_provider_secret", {
 				providerId: providerId ?? "",
 			});
@@ -196,6 +203,17 @@ function supportsBaseUrl(kind: ProviderConfig["kind"]): boolean {
 
 function supportsNonSecretHeaders(kind: ProviderConfig["kind"]): boolean {
 	return kind !== "gemini";
+}
+
+function supportsGenericSecret(kind: ProviderConfig["kind"]): boolean {
+	return providerSupportsSecretKind(kind, "api-key");
+}
+
+function unsupportedGenericSecretMessage(kind: ProviderConfig["kind"]): string {
+	if (kind === "openai-codex") {
+		return "OpenAI Codex uses ChatGPT OAuth. Generic provider secret commands are not supported.";
+	}
+	return `Provider kind '${kind}' does not support generic provider secret commands.`;
 }
 
 function normalizeHeaders(headers: HeaderDraft[]): Record<string, string> | undefined {
@@ -340,7 +358,9 @@ export function ProviderSettingsEditor({
 				{supportsNonSecretHeaders(draft.kind) && <Text color="gray">Add header: add-header</Text>}
 				{mode === "edit" && (
 					<Text color="gray">
-						Enable/disable · test · refresh · secret &lt;token&gt; · remove-secret · delete
+						{supportsGenericSecret(draft.kind)
+							? "Enable/disable · test · refresh · secret <token> · remove-secret · delete"
+							: "Enable/disable · test · refresh · delete"}
 					</Text>
 				)}
 				<Text color="gray">Shortcuts</Text>

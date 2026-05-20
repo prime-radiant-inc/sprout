@@ -273,6 +273,15 @@ describe("ProviderSettingsPanel", () => {
 		expect(html).toContain("Refreshing models...");
 		expect(html).toContain("disabled");
 	});
+
+	test("renders all shared provider kinds in the create dropdown", () => {
+		const html = renderToStaticMarkup(
+			<ProviderEditor mode="create" onCommand={() => {}} />,
+		);
+
+		expect(html).toContain('value="openai-codex"');
+		expect(html).toContain("OpenAI Codex");
+	});
 });
 
 describe("ModelsPanel", () => {
