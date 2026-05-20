@@ -177,8 +177,9 @@ backend name is part of the runtime `ProviderSecretRef` because the secret-store
 needs it, but it is not persisted in provider settings.
 
 Logout deletes only the OAuth secret for that provider id and clears cached account display state
-and cached Codex models for that provider. Deleting a provider must delete both its API-key and
-OAuth secret refs so abandoned credentials do not remain in the OS secret store.
+and cached Codex models for that provider. Deleting a provider must delete every credential ref
+owned by that provider kind so abandoned credentials do not remain in the OS secret store. For
+`openai-codex`, the owned credential ref set is only `oauth`; it never owns an API-key ref.
 
 Provider deletion should report secret-deletion failures clearly; it must not silently leave
 credentials behind. Secret deletion is idempotent: deleting an already-missing secret counts as
@@ -219,6 +220,11 @@ Allowed public failed-ref labels are limited to domain credential kinds:
 - `api-key`
 - `oauth`
 
+Failed-ref labels are derived from the provider kind's expected credential refs and the current
+delete attempt result. They are not backend storage identifiers. If a future provider kind owns
+multiple credential refs, recovery actions must reconcile all expected refs before clearing
+cleanup-failed state.
+
 Backend-specific storage keys, keychain labels, file paths, command lines, token values, and raw
 backend error text must not appear in user-facing delete results. Developer logs may include backend
 error class names and operation names, but they must still redact secret values, authorization
@@ -228,8 +234,9 @@ Cleanup-failed provider UI should expose two actions:
 
 - retry delete, which retries all expected secret refs idempotently and removes the provider on
   success
-- sign in again, which first clears stale OAuth state under the lifecycle lock, then runs login and
-  clears `disabledReason` only after a valid OAuth credential is persisted
+- sign in again, which first reconciles every expected credential ref for the provider kind under
+  the lifecycle lock, then runs login and clears `disabledReason` only after a valid credential is
+  persisted and no expected failed ref remains
 
 Successful re-login should not silently re-enable a provider that the user had disabled before the
 cleanup failure. Re-enable still goes through the existing provider enable path.
@@ -686,6 +693,14 @@ Runtime errors and logs must redact:
 - `Authorization` header values
 - full callback URLs that contain `code`
 
+Redaction tests should include representative inputs for:
+
+- `Authorization: Bearer <token>`
+- callback URLs containing `code` and `state`
+- raw pasted authorization codes
+- backend storage paths or keys
+- backend error text containing a token-looking value
+
 The UI should show clear remediation:
 
 - missing OAuth: sign in with ChatGPT
@@ -711,7 +726,8 @@ OAuth URL and callback:
 - callback listener is cleaned up on timeout
 - manual pasteback parses full callback URLs with state validation
 - optional raw-code pasteback requires separate code and returned-state fields
-- logs and errors redact callback codes and OAuth tokens
+- logs and errors redact callback codes, OAuth tokens, authorization headers, callback URLs,
+  backend storage keys, and backend errors containing token-like values
 
 Credentials:
 
@@ -730,6 +746,8 @@ Credentials:
 - cleanup-failed delete results include only safe failed-ref names
 - cleanup-failed state transitions match the spec table
 - user-facing failed-ref labels are allowlisted to `api-key` and `oauth`
+- sign-in-again from cleanup-failed clears recovery state only after all expected refs reconcile
+- `openai-codex` expected credential refs contain only `oauth`
 - retrying deletion after partial failure treats already-missing secret refs as success
 - initial credentials are persisted only after account-id extraction succeeds
 - refresh persists rotated access token, refresh token, expiry, and account id
@@ -783,55 +801,58 @@ This is the expected implementation order after this spec is approved:
    - Focused verification: provider validation tests and typecheck.
 2. Add deterministic OAuth secret references, provider-id key safety, and storage tests.
    - Focused verification: secret-store tests.
-3. Characterize current provider materialization and runtime provider-use paths.
-   - Focused verification: exact-model resolution, model refresh, connection checks, completions,
-     cached adapters, and cached model reads have baseline tests.
-4. Add shared enabled-provider guard and disabled-reason settings behavior.
+3. Characterize provider materialization and provider-enabled gating paths.
+   - Focused verification: registry materialization, exact-model resolution, model refresh, and
+     connection checks have baseline tests.
+4. Characterize request-time provider-use and cache paths.
+   - Focused verification: completions, cached adapters, and cached model reads have baseline
+     tests.
+5. Add shared enabled-provider guard and disabled-reason settings behavior.
    - Focused verification: disabled provider runtime and cached-model gating tests.
-5. Add OAuth authorize URL and PKCE/state tests.
+6. Add OAuth authorize URL and PKCE/state tests.
    - Focused verification: auth URL/state tests.
-6. Add callback listener tests and implementation.
+7. Add callback listener tests and implementation.
    - Focused verification: callback method/path/state/timeout tests.
-7. Add manual pasteback parsing and redaction tests.
+8. Add manual pasteback parsing and redaction tests.
    - Focused verification: pasteback URL/raw-code/state tests.
-8. Add account-id extraction and decode-only token claim handling.
+9. Add account-id extraction and decode-only token claim handling.
    - Focused verification: claim extraction tests with malformed and missing-claim tokens.
-9. Add token exchange and initial credential persistence.
+10. Add token exchange and initial credential persistence.
    - Focused verification: exchange persists only fully valid credentials.
-10. Add corrupt stored-credential handling and logout cleanup behavior.
+11. Add corrupt stored-credential handling and logout cleanup behavior.
    - Focused verification: invalid JSON and logout tests.
-11. Add refresh persistence, refresh-token rotation handling, and per-provider singleflight.
+12. Add refresh persistence, refresh-token rotation handling, and per-provider singleflight.
    - Focused verification: concurrent refresh tests.
-12. Add provider deletion cleanup, cleanup-failed state, and retry behavior.
+13. Add provider deletion cleanup, cleanup-failed state, and retry behavior.
     - Focused verification: partial deletion, cleanup-failed UI state, and retry deletion tests.
-13. Add cleanup-failed control-plane recovery action contract.
+14. Add cleanup-failed control-plane recovery action contract.
     - Focused verification: retry delete and sign-in-again actions appear only in cleanup-failed
-      state, never for ordinary user-disabled providers.
-14. Add refresh/logout/delete coordination tests.
+      state, never for ordinary user-disabled providers, and sign-in-again reconciles expected refs.
+15. Add refresh/logout/delete coordination tests.
     - Focused verification: refresh cannot recreate credentials after logout or deletion.
-15. Add lifecycle-lock timeout tests with injected fake locks or clocks.
+16. Add lifecycle-lock timeout tests with injected fake locks or clocks.
     - Focused verification: stuck lock does not delete secrets or caches.
-16. Add refresh failure, expiry skew, and stale-write tests.
+17. Add refresh failure, expiry skew, and stale-write tests.
     - Focused verification: refresh failure and skew tests.
-17. Add characterization tests around the current OpenAI adapter.
+18. Add characterization tests around the current OpenAI adapter.
    - Focused verification: existing OpenAI adapter tests pass with no code movement.
-18. Extract shared Responses request-building helpers.
+19. Extract shared Responses request-building helpers.
    - Focused verification: characterization tests still pass.
-19. Extract shared Responses parser helpers.
+20. Extract shared Responses parser helpers.
     - Focused verification: parser and existing adapter tests still pass.
-20. Extract shared Responses stream accumulator.
+21. Extract shared Responses stream accumulator.
     - Focused verification: streaming and tool-call tests still pass.
-21. Add `OpenAICodexAdapter` using the OpenAI SDK with Codex base URL.
+22. Add `OpenAICodexAdapter` using the OpenAI SDK with Codex base URL.
     - Focused verification: adapter URL/header tests.
-22. Add Codex model endpoint parsing and cache-failure behavior.
+23. Add Codex model endpoint parsing and cache-failure behavior.
     - Focused verification: model parser and model-cache tests.
-23. Wire registry and settings control-plane OAuth operations.
+24. Wire registry and settings control-plane OAuth operations.
     - Focused verification: registry and control-plane tests.
-24. Update web provider settings.
+25. Update web provider settings.
     - Focused verification: web settings tests.
-25. Update TUI provider settings.
+26. Update TUI provider settings.
     - Focused verification: TUI settings tests.
-26. Update docs and run the full verification gate.
+27. Update docs and run the full verification gate.
     - Final verification: `bun run precommit`, plus any targeted integration checks added during
       implementation.
 
