@@ -263,6 +263,7 @@ function isSensitiveTokenEndpointKey(key: string): boolean {
 		"idtoken",
 		"token",
 		"authorization",
+		"authorizationcode",
 		"auth",
 		"codeverifier",
 		"code",
@@ -274,7 +275,10 @@ function isSensitiveTokenEndpointKey(key: string): boolean {
 function redactTokenEndpointPlainText(value: string, context: TokenRedactionContext): string {
 	return redactExactSensitiveValues(redactCredentialText(value), context)
 		.replace(callbackUrlPattern(), "[redacted]")
-		.replace(/\b(code|code_verifier|codeVerifier)(\s*[:=]\s*)[^\s&]+/g, "$1$2[redacted]")
+		.replace(
+			/\b(code|code_verifier|codeVerifier|code-verifier|authorization_code|authorizationCode|authorization-code)(\s*[:=]\s*)[^\s&]+/g,
+			"$1$2[redacted]",
+		)
 		.replace(jwtPattern(), "[redacted]")
 		.replace(opaqueTokenPattern(), "[redacted]")
 		.replace(/\b(access|refresh|id)[-_]?token[-_][A-Za-z0-9._-]+\b/gi, "[redacted]");

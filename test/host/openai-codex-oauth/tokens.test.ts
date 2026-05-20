@@ -118,6 +118,9 @@ describe("OpenAI Codex OAuth token helpers", () => {
 								ACCESS_TOKEN: "upper-access-secret",
 								"refresh-token": "kebab-refresh-secret",
 								AUTHORIZATION: "upper-authorization-secret",
+								authorization_code: "snake-authorization-code-secret",
+								authorizationCode: "camel-authorization-code-secret",
+								"authorization-code": "kebab-authorization-code-secret",
 							}),
 							{ status: 400 },
 						),
@@ -141,6 +144,9 @@ describe("OpenAI Codex OAuth token helpers", () => {
 		expect(message).toContain('"ACCESS_TOKEN":"[redacted]"');
 		expect(message).toContain('"refresh-token":"[redacted]"');
 		expect(message).toContain('"AUTHORIZATION":"[redacted]"');
+		expect(message).toContain('"authorization_code":"[redacted]"');
+		expect(message).toContain('"authorizationCode":"[redacted]"');
+		expect(message).toContain('"authorization-code":"[redacted]"');
 		expect(message).not.toContain("access-token-secret");
 		expect(message).not.toContain("refresh-token-secret");
 		expect(message).not.toContain("backend-token-secret");
@@ -150,6 +156,9 @@ describe("OpenAI Codex OAuth token helpers", () => {
 		expect(message).not.toContain("upper-access-secret");
 		expect(message).not.toContain("kebab-refresh-secret");
 		expect(message).not.toContain("upper-authorization-secret");
+		expect(message).not.toContain("snake-authorization-code-secret");
+		expect(message).not.toContain("camel-authorization-code-secret");
+		expect(message).not.toContain("kebab-authorization-code-secret");
 		expect(message).not.toContain("auth-code-secret");
 		expect(message).not.toContain("verifier-secret");
 		expect(message).not.toContain("camel-verifier-secret");
@@ -175,6 +184,11 @@ describe("OpenAI Codex OAuth token helpers", () => {
 								"code_verifier=plain-verifier-secret",
 								"code_verifier: colon-verifier-secret",
 								"codeVerifier: camel-colon-verifier-secret",
+								"authorization_code=snake-authorization-secret",
+								"authorizationCode: camel-authorization-secret",
+								"authorization-code=hyphen-authorization-secret",
+								"code-verifier: hyphen-verifier-secret",
+								"grant_type=authorization_code",
 								"access-token-secret",
 								"refresh-token-secret",
 								"aaa.bbb.ccc",
@@ -198,6 +212,11 @@ describe("OpenAI Codex OAuth token helpers", () => {
 		expect(message).not.toContain("plain-verifier-secret");
 		expect(message).not.toContain("colon-verifier-secret");
 		expect(message).not.toContain("camel-colon-verifier-secret");
+		expect(message).not.toContain("snake-authorization-secret");
+		expect(message).not.toContain("camel-authorization-secret");
+		expect(message).not.toContain("hyphen-authorization-secret");
+		expect(message).not.toContain("hyphen-verifier-secret");
+		expect(message).toContain("grant_type=authorization_code");
 		expect(message).not.toContain("access-token-secret");
 		expect(message).not.toContain("refresh-token-secret");
 		expect(message).not.toContain("aaa.bbb.ccc");
