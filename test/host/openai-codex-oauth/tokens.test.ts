@@ -86,8 +86,9 @@ describe("OpenAI Codex OAuth token helpers", () => {
 	});
 
 	test("redacts sensitive response details from token endpoint errors", async () => {
-		await expect(
-			exchangeCodeForTokens({
+		let error: unknown;
+		try {
+			await exchangeCodeForTokens({
 				code: "auth-code-secret",
 				codeVerifier: "verifier-secret",
 				redirectUri: "http://localhost:1455/auth/callback?code=callback-secret&state=state-secret",
@@ -100,30 +101,54 @@ describe("OpenAI Codex OAuth token helpers", () => {
 								refreshToken: "refresh-token-secret",
 								redirect_uri:
 									"http://localhost:1455/auth/callback?code=callback-secret&state=state-secret",
+								redirectUri: "http://localhost:1457/auth/callback",
 							}),
 							{ status: 400 },
 						),
 					)) as unknown as typeof fetch,
-			}),
-		).rejects.toThrow(
-			'OpenAI Codex OAuth token request failed: {"error":"invalid_grant","access_token":"[redacted]","refreshToken":"[redacted]","redirect_uri":"http://localhost:1455/auth/callback?code=[redacted]&state=[redacted]"}',
-		);
+			});
+		} catch (caughtError) {
+			error = caughtError;
+		}
+
+		expect(error).toBeInstanceOf(Error);
+		const message = (error as Error).message;
+		expect(message).toContain('"access_token":"[redacted]"');
+		expect(message).toContain('"refreshToken":"[redacted]"');
+		expect(message).toContain('"redirect_uri":"[redacted]"');
+		expect(message).toContain('"redirectUri":"[redacted]"');
+		expect(message).not.toContain("access-token-secret");
+		expect(message).not.toContain("refresh-token-secret");
+		expect(message).not.toContain("http://localhost:1455/auth/callback");
+		expect(message).not.toContain("http://localhost:1457/auth/callback");
 	});
 
 	test("redacts missing-field payloads", async () => {
-		await expect(
-			exchangeCodeForTokens({
+		let error: unknown;
+		try {
+			await exchangeCodeForTokens({
 				code: "auth-code-secret",
 				codeVerifier: "verifier-secret",
 				redirectUri: "http://localhost:1455/auth/callback",
 				fetchImpl: fetchWithBodyAssertion(() => {}, {
 					access_token: "access-token-secret",
 					refreshToken: "refresh-token-secret",
+					redirect_uri: "http://localhost:1455/auth/callback",
 					expires_in: "3600",
 				}),
-			}),
-		).rejects.toThrow(
-			'OpenAI Codex OAuth token response is missing required fields: {"access_token":"[redacted]","refreshToken":"[redacted]","expires_in":"3600"}',
-		);
+			});
+		} catch (caughtError) {
+			error = caughtError;
+		}
+
+		expect(error).toBeInstanceOf(Error);
+		const message = (error as Error).message;
+		expect(message).toContain('"access_token":"[redacted]"');
+		expect(message).toContain('"refreshToken":"[redacted]"');
+		expect(message).toContain('"redirect_uri":"[redacted]"');
+		expect(message).toContain('"expires_in":"3600"');
+		expect(message).not.toContain("access-token-secret");
+		expect(message).not.toContain("refresh-token-secret");
+		expect(message).not.toContain("http://localhost:1455/auth/callback");
 	});
 });

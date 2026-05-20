@@ -153,6 +153,9 @@ function redactTokenEndpointPayload(payload: unknown): unknown {
 		return redacted;
 	}
 	if (typeof payload === "string") {
+		if (isCallbackUrl(payload)) {
+			return "[redacted]";
+		}
 		return redactCredentialText(payload);
 	}
 	return payload;
@@ -168,5 +171,19 @@ function isSensitiveTokenEndpointKey(key: string): boolean {
 		"idToken",
 		"code",
 		"state",
+		"redirect_uri",
+		"redirectUri",
 	].includes(key);
+}
+
+function isCallbackUrl(value: string): boolean {
+	try {
+		const url = new URL(value);
+		return (
+			url.origin + url.pathname === "http://localhost:1455/auth/callback" ||
+			url.origin + url.pathname === "http://localhost:1457/auth/callback"
+		);
+	} catch {
+		return false;
+	}
 }
