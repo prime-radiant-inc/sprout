@@ -136,6 +136,27 @@ describe("OpenAI Codex OAuth callback listener", () => {
 		).toThrow("OpenAI Codex OAuth callback listener must use registered redirect URIs");
 	});
 
+	test("rejects test-only custom bindings that look like production redirects", () => {
+		expect(() =>
+			listenForCallback({
+				expectedState: "state-123",
+				hostname: "localhost",
+				ports: [1455],
+				timeoutMs: 1_000,
+				allowUnregisteredRedirectUriForTests: true,
+			}),
+		).toThrow("OpenAI Codex OAuth test callback listener cannot use registered redirect URIs");
+		expect(() =>
+			listenForCallback({
+				expectedState: "state-123",
+				hostname: "localhost",
+				ports: [1457],
+				timeoutMs: 1_000,
+				allowUnregisteredRedirectUriForTests: true,
+			}),
+		).toThrow("OpenAI Codex OAuth test callback listener cannot use registered redirect URIs");
+	});
+
 	test("resolves once after a successful loopback callback and can be stopped again", async () => {
 		const listener = listenForCallback({
 			expectedState: "state-123",

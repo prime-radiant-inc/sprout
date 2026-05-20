@@ -231,6 +231,15 @@ function validateListenerRedirectTargets(input: {
 	hasCustomBindingOptions: boolean;
 }): void {
 	if (input.allowUnregisteredRedirectUriForTests === true) {
+		if (
+			input.hasCustomBindingOptions &&
+			input.hostname === DEFAULT_CALLBACK_HOST &&
+			input.ports.some(isRegisteredPort)
+		) {
+			throw new Error(
+				"OpenAI Codex OAuth test callback listener cannot use registered redirect URIs",
+			);
+		}
 		return;
 	}
 	if (
