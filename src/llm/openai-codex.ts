@@ -43,8 +43,13 @@ export class OpenAICodexAdapter implements ProviderAdapter {
 			query: { client_version: CODEX_CLIENT_VERSION },
 			headers: await this.headersFor(credentials),
 		});
+		const models = payload?.models;
+		if (!Array.isArray(models)) {
+			throw new Error("OpenAI Codex models response was malformed");
+		}
 
-		return (payload.models ?? []).flatMap((model) => {
+		return models.flatMap((model) => {
+			if (!model || typeof model !== "object") return [];
 			if (typeof model.slug !== "string" || !model.slug) return [];
 			return [
 				{
@@ -77,6 +82,9 @@ export class OpenAICodexAdapter implements ProviderAdapter {
 		}
 		if (!finalResponse) {
 			throw new Error("OpenAI Codex response stream ended without a final response");
+		}
+		if (!finalResponse.id) {
+			throw new Error("OpenAI Codex response stream ended without terminal response");
 		}
 		return finalResponse;
 	}
@@ -112,7 +120,6 @@ export class OpenAICodexAdapter implements ProviderAdapter {
 	): Promise<Record<string, string>> {
 		const resolved = await credentials;
 		return {
-			Authorization: `Bearer ${resolved.accessToken}`,
 			"ChatGPT-Account-ID": resolved.accountId,
 		};
 	}

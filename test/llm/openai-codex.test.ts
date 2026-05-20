@@ -47,6 +47,19 @@ describe("OpenAICodexAdapter", () => {
 		expect(requests[0]?.headers.get("chatgpt-account-id")).toBe("acct");
 	});
 
+	test("listModels rejects malformed model payloads with a clear error", async () => {
+		const server = startCodexServer(async () =>
+			Response.json({
+				models: {},
+			}),
+		);
+		const adapter = createAdapter(server.url.toString(), async () => credentials("access", "acct"));
+
+		await expect(adapter.listModels()).rejects.toThrow(
+			"OpenAI Codex models response was malformed",
+		);
+	});
+
 	test("complete consumes the streaming Codex responses endpoint and returns the final response", async () => {
 		const requests: CapturedRequest[] = [];
 		const server = startCodexServer(async (request) => {
@@ -126,6 +139,17 @@ describe("OpenAICodexAdapter", () => {
 		expect(response.finish_reason.reason).toBe("tool_calls");
 		expect(response.usage.input_tokens).toBe(7);
 		expect(response.usage.output_tokens).toBe(3);
+	});
+
+	test("complete rejects streams that end without a terminal Responses event", async () => {
+		const server = startCodexServer(async () =>
+			sseResponse([{ type: "response.output_text.delta", delta: "partial" }]),
+		);
+		const adapter = createAdapter(server.url.toString(), async () => credentials("access", "acct"));
+
+		await expect(adapter.complete(baseRequest)).rejects.toThrow(
+			"OpenAI Codex response stream ended without terminal response",
+		);
 	});
 
 	test("stream resolves fresh credentials per request and forwards accumulator events", async () => {
