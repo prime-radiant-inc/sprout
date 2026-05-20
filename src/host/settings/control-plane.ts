@@ -426,6 +426,15 @@ export class SettingsControlPlane {
 			);
 		}
 
+		if (provider.disabledReason === "credential-cleanup-failed") {
+			const next = structuredClone(this.settings);
+			const nextProvider = next.providers.find((candidate) => candidate.id === providerId);
+			if (!nextProvider) return this.error("not_found", `Unknown provider: ${providerId}`);
+			delete nextProvider.disabledReason;
+			nextProvider.updatedAt = this.now();
+			return this.persistSettings(next, [providerId], true);
+		}
+
 		delete this.initialValidationErrors[providerId];
 		this.markCatalogStale(providerId);
 		return this.emitUpdatedSnapshot();
@@ -864,6 +873,12 @@ export class SettingsControlPlane {
 		if (providerSupportsSecretKind(provider.kind, "oauth")) {
 			if (this.oauthOperations?.status) {
 				const status = await this.oauthOperations.status(provider.id);
+				if (!status.signedIn) {
+					return {
+						kind: "oauth",
+						signedIn: false,
+					};
+				}
 				return {
 					kind: "oauth",
 					signedIn: status.signedIn,

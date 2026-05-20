@@ -559,6 +559,54 @@ describe("SettingsControlPlane", () => {
 		expect(loginProviderIds).toEqual(["openai-codex"]);
 	});
 
+	test("login provider oauth clears cleanup-failed reason without enabling provider", async () => {
+		let signedIn = false;
+		const plane = await makePlane({
+			oauthOperations: {
+				status: () => ({ signedIn }),
+				async login() {
+					signedIn = true;
+				},
+			},
+			initialSettings: {
+				version: 4,
+				providers: [
+					{
+						id: "openai-codex",
+						kind: "openai-codex",
+						label: "OpenAI Codex",
+						enabled: false,
+						disabledReason: "credential-cleanup-failed",
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {},
+				memoryModels: {},
+				agentModelOverrides: {},
+			},
+		});
+
+		const result = await plane.execute({
+			kind: "login_provider_oauth",
+			data: { providerId: "openai-codex" },
+		});
+
+		if (!result.ok) throw new Error(result.message);
+		expect(result.snapshot.settings.providers[0]).toEqual({
+			id: "openai-codex",
+			kind: "openai-codex",
+			label: "OpenAI Codex",
+			enabled: false,
+			createdAt: "2026-03-11T12:00:00.000Z",
+			updatedAt: "2026-03-11T12:34:56.000Z",
+		});
+		expect(result.snapshot.providers[0]?.credentialStatus).toEqual({
+			kind: "oauth",
+			signedIn: true,
+		});
+	});
+
 	test("login provider oauth returns a clear error when no login operation is configured", async () => {
 		const plane = await makePlane({
 			initialSettings: {
@@ -608,6 +656,8 @@ describe("SettingsControlPlane", () => {
 							createProviderCredentialRef(providerId, "oauth", "memory"),
 						),
 						accountId: "acct_123",
+						email: "stale@example.com",
+						expiresAt: "2026-03-11T13:34:56.000Z",
 					};
 				},
 				async logout(providerId) {
@@ -675,6 +725,51 @@ describe("SettingsControlPlane", () => {
 		});
 		expect(logoutProviderIds).toEqual(["openai-codex"]);
 		expect(await secretStore.hasSecret(oauthRef)).toBe(false);
+		if (!result.ok) throw new Error(result.message);
+		expect(result.snapshot.providers[0]?.credentialStatus).toEqual({
+			kind: "oauth",
+			signedIn: false,
+		});
+	});
+
+	test("logout provider oauth is only available for OAuth providers", async () => {
+		const plane = await makePlane({
+			oauthOperations: {
+				async logout() {
+					throw new Error("should not call logout for api-key providers");
+				},
+			},
+			initialSettings: {
+				version: 4,
+				providers: [
+					{
+						id: "openai",
+						kind: "openai",
+						label: "OpenAI",
+						enabled: true,
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {},
+				memoryModels: {},
+				agentModelOverrides: {},
+			},
+		});
+
+		const result = await plane.execute({
+			kind: "logout_provider_oauth",
+			data: { providerId: "openai" },
+		});
+
+		expect(result).toEqual({
+			ok: false,
+			code: "unsupported_provider_auth",
+			message: "Provider 'openai' does not support OAuth logout.",
+			fieldErrors: {
+				providerId: "Provider 'openai' does not support OAuth logout.",
+			},
+		});
 	});
 
 	test("warns when enabled providers exist without explicit memory models", async () => {
