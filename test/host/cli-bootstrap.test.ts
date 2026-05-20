@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { bootstrapSessionRuntime } from "../../src/host/cli-bootstrap.ts";
+import {
+	bootstrapSessionRuntime,
+	buildOpenExternalUrlCommand,
+} from "../../src/host/cli-bootstrap.ts";
 import { importSettingsFromEnv } from "../../src/host/settings/env-import.ts";
 import {
 	applyModelConfigOverrides,
@@ -119,6 +122,19 @@ function emptySettingsStore(source: "loaded" | "recovered" = "loaded") {
 }
 
 describe("bootstrapSessionRuntime", () => {
+	test("builds a Windows URL opener without routing OAuth URLs through cmd parsing", () => {
+		const command = buildOpenExternalUrlCommand(
+			"https://auth.openai.com/oauth/authorize?client_id=client&code_challenge=abc&state=state",
+			"win32",
+		);
+
+		expect(command[0]?.toLowerCase()).toContain("powershell");
+		expect(command).not.toContain("cmd");
+		expect(command).not.toContain("/c");
+		expect(command).not.toContain("start");
+		expect(command.some((part) => part.includes("&code_challenge="))).toBe(false);
+	});
+
 	test("builds runtime wiring and emits stderr-enabled info log", async () => {
 		const created: Record<string, unknown> = {};
 		const logger = {

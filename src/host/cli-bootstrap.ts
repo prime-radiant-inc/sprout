@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import { join } from "node:path";
 import { createResolverSettings, getAvailableModels } from "../agents/model-resolver.ts";
 import type { AgentSpawner } from "../bus/spawner.ts";
@@ -616,12 +617,7 @@ function createOpenAICodexOAuthOperations(
 }
 
 async function openExternalUrl(url: string): Promise<void> {
-	const command =
-		process.platform === "darwin"
-			? ["open", url]
-			: process.platform === "win32"
-				? ["cmd", "/c", "start", "", url]
-				: ["xdg-open", url];
+	const command = buildOpenExternalUrlCommand(url, process.platform);
 	const processHandle = Bun.spawn(command, {
 		stdout: "ignore",
 		stderr: "ignore",
@@ -630,4 +626,33 @@ async function openExternalUrl(url: string): Promise<void> {
 	if (exitCode !== 0) {
 		throw new Error("Failed to open OpenAI Codex OAuth authorization URL");
 	}
+}
+
+export function buildOpenExternalUrlCommand(
+	url: string,
+	platform: NodeJS.Platform = process.platform,
+): string[] {
+	if (platform === "darwin") {
+		return ["open", url];
+	}
+	if (platform === "win32") {
+		return [
+			"powershell.exe",
+			"-NoProfile",
+			"-NonInteractive",
+			"-ExecutionPolicy",
+			"Bypass",
+			"-EncodedCommand",
+			encodePowerShellCommand(`Start-Process -FilePath '${escapePowerShellString(url)}'`),
+		];
+	}
+	return ["xdg-open", url];
+}
+
+function encodePowerShellCommand(command: string): string {
+	return Buffer.from(command, "utf16le").toString("base64");
+}
+
+function escapePowerShellString(value: string): string {
+	return value.replace(/'/gu, "''");
 }
