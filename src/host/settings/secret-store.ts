@@ -1,3 +1,5 @@
+import { createProviderCredentialRef } from "./provider-credentials.ts";
+
 export type SecretStorageBackend = "memory" | "macos-keychain" | "secret-service";
 
 export interface ProviderSecretRef {
@@ -11,12 +13,7 @@ export function createProviderSecretRef(
 	providerId: string,
 	storageBackend: SecretStorageBackend,
 ): ProviderSecretRef {
-	return {
-		providerId,
-		secretKind: "api-key",
-		storageBackend,
-		storageKey: `sprout/providers/${providerId}/api-key`,
-	};
+	return createProviderCredentialRef(providerId, "api-key", storageBackend);
 }
 
 export interface SecretStore {

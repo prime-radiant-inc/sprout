@@ -1,12 +1,15 @@
 export const SETTINGS_SCHEMA_VERSION = 4;
 
-export type ProviderKind =
-	| "anthropic"
-	| "openai"
-	| "openai-codex"
-	| "openai-compatible"
-	| "openrouter"
-	| "gemini";
+export const PROVIDER_KINDS = [
+	"anthropic",
+	"openai",
+	"openai-codex",
+	"openai-compatible",
+	"openrouter",
+	"gemini",
+] as const;
+
+export type ProviderKind = (typeof PROVIDER_KINDS)[number];
 
 export type Tier = "best" | "balanced" | "fast";
 export type MemoryModelPurpose =

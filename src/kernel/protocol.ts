@@ -1,3 +1,4 @@
+import { PROVIDER_KINDS } from "../shared/provider-settings.ts";
 import type { PricingTable } from "./pricing.ts";
 import type {
 	Command,
@@ -91,13 +92,7 @@ const SETTINGS_COMMAND_KINDS = new Set([
 	"set_memory_model",
 ]);
 
-const PROVIDER_KINDS = new Set([
-	"anthropic",
-	"openai",
-	"openai-compatible",
-	"openrouter",
-	"gemini",
-]);
+const PROVIDER_KIND_SET = new Set<string>(PROVIDER_KINDS);
 const TIERS = new Set(["best", "balanced", "fast"]);
 const MEMORY_MODEL_PURPOSES = new Set([
 	"summary",
@@ -167,7 +162,7 @@ function validateSettingsCommand(kind: string, data: Record<string, unknown>): v
 			return;
 		case "create_provider":
 			assertOnlyKnownKeys(data, ["kind", "label", "baseUrl", "nonSecretHeaders"], "command.data");
-			assertEnum(data.kind, PROVIDER_KINDS, "command.data.kind");
+			assertEnum(data.kind, PROVIDER_KIND_SET, "command.data.kind");
 			assertNonEmptyString(data.label, "command.data.label");
 			assertOptionalString(data.baseUrl, "command.data.baseUrl");
 			assertOptionalStringRecord(data.nonSecretHeaders, "command.data.nonSecretHeaders");

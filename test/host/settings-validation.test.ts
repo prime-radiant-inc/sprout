@@ -106,6 +106,25 @@ describe("validateProviderRuntimeReadiness", () => {
 		});
 	});
 
+	test("reports missing OAuth readiness for OpenAI Codex providers", () => {
+		const result = validateProviderRuntimeReadiness(
+			makeProvider({
+				id: "openai-codex",
+				kind: "openai-codex",
+				baseUrl: undefined,
+			}),
+			{
+				hasSecret: false,
+				secretBackendAvailable: true,
+			},
+		);
+
+		expect(result.errors).toContain("ChatGPT OAuth login is required for OpenAI Codex");
+		expect(result.fieldErrors).toEqual({
+			secret: "ChatGPT OAuth login is required for OpenAI Codex",
+		});
+	});
+
 	test("reports unavailable secret backend distinctly", () => {
 		const result = validateProviderRuntimeReadiness(
 			makeProvider({

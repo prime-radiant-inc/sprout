@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+	createProviderSecretRef,
 	createSecretStore,
 	createSecretStoreRuntime,
 	type ProviderSecretRef,
@@ -15,6 +16,10 @@ function makeSecretRef(storageBackend: ProviderSecretRef["storageBackend"]): Pro
 }
 
 describe("SecretStore", () => {
+	test("legacy provider secret refs reject unsafe provider ids", () => {
+		expect(() => createProviderSecretRef("../bad", "memory")).toThrow("Unsafe provider id");
+	});
+
 	test("memory backend stores, reads, and deletes secrets", async () => {
 		const store = createSecretStore({ backend: "memory", platform: "darwin" });
 		const ref = makeSecretRef("memory");

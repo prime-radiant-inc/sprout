@@ -1,3 +1,4 @@
+import { getProviderCredentialKinds } from "./provider-credentials.ts";
 import type { ProviderConfig } from "./types.ts";
 
 export interface ProviderValidationResult {
@@ -128,13 +129,24 @@ export function validateProviderRuntimeReadiness(
 		return result;
 	}
 	if (!options.hasSecret) {
-		addFieldError(result.errors, result.fieldErrors, "secret", "API key is required");
+		addFieldError(result.errors, result.fieldErrors, "secret", missingCredentialMessage(provider));
 	}
 	return result;
 }
 
 export function providerRequiresSecret(provider: ProviderConfig): boolean {
 	return provider.kind !== "openai-compatible";
+}
+
+function missingCredentialMessage(provider: ProviderConfig): string {
+	const credentialKinds = getProviderCredentialKinds(provider.kind);
+	if (credentialKinds.includes("oauth")) {
+		return "ChatGPT OAuth login is required for OpenAI Codex";
+	}
+	if (credentialKinds.includes("api-key")) {
+		return "API key is required";
+	}
+	return "Provider credential is required";
 }
 
 function addFieldError(

@@ -161,8 +161,8 @@ describe("canonical protocol module", () => {
 			{
 				kind: "create_provider",
 				data: {
-					kind: "openrouter",
-					label: "OpenRouter",
+					kind: "openai-codex",
+					label: "OpenAI Codex",
 				},
 			},
 			{

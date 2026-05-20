@@ -5,15 +5,9 @@ import type {
 	SettingsCommandResult,
 	SettingsSnapshot,
 } from "../kernel/types.ts";
+import { PROVIDER_KINDS } from "../shared/provider-settings.ts";
 
-const PROVIDER_KINDS = new Set([
-	"anthropic",
-	"openai",
-	"openai-codex",
-	"openai-compatible",
-	"openrouter",
-	"gemini",
-] as const);
+const PROVIDER_KIND_SET = new Set(PROVIDER_KINDS);
 
 export interface HeaderDraft {
 	key: string;
@@ -77,7 +71,7 @@ export function applyProviderEditorCommand(
 			nextDraft.label = argument;
 			return { draft: nextDraft };
 		case "kind":
-			if (!argument || !PROVIDER_KINDS.has(argument as ProviderConfig["kind"])) {
+			if (!argument || !PROVIDER_KIND_SET.has(argument as ProviderConfig["kind"])) {
 				return { draft, error: "Unknown provider kind." };
 			}
 			nextDraft.kind = argument as ProviderConfig["kind"];

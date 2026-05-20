@@ -1,4 +1,4 @@
-import type { ProviderKind } from "@/shared/provider-settings";
+import type { ProviderKind } from "../../shared/provider-settings.ts";
 
 import type { SecretStorageBackend } from "./secret-store";
 
@@ -13,9 +13,9 @@ export const PROVIDER_CREDENTIAL_KINDS = {
 	gemini: ["api-key"],
 } as const satisfies Record<ProviderKind, readonly ProviderSecretKind[]>;
 
-export interface ProviderCredentialRef {
+export interface ProviderCredentialRef<SecretKind extends ProviderSecretKind = ProviderSecretKind> {
 	providerId: string;
-	secretKind: ProviderSecretKind;
+	secretKind: SecretKind;
 	storageBackend: SecretStorageBackend;
 	storageKey: string;
 }
@@ -26,9 +26,19 @@ export function getProviderCredentialKinds(kind: ProviderKind): readonly Provide
 
 export function createProviderCredentialRef(
 	providerId: string,
+	secretKind: "api-key",
+	storageBackend: SecretStorageBackend,
+): ProviderCredentialRef<"api-key">;
+export function createProviderCredentialRef(
+	providerId: string,
+	secretKind: "oauth",
+	storageBackend: SecretStorageBackend,
+): ProviderCredentialRef<"oauth">;
+export function createProviderCredentialRef(
+	providerId: string,
 	secretKind: ProviderSecretKind,
 	storageBackend: SecretStorageBackend,
-): ProviderCredentialRef {
+): ProviderCredentialRef<ProviderSecretKind> {
 	assertSafeProviderId(providerId);
 
 	return {
