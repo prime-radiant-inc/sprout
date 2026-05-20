@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createProviderCredentialRef } from "@/host/settings/provider-credentials";
 import {
 	createProviderSecretRef,
 	createSecretStore,
@@ -30,6 +31,18 @@ describe("SecretStore", () => {
 		expect(await store.getSecret(ref)).toBe("secret-value");
 		await store.deleteSecret(ref);
 		expect(await store.getSecret(ref)).toBeUndefined();
+	});
+
+	test("stores oauth provider credentials under the oauth storage key", async () => {
+		const store = createSecretStore({ backend: "memory", platform: "darwin" });
+		const ref = createProviderCredentialRef("openai-codex", "oauth", "memory");
+
+		await store.setSecret(ref, JSON.stringify({ accessToken: "access" }));
+
+		expect(await store.getSecret(ref)).toBe('{"accessToken":"access"}');
+		expect(await store.hasSecret(ref)).toBe(true);
+		await store.deleteSecret(ref);
+		expect(await store.hasSecret(ref)).toBe(false);
 	});
 
 	test("macos-keychain backend uses the security CLI on darwin", async () => {

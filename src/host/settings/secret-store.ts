@@ -2,7 +2,7 @@ import { createProviderCredentialRef, type ProviderCredentialRef } from "./provi
 
 export type SecretStorageBackend = "memory" | "macos-keychain" | "secret-service";
 
-export type ProviderSecretRef = ProviderCredentialRef<"api-key">;
+export type ProviderSecretRef = ProviderCredentialRef;
 
 export function createProviderSecretRef(
 	providerId: string,
