@@ -16,6 +16,14 @@ const baseRequest: Request = {
 	messages: [{ role: "user", content: [{ kind: ContentKind.TEXT, text: "hello" }] }],
 };
 
+const systemRequest: Request = {
+	...baseRequest,
+	messages: [
+		{ role: "system", content: [{ kind: ContentKind.TEXT, text: "Be concise." }] },
+		...baseRequest.messages,
+	],
+};
+
 let servers: Array<ReturnType<typeof Bun.serve>> = [];
 
 afterEach(() => {
@@ -127,7 +135,7 @@ describe("OpenAICodexAdapter", () => {
 		);
 	});
 
-	test("complete consumes the streaming Codex responses endpoint and returns the final response", async () => {
+	test("complete sends the Codex-compatible responses request shape", async () => {
 		const requests: CapturedRequest[] = [];
 		const server = startCodexServer(async (request) => {
 			requests.push(await captureRequest(request));
@@ -182,7 +190,10 @@ describe("OpenAICodexAdapter", () => {
 		const adapter = createAdapter(server.url.toString(), async () => credentials("access", "acct"));
 
 		const response = await adapter.complete({
-			...baseRequest,
+			...systemRequest,
+			max_tokens: 16,
+			temperature: 0,
+			top_p: 1,
 			tools: [
 				{
 					name: "read_file",
@@ -191,6 +202,12 @@ describe("OpenAICodexAdapter", () => {
 				},
 			],
 			tool_choice: "required",
+			provider_options: {
+				openai: {
+					prompt_cache_key: "01SESSION:root",
+					prompt_cache_retention: "in_memory",
+				},
+			},
 		});
 
 		expect(requests).toHaveLength(1);
@@ -198,7 +215,23 @@ describe("OpenAICodexAdapter", () => {
 		expect(requests[0]?.pathname).toBe("/backend-api/codex/responses");
 		expect(requests[0]?.headers.get("authorization")).toBe("Bearer access");
 		expect(requests[0]?.headers.get("chatgpt-account-id")).toBe("acct");
-		expect((requests[0]?.body as { stream?: boolean } | undefined)?.stream).toBe(true);
+		expect(requests[0]?.headers.get("accept")).toBe("text/event-stream");
+		const body = requests[0]?.body as Record<string, unknown>;
+		expect(body).toMatchObject({
+			model: "gpt-5.4",
+			instructions: "Be concise.",
+			stream: true,
+			store: false,
+			parallel_tool_calls: true,
+			tool_choice: "required",
+			include: [],
+			prompt_cache_key: "01SESSION:root",
+		});
+		expect(body.tools).toMatchObject([{ type: "function", name: "read_file" }]);
+		expect(body).not.toHaveProperty("max_output_tokens");
+		expect(body).not.toHaveProperty("prompt_cache_retention");
+		expect(body).not.toHaveProperty("temperature");
+		expect(body).not.toHaveProperty("top_p");
 		expect(messageText(response.message)).toBe("ready");
 		expect(messageToolCalls(response.message)).toEqual([
 			{ id: "call_read", name: "read_file", arguments: { path: "README.md" } },
@@ -206,6 +239,17 @@ describe("OpenAICodexAdapter", () => {
 		expect(response.finish_reason.reason).toBe("tool_calls");
 		expect(response.usage.input_tokens).toBe(7);
 		expect(response.usage.output_tokens).toBe(3);
+	});
+
+	test("stream surfaces Codex detail errors from non-OpenAI error payloads", async () => {
+		const server = startCodexServer(async () =>
+			Response.json({ detail: "Store must be set to false" }, { status: 400 }),
+		);
+		const adapter = createAdapter(server.url.toString(), async () => credentials("access", "acct"));
+
+		await expect(Array.fromAsync(adapter.stream(baseRequest))).rejects.toThrow(
+			"OpenAI Codex responses request failed: 400 Store must be set to false",
+		);
 	});
 
 	test("complete rejects streams that end without a terminal Responses event", async () => {

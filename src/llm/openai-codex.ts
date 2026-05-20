@@ -88,15 +88,7 @@ export class OpenAICodexAdapter implements ProviderAdapter {
 
 	async *stream(request: Request): AsyncIterable<StreamEvent> {
 		const credentials = this.requestCredentials();
-		const input = buildResponsesInput(request);
-		const params = buildResponsesParams(request, input);
-		const stream = await this.clientFor(credentials).responses.create(
-			{ ...params, stream: true },
-			{
-				headers: await this.headersFor(credentials),
-				signal: request.signal,
-			},
-		);
+		const stream = await this.createResponsesStream(request, credentials);
 
 		for await (const event of streamResponsesEvents({ stream, request, provider: this.kind })) {
 			if (event.type === "finish" && !hasTerminalResponse(event.response)) {
@@ -117,6 +109,28 @@ export class OpenAICodexAdapter implements ProviderAdapter {
 		});
 	}
 
+	private async createResponsesStream(
+		request: Request,
+		credentials: Promise<OpenAICodexRuntimeCredentials>,
+	): Promise<AsyncIterable<unknown>> {
+		const resolved = await credentials;
+		const response = await fetch(joinUrlPath(this.baseURL, "responses"), {
+			method: "POST",
+			headers: {
+				accept: "text/event-stream",
+				authorization: `Bearer ${resolved.accessToken}`,
+				"chatgpt-account-id": resolved.accountId,
+				"content-type": "application/json",
+			},
+			body: JSON.stringify(buildCodexResponsesParams(request)),
+			signal: request.signal,
+		});
+		if (!response.ok) {
+			throw new Error(await codexResponseErrorMessage("responses", response));
+		}
+		return readSseJsonEvents(response);
+	}
+
 	private async headersFor(
 		credentials: Promise<OpenAICodexRuntimeCredentials>,
 	): Promise<Record<string, string>> {
@@ -125,6 +139,26 @@ export class OpenAICodexAdapter implements ProviderAdapter {
 			"ChatGPT-Account-ID": resolved.accountId,
 		};
 	}
+}
+
+function buildCodexResponsesParams(request: Request): Record<string, unknown> {
+	const input = buildResponsesInput(request);
+	const params = buildResponsesParams(request, input) as Record<string, unknown>;
+	// ChatGPT Codex accepts a narrower Responses body than api.openai.com.
+	delete params.max_output_tokens;
+	delete params.prompt_cache_retention;
+	delete params.temperature;
+	delete params.top_p;
+	const reasoning = params.reasoning;
+	return {
+		...params,
+		tools: params.tools ?? [],
+		tool_choice: params.tool_choice ?? "auto",
+		parallel_tool_calls: true,
+		store: false,
+		stream: true,
+		include: reasoning ? ["reasoning.encrypted_content"] : [],
+	};
 }
 
 function parseCodexModel(model: {
@@ -158,4 +192,107 @@ function firstNonEmptyString(...values: unknown[]): string | undefined {
 
 function hasTerminalResponse(response: Response | undefined): boolean {
 	return Boolean(response?.id);
+}
+
+function joinUrlPath(baseUrl: string, path: string): string {
+	return `${baseUrl.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`;
+}
+
+async function codexResponseErrorMessage(
+	endpoint: string,
+	response: globalThis.Response,
+): Promise<string> {
+	const bodyText = await response.text().catch(() => "");
+	const detail = codexErrorDetail(bodyText) ?? response.statusText;
+	const suffix = detail ? ` ${detail}` : "";
+	return `OpenAI Codex ${endpoint} request failed: ${response.status}${suffix}`;
+}
+
+function codexErrorDetail(bodyText: string): string | undefined {
+	if (!bodyText.trim()) return undefined;
+	try {
+		const payload = JSON.parse(bodyText) as unknown;
+		if (!payload || typeof payload !== "object" || Array.isArray(payload)) return bodyText;
+		const record = payload as Record<string, unknown>;
+		if (typeof record.detail === "string") return record.detail;
+		const error = record.error;
+		if (error && typeof error === "object" && !Array.isArray(error)) {
+			const message = (error as Record<string, unknown>).message;
+			if (typeof message === "string") return message;
+		}
+		return JSON.stringify(payload);
+	} catch {
+		return bodyText;
+	}
+}
+
+async function* readSseJsonEvents(response: globalThis.Response): AsyncIterable<unknown> {
+	if (!response.body) return;
+
+	const reader = response.body.getReader();
+	const decoder = new TextDecoder();
+	let buffer = "";
+	try {
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			buffer += decoder.decode(value, { stream: true });
+			const events = drainCompleteSseEvents(buffer);
+			buffer = events.remainder;
+			for (const data of events.data) {
+				if (data === "[DONE]") return;
+				yield parseSseJson(data);
+			}
+		}
+		buffer += decoder.decode();
+		const events = drainCompleteSseEvents(`${buffer}\n\n`);
+		for (const data of events.data) {
+			if (data === "[DONE]") return;
+			yield parseSseJson(data);
+		}
+	} finally {
+		reader.releaseLock();
+	}
+}
+
+function drainCompleteSseEvents(buffer: string): { data: string[]; remainder: string } {
+	const data: string[] = [];
+	let remainder = buffer;
+	while (true) {
+		const boundary = nextSseBoundary(remainder);
+		if (!boundary) break;
+		const rawEvent = remainder.slice(0, boundary.index);
+		remainder = remainder.slice(boundary.index + boundary.length);
+		const eventData = parseSseData(rawEvent);
+		if (eventData !== undefined) {
+			data.push(eventData);
+		}
+	}
+	return { data, remainder };
+}
+
+function nextSseBoundary(buffer: string): { index: number; length: number } | undefined {
+	const lf = buffer.indexOf("\n\n");
+	const crlf = buffer.indexOf("\r\n\r\n");
+	if (lf === -1 && crlf === -1) return undefined;
+	if (lf === -1) return { index: crlf, length: 4 };
+	if (crlf === -1 || lf < crlf) return { index: lf, length: 2 };
+	return { index: crlf, length: 4 };
+}
+
+function parseSseData(rawEvent: string): string | undefined {
+	const lines = rawEvent.split(/\r?\n/);
+	const dataLines = lines
+		.filter((line) => line.startsWith("data:"))
+		.map((line) => line.slice("data:".length).trimStart());
+	if (dataLines.length === 0) return undefined;
+	return dataLines.join("\n");
+}
+
+function parseSseJson(data: string): unknown {
+	try {
+		return JSON.parse(data);
+	} catch {
+		throw new Error(`OpenAI Codex response stream emitted invalid JSON: ${data}`);
+	}
 }

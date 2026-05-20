@@ -429,6 +429,47 @@ describe("SessionController", () => {
 		expect(collapsed).toHaveLength(0);
 	});
 
+	test("emits terminal session_end when a run fails before the agent closes the session", async () => {
+		const factory: AgentFactory = async (options) => ({
+			agent: {
+				steer() {},
+				requestCompaction() {},
+				async run(goal: string) {
+					options.events.emitEvent("session_start", "root", 0, {
+						goal,
+						session_id: options.sessionId,
+						model: "gpt-5.4",
+					});
+					options.events.emitEvent("perceive", "root", 0, { goal });
+					throw new Error("OpenAI Codex responses request failed: 400 Store must be set to false");
+				},
+			} as any,
+			learnProcess: null,
+			collapseMemory: async () => {
+				throw new Error("memory collapse should not run");
+			},
+		});
+		const { bus, controller } = makeController({ factory });
+
+		await expect(controller.runGoal("debug codex")).rejects.toThrow(
+			"OpenAI Codex responses request failed: 400 Store must be set to false",
+		);
+
+		const terminal = bus.collected().filter((event) => event.kind === "session_end");
+		expect(terminal).toHaveLength(1);
+		expect(terminal[0]?.data).toMatchObject({
+			session_id: controller.sessionId,
+			success: false,
+			timed_out: false,
+			turns: 0,
+		});
+
+		const rootEventLog = join(tempDir, "logs", `${controller.sessionId}.jsonl`);
+		await waitFor(
+			() => existsSync(rootEventLog) && readFileSync(rootEventLog, "utf-8").includes("session_end"),
+		);
+	});
+
 	test("default factory forwards resolver settings into createAgent for tier-based root models", async () => {
 		const bus = new EventBus();
 		const rootDir = join(tempDir, "root-spec");

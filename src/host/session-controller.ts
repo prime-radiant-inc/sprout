@@ -826,7 +826,11 @@ export class SessionController {
 				runResult = await result.agent.run(goal, signal);
 			} catch (error) {
 				await this.drainObserversAfterRun(signal);
-				if (shouldCollapseThrownRun(signal, this.terminalSessionEndSeen)) {
+				const agentEmittedTerminalSessionEnd = this.terminalSessionEndSeen;
+				if (!signal.aborted && !agentEmittedTerminalSessionEnd) {
+					await this.emitFailedSessionEndIfMissing();
+				}
+				if (shouldCollapseThrownRun(signal, agentEmittedTerminalSessionEnd)) {
 					await stopLearnProcess();
 					await this.collapseMemoryAfterRun(result);
 				}
@@ -862,6 +866,19 @@ export class SessionController {
 	private async drainObserversAfterRun(signal: AbortSignal): Promise<void> {
 		if (signal.aborted) return;
 		await this.observerRegistry?.drain();
+		await this.controllerEventLogWriteChain;
+	}
+
+	private async emitFailedSessionEndIfMissing(): Promise<void> {
+		if (this.terminalSessionEndSeen) return;
+		this.emitAndPersistControllerEvent("session_end", this.rootAgentName ?? "root", 0, {
+			session_id: this._sessionId,
+			success: false,
+			stumbles: 0,
+			turns: 0,
+			timed_out: false,
+			output: "",
+		});
 		await this.controllerEventLogWriteChain;
 	}
 
