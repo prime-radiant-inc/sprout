@@ -842,6 +842,72 @@ describe("WebServer", () => {
 			});
 		});
 
+		test("settings command failures with snapshots update and broadcast settings", async () => {
+			const failedSnapshot = makeSettingsSnapshot();
+			failedSnapshot.runtime.warnings = [
+				{
+					code: "secret_cleanup_failed",
+					message: "Credential cleanup needs retry",
+				},
+			];
+			server = new WebServer({
+				bus,
+				port,
+				staticDir,
+				sessionId: "test-session",
+				settingsControlPlane: {
+					execute: async (): Promise<SettingsCommandResult> => ({
+						ok: false,
+						code: "credential_cleanup_failed",
+						message: "Failed to delete provider credentials: oauth",
+						fieldErrors: {
+							credentials: "Failed credential cleanup for: oauth",
+						},
+						snapshot: failedSnapshot,
+					}),
+				},
+				getSessionSelection: () => makeCurrentSelection(),
+			} as any);
+
+			await startServer();
+			const ws = await connectClient();
+			const messages = collectMessages(ws);
+
+			await delay(50);
+			ws.send(
+				JSON.stringify({
+					type: "command",
+					command: {
+						kind: "delete_provider",
+						data: { providerId: "openai-codex" },
+					},
+				}),
+			);
+			await delay(100);
+
+			const settingsResult = messages.find((message) => message.type === "settings_result");
+			const settingsUpdated = messages.find((message) => message.type === "settings_updated");
+			expect(settingsResult).toMatchObject({
+				type: "settings_result",
+				result: {
+					ok: false,
+					code: "credential_cleanup_failed",
+					snapshot: failedSnapshot,
+				},
+			});
+			expect(settingsUpdated).toEqual({
+				type: "settings_updated",
+				snapshot: failedSnapshot,
+			});
+
+			const secondClient = await connectClient();
+			const snapshot = await nextMessage(secondClient);
+			expect(snapshot).toMatchObject({
+				type: "snapshot",
+				settings: failedSnapshot,
+			});
+		});
+
 		test("malformed settings commands are ignored before they reach the control plane", async () => {
 			const received: SettingsCommand[] = [];
 			server = new WebServer({

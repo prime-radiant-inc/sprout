@@ -531,6 +531,42 @@ describe("EventStore", () => {
 			expect(store.settings?.runtime.warnings).toEqual(updated.runtime.warnings);
 		});
 
+		test("applies settings snapshots from failed settings results", () => {
+			const store = new EventStore();
+			const snapshot = makeSettingsSnapshot();
+			snapshot.catalog = [
+				{
+					providerId: "openai-codex",
+					models: [{ id: "codex-mini", label: "Codex Mini", source: "remote" }],
+				},
+			];
+			const result: SettingsCommandResult = {
+				ok: false,
+				code: "credential_cleanup_failed",
+				message: "Failed to delete provider credentials: oauth",
+				fieldErrors: {
+					credentials: "Failed credential cleanup for: oauth",
+				},
+				snapshot,
+			};
+
+			store.processMessage(
+				{
+					type: "settings_result",
+					result,
+				} as unknown as ServerMessage,
+			);
+
+			expect(store.lastSettingsResult).toEqual(result);
+			expect(store.settings).toEqual(snapshot);
+			expect(store.status.availableModels).toEqual([
+				"best",
+				"balanced",
+				"fast",
+				"openai-codex:codex-mini",
+			]);
+		});
+
 		test("retains the latest settings_result payload including field errors", () => {
 			const store = new EventStore();
 			const result: SettingsCommandResult = {

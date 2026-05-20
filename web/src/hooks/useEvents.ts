@@ -172,7 +172,7 @@ export class EventStore {
 
 			case "settings_result":
 				this.lastSettingsResult = msg.result;
-				if (msg.result.ok) {
+				if (msg.result.snapshot) {
 					this.settings = msg.result.snapshot;
 					this.status = {
 						...this.status,

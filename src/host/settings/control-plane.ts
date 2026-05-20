@@ -356,7 +356,7 @@ export class SettingsControlPlane {
 		this.clearProviderRuntimeState(providerId);
 		delete this.initialValidationErrors[providerId];
 
-		const cleanup = await this.deleteProviderCredentials(provider);
+		const cleanup = await this.tryDeleteProviderCredentials(provider);
 		if (!cleanup.ok) {
 			return this.failureWithSnapshot(
 				"credential_cleanup_failed",
@@ -382,7 +382,7 @@ export class SettingsControlPlane {
 			);
 		}
 
-		const cleanup = await this.deleteProviderCredentials(provider);
+		const cleanup = await this.tryDeleteProviderCredentials(provider);
 		if (!cleanup.ok) {
 			return this.failureWithSnapshot(
 				"credential_cleanup_failed",
@@ -567,7 +567,9 @@ export class SettingsControlPlane {
 				next.agentModelOverrides,
 				providerId,
 			);
-			delete provider.disabledReason;
+			if (provider.disabledReason !== "credential-cleanup-failed") {
+				delete provider.disabledReason;
+			}
 		}
 
 		return this.persistSettings(next, [providerId], true);
@@ -871,6 +873,12 @@ export class SettingsControlPlane {
 	): Promise<ProviderCredentialStatus> {
 		if (!providerRequiresSecret(provider)) return { kind: "none" };
 		if (providerSupportsSecretKind(provider.kind, "oauth")) {
+			if (!this.secretBackendState.available) {
+				return {
+					kind: "oauth",
+					signedIn: false,
+				};
+			}
 			if (this.oauthOperations?.status) {
 				const status = await this.oauthOperations.status(provider.id);
 				if (!status.signedIn) {
@@ -937,12 +945,23 @@ export class SettingsControlPlane {
 		return this.error("unsupported_provider_auth", message, { providerId: message });
 	}
 
+	private async tryDeleteProviderCredentials(
+		provider: ProviderConfig,
+	): Promise<{ ok: boolean; failedRefs: ProviderSecretKind[] }> {
+		try {
+			return await this.deleteProviderCredentials(provider);
+		} catch {
+			return {
+				ok: false,
+				failedRefs: this.expectedCredentialKinds(provider),
+			};
+		}
+	}
+
 	private async deleteProviderCredentials(
 		provider: ProviderConfig,
 	): Promise<{ ok: boolean; failedRefs: ProviderSecretKind[] }> {
-		const expectedCredentialKinds = this.providerCredentialRefs(provider).map(
-			(ref) => ref.secretKind,
-		);
+		const expectedCredentialKinds = this.expectedCredentialKinds(provider);
 		if (
 			providerSupportsSecretKind(provider.kind, "oauth") &&
 			this.oauthOperations?.deleteCredentials
@@ -972,6 +991,10 @@ export class SettingsControlPlane {
 			ok: failedRefs.length === 0,
 			failedRefs: safeFailedCredentialRefs(failedRefs, expectedCredentialKinds),
 		};
+	}
+
+	private expectedCredentialKinds(provider: ProviderConfig): ProviderSecretKind[] {
+		return this.providerCredentialRefs(provider).map((ref) => ref.secretKind);
 	}
 
 	private async getValidationResult(

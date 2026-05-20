@@ -402,7 +402,7 @@ export class WebServer {
 				type: "settings_result",
 				result,
 			});
-			if (result.ok) {
+			if (result.snapshot) {
 				this.settingsSnapshot = result.snapshot;
 				this.broadcast({
 					type: "settings_updated",

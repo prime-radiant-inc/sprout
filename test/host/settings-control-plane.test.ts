@@ -318,6 +318,61 @@ describe("SettingsControlPlane", () => {
 		});
 	});
 
+	test("disabling a cleanup-failed provider preserves retry marker", async () => {
+		const deleteAttempts: string[] = [];
+		const plane = await makePlane({
+			oauthOperations: {
+				async deleteCredentials(providerId) {
+					deleteAttempts.push(providerId);
+					return { ok: true, failedRefs: [] };
+				},
+			},
+			initialSettings: {
+				version: 4,
+				providers: [
+					{
+						id: "openai-codex",
+						kind: "openai-codex",
+						label: "OpenAI Codex",
+						enabled: false,
+						disabledReason: "credential-cleanup-failed",
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {},
+				memoryModels: {},
+				agentModelOverrides: {},
+			},
+		});
+
+		const disabled = await plane.execute({
+			kind: "set_provider_enabled",
+			data: { providerId: "openai-codex", enabled: false },
+		});
+		if (!disabled.ok) throw new Error(disabled.message);
+		expect(disabled.snapshot.settings.providers[0]).toMatchObject({
+			id: "openai-codex",
+			enabled: false,
+			disabledReason: "credential-cleanup-failed",
+		});
+
+		const retried = await plane.execute({
+			kind: "retry_provider_delete",
+			data: { providerId: "openai-codex" },
+		});
+
+		expect(retried).toMatchObject({
+			ok: true,
+			snapshot: {
+				settings: {
+					providers: [],
+				},
+			},
+		});
+		expect(deleteAttempts).toEqual(["openai-codex"]);
+	});
+
 	test("does not report OpenAI Codex ready from a legacy api-key credential ref", async () => {
 		const secretStore = createSecretStore({ backend: "memory", platform: "darwin" });
 		await secretStore.setSecret(
@@ -358,6 +413,58 @@ describe("SettingsControlPlane", () => {
 				],
 			},
 		});
+	});
+
+	test("OpenAI Codex snapshots do not call OAuth status when secret backend is unavailable", async () => {
+		let statusCalls = 0;
+		const plane = await makePlane({
+			secretBackendState: {
+				backend: "memory",
+				available: false,
+				message: "secret backend unavailable",
+			},
+			oauthOperations: {
+				status() {
+					statusCalls += 1;
+					throw new Error("should not read OAuth status");
+				},
+			},
+			initialSettings: {
+				version: 4,
+				providers: [
+					{
+						id: "openai-codex",
+						kind: "openai-codex",
+						label: "OpenAI Codex",
+						enabled: true,
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {},
+				memoryModels: {},
+				agentModelOverrides: {},
+			},
+		});
+
+		const result = await plane.execute({ kind: "get_settings", data: {} });
+
+		expect(result).toMatchObject({
+			ok: true,
+			snapshot: {
+				providers: [
+					{
+						providerId: "openai-codex",
+						credentialStatus: {
+							kind: "oauth",
+							signedIn: false,
+						},
+						validationErrors: ["Secret storage backend is unavailable"],
+					},
+				],
+			},
+		});
+		expect(statusCalls).toBe(0);
 	});
 
 	test("rejects generic secret commands for OpenAI Codex providers", async () => {
@@ -1902,6 +2009,59 @@ describe("SettingsControlPlane", () => {
 		});
 		expect(deleteAttempts).toEqual(["openai-codex"]);
 		expect(JSON.stringify(result)).not.toContain("sprout/providers");
+	});
+
+	test("provider delete sanitizes credential cleanup exceptions after disabling provider", async () => {
+		const plane = await makePlane({
+			oauthOperations: {
+				async deleteCredentials() {
+					throw new Error("raw backend failed for sprout/providers/openai-codex/oauth");
+				},
+			},
+			initialSettings: {
+				version: 4,
+				providers: [
+					{
+						id: "openai-codex",
+						kind: "openai-codex",
+						label: "OpenAI Codex",
+						enabled: true,
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {},
+				memoryModels: {},
+				agentModelOverrides: {},
+			},
+		});
+
+		const result = await plane.execute({
+			kind: "delete_provider",
+			data: { providerId: "openai-codex" },
+		});
+
+		expect(result).toMatchObject({
+			ok: false,
+			code: "credential_cleanup_failed",
+			message: "Failed to delete provider credentials: oauth",
+			snapshot: {
+				settings: {
+					providers: [
+						{
+							id: "openai-codex",
+							enabled: false,
+							disabledReason: "credential-cleanup-failed",
+						},
+					],
+				},
+			},
+			fieldErrors: {
+				credentials: "Failed credential cleanup for: oauth",
+			},
+		});
+		expect(JSON.stringify(result)).not.toContain("sprout/providers");
+		expect(JSON.stringify(result)).not.toContain("raw backend");
 	});
 
 	test("retry provider delete removes provider after idempotent cleanup succeeds", async () => {
