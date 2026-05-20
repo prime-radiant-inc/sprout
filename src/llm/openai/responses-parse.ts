@@ -97,11 +97,7 @@ export function safeParseJSON(value: unknown): Record<string, unknown> {
 	}
 
 	try {
-		const parsed = JSON.parse(value);
-		if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-			return parsed;
-		}
-		return { raw: parsed };
+		return JSON.parse(value);
 	} catch {
 		return { raw: value };
 	}

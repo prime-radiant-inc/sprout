@@ -110,11 +110,13 @@ describe("OpenAIAdapter", () => {
 		expect(params.seed).toBe(123);
 	});
 
-	test("safeParseJSON returns records for parsed non-object values", () => {
+	test("safeParseJSON preserves valid JSON values", () => {
 		expect(safeParseJSON('{"ok":true}')).toEqual({ ok: true });
-		expect(safeParseJSON("[1,2]")).toEqual({ raw: [1, 2] });
-		expect(safeParseJSON('"hello"')).toEqual({ raw: "hello" });
+		expect(safeParseJSON("[1,2]") as unknown).toEqual([1, 2]);
+		expect(safeParseJSON('"hello"') as unknown).toBe("hello");
+		expect(safeParseJSON("null") as unknown).toBeNull();
 		expect(safeParseJSON("not json")).toEqual({ raw: "not json" });
+		expect(safeParseJSON(undefined)).toEqual({ raw: undefined });
 	});
 
 	test("openai-compatible complete uses chat completions and parses tool calls", async () => {
