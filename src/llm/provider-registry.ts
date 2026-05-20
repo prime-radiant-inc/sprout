@@ -81,7 +81,7 @@ export class ProviderRegistry {
 
 	private async validateProvider(provider: ProviderConfig): Promise<string[]> {
 		const hasSecret =
-			provider.enabled && providerRequiresSecret(provider)
+			provider.enabled && providerRequiresSecret(provider) && this.secretBackendState.available
 				? await this.hasRequiredProviderCredentials(provider)
 				: false;
 		return validateProviderRuntimeReadiness(provider, {

@@ -725,6 +725,7 @@ export class SettingsControlPlane {
 
 	private async providerHasSecret(provider: ProviderConfig): Promise<boolean> {
 		if (!providerRequiresSecret(provider)) return false;
+		if (!this.secretBackendState.available) return false;
 		const refs = this.providerCredentialRefs(provider);
 		if (refs.length === 0) return false;
 		return (await Promise.all(refs.map((ref) => this.secretStore.hasSecret(ref)))).every(Boolean);

@@ -127,7 +127,10 @@ export class OpenAICodexOAuthService {
 	async loginWithCode(input: LoginWithCodeInput): Promise<void> {
 		await this.withLifecycle(input.providerId, async () => {
 			await this.waitForRefresh(input.providerId);
-			const tokenResponse = await this.exchangeCodeForTokensImpl(input);
+			const tokenResponse = await withTimeout(
+				this.exchangeCodeForTokensImpl(input),
+				this.lifecycleTimeoutMs,
+			);
 			const refreshToken = requireTokenField(tokenResponse.refreshToken);
 			const accountId = extractAccountIdOrSignInAgain(tokenResponse);
 			assertUsableExpiry(tokenResponse.expiresAt, this.now());
@@ -172,25 +175,27 @@ export class OpenAICodexOAuthService {
 		providerId: string,
 		stored: OpenAICodexOAuthRecord,
 	): Promise<OpenAICodexRuntimeCredentials> {
-		const tokenResponse = await withTimeout(
-			this.refreshTokensImpl({ refreshToken: stored.refreshToken }),
-			this.lifecycleTimeoutMs,
-		);
-		const refreshToken = tokenResponse.refreshToken ?? stored.refreshToken;
-		const accountId = extractAccountIdOrSignInAgain(tokenResponse, stored.accountId);
-		assertUsableExpiry(tokenResponse.expiresAt, this.now());
-		const record = buildOAuthRecord({
-			tokenResponse,
-			refreshToken,
-			accountId,
-			updatedAt: this.currentIsoTimestamp(),
-		});
+		let record: OpenAICodexOAuthRecord;
+		try {
+			const tokenResponse = await withTimeout(
+				this.refreshTokensImpl({ refreshToken: stored.refreshToken }),
+				this.lifecycleTimeoutMs,
+			);
+			const refreshToken = tokenResponse.refreshToken ?? stored.refreshToken;
+			const accountId = extractAccountIdOrSignInAgain(tokenResponse, stored.accountId);
+			assertUsableExpiry(tokenResponse.expiresAt, this.now());
+			record = buildOAuthRecord({
+				tokenResponse,
+				refreshToken,
+				accountId,
+				updatedAt: this.currentIsoTimestamp(),
+			});
+		} catch (error) {
+			return this.recoverFromStaleRefreshFailure(providerId, stored, error);
+		}
 		const current = await this.readStoredRecord(providerId);
 		if (!isSameRefreshSource(current, stored)) {
-			if (!this.shouldRefresh(current)) {
-				return toRuntimeCredentials(current);
-			}
-			throw new Error(SIGN_IN_AGAIN_ERROR);
+			return this.runtimeCredentialsFromChangedRefreshSource(current);
 		}
 		await this.secretStore.setSecret(this.oauthRef(providerId), JSON.stringify(record));
 		return toRuntimeCredentials(record);
@@ -336,6 +341,32 @@ export class OpenAICodexOAuthService {
 
 	private currentIsoTimestamp(): string {
 		return new Date(this.now()).toISOString();
+	}
+
+	private async recoverFromStaleRefreshFailure(
+		providerId: string,
+		stored: OpenAICodexOAuthRecord,
+		error: unknown,
+	): Promise<OpenAICodexRuntimeCredentials> {
+		let current: OpenAICodexOAuthRecord;
+		try {
+			current = await this.readStoredRecord(providerId);
+		} catch {
+			throw error;
+		}
+		if (!isSameRefreshSource(current, stored) && !this.shouldRefresh(current)) {
+			return toRuntimeCredentials(current);
+		}
+		throw error;
+	}
+
+	private runtimeCredentialsFromChangedRefreshSource(
+		current: OpenAICodexOAuthRecord,
+	): OpenAICodexRuntimeCredentials {
+		if (!this.shouldRefresh(current)) {
+			return toRuntimeCredentials(current);
+		}
+		throw new Error(SIGN_IN_AGAIN_ERROR);
 	}
 }
 

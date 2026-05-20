@@ -153,6 +153,54 @@ describe("SecretStore", () => {
 		);
 	});
 
+	test("macos-keychain hasSecret distinguishes missing items from backend failures", async () => {
+		const missingStore = createSecretStore({
+			backend: "macos-keychain",
+			platform: "darwin",
+			async runCommand() {
+				return {
+					stdout: "",
+					stderr: "The specified item could not be found in the keychain.",
+					exitCode: 44,
+				};
+			},
+		});
+		await expect(missingStore.hasSecret(makeSecretRef("macos-keychain"))).resolves.toBe(false);
+
+		const failingStore = createSecretStore({
+			backend: "macos-keychain",
+			platform: "darwin",
+			async runCommand() {
+				return { stdout: "", stderr: "security failed", exitCode: 1 };
+			},
+		});
+		await expect(failingStore.hasSecret(makeSecretRef("macos-keychain"))).rejects.toThrow(
+			/security failed/i,
+		);
+	});
+
+	test("secret-service hasSecret distinguishes missing items from backend failures", async () => {
+		const missingStore = createSecretStore({
+			backend: "secret-service",
+			platform: "linux",
+			async runCommand() {
+				return { stdout: "", stderr: "", exitCode: 1 };
+			},
+		});
+		await expect(missingStore.hasSecret(makeSecretRef("secret-service"))).resolves.toBe(false);
+
+		const failingStore = createSecretStore({
+			backend: "secret-service",
+			platform: "linux",
+			async runCommand() {
+				return { stdout: "", stderr: "secret service unavailable", exitCode: 2 };
+			},
+		});
+		await expect(failingStore.hasSecret(makeSecretRef("secret-service"))).rejects.toThrow(
+			/secret service unavailable/i,
+		);
+	});
+
 	test("runtime creation degrades unsupported default backends without aborting", async () => {
 		const runtime = createSecretStoreRuntime({ platform: "win32" });
 
@@ -160,7 +208,9 @@ describe("SecretStore", () => {
 			available: false,
 			message: "Unsupported secret backend for platform: win32",
 		});
-		expect(await runtime.secretStore.hasSecret(makeSecretRef("memory"))).toBe(false);
+		await expect(runtime.secretStore.hasSecret(makeSecretRef("memory"))).rejects.toThrow(
+			/unsupported secret backend/i,
+		);
 		await expect(
 			runtime.secretStore.setSecret(makeSecretRef("memory"), "secret-value"),
 		).rejects.toThrow(/unsupported secret backend/i);

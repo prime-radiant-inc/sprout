@@ -408,6 +408,42 @@ describe("OpenAICodexOAuthService", () => {
 		expect(await readStoredOAuth(secretStore)).toEqual(newerRecord);
 	});
 
+	test("stale refresh failure returns newer usable stored credentials without overwriting", async () => {
+		let failRefresh: (() => void) | undefined;
+		const refreshStarted = deferred();
+		const { secretStore, service } = makeOAuthService({
+			refreshTokens: async () => {
+				refreshStarted.resolve();
+				await new Promise<void>((resolve) => {
+					failRefresh = resolve;
+				});
+				throw new Error("rotated elsewhere");
+			},
+			lifecycleTimeoutMs: 100,
+		});
+		const sourceRecord = expiredOAuthRecord("old-refresh");
+		const newerRecord = validOAuthRecord({
+			accessToken: jwt({ [ACCOUNT_ID_CLAIM]: "acct_new" }),
+			refreshToken: "newer-refresh",
+			expiresAt: "2026-05-20T12:30:00.000Z",
+			accountId: "acct_new",
+			updatedAt: "2026-05-20T12:01:00.000Z",
+		});
+		await writeStoredOAuth(secretStore, sourceRecord);
+
+		const refresh = service.resolveCredentials(PROVIDER_ID);
+		await refreshStarted.promise;
+		await writeStoredOAuth(secretStore, newerRecord);
+		failRefresh?.();
+
+		await expect(refresh).resolves.toEqual({
+			accessToken: jwt({ [ACCOUNT_ID_CLAIM]: "acct_new" }),
+			accountId: "acct_new",
+			expiresAt: "2026-05-20T12:30:00.000Z",
+		});
+		expect(await readStoredOAuth(secretStore)).toEqual(newerRecord);
+	});
+
 	test("refresh can fall back to stored account id when refreshed tokens omit account claims", async () => {
 		const { secretStore, service } = makeOAuthService({
 			refreshTokens: async () => tokenResponseWithoutAccount({ refreshToken: "new-refresh" }),
@@ -614,6 +650,20 @@ describe("OpenAICodexOAuthService", () => {
 			accountId: "acct_login",
 			refreshToken: "login-refresh",
 		});
+	});
+
+	test("login token exchange times out and releases lifecycle for later operations", async () => {
+		const { secretStore, service } = makeOAuthService({
+			exchangeCodeForTokens: async () => new Promise<TokenResponse>(() => {}),
+			lifecycleTimeoutMs: 2,
+		});
+		await writeStoredOAuth(secretStore, validOAuthRecord());
+
+		await expect(service.loginWithCode(LOGIN_INPUT)).rejects.toThrow(
+			"credential operation timed out",
+		);
+		await expect(service.logout(PROVIDER_ID)).resolves.toBeUndefined();
+		expect(await readStoredOAuth(secretStore)).toBeUndefined();
 	});
 
 	test("delete failure returns failed oauth ref and leaves credentials present", async () => {

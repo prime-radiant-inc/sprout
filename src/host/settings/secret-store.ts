@@ -176,7 +176,7 @@ class UnavailableSecretStore implements SecretStore {
 	constructor(private readonly message: string) {}
 
 	async getSecret(): Promise<string | undefined> {
-		return undefined;
+		throw new Error(this.message);
 	}
 
 	async setSecret(): Promise<void> {
@@ -188,7 +188,7 @@ class UnavailableSecretStore implements SecretStore {
 	}
 
 	async hasSecret(): Promise<boolean> {
-		return false;
+		throw new Error(this.message);
 	}
 }
 
@@ -204,7 +204,13 @@ class MacOsKeychainSecretStore implements SecretStore {
 			"sprout",
 			"-w",
 		]);
-		return result.exitCode === 0 ? result.stdout.trimEnd() : undefined;
+		if (result.exitCode === 0) {
+			return result.stdout.trimEnd();
+		}
+		if (isMacOsKeychainMissingSecret(result)) {
+			return undefined;
+		}
+		assertCommandSucceeded(result, "security");
 	}
 
 	async setSecret(ref: ProviderCredentialRef, value: string): Promise<void> {
@@ -229,6 +235,9 @@ class MacOsKeychainSecretStore implements SecretStore {
 			"-s",
 			"sprout",
 		]);
+		if (isMacOsKeychainMissingSecret(result)) {
+			return;
+		}
 		assertCommandSucceeded(result, "security");
 	}
 
@@ -248,7 +257,13 @@ class SecretServiceSecretStore implements SecretStore {
 			"account",
 			ref.storageKey,
 		]);
-		return result.exitCode === 0 ? result.stdout.trimEnd() : undefined;
+		if (result.exitCode === 0) {
+			return result.stdout.trimEnd();
+		}
+		if (isSecretServiceMissingSecret(result)) {
+			return undefined;
+		}
+		assertCommandSucceeded(result, "secret-tool");
 	}
 
 	async setSecret(ref: ProviderCredentialRef, value: string): Promise<void> {
@@ -268,6 +283,9 @@ class SecretServiceSecretStore implements SecretStore {
 			"account",
 			ref.storageKey,
 		]);
+		if (isSecretServiceMissingSecret(result)) {
+			return;
+		}
 		assertCommandSucceeded(result, "secret-tool");
 	}
 
@@ -292,4 +310,12 @@ function assertCommandSucceeded(result: RunCommandResult, cmd: string): void {
 	if (result.exitCode !== 0) {
 		throw new Error(result.stderr.trim() || `${cmd} exited with code ${result.exitCode}`);
 	}
+}
+
+function isMacOsKeychainMissingSecret(result: RunCommandResult): boolean {
+	return result.exitCode === 44 || result.stderr.toLowerCase().includes("could not be found");
+}
+
+function isSecretServiceMissingSecret(result: RunCommandResult): boolean {
+	return result.exitCode === 1 && result.stdout.trim() === "" && result.stderr.trim() === "";
 }
