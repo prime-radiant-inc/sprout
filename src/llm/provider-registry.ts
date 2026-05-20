@@ -1,8 +1,8 @@
-import {
-	createProviderSecretRef,
-	type SecretBackendState,
-	type SecretStorageBackend,
-	type SecretStore,
+import { createProviderCredentialRefForKind } from "../host/settings/provider-credentials.ts";
+import type {
+	SecretBackendState,
+	SecretStorageBackend,
+	SecretStore,
 } from "../host/settings/secret-store.ts";
 import {
 	providerRequiresSecret,
@@ -78,7 +78,7 @@ export class ProviderRegistry {
 
 	private async validateProvider(provider: ProviderConfig): Promise<string[]> {
 		const hasSecret = providerRequiresSecret(provider)
-			? await this.secretStore.hasSecret(this.secretRef(provider.id))
+			? await this.secretStore.hasSecret(this.secretRef(provider))
 			: false;
 		return validateProviderRuntimeReadiness(provider, {
 			hasSecret,
@@ -88,11 +88,15 @@ export class ProviderRegistry {
 
 	private async getProviderSecret(provider: ProviderConfig): Promise<string | undefined> {
 		if (!providerRequiresSecret(provider)) return undefined;
-		return this.secretStore.getSecret(this.secretRef(provider.id));
+		return this.secretStore.getSecret(this.secretRef(provider));
 	}
 
-	private secretRef(providerId: string) {
-		return createProviderSecretRef(providerId, this.secretBackend);
+	private secretRef(provider: ProviderConfig) {
+		const ref = createProviderCredentialRefForKind(provider.id, provider.kind, this.secretBackend);
+		if (!ref) {
+			throw new Error(`No credential declaration for provider kind: ${provider.kind}`);
+		}
+		return ref;
 	}
 }
 

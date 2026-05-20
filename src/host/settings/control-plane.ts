@@ -8,11 +8,12 @@ import {
 	type ModelConfigOverrides,
 } from "./model-overrides.ts";
 import {
-	createProviderSecretRef,
-	type SecretBackendState,
-	type SecretStorageBackend,
-	type SecretStore,
-} from "./secret-store.ts";
+	createProviderCredentialRef,
+	createProviderCredentialRefForKind,
+	type ProviderCredentialRef,
+	providerSupportsSecretKind,
+} from "./provider-credentials.ts";
+import type { SecretBackendState, SecretStorageBackend, SecretStore } from "./secret-store.ts";
 import {
 	type AgentModelDescriptor,
 	type AgentModelOverride,
@@ -302,6 +303,8 @@ export class SettingsControlPlane {
 		const next = structuredClone(this.settings);
 		const providerIndex = next.providers.findIndex((provider) => provider.id === providerId);
 		if (providerIndex === -1) return this.error("not_found", `Unknown provider: ${providerId}`);
+		const provider = next.providers[providerIndex];
+		if (!provider) return this.error("not_found", `Unknown provider: ${providerId}`);
 
 		next.providers.splice(providerIndex, 1);
 		next.defaults = removeDefaultsForProvider(next.defaults, providerId);
@@ -321,7 +324,8 @@ export class SettingsControlPlane {
 		}
 
 		try {
-			await this.secretStore.deleteSecret(createProviderSecretRef(providerId, this.secretBackend));
+			const ref = this.providerCredentialRef(provider);
+			if (ref) await this.secretStore.deleteSecret(ref);
 		} catch (error) {
 			this.addRuntimeWarning({
 				code: "secret_cleanup_failed",
@@ -340,10 +344,12 @@ export class SettingsControlPlane {
 	): Promise<SettingsCommandResult> {
 		const provider = this.settings.providers.find((candidate) => candidate.id === providerId);
 		if (!provider) return this.error("not_found", `Unknown provider: ${providerId}`);
+		const unsupported = this.rejectGenericSecretCommandIfUnsupported(provider);
+		if (unsupported) return unsupported;
 
 		try {
 			await this.secretStore.setSecret(
-				createProviderSecretRef(providerId, this.secretBackend),
+				createProviderCredentialRef(providerId, "api-key", this.secretBackend),
 				secret,
 			);
 		} catch (error) {
@@ -370,9 +376,13 @@ export class SettingsControlPlane {
 	private async deleteProviderSecret(providerId: string): Promise<SettingsCommandResult> {
 		const provider = this.settings.providers.find((candidate) => candidate.id === providerId);
 		if (!provider) return this.error("not_found", `Unknown provider: ${providerId}`);
+		const unsupported = this.rejectGenericSecretCommandIfUnsupported(provider);
+		if (unsupported) return unsupported;
 
 		try {
-			await this.secretStore.deleteSecret(createProviderSecretRef(providerId, this.secretBackend));
+			await this.secretStore.deleteSecret(
+				createProviderCredentialRef(providerId, "api-key", this.secretBackend),
+			);
 		} catch (error) {
 			if (!this.secretBackendState.available) {
 				return this.error(
@@ -714,12 +724,26 @@ export class SettingsControlPlane {
 
 	private async providerHasSecret(provider: ProviderConfig): Promise<boolean> {
 		if (!providerRequiresSecret(provider)) return false;
-		return this.secretStore.hasSecret(createProviderSecretRef(provider.id, this.secretBackend));
+		const ref = this.providerCredentialRef(provider);
+		return ref ? this.secretStore.hasSecret(ref) : false;
 	}
 
 	private async getProviderSecret(provider: ProviderConfig): Promise<string | undefined> {
 		if (!providerRequiresSecret(provider)) return undefined;
-		return this.secretStore.getSecret(createProviderSecretRef(provider.id, this.secretBackend));
+		const ref = this.providerCredentialRef(provider);
+		return ref ? this.secretStore.getSecret(ref) : undefined;
+	}
+
+	private providerCredentialRef(provider: ProviderConfig): ProviderCredentialRef | undefined {
+		return createProviderCredentialRefForKind(provider.id, provider.kind, this.secretBackend);
+	}
+
+	private rejectGenericSecretCommandIfUnsupported(
+		provider: ProviderConfig,
+	): SettingsCommandResult | undefined {
+		if (providerSupportsSecretKind(provider.kind, "api-key")) return undefined;
+		const message = unsupportedGenericSecretMessage(provider.kind);
+		return this.error("unsupported_provider_auth", message, { secret: message });
 	}
 
 	private async getValidationResult(
@@ -877,6 +901,13 @@ function buildNextProviderId(providers: ProviderConfig[], kind: ProviderConfig["
 	let suffix = 2;
 	while (ids.has(`${kind}-${suffix}`)) suffix += 1;
 	return `${kind}-${suffix}`;
+}
+
+function unsupportedGenericSecretMessage(kind: ProviderConfig["kind"]): string {
+	if (kind === "openai-codex") {
+		return "OpenAI Codex uses ChatGPT OAuth. Generic provider secret commands are not supported.";
+	}
+	return `Provider kind '${kind}' does not support generic provider secret commands.`;
 }
 
 function removeDefaultsForProvider(

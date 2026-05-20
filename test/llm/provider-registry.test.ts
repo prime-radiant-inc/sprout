@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { createProviderCredentialRef } from "../../src/host/settings/provider-credentials.ts";
 import {
 	createProviderSecretRef,
 	createSecretStore,
@@ -120,6 +121,36 @@ describe("ProviderRegistry", () => {
 		const entry = await registry.getEntry("openai");
 		expect(entry?.adapter).toBeUndefined();
 		expect(entry?.validationErrors).toContain("API key is required");
+	});
+
+	test("does not satisfy OpenAI Codex readiness with an api-key credential ref", async () => {
+		const secretStore = createSecretStore({ backend: "memory", platform: "darwin" });
+		await secretStore.setSecret(
+			createProviderSecretRef("openai-codex", "memory"),
+			"api-key-secret",
+		);
+
+		const registry = new ProviderRegistry({
+			settings: makeSettings([
+				{
+					id: "openai-codex",
+					kind: "openai-codex",
+					label: "OpenAI Codex",
+					enabled: true,
+					createdAt: "2026-03-11T12:00:00.000Z",
+					updatedAt: "2026-03-11T12:00:00.000Z",
+				},
+			]),
+			secretStore,
+			secretBackend: "memory",
+		});
+
+		const entry = await registry.getEntry("openai-codex");
+		expect(entry?.adapter).toBeUndefined();
+		expect(entry?.validationErrors).toEqual(["ChatGPT OAuth login is required for OpenAI Codex"]);
+		expect(
+			await secretStore.hasSecret(createProviderCredentialRef("openai-codex", "oauth", "memory")),
+		).toBe(false);
 	});
 
 	test("reports unavailable secret backend distinctly instead of collapsing it into a missing secret", async () => {

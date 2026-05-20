@@ -10,6 +10,7 @@ import {
 	type ModelConfigOverrides,
 	parseModelConfigOverrides,
 } from "../../src/host/settings/model-overrides.ts";
+import { createProviderCredentialRef } from "../../src/host/settings/provider-credentials.ts";
 import {
 	createProviderSecretRef,
 	createSecretStore,
@@ -158,6 +159,107 @@ describe("SettingsControlPlane", () => {
 			},
 		});
 		expect(snapshots).toHaveLength(2);
+	});
+
+	test("does not report OpenAI Codex ready from a legacy api-key credential ref", async () => {
+		const secretStore = createSecretStore({ backend: "memory", platform: "darwin" });
+		await secretStore.setSecret(
+			createProviderSecretRef("openai-codex", "memory"),
+			"api-key-secret",
+		);
+		const plane = await makePlane({
+			secretStore,
+			initialSettings: {
+				version: 4,
+				providers: [
+					{
+						id: "openai-codex",
+						kind: "openai-codex",
+						label: "OpenAI Codex",
+						enabled: true,
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {},
+				memoryModels: {},
+				agentModelOverrides: {},
+			},
+		});
+
+		const result = await plane.execute({ kind: "get_settings", data: {} });
+
+		expect(result).toMatchObject({
+			ok: true,
+			snapshot: {
+				providers: [
+					{
+						providerId: "openai-codex",
+						hasSecret: false,
+						validationErrors: ["ChatGPT OAuth login is required for OpenAI Codex"],
+					},
+				],
+			},
+		});
+	});
+
+	test("rejects generic secret commands for OpenAI Codex providers", async () => {
+		const secretStore = createSecretStore({ backend: "memory", platform: "darwin" });
+		await secretStore.setSecret(
+			createProviderCredentialRef("openai-codex", "oauth", "memory"),
+			"oauth-secret",
+		);
+		const plane = await makePlane({
+			secretStore,
+			initialSettings: {
+				version: 4,
+				providers: [
+					{
+						id: "openai-codex",
+						kind: "openai-codex",
+						label: "OpenAI Codex",
+						enabled: true,
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {},
+				memoryModels: {},
+				agentModelOverrides: {},
+			},
+		});
+
+		const setResult = await plane.execute({
+			kind: "set_provider_secret",
+			data: {
+				providerId: "openai-codex",
+				secret: "api-key-secret",
+			},
+		});
+		const deleteResult = await plane.execute({
+			kind: "delete_provider_secret",
+			data: {
+				providerId: "openai-codex",
+			},
+		});
+
+		expect(setResult).toEqual({
+			ok: false,
+			code: "unsupported_provider_auth",
+			message:
+				"OpenAI Codex uses ChatGPT OAuth. Generic provider secret commands are not supported.",
+			fieldErrors: {
+				secret:
+					"OpenAI Codex uses ChatGPT OAuth. Generic provider secret commands are not supported.",
+			},
+		});
+		expect(deleteResult).toEqual(setResult);
+		expect(
+			await secretStore.getSecret(createProviderCredentialRef("openai-codex", "oauth", "memory")),
+		).toBe("oauth-secret");
+		expect(await secretStore.hasSecret(createProviderSecretRef("openai-codex", "memory"))).toBe(
+			false,
+		);
 	});
 
 	test("warns when enabled providers exist without explicit memory models", async () => {

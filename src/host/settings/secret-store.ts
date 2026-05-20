@@ -1,13 +1,8 @@
-import { createProviderCredentialRef } from "./provider-credentials.ts";
+import { createProviderCredentialRef, type ProviderCredentialRef } from "./provider-credentials.ts";
 
 export type SecretStorageBackend = "memory" | "macos-keychain" | "secret-service";
 
-export interface ProviderSecretRef {
-	providerId: string;
-	secretKind: "api-key";
-	storageBackend: SecretStorageBackend;
-	storageKey: string;
-}
+export type ProviderSecretRef = ProviderCredentialRef<"api-key">;
 
 export function createProviderSecretRef(
 	providerId: string,
@@ -17,10 +12,10 @@ export function createProviderSecretRef(
 }
 
 export interface SecretStore {
-	getSecret(ref: ProviderSecretRef): Promise<string | undefined>;
-	setSecret(ref: ProviderSecretRef, value: string): Promise<void>;
-	deleteSecret(ref: ProviderSecretRef): Promise<void>;
-	hasSecret(ref: ProviderSecretRef): Promise<boolean>;
+	getSecret(ref: ProviderCredentialRef): Promise<string | undefined>;
+	setSecret(ref: ProviderCredentialRef, value: string): Promise<void>;
+	deleteSecret(ref: ProviderCredentialRef): Promise<void>;
+	hasSecret(ref: ProviderCredentialRef): Promise<boolean>;
 }
 
 export interface RunCommandResult {
@@ -160,19 +155,19 @@ function parseSecretBackend(value: string | undefined): SecretStorageBackend | u
 class MemorySecretStore implements SecretStore {
 	private readonly secrets = new Map<string, string>();
 
-	async getSecret(ref: ProviderSecretRef): Promise<string | undefined> {
+	async getSecret(ref: ProviderCredentialRef): Promise<string | undefined> {
 		return this.secrets.get(ref.storageKey);
 	}
 
-	async setSecret(ref: ProviderSecretRef, value: string): Promise<void> {
+	async setSecret(ref: ProviderCredentialRef, value: string): Promise<void> {
 		this.secrets.set(ref.storageKey, value);
 	}
 
-	async deleteSecret(ref: ProviderSecretRef): Promise<void> {
+	async deleteSecret(ref: ProviderCredentialRef): Promise<void> {
 		this.secrets.delete(ref.storageKey);
 	}
 
-	async hasSecret(ref: ProviderSecretRef): Promise<boolean> {
+	async hasSecret(ref: ProviderCredentialRef): Promise<boolean> {
 		return this.secrets.has(ref.storageKey);
 	}
 }
@@ -200,7 +195,7 @@ class UnavailableSecretStore implements SecretStore {
 class MacOsKeychainSecretStore implements SecretStore {
 	constructor(private readonly runCommandImpl: RunCommand) {}
 
-	async getSecret(ref: ProviderSecretRef): Promise<string | undefined> {
+	async getSecret(ref: ProviderCredentialRef): Promise<string | undefined> {
 		const result = await this.runCommandImpl("security", [
 			"find-generic-password",
 			"-a",
@@ -212,7 +207,7 @@ class MacOsKeychainSecretStore implements SecretStore {
 		return result.exitCode === 0 ? result.stdout.trimEnd() : undefined;
 	}
 
-	async setSecret(ref: ProviderSecretRef, value: string): Promise<void> {
+	async setSecret(ref: ProviderCredentialRef, value: string): Promise<void> {
 		const result = await this.runCommandImpl("security", [
 			"add-generic-password",
 			"-U",
@@ -226,7 +221,7 @@ class MacOsKeychainSecretStore implements SecretStore {
 		assertCommandSucceeded(result, "security");
 	}
 
-	async deleteSecret(ref: ProviderSecretRef): Promise<void> {
+	async deleteSecret(ref: ProviderCredentialRef): Promise<void> {
 		const result = await this.runCommandImpl("security", [
 			"delete-generic-password",
 			"-a",
@@ -237,7 +232,7 @@ class MacOsKeychainSecretStore implements SecretStore {
 		assertCommandSucceeded(result, "security");
 	}
 
-	async hasSecret(ref: ProviderSecretRef): Promise<boolean> {
+	async hasSecret(ref: ProviderCredentialRef): Promise<boolean> {
 		return (await this.getSecret(ref)) !== undefined;
 	}
 }
@@ -245,7 +240,7 @@ class MacOsKeychainSecretStore implements SecretStore {
 class SecretServiceSecretStore implements SecretStore {
 	constructor(private readonly runCommandImpl: RunCommand) {}
 
-	async getSecret(ref: ProviderSecretRef): Promise<string | undefined> {
+	async getSecret(ref: ProviderCredentialRef): Promise<string | undefined> {
 		const result = await this.runCommandImpl("secret-tool", [
 			"lookup",
 			"service",
@@ -256,7 +251,7 @@ class SecretServiceSecretStore implements SecretStore {
 		return result.exitCode === 0 ? result.stdout.trimEnd() : undefined;
 	}
 
-	async setSecret(ref: ProviderSecretRef, value: string): Promise<void> {
+	async setSecret(ref: ProviderCredentialRef, value: string): Promise<void> {
 		const result = await this.runCommandImpl(
 			"secret-tool",
 			["store", "--label=Sprout", "service", "sprout", "account", ref.storageKey],
@@ -265,7 +260,7 @@ class SecretServiceSecretStore implements SecretStore {
 		assertCommandSucceeded(result, "secret-tool");
 	}
 
-	async deleteSecret(ref: ProviderSecretRef): Promise<void> {
+	async deleteSecret(ref: ProviderCredentialRef): Promise<void> {
 		const result = await this.runCommandImpl("secret-tool", [
 			"clear",
 			"service",
@@ -276,7 +271,7 @@ class SecretServiceSecretStore implements SecretStore {
 		assertCommandSucceeded(result, "secret-tool");
 	}
 
-	async hasSecret(ref: ProviderSecretRef): Promise<boolean> {
+	async hasSecret(ref: ProviderCredentialRef): Promise<boolean> {
 		return (await this.getSecret(ref)) !== undefined;
 	}
 }

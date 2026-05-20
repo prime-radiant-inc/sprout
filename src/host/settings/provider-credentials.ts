@@ -24,6 +24,23 @@ export function getProviderCredentialKinds(kind: ProviderKind): readonly Provide
 	return PROVIDER_CREDENTIAL_KINDS[kind];
 }
 
+export function providerSupportsSecretKind(
+	kind: ProviderKind,
+	secretKind: ProviderSecretKind,
+): boolean {
+	return getProviderCredentialKinds(kind).includes(secretKind);
+}
+
+export function createProviderCredentialRefForKind(
+	providerId: string,
+	providerKind: ProviderKind,
+	storageBackend: SecretStorageBackend,
+): ProviderCredentialRef | undefined {
+	const [secretKind] = getProviderCredentialKinds(providerKind);
+	if (!secretKind) return undefined;
+	return createProviderCredentialRef(providerId, secretKind, storageBackend);
+}
+
 export function createProviderCredentialRef(
 	providerId: string,
 	secretKind: "api-key",
@@ -34,6 +51,11 @@ export function createProviderCredentialRef(
 	secretKind: "oauth",
 	storageBackend: SecretStorageBackend,
 ): ProviderCredentialRef<"oauth">;
+export function createProviderCredentialRef(
+	providerId: string,
+	secretKind: ProviderSecretKind,
+	storageBackend: SecretStorageBackend,
+): ProviderCredentialRef<ProviderSecretKind>;
 export function createProviderCredentialRef(
 	providerId: string,
 	secretKind: ProviderSecretKind,
