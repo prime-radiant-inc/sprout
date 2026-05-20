@@ -1483,6 +1483,64 @@ describe("SettingsControlPlane", () => {
 		).toBe(false);
 	});
 
+	test("sorts provider catalog models in reverse natural id order", async () => {
+		const secretStore = createSecretStore({ backend: "memory", platform: "darwin" });
+		await secretStore.setSecret(createProviderSecretRef("openai", "memory"), "openai-secret");
+		const plane = await makePlane({
+			secretStore,
+			initialCatalog: [
+				{
+					providerId: "openai",
+					models: [
+						{ id: "gpt-5.4", label: "gpt-5.4", source: "remote" },
+						{ id: "gpt-10.1", label: "gpt-10.1", source: "remote" },
+						{ id: "gpt-5.10", label: "gpt-5.10", source: "remote" },
+					],
+				},
+			],
+			refreshModels: async () => [
+				{ id: "gpt-5.3-codex", label: "gpt-5.3-codex", source: "remote" },
+				{ id: "gpt-5.4", label: "gpt-5.4", source: "remote" },
+				{ id: "gpt-5.10", label: "gpt-5.10", source: "remote" },
+			],
+			initialSettings: {
+				version: 4,
+				providers: [
+					{
+						id: "openai",
+						kind: "openai",
+						label: "OpenAI",
+						enabled: true,
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {},
+				memoryModels: {},
+				agentModelOverrides: {},
+			},
+		});
+
+		const initial = await plane.execute({ kind: "get_settings", data: {} });
+		if (!initial.ok) throw new Error(initial.message);
+		expect(initial.snapshot.catalog[0]?.models.map((model) => model.id)).toEqual([
+			"gpt-10.1",
+			"gpt-5.10",
+			"gpt-5.4",
+		]);
+
+		const refreshed = await plane.execute({
+			kind: "refresh_provider_models",
+			data: { providerId: "openai" },
+		});
+		if (!refreshed.ok) throw new Error(refreshed.message);
+		expect(refreshed.snapshot.catalog[0]?.models.map((model) => model.id)).toEqual([
+			"gpt-5.10",
+			"gpt-5.4",
+			"gpt-5.3-codex",
+		]);
+	});
+
 	test("sets default models, clears them on delete, and removes stored secrets", async () => {
 		const secretStore = createSecretStore({ backend: "memory", platform: "darwin" });
 		await secretStore.setSecret(createProviderSecretRef("openai", "memory"), "openai-secret");

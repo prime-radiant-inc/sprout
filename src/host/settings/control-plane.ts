@@ -32,6 +32,11 @@ import {
 	validateProviderRuntimeReadiness,
 } from "./validation.ts";
 
+const MODEL_ID_COLLATOR = new Intl.Collator(undefined, {
+	numeric: true,
+	sensitivity: "base",
+});
+
 export interface ProviderModel {
 	id: string;
 	label: string;
@@ -855,7 +860,13 @@ export class SettingsControlPlane {
 	private buildCatalogEntries(): ProviderCatalogEntry[] {
 		return this.settings.providers.map((provider) => {
 			const entry = this.providerCatalog.get(provider.id);
-			if (entry) return structuredClone(entry);
+			if (entry) {
+				const cloned = structuredClone(entry);
+				return {
+					...cloned,
+					models: sortProviderModels(cloned.models),
+				};
+			}
 			return {
 				providerId: provider.id,
 				models: [],
@@ -1229,6 +1240,10 @@ function credentialStatusHasSecret(status: ProviderCredentialStatus): boolean {
 		case "oauth":
 			return status.signedIn;
 	}
+}
+
+function sortProviderModels(models: ProviderModel[]): ProviderModel[] {
+	return [...models].sort((left, right) => MODEL_ID_COLLATOR.compare(right.id, left.id));
 }
 
 function providerErrorMessage(error: unknown): string {
