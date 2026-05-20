@@ -14,6 +14,7 @@ import {
 	type ProviderSecretKind,
 	providerSupportsSecretKind,
 } from "./provider-credentials.ts";
+import { redactCredentialText } from "./redaction.ts";
 import type { SecretBackendState, SecretStorageBackend, SecretStore } from "./secret-store.ts";
 import {
 	type AgentModelDescriptor,
@@ -568,6 +569,11 @@ export class SettingsControlPlane {
 		const next = structuredClone(this.settings);
 		const provider = next.providers.find((candidate) => candidate.id === providerId);
 		if (!provider) return this.error("not_found", `Unknown provider: ${providerId}`);
+		if (enabled && provider.disabledReason === "credential-cleanup-failed") {
+			const message =
+				"Provider credential cleanup is incomplete. Retry delete or sign in again before enabling.";
+			return this.error("validation_failed", message, { enabled: message });
+		}
 
 		provider.enabled = enabled;
 		provider.updatedAt = this.now();
@@ -612,7 +618,7 @@ export class SettingsControlPlane {
 			delete state.connectionError;
 		} catch (error) {
 			state.connectionStatus = "error";
-			state.connectionError = error instanceof Error ? error.message : String(error);
+			state.connectionError = providerErrorMessage(error);
 		}
 		return this.emitUpdatedSnapshot();
 	}
@@ -760,7 +766,7 @@ export class SettingsControlPlane {
 			delete state.catalogError;
 		} catch (error) {
 			state.connectionStatus = "error";
-			state.connectionError = error instanceof Error ? error.message : String(error);
+			state.connectionError = providerErrorMessage(error);
 			state.catalogStatus = "error";
 			state.catalogError = state.connectionError;
 		}
@@ -1217,6 +1223,10 @@ function credentialStatusHasSecret(status: ProviderCredentialStatus): boolean {
 		case "oauth":
 			return status.signedIn;
 	}
+}
+
+function providerErrorMessage(error: unknown): string {
+	return redactCredentialText(error instanceof Error ? error.message : String(error));
 }
 
 function removeProviderFromSettings(settings: SproutSettings, providerId: string): SproutSettings {

@@ -373,6 +373,75 @@ describe("SettingsControlPlane", () => {
 		expect(deleteAttempts).toEqual(["openai-codex"]);
 	});
 
+	test("enabling a cleanup-failed OAuth provider preserves retry marker", async () => {
+		const operations: string[] = [];
+		const plane = await makePlane({
+			oauthOperations: {
+				status(providerId) {
+					operations.push(`status:${providerId}`);
+					return { signedIn: true };
+				},
+				async login(providerId) {
+					operations.push(`login:${providerId}`);
+				},
+				async deleteCredentials(providerId) {
+					operations.push(`deleteCredentials:${providerId}`);
+					return { ok: true, failedRefs: [] };
+				},
+			},
+			initialSettings: {
+				version: 4,
+				providers: [
+					{
+						id: "openai-codex",
+						kind: "openai-codex",
+						label: "OpenAI Codex",
+						enabled: false,
+						disabledReason: "credential-cleanup-failed",
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {},
+				memoryModels: {},
+				agentModelOverrides: {},
+			},
+		});
+
+		const result = await plane.execute({
+			kind: "set_provider_enabled",
+			data: { providerId: "openai-codex", enabled: true },
+		});
+
+		expect(result).toEqual({
+			ok: false,
+			code: "validation_failed",
+			message:
+				"Provider credential cleanup is incomplete. Retry delete or sign in again before enabling.",
+			fieldErrors: {
+				enabled:
+					"Provider credential cleanup is incomplete. Retry delete or sign in again before enabling.",
+			},
+		});
+		expect(operations).toEqual([]);
+
+		const snapshot = await plane.execute({ kind: "get_settings", data: {} });
+		expect(snapshot).toMatchObject({
+			ok: true,
+			snapshot: {
+				settings: {
+					providers: [
+						{
+							id: "openai-codex",
+							enabled: false,
+							disabledReason: "credential-cleanup-failed",
+						},
+					],
+				},
+			},
+		});
+	});
+
 	test("does not report OpenAI Codex ready from a legacy api-key credential ref", async () => {
 		const secretStore = createSecretStore({ backend: "memory", platform: "darwin" });
 		await secretStore.setSecret(
@@ -2226,6 +2295,86 @@ describe("SettingsControlPlane", () => {
 				],
 			},
 		});
+	});
+
+	test("redacts credential text from OAuth connection and catalog errors", async () => {
+		const rawMessage =
+			"failed sprout/providers/openai-codex/oauth callback http://127.0.0.1/callback?code=abc123&state=state456 access_token=token_secret sk-live-secret";
+		const plane = await makePlane({
+			initialSettings: {
+				version: 4,
+				providers: [
+					{
+						id: "openai-codex",
+						kind: "openai-codex",
+						label: "OpenAI Codex",
+						enabled: true,
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {},
+				memoryModels: {},
+				agentModelOverrides: {},
+			},
+			oauthOperations: {
+				status: () => ({ signedIn: true }),
+			},
+			checkConnection: async () => {
+				throw new Error(rawMessage);
+			},
+			refreshModels: async () => {
+				throw new Error(rawMessage);
+			},
+		});
+
+		const connection = await plane.execute({
+			kind: "test_provider_connection",
+			data: { providerId: "openai-codex" },
+		});
+		expect(connection).toMatchObject({
+			ok: true,
+			snapshot: {
+				providers: [
+					{
+						providerId: "openai-codex",
+						connectionStatus: "error",
+						connectionError:
+							"failed [redacted] callback http://127.0.0.1/callback?code=[redacted]&state=[redacted] access_token=[redacted] [redacted]",
+					},
+				],
+			},
+		});
+
+		const refreshed = await plane.execute({
+			kind: "refresh_provider_models",
+			data: { providerId: "openai-codex" },
+		});
+		expect(refreshed).toMatchObject({
+			ok: true,
+			snapshot: {
+				providers: [
+					{
+						providerId: "openai-codex",
+						connectionStatus: "error",
+						connectionError:
+							"failed [redacted] callback http://127.0.0.1/callback?code=[redacted]&state=[redacted] access_token=[redacted] [redacted]",
+						catalogStatus: "error",
+						catalogError:
+							"failed [redacted] callback http://127.0.0.1/callback?code=[redacted]&state=[redacted] access_token=[redacted] [redacted]",
+					},
+				],
+			},
+		});
+
+		for (const result of [connection, refreshed]) {
+			const payload = JSON.stringify(result);
+			expect(payload).not.toContain("sprout/providers/openai-codex/oauth");
+			expect(payload).not.toContain("abc123");
+			expect(payload).not.toContain("state456");
+			expect(payload).not.toContain("token_secret");
+			expect(payload).not.toContain("sk-live-secret");
+		}
 	});
 
 	test("returns ok false when a mutation cannot be persisted", async () => {
