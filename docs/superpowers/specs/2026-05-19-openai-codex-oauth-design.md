@@ -167,12 +167,21 @@ OAuth storage keys are deterministic from the provider id:
 sprout/providers/<providerId>/oauth
 ```
 
+Provider ids used in secret keys must already be validated to Sprout's safe provider-id character
+set. If that validation does not guarantee no `/`, path-like segments, control characters, or
+backend-significant delimiters, the secret-store layer must encode the provider id before composing
+the storage key. The same helper must be used for get, set, status, logout, and provider deletion.
+
 The active secret backend is selected the same way existing API-key credentials select it. The
 backend name is part of the runtime `ProviderSecretRef` because the secret-store implementation
 needs it, but it is not persisted in provider settings.
 
-Logout deletes only the OAuth secret for that provider id. Deleting a provider must delete both its
-API-key and OAuth secret refs so abandoned credentials do not remain in the OS secret store.
+Logout deletes only the OAuth secret for that provider id and clears cached account display state
+and cached Codex models for that provider. Deleting a provider must delete both its API-key and
+OAuth secret refs so abandoned credentials do not remain in the OS secret store. Provider deletion
+should report secret-deletion failures clearly; it must not silently leave credentials behind. If
+settings deletion and secret deletion cannot be made transactional, the implementation should choose
+the safer behavior: keep the provider config and report the deletion failure so the user can retry.
 
 Provider ids are stable identifiers. The settings UI may edit a provider label, but it should not
 rename provider ids in this iteration. If provider-id renaming is added later, it must either move
@@ -233,6 +242,12 @@ The login flow should set a finite timeout, clean up the listener on timeout, an
 pasteback fallback with the same state validation. Auth codes, access tokens, refresh tokens, and
 authorization headers must never be logged or rendered in error messages.
 
+Manual pasteback accepts either the full callback URL or the raw authorization code plus the pending
+state value. Full callback URLs must be parsed with the same path and state validation as the local
+callback listener. Raw-code pasteback is only valid when it is tied to the still-pending one-shot
+login state in memory; it must not skip state validation. Pasteback errors must redact `code`,
+`state`, and the original URL.
+
 Token exchange and refresh use form-encoded POSTs to the token URL. The initial exchange must return
 a refresh token. Later refresh responses may rotate the refresh token; when they do, Sprout should
 persist the replacement, and when they do not, Sprout should preserve the existing refresh token.
@@ -251,6 +266,10 @@ Initial login must fail if no account id can be extracted from either token. Ref
 no account id can be extracted and no previously stored account id exists. Malformed JWTs should
 produce an OAuth credential error that redacts the token value.
 
+Initial credential persistence must happen only after token exchange, expiry parsing, and account-id
+extraction all succeed. Sprout should never write a partial initial OAuth record that lacks
+`refreshToken`, `expiresAt`, or `accountId`.
+
 ## Refresh Concurrency
 
 Refreshing OAuth credentials must be serialized per provider id. Model refresh, connection checks,
@@ -258,15 +277,36 @@ streaming completions, and non-streaming completions may request a valid token a
 If credentials are expired or inside the refresh skew window, only one refresh request should run
 for that provider id; other callers should await the same in-flight refresh result.
 
+The first implementation only needs to guarantee this within one Sprout host process.
+Multi-process coordination across two independent Sprout processes is out of scope unless the
+existing secret-store backend already provides a usable compare-and-swap or lock primitive. If
+Sprout later supports multiple simultaneous host processes against the same settings and secret
+store, this spec must be extended with an interprocess credential lock or versioned write contract
+before enabling that mode.
+
 Credential persistence should avoid stale writes. A refresh operation should load the current stored
 record, refresh the current refresh token, and then persist the result only if it is still based on
 the latest known credential generation. A simple implementation can store an `updatedAt` or
 `version` field and re-read before writing. If another refresh already wrote a newer record, the
 later caller should use the newer record instead of overwriting it with stale tokens.
 
+Refresh should use a fixed skew window before `expiresAt` so normal requests do not race the server
+at token expiry. Use five minutes unless implementation evidence shows OpenAI tokens require a
+different value. If the local clock makes `expiresAt` appear invalid or already expired immediately
+after token exchange, treat that as an OAuth credential error rather than persisting unusable
+credentials.
+
+If the token endpoint fails during a shared refresh, all callers waiting on that refresh receive the
+same redacted OAuth error, the in-flight lock is cleared, and stored credentials are left unchanged.
+A later request may retry refresh normally.
+
 Tests should cover two concurrent callers with an expired token where the token endpoint rotates the
 refresh token. The expected behavior is one network refresh, both callers receive the new access
 token, and the stored record contains the rotated refresh token.
+
+Stored OAuth JSON is schema-checked before use. Missing required fields, malformed JSON, or an
+unsupported future schema version should make the provider report an invalid OAuth credential state
+and ask the user to sign in again. Sprout should not try to repair corrupt token records in place.
 
 ## Adapter Architecture
 
@@ -573,16 +613,25 @@ OAuth URL and callback:
 - callback listener binds loopback-only
 - callback state and PKCE are one-shot
 - callback listener is cleaned up on timeout
+- manual pasteback parses full callback URLs with state validation
+- raw-code pasteback is tied to the pending one-shot login state
 - logs and errors redact callback codes and OAuth tokens
 
 Credentials:
 
 - secret store can store and retrieve OAuth JSON records
 - OAuth storage keys are deterministic: `sprout/providers/<providerId>/oauth`
+- provider ids are validated or encoded before they are used in storage keys
 - logout and provider deletion delete the OAuth secret
+- logout clears cached account display state and cached Codex models
+- corrupt or unsupported OAuth JSON asks the user to sign in again
+- provider deletion reports secret-deletion failures instead of silently orphaning credentials
+- initial credentials are persisted only after account-id extraction succeeds
 - refresh persists rotated access token, refresh token, expiry, and account id
 - refresh preserves the existing refresh token when the token endpoint does not rotate it
 - concurrent refresh callers share one in-flight refresh and do not stale-write credentials
+- concurrent refresh failure clears the in-flight lock and leaves stored credentials unchanged
+- refresh uses a five-minute expiry skew unless implementation evidence changes that value
 - account id is extracted from `https://api.openai.com/auth.chatgpt_account_id`
 - account id can fall back from access token to id token on initial login
 - refresh can use a stored account id when refreshed tokens omit the claim
@@ -624,37 +673,43 @@ This is the expected implementation order after this spec is approved:
 
 1. Add provider kind and credential-aware validation tests.
    - Focused verification: provider validation tests and typecheck.
-2. Add deterministic OAuth secret references and storage tests.
+2. Add deterministic OAuth secret references, provider-id key safety, and storage tests.
    - Focused verification: secret-store tests.
 3. Add OAuth authorize URL and PKCE/state tests.
    - Focused verification: auth URL/state tests.
 4. Add callback listener tests and implementation.
    - Focused verification: callback method/path/state/timeout tests.
-5. Add token exchange and initial credential persistence.
-   - Focused verification: token exchange and redaction tests.
-6. Add refresh persistence, refresh-token rotation handling, and per-provider singleflight.
-   - Focused verification: concurrent refresh tests.
-7. Add account-id extraction and decode-only token claim handling.
+5. Add manual pasteback parsing and redaction tests.
+   - Focused verification: pasteback URL/raw-code/state tests.
+6. Add account-id extraction and decode-only token claim handling.
    - Focused verification: claim extraction tests with malformed and missing-claim tokens.
-8. Add characterization tests around the current OpenAI adapter.
+7. Add token exchange and initial credential persistence.
+   - Focused verification: exchange persists only fully valid credentials.
+8. Add corrupt stored-credential handling and logout/delete cleanup behavior.
+   - Focused verification: invalid JSON, logout, and provider deletion tests.
+9. Add refresh persistence, refresh-token rotation handling, and per-provider singleflight.
+   - Focused verification: concurrent refresh tests.
+10. Add refresh failure, expiry skew, and stale-write tests.
+    - Focused verification: refresh failure and skew tests.
+11. Add characterization tests around the current OpenAI adapter.
    - Focused verification: existing OpenAI adapter tests pass with no code movement.
-9. Extract shared Responses request-building helpers.
+12. Extract shared Responses request-building helpers.
    - Focused verification: characterization tests still pass.
-10. Extract shared Responses parser helpers.
+13. Extract shared Responses parser helpers.
     - Focused verification: parser and existing adapter tests still pass.
-11. Extract shared Responses stream accumulator.
+14. Extract shared Responses stream accumulator.
     - Focused verification: streaming and tool-call tests still pass.
-12. Add `OpenAICodexAdapter` using the OpenAI SDK with Codex base URL.
+15. Add `OpenAICodexAdapter` using the OpenAI SDK with Codex base URL.
     - Focused verification: adapter URL/header tests.
-13. Add Codex model endpoint parsing and cache-failure behavior.
+16. Add Codex model endpoint parsing and cache-failure behavior.
     - Focused verification: model parser and model-cache tests.
-14. Wire registry and settings control-plane OAuth operations.
+17. Wire registry and settings control-plane OAuth operations.
     - Focused verification: registry and control-plane tests.
-15. Update web provider settings.
+18. Update web provider settings.
     - Focused verification: web settings tests.
-16. Update TUI provider settings.
+19. Update TUI provider settings.
     - Focused verification: TUI settings tests.
-17. Update docs and run the full verification gate.
+20. Update docs and run the full verification gate.
     - Final verification: `bun run precommit`, plus any targeted integration checks added during
       implementation.
 
