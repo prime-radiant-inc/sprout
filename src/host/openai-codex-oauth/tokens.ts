@@ -249,6 +249,7 @@ function redactTokenEndpointPlainText(value: string, context: TokenRedactionCont
 		.replace(callbackUrlPattern(), "[redacted]")
 		.replace(/\b(code|code_verifier|codeVerifier)(\s*[:=]\s*)[^\s&]+/g, "$1$2[redacted]")
 		.replace(jwtPattern(), "[redacted]")
+		.replace(opaqueTokenPattern(), "[redacted]")
 		.replace(/\b(access|refresh|id)[-_]?token[-_][A-Za-z0-9._-]+\b/gi, "[redacted]");
 }
 
@@ -266,6 +267,10 @@ function callbackUrlPattern(): RegExp {
 
 function jwtPattern(): RegExp {
 	return /\b[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g;
+}
+
+function opaqueTokenPattern(): RegExp {
+	return /\b[A-Za-z0-9._-]*(?:[-_.]token|token[-_.])[A-Za-z0-9._-]*\b/gi;
 }
 
 function isCallbackUrl(value: string): boolean {

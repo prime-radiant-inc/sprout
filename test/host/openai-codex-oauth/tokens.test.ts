@@ -111,6 +111,7 @@ describe("OpenAI Codex OAuth token helpers", () => {
 								detail: "backend access-token-secret refresh-token-secret",
 								echo: "echo auth-code-secret and verifier-secret",
 								jwtDetail: "backend aaa.bbb.ccc",
+								opaqueDetail: "backend-token-value",
 								token: "backend-token-secret",
 								Authorization: "Bearer backend-authorization-secret",
 							}),
@@ -135,6 +136,7 @@ describe("OpenAI Codex OAuth token helpers", () => {
 		expect(message).not.toContain("access-token-secret");
 		expect(message).not.toContain("refresh-token-secret");
 		expect(message).not.toContain("backend-token-secret");
+		expect(message).not.toContain("backend-token-value");
 		expect(message).not.toContain("backend-authorization-secret");
 		expect(message).not.toContain("auth-code-secret");
 		expect(message).not.toContain("verifier-secret");
@@ -164,6 +166,7 @@ describe("OpenAI Codex OAuth token helpers", () => {
 								"access-token-secret",
 								"refresh-token-secret",
 								"aaa.bbb.ccc",
+								"backend-token-value",
 								"http://localhost:1455/auth/callback?code=callback-secret",
 								"http://localhost:1457/auth/callback",
 							].join(" "),
@@ -186,6 +189,7 @@ describe("OpenAI Codex OAuth token helpers", () => {
 		expect(message).not.toContain("access-token-secret");
 		expect(message).not.toContain("refresh-token-secret");
 		expect(message).not.toContain("aaa.bbb.ccc");
+		expect(message).not.toContain("backend-token-value");
 		expect(message).not.toContain("http://localhost:1455/auth/callback");
 		expect(message).not.toContain("http://localhost:1457/auth/callback");
 	});
