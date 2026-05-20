@@ -165,7 +165,7 @@ describe("SettingsControlPlane", () => {
 		expect(snapshots).toHaveLength(2);
 	});
 
-	test("setting a secret re-enables providers disabled by startup validation errors", async () => {
+	test("setting a secret re-enables providers disabled by startup missing-secret validation", async () => {
 		const plane = await makePlane({
 			initialValidationErrors: {
 				openai: ["API key is required"],
@@ -206,6 +206,109 @@ describe("SettingsControlPlane", () => {
 					{
 						providerId: "openai",
 						validationErrors: [],
+					},
+				],
+			},
+		});
+	});
+
+	test("setting a secret keeps user-disabled providers disabled", async () => {
+		const plane = await makePlane({
+			initialValidationErrors: {
+				openai: ["Provider is disabled"],
+			},
+			initialSettings: {
+				version: 4,
+				providers: [
+					{
+						id: "openai",
+						kind: "openai",
+						label: "OpenAI",
+						enabled: false,
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {},
+				memoryModels: {},
+				agentModelOverrides: {},
+			},
+		});
+
+		const result = await plane.execute({
+			kind: "set_provider_secret",
+			data: {
+				providerId: "openai",
+				secret: "openai-secret",
+			},
+		});
+
+		expect(result).toMatchObject({
+			ok: true,
+			snapshot: {
+				settings: {
+					providers: [{ id: "openai", enabled: false }],
+				},
+				providers: [
+					{
+						providerId: "openai",
+						hasSecret: true,
+						validationErrors: ["Provider is disabled"],
+					},
+				],
+			},
+		});
+	});
+
+	test("setting a secret keeps cleanup-failed providers disabled", async () => {
+		const plane = await makePlane({
+			initialValidationErrors: {
+				openai: ["API key is required"],
+			},
+			initialSettings: {
+				version: 4,
+				providers: [
+					{
+						id: "openai",
+						kind: "openai",
+						label: "OpenAI",
+						enabled: false,
+						disabledReason: "credential-cleanup-failed",
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {},
+				memoryModels: {},
+				agentModelOverrides: {},
+			},
+		});
+
+		const result = await plane.execute({
+			kind: "set_provider_secret",
+			data: {
+				providerId: "openai",
+				secret: "openai-secret",
+			},
+		});
+
+		expect(result).toMatchObject({
+			ok: true,
+			snapshot: {
+				settings: {
+					providers: [
+						{
+							id: "openai",
+							enabled: false,
+							disabledReason: "credential-cleanup-failed",
+						},
+					],
+				},
+				providers: [
+					{
+						providerId: "openai",
+						hasSecret: true,
+						validationErrors: ["Provider is disabled"],
 					},
 				],
 			},

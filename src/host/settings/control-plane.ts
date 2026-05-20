@@ -347,8 +347,10 @@ export class SettingsControlPlane {
 		if (!provider) return this.error("not_found", `Unknown provider: ${providerId}`);
 		const unsupported = this.rejectGenericSecretCommandIfUnsupported(provider);
 		if (unsupported) return unsupported;
-		const repairsStartupValidation =
-			!provider.enabled && (this.initialValidationErrors[providerId]?.length ?? 0) > 0;
+		const repairsStartupValidation = canRepairStartupSecretValidation(
+			provider,
+			this.initialValidationErrors[providerId] ?? [],
+		);
 
 		try {
 			await this.secretStore.setSecret(
@@ -922,6 +924,18 @@ function unsupportedGenericSecretMessage(kind: ProviderConfig["kind"]): string {
 		return "OpenAI Codex uses ChatGPT OAuth. Generic provider secret commands are not supported.";
 	}
 	return `Provider kind '${kind}' does not support generic provider secret commands.`;
+}
+
+function canRepairStartupSecretValidation(provider: ProviderConfig, errors: string[]): boolean {
+	return (
+		!provider.enabled &&
+		provider.disabledReason !== "credential-cleanup-failed" &&
+		errors.some(isStartupSecretReadinessError)
+	);
+}
+
+function isStartupSecretReadinessError(error: string): boolean {
+	return error === "API key is required" || error === "Secret storage backend is unavailable";
 }
 
 function removeDefaultsForProvider(
