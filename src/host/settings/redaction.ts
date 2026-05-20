@@ -8,6 +8,7 @@ export function redactCredentialText(value: string): string {
 			/\b((?:oauth|pasteback|paste back)(?:\s+callback)?\s+(?:code|state))\s+[A-Za-z0-9._~-]{6,}\b/gi,
 			"$1 [redacted]",
 		)
+		.replace(/\b(raw\s+(?:code|state))\s+[A-Za-z0-9._~-]{6,}\b/gi, "$1 [redacted]")
 		.replace(/sprout\/providers\/[A-Za-z0-9._-]+\/(?:api-key|oauth)/g, "[redacted]")
 		.replace(/\b(?:access|refresh|id)?_?token_[A-Za-z0-9._-]+\b/gi, "[redacted]")
 		.replace(/\b(access_token|refresh_token|id_token|token)\s*[:=]\s*[^\s&]+/gi, "$1=[redacted]")

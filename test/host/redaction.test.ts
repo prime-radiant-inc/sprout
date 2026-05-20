@@ -7,6 +7,8 @@ describe("redactCredentialText", () => {
 			"Authorization: Bearer sk-live-secret",
 			"http://localhost:1455/auth/callback?code=abc123&state=state123",
 			"OAuth callback code: abc123",
+			"raw code raw-code-123",
+			"raw state raw-state-123",
 			"security item sprout/providers/openai-codex/oauth failed",
 			"backend error token refresh_token_123",
 			"token response access_token=access-secret",
@@ -18,6 +20,8 @@ describe("redactCredentialText", () => {
 
 		expect(redacted).not.toContain("sk-live-secret");
 		expect(redacted).not.toContain("abc123");
+		expect(redacted).not.toContain("raw-code-123");
+		expect(redacted).not.toContain("raw-state-123");
 		expect(redacted).not.toContain("refresh_token_123");
 		expect(redacted).not.toContain("access-secret");
 		expect(redacted).not.toContain("access-json");
