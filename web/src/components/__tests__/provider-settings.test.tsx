@@ -282,6 +282,34 @@ describe("ProviderSettingsPanel", () => {
 		expect(html).toContain('value="openai-codex"');
 		expect(html).toContain("OpenAI Codex");
 	});
+
+	test("does not render generic API-key controls for OpenAI Codex providers", () => {
+		const html = renderToStaticMarkup(
+			<ProviderEditor
+				mode="edit"
+				provider={{
+					id: "openai-codex",
+					kind: "openai-codex",
+					label: "OpenAI Codex",
+					enabled: true,
+					createdAt: "2026-03-11T00:00:00.000Z",
+					updatedAt: "2026-03-11T00:00:00.000Z",
+				}}
+				status={{
+					providerId: "openai-codex",
+					hasSecret: false,
+					validationErrors: ["ChatGPT OAuth login is required for OpenAI Codex"],
+					connectionStatus: "unknown",
+					catalogStatus: "never-loaded",
+				}}
+				onCommand={() => {}}
+			/>,
+		);
+
+		expect(html).not.toContain("API key or token");
+		expect(html).not.toContain('data-action="save-secret"');
+		expect(html).not.toContain('data-action="remove-secret"');
+	});
 });
 
 describe("ModelsPanel", () => {

@@ -5,6 +5,7 @@ import type {
 	SettingsCommand,
 	SettingsSnapshot,
 } from "@kernel/types.ts";
+import { providerSupportsSecretKind } from "@host/settings/provider-credentials.ts";
 import { PROVIDER_KINDS, PROVIDER_KIND_LABELS } from "@shared/provider-settings.ts";
 import { HeadersEditor, type HeaderDraft } from "./HeadersEditor.tsx";
 import styles from "./ProviderSettingsPanel.module.css";
@@ -50,6 +51,10 @@ function supportsBaseUrl(kind: ProviderKind): boolean {
 
 function supportsNonSecretHeaders(kind: ProviderKind): boolean {
 	return kind !== "gemini";
+}
+
+function supportsGenericSecret(kind: ProviderKind): boolean {
+	return providerSupportsSecretKind(kind, "api-key");
 }
 
 function createProviderDraft(provider?: ProviderConfig): ProviderDraft {
@@ -417,7 +422,7 @@ export function ProviderEditor({
 				)}
 			</div>
 
-			{mode === "edit" && provider && (
+			{mode === "edit" && provider && supportsGenericSecret(provider.kind) && (
 				<div className={styles.section}>
 					<h3 className={styles.sectionTitle}>Secret</h3>
 					<div className={styles.formGrid}>
