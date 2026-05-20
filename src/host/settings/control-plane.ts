@@ -417,6 +417,42 @@ export class SettingsControlPlane {
 			);
 		}
 
+		if (provider.disabledReason === "credential-cleanup-failed") {
+			const cleanup = await this.tryDeleteProviderCredentials(provider);
+			if (!cleanup.ok) {
+				return this.failureWithSnapshot(
+					"credential_cleanup_failed",
+					`Failed to delete provider credentials: ${cleanup.failedRefs.join(", ")}`,
+					{ credentials: `Failed credential cleanup for: ${cleanup.failedRefs.join(", ")}` },
+				);
+			}
+
+			try {
+				await this.oauthOperations.login(providerId);
+			} catch {
+				return this.failureWithSnapshot(
+					"oauth_login_failed",
+					`OAuth login failed for provider '${providerId}'.`,
+				);
+			}
+
+			const credentialStatus = await this.providerCredentialStatus(provider);
+			if (!credentialStatusHasSecret(credentialStatus)) {
+				return this.failureWithSnapshot(
+					"credential_cleanup_failed",
+					"Failed to delete provider credentials: oauth",
+					{ credentials: "Failed credential cleanup for: oauth" },
+				);
+			}
+
+			const next = structuredClone(this.settings);
+			const nextProvider = next.providers.find((candidate) => candidate.id === providerId);
+			if (!nextProvider) return this.error("not_found", `Unknown provider: ${providerId}`);
+			delete nextProvider.disabledReason;
+			nextProvider.updatedAt = this.now();
+			return this.persistSettings(next, [providerId], true);
+		}
+
 		try {
 			await this.oauthOperations.login(providerId);
 		} catch (error) {
@@ -424,15 +460,6 @@ export class SettingsControlPlane {
 				"oauth_login_failed",
 				error instanceof Error ? error.message : String(error),
 			);
-		}
-
-		if (provider.disabledReason === "credential-cleanup-failed") {
-			const next = structuredClone(this.settings);
-			const nextProvider = next.providers.find((candidate) => candidate.id === providerId);
-			if (!nextProvider) return this.error("not_found", `Unknown provider: ${providerId}`);
-			delete nextProvider.disabledReason;
-			nextProvider.updatedAt = this.now();
-			return this.persistSettings(next, [providerId], true);
 		}
 
 		delete this.initialValidationErrors[providerId];

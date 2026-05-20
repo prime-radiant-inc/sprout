@@ -667,11 +667,20 @@ describe("SettingsControlPlane", () => {
 	});
 
 	test("login provider oauth clears cleanup-failed reason without enabling provider", async () => {
+		const operations: string[] = [];
 		let signedIn = false;
 		const plane = await makePlane({
 			oauthOperations: {
-				status: () => ({ signedIn }),
+				status: () => {
+					operations.push("status");
+					return { signedIn };
+				},
+				async deleteCredentials() {
+					operations.push("deleteCredentials");
+					return { ok: true, failedRefs: [] };
+				},
 				async login() {
+					operations.push("login");
 					signedIn = true;
 				},
 			},
@@ -712,6 +721,181 @@ describe("SettingsControlPlane", () => {
 			kind: "oauth",
 			signedIn: true,
 		});
+		expect(operations).toEqual(["deleteCredentials", "login", "status", "status"]);
+	});
+
+	test("login provider oauth blocks cleanup-failed recovery when ref reconciliation fails", async () => {
+		let loginCalls = 0;
+		const plane = await makePlane({
+			oauthOperations: {
+				async deleteCredentials() {
+					return { ok: false, failedRefs: ["oauth"] };
+				},
+				async login() {
+					loginCalls += 1;
+				},
+			},
+			initialSettings: {
+				version: 4,
+				providers: [
+					{
+						id: "openai-codex",
+						kind: "openai-codex",
+						label: "OpenAI Codex",
+						enabled: false,
+						disabledReason: "credential-cleanup-failed",
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {},
+				memoryModels: {},
+				agentModelOverrides: {},
+			},
+		});
+
+		const result = await plane.execute({
+			kind: "login_provider_oauth",
+			data: { providerId: "openai-codex" },
+		});
+
+		expect(result).toMatchObject({
+			ok: false,
+			code: "credential_cleanup_failed",
+			message: "Failed to delete provider credentials: oauth",
+			snapshot: {
+				settings: {
+					providers: [
+						{
+							id: "openai-codex",
+							enabled: false,
+							disabledReason: "credential-cleanup-failed",
+						},
+					],
+				},
+			},
+			fieldErrors: {
+				credentials: "Failed credential cleanup for: oauth",
+			},
+		});
+		expect(loginCalls).toBe(0);
+	});
+
+	test("login provider oauth preserves cleanup-failed marker when login resolves without credential", async () => {
+		const plane = await makePlane({
+			oauthOperations: {
+				status: () => ({ signedIn: false }),
+				async deleteCredentials() {
+					return { ok: true, failedRefs: [] };
+				},
+				async login() {},
+			},
+			initialSettings: {
+				version: 4,
+				providers: [
+					{
+						id: "openai-codex",
+						kind: "openai-codex",
+						label: "OpenAI Codex",
+						enabled: false,
+						disabledReason: "credential-cleanup-failed",
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {},
+				memoryModels: {},
+				agentModelOverrides: {},
+			},
+		});
+
+		const result = await plane.execute({
+			kind: "login_provider_oauth",
+			data: { providerId: "openai-codex" },
+		});
+
+		expect(result).toMatchObject({
+			ok: false,
+			code: "credential_cleanup_failed",
+			message: "Failed to delete provider credentials: oauth",
+			snapshot: {
+				settings: {
+					providers: [
+						{
+							id: "openai-codex",
+							enabled: false,
+							disabledReason: "credential-cleanup-failed",
+						},
+					],
+				},
+				providers: [
+					{
+						providerId: "openai-codex",
+						credentialStatus: {
+							kind: "oauth",
+							signedIn: false,
+						},
+					},
+				],
+			},
+			fieldErrors: {
+				credentials: "Failed credential cleanup for: oauth",
+			},
+		});
+	});
+
+	test("login provider oauth preserves cleanup-failed marker when login throws", async () => {
+		const plane = await makePlane({
+			oauthOperations: {
+				async deleteCredentials() {
+					return { ok: true, failedRefs: [] };
+				},
+				async login() {
+					throw new Error("raw token exchange failed for sprout/providers/openai-codex/oauth");
+				},
+			},
+			initialSettings: {
+				version: 4,
+				providers: [
+					{
+						id: "openai-codex",
+						kind: "openai-codex",
+						label: "OpenAI Codex",
+						enabled: false,
+						disabledReason: "credential-cleanup-failed",
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {},
+				memoryModels: {},
+				agentModelOverrides: {},
+			},
+		});
+
+		const result = await plane.execute({
+			kind: "login_provider_oauth",
+			data: { providerId: "openai-codex" },
+		});
+
+		expect(result).toMatchObject({
+			ok: false,
+			code: "oauth_login_failed",
+			message: "OAuth login failed for provider 'openai-codex'.",
+			snapshot: {
+				settings: {
+					providers: [
+						{
+							id: "openai-codex",
+							enabled: false,
+							disabledReason: "credential-cleanup-failed",
+						},
+					],
+				},
+			},
+		});
+		expect(JSON.stringify(result)).not.toContain("sprout/providers");
+		expect(JSON.stringify(result)).not.toContain("raw token");
 	});
 
 	test("login provider oauth returns a clear error when no login operation is configured", async () => {
