@@ -102,6 +102,7 @@ export function normalizeProviderConfig(provider: ProviderConfig): ProviderConfi
 		kind: normalizedKind,
 		label: provider.label,
 		enabled: provider.enabled,
+		...(provider.disabledReason ? { disabledReason: provider.disabledReason } : {}),
 		...(normalizedKind === "openai-compatible" && provider.baseUrl?.trim()
 			? { baseUrl: provider.baseUrl.trim() }
 			: {}),

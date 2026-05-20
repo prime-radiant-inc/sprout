@@ -324,6 +324,32 @@ describe("SettingsStore", () => {
 		});
 	});
 
+	test("save preserves provider disabled reasons", async () => {
+		const { store, settingsPath } = await makeStore();
+		const settings = {
+			...createEmptySettings(),
+			providers: [
+				{
+					id: "openai",
+					kind: "openai" as const,
+					label: "OpenAI",
+					enabled: false,
+					disabledReason: "credential-cleanup-failed" as const,
+					createdAt: "2026-03-11T12:00:00.000Z",
+					updatedAt: "2026-03-11T12:00:00.000Z",
+				},
+			],
+		};
+
+		await store.save(settings);
+		const loaded = await store.load();
+
+		expect(JSON.parse(await readFile(settingsPath, "utf-8")).providers[0]).toEqual(
+			settings.providers[0],
+		);
+		expect(loaded.settings.providers[0]).toEqual(settings.providers[0]);
+	});
+
 	test("save preserves generic agent model overrides", async () => {
 		const { store, settingsPath } = await makeStore();
 		const settings = {
