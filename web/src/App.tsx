@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { WEB_HISTORY_PAGE_SIZE } from "@kernel/constants.ts";
 import type { BrowserCommand } from "@kernel/protocol.ts";
-import type { SessionModelSelection } from "@kernel/types.ts";
-import { deriveActiveAgentWork } from "@shared/agent-display.ts";
+import type { SessionEvent, SessionModelSelection } from "@kernel/types.ts";
+import { deriveActiveAgentWork, type ActiveAgentWork } from "@shared/agent-display.ts";
 import { KeyboardHelp } from "./components/KeyboardHelp.tsx";
 import type { SlashCommand } from "@shared/slash-commands.ts";
 import styles from "./App.module.css";
@@ -14,7 +14,7 @@ import { ThreadPanel } from "./components/ThreadPanel.tsx";
 import { ProviderSettingsPanel } from "./components/settings/ProviderSettingsPanel.tsx";
 import { useAgentStats } from "./hooks/useAgentStats.ts";
 import { useAgentTree } from "./hooks/useAgentTree.ts";
-import { useEvents } from "./hooks/useEvents.ts";
+import { type SessionStatus, useEvents } from "./hooks/useEvents.ts";
 import { useFaviconStatus } from "./hooks/useFaviconStatus.ts";
 import { handleKeyboardShortcut } from "./hooks/useKeyboardShortcuts.ts";
 import { useResizable } from "./hooks/useResizable.ts";
@@ -34,7 +34,7 @@ const WS_URL =
 			);
 
 interface EventHistoryPage {
-	events: import("@kernel/types.ts").SessionEvent[];
+	events: SessionEvent[];
 	hasMore: boolean;
 	nextBefore: number;
 	total: number;
@@ -75,6 +75,13 @@ export function getSettingsProviderFromSearch(search: string): string | undefine
 	if (!shouldOpenSettingsFromSearch(search)) return undefined;
 	const providerId = new URLSearchParams(search).get("provider")?.trim();
 	return providerId !== "" ? providerId : undefined;
+}
+
+export function computeActiveWorkForStatus(
+	events: readonly SessionEvent[],
+	status: SessionStatus,
+): ActiveAgentWork | null {
+	return deriveActiveAgentWork(events, status.status, status.sessionId);
 }
 
 export function App() {
@@ -336,7 +343,7 @@ export function App() {
 	}, [sendCommand]);
 
 	const isRunning = status.status === "running";
-	const activeWork = deriveActiveAgentWork(events, status.status);
+	const activeWork = computeActiveWorkForStatus(events, status);
 
 	return (
 		<div className={styles.app} data-region="app">
