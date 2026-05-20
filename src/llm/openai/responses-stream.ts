@@ -27,6 +27,7 @@ interface ToolCallAccumulator {
 	args: string;
 	sawArgumentDelta: boolean;
 	argumentsDone: boolean;
+	hasArgumentsFromDoneItem: boolean;
 	outputDone: boolean;
 	emittedEnd: boolean;
 }
@@ -112,6 +113,9 @@ export async function* streamResponsesEvents({
 					outputIndex: outputIndexValue(event.output_index),
 				});
 				updateToolCallFromItem(call, item);
+				if (stringValue(item.arguments) !== undefined) {
+					call.hasArgumentsFromDoneItem = true;
+				}
 				call.outputDone = true;
 				const doneEvent = maybeFinishToolCall(call);
 				if (doneEvent) yield doneEvent;
@@ -131,23 +135,26 @@ export async function* streamResponsesEvents({
 	}
 
 	for (const call of toolCallOrder) {
-		if (!call.emittedEnd) {
+		if (!call.emittedEnd && isCompleteToolCall(call)) {
 			yield finishToolCall(call);
 		}
 	}
 
+	const completeToolCalls = toolCallOrder.filter(isCompleteToolCall);
 	const contentParts: ContentPart[] = [];
 	if (accumulatedText) {
 		contentParts.push({ kind: ContentKind.TEXT, text: accumulatedText });
 	}
-	for (const call of toolCallOrder) {
+	for (const call of completeToolCalls) {
 		contentParts.push({ kind: ContentKind.TOOL_CALL, tool_call: toolCallFromAccumulator(call) });
 	}
 
-	const hasToolCalls = toolCallOrder.length > 0;
-	const finishReason: FinishReason = hasToolCalls
-		? { reason: "tool_calls", raw: completedResponse?.status ?? undefined }
-		: mapOpenAIFinishReason(completedResponse?.status ?? "completed");
+	const terminalStatus = completedResponse?.status ?? "completed";
+	const hasCompleteToolCalls = completeToolCalls.length > 0;
+	const finishReason: FinishReason =
+		hasCompleteToolCalls && terminalStatus === "completed"
+			? { reason: "tool_calls", raw: completedResponse?.status ?? undefined }
+			: mapOpenAIFinishReason(terminalStatus);
 
 	const finalResponse: Response = {
 		id: completedResponse?.id ?? "",
@@ -203,6 +210,7 @@ export async function* streamResponsesEvents({
 				args: "",
 				sawArgumentDelta: false,
 				argumentsDone: false,
+				hasArgumentsFromDoneItem: false,
 				outputDone: false,
 				emittedEnd: false,
 			};
@@ -270,6 +278,7 @@ export async function* streamResponsesEvents({
 		}
 		target.sawArgumentDelta ||= source.sawArgumentDelta;
 		target.argumentsDone ||= source.argumentsDone;
+		target.hasArgumentsFromDoneItem ||= source.hasArgumentsFromDoneItem;
 		target.outputDone ||= source.outputDone;
 		target.emittedEnd ||= source.emittedEnd;
 
@@ -304,10 +313,12 @@ function updateToolCallFromItem(call: ToolCallAccumulator, item: Record<string, 
 }
 
 function maybeFinishToolCall(call: ToolCallAccumulator): StreamEvent | undefined {
-	if (call.emittedEnd || !call.outputDone) return undefined;
-	if (!call.argumentsDone && call.sawArgumentDelta) return undefined;
-	if (!call.argumentsDone && call.args.length === 0) return undefined;
+	if (call.emittedEnd || !isCompleteToolCall(call)) return undefined;
 	return finishToolCall(call);
+}
+
+function isCompleteToolCall(call: ToolCallAccumulator): boolean {
+	return call.outputDone && (call.argumentsDone || call.hasArgumentsFromDoneItem);
 }
 
 function finishToolCall(call: ToolCallAccumulator): StreamEvent {

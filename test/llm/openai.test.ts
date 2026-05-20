@@ -578,6 +578,83 @@ describe("OpenAIAdapter", () => {
 		}
 	});
 
+	test("responses stream does not finish partial tool calls on incomplete or failed terminal responses", async () => {
+		const cases = [
+			{
+				eventType: "response.incomplete",
+				status: "incomplete",
+				expectedReason: "length",
+				inputTokens: 34,
+				outputTokens: 7,
+			},
+			{
+				eventType: "response.failed",
+				status: "failed",
+				expectedReason: "error",
+				inputTokens: 19,
+				outputTokens: 3,
+			},
+		] as const;
+
+		for (const streamCase of cases) {
+			const rawResponse = {
+				id: `resp-partial-${streamCase.status}`,
+				model: "gpt-4.1-mini",
+				status: streamCase.status,
+				output: [],
+				usage: {
+					input_tokens: streamCase.inputTokens,
+					output_tokens: streamCase.outputTokens,
+				},
+			};
+			async function* streamResponse() {
+				yield {
+					type: "response.output_item.added",
+					output_index: 0,
+					item: {
+						type: "function_call",
+						id: "fc_weather",
+						call_id: "call_weather",
+						name: "get_weather",
+					},
+				};
+				yield {
+					type: "response.function_call_arguments.delta",
+					output_index: 0,
+					item_id: "fc_weather",
+					delta: '{"location":',
+				};
+				yield { type: streamCase.eventType, response: rawResponse };
+			}
+			const adapter = new OpenAIAdapter("test-key");
+			(adapter as any).client.responses.create = async () => streamResponse();
+
+			const events = [];
+			for await (const event of adapter.stream({
+				model: "gpt-4.1-mini",
+				messages: [{ role: "user", content: [{ kind: ContentKind.TEXT, text: "weather" }] }],
+				tools: [
+					{
+						name: "get_weather",
+						description: "Get weather",
+						parameters: { type: "object", properties: {} },
+					},
+				],
+				tool_choice: "required",
+			})) {
+				events.push(event);
+			}
+
+			expect(events.some((event) => event.type === "tool_call_end")).toBe(false);
+			const finish = events.find((event) => event.type === "finish");
+			expect(finish?.finish_reason?.reason).toBe(streamCase.expectedReason);
+			expect(finish?.finish_reason?.raw).toBe(streamCase.status);
+			expect(finish?.usage?.input_tokens).toBe(streamCase.inputTokens);
+			expect(finish?.usage?.output_tokens).toBe(streamCase.outputTokens);
+			expect(finish?.response ? messageToolCalls(finish.response.message) : []).toEqual([]);
+		}
+	});
+
 	test("complete returns a text response", async () => {
 		const vcr = vcrFor("complete-returns-a-text-response", realAdapter);
 		const req: Request = {
