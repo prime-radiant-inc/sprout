@@ -47,6 +47,7 @@ describe("SecretStore", () => {
 
 	test("macos-keychain backend uses the security CLI on darwin", async () => {
 		const calls: Array<{ cmd: string; args: string[]; stdin?: string }> = [];
+		const secret = "secret-value";
 		const store = createSecretStore({
 			backend: "macos-keychain",
 			platform: "darwin",
@@ -60,24 +61,21 @@ describe("SecretStore", () => {
 		});
 		const ref = makeSecretRef("macos-keychain");
 
-		await store.setSecret(ref, "secret-value");
-		expect(await store.getSecret(ref)).toBe("secret-value");
+		await store.setSecret(ref, secret);
+		expect(await store.getSecret(ref)).toBe(secret);
 		await store.deleteSecret(ref);
 
+		expect(calls.flatMap((call) => call.args)).not.toContain(secret);
 		expect(calls).toEqual([
 			{
-				cmd: "security",
+				cmd: "/usr/bin/expect",
 				args: [
-					"add-generic-password",
-					"-U",
-					"-a",
-					ref.storageKey,
-					"-s",
-					"sprout",
-					"-w",
-					"secret-value",
+					"-c",
+					expect.stringContaining(
+						"spawn security add-generic-password -U -a $account -s sprout -w",
+					),
 				],
-				stdin: undefined,
+				stdin: secret,
 			},
 			{
 				cmd: "security",
