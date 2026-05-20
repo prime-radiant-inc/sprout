@@ -441,6 +441,31 @@ describe("EventStore", () => {
 			expect(store.status.contextTokens).toBe(600);
 			expect(store.status.contextWindowSize).toBe(128000);
 		});
+
+		test("marks the session running while memory collapse is active", () => {
+			const store = new EventStore();
+			store.processMessage(eventMessage(makeEvent("session_start")));
+			store.processMessage(eventMessage(makeEvent("session_end")));
+			expect(store.status.status).toBe("idle");
+
+			store.processMessage(eventMessage(makeEvent("context_update", { memory_collapse: "started" })));
+			expect(store.status.status).toBe("running");
+
+			store.processMessage(eventMessage(makeEvent("context_update", { memory_collapse: "completed" })));
+			expect(store.status.status).toBe("idle");
+		});
+
+		test("clears running memory collapse status on skipped and failed terminal states", () => {
+			for (const memory_collapse of ["skipped", "failed"]) {
+				const store = new EventStore();
+				store.processMessage(eventMessage(makeEvent("context_update", { memory_collapse: "started" })));
+				expect(store.status.status).toBe("running");
+
+				store.processMessage(eventMessage(makeEvent("context_update", { memory_collapse })));
+
+				expect(store.status.status).toBe("idle");
+			}
+		});
 	});
 
 	describe("status derivation: plan_end", () => {

@@ -276,7 +276,20 @@ describe("deriveActiveAgentWork", () => {
 		expect(work).toBeNull();
 	});
 
-	test("reports memory saving after root session_end when controller status is still running", () => {
+	test("reports memory saving after explicit memory collapse start", () => {
+		const work = deriveActiveAgentWork(
+			[
+				event("session_start", { goal: "audit" }, { timestamp: 1 }),
+				event("session_end", { turns: 1, stumbles: 0 }, { timestamp: 2 }),
+				event("context_update", { memory_collapse: "started" }, { timestamp: 3 }),
+			],
+			"running",
+		);
+
+		expect(work ? formatActiveAgentWork(work) : null).toBe("Saving memory");
+	});
+
+	test("does not report memory saving from session_end without explicit memory collapse start", () => {
 		const work = deriveActiveAgentWork(
 			[
 				event("session_start", { goal: "audit" }, { timestamp: 1 }),
@@ -285,18 +298,22 @@ describe("deriveActiveAgentWork", () => {
 			"running",
 		);
 
-		expect(work ? formatActiveAgentWork(work) : null).toBe("Saving memory");
+		expect(work).toBeNull();
 	});
 
-	test("does not report memory saving after session_end when status is idle", () => {
-		const work = deriveActiveAgentWork(
-			[
-				event("session_start", { goal: "audit" }, { timestamp: 1 }),
-				event("session_end", { turns: 1, stumbles: 0 }, { timestamp: 2 }),
-			],
-			"idle",
-		);
+	test("clears memory saving when memory collapse reaches a terminal state", () => {
+		for (const memory_collapse of ["completed", "skipped", "failed"]) {
+			const work = deriveActiveAgentWork(
+				[
+					event("session_start", { goal: "audit" }, { timestamp: 1 }),
+					event("session_end", { turns: 1, stumbles: 0 }, { timestamp: 2 }),
+					event("context_update", { memory_collapse: "started" }, { timestamp: 3 }),
+					event("context_update", { memory_collapse }, { timestamp: 4 }),
+				],
+				"running",
+			);
 
-		expect(work).toBeNull();
+			expect(work).toBeNull();
+		}
 	});
 });

@@ -202,11 +202,25 @@ describe("App", () => {
 		expect(lastFrame()).toContain("Waiting on Brunelleschi · architect");
 	});
 
-	test("shows memory saving after root session_end until collapse completion arrives", async () => {
+	test("does not show memory saving after root session_end before collapse starts", async () => {
 		const { bus, lastFrame } = setup();
 
 		bus.emitEvent("session_start", "root", 0, { goal: "remember this" });
 		bus.emitEvent("session_end", "root", 0, { turns: 1, stumbles: 0 });
+
+		await flush();
+
+		expect(lastFrame()).not.toContain("Saving memory");
+	});
+
+	test("shows memory saving from explicit collapse lifecycle until completion arrives", async () => {
+		const { bus, lastFrame } = setup();
+
+		bus.emitEvent("session_start", "root", 0, { goal: "remember this" });
+		bus.emitEvent("session_end", "root", 0, { turns: 1, stumbles: 0 });
+		bus.emitEvent("context_update", "session", 0, {
+			memory_collapse: "started",
+		});
 
 		await flush();
 
@@ -219,6 +233,27 @@ describe("App", () => {
 		await flush();
 
 		expect(lastFrame()).not.toContain("Saving memory");
+	});
+
+	test("clears memory saving when collapse is skipped or failed", async () => {
+		for (const memory_collapse of ["skipped", "failed"]) {
+			const { bus, lastFrame, unmount } = setup();
+
+			bus.emitEvent("session_start", "root", 0, { goal: "remember this" });
+			bus.emitEvent("session_end", "root", 0, { turns: 1, stumbles: 0 });
+			bus.emitEvent("context_update", "session", 0, {
+				memory_collapse: "started",
+			});
+			await flush();
+			expect(lastFrame()).toContain("Saving memory");
+
+			bus.emitEvent("context_update", "session", 0, { memory_collapse });
+			await flush();
+			expect(lastFrame()).not.toContain("Saving memory");
+
+			unmount();
+			currentInstance = undefined;
+		}
 	});
 
 	test("clears active child status on session_clear", async () => {

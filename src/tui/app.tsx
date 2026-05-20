@@ -104,12 +104,8 @@ export function App({
 	const [showSettings, setShowSettings] = useState(false);
 	const [exitHintVisible, setExitHintVisible] = useState(false);
 	const [toolsCollapsed, setToolsCollapsed] = useState(false);
-	const [postRunMemoryPending, setPostRunMemoryPending] = useState(false);
 	const settingsLoad = useRef<Promise<SettingsCommandResult> | null>(null);
-	const activeWork = deriveActiveAgentWork(
-		statusEvents,
-		postRunMemoryPending ? "running" : statusState.status,
-	);
+	const activeWork = deriveActiveAgentWork(statusEvents, statusState.status);
 
 	const loadSettings = useCallback(async (): Promise<SettingsCommandResult | null> => {
 		if (!settingsControlPlane) return null;
@@ -149,7 +145,6 @@ export function App({
 
 			switch (event.kind) {
 				case "session_start":
-					setPostRunMemoryPending(false);
 					setStatusState((prev) => ({
 						...prev,
 						status: "running",
@@ -158,19 +153,14 @@ export function App({
 					break;
 
 				case "session_end":
-					if (event.depth === 0) {
-						setPostRunMemoryPending(true);
-					}
 					setStatusState((prev) => ({ ...prev, status: "idle", inputTokens: 0, outputTokens: 0 }));
 					break;
 
 				case "interrupted":
-					setPostRunMemoryPending(false);
 					setStatusState((prev) => ({ ...prev, status: "interrupted" }));
 					break;
 
 				case "session_clear":
-					setPostRunMemoryPending(false);
 					setCurrentSessionId((event.data.new_session_id as string) ?? sessionId);
 					setStatusState(INITIAL_STATUS);
 					break;
@@ -181,8 +171,15 @@ export function App({
 						contextTokens: (event.data.context_tokens as number) ?? prev.contextTokens,
 						contextWindowSize: (event.data.context_window_size as number) ?? prev.contextWindowSize,
 					}));
-					if (event.data.memory_collapse === "completed") {
-						setPostRunMemoryPending(false);
+					if (event.data.memory_collapse === "started") {
+						setStatusState((prev) => ({ ...prev, status: "running" }));
+					}
+					if (
+						event.data.memory_collapse === "completed" ||
+						event.data.memory_collapse === "skipped" ||
+						event.data.memory_collapse === "failed"
+					) {
+						setStatusState((prev) => ({ ...prev, status: "idle" }));
 					}
 					break;
 
@@ -201,15 +198,6 @@ export function App({
 
 				case "exit_hint":
 					setExitHintVisible((event.data.visible as boolean) ?? false);
-					break;
-
-				case "warning":
-					if (
-						typeof event.data.message === "string" &&
-						event.data.message.startsWith("Memory collapse failed:")
-					) {
-						setPostRunMemoryPending(false);
-					}
 					break;
 			}
 		});

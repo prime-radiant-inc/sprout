@@ -221,7 +221,12 @@ describe("SessionController", () => {
 
 		expect(collapsed).toHaveLength(1);
 		expect(collapsed[0]?.sessionId).toBe(controller.sessionId);
-		expect(bus.collected().some((event) => event.data.memory_collapse === "completed")).toBe(true);
+		expect(
+			bus
+				.collected()
+				.filter((event) => event.kind === "context_update" && event.data.memory_collapse)
+				.map((event) => event.data.memory_collapse),
+		).toEqual(["started", "completed"]);
 	});
 
 	test("runs due memory-log compaction after memory collapse", async () => {
@@ -250,7 +255,7 @@ describe("SessionController", () => {
 		).toBe(true);
 	});
 
-	test("does not emit completed memory collapse event for skipped collapse", async () => {
+	test("emits skipped memory collapse lifecycle for skipped collapse", async () => {
 		const fake = makeFakeAgent();
 		const factory: AgentFactory = async () => ({
 			agent: fake.agent as any,
@@ -261,7 +266,30 @@ describe("SessionController", () => {
 
 		await controller.runGoal("No new memory");
 
-		expect(bus.collected().some((event) => event.data.memory_collapse === "completed")).toBe(false);
+		expect(
+			bus
+				.collected()
+				.filter((event) => event.kind === "context_update" && event.data.memory_collapse)
+				.map((event) => event.data.memory_collapse),
+		).toEqual(["started", "skipped"]);
+	});
+
+	test("emits skipped memory collapse lifecycle when collapse is unavailable", async () => {
+		const fake = makeFakeAgent();
+		const factory: AgentFactory = async () => ({
+			agent: fake.agent as any,
+			learnProcess: null,
+		});
+		const { bus, controller } = makeController({ factory });
+
+		await controller.runGoal("No memory configured");
+
+		expect(
+			bus
+				.collected()
+				.filter((event) => event.kind === "context_update" && event.data.memory_collapse)
+				.map((event) => event.data.memory_collapse),
+		).toEqual(["skipped"]);
 	});
 
 	test("persists memory collapse failure warnings to the root event log", async () => {
@@ -277,6 +305,12 @@ describe("SessionController", () => {
 
 		await controller.runGoal("Remember this session");
 
+		expect(
+			bus
+				.collected()
+				.filter((event) => event.kind === "context_update" && event.data.memory_collapse)
+				.map((event) => event.data.memory_collapse),
+		).toEqual(["started", "failed"]);
 		expect(
 			bus
 				.collected()
@@ -1677,7 +1711,9 @@ describe("SessionController", () => {
 
 		await controller.submitGoal("test context");
 
-		const contextEvents = events.filter((e) => e.kind === "context_update");
+		const contextEvents = events.filter(
+			(e) => e.kind === "context_update" && e.data.context_tokens !== undefined,
+		);
 		expect(contextEvents).toHaveLength(1);
 		expect(contextEvents[0].data.context_tokens).toBe(8000);
 		expect(contextEvents[0].data.context_window_size).toBe(200000);

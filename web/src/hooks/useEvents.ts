@@ -77,6 +77,27 @@ function coerceSessionStatus(status: string): SessionStatus["status"] {
 	return "idle";
 }
 
+function memoryCollapseIsActive(events: readonly SessionEvent[]): boolean {
+	let active = false;
+	for (const event of events) {
+		if (event.kind === "session_start" || event.kind === "session_clear" || event.kind === "interrupted") {
+			active = false;
+		}
+		if (event.kind !== "context_update") continue;
+		if (event.data.memory_collapse === "started") {
+			active = true;
+		}
+		if (
+			event.data.memory_collapse === "completed" ||
+			event.data.memory_collapse === "skipped" ||
+			event.data.memory_collapse === "failed"
+		) {
+			active = false;
+		}
+	}
+	return active;
+}
+
 /**
  * Pure state management for session events and derived status.
  * Separated from React so it can be tested without a DOM.
@@ -133,7 +154,7 @@ export class EventStore {
 				// Snapshot session metadata is authoritative on reconnect.
 				this.status = {
 					...this.status,
-					status: snapshotStatus,
+					status: memoryCollapseIsActive(this.events) ? "running" : snapshotStatus,
 					model: snapshotModel ?? this.status.model,
 					sessionId: msg.session.id,
 					availableModels: snapshotAvailableModels,
@@ -248,6 +269,16 @@ export class EventStore {
 					contextTokens: (event.data.context_tokens as number) ?? this.status.contextTokens,
 					contextWindowSize: (event.data.context_window_size as number) ?? this.status.contextWindowSize,
 				};
+				if (event.data.memory_collapse === "started") {
+					this.status = { ...this.status, status: "running" };
+				}
+				if (
+					event.data.memory_collapse === "completed" ||
+					event.data.memory_collapse === "skipped" ||
+					event.data.memory_collapse === "failed"
+				) {
+					this.status = { ...this.status, status: "idle" };
+				}
 				break;
 
 			case "plan_end": {

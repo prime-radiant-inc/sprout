@@ -46,22 +46,39 @@ export function deriveActiveAgentWork(
 	const children = new Map<string, AgentDisplayRef>();
 	const activeChildren = new Map<string, ActiveChildRecord>();
 	const pendingCommands = new Map<string, ActiveChildRecord>();
-	let rootRunning = false;
-	let rootEnded = false;
+	let memoryCollapseActive = false;
 
 	for (const event of events) {
 		if (event.depth === 0 && event.kind === "session_start") {
-			rootRunning = true;
-			rootEnded = false;
+			memoryCollapseActive = false;
 			activeChildren.clear();
 			pendingCommands.clear();
 		}
 
 		if (event.depth === 0 && (event.kind === "session_end" || event.kind === "interrupted")) {
-			rootEnded = event.kind === "session_end";
-			rootRunning = false;
+			if (event.kind === "interrupted") memoryCollapseActive = false;
 			activeChildren.clear();
 			pendingCommands.clear();
+		}
+
+		if (event.kind === "session_clear") {
+			memoryCollapseActive = false;
+			activeChildren.clear();
+			pendingCommands.clear();
+		}
+
+		if (event.kind === "context_update") {
+			const memoryCollapse = cleanString(event.data.memory_collapse);
+			if (memoryCollapse === "started") {
+				memoryCollapseActive = true;
+			}
+			if (
+				memoryCollapse === "completed" ||
+				memoryCollapse === "skipped" ||
+				memoryCollapse === "failed"
+			) {
+				memoryCollapseActive = false;
+			}
 		}
 
 		if (event.kind === "act_start") {
@@ -127,13 +144,15 @@ export function deriveActiveAgentWork(
 		}
 	}
 
-	const activeChild = latestByDepthAndStart([...activeChildren.values()]);
-	if (activeChild) return { kind: "agent", agent: toAgentDisplayRef(activeChild) };
+	if (runStatus === "running") {
+		const activeChild = latestByDepthAndStart([...activeChildren.values()]);
+		if (activeChild) return { kind: "agent", agent: toAgentDisplayRef(activeChild) };
 
-	const pending = latestByDepthAndStart([...pendingCommands.values()]);
-	if (pending) return { kind: "agent", agent: toAgentDisplayRef(pending) };
+		const pending = latestByDepthAndStart([...pendingCommands.values()]);
+		if (pending) return { kind: "agent", agent: toAgentDisplayRef(pending) };
+	}
 
-	if (rootEnded && !rootRunning) return { kind: "memory" };
+	if (memoryCollapseActive) return { kind: "memory" };
 	return null;
 }
 
