@@ -104,6 +104,7 @@ describe("OpenAI Codex OAuth token helpers", () => {
 								redirect_uri:
 									"http://localhost:1455/auth/callback?code=callback-secret&state=state-secret",
 								redirectUri: "http://localhost:1457/auth/callback",
+								detail: "backend access-token-secret refresh-token-secret",
 							}),
 							{ status: 400 },
 						),

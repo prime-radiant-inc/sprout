@@ -171,7 +171,7 @@ function redactTokenEndpointPayload(payload: unknown): unknown {
 		if (isCallbackUrl(payload)) {
 			return "[redacted]";
 		}
-		return redactCredentialText(payload);
+		return redactTokenEndpointPlainText(payload);
 	}
 	return payload;
 }
