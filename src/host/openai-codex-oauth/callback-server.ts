@@ -174,6 +174,8 @@ async function createCallbackListener(
 
 	let completed = false;
 	let timeout: Timer | undefined;
+	let server: BoundCallbackServer | undefined;
+	let stopWhenServerIsAssigned = false;
 	const probeNonce = crypto.randomUUID();
 	const fetch = (request: Request): Response | Promise<Response> => {
 		const url = new URL(request.url);
@@ -198,7 +200,7 @@ async function createCallbackListener(
 			status: 400,
 		});
 	};
-	const server = await bindReachableCallbackServer({
+	server = await bindReachableCallbackServer({
 		hostname,
 		ports,
 		fetch,
@@ -207,6 +209,9 @@ async function createCallbackListener(
 		allowUnregisteredRedirectUriForTests: options.allowUnregisteredRedirectUriForTests,
 		dependencies,
 	});
+	if (stopWhenServerIsAssigned) {
+		server.stop();
+	}
 
 	timeout = setTimeout(() => {
 		complete(callbackError("OpenAI Codex OAuth callback timed out"));
@@ -221,7 +226,11 @@ async function createCallbackListener(
 			clearTimeout(timeout);
 			timeout = undefined;
 		}
-		server.stop();
+		if (server !== undefined) {
+			server.stop();
+		} else {
+			stopWhenServerIsAssigned = true;
+		}
 		finish(value);
 	}
 
@@ -386,11 +395,7 @@ function validateListenerRedirectTargets(input: {
 	hasCustomBindingOptions: boolean;
 }): void {
 	if (input.allowUnregisteredRedirectUriForTests === true) {
-		if (
-			input.hasCustomBindingOptions &&
-			input.hostname === DEFAULT_CALLBACK_HOST &&
-			input.ports.some(isRegisteredPort)
-		) {
+		if (input.hasCustomBindingOptions && input.ports.some(isRegisteredPort)) {
 			throw new Error(
 				"OpenAI Codex OAuth test callback listener cannot use registered redirect URIs",
 			);

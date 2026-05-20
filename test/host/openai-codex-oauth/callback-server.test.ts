@@ -160,6 +160,28 @@ describe("OpenAI Codex OAuth callback listener", () => {
 		).rejects.toThrow(
 			"OpenAI Codex OAuth test callback listener cannot use registered redirect URIs",
 		);
+		await expect(
+			listenForCallback({
+				expectedState: "state-123",
+				hostname: "127.0.0.1",
+				ports: [1455],
+				timeoutMs: 1_000,
+				allowUnregisteredRedirectUriForTests: true,
+			}),
+		).rejects.toThrow(
+			"OpenAI Codex OAuth test callback listener cannot use registered redirect URIs",
+		);
+		await expect(
+			listenForCallback({
+				expectedState: "state-123",
+				hostname: "127.0.0.1",
+				ports: [1457],
+				timeoutMs: 1_000,
+				allowUnregisteredRedirectUriForTests: true,
+			}),
+		).rejects.toThrow(
+			"OpenAI Codex OAuth test callback listener cannot use registered redirect URIs",
+		);
 	});
 
 	test("falls back when the primary registered redirect does not reach this listener", async () => {
@@ -232,6 +254,37 @@ describe("OpenAI Codex OAuth callback listener", () => {
 		expect(listener.redirectUri).not.toBe(OPENAI_CODEX_OAUTH.primaryRedirectUri);
 		expect(listener.redirectUri).not.toBe(OPENAI_CODEX_OAUTH.fallbackRedirectUri);
 		expect(new URL(listener.redirectUri).hostname).toBe("localhost");
+	});
+
+	test("resolves and stops safely when callback arrives during startup probe", async () => {
+		const stoppedPorts: number[] = [];
+		let callbackResponse: Response | undefined;
+		const listener = await createCallbackListenerForTests(
+			{ expectedState: "state-123", timeoutMs: 1_000 },
+			{
+				bindServer({ port, fetch }) {
+					if (port === 1455) {
+						callbackResponse = fetch(
+							new Request("http://localhost:1455/auth/callback?code=early-code&state=state-123"),
+						) as Response;
+					}
+					return {
+						port,
+						stop: () => stoppedPorts.push(port),
+					};
+				},
+				probeProductionRedirect: async () => true,
+			},
+		);
+		activeListeners.push(listener);
+
+		expect(callbackResponse?.status).toBe(200);
+		await expect(listener.result).resolves.toEqual({
+			ok: true,
+			code: "early-code",
+		} satisfies CallbackValidationResult);
+		expect(stoppedPorts).toEqual([1455]);
+		expect(() => listener.stop()).not.toThrow();
 	});
 
 	test("resolves once after a successful loopback callback and can be stopped again", async () => {
