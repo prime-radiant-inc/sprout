@@ -1166,7 +1166,7 @@ describe("bootstrapSessionRuntime", () => {
 		});
 	});
 
-	test("clears startup validation errors once a provider is repaired", async () => {
+	test("clears startup validation errors without enabling a disabled provider", async () => {
 		const settings = {
 			...createEmptySettings(),
 			providers: [
@@ -1231,10 +1231,19 @@ describe("bootstrapSessionRuntime", () => {
 		expect(snapshot).toMatchObject({
 			ok: true,
 			snapshot: {
+				settings: {
+					providers: [
+						{
+							id: "openai",
+							enabled: false,
+						},
+					],
+				},
 				providers: [
 					{
 						providerId: "openai",
-						validationErrors: [],
+						hasSecret: true,
+						validationErrors: ["Provider is disabled"],
 					},
 				],
 			},

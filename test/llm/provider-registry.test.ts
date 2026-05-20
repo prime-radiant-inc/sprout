@@ -4,6 +4,7 @@ import {
 	createProviderSecretRef,
 	createSecretStore,
 	createSecretStoreRuntime,
+	type SecretStore,
 } from "../../src/host/settings/secret-store.ts";
 import type { ProviderConfig, SproutSettings } from "../../src/host/settings/types.ts";
 import { ProviderRegistry } from "../../src/llm/provider-registry.ts";
@@ -141,6 +142,41 @@ describe("ProviderRegistry", () => {
 				},
 			]),
 			secretStore,
+			secretBackend: "memory",
+		});
+
+		const entry = await registry.getEntry("openai");
+		expect(entry?.adapter).toBeUndefined();
+		expect(entry?.validationErrors).toEqual(["Provider is disabled"]);
+	});
+
+	test("does not check secrets for disabled providers", async () => {
+		const throwingSecretStore: SecretStore = {
+			async getSecret() {
+				throw new Error("disabled provider should not read secrets");
+			},
+			async setSecret() {
+				throw new Error("disabled provider should not write secrets");
+			},
+			async deleteSecret() {
+				throw new Error("disabled provider should not delete secrets");
+			},
+			async hasSecret() {
+				throw new Error("disabled provider should not check secrets");
+			},
+		};
+		const registry = new ProviderRegistry({
+			settings: makeSettings([
+				{
+					id: "openai",
+					kind: "openai",
+					label: "OpenAI",
+					enabled: false,
+					createdAt: "2026-03-11T12:00:00.000Z",
+					updatedAt: "2026-03-11T12:00:00.000Z",
+				},
+			]),
+			secretStore: throwingSecretStore,
 			secretBackend: "memory",
 		});
 

@@ -165,7 +165,7 @@ describe("SettingsControlPlane", () => {
 		expect(snapshots).toHaveLength(2);
 	});
 
-	test("setting a secret re-enables providers disabled by startup missing-secret validation", async () => {
+	test("setting a secret clears startup validation without enabling a disabled provider", async () => {
 		const plane = await makePlane({
 			initialValidationErrors: {
 				openai: ["API key is required"],
@@ -200,12 +200,13 @@ describe("SettingsControlPlane", () => {
 			ok: true,
 			snapshot: {
 				settings: {
-					providers: [{ id: "openai", enabled: true }],
+					providers: [{ id: "openai", enabled: false }],
 				},
 				providers: [
 					{
 						providerId: "openai",
-						validationErrors: [],
+						hasSecret: true,
+						validationErrors: ["Provider is disabled"],
 					},
 				],
 			},
