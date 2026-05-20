@@ -316,4 +316,37 @@ describe("deriveActiveAgentWork", () => {
 			expect(work).toBeNull();
 		}
 	});
+
+	test("ignores stale memory collapse terminal events from a previous session", () => {
+		const work = deriveActiveAgentWork(
+			[
+				event("session_start", { goal: "audit", session_id: "old-session" }, { timestamp: 1 }),
+				event(
+					"session_end",
+					{ turns: 1, stumbles: 0, session_id: "old-session" },
+					{ timestamp: 2 },
+				),
+				event(
+					"context_update",
+					{ memory_collapse: "started", session_id: "old-session" },
+					{ timestamp: 3 },
+				),
+				event("session_clear", { new_session_id: "new-session" }, { timestamp: 4 }),
+				event("session_start", { goal: "follow up", session_id: "new-session" }, { timestamp: 5 }),
+				event(
+					"context_update",
+					{ memory_collapse: "started", session_id: "new-session" },
+					{ timestamp: 6 },
+				),
+				event(
+					"context_update",
+					{ memory_collapse: "completed", session_id: "old-session" },
+					{ timestamp: 7 },
+				),
+			],
+			"running",
+		);
+
+		expect(work ? formatActiveAgentWork(work) : null).toBe("Saving memory");
+	});
 });

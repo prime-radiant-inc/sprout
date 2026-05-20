@@ -466,6 +466,40 @@ describe("EventStore", () => {
 				expect(store.status.status).toBe("idle");
 			}
 		});
+
+		test("ignores stale memory collapse terminal events from a previous session", () => {
+			const store = new EventStore();
+
+			store.processMessage(
+				eventMessage(makeEvent("session_start", { model: "gpt-4o", session_id: "old-session" })),
+			);
+			store.processMessage(eventMessage(makeEvent("session_end", { session_id: "old-session" })));
+			store.processMessage(
+				eventMessage(
+					makeEvent("context_update", {
+						memory_collapse: "started",
+						session_id: "old-session",
+					}),
+				),
+			);
+			store.processMessage(
+				eventMessage(makeEvent("session_clear", { new_session_id: "new-session" })),
+			);
+			store.processMessage(
+				eventMessage(makeEvent("session_start", { model: "gpt-4o", session_id: "new-session" })),
+			);
+			store.processMessage(
+				eventMessage(
+					makeEvent("context_update", {
+						memory_collapse: "completed",
+						session_id: "old-session",
+					}),
+				),
+			);
+
+			expect(store.status.sessionId).toBe("new-session");
+			expect(store.status.status).toBe("running");
+		});
 	});
 
 	describe("status derivation: plan_end", () => {

@@ -229,6 +229,83 @@ describe("SessionController", () => {
 		).toEqual(["started", "completed"]);
 	});
 
+	test("tags memory collapse lifecycle events with the active session id", async () => {
+		const fake = makeFakeAgent();
+		const factory: AgentFactory = async () => ({
+			agent: fake.agent as any,
+			learnProcess: null,
+			collapseMemory: async () => ({ ok: true }),
+		});
+		const { bus, controller } = makeController({ factory });
+
+		await controller.runGoal("Remember this session");
+
+		expect(
+			bus
+				.collected()
+				.filter((event) => event.kind === "context_update" && event.data.memory_collapse)
+				.map((event) => event.data.session_id),
+		).toEqual([controller.sessionId, controller.sessionId]);
+	});
+
+	test("emits completed memory collapse only after memory-log compaction finishes", async () => {
+		const order: string[] = [];
+		const fake = makeFakeAgent();
+		const factory: AgentFactory = async () => ({
+			agent: fake.agent as any,
+			learnProcess: null,
+			collapseMemory: async () => {
+				order.push("collapse");
+				return { ok: true };
+			},
+			compactMemoryLogIfDue: async () => {
+				order.push("compact");
+				return { due: false };
+			},
+		});
+		const { bus, controller } = makeController({ factory });
+		bus.onEvent((event) => {
+			if (event.kind === "context_update" && event.data.memory_collapse) {
+				order.push(`memory:${event.data.memory_collapse as string}`);
+			}
+		});
+
+		await controller.runGoal("Remember this session");
+
+		expect(order).toEqual(["memory:started", "collapse", "compact", "memory:completed"]);
+	});
+
+	test("emits failed memory collapse without completed when memory-log compaction fails", async () => {
+		const fake = makeFakeAgent();
+		const factory: AgentFactory = async () => ({
+			agent: fake.agent as any,
+			learnProcess: null,
+			collapseMemory: async () => ({ ok: true }),
+			compactMemoryLogIfDue: async () => {
+				throw new Error("compaction failed");
+			},
+		});
+		const { bus, controller } = makeController({ factory });
+
+		await controller.runGoal("Remember this session");
+
+		expect(
+			bus
+				.collected()
+				.filter((event) => event.kind === "context_update" && event.data.memory_collapse)
+				.map((event) => event.data.memory_collapse),
+		).toEqual(["started", "failed"]);
+		expect(
+			bus
+				.collected()
+				.some(
+					(event) =>
+						event.kind === "warning" &&
+						event.data.message === "Memory collapse failed: compaction failed",
+				),
+		).toBe(true);
+	});
+
 	test("runs due memory-log compaction after memory collapse", async () => {
 		const fake = makeFakeAgent();
 		const factory: AgentFactory = async () => ({

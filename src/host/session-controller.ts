@@ -904,30 +904,36 @@ export class SessionController {
 		if (!result.collapseMemory || this.evalMode) {
 			this.bus.emitEvent("context_update", "session", 0, {
 				memory_collapse: "skipped",
+				session_id: this._sessionId,
 			});
 			return;
 		}
 		this.bus.emitEvent("context_update", "session", 0, {
 			memory_collapse: "started",
+			session_id: this._sessionId,
 		});
 		try {
 			const collapse = await result.collapseMemory({
 				sessionId: this._sessionId,
 				cwd: this.workDir,
 			});
-			this.bus.emitEvent("context_update", "session", 0, {
-				memory_collapse: collapse === "skipped" ? "skipped" : "completed",
-			});
+			const terminalState = collapse === "skipped" ? "skipped" : "completed";
 			const compaction = await result.compactMemoryLogIfDue?.();
 			if (compaction?.result && compaction.result.removedIds.length > 0) {
 				this.bus.emitEvent("context_update", "session", 0, {
 					memory_log_compaction: "completed",
 					removed_memory_count: compaction.result.removedIds.length,
+					session_id: this._sessionId,
 				});
 			}
+			this.bus.emitEvent("context_update", "session", 0, {
+				memory_collapse: terminalState,
+				session_id: this._sessionId,
+			});
 		} catch (err) {
 			this.bus.emitEvent("context_update", "session", 0, {
 				memory_collapse: "failed",
+				session_id: this._sessionId,
 			});
 			this.emitAndPersistControllerEvent("warning", "session", 0, {
 				message: `Memory collapse failed: ${err instanceof Error ? err.message : String(err)}`,

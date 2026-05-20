@@ -77,13 +77,33 @@ function coerceSessionStatus(status: string): SessionStatus["status"] {
 	return "idle";
 }
 
+function cleanString(value: unknown): string | undefined {
+	return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function memoryCollapseLifecycleApplies(
+	event: SessionEvent,
+	currentSessionId: string | undefined,
+): boolean {
+	const eventSessionId = cleanString(event.data.session_id);
+	return !eventSessionId || !currentSessionId || eventSessionId === currentSessionId;
+}
+
 function memoryCollapseIsActive(events: readonly SessionEvent[]): boolean {
 	let active = false;
+	let currentSessionId: string | undefined;
 	for (const event of events) {
 		if (event.kind === "session_start" || event.kind === "session_clear" || event.kind === "interrupted") {
+			if (event.kind === "session_start") {
+				currentSessionId = cleanString(event.data.session_id) ?? currentSessionId;
+			}
+			if (event.kind === "session_clear") {
+				currentSessionId = cleanString(event.data.new_session_id) ?? currentSessionId;
+			}
 			active = false;
 		}
 		if (event.kind !== "context_update") continue;
+		if (!memoryCollapseLifecycleApplies(event, currentSessionId)) continue;
 		if (event.data.memory_collapse === "started") {
 			active = true;
 		}
@@ -237,6 +257,7 @@ export class EventStore {
 					...this.status,
 					status: "running",
 					model: (event.data.model as string) ?? this.status.model,
+					sessionId: cleanString(event.data.session_id) ?? this.status.sessionId,
 					sessionStartedAt: this.status.sessionStartedAt ?? event.timestamp,
 				};
 				break;
@@ -269,6 +290,9 @@ export class EventStore {
 					contextTokens: (event.data.context_tokens as number) ?? this.status.contextTokens,
 					contextWindowSize: (event.data.context_window_size as number) ?? this.status.contextWindowSize,
 				};
+				if (!memoryCollapseLifecycleApplies(event, this.status.sessionId)) {
+					break;
+				}
 				if (event.data.memory_collapse === "started") {
 					this.status = { ...this.status, status: "running" };
 				}

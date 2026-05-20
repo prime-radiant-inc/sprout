@@ -47,9 +47,11 @@ export function deriveActiveAgentWork(
 	const activeChildren = new Map<string, ActiveChildRecord>();
 	const pendingCommands = new Map<string, ActiveChildRecord>();
 	let memoryCollapseActive = false;
+	let currentSessionId: string | undefined;
 
 	for (const event of events) {
 		if (event.depth === 0 && event.kind === "session_start") {
+			currentSessionId = cleanString(event.data.session_id) ?? currentSessionId;
 			memoryCollapseActive = false;
 			activeChildren.clear();
 			pendingCommands.clear();
@@ -62,6 +64,7 @@ export function deriveActiveAgentWork(
 		}
 
 		if (event.kind === "session_clear") {
+			currentSessionId = cleanString(event.data.new_session_id) ?? currentSessionId;
 			memoryCollapseActive = false;
 			activeChildren.clear();
 			pendingCommands.clear();
@@ -69,6 +72,7 @@ export function deriveActiveAgentWork(
 
 		if (event.kind === "context_update") {
 			const memoryCollapse = cleanString(event.data.memory_collapse);
+			if (!memoryCollapseLifecycleApplies(event, currentSessionId)) continue;
 			if (memoryCollapse === "started") {
 				memoryCollapseActive = true;
 			}
@@ -158,6 +162,14 @@ export function deriveActiveAgentWork(
 
 function cleanString(value: unknown): string | undefined {
 	return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function memoryCollapseLifecycleApplies(
+	event: SessionEvent,
+	currentSessionId: string | undefined,
+): boolean {
+	const eventSessionId = cleanString(event.data.session_id);
+	return !eventSessionId || !currentSessionId || eventSessionId === currentSessionId;
 }
 
 function refFromEventData(data: Record<string, unknown>): AgentDisplayRef {

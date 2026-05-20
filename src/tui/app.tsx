@@ -64,6 +64,18 @@ const INITIAL_STATUS: StatusState = {
 
 const STATUS_EVENT_HISTORY_LIMIT = 500;
 
+function cleanString(value: unknown): string | undefined {
+	return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function memoryCollapseLifecycleApplies(
+	event: SessionEvent,
+	currentSessionId: string | undefined,
+): boolean {
+	const eventSessionId = cleanString(event.data.session_id);
+	return !eventSessionId || !currentSessionId || eventSessionId === currentSessionId;
+}
+
 function selectionSnapshotFromRequest(
 	selection: Parameters<typeof defaultResolveSessionSelectionRequest>[0],
 	settings: SettingsSnapshot | null,
@@ -105,6 +117,7 @@ export function App({
 	const [exitHintVisible, setExitHintVisible] = useState(false);
 	const [toolsCollapsed, setToolsCollapsed] = useState(false);
 	const settingsLoad = useRef<Promise<SettingsCommandResult> | null>(null);
+	const currentSessionIdRef = useRef(sessionId);
 	const activeWork = deriveActiveAgentWork(statusEvents, statusState.status);
 
 	const loadSettings = useCallback(async (): Promise<SettingsCommandResult | null> => {
@@ -145,6 +158,9 @@ export function App({
 
 			switch (event.kind) {
 				case "session_start":
+					currentSessionIdRef.current =
+						cleanString(event.data.session_id) ?? currentSessionIdRef.current;
+					setCurrentSessionId(currentSessionIdRef.current);
 					setStatusState((prev) => ({
 						...prev,
 						status: "running",
@@ -161,7 +177,9 @@ export function App({
 					break;
 
 				case "session_clear":
-					setCurrentSessionId((event.data.new_session_id as string) ?? sessionId);
+					currentSessionIdRef.current =
+						cleanString(event.data.new_session_id) ?? currentSessionIdRef.current;
+					setCurrentSessionId(currentSessionIdRef.current);
 					setStatusState(INITIAL_STATUS);
 					break;
 
@@ -171,6 +189,9 @@ export function App({
 						contextTokens: (event.data.context_tokens as number) ?? prev.contextTokens,
 						contextWindowSize: (event.data.context_window_size as number) ?? prev.contextWindowSize,
 					}));
+					if (!memoryCollapseLifecycleApplies(event, currentSessionIdRef.current)) {
+						break;
+					}
 					if (event.data.memory_collapse === "started") {
 						setStatusState((prev) => ({ ...prev, status: "running" }));
 					}
@@ -201,7 +222,7 @@ export function App({
 					break;
 			}
 		});
-	}, [bus, sessionId]);
+	}, [bus]);
 
 	const models = knownModels ?? DEFAULT_MODELS;
 
