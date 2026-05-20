@@ -2787,7 +2787,10 @@ describe("SettingsControlPlane", () => {
 	});
 
 	test("surfaces unavailable secret backends in snapshots and secret mutations", async () => {
-		const message = "Unsupported secret backend for platform: win32";
+		const message =
+			"Unsupported secret backend for sprout/providers/openai-codex/oauth callback http://127.0.0.1/callback?code=abc123&state=state456 access_token=token_secret sk-live-secret";
+		const redactedMessage =
+			"Unsupported secret backend for [redacted] callback http://127.0.0.1/callback?code=[redacted]&state=[redacted] access_token=[redacted] [redacted]";
 		const unavailableSecretStore: SecretStore = {
 			async getSecret() {
 				return undefined;
@@ -2833,7 +2836,7 @@ describe("SettingsControlPlane", () => {
 				runtime: {
 					secretBackend: {
 						available: false,
-						message,
+						message: redactedMessage,
 					},
 				},
 				providers: [
@@ -2845,6 +2848,15 @@ describe("SettingsControlPlane", () => {
 				],
 			},
 		});
+		if (!snapshot.ok) throw new Error(snapshot.message);
+		expect(snapshot.snapshot.runtime.warnings).toEqual(
+			expect.arrayContaining([
+				{
+					code: "secret_backend_unavailable",
+					message: redactedMessage,
+				},
+			]),
+		);
 
 		const enable = await plane.execute({
 			kind: "set_provider_enabled",
@@ -2872,9 +2884,9 @@ describe("SettingsControlPlane", () => {
 		expect(saveSecret).toEqual({
 			ok: false,
 			code: "secret_backend_unavailable",
-			message,
+			message: redactedMessage,
 			fieldErrors: {
-				secret: message,
+				secret: redactedMessage,
 			},
 		});
 
@@ -2887,11 +2899,20 @@ describe("SettingsControlPlane", () => {
 		expect(deleteSecret).toEqual({
 			ok: false,
 			code: "secret_backend_unavailable",
-			message,
+			message: redactedMessage,
 			fieldErrors: {
-				secret: message,
+				secret: redactedMessage,
 			},
 		});
+
+		for (const result of [snapshot, saveSecret, deleteSecret]) {
+			const payload = JSON.stringify(result);
+			expect(payload).not.toContain("sprout/providers/openai-codex/oauth");
+			expect(payload).not.toContain("abc123");
+			expect(payload).not.toContain("state456");
+			expect(payload).not.toContain("token_secret");
+			expect(payload).not.toContain("sk-live-secret");
+		}
 	});
 
 	test("preserves runtime warnings across snapshots and successful mutations", async () => {

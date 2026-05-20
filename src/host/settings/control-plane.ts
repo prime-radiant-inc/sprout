@@ -504,13 +504,8 @@ export class SettingsControlPlane {
 			);
 		} catch (error) {
 			if (!this.secretBackendState.available) {
-				return this.error(
-					"secret_backend_unavailable",
-					this.secretBackendState.message ?? "Secret storage backend is unavailable",
-					{
-						secret: this.secretBackendState.message ?? "Secret storage backend is unavailable",
-					},
-				);
+				const message = unavailableSecretBackendMessage(this.secretBackendState);
+				return this.error("secret_backend_unavailable", message, { secret: message });
 			}
 			return this.error(
 				"secret_store_failed",
@@ -535,13 +530,8 @@ export class SettingsControlPlane {
 			);
 		} catch (error) {
 			if (!this.secretBackendState.available) {
-				return this.error(
-					"secret_backend_unavailable",
-					this.secretBackendState.message ?? "Secret storage backend is unavailable",
-					{
-						secret: this.secretBackendState.message ?? "Secret storage backend is unavailable",
-					},
-				);
+				const message = unavailableSecretBackendMessage(this.secretBackendState);
+				return this.error("secret_backend_unavailable", message, { secret: message });
 			}
 			return this.error(
 				"secret_store_failed",
@@ -834,7 +824,7 @@ export class SettingsControlPlane {
 		return {
 			settings: structuredClone(this.settings),
 			runtime: {
-				secretBackend: structuredClone(this.secretBackendState),
+				secretBackend: sanitizedSecretBackendState(this.secretBackendState),
 				warnings: this.buildRuntimeWarnings(),
 				modelOverrides: modelOverrideSnapshot,
 			},
@@ -1138,7 +1128,7 @@ export class SettingsControlPlane {
 		if (!this.secretBackendState.available) {
 			warnings.push({
 				code: "secret_backend_unavailable",
-				message: this.secretBackendState.message ?? "Secret storage backend is unavailable",
+				message: unavailableSecretBackendMessage(this.secretBackendState),
 			});
 		}
 		const missingMemoryModels = missingConfiguredMemoryModels(
@@ -1239,6 +1229,19 @@ function credentialStatusHasSecret(status: ProviderCredentialStatus): boolean {
 
 function providerErrorMessage(error: unknown): string {
 	return redactCredentialText(error instanceof Error ? error.message : String(error));
+}
+
+function unavailableSecretBackendMessage(state: SecretBackendState): string {
+	return state.message !== undefined
+		? redactCredentialText(state.message)
+		: "Secret storage backend is unavailable";
+}
+
+function sanitizedSecretBackendState(state: SecretBackendState): SecretBackendState {
+	return {
+		...structuredClone(state),
+		...(state.message !== undefined ? { message: redactCredentialText(state.message) } : {}),
+	};
 }
 
 function removeProviderFromSettings(settings: SproutSettings, providerId: string): SproutSettings {
