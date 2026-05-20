@@ -16,7 +16,6 @@
     "noUnusedParameters": true,
     "baseUrl": ".",
     "paths": {
-      "@host/*": ["../src/host/*"],
       "@kernel/*": ["../src/kernel/*"],
       "@shared/*": ["../src/shared/*"]
     }

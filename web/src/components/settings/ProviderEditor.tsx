@@ -5,8 +5,11 @@ import type {
 	SettingsCommand,
 	SettingsSnapshot,
 } from "@kernel/types.ts";
-import { providerSupportsSecretKind } from "@host/settings/provider-credentials.ts";
-import { PROVIDER_KINDS, PROVIDER_KIND_LABELS } from "@shared/provider-settings.ts";
+import {
+	PROVIDER_KINDS,
+	PROVIDER_KIND_LABELS,
+	providerSupportsSecretKind,
+} from "@shared/provider-settings.ts";
 import { HeadersEditor, type HeaderDraft } from "./HeadersEditor.tsx";
 import styles from "./ProviderSettingsPanel.module.css";
 

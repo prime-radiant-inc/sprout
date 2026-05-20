@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	createProviderCredentialRef,
+	createProviderCredentialRefsForKind,
 	getProviderCredentialKinds,
 	PROVIDER_CREDENTIAL_KINDS,
 } from "@/host/settings/provider-credentials";
@@ -35,6 +36,27 @@ describe("provider credential declarations", () => {
 			storageBackend: "memory",
 			storageKey: "sprout/providers/openai-codex/oauth",
 		});
+	});
+
+	test("creates credential refs for every declared provider credential kind", () => {
+		const providerKinds: ProviderKind[] = [
+			"anthropic",
+			"openai",
+			"openai-codex",
+			"openai-compatible",
+			"openrouter",
+			"gemini",
+		];
+
+		for (const kind of providerKinds) {
+			const refs = createProviderCredentialRefsForKind(kind, kind, "memory");
+			expect(refs.map((ref) => ref.secretKind)).toEqual([...getProviderCredentialKinds(kind)]);
+			expect(refs.map((ref) => ref.storageKey)).toEqual(
+				getProviderCredentialKinds(kind).map(
+					(secretKind) => `sprout/providers/${kind}/${secretKind}`,
+				),
+			);
+		}
 	});
 
 	test("rejects unsafe provider ids for storage keys", () => {

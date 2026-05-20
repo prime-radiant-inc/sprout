@@ -262,6 +262,39 @@ describe("SettingsControlPlane", () => {
 		);
 	});
 
+	test("provider deletion cleans up every declared credential ref", async () => {
+		const secretStore = createSecretStore({ backend: "memory", platform: "darwin" });
+		const oauthRef = createProviderCredentialRef("openai-codex", "oauth", "memory");
+		await secretStore.setSecret(oauthRef, "oauth-secret");
+		const plane = await makePlane({
+			secretStore,
+			initialSettings: {
+				version: 4,
+				providers: [
+					{
+						id: "openai-codex",
+						kind: "openai-codex",
+						label: "OpenAI Codex",
+						enabled: true,
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {},
+				memoryModels: {},
+				agentModelOverrides: {},
+			},
+		});
+
+		const result = await plane.execute({
+			kind: "delete_provider",
+			data: { providerId: "openai-codex" },
+		});
+
+		expect(result).toMatchObject({ ok: true });
+		expect(await secretStore.hasSecret(oauthRef)).toBe(false);
+	});
+
 	test("warns when enabled providers exist without explicit memory models", async () => {
 		const plane = await makePlane({
 			initialSettings: {

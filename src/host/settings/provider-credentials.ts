@@ -1,17 +1,19 @@
-import type { ProviderKind } from "../../shared/provider-settings.ts";
+import {
+	getProviderCredentialKinds,
+	PROVIDER_CREDENTIAL_KINDS,
+	type ProviderKind,
+	type ProviderSecretKind,
+	providerSupportsSecretKind,
+} from "../../shared/provider-settings.ts";
 
 import type { SecretStorageBackend } from "./secret-store";
 
-export type ProviderSecretKind = "api-key" | "oauth";
-
-export const PROVIDER_CREDENTIAL_KINDS = {
-	anthropic: ["api-key"],
-	openai: ["api-key"],
-	"openai-codex": ["oauth"],
-	"openai-compatible": ["api-key"],
-	openrouter: ["api-key"],
-	gemini: ["api-key"],
-} as const satisfies Record<ProviderKind, readonly ProviderSecretKind[]>;
+export {
+	getProviderCredentialKinds,
+	PROVIDER_CREDENTIAL_KINDS,
+	providerSupportsSecretKind,
+	type ProviderSecretKind,
+};
 
 export interface ProviderCredentialRef<SecretKind extends ProviderSecretKind = ProviderSecretKind> {
 	providerId: string;
@@ -20,25 +22,14 @@ export interface ProviderCredentialRef<SecretKind extends ProviderSecretKind = P
 	storageKey: string;
 }
 
-export function getProviderCredentialKinds(kind: ProviderKind): readonly ProviderSecretKind[] {
-	return PROVIDER_CREDENTIAL_KINDS[kind];
-}
-
-export function providerSupportsSecretKind(
-	kind: ProviderKind,
-	secretKind: ProviderSecretKind,
-): boolean {
-	return getProviderCredentialKinds(kind).includes(secretKind);
-}
-
-export function createProviderCredentialRefForKind(
+export function createProviderCredentialRefsForKind(
 	providerId: string,
 	providerKind: ProviderKind,
 	storageBackend: SecretStorageBackend,
-): ProviderCredentialRef | undefined {
-	const [secretKind] = getProviderCredentialKinds(providerKind);
-	if (!secretKind) return undefined;
-	return createProviderCredentialRef(providerId, secretKind, storageBackend);
+): ProviderCredentialRef[] {
+	return getProviderCredentialKinds(providerKind).map((secretKind) =>
+		createProviderCredentialRef(providerId, secretKind, storageBackend),
+	);
 }
 
 export function createProviderCredentialRef(

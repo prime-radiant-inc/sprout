@@ -20,6 +20,28 @@ export const PROVIDER_KIND_LABELS = {
 	gemini: "Gemini",
 } as const satisfies Record<ProviderKind, string>;
 
+export type ProviderSecretKind = "api-key" | "oauth";
+
+export const PROVIDER_CREDENTIAL_KINDS = {
+	anthropic: ["api-key"],
+	openai: ["api-key"],
+	"openai-codex": ["oauth"],
+	"openai-compatible": ["api-key"],
+	openrouter: ["api-key"],
+	gemini: ["api-key"],
+} as const satisfies Record<ProviderKind, readonly ProviderSecretKind[]>;
+
+export function getProviderCredentialKinds(kind: ProviderKind): readonly ProviderSecretKind[] {
+	return PROVIDER_CREDENTIAL_KINDS[kind];
+}
+
+export function providerSupportsSecretKind(
+	kind: ProviderKind,
+	secretKind: ProviderSecretKind,
+): boolean {
+	return getProviderCredentialKinds(kind).includes(secretKind);
+}
+
 export type Tier = "best" | "balanced" | "fast";
 export type MemoryModelPurpose =
 	| "summary"

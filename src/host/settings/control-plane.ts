@@ -9,7 +9,7 @@ import {
 } from "./model-overrides.ts";
 import {
 	createProviderCredentialRef,
-	createProviderCredentialRefForKind,
+	createProviderCredentialRefsForKind,
 	type ProviderCredentialRef,
 	providerSupportsSecretKind,
 } from "./provider-credentials.ts";
@@ -324,8 +324,9 @@ export class SettingsControlPlane {
 		}
 
 		try {
-			const ref = this.providerCredentialRef(provider);
-			if (ref) await this.secretStore.deleteSecret(ref);
+			for (const ref of this.providerCredentialRefs(provider)) {
+				await this.secretStore.deleteSecret(ref);
+			}
 		} catch (error) {
 			this.addRuntimeWarning({
 				code: "secret_cleanup_failed",
@@ -724,18 +725,21 @@ export class SettingsControlPlane {
 
 	private async providerHasSecret(provider: ProviderConfig): Promise<boolean> {
 		if (!providerRequiresSecret(provider)) return false;
-		const ref = this.providerCredentialRef(provider);
-		return ref ? this.secretStore.hasSecret(ref) : false;
+		const refs = this.providerCredentialRefs(provider);
+		if (refs.length === 0) return false;
+		return (await Promise.all(refs.map((ref) => this.secretStore.hasSecret(ref)))).every(Boolean);
 	}
 
 	private async getProviderSecret(provider: ProviderConfig): Promise<string | undefined> {
 		if (!providerRequiresSecret(provider)) return undefined;
-		const ref = this.providerCredentialRef(provider);
-		return ref ? this.secretStore.getSecret(ref) : undefined;
+		const apiKeyRef = this.providerCredentialRefs(provider).find(
+			(ref) => ref.secretKind === "api-key",
+		);
+		return apiKeyRef ? this.secretStore.getSecret(apiKeyRef) : undefined;
 	}
 
-	private providerCredentialRef(provider: ProviderConfig): ProviderCredentialRef | undefined {
-		return createProviderCredentialRefForKind(provider.id, provider.kind, this.secretBackend);
+	private providerCredentialRefs(provider: ProviderConfig): ProviderCredentialRef[] {
+		return createProviderCredentialRefsForKind(provider.id, provider.kind, this.secretBackend);
 	}
 
 	private rejectGenericSecretCommandIfUnsupported(

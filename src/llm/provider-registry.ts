@@ -1,4 +1,7 @@
-import { createProviderCredentialRefForKind } from "../host/settings/provider-credentials.ts";
+import {
+	createProviderCredentialRefsForKind,
+	type ProviderCredentialRef,
+} from "../host/settings/provider-credentials.ts";
 import type {
 	SecretBackendState,
 	SecretStorageBackend,
@@ -78,7 +81,7 @@ export class ProviderRegistry {
 
 	private async validateProvider(provider: ProviderConfig): Promise<string[]> {
 		const hasSecret = providerRequiresSecret(provider)
-			? await this.secretStore.hasSecret(this.secretRef(provider))
+			? await this.hasRequiredProviderCredentials(provider)
 			: false;
 		return validateProviderRuntimeReadiness(provider, {
 			hasSecret,
@@ -88,15 +91,20 @@ export class ProviderRegistry {
 
 	private async getProviderSecret(provider: ProviderConfig): Promise<string | undefined> {
 		if (!providerRequiresSecret(provider)) return undefined;
-		return this.secretStore.getSecret(this.secretRef(provider));
+		const apiKeyRef = this.providerCredentialRefs(provider).find(
+			(ref) => ref.secretKind === "api-key",
+		);
+		return apiKeyRef ? this.secretStore.getSecret(apiKeyRef) : undefined;
 	}
 
-	private secretRef(provider: ProviderConfig) {
-		const ref = createProviderCredentialRefForKind(provider.id, provider.kind, this.secretBackend);
-		if (!ref) {
-			throw new Error(`No credential declaration for provider kind: ${provider.kind}`);
-		}
-		return ref;
+	private async hasRequiredProviderCredentials(provider: ProviderConfig): Promise<boolean> {
+		const refs = this.providerCredentialRefs(provider);
+		if (refs.length === 0) return false;
+		return (await Promise.all(refs.map((ref) => this.secretStore.hasSecret(ref)))).every(Boolean);
+	}
+
+	private providerCredentialRefs(provider: ProviderConfig): ProviderCredentialRef[] {
+		return createProviderCredentialRefsForKind(provider.id, provider.kind, this.secretBackend);
 	}
 }
 
