@@ -614,7 +614,8 @@ export async function refreshTokens(input: {
 }
 ```
 
-The implementation must parse `expires_in` into ISO `expiresAt` and throw redacted errors.
+The implementation must parse `expires_in` into ISO `expiresAt` when present, fall back to the
+access-token JWT `exp` claim when `expires_in` is omitted, and throw redacted errors.
 
 - [ ] **Step 6: Run tests**
 

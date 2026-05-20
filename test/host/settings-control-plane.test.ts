@@ -1093,7 +1093,9 @@ describe("SettingsControlPlane", () => {
 					return { ok: true, failedRefs: [] };
 				},
 				async login() {
-					throw new Error("raw token exchange failed for sprout/providers/openai-codex/oauth");
+					throw new Error(
+						"token exchange failed for sprout/providers/openai-codex/oauth refresh_token=token_secret",
+					);
 				},
 			},
 			initialSettings: {
@@ -1123,7 +1125,8 @@ describe("SettingsControlPlane", () => {
 		expect(result).toMatchObject({
 			ok: false,
 			code: "oauth_login_failed",
-			message: "OAuth login failed for provider 'openai-codex'.",
+			message:
+				"OAuth login failed for provider 'openai-codex': token exchange failed for [redacted] refresh_token=[redacted]",
 			snapshot: {
 				settings: {
 					providers: [
@@ -1137,7 +1140,7 @@ describe("SettingsControlPlane", () => {
 			},
 		});
 		expect(JSON.stringify(result)).not.toContain("sprout/providers");
-		expect(JSON.stringify(result)).not.toContain("raw token");
+		expect(JSON.stringify(result)).not.toContain("token_secret");
 	});
 
 	test("login provider oauth returns a clear error when no login operation is configured", async () => {
@@ -1207,7 +1210,8 @@ describe("SettingsControlPlane", () => {
 		expect(result).toEqual({
 			ok: false,
 			code: "oauth_login_failed",
-			message: "OAuth login failed for provider 'openai-codex'.",
+			message:
+				"OAuth login failed for provider 'openai-codex': login failed for [redacted] callback http://127.0.0.1/callback?code=[redacted]&state=[redacted] refresh_token=[redacted]",
 		});
 		const payload = JSON.stringify(result);
 		expect(payload).not.toContain("sprout/providers/openai-codex/oauth");

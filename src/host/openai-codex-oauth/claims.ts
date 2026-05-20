@@ -28,7 +28,7 @@ export function extractChatGPTAccountId(input: {
 	throw new Error("OpenAI OAuth token claims did not include a ChatGPT account id");
 }
 
-function decodeJwtClaims(token: string): Record<string, unknown> {
+export function decodeJwtClaims(token: string): Record<string, unknown> {
 	const parts = token.split(".");
 	if (parts.length !== 3 || parts[1] === undefined || parts[1] === "") {
 		throw new Error(DECODE_ERROR);

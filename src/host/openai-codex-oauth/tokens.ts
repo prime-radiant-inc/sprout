@@ -1,4 +1,5 @@
 import { redactCredentialText } from "../settings/redaction";
+import { decodeJwtClaims } from "./claims";
 import { OPENAI_CODEX_OAUTH } from "./config";
 
 export interface TokenResponse {
@@ -150,9 +151,7 @@ function parseTokenResponse(
 		(options.requireRefreshToken && parsedRefreshToken === undefined) ||
 		(refreshToken !== undefined && parsedRefreshToken === undefined) ||
 		(idToken !== undefined && parsedIdToken === undefined) ||
-		typeof expiresIn !== "number" ||
-		!Number.isFinite(expiresIn) ||
-		expiresIn <= 0
+		(expiresIn !== undefined && !isPositiveFiniteNumber(expiresIn))
 	) {
 		throw new Error(
 			`OpenAI Codex OAuth token response is missing required fields: ${redactTokenEndpointText(
@@ -162,7 +161,10 @@ function parseTokenResponse(
 		);
 	}
 
-	const expiresAt = buildExpiresAt((options.now ?? Date.now)(), expiresIn);
+	const expiresAt =
+		expiresIn === undefined
+			? buildExpiresAtFromJwtExp(parsedAccessToken)
+			: buildExpiresAt((options.now ?? Date.now)(), expiresIn);
 	if (expiresAt === undefined) {
 		throw new Error(
 			`OpenAI Codex OAuth token response is missing required fields: ${redactTokenEndpointText(
@@ -180,6 +182,10 @@ function parseTokenResponse(
 	};
 }
 
+function isPositiveFiniteNumber(value: unknown): value is number {
+	return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
 function parseRequiredTokenField(value: unknown): string | undefined {
 	return typeof value === "string" && value.trim() !== "" ? value.trim() : undefined;
 }
@@ -193,6 +199,24 @@ function parseOptionalTokenField(value: unknown): string | undefined {
 
 function buildExpiresAt(now: number, expiresIn: number): string | undefined {
 	const expiresAtMs = now + expiresIn * 1000;
+	return buildIsoTimestamp(expiresAtMs);
+}
+
+function buildExpiresAtFromJwtExp(accessToken: string): string | undefined {
+	let claims: Record<string, unknown>;
+	try {
+		claims = decodeJwtClaims(accessToken);
+	} catch {
+		return undefined;
+	}
+	const exp = claims.exp;
+	if (!isPositiveFiniteNumber(exp)) {
+		return undefined;
+	}
+	return buildIsoTimestamp(exp * 1000);
+}
+
+function buildIsoTimestamp(expiresAtMs: number): string | undefined {
 	if (!Number.isFinite(expiresAtMs)) {
 		return undefined;
 	}

@@ -259,7 +259,7 @@ describe("OpenAI Codex OAuth callback listener", () => {
 	test("resolves and stops safely when callback arrives during startup probe", async () => {
 		const stoppedPorts: number[] = [];
 		let scheduledTimeouts = 0;
-		let callbackResponse: Response | undefined;
+		let callbackResponse: Promise<Response> | undefined;
 		const listener = await createCallbackListenerForTests(
 			{ expectedState: "state-123", timeoutMs: 1 },
 			{
@@ -267,7 +267,7 @@ describe("OpenAI Codex OAuth callback listener", () => {
 					if (port === 1455) {
 						callbackResponse = fetch(
 							new Request("http://localhost:1455/auth/callback?code=early-code&state=state-123"),
-						) as Response;
+						) as Promise<Response>;
 					}
 					return {
 						port,
@@ -283,7 +283,7 @@ describe("OpenAI Codex OAuth callback listener", () => {
 		);
 		activeListeners.push(listener);
 
-		expect(callbackResponse?.status).toBe(200);
+		expect((await callbackResponse)?.status).toBe(200);
 		await expect(listener.result).resolves.toEqual({
 			ok: true,
 			code: "early-code",
@@ -317,11 +317,15 @@ describe("OpenAI Codex OAuth callback listener", () => {
 	});
 
 	test("redirects a successful callback back into the app when a return URL is configured", async () => {
+		const handledCodes: string[] = [];
 		const listener = await listenForCallback({
 			expectedState: "state-123",
 			ports: [0],
 			timeoutMs: 1_000,
 			appReturnUrl: "http://localhost:7777/?token=nonce&settings=providers&provider=openai-codex",
+			onSuccessfulCallback: async (code: string) => {
+				handledCodes.push(code);
+			},
 			allowUnregisteredRedirectUriForTests: true,
 		} as Parameters<typeof listenForCallback>[0]);
 		activeListeners.push(listener);
@@ -335,7 +339,35 @@ describe("OpenAI Codex OAuth callback listener", () => {
 		expect(response.headers.get("location")).toBe(
 			"http://localhost:7777/?token=nonce&settings=providers&provider=openai-codex",
 		);
+		expect(handledCodes).toEqual(["code-123"]);
 		expect(result).toEqual({ ok: true, code: "code-123" } satisfies CallbackValidationResult);
+	});
+
+	test("reports callback handler failures before redirecting back into the app", async () => {
+		const listener = await listenForCallback({
+			expectedState: "state-123",
+			ports: [0],
+			timeoutMs: 1_000,
+			appReturnUrl: "http://localhost:7777/?settings=providers",
+			onSuccessfulCallback: async () => {
+				throw new Error("OpenAI Codex OAuth token response is missing required fields");
+			},
+			allowUnregisteredRedirectUriForTests: true,
+		} as Parameters<typeof listenForCallback>[0]);
+		activeListeners.push(listener);
+
+		const response = await fetch(`${listener.redirectUri}?code=code-123&state=state-123`, {
+			redirect: "manual",
+		});
+		const result = await listener.result;
+
+		expect(response.status).toBe(400);
+		expect(response.headers.get("location")).toBeNull();
+		expect(await response.text()).toContain("OpenAI Codex authentication failed");
+		expect(result).toEqual({
+			ok: false,
+			error: "OpenAI Codex OAuth token response is missing required fields",
+		} satisfies CallbackValidationResult);
 	});
 
 	test("does not let a second callback alter the first successful result", async () => {

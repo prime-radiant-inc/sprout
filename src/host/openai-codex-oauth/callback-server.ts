@@ -1,3 +1,4 @@
+import { redactCredentialText } from "../settings/redaction";
 import { OPENAI_CODEX_OAUTH } from "./config";
 
 const CALLBACK_PATH = "/auth/callback";
@@ -113,6 +114,7 @@ type CallbackListenerBaseOptions = {
 	timeoutMs?: number;
 	probeTimeoutMs?: number;
 	appReturnUrl?: string;
+	onSuccessfulCallback?: (code: string) => Promise<void>;
 };
 
 type CallbackListenerOptions = CallbackListenerBaseOptions & {
@@ -182,7 +184,7 @@ async function createCallbackListener(
 	let server: BoundCallbackServer | undefined;
 	let stopWhenServerIsAssigned = false;
 	const probeNonce = crypto.randomUUID();
-	const fetch = (request: Request): Response | Promise<Response> => {
+	const fetch = async (request: Request): Promise<Response> => {
 		const url = new URL(request.url);
 		if (url.pathname === PROBE_PATH) {
 			return new Response(url.searchParams.get("nonce") === probeNonce ? probeNonce : "mismatch", {
@@ -193,6 +195,16 @@ async function createCallbackListener(
 
 		const validation = validateCallbackRequest(request, { expectedState: options.expectedState });
 		if (validation.ok) {
+			try {
+				await options.onSuccessfulCallback?.(validation.code);
+			} catch (error) {
+				const failed = callbackError(redactCredentialText(errorMessage(error)));
+				complete(failed);
+				return new Response("OpenAI Codex authentication failed. Return to Sprout to continue.", {
+					headers: { "content-type": "text/plain; charset=utf-8" },
+					status: 400,
+				});
+			}
 			complete(validation);
 			if (appReturnUrl !== undefined) {
 				return Response.redirect(appReturnUrl, 303);
@@ -448,6 +460,10 @@ function buildRedirectUri(input: {
 
 function isRegisteredPort(port: number): boolean {
 	return port === 1455 || port === 1457;
+}
+
+function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
 }
 
 function normalizeAppReturnUrl(value: string | undefined): string | undefined {

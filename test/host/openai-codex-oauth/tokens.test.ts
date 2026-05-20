@@ -34,6 +34,10 @@ const fetchMustNotBeCalled = (() => {
 	throw new Error("fetch should not be called");
 }) as unknown as typeof fetch;
 
+function jwt(payload: Record<string, unknown>): string {
+	return `header.${btoa(JSON.stringify(payload)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/u, "")}.signature`;
+}
+
 describe("OpenAI Codex OAuth token helpers", () => {
 	test("exchanges an auth code using a form-encoded POST body", async () => {
 		const tokens = await exchangeCodeForTokens({
@@ -64,6 +68,23 @@ describe("OpenAI Codex OAuth token helpers", () => {
 			idToken: "id-token-secret",
 			expiresAt: "2026-05-20T11:00:00.000Z",
 		} satisfies TokenResponse);
+	});
+
+	test("derives token expiry from the access token exp claim when expires_in is omitted", async () => {
+		const tokens = await exchangeCodeForTokens({
+			code: "auth-code-secret",
+			codeVerifier: "verifier-secret",
+			redirectUri: "http://localhost:1455/auth/callback",
+			fetchImpl: fetchWithBodyAssertion(() => {}, {
+				access_token: jwt({
+					exp: Date.parse("2026-05-20T11:00:00.000Z") / 1000,
+				}),
+				refresh_token: "refresh-token-secret",
+				id_token: "id-token-secret",
+			}),
+		});
+
+		expect(tokens.expiresAt).toBe("2026-05-20T11:00:00.000Z");
 	});
 
 	test("refreshes tokens and allows missing rotated refresh token", async () => {

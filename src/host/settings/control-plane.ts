@@ -430,10 +430,10 @@ export class SettingsControlPlane {
 
 			try {
 				await this.oauthOperations.login(providerId);
-			} catch {
+			} catch (error) {
 				return this.failureWithSnapshot(
 					"oauth_login_failed",
-					`OAuth login failed for provider '${providerId}'.`,
+					oauthLoginFailedMessage(providerId, error),
 				);
 			}
 
@@ -456,8 +456,8 @@ export class SettingsControlPlane {
 
 		try {
 			await this.oauthOperations.login(providerId);
-		} catch {
-			return this.error("oauth_login_failed", `OAuth login failed for provider '${providerId}'.`);
+		} catch (error) {
+			return this.error("oauth_login_failed", oauthLoginFailedMessage(providerId, error));
 		}
 
 		delete this.initialValidationErrors[providerId];
@@ -1214,6 +1214,10 @@ function unsupportedGenericSecretMessage(kind: ProviderConfig["kind"]): string {
 		return "OpenAI Codex uses ChatGPT OAuth. Generic provider secret commands are not supported.";
 	}
 	return `Provider kind '${kind}' does not support generic provider secret commands.`;
+}
+
+function oauthLoginFailedMessage(providerId: string, error: unknown): string {
+	return `OAuth login failed for provider '${providerId}': ${providerErrorMessage(error)}`;
 }
 
 function credentialStatusHasSecret(status: ProviderCredentialStatus): boolean {

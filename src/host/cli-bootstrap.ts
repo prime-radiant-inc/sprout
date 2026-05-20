@@ -121,6 +121,8 @@ interface InteractiveBootstrapDeps {
 	generateOpenAICodexOAuthState: () => string;
 	listenForOpenAICodexOAuthCallback: (options: {
 		expectedState: string;
+		appReturnUrl?: string;
+		onSuccessfulCallback?: (code: string) => Promise<void>;
 	}) => Promise<CallbackListener>;
 	openExternalUrl: (url: string) => Promise<void>;
 	createLogger: (opts: {
@@ -581,6 +583,7 @@ function createOpenAICodexOAuthOperations(
 		listenForCallback: (options: {
 			expectedState: string;
 			appReturnUrl?: string;
+			onSuccessfulCallback?: (code: string) => Promise<void>;
 		}) => Promise<CallbackListener>;
 		openExternalUrl: (url: string) => Promise<void>;
 		getAppReturnUrl?: () => string | undefined;
@@ -607,10 +610,23 @@ function createOpenAICodexOAuthOperations(
 			const state = deps.generateState();
 			const pkce = await deps.generatePkce();
 			const appReturnUrl = deps.getAppReturnUrl?.();
+			let callbackRedirectUri: string | undefined;
 			const listener = await deps.listenForCallback({
 				expectedState: state,
 				...(appReturnUrl !== undefined ? { appReturnUrl } : {}),
+				onSuccessfulCallback: async (code) => {
+					if (callbackRedirectUri === undefined) {
+						throw new Error("OpenAI Codex OAuth callback listener was not ready");
+					}
+					await oauthService.loginWithCode({
+						providerId,
+						code,
+						codeVerifier: pkce.codeVerifier,
+						redirectUri: callbackRedirectUri,
+					});
+				},
 			});
+			callbackRedirectUri = listener.redirectUri;
 			try {
 				const authorizeUrl = buildAuthorizeUrl({
 					redirectUri: listener.redirectUri,
@@ -622,12 +638,6 @@ function createOpenAICodexOAuthOperations(
 				if (!callback.ok) {
 					throw new Error(callback.error);
 				}
-				await oauthService.loginWithCode({
-					providerId,
-					code: callback.code,
-					codeVerifier: pkce.codeVerifier,
-					redirectUri: listener.redirectUri,
-				});
 			} finally {
 				listener.stop();
 			}

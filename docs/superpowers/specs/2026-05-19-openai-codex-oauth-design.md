@@ -362,6 +362,11 @@ The login flow should set a finite timeout, clean up the listener on timeout, an
 pasteback fallback with the same state validation. Auth codes, access tokens, refresh tokens, and
 authorization headers must never be logged or rendered in error messages.
 
+When a web app return URL is configured, the callback response must wait until token exchange,
+account-id extraction, and local credential persistence all succeed before redirecting back to the
+app. The browser must not show an authentication-complete page or redirect to refresh the settings
+screen while local storage has failed.
+
 Manual pasteback should prefer the full callback URL because it carries the returned `state` value.
 Full callback URLs must be parsed with the same path and state validation as the local callback
 listener. Raw-code pasteback is optional; if supported, it must be a two-field UI form with one
@@ -374,6 +379,12 @@ persist the replacement, and when they do not, Sprout should preserve the existi
 The refresh path should persist the current access token, refresh token, expiry, and account id. The
 account id comes from `chatgpt_account_id` inside the nested `https://api.openai.com/auth` JWT
 claim when available.
+
+Expiry parsing should prefer `expires_in` when the token endpoint provides it. If `expires_in` is
+omitted, Sprout should decode the access-token JWT payload and use its numeric `exp` claim. This
+matches upstream Codex behavior, which does not require `expires_in` from the initial token
+exchange. If neither source yields a usable future expiry, login or refresh should fail before
+credentials are persisted.
 
 Account id extraction is decode-only. Sprout should base64url-decode the JWT payload to read
 non-secret claims, but it should not claim cryptographic JWT validation unless it also implements

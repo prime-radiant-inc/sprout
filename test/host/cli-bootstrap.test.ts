@@ -1298,6 +1298,7 @@ describe("bootstrapSessionRuntime", () => {
 		const openedUrls: string[] = [];
 		const loginInputs: any[] = [];
 		const listenerCalls: any[] = [];
+		let triggerCallback: (() => Promise<void>) | undefined;
 
 		const runtime = await bootstrapSessionRuntime(
 			{
@@ -1332,7 +1333,12 @@ describe("bootstrapSessionRuntime", () => {
 					listenerCalls.push(options);
 					return {
 						redirectUri: "http://localhost:1455/auth/callback",
-						result: Promise.resolve({ ok: true as const, code: "callback-code" }),
+						result: new Promise((resolve) => {
+							triggerCallback = async () => {
+								await options.onSuccessfulCallback?.("callback-code");
+								resolve({ ok: true as const, code: "callback-code" });
+							};
+						}),
 						stop: () => {
 							created.listenerStopped = true;
 						},
@@ -1340,6 +1346,7 @@ describe("bootstrapSessionRuntime", () => {
 				},
 				openExternalUrl: async (url) => {
 					openedUrls.push(url);
+					await triggerCallback?.();
 				},
 				createClient: async () => ({ id: "client" }),
 				createSettingsControlPlane: (options) => {
@@ -1356,12 +1363,12 @@ describe("bootstrapSessionRuntime", () => {
 		);
 		await (created.controlPlaneOptions as any).oauthOperations.login("openai-codex");
 
-		expect(listenerCalls).toEqual([
-			{
-				expectedState: "state-789",
-				appReturnUrl: "http://localhost:7777/?token=nonce&settings=providers&provider=openai-codex",
-			},
-		]);
+		expect(listenerCalls).toHaveLength(1);
+		expect(listenerCalls[0].expectedState).toBe("state-789");
+		expect(listenerCalls[0].appReturnUrl).toBe(
+			"http://localhost:7777/?token=nonce&settings=providers&provider=openai-codex",
+		);
+		expect(typeof listenerCalls[0].onSuccessfulCallback).toBe("function");
 		expect(openedUrls).toHaveLength(1);
 		const authorizeUrl = new URL(openedUrls[0]!);
 		expect(authorizeUrl.searchParams.get("redirect_uri")).toBe(
