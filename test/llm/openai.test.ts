@@ -315,6 +315,106 @@ describe("OpenAIAdapter", () => {
 		expect(finish?.usage?.total_tokens).toBe(105);
 	});
 
+	test("responses stream orders function call argument events before output item completion", async () => {
+		const rawResponse = {
+			id: "resp-stream-tools",
+			model: "gpt-4.1-mini",
+			status: "completed",
+			output: [
+				{
+					type: "function_call",
+					id: "fc_weather",
+					call_id: "call_weather",
+					name: "get_weather",
+					arguments: '{"location":"San Francisco"}',
+				},
+			],
+			usage: {
+				input_tokens: 12,
+				output_tokens: 6,
+			},
+		};
+		async function* streamResponse() {
+			yield {
+				type: "response.output_item.added",
+				item: {
+					type: "function_call",
+					id: "fc_weather",
+					call_id: "call_weather",
+					name: "get_weather",
+				},
+			};
+			yield {
+				type: "response.function_call_arguments.delta",
+				item_id: "fc_weather",
+				delta: '{"location":',
+			};
+			yield {
+				type: "response.function_call_arguments.delta",
+				item_id: "fc_weather",
+				delta: '"San Francisco"}',
+			};
+			yield {
+				type: "response.function_call_arguments.done",
+				item_id: "fc_weather",
+				arguments: '{"location":"San Francisco"}',
+			};
+			yield {
+				type: "response.output_item.done",
+				item: {
+					type: "function_call",
+					id: "fc_weather",
+					call_id: "call_weather",
+					name: "get_weather",
+				},
+			};
+			yield { type: "response.completed", response: rawResponse };
+		}
+		const adapter = new OpenAIAdapter("test-key");
+		(adapter as any).client.responses.create = async () => streamResponse();
+
+		const events = [];
+		for await (const event of adapter.stream({
+			model: "gpt-4.1-mini",
+			messages: [{ role: "user", content: [{ kind: ContentKind.TEXT, text: "weather" }] }],
+			tools: [
+				{
+					name: "get_weather",
+					description: "Get weather",
+					parameters: { type: "object", properties: {} },
+				},
+			],
+			tool_choice: "required",
+		})) {
+			events.push(event);
+		}
+
+		expect(events.map((event) => event.type)).toEqual([
+			"stream_start",
+			"tool_call_delta",
+			"tool_call_delta",
+			"tool_call_end",
+			"finish",
+		]);
+		expect(events[1]?.delta).toBe('{"location":');
+		expect(events[2]?.delta).toBe('"San Francisco"}');
+		expect(events[3]?.tool_call).toEqual({
+			id: "call_weather",
+			name: "get_weather",
+			arguments: { location: "San Francisco" },
+		});
+		const finish = events[4];
+		expect(finish?.usage?.input_tokens).toBe(12);
+		expect(finish?.usage?.output_tokens).toBe(6);
+		expect(finish?.response ? messageToolCalls(finish.response.message) : []).toEqual([
+			{
+				id: "call_weather",
+				name: "get_weather",
+				arguments: { location: "San Francisco" },
+			},
+		]);
+	});
+
 	test("complete returns a text response", async () => {
 		const vcr = vcrFor("complete-returns-a-text-response", realAdapter);
 		const req: Request = {
