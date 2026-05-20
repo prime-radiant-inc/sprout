@@ -455,11 +455,8 @@ export class SettingsControlPlane {
 
 		try {
 			await this.oauthOperations.login(providerId);
-		} catch (error) {
-			return this.error(
-				"oauth_login_failed",
-				error instanceof Error ? error.message : String(error),
-			);
+		} catch {
+			return this.error("oauth_login_failed", `OAuth login failed for provider '${providerId}'.`);
 		}
 
 		delete this.initialValidationErrors[providerId];
@@ -481,11 +478,8 @@ export class SettingsControlPlane {
 
 		try {
 			await this.oauthOperations.logout(providerId);
-		} catch (error) {
-			return this.error(
-				"oauth_logout_failed",
-				error instanceof Error ? error.message : String(error),
-			);
+		} catch {
+			return this.error("oauth_logout_failed", `OAuth logout failed for provider '${providerId}'.`);
 		}
 
 		delete this.initialValidationErrors[providerId];
@@ -907,7 +901,15 @@ export class SettingsControlPlane {
 				};
 			}
 			if (this.oauthOperations?.status) {
-				const status = await this.oauthOperations.status(provider.id);
+				let status: Awaited<ReturnType<NonNullable<ProviderOAuthOperations["status"]>>>;
+				try {
+					status = await this.oauthOperations.status(provider.id);
+				} catch {
+					return {
+						kind: "oauth",
+						signedIn: false,
+					};
+				}
 				if (!status.signedIn) {
 					return {
 						kind: "oauth",

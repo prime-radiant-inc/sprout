@@ -467,6 +467,56 @@ describe("SettingsControlPlane", () => {
 		expect(statusCalls).toBe(0);
 	});
 
+	test("OpenAI Codex snapshots treat OAuth status failures as signed out without leaking raw text", async () => {
+		const rawMessage =
+			"status failed for sprout/providers/openai-codex/oauth callback http://127.0.0.1/callback?code=abc123&state=state456 access_token=token_secret";
+		const plane = await makePlane({
+			oauthOperations: {
+				status() {
+					throw new Error(rawMessage);
+				},
+			},
+			initialSettings: {
+				version: 4,
+				providers: [
+					{
+						id: "openai-codex",
+						kind: "openai-codex",
+						label: "OpenAI Codex",
+						enabled: true,
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {},
+				memoryModels: {},
+				agentModelOverrides: {},
+			},
+		});
+
+		const result = await plane.execute({ kind: "get_settings", data: {} });
+
+		expect(result).toMatchObject({
+			ok: true,
+			snapshot: {
+				providers: [
+					{
+						providerId: "openai-codex",
+						credentialStatus: {
+							kind: "oauth",
+							signedIn: false,
+						},
+					},
+				],
+			},
+		});
+		const payload = JSON.stringify(result);
+		expect(payload).not.toContain("sprout/providers/openai-codex/oauth");
+		expect(payload).not.toContain("abc123");
+		expect(payload).not.toContain("state456");
+		expect(payload).not.toContain("token_secret");
+	});
+
 	test("rejects generic secret commands for OpenAI Codex providers", async () => {
 		const secretStore = createSecretStore({ backend: "memory", platform: "darwin" });
 		await secretStore.setSecret(
@@ -930,6 +980,50 @@ describe("SettingsControlPlane", () => {
 		});
 	});
 
+	test("login provider oauth failure does not leak raw credential details", async () => {
+		const rawMessage =
+			"login failed for sprout/providers/openai-codex/oauth callback http://127.0.0.1/callback?code=abc123&state=state456 refresh_token=token_secret";
+		const plane = await makePlane({
+			oauthOperations: {
+				async login() {
+					throw new Error(rawMessage);
+				},
+			},
+			initialSettings: {
+				version: 4,
+				providers: [
+					{
+						id: "openai-codex",
+						kind: "openai-codex",
+						label: "OpenAI Codex",
+						enabled: true,
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {},
+				memoryModels: {},
+				agentModelOverrides: {},
+			},
+		});
+
+		const result = await plane.execute({
+			kind: "login_provider_oauth",
+			data: { providerId: "openai-codex" },
+		});
+
+		expect(result).toEqual({
+			ok: false,
+			code: "oauth_login_failed",
+			message: "OAuth login failed for provider 'openai-codex'.",
+		});
+		const payload = JSON.stringify(result);
+		expect(payload).not.toContain("sprout/providers/openai-codex/oauth");
+		expect(payload).not.toContain("abc123");
+		expect(payload).not.toContain("state456");
+		expect(payload).not.toContain("token_secret");
+	});
+
 	test("logout provider oauth clears OAuth status and cached Codex models", async () => {
 		const secretStore = createSecretStore({ backend: "memory", platform: "darwin" });
 		const oauthRef = createProviderCredentialRef("openai-codex", "oauth", "memory");
@@ -1061,6 +1155,50 @@ describe("SettingsControlPlane", () => {
 				providerId: "Provider 'openai' does not support OAuth logout.",
 			},
 		});
+	});
+
+	test("logout provider oauth failure does not leak raw credential details", async () => {
+		const rawMessage =
+			"logout failed for sprout/providers/openai-codex/oauth callback http://127.0.0.1/callback?code=abc123&state=state456 id_token=token_secret";
+		const plane = await makePlane({
+			oauthOperations: {
+				async logout() {
+					throw new Error(rawMessage);
+				},
+			},
+			initialSettings: {
+				version: 4,
+				providers: [
+					{
+						id: "openai-codex",
+						kind: "openai-codex",
+						label: "OpenAI Codex",
+						enabled: true,
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {},
+				memoryModels: {},
+				agentModelOverrides: {},
+			},
+		});
+
+		const result = await plane.execute({
+			kind: "logout_provider_oauth",
+			data: { providerId: "openai-codex" },
+		});
+
+		expect(result).toEqual({
+			ok: false,
+			code: "oauth_logout_failed",
+			message: "OAuth logout failed for provider 'openai-codex'.",
+		});
+		const payload = JSON.stringify(result);
+		expect(payload).not.toContain("sprout/providers/openai-codex/oauth");
+		expect(payload).not.toContain("abc123");
+		expect(payload).not.toContain("state456");
+		expect(payload).not.toContain("token_secret");
 	});
 
 	test("warns when enabled providers exist without explicit memory models", async () => {
