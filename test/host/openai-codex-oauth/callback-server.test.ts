@@ -258,9 +258,10 @@ describe("OpenAI Codex OAuth callback listener", () => {
 
 	test("resolves and stops safely when callback arrives during startup probe", async () => {
 		const stoppedPorts: number[] = [];
+		let scheduledTimeouts = 0;
 		let callbackResponse: Response | undefined;
 		const listener = await createCallbackListenerForTests(
-			{ expectedState: "state-123", timeoutMs: 1_000 },
+			{ expectedState: "state-123", timeoutMs: 1 },
 			{
 				bindServer({ port, fetch }) {
 					if (port === 1455) {
@@ -274,6 +275,10 @@ describe("OpenAI Codex OAuth callback listener", () => {
 					};
 				},
 				probeProductionRedirect: async () => true,
+				scheduleListenerTimeout: (callback, timeoutMs) => {
+					scheduledTimeouts += 1;
+					return setTimeout(callback, timeoutMs);
+				},
 			},
 		);
 		activeListeners.push(listener);
@@ -283,6 +288,12 @@ describe("OpenAI Codex OAuth callback listener", () => {
 			ok: true,
 			code: "early-code",
 		} satisfies CallbackValidationResult);
+		await Bun.sleep(2);
+		await expect(listener.result).resolves.toEqual({
+			ok: true,
+			code: "early-code",
+		} satisfies CallbackValidationResult);
+		expect(scheduledTimeouts).toBe(0);
 		expect(stoppedPorts).toEqual([1455]);
 		expect(() => listener.stop()).not.toThrow();
 	});

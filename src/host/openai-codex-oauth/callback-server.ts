@@ -41,6 +41,7 @@ interface CallbackListenerDependencies {
 		probeNonce: string;
 		signal: AbortSignal;
 	}) => Promise<boolean>;
+	scheduleListenerTimeout: (callback: () => void, timeoutMs: number) => Timer;
 }
 
 export function validateCallbackRequest(
@@ -133,6 +134,7 @@ export function listenForCallback(
 	return createCallbackListener(options, {
 		bindServer: bindBunCallbackServer,
 		probeProductionRedirect,
+		scheduleListenerTimeout: setTimeout,
 	});
 }
 
@@ -143,6 +145,7 @@ export function createCallbackListenerForTests(
 	return createCallbackListener(options, {
 		bindServer: dependencies.bindServer ?? bindBunCallbackServer,
 		probeProductionRedirect: dependencies.probeProductionRedirect ?? probeProductionRedirect,
+		scheduleListenerTimeout: dependencies.scheduleListenerTimeout ?? setTimeout,
 	});
 }
 
@@ -213,9 +216,11 @@ async function createCallbackListener(
 		server.stop();
 	}
 
-	timeout = setTimeout(() => {
-		complete(callbackError("OpenAI Codex OAuth callback timed out"));
-	}, timeoutMs);
+	if (!completed) {
+		timeout = dependencies.scheduleListenerTimeout(() => {
+			complete(callbackError("OpenAI Codex OAuth callback timed out"));
+		}, timeoutMs);
+	}
 
 	function complete(value: CallbackValidationResult): void {
 		if (completed) {
