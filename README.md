@@ -20,7 +20,7 @@ A **root agent** receives your goal, breaks it into subgoals, and delegates each
 - **Genome** — A git-backed knowledge base storing agent definitions, memories, routing rules, and learned behaviors. Every mutation is committed for full auditability and rollback.
 - **Primitives** — The immutable kernel operations: `read_file`, `write_file`, `edit_file`, `apply_patch`, `exec`, `grep`, `glob`, `fetch`. Only leaf agents execute these.
 - **Learn signals** — Failures, timeouts, retries, and inefficiencies are detected automatically. When patterns emerge (≥3 repeated stumbles, ≥2 unresolved errors), the system triggers genome mutations to improve future performance.
-- **Multi-provider LLM** — First-class support for Anthropic (Claude), OpenAI (GPT/o-series), and Google (Gemini) with a unified adapter interface.
+- **Multi-provider LLM** — First-class support for Anthropic (Claude), OpenAI (GPT/o-series), OpenAI Codex, and Google (Gemini) with a unified adapter interface.
 
 ## Architecture
 
@@ -110,7 +110,7 @@ Sprout maintains persistent memory across sessions:
 
 - [Bun](https://bun.sh) runtime (v1.0+)
 - TypeScript 5+
-- At least one LLM provider API key
+- At least one LLM provider credential
 
 ### Setup
 
@@ -122,13 +122,18 @@ cd sprout
 # Install dependencies (root + web)
 bun install
 
-# Set up your LLM provider API keys as environment variables
+# Set up API-key-backed LLM providers as environment variables
 export ANTHROPIC_API_KEY="your-key-here"
 # and/or
 export OPENAI_API_KEY="your-key-here"
 # and/or
 export GOOGLE_API_KEY="your-key-here"
 ```
+
+The `OpenAI Codex` provider kind (`openai-codex`) uses ChatGPT OAuth from provider
+settings. It does not use `OPENAI_API_KEY` and does not accept a pasted API key. Add or
+edit an `OpenAI Codex` provider in settings, then use the provider settings login/logout
+actions to sign in or out with ChatGPT.
 
 ### Model Resolution
 
@@ -140,7 +145,7 @@ Sprout maps abstract tiers to concrete models:
 | `balanced` | claude-sonnet-4-6 | — | — |
 | `fast` | claude-haiku | gpt-4.1-mini | gemini-2.0-flash |
 
-The provider is selected based on which API keys are available.
+The provider is selected based on which provider credentials are available.
 
 ## Usage
 
@@ -433,7 +438,7 @@ From 2,201 tracked sessions:
 | Runtime | [Bun](https://bun.sh) |
 | Language | TypeScript 5 (strict mode) |
 | Terminal UI | [Ink](https://github.com/vadimdemedes/ink) (React for CLIs) |
-| LLM Providers | Anthropic, OpenAI, Google GenAI |
+| LLM Providers | Anthropic, OpenAI, OpenAI Codex, Google GenAI |
 | Code Quality | [Biome](https://biomejs.dev) |
 | Testing | Bun native test runner + VCR |
 | IPC | WebSocket pub/sub bus |
