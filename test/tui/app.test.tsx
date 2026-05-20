@@ -202,6 +202,48 @@ describe("App", () => {
 		expect(lastFrame()).toContain("Waiting on Brunelleschi · architect");
 	});
 
+	test("shows memory saving after root session_end until collapse completion arrives", async () => {
+		const { bus, lastFrame } = setup();
+
+		bus.emitEvent("session_start", "root", 0, { goal: "remember this" });
+		bus.emitEvent("session_end", "root", 0, { turns: 1, stumbles: 0 });
+
+		await flush();
+
+		expect(lastFrame()).toContain("Saving memory");
+
+		bus.emitEvent("context_update", "session", 0, {
+			memory_collapse: "completed",
+		});
+
+		await flush();
+
+		expect(lastFrame()).not.toContain("Saving memory");
+	});
+
+	test("clears active child status on session_clear", async () => {
+		const { bus, lastFrame } = setup();
+
+		bus.emitEvent("session_start", "root", 0, { goal: "audit" });
+		bus.emitEvent("act_start", "root", 0, {
+			agent_name: "architect",
+			goal: "audit design",
+			handle_id: "H1",
+			child_id: "C1",
+			mnemonic_name: "Brunelleschi",
+		});
+		await flush();
+		expect(lastFrame()).toContain("Waiting on Brunelleschi · architect");
+
+		bus.emitEvent("session_clear", "session", 0, {
+			new_session_id: "01NEWSESSION2345678ABCDEF",
+		});
+
+		await flush();
+
+		expect(lastFrame()).not.toContain("Waiting on Brunelleschi · architect");
+	});
+
 	test("renders InputArea with prompt", () => {
 		const { lastFrame } = setup();
 		const frame = lastFrame();

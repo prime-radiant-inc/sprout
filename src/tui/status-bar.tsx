@@ -117,8 +117,7 @@ export function StatusBar(props: StatusBarProps) {
 		left += ` │ ${formatActiveAgentWork(activeWork)}`;
 	}
 	const right = `${formatSelectionLabel(selection, model, settings)} │ ${sessionId}`;
-	const gap = Math.max(1, cols - left.length - right.length);
-	const line = left + " ".repeat(gap) + right;
+	const line = fitStatusLine(left, right, cols);
 
 	return (
 		<Box>
@@ -127,4 +126,21 @@ export function StatusBar(props: StatusBarProps) {
 			</Text>
 		</Box>
 	);
+}
+
+function fitStatusLine(left: string, right: string, columns: number): string {
+	if (columns <= 0) return left;
+	const gap = columns - left.length - right.length;
+	if (gap >= 1) return left + " ".repeat(gap) + right;
+	if (left.length >= columns) return truncate(left, columns);
+
+	const availableRight = Math.max(0, columns - left.length - 1);
+	return `${left} ${truncate(right, availableRight)}`;
+}
+
+function truncate(value: string, maxLength: number): string {
+	if (value.length <= maxLength) return value;
+	if (maxLength <= 0) return "";
+	if (maxLength <= 3) return value.slice(0, maxLength);
+	return `${value.slice(0, maxLength - 3)}...`;
 }

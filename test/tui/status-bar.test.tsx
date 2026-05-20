@@ -179,6 +179,25 @@ describe("StatusBar", () => {
 		expect(lastFrame()).toContain("Saving memory");
 	});
 
+	test("keeps long active work within the terminal width", () => {
+		const { lastFrame } = render(
+			<StatusBar
+				{...makeProps({
+					status: "running",
+					activeWork: {
+						kind: "agent",
+						agent: {
+							agentName: "architect-with-an-extraordinarily-long-role-name",
+							mnemonicName: "Brunelleschi-with-an-extraordinarily-long-mnemonic-name",
+						},
+					},
+				})}
+			/>,
+		);
+
+		expect(stripAnsi(lastFrame() ?? "").length).toBeLessThanOrEqual(100);
+	});
+
 	test("hides token usage when idle", () => {
 		const { lastFrame } = render(
 			<StatusBar
