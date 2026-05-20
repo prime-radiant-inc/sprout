@@ -5,6 +5,7 @@ import {
 	buildResponsesInput,
 	buildResponsesParams,
 	OpenAIAdapter,
+	safeParseJSON,
 } from "../../src/llm/openai.ts";
 import type { ProviderAdapter } from "../../src/llm/types.ts";
 import { ContentKind, messageText, messageToolCalls, type Request } from "../../src/llm/types.ts";
@@ -107,6 +108,13 @@ describe("OpenAIAdapter", () => {
 		expect(params.tool_choice).toBe("required");
 		expect(params.max_tokens).toBe(200);
 		expect(params.seed).toBe(123);
+	});
+
+	test("safeParseJSON returns records for parsed non-object values", () => {
+		expect(safeParseJSON('{"ok":true}')).toEqual({ ok: true });
+		expect(safeParseJSON("[1,2]")).toEqual({ raw: [1, 2] });
+		expect(safeParseJSON('"hello"')).toEqual({ raw: "hello" });
+		expect(safeParseJSON("not json")).toEqual({ raw: "not json" });
 	});
 
 	test("openai-compatible complete uses chat completions and parses tool calls", async () => {
@@ -413,6 +421,100 @@ describe("OpenAIAdapter", () => {
 				arguments: { location: "San Francisco" },
 			},
 		]);
+	});
+
+	test("responses stream merges output-indexed function call events without duplicates", async () => {
+		const rawResponse = {
+			id: "resp-stream-output-index",
+			model: "gpt-4.1-mini",
+			status: "completed",
+			output: [
+				{
+					type: "function_call",
+					call_id: "call_weather",
+					name: "get_weather",
+					arguments: '{"location":"San Francisco"}',
+				},
+			],
+			usage: {
+				input_tokens: 12,
+				output_tokens: 6,
+			},
+		};
+		async function* streamResponse() {
+			yield {
+				type: "response.output_item.added",
+				output_index: 0,
+				item: {
+					type: "function_call",
+					call_id: "call_weather",
+					name: "get_weather",
+				},
+			};
+			yield {
+				type: "response.function_call_arguments.delta",
+				output_index: 0,
+				item_id: "fc_weather",
+				delta: '{"location":',
+			};
+			yield {
+				type: "response.function_call_arguments.delta",
+				output_index: 0,
+				item_id: "fc_weather",
+				delta: '"San Francisco"}',
+			};
+			yield {
+				type: "response.function_call_arguments.done",
+				output_index: 0,
+				item_id: "fc_weather",
+				arguments: '{"location":"San Francisco"}',
+			};
+			yield {
+				type: "response.output_item.done",
+				output_index: 0,
+				item: {
+					type: "function_call",
+					call_id: "call_weather",
+					name: "get_weather",
+				},
+			};
+			yield { type: "response.completed", response: rawResponse };
+		}
+		const adapter = new OpenAIAdapter("test-key");
+		(adapter as any).client.responses.create = async () => streamResponse();
+
+		const events = [];
+		for await (const event of adapter.stream({
+			model: "gpt-4.1-mini",
+			messages: [{ role: "user", content: [{ kind: ContentKind.TEXT, text: "weather" }] }],
+			tools: [
+				{
+					name: "get_weather",
+					description: "Get weather",
+					parameters: { type: "object", properties: {} },
+				},
+			],
+			tool_choice: "required",
+		})) {
+			events.push(event);
+		}
+
+		const toolCallEnds = events.filter((event) => event.type === "tool_call_end");
+		expect(toolCallEnds).toHaveLength(1);
+		expect(toolCallEnds[0]?.tool_call).toEqual({
+			id: "call_weather",
+			name: "get_weather",
+			arguments: { location: "San Francisco" },
+		});
+
+		const finish = events.find((event) => event.type === "finish");
+		const toolCalls = finish?.response ? messageToolCalls(finish.response.message) : [];
+		expect(toolCalls).toHaveLength(1);
+		expect(toolCalls[0]).toEqual({
+			id: "call_weather",
+			name: "get_weather",
+			arguments: { location: "San Francisco" },
+		});
 	});
 
 	test("complete returns a text response", async () => {

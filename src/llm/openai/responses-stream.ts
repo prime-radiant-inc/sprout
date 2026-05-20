@@ -20,7 +20,9 @@ interface StreamResponsesOptions {
 
 interface ToolCallAccumulator {
 	itemId: string;
+	outputIndex: string;
 	callId: string;
+	hasCallId: boolean;
 	name: string;
 	args: string;
 	sawArgumentDelta: boolean;
@@ -41,6 +43,7 @@ export async function* streamResponsesEvents({
 	let textEnded = false;
 	const toolCallsByItemId = new Map<string, ToolCallAccumulator>();
 	const toolCallsByCallId = new Map<string, ToolCallAccumulator>();
+	const toolCallsByOutputIndex = new Map<string, ToolCallAccumulator>();
 	const toolCallOrder: ToolCallAccumulator[] = [];
 	let completedResponse: OpenAI.Responses.Response | undefined;
 	let usage: Usage | undefined;
@@ -68,6 +71,7 @@ export async function* streamResponsesEvents({
 					ensureToolCall({
 						itemId: stringValue(item.id),
 						callId: stringValue(item.call_id),
+						outputIndex: outputIndexValue(event.output_index),
 					}),
 					item,
 				);
@@ -75,12 +79,18 @@ export async function* streamResponsesEvents({
 		} else if (event.type === "response.function_call_arguments.delta") {
 			const delta = stringValue(event.delta);
 			if (delta === undefined) continue;
-			const call = ensureToolCall({ itemId: stringValue(event.item_id) });
+			const call = ensureToolCall({
+				itemId: stringValue(event.item_id),
+				outputIndex: outputIndexValue(event.output_index),
+			});
 			call.args += delta;
 			call.sawArgumentDelta = true;
 			yield { type: "tool_call_delta", delta };
 		} else if (event.type === "response.function_call_arguments.done") {
-			const call = ensureToolCall({ itemId: stringValue(event.item_id) });
+			const call = ensureToolCall({
+				itemId: stringValue(event.item_id),
+				outputIndex: outputIndexValue(event.output_index),
+			});
 			const args = stringValue(event.arguments);
 			if (args !== undefined) {
 				call.args = args;
@@ -99,6 +109,7 @@ export async function* streamResponsesEvents({
 				const call = ensureToolCall({
 					itemId: stringValue(item.id),
 					callId: stringValue(item.call_id),
+					outputIndex: outputIndexValue(event.output_index),
 				});
 				updateToolCallFromItem(call, item);
 				call.outputDone = true;
@@ -153,18 +164,37 @@ export async function* streamResponsesEvents({
 	function ensureToolCall({
 		itemId,
 		callId,
+		outputIndex,
 	}: {
 		itemId?: string;
 		callId?: string;
+		outputIndex?: string;
 	}): ToolCallAccumulator {
-		let call =
-			(itemId ? toolCallsByItemId.get(itemId) : undefined) ??
-			(callId ? toolCallsByCallId.get(callId) : undefined);
+		const candidates = new Set<ToolCallAccumulator>();
+		if (outputIndex) {
+			const call = toolCallsByOutputIndex.get(outputIndex);
+			if (call) candidates.add(call);
+		}
+		if (itemId) {
+			const call = toolCallsByItemId.get(itemId);
+			if (call) candidates.add(call);
+		}
+		if (callId) {
+			const call = toolCallsByCallId.get(callId);
+			if (call) candidates.add(call);
+		}
+
+		let call: ToolCallAccumulator | undefined;
+		for (const candidate of candidates) {
+			call = call ? mergeToolCalls(call, candidate) : candidate;
+		}
 		if (!call) {
-			const fallbackId = callId ?? itemId ?? "";
+			const fallbackId = callId ?? itemId ?? outputIndex ?? "";
 			call = {
-				itemId: itemId ?? fallbackId,
+				itemId: itemId ?? "",
+				outputIndex: outputIndex ?? "",
 				callId: fallbackId,
+				hasCallId: callId !== undefined,
 				name: "",
 				args: "",
 				sawArgumentDelta: false,
@@ -174,26 +204,91 @@ export async function* streamResponsesEvents({
 			};
 			toolCallOrder.push(call);
 		}
+		applyToolCallKeys(call, { itemId, callId, outputIndex });
+		rebuildToolCallIndexes();
+		return call;
+	}
+
+	function applyToolCallKeys(
+		call: ToolCallAccumulator,
+		{
+			itemId,
+			callId,
+			outputIndex,
+		}: {
+			itemId?: string;
+			callId?: string;
+			outputIndex?: string;
+		},
+	): void {
+		if (outputIndex) {
+			call.outputIndex = outputIndex;
+		}
 		if (itemId) {
 			call.itemId = itemId;
-			toolCallsByItemId.set(itemId, call);
+			if (!call.hasCallId && (!call.callId || call.callId === call.outputIndex)) {
+				call.callId = itemId;
+			}
 		}
-		if (callId && call.callId !== callId) {
-			toolCallsByCallId.delete(call.callId);
+		if (callId) {
 			call.callId = callId;
+			call.hasCallId = true;
+		} else if (!call.callId) {
+			call.callId = itemId ?? outputIndex ?? "";
 		}
-		if (call.callId) {
-			toolCallsByCallId.set(call.callId, call);
+	}
+
+	function mergeToolCalls(
+		first: ToolCallAccumulator,
+		second: ToolCallAccumulator,
+	): ToolCallAccumulator {
+		if (first === second) return first;
+
+		const firstIndex = toolCallOrder.indexOf(first);
+		const secondIndex = toolCallOrder.indexOf(second);
+		const target =
+			firstIndex >= 0 && secondIndex >= 0 && firstIndex <= secondIndex ? first : second;
+		const source = target === first ? second : first;
+
+		if (!target.itemId && source.itemId) target.itemId = source.itemId;
+		if (!target.outputIndex && source.outputIndex) target.outputIndex = source.outputIndex;
+		if (!target.hasCallId && source.hasCallId) {
+			target.callId = source.callId;
+			target.hasCallId = true;
+		} else if (!target.callId && source.callId) {
+			target.callId = source.callId;
 		}
-		return call;
+		if (!target.name && source.name) target.name = source.name;
+		if (source.argumentsDone && !target.argumentsDone) {
+			target.args = source.args;
+		} else if (!target.args && source.args) {
+			target.args = source.args;
+		}
+		target.sawArgumentDelta ||= source.sawArgumentDelta;
+		target.argumentsDone ||= source.argumentsDone;
+		target.outputDone ||= source.outputDone;
+		target.emittedEnd ||= source.emittedEnd;
+
+		const sourceIndex = toolCallOrder.indexOf(source);
+		if (sourceIndex >= 0) {
+			toolCallOrder.splice(sourceIndex, 1);
+		}
+		return target;
+	}
+
+	function rebuildToolCallIndexes(): void {
+		toolCallsByItemId.clear();
+		toolCallsByCallId.clear();
+		toolCallsByOutputIndex.clear();
+		for (const call of toolCallOrder) {
+			if (call.itemId) toolCallsByItemId.set(call.itemId, call);
+			if (call.callId) toolCallsByCallId.set(call.callId, call);
+			if (call.outputIndex) toolCallsByOutputIndex.set(call.outputIndex, call);
+		}
 	}
 }
 
 function updateToolCallFromItem(call: ToolCallAccumulator, item: Record<string, unknown>): void {
-	const callId = stringValue(item.call_id);
-	if (callId) {
-		call.callId = callId;
-	}
 	const name = stringValue(item.name);
 	if (name) {
 		call.name = name;
@@ -233,4 +328,11 @@ function asRecord(value: unknown): Record<string, any> | undefined {
 
 function stringValue(value: unknown): string | undefined {
 	return typeof value === "string" ? value : undefined;
+}
+
+function outputIndexValue(value: unknown): string | undefined {
+	if (typeof value === "number" && Number.isInteger(value)) {
+		return String(value);
+	}
+	return stringValue(value);
 }
