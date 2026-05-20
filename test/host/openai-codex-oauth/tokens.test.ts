@@ -142,7 +142,10 @@ describe("OpenAI Codex OAuth token helpers", () => {
 							[
 								"invalid request",
 								"code=plain-code-secret",
+								"code: colon-code-secret",
 								"code_verifier=plain-verifier-secret",
+								"code_verifier: colon-verifier-secret",
+								"codeVerifier: camel-colon-verifier-secret",
 								"access-token-secret",
 								"refresh-token-secret",
 								"http://localhost:1455/auth/callback?code=callback-secret",
@@ -160,7 +163,10 @@ describe("OpenAI Codex OAuth token helpers", () => {
 		const message = (error as Error).message;
 		expect(message).toContain("[redacted]");
 		expect(message).not.toContain("plain-code-secret");
+		expect(message).not.toContain("colon-code-secret");
 		expect(message).not.toContain("plain-verifier-secret");
+		expect(message).not.toContain("colon-verifier-secret");
+		expect(message).not.toContain("camel-colon-verifier-secret");
 		expect(message).not.toContain("access-token-secret");
 		expect(message).not.toContain("refresh-token-secret");
 		expect(message).not.toContain("http://localhost:1455/auth/callback");
@@ -177,7 +183,7 @@ describe("OpenAI Codex OAuth token helpers", () => {
 				fetchImpl: (() =>
 					Promise.reject(
 						new Error(
-							"failed code=plain-code-secret code_verifier=plain-verifier-secret access-token-secret refresh-token-secret http://localhost:1455/auth/callback",
+							"failed code=plain-code-secret code: colon-code-secret code_verifier=plain-verifier-secret code_verifier: colon-verifier-secret codeVerifier: camel-colon-verifier-secret access-token-secret refresh-token-secret http://localhost:1455/auth/callback",
 						),
 					)) as unknown as typeof fetch,
 			});
@@ -189,7 +195,10 @@ describe("OpenAI Codex OAuth token helpers", () => {
 		const message = (error as Error).message;
 		expect(message).toContain("[redacted]");
 		expect(message).not.toContain("plain-code-secret");
+		expect(message).not.toContain("colon-code-secret");
 		expect(message).not.toContain("plain-verifier-secret");
+		expect(message).not.toContain("colon-verifier-secret");
+		expect(message).not.toContain("camel-colon-verifier-secret");
 		expect(message).not.toContain("access-token-secret");
 		expect(message).not.toContain("refresh-token-secret");
 		expect(message).not.toContain("http://localhost:1455/auth/callback");

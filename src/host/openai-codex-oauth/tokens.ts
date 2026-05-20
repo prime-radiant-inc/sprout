@@ -196,7 +196,7 @@ function isSensitiveTokenEndpointKey(key: string): boolean {
 function redactTokenEndpointPlainText(value: string): string {
 	return redactCredentialText(value)
 		.replace(callbackUrlPattern(), "[redacted]")
-		.replace(/\b(code|code_verifier|codeVerifier)(=)[^\s&]+/g, "$1$2[redacted]")
+		.replace(/\b(code|code_verifier|codeVerifier)(\s*[:=]\s*)[^\s&]+/g, "$1$2[redacted]")
 		.replace(/\b(access|refresh|id)[-_]?token[-_][A-Za-z0-9._-]+\b/gi, "[redacted]");
 }
 
