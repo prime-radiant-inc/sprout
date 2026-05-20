@@ -21,12 +21,22 @@ const LOGIN_INPUT = {
 class TestSecretStore implements SecretStore {
 	readonly secrets = new Map<string, string>();
 
-	constructor(private readonly options: { deleteSecret?: () => Promise<void> } = {}) {}
+	constructor(
+		private readonly options: {
+			deleteSecret?: () => Promise<void>;
+			getSecretAfterRead?: (
+				ref: ReturnType<typeof createProviderCredentialRef>,
+				value: string | undefined,
+			) => Promise<void>;
+		} = {},
+	) {}
 
 	async getSecret(
 		ref: ReturnType<typeof createProviderCredentialRef>,
 	): Promise<string | undefined> {
-		return this.secrets.get(ref.storageKey);
+		const value = this.secrets.get(ref.storageKey);
+		await this.options.getSecretAfterRead?.(ref, value);
+		return value;
 	}
 
 	async setSecret(
@@ -146,6 +156,17 @@ function base64UrlEncode(value: string): string {
 
 function jwt(payload: Record<string, unknown>): string {
 	return `header.${base64UrlEncode(JSON.stringify(payload))}.signature`;
+}
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+	let resolve: (() => void) | undefined;
+	const promise = new Promise<void>((resolvePromise) => {
+		resolve = resolvePromise;
+	});
+	return {
+		promise,
+		resolve: () => resolve?.(),
+	};
 }
 
 describe("OpenAICodexOAuthService", () => {
@@ -279,6 +300,70 @@ describe("OpenAICodexOAuthService", () => {
 
 		await expect(refresh).resolves.toMatchObject({ accountId: "acct_123" });
 		await logout;
+		expect(await readStoredOAuth(secretStore)).toBeUndefined();
+	});
+
+	test("logout waits when resolve has read expired credentials but has not registered refresh", async () => {
+		const getSecretReturned = deferred();
+		const resumeGetSecret = deferred();
+		let blockedGetSecret = false;
+		const secretStore = new TestSecretStore({
+			getSecretAfterRead: async () => {
+				if (blockedGetSecret) {
+					return;
+				}
+				blockedGetSecret = true;
+				getSecretReturned.resolve();
+				await resumeGetSecret.promise;
+			},
+		});
+		const { service } = makeOAuthService({
+			secretStore,
+			refreshTokens: async () =>
+				tokenResponseWithAccount("acct_123", { refreshToken: "new-refresh" }),
+			lifecycleTimeoutMs: 100,
+		});
+		await writeStoredOAuth(secretStore, expiredOAuthRecord("old-refresh"));
+
+		const refresh = service.resolveCredentials(PROVIDER_ID);
+		await getSecretReturned.promise;
+		const logout = service.logout(PROVIDER_ID);
+		resumeGetSecret.resolve();
+
+		await expect(refresh).resolves.toMatchObject({ accountId: "acct_123" });
+		await logout;
+		expect(await readStoredOAuth(secretStore)).toBeUndefined();
+	});
+
+	test("delete waits when resolve has read expired credentials but has not registered refresh", async () => {
+		const getSecretReturned = deferred();
+		const resumeGetSecret = deferred();
+		let blockedGetSecret = false;
+		const secretStore = new TestSecretStore({
+			getSecretAfterRead: async () => {
+				if (blockedGetSecret) {
+					return;
+				}
+				blockedGetSecret = true;
+				getSecretReturned.resolve();
+				await resumeGetSecret.promise;
+			},
+		});
+		const { service } = makeOAuthService({
+			secretStore,
+			refreshTokens: async () =>
+				tokenResponseWithAccount("acct_123", { refreshToken: "new-refresh" }),
+			lifecycleTimeoutMs: 100,
+		});
+		await writeStoredOAuth(secretStore, expiredOAuthRecord("old-refresh"));
+
+		const refresh = service.resolveCredentials(PROVIDER_ID);
+		await getSecretReturned.promise;
+		const deletion = service.deleteCredentials(PROVIDER_ID);
+		resumeGetSecret.resolve();
+
+		await expect(refresh).resolves.toMatchObject({ accountId: "acct_123" });
+		await expect(deletion).resolves.toEqual({ ok: true, failedRefs: [] });
 		expect(await readStoredOAuth(secretStore)).toBeUndefined();
 	});
 
