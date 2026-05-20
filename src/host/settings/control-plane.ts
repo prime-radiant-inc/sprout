@@ -347,6 +347,8 @@ export class SettingsControlPlane {
 		if (!provider) return this.error("not_found", `Unknown provider: ${providerId}`);
 		const unsupported = this.rejectGenericSecretCommandIfUnsupported(provider);
 		if (unsupported) return unsupported;
+		const repairsStartupValidation =
+			!provider.enabled && (this.initialValidationErrors[providerId]?.length ?? 0) > 0;
 
 		try {
 			await this.secretStore.setSecret(
@@ -370,6 +372,14 @@ export class SettingsControlPlane {
 		}
 
 		delete this.initialValidationErrors[providerId];
+		if (repairsStartupValidation) {
+			const next = structuredClone(this.settings);
+			const nextProvider = next.providers.find((candidate) => candidate.id === providerId);
+			if (!nextProvider) return this.error("not_found", `Unknown provider: ${providerId}`);
+			nextProvider.enabled = true;
+			nextProvider.updatedAt = this.now();
+			return this.persistSettings(next, [providerId], true);
+		}
 		this.markCatalogStale(providerId);
 		return this.emitUpdatedSnapshot();
 	}

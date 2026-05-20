@@ -117,6 +117,10 @@ export function validateProviderRuntimeReadiness(
 	options: ProviderRuntimeValidationOptions,
 ): ProviderValidationResult {
 	const result = validateProviderConfig(provider);
+	if (!provider.enabled) {
+		addFieldError(result.errors, result.fieldErrors, "enabled", "Provider is disabled");
+		return result;
+	}
 	if (!providerRequiresSecret(provider)) {
 		return result;
 	}

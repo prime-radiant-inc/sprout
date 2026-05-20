@@ -40,6 +40,9 @@ async function makePlane(
 		secretBackendState?: ConstructorParameters<
 			typeof SettingsControlPlane
 		>[0]["secretBackendState"];
+		initialValidationErrors?: ConstructorParameters<
+			typeof SettingsControlPlane
+		>[0]["initialValidationErrors"];
 		runtimeWarnings?: ConstructorParameters<typeof SettingsControlPlane>[0]["runtimeWarnings"];
 		modelOverrides?: ModelConfigOverrides;
 		initialCatalog?: ConstructorParameters<typeof SettingsControlPlane>[0]["initialCatalog"];
@@ -66,6 +69,7 @@ async function makePlane(
 			options.secretStore ?? createSecretStore({ backend: "memory", platform: "darwin" }),
 		secretBackend: options.secretBackend ?? "memory",
 		secretBackendState: options.secretBackendState,
+		initialValidationErrors: options.initialValidationErrors,
 		runtimeWarnings: options.runtimeWarnings,
 		modelOverrides: options.modelOverrides,
 		initialCatalog: options.initialCatalog,
@@ -159,6 +163,53 @@ describe("SettingsControlPlane", () => {
 			},
 		});
 		expect(snapshots).toHaveLength(2);
+	});
+
+	test("setting a secret re-enables providers disabled by startup validation errors", async () => {
+		const plane = await makePlane({
+			initialValidationErrors: {
+				openai: ["API key is required"],
+			},
+			initialSettings: {
+				version: 4,
+				providers: [
+					{
+						id: "openai",
+						kind: "openai",
+						label: "OpenAI",
+						enabled: false,
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {},
+				memoryModels: {},
+				agentModelOverrides: {},
+			},
+		});
+
+		const result = await plane.execute({
+			kind: "set_provider_secret",
+			data: {
+				providerId: "openai",
+				secret: "openai-secret",
+			},
+		});
+
+		expect(result).toMatchObject({
+			ok: true,
+			snapshot: {
+				settings: {
+					providers: [{ id: "openai", enabled: true }],
+				},
+				providers: [
+					{
+						providerId: "openai",
+						validationErrors: [],
+					},
+				],
+			},
+		});
 	});
 
 	test("does not report OpenAI Codex ready from a legacy api-key credential ref", async () => {
@@ -1463,7 +1514,7 @@ describe("SettingsControlPlane", () => {
 						id: "openai",
 						kind: "openai",
 						label: "OpenAI",
-						enabled: false,
+						enabled: true,
 						createdAt: "2026-03-11T12:00:00.000Z",
 						updatedAt: "2026-03-11T12:00:00.000Z",
 					},

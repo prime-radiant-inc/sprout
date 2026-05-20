@@ -123,6 +123,32 @@ describe("ProviderRegistry", () => {
 		expect(entry?.validationErrors).toContain("API key is required");
 	});
 
+	test("does not construct adapters for disabled providers", async () => {
+		const secretStore = createSecretStore({ backend: "memory", platform: "darwin" });
+		await secretStore.setSecret(
+			createProviderCredentialRef("openai", "api-key", "memory"),
+			"openai-secret",
+		);
+		const registry = new ProviderRegistry({
+			settings: makeSettings([
+				{
+					id: "openai",
+					kind: "openai",
+					label: "OpenAI",
+					enabled: false,
+					createdAt: "2026-03-11T12:00:00.000Z",
+					updatedAt: "2026-03-11T12:00:00.000Z",
+				},
+			]),
+			secretStore,
+			secretBackend: "memory",
+		});
+
+		const entry = await registry.getEntry("openai");
+		expect(entry?.adapter).toBeUndefined();
+		expect(entry?.validationErrors).toEqual(["Provider is disabled"]);
+	});
+
 	test("does not satisfy OpenAI Codex readiness with an api-key credential ref", async () => {
 		const secretStore = createSecretStore({ backend: "memory", platform: "darwin" });
 		await secretStore.setSecret(

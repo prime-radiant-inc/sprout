@@ -84,6 +84,20 @@ describe("validateProviderConfig", () => {
 			manualModels: "Manual model configuration is no longer supported",
 		});
 	});
+
+	test("openai-codex rejects base URLs", () => {
+		const result = validateProviderConfig(
+			makeProvider({
+				id: "openai-codex",
+				kind: "openai-codex",
+				baseUrl: "https://chatgpt.com",
+			}),
+		);
+
+		expect(result.fieldErrors).toEqual({
+			baseUrl: "Base URL is only supported for openai-compatible providers",
+		});
+	});
 });
 
 describe("validateProviderRuntimeReadiness", () => {
@@ -93,6 +107,7 @@ describe("validateProviderRuntimeReadiness", () => {
 				id: "openai",
 				kind: "openai",
 				baseUrl: undefined,
+				enabled: true,
 			}),
 			{
 				hasSecret: false,
@@ -112,6 +127,7 @@ describe("validateProviderRuntimeReadiness", () => {
 				id: "openai-codex",
 				kind: "openai-codex",
 				baseUrl: undefined,
+				enabled: true,
 			}),
 			{
 				hasSecret: false,
@@ -131,6 +147,7 @@ describe("validateProviderRuntimeReadiness", () => {
 				id: "openai",
 				kind: "openai",
 				baseUrl: undefined,
+				enabled: true,
 			}),
 			{
 				hasSecret: false,
@@ -141,6 +158,26 @@ describe("validateProviderRuntimeReadiness", () => {
 		expect(result.errors).toContain("Secret storage backend is unavailable");
 		expect(result.fieldErrors).toEqual({
 			secret: "Secret storage backend is unavailable",
+		});
+	});
+
+	test("reports disabled providers before checking secret readiness", () => {
+		const result = validateProviderRuntimeReadiness(
+			makeProvider({
+				id: "openai",
+				kind: "openai",
+				baseUrl: undefined,
+				enabled: false,
+			}),
+			{
+				hasSecret: false,
+				secretBackendAvailable: false,
+			},
+		);
+
+		expect(result.errors).toEqual(["Provider is disabled"]);
+		expect(result.fieldErrors).toEqual({
+			enabled: "Provider is disabled",
 		});
 	});
 });
