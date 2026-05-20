@@ -183,8 +183,15 @@ OAuth secret refs so abandoned credentials do not remain in the OS secret store.
 Provider deletion should report secret-deletion failures clearly; it must not silently leave
 credentials behind. Secret deletion is idempotent: deleting an already-missing secret counts as
 success. If deleting multiple secret refs partially fails, Sprout should keep the provider config,
-disable the provider, show a credential cleanup failure, and let retry attempt all expected secret
-refs again. The retry path should treat the refs already deleted in the previous attempt as success.
+set the existing `ProviderConfig.enabled` field to `false`, show a credential cleanup failure in the
+delete command result, and let retry attempt all expected secret refs again. The retry path should
+treat the refs already deleted in the previous attempt as success.
+
+`enabled: false` blocks all runtime use of the provider, including model refresh, connection checks,
+and completions. The provider may still appear in settings so the user can retry deletion or sign in
+again. A later successful re-login can re-enable the provider only through the existing provider
+enable flow; retrying deletion removes the provider after all secret refs are deleted. This uses the
+existing provider enabled state and requires no settings schema migration.
 
 Provider ids are stable identifiers. The settings UI may edit a provider label, but it should not
 rename provider ids in this iteration. If provider-id renaming is added later, it must either move
@@ -311,12 +318,22 @@ Stored OAuth JSON is schema-checked before use. Missing required fields, malform
 unsupported future schema version should make the provider report an invalid OAuth credential state
 and ask the user to sign in again. Sprout should not try to repair corrupt token records in place.
 
-Logout, provider deletion, and provider reconfiguration use the same per-provider credential
-lifecycle lock as refresh. The first implementation can satisfy this by making logout/delete wait
-for any in-flight refresh to finish and then deleting credentials and caches under the lock. An
-implementation that lets token refresh network calls run outside the lock must instead maintain a
-per-provider credential generation and refuse to write refresh results if logout/delete/reconfigure
-advanced the generation while the refresh was in flight.
+Logout and provider deletion use the same per-provider credential lifecycle lock as refresh. The
+first implementation can satisfy this by making logout/delete wait for any in-flight refresh to
+finish and then deleting credentials and caches under the lock. An implementation that lets token
+refresh network calls run outside the lock must instead maintain a per-provider credential
+generation and refuse to write refresh results if logout/delete advanced the generation while the
+refresh was in flight.
+
+Lifecycle-lock waits must be bounded. Refresh operations should have their own network timeout, and
+logout/delete should fail clearly instead of waiting forever if the credential lifecycle lock cannot
+be acquired within the configured credential-operation timeout. A failed lock acquisition should not
+delete any secrets or caches.
+
+Provider reconfiguration does not get a new credential mutation path in this iteration. Label edits
+do not affect credentials. Provider-id rename remains out of scope. Changing a provider across
+credential modes should be implemented as delete plus create, so the deletion cleanup rules above
+remain the only credential cleanup path.
 
 Tests should prove that a refresh cannot recreate credentials after logout or provider deletion.
 The acceptable outcomes are either:
@@ -643,12 +660,15 @@ Credentials:
 - corrupt or unsupported OAuth JSON asks the user to sign in again
 - provider deletion reports secret-deletion failures instead of silently orphaning credentials
 - partial provider deletion failure disables the provider and retries all secret refs idempotently
+- disabled providers cannot refresh models, check connections, or complete requests
+- retrying deletion after partial failure treats already-missing secret refs as success
 - initial credentials are persisted only after account-id extraction succeeds
 - refresh persists rotated access token, refresh token, expiry, and account id
 - refresh preserves the existing refresh token when the token endpoint does not rotate it
 - concurrent refresh callers share one in-flight refresh and do not stale-write credentials
 - concurrent refresh failure clears the in-flight lock and leaves stored credentials unchanged
 - logout/delete cannot be undone by an in-flight refresh writing credentials afterward
+- logout/delete lock waits are bounded and fail without deleting secrets when the lock is stuck
 - refresh uses a five-minute expiry skew unless implementation evidence changes that value
 - account id is extracted from `https://api.openai.com/auth.chatgpt_account_id`
 - account id can fall back from access token to id token on initial login
@@ -703,33 +723,35 @@ This is the expected implementation order after this spec is approved:
    - Focused verification: claim extraction tests with malformed and missing-claim tokens.
 7. Add token exchange and initial credential persistence.
    - Focused verification: exchange persists only fully valid credentials.
-8. Add corrupt stored-credential handling and logout/delete cleanup behavior.
-   - Focused verification: invalid JSON, logout, provider deletion, and partial deletion tests.
+8. Add corrupt stored-credential handling and logout cleanup behavior.
+   - Focused verification: invalid JSON and logout tests.
 9. Add refresh persistence, refresh-token rotation handling, and per-provider singleflight.
    - Focused verification: concurrent refresh tests.
-10. Add refresh/logout/delete coordination tests.
+10. Add provider deletion cleanup, disabled-provider state, and retry behavior.
+    - Focused verification: partial deletion, disabled provider, and retry deletion tests.
+11. Add refresh/logout/delete coordination tests.
     - Focused verification: refresh cannot recreate credentials after logout or deletion.
-11. Add refresh failure, expiry skew, and stale-write tests.
+12. Add lifecycle-lock timeout, refresh failure, expiry skew, and stale-write tests.
     - Focused verification: refresh failure and skew tests.
-12. Add characterization tests around the current OpenAI adapter.
+13. Add characterization tests around the current OpenAI adapter.
    - Focused verification: existing OpenAI adapter tests pass with no code movement.
-13. Extract shared Responses request-building helpers.
+14. Extract shared Responses request-building helpers.
    - Focused verification: characterization tests still pass.
-14. Extract shared Responses parser helpers.
+15. Extract shared Responses parser helpers.
     - Focused verification: parser and existing adapter tests still pass.
-15. Extract shared Responses stream accumulator.
+16. Extract shared Responses stream accumulator.
     - Focused verification: streaming and tool-call tests still pass.
-16. Add `OpenAICodexAdapter` using the OpenAI SDK with Codex base URL.
+17. Add `OpenAICodexAdapter` using the OpenAI SDK with Codex base URL.
     - Focused verification: adapter URL/header tests.
-17. Add Codex model endpoint parsing and cache-failure behavior.
+18. Add Codex model endpoint parsing and cache-failure behavior.
     - Focused verification: model parser and model-cache tests.
-18. Wire registry and settings control-plane OAuth operations.
+19. Wire registry and settings control-plane OAuth operations.
     - Focused verification: registry and control-plane tests.
-19. Update web provider settings.
+20. Update web provider settings.
     - Focused verification: web settings tests.
-20. Update TUI provider settings.
+21. Update TUI provider settings.
     - Focused verification: TUI settings tests.
-21. Update docs and run the full verification gate.
+22. Update docs and run the full verification gate.
     - Final verification: `bun run precommit`, plus any targeted integration checks added during
       implementation.
 
