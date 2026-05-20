@@ -460,6 +460,9 @@ describe("ModelsPanel", () => {
 		expect(html).toContain("Fast");
 		expect(html).toContain("Memory system models");
 		expect(html).toContain("Memory extraction");
+		expect(html).toContain("Use default (best)");
+		expect(html).toContain("Use default (balanced)");
+		expect(html).toContain("Use default (fast)");
 		expect(html).toContain(
 			"Extracts durable project memories from collapse, learn, and bus evidence before anything is written.",
 		);

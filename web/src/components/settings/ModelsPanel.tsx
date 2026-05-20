@@ -1,6 +1,7 @@
 import type { SettingsCommand, SettingsSnapshot } from "@kernel/types.ts";
 import {
 	type AgentModelOverride,
+	MEMORY_MODEL_DEFAULT_TIERS,
 	MEMORY_MODEL_DESCRIPTIONS,
 	MEMORY_MODEL_LABELS,
 	MEMORY_MODEL_PURPOSES,
@@ -129,7 +130,7 @@ export function ModelsPanel({ settings, message, fieldErrors, onCommand }: Model
 								description={MEMORY_MODEL_DESCRIPTIONS[purpose]}
 								selectId={`model-assignment-memory-${purpose}`}
 								value={formatModelRef(stored)}
-								emptyLabel="Not configured"
+								emptyLabel={`Use default (${MEMORY_MODEL_DEFAULT_TIERS[purpose]})`}
 								storedModel={stored}
 								providerModelGroups={providerModelGroups}
 								fieldError={fieldErrors?.[`memoryModels.${purpose}`]}

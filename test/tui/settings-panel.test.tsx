@@ -155,6 +155,8 @@ describe("SettingsPanel", () => {
 
 		await submitCommand(stdin, "memory", () => (lastFrame() ?? "").includes("memory-model"));
 		expect(lastFrame()).toContain("Memory extraction");
+		expect(lastFrame()).toContain("Segment summary: use default (best)");
+		expect(lastFrame()).toContain("Relationship classifier: use default (fast)");
 
 		await submitCommand(
 			stdin,

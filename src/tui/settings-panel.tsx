@@ -1,7 +1,11 @@
 import { Box, Text, useInput } from "ink";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SettingsCommand, SettingsCommandResult, SettingsSnapshot } from "../kernel/types.ts";
-import { MEMORY_MODEL_LABELS, MEMORY_MODEL_PURPOSES } from "../shared/provider-settings.ts";
+import {
+	MEMORY_MODEL_DEFAULT_TIERS,
+	MEMORY_MODEL_LABELS,
+	MEMORY_MODEL_PURPOSES,
+} from "../shared/provider-settings.ts";
 import {
 	applyProviderEditorCommand,
 	createProviderEditorDraft,
@@ -293,7 +297,8 @@ function MemoryModelsSummary({
 				if (!modelRef) {
 					return (
 						<Text key={purpose} color="gray">
-							{label}: not configured{override ? ` (env: ${formatModelRef(override.model)})` : ""}
+							{label}: use default ({MEMORY_MODEL_DEFAULT_TIERS[purpose]})
+							{override ? ` (env: ${formatModelRef(override.model)})` : ""}
 						</Text>
 					);
 				}
