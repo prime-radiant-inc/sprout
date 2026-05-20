@@ -161,9 +161,35 @@ interface OpenAICodexOAuthCredentials {
 secret refs, or persisted `hasSecret` flags. Credential presence is derived at runtime by the
 settings control plane.
 
+OAuth storage keys are deterministic from the provider id:
+
+```text
+sprout/providers/<providerId>/oauth
+```
+
+The active secret backend is selected the same way existing API-key credentials select it. The
+backend name is part of the runtime `ProviderSecretRef` because the secret-store implementation
+needs it, but it is not persisted in provider settings.
+
+Logout deletes only the OAuth secret for that provider id. Deleting a provider must delete both its
+API-key and OAuth secret refs so abandoned credentials do not remain in the OS secret store.
+
+Provider ids are stable identifiers. The settings UI may edit a provider label, but it should not
+rename provider ids in this iteration. If provider-id renaming is added later, it must either move
+the OAuth secret to the new deterministic key or require an explicit re-login. Silent orphaning is
+not acceptable.
+
+Multiple ChatGPT accounts are not a first-version goal. The data model allows more than one
+`openai-codex` provider id, but the UI should present a single default `OpenAI Codex` provider path.
+If a user manually creates multiple Codex providers later, each provider id owns its own OAuth
+secret record and refresh lock.
+
 ## OAuth Flow
 
-Use the Pi-compatible OAuth flow because Serf later had to align to it.
+Use the Pi-compatible OAuth flow because Serf later had to align to it. The constants below were
+verified against the local `inspo/codex`, local `inspo/serf`, and the Pi implementation on
+2026-05-19. The login implementation must include an acceptance test or manual verification note
+that proves these constants still complete a login before the feature is considered done.
 
 Constants:
 
@@ -197,11 +223,50 @@ The callback listener should bind the primary port first and fall back to the fa
 the primary port is unavailable. It should validate both the path and state before exchanging the
 code.
 
+The callback listener must be loopback-only. Bind to `127.0.0.1` or `localhost`; do not bind to
+`0.0.0.0`. It should accept only `GET /auth/callback`, reject other methods and paths,
+and stop the listener after the first terminal result. State and PKCE verifier values are one-shot
+values; after a successful callback, failed callback, timeout, or cancellation, they must be
+unusable.
+
+The login flow should set a finite timeout, clean up the listener on timeout, and provide a manual
+pasteback fallback with the same state validation. Auth codes, access tokens, refresh tokens, and
+authorization headers must never be logged or rendered in error messages.
+
 Token exchange and refresh use form-encoded POSTs to the token URL. The initial exchange must return
 a refresh token. Later refresh responses may rotate the refresh token; when they do, Sprout should
 persist the replacement, and when they do not, Sprout should preserve the existing refresh token.
 The refresh path should persist the current access token, refresh token, expiry, and account id. The
 account id comes from the `https://api.openai.com/auth.chatgpt_account_id` JWT claim when available.
+
+Account id extraction is decode-only. Sprout should base64url-decode the JWT payload to read
+non-secret claims, but it should not claim cryptographic JWT validation unless it also implements
+issuer, audience, expiry, and key validation. The supported account-id paths are:
+
+1. `https://api.openai.com/auth.chatgpt_account_id` from the access token.
+2. the same claim from the id token, if the access token does not contain it.
+3. an already stored account id during refresh, when the refreshed token omits the claim.
+
+Initial login must fail if no account id can be extracted from either token. Refresh must fail if
+no account id can be extracted and no previously stored account id exists. Malformed JWTs should
+produce an OAuth credential error that redacts the token value.
+
+## Refresh Concurrency
+
+Refreshing OAuth credentials must be serialized per provider id. Model refresh, connection checks,
+streaming completions, and non-streaming completions may request a valid token at the same time.
+If credentials are expired or inside the refresh skew window, only one refresh request should run
+for that provider id; other callers should await the same in-flight refresh result.
+
+Credential persistence should avoid stale writes. A refresh operation should load the current stored
+record, refresh the current refresh token, and then persist the result only if it is still based on
+the latest known credential generation. A simple implementation can store an `updatedAt` or
+`version` field and re-read before writing. If another refresh already wrote a newer record, the
+later caller should use the newer record instead of overwriting it with stale tokens.
+
+Tests should cover two concurrent callers with an expired token where the token endpoint rotates the
+refresh token. The expected behavior is one network refresh, both callers receive the new access
+token, and the stored record contains the rotated refresh token.
 
 ## Adapter Architecture
 
@@ -340,6 +405,11 @@ The final response should include:
 - usage with cache-read and reasoning-token fields when available
 - raw finish/status information for diagnostics
 
+Streaming must honor cancellation and timeout signals from the caller. If a Sprout request is
+aborted, the SDK request should receive the abort signal, the stream accumulator should stop
+emitting events, and the final response should not be synthesized from a partial stream as if it
+completed successfully.
+
 ## Settings Control Plane
 
 The settings control plane should grow credential-aware provider operations rather than treating all
@@ -431,9 +501,14 @@ Model refresh:
 
 1. Registry resolves the `openai-codex` provider.
 2. Adapter asks the OAuth credential provider for a valid access token and account id.
-3. Credential provider refreshes and persists credentials if needed.
+3. Credential provider refreshes and persists credentials if needed through the per-provider
+   singleflight path.
 4. Adapter calls `GET /models?client_version=0.0.0` through the SDK.
 5. Adapter parses Codex `models[]` and returns `ProviderModel[]`.
+
+If model refresh fails after a previous successful refresh, Sprout may continue showing the last
+cached remote model list with a visible refresh error. A failed refresh must not replace the cached
+list with an empty list unless the user deletes the provider or explicitly clears the cache.
 
 Completion:
 
@@ -467,6 +542,14 @@ Runtime errors should preserve useful OpenAI/Codex response headers where availa
 - authorization error headers
 - Cloudflare/debug headers when present
 
+Runtime errors and logs must redact:
+
+- OAuth authorization codes
+- access tokens
+- refresh tokens
+- `Authorization` header values
+- full callback URLs that contain `code`
+
 The UI should show clear remediation:
 
 - missing OAuth: sign in with ChatGPT
@@ -485,13 +568,25 @@ OAuth URL and callback:
 - authorize URL uses `http://localhost:1455/auth/callback`
 - fallback uses `http://localhost:1457/auth/callback`
 - callback rejects wrong path
+- callback rejects wrong method
 - callback rejects wrong state
+- callback listener binds loopback-only
+- callback state and PKCE are one-shot
+- callback listener is cleaned up on timeout
+- logs and errors redact callback codes and OAuth tokens
 
 Credentials:
 
 - secret store can store and retrieve OAuth JSON records
+- OAuth storage keys are deterministic: `sprout/providers/<providerId>/oauth`
+- logout and provider deletion delete the OAuth secret
 - refresh persists rotated access token, refresh token, expiry, and account id
+- refresh preserves the existing refresh token when the token endpoint does not rotate it
+- concurrent refresh callers share one in-flight refresh and do not stale-write credentials
 - account id is extracted from `https://api.openai.com/auth.chatgpt_account_id`
+- account id can fall back from access token to id token on initial login
+- refresh can use a stored account id when refreshed tokens omit the claim
+- malformed JWT payloads return redacted OAuth credential errors
 - `OPENAI_API_KEY` does not satisfy `openai-codex`
 
 Adapter:
@@ -504,6 +599,8 @@ Adapter:
 - `complete()` uses the streaming path
 - stream accumulator handles `output_item.added`, argument deltas, argument done, item done, and
   response completed
+- request abort propagates to the SDK stream
+- failed model refresh preserves the previous cached model list and reports the refresh error
 
 Settings UI:
 
@@ -526,14 +623,40 @@ Regression tests from Serf history:
 This is the expected implementation order after this spec is approved:
 
 1. Add provider kind and credential-aware validation tests.
-2. Add OAuth credential storage tests and implementation.
-3. Add OAuth URL, callback, exchange, refresh, and claim extraction tests.
-4. Extract shared OpenAI Responses request/parse/stream helpers.
-5. Add `OpenAICodexAdapter` using the OpenAI SDK with Codex base URL.
-6. Add Codex model endpoint parsing and regression tests.
-7. Wire registry and settings control-plane OAuth operations.
-8. Update TUI and web provider settings.
-9. Update docs and run the full verification gate.
+   - Focused verification: provider validation tests and typecheck.
+2. Add deterministic OAuth secret references and storage tests.
+   - Focused verification: secret-store tests.
+3. Add OAuth authorize URL and PKCE/state tests.
+   - Focused verification: auth URL/state tests.
+4. Add callback listener tests and implementation.
+   - Focused verification: callback method/path/state/timeout tests.
+5. Add token exchange and initial credential persistence.
+   - Focused verification: token exchange and redaction tests.
+6. Add refresh persistence, refresh-token rotation handling, and per-provider singleflight.
+   - Focused verification: concurrent refresh tests.
+7. Add account-id extraction and decode-only token claim handling.
+   - Focused verification: claim extraction tests with malformed and missing-claim tokens.
+8. Add characterization tests around the current OpenAI adapter.
+   - Focused verification: existing OpenAI adapter tests pass with no code movement.
+9. Extract shared Responses request-building helpers.
+   - Focused verification: characterization tests still pass.
+10. Extract shared Responses parser helpers.
+    - Focused verification: parser and existing adapter tests still pass.
+11. Extract shared Responses stream accumulator.
+    - Focused verification: streaming and tool-call tests still pass.
+12. Add `OpenAICodexAdapter` using the OpenAI SDK with Codex base URL.
+    - Focused verification: adapter URL/header tests.
+13. Add Codex model endpoint parsing and cache-failure behavior.
+    - Focused verification: model parser and model-cache tests.
+14. Wire registry and settings control-plane OAuth operations.
+    - Focused verification: registry and control-plane tests.
+15. Update web provider settings.
+    - Focused verification: web settings tests.
+16. Update TUI provider settings.
+    - Focused verification: TUI settings tests.
+17. Update docs and run the full verification gate.
+    - Final verification: `bun run precommit`, plus any targeted integration checks added during
+      implementation.
 
 ## Open Decision
 
