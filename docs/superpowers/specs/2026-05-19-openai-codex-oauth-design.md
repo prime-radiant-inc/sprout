@@ -195,7 +195,8 @@ disabledReason?: "user" | "credential-cleanup-failed";
 ```
 
 Existing configs with `enabled: false` and no `disabledReason` are treated as user-disabled, so the
-migration default is implicit. A cleanup-failed provider is stored as:
+migration default is implicit. Normal user-disabled providers should omit `disabledReason`; do not
+persist `"user"` unless a later schema needs it. A cleanup-failed provider is stored as:
 
 ```ts
 enabled: false;
@@ -213,6 +214,16 @@ display state is cleared on logout and on successful provider deletion. On parti
 the delete command result should include the safe names of failed refs, such as `api-key` or
 `oauth`; it must not include storage backend internals or secret values.
 
+Allowed public failed-ref labels are limited to domain credential kinds:
+
+- `api-key`
+- `oauth`
+
+Backend-specific storage keys, keychain labels, file paths, command lines, token values, and raw
+backend error text must not appear in user-facing delete results. Developer logs may include backend
+error class names and operation names, but they must still redact secret values, authorization
+headers, callback codes, and full callback URLs containing `code`.
+
 Cleanup-failed provider UI should expose two actions:
 
 - retry delete, which retries all expected secret refs idempotently and removes the provider on
@@ -222,6 +233,24 @@ Cleanup-failed provider UI should expose two actions:
 
 Successful re-login should not silently re-enable a provider that the user had disabled before the
 cleanup failure. Re-enable still goes through the existing provider enable path.
+
+State transitions:
+
+| Action | Result |
+| --- | --- |
+| User disables provider | `enabled: false`, omit `disabledReason` |
+| User enables provider | `enabled: true`, omit `disabledReason` |
+| Logout succeeds | `enabled` unchanged, omit `disabledReason` unless already cleanup-failed |
+| Delete succeeds | provider config removed, all expected secret refs absent |
+| Delete partially fails | `enabled: false`, `disabledReason: "credential-cleanup-failed"` |
+| Retry delete succeeds | provider config removed, all expected secret refs absent |
+| Retry delete partially fails | keep cleanup-failed state and report safe failed-ref labels |
+| Sign in again succeeds from cleanup-failed | `enabled: false`, omit `disabledReason` |
+| Sign in again fails from cleanup-failed | keep cleanup-failed state |
+
+The successful sign-in-again state deliberately remains disabled. This avoids needing to remember
+whether the provider was enabled before the failed deletion attempt. The user can then explicitly
+enable the provider through the existing enable action.
 
 Provider ids are stable identifiers. The settings UI may edit a provider label, but it should not
 rename provider ids in this iteration. If provider-id renaming is added later, it must either move
@@ -699,6 +728,8 @@ Credentials:
 - cleanup-failed disabled providers persist `disabledReason: "credential-cleanup-failed"`
 - user-disabled providers have no cleanup-failed recovery actions
 - cleanup-failed delete results include only safe failed-ref names
+- cleanup-failed state transitions match the spec table
+- user-facing failed-ref labels are allowlisted to `api-key` and `oauth`
 - retrying deletion after partial failure treats already-missing secret refs as success
 - initial credentials are persisted only after account-id extraction succeeds
 - refresh persists rotated access token, refresh token, expiry, and account id
@@ -752,49 +783,55 @@ This is the expected implementation order after this spec is approved:
    - Focused verification: provider validation tests and typecheck.
 2. Add deterministic OAuth secret references, provider-id key safety, and storage tests.
    - Focused verification: secret-store tests.
-3. Add shared enabled-provider guard and disabled-reason settings behavior.
+3. Characterize current provider materialization and runtime provider-use paths.
+   - Focused verification: exact-model resolution, model refresh, connection checks, completions,
+     cached adapters, and cached model reads have baseline tests.
+4. Add shared enabled-provider guard and disabled-reason settings behavior.
    - Focused verification: disabled provider runtime and cached-model gating tests.
-4. Add OAuth authorize URL and PKCE/state tests.
+5. Add OAuth authorize URL and PKCE/state tests.
    - Focused verification: auth URL/state tests.
-5. Add callback listener tests and implementation.
+6. Add callback listener tests and implementation.
    - Focused verification: callback method/path/state/timeout tests.
-6. Add manual pasteback parsing and redaction tests.
+7. Add manual pasteback parsing and redaction tests.
    - Focused verification: pasteback URL/raw-code/state tests.
-7. Add account-id extraction and decode-only token claim handling.
+8. Add account-id extraction and decode-only token claim handling.
    - Focused verification: claim extraction tests with malformed and missing-claim tokens.
-8. Add token exchange and initial credential persistence.
+9. Add token exchange and initial credential persistence.
    - Focused verification: exchange persists only fully valid credentials.
-9. Add corrupt stored-credential handling and logout cleanup behavior.
+10. Add corrupt stored-credential handling and logout cleanup behavior.
    - Focused verification: invalid JSON and logout tests.
-10. Add refresh persistence, refresh-token rotation handling, and per-provider singleflight.
+11. Add refresh persistence, refresh-token rotation handling, and per-provider singleflight.
    - Focused verification: concurrent refresh tests.
-11. Add provider deletion cleanup, cleanup-failed state, and retry behavior.
+12. Add provider deletion cleanup, cleanup-failed state, and retry behavior.
     - Focused verification: partial deletion, cleanup-failed UI state, and retry deletion tests.
-12. Add refresh/logout/delete coordination tests.
+13. Add cleanup-failed control-plane recovery action contract.
+    - Focused verification: retry delete and sign-in-again actions appear only in cleanup-failed
+      state, never for ordinary user-disabled providers.
+14. Add refresh/logout/delete coordination tests.
     - Focused verification: refresh cannot recreate credentials after logout or deletion.
-13. Add lifecycle-lock timeout tests with injected fake locks or clocks.
+15. Add lifecycle-lock timeout tests with injected fake locks or clocks.
     - Focused verification: stuck lock does not delete secrets or caches.
-14. Add refresh failure, expiry skew, and stale-write tests.
+16. Add refresh failure, expiry skew, and stale-write tests.
     - Focused verification: refresh failure and skew tests.
-15. Add characterization tests around the current OpenAI adapter.
+17. Add characterization tests around the current OpenAI adapter.
    - Focused verification: existing OpenAI adapter tests pass with no code movement.
-16. Extract shared Responses request-building helpers.
+18. Extract shared Responses request-building helpers.
    - Focused verification: characterization tests still pass.
-17. Extract shared Responses parser helpers.
+19. Extract shared Responses parser helpers.
     - Focused verification: parser and existing adapter tests still pass.
-18. Extract shared Responses stream accumulator.
+20. Extract shared Responses stream accumulator.
     - Focused verification: streaming and tool-call tests still pass.
-19. Add `OpenAICodexAdapter` using the OpenAI SDK with Codex base URL.
+21. Add `OpenAICodexAdapter` using the OpenAI SDK with Codex base URL.
     - Focused verification: adapter URL/header tests.
-20. Add Codex model endpoint parsing and cache-failure behavior.
+22. Add Codex model endpoint parsing and cache-failure behavior.
     - Focused verification: model parser and model-cache tests.
-21. Wire registry and settings control-plane OAuth operations.
+23. Wire registry and settings control-plane OAuth operations.
     - Focused verification: registry and control-plane tests.
-22. Update web provider settings.
+24. Update web provider settings.
     - Focused verification: web settings tests.
-23. Update TUI provider settings.
+25. Update TUI provider settings.
     - Focused verification: TUI settings tests.
-24. Update docs and run the full verification gate.
+26. Update docs and run the full verification gate.
     - Final verification: `bun run precommit`, plus any targeted integration checks added during
       implementation.
 
