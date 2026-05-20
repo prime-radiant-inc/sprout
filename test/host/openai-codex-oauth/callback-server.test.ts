@@ -5,6 +5,7 @@ import {
 	parseManualPasteback,
 	validateCallbackRequest,
 } from "@/host/openai-codex-oauth/callback-server";
+import { OPENAI_CODEX_OAUTH } from "@/host/openai-codex-oauth/config";
 
 const activeListeners: Array<{ stop: () => void }> = [];
 
@@ -89,11 +90,37 @@ describe("OpenAI Codex OAuth manual pasteback parsing", () => {
 });
 
 describe("OpenAI Codex OAuth callback listener", () => {
+	test("rejects unregistered listener redirects unless explicitly allowed for tests", () => {
+		expect(() =>
+			listenForCallback({
+				expectedState: "state-123",
+				ports: [0],
+				timeoutMs: 1_000,
+			}),
+		).toThrow("OpenAI Codex OAuth callback listener must use registered redirect URIs");
+		expect(() =>
+			listenForCallback({
+				expectedState: "state-123",
+				hostname: "127.0.0.1",
+				ports: [1455],
+				timeoutMs: 1_000,
+			}),
+		).toThrow("OpenAI Codex OAuth callback listener must use registered redirect URIs");
+		expect(() =>
+			listenForCallback({
+				expectedState: "state-123",
+				ports: [9999],
+				timeoutMs: 1_000,
+			}),
+		).toThrow("OpenAI Codex OAuth callback listener must use registered redirect URIs");
+	});
+
 	test("resolves once after a successful loopback callback and can be stopped again", async () => {
 		const listener = listenForCallback({
 			expectedState: "state-123",
 			ports: [0],
 			timeoutMs: 1_000,
+			allowUnregisteredRedirectUriForTests: true,
 		});
 		activeListeners.push(listener);
 
@@ -106,7 +133,44 @@ describe("OpenAI Codex OAuth callback listener", () => {
 		expect(() => listener.stop()).not.toThrow();
 	});
 
-	test("falls back when the first configured port is unavailable", () => {
+	test("does not let a second callback alter the first successful result", async () => {
+		const listener = listenForCallback({
+			expectedState: "state-123",
+			ports: [0],
+			timeoutMs: 1_000,
+			allowUnregisteredRedirectUriForTests: true,
+		});
+		activeListeners.push(listener);
+
+		const response = await fetch(`${listener.redirectUri}?code=first-code&state=state-123`);
+		const result = await listener.result;
+
+		expect(response.status).toBe(200);
+		expect(result).toEqual({ ok: true, code: "first-code" } satisfies CallbackValidationResult);
+		try {
+			await fetch(`${listener.redirectUri}?code=second-code&state=state-123`);
+		} catch {
+			// The listener may already be stopped; the resolved result is the regression target.
+		}
+		await Bun.sleep(1);
+		expect(await listener.result).toEqual({
+			ok: true,
+			code: "first-code",
+		} satisfies CallbackValidationResult);
+	});
+
+	test("returns the registered fallback redirect URI when bound to the fallback port", () => {
+		const listener = listenForCallback({
+			expectedState: "state-123",
+			ports: [1457],
+			timeoutMs: 1_000,
+		});
+		activeListeners.push(listener);
+
+		expect(listener.redirectUri).toBe(OPENAI_CODEX_OAUTH.fallbackRedirectUri);
+	});
+
+	test("uses explicit test-only escape hatch for unregistered fallback ports", () => {
 		const occupied = Bun.serve({
 			hostname: "127.0.0.1",
 			port: 0,
@@ -122,6 +186,7 @@ describe("OpenAI Codex OAuth callback listener", () => {
 				hostname: "127.0.0.1",
 				ports: [occupiedPort, 0],
 				timeoutMs: 1_000,
+				allowUnregisteredRedirectUriForTests: true,
 			});
 			activeListeners.push(listener);
 
@@ -136,6 +201,7 @@ describe("OpenAI Codex OAuth callback listener", () => {
 			expectedState: "state-123",
 			ports: [0],
 			timeoutMs: 1,
+			allowUnregisteredRedirectUriForTests: true,
 		});
 		activeListeners.push(listener);
 
@@ -150,6 +216,7 @@ describe("OpenAI Codex OAuth callback listener", () => {
 			expectedState: "state-123",
 			ports: [0],
 			timeoutMs: 1_000,
+			allowUnregisteredRedirectUriForTests: true,
 		});
 		activeListeners.push(listener);
 

@@ -91,10 +91,16 @@ export function listenForCallback(options: {
 	hostname?: "localhost" | "127.0.0.1";
 	ports?: readonly number[];
 	timeoutMs?: number;
+	allowUnregisteredRedirectUriForTests?: true;
 }): CallbackListener {
 	const hostname = options.hostname ?? DEFAULT_CALLBACK_HOST;
 	const ports = options.ports ?? DEFAULT_CALLBACK_PORTS;
 	const timeoutMs = options.timeoutMs ?? 5 * 60 * 1000;
+	validateListenerRedirectTargets({
+		hostname,
+		ports,
+		allowUnregisteredRedirectUriForTests: options.allowUnregisteredRedirectUriForTests,
+	});
 
 	let finish!: (result: CallbackValidationResult) => void;
 	const result = new Promise<CallbackValidationResult>((resolve) => {
@@ -141,7 +147,11 @@ export function listenForCallback(options: {
 	}
 
 	return {
-		redirectUri: buildRedirectUri(hostname, requireBoundPort(server)),
+		redirectUri: buildRedirectUri({
+			hostname,
+			port: requireBoundPort(server),
+			allowUnregisteredRedirectUriForTests: options.allowUnregisteredRedirectUriForTests,
+		}),
 		result,
 		stop: () => complete(callbackError("OpenAI Codex OAuth callback listener was stopped")),
 	};
@@ -192,14 +202,42 @@ function isSupportedRedirectTarget(url: URL): boolean {
 	);
 }
 
-function buildRedirectUri(hostname: "localhost" | "127.0.0.1", port: number): string {
+function validateListenerRedirectTargets(input: {
+	hostname: "localhost" | "127.0.0.1";
+	ports: readonly number[];
+	allowUnregisteredRedirectUriForTests?: true;
+}): void {
+	if (input.allowUnregisteredRedirectUriForTests === true) {
+		return;
+	}
+	if (
+		input.hostname !== DEFAULT_CALLBACK_HOST ||
+		input.ports.some((port) => !isRegisteredPort(port))
+	) {
+		throw new Error("OpenAI Codex OAuth callback listener must use registered redirect URIs");
+	}
+}
+
+function buildRedirectUri(input: {
+	hostname: "localhost" | "127.0.0.1";
+	port: number;
+	allowUnregisteredRedirectUriForTests?: true;
+}): string {
+	const { hostname, port } = input;
 	if (hostname === "localhost" && port === 1455) {
 		return OPENAI_CODEX_OAUTH.primaryRedirectUri;
 	}
 	if (hostname === "localhost" && port === 1457) {
 		return OPENAI_CODEX_OAUTH.fallbackRedirectUri;
 	}
+	if (input.allowUnregisteredRedirectUriForTests !== true) {
+		throw new Error("OpenAI Codex OAuth callback listener must use registered redirect URIs");
+	}
 	return `http://${hostname}:${port}${CALLBACK_PATH}`;
+}
+
+function isRegisteredPort(port: number): boolean {
+	return port === 1455 || port === 1457;
 }
 
 function requireBoundPort(server: Bun.Server<undefined>): number {
