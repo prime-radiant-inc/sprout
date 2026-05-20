@@ -111,6 +111,8 @@ describe("OpenAI Codex OAuth token helpers", () => {
 								detail: "backend access-token-secret refresh-token-secret",
 								echo: "echo auth-code-secret and verifier-secret",
 								jwtDetail: "backend aaa.bbb.ccc",
+								token: "backend-token-secret",
+								Authorization: "Bearer backend-authorization-secret",
 							}),
 							{ status: 400 },
 						),
@@ -128,8 +130,12 @@ describe("OpenAI Codex OAuth token helpers", () => {
 		expect(message).toContain('"codeVerifier":"[redacted]"');
 		expect(message).toContain('"redirect_uri":"[redacted]"');
 		expect(message).toContain('"redirectUri":"[redacted]"');
+		expect(message).toContain('"token":"[redacted]"');
+		expect(message).toContain('"Authorization":"[redacted]"');
 		expect(message).not.toContain("access-token-secret");
 		expect(message).not.toContain("refresh-token-secret");
+		expect(message).not.toContain("backend-token-secret");
+		expect(message).not.toContain("backend-authorization-secret");
 		expect(message).not.toContain("auth-code-secret");
 		expect(message).not.toContain("verifier-secret");
 		expect(message).not.toContain("camel-verifier-secret");
