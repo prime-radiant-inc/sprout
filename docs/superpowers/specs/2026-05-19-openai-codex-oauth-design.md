@@ -178,10 +178,13 @@ needs it, but it is not persisted in provider settings.
 
 Logout deletes only the OAuth secret for that provider id and clears cached account display state
 and cached Codex models for that provider. Deleting a provider must delete both its API-key and
-OAuth secret refs so abandoned credentials do not remain in the OS secret store. Provider deletion
-should report secret-deletion failures clearly; it must not silently leave credentials behind. If
-settings deletion and secret deletion cannot be made transactional, the implementation should choose
-the safer behavior: keep the provider config and report the deletion failure so the user can retry.
+OAuth secret refs so abandoned credentials do not remain in the OS secret store.
+
+Provider deletion should report secret-deletion failures clearly; it must not silently leave
+credentials behind. Secret deletion is idempotent: deleting an already-missing secret counts as
+success. If deleting multiple secret refs partially fails, Sprout should keep the provider config,
+disable the provider, show a credential cleanup failure, and let retry attempt all expected secret
+refs again. The retry path should treat the refs already deleted in the previous attempt as success.
 
 Provider ids are stable identifiers. The settings UI may edit a provider label, but it should not
 rename provider ids in this iteration. If provider-id renaming is added later, it must either move
@@ -189,9 +192,9 @@ the OAuth secret to the new deterministic key or require an explicit re-login. S
 not acceptable.
 
 Multiple ChatGPT accounts are not a first-version goal. The data model allows more than one
-`openai-codex` provider id, but the UI should present a single default `OpenAI Codex` provider path.
-If a user manually creates multiple Codex providers later, each provider id owns its own OAuth
-secret record and refresh lock.
+`openai-codex` provider id, but the UI should present a single default `OpenAI Codex` provider
+path. If a user manually creates multiple Codex providers later, each provider id owns its own
+OAuth secret record and credential lifecycle lock.
 
 ## OAuth Flow
 
@@ -242,11 +245,11 @@ The login flow should set a finite timeout, clean up the listener on timeout, an
 pasteback fallback with the same state validation. Auth codes, access tokens, refresh tokens, and
 authorization headers must never be logged or rendered in error messages.
 
-Manual pasteback accepts either the full callback URL or the raw authorization code plus the pending
-state value. Full callback URLs must be parsed with the same path and state validation as the local
-callback listener. Raw-code pasteback is only valid when it is tied to the still-pending one-shot
-login state in memory; it must not skip state validation. Pasteback errors must redact `code`,
-`state`, and the original URL.
+Manual pasteback should prefer the full callback URL because it carries the returned `state` value.
+Full callback URLs must be parsed with the same path and state validation as the local callback
+listener. Raw-code pasteback is optional; if supported, it must be a two-field UI form with one
+field for the authorization code and one field for the returned state. Sprout should not print or
+log the expected state value. Pasteback errors must redact `code`, `state`, and the original URL.
 
 Token exchange and refresh use form-encoded POSTs to the token URL. The initial exchange must return
 a refresh token. Later refresh responses may rotate the refresh token; when they do, Sprout should
@@ -307,6 +310,19 @@ token, and the stored record contains the rotated refresh token.
 Stored OAuth JSON is schema-checked before use. Missing required fields, malformed JSON, or an
 unsupported future schema version should make the provider report an invalid OAuth credential state
 and ask the user to sign in again. Sprout should not try to repair corrupt token records in place.
+
+Logout, provider deletion, and provider reconfiguration use the same per-provider credential
+lifecycle lock as refresh. The first implementation can satisfy this by making logout/delete wait
+for any in-flight refresh to finish and then deleting credentials and caches under the lock. An
+implementation that lets token refresh network calls run outside the lock must instead maintain a
+per-provider credential generation and refuse to write refresh results if logout/delete/reconfigure
+advanced the generation while the refresh was in flight.
+
+Tests should prove that a refresh cannot recreate credentials after logout or provider deletion.
+The acceptable outcomes are either:
+
+1. refresh finishes first, then logout/delete removes the freshly written credentials; or
+2. logout/delete invalidates the refresh generation, and the refresh result is discarded.
 
 ## Adapter Architecture
 
@@ -614,7 +630,7 @@ OAuth URL and callback:
 - callback state and PKCE are one-shot
 - callback listener is cleaned up on timeout
 - manual pasteback parses full callback URLs with state validation
-- raw-code pasteback is tied to the pending one-shot login state
+- optional raw-code pasteback requires separate code and returned-state fields
 - logs and errors redact callback codes and OAuth tokens
 
 Credentials:
@@ -626,11 +642,13 @@ Credentials:
 - logout clears cached account display state and cached Codex models
 - corrupt or unsupported OAuth JSON asks the user to sign in again
 - provider deletion reports secret-deletion failures instead of silently orphaning credentials
+- partial provider deletion failure disables the provider and retries all secret refs idempotently
 - initial credentials are persisted only after account-id extraction succeeds
 - refresh persists rotated access token, refresh token, expiry, and account id
 - refresh preserves the existing refresh token when the token endpoint does not rotate it
 - concurrent refresh callers share one in-flight refresh and do not stale-write credentials
 - concurrent refresh failure clears the in-flight lock and leaves stored credentials unchanged
+- logout/delete cannot be undone by an in-flight refresh writing credentials afterward
 - refresh uses a five-minute expiry skew unless implementation evidence changes that value
 - account id is extracted from `https://api.openai.com/auth.chatgpt_account_id`
 - account id can fall back from access token to id token on initial login
@@ -686,30 +704,32 @@ This is the expected implementation order after this spec is approved:
 7. Add token exchange and initial credential persistence.
    - Focused verification: exchange persists only fully valid credentials.
 8. Add corrupt stored-credential handling and logout/delete cleanup behavior.
-   - Focused verification: invalid JSON, logout, and provider deletion tests.
+   - Focused verification: invalid JSON, logout, provider deletion, and partial deletion tests.
 9. Add refresh persistence, refresh-token rotation handling, and per-provider singleflight.
    - Focused verification: concurrent refresh tests.
-10. Add refresh failure, expiry skew, and stale-write tests.
+10. Add refresh/logout/delete coordination tests.
+    - Focused verification: refresh cannot recreate credentials after logout or deletion.
+11. Add refresh failure, expiry skew, and stale-write tests.
     - Focused verification: refresh failure and skew tests.
-11. Add characterization tests around the current OpenAI adapter.
+12. Add characterization tests around the current OpenAI adapter.
    - Focused verification: existing OpenAI adapter tests pass with no code movement.
-12. Extract shared Responses request-building helpers.
+13. Extract shared Responses request-building helpers.
    - Focused verification: characterization tests still pass.
-13. Extract shared Responses parser helpers.
+14. Extract shared Responses parser helpers.
     - Focused verification: parser and existing adapter tests still pass.
-14. Extract shared Responses stream accumulator.
+15. Extract shared Responses stream accumulator.
     - Focused verification: streaming and tool-call tests still pass.
-15. Add `OpenAICodexAdapter` using the OpenAI SDK with Codex base URL.
+16. Add `OpenAICodexAdapter` using the OpenAI SDK with Codex base URL.
     - Focused verification: adapter URL/header tests.
-16. Add Codex model endpoint parsing and cache-failure behavior.
+17. Add Codex model endpoint parsing and cache-failure behavior.
     - Focused verification: model parser and model-cache tests.
-17. Wire registry and settings control-plane OAuth operations.
+18. Wire registry and settings control-plane OAuth operations.
     - Focused verification: registry and control-plane tests.
-18. Update web provider settings.
+19. Update web provider settings.
     - Focused verification: web settings tests.
-19. Update TUI provider settings.
+20. Update TUI provider settings.
     - Focused verification: TUI settings tests.
-20. Update docs and run the full verification gate.
+21. Update docs and run the full verification gate.
     - Final verification: `bun run precommit`, plus any targeted integration checks added during
       implementation.
 
