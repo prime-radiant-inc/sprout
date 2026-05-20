@@ -1299,7 +1299,7 @@ describe("bootstrapSessionRuntime", () => {
 		const loginInputs: any[] = [];
 		const listenerCalls: any[] = [];
 
-		await bootstrapSessionRuntime(
+		const runtime = await bootstrapSessionRuntime(
 			{
 				genomePath: "/tmp/genome",
 				projectDataDir: "/tmp/project",
@@ -1351,9 +1351,17 @@ describe("bootstrapSessionRuntime", () => {
 			},
 		);
 
+		runtime.setOpenAICodexOAuthReturnUrl(
+			"http://localhost:7777/?token=nonce&settings=providers&provider=openai-codex",
+		);
 		await (created.controlPlaneOptions as any).oauthOperations.login("openai-codex");
 
-		expect(listenerCalls).toEqual([{ expectedState: "state-789" }]);
+		expect(listenerCalls).toEqual([
+			{
+				expectedState: "state-789",
+				appReturnUrl: "http://localhost:7777/?token=nonce&settings=providers&provider=openai-codex",
+			},
+		]);
 		expect(openedUrls).toHaveLength(1);
 		const authorizeUrl = new URL(openedUrls[0]!);
 		expect(authorizeUrl.searchParams.get("redirect_uri")).toBe(

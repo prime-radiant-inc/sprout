@@ -184,6 +184,7 @@ export async function bootstrapSessionRuntime(
 	settingsControlPlane: unknown;
 	controller: unknown;
 	availableModels: string[];
+	setOpenAICodexOAuthReturnUrl: (url?: string) => void;
 }> {
 	const d: InteractiveBootstrapDeps = {
 		createBus: deps.createBus ?? (() => new EventBus()),
@@ -302,6 +303,7 @@ export async function bootstrapSessionRuntime(
 		secretStore,
 		secretBackend: secretRefBackend,
 	});
+	let openAICodexOAuthReturnUrl: string | undefined;
 	const runtimeWarnings = buildBootstrapRuntimeWarnings(settingsLoadResult);
 	let settings = settingsLoadResult.settings;
 	let initialValidationErrors: Record<string, string[]> = {};
@@ -380,6 +382,7 @@ export async function bootstrapSessionRuntime(
 			generateState: d.generateOpenAICodexOAuthState,
 			listenForCallback: d.listenForOpenAICodexOAuthCallback,
 			openExternalUrl: d.openExternalUrl,
+			getAppReturnUrl: () => openAICodexOAuthReturnUrl,
 		}),
 		loadAgentModelCatalog: () =>
 			buildAgentModelCatalog({
@@ -427,7 +430,17 @@ export async function bootstrapSessionRuntime(
 		logger,
 		client: llmClient,
 	});
-	return { bus, logger, llmClient, settingsControlPlane, controller, availableModels };
+	return {
+		bus,
+		logger,
+		llmClient,
+		settingsControlPlane,
+		controller,
+		availableModels,
+		setOpenAICodexOAuthReturnUrl: (url?: string) => {
+			openAICodexOAuthReturnUrl = url;
+		},
+	};
 }
 
 function buildBootstrapRuntimeWarnings(
@@ -565,8 +578,12 @@ function createOpenAICodexOAuthOperations(
 	deps: {
 		generatePkce: () => Promise<PkcePair>;
 		generateState: () => string;
-		listenForCallback: (options: { expectedState: string }) => Promise<CallbackListener>;
+		listenForCallback: (options: {
+			expectedState: string;
+			appReturnUrl?: string;
+		}) => Promise<CallbackListener>;
 		openExternalUrl: (url: string) => Promise<void>;
+		getAppReturnUrl?: () => string | undefined;
 	},
 ): ProviderOAuthOperations {
 	return {
@@ -589,7 +606,11 @@ function createOpenAICodexOAuthOperations(
 		login: async (providerId) => {
 			const state = deps.generateState();
 			const pkce = await deps.generatePkce();
-			const listener = await deps.listenForCallback({ expectedState: state });
+			const appReturnUrl = deps.getAppReturnUrl?.();
+			const listener = await deps.listenForCallback({
+				expectedState: state,
+				...(appReturnUrl !== undefined ? { appReturnUrl } : {}),
+			});
 			try {
 				const authorizeUrl = buildAuthorizeUrl({
 					redirectUri: listener.redirectUri,

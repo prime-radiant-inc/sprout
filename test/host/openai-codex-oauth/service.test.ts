@@ -7,7 +7,7 @@ import type { TokenResponse } from "@/host/openai-codex-oauth/tokens";
 import { createProviderCredentialRef } from "@/host/settings/provider-credentials";
 import type { SecretStorageBackend, SecretStore } from "@/host/settings/secret-store";
 
-const ACCOUNT_ID_CLAIM = "https://api.openai.com/auth.chatgpt_account_id";
+const OPENAI_AUTH_CLAIM_NAMESPACE = "https://api.openai.com/auth";
 const NOW = Date.parse("2026-05-20T12:00:00.000Z");
 const PROVIDER_ID = "openai-codex";
 const SECRET_BACKEND = "memory" satisfies SecretStorageBackend;
@@ -126,7 +126,7 @@ function validOAuthRecord(
 	overrides: Partial<Record<string, unknown>> = {},
 ): Record<string, unknown> {
 	return {
-		accessToken: jwt({ [ACCOUNT_ID_CLAIM]: "acct_123" }),
+		accessToken: jwt(accountClaims("acct_123")),
 		refreshToken: "refresh-token",
 		expiresAt: "2026-05-20T12:10:00.000Z",
 		accountId: "acct_123",
@@ -137,7 +137,7 @@ function validOAuthRecord(
 
 function expiredOAuthRecord(refreshToken: string): Record<string, unknown> {
 	return validOAuthRecord({
-		accessToken: jwt({ [ACCOUNT_ID_CLAIM]: "acct_old" }),
+		accessToken: jwt(accountClaims("acct_old")),
 		refreshToken,
 		expiresAt: "2026-05-20T11:59:00.000Z",
 		accountId: "acct_123",
@@ -149,7 +149,7 @@ function tokenResponseWithAccount(
 	overrides: Partial<TokenResponse> = {},
 ): TokenResponse {
 	return {
-		accessToken: jwt({ [ACCOUNT_ID_CLAIM]: accountId }),
+		accessToken: jwt(accountClaims(accountId)),
 		refreshToken: "refresh-token",
 		expiresAt: "2026-05-20T12:05:00.000Z",
 		...overrides,
@@ -161,6 +161,14 @@ function tokenResponseWithoutAccount(overrides: Partial<TokenResponse> = {}): To
 		accessToken: jwt({}),
 		expiresAt: "2026-05-20T12:05:00.000Z",
 		...overrides,
+	};
+}
+
+function accountClaims(accountId: string): Record<string, unknown> {
+	return {
+		[OPENAI_AUTH_CLAIM_NAMESPACE]: {
+			chatgpt_account_id: accountId,
+		},
 	};
 }
 
@@ -240,7 +248,7 @@ describe("OpenAICodexOAuthService", () => {
 		await service.loginWithCode(LOGIN_INPUT);
 
 		expect(await readStoredOAuth(secretStore)).toMatchObject({
-			accessToken: jwt({ [ACCOUNT_ID_CLAIM]: "acct_123" }),
+			accessToken: jwt(accountClaims("acct_123")),
 			refreshToken: "refresh-token",
 			accountId: "acct_123",
 			expiresAt: "2026-05-20T12:05:00.000Z",
@@ -271,7 +279,7 @@ describe("OpenAICodexOAuthService", () => {
 		]);
 
 		expect(first).toEqual({
-			accessToken: jwt({ [ACCOUNT_ID_CLAIM]: "acct_123" }),
+			accessToken: jwt(accountClaims("acct_123")),
 			accountId: "acct_123",
 			expiresAt: "2026-05-20T12:05:00.000Z",
 		});
@@ -292,7 +300,7 @@ describe("OpenAICodexOAuthService", () => {
 			},
 		});
 		const storedRecord = validOAuthRecord({
-			accessToken: jwt({ [ACCOUNT_ID_CLAIM]: "acct_valid" }),
+			accessToken: jwt(accountClaims("acct_valid")),
 			refreshToken: "valid-refresh",
 			expiresAt: "2026-05-20T12:10:01.000Z",
 			accountId: "acct_valid",
@@ -300,7 +308,7 @@ describe("OpenAICodexOAuthService", () => {
 		await writeStoredOAuth(secretStore, storedRecord);
 
 		await expect(service.resolveCredentials(PROVIDER_ID)).resolves.toEqual({
-			accessToken: jwt({ [ACCOUNT_ID_CLAIM]: "acct_valid" }),
+			accessToken: jwt(accountClaims("acct_valid")),
 			accountId: "acct_valid",
 			expiresAt: "2026-05-20T12:10:01.000Z",
 		});
@@ -387,7 +395,7 @@ describe("OpenAICodexOAuthService", () => {
 		});
 		const sourceRecord = expiredOAuthRecord("old-refresh");
 		const newerRecord = validOAuthRecord({
-			accessToken: jwt({ [ACCOUNT_ID_CLAIM]: "acct_new" }),
+			accessToken: jwt(accountClaims("acct_new")),
 			refreshToken: "newer-refresh",
 			expiresAt: "2026-05-20T12:30:00.000Z",
 			accountId: "acct_new",
@@ -401,7 +409,7 @@ describe("OpenAICodexOAuthService", () => {
 		finishRefresh?.();
 
 		await expect(refresh).resolves.toEqual({
-			accessToken: jwt({ [ACCOUNT_ID_CLAIM]: "acct_new" }),
+			accessToken: jwt(accountClaims("acct_new")),
 			accountId: "acct_new",
 			expiresAt: "2026-05-20T12:30:00.000Z",
 		});
@@ -423,7 +431,7 @@ describe("OpenAICodexOAuthService", () => {
 		});
 		const sourceRecord = expiredOAuthRecord("old-refresh");
 		const newerRecord = validOAuthRecord({
-			accessToken: jwt({ [ACCOUNT_ID_CLAIM]: "acct_new" }),
+			accessToken: jwt(accountClaims("acct_new")),
 			refreshToken: "newer-refresh",
 			expiresAt: "2026-05-20T12:30:00.000Z",
 			accountId: "acct_new",
@@ -437,7 +445,7 @@ describe("OpenAICodexOAuthService", () => {
 		failRefresh?.();
 
 		await expect(refresh).resolves.toEqual({
-			accessToken: jwt({ [ACCOUNT_ID_CLAIM]: "acct_new" }),
+			accessToken: jwt(accountClaims("acct_new")),
 			accountId: "acct_new",
 			expiresAt: "2026-05-20T12:30:00.000Z",
 		});
@@ -771,14 +779,14 @@ describe("OpenAICodexOAuthService", () => {
 		expect(await secretStore.getSecret(oauthRef())).toBe("{not-json");
 
 		await writeStoredOAuth(secretStore, {
-			accessToken: jwt({ [ACCOUNT_ID_CLAIM]: "acct_123" }),
+			accessToken: jwt(accountClaims("acct_123")),
 			refreshToken: "refresh-token",
 			expiresAt: "2026-05-20T12:10:00.000Z",
 		});
 
 		await expect(service.resolveCredentials(PROVIDER_ID)).rejects.toThrow("sign in again");
 		expect(await readStoredOAuth(secretStore)).toEqual({
-			accessToken: jwt({ [ACCOUNT_ID_CLAIM]: "acct_123" }),
+			accessToken: jwt(accountClaims("acct_123")),
 			refreshToken: "refresh-token",
 			expiresAt: "2026-05-20T12:10:00.000Z",
 		});

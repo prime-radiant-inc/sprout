@@ -1,4 +1,4 @@
-const CHATGPT_ACCOUNT_ID_CLAIM = "https://api.openai.com/auth.chatgpt_account_id";
+const OPENAI_AUTH_CLAIM_NAMESPACE = "https://api.openai.com/auth";
 const DECODE_ERROR = "Unable to decode OpenAI OAuth token claims";
 
 export function extractChatGPTAccountId(input: {
@@ -7,14 +7,14 @@ export function extractChatGPTAccountId(input: {
 	storedAccountId?: string;
 }): string {
 	const accessClaims = decodeJwtClaims(input.accessToken);
-	const accessAccountId = getStringClaim(accessClaims, CHATGPT_ACCOUNT_ID_CLAIM);
+	const accessAccountId = getChatGPTAccountIdClaim(accessClaims);
 	if (accessAccountId !== undefined) {
 		return accessAccountId;
 	}
 
 	if (input.idToken !== undefined) {
 		const idClaims = decodeJwtClaims(input.idToken);
-		const idAccountId = getStringClaim(idClaims, CHATGPT_ACCOUNT_ID_CLAIM);
+		const idAccountId = getChatGPTAccountIdClaim(idClaims);
 		if (idAccountId !== undefined) {
 			return idAccountId;
 		}
@@ -59,6 +59,15 @@ function base64UrlDecode(value: string): Uint8Array {
 	return bytes;
 }
 
+function getChatGPTAccountIdClaim(claims: Record<string, unknown>): string | undefined {
+	return (
+		getStringClaim(claims, "chatgpt_account_id") ??
+		getStringClaim(claims, "account_id") ??
+		getNestedStringClaim(OPENAI_AUTH_CLAIM_NAMESPACE, claims, "chatgpt_account_id") ??
+		getNestedStringClaim(OPENAI_AUTH_CLAIM_NAMESPACE, claims, "account_id")
+	);
+}
+
 function getStringClaim(claims: Record<string, unknown>, name: string): string | undefined {
 	const value = claims[name];
 	if (typeof value !== "string") {
@@ -66,4 +75,16 @@ function getStringClaim(claims: Record<string, unknown>, name: string): string |
 	}
 	const trimmed = value.trim();
 	return trimmed !== "" ? trimmed : undefined;
+}
+
+function getNestedStringClaim(
+	namespace: string,
+	claims: Record<string, unknown>,
+	name: string,
+): string | undefined {
+	const value = claims[namespace];
+	if (value === null || typeof value !== "object" || Array.isArray(value)) {
+		return undefined;
+	}
+	return getStringClaim(value as Record<string, unknown>, name);
 }

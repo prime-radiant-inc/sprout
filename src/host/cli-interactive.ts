@@ -67,6 +67,7 @@ export interface InteractiveModeOptions {
 		settingsControlPlane?: {
 			execute(command: SettingsCommand): Promise<SettingsCommandResult>;
 		};
+		setOpenAICodexOAuthReturnUrl?: (url?: string) => void;
 	};
 	initialEvents?: SessionEvent[];
 	cleanupInfra: () => Promise<void>;
@@ -311,6 +312,14 @@ export async function runInteractiveMode(
 	const buildUiWebUrl = () =>
 		d.buildWebOpenUrl(webPort, shouldExposeTokenInUi ? currentWebToken() : undefined, displayHost);
 	const buildLocalWebOpenUrl = () => d.buildWebOpenUrl(webPort, currentWebToken());
+	const setOAuthReturnUrl = () => {
+		opts.runtime.setOpenAICodexOAuthReturnUrl?.(
+			buildOpenAICodexOAuthReturnUrl(buildLocalWebOpenUrl()),
+		);
+	};
+	const clearOAuthReturnUrl = () => {
+		opts.runtime.setOpenAICodexOAuthReturnUrl?.(undefined);
+	};
 	const emitWebUiHint = () => {
 		if (!webServer) return;
 		opts.runtime.bus.emitEvent("warning", "cli", 0, {
@@ -358,6 +367,7 @@ export async function runInteractiveMode(
 			d.logError(`Failed to start web server: ${err instanceof Error ? err.message : String(err)}`);
 			return;
 		}
+		setOAuthReturnUrl();
 		const effectiveWebToken = currentWebToken();
 		opts.runtime.logger.info("session", "Web server started", { host: displayHost, port: webPort });
 		d.logError(`Web UI: http://${displayHost}:${webPort}`);
@@ -374,6 +384,7 @@ export async function runInteractiveMode(
 			bus: opts.runtime.bus as any,
 			stopWebServer: async () => {
 				await webServer!.stop();
+				clearOAuthReturnUrl();
 			},
 			cleanupInfra: opts.cleanupInfra,
 			onResumeHint: opts.onResumeHint,
@@ -447,6 +458,7 @@ export async function runInteractiveMode(
 										: undefined,
 								});
 								await webServer.start();
+								setOAuthReturnUrl();
 								emitWebUiHint();
 								// TODO: macOS-only. On Linux use xdg-open, on Windows use start.
 								d.openUrl(buildLocalWebOpenUrl());
@@ -462,6 +474,7 @@ export async function runInteractiveMode(
 						(async () => {
 							try {
 								await server.stop();
+								clearOAuthReturnUrl();
 								opts.runtime.bus.emitEvent("warning", "cli", 0, { message: "Web server stopped." });
 							} catch (err) {
 								opts.runtime.bus.emitEvent("error", "cli", 0, { error: String(err) });
@@ -488,10 +501,20 @@ export async function runInteractiveMode(
 		await waitUntilExit();
 	} finally {
 		sigintRegistration.dispose();
-		if (webServer) await webServer.stop();
+		if (webServer) {
+			await webServer.stop();
+			clearOAuthReturnUrl();
+		}
 		await opts.cleanupInfra();
 		await inputHistory.save();
 	}
 
 	opts.onResumeHint(opts.runtime.controller.sessionId);
+}
+
+function buildOpenAICodexOAuthReturnUrl(baseUrl: string): string {
+	const url = new URL(baseUrl);
+	url.searchParams.set("settings", "providers");
+	url.searchParams.set("provider", "openai-codex");
+	return url.toString();
 }

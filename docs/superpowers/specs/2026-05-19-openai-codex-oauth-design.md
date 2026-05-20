@@ -82,7 +82,7 @@ The upstream Codex implementation confirms the backend model:
 Serf's history is also a design input. It had later fixes for:
 
 - aligning the authorize URL with the Codex flow
-- matching the Pi login flow after URL/scope/originator drift
+- matching the Codex login flow after URL/scope/originator drift
 - streaming OAuth-backed OpenAI responses instead of relying on non-streaming completion
 - stabilizing streamed tool-call assembly
 - switching model discovery to the Codex models endpoint
@@ -314,10 +314,11 @@ OAuth secret record and credential lifecycle lock.
 
 ## OAuth Flow
 
-Use the Pi-compatible OAuth flow because Serf later had to align to it. The constants below were
-verified against the local `inspo/codex`, local `inspo/serf`, and the Pi implementation on
-2026-05-19. The login implementation must include an acceptance test or manual verification note
-that proves these constants still complete a login before the feature is considered done.
+Use the Codex-compatible OAuth flow because Serf later had to align to it. The constants below
+follow local `inspo/codex` and local `inspo/serf`; the Pi implementation was the earlier baseline
+before the connector-scope drift was found. The login implementation must include an acceptance test
+or manual verification note that proves these constants still complete a login before the feature is
+considered done.
 
 Constants:
 
@@ -328,7 +329,7 @@ client id:     app_EMoamEEZ73f0CkXaXp7hrann
 redirect path: /auth/callback
 primary URI:   http://localhost:1455/auth/callback
 fallback URI:  http://localhost:1457/auth/callback
-scopes:        openid profile email offline_access
+scopes:        openid profile email offline_access api.connectors.read api.connectors.invoke
 originator:    pi
 ```
 
@@ -338,7 +339,7 @@ Authorize requests must include:
 response_type=code
 client_id=<client id>
 redirect_uri=<selected redirect URI>
-scope=openid profile email offline_access
+scope=openid profile email offline_access api.connectors.read api.connectors.invoke
 code_challenge=<PKCE challenge>
 code_challenge_method=S256
 id_token_add_organizations=true
@@ -371,14 +372,15 @@ Token exchange and refresh use form-encoded POSTs to the token URL. The initial 
 a refresh token. Later refresh responses may rotate the refresh token; when they do, Sprout should
 persist the replacement, and when they do not, Sprout should preserve the existing refresh token.
 The refresh path should persist the current access token, refresh token, expiry, and account id. The
-account id comes from the `https://api.openai.com/auth.chatgpt_account_id` JWT claim when available.
+account id comes from `chatgpt_account_id` inside the nested `https://api.openai.com/auth` JWT
+claim when available.
 
 Account id extraction is decode-only. Sprout should base64url-decode the JWT payload to read
 non-secret claims, but it should not claim cryptographic JWT validation unless it also implements
 issuer, audience, expiry, and key validation. The supported account-id paths are:
 
-1. `https://api.openai.com/auth.chatgpt_account_id` from the access token.
-2. the same claim from the id token, if the access token does not contain it.
+1. `chatgpt_account_id` nested under `https://api.openai.com/auth` from the access token.
+2. the same nested claim from the id token, if the access token does not contain it.
 3. an already stored account id during refresh, when the refreshed token omits the claim.
 
 Initial login must fail if no account id can be extracted from either token. Refresh must fail if
@@ -803,7 +805,7 @@ Credentials:
 - logout/delete lock waits are bounded and fail without deleting secrets when the lock is stuck
 - credential-operation timeout behavior is testable with injected fake locks or clocks
 - refresh uses a five-minute expiry skew unless implementation evidence changes that value
-- account id is extracted from `https://api.openai.com/auth.chatgpt_account_id`
+- account id is extracted from `chatgpt_account_id` nested under `https://api.openai.com/auth`
 - account id can fall back from access token to id token on initial login
 - refresh can use a stored account id when refreshed tokens omit the claim
 - malformed JWT payloads return redacted OAuth credential errors
@@ -833,7 +835,7 @@ Settings UI:
 Regression tests from Serf history:
 
 - no random callback port in the authorize URL
-- no connector scopes in the Pi-compatible login flow
+- connector scopes stay present in the Codex-compatible login flow
 - no `originator=sprout` drift without an intentional design change
 - no public `/v1/models` call for Codex OAuth providers
 - no non-streaming-only completion path for Codex OAuth providers

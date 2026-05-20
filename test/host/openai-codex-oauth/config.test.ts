@@ -3,7 +3,7 @@ import { buildAuthorizeUrl, OPENAI_CODEX_OAUTH } from "@/host/openai-codex-oauth
 import { createCodeChallenge, generatePkce } from "@/host/openai-codex-oauth/pkce";
 
 describe("OpenAI Codex OAuth config", () => {
-	test("builds the Pi-compatible Codex authorize URL", () => {
+	test("builds the Codex-compatible authorize URL", () => {
 		const url = buildAuthorizeUrl({
 			redirectUri: OPENAI_CODEX_OAUTH.primaryRedirectUri,
 			state: "state-123",
@@ -13,7 +13,9 @@ describe("OpenAI Codex OAuth config", () => {
 		expect(url.origin + url.pathname).toBe("https://auth.openai.com/oauth/authorize");
 		expect(url.searchParams.get("client_id")).toBe("app_EMoamEEZ73f0CkXaXp7hrann");
 		expect(url.searchParams.get("redirect_uri")).toBe("http://localhost:1455/auth/callback");
-		expect(url.searchParams.get("scope")).toBe("openid profile email offline_access");
+		expect(url.searchParams.get("scope")).toBe(
+			"openid profile email offline_access api.connectors.read api.connectors.invoke",
+		);
 		expect(url.searchParams.get("response_type")).toBe("code");
 		expect(url.searchParams.get("code_challenge_method")).toBe("S256");
 		expect(url.searchParams.get("id_token_add_organizations")).toBe("true");

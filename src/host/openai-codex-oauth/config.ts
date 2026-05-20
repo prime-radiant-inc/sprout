@@ -4,7 +4,7 @@ export const OPENAI_CODEX_OAUTH = {
 	tokenUrl: "https://auth.openai.com/oauth/token",
 	primaryRedirectUri: "http://localhost:1455/auth/callback",
 	fallbackRedirectUri: "http://localhost:1457/auth/callback",
-	scope: "openid profile email offline_access",
+	scope: "openid profile email offline_access api.connectors.read api.connectors.invoke",
 } as const;
 
 export function buildAuthorizeUrl(input: {

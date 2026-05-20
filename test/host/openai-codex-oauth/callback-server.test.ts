@@ -316,6 +316,28 @@ describe("OpenAI Codex OAuth callback listener", () => {
 		expect(() => listener.stop()).not.toThrow();
 	});
 
+	test("redirects a successful callback back into the app when a return URL is configured", async () => {
+		const listener = await listenForCallback({
+			expectedState: "state-123",
+			ports: [0],
+			timeoutMs: 1_000,
+			appReturnUrl: "http://localhost:7777/?token=nonce&settings=providers&provider=openai-codex",
+			allowUnregisteredRedirectUriForTests: true,
+		} as Parameters<typeof listenForCallback>[0]);
+		activeListeners.push(listener);
+
+		const response = await fetch(`${listener.redirectUri}?code=code-123&state=state-123`, {
+			redirect: "manual",
+		});
+		const result = await listener.result;
+
+		expect(response.status).toBe(303);
+		expect(response.headers.get("location")).toBe(
+			"http://localhost:7777/?token=nonce&settings=providers&provider=openai-codex",
+		);
+		expect(result).toEqual({ ok: true, code: "code-123" } satisfies CallbackValidationResult);
+	});
+
 	test("does not let a second callback alter the first successful result", async () => {
 		const listener = await listenForCallback({
 			expectedState: "state-123",

@@ -75,6 +75,7 @@ describe("buildInteractiveModeRuntime", () => {
 			settingsControlPlane: settingsControlPlane as never,
 			controller: {} as never,
 			availableModels: ["best"],
+			setOpenAICodexOAuthReturnUrl: () => {},
 		});
 
 		expect(runtime.settingsControlPlane).toBe(settingsControlPlane);

@@ -60,6 +60,7 @@ describe("runInteractiveMode", () => {
 	test("web-only path delegates to runWebOnlyMode and skips TUI setup", async () => {
 		const bus = new FakeBus();
 		const called: string[] = [];
+		const oauthReturnUrls: Array<string | undefined> = [];
 
 		await runInteractiveMode(
 			{
@@ -75,6 +76,9 @@ describe("runInteractiveMode", () => {
 					controller: { sessionId: "01WEBONLY", isRunning: false, currentModel: undefined },
 					logger: { info: () => {} },
 					availableModels: ["fast"],
+					setOpenAICodexOAuthReturnUrl: (url?: string) => {
+						oauthReturnUrls.push(url);
+					},
 				},
 				initialEvents: [],
 				cleanupInfra: async () => {
@@ -94,6 +98,7 @@ describe("runInteractiveMode", () => {
 					stop: async () => {
 						called.push("web-stop");
 					},
+					getWebToken: () => "generated-nonce",
 				}),
 				ensureWebBuildFreshness: async () => {
 					called.push("web-assets");
@@ -118,7 +123,8 @@ describe("runInteractiveMode", () => {
 						clearPending: () => {},
 						dispose: () => {},
 					}) as any,
-				buildWebOpenUrl: () => "http://localhost:7777",
+				buildWebOpenUrl: (port, webToken, host) =>
+					`http://${host ?? "localhost"}:${port}${webToken ? `/?token=${webToken}` : ""}`,
 				openUrl: () => {},
 				logError: () => {},
 			},
@@ -131,6 +137,10 @@ describe("runInteractiveMode", () => {
 			"web-stop",
 			"cleanup",
 			"resume",
+		]);
+		expect(oauthReturnUrls).toEqual([
+			"http://localhost:7777/?token=generated-nonce&settings=providers&provider=openai-codex",
+			undefined,
 		]);
 	});
 

@@ -13,13 +13,19 @@ describe("extractChatGPTAccountId", () => {
 	test("reads the ChatGPT account id from access token claims", () => {
 		expect(
 			extractChatGPTAccountId({
-				accessToken: jwt({ "https://api.openai.com/auth.chatgpt_account_id": "acct_123" }),
+				accessToken: jwt({
+					"https://api.openai.com/auth": {
+						chatgpt_account_id: "acct_123",
+					},
+				}),
 			}),
 		).toBe("acct_123");
 		expect(
 			extractChatGPTAccountId({
 				accessToken: jwt({
-					"https://api.openai.com/auth.chatgpt_account_id": "  acct_trimmed_claim  ",
+					"https://api.openai.com/auth": {
+						chatgpt_account_id: "  acct_trimmed_claim  ",
+					},
 				}),
 			}),
 		).toBe("acct_trimmed_claim");
@@ -29,7 +35,11 @@ describe("extractChatGPTAccountId", () => {
 		expect(
 			extractChatGPTAccountId({
 				accessToken: jwt({}),
-				idToken: jwt({ "https://api.openai.com/auth.chatgpt_account_id": "acct_id" }),
+				idToken: jwt({
+					"https://api.openai.com/auth": {
+						chatgpt_account_id: "acct_id",
+					},
+				}),
 			}),
 		).toBe("acct_id");
 		expect(extractChatGPTAccountId({ accessToken: jwt({}), storedAccountId: "acct_old" })).toBe(
@@ -58,7 +68,11 @@ describe("extractChatGPTAccountId", () => {
 		);
 		expect(() =>
 			extractChatGPTAccountId({
-				accessToken: jwt({ "https://api.openai.com/auth.chatgpt_account_id": "   " }),
+				accessToken: jwt({
+					"https://api.openai.com/auth": {
+						chatgpt_account_id: "   ",
+					},
+				}),
 			}),
 		).toThrow("OpenAI OAuth token claims did not include a ChatGPT account id");
 	});

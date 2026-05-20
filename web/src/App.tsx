@@ -65,6 +65,17 @@ export function createCommandFromSlashCommand(cmd: SlashCommand): BrowserCommand
 	}
 }
 
+export function shouldOpenSettingsFromSearch(search: string): boolean {
+	const params = new URLSearchParams(search);
+	return params.get("settings") === "providers";
+}
+
+export function getSettingsProviderFromSearch(search: string): string | undefined {
+	if (!shouldOpenSettingsFromSearch(search)) return undefined;
+	const providerId = new URLSearchParams(search).get("provider")?.trim();
+	return providerId !== "" ? providerId : undefined;
+}
+
 export function App() {
 	const { connected, authError, send, onMessage } = useWebSocket(WS_URL);
 	const {
@@ -104,6 +115,18 @@ export function App() {
 	const historyBeforeRef = useRef<number | null>(null);
 	const historyRequestedBeforeRef = useRef<number | null>(null);
 	const searchRef = useRef(window.location.search);
+	const settingsProviderFromSearchRef = useRef(
+		getSettingsProviderFromSearch(searchRef.current),
+	);
+	const openedSettingsFromSearchRef = useRef(false);
+
+	useEffect(() => {
+		if (openedSettingsFromSearchRef.current) return;
+		if (!shouldOpenSettingsFromSearch(searchRef.current)) return;
+		openedSettingsFromSearchRef.current = true;
+		setShowSettings(true);
+		sendCommand({ kind: "get_settings", data: {} });
+	}, [sendCommand]);
 
 	useEffect(() => {
 		setHistoryLoading(false);
@@ -410,6 +433,7 @@ export function App() {
 					lastResult={lastSettingsResult}
 					onCommand={sendCommand}
 					onClose={() => setShowSettings(false)}
+					initialProviderId={settingsProviderFromSearchRef.current}
 				/>
 			)}
 		</div>

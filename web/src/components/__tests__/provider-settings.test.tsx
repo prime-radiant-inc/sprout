@@ -243,6 +243,21 @@ describe("ProviderSettingsPanel", () => {
 		expect(html).toContain("Recovered invalid settings file to /tmp/settings.invalid.json");
 	});
 
+	test("opens directly to an initial provider when requested", () => {
+		const html = renderToStaticMarkup(
+			<ProviderSettingsPanel
+				settings={makeSettings()}
+				lastResult={null}
+				onCommand={() => {}}
+				onClose={() => {}}
+				initialProviderId="lmstudio"
+			/>,
+		);
+
+		expect(html).toContain("LM Studio");
+		expect(html).toContain("Base URL");
+	});
+
 	test("renders provider health and discovered models without provider-owned tier defaults", () => {
 		const html = renderToStaticMarkup(
 			<ProviderEditor

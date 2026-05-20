@@ -16,10 +16,20 @@ export interface ProviderSettingsPanelProps {
 	lastResult: SettingsCommandResult | null;
 	onCommand: (command: SettingsCommand) => void;
 	onClose: () => void;
+	initialProviderId?: string;
 }
 
-function selectInitialView(settings: SettingsSnapshot | null): SelectedView {
-	if (!settings) return "create";
+function selectInitialView(
+	settings: SettingsSnapshot | null,
+	initialProviderId?: string,
+): SelectedView {
+	if (!settings) return initialProviderId ?? "create";
+	if (
+		initialProviderId !== undefined &&
+		settings.settings.providers.some((provider) => provider.id === initialProviderId)
+	) {
+		return initialProviderId;
+	}
 	if (settings.settings.providers.length === 0) return "create";
 	return "models";
 }
@@ -29,9 +39,10 @@ export function ProviderSettingsPanel({
 	lastResult,
 	onCommand,
 	onClose,
+	initialProviderId,
 }: ProviderSettingsPanelProps) {
 	const [selectedView, setSelectedView] = useState<SelectedView>(() =>
-		selectInitialView(settings),
+		selectInitialView(settings, initialProviderId),
 	);
 	const [pendingProviderAction, setPendingProviderAction] = useState<{
 		providerId: string;
@@ -41,7 +52,7 @@ export function ProviderSettingsPanel({
 
 	useEffect(() => {
 		if (!settings) {
-			setSelectedView("create");
+			setSelectedView(selectInitialView(settings, initialProviderId));
 			return;
 		}
 		const previousProviderIds = previousProviderIdsRef.current;
@@ -60,9 +71,9 @@ export function ProviderSettingsPanel({
 			return;
 		}
 		if (!settings.settings.providers.some((provider) => provider.id === selectedView)) {
-			setSelectedView(selectInitialView(settings));
+			setSelectedView(selectInitialView(settings, initialProviderId));
 		}
-	}, [settings, selectedView]);
+	}, [settings, selectedView, initialProviderId]);
 
 	useEffect(() => {
 		setPendingProviderAction(null);

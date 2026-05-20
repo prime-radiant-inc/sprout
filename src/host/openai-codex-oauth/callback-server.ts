@@ -112,6 +112,7 @@ type CallbackListenerBaseOptions = {
 	expectedState: string;
 	timeoutMs?: number;
 	probeTimeoutMs?: number;
+	appReturnUrl?: string;
 };
 
 type CallbackListenerOptions = CallbackListenerBaseOptions & {
@@ -163,6 +164,7 @@ async function createCallbackListener(
 			: DEFAULT_CALLBACK_PORTS;
 	const timeoutMs = options.timeoutMs ?? 5 * 60 * 1000;
 	const probeTimeoutMs = options.probeTimeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS;
+	const appReturnUrl = normalizeAppReturnUrl(options.appReturnUrl);
 	validateListenerRedirectTargets({
 		hostname,
 		ports,
@@ -192,6 +194,9 @@ async function createCallbackListener(
 		const validation = validateCallbackRequest(request, { expectedState: options.expectedState });
 		if (validation.ok) {
 			complete(validation);
+			if (appReturnUrl !== undefined) {
+				return Response.redirect(appReturnUrl, 303);
+			}
 			return new Response("OpenAI Codex authentication complete. You can close this window.", {
 				headers: { "content-type": "text/plain; charset=utf-8" },
 			});
@@ -443,6 +448,21 @@ function buildRedirectUri(input: {
 
 function isRegisteredPort(port: number): boolean {
 	return port === 1455 || port === 1457;
+}
+
+function normalizeAppReturnUrl(value: string | undefined): string | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+	const url = parseUrl(value);
+	if (url === undefined || url.protocol !== "http:" || !isLoopbackReturnHost(url.hostname)) {
+		throw new Error("OpenAI Codex OAuth app return URL must be a loopback HTTP URL");
+	}
+	return url.toString();
+}
+
+function isLoopbackReturnHost(hostname: string): boolean {
+	return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
 }
 
 function requireBoundPort(server: { port?: number }): number {

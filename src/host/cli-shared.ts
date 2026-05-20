@@ -152,6 +152,7 @@ export function buildInteractiveModeRuntime(
 		availableModels: runtime.availableModels,
 		settingsControlPlane:
 			runtime.settingsControlPlane as InteractiveModeOptions["runtime"]["settingsControlPlane"],
+		setOpenAICodexOAuthReturnUrl: runtime.setOpenAICodexOAuthReturnUrl,
 	};
 }
 

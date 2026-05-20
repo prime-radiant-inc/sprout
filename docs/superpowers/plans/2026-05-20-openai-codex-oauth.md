@@ -517,7 +517,9 @@ describe("OpenAI Codex OAuth config", () => {
 		expect(url.origin + url.pathname).toBe("https://auth.openai.com/oauth/authorize");
 		expect(url.searchParams.get("client_id")).toBe("app_EMoamEEZ73f0CkXaXp7hrann");
 		expect(url.searchParams.get("redirect_uri")).toBe("http://localhost:1455/auth/callback");
-		expect(url.searchParams.get("scope")).toBe("openid profile email offline_access");
+		expect(url.searchParams.get("scope")).toBe(
+			"openid profile email offline_access api.connectors.read api.connectors.invoke",
+		);
 		expect(url.searchParams.get("id_token_add_organizations")).toBe("true");
 		expect(url.searchParams.get("codex_cli_simplified_flow")).toBe("true");
 		expect(url.searchParams.get("originator")).toBe("pi");
@@ -544,7 +546,9 @@ describe("extractChatGPTAccountId", () => {
 	test("reads the ChatGPT account id from access token claims", () => {
 		expect(
 			extractChatGPTAccountId({
-				accessToken: jwt({ "https://api.openai.com/auth.chatgpt_account_id": "acct_123" }),
+				accessToken: jwt({
+					"https://api.openai.com/auth": { chatgpt_account_id: "acct_123" },
+				}),
 			}),
 		).toBe("acct_123");
 	});
@@ -553,7 +557,9 @@ describe("extractChatGPTAccountId", () => {
 		expect(
 			extractChatGPTAccountId({
 				accessToken: jwt({}),
-				idToken: jwt({ "https://api.openai.com/auth.chatgpt_account_id": "acct_id" }),
+				idToken: jwt({
+					"https://api.openai.com/auth": { chatgpt_account_id: "acct_id" },
+				}),
 			}),
 		).toBe("acct_id");
 		expect(extractChatGPTAccountId({ accessToken: jwt({}), storedAccountId: "acct_old" })).toBe(

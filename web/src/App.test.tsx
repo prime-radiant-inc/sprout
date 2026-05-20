@@ -3,6 +3,8 @@ import { parseSlashCommand } from "@shared/slash-commands.ts";
 import {
 	createCommandFromSlashCommand,
 	createSwitchModelCommand,
+	getSettingsProviderFromSearch,
+	shouldOpenSettingsFromSearch,
 } from "./App.tsx";
 
 describe("App session model helpers", () => {
@@ -63,5 +65,19 @@ describe("App session model helpers", () => {
 				},
 			},
 		});
+	});
+});
+
+describe("shouldOpenSettingsFromSearch", () => {
+	test("opens provider settings after an OAuth callback return", () => {
+		expect(shouldOpenSettingsFromSearch("?settings=providers&provider=openai-codex")).toBe(
+			true,
+		);
+		expect(shouldOpenSettingsFromSearch("?token=nonce&settings=providers")).toBe(true);
+		expect(shouldOpenSettingsFromSearch("?token=nonce")).toBe(false);
+		expect(getSettingsProviderFromSearch("?settings=providers&provider=openai-codex")).toBe(
+			"openai-codex",
+		);
+		expect(getSettingsProviderFromSearch("?settings=providers&provider=")).toBeUndefined();
 	});
 });
