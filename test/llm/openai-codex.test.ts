@@ -47,10 +47,77 @@ describe("OpenAICodexAdapter", () => {
 		expect(requests[0]?.headers.get("chatgpt-account-id")).toBe("acct");
 	});
 
+	test("listModels parses model and id fields from Codex models payloads", async () => {
+		const server = startCodexServer(async () =>
+			Response.json({
+				models: [
+					{ model: "gpt-model-field" },
+					{ id: "gpt-id-field" },
+					{
+						slug: "gpt-slug-wins",
+						model: "gpt-model-loses",
+						id: "gpt-id-loses",
+						display_name: "Slug Wins",
+					},
+					{
+						slug: "",
+						model: "gpt-model-fallback",
+						id: "gpt-id-fallback",
+					},
+				],
+			}),
+		);
+		const adapter = createAdapter(server.url.toString(), async () => credentials("access", "acct"));
+
+		const models = await adapter.listModels();
+
+		expect(models).toEqual([
+			{ id: "gpt-model-field", label: "gpt-model-field", source: "remote" },
+			{ id: "gpt-id-field", label: "gpt-id-field", source: "remote" },
+			{ id: "gpt-slug-wins", label: "Slug Wins", source: "remote" },
+			{ id: "gpt-model-fallback", label: "gpt-model-fallback", source: "remote" },
+		]);
+	});
+
+	test("listModels parses OpenAI-style data payloads", async () => {
+		const server = startCodexServer(async () =>
+			Response.json({
+				data: [{ id: "gpt-data-field" }],
+			}),
+		);
+		const adapter = createAdapter(server.url.toString(), async () => credentials("access", "acct"));
+
+		const models = await adapter.listModels();
+
+		expect(models).toEqual([{ id: "gpt-data-field", label: "gpt-data-field", source: "remote" }]);
+	});
+
 	test("listModels rejects malformed model payloads with a clear error", async () => {
 		const server = startCodexServer(async () =>
 			Response.json({
 				models: {},
+			}),
+		);
+		const adapter = createAdapter(server.url.toString(), async () => credentials("access", "acct"));
+
+		await expect(adapter.listModels()).rejects.toThrow(
+			"OpenAI Codex models response was malformed",
+		);
+	});
+
+	test("listModels rejects payloads without a usable model array", async () => {
+		const server = startCodexServer(async () => Response.json({}));
+		const adapter = createAdapter(server.url.toString(), async () => credentials("access", "acct"));
+
+		await expect(adapter.listModels()).rejects.toThrow(
+			"OpenAI Codex models response was malformed",
+		);
+	});
+
+	test("listModels rejects malformed data payloads with a clear error", async () => {
+		const server = startCodexServer(async () =>
+			Response.json({
+				data: {},
 			}),
 		);
 		const adapter = createAdapter(server.url.toString(), async () => credentials("access", "acct"));

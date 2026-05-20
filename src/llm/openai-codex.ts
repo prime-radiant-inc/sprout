@@ -20,7 +20,12 @@ export interface OpenAICodexAdapterOptions {
 interface CodexModelsResponse {
 	models?: Array<{
 		slug?: unknown;
+		model?: unknown;
+		id?: unknown;
 		display_name?: unknown;
+	}>;
+	data?: Array<{
+		id?: unknown;
 	}>;
 }
 
@@ -43,25 +48,18 @@ export class OpenAICodexAdapter implements ProviderAdapter {
 			query: { client_version: CODEX_CLIENT_VERSION },
 			headers: await this.headersFor(credentials),
 		});
-		const models = payload?.models;
-		if (!Array.isArray(models)) {
+		if (
+			(payload?.models !== undefined && !Array.isArray(payload.models)) ||
+			(payload?.data !== undefined && !Array.isArray(payload.data)) ||
+			(payload?.models === undefined && payload?.data === undefined)
+		) {
 			throw new Error("OpenAI Codex models response was malformed");
 		}
 
-		return models.flatMap((model) => {
-			if (!model || typeof model !== "object") return [];
-			if (typeof model.slug !== "string" || !model.slug) return [];
-			return [
-				{
-					id: model.slug,
-					label:
-						typeof model.display_name === "string" && model.display_name
-							? model.display_name
-							: model.slug,
-					source: "remote" as const,
-				},
-			];
-		});
+		return [
+			...(payload.models ?? []).flatMap(parseCodexModel),
+			...(payload.data ?? []).flatMap(parseOpenAIDataModel),
+		];
 	}
 
 	async checkConnection(): Promise<{ ok: true } | { ok: false; message: string }> {
@@ -123,4 +121,33 @@ export class OpenAICodexAdapter implements ProviderAdapter {
 			"ChatGPT-Account-ID": resolved.accountId,
 		};
 	}
+}
+
+function parseCodexModel(model: {
+	slug?: unknown;
+	model?: unknown;
+	id?: unknown;
+	display_name?: unknown;
+}): ProviderModel[] {
+	if (!model || typeof model !== "object") return [];
+	const id = firstNonEmptyString(model.slug, model.model, model.id);
+	if (!id) return [];
+	return [
+		{
+			id,
+			label: typeof model.display_name === "string" && model.display_name ? model.display_name : id,
+			source: "remote",
+		},
+	];
+}
+
+function parseOpenAIDataModel(model: { id?: unknown }): ProviderModel[] {
+	if (!model || typeof model !== "object") return [];
+	const id = firstNonEmptyString(model.id);
+	if (!id) return [];
+	return [{ id, label: id, source: "remote" }];
+}
+
+function firstNonEmptyString(...values: unknown[]): string | undefined {
+	return values.find((value): value is string => typeof value === "string" && value.length > 0);
 }
