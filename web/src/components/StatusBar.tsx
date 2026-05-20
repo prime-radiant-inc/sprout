@@ -5,6 +5,10 @@ import type {
 	SessionSelectionSnapshot,
 	SettingsSnapshot,
 } from "@kernel/types.ts";
+import {
+	formatActiveAgentWork,
+	type ActiveAgentWork,
+} from "@shared/agent-display.ts";
 import { formatSessionSelectionRequest } from "@shared/session-selection.ts";
 import type { SessionStatus } from "../hooks/useEvents.ts";
 import { formatTokens, shortModelName } from "./format.ts";
@@ -23,6 +27,7 @@ export interface StatusBarProps {
 	settings?: SettingsSnapshot | null;
 	connected: boolean;
 	connectionError?: string | null;
+	activeWork?: ActiveAgentWork | null;
 	onInterrupt?: () => void;
 	onSwitchModel?: (selection: SessionModelSelection) => void;
 	onOpenSettings?: () => void;
@@ -229,6 +234,7 @@ export function StatusBar({
 	settings,
 	connected,
 	connectionError,
+	activeWork,
 	onInterrupt,
 	onSwitchModel,
 	onOpenSettings,
@@ -271,6 +277,9 @@ export function StatusBar({
 				<span className={styles.statusLabel} data-status={runStatus}>
 					{runStatus === "running" ? "Running" : runStatus === "interrupted" ? "Interrupted" : "Idle"}
 				</span>
+				{runStatus === "running" && activeWork && (
+					<span className={styles.activeWork}>{formatActiveAgentWork(activeWork)}</span>
+				)}
 				{connectionError && (
 					<span className={styles.connectionError} data-testid="connection-error">
 						{connectionError}

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { SettingsSnapshot } from "@kernel/types.ts";
+import type { ActiveAgentWork } from "@shared/agent-display.ts";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { SessionStatus } from "../../hooks/useEvents.ts";
 import {
@@ -121,6 +122,40 @@ function makeSettings(): SettingsSnapshot {
 }
 
 describe("StatusBar", () => {
+	test("renders active subagent work while running", () => {
+		const activeWork: ActiveAgentWork = {
+			kind: "agent",
+			agent: {
+				agentName: "architect",
+				mnemonicName: "Brunelleschi",
+			},
+		};
+
+		const html = renderToStaticMarkup(
+			<StatusBar
+				status={makeStatus({ status: "running" })}
+				connected={true}
+				activeWork={activeWork}
+			/>,
+		);
+
+		expect(html).toContain("Waiting on Brunelleschi · architect");
+	});
+
+	test("renders memory saving work while running", () => {
+		const activeWork: ActiveAgentWork = { kind: "memory" };
+
+		const html = renderToStaticMarkup(
+			<StatusBar
+				status={makeStatus({ status: "running" })}
+				connected={true}
+				activeWork={activeWork}
+			/>,
+		);
+
+		expect(html).toContain("Saving memory");
+	});
+
 	test("renders inherit selection label when no switchable options exist", () => {
 		const html = renderToStaticMarkup(
 			<StatusBar status={makeStatus()} connected={true} />,

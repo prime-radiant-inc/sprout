@@ -72,6 +72,14 @@
 	color: var(--color-text-tertiary);
 }
 
+.activeWork {
+	min-width: 0;
+	max-width: 240px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	color: var(--color-text-secondary);
+}
+
 .connectionError {
 	color: var(--color-error);
 	max-width: 360px;

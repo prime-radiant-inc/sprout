@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { WEB_HISTORY_PAGE_SIZE } from "@kernel/constants.ts";
 import type { BrowserCommand } from "@kernel/protocol.ts";
 import type { SessionModelSelection } from "@kernel/types.ts";
+import { deriveActiveAgentWork } from "@shared/agent-display.ts";
 import { KeyboardHelp } from "./components/KeyboardHelp.tsx";
 import type { SlashCommand } from "@shared/slash-commands.ts";
 import styles from "./App.module.css";
@@ -335,6 +336,7 @@ export function App() {
 	}, [sendCommand]);
 
 	const isRunning = status.status === "running";
+	const activeWork = deriveActiveAgentWork(events, status.status);
 
 	return (
 		<div className={styles.app} data-region="app">
@@ -343,6 +345,7 @@ export function App() {
 				settings={settings}
 				connected={connected}
 				connectionError={authError}
+				activeWork={activeWork}
 				onInterrupt={handleInterrupt}
 				onSwitchModel={handleSwitchModel}
 				onOpenSettings={handleOpenSettings}
