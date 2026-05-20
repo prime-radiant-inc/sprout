@@ -1,0 +1,129 @@
+import { describe, expect, test } from "bun:test";
+import {
+	exchangeCodeForTokens,
+	refreshTokens,
+	type TokenResponse,
+} from "@/host/openai-codex-oauth/tokens";
+
+function jsonResponse(body: unknown, init?: ResponseInit): Response {
+	return new Response(JSON.stringify(body), {
+		headers: { "content-type": "application/json" },
+		status: 200,
+		...init,
+	});
+}
+
+function fetchWithBodyAssertion(
+	assertBody: (body: URLSearchParams, init: RequestInit) => void,
+	responseBody: unknown,
+): typeof fetch {
+	return ((url: string | URL | Request, init?: RequestInit) => {
+		const requestInit = init ?? {};
+		expect(String(url)).toBe("https://auth.openai.com/oauth/token");
+		expect(requestInit.method).toBe("POST");
+		expect(requestInit.headers).toEqual({
+			"content-type": "application/x-www-form-urlencoded",
+		});
+		expect(requestInit.body).toBeInstanceOf(URLSearchParams);
+		assertBody(requestInit.body as URLSearchParams, requestInit);
+		return Promise.resolve(jsonResponse(responseBody));
+	}) as typeof fetch;
+}
+
+describe("OpenAI Codex OAuth token helpers", () => {
+	test("exchanges an auth code using a form-encoded POST body", async () => {
+		const tokens = await exchangeCodeForTokens({
+			code: "auth-code-secret",
+			codeVerifier: "verifier-secret",
+			redirectUri: "http://localhost:1455/auth/callback",
+			now: () => Date.parse("2026-05-20T10:00:00.000Z"),
+			fetchImpl: fetchWithBodyAssertion(
+				(body) => {
+					expect(body.get("grant_type")).toBe("authorization_code");
+					expect(body.get("client_id")).toBe("app_EMoamEEZ73f0CkXaXp7hrann");
+					expect(body.get("code")).toBe("auth-code-secret");
+					expect(body.get("code_verifier")).toBe("verifier-secret");
+					expect(body.get("redirect_uri")).toBe("http://localhost:1455/auth/callback");
+				},
+				{
+					access_token: "access-token-secret",
+					refresh_token: "refresh-token-secret",
+					id_token: "id-token-secret",
+					expires_in: 3600,
+				},
+			),
+		});
+
+		expect(tokens).toEqual({
+			accessToken: "access-token-secret",
+			refreshToken: "refresh-token-secret",
+			idToken: "id-token-secret",
+			expiresAt: "2026-05-20T11:00:00.000Z",
+		} satisfies TokenResponse);
+	});
+
+	test("refreshes tokens and allows missing rotated refresh token", async () => {
+		const tokens = await refreshTokens({
+			refreshToken: "refresh-token-secret",
+			now: () => Date.parse("2026-05-20T10:00:00.000Z"),
+			fetchImpl: fetchWithBodyAssertion(
+				(body) => {
+					expect(body.get("grant_type")).toBe("refresh_token");
+					expect(body.get("client_id")).toBe("app_EMoamEEZ73f0CkXaXp7hrann");
+					expect(body.get("refresh_token")).toBe("refresh-token-secret");
+				},
+				{
+					access_token: "rotated-access-token-secret",
+					expires_in: 1800,
+				},
+			),
+		});
+
+		expect(tokens).toEqual({
+			accessToken: "rotated-access-token-secret",
+			expiresAt: "2026-05-20T10:30:00.000Z",
+		} satisfies TokenResponse);
+	});
+
+	test("redacts sensitive response details from token endpoint errors", async () => {
+		await expect(
+			exchangeCodeForTokens({
+				code: "auth-code-secret",
+				codeVerifier: "verifier-secret",
+				redirectUri: "http://localhost:1455/auth/callback?code=callback-secret&state=state-secret",
+				fetchImpl: (() =>
+					Promise.resolve(
+						new Response(
+							JSON.stringify({
+								error: "invalid_grant",
+								access_token: "access-token-secret",
+								refreshToken: "refresh-token-secret",
+								redirect_uri:
+									"http://localhost:1455/auth/callback?code=callback-secret&state=state-secret",
+							}),
+							{ status: 400 },
+						),
+					)) as unknown as typeof fetch,
+			}),
+		).rejects.toThrow(
+			'OpenAI Codex OAuth token request failed: {"error":"invalid_grant","access_token":"[redacted]","refreshToken":"[redacted]","redirect_uri":"http://localhost:1455/auth/callback?code=[redacted]&state=[redacted]"}',
+		);
+	});
+
+	test("redacts missing-field payloads", async () => {
+		await expect(
+			exchangeCodeForTokens({
+				code: "auth-code-secret",
+				codeVerifier: "verifier-secret",
+				redirectUri: "http://localhost:1455/auth/callback",
+				fetchImpl: fetchWithBodyAssertion(() => {}, {
+					access_token: "access-token-secret",
+					refreshToken: "refresh-token-secret",
+					expires_in: "3600",
+				}),
+			}),
+		).rejects.toThrow(
+			'OpenAI Codex OAuth token response is missing required fields: {"access_token":"[redacted]","refreshToken":"[redacted]","expires_in":"3600"}',
+		);
+	});
+});
