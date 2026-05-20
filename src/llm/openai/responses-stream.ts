@@ -28,6 +28,7 @@ interface ToolCallAccumulator {
 	sawArgumentDelta: boolean;
 	argumentsDone: boolean;
 	hasArgumentsFromDoneItem: boolean;
+	invalid: boolean;
 	outputDone: boolean;
 	emittedEnd: boolean;
 }
@@ -113,10 +114,9 @@ export async function* streamResponsesEvents({
 					outputIndex: outputIndexValue(event.output_index),
 				});
 				updateToolCallFromItem(call, item);
-				if (
-					stringValue(item.arguments) !== undefined &&
-					isCompleteOutputItemStatus(stringValue(item.status))
-				) {
+				if (isInvalidOutputItemStatus(stringValue(item.status))) {
+					call.invalid = true;
+				} else if (stringValue(item.arguments) !== undefined) {
 					call.hasArgumentsFromDoneItem = true;
 				}
 				call.outputDone = true;
@@ -214,6 +214,7 @@ export async function* streamResponsesEvents({
 				sawArgumentDelta: false,
 				argumentsDone: false,
 				hasArgumentsFromDoneItem: false,
+				invalid: false,
 				outputDone: false,
 				emittedEnd: false,
 			};
@@ -282,6 +283,7 @@ export async function* streamResponsesEvents({
 		target.sawArgumentDelta ||= source.sawArgumentDelta;
 		target.argumentsDone ||= source.argumentsDone;
 		target.hasArgumentsFromDoneItem ||= source.hasArgumentsFromDoneItem;
+		target.invalid ||= source.invalid;
 		target.outputDone ||= source.outputDone;
 		target.emittedEnd ||= source.emittedEnd;
 
@@ -321,11 +323,11 @@ function maybeFinishToolCall(call: ToolCallAccumulator): StreamEvent | undefined
 }
 
 function isCompleteToolCall(call: ToolCallAccumulator): boolean {
-	return call.outputDone && (call.argumentsDone || call.hasArgumentsFromDoneItem);
+	return !call.invalid && call.outputDone && (call.argumentsDone || call.hasArgumentsFromDoneItem);
 }
 
-function isCompleteOutputItemStatus(status: string | undefined): boolean {
-	return status !== "incomplete" && status !== "failed";
+function isInvalidOutputItemStatus(status: string | undefined): boolean {
+	return status === "incomplete" || status === "failed";
 }
 
 function finishToolCall(call: ToolCallAccumulator): StreamEvent {

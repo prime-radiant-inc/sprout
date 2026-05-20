@@ -688,6 +688,12 @@ describe("OpenAIAdapter", () => {
 			};
 			async function* streamResponse() {
 				yield {
+					type: "response.function_call_arguments.done",
+					output_index: 0,
+					item_id: "fc_weather",
+					arguments: '{"location":"San Francisco"}',
+				};
+				yield {
 					type: "response.output_item.done",
 					output_index: 0,
 					item: {
