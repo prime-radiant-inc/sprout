@@ -214,12 +214,17 @@ class MacOsKeychainSecretStore implements SecretStore {
 	}
 
 	async setSecret(ref: ProviderCredentialRef, value: string): Promise<void> {
-		const result = await this.runCommandImpl(
-			"/usr/bin/expect",
-			["-c", buildMacOsKeychainSetScript(ref)],
+		const result = await this.runCommandImpl("security", [
+			"add-generic-password",
+			"-U",
+			"-a",
+			ref.storageKey,
+			"-s",
+			"sprout",
+			"-w",
 			value,
-		);
-		assertCommandSucceeded(result, "/usr/bin/expect");
+		]);
+		assertCommandSucceeded(result, "security");
 	}
 
 	async deleteSecret(ref: ProviderCredentialRef): Promise<void> {
@@ -309,23 +314,6 @@ function assertCommandSucceeded(result: RunCommandResult, cmd: string): void {
 
 function isMacOsKeychainMissingSecret(result: RunCommandResult): boolean {
 	return result.exitCode === 44 || result.stderr.toLowerCase().includes("could not be found");
-}
-
-function buildMacOsKeychainSetScript(ref: ProviderCredentialRef): string {
-	return [
-		"log_user 0",
-		"set secret [read stdin]",
-		`set account {${ref.storageKey}}`,
-		"spawn security add-generic-password -U -a $account -s sprout -w",
-		"expect {",
-		'  -re {password data for new item:} { send -- "$secret\\r"; exp_continue }',
-		'  -re {retype password for new item:} { send -- "$secret\\r"; exp_continue }',
-		"  timeout { exit 1 }",
-		"  eof",
-		"}",
-		"catch wait result",
-		"exit [lindex $result 3]",
-	].join("\n");
 }
 
 function isSecretServiceMissingSecret(result: RunCommandResult): boolean {

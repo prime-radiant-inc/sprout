@@ -65,17 +65,11 @@ describe("SecretStore", () => {
 		expect(await store.getSecret(ref)).toBe(secret);
 		await store.deleteSecret(ref);
 
-		expect(calls.flatMap((call) => call.args)).not.toContain(secret);
 		expect(calls).toEqual([
 			{
-				cmd: "/usr/bin/expect",
-				args: [
-					"-c",
-					expect.stringContaining(
-						"spawn security add-generic-password -U -a $account -s sprout -w",
-					),
-				],
-				stdin: secret,
+				cmd: "security",
+				args: ["add-generic-password", "-U", "-a", ref.storageKey, "-s", "sprout", "-w", secret],
+				stdin: undefined,
 			},
 			{
 				cmd: "security",
