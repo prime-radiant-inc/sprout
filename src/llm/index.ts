@@ -27,6 +27,7 @@ export {
 } from "./embeddings.ts";
 export { GeminiAdapter } from "./gemini.ts";
 export { OpenAIAdapter } from "./openai.ts";
+export { OpenAICodexAdapter } from "./openai-codex.ts";
 export type { RetryOptions } from "./retry.ts";
 export { retryLLMCall } from "./retry.ts";
 export {

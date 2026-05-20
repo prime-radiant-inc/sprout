@@ -15,6 +15,7 @@ import type { ProviderConfig, SproutSettings } from "../shared/provider-settings
 import { AnthropicAdapter } from "./anthropic.ts";
 import { GeminiAdapter } from "./gemini.ts";
 import { OpenAIAdapter } from "./openai.ts";
+import { OpenAICodexAdapter, type OpenAICodexCredentialResolver } from "./openai-codex.ts";
 import type { ProviderAdapter, ProviderModel, Request, Response, StreamEvent } from "./types.ts";
 
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
@@ -25,6 +26,8 @@ export interface ProviderRegistryOptions {
 	secretStore: SecretStore;
 	secretBackend: SecretStorageBackend;
 	secretBackendState?: SecretBackendState;
+	openAICodexCredentialResolver?: OpenAICodexCredentialResolver;
+	openAICodexBaseURL?: string;
 }
 
 export interface ProviderRegistryEntry {
@@ -38,6 +41,8 @@ export class ProviderRegistry {
 	private readonly secretStore: SecretStore;
 	private readonly secretBackend: SecretStorageBackend;
 	private readonly secretBackendState: SecretBackendState;
+	private readonly openAICodexCredentialResolver?: OpenAICodexCredentialResolver;
+	private readonly openAICodexBaseURL?: string;
 	private readonly cache = new Map<string, Promise<ProviderRegistryEntry>>();
 
 	constructor(options: ProviderRegistryOptions) {
@@ -48,6 +53,8 @@ export class ProviderRegistry {
 			backend: options.secretBackend,
 			available: true,
 		};
+		this.openAICodexCredentialResolver = options.openAICodexCredentialResolver;
+		this.openAICodexBaseURL = options.openAICodexBaseURL;
 	}
 
 	async getEntry(providerId: string): Promise<ProviderRegistryEntry | undefined> {
@@ -71,10 +78,15 @@ export class ProviderRegistry {
 			return { provider, validationErrors };
 		}
 
-		const secret = await this.getProviderSecret(provider);
+		const secret =
+			provider.kind === "openai-codex" ? undefined : await this.getProviderSecret(provider);
 		return {
 			provider,
-			adapter: createProviderAdapter(provider, secret),
+			adapter: createProviderAdapter(provider, {
+				secret,
+				openAICodexCredentialResolver: this.openAICodexCredentialResolver,
+				openAICodexBaseURL: this.openAICodexBaseURL,
+			}),
 			validationErrors: [],
 		};
 	}
@@ -84,10 +96,19 @@ export class ProviderRegistry {
 			provider.enabled && providerRequiresSecret(provider) && this.secretBackendState.available
 				? await this.hasRequiredProviderCredentials(provider)
 				: false;
-		return validateProviderRuntimeReadiness(provider, {
+		const result = validateProviderRuntimeReadiness(provider, {
 			hasSecret,
 			secretBackendAvailable: this.secretBackendState.available,
-		}).errors;
+		});
+		if (
+			provider.enabled &&
+			provider.kind === "openai-codex" &&
+			result.errors.length === 0 &&
+			this.openAICodexCredentialResolver === undefined
+		) {
+			result.errors.push("OpenAI Codex OAuth credential resolver is not configured");
+		}
+		return result.errors;
 	}
 
 	private async getProviderSecret(provider: ProviderConfig): Promise<string | undefined> {
@@ -109,35 +130,45 @@ export class ProviderRegistry {
 	}
 }
 
+interface ProviderAdapterOptions {
+	secret: string | undefined;
+	openAICodexCredentialResolver?: OpenAICodexCredentialResolver;
+	openAICodexBaseURL?: string;
+}
+
 function createProviderAdapter(
 	provider: ProviderConfig,
-	secret: string | undefined,
+	options: ProviderAdapterOptions,
 ): ProviderAdapter {
 	switch (provider.kind) {
 		case "anthropic":
-			return new AnthropicAdapter(secret!, {
+			return new AnthropicAdapter(options.secret!, {
 				providerId: provider.id,
 				headers: provider.nonSecretHeaders,
 			});
 		case "openai":
-			return new OpenAIAdapter(secret!, {
+			return new OpenAIAdapter(options.secret!, {
 				providerId: provider.id,
 				kind: "openai",
 				headers: provider.nonSecretHeaders,
 			});
 		case "openai-codex":
-			throw new Error("OpenAI Codex provider runtime is not implemented.");
+			return new OpenAICodexAdapter({
+				providerId: provider.id,
+				baseURL: options.openAICodexBaseURL,
+				resolveCredentials: options.openAICodexCredentialResolver!,
+			});
 		case "openai-compatible":
-			return new OpenAIAdapter(secret ?? "unused-api-key", {
+			return new OpenAIAdapter(options.secret ?? "unused-api-key", {
 				providerId: provider.id,
 				kind: "openai-compatible",
 				baseUrl: provider.baseUrl,
 				headers: provider.nonSecretHeaders,
 			});
 		case "openrouter":
-			return new OpenRouterAdapter(provider, secret!);
+			return new OpenRouterAdapter(provider, options.secret!);
 		case "gemini":
-			return new GeminiAdapter(secret!, {
+			return new GeminiAdapter(options.secret!, {
 				providerId: provider.id,
 			});
 	}

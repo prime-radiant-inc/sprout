@@ -215,6 +215,76 @@ describe("ProviderRegistry", () => {
 		).toBe(false);
 	});
 
+	test("constructs OpenAI Codex adapters with OAuth credentials instead of API key material", async () => {
+		const requests: Array<{ url: string; headers: Headers }> = [];
+		const server = Bun.serve({
+			port: 0,
+			fetch(request) {
+				requests.push({ url: request.url, headers: request.headers });
+				return Response.json({ models: [{ slug: "gpt-5.4" }] });
+			},
+		});
+		const checkedRefs: string[] = [];
+		const secretStore: SecretStore = {
+			async getSecret() {
+				throw new Error("OpenAI Codex must not read API-key secret material");
+			},
+			async setSecret() {
+				throw new Error("test does not write secrets");
+			},
+			async deleteSecret() {
+				throw new Error("test does not delete secrets");
+			},
+			async hasSecret(ref) {
+				checkedRefs.push(`${ref.providerId}:${ref.secretKind}`);
+				return ref.providerId === "codex-dev" && ref.secretKind === "oauth";
+			},
+		};
+		const resolverCalls: string[] = [];
+		const registry = new ProviderRegistry({
+			settings: makeSettings([
+				{
+					id: "codex-dev",
+					kind: "openai-codex",
+					label: "OpenAI Codex",
+					enabled: true,
+					createdAt: "2026-03-11T12:00:00.000Z",
+					updatedAt: "2026-03-11T12:00:00.000Z",
+				},
+			]),
+			secretStore,
+			secretBackend: "memory",
+			openAICodexBaseURL: `${server.url.toString()}backend-api/codex`,
+			openAICodexCredentialResolver: async (providerId) => {
+				resolverCalls.push(providerId);
+				return {
+					accessToken: "resolved-access",
+					accountId: "resolved-account",
+					expiresAt: "2026-05-20T12:00:00.000Z",
+				};
+			},
+		});
+
+		try {
+			const entry = await registry.getEntry("codex-dev");
+			expect(entry?.validationErrors).toEqual([]);
+			expect(entry?.adapter?.name).toBe("openai-codex");
+			expect(entry?.adapter?.kind).toBe("openai-codex");
+			expect(entry?.adapter?.providerId).toBe("codex-dev");
+			expect(checkedRefs).toEqual(["codex-dev:oauth"]);
+
+			expect(await entry?.adapter?.checkConnection()).toEqual({ ok: true });
+
+			expect(resolverCalls).toEqual(["codex-dev"]);
+			expect(requests).toHaveLength(1);
+			expect(new URL(requests[0]!.url).pathname).toBe("/backend-api/codex/models");
+			expect(requests[0]?.headers.get("authorization")).toBe("Bearer resolved-access");
+			expect(requests[0]?.headers.get("chatgpt-account-id")).toBe("resolved-account");
+		} finally {
+			server.stop(true);
+		}
+	});
+
 	test("reports unavailable secret backend distinctly instead of collapsing it into a missing secret", async () => {
 		const runtime = createSecretStoreRuntime({
 			backend: "macos-keychain",
