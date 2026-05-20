@@ -276,7 +276,7 @@ function redactTokenEndpointPlainText(value: string, context: TokenRedactionCont
 	return redactExactSensitiveValues(redactCredentialText(value), context)
 		.replace(callbackUrlPattern(), "[redacted]")
 		.replace(
-			/\b(code|code_verifier|codeVerifier|code-verifier|authorization_code|authorizationCode|authorization-code)(\s*[:=]\s*)[^\s&]+/g,
+			/\b(code|code_verifier|codeVerifier|code-verifier|authorization_code|authorizationCode|authorization-code)(\s*[:=]\s*)[^\s&]+/gi,
 			"$1$2[redacted]",
 		)
 		.replace(jwtPattern(), "[redacted]")
