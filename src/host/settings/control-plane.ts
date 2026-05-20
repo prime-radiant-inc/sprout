@@ -880,9 +880,8 @@ export class SettingsControlPlane {
 	private async providerHasSecret(provider: ProviderConfig): Promise<boolean> {
 		if (!providerRequiresSecret(provider)) return false;
 		if (!this.secretBackendState.available) return false;
-		if (providerSupportsSecretKind(provider.kind, "oauth") && this.oauthOperations?.status) {
-			const status = await this.oauthOperations.status(provider.id);
-			return status.signedIn;
+		if (providerSupportsSecretKind(provider.kind, "oauth")) {
+			return credentialStatusHasSecret(await this.providerOAuthCredentialStatus(provider));
 		}
 		const refs = this.providerCredentialRefs(provider);
 		if (refs.length === 0) return false;
@@ -894,55 +893,58 @@ export class SettingsControlPlane {
 	): Promise<ProviderCredentialStatus> {
 		if (!providerRequiresSecret(provider)) return { kind: "none" };
 		if (providerSupportsSecretKind(provider.kind, "oauth")) {
-			if (!this.secretBackendState.available) {
-				return {
-					kind: "oauth",
-					signedIn: false,
-				};
-			}
-			if (this.oauthOperations?.status) {
-				let status: Awaited<ReturnType<NonNullable<ProviderOAuthOperations["status"]>>>;
-				try {
-					status = await this.oauthOperations.status(provider.id);
-				} catch {
-					return {
-						kind: "oauth",
-						signedIn: false,
-					};
-				}
-				if (!status.signedIn) {
-					return {
-						kind: "oauth",
-						signedIn: false,
-					};
-				}
-				return {
-					kind: "oauth",
-					signedIn: status.signedIn,
-					...("accountId" in status && status.accountId !== undefined
-						? { accountId: status.accountId }
-						: {}),
-					...("email" in status && status.email !== undefined ? { email: status.email } : {}),
-					...("expiresAt" in status && status.expiresAt !== undefined
-						? { expiresAt: status.expiresAt }
-						: {}),
-				};
-			}
-			const oauthRef = this.providerCredentialRefs(provider).find(
-				(ref) => ref.secretKind === "oauth",
-			);
-			return {
-				kind: "oauth",
-				signedIn:
-					this.secretBackendState.available && oauthRef
-						? await this.secretStore.hasSecret(oauthRef)
-						: false,
-			};
+			return this.providerOAuthCredentialStatus(provider);
 		}
 		if (providerSupportsSecretKind(provider.kind, "api-key")) {
 			return { kind: "api-key", present: await this.providerHasSecret(provider) };
 		}
 		return { kind: "none" };
+	}
+
+	private async providerOAuthCredentialStatus(
+		provider: ProviderConfig,
+	): Promise<Extract<ProviderCredentialStatus, { kind: "oauth" }>> {
+		if (!this.secretBackendState.available) {
+			return {
+				kind: "oauth",
+				signedIn: false,
+			};
+		}
+		if (this.oauthOperations?.status) {
+			let status: Awaited<ReturnType<NonNullable<ProviderOAuthOperations["status"]>>>;
+			try {
+				status = await this.oauthOperations.status(provider.id);
+			} catch {
+				return {
+					kind: "oauth",
+					signedIn: false,
+				};
+			}
+			if (!status.signedIn) {
+				return {
+					kind: "oauth",
+					signedIn: false,
+				};
+			}
+			return {
+				kind: "oauth",
+				signedIn: status.signedIn,
+				...("accountId" in status && status.accountId !== undefined
+					? { accountId: status.accountId }
+					: {}),
+				...("email" in status && status.email !== undefined ? { email: status.email } : {}),
+				...("expiresAt" in status && status.expiresAt !== undefined
+					? { expiresAt: status.expiresAt }
+					: {}),
+			};
+		}
+		const oauthRef = this.providerCredentialRefs(provider).find(
+			(ref) => ref.secretKind === "oauth",
+		);
+		return {
+			kind: "oauth",
+			signedIn: oauthRef ? await this.secretStore.hasSecret(oauthRef) : false,
+		};
 	}
 
 	private async getProviderSecret(provider: ProviderConfig): Promise<string | undefined> {
