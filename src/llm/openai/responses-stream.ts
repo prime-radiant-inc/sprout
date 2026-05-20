@@ -113,7 +113,10 @@ export async function* streamResponsesEvents({
 					outputIndex: outputIndexValue(event.output_index),
 				});
 				updateToolCallFromItem(call, item);
-				if (stringValue(item.arguments) !== undefined) {
+				if (
+					stringValue(item.arguments) !== undefined &&
+					isCompleteOutputItemStatus(stringValue(item.status))
+				) {
 					call.hasArgumentsFromDoneItem = true;
 				}
 				call.outputDone = true;
@@ -319,6 +322,10 @@ function maybeFinishToolCall(call: ToolCallAccumulator): StreamEvent | undefined
 
 function isCompleteToolCall(call: ToolCallAccumulator): boolean {
 	return call.outputDone && (call.argumentsDone || call.hasArgumentsFromDoneItem);
+}
+
+function isCompleteOutputItemStatus(status: string | undefined): boolean {
+	return status !== "incomplete" && status !== "failed";
 }
 
 function finishToolCall(call: ToolCallAccumulator): StreamEvent {

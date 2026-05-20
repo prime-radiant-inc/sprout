@@ -655,6 +655,152 @@ describe("OpenAIAdapter", () => {
 		}
 	});
 
+	test("responses stream does not finish function call done items with incomplete or failed status", async () => {
+		const cases = [
+			{
+				itemStatus: "incomplete",
+				eventType: "response.incomplete",
+				terminalStatus: "incomplete",
+				expectedReason: "length",
+				inputTokens: 41,
+				outputTokens: 8,
+			},
+			{
+				itemStatus: "failed",
+				eventType: "response.failed",
+				terminalStatus: "failed",
+				expectedReason: "error",
+				inputTokens: 23,
+				outputTokens: 4,
+			},
+		] as const;
+
+		for (const streamCase of cases) {
+			const rawResponse = {
+				id: `resp-done-item-${streamCase.terminalStatus}`,
+				model: "gpt-4.1-mini",
+				status: streamCase.terminalStatus,
+				output: [],
+				usage: {
+					input_tokens: streamCase.inputTokens,
+					output_tokens: streamCase.outputTokens,
+				},
+			};
+			async function* streamResponse() {
+				yield {
+					type: "response.output_item.done",
+					output_index: 0,
+					item: {
+						type: "function_call",
+						id: "fc_weather",
+						call_id: "call_weather",
+						name: "get_weather",
+						status: streamCase.itemStatus,
+						arguments: '{"location":',
+					},
+				};
+				yield { type: streamCase.eventType, response: rawResponse };
+			}
+			const adapter = new OpenAIAdapter("test-key");
+			(adapter as any).client.responses.create = async () => streamResponse();
+
+			const events = [];
+			for await (const event of adapter.stream({
+				model: "gpt-4.1-mini",
+				messages: [{ role: "user", content: [{ kind: ContentKind.TEXT, text: "weather" }] }],
+				tools: [
+					{
+						name: "get_weather",
+						description: "Get weather",
+						parameters: { type: "object", properties: {} },
+					},
+				],
+				tool_choice: "required",
+			})) {
+				events.push(event);
+			}
+
+			expect(events.some((event) => event.type === "tool_call_end")).toBe(false);
+			const finish = events.find((event) => event.type === "finish");
+			expect(finish?.finish_reason?.reason).toBe(streamCase.expectedReason);
+			expect(finish?.finish_reason?.raw).toBe(streamCase.terminalStatus);
+			expect(finish?.usage?.input_tokens).toBe(streamCase.inputTokens);
+			expect(finish?.usage?.output_tokens).toBe(streamCase.outputTokens);
+			expect(finish?.response ? messageToolCalls(finish.response.message) : []).toEqual([]);
+		}
+	});
+
+	test("responses stream treats completed function call done item arguments as complete", async () => {
+		const rawResponse = {
+			id: "resp-completed-done-item",
+			model: "gpt-4.1-mini",
+			status: "completed",
+			output: [
+				{
+					type: "function_call",
+					id: "fc_weather",
+					call_id: "call_weather",
+					name: "get_weather",
+					arguments: '{"location":"San Francisco"}',
+				},
+			],
+			usage: {
+				input_tokens: 12,
+				output_tokens: 6,
+			},
+		};
+		async function* streamResponse() {
+			yield {
+				type: "response.output_item.done",
+				output_index: 0,
+				item: {
+					type: "function_call",
+					id: "fc_weather",
+					call_id: "call_weather",
+					name: "get_weather",
+					status: "completed",
+					arguments: '{"location":"San Francisco"}',
+				},
+			};
+			yield { type: "response.completed", response: rawResponse };
+		}
+		const adapter = new OpenAIAdapter("test-key");
+		(adapter as any).client.responses.create = async () => streamResponse();
+
+		const events = [];
+		for await (const event of adapter.stream({
+			model: "gpt-4.1-mini",
+			messages: [{ role: "user", content: [{ kind: ContentKind.TEXT, text: "weather" }] }],
+			tools: [
+				{
+					name: "get_weather",
+					description: "Get weather",
+					parameters: { type: "object", properties: {} },
+				},
+			],
+			tool_choice: "required",
+		})) {
+			events.push(event);
+		}
+
+		const toolCallEnds = events.filter((event) => event.type === "tool_call_end");
+		expect(toolCallEnds).toHaveLength(1);
+		expect(toolCallEnds[0]?.tool_call).toEqual({
+			id: "call_weather",
+			name: "get_weather",
+			arguments: { location: "San Francisco" },
+		});
+		const finish = events.find((event) => event.type === "finish");
+		expect(finish?.finish_reason?.reason).toBe("tool_calls");
+		expect(finish?.response ? messageToolCalls(finish.response.message) : []).toEqual([
+			{
+				id: "call_weather",
+				name: "get_weather",
+				arguments: { location: "San Francisco" },
+			},
+		]);
+	});
+
 	test("complete returns a text response", async () => {
 		const vcr = vcrFor("complete-returns-a-text-response", realAdapter);
 		const req: Request = {
