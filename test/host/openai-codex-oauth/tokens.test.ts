@@ -105,6 +105,7 @@ describe("OpenAI Codex OAuth token helpers", () => {
 									"http://localhost:1455/auth/callback?code=callback-secret&state=state-secret",
 								redirectUri: "http://localhost:1457/auth/callback",
 								detail: "backend access-token-secret refresh-token-secret",
+								echo: "echo auth-code-secret and verifier-secret",
 							}),
 							{ status: 400 },
 						),
@@ -124,6 +125,7 @@ describe("OpenAI Codex OAuth token helpers", () => {
 		expect(message).toContain('"redirectUri":"[redacted]"');
 		expect(message).not.toContain("access-token-secret");
 		expect(message).not.toContain("refresh-token-secret");
+		expect(message).not.toContain("auth-code-secret");
 		expect(message).not.toContain("verifier-secret");
 		expect(message).not.toContain("camel-verifier-secret");
 		expect(message).not.toContain("http://localhost:1455/auth/callback");
@@ -184,7 +186,7 @@ describe("OpenAI Codex OAuth token helpers", () => {
 				fetchImpl: (() =>
 					Promise.reject(
 						new Error(
-							"failed code=plain-code-secret code: colon-code-secret code_verifier=plain-verifier-secret code_verifier: colon-verifier-secret codeVerifier: camel-colon-verifier-secret access-token-secret refresh-token-secret http://localhost:1455/auth/callback",
+							"failed auth-code-secret verifier-secret code=plain-code-secret code: colon-code-secret code_verifier=plain-verifier-secret code_verifier: colon-verifier-secret codeVerifier: camel-colon-verifier-secret access-token-secret refresh-token-secret http://localhost:1455/auth/callback",
 						),
 					)) as unknown as typeof fetch,
 			});
@@ -195,6 +197,8 @@ describe("OpenAI Codex OAuth token helpers", () => {
 		expect(error).toBeInstanceOf(Error);
 		const message = (error as Error).message;
 		expect(message).toContain("[redacted]");
+		expect(message).not.toContain("auth-code-secret");
+		expect(message).not.toContain("verifier-secret");
 		expect(message).not.toContain("plain-code-secret");
 		expect(message).not.toContain("colon-code-secret");
 		expect(message).not.toContain("plain-verifier-secret");
@@ -203,6 +207,32 @@ describe("OpenAI Codex OAuth token helpers", () => {
 		expect(message).not.toContain("access-token-secret");
 		expect(message).not.toContain("refresh-token-secret");
 		expect(message).not.toContain("http://localhost:1455/auth/callback");
+	});
+
+	test("redacts refresh request secrets echoed under arbitrary JSON keys", async () => {
+		let error: unknown;
+		try {
+			await refreshTokens({
+				refreshToken: "refresh-request-secret",
+				fetchImpl: (() =>
+					Promise.resolve(
+						new Response(
+							JSON.stringify({
+								error: "invalid_grant",
+								detail: "echo refresh-request-secret",
+							}),
+							{ status: 400 },
+						),
+					)) as unknown as typeof fetch,
+			});
+		} catch (caughtError) {
+			error = caughtError;
+		}
+
+		expect(error).toBeInstanceOf(Error);
+		const message = (error as Error).message;
+		expect(message).toContain("[redacted]");
+		expect(message).not.toContain("refresh-request-secret");
 	});
 
 	test("redacts missing-field payloads", async () => {
