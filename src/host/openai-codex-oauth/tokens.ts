@@ -20,6 +20,9 @@ export async function exchangeCodeForTokens(input: {
 	fetchImpl?: typeof fetch;
 	now?: () => number;
 }): Promise<TokenResponse> {
+	validateRequiredInput(input.code, "OpenAI Codex OAuth code");
+	validateRequiredInput(input.codeVerifier, "OpenAI Codex OAuth code verifier");
+	validateSupportedRedirectUri(input.redirectUri);
 	const redactionContext = createTokenRedactionContext([
 		input.code,
 		input.codeVerifier,
@@ -48,6 +51,7 @@ export async function refreshTokens(input: {
 	fetchImpl?: typeof fetch;
 	now?: () => number;
 }): Promise<TokenResponse> {
+	validateRequiredInput(input.refreshToken, "OpenAI Codex OAuth refresh token");
 	const redactionContext = createTokenRedactionContext([input.refreshToken]);
 	const payload = await postTokenRequest({
 		body: new URLSearchParams({
@@ -173,6 +177,21 @@ function createTokenRedactionContext(values: readonly string[]): TokenRedactionC
 	};
 }
 
+function validateRequiredInput(value: string, label: string): void {
+	if (value.trim() === "") {
+		throw new Error(`${label} is required`);
+	}
+}
+
+function validateSupportedRedirectUri(value: string): void {
+	if (
+		value !== OPENAI_CODEX_OAUTH.primaryRedirectUri &&
+		value !== OPENAI_CODEX_OAUTH.fallbackRedirectUri
+	) {
+		throw new Error("OpenAI Codex OAuth redirect URI is not supported");
+	}
+}
+
 function redactTokenEndpointText(value: string, context: TokenRedactionContext): string {
 	try {
 		const payload = JSON.parse(value);
@@ -225,6 +244,7 @@ function redactTokenEndpointPlainText(value: string, context: TokenRedactionCont
 	return redactExactSensitiveValues(redactCredentialText(value), context)
 		.replace(callbackUrlPattern(), "[redacted]")
 		.replace(/\b(code|code_verifier|codeVerifier)(\s*[:=]\s*)[^\s&]+/g, "$1$2[redacted]")
+		.replace(jwtPattern(), "[redacted]")
 		.replace(/\b(access|refresh|id)[-_]?token[-_][A-Za-z0-9._-]+\b/gi, "[redacted]");
 }
 
@@ -238,6 +258,10 @@ function redactExactSensitiveValues(value: string, context: TokenRedactionContex
 
 function callbackUrlPattern(): RegExp {
 	return /http:\/\/localhost:145[57]\/auth\/callback(?:\?[^\s]*)?/g;
+}
+
+function jwtPattern(): RegExp {
+	return /\b[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g;
 }
 
 function isCallbackUrl(value: string): boolean {

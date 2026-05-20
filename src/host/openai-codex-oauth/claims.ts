@@ -61,5 +61,9 @@ function base64UrlDecode(value: string): Uint8Array {
 
 function getStringClaim(claims: Record<string, unknown>, name: string): string | undefined {
 	const value = claims[name];
-	return typeof value === "string" && value.trim() !== "" ? value : undefined;
+	if (typeof value !== "string") {
+		return undefined;
+	}
+	const trimmed = value.trim();
+	return trimmed !== "" ? trimmed : undefined;
 }

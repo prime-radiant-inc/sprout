@@ -30,6 +30,10 @@ function fetchWithBodyAssertion(
 	}) as typeof fetch;
 }
 
+const fetchMustNotBeCalled = (() => {
+	throw new Error("fetch should not be called");
+}) as unknown as typeof fetch;
+
 describe("OpenAI Codex OAuth token helpers", () => {
 	test("exchanges an auth code using a form-encoded POST body", async () => {
 		const tokens = await exchangeCodeForTokens({
@@ -91,7 +95,7 @@ describe("OpenAI Codex OAuth token helpers", () => {
 			await exchangeCodeForTokens({
 				code: "auth-code-secret",
 				codeVerifier: "verifier-secret",
-				redirectUri: "http://localhost:1455/auth/callback?code=callback-secret&state=state-secret",
+				redirectUri: "http://localhost:1455/auth/callback",
 				fetchImpl: (() =>
 					Promise.resolve(
 						new Response(
@@ -106,6 +110,7 @@ describe("OpenAI Codex OAuth token helpers", () => {
 								redirectUri: "http://localhost:1457/auth/callback",
 								detail: "backend access-token-secret refresh-token-secret",
 								echo: "echo auth-code-secret and verifier-secret",
+								jwtDetail: "backend aaa.bbb.ccc",
 							}),
 							{ status: 400 },
 						),
@@ -128,6 +133,7 @@ describe("OpenAI Codex OAuth token helpers", () => {
 		expect(message).not.toContain("auth-code-secret");
 		expect(message).not.toContain("verifier-secret");
 		expect(message).not.toContain("camel-verifier-secret");
+		expect(message).not.toContain("aaa.bbb.ccc");
 		expect(message).not.toContain("http://localhost:1455/auth/callback");
 		expect(message).not.toContain("http://localhost:1457/auth/callback");
 	});
@@ -151,6 +157,7 @@ describe("OpenAI Codex OAuth token helpers", () => {
 								"codeVerifier: camel-colon-verifier-secret",
 								"access-token-secret",
 								"refresh-token-secret",
+								"aaa.bbb.ccc",
 								"http://localhost:1455/auth/callback?code=callback-secret",
 								"http://localhost:1457/auth/callback",
 							].join(" "),
@@ -172,8 +179,42 @@ describe("OpenAI Codex OAuth token helpers", () => {
 		expect(message).not.toContain("camel-colon-verifier-secret");
 		expect(message).not.toContain("access-token-secret");
 		expect(message).not.toContain("refresh-token-secret");
+		expect(message).not.toContain("aaa.bbb.ccc");
 		expect(message).not.toContain("http://localhost:1455/auth/callback");
 		expect(message).not.toContain("http://localhost:1457/auth/callback");
+	});
+
+	test("rejects malformed token request inputs before fetch", async () => {
+		await expect(
+			exchangeCodeForTokens({
+				code: "",
+				codeVerifier: "verifier-secret",
+				redirectUri: "http://localhost:1455/auth/callback",
+				fetchImpl: fetchMustNotBeCalled,
+			}),
+		).rejects.toThrow("OpenAI Codex OAuth code is required");
+		await expect(
+			exchangeCodeForTokens({
+				code: "auth-code-secret",
+				codeVerifier: "  ",
+				redirectUri: "http://localhost:1455/auth/callback",
+				fetchImpl: fetchMustNotBeCalled,
+			}),
+		).rejects.toThrow("OpenAI Codex OAuth code verifier is required");
+		await expect(
+			exchangeCodeForTokens({
+				code: "auth-code-secret",
+				codeVerifier: "verifier-secret",
+				redirectUri: "https://example.com/auth/callback",
+				fetchImpl: fetchMustNotBeCalled,
+			}),
+		).rejects.toThrow("OpenAI Codex OAuth redirect URI is not supported");
+		await expect(
+			refreshTokens({
+				refreshToken: "",
+				fetchImpl: fetchMustNotBeCalled,
+			}),
+		).rejects.toThrow("OpenAI Codex OAuth refresh token is required");
 	});
 
 	test("redacts fetch errors with form-body-like secrets", async () => {

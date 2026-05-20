@@ -16,6 +16,13 @@ describe("extractChatGPTAccountId", () => {
 				accessToken: jwt({ "https://api.openai.com/auth.chatgpt_account_id": "acct_123" }),
 			}),
 		).toBe("acct_123");
+		expect(
+			extractChatGPTAccountId({
+				accessToken: jwt({
+					"https://api.openai.com/auth.chatgpt_account_id": "  acct_trimmed_claim  ",
+				}),
+			}),
+		).toBe("acct_trimmed_claim");
 	});
 
 	test("falls back to id token and stored account id", () => {
@@ -49,5 +56,10 @@ describe("extractChatGPTAccountId", () => {
 		expect(() => extractChatGPTAccountId({ accessToken: jwt({}) })).toThrow(
 			"OpenAI OAuth token claims did not include a ChatGPT account id",
 		);
+		expect(() =>
+			extractChatGPTAccountId({
+				accessToken: jwt({ "https://api.openai.com/auth.chatgpt_account_id": "   " }),
+			}),
+		).toThrow("OpenAI OAuth token claims did not include a ChatGPT account id");
 	});
 });
