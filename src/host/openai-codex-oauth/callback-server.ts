@@ -86,20 +86,42 @@ export function parseManualPasteback(input: {
 	return { ok: true, code: value };
 }
 
-export function listenForCallback(options: {
+type CallbackListenerBaseOptions = {
 	expectedState: string;
+	timeoutMs?: number;
+};
+
+type CallbackListenerOptions = CallbackListenerBaseOptions & {
+	allowUnregisteredRedirectUriForTests?: never;
+	hostname?: never;
+	ports?: never;
+};
+
+type CallbackListenerTestOptions = CallbackListenerBaseOptions & {
+	allowUnregisteredRedirectUriForTests: true;
 	hostname?: "localhost" | "127.0.0.1";
 	ports?: readonly number[];
-	timeoutMs?: number;
-	allowUnregisteredRedirectUriForTests?: true;
-}): CallbackListener {
-	const hostname = options.hostname ?? DEFAULT_CALLBACK_HOST;
-	const ports = options.ports ?? DEFAULT_CALLBACK_PORTS;
+};
+
+export function listenForCallback(options: CallbackListenerOptions): CallbackListener;
+export function listenForCallback(options: CallbackListenerTestOptions): CallbackListener;
+export function listenForCallback(
+	options: CallbackListenerOptions | CallbackListenerTestOptions,
+): CallbackListener {
+	const hostname =
+		options.allowUnregisteredRedirectUriForTests === true
+			? (options.hostname ?? DEFAULT_CALLBACK_HOST)
+			: DEFAULT_CALLBACK_HOST;
+	const ports =
+		options.allowUnregisteredRedirectUriForTests === true
+			? (options.ports ?? DEFAULT_CALLBACK_PORTS)
+			: DEFAULT_CALLBACK_PORTS;
 	const timeoutMs = options.timeoutMs ?? 5 * 60 * 1000;
 	validateListenerRedirectTargets({
 		hostname,
 		ports,
 		allowUnregisteredRedirectUriForTests: options.allowUnregisteredRedirectUriForTests,
+		hasCustomBindingOptions: options.hostname !== undefined || options.ports !== undefined,
 	});
 
 	let finish!: (result: CallbackValidationResult) => void;
@@ -206,16 +228,25 @@ function validateListenerRedirectTargets(input: {
 	hostname: "localhost" | "127.0.0.1";
 	ports: readonly number[];
 	allowUnregisteredRedirectUriForTests?: true;
+	hasCustomBindingOptions: boolean;
 }): void {
 	if (input.allowUnregisteredRedirectUriForTests === true) {
 		return;
 	}
 	if (
+		input.hasCustomBindingOptions ||
 		input.hostname !== DEFAULT_CALLBACK_HOST ||
 		input.ports.some((port) => !isRegisteredPort(port))
 	) {
 		throw new Error("OpenAI Codex OAuth callback listener must use registered redirect URIs");
 	}
+}
+
+export function getCallbackRedirectUriForPort(port: number): string {
+	return buildRedirectUri({
+		hostname: DEFAULT_CALLBACK_HOST,
+		port,
+	});
 }
 
 function buildRedirectUri(input: {

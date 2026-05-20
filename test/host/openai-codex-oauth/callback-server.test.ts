@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
 	type CallbackValidationResult,
+	getCallbackRedirectUriForPort,
 	listenForCallback,
 	parseManualPasteback,
 	validateCallbackRequest,
@@ -89,14 +90,27 @@ describe("OpenAI Codex OAuth manual pasteback parsing", () => {
 	});
 });
 
+describe("OpenAI Codex OAuth callback redirect mapping", () => {
+	test("maps only registered localhost ports to production redirect URIs", () => {
+		expect(getCallbackRedirectUriForPort(1455)).toBe(OPENAI_CODEX_OAUTH.primaryRedirectUri);
+		expect(getCallbackRedirectUriForPort(1457)).toBe(OPENAI_CODEX_OAUTH.fallbackRedirectUri);
+		expect(() => getCallbackRedirectUriForPort(0)).toThrow(
+			"OpenAI Codex OAuth callback listener must use registered redirect URIs",
+		);
+		expect(() => getCallbackRedirectUriForPort(9999)).toThrow(
+			"OpenAI Codex OAuth callback listener must use registered redirect URIs",
+		);
+	});
+});
+
 describe("OpenAI Codex OAuth callback listener", () => {
-	test("rejects unregistered listener redirects unless explicitly allowed for tests", () => {
+	test("rejects custom listener bindings unless explicitly allowed for tests", () => {
 		expect(() =>
 			listenForCallback({
 				expectedState: "state-123",
 				ports: [0],
 				timeoutMs: 1_000,
-			}),
+			} as unknown as Parameters<typeof listenForCallback>[0]),
 		).toThrow("OpenAI Codex OAuth callback listener must use registered redirect URIs");
 		expect(() =>
 			listenForCallback({
@@ -104,14 +118,21 @@ describe("OpenAI Codex OAuth callback listener", () => {
 				hostname: "127.0.0.1",
 				ports: [1455],
 				timeoutMs: 1_000,
-			}),
+			} as unknown as Parameters<typeof listenForCallback>[0]),
+		).toThrow("OpenAI Codex OAuth callback listener must use registered redirect URIs");
+		expect(() =>
+			listenForCallback({
+				expectedState: "state-123",
+				ports: [1457],
+				timeoutMs: 1_000,
+			} as unknown as Parameters<typeof listenForCallback>[0]),
 		).toThrow("OpenAI Codex OAuth callback listener must use registered redirect URIs");
 		expect(() =>
 			listenForCallback({
 				expectedState: "state-123",
 				ports: [9999],
 				timeoutMs: 1_000,
-			}),
+			} as unknown as Parameters<typeof listenForCallback>[0]),
 		).toThrow("OpenAI Codex OAuth callback listener must use registered redirect URIs");
 	});
 
@@ -157,17 +178,6 @@ describe("OpenAI Codex OAuth callback listener", () => {
 			ok: true,
 			code: "first-code",
 		} satisfies CallbackValidationResult);
-	});
-
-	test("returns the registered fallback redirect URI when bound to the fallback port", () => {
-		const listener = listenForCallback({
-			expectedState: "state-123",
-			ports: [1457],
-			timeoutMs: 1_000,
-		});
-		activeListeners.push(listener);
-
-		expect(listener.redirectUri).toBe(OPENAI_CODEX_OAUTH.fallbackRedirectUri);
 	});
 
 	test("uses explicit test-only escape hatch for unregistered fallback ports", () => {
