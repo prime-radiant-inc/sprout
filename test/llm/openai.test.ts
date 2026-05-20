@@ -519,6 +519,65 @@ describe("OpenAIAdapter", () => {
 		});
 	});
 
+	test("responses stream uses incomplete and failed terminal responses for finish state", async () => {
+		const cases = [
+			{
+				eventType: "response.incomplete",
+				status: "incomplete",
+				expectedReason: "length",
+				inputTokens: 21,
+				outputTokens: 5,
+			},
+			{
+				eventType: "response.failed",
+				status: "failed",
+				expectedReason: "error",
+				inputTokens: 13,
+				outputTokens: 2,
+			},
+		] as const;
+
+		for (const streamCase of cases) {
+			const rawResponse = {
+				id: `resp-${streamCase.status}`,
+				model: "gpt-4.1-mini",
+				status: streamCase.status,
+				output: [
+					{
+						type: "message",
+						content: [{ type: "output_text", text: streamCase.status }],
+					},
+				],
+				usage: {
+					input_tokens: streamCase.inputTokens,
+					output_tokens: streamCase.outputTokens,
+				},
+			};
+			async function* streamResponse() {
+				yield { type: "response.output_text.delta", delta: streamCase.status };
+				yield { type: "response.output_item.done", item: { type: "message" } };
+				yield { type: streamCase.eventType, response: rawResponse };
+			}
+			const adapter = new OpenAIAdapter("test-key");
+			(adapter as any).client.responses.create = async () => streamResponse();
+
+			const events = [];
+			for await (const event of adapter.stream({
+				model: "gpt-4.1-mini",
+				messages: [{ role: "user", content: [{ kind: ContentKind.TEXT, text: "status" }] }],
+			})) {
+				events.push(event);
+			}
+
+			const finish = events.find((event) => event.type === "finish");
+			expect(finish?.finish_reason?.reason).toBe(streamCase.expectedReason);
+			expect(finish?.finish_reason?.raw).toBe(streamCase.status);
+			expect(finish?.usage?.input_tokens).toBe(streamCase.inputTokens);
+			expect(finish?.usage?.output_tokens).toBe(streamCase.outputTokens);
+			expect(finish?.usage?.total_tokens).toBe(streamCase.inputTokens + streamCase.outputTokens);
+		}
+	});
+
 	test("complete returns a text response", async () => {
 		const vcr = vcrFor("complete-returns-a-text-response", realAdapter);
 		const req: Request = {

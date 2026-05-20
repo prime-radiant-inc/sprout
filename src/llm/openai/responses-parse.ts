@@ -91,7 +91,7 @@ export function mapOpenAIFinishReason(status: string): FinishReason {
 	}
 }
 
-export function safeParseJSON(value: unknown): Record<string, unknown> {
+export function safeParseJSON(value: unknown): any {
 	if (typeof value !== "string") {
 		return { raw: value };
 	}

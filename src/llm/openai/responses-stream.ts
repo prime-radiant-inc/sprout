@@ -116,7 +116,11 @@ export async function* streamResponsesEvents({
 				const doneEvent = maybeFinishToolCall(call);
 				if (doneEvent) yield doneEvent;
 			}
-		} else if (event.type === "response.completed") {
+		} else if (
+			event.type === "response.completed" ||
+			event.type === "response.incomplete" ||
+			event.type === "response.failed"
+		) {
 			completedResponse = event.response as OpenAI.Responses.Response | undefined;
 			usage = parseResponsesUsage(completedResponse?.usage);
 		}
