@@ -224,6 +224,58 @@ describe("deriveActiveAgentWork", () => {
 		expect(work).toBeNull();
 	});
 
+	test("clears a pending agent command when failure act_end has only the tool call id", () => {
+		const work = deriveActiveAgentWork(
+			[
+				event("session_start", { goal: "audit" }, { timestamp: 1 }),
+				event(
+					"plan_end",
+					{
+						assistant_message: {
+							role: "assistant",
+							content: [
+								{
+									kind: "tool_call",
+									tool_call: {
+										id: "call-unknown",
+										name: "message_agent",
+										arguments: { handle: "missing", message: "continue" },
+									},
+								},
+							],
+						},
+					},
+					{ timestamp: 2 },
+				),
+				event(
+					"act_end",
+					{
+						agent_name: "message_agent",
+						success: false,
+						tool_result_message: {
+							role: "tool",
+							tool_call_id: "call-unknown",
+							content: [
+								{
+									kind: "tool_result",
+									tool_result: {
+										tool_call_id: "call-unknown",
+										content: "unknown handle",
+										is_error: true,
+									},
+								},
+							],
+						},
+					},
+					{ timestamp: 3 },
+				),
+			],
+			"running",
+		);
+
+		expect(work).toBeNull();
+	});
+
 	test("reports memory saving after root session_end when controller status is still running", () => {
 		const work = deriveActiveAgentWork(
 			[

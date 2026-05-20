@@ -33,10 +33,11 @@ export function formatActiveAgentWork(work: ActiveAgentWork): string {
 interface ActiveChildRecord extends AgentDisplayRef {
 	startedAt: number;
 	depth: number;
+	commandCallId?: string;
 }
 
 export function deriveActiveAgentWork(
-	events: SessionEvent[],
+	events: readonly SessionEvent[],
 	runStatus: "idle" | "running" | "interrupted",
 ): ActiveAgentWork | null {
 	if (runStatus !== "running") return null;
@@ -86,6 +87,10 @@ export function deriveActiveAgentWork(
 			}
 			if (ref.agentName === "wait_agent" || ref.agentName === "message_agent") {
 				removePendingCommandForChild(pendingCommands, ref.childId);
+				removePendingCommandForToolCall(
+					pendingCommands,
+					toolCallIdFromResultMessage(event.data.tool_result_message),
+				);
 			}
 		}
 
@@ -99,6 +104,7 @@ export function deriveActiveAgentWork(
 					startedAt: event.timestamp,
 					depth: event.depth + 1,
 					childId: childKey,
+					commandCallId: call.id,
 				});
 			}
 		}
@@ -159,6 +165,16 @@ function removePendingCommandForChild(
 	}
 }
 
+function removePendingCommandForToolCall(
+	pendingCommands: Map<string, ActiveChildRecord>,
+	toolCallId: string | undefined,
+): void {
+	if (!toolCallId) return;
+	for (const [key, value] of pendingCommands) {
+		if (value.commandCallId === toolCallId) pendingCommands.delete(key);
+	}
+}
+
 function extractAgentCommandToolCalls(value: unknown): Array<{
 	id: string;
 	name: "wait_agent" | "message_agent";
@@ -194,6 +210,22 @@ function extractAgentCommandToolCalls(value: unknown): Array<{
 		});
 	}
 	return calls;
+}
+
+function toolCallIdFromResultMessage(value: unknown): string | undefined {
+	if (!value || typeof value !== "object") return undefined;
+	const directId = cleanString((value as { tool_call_id?: unknown }).tool_call_id);
+	if (directId) return directId;
+
+	const content = (value as { content?: unknown }).content;
+	if (!Array.isArray(content)) return undefined;
+	for (const part of content) {
+		if (!part || typeof part !== "object") continue;
+		const toolResult = (part as { tool_result?: { tool_call_id?: unknown } }).tool_result;
+		const nestedId = cleanString(toolResult?.tool_call_id);
+		if (nestedId) return nestedId;
+	}
+	return undefined;
 }
 
 function safeParseArgs(value: string): Record<string, unknown> | undefined {
