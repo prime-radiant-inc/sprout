@@ -1,6 +1,12 @@
 export const SETTINGS_SCHEMA_VERSION = 4;
 
-export type ProviderKind = "anthropic" | "openai" | "openai-compatible" | "openrouter" | "gemini";
+export type ProviderKind =
+	| "anthropic"
+	| "openai"
+	| "openai-codex"
+	| "openai-compatible"
+	| "openrouter"
+	| "gemini";
 
 export type Tier = "best" | "balanced" | "fast";
 export type MemoryModelPurpose =
@@ -39,6 +45,7 @@ export interface ProviderConfig {
 	kind: ProviderKind;
 	label: string;
 	enabled: boolean;
+	disabledReason?: "user" | "credential-cleanup-failed";
 	baseUrl?: string;
 	nonSecretHeaders?: Record<string, string>;
 	createdAt: string;

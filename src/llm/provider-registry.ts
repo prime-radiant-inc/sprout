@@ -112,6 +112,8 @@ function createProviderAdapter(
 				kind: "openai",
 				headers: provider.nonSecretHeaders,
 			});
+		case "openai-codex":
+			throw new Error("OpenAI Codex provider runtime is not implemented.");
 		case "openai-compatible":
 			return new OpenAIAdapter(secret ?? "unused-api-key", {
 				providerId: provider.id,

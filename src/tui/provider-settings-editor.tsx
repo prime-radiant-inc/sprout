@@ -9,6 +9,7 @@ import type {
 const PROVIDER_KINDS = new Set([
 	"anthropic",
 	"openai",
+	"openai-codex",
 	"openai-compatible",
 	"openrouter",
 	"gemini",
