@@ -121,6 +121,25 @@ export function applyProviderEditorCommand(
 			return providerCommand(draft, providerId, "delete_provider", {
 				providerId: providerId ?? "",
 			});
+		case "login":
+		case "sign-in-again":
+			if (!supportsOAuth(draft.kind)) {
+				return { draft, error: unsupportedOAuthMessage(draft.kind) };
+			}
+			return providerCommand(draft, providerId, "login_provider_oauth", {
+				providerId: providerId ?? "",
+			});
+		case "logout":
+			if (!supportsOAuth(draft.kind)) {
+				return { draft, error: unsupportedOAuthMessage(draft.kind) };
+			}
+			return providerCommand(draft, providerId, "logout_provider_oauth", {
+				providerId: providerId ?? "",
+			});
+		case "retry-delete":
+			return providerCommand(draft, providerId, "retry_provider_delete", {
+				providerId: providerId ?? "",
+			});
 		case "secret":
 			if (!supportsGenericSecret(draft.kind)) {
 				return { draft, error: unsupportedGenericSecretMessage(draft.kind) };
@@ -209,11 +228,19 @@ function supportsGenericSecret(kind: ProviderConfig["kind"]): boolean {
 	return providerSupportsSecretKind(kind, "api-key");
 }
 
+function supportsOAuth(kind: ProviderConfig["kind"]): boolean {
+	return providerSupportsSecretKind(kind, "oauth");
+}
+
 function unsupportedGenericSecretMessage(kind: ProviderConfig["kind"]): string {
 	if (kind === "openai-codex") {
 		return "OpenAI Codex uses ChatGPT OAuth. Generic provider secret commands are not supported.";
 	}
 	return `Provider kind '${kind}' does not support generic provider secret commands.`;
+}
+
+function unsupportedOAuthMessage(kind: ProviderConfig["kind"]): string {
+	return `Provider kind '${kind}' does not support OAuth provider commands.`;
 }
 
 function normalizeHeaders(headers: HeaderDraft[]): Record<string, string> | undefined {
@@ -270,6 +297,18 @@ function parseIndexedArgument(argument: string): { index: number; value: string 
 	return { index, value };
 }
 
+function isCleanupFailedProvider(provider?: ProviderConfig): boolean {
+	return provider?.enabled === false && provider.disabledReason === "credential-cleanup-failed";
+}
+
+function describeOAuthStatus(status?: SettingsSnapshot["providers"][number]): string | undefined {
+	const credentialStatus = status?.credentialStatus;
+	if (credentialStatus?.kind !== "oauth") return undefined;
+	if (!credentialStatus.signedIn) return "Not signed in";
+	const identity = credentialStatus.email ?? credentialStatus.accountId;
+	return identity ? `Signed in as ${identity}` : "Signed in";
+}
+
 export function ProviderSettingsEditor({
 	mode,
 	draft,
@@ -279,6 +318,9 @@ export function ProviderSettingsEditor({
 	lastResult,
 }: ProviderSettingsEditorProps) {
 	const fieldErrors = lastResult && !lastResult.ok ? lastResult.fieldErrors : undefined;
+	const oauthStatus = describeOAuthStatus(status);
+	const isOAuthProvider = supportsOAuth(draft.kind);
+	const isCleanupFailed = isCleanupFailedProvider(provider);
 
 	return (
 		<Box flexDirection="column" gap={1}>
@@ -304,6 +346,7 @@ export function ProviderSettingsEditor({
 			{mode === "edit" && (
 				<Box flexDirection="column">
 					<Text bold>Health</Text>
+					{oauthStatus && <Text>{oauthStatus}</Text>}
 					{status?.validationErrors.map((error) => (
 						<Text key={error} color="red">
 							{error}
@@ -357,14 +400,30 @@ export function ProviderSettingsEditor({
 				<Text color="gray">Save provider: save</Text>
 				{supportsNonSecretHeaders(draft.kind) && <Text color="gray">Add header: add-header</Text>}
 				{mode === "edit" && (
-					<Text color="gray">
-						{supportsGenericSecret(draft.kind)
-							? "Enable/disable · test · refresh · secret <token> · remove-secret · delete"
-							: "Enable/disable · test · refresh · delete"}
-					</Text>
+					<>
+						<Text color="gray">
+							{supportsGenericSecret(draft.kind)
+								? "Enable/disable · test · refresh · secret <token> · remove-secret · delete"
+								: "Enable/disable · test · refresh · delete"}
+						</Text>
+						{isOAuthProvider &&
+							(isCleanupFailed ? (
+								<>
+									<Text color="gray">Retry delete: retry-delete</Text>
+									<Text color="gray">Sign in again: sign-in-again</Text>
+								</>
+							) : status?.credentialStatus.kind === "oauth" && status.credentialStatus.signedIn ? (
+								<Text color="gray">Logout: logout</Text>
+							) : (
+								<Text color="gray">Login with ChatGPT: login</Text>
+							))}
+					</>
 				)}
 				<Text color="gray">Shortcuts</Text>
-				<Text color="gray">label &lt;text&gt; · kind &lt;kind&gt; · base-url &lt;url&gt;</Text>
+				<Text color="gray">
+					label &lt;text&gt; · kind &lt;kind&gt;
+					{supportsBaseUrl(draft.kind) ? " · base-url <url>" : ""}
+				</Text>
 				{supportsNonSecretHeaders(draft.kind) && (
 					<Text color="gray">
 						header-key &lt;n&gt; &lt;key&gt; · header-value &lt;n&gt; &lt;value&gt; · remove-header

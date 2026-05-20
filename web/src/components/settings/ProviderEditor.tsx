@@ -60,6 +60,10 @@ function supportsGenericSecret(kind: ProviderKind): boolean {
 	return providerSupportsSecretKind(kind, "api-key");
 }
 
+function supportsOAuth(kind: ProviderKind): boolean {
+	return providerSupportsSecretKind(kind, "oauth");
+}
+
 function createProviderDraft(provider?: ProviderConfig): ProviderDraft {
 	return {
 		kind: provider?.kind ?? "anthropic",
@@ -175,6 +179,27 @@ export function createDeleteProviderCommand(providerId: string): SettingsCommand
 	};
 }
 
+export function createLoginProviderOAuthCommand(providerId: string): SettingsCommand {
+	return {
+		kind: "login_provider_oauth",
+		data: { providerId },
+	};
+}
+
+export function createLogoutProviderOAuthCommand(providerId: string): SettingsCommand {
+	return {
+		kind: "logout_provider_oauth",
+		data: { providerId },
+	};
+}
+
+export function createRetryProviderDeleteCommand(providerId: string): SettingsCommand {
+	return {
+		kind: "retry_provider_delete",
+		data: { providerId },
+	};
+}
+
 export function describePendingProviderAction(
 	command: SettingsCommand,
 ): { providerId: string; message: string } | undefined {
@@ -192,6 +217,17 @@ export function describePendingProviderAction(
 		default:
 			return undefined;
 	}
+}
+
+function isCleanupFailedProvider(provider: ProviderConfig): boolean {
+	return provider.enabled === false && provider.disabledReason === "credential-cleanup-failed";
+}
+
+function describeOAuthStatus(status?: SettingsSnapshot["providers"][number]): string {
+	const credentialStatus = status?.credentialStatus;
+	if (credentialStatus?.kind !== "oauth" || !credentialStatus.signedIn) return "Not signed in";
+	const identity = credentialStatus.email ?? credentialStatus.accountId;
+	return identity ? `Signed in as ${identity}` : "Signed in";
 }
 
 export function ProviderEditor({
@@ -473,6 +509,58 @@ export function ProviderEditor({
 								onClick={() => onCommand(createDeleteProviderSecretCommand(provider.id))}
 							>
 								Remove secret
+							</button>
+						)}
+					</div>
+				</div>
+			)}
+
+			{mode === "edit" && provider && supportsOAuth(provider.kind) && (
+				<div className={styles.section}>
+					<h3 className={styles.sectionTitle}>ChatGPT account</h3>
+					<p className={styles.sectionText}>{describeOAuthStatus(status)}</p>
+					<div className={styles.actions}>
+						{isCleanupFailedProvider(provider) ? (
+							<>
+								<button
+									type="button"
+									className={styles.dangerButton}
+									data-action="retry-provider-delete"
+									data-provider-id={provider.id}
+									onClick={() => onCommand(createRetryProviderDeleteCommand(provider.id))}
+								>
+									Retry delete
+								</button>
+								<button
+									type="button"
+									className={styles.secondaryButton}
+									data-action="login-provider-oauth"
+									data-provider-id={provider.id}
+									onClick={() => onCommand(createLoginProviderOAuthCommand(provider.id))}
+								>
+									Sign in again
+								</button>
+							</>
+						) : status?.credentialStatus.kind === "oauth" &&
+							status.credentialStatus.signedIn ? (
+							<button
+								type="button"
+								className={styles.secondaryButton}
+								data-action="logout-provider-oauth"
+								data-provider-id={provider.id}
+								onClick={() => onCommand(createLogoutProviderOAuthCommand(provider.id))}
+							>
+								Logout
+							</button>
+						) : (
+							<button
+								type="button"
+								className={styles.secondaryButton}
+								data-action="login-provider-oauth"
+								data-provider-id={provider.id}
+								onClick={() => onCommand(createLoginProviderOAuthCommand(provider.id))}
+							>
+								Login with ChatGPT
 							</button>
 						)}
 					</div>

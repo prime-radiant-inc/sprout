@@ -13,11 +13,14 @@ import {
 import {
 	createDeleteProviderCommand,
 	createDeleteProviderSecretCommand,
+	createLoginProviderOAuthCommand,
 	createProviderSaveCommand,
 	createRefreshProviderModelsCommand,
+	createRetryProviderDeleteCommand,
 	createSetProviderSecretCommand,
 	createTestProviderConnectionCommand,
 	createToggleProviderEnabledCommand,
+	createLogoutProviderOAuthCommand,
 	describePendingProviderAction,
 	ProviderEditor,
 	validateProviderDraftForSave,
@@ -310,8 +313,102 @@ describe("ProviderSettingsPanel", () => {
 		);
 
 		expect(html).not.toContain("API key or token");
+		expect(html).not.toContain("Base URL");
 		expect(html).not.toContain('data-action="save-secret"');
 		expect(html).not.toContain('data-action="remove-secret"');
+	});
+
+	test("renders OpenAI Codex OAuth status and actions", () => {
+		const signedOutHtml = renderToStaticMarkup(
+			<ProviderEditor
+				mode="edit"
+				provider={{
+					id: "openai-codex",
+					kind: "openai-codex",
+					label: "OpenAI Codex",
+					enabled: true,
+					createdAt: "2026-03-11T00:00:00.000Z",
+					updatedAt: "2026-03-11T00:00:00.000Z",
+				}}
+				status={{
+					providerId: "openai-codex",
+					hasSecret: false,
+					credentialStatus: { kind: "oauth", signedIn: false },
+					validationErrors: [],
+					connectionStatus: "unknown",
+					catalogStatus: "never-loaded",
+				}}
+				onCommand={() => {}}
+			/>,
+		);
+
+		expect(signedOutHtml).toContain("ChatGPT account");
+		expect(signedOutHtml).toContain("Not signed in");
+		expect(signedOutHtml).toContain("Login with ChatGPT");
+		expect(signedOutHtml).toContain('data-action="login-provider-oauth"');
+
+		const signedInHtml = renderToStaticMarkup(
+			<ProviderEditor
+				mode="edit"
+				provider={{
+					id: "openai-codex",
+					kind: "openai-codex",
+					label: "OpenAI Codex",
+					enabled: true,
+					createdAt: "2026-03-11T00:00:00.000Z",
+					updatedAt: "2026-03-11T00:00:00.000Z",
+				}}
+				status={{
+					providerId: "openai-codex",
+					hasSecret: true,
+					credentialStatus: {
+						kind: "oauth",
+						signedIn: true,
+						email: "jesse@example.com",
+					},
+					validationErrors: [],
+					connectionStatus: "ok",
+					catalogStatus: "current",
+				}}
+				onCommand={() => {}}
+			/>,
+		);
+
+		expect(signedInHtml).toContain("Signed in as jesse@example.com");
+		expect(signedInHtml).toContain("Logout");
+		expect(signedInHtml).toContain('data-action="logout-provider-oauth"');
+		expect(signedInHtml).not.toContain("API key");
+	});
+
+	test("renders cleanup-failed OpenAI Codex recovery actions", () => {
+		const html = renderToStaticMarkup(
+			<ProviderEditor
+				mode="edit"
+				provider={{
+					id: "openai-codex",
+					kind: "openai-codex",
+					label: "OpenAI Codex",
+					enabled: false,
+					disabledReason: "credential-cleanup-failed",
+					createdAt: "2026-03-11T00:00:00.000Z",
+					updatedAt: "2026-03-11T00:00:00.000Z",
+				}}
+				status={{
+					providerId: "openai-codex",
+					hasSecret: false,
+					credentialStatus: { kind: "oauth", signedIn: false },
+					validationErrors: [],
+					connectionStatus: "unknown",
+					catalogStatus: "never-loaded",
+				}}
+				onCommand={() => {}}
+			/>,
+		);
+
+		expect(html).toContain("Retry delete");
+		expect(html).toContain("Sign in again");
+		expect(html).toContain('data-action="retry-provider-delete"');
+		expect(html).toContain('data-action="login-provider-oauth"');
 	});
 });
 
@@ -625,6 +722,24 @@ describe("ProviderEditor helpers", () => {
 			kind: "delete_provider",
 			data: {
 				providerId: "lmstudio",
+			},
+		} satisfies SettingsCommand);
+		expect(createLoginProviderOAuthCommand("openai-codex")).toEqual({
+			kind: "login_provider_oauth",
+			data: {
+				providerId: "openai-codex",
+			},
+		} satisfies SettingsCommand);
+		expect(createLogoutProviderOAuthCommand("openai-codex")).toEqual({
+			kind: "logout_provider_oauth",
+			data: {
+				providerId: "openai-codex",
+			},
+		} satisfies SettingsCommand);
+		expect(createRetryProviderDeleteCommand("openai-codex")).toEqual({
+			kind: "retry_provider_delete",
+			data: {
+				providerId: "openai-codex",
 			},
 		} satisfies SettingsCommand);
 	});
