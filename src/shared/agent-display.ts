@@ -152,7 +152,7 @@ function refFromEventData(data: Record<string, unknown>): AgentDisplayRef {
 }
 
 function latestByDepthAndStart(records: ActiveChildRecord[]): ActiveChildRecord | null {
-	return records.toSorted((a, b) => b.depth - a.depth || b.startedAt - a.startedAt)[0] ?? null;
+	return [...records].sort((a, b) => b.depth - a.depth || b.startedAt - a.startedAt)[0] ?? null;
 }
 
 function removePendingCommandForChild(
