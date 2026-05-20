@@ -24,6 +24,7 @@ class TestSecretStore implements SecretStore {
 	constructor(
 		private readonly options: {
 			deleteSecret?: () => Promise<void>;
+			hasSecret?: (ref: ReturnType<typeof createProviderCredentialRef>) => Promise<boolean>;
 			getSecretAfterRead?: (
 				ref: ReturnType<typeof createProviderCredentialRef>,
 				value: string | undefined,
@@ -57,8 +58,16 @@ class TestSecretStore implements SecretStore {
 	}
 
 	async hasSecret(ref: ReturnType<typeof createProviderCredentialRef>): Promise<boolean> {
+		if (this.options.hasSecret !== undefined) {
+			return this.options.hasSecret(ref);
+		}
 		return this.secrets.has(ref.storageKey);
 	}
+}
+
+interface LifecycleDiagnostic {
+	active: boolean;
+	waiters: number;
 }
 
 interface ServiceTestContext {
@@ -536,6 +545,72 @@ describe("OpenAICodexOAuthService", () => {
 		expect(await readStoredOAuth(secretStore)).toBeDefined();
 	});
 
+	test("delete treats missing secret after delete failure as success", async () => {
+		const secretStore = new TestSecretStore({
+			deleteSecret: async () => {
+				throw new Error("missing secret");
+			},
+			hasSecret: async () => false,
+		});
+		const { service } = makeOAuthService({ secretStore });
+		await writeStoredOAuth(secretStore, validOAuthRecord());
+
+		await expect(service.deleteCredentials(PROVIDER_ID)).resolves.toEqual({
+			ok: true,
+			failedRefs: [],
+		});
+	});
+
+	test("delete reports failed oauth ref when delete fails and secret remains", async () => {
+		const secretStore = new TestSecretStore({
+			deleteSecret: async () => {
+				throw new Error("backend");
+			},
+			hasSecret: async () => true,
+		});
+		const { service } = makeOAuthService({ secretStore });
+		await writeStoredOAuth(secretStore, validOAuthRecord());
+
+		await expect(service.deleteCredentials(PROVIDER_ID)).resolves.toEqual({
+			ok: false,
+			failedRefs: ["oauth"],
+		});
+	});
+
+	test("timed out lifecycle waiters are removed without bypassing active operation", async () => {
+		const getSecretReturned = deferred();
+		let blockedGetSecret = false;
+		const secretStore = new TestSecretStore({
+			getSecretAfterRead: async () => {
+				if (blockedGetSecret) {
+					return;
+				}
+				blockedGetSecret = true;
+				getSecretReturned.resolve();
+				await new Promise<void>(() => {});
+			},
+		});
+		const { service } = makeOAuthService({
+			secretStore,
+			lifecycleTimeoutMs: 2,
+		});
+		await writeStoredOAuth(secretStore, expiredOAuthRecord("old-refresh"));
+
+		void service.resolveCredentials(PROVIDER_ID).catch(() => undefined);
+		await getSecretReturned.promise;
+		for (let index = 0; index < 3; index += 1) {
+			await expect(service.logout(PROVIDER_ID)).rejects.toThrow("credential operation timed out");
+		}
+
+		const diagnostic = (
+			service as unknown as {
+				getLifecycleDiagnosticForTest(providerId: string): LifecycleDiagnostic | undefined;
+			}
+		).getLifecycleDiagnosticForTest(PROVIDER_ID);
+		expect(diagnostic).toEqual({ active: true, waiters: 0 });
+		expect(await readStoredOAuth(secretStore)).toBeDefined();
+	});
+
 	test("stuck refresh wait times out without deleting credentials", async () => {
 		const { secretStore, service } = makeOAuthService({
 			refreshTokens: async () => new Promise<TokenResponse>(() => {}),
@@ -570,5 +645,10 @@ describe("OpenAICodexOAuthService", () => {
 			refreshToken: "refresh-token",
 			expiresAt: "2026-05-20T12:10:00.000Z",
 		});
+
+		await writeStoredOAuth(secretStore, validOAuthRecord({ version: 2 }));
+
+		await expect(service.resolveCredentials(PROVIDER_ID)).rejects.toThrow("sign in again");
+		expect(await readStoredOAuth(secretStore)).toMatchObject({ version: 2 });
 	});
 });

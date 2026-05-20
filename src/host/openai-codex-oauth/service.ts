@@ -50,8 +50,16 @@ interface OpenAICodexOAuthServiceOptions {
 
 interface RefreshState {
 	promise: Promise<OpenAICodexRuntimeCredentials>;
-	waiters: number;
-	settled: boolean;
+}
+
+interface LifecycleState {
+	active: boolean;
+	waiters: LifecycleWaiter[];
+}
+
+interface LifecycleWaiter {
+	canceled: boolean;
+	resolve: (release: () => void) => void;
 }
 
 export class OpenAICodexOAuthService {
@@ -64,7 +72,7 @@ export class OpenAICodexOAuthService {
 	private readonly lifecycleTimeoutMs: number;
 	private readonly resolves = new Map<string, Promise<OpenAICodexRuntimeCredentials>>();
 	private readonly refreshes = new Map<string, RefreshState>();
-	private readonly lifecycleTails = new Map<string, Promise<void>>();
+	private readonly lifecycles = new Map<string, LifecycleState>();
 
 	constructor(options: OpenAICodexOAuthServiceOptions) {
 		this.secretStore = options.secretStore;
@@ -94,12 +102,6 @@ export class OpenAICodexOAuthService {
 
 	private async resolveCredentialsOnce(providerId: string): Promise<OpenAICodexRuntimeCredentials> {
 		const { credentials, refreshState } = await this.withLifecycle(providerId, async () => {
-			const existing = this.refreshes.get(providerId);
-			if (existing !== undefined) {
-				existing.waiters += 1;
-				return { credentials: existing.promise, refreshState: existing };
-			}
-
 			const stored = await this.readStoredRecord(providerId);
 			if (!this.shouldRefresh(stored)) {
 				return { credentials: toRuntimeCredentials(stored) };
@@ -108,8 +110,6 @@ export class OpenAICodexOAuthService {
 			const refresh = this.refreshStoredCredentials(providerId, stored);
 			const refreshState: RefreshState = {
 				promise: refresh,
-				waiters: 1,
-				settled: false,
 			};
 			this.refreshes.set(providerId, refreshState);
 			this.markRefreshSettled(providerId, refreshState);
@@ -119,7 +119,7 @@ export class OpenAICodexOAuthService {
 			return await credentials;
 		} finally {
 			if (refreshState !== undefined) {
-				this.releaseRefreshWaiter(providerId, refreshState);
+				this.clearRefreshIfSettled(providerId, refreshState);
 			}
 		}
 	}
@@ -151,10 +151,18 @@ export class OpenAICodexOAuthService {
 	async deleteCredentials(providerId: string): Promise<CredentialDeleteResult> {
 		return this.withLifecycle(providerId, async () => {
 			await this.waitForRefresh(providerId);
+			const ref = this.oauthRef(providerId);
 			try {
-				await this.secretStore.deleteSecret(this.oauthRef(providerId));
+				await this.secretStore.deleteSecret(ref);
 				return { ok: true, failedRefs: [] };
 			} catch {
+				try {
+					if (!(await this.secretStore.hasSecret(ref))) {
+						return { ok: true, failedRefs: [] };
+					}
+				} catch {
+					return { ok: false, failedRefs: ["oauth"] };
+				}
 				return { ok: false, failedRefs: ["oauth"] };
 			}
 		});
@@ -217,60 +225,102 @@ export class OpenAICodexOAuthService {
 	private markRefreshSettled(providerId: string, refreshState: RefreshState): void {
 		void refreshState.promise.then(
 			() => {
-				refreshState.settled = true;
-				this.clearRefreshIfUnused(providerId, refreshState);
+				this.clearRefreshIfSettled(providerId, refreshState);
 			},
 			() => {
-				refreshState.settled = true;
-				this.clearRefreshIfUnused(providerId, refreshState);
+				this.clearRefreshIfSettled(providerId, refreshState);
 			},
 		);
 	}
 
-	private releaseRefreshWaiter(providerId: string, refreshState: RefreshState): void {
-		refreshState.waiters -= 1;
-		this.clearRefreshIfUnused(providerId, refreshState);
-	}
-
-	private clearRefreshIfUnused(providerId: string, refreshState: RefreshState): void {
-		if (!refreshState.settled || refreshState.waiters > 0) {
-			return;
-		}
+	private clearRefreshIfSettled(providerId: string, refreshState: RefreshState): void {
 		queueMicrotask(() => {
-			if (
-				refreshState.settled &&
-				refreshState.waiters === 0 &&
-				this.refreshes.get(providerId) === refreshState
-			) {
+			if (this.refreshes.get(providerId) === refreshState) {
 				this.refreshes.delete(providerId);
 			}
 		});
 	}
 
 	private async withLifecycle<T>(providerId: string, operation: () => Promise<T>): Promise<T> {
-		const previousTail = this.lifecycleTails.get(providerId) ?? Promise.resolve();
-		const previousSettled = previousTail.then(
-			() => undefined,
-			() => undefined,
-		);
-		let releaseCurrent: (() => void) | undefined;
-		const currentDone = new Promise<void>((resolve) => {
-			releaseCurrent = resolve;
-		});
-		const currentTail = previousSettled.then(() => currentDone);
-		this.lifecycleTails.set(providerId, currentTail);
+		const release = await this.acquireLifecycle(providerId);
 
 		try {
-			await withTimeout(previousSettled, this.lifecycleTimeoutMs);
 			return await operation();
 		} finally {
-			releaseCurrent?.();
-			void currentTail.then(() => {
-				if (this.lifecycleTails.get(providerId) === currentTail) {
-					this.lifecycleTails.delete(providerId);
-				}
-			});
+			release();
 		}
+	}
+
+	private acquireLifecycle(providerId: string): Promise<() => void> {
+		const state = this.lifecycles.get(providerId) ?? {
+			active: false,
+			waiters: [],
+		};
+		this.lifecycles.set(providerId, state);
+
+		let timeoutId: ReturnType<typeof setTimeout> | undefined;
+		let waiter: LifecycleWaiter;
+		const acquire = new Promise<() => void>((resolve, reject) => {
+			waiter = {
+				canceled: false,
+				resolve: (release) => {
+					if (timeoutId !== undefined) {
+						clearTimeout(timeoutId);
+					}
+					resolve(release);
+				},
+			};
+			timeoutId = setTimeout(() => {
+				waiter.canceled = true;
+				removeLifecycleWaiter(state, waiter);
+				this.cleanupLifecycle(providerId, state);
+				reject(new Error(OPERATION_TIMED_OUT_ERROR));
+			}, this.lifecycleTimeoutMs);
+			state.waiters.push(waiter);
+		});
+
+		this.drainLifecycle(providerId, state);
+		return acquire;
+	}
+
+	private drainLifecycle(providerId: string, state: LifecycleState): void {
+		if (state.active) {
+			return;
+		}
+
+		let waiter = state.waiters.shift();
+		while (waiter?.canceled) {
+			waiter = state.waiters.shift();
+		}
+		if (waiter === undefined) {
+			this.cleanupLifecycle(providerId, state);
+			return;
+		}
+
+		state.active = true;
+		waiter.resolve(() => {
+			state.active = false;
+			this.drainLifecycle(providerId, state);
+		});
+	}
+
+	private cleanupLifecycle(providerId: string, state: LifecycleState): void {
+		if (!state.active && state.waiters.length === 0 && this.lifecycles.get(providerId) === state) {
+			this.lifecycles.delete(providerId);
+		}
+	}
+
+	getLifecycleDiagnosticForTest(
+		providerId: string,
+	): { active: boolean; waiters: number } | undefined {
+		const state = this.lifecycles.get(providerId);
+		if (state === undefined) {
+			return undefined;
+		}
+		return {
+			active: state.active,
+			waiters: state.waiters.length,
+		};
 	}
 
 	private oauthRef(providerId: string) {
@@ -294,6 +344,9 @@ function parseStoredRecord(value: string): OpenAICodexOAuthRecord {
 	}
 
 	const record = parsed as Record<string, unknown>;
+	if (record.version !== undefined) {
+		throw new Error(SIGN_IN_AGAIN_ERROR);
+	}
 	const accessToken = requiredString(record.accessToken);
 	const refreshToken = requiredString(record.refreshToken);
 	const expiresAt = requiredString(record.expiresAt);
@@ -392,6 +445,13 @@ function optionalString(value: unknown): string | undefined {
 function parseDateMs(value: string): number | undefined {
 	const parsed = Date.parse(value);
 	return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function removeLifecycleWaiter(state: LifecycleState, waiter: LifecycleWaiter): void {
+	const index = state.waiters.indexOf(waiter);
+	if (index !== -1) {
+		state.waiters.splice(index, 1);
+	}
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
