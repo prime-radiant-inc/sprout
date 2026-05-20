@@ -1,8 +1,10 @@
 import { Box, Text } from "ink";
 import type { SessionSelectionSnapshot, SettingsSnapshot } from "../kernel/types.ts";
+import { type ActiveAgentWork, formatActiveAgentWork } from "../shared/agent-display.ts";
 import { useWindowSize } from "./use-window-size.ts";
 
 export interface StatusBarProps {
+	activeWork?: ActiveAgentWork | null;
 	contextTokens: number;
 	contextWindowSize: number;
 	turns: number;
@@ -82,6 +84,7 @@ function selectionProvider(
 
 export function StatusBar(props: StatusBarProps) {
 	const {
+		activeWork,
 		contextTokens,
 		contextWindowSize,
 		turns,
@@ -109,6 +112,9 @@ export function StatusBar(props: StatusBarProps) {
 	let left = `${ctxInfo} │ ${turnLabel}`;
 	if (status === "running") {
 		left += ` │ ↑${formatTokens(inputTokens)} ↓${formatTokens(outputTokens)}`;
+	}
+	if (activeWork) {
+		left += ` │ ${formatActiveAgentWork(activeWork)}`;
 	}
 	const right = `${formatSelectionLabel(selection, model, settings)} │ ${sessionId}`;
 	const gap = Math.max(1, cols - left.length - right.length);

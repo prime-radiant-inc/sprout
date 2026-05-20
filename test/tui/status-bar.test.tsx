@@ -147,6 +147,38 @@ describe("StatusBar", () => {
 		expect(frame).toContain("1.2k");
 	});
 
+	test("renders active subagent work when running", () => {
+		const { lastFrame } = render(
+			<StatusBar
+				{...makeProps({
+					status: "running",
+					activeWork: {
+						kind: "agent",
+						agent: {
+							agentName: "architect",
+							mnemonicName: "Brunelleschi",
+						},
+					},
+				})}
+			/>,
+		);
+
+		expect(lastFrame()).toContain("Waiting on Brunelleschi · architect");
+	});
+
+	test("renders saving memory when post-run work is active", () => {
+		const { lastFrame } = render(
+			<StatusBar
+				{...makeProps({
+					status: "running",
+					activeWork: { kind: "memory" },
+				})}
+			/>,
+		);
+
+		expect(lastFrame()).toContain("Saving memory");
+	});
+
 	test("hides token usage when idle", () => {
 		const { lastFrame } = render(
 			<StatusBar

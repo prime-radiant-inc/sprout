@@ -13,6 +13,7 @@ import type {
 	SettingsCommandResult,
 	SettingsSnapshot,
 } from "../kernel/types.ts";
+import { deriveActiveAgentWork } from "../shared/agent-display.ts";
 import { formatSessionSelectionRequest } from "../shared/session-selection.ts";
 import { ConversationView } from "./conversation-view.tsx";
 import { InputArea } from "./input-area.tsx";
@@ -61,6 +62,8 @@ const INITIAL_STATUS: StatusState = {
 	status: "idle",
 };
 
+const STATUS_EVENT_HISTORY_LIMIT = 500;
+
 function selectionSnapshotFromRequest(
 	selection: Parameters<typeof defaultResolveSessionSelectionRequest>[0],
 	settings: SettingsSnapshot | null,
@@ -88,6 +91,9 @@ export function App({
 	initialEvents,
 }: AppProps) {
 	const [statusState, setStatusState] = useState<StatusState>(INITIAL_STATUS);
+	const [statusEvents, setStatusEvents] = useState<SessionEvent[]>(
+		() => initialEvents?.slice(-STATUS_EVENT_HISTORY_LIMIT) ?? [],
+	);
 	const [selectionSnapshot, setSelectionSnapshot] = useState<SessionSelectionSnapshot>(
 		initialSelection ?? createDefaultSessionSelectionSnapshot(),
 	);
@@ -99,6 +105,7 @@ export function App({
 	const [exitHintVisible, setExitHintVisible] = useState(false);
 	const [toolsCollapsed, setToolsCollapsed] = useState(false);
 	const settingsLoad = useRef<Promise<SettingsCommandResult> | null>(null);
+	const activeWork = deriveActiveAgentWork(statusEvents, statusState.status);
 
 	const loadSettings = useCallback(async (): Promise<SettingsCommandResult | null> => {
 		if (!settingsControlPlane) return null;
@@ -128,6 +135,14 @@ export function App({
 
 	useEffect(() => {
 		return bus.onEvent((event: SessionEvent) => {
+			setStatusEvents((prev) => {
+				if (event.kind === "session_clear") return [event];
+				const next = [...prev, event];
+				return next.length > STATUS_EVENT_HISTORY_LIMIT
+					? next.slice(-STATUS_EVENT_HISTORY_LIMIT)
+					: next;
+			});
+
 			switch (event.kind) {
 				case "session_start":
 					setStatusState((prev) => ({
@@ -244,6 +259,7 @@ export function App({
 				settings={settingsSnapshot}
 				sessionId={currentSessionId}
 				status={statusState.status}
+				activeWork={activeWork}
 			/>
 			{exitHintVisible && <Text color="yellow">Press Ctrl+C again to exit</Text>}
 			{showSettings ? (

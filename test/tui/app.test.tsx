@@ -185,6 +185,23 @@ describe("App", () => {
 		expect(frame).not.toContain("\u2191");
 	});
 
+	test("shows the active child agent in the status bar", async () => {
+		const { bus, lastFrame } = setup();
+
+		bus.emitEvent("session_start", "root", 0, { goal: "audit" });
+		bus.emitEvent("act_start", "root", 0, {
+			agent_name: "architect",
+			goal: "audit design",
+			handle_id: "H1",
+			child_id: "C1",
+			mnemonic_name: "Brunelleschi",
+		});
+
+		await flush();
+
+		expect(lastFrame()).toContain("Waiting on Brunelleschi · architect");
+	});
+
 	test("renders InputArea with prompt", () => {
 		const { lastFrame } = setup();
 		const frame = lastFrame();
