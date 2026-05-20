@@ -52,6 +52,18 @@ export interface WebServerOptions {
 
 type SessionStatus = "idle" | "running" | "interrupted";
 
+function cleanString(value: unknown): string | undefined {
+	return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function sessionLifecycleApplies(
+	event: SessionEvent,
+	currentSessionId: string | undefined,
+): boolean {
+	const eventSessionId = cleanString(event.data.session_id);
+	return !eventSessionId || !currentSessionId || eventSessionId === currentSessionId;
+}
+
 /**
  * Bun HTTP + WebSocket server that bridges a SessionBus to browser clients.
  *
@@ -439,9 +451,11 @@ export class WebServer {
 				this.status = "running";
 				break;
 			case "session_end":
+				if (!sessionLifecycleApplies(event, this.sessionId)) break;
 				this.status = "idle";
 				break;
 			case "interrupted":
+				if (!sessionLifecycleApplies(event, this.sessionId)) break;
 				this.status = "interrupted";
 				break;
 			case "session_clear":

@@ -109,6 +109,36 @@ describe("deriveActiveAgentWork", () => {
 		expect(work ? formatActiveAgentWork(work) : null).toBe("Waiting on Brunelleschi · architect");
 	});
 
+	test("ignores stale root terminal events from a previous session", () => {
+		const work = deriveActiveAgentWork(
+			[
+				event("session_start", { goal: "old task", session_id: "old-session" }, { timestamp: 1 }),
+				event("session_clear", { new_session_id: "new-session" }, { timestamp: 2 }),
+				event("session_start", { goal: "new task", session_id: "new-session" }, { timestamp: 3 }),
+				event(
+					"act_start",
+					{
+						agent_name: "architect",
+						goal: "new task",
+						handle_id: "H1",
+						child_id: "C1",
+						mnemonic_name: "Brunelleschi",
+					},
+					{ timestamp: 4 },
+				),
+				event(
+					"session_end",
+					{ turns: 1, stumbles: 0, session_id: "old-session" },
+					{ timestamp: 5 },
+				),
+			],
+			"running",
+			"new-session",
+		);
+
+		expect(work ? formatActiveAgentWork(work) : null).toBe("Waiting on Brunelleschi · architect");
+	});
+
 	test("reports a pending blocking message_agent command before the child emits session_start", () => {
 		const work = deriveActiveAgentWork(
 			[

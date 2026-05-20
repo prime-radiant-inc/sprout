@@ -486,6 +486,71 @@ describe("SessionController", () => {
 		expect(calls).toEqual(["start", "run", "stop", "collapse"]);
 	});
 
+	test("collapses memory for the completed run session when clear happens while learn stops", async () => {
+		const sessionId = "old-run-session";
+		let resolveStop: (() => void) | undefined;
+		let stopStarted = false;
+		const collapseInputs: Array<{ sessionId: string; cwd: string }> = [];
+		const bus = new EventBus();
+		const controller = new SessionController({
+			bus,
+			genomePath: join(tempDir, "genome"),
+			projectDataDir: tempDir,
+			sessionId,
+			factory: async () => ({
+				agent: {
+					steer() {},
+					requestCompaction() {},
+					async run() {
+						return {
+							output: "done",
+							success: true,
+							stumbles: 0,
+							turns: 1,
+							timed_out: false,
+						};
+					},
+				} as any,
+				learnProcess: {
+					startBackground() {},
+					stopBackground() {
+						stopStarted = true;
+						return new Promise<void>((resolve) => {
+							resolveStop = resolve;
+						});
+					},
+				},
+				collapseMemory: async (input) => {
+					collapseInputs.push(input);
+					return { ok: true };
+				},
+			}),
+		});
+
+		const run = controller.runGoal("Remember this session");
+		await waitFor(() => stopStarted);
+
+		bus.emitCommand({ kind: "clear", data: {} });
+		expect(controller.sessionId).not.toBe(sessionId);
+
+		resolveStop?.();
+		await run;
+
+		expect(collapseInputs).toEqual([{ sessionId, cwd: process.cwd() }]);
+		expect(
+			bus
+				.collected()
+				.filter((event) => event.kind === "context_update" && event.data.memory_collapse)
+				.map((event) => ({
+					state: event.data.memory_collapse,
+					sessionId: event.data.session_id,
+				})),
+		).toEqual([
+			{ state: "started", sessionId },
+			{ state: "completed", sessionId },
+		]);
+	});
+
 	test("runs memory collapse with the configured work directory", async () => {
 		const fake = makeFakeAgent();
 		const workDir = join(tempDir, "configured-workdir");

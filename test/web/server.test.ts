@@ -282,6 +282,21 @@ describe("WebServer", () => {
 			expect(body.status).toBe("idle");
 		});
 
+		test("old-session terminal event after session_clear does not idle the new session", async () => {
+			await startServer();
+			bus.emitEvent("session_start", "root", 0, { session_id: "test-session" });
+			bus.emitEvent("session_clear", "session", 0, {
+				new_session_id: "new-session-id",
+			});
+			bus.emitEvent("session_start", "root", 0, { session_id: "new-session-id" });
+			bus.emitEvent("session_end", "root", 0, { session_id: "test-session" });
+
+			const resp = await fetch(`http://localhost:${port}/api/session`);
+			const body = (await resp.json()) as { id: string; status: string };
+			expect(body.id).toBe("new-session-id");
+			expect(body.status).toBe("running");
+		});
+
 		test("session status reflects interrupted event", async () => {
 			await startServer();
 			bus.emitEvent("session_start", "root", 0);

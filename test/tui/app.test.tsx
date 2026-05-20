@@ -296,6 +296,38 @@ describe("App", () => {
 		expect(lastFrame()).toContain("Waiting on architect");
 	});
 
+	test("ignores stale root session_end after a new session starts active work", async () => {
+		const { bus, lastFrame } = setup({ sessionId: "old-session" });
+
+		bus.emitEvent("session_start", "root", 0, {
+			goal: "old task",
+			session_id: "old-session",
+		});
+		bus.emitEvent("session_clear", "session", 0, {
+			new_session_id: "new-session",
+		});
+		bus.emitEvent("session_start", "root", 0, {
+			goal: "new task",
+			session_id: "new-session",
+		});
+		bus.emitEvent("act_start", "root", 0, {
+			agent_name: "architect",
+			goal: "new task",
+			handle_id: "H1",
+			child_id: "C1",
+			mnemonic_name: "Brunelleschi",
+		});
+		bus.emitEvent("session_end", "root", 0, {
+			turns: 1,
+			stumbles: 0,
+			session_id: "old-session",
+		});
+
+		await flush();
+
+		expect(lastFrame()).toContain("Waiting on Brunelleschi · architect");
+	});
+
 	test("clears active child status on session_clear", async () => {
 		const { bus, lastFrame } = setup();
 

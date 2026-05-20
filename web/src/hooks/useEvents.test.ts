@@ -379,6 +379,22 @@ describe("EventStore", () => {
 			expect(store.status.inputTokens).toBe(0);
 			expect(store.status.outputTokens).toBe(0);
 		});
+
+		test("ignores old-session terminal events after session_clear starts a new session", () => {
+			const store = new EventStore();
+			store.processMessage(
+				eventMessage(makeEvent("session_start", { session_id: "old-session", model: "gpt-4o" })),
+			);
+			store.processMessage(eventMessage(makeEvent("session_clear", { new_session_id: "new-session" })));
+			store.processMessage(
+				eventMessage(makeEvent("session_start", { session_id: "new-session", model: "gpt-4o" })),
+			);
+
+			store.processMessage(eventMessage(makeEvent("session_end", { session_id: "old-session" })));
+
+			expect(store.status.sessionId).toBe("new-session");
+			expect(store.status.status).toBe("running");
+		});
 	});
 
 	describe("status derivation: interrupted", () => {

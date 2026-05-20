@@ -58,7 +58,11 @@ export function deriveActiveAgentWork(
 			pendingCommands.clear();
 		}
 
-		if (event.depth === 0 && (event.kind === "session_end" || event.kind === "interrupted")) {
+		if (
+			event.depth === 0 &&
+			(event.kind === "session_end" || event.kind === "interrupted") &&
+			sessionLifecycleApplies(event, currentSessionId)
+		) {
 			if (event.kind === "interrupted") memoryCollapseActive = false;
 			activeChildren.clear();
 			pendingCommands.clear();
@@ -166,6 +170,14 @@ function cleanString(value: unknown): string | undefined {
 }
 
 function memoryCollapseLifecycleApplies(
+	event: SessionEvent,
+	currentSessionId: string | undefined,
+): boolean {
+	const eventSessionId = cleanString(event.data.session_id);
+	return !eventSessionId || !currentSessionId || eventSessionId === currentSessionId;
+}
+
+function sessionLifecycleApplies(
 	event: SessionEvent,
 	currentSessionId: string | undefined,
 ): boolean {

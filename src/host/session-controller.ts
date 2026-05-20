@@ -738,6 +738,10 @@ export class SessionController {
 		const runAbortController = new AbortController();
 		this.abortController = runAbortController;
 		const signal = runAbortController.signal;
+		const runSessionId = this._sessionId;
+		// Capture metadata before awaits so terminal writes stay on the run
+		// that started them even if /clear replaces this.metadata mid-run.
+		const metadata = this.metadata;
 
 		// Ensure the spawner's session-wide events subscription is active
 		// before we create any agents. The subscription is fire-and-forget
@@ -782,10 +786,6 @@ export class SessionController {
 			learnProcess = null;
 			await process.stopBackground();
 		};
-		// Capture metadata before the try block so the finally writes to the
-		// correct session even if /clear replaces this.metadata mid-run.
-		const metadata = this.metadata;
-
 		try {
 			const result = await this.factory({
 				genomePath: this.genomePath,
@@ -794,7 +794,7 @@ export class SessionController {
 				workDir: this.workDir,
 				rootAgent: this.rootAgentName,
 				events: this.bus,
-				sessionId: this._sessionId,
+				sessionId: runSessionId,
 				initialHistory: this.history.length > 0 ? [...this.history] : undefined,
 				initialMemorySurface: reusableMemorySurface,
 				model: selectionSnapshotToModelOverride(this.selectionSnapshot),
@@ -832,18 +832,18 @@ export class SessionController {
 				}
 				if (shouldCollapseThrownRun(signal, agentEmittedTerminalSessionEnd)) {
 					await stopLearnProcess();
-					await this.collapseMemoryAfterRun(result);
+					await this.collapseMemoryAfterRun(result, runSessionId);
 				}
 				throw error;
 			}
 			await this.drainObserversAfterRun(signal);
 			if (shouldCollapseRun(runResult, signal)) {
 				await stopLearnProcess();
-				await this.collapseMemoryAfterRun(result);
+				await this.collapseMemoryAfterRun(result, runSessionId);
 			}
 			this.logger?.info("session", "Agent run completed");
 			return {
-				sessionId: this._sessionId,
+				sessionId: runSessionId,
 				output: runResult.output,
 				success: runResult.success,
 				stumbles: runResult.stumbles,
@@ -900,8 +900,10 @@ export class SessionController {
 		return this.memorySurface;
 	}
 
-	private async collapseMemoryAfterRun(result: AgentFactoryResult): Promise<void> {
-		const sessionId = this._sessionId;
+	private async collapseMemoryAfterRun(
+		result: AgentFactoryResult,
+		sessionId: string,
+	): Promise<void> {
 		if (!result.collapseMemory || this.evalMode) {
 			this.bus.emitEvent("context_update", "session", 0, {
 				memory_collapse: "skipped",

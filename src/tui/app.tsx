@@ -76,6 +76,14 @@ function memoryCollapseLifecycleApplies(
 	return !eventSessionId || !currentSessionId || eventSessionId === currentSessionId;
 }
 
+function sessionLifecycleApplies(
+	event: SessionEvent,
+	currentSessionId: string | undefined,
+): boolean {
+	const eventSessionId = cleanString(event.data.session_id);
+	return !eventSessionId || !currentSessionId || eventSessionId === currentSessionId;
+}
+
 function selectionSnapshotFromRequest(
 	selection: Parameters<typeof defaultResolveSessionSelectionRequest>[0],
 	settings: SettingsSnapshot | null,
@@ -169,10 +177,12 @@ export function App({
 					break;
 
 				case "session_end":
+					if (!sessionLifecycleApplies(event, currentSessionIdRef.current)) break;
 					setStatusState((prev) => ({ ...prev, status: "idle", inputTokens: 0, outputTokens: 0 }));
 					break;
 
 				case "interrupted":
+					if (!sessionLifecycleApplies(event, currentSessionIdRef.current)) break;
 					setStatusState((prev) => ({ ...prev, status: "interrupted" }));
 					break;
 

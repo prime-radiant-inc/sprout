@@ -89,6 +89,14 @@ function memoryCollapseLifecycleApplies(
 	return !eventSessionId || !currentSessionId || eventSessionId === currentSessionId;
 }
 
+function sessionLifecycleApplies(
+	event: SessionEvent,
+	currentSessionId: string | undefined,
+): boolean {
+	const eventSessionId = cleanString(event.data.session_id);
+	return !eventSessionId || !currentSessionId || eventSessionId === currentSessionId;
+}
+
 function memoryCollapseIsActive(
 	events: readonly SessionEvent[],
 	providedCurrentSessionId?: string,
@@ -97,6 +105,9 @@ function memoryCollapseIsActive(
 	let currentSessionId = cleanString(providedCurrentSessionId);
 	for (const event of events) {
 		if (event.kind === "session_start" || event.kind === "session_clear" || event.kind === "interrupted") {
+			if (event.kind === "interrupted" && !sessionLifecycleApplies(event, currentSessionId)) {
+				continue;
+			}
 			if (event.kind === "session_start") {
 				currentSessionId = cleanString(event.data.session_id) ?? currentSessionId;
 			}
@@ -268,6 +279,7 @@ export class EventStore {
 				break;
 
 			case "session_end":
+				if (!sessionLifecycleApplies(event, this.status.sessionId)) break;
 				this.status = {
 					...this.status,
 					status: "idle",
@@ -277,6 +289,7 @@ export class EventStore {
 				break;
 
 			case "interrupted":
+				if (!sessionLifecycleApplies(event, this.status.sessionId)) break;
 				this.status = { ...this.status, status: "interrupted" };
 				break;
 
