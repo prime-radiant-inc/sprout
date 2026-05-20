@@ -28,6 +28,10 @@ class TestSecretStore implements SecretStore {
 				ref: ReturnType<typeof createProviderCredentialRef>,
 				value: string | undefined,
 			) => Promise<void>;
+			setSecretBeforeWrite?: (
+				ref: ReturnType<typeof createProviderCredentialRef>,
+				value: string,
+			) => Promise<void>;
 		} = {},
 	) {}
 
@@ -43,6 +47,7 @@ class TestSecretStore implements SecretStore {
 		ref: ReturnType<typeof createProviderCredentialRef>,
 		value: string,
 	): Promise<void> {
+		await this.options.setSecretBeforeWrite?.(ref, value);
 		this.secrets.set(ref.storageKey, value);
 	}
 
@@ -167,6 +172,53 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 		promise,
 		resolve: () => resolve?.(),
 	};
+}
+
+async function rejectionMessageWithin(
+	promise: Promise<unknown>,
+	timeoutMs: number,
+): Promise<string> {
+	try {
+		await withTestTimeout(promise, timeoutMs);
+		return "resolved";
+	} catch (error) {
+		return error instanceof Error ? error.message : String(error);
+	}
+}
+
+async function settlementWithin(
+	promise: Promise<unknown>,
+	timeoutMs: number,
+): Promise<"settled" | "timeout"> {
+	try {
+		await withTestTimeout(
+			promise.then(
+				() => undefined,
+				() => undefined,
+			),
+			timeoutMs,
+		);
+		return "settled";
+	} catch {
+		return "timeout";
+	}
+}
+
+async function withTestTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+	let timeoutId: ReturnType<typeof setTimeout> | undefined;
+	const timeout = new Promise<never>((_, reject) => {
+		timeoutId = setTimeout(
+			() => reject(new Error("test timed out waiting for promise")),
+			timeoutMs,
+		);
+	});
+	try {
+		return await Promise.race([promise, timeout]);
+	} finally {
+		if (timeoutId !== undefined) {
+			clearTimeout(timeoutId);
+		}
+	}
 }
 
 describe("OpenAICodexOAuthService", () => {
@@ -367,6 +419,107 @@ describe("OpenAICodexOAuthService", () => {
 		expect(await readStoredOAuth(secretStore)).toBeUndefined();
 	});
 
+	test("timed out lifecycle waiter does not let later delete bypass active resolve", async () => {
+		const getSecretReturned = deferred();
+		const resumeGetSecret = deferred();
+		let blockedGetSecret = false;
+		const secretStore = new TestSecretStore({
+			getSecretAfterRead: async () => {
+				if (blockedGetSecret) {
+					return;
+				}
+				blockedGetSecret = true;
+				getSecretReturned.resolve();
+				await resumeGetSecret.promise;
+			},
+		});
+		const { service } = makeOAuthService({
+			secretStore,
+			refreshTokens: async () =>
+				tokenResponseWithAccount("acct_123", { refreshToken: "new-refresh" }),
+			lifecycleTimeoutMs: 5,
+		});
+		await writeStoredOAuth(secretStore, expiredOAuthRecord("old-refresh"));
+
+		const refresh = service.resolveCredentials(PROVIDER_ID);
+		await getSecretReturned.promise;
+		await expect(service.logout(PROVIDER_ID)).rejects.toThrow("credential operation timed out");
+		const deletion = service.deleteCredentials(PROVIDER_ID);
+		resumeGetSecret.resolve();
+
+		await expect(refresh).resolves.toMatchObject({ accountId: "acct_123" });
+		await expect(deletion).resolves.toEqual({ ok: true, failedRefs: [] });
+		expect(await readStoredOAuth(secretStore)).toBeUndefined();
+	});
+
+	test("hung refresh times out and clears singleflight so later resolve can retry", async () => {
+		let refreshCalls = 0;
+		const { secretStore, service } = makeOAuthService({
+			refreshTokens: async () => {
+				refreshCalls += 1;
+				if (refreshCalls === 1) {
+					return new Promise<TokenResponse>(() => {});
+				}
+				return tokenResponseWithAccount("acct_123", { refreshToken: "new-refresh" });
+			},
+			lifecycleTimeoutMs: 5,
+		});
+		await writeStoredOAuth(secretStore, expiredOAuthRecord("old-refresh"));
+
+		await expect(rejectionMessageWithin(service.resolveCredentials(PROVIDER_ID), 25)).resolves.toBe(
+			"credential operation timed out",
+		);
+		await expect(
+			withTestTimeout(service.resolveCredentials(PROVIDER_ID), 25),
+		).resolves.toMatchObject({
+			accountId: "acct_123",
+		});
+		expect(refreshCalls).toBe(2);
+		expect(await readStoredOAuth(secretStore)).toMatchObject({
+			refreshToken: "new-refresh",
+		});
+	});
+
+	test("login waits for active delete before writing credentials", async () => {
+		const deleteEntered = deferred();
+		const releaseDelete = deferred();
+		const loginWriteAttempted = deferred();
+		let observeLoginWrites = false;
+		const secretStore = new TestSecretStore({
+			deleteSecret: async () => {
+				deleteEntered.resolve();
+				await releaseDelete.promise;
+			},
+			setSecretBeforeWrite: async (_ref, value) => {
+				if (observeLoginWrites && value.includes("acct_login")) {
+					loginWriteAttempted.resolve();
+				}
+			},
+		});
+		const { service } = makeOAuthService({
+			secretStore,
+			exchangeCodeForTokens: async () =>
+				tokenResponseWithAccount("acct_login", { refreshToken: "login-refresh" }),
+			lifecycleTimeoutMs: 100,
+		});
+		await writeStoredOAuth(secretStore, validOAuthRecord());
+
+		observeLoginWrites = true;
+		const deletion = service.deleteCredentials(PROVIDER_ID);
+		await deleteEntered.promise;
+		const login = service.loginWithCode(LOGIN_INPUT);
+
+		await expect(settlementWithin(loginWriteAttempted.promise, 5)).resolves.toBe("timeout");
+		releaseDelete.resolve();
+
+		await expect(deletion).resolves.toEqual({ ok: true, failedRefs: [] });
+		await login;
+		expect(await readStoredOAuth(secretStore)).toMatchObject({
+			accountId: "acct_login",
+			refreshToken: "login-refresh",
+		});
+	});
+
 	test("delete failure returns failed oauth ref and leaves credentials present", async () => {
 		const secretStore = new TestSecretStore({
 			deleteSecret: async () => {
@@ -390,9 +543,11 @@ describe("OpenAICodexOAuthService", () => {
 		});
 		await writeStoredOAuth(secretStore, expiredOAuthRecord("old-refresh"));
 
-		void service.resolveCredentials(PROVIDER_ID);
+		const refresh = service.resolveCredentials(PROVIDER_ID);
+		const refreshError = refresh.catch((error) => error);
 
 		await expect(service.logout(PROVIDER_ID)).rejects.toThrow("credential operation timed out");
+		await expect(refreshError).resolves.toBeInstanceOf(Error);
 		expect(await readStoredOAuth(secretStore)).toBeDefined();
 	});
 

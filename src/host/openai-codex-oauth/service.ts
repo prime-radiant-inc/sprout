@@ -62,6 +62,7 @@ export class OpenAICodexOAuthService {
 	private readonly now: () => number;
 	private readonly refreshSkewMs: number;
 	private readonly lifecycleTimeoutMs: number;
+	private readonly resolves = new Map<string, Promise<OpenAICodexRuntimeCredentials>>();
 	private readonly refreshes = new Map<string, RefreshState>();
 	private readonly lifecycleTails = new Map<string, Promise<void>>();
 
@@ -76,6 +77,22 @@ export class OpenAICodexOAuthService {
 	}
 
 	async resolveCredentials(providerId: string): Promise<OpenAICodexRuntimeCredentials> {
+		const existing = this.resolves.get(providerId);
+		if (existing !== undefined) {
+			return existing;
+		}
+		const resolve = this.resolveCredentialsOnce(providerId);
+		this.resolves.set(providerId, resolve);
+		try {
+			return await resolve;
+		} finally {
+			if (this.resolves.get(providerId) === resolve) {
+				this.resolves.delete(providerId);
+			}
+		}
+	}
+
+	private async resolveCredentialsOnce(providerId: string): Promise<OpenAICodexRuntimeCredentials> {
 		const { credentials, refreshState } = await this.withLifecycle(providerId, async () => {
 			const existing = this.refreshes.get(providerId);
 			if (existing !== undefined) {
@@ -108,17 +125,20 @@ export class OpenAICodexOAuthService {
 	}
 
 	async loginWithCode(input: LoginWithCodeInput): Promise<void> {
-		const tokenResponse = await this.exchangeCodeForTokensImpl(input);
-		const refreshToken = requireTokenField(tokenResponse.refreshToken);
-		const accountId = extractAccountIdOrSignInAgain(tokenResponse);
-		assertUsableExpiry(tokenResponse.expiresAt, this.now());
-		const record = buildOAuthRecord({
-			tokenResponse,
-			refreshToken,
-			accountId,
-			updatedAt: this.currentIsoTimestamp(),
+		await this.withLifecycle(input.providerId, async () => {
+			await this.waitForRefresh(input.providerId);
+			const tokenResponse = await this.exchangeCodeForTokensImpl(input);
+			const refreshToken = requireTokenField(tokenResponse.refreshToken);
+			const accountId = extractAccountIdOrSignInAgain(tokenResponse);
+			assertUsableExpiry(tokenResponse.expiresAt, this.now());
+			const record = buildOAuthRecord({
+				tokenResponse,
+				refreshToken,
+				accountId,
+				updatedAt: this.currentIsoTimestamp(),
+			});
+			await this.secretStore.setSecret(this.oauthRef(input.providerId), JSON.stringify(record));
 		});
-		await this.secretStore.setSecret(this.oauthRef(input.providerId), JSON.stringify(record));
 	}
 
 	async logout(providerId: string): Promise<void> {
@@ -144,7 +164,10 @@ export class OpenAICodexOAuthService {
 		providerId: string,
 		stored: OpenAICodexOAuthRecord,
 	): Promise<OpenAICodexRuntimeCredentials> {
-		const tokenResponse = await this.refreshTokensImpl({ refreshToken: stored.refreshToken });
+		const tokenResponse = await withTimeout(
+			this.refreshTokensImpl({ refreshToken: stored.refreshToken }),
+			this.lifecycleTimeoutMs,
+		);
 		const refreshToken = tokenResponse.refreshToken ?? stored.refreshToken;
 		const accountId = extractAccountIdOrSignInAgain(tokenResponse, stored.accountId);
 		assertUsableExpiry(tokenResponse.expiresAt, this.now());
@@ -179,13 +202,16 @@ export class OpenAICodexOAuthService {
 		if (refresh === undefined) {
 			return;
 		}
-		await withTimeout(
-			refresh.promise.then(
-				() => undefined,
-				() => undefined,
-			),
-			this.lifecycleTimeoutMs,
-		);
+		try {
+			await withTimeout(
+				refresh.promise.then(() => undefined),
+				this.lifecycleTimeoutMs,
+			);
+		} catch (error) {
+			if (isOperationTimeout(error)) {
+				throw error;
+			}
+		}
 	}
 
 	private markRefreshSettled(providerId: string, refreshState: RefreshState): void {
@@ -223,20 +249,27 @@ export class OpenAICodexOAuthService {
 
 	private async withLifecycle<T>(providerId: string, operation: () => Promise<T>): Promise<T> {
 		const previousTail = this.lifecycleTails.get(providerId) ?? Promise.resolve();
+		const previousSettled = previousTail.then(
+			() => undefined,
+			() => undefined,
+		);
 		let releaseCurrent: (() => void) | undefined;
-		const currentTail = new Promise<void>((resolve) => {
+		const currentDone = new Promise<void>((resolve) => {
 			releaseCurrent = resolve;
 		});
+		const currentTail = previousSettled.then(() => currentDone);
 		this.lifecycleTails.set(providerId, currentTail);
 
 		try {
-			await withTimeout(previousTail, this.lifecycleTimeoutMs);
+			await withTimeout(previousSettled, this.lifecycleTimeoutMs);
 			return await operation();
 		} finally {
 			releaseCurrent?.();
-			if (this.lifecycleTails.get(providerId) === currentTail) {
-				this.lifecycleTails.delete(providerId);
-			}
+			void currentTail.then(() => {
+				if (this.lifecycleTails.get(providerId) === currentTail) {
+					this.lifecycleTails.delete(providerId);
+				}
+			});
 		}
 	}
 
@@ -373,4 +406,8 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
 			clearTimeout(timeoutId);
 		}
 	}
+}
+
+function isOperationTimeout(error: unknown): boolean {
+	return error instanceof Error && error.message === OPERATION_TIMED_OUT_ERROR;
 }
