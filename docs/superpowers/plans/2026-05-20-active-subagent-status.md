@@ -4,7 +4,7 @@
 
 **Goal:** Show which subagent is currently working in both the web UI and terminal UI instead of showing only a generic running state.
 
-**Architecture:** Add one shared display/derivation module that understands Sprout's agent identity fields (`mnemonic_name`, `target_agent_name`, `agent_name`, `handle_id`, `child_id`). Web and TUI status bars consume that shared module, and terminal event renderers use the same identity formatter for delegation lines. The helper infers active child work from delegation lifecycle events, child session events, and pending `wait_agent`/`message_agent` tool calls; it also distinguishes post-run memory work as "Saving memory" when controller status is still running after a root `session_end`.
+**Architecture:** Add one shared display/derivation module that understands Sprout's agent identity fields (`mnemonic_name`, `target_agent_name`, `agent_name`, `handle_id`, `child_id`). Web and TUI status bars consume that shared module, and terminal event renderers use the same identity formatter for delegation lines. The helper infers active child work from delegation lifecycle events, child session events, and pending `wait_agent`/`message_agent` tool calls. Post-run memory work is driven by explicit `context_update.memory_collapse` lifecycle events (`started`, `completed`, `skipped`, `failed`) from the session controller, not by guessing from `session_end`.
 
 **Tech Stack:** TypeScript, Bun tests, React, Ink, existing `SessionEvent` records.
 
@@ -12,12 +12,18 @@
 
 ## File Structure
 
+- Modify `src/host/session-controller.ts`
+  - Emits explicit memory-collapse lifecycle updates so both UIs have the same source of truth.
+
+- Modify `test/host/session-controller.test.ts`
+  - Tests `started` plus terminal lifecycle states for completed, skipped, unavailable, and failed collapse.
+
 - Create `src/shared/agent-display.ts`
   - Owns reusable agent identity formatting and active-work derivation.
   - Exports `AgentDisplayRef`, `ActiveAgentWork`, `formatAgentDisplayName`, `formatActiveAgentWork`, and `deriveActiveAgentWork`.
 
 - Create `test/shared/agent-display.test.ts`
-  - Unit tests for mnemonic/role formatting, active child detection, shared-child reactivation, pending agent commands, and post-run memory saving.
+  - Unit tests for mnemonic/role formatting, active child detection, shared-child reactivation, pending agent commands, and explicit memory-collapse lifecycle handling.
 
 - Modify `web/src/App.tsx`
   - Calls `deriveActiveAgentWork(events, status.status)` and passes the result to `StatusBar`.
@@ -1051,6 +1057,6 @@ Expected: only intended files are modified, or clean after commits.
 
 ## Self-Review
 
-- **Spec coverage:** The plan covers shared subagent naming, web status bar display, TUI status bar display, and terminal event identity formatting. It also covers the observed memory-collapse confusion by deriving "Saving memory" when controller status is still running after root `session_end`.
+- **Spec coverage:** The plan covers shared subagent naming, web status bar display, TUI status bar display, and terminal event identity formatting. It also covers the observed memory-collapse confusion with explicit controller lifecycle events instead of inferring "Saving memory" from root `session_end`.
 - **Placeholder scan:** No task uses `TODO`, `TBD`, "similar to", or unspecified tests. Each task names files, commands, expected failures, and expected passes.
 - **Type consistency:** `ActiveAgentWork`, `AgentDisplayRef`, `formatAgentDisplayName`, `formatActiveAgentWork`, and `deriveActiveAgentWork` are introduced in Task 1 and reused with the same names in later tasks.
