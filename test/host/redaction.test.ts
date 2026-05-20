@@ -9,6 +9,8 @@ describe("redactCredentialText", () => {
 			"OAuth callback code: abc123",
 			"raw code raw-code-123",
 			"raw state raw-state-123",
+			"raw code abc/def+ghi=",
+			"raw state abc/def+ghi=",
 			"security item sprout/providers/openai-codex/oauth failed",
 			"backend error token refresh_token_123",
 			"token response access_token=access-secret",
@@ -23,6 +25,7 @@ describe("redactCredentialText", () => {
 		expect(redacted).not.toContain("abc123");
 		expect(redacted).not.toContain("raw-code-123");
 		expect(redacted).not.toContain("raw-state-123");
+		expect(redacted).not.toContain("abc/def+ghi=");
 		expect(redacted).not.toContain("refresh_token_123");
 		expect(redacted).not.toContain("access-secret");
 		expect(redacted).not.toContain("snake-access");
