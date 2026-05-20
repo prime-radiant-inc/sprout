@@ -6,6 +6,8 @@ import type { ProviderAdapter, ProviderModel, Request, Response, StreamEvent } f
 
 const DEFAULT_CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex";
 const CODEX_CLIENT_VERSION = "0.0.0";
+const MISSING_TERMINAL_RESPONSE_ERROR =
+	"OpenAI Codex response stream ended without terminal response";
 
 export type OpenAICodexCredentialResolver = (
 	providerId: string,
@@ -81,9 +83,6 @@ export class OpenAICodexAdapter implements ProviderAdapter {
 		if (!finalResponse) {
 			throw new Error("OpenAI Codex response stream ended without a final response");
 		}
-		if (!finalResponse.id) {
-			throw new Error("OpenAI Codex response stream ended without terminal response");
-		}
 		return finalResponse;
 	}
 
@@ -99,7 +98,12 @@ export class OpenAICodexAdapter implements ProviderAdapter {
 			},
 		);
 
-		yield* streamResponsesEvents({ stream, request, provider: this.kind });
+		for await (const event of streamResponsesEvents({ stream, request, provider: this.kind })) {
+			if (event.type === "finish" && !hasTerminalResponse(event.response)) {
+				throw new Error(MISSING_TERMINAL_RESPONSE_ERROR);
+			}
+			yield event;
+		}
 	}
 
 	private requestCredentials(): Promise<OpenAICodexRuntimeCredentials> {
@@ -150,4 +154,8 @@ function parseOpenAIDataModel(model: { id?: unknown }): ProviderModel[] {
 
 function firstNonEmptyString(...values: unknown[]): string | undefined {
 	return values.find((value): value is string => typeof value === "string" && value.length > 0);
+}
+
+function hasTerminalResponse(response: Response | undefined): boolean {
+	return Boolean(response?.id);
 }

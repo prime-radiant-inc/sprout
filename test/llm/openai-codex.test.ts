@@ -219,6 +219,17 @@ describe("OpenAICodexAdapter", () => {
 		);
 	});
 
+	test("stream rejects streams that end without a terminal Responses event", async () => {
+		const server = startCodexServer(async () =>
+			sseResponse([{ type: "response.output_text.delta", delta: "partial" }]),
+		);
+		const adapter = createAdapter(server.url.toString(), async () => credentials("access", "acct"));
+
+		await expect(Array.fromAsync(adapter.stream(baseRequest))).rejects.toThrow(
+			"OpenAI Codex response stream ended without terminal response",
+		);
+	});
+
 	test("stream resolves fresh credentials per request and forwards accumulator events", async () => {
 		const requests: CapturedRequest[] = [];
 		const server = startCodexServer(async (request) => {
