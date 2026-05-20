@@ -93,7 +93,17 @@ async function postTokenRequest(input: {
 		);
 	}
 
-	const responseText = await response.text();
+	let responseText: string;
+	try {
+		responseText = await response.text();
+	} catch (error) {
+		throw new Error(
+			`OpenAI Codex OAuth token request failed: ${redactTokenEndpointText(
+				String(error),
+				input.redactionContext,
+			)}`,
+		);
+	}
 	if (!response.ok) {
 		throw new Error(
 			`OpenAI Codex OAuth token request failed: ${redactTokenEndpointText(
@@ -152,11 +162,21 @@ function parseTokenResponse(
 		);
 	}
 
+	const expiresAt = buildExpiresAt((options.now ?? Date.now)(), expiresIn);
+	if (expiresAt === undefined) {
+		throw new Error(
+			`OpenAI Codex OAuth token response is missing required fields: ${redactTokenEndpointText(
+				JSON.stringify(payload),
+				options.redactionContext,
+			)}`,
+		);
+	}
+
 	return {
 		accessToken: parsedAccessToken,
 		...(parsedRefreshToken !== undefined ? { refreshToken: parsedRefreshToken } : {}),
 		...(parsedIdToken !== undefined ? { idToken: parsedIdToken } : {}),
-		expiresAt: new Date((options.now ?? Date.now)() + expiresIn * 1000).toISOString(),
+		expiresAt,
 	};
 }
 
@@ -169,6 +189,18 @@ function parseOptionalTokenField(value: unknown): string | undefined {
 		return undefined;
 	}
 	return parseRequiredTokenField(value);
+}
+
+function buildExpiresAt(now: number, expiresIn: number): string | undefined {
+	const expiresAtMs = now + expiresIn * 1000;
+	if (!Number.isFinite(expiresAtMs)) {
+		return undefined;
+	}
+	try {
+		return new Date(expiresAtMs).toISOString();
+	} catch {
+		return undefined;
+	}
 }
 
 function createTokenRedactionContext(values: readonly string[]): TokenRedactionContext {
@@ -224,24 +256,19 @@ function redactTokenEndpointPayload(payload: unknown, context: TokenRedactionCon
 }
 
 function isSensitiveTokenEndpointKey(key: string): boolean {
+	const normalizedKey = key.toLowerCase().replace(/[_-]/g, "");
 	return [
-		"access_token",
-		"refresh_token",
-		"id_token",
-		"accessToken",
-		"refreshToken",
-		"idToken",
+		"accesstoken",
+		"refreshtoken",
+		"idtoken",
 		"token",
 		"authorization",
-		"Authorization",
 		"auth",
-		"code_verifier",
-		"codeVerifier",
+		"codeverifier",
 		"code",
 		"state",
-		"redirect_uri",
-		"redirectUri",
-	].includes(key);
+		"redirecturi",
+	].includes(normalizedKey);
 }
 
 function redactTokenEndpointPlainText(value: string, context: TokenRedactionContext): string {

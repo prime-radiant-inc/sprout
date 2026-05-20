@@ -114,6 +114,10 @@ describe("OpenAI Codex OAuth token helpers", () => {
 								opaqueDetail: "backend-token-value",
 								token: "backend-token-secret",
 								Authorization: "Bearer backend-authorization-secret",
+								Token: "mixed-case-secret",
+								ACCESS_TOKEN: "upper-access-secret",
+								"refresh-token": "kebab-refresh-secret",
+								AUTHORIZATION: "upper-authorization-secret",
 							}),
 							{ status: 400 },
 						),
@@ -133,11 +137,19 @@ describe("OpenAI Codex OAuth token helpers", () => {
 		expect(message).toContain('"redirectUri":"[redacted]"');
 		expect(message).toContain('"token":"[redacted]"');
 		expect(message).toContain('"Authorization":"[redacted]"');
+		expect(message).toContain('"Token":"[redacted]"');
+		expect(message).toContain('"ACCESS_TOKEN":"[redacted]"');
+		expect(message).toContain('"refresh-token":"[redacted]"');
+		expect(message).toContain('"AUTHORIZATION":"[redacted]"');
 		expect(message).not.toContain("access-token-secret");
 		expect(message).not.toContain("refresh-token-secret");
 		expect(message).not.toContain("backend-token-secret");
 		expect(message).not.toContain("backend-token-value");
 		expect(message).not.toContain("backend-authorization-secret");
+		expect(message).not.toContain("mixed-case-secret");
+		expect(message).not.toContain("upper-access-secret");
+		expect(message).not.toContain("kebab-refresh-secret");
+		expect(message).not.toContain("upper-authorization-secret");
 		expect(message).not.toContain("auth-code-secret");
 		expect(message).not.toContain("verifier-secret");
 		expect(message).not.toContain("camel-verifier-secret");
@@ -260,6 +272,31 @@ describe("OpenAI Codex OAuth token helpers", () => {
 		expect(message).not.toContain("http://localhost:1455/auth/callback");
 	});
 
+	test("wraps and redacts response body read failures", async () => {
+		let error: unknown;
+		try {
+			await exchangeCodeForTokens({
+				code: "auth-code-secret",
+				codeVerifier: "verifier-secret",
+				redirectUri: "http://localhost:1455/auth/callback",
+				fetchImpl: (() =>
+					Promise.resolve({
+						ok: false,
+						statusText: "Bad Request",
+						text: () => Promise.reject(new Error("read failed access-token-secret")),
+					} as Response)) as unknown as typeof fetch,
+			});
+		} catch (caughtError) {
+			error = caughtError;
+		}
+
+		expect(error).toBeInstanceOf(Error);
+		const message = (error as Error).message;
+		expect(message).toContain("OpenAI Codex OAuth token request failed:");
+		expect(message).toContain("[redacted]");
+		expect(message).not.toContain("access-token-secret");
+	});
+
 	test("redacts refresh request secrets echoed under arbitrary JSON keys", async () => {
 		let error: unknown;
 		try {
@@ -362,5 +399,33 @@ describe("OpenAI Codex OAuth token helpers", () => {
 			expect(message).not.toContain("access-token-secret");
 			expect(message).not.toContain("refresh-token-secret");
 		}
+	});
+
+	test("rejects invalid token expiration dates", async () => {
+		await expect(
+			exchangeCodeForTokens({
+				code: "auth-code-secret",
+				codeVerifier: "verifier-secret",
+				redirectUri: "http://localhost:1455/auth/callback",
+				now: () => Number.POSITIVE_INFINITY,
+				fetchImpl: fetchWithBodyAssertion(() => {}, {
+					access_token: "access-token-secret",
+					refresh_token: "refresh-token-secret",
+					expires_in: 3600,
+				}),
+			}),
+		).rejects.toThrow("OpenAI Codex OAuth token response is missing required fields");
+		await expect(
+			exchangeCodeForTokens({
+				code: "auth-code-secret",
+				codeVerifier: "verifier-secret",
+				redirectUri: "http://localhost:1455/auth/callback",
+				fetchImpl: fetchWithBodyAssertion(() => {}, {
+					access_token: "access-token-secret",
+					refresh_token: "refresh-token-secret",
+					expires_in: Number.MAX_VALUE,
+				}),
+			}),
+		).rejects.toThrow("OpenAI Codex OAuth token response is missing required fields");
 	});
 });
