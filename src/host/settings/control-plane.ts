@@ -11,6 +11,7 @@ import {
 	createProviderCredentialRef,
 	createProviderCredentialRefsForKind,
 	type ProviderCredentialRef,
+	type ProviderSecretKind,
 	providerSupportsSecretKind,
 } from "./provider-credentials.ts";
 import type { SecretBackendState, SecretStorageBackend, SecretStore } from "./secret-store.ts";
@@ -46,12 +47,24 @@ export interface ProviderCatalogEntry {
 export interface ProviderStatusSnapshot {
 	providerId: string;
 	hasSecret: boolean;
+	credentialStatus: ProviderCredentialStatus;
 	validationErrors: string[];
 	connectionStatus: "unknown" | "ok" | "error";
 	connectionError?: string;
 	catalogStatus: "never-loaded" | "current" | "stale" | "error";
 	catalogError?: string;
 }
+
+export type ProviderCredentialStatus =
+	| { kind: "none" }
+	| { kind: "api-key"; present: boolean }
+	| {
+			kind: "oauth";
+			signedIn: boolean;
+			accountId?: string;
+			email?: string;
+			expiresAt?: string;
+	  };
 
 export interface SettingsSnapshot {
 	settings: SproutSettings;
@@ -104,6 +117,9 @@ export type SettingsCommand =
 			};
 	  }
 	| { kind: "delete_provider"; data: { providerId: string } }
+	| { kind: "login_provider_oauth"; data: { providerId: string } }
+	| { kind: "logout_provider_oauth"; data: { providerId: string } }
+	| { kind: "retry_provider_delete"; data: { providerId: string } }
 	| { kind: "set_provider_secret"; data: { providerId: string; secret: string } }
 	| { kind: "delete_provider_secret"; data: { providerId: string } }
 	| { kind: "set_provider_enabled"; data: { providerId: string; enabled: boolean } }
@@ -121,7 +137,13 @@ export type SettingsCommand =
 
 export type SettingsCommandResult =
 	| { ok: true; snapshot: SettingsSnapshot }
-	| { ok: false; code: string; message: string; fieldErrors?: Record<string, string> };
+	| {
+			ok: false;
+			code: string;
+			message: string;
+			fieldErrors?: Record<string, string>;
+			snapshot?: SettingsSnapshot;
+	  };
 
 export interface SettingsStoreLike {
 	save(settings: SproutSettings): Promise<void>;
@@ -132,6 +154,20 @@ interface StatusState {
 	connectionError?: string;
 	catalogStatus: "never-loaded" | "current" | "stale" | "error";
 	catalogError?: string;
+}
+
+export interface ProviderOAuthOperations {
+	status?: (
+		providerId: string,
+	) =>
+		| Promise<Extract<ProviderCredentialStatus, { kind: "oauth" }> | { signedIn: boolean }>
+		| Extract<ProviderCredentialStatus, { kind: "oauth" }>
+		| { signedIn: boolean };
+	login?: (providerId: string) => Promise<void>;
+	logout?: (providerId: string) => Promise<void>;
+	deleteCredentials?: (
+		providerId: string,
+	) => Promise<{ ok: boolean; failedRefs: ProviderSecretKind[] }>;
 }
 
 export interface SettingsControlPlaneOptions {
@@ -147,6 +183,7 @@ export interface SettingsControlPlaneOptions {
 	onSettingsUpdated?: (snapshot: SettingsSnapshot) => void | Promise<void>;
 	checkConnection?: (provider: ProviderConfig, secret?: string) => Promise<void>;
 	refreshModels?: (provider: ProviderConfig, secret?: string) => Promise<ProviderModel[]>;
+	oauthOperations?: ProviderOAuthOperations;
 	loadAgentModelCatalog?: () => Promise<AgentModelCatalogEntry[]> | AgentModelCatalogEntry[];
 	now?: () => string;
 }
@@ -166,6 +203,7 @@ export class SettingsControlPlane {
 		provider: ProviderConfig,
 		secret?: string,
 	) => Promise<ProviderModel[]>;
+	private readonly oauthOperations?: ProviderOAuthOperations;
 	private readonly loadAgentModelCatalog?: () =>
 		| Promise<AgentModelCatalogEntry[]>
 		| AgentModelCatalogEntry[];
@@ -196,6 +234,7 @@ export class SettingsControlPlane {
 		this.onSettingsUpdated = options.onSettingsUpdated;
 		this.checkConnection = options.checkConnection;
 		this.refreshModels = options.refreshModels;
+		this.oauthOperations = options.oauthOperations;
 		this.loadAgentModelCatalog = options.loadAgentModelCatalog;
 		this.now = options.now ?? (() => new Date().toISOString());
 
@@ -233,6 +272,12 @@ export class SettingsControlPlane {
 				return this.updateProvider(command.data.providerId, command.data.patch);
 			case "delete_provider":
 				return this.deleteProvider(command.data.providerId);
+			case "login_provider_oauth":
+				return this.loginProviderOAuth(command.data.providerId);
+			case "logout_provider_oauth":
+				return this.logoutProviderOAuth(command.data.providerId);
+			case "retry_provider_delete":
+				return this.retryProviderDelete(command.data.providerId);
 			case "set_provider_secret":
 				return this.setProviderSecret(command.data.providerId, command.data.secret);
 			case "delete_provider_secret":
@@ -300,42 +345,115 @@ export class SettingsControlPlane {
 		const blockingResult = this.rejectProviderLifecycleBlockedByEnvOverrides(providerId, "delete");
 		if (blockingResult) return blockingResult;
 
-		const next = structuredClone(this.settings);
-		const providerIndex = next.providers.findIndex((provider) => provider.id === providerId);
-		if (providerIndex === -1) return this.error("not_found", `Unknown provider: ${providerId}`);
-		const provider = next.providers[providerIndex];
+		const provider = this.settings.providers.find((candidate) => candidate.id === providerId);
 		if (!provider) return this.error("not_found", `Unknown provider: ${providerId}`);
 
-		next.providers.splice(providerIndex, 1);
-		next.defaults = removeDefaultsForProvider(next.defaults, providerId);
-		next.memoryModels = removeMemoryModelsForProvider(next.memoryModels, providerId);
-		next.agentModelOverrides = removeAgentModelOverridesForProvider(
-			next.agentModelOverrides,
-			providerId,
-		);
+		const cleanupFailedSettings = markProviderCredentialCleanupFailed(this.settings, providerId, {
+			now: this.now(),
+		});
+		const cleanupFailedPersisted = await this.persistSettings(cleanupFailedSettings, [], false);
+		if (!cleanupFailedPersisted.ok) return cleanupFailedPersisted;
+		this.clearProviderRuntimeState(providerId);
+		delete this.initialValidationErrors[providerId];
 
+		const cleanup = await this.deleteProviderCredentials(provider);
+		if (!cleanup.ok) {
+			return this.failureWithSnapshot(
+				"credential_cleanup_failed",
+				`Failed to delete provider credentials: ${cleanup.failedRefs.join(", ")}`,
+				{ credentials: `Failed credential cleanup for: ${cleanup.failedRefs.join(", ")}` },
+			);
+		}
+
+		return this.removeProvider(providerId);
+	}
+
+	private async retryProviderDelete(providerId: string): Promise<SettingsCommandResult> {
+		const blockingResult = this.rejectProviderLifecycleBlockedByEnvOverrides(providerId, "delete");
+		if (blockingResult) return blockingResult;
+
+		const provider = this.settings.providers.find((candidate) => candidate.id === providerId);
+		if (!provider) return this.error("not_found", `Unknown provider: ${providerId}`);
+		if (provider.disabledReason !== "credential-cleanup-failed") {
+			return this.error(
+				"validation_failed",
+				`Provider '${providerId}' is not waiting for credential cleanup retry.`,
+				{ providerId: "Provider is not waiting for credential cleanup retry." },
+			);
+		}
+
+		const cleanup = await this.deleteProviderCredentials(provider);
+		if (!cleanup.ok) {
+			return this.failureWithSnapshot(
+				"credential_cleanup_failed",
+				`Failed to delete provider credentials: ${cleanup.failedRefs.join(", ")}`,
+				{ credentials: `Failed credential cleanup for: ${cleanup.failedRefs.join(", ")}` },
+			);
+		}
+
+		return this.removeProvider(providerId);
+	}
+
+	private async removeProvider(providerId: string): Promise<SettingsCommandResult> {
+		const next = removeProviderFromSettings(this.settings, providerId);
+		if (next.providers.length === this.settings.providers.length) {
+			return this.error("not_found", `Unknown provider: ${providerId}`);
+		}
 		this.providerState.delete(providerId);
 		this.providerCatalog.delete(providerId);
 		delete this.initialValidationErrors[providerId];
+		return this.persistSettings(next, [], true);
+	}
 
-		const persisted = await this.persistSettings(next, [], true);
-		if (!persisted.ok) {
-			return persisted;
+	private async loginProviderOAuth(providerId: string): Promise<SettingsCommandResult> {
+		const provider = this.settings.providers.find((candidate) => candidate.id === providerId);
+		if (!provider) return this.error("not_found", `Unknown provider: ${providerId}`);
+		const unsupported = this.rejectOAuthCommandIfUnsupported(provider, "login");
+		if (unsupported) return unsupported;
+		if (!this.oauthOperations?.login) {
+			return this.error(
+				"oauth_login_unavailable",
+				`OAuth login is not configured for provider '${providerId}'.`,
+			);
 		}
 
 		try {
-			for (const ref of this.providerCredentialRefs(provider)) {
-				await this.secretStore.deleteSecret(ref);
-			}
+			await this.oauthOperations.login(providerId);
 		} catch (error) {
-			this.addRuntimeWarning({
-				code: "secret_cleanup_failed",
-				message: `Deleted provider '${providerId}' from settings, but failed to remove its stored secret: ${
-					error instanceof Error ? error.message : String(error)
-				}`,
-			});
+			return this.error(
+				"oauth_login_failed",
+				error instanceof Error ? error.message : String(error),
+			);
 		}
 
+		delete this.initialValidationErrors[providerId];
+		this.markCatalogStale(providerId);
+		return this.emitUpdatedSnapshot();
+	}
+
+	private async logoutProviderOAuth(providerId: string): Promise<SettingsCommandResult> {
+		const provider = this.settings.providers.find((candidate) => candidate.id === providerId);
+		if (!provider) return this.error("not_found", `Unknown provider: ${providerId}`);
+		const unsupported = this.rejectOAuthCommandIfUnsupported(provider, "logout");
+		if (unsupported) return unsupported;
+		if (!this.oauthOperations?.logout) {
+			return this.error(
+				"oauth_logout_unavailable",
+				`OAuth logout is not configured for provider '${providerId}'.`,
+			);
+		}
+
+		try {
+			await this.oauthOperations.logout(providerId);
+		} catch (error) {
+			return this.error(
+				"oauth_logout_failed",
+				error instanceof Error ? error.message : String(error),
+			);
+		}
+
+		delete this.initialValidationErrors[providerId];
+		this.clearProviderRuntimeState(providerId);
 		return this.emitUpdatedSnapshot();
 	}
 
@@ -424,6 +542,7 @@ export class SettingsControlPlane {
 		provider.enabled = enabled;
 		provider.updatedAt = this.now();
 		if (enabled) {
+			delete provider.disabledReason;
 			const validation = await this.getValidationResult(provider);
 			if (validation.errors.length > 0) {
 				return this.error(
@@ -439,6 +558,7 @@ export class SettingsControlPlane {
 				next.agentModelOverrides,
 				providerId,
 			);
+			delete provider.disabledReason;
 		}
 
 		return this.persistSettings(next, [providerId], true);
@@ -657,12 +777,14 @@ export class SettingsControlPlane {
 		const effectiveSettings = applyModelConfigOverrides(this.settings, this.modelOverrides);
 		const modelOverrideSnapshot = buildModelConfigOverrideSnapshot(this.modelOverrides, catalog);
 		for (const provider of this.settings.providers) {
-			const hasSecret = await this.providerHasSecret(provider);
+			const credentialStatus = await this.providerCredentialStatus(provider);
+			const hasSecret = credentialStatusHasSecret(credentialStatus);
 			const validation = await this.getValidationResult(provider, hasSecret);
 			const state = this.getOrCreateProviderState(provider.id);
 			providers.push({
 				providerId: provider.id,
 				hasSecret,
+				credentialStatus,
 				validationErrors: validation.errors,
 				connectionStatus: state.connectionStatus,
 				connectionError: state.connectionError,
@@ -726,9 +848,49 @@ export class SettingsControlPlane {
 	private async providerHasSecret(provider: ProviderConfig): Promise<boolean> {
 		if (!providerRequiresSecret(provider)) return false;
 		if (!this.secretBackendState.available) return false;
+		if (providerSupportsSecretKind(provider.kind, "oauth") && this.oauthOperations?.status) {
+			const status = await this.oauthOperations.status(provider.id);
+			return status.signedIn;
+		}
 		const refs = this.providerCredentialRefs(provider);
 		if (refs.length === 0) return false;
 		return (await Promise.all(refs.map((ref) => this.secretStore.hasSecret(ref)))).every(Boolean);
+	}
+
+	private async providerCredentialStatus(
+		provider: ProviderConfig,
+	): Promise<ProviderCredentialStatus> {
+		if (!providerRequiresSecret(provider)) return { kind: "none" };
+		if (providerSupportsSecretKind(provider.kind, "oauth")) {
+			if (this.oauthOperations?.status) {
+				const status = await this.oauthOperations.status(provider.id);
+				return {
+					kind: "oauth",
+					signedIn: status.signedIn,
+					...("accountId" in status && status.accountId !== undefined
+						? { accountId: status.accountId }
+						: {}),
+					...("email" in status && status.email !== undefined ? { email: status.email } : {}),
+					...("expiresAt" in status && status.expiresAt !== undefined
+						? { expiresAt: status.expiresAt }
+						: {}),
+				};
+			}
+			const oauthRef = this.providerCredentialRefs(provider).find(
+				(ref) => ref.secretKind === "oauth",
+			);
+			return {
+				kind: "oauth",
+				signedIn:
+					this.secretBackendState.available && oauthRef
+						? await this.secretStore.hasSecret(oauthRef)
+						: false,
+			};
+		}
+		if (providerSupportsSecretKind(provider.kind, "api-key")) {
+			return { kind: "api-key", present: await this.providerHasSecret(provider) };
+		}
+		return { kind: "none" };
 	}
 
 	private async getProviderSecret(provider: ProviderConfig): Promise<string | undefined> {
@@ -749,6 +911,52 @@ export class SettingsControlPlane {
 		if (providerSupportsSecretKind(provider.kind, "api-key")) return undefined;
 		const message = unsupportedGenericSecretMessage(provider.kind);
 		return this.error("unsupported_provider_auth", message, { secret: message });
+	}
+
+	private rejectOAuthCommandIfUnsupported(
+		provider: ProviderConfig,
+		action: "login" | "logout",
+	): SettingsCommandResult | undefined {
+		if (providerSupportsSecretKind(provider.kind, "oauth")) return undefined;
+		const message = `Provider '${provider.id}' does not support OAuth ${action}.`;
+		return this.error("unsupported_provider_auth", message, { providerId: message });
+	}
+
+	private async deleteProviderCredentials(
+		provider: ProviderConfig,
+	): Promise<{ ok: boolean; failedRefs: ProviderSecretKind[] }> {
+		const expectedCredentialKinds = this.providerCredentialRefs(provider).map(
+			(ref) => ref.secretKind,
+		);
+		if (
+			providerSupportsSecretKind(provider.kind, "oauth") &&
+			this.oauthOperations?.deleteCredentials
+		) {
+			const result = await this.oauthOperations.deleteCredentials(provider.id);
+			return {
+				ok: result.ok,
+				failedRefs: safeFailedCredentialRefs(result.failedRefs, expectedCredentialKinds),
+			};
+		}
+
+		const failedRefs: ProviderSecretKind[] = [];
+		for (const ref of this.providerCredentialRefs(provider)) {
+			try {
+				await this.secretStore.deleteSecret(ref);
+			} catch {
+				try {
+					if (await this.secretStore.hasSecret(ref)) {
+						failedRefs.push(ref.secretKind);
+					}
+				} catch {
+					failedRefs.push(ref.secretKind);
+				}
+			}
+		}
+		return {
+			ok: failedRefs.length === 0,
+			failedRefs: safeFailedCredentialRefs(failedRefs, expectedCredentialKinds),
+		};
 	}
 
 	private async getValidationResult(
@@ -863,10 +1071,6 @@ export class SettingsControlPlane {
 		);
 	}
 
-	private addRuntimeWarning(warning: SettingsRuntimeWarning): void {
-		this.runtimeWarnings = dedupeWarnings([...this.runtimeWarnings, warning]);
-	}
-
 	private getOrCreateProviderState(providerId: string): StatusState {
 		const existing = this.providerState.get(providerId);
 		if (existing) return existing;
@@ -885,8 +1089,28 @@ export class SettingsControlPlane {
 		}
 	}
 
+	private clearProviderRuntimeState(providerId: string): void {
+		this.providerCatalog.delete(providerId);
+		this.providerState.set(providerId, {
+			connectionStatus: "unknown",
+			catalogStatus: "never-loaded",
+		});
+	}
+
 	private ok(snapshot: SettingsSnapshot): SettingsCommandResult {
 		return { ok: true, snapshot };
+	}
+
+	private async failureWithSnapshot(
+		code: string,
+		message: string,
+		fieldErrors?: Record<string, string>,
+	): Promise<SettingsCommandResult> {
+		const snapshot = await this.buildSnapshot();
+		await this.onSettingsUpdated?.(snapshot);
+		return fieldErrors && Object.keys(fieldErrors).length > 0
+			? { ok: false, code, message, fieldErrors, snapshot }
+			: { ok: false, code, message, snapshot };
 	}
 
 	private error(
@@ -913,6 +1137,59 @@ function unsupportedGenericSecretMessage(kind: ProviderConfig["kind"]): string {
 		return "OpenAI Codex uses ChatGPT OAuth. Generic provider secret commands are not supported.";
 	}
 	return `Provider kind '${kind}' does not support generic provider secret commands.`;
+}
+
+function credentialStatusHasSecret(status: ProviderCredentialStatus): boolean {
+	switch (status.kind) {
+		case "none":
+			return false;
+		case "api-key":
+			return status.present;
+		case "oauth":
+			return status.signedIn;
+	}
+}
+
+function removeProviderFromSettings(settings: SproutSettings, providerId: string): SproutSettings {
+	const next = structuredClone(settings);
+	const providerIndex = next.providers.findIndex((provider) => provider.id === providerId);
+	if (providerIndex === -1) return next;
+	next.providers.splice(providerIndex, 1);
+	next.defaults = removeDefaultsForProvider(next.defaults, providerId);
+	next.memoryModels = removeMemoryModelsForProvider(next.memoryModels, providerId);
+	next.agentModelOverrides = removeAgentModelOverridesForProvider(
+		next.agentModelOverrides,
+		providerId,
+	);
+	return next;
+}
+
+function markProviderCredentialCleanupFailed(
+	settings: SproutSettings,
+	providerId: string,
+	options: { now: string },
+): SproutSettings {
+	const next = structuredClone(settings);
+	const provider = next.providers.find((candidate) => candidate.id === providerId);
+	if (!provider) return next;
+	provider.enabled = false;
+	provider.disabledReason = "credential-cleanup-failed";
+	provider.updatedAt = options.now;
+	next.defaults = removeDefaultsForProvider(next.defaults, providerId);
+	next.memoryModels = removeMemoryModelsForProvider(next.memoryModels, providerId);
+	next.agentModelOverrides = removeAgentModelOverridesForProvider(
+		next.agentModelOverrides,
+		providerId,
+	);
+	return next;
+}
+
+function safeFailedCredentialRefs(
+	failedRefs: ProviderSecretKind[],
+	expectedRefs: ProviderSecretKind[],
+): ProviderSecretKind[] {
+	const expected = new Set(expectedRefs);
+	return [...new Set(failedRefs.filter((ref) => expected.has(ref)))].sort();
 }
 
 function removeDefaultsForProvider(
@@ -962,13 +1239,4 @@ function missingConfiguredMemoryModels(
 ): MemoryModelPurpose[] {
 	if (!settings.providers.some((provider) => provider.enabled)) return [];
 	return MEMORY_MODEL_PURPOSES.filter((purpose) => !settings.memoryModels[purpose]);
-}
-
-function dedupeWarnings(warnings: SettingsRuntimeWarning[]): SettingsRuntimeWarning[] {
-	return warnings.filter(
-		(warning, index, all) =>
-			all.findIndex(
-				(candidate) => candidate.code === warning.code && candidate.message === warning.message,
-			) === index,
-	);
 }

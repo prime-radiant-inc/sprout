@@ -80,6 +80,7 @@ function makeSettings(): SettingsSnapshot {
 			{
 				providerId: "anthropic-main",
 				hasSecret: true,
+				credentialStatus: { kind: "api-key", present: true },
 				validationErrors: ["Unsupported secret backend"],
 				connectionStatus: "error",
 				connectionError: "Auth failed",
@@ -89,6 +90,7 @@ function makeSettings(): SettingsSnapshot {
 			{
 				providerId: "lmstudio",
 				hasSecret: false,
+				credentialStatus: { kind: "none" },
 				validationErrors: [],
 				connectionStatus: "unknown",
 				catalogStatus: "current",
@@ -298,6 +300,7 @@ describe("ProviderSettingsPanel", () => {
 				status={{
 					providerId: "openai-codex",
 					hasSecret: false,
+					credentialStatus: { kind: "oauth", signedIn: false },
 					validationErrors: ["ChatGPT OAuth login is required for OpenAI Codex"],
 					connectionStatus: "unknown",
 					catalogStatus: "never-loaded",

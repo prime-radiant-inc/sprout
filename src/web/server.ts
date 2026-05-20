@@ -520,6 +520,9 @@ export class WebServer {
 			kind === "create_provider" ||
 			kind === "update_provider" ||
 			kind === "delete_provider" ||
+			kind === "login_provider_oauth" ||
+			kind === "logout_provider_oauth" ||
+			kind === "retry_provider_delete" ||
 			kind === "set_provider_secret" ||
 			kind === "delete_provider_secret" ||
 			kind === "set_provider_enabled" ||

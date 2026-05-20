@@ -623,6 +623,7 @@ describe("WebServer", () => {
 					{
 						providerId: "openrouter-main",
 						hasSecret: true,
+						credentialStatus: { kind: "api-key", present: true },
 						validationErrors: [],
 						connectionStatus: "ok",
 						catalogStatus: "current",
@@ -720,6 +721,7 @@ describe("WebServer", () => {
 					{
 						providerId: "openrouter-main",
 						hasSecret: true,
+						credentialStatus: { kind: "api-key", present: true },
 						validationErrors: [],
 						connectionStatus: "ok",
 						catalogStatus: "current",

@@ -175,6 +175,9 @@ describe("canonical protocol module", () => {
 				},
 			},
 			{ kind: "delete_provider", data: { providerId: "openrouter-main" } },
+			{ kind: "login_provider_oauth", data: { providerId: "openai-codex" } },
+			{ kind: "logout_provider_oauth", data: { providerId: "openai-codex" } },
+			{ kind: "retry_provider_delete", data: { providerId: "openai-codex" } },
 			{
 				kind: "set_provider_secret",
 				data: { providerId: "openrouter-main", secret: "sk-test" },

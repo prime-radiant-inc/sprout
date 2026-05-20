@@ -80,6 +80,7 @@ function makeSettings(): SettingsSnapshot {
 			{
 				providerId: "anthropic-main",
 				hasSecret: true,
+				credentialStatus: { kind: "api-key", present: true },
 				validationErrors: [],
 				connectionStatus: "ok",
 				catalogStatus: "current",
@@ -87,6 +88,7 @@ function makeSettings(): SettingsSnapshot {
 			{
 				providerId: "openrouter-main",
 				hasSecret: true,
+				credentialStatus: { kind: "api-key", present: true },
 				validationErrors: [],
 				connectionStatus: "ok",
 				catalogStatus: "current",

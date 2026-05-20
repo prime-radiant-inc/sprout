@@ -60,6 +60,7 @@ export function makeSettingsSnapshot(): SettingsSnapshot {
 			{
 				providerId: "anthropic-main",
 				hasSecret: true,
+				credentialStatus: { kind: "api-key", present: true },
 				validationErrors: ["Unsupported secret backend"],
 				connectionStatus: "error",
 				connectionError: "Auth failed",
@@ -69,6 +70,7 @@ export function makeSettingsSnapshot(): SettingsSnapshot {
 			{
 				providerId: "lmstudio",
 				hasSecret: false,
+				credentialStatus: { kind: "none" },
 				validationErrors: [],
 				connectionStatus: "ok",
 				catalogStatus: "current",

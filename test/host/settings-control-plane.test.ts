@@ -49,6 +49,7 @@ async function makePlane(
 		onSettingsUpdated?: (snapshot: SettingsSnapshot) => void;
 		checkConnection?: ConstructorParameters<typeof SettingsControlPlane>[0]["checkConnection"];
 		refreshModels?: ConstructorParameters<typeof SettingsControlPlane>[0]["refreshModels"];
+		oauthOperations?: ConstructorParameters<typeof SettingsControlPlane>[0]["oauthOperations"];
 		loadAgentModelCatalog?: ConstructorParameters<
 			typeof SettingsControlPlane
 		>[0]["loadAgentModelCatalog"];
@@ -77,6 +78,7 @@ async function makePlane(
 		onSettingsUpdated: options.onSettingsUpdated,
 		checkConnection: options.checkConnection,
 		refreshModels: options.refreshModels,
+		oauthOperations: options.oauthOperations,
 		loadAgentModelCatalog:
 			options.loadAgentModelCatalog ??
 			(() => [
@@ -447,6 +449,231 @@ describe("SettingsControlPlane", () => {
 		});
 
 		expect(result).toMatchObject({ ok: true });
+		expect(await secretStore.hasSecret(oauthRef)).toBe(false);
+	});
+
+	test("OpenAI Codex snapshots expose OAuth credential status", async () => {
+		const plane = await makePlane({
+			oauthOperations: {
+				async status(providerId) {
+					expect(providerId).toBe("openai-codex");
+					return {
+						signedIn: true,
+						accountId: "acct_123",
+						email: "jesse@example.com",
+						expiresAt: "2026-03-11T13:34:56.000Z",
+					};
+				},
+			},
+			initialSettings: {
+				version: 4,
+				providers: [
+					{
+						id: "openai-codex",
+						kind: "openai-codex",
+						label: "OpenAI Codex",
+						enabled: true,
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {},
+				memoryModels: {},
+				agentModelOverrides: {},
+			},
+		});
+
+		const result = await plane.execute({ kind: "get_settings", data: {} });
+
+		expect(result).toMatchObject({
+			ok: true,
+			snapshot: {
+				providers: [
+					{
+						providerId: "openai-codex",
+						credentialStatus: {
+							kind: "oauth",
+							signedIn: true,
+							accountId: "acct_123",
+							email: "jesse@example.com",
+							expiresAt: "2026-03-11T13:34:56.000Z",
+						},
+					},
+				],
+			},
+		});
+	});
+
+	test("login provider oauth is only available for OAuth providers", async () => {
+		const loginProviderIds: string[] = [];
+		const plane = await makePlane({
+			oauthOperations: {
+				async login(providerId) {
+					loginProviderIds.push(providerId);
+				},
+			},
+			initialSettings: {
+				version: 4,
+				providers: [
+					{
+						id: "openai",
+						kind: "openai",
+						label: "OpenAI",
+						enabled: true,
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+					{
+						id: "openai-codex",
+						kind: "openai-codex",
+						label: "OpenAI Codex",
+						enabled: true,
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {},
+				memoryModels: {},
+				agentModelOverrides: {},
+			},
+		});
+
+		const unsupported = await plane.execute({
+			kind: "login_provider_oauth",
+			data: { providerId: "openai" },
+		});
+		const supported = await plane.execute({
+			kind: "login_provider_oauth",
+			data: { providerId: "openai-codex" },
+		});
+
+		expect(unsupported).toEqual({
+			ok: false,
+			code: "unsupported_provider_auth",
+			message: "Provider 'openai' does not support OAuth login.",
+			fieldErrors: {
+				providerId: "Provider 'openai' does not support OAuth login.",
+			},
+		});
+		expect(supported).toMatchObject({ ok: true });
+		expect(loginProviderIds).toEqual(["openai-codex"]);
+	});
+
+	test("login provider oauth returns a clear error when no login operation is configured", async () => {
+		const plane = await makePlane({
+			initialSettings: {
+				version: 4,
+				providers: [
+					{
+						id: "openai-codex",
+						kind: "openai-codex",
+						label: "OpenAI Codex",
+						enabled: true,
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {},
+				memoryModels: {},
+				agentModelOverrides: {},
+			},
+		});
+
+		const result = await plane.execute({
+			kind: "login_provider_oauth",
+			data: { providerId: "openai-codex" },
+		});
+
+		expect(result).toEqual({
+			ok: false,
+			code: "oauth_login_unavailable",
+			message: "OAuth login is not configured for provider 'openai-codex'.",
+		});
+	});
+
+	test("logout provider oauth clears OAuth status and cached Codex models", async () => {
+		const secretStore = createSecretStore({ backend: "memory", platform: "darwin" });
+		const oauthRef = createProviderCredentialRef("openai-codex", "oauth", "memory");
+		await secretStore.setSecret(oauthRef, "oauth-secret");
+		const logoutProviderIds: string[] = [];
+		const plane = await makePlane({
+			secretStore,
+			initialValidationErrors: {
+				"openai-codex": ["startup validation failed"],
+			},
+			oauthOperations: {
+				async status(providerId) {
+					return {
+						signedIn: await secretStore.hasSecret(
+							createProviderCredentialRef(providerId, "oauth", "memory"),
+						),
+						accountId: "acct_123",
+					};
+				},
+				async logout(providerId) {
+					logoutProviderIds.push(providerId);
+					await secretStore.deleteSecret(
+						createProviderCredentialRef(providerId, "oauth", "memory"),
+					);
+				},
+			},
+			initialCatalog: [
+				{
+					providerId: "openai-codex",
+					models: [{ id: "codex-mini", label: "Codex Mini", source: "remote" }],
+				},
+			],
+			initialSettings: {
+				version: 4,
+				providers: [
+					{
+						id: "openai-codex",
+						kind: "openai-codex",
+						label: "OpenAI Codex",
+						enabled: true,
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {
+					fast: {
+						providerId: "openai-codex",
+						modelId: "codex-mini",
+					},
+				},
+				memoryModels: {},
+				agentModelOverrides: {},
+			},
+		});
+
+		const result = await plane.execute({
+			kind: "logout_provider_oauth",
+			data: { providerId: "openai-codex" },
+		});
+
+		expect(result).toMatchObject({
+			ok: true,
+			snapshot: {
+				providers: [
+					{
+						providerId: "openai-codex",
+						credentialStatus: {
+							kind: "oauth",
+							signedIn: false,
+						},
+						validationErrors: ["ChatGPT OAuth login is required for OpenAI Codex"],
+						catalogStatus: "never-loaded",
+					},
+				],
+				catalog: [
+					{
+						providerId: "openai-codex",
+						models: [],
+					},
+				],
+			},
+		});
+		expect(logoutProviderIds).toEqual(["openai-codex"]);
 		expect(await secretStore.hasSecret(oauthRef)).toBe(false);
 	});
 
@@ -1494,27 +1721,154 @@ describe("SettingsControlPlane", () => {
 		expect(await secretStore.hasSecret(createProviderSecretRef("openai", "memory"))).toBe(true);
 	});
 
-	test("surfaces provider secret cleanup failures as runtime warnings", async () => {
+	test("provider delete partial credential cleanup failure keeps provider disabled for retry", async () => {
+		const deleteAttempts: string[] = [];
 		const plane = await makePlane({
-			secretStore: {
-				async getSecret() {
-					return "openai-secret";
-				},
-				async setSecret() {},
-				async deleteSecret() {
-					throw new Error("keychain unavailable");
-				},
-				async hasSecret() {
-					return true;
+			oauthOperations: {
+				async deleteCredentials(providerId) {
+					deleteAttempts.push(providerId);
+					return { ok: false, failedRefs: ["oauth"] };
 				},
 			},
+			initialCatalog: [
+				{
+					providerId: "openai-codex",
+					models: [{ id: "codex-mini", label: "Codex Mini", source: "remote" }],
+				},
+			],
 			initialSettings: {
 				version: 4,
 				providers: [
 					{
-						id: "openai",
-						kind: "openai",
-						label: "OpenAI",
+						id: "openai-codex",
+						kind: "openai-codex",
+						label: "OpenAI Codex",
+						enabled: true,
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {
+					fast: {
+						providerId: "openai-codex",
+						modelId: "codex-mini",
+					},
+				},
+				memoryModels: {
+					extraction: {
+						providerId: "openai-codex",
+						modelId: "codex-mini",
+					},
+				},
+				agentModelOverrides: {
+					metacognitive: {
+						kind: "model",
+						model: {
+							providerId: "openai-codex",
+							modelId: "codex-mini",
+						},
+					},
+				},
+			},
+		});
+
+		const result = await plane.execute({
+			kind: "delete_provider",
+			data: { providerId: "openai-codex" },
+		});
+
+		expect(result).toMatchObject({
+			ok: false,
+			code: "credential_cleanup_failed",
+			message: "Failed to delete provider credentials: oauth",
+			snapshot: {
+				settings: {
+					providers: [
+						{
+							id: "openai-codex",
+							enabled: false,
+							disabledReason: "credential-cleanup-failed",
+						},
+					],
+					defaults: {},
+					memoryModels: {},
+					agentModelOverrides: {},
+				},
+				catalog: [
+					{
+						providerId: "openai-codex",
+						models: [],
+					},
+				],
+			},
+			fieldErrors: {
+				credentials: "Failed credential cleanup for: oauth",
+			},
+		});
+		expect(deleteAttempts).toEqual(["openai-codex"]);
+		expect(JSON.stringify(result)).not.toContain("sprout/providers");
+	});
+
+	test("retry provider delete removes provider after idempotent cleanup succeeds", async () => {
+		const deleteAttempts: string[] = [];
+		const plane = await makePlane({
+			oauthOperations: {
+				async deleteCredentials(providerId) {
+					deleteAttempts.push(providerId);
+					return { ok: true, failedRefs: [] };
+				},
+			},
+			initialCatalog: [
+				{
+					providerId: "openai-codex",
+					models: [{ id: "codex-mini", label: "Codex Mini", source: "remote" }],
+				},
+			],
+			initialSettings: {
+				version: 4,
+				providers: [
+					{
+						id: "openai-codex",
+						kind: "openai-codex",
+						label: "OpenAI Codex",
+						enabled: false,
+						disabledReason: "credential-cleanup-failed",
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {},
+				memoryModels: {},
+				agentModelOverrides: {},
+			},
+		});
+
+		const result = await plane.execute({
+			kind: "retry_provider_delete",
+			data: { providerId: "openai-codex" },
+		});
+
+		expect(result).toMatchObject({
+			ok: true,
+			snapshot: {
+				settings: {
+					providers: [],
+				},
+				catalog: [],
+			},
+		});
+		expect(deleteAttempts).toEqual(["openai-codex"]);
+	});
+
+	test("retry provider delete rejects providers that are not waiting for cleanup retry", async () => {
+		const plane = await makePlane({
+			initialSettings: {
+				version: 4,
+				providers: [
+					{
+						id: "openai-codex",
+						kind: "openai-codex",
+						label: "OpenAI Codex",
 						enabled: true,
 						createdAt: "2026-03-11T12:00:00.000Z",
 						updatedAt: "2026-03-11T12:00:00.000Z",
@@ -1527,22 +1881,16 @@ describe("SettingsControlPlane", () => {
 		});
 
 		const result = await plane.execute({
-			kind: "delete_provider",
-			data: { providerId: "openai" },
+			kind: "retry_provider_delete",
+			data: { providerId: "openai-codex" },
 		});
 
-		expect(result).toMatchObject({
-			ok: true,
-			snapshot: {
-				runtime: {
-					warnings: [
-						{
-							code: "secret_cleanup_failed",
-							message:
-								"Deleted provider 'openai' from settings, but failed to remove its stored secret: keychain unavailable",
-						},
-					],
-				},
+		expect(result).toEqual({
+			ok: false,
+			code: "validation_failed",
+			message: "Provider 'openai-codex' is not waiting for credential cleanup retry.",
+			fieldErrors: {
+				providerId: "Provider is not waiting for credential cleanup retry.",
 			},
 		});
 	});

@@ -69,6 +69,9 @@ const VALID_COMMAND_KINDS = new Set([
 	"create_provider",
 	"update_provider",
 	"delete_provider",
+	"login_provider_oauth",
+	"logout_provider_oauth",
+	"retry_provider_delete",
 	"set_provider_secret",
 	"delete_provider_secret",
 	"set_provider_enabled",
@@ -83,6 +86,9 @@ const SETTINGS_COMMAND_KINDS = new Set([
 	"create_provider",
 	"update_provider",
 	"delete_provider",
+	"login_provider_oauth",
+	"logout_provider_oauth",
+	"retry_provider_delete",
 	"set_provider_secret",
 	"delete_provider_secret",
 	"set_provider_enabled",
@@ -183,6 +189,9 @@ function validateSettingsCommand(kind: string, data: Record<string, unknown>): v
 			return;
 		}
 		case "delete_provider":
+		case "login_provider_oauth":
+		case "logout_provider_oauth":
+		case "retry_provider_delete":
 		case "delete_provider_secret":
 		case "test_provider_connection":
 		case "refresh_provider_models":

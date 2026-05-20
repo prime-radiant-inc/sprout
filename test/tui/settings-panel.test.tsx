@@ -214,6 +214,7 @@ describe("SettingsPanel", () => {
 			{
 				providerId: "openrouter-main",
 				hasSecret: false,
+				credentialStatus: { kind: "api-key", present: false },
 				validationErrors: [],
 				connectionStatus: "unknown",
 				catalogStatus: "never-loaded",
