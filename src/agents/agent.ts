@@ -370,7 +370,7 @@ export class Agent {
 				this.subcorticalMemoryModel = resolveMemoryModel("subcortical", resolverSettings, modelMap);
 			} catch (error) {
 				throw new Error(
-					`Agent '${this.spec.name}' has subcortical_recall enabled but memory model 'subcortical' is not configured: ${
+					`Agent '${this.spec.name}' has subcortical_recall enabled but no subcortical memory model or fast fallback is configured: ${
 						error instanceof Error ? error.message : String(error)
 					}`,
 				);
@@ -637,7 +637,7 @@ export class Agent {
 		const model = this.subcorticalMemoryModel;
 		if (!model) {
 			throw new Error(
-				`Agent '${this.spec.name}' has subcortical_recall enabled but memory model 'subcortical' is not configured`,
+				`Agent '${this.spec.name}' has subcortical_recall enabled but no subcortical memory model or fast fallback is configured`,
 			);
 		}
 		return {

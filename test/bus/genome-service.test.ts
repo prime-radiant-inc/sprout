@@ -690,7 +690,7 @@ describe("GenomeMutationService", () => {
 		expect(genome.memories.all()).toHaveLength(0);
 	}, 10_000);
 
-	test("publishes an error for signal requests without a configured extraction model", async () => {
+	test("publishes an error for signal requests without an extraction model fallback", async () => {
 		replaceService({
 			client: makeMockClient(["[]"]),
 			signalEvidenceWaitMs: 0,
@@ -709,11 +709,11 @@ describe("GenomeMutationService", () => {
 		expect(confirmation.request_id).toBe("req-signal-missing-extraction-model");
 		expect(confirmation.mutation_type).toBe("learn_signal");
 		expect(confirmation.success).toBe(false);
-		expect(confirmation.error).toContain("No memory 'extraction' model is configured");
+		expect(confirmation.error).toContain("No global 'balanced' model is configured");
 		expect(genome.memories.all()).toHaveLength(0);
 	}, 10_000);
 
-	test("publishes an error for signal requests without a configured relationship model", async () => {
+	test("publishes an error for signal requests without a relationship model fallback", async () => {
 		replaceService({
 			client: makeMockClient(["[]"]),
 			resolverSettings: extractionOnlyResolverSettings(),
@@ -733,7 +733,7 @@ describe("GenomeMutationService", () => {
 		expect(confirmation.request_id).toBe("req-signal-missing-relationship-model");
 		expect(confirmation.mutation_type).toBe("learn_signal");
 		expect(confirmation.success).toBe(false);
-		expect(confirmation.error).toContain("No memory 'relationship' model is configured");
+		expect(confirmation.error).toContain("No global 'fast' model is configured");
 		expect(genome.memories.all()).toHaveLength(0);
 	}, 10_000);
 

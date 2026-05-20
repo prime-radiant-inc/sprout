@@ -69,6 +69,30 @@ export const MEMORY_MODEL_LABELS: Record<MemoryModelPurpose, string> = {
 	subcortical: "Subcortical recall",
 };
 
+export const MEMORY_MODEL_DEFAULT_TIERS: Record<MemoryModelPurpose, Tier> = {
+	summary: "best",
+	extraction: "balanced",
+	relationship: "fast",
+	consolidation: "balanced",
+	entityGc: "fast",
+	subcortical: "fast",
+};
+
+export const MEMORY_MODEL_DESCRIPTIONS: Record<MemoryModelPurpose, string> = {
+	summary:
+		"Collapses completed sessions into durable segment summaries, titles, precis, and complexity scores.",
+	extraction:
+		"Extracts durable project memories from collapse, learn, and bus evidence before anything is written.",
+	relationship:
+		"Classifies candidate memory pairs as semantic links such as refines, supersedes, conflicts, or unrelated.",
+	consolidation:
+		"Reviews similar memory clusters and proposes conservative merges while preserving distinct facts.",
+	entityGc:
+		"Reviews entity alias groups and decides which duplicate names should merge or stay separate.",
+	subcortical:
+		"Runs the cheap pre-recall pass: expands the search query, extracts entity hints, and keeps pinned memories.",
+};
+
 export interface ModelRef {
 	providerId: string;
 	modelId: string;

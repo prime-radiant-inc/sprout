@@ -1397,7 +1397,7 @@ describe("SettingsControlPlane", () => {
 		expect(payload).not.toContain("token_secret");
 	});
 
-	test("warns when enabled providers exist without explicit memory models", async () => {
+	test("warns when enabled providers exist without exact memory models or fallback tiers", async () => {
 		const plane = await makePlane({
 			initialSettings: {
 				version: 4,
@@ -1432,12 +1432,55 @@ describe("SettingsControlPlane", () => {
 						{
 							code: "memory_models_incomplete",
 							message:
-								"Memory model settings incomplete. Configure exact models for: summary, extraction, relationship, consolidation, entityGc, subcortical",
+								"Memory model settings incomplete. Configure exact models or fallback tiers for: summary, extraction, consolidation",
 						},
 					],
 				},
 			},
 		});
+	});
+
+	test("does not warn when global fallback tiers cover internal memory models", async () => {
+		const plane = await makePlane({
+			initialSettings: {
+				version: 4,
+				providers: [
+					{
+						id: "anthropic",
+						kind: "anthropic",
+						label: "Anthropic",
+						enabled: true,
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {
+					best: {
+						providerId: "anthropic",
+						modelId: "claude-opus-4-6",
+					},
+					balanced: {
+						providerId: "anthropic",
+						modelId: "claude-sonnet-4-6",
+					},
+					fast: {
+						providerId: "anthropic",
+						modelId: "claude-haiku-4-5",
+					},
+				},
+				memoryModels: {},
+				agentModelOverrides: {},
+			},
+		});
+
+		const result = await plane.execute({ kind: "get_settings", data: {} });
+
+		if (!result.ok) throw new Error(result.message);
+		expect(
+			result.snapshot.runtime.warnings.some(
+				(warning) => warning.code === "memory_models_incomplete",
+			),
+		).toBe(false);
 	});
 
 	test("does not warn about internal models covered by env overrides", async () => {

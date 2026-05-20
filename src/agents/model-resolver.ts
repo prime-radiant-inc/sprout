@@ -10,6 +10,7 @@ import type {
 	ProviderConfig,
 	Tier,
 } from "../shared/provider-settings.ts";
+import { MEMORY_MODEL_DEFAULT_TIERS } from "../shared/provider-settings.ts";
 
 export interface ResolvedModel {
 	model: string;
@@ -94,7 +95,7 @@ export function resolveMemoryModel(
 ): ResolvedModel {
 	const modelRef = settings.memoryModels[purpose];
 	if (!modelRef) {
-		throw new Error(`No memory '${purpose}' model is configured`);
+		return resolveTier(MEMORY_MODEL_DEFAULT_TIERS[purpose], settings, toCatalogMap(catalog));
 	}
 	return resolveExplicitModelRef(modelRef, settings, toCatalogMap(catalog));
 }

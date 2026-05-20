@@ -13,20 +13,20 @@ Roborev design review:
 
 ## Objective
 
-Make every hidden MIRA memory LLM call resolve an exact provider/model from
-Sprout settings, with env vars only as explicit runtime overrides. Expose stored
-memory model settings and env overrides in the web config UI. Preserve existing
-global model defaults, session model selection, local embeddings, and no-fallback
-memory behavior.
+Make every memory-system LLM call resolve either an exact provider/model from
+Sprout settings or the purpose's fallback global tier, with env vars only as
+explicit runtime overrides. Expose stored memory model settings and env
+overrides in the web config UI. Preserve existing global model defaults, session
+model selection, and local embeddings.
 
 ## Ground Rules
 
-- No hidden fallback from memory purposes to `best`, `balanced`, `fast`, current
-  agent model, first provider, or first model.
+- Memory purposes fall back only to their documented global tier. They do not
+  fall back to the current agent model, first provider, or first model.
 - Stored model config lives in `SproutSettings`.
 - Env model vars are overlays only after a settings file exists.
-- Missing memory purposes do not block startup; the corresponding feature fails
-  clearly when invoked.
+- Missing memory purposes do not block startup. If the purpose's fallback tier
+  is also missing, the corresponding feature fails clearly when invoked.
 - Local embeddings stay fixed to the existing local adapter.
 - Keep low-level memory modules testable with explicit model/provider injection,
   but route production call sites through the settings-backed resolver.
@@ -134,7 +134,8 @@ Tasks:
 - Add `memoryModels` to `ResolverSettings`.
 - Update `createResolverSettings()` to accept defaults and memory models.
 - Add `resolveMemoryModel(purpose, settings, catalog)`.
-- Ensure `resolveMemoryModel()` never consults global defaults.
+- Ensure `resolveMemoryModel()` uses the configured exact memory model first,
+  then the purpose's fallback global tier.
 - Ensure `resolveModel()` behavior for user-facing models is unchanged.
 - Update session/bootstrap resolver context to carry effective memory models.
 - Update child/spawner resolver settings types where they cross process
@@ -143,11 +144,14 @@ Tasks:
 Tests:
 
 - Every memory purpose resolves its configured provider/model.
-- Missing purpose throws `No memory '<purpose>' model is configured`.
+- Missing purpose resolves through its fallback tier.
+- Missing purpose and missing fallback tier throw the existing global tier
+  configuration error.
 - Unknown/disabled provider throws.
 - Populated catalog missing model throws at resolution time.
 - Empty catalog allows exact model refs.
-- Populated global defaults do not affect memory resolution.
+- Populated global defaults affect memory resolution only through the documented
+  fallback tier mapping.
 - Existing `/model`, tier, and exact-session selection tests remain unchanged.
 
 Commit target:
@@ -385,4 +389,3 @@ Commit target:
 - Do not let optional unset purposes turn into startup blockers. They should be
   visible and actionable in settings, then fail only when the corresponding
   feature tries to call an LLM.
-

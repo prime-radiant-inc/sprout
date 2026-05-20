@@ -236,7 +236,7 @@ describe("ProviderSettingsPanel", () => {
 
 		expect(html).toContain("Model assignments");
 		expect(html).toContain("Global tiers");
-		expect(html).toContain("Memory calls");
+		expect(html).toContain("Memory system models");
 		expect(html).toContain("Agent types");
 		expect(html).not.toContain("Default models");
 		expect(html).not.toContain("Memory models");
@@ -453,14 +453,24 @@ describe("ModelsPanel", () => {
 
 		expect(html).toContain("Model assignments");
 		expect(html).toContain("Global tiers");
-		expect(html).toContain("Memory calls");
+		expect(html).toContain("Memory system models");
 		expect(html).toContain("Agent types");
 		expect(html).toContain("Best");
 		expect(html).toContain("Balanced");
 		expect(html).toContain("Fast");
+		expect(html).toContain("Memory system models");
 		expect(html).toContain("Memory extraction");
+		expect(html).toContain(
+			"Extracts durable project memories from collapse, learn, and bus evidence before anything is written.",
+		);
 		expect(html).toContain("Relationship classifier");
+		expect(html).toContain(
+			"Classifies candidate memory pairs as semantic links such as refines, supersedes, conflicts, or unrelated.",
+		);
 		expect(html).toContain("Subcortical recall");
+		expect(html).toContain(
+			"Runs the cheap pre-recall pass: expands the search query, extracts entity hints, and keeps pinned memories.",
+		);
 		expect(html).toContain("metacognitive");
 		expect(html).toContain("Claude Opus 4.6");
 		expect(html).toContain("Qwen 2.5 Coder");

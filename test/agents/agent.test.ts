@@ -463,13 +463,17 @@ describe("Agent", () => {
 		expect(requests[0]?.max_tokens).toBe(123);
 	});
 
-	test("subcortical recall requires an explicit subcortical memory model", () => {
+	test("subcortical recall requires a subcortical memory model or fast fallback", () => {
 		const env = new LocalExecutionEnvironment(tmpdir());
 
 		expect(
 			() =>
 				new Agent({
-					spec: { ...leafSpec, subcortical_recall: true },
+					spec: {
+						...leafSpec,
+						model: "anthropic:claude-haiku-4-5-20251001",
+						subcortical_recall: true,
+					},
 					env,
 					client: {
 						providers: () => ["anthropic"],
@@ -480,13 +484,14 @@ describe("Agent", () => {
 					} as unknown as Client,
 					primitiveRegistry: createPrimitiveRegistry(env),
 					availableAgents: [],
+					resolverSettings: createResolverSettings([{ id: "anthropic", enabled: true }]),
 					genome: {
 						allAgents: () => [],
 						agentDir: () => tmpdir(),
 					} as unknown as Genome,
 				}),
 		).toThrow(
-			"Agent 'leaf' has subcortical_recall enabled but memory model 'subcortical' is not configured",
+			"Agent 'leaf' has subcortical_recall enabled but no subcortical memory model or fast fallback is configured: No global 'fast' model is configured",
 		);
 	});
 

@@ -1,6 +1,7 @@
 import type { SettingsCommand, SettingsSnapshot } from "@kernel/types.ts";
 import {
 	type AgentModelOverride,
+	MEMORY_MODEL_DESCRIPTIONS,
 	MEMORY_MODEL_LABELS,
 	MEMORY_MODEL_PURPOSES,
 	type MemoryModelPurpose,
@@ -70,7 +71,7 @@ export function ModelsPanel({ settings, message, fieldErrors, onCommand }: Model
 			<div>
 				<h2 className={styles.sectionTitle}>Model assignments</h2>
 				<p className={styles.sectionText}>
-					Configure every model Sprout can call: global tiers, exact memory jobs,
+					Configure every model Sprout can call: global tiers, memory system models,
 					and discovered agent types.
 				</p>
 			</div>
@@ -116,8 +117,8 @@ export function ModelsPanel({ settings, message, fieldErrors, onCommand }: Model
 				</ModelGroup>
 
 				<ModelGroup
-					title="Memory calls"
-					description="Exact models for hidden MIRA-style memory work. Missing rows fail when invoked."
+					title="Memory system models"
+					description="Pin exact models for memory-system work, or leave rows empty to use each task's fallback tier."
 				>
 					{MEMORY_MODEL_PURPOSES.map((purpose) => {
 						const stored = settings.settings.memoryModels[purpose];
@@ -125,7 +126,7 @@ export function ModelsPanel({ settings, message, fieldErrors, onCommand }: Model
 							<ModelAssignmentRow
 								key={purpose}
 								title={MEMORY_MODEL_LABELS[purpose]}
-								description={memoryPurposeDescription(purpose)}
+								description={MEMORY_MODEL_DESCRIPTIONS[purpose]}
 								selectId={`model-assignment-memory-${purpose}`}
 								value={formatModelRef(stored)}
 								emptyLabel="Not configured"
@@ -386,21 +387,4 @@ function describeStoredModelDiagnostic(
 	if (!catalogEntry || catalogEntry.models.length === 0) return undefined;
 	if (catalogEntry.models.some((model) => model.id === modelRef.modelId)) return undefined;
 	return `Stored model '${modelRef.modelId}' is not in the loaded catalog for provider '${modelRef.providerId}'.`;
-}
-
-function memoryPurposeDescription(purpose: MemoryModelPurpose): string {
-	switch (purpose) {
-		case "summary":
-			return "Session collapse and segment-summary generation.";
-		case "extraction":
-			return "Candidate memory extraction from learning evidence.";
-		case "relationship":
-			return "Memory-link classification and repair.";
-		case "consolidation":
-			return "Memory consolidation review.";
-		case "entityGc":
-			return "Entity alias merge review.";
-		case "subcortical":
-			return "Recall query expansion before memory search.";
-	}
 }

@@ -173,8 +173,9 @@ export interface SproutSettings {
 
 `memoryModels` is optional at the JSON compatibility boundary but normalized to
 `{}` in memory. Existing settings files should load after the schema bump, but
-missing memory model purposes must remain unset. There is no automatic copying
-from `best`, `balanced`, or `fast`.
+missing memory model purposes remain unset until the corresponding memory call
+is resolved. Resolution falls back to that purpose's configured global tier
+instead of copying tier values into `memoryModels`.
 
 Schema version should bump from `2` to `3` because the normalized settings shape
 changes. The migration is simple and local:
@@ -194,20 +195,21 @@ memory purposes are valid stored settings because some features are optional or
 not invoked in every run. The strict rule applies at the moment a hidden memory
 LLM call is needed.
 
-Unset purpose behavior:
+Unset purpose fallback behavior:
 
-| Purpose | When unset | Operator remediation |
+| Purpose | Fallback tier | When neither exact model nor fallback tier is configured |
 | --- | --- | --- |
-| `summary` | Session collapse cannot summarize; collapse records/logs a visible memory-collapse failure and does not create a segment. The already-completed user session is not retroactively failed. | Configure `Segment summary` in web settings or set `SPROUT_MEMORY_SUMMARY_MODEL`. |
-| `extraction` | Session collapse and learn/bus memory creation fail before any memory write. Learn/bus paths emit warning/failure events and persist no fallback memory. | Configure `Memory extraction` or set `SPROUT_MEMORY_EXTRACTION_MODEL`. |
-| `relationship` | Relationship classification actions fail before LLM call and persist no links. Deterministic candidate discovery may still run. | Configure `Relationship classifier` or set `SPROUT_MEMORY_RELATIONSHIP_MODEL`. |
-| `consolidation` | LLM-drafted consolidation review is unavailable. Reviewed JSON apply mode remains available because it does not call an LLM. | Configure `Consolidation reviewer` or set `SPROUT_MEMORY_CONSOLIDATION_MODEL`. |
-| `entityGc` | LLM-drafted entity-GC review is unavailable. Reviewed JSON apply mode remains available because it does not call an LLM. | Configure `Entity GC reviewer` or set `SPROUT_MEMORY_ENTITY_GC_MODEL`. |
-| `subcortical` | Agents that opt into `subcortical_recall` fail recall with a clear configuration error instead of silently skipping the pre-pass. Agents without the opt-in are unaffected. | Configure `Subcortical recall` or disable `subcortical_recall` for that agent. |
+| `summary` | `best` | Session collapse cannot summarize; collapse records/logs a visible memory-collapse failure and does not create a segment. |
+| `extraction` | `balanced` | Session collapse and learn/bus memory creation fail before any memory write. Learn/bus paths emit warning/failure events. |
+| `relationship` | `fast` | Relationship classification actions fail before LLM call and persist no links. Deterministic candidate discovery may still run. |
+| `consolidation` | `balanced` | LLM-drafted consolidation review is unavailable. Reviewed JSON apply mode remains available because it does not call an LLM. |
+| `entityGc` | `fast` | LLM-drafted entity-GC review is unavailable. Reviewed JSON apply mode remains available because it does not call an LLM. |
+| `subcortical` | `fast` | Agents that opt into `subcortical_recall` fail recall with a clear configuration error. Agents without the opt-in are unaffected. |
 
 The web settings UI should make unset purposes visually acceptable but explain
-that the corresponding feature will fail when invoked. This preserves the
-no-fallback rule without blocking startup or unrelated work.
+that the task will use its fallback tier. If the fallback tier is also missing,
+the corresponding feature fails when invoked without blocking startup or
+unrelated work.
 
 ## Strict Resolver
 
@@ -229,15 +231,16 @@ memoryModels: MemoryModelsConfig;
 
 Resolver behavior:
 
-- If `settings.memoryModels[purpose]` is missing, throw
-  `No memory '<purpose>' model is configured`.
+- If `settings.memoryModels[purpose]` is present, resolve that exact model.
+- If `settings.memoryModels[purpose]` is missing, resolve the purpose's fallback
+  tier: `summary` -> `best`, `extraction`/`consolidation` -> `balanced`, and
+  `relationship`/`entityGc`/`subcortical` -> `fast`.
 - If the referenced provider is unknown, throw.
 - If the referenced provider is disabled, throw.
 - If the provider catalog has loaded models and the model is absent, throw.
 - If the provider catalog is empty, allow exact model refs the same way
   `resolveModel()` already allows exact refs for enabled providers. This keeps
   tests and openai-compatible/local endpoints usable before remote discovery.
-- Never consult `defaults`.
 - Never inspect current agent/session model.
 - Never choose the first available provider/model.
 
@@ -396,8 +399,9 @@ Panel behavior:
   select and display a non-editable note with the effective override value.
 - If a stored or overridden model is catalog-missing, show a warning note for
   that row.
-- The explanatory text must be explicit that these are hidden memory-system LLM
-  calls and that they do not change the active chat/session/agent model.
+- The explanatory text should call these `Memory system models`, explain that
+  exact model assignments override fallback tiers, and avoid reference-project
+  terminology in the settings UI.
 - If no enabled providers have refreshed models, show the same refresh guidance
   as the default-model panel.
 
@@ -410,9 +414,8 @@ Labels:
 - `entityGc`: `Entity GC reviewer`
 - `subcortical`: `Subcortical recall`
 
-The UI should not suggest default recommendations in code. Operators choose
-exact models. Future docs may recommend model classes, but the product should
-not silently apply them.
+The UI should not suggest vendor-specific default recommendations in code.
+Operators can choose exact models; unset rows use the purpose fallback tier.
 
 Also update `DefaultModelsPanel` to render env override notes for
 `best`/`balanced`/`fast` if global default model env vars are active. The select
@@ -515,10 +518,10 @@ Maintenance LLM review:
 Subcortical recall:
 
 - Keep `subcortical_recall` as an agent-level opt-in.
-- When enabled, resolve `memoryModels.subcortical`.
+- When enabled, resolve `memoryModels.subcortical` or the `fast` fallback tier.
 - The active agent model is not used for the subcortical pre-pass.
-- Missing `memoryModels.subcortical` should fail clearly during recall for that
-  agent, not silently skip the pre-pass.
+- Missing `memoryModels.subcortical` and missing `fast` should fail clearly
+  during recall for that agent, not silently skip the pre-pass.
 
 ## Observability
 

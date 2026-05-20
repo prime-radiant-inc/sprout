@@ -19,6 +19,7 @@ import type { SecretBackendState, SecretStorageBackend, SecretStore } from "./se
 import {
 	type AgentModelDescriptor,
 	type AgentModelOverride,
+	MEMORY_MODEL_DEFAULT_TIERS,
 	MEMORY_MODEL_PURPOSES,
 	type MemoryModelPurpose,
 	type ModelRef,
@@ -1148,7 +1149,7 @@ export class SettingsControlPlane {
 		if (missingMemoryModels.length > 0) {
 			warnings.push({
 				code: "memory_models_incomplete",
-				message: `Memory model settings incomplete. Configure exact models for: ${missingMemoryModels.join(", ")}`,
+				message: `Memory model settings incomplete. Configure exact models or fallback tiers for: ${missingMemoryModels.join(", ")}`,
 			});
 		}
 		return warnings.filter(
@@ -1348,8 +1349,11 @@ function dedupe(values: string[]): string[] {
 }
 
 function missingConfiguredMemoryModels(
-	settings: Pick<SproutSettings, "providers" | "memoryModels">,
+	settings: Pick<SproutSettings, "providers" | "defaults" | "memoryModels">,
 ): MemoryModelPurpose[] {
 	if (!settings.providers.some((provider) => provider.enabled)) return [];
-	return MEMORY_MODEL_PURPOSES.filter((purpose) => !settings.memoryModels[purpose]);
+	return MEMORY_MODEL_PURPOSES.filter((purpose) => {
+		if (settings.memoryModels[purpose]) return false;
+		return !settings.defaults[MEMORY_MODEL_DEFAULT_TIERS[purpose]];
+	});
 }

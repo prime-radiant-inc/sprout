@@ -429,7 +429,7 @@ describe("extracted memory incorporation", () => {
 		});
 	});
 
-	test("wrapper rejects missing relationship model before saving when candidates exist", async () => {
+	test("wrapper rejects missing relationship model fallback before saving when candidates exist", async () => {
 		await withGenome("memory-incorporate-wrapper-missing-model", async (root) => {
 			const genome = createTestGenome(root);
 			await genome.init();
@@ -449,7 +449,7 @@ describe("extracted memory incorporation", () => {
 					modelsByProvider: MODELS_BY_PROVIDER,
 					commitMessage: "genome: should reject missing relationship model",
 				}),
-			).rejects.toThrow("No memory 'relationship' model is configured");
+			).rejects.toThrow("No global 'fast' model is configured");
 
 			expect(genome.memories.getById("new-model")).toBeUndefined();
 			expect(genome.memories.getById("old-model")?.superseded_by).toBeUndefined();

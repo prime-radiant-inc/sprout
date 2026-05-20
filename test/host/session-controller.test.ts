@@ -556,7 +556,7 @@ describe("SessionController", () => {
 		});
 	});
 
-	test("session collapse startup validation rejects missing summary model without fallback", async () => {
+	test("session collapse startup validation resolves missing summary model from best fallback", async () => {
 		const providerId = "local";
 		const client = {
 			listModelsByProvider: async () =>
@@ -572,13 +572,16 @@ describe("SessionController", () => {
 					[{ id: providerId, enabled: true }],
 					{
 						best: { providerId, modelId: "shared-model" },
+						fast: { providerId, modelId: "shared-model" },
 					},
 					{
 						extraction: { providerId, modelId: "shared-model" },
 					},
 				),
 			),
-		).rejects.toThrow(/SPROUT_MEMORY_SUMMARY_MODEL/);
+		).resolves.toMatchObject({
+			summaryModel: { provider: providerId, model: "shared-model" },
+		});
 	});
 
 	test("session collapse startup validation rejects missing extraction model without fallback", async () => {

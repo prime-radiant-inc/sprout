@@ -351,13 +351,7 @@ describe("resolveMemoryModel", () => {
 		});
 	});
 
-	test("fails clearly when a memory purpose is missing", () => {
-		expect(() => resolveMemoryModel("summary", settingsFor([provider()]), catalog([]))).toThrow(
-			"No memory 'summary' model is configured",
-		);
-	});
-
-	test("does not fall back to global defaults for memory purposes", () => {
+	test("falls back to the purpose tier when a memory purpose is not configured", () => {
 		const settings = settingsFor(
 			[provider()],
 			{
@@ -365,12 +359,53 @@ describe("resolveMemoryModel", () => {
 					providerId: "anthropic-main",
 					modelId: "claude-opus-4-6",
 				},
+				balanced: {
+					providerId: "anthropic-main",
+					modelId: "claude-sonnet-4-6",
+				},
+				fast: {
+					providerId: "anthropic-main",
+					modelId: "claude-haiku-4-5",
+				},
 			},
 			{},
 		);
+		const models = catalog([
+			{
+				providerId: "anthropic-main",
+				models: [model("claude-opus-4-6"), model("claude-sonnet-4-6"), model("claude-haiku-4-5")],
+			},
+		]);
 
-		expect(() => resolveMemoryModel("extraction", settings, catalog([]))).toThrow(
-			"No memory 'extraction' model is configured",
+		expect(resolveMemoryModel("summary", settings, models)).toEqual({
+			provider: "anthropic-main",
+			model: "claude-opus-4-6",
+		});
+		expect(resolveMemoryModel("extraction", settings, models)).toEqual({
+			provider: "anthropic-main",
+			model: "claude-sonnet-4-6",
+		});
+		expect(resolveMemoryModel("relationship", settings, models)).toEqual({
+			provider: "anthropic-main",
+			model: "claude-haiku-4-5",
+		});
+		expect(resolveMemoryModel("consolidation", settings, models)).toEqual({
+			provider: "anthropic-main",
+			model: "claude-sonnet-4-6",
+		});
+		expect(resolveMemoryModel("entityGc", settings, models)).toEqual({
+			provider: "anthropic-main",
+			model: "claude-haiku-4-5",
+		});
+		expect(resolveMemoryModel("subcortical", settings, models)).toEqual({
+			provider: "anthropic-main",
+			model: "claude-haiku-4-5",
+		});
+	});
+
+	test("fails clearly when a memory purpose fallback tier is missing", () => {
+		expect(() => resolveMemoryModel("summary", settingsFor([provider()]), catalog([]))).toThrow(
+			"No global 'best' model is configured",
 		);
 	});
 

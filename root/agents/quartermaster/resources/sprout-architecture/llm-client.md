@@ -17,9 +17,10 @@ Source of truth:
 
 ## Model Resolution
 
-Agent `model` can be a tier or exact provider/model. Memory calls use separate
-memory model purposes: extraction, summary, relationship, consolidation,
-entityGc, and subcortical. Missing required memory models fail loudly.
+Agent `model` can be a tier or exact provider/model. Memory system models use
+separate purposes: extraction, summary, relationship, consolidation, entityGc,
+and subcortical. An exact memory model wins when configured; otherwise the
+purpose falls back to its configured global tier.
 
 Source of truth:
 - `src/agents/model-resolver.ts`
