@@ -185,6 +185,13 @@ export class OpenAICodexOAuthService {
 			accountId,
 			updatedAt: this.currentIsoTimestamp(),
 		});
+		const current = await this.readStoredRecord(providerId);
+		if (!isSameRefreshSource(current, stored)) {
+			if (!this.shouldRefresh(current)) {
+				return toRuntimeCredentials(current);
+			}
+			throw new Error(SIGN_IN_AGAIN_ERROR);
+		}
 		await this.secretStore.setSecret(this.oauthRef(providerId), JSON.stringify(record));
 		return toRuntimeCredentials(record);
 	}
@@ -399,6 +406,20 @@ function toRuntimeCredentials(record: OpenAICodexOAuthRecord): OpenAICodexRuntim
 		accountId: record.accountId,
 		expiresAt: record.expiresAt,
 	};
+}
+
+function isSameRefreshSource(
+	current: OpenAICodexOAuthRecord,
+	source: OpenAICodexOAuthRecord,
+): boolean {
+	return (
+		current.accessToken === source.accessToken &&
+		current.refreshToken === source.refreshToken &&
+		current.expiresAt === source.expiresAt &&
+		current.accountId === source.accountId &&
+		current.idToken === source.idToken &&
+		current.updatedAt === source.updatedAt
+	);
 }
 
 function extractAccountIdOrSignInAgain(

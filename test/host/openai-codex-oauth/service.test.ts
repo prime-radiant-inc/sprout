@@ -283,6 +283,57 @@ describe("OpenAICodexOAuthService", () => {
 		});
 	});
 
+	test("returns valid stored credentials outside the refresh skew without refreshing", async () => {
+		let refreshCalls = 0;
+		const { secretStore, service } = makeOAuthService({
+			refreshTokens: async () => {
+				refreshCalls += 1;
+				return tokenResponseWithAccount("acct_123", { refreshToken: "new-refresh" });
+			},
+		});
+		const storedRecord = validOAuthRecord({
+			accessToken: jwt({ [ACCOUNT_ID_CLAIM]: "acct_valid" }),
+			refreshToken: "valid-refresh",
+			expiresAt: "2026-05-20T12:10:01.000Z",
+			accountId: "acct_valid",
+		});
+		await writeStoredOAuth(secretStore, storedRecord);
+
+		await expect(service.resolveCredentials(PROVIDER_ID)).resolves.toEqual({
+			accessToken: jwt({ [ACCOUNT_ID_CLAIM]: "acct_valid" }),
+			accountId: "acct_valid",
+			expiresAt: "2026-05-20T12:10:01.000Z",
+		});
+		expect(refreshCalls).toBe(0);
+		expect(await readStoredOAuth(secretStore)).toEqual(storedRecord);
+	});
+
+	test("refreshes credentials expiring exactly at the skew boundary", async () => {
+		let refreshCalls = 0;
+		const { secretStore, service } = makeOAuthService({
+			refreshTokens: async () => {
+				refreshCalls += 1;
+				return tokenResponseWithAccount("acct_123", { refreshToken: "new-refresh" });
+			},
+		});
+		await writeStoredOAuth(
+			secretStore,
+			validOAuthRecord({
+				expiresAt: "2026-05-20T12:05:00.000Z",
+				refreshToken: "old-refresh",
+			}),
+		);
+
+		await expect(service.resolveCredentials(PROVIDER_ID)).resolves.toMatchObject({
+			accountId: "acct_123",
+			expiresAt: "2026-05-20T12:05:00.000Z",
+		});
+		expect(refreshCalls).toBe(1);
+		expect(await readStoredOAuth(secretStore)).toMatchObject({
+			refreshToken: "new-refresh",
+		});
+	});
+
 	test("preserves existing refresh token when refresh omits one", async () => {
 		const { secretStore, service } = makeOAuthService({
 			refreshTokens: async () => tokenResponseWithAccount("acct_123", { refreshToken: undefined }),
@@ -319,6 +370,42 @@ describe("OpenAICodexOAuthService", () => {
 		await expect(service.resolveCredentials(PROVIDER_ID)).rejects.toThrow("token endpoint down");
 		expect(refreshCalls).toBe(2);
 		expect(await readStoredOAuth(secretStore)).toEqual(originalRecord);
+	});
+
+	test("stale refresh result returns newer usable stored credentials without overwriting", async () => {
+		let finishRefresh: (() => void) | undefined;
+		const refreshStarted = deferred();
+		const { secretStore, service } = makeOAuthService({
+			refreshTokens: async () => {
+				refreshStarted.resolve();
+				await new Promise<void>((resolve) => {
+					finishRefresh = resolve;
+				});
+				return tokenResponseWithAccount("acct_old", { refreshToken: "stale-refresh" });
+			},
+			lifecycleTimeoutMs: 100,
+		});
+		const sourceRecord = expiredOAuthRecord("old-refresh");
+		const newerRecord = validOAuthRecord({
+			accessToken: jwt({ [ACCOUNT_ID_CLAIM]: "acct_new" }),
+			refreshToken: "newer-refresh",
+			expiresAt: "2026-05-20T12:30:00.000Z",
+			accountId: "acct_new",
+			updatedAt: "2026-05-20T12:01:00.000Z",
+		});
+		await writeStoredOAuth(secretStore, sourceRecord);
+
+		const refresh = service.resolveCredentials(PROVIDER_ID);
+		await refreshStarted.promise;
+		await writeStoredOAuth(secretStore, newerRecord);
+		finishRefresh?.();
+
+		await expect(refresh).resolves.toEqual({
+			accessToken: jwt({ [ACCOUNT_ID_CLAIM]: "acct_new" }),
+			accountId: "acct_new",
+			expiresAt: "2026-05-20T12:30:00.000Z",
+		});
+		expect(await readStoredOAuth(secretStore)).toEqual(newerRecord);
 	});
 
 	test("refresh can fall back to stored account id when refreshed tokens omit account claims", async () => {
