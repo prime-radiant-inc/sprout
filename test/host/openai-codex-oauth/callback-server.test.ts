@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
 	type CallbackValidationResult,
+	createCallbackListenerForTests,
 	getCallbackRedirectUriForPort,
 	listenForCallback,
 	parseManualPasteback,
@@ -104,40 +105,40 @@ describe("OpenAI Codex OAuth callback redirect mapping", () => {
 });
 
 describe("OpenAI Codex OAuth callback listener", () => {
-	test("rejects custom listener bindings unless explicitly allowed for tests", () => {
-		expect(() =>
+	test("rejects custom listener bindings unless explicitly allowed for tests", async () => {
+		await expect(
 			listenForCallback({
 				expectedState: "state-123",
 				ports: [0],
 				timeoutMs: 1_000,
 			} as unknown as Parameters<typeof listenForCallback>[0]),
-		).toThrow("OpenAI Codex OAuth callback listener must use registered redirect URIs");
-		expect(() =>
+		).rejects.toThrow("OpenAI Codex OAuth callback listener must use registered redirect URIs");
+		await expect(
 			listenForCallback({
 				expectedState: "state-123",
 				hostname: "127.0.0.1",
 				ports: [1455],
 				timeoutMs: 1_000,
 			} as unknown as Parameters<typeof listenForCallback>[0]),
-		).toThrow("OpenAI Codex OAuth callback listener must use registered redirect URIs");
-		expect(() =>
+		).rejects.toThrow("OpenAI Codex OAuth callback listener must use registered redirect URIs");
+		await expect(
 			listenForCallback({
 				expectedState: "state-123",
 				ports: [1457],
 				timeoutMs: 1_000,
 			} as unknown as Parameters<typeof listenForCallback>[0]),
-		).toThrow("OpenAI Codex OAuth callback listener must use registered redirect URIs");
-		expect(() =>
+		).rejects.toThrow("OpenAI Codex OAuth callback listener must use registered redirect URIs");
+		await expect(
 			listenForCallback({
 				expectedState: "state-123",
 				ports: [9999],
 				timeoutMs: 1_000,
 			} as unknown as Parameters<typeof listenForCallback>[0]),
-		).toThrow("OpenAI Codex OAuth callback listener must use registered redirect URIs");
+		).rejects.toThrow("OpenAI Codex OAuth callback listener must use registered redirect URIs");
 	});
 
-	test("rejects test-only custom bindings that look like production redirects", () => {
-		expect(() =>
+	test("rejects test-only custom bindings that look like production redirects", async () => {
+		await expect(
 			listenForCallback({
 				expectedState: "state-123",
 				hostname: "localhost",
@@ -145,8 +146,10 @@ describe("OpenAI Codex OAuth callback listener", () => {
 				timeoutMs: 1_000,
 				allowUnregisteredRedirectUriForTests: true,
 			}),
-		).toThrow("OpenAI Codex OAuth test callback listener cannot use registered redirect URIs");
-		expect(() =>
+		).rejects.toThrow(
+			"OpenAI Codex OAuth test callback listener cannot use registered redirect URIs",
+		);
+		await expect(
 			listenForCallback({
 				expectedState: "state-123",
 				hostname: "localhost",
@@ -154,11 +157,41 @@ describe("OpenAI Codex OAuth callback listener", () => {
 				timeoutMs: 1_000,
 				allowUnregisteredRedirectUriForTests: true,
 			}),
-		).toThrow("OpenAI Codex OAuth test callback listener cannot use registered redirect URIs");
+		).rejects.toThrow(
+			"OpenAI Codex OAuth test callback listener cannot use registered redirect URIs",
+		);
+	});
+
+	test("falls back when the primary registered redirect does not reach this listener", async () => {
+		const stoppedPorts: number[] = [];
+		const probedUris: string[] = [];
+		const listener = await createCallbackListenerForTests(
+			{ expectedState: "state-123", timeoutMs: 1_000 },
+			{
+				bindServer({ port }) {
+					return {
+						port,
+						stop: () => stoppedPorts.push(port),
+					};
+				},
+				probeProductionRedirect: async ({ redirectUri }) => {
+					probedUris.push(redirectUri);
+					return redirectUri === OPENAI_CODEX_OAUTH.fallbackRedirectUri;
+				},
+			},
+		);
+		activeListeners.push(listener);
+
+		expect(listener.redirectUri).toBe(OPENAI_CODEX_OAUTH.fallbackRedirectUri);
+		expect(probedUris).toEqual([
+			OPENAI_CODEX_OAUTH.primaryRedirectUri,
+			OPENAI_CODEX_OAUTH.fallbackRedirectUri,
+		]);
+		expect(stoppedPorts).toEqual([1455]);
 	});
 
 	test("resolves once after a successful loopback callback and can be stopped again", async () => {
-		const listener = listenForCallback({
+		const listener = await listenForCallback({
 			expectedState: "state-123",
 			ports: [0],
 			timeoutMs: 1_000,
@@ -176,7 +209,7 @@ describe("OpenAI Codex OAuth callback listener", () => {
 	});
 
 	test("does not let a second callback alter the first successful result", async () => {
-		const listener = listenForCallback({
+		const listener = await listenForCallback({
 			expectedState: "state-123",
 			ports: [0],
 			timeoutMs: 1_000,
@@ -201,7 +234,7 @@ describe("OpenAI Codex OAuth callback listener", () => {
 		} satisfies CallbackValidationResult);
 	});
 
-	test("uses explicit test-only escape hatch for unregistered fallback ports", () => {
+	test("uses explicit test-only escape hatch for unregistered fallback ports", async () => {
 		const occupied = Bun.serve({
 			hostname: "127.0.0.1",
 			port: 0,
@@ -212,7 +245,7 @@ describe("OpenAI Codex OAuth callback listener", () => {
 			if (occupiedPort === undefined) {
 				throw new Error("occupied test server did not bind a port");
 			}
-			const listener = listenForCallback({
+			const listener = await listenForCallback({
 				expectedState: "state-123",
 				hostname: "127.0.0.1",
 				ports: [occupiedPort, 0],
@@ -228,7 +261,7 @@ describe("OpenAI Codex OAuth callback listener", () => {
 	});
 
 	test("cleans up on timeout", async () => {
-		const listener = listenForCallback({
+		const listener = await listenForCallback({
 			expectedState: "state-123",
 			ports: [0],
 			timeoutMs: 1,
@@ -243,7 +276,7 @@ describe("OpenAI Codex OAuth callback listener", () => {
 	});
 
 	test("cleans up on cancel", async () => {
-		const listener = listenForCallback({
+		const listener = await listenForCallback({
 			expectedState: "state-123",
 			ports: [0],
 			timeoutMs: 1_000,

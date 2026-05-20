@@ -1,6 +1,7 @@
 import { OPENAI_CODEX_OAUTH } from "./config";
 
 const CALLBACK_PATH = "/auth/callback";
+const PROBE_PATH = "/_oauth_probe";
 const DEFAULT_CALLBACK_HOST = "localhost";
 const DEFAULT_CALLBACK_PORTS = [1455, 1457] as const;
 
@@ -20,6 +21,20 @@ export interface CallbackListener {
 	redirectUri: string;
 	result: Promise<CallbackValidationResult>;
 	stop: () => void;
+}
+
+interface BoundCallbackServer {
+	port: number;
+	stop: (force?: boolean) => void;
+}
+
+interface CallbackListenerDependencies {
+	bindServer: (input: {
+		hostname: "localhost" | "127.0.0.1";
+		port: number;
+		fetch: (request: Request) => Response | Promise<Response>;
+	}) => BoundCallbackServer;
+	probeProductionRedirect: (input: { redirectUri: string; probeNonce: string }) => Promise<boolean>;
 }
 
 export function validateCallbackRequest(
@@ -103,11 +118,31 @@ type CallbackListenerTestOptions = CallbackListenerBaseOptions & {
 	ports?: readonly number[];
 };
 
-export function listenForCallback(options: CallbackListenerOptions): CallbackListener;
-export function listenForCallback(options: CallbackListenerTestOptions): CallbackListener;
+export function listenForCallback(options: CallbackListenerOptions): Promise<CallbackListener>;
+export function listenForCallback(options: CallbackListenerTestOptions): Promise<CallbackListener>;
 export function listenForCallback(
 	options: CallbackListenerOptions | CallbackListenerTestOptions,
-): CallbackListener {
+): Promise<CallbackListener> {
+	return createCallbackListener(options, {
+		bindServer: bindBunCallbackServer,
+		probeProductionRedirect,
+	});
+}
+
+export function createCallbackListenerForTests(
+	options: CallbackListenerOptions,
+	dependencies: Partial<CallbackListenerDependencies>,
+): Promise<CallbackListener> {
+	return createCallbackListener(options, {
+		bindServer: dependencies.bindServer ?? bindBunCallbackServer,
+		probeProductionRedirect: dependencies.probeProductionRedirect ?? probeProductionRedirect,
+	});
+}
+
+async function createCallbackListener(
+	options: CallbackListenerOptions | CallbackListenerTestOptions,
+	dependencies: CallbackListenerDependencies,
+): Promise<CallbackListener> {
 	const hostname =
 		options.allowUnregisteredRedirectUriForTests === true
 			? (options.hostname ?? DEFAULT_CALLBACK_HOST)
@@ -131,24 +166,37 @@ export function listenForCallback(
 
 	let completed = false;
 	let timeout: Timer | undefined;
-	const server = bindCallbackServer({
+	const probeNonce = crypto.randomUUID();
+	const fetch = (request: Request): Response | Promise<Response> => {
+		const url = new URL(request.url);
+		if (url.pathname === PROBE_PATH) {
+			return new Response(url.searchParams.get("nonce") === probeNonce ? probeNonce : "mismatch", {
+				headers: { "content-type": "text/plain; charset=utf-8" },
+				status: url.searchParams.get("nonce") === probeNonce ? 200 : 404,
+			});
+		}
+
+		const validation = validateCallbackRequest(request, { expectedState: options.expectedState });
+		if (validation.ok) {
+			complete(validation);
+			return new Response("OpenAI Codex authentication complete. You can close this window.", {
+				headers: { "content-type": "text/plain; charset=utf-8" },
+			});
+		}
+
+		complete(validation);
+		return new Response("OpenAI Codex authentication failed. Return to Sprout to continue.", {
+			headers: { "content-type": "text/plain; charset=utf-8" },
+			status: 400,
+		});
+	};
+	const server = await bindReachableCallbackServer({
 		hostname,
 		ports,
-		fetch: (request) => {
-			const validation = validateCallbackRequest(request, { expectedState: options.expectedState });
-			if (validation.ok) {
-				complete(validation);
-				return new Response("OpenAI Codex authentication complete. You can close this window.", {
-					headers: { "content-type": "text/plain; charset=utf-8" },
-				});
-			}
-
-			complete(validation);
-			return new Response("OpenAI Codex authentication failed. Return to Sprout to continue.", {
-				headers: { "content-type": "text/plain; charset=utf-8" },
-				status: 400,
-			});
-		},
+		fetch,
+		probeNonce,
+		allowUnregisteredRedirectUriForTests: options.allowUnregisteredRedirectUriForTests,
+		dependencies,
 	});
 
 	timeout = setTimeout(() => {
@@ -179,26 +227,80 @@ export function listenForCallback(
 	};
 }
 
-function bindCallbackServer(input: {
+async function bindReachableCallbackServer(input: {
 	hostname: "localhost" | "127.0.0.1";
 	ports: readonly number[];
 	fetch: (request: Request) => Response | Promise<Response>;
-}): Bun.Server<undefined> {
+	probeNonce: string;
+	allowUnregisteredRedirectUriForTests?: true;
+	dependencies: CallbackListenerDependencies;
+}): Promise<BoundCallbackServer> {
 	let lastError: unknown;
 	for (const port of input.ports) {
+		let server: BoundCallbackServer;
 		try {
-			return Bun.serve({
+			server = input.dependencies.bindServer({
 				hostname: input.hostname,
 				port,
 				fetch: input.fetch,
 			});
 		} catch (error) {
 			lastError = error;
+			continue;
 		}
+
+		const redirectUri = buildRedirectUri({
+			hostname: input.hostname,
+			port: requireBoundPort(server),
+			allowUnregisteredRedirectUriForTests: input.allowUnregisteredRedirectUriForTests,
+		});
+		if (
+			input.allowUnregisteredRedirectUriForTests === true ||
+			(await input.dependencies.probeProductionRedirect({
+				redirectUri,
+				probeNonce: input.probeNonce,
+			}))
+		) {
+			return server;
+		}
+		server.stop(true);
+		lastError = new Error("registered redirect URI did not reach this listener");
 	}
 	throw new Error(
 		`OpenAI Codex OAuth callback listener could not bind to a loopback port: ${String(lastError)}`,
 	);
+}
+
+function bindBunCallbackServer(input: {
+	hostname: "localhost" | "127.0.0.1";
+	port: number;
+	fetch: (request: Request) => Response | Promise<Response>;
+}): BoundCallbackServer {
+	const server = Bun.serve({
+		hostname: input.hostname,
+		port: input.port,
+		fetch: input.fetch,
+	});
+	return {
+		port: requireBoundPort(server),
+		stop: (force?: boolean) => server.stop(force),
+	};
+}
+
+async function probeProductionRedirect(input: {
+	redirectUri: string;
+	probeNonce: string;
+}): Promise<boolean> {
+	try {
+		const url = new URL(input.redirectUri);
+		url.pathname = PROBE_PATH;
+		url.search = "";
+		url.searchParams.set("nonce", input.probeNonce);
+		const response = await fetch(url);
+		return response.ok && (await response.text()) === input.probeNonce;
+	} catch {
+		return false;
+	}
 }
 
 function parseRequiredSearchParam(url: URL, key: string): string | undefined {
@@ -280,7 +382,7 @@ function isRegisteredPort(port: number): boolean {
 	return port === 1455 || port === 1457;
 }
 
-function requireBoundPort(server: Bun.Server<undefined>): number {
+function requireBoundPort(server: { port?: number }): number {
 	if (server.port === undefined) {
 		throw new Error("OpenAI Codex OAuth callback listener did not bind a loopback port");
 	}
