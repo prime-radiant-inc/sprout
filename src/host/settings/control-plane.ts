@@ -947,9 +947,21 @@ export class SettingsControlPlane {
 		const oauthRef = this.providerCredentialRefs(provider).find(
 			(ref) => ref.secretKind === "oauth",
 		);
+		if (!oauthRef) {
+			return {
+				kind: "oauth",
+				signedIn: false,
+			};
+		}
+		let signedIn = false;
+		try {
+			signedIn = await this.secretStore.hasSecret(oauthRef);
+		} catch {
+			signedIn = false;
+		}
 		return {
 			kind: "oauth",
-			signedIn: oauthRef ? await this.secretStore.hasSecret(oauthRef) : false,
+			signedIn,
 		};
 	}
 

@@ -586,6 +586,80 @@ describe("SettingsControlPlane", () => {
 		expect(payload).not.toContain("token_secret");
 	});
 
+	test("OpenAI Codex fallback OAuth secret checks treat backend failures as signed out", async () => {
+		const rawMessage =
+			"keychain failed for sprout/providers/openai-codex/oauth callback http://127.0.0.1/callback?code=abc123&state=state456 access_token=token_secret";
+		const secretStore: SecretStore = {
+			async getSecret() {
+				return undefined;
+			},
+			async setSecret() {},
+			async deleteSecret() {},
+			async hasSecret() {
+				throw new Error(rawMessage);
+			},
+		};
+		const plane = await makePlane({
+			secretStore,
+			initialSettings: {
+				version: 4,
+				providers: [
+					{
+						id: "openai-codex",
+						kind: "openai-codex",
+						label: "OpenAI Codex",
+						enabled: true,
+						createdAt: "2026-03-11T12:00:00.000Z",
+						updatedAt: "2026-03-11T12:00:00.000Z",
+					},
+				],
+				defaults: {},
+				memoryModels: {},
+				agentModelOverrides: {},
+			},
+		});
+
+		const snapshot = await plane.execute({ kind: "get_settings", data: {} });
+
+		expect(snapshot).toMatchObject({
+			ok: true,
+			snapshot: {
+				providers: [
+					{
+						providerId: "openai-codex",
+						hasSecret: false,
+						credentialStatus: {
+							kind: "oauth",
+							signedIn: false,
+						},
+						validationErrors: ["ChatGPT OAuth login is required for OpenAI Codex"],
+					},
+				],
+			},
+		});
+
+		const refreshed = await plane.execute({
+			kind: "refresh_provider_models",
+			data: { providerId: "openai-codex" },
+		});
+		expect(refreshed).toEqual({
+			ok: false,
+			code: "validation_failed",
+			message: "ChatGPT OAuth login is required for OpenAI Codex",
+			fieldErrors: {
+				secret: "ChatGPT OAuth login is required for OpenAI Codex",
+			},
+		});
+
+		for (const result of [snapshot, refreshed]) {
+			const payload = JSON.stringify(result);
+			expect(payload).not.toContain("sprout/providers/openai-codex/oauth");
+			expect(payload).not.toContain("abc123");
+			expect(payload).not.toContain("state456");
+			expect(payload).not.toContain("token_secret");
+		}
+	});
+
 	test("OpenAI Codex validation commands treat OAuth status failures as signed out", async () => {
 		const rawMessage =
 			"status failed for sprout/providers/openai-codex/oauth callback http://127.0.0.1/callback?code=abc123&state=state456 access_token=token_secret";
