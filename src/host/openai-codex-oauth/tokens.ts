@@ -67,7 +67,7 @@ async function postTokenRequest(
 		});
 	} catch (error) {
 		throw new Error(
-			`OpenAI Codex OAuth token request failed: ${redactCredentialText(String(error))}`,
+			`OpenAI Codex OAuth token request failed: ${redactTokenEndpointText(String(error))}`,
 		);
 	}
 
@@ -106,14 +106,18 @@ function parseTokenResponse(
 	const refreshToken = payload.refresh_token;
 	const idToken = payload.id_token;
 	const expiresIn = payload.expires_in;
+	const parsedAccessToken = parseRequiredTokenField(accessToken);
+	const parsedRefreshToken = parseOptionalTokenField(refreshToken);
+	const parsedIdToken = parseOptionalTokenField(idToken);
 
 	if (
-		typeof accessToken !== "string" ||
-		(options.requireRefreshToken && typeof refreshToken !== "string") ||
-		(refreshToken !== undefined && typeof refreshToken !== "string") ||
-		(idToken !== undefined && typeof idToken !== "string") ||
+		parsedAccessToken === undefined ||
+		(options.requireRefreshToken && parsedRefreshToken === undefined) ||
+		(refreshToken !== undefined && parsedRefreshToken === undefined) ||
+		(idToken !== undefined && parsedIdToken === undefined) ||
 		typeof expiresIn !== "number" ||
-		!Number.isFinite(expiresIn)
+		!Number.isFinite(expiresIn) ||
+		expiresIn <= 0
 	) {
 		throw new Error(
 			`OpenAI Codex OAuth token response is missing required fields: ${redactTokenEndpointText(
@@ -123,11 +127,22 @@ function parseTokenResponse(
 	}
 
 	return {
-		accessToken,
-		...(refreshToken !== undefined ? { refreshToken } : {}),
-		...(idToken !== undefined ? { idToken } : {}),
+		accessToken: parsedAccessToken,
+		...(parsedRefreshToken !== undefined ? { refreshToken: parsedRefreshToken } : {}),
+		...(parsedIdToken !== undefined ? { idToken: parsedIdToken } : {}),
 		expiresAt: new Date((options.now ?? Date.now)() + expiresIn * 1000).toISOString(),
 	};
+}
+
+function parseRequiredTokenField(value: unknown): string | undefined {
+	return typeof value === "string" && value.trim() !== "" ? value.trim() : undefined;
+}
+
+function parseOptionalTokenField(value: unknown): string | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+	return parseRequiredTokenField(value);
 }
 
 function redactTokenEndpointText(value: string): string {
@@ -135,7 +150,7 @@ function redactTokenEndpointText(value: string): string {
 		const payload = JSON.parse(value);
 		return JSON.stringify(redactTokenEndpointPayload(payload));
 	} catch {
-		return redactCredentialText(value);
+		return redactTokenEndpointPlainText(value);
 	}
 }
 
@@ -169,11 +184,24 @@ function isSensitiveTokenEndpointKey(key: string): boolean {
 		"accessToken",
 		"refreshToken",
 		"idToken",
+		"code_verifier",
+		"codeVerifier",
 		"code",
 		"state",
 		"redirect_uri",
 		"redirectUri",
 	].includes(key);
+}
+
+function redactTokenEndpointPlainText(value: string): string {
+	return redactCredentialText(value)
+		.replace(callbackUrlPattern(), "[redacted]")
+		.replace(/\b(code|code_verifier|codeVerifier)(=)[^\s&]+/g, "$1$2[redacted]")
+		.replace(/\b(access|refresh|id)[-_]?token[-_][A-Za-z0-9._-]+\b/gi, "[redacted]");
+}
+
+function callbackUrlPattern(): RegExp {
+	return /http:\/\/localhost:145[57]\/auth\/callback(?:\?[^\s]*)?/g;
 }
 
 function isCallbackUrl(value: string): boolean {

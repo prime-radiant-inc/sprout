@@ -28,6 +28,9 @@ describe("extractChatGPTAccountId", () => {
 		expect(extractChatGPTAccountId({ accessToken: jwt({}), storedAccountId: "acct_old" })).toBe(
 			"acct_old",
 		);
+		expect(
+			extractChatGPTAccountId({ accessToken: jwt({}), storedAccountId: "  acct_trimmed  " }),
+		).toBe("acct_trimmed");
 	});
 
 	test("throws a generic error for malformed JWTs", () => {

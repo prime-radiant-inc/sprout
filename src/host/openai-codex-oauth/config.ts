@@ -16,7 +16,7 @@ export function buildAuthorizeUrl(input: {
 	const state = requireNonEmpty(input.state, "OpenAI Codex OAuth state");
 	const codeChallenge = requireNonEmpty(input.codeChallenge, "OpenAI Codex OAuth code challenge");
 
-	validateAbsoluteUrl(redirectUri, "OpenAI Codex OAuth redirect URI");
+	validateSupportedRedirectUri(redirectUri);
 
 	const url = new URL(OPENAI_CODEX_OAUTH.authorizeUrl);
 	url.searchParams.set("client_id", OPENAI_CODEX_OAUTH.clientId);
@@ -39,13 +39,11 @@ function requireNonEmpty(value: string, label: string): string {
 	return value;
 }
 
-function validateAbsoluteUrl(value: string, label: string): void {
-	try {
-		const url = new URL(value);
-		if (url.protocol !== "http:" && url.protocol !== "https:") {
-			throw new Error("unsupported protocol");
-		}
-	} catch {
-		throw new Error(`${label} must be an absolute HTTP URL`);
+function validateSupportedRedirectUri(value: string): void {
+	if (
+		value !== OPENAI_CODEX_OAUTH.primaryRedirectUri &&
+		value !== OPENAI_CODEX_OAUTH.fallbackRedirectUri
+	) {
+		throw new Error("OpenAI Codex OAuth redirect URI is not supported");
 	}
 }

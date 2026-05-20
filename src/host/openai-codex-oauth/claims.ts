@@ -20,8 +20,9 @@ export function extractChatGPTAccountId(input: {
 		}
 	}
 
-	if (input.storedAccountId !== undefined && input.storedAccountId.trim() !== "") {
-		return input.storedAccountId;
+	const storedAccountId = input.storedAccountId?.trim();
+	if (storedAccountId !== undefined && storedAccountId !== "") {
+		return storedAccountId;
 	}
 
 	throw new Error("OpenAI OAuth token claims did not include a ChatGPT account id");

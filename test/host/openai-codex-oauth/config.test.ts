@@ -29,6 +29,16 @@ describe("OpenAI Codex OAuth config", () => {
 		expect(OPENAI_CODEX_OAUTH.tokenUrl).toBe("https://auth.openai.com/oauth/token");
 	});
 
+	test("accepts the fallback callback URL", () => {
+		const url = buildAuthorizeUrl({
+			redirectUri: OPENAI_CODEX_OAUTH.fallbackRedirectUri,
+			state: "state-123",
+			codeChallenge: "challenge-123",
+		});
+
+		expect(url.searchParams.get("redirect_uri")).toBe("http://localhost:1457/auth/callback");
+	});
+
 	test("rejects malformed authorize URL inputs", () => {
 		expect(() =>
 			buildAuthorizeUrl({
@@ -51,6 +61,13 @@ describe("OpenAI Codex OAuth config", () => {
 				codeChallenge: "",
 			}),
 		).toThrow("OpenAI Codex OAuth code challenge is required");
+		expect(() =>
+			buildAuthorizeUrl({
+				redirectUri: "https://example.com/auth/callback",
+				state: "state-123",
+				codeChallenge: "challenge-123",
+			}),
+		).toThrow("OpenAI Codex OAuth redirect URI is not supported");
 	});
 });
 

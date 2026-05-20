@@ -99,6 +99,8 @@ describe("OpenAI Codex OAuth token helpers", () => {
 								error: "invalid_grant",
 								access_token: "access-token-secret",
 								refreshToken: "refresh-token-secret",
+								code_verifier: "verifier-secret",
+								codeVerifier: "camel-verifier-secret",
 								redirect_uri:
 									"http://localhost:1455/auth/callback?code=callback-secret&state=state-secret",
 								redirectUri: "http://localhost:1457/auth/callback",
@@ -115,12 +117,82 @@ describe("OpenAI Codex OAuth token helpers", () => {
 		const message = (error as Error).message;
 		expect(message).toContain('"access_token":"[redacted]"');
 		expect(message).toContain('"refreshToken":"[redacted]"');
+		expect(message).toContain('"code_verifier":"[redacted]"');
+		expect(message).toContain('"codeVerifier":"[redacted]"');
 		expect(message).toContain('"redirect_uri":"[redacted]"');
 		expect(message).toContain('"redirectUri":"[redacted]"');
 		expect(message).not.toContain("access-token-secret");
 		expect(message).not.toContain("refresh-token-secret");
+		expect(message).not.toContain("verifier-secret");
+		expect(message).not.toContain("camel-verifier-secret");
 		expect(message).not.toContain("http://localhost:1455/auth/callback");
 		expect(message).not.toContain("http://localhost:1457/auth/callback");
+	});
+
+	test("redacts non-JSON token endpoint errors", async () => {
+		let error: unknown;
+		try {
+			await exchangeCodeForTokens({
+				code: "auth-code-secret",
+				codeVerifier: "verifier-secret",
+				redirectUri: "http://localhost:1455/auth/callback",
+				fetchImpl: (() =>
+					Promise.resolve(
+						new Response(
+							[
+								"invalid request",
+								"code=plain-code-secret",
+								"code_verifier=plain-verifier-secret",
+								"access-token-secret",
+								"refresh-token-secret",
+								"http://localhost:1455/auth/callback?code=callback-secret",
+								"http://localhost:1457/auth/callback",
+							].join(" "),
+							{ status: 400 },
+						),
+					)) as unknown as typeof fetch,
+			});
+		} catch (caughtError) {
+			error = caughtError;
+		}
+
+		expect(error).toBeInstanceOf(Error);
+		const message = (error as Error).message;
+		expect(message).toContain("[redacted]");
+		expect(message).not.toContain("plain-code-secret");
+		expect(message).not.toContain("plain-verifier-secret");
+		expect(message).not.toContain("access-token-secret");
+		expect(message).not.toContain("refresh-token-secret");
+		expect(message).not.toContain("http://localhost:1455/auth/callback");
+		expect(message).not.toContain("http://localhost:1457/auth/callback");
+	});
+
+	test("redacts fetch errors with form-body-like secrets", async () => {
+		let error: unknown;
+		try {
+			await exchangeCodeForTokens({
+				code: "auth-code-secret",
+				codeVerifier: "verifier-secret",
+				redirectUri: "http://localhost:1455/auth/callback",
+				fetchImpl: (() =>
+					Promise.reject(
+						new Error(
+							"failed code=plain-code-secret code_verifier=plain-verifier-secret access-token-secret refresh-token-secret http://localhost:1455/auth/callback",
+						),
+					)) as unknown as typeof fetch,
+			});
+		} catch (caughtError) {
+			error = caughtError;
+		}
+
+		expect(error).toBeInstanceOf(Error);
+		const message = (error as Error).message;
+		expect(message).toContain("[redacted]");
+		expect(message).not.toContain("plain-code-secret");
+		expect(message).not.toContain("plain-verifier-secret");
+		expect(message).not.toContain("access-token-secret");
+		expect(message).not.toContain("refresh-token-secret");
+		expect(message).not.toContain("http://localhost:1455/auth/callback");
 	});
 
 	test("redacts missing-field payloads", async () => {
@@ -150,5 +222,54 @@ describe("OpenAI Codex OAuth token helpers", () => {
 		expect(message).not.toContain("access-token-secret");
 		expect(message).not.toContain("refresh-token-secret");
 		expect(message).not.toContain("http://localhost:1455/auth/callback");
+	});
+
+	test("rejects empty tokens and non-positive expirations", async () => {
+		for (const responseBody of [
+			{
+				access_token: "",
+				refresh_token: "refresh-token-secret",
+				expires_in: 3600,
+			},
+			{
+				access_token: "access-token-secret",
+				refresh_token: "   ",
+				expires_in: 3600,
+			},
+			{
+				access_token: "access-token-secret",
+				refresh_token: "refresh-token-secret",
+				id_token: "",
+				expires_in: 3600,
+			},
+			{
+				access_token: "access-token-secret",
+				refresh_token: "refresh-token-secret",
+				expires_in: 0,
+			},
+			{
+				access_token: "access-token-secret",
+				refresh_token: "refresh-token-secret",
+				expires_in: -1,
+			},
+		]) {
+			let error: unknown;
+			try {
+				await exchangeCodeForTokens({
+					code: "auth-code-secret",
+					codeVerifier: "verifier-secret",
+					redirectUri: "http://localhost:1455/auth/callback",
+					fetchImpl: fetchWithBodyAssertion(() => {}, responseBody),
+				});
+			} catch (caughtError) {
+				error = caughtError;
+			}
+
+			expect(error).toBeInstanceOf(Error);
+			const message = (error as Error).message;
+			expect(message).toContain("[redacted]");
+			expect(message).not.toContain("access-token-secret");
+			expect(message).not.toContain("refresh-token-secret");
+		}
 	});
 });
