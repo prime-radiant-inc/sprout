@@ -4,6 +4,8 @@ const CALLBACK_PATH = "/auth/callback";
 const PROBE_PATH = "/_oauth_probe";
 const DEFAULT_CALLBACK_HOST = "localhost";
 const DEFAULT_CALLBACK_PORTS = [1455, 1457] as const;
+const DEFAULT_TEST_CALLBACK_PORTS = [0] as const;
+const DEFAULT_PROBE_TIMEOUT_MS = 500;
 
 export type CallbackValidationResult =
 	| {
@@ -34,7 +36,11 @@ interface CallbackListenerDependencies {
 		port: number;
 		fetch: (request: Request) => Response | Promise<Response>;
 	}) => BoundCallbackServer;
-	probeProductionRedirect: (input: { redirectUri: string; probeNonce: string }) => Promise<boolean>;
+	probeProductionRedirect: (input: {
+		redirectUri: string;
+		probeNonce: string;
+		signal: AbortSignal;
+	}) => Promise<boolean>;
 }
 
 export function validateCallbackRequest(
@@ -104,6 +110,7 @@ export function parseManualPasteback(input: {
 type CallbackListenerBaseOptions = {
 	expectedState: string;
 	timeoutMs?: number;
+	probeTimeoutMs?: number;
 };
 
 type CallbackListenerOptions = CallbackListenerBaseOptions & {
@@ -149,9 +156,10 @@ async function createCallbackListener(
 			: DEFAULT_CALLBACK_HOST;
 	const ports =
 		options.allowUnregisteredRedirectUriForTests === true
-			? (options.ports ?? DEFAULT_CALLBACK_PORTS)
+			? (options.ports ?? DEFAULT_TEST_CALLBACK_PORTS)
 			: DEFAULT_CALLBACK_PORTS;
 	const timeoutMs = options.timeoutMs ?? 5 * 60 * 1000;
+	const probeTimeoutMs = options.probeTimeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS;
 	validateListenerRedirectTargets({
 		hostname,
 		ports,
@@ -195,6 +203,7 @@ async function createCallbackListener(
 		ports,
 		fetch,
 		probeNonce,
+		probeTimeoutMs,
 		allowUnregisteredRedirectUriForTests: options.allowUnregisteredRedirectUriForTests,
 		dependencies,
 	});
@@ -232,6 +241,7 @@ async function bindReachableCallbackServer(input: {
 	ports: readonly number[];
 	fetch: (request: Request) => Response | Promise<Response>;
 	probeNonce: string;
+	probeTimeoutMs: number;
 	allowUnregisteredRedirectUriForTests?: true;
 	dependencies: CallbackListenerDependencies;
 }): Promise<BoundCallbackServer> {
@@ -254,17 +264,24 @@ async function bindReachableCallbackServer(input: {
 			port: requireBoundPort(server),
 			allowUnregisteredRedirectUriForTests: input.allowUnregisteredRedirectUriForTests,
 		});
-		if (
-			input.allowUnregisteredRedirectUriForTests === true ||
-			(await input.dependencies.probeProductionRedirect({
-				redirectUri,
-				probeNonce: input.probeNonce,
-			}))
-		) {
+		let reachesThisServer = input.allowUnregisteredRedirectUriForTests === true;
+		if (!reachesThisServer) {
+			try {
+				reachesThisServer = await probeProductionRedirectWithTimeout({
+					redirectUri,
+					probeNonce: input.probeNonce,
+					timeoutMs: input.probeTimeoutMs,
+					dependencies: input.dependencies,
+				});
+			} catch (error) {
+				lastError = error;
+			}
+		}
+		if (reachesThisServer) {
 			return server;
 		}
 		server.stop(true);
-		lastError = new Error("registered redirect URI did not reach this listener");
+		lastError ??= new Error("registered redirect URI did not reach this listener");
 	}
 	throw new Error(
 		`OpenAI Codex OAuth callback listener could not bind to a loopback port: ${String(lastError)}`,
@@ -290,16 +307,52 @@ function bindBunCallbackServer(input: {
 async function probeProductionRedirect(input: {
 	redirectUri: string;
 	probeNonce: string;
+	signal: AbortSignal;
 }): Promise<boolean> {
 	try {
 		const url = new URL(input.redirectUri);
 		url.pathname = PROBE_PATH;
 		url.search = "";
 		url.searchParams.set("nonce", input.probeNonce);
-		const response = await fetch(url);
+		const response = await fetch(url, { signal: input.signal });
 		return response.ok && (await response.text()) === input.probeNonce;
 	} catch {
 		return false;
+	}
+}
+
+async function probeProductionRedirectWithTimeout(input: {
+	redirectUri: string;
+	probeNonce: string;
+	timeoutMs: number;
+	dependencies: CallbackListenerDependencies;
+}): Promise<boolean> {
+	const controller = new AbortController();
+	let timeout: Timer | undefined;
+	const timedOut = new Promise<false>((resolve) => {
+		timeout = setTimeout(() => {
+			controller.abort();
+			resolve(false);
+		}, input.timeoutMs);
+	});
+	try {
+		return await Promise.race([
+			input.dependencies.probeProductionRedirect({
+				redirectUri: input.redirectUri,
+				probeNonce: input.probeNonce,
+				signal: controller.signal,
+			}),
+			timedOut,
+		]);
+	} catch (error) {
+		if (controller.signal.aborted) {
+			return false;
+		}
+		throw error;
+	} finally {
+		if (timeout !== undefined) {
+			clearTimeout(timeout);
+		}
 	}
 }
 

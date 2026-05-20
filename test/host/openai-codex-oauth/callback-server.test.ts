@@ -190,6 +190,50 @@ describe("OpenAI Codex OAuth callback listener", () => {
 		expect(stoppedPorts).toEqual([1455]);
 	});
 
+	test("stops a candidate and falls back when the production probe times out", async () => {
+		const stoppedPorts: number[] = [];
+		const probedUris: string[] = [];
+		const listener = await createCallbackListenerForTests(
+			{ expectedState: "state-123", timeoutMs: 1_000, probeTimeoutMs: 1 },
+			{
+				bindServer({ port }) {
+					return {
+						port,
+						stop: () => stoppedPorts.push(port),
+					};
+				},
+				probeProductionRedirect: async ({ redirectUri }) => {
+					probedUris.push(redirectUri);
+					if (redirectUri === OPENAI_CODEX_OAUTH.primaryRedirectUri) {
+						return new Promise<boolean>(() => {});
+					}
+					return true;
+				},
+			},
+		);
+		activeListeners.push(listener);
+
+		expect(listener.redirectUri).toBe(OPENAI_CODEX_OAUTH.fallbackRedirectUri);
+		expect(probedUris).toEqual([
+			OPENAI_CODEX_OAUTH.primaryRedirectUri,
+			OPENAI_CODEX_OAUTH.fallbackRedirectUri,
+		]);
+		expect(stoppedPorts).toEqual([1455]);
+	});
+
+	test("test-only listener defaults to an unregistered random port", async () => {
+		const listener = await listenForCallback({
+			expectedState: "state-123",
+			timeoutMs: 1_000,
+			allowUnregisteredRedirectUriForTests: true,
+		});
+		activeListeners.push(listener);
+
+		expect(listener.redirectUri).not.toBe(OPENAI_CODEX_OAUTH.primaryRedirectUri);
+		expect(listener.redirectUri).not.toBe(OPENAI_CODEX_OAUTH.fallbackRedirectUri);
+		expect(new URL(listener.redirectUri).hostname).toBe("localhost");
+	});
+
 	test("resolves once after a successful loopback callback and can be stopped again", async () => {
 		const listener = await listenForCallback({
 			expectedState: "state-123",
@@ -232,6 +276,33 @@ describe("OpenAI Codex OAuth callback listener", () => {
 			ok: true,
 			code: "first-code",
 		} satisfies CallbackValidationResult);
+	});
+
+	test("resolves once after a failed callback without leaking secrets", async () => {
+		const listener = await listenForCallback({
+			expectedState: "state-123",
+			ports: [0],
+			timeoutMs: 1_000,
+			allowUnregisteredRedirectUriForTests: true,
+		});
+		activeListeners.push(listener);
+
+		const response = await fetch(
+			`${listener.redirectUri}?code=secret-code&state=wrong-state-secret`,
+		);
+		const result = await listener.result;
+
+		expect(response.status).toBe(400);
+		expect(result.ok).toBe(false);
+		expect(result.error).toBe("OpenAI Codex OAuth callback state did not match");
+		expect(result.error).not.toContain("secret-code");
+		expect(result.error).not.toContain("wrong-state-secret");
+		try {
+			await fetch(`${listener.redirectUri}?code=second-code&state=state-123`);
+		} catch {
+			// The failed callback is terminal, so the stopped listener may reject new requests.
+		}
+		expect(await listener.result).toEqual(result);
 	});
 
 	test("uses explicit test-only escape hatch for unregistered fallback ports", async () => {
