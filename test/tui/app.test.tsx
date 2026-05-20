@@ -855,6 +855,23 @@ describe("App", () => {
 		expect(frame).toContain("Prior assistant response.");
 	});
 
+	test("does not show stale memory saving from initialEvents for another session", async () => {
+		const initialEvents = [
+			{
+				kind: "context_update" as const,
+				timestamp: Date.now(),
+				agent_id: "session",
+				depth: 0,
+				data: { memory_collapse: "started", session_id: "old-session" },
+			},
+		];
+
+		const { lastFrame } = setup({ sessionId: "new-session", initialEvents } as any);
+		await flush();
+
+		expect(lastFrame()).not.toContain("Saving memory");
+	});
+
 	test("exit hint auto-hides after 5 seconds", () => {
 		// Ink's reconciler doesn't use setTimeout for re-renders, so we can't
 		// check frame content with fake timers. Instead, verify the auto-hide

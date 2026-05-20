@@ -39,6 +39,7 @@ interface ActiveChildRecord extends AgentDisplayRef {
 export function deriveActiveAgentWork(
 	events: readonly SessionEvent[],
 	runStatus: "idle" | "running" | "interrupted",
+	providedCurrentSessionId?: string,
 ): ActiveAgentWork | null {
 	if (runStatus !== "running") return null;
 
@@ -47,7 +48,7 @@ export function deriveActiveAgentWork(
 	const activeChildren = new Map<string, ActiveChildRecord>();
 	const pendingCommands = new Map<string, ActiveChildRecord>();
 	let memoryCollapseActive = false;
-	let currentSessionId: string | undefined;
+	let currentSessionId = cleanString(providedCurrentSessionId);
 
 	for (const event of events) {
 		if (event.depth === 0 && event.kind === "session_start") {

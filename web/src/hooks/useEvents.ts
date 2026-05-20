@@ -89,9 +89,12 @@ function memoryCollapseLifecycleApplies(
 	return !eventSessionId || !currentSessionId || eventSessionId === currentSessionId;
 }
 
-function memoryCollapseIsActive(events: readonly SessionEvent[]): boolean {
+function memoryCollapseIsActive(
+	events: readonly SessionEvent[],
+	providedCurrentSessionId?: string,
+): boolean {
 	let active = false;
-	let currentSessionId: string | undefined;
+	let currentSessionId = cleanString(providedCurrentSessionId);
 	for (const event of events) {
 		if (event.kind === "session_start" || event.kind === "session_clear" || event.kind === "interrupted") {
 			if (event.kind === "session_start") {
@@ -174,7 +177,9 @@ export class EventStore {
 				// Snapshot session metadata is authoritative on reconnect.
 				this.status = {
 					...this.status,
-					status: memoryCollapseIsActive(this.events) ? "running" : snapshotStatus,
+					status: memoryCollapseIsActive(this.events, this.status.sessionId)
+						? "running"
+						: snapshotStatus,
 					model: snapshotModel ?? this.status.model,
 					sessionId: msg.session.id,
 					availableModels: snapshotAvailableModels,

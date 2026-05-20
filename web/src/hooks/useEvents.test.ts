@@ -213,6 +213,20 @@ describe("EventStore", () => {
 			expect(store.status.availableModels).toEqual(["best", "fast"]);
 		});
 
+		test("ignores stale memory collapse start when snapshot provides the current session id", () => {
+			const store = new EventStore();
+
+			store.processMessage(
+				snapshotMessage(
+					[makeEvent("context_update", { memory_collapse: "started", session_id: "old-session" })],
+					{ id: "new-session", status: "idle" },
+				),
+			);
+
+			expect(store.status.sessionId).toBe("new-session");
+			expect(store.status.status).toBe("idle");
+		});
+
 		test("stores currentSelection and settings from snapshot", () => {
 			const store = new EventStore();
 			const currentSelection = makeCurrentSelection();

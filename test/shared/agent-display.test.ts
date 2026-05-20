@@ -349,4 +349,20 @@ describe("deriveActiveAgentWork", () => {
 
 		expect(work ? formatActiveAgentWork(work) : null).toBe("Saving memory");
 	});
+
+	test("ignores stale memory collapse start when the current session id comes from outside retained events", () => {
+		const work = deriveActiveAgentWork(
+			[
+				event(
+					"context_update",
+					{ memory_collapse: "started", session_id: "old-session" },
+					{ timestamp: 1 },
+				),
+			],
+			"running",
+			"new-session",
+		);
+
+		expect(work).toBeNull();
+	});
 });

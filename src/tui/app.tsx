@@ -118,7 +118,7 @@ export function App({
 	const [toolsCollapsed, setToolsCollapsed] = useState(false);
 	const settingsLoad = useRef<Promise<SettingsCommandResult> | null>(null);
 	const currentSessionIdRef = useRef(sessionId);
-	const activeWork = deriveActiveAgentWork(statusEvents, statusState.status);
+	const activeWork = deriveActiveAgentWork(statusEvents, statusState.status, currentSessionId);
 
 	const loadSettings = useCallback(async (): Promise<SettingsCommandResult | null> => {
 		if (!settingsControlPlane) return null;
