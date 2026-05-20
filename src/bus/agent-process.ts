@@ -10,6 +10,10 @@ import { ensureMemoryIndexFresh } from "../genome/index-builder.ts";
 import { deriveTrustedMemoryWriteAuthorization } from "../genome/memory-write-authorization.ts";
 import { createReadOnlyGenome } from "../genome/read-only-genome.ts";
 import { SessionLogger } from "../host/logger.ts";
+import {
+	OpenAICodexOAuthService,
+	type OpenAICodexRuntimeCredentials,
+} from "../host/openai-codex-oauth/service.ts";
 import { importSettingsFromEnv } from "../host/settings/env-import.ts";
 import {
 	createSecretStoreRuntime,
@@ -68,6 +72,12 @@ interface AgentProcessClientDeps {
 	importSettingsFromEnv?: typeof importSettingsFromEnv;
 	createProviderRegistry?: (options: ConstructorParameters<typeof ProviderRegistry>[0]) => {
 		getEntries(): Promise<ProviderRegistryEntry[]>;
+	};
+	createOpenAICodexOAuthService?: (options: {
+		secretStore: SecretStoreRuntime["secretStore"];
+		secretBackend: SecretStoreRuntime["secretRefBackend"];
+	}) => {
+		resolveCredentials(providerId: string): Promise<OpenAICodexRuntimeCredentials>;
 	};
 	createClient?: (options: {
 		providers: Record<string, ProviderAdapter>;
@@ -133,6 +143,15 @@ export async function createAgentProcessClient(
 	const settingsLoadResult = (await settingsStore.load()) as SettingsLoadResult;
 	const secretStoreRuntime =
 		deps.createSecretStoreRuntime?.() ?? createSecretStoreRuntime({ env: process.env });
+	const openAICodexOAuthService =
+		deps.createOpenAICodexOAuthService?.({
+			secretStore: secretStoreRuntime.secretStore,
+			secretBackend: secretStoreRuntime.secretRefBackend,
+		}) ??
+		new OpenAICodexOAuthService({
+			secretStore: secretStoreRuntime.secretStore,
+			secretBackend: secretStoreRuntime.secretRefBackend,
+		});
 	const importFromEnv = deps.importSettingsFromEnv ?? importSettingsFromEnv;
 	let settings = settingsLoadResult.settings;
 	if (settingsLoadResult.source === "missing") {
@@ -151,12 +170,16 @@ export async function createAgentProcessClient(
 			secretStore: secretStoreRuntime.secretStore,
 			secretBackend: secretStoreRuntime.secretRefBackend,
 			secretBackendState: secretStoreRuntime.secretBackendState,
+			openAICodexCredentialResolver: (providerId: string) =>
+				openAICodexOAuthService.resolveCredentials(providerId),
 		}) ??
 		new ProviderRegistry({
 			settings,
 			secretStore: secretStoreRuntime.secretStore,
 			secretBackend: secretStoreRuntime.secretRefBackend,
 			secretBackendState: secretStoreRuntime.secretBackendState,
+			openAICodexCredentialResolver: (providerId: string) =>
+				openAICodexOAuthService.resolveCredentials(providerId),
 		});
 
 	const providers: Record<string, ProviderAdapter> = {};

@@ -610,6 +610,149 @@ describe("runAgentProcess", () => {
 		expect(client.adapter("openrouter")?.providerId).toBe("openrouter");
 	});
 
+	test("wires OpenAI Codex OAuth resolver into child-process provider registries", async () => {
+		const logger = new SessionLogger({
+			logPath: join(tempDir, "session.log.jsonl"),
+			component: "agent-process-test",
+			sessionId: SESSION_ID,
+		});
+		const secretStore = createSecretStore({ backend: "memory", platform: "darwin" });
+		const registryOptions: any[] = [];
+		const resolverCalls: string[] = [];
+
+		await createAgentProcessClient(logger, {
+			createSettingsStore: () => ({
+				load: async () =>
+					({
+						settings: {
+							version: 4,
+							providers: [],
+							defaults: {},
+							memoryModels: {},
+							agentModelOverrides: {},
+						},
+						skipEnvImport: false,
+						source: "loaded",
+					}) satisfies {
+						settings: SproutSettings;
+						skipEnvImport: boolean;
+						source: "missing" | "loaded" | "recovered";
+					},
+			}),
+			createSecretStoreRuntime: () =>
+				({
+					secretRefBackend: "memory",
+					secretBackendState: {
+						backend: "memory",
+						available: true,
+					},
+					secretStore,
+				}) satisfies SecretStoreRuntime,
+			createOpenAICodexOAuthService: () => ({
+				resolveCredentials: async (providerId: string) => {
+					resolverCalls.push(providerId);
+					return {
+						accessToken: "oauth-access",
+						accountId: "chatgpt-account",
+						expiresAt: "2026-05-20T12:00:00.000Z",
+					};
+				},
+				loginWithCode: async () => {},
+				logout: async () => {},
+				deleteCredentials: async () => ({ ok: true, failedRefs: [] }),
+			}),
+			createProviderRegistry: (options) => {
+				registryOptions.push(options);
+				return { getEntries: async () => [] };
+			},
+			createClient: ({ providers }) =>
+				({
+					providers: () => Object.keys(providers),
+				}) as unknown as Client,
+		});
+
+		expect(typeof registryOptions[0].openAICodexCredentialResolver).toBe("function");
+		await registryOptions[0].openAICodexCredentialResolver("openai-codex");
+		expect(resolverCalls).toEqual(["openai-codex"]);
+	});
+
+	test("does not treat OPENAI_API_KEY as credentials for child openai-codex providers", async () => {
+		const originalOpenAiKey = process.env.OPENAI_API_KEY;
+		process.env.OPENAI_API_KEY = "env-openai-secret";
+
+		try {
+			const logger = new SessionLogger({
+				logPath: join(tempDir, "session.log.jsonl"),
+				component: "agent-process-test",
+				sessionId: SESSION_ID,
+			});
+			const secretStore = createSecretStore({ backend: "memory", platform: "darwin" });
+			let providerIds: string[] = [];
+
+			const client = await createAgentProcessClient(logger, {
+				createSettingsStore: () => ({
+					load: async () =>
+						({
+							settings: {
+								version: 4,
+								providers: [
+									{
+										id: "openai-codex",
+										kind: "openai-codex",
+										label: "OpenAI Codex",
+										enabled: true,
+										createdAt: "2026-05-20T12:00:00.000Z",
+										updatedAt: "2026-05-20T12:00:00.000Z",
+									},
+								],
+								defaults: {},
+								memoryModels: {},
+								agentModelOverrides: {},
+							},
+							skipEnvImport: false,
+							source: "loaded",
+						}) satisfies {
+							settings: SproutSettings;
+							skipEnvImport: boolean;
+							source: "missing" | "loaded" | "recovered";
+						},
+				}),
+				createSecretStoreRuntime: () =>
+					({
+						secretRefBackend: "memory",
+						secretBackendState: {
+							backend: "memory",
+							available: true,
+						},
+						secretStore,
+					}) satisfies SecretStoreRuntime,
+				createOpenAICodexOAuthService: () => ({
+					resolveCredentials: async () => {
+						throw new Error("OpenAI Codex OAuth credentials are required");
+					},
+					loginWithCode: async () => {},
+					logout: async () => {},
+					deleteCredentials: async () => ({ ok: true, failedRefs: [] }),
+				}),
+				createClient: ({ providers }) => {
+					providerIds = Object.keys(providers);
+					return {
+						providers: () => providerIds,
+					} as unknown as Client;
+				},
+			});
+
+			expect(providerIds).toEqual([]);
+			expect(client.providers()).toEqual([]);
+		} finally {
+			if (originalOpenAiKey === undefined) {
+				delete process.env.OPENAI_API_KEY;
+			} else {
+				process.env.OPENAI_API_KEY = originalOpenAiKey;
+			}
+		}
+	});
+
 	test("publishes events during agent execution", async () => {
 		const mockClient = createMockClient("Done.");
 

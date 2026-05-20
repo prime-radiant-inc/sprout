@@ -1166,6 +1166,196 @@ describe("bootstrapSessionRuntime", () => {
 		});
 	});
 
+	test("wires one OpenAI Codex OAuth service into runtime provider registries and settings control plane", async () => {
+		const created: Record<string, unknown> = {};
+		const registryOptions: any[] = [];
+		const resolvedProviderIds: string[] = [];
+		const logoutProviderIds: string[] = [];
+		const deleteProviderIds: string[] = [];
+		let oauthServiceCreations = 0;
+		const oauthService = {
+			resolveCredentials: async (providerId: string) => {
+				resolvedProviderIds.push(providerId);
+				return {
+					accessToken: "oauth-access",
+					accountId: "chatgpt-account",
+					expiresAt: "2026-05-20T12:00:00.000Z",
+				};
+			},
+			loginWithCode: async () => {},
+			logout: async (providerId: string) => {
+				logoutProviderIds.push(providerId);
+			},
+			deleteCredentials: async (providerId: string) => {
+				deleteProviderIds.push(providerId);
+				return { ok: true, failedRefs: [] };
+			},
+		};
+		const updatedSettings = {
+			...createEmptySettings(),
+			providers: [
+				{
+					id: "openai-codex",
+					kind: "openai-codex" as const,
+					label: "OpenAI Codex",
+					enabled: true,
+					createdAt: "2026-05-20T12:00:00.000Z",
+					updatedAt: "2026-05-20T12:00:00.000Z",
+				},
+			],
+		};
+
+		await bootstrapSessionRuntime(
+			{
+				genomePath: "/tmp/genome",
+				projectDataDir: "/tmp/project",
+				rootDir: "/tmp/root",
+				sessionId: "01BOOT",
+				infra: { spawner: { id: "spawner" } as any, genome: { id: "genome" } as any },
+			},
+			{
+				createBus: () => ({ id: "bus" }),
+				createLogger: () => ({ info: () => {} }),
+				createSettingsStore: () => emptySettingsStore(),
+				createSecretStore: () => memorySecretStore(),
+				createOpenAICodexOAuthService: () => {
+					oauthServiceCreations += 1;
+					return oauthService;
+				},
+				createProviderRegistry: (options) => {
+					registryOptions.push(options);
+					return emptyRegistry();
+				},
+				createClient: async () => ({ replaceProviders() {} }),
+				createSettingsControlPlane: (options) => {
+					created.controlPlaneOptions = options;
+					return { id: "control-plane" };
+				},
+				createController: () => ({ sessionId: "01BOOT" }),
+				loadAvailableModels: async () => [],
+			},
+		);
+
+		expect(oauthServiceCreations).toBe(1);
+		expect(typeof registryOptions[0].openAICodexCredentialResolver).toBe("function");
+		expect((created.controlPlaneOptions as any).oauthOperations).toBeDefined();
+		await expect(
+			registryOptions[0].openAICodexCredentialResolver("openai-codex"),
+		).resolves.toMatchObject({
+			accessToken: "oauth-access",
+			accountId: "chatgpt-account",
+		});
+		expect(resolvedProviderIds).toEqual(["openai-codex"]);
+
+		await (created.controlPlaneOptions as any).onSettingsUpdated({
+			settings: updatedSettings,
+			runtime: {
+				secretBackend: { backend: "memory", available: true },
+				warnings: [],
+				modelOverrides: {},
+			},
+			providers: [],
+			catalog: [],
+			agentModels: [],
+		});
+		expect(registryOptions).toHaveLength(2);
+		await registryOptions[1].openAICodexCredentialResolver("codex-dev");
+		expect(resolvedProviderIds).toEqual(["openai-codex", "codex-dev"]);
+
+		const status = await (created.controlPlaneOptions as any).oauthOperations.status("codex-dev");
+		expect(status).toEqual({
+			kind: "oauth",
+			signedIn: true,
+			accountId: "chatgpt-account",
+			expiresAt: "2026-05-20T12:00:00.000Z",
+		});
+		await (created.controlPlaneOptions as any).oauthOperations.logout("codex-dev");
+		await expect(
+			(created.controlPlaneOptions as any).oauthOperations.deleteCredentials("codex-dev"),
+		).resolves.toEqual({ ok: true, failedRefs: [] });
+		expect(logoutProviderIds).toEqual(["codex-dev"]);
+		expect(deleteProviderIds).toEqual(["codex-dev"]);
+	});
+
+	test("implements OpenAI Codex OAuth login through callback listener and PKCE primitives", async () => {
+		const created: Record<string, unknown> = {};
+		const openedUrls: string[] = [];
+		const loginInputs: any[] = [];
+		const listenerCalls: any[] = [];
+
+		await bootstrapSessionRuntime(
+			{
+				genomePath: "/tmp/genome",
+				projectDataDir: "/tmp/project",
+				rootDir: "/tmp/root",
+				sessionId: "01BOOT",
+				infra: { spawner: { id: "spawner" } as any, genome: { id: "genome" } as any },
+			},
+			{
+				createBus: () => ({ id: "bus" }),
+				createLogger: () => ({ info: () => {} }),
+				createSettingsStore: () => emptySettingsStore(),
+				createSecretStore: () => memorySecretStore(),
+				createProviderRegistry: () => emptyRegistry(),
+				createOpenAICodexOAuthService: () => ({
+					resolveCredentials: async () => {
+						throw new Error("not signed in");
+					},
+					loginWithCode: async (input: any) => {
+						loginInputs.push(input);
+					},
+					logout: async () => {},
+					deleteCredentials: async () => ({ ok: true, failedRefs: [] }),
+				}),
+				generateOpenAICodexPkce: async () => ({
+					codeVerifier: "verifier-123",
+					codeChallenge: "challenge-456",
+				}),
+				generateOpenAICodexOAuthState: () => "state-789",
+				listenForOpenAICodexOAuthCallback: async (options) => {
+					listenerCalls.push(options);
+					return {
+						redirectUri: "http://localhost:1455/auth/callback",
+						result: Promise.resolve({ ok: true as const, code: "callback-code" }),
+						stop: () => {
+							created.listenerStopped = true;
+						},
+					};
+				},
+				openExternalUrl: async (url) => {
+					openedUrls.push(url);
+				},
+				createClient: async () => ({ id: "client" }),
+				createSettingsControlPlane: (options) => {
+					created.controlPlaneOptions = options;
+					return { id: "control-plane" };
+				},
+				createController: () => ({ sessionId: "01BOOT" }),
+				loadAvailableModels: async () => [],
+			},
+		);
+
+		await (created.controlPlaneOptions as any).oauthOperations.login("openai-codex");
+
+		expect(listenerCalls).toEqual([{ expectedState: "state-789" }]);
+		expect(openedUrls).toHaveLength(1);
+		const authorizeUrl = new URL(openedUrls[0]!);
+		expect(authorizeUrl.searchParams.get("redirect_uri")).toBe(
+			"http://localhost:1455/auth/callback",
+		);
+		expect(authorizeUrl.searchParams.get("state")).toBe("state-789");
+		expect(authorizeUrl.searchParams.get("code_challenge")).toBe("challenge-456");
+		expect(loginInputs).toEqual([
+			{
+				providerId: "openai-codex",
+				code: "callback-code",
+				codeVerifier: "verifier-123",
+				redirectUri: "http://localhost:1455/auth/callback",
+			},
+		]);
+		expect(created.listenerStopped).toBe(true);
+	});
+
 	test("clears startup validation errors without enabling a disabled provider", async () => {
 		const settings = {
 			...createEmptySettings(),

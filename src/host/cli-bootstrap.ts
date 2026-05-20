@@ -11,6 +11,15 @@ import type { Message, ProviderAdapter } from "../llm/types.ts";
 import type { SessionSelectionRequest } from "../shared/session-selection.ts";
 import { EventBus } from "./event-bus.ts";
 import { SessionLogger } from "./logger.ts";
+import { type CallbackListener, listenForCallback } from "./openai-codex-oauth/callback-server.ts";
+import { buildAuthorizeUrl } from "./openai-codex-oauth/config.ts";
+import { generatePkce, type PkcePair } from "./openai-codex-oauth/pkce.ts";
+import {
+	type CredentialDeleteResult,
+	type LoginWithCodeInput,
+	OpenAICodexOAuthService,
+	type OpenAICodexRuntimeCredentials,
+} from "./openai-codex-oauth/service.ts";
 import { SessionController } from "./session-controller.ts";
 import type { SessionMemorySurfaceSnapshot } from "./session-metadata.ts";
 import {
@@ -20,6 +29,7 @@ import {
 	type SessionSelectionSnapshot,
 } from "./session-selection.ts";
 import { buildAgentModelCatalog } from "./settings/agent-model-catalog.ts";
+import type { ProviderOAuthOperations } from "./settings/control-plane.ts";
 import { SettingsControlPlane } from "./settings/control-plane.ts";
 import { type EnvImportResult, importSettingsFromEnv } from "./settings/env-import.ts";
 import {
@@ -97,10 +107,21 @@ interface InteractiveBootstrapDeps {
 		secretStore: SecretStore;
 		secretBackend: SecretStorageBackend;
 		secretBackendState: SecretBackendState;
+		openAICodexCredentialResolver?: (providerId: string) => Promise<OpenAICodexRuntimeCredentials>;
 	}) => {
 		getEntries(): Promise<ProviderRegistryEntry[]>;
 		getEntry(providerId: string): Promise<ProviderRegistryEntry | undefined>;
 	};
+	createOpenAICodexOAuthService: (options: {
+		secretStore: SecretStore;
+		secretBackend: SecretStorageBackend;
+	}) => OpenAICodexOAuthRuntimeService;
+	generateOpenAICodexPkce: () => Promise<PkcePair>;
+	generateOpenAICodexOAuthState: () => string;
+	listenForOpenAICodexOAuthCallback: (options: {
+		expectedState: string;
+	}) => Promise<CallbackListener>;
+	openExternalUrl: (url: string) => Promise<void>;
 	createLogger: (opts: {
 		logPath: string;
 		component: string;
@@ -145,6 +166,13 @@ interface InteractiveBootstrapDeps {
 	onLoggingEnabled: (logger: unknown, level: "debug" | "info", sessionId: string) => void;
 }
 
+interface OpenAICodexOAuthRuntimeService {
+	resolveCredentials(providerId: string): Promise<OpenAICodexRuntimeCredentials>;
+	loginWithCode(input: LoginWithCodeInput): Promise<void>;
+	logout(providerId: string): Promise<void>;
+	deleteCredentials(providerId: string): Promise<CredentialDeleteResult>;
+}
+
 export async function bootstrapSessionRuntime(
 	opts: SessionBootstrapOptions,
 	deps: Partial<InteractiveBootstrapDeps> = {},
@@ -173,6 +201,20 @@ export async function bootstrapSessionRuntime(
 			((options) => {
 				return new ProviderRegistry(options);
 			}),
+		createOpenAICodexOAuthService:
+			deps.createOpenAICodexOAuthService ??
+			((options) => {
+				return new OpenAICodexOAuthService(options);
+			}),
+		generateOpenAICodexPkce: deps.generateOpenAICodexPkce ?? (() => generatePkce()),
+		generateOpenAICodexOAuthState:
+			deps.generateOpenAICodexOAuthState ?? (() => crypto.randomUUID()),
+		listenForOpenAICodexOAuthCallback:
+			deps.listenForOpenAICodexOAuthCallback ??
+			((options) => {
+				return listenForCallback(options);
+			}),
+		openExternalUrl: deps.openExternalUrl ?? openExternalUrl,
 		createLogger:
 			deps.createLogger ??
 			((loggerOpts) => {
@@ -255,6 +297,10 @@ export async function bootstrapSessionRuntime(
 	const settingsStore = d.createSettingsStore();
 	const settingsLoadResult = await settingsStore.load();
 	const { secretRefBackend, secretBackendState, secretStore } = d.createSecretStore();
+	const openAICodexOAuthService = d.createOpenAICodexOAuthService({
+		secretStore,
+		secretBackend: secretRefBackend,
+	});
 	const runtimeWarnings = buildBootstrapRuntimeWarnings(settingsLoadResult);
 	let settings = settingsLoadResult.settings;
 	let initialValidationErrors: Record<string, string[]> = {};
@@ -262,6 +308,8 @@ export async function bootstrapSessionRuntime(
 		secretStore,
 		secretBackend: secretRefBackend,
 		secretBackendState,
+		openAICodexCredentialResolver: (providerId: string) =>
+			openAICodexOAuthService.resolveCredentials(providerId),
 	};
 	if (settingsLoadResult.source === "missing") {
 		const imported = await d.importSettingsFromEnv({
@@ -326,6 +374,12 @@ export async function bootstrapSessionRuntime(
 		},
 		checkConnection: createRuntimeConnectionChecker(() => registry),
 		refreshModels: createRuntimeModelRefresher(() => registry),
+		oauthOperations: createOpenAICodexOAuthOperations(openAICodexOAuthService, {
+			generatePkce: d.generateOpenAICodexPkce,
+			generateState: d.generateOpenAICodexOAuthState,
+			listenForCallback: d.listenForOpenAICodexOAuthCallback,
+			openExternalUrl: d.openExternalUrl,
+		}),
 		loadAgentModelCatalog: () =>
 			buildAgentModelCatalog({
 				rootDir: opts.rootDir,
@@ -503,4 +557,77 @@ function replaceRuntimeClientProviders(
 
 function replaceArrayContents(target: string[], next: string[]): void {
 	target.splice(0, target.length, ...next);
+}
+
+function createOpenAICodexOAuthOperations(
+	oauthService: OpenAICodexOAuthRuntimeService,
+	deps: {
+		generatePkce: () => Promise<PkcePair>;
+		generateState: () => string;
+		listenForCallback: (options: { expectedState: string }) => Promise<CallbackListener>;
+		openExternalUrl: (url: string) => Promise<void>;
+	},
+): ProviderOAuthOperations {
+	return {
+		status: async (providerId) => {
+			try {
+				const credentials = await oauthService.resolveCredentials(providerId);
+				return {
+					kind: "oauth",
+					signedIn: true,
+					accountId: credentials.accountId,
+					expiresAt: credentials.expiresAt,
+				};
+			} catch {
+				return {
+					kind: "oauth",
+					signedIn: false,
+				};
+			}
+		},
+		login: async (providerId) => {
+			const state = deps.generateState();
+			const pkce = await deps.generatePkce();
+			const listener = await deps.listenForCallback({ expectedState: state });
+			try {
+				const authorizeUrl = buildAuthorizeUrl({
+					redirectUri: listener.redirectUri,
+					state,
+					codeChallenge: pkce.codeChallenge,
+				});
+				await deps.openExternalUrl(authorizeUrl.toString());
+				const callback = await listener.result;
+				if (!callback.ok) {
+					throw new Error(callback.error);
+				}
+				await oauthService.loginWithCode({
+					providerId,
+					code: callback.code,
+					codeVerifier: pkce.codeVerifier,
+					redirectUri: listener.redirectUri,
+				});
+			} finally {
+				listener.stop();
+			}
+		},
+		logout: (providerId) => oauthService.logout(providerId),
+		deleteCredentials: (providerId) => oauthService.deleteCredentials(providerId),
+	};
+}
+
+async function openExternalUrl(url: string): Promise<void> {
+	const command =
+		process.platform === "darwin"
+			? ["open", url]
+			: process.platform === "win32"
+				? ["cmd", "/c", "start", "", url]
+				: ["xdg-open", url];
+	const processHandle = Bun.spawn(command, {
+		stdout: "ignore",
+		stderr: "ignore",
+	});
+	const exitCode = await processHandle.exited;
+	if (exitCode !== 0) {
+		throw new Error("Failed to open OpenAI Codex OAuth authorization URL");
+	}
 }
