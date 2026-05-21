@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { SessionEvent } from "../../src/kernel/types.ts";
 import {
+	appendActiveWorkEvent,
 	deriveActiveAgentWork,
 	formatActiveAgentWork,
 	formatAgentDisplayName,
+	initialActiveWorkEvents,
 } from "../../src/shared/agent-display.ts";
 
 function event(
@@ -39,6 +41,49 @@ describe("formatAgentDisplayName", () => {
 				mnemonicName: "Brunelleschi",
 			}),
 		).toBe("Brunelleschi · architect");
+	});
+});
+
+describe("active work event retention", () => {
+	test("keeps only active-work derivation events and bounds retained history", () => {
+		let retained: SessionEvent[] = [];
+
+		retained = appendActiveWorkEvent(
+			retained,
+			event("act_start", { agent_name: "architect", child_id: "C1" }, { timestamp: 1 }),
+			2,
+		);
+		retained = appendActiveWorkEvent(
+			retained,
+			event("warning", { message: "unrelated" }, { timestamp: 2 }),
+			2,
+		);
+		retained = appendActiveWorkEvent(
+			retained,
+			event("context_update", { context_tokens: 100 }, { timestamp: 3 }),
+			2,
+		);
+		retained = appendActiveWorkEvent(
+			retained,
+			event("context_update", { memory_collapse: "started" }, { timestamp: 4 }),
+			2,
+		);
+		retained = appendActiveWorkEvent(
+			retained,
+			event("session_start", { session_id: "child" }, { timestamp: 5, depth: 1 }),
+			2,
+		);
+
+		expect(retained.map((retainedEvent) => retainedEvent.timestamp)).toEqual([4, 5]);
+	});
+
+	test("resets retained active-work events on session_clear", () => {
+		const retained = initialActiveWorkEvents([
+			event("act_start", { agent_name: "architect", child_id: "C1" }, { timestamp: 1 }),
+			event("session_clear", { new_session_id: "new-session" }, { timestamp: 2 }),
+		]);
+
+		expect(retained.map((retainedEvent) => retainedEvent.kind)).toEqual(["session_clear"]);
 	});
 });
 

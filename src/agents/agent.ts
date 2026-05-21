@@ -48,6 +48,7 @@ import type {
 } from "../llm/types.ts";
 import { Msg, messageText } from "../llm/types.ts";
 import { createReplayRecorder, type ReplayRecorder } from "../replay/recorder.ts";
+import { shouldTagAgentEventWithSessionId } from "../shared/session-event-scope.ts";
 import { getToolDisplayName } from "../shared/tool-display.ts";
 import { ulid } from "../util/ulid.ts";
 import { getContextWindowSize } from "./context-window.ts";
@@ -692,7 +693,7 @@ export class Agent {
 		data: Record<string, unknown>,
 	): void {
 		const eventData =
-			this.shouldTagWithSessionId(kind) && typeof data.session_id !== "string"
+			shouldTagAgentEventWithSessionId(kind) && typeof data.session_id !== "string"
 				? { ...data, session_id: this.sessionId }
 				: data;
 		this.events.emit(kind, agentId, depth, eventData);
@@ -703,12 +704,6 @@ export class Agent {
 				.then(() => appendFile(`${this.logBasePath}.jsonl`, line))
 				.catch(() => {});
 		}
-	}
-
-	private shouldTagWithSessionId(kind: EventKind): boolean {
-		return (
-			kind === "act_start" || kind === "act_end" || kind === "plan_end" || kind === "interrupted"
-		);
 	}
 
 	/** Wait for all pending log writes to complete. */

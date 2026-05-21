@@ -17,6 +17,7 @@ import type {
 import { EVENT_CAP } from "../kernel/constants.ts";
 import type { PricingTable } from "../kernel/pricing.ts";
 import type { SessionEvent } from "../kernel/types.ts";
+import { requiresSessionIdAfterClear } from "../shared/session-event-scope.ts";
 import type { SessionSelectionRequest } from "../shared/session-selection.ts";
 import type { CommandMessage, ServerMessage } from "./protocol.ts";
 import { parseCommandMessage } from "./protocol.ts";
@@ -74,20 +75,6 @@ function sessionScopedEventApplies(
 	const eventSessionId = cleanString(event.data.session_id);
 	if (requireSessionId && !eventSessionId) return false;
 	return !eventSessionId || !currentSessionId || eventSessionId === currentSessionId;
-}
-
-function requiresSessionIdAfterClear(event: SessionEvent): boolean {
-	return (
-		event.kind === "act_start" ||
-		event.kind === "act_end" ||
-		event.kind === "plan_end" ||
-		event.kind === "context_update" ||
-		(event.kind === "session_start" && event.depth === 0) ||
-		(event.kind === "session_end" && event.depth === 0) ||
-		(event.kind === "interrupted" && event.depth === 0) ||
-		(event.kind === "session_start" && event.depth > 0) ||
-		(event.kind === "session_end" && event.depth > 0)
-	);
 }
 
 /**
@@ -178,6 +165,7 @@ export class WebServer {
 				this.sessionScopedEventsRequireIds = true;
 				this.historyCache = null;
 				this.historyCacheSessionId = null;
+				this.pendingTaskCliAgents.clear();
 				// New session semantics: reconnect snapshots should not include stale events.
 				this.events = [event];
 				acceptedForCurrentSession = true;
@@ -195,6 +183,7 @@ export class WebServer {
 					}
 				}
 			}
+			if (!acceptedForCurrentSession) return;
 			// Track task-cli calls to emit task_update events.
 			// task-cli is registered as a direct primitive (name === "task-cli"),
 			// but may also be invoked via the exec primitive with "task-cli" in the command string.
@@ -214,13 +203,11 @@ export class WebServer {
 				event.data.success === true
 			) {
 				if (this.pendingTaskCliAgents.delete(event.agent_id)) {
-					this.emitTaskUpdate(event.agent_id, event.depth);
+					void this.emitTaskUpdate(event.agent_id, event.depth, this.sessionId);
 				}
 			}
 			this.updateStatus(event);
-			if (acceptedForCurrentSession || !requiresSessionIdAfterClear(event)) {
-				this.broadcastEvent(event);
-			}
+			this.broadcastEvent(event);
 		});
 
 		const self = this;
@@ -369,18 +356,18 @@ export class WebServer {
 		return events;
 	}
 
-	private async emitTaskUpdate(agentId: string, depth: number): Promise<void> {
+	private async emitTaskUpdate(agentId: string, depth: number, sessionId: string): Promise<void> {
 		if (!this.projectDataDir) return;
 		try {
-			const path = `${this.projectDataDir}/logs/${this.sessionId}/tasks.json`;
+			const path = `${this.projectDataDir}/logs/${sessionId}/tasks.json`;
 			const file = Bun.file(path);
 			if (!(await file.exists())) {
-				this.bus.emitEvent("task_update", agentId, depth, { tasks: [] });
+				this.bus.emitEvent("task_update", agentId, depth, { tasks: [], session_id: sessionId });
 				return;
 			}
 			const data = await file.json();
 			const tasks = Array.isArray(data.tasks) ? data.tasks : [];
-			this.bus.emitEvent("task_update", agentId, depth, { tasks });
+			this.bus.emitEvent("task_update", agentId, depth, { tasks, session_id: sessionId });
 		} catch {
 			// File read/parse error — silently skip
 		}

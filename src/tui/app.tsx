@@ -13,7 +13,11 @@ import type {
 	SettingsCommandResult,
 	SettingsSnapshot,
 } from "../kernel/types.ts";
-import { deriveActiveAgentWork } from "../shared/agent-display.ts";
+import {
+	appendActiveWorkEvent,
+	deriveActiveAgentWork,
+	initialActiveWorkEvents,
+} from "../shared/agent-display.ts";
 import { formatSessionSelectionRequest } from "../shared/session-selection.ts";
 import { ConversationView } from "./conversation-view.tsx";
 import { InputArea } from "./input-area.tsx";
@@ -62,8 +66,6 @@ const INITIAL_STATUS: StatusState = {
 	status: "idle",
 };
 
-const STATUS_EVENT_HISTORY_LIMIT = 500;
-
 function cleanString(value: unknown): string | undefined {
 	return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
@@ -86,19 +88,6 @@ function sessionLifecycleApplies(
 	const eventSessionId = cleanString(event.data.session_id);
 	if (requireSessionId && !eventSessionId) return false;
 	return !eventSessionId || !currentSessionId || eventSessionId === currentSessionId;
-}
-
-function isActiveWorkDerivationEvent(event: SessionEvent): boolean {
-	return (
-		event.kind === "session_start" ||
-		event.kind === "session_end" ||
-		event.kind === "interrupted" ||
-		event.kind === "session_clear" ||
-		event.kind === "context_update" ||
-		event.kind === "act_start" ||
-		event.kind === "act_end" ||
-		event.kind === "plan_end"
-	);
 }
 
 function selectionSnapshotFromRequest(
@@ -128,11 +117,8 @@ export function App({
 	initialEvents,
 }: AppProps) {
 	const [statusState, setStatusState] = useState<StatusState>(INITIAL_STATUS);
-	const [, setStatusEvents] = useState<SessionEvent[]>(
-		() => initialEvents?.slice(-STATUS_EVENT_HISTORY_LIMIT) ?? [],
-	);
-	const [activeWorkEvents, setActiveWorkEvents] = useState<SessionEvent[]>(
-		() => initialEvents?.filter(isActiveWorkDerivationEvent) ?? [],
+	const [activeWorkEvents, setActiveWorkEvents] = useState<SessionEvent[]>(() =>
+		initialActiveWorkEvents(initialEvents ?? []),
 	);
 	const [selectionSnapshot, setSelectionSnapshot] = useState<SessionSelectionSnapshot>(
 		initialSelection ?? createDefaultSessionSelectionSnapshot(),
@@ -179,18 +165,7 @@ export function App({
 
 	useEffect(() => {
 		return bus.onEvent((event: SessionEvent) => {
-			setStatusEvents((prev) => {
-				if (event.kind === "session_clear") return [event];
-				const next = [...prev, event];
-				return next.length > STATUS_EVENT_HISTORY_LIMIT
-					? next.slice(-STATUS_EVENT_HISTORY_LIMIT)
-					: next;
-			});
-			setActiveWorkEvents((prev) => {
-				if (event.kind === "session_clear") return [event];
-				if (!isActiveWorkDerivationEvent(event)) return prev;
-				return [...prev, event];
-			});
+			setActiveWorkEvents((prev) => appendActiveWorkEvent(prev, event));
 
 			switch (event.kind) {
 				case "session_start":

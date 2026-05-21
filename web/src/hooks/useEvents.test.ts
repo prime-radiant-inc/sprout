@@ -321,6 +321,43 @@ describe("EventStore", () => {
 			);
 		});
 
+		test("keeps active-work events after unrelated events exceed the rendered event cap", () => {
+			const store = new EventStore();
+			const activeStart = makeEvent(
+				"act_start",
+				{
+					agent_name: "architect",
+					child_id: "C1",
+					handle_id: "H1",
+					session_id: "s1",
+				},
+				{ timestamp: 1 },
+			);
+
+			store.processMessage(snapshotMessage([makeEvent("session_start", { session_id: "s1" })], {
+				id: "s1",
+				status: "running",
+			}));
+			store.processMessage(eventMessage(activeStart));
+			for (let index = 1; index <= EVENT_CAP + 3; index++) {
+				store.processMessage(
+					eventMessage(
+						makeEvent(
+							"warning",
+							{
+								message: `event-${index}`,
+							},
+							{ timestamp: index + 1 },
+						),
+					),
+				);
+			}
+
+			expect(store.events).toHaveLength(EVENT_CAP);
+			expect(store.events).not.toContain(activeStart);
+			expect(store.activeWorkEvents).toContain(activeStart);
+		});
+
 		test("prepends older history without changing current status", () => {
 			const store = new EventStore();
 			store.processMessage(

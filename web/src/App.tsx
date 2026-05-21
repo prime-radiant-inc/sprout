@@ -88,6 +88,7 @@ export function App() {
 	const { connected, authError, send, onMessage } = useWebSocket(WS_URL);
 	const {
 		events,
+		activeWorkEvents,
 		status,
 		settings,
 		lastSettingsResult,
@@ -343,7 +344,7 @@ export function App() {
 	}, [sendCommand]);
 
 	const isRunning = status.status === "running";
-	const activeWork = computeActiveWorkForStatus(events, status);
+	const activeWork = computeActiveWorkForStatus(activeWorkEvents, status);
 
 	return (
 		<div className={styles.app} data-region="app">

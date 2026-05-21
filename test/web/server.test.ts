@@ -1237,7 +1237,7 @@ describe("WebServer", () => {
 			bus.emitEvent("session_start", "root", 0, { goal: "old session" });
 			bus.emitEvent("plan_end", "root", 0, { text: "old result" });
 			bus.emitEvent("session_clear", "session", 0, { new_session_id: "new-session" });
-			bus.emitEvent("plan_start", "root", 0, { turn: 1 });
+			bus.emitEvent("plan_start", "root", 0, { turn: 1, session_id: "new-session" });
 
 			const ws = await connectClient();
 			const snapshot = await nextMessage(ws);
@@ -1245,6 +1245,46 @@ describe("WebServer", () => {
 			if (snapshot.type !== "snapshot") throw new Error("Expected snapshot");
 			expect(snapshot.session.id).toBe("new-session");
 			expect(snapshot.events.map((e) => e.kind)).toEqual(["session_clear", "plan_start"]);
+		});
+
+		test("untagged primitive events after session_clear are not buffered into new session snapshots", async () => {
+			await startServer();
+			bus.emitEvent("session_start", "root", 0, { session_id: "test-session" });
+			bus.emitEvent("session_clear", "session", 0, { new_session_id: "new-session" });
+			bus.emitEvent("primitive_start", "root", 0, {
+				name: "exec",
+				args: { command: "echo stale" },
+			});
+			bus.emitEvent("primitive_end", "root", 0, {
+				name: "exec",
+				success: true,
+				args: { command: "echo stale" },
+			});
+
+			const ws = await connectClient();
+			const snapshot = await nextMessage(ws);
+			expect(snapshot.type).toBe("snapshot");
+			if (snapshot.type !== "snapshot") throw new Error("Expected snapshot");
+			expect(snapshot.session.id).toBe("new-session");
+			expect(snapshot.events.map((e) => e.kind)).toEqual(["session_clear"]);
+		});
+
+		test("current-session primitive events after session_clear remain buffered", async () => {
+			await startServer();
+			bus.emitEvent("session_start", "root", 0, { session_id: "test-session" });
+			bus.emitEvent("session_clear", "session", 0, { new_session_id: "new-session" });
+			bus.emitEvent("primitive_start", "root", 0, {
+				name: "exec",
+				args: { command: "echo current" },
+				session_id: "new-session",
+			});
+
+			const ws = await connectClient();
+			const snapshot = await nextMessage(ws);
+			expect(snapshot.type).toBe("snapshot");
+			if (snapshot.type !== "snapshot") throw new Error("Expected snapshot");
+			expect(snapshot.session.id).toBe("new-session");
+			expect(snapshot.events.map((e) => e.kind)).toEqual(["session_clear", "primitive_start"]);
 		});
 	});
 
@@ -1304,6 +1344,7 @@ describe("WebServer", () => {
 			const lastTaskUpdate = taskUpdateMsgs[taskUpdateMsgs.length - 1]!;
 			if (lastTaskUpdate.type !== "event") throw new Error("Expected event");
 			expect(lastTaskUpdate.event.kind).toBe("task_update");
+			expect(lastTaskUpdate.event.data.session_id).toBe("task-update-session");
 			expect(Array.isArray(lastTaskUpdate.event.data.tasks)).toBe(true);
 			const tasks = lastTaskUpdate.event.data.tasks as { id: string }[];
 			expect(tasks[0]!.id).toBe("1");
@@ -1365,6 +1406,7 @@ describe("WebServer", () => {
 			const lastTaskUpdate = taskUpdateMsgs[taskUpdateMsgs.length - 1]!;
 			if (lastTaskUpdate.type !== "event") throw new Error("Expected event");
 			expect(lastTaskUpdate.event.kind).toBe("task_update");
+			expect(lastTaskUpdate.event.data.session_id).toBe("task-update-direct-session");
 			expect(Array.isArray(lastTaskUpdate.event.data.tasks)).toBe(true);
 			const tasks = lastTaskUpdate.event.data.tasks as { id: string }[];
 			expect(tasks[0]!.id).toBe("1");
@@ -1423,6 +1465,90 @@ describe("WebServer", () => {
 				(m) => m.type === "event" && (m.type === "event" ? m.event.kind : "") === "task_update",
 			);
 			expect(taskUpdateMessages).toHaveLength(0);
+		});
+
+		test("does not emit task_update for stale task-cli completion after session_clear", async () => {
+			const dataDir = mkdtempSync(join(tmpdir(), "sprout-stale-task-update-"));
+			const server2 = new WebServer({
+				bus,
+				port: 0,
+				staticDir,
+				sessionId: "old-session",
+				projectDataDir: dataDir,
+			});
+			await server2.start();
+			const port2 = server2.getPort();
+
+			const ws = await connect(`ws://localhost:${port2}/ws`);
+			clients.push(ws);
+			const messages = collectMessages(ws);
+
+			await delay(50);
+
+			bus.emitEvent("primitive_start", "agent-1", 1, {
+				name: "exec",
+				args: { command: "task-cli update 1 --status done" },
+			});
+			bus.emitEvent("session_clear", "session", 0, {
+				new_session_id: "new-session",
+			});
+			bus.emitEvent("primitive_end", "agent-1", 1, {
+				name: "exec",
+				success: true,
+				args: { command: "task-cli update 1 --status done" },
+			});
+
+			await delay(300);
+
+			const taskUpdateMessages = messages.filter(
+				(m) => m.type === "event" && (m.type === "event" ? m.event.kind : "") === "task_update",
+			);
+			expect(taskUpdateMessages).toHaveLength(0);
+
+			await server2.stop();
+		});
+
+		test("does not emit task_update scheduled before session_clear after the session changes", async () => {
+			const dataDir = mkdtempSync(join(tmpdir(), "sprout-racing-task-update-"));
+			const server2 = new WebServer({
+				bus,
+				port: 0,
+				staticDir,
+				sessionId: "old-session",
+				projectDataDir: dataDir,
+			});
+			await server2.start();
+			const port2 = server2.getPort();
+
+			const ws = await connect(`ws://localhost:${port2}/ws`);
+			clients.push(ws);
+			const messages = collectMessages(ws);
+
+			await delay(50);
+
+			bus.emitEvent("primitive_start", "agent-1", 1, {
+				name: "exec",
+				args: { command: "task-cli update 1 --status done" },
+				session_id: "old-session",
+			});
+			bus.emitEvent("primitive_end", "agent-1", 1, {
+				name: "exec",
+				success: true,
+				args: { command: "task-cli update 1 --status done" },
+				session_id: "old-session",
+			});
+			bus.emitEvent("session_clear", "session", 0, {
+				new_session_id: "new-session",
+			});
+
+			await delay(300);
+
+			const taskUpdateMessages = messages.filter(
+				(m) => m.type === "event" && (m.type === "event" ? m.event.kind : "") === "task_update",
+			);
+			expect(taskUpdateMessages).toHaveLength(0);
+
+			await server2.stop();
 		});
 
 		test("seedTasksForClient sends synthetic task_update on connect when tasks.json exists", async () => {

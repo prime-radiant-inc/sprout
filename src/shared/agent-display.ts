@@ -30,6 +30,43 @@ export function formatActiveAgentWork(work: ActiveAgentWork): string {
 	return `Waiting on ${formatAgentDisplayName(work.agent)}`;
 }
 
+export const ACTIVE_WORK_EVENT_HISTORY_LIMIT = 500;
+
+export function isActiveWorkDerivationEvent(event: SessionEvent): boolean {
+	return (
+		event.kind === "session_start" ||
+		event.kind === "session_end" ||
+		event.kind === "interrupted" ||
+		event.kind === "session_clear" ||
+		event.kind === "act_start" ||
+		event.kind === "act_end" ||
+		event.kind === "plan_end" ||
+		(event.kind === "context_update" && cleanString(event.data.memory_collapse) !== undefined)
+	);
+}
+
+export function appendActiveWorkEvent(
+	events: SessionEvent[],
+	event: SessionEvent,
+	limit = ACTIVE_WORK_EVENT_HISTORY_LIMIT,
+): SessionEvent[] {
+	if (event.kind === "session_clear") return [event];
+	if (!isActiveWorkDerivationEvent(event)) return events;
+	const next = [...events, event];
+	return next.length > limit ? next.slice(-limit) : next;
+}
+
+export function initialActiveWorkEvents(
+	events: readonly SessionEvent[],
+	limit = ACTIVE_WORK_EVENT_HISTORY_LIMIT,
+): SessionEvent[] {
+	let retained: SessionEvent[] = [];
+	for (const event of events) {
+		retained = appendActiveWorkEvent(retained, event, limit);
+	}
+	return retained;
+}
+
 interface ActiveChildRecord extends AgentDisplayRef {
 	startedAt: number;
 	depth: number;

@@ -14,6 +14,10 @@ import type {
 } from "@kernel/types.ts";
 import type { PricingTable } from "@kernel/pricing.ts";
 import { deriveAvailableModels } from "@shared/available-models.ts";
+import {
+	appendActiveWorkEvent,
+	initialActiveWorkEvents,
+} from "@shared/agent-display.ts";
 import { setPricingTable } from "../utils/pricing.ts";
 
 function eventKey(event: SessionEvent): string {
@@ -151,6 +155,7 @@ function memoryCollapseIsActive(
  */
 export class EventStore {
 	events: SessionEvent[] = [];
+	activeWorkEvents: SessionEvent[] = [];
 	status: SessionStatus = { ...INITIAL_STATUS };
 	settings: SettingsSnapshot | null = null;
 	lastSettingsResult: SettingsCommandResult | null = null;
@@ -186,7 +191,9 @@ export class EventStore {
 				this.sessionScopedEventsRequireIds = msg.events.some(
 					(event) => event.kind === "session_clear",
 				);
-				this.replaceEvents(dedupeEvents(msg.events));
+				const dedupedEvents = dedupeEvents(msg.events);
+				this.activeWorkEvents = initialActiveWorkEvents(dedupedEvents);
+				this.replaceEvents(dedupedEvents);
 				if (this.events.length > EVENT_CAP) {
 					this.replaceEvents(this.events.slice(-EVENT_CAP));
 				}
@@ -223,6 +230,7 @@ export class EventStore {
 			}
 
 			case "event":
+				this.activeWorkEvents = appendActiveWorkEvent(this.activeWorkEvents, msg.event);
 				this.appendEvent(msg.event);
 				if (!this.historyExtended && this.events.length > EVENT_CAP) {
 					this.replaceEvents(this.events.slice(-EVENT_CAP));
@@ -429,6 +437,7 @@ function selectionSnapshotFromModelSelection(
 
 interface UseEventsResult {
 	events: SessionEvent[];
+	activeWorkEvents: SessionEvent[];
 	status: SessionStatus;
 	settings: SettingsSnapshot | null;
 	lastSettingsResult: SettingsCommandResult | null;
@@ -464,6 +473,7 @@ export function useEvents(
 	// Snapshot for useSyncExternalStore
 	const snapshotRef = useRef({
 		events: store.events,
+		activeWorkEvents: store.activeWorkEvents,
 		status: store.status,
 		settings: store.settings,
 		lastSettingsResult: store.lastSettingsResult,
@@ -474,6 +484,7 @@ export function useEvents(
 			return store.subscribe(() => {
 				snapshotRef.current = {
 					events: store.events,
+					activeWorkEvents: store.activeWorkEvents,
 					status: store.status,
 					settings: store.settings,
 					lastSettingsResult: store.lastSettingsResult,
@@ -495,6 +506,7 @@ export function useEvents(
 
 	return {
 		events: state.events,
+		activeWorkEvents: state.activeWorkEvents,
 		status: state.status,
 		settings: state.settings,
 		lastSettingsResult: state.lastSettingsResult,
