@@ -1,11 +1,13 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 // ── Load the tool function once ──────────────────────────────────────────────
 
 let loadTranscript: (ctx: any) => Promise<any>;
+let tempToolDir: string;
 let tempToolPath: string;
 
 beforeAll(async () => {
@@ -19,20 +21,18 @@ beforeAll(async () => {
 		? toolSource.slice(toolSource.indexOf("\n---\n", 4) + 5)
 		: toolSource;
 
-	tempToolPath = join(
-		tmpdir(),
-		`load-transcript-test-${Date.now()}-${Math.random().toString(36).slice(2)}.ts`,
-	);
+	tempToolDir = mkdtempSync(join(tmpdir(), "load-transcript-test-"));
+	tempToolPath = join(tempToolDir, "load-transcript.ts");
 	writeFileSync(tempToolPath, scriptBody);
 
-	const mod = await import(tempToolPath);
+	const mod = await import(pathToFileURL(tempToolPath).href);
 	loadTranscript = mod.default;
 });
 
 afterAll(() => {
-	if (tempToolPath) {
+	if (tempToolDir) {
 		try {
-			rmSync(tempToolPath);
+			rmSync(tempToolDir, { recursive: true, force: true });
 		} catch {}
 	}
 });
