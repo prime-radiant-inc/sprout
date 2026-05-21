@@ -84,16 +84,20 @@ function cleanString(value: unknown): string | undefined {
 function memoryCollapseLifecycleApplies(
 	event: SessionEvent,
 	currentSessionId: string | undefined,
+	requireSessionId = false,
 ): boolean {
 	const eventSessionId = cleanString(event.data.session_id);
+	if (requireSessionId && !eventSessionId) return false;
 	return !eventSessionId || !currentSessionId || eventSessionId === currentSessionId;
 }
 
 function sessionLifecycleApplies(
 	event: SessionEvent,
 	currentSessionId: string | undefined,
+	requireSessionId = false,
 ): boolean {
 	const eventSessionId = cleanString(event.data.session_id);
+	if (requireSessionId && !eventSessionId) return false;
 	return !eventSessionId || !currentSessionId || eventSessionId === currentSessionId;
 }
 
@@ -103,13 +107,17 @@ function memoryCollapseIsActive(
 ): boolean {
 	let active = false;
 	let currentSessionId = cleanString(providedCurrentSessionId);
+	let sessionWasCleared = false;
 	for (const event of events) {
 		if (
 			(event.kind === "session_start" && event.depth === 0) ||
 			event.kind === "session_clear" ||
 			(event.kind === "interrupted" && event.depth === 0)
 		) {
-			if (event.kind === "interrupted" && !sessionLifecycleApplies(event, currentSessionId)) {
+			if (
+				(event.kind === "session_start" || event.kind === "interrupted") &&
+				!sessionLifecycleApplies(event, currentSessionId, sessionWasCleared)
+			) {
 				continue;
 			}
 			if (event.kind === "session_start") {
@@ -117,11 +125,12 @@ function memoryCollapseIsActive(
 			}
 			if (event.kind === "session_clear") {
 				currentSessionId = cleanString(event.data.new_session_id) ?? currentSessionId;
+				sessionWasCleared = true;
 			}
 			active = false;
 		}
 		if (event.kind !== "context_update") continue;
-		if (!memoryCollapseLifecycleApplies(event, currentSessionId)) continue;
+		if (!memoryCollapseLifecycleApplies(event, currentSessionId, sessionWasCleared)) continue;
 		if (event.data.memory_collapse === "started") {
 			active = true;
 		}
@@ -147,6 +156,7 @@ export class EventStore {
 	lastSettingsResult: SettingsCommandResult | null = null;
 	private historyExtended = false;
 	private eventKeys = new Set<string>();
+	private sessionScopedEventsRequireIds = false;
 
 	private listeners: Array<() => void> = [];
 
@@ -173,6 +183,9 @@ export class EventStore {
 					: (msg.session.availableModels ?? []);
 
 				this.historyExtended = false;
+				this.sessionScopedEventsRequireIds = msg.events.some(
+					(event) => event.kind === "session_clear",
+				);
 				this.replaceEvents(dedupeEvents(msg.events));
 				if (this.events.length > EVENT_CAP) {
 					this.replaceEvents(this.events.slice(-EVENT_CAP));
@@ -274,6 +287,15 @@ export class EventStore {
 		switch (event.kind) {
 			case "session_start":
 				if (event.depth !== 0) break;
+				if (
+					!sessionLifecycleApplies(
+						event,
+						this.status.sessionId,
+						this.sessionScopedEventsRequireIds,
+					)
+				) {
+					break;
+				}
 				this.status = {
 					...this.status,
 					status: "running",
@@ -285,7 +307,15 @@ export class EventStore {
 
 			case "session_end":
 				if (event.depth !== 0) break;
-				if (!sessionLifecycleApplies(event, this.status.sessionId)) break;
+				if (
+					!sessionLifecycleApplies(
+						event,
+						this.status.sessionId,
+						this.sessionScopedEventsRequireIds,
+					)
+				) {
+					break;
+				}
 				this.status = {
 					...this.status,
 					status: "idle",
@@ -296,11 +326,20 @@ export class EventStore {
 
 			case "interrupted":
 				if (event.depth !== 0) break;
-				if (!sessionLifecycleApplies(event, this.status.sessionId)) break;
+				if (
+					!sessionLifecycleApplies(
+						event,
+						this.status.sessionId,
+						this.sessionScopedEventsRequireIds,
+					)
+				) {
+					break;
+				}
 				this.status = { ...this.status, status: "interrupted" };
 				break;
 
 			case "session_clear":
+				this.sessionScopedEventsRequireIds = true;
 				this.status = {
 					...INITIAL_STATUS,
 					sessionId: (event.data.new_session_id as string) ?? this.status.sessionId,
@@ -310,14 +349,20 @@ export class EventStore {
 				break;
 
 			case "context_update":
+				if (
+					!memoryCollapseLifecycleApplies(
+						event,
+						this.status.sessionId,
+						this.sessionScopedEventsRequireIds,
+					)
+				) {
+					break;
+				}
 				this.status = {
 					...this.status,
 					contextTokens: (event.data.context_tokens as number) ?? this.status.contextTokens,
 					contextWindowSize: (event.data.context_window_size as number) ?? this.status.contextWindowSize,
 				};
-				if (!memoryCollapseLifecycleApplies(event, this.status.sessionId)) {
-					break;
-				}
 				if (event.data.memory_collapse === "started") {
 					this.status = { ...this.status, status: "running" };
 				}

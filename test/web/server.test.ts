@@ -297,6 +297,21 @@ describe("WebServer", () => {
 			expect(body.status).toBe("running");
 		});
 
+		test("old-session start event after session_clear does not retag the new session", async () => {
+			await startServer();
+			bus.emitEvent("session_start", "root", 0, { session_id: "test-session" });
+			bus.emitEvent("session_clear", "session", 0, {
+				new_session_id: "new-session-id",
+			});
+			bus.emitEvent("session_start", "root", 0, { session_id: "new-session-id" });
+			bus.emitEvent("session_start", "root", 0, { session_id: "test-session" });
+
+			const resp = await fetch(`http://localhost:${port}/api/session`);
+			const body = (await resp.json()) as { id: string; status: string };
+			expect(body.id).toBe("new-session-id");
+			expect(body.status).toBe("running");
+		});
+
 		test("child lifecycle events do not idle the root session", async () => {
 			await startServer();
 			bus.emitEvent("session_start", "root", 0, { session_id: "test-session" });
@@ -372,6 +387,29 @@ describe("WebServer", () => {
 				handle_id: "H-old",
 				child_id: "C-old",
 				session_id: "test-session",
+			});
+
+			const ws = await connectClient();
+			const msg = await nextMessage(ws);
+
+			expect(msg.type).toBe("snapshot");
+			if (msg.type !== "snapshot") throw new Error("Expected snapshot");
+			expect(msg.session.id).toBe("new-session-id");
+			expect(msg.events.map((event) => event.kind)).toEqual(["session_clear"]);
+		});
+
+		test("untagged active child events after session_clear are not buffered into new session snapshot", async () => {
+			await startServer();
+			bus.emitEvent("session_start", "root", 0, {
+				session_id: "test-session",
+			});
+			bus.emitEvent("session_clear", "session", 0, {
+				new_session_id: "new-session-id",
+			});
+			bus.emitEvent("act_start", "root", 0, {
+				agent_name: "old-architect",
+				handle_id: "H-old",
+				child_id: "C-old",
 			});
 
 			const ws = await connectClient();

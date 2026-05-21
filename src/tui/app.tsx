@@ -71,16 +71,20 @@ function cleanString(value: unknown): string | undefined {
 function memoryCollapseLifecycleApplies(
 	event: SessionEvent,
 	currentSessionId: string | undefined,
+	requireSessionId = false,
 ): boolean {
 	const eventSessionId = cleanString(event.data.session_id);
+	if (requireSessionId && !eventSessionId) return false;
 	return !eventSessionId || !currentSessionId || eventSessionId === currentSessionId;
 }
 
 function sessionLifecycleApplies(
 	event: SessionEvent,
 	currentSessionId: string | undefined,
+	requireSessionId = false,
 ): boolean {
 	const eventSessionId = cleanString(event.data.session_id);
+	if (requireSessionId && !eventSessionId) return false;
 	return !eventSessionId || !currentSessionId || eventSessionId === currentSessionId;
 }
 
@@ -142,6 +146,9 @@ export function App({
 	const [toolsCollapsed, setToolsCollapsed] = useState(false);
 	const settingsLoad = useRef<Promise<SettingsCommandResult> | null>(null);
 	const currentSessionIdRef = useRef(sessionId);
+	const sessionScopedEventsRequireIdsRef = useRef(
+		initialEvents?.some((event) => event.kind === "session_clear") ?? false,
+	);
 	const activeWork = deriveActiveAgentWork(activeWorkEvents, statusState.status, currentSessionId);
 
 	const loadSettings = useCallback(async (): Promise<SettingsCommandResult | null> => {
@@ -188,6 +195,16 @@ export function App({
 			switch (event.kind) {
 				case "session_start":
 					if (event.depth !== 0) break;
+					if (
+						sessionScopedEventsRequireIdsRef.current &&
+						!sessionLifecycleApplies(
+							event,
+							currentSessionIdRef.current,
+							sessionScopedEventsRequireIdsRef.current,
+						)
+					) {
+						break;
+					}
 					currentSessionIdRef.current =
 						cleanString(event.data.session_id) ?? currentSessionIdRef.current;
 					setCurrentSessionId(currentSessionIdRef.current);
@@ -200,32 +217,55 @@ export function App({
 
 				case "session_end":
 					if (event.depth !== 0) break;
-					if (!sessionLifecycleApplies(event, currentSessionIdRef.current)) break;
+					if (
+						!sessionLifecycleApplies(
+							event,
+							currentSessionIdRef.current,
+							sessionScopedEventsRequireIdsRef.current,
+						)
+					) {
+						break;
+					}
 					setStatusState((prev) => ({ ...prev, status: "idle", inputTokens: 0, outputTokens: 0 }));
 					break;
 
 				case "interrupted":
 					if (event.depth !== 0) break;
-					if (!sessionLifecycleApplies(event, currentSessionIdRef.current)) break;
+					if (
+						!sessionLifecycleApplies(
+							event,
+							currentSessionIdRef.current,
+							sessionScopedEventsRequireIdsRef.current,
+						)
+					) {
+						break;
+					}
 					setStatusState((prev) => ({ ...prev, status: "interrupted" }));
 					break;
 
 				case "session_clear":
 					currentSessionIdRef.current =
 						cleanString(event.data.new_session_id) ?? currentSessionIdRef.current;
+					sessionScopedEventsRequireIdsRef.current = true;
 					setCurrentSessionId(currentSessionIdRef.current);
 					setStatusState(INITIAL_STATUS);
 					break;
 
 				case "context_update":
+					if (
+						!memoryCollapseLifecycleApplies(
+							event,
+							currentSessionIdRef.current,
+							sessionScopedEventsRequireIdsRef.current,
+						)
+					) {
+						break;
+					}
 					setStatusState((prev) => ({
 						...prev,
 						contextTokens: (event.data.context_tokens as number) ?? prev.contextTokens,
 						contextWindowSize: (event.data.context_window_size as number) ?? prev.contextWindowSize,
 					}));
-					if (!memoryCollapseLifecycleApplies(event, currentSessionIdRef.current)) {
-						break;
-					}
 					if (event.data.memory_collapse === "started") {
 						setStatusState((prev) => ({ ...prev, status: "running" }));
 					}

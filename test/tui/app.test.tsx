@@ -285,6 +285,7 @@ describe("App", () => {
 			goal: "Draft the design",
 			handle_id: "H1",
 			child_id: "C1",
+			session_id: "new-session",
 		});
 		bus.emitEvent("context_update", "session", 0, {
 			memory_collapse: "completed",
@@ -316,6 +317,7 @@ describe("App", () => {
 			handle_id: "H1",
 			child_id: "C1",
 			mnemonic_name: "Brunelleschi",
+			session_id: "new-session",
 		});
 		bus.emitEvent("session_end", "root", 0, {
 			turns: 1,
@@ -365,6 +367,56 @@ describe("App", () => {
 		await flush();
 
 		expect(lastFrame()).toContain("Waiting on new-architect");
+	});
+
+	test("ignores untagged active child start after a new session starts", async () => {
+		const { bus, lastFrame } = setup({ sessionId: "old-session" });
+
+		bus.emitEvent("session_start", "root", 0, {
+			goal: "old task",
+			session_id: "old-session",
+		});
+		bus.emitEvent("session_clear", "session", 0, {
+			new_session_id: "new-session",
+		});
+		bus.emitEvent("session_start", "root", 0, {
+			goal: "new task",
+			session_id: "new-session",
+		});
+		bus.emitEvent("act_start", "root", 0, {
+			agent_name: "old-architect",
+			goal: "old task",
+			handle_id: "H-old",
+			child_id: "C-old",
+		});
+
+		await flush();
+
+		expect(lastFrame()).not.toContain("Waiting on old-architect");
+	});
+
+	test("ignores stale root session_start after a new session starts", async () => {
+		const { bus, lastFrame } = setup({ sessionId: "old-session" });
+
+		bus.emitEvent("session_start", "root", 0, {
+			goal: "old task",
+			session_id: "old-session",
+		});
+		bus.emitEvent("session_clear", "session", 0, {
+			new_session_id: "new-session",
+		});
+		bus.emitEvent("session_start", "root", 0, {
+			goal: "new task",
+			session_id: "new-session",
+		});
+		bus.emitEvent("session_start", "root", 0, {
+			goal: "old task",
+			session_id: "old-session",
+		});
+
+		await flush();
+
+		expect(lastFrame()).toContain("new-session");
 	});
 
 	test("child lifecycle events do not idle the root session", async () => {

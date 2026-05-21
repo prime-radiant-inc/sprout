@@ -6205,6 +6205,7 @@ describe("Agent", () => {
 			depth: 0,
 			events,
 			spawner,
+			sessionId: "test-session",
 		});
 
 		await agent.run("handle tracking test");
@@ -6212,6 +6213,7 @@ describe("Agent", () => {
 		const collected = events.collected();
 		const actStart = collected.find((e) => e.kind === "act_start" && e.data.agent_name === "leaf");
 		expect(actStart).toBeDefined();
+		expect(actStart!.data.session_id).toBe("test-session");
 		expect(actStart!.data.handle_id).toBeString();
 		expect((actStart!.data.handle_id as string).length).toBe(26); // ULID length
 

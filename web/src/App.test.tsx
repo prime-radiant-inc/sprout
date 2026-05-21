@@ -81,6 +81,26 @@ describe("App session model helpers", () => {
 		expect(activeWork).toBeNull();
 	});
 
+	test("active work derivation ignores untagged retained active child events after clear", () => {
+		const activeWork = computeActiveWorkForStatus(
+			[
+				makeEvent("session_clear", { new_session_id: "new-session" }, { timestamp: 1 }),
+				makeEvent(
+					"act_start",
+					{
+						agent_name: "architect",
+						child_id: "C-old",
+						handle_id: "H-old",
+					},
+					{ timestamp: 2 },
+				),
+			],
+			makeStatus({ status: "running", sessionId: "new-session" }),
+		);
+
+		expect(activeWork).toBeNull();
+	});
+
 	test("slash-command path emits canonical selection payloads", () => {
 		const slashCommand = parseSlashCommand("/model anthropic-main:claude-sonnet-4-6");
 		if (!slashCommand || slashCommand.kind !== "switch_model") {

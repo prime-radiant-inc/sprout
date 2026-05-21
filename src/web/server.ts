@@ -59,17 +59,35 @@ function cleanString(value: unknown): string | undefined {
 function sessionLifecycleApplies(
 	event: SessionEvent,
 	currentSessionId: string | undefined,
+	requireSessionId = false,
 ): boolean {
 	const eventSessionId = cleanString(event.data.session_id);
+	if (requireSessionId && !eventSessionId) return false;
 	return !eventSessionId || !currentSessionId || eventSessionId === currentSessionId;
 }
 
 function sessionScopedEventApplies(
 	event: SessionEvent,
 	currentSessionId: string | undefined,
+	requireSessionId = false,
 ): boolean {
 	const eventSessionId = cleanString(event.data.session_id);
+	if (requireSessionId && !eventSessionId) return false;
 	return !eventSessionId || !currentSessionId || eventSessionId === currentSessionId;
+}
+
+function requiresSessionIdAfterClear(event: SessionEvent): boolean {
+	return (
+		event.kind === "act_start" ||
+		event.kind === "act_end" ||
+		event.kind === "plan_end" ||
+		event.kind === "context_update" ||
+		(event.kind === "session_start" && event.depth === 0) ||
+		(event.kind === "session_end" && event.depth === 0) ||
+		(event.kind === "interrupted" && event.depth === 0) ||
+		(event.kind === "session_start" && event.depth > 0) ||
+		(event.kind === "session_end" && event.depth > 0)
+	);
 }
 
 /**
@@ -98,6 +116,7 @@ export class WebServer {
 	private events: SessionEvent[] = [];
 	private status: SessionStatus = "idle";
 	private currentModel: string | null = null;
+	private sessionScopedEventsRequireIds = false;
 	private unsubscribeEvents: (() => void) | null = null;
 	private unsubscribeCommands: (() => void) | null = null;
 	private historyCache: SessionEvent[] | null = null;
@@ -129,6 +148,9 @@ export class WebServer {
 				opts.initialEvents.length > EVENT_CAP
 					? opts.initialEvents.slice(-EVENT_CAP)
 					: [...opts.initialEvents];
+			this.sessionScopedEventsRequireIds = this.events.some(
+				(event) => event.kind === "session_clear",
+			);
 		}
 	}
 
@@ -147,18 +169,24 @@ export class WebServer {
 
 		// Subscribe to bus events — buffer them and track session status
 		this.unsubscribeEvents = this.bus.onEvent((event) => {
+			let acceptedForCurrentSession = false;
 			if (event.kind === "session_clear") {
 				const newSessionId = event.data.new_session_id;
 				if (typeof newSessionId === "string" && newSessionId.trim().length > 0) {
 					this.sessionId = newSessionId;
 				}
+				this.sessionScopedEventsRequireIds = true;
 				this.historyCache = null;
 				this.historyCacheSessionId = null;
 				// New session semantics: reconnect snapshots should not include stale events.
 				this.events = [event];
+				acceptedForCurrentSession = true;
 			} else {
-				if (sessionScopedEventApplies(event, this.sessionId)) {
+				const requireSessionId =
+					this.sessionScopedEventsRequireIds && requiresSessionIdAfterClear(event);
+				if (sessionScopedEventApplies(event, this.sessionId, requireSessionId)) {
 					this.events.push(event);
+					acceptedForCurrentSession = true;
 					if (this.events.length > EVENT_CAP * 2) {
 						this.events = this.events.slice(-EVENT_CAP);
 					}
@@ -190,7 +218,9 @@ export class WebServer {
 				}
 			}
 			this.updateStatus(event);
-			this.broadcastEvent(event);
+			if (acceptedForCurrentSession || !requiresSessionIdAfterClear(event)) {
+				this.broadcastEvent(event);
+			}
 		});
 
 		const self = this;
@@ -459,16 +489,23 @@ export class WebServer {
 		switch (event.kind) {
 			case "session_start":
 				if (event.depth !== 0) break;
+				if (!sessionLifecycleApplies(event, this.sessionId, this.sessionScopedEventsRequireIds)) {
+					break;
+				}
 				this.status = "running";
 				break;
 			case "session_end":
 				if (event.depth !== 0) break;
-				if (!sessionLifecycleApplies(event, this.sessionId)) break;
+				if (!sessionLifecycleApplies(event, this.sessionId, this.sessionScopedEventsRequireIds)) {
+					break;
+				}
 				this.status = "idle";
 				break;
 			case "interrupted":
 				if (event.depth !== 0) break;
-				if (!sessionLifecycleApplies(event, this.sessionId)) break;
+				if (!sessionLifecycleApplies(event, this.sessionId, this.sessionScopedEventsRequireIds)) {
+					break;
+				}
 				this.status = "interrupted";
 				break;
 			case "session_clear":
@@ -476,7 +513,9 @@ export class WebServer {
 				this.currentModel = null;
 				break;
 			case "context_update":
-				if (!sessionScopedEventApplies(event, this.sessionId)) break;
+				if (!sessionScopedEventApplies(event, this.sessionId, this.sessionScopedEventsRequireIds)) {
+					break;
+				}
 				if (event.data.memory_collapse === "started") {
 					this.status = "running";
 				}

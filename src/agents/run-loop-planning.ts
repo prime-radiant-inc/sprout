@@ -162,6 +162,7 @@ export async function executePlanningTurn(
 
 	input.emit("plan_end", input.agentId, input.depth, {
 		turn: input.turn,
+		session_id: input.sessionId ?? input.agentId,
 		finish_reason: response.finish_reason.reason,
 		usage: response.usage,
 		text: messageText(assistantMessage),

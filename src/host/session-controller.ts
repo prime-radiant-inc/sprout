@@ -597,6 +597,7 @@ export class SessionController {
 		agentId: string,
 		depth: number,
 		data: Record<string, unknown>,
+		logSessionId = this._sessionId,
 	): void {
 		this.bus.emitEvent(kind, agentId, depth, data);
 
@@ -607,7 +608,7 @@ export class SessionController {
 			depth,
 			data,
 		};
-		const logPath = join(this.projectDataDir, "logs", `${this._sessionId}.jsonl`);
+		const logPath = join(this.projectDataDir, "logs", `${logSessionId}.jsonl`);
 		const line = `${JSON.stringify(event)}\n`;
 		this.controllerEventLogWriteChain = this.controllerEventLogWriteChain
 			.then(async () => {
@@ -675,7 +676,10 @@ export class SessionController {
 				contextTokens,
 				contextWindowSize,
 				emitContextUpdate: (data) => {
-					this.bus.emitEvent("context_update", "session", 0, data);
+					this.bus.emitEvent("context_update", "session", 0, {
+						...data,
+						session_id: event.data.session_id ?? this._sessionId,
+					});
 				},
 			});
 		}
@@ -938,9 +942,16 @@ export class SessionController {
 				memory_collapse: "failed",
 				session_id: sessionId,
 			});
-			this.emitAndPersistControllerEvent("warning", "session", 0, {
-				message: `Memory collapse failed: ${err instanceof Error ? err.message : String(err)}`,
-			});
+			this.emitAndPersistControllerEvent(
+				"warning",
+				"session",
+				0,
+				{
+					message: `Memory collapse failed: ${err instanceof Error ? err.message : String(err)}`,
+					session_id: sessionId,
+				},
+				sessionId,
+			);
 		}
 	}
 

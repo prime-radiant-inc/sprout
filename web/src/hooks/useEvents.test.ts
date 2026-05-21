@@ -374,6 +374,23 @@ describe("EventStore", () => {
 			expect(store.status.model).toBe("gpt-4o");
 		});
 
+		test("ignores old-session starts after session_clear starts a new session", () => {
+			const store = new EventStore();
+			store.processMessage(eventMessage(makeEvent("session_start", { session_id: "old-session" })));
+			store.processMessage(eventMessage(makeEvent("session_clear", { new_session_id: "new-session" })));
+			store.processMessage(
+				eventMessage(makeEvent("session_start", { session_id: "new-session", model: "gpt-4o" })),
+			);
+
+			store.processMessage(
+				eventMessage(makeEvent("session_start", { session_id: "old-session", model: "stale" })),
+			);
+
+			expect(store.status.sessionId).toBe("new-session");
+			expect(store.status.status).toBe("running");
+			expect(store.status.model).toBe("gpt-4o");
+		});
+
 		test("child lifecycle events do not change root running status", () => {
 			const store = new EventStore();
 

@@ -294,6 +294,60 @@ describe("SessionController", () => {
 		]);
 	});
 
+	test("keeps memory collapse failure warning on the original session after clear", async () => {
+		const fake = makeFakeAgent();
+		let collapseStarted!: () => void;
+		let releaseCollapse!: () => void;
+		const collapseStartedPromise = new Promise<void>((resolve) => {
+			collapseStarted = resolve;
+		});
+		const releaseCollapsePromise = new Promise<unknown>((resolve) => {
+			releaseCollapse = () => resolve({ ok: true });
+		});
+		const factory: AgentFactory = async () => ({
+			agent: fake.agent as any,
+			learnProcess: null,
+			collapseMemory: async () => {
+				collapseStarted();
+				return await releaseCollapsePromise;
+			},
+			compactMemoryLogIfDue: async () => {
+				throw new Error("compaction failed after clear");
+			},
+		});
+		const { bus, controller } = makeController({ factory });
+		const oldSessionId = controller.sessionId;
+
+		const run = controller.runGoal("Remember this session");
+		await collapseStartedPromise;
+		bus.emitCommand({ kind: "clear", data: {} });
+		const newSessionId = controller.sessionId;
+		releaseCollapse();
+		await run;
+
+		expect(newSessionId).not.toBe(oldSessionId);
+		const warning = bus
+			.collected()
+			.find(
+				(event) =>
+					event.kind === "warning" &&
+					event.data.message === "Memory collapse failed: compaction failed after clear",
+			);
+		expect(warning?.data.session_id).toBe(oldSessionId);
+
+		const oldEventLog = join(tempDir, "logs", `${oldSessionId}.jsonl`);
+		const newEventLog = join(tempDir, "logs", `${newSessionId}.jsonl`);
+		await waitFor(
+			() =>
+				existsSync(oldEventLog) &&
+				readFileSync(oldEventLog, "utf-8").includes("compaction failed after clear"),
+		);
+		expect(readFileSync(oldEventLog, "utf-8")).toContain("compaction failed after clear");
+		if (existsSync(newEventLog)) {
+			expect(readFileSync(newEventLog, "utf-8")).not.toContain("compaction failed after clear");
+		}
+	});
+
 	test("emits completed memory collapse only after memory-log compaction finishes", async () => {
 		const order: string[] = [];
 		const fake = makeFakeAgent();

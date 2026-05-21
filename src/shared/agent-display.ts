@@ -49,10 +49,13 @@ export function deriveActiveAgentWork(
 	const pendingCommands = new Map<string, ActiveChildRecord>();
 	let memoryCollapseActive = false;
 	let currentSessionId = cleanString(providedCurrentSessionId);
+	let sessionWasCleared = false;
 
 	for (const event of events) {
 		if (event.depth === 0 && event.kind === "session_start") {
-			if (!eventAppliesToCurrentSession(event, currentSessionId)) continue;
+			if (!eventAppliesToCurrentSession(event, currentSessionId, sessionWasCleared)) {
+				continue;
+			}
 			currentSessionId = cleanString(event.data.session_id) ?? currentSessionId;
 			memoryCollapseActive = false;
 			activeChildren.clear();
@@ -62,7 +65,7 @@ export function deriveActiveAgentWork(
 		if (
 			event.depth === 0 &&
 			(event.kind === "session_end" || event.kind === "interrupted") &&
-			eventAppliesToCurrentSession(event, currentSessionId)
+			eventAppliesToCurrentSession(event, currentSessionId, sessionWasCleared)
 		) {
 			if (event.kind === "interrupted") memoryCollapseActive = false;
 			activeChildren.clear();
@@ -71,6 +74,7 @@ export function deriveActiveAgentWork(
 
 		if (event.kind === "session_clear") {
 			currentSessionId = cleanString(event.data.new_session_id) ?? currentSessionId;
+			sessionWasCleared = true;
 			memoryCollapseActive = false;
 			activeChildren.clear();
 			pendingCommands.clear();
@@ -78,7 +82,7 @@ export function deriveActiveAgentWork(
 
 		if (event.kind === "context_update") {
 			const memoryCollapse = cleanString(event.data.memory_collapse);
-			if (!eventAppliesToCurrentSession(event, currentSessionId)) continue;
+			if (!eventAppliesToCurrentSession(event, currentSessionId, sessionWasCleared)) continue;
 			if (memoryCollapse === "started") {
 				memoryCollapseActive = true;
 			}
@@ -91,7 +95,10 @@ export function deriveActiveAgentWork(
 			}
 		}
 
-		if (isActiveWorkEvent(event) && !eventAppliesToCurrentSession(event, currentSessionId)) {
+		if (
+			isActiveWorkEvent(event) &&
+			!eventAppliesToCurrentSession(event, currentSessionId, sessionWasCleared)
+		) {
 			continue;
 		}
 
@@ -177,8 +184,10 @@ function cleanString(value: unknown): string | undefined {
 function eventAppliesToCurrentSession(
 	event: SessionEvent,
 	currentSessionId: string | undefined,
+	requireSessionId: boolean,
 ): boolean {
 	const eventSessionId = cleanString(event.data.session_id);
+	if (requireSessionId && !eventSessionId) return false;
 	return !eventSessionId || !currentSessionId || eventSessionId === currentSessionId;
 }
 

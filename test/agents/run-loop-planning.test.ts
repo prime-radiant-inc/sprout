@@ -61,6 +61,7 @@ describe("executePlanningTurn", () => {
 		expect(capturedRequest?.model).toBe("claude-sonnet-4-5-20250929");
 		expect(capturedRequest?.provider).toBe("anthropic");
 		expect(events.map((e) => e.kind)).toEqual(["plan_start", "llm_start", "llm_end", "plan_end"]);
+		expect(events.find((event) => event.kind === "plan_end")?.data.session_id).toBe("01SESSION");
 		expect(history.at(-1)).toEqual(response.message);
 		expect(debugCalls[0]?.message).toBe("Plan response received");
 		expect(replayRecords).toHaveLength(1);

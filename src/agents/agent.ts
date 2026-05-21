@@ -691,14 +691,24 @@ export class Agent {
 		depth: number,
 		data: Record<string, unknown>,
 	): void {
-		this.events.emit(kind, agentId, depth, data);
+		const eventData =
+			this.shouldTagWithSessionId(kind) && typeof data.session_id !== "string"
+				? { ...data, session_id: this.sessionId }
+				: data;
+		this.events.emit(kind, agentId, depth, eventData);
 		if (this.logBasePath) {
-			const event = { kind, timestamp: Date.now(), agent_id: agentId, depth, data };
+			const event = { kind, timestamp: Date.now(), agent_id: agentId, depth, data: eventData };
 			const line = `${JSON.stringify(event)}\n`;
 			this.logWriteChain = this.logWriteChain
 				.then(() => appendFile(`${this.logBasePath}.jsonl`, line))
 				.catch(() => {});
 		}
+	}
+
+	private shouldTagWithSessionId(kind: EventKind): boolean {
+		return (
+			kind === "act_start" || kind === "act_end" || kind === "plan_end" || kind === "interrupted"
+		);
 	}
 
 	/** Wait for all pending log writes to complete. */
