@@ -357,6 +357,7 @@ export class EventStore {
 				break;
 
 			case "context_update":
+				if (event.depth !== 0) break;
 				if (
 					!memoryCollapseLifecycleApplies(
 						event,
@@ -384,6 +385,7 @@ export class EventStore {
 				break;
 
 			case "plan_end": {
+				if (event.depth !== 0) break;
 				const usage = event.data.usage as { input_tokens: number; output_tokens: number } | undefined;
 				this.status = {
 					...this.status,

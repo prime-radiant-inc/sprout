@@ -519,11 +519,11 @@ function grepPrimitive(): Primitive {
 	return {
 		name: "grep",
 		displayName: getToolDisplayName("grep"),
-		description: "Search file contents using regex patterns.",
+		description: "Search file contents using literal text.",
 		parameters: {
 			type: "object",
 			properties: {
-				pattern: { type: "string", description: "Regex pattern" },
+				pattern: { type: "string", description: "Literal text to search for" },
 				path: { type: "string", description: "Directory or file to search" },
 				glob_filter: { type: "string", description: "File pattern filter (e.g., '*.py')" },
 				max_results: { type: "integer", description: "Max results (default: 100)" },

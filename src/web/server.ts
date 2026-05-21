@@ -135,9 +135,12 @@ export class WebServer {
 				opts.initialEvents.length > EVENT_CAP
 					? opts.initialEvents.slice(-EVENT_CAP)
 					: [...opts.initialEvents];
-			this.sessionScopedEventsRequireIds = this.events.some(
+			this.sessionScopedEventsRequireIds = opts.initialEvents.some(
 				(event) => event.kind === "session_clear",
 			);
+			for (const event of opts.initialEvents) {
+				this.updateStatus(event);
+			}
 		}
 	}
 
@@ -500,6 +503,7 @@ export class WebServer {
 				this.currentModel = null;
 				break;
 			case "context_update":
+				if (event.depth !== 0) break;
 				if (!sessionScopedEventApplies(event, this.sessionId, this.sessionScopedEventsRequireIds)) {
 					break;
 				}

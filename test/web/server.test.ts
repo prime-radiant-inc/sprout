@@ -323,6 +323,36 @@ describe("WebServer", () => {
 			expect(body.status).toBe("running");
 		});
 
+		test("derives running status from resumed root events despite child session_end", async () => {
+			server = new WebServer({
+				bus,
+				port,
+				staticDir,
+				sessionId: "test-session",
+				initialEvents: [
+					{
+						kind: "session_start",
+						timestamp: 1,
+						agent_id: "root",
+						depth: 0,
+						data: {},
+					},
+					{
+						kind: "session_end",
+						timestamp: 2,
+						agent_id: "child-agent",
+						depth: 1,
+						data: {},
+					},
+				],
+			});
+			await startServer();
+
+			const resp = await fetch(`http://localhost:${port}/api/session`);
+			const body = (await resp.json()) as { id: string; status: string };
+			expect(body.status).toBe("running");
+		});
+
 		test("session status reflects memory collapse lifecycle", async () => {
 			for (const memory_collapse of ["completed", "skipped", "failed"]) {
 				await server.stop();

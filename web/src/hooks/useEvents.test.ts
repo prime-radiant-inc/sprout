@@ -37,16 +37,16 @@ function makeSettingsSnapshot(): SettingsSnapshot {
 			secretBackend: {
 				backend: "memory",
 				available: true,
-			},
-			warnings: [],
+				},
+				warnings: [],
 				modelOverrides: {
 					defaults: {},
 					memoryModels: {},
 					agentModelOverrides: {},
 				},
-		},
-		settings: createEmptySettings(),
-		providers: [],
+			},
+			settings: createEmptySettings(),
+			providers: [],
 		catalog: [],
 		agentModels: [],
 	};
@@ -163,6 +163,22 @@ describe("EventStore", () => {
 			expect(store.status.outputTokens).toBe(50);
 			expect(store.status.contextTokens).toBe(500);
 			expect(store.status.contextWindowSize).toBe(128000);
+		});
+
+		test("snapshot replay ignores child session_end after root start", () => {
+			const store = new EventStore();
+			store.processMessage(
+				snapshotMessage(
+					[
+						makeEvent("session_start", { model: "gpt-4o" }),
+						makeEvent("session_end", {}, { agent_id: "child", depth: 1 }),
+					],
+					{ id: "snap-session", status: "running" },
+				),
+			);
+
+			expect(store.status.status).toBe("running");
+			expect(store.status.model).toBe("gpt-4o");
 		});
 
 		test("second snapshot replaces first", () => {

@@ -185,6 +185,23 @@ describe("App", () => {
 		expect(frame).not.toContain("\u2191");
 	});
 
+	test("ignores child session_end while root session is running", async () => {
+		const { bus, lastFrame } = setup();
+
+		bus.emitEvent("session_start", "root", 0, { goal: "test" });
+		bus.emitEvent("plan_end", "root", 0, {
+			turn: 1,
+			usage: { input_tokens: 2000, output_tokens: 500, total_tokens: 2500 },
+		});
+		bus.emitEvent("session_start", "child", 1, { model: "child-model" });
+		bus.emitEvent("session_end", "child", 1, { turns: 1, stumbles: 0 });
+
+		await flush();
+		const frame = lastFrame();
+		expect(frame).toContain("\u2191");
+		expect(frame).not.toContain("child-model");
+	});
+
 	test("shows the active child agent in the status bar", async () => {
 		const { bus, lastFrame } = setup();
 

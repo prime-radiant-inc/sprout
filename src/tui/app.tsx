@@ -227,6 +227,7 @@ export function App({
 					break;
 
 				case "context_update":
+					if (event.depth !== 0) break;
 					if (
 						!memoryCollapseLifecycleApplies(
 							event,
@@ -254,6 +255,7 @@ export function App({
 					break;
 
 				case "plan_end": {
+					if (event.depth !== 0) break;
 					const usage = event.data.usage as
 						| { input_tokens: number; output_tokens: number }
 						| undefined;

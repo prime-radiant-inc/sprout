@@ -156,6 +156,21 @@ describe("LocalExecutionEnvironment", () => {
 		expect(results.trim()).toBe("");
 	});
 
+	test("grep treats metacharacters as literal text", async () => {
+		await env.write_file(
+			"search/literal.md",
+			"## 9) Immediate next tasks\nthrough `GenomeFacade`\n",
+		);
+
+		const heading = await env.grep("## 9)", "search");
+		const code = await env.grep("through `GenomeFacade`", "search");
+
+		expect(heading).toContain("literal.md");
+		expect(heading).toContain("## 9)");
+		expect(code).toContain("literal.md");
+		expect(code).toContain("through `GenomeFacade`");
+	});
+
 	test("glob finds files by pattern", async () => {
 		const files = await env.glob("search/**/*.ts");
 		expect(files.length).toBeGreaterThanOrEqual(2);

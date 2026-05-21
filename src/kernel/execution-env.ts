@@ -53,6 +53,10 @@ function filterEnvVars(env: Record<string, string | undefined>): Record<string, 
 	return filtered;
 }
 
+function isCommandNotFound(result: ExecResult): boolean {
+	return result.exit_code === 127 || /command not found|not found/i.test(result.stderr);
+}
+
 /**
  * Abstract execution environment interface.
  * Decouples tool logic from where it runs.
@@ -255,13 +259,30 @@ export class LocalExecutionEnvironment implements ExecutionEnvironment {
 
 	async grep(pattern: string, path?: string, options?: GrepOptions): Promise<string> {
 		const searchPath = path ? this.resolvePath(path) : this.workDir;
-		const args = ["--line-number"];
+		const rgArgs = ["--line-number", "--fixed-strings", "--color", "never", "--no-heading"];
+
+		if (options?.case_insensitive) rgArgs.push("-i");
+		if (options?.max_results) rgArgs.push("-m", String(options.max_results));
+		if (options?.glob_filter) rgArgs.push("-g", options.glob_filter);
+		rgArgs.push("--", pattern, searchPath);
+
+		const rgResult = await this.exec_command(`rg ${rgArgs.map(shellEscape).join(" ")}`, {
+			timeout_ms: 10_000,
+		});
+		if (rgResult.exit_code <= 1) {
+			return rgResult.stdout;
+		}
+		if (!isCommandNotFound(rgResult)) {
+			throw new Error(`grep failed: ${rgResult.stderr}`);
+		}
+
+		const args = ["--line-number", "-F"];
 
 		if (options?.case_insensitive) args.push("-i");
 		if (options?.max_results) args.push("-m", String(options.max_results));
 		if (options?.glob_filter) args.push("--include", options.glob_filter);
 
-		args.push("-r", pattern, searchPath);
+		args.push("-r", "--", pattern, searchPath);
 
 		const result = await this.exec_command(`grep ${args.map(shellEscape).join(" ")}`, {
 			timeout_ms: 10_000,
