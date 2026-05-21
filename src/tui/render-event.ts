@@ -1,4 +1,5 @@
 import type { SessionEvent } from "../kernel/types.ts";
+import { formatAgentDisplayName } from "../shared/agent-display.ts";
 import { formatToolKeyArg, getToolDisplayName } from "../shared/tool-display.ts";
 
 /** Truncate text to maxLines, appending an ellipsis if truncated. */
@@ -40,6 +41,21 @@ function agentAddressName(value: unknown): string {
 	if (!value || typeof value !== "object") return "agent";
 	const name = (value as { agentName?: unknown }).agentName;
 	return typeof name === "string" ? name : "agent";
+}
+
+function stringField(data: Record<string, unknown>, key: string): string | undefined {
+	const value = data[key];
+	return typeof value === "string" ? value : undefined;
+}
+
+function agentDisplayFromData(data: Record<string, unknown>): string {
+	return formatAgentDisplayName({
+		agentName: stringField(data, "agent_name"),
+		targetAgentName: stringField(data, "target_agent_name"),
+		mnemonicName: stringField(data, "mnemonic_name"),
+		childId: stringField(data, "child_id"),
+		handleId: stringField(data, "handle_id"),
+	});
 }
 
 /**
@@ -107,14 +123,15 @@ export function renderEvent(event: SessionEvent): string | null {
 		}
 
 		case "act_start":
-			return `${ind}\u2192 ${data.agent_name}: ${truncate(String(data.goal), 80)}`;
+			return `${ind}\u2192 ${agentDisplayFromData(data)}: ${truncate(String(data.goal), 80)}`;
 
 		case "act_end": {
 			const turns = data.turns != null ? ` (${data.turns} turns)` : "";
+			const agent = agentDisplayFromData(data);
 			if (!data.success) {
-				return `${ind}\u2190 \u2717 failed${turns}`;
+				return `${ind}\u2190 ${agent} \u2717 failed${turns}`;
 			}
-			return `${ind}\u2190 \u2713${turns}`;
+			return `${ind}\u2190 ${agent} \u2713${turns}`;
 		}
 
 		case "session_end": {

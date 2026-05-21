@@ -110,6 +110,20 @@ describe("ConversationView", () => {
 		expect(lastFrame()).toContain("test goal");
 	});
 
+	test("renders delegation mnemonic with role in interactive lines", async () => {
+		const bus = new EventBus();
+		const { lastFrame } = render(<ConversationView bus={bus} />);
+
+		bus.emitEvent("act_start", "root", 0, {
+			agent_name: "architect",
+			mnemonic_name: "Brunelleschi",
+			goal: "Audit design",
+		});
+		await waitFor(() => (lastFrame() ?? "").includes("Brunelleschi"));
+
+		expect(lastFrame()).toContain("Brunelleschi \u00B7 architect");
+	});
+
 	test("session_clear adds separator but previous Static items remain", async () => {
 		const bus = new EventBus();
 		const { lastFrame } = render(<ConversationView bus={bus} />);

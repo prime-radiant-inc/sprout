@@ -192,16 +192,40 @@ describe("renderEvent", () => {
 		expect(result).toBe("\u2192 code-editor: Create hello.py");
 	});
 
+	test("act_start shows mnemonic and role when present", () => {
+		const result = renderEvent(
+			makeEvent("act_start", {
+				agent_name: "architect",
+				mnemonic_name: "Brunelleschi",
+				goal: "Audit design",
+			}),
+		);
+		expect(result).toBe("\u2192 Brunelleschi \u00B7 architect: Audit design");
+	});
+
 	test("act_end shows return arrow with check on success", () => {
 		const result = renderEvent(
 			makeEvent("act_end", { agent_name: "code-editor", success: true, turns: 2 }),
 		);
-		expect(result).toBe("\u2190 \u2713 (2 turns)");
+		expect(result).toBe("\u2190 code-editor \u2713 (2 turns)");
+	});
+
+	test("act_end shows mnemonic and target role for agent commands", () => {
+		const result = renderEvent(
+			makeEvent("act_end", {
+				agent_name: "message_agent",
+				target_agent_name: "architect",
+				mnemonic_name: "Brunelleschi",
+				success: true,
+				turns: 2,
+			}),
+		);
+		expect(result).toBe("\u2190 Brunelleschi \u00B7 architect \u2713 (2 turns)");
 	});
 
 	test("act_end shows failure", () => {
 		const result = renderEvent(makeEvent("act_end", { agent_name: "code-editor", success: false }));
-		expect(result).toBe("\u2190 \u2717 failed");
+		expect(result).toBe("\u2190 code-editor \u2717 failed");
 	});
 
 	test("session_end shows summary with proper grammar", () => {

@@ -3,6 +3,7 @@ import Markdown from "ink-markdown-es";
 import { createShikiCodeRenderer } from "ink-shiki-code";
 import type { ReactNode } from "react";
 import type { SessionEvent } from "../kernel/types.ts";
+import { formatAgentDisplayName } from "../shared/agent-display.ts";
 import { getToolDisplayName } from "../shared/tool-display.ts";
 import { formatDuration, smartArgs } from "./render-event.ts";
 
@@ -155,20 +156,30 @@ export function AssistantTextLine({ depth, text, reasoning }: AssistantTextProps
 interface DelegationStartProps {
 	depth: number;
 	agentName: string;
+	targetAgentName?: string;
+	mnemonicName?: string;
 	goal: string;
 	description?: string;
 }
 
 /** Renders a delegation start: ╭─ agent: description (or truncated goal) */
-export function DelegationStartLine({ depth, agentName, goal, description }: DelegationStartProps) {
+export function DelegationStartLine({
+	depth,
+	agentName,
+	targetAgentName,
+	mnemonicName,
+	goal,
+	description,
+}: DelegationStartProps) {
 	const label = description ?? goal;
 	const displayLabel = label.length > 80 ? `${label.slice(0, 79)}\u2026` : label;
+	const displayName = formatAgentDisplayName({ agentName, targetAgentName, mnemonicName });
 	return (
 		<DepthBorder depth={depth}>
 			<Box>
 				<Text dimColor>{"\u256D\u2500 "}</Text>
 				<Text color="cyan" bold>
-					{agentName}
+					{displayName}
 				</Text>
 				<Text dimColor>{` ${displayLabel}`}</Text>
 			</Box>
@@ -179,6 +190,8 @@ export function DelegationStartLine({ depth, agentName, goal, description }: Del
 interface DelegationEndProps {
 	depth: number;
 	agentName: string;
+	targetAgentName?: string;
+	mnemonicName?: string;
 	success: boolean;
 	turns?: number;
 	durationMs: number | null;
@@ -188,17 +201,20 @@ interface DelegationEndProps {
 export function DelegationEndLine({
 	depth,
 	agentName,
+	targetAgentName,
+	mnemonicName,
 	success,
 	turns,
 	durationMs,
 }: DelegationEndProps) {
 	const dur = formatDuration(durationMs);
+	const displayName = formatAgentDisplayName({ agentName, targetAgentName, mnemonicName });
 	return (
 		<DepthBorder depth={depth}>
 			<Box>
 				<Text dimColor>{"\u2570\u2500 "}</Text>
 				<Text color="cyan" bold>
-					{agentName}
+					{displayName}
 				</Text>
 				{success ? (
 					<Text color="green">{" \u2713"}</Text>
@@ -326,7 +342,11 @@ export function renderEventComponent(event: SessionEvent, durationMs: number | n
 			return (
 				<DelegationStartLine
 					depth={depth}
-					agentName={data.agent_name as string}
+					agentName={typeof data.agent_name === "string" ? data.agent_name : "agent"}
+					targetAgentName={
+						typeof data.target_agent_name === "string" ? data.target_agent_name : undefined
+					}
+					mnemonicName={typeof data.mnemonic_name === "string" ? data.mnemonic_name : undefined}
 					goal={data.goal as string}
 					description={typeof data.description === "string" ? data.description : undefined}
 				/>
@@ -336,7 +356,11 @@ export function renderEventComponent(event: SessionEvent, durationMs: number | n
 			return (
 				<DelegationEndLine
 					depth={depth}
-					agentName={data.agent_name as string}
+					agentName={typeof data.agent_name === "string" ? data.agent_name : "agent"}
+					targetAgentName={
+						typeof data.target_agent_name === "string" ? data.target_agent_name : undefined
+					}
+					mnemonicName={typeof data.mnemonic_name === "string" ? data.mnemonic_name : undefined}
 					success={Boolean(data.success)}
 					turns={typeof data.turns === "number" ? data.turns : undefined}
 					durationMs={durationMs}
