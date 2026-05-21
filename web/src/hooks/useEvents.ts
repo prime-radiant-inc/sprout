@@ -104,7 +104,11 @@ function memoryCollapseIsActive(
 	let active = false;
 	let currentSessionId = cleanString(providedCurrentSessionId);
 	for (const event of events) {
-		if (event.kind === "session_start" || event.kind === "session_clear" || event.kind === "interrupted") {
+		if (
+			(event.kind === "session_start" && event.depth === 0) ||
+			event.kind === "session_clear" ||
+			(event.kind === "interrupted" && event.depth === 0)
+		) {
 			if (event.kind === "interrupted" && !sessionLifecycleApplies(event, currentSessionId)) {
 				continue;
 			}
@@ -269,6 +273,7 @@ export class EventStore {
 	private applyEventToStatus(event: SessionEvent): void {
 		switch (event.kind) {
 			case "session_start":
+				if (event.depth !== 0) break;
 				this.status = {
 					...this.status,
 					status: "running",
@@ -279,6 +284,7 @@ export class EventStore {
 				break;
 
 			case "session_end":
+				if (event.depth !== 0) break;
 				if (!sessionLifecycleApplies(event, this.status.sessionId)) break;
 				this.status = {
 					...this.status,
@@ -289,6 +295,7 @@ export class EventStore {
 				break;
 
 			case "interrupted":
+				if (event.depth !== 0) break;
 				if (!sessionLifecycleApplies(event, this.status.sessionId)) break;
 				this.status = { ...this.status, status: "interrupted" };
 				break;

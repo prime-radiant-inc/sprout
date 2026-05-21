@@ -139,6 +139,54 @@ describe("deriveActiveAgentWork", () => {
 		expect(work ? formatActiveAgentWork(work) : null).toBe("Waiting on Brunelleschi · architect");
 	});
 
+	test("ignores stale active child start after session_clear", () => {
+		const staleWork = deriveActiveAgentWork(
+			[
+				event("session_start", { goal: "old task", session_id: "old-session" }, { timestamp: 1 }),
+				event("session_clear", { new_session_id: "new-session" }, { timestamp: 2 }),
+				event("session_start", { goal: "new task", session_id: "new-session" }, { timestamp: 3 }),
+				event(
+					"act_start",
+					{
+						agent_name: "architect",
+						goal: "old task",
+						handle_id: "H-old",
+						child_id: "C-old",
+						session_id: "old-session",
+					},
+					{ timestamp: 4 },
+				),
+			],
+			"running",
+			"new-session",
+		);
+
+		expect(staleWork).toBeNull();
+
+		const currentWork = deriveActiveAgentWork(
+			[
+				event("session_start", { goal: "old task", session_id: "old-session" }, { timestamp: 1 }),
+				event("session_clear", { new_session_id: "new-session" }, { timestamp: 2 }),
+				event("session_start", { goal: "new task", session_id: "new-session" }, { timestamp: 3 }),
+				event(
+					"act_start",
+					{
+						agent_name: "architect",
+						goal: "new task",
+						handle_id: "H-new",
+						child_id: "C-new",
+						session_id: "new-session",
+					},
+					{ timestamp: 4 },
+				),
+			],
+			"running",
+			"new-session",
+		);
+
+		expect(currentWork ? formatActiveAgentWork(currentWork) : null).toBe("Waiting on architect");
+	});
+
 	test("reports a pending blocking message_agent command before the child emits session_start", () => {
 		const work = deriveActiveAgentWork(
 			[
@@ -189,6 +237,40 @@ describe("deriveActiveAgentWork", () => {
 		);
 
 		expect(work ? formatActiveAgentWork(work) : null).toBe("Waiting on Brunelleschi · architect");
+	});
+
+	test("ignores stale pending agent command after session_clear", () => {
+		const work = deriveActiveAgentWork(
+			[
+				event("session_start", { goal: "old task", session_id: "old-session" }, { timestamp: 1 }),
+				event("session_clear", { new_session_id: "new-session" }, { timestamp: 2 }),
+				event("session_start", { goal: "new task", session_id: "new-session" }, { timestamp: 3 }),
+				event(
+					"plan_end",
+					{
+						session_id: "old-session",
+						assistant_message: {
+							role: "assistant",
+							content: [
+								{
+									kind: "tool_call",
+									tool_call: {
+										id: "call-old",
+										name: "wait_agent",
+										arguments: { handle: "H-old" },
+									},
+								},
+							],
+						},
+					},
+					{ timestamp: 4 },
+				),
+			],
+			"running",
+			"new-session",
+		);
+
+		expect(work).toBeNull();
 	});
 
 	test("clears a pending agent command when its act_end arrives", () => {

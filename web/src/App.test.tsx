@@ -10,12 +10,16 @@ import {
 import type { SessionEvent } from "@kernel/types.ts";
 import type { SessionStatus } from "./hooks/useEvents.ts";
 
-function makeEvent(kind: SessionEvent["kind"], data: Record<string, unknown>): SessionEvent {
+function makeEvent(
+	kind: SessionEvent["kind"],
+	data: Record<string, unknown>,
+	overrides: Partial<SessionEvent> = {},
+): SessionEvent {
 	return {
 		kind,
-		timestamp: Date.now(),
-		agent_id: "session",
-		depth: 0,
+		timestamp: overrides.timestamp ?? Date.now(),
+		agent_id: overrides.agent_id ?? "session",
+		depth: overrides.depth ?? 0,
 		data,
 	};
 }
@@ -49,6 +53,27 @@ describe("App session model helpers", () => {
 					memory_collapse: "started",
 					session_id: "old-session",
 				}),
+			],
+			makeStatus({ status: "running", sessionId: "new-session" }),
+		);
+
+		expect(activeWork).toBeNull();
+	});
+
+	test("active work derivation ignores stale retained active child events", () => {
+		const activeWork = computeActiveWorkForStatus(
+			[
+				makeEvent("session_clear", { new_session_id: "new-session" }, { timestamp: 1 }),
+				makeEvent(
+					"act_start",
+					{
+						agent_name: "architect",
+						child_id: "C-old",
+						handle_id: "H-old",
+						session_id: "old-session",
+					},
+					{ timestamp: 2 },
+				),
 			],
 			makeStatus({ status: "running", sessionId: "new-session" }),
 		);

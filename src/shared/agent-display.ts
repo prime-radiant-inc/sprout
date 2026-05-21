@@ -52,6 +52,7 @@ export function deriveActiveAgentWork(
 
 	for (const event of events) {
 		if (event.depth === 0 && event.kind === "session_start") {
+			if (!eventAppliesToCurrentSession(event, currentSessionId)) continue;
 			currentSessionId = cleanString(event.data.session_id) ?? currentSessionId;
 			memoryCollapseActive = false;
 			activeChildren.clear();
@@ -61,7 +62,7 @@ export function deriveActiveAgentWork(
 		if (
 			event.depth === 0 &&
 			(event.kind === "session_end" || event.kind === "interrupted") &&
-			sessionLifecycleApplies(event, currentSessionId)
+			eventAppliesToCurrentSession(event, currentSessionId)
 		) {
 			if (event.kind === "interrupted") memoryCollapseActive = false;
 			activeChildren.clear();
@@ -77,7 +78,7 @@ export function deriveActiveAgentWork(
 
 		if (event.kind === "context_update") {
 			const memoryCollapse = cleanString(event.data.memory_collapse);
-			if (!memoryCollapseLifecycleApplies(event, currentSessionId)) continue;
+			if (!eventAppliesToCurrentSession(event, currentSessionId)) continue;
 			if (memoryCollapse === "started") {
 				memoryCollapseActive = true;
 			}
@@ -88,6 +89,10 @@ export function deriveActiveAgentWork(
 			) {
 				memoryCollapseActive = false;
 			}
+		}
+
+		if (isActiveWorkEvent(event) && !eventAppliesToCurrentSession(event, currentSessionId)) {
+			continue;
 		}
 
 		if (event.kind === "act_start") {
@@ -169,7 +174,7 @@ function cleanString(value: unknown): string | undefined {
 	return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
-function memoryCollapseLifecycleApplies(
+function eventAppliesToCurrentSession(
 	event: SessionEvent,
 	currentSessionId: string | undefined,
 ): boolean {
@@ -177,12 +182,14 @@ function memoryCollapseLifecycleApplies(
 	return !eventSessionId || !currentSessionId || eventSessionId === currentSessionId;
 }
 
-function sessionLifecycleApplies(
-	event: SessionEvent,
-	currentSessionId: string | undefined,
-): boolean {
-	const eventSessionId = cleanString(event.data.session_id);
-	return !eventSessionId || !currentSessionId || eventSessionId === currentSessionId;
+function isActiveWorkEvent(event: SessionEvent): boolean {
+	return (
+		event.kind === "act_start" ||
+		event.kind === "act_end" ||
+		event.kind === "plan_end" ||
+		(event.kind === "session_start" && event.depth > 0) ||
+		(event.kind === "session_end" && event.depth > 0)
+	);
 }
 
 function refFromEventData(data: Record<string, unknown>): AgentDisplayRef {

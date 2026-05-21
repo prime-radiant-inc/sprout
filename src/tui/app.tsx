@@ -84,6 +84,19 @@ function sessionLifecycleApplies(
 	return !eventSessionId || !currentSessionId || eventSessionId === currentSessionId;
 }
 
+function isActiveWorkDerivationEvent(event: SessionEvent): boolean {
+	return (
+		event.kind === "session_start" ||
+		event.kind === "session_end" ||
+		event.kind === "interrupted" ||
+		event.kind === "session_clear" ||
+		event.kind === "context_update" ||
+		event.kind === "act_start" ||
+		event.kind === "act_end" ||
+		event.kind === "plan_end"
+	);
+}
+
 function selectionSnapshotFromRequest(
 	selection: Parameters<typeof defaultResolveSessionSelectionRequest>[0],
 	settings: SettingsSnapshot | null,
@@ -111,8 +124,11 @@ export function App({
 	initialEvents,
 }: AppProps) {
 	const [statusState, setStatusState] = useState<StatusState>(INITIAL_STATUS);
-	const [statusEvents, setStatusEvents] = useState<SessionEvent[]>(
+	const [, setStatusEvents] = useState<SessionEvent[]>(
 		() => initialEvents?.slice(-STATUS_EVENT_HISTORY_LIMIT) ?? [],
+	);
+	const [activeWorkEvents, setActiveWorkEvents] = useState<SessionEvent[]>(
+		() => initialEvents?.filter(isActiveWorkDerivationEvent) ?? [],
 	);
 	const [selectionSnapshot, setSelectionSnapshot] = useState<SessionSelectionSnapshot>(
 		initialSelection ?? createDefaultSessionSelectionSnapshot(),
@@ -126,7 +142,7 @@ export function App({
 	const [toolsCollapsed, setToolsCollapsed] = useState(false);
 	const settingsLoad = useRef<Promise<SettingsCommandResult> | null>(null);
 	const currentSessionIdRef = useRef(sessionId);
-	const activeWork = deriveActiveAgentWork(statusEvents, statusState.status, currentSessionId);
+	const activeWork = deriveActiveAgentWork(activeWorkEvents, statusState.status, currentSessionId);
 
 	const loadSettings = useCallback(async (): Promise<SettingsCommandResult | null> => {
 		if (!settingsControlPlane) return null;
@@ -163,9 +179,15 @@ export function App({
 					? next.slice(-STATUS_EVENT_HISTORY_LIMIT)
 					: next;
 			});
+			setActiveWorkEvents((prev) => {
+				if (event.kind === "session_clear") return [event];
+				if (!isActiveWorkDerivationEvent(event)) return prev;
+				return [...prev, event];
+			});
 
 			switch (event.kind) {
 				case "session_start":
+					if (event.depth !== 0) break;
 					currentSessionIdRef.current =
 						cleanString(event.data.session_id) ?? currentSessionIdRef.current;
 					setCurrentSessionId(currentSessionIdRef.current);
@@ -177,11 +199,13 @@ export function App({
 					break;
 
 				case "session_end":
+					if (event.depth !== 0) break;
 					if (!sessionLifecycleApplies(event, currentSessionIdRef.current)) break;
 					setStatusState((prev) => ({ ...prev, status: "idle", inputTokens: 0, outputTokens: 0 }));
 					break;
 
 				case "interrupted":
+					if (event.depth !== 0) break;
 					if (!sessionLifecycleApplies(event, currentSessionIdRef.current)) break;
 					setStatusState((prev) => ({ ...prev, status: "interrupted" }));
 					break;

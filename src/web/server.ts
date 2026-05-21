@@ -64,6 +64,14 @@ function sessionLifecycleApplies(
 	return !eventSessionId || !currentSessionId || eventSessionId === currentSessionId;
 }
 
+function sessionScopedEventApplies(
+	event: SessionEvent,
+	currentSessionId: string | undefined,
+): boolean {
+	const eventSessionId = cleanString(event.data.session_id);
+	return !eventSessionId || !currentSessionId || eventSessionId === currentSessionId;
+}
+
 /**
  * Bun HTTP + WebSocket server that bridges a SessionBus to browser clients.
  *
@@ -149,12 +157,14 @@ export class WebServer {
 				// New session semantics: reconnect snapshots should not include stale events.
 				this.events = [event];
 			} else {
-				this.events.push(event);
-				if (this.events.length > EVENT_CAP * 2) {
-					this.events = this.events.slice(-EVENT_CAP);
-				}
-				if (this.historyCache && this.historyCacheSessionId === this.sessionId) {
-					this.historyCache.push(event);
+				if (sessionScopedEventApplies(event, this.sessionId)) {
+					this.events.push(event);
+					if (this.events.length > EVENT_CAP * 2) {
+						this.events = this.events.slice(-EVENT_CAP);
+					}
+					if (this.historyCache && this.historyCacheSessionId === this.sessionId) {
+						this.historyCache.push(event);
+					}
 				}
 			}
 			// Track task-cli calls to emit task_update events.
@@ -448,19 +458,35 @@ export class WebServer {
 	private updateStatus(event: SessionEvent): void {
 		switch (event.kind) {
 			case "session_start":
+				if (event.depth !== 0) break;
 				this.status = "running";
 				break;
 			case "session_end":
+				if (event.depth !== 0) break;
 				if (!sessionLifecycleApplies(event, this.sessionId)) break;
 				this.status = "idle";
 				break;
 			case "interrupted":
+				if (event.depth !== 0) break;
 				if (!sessionLifecycleApplies(event, this.sessionId)) break;
 				this.status = "interrupted";
 				break;
 			case "session_clear":
 				this.status = "idle";
 				this.currentModel = null;
+				break;
+			case "context_update":
+				if (!sessionScopedEventApplies(event, this.sessionId)) break;
+				if (event.data.memory_collapse === "started") {
+					this.status = "running";
+				}
+				if (
+					event.data.memory_collapse === "completed" ||
+					event.data.memory_collapse === "skipped" ||
+					event.data.memory_collapse === "failed"
+				) {
+					this.status = "idle";
+				}
 				break;
 		}
 	}

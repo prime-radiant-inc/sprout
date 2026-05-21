@@ -328,6 +328,121 @@ describe("App", () => {
 		expect(lastFrame()).toContain("Waiting on Brunelleschi · architect");
 	});
 
+	test("ignores stale active child start after a new session starts", async () => {
+		const { bus, lastFrame } = setup({ sessionId: "old-session" });
+
+		bus.emitEvent("session_start", "root", 0, {
+			goal: "old task",
+			session_id: "old-session",
+		});
+		bus.emitEvent("session_clear", "session", 0, {
+			new_session_id: "new-session",
+		});
+		bus.emitEvent("session_start", "root", 0, {
+			goal: "new task",
+			session_id: "new-session",
+		});
+		bus.emitEvent("act_start", "root", 0, {
+			agent_name: "old-architect",
+			goal: "old task",
+			handle_id: "H-old",
+			child_id: "C-old",
+			session_id: "old-session",
+		});
+
+		await flush();
+
+		expect(lastFrame()).not.toContain("Waiting on old-architect");
+
+		bus.emitEvent("act_start", "root", 0, {
+			agent_name: "new-architect",
+			goal: "new task",
+			handle_id: "H-new",
+			child_id: "C-new",
+			session_id: "new-session",
+		});
+
+		await flush();
+
+		expect(lastFrame()).toContain("Waiting on new-architect");
+	});
+
+	test("child lifecycle events do not idle the root session", async () => {
+		const { bus, lastFrame } = setup();
+
+		bus.emitEvent("session_start", "root", 0, {
+			goal: "root task",
+			session_id: "root-session",
+		});
+		bus.emitEvent("session_start", "child-agent", 1, {
+			goal: "child task",
+			session_id: "root-session",
+		});
+		bus.emitEvent("session_end", "child-agent", 1, {
+			session_id: "root-session",
+		});
+
+		await flush();
+
+		expect(lastFrame()).toContain("...");
+	});
+
+	test("keeps active child status after unrelated events exceed rendered history cap", async () => {
+		const { bus, lastFrame } = setup();
+
+		bus.emitEvent("session_start", "root", 0, { goal: "audit" });
+		bus.emitEvent("act_start", "root", 0, {
+			agent_name: "architect",
+			goal: "audit design",
+			handle_id: "H1",
+			child_id: "C1",
+			mnemonic_name: "Brunelleschi",
+		});
+		for (let index = 0; index < 510; index++) {
+			bus.emitEvent("warning", "cli", 0, { message: `noise-${index}` });
+		}
+
+		await flush();
+
+		expect(lastFrame()).toContain("Waiting on Brunelleschi · architect");
+
+		bus.emitEvent("act_end", "root", 0, {
+			agent_name: "architect",
+			handle_id: "H1",
+			child_id: "C1",
+			mnemonic_name: "Brunelleschi",
+		});
+
+		await flush();
+
+		expect(lastFrame()).not.toContain("Waiting on Brunelleschi · architect");
+	});
+
+	test("keeps memory saving status after unrelated events exceed rendered history cap", async () => {
+		const { bus, lastFrame } = setup();
+
+		bus.emitEvent("session_start", "root", 0, { goal: "remember this" });
+		bus.emitEvent("session_end", "root", 0, { turns: 1, stumbles: 0 });
+		bus.emitEvent("context_update", "session", 0, {
+			memory_collapse: "started",
+		});
+		for (let index = 0; index < 510; index++) {
+			bus.emitEvent("warning", "cli", 0, { message: `noise-${index}` });
+		}
+
+		await flush();
+
+		expect(lastFrame()).toContain("Saving memory");
+
+		bus.emitEvent("context_update", "session", 0, {
+			memory_collapse: "completed",
+		});
+
+		await flush();
+
+		expect(lastFrame()).not.toContain("Saving memory");
+	});
+
 	test("clears active child status on session_clear", async () => {
 		const { bus, lastFrame } = setup();
 

@@ -13,8 +13,18 @@ import { EventStore } from "./useEvents.ts";
 
 // --- Helpers ---
 
-function makeEvent(kind: SessionEvent["kind"], data: Record<string, unknown> = {}): SessionEvent {
-	return { kind, timestamp: Date.now(), agent_id: "root", depth: 0, data };
+function makeEvent(
+	kind: SessionEvent["kind"],
+	data: Record<string, unknown> = {},
+	overrides: Partial<SessionEvent> = {},
+): SessionEvent {
+	return {
+		kind,
+		timestamp: overrides.timestamp ?? Date.now(),
+		agent_id: overrides.agent_id ?? "root",
+		depth: overrides.depth ?? 0,
+		data,
+	};
 }
 
 function eventMessage(event: SessionEvent): ServerMessage {
@@ -362,6 +372,22 @@ describe("EventStore", () => {
 			store.processMessage(eventMessage(makeEvent("session_start", {})));
 
 			expect(store.status.model).toBe("gpt-4o");
+		});
+
+		test("child lifecycle events do not change root running status", () => {
+			const store = new EventStore();
+
+			store.processMessage(eventMessage(makeEvent("session_start", { session_id: "root-session" })));
+			store.processMessage(
+				eventMessage(
+					makeEvent("session_start", {}, { agent_id: "child-agent", depth: 1 }),
+				),
+			);
+			store.processMessage(
+				eventMessage(makeEvent("session_end", {}, { agent_id: "child-agent", depth: 1 })),
+			);
+
+			expect(store.status.status).toBe("running");
 		});
 	});
 
