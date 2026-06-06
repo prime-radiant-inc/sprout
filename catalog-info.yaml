@@ -1,0 +1,14 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: sprout
+  description: "Experimental self-improving multi-agent coding system that recursively decomposes goals and mutates a git-backed agent genome, supporting Claude, GPT, and Gemini."
+  annotations:
+    backstage.io/techdocs-ref: dir:.
+    prime-radiant.com/repo-map-rev: "38c8a30babc3ecc005533a73a3841b6dc88b9cda"
+  tags: [typescript, multi-agent]
+spec:
+  type: tool
+  lifecycle: experimental
+  owner: user:obra
+  system: brooks
