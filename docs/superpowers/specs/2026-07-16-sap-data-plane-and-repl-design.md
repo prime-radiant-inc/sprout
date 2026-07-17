@@ -1,7 +1,7 @@
 # Sap: a data plane and REPL for sprout
 
 **Date:** 2026-07-16
-**Status:** Approved design, revised after four adversarial review rounds (§14), pre-implementation
+**Status:** Approved design, revised after four adversarial review rounds and a roborev design review (§14), pre-implementation
 **Scope:** Value store ("sap"), capture, splicing, publish, evaluator/REPL, code-first Act mode, genome programs
 
 ## Motivation
@@ -79,14 +79,17 @@ This split makes budget enforcement surgical: terminating a runaway cell kills *
 that agent's* cell worker (§4, §9) — never another agent's in-flight cell, never the
 store, never the bus/UI/spawner.
 
-**Store ops are budgeted too.** The store worker runs model-influenced work (grep
-patterns are model-written; JS regexes can backtrack catastrophically), so it is not
-exempt from discipline: `value_grep` executes chunk-at-a-time (bounding any one
-regex application) with an abort check between chunks, and every store op carries an
-op timeout (default 10 s) that fails that op without harming the worker. If the
-worker nonetheless wedges (a single chunk's regex application is uninterruptible JS),
-the host restarts it: the worker holds no unjournaled state — values live in the
-journal and CAS — so restart is reload; in-flight ops fail with retryable errors.
+**Store ops are budgeted too — and the contract is honest about JS regex.** The
+store worker runs model-influenced work (grep patterns are model-written; JS regexes
+can backtrack catastrophically). `value_grep` executes chunk-at-a-time with an abort
+check between chunks, and every store op carries an op timeout (default 10 s). The
+timeout is checked *between* chunks — a single chunk's regex application is
+uninterruptible JS, so the enforceable contract is: ops that exceed budget between
+chunks fail cleanly; an op wedged *inside* one application is recovered by **worker
+termination and restart**, which is a first-class recovery path, not an edge case.
+The worker holds no unjournaled state — values live in the journal and CAS — so
+restart is reload; in-flight ops fail with retryable errors. Implementers must build
+to the weaker guarantee (timeout-or-restart), never assume regex is interruptible.
 Cell budget enforcement never touches the store worker; wedge recovery may.
 
 **Value model.** Values are utf8 text, JSON, or bytes. Metadata: ULID, name, scope,
@@ -114,8 +117,19 @@ now); it prevents accidents, not exfiltration by a determined agent.
 2. Auto-binds get provenance-derived names, deterministically, no LLM in the path:
    a child result → a goal slug such as `implement_endpoints_result`; a truncated
    primitive result → `exec_bun_test_output`; a cell output → `cell_<n>_output`.
-3. Collisions take a numeric suffix. Consumers may alias any name locally via `env`.
-   Global identity is the ULID; names are per-scope.
+3. **Auto-bind collisions take a numeric suffix; explicit names never do.** A
+   `bind()`/`bind:` name or an `env` alias that collides with an existing name in
+   the target scope fails loudly (for `env`, at grant registration, reported to
+   the sender) — silently renaming a granted `schema` to `schema_2` would break
+   every `⟦schema⟧` reference the granting model wrote. Suffixing is reserved for
+   auto-binds, whose names no model has referenced yet. Global identity is the
+   ULID; names are per-scope.
+4. **Names are validated data, never code.** Charset `[a-z0-9_]`, max 64 chars, no
+   leading digit; reserved names (ambient API names, `programs`, kernel primitive
+   names) rejected. Names are string keys — `peek('x')` — and are **never injected
+   as JS identifiers into cell namespaces**: arbitrary names can't be identifiers,
+   and globals would collide with the ambient API. The namespace "is the scope" in
+   the addressing sense, not the global-variable sense.
 
 **Durability.** Append-only JSONL journal per session in the durable log directory:
 bind records (metadata plus inline value, or a content-addressed file reference —
@@ -132,16 +146,24 @@ one connection, authenticated at handshake with its per-handle token (§3), and 
 host maps connection → verified identity thereafter. This **authenticated channel**
 carries: store ops, capture uploads, env-grant registration (§3), cell submission
 and results, cell spawn requests and responses (§4), liveness pings (§4), and wait
-registration (§4). Large bodies still transfer by CAS handoff (producer writes the
-CAS file, sends `{path, sha256}`; store verifies and adopts) above a frame budget
-(default 4 MB); the endpoint sets an explicit max frame size (Bun's default
+registration (§4). Large bodies still transfer by CAS handoff above a frame
+budget (default 4 MB); the endpoint sets an explicit max frame size (Bun's default
 WebSocket cap is 16 MB — unstated, mid-size frames silently drop the connection).
+**CAS handoff is confined:** producers write only into a host-created per-session
+staging directory (path issued to the process at spawn), and the store adopts files
+only from that directory — path canonicalized, symlinks rejected, size checked
+against the max-value limit *before* adoption. Arbitrary `{path}` adoption would
+let a confused producer make the store ingest any readable file on disk.
 The legacy bus keeps what it carries today — events, steer, agent_message,
 start/continue/result — with its existing (unauthenticated) trust posture.
 
-**Memory management.** The store worker holds hot values under a memory budget
-(default 512 MB) with LRU spill to CAS; immutability makes spill/reload safe. Values
-unreferenced by any live scope are spill-first. No within-session deletion in v1;
+**Memory and disk management.** The store worker holds hot values under a memory
+budget (default 512 MB) with LRU spill to CAS; immutability makes spill/reload
+safe. Values unreferenced by any live scope are spill-first. Disk is bounded too:
+a per-session store disk quota (default 4 GB, journal + CAS combined) and a
+per-scope value-count cap (default 10,000). At quota, new binds fail with an
+explicit store-full error (a stumble the owner can react to — e.g., delegate
+summarization); the session keeps running. No within-session deletion in v1;
 session end prunes everything.
 
 **Lifetime.** Session-scoped. `/clear` drops the store with the rest of session state.
@@ -149,8 +171,8 @@ session end prunes everything.
 **Defaults (config-tunable):** preview budget 300 chars; auto-bind threshold 2,000
 chars; result summary budget 4,000 chars; cell `get()`/`parse()` budget 1 MB;
 `value_get` primitive budget 50,000 chars (read_file parity); store op timeout 10 s;
-liveness ping interval 15 s; frame budget 4 MB; store memory budget 512 MB; max
-value size 256 MB.
+liveness ping interval 15 s; frame budget 4 MB; store memory budget 512 MB; store
+disk quota 4 GB; per-scope value cap 10,000; max value size 256 MB; name length 64.
 
 ## 2. Capture, splicing, and publish
 
@@ -338,11 +360,17 @@ in-process trusted path.
 (`StartMessage`/`ContinueMessage`/`AgentMessageMessage`) whose senders are
 self-reported — so the recipient's runtime never trusts the message alone. The
 sender's process registers the grant over its **authenticated** connection before
-sending (grant record: sender identity, recipient handle, names/ULIDs — journaled);
+sending (grant record: sender identity, recipient handle, alias → ULID — journaled);
 the recipient's runtime binds an `env` only if a matching pending grant exists,
 verified with the store. A forged bus message with `env` finds no grant and binds
 nothing. For delegations the spawner registers the grant as part of spawn (it is
 the sender's runtime); `message_agent`/continue grants register before publish.
+Grant registration is also where **alias collisions fail loudly** (§1 naming): an
+`env` alias already present in the recipient's scope rejects the grant back to the
+sender, who can re-alias — explicit names are never suffixed. Message-shape note:
+`env`, `StartMessage.model`, and the other new fields are **additive optional
+fields** on existing messages and tool schemas; older parsers ignore them and no
+compatibility machinery is built (project rule: no backward-compat shims).
 
 **Scope rules, on verified identity:**
 
@@ -503,6 +531,14 @@ JSON → refuse with guidance (grep/slice first, or delegate).
 **Cell results to the LLM:** captured stdout + final expression value (auto-bound if
 over threshold) + manifest of new bindings + on error, message, offending line, the
 names currently in scope, and the handle IDs of spawns still in flight.
+**Everything a cell emits above the line goes through the same gate as value
+reads:** stdout, final expression values, and error messages can echo raw `get()`
+content (`console.log(get('secrets'))` is one line), so all of it passes
+`redactSensitiveTranscriptContent` and the auto-bind threshold before reaching any
+model, event, or UI consumer — the read-side redaction rule (§1) would otherwise be
+a one-line bypass. The same applies to journaled cell code and `cell_end` event
+payloads, and to learn-signal artifacts carrying cell code (§7): journal and event
+writes of cell material pass redaction at write time.
 
 **Budgets, guards, and cancellation:**
 
@@ -715,8 +751,23 @@ All-in must not mean unattributable:
 - Metrics: tokens per delegated byte moved; stumble rate by act mode; fan-out
   wall-clock; store hit sizes; prompt-cache hit rate by arm (the
   scope-announcement design (§3) exists to protect it; measure that it does).
-- Success criterion for the canonical scenario ("author a 50 KB file via children"):
-  ≥ 80% token reduction versus baseline, no resume/replay regressions.
+- **Acceptance criteria, one per goal** (the 50 KB scenario alone validates only
+  the first):
+  - *Token economics:* ≥ 80% token reduction on the canonical 50 KB scenario
+    versus baseline.
+  - *Fan-out:* a 50-way llm-call fan-out completes with zero spurious failures
+    and wall-clock bounded by the slowest child, not the sum.
+  - *Resume/replay:* every §11 resume scenario replays to provider-valid history;
+    zero regressions in existing resume tests.
+  - *Grant security:* the forged-env, observer-env, and forged-spawn tests all
+    reject; the keystone no-content-in-LLM-payloads assertion holds.
+  - *Liveness:* a two-agent wait cycle is detected and failed within one ping
+    interval; a wedged child resumes its waiter's timer within two.
+  - *Code mode:* after the A/B period, code-mode stumble rate is no worse than
+    tool-mode on matched tasks (else `act: "code"` does not graduate to default
+    on any spec).
+  - *Programs:* one quartermaster-fabricated program survives eval-mode gating,
+    root promotion, and re-execution in a fresh session.
 
 ## 11. Testing
 
@@ -735,6 +786,11 @@ All-in must not mean unattributable:
   scope-announcement rendering, post-compaction manifest, and its replayable
   event; `hitTurnLimit` fix; timer suspension + liveness-ping resume (wedged
   process stops pinging → waiter timer resumes); wait-graph cycle detection;
+  name validation (charset, length, reserved names) and loud explicit-name
+  collisions (bind, `bind:`, env-alias at grant registration); CAS staging
+  confinement (out-of-staging and symlinked paths rejected); cell-output
+  redaction gate (`console.log(get(...))` of a secret is redacted in the tool
+  result, event, and journal); store disk/count quota → store-full error;
   zero-tool exemption and flag-off-empty genome validation (eval-only *and*
   value_*-only shapes rejected); grant registration (env without grant drops;
   forged bus env binds nothing; observer env rejected); CAS handoff; LRU
@@ -765,32 +821,44 @@ All-in must not mean unattributable:
 
 ## 12. Build order
 
-One design, sequenced by dependency; each phase lands green before the next starts:
+One design, sequenced by dependency; each phase lands green before the next starts.
+Phases are deliberately small — each is one reviewable concern, and safety
+mechanisms land *with* their nets, never before (a paused timer without pings is a
+hang; publish without manifests is a stranded value):
 
 0. **Kernel prerequisites** — `hitTurnLimit` fix; zero-tool completion agents;
-   inactivity timer made pausable and suspended during blocking delegations
-   (pre-existing spurious-timeout bug).
-1. **Store + channel** — authenticated host endpoint (tokens, env filtering incl.
-   bus URL, liveness pings feeding the Phase 0 timer), store worker (op budgets,
-   wedge restart), journal, previews + redaction, CAS transport/spill, **capture at
-   the environment layer** (`bind:` args + auto-capture on both truncation passes),
-   **publish** (primitive flags + `value_publish` + auto-publish), auto-bind at
-   agent boundaries, `value_bind` events, value-read primitives, scope
-   announcements + post-compaction manifest event.
-2. **Splice + grants** — `$ref` whole-arg resolution with loud-miss errors and the
-   per-primitive allowlist, env-grant registration protocol, `env` on
-   delegate/message/continue/StartMessage (observer-env prohibition), result
-   manifests + summary budget, spawnerless local store.
-3. **Evaluator** — per-agent cell workers, `cell` tool over the authenticated
-   channel, ambient API incl. `handle(id)` and `publish()`, spawn routing (owner
-   relay + root bridge) with the five cell-spawn deviations, stumble counting +
-   learn dedup, budget clock, cancellation lease, wait registration + cycle
-   detection, **host handle registry for shared handles**, featherweight placement
-   + three-record logs, `utility/llm-call`.
-4. **Code-first** — `act` spec field + flag semantics + flag-off-empty genome
+   inactivity timer made *pausable* (mechanism only — nothing suspends yet;
+   today's caps stay in force until Phase 1's pings exist).
+1. **Channel & auth** — authenticated host endpoint, per-handle tokens, env
+   filtering (token, endpoint URL, bus URL), liveness pings; timer suspension for
+   blocking delegations activates here, pings as its net (fixes the pre-existing
+   spurious-timeout bug).
+2. **Store core** — store worker (op budgets, wedge restart), journal, CAS
+   (staging-confined handoff, spill), disk/count quotas, name validation,
+   previews + redaction, `value_bind` events, value-read primitives (truncation
+   bypass), spawnerless local store.
+3. **Capture & publish** — capture at the environment layer (`bind:` args,
+   auto-capture on both truncation passes, truthful markers), publish
+   (`publish: true`, `value_publish`, auto-publish of result overflow), result
+   manifests + summary budget, auto-bind at agent boundaries, scope announcements
+   + post-compaction manifest event. One phase because publish is only correct
+   with its receiving semantics (manifests, announcements) present.
+4. **Splice & grants** — `$ref` whole-arg resolution (loud misses, per-primitive
+   allowlist), env-grant registration (loud alias collisions, observer-env
+   prohibition), `env` on delegate/message/continue/StartMessage.
+5. **Evaluator** — per-agent cell workers, `cell` tool over the authenticated
+   channel, ambient API incl. `handle(id)` and `publish()`, cell-output
+   redaction/budget gate, spawn routing (owner relay + root bridge) with the five
+   cell-spawn deviations, stumble counting + learn dedup, budget clock,
+   cancellation lease, ambient-wait registration + cycle detection (lands *with*
+   the timer-less waits it protects), **host handle registry for shared handles**
+   (until this lands, cross-process shared-handle access errors explicitly as
+   unsupported — no partial behavior), featherweight placement + three-record
+   logs, `utility/llm-call`.
+6. **Code-first** — `act` spec field + flag semantics + flag-off-empty genome
    validation, cell-implies-value-reads, scoped observer store access, TUI/web
    rendering.
-5. **Programs** — genome artifact type + sync/export plumbing, quartermaster
+7. **Programs** — genome artifact type + sync/export plumbing, quartermaster
    fabrication, eval-mode gating, metrics dashboards.
 
 ## 13. Design decisions log
@@ -814,6 +882,8 @@ One design, sequenced by dependency; each phase lands green before the next star
 | Sub-LM calls | `utility/llm-call` genome agent, not a kernel `llm()` | One recursion mechanism; evolvable |
 | Featherweight | Owner-process placement; synthetic three-record log | wait_agent resolves against the owner's spawner; resume needs session_end, respawn needs perceive+plan_end |
 | Mode choice | `act` per spec; defined off-flag; flag-off-empty specs invalid at mutation time | Don't decide, evolve — with a true control arm and no zero-tool path in any shape |
+| Explicit names | Loud collision failure for bind/`bind:`/env aliases; suffixing for auto-binds only | Silently renaming a granted name breaks every reference the granting model wrote |
+| Cell output | Same redaction + budget gate as value reads, incl. journal and events | `console.log(get('secrets'))` is a one-line bypass otherwise |
 
 ## 14. Adversarial review log
 
@@ -840,6 +910,20 @@ clock), dead recovery handles, `handle.wait` cap, `parse()` budget, undefined
 flag, `$ref`-into-exec, store-worker budgets, three-record featherweight logs,
 timer asymmetry — surfacing the second pre-existing bug (tool-mode blocking
 delegations already suffer spurious inactivity timeouts).
+
+**Design review (2026-07-17, roborev job 2158, codex, full-spec range):** verdict
+Fail on ambiguity, not direction. Fixed: explicit-name collisions now fail loudly
+(suffixing reserved for auto-binds); cell stdout/final-value/error output routed
+through the same redaction + budget gate as value reads (was a one-line bypass);
+namespaces defined as string-addressed (names are validated data, never JS
+identifiers); CAS handoff confined to host-created staging with symlink-safe
+adoption; store-op timeout contract weakened to timeout-or-restart (JS regex is
+uninterruptible); disk/value-count quotas with store-full-is-a-stumble semantics;
+acceptance criteria per goal; build order split into eight single-concern phases
+with safety mechanisms landing with their nets (timer suspension with pings,
+publish with manifests, timer-less waits with cycle detection, shared handles
+explicitly unsupported until their registry); additive-only message fields, no
+compat shims.
 
 **Round 4 (2026-07-17, clean room again):** 11 distinct findings, concentrated in
 protocol seams: **publish had no mechanism** (→ §2 publish design); **the control
