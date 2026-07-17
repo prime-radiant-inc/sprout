@@ -1,7 +1,7 @@
 # Sap: a data plane and REPL for sprout
 
 **Date:** 2026-07-16
-**Status:** Approved design, revised after five adversarial review rounds and a roborev design review (§14), pre-implementation
+**Status:** Approved design, revised after six adversarial review rounds and a roborev design review (§14), pre-implementation
 **Scope:** Value store ("sap"), capture, splicing, publish, evaluator/REPL, code-first Act mode, genome programs
 
 ## Motivation
@@ -75,13 +75,20 @@ thread:
   bounded, and materialization (`get`/`parse`) is budgeted. Arbitrary heavy JS over
   full contents beyond those budgets is unsupported — use value ops or delegate.
 
-**Cell workers are OS subprocesses, not threads.** "Worker" here means a child
-process with an OS-level memory cap (RLIMIT_AS, default 512 MB): plain JS needs no
-ambient API to allocate (`let s = "x"; while (true) s += s;` reaches gigabytes in
-under a second), and a thread-worker OOM would abort the entire host — bus, UI,
-store, every session. As subprocesses, a memory blowout kills only that agent's
-cell worker. The store worker may be a thread (it runs no model-authored code and
-its allocations are quota-bounded); cell workers may not. This is what makes budget
+**Cell workers are OS subprocesses, not threads.** Plain JS needs no ambient API
+to allocate (`let s = "x"; while (true) s += s;` reaches gigabytes in under a
+second), and a thread-worker OOM would abort the entire host — bus, UI, store,
+every session. As subprocesses, a memory blowout kills only that agent's cell
+worker. **Memory enforcement is an RSS watchdog, not an rlimit**: the host polls
+each cell worker's RSS (every 250 ms) and kills over-budget workers (default
+512 MB). This is specified deliberately — RLIMIT_AS is not enforced on macOS
+(setrlimit succeeds and XNU ignores it; JSC's mmap'd heap escapes RLIMIT_DATA),
+`Bun.spawn` exposes no rlimit API, and this project develops and runs on darwin.
+On Linux, a setrlimit-exec shim adds a hard backstop; on darwin the watchdog is
+the mechanism, and a fast allocation bomb can transiently exceed the budget by
+the polling interval's worth of growth — bounded imprecision, stated rather than
+hidden. The store worker may be a thread (it runs no model-authored code and its
+allocations are quota-bounded); cell workers may not. This is what makes budget
 enforcement surgical: killing a runaway cell kills *only that agent's* cell worker
 (§4, §9) — never another agent's in-flight cell, never the store, never the
 bus/UI/spawner.
@@ -164,10 +171,22 @@ each child's handle ID, token hash, owner, depth, and observer remit with the ho
 handle's handshake, since spawners are per-process and the host is not in the
 grandchild spawn path — the host rejects duplicate registrations and registrations
 from any identity other than the verified parent, else an authenticated agent
-could re-register another agent's handle and capture its identity), store ops,
+could re-register another agent's handle and capture its identity — with one
+carve-out: **the verified parent of a handle may re-register it with a fresh
+token** when the handle has no live connection, which is how respawn and
+owner-resume re-establish identity: tokens are never journaled, so a resumed
+parent cannot redeliver the original token and must mint anew; a handle with an
+active authenticated connection can be re-registered by no one), store ops,
 capture uploads, publish records, **manifest fetch** (§2), env-grant registration
 (§3), cell submission and results, cell spawn requests and responses (§4),
-liveness pings (§4), and blocking-wait registration (§4). Large bodies still transfer by CAS handoff above a frame
+liveness pings (§4), and blocking-wait registration (§4). **This channel and
+everything on it is control-plane infrastructure, independent of the data-plane
+flag (§6)**: tokens, pings, wait registration, and deadlock detection exist in
+every session including flag-off control arms — otherwise the timer-suspension
+net would vanish in exactly one arm, either hanging it (suspension without pings)
+or resurrecting the spurious-timeout bug there (no suspension), and the §10
+"identical timer semantics across arms" requirement would be false by
+construction. Large bodies still transfer by CAS handoff above a frame
 budget (default 4 MB); the endpoint sets an explicit max frame size (Bun's default
 WebSocket cap is 16 MB — unstated, mid-size frames silently drop the connection).
 **CAS handoff is confined:** producers write only into a host-created per-session
@@ -211,12 +230,20 @@ model authors in its own tool calls, both validated against the *sender's* scope
    providers (an object `{"$ref": ...}` form would violate declared schemas and break
    strict-validation providers).
 
-**`$ref` is accepted only in content-carrying arguments — a kernel allowlist.**
-`write_file`/`edit_file`/`apply_patch` content and patch bodies: yes. `exec`
-commands, `fetch` URLs, file paths, grep patterns: no. The one rule guarantees no
-model sees spliced content — which is exactly why arguments that *do* things
-(execute, address, navigate) must keep transiting the authoring model's context.
-The allowlist is part of the frozen splice semantics.
+**`$ref` is accepted only in pure-content arguments — a kernel allowlist.**
+`write_file` content and `edit_file` old/new strings: yes. `exec` commands,
+`fetch` URLs, file paths, grep patterns: no — and **`apply_patch` bodies: no**,
+because a patch body is not pure content: it *addresses* (file paths) and *acts*
+(`*** Delete File`, `*** Move to`), and today's path-constraint enforcement
+parses those paths out of the raw model-authored argument *before* execution
+(`src/agents/agent.ts:2204-2225` → `src/kernel/path-constraints.ts:40-51`) — a
+spliced patch would present zero paths to the check and bypass
+`allowed_write_paths` entirely. The one rule guarantees no model sees spliced
+content — which is exactly why arguments that do things must keep transiting the
+authoring model's context. **Belt and braces: for any primitive call that
+resolved a `$ref`, path constraints re-run on the resolved arguments** after
+splicing, so a future allowlist mistake fails closed instead of open. The
+allowlist and the re-check rule are part of the frozen splice semantics.
 
 **A `$ref` miss is a loud tool error, never a silent literal.** A whole-arg `⟦name⟧`
 is unambiguous model-authored intent to splice; on a typo or stale name the primitive
@@ -244,13 +271,16 @@ sees is not the content: `read_file` output is line-number-prefixed
 it verbatim, `src/kernel/primitives.ts:11-12`), and `exec` output appends
 `[stderr]`/`exit_code:`/`duration_ms:` trailers. Splicing a captured *rendering*
 into `write_file` would write line numbers and exit codes into files — silent
-corruption on the design's flagship path. **This requires a new interface surface,
-not a tap on an existing one**: today's `ExecutionEnvironment`
-(`src/kernel/execution-env.ts:64-76`) produces *only* the renderings — the line
-numbering happens inside `read_file` itself, and `grep` shells out to
-`rg --line-number` returning `path:line:text`, so "the raw match text" does not
-exist in the current interface. Each implementation gains structured-result
-methods (raw content + rendering), and capture consumes the structured form:
+corruption on the design's flagship path. **For `read_file` and `grep` this
+requires new interface surface**: the line numbering happens inside
+`ExecutionEnvironment.read_file` itself (`src/kernel/execution-env.ts:124-129`),
+and `grep` shells out to `rg --line-number` returning `path:line:text` — raw
+match text does not exist in the current interface. (`exec` already returns
+structured `{stdout, stderr, exit_code}` — `ExecResult`,
+`src/kernel/execution-env.ts:6-12` — with the trailer rendering applied in the
+primitive; its capture needs no interface change.) The affected implementations
+gain structured-result methods (raw content + rendering), and capture consumes
+the structured form:
 
 - `read_file(path, bind:)` → the raw bytes of exactly what was read (with
   `offset`/`limit`, the requested slice, not the whole file).
@@ -307,12 +337,22 @@ distinct from binding, and exists in both modes:
   agent's scope. A 50-child fan-out does not flood the owner with every child's
   internal captures.
 
-**Manifests are pulled from the store, never pushed on the bus.** Publish records
-land in the journal via the *child's* authenticated connection at publish time. At
-result receipt, the recipient's runtime **fetches** the manifest from the store
-over its *own* authenticated connection — "manifest for handle X" returns exactly
-the journaled publishes of that handle — and binds them into the recipient's
-scope. The bus `ResultMessage` carries no manifest and no overflow content (the
+**Manifests are pulled from the store, never pushed on the bus — and delimited
+per result.** Publish records land in the journal via the *child's* authenticated
+connection at publish time. At result receipt, the recipient's runtime
+**fetches** the manifest from the store over its *own* authenticated connection —
+and the fetch is a **delta**: the publishes of that handle since its previous
+result delivery to *this recipient* (the store keeps a delivery cursor per
+handle × recipient). Keep-alive handles produce a result per continue and shared
+handles are waited by different agents at different times; a cumulative fetch
+would re-deliver every earlier run's publishes on each receipt, spuriously
+tripping collision suffixing for values the recipient already holds. Two
+same-handle name rules: a manifest name that matches a binding from *the same
+handle's earlier manifest* is a **version update** (the alias moves to the new
+ULID — the child rebound and republished; no suffix); a match against any
+*other* binding is a genuine collision and suffixes per §3. If the manifest
+fetch fails retryably (store worker mid-restart), result processing waits and
+retries under ping-backed liveness before delivering the tool result. The bus `ResultMessage` carries no manifest and no overflow content (the
 child's runtime publishes overflow to the store *before* sending the result;
 `output` carries only the inline summary). This matters because result topics are
 open bus (`src/bus/spawner.ts:501-518`): a manifest field on the message would let
@@ -323,7 +363,13 @@ access*. This is the entire child→parent data path; nothing else crosses upwar
 
 **Auto-bind (upward, at agent boundaries).** A child's `ResultMessage.output` stays
 inline up to the **summary budget** (default 4,000 chars — the judgment channel,
-worth paying for); overflow auto-binds and auto-publishes. Published values arrive
+worth paying for); over budget, the inline portion is the head of the output
+(mechanical cut, marked as such) and the auto-bound, auto-published value is the
+**full output** — a clipped remainder would be useless to splice. Child system
+prompts are guided to lead with judgment so the head *is* the summary. One
+exception path: results recovered from a dead child's durable log
+(`src/bus/spawner.ts:263-296`) predate publish-before-result ordering and fall
+back to today's 30 K inline truncation — the degraded-to-status-quo rule, stated. Published values arrive
 as a manifest:
 
 ```
@@ -590,11 +636,18 @@ get(name)                               // full materialize — budgeted; refuse
 console.log(...)                        // captured into cell output
 // plus the pure JS stdlib. No fs, no fetch, no process, no import/require —
 // and no runtime globals: cells execute in a stripped realm with the ambient
-// API as the ONLY non-stdlib surface. In a Bun-hosted worker, `Bun`,
+// API as the ONLY non-stdlib surface. In a Bun-hosted process, `Bun`,
 // `process`, and friends grant full fs/exec — leaving them reachable would
 // hand every cell holder capabilities the grant system deliberately withheld
-// (code-mode agents are not granted `exec`). Realm construction removes them;
-// the sandbox test asserts their absence.
+// (code-mode agents hold no exec grant — a validated invariant, §6).
+// Enforcement is two-layer, because global stripping alone cannot deliver
+// "no import": dynamic `import()` is SYNTAX, not a deletable property, and
+// one `await import("node:child_process")` would reopen everything. So:
+// (1) cell source is lexically scanned before execution — any `import`
+// (static or dynamic) or `require` occurrence rejects the cell with a loud
+// error; (2) realm construction strips the runtime globals. Lexical
+// enforcement on model-authored code is adequate for the v1 confused-deputy
+// trust model; it is not a hard sandbox, per Non-goals.
 ```
 
 `parse()` shares `get()`'s materialization budget (default 1 MB): it produces the
@@ -604,6 +657,13 @@ JSON → refuse with guidance (grep/slice first, or delegate).
 **Cell results to the LLM:** captured stdout + final expression value (auto-bound if
 over threshold) + manifest of new bindings + on error, message, offending line, the
 names currently in scope, and the handle IDs of spawns still in flight.
+**Replay carries the cell result as a standard `primitive_end`**: cell completion
+emits the ordinary `primitive_end` event with `tool_result_message` — the event
+class replay already reconstructs history from (`src/kernel/event-replay.ts:55-90`)
+— *plus* the telemetry `cell_end` (§8, which carries code and metrics, not the
+tool result). Without this, resuming an owner after a *successfully completed*
+cell would orphan the `cell` tool_use just as surely as dying mid-cell; the
+dangling-eval synthesis covers only the incomplete case.
 **Everything a cell emits above the line goes through the same gate as value
 reads:** stdout, final expression values, and error messages can echo raw `get()`
 content (`console.log(get('secrets'))` is one line), so all of it passes
@@ -666,7 +726,10 @@ writes of cell material pass redaction at write time.
   `handle.wait` — and the host detects cycles and fails the youngest wait with an
   explicit deadlock error naming the cycle. `wait_agent` keeps its 900 s cap *in
   addition to* registration; the cap alone was never cycle-safe for the uncapped
-  edges around it.
+  edges around it. Edge lifecycle: edges deregister on wait completion and are
+  swept when the registering connection drops (process death) or its wait is
+  cancelled (owner interrupt) — stale edges would make the detector fire on
+  phantom cycles.
 - Spawn cap per cell (default 64, tunable); `MAX_AGENT_DEPTH` applies inside cells
   (enforced by `executeSpawnerDelegation`, since spawns route through it).
 - Cells are serialized per agent; concurrency happens inside a cell.
@@ -719,7 +782,12 @@ and the spawner whose handle table `wait_agent`/`message_agent` resolve against
 (`src/agents/agent.ts:1743-1763`). Equivalence, stated precisely:
 
 - Identical events and result semantics; a **synthetic completed handle** registers
-  in the owner's spawner so `wait_agent` and result caching work.
+  in the owner's spawner so `wait_agent` and result caching work. "Identical
+  events" includes the session-wide topic: the owner synthesizes the child's
+  `session_start`/`session_end` events (subprocess children publish these
+  themselves, `src/bus/agent-process.ts:320-331`, and the TUI's active-work
+  derivation and observers consume them) — otherwise a 50-way featherweight
+  fan-out would be invisible to every session-event consumer.
 - **A synthetic per-handle log of three records** — `perceive` (the request),
   `plan_end` (the response), `session_end` (the result). Three is the minimum, not
   two: resume registration requires a `session_end` result record
@@ -739,9 +807,24 @@ the plan. Tool-mode agents keep `delegate` and may also hold `cell`. Both modes 
 one stable tool call per provider (Anthropic/OpenAI/Gemini), preserving the
 cache-stability decision.
 
+**The code-mode tool surface is defined and validated, not implied.** An
+`act: "code"` spec's tool surface is exactly `cell` plus the implicit `value_*`
+reads — nothing else. Genome validation rejects code-mode specs granting
+primitives or `delegate`: delegation happens through `spawn()` inside cells, the
+world is touched through spawned leaves, and a hybrid (cells beside an
+unrestricted `exec` tool) would make the stripped realm security theater. This
+turns §4's premise — code-mode agents hold no exec — from an assumption into a
+validated invariant. The genome will mutate specs toward hybrid shapes;
+validation, not convention, is what stops them. Flag-off degradation of a
+code-mode spec therefore yields `delegate` (code mode requires
+`can_spawn: true`) plus `value_*` — a functional tool-mode agent.
+
 **The data-plane session flag, defined — including the arguments.** Off means
-*off*: no store service, no tokens, no capture, no publish, no splicing, no
-auto-bind, no scope announcements, no cells. `value_*` and `cell` filter out of
+*off* for the data plane: no store values, no capture, no publish, no splicing,
+no auto-bind, no scope announcements, no cells. **The authenticated channel and
+its control-plane services — tokens, handle registration, liveness pings, wait
+registration, deadlock detection, timer suspension — are flag-independent (§1)**
+and run in every session; the flag governs data, not liveness. `value_*` and `cell` filter out of
 the registry in off-sessions; `act: "code"` degrades to `"tools"`; and data-plane
 *fields* emitted in an off-session (`bind:`/`publish:` args, `env` on delegate or
 message, whole-arg `⟦name⟧`) are **rejected with a clear tool error naming the
@@ -898,8 +981,17 @@ All-in must not mean unattributable:
   suffix with summary-reference rewrite; CAS staging confinement (out-of-staging
   and symlinked paths rejected); cell-output redaction gate
   (`console.log(get(...))` of a secret is redacted in the tool result, event, and
-  journal); sandbox realm asserts `Bun`/`process` absent; cell-worker RLIMIT kill
-  on allocation blowout leaves host and store untouched; store disk/count quota →
+  journal); sandbox: realm asserts `Bun`/`process` absent AND a cell containing
+  `await import(...)` or `require(...)` rejects before execution; RSS watchdog
+  kills an allocation-bomb cell worker leaving host and store untouched
+  (darwin-viable — no rlimit dependence); `$ref` in an `apply_patch` body
+  rejected; path constraints re-run on post-splice arguments; per-result
+  manifest deltas (a second continue re-delivers nothing; same-handle republish
+  is a version update, not a collision); parent token re-registration on
+  respawn/resume with non-parent registration still rejected; code-mode spec
+  validation (primitives or `delegate` in an `act: "code"` spec rejected); cell
+  completion emitting `primitive_end` with tool_result_message (resume after a
+  *successful* cell replays provider-valid); store disk/count quota →
   store-full error, with the automatic-path fallbacks (marker degrades honestly;
   result overflow reverts to 30 K inline); capture fidelity (raw bytes for
   read_file incl. offset/limit slices; stdout/stderr split; structured grep
@@ -970,8 +1062,9 @@ hang; publish without manifests is a stranded value):
 4. **Splice & grants** — `$ref` whole-arg resolution (loud misses, per-primitive
    allowlist), env-grant registration (loud alias collisions, observer-env
    prohibition), `env` on delegate/message/continue/StartMessage.
-5. **Evaluator** — per-agent cell workers (subprocesses, RLIMIT memory caps,
-   stripped realm), `cell` tool over the authenticated channel, ambient API incl.
+5. **Evaluator** — per-agent cell workers (subprocesses, RSS watchdog + Linux
+   rlimit hardening, stripped realm + lexical import scan), `cell` tool over the
+   authenticated channel, ambient API incl.
    `handle(id)` and `publish()`, cell-output redaction/budget gate, spawn routing
    (owner relay + root bridge) with the five cell-spawn deviations, stumble
    counting + learn dedup, budget clock, cancellation lease, full blocking-wait
@@ -1013,10 +1106,33 @@ hang; publish without manifests is a stranded value):
 | Manifest transport | Pulled from the store over the recipient's authenticated connection; never on ResultMessage | Result topics are open bus; a pushed manifest would let forged results mint cross-scope bindings |
 | Identity bootstrap | Spawners register child handles+tokens with the host before launch; duplicates and non-parent registrations rejected | Spawners are per-process; the host is not in the grandchild spawn path and can't otherwise validate handshakes |
 | Wait coverage | Timer suspension and wait-graph registration cover every blocking agent wait, both modes | Partial coverage recreates the arm asymmetry and leaves mixed tool/ambient cycles undetectable |
-| Cell worker containment | OS subprocesses with RLIMIT memory caps; stripped realm (no Bun/process globals) | Thread OOM kills the host; runtime globals grant fs/exec past the capability system |
+| Cell worker containment | OS subprocesses; RSS watchdog (rlimits are Linux hardening only); stripped realm + lexical import/require rejection | Thread OOM kills the host; RLIMIT_AS is unenforced on darwin; dynamic import() is syntax no realm strip can remove |
+| Code-mode surface | Exactly `cell` + implicit `value_*`; hybrids rejected at genome validation | An `exec` grant beside a stripped realm is security theater; the genome will mutate toward hybrids |
+| Manifest delivery | Per-result deltas with a handle×recipient cursor; same-handle republish = version update | Cumulative fetch re-collides every prior publish on keep-alive continues |
+| Control vs data plane | Channel, tokens, pings, wait graph are flag-independent | Flag-off must not remove the liveness net or fork timer semantics between arms |
 | A/B validity | Eval mode with pinned genome snapshots; off-session data-plane fields rejected loudly | A treatment-adapted genome makes a live control arm measure adaptation friction, not baseline |
 
 ## 14. Adversarial review log
+
+**Round 6 (2026-07-17, clean room):** 8 distinct findings. **RLIMIT_AS is
+unenforced on macOS** — empirically verified on the development machine — so the
+cell-memory containment cornerstone was unimplementable on the platform sprout
+runs on (→ RSS watchdog, rlimits demoted to Linux hardening); **`$ref` into
+`apply_patch` bodies bypassed `allowed_write_paths`** (constraints parse paths
+from raw args pre-splice; → apply_patch off the allowlist + post-splice
+constraint re-run); **dynamic `import()` is syntax, not a strippable global** (→
+lexical import/require rejection before execution); **no event carried a
+completed cell's tool result into replay** (→ cell completion emits standard
+`primitive_end`); flag-off "no tokens" destroyed the liveness net in the control
+arm (→ channel is flag-independent control plane); cumulative manifest fetch
+re-collided keep-alive continues (→ per-result deltas + version-update rule);
+token lifecycle conflicted with duplicate-registration rejection on
+respawn/resume (→ parent-may-re-register carve-out); code-mode tool surface was
+undefined while §4's security rationale assumed it (→ validated
+cell-plus-value_* surface, hybrids rejected). Minors: featherweight session-event
+synthesis, summary-head derivation + full-output overflow value, wait-graph edge
+sweeping, crash-recovered results as a stated status-quo path, exec's
+already-structured ExecResult correcting §2's universal claim.
 
 **Round 5 (2026-07-17, clean room, post-roborev):** 10 distinct findings; the two
 reviewers tied and independently found the same blocker: **result manifests — the
