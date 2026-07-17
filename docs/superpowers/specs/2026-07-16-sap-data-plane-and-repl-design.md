@@ -1,7 +1,7 @@
 # Sap: a data plane and REPL for sprout
 
 **Date:** 2026-07-16
-**Status:** Approved design, revised after four adversarial review rounds and a roborev design review (§14), pre-implementation
+**Status:** Approved design, revised after five adversarial review rounds and a roborev design review (§14), pre-implementation
 **Scope:** Value store ("sap"), capture, splicing, publish, evaluator/REPL, code-first Act mode, genome programs
 
 ## Motivation
@@ -75,9 +75,16 @@ thread:
   bounded, and materialization (`get`/`parse`) is budgeted. Arbitrary heavy JS over
   full contents beyond those budgets is unsupported — use value ops or delegate.
 
-This split makes budget enforcement surgical: terminating a runaway cell kills *only
-that agent's* cell worker (§4, §9) — never another agent's in-flight cell, never the
-store, never the bus/UI/spawner.
+**Cell workers are OS subprocesses, not threads.** "Worker" here means a child
+process with an OS-level memory cap (RLIMIT_AS, default 512 MB): plain JS needs no
+ambient API to allocate (`let s = "x"; while (true) s += s;` reaches gigabytes in
+under a second), and a thread-worker OOM would abort the entire host — bus, UI,
+store, every session. As subprocesses, a memory blowout kills only that agent's
+cell worker. The store worker may be a thread (it runs no model-authored code and
+its allocations are quota-bounded); cell workers may not. This is what makes budget
+enforcement surgical: killing a runaway cell kills *only that agent's* cell worker
+(§4, §9) — never another agent's in-flight cell, never the store, never the
+bus/UI/spawner.
 
 **Store ops are budgeted too — and the contract is honest about JS regex.** The
 store worker runs model-influenced work (grep patterns are model-written; JS regexes
@@ -87,6 +94,9 @@ timeout is checked *between* chunks — a single chunk's regex application is
 uninterruptible JS, so the enforceable contract is: ops that exceed budget between
 chunks fail cleanly; an op wedged *inside* one application is recovered by **worker
 termination and restart**, which is a first-class recovery path, not an edge case.
+Chunks are line-bounded (regexes apply per line-run, never across a chunk seam)
+with a byte cap (default 1 MB) as the fallback for pathological single-line
+values, which do occur (`src/kernel/truncation.ts:36-37` handles them today).
 The worker holds no unjournaled state — values live in the journal and CAS — so
 restart is reload; in-flight ops fail with retryable errors. Implementers must build
 to the weaker guarantee (timeout-or-restart), never assume regex is interruptible.
@@ -100,7 +110,11 @@ makes previews cacheable, concurrent children race-free, the journal trustworthy
 spill/restart trivial.
 
 **Previews** (~300 chars, computed once at bind, stable forever): type, size, line
-count, head/tail excerpt; for JSON, top-level shape (keys, array lengths).
+count, head/tail excerpt; for JSON, top-level shape (keys, array lengths) — but
+shape analysis requires a parse, so it applies only to JSON values under a
+preview-parse budget (default 10 MB); larger JSON previews fall back to head/tail
+excerpt with `json (unparsed)` noted. Binding a 200 MB JSON value must not cost a
+200 MB parse.
 
 **Redaction.** Anything the store returns *above the LLM line* passes through
 `redactSensitiveTranscriptContent` (`src/kernel/redaction.ts`): previews at bind
@@ -144,9 +158,16 @@ ACLs): authority-bearing messages on broadcast topics would let any connected cl
 forge them. Instead the host serves a dedicated endpoint; each agent process opens
 one connection, authenticated at handshake with its per-handle token (§3), and the
 host maps connection → verified identity thereafter. This **authenticated channel**
-carries: store ops, capture uploads, env-grant registration (§3), cell submission
-and results, cell spawn requests and responses (§4), liveness pings (§4), and wait
-registration (§4). Large bodies still transfer by CAS handoff above a frame
+carries: **handle registration** (§3 — the identity bootstrap: a spawner registers
+each child's handle ID, token hash, owner, depth, and observer remit with the host
+*before* launching it; without this the host could never validate a mid-tree
+handle's handshake, since spawners are per-process and the host is not in the
+grandchild spawn path — the host rejects duplicate registrations and registrations
+from any identity other than the verified parent, else an authenticated agent
+could re-register another agent's handle and capture its identity), store ops,
+capture uploads, publish records, **manifest fetch** (§2), env-grant registration
+(§3), cell submission and results, cell spawn requests and responses (§4),
+liveness pings (§4), and blocking-wait registration (§4). Large bodies still transfer by CAS handoff above a frame
 budget (default 4 MB); the endpoint sets an explicit max frame size (Bun's default
 WebSocket cap is 16 MB — unstated, mid-size frames silently drop the connection).
 **CAS handoff is confined:** producers write only into a host-created per-session
@@ -223,12 +244,22 @@ sees is not the content: `read_file` output is line-number-prefixed
 it verbatim, `src/kernel/primitives.ts:11-12`), and `exec` output appends
 `[stderr]`/`exit_code:`/`duration_ms:` trailers. Splicing a captured *rendering*
 into `write_file` would write line numbers and exit codes into files — silent
-corruption on the design's flagship path. So capture taps the environment layer:
+corruption on the design's flagship path. **This requires a new interface surface,
+not a tap on an existing one**: today's `ExecutionEnvironment`
+(`src/kernel/execution-env.ts:64-76`) produces *only* the renderings — the line
+numbering happens inside `read_file` itself, and `grep` shells out to
+`rg --line-number` returning `path:line:text`, so "the raw match text" does not
+exist in the current interface. Each implementation gains structured-result
+methods (raw content + rendering), and capture consumes the structured form:
 
-- `read_file(path, bind:)` → the raw file bytes.
+- `read_file(path, bind:)` → the raw bytes of exactly what was read (with
+  `offset`/`limit`, the requested slice, not the whole file).
 - `exec(cmd, bind:)` → raw stdout; nonempty stderr becomes a second value
   `<name>_stderr`. Exit code stays in the rendered result only.
-- `grep(..., bind:)` → the raw match text; `fetch(url, bind:)` → the raw body.
+- `grep(..., bind:)` → a JSON value of structured matches
+  `[{path, line, text}, ...]` — grep results are inherently structured; storing
+  them as such makes them `parse()`-able instead of a rendering to re-parse.
+- `fetch(url, bind:)` → the raw body.
 
 Two capture triggers:
 
@@ -245,9 +276,20 @@ Two capture triggers:
    with its own omission marker. A 20 KB, 5,000-line test log trips only the line
    pass. When **either** pass drops content, the full source content auto-binds and
    the marker becomes true and useful:
-   `[... 4,700 lines truncated — full output: ⟦exec_bun_test_output⟧]`. Applies to
+   `[... 4,700 lines truncated — full output: ⟦exec_bun_test_output⟧]` (for exec,
+   the marker names both values when stdout and stderr were both cut). Applies to
    all agents, leaves included: the leaf still sees today's inline rendering (no
    starvation), and nothing is lost anymore.
+
+**Store-full degrades to today's semantics, never worse.** §1's store-full error
+covers deliberate binds, where the owner can react. The two *automatic* paths get
+explicit fallbacks: if auto-capture can't bind at quota, the truncation marker
+reverts to a lossy-but-honest form (`[... 4,700 lines truncated; store full —
+content not captured]` — never a marker naming a value that doesn't exist); if a
+child's result-overflow auto-publish fails at quota, the child's `ResultMessage`
+falls back to today's inline truncation (30,000 chars, `src/kernel/truncation.ts:105`)
+instead of the 4,000-char summary — degraded to the status quo, never silent loss
+of the primary result channel.
 
 Capture is ingestion, so captured previews pass bind-time redaction (§1).
 
@@ -265,9 +307,19 @@ distinct from binding, and exists in both modes:
   agent's scope. A 50-child fan-out does not flood the owner with every child's
   internal captures.
 
-At result delivery, published values become the result manifest, which binds into
-the scope of whoever receives the result (§3), and a publish record lands in the
-journal. This is the entire child→parent data path; nothing else crosses upward.
+**Manifests are pulled from the store, never pushed on the bus.** Publish records
+land in the journal via the *child's* authenticated connection at publish time. At
+result receipt, the recipient's runtime **fetches** the manifest from the store
+over its *own* authenticated connection — "manifest for handle X" returns exactly
+the journaled publishes of that handle — and binds them into the recipient's
+scope. The bus `ResultMessage` carries no manifest and no overflow content (the
+child's runtime publishes overflow to the store *before* sending the result;
+`output` carries only the inline summary). This matters because result topics are
+open bus (`src/bus/spawner.ts:501-518`): a manifest field on the message would let
+a forged result mint cross-scope bindings from arbitrary ULIDs — the
+confused-deputy class env-grant registration exists to stop. Pulled manifests make
+forgery no stronger than today: a forged result can spoof *text*, never *data
+access*. This is the entire child→parent data path; nothing else crosses upward.
 
 **Auto-bind (upward, at agent boundaries).** A child's `ResultMessage.output` stays
 inline up to the **summary budget** (default 4,000 chars — the judgment channel,
@@ -293,7 +345,11 @@ a silent middle-cut.
 
 **Delegate tool changes.** `delegate` gains `env` and keeps its single-stable-tool
 shape (prompt-cache decision preserved). `message_agent` and `ContinueMessage` gain
-optional `env`. Respawn of a completed keep-alive handle goes through a fresh
+optional `env`. The existing `task_payload` channel
+(`src/agents/delegation-payload.ts` — inline JSON rendered into the child's goal,
+64 KiB cap) is unchanged and **superseded by `env`** for new specs: it has no
+below-the-LLM consumer, so it gets no `$ref` integration; existing
+`task_payload: true` specs keep working untouched; no migration machinery. Respawn of a completed keep-alive handle goes through a fresh
 `StartMessage` (`src/bus/spawner.ts:798-845`) — `StartMessage` gains `env` too, and a
 respawned handle's scope rehydrates from the journal. `env` on a message to a
 *running* target binds on receipt — gated by grant verification (§3).
@@ -316,14 +372,25 @@ Each agent handle owns a scope; the scope tree mirrors the delegation tree.
   whoever receives the result: the owner for a private handle; for a **shared**
   handle, each agent that waits on it binds the manifest into its own scope on
   receipt (values are immutable and ULID-identified, so multiple binds are aliases,
-  not copies; per-scope name collisions take the numeric suffix).
+  not copies). **Manifest name collisions are the one place explicit names must
+  suffix** — the child that chose the name has already completed, so the loud
+  failure §1 mandates for explicit names has no one to fail to. The mitigation:
+  when a manifest name suffixes (`impl_notes` → `impl_notes_2`), the runtime
+  rewrites every `⟦impl_notes⟧` occurrence in that child's *delivered summary
+  text* to the suffixed name before it reaches the recipient. Without this, a
+  child's "noted in ⟦impl_notes⟧" would resolve against a pre-existing value in
+  the recipient's scope — silent wrong-value misdirection on the flagship path,
+  systematic in fan-outs where same-type children publish conventional names
+  (`result`, `patch`, `notes`).
 - **Shared handles resolve through the host.** Handle tables today are per-spawner
   and per-process — every agent process builds its own child spawner
   (`src/bus/agent-process.ts:334`), and `waitAgent`/`messageAgent` throw
   `Unknown handle` for anything the local spawner didn't spawn
   (`src/bus/spawner.ts:649-651`). Cross-process shared-handle access therefore does
   not exist yet; the docs' access-rules table describes checks, not a resolution
-  path. New machinery, scheduled in Phase 3: `shared` handles register with the
+  path. New machinery, scheduled in **Phase 5 (Evaluator)** with the rest of the
+  handle machinery — until it lands, cross-process shared-handle access errors
+  explicitly as unsupported: `shared` handles register with the
   **host handle registry** at spawn; local misses on wait/message fall back to a
   host lookup over the authenticated channel, and the host proxies the wait and
   delivers the manifest. Private handles stay purely local.
@@ -333,7 +400,7 @@ Each agent handle owns a scope; the scope tree mirrors the delegation tree.
 **Scope knowledge lives in the message stream, not the system prompt.** When
 bindings enter an agent's scope, the runtime appends a compact scope announcement to
 history as a user-role message — the mechanism already used for steering and
-new-agent announcements (`src/agents/agent.ts:2338-2345`). After **compaction**, the
+new-agent announcements (`src/agents/agent.ts:2328-2345`). After **compaction**, the
 runtime injects a fresh consolidated scope manifest as the first post-compaction
 message, *emitted as a replayable event* (steering-class) so event replay — which
 resets history to the summary on a compaction record
@@ -521,7 +588,13 @@ size(name)
 get(name)                               // full materialize — budgeted; refuses over
                                         // budget with guidance to slice/grep
 console.log(...)                        // captured into cell output
-// plus the pure JS stdlib. No fs, no fetch, no process, no import/require.
+// plus the pure JS stdlib. No fs, no fetch, no process, no import/require —
+// and no runtime globals: cells execute in a stripped realm with the ambient
+// API as the ONLY non-stdlib surface. In a Bun-hosted worker, `Bun`,
+// `process`, and friends grant full fs/exec — leaving them reachable would
+// hand every cell holder capabilities the grant system deliberately withheld
+// (code-mode agents are not granted `exec`). Realm construction removes them;
+// the sandbox test asserts their absence.
 ```
 
 `parse()` shares `get()`'s materialization budget (default 1 MB): it produces the
@@ -565,22 +638,35 @@ writes of cell material pass redaction at write time.
   single blocking tool-call delegation outliving `timeout_ms` (default 300 s)
   already marks the owner timed-out and stumbled even when the child succeeds: a
   pre-existing latent bug, and an arm-asymmetry confound for §10 if only code mode
-  escaped it. Fix (Phase 0 timer + Phase 1 pings): the timer suspends while
-  awaiting a blocking delegation or pending cell, and **liveness pings** — a new
-  mechanism, not an existing one — keep it suspended. Every agent process pings the
-  host over its authenticated connection every 15 s (a wedged event loop stops
-  pinging — its own `setTimeout`s can't fire — which is what makes this a real
-  net); cell workers ping for cells. The host relays liveness to whoever is
+  escaped it. Fix (Phase 0 timer + Phase 1 pings): the timer suspends during
+  **every blocking wait on another agent, in either mode** — blocking tool-call
+  delegations, blocking `wait_agent` and `message_agent`, pending cells, and
+  ambient waits inside cells. Anything narrower recreates the asymmetry: suspending
+  only delegations and cells would leave tool-mode's `wait_agent` pattern (deferred
+  waits on shared handles, legal up to 900 s against a 300 s inactivity default)
+  exposed to the same spurious stumble code mode escapes. **Liveness pings** — a
+  new mechanism, not an existing one — keep suspensions alive. Every agent process
+  pings the host over its authenticated connection every 15 s (a wedged event loop
+  stops pinging — its own `setTimeout`s can't fire — which is what makes this a
+  real net); cell workers ping for cells. The host relays liveness to whoever is
   suspended on that party; missing pings resume the waiter's timer, which then
   times out normally. Root and featherweight runs use in-process liveness.
-- **Deadlock detection: the host owns the wait graph.** With waiter caps removed
-  (timer-less ambient waits), cycles would otherwise hang forever with every party
-  alive and pinging: A's cell waits B's shared handle while B's cell waits A's.
-  Every ambient blocking wait (spawn wait, `handle.wait`) registers start/end with
-  the host over the authenticated channel; the host maintains the session wait
-  graph, detects cycles, and fails the youngest wait in a cycle with an explicit
-  deadlock error naming the cycle. Tool-path waits (`wait_agent`) keep their 900 s
-  cap and need no registration.
+- **Deadlock detection: the host owns the wait graph — and the graph covers every
+  blocking wait, not just ambient ones.** With waiter caps removed and inactivity
+  timers suspended, cycles would otherwise hang forever with every party alive and
+  pinging. The uncapped-wait set is: ambient waits (spawn wait, `handle.wait`)
+  *and* blocking tool-call delegations (`waitForBlockingSpawn` has no timer,
+  `src/bus/spawner.ts:620-637`, and its former backstop — the inactivity timer —
+  is now suspended). A graph that registered only ambient waits would miss mixed
+  cycles: parent A blocking-delegates (tool call) to code-mode B, whose cell
+  ambient-waits a shared handle of A — one registered edge, no cycle detected,
+  everything pings, permanent silent hang. So **every blocking wait on another
+  agent registers** start/end with the host over the authenticated channel —
+  delegation waits, `wait_agent`/blocking `message_agent`, spawn waits,
+  `handle.wait` — and the host detects cycles and fails the youngest wait with an
+  explicit deadlock error naming the cycle. `wait_agent` keeps its 900 s cap *in
+  addition to* registration; the cap alone was never cycle-safe for the uncapped
+  edges around it.
 - Spawn cap per cell (default 64, tunable); `MAX_AGENT_DEPTH` applies inside cells
   (enforced by `executeSpawnerDelegation`, since spawns route through it).
 - Cells are serialized per agent; concurrency happens inside a cell.
@@ -653,11 +739,22 @@ the plan. Tool-mode agents keep `delegate` and may also hold `cell`. Both modes 
 one stable tool call per provider (Anthropic/OpenAI/Gemini), preserving the
 cache-stability decision.
 
-**The data-plane session flag, defined.** Off means *off*: no store service, no
-tokens, no capture, no publish, no splicing, no auto-bind, no scope announcements,
-no cells — the control arm is a true baseline for every §10 metric. `value_*` and
-`cell` filter out of the registry in off-sessions; `act: "code"` degrades to
-`"tools"`.
+**The data-plane session flag, defined — including the arguments.** Off means
+*off*: no store service, no tokens, no capture, no publish, no splicing, no
+auto-bind, no scope announcements, no cells. `value_*` and `cell` filter out of
+the registry in off-sessions; `act: "code"` degrades to `"tools"`; and data-plane
+*fields* emitted in an off-session (`bind:`/`publish:` args, `env` on delegate or
+message, whole-arg `⟦name⟧`) are **rejected with a clear tool error naming the
+flag** — loud and uniform, never silently stripped (stripping would make tasks
+fail downstream in undiagnosable ways).
+
+**A/B honesty about genome adaptation.** A genome that has evolved under the
+treatment arm (specs, memories, programs habituated to capture/env/cells) will
+stumble against these rejections in off-sessions — at that point the off arm
+measures adaptation friction, not baseline orchestration. So the §10 comparison
+runs in **eval mode with pinned genome snapshots** (the harness already runs
+pinned, read-only genomes): both arms execute the same genome, and the comparison
+is valid by construction rather than only at t=0.
 
 **No zero-tool path — enforced at mutation time, not patched at runtime.** Genome
 validation rejects any spec whose **functional tool set is empty under flag-off
@@ -708,7 +805,10 @@ New event kinds:
 
 Spawns inside cells emit the existing delegation events with `cell_spawn: true`;
 history replay skips them (§4), all other consumers (TUI, observers, learn) see them
-unchanged. Events carry previews instead of raw content — observer frames get
+unchanged. Observer configs' `events:` filters (validated against known event kinds,
+`src/agents/markdown-loader.ts`) gain the new kinds — an observer that should react
+to dataflow must be able to subscribe to `value_bind`/`cell_start`/`cell_end`, and
+root's shipped observer specs are updated accordingly. Events carry previews instead of raw content — observer frames get
 cheaper, and observers use their scoped store read (§3) when a frame's preview
 warrants deep inspection. Metacognitive observers gain strictly better signal —
 dataflow topology ("root re-peeked ⟦test_log⟧ four times; suggest binding the grep
@@ -751,16 +851,23 @@ All-in must not mean unattributable:
 - Metrics: tokens per delegated byte moved; stumble rate by act mode; fan-out
   wall-clock; store hit sizes; prompt-cache hit rate by arm (the
   scope-announcement design (§3) exists to protect it; measure that it does).
-- **Acceptance criteria, one per goal** (the 50 KB scenario alone validates only
-  the first):
-  - *Token economics:* ≥ 80% token reduction on the canonical 50 KB scenario
-    versus baseline.
+- **The canonical scenario, defined** (referenced throughout): root delegates
+  "author a 50 KB TypeScript module per this schema" to a tech-lead, which
+  delegates authoring to an engineer child and file-writing to an editor leaf; the
+  content flows engineer → store (publish) → editor (`$ref` into `write_file`),
+  and root receives summary + manifest. Baseline: the same task on the flag-off
+  arm, where content rides goals and tool results inline.
+- **Acceptance criteria, one per goal** (the canonical scenario alone validates
+  only the first):
+  - *Token economics:* ≥ 80% token reduction on the canonical scenario versus
+    baseline.
   - *Fan-out:* a 50-way llm-call fan-out completes with zero spurious failures
     and wall-clock bounded by the slowest child, not the sum.
   - *Resume/replay:* every §11 resume scenario replays to provider-valid history;
     zero regressions in existing resume tests.
-  - *Grant security:* the forged-env, observer-env, and forged-spawn tests all
-    reject; the keystone no-content-in-LLM-payloads assertion holds.
+  - *Grant security:* the forged-env, observer-env, forged-spawn, **forged-result
+    manifest**, and **handle re-registration** tests all reject; the keystone
+    no-content-in-LLM-payloads assertion holds.
   - *Liveness:* a two-agent wait cycle is detected and failed within one ping
     interval; a wedged child resumes its waiter's timer within two.
   - *Code mode:* after the A/B period, code-mode stumble rate is no worse than
@@ -787,10 +894,16 @@ All-in must not mean unattributable:
   event; `hitTurnLimit` fix; timer suspension + liveness-ping resume (wedged
   process stops pinging → waiter timer resumes); wait-graph cycle detection;
   name validation (charset, length, reserved names) and loud explicit-name
-  collisions (bind, `bind:`, env-alias at grant registration); CAS staging
-  confinement (out-of-staging and symlinked paths rejected); cell-output
-  redaction gate (`console.log(get(...))` of a secret is redacted in the tool
-  result, event, and journal); store disk/count quota → store-full error;
+  collisions (bind, `bind:`, env-alias at grant registration); manifest-collision
+  suffix with summary-reference rewrite; CAS staging confinement (out-of-staging
+  and symlinked paths rejected); cell-output redaction gate
+  (`console.log(get(...))` of a secret is redacted in the tool result, event, and
+  journal); sandbox realm asserts `Bun`/`process` absent; cell-worker RLIMIT kill
+  on allocation blowout leaves host and store untouched; store disk/count quota →
+  store-full error, with the automatic-path fallbacks (marker degrades honestly;
+  result overflow reverts to 30 K inline); capture fidelity (raw bytes for
+  read_file incl. offset/limit slices; stdout/stderr split; structured grep
+  matches); off-session data-plane fields rejected with the flag named;
   zero-tool exemption and flag-off-empty genome validation (eval-only *and*
   value_*-only shapes rejected); grant registration (env without grant drops;
   forged bus env binds nothing; observer env rejected); CAS handoff; LRU
@@ -802,8 +915,14 @@ All-in must not mean unattributable:
   all owner paths (initial run, idleLoop, root bridge) with allowlist enforcement,
   the typed outcome envelope, stumble counting, and learn-signal dedup; spawn
   contract semantics; owner interrupt/timeout cancelling a pending cell; a
-  10-minute single-child await surviving under suspended timers in both act modes;
-  a two-agent wait cycle failing fast with a deadlock error; resume of an owner
+  10-minute single-child await surviving under suspended timers in both act modes,
+  including the `wait_agent`-on-shared-handle pattern; a two-agent ambient wait
+  cycle *and* a mixed cycle (tool-path blocking delegation one way, ambient
+  `handle.wait` the other) both failing fast with a deadlock error; a forged
+  `ResultMessage` carrying manifest ULIDs binding nothing (manifests are pulled);
+  handle-registration integrity (duplicate and non-parent registrations
+  rejected); manifest collision in a same-type fan-out delivering rewritten
+  summary references; resume of an owner
   whose cell spawned children (provider-valid replay; recoverable vs
   `died_with_owner`; `handle(id)` behavior on each); fan-out via `Promise.all`
   with `ok`-checking; bindings-only rehydration; spawnerless local store parity;
@@ -829,29 +948,35 @@ hang; publish without manifests is a stranded value):
 0. **Kernel prerequisites** — `hitTurnLimit` fix; zero-tool completion agents;
    inactivity timer made *pausable* (mechanism only — nothing suspends yet;
    today's caps stay in force until Phase 1's pings exist).
-1. **Channel & auth** — authenticated host endpoint, per-handle tokens, env
+1. **Channel & auth** — authenticated host endpoint, per-handle tokens, **handle
+   registration** (identity bootstrap, duplicate/non-parent rejection), env
    filtering (token, endpoint URL, bus URL), liveness pings; timer suspension for
-   blocking delegations activates here, pings as its net (fixes the pre-existing
-   spurious-timeout bug).
+   *all* blocking agent waits (delegations, `wait_agent`, blocking
+   `message_agent`) activates here, pings as its net (fixes the pre-existing
+   spurious-timeout bug symmetrically).
 2. **Store core** — store worker (op budgets, wedge restart), journal, CAS
    (staging-confined handoff, spill), disk/count quotas, name validation,
    previews + redaction, `value_bind` events, value-read primitives (truncation
    bypass), spawnerless local store.
-3. **Capture & publish** — capture at the environment layer (`bind:` args,
-   auto-capture on both truncation passes, truthful markers), publish
-   (`publish: true`, `value_publish`, auto-publish of result overflow), result
-   manifests + summary budget, auto-bind at agent boundaries, scope announcements
-   + post-compaction manifest event. One phase because publish is only correct
-   with its receiving semantics (manifests, announcements) present.
+3. **Capture & publish** — structured-result methods on `ExecutionEnvironment`
+   (raw bytes; stdout/stderr split; structured grep matches), capture (`bind:`
+   args, auto-capture on both truncation passes, truthful markers), publish
+   (`publish: true`, `value_publish`, auto-publish of result overflow),
+   **pulled result manifests** + summary budget + collision suffix with
+   summary-reference rewrite + store-full fallbacks, auto-bind at agent
+   boundaries, scope announcements + post-compaction manifest event. One phase
+   because publish is only correct with its receiving semantics (manifests,
+   announcements) present.
 4. **Splice & grants** — `$ref` whole-arg resolution (loud misses, per-primitive
    allowlist), env-grant registration (loud alias collisions, observer-env
    prohibition), `env` on delegate/message/continue/StartMessage.
-5. **Evaluator** — per-agent cell workers, `cell` tool over the authenticated
-   channel, ambient API incl. `handle(id)` and `publish()`, cell-output
-   redaction/budget gate, spawn routing (owner relay + root bridge) with the five
-   cell-spawn deviations, stumble counting + learn dedup, budget clock,
-   cancellation lease, ambient-wait registration + cycle detection (lands *with*
-   the timer-less waits it protects), **host handle registry for shared handles**
+5. **Evaluator** — per-agent cell workers (subprocesses, RLIMIT memory caps,
+   stripped realm), `cell` tool over the authenticated channel, ambient API incl.
+   `handle(id)` and `publish()`, cell-output redaction/budget gate, spawn routing
+   (owner relay + root bridge) with the five cell-spawn deviations, stumble
+   counting + learn dedup, budget clock, cancellation lease, full blocking-wait
+   registration + cycle detection (lands *with* the timer-less waits it
+   protects), **host handle registry for shared handles**
    (until this lands, cross-process shared-handle access errors explicitly as
    unsupported — no partial behavior), featherweight placement + three-record
    logs, `utility/llm-call`.
@@ -883,9 +1008,39 @@ hang; publish without manifests is a stranded value):
 | Featherweight | Owner-process placement; synthetic three-record log | wait_agent resolves against the owner's spawner; resume needs session_end, respawn needs perceive+plan_end |
 | Mode choice | `act` per spec; defined off-flag; flag-off-empty specs invalid at mutation time | Don't decide, evolve — with a true control arm and no zero-tool path in any shape |
 | Explicit names | Loud collision failure for bind/`bind:`/env aliases; suffixing for auto-binds only | Silently renaming a granted name breaks every reference the granting model wrote |
+| Manifest collisions | Suffix + rewrite of `⟦name⟧` references in the delivered summary | The child is gone, so loud failure is impossible; unrewritten references resolve to the wrong value |
 | Cell output | Same redaction + budget gate as value reads, incl. journal and events | `console.log(get('secrets'))` is a one-line bypass otherwise |
+| Manifest transport | Pulled from the store over the recipient's authenticated connection; never on ResultMessage | Result topics are open bus; a pushed manifest would let forged results mint cross-scope bindings |
+| Identity bootstrap | Spawners register child handles+tokens with the host before launch; duplicates and non-parent registrations rejected | Spawners are per-process; the host is not in the grandchild spawn path and can't otherwise validate handshakes |
+| Wait coverage | Timer suspension and wait-graph registration cover every blocking agent wait, both modes | Partial coverage recreates the arm asymmetry and leaves mixed tool/ambient cycles undetectable |
+| Cell worker containment | OS subprocesses with RLIMIT memory caps; stripped realm (no Bun/process globals) | Thread OOM kills the host; runtime globals grant fs/exec past the capability system |
+| A/B validity | Eval mode with pinned genome snapshots; off-session data-plane fields rejected loudly | A treatment-adapted genome makes a live control arm measure adaptation friction, not baseline |
 
 ## 14. Adversarial review log
+
+**Round 5 (2026-07-17, clean room, post-roborev):** 10 distinct findings; the two
+reviewers tied and independently found the same blocker: **result manifests — the
+primary child→parent data path — had no authenticated transport** (a manifest
+field on the open-bus `ResultMessage` would have let forged results mint
+cross-scope bindings; → manifests are now pulled from the store over the
+recipient's authenticated connection, and overflow content never rides the bus).
+Also: the identity bootstrap was unspecified (mid-tree spawners mint tokens the
+host never learns; → handle registration with duplicate/non-parent rejection);
+the wait graph was blind to tool-path blocking delegations (mixed cycles would
+hang with all nets green; → every blocking agent wait registers); timer
+suspension omitted `wait_agent` (arm-asymmetry confound survived; → all blocking
+waits suspend, both modes); store-full was unspecified for the automatic bind
+paths (result overflow would silently drop below today's 30 K inline; → degrade
+to status-quo fallbacks); manifest collisions silently suffixed child-authored
+names (`⟦impl_notes⟧` in a summary would resolve to the wrong value; → suffix +
+summary-reference rewrite); capture "tapped" an environment layer that has no raw
+bytes (`grep` raw text doesn't exist; → structured-result interface methods);
+cell workers had no memory containment and the realm left `Bun`/`process`
+reachable (full fs/exec past the grant system; → OS subprocesses with RLIMIT +
+stripped realm); §3 and §12 scheduled the handle registry in different phases (→
+Phase 5, reconciled); flag-off behavior for data-plane *arguments* was undefined
+and genome adaptation would decay the control arm (→ loud rejection + pinned-
+genome A/B in eval mode).
 
 **Round 1 (2026-07-16, first committed draft):** 21 distinct findings. Evaluator
 placement, delegation-machinery reachability, auto-bind starvation, rehydration
