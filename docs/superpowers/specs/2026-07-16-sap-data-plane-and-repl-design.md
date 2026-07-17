@@ -1,7 +1,7 @@
 # Sap: a data plane and REPL for sprout
 
 **Date:** 2026-07-16
-**Status:** Approved design, revised after six adversarial review rounds and a roborev design review (§14), pre-implementation
+**Status:** Approved design, revised after seven adversarial review rounds and a roborev design review (§14), pre-implementation
 **Scope:** Value store ("sap"), capture, splicing, publish, evaluator/REPL, code-first Act mode, genome programs
 
 ## Motivation
@@ -87,8 +87,12 @@ each cell worker's RSS (every 250 ms) and kills over-budget workers (default
 On Linux, a setrlimit-exec shim adds a hard backstop; on darwin the watchdog is
 the mechanism, and a fast allocation bomb can transiently exceed the budget by
 the polling interval's worth of growth — bounded imprecision, stated rather than
-hidden. The store worker may be a thread (it runs no model-authored code and its
-allocations are quota-bounded); cell workers may not. This is what makes budget
+hidden. **The store worker is a subprocess too.** Its wedge-recovery story is
+termination-and-restart, and the wedge scenario is a model-*influenced* regex
+spinning in uninterruptible synchronous JS — the same class of reason cells are
+subprocesses. A thread placement would make recovery depend on
+`Worker.terminate()` preempting busy synchronous code, a capability this design
+declines to bet on; SIGKILL on a subprocess is unconditional. This is what makes budget
 enforcement surgical: killing a runaway cell kills *only that agent's* cell worker
 (§4, §9) — never another agent's in-flight cell, never the store, never the
 bus/UI/spawner.
@@ -105,9 +109,17 @@ Chunks are line-bounded (regexes apply per line-run, never across a chunk seam)
 with a byte cap (default 1 MB) as the fallback for pathological single-line
 values, which do occur (`src/kernel/truncation.ts:36-37` handles them today).
 The worker holds no unjournaled state — values live in the journal and CAS — so
-restart is reload; in-flight ops fail with retryable errors. Implementers must build
-to the weaker guarantee (timeout-or-restart), never assume regex is interruptible.
-Cell budget enforcement never touches the store worker; wedge recovery may.
+restart is reload. In-flight ops are **retried transparently by the calling
+runtime, never by model code**: store ops are idempotent (reads, and appends
+keyed by ULID), so the cell runtime and result processing re-issue parked ops
+across a restart with backoff — a store restart costs cells latency, not
+failures. Only when retries exhaust does the op fail, and that failure is
+**infrastructure-tagged**: it fails the cell without counting a stumble or
+emitting a learn signal (§4's counting rule) — the design must not let its own
+declared-routine recovery path pollute the fitness function with stumbles for
+correct code. Implementers must build to the weaker guarantee
+(timeout-or-restart), never assume regex is interruptible. Cell budget
+enforcement never touches the store worker; wedge recovery may.
 
 **Value model.** Values are utf8 text, JSON, or bytes. Metadata: ULID, name, scope,
 type, size, provenance (producing agent handle, cell or delegation, primitive and
@@ -138,13 +150,18 @@ now); it prevents accidents, not exfiltration by a determined agent.
 2. Auto-binds get provenance-derived names, deterministically, no LLM in the path:
    a child result → a goal slug such as `implement_endpoints_result`; a truncated
    primitive result → `exec_bun_test_output`; a cell output → `cell_<n>_output`.
-3. **Auto-bind collisions take a numeric suffix; explicit names never do.** A
-   `bind()`/`bind:` name or an `env` alias that collides with an existing name in
-   the target scope fails loudly (for `env`, at grant registration, reported to
-   the sender) — silently renaming a granted `schema` to `schema_2` would break
-   every `⟦schema⟧` reference the granting model wrote. Suffixing is reserved for
-   auto-binds, whose names no model has referenced yet. Global identity is the
-   ULID; names are per-scope.
+3. **Auto-bind collisions take a numeric suffix; explicit cross-origin
+   collisions fail loudly; self-rebind is versioning.** Precisely: a
+   `bind()`/`bind:` on a name **the same agent explicitly bound** is legal and
+   creates a new version (this is what "rebinding creates a new version" means,
+   and what the iterative `bind('x')`-across-cells pattern and §2's
+   manifest version-update case rely on). A `bind()`/`bind:` name or `env` alias
+   that collides with a name of **different origin** — granted via `env`,
+   delivered by a manifest, or auto-bound — fails loudly (for `env`, at grant
+   registration, reported to the sender): silently renaming a granted `schema`
+   to `schema_2` would break every `⟦schema⟧` reference the granting model
+   wrote. Suffixing is reserved for auto-binds, whose names no model has
+   referenced yet. Global identity is the ULID; names are per-scope.
 4. **Names are validated data, never code.** Charset `[a-z0-9_]`, max 64 chars, no
    leading digit; reserved names (ambient API names, `programs`, kernel primitive
    names) rejected. Names are string keys — `peek('x')` — and are **never injected
@@ -153,11 +170,18 @@ now); it prevents accidents, not exfiltration by a determined agent.
    the addressing sense, not the global-variable sense.
 
 **Durability.** Append-only JSONL journal per session in the durable log directory:
-bind records (metadata plus inline value, or a content-addressed file reference —
-sha256, dedup for free), scope records (created at delegation; publish records at
-result delivery), grant records (§3), and cell records (code, bindings created,
-error, compute time). Resume replays journal *metadata* and lazy-loads bodies from
-CAS. **Cells are never re-executed on resume; effects do not replay.**
+bind records (metadata plus inline value under 64 KB, or a content-addressed file
+reference — sha256, dedup for free), scope records (created at delegation),
+publish records (journaled **at publish time**, via the publishing child's
+authenticated connection — before its result is ever sent), **manifest-delivery
+records** (§2's cursors are journaled state: the record {handle, recipient,
+through-publish-seq} is written atomically with the recipient's manifest scope
+binds, so the cursor advances exactly when delivery is durable — a crash between
+fetch and bind leaves the cursor unmoved and the re-fetch idempotent, since
+manifest binds dedup by ULID), grant records (§3), and cell records (code,
+bindings created, error, compute time). Resume replays journal *metadata* and
+lazy-loads bodies from CAS. **Cells are never re-executed on resume; effects do
+not replay.**
 
 **Transport.** Store and control traffic do **not** ride the session pub/sub bus.
 The bus is open, unauthenticated fan-out (`src/bus/server.ts` — no auth, no topic
@@ -206,7 +230,14 @@ explicit store-full error (a stumble the owner can react to — e.g., delegate
 summarization); the session keeps running. No within-session deletion in v1;
 session end prunes everything.
 
-**Lifetime.** Session-scoped. `/clear` drops the store with the rest of session state.
+**Lifetime.** Session-scoped. `/clear` drops the store with the rest of session
+state — including the cleared session's journal and CAS on disk. Because
+resumability requires journals to survive host exits, "session end" alone can
+never prune crashed or abandoned sessions; so the host runs an **orphan sweep at
+startup**: session stores older than the retention window (default 14 days) or
+beyond a global disk cap (default 20 GB, evicted LRU by session activity) are
+pruned. Without this, every abandoned session leaks up to its 4 GB quota
+forever.
 
 **Defaults (config-tunable):** preview budget 300 chars; auto-bind threshold 2,000
 chars; result summary budget 4,000 chars; cell `get()`/`parse()` budget 1 MB;
@@ -245,12 +276,18 @@ resolved a `$ref`, path constraints re-run on the resolved arguments** after
 splicing, so a future allowlist mistake fails closed instead of open. The
 allowlist and the re-check rule are part of the frozen splice semantics.
 
-**A `$ref` miss is a loud tool error, never a silent literal.** A whole-arg `⟦name⟧`
-is unambiguous model-authored intent to splice; on a typo or stale name the primitive
-fails with an error listing the names actually in scope. Silent passthrough would
-write the literal `⟦impl⟧` as file content, succeed, and surface as corruption much
-later. (To write a literal `⟦name⟧` string that is also a scope name: bind the
-literal and `$ref` it. Degenerate and rare.)
+**A `$ref` miss is a loud tool error, never a silent literal — including near
+misses.** Matching is whole-arg **after trimming surrounding whitespace** (models
+routinely terminate content args with a newline; `"⟦impl⟧\n"` must splice, not
+silently write eight bytes of literal). And loudness extends to the miss classes
+models actually produce: a trimmed whole-arg that is `⟦unknown⟧`, or a
+bracket-lookalike form of a scope name (`[[impl]]`, `〚impl〛`, other Unicode
+bracket approximations of the rare glyph pair) is a loud error listing the names
+in scope — never a passthrough. Only content that is genuinely not a reference
+shape passes through. Silent passthrough of a near-miss would write the literal
+as file content, succeed, and surface as corruption much later — the exact
+failure this rule exists to prevent. (To write a literal `⟦name⟧` string that is
+also a scope name: bind the literal and `$ref` it. Degenerate and rare.)
 
 **Free-text `⟦name⟧` (goals, hints, messages) is inert notation.** It never resolves,
 never binds, never grants. This is deliberate: agents routinely quote untrusted
@@ -366,11 +403,18 @@ inline up to the **summary budget** (default 4,000 chars — the judgment channe
 worth paying for); over budget, the inline portion is the head of the output
 (mechanical cut, marked as such) and the auto-bound, auto-published value is the
 **full output** — a clipped remainder would be useless to splice. Child system
-prompts are guided to lead with judgment so the head *is* the summary. One
-exception path: results recovered from a dead child's durable log
-(`src/bus/spawner.ts:263-296`) predate publish-before-result ordering and fall
-back to today's 30 K inline truncation — the degraded-to-status-quo rule, stated. Published values arrive
-as a manifest:
+prompts are guided to lead with judgment so the head *is* the summary.
+Recovery from a dead child's durable log (`src/bus/spawner.ts:263-296`) is
+specified precisely, because the naive reading loses data: the `session_end`
+durable record logs the **full output** (the log is below the line — it's a
+file), while the live `ResultMessage` carries only the summary; and recovery
+**fetches the manifest delta normally** — publishes were journaled at publish
+time via the child's connection, before death, so they are available and the
+cursor advances as usual. A recovered result delivers summary + manifest like a
+live one; nothing published is ever stranded. Only if the store itself is
+unavailable at recovery does the fallback drop to the full logged output at
+today's 30 K inline truncation — degraded to status quo, never below it.
+Published values arrive as a manifest:
 
 ```
 ✓ engineer (brave_otter): "Implemented all 6 endpoints per the schema; two
@@ -427,7 +471,15 @@ Each agent handle owns a scope; the scope tree mirrors the delegation tree.
   child's "noted in ⟦impl_notes⟧" would resolve against a pre-existing value in
   the recipient's scope — silent wrong-value misdirection on the flagship path,
   systematic in fan-outs where same-type children publish conventional names
-  (`result`, `patch`, `notes`).
+  (`result`, `patch`, `notes`). **Stated residual:** the rewrite covers delivered
+  summary *text* only. References inside published value *contents* ("apply
+  ⟦patch⟧" inside a `notes` value) cannot be rewritten — values are immutable —
+  and second-hop quoting re-crosses a different suffix map. Mitigations, not
+  cures: manifests deliver the alias map (child's name → bound-as name) so a
+  recipient can resolve in-content references deliberately, and code-mode
+  guidance tells children not to embed bare `⟦name⟧` references inside value
+  contents. Free-text inertness means nothing else catches this; the hazard is
+  narrowed, not closed.
 - **Shared handles resolve through the host.** Handle tables today are per-spawner
   and per-process — every agent process builds its own child spawner
   (`src/bus/agent-process.ts:334`), and `waitAgent`/`messageAgent` throw
@@ -589,8 +641,16 @@ machinery was built for one-at-a-time tool calls; fan-out changes the economics)
    in flight **died with the owner** (child-spawner shutdown at
    `src/bus/agent-process.ts:486-491`; ppid monitoring at
    `src/bus/agent-process.ts:116-129`) and are listed as `died_with_owner` —
-   re-spawn, don't wait. `handle(id)` on a dead ID returns a clean error making the
-   same distinction.
+   re-spawn, don't wait. `handle(id)` on a dead ID returns a clean error making
+   the same distinction. **This dangling-call synthesis generalizes to every
+   pending tool_use, both act modes** — a `delegate` or primitive call is closed
+   the same way (for delegations: handle ID plus recoverable-vs-`died_with_owner`
+   status). Today an owner dying mid-blocking-delegation replays provider-invalid
+   only rarely, because the 300 s inactivity timer bounds those waits; this
+   design's timer suspension makes long blocking delegations the intended steady
+   state in *both* arms, so crash-during-delegation becomes the common crash
+   shape — fixing replay for cells while leaving tool mode broken would be both
+   a replay bug and an arm asymmetry.
 4. **Learn signals are deduplicated, not just stumble counts.** Per-spawn learn
    signals (`src/agents/agent.ts:1661-1676`) are tagged with the cell ID; the
    cell-level verify signals only cell-authored errors (thrown code, budget kill),
@@ -608,7 +668,11 @@ machinery was built for one-at-a-time tool calls; fan-out changes the economics)
 **Stumble accounting — counted once, attributed to the owner.** Per-spawn verify
 results fold into the cell result as counts; the `cell` primitive's verify
 contributes `(failed-child count) + (1 if the cell itself errored for a non-child
-reason)` to the owner's run counters. This requires extending the tool-result path
+reason)` to the owner's run counters — where **infrastructure-tagged failures
+count zero**: a cell failed by store-restart retry exhaustion, worker respawn, or
+deadlock-cycle breaking emits a warning event, not a stumble or learn signal.
+The fitness function measures the model's orchestration, and the recovery paths
+this design declares routine must not masquerade as model error. This requires extending the tool-result path
 to carry a count (today it contributes at most 1 boolean per result,
 `src/agents/agent.ts:2250-2252`) — a stated change, not silent reuse. Child agents'
 own internal stumbles remain their own, as today.
@@ -816,8 +880,10 @@ unrestricted `exec` tool) would make the stripped realm security theater. This
 turns §4's premise — code-mode agents hold no exec — from an assumption into a
 validated invariant. The genome will mutate specs toward hybrid shapes;
 validation, not convention, is what stops them. Flag-off degradation of a
-code-mode spec therefore yields `delegate` (code mode requires
-`can_spawn: true`) plus `value_*` — a functional tool-mode agent.
+code-mode spec yields **`delegate` alone** (code mode requires
+`can_spawn: true`; `value_*` filters out with the rest of the data plane) — a
+functional tool-mode delegating agent. The separate *spawnerless* degradation
+(§2) differs: there the data plane is on, so the degraded agent keeps `value_*`.
 
 **The data-plane session flag, defined — including the arguments.** Off means
 *off* for the data plane: no store values, no capture, no publish, no splicing,
@@ -858,15 +924,31 @@ answers: mutate it, watch stumble rates.
 
 `programs/` joins agents, memories, and routing rules in the genome:
 
-- **Format:** frontmatter (name, description, typed params, version, provenance) plus
-  a JS body that runs against the cell API.
+- **Format:** frontmatter (name, description, typed params, **`spawns:` — the
+  agent names the body delegates to**, version, provenance) plus a JS body that
+  runs against the cell API. Declared `spawns` render in the `<programs>` prompt
+  block so callers can see compatibility; runtime enforcement remains the
+  *caller's* delegation allowlist (`spawn()` inside a program body is the
+  caller's delegation), so a program used by an agent whose `agents` list lacks
+  a declared spawn fails loudly at the allowlist, not mysteriously.
+- **Program bodies pass the same lexical import/require scan as cell source** —
+  enforced at genome validation (creation and mutation) *and* at load (genome
+  files are git-editable outside mutation paths). Programs are model-written
+  code evaluated in the cell realm; exempting them from §4's scan would let one
+  evolved body's `await import("node:child_process")` void the code-mode
+  no-exec invariant for every caller. §6's own maxim applies: validation, not
+  convention.
 - **Exposure:** injected into code-mode namespaces as `programs.<name>(...)`, listed
   in a `<programs>` system-prompt block. Code-mode only in v1.
 - **Evolution:** the quartermaster fabricates programs from recurring cell patterns
   and repairs them from cell stumbles. Cell stumble learn-signals carry the cell code
   (from `cell_end` event data) so the quartermaster has the artifact it is repairing.
   Eval-mode gates program mutations exactly as it gates agent mutations; git provides
-  audit and rollback.
+  audit and rollback. When a cell fails *inside* a program body, the cell-stumble
+  signal and `cell_end` event carry the **program name and version** in addition
+  to the call-site code — the runtime knows the frame — so the quartermaster can
+  resolve the actual artifact it is repairing from the genome; the call site
+  alone (`programs.summarize_failures(...)`) names nothing repairable.
 - **Sync plumbing:** the genome directory list, bootstrap manifest, `syncRoot`, and
   `exportLearnings` (`src/genome/`) have no `programs/` entry today; each extends so
   evolved programs can be promoted to root through the existing staged-review flow.
@@ -987,7 +1069,15 @@ All-in must not mean unattributable:
   (darwin-viable — no rlimit dependence); `$ref` in an `apply_patch` body
   rejected; path constraints re-run on post-splice arguments; per-result
   manifest deltas (a second continue re-delivers nothing; same-handle republish
-  is a version update, not a collision); parent token re-registration on
+  is a version update, not a collision; cursor survives store restart; crash
+  between fetch and bind re-fetches idempotently); self-rebind versions while
+  cross-origin bind collisions stay loud; `$ref` trim + near-miss loudness
+  (`"⟦impl⟧\n"` splices, `[[impl]]` errors); dangling-call synthesis for
+  tool-mode delegations and primitives (not just cells); dead-child recovery
+  delivering summary + manifest; program bodies rejected by the lexical scan and
+  program-frame stumbles carrying name+version; infrastructure-tagged cell
+  failures counting zero stumbles; orphan sweep pruning aged/over-cap session
+  stores; parent token re-registration on
   respawn/resume with non-parent registration still rejected; code-mode spec
   validation (primitives or `delegate` in an `act: "code"` spec rejected); cell
   completion emitting `primitive_end` with tool_result_message (resume after a
@@ -1113,6 +1203,29 @@ hang; publish without manifests is a stranded value):
 | A/B validity | Eval mode with pinned genome snapshots; off-session data-plane fields rejected loudly | A treatment-adapted genome makes a live control arm measure adaptation friction, not baseline |
 
 ## 14. Adversarial review log
+
+**Round 7 (2026-07-17, clean room):** 12 distinct findings — count *rose* from
+round 6, concentrated in seams created by rounds 5–6's own fixes. Blockers/majors:
+the manifest **delivery cursor was unjournaled state** contradicting
+restart-is-reload, with an unspecified commit point and double-delivery via the
+recovery path (→ journaled manifest-delivery records, advance-atomic-with-binds,
+ULID-dedup re-fetch); **rebinding was simultaneously versioning and a loud
+failure** (→ self-rebind versions; cross-origin collisions fail loudly);
+**genome program bodies bypassed the lexical import scan** (→ scanned at
+validation and load) and the program-repair loop lacked the program body (→
+signals carry name+version; frontmatter declares `spawns:`). Also: §6
+self-contradicted on the degraded code-mode surface (→ `delegate` alone);
+dead-child recovery would have stranded published overflow (→ full output in the
+durable log + normal manifest fetch); a store restart would have stumbled every
+parked cell (→ runtime-owned idempotent retries; infrastructure-tagged failures
+count zero stumbles); the store-worker thread option contradicted its own wedge
+analysis (→ subprocess); `$ref` near-misses wrote silent literals (→ trim +
+lookalike loudness); tool-mode crash-mid-delegation replayed provider-invalid
+through a window timer suspension widens (→ dangling-call synthesis generalized
+to all tool_uses); the summary-rewrite residual (in-content references) is now
+stated with mitigations rather than implied closed; cross-session disk was
+unbounded with an unreachable prune trigger (→ startup orphan sweep + global
+cap).
 
 **Round 6 (2026-07-17, clean room):** 8 distinct findings. **RLIMIT_AS is
 unenforced on macOS** — empirically verified on the development machine — so the
