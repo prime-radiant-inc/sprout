@@ -470,6 +470,12 @@ describe("AbortSignal", () => {
 						usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
 					};
 				}
+				// Hang instead of completing: the 0ms abort timer above can lose the race to
+				// turn 2 (e.g. tool exec fails fast under parallel-suite load and the timer
+				// phase is starved), and a normal DONE here would let the run complete
+				// naturally with no interrupted event. Hanging guarantees the pending abort
+				// lands during planning instead — same pattern as the sibling test above.
+				await new Promise((resolve) => setTimeout(resolve, 5000));
 				return {
 					id: "mock-abort-between-2",
 					model: "claude-haiku-4-5-20251001",
