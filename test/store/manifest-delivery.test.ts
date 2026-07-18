@@ -174,6 +174,54 @@ describe("manifest delivery (deliverManifest)", () => {
 		expect(delta.delivered[0]!.name).toBe("impl_2");
 	});
 
+	it("distinct published values never collapse within one batch, even with a recipient collision", async () => {
+		// Recipient already owns `log`.
+		await store.bind({
+			scopeId: PARENT,
+			name: "log",
+			content: "parent's own log",
+			type: "text",
+			provenance: prov(PARENT),
+			explicit: true,
+		});
+		const logUlid = await bindAndPublish("log", "child log");
+		const log2Ulid = await bindAndPublish("log_2", "child log_2 — a distinct value");
+
+		const delta = await store.deliverManifest({
+			publisherHandle: CHILD,
+			recipientScopeId: PARENT,
+		});
+		// Both values survive, with distinct suffixed aliases.
+		expect(delta.delivered.map((d) => ({ name: d.name, ulid: d.ulid }))).toEqual([
+			{ name: "log_2", ulid: logUlid },
+			{ name: "log_2_2", ulid: log2Ulid },
+		]);
+		expect(new TextDecoder().decode(await store.get(PARENT, "log", { maxBytes: 100 }))).toBe(
+			"parent's own log",
+		);
+		expect(new TextDecoder().decode(await store.get(PARENT, "log_2", { maxBytes: 100 }))).toBe(
+			"child log",
+		);
+		expect(new TextDecoder().decode(await store.get(PARENT, "log_2_2", { maxBytes: 100 }))).toBe(
+			"child log_2 — a distinct value",
+		);
+	});
+
+	it("a same-source republish within ONE batch is a version update, no spurious suffix", async () => {
+		await bindAndPublish("impl", "v1");
+		const v2Ulid = await bindAndPublish("impl", "v2");
+
+		const delta = await store.deliverManifest({
+			publisherHandle: CHILD,
+			recipientScopeId: PARENT,
+		});
+		expect(delta.delivered).toHaveLength(1);
+		expect(delta.delivered[0]!.name).toBe("impl");
+		expect(delta.delivered[0]!.ulid).toBe(v2Ulid);
+		expect(new TextDecoder().decode(await store.get(PARENT, "impl", { maxBytes: 100 }))).toBe("v2");
+		expect(await store.names(PARENT)).toEqual(["impl"]);
+	});
+
 	it("manifest aliases do not count against the recipient's value cap", async () => {
 		const capped = new SapStore({
 			journal: new SessionJournal(join(dir, "capped.jsonl")),

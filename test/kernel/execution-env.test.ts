@@ -252,4 +252,18 @@ describe("structured-result surface (capture sources)", () => {
 	test("grep_structured returns [] on no matches", async () => {
 		expect(await env.grep_structured("zzz_never_matches", tempDir)).toEqual([]);
 	});
+
+	test("grep_structured returns matches for a single explicit file", async () => {
+		const matches = await env.grep_structured("beta", "raw.txt");
+		expect(matches).toHaveLength(1);
+		expect(matches[0]?.path).toContain("raw.txt");
+		expect(matches[0]?.line).toBe(2);
+		expect(matches[0]?.text).toBe("beta");
+	});
+
+	test("grep on a single explicit file includes the filename", async () => {
+		const raw = await env.grep("beta", "raw.txt");
+		expect(raw).toContain("raw.txt");
+		expect(raw).toContain(":2:beta");
+	});
 });

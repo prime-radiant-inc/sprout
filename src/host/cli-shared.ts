@@ -94,7 +94,10 @@ export async function startBusInfrastructure(
 		authServer.onRequest(REGISTER_HANDLE_REQUEST, makeRegisterHandleHandler(handleRegistry));
 		authServer.onRequest(PING_REQUEST, makePingHandler(handleRegistry));
 		authServer.onRequest(LIVENESS_REQUEST, makeLivenessHandler(handleRegistry));
-		registerStoreHandlers(authServer, store, { rootScopeId });
+		registerStoreHandlers(authServer, store, {
+			rootScopeId,
+			handleOwner: (id) => handleRegistry.get(id)?.ownerId,
+		});
 
 		bus = new BusClient(server.url);
 		await bus.connect();

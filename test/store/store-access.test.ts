@@ -148,7 +148,10 @@ describe("store access", () => {
 			server = new AuthChannelServer({ port: 0, registry });
 			await server.start();
 			storeClient = makeClient();
-			registerStoreHandlers(server, storeClient, { rootScopeId: ROOT_SCOPE });
+			registerStoreHandlers(server, storeClient, {
+				rootScopeId: ROOT_SCOPE,
+				handleOwner: (id) => registry.get(id)?.ownerId,
+			});
 		});
 
 		afterEach(async () => {
@@ -157,13 +160,13 @@ describe("store access", () => {
 			await storeClient.shutdown();
 		});
 
-		async function connectAgent(handleId: string): Promise<AuthChannelClient> {
+		async function connectAgent(handleId: string, ownerId = "root"): Promise<AuthChannelClient> {
 			const token = mintToken();
 			const result = registry.registerHandle({
 				handleId,
 				tokenHash: hashToken(token),
 				registrarId: TRUSTED,
-				ownerId: "root",
+				ownerId,
 				depth: 1,
 			});
 			expect(result.ok).toBe(true);
@@ -319,7 +322,10 @@ describe("store access", () => {
 			// A second handler registration (fresh created-scope memory, as after
 			// a host restart racing its own journal) must treat "already exists"
 			// as fine.
-			registerStoreHandlers(server, storeClient, { rootScopeId: ROOT_SCOPE });
+			registerStoreHandlers(server, storeClient, {
+				rootScopeId: ROOT_SCOPE,
+				handleOwner: (id) => registry.get(id)?.ownerId,
+			});
 			const meta = await access.bind({
 				name: "second",
 				content: "2",
@@ -377,7 +383,8 @@ describe("store access", () => {
 		});
 
 		it("manifestDelta derives the recipient from the connection", async () => {
-			const child = new ChannelStoreAccess(await connectAgent("agent_child"));
+			// The parent registered (owns) the child handle: it may pull.
+			const child = new ChannelStoreAccess(await connectAgent("agent_child", "agent_parent"));
 			const parent = new ChannelStoreAccess(await connectAgent("agent_parent"));
 			const meta = await child.bind({
 				name: "impl",
@@ -410,8 +417,30 @@ describe("store access", () => {
 			]);
 		});
 
+		it("only the publisher's registered owner may pull its manifest", async () => {
+			const child = new ChannelStoreAccess(await connectAgent("agent_owned", "agent_owner"));
+			await child.bind({
+				name: "goods",
+				content: "x",
+				type: "text",
+				provenance: prov("agent_owned"),
+				explicit: true,
+			});
+			await child.publish("goods");
+			// An unrelated authenticated handle is refused.
+			const stranger = new ChannelStoreAccess(await connectAgent("agent_stranger"));
+			await expect(stranger.manifestDelta("agent_owned")).rejects.toThrow(
+				/not the owner of that handle's publishes/,
+			);
+			expect((await journal.replay()).filter((r) => r.kind === "grant")).toHaveLength(0);
+			// The owner succeeds.
+			const owner = new ChannelStoreAccess(await connectAgent("agent_owner"));
+			const delta = await owner.manifestDelta("agent_owned");
+			expect(delta.delivered.map((d) => d.name)).toEqual(["goods"]);
+		});
+
 		it("a crafted payload cannot name another recipient — there is no such field", async () => {
-			const child = new ChannelStoreAccess(await connectAgent("agent_child2"));
+			const child = new ChannelStoreAccess(await connectAgent("agent_child2", "agent_attacker"));
 			await child.bind({
 				name: "loot",
 				content: "x",
@@ -480,7 +509,10 @@ describe("store access", () => {
 					return handle;
 				},
 			});
-			registerStoreHandlers(server, countingClient, { rootScopeId: ROOT_SCOPE });
+			registerStoreHandlers(server, countingClient, {
+				rootScopeId: ROOT_SCOPE,
+				handleOwner: (id) => registry.get(id)?.ownerId,
+			});
 			const access = new ChannelStoreAccess(await connectAgent("agent_count"));
 			await access.bind({
 				name: "counted",

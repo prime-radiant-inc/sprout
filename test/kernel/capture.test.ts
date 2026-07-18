@@ -202,6 +202,22 @@ describe("capture (bind/publish on read_file, exec, grep, fetch)", () => {
 			expect(result.output).toContain("bound: ⟦hits⟧");
 			expect(result.output).toContain("data.txt:2:key: a:b:c");
 		});
+
+		it("binds matches from a single explicit file (path forced into the output)", async () => {
+			await writeFile(join(dir, "solo.txt"), "one\ntarget line\nthree");
+			const result = await wrapped("grep").execute(
+				{ pattern: "target", path: "solo.txt", bind: "solo_hits" },
+				env,
+			);
+			expect(result.success).toBe(true);
+			expect(store.bound).toHaveLength(1);
+			const matches = JSON.parse(store.bound[0]?.content ?? "");
+			expect(matches).toHaveLength(1);
+			expect(matches[0].path).toContain("solo.txt");
+			expect(matches[0].line).toBe(2);
+			expect(matches[0].text).toBe("target line");
+			expect(result.output).toContain("solo.txt:2:target line");
+		});
 	});
 
 	describe("fetch", () => {
@@ -303,7 +319,11 @@ describe("auto-capture on lossy truncation", () => {
 			description: "fake",
 			parameters: { type: "object", properties: {} },
 			async execute() {
-				return { output, success: true };
+				return {
+					output,
+					success: true,
+					captureSource: { content: output, type: "text" as const },
+				};
 			},
 		};
 	}
@@ -348,6 +368,60 @@ describe("auto-capture on lossy truncation", () => {
 		const result = await registry.execute("exec", {});
 		expect(result.output).toBe("short output");
 		expect(store.bound).toHaveLength(0);
+	});
+
+	it("a real exec stores raw source bytes, never the rendering; dropped stderr binds separately", async () => {
+		const registry = createPrimitiveRegistry(env);
+		registry.setCaptureStore?.(store);
+		const stdout = `${Array.from({ length: 300 }, (_, i) => `out ${i + 1}`).join("\n")}\n`;
+		const stderr = `${Array.from({ length: 300 }, (_, i) => `err ${i + 1}`).join("\n")}\n`;
+		const result = await registry.execute("exec", {
+			command:
+				'for i in $(seq 1 300); do echo "out $i"; done; for i in $(seq 1 300); do echo "err $i" 1>&2; done',
+		});
+		expect(result.success).toBe(true);
+		// SOURCE bytes, not the rendering: no exec trailers, raw streams apart.
+		expect(store.bound.map((b) => b.name)).toEqual(["exec_output", "exec_output_stderr"]);
+		expect(store.bound[0]?.content).toBe(stdout);
+		expect(store.bound[0]?.content).not.toContain("exit_code:");
+		expect(store.bound[0]?.content).not.toContain("[stderr]");
+		expect(store.bound[0]?.content).not.toContain("err 1");
+		expect(store.bound[1]?.content).toBe(stderr);
+		expect(result.output).toContain("full output: ⟦exec_output⟧, stderr: ⟦exec_output_stderr⟧");
+	});
+
+	it("a primitive without captureSource is never auto-bound — honest lossy text stays", async () => {
+		const registry = createPrimitiveRegistry(env);
+		registry.register({
+			name: "exec",
+			description: "legacy fake without captureSource",
+			parameters: { type: "object", properties: {} },
+			async execute() {
+				return { output: longOutput, success: true };
+			},
+		});
+		registry.setCaptureStore?.(store);
+		const result = await registry.execute("exec", {});
+		expect(store.bound).toHaveLength(0);
+		expect(result.output).toBe(truncateToolOutput(longOutput, "exec"));
+		expect(result.output).not.toContain("⟦");
+	});
+
+	it("an explicit bind on a truncated call is stored once; the marker names the explicit value", async () => {
+		const registry = createPrimitiveRegistry(env);
+		const plainExec = registry.get("exec");
+		if (!plainExec) throw new Error("no exec primitive");
+		registry.register(withCapture(plainExec, store));
+		registry.setCaptureStore?.(store);
+		const result = await registry.execute("exec", {
+			command: 'for i in $(seq 1 300); do echo "out $i"; done',
+			bind: "myout",
+		});
+		expect(result.success).toBe(true);
+		// Only the explicit bind — no second exec_output copy.
+		expect(store.bound.map((b) => b.name)).toEqual(["myout"]);
+		expect(result.output).toContain("full output: ⟦myout⟧");
+		expect(result.output).not.toContain("exec_output");
 	});
 
 	it("value_* primitives are never auto-captured", async () => {

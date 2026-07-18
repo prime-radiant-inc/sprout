@@ -10,15 +10,8 @@
 
 import type { StoreAccess } from "../store/store-access.ts";
 import { type ValueType, validateValueName } from "../store/value.ts";
-import type { ExecutionEnvironment, ReadFileOptions } from "./execution-env.ts";
-import { renderReadFile } from "./execution-env.ts";
-import {
-	execResultStatus,
-	type Primitive,
-	performFetch,
-	renderExecResult,
-	renderFetchResponse,
-} from "./primitives.ts";
+import type { ExecutionEnvironment } from "./execution-env.ts";
+import type { Primitive } from "./primitives.ts";
 import type { PrimitiveResult } from "./types.ts";
 
 /** The primitives whose calls can capture their source content. */
@@ -107,9 +100,11 @@ interface CapturedCall {
 }
 
 /**
- * Run the underlying operation exactly once via the environment's structured
- * surface, producing both the rendering (through the shared renderers) and the
- * source content to store.
+ * Run the underlying primitive exactly once. The plain primitives populate
+ * `captureSource` with the RAW source content (raw file slice, raw
+ * stdout/stderr, structured grep matches as JSON, raw fetch body) alongside
+ * their rendering — the items to store derive from that, so captured bytes and
+ * rendered output can never diverge.
  */
 async function runWithCapture(
 	prim: Primitive,
@@ -117,111 +112,38 @@ async function runWithCapture(
 	env: ExecutionEnvironment,
 	signal?: AbortSignal,
 ): Promise<CapturedCall> {
-	switch (prim.name) {
-		case "read_file": {
-			if (env.read_file_raw === undefined) {
-				return degradedCapture(prim, args, env, signal, "read_file_raw");
-			}
-			const options: ReadFileOptions = {
-				offset: args.offset as number | undefined,
-				limit: args.limit as number | undefined,
-			};
-			try {
-				const raw = await env.read_file_raw(args.path as string, options);
-				return {
-					result: { output: renderReadFile(raw, options.offset ?? 1), success: true },
-					items: [{ name: "", content: raw, type: "text" }],
-				};
-			} catch (err) {
-				return { result: toolError(String(err)), items: [] };
-			}
-		}
-		case "exec": {
-			try {
-				const result = await env.exec_command(args.command as string, {
-					working_dir: (args.cwd as string | undefined) ?? (args.working_dir as string | undefined),
-					timeout_ms: args.timeout_ms as number | undefined,
-					signal,
-				});
-				return {
-					result: { output: renderExecResult(result), ...execResultStatus(result) },
-					items: [
-						{ name: "", content: result.stdout, type: "text" },
-						...(result.stderr !== ""
-							? [{ name: "_stderr", content: result.stderr, type: "text" as ValueType }]
-							: []),
-					],
-				};
-			} catch (err) {
-				return { result: toolError(String(err)), items: [] };
-			}
-		}
-		case "grep": {
-			if (env.grep_structured === undefined) {
-				return degradedCapture(prim, args, env, signal, "grep_structured");
-			}
-			try {
-				const matches = await env.grep_structured(
-					args.pattern as string,
-					args.path as string | undefined,
-					{
-						glob_filter: args.glob_filter as string | undefined,
-						max_results: (args.max_results as number) ?? 100,
-					},
-				);
-				return {
-					result: {
-						output: matches.map((m) => `${m.path}:${m.line}:${m.text}`).join("\n"),
-						success: true,
-					},
-					items: [{ name: "", content: JSON.stringify(matches), type: "json" }],
-				};
-			} catch (err) {
-				return { result: toolError(String(err)), items: [] };
-			}
-		}
-		case "fetch": {
-			try {
-				const outcome = await performFetch(args);
-				return {
-					result: {
-						output: renderFetchResponse(outcome),
-						success: outcome.ok,
-						error: outcome.ok ? undefined : `HTTP ${outcome.status}: ${outcome.statusText}`,
-					},
-					items: [{ name: "", content: outcome.body, type: "text" }],
-				};
-			} catch (err) {
-				return { result: toolError(String(err)), items: [] };
-			}
-		}
-		default:
-			// Not capture-capable: run plain, capture nothing.
-			return { result: await prim.execute(args, env, signal), items: [] };
-	}
-}
-
-/**
- * Environment lacks the structured surface: run the plain primitive and say
- * honestly that nothing was captured.
- */
-async function degradedCapture(
-	prim: Primitive,
-	args: Record<string, unknown>,
-	env: ExecutionEnvironment,
-	signal: AbortSignal | undefined,
-	missing: string,
-): Promise<CapturedCall> {
 	const result = await prim.execute(args, env, signal);
-	return {
-		result: {
-			...result,
-			output: appendTrailer(result.output, [
-				`[bind failed: execution environment does not support ${missing}]`,
-			]),
-		},
-		items: [],
-	};
+	const source = result.captureSource;
+	if (source !== undefined) {
+		return {
+			result,
+			items: [
+				{ name: "", content: source.content, type: source.type },
+				...(source.stderr !== undefined && source.stderr !== ""
+					? [{ name: "_stderr", content: source.stderr, type: "text" as ValueType }]
+					: []),
+			],
+		};
+	}
+	if (result.success === false) {
+		// The operation itself failed: nothing to capture, the error stands.
+		return { result, items: [] };
+	}
+	if ((CAPTURE_PRIMITIVE_NAMES as readonly string[]).includes(prim.name)) {
+		// Environment lacks the raw surface: say honestly that nothing was
+		// captured rather than storing a rendering.
+		return {
+			result: {
+				...result,
+				output: appendTrailer(result.output, [
+					`[bind failed: execution environment does not support raw capture for ${prim.name}]`,
+				]),
+			},
+			items: [],
+		};
+	}
+	// Not capture-capable: run plain, capture nothing.
+	return { result, items: [] };
 }
 
 /** Bind the captured items, publish if asked, and append the trailer lines. */

@@ -318,7 +318,17 @@ export class LocalExecutionEnvironment implements ExecutionEnvironment {
 
 	async grep(pattern: string, path?: string, options?: GrepOptions): Promise<string> {
 		const searchPath = path ? this.resolvePath(path) : this.workDir;
-		const rgArgs = ["--line-number", "--fixed-strings", "--color", "never", "--no-heading"];
+		// -H forces the file path even for a single explicit file, where rg/grep
+		// would otherwise print bare `line:text` and structured parsing would
+		// drop every match.
+		const rgArgs = [
+			"--line-number",
+			"--with-filename",
+			"--fixed-strings",
+			"--color",
+			"never",
+			"--no-heading",
+		];
 
 		if (options?.case_insensitive) rgArgs.push("-i");
 		if (options?.max_results) rgArgs.push("-m", String(options.max_results));
@@ -335,7 +345,7 @@ export class LocalExecutionEnvironment implements ExecutionEnvironment {
 			throw new Error(`grep failed: ${rgResult.stderr}`);
 		}
 
-		const args = ["--line-number", "-F"];
+		const args = ["--line-number", "-H", "-F"];
 
 		if (options?.case_insensitive) args.push("-i");
 		if (options?.max_results) args.push("-m", String(options.max_results));

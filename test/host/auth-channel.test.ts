@@ -251,6 +251,46 @@ describe("AuthChannelServer requests", () => {
 		await client.disconnect();
 	});
 
+	test("an infrastructure-tagged error keeps its tag across the channel", async () => {
+		const { StoreUnavailableError } = await import("../../src/store/store-client.ts");
+		server.onRequest("infra_down", () => {
+			throw new StoreUnavailableError("store worker unavailable: restarts exhausted");
+		});
+		const client = makeClient();
+		await client.connect();
+
+		let caught: unknown;
+		try {
+			await client.request("infra_down");
+		} catch (err) {
+			caught = err;
+		}
+		expect(caught).toBeInstanceOf(Error);
+		expect((caught as Error).message).toContain("restarts exhausted");
+		expect((caught as { infrastructure?: boolean }).infrastructure).toBe(true);
+
+		await client.disconnect();
+	});
+
+	test("a plain error crosses the channel without an infrastructure tag", async () => {
+		server.onRequest("plain_fail", () => {
+			throw new Error("ordinary failure");
+		});
+		const client = makeClient();
+		await client.connect();
+
+		let caught: unknown;
+		try {
+			await client.request("plain_fail");
+		} catch (err) {
+			caught = err;
+		}
+		expect((caught as Error).message).toBe("ordinary failure");
+		expect((caught as { infrastructure?: boolean }).infrastructure).toBeUndefined();
+
+		await client.disconnect();
+	});
+
 	test("requesting while disconnected rejects", async () => {
 		const client = makeClient();
 

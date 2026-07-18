@@ -5,7 +5,7 @@ import { buildReadMemoryPrimitives, buildWriteMemoryPrimitives } from "../genome
 import type { MemoryWriteAuthorization } from "../genome/memory-write-authorization.ts";
 import { getToolDisplayName } from "../shared/tool-display.ts";
 import type { StoreAccess } from "../store/store-access.ts";
-import type { ExecResult, ExecutionEnvironment } from "./execution-env.ts";
+import { type ExecResult, type ExecutionEnvironment, renderReadFile } from "./execution-env.ts";
 import { truncateToolOutputDetailed } from "./truncation.ts";
 import type { PrimitiveResult } from "./types.ts";
 
@@ -84,9 +84,9 @@ export function createPrimitiveRegistry(
 			const result = await prim.execute(args, env, signal);
 			// Truncate output for LLM consumption
 			const detailed = truncateToolOutputDetailed(result.output, name);
-			// Auto-capture on lossy truncation (sap spec §2): the full output
-			// auto-binds and the marker names the value. Value-read primitives
-			// are excluded — their output already comes from the store.
+			// Auto-capture on lossy truncation (sap spec §2): the full SOURCE
+			// content auto-binds and the marker names the value. Value-read
+			// primitives are excluded — their output already comes from the store.
 			if (!detailed.truncated || captureStore === undefined || name.startsWith("value_")) {
 				return { ...result, output: detailed.text };
 			}
@@ -94,24 +94,58 @@ export function createPrimitiveRegistry(
 				detailed.droppedLines > 0
 					? `${detailed.droppedLines} lines`
 					: `${detailed.droppedChars} chars`;
+			// An explicit bind already stored the source — never store it twice.
+			// The marker points at the explicitly bound value instead.
+			if (result.boundValues !== undefined && result.boundValues.length > 0) {
+				const marker = `[... ${dropped} truncated — full output: ⟦${result.boundValues[0]!.name}⟧]`;
+				return {
+					...result,
+					output: truncateToolOutputDetailed(result.output, name, undefined, marker).text,
+				};
+			}
+			const source = result.captureSource;
+			// No source content (unknown/legacy primitive): never bind a
+			// rendering — degrade to today's honest lossy truncation.
+			if (source === undefined) {
+				return { ...result, output: detailed.text };
+			}
 			try {
 				const metadata = await captureStore.bind({
 					name: `${name}_output`,
-					content: result.output,
-					type: "text",
+					content: source.content,
+					type: source.type,
 					// The channel forces agentHandleId to the connection's verified
 					// identity; a direct-scope holder is the scope's owner.
 					provenance: { agentHandleId: "", origin: { kind: "primitive", name } },
 					explicit: false,
 				});
-				const marker = `[... ${dropped} truncated — full output: ⟦${metadata.name}⟧]`;
+				const boundValues = [{ name: metadata.name, ulid: metadata.ulid, size: metadata.size }];
+				let marker = `[... ${dropped} truncated — full output: ⟦${metadata.name}⟧]`;
+				// Stderr content the truncation dropped binds as its own value; the
+				// marker names both when both were cut (sap spec §2).
+				const stderrDropped =
+					source.stderr !== undefined &&
+					source.stderr !== "" &&
+					!detailed.text.includes(source.stderr);
+				if (stderrDropped) {
+					const stderrMetadata = await captureStore.bind({
+						name: `${name}_output_stderr`,
+						content: source.stderr as string,
+						type: "text",
+						provenance: { agentHandleId: "", origin: { kind: "primitive", name } },
+						explicit: false,
+					});
+					boundValues.push({
+						name: stderrMetadata.name,
+						ulid: stderrMetadata.ulid,
+						size: stderrMetadata.size,
+					});
+					marker = `[... ${dropped} truncated — full output: ⟦${metadata.name}⟧, stderr: ⟦${stderrMetadata.name}⟧]`;
+				}
 				return {
 					...result,
 					output: truncateToolOutputDetailed(result.output, name, undefined, marker).text,
-					boundValues: [
-						...(result.boundValues ?? []),
-						{ name: metadata.name, ulid: metadata.ulid, size: metadata.size },
-					],
+					boundValues,
 				};
 			} catch (err) {
 				// Store-full degrades to lossy-but-honest — never a marker naming
@@ -172,10 +206,21 @@ function readFilePrimitive(): Primitive {
 		},
 		async execute(args, env) {
 			try {
-				const content = await env.read_file(args.path as string, {
+				const options = {
 					offset: args.offset as number | undefined,
 					limit: args.limit as number | undefined,
-				});
+				};
+				// Prefer the raw surface: one read yields both the rendering and
+				// the SOURCE bytes capture stores (sap spec §2).
+				if (env.read_file_raw !== undefined) {
+					const raw = await env.read_file_raw(args.path as string, options);
+					return {
+						output: renderReadFile(raw, options.offset ?? 1),
+						success: true,
+						captureSource: { content: raw, type: "text" as const },
+					};
+				}
+				const content = await env.read_file(args.path as string, options);
 				return { output: content, success: true };
 			} catch (err) {
 				return { output: "", success: false, error: String(err) };
@@ -558,7 +603,16 @@ function execPrimitive(): Primitive {
 					signal,
 				});
 
-				return { output: renderExecResult(result), ...execResultStatus(result) };
+				return {
+					output: renderExecResult(result),
+					...execResultStatus(result),
+					// Capture stores SOURCE bytes: raw stdout, raw stderr separately.
+					captureSource: {
+						content: result.stdout,
+						type: "text" as const,
+						...(result.stderr !== "" ? { stderr: result.stderr } : {}),
+					},
+				};
 			} catch (err) {
 				return { output: "", success: false, error: String(err) };
 			}
@@ -587,10 +641,29 @@ function grepPrimitive(): Primitive {
 		},
 		async execute(args, env) {
 			try {
-				const result = await env.grep(args.pattern as string, args.path as string | undefined, {
+				const options = {
 					glob_filter: args.glob_filter as string | undefined,
 					max_results: (args.max_results as number) ?? 100,
-				});
+				};
+				// Prefer the structured surface: one search yields both the
+				// rendering and the structured matches capture stores as JSON.
+				if (env.grep_structured !== undefined) {
+					const matches = await env.grep_structured(
+						args.pattern as string,
+						args.path as string | undefined,
+						options,
+					);
+					return {
+						output: matches.map((m) => `${m.path}:${m.line}:${m.text}`).join("\n"),
+						success: true,
+						captureSource: { content: JSON.stringify(matches), type: "json" as const },
+					};
+				}
+				const result = await env.grep(
+					args.pattern as string,
+					args.path as string | undefined,
+					options,
+				);
 				return { output: result, success: true };
 			} catch (err) {
 				return { output: "", success: false, error: String(err) };
@@ -692,6 +765,8 @@ function fetchPrimitive(): Primitive {
 					output: renderFetchResponse(outcome),
 					success: outcome.ok,
 					error: outcome.ok ? undefined : `HTTP ${outcome.status}: ${outcome.statusText}`,
+					// Capture stores the raw body, never the status/header rendering.
+					captureSource: { content: outcome.body, type: "text" as const },
 				};
 			} catch (err) {
 				return { output: "", success: false, error: String(err) };

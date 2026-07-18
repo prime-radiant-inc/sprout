@@ -377,6 +377,65 @@ describe("SapStore", () => {
 			const bytes = await store.get(ROOT_SCOPE, "a", { maxBytes: 1024 });
 			expect(bytes.length).toBe(200);
 		});
+
+		it("journal appends beyond binds (publishes) advance the disk counter", async () => {
+			const store = makeStore({ diskQuotaBytes: 4_096 });
+			const meta = await store.bind({
+				scopeId: ROOT_SCOPE,
+				name: "small",
+				content: "x",
+				type: "text",
+				provenance: prov(),
+				explicit: true,
+			});
+			// ~70 journal bytes per publish record: 300 of them blow past 4 KB
+			// even though no new value bytes were bound.
+			for (let i = 0; i < 300; i++) {
+				await store.publish(ROOT_SCOPE, meta.ulid);
+			}
+			await expect(
+				store.bind({
+					scopeId: ROOT_SCOPE,
+					name: "after",
+					content: "y",
+					type: "text",
+					provenance: prov(),
+					explicit: true,
+				}),
+			).rejects.toThrow(/disk quota/);
+		});
+	});
+
+	describe("preview redaction", () => {
+		it("redacts secrets from previews in metadata, journal record, and manifest delta", async () => {
+			const store = makeStore();
+			await store.createScope({
+				scopeId: "scope_reader",
+				ownerHandleId: "agent_r",
+				parentScopeId: ROOT_SCOPE,
+			});
+			const meta = await store.bind({
+				scopeId: ROOT_SCOPE,
+				name: "env_dump",
+				content: "API_KEY=sk-superSecretValue123456789012345\nplain line",
+				type: "text",
+				provenance: prov(),
+				explicit: true,
+			});
+			expect(meta.preview).not.toContain("superSecretValue");
+			expect(meta.preview).toContain("[REDACTED_");
+			const record = (await journal.replay()).find((r) => r.kind === "bind") as {
+				preview: string;
+			};
+			expect(record.preview).not.toContain("superSecretValue");
+			await store.publish(ROOT_SCOPE, meta.ulid);
+			const delta = await store.deliverManifest({
+				publisherHandle: ROOT_SCOPE,
+				recipientScopeId: "scope_reader",
+			});
+			expect(delta.delivered[0]!.preview).not.toContain("superSecretValue");
+			expect(delta.delivered[0]!.preview).toContain("[REDACTED_");
+		});
 	});
 
 	describe("get budget", () => {
@@ -1013,6 +1072,36 @@ describe("SapStore", () => {
 				{ kind: "publish", handle: ROOT_SCOPE, ulids: [a.ulid], seq: 1 },
 				{ kind: "publish", handle: ROOT_SCOPE, ulids: [b.ulid], seq: 2 },
 			]);
+		});
+
+		it("rejects publishing a ulid from another scope, accepts the scope's own", async () => {
+			const store = makeStore();
+			await store.createScope({
+				scopeId: "scope_child",
+				ownerHandleId: "agent_b",
+				parentScopeId: ROOT_SCOPE,
+			});
+			const foreign = await store.bind({
+				scopeId: "scope_child",
+				name: "theirs",
+				content: "not yours",
+				type: "text",
+				provenance: prov("agent_b"),
+				explicit: true,
+			});
+			const own = await bindNamed(store, "mine");
+			// Foreign ulid: resolvable, but never publishable from this scope.
+			await expect(store.publish(ROOT_SCOPE, foreign.ulid)).rejects.toThrow(
+				/cannot publish a value from another scope/,
+			);
+			// And the reverse direction: the child cannot publish root's value.
+			await expect(store.publish("scope_child", own.ulid)).rejects.toThrow(
+				/cannot publish a value from another scope/,
+			);
+			// Each scope's own value publishes fine.
+			await store.publish(ROOT_SCOPE, own.ulid);
+			await store.publish("scope_child", foreign.ulid);
+			expect((await journal.replay()).filter((r) => r.kind === "publish")).toHaveLength(2);
 		});
 
 		it("publishing an unknown ref throws and journals nothing", async () => {

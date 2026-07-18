@@ -192,6 +192,11 @@ async function dispatch(store: SapStore, request: StoreWorkerRequest): Promise<u
 			await store.publish(request.scopeId, request.ref);
 			return null;
 		case "manifest_delta":
+			// Delta delivery is idempotent BY CURSOR, not by op id: a re-issued
+			// op after a crash-after-append finds the cursor already advanced and
+			// returns an EMPTY delta even though the aliases exist — the caller
+			// loses the delta's lines, not the values. Accepted for now,
+			// alongside channel-level bind idempotency (Phase 3 plan).
 			return store.deliverManifest({
 				publisherHandle: request.publisherHandle,
 				recipientScopeId: request.scopeId,

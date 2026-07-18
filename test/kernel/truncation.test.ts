@@ -164,4 +164,14 @@ describe("truncateToolOutputDetailed", () => {
 		expect(detailed.text).toContain("[CUSTOM MARKER]");
 		expect(detailed.text).not.toContain("lines omitted");
 	});
+
+	test("a custom marker appears exactly once when both passes trip", () => {
+		// grep: 20k char limit (tail mode puts the char marker at the TOP, where
+		// the 200-line pass keeps it) and both passes trip.
+		const output = Array.from({ length: 3_000 }, (_, i) => `l ${i + 1} xxxx`).join("\n");
+		const marker = "[MARKER ⟦grep_output⟧]";
+		const detailed = truncateToolOutputDetailed(output, "grep", undefined, marker);
+		expect(detailed.truncated).toBe(true);
+		expect(detailed.text.split(marker).length - 1).toBe(1);
+	});
 });

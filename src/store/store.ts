@@ -5,6 +5,7 @@
  * subprocess wraps this engine in a later slice.
  */
 
+import { redactSensitiveTranscriptContent } from "../kernel/redaction.ts";
 import { ulid } from "../util/ulid.ts";
 import type { ContentStore } from "./cas.ts";
 import {
@@ -265,12 +266,14 @@ export class SapStore {
 		if (this.scopes.has(args.scopeId)) {
 			throw new Error(`scope already exists: ${args.scopeId}`);
 		}
-		await this.journal.append({
-			kind: "scope",
+		const record = {
+			kind: "scope" as const,
 			scopeId: args.scopeId,
 			ownerHandleId: args.ownerHandleId,
 			parentScopeId: args.parentScopeId,
-		});
+		};
+		await this.journal.append(record);
+		await this.chargeJournalBytes([record]);
 		this.scopes.set(args.scopeId, { names: new Map(), valueCount: 0 });
 	}
 
@@ -331,7 +334,9 @@ export class SapStore {
 			type: args.type,
 			size: bytes.length,
 			provenance: args.provenance,
-			preview: computePreview(args.content, args.type),
+			// Previews surface in transcripts, journal records, and manifest
+			// deltas — secrets in the excerpt are redacted at bind time.
+			preview: redactSensitiveTranscriptContent(computePreview(args.content, args.type)),
 			createdAt: Date.now(),
 		};
 		const record = {
@@ -372,13 +377,22 @@ export class SapStore {
 	async publish(scopeId: string, ref: string): Promise<void> {
 		return this.serialize(async () => {
 			const entry = this.resolve(scopeId, ref);
+			// A publisher only publishes values its own scope created — a foreign
+			// ulid resolved globally must never enter this handle's manifest.
+			if (entry.metadata.scopeId !== scopeId) {
+				throw new Error(
+					`cannot publish a value from another scope: ${ref} belongs to scope ${entry.metadata.scopeId}`,
+				);
+			}
 			const seq = (this.publishSeqs.get(scopeId) ?? 0) + 1;
-			await this.journal.append({
-				kind: "publish",
+			const record = {
+				kind: "publish" as const,
 				handle: scopeId,
 				ulids: [entry.metadata.ulid],
 				seq,
-			});
+			};
+			await this.journal.append(record);
+			await this.chargeJournalBytes([record]);
 			this.publishSeqs.set(scopeId, seq);
 			this.recordPublish(scopeId, seq, [entry.metadata.ulid]);
 		});
@@ -414,9 +428,11 @@ export class SapStore {
 			const delivered: ManifestDeltaValue[] = [];
 			const grants: GrantRecord[] = [];
 			const aliases: { name: string; ulid: string }[] = [];
-			// Names already claimed within this batch behave like the applied
-			// aliases would: a repeat of the same name is a version update.
-			const staged = new Map<string, number>();
+			// In-batch bookkeeping: a repeat of the SAME source name is a version
+			// update of that staged entry; a DIFFERENT source name colliding with
+			// a staged alias suffixes — distinct published values never collapse.
+			const stagedBySource = new Map<string, number>();
+			const stagedAliases = new Set<string>();
 			for (const record of delta) {
 				for (const valueUlid of record.ulids) {
 					const entry = this.values.get(valueUlid);
@@ -424,36 +440,39 @@ export class SapStore {
 						throw new Error(`publish record references unknown value: ${valueUlid}`);
 					}
 					const name = entry.metadata.name;
-					const existing = scope.names.get(name);
-					let alias: string;
-					if (staged.has(name) || existing?.manifestFrom === args.publisherHandle) {
-						// Same publisher's earlier manifest name: the alias moves.
-						alias = name;
-					} else if (existing !== undefined) {
-						alias = this.suffixName(scope, name);
-					} else {
-						alias = name;
-					}
-					if (staged.has(alias)) {
-						// Version update within the batch: replace the staged entry.
-						const at = staged.get(alias) as number;
-						delivered[at] = {
+					const stagedAt = stagedBySource.get(name);
+					if (stagedAt !== undefined) {
+						// Same source republished within the batch: the staged entry
+						// version-updates in place, keeping its assigned alias.
+						const alias = aliases[stagedAt]!.name;
+						delivered[stagedAt] = {
 							name: alias,
 							ulid: valueUlid,
 							size: entry.metadata.size,
 							preview: entry.metadata.preview,
 						};
-						grants[at] = {
+						grants[stagedAt] = {
 							kind: "grant",
 							granter: args.publisherHandle,
 							recipient: args.recipientScopeId,
 							name: alias,
 							ulid: valueUlid,
 						};
-						aliases[at] = { name: alias, ulid: valueUlid };
+						aliases[stagedAt] = { name: alias, ulid: valueUlid };
 						continue;
 					}
-					staged.set(alias, delivered.length);
+					const existing = scope.names.get(name);
+					let alias: string;
+					if (existing?.manifestFrom === args.publisherHandle && !stagedAliases.has(name)) {
+						// Same publisher's earlier manifest name: the alias moves.
+						alias = name;
+					} else if (existing !== undefined || stagedAliases.has(name)) {
+						alias = this.suffixName(scope, name, stagedAliases);
+					} else {
+						alias = name;
+					}
+					stagedBySource.set(name, delivered.length);
+					stagedAliases.add(alias);
 					delivered.push({
 						name: alias,
 						ulid: valueUlid,
@@ -473,15 +492,17 @@ export class SapStore {
 
 			const throughSeq = delta[delta.length - 1]!.seq;
 			// One atomic multi-append: grants + cursor durable together.
-			await this.journal.append([
+			const records = [
 				...grants,
 				{
-					kind: "manifest_delivery",
+					kind: "manifest_delivery" as const,
 					handle: args.publisherHandle,
 					recipient: args.recipientScopeId,
 					throughPublishSeq: throughSeq,
 				},
-			]);
+			];
+			await this.journal.append(records);
+			await this.chargeJournalBytes(records);
 			for (const alias of aliases) {
 				scope.names.set(alias.name, {
 					explicit: false,
@@ -690,13 +711,27 @@ export class SapStore {
 	/**
 	 * Deterministic numeric suffix for a colliding auto-bind or manifest name,
 	 * base truncated so the suffixed name stays within the 64-char limit.
+	 * `alsoTaken` covers names staged but not yet applied (in-batch delivery).
 	 */
-	private suffixName(scope: ScopeState, name: string): string {
+	private suffixName(scope: ScopeState, name: string, alsoTaken?: ReadonlySet<string>): string {
 		for (let n = 2; ; n++) {
 			const suffix = `_${n}`;
 			const base = name.slice(0, NAME_MAX_LENGTH - suffix.length);
 			const candidate = `${base}${suffix}`;
-			if (!scope.names.has(candidate)) return candidate;
+			if (!scope.names.has(candidate) && !alsoTaken?.has(candidate)) return candidate;
+		}
+	}
+
+	/**
+	 * Count journaled records toward the session disk quota — publishes,
+	 * grants, scopes, and delivery cursors grow the journal exactly like binds.
+	 */
+	private async chargeJournalBytes(records: unknown[]): Promise<void> {
+		if (this.diskBytes === undefined) {
+			this.diskBytes = await this.cas.totalBytes();
+		}
+		for (const record of records) {
+			this.diskBytes += JSON.stringify(record).length + 1;
 		}
 	}
 

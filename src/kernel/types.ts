@@ -488,6 +488,19 @@ export interface PrimitiveResult {
 	error?: string;
 	/** Values this call bound into the sap store (capture, sap spec §2). */
 	boundValues?: Array<{ name: string; ulid: string; size: number }>;
+	/**
+	 * The call's RAW source content (sap spec §2: capture stores source bytes,
+	 * never renderings). Capture-capable primitives populate this — exec's raw
+	 * stdout (stderr separately), read_file's raw slice, grep's structured
+	 * matches as JSON, fetch's raw body. Capture layers (explicit bind and
+	 * registry auto-capture) bind from here; when absent, nothing is captured.
+	 */
+	captureSource?: {
+		content: string;
+		type: "text" | "json";
+		/** exec only: raw stderr, when non-empty. */
+		stderr?: string;
+	};
 }
 
 export const EVENT_KINDS = [

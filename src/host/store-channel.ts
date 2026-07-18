@@ -27,6 +27,12 @@ import type { AuthChannelServer } from "./auth-channel.ts";
 export interface RegisterStoreHandlersOptions {
 	/** Parent scope under which per-caller scopes are created. */
 	rootScopeId: string;
+	/**
+	 * Registered owner of a handle, from the handle registry. Manifest pulls
+	 * are owner-gated: only the handle that spawned (owns) a publisher may pull
+	 * its publishes. Shared-handle cross-waiter delivery widens later if needed.
+	 */
+	handleOwner: (handleId: string) => string | undefined;
 }
 
 /**
@@ -129,6 +135,11 @@ export function registerStoreHandlers(
 		const fields = parseObjectPayload(payload, STORE_MANIFEST_REQUEST);
 		if (typeof fields.publisherHandle !== "string") {
 			throw new Error(`${STORE_MANIFEST_REQUEST}: publisherHandle must be a string`);
+		}
+		// Owner-gated: only the publisher's registered owner may pull its
+		// publishes — any handle naming an arbitrary publisher is refused.
+		if (options.handleOwner(fields.publisherHandle) !== ctx.handleId) {
+			throw new Error(`${STORE_MANIFEST_REQUEST}: not the owner of that handle's publishes`);
 		}
 		// The recipient is the connection's verified scope — any recipient/scope
 		// field a crafted payload smuggles in is ignored.

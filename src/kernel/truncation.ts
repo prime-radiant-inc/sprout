@@ -187,7 +187,15 @@ export function truncateToolOutputDetailed(
 	// Step 2: Line-based truncation (if configured for this tool)
 	const lineLimit = overrides?.lineLimit ?? DEFAULT_LINE_LIMITS[toolName];
 	if (lineLimit !== undefined) {
-		const linePass = truncateLinesDetailed(text, lineLimit, marker);
+		let lineInput = text;
+		// A custom marker must appear exactly once: when the char pass already
+		// inserted it and the line pass will trip too, strip the char-pass copy
+		// so the line pass re-inserts the single authoritative one.
+		if (marker !== undefined && charPass.dropped) {
+			const without = text.split("\n").filter((line) => line !== marker);
+			if (without.length > lineLimit) lineInput = without.join("\n");
+		}
+		const linePass = truncateLinesDetailed(lineInput, lineLimit, marker);
 		text = linePass.text;
 		truncated = truncated || linePass.dropped;
 		droppedLines += linePass.droppedLines;

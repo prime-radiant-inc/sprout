@@ -1674,7 +1674,10 @@ describe("runAgentProcess", () => {
 				};
 			},
 		});
-		registerStoreHandlers(authServer, storeClient, { rootScopeId: "session-root" });
+		registerStoreHandlers(authServer, storeClient, {
+			rootScopeId: "session-root",
+			handleOwner: (id) => registry.get(id)?.ownerId,
+		});
 		const token = mintToken();
 		registry.registerHandle({
 			handleId: HANDLE_ID,
@@ -1742,6 +1745,144 @@ describe("runAgentProcess", () => {
 				| undefined;
 			expect(publish).toBeDefined();
 			expect(publish!.handle).toBe(HANDLE_ID);
+		} finally {
+			await storeClient.shutdown();
+			await authServer.stop();
+		}
+	}, 20_000);
+
+	test("a continue-error result over the summary budget is bounded inline via the store", async () => {
+		const { HandleRegistry, hashToken, mintToken } = await import(
+			"../../src/host/handle-registry.ts"
+		);
+		const { AuthChannelServer } = await import("../../src/host/auth-channel.ts");
+		const { registerStoreHandlers } = await import("../../src/host/store-channel.ts");
+		const { StoreWorkerClient } = await import("../../src/store/store-client.ts");
+		const { SessionJournal } = await import("../../src/store/journal.ts");
+		const { ContentStore } = await import("../../src/store/cas.ts");
+		const { SapStore } = await import("../../src/store/store.ts");
+		const { runStoreWorker } = await import("../../src/store/store-worker.ts");
+		const { SUMMARY_BUDGET_CHARS } = await import("../../src/kernel/truncation.ts");
+
+		const registry = new HandleRegistry({ trustedRegistrarId: "sprout:host" });
+		const authServer = new AuthChannelServer({ port: 0, hostname: "127.0.0.1", registry });
+		await authServer.start();
+		const journalPath = join(tempDir, "store-continue-err", "journal.jsonl");
+		const casRoot = join(tempDir, "store-continue-err", "cas");
+		const storeClient = new StoreWorkerClient({
+			journalPath,
+			casRoot,
+			rootScopeId: "session-root",
+			spawnFn: () => {
+				let lineHandler: (line: string) => void = () => {};
+				const storeReady = SapStore.resume({
+					journal: new SessionJournal(journalPath),
+					cas: new ContentStore(casRoot),
+					rootScopeId: "session-root",
+				});
+				let queue = Promise.resolve();
+				return {
+					send(line: string) {
+						queue = queue.then(async () => {
+							const store = await storeReady;
+							const responses: string[] = [];
+							async function* one(): AsyncGenerator<string> {
+								yield line;
+							}
+							await runStoreWorker({ lines: one(), write: (l) => responses.push(l), store });
+							for (const r of responses) lineHandler(r);
+						});
+					},
+					kill() {},
+					onLine(cb: (line: string) => void) {
+						lineHandler = cb;
+					},
+					onExit() {},
+				};
+			},
+		});
+		registerStoreHandlers(authServer, storeClient, {
+			rootScopeId: "session-root",
+			handleOwner: (id) => registry.get(id)?.ownerId,
+		});
+		const token = mintToken();
+		registry.registerHandle({
+			handleId: HANDLE_ID,
+			tokenHash: hashToken(token),
+			registrarId: "sprout:host",
+			ownerId: "root",
+			depth: 1,
+		});
+
+		const hugeError = `provider payload: ${"e".repeat(6000)}`;
+		let callCount = 0;
+		const mockClient = buildMockClient(async (): Promise<Response> => {
+			callCount++;
+			if (callCount === 1) {
+				return {
+					id: "mock-1",
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant("First response."),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+				};
+			}
+			throw new Error(hugeError);
+		});
+
+		const controller = new AbortController();
+		const resultTopic = agentResult(SESSION_ID, HANDLE_ID);
+		const results: ResultMessage[] = [];
+		await parentClient.subscribe(resultTopic, (payload) => {
+			results.push(JSON.parse(payload));
+		});
+
+		try {
+			const processPromise = runAgentProcess({
+				busUrl: server.url,
+				handleId: HANDLE_ID,
+				sessionId: SESSION_ID,
+				genomePath: genomeDir,
+				client: mockClient,
+				workDir: tempDir,
+				signal: controller.signal,
+				authChannel: { url: authServer.url, token },
+			});
+
+			await waitForAgentReady();
+			const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
+			const startMsg: StartMessage = {
+				kind: "start",
+				handle_id: HANDLE_ID,
+				self: addr("test-leaf", 1, undefined, HANDLE_ID),
+				genome_path: genomeDir,
+				session_id: SESSION_ID,
+				caller: addr("root", 0),
+				goal: "First task",
+				shared: true,
+			};
+			await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
+			await waitForResults(results, 1);
+
+			await parentClient.publish(
+				inboxTopic,
+				JSON.stringify({ kind: "continue", message: "again", caller: addr("root", 0) }),
+			);
+			await waitForResults(results, 2);
+
+			expect(results[1]!.success).toBe(false);
+			// Bounded inline: the head plus a marker naming the bound value —
+			// never the whole error payload.
+			expect(results[1]!.output.length).toBeLessThan(hugeError.length);
+			expect(results[1]!.output.startsWith("Continue failed: ")).toBe(true);
+			expect(results[1]!.output).toContain(
+				"[... output truncated at the summary budget — full output: ⟦first_task_result⟧]",
+			);
+			expect(results[1]!.output.length).toBeLessThan(SUMMARY_BUDGET_CHARS + 200);
+
+			controller.abort();
+			await processPromise;
 		} finally {
 			await storeClient.shutdown();
 			await authServer.stop();

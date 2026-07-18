@@ -341,6 +341,14 @@ Slices (test-first):
 - [x] Deferred (recorded): scope announcements + post-compaction manifest event slip to
   the evaluator phase — nothing consumes them yet; `value_lines`/`value_publish` as
   separate primitives also deferred (capture's publish: covers the current need).
+- [x] Manifest pulls are owner-only for now: STORE_MANIFEST_REQUEST rejects unless the
+  handle registry's registered owner of the publisher handle IS the connection's
+  verified handle. Shared-handle cross-waiter delivery widens this later when needed;
+  the in-host root path (DirectStoreAccess) stays ungated — root is the trust anchor.
+- [~] Accepted (recorded): channel/worker-level manifest_delta re-issue after a
+  crash-after-append can return an EMPTY delta — the cursor already advanced, so the
+  aliases exist but the delta's lines are lost. Accepted for now alongside the open
+  channel-level bind idempotency item.
 - [ ] Phase 3 Fable review (whole phase as a unit).
 
 ### Phase 4 — Splice & grants

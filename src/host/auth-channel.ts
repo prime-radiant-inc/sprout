@@ -33,7 +33,10 @@ type RequestEnvelope = { id: string; type: string; payload: unknown };
 /** Wire envelope server → client answering a request (correlated by id). */
 type ResponseEnvelope =
 	| { id: string; ok: true; result: unknown }
-	| { id: string; ok: false; error: string };
+	// `infrastructure` carries a thrown error's `.infrastructure === true` tag
+	// (e.g. StoreUnavailableError) across the channel — callers key retry/fail
+	// decisions on it, so the wire must not strip it.
+	| { id: string; ok: false; error: string; infrastructure?: boolean };
 
 /** Wire envelope server → client push (no id — that distinguishes it). */
 type PushEnvelope = { type: string; payload: unknown };
@@ -208,7 +211,14 @@ export class AuthChannelServer {
 			this.respond(ws, { id: msg.id, ok: true, result });
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			this.respond(ws, { id: msg.id, ok: false, error: message });
+			const infrastructure =
+				(error as { infrastructure?: unknown } | null)?.infrastructure === true;
+			this.respond(ws, {
+				id: msg.id,
+				ok: false,
+				error: message,
+				...(infrastructure ? { infrastructure: true } : {}),
+			});
 		}
 	}
 
@@ -372,7 +382,13 @@ export class AuthChannelClient {
 			if (msg.ok === true) {
 				pending.resolve(msg.result);
 			} else {
-				pending.reject(new Error(typeof msg.error === "string" ? msg.error : "request failed"));
+				const error = new Error(typeof msg.error === "string" ? msg.error : "request failed");
+				// Rebuild the infrastructure tag so callers' retry/fail logic sees
+				// the same `.infrastructure === true` an in-process throw carries.
+				if (msg.infrastructure === true) {
+					(error as Error & { infrastructure?: boolean }).infrastructure = true;
+				}
+				pending.reject(error);
 			}
 			return;
 		}

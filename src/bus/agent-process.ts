@@ -653,7 +653,14 @@ async function idleLoop(
 				const errorResult: ResultMessage = {
 					kind: "result",
 					handle_id: handleId,
-					output: `Continue failed: ${err instanceof Error ? err.message : String(err)}`,
+					// Error text is unbounded (provider messages can embed payloads)
+					// — bound it inline exactly like a success result.
+					output: await prepareResultOutput(
+						storeAccess,
+						handleId,
+						goal,
+						`Continue failed: ${err instanceof Error ? err.message : String(err)}`,
+					),
 					success: false,
 					stumbles: 0,
 					turns: 0,
