@@ -6,6 +6,10 @@ export async function runInternalCliCommand(argv: string[]): Promise<number | nu
 			const { runAgentProcessFromEnvironment } = await import("../bus/agent-process.ts");
 			return runAgentProcessFromEnvironment();
 		}
+		case "--internal-store-worker": {
+			const { runStoreWorkerFromEnvironment } = await import("../store/store-worker.ts");
+			return runStoreWorkerFromEnvironment();
+		}
 		case "--internal-task-cli": {
 			const { runTaskCli } = await import(
 				"../../root/agents/utility/agents/task-manager/tools/cli.ts"

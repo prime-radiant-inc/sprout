@@ -62,6 +62,12 @@ export interface BindArgs {
 	provenance: ValueProvenance;
 	/** Model-named bind (true) vs provenance-derived auto-bind (false). */
 	explicit: boolean;
+	/**
+	 * Caller-minted value id. Makes binds idempotent: re-issuing a bind whose
+	 * ulid is already bound returns the existing metadata without re-journaling
+	 * — the store worker's restart-and-re-issue recovery depends on this.
+	 */
+	ulid?: string;
 }
 
 export interface GrepMatch {
@@ -167,6 +173,13 @@ export class SapStore {
 	}
 
 	async bind(args: BindArgs): Promise<ValueMetadata> {
+		// Idempotent re-issue: a caller-minted ulid that is already bound means
+		// this bind already happened (the response was lost across a worker
+		// restart) — return what the first issue produced.
+		if (args.ulid !== undefined) {
+			const existing = this.values.get(args.ulid);
+			if (existing !== undefined) return existing.metadata;
+		}
 		const scope = this.requireScope(args.scopeId);
 		const name = this.resolveBindName(scope, args);
 		const bytes =
@@ -200,7 +213,7 @@ export class SapStore {
 				: { cas: sha };
 
 		const metadata: ValueMetadata = {
-			ulid: ulid(),
+			ulid: args.ulid ?? ulid(),
 			name,
 			scopeId: args.scopeId,
 			type: args.type,

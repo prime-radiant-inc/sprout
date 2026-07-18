@@ -712,4 +712,59 @@ describe("SapStore", () => {
 			).rejects.toThrow(/collide|collision/i);
 		});
 	});
+
+	describe("bind ulid idempotency", () => {
+		// Client-minted ulids make binds re-issuable across a store-worker
+		// restart: a duplicate ulid returns the existing metadata, no new record.
+		it("uses a caller-supplied ulid as the value's identity", async () => {
+			const store = makeStore();
+			const meta = await store.bind({
+				scopeId: ROOT_SCOPE,
+				name: "x",
+				content: "abc",
+				type: "text",
+				provenance: prov(),
+				explicit: true,
+				ulid: "01HZZZZZZZZZZZZZZZZZZZZZZ1",
+			});
+			expect(meta.ulid).toBe("01HZZZZZZZZZZZZZZZZZZZZZZ1");
+		});
+
+		it("dedups a re-issued bind: same metadata, single journal record", async () => {
+			const store = makeStore();
+			const args = {
+				scopeId: ROOT_SCOPE,
+				name: "x",
+				content: "abc",
+				type: "text" as const,
+				provenance: prov(),
+				explicit: true,
+				ulid: "01HZZZZZZZZZZZZZZZZZZZZZZ2",
+			};
+			const first = await store.bind(args);
+			const second = await store.bind(args);
+			expect(second).toEqual(first);
+			const binds = (await journal.replay()).filter((r) => r.kind === "bind");
+			expect(binds).toHaveLength(1);
+		});
+
+		it("dedups across resume: a restarted store recognizes the ulid", async () => {
+			const store = makeStore();
+			const args = {
+				scopeId: ROOT_SCOPE,
+				name: "x",
+				content: "abc",
+				type: "text" as const,
+				provenance: prov(),
+				explicit: true,
+				ulid: "01HZZZZZZZZZZZZZZZZZZZZZZ3",
+			};
+			const first = await store.bind(args);
+			const resumed = await SapStore.resume({ journal, cas, rootScopeId: ROOT_SCOPE });
+			const second = await resumed.bind(args);
+			expect(second).toEqual(first);
+			const binds = (await journal.replay()).filter((r) => r.kind === "bind");
+			expect(binds).toHaveLength(1);
+		});
+	});
 });
