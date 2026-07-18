@@ -1968,6 +1968,23 @@ describe("startBusInfrastructure", () => {
 		}
 	});
 
+	test("exposes the session store client and cleanup shuts it down", async () => {
+		const genomePath = join(tempDir, "genome-store");
+		await mkdir(join(genomePath, ".git"), { recursive: true });
+
+		const infra = await startBusInfrastructure({
+			genomePath,
+			sessionId: "test-session-store",
+		});
+
+		expect(infra.store).toBeDefined();
+		await infra.cleanup();
+
+		// A shut-down store client rejects ops as infrastructure failures.
+		const { StoreUnavailableError } = await import("../../src/store/store-client.ts");
+		await expect(infra.store!.peek("root", "anything")).rejects.toThrow(StoreUnavailableError);
+	});
+
 	test("cleanup stops the authenticated channel server", async () => {
 		const genomePath = join(tempDir, "genome-auth-stop");
 		await mkdir(join(genomePath, ".git"), { recursive: true });

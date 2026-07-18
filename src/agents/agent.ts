@@ -34,6 +34,7 @@ import {
 	type RoutingRule,
 	type SessionEvent,
 } from "../kernel/types.ts";
+import { buildValuePrimitives } from "../kernel/value-primitives.ts";
 import type { LearnSink } from "../learn/learn-process.ts";
 import type { Client } from "../llm/client.ts";
 import { type RetryOptions, retryLLMCall } from "../llm/retry.ts";
@@ -278,6 +279,7 @@ export class Agent {
 	private renderedAgentMessages = new Set<{ from: AgentAddress; text: string }>();
 	private readonly callerPrimitivePrimitives: Primitive[] = [];
 	private workspaceToolPrimitives: Primitive[] = [];
+	private valuePrimitives: Primitive[] = [];
 	private workspaceToolDefinitions: ToolDefinition[] = [];
 	private compactionRequested = false;
 	private turnsSinceCompaction = Infinity;
@@ -337,6 +339,14 @@ export class Agent {
 		this.callerPrimitivePrimitives = this.captureCallerPrimitivePrimitives(
 			options.primitiveRegistry,
 		);
+		// Value-read primitives over the sap store (spec §1): available exactly
+		// when this process has caller-scoped store access via its spawner.
+		this.valuePrimitives = options.spawner?.storeAccess
+			? buildValuePrimitives(options.spawner.storeAccess)
+			: [];
+		for (const prim of this.valuePrimitives) {
+			this.primitiveRegistry.register(prim);
+		}
 		this.logger = (options.logger ?? new NullLogger()).child({
 			component: "agent",
 			agentId: this.agentId ?? this.spec.name,
@@ -577,6 +587,9 @@ export class Agent {
 			this.primitiveRegistry.register(prim);
 		}
 		for (const prim of this.workspaceToolPrimitives) {
+			this.primitiveRegistry.register(prim);
+		}
+		for (const prim of this.valuePrimitives) {
 			this.primitiveRegistry.register(prim);
 		}
 		this.refreshPrimitiveToolList();

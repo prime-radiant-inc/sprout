@@ -4,6 +4,7 @@ import type { ResolverSettings } from "../agents/model-resolver.ts";
 import type { HandleRegistrar } from "../host/handle-registrar.ts";
 import { hashToken, mintToken, type ObserverRemit } from "../host/handle-registry.ts";
 import type { LivenessProbe } from "../shared/liveness.ts";
+import type { StoreAccess } from "../store/store-access.ts";
 import { buildInternalSproutCommand } from "../util/self-command.ts";
 import { ulid } from "../util/ulid.ts";
 import type { BusClient } from "./client.ts";
@@ -75,6 +76,8 @@ export interface SpawnerAuthChannel {
 	 * agent's inactivity-timer suspension as its net during blocking waits.
 	 */
 	probe?: LivenessProbe;
+	/** Caller-scoped store surface (sap spec §1) for the value primitives. */
+	store?: StoreAccess;
 }
 
 export interface DeliverObserverFrameOptions {
@@ -544,6 +547,11 @@ export class AgentSpawner {
 	/** Liveness probe from the auth channel, if this spawner has one. */
 	get livenessProbe(): LivenessProbe | undefined {
 		return this.authChannel?.probe;
+	}
+
+	/** Caller-scoped store access from the auth channel, if this spawner has one. */
+	get storeAccess(): StoreAccess | undefined {
+		return this.authChannel?.store;
 	}
 
 	/**

@@ -33,6 +33,8 @@ export interface BusInfrastructure {
 		updateRuntimeClient(client: Client, resolverSettings: ResolverSettings | undefined): void;
 	};
 	genome: import("../genome/genome.ts").Genome;
+	/** Session store worker client (sap spec §1), when store wiring is active. */
+	store?: import("../store/store-client.ts").StoreWorkerClient;
 	cleanup: () => Promise<void>;
 }
 
@@ -63,6 +65,9 @@ export async function startBusInfrastructure(
 		makePingHandler,
 		PING_REQUEST,
 	} = await import("./liveness.ts");
+	const { StoreWorkerClient } = await import("../store/store-client.ts");
+	const { DirectStoreAccess } = await import("../store/store-access.ts");
+	const { registerStoreHandlers } = await import("./store-channel.ts");
 
 	const server = new BusServer({ port: 0, hostname: "127.0.0.1" });
 	const handleRegistry = new HandleRegistry({ trustedRegistrarId: TRUSTED_REGISTRAR_ID });
@@ -75,6 +80,13 @@ export async function startBusInfrastructure(
 	let genomeService: InstanceType<typeof GenomeMutationService> | null = null;
 	let spawner: InstanceType<typeof AgentSpawner> | null = null;
 	const genome = new Genome(options.genomePath, options.rootDir);
+	const rootScopeId = "root";
+	const storeBase = join(options.genomePath, "store", options.sessionId);
+	const store = new StoreWorkerClient({
+		journalPath: join(storeBase, "journal.jsonl"),
+		casRoot: join(storeBase, "cas"),
+		rootScopeId,
+	});
 
 	try {
 		await server.start();
@@ -82,6 +94,7 @@ export async function startBusInfrastructure(
 		authServer.onRequest(REGISTER_HANDLE_REQUEST, makeRegisterHandleHandler(handleRegistry));
 		authServer.onRequest(PING_REQUEST, makePingHandler(handleRegistry));
 		authServer.onRequest(LIVENESS_REQUEST, makeLivenessHandler(handleRegistry));
+		registerStoreHandlers(authServer, store, { rootScopeId });
 
 		bus = new BusClient(server.url);
 		await bus.connect();
@@ -110,6 +123,7 @@ export async function startBusInfrastructure(
 				url: authServer.url,
 				registrar: new HostHandleRegistrar(handleRegistry, TRUSTED_REGISTRAR_ID),
 				probe: new HostLivenessProbe(handleRegistry),
+				store: new DirectStoreAccess(store, rootScopeId),
 			},
 		);
 
@@ -119,6 +133,7 @@ export async function startBusInfrastructure(
 			if (bus) {
 				await bus.disconnect();
 			}
+			await store.shutdown();
 			await authServer.stop();
 			await server.stop();
 		};
@@ -131,6 +146,7 @@ export async function startBusInfrastructure(
 			handleRegistry,
 			genomeService,
 			genome,
+			store,
 			cleanup,
 		};
 	} catch (error) {
@@ -139,6 +155,7 @@ export async function startBusInfrastructure(
 		if (bus) {
 			await bus.disconnect().catch(() => {});
 		}
+		await store.shutdown().catch(() => {});
 		await authServer.stop().catch(() => {});
 		await server.stop().catch(() => {});
 		throw error;

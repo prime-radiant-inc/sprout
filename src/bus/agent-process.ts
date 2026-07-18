@@ -29,6 +29,7 @@ import { Client } from "../llm/client.ts";
 import { loggingMiddleware } from "../llm/logging-middleware.ts";
 import { ProviderRegistry, type ProviderRegistryEntry } from "../llm/provider-registry.ts";
 import type { ProviderAdapter } from "../llm/types.ts";
+import { ChannelStoreAccess } from "../store/store-access.ts";
 import { ensureProjectDirs } from "../util/project-id.ts";
 import { BusClient } from "./client.ts";
 import { BusLearnForwarder } from "./learn-forwarder.ts";
@@ -260,6 +261,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 				url: config.authChannel.url,
 				registrar: new ChannelHandleRegistrar(authClient),
 				probe: new ChannelLivenessProbe(authClient),
+				store: new ChannelStoreAccess(authClient),
 			};
 		}
 
