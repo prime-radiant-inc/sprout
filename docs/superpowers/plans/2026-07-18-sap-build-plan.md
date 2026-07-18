@@ -3,7 +3,7 @@
 **Date started:** 2026-07-18
 **Spec:** `../specs/2026-07-16-sap-data-plane-and-repl-design.md`
 **Review:** `../specs/2026-07-18-sap-state-of-the-art-review.md`
-**Status:** in progress — Phase 0 complete; Phase 1 started
+**Status:** in progress — Phases 0–2 complete (built + Fable-reviewed); Phase 3 (capture/splice/publish) next
 
 This is the working tracker for building sap. It records *what we're building, in what
 order, and where we deliberately simplified away from the maximal spec*. Update it as
@@ -73,7 +73,7 @@ Order and intent follow spec §12. "Simplification" notes what we changed and wh
     logic that first calls it. A pause nothing calls is dead code; the spec split it out for
     review isolation, which we don't need.
 
-### Phase 1 — Channel & auth  ← current
+### Phase 1 — Channel & auth  ✅ landed 2026-07-18
 Authenticated host endpoint, per-handle tokens, handle registration
 (duplicate/non-parent rejection), env filtering (token, endpoint URL, bus URL), liveness
 pings; **timer suspension for all blocking agent waits** (this is where the pausable timer
@@ -208,7 +208,7 @@ rollback, constant-time compare, token env filtering). Findings and dispositions
   authenticate over the channel; assert env injection + exec filtering hold.
 - **Phase 1 Fable review** runs when this integration lands (the whole phase as a unit).
 
-### Phase 2 — Store core  ← current
+### Phase 2 — Store core  ✅ landed 2026-07-18
 Store worker (op budgets, wedge restart), journal, CAS (staging-confined handoff, spill),
 disk/count quotas, name validation, previews + redaction, `value_bind` events, value-read
 primitives (truncation bypass), spawnerless local store. *Simplify memory/spill to the
@@ -264,7 +264,18 @@ Slices (test-first; 1–3 are pure/disjoint and fanned out to subagents in paral
     here. Emit a `value_bind` event on binds.
   - Reserved names for the store options: kernel primitive names from the registry +
     ambient API names (peek/grep/slice/get/parse/bind/publish/env) + "programs".
-- [ ] Phase 2 Fable review (whole phase as a unit).
+- [x] **Phase 2 Fable review — done; all findings fixed.** No criticals. Majors fixed
+  (`9167e45` + `a29f5d9`): grep's clean-failure budget tier was dead code (microtask
+  yield; now macrotask + 8s wall-clock op budget under the client's 10s wedge net);
+  restart-counter unfairness (culprit-attributed now); CAS adoption TOCTOU (O_NOFOLLOW
+  fd-based read, producer paths never renamed in); unbounded slice/grep output + channel
+  accepting Infinity (engine output budgets, {matches, truncated}, strict int narrowing);
+  unstated 16MB WebSocket cap (explicit 8MB + client oversize-bind guard); engine
+  concurrency unsafety (internal mutex — worker serialization was silently masking it).
+  Minors fixed: inline utf8 live/resume divergence, unredacted error paths, spawn-failure
+  handling, inlineLimitBytes resume brick, two-round-trip channel get, CRLF addressing,
+  stdin line cap. Confirmed solid: naming/collision rules, journal parsing + torn-tail
+  replay, ulid-idempotent binds, provenance forcing, sha gating, scope-from-connection.
 
 ### Phase 3 — Capture & publish
 Structured-result methods on `ExecutionEnvironment` (raw bytes; stdout/stderr split;
