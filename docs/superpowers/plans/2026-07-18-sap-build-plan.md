@@ -208,11 +208,33 @@ rollback, constant-time compare, token env filtering). Findings and dispositions
   authenticate over the channel; assert env injection + exec filtering hold.
 - **Phase 1 Fable review** runs when this integration lands (the whole phase as a unit).
 
-### Phase 2 — Store core
+### Phase 2 — Store core  ← current
 Store worker (op budgets, wedge restart), journal, CAS (staging-confined handoff, spill),
 disk/count quotas, name validation, previews + redaction, `value_bind` events, value-read
 primitives (truncation bypass), spawnerless local store. *Simplify memory/spill to the
 smallest correct LRU; no premature tiering.*
+
+Slices (test-first; 1–3 are pure/disjoint and fanned out to subagents in parallel;
+4+ built on top after review):
+- [ ] `src/store/value.ts` — pure value model: types (text/json/bytes), metadata shape,
+  name validation (charset `[a-z0-9_]`, max 64, no leading digit, reserved list),
+  deterministic previews (~300 chars: type/size/line count/head-tail; JSON top-level
+  shape under a 10 MB parse budget, else `json (unparsed)` head/tail fallback).
+- [ ] `src/store/cas.ts` — content-addressed store: sha256 naming, dedup, put/get/has,
+  staging-confined adoption (realpath-canonicalized, symlinks rejected, size checked
+  against max-value before adoption), byte accounting for the disk quota.
+- [ ] `src/store/journal.ts` — append-only JSONL journal: bind (inline < 64 KB or CAS
+  ref), scope, publish, manifest-delivery, grant, cell records; replay reads metadata
+  only and tolerates a trailing partial line (crash mid-append).
+- [ ] Store engine on top: bind/rebind versioning + collision rules (auto-bind suffix,
+  cross-origin fail-loud), value ops (peek/slice/grep/get/parse) with budgets, chunked
+  line-bounded grep with abort checks, smallest-correct LRU memory budget with spill to
+  CAS, disk/count quotas → explicit store-full error.
+- [ ] Store worker subprocess + authenticated-channel ops + timeout/restart-reload +
+  transparent idempotent retries (infrastructure-tagged failures, no stumble).
+- [ ] Value-read primitives + `value_bind` events + above-the-line redaction
+  (`redactSensitiveTranscriptContent`); spawnerless local store fallback.
+- [ ] Phase 2 Fable review (whole phase as a unit).
 
 ### Phase 3 — Capture & publish
 Structured-result methods on `ExecutionEnvironment` (raw bytes; stdout/stderr split;

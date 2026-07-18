@@ -197,10 +197,14 @@ grandchild spawn path — the host rejects duplicate registrations and registrat
 from any identity other than the verified parent, else an authenticated agent
 could re-register another agent's handle and capture its identity — with one
 carve-out: **the verified parent of a handle may re-register it with a fresh
-token** when the handle has no live connection, which is how respawn and
-owner-resume re-establish identity: tokens are never journaled, so a resumed
-parent cannot redeliver the original token and must mint anew; a handle with an
-active authenticated connection can be re-registered by no one), store ops,
+token**, which is how respawn and owner-resume re-establish identity: tokens are
+never journaled, so a resumed parent cannot redeliver the original token and must
+mint anew. Re-registration replaces the token hash — voiding the prior process's
+credentials immediately — and clears any live flag: the owner re-registers only
+when it observed the child's process die, and the socket-close event that
+normally clears liveness can lag that death, so the owner's word must not lose
+the race to it. A different owner can capture a handle under no
+circumstances), store ops,
 capture uploads, publish records, **manifest fetch** (§2), env-grant registration
 (§3), cell submission and results, cell spawn requests and responses (§4),
 liveness pings (§4), and blocking-wait registration (§4). **This channel and
