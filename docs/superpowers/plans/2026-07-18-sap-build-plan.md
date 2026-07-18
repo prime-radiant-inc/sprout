@@ -235,7 +235,13 @@ Slices (test-first; 1–3 are pure/disjoint and fanned out to subagents in paral
   re-issue (binds dedup by client-minted ulid — engine change), `StoreUnavailableError`
   with `.infrastructure === true` after retries exhaust, `--internal-store-worker`
   subcommand, real-subprocess integration test.
-- [ ] **Store host wiring + value-read primitives — the remaining integration slice.**
+- [x] **Store host wiring + value-read primitives — landed.** StoreAccess (caller-scoped,
+  no scope params; Direct/Channel impls riding the spawner authChannel like the liveness
+  probe); host handlers derive scope from the verified connection (scope id = handleId,
+  lazily created; provenance forced); per-session StoreWorkerClient in
+  startBusInfrastructure; value_peek/grep/slice/get primitives with redaction and a 50k
+  value_get budget. value_bind events + bind: capture args deferred to Phase 3 (capture)
+  where binds first happen. Original scoping notes follow (historical):
   Resume notes (enough to pick up cold):
   - Host: start a per-session `StoreWorkerClient` in `startBusInfrastructure`
     (journal/cas under the session's durable log dir beside handle logs; rootScopeId =
