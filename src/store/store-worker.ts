@@ -45,7 +45,8 @@ export type StoreWorkerRequest =
 			lineCount: number;
 			maxBytes?: number;
 	  }
-	| { id: string; op: "grep"; scopeId: string; ref: string; pattern: string; maxResults?: number };
+	| { id: string; op: "grep"; scopeId: string; ref: string; pattern: string; maxResults?: number }
+	| { id: string; op: "publish"; scopeId: string; ref: string };
 
 export type StoreWorkerResponse =
 	| { id: string; ok: true; result: unknown }
@@ -185,6 +186,9 @@ async function dispatch(store: SapStore, request: StoreWorkerRequest): Promise<u
 			return store.grep(request.scopeId, request.ref, request.pattern, {
 				maxResults: request.maxResults,
 			});
+		case "publish":
+			await store.publish(request.scopeId, request.ref);
+			return null;
 		default:
 			throw new Error(`unknown op: ${JSON.stringify((request as { op?: unknown }).op)}`);
 	}

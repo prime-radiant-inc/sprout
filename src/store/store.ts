@@ -121,6 +121,8 @@ export class SapStore {
 	private readonly options: SapStoreOptions;
 	private readonly scopes = new Map<string, ScopeState>();
 	private readonly values = new Map<string, ValueEntry>();
+	/** Last publish seq per handle, rebuilt from publish records on resume. */
+	private readonly publishSeqs = new Map<string, number>();
 	/** Memory LRU over bodies: Map insertion order is recency order. */
 	private readonly hotBodies = new Map<string, Uint8Array>();
 	private hotBytes = 0;
@@ -184,8 +186,13 @@ export class SapStore {
 					ulid: record.ulid,
 				});
 				scope.valueCount++;
+			} else if (record.kind === "publish") {
+				store.publishSeqs.set(
+					record.handle,
+					Math.max(store.publishSeqs.get(record.handle) ?? 0, record.seq),
+				);
 			}
-			// publish/manifest_delivery/grant/cell records are later slices' state.
+			// manifest_delivery/grant/cell records are later slices' state.
 		}
 		return store;
 	}
@@ -303,6 +310,26 @@ export class SapStore {
 		scope.valueCount++;
 		this.cacheBody(metadata.ulid, bytes);
 		return metadata;
+	}
+
+	/**
+	 * Mark a bound value for the scope's result manifest (sap spec §2 Publish).
+	 * Appends a journal publish record with the next per-handle sequence — a
+	 * scope's id IS its handle id. Manifest delivery (cursors, delta fetch) is a
+	 * later slice; this is only the durable publish-record path.
+	 */
+	async publish(scopeId: string, ref: string): Promise<void> {
+		return this.serialize(async () => {
+			const entry = this.resolve(scopeId, ref);
+			const seq = (this.publishSeqs.get(scopeId) ?? 0) + 1;
+			await this.journal.append({
+				kind: "publish",
+				handle: scopeId,
+				ulids: [entry.metadata.ulid],
+				seq,
+			});
+			this.publishSeqs.set(scopeId, seq);
+		});
 	}
 
 	/** The stored bind-time preview, never re-computed. */

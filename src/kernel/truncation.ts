@@ -31,14 +31,35 @@ const DEFAULT_MODES: Record<string, TruncationMode> = {
 	fetch: "head_tail",
 };
 
+/** One truncation pass's outcome: the text plus what was dropped. */
+interface PassResult {
+	text: string;
+	dropped: boolean;
+	droppedLines: number;
+	droppedChars: number;
+}
+
+function countLines(text: string): number {
+	return text.split("\n").length;
+}
+
 /**
  * Character-based truncation with head/tail split.
  * This is the primary safeguard — handles all cases including pathological
  * single-line inputs (e.g., 10MB CSV).
  */
 export function truncateOutput(output: string, maxChars: number, mode: TruncationMode): string {
+	return truncateOutputDetailed(output, maxChars, mode).text;
+}
+
+function truncateOutputDetailed(
+	output: string,
+	maxChars: number,
+	mode: TruncationMode,
+	marker?: string,
+): PassResult {
 	if (output.length <= maxChars) {
-		return output;
+		return { text: output, dropped: false, droppedLines: 0, droppedChars: 0 };
 	}
 
 	const removed = output.length - maxChars;
@@ -47,24 +68,35 @@ export function truncateOutput(output: string, maxChars: number, mode: Truncatio
 		const half = Math.floor(maxChars / 2);
 		const head = output.slice(0, half);
 		const tail = output.slice(-half);
-		return (
-			`${head}\n\n` +
+		const banner =
+			marker ??
 			`[WARNING: Tool output was truncated. ` +
-			`${removed} characters were removed from the middle. ` +
-			`The full output is available in the event stream. ` +
-			`If you need to see specific parts, re-run the tool with more targeted parameters.]\n\n` +
-			tail
-		);
+				`${removed} characters were removed from the middle. ` +
+				`The full output is available in the event stream. ` +
+				`If you need to see specific parts, re-run the tool with more targeted parameters.]`;
+		return {
+			text: `${head}\n\n${banner}\n\n${tail}`,
+			dropped: true,
+			// The head's last and the tail's first line are cut mid-line, so
+			// wholly-dropped lines can bottom out at 0 for single-line inputs.
+			droppedLines: Math.max(0, countLines(output) - countLines(head) - countLines(tail)),
+			droppedChars: removed,
+		};
 	}
 
 	// tail mode: keep the end
 	const tail = output.slice(-maxChars);
-	return (
+	const banner =
+		marker ??
 		`[WARNING: Tool output was truncated. First ` +
-		`${removed} characters were removed. ` +
-		`The full output is available in the event stream.]\n\n` +
-		tail
-	);
+			`${removed} characters were removed. ` +
+			`The full output is available in the event stream.]`;
+	return {
+		text: `${banner}\n\n${tail}`,
+		dropped: true,
+		droppedLines: Math.max(0, countLines(output) - countLines(tail)),
+		droppedChars: removed,
+	};
 }
 
 /**
@@ -72,9 +104,13 @@ export function truncateOutput(output: string, maxChars: number, mode: Truncatio
  * Secondary readability pass — runs AFTER character truncation.
  */
 export function truncateLines(output: string, maxLines: number): string {
+	return truncateLinesDetailed(output, maxLines).text;
+}
+
+function truncateLinesDetailed(output: string, maxLines: number, marker?: string): PassResult {
 	const lines = output.split("\n");
 	if (lines.length <= maxLines) {
-		return output;
+		return { text: output, dropped: false, droppedLines: 0, droppedChars: 0 };
 	}
 
 	const headCount = Math.floor(maxLines / 2);
@@ -83,13 +119,29 @@ export function truncateLines(output: string, maxLines: number): string {
 
 	const head = lines.slice(0, headCount).join("\n");
 	const tail = lines.slice(-tailCount).join("\n");
-	return `${head}\n[... ${omitted} lines omitted ...]\n${tail}`;
+	const banner = marker ?? `[... ${omitted} lines omitted ...]`;
+	return {
+		text: `${head}\n${banner}\n${tail}`,
+		dropped: true,
+		droppedLines: omitted,
+		droppedChars: output.length - head.length - tail.length,
+	};
 }
 
 export interface TruncationOverrides {
 	charLimit?: number;
 	lineLimit?: number;
 	mode?: TruncationMode;
+}
+
+/** What the full pipeline dropped — capture's auto-bind decision keys on this. */
+export interface TruncationDetail {
+	text: string;
+	truncated: boolean;
+	/** Whole lines dropped across both passes (0 for mid-line char cuts). */
+	droppedLines: number;
+	/** Characters removed by the char pass (0 when only the line pass trips). */
+	droppedChars: number;
 }
 
 /**
@@ -102,17 +154,37 @@ export function truncateToolOutput(
 	toolName: string,
 	overrides?: TruncationOverrides,
 ): string {
+	return truncateToolOutputDetailed(output, toolName, overrides).text;
+}
+
+/**
+ * The pipeline with its losses reported, and an optional custom marker that
+ * replaces the default banner/omission text in whichever pass trips — the
+ * auto-capture path uses it to point at the bound full-output value.
+ */
+export function truncateToolOutputDetailed(
+	output: string,
+	toolName: string,
+	overrides?: TruncationOverrides,
+	marker?: string,
+): TruncationDetail {
 	const charLimit = overrides?.charLimit ?? DEFAULT_CHAR_LIMITS[toolName] ?? 30_000;
 	const mode = overrides?.mode ?? DEFAULT_MODES[toolName] ?? "head_tail";
 
 	// Step 1: Character-based truncation (always runs)
-	let result = truncateOutput(output, charLimit, mode);
+	const charPass = truncateOutputDetailed(output, charLimit, mode, marker);
+	let text = charPass.text;
+	let truncated = charPass.dropped;
+	let droppedLines = charPass.droppedLines;
 
 	// Step 2: Line-based truncation (if configured for this tool)
 	const lineLimit = overrides?.lineLimit ?? DEFAULT_LINE_LIMITS[toolName];
 	if (lineLimit !== undefined) {
-		result = truncateLines(result, lineLimit);
+		const linePass = truncateLinesDetailed(text, lineLimit, marker);
+		text = linePass.text;
+		truncated = truncated || linePass.dropped;
+		droppedLines += linePass.droppedLines;
 	}
 
-	return result;
+	return { text, truncated, droppedLines, droppedChars: charPass.droppedChars };
 }

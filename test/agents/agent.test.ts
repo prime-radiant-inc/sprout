@@ -7441,6 +7441,44 @@ describe("$ref splicing in primitive arguments", () => {
 		}
 	}, 15_000);
 
+	test("an exec call with bind: captures raw stdout into the store end-to-end", async () => {
+		const bound: Array<{ name: string; content: string }> = [];
+		const spawner = {
+			storeAccess: {
+				async names() {
+					return bound.map((b) => b.name).sort();
+				},
+				async bind(args: { name: string; content: string; type: string }) {
+					bound.push({ name: args.name, content: args.content as string });
+					return {
+						ulid: `ulid_${bound.length}`,
+						name: args.name,
+						scopeId: "s",
+						type: args.type,
+						size: (args.content as string).length,
+						provenance: { agentHandleId: "a", origin: { kind: "primitive", name: "exec" } },
+						preview: `text · ${(args.content as string).length} bytes`,
+					};
+				},
+				async publish() {},
+			},
+			getHandle: () => undefined,
+		} as unknown as AgentSpawner;
+		const client = toolCallClient("exec", { command: "printf 'captured stdout'", bind: "log" });
+		const { dir, events } = await runWith(client, spawner);
+		try {
+			expect(bound).toEqual([{ name: "log", content: "captured stdout" }]);
+			const end = events
+				.collected()
+				.find((e) => e.kind === "primitive_end" && e.data.name === "exec");
+			expect(end?.data.success).toBe(true);
+			expect(String(end?.data.output)).toContain("bound: ⟦log⟧");
+			expect(end?.data.bound_values).toEqual([{ name: "log", ulid: "ulid_1", size: 15 }]);
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	}, 15_000);
+
 	test("without a store, ref-shaped content passes through untouched (no regression)", async () => {
 		const client = toolCallClient("write_file", { path: "out.txt", content: "⟦impl⟧" });
 		const { dir } = await runWith(client, {

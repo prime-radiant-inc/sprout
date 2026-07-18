@@ -12,6 +12,7 @@ import {
 } from "../genome/memory-write-authorization.ts";
 import { type RecallOptions, recall } from "../genome/recall.ts";
 import { extractMemoryReferences } from "../genome/render-memory-block.ts";
+import { CAPTURE_PRIMITIVE_NAMES, withCapture } from "../kernel/capture.ts";
 import type { ExecutionEnvironment } from "../kernel/execution-env.ts";
 import { checkPathConstraint, validateConstraints } from "../kernel/path-constraints.js";
 import {
@@ -352,6 +353,17 @@ export class Agent {
 			: [];
 		for (const prim of this.valuePrimitives) {
 			this.primitiveRegistry.register(prim);
+		}
+		// Capture (sap spec §2): wrap the capture-capable primitives with
+		// bind/publish handling over the same store, and enable auto-capture of
+		// lossily-truncated output in the registry.
+		if (options.spawner?.storeAccess) {
+			const storeAccess = options.spawner.storeAccess;
+			for (const name of CAPTURE_PRIMITIVE_NAMES) {
+				const prim = this.primitiveRegistry.get(name);
+				if (prim) this.primitiveRegistry.register(withCapture(prim, storeAccess));
+			}
+			this.primitiveRegistry.setCaptureStore?.(storeAccess);
 		}
 		this.logger = (options.logger ?? new NullLogger()).child({
 			component: "agent",
@@ -2433,6 +2445,7 @@ export class Agent {
 				output: result.output,
 				error: result.error,
 				tool_result_message: toolResultMsg,
+				...(result.boundValues ? { bound_values: result.boundValues } : {}),
 			});
 
 			if (stumbled) {

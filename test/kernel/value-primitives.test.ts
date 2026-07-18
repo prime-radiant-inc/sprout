@@ -47,6 +47,9 @@ function fakeStore(values: Record<string, string>): StoreAccess {
 		async names() {
 			return Object.keys(values).sort();
 		},
+		async publish() {
+			throw new Error("publish is not exercised by value primitives");
+		},
 	};
 }
 

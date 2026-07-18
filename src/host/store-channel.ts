@@ -15,6 +15,7 @@ import {
 	STORE_METADATA_REQUEST,
 	STORE_NAMES_REQUEST,
 	STORE_PEEK_REQUEST,
+	STORE_PUBLISH_REQUEST,
 	STORE_SLICE_REQUEST,
 } from "../store/store-access.ts";
 import type { StoreWorkerClient } from "../store/store-client.ts";
@@ -113,6 +114,14 @@ export function registerStoreHandlers(
 		return storeClient.grep(await ensureScope(ctx.handleId), ref, fields.pattern, {
 			...(maxResults !== undefined ? { maxResults } : {}),
 		});
+	});
+
+	authServer.onRequest(STORE_PUBLISH_REQUEST, async (ctx, payload) => {
+		const ref = parseRef(payload, STORE_PUBLISH_REQUEST);
+		// The publisher identity is the connection's: a caller can only publish
+		// from its own scope, and the record's handle IS that scope id.
+		await storeClient.publish(await ensureScope(ctx.handleId), ref);
+		return null;
 	});
 
 	authServer.onRequest(STORE_NAMES_REQUEST, async (ctx) => {

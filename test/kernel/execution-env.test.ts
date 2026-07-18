@@ -213,3 +213,43 @@ describe("LocalExecutionEnvironment", () => {
 		expect(files).toEqual([]);
 	});
 });
+
+describe("structured-result surface (capture sources)", () => {
+	let tempDir: string;
+	let env: LocalExecutionEnvironment;
+
+	beforeAll(async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "sprout-env-raw-"));
+		env = new LocalExecutionEnvironment(tempDir);
+		await env.write_file("raw.txt", "alpha\nbeta\ngamma\ndelta");
+		await env.write_file("colons.txt", "key: a:b:c");
+	});
+
+	afterAll(async () => {
+		await rm(tempDir, { recursive: true, force: true });
+	});
+
+	test("read_file_raw returns exactly the bytes read, no line numbers", async () => {
+		expect(await env.read_file_raw("raw.txt")).toBe("alpha\nbeta\ngamma\ndelta");
+	});
+
+	test("read_file_raw honors the offset/limit slice", async () => {
+		expect(await env.read_file_raw("raw.txt", { offset: 2, limit: 2 })).toBe("beta\ngamma");
+	});
+
+	test("read_file still renders line numbers from the same slice", async () => {
+		expect(await env.read_file("raw.txt", { offset: 2, limit: 2 })).toBe("2\tbeta\n3\tgamma");
+	});
+
+	test("grep_structured parses path:line:text, splitting on the first two colons only", async () => {
+		const matches = await env.grep_structured("key:", tempDir);
+		expect(matches).toHaveLength(1);
+		expect(matches[0]?.path).toContain("colons.txt");
+		expect(matches[0]?.line).toBe(1);
+		expect(matches[0]?.text).toBe("key: a:b:c");
+	});
+
+	test("grep_structured returns [] on no matches", async () => {
+		expect(await env.grep_structured("zzz_never_matches", tempDir)).toEqual([]);
+	});
+});

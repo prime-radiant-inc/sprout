@@ -103,6 +103,24 @@ describe("store access", () => {
 			await client.shutdown();
 		});
 
+		it("publishes with its fixed scope as the handle", async () => {
+			const client = makeClient();
+			const access: StoreAccess = new DirectStoreAccess(client, ROOT_SCOPE);
+			const meta = await access.bind({
+				name: "report",
+				content: "the report",
+				type: "text",
+				provenance: prov("root"),
+				explicit: true,
+			});
+			await access.publish(meta.ulid);
+			const publishes = (await journal.replay()).filter((r) => r.kind === "publish");
+			expect(publishes).toEqual([
+				{ kind: "publish", handle: ROOT_SCOPE, ulids: [meta.ulid], seq: 1 },
+			]);
+			await client.shutdown();
+		});
+
 		it("roundtrips binary content", async () => {
 			const client = makeClient();
 			const access = new DirectStoreAccess(client, ROOT_SCOPE);
@@ -178,6 +196,23 @@ describe("store access", () => {
 				matches: [{ line: 2, text: "beta" }],
 				truncated: false,
 			});
+		});
+
+		it("publishes over the channel; the publisher identity is the connection's handle", async () => {
+			const client = await connectAgent("agent_pub");
+			const access: StoreAccess = new ChannelStoreAccess(client);
+			const meta = await access.bind({
+				name: "report",
+				content: "the report",
+				type: "text",
+				provenance: prov("agent_pub"),
+				explicit: true,
+			});
+			await access.publish("report");
+			const publishes = (await journal.replay()).filter((r) => r.kind === "publish");
+			expect(publishes).toEqual([
+				{ kind: "publish", handle: "agent_pub", ulids: [meta.ulid], seq: 1 },
+			]);
 		});
 
 		it("roundtrips binary content over the channel", async () => {

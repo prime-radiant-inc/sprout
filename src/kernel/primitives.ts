@@ -4,8 +4,9 @@ import type { Genome } from "../genome/genome.ts";
 import { buildReadMemoryPrimitives, buildWriteMemoryPrimitives } from "../genome/memory-tools.ts";
 import type { MemoryWriteAuthorization } from "../genome/memory-write-authorization.ts";
 import { getToolDisplayName } from "../shared/tool-display.ts";
-import type { ExecutionEnvironment } from "./execution-env.ts";
-import { truncateToolOutput } from "./truncation.ts";
+import type { StoreAccess } from "../store/store-access.ts";
+import type { ExecResult, ExecutionEnvironment } from "./execution-env.ts";
+import { truncateToolOutputDetailed } from "./truncation.ts";
 import type { PrimitiveResult } from "./types.ts";
 
 const READ_FILE_LINE_PREFIX_NOTE =
@@ -34,6 +35,8 @@ export interface PrimitiveRegistry {
 	names(): string[];
 	get(name: string): Primitive | undefined;
 	register(prim: Primitive): void;
+	/** Enable auto-capture of lossily-truncated output into this store. */
+	setCaptureStore?(store: StoreAccess): void;
 	execute(
 		name: string,
 		args: Record<string, unknown>,
@@ -51,6 +54,7 @@ export function createPrimitiveRegistry(
 	options?: PrimitiveRegistryOptions,
 ): PrimitiveRegistry {
 	const primitives = new Map<string, Primitive>();
+	let captureStore: StoreAccess | undefined;
 
 	for (const prim of buildPrimitives(env)) {
 		primitives.set(prim.name, prim);
@@ -69,6 +73,9 @@ export function createPrimitiveRegistry(
 		names: () => [...primitives.keys()],
 		get: (name) => primitives.get(name),
 		register: (prim) => primitives.set(prim.name, prim),
+		setCaptureStore: (store) => {
+			captureStore = store;
+		},
 		execute: async (name, args, signal?) => {
 			const prim = primitives.get(name);
 			if (!prim) {
@@ -76,10 +83,48 @@ export function createPrimitiveRegistry(
 			}
 			const result = await prim.execute(args, env, signal);
 			// Truncate output for LLM consumption
-			return {
-				...result,
-				output: truncateToolOutput(result.output, name),
-			};
+			const detailed = truncateToolOutputDetailed(result.output, name);
+			// Auto-capture on lossy truncation (sap spec §2): the full output
+			// auto-binds and the marker names the value. Value-read primitives
+			// are excluded — their output already comes from the store.
+			if (!detailed.truncated || captureStore === undefined || name.startsWith("value_")) {
+				return { ...result, output: detailed.text };
+			}
+			const dropped =
+				detailed.droppedLines > 0
+					? `${detailed.droppedLines} lines`
+					: `${detailed.droppedChars} chars`;
+			try {
+				const metadata = await captureStore.bind({
+					name: `${name}_output`,
+					content: result.output,
+					type: "text",
+					// The channel forces agentHandleId to the connection's verified
+					// identity; a direct-scope holder is the scope's owner.
+					provenance: { agentHandleId: "", origin: { kind: "primitive", name } },
+					explicit: false,
+				});
+				const marker = `[... ${dropped} truncated — full output: ⟦${metadata.name}⟧]`;
+				return {
+					...result,
+					output: truncateToolOutputDetailed(result.output, name, undefined, marker).text,
+					boundValues: [
+						...(result.boundValues ?? []),
+						{ name: metadata.name, ulid: metadata.ulid, size: metadata.size },
+					],
+				};
+			} catch (err) {
+				// Store-full degrades to lossy-but-honest — never a marker naming
+				// a value that does not exist.
+				const reason = err instanceof Error ? err.message : String(err);
+				const marker = reason.includes("store full")
+					? `[... ${dropped} truncated; store full — content not captured]`
+					: `[... ${dropped} truncated; capture failed — content not captured]`;
+				return {
+					...result,
+					output: truncateToolOutputDetailed(result.output, name, undefined, marker).text,
+				};
+			}
 		},
 	};
 }
@@ -461,6 +506,35 @@ function findMatchPosition(fileLines: string[], searchLines: string[]): number {
 // exec
 // ---------------------------------------------------------------------------
 
+/**
+ * Render an ExecResult as exec's tool output. The single rendering
+ * implementation — the plain primitive and the capture wrapper share it.
+ */
+export function renderExecResult(result: ExecResult): string {
+	return [
+		result.stdout,
+		result.stderr ? `[stderr]\n${result.stderr}` : "",
+		`exit_code: ${result.exit_code}`,
+		`duration_ms: ${result.duration_ms}`,
+		result.timed_out ? "[TIMED OUT]" : "",
+	]
+		.filter(Boolean)
+		.join("\n");
+}
+
+/** Success/error judgment for an ExecResult, shared with the capture wrapper. */
+export function execResultStatus(result: ExecResult): { success: boolean; error?: string } {
+	return {
+		success: result.exit_code === 0 && !result.timed_out,
+		error:
+			result.exit_code !== 0
+				? `Command exited with code ${result.exit_code}`
+				: result.timed_out
+					? "Command timed out"
+					: undefined,
+	};
+}
+
 function execPrimitive(): Primitive {
 	return {
 		name: "exec",
@@ -484,26 +558,7 @@ function execPrimitive(): Primitive {
 					signal,
 				});
 
-				const output = [
-					result.stdout,
-					result.stderr ? `[stderr]\n${result.stderr}` : "",
-					`exit_code: ${result.exit_code}`,
-					`duration_ms: ${result.duration_ms}`,
-					result.timed_out ? "[TIMED OUT]" : "",
-				]
-					.filter(Boolean)
-					.join("\n");
-
-				return {
-					output,
-					success: result.exit_code === 0 && !result.timed_out,
-					error:
-						result.exit_code !== 0
-							? `Command exited with code ${result.exit_code}`
-							: result.timed_out
-								? "Command timed out"
-								: undefined,
-				};
+				return { output: renderExecResult(result), ...execResultStatus(result) };
 			} catch (err) {
 				return { output: "", success: false, error: String(err) };
 			}
@@ -576,6 +631,41 @@ function globPrimitive(): Primitive {
 // fetch
 // ---------------------------------------------------------------------------
 
+/** One fetch's structured outcome: capture binds the raw body from this. */
+export interface FetchOutcome {
+	status: number;
+	statusText: string;
+	ok: boolean;
+	headers: Record<string, string>;
+	body: string;
+}
+
+/** Perform the fetch primitive's request once, structurally. */
+export async function performFetch(args: Record<string, unknown>): Promise<FetchOutcome> {
+	const response = await fetch(args.url as string, {
+		method: (args.method as string) ?? "GET",
+		headers: args.headers as Record<string, string> | undefined,
+		body: args.body as string | undefined,
+	});
+	return {
+		status: response.status,
+		statusText: response.statusText,
+		ok: response.ok,
+		headers: Object.fromEntries(response.headers.entries()),
+		body: await response.text(),
+	};
+}
+
+/** Render a FetchOutcome as fetch's tool output (shared with capture). */
+export function renderFetchResponse(outcome: FetchOutcome): string {
+	return [
+		`status: ${outcome.status}`,
+		`headers: ${JSON.stringify(outcome.headers)}`,
+		"",
+		outcome.body,
+	].join("\n");
+}
+
 function fetchPrimitive(): Primitive {
 	return {
 		name: "fetch",
@@ -597,23 +687,11 @@ function fetchPrimitive(): Primitive {
 		},
 		async execute(args, _env) {
 			try {
-				const response = await fetch(args.url as string, {
-					method: (args.method as string) ?? "GET",
-					headers: args.headers as Record<string, string> | undefined,
-					body: args.body as string | undefined,
-				});
-				const body = await response.text();
-				const output = [
-					`status: ${response.status}`,
-					`headers: ${JSON.stringify(Object.fromEntries(response.headers.entries()))}`,
-					"",
-					body,
-				].join("\n");
-
+				const outcome = await performFetch(args);
 				return {
-					output,
-					success: response.ok,
-					error: response.ok ? undefined : `HTTP ${response.status}: ${response.statusText}`,
+					output: renderFetchResponse(outcome),
+					success: outcome.ok,
+					error: outcome.ok ? undefined : `HTTP ${outcome.status}: ${outcome.statusText}`,
 				};
 			} catch (err) {
 				return { output: "", success: false, error: String(err) };

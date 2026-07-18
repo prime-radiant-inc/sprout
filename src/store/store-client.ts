@@ -160,6 +160,10 @@ export class StoreWorkerClient {
 		return (await this.issue(request)) as GrepResult;
 	}
 
+	async publish(scopeId: string, ref: string): Promise<void> {
+		await this.issue({ id: ulid(), op: "publish", scopeId, ref });
+	}
+
 	/** Kill the worker and reject everything in flight as infrastructure. */
 	async shutdown(): Promise<void> {
 		this.closed = true;

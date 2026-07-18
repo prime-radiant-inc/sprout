@@ -989,4 +989,72 @@ describe("SapStore", () => {
 			expect(binds).toHaveLength(1);
 		});
 	});
+
+	describe("publish", () => {
+		async function bindNamed(store: SapStore, name: string) {
+			return store.bind({
+				scopeId: ROOT_SCOPE,
+				name,
+				content: `content of ${name}`,
+				type: "text",
+				provenance: prov(),
+				explicit: true,
+			});
+		}
+
+		it("appends a publish record with the resolved ulid and a per-handle seq", async () => {
+			const store = makeStore();
+			const a = await bindNamed(store, "a");
+			const b = await bindNamed(store, "b");
+			await store.publish(ROOT_SCOPE, "a");
+			await store.publish(ROOT_SCOPE, b.ulid);
+			const publishes = (await journal.replay()).filter((r) => r.kind === "publish");
+			expect(publishes).toEqual([
+				{ kind: "publish", handle: ROOT_SCOPE, ulids: [a.ulid], seq: 1 },
+				{ kind: "publish", handle: ROOT_SCOPE, ulids: [b.ulid], seq: 2 },
+			]);
+		});
+
+		it("publishing an unknown ref throws and journals nothing", async () => {
+			const store = makeStore();
+			await expect(store.publish(ROOT_SCOPE, "missing")).rejects.toThrow("unknown value");
+			expect((await journal.replay()).filter((r) => r.kind === "publish")).toHaveLength(0);
+		});
+
+		it("seqs are per handle", async () => {
+			const store = makeStore();
+			await store.createScope({
+				scopeId: "scope_child",
+				ownerHandleId: "agent_b",
+				parentScopeId: ROOT_SCOPE,
+			});
+			await bindNamed(store, "a");
+			const child = await store.bind({
+				scopeId: "scope_child",
+				name: "c",
+				content: "child value",
+				type: "text",
+				provenance: prov("agent_b"),
+				explicit: true,
+			});
+			await store.publish(ROOT_SCOPE, "a");
+			await store.publish("scope_child", child.ulid);
+			const publishes = (await journal.replay()).filter((r) => r.kind === "publish");
+			expect(publishes.map((p) => (p.kind === "publish" ? [p.handle, p.seq] : null))).toEqual([
+				[ROOT_SCOPE, 1],
+				["scope_child", 1],
+			]);
+		});
+
+		it("resume rebuilds the per-handle seq so publishing continues, never rewinds", async () => {
+			const store = makeStore();
+			const a = await bindNamed(store, "a");
+			await store.publish(ROOT_SCOPE, "a");
+			await store.publish(ROOT_SCOPE, "a");
+			const resumed = await SapStore.resume({ journal, cas, rootScopeId: ROOT_SCOPE });
+			await resumed.publish(ROOT_SCOPE, a.ulid);
+			const publishes = (await journal.replay()).filter((r) => r.kind === "publish");
+			expect(publishes.map((p) => (p.kind === "publish" ? p.seq : null))).toEqual([1, 2, 3]);
+		});
+	});
 });

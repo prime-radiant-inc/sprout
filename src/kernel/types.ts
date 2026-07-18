@@ -486,6 +486,8 @@ export interface PrimitiveResult {
 	output: string;
 	success: boolean;
 	error?: string;
+	/** Values this call bound into the sap store (capture, sap spec §2). */
+	boundValues?: Array<{ name: string; ulid: string; size: number }>;
 }
 
 export const EVENT_KINDS = [

@@ -128,6 +128,30 @@ describe("store worker", () => {
 			expect(responses[0]?.ok).toBe(false);
 		});
 
+		it("publishes a bound value, appending a journal publish record", async () => {
+			const responses = await run([
+				req({
+					id: "p1",
+					op: "bind",
+					scopeId: ROOT_SCOPE,
+					name: "report",
+					content: "the report",
+					encoding: "utf8",
+					type: "text",
+					provenance: prov,
+					explicit: true,
+				}),
+				req({ id: "p2", op: "publish", scopeId: ROOT_SCOPE, ref: "report" }),
+			]);
+			expect(responses).toHaveLength(2);
+			for (const r of responses) expect(r.ok).toBe(true);
+			const bindResult = (responses[0] as { result: { ulid: string } }).result;
+			const publishes = (await journal.replay()).filter((r) => r.kind === "publish");
+			expect(publishes).toEqual([
+				{ kind: "publish", handle: ROOT_SCOPE, ulids: [bindResult.ulid], seq: 1 },
+			]);
+		});
+
 		it("answers an unknown op with an error response", async () => {
 			const responses = await run([req({ id: "u1", op: "explode" })]);
 			expect(responses).toEqual([
