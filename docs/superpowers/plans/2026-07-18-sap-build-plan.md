@@ -407,7 +407,53 @@ Design decisions (fixed):
   observation surface that consumes it; shared-handle host resolution stays Phase 5;
   task_payload untouched (superseded, no migration).
 
-### Phase 5 — Evaluator
+### Phase 5 — Evaluator  ← current
+Design decisions (fixed; deviations from spec topology recorded):
+- **Cell workers are owned by the agent process, not the host.** Each agent process
+  lazily spawns ONE cell-worker subprocess (root's is owned by the host process — same
+  code). Rationale: spawn routing becomes an in-process parent call over stdio — a pipe
+  to your parent is unforgeable, so the spec's host-relay machinery (built to avoid the
+  open-bus forgery) is unnecessary; the owner-lease semantics (owner dies → worker
+  dies) fall out of ppid monitoring for free; credentials never leave the agent
+  process (the worker proxies store ops through the OWNER's StoreAccess — the worker
+  itself holds no token). The RSS watchdog runs in the agent process (250ms poll,
+  512MB default, SIGKILL).
+- **Stripped realm + lexical scan** (spec-frozen): cell source rejects any
+  import/require occurrence before execution; the worker's realm exposes ONLY the
+  ambient API + JS stdlib — no Bun, process, fs, fetch, require. v1 confused-deputy
+  bar, not a hard sandbox (per non-goals).
+- **Budget clock**: 5s wall-time default, not accruing while parked on ambient-API
+  awaits; anything else (sync loops, phantom promises) accrues. Cells serialized per
+  agent; spawn cap 64/cell; MAX_AGENT_DEPTH enforced by executeSpawnerDelegation.
+- **Spawn contract** per spec: resolves {ok, summary, bindings, handle} on completion
+  regardless of child success; rejects only on spawn-infrastructure failure. Delivered
+  via the typed outcome envelope refactor of executeSpawnerDelegation (spec deviation
+  #5); cell spawns skip mnemonics (#1), batch observer frames per cell (#2), mark act
+  events cell_spawn for replay exclusion (#3), dedup learn signals per cell (#4).
+  Infrastructure-tagged failures count zero stumbles.
+- **DEFERRED TOGETHER, coherently**: shared-handle host resolution AND deadlock
+  detection. Without cross-process shared-handle waits (which stay an explicit
+  "unsupported" error, as today), wait cycles are structurally impossible — a child
+  holds no handle on its parent, and private handles are local. The wait graph lands
+  when shared-handle resolution does. Recorded as the load-bearing pairing.
+- Cell results: stdout + final expression + new-bindings manifest (+ error detail with
+  in-scope names); everything above the line passes redaction + the auto-bind
+  threshold; cell completion emits a standard primitive_end (replay-safe) plus a
+  telemetry cell_end; cell records journal (redacted at write).
+- Dangling-call replay synthesis (both act modes) is IN scope: a pending tool_use with
+  no result at replay closes with a truthful synthesized error (recoverable vs
+  died_with_owner).
+
+Slices:
+- [ ] A: cell worker subprocess + stripped realm + lexical gate + ambient VALUE API
+  (no spawn) + budget clock + RSS watchdog + `cell` kernel tool + journaling +
+  redaction gate + primitive_end/cell_end.
+- [ ] B: spawn()/handle() ambient API + typed outcome envelope refactor + the five
+  cell-spawn deviations + stumble/learn accounting.
+- [ ] C: dangling-call replay synthesis (both act modes).
+- [ ] Phase 5 Fable review.
+
+#### Phase 5 (spec text, for reference)
 Per-agent cell workers, `cell` tool over the authenticated channel, ambient API (incl.
 `handle(id)`, `publish()`), cell-output redaction/budget gate, spawn routing (owner relay +
 root bridge) with the five cell-spawn deviations, stumble counting + learn dedup, budget
