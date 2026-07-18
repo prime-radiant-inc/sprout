@@ -58,6 +58,7 @@ import {
 	normalizeTaskPayload,
 } from "./delegation-payload.ts";
 import { AgentEventEmitter } from "./events.ts";
+import { createInactivityTimer } from "./inactivity-timer.ts";
 import type { AgentTreeEntry, Preambles } from "./loader.ts";
 import { findRootToolsDir, resolveRootToolsDir } from "./loader.ts";
 import { generateMnemonicName } from "./mnemonic.ts";
@@ -2299,19 +2300,18 @@ export class Agent {
 		let usedToolThisRun = false;
 
 		const timeoutMs = this.spec.constraints.timeout_ms;
-		let timeoutController: AbortController | undefined;
-		let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
+		const timeoutController: AbortController | undefined =
+			timeoutMs > 0 ? new AbortController() : undefined;
 
-		const resetInactivityTimer = () => {
-			if (timeoutMs <= 0) return;
-			clearTimeout(timeoutTimer);
-			timeoutTimer = setTimeout(() => timeoutController?.abort(), timeoutMs);
-		};
-
-		if (timeoutMs > 0) {
-			timeoutController = new AbortController();
-			resetInactivityTimer();
-		}
+		// Inactivity timeout: reset after planning and after each tool batch. Pausable so
+		// sap Phase 1 can suspend it during blocking waits on other agents; nothing pauses
+		// yet, so behavior matches the prior inline timer. reset()/clear() are no-ops when
+		// timeoutMs <= 0 (disabled), matching the old guard.
+		const inactivityTimer = createInactivityTimer({
+			timeoutMs,
+			onTimeout: () => timeoutController?.abort(),
+		});
+		inactivityTimer.reset();
 
 		// Combined signal: aborts if external signal OR inactivity timeout fires
 		const signals: AbortSignal[] = [];
@@ -2405,7 +2405,7 @@ export class Agent {
 					break;
 				}
 				const { response, assistantMessage, toolCalls } = planningResult;
-				resetInactivityTimer();
+				inactivityTimer.reset();
 				await this.trackMemoryMentions(assistantMessage);
 
 				// If response was truncated (hit max_tokens), tool calls are likely incomplete.
@@ -2485,7 +2485,7 @@ export class Agent {
 				if (toolExecution.output !== undefined) {
 					lastOutput = toolExecution.output;
 				}
-				resetInactivityTimer();
+				inactivityTimer.reset();
 
 				// Compact history if context usage exceeds threshold or manually requested
 				const compactionDecision = evaluateCompaction({
@@ -2548,7 +2548,7 @@ export class Agent {
 			await this.replayRecorder?.flush();
 			throw err;
 		} finally {
-			clearTimeout(timeoutTimer);
+			inactivityTimer.clear();
 			this.stopDelegateObserverEventCapture();
 			this.signal = externalSignal;
 		}
