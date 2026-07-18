@@ -68,15 +68,28 @@ from Phase 0 lands, *with* pings as its net). Fixes the pre-existing spurious-ti
 symmetrically across arms.
 
 Slices (test-first; fan-out where files are disjoint):
-- [ ] `src/host/handle-registry.ts` — identity core: registration (duplicate/non-parent
-  rejection, owner re-register carve-out when not live), sha256 token hashing,
-  constant-time authenticate, live-connection tracking. Pure logic, no I/O.
-- [ ] `src/agents/inactivity-timer.ts` — pausable inactivity timer mechanism (reentrant
-  pause/resume, resume re-arms fresh). Extracted from the run loop's inline setTimeout;
-  nothing suspends yet.
-- [ ] Swap the run loop's inline timer for the module (behavior-preserving).
-- [ ] Authenticated host endpoint + handshake wiring (registry-backed), token minting at
-  spawn, env filtering (token, endpoint URL, bus URL) in exec children.
+- [x] `src/host/handle-registry.ts` — identity core (`51c3f08`): registration
+  (duplicate/non-parent rejection, owner re-register carve-out when not live), sha256 token
+  hashing, constant-time authenticate, live-connection tracking. Pure logic, no I/O.
+- [x] `src/agents/inactivity-timer.ts` — pausable inactivity timer (`d5648ff`): reentrant
+  pause/resume, resume re-arms fresh. Extracted from the run loop's inline setTimeout.
+- [x] Swap the run loop's inline timer for the module (`3cac769`, behavior-preserving).
+- [~] **Authenticated host endpoint** — DECIDED: separate authenticated WebSocket endpoint
+  (Bun.serve, token at handshake, connection→identity via the registry). Transport core
+  (`src/host/auth-channel.ts`, server+client, request/response envelope) building test-first.
+  Integration flow discovered while scouting:
+  - Host wiring beside `BusServer` in `src/host/cli-shared.ts:48` — create `HandleRegistry`
+    + `AuthChannelServer`; register a `register_handle` request handler that calls
+    `registry.registerHandle` with the *connection's verified identity* as `registrarId`.
+  - **Registration rides the auth channel**: an already-authenticated spawner process sends
+    `register_handle` over its own connection before launch (host verifies registrar =
+    that connection). Root registers its direct children via the registry's in-process
+    trusted path (`trustedRegistrarId`).
+  - Spawner (`src/bus/spawner.ts:539`, `:805`): mint token, register handle, inject
+    `SPROUT_AUTH_URL` + `SPROUT_HANDLE_TOKEN` into child env before launch.
+  - Agent process connects to the auth channel on startup with its handle+token.
+  - Env filtering (`execution-env.ts`): add `SPROUT_BUS_URL` + `SPROUT_AUTH_URL`; the token
+    var is auto-stripped by the existing `*_TOKEN` filter.
 - [ ] Liveness pings (15 s) + timer suspension during blocking waits, both act modes.
 
 ### Phase 2 — Store core
