@@ -1252,6 +1252,28 @@ describe("Agent", () => {
 		).toBe(true);
 	});
 
+	test("an agent that completes naturally on its final allowed turn is not stumbled", async () => {
+		// Regression at the run-loop seam: the natural-completion breaks in the run loop must
+		// set completedNaturally so finalizeRunLoopOutcome does not treat turns == max_turns as
+		// a turn-limit hit. A max_turns: 1 agent that answers in a single turn (the
+		// utility/llm-call shape) has succeeded, not run out of turns. The pure-function test
+		// cannot see this threading — deleting either flag assignment must fail here.
+		const { agent } = createAgentFixture({
+			spec: {
+				...leafSpec,
+				name: "one-shot",
+				constraints: { ...leafSpec.constraints, max_turns: 1 },
+			},
+			// makeMockClient default: a text-only "DONE" stop response — a natural completion.
+		});
+
+		const result = await agent.run("answer in one turn");
+
+		expect(result.success).toBe(true);
+		expect(result.stumbles).toBe(0);
+		expect(result.turns).toBe(1);
+	});
+
 	test("tool-less observer may complete silently with an empty response", async () => {
 		const observerSpec: AgentSpec = {
 			...leafSpec,
