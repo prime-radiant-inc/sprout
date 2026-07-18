@@ -5732,11 +5732,22 @@ describe("Agent", () => {
 	async function runManifestScenario(
 		client: Client,
 		manifestDelta: (publisherHandle: string) => Promise<unknown>,
+		childOutput?: string,
 	): Promise<{ events: AgentEventEmitter; deltaCalls: string[] }> {
 		const deltaCalls: string[] = [];
 		const base = createMockSpawner().spawner as unknown as Record<string, unknown>;
+		const withOutput = (result: unknown) =>
+			childOutput === undefined || typeof result !== "object" || result === null
+				? result
+				: { ...result, output: childOutput };
 		const spawner = {
 			...base,
+			spawnAgent: async (...args: unknown[]) =>
+				withOutput(await (base.spawnAgent as (...a: unknown[]) => Promise<unknown>)(...args)),
+			waitAgent: async (...args: unknown[]) =>
+				withOutput(await (base.waitAgent as (...a: unknown[]) => Promise<unknown>)(...args)),
+			messageAgent: async (...args: unknown[]) =>
+				withOutput(await (base.messageAgent as (...a: unknown[]) => Promise<unknown>)(...args)),
 			storeAccess: {
 				manifestDelta: async (publisherHandle: string) => {
 					deltaCalls.push(publisherHandle);
@@ -5762,7 +5773,28 @@ describe("Agent", () => {
 	}
 
 	const oneValueDelta = async () => ({
-		delivered: [{ name: "impl", ulid: "u1", size: 48, preview: "text · 48 bytes\nsecond line" }],
+		delivered: [
+			{
+				name: "impl",
+				sourceName: "impl",
+				ulid: "u1",
+				size: 48,
+				preview: "text · 48 bytes\nsecond line",
+			},
+		],
+		throughSeq: 1,
+	});
+
+	const suffixedDelta = async () => ({
+		delivered: [
+			{
+				name: "impl_notes_2",
+				sourceName: "impl_notes",
+				ulid: "u1",
+				size: 48,
+				preview: "text · 48 bytes",
+			},
+		],
 		throughSeq: 1,
 	});
 
@@ -5801,6 +5833,66 @@ describe("Agent", () => {
 		expect(toolResultText(events, "message_agent")).toContain(
 			"published: ⟦impl⟧ (text · 48 bytes)",
 		);
+	});
+
+	test("a suffixed delivery rewrites the child's ⟦name⟧ references in the summary text", async () => {
+		const { events } = await runManifestScenario(
+			singleToolCallClient("wait_agent", { handle: "handle-abc" }),
+			suffixedDelta,
+			"noted in ⟦impl_notes⟧, done",
+		);
+		const content = toolResultText(events, "wait_agent");
+		expect(content).toContain("noted in ⟦impl_notes_2⟧, done");
+		expect(content).not.toContain("noted in ⟦impl_notes⟧");
+		expect(content).toContain("published: ⟦impl_notes_2⟧ (text · 48 bytes)");
+		expect(content).toContain("renamed on delivery: ⟦impl_notes⟧ → ⟦impl_notes_2⟧");
+	});
+
+	test("a suffixed delivery rewrites the summary in a blocking delegation", async () => {
+		const { events } = await runManifestScenario(
+			singleToolCallClient("delegate", { agent_name: "leaf", goal: "do it", blocking: true }),
+			suffixedDelta,
+			"noted in ⟦impl_notes⟧",
+		);
+		const content = toolResultText(events, "leaf");
+		expect(content).toContain("noted in ⟦impl_notes_2⟧");
+		expect(content).toContain("renamed on delivery: ⟦impl_notes⟧ → ⟦impl_notes_2⟧");
+	});
+
+	test("a suffixed delivery rewrites the summary in a blocking message_agent", async () => {
+		const { events } = await runManifestScenario(
+			singleToolCallClient("message_agent", {
+				handle: "handle-xyz",
+				message: "go",
+				blocking: true,
+			}),
+			suffixedDelta,
+			"noted in ⟦impl_notes⟧",
+		);
+		const content = toolResultText(events, "message_agent");
+		expect(content).toContain("noted in ⟦impl_notes_2⟧");
+		expect(content).toContain("renamed on delivery: ⟦impl_notes⟧ → ⟦impl_notes_2⟧");
+	});
+
+	test("an unsuffixed delivery rewrites nothing and announces nothing", async () => {
+		const { events } = await runManifestScenario(
+			singleToolCallClient("wait_agent", { handle: "handle-abc" }),
+			oneValueDelta,
+			"noted in ⟦impl⟧",
+		);
+		const content = toolResultText(events, "wait_agent");
+		expect(content).toContain("noted in ⟦impl⟧");
+		expect(content).not.toContain("renamed on delivery");
+	});
+
+	test("a ⟦name⟧ not in the alias map is untouched by a suffixed delivery", async () => {
+		const { events } = await runManifestScenario(
+			singleToolCallClient("wait_agent", { handle: "handle-abc" }),
+			suffixedDelta,
+			"see ⟦other⟧ and ⟦impl_notes⟧",
+		);
+		const content = toolResultText(events, "wait_agent");
+		expect(content).toContain("see ⟦other⟧ and ⟦impl_notes_2⟧");
 	});
 
 	test("an empty delta appends nothing", async () => {

@@ -1665,18 +1665,32 @@ export class Agent {
 	 * and for any other failure immediately — the result degrades to an honest
 	 * `[manifest unavailable: ...]` note. Never a hang, never a silent drop.
 	 */
-	private async fetchManifestSuffix(childHandleId: string): Promise<string> {
+	private async fetchManifestLines(
+		childHandleId: string,
+	): Promise<{ lines: string; rewrites: Map<string, string> }> {
 		const store = this.spawner?.storeAccess;
-		if (!store) return "";
+		if (!store) return { lines: "", rewrites: new Map() };
 		let attempt = 0;
 		for (;;) {
 			try {
 				const delta = await store.manifestDelta(childHandleId);
-				if (delta.delivered.length === 0) return "";
+				if (delta.delivered.length === 0) return { lines: "", rewrites: new Map() };
 				const lines = delta.delivered.map(
 					(value) => `published: ⟦${value.name}⟧ (${value.preview.split("\n", 1)[0]})`,
 				);
-				return `\n${lines.join("\n")}`;
+				// The alias map (child's name → bound-as): when a manifest name
+				// suffixed, the child's ⟦sourceName⟧ references in its delivered
+				// summary text rewrite to the bound-as name, and the rename is
+				// announced so the recipient can resolve in-content references
+				// the rewrite cannot reach (spec §3 stated residual).
+				const rewrites = new Map<string, string>();
+				for (const value of delta.delivered) {
+					if (value.name !== value.sourceName) {
+						rewrites.set(value.sourceName, value.name);
+						lines.push(`renamed on delivery: ⟦${value.sourceName}⟧ → ⟦${value.name}⟧`);
+					}
+				}
+				return { lines: `\n${lines.join("\n")}`, rewrites };
 			} catch (err) {
 				const infrastructure = (err as { infrastructure?: boolean }).infrastructure === true;
 				if (infrastructure && attempt < MANIFEST_FETCH_RETRIES) {
@@ -1685,9 +1699,26 @@ export class Agent {
 					continue;
 				}
 				const reason = err instanceof Error ? err.message : String(err);
-				return `\n[manifest unavailable: ${reason}]`;
+				return { lines: `\n[manifest unavailable: ${reason}]`, rewrites: new Map() };
 			}
 		}
+	}
+
+	/**
+	 * Rewrite the child's `⟦sourceName⟧` references in its delivered summary
+	 * text to the bound-as names. Exact-token: the closing bracket makes each
+	 * `⟦name⟧` a distinct literal, so prefix names (⟦log⟧ vs ⟦log_2⟧) cannot
+	 * cross-match. Single-pass so one rewrite's output never feeds another
+	 * (log→log_2 alongside log_2→log_2_2 in the same delta).
+	 */
+	private static rewriteManifestNames(summary: string, rewrites: Map<string, string>): string {
+		if (rewrites.size === 0) return summary;
+		const escapeLiteral = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+		const pattern = new RegExp(
+			[...rewrites.keys()].map((sourceName) => escapeLiteral(`⟦${sourceName}⟧`)).join("|"),
+			"g",
+		);
+		return summary.replace(pattern, (token) => `⟦${rewrites.get(token.slice(1, -1))!}⟧`);
 	}
 
 	/**
@@ -1882,8 +1913,9 @@ export class Agent {
 			}
 
 			const truncated = truncateToolOutput(resultMsg.output, delegation.agent_name);
-			const manifestSuffix = await this.fetchManifestSuffix(resultMsg.handle_id);
-			const content = `${truncated}${manifestSuffix}\n\nHandle: ${resultMsg.handle_id}`;
+			const manifest = await this.fetchManifestLines(resultMsg.handle_id);
+			const summary = Agent.rewriteManifestNames(truncated, manifest.rewrites);
+			const content = `${summary}${manifest.lines}\n\nHandle: ${resultMsg.handle_id}`;
 			const toolResultMsg = Msg.toolResult(delegation.call_id, content);
 
 			const actEndData = {
@@ -1968,9 +2000,12 @@ export class Agent {
 				const result = await this.withInactivitySuspendedFor(cmd.handle, () =>
 					spawner.waitAgent(cmd.handle, caller),
 				);
+				const manifest = await this.fetchManifestLines(cmd.handle);
 				const content =
-					truncateToolOutput(result.output, "wait_agent") +
-					(await this.fetchManifestSuffix(cmd.handle));
+					Agent.rewriteManifestNames(
+						truncateToolOutput(result.output, "wait_agent"),
+						manifest.rewrites,
+					) + manifest.lines;
 				const toolResultMsg = Msg.toolResult(cmd.call_id, content);
 				this.emitAndLog("act_end", agentId, this.depth, {
 					agent_name: cmd.kind,
@@ -2013,9 +2048,12 @@ export class Agent {
 				return { toolResultMsg, stumbles: 0 };
 			}
 
+			const manifest = await this.fetchManifestLines(cmd.handle);
 			const content =
-				truncateToolOutput(result.output, "message_agent") +
-				(await this.fetchManifestSuffix(cmd.handle));
+				Agent.rewriteManifestNames(
+					truncateToolOutput(result.output, "message_agent"),
+					manifest.rewrites,
+				) + manifest.lines;
 			const toolResultMsg = Msg.toolResult(cmd.call_id, content);
 			this.emitAndLog("act_end", agentId, this.depth, {
 				agent_name: cmd.kind,

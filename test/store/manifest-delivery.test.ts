@@ -152,6 +152,51 @@ describe("manifest delivery (deliverManifest)", () => {
 		);
 	});
 
+	it("delta values carry sourceName: the child's pre-suffix name, suffixed or not", async () => {
+		// The recipient explicitly bound "impl_notes" itself, so the child's
+		// "impl_notes" suffixes on delivery; "impl" delivers unsuffixed.
+		await store.bind({
+			scopeId: PARENT,
+			name: "impl_notes",
+			content: "mine",
+			type: "text",
+			provenance: prov(PARENT),
+			explicit: true,
+		});
+		await bindAndPublish("impl", "the impl");
+		await bindAndPublish("impl_notes", "the notes");
+
+		const delta = await store.deliverManifest({
+			publisherHandle: CHILD,
+			recipientScopeId: PARENT,
+		});
+		expect(delta.delivered.map((d) => ({ name: d.name, sourceName: d.sourceName }))).toEqual([
+			{ name: "impl", sourceName: "impl" },
+			{ name: "impl_notes_2", sourceName: "impl_notes" },
+		]);
+	});
+
+	it("a same-source republish within one batch keeps the original sourceName", async () => {
+		await store.bind({
+			scopeId: PARENT,
+			name: "impl",
+			content: "mine",
+			type: "text",
+			provenance: prov(PARENT),
+			explicit: true,
+		});
+		await bindAndPublish("impl", "v1");
+		const v2Ulid = await bindAndPublish("impl", "v2");
+
+		const delta = await store.deliverManifest({
+			publisherHandle: CHILD,
+			recipientScopeId: PARENT,
+		});
+		expect(delta.delivered).toEqual([
+			expect.objectContaining({ name: "impl_2", sourceName: "impl", ulid: v2Ulid }),
+		]);
+	});
+
 	it("a manifest name from a DIFFERENT publisher collides and suffixes", async () => {
 		const OTHER = "other_handle";
 		await store.createScope({ scopeId: OTHER, ownerHandleId: OTHER, parentScopeId: ROOT });

@@ -115,7 +115,10 @@ interface NameOrigin {
 
 /** One value a manifest delivery handed the recipient. */
 export interface ManifestDeltaValue {
+	/** The alias bound in the recipient's scope (suffixed on collision). */
 	name: string;
+	/** The child's original chosen name — with `name`, the alias map. */
+	sourceName: string;
 	ulid: string;
 	size: number;
 	preview: string;
@@ -471,6 +474,7 @@ export class SapStore {
 						const alias = aliases[stagedAt]!.name;
 						delivered[stagedAt] = {
 							name: alias,
+							sourceName: name,
 							ulid: valueUlid,
 							size: entry.metadata.size,
 							preview: entry.metadata.preview,
@@ -499,6 +503,7 @@ export class SapStore {
 					stagedAliases.add(alias);
 					delivered.push({
 						name: alias,
+						sourceName: name,
 						ulid: valueUlid,
 						size: entry.metadata.size,
 						preview: entry.metadata.preview,
