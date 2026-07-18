@@ -59,7 +59,17 @@ export type StoreWorkerRequest =
 			ref: string;
 	  }
 	// scopeId is the RECIPIENT scope; (alias, ulid) must match a pending grant.
-	| { id: string; op: "claim_env_grant"; scopeId: string; alias: string; ulid: string };
+	| { id: string; op: "claim_env_grant"; scopeId: string; alias: string; ulid: string }
+	// One cell execution's audit record; the engine redacts code/error at write.
+	| {
+			id: string;
+			op: "record_cell";
+			scopeId: string;
+			code: string;
+			bindings: { name: string; ulid: string }[];
+			error?: string;
+			computeTimeMs: number;
+	  };
 
 export type StoreWorkerResponse =
 	| { id: string; ok: true; result: unknown }
@@ -225,6 +235,15 @@ async function dispatch(store: SapStore, request: StoreWorkerRequest): Promise<u
 				alias: request.alias,
 				ulid: request.ulid,
 			});
+		case "record_cell":
+			await store.recordCell({
+				scopeId: request.scopeId,
+				code: request.code,
+				bindings: request.bindings,
+				computeTimeMs: request.computeTimeMs,
+				...(request.error !== undefined ? { error: request.error } : {}),
+			});
+			return null;
 		default:
 			throw new Error(`unknown op: ${JSON.stringify((request as { op?: unknown }).op)}`);
 	}

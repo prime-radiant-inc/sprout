@@ -505,6 +505,11 @@ export interface PrimitiveResult {
 		/** exec only: raw stderr, when non-empty. */
 		stderr?: string;
 	};
+	/**
+	 * Execution metrics for telemetry consumers (cell: computeTimeMs/totalMs).
+	 * Never rendered into the transcript.
+	 */
+	metrics?: Record<string, number>;
 }
 
 export const EVENT_KINDS = [
@@ -522,6 +527,7 @@ export const EVENT_KINDS = [
 	"act_end",
 	"primitive_start",
 	"primitive_end",
+	"cell_end",
 	"verify",
 	"learn_signal",
 	"learn_start",

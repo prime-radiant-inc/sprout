@@ -8396,3 +8396,154 @@ describe("inactivity timer suspension during blocking waits", () => {
 		expect(result.success).toBe(true);
 	}, 15_000);
 });
+
+describe("cell primitive seam", () => {
+	const CELL_SPEC: AgentSpec = {
+		name: "cell-runner",
+		description: "Agent granted the cell evaluator via can_spawn",
+		system_prompt: "You are a test agent.",
+		model: "anthropic:claude-haiku-4-5-20251001",
+		tools: [],
+		agents: ["leaf"],
+		constraints: {
+			...DEFAULT_CONSTRAINTS,
+			can_spawn: true,
+			timeout_ms: 200,
+			max_turns: 5,
+		},
+		tags: [],
+		version: 1,
+	};
+
+	function cellCallClient(code: string): Client {
+		let callCount = 0;
+		return {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				if (callCount === 1) {
+					return {
+						id: "mock-cell-1",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: {
+							role: "assistant",
+							content: [
+								{
+									kind: ContentKind.TOOL_CALL,
+									tool_call: {
+										id: "call-cell-1",
+										name: "cell",
+										arguments: JSON.stringify({ code }),
+									},
+								},
+							],
+						},
+						finish_reason: { reason: "tool_calls" },
+						usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+					};
+				}
+				return {
+					id: `mock-cell-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant("Cell done."),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+	}
+
+	test("a cell tool call runs end-to-end: bound value rendered, timer suspended, cell_end emitted", async () => {
+		const cellCalls: string[] = [];
+		// A slow cell (500ms) against a 200ms inactivity window: only timer
+		// suspension during the cell lets this succeed.
+		const cellHost = {
+			async runCell(code: string) {
+				cellCalls.push(code);
+				await new Promise((resolve) => setTimeout(resolve, 500));
+				return {
+					ok: true,
+					output: "computed\n",
+					returnValue: "3",
+					newBindings: [{ name: "summary", ulid: "u-cell-1", size: 7, preview: "p" }],
+					metrics: { computeTimeMs: 42, totalMs: 500 },
+				};
+			},
+		};
+		const spawner = {
+			storeAccess: {
+				async names() {
+					return ["summary"];
+				},
+			},
+			getHandle: () => undefined,
+		} as unknown as AgentSpawner;
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: CELL_SPEC,
+			env,
+			client: cellCallClient('await bind("summary", "distill"); return 3;'),
+			primitiveRegistry: registry,
+			availableAgents: [CELL_SPEC, leafSpec],
+			depth: 0,
+			events,
+			spawner,
+			cellHost,
+		});
+
+		expect(agent.resolvedTools().map((t) => t.name)).toContain("cell");
+
+		const result = await agent.run("run a cell");
+
+		expect(result.timed_out).toBe(false);
+		expect(result.success).toBe(true);
+		expect(cellCalls).toEqual(['await bind("summary", "distill"); return 3;']);
+
+		const end = events
+			.collected()
+			.find((e) => e.kind === "primitive_end" && e.data.name === "cell");
+		expect(end?.data.success).toBe(true);
+		expect(String(end?.data.output)).toContain("computed");
+		expect(String(end?.data.output)).toContain("return: 3");
+		expect(String(end?.data.output)).toContain("bound: ⟦summary⟧");
+		expect(end?.data.bound_values).toEqual([{ name: "summary", ulid: "u-cell-1", size: 7 }]);
+
+		const cellEnd = events.collected().find((e) => e.kind === "cell_end");
+		expect(cellEnd?.data.code).toContain("bind(");
+		expect(cellEnd?.data.metrics).toEqual({ computeTimeMs: 42, totalMs: 500 });
+	}, 15_000);
+
+	test("without can_spawn the cell tool is not offered", async () => {
+		const spec: AgentSpec = {
+			...CELL_SPEC,
+			name: "no-cell",
+			tools: ["exec"],
+			agents: [],
+			constraints: { ...CELL_SPEC.constraints, can_spawn: false },
+		};
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const agent = new Agent({
+			spec,
+			env,
+			client: cellCallClient("return 1"),
+			primitiveRegistry: createPrimitiveRegistry(env),
+			availableAgents: [spec],
+			depth: 0,
+			events: new AgentEventEmitter(),
+			spawner: {
+				storeAccess: {
+					async names() {
+						return [];
+					},
+				},
+				getHandle: () => undefined,
+			} as unknown as AgentSpawner,
+		});
+		expect(agent.resolvedTools().map((t) => t.name)).not.toContain("cell");
+	}, 15_000);
+});

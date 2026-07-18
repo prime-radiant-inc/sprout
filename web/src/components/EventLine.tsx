@@ -236,6 +236,7 @@ export function EventLine({ event, durationMs, streamingText, isFirstInGroup, ag
 		case "llm_start":
 		case "llm_chunk":
 		case "llm_end":
+		case "cell_end":
 			return null;
 
 		default:

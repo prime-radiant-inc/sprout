@@ -1,4 +1,9 @@
-export type InternalSproutCommand = "agent-process" | "task-cli" | "mcp-cli" | "store-worker";
+export type InternalSproutCommand =
+	| "agent-process"
+	| "task-cli"
+	| "mcp-cli"
+	| "store-worker"
+	| "cell-worker";
 
 export const SPROUT_SELF_EXECUTABLE_ENV = "SPROUT_SELF_EXECUTABLE";
 export const SPROUT_SELF_ENTRYPOINT_ENV = "SPROUT_SELF_ENTRYPOINT";

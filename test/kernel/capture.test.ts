@@ -67,6 +67,9 @@ class FakeStore implements StoreAccess {
 	async claimEnvGrant(): Promise<ValueMetadata> {
 		throw new Error("not implemented");
 	}
+	async recordCell(): Promise<void> {
+		throw new Error("not implemented");
+	}
 	async names(): Promise<string[]> {
 		return this.bound.map((b) => b.name);
 	}

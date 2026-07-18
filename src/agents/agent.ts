@@ -2,6 +2,7 @@ import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { AgentSpawner } from "../bus/spawner.ts";
 import type { AgentAddress, ResultMessage } from "../bus/types.ts";
+import { CellHost } from "../cell/cell-host.ts";
 import { compactHistory } from "../core/compaction.ts";
 import type { Logger } from "../core/logger.ts";
 import { NullLogger } from "../core/logger.ts";
@@ -13,6 +14,7 @@ import {
 import { type RecallOptions, recall } from "../genome/recall.ts";
 import { extractMemoryReferences } from "../genome/render-memory-block.ts";
 import { CAPTURE_PRIMITIVE_NAMES, withCapture } from "../kernel/capture.ts";
+import { buildCellPrimitive, type CellRunner } from "../kernel/cell-primitive.ts";
 import type { ExecutionEnvironment } from "../kernel/execution-env.ts";
 import { checkPathConstraint, validateConstraints } from "../kernel/path-constraints.js";
 import {
@@ -20,6 +22,7 @@ import {
 	type Primitive,
 	type PrimitiveRegistry,
 } from "../kernel/primitives.ts";
+import { redactSensitiveTranscriptContent } from "../kernel/redaction.ts";
 import {
 	argsMightContainRef,
 	REF_SPLICE_MAX_BYTES,
@@ -173,6 +176,11 @@ export interface AgentOptions {
 	llmRetryOptions?: Omit<RetryOptions, "signal" | "onRetry">;
 	/** Override delegate observer wait timeout (tests/tuning). */
 	delegateObserverTimeoutMs?: number;
+	/**
+	 * Cell evaluator override (tests/tuning). Without one, an agent with store
+	 * access and can_spawn builds a real CellHost over its own StoreAccess.
+	 */
+	cellHost?: CellRunner;
 }
 
 /** Retries for an infrastructure-tagged manifest fetch before degrading. */
@@ -291,6 +299,8 @@ export class Agent {
 	private readonly callerPrimitivePrimitives: Primitive[] = [];
 	private workspaceToolPrimitives: Primitive[] = [];
 	private valuePrimitives: Primitive[] = [];
+	/** The `cell` evaluator tool (sap spec §4), when this agent is granted it. */
+	private cellPrimitive?: Primitive;
 	private workspaceToolDefinitions: ToolDefinition[] = [];
 	private compactionRequested = false;
 	private turnsSinceCompaction = Infinity;
@@ -375,6 +385,13 @@ export class Agent {
 				if (prim) this.primitiveRegistry.register(withCapture(prim, storeAccess));
 			}
 			this.primitiveRegistry.setCaptureStore?.(storeAccess);
+		}
+		// The cell evaluator (sap spec §4): granted with can_spawn, backed by a
+		// per-agent-process cell worker over this agent's own StoreAccess.
+		if (options.spawner?.storeAccess && this.spec.constraints.can_spawn) {
+			const cellHost = options.cellHost ?? new CellHost(options.spawner.storeAccess);
+			this.cellPrimitive = buildCellPrimitive(cellHost);
+			this.primitiveRegistry.register(this.cellPrimitive);
 		}
 		this.logger = (options.logger ?? new NullLogger()).child({
 			component: "agent",
@@ -530,8 +547,20 @@ export class Agent {
 	}
 
 	private refreshPrimitiveToolList(): void {
+		// `cell` is granted by can_spawn (spec §4 tool-surface rule), not by the
+		// spec's tools list — offered whenever the primitive was built.
+		const cellTools: ToolDefinition[] = this.cellPrimitive
+			? [
+					{
+						name: this.cellPrimitive.name,
+						description: this.cellPrimitive.description,
+						parameters: this.cellPrimitive.parameters,
+					},
+				]
+			: [];
 		this.primitiveTools = uniqueToolDefinitions([
 			...this.specPrimitiveTools(),
+			...cellTools,
 			...this.workspaceToolDefinitions,
 		]);
 	}
@@ -620,6 +649,9 @@ export class Agent {
 		}
 		for (const prim of this.valuePrimitives) {
 			this.primitiveRegistry.register(prim);
+		}
+		if (this.cellPrimitive) {
+			this.primitiveRegistry.register(this.cellPrimitive);
 		}
 		this.refreshPrimitiveToolList();
 	}
@@ -1630,6 +1662,22 @@ export class Agent {
 	}
 
 	/**
+	 * Suspend the inactivity timer for the duration of `fn`, with no liveness
+	 * probe. Used for cell runs: the cell host's own budget clock and RSS
+	 * watchdog bound a wedged cell more tightly than liveness pings would.
+	 */
+	private async withTimerSuspended<T>(fn: () => Promise<T>): Promise<T> {
+		const timer = this.currentInactivityTimer;
+		if (!timer) return fn();
+		timer.pause();
+		try {
+			return await fn();
+		} finally {
+			timer.resume();
+		}
+	}
+
+	/**
 	 * Resolve $ref arguments against this agent's store scope (sap spec §2).
 	 * Without a store, or with no ref-shaped argument, this is a cheap no-op
 	 * returning the original arguments. Store failures surface as loud tool
@@ -2532,7 +2580,14 @@ export class Agent {
 				}
 			}
 
-			const result = await this.primitiveRegistry.execute(call.name, spliced.args, this.signal);
+			// A pending cell is a blocking wait on the cell worker: the
+			// inactivity timer suspends for its duration (spec §4). The parent's
+			// budget clock + RSS watchdog are the net for a wedged cell — tighter
+			// than liveness pings, so no probe watches this suspension.
+			const executeCall = () =>
+				this.primitiveRegistry.execute(call.name, spliced.args, this.signal);
+			const result =
+				call.name === "cell" ? await this.withTimerSuspended(executeCall) : await executeCall();
 
 			// Verify primitive result
 			const { stumbled, learnSignal: primSignal } = verifyPrimitiveResult(
@@ -2555,6 +2610,17 @@ export class Agent {
 				tool_result_message: toolResultMsg,
 				...(result.boundValues ? { bound_values: result.boundValues } : {}),
 			});
+
+			// Telemetry cell_end (spec §4/§8): carries the redacted code and the
+			// run's metrics, NOT the tool result — primitive_end above is the
+			// replay-safe carrier of the transcript result.
+			if (call.name === "cell") {
+				this.emitAndLog("cell_end", agentId, this.depth, {
+					code: redactSensitiveTranscriptContent(String(spliced.args.code ?? "")),
+					success: result.success,
+					...(result.metrics ? { metrics: result.metrics } : {}),
+				});
+			}
 
 			if (stumbled) {
 				stumbles++;

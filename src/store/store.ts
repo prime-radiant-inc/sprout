@@ -9,6 +9,7 @@ import { redactSensitiveTranscriptContent } from "../kernel/redaction.ts";
 import { ulid } from "../util/ulid.ts";
 import type { ContentStore } from "./cas.ts";
 import {
+	type CellRecord,
 	type GrantRecord,
 	INLINE_BODY_LIMIT,
 	type JournalBody,
@@ -420,6 +421,37 @@ export class SapStore {
 			await this.chargeJournalBytes([record]);
 			this.publishSeqs.set(scopeId, seq);
 			this.recordPublish(scopeId, seq, [entry.metadata.ulid]);
+		});
+	}
+
+	/**
+	 * Journal one cell execution (sap spec §4): the code that ran, the bindings
+	 * it created, and its compute time. Redaction happens AT WRITE — journaled
+	 * cell code can echo raw get() content, and the journal is an above-the-line
+	 * consumer surface on resume/telemetry. Cell records are audit state only;
+	 * resume ignores them (bindings replay from their own bind records).
+	 */
+	async recordCell(args: {
+		scopeId: string;
+		code: string;
+		bindings: { name: string; ulid: string }[];
+		error?: string;
+		computeTimeMs: number;
+	}): Promise<void> {
+		return this.serialize(async () => {
+			this.requireScope(args.scopeId);
+			const record: CellRecord = {
+				kind: "cell",
+				handle: args.scopeId,
+				code: redactSensitiveTranscriptContent(args.code),
+				bindings: args.bindings,
+				computeTimeMs: args.computeTimeMs,
+				...(args.error !== undefined
+					? { error: redactSensitiveTranscriptContent(args.error) }
+					: {}),
+			};
+			await this.journal.append(record);
+			await this.chargeJournalBytes([record]);
 		});
 	}
 

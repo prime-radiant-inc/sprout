@@ -28,6 +28,15 @@ export const STORE_PUBLISH_REQUEST = "store_publish";
 export const STORE_MANIFEST_REQUEST = "store_manifest_delta";
 export const STORE_ENV_GRANT_REQUEST = "store_env_grant";
 export const STORE_ENV_CLAIM_REQUEST = "store_env_claim";
+export const STORE_CELL_RECORD_REQUEST = "store_cell_record";
+
+/** One cell execution's audit fields (spec §4); identity comes from the access. */
+export interface CellRecordInput {
+	code: string;
+	bindings: { name: string; ulid: string }[];
+	error?: string;
+	computeTimeMs: number;
+}
 
 export interface StoreBindInput {
 	name: string;
@@ -69,6 +78,11 @@ export interface StoreAccess {
 	 * (alias, ulid) must match a registered grant; a forged env finds none.
 	 */
 	claimEnvGrant(alias: string, ulid: string): Promise<ValueMetadata>;
+	/**
+	 * Journal one cell execution (sap spec §4). The handle on the record is
+	 * THIS access's scope; code and error are redacted at write in the engine.
+	 */
+	recordCell(args: CellRecordInput): Promise<void>;
 }
 
 /** Host-process implementation: delegates to the store worker with a fixed scope. */
@@ -123,6 +137,10 @@ export class DirectStoreAccess implements StoreAccess {
 
 	claimEnvGrant(alias: string, ulid: string): Promise<ValueMetadata> {
 		return this.client.claimEnvGrant(this.scopeId, alias, ulid);
+	}
+
+	recordCell(args: CellRecordInput): Promise<void> {
+		return this.client.recordCell(this.scopeId, args);
 	}
 }
 
@@ -231,5 +249,15 @@ export class ChannelStoreAccess implements StoreAccess {
 	async claimEnvGrant(alias: string, ulid: string): Promise<ValueMetadata> {
 		// The recipient is the connection's verified scope, decided host-side.
 		return (await this.client.request(STORE_ENV_CLAIM_REQUEST, { alias, ulid })) as ValueMetadata;
+	}
+
+	async recordCell(args: CellRecordInput): Promise<void> {
+		// The recorded handle is the connection's verified scope, decided host-side.
+		await this.client.request(STORE_CELL_RECORD_REQUEST, {
+			code: args.code,
+			bindings: args.bindings,
+			computeTimeMs: args.computeTimeMs,
+			...(args.error !== undefined ? { error: args.error } : {}),
+		});
 	}
 }

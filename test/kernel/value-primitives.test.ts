@@ -17,6 +17,9 @@ function fakeStore(values: Record<string, string>): StoreAccess {
 		async bind() {
 			throw new Error("bind is not exercised by value primitives");
 		},
+		async recordCell() {
+			throw new Error("recordCell is not exercised by value primitives");
+		},
 		async peek(ref) {
 			return `text · ${resolve(ref).length} bytes\n${resolve(ref).slice(0, 80)}`;
 		},

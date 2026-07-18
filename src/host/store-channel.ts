@@ -10,6 +10,7 @@
 
 import {
 	STORE_BIND_REQUEST,
+	STORE_CELL_RECORD_REQUEST,
 	STORE_ENV_CLAIM_REQUEST,
 	STORE_ENV_GRANT_REQUEST,
 	STORE_GET_REQUEST,
@@ -207,6 +208,40 @@ export function registerStoreHandlers(
 		// The recipient scope is the connection's verified identity — a claim
 		// can only ever land grants pending for THIS handle.
 		return storeClient.claimEnvGrant(await ensureScope(ctx.handleId), fields.alias, fields.ulid);
+	});
+
+	authServer.onRequest(STORE_CELL_RECORD_REQUEST, async (ctx, payload) => {
+		const fields = parseObjectPayload(payload, STORE_CELL_RECORD_REQUEST);
+		if (typeof fields.code !== "string") {
+			throw new Error(`${STORE_CELL_RECORD_REQUEST}: code must be a string`);
+		}
+		if (!Array.isArray(fields.bindings)) {
+			throw new Error(`${STORE_CELL_RECORD_REQUEST}: bindings must be an array`);
+		}
+		const bindings = fields.bindings.map((entry, i) => {
+			if (typeof entry !== "object" || entry === null) {
+				throw new Error(`${STORE_CELL_RECORD_REQUEST}: bindings[${i}] must be an object`);
+			}
+			const binding = entry as Record<string, unknown>;
+			if (typeof binding.name !== "string" || typeof binding.ulid !== "string") {
+				throw new Error(
+					`${STORE_CELL_RECORD_REQUEST}: bindings[${i}] must carry string name and ulid`,
+				);
+			}
+			return { name: binding.name, ulid: binding.ulid };
+		});
+		if (fields.error !== undefined && typeof fields.error !== "string") {
+			throw new Error(`${STORE_CELL_RECORD_REQUEST}: error must be a string when present`);
+		}
+		// The recorded handle is the connection's verified scope — any handle or
+		// scope field a crafted payload smuggles in is ignored.
+		await storeClient.recordCell(await ensureScope(ctx.handleId), {
+			code: fields.code,
+			bindings,
+			computeTimeMs: int(fields, "computeTimeMs", { min: 0 }, STORE_CELL_RECORD_REQUEST),
+			...(fields.error !== undefined ? { error: fields.error } : {}),
+		});
+		return null;
 	});
 
 	authServer.onRequest(STORE_NAMES_REQUEST, async (ctx) => {

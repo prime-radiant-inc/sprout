@@ -206,6 +206,27 @@ export class StoreWorkerClient {
 		})) as ValueMetadata;
 	}
 
+	/** Journal one cell execution's audit record (redacted engine-side). */
+	async recordCell(
+		scopeId: string,
+		args: {
+			code: string;
+			bindings: { name: string; ulid: string }[];
+			error?: string;
+			computeTimeMs: number;
+		},
+	): Promise<void> {
+		await this.issue({
+			id: ulid(),
+			op: "record_cell",
+			scopeId,
+			code: args.code,
+			bindings: args.bindings,
+			computeTimeMs: args.computeTimeMs,
+			...(args.error !== undefined ? { error: args.error } : {}),
+		});
+	}
+
 	/** Kill the worker and reject everything in flight as infrastructure. */
 	async shutdown(): Promise<void> {
 		this.closed = true;
