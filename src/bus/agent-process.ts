@@ -11,6 +11,7 @@ import { deriveTrustedMemoryWriteAuthorization } from "../genome/memory-write-au
 import { createReadOnlyGenome } from "../genome/read-only-genome.ts";
 import { AuthChannelClient } from "../host/auth-channel.ts";
 import { ChannelHandleRegistrar } from "../host/handle-registrar.ts";
+import { LivenessReporter } from "../host/liveness.ts";
 import { SessionLogger } from "../host/logger.ts";
 import {
 	OpenAICodexOAuthService,
@@ -237,6 +238,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 
 	let childSpawner: AgentSpawner | undefined;
 	let authClient: AuthChannelClient | undefined;
+	let livenessReporter: LivenessReporter | undefined;
 	let spawnerAuthChannel: SpawnerAuthChannel | undefined;
 
 	try {
@@ -252,6 +254,8 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 				token: config.authChannel.token,
 			});
 			await authClient.connect();
+			livenessReporter = new LivenessReporter({ client: authClient });
+			livenessReporter.start();
 			spawnerAuthChannel = {
 				url: config.authChannel.url,
 				registrar: new ChannelHandleRegistrar(authClient),
@@ -522,6 +526,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 		stopParentMonitor();
 		combined.cleanup();
 		await childSpawner?.shutdown();
+		livenessReporter?.stop();
 		await authClient?.disconnect();
 		await bus.disconnect();
 	}

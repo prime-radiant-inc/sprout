@@ -65,6 +65,8 @@ interface HandleRecord {
 	depth: number;
 	observerRemit?: ObserverRemit;
 	live: boolean;
+	/** Timestamp (ms) of the last liveness ping, absent until the first ping. */
+	lastPingAt?: number;
 }
 
 /**
@@ -169,6 +171,32 @@ export class HandleRegistry {
 	/** Whether the handle currently has an authenticated connection. */
 	isLive(handleId: string): boolean {
 		return this.handles.get(handleId)?.live ?? false;
+	}
+
+	/**
+	 * Record a liveness ping for a handle at the given timestamp. Unknown
+	 * handles are ignored — a ping can't create identity. Timestamps are passed
+	 * in (not read from a clock) so the registry stays pure.
+	 */
+	recordPing(handleId: string, at: number): void {
+		const record = this.handles.get(handleId);
+		if (!record) return;
+		record.lastPingAt = at;
+	}
+
+	/** Timestamp of the handle's last ping, or null if it never pinged. */
+	lastPingAt(handleId: string): number | null {
+		return this.handles.get(handleId)?.lastPingAt ?? null;
+	}
+
+	/**
+	 * Milliseconds between the handle's last ping and `now`, or null when the
+	 * handle is unknown or has never pinged — callers treat null as "no
+	 * liveness signal", not "alive".
+	 */
+	msSincePing(handleId: string, now: number): number | null {
+		const at = this.handles.get(handleId)?.lastPingAt;
+		return at === undefined ? null : now - at;
 	}
 }
 

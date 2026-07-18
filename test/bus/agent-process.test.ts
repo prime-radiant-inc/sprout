@@ -1559,9 +1559,12 @@ describe("runAgentProcess", () => {
 		);
 		const { AuthChannelServer } = await import("../../src/host/auth-channel.ts");
 
+		const { makePingHandler, PING_REQUEST } = await import("../../src/host/liveness.ts");
+
 		const registry = new HandleRegistry({ trustedRegistrarId: "sprout:host" });
 		const authServer = new AuthChannelServer({ port: 0, hostname: "127.0.0.1", registry });
 		await authServer.start();
+		authServer.onRequest(PING_REQUEST, makePingHandler(registry));
 		const token = mintToken();
 		registry.registerHandle({
 			handleId: HANDLE_ID,
@@ -1591,6 +1594,8 @@ describe("runAgentProcess", () => {
 			await waitForAgentReady();
 			// The channel connects before the agent signals ready.
 			expect(registry.isLive(HANDLE_ID)).toBe(true);
+			// The liveness reporter pings immediately on start.
+			await waitFor(() => registry.lastPingAt(HANDLE_ID) !== null);
 
 			const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
 			const startMsg: StartMessage = {

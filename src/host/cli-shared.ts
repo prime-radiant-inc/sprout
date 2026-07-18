@@ -56,6 +56,9 @@ export async function startBusInfrastructure(
 		REGISTER_HANDLE_REQUEST,
 		TRUSTED_REGISTRAR_ID,
 	} = await import("./handle-registrar.ts");
+	const { LIVENESS_REQUEST, makeLivenessHandler, makePingHandler, PING_REQUEST } = await import(
+		"./liveness.ts"
+	);
 
 	const server = new BusServer({ port: 0, hostname: "127.0.0.1" });
 	const handleRegistry = new HandleRegistry({ trustedRegistrarId: TRUSTED_REGISTRAR_ID });
@@ -73,6 +76,8 @@ export async function startBusInfrastructure(
 		await server.start();
 		await authServer.start();
 		authServer.onRequest(REGISTER_HANDLE_REQUEST, makeRegisterHandleHandler(handleRegistry));
+		authServer.onRequest(PING_REQUEST, makePingHandler(handleRegistry));
+		authServer.onRequest(LIVENESS_REQUEST, makeLivenessHandler(handleRegistry));
 
 		bus = new BusClient(server.url);
 		await bus.connect();
