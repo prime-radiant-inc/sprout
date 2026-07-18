@@ -56,6 +56,16 @@ Order and intent follow spec §12. "Simplification" notes what we changed and wh
   tools failed on Linux (`/dev/stdin` → /proc pipe ENOENT) — tool scripts now run from a
   shell-side temp file (`a4c97d8`); subcortical eval needed a realistic timeout (`8b0ea34`);
   abort-between-turns test had a timer/spawn race under parallel load (`186f376`).
+- [x] **Fable review (fix-then-ship → fixed).** Logic confirmed correct (no masking path).
+  Findings addressed: `hitTurnLimit` no longer fires on an abort landing at the final turn
+  (`412e7dd`); the flagship fix now has an agent-level seam test and the tool-exec fix has
+  escaping/injection torture tests (`75af20c`) — both verified to fail under the regression
+  they guard.
+  - *Residual (pre-existing, for the code-mode tool-surface phase):* a script tool's `args`
+    are interpolated into the executor shell raw (`tool-loading.ts`), so any agent granted
+    *any* script tool already holds arbitrary shell in its ExecutionEnvironment even without
+    the `exec` primitive. Matters when sap tightens code-mode surfaces (Phase 6) — the
+    stripped realm withholds exec, but a granted script tool does not.
 - **Simplification — deferred, not dropped:**
   - *Zero-tool completion agents* (`tools: []`, `max_turns: 1`) → **Phase 5**, landing with
     `utility/llm-call`, its only consumer. Building it now is dead capability.
