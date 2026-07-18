@@ -216,17 +216,17 @@ smallest correct LRU; no premature tiering.*
 
 Slices (test-first; 1–3 are pure/disjoint and fanned out to subagents in parallel;
 4+ built on top after review):
-- [ ] `src/store/value.ts` — pure value model: types (text/json/bytes), metadata shape,
+- [x] `src/store/value.ts` — pure value model: types (text/json/bytes), metadata shape,
   name validation (charset `[a-z0-9_]`, max 64, no leading digit, reserved list),
   deterministic previews (~300 chars: type/size/line count/head-tail; JSON top-level
   shape under a 10 MB parse budget, else `json (unparsed)` head/tail fallback).
-- [ ] `src/store/cas.ts` — content-addressed store: sha256 naming, dedup, put/get/has,
+- [x] `src/store/cas.ts` — content-addressed store: sha256 naming, dedup, put/get/has,
   staging-confined adoption (realpath-canonicalized, symlinks rejected, size checked
   against max-value before adoption), byte accounting for the disk quota.
-- [ ] `src/store/journal.ts` — append-only JSONL journal: bind (inline < 64 KB or CAS
+- [x] `src/store/journal.ts` — append-only JSONL journal: bind (inline < 64 KB or CAS
   ref), scope, publish, manifest-delivery, grant, cell records; replay reads metadata
   only and tolerates a trailing partial line (crash mid-append).
-- [ ] Store engine on top: bind/rebind versioning + collision rules (auto-bind suffix,
+- [x] Store engine on top (`src/store/store.ts`; bind records journal the explicit flag + createdAt so resume recovers collision origins): bind/rebind versioning + collision rules (auto-bind suffix,
   cross-origin fail-loud), value ops (peek/slice/grep/get/parse) with budgets, chunked
   line-bounded grep with abort checks, smallest-correct LRU memory budget with spill to
   CAS, disk/count quotas → explicit store-full error.
