@@ -3,7 +3,7 @@
 **Date started:** 2026-07-18
 **Spec:** `../specs/2026-07-16-sap-data-plane-and-repl-design.md`
 **Review:** `../specs/2026-07-18-sap-state-of-the-art-review.md`
-**Status:** in progress — Phase 0
+**Status:** in progress — Phase 0 complete; Phase 1 started
 
 This is the working tracker for building sap. It records *what we're building, in what
 order, and where we deliberately simplified away from the maximal spec*. Update it as
@@ -45,11 +45,14 @@ later (an unresolved-value state), but build nothing for it now.
 
 Order and intent follow spec §12. "Simplification" notes what we changed and why.
 
-### Phase 0 — Kernel prerequisites  ← current
-- [x] **`hitTurnLimit` bug fix.** An agent that naturally completes on its final allowed turn
-  is currently marked failed + stumbled (`turns >= maxTurns` regardless of *why* the loop
-  ended). This is a live bug in the fitness signal. Fix: thread `completedNaturally` from the
-  natural-completion breaks so `hitTurnLimit = turns >= maxTurns && !completedNaturally`.
+### Phase 0 — Kernel prerequisites  ✅ landed 2026-07-18
+- [x] **`hitTurnLimit` bug fix** (`95d7340`). An agent that naturally completed on its final
+  allowed turn was marked failed + stumbled — a live fitness-signal bug. Fixed by threading
+  `completedNaturally` from the natural-completion breaks.
+- [x] **Runtime health on Linux** (supported runtime, per Jesse): `node`-interpreter agent
+  tools failed on Linux (`/dev/stdin` → /proc pipe ENOENT) — tool scripts now run from a
+  shell-side temp file (`a4c97d8`); subcortical eval needed a realistic timeout (`8b0ea34`);
+  abort-between-turns test had a timer/spawn race under parallel load (`186f376`).
 - **Simplification — deferred, not dropped:**
   - *Zero-tool completion agents* (`tools: []`, `max_turns: 1`) → **Phase 5**, landing with
     `utility/llm-call`, its only consumer. Building it now is dead capability.
@@ -57,12 +60,24 @@ Order and intent follow spec §12. "Simplification" notes what we changed and wh
     logic that first calls it. A pause nothing calls is dead code; the spec split it out for
     review isolation, which we don't need.
 
-### Phase 1 — Channel & auth
+### Phase 1 — Channel & auth  ← current
 Authenticated host endpoint, per-handle tokens, handle registration
 (duplicate/non-parent rejection), env filtering (token, endpoint URL, bus URL), liveness
 pings; **timer suspension for all blocking agent waits** (this is where the pausable timer
 from Phase 0 lands, *with* pings as its net). Fixes the pre-existing spurious-timeout bug
 symmetrically across arms.
+
+Slices (test-first; fan-out where files are disjoint):
+- [ ] `src/host/handle-registry.ts` — identity core: registration (duplicate/non-parent
+  rejection, owner re-register carve-out when not live), sha256 token hashing,
+  constant-time authenticate, live-connection tracking. Pure logic, no I/O.
+- [ ] `src/agents/inactivity-timer.ts` — pausable inactivity timer mechanism (reentrant
+  pause/resume, resume re-arms fresh). Extracted from the run loop's inline setTimeout;
+  nothing suspends yet.
+- [ ] Swap the run loop's inline timer for the module (behavior-preserving).
+- [ ] Authenticated host endpoint + handshake wiring (registry-backed), token minting at
+  spawn, env filtering (token, endpoint URL, bus URL) in exec children.
+- [ ] Liveness pings (15 s) + timer suspension during blocking waits, both act modes.
 
 ### Phase 2 — Store core
 Store worker (op budgets, wedge restart), journal, CAS (staging-confined handoff, spill),
