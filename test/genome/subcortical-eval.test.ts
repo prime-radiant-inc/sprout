@@ -113,7 +113,10 @@ describe("subcortical recall eval", () => {
 		} finally {
 			await rm(root, { recursive: true, force: true });
 		}
-	});
+		// Generous timeout: this eval runs 60 real recall passes and is CPU-bound; the default
+		// 5s is too tight on slower hardware and under parallel test load. It guards recall
+		// quality, not speed.
+	}, 60_000);
 });
 
 function tokenSlot(text: string): number | undefined {
