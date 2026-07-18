@@ -16,8 +16,14 @@ export const PING_REQUEST = "ping";
 /** Request type: "how long since this handle last pinged?" */
 export const LIVENESS_REQUEST = "liveness";
 
-/** Default ping cadence (sap spec §7 defaults: 15 s). */
-export const PING_INTERVAL_MS = 15_000;
+export {
+	LIVENESS_LOST_AFTER_MS,
+	type LivenessProbe,
+	PING_INTERVAL_MS,
+} from "../shared/liveness.ts";
+
+import type { LivenessProbe } from "../shared/liveness.ts";
+import { PING_INTERVAL_MS } from "../shared/liveness.ts";
 
 /**
  * Host-side handler for {@link PING_REQUEST}. The pinged identity is ALWAYS
@@ -94,16 +100,6 @@ export class LivenessReporter {
 		clearInterval(this.timer);
 		this.timer = null;
 	}
-}
-
-/**
- * How a waiter asks about a counterparty's liveness. Mirrors the registrar
- * split: the host process reads its registry directly; a child process asks
- * over its authenticated connection.
- */
-export interface LivenessProbe {
-	/** ms since the handle's last ping, or null when there is no signal. */
-	msSincePing(handleId: string): Promise<number | null>;
 }
 
 export class HostLivenessProbe implements LivenessProbe {

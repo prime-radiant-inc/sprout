@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { ResolverSettings } from "../agents/model-resolver.ts";
 import type { HandleRegistrar } from "../host/handle-registrar.ts";
 import { hashToken, mintToken, type ObserverRemit } from "../host/handle-registry.ts";
+import type { LivenessProbe } from "../shared/liveness.ts";
 import { buildInternalSproutCommand } from "../util/self-command.ts";
 import { ulid } from "../util/ulid.ts";
 import type { BusClient } from "./client.ts";
@@ -69,6 +70,11 @@ export interface SpawnerAuthChannel {
 	url: string;
 	/** Registration authority: trusted-direct on the host, over-channel in children. */
 	registrar: HandleRegistrar;
+	/**
+	 * How this process asks about a counterparty's liveness — used by the
+	 * agent's inactivity-timer suspension as its net during blocking waits.
+	 */
+	probe?: LivenessProbe;
 }
 
 export interface DeliverObserverFrameOptions {
@@ -533,6 +539,11 @@ export class AgentSpawner {
 				// Ignore malformed messages
 			}
 		});
+	}
+
+	/** Liveness probe from the auth channel, if this spawner has one. */
+	get livenessProbe(): LivenessProbe | undefined {
+		return this.authChannel?.probe;
 	}
 
 	/**

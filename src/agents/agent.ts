@@ -48,6 +48,7 @@ import type {
 } from "../llm/types.ts";
 import { Msg, messageText } from "../llm/types.ts";
 import { createReplayRecorder, type ReplayRecorder } from "../replay/recorder.ts";
+import { LIVENESS_LOST_AFTER_MS, PING_INTERVAL_MS } from "../shared/liveness.ts";
 import { shouldTagAgentEventWithSessionId } from "../shared/session-event-scope.ts";
 import { getToolDisplayName } from "../shared/tool-display.ts";
 import { ulid } from "../util/ulid.ts";
@@ -58,7 +59,7 @@ import {
 	normalizeTaskPayload,
 } from "./delegation-payload.ts";
 import { AgentEventEmitter } from "./events.ts";
-import { createInactivityTimer } from "./inactivity-timer.ts";
+import { createInactivityTimer, type InactivityTimer } from "./inactivity-timer.ts";
 import type { AgentTreeEntry, Preambles } from "./loader.ts";
 import { findRootToolsDir, resolveRootToolsDir } from "./loader.ts";
 import { generateMnemonicName } from "./mnemonic.ts";
@@ -118,6 +119,11 @@ export interface AgentOptions {
 	genomePostscripts?: { global: string; orchestrator: string; observer: string; worker: string };
 	/** Bus-based spawner for running subagents as separate processes. */
 	spawner?: AgentSpawner;
+	/**
+	 * How often to check the awaited party's liveness while the inactivity
+	 * timer is suspended for a blocking wait. Defaults to the ping interval.
+	 */
+	livenessPollIntervalMs?: number;
 	/** Path to the genome directory (required when using a spawner). */
 	genomePath?: string;
 	/** Per-project data directory (sessions, logs, memory). */
@@ -228,6 +234,9 @@ export class Agent {
 		worker: string;
 	};
 	private readonly spawner?: AgentSpawner;
+	private readonly livenessPollIntervalMs: number;
+	/** The active run loop's inactivity timer, present only while a loop runs. */
+	private currentInactivityTimer?: InactivityTimer;
 	private readonly genomePath?: string;
 	private readonly projectDataDir?: string;
 	private readonly evalMode: boolean;
@@ -291,6 +300,7 @@ export class Agent {
 		this.projectDocs = options.projectDocs;
 		this.genomePostscripts = options.genomePostscripts;
 		this.spawner = options.spawner;
+		this.livenessPollIntervalMs = options.livenessPollIntervalMs ?? PING_INTERVAL_MS;
 		this.genomePath = options.genomePath;
 		this.projectDataDir = options.projectDataDir;
 		this.evalMode = options.evalMode === true;
@@ -1497,6 +1507,55 @@ export class Agent {
 	}
 
 	/**
+	 * Run a blocking wait on another agent with the inactivity timer suspended
+	 * (sap spec §4): a parent blocked on a child is not "inactive", so today's
+	 * timer would mark it timed-out and stumbled even when the child succeeds.
+	 * Liveness pings are the net that makes suspension safe — while suspended,
+	 * the awaited party's pings are checked on an interval, and if it goes
+	 * silent past the threshold the timer resumes and times out normally
+	 * instead of hanging forever. No timer running (in-process subagent path)
+	 * or no probe (test/spawnerless) degrades gracefully: waits still suspend
+	 * where a timer exists, and process death already settles spawner waits.
+	 */
+	private async withInactivitySuspendedFor<T>(
+		awaitedHandleId: string,
+		fn: () => Promise<T>,
+	): Promise<T> {
+		const timer = this.currentInactivityTimer;
+		if (!timer) return fn();
+		timer.pause();
+		// When the net fires it performs this wait's resume itself; the finally
+		// must then not resume again or overlapping waits would unbalance the
+		// pause counter and unfreeze a sibling's suspension.
+		let resumedByNet = false;
+		const probe = this.spawner?.livenessProbe;
+		let watch: ReturnType<typeof setInterval> | undefined;
+		if (probe) {
+			watch = setInterval(() => {
+				void probe
+					.msSincePing(awaitedHandleId)
+					.then((ms) => {
+						if (resumedByNet) return;
+						if (ms !== null && ms > LIVENESS_LOST_AFTER_MS) {
+							resumedByNet = true;
+							if (watch) clearInterval(watch);
+							timer.resume();
+						}
+					})
+					.catch(() => {
+						// A failed probe is "no signal", not "dead" — keep waiting.
+					});
+			}, this.livenessPollIntervalMs);
+		}
+		try {
+			return await fn();
+		} finally {
+			if (watch) clearInterval(watch);
+			if (!resumedByNet) timer.resume();
+		}
+	}
+
+	/**
 	 * Execute a delegation via the bus-based spawner. Returns the tool result message and stumble count.
 	 *
 	 * For blocking spawns, calls verifyActResult() and pushes learn signals
@@ -1603,27 +1662,33 @@ export class Agent {
 				return { toolResultMsg, stumbles: 1 };
 			}
 
-			const result = await this.spawner!.spawnAgent({
-				agentName: delegation.agent_name,
-				genomePath: this.genomePath ?? "",
-				projectDataDir: this.projectDataDir,
-				caller,
-				goal: effectiveDelegation.goal,
-				hints: effectiveDelegation.hints,
-				payload: normalizedPayload?.value,
-				blocking,
-				shared,
-				workDir: this.env.working_directory(),
-				handleId,
-				agentId: childId,
-				rootDir: this.rootDir,
-				mnemonicName: mnemonicName ?? undefined,
-				evalMode: this.evalMode,
-				providerIdOverride: this.resolved.provider,
-				resolverSettings: this.resolverSettings,
-				trustedUserInstruction: this.trustedUserInstruction,
-				surfacedMemoryBlock: this.childSurfacedMemoryBlock(target.spec.name),
-			});
+			const targetSpecName = target.spec.name;
+			const spawnCall = () =>
+				this.spawner!.spawnAgent({
+					agentName: delegation.agent_name,
+					genomePath: this.genomePath ?? "",
+					projectDataDir: this.projectDataDir,
+					caller,
+					goal: effectiveDelegation.goal,
+					hints: effectiveDelegation.hints,
+					payload: normalizedPayload?.value,
+					blocking,
+					shared,
+					workDir: this.env.working_directory(),
+					handleId,
+					agentId: childId,
+					rootDir: this.rootDir,
+					mnemonicName: mnemonicName ?? undefined,
+					evalMode: this.evalMode,
+					providerIdOverride: this.resolved.provider,
+					resolverSettings: this.resolverSettings,
+					trustedUserInstruction: this.trustedUserInstruction,
+					surfacedMemoryBlock: this.childSurfacedMemoryBlock(targetSpecName),
+				});
+			// A blocking spawn waits on the child; suspend the inactivity timer for it.
+			const result = blocking
+				? await this.withInactivitySuspendedFor(handleId, spawnCall)
+				: await spawnCall();
 
 			if (typeof result === "string") {
 				const toolResultMsg = Msg.toolResult(
@@ -1753,15 +1818,19 @@ export class Agent {
 			return { toolResultMsg, stumbles: 1 };
 		}
 
+		const spawner = this.spawner;
 		const caller = this.callerIdentity();
-		const handle = this.spawner.getHandle(cmd.handle);
+		const handle = spawner.getHandle(cmd.handle);
 		const childAgentId = handle?.agentId;
 		const targetMnemonicName = handle?.mnemonicName;
 		const targetAgentName = handle?.agentName;
 
 		try {
 			if (cmd.kind === "wait_agent") {
-				const result = await this.spawner.waitAgent(cmd.handle, caller);
+				// A blocking wait on another agent; suspend the inactivity timer.
+				const result = await this.withInactivitySuspendedFor(cmd.handle, () =>
+					spawner.waitAgent(cmd.handle, caller),
+				);
 				const content = truncateToolOutput(result.output, "wait_agent");
 				const toolResultMsg = Msg.toolResult(cmd.call_id, content);
 				this.emitAndLog("act_end", agentId, this.depth, {
@@ -1777,14 +1846,19 @@ export class Agent {
 
 			// message_agent
 			const blocking = cmd.blocking !== false; // default true
-			const result = await this.spawner.messageAgent(
-				cmd.handle,
-				cmd.message,
-				caller,
-				blocking,
-				this.trustedUserInstruction,
-				this.callerAddress,
-			);
+			const messageCall = () =>
+				spawner.messageAgent(
+					cmd.handle,
+					cmd.message,
+					caller,
+					blocking,
+					this.trustedUserInstruction,
+					this.callerAddress,
+				);
+			// Blocking message_agent waits for the target's next result.
+			const result = blocking
+				? await this.withInactivitySuspendedFor(cmd.handle, messageCall)
+				: await messageCall();
 
 			if (!blocking || !result) {
 				const toolResultMsg = Msg.toolResult(cmd.call_id, "Message sent.");
@@ -2311,6 +2385,7 @@ export class Agent {
 			timeoutMs,
 			onTimeout: () => timeoutController?.abort(),
 		});
+		this.currentInactivityTimer = inactivityTimer;
 		inactivityTimer.reset();
 
 		// Combined signal: aborts if external signal OR inactivity timeout fires
@@ -2549,6 +2624,7 @@ export class Agent {
 			throw err;
 		} finally {
 			inactivityTimer.clear();
+			this.currentInactivityTimer = undefined;
 			this.stopDelegateObserverEventCapture();
 			this.signal = externalSignal;
 		}

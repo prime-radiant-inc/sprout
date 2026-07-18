@@ -11,7 +11,7 @@ import { deriveTrustedMemoryWriteAuthorization } from "../genome/memory-write-au
 import { createReadOnlyGenome } from "../genome/read-only-genome.ts";
 import { AuthChannelClient } from "../host/auth-channel.ts";
 import { ChannelHandleRegistrar } from "../host/handle-registrar.ts";
-import { LivenessReporter } from "../host/liveness.ts";
+import { ChannelLivenessProbe, LivenessReporter } from "../host/liveness.ts";
 import { SessionLogger } from "../host/logger.ts";
 import {
 	OpenAICodexOAuthService,
@@ -259,6 +259,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 			spawnerAuthChannel = {
 				url: config.authChannel.url,
 				registrar: new ChannelHandleRegistrar(authClient),
+				probe: new ChannelLivenessProbe(authClient),
 			};
 		}
 

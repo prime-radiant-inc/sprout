@@ -7314,3 +7314,241 @@ describe("Agent", () => {
 		expect(retryDelayMs).toBe(1);
 	});
 });
+
+describe("inactivity timer suspension during blocking waits", () => {
+	const SUSPEND_SPEC: AgentSpec = {
+		name: "suspend-root",
+		description: "Agent with a short inactivity window",
+		system_prompt: "You are a test agent.",
+		model: "anthropic:claude-haiku-4-5-20251001",
+		tools: [],
+		agents: ["leaf"],
+		constraints: {
+			...DEFAULT_CONSTRAINTS,
+			can_spawn: true,
+			timeout_ms: 200,
+			max_turns: 5,
+		},
+		tags: [],
+		version: 1,
+	};
+
+	const CHILD_RESULT: ResultMessage = {
+		kind: "result",
+		handle_id: "h-child",
+		output: "child done",
+		success: true,
+		stumbles: 0,
+		turns: 1,
+		timed_out: false,
+	};
+
+	function waitAgentThenDoneClient(): Client {
+		let callCount = 0;
+		return {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				if (callCount === 1) {
+					return {
+						id: "mock-wait-1",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: {
+							role: "assistant",
+							content: [
+								{
+									kind: ContentKind.TOOL_CALL,
+									tool_call: {
+										id: "call-wait-1",
+										name: "wait_agent",
+										arguments: JSON.stringify({ handle: "h-child" }),
+									},
+								},
+							],
+						},
+						finish_reason: { reason: "tool_calls" },
+						usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+					};
+				}
+				return {
+					id: `mock-wait-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant("All done."),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+	}
+
+	function slowWaitSpawner(
+		waitMs: number,
+		probe?: { msSincePing(handleId: string): Promise<number | null> },
+	): AgentSpawner {
+		return {
+			waitAgent: () =>
+				new Promise<ResultMessage>((resolve) => setTimeout(() => resolve(CHILD_RESULT), waitMs)),
+			getHandle: () => undefined,
+			livenessProbe: probe,
+		} as unknown as AgentSpawner;
+	}
+
+	test("blocking wait_agent outliving timeout_ms does not time the agent out", async () => {
+		// The wait (500ms) is far past the inactivity window (200ms); the timer
+		// must be suspended for the duration of the wait.
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: SUSPEND_SPEC,
+			env,
+			client: waitAgentThenDoneClient(),
+			primitiveRegistry: registry,
+			availableAgents: [SUSPEND_SPEC, leafSpec],
+			depth: 0,
+			events,
+			spawner: slowWaitSpawner(500),
+		});
+
+		const result = await agent.run("wait for the child");
+
+		expect(result.timed_out).toBe(false);
+		expect(result.success).toBe(true);
+		expect(result.output).toBe("All done.");
+	}, 15_000);
+
+	test("suspension holds while the awaited party keeps pinging", async () => {
+		const probe = { msSincePing: async () => 0 };
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: SUSPEND_SPEC,
+			env,
+			client: waitAgentThenDoneClient(),
+			primitiveRegistry: registry,
+			availableAgents: [SUSPEND_SPEC, leafSpec],
+			depth: 0,
+			events,
+			spawner: slowWaitSpawner(500, probe),
+			livenessPollIntervalMs: 25,
+		});
+
+		const result = await agent.run("wait for the child");
+
+		expect(result.timed_out).toBe(false);
+		expect(result.success).toBe(true);
+	}, 15_000);
+
+	test("net: missing pings resume the timer, which then times out normally", async () => {
+		// The awaited party has gone silent (way past the liveness threshold);
+		// the watch resumes the inactivity timer, which fires during the wait.
+		const probe = { msSincePing: async () => 999_999 };
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: SUSPEND_SPEC,
+			env,
+			client: waitAgentThenDoneClient(),
+			primitiveRegistry: registry,
+			availableAgents: [SUSPEND_SPEC, leafSpec],
+			depth: 0,
+			events,
+			spawner: slowWaitSpawner(600, probe),
+			livenessPollIntervalMs: 25,
+		});
+
+		const result = await agent.run("wait for the child");
+
+		expect(result.timed_out).toBe(true);
+	}, 15_000);
+
+	test("blocking spawner delegation outliving timeout_ms does not time the agent out", async () => {
+		const delegatingSpec: AgentSpec = {
+			...SUSPEND_SPEC,
+			name: "suspend-delegator",
+			tools: [],
+			agents: ["leaf"],
+			constraints: { ...SUSPEND_SPEC.constraints, can_spawn: true },
+		};
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (request: Request): Promise<Response> => {
+				// The mnemonic-name call is recognizable by its tiny max_tokens.
+				if (request.max_tokens === 30) {
+					return {
+						id: "mock-mnemonic",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: Msg.assistant("Turing"),
+						finish_reason: { reason: "stop" },
+						usage: { input_tokens: 10, output_tokens: 2, total_tokens: 12 },
+					};
+				}
+				callCount++;
+				if (callCount === 1) {
+					return {
+						id: "mock-delegate-1",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: {
+							role: "assistant",
+							content: [
+								{
+									kind: ContentKind.TOOL_CALL,
+									tool_call: {
+										id: "call-delegate-1",
+										name: "delegate",
+										arguments: JSON.stringify({ agent_name: "leaf", goal: "do the thing" }),
+									},
+								},
+							],
+						},
+						finish_reason: { reason: "tool_calls" },
+						usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+					};
+				}
+				return {
+					id: `mock-delegate-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant("All done."),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const spawner = {
+			spawnAgent: (_opts: SpawnAgentOptions) =>
+				new Promise<ResultMessage>((resolve) => setTimeout(() => resolve(CHILD_RESULT), 500)),
+			getHandle: () => undefined,
+			livenessProbe: undefined,
+		} as unknown as AgentSpawner;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: delegatingSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [delegatingSpec, leafSpec],
+			depth: 0,
+			events,
+			spawner,
+		});
+
+		const result = await agent.run("delegate slowly");
+
+		expect(result.timed_out).toBe(false);
+		expect(result.success).toBe(true);
+	}, 15_000);
+});

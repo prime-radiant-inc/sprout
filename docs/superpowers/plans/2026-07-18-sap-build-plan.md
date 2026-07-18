@@ -132,7 +132,29 @@ Slices (test-first; fan-out where files are disjoint):
     agent process delegation** is untested end-to-end — triggering it would launch real
     subprocesses. The channel path is covered piecewise (`handle-registrar.test.ts` real
     channel + spawner-with-authChannel tests).
-- [ ] Liveness pings (15 s) + timer suspension during blocking waits, both act modes.
+- [x] **Liveness pings (15 s) + timer suspension during blocking waits — landed.**
+  - Pings: every agent process pings the host every 15 s over its authenticated
+    connection (`LivenessReporter`; recorded ONLY for the connection's verified identity).
+    A `liveness` request answers "ms since this handle last pinged"; probes mirror the
+    registrar split (`HostLivenessProbe` in-process, `ChannelLivenessProbe` over the wire)
+    and ride the spawner's `authChannel`.
+  - Suspension: the run loop's inactivity timer is now an instance-visible
+    `currentInactivityTimer`; `withInactivitySuspendedFor(handleId, fn)` pauses it around
+    every blocking wait on another agent — blocking tool-call delegations, `wait_agent`,
+    blocking `message_agent` (both act-mode arms once code mode exists, since cells route
+    through the same spawner paths). The net: while suspended, a poll checks the awaited
+    party's pings; silence past 2× the ping interval resumes the timer, which then times
+    out normally instead of hanging forever. Pause/resume stays balanced when the net
+    fires (the net performs that wait's resume; the finally skips its own).
+  - Layering: cadence constants + `LivenessProbe` live in `src/shared/liveness.ts` (the
+    architecture boundary test forbids agents/ → host/ imports).
+  - Tests: registry ping tracking, handler identity rules, reporter cadence over a real
+    channel, both probes; agent seam tests (wait outliving `timeout_ms` completes without
+    timing out — mutation-verified; healthy pings hold suspension; silent counterparty
+    resumes and times out; blocking spawner delegation suspends too). This closes the
+    pre-existing spurious-timeout bug symmetrically.
+  - *Deferred to the wait-graph phase:* host-side deadlock detection (spec §4) — depends
+    on wait registration, which lands with cells/waits.
 
 #### Resume notes — spawn-path integration (enough to pick up cold)
 - **Trusted registrar id:** a reserved sentinel that is neither a ULID nor `"root"` (root's
