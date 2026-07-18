@@ -41,7 +41,8 @@ function fakeStore(values: Record<string, string>): StoreAccess {
 				.split("\n")
 				.map((text, i) => ({ line: i + 1, text }))
 				.filter((m) => regex.test(m.text));
-			return matches.slice(0, options.maxResults ?? 100);
+			const max = options.maxResults ?? 100;
+			return { matches: matches.slice(0, max), truncated: matches.length > max };
 		},
 	};
 }
@@ -122,6 +123,47 @@ describe("value primitives", () => {
 			expect(result.output).not.toContain(FAKE_SECRET);
 			expect(result.output).toContain("[REDACTED_API_KEY]");
 		}
+	});
+
+	it("value_grep appends a truncation note when the result is truncated", async () => {
+		const body = Array.from({ length: 5 }, (_, i) => `hit ${i}`).join("\n");
+		const { byName } = prims({ many: body });
+		const result = await byName
+			.get("value_grep")!
+			.execute({ ref: "many", pattern: "hit", max_results: 2 }, env);
+		expect(result.success).toBe(true);
+		expect(result.output).toContain("1:hit 0");
+		expect(result.output).toContain("…truncated");
+	});
+
+	it("value_slice clamps line_count and surfaces the slice budget error cleanly", async () => {
+		const store = fakeStore({ big: "line\n".repeat(10) });
+		let requestedLineCount = 0;
+		store.slice = async (_ref, options) => {
+			requestedLineCount = options.lineCount;
+			throw new Error("slice budget exceeded: result is 999 bytes, over the 10-byte budget");
+		};
+		const [slice] = buildValuePrimitives(store).filter((p) => p.name === "value_slice");
+		const result = await slice!.execute(
+			{ ref: "big", start_line: 1, line_count: Number.MAX_SAFE_INTEGER },
+			env,
+		);
+		expect(requestedLineCount).toBe(10_000);
+		expect(result.success).toBe(false);
+		expect(result.error).toContain("slice budget exceeded");
+		expect(result.error).toContain("fewer lines");
+	});
+
+	it("redacts secrets embedded in store error messages", async () => {
+		const store = fakeStore({});
+		store.peek = async () => {
+			throw new Error(`store exploded while reading api_key=${FAKE_SECRET}`);
+		};
+		const [peek] = buildValuePrimitives(store).filter((p) => p.name === "value_peek");
+		const result = await peek!.execute({ ref: "leaky" }, env);
+		expect(result.success).toBe(false);
+		expect(result.error).not.toContain(FAKE_SECRET);
+		expect(result.error).toContain("[REDACTED_API_KEY]");
 	});
 
 	it("store errors surface as success:false, never throws", async () => {

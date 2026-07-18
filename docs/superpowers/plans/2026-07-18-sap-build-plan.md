@@ -275,6 +275,12 @@ store-full fallbacks, auto-bind at boundaries, scope announcements + post-compac
 event. **Review add:** scope-announcement transport uses Anthropic mid-conversation
 `role:"system"` messages where available, `system-reminder` fallback elsewhere.
 
+- Phase 2 review deferral: in-host agents currently share the single root scope via
+  `DirectStoreAccess` — give each in-host agent its own scope here.
+- Phase 2 review deferral: channel-level bind idempotency (client-minted ulid over the
+  auth channel, mirroring the store-worker re-issue dedup) so a dropped response cannot
+  double-bind.
+
 ### Phase 4 — Splice & grants
 `$ref` whole-arg resolution (loud misses, per-primitive allowlist, post-splice path re-check),
 env-grant registration (loud alias collisions, observer-env prohibition), `env` on

@@ -35,7 +35,15 @@ export type StoreWorkerRequest =
 	| { id: string; op: "peek"; scopeId: string; ref: string }
 	| { id: string; op: "metadata"; scopeId: string; ref: string }
 	| { id: string; op: "get"; scopeId: string; ref: string; maxBytes: number }
-	| { id: string; op: "slice"; scopeId: string; ref: string; startLine: number; lineCount: number }
+	| {
+			id: string;
+			op: "slice";
+			scopeId: string;
+			ref: string;
+			startLine: number;
+			lineCount: number;
+			maxBytes?: number;
+	  }
 	| { id: string; op: "grep"; scopeId: string; ref: string; pattern: string; maxResults?: number };
 
 export type StoreWorkerResponse =
@@ -73,11 +81,23 @@ export interface RunStoreWorkerInput {
  * protocol is testable in-process. Requests run sequentially — the engine is
  * single-store and ops are cheap or budgeted; ordering keeps the journal sane.
  */
+/**
+ * Backstop cap on one buffered request line. The only stdin writer is the
+ * trusted StoreWorkerClient, so this should never trigger — it exists so a
+ * corrupt or malicious pipe cannot grow the buffer without bound. The partial
+ * line's id is unrecoverable, so the buffer is simply dropped.
+ */
+const MAX_REQUEST_LINE_BYTES = 64 * 1024 * 1024;
+
 export async function runStoreWorker(input: RunStoreWorkerInput): Promise<void> {
 	const decoder = new TextDecoder();
 	let buffered = "";
 	for await (const chunk of input.lines) {
 		buffered += typeof chunk === "string" ? chunk : decoder.decode(chunk, { stream: true });
+		if (buffered.indexOf("\n") === -1 && buffered.length > MAX_REQUEST_LINE_BYTES) {
+			buffered = "";
+			continue;
+		}
 		let newline = buffered.indexOf("\n");
 		while (newline !== -1) {
 			const line = buffered.slice(0, newline);
@@ -156,6 +176,7 @@ async function dispatch(store: SapStore, request: StoreWorkerRequest): Promise<u
 			return store.slice(request.scopeId, request.ref, {
 				startLine: request.startLine,
 				lineCount: request.lineCount,
+				...(request.maxBytes !== undefined ? { maxBytes: request.maxBytes } : {}),
 			});
 		case "grep":
 			return store.grep(request.scopeId, request.ref, request.pattern, {

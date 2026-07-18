@@ -29,6 +29,16 @@ export interface SapStoreOptions {
 	inlineLimitBytes: number;
 	/** Line-bounded grep chunk cap; the fallback for single-line values (1 MB). */
 	grepChunkBytes: number;
+	/**
+	 * Wall-clock budget for a grep run, checked between chunks (8 s). Kept
+	 * comfortably under the client's 10 s wedge timeout so an honest slow grep
+	 * fails cleanly inside the worker instead of escalating to SIGKILL.
+	 */
+	opBudgetMs: number;
+	/** Max bytes a slice result may return (256 KB). */
+	sliceBudgetBytes: number;
+	/** Total matched-text byte cap for one grep; exceeding truncates (256 KB). */
+	grepOutputBudgetBytes: number;
 	/** Names rejected by validation (ambient API, kernel primitives, ...). */
 	reservedNames: ReadonlySet<string>;
 }
@@ -40,6 +50,9 @@ const DEFAULT_OPTIONS: SapStoreOptions = {
 	maxValueBytes: 256 * 1024 * 1024,
 	inlineLimitBytes: INLINE_BODY_LIMIT,
 	grepChunkBytes: 1024 * 1024,
+	opBudgetMs: 8_000,
+	sliceBudgetBytes: 262_144,
+	grepOutputBudgetBytes: 262_144,
 	reservedNames: new Set(),
 };
 
@@ -75,6 +88,12 @@ export interface GrepMatch {
 	text: string;
 }
 
+/** grep's result: matches, plus whether the output byte cap cut it short. */
+export interface GrepResult {
+	matches: GrepMatch[];
+	truncated: boolean;
+}
+
 /** Who bound a name — collision rules (spec §1 Naming #3) key on this. */
 interface NameOrigin {
 	explicit: boolean;
@@ -107,6 +126,23 @@ export class SapStore {
 	private hotBytes = 0;
 	/** Journal + CAS bytes; initialized from cas.totalBytes() on first bind. */
 	private diskBytes: number | undefined;
+	/**
+	 * Promise-chain mutex serializing every public op. The engine's invariants
+	 * are check-then-act across awaits — the per-scope cap, name-collision
+	 * checks, diskBytes init, and LRU accounting all read state, await I/O, then
+	 * write state — so two interleaved callers could both pass a check that
+	 * only admits one. One op at a time makes those sequences atomic.
+	 */
+	private tail: Promise<void> = Promise.resolve();
+
+	private serialize<T>(fn: () => Promise<T>): Promise<T> {
+		const result = this.tail.then(fn);
+		this.tail = result.then(
+			() => undefined,
+			() => undefined,
+		);
+		return result;
+	}
 
 	constructor(init: SapStoreInit) {
 		this.journal = init.journal;
@@ -160,6 +196,14 @@ export class SapStore {
 		ownerHandleId: string;
 		parentScopeId: string;
 	}): Promise<void> {
+		return this.serialize(() => this.createScopeSerialized(args));
+	}
+
+	private async createScopeSerialized(args: {
+		scopeId: string;
+		ownerHandleId: string;
+		parentScopeId: string;
+	}): Promise<void> {
 		if (this.scopes.has(args.scopeId)) {
 			throw new Error(`scope already exists: ${args.scopeId}`);
 		}
@@ -173,6 +217,10 @@ export class SapStore {
 	}
 
 	async bind(args: BindArgs): Promise<ValueMetadata> {
+		return this.serialize(() => this.bindSerialized(args));
+	}
+
+	private async bindSerialized(args: BindArgs): Promise<ValueMetadata> {
 		// Idempotent re-issue: a caller-minted ulid that is already bound means
 		// this bind already happened (the response was lost across a worker
 		// restart) — return what the first issue produced.
@@ -207,8 +255,14 @@ export class SapStore {
 		// Every body goes to CAS (dedup makes this cheap); small bodies are
 		// additionally inlined in the journal record.
 		const sha = await this.cas.put(bytes);
+		// Clamp to the journal's hard inline ceiling: replay rejects inline
+		// bodies >= INLINE_BODY_LIMIT, so a larger configured limit would write
+		// records that brick resume. Text/json only inlines when the bytes
+		// roundtrip utf8 cleanly — lossy decode would corrupt the value on
+		// replay, so anything non-utf8 keeps its CAS ref instead.
+		const inlineLimit = Math.min(this.options.inlineLimitBytes, INLINE_BODY_LIMIT);
 		const body: JournalBody =
-			bytes.length < this.options.inlineLimitBytes
+			bytes.length < inlineLimit && inlineEncodable(bytes, args.type)
 				? { inline: encodeInline(bytes, args.type) }
 				: { cas: sha };
 
@@ -253,11 +307,11 @@ export class SapStore {
 
 	/** The stored bind-time preview, never re-computed. */
 	async peek(scopeId: string, ref: string): Promise<string> {
-		return this.resolve(scopeId, ref).metadata.preview;
+		return this.serialize(async () => this.resolve(scopeId, ref).metadata.preview);
 	}
 
 	async metadata(scopeId: string, ref: string): Promise<ValueMetadata> {
-		return this.resolve(scopeId, ref).metadata;
+		return this.serialize(async () => this.resolve(scopeId, ref).metadata);
 	}
 
 	/**
@@ -265,43 +319,72 @@ export class SapStore {
 	 * truncation: over-budget reads throw and the caller chooses what to do.
 	 */
 	async get(scopeId: string, ref: string, options: { maxBytes: number }): Promise<Uint8Array> {
-		const entry = this.resolve(scopeId, ref);
-		if (entry.metadata.size > options.maxBytes) {
-			throw new Error(
-				`value exceeds read budget: ${entry.metadata.size} > ${options.maxBytes} bytes`,
-			);
-		}
-		return this.loadBody(entry);
+		return this.serialize(() => {
+			const entry = this.resolve(scopeId, ref);
+			if (entry.metadata.size > options.maxBytes) {
+				throw new Error(
+					`value exceeds read budget: ${entry.metadata.size} > ${options.maxBytes} bytes`,
+				);
+			}
+			return this.loadBody(entry);
+		});
 	}
 
-	/** 1-based line range of a text/json value; a start past EOF is empty. */
+	/**
+	 * 1-based line range of a text/json value; a start past EOF is empty. The
+	 * result is capped at maxBytes (default sliceBudgetBytes) — over-budget
+	 * results throw rather than returning an unbounded string.
+	 */
 	async slice(
 		scopeId: string,
 		ref: string,
-		options: { startLine: number; lineCount: number },
+		options: { startLine: number; lineCount: number; maxBytes?: number },
 	): Promise<string> {
-		const entry = this.resolve(scopeId, ref);
-		if (entry.metadata.type === "bytes") {
-			throw new Error(`cannot slice a bytes value: ${ref}`);
-		}
-		const lines = splitLines(new TextDecoder().decode(await this.loadBody(entry)));
-		const start = Math.max(0, options.startLine - 1);
-		return lines.slice(start, start + options.lineCount).join("\n");
+		return this.serialize(async () => {
+			const entry = this.resolve(scopeId, ref);
+			if (entry.metadata.type === "bytes") {
+				throw new Error(`cannot slice a bytes value: ${ref}`);
+			}
+			const lines = splitLines(new TextDecoder().decode(await this.loadBody(entry)));
+			const start = Math.max(0, options.startLine - 1);
+			const text = lines.slice(start, start + options.lineCount).join("\n");
+			const budget = options.maxBytes ?? this.options.sliceBudgetBytes;
+			const size = new TextEncoder().encode(text).length;
+			if (size > budget) {
+				throw new Error(
+					`slice budget exceeded: result is ${size} bytes, over the ${budget}-byte budget — request fewer lines`,
+				);
+			}
+			return text;
+		});
 	}
 
 	/**
 	 * Line-matched grep, chunk-at-a-time so model-written patterns stay
 	 * interruptible: chunks are line-bounded (a regex never applies across a
 	 * chunk seam mid-line) with grepChunkBytes as the fallback split for
-	 * pathological single-line values, and the abort signal is checked between
-	 * chunks.
+	 * pathological single-line values. Between chunks the loop yields a
+	 * macrotask (so timers and abort() can actually fire), honors the abort
+	 * signal, and enforces the wall-clock budget — an honest-but-slow grep
+	 * fails cleanly here instead of escalating to the client's wedge SIGKILL.
+	 * Matched output is capped at grepOutputBudgetBytes; exceeding it returns
+	 * what was collected with `truncated: true`.
 	 */
 	async grep(
 		scopeId: string,
 		ref: string,
 		pattern: string,
-		options: { maxResults?: number; signal?: AbortSignal } = {},
-	): Promise<GrepMatch[]> {
+		options: { maxResults?: number; signal?: AbortSignal; deadlineMs?: number } = {},
+	): Promise<GrepResult> {
+		return this.serialize(() => this.grepSerialized(scopeId, ref, pattern, options));
+	}
+
+	private async grepSerialized(
+		scopeId: string,
+		ref: string,
+		pattern: string,
+		options: { maxResults?: number; signal?: AbortSignal; deadlineMs?: number },
+	): Promise<GrepResult> {
 		const entry = this.resolve(scopeId, ref);
 		let regex: RegExp;
 		try {
@@ -310,10 +393,15 @@ export class SapStore {
 			throw new Error(`invalid grep pattern: ${(err as Error).message}`);
 		}
 		const maxResults = options.maxResults ?? DEFAULT_GREP_MAX_RESULTS;
+		const budgetMs = options.deadlineMs ?? this.options.opBudgetMs;
+		const deadline = Date.now() + budgetMs;
+		const outputBudget = this.options.grepOutputBudgetBytes;
 		const text = new TextDecoder().decode(await this.loadBody(entry));
 		const lines = splitLines(text);
 		const cap = this.options.grepChunkBytes;
 		const results: GrepMatch[] = [];
+		let outputBytes = 0;
+		let truncated = false;
 
 		// A chunk is a run of whole lines up to `cap` chars; an overlong line
 		// becomes its own run of cap-sized fragments (same line number).
@@ -323,15 +411,25 @@ export class SapStore {
 			if (chunk.length === 0) return true;
 			for (const candidate of chunk) {
 				if (regex.test(candidate.text)) {
+					if (outputBytes + candidate.text.length > outputBudget) {
+						truncated = true;
+						return false;
+					}
 					results.push(candidate);
+					outputBytes += candidate.text.length;
 					if (results.length >= maxResults) return false;
 				}
 			}
 			chunk = [];
 			chunkSize = 0;
-			// Yield so an external abort() can land, then honor it.
-			await Promise.resolve();
+			// Macrotask yield: a microtask would never let timers fire, so
+			// neither an abort armed via setTimeout nor anything else could
+			// interrupt; setTimeout(0) actually drains the event loop.
+			await new Promise((r) => setTimeout(r, 0));
 			if (options.signal?.aborted) throw new Error("grep aborted");
+			if (Date.now() > deadline) {
+				throw new Error(`grep budget exceeded: ran past the ${budgetMs} ms budget`);
+			}
 			return true;
 		};
 
@@ -340,19 +438,21 @@ export class SapStore {
 			const line = lines[i] as string;
 			const lineNumber = i + 1;
 			if (line.length > cap) {
-				if (!(await flush())) return results;
+				if (!(await flush())) return { matches: results, truncated };
 				for (let at = 0; at < line.length; at += cap) {
 					chunk.push({ line: lineNumber, text: line.slice(at, at + cap) });
-					if (!(await flush())) return results;
+					if (!(await flush())) return { matches: results, truncated };
 				}
 				continue;
 			}
-			if (chunkSize + line.length > cap && !(await flush())) return results;
+			if (chunkSize + line.length > cap && !(await flush())) {
+				return { matches: results, truncated };
+			}
 			chunk.push({ line: lineNumber, text: line });
 			chunkSize += line.length;
 		}
 		await flush();
-		return results;
+		return { matches: results, truncated };
 	}
 
 	private requireScope(scopeId: string): ScopeState {
@@ -427,6 +527,9 @@ export class SapStore {
 	 * served straight from CAS. Values are immutable, so eviction is safe.
 	 */
 	private cacheBody(id: string, bytes: Uint8Array): void {
+		// Already cached (e.g. two loads of the same value raced before the
+		// mutex landed): re-inserting would double-count hotBytes.
+		if (this.hotBodies.has(id)) return;
 		if (bytes.length > this.options.memoryBudgetBytes) return;
 		while (this.hotBytes + bytes.length > this.options.memoryBudgetBytes) {
 			const oldest = this.hotBodies.keys().next().value as string;
@@ -444,15 +547,34 @@ function encodeInline(bytes: Uint8Array, type: ValueType): string {
 	return type === "bytes" ? Buffer.from(bytes).toString("base64") : new TextDecoder().decode(bytes);
 }
 
+/**
+ * Whether inlining is lossless: bytes always are (base64); text/json only when
+ * the bytes are valid utf8 — a lossy decode would replace invalid sequences
+ * and resume would serve different bytes than were bound.
+ */
+function inlineEncodable(bytes: Uint8Array, type: ValueType): boolean {
+	if (type === "bytes") return true;
+	try {
+		new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 function decodeInline(inline: string, type: ValueType): Uint8Array {
 	return type === "bytes"
 		? new Uint8Array(Buffer.from(inline, "base64"))
 		: new TextEncoder().encode(inline);
 }
 
-/** Split into lines by \n, dropping the empty tail of a trailing newline. */
+/**
+ * Split into lines by \n, dropping the empty tail of a trailing newline. CRLF
+ * is treated like \n (the trailing \r is stripped per line) so slice/grep line
+ * addressing matches value.ts's line counting and `$` anchors behave.
+ */
 function splitLines(text: string): string[] {
-	const lines = text.split("\n");
+	const lines = text.split("\n").map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line));
 	if (lines.at(-1) === "") lines.pop();
 	return lines;
 }

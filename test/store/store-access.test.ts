@@ -96,7 +96,10 @@ describe("store access", () => {
 				"hello\nworld",
 			);
 			expect(await access.slice("notes", { startLine: 2, lineCount: 1 })).toBe("world");
-			expect(await access.grep("notes", "wor")).toEqual([{ line: 2, text: "world" }]);
+			expect(await access.grep("notes", "wor")).toEqual({
+				matches: [{ line: 2, text: "world" }],
+				truncated: false,
+			});
 			await client.shutdown();
 		});
 
@@ -171,9 +174,10 @@ describe("store access", () => {
 				"alpha\nbeta",
 			);
 			expect(await access.slice("notes", { startLine: 1, lineCount: 1 })).toBe("alpha");
-			expect(await access.grep("notes", "bet", { maxResults: 5 })).toEqual([
-				{ line: 2, text: "beta" },
-			]);
+			expect(await access.grep("notes", "bet", { maxResults: 5 })).toEqual({
+				matches: [{ line: 2, text: "beta" }],
+				truncated: false,
+			});
 		});
 
 		it("roundtrips binary content over the channel", async () => {
@@ -285,6 +289,71 @@ describe("store access", () => {
 			);
 			await expect(client.request("store_grep", { ref: "x" })).rejects.toThrow(/pattern/);
 			await expect(client.request("store_get", { ref: "x" })).rejects.toThrow(/maxBytes/);
+		});
+
+		it("rejects non-finite and out-of-range numeric fields", async () => {
+			const client = await connectAgent("agent_numbers");
+			await expect(
+				client.request("store_get", { ref: "x", maxBytes: Number.POSITIVE_INFINITY }),
+			).rejects.toThrow(/maxBytes/);
+			await expect(
+				client.request("store_slice", { ref: "x", startLine: -1, lineCount: 1 }),
+			).rejects.toThrow(/startLine/);
+			await expect(
+				client.request("store_slice", { ref: "x", startLine: 1.5, lineCount: 1 }),
+			).rejects.toThrow(/startLine/);
+			await expect(
+				client.request("store_grep", { ref: "x", pattern: "a", maxResults: Number.NaN }),
+			).rejects.toThrow(/maxResults/);
+		});
+
+		it("bind refuses a value whose wire form exceeds the channel limit", async () => {
+			const access = new ChannelStoreAccess(await connectAgent("agent_big"));
+			await expect(
+				access.bind({
+					name: "huge",
+					content: "x".repeat(6 * 1024 * 1024 + 1),
+					type: "text",
+					provenance: prov("agent_big"),
+					explicit: true,
+				}),
+			).rejects.toThrow(/too large for the channel.*CAS handoff/);
+		});
+
+		it("a channel get costs exactly one worker round-trip", async () => {
+			const inner = workingSpawn();
+			let issued = 0;
+			const countingClient = new StoreWorkerClient({
+				journalPath: join(dir, "journal.jsonl"),
+				casRoot: join(dir, "cas"),
+				rootScopeId: ROOT_SCOPE,
+				opTimeoutMs: 1_000,
+				spawnFn: () => {
+					const handle = inner();
+					const send = handle.send.bind(handle);
+					handle.send = (line) => {
+						issued++;
+						send(line);
+					};
+					return handle;
+				},
+			});
+			registerStoreHandlers(server, countingClient, { rootScopeId: ROOT_SCOPE });
+			const access = new ChannelStoreAccess(await connectAgent("agent_count"));
+			await access.bind({
+				name: "counted",
+				content: "payload",
+				type: "text",
+				provenance: prov("agent_count"),
+				explicit: true,
+			});
+			const before = issued;
+			expect(new TextDecoder().decode(await access.get("counted", { maxBytes: 100 }))).toBe(
+				"payload",
+			);
+			// One worker op for the get — content and encoding in one response.
+			expect(issued - before).toBe(1);
+			await countingClient.shutdown();
 		});
 	});
 });

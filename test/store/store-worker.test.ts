@@ -111,9 +111,13 @@ describe("store worker", () => {
 			expect(blob.encoding).toBe("base64");
 			expect(new Uint8Array(Buffer.from(blob.content, "base64"))).toEqual(bytesBody);
 			expect((byId.get("r8") as { result: string }).result).toBe("world");
-			expect((byId.get("r9") as { result: { line: number; text: string }[] }).result).toEqual([
-				{ line: 2, text: "world" },
-			]);
+			expect(
+				(
+					byId.get("r9") as {
+						result: { matches: { line: number; text: string }[]; truncated: boolean };
+					}
+				).result,
+			).toEqual({ matches: [{ line: 2, text: "world" }], truncated: false });
 		});
 
 		it("reassembles a request split across stdin chunks", async () => {
@@ -220,7 +224,10 @@ describe("store worker", () => {
 			expect(
 				new TextDecoder().decode(await client.get(ROOT_SCOPE, "notes", { maxBytes: 100 })),
 			).toBe("hello\nworld");
-			expect(await client.grep(ROOT_SCOPE, "notes", "hel")).toEqual([{ line: 1, text: "hello" }]);
+			expect(await client.grep(ROOT_SCOPE, "notes", "hel")).toEqual({
+				matches: [{ line: 1, text: "hello" }],
+				truncated: false,
+			});
 			await client.shutdown();
 		});
 
@@ -369,6 +376,71 @@ describe("store worker", () => {
 			await client.shutdown();
 		});
 
+		it("a timeout restart penalizes only the culprit op; innocents complete", async () => {
+			// A worker that NEVER answers ref "culprit". The first spawn answers
+			// nothing, so the culprit's timer (armed first) triggers the restart;
+			// respawned workers answer every non-culprit request. With
+			// maxRestarts 0, any op blamed for a restart rejects — so if blame
+			// were shared (the old behavior), the innocents would reject too.
+			let spawnCount = 0;
+			const client = new StoreWorkerClient({
+				journalPath: join(dir, "journal.jsonl"),
+				casRoot: join(dir, "cas"),
+				rootScopeId: ROOT_SCOPE,
+				opTimeoutMs: 100,
+				maxRestarts: 0,
+				spawnFn: () => {
+					spawnCount++;
+					const first = spawnCount === 1;
+					let lineHandler: (line: string) => void = () => {};
+					return {
+						send(line) {
+							const request = JSON.parse(line) as { id: string; ref?: string };
+							if (request.ref === "culprit" || first) return;
+							setTimeout(() => {
+								lineHandler(JSON.stringify({ id: request.id, ok: true, result: "pong" }));
+							}, 0);
+						},
+						kill() {},
+						onLine(cb) {
+							lineHandler = cb;
+						},
+						onExit() {},
+					};
+				},
+			});
+			const culprit = client.peek(ROOT_SCOPE, "culprit");
+			const innocent1 = client.peek(ROOT_SCOPE, "innocent_1");
+			const innocent2 = client.peek(ROOT_SCOPE, "innocent_2");
+			const err = await culprit.then(() => undefined).catch((e: unknown) => e);
+			expect(err).toBeInstanceOf(StoreUnavailableError);
+			expect((err as StoreUnavailableError).infrastructure).toBe(true);
+			// The innocents rode the restart for free and completed.
+			expect(await innocent1).toBe("pong");
+			expect(await innocent2).toBe("pong");
+			await client.shutdown();
+		});
+
+		it("a throwing spawnFn rejects pending ops as infrastructure, no unhandled rejection", async () => {
+			const client = new StoreWorkerClient({
+				journalPath: join(dir, "journal.jsonl"),
+				casRoot: join(dir, "cas"),
+				rootScopeId: ROOT_SCOPE,
+				opTimeoutMs: 100,
+				spawnFn: () => {
+					throw new Error("store worker binary missing");
+				},
+			});
+			const err = await client
+				.peek(ROOT_SCOPE, "x")
+				.then(() => undefined)
+				.catch((e: unknown) => e);
+			expect(err).toBeInstanceOf(StoreUnavailableError);
+			expect((err as StoreUnavailableError).infrastructure).toBe(true);
+			expect((err as Error).message).toContain("spawn failed");
+			await client.shutdown();
+		});
+
 		it("shutdown rejects in-flight ops with StoreUnavailableError", async () => {
 			const client = makeClient(wedgedHandle, { opTimeoutMs: 60_000 });
 			const pending = client.peek(ROOT_SCOPE, "x");
@@ -402,9 +474,10 @@ describe("store worker", () => {
 				expect(await client.peek(ROOT_SCOPE, "notes")).toContain("text · 11 bytes");
 				const body = await client.get(ROOT_SCOPE, "notes", { maxBytes: 100 });
 				expect(new TextDecoder().decode(body)).toBe("hello\nworld");
-				expect(await client.grep(ROOT_SCOPE, "notes", "^wor")).toEqual([
-					{ line: 2, text: "world" },
-				]);
+				expect(await client.grep(ROOT_SCOPE, "notes", "^wor")).toEqual({
+					matches: [{ line: 2, text: "world" }],
+					truncated: false,
+				});
 				await client.shutdown();
 				// The worker journaled the bind: a direct resume sees it.
 				const resumed = await SapStore.resume({ journal, cas, rootScopeId: ROOT_SCOPE });

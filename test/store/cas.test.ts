@@ -202,6 +202,15 @@ describe("ContentStore", () => {
 			expect(await store.get(sha)).toEqual(bytes);
 		});
 
+		it("stores under the sha of exactly the bytes stored: get(sha) equals staged content", async () => {
+			const bytes = new TextEncoder().encode("hash-what-you-store");
+			const path = join(staging, "hashcheck");
+			await writeFile(path, bytes);
+			const sha = await store.adoptFromStaging(path, { stagingDir: staging, maxBytes: 1024 });
+			expect(sha).toBe(sha256(bytes));
+			expect(await store.get(sha)).toEqual(bytes);
+		});
+
 		it("dedups adoption against existing content", async () => {
 			const bytes = new TextEncoder().encode("already stored");
 			const sha = await store.put(bytes);

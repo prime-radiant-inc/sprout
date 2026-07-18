@@ -429,6 +429,25 @@ describe("SapStore", () => {
 			expect(await store.slice(ROOT_SCOPE, "lines", { startLine: 5, lineCount: 3 })).toBe("");
 		});
 
+		it("throws 'slice budget exceeded' when the result is over the byte budget", async () => {
+			const store = makeStore({ sliceBudgetBytes: 16 });
+			await store.bind({
+				scopeId: ROOT_SCOPE,
+				name: "wide",
+				content: "0123456789\nabcdefghij\nklmnopqrst",
+				type: "text",
+				provenance: prov(),
+				explicit: true,
+			});
+			await expect(store.slice(ROOT_SCOPE, "wide", { startLine: 1, lineCount: 3 })).rejects.toThrow(
+				/slice budget exceeded.*16/,
+			);
+			// A per-call maxBytes overrides the option default.
+			await expect(
+				store.slice(ROOT_SCOPE, "wide", { startLine: 1, lineCount: 3, maxBytes: 1024 }),
+			).resolves.toBe("0123456789\nabcdefghij\nklmnopqrst");
+		});
+
 		it("rejects bytes values", async () => {
 			const store = makeStore();
 			await store.bind({
@@ -456,11 +475,12 @@ describe("SapStore", () => {
 				provenance: prov(),
 				explicit: true,
 			});
-			const matches = await store.grep(ROOT_SCOPE, "log", "^error:");
-			expect(matches).toEqual([
+			const result = await store.grep(ROOT_SCOPE, "log", "^error:");
+			expect(result.matches).toEqual([
 				{ line: 2, text: "error: boom" },
 				{ line: 4, text: "error: bang" },
 			]);
+			expect(result.truncated).toBe(false);
 		});
 
 		it("stops at maxResults", async () => {
@@ -474,7 +494,7 @@ describe("SapStore", () => {
 				provenance: prov(),
 				explicit: true,
 			});
-			const matches = await store.grep(ROOT_SCOPE, "many", "hit", { maxResults: 3 });
+			const { matches } = await store.grep(ROOT_SCOPE, "many", "hit", { maxResults: 3 });
 			expect(matches.length).toBe(3);
 			expect(matches[0]).toEqual({ line: 1, text: "hit 0" });
 		});
@@ -496,9 +516,10 @@ describe("SapStore", () => {
 			);
 		});
 
-		it("aborts between chunks when the signal fires mid-grep", async () => {
-			// Tiny chunk size forces many chunks; aborting after grep starts must
-			// be observed at a between-chunk check.
+		it("aborts between chunks when the signal fires from a timer mid-grep", async () => {
+			// Tiny chunk size forces many chunks; the abort fires from a
+			// setTimeout, so only a real macrotask yield between chunks can
+			// observe it — a microtask yield would never let the timer run.
 			const store = makeStore({ grepChunkBytes: 16 });
 			const content = Array.from({ length: 500 }, (_, i) => `line ${i}`).join("\n");
 			await store.bind({
@@ -510,9 +531,44 @@ describe("SapStore", () => {
 				explicit: true,
 			});
 			const controller = new AbortController();
+			setTimeout(() => controller.abort(), 0);
 			const pending = store.grep(ROOT_SCOPE, "big", "line", { signal: controller.signal });
-			controller.abort();
 			await expect(pending).rejects.toThrow(/grep aborted/);
+		});
+
+		it("fails cleanly with 'grep budget exceeded' when the deadline passes between chunks", async () => {
+			// Many chunks (tiny grepChunkBytes) with a zero budget: the very
+			// first between-chunk deadline check must fire.
+			const store = makeStore({ grepChunkBytes: 16 });
+			const content = Array.from({ length: 500 }, (_, i) => `line ${i}`).join("\n");
+			await store.bind({
+				scopeId: ROOT_SCOPE,
+				name: "slow",
+				content,
+				type: "text",
+				provenance: prov(),
+				explicit: true,
+			});
+			await expect(store.grep(ROOT_SCOPE, "slow", "nomatch", { deadlineMs: 0 })).rejects.toThrow(
+				/^grep budget exceeded/,
+			);
+		});
+
+		it("caps matched output at grepOutputBudgetBytes and sets truncated", async () => {
+			const store = makeStore({ grepOutputBudgetBytes: 32 });
+			const content = Array.from({ length: 20 }, (_, i) => `match line ${i}`).join("\n");
+			await store.bind({
+				scopeId: ROOT_SCOPE,
+				name: "wide",
+				content,
+				type: "text",
+				provenance: prov(),
+				explicit: true,
+			});
+			const result = await store.grep(ROOT_SCOPE, "wide", "match");
+			expect(result.truncated).toBe(true);
+			expect(result.matches.length).toBeGreaterThan(0);
+			expect(result.matches.length).toBeLessThan(20);
 		});
 
 		it("matches within a single line larger than the chunk cap", async () => {
@@ -527,7 +583,7 @@ describe("SapStore", () => {
 				provenance: prov(),
 				explicit: true,
 			});
-			const matches = await store.grep(ROOT_SCOPE, "longline", "needle");
+			const { matches } = await store.grep(ROOT_SCOPE, "longline", "needle");
 			expect(matches.length).toBe(1);
 			expect(matches[0]?.line).toBe(1);
 			expect(matches[0]?.text).toContain("needle");
@@ -546,6 +602,119 @@ describe("SapStore", () => {
 			await expect(store.grep(ROOT_SCOPE, "v", "([unclosed")).rejects.toThrow(
 				/invalid grep pattern/,
 			);
+		});
+	});
+
+	describe("CRLF line handling", () => {
+		it("slice and grep address CRLF lines like LF lines", async () => {
+			const store = makeStore();
+			await store.bind({
+				scopeId: ROOT_SCOPE,
+				name: "crlf",
+				content: "one\r\ntwo\r\nthree\r\n",
+				type: "text",
+				provenance: prov(),
+				explicit: true,
+			});
+			expect(await store.slice(ROOT_SCOPE, "crlf", { startLine: 2, lineCount: 2 })).toBe(
+				"two\nthree",
+			);
+			// `$` anchors see the clean line, not a trailing \r.
+			const { matches } = await store.grep(ROOT_SCOPE, "crlf", "^two$");
+			expect(matches).toEqual([{ line: 2, text: "two" }]);
+		});
+	});
+
+	describe("inline journal encoding", () => {
+		it("roundtrips invalid-utf8 bytes typed 'text' through resume via CAS", async () => {
+			const store = makeStore();
+			// 0xff 0xfe is not valid utf8; a lossy inline decode would corrupt it.
+			const body = new Uint8Array([104, 105, 0xff, 0xfe, 104, 111]);
+			await store.bind({
+				scopeId: ROOT_SCOPE,
+				name: "weird",
+				content: body,
+				type: "text",
+				provenance: prov(),
+				explicit: true,
+			});
+			const records = (await journal.replay()).filter((r) => r.kind === "bind");
+			expect(records[0]?.kind === "bind" && "cas" in records[0].body).toBe(true);
+			const resumed = await SapStore.resume({ journal, cas, rootScopeId: ROOT_SCOPE });
+			expect(await resumed.get(ROOT_SCOPE, "weird", { maxBytes: 100 })).toEqual(body);
+		});
+
+		it("clamps a large inlineLimitBytes to the journal's hard ceiling", async () => {
+			// 1 MB configured inline limit with a 100 KB body: journaling it
+			// inline would make replay reject the record and brick resume.
+			const store = makeStore({ inlineLimitBytes: 1024 * 1024 });
+			const body = "x".repeat(100 * 1024);
+			await store.bind({
+				scopeId: ROOT_SCOPE,
+				name: "biginline",
+				content: body,
+				type: "text",
+				provenance: prov(),
+				explicit: true,
+			});
+			const records = (await journal.replay()).filter((r) => r.kind === "bind");
+			expect(records[0]?.kind === "bind" && "cas" in records[0].body).toBe(true);
+			const resumed = await SapStore.resume({ journal, cas, rootScopeId: ROOT_SCOPE });
+			const bytes = await resumed.get(ROOT_SCOPE, "biginline", { maxBytes: 1024 * 1024 });
+			expect(new TextDecoder().decode(bytes)).toBe(body);
+		});
+	});
+
+	describe("concurrency", () => {
+		it("10 concurrent binds against a cap of 5 admit exactly 5", async () => {
+			const store = makeStore({ perScopeValueCap: 5 });
+			const results = await Promise.allSettled(
+				Array.from({ length: 10 }, (_, i) =>
+					store.bind({
+						scopeId: ROOT_SCOPE,
+						name: `c_${i}`,
+						content: `${i}`,
+						type: "text",
+						provenance: prov(),
+						explicit: true,
+					}),
+				),
+			);
+			const fulfilled = results.filter((r) => r.status === "fulfilled");
+			const rejected = results.filter((r) => r.status === "rejected");
+			expect(fulfilled.length).toBe(5);
+			expect(rejected.length).toBe(5);
+			for (const r of rejected) {
+				expect((r as PromiseRejectedResult).reason.message).toMatch(/^store full:/);
+			}
+		});
+
+		it("concurrent reads of one value do not corrupt LRU accounting", async () => {
+			const store = makeStore({ memoryBudgetBytes: 200 });
+			await store.bind({
+				scopeId: ROOT_SCOPE,
+				name: "shared",
+				content: "s".repeat(80),
+				type: "text",
+				provenance: prov(),
+				explicit: true,
+			});
+			// Many concurrent loads of the same body must not drift hotBytes.
+			await Promise.all(
+				Array.from({ length: 20 }, () => store.get(ROOT_SCOPE, "shared", { maxBytes: 1024 })),
+			);
+			// An eviction-heavy insert still works and stays readable — if
+			// hotBytes had drifted upward, eviction of an empty LRU would wedge.
+			await store.bind({
+				scopeId: ROOT_SCOPE,
+				name: "evictor",
+				content: "e".repeat(150),
+				type: "text",
+				provenance: prov(),
+				explicit: true,
+			});
+			const bytes = await store.get(ROOT_SCOPE, "evictor", { maxBytes: 1024 });
+			expect(bytes.length).toBe(150);
 		});
 	});
 

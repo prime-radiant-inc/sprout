@@ -17,7 +17,7 @@ import {
 	STORE_SLICE_REQUEST,
 } from "../store/store-access.ts";
 import type { StoreWorkerClient } from "../store/store-client.ts";
-import { decodeWireContent, encodeWireContent, type WireEncoding } from "../store/store-worker.ts";
+import { decodeWireContent, type WireEncoding } from "../store/store-worker.ts";
 import type { ValueOrigin, ValueType } from "../store/value.ts";
 import type { AuthChannelServer } from "./auth-channel.ts";
 
@@ -84,27 +84,18 @@ export function registerStoreHandlers(
 	authServer.onRequest(STORE_GET_REQUEST, async (ctx, payload) => {
 		const fields = parseObjectPayload(payload, STORE_GET_REQUEST);
 		const ref = parseRef(payload, STORE_GET_REQUEST);
-		if (typeof fields.maxBytes !== "number") {
-			throw new Error(`${STORE_GET_REQUEST}: maxBytes must be a number`);
-		}
-		const scopeId = await ensureScope(ctx.handleId);
-		const bytes = await storeClient.get(scopeId, ref, { maxBytes: fields.maxBytes });
-		const metadata = await storeClient.metadata(scopeId, ref);
-		return encodeWireContent(bytes, metadata.type);
+		const maxBytes = int(fields, "maxBytes", { min: 0 }, STORE_GET_REQUEST);
+		// One worker round-trip: the worker's get op already returns the wire
+		// body with the value's own encoding — no separate metadata op.
+		return storeClient.getWire(await ensureScope(ctx.handleId), ref, { maxBytes });
 	});
 
 	authServer.onRequest(STORE_SLICE_REQUEST, async (ctx, payload) => {
 		const fields = parseObjectPayload(payload, STORE_SLICE_REQUEST);
 		const ref = parseRef(payload, STORE_SLICE_REQUEST);
-		if (typeof fields.startLine !== "number") {
-			throw new Error(`${STORE_SLICE_REQUEST}: startLine must be a number`);
-		}
-		if (typeof fields.lineCount !== "number") {
-			throw new Error(`${STORE_SLICE_REQUEST}: lineCount must be a number`);
-		}
 		return storeClient.slice(await ensureScope(ctx.handleId), ref, {
-			startLine: fields.startLine,
-			lineCount: fields.lineCount,
+			startLine: int(fields, "startLine", { min: 1 }, STORE_SLICE_REQUEST),
+			lineCount: int(fields, "lineCount", { min: 1 }, STORE_SLICE_REQUEST),
 		});
 	});
 
@@ -114,13 +105,32 @@ export function registerStoreHandlers(
 		if (typeof fields.pattern !== "string") {
 			throw new Error(`${STORE_GREP_REQUEST}: pattern must be a string`);
 		}
-		if (fields.maxResults !== undefined && typeof fields.maxResults !== "number") {
-			throw new Error(`${STORE_GREP_REQUEST}: maxResults must be a number`);
-		}
+		const maxResults =
+			fields.maxResults !== undefined
+				? int(fields, "maxResults", { min: 1 }, STORE_GREP_REQUEST)
+				: undefined;
 		return storeClient.grep(await ensureScope(ctx.handleId), ref, fields.pattern, {
-			...(fields.maxResults !== undefined ? { maxResults: fields.maxResults } : {}),
+			...(maxResults !== undefined ? { maxResults } : {}),
 		});
 	});
+}
+
+/**
+ * Narrow an untrusted numeric field to a safe integer >= min. Rejects
+ * Infinity, NaN, floats, and negatives — a crafted number must never reach the
+ * engine's arithmetic.
+ */
+function int(
+	fields: Record<string, unknown>,
+	name: string,
+	opts: { min: number },
+	request: string,
+): number {
+	const value = fields[name];
+	if (typeof value !== "number" || !Number.isSafeInteger(value) || value < opts.min) {
+		throw new Error(`${request}: ${name} must be an integer >= ${opts.min}`);
+	}
+	return value;
 }
 
 interface BindPayload {

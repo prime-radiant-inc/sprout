@@ -1,8 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
+import { constants } from "node:fs";
 import {
-	copyFile,
-	lstat,
 	mkdir,
+	open,
 	readdir,
 	realpath,
 	rename,
@@ -107,58 +107,52 @@ export class ContentStore {
 	 */
 	async adoptFromStaging(path: string, options: AdoptOptions): Promise<string> {
 		const canonicalStaging = await realpath(options.stagingDir);
-		// lstat the file itself first: a symlink inside staging pointing
-		// anywhere must be rejected before its target is ever touched.
-		let info: Awaited<ReturnType<typeof lstat>>;
+		// Canonicalize the parent so a symlinked ancestor cannot smuggle in a
+		// path outside staging. Confinement is checked before the file is ever
+		// opened.
+		let canonicalParent: string;
 		try {
-			info = await lstat(path);
+			canonicalParent = await realpath(dirname(path));
 		} catch (err) {
 			if ((err as NodeJS.ErrnoException).code === "ENOENT") {
 				throw new Error(`staged file not found: ${path}`);
 			}
 			throw err;
 		}
-		if (info.isSymbolicLink()) {
-			throw new Error(`refusing to adopt symlink: ${path}`);
-		}
-		if (!info.isFile()) {
-			throw new Error(`not a regular file: ${path}`);
-		}
-		// Canonicalize the parent (the file itself is a verified non-symlink)
-		// so a symlinked ancestor cannot smuggle in a path outside staging.
-		const canonical = join(await realpath(dirname(path)), resolve(path).split(sep).at(-1) ?? "");
+		const canonical = join(canonicalParent, resolve(path).split(sep).at(-1) ?? "");
 		if (!canonical.startsWith(canonicalStaging + sep)) {
 			throw new Error(`path is outside the staging directory: ${path}`);
 		}
-		if (info.size > options.maxBytes) {
-			throw new Error(`staged file exceeds max size: ${info.size} > ${options.maxBytes} bytes`);
-		}
 
-		const sha = createHash("sha256")
-			.update(new Uint8Array(await Bun.file(canonical).arrayBuffer()))
-			.digest("hex");
-		const dest = this.objectPath(sha);
-		if (await pathExists(dest)) {
-			// Already stored — dedup; just clear the staged copy.
-			await unlink(canonical);
-			return sha;
-		}
-		await mkdir(dirname(dest), { recursive: true });
+		// Never rename a producer-controlled path into the CAS: open with
+		// O_NOFOLLOW (the kernel loses any symlink race for us — a symlink at
+		// the final component fails with ELOOP), verify via the fd, read the
+		// bytes FROM THE FD, and store through put() so the sha is computed
+		// over exactly the bytes stored.
+		let fd: Awaited<ReturnType<typeof open>>;
 		try {
-			await rename(canonical, dest);
+			fd = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
 		} catch (err) {
-			if ((err as NodeJS.ErrnoException).code !== "EXDEV") throw err;
-			// Staging and CAS on different devices: copy atomically, then unlink.
-			const tmp = join(dirname(dest), `.tmp-${randomBytes(8).toString("hex")}`);
-			try {
-				await copyFile(canonical, tmp);
-				await rename(tmp, dest);
-			} catch (copyErr) {
-				await rm(tmp, { force: true });
-				throw copyErr;
-			}
-			await unlink(canonical);
+			const code = (err as NodeJS.ErrnoException).code;
+			if (code === "ELOOP") throw new Error(`refusing to adopt symlink: ${path}`);
+			if (code === "ENOENT") throw new Error(`staged file not found: ${path}`);
+			throw err;
 		}
+		let bytes: Uint8Array;
+		try {
+			const info = await fd.stat();
+			if (!info.isFile()) {
+				throw new Error(`not a regular file: ${path}`);
+			}
+			if (info.size > options.maxBytes) {
+				throw new Error(`staged file exceeds max size: ${info.size} > ${options.maxBytes} bytes`);
+			}
+			bytes = new Uint8Array(await fd.readFile());
+		} finally {
+			await fd.close();
+		}
+		const sha = await this.put(bytes);
+		await unlink(path);
 		return sha;
 	}
 }

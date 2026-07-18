@@ -11,7 +11,7 @@
  */
 
 import type { AuthChannelClient } from "../host/auth-channel.ts";
-import type { GrepMatch } from "./store.ts";
+import type { GrepResult } from "./store.ts";
 import type { StoreWorkerClient } from "./store-client.ts";
 import { decodeWireContent, encodeWireContent, type WireBody } from "./store-worker.ts";
 import type { ValueMetadata, ValueProvenance, ValueType } from "./value.ts";
@@ -43,7 +43,7 @@ export interface StoreAccess {
 	metadata(ref: string): Promise<ValueMetadata>;
 	get(ref: string, options: { maxBytes: number }): Promise<Uint8Array>;
 	slice(ref: string, options: { startLine: number; lineCount: number }): Promise<string>;
-	grep(ref: string, pattern: string, options?: { maxResults?: number }): Promise<GrepMatch[]>;
+	grep(ref: string, pattern: string, options?: { maxResults?: number }): Promise<GrepResult>;
 }
 
 /** Host-process implementation: delegates to the store worker with a fixed scope. */
@@ -76,10 +76,17 @@ export class DirectStoreAccess implements StoreAccess {
 		return this.client.slice(this.scopeId, ref, options);
 	}
 
-	grep(ref: string, pattern: string, options: { maxResults?: number } = {}): Promise<GrepMatch[]> {
+	grep(ref: string, pattern: string, options: { maxResults?: number } = {}): Promise<GrepResult> {
 		return this.client.grep(this.scopeId, ref, pattern, options);
 	}
 }
+
+/**
+ * Largest wire form (base64/utf8 content string) a bind may put on the
+ * channel. Kept under the server's 8 MB WebSocket frame cap so an oversized
+ * value fails with a clear error instead of a silently dropped socket.
+ */
+export const CHANNEL_BIND_WIRE_LIMIT = 6 * 1024 * 1024;
 
 /**
  * Agent-process implementation: sends store ops over the authenticated
@@ -98,6 +105,12 @@ export class ChannelStoreAccess implements StoreAccess {
 			typeof args.content === "string" ? new TextEncoder().encode(args.content) : args.content,
 			args.type,
 		);
+		if (wire.content.length > CHANNEL_BIND_WIRE_LIMIT) {
+			throw new Error(
+				`value too large for the channel (${wire.content.length} > ${CHANNEL_BIND_WIRE_LIMIT} wire bytes); ` +
+					"large-value capture lands with CAS handoff (Phase 3)",
+			);
+		}
 		return (await this.client.request(STORE_BIND_REQUEST, {
 			name: args.name,
 			content: wire.content,
@@ -133,11 +146,11 @@ export class ChannelStoreAccess implements StoreAccess {
 		ref: string,
 		pattern: string,
 		options: { maxResults?: number } = {},
-	): Promise<GrepMatch[]> {
+	): Promise<GrepResult> {
 		return (await this.client.request(STORE_GREP_REQUEST, {
 			ref,
 			pattern,
 			...(options.maxResults !== undefined ? { maxResults: options.maxResults } : {}),
-		})) as GrepMatch[];
+		})) as GrepResult;
 	}
 }

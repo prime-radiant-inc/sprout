@@ -11,7 +11,7 @@
 
 import { buildInternalSproutCommand } from "../util/self-command.ts";
 import { ulid } from "../util/ulid.ts";
-import type { BindArgs, GrepMatch, SapStoreOptions } from "./store.ts";
+import type { BindArgs, GrepResult, SapStoreOptions } from "./store.ts";
 import {
 	decodeWireContent,
 	encodeWireContent,
@@ -118,20 +118,29 @@ export class StoreWorkerClient {
 	}
 
 	async get(scopeId: string, ref: string, options: { maxBytes: number }): Promise<Uint8Array> {
-		const body = (await this.issue({
+		const body = await this.getWire(scopeId, ref, options);
+		return decodeWireContent(body.content, body.encoding);
+	}
+
+	/**
+	 * The wire form of get — content plus encoding from the worker's single get
+	 * op. Channel handlers use this directly so one channel get costs exactly
+	 * one worker round-trip (no separate metadata op for the encoding).
+	 */
+	async getWire(scopeId: string, ref: string, options: { maxBytes: number }): Promise<WireBody> {
+		return (await this.issue({
 			id: ulid(),
 			op: "get",
 			scopeId,
 			ref,
 			maxBytes: options.maxBytes,
 		})) as WireBody;
-		return decodeWireContent(body.content, body.encoding);
 	}
 
 	async slice(
 		scopeId: string,
 		ref: string,
-		options: { startLine: number; lineCount: number },
+		options: { startLine: number; lineCount: number; maxBytes?: number },
 	): Promise<string> {
 		return (await this.issue({ id: ulid(), op: "slice", scopeId, ref, ...options })) as string;
 	}
@@ -141,10 +150,10 @@ export class StoreWorkerClient {
 		ref: string,
 		pattern: string,
 		options: { maxResults?: number } = {},
-	): Promise<GrepMatch[]> {
+	): Promise<GrepResult> {
 		const request: StoreWorkerRequest = { id: ulid(), op: "grep", scopeId, ref, pattern };
 		if (options.maxResults !== undefined) request.maxResults = options.maxResults;
-		return (await this.issue(request)) as GrepMatch[];
+		return (await this.issue(request)) as GrepResult;
 	}
 
 	/** Kill the worker and reject everything in flight as infrastructure. */
@@ -173,22 +182,46 @@ export class StoreWorkerClient {
 				restarts: 0,
 			};
 			this.pending.set(request.id, op);
-			this.sendTo(this.ensureWorker(), op);
+			// A failed spawn has already rejected this op via failAllPending.
+			const worker = this.ensureWorker();
+			if (worker !== undefined) this.sendTo(worker, op);
 		});
 	}
 
 	private armTimeout(id: string): ReturnType<typeof setTimeout> {
+		// The timed-out op is the restart's culprit: only it pays a restart.
 		return setTimeout(
-			() => this.restart(`op ${id} timed out after ${this.opTimeoutMs} ms`),
+			() => this.restart(`op ${id} timed out after ${this.opTimeoutMs} ms`, id),
 			this.opTimeoutMs,
 		);
 	}
 
-	private ensureWorker(): StoreWorkerHandle {
+	/** Reject every pending op as infrastructure failure and clear its timer. */
+	private failAllPending(reason: string): void {
+		for (const [id, op] of this.pending) {
+			clearTimeout(op.timer);
+			this.pending.delete(id);
+			op.reject(new StoreUnavailableError(reason));
+		}
+	}
+
+	/**
+	 * Spawn (or reuse) the worker. A throwing spawnFn must not escape into a
+	 * timer or promise executor: it rejects everything pending as
+	 * StoreUnavailableError and returns undefined instead.
+	 */
+	private ensureWorker(): StoreWorkerHandle | undefined {
 		if (this.worker !== undefined) return this.worker;
 		this.generation++;
 		const generation = this.generation;
-		const worker = this.spawnFn();
+		let worker: StoreWorkerHandle;
+		try {
+			worker = this.spawnFn();
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			this.failAllPending(`store worker spawn failed: ${message}`);
+			return undefined;
+		}
 		this.worker = worker;
 		worker.onLine((line) => this.handleResponseLine(line));
 		// A crash without a pending timeout takes the same restart path; the
@@ -229,10 +262,14 @@ export class StoreWorkerClient {
 	/**
 	 * The wedge-recovery contract: SIGKILL the worker (unconditional — thread
 	 * termination could not preempt a wedged regex), respawn (resume replays
-	 * the journal), and re-issue every in-flight op transparently. Ops that
-	 * have exhausted maxRestarts reject infrastructure-tagged instead.
+	 * the journal), and re-issue every in-flight op transparently. Restart
+	 * blame is attributed: a timeout names its op as the culprit and only that
+	 * op's restart counter increments — innocent concurrent ops re-issue for
+	 * free and the culprit re-issues last. A crash/exit restart has no culprit
+	 * and charges everyone (genuinely shared fault). Ops that have exhausted
+	 * maxRestarts reject infrastructure-tagged instead.
 	 */
-	private restart(reason: string): void {
+	private restart(reason: string, culpritId?: string): void {
 		if (this.closed) return;
 		this.generation++;
 		this.worker?.kill();
@@ -240,17 +277,24 @@ export class StoreWorkerClient {
 		const inFlight = [...this.pending.values()];
 		for (const op of inFlight) clearTimeout(op.timer);
 		const survivors: PendingOp[] = [];
+		let culprit: PendingOp | undefined;
 		for (const op of inFlight) {
-			op.restarts++;
+			if (culpritId === undefined || op.request.id === culpritId) op.restarts++;
 			if (op.restarts > this.maxRestarts) {
 				this.pending.delete(op.request.id);
 				op.reject(new StoreUnavailableError(`store worker unavailable: ${reason}`));
+			} else if (op.request.id === culpritId) {
+				culprit = op;
 			} else {
 				survivors.push(op);
 			}
 		}
+		// Innocents first; the possibly-wedging culprit re-issues last so it
+		// cannot stall their re-issue behind another wedge.
+		if (culprit !== undefined) survivors.push(culprit);
 		if (survivors.length === 0) return;
 		const worker = this.ensureWorker();
+		if (worker === undefined) return; // spawn failed; failAllPending already rejected
 		for (const op of survivors) {
 			op.timer = this.armTimeout(op.request.id);
 			this.sendTo(worker, op);

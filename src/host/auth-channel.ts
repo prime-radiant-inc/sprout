@@ -150,6 +150,11 @@ export class AuthChannelServer {
 				return new Response("Expected WebSocket upgrade", { status: 426 });
 			},
 			websocket: {
+				// Explicit frame cap: Bun's default 16 MB maxPayloadLength is
+				// unstated in docs and an over-limit frame drops the connection
+				// silently. 8 MB is deliberate headroom over the client-side
+				// 6 MB bind guard; large bodies use CAS handoff in Phase 3.
+				maxPayloadLength: 8 * 1024 * 1024,
 				open(ws) {
 					self.connections.set(ws.data.handleId, ws);
 				},
