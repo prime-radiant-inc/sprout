@@ -361,11 +361,44 @@ Slices (test-first):
   verified frozen-correct: no prefilter bypass, no recursive splice, no normalization
   trick, constraints re-run on resolved args.
 
-### Phase 4 — Splice & grants
-`$ref` whole-arg resolution (loud misses, per-primitive allowlist, post-splice path re-check),
-env-grant registration (loud alias collisions, observer-env prohibition), `env` on
-delegate/message/continue/StartMessage. **← natural v1 release line: the ≥80% token win is
+### Phase 4 — Splice & grants  ← current
+`$ref` whole-arg resolution (LANDED in Phase 3), env-grant registration (loud alias
+collisions, observer-env prohibition), `env` on delegate/message/continue/StartMessage,
+manifest summary-text suffix rewrite. **← natural v1 release line: the ≥80% token win is
 delivered here, no evaluator. Ship and measure before Phase 5.**
+
+Design decisions (fixed):
+- **Grant lifecycle**: sender registers over its authenticated connection BEFORE the bus
+  message — new journal record kind `env_grant` {sender scope, recipient handle, alias,
+  ulid} (pending); recipient's runtime claims on message receipt: a claim verifies a
+  matching pending grant exists, aliases the value into the recipient scope, journals a
+  `grant` record (same kind manifests use), and consumes the pending entry. A forged
+  bus `env` finds no pending grant and binds NOTHING. Resume: `env_grant` → pending
+  table, `grant` → bound alias, claimed pendings subtracted by (recipient, alias, ulid).
+- **Sender-scope validation**: the sender must own the granted value (ref resolves in
+  the SENDER's scope; foreign ulids rejected like publish).
+- **Alias collisions fail loudly AT REGISTRATION** (explicit names never suffix): an
+  alias already bound in the recipient's scope rejects the grant back to the sender.
+  Race note: the recipient scope may gain the name between registration and claim —
+  the claim then also fails loudly back into the recipient's tool result.
+- **Observer-env prohibition**: enforced host-side at grant registration (the registry
+  knows observer remits): an observer-role sender's registration is rejected.
+- **Wire**: `env?: Record<string, string>` (alias → sender-scope name or ulid) additive
+  on the delegate tool, StartMessage, ContinueMessage, AgentMessageMessage. Spawner
+  registers grants at spawn (it is the sender's runtime); message/continue senders
+  register before publishing the bus message. Recipient claims: start path binds before
+  the first turn; continue/agent_message paths bind on receipt.
+- **Scope announcements**: claimed env binds append a compact user-role message to
+  history ("values now in scope: ⟦a⟧ (preview)…") — message stream, never the system
+  prompt (cache-prefix preservation). Post-compaction consolidated manifest: DEFERRED
+  to the compaction integration (recorded).
+- **Manifest suffix rewrite** (§3): when a manifest alias suffixes, rewrite ⟦oldname⟧ →
+  ⟦newname⟧ occurrences in that child's delivered summary TEXT before it reaches the
+  recipient; the delta carries the alias map (child name → bound-as). Residual (spec
+  stated): in-content references can't be rewritten.
+- Deferrals recorded: observer READ expansion (remit-wide value reads) waits for the
+  observation surface that consumes it; shared-handle host resolution stays Phase 5;
+  task_payload untouched (superseded, no migration).
 
 ### Phase 5 — Evaluator
 Per-agent cell workers, `cell` tool over the authenticated channel, ambient API (incl.
