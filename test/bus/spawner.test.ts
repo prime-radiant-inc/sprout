@@ -11,10 +11,13 @@ import { AgentSpawner } from "../../src/bus/spawner.ts";
 import { agentInbox, agentReady } from "../../src/bus/topics.ts";
 import type { AgentMessageMessage, EventMessage, ResultMessage } from "../../src/bus/types.ts";
 import { Genome } from "../../src/genome/genome.ts";
+import type { HandleRegistrar, RegisterChildInput } from "../../src/host/handle-registrar.ts";
+import { hashToken } from "../../src/host/handle-registry.ts";
 import type { Client } from "../../src/llm/client.ts";
 import type { Request, Response } from "../../src/llm/types.ts";
 import { ContentKind, Msg, messageText } from "../../src/llm/types.ts";
 import { addr } from "../helpers/agent-address.ts";
+import { waitFor } from "../helpers/wait-for.ts";
 
 const AGENT_SPEC = {
 	name: "test-leaf",
@@ -97,6 +100,9 @@ function createInProcessSpawnFn(client: Client) {
 			genomePath: env.SPROUT_GENOME_PATH!,
 			client,
 			workDir: env.SPROUT_WORK_DIR!,
+			...(env.SPROUT_AUTH_URL && env.SPROUT_HANDLE_TOKEN
+				? { authChannel: { url: env.SPROUT_AUTH_URL, token: env.SPROUT_HANDLE_TOKEN } }
+				: {}),
 			signal: controller.signal,
 		});
 		return {
@@ -2064,6 +2070,262 @@ describe("AgentSpawner", () => {
 			} finally {
 				if (readyTimer) clearInterval(readyTimer);
 				await childBus.disconnect();
+			}
+		}, 15_000);
+	});
+
+	describe("authenticated handle registration", () => {
+		/** Registrar test double that records every registration in order. */
+		class RecordingRegistrar implements HandleRegistrar {
+			calls: RegisterChildInput[] = [];
+			async registerChild(input: RegisterChildInput): Promise<void> {
+				this.calls.push(input);
+			}
+		}
+
+		/**
+		 * In-process spawn that records the env but runs the child without its
+		 * auth credentials — these unit tests use a fake channel URL that the
+		 * child could never actually connect to.
+		 */
+		function captureEnvSpawnFn(client: Client, envs: Record<string, string>[]) {
+			const inner = createInProcessSpawnFn(client);
+			return (handleId: string, env: Record<string, string>) => {
+				envs.push(env);
+				const { SPROUT_AUTH_URL: _url, SPROUT_HANDLE_TOKEN: _token, ...rest } = env;
+				return inner(handleId, rest);
+			};
+		}
+
+		test("registers the child before launch and injects auth env", async () => {
+			const registrar = new RecordingRegistrar();
+			const envs: Record<string, string>[] = [];
+			const mockClient = createMockClient("Done.");
+			let registeredBeforeSpawn = false;
+			const inner = captureEnvSpawnFn(mockClient, envs);
+			const spawnFn = (handleId: string, env: Record<string, string>) => {
+				registeredBeforeSpawn = registrar.calls.length === 1;
+				return inner(handleId, env);
+			};
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, spawnFn, undefined, undefined, {
+				url: "ws://127.0.0.1:9999",
+				registrar,
+			});
+
+			const result = (await spawnWithResolver({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: addr("root", 0),
+				goal: "Do the thing",
+				blocking: true,
+				shared: false,
+				workDir: tempDir,
+			})) as ResultMessage;
+			expect(result.success).toBe(true);
+
+			expect(registrar.calls).toHaveLength(1);
+			expect(registeredBeforeSpawn).toBe(true);
+			const call = registrar.calls[0]!;
+			expect(call.ownerId).toBe("root");
+			expect(call.depth).toBe(1);
+			expect(call.observerRemit).toBeUndefined();
+
+			const env = envs[0]!;
+			expect(env.SPROUT_AUTH_URL).toBe("ws://127.0.0.1:9999");
+			expect(env.SPROUT_HANDLE_TOKEN).toBeDefined();
+			expect(hashToken(env.SPROUT_HANDLE_TOKEN!)).toBe(call.tokenHash);
+			expect(call.handleId).toBe(env.SPROUT_HANDLE_ID!);
+		}, 15_000);
+
+		test("spawn without an auth channel injects no auth env", async () => {
+			const envs: Record<string, string>[] = [];
+			const mockClient = createMockClient("Done.");
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, captureEnvSpawnFn(mockClient, envs));
+
+			await spawnWithResolver({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: addr("root", 0),
+				goal: "Do the thing",
+				blocking: true,
+				shared: false,
+				workDir: tempDir,
+			});
+
+			expect(envs[0]!.SPROUT_AUTH_URL).toBeUndefined();
+			expect(envs[0]!.SPROUT_HANDLE_TOKEN).toBeUndefined();
+		}, 15_000);
+
+		test("a registrar rejection aborts the spawn before the process launches", async () => {
+			const registrar: HandleRegistrar = {
+				async registerChild() {
+					throw new Error("handle registration failed: duplicate");
+				},
+			};
+			let spawned = false;
+			const mockClient = createMockClient("Done.");
+			const spawnFn = (handleId: string, env: Record<string, string>) => {
+				spawned = true;
+				return createInProcessSpawnFn(mockClient)(handleId, env);
+			};
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, spawnFn, undefined, undefined, {
+				url: "ws://127.0.0.1:9999",
+				registrar,
+			});
+
+			await expect(
+				spawnWithResolver({
+					agentName: "test-leaf",
+					genomePath: genomeDir,
+					caller: addr("root", 0),
+					goal: "Do the thing",
+					blocking: true,
+					shared: false,
+					workDir: tempDir,
+				}),
+			).rejects.toThrow("handle registration failed: duplicate");
+			expect(spawned).toBe(false);
+			expect(spawner.getHandles()).toHaveLength(0);
+		}, 15_000);
+
+		test("observer spawned by root registers with a session remit", async () => {
+			const registrar = new RecordingRegistrar();
+			const mockClient = createMockClient("Observed.");
+			spawner = new AgentSpawner(
+				bus,
+				server.url,
+				SESSION_ID,
+				captureEnvSpawnFn(mockClient, []),
+				undefined,
+				undefined,
+				{ url: "ws://127.0.0.1:9999", registrar },
+			);
+
+			await spawnWithResolver({
+				agentName: "test-observer",
+				genomePath: genomeDir,
+				caller: addr("root", 0),
+				goal: "Observe",
+				blocking: true,
+				shared: false,
+				keepAlive: true,
+				isObserver: true,
+				workDir: tempDir,
+			});
+
+			expect(registrar.calls[0]!.observerRemit).toEqual({ kind: "session" });
+		}, 15_000);
+
+		test("observer spawned by a delegate registers with a delegate remit", async () => {
+			const registrar = new RecordingRegistrar();
+			const mockClient = createMockClient("Observed.");
+			spawner = new AgentSpawner(
+				bus,
+				server.url,
+				SESSION_ID,
+				captureEnvSpawnFn(mockClient, []),
+				undefined,
+				undefined,
+				{ url: "ws://127.0.0.1:9999", registrar },
+			);
+
+			await spawnWithResolver({
+				agentName: "test-observer",
+				genomePath: genomeDir,
+				caller: addr("test-parent", 1, undefined, "h-parent"),
+				goal: "Observe",
+				blocking: true,
+				shared: false,
+				keepAlive: true,
+				isObserver: true,
+				workDir: tempDir,
+			});
+
+			expect(registrar.calls[0]!.observerRemit).toEqual({
+				kind: "delegate",
+				ownerId: "h-parent",
+			});
+		}, 15_000);
+
+		test("re-spawning a completed handle re-registers it with a fresh token", async () => {
+			const registrar = new RecordingRegistrar();
+			const envs: Record<string, string>[] = [];
+			const mockClient = createMockClient("Done.");
+			spawner = new AgentSpawner(
+				bus,
+				server.url,
+				SESSION_ID,
+				captureEnvSpawnFn(mockClient, envs),
+				undefined,
+				undefined,
+				{ url: "ws://127.0.0.1:9999", registrar },
+			);
+
+			const handleId = (await spawnWithResolver({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: addr("root", 0),
+				goal: "First task",
+				blocking: false,
+				shared: false,
+				workDir: tempDir,
+			})) as string;
+			await spawner.waitAgent(handleId);
+			// Wait for the process exit to settle the handle as completed
+			await waitFor(() => spawner.getHandle(handleId)?.status === "completed");
+
+			const result = await spawner.messageAgent(handleId, "Second task", addr("root", 0), true);
+			expect(result!.success).toBe(true);
+
+			expect(registrar.calls).toHaveLength(2);
+			expect(registrar.calls[1]!.handleId).toBe(handleId);
+			expect(registrar.calls[1]!.tokenHash).not.toBe(registrar.calls[0]!.tokenHash);
+			expect(hashToken(envs[1]!.SPROUT_HANDLE_TOKEN!)).toBe(registrar.calls[1]!.tokenHash);
+		}, 15_000);
+
+		test("end-to-end: a spawned child authenticates against the real host channel", async () => {
+			// Real registry + channel server + trusted registrar, in-process child
+			// that connects with the credentials from its spawn env.
+			const { HandleRegistry } = await import("../../src/host/handle-registry.ts");
+			const { AuthChannelServer } = await import("../../src/host/auth-channel.ts");
+			const { HostHandleRegistrar } = await import("../../src/host/handle-registrar.ts");
+
+			const registry = new HandleRegistry({ trustedRegistrarId: "sprout:host" });
+			const authServer = new AuthChannelServer({ port: 0, hostname: "127.0.0.1", registry });
+			await authServer.start();
+			try {
+				const registrar = new HostHandleRegistrar(registry, "sprout:host");
+				const mockClient = createMockClient("Done.");
+				spawner = new AgentSpawner(
+					bus,
+					server.url,
+					SESSION_ID,
+					createInProcessSpawnFn(mockClient),
+					undefined,
+					undefined,
+					{ url: authServer.url, registrar },
+				);
+
+				const handleId = (await spawnWithResolver({
+					agentName: "test-leaf",
+					genomePath: genomeDir,
+					caller: addr("root", 0),
+					goal: "Do the thing",
+					blocking: false,
+					shared: true,
+					workDir: tempDir,
+				})) as string;
+
+				// The child process holds an authenticated connection while alive.
+				await waitFor(() => registry.isLive(handleId));
+				await spawner.waitAgent(handleId);
+				expect(registry.get(handleId)?.ownerId).toBe("root");
+
+				// Shutdown drops the connection and clears liveness.
+				await spawner.shutdown();
+				await waitFor(() => !registry.isLive(handleId));
+			} finally {
+				await authServer.stop();
 			}
 		}, 15_000);
 	});

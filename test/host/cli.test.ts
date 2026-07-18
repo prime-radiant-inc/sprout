@@ -1897,6 +1897,98 @@ describe("startBusInfrastructure", () => {
 		}
 	});
 
+	test("starts the authenticated channel and exposes its URL and registry", async () => {
+		const genomePath = join(tempDir, "genome-auth");
+		await mkdir(join(genomePath, ".git"), { recursive: true });
+
+		const infra = await startBusInfrastructure({
+			genomePath,
+			sessionId: "test-session-auth",
+		});
+
+		try {
+			expect(infra.authUrl).toMatch(/^ws:\/\/127\.0\.0\.1:\d+$/);
+			// Separate endpoint from the open bus.
+			expect(infra.authUrl).not.toBe(infra.server.url);
+			expect(infra.handleRegistry).toBeDefined();
+
+			// An unauthenticated connection is refused at the handshake.
+			const { AuthChannelClient } = await import("../../src/host/auth-channel.ts");
+			const intruder = new AuthChannelClient({
+				url: infra.authUrl!,
+				handleId: "h-intruder",
+				token: "not-a-real-token",
+			});
+			await expect(intruder.connect()).rejects.toThrow(/handshake rejected/);
+
+			// A handle registered through the host registrar can authenticate.
+			const { hashToken, mintToken } = await import("../../src/host/handle-registry.ts");
+			const token = mintToken();
+			infra.handleRegistry!.registerHandle({
+				handleId: "h-child",
+				tokenHash: hashToken(token),
+				registrarId: "sprout:host",
+				ownerId: "root",
+				depth: 1,
+			});
+			const child = new AuthChannelClient({
+				url: infra.authUrl!,
+				handleId: "h-child",
+				token,
+			});
+			await child.connect();
+			expect(child.connected).toBe(true);
+			await child.disconnect();
+		} finally {
+			await infra.cleanup();
+		}
+	});
+
+	test("no handle may register as the trusted host identity", async () => {
+		const genomePath = join(tempDir, "genome-auth-reserved");
+		await mkdir(join(genomePath, ".git"), { recursive: true });
+
+		const infra = await startBusInfrastructure({
+			genomePath,
+			sessionId: "test-session-auth-reserved",
+		});
+
+		try {
+			const { hashToken, mintToken } = await import("../../src/host/handle-registry.ts");
+			const result = infra.handleRegistry!.registerHandle({
+				handleId: "sprout:host",
+				tokenHash: hashToken(mintToken()),
+				registrarId: "sprout:host",
+				ownerId: "root",
+				depth: 1,
+			});
+			expect(result).toEqual({ ok: false, reason: "reserved" });
+		} finally {
+			await infra.cleanup();
+		}
+	});
+
+	test("cleanup stops the authenticated channel server", async () => {
+		const genomePath = join(tempDir, "genome-auth-stop");
+		await mkdir(join(genomePath, ".git"), { recursive: true });
+
+		const infra = await startBusInfrastructure({
+			genomePath,
+			sessionId: "test-session-auth-stop",
+		});
+		const authUrl = infra.authUrl!;
+		await infra.cleanup();
+
+		// Connecting to a stopped server fails outright.
+		const { AuthChannelClient } = await import("../../src/host/auth-channel.ts");
+		const client = new AuthChannelClient({
+			url: authUrl,
+			handleId: "h-any",
+			token: "any",
+		});
+		await expect(client.connect()).rejects.toThrow();
+	});
+
 	test("stops the server when client connection fails during startup", async () => {
 		const genomePath = join(tempDir, "genome-failure");
 		await mkdir(join(genomePath, ".git"), { recursive: true });

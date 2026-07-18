@@ -20,6 +20,13 @@ import type { HandleRegistry, ObserverRemit } from "./handle-registry.ts";
 export const REGISTER_HANDLE_REQUEST = "register_handle";
 
 /**
+ * The host's trust-authority identity. Deliberately neither a ULID nor
+ * "root", so no agent handle can ever collide with it; the registry also
+ * refuses to register any handle claiming it.
+ */
+export const TRUSTED_REGISTRAR_ID = "sprout:host";
+
+/**
  * What a spawner supplies to register one child handle. It deliberately carries
  * NO `registrarId`: the registrar is always the caller's own verified identity
  * (the trusted host id in-process, or the connection's handle id over the

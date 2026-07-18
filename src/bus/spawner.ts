@@ -1,6 +1,8 @@
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { ResolverSettings } from "../agents/model-resolver.ts";
+import type { HandleRegistrar } from "../host/handle-registrar.ts";
+import { hashToken, mintToken, type ObserverRemit } from "../host/handle-registry.ts";
 import { buildInternalSproutCommand } from "../util/self-command.ts";
 import { ulid } from "../util/ulid.ts";
 import type { BusClient } from "./client.ts";
@@ -55,6 +57,19 @@ export interface SpawnAgentOptions {
 }
 
 export type HandleVisibility = "private" | "shared";
+
+/**
+ * Authenticated-channel context for a spawner (sap spec §1 Transport, §3
+ * Identity). When present, every child handle is registered with the host
+ * before its process launches and receives per-handle credentials in its
+ * environment. When absent (tests, spawnerless runs), spawning is unchanged.
+ */
+export interface SpawnerAuthChannel {
+	/** ws:// URL of the host's authenticated channel, passed to children. */
+	url: string;
+	/** Registration authority: trusted-direct on the host, over-channel in children. */
+	registrar: HandleRegistrar;
+}
 
 export interface DeliverObserverFrameOptions {
 	agentName: string;
@@ -217,6 +232,7 @@ export class AgentSpawner {
 	private readonly spawnFn: SpawnFn;
 	private readonly waitTimeoutMs: number;
 	private readonly agentMessageAckTimeoutMs: number;
+	private readonly authChannel?: SpawnerAuthChannel;
 	private readonly handles = new Map<string, AgentHandle>();
 	private readonly observerDeliveryChains = new Map<string, Promise<void>>();
 	private readonly sessionEventsCallbacks = new Set<(event: EventMessage) => void>();
@@ -361,11 +377,13 @@ export class AgentSpawner {
 		spawnFn?: SpawnFn,
 		waitTimeoutMs?: number,
 		agentMessageAckTimeoutMs?: number,
+		authChannel?: SpawnerAuthChannel,
 	) {
 		this.bus = bus;
 		this.busUrl = busUrl;
 		this.sessionId = sessionId;
 		this.spawnFn = spawnFn ?? defaultSpawnFn;
+		this.authChannel = authChannel;
 		this.waitTimeoutMs = waitTimeoutMs ?? 900_000;
 		this.agentMessageAckTimeoutMs =
 			agentMessageAckTimeoutMs ?? DEFAULT_AGENT_MESSAGE_ACK_TIMEOUT_MS;
@@ -518,6 +536,38 @@ export class AgentSpawner {
 	}
 
 	/**
+	 * Register a handle with the host ahead of its process launch and return
+	 * the env vars carrying its credentials. Registration must precede launch
+	 * so the child's very first connection can authenticate. Without an auth
+	 * channel this is a no-op returning no env. A rejected registration aborts
+	 * the launch — an unregistered child could never authenticate anyway.
+	 */
+	private async registerHandleForLaunch(input: {
+		handleId: string;
+		ownerId: string;
+		depth: number;
+		isObserver: boolean;
+	}): Promise<Record<string, string>> {
+		if (!this.authChannel) return {};
+		const token = mintToken();
+		// An observer's read scope is fixed at spawn: session-wide when root
+		// spawns it, otherwise limited to the spawning owner's delegations.
+		const observerRemit: ObserverRemit | undefined = input.isObserver
+			? input.ownerId === "root"
+				? { kind: "session" }
+				: { kind: "delegate", ownerId: input.ownerId }
+			: undefined;
+		await this.authChannel.registrar.registerChild({
+			handleId: input.handleId,
+			tokenHash: hashToken(token),
+			ownerId: input.ownerId,
+			depth: input.depth,
+			...(observerRemit ? { observerRemit } : {}),
+		});
+		return { SPROUT_AUTH_URL: this.authChannel.url, SPROUT_HANDLE_TOKEN: token };
+	}
+
+	/**
 	 * Spawn a new agent process.
 	 *
 	 * If blocking: waits for the agent to produce a result and returns it.
@@ -545,6 +595,12 @@ export class AgentSpawner {
 			SPROUT_PARENT_PID: String(process.pid),
 			...(opts.rootDir ? { SPROUT_ROOT_DIR: opts.rootDir } : {}),
 			...(opts.projectDataDir ? { SPROUT_PROJECT_DATA_DIR: opts.projectDataDir } : {}),
+			...(await this.registerHandleForLaunch({
+				handleId,
+				ownerId: opts.caller.handleId,
+				depth: self.depth,
+				isObserver: opts.isObserver === true,
+			})),
 		};
 
 		const resultRecoveryLogOffset = await this.captureResultRecoveryLogOffset(
@@ -810,6 +866,13 @@ export class AgentSpawner {
 			SPROUT_PARENT_PID: String(process.pid),
 			...(handle.rootDir ? { SPROUT_ROOT_DIR: handle.rootDir } : {}),
 			...(handle.projectDataDir ? { SPROUT_PROJECT_DATA_DIR: handle.projectDataDir } : {}),
+			// Tokens are never journaled, so a re-spawn mints and registers anew.
+			...(await this.registerHandleForLaunch({
+				handleId,
+				ownerId: handle.owner.handleId,
+				depth: handle.address.depth,
+				isObserver: handle.isObserver,
+			})),
 		};
 
 		const proc = this.spawnFn(handleId, env);

@@ -106,18 +106,32 @@ Slices (test-first; fan-out where files are disjoint):
     (`892e4b6`).
   - `inactivity-timer.ts` (`d5648ff`) + run-loop swap (`3cac769`).
 - [x] Env filtering: `SPROUT_BUS_URL`/`SPROUT_AUTH_URL` withheld from exec shells (`bc838cb`).
-- [ ] **The spawn-path integration — one coherent slice (next).** Wiring these is coupled;
-  splitting it leaves dead intermediate states, so land it together with an end-to-end test:
-  - Host (`cli-shared.ts` `startBusInfrastructure`): create `HandleRegistry` (reserved
-    trusted id) + `AuthChannelServer` + `register_handle` handler + `HostHandleRegistrar`;
-    stop the auth server in cleanup. DI contracts take additive fields safely.
-  - Spawner (`spawner.ts:527` mints ULID handleId; `:539`/`:805` build child env):
-    grouped optional `authChannel` constructor param; mint token, register child before
-    launch, inject `SPROUT_AUTH_URL` + `SPROUT_HANDLE_TOKEN`.
-  - Agent process (`agent-process.ts`): on startup, connect an `AuthChannelClient` with its
-    handle+token; build a `ChannelHandleRegistrar`; hand it to the child spawner.
-  - Test/spawnerless modes have no auth channel → the `authChannel` param stays optional and
-    registration/injection are skipped there.
+- [x] **The spawn-path integration — landed as one slice.**
+  - Host: `startBusInfrastructure` starts the `AuthChannelServer` (trusted id
+    `TRUSTED_REGISTRAR_ID = "sprout:host"`, defined in `handle-registrar.ts`), registers the
+    `register_handle` handler, hands the spawner `{ url, registrar: HostHandleRegistrar }`,
+    exposes `authUrl` + `handleRegistry` (optional fields) on `BusInfrastructure`, and stops
+    the auth server in cleanup + the startup-failure path.
+  - Spawner: grouped optional `authChannel` constructor param (7th);
+    `registerHandleForLaunch` mints the token, registers before launch (both the spawn and
+    the re-spawn path — tokens are never journaled, so re-spawn re-registers), injects
+    `SPROUT_AUTH_URL` + `SPROUT_HANDLE_TOKEN`; observers register with their remit
+    (root caller → session, otherwise delegate scoped to the owner). A rejected
+    registration aborts the launch. No auth channel → unchanged.
+  - Agent process: connects an `AuthChannelClient` before signalling ready (refused
+    credentials fail the process fast), hands a `ChannelHandleRegistrar` to its child
+    spawner, disconnects in the shutdown path. Env entry point reads
+    `SPROUT_AUTH_URL`/`SPROUT_HANDLE_TOKEN`.
+  - Tests: spawner unit tests (register-before-launch ordering, env injection,
+    registrar-rejection abort, observer remits, re-spawn fresh token, no-channel spawn),
+    agent-process liveness lifecycle + fail-fast-on-refusal, host-wiring tests
+    (authUrl exposed, intruder refused, registered handle authenticates, reserved trusted
+    id, cleanup stops the channel), and an end-to-end spawn through real
+    registry+channel+trusted registrar asserting live-while-running / cleared-on-shutdown.
+  - *Known coverage gap for the Phase 1 review:* grandchild registration **through a live
+    agent process delegation** is untested end-to-end — triggering it would launch real
+    subprocesses. The channel path is covered piecewise (`handle-registrar.test.ts` real
+    channel + spawner-with-authChannel tests).
 - [ ] Liveness pings (15 s) + timer suspension during blocking waits, both act modes.
 
 #### Resume notes — spawn-path integration (enough to pick up cold)

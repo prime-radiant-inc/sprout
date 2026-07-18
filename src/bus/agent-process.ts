@@ -9,6 +9,8 @@ import { Genome } from "../genome/genome.ts";
 import { ensureMemoryIndexFresh } from "../genome/index-builder.ts";
 import { deriveTrustedMemoryWriteAuthorization } from "../genome/memory-write-authorization.ts";
 import { createReadOnlyGenome } from "../genome/read-only-genome.ts";
+import { AuthChannelClient } from "../host/auth-channel.ts";
+import { ChannelHandleRegistrar } from "../host/handle-registrar.ts";
 import { SessionLogger } from "../host/logger.ts";
 import {
 	OpenAICodexOAuthService,
@@ -30,7 +32,7 @@ import { ensureProjectDirs } from "../util/project-id.ts";
 import { BusClient } from "./client.ts";
 import { BusLearnForwarder } from "./learn-forwarder.ts";
 import { loadCompletedChildHandles, replayHandleLog } from "./resume.ts";
-import { AgentSpawner } from "./spawner.ts";
+import { AgentSpawner, type SpawnerAuthChannel } from "./spawner.ts";
 import { agentEvents, agentInbox, agentReady, agentResult, sessionEvents } from "./topics.ts";
 import type {
 	AgentMessageMessage,
@@ -62,6 +64,12 @@ export interface AgentProcessConfig {
 	signal?: AbortSignal;
 	/** PID of the process that spawned this agent process. */
 	parentPid?: number;
+	/**
+	 * Credentials for the host's authenticated channel. When present, the
+	 * process connects at startup (failing fast if refused) and its child
+	 * spawner registers grandchildren over that connection.
+	 */
+	authChannel?: { url: string; token: string };
 	/** Structured logger for LLM call logging and diagnostics. */
 	logger?: import("../host/logger.ts").Logger;
 }
@@ -228,10 +236,27 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 	const readyTopic = agentReady(sessionId, handleId);
 
 	let childSpawner: AgentSpawner | undefined;
+	let authClient: AuthChannelClient | undefined;
+	let spawnerAuthChannel: SpawnerAuthChannel | undefined;
 
 	try {
 		await bus.connect();
 		stopBusDisconnectAbort = bus.onDisconnect(() => lifecycleController.abort());
+
+		// Connect the authenticated channel before signalling ready: refused
+		// credentials must fail the process fast, not surface mid-delegation.
+		if (config.authChannel) {
+			authClient = new AuthChannelClient({
+				url: config.authChannel.url,
+				handleId,
+				token: config.authChannel.token,
+			});
+			await authClient.connect();
+			spawnerAuthChannel = {
+				url: config.authChannel.url,
+				registrar: new ChannelHandleRegistrar(authClient),
+			};
+		}
 
 		// Subscribe to inbox and wait for start (or abort)
 		const startPayload = await waitForStartWithReady(
@@ -330,8 +355,17 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 			bus.publish(sessionEventsTopic, payload);
 		});
 
-		// Create a spawner so this agent can delegate to other agents via the bus
-		childSpawner = new AgentSpawner(bus, busUrl, sessionId);
+		// Create a spawner so this agent can delegate to other agents via the bus.
+		// Its registrations ride this process's authenticated connection.
+		childSpawner = new AgentSpawner(
+			bus,
+			busUrl,
+			sessionId,
+			undefined,
+			undefined,
+			undefined,
+			spawnerAuthChannel,
+		);
 		for (const { handleId, result, agentName, agentId } of resumedCompletedHandles) {
 			childSpawner.registerCompletedHandle(handleId, result, startMsg.self.agentName, {
 				agentName,
@@ -488,6 +522,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 		stopParentMonitor();
 		combined.cleanup();
 		await childSpawner?.shutdown();
+		await authClient?.disconnect();
 		await bus.disconnect();
 	}
 }
@@ -667,6 +702,8 @@ export async function runAgentProcessFromEnvironment(
 	const rootDir = env.SPROUT_ROOT_DIR;
 	const projectDataDir = env.SPROUT_PROJECT_DATA_DIR;
 	const parentPid = parseParentPid(env.SPROUT_PARENT_PID);
+	const authUrl = env.SPROUT_AUTH_URL;
+	const authToken = env.SPROUT_HANDLE_TOKEN;
 
 	if (!busUrl || !handleId || !sessionId || !genomePath) {
 		console.error(
@@ -695,6 +732,7 @@ export async function runAgentProcessFromEnvironment(
 			rootDir,
 			projectDataDir,
 			parentPid,
+			...(authUrl && authToken ? { authChannel: { url: authUrl, token: authToken } } : {}),
 			signal: controller.signal,
 			logger,
 		});

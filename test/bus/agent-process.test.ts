@@ -1553,6 +1553,97 @@ describe("runAgentProcess", () => {
 		expect(kinds).toContain("session_end");
 	}, 15_000);
 
+	test("agent process with auth credentials holds an authenticated channel connection", async () => {
+		const { HandleRegistry, hashToken, mintToken } = await import(
+			"../../src/host/handle-registry.ts"
+		);
+		const { AuthChannelServer } = await import("../../src/host/auth-channel.ts");
+
+		const registry = new HandleRegistry({ trustedRegistrarId: "sprout:host" });
+		const authServer = new AuthChannelServer({ port: 0, hostname: "127.0.0.1", registry });
+		await authServer.start();
+		const token = mintToken();
+		registry.registerHandle({
+			handleId: HANDLE_ID,
+			tokenHash: hashToken(token),
+			registrarId: "sprout:host",
+			ownerId: "root",
+			depth: 1,
+		});
+
+		const controller = new AbortController();
+		try {
+			const mockClient = createMockClient("Done.");
+			const resultTopic = agentResult(SESSION_ID, HANDLE_ID);
+			const resultPromise = parentClient.waitForMessage(resultTopic, 10_000);
+
+			const processPromise = runAgentProcess({
+				busUrl: server.url,
+				handleId: HANDLE_ID,
+				sessionId: SESSION_ID,
+				genomePath: genomeDir,
+				client: mockClient,
+				workDir: tempDir,
+				authChannel: { url: authServer.url, token },
+				signal: controller.signal,
+			});
+
+			await waitForAgentReady();
+			// The channel connects before the agent signals ready.
+			expect(registry.isLive(HANDLE_ID)).toBe(true);
+
+			const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
+			const startMsg: StartMessage = {
+				kind: "start",
+				handle_id: HANDLE_ID,
+				self: addr("test-leaf", 1, undefined, HANDLE_ID),
+				genome_path: genomeDir,
+				session_id: SESSION_ID,
+				caller: addr("root", 0),
+				goal: "Say hello",
+				shared: true,
+			};
+			await parentClient.publish(inboxTopic, JSON.stringify(withResolverContext(startMsg)));
+			await resultPromise;
+
+			// Still connected while idling as a shared agent.
+			expect(registry.isLive(HANDLE_ID)).toBe(true);
+
+			controller.abort();
+			await processPromise;
+			await waitFor(() => !registry.isLive(HANDLE_ID));
+		} finally {
+			controller.abort();
+			await authServer.stop();
+		}
+	}, 15_000);
+
+	test("agent process fails fast when its auth credentials are refused", async () => {
+		const { HandleRegistry } = await import("../../src/host/handle-registry.ts");
+		const { AuthChannelServer } = await import("../../src/host/auth-channel.ts");
+
+		// Registry with no registration for this handle — the handshake must fail.
+		const registry = new HandleRegistry({ trustedRegistrarId: "sprout:host" });
+		const authServer = new AuthChannelServer({ port: 0, hostname: "127.0.0.1", registry });
+		await authServer.start();
+		try {
+			const mockClient = createMockClient("Done.");
+			await expect(
+				runAgentProcess({
+					busUrl: server.url,
+					handleId: HANDLE_ID,
+					sessionId: SESSION_ID,
+					genomePath: genomeDir,
+					client: mockClient,
+					workDir: tempDir,
+					authChannel: { url: authServer.url, token: "bad-token" },
+				}),
+			).rejects.toThrow(/handshake rejected/);
+		} finally {
+			await authServer.stop();
+		}
+	}, 15_000);
+
 	test("orchestrator agent gets wait_agent and message_agent tools via spawner", async () => {
 		// Add orchestrator spec to the genome alongside the existing leaf spec
 		const genome = new Genome(genomeDir);

@@ -24,6 +24,10 @@ export interface BusInfrastructure {
 	server: BusServer;
 	bus: BusClient;
 	spawner: AgentSpawner;
+	/** ws:// URL of the authenticated host channel (sap spec §1 Transport). */
+	authUrl?: string;
+	/** Handle identity registry backing the authenticated channel. */
+	handleRegistry?: import("./handle-registry.ts").HandleRegistry;
 	genomeService?: {
 		updateResolverSettings(resolverSettings: ResolverSettings | undefined): void;
 		updateRuntimeClient(client: Client, resolverSettings: ResolverSettings | undefined): void;
@@ -44,8 +48,22 @@ export async function startBusInfrastructure(
 	const { AgentSpawner } = await import("../bus/spawner.ts");
 	const { GenomeMutationService } = await import("../bus/genome-service.ts");
 	const { Genome } = await import("../genome/genome.ts");
+	const { HandleRegistry } = await import("./handle-registry.ts");
+	const { AuthChannelServer } = await import("./auth-channel.ts");
+	const {
+		HostHandleRegistrar,
+		makeRegisterHandleHandler,
+		REGISTER_HANDLE_REQUEST,
+		TRUSTED_REGISTRAR_ID,
+	} = await import("./handle-registrar.ts");
 
 	const server = new BusServer({ port: 0, hostname: "127.0.0.1" });
+	const handleRegistry = new HandleRegistry({ trustedRegistrarId: TRUSTED_REGISTRAR_ID });
+	const authServer = new AuthChannelServer({
+		port: 0,
+		hostname: "127.0.0.1",
+		registry: handleRegistry,
+	});
 	let bus: InstanceType<typeof BusClient> | null = null;
 	let genomeService: InstanceType<typeof GenomeMutationService> | null = null;
 	let spawner: InstanceType<typeof AgentSpawner> | null = null;
@@ -53,6 +71,8 @@ export async function startBusInfrastructure(
 
 	try {
 		await server.start();
+		await authServer.start();
+		authServer.onRequest(REGISTER_HANDLE_REQUEST, makeRegisterHandleHandler(handleRegistry));
 
 		bus = new BusClient(server.url);
 		await bus.connect();
@@ -70,7 +90,18 @@ export async function startBusInfrastructure(
 		});
 		await genomeService.start();
 
-		spawner = new AgentSpawner(bus, server.url, options.sessionId);
+		spawner = new AgentSpawner(
+			bus,
+			server.url,
+			options.sessionId,
+			undefined,
+			undefined,
+			undefined,
+			{
+				url: authServer.url,
+				registrar: new HostHandleRegistrar(handleRegistry, TRUSTED_REGISTRAR_ID),
+			},
+		);
 
 		const cleanup = async () => {
 			await genomeService?.stop();
@@ -78,16 +109,27 @@ export async function startBusInfrastructure(
 			if (bus) {
 				await bus.disconnect();
 			}
+			await authServer.stop();
 			await server.stop();
 		};
 
-		return { server, bus, spawner, genomeService, genome, cleanup };
+		return {
+			server,
+			bus,
+			spawner,
+			authUrl: authServer.url,
+			handleRegistry,
+			genomeService,
+			genome,
+			cleanup,
+		};
 	} catch (error) {
 		await genomeService?.stop().catch(() => {});
 		await spawner?.shutdown();
 		if (bus) {
 			await bus.disconnect().catch(() => {});
 		}
+		await authServer.stop().catch(() => {});
 		await server.stop().catch(() => {});
 		throw error;
 	}
