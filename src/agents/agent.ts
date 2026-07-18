@@ -124,6 +124,9 @@ export interface AgentOptions {
 	 * timer is suspended for a blocking wait. Defaults to the ping interval.
 	 */
 	livenessPollIntervalMs?: number;
+	/** Silence threshold before a suspended wait's timer resumes. Defaults to
+	 * two ping intervals. */
+	livenessLostAfterMs?: number;
 	/** Path to the genome directory (required when using a spawner). */
 	genomePath?: string;
 	/** Per-project data directory (sessions, logs, memory). */
@@ -235,6 +238,7 @@ export class Agent {
 	};
 	private readonly spawner?: AgentSpawner;
 	private readonly livenessPollIntervalMs: number;
+	private readonly livenessLostAfterMs: number;
 	/** The active run loop's inactivity timer, present only while a loop runs. */
 	private currentInactivityTimer?: InactivityTimer;
 	private readonly genomePath?: string;
@@ -301,6 +305,7 @@ export class Agent {
 		this.genomePostscripts = options.genomePostscripts;
 		this.spawner = options.spawner;
 		this.livenessPollIntervalMs = options.livenessPollIntervalMs ?? PING_INTERVAL_MS;
+		this.livenessLostAfterMs = options.livenessLostAfterMs ?? LIVENESS_LOST_AFTER_MS;
 		this.genomePath = options.genomePath;
 		this.projectDataDir = options.projectDataDir;
 		this.evalMode = options.evalMode === true;
@@ -1524,20 +1529,26 @@ export class Agent {
 		const timer = this.currentInactivityTimer;
 		if (!timer) return fn();
 		timer.pause();
-		// When the net fires it performs this wait's resume itself; the finally
-		// must then not resume again or overlapping waits would unbalance the
-		// pause counter and unfreeze a sibling's suspension.
-		let resumedByNet = false;
+		// Exactly ONE resume per pause, whether the wait completes or the net
+		// fires — and never both. `settled` is set by whichever path resumes,
+		// so a probe result landing after the wait already resumed (or vice
+		// versa) cannot double-resume and unfreeze a sibling's suspension.
+		let settled = false;
 		const probe = this.spawner?.livenessProbe;
+		const waitStart = Date.now();
 		let watch: ReturnType<typeof setInterval> | undefined;
 		if (probe) {
 			watch = setInterval(() => {
 				void probe
 					.msSincePing(awaitedHandleId)
 					.then((ms) => {
-						if (resumedByNet) return;
-						if (ms !== null && ms > LIVENESS_LOST_AFTER_MS) {
-							resumedByNet = true;
+						if (settled) return;
+						// null = never pinged. A party that connected but wedged
+						// before its first ping must still trip the net, measured
+						// from when this wait began.
+						const silentForMs = ms ?? Date.now() - waitStart;
+						if (silentForMs > this.livenessLostAfterMs) {
+							settled = true;
 							if (watch) clearInterval(watch);
 							timer.resume();
 						}
@@ -1551,7 +1562,10 @@ export class Agent {
 			return await fn();
 		} finally {
 			if (watch) clearInterval(watch);
-			if (!resumedByNet) timer.resume();
+			if (!settled) {
+				settled = true;
+				timer.resume();
+			}
 		}
 	}
 

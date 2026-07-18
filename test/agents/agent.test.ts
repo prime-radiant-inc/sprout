@@ -7467,6 +7467,118 @@ describe("inactivity timer suspension during blocking waits", () => {
 		expect(result.timed_out).toBe(true);
 	}, 15_000);
 
+	test("a late in-flight probe result cannot unbalance an overlapping wait's suspension", async () => {
+		// Wait A's probe check is still in flight when A's wait completes and
+		// its finally resumes. When that late check then reports the party
+		// dead, it must NOT resume again — that would decrement overlapping
+		// wait B's pause and arm the timer while B is legitimately blocked.
+		const { createInactivityTimer } = await import("../../src/agents/inactivity-timer.ts");
+		let probeResolve: ((ms: number | null) => void) | undefined;
+		const probe = {
+			// h-a's checks are capturable and resolved manually; h-b's party is healthy.
+			msSincePing: (handleId: string) =>
+				handleId === "h-a"
+					? new Promise<number | null>((resolve) => {
+							probeResolve = resolve;
+						})
+					: Promise.resolve(0),
+		};
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: SUSPEND_SPEC,
+			env,
+			client: waitAgentThenDoneClient(),
+			primitiveRegistry: registry,
+			availableAgents: [SUSPEND_SPEC, leafSpec],
+			depth: 0,
+			events: new AgentEventEmitter(),
+			spawner: { livenessProbe: probe } as unknown as AgentSpawner,
+			livenessPollIntervalMs: 10,
+		});
+		const timer = createInactivityTimer({ timeoutMs: 10_000, onTimeout: () => {} });
+		timer.reset();
+		const internals = agent as unknown as {
+			currentInactivityTimer: unknown;
+			withInactivitySuspendedFor<T>(handleId: string, fn: () => Promise<T>): Promise<T>;
+		};
+		internals.currentInactivityTimer = timer;
+
+		// Wait B: blocks for the whole test — its pause must survive.
+		let releaseB: (() => void) | undefined;
+		const waitB = internals.withInactivitySuspendedFor(
+			"h-b",
+			() =>
+				new Promise<void>((resolve) => {
+					releaseB = resolve;
+				}),
+		);
+
+		// Wait A: completes while its first probe check is still in flight.
+		await internals.withInactivitySuspendedFor(
+			"h-a",
+			() => new Promise<void>((resolve) => setTimeout(resolve, 30)),
+		);
+		expect(timer.pauseDepth()).toBe(1); // only B's pause remains
+
+		// The late probe result lands after A already resumed: dead party.
+		probeResolve?.(999_999);
+		await new Promise((resolve) => setTimeout(resolve, 20));
+
+		expect(timer.pauseDepth()).toBe(1); // B's suspension must be intact
+		releaseB?.();
+		await waitB;
+		expect(timer.pauseDepth()).toBe(0);
+		timer.clear();
+	}, 15_000);
+
+	test("net: a party that never pinged counts as silent after the threshold", async () => {
+		// null means "no signal". A child that connected but wedged before its
+		// first ping must still trip the net once the wait has outlived the
+		// liveness threshold — otherwise the suspension hangs forever.
+		const { createInactivityTimer } = await import("../../src/agents/inactivity-timer.ts");
+		const probe = { msSincePing: async () => null };
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: SUSPEND_SPEC,
+			env,
+			client: waitAgentThenDoneClient(),
+			primitiveRegistry: registry,
+			availableAgents: [SUSPEND_SPEC, leafSpec],
+			depth: 0,
+			events: new AgentEventEmitter(),
+			spawner: { livenessProbe: probe } as unknown as AgentSpawner,
+			livenessPollIntervalMs: 10,
+			livenessLostAfterMs: 30,
+		});
+		const timer = createInactivityTimer({ timeoutMs: 10_000, onTimeout: () => {} });
+		timer.reset();
+		const internals = agent as unknown as {
+			currentInactivityTimer: unknown;
+			withInactivitySuspendedFor<T>(handleId: string, fn: () => Promise<T>): Promise<T>;
+		};
+		internals.currentInactivityTimer = timer;
+
+		let release: (() => void) | undefined;
+		const wait = internals.withInactivitySuspendedFor(
+			"h-silent",
+			() =>
+				new Promise<void>((resolve) => {
+					release = resolve;
+				}),
+		);
+
+		// After the threshold passes with no ping ever recorded, the net fires.
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(timer.pauseDepth()).toBe(0);
+
+		release?.();
+		await wait;
+		expect(timer.pauseDepth()).toBe(0);
+		timer.clear();
+	}, 15_000);
+
 	test("blocking spawner delegation outliving timeout_ms does not time the agent out", async () => {
 		const delegatingSpec: AgentSpec = {
 			...SUSPEND_SPEC,

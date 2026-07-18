@@ -575,6 +575,11 @@ export class AgentSpawner {
 			depth: input.depth,
 			...(observerRemit ? { observerRemit } : {}),
 		});
+		// INVARIANT: every child of an auth-channel spawner gets its OWN token
+		// here. defaultSpawnFn merges over process.env, so if a child were ever
+		// spawned without this override while the parent's env held a token,
+		// the child would inherit the parent's token and could authenticate as
+		// the parent.
 		return { SPROUT_AUTH_URL: this.authChannel.url, SPROUT_HANDLE_TOKEN: token };
 	}
 

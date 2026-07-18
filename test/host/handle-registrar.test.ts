@@ -169,6 +169,58 @@ describe("makeRegisterHandleHandler + ChannelHandleRegistrar (real channel)", ()
 		expect(registry.get("h-captured")).toBeUndefined();
 	});
 
+	test("a channel registrar may not claim a session remit for its observer", async () => {
+		// Session-wide read scope is reserved for root/session observers; a
+		// mid-tree registrar granting itself one would escalate its observer's
+		// read scope past its own delegations.
+		const registrar = new ChannelHandleRegistrar(parentClient);
+
+		await expect(
+			registrar.registerChild({
+				handleId: "h-spy",
+				tokenHash: hashToken(mintToken()),
+				ownerId: PARENT,
+				depth: 2,
+				observerRemit: { kind: "session" },
+			}),
+		).rejects.toThrow(/observerRemit/);
+
+		expect(registry.get("h-spy")).toBeUndefined();
+	});
+
+	test("a channel registrar may not scope its observer to another owner's delegations", async () => {
+		const registrar = new ChannelHandleRegistrar(parentClient);
+
+		await expect(
+			registrar.registerChild({
+				handleId: "h-spy",
+				tokenHash: hashToken(mintToken()),
+				ownerId: PARENT,
+				depth: 2,
+				observerRemit: { kind: "delegate", ownerId: "h-victim" },
+			}),
+		).rejects.toThrow(/observerRemit/);
+
+		expect(registry.get("h-spy")).toBeUndefined();
+	});
+
+	test("a channel registrar may not claim an arbitrary depth for its child", async () => {
+		// Depth feeds MAX_AGENT_DEPTH enforcement; a child must sit exactly one
+		// level below its registrar.
+		const registrar = new ChannelHandleRegistrar(parentClient);
+
+		await expect(
+			registrar.registerChild({
+				handleId: "h-shallow",
+				tokenHash: hashToken(mintToken()),
+				ownerId: PARENT,
+				depth: 0,
+			}),
+		).rejects.toThrow(/depth/);
+
+		expect(registry.get("h-shallow")).toBeUndefined();
+	});
+
 	test("a duplicate registration surfaces the registry reason as a rejected promise", async () => {
 		// The host trusted path pre-registers a colliding handle id owned by a
 		// different subtree. The parent owns the id it claims (passes not_parent),

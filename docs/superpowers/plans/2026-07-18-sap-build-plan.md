@@ -156,6 +156,32 @@ Slices (test-first; fan-out where files are disjoint):
   - *Deferred to the wait-graph phase:* host-side deadlock detection (spec §4) — depends
     on wait registration, which lands with cells/waits.
 
+#### Phase 1 Fable review — outcome
+Fresh-context adversarial review of the whole phase. No criticals; core identity
+properties confirmed (registrar-from-connection, reserved id, auth-before-upgrade with
+rollback, constant-time compare, token env filtering). Findings and dispositions:
+- **Fixed — late-probe double-resume** (major): an in-flight liveness check landing after
+  its wait already resumed could resume a second time, unbalancing an overlapping wait's
+  suspension. One `settled` guard now covers both resume paths; mutation-verified test.
+- **Fixed — channel registrar remit/depth escalation** (major): the host accepted any
+  `observerRemit`/`depth` from the payload; a mid-tree registrar could grant its observer
+  a session-wide remit or claim arbitrary depth. The handler now requires depth ==
+  registrar.depth + 1 and remits scoped to the registrar's own delegations; tests added.
+- **Fixed — never-pinged parties never tripped the net** (minor): `null` msSincePing is
+  now measured against the wait's start, so a child that wedges before its first ping
+  still resumes the waiter's timer.
+- **Fixed — auth timing distinguishable for unknown handles** (minor): the unknown-handle
+  path now does the same hash+compare work as the bad-token path.
+- **Documented — token-inheritance invariant** (minor): comment at the spawn env site.
+- **OPEN (design call for Jesse) — respawn re-registration vs. socket-close race**
+  (major): re-registering a completed handle can race the host processing the dead
+  process's WebSocket close; a stale `live` flag then rejects re-registration
+  (`live_connection`) and the `message_agent` respawn fails with no retry. Options: clear
+  liveness on process-exit signal from the owning spawner; or let a same-owner
+  re-registration tolerate a stale live flag; or a bounded retry in
+  `registerHandleForLaunch`. Not patched — where liveness truth lives is a design
+  decision.
+
 #### Resume notes — spawn-path integration (enough to pick up cold)
 - **Trusted registrar id:** a reserved sentinel that is neither a ULID nor `"root"` (root's
   bus handle) — e.g. `"sprout:host"`. The registry now refuses to register any handle with

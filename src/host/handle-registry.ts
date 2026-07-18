@@ -139,7 +139,14 @@ export class HandleRegistry {
 	 */
 	authenticate(handleId: string, token: string): AuthenticateResult {
 		const record = this.handles.get(handleId);
-		if (!record) return { ok: false, reason: "unknown_handle" };
+		if (!record) {
+			// Do the same hash + compare work as the bad-token path so response
+			// timing doesn't reveal whether a handle exists — the channel already
+			// returns one generic 401 body for both.
+			const presented = createHash("sha256").update(token).digest();
+			timingSafeEqual(presented, presented);
+			return { ok: false, reason: "unknown_handle" };
+		}
 		const presented = createHash("sha256").update(token).digest();
 		const stored = Buffer.from(record.tokenHash, "hex");
 		if (stored.length !== presented.length || !timingSafeEqual(stored, presented)) {

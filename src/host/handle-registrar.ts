@@ -114,6 +114,28 @@ export class ChannelHandleRegistrar implements HandleRegistrar {
 export function makeRegisterHandleHandler(registry: HandleRegistry): AuthRequestHandler {
 	return (ctx, payload) => {
 		const input = parseRegisterChildInput(payload);
+		// A channel registrar is never the trusted registrar (that identity is
+		// reserved and unregisterable), so constrain what it may claim about
+		// its child: depth exactly one below its own — depth feeds
+		// MAX_AGENT_DEPTH enforcement — and an observer remit scoped to its
+		// OWN delegations. Session-wide remits belong to root/session
+		// observers registered via the trusted in-process path; accepting one
+		// here would let a mid-tree agent grant its observer session-wide
+		// read scope. The remit is recorded now and trusted by scope checks
+		// later, so it must be constrained at registration.
+		if (input.depth !== ctx.depth + 1) {
+			throw new Error(
+				`${REGISTER_HANDLE_REQUEST}: depth must be ${ctx.depth + 1} (one below the registrar)`,
+			);
+		}
+		if (
+			input.observerRemit &&
+			(input.observerRemit.kind !== "delegate" || input.observerRemit.ownerId !== ctx.handleId)
+		) {
+			throw new Error(
+				`${REGISTER_HANDLE_REQUEST}: observerRemit must be a delegate remit scoped to the registrar`,
+			);
+		}
 		const result = registry.registerHandle({
 			...input,
 			registrarId: ctx.handleId,
