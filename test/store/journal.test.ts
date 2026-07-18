@@ -22,6 +22,8 @@ const bindInline: JournalRecord = {
 	size: 12,
 	provenance: { agentHandleId: "h-child", origin: { kind: "cell" } },
 	preview: "text 12B: hello world!",
+	explicit: true,
+	createdAt: 1_752_800_000_000,
 	body: { inline: "hello world!" },
 };
 
@@ -37,6 +39,8 @@ const bindCas: JournalRecord = {
 		origin: { kind: "primitive", name: "exec", argsSummary: "bun test" },
 	},
 	preview: "bytes 200MB",
+	explicit: false,
+	createdAt: 1_752_800_000_001,
 	body: { cas: "a".repeat(64) },
 };
 

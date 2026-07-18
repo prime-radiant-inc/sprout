@@ -26,6 +26,10 @@ export interface BindRecord {
 	size: number;
 	provenance: ValueProvenance;
 	preview: string;
+	/** Model-named bind vs provenance-derived auto-bind — collision rules key on this. */
+	explicit: boolean;
+	/** Bind timestamp (ms since epoch). */
+	createdAt: number;
 	body: JournalBody;
 }
 
@@ -210,6 +214,8 @@ function parseBind(fields: Record<string, unknown>): BindRecord {
 		size,
 		provenance: parseProvenance(fields.provenance),
 		preview: str(fields.preview, "preview"),
+		explicit: bool(fields.explicit, "explicit"),
+		createdAt: num(fields, "createdAt"),
 		body,
 	};
 }
@@ -296,6 +302,14 @@ function parseCell(fields: Record<string, unknown>): CellRecord {
 		record.error = str(fields.error, "error");
 	}
 	return record;
+}
+
+/** Narrow a value to boolean, naming the field in the error. */
+function bool(value: unknown, name: string): boolean {
+	if (typeof value !== "boolean") {
+		throw new Error(`${name} must be a boolean`);
+	}
+	return value;
 }
 
 /** Narrow a value to string, naming the field in the error. */
