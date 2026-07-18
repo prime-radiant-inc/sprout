@@ -2283,6 +2283,173 @@ describe("AgentSpawner", () => {
 			expect(hashToken(envs[1]!.SPROUT_HANDLE_TOKEN!)).toBe(registrar.calls[1]!.tokenHash);
 		}, 15_000);
 
+		test("spawnAgent with env registers grants before launch and the StartMessage carries alias→ulid", async () => {
+			const registrar = new RecordingRegistrar();
+			const grantCalls: { recipientHandle: string; alias: string; ref: string }[] = [];
+			let grantsBeforeSpawn = -1;
+			const store = {
+				registerEnvGrant: async (recipientHandle: string, alias: string, ref: string) => {
+					grantCalls.push({ recipientHandle, alias, ref });
+					return { ulid: `ULID-${ref}` };
+				},
+			} as unknown as import("../../src/store/store-access.ts").StoreAccess;
+			const mockClient = createMockClient("Done.");
+			const inner = captureEnvSpawnFn(mockClient, []);
+			const spawnFn = (handleId: string, env: Record<string, string>) => {
+				grantsBeforeSpawn = grantCalls.length;
+				return inner(handleId, env);
+			};
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, spawnFn, undefined, undefined, {
+				url: "ws://127.0.0.1:9999",
+				registrar,
+				store,
+			});
+
+			const inbox: string[] = [];
+			const watcher = new BusClient(server.url);
+			await watcher.connect();
+			await watcher.subscribe(agentInbox(SESSION_ID, "env-child-1"), (payload) => {
+				inbox.push(payload);
+			});
+
+			const result = (await spawnWithResolver({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: addr("root", 0),
+				goal: "Use the schema",
+				blocking: true,
+				shared: false,
+				workDir: tempDir,
+				handleId: "env-child-1",
+				env: { api_schema: "schema", extra_notes: "notes" },
+			})) as ResultMessage;
+			expect(result.success).toBe(true);
+
+			expect(grantCalls).toEqual([
+				{ recipientHandle: "env-child-1", alias: "api_schema", ref: "schema" },
+				{ recipientHandle: "env-child-1", alias: "extra_notes", ref: "notes" },
+			]);
+			expect(grantsBeforeSpawn).toBe(2);
+
+			const start = inbox
+				.map((p) => JSON.parse(p) as { kind: string; env?: Record<string, string> })
+				.find((m) => m.kind === "start");
+			expect(start?.env).toEqual({ api_schema: "ULID-schema", extra_notes: "ULID-notes" });
+			await watcher.disconnect();
+		}, 15_000);
+
+		test("a rejected env grant fails the spawn before the process launches", async () => {
+			const registrar = new RecordingRegistrar();
+			const store = {
+				registerEnvGrant: async () => {
+					throw new Error('alias already bound in the recipient\'s scope: "api_schema"');
+				},
+			} as unknown as import("../../src/store/store-access.ts").StoreAccess;
+			let spawned = false;
+			const mockClient = createMockClient("Done.");
+			const inner = captureEnvSpawnFn(mockClient, []);
+			const spawnFn = (handleId: string, env: Record<string, string>) => {
+				spawned = true;
+				return inner(handleId, env);
+			};
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, spawnFn, undefined, undefined, {
+				url: "ws://127.0.0.1:9999",
+				registrar,
+				store,
+			});
+
+			await expect(
+				spawnWithResolver({
+					agentName: "test-leaf",
+					genomePath: genomeDir,
+					caller: addr("root", 0),
+					goal: "Use the schema",
+					blocking: true,
+					shared: false,
+					workDir: tempDir,
+					env: { api_schema: "schema" },
+				}),
+			).rejects.toThrow(/alias already bound/);
+			expect(spawned).toBe(false);
+		}, 15_000);
+
+		test("messageAgent with env registers grants and the ContinueMessage carries alias→ulid", async () => {
+			const registrar = new RecordingRegistrar();
+			const grantCalls: { recipientHandle: string; alias: string; ref: string }[] = [];
+			const store = {
+				registerEnvGrant: async (recipientHandle: string, alias: string, ref: string) => {
+					grantCalls.push({ recipientHandle, alias, ref });
+					return { ulid: `ULID-${ref}` };
+				},
+			} as unknown as import("../../src/store/store-access.ts").StoreAccess;
+			const mockClient = createMockClient("Done.");
+			spawner = new AgentSpawner(
+				bus,
+				server.url,
+				SESSION_ID,
+				captureEnvSpawnFn(mockClient, []),
+				undefined,
+				undefined,
+				{ url: "ws://127.0.0.1:9999", registrar, store },
+			);
+
+			const handleId = (await spawnWithResolver({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: addr("root", 0),
+				goal: "First task",
+				blocking: false,
+				shared: true,
+				workDir: tempDir,
+			})) as string;
+			await spawner.waitAgent(handleId);
+			await waitFor(() => spawner.getHandle(handleId)?.status === "idle");
+
+			const inbox: string[] = [];
+			const watcher = new BusClient(server.url);
+			await watcher.connect();
+			await watcher.subscribe(agentInbox(SESSION_ID, handleId), (payload) => {
+				inbox.push(payload);
+			});
+			await spawner.messageAgent(
+				handleId,
+				"Continue with this",
+				addr("root", 0),
+				false,
+				undefined,
+				undefined,
+				{
+					follow_up: "notes",
+				},
+			);
+			expect(grantCalls).toEqual([{ recipientHandle: handleId, alias: "follow_up", ref: "notes" }]);
+			await waitFor(() =>
+				inbox.some((p) => (JSON.parse(p) as { kind: string }).kind === "continue"),
+			);
+			const cont = inbox
+				.map((p) => JSON.parse(p) as { kind: string; env?: Record<string, string> })
+				.find((m) => m.kind === "continue");
+			expect(cont?.env).toEqual({ follow_up: "ULID-notes" });
+			await watcher.disconnect();
+		}, 15_000);
+
+		test("env without an authenticated store fails loudly", async () => {
+			const mockClient = createMockClient("Done.");
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+			await expect(
+				spawnWithResolver({
+					agentName: "test-leaf",
+					genomePath: genomeDir,
+					caller: addr("root", 0),
+					goal: "Use the schema",
+					blocking: true,
+					shared: false,
+					workDir: tempDir,
+					env: { api_schema: "schema" },
+				}),
+			).rejects.toThrow(/env grants require the authenticated store/);
+		}, 15_000);
+
 		test("end-to-end: a spawned child authenticates against the real host channel", async () => {
 			// Real registry + channel server + trusted registrar, in-process child
 			// that connects with the credentials from its spawn env.

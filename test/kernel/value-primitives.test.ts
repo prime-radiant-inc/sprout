@@ -53,6 +53,12 @@ function fakeStore(values: Record<string, string>): StoreAccess {
 		async publish() {
 			throw new Error("publish is not exercised by value primitives");
 		},
+		async registerEnvGrant(): Promise<ValueMetadata> {
+			throw new Error("registerEnvGrant is not exercised by value primitives");
+		},
+		async claimEnvGrant(): Promise<ValueMetadata> {
+			throw new Error("claimEnvGrant is not exercised by value primitives");
+		},
 	};
 }
 

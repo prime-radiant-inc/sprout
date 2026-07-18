@@ -67,6 +67,21 @@ export interface GrantRecord {
 	ulid: string;
 }
 
+/**
+ * Pending env grant, registered by the SENDER over its authenticated
+ * connection before the bus message carrying `env` is sent (spec §3). The
+ * recipient's claim consumes it, journaling a matching `grant` record.
+ */
+export interface EnvGrantRecord {
+	kind: "env_grant";
+	/** Sender's scope id (= its handle id). */
+	sender: string;
+	/** Recipient handle id (= the scope the alias will bind into). */
+	recipient: string;
+	alias: string;
+	ulid: string;
+}
+
 export interface CellRecord {
 	kind: "cell";
 	handle: string;
@@ -82,6 +97,7 @@ export type JournalRecord =
 	| PublishRecord
 	| ManifestDeliveryRecord
 	| GrantRecord
+	| EnvGrantRecord
 	| CellRecord;
 
 export class SessionJournal {
@@ -187,6 +203,14 @@ export function parseJournalRecord(value: unknown): JournalRecord {
 				granter: str(fields.granter, "granter"),
 				recipient: str(fields.recipient, "recipient"),
 				name: str(fields.name, "name"),
+				ulid: str(fields.ulid, "ulid"),
+			};
+		case "env_grant":
+			return {
+				kind: "env_grant",
+				sender: str(fields.sender, "sender"),
+				recipient: str(fields.recipient, "recipient"),
+				alias: str(fields.alias, "alias"),
 				ulid: str(fields.ulid, "ulid"),
 			};
 		case "cell":

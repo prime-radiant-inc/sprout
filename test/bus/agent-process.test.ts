@@ -1751,6 +1751,280 @@ describe("runAgentProcess", () => {
 		}
 	}, 20_000);
 
+	test("start with env claims registered grants: alias bound in the child scope, goal announces it", async () => {
+		const { HandleRegistry, hashToken, mintToken } = await import(
+			"../../src/host/handle-registry.ts"
+		);
+		const { AuthChannelServer, AuthChannelClient } = await import("../../src/host/auth-channel.ts");
+		const { registerStoreHandlers } = await import("../../src/host/store-channel.ts");
+		const { StoreWorkerClient } = await import("../../src/store/store-client.ts");
+		const { SessionJournal } = await import("../../src/store/journal.ts");
+		const { ContentStore } = await import("../../src/store/cas.ts");
+		const { SapStore } = await import("../../src/store/store.ts");
+		const { runStoreWorker } = await import("../../src/store/store-worker.ts");
+		const { ChannelStoreAccess } = await import("../../src/store/store-access.ts");
+
+		const registry = new HandleRegistry({ trustedRegistrarId: "sprout:host" });
+		const authServer = new AuthChannelServer({ port: 0, hostname: "127.0.0.1", registry });
+		await authServer.start();
+		const journalPath = join(tempDir, "store", "journal.jsonl");
+		const casRoot = join(tempDir, "store", "cas");
+		const storeClient = new StoreWorkerClient({
+			journalPath,
+			casRoot,
+			rootScopeId: "session-root",
+			spawnFn: () => {
+				let lineHandler: (line: string) => void = () => {};
+				const storeReady = SapStore.resume({
+					journal: new SessionJournal(journalPath),
+					cas: new ContentStore(casRoot),
+					rootScopeId: "session-root",
+				});
+				let queue = Promise.resolve();
+				return {
+					send(line: string) {
+						queue = queue.then(async () => {
+							const store = await storeReady;
+							const responses: string[] = [];
+							async function* one(): AsyncGenerator<string> {
+								yield line;
+							}
+							await runStoreWorker({ lines: one(), write: (l) => responses.push(l), store });
+							for (const r of responses) lineHandler(r);
+						});
+					},
+					kill() {},
+					onLine(cb: (line: string) => void) {
+						lineHandler = cb;
+					},
+					onExit() {},
+				};
+			},
+		});
+		registerStoreHandlers(authServer, storeClient, {
+			rootScopeId: "session-root",
+			handleOwner: (id) => registry.get(id)?.ownerId,
+		});
+
+		// The parent (sender) binds a value and registers the grant BEFORE start.
+		const parentToken = mintToken();
+		registry.registerHandle({
+			handleId: "parent-h",
+			tokenHash: hashToken(parentToken),
+			registrarId: "sprout:host",
+			ownerId: "root",
+			depth: 1,
+		});
+		const parentClient2 = new AuthChannelClient({
+			url: authServer.url,
+			handleId: "parent-h",
+			token: parentToken,
+		});
+		await parentClient2.connect();
+		const parentStore = new ChannelStoreAccess(parentClient2);
+		await parentStore.bind({
+			name: "schema",
+			content: "the schema body\nsecond line",
+			type: "text",
+			provenance: { agentHandleId: "parent-h", origin: { kind: "cell" } },
+			explicit: true,
+		});
+		const granted = await parentStore.registerEnvGrant(HANDLE_ID, "api_schema", "schema");
+
+		const childToken = mintToken();
+		registry.registerHandle({
+			handleId: HANDLE_ID,
+			tokenHash: hashToken(childToken),
+			registrarId: "sprout:host",
+			ownerId: "parent-h",
+			depth: 2,
+		});
+
+		const requests: Request[] = [];
+		const mockClient = buildMockClient(async (request) => {
+			requests.push(request);
+			return {
+				id: "mock-env",
+				model: "claude-haiku-4-5-20251001",
+				provider: "anthropic",
+				message: Msg.assistant("Done."),
+				finish_reason: { reason: "stop" },
+				usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+			};
+		});
+
+		try {
+			const resultTopic = agentResult(SESSION_ID, HANDLE_ID);
+			const resultPromise = parentClient.waitForMessage(resultTopic, 10_000);
+			const processPromise = runAgentProcess({
+				busUrl: server.url,
+				handleId: HANDLE_ID,
+				sessionId: SESSION_ID,
+				genomePath: genomeDir,
+				client: mockClient,
+				workDir: tempDir,
+				authChannel: { url: authServer.url, token: childToken },
+			});
+			await waitForAgentReady();
+			const startMsg = {
+				kind: "start",
+				handle_id: HANDLE_ID,
+				self: addr("test-leaf", 1, undefined, HANDLE_ID),
+				genome_path: genomeDir,
+				session_id: SESSION_ID,
+				caller: addr("parent-h", 1, undefined, "parent-h"),
+				goal: "Use the schema",
+				shared: false,
+				env: { api_schema: granted.ulid },
+			} as unknown as StartMessage;
+			await parentClient.publish(
+				agentInbox(SESSION_ID, HANDLE_ID),
+				JSON.stringify(withResolverContext(startMsg)),
+			);
+			await resultPromise;
+			await processPromise;
+
+			// The goal the child saw announces the claimed value.
+			const rendered = JSON.stringify(requests[0]?.messages ?? []);
+			expect(rendered).toContain("Values now in your scope");
+			expect(rendered).toContain("⟦api_schema⟧");
+			// The announcement carries the preview's first line (the size header).
+			expect(rendered).toContain("text · 27 bytes");
+
+			// The claim journaled a grant into the child's scope.
+			const records = await new SessionJournal(journalPath).replay();
+			expect(records).toContainEqual({
+				kind: "grant",
+				granter: "parent-h",
+				recipient: HANDLE_ID,
+				name: "api_schema",
+				ulid: granted.ulid,
+			});
+		} finally {
+			await parentClient2.disconnect();
+			await storeClient.shutdown();
+			await authServer.stop();
+		}
+	}, 20_000);
+
+	test("a forged env in a raw StartMessage binds nothing and warns", async () => {
+		const { HandleRegistry, hashToken, mintToken } = await import(
+			"../../src/host/handle-registry.ts"
+		);
+		const { AuthChannelServer } = await import("../../src/host/auth-channel.ts");
+		const { registerStoreHandlers } = await import("../../src/host/store-channel.ts");
+		const { StoreWorkerClient } = await import("../../src/store/store-client.ts");
+		const { SessionJournal } = await import("../../src/store/journal.ts");
+		const { ContentStore } = await import("../../src/store/cas.ts");
+		const { SapStore } = await import("../../src/store/store.ts");
+		const { runStoreWorker } = await import("../../src/store/store-worker.ts");
+
+		const registry = new HandleRegistry({ trustedRegistrarId: "sprout:host" });
+		const authServer = new AuthChannelServer({ port: 0, hostname: "127.0.0.1", registry });
+		await authServer.start();
+		const journalPath = join(tempDir, "store", "journal.jsonl");
+		const casRoot = join(tempDir, "store", "cas");
+		const storeClient = new StoreWorkerClient({
+			journalPath,
+			casRoot,
+			rootScopeId: "session-root",
+			spawnFn: () => {
+				let lineHandler: (line: string) => void = () => {};
+				const storeReady = SapStore.resume({
+					journal: new SessionJournal(journalPath),
+					cas: new ContentStore(casRoot),
+					rootScopeId: "session-root",
+				});
+				let queue = Promise.resolve();
+				return {
+					send(line: string) {
+						queue = queue.then(async () => {
+							const store = await storeReady;
+							const responses: string[] = [];
+							async function* one(): AsyncGenerator<string> {
+								yield line;
+							}
+							await runStoreWorker({ lines: one(), write: (l) => responses.push(l), store });
+							for (const r of responses) lineHandler(r);
+						});
+					},
+					kill() {},
+					onLine(cb: (line: string) => void) {
+						lineHandler = cb;
+					},
+					onExit() {},
+				};
+			},
+		});
+		registerStoreHandlers(authServer, storeClient, {
+			rootScopeId: "session-root",
+			handleOwner: (id) => registry.get(id)?.ownerId,
+		});
+		const token = mintToken();
+		registry.registerHandle({
+			handleId: HANDLE_ID,
+			tokenHash: hashToken(token),
+			registrarId: "sprout:host",
+			ownerId: "root",
+			depth: 1,
+		});
+
+		const requests: Request[] = [];
+		const mockClient = buildMockClient(async (request) => {
+			requests.push(request);
+			return {
+				id: "mock-forged",
+				model: "claude-haiku-4-5-20251001",
+				provider: "anthropic",
+				message: Msg.assistant("Done."),
+				finish_reason: { reason: "stop" },
+				usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+			};
+		});
+
+		try {
+			const resultTopic = agentResult(SESSION_ID, HANDLE_ID);
+			const resultPromise = parentClient.waitForMessage(resultTopic, 10_000);
+			const processPromise = runAgentProcess({
+				busUrl: server.url,
+				handleId: HANDLE_ID,
+				sessionId: SESSION_ID,
+				genomePath: genomeDir,
+				client: mockClient,
+				workDir: tempDir,
+				authChannel: { url: authServer.url, token },
+			});
+			await waitForAgentReady();
+			const startMsg = {
+				kind: "start",
+				handle_id: HANDLE_ID,
+				self: addr("test-leaf", 1, undefined, HANDLE_ID),
+				genome_path: genomeDir,
+				session_id: SESSION_ID,
+				caller: addr("root", 0),
+				goal: "Use the schema",
+				shared: false,
+				// Forged: no grant was ever registered for this alias/ulid.
+				env: { api_schema: "01ARZ3NDEKTSV4RRFFQ69G5FAV" },
+			} as unknown as StartMessage;
+			await parentClient.publish(
+				agentInbox(SESSION_ID, HANDLE_ID),
+				JSON.stringify(withResolverContext(startMsg)),
+			);
+			await resultPromise;
+			await processPromise;
+
+			// Nothing bound; the child sees an honest ignored-env note.
+			const rendered = JSON.stringify(requests[0]?.messages ?? []);
+			expect(rendered).toContain("[env ⟦api_schema⟧ was not granted — ignored]");
+			const records = await new SessionJournal(journalPath).replay();
+			expect(records.filter((r) => r.kind === "grant")).toHaveLength(0);
+		} finally {
+			await storeClient.shutdown();
+			await authServer.stop();
+		}
+	}, 20_000);
+
 	test("a continue-error result over the summary budget is bounded inline via the store", async () => {
 		const { HandleRegistry, hashToken, mintToken } = await import(
 			"../../src/host/handle-registry.ts"

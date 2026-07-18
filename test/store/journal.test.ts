@@ -73,6 +73,14 @@ const grantRec: JournalRecord = {
 	ulid: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
 };
 
+const envGrantRec: JournalRecord = {
+	kind: "env_grant",
+	sender: "h-root",
+	recipient: "h-child",
+	alias: "schema",
+	ulid: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+};
+
 const cellRec: JournalRecord = {
 	kind: "cell",
 	handle: "h-child",
@@ -97,6 +105,7 @@ const allKinds: JournalRecord[] = [
 	publishRec,
 	deliveryRec,
 	grantRec,
+	envGrantRec,
 	cellRec,
 	cellErrorRec,
 ];
@@ -205,5 +214,7 @@ describe("parseJournalRecord", () => {
 		expect(() => parseJournalRecord({ ...cellRec, bindings: [{ name: "x" }] })).toThrow(/bindings/);
 		expect(() => parseJournalRecord({ ...scopeRec, parentScopeId: 7 })).toThrow(/parentScopeId/);
 		expect(() => parseJournalRecord({ ...grantRec, name: 7 })).toThrow(/name/);
+		expect(() => parseJournalRecord({ ...envGrantRec, alias: 7 })).toThrow(/alias/);
+		expect(() => parseJournalRecord({ ...envGrantRec, sender: undefined })).toThrow(/sender/);
 	});
 });

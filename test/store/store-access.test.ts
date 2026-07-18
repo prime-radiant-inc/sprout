@@ -151,6 +151,7 @@ describe("store access", () => {
 			registerStoreHandlers(server, storeClient, {
 				rootScopeId: ROOT_SCOPE,
 				handleOwner: (id) => registry.get(id)?.ownerId,
+				isObserver: (id) => registry.get(id)?.observerRemit !== undefined,
 			});
 		});
 
@@ -160,7 +161,11 @@ describe("store access", () => {
 			await storeClient.shutdown();
 		});
 
-		async function connectAgent(handleId: string, ownerId = "root"): Promise<AuthChannelClient> {
+		async function connectAgent(
+			handleId: string,
+			ownerId = "root",
+			options: { observer?: boolean } = {},
+		): Promise<AuthChannelClient> {
 			const token = mintToken();
 			const result = registry.registerHandle({
 				handleId,
@@ -168,6 +173,7 @@ describe("store access", () => {
 				registrarId: TRUSTED,
 				ownerId,
 				depth: 1,
+				...(options.observer ? { observerRemit: { kind: "session" as const } } : {}),
 			});
 			expect(result.ok).toBe(true);
 			const client = new AuthChannelClient({ url: server.url, handleId, token });
@@ -489,6 +495,116 @@ describe("store access", () => {
 			expect(delta.delivered.map((d) => d.name)).toEqual(["notes"]);
 			expect(await child.names()).toContain("notes");
 			await client.shutdown();
+		});
+
+		it("env grant/claim roundtrip: the sender identity is the connection's", async () => {
+			const parent = new ChannelStoreAccess(await connectAgent("agent_env_parent"));
+			const meta = await parent.bind({
+				name: "schema",
+				content: "the schema",
+				type: "text",
+				provenance: prov("agent_env_parent"),
+				explicit: true,
+			});
+			const granted = await parent.registerEnvGrant("agent_env_child", "api_schema", "schema");
+			expect(granted.ulid).toBe(meta.ulid);
+			// The env_grant record names the CONNECTION as sender.
+			expect(await journal.replay()).toContainEqual({
+				kind: "env_grant",
+				sender: "agent_env_parent",
+				recipient: "agent_env_child",
+				alias: "api_schema",
+				ulid: meta.ulid,
+			});
+
+			const child = new ChannelStoreAccess(
+				await connectAgent("agent_env_child", "agent_env_parent"),
+			);
+			const claimed = await child.claimEnvGrant("api_schema", meta.ulid);
+			expect(claimed.name).toBe("api_schema");
+			expect(new TextDecoder().decode(await child.get("api_schema", { maxBytes: 100 }))).toBe(
+				"the schema",
+			);
+		});
+
+		it("a crafted grant payload cannot forge the sender scope", async () => {
+			const victim = new ChannelStoreAccess(await connectAgent("agent_env_victim"));
+			await victim.bind({
+				name: "loot",
+				content: "x",
+				type: "text",
+				provenance: prov("agent_env_victim"),
+				explicit: true,
+			});
+			const attacker = await connectAgent("agent_env_attacker");
+			// Smuggled sender/scope fields are ignored: the ref resolves in the
+			// ATTACKER's scope, where "loot" does not exist.
+			await expect(
+				attacker.request("store_env_grant", {
+					recipientHandle: "agent_env_target",
+					alias: "loot",
+					ref: "loot",
+					senderScopeId: "agent_env_victim",
+					scopeId: "agent_env_victim",
+				}),
+			).rejects.toThrow(/unknown value/);
+		});
+
+		it("a crafted claim payload cannot name another recipient scope", async () => {
+			const parent = new ChannelStoreAccess(await connectAgent("agent_env_p2"));
+			const meta = await parent.bind({
+				name: "notes",
+				content: "n",
+				type: "text",
+				provenance: prov("agent_env_p2"),
+				explicit: true,
+			});
+			await parent.registerEnvGrant("agent_env_c2", "notes", "notes");
+			// A different authenticated handle claims with a smuggled recipient:
+			// the recipient is the CONNECTION's scope, where no grant is pending.
+			const stranger = await connectAgent("agent_env_stranger");
+			await expect(
+				stranger.request("store_env_claim", {
+					alias: "notes",
+					ulid: meta.ulid,
+					recipientScopeId: "agent_env_c2",
+					scopeId: "agent_env_c2",
+				}),
+			).rejects.toThrow(/no matching env grant/);
+			// The rightful recipient still claims fine.
+			const child = new ChannelStoreAccess(await connectAgent("agent_env_c2", "agent_env_p2"));
+			expect((await child.claimEnvGrant("notes", meta.ulid)).ulid).toBe(meta.ulid);
+		});
+
+		it("rejects an observer-role sender's env grant registration", async () => {
+			const observer = new ChannelStoreAccess(
+				await connectAgent("agent_env_obs", "root", { observer: true }),
+			);
+			await observer.bind({
+				name: "observed",
+				content: "o",
+				type: "text",
+				provenance: prov("agent_env_obs"),
+				explicit: true,
+			});
+			await expect(
+				observer.registerEnvGrant("agent_env_c3", "observed", "observed"),
+			).rejects.toThrow(/observers cannot attach env/);
+		});
+
+		it("rejects malformed env payloads field-by-field", async () => {
+			const client = await connectAgent("agent_env_shape");
+			await expect(client.request("store_env_grant", { alias: "a", ref: "r" })).rejects.toThrow(
+				/recipientHandle/,
+			);
+			await expect(
+				client.request("store_env_grant", { recipientHandle: "h", ref: "r" }),
+			).rejects.toThrow(/alias/);
+			await expect(
+				client.request("store_env_grant", { recipientHandle: "h", alias: "a" }),
+			).rejects.toThrow(/ref/);
+			await expect(client.request("store_env_claim", { alias: "a" })).rejects.toThrow(/ulid/);
+			await expect(client.request("store_env_claim", { ulid: "u" })).rejects.toThrow(/alias/);
 		});
 
 		it("a channel get costs exactly one worker round-trip", async () => {

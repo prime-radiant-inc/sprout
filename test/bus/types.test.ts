@@ -437,6 +437,45 @@ describe("parseBusMessage", () => {
 		expect(() => parseBusMessage(raw)).toThrow(/caller/);
 	});
 
+	test("start/continue/agent_message accept an optional env map of alias → ulid", () => {
+		const env = { api_schema: "01ARZ3NDEKTSV4RRFFQ69G5FAV" };
+		const start = parseBusMessage(
+			JSON.stringify({
+				kind: "start",
+				handle_id: "H1",
+				self: addr("editor", 1, undefined, "H1", "H1"),
+				genome_path: "/tmp",
+				session_id: "S1",
+				caller: addr("root", 0),
+				goal: "fix",
+				shared: false,
+				env,
+			}),
+		);
+		expect((start as { env?: Record<string, string> }).env).toEqual(env);
+		const cont = parseBusMessage(
+			JSON.stringify({ kind: "continue", message: "more", caller: addr("root", 0), env }),
+		);
+		expect((cont as { env?: Record<string, string> }).env).toEqual(env);
+		const agentMsg = parseBusMessage(
+			JSON.stringify({
+				kind: "agent_message",
+				message: "hi",
+				from: addr("a", 1),
+				to: addr("b", 1),
+				env,
+			}),
+		);
+		expect((agentMsg as { env?: Record<string, string> }).env).toEqual(env);
+	});
+
+	test("throws on env that is not a string-to-string map", () => {
+		const base = { kind: "continue", message: "more", caller: addr("root", 0) };
+		expect(() => parseBusMessage(JSON.stringify({ ...base, env: "nope" }))).toThrow(/env/);
+		expect(() => parseBusMessage(JSON.stringify({ ...base, env: ["x"] }))).toThrow(/env/);
+		expect(() => parseBusMessage(JSON.stringify({ ...base, env: { a: 7 } }))).toThrow(/env/);
+	});
+
 	test("throws on address with invalid role", () => {
 		const raw = JSON.stringify({
 			kind: "agent_message",

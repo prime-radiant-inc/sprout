@@ -1174,6 +1174,24 @@ export class Agent {
 			return { toolResultMsg, stumbles: 1 };
 		}
 
+		// In-process children share this agent's process and have no scope of
+		// their own — env grants only exist on the spawner runtime.
+		if (effectiveDelegation.env !== undefined) {
+			const errorMsg = `Agent delegation to '${delegation.agent_name}': env requires the spawner runtime, but none is available`;
+			const toolResultMsg = Msg.toolResult(delegation.call_id, errorMsg, true);
+			this.emitAndLog("act_end", agentId, this.depth, {
+				agent_name: delegation.agent_name,
+				success: false,
+				error: errorMsg,
+				child_id: childId,
+				...descData,
+				...payloadData,
+				tool_result_message: toolResultMsg,
+				...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
+			});
+			return { toolResultMsg, stumbles: 1 };
+		}
+
 		try {
 			const subGoal = formatDelegationGoal({
 				goal: effectiveDelegation.goal,
@@ -1801,6 +1819,7 @@ export class Agent {
 					resolverSettings: this.resolverSettings,
 					trustedUserInstruction: this.trustedUserInstruction,
 					surfacedMemoryBlock: this.childSurfacedMemoryBlock(targetSpecName),
+					env: effectiveDelegation.env,
 				});
 			// A blocking spawn waits on the child; suspend the inactivity timer for it.
 			const result = blocking
@@ -1974,6 +1993,7 @@ export class Agent {
 					blocking,
 					this.trustedUserInstruction,
 					this.callerAddress,
+					cmd.env,
 				);
 			// Blocking message_agent waits for the target's next result.
 			const result = blocking

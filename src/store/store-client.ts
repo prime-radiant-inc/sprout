@@ -174,6 +174,38 @@ export class StoreWorkerClient {
 		})) as ManifestDelta;
 	}
 
+	/** Register a pending env grant; the ref resolves in the SENDER's scope. */
+	async registerEnvGrant(
+		senderScopeId: string,
+		recipientHandle: string,
+		alias: string,
+		ref: string,
+	): Promise<ValueMetadata> {
+		return (await this.issue({
+			id: ulid(),
+			op: "register_env_grant",
+			scopeId: senderScopeId,
+			recipientHandle,
+			alias,
+			ref,
+		})) as ValueMetadata;
+	}
+
+	/** Claim a pending env grant into the recipient's scope. */
+	async claimEnvGrant(
+		recipientScopeId: string,
+		alias: string,
+		valueUlid: string,
+	): Promise<ValueMetadata> {
+		return (await this.issue({
+			id: ulid(),
+			op: "claim_env_grant",
+			scopeId: recipientScopeId,
+			alias,
+			ulid: valueUlid,
+		})) as ValueMetadata;
+	}
+
 	/** Kill the worker and reject everything in flight as infrastructure. */
 	async shutdown(): Promise<void> {
 		this.closed = true;

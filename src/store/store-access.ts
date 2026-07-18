@@ -26,6 +26,8 @@ export const STORE_GREP_REQUEST = "store_grep";
 export const STORE_NAMES_REQUEST = "store_names";
 export const STORE_PUBLISH_REQUEST = "store_publish";
 export const STORE_MANIFEST_REQUEST = "store_manifest_delta";
+export const STORE_ENV_GRANT_REQUEST = "store_env_grant";
+export const STORE_ENV_CLAIM_REQUEST = "store_env_claim";
 
 export interface StoreBindInput {
 	name: string;
@@ -56,6 +58,17 @@ export interface StoreAccess {
 	 * recipient is always the scope this access carries — never a parameter.
 	 */
 	manifestDelta(publisherHandle: string): Promise<ManifestDelta>;
+	/**
+	 * Register a pending env grant for a recipient handle (sap spec §3). The
+	 * ref resolves in THIS access's scope — the sender. Returns the granted
+	 * value's metadata; the wire env on bus messages carries alias → its ulid.
+	 */
+	registerEnvGrant(recipientHandle: string, alias: string, ref: string): Promise<ValueMetadata>;
+	/**
+	 * Claim a pending env grant into THIS access's scope — the recipient.
+	 * (alias, ulid) must match a registered grant; a forged env finds none.
+	 */
+	claimEnvGrant(alias: string, ulid: string): Promise<ValueMetadata>;
 }
 
 /** Host-process implementation: delegates to the store worker with a fixed scope. */
@@ -102,6 +115,14 @@ export class DirectStoreAccess implements StoreAccess {
 
 	manifestDelta(publisherHandle: string): Promise<ManifestDelta> {
 		return this.client.deliverManifest(this.scopeId, publisherHandle);
+	}
+
+	registerEnvGrant(recipientHandle: string, alias: string, ref: string): Promise<ValueMetadata> {
+		return this.client.registerEnvGrant(this.scopeId, recipientHandle, alias, ref);
+	}
+
+	claimEnvGrant(alias: string, ulid: string): Promise<ValueMetadata> {
+		return this.client.claimEnvGrant(this.scopeId, alias, ulid);
 	}
 }
 
@@ -192,5 +213,23 @@ export class ChannelStoreAccess implements StoreAccess {
 		return (await this.client.request(STORE_MANIFEST_REQUEST, {
 			publisherHandle,
 		})) as ManifestDelta;
+	}
+
+	async registerEnvGrant(
+		recipientHandle: string,
+		alias: string,
+		ref: string,
+	): Promise<ValueMetadata> {
+		// The sender is the connection's verified scope, decided host-side.
+		return (await this.client.request(STORE_ENV_GRANT_REQUEST, {
+			recipientHandle,
+			alias,
+			ref,
+		})) as ValueMetadata;
+	}
+
+	async claimEnvGrant(alias: string, ulid: string): Promise<ValueMetadata> {
+		// The recipient is the connection's verified scope, decided host-side.
+		return (await this.client.request(STORE_ENV_CLAIM_REQUEST, { alias, ulid })) as ValueMetadata;
 	}
 }

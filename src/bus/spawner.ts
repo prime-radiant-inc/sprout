@@ -56,6 +56,12 @@ export interface SpawnAgentOptions {
 	trustedUserInstruction?: string;
 	/** Precomputed memory context inherited from the root session. Empty string suppresses it. */
 	surfacedMemoryBlock?: string;
+	/**
+	 * Env grants for the child: alias → a value name or ulid in the CALLER's
+	 * scope. The spawner registers each grant over the authenticated store
+	 * before launch and sends alias → resolved ULID on the StartMessage.
+	 */
+	env?: Record<string, string>;
 }
 
 export type HandleVisibility = "private" | "shared";
@@ -592,6 +598,32 @@ export class AgentSpawner {
 	}
 
 	/**
+	 * Register env grants for a recipient over the authenticated store BEFORE
+	 * the bus message that carries them (spec §3: registered, not asserted).
+	 * Returns the wire env — alias → the granted value's resolved ULID — for
+	 * the recipient's claim to verify. A rejected grant (alias collision,
+	 * foreign value) throws, failing the spawn/message loudly so the sender can
+	 * re-alias. Env without an authenticated store is a loud error too: an
+	 * unregistered env could never bind.
+	 */
+	private async registerEnvGrants(
+		recipientHandleId: string,
+		env: Record<string, string> | undefined,
+	): Promise<Record<string, string> | undefined> {
+		if (env === undefined || Object.keys(env).length === 0) return undefined;
+		const store = this.authChannel?.store;
+		if (!store) {
+			throw new Error("env grants require the authenticated store, but none is available");
+		}
+		const wire: Record<string, string> = {};
+		for (const [alias, ref] of Object.entries(env)) {
+			const granted = await store.registerEnvGrant(recipientHandleId, alias, ref);
+			wire[alias] = granted.ulid;
+		}
+		return wire;
+	}
+
+	/**
 	 * Spawn a new agent process.
 	 *
 	 * If blocking: waits for the agent to produce a result and returns it.
@@ -626,6 +658,10 @@ export class AgentSpawner {
 				isObserver: opts.isObserver === true,
 			})),
 		};
+
+		// Grants register before launch so the child's claims find them pending;
+		// a rejection aborts the spawn before any process exists.
+		const wireEnv = await this.registerEnvGrants(handleId, opts.env);
 
 		const resultRecoveryLogOffset = await this.captureResultRecoveryLogOffset(
 			opts.projectDataDir ?? opts.genomePath,
@@ -687,6 +723,7 @@ export class AgentSpawner {
 			resolver_settings: opts.resolverSettings,
 			trusted_user_instruction: opts.trustedUserInstruction,
 			surfaced_memory_block: opts.surfacedMemoryBlock,
+			env: wireEnv,
 		};
 		await this.bus.publish(inboxTopic, JSON.stringify(startMsg));
 
@@ -778,6 +815,7 @@ export class AgentSpawner {
 		blocking: boolean,
 		trustedUserInstruction?: string,
 		callerTarget?: AgentAddress,
+		envGrants?: Record<string, string>,
 	): Promise<ResultMessage | undefined> {
 		if (handleId === "root") {
 			if (caller.handleId !== "root") {
@@ -791,6 +829,7 @@ export class AgentSpawner {
 				message,
 				from: caller,
 				to: caller,
+				env: await this.registerEnvGrants("root", envGrants),
 			};
 			await this.bus.publish(agentInbox(this.sessionId, "root"), JSON.stringify(rootMsg));
 			return undefined;
@@ -808,6 +847,7 @@ export class AgentSpawner {
 				message,
 				from: caller,
 				to: callerTarget,
+				env: await this.registerEnvGrants(callerTarget.handleId, envGrants),
 			};
 			await this.publishAgentMessageWithAck(
 				agentInbox(this.sessionId, callerTarget.handleId),
@@ -845,6 +885,7 @@ export class AgentSpawner {
 				message,
 				from: caller,
 				to: handle.address,
+				env: await this.registerEnvGrants(handleId, envGrants),
 			};
 
 			await this.bus.publish(inboxTopic, JSON.stringify(agentMsg));
@@ -852,6 +893,8 @@ export class AgentSpawner {
 		}
 
 		if (handle.status === "idle") {
+			// Grants register before the continue publishes (spec §3).
+			const wireEnv = await this.registerEnvGrants(handleId, envGrants);
 			handle.trustedUserInstruction = trustedUserInstruction;
 			// Agent process is alive — send continue message
 			handle.resultRecoveryLogOffset = await this.captureResultRecoveryLogOffset(
@@ -866,6 +909,7 @@ export class AgentSpawner {
 				message,
 				caller,
 				trusted_user_instruction: trustedUserInstruction,
+				env: wireEnv,
 			};
 			await this.bus.publish(inboxTopic, JSON.stringify(continueMsg));
 
@@ -877,6 +921,8 @@ export class AgentSpawner {
 
 		// Agent process has exited — re-spawn with the message as the new goal.
 		// The agent process auto-resumes from its prior event log.
+		// Grants register before the fresh StartMessage carries them.
+		const respawnWireEnv = await this.registerEnvGrants(handleId, envGrants);
 		const resultRecoveryLogOffset = await this.captureResultRecoveryLogOffset(
 			handle.projectDataDir ?? handle.genomePath,
 			handleId,
@@ -923,6 +969,7 @@ export class AgentSpawner {
 			resolver_settings: handle.resolverSettings,
 			trusted_user_instruction: handle.trustedUserInstruction,
 			surfaced_memory_block: handle.surfacedMemoryBlock,
+			env: respawnWireEnv,
 		};
 		await this.bus.publish(inboxTopic, JSON.stringify(startMsg));
 

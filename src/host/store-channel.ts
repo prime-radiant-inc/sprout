@@ -10,6 +10,8 @@
 
 import {
 	STORE_BIND_REQUEST,
+	STORE_ENV_CLAIM_REQUEST,
+	STORE_ENV_GRANT_REQUEST,
 	STORE_GET_REQUEST,
 	STORE_GREP_REQUEST,
 	STORE_MANIFEST_REQUEST,
@@ -33,6 +35,12 @@ export interface RegisterStoreHandlersOptions {
 	 * its publishes. Shared-handle cross-waiter delivery widens later if needed.
 	 */
 	handleOwner: (handleId: string) => string | undefined;
+	/**
+	 * Whether a handle registered with an observer remit. Observer-role senders
+	 * cannot attach env (spec §3): with whole-remit read, an observer grant
+	 * would be a cross-scope grant. Absent means no observer checking (tests).
+	 */
+	isObserver?: (handleId: string) => boolean;
 }
 
 /**
@@ -144,6 +152,43 @@ export function registerStoreHandlers(
 		// The recipient is the connection's verified scope — any recipient/scope
 		// field a crafted payload smuggles in is ignored.
 		return storeClient.deliverManifest(await ensureScope(ctx.handleId), fields.publisherHandle);
+	});
+
+	authServer.onRequest(STORE_ENV_GRANT_REQUEST, async (ctx, payload) => {
+		if (options.isObserver?.(ctx.handleId)) {
+			throw new Error(`${STORE_ENV_GRANT_REQUEST}: observers cannot attach env`);
+		}
+		const fields = parseObjectPayload(payload, STORE_ENV_GRANT_REQUEST);
+		if (typeof fields.recipientHandle !== "string") {
+			throw new Error(`${STORE_ENV_GRANT_REQUEST}: recipientHandle must be a string`);
+		}
+		if (typeof fields.alias !== "string") {
+			throw new Error(`${STORE_ENV_GRANT_REQUEST}: alias must be a string`);
+		}
+		if (typeof fields.ref !== "string") {
+			throw new Error(`${STORE_ENV_GRANT_REQUEST}: ref must be a string`);
+		}
+		// The sender scope is the connection's verified identity — any sender or
+		// scope field a crafted payload smuggles in is ignored.
+		return storeClient.registerEnvGrant(
+			await ensureScope(ctx.handleId),
+			fields.recipientHandle,
+			fields.alias,
+			fields.ref,
+		);
+	});
+
+	authServer.onRequest(STORE_ENV_CLAIM_REQUEST, async (ctx, payload) => {
+		const fields = parseObjectPayload(payload, STORE_ENV_CLAIM_REQUEST);
+		if (typeof fields.alias !== "string") {
+			throw new Error(`${STORE_ENV_CLAIM_REQUEST}: alias must be a string`);
+		}
+		if (typeof fields.ulid !== "string") {
+			throw new Error(`${STORE_ENV_CLAIM_REQUEST}: ulid must be a string`);
+		}
+		// The recipient scope is the connection's verified identity — a claim
+		// can only ever land grants pending for THIS handle.
+		return storeClient.claimEnvGrant(await ensureScope(ctx.handleId), fields.alias, fields.ulid);
 	});
 
 	authServer.onRequest(STORE_NAMES_REQUEST, async (ctx) => {

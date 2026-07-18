@@ -61,6 +61,12 @@ class FakeStore implements StoreAccess {
 	async manifestDelta(): Promise<ManifestDelta> {
 		throw new Error("not implemented");
 	}
+	async registerEnvGrant(): Promise<ValueMetadata> {
+		throw new Error("not implemented");
+	}
+	async claimEnvGrant(): Promise<ValueMetadata> {
+		throw new Error("not implemented");
+	}
 	async names(): Promise<string[]> {
 		return this.bound.map((b) => b.name);
 	}

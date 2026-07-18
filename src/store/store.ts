@@ -156,6 +156,11 @@ export class SapStore {
 	 * seq the recipient has been delivered through.
 	 */
 	private readonly deliveryCursors = new Map<string, number>();
+	/**
+	 * Pending env grants keyed recipientHandle×alias (spec §3): registered by
+	 * the sender before the bus message, consumed by the recipient's claim.
+	 */
+	private readonly pendingEnvGrants = new Map<string, { ulid: string; sender: string }>();
 	/** Memory LRU over bodies: Map insertion order is recency order. */
 	private readonly hotBodies = new Map<string, Uint8Array>();
 	private hotBytes = 0;
@@ -230,12 +235,31 @@ export class SapStore {
 				if (scope === undefined) {
 					throw new Error(`journal grant references unknown scope: ${record.recipient}`);
 				}
-				// Manifest aliases: not real binds — valueCount stays untouched.
-				scope.names.set(record.name, {
-					explicit: false,
-					agentHandleId: record.granter,
+				// A grant matching a pending env grant is an env claim: the alias
+				// is model-named (explicit) and the pending is consumed. Anything
+				// else is a manifest alias. Neither is a real bind — valueCount
+				// stays untouched.
+				const pendingKey = envGrantKey(record.recipient, record.name);
+				const pending = store.pendingEnvGrants.get(pendingKey);
+				if (pending !== undefined && pending.ulid === record.ulid) {
+					store.pendingEnvGrants.delete(pendingKey);
+					scope.names.set(record.name, {
+						explicit: true,
+						agentHandleId: record.granter,
+						ulid: record.ulid,
+					});
+				} else {
+					scope.names.set(record.name, {
+						explicit: false,
+						agentHandleId: record.granter,
+						ulid: record.ulid,
+						manifestFrom: record.granter,
+					});
+				}
+			} else if (record.kind === "env_grant") {
+				store.pendingEnvGrants.set(envGrantKey(record.recipient, record.alias), {
 					ulid: record.ulid,
-					manifestFrom: record.granter,
+					sender: record.sender,
 				});
 			} else if (record.kind === "manifest_delivery") {
 				const key = deliveryCursorKey(record.handle, record.recipient);
@@ -516,6 +540,103 @@ export class SapStore {
 		});
 	}
 
+	/**
+	 * Register a pending env grant (sap spec §3: "Env grants are registered,
+	 * not asserted"). The ref must resolve to a value the SENDER's scope
+	 * created — foreign ulids are rejected like publish. Alias collisions fail
+	 * loudly here, back to the sender, who can re-alias: an alias already bound
+	 * in an EXISTING recipient scope rejects the grant. (A recipient scope that
+	 * does not exist yet is fine — delegation spawns register before the
+	 * child's scope is created.) Returns the granted value's metadata; the
+	 * caller builds the wire env from its ulid.
+	 */
+	async registerEnvGrant(args: {
+		senderScopeId: string;
+		recipientHandle: string;
+		alias: string;
+		ref: string;
+	}): Promise<ValueMetadata> {
+		return this.serialize(async () => {
+			const entry = this.resolve(args.senderScopeId, args.ref);
+			if (entry.metadata.scopeId !== args.senderScopeId) {
+				throw new Error(
+					`cannot grant a value from another scope: ${args.ref} belongs to scope ${entry.metadata.scopeId}`,
+				);
+			}
+			const result = validateValueName(args.alias, this.options.reservedNames);
+			if (!result.ok) throw new Error(`invalid value name: ${result.reason}`);
+			const recipientScope = this.scopes.get(args.recipientHandle);
+			if (recipientScope?.names.has(args.alias)) {
+				throw new Error(
+					`alias already bound in the recipient's scope: "${args.alias}" — choose another alias`,
+				);
+			}
+			const record = {
+				kind: "env_grant" as const,
+				sender: args.senderScopeId,
+				recipient: args.recipientHandle,
+				alias: args.alias,
+				ulid: entry.metadata.ulid,
+			};
+			await this.journal.append(record);
+			await this.chargeJournalBytes([record]);
+			this.pendingEnvGrants.set(envGrantKey(args.recipientHandle, args.alias), {
+				ulid: entry.metadata.ulid,
+				sender: args.senderScopeId,
+			});
+			return entry.metadata;
+		});
+	}
+
+	/**
+	 * Claim a pending env grant into the recipient's scope. Requires a pending
+	 * entry matching (recipient, alias, ulid) — a forged bus `env` finds no
+	 * grant and binds nothing. The alias enters the recipient's name table as
+	 * an explicit (model-named) entry; like manifest aliases it is not a value
+	 * creation, so valueCount stays untouched. An alias the recipient bound
+	 * between registration and claim fails loudly. Returns the value's metadata
+	 * under the alias, for the recipient's scope announcement.
+	 */
+	async claimEnvGrant(args: {
+		recipientScopeId: string;
+		alias: string;
+		ulid: string;
+	}): Promise<ValueMetadata> {
+		return this.serialize(async () => {
+			const key = envGrantKey(args.recipientScopeId, args.alias);
+			const pending = this.pendingEnvGrants.get(key);
+			if (pending === undefined || pending.ulid !== args.ulid) {
+				throw new Error(
+					`no matching env grant for alias "${args.alias}" in scope ${args.recipientScopeId}`,
+				);
+			}
+			const scope = this.requireScope(args.recipientScopeId);
+			if (scope.names.has(args.alias)) {
+				throw new Error(`alias collided before claim: "${args.alias}" is already bound`);
+			}
+			const entry = this.values.get(args.ulid);
+			if (entry === undefined) {
+				throw new Error(`env grant references unknown value: ${args.ulid}`);
+			}
+			const record: GrantRecord = {
+				kind: "grant",
+				granter: pending.sender,
+				recipient: args.recipientScopeId,
+				name: args.alias,
+				ulid: args.ulid,
+			};
+			await this.journal.append(record);
+			await this.chargeJournalBytes([record]);
+			scope.names.set(args.alias, {
+				explicit: true,
+				agentHandleId: pending.sender,
+				ulid: args.ulid,
+			});
+			this.pendingEnvGrants.delete(key);
+			return { ...entry.metadata, name: args.alias };
+		});
+	}
+
 	/** Append a publish record to the per-handle in-memory list, in seq order. */
 	private recordPublish(handle: string, seq: number, ulids: string[]): void {
 		const list = this.publishRecords.get(handle);
@@ -784,6 +905,11 @@ export class SapStore {
 		this.hotBodies.set(id, bytes);
 		this.hotBytes += bytes.length;
 	}
+}
+
+/** Pending-env-grant key for one recipientHandle×alias pair. */
+function envGrantKey(recipientHandle: string, alias: string): string {
+	return `${recipientHandle} ${alias}`;
 }
 
 /** Cursor-map key for one publisherHandle×recipientScope pair. */

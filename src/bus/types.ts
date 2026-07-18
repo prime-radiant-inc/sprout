@@ -40,6 +40,14 @@ export interface StartMessage {
 	trusted_user_instruction?: string;
 	/** Precomputed memory context inherited from the root session. Empty string suppresses it. */
 	surfaced_memory_block?: string;
+	/**
+	 * Env grants: alias → value ULID. The sender's runtime resolves its own
+	 * refs to ulids when it REGISTERS each grant over its authenticated
+	 * connection, then rewrites the map before sending — the recipient's claim
+	 * verifies (alias, ulid) against the pending grant, so a forged bus env
+	 * finds no grant and binds nothing (spec §3).
+	 */
+	env?: Record<string, string>;
 }
 
 /** Sent to a completed/idle agent to continue conversation */
@@ -49,6 +57,8 @@ export interface ContinueMessage {
 	caller: AgentAddress;
 	/** Current trusted user instruction for deterministic runtime policy gates. */
 	trusted_user_instruction?: string;
+	/** Env grants: alias → value ULID (see StartMessage.env). */
+	env?: Record<string, string>;
 }
 
 /** Injected between turns of a running agent */
@@ -67,6 +77,8 @@ export interface AgentMessageMessage {
 	to: AgentAddress;
 	/** Optional topic the receiver publishes to after successful delivery. */
 	ack_topic?: string;
+	/** Env grants: alias → value ULID (see StartMessage.env). */
+	env?: Record<string, string>;
 }
 
 /** Published by an agent on completion */
@@ -135,11 +147,13 @@ export function parseBusMessage(raw: string): BusMessage {
 			validateOptionalString(obj, "trusted_user_instruction");
 			validateOptionalString(obj, "surfaced_memory_block");
 			validateOptionalPlainObject(obj, "payload");
+			validateOptionalStringRecord(obj, "env");
 			break;
 		case "continue":
 			requireFields(obj, ["message", "caller"]);
 			validateAgentAddress(obj, "caller");
 			validateOptionalString(obj, "trusted_user_instruction");
+			validateOptionalStringRecord(obj, "env");
 			break;
 		case "steer":
 			requireFields(obj, ["message"]);
@@ -150,6 +164,7 @@ export function parseBusMessage(raw: string): BusMessage {
 			validateAgentAddress(obj, "from");
 			validateAgentAddress(obj, "to");
 			validateOptionalString(obj, "ack_topic");
+			validateOptionalStringRecord(obj, "env");
 			break;
 		case "result":
 			requireFields(obj, ["handle_id", "output", "success", "stumbles", "turns", "timed_out"]);
@@ -165,6 +180,19 @@ export function parseBusMessage(raw: string): BusMessage {
 function validateOptionalString(obj: Record<string, unknown>, field: string): void {
 	if (field in obj && obj[field] !== undefined && typeof obj[field] !== "string") {
 		throw new Error(`'${field}' must be a string when present`);
+	}
+}
+
+function validateOptionalStringRecord(obj: Record<string, unknown>, field: string): void {
+	const value = obj[field];
+	if (value === undefined) return;
+	if (value === null || typeof value !== "object" || Array.isArray(value)) {
+		throw new Error(`'${field}' must be a plain object when present`);
+	}
+	for (const [key, entry] of Object.entries(value)) {
+		if (typeof entry !== "string") {
+			throw new Error(`'${field}.${key}' must be a string`);
+		}
 	}
 }
 

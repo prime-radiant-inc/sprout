@@ -74,6 +74,11 @@ export function buildDelegateTool(agents: AgentSpec[]): ToolDefinition {
 					description:
 						"If true, other agents (not just the spawning agent) can message_agent or wait_agent this handle. Default: false",
 				},
+				env: {
+					type: "object",
+					description:
+						"Give the child values from your scope: alias → your value name or ulid. Each granted value binds into the child's scope under the alias.",
+				},
 			},
 			required: ["agent_name", "goal", "description"],
 		},
@@ -128,6 +133,11 @@ export function buildMessageAgentTool(): ToolDefinition {
 					type: "boolean",
 					description:
 						"If false, return immediately with an ack instead of waiting for a response. Default: true",
+				},
+				env: {
+					type: "object",
+					description:
+						"Give the target values from your scope: alias → your value name or ulid. Each granted value binds into the target's scope under the alias.",
 				},
 			},
 			required: ["handle", "message"],
@@ -403,6 +413,21 @@ function asRecord(value: unknown): Record<string, unknown> {
 	return {};
 }
 
+/** Narrow an untrusted `env` tool argument to a string → string map. */
+function parseEnvArgument(
+	raw: unknown,
+): { ok: true; env: Record<string, string> } | { ok: false; error: string } {
+	if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+		return { ok: false, error: "'env' must be an object mapping alias → value name or ulid" };
+	}
+	for (const [alias, ref] of Object.entries(raw)) {
+		if (typeof ref !== "string" || ref.length === 0) {
+			return { ok: false, error: `'env.${alias}' must be a non-empty string value ref` };
+		}
+	}
+	return { ok: true, env: raw as Record<string, string> };
+}
+
 /** A delegation that failed validation (missing args, etc.) */
 export interface DelegationError {
 	call_id: string;
@@ -471,6 +496,18 @@ export function parsePlanResponse(
 				continue;
 			}
 			const hints = call.arguments.hints;
+			let env: Record<string, string> | undefined;
+			if (call.arguments.env !== undefined) {
+				const parsed = parseEnvArgument(call.arguments.env);
+				if (!parsed.ok) {
+					errors.push({
+						call_id: call.id,
+						error: `Agent delegation to '${agentName}': ${parsed.error}`,
+					});
+					continue;
+				}
+				env = parsed.env;
+			}
 			let payload: Record<string, unknown> | undefined;
 			if (call.arguments.payload !== undefined) {
 				try {
@@ -494,6 +531,7 @@ export function parsePlanResponse(
 					typeof call.arguments.description === "string" ? call.arguments.description : undefined,
 				hints: Array.isArray(hints) ? hints : undefined,
 				payload,
+				env,
 				blocking:
 					typeof call.arguments.blocking === "boolean" ? call.arguments.blocking : undefined,
 				shared: typeof call.arguments.shared === "boolean" ? call.arguments.shared : undefined,
@@ -525,6 +563,15 @@ export function parsePlanResponse(
 				});
 				continue;
 			}
+			let env: Record<string, string> | undefined;
+			if (call.arguments.env !== undefined) {
+				const parsed = parseEnvArgument(call.arguments.env);
+				if (!parsed.ok) {
+					errors.push({ call_id: call.id, error: `message_agent: ${parsed.error}` });
+					continue;
+				}
+				env = parsed.env;
+			}
 			agentCommands.push({
 				kind: "message_agent",
 				call_id: call.id,
@@ -532,6 +579,7 @@ export function parsePlanResponse(
 				message,
 				blocking:
 					typeof call.arguments.blocking === "boolean" ? call.arguments.blocking : undefined,
+				env,
 			});
 		} else {
 			primitiveCalls.push(call);

@@ -97,6 +97,7 @@ export async function startBusInfrastructure(
 		registerStoreHandlers(authServer, store, {
 			rootScopeId,
 			handleOwner: (id) => handleRegistry.get(id)?.ownerId,
+			isObserver: (id) => handleRegistry.get(id)?.observerRemit !== undefined,
 		});
 
 		bus = new BusClient(server.url);

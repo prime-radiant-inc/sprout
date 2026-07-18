@@ -48,7 +48,18 @@ export type StoreWorkerRequest =
 	| { id: string; op: "grep"; scopeId: string; ref: string; pattern: string; maxResults?: number }
 	| { id: string; op: "publish"; scopeId: string; ref: string }
 	// scopeId is the RECIPIENT scope; the delta is the publisher's publishes past the cursor.
-	| { id: string; op: "manifest_delta"; scopeId: string; publisherHandle: string };
+	| { id: string; op: "manifest_delta"; scopeId: string; publisherHandle: string }
+	// scopeId is the SENDER's scope; the ref must resolve there.
+	| {
+			id: string;
+			op: "register_env_grant";
+			scopeId: string;
+			recipientHandle: string;
+			alias: string;
+			ref: string;
+	  }
+	// scopeId is the RECIPIENT scope; (alias, ulid) must match a pending grant.
+	| { id: string; op: "claim_env_grant"; scopeId: string; alias: string; ulid: string };
 
 export type StoreWorkerResponse =
 	| { id: string; ok: true; result: unknown }
@@ -200,6 +211,19 @@ async function dispatch(store: SapStore, request: StoreWorkerRequest): Promise<u
 			return store.deliverManifest({
 				publisherHandle: request.publisherHandle,
 				recipientScopeId: request.scopeId,
+			});
+		case "register_env_grant":
+			return store.registerEnvGrant({
+				senderScopeId: request.scopeId,
+				recipientHandle: request.recipientHandle,
+				alias: request.alias,
+				ref: request.ref,
+			});
+		case "claim_env_grant":
+			return store.claimEnvGrant({
+				recipientScopeId: request.scopeId,
+				alias: request.alias,
+				ulid: request.ulid,
 			});
 		default:
 			throw new Error(`unknown op: ${JSON.stringify((request as { op?: unknown }).op)}`);

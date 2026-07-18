@@ -449,26 +449,42 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 			caller: startMsg.caller,
 		});
 
-		const goal = formatDelegationGoal({
+		// Claim env grants (spec §3): each wire entry (alias → ulid) must match a
+		// grant the sender registered; forged or stale entries bind nothing and
+		// surface as a warning — never a failed start.
+		const claimEnv = async (env?: Record<string, string>): Promise<string | undefined> => {
+			const claim = await claimEnvGrants(spawnerAuthChannel?.store, env);
+			if (!claim) return undefined;
+			for (const warning of claim.warnings) {
+				events.emit("warning", startMsg.self.agentId, startMsg.self.depth, { message: warning });
+			}
+			return claim.announcement;
+		};
+
+		const envAnnouncement = await claimEnv(startMsg.env);
+		const baseGoal = formatDelegationGoal({
 			goal: startMsg.goal,
 			hints: startMsg.hints,
 			payload: startMsg.payload
 				? normalizeTaskPayload(startMsg.payload, "agent start message")
 				: undefined,
 		});
+		const goal = envAnnouncement ? `${baseGoal}\n\n${envAnnouncement}` : baseGoal;
 
 		// Forward steer messages from the inbox to the agent during the initial run.
 		// The idleLoop handles steers for shared agents after run() completes,
 		// but during the initial run() this is the only path for steers.
 		let initialRunActive = true;
 		if (bus.connected) {
-			await bus.subscribe(inboxTopic, (payload) => {
+			await bus.subscribe(inboxTopic, async (payload) => {
 				if (!initialRunActive) return;
 				try {
 					const msg = parseBusMessage(payload);
 					if (msg.kind === "steer") {
 						agent.steer(msg.message, msg.trusted_user_instruction);
 					} else if (msg.kind === "agent_message") {
+						const announcement = await claimEnv(msg.env);
+						if (announcement !== undefined) agent.steer(announcement);
 						agent.receiveAgentMessage(msg.message, msg.from);
 						void ackAgentMessage(bus, msg);
 					}
@@ -535,6 +551,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 			runSignal,
 			storeAccess,
 			startMsg.goal,
+			claimEnv,
 		);
 	} finally {
 		stopBusDisconnectAbort();
@@ -622,6 +639,7 @@ async function idleLoop(
 	signal: AbortSignal,
 	storeAccess: StoreAccess | undefined,
 	goal: string,
+	claimEnv: (env?: Record<string, string>) => Promise<string | undefined>,
 ): Promise<void> {
 	if (signal?.aborted) return;
 
@@ -633,6 +651,10 @@ async function idleLoop(
 		while (continueQueue.length > 0 && !signal.aborted) {
 			const continueMsg = continueQueue.shift()!;
 			try {
+				// Claimed env binds announce via the steering queue, injected into
+				// the continue run as a user-role message.
+				const announcement = await claimEnv(continueMsg.env);
+				if (announcement !== undefined) agent.steer(announcement);
 				await genome.loadFromDisk();
 				const result = await agent.continue(continueMsg.message, signal, {
 					trustedUserInstruction: continueMsg.trusted_user_instruction,
@@ -685,6 +707,8 @@ async function idleLoop(
 
 			if (msg.kind === "agent_message") {
 				const agentMessage = msg as AgentMessageMessage;
+				const announcement = await claimEnv(agentMessage.env);
+				if (announcement !== undefined) agent.steer(announcement);
 				agent.receiveAgentMessage(agentMessage.message, agentMessage.from);
 				await ackAgentMessage(bus, agentMessage);
 				return;
@@ -711,6 +735,45 @@ async function idleLoop(
 			signal.addEventListener("abort", () => resolve(), { once: true });
 		}
 	});
+}
+
+/**
+ * Claim wire env entries (alias → ulid) against the store's pending grants
+ * (spec §3). Each successful claim binds the alias into THIS process's scope
+ * and contributes a compact announcement line with the value's first preview
+ * line. A claim with no matching grant — a forged bus message, a stale ulid,
+ * or no store at all — binds NOTHING and degrades to a bracketed note plus a
+ * warning; the start/continue itself never fails on env.
+ */
+async function claimEnvGrants(
+	store: StoreAccess | undefined,
+	env: Record<string, string> | undefined,
+): Promise<{ announcement: string; warnings: string[] } | undefined> {
+	if (env === undefined) return undefined;
+	const entries = Object.entries(env);
+	if (entries.length === 0) return undefined;
+	const claimed: string[] = [];
+	const notes: string[] = [];
+	const warnings: string[] = [];
+	for (const [alias, ulid] of entries) {
+		if (store === undefined) {
+			notes.push(`[env ⟦${alias}⟧ was not granted — ignored]`);
+			warnings.push(`env ⟦${alias}⟧ was not granted — ignored: no store available`);
+			continue;
+		}
+		try {
+			const metadata = await store.claimEnvGrant(alias, ulid);
+			claimed.push(`⟦${metadata.name}⟧ (${metadata.preview.split("\n", 1)[0]})`);
+		} catch (err) {
+			const reason = err instanceof Error ? err.message : String(err);
+			notes.push(`[env ⟦${alias}⟧ was not granted — ignored]`);
+			warnings.push(`env ⟦${alias}⟧ was not granted — ignored: ${reason}`);
+		}
+	}
+	const sections: string[] = [];
+	if (claimed.length > 0) sections.push(`Values now in your scope:\n${claimed.join("\n")}`);
+	sections.push(...notes);
+	return { announcement: sections.join("\n"), warnings };
 }
 
 /** Fallback inline cap when the store can't take the overflow (today's semantics). */

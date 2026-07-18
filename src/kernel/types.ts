@@ -330,6 +330,8 @@ export interface Delegation {
 	blocking?: boolean;
 	/** If true, the agent stays alive after completion and can receive follow-up messages. Default: false */
 	shared?: boolean;
+	/** Env grants for the child: alias → a value name or ulid in the caller's scope. */
+	env?: Record<string, string>;
 }
 
 /** Wait for a non-blocking agent to finish and collect its result */
@@ -347,6 +349,8 @@ export interface MessageAgentCommand {
 	message: string;
 	/** If false, returns immediately with an ack. Default: true */
 	blocking?: boolean;
+	/** Env grants for the target: alias → a value name or ulid in the caller's scope. */
+	env?: Record<string, string>;
 }
 
 export type AgentCommand = WaitAgentCommand | MessageAgentCommand;
