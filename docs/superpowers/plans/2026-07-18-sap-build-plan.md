@@ -120,6 +120,33 @@ Slices (test-first; fan-out where files are disjoint):
     registration/injection are skipped there.
 - [ ] Liveness pings (15 s) + timer suspension during blocking waits, both act modes.
 
+#### Resume notes — spawn-path integration (enough to pick up cold)
+- **Trusted registrar id:** a reserved sentinel that is neither a ULID nor `"root"` (root's
+  bus handle) — e.g. `"sprout:host"`. The registry now refuses to register any handle with
+  this id (`ad015b9`), so the choice is robust regardless. Define it where host wiring uses it.
+- **Host wiring** — `cli-shared.ts` `startBusInfrastructure`, right after `server.start()`
+  (~line 55): create `new HandleRegistry({ trustedRegistrarId })`, `new AuthChannelServer({
+  port: 0, hostname: "127.0.0.1", registry })`, `await authServer.start()`,
+  `authServer.onRequest(REGISTER_HANDLE_REQUEST, makeRegisterHandleHandler(registry))`,
+  `new HostHandleRegistrar(registry, trustedRegistrarId)`. Add `await authServer.stop()` to
+  `cleanup`. Expose `authUrl` (= `authServer.url`) on `BusInfrastructure` for spawner + tests.
+- **DI is additive-safe:** `cli-run.ts` uses `typeof startBusInfrastructure`; `cli-headless.ts`
+  uses a narrower `HeadlessInfrastructure`. New *optional* `BusInfrastructure` fields break
+  neither; if any are made required, update the mocks in `test/host/cli-*.test.ts`.
+- **Two spawner construction sites:** host at `cli-shared.ts:73` (gets `HostHandleRegistrar` +
+  authUrl); child process in `agent-process.ts` (build an `AuthChannelClient` from
+  `SPROUT_AUTH_URL` + `SPROUT_HANDLE_TOKEN`, wrap in `ChannelHandleRegistrar`, pass to its
+  child spawner). Add a grouped optional `authChannel?: { url, registrar: HandleRegistrar }`
+  constructor param rather than more positional args.
+- **Spawner spawn path:** handleId minted at `spawner.ts:527` (`ulid()`); child env built at
+  `:539` and `:805`. Before launch: `token = mintToken()`, `await registrar.registerChild({
+  handleId, tokenHash: hashToken(token), ownerId: caller.handleId, depth, observerRemit? })`,
+  then add `SPROUT_AUTH_URL` + `SPROUT_HANDLE_TOKEN: token` to env. Skip entirely when
+  `authChannel` is absent (test/spawnerless).
+- **End-to-end test:** spawn a child through the real infra; assert it registered and can
+  authenticate over the channel; assert env injection + exec filtering hold.
+- **Phase 1 Fable review** runs when this integration lands (the whole phase as a unit).
+
 ### Phase 2 — Store core
 Store worker (op budgets, wedge restart), journal, CAS (staging-confined handoff, spill),
 disk/count quotas, name validation, previews + redaction, `value_bind` events, value-read
