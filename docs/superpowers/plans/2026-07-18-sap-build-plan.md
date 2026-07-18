@@ -230,10 +230,34 @@ Slices (test-first; 1–3 are pure/disjoint and fanned out to subagents in paral
   cross-origin fail-loud), value ops (peek/slice/grep/get/parse) with budgets, chunked
   line-bounded grep with abort checks, smallest-correct LRU memory budget with spill to
   CAS, disk/count quotas → explicit store-full error.
-- [ ] Store worker subprocess + authenticated-channel ops + timeout/restart-reload +
-  transparent idempotent retries (infrastructure-tagged failures, no stumble).
-- [ ] Value-read primitives + `value_bind` events + above-the-line redaction
-  (`redactSensitiveTranscriptContent`); spawnerless local store fallback.
+- [x] Store worker subprocess (`src/store/store-worker.ts` + `store-client.ts`):
+  stdio-JSONL op protocol, SIGKILL-based wedge recovery with transparent idempotent
+  re-issue (binds dedup by client-minted ulid — engine change), `StoreUnavailableError`
+  with `.infrastructure === true` after retries exhaust, `--internal-store-worker`
+  subcommand, real-subprocess integration test.
+- [ ] **Store host wiring + value-read primitives — the remaining integration slice.**
+  Resume notes (enough to pick up cold):
+  - Host: start a per-session `StoreWorkerClient` in `startBusInfrastructure`
+    (journal/cas under the session's durable log dir beside handle logs; rootScopeId =
+    the session id or "root" — decide and record), expose it on `BusInfrastructure`
+    (optional field), shut down in cleanup. Register auth-channel op handlers
+    (`store_bind`, `store_peek`, `store_get`, `store_slice`, `store_grep`,
+    `store_metadata`): SCOPE AUTHORITY COMES FROM THE CONNECTION — the handler derives
+    the caller's scope from `ctx.handleId` (scope per agent handle, created at spawn
+    registration or first use), NEVER from the payload; payloads are narrowed
+    field-by-field like `makeRegisterHandleHandler`.
+  - Agent side: a `StoreAccess` interface with two impls mirroring the registrar split
+    (direct for host/spawnerless — wraps `StoreWorkerClient` or a bare `SapStore`;
+    channel for agent processes — rides `AuthChannelClient`). Reaches the Agent via
+    the spawner grouped param or a new optional Agent option — prefer riding
+    `authChannel` like `LivenessProbe` did.
+  - Primitives (kernel registry): `value_peek`, `value_grep`, `value_slice`,
+    `value_get` (50k-char budget, read_file parity), each redacting through
+    `redactSensitiveTranscriptContent` before returning above the line; a `bind:`
+    capture arg on capture-capable primitives is Phase 3 (capture) — do NOT build it
+    here. Emit a `value_bind` event on binds.
+  - Reserved names for the store options: kernel primitive names from the registry +
+    ambient API names (peek/grep/slice/get/parse/bind/publish/env) + "programs".
 - [ ] Phase 2 Fable review (whole phase as a unit).
 
 ### Phase 3 — Capture & publish
