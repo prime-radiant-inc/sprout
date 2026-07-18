@@ -3,7 +3,7 @@
 **Date started:** 2026-07-18
 **Spec:** `../specs/2026-07-16-sap-data-plane-and-repl-design.md`
 **Review:** `../specs/2026-07-18-sap-state-of-the-art-review.md`
-**Status:** in progress — Phases 0–3 complete (built + Fable-reviewed); Phase 4 (scopes & env grants, spec §3) next
+**Status:** in progress — Phases 0–4 complete (built + Fable-reviewed). **At the v1 release line**: the token win ships without the evaluator. Decision pending: ship/measure v1 vs continue to Phase 5 (evaluator/cells).
 
 This is the working tracker for building sap. It records *what we're building, in what
 order, and where we deliberately simplified away from the maximal spec*. Update it as
@@ -361,7 +361,7 @@ Slices (test-first):
   verified frozen-correct: no prefilter bypass, no recursive splice, no normalization
   trick, constraints re-run on resolved args.
 
-### Phase 4 — Splice & grants  ← current
+### Phase 4 — Splice & grants  ✅ landed 2026-07-18
 `$ref` whole-arg resolution (LANDED in Phase 3), env-grant registration (loud alias
 collisions, observer-env prohibition), `env` on delegate/message/continue/StartMessage,
 manifest summary-text suffix rewrite. **← natural v1 release line: the ≥80% token win is
@@ -396,6 +396,13 @@ Design decisions (fixed):
   ⟦newname⟧ occurrences in that child's delivered summary TEXT before it reaches the
   recipient; the delta carries the alias map (child name → bound-as). Residual (spec
   stated): in-content references can't be rewritten.
+- [x] **Phase 4 Fable review — done; all findings fixed** (`e62bcb3`): grant
+  registration relationship-gated (own handles or your owner — closes the
+  pre-registered-grant + forged-message scope-write escalation); GrantRecord via-tagged
+  (env|manifest) so resume never misclassifies; pending overwrites reject loudly;
+  manifest renames persist per child across deliveries; forged aliases never echoed;
+  observers can neither claim nor receive env; messageAgent options object;
+  continue/agent_message claim paths now covered.
 - Deferrals recorded: observer READ expansion (remit-wide value reads) waits for the
   observation surface that consumes it; shared-handle host resolution stays Phase 5;
   task_payload untouched (superseded, no migration).
