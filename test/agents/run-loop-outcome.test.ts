@@ -9,6 +9,7 @@ describe("finalizeRunLoopOutcome", () => {
 			maxTurns: 5,
 			timedOut: false,
 			interrupted: false,
+			completedNaturally: true,
 		});
 
 		expect(outcome.success).toBe(true);
@@ -17,19 +18,38 @@ describe("finalizeRunLoopOutcome", () => {
 		expect(outcome.stumbles).toBe(1);
 	});
 
-	test("increments stumbles and marks failure on turn limit", () => {
+	test("increments stumbles and marks failure when turns are exhausted mid-work", () => {
 		const outcome = finalizeRunLoopOutcome({
 			turns: 5,
 			stumbles: 0,
 			maxTurns: 5,
 			timedOut: false,
 			interrupted: false,
+			completedNaturally: false,
 		});
 
 		expect(outcome.success).toBe(false);
 		expect(outcome.timedOut).toBe(false);
 		expect(outcome.hitTurnLimit).toBe(true);
 		expect(outcome.stumbles).toBe(1);
+	});
+
+	test("does not mark a turn-limit hit when the agent completes naturally on its final turn", () => {
+		// Regression: an agent that produces its final answer on turn == maxTurns has
+		// succeeded, not run out of turns. Marking it hitTurnLimit falsely stumbles it and
+		// pollutes the fitness signal (worst case: max_turns: 1 completion agents, every run).
+		const outcome = finalizeRunLoopOutcome({
+			turns: 1,
+			stumbles: 0,
+			maxTurns: 1,
+			timedOut: false,
+			interrupted: false,
+			completedNaturally: true,
+		});
+
+		expect(outcome.hitTurnLimit).toBe(false);
+		expect(outcome.success).toBe(true);
+		expect(outcome.stumbles).toBe(0);
 	});
 
 	test("increments stumbles and marks timed out when timedOut is true", () => {
@@ -39,6 +59,7 @@ describe("finalizeRunLoopOutcome", () => {
 			maxTurns: 10,
 			timedOut: true,
 			interrupted: false,
+			completedNaturally: false,
 		});
 
 		expect(outcome.success).toBe(false);
@@ -54,6 +75,7 @@ describe("finalizeRunLoopOutcome", () => {
 			maxTurns: 10,
 			timedOut: false,
 			interrupted: true,
+			completedNaturally: false,
 		});
 
 		expect(outcome.success).toBe(false);
@@ -69,6 +91,7 @@ describe("finalizeRunLoopOutcome", () => {
 			maxTurns: 100,
 			timedOut: false,
 			interrupted: false,
+			completedNaturally: true,
 		});
 
 		expect(outcome.success).toBe(true);

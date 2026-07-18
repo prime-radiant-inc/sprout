@@ -2295,6 +2295,7 @@ export class Agent {
 		let lastOutput = "";
 		let interrupted = false;
 		let timedOut = false;
+		let completedNaturally = false;
 		let usedToolThisRun = false;
 
 		const timeoutMs = this.spec.constraints.timeout_ms;
@@ -2454,6 +2455,7 @@ export class Agent {
 					if (finalOutput.trim() === "") {
 						if (this.canCompleteWithEmptyOutput()) {
 							lastOutput = "";
+							completedNaturally = true;
 							break;
 						}
 						this.history.push(
@@ -2468,6 +2470,7 @@ export class Agent {
 						continue;
 					}
 					lastOutput = finalOutput;
+					completedNaturally = true;
 					break;
 				}
 
@@ -2556,6 +2559,7 @@ export class Agent {
 			maxTurns: this.spec.constraints.max_turns,
 			timedOut,
 			interrupted,
+			completedNaturally,
 			output: lastOutput,
 			sessionId: this.sessionId,
 		});

@@ -64,6 +64,7 @@ describe("finalizeRunLoopResult", () => {
 			maxTurns: 5,
 			timedOut: false,
 			interrupted: false,
+			completedNaturally: true,
 			output: "done",
 			sessionId: "session-1",
 		});
@@ -93,6 +94,7 @@ describe("finalizeRunLoopResult", () => {
 			maxTurns: 10,
 			timedOut: true,
 			interrupted: false,
+			completedNaturally: false,
 			output: "partial",
 			sessionId: "session-2",
 		});

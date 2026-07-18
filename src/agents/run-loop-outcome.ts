@@ -4,6 +4,9 @@ export interface RunLoopOutcomeInput {
 	maxTurns: number;
 	timedOut: boolean;
 	interrupted: boolean;
+	/** True when the loop ended because the agent produced its final answer, not because it
+	 * ran out of turns. An agent that completes on turn == maxTurns has succeeded. */
+	completedNaturally: boolean;
 }
 
 export interface RunLoopOutcome {
@@ -14,7 +17,7 @@ export interface RunLoopOutcome {
 }
 
 export function finalizeRunLoopOutcome(input: RunLoopOutcomeInput): RunLoopOutcome {
-	const hitTurnLimit = input.turns >= input.maxTurns;
+	const hitTurnLimit = input.turns >= input.maxTurns && !input.completedNaturally;
 	const timedOut = input.timedOut;
 	const stumbles = hitTurnLimit || timedOut ? input.stumbles + 1 : input.stumbles;
 	const success = !hitTurnLimit && !timedOut && !input.interrupted;

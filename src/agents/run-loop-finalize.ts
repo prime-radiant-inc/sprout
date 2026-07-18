@@ -58,6 +58,7 @@ export interface FinalizeRunLoopResultInput {
 	maxTurns: number;
 	timedOut: boolean;
 	interrupted: boolean;
+	completedNaturally: boolean;
 	output: string;
 	sessionId: string;
 }
@@ -94,6 +95,7 @@ export function finalizeRunLoopResult(input: FinalizeRunLoopResultInput): Finali
 		maxTurns: input.maxTurns,
 		timedOut: input.timedOut,
 		interrupted: input.interrupted,
+		completedNaturally: input.completedNaturally,
 	});
 
 	const finalStumbles = outcome.stumbles;
