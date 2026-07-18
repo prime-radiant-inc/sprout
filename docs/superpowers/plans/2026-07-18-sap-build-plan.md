@@ -292,6 +292,42 @@ event. **Review add:** scope-announcement transport uses Anthropic mid-conversat
   auth channel, mirroring the store-worker re-issue dedup) so a dropped response cannot
   double-bind.
 
+Slices (test-first; ← marks current):
+- [ ] **`$ref` splice engine (pure)** ← — `src/kernel/ref-splice.ts`: whole-arg
+  trimmed `⟦name⟧` detection; the frozen kernel allowlist (`write_file.content`,
+  `edit_file.old_string`/`new_string`; everything else NO including apply_patch);
+  loud-miss classification (unknown name in scope; bracket-lookalike forms `[[x]]`,
+  `〚x〛` etc. when x is a scope name) vs genuine passthrough; resolver injected as
+  `(name) => Promise<Uint8Array|null>`. Pure module, exhaustive tests.
+- [ ] **Splice integration** — agent tool-execution path: resolve `$ref` args via the
+  agent's StoreAccess before primitive execution (below the line), then RE-RUN path
+  constraints on resolved arguments (belt-and-braces, frozen rule), loud tool errors
+  on misses listing in-scope names.
+- [ ] **Structured-result surface** — ExecutionEnvironment gains raw-content forms:
+  `read_file` raw slice bytes, `grep` structured matches `[{path,line,text}]`
+  (`exec` already structured; `fetch` raw body).
+- [ ] **Capture** — `bind:`/`publish:` args on read_file/exec/grep/fetch (exec stderr →
+  `<name>_stderr`); auto-capture when EITHER truncation pass drops content, marker
+  names the value(s); store-full fallbacks (honest lossy marker; never a marker naming
+  a nonexistent value); `value_publish` primitive; `value_bind` events; captured
+  previews redacted at bind.
+- [ ] **Publish + pulled manifest delta** — publish records via the child's connection
+  at publish time; per handle×recipient delivery cursor (journal `manifest_delivery`
+  written atomically with recipient binds — the journal API already supports the
+  atomic multi-append); result-receipt fetches the delta over the recipient's own
+  connection; same-handle re-publish = version update, other collisions suffix;
+  retryable fetch under ping-backed liveness; ResultMessage carries NO manifest.
+- [ ] **Auto-bind at the boundary** — child result overflow past the 4,000-char summary
+  budget auto-binds + auto-publishes the FULL output (inline head is a marked
+  mechanical cut); dead-child recovery delivers summary + manifest delta from the
+  journal, store-unavailable fallback = today's 30k inline truncation.
+- [ ] Per-agent scopes for in-host binds + channel bind idempotency (the two Phase 2
+  deferrals) land alongside the first slices that need them.
+- [ ] Deferred within Phase 3 (record if not built): scope announcements +
+  post-compaction manifest event may slip to the evaluator phase if nothing consumes
+  them yet.
+- [ ] Phase 3 Fable review (whole phase as a unit).
+
 ### Phase 4 — Splice & grants
 `$ref` whole-arg resolution (loud misses, per-primitive allowlist, post-splice path re-check),
 env-grant registration (loud alias collisions, observer-env prohibition), `env` on
