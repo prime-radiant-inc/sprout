@@ -133,6 +133,26 @@ describe("LocalExecutionEnvironment", () => {
 		expect(result.stdout).toContain("HOME=");
 	});
 
+	test("exec_command withholds control-plane URLs from child shells", async () => {
+		// The sap authenticated channel and the open bus must not be reachable by
+		// model-authored shell: with these URLs a tool could speak raw bus/channel protocol.
+		// Their per-handle token is already stripped by the *_TOKEN pattern; identifiers like
+		// SPROUT_HANDLE_ID are not credentials and pass through.
+		const result = await env.exec_command(
+			"echo bus=[$SPROUT_BUS_URL] auth=[$SPROUT_AUTH_URL] id=[$SPROUT_HANDLE_ID]",
+			{
+				env_vars: {
+					SPROUT_BUS_URL: "ws://127.0.0.1:9001",
+					SPROUT_AUTH_URL: "ws://127.0.0.1:9002",
+					SPROUT_HANDLE_ID: "h-42",
+				},
+			},
+		);
+		expect(result.stdout).toContain("bus=[]");
+		expect(result.stdout).toContain("auth=[]");
+		expect(result.stdout).toContain("id=[h-42]");
+	});
+
 	// -- Search operations --
 
 	test("grep finds pattern matches in files", async () => {

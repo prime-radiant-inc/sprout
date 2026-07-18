@@ -39,6 +39,11 @@ const SENSITIVE_PATTERNS = [
 	/^ANTHROPIC_API_KEY$/i,
 	/^OPENAI_API_KEY$/i,
 	/^GEMINI_API_KEY$/i,
+	// Control-plane endpoints (not secrets, but reachability): model-authored shell must not
+	// be able to speak raw bus or authenticated-channel protocol. The per-handle token is
+	// already covered by /_TOKEN$/; identifiers like SPROUT_HANDLE_ID are not filtered.
+	/^SPROUT_BUS_URL$/i,
+	/^SPROUT_AUTH_URL$/i,
 ];
 
 function filterEnvVars(env: Record<string, string | undefined>): Record<string, string> {
