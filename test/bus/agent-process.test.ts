@@ -1623,6 +1623,168 @@ describe("runAgentProcess", () => {
 		}
 	}, 15_000);
 
+	test("result output over the summary budget auto-binds and auto-publishes the full output", async () => {
+		const { HandleRegistry, hashToken, mintToken } = await import(
+			"../../src/host/handle-registry.ts"
+		);
+		const { AuthChannelServer } = await import("../../src/host/auth-channel.ts");
+		const { registerStoreHandlers } = await import("../../src/host/store-channel.ts");
+		const { StoreWorkerClient } = await import("../../src/store/store-client.ts");
+		const { SessionJournal } = await import("../../src/store/journal.ts");
+		const { ContentStore } = await import("../../src/store/cas.ts");
+		const { SapStore } = await import("../../src/store/store.ts");
+		const { runStoreWorker } = await import("../../src/store/store-worker.ts");
+		const { SUMMARY_BUDGET_CHARS } = await import("../../src/kernel/truncation.ts");
+
+		const registry = new HandleRegistry({ trustedRegistrarId: "sprout:host" });
+		const authServer = new AuthChannelServer({ port: 0, hostname: "127.0.0.1", registry });
+		await authServer.start();
+		const journalPath = join(tempDir, "store", "journal.jsonl");
+		const casRoot = join(tempDir, "store", "cas");
+		const storeClient = new StoreWorkerClient({
+			journalPath,
+			casRoot,
+			rootScopeId: "session-root",
+			// In-process worker over the real temp store (no subprocess in tests).
+			spawnFn: () => {
+				let lineHandler: (line: string) => void = () => {};
+				const storeReady = SapStore.resume({
+					journal: new SessionJournal(journalPath),
+					cas: new ContentStore(casRoot),
+					rootScopeId: "session-root",
+				});
+				let queue = Promise.resolve();
+				return {
+					send(line: string) {
+						queue = queue.then(async () => {
+							const store = await storeReady;
+							const responses: string[] = [];
+							async function* one(): AsyncGenerator<string> {
+								yield line;
+							}
+							await runStoreWorker({ lines: one(), write: (l) => responses.push(l), store });
+							for (const r of responses) lineHandler(r);
+						});
+					},
+					kill() {},
+					onLine(cb: (line: string) => void) {
+						lineHandler = cb;
+					},
+					onExit() {},
+				};
+			},
+		});
+		registerStoreHandlers(authServer, storeClient, { rootScopeId: "session-root" });
+		const token = mintToken();
+		registry.registerHandle({
+			handleId: HANDLE_ID,
+			tokenHash: hashToken(token),
+			registrarId: "sprout:host",
+			ownerId: "root",
+			depth: 1,
+		});
+
+		const fullOutput = `judgment first line\n${"x".repeat(6000)}`;
+		try {
+			const mockClient = createMockClient(fullOutput);
+			const resultTopic = agentResult(SESSION_ID, HANDLE_ID);
+			const resultPromise = parentClient.waitForMessage(resultTopic, 10_000);
+
+			const processPromise = runAgentProcess({
+				busUrl: server.url,
+				handleId: HANDLE_ID,
+				sessionId: SESSION_ID,
+				genomePath: genomeDir,
+				client: mockClient,
+				workDir: tempDir,
+				authChannel: { url: authServer.url, token },
+			});
+
+			await waitForAgentReady();
+			const startMsg: StartMessage = {
+				kind: "start",
+				handle_id: HANDLE_ID,
+				self: addr("test-leaf", 1, undefined, HANDLE_ID),
+				genome_path: genomeDir,
+				session_id: SESSION_ID,
+				caller: addr("root", 0),
+				goal: "Implement the six endpoints today",
+				shared: false,
+			};
+			await parentClient.publish(
+				agentInbox(SESSION_ID, HANDLE_ID),
+				JSON.stringify(withResolverContext(startMsg)),
+			);
+
+			const resultPayload = await resultPromise;
+			await processPromise;
+
+			const result = JSON.parse(resultPayload) as ResultMessage;
+			// Inline: the head of the output plus a marked mechanical cut.
+			expect(result.output.startsWith(fullOutput.slice(0, SUMMARY_BUDGET_CHARS))).toBe(true);
+			expect(result.output).toContain(
+				"[... output truncated at the summary budget — full output: ⟦implement_the_six_endpoints_result⟧]",
+			);
+			expect(result.output.length).toBeLessThan(fullOutput.length);
+
+			// The store holds the FULL output, bound (auto) and published.
+			const records = await new SessionJournal(journalPath).replay();
+			const bind = records.find((r) => r.kind === "bind") as
+				| { name: string; scope: string; size: number; explicit: boolean }
+				| undefined;
+			expect(bind).toBeDefined();
+			expect(bind!.name).toBe("implement_the_six_endpoints_result");
+			expect(bind!.scope).toBe(HANDLE_ID);
+			expect(bind!.size).toBe(Buffer.byteLength(fullOutput));
+			expect(bind!.explicit).toBe(false);
+			const publish = records.find((r) => r.kind === "publish") as
+				| { handle: string; seq: number }
+				| undefined;
+			expect(publish).toBeDefined();
+			expect(publish!.handle).toBe(HANDLE_ID);
+		} finally {
+			await storeClient.shutdown();
+			await authServer.stop();
+		}
+	}, 20_000);
+
+	test("a store-less agent process keeps full output inline unchanged", async () => {
+		const fullOutput = `no store here\n${"y".repeat(6000)}`;
+		const mockClient = createMockClient(fullOutput);
+		const resultTopic = agentResult(SESSION_ID, HANDLE_ID);
+		const resultPromise = parentClient.waitForMessage(resultTopic, 10_000);
+
+		const processPromise = runAgentProcess({
+			busUrl: server.url,
+			handleId: HANDLE_ID,
+			sessionId: SESSION_ID,
+			genomePath: genomeDir,
+			client: mockClient,
+			workDir: tempDir,
+		});
+
+		await waitForAgentReady();
+		const startMsg: StartMessage = {
+			kind: "start",
+			handle_id: HANDLE_ID,
+			self: addr("test-leaf", 1, undefined, HANDLE_ID),
+			genome_path: genomeDir,
+			session_id: SESSION_ID,
+			caller: addr("root", 0),
+			goal: "Long output, no store",
+			shared: false,
+		};
+		await parentClient.publish(
+			agentInbox(SESSION_ID, HANDLE_ID),
+			JSON.stringify(withResolverContext(startMsg)),
+		);
+
+		const resultPayload = await resultPromise;
+		await processPromise;
+		const result = JSON.parse(resultPayload) as ResultMessage;
+		expect(result.output).toBe(fullOutput);
+	}, 20_000);
+
 	test("agent process fails fast when its auth credentials are refused", async () => {
 		const { HandleRegistry } = await import("../../src/host/handle-registry.ts");
 		const { AuthChannelServer } = await import("../../src/host/auth-channel.ts");

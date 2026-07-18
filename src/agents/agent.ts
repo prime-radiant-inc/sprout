@@ -175,6 +175,10 @@ export interface AgentOptions {
 	delegateObserverTimeoutMs?: number;
 }
 
+/** Retries for an infrastructure-tagged manifest fetch before degrading. */
+const MANIFEST_FETCH_RETRIES = 2;
+const MANIFEST_RETRY_BACKOFF_MS = 250;
+
 const DEFAULT_DELEGATE_OBSERVER_MAX_EVENTS = 12;
 const DEFAULT_DELEGATE_OBSERVER_MAX_CHARS = 3000;
 const DEFAULT_DELEGATE_OBSERVER_TIMEOUT_MS = 1500;
@@ -1636,6 +1640,39 @@ export class Agent {
 	}
 
 	/**
+	 * Pull the child's published-manifest delta at result receipt and render it
+	 * as `published: ⟦name⟧ (preview)` lines to append to the tool result (sap
+	 * spec §2: manifests are pulled from the store, never pushed on the bus).
+	 * Infrastructure failures (store worker mid-restart) retry briefly; then —
+	 * and for any other failure immediately — the result degrades to an honest
+	 * `[manifest unavailable: ...]` note. Never a hang, never a silent drop.
+	 */
+	private async fetchManifestSuffix(childHandleId: string): Promise<string> {
+		const store = this.spawner?.storeAccess;
+		if (!store) return "";
+		let attempt = 0;
+		for (;;) {
+			try {
+				const delta = await store.manifestDelta(childHandleId);
+				if (delta.delivered.length === 0) return "";
+				const lines = delta.delivered.map(
+					(value) => `published: ⟦${value.name}⟧ (${value.preview.split("\n", 1)[0]})`,
+				);
+				return `\n${lines.join("\n")}`;
+			} catch (err) {
+				const infrastructure = (err as { infrastructure?: boolean }).infrastructure === true;
+				if (infrastructure && attempt < MANIFEST_FETCH_RETRIES) {
+					attempt++;
+					await new Promise((resolve) => setTimeout(resolve, MANIFEST_RETRY_BACKOFF_MS));
+					continue;
+				}
+				const reason = err instanceof Error ? err.message : String(err);
+				return `\n[manifest unavailable: ${reason}]`;
+			}
+		}
+	}
+
+	/**
 	 * Execute a delegation via the bus-based spawner. Returns the tool result message and stumble count.
 	 *
 	 * For blocking spawns, calls verifyActResult() and pushes learn signals
@@ -1826,7 +1863,8 @@ export class Agent {
 			}
 
 			const truncated = truncateToolOutput(resultMsg.output, delegation.agent_name);
-			const content = `${truncated}\n\nHandle: ${resultMsg.handle_id}`;
+			const manifestSuffix = await this.fetchManifestSuffix(resultMsg.handle_id);
+			const content = `${truncated}${manifestSuffix}\n\nHandle: ${resultMsg.handle_id}`;
 			const toolResultMsg = Msg.toolResult(delegation.call_id, content);
 
 			const actEndData = {
@@ -1911,7 +1949,9 @@ export class Agent {
 				const result = await this.withInactivitySuspendedFor(cmd.handle, () =>
 					spawner.waitAgent(cmd.handle, caller),
 				);
-				const content = truncateToolOutput(result.output, "wait_agent");
+				const content =
+					truncateToolOutput(result.output, "wait_agent") +
+					(await this.fetchManifestSuffix(cmd.handle));
 				const toolResultMsg = Msg.toolResult(cmd.call_id, content);
 				this.emitAndLog("act_end", agentId, this.depth, {
 					agent_name: cmd.kind,
@@ -1953,7 +1993,9 @@ export class Agent {
 				return { toolResultMsg, stumbles: 0 };
 			}
 
-			const content = truncateToolOutput(result.output, "message_agent");
+			const content =
+				truncateToolOutput(result.output, "message_agent") +
+				(await this.fetchManifestSuffix(cmd.handle));
 			const toolResultMsg = Msg.toolResult(cmd.call_id, content);
 			this.emitAndLog("act_end", agentId, this.depth, {
 				agent_name: cmd.kind,

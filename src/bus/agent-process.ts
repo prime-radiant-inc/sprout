@@ -25,11 +25,12 @@ import {
 import { type SettingsLoadResult, SettingsStore } from "../host/settings/store.ts";
 import { LocalExecutionEnvironment } from "../kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../kernel/primitives.ts";
+import { SUMMARY_BUDGET_CHARS } from "../kernel/truncation.ts";
 import { Client } from "../llm/client.ts";
 import { loggingMiddleware } from "../llm/logging-middleware.ts";
 import { ProviderRegistry, type ProviderRegistryEntry } from "../llm/provider-registry.ts";
 import type { ProviderAdapter } from "../llm/types.ts";
-import { ChannelStoreAccess } from "../store/store-access.ts";
+import { ChannelStoreAccess, type StoreAccess } from "../store/store-access.ts";
 import { ensureProjectDirs } from "../util/project-id.ts";
 import { BusClient } from "./client.ts";
 import { BusLearnForwarder } from "./learn-forwarder.ts";
@@ -501,10 +502,11 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 		initialRunActive = false;
 
 		// Publish result (may fail if bus disconnected during shutdown)
+		const storeAccess = spawnerAuthChannel?.store;
 		const resultMsg: ResultMessage = {
 			kind: "result",
 			handle_id: handleId,
-			output: agentResult_.output,
+			output: await prepareResultOutput(storeAccess, handleId, startMsg.goal, agentResult_.output),
 			success: agentResult_.success,
 			stumbles: agentResult_.stumbles,
 			turns: agentResult_.turns,
@@ -523,7 +525,17 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 		if (!runSignal) {
 			throw new Error("Shared agents require an AbortSignal to exit the idle loop");
 		}
-		await idleLoop(bus, agent, genome, inboxTopic, resultTopic, handleId, runSignal);
+		await idleLoop(
+			bus,
+			agent,
+			genome,
+			inboxTopic,
+			resultTopic,
+			handleId,
+			runSignal,
+			storeAccess,
+			startMsg.goal,
+		);
 	} finally {
 		stopBusDisconnectAbort();
 		stopParentMonitor();
@@ -608,6 +620,8 @@ async function idleLoop(
 	resultTopic: string,
 	handleId: string,
 	signal: AbortSignal,
+	storeAccess: StoreAccess | undefined,
+	goal: string,
 ): Promise<void> {
 	if (signal?.aborted) return;
 
@@ -627,7 +641,7 @@ async function idleLoop(
 				const resultMsg: ResultMessage = {
 					kind: "result",
 					handle_id: handleId,
-					output: result.output,
+					output: await prepareResultOutput(storeAccess, handleId, goal, result.output),
 					success: result.success,
 					stumbles: result.stumbles,
 					turns: result.turns,
@@ -690,6 +704,64 @@ async function idleLoop(
 			signal.addEventListener("abort", () => resolve(), { once: true });
 		}
 	});
+}
+
+/** Fallback inline cap when the store can't take the overflow (today's semantics). */
+const RESULT_FALLBACK_TRUNCATION_CHARS = 30_000;
+
+/**
+ * Auto-bind name for a run's overflowed result: a slug from the goal's first
+ * few words, suffixed `_result` (sap spec §1 Naming #2 — deterministic, no LLM).
+ */
+function resultValueName(goal: string): string {
+	const slug = goal
+		.toLowerCase()
+		.split(/\s+/)
+		.slice(0, 4)
+		.map((word) => word.replace(/[^a-z0-9_]/g, ""))
+		.filter((word) => word.length > 0)
+		.join("_");
+	// A slug that is empty or not a valid name head falls back rather than
+	// producing a bind the store would reject.
+	if (slug.length === 0 || !/^[a-z_]/.test(slug)) return "agent_result";
+	const suffix = "_result";
+	return `${slug.slice(0, 64 - suffix.length)}${suffix}`;
+}
+
+/**
+ * The child-boundary auto-bind (sap spec §2 Auto-bind): output over the
+ * summary budget binds the FULL output (auto), publishes it, and sends the
+ * head inline with a marked mechanical cut — the marker names the value's
+ * final (possibly suffixed) name. If bind or publish fails for any reason,
+ * degrade to today's inline truncation with no marker naming a value.
+ */
+async function prepareResultOutput(
+	store: StoreAccess | undefined,
+	handleId: string,
+	goal: string,
+	output: string,
+): Promise<string> {
+	if (store === undefined || output.length <= SUMMARY_BUDGET_CHARS) return output;
+	try {
+		const metadata = await store.bind({
+			name: resultValueName(goal),
+			content: output,
+			type: "text",
+			provenance: { agentHandleId: handleId, origin: { kind: "delegation" } },
+			explicit: false,
+		});
+		await store.publish(metadata.ulid);
+		return (
+			`${output.slice(0, SUMMARY_BUDGET_CHARS)}\n` +
+			`[... output truncated at the summary budget — full output: ⟦${metadata.name}⟧]`
+		);
+	} catch {
+		if (output.length <= RESULT_FALLBACK_TRUNCATION_CHARS) return output;
+		return (
+			`${output.slice(0, RESULT_FALLBACK_TRUNCATION_CHARS)}\n` +
+			`[... output truncated at ${RESULT_FALLBACK_TRUNCATION_CHARS} chars]`
+		);
+	}
 }
 
 async function ackAgentMessage(bus: BusClient, message: AgentMessageMessage): Promise<void> {

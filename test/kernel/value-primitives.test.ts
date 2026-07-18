@@ -44,6 +44,9 @@ function fakeStore(values: Record<string, string>): StoreAccess {
 			const max = options.maxResults ?? 100;
 			return { matches: matches.slice(0, max), truncated: matches.length > max };
 		},
+		async manifestDelta() {
+			throw new Error("manifestDelta is not exercised by value primitives");
+		},
 		async names() {
 			return Object.keys(values).sort();
 		},

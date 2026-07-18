@@ -6,7 +6,7 @@ import { CAPTURE_PRIMITIVE_NAMES, withCapture } from "../../src/kernel/capture.t
 import { LocalExecutionEnvironment } from "../../src/kernel/execution-env.ts";
 import { createPrimitiveRegistry, type Primitive } from "../../src/kernel/primitives.ts";
 import { truncateToolOutput } from "../../src/kernel/truncation.ts";
-import type { GrepResult } from "../../src/store/store.ts";
+import type { GrepResult, ManifestDelta } from "../../src/store/store.ts";
 import type { StoreAccess, StoreBindInput } from "../../src/store/store-access.ts";
 import type { ValueMetadata } from "../../src/store/value.ts";
 
@@ -56,6 +56,9 @@ class FakeStore implements StoreAccess {
 		throw new Error("not implemented");
 	}
 	async grep(): Promise<GrepResult> {
+		throw new Error("not implemented");
+	}
+	async manifestDelta(): Promise<ManifestDelta> {
 		throw new Error("not implemented");
 	}
 	async names(): Promise<string[]> {

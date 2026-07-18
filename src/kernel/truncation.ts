@@ -1,5 +1,12 @@
 export type TruncationMode = "head_tail" | "tail";
 
+/**
+ * Inline budget for a child's ResultMessage.output (sap spec §2 Auto-bind):
+ * output past this auto-binds and auto-publishes in full, with only the head
+ * sent inline.
+ */
+export const SUMMARY_BUDGET_CHARS = 4_000;
+
 /** Default character limits per tool */
 export const DEFAULT_CHAR_LIMITS: Record<string, number> = {
 	read_file: 50_000,

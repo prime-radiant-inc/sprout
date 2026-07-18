@@ -46,7 +46,9 @@ export type StoreWorkerRequest =
 			maxBytes?: number;
 	  }
 	| { id: string; op: "grep"; scopeId: string; ref: string; pattern: string; maxResults?: number }
-	| { id: string; op: "publish"; scopeId: string; ref: string };
+	| { id: string; op: "publish"; scopeId: string; ref: string }
+	// scopeId is the RECIPIENT scope; the delta is the publisher's publishes past the cursor.
+	| { id: string; op: "manifest_delta"; scopeId: string; publisherHandle: string };
 
 export type StoreWorkerResponse =
 	| { id: string; ok: true; result: unknown }
@@ -189,6 +191,11 @@ async function dispatch(store: SapStore, request: StoreWorkerRequest): Promise<u
 		case "publish":
 			await store.publish(request.scopeId, request.ref);
 			return null;
+		case "manifest_delta":
+			return store.deliverManifest({
+				publisherHandle: request.publisherHandle,
+				recipientScopeId: request.scopeId,
+			});
 		default:
 			throw new Error(`unknown op: ${JSON.stringify((request as { op?: unknown }).op)}`);
 	}

@@ -11,7 +11,7 @@
  */
 
 import type { AuthChannelClient } from "../host/auth-channel.ts";
-import type { GrepResult } from "./store.ts";
+import type { GrepResult, ManifestDelta } from "./store.ts";
 import type { StoreWorkerClient } from "./store-client.ts";
 import { decodeWireContent, encodeWireContent, type WireBody } from "./store-worker.ts";
 import type { ValueMetadata, ValueProvenance, ValueType } from "./value.ts";
@@ -25,6 +25,7 @@ export const STORE_SLICE_REQUEST = "store_slice";
 export const STORE_GREP_REQUEST = "store_grep";
 export const STORE_NAMES_REQUEST = "store_names";
 export const STORE_PUBLISH_REQUEST = "store_publish";
+export const STORE_MANIFEST_REQUEST = "store_manifest_delta";
 
 export interface StoreBindInput {
 	name: string;
@@ -50,6 +51,11 @@ export interface StoreAccess {
 	names(): Promise<string[]>;
 	/** Mark a bound value for the scope's result manifest (journal publish record). */
 	publish(ref: string): Promise<void>;
+	/**
+	 * Pull the publisher's manifest delta into this scope (sap spec §2). The
+	 * recipient is always the scope this access carries — never a parameter.
+	 */
+	manifestDelta(publisherHandle: string): Promise<ManifestDelta>;
 }
 
 /** Host-process implementation: delegates to the store worker with a fixed scope. */
@@ -92,6 +98,10 @@ export class DirectStoreAccess implements StoreAccess {
 
 	publish(ref: string): Promise<void> {
 		return this.client.publish(this.scopeId, ref);
+	}
+
+	manifestDelta(publisherHandle: string): Promise<ManifestDelta> {
+		return this.client.deliverManifest(this.scopeId, publisherHandle);
 	}
 }
 
@@ -174,5 +184,13 @@ export class ChannelStoreAccess implements StoreAccess {
 
 	async publish(ref: string): Promise<void> {
 		await this.client.request(STORE_PUBLISH_REQUEST, { ref });
+	}
+
+	async manifestDelta(publisherHandle: string): Promise<ManifestDelta> {
+		// Only the publisher crosses the wire; the recipient is the connection's
+		// verified scope, decided host-side.
+		return (await this.client.request(STORE_MANIFEST_REQUEST, {
+			publisherHandle,
+		})) as ManifestDelta;
 	}
 }

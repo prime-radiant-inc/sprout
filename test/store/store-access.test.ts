@@ -376,6 +376,92 @@ describe("store access", () => {
 			).rejects.toThrow(/too large for the channel.*CAS handoff/);
 		});
 
+		it("manifestDelta derives the recipient from the connection", async () => {
+			const child = new ChannelStoreAccess(await connectAgent("agent_child"));
+			const parent = new ChannelStoreAccess(await connectAgent("agent_parent"));
+			const meta = await child.bind({
+				name: "impl",
+				content: "the impl",
+				type: "text",
+				provenance: prov("agent_child"),
+				explicit: true,
+			});
+			await child.publish("impl");
+
+			const delta = await parent.manifestDelta("agent_child");
+			expect(delta.throughSeq).toBe(1);
+			expect(delta.delivered).toHaveLength(1);
+			expect(delta.delivered[0]!.name).toBe("impl");
+			expect(delta.delivered[0]!.ulid).toBe(meta.ulid);
+			// The alias landed in the CONNECTION's scope, readable by name there.
+			expect(new TextDecoder().decode(await parent.get("impl", { maxBytes: 100 }))).toBe(
+				"the impl",
+			);
+			// The grant names the connection's scope as recipient.
+			const grants = (await journal.replay()).filter((r) => r.kind === "grant");
+			expect(grants).toEqual([
+				{
+					kind: "grant",
+					granter: "agent_child",
+					recipient: "agent_parent",
+					name: "impl",
+					ulid: meta.ulid,
+				},
+			]);
+		});
+
+		it("a crafted payload cannot name another recipient — there is no such field", async () => {
+			const child = new ChannelStoreAccess(await connectAgent("agent_child2"));
+			await child.bind({
+				name: "loot",
+				content: "x",
+				type: "text",
+				provenance: prov("agent_child2"),
+				explicit: true,
+			});
+			await child.publish("loot");
+			const attacker = await connectAgent("agent_attacker");
+			// Raw request smuggling recipient/scope fields: they are ignored; the
+			// delta lands in the ATTACKER's own scope, never the named one.
+			await attacker.request("store_manifest_delta", {
+				publisherHandle: "agent_child2",
+				recipient: ROOT_SCOPE,
+				recipientScopeId: ROOT_SCOPE,
+				scopeId: ROOT_SCOPE,
+			});
+			const grants = (await journal.replay()).filter((r) => r.kind === "grant");
+			expect(grants.map((g) => (g as { recipient: string }).recipient)).toEqual(["agent_attacker"]);
+		});
+
+		it("manifestDelta rejects a malformed publisherHandle", async () => {
+			const client = await connectAgent("agent_badshape");
+			await expect(client.request("store_manifest_delta", {})).rejects.toThrow(/publisherHandle/);
+		});
+
+		it("DirectStoreAccess manifestDelta delivers into its fixed scope", async () => {
+			const client = makeClient();
+			const child = new DirectStoreAccess(client, ROOT_SCOPE);
+			// Bind+publish under a child scope via the worker client directly.
+			await client.createScope({
+				scopeId: "direct_child",
+				ownerHandleId: "direct_child",
+				parentScopeId: ROOT_SCOPE,
+			});
+			const meta = await client.bind({
+				scopeId: "direct_child",
+				name: "notes",
+				content: "n",
+				type: "text",
+				provenance: prov("direct_child"),
+				explicit: true,
+			});
+			await client.publish("direct_child", meta.ulid);
+			const delta = await child.manifestDelta("direct_child");
+			expect(delta.delivered.map((d) => d.name)).toEqual(["notes"]);
+			expect(await child.names()).toContain("notes");
+			await client.shutdown();
+		});
+
 		it("a channel get costs exactly one worker round-trip", async () => {
 			const inner = workingSpawn();
 			let issued = 0;

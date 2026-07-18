@@ -7,7 +7,12 @@
 
 import { ulid } from "../util/ulid.ts";
 import type { ContentStore } from "./cas.ts";
-import { INLINE_BODY_LIMIT, type JournalBody, type SessionJournal } from "./journal.ts";
+import {
+	type GrantRecord,
+	INLINE_BODY_LIMIT,
+	type JournalBody,
+	type SessionJournal,
+} from "./journal.ts";
 import {
 	computePreview,
 	type ValueMetadata,
@@ -99,6 +104,26 @@ interface NameOrigin {
 	explicit: boolean;
 	agentHandleId: string;
 	ulid: string;
+	/**
+	 * Set when the name arrived via a manifest delivery: the publisher's handle.
+	 * A later manifest name from the SAME publisher is a version update (the
+	 * alias moves); any other collision suffixes per the auto-bind rule.
+	 */
+	manifestFrom?: string;
+}
+
+/** One value a manifest delivery handed the recipient. */
+export interface ManifestDeltaValue {
+	name: string;
+	ulid: string;
+	size: number;
+	preview: string;
+}
+
+/** deliverManifest's result: the delivered aliases and the advanced cursor. */
+export interface ManifestDelta {
+	delivered: ManifestDeltaValue[];
+	throughSeq: number;
 }
 
 /** Where a body can be reloaded from when it is not in the memory LRU. */
@@ -123,6 +148,13 @@ export class SapStore {
 	private readonly values = new Map<string, ValueEntry>();
 	/** Last publish seq per handle, rebuilt from publish records on resume. */
 	private readonly publishSeqs = new Map<string, number>();
+	/** Publish records per handle, in seq order — manifest deltas read these. */
+	private readonly publishRecords = new Map<string, { seq: number; ulids: string[] }[]>();
+	/**
+	 * Manifest-delivery cursor per publisherHandle×recipientScope: the publish
+	 * seq the recipient has been delivered through.
+	 */
+	private readonly deliveryCursors = new Map<string, number>();
 	/** Memory LRU over bodies: Map insertion order is recency order. */
 	private readonly hotBodies = new Map<string, Uint8Array>();
 	private hotBytes = 0;
@@ -191,8 +223,27 @@ export class SapStore {
 					record.handle,
 					Math.max(store.publishSeqs.get(record.handle) ?? 0, record.seq),
 				);
+				store.recordPublish(record.handle, record.seq, record.ulids);
+			} else if (record.kind === "grant") {
+				const scope = store.scopes.get(record.recipient);
+				if (scope === undefined) {
+					throw new Error(`journal grant references unknown scope: ${record.recipient}`);
+				}
+				// Manifest aliases: not real binds — valueCount stays untouched.
+				scope.names.set(record.name, {
+					explicit: false,
+					agentHandleId: record.granter,
+					ulid: record.ulid,
+					manifestFrom: record.granter,
+				});
+			} else if (record.kind === "manifest_delivery") {
+				const key = deliveryCursorKey(record.handle, record.recipient);
+				store.deliveryCursors.set(
+					key,
+					Math.max(store.deliveryCursors.get(key) ?? 0, record.throughPublishSeq),
+				);
 			}
-			// manifest_delivery/grant/cell records are later slices' state.
+			// cell records are a later slice's state.
 		}
 		return store;
 	}
@@ -329,7 +380,126 @@ export class SapStore {
 				seq,
 			});
 			this.publishSeqs.set(scopeId, seq);
+			this.recordPublish(scopeId, seq, [entry.metadata.ulid]);
 		});
+	}
+
+	/**
+	 * Deliver the publisher's publish delta to a recipient scope (sap spec §2:
+	 * "Manifests are pulled"). Delivered values are ALIASES into the recipient's
+	 * name table — no body copy, and (deliberately) no valueCount charge: the
+	 * per-scope cap bounds values a scope creates, and an alias references a
+	 * value that already exists and is already accounted to its producer.
+	 *
+	 * Per name: a recipient binding that came from THIS publisher's earlier
+	 * manifest is a version update (the alias moves, no suffix); any other
+	 * existing binding collides and suffixes per the auto-bind rule. The grant
+	 * records and the cursor record land in one atomic journal multi-append, so
+	 * the cursor advances exactly when delivery is durable. An empty delta
+	 * journals nothing and leaves the cursor unmoved — idempotent by cursor.
+	 */
+	async deliverManifest(args: {
+		publisherHandle: string;
+		recipientScopeId: string;
+	}): Promise<ManifestDelta> {
+		return this.serialize(async () => {
+			const scope = this.requireScope(args.recipientScopeId);
+			const cursorKey = deliveryCursorKey(args.publisherHandle, args.recipientScopeId);
+			const cursor = this.deliveryCursors.get(cursorKey) ?? 0;
+			const delta = (this.publishRecords.get(args.publisherHandle) ?? []).filter(
+				(record) => record.seq > cursor,
+			);
+			if (delta.length === 0) return { delivered: [], throughSeq: cursor };
+
+			const delivered: ManifestDeltaValue[] = [];
+			const grants: GrantRecord[] = [];
+			const aliases: { name: string; ulid: string }[] = [];
+			// Names already claimed within this batch behave like the applied
+			// aliases would: a repeat of the same name is a version update.
+			const staged = new Map<string, number>();
+			for (const record of delta) {
+				for (const valueUlid of record.ulids) {
+					const entry = this.values.get(valueUlid);
+					if (entry === undefined) {
+						throw new Error(`publish record references unknown value: ${valueUlid}`);
+					}
+					const name = entry.metadata.name;
+					const existing = scope.names.get(name);
+					let alias: string;
+					if (staged.has(name) || existing?.manifestFrom === args.publisherHandle) {
+						// Same publisher's earlier manifest name: the alias moves.
+						alias = name;
+					} else if (existing !== undefined) {
+						alias = this.suffixName(scope, name);
+					} else {
+						alias = name;
+					}
+					if (staged.has(alias)) {
+						// Version update within the batch: replace the staged entry.
+						const at = staged.get(alias) as number;
+						delivered[at] = {
+							name: alias,
+							ulid: valueUlid,
+							size: entry.metadata.size,
+							preview: entry.metadata.preview,
+						};
+						grants[at] = {
+							kind: "grant",
+							granter: args.publisherHandle,
+							recipient: args.recipientScopeId,
+							name: alias,
+							ulid: valueUlid,
+						};
+						aliases[at] = { name: alias, ulid: valueUlid };
+						continue;
+					}
+					staged.set(alias, delivered.length);
+					delivered.push({
+						name: alias,
+						ulid: valueUlid,
+						size: entry.metadata.size,
+						preview: entry.metadata.preview,
+					});
+					grants.push({
+						kind: "grant",
+						granter: args.publisherHandle,
+						recipient: args.recipientScopeId,
+						name: alias,
+						ulid: valueUlid,
+					});
+					aliases.push({ name: alias, ulid: valueUlid });
+				}
+			}
+
+			const throughSeq = delta[delta.length - 1]!.seq;
+			// One atomic multi-append: grants + cursor durable together.
+			await this.journal.append([
+				...grants,
+				{
+					kind: "manifest_delivery",
+					handle: args.publisherHandle,
+					recipient: args.recipientScopeId,
+					throughPublishSeq: throughSeq,
+				},
+			]);
+			for (const alias of aliases) {
+				scope.names.set(alias.name, {
+					explicit: false,
+					agentHandleId: args.publisherHandle,
+					ulid: alias.ulid,
+					manifestFrom: args.publisherHandle,
+				});
+			}
+			this.deliveryCursors.set(cursorKey, throughSeq);
+			return { delivered, throughSeq };
+		});
+	}
+
+	/** Append a publish record to the per-handle in-memory list, in seq order. */
+	private recordPublish(handle: string, seq: number, ulids: string[]): void {
+		const list = this.publishRecords.get(handle);
+		if (list === undefined) this.publishRecords.set(handle, [{ seq, ulids }]);
+		else list.push({ seq, ulids });
 	}
 
 	/** The stored bind-time preview, never re-computed. */
@@ -513,11 +683,18 @@ export class SapStore {
 				`name collision: "${args.name}" is already bound by a different origin in this scope`,
 			);
 		}
-		// Auto-bind: deterministic numeric suffix, base truncated so the
-		// suffixed name stays within the 64-char limit.
+		// Auto-bind: deterministic numeric suffix.
+		return this.suffixName(scope, args.name);
+	}
+
+	/**
+	 * Deterministic numeric suffix for a colliding auto-bind or manifest name,
+	 * base truncated so the suffixed name stays within the 64-char limit.
+	 */
+	private suffixName(scope: ScopeState, name: string): string {
 		for (let n = 2; ; n++) {
 			const suffix = `_${n}`;
-			const base = args.name.slice(0, NAME_MAX_LENGTH - suffix.length);
+			const base = name.slice(0, NAME_MAX_LENGTH - suffix.length);
 			const candidate = `${base}${suffix}`;
 			if (!scope.names.has(candidate)) return candidate;
 		}
@@ -572,6 +749,11 @@ export class SapStore {
 		this.hotBodies.set(id, bytes);
 		this.hotBytes += bytes.length;
 	}
+}
+
+/** Cursor-map key for one publisherHandle×recipientScope pair. */
+function deliveryCursorKey(publisherHandle: string, recipientScopeId: string): string {
+	return `${publisherHandle} ${recipientScopeId}`;
 }
 
 /** Inline journal encoding: utf8 passthrough for text/json, base64 for bytes. */

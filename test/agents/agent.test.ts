@@ -5484,6 +5484,171 @@ describe("Agent", () => {
 		expect(actEndEvents[0]!.data.child_id).toBe("agent-handle-abc");
 	});
 
+	// -----------------------------------------------------------------------
+	// Manifest delta at result receipt (sap spec §2: manifests are pulled)
+	// -----------------------------------------------------------------------
+
+	/** Extract the tool-result text from an act_end event's tool_result_message. */
+	function toolResultText(events: AgentEventEmitter, agentName: string): string {
+		const actEnd = events
+			.collected()
+			.find((e) => e.kind === "act_end" && (e.data.agent_name as string) === agentName);
+		const msg = actEnd?.data.tool_result_message as Message | undefined;
+		const part = Array.isArray(msg?.content)
+			? msg.content.find((c) => c.kind === ContentKind.TOOL_RESULT)
+			: undefined;
+		return part ? String((part as { tool_result: { content: string } }).tool_result.content) : "";
+	}
+
+	function singleToolCallClient(name: string, args: Record<string, unknown>): Client {
+		let callCount = 0;
+		return {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				const msg: Message =
+					callCount === 1
+						? {
+								role: "assistant",
+								content: [
+									{
+										kind: ContentKind.TOOL_CALL,
+										tool_call: {
+											id: "call-manifest-1",
+											name,
+											arguments: JSON.stringify(args),
+										},
+									},
+								],
+							}
+						: { role: "assistant", content: [{ kind: ContentKind.TEXT, text: "Done." }] };
+				return {
+					id: `mock-manifest-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: msg,
+					finish_reason: { reason: callCount === 1 ? "tool_calls" : "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+	}
+
+	async function runManifestScenario(
+		client: Client,
+		manifestDelta: (publisherHandle: string) => Promise<unknown>,
+	): Promise<{ events: AgentEventEmitter; deltaCalls: string[] }> {
+		const deltaCalls: string[] = [];
+		const base = createMockSpawner().spawner as unknown as Record<string, unknown>;
+		const spawner = {
+			...base,
+			storeAccess: {
+				manifestDelta: async (publisherHandle: string) => {
+					deltaCalls.push(publisherHandle);
+					return manifestDelta(publisherHandle);
+				},
+			},
+		} as unknown as AgentSpawner;
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: rootSpec,
+			env,
+			client,
+			primitiveRegistry: registry,
+			availableAgents: [rootSpec, leafSpec],
+			depth: 0,
+			events,
+			spawner,
+		});
+		await agent.run("manifest test");
+		return { events, deltaCalls };
+	}
+
+	const oneValueDelta = async () => ({
+		delivered: [{ name: "impl", ulid: "u1", size: 48, preview: "text · 48 bytes\nsecond line" }],
+		throughSeq: 1,
+	});
+
+	test("wait_agent appends published manifest lines from the child's delta", async () => {
+		const { events, deltaCalls } = await runManifestScenario(
+			singleToolCallClient("wait_agent", { handle: "handle-abc" }),
+			oneValueDelta,
+		);
+		expect(deltaCalls).toEqual(["handle-abc"]);
+		const content = toolResultText(events, "wait_agent");
+		// Only the preview's first line rides along.
+		expect(content).toContain("published: ⟦impl⟧ (text · 48 bytes)");
+		expect(content).not.toContain("second line");
+	});
+
+	test("blocking delegation appends published manifest lines", async () => {
+		const { events, deltaCalls } = await runManifestScenario(
+			singleToolCallClient("delegate", { agent_name: "leaf", goal: "do it", blocking: true }),
+			oneValueDelta,
+		);
+		// The canned blocking result's handle is handle-123.
+		expect(deltaCalls).toEqual(["handle-123"]);
+		expect(toolResultText(events, "leaf")).toContain("published: ⟦impl⟧ (text · 48 bytes)");
+	});
+
+	test("blocking message_agent appends published manifest lines", async () => {
+		const { events, deltaCalls } = await runManifestScenario(
+			singleToolCallClient("message_agent", {
+				handle: "handle-xyz",
+				message: "go on",
+				blocking: true,
+			}),
+			oneValueDelta,
+		);
+		expect(deltaCalls).toEqual(["handle-xyz"]);
+		expect(toolResultText(events, "message_agent")).toContain(
+			"published: ⟦impl⟧ (text · 48 bytes)",
+		);
+	});
+
+	test("an empty delta appends nothing", async () => {
+		const { events } = await runManifestScenario(
+			singleToolCallClient("wait_agent", { handle: "handle-abc" }),
+			async () => ({ delivered: [], throughSeq: 3 }),
+		);
+		const content = toolResultText(events, "wait_agent");
+		expect(content).not.toContain("published:");
+		expect(content).not.toContain("manifest unavailable");
+	});
+
+	test("an infrastructure manifest failure retries twice then degrades honestly", async () => {
+		const { events, deltaCalls } = await runManifestScenario(
+			singleToolCallClient("wait_agent", { handle: "handle-abc" }),
+			async () => {
+				throw Object.assign(new Error("store worker unavailable: gone"), {
+					infrastructure: true,
+				});
+			},
+		);
+		// Initial attempt + 2 retries.
+		expect(deltaCalls).toHaveLength(3);
+		const content = toolResultText(events, "wait_agent");
+		expect(content).toContain("[manifest unavailable: store worker unavailable: gone]");
+		// The child's result itself still delivered.
+		expect(content).toContain("spawner result output");
+	}, 15_000);
+
+	test("a non-infrastructure manifest failure degrades without retries", async () => {
+		const { events, deltaCalls } = await runManifestScenario(
+			singleToolCallClient("wait_agent", { handle: "handle-abc" }),
+			async () => {
+				throw new Error("unknown scope: parent");
+			},
+		);
+		expect(deltaCalls).toHaveLength(1);
+		expect(toolResultText(events, "wait_agent")).toContain(
+			"[manifest unavailable: unknown scope: parent]",
+		);
+	});
+
 	test("with spawner, message_agent routes through spawner.messageAgent", async () => {
 		const msgAgentMsg: Message = {
 			role: "assistant",

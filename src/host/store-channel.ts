@@ -12,6 +12,7 @@ import {
 	STORE_BIND_REQUEST,
 	STORE_GET_REQUEST,
 	STORE_GREP_REQUEST,
+	STORE_MANIFEST_REQUEST,
 	STORE_METADATA_REQUEST,
 	STORE_NAMES_REQUEST,
 	STORE_PEEK_REQUEST,
@@ -122,6 +123,16 @@ export function registerStoreHandlers(
 		// from its own scope, and the record's handle IS that scope id.
 		await storeClient.publish(await ensureScope(ctx.handleId), ref);
 		return null;
+	});
+
+	authServer.onRequest(STORE_MANIFEST_REQUEST, async (ctx, payload) => {
+		const fields = parseObjectPayload(payload, STORE_MANIFEST_REQUEST);
+		if (typeof fields.publisherHandle !== "string") {
+			throw new Error(`${STORE_MANIFEST_REQUEST}: publisherHandle must be a string`);
+		}
+		// The recipient is the connection's verified scope — any recipient/scope
+		// field a crafted payload smuggles in is ignored.
+		return storeClient.deliverManifest(await ensureScope(ctx.handleId), fields.publisherHandle);
 	});
 
 	authServer.onRequest(STORE_NAMES_REQUEST, async (ctx) => {

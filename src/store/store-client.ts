@@ -11,7 +11,7 @@
 
 import { buildInternalSproutCommand } from "../util/self-command.ts";
 import { ulid } from "../util/ulid.ts";
-import type { BindArgs, GrepResult, SapStoreOptions } from "./store.ts";
+import type { BindArgs, GrepResult, ManifestDelta, SapStoreOptions } from "./store.ts";
 import {
 	decodeWireContent,
 	encodeWireContent,
@@ -162,6 +162,16 @@ export class StoreWorkerClient {
 
 	async publish(scopeId: string, ref: string): Promise<void> {
 		await this.issue({ id: ulid(), op: "publish", scopeId, ref });
+	}
+
+	/** Deliver the publisher's manifest delta into the recipient's scope. */
+	async deliverManifest(recipientScopeId: string, publisherHandle: string): Promise<ManifestDelta> {
+		return (await this.issue({
+			id: ulid(),
+			op: "manifest_delta",
+			scopeId: recipientScopeId,
+			publisherHandle,
+		})) as ManifestDelta;
 	}
 
 	/** Kill the worker and reject everything in flight as infrastructure. */
