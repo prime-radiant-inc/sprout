@@ -14,6 +14,9 @@ import type { PrimitiveResult } from "./types.ts";
 /** value_get budget — read_file parity (spec §1 defaults). */
 export const VALUE_GET_CHAR_BUDGET = 50_000;
 
+/** value_slice line_count clamp — enough for any sane read, bounded output. */
+export const VALUE_SLICE_MAX_LINES = 10_000;
+
 const REF_DESCRIPTION = "Value ref: a value name in your scope, or a value ulid";
 
 export function buildValuePrimitives(store: StoreAccess): Primitive[] {
@@ -31,10 +34,12 @@ function ok(output: string): PrimitiveResult {
 }
 
 function fail(error: unknown): PrimitiveResult {
+	// Error messages can embed value content (previews, refs) — redact them
+	// like every other output path.
 	return {
 		output: "",
 		success: false,
-		error: error instanceof Error ? error.message : String(error),
+		error: redactSensitiveTranscriptContent(error instanceof Error ? error.message : String(error)),
 	};
 }
 
@@ -78,10 +83,12 @@ function valueGrepPrimitive(store: StoreAccess): Primitive {
 		},
 		async execute(args) {
 			try {
-				const matches = await store.grep(args.ref as string, args.pattern as string, {
+				const result = await store.grep(args.ref as string, args.pattern as string, {
 					maxResults: args.max_results as number | undefined,
 				});
-				return ok(matches.map((m) => `${m.line}:${m.text}`).join("\n"));
+				const lines = result.matches.map((m) => `${m.line}:${m.text}`);
+				if (result.truncated) lines.push("…truncated: output hit the grep byte budget");
+				return ok(lines.join("\n"));
 			} catch (err) {
 				return fail(err);
 			}
@@ -109,10 +116,20 @@ function valueSlicePrimitive(store: StoreAccess): Primitive {
 				return ok(
 					await store.slice(args.ref as string, {
 						startLine: args.start_line as number,
-						lineCount: args.line_count as number,
+						// Clamp: an unbounded line_count would materialize the
+						// whole value; the engine byte budget backstops this.
+						lineCount: Math.min(args.line_count as number, VALUE_SLICE_MAX_LINES),
 					}),
 				);
 			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err);
+				if (message.includes("slice budget exceeded")) {
+					// Same redaction as every other output path — the message can
+					// name refs and budgets, and future variants may embed content.
+					return fail(
+						new Error(`Slice is over the store's byte budget (${message}). Request fewer lines.`),
+					);
+				}
 				return fail(err);
 			}
 		},
