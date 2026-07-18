@@ -3,7 +3,7 @@
 **Date started:** 2026-07-18
 **Spec:** `../specs/2026-07-16-sap-data-plane-and-repl-design.md`
 **Review:** `../specs/2026-07-18-sap-state-of-the-art-review.md`
-**Status:** in progress — Phases 0–2 complete (built + Fable-reviewed); Phase 3 (capture/splice/publish) next
+**Status:** in progress — Phases 0–3 complete (built + Fable-reviewed); Phase 4 (scopes & env grants, spec §3) next
 
 This is the working tracker for building sap. It records *what we're building, in what
 order, and where we deliberately simplified away from the maximal spec*. Update it as
@@ -277,7 +277,7 @@ Slices (test-first; 1–3 are pure/disjoint and fanned out to subagents in paral
   stdin line cap. Confirmed solid: naming/collision rules, journal parsing + torn-tail
   replay, ulid-idempotent binds, provenance forcing, sha gating, scope-from-connection.
 
-### Phase 3 — Capture & publish
+### Phase 3 — Capture & publish  ✅ landed 2026-07-18
 Structured-result methods on `ExecutionEnvironment` (raw bytes; stdout/stderr split;
 structured grep matches — grep results must carry offsets/lines that compose into
 `slice`/`lines`/`spawn`), capture (`bind:`, auto-capture on both truncation passes, truthful
@@ -349,7 +349,17 @@ Slices (test-first):
   crash-after-append can return an EMPTY delta — the cursor already advanced, so the
   aliases exist but the delta's lines are lost. Accepted for now alongside the open
   channel-level bind idempotency item.
-- [ ] Phase 3 Fable review (whole phase as a unit).
+- [x] **Phase 3 Fable review — done; all findings fixed** (`47f7f32`). Two criticals
+  caught: registry auto-capture bound RENDERINGS (exec trailers/line numbers) — now
+  captureSource carries raw bytes and no-source means no auto-capture; and single-file
+  grep capture parsed rg's pathless output to zero matches (-H everywhere). Majors:
+  manifest pulls gated to the publisher's registered owner; in-batch alias collapse
+  fixed (staging keyed by source name); the .infrastructure tag now crosses the auth
+  channel so subprocess parents retry mid-restart stores. Minors all fixed (journal
+  bytes quota-counted, foreign-ulid publish rejected, bind-time preview redaction,
+  single truncation marker, no double-store, bounded error results). Splice semantics
+  verified frozen-correct: no prefilter bypass, no recursive splice, no normalization
+  trick, constraints re-run on resolved args.
 
 ### Phase 4 — Splice & grants
 `$ref` whole-arg resolution (loud misses, per-primitive allowlist, post-splice path re-check),
