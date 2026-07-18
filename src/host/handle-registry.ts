@@ -42,7 +42,7 @@ export interface HandleIdentity {
 
 export type RegisterHandleResult =
 	| { ok: true }
-	| { ok: false; reason: "not_parent" | "duplicate" | "live_connection" | "reserved" };
+	| { ok: false; reason: "not_parent" | "duplicate" | "reserved" };
 
 export type AuthenticateResult =
 	| { ok: true; identity: HandleIdentity }
@@ -98,10 +98,13 @@ export class HandleRegistry {
 	 * new handle (or be the trusted registrar) — otherwise an authenticated
 	 * agent could register or re-register another agent's handle and capture
 	 * its identity. Duplicate handle IDs are rejected, with one carve-out: the
-	 * same owner may re-register with a fresh token hash while the handle has
-	 * no live connection (respawn/owner-resume; tokens are never journaled, so
-	 * a resumed parent must mint anew). Re-registration replaces the token
-	 * hash; a live handle can be re-registered by no one.
+	 * same owner may re-register with a fresh token hash (respawn/owner-resume;
+	 * tokens are never journaled, so a resumed parent must mint anew).
+	 * Re-registration replaces the token hash and clears any live flag: the
+	 * owner re-registers only when it observed the child's process die, and the
+	 * socket-close event that normally clears liveness can lag that death —
+	 * the owner's word must not lose the race to it. The old token stops
+	 * authenticating immediately, so the dead process's credentials are void.
 	 */
 	registerHandle(input: RegisterHandleInput): RegisterHandleResult {
 		// The trust-authority identity is reserved: no handle may be registered with it. Were it
@@ -116,9 +119,8 @@ export class HandleRegistry {
 			return { ok: false, reason: "not_parent" };
 		}
 		const existing = this.handles.get(input.handleId);
-		if (existing) {
-			if (existing.live) return { ok: false, reason: "live_connection" };
-			if (existing.ownerId !== input.ownerId) return { ok: false, reason: "duplicate" };
+		if (existing && existing.ownerId !== input.ownerId) {
+			return { ok: false, reason: "duplicate" };
 		}
 		this.handles.set(input.handleId, {
 			tokenHash: input.tokenHash,

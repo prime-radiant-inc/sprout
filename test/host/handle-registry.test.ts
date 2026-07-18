@@ -141,36 +141,59 @@ describe("registerHandle", () => {
 		expect(auth.ok).toBe(true);
 	});
 
-	test("rejects re-registration while the handle is live, even by its owner", () => {
+	test("same-owner re-registration clears a stale live flag; the fresh token authenticates", () => {
+		// The owner re-registers only when it observed the child's process die.
+		// The host clears liveness on socket close, but that event can lag the
+		// process exit — the owner's re-registration must not lose the race to
+		// it. The old token stops working immediately.
 		const registry = new HandleRegistry();
-		const token = mintToken();
-		registerOwned(registry, "h-child", "h-parent", token);
-		registry.authenticate("h-child", token);
+		const oldToken = mintToken();
+		const newToken = mintToken();
+		registerOwned(registry, "h-child", "h-parent", oldToken);
+		registry.authenticate("h-child", oldToken);
+		expect(registry.isLive("h-child")).toBe(true);
 
-		const result = registerOwned(registry, "h-child", "h-parent", mintToken());
+		const result = registerOwned(registry, "h-child", "h-parent", newToken);
 
-		expect(result).toEqual({ ok: false, reason: "live_connection" });
-		expect(registry.authenticate("h-child", token)).toEqual({
+		expect(result).toEqual({ ok: true });
+		expect(registry.isLive("h-child")).toBe(false);
+		expect(registry.authenticate("h-child", oldToken)).toEqual({
 			ok: false,
-			reason: "already_live",
+			reason: "bad_token",
 		});
+		expect(registry.authenticate("h-child", newToken).ok).toBe(true);
 	});
 
-	test("rejects re-registration of a live handle by the trusted registrar", () => {
+	test("re-registration of a live handle by the trusted registrar also clears the flag", () => {
 		const registry = new HandleRegistry({ trustedRegistrarId: "host" });
 		const token = mintToken();
+		const newToken = mintToken();
 		registerOwned(registry, "h-child", "h-parent", token);
 		registry.authenticate("h-child", token);
 
 		const result = registry.registerHandle({
 			handleId: "h-child",
-			tokenHash: hashToken(mintToken()),
+			tokenHash: hashToken(newToken),
 			registrarId: "host",
 			ownerId: "h-parent",
 			depth: 1,
 		});
 
-		expect(result).toEqual({ ok: false, reason: "live_connection" });
+		expect(result).toEqual({ ok: true });
+		expect(registry.isLive("h-child")).toBe(false);
+		expect(registry.authenticate("h-child", newToken).ok).toBe(true);
+	});
+
+	test("a live handle still cannot be captured by a different owner", () => {
+		const registry = new HandleRegistry();
+		const token = mintToken();
+		registerOwned(registry, "h-child", "h-parent", token);
+		registry.authenticate("h-child", token);
+
+		const result = registerOwned(registry, "h-child", "h-intruder", mintToken());
+
+		expect(result).toEqual({ ok: false, reason: "duplicate" });
+		expect(registry.isLive("h-child")).toBe(true);
 	});
 });
 

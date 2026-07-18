@@ -173,14 +173,13 @@ rollback, constant-time compare, token env filtering). Findings and dispositions
 - **Fixed — auth timing distinguishable for unknown handles** (minor): the unknown-handle
   path now does the same hash+compare work as the bad-token path.
 - **Documented — token-inheritance invariant** (minor): comment at the spawn env site.
-- **OPEN (design call for Jesse) — respawn re-registration vs. socket-close race**
-  (major): re-registering a completed handle can race the host processing the dead
-  process's WebSocket close; a stale `live` flag then rejects re-registration
-  (`live_connection`) and the `message_agent` respawn fails with no retry. Options: clear
-  liveness on process-exit signal from the owning spawner; or let a same-owner
-  re-registration tolerate a stale live flag; or a bounded retry in
-  `registerHandleForLaunch`. Not patched — where liveness truth lives is a design
-  decision.
+- **RESOLVED (Jesse: "i trust you") — respawn re-registration vs. socket-close race**
+  (major): same-owner re-registration now tolerates a stale live flag — the owner
+  re-registers only when it observed the child's process die, and the socket-close event
+  that normally clears liveness can lag that death. Re-registration replaces the token
+  hash (voiding the dead process's credentials immediately) and clears the flag; a
+  different owner still can't capture a handle, live or not. `live_connection` removed
+  from the result union.
 
 #### Resume notes — spawn-path integration (enough to pick up cold)
 - **Trusted registrar id:** a reserved sentinel that is neither a ULID nor `"root"` (root's
