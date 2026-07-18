@@ -98,11 +98,26 @@ Slices (test-first; fan-out where files are disjoint):
     `register_handle` over its own connection before launch (host verifies registrar =
     that connection). Root registers its direct children via the registry's in-process
     trusted path (`trustedRegistrarId`).
-  - Spawner (`src/bus/spawner.ts:539`, `:805`): mint token, register handle, inject
-    `SPROUT_AUTH_URL` + `SPROUT_HANDLE_TOKEN` into child env before launch.
-  - Agent process connects to the auth channel on startup with its handle+token.
-  - Env filtering (`execution-env.ts`): add `SPROUT_BUS_URL` + `SPROUT_AUTH_URL`; the token
-    var is auto-stripped by the existing `*_TOKEN` filter.
+- [x] Foundation modules built + reviewed line-by-line + committed:
+  - `handle-registry.ts` (`51c3f08`) + reserved-trusted-id hardening (`ad015b9`, a
+    privilege-escalation closure found while wiring the host trusted path).
+  - `auth-channel.ts` transport (`9ae48f1`).
+  - `handle-registrar.ts` — trusted-direct + over-channel registration, keystone tested
+    (`892e4b6`).
+  - `inactivity-timer.ts` (`d5648ff`) + run-loop swap (`3cac769`).
+- [x] Env filtering: `SPROUT_BUS_URL`/`SPROUT_AUTH_URL` withheld from exec shells (`bc838cb`).
+- [ ] **The spawn-path integration — one coherent slice (next).** Wiring these is coupled;
+  splitting it leaves dead intermediate states, so land it together with an end-to-end test:
+  - Host (`cli-shared.ts` `startBusInfrastructure`): create `HandleRegistry` (reserved
+    trusted id) + `AuthChannelServer` + `register_handle` handler + `HostHandleRegistrar`;
+    stop the auth server in cleanup. DI contracts take additive fields safely.
+  - Spawner (`spawner.ts:527` mints ULID handleId; `:539`/`:805` build child env):
+    grouped optional `authChannel` constructor param; mint token, register child before
+    launch, inject `SPROUT_AUTH_URL` + `SPROUT_HANDLE_TOKEN`.
+  - Agent process (`agent-process.ts`): on startup, connect an `AuthChannelClient` with its
+    handle+token; build a `ChannelHandleRegistrar`; hand it to the child spawner.
+  - Test/spawnerless modes have no auth channel → the `authChannel` param stays optional and
+    registration/injection are skipped there.
 - [ ] Liveness pings (15 s) + timer suspension during blocking waits, both act modes.
 
 ### Phase 2 — Store core
