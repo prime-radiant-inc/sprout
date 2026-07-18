@@ -311,12 +311,26 @@ Slices (test-first; ← marks current):
   names the value(s); store-full fallbacks (honest lossy marker; never a marker naming
   a nonexistent value); `value_publish` primitive; `value_bind` events; captured
   previews redacted at bind.
-- [ ] **Publish + pulled manifest delta** — publish records via the child's connection
-  at publish time; per handle×recipient delivery cursor (journal `manifest_delivery`
-  written atomically with recipient binds — the journal API already supports the
-  atomic multi-append); result-receipt fetches the delta over the recipient's own
-  connection; same-handle re-publish = version update, other collisions suffix;
-  retryable fetch under ping-backed liveness; ResultMessage carries NO manifest.
+- [ ] **Publish delivery + pulled manifest delta** — design decisions fixed:
+  - Manifest binds are ALIASES into the recipient scope (name → existing ulid, no body
+    copy) journaled as `grant` records; the `manifest_delivery` cursor record appends
+    ATOMICALLY with them (journal multi-append). Resume replays grants into name
+    tables and cursors.
+  - Engine: `deliverManifest({ publisherHandle, recipientScopeId })` → delta of that
+    publisher's publish records past the cursor; per name: same-handle earlier
+    manifest name = version update (alias moves), other collisions suffix (auto-bind
+    rule). Idempotent by cursor.
+  - StoreAccess: `manifestDelta(publisherHandle)` (recipient = own scope, from the
+    connection host-side). Worker op + client + both impls + channel handler.
+  - Recipient runtime: at result receipt (spawner delegation + wait_agent +
+    blocking message_agent), fetch the delta BEFORE delivering the tool result;
+    render `published: ⟦name: preview⟧` lines under the result; infrastructure
+    errors retry briefly then degrade to result-without-manifest with an honest
+    note (never a hang, never silent).
+  - Child boundary auto-bind: in the agent process, result output over the 4,000-char
+    summary budget → bind FULL output (auto name from the goal slug), publish it,
+    send head-4000 inline with a marked mechanical cut; store-full → today's 30k
+    truncation fallback. ResultMessage carries NO manifest and no overflow content.
 - [ ] **Auto-bind at the boundary** — child result overflow past the 4,000-char summary
   budget auto-binds + auto-publishes the FULL output (inline head is a marked
   mechanical cut); dead-child recovery delivers summary + manifest delta from the
