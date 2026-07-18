@@ -16,6 +16,13 @@ export const REF_SPLICE_ALLOWLIST: ReadonlyMap<string, ReadonlySet<string>> = ne
 	["edit_file", new Set(["old_string", "new_string"])],
 ]);
 
+/**
+ * Largest value a $ref may splice (spec §7 frame budget: 4 MB). Larger values
+ * fail the read budget loudly; moving them belongs to CAS handoff, not an
+ * argument splice.
+ */
+export const REF_SPLICE_MAX_BYTES = 4 * 1024 * 1024;
+
 export function refAllowedFor(primitiveName: string, argName: string): boolean {
 	return REF_SPLICE_ALLOWLIST.get(primitiveName)?.has(argName) ?? false;
 }
@@ -89,6 +96,20 @@ export function classifyRefArg(
 export type SpliceResult =
 	| { ok: true; args: Record<string, unknown>; splicedNames: string[] }
 	| { ok: false; error: string };
+
+/**
+ * Cheap prefilter: could any of these arguments be a reference or lookalike?
+ * Over-inclusive is fine (it only costs a scope listing); under-inclusive
+ * would silently skip splicing, so every bracket family the classifier knows
+ * appears here.
+ */
+export function argsMightContainRef(args: Record<string, unknown>): boolean {
+	for (const value of Object.values(args)) {
+		if (typeof value !== "string") continue;
+		if (/[⟦⟧〚〛⟬⟭«»⦃⦄⟨⟩]/.test(value) || value.trimStart().startsWith("[[")) return true;
+	}
+	return false;
+}
 
 function allowlistSummary(): string {
 	const entries: string[] = [];

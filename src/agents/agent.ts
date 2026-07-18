@@ -19,6 +19,12 @@ import {
 	type Primitive,
 	type PrimitiveRegistry,
 } from "../kernel/primitives.ts";
+import {
+	argsMightContainRef,
+	REF_SPLICE_MAX_BYTES,
+	type SpliceResult,
+	spliceRefArgs,
+} from "../kernel/ref-splice.ts";
 import { buildAgentToolPrimitives } from "../kernel/tool-loading.ts";
 import { truncateToolOutput } from "../kernel/truncation.ts";
 import {
@@ -1583,6 +1589,41 @@ export class Agent {
 	}
 
 	/**
+	 * Resolve $ref arguments against this agent's store scope (sap spec §2).
+	 * Without a store, or with no ref-shaped argument, this is a cheap no-op
+	 * returning the original arguments. Store failures surface as loud tool
+	 * errors — a $ref must never silently pass through as a literal.
+	 */
+	private async spliceCallArguments(
+		primitiveName: string,
+		args: Record<string, unknown>,
+	): Promise<SpliceResult> {
+		const store = this.spawner?.storeAccess;
+		if (!store || !argsMightContainRef(args)) {
+			return { ok: true, args, splicedNames: [] };
+		}
+		try {
+			const inScopeNames: ReadonlySet<string> = new Set(await store.names());
+			return await spliceRefArgs({
+				primitiveName,
+				args,
+				inScopeNames,
+				resolve: async (name) => {
+					// null means "unknown name" and nothing else — a read failure
+					// (budget, store restart) throws and is reported as a
+					// resolution failure, not a misleading unknown-name error.
+					if (!inScopeNames.has(name)) return null;
+					const bytes = await store.get(name, { maxBytes: REF_SPLICE_MAX_BYTES });
+					return new TextDecoder().decode(bytes);
+				},
+			});
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			return { ok: false, error: `$ref resolution failed: ${message}` };
+		}
+	}
+
+	/**
 	 * Execute a delegation via the bus-based spawner. Returns the tool result message and stumble count.
 	 *
 	 * For blocking spawns, calls verifyActResult() and pushes learn signals
@@ -2326,7 +2367,52 @@ export class Agent {
 				continue;
 			}
 
-			const result = await this.primitiveRegistry.execute(call.name, call.arguments, this.signal);
+			// $ref splicing (sap spec §2): resolve whole-arg ⟦name⟧ references
+			// below the line, then re-run path constraints on the resolved
+			// arguments (belt-and-braces, frozen rule) before execution.
+			const spliced = await this.spliceCallArguments(call.name, call.arguments);
+			if (!spliced.ok) {
+				const content = `Error: ${spliced.error}`;
+				const toolResultMsg = Msg.toolResult(call.id, content, true);
+				resultByCallId.set(call.id, toolResultMsg);
+				this.emitAndLog("primitive_end", agentId, this.depth, {
+					name: call.name,
+					display_name: displayName,
+					success: false,
+					stumbled: true,
+					output: "",
+					error: spliced.error,
+					tool_result_message: toolResultMsg,
+				});
+				stumbles++;
+				continue;
+			}
+			if (spliced.splicedNames.length > 0) {
+				const resolvedDenied = checkPathConstraint(
+					call.name,
+					spliced.args,
+					this.spec.constraints,
+					this.env.working_directory(),
+				);
+				if (resolvedDenied) {
+					const content = `Error: ${resolvedDenied}`;
+					const toolResultMsg = Msg.toolResult(call.id, content, true);
+					resultByCallId.set(call.id, toolResultMsg);
+					this.emitAndLog("primitive_end", agentId, this.depth, {
+						name: call.name,
+						display_name: displayName,
+						success: false,
+						stumbled: true,
+						output: "",
+						error: resolvedDenied,
+						tool_result_message: toolResultMsg,
+					});
+					stumbles++;
+					continue;
+				}
+			}
+
+			const result = await this.primitiveRegistry.execute(call.name, spliced.args, this.signal);
 
 			// Verify primitive result
 			const { stumbled, learnSignal: primSignal } = verifyPrimitiveResult(

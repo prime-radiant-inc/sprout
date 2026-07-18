@@ -7315,6 +7315,145 @@ describe("Agent", () => {
 	});
 });
 
+describe("$ref splicing in primitive arguments", () => {
+	const WRITER_SPEC: AgentSpec = {
+		name: "ref-writer",
+		description: "Writes files from spliced refs",
+		system_prompt: "You are a test agent.",
+		model: "anthropic:claude-haiku-4-5-20251001",
+		tools: ["write_file", "exec"],
+		agents: [],
+		constraints: { ...DEFAULT_CONSTRAINTS, max_turns: 3 },
+		tags: [],
+		version: 1,
+	};
+
+	function toolCallClient(name: string, args: Record<string, unknown>): Client {
+		let callCount = 0;
+		return {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				if (callCount === 1) {
+					return {
+						id: "mock-ref-1",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: {
+							role: "assistant",
+							content: [
+								{
+									kind: ContentKind.TOOL_CALL,
+									tool_call: { id: "call-ref-1", name, arguments: JSON.stringify(args) },
+								},
+							],
+						},
+						finish_reason: { reason: "tool_calls" },
+						usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+					};
+				}
+				return {
+					id: `mock-ref-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant("Done."),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+	}
+
+	function fakeStoreSpawner(values: Record<string, string>): AgentSpawner {
+		return {
+			storeAccess: {
+				async names() {
+					return Object.keys(values).sort();
+				},
+				async get(ref: string, _options: { maxBytes: number }) {
+					const body = values[ref];
+					if (body === undefined) throw new Error(`unknown value: ${ref} in scope test`);
+					return new TextEncoder().encode(body);
+				},
+			},
+			getHandle: () => undefined,
+		} as unknown as AgentSpawner;
+	}
+
+	async function runWith(
+		client: Client,
+		spawner: AgentSpawner,
+	): Promise<{ dir: string; events: AgentEventEmitter; result: { success: boolean } }> {
+		const dir = await mkdtemp(join(tmpdir(), "sprout-ref-splice-"));
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(dir);
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: WRITER_SPEC,
+			env,
+			client,
+			primitiveRegistry: registry,
+			availableAgents: [WRITER_SPEC],
+			depth: 0,
+			events,
+			spawner,
+		});
+		const result = await agent.run("write the file");
+		return { dir, events, result };
+	}
+
+	test("a whole-arg ⟦name⟧ in write_file content splices the bound value", async () => {
+		const client = toolCallClient("write_file", { path: "out.txt", content: "⟦impl⟧\n" });
+		const { dir, events } = await runWith(client, fakeStoreSpawner({ impl: "SPLICED BODY" }));
+		try {
+			expect(await readFile(join(dir, "out.txt"), "utf8")).toBe("SPLICED BODY");
+			const end = events.collected().find((e) => e.kind === "primitive_end");
+			expect(end?.data.success).toBe(true);
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	}, 15_000);
+
+	test("an unknown ⟦name⟧ errors loudly, listing the names in scope", async () => {
+		const client = toolCallClient("write_file", { path: "out.txt", content: "⟦missing⟧" });
+		const { dir, events } = await runWith(client, fakeStoreSpawner({ impl: "x", notes: "y" }));
+		try {
+			expect(existsSync(join(dir, "out.txt"))).toBe(false);
+			const end = events.collected().find((e) => e.kind === "primitive_end");
+			expect(end?.data.success).toBe(false);
+			expect(String(end?.data.error)).toContain("impl");
+			expect(String(end?.data.error)).toContain("notes");
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	}, 15_000);
+
+	test("a ⟦name⟧ in a non-allowlisted argument errors instead of executing", async () => {
+		const client = toolCallClient("exec", { command: "⟦impl⟧" });
+		const { dir, events } = await runWith(client, fakeStoreSpawner({ impl: "rm -rf /" }));
+		try {
+			const end = events.collected().find((e) => e.kind === "primitive_end");
+			expect(end?.data.success).toBe(false);
+			expect(String(end?.data.error)).toContain("not accepted");
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	}, 15_000);
+
+	test("without a store, ref-shaped content passes through untouched (no regression)", async () => {
+		const client = toolCallClient("write_file", { path: "out.txt", content: "⟦impl⟧" });
+		const { dir } = await runWith(client, {
+			getHandle: () => undefined,
+		} as unknown as AgentSpawner);
+		try {
+			expect(await readFile(join(dir, "out.txt"), "utf8")).toBe("⟦impl⟧");
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	}, 15_000);
+});
+
 describe("inactivity timer suspension during blocking waits", () => {
 	const SUSPEND_SPEC: AgentSpec = {
 		name: "suspend-root",
