@@ -314,6 +314,11 @@ export class SapStore {
 		return this.serialize(async () => this.resolve(scopeId, ref).metadata);
 	}
 
+	/** The scope's bound names, sorted — what `⟦name⟧` can refer to there. */
+	async names(scopeId: string): Promise<string[]> {
+		return this.serialize(async () => [...this.requireScope(scopeId).names.keys()].sort());
+	}
+
 	/**
 	 * Full body under a caller-supplied budget. Budget enforcement, not
 	 * truncation: over-budget reads throw and the caller chooses what to do.

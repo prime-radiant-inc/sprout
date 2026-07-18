@@ -233,6 +233,27 @@ describe("store access", () => {
 			expect(new TextDecoder().decode(await b.get("report", { maxBytes: 100 }))).toBe("b-content");
 		});
 
+		it("names() lists only the caller's own scope", async () => {
+			const a = new ChannelStoreAccess(await connectAgent("agent_a"));
+			const b = new ChannelStoreAccess(await connectAgent("agent_b"));
+			await a.bind({
+				name: "mine",
+				content: "x",
+				type: "text",
+				provenance: prov("agent_a"),
+				explicit: true,
+			});
+			await b.bind({
+				name: "theirs",
+				content: "y",
+				type: "text",
+				provenance: prov("agent_b"),
+				explicit: true,
+			});
+			expect(await a.names()).toEqual(["mine"]);
+			expect(await b.names()).toEqual(["theirs"]);
+		});
+
 		it("a name is unreadable cross-scope, but the ulid is globally readable (engine semantics)", async () => {
 			const a = new ChannelStoreAccess(await connectAgent("agent_a"));
 			const b = new ChannelStoreAccess(await connectAgent("agent_b"));

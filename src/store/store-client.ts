@@ -117,6 +117,10 @@ export class StoreWorkerClient {
 		return (await this.issue({ id: ulid(), op: "metadata", scopeId, ref })) as ValueMetadata;
 	}
 
+	async names(scopeId: string): Promise<string[]> {
+		return (await this.issue({ id: ulid(), op: "names", scopeId })) as string[];
+	}
+
 	async get(scopeId: string, ref: string, options: { maxBytes: number }): Promise<Uint8Array> {
 		const body = await this.getWire(scopeId, ref, options);
 		return decodeWireContent(body.content, body.encoding);

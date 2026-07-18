@@ -753,6 +753,59 @@ describe("SapStore", () => {
 		});
 	});
 
+	describe("names", () => {
+		it("lists the scope's bound names, sorted, without other scopes' names", async () => {
+			const store = makeStore();
+			await store.createScope({
+				scopeId: "scope_other",
+				ownerHandleId: "agent_b",
+				parentScopeId: ROOT_SCOPE,
+			});
+			await store.bind({
+				scopeId: ROOT_SCOPE,
+				name: "zeta",
+				content: "z",
+				type: "text",
+				provenance: prov(),
+				explicit: true,
+			});
+			await store.bind({
+				scopeId: ROOT_SCOPE,
+				name: "alpha",
+				content: "a",
+				type: "text",
+				provenance: prov(),
+				explicit: true,
+			});
+			await store.bind({
+				scopeId: "scope_other",
+				name: "hidden",
+				content: "h",
+				type: "text",
+				provenance: prov("agent_b"),
+				explicit: true,
+			});
+
+			expect(await store.names(ROOT_SCOPE)).toEqual(["alpha", "zeta"]);
+			expect(await store.names("scope_other")).toEqual(["hidden"]);
+			// A rebind does not duplicate the name.
+			await store.bind({
+				scopeId: ROOT_SCOPE,
+				name: "alpha",
+				content: "a2",
+				type: "text",
+				provenance: prov(),
+				explicit: true,
+			});
+			expect(await store.names(ROOT_SCOPE)).toEqual(["alpha", "zeta"]);
+		});
+
+		it("throws for an unknown scope", async () => {
+			const store = makeStore();
+			await expect(store.names("scope_ghost")).rejects.toThrow(/unknown scope/);
+		});
+	});
+
 	describe("resume", () => {
 		it("rebuilds scopes, name tables, and versions, and serves reads", async () => {
 			const store = makeStore();

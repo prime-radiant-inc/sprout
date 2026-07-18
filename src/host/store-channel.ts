@@ -13,6 +13,7 @@ import {
 	STORE_GET_REQUEST,
 	STORE_GREP_REQUEST,
 	STORE_METADATA_REQUEST,
+	STORE_NAMES_REQUEST,
 	STORE_PEEK_REQUEST,
 	STORE_SLICE_REQUEST,
 } from "../store/store-access.ts";
@@ -112,6 +113,11 @@ export function registerStoreHandlers(
 		return storeClient.grep(await ensureScope(ctx.handleId), ref, fields.pattern, {
 			...(maxResults !== undefined ? { maxResults } : {}),
 		});
+	});
+
+	authServer.onRequest(STORE_NAMES_REQUEST, async (ctx) => {
+		// No payload: the only scope a caller can list is its own.
+		return storeClient.names(await ensureScope(ctx.handleId));
 	});
 }
 

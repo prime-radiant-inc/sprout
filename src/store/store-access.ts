@@ -23,6 +23,7 @@ export const STORE_METADATA_REQUEST = "store_metadata";
 export const STORE_GET_REQUEST = "store_get";
 export const STORE_SLICE_REQUEST = "store_slice";
 export const STORE_GREP_REQUEST = "store_grep";
+export const STORE_NAMES_REQUEST = "store_names";
 
 export interface StoreBindInput {
 	name: string;
@@ -44,6 +45,8 @@ export interface StoreAccess {
 	get(ref: string, options: { maxBytes: number }): Promise<Uint8Array>;
 	slice(ref: string, options: { startLine: number; lineCount: number }): Promise<string>;
 	grep(ref: string, pattern: string, options?: { maxResults?: number }): Promise<GrepResult>;
+	/** The scope's bound names, sorted — what `⟦name⟧` can refer to here. */
+	names(): Promise<string[]>;
 }
 
 /** Host-process implementation: delegates to the store worker with a fixed scope. */
@@ -78,6 +81,10 @@ export class DirectStoreAccess implements StoreAccess {
 
 	grep(ref: string, pattern: string, options: { maxResults?: number } = {}): Promise<GrepResult> {
 		return this.client.grep(this.scopeId, ref, pattern, options);
+	}
+
+	names(): Promise<string[]> {
+		return this.client.names(this.scopeId);
 	}
 }
 
@@ -152,5 +159,9 @@ export class ChannelStoreAccess implements StoreAccess {
 			pattern,
 			...(options.maxResults !== undefined ? { maxResults: options.maxResults } : {}),
 		})) as GrepResult;
+	}
+
+	async names(): Promise<string[]> {
+		return (await this.client.request(STORE_NAMES_REQUEST)) as string[];
 	}
 }

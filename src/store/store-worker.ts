@@ -34,6 +34,7 @@ export type StoreWorkerRequest =
 	  }
 	| { id: string; op: "peek"; scopeId: string; ref: string }
 	| { id: string; op: "metadata"; scopeId: string; ref: string }
+	| { id: string; op: "names"; scopeId: string }
 	| { id: string; op: "get"; scopeId: string; ref: string; maxBytes: number }
 	| {
 			id: string;
@@ -167,6 +168,8 @@ async function dispatch(store: SapStore, request: StoreWorkerRequest): Promise<u
 			return store.peek(request.scopeId, request.ref);
 		case "metadata":
 			return store.metadata(request.scopeId, request.ref);
+		case "names":
+			return store.names(request.scopeId);
 		case "get": {
 			const bytes = await store.get(request.scopeId, request.ref, { maxBytes: request.maxBytes });
 			const meta: ValueMetadata = await store.metadata(request.scopeId, request.ref);
