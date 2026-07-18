@@ -31,6 +31,7 @@ import { loggingMiddleware } from "../llm/logging-middleware.ts";
 import { ProviderRegistry, type ProviderRegistryEntry } from "../llm/provider-registry.ts";
 import type { ProviderAdapter } from "../llm/types.ts";
 import { ChannelStoreAccess, type StoreAccess } from "../store/store-access.ts";
+import { validateValueName } from "../store/value.ts";
 import { ensureProjectDirs } from "../util/project-id.ts";
 import { BusClient } from "./client.ts";
 import { BusLearnForwarder } from "./learn-forwarder.ts";
@@ -756,6 +757,13 @@ async function claimEnvGrants(
 	const notes: string[] = [];
 	const warnings: string[] = [];
 	for (const [alias, ulid] of entries) {
+		// A wire alias is untrusted text: an invalid one (e.g. carrying ⟧/newline
+		// injection) is never echoed into the transcript, even inside a note.
+		if (!validateValueName(alias, new Set()).ok) {
+			notes.push("[an invalid env alias was ignored]");
+			warnings.push("an invalid env alias was ignored");
+			continue;
+		}
 		if (store === undefined) {
 			notes.push(`[env ⟦${alias}⟧ was not granted — ignored]`);
 			warnings.push(`env ⟦${alias}⟧ was not granted — ignored: no store available`);

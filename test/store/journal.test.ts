@@ -71,6 +71,7 @@ const grantRec: JournalRecord = {
 	recipient: "h-child",
 	name: "schema",
 	ulid: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+	via: "manifest",
 };
 
 const envGrantRec: JournalRecord = {
@@ -214,6 +215,8 @@ describe("parseJournalRecord", () => {
 		expect(() => parseJournalRecord({ ...cellRec, bindings: [{ name: "x" }] })).toThrow(/bindings/);
 		expect(() => parseJournalRecord({ ...scopeRec, parentScopeId: 7 })).toThrow(/parentScopeId/);
 		expect(() => parseJournalRecord({ ...grantRec, name: 7 })).toThrow(/name/);
+		expect(() => parseJournalRecord({ ...grantRec, via: undefined })).toThrow(/via/);
+		expect(() => parseJournalRecord({ ...grantRec, via: "guessed" })).toThrow(/via/);
 		expect(() => parseJournalRecord({ ...envGrantRec, alias: 7 })).toThrow(/alias/);
 		expect(() => parseJournalRecord({ ...envGrantRec, sender: undefined })).toThrow(/sender/);
 	});

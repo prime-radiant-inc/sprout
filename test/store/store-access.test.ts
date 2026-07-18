@@ -419,6 +419,7 @@ describe("store access", () => {
 					recipient: "agent_parent",
 					name: "impl",
 					ulid: meta.ulid,
+					via: "manifest",
 				},
 			]);
 		});
@@ -506,6 +507,11 @@ describe("store access", () => {
 				provenance: prov("agent_env_parent"),
 				explicit: true,
 			});
+			// The child registers (owned by the parent) before the grant: grants
+			// are gated on the sender's registered ownership of the recipient.
+			const child = new ChannelStoreAccess(
+				await connectAgent("agent_env_child", "agent_env_parent"),
+			);
 			const granted = await parent.registerEnvGrant("agent_env_child", "api_schema", "schema");
 			expect(granted.ulid).toBe(meta.ulid);
 			// The env_grant record names the CONNECTION as sender.
@@ -517,9 +523,6 @@ describe("store access", () => {
 				ulid: meta.ulid,
 			});
 
-			const child = new ChannelStoreAccess(
-				await connectAgent("agent_env_child", "agent_env_parent"),
-			);
 			const claimed = await child.claimEnvGrant("api_schema", meta.ulid);
 			expect(claimed.name).toBe("api_schema");
 			expect(new TextDecoder().decode(await child.get("api_schema", { maxBytes: 100 }))).toBe(
@@ -537,6 +540,15 @@ describe("store access", () => {
 				explicit: true,
 			});
 			const attacker = await connectAgent("agent_env_attacker");
+			// A recipient the attacker owns, so the ownership gate is not what
+			// stops this — the smuggled sender fields are.
+			registry.registerHandle({
+				handleId: "agent_env_target",
+				tokenHash: hashToken(mintToken()),
+				registrarId: TRUSTED,
+				ownerId: "agent_env_attacker",
+				depth: 2,
+			});
 			// Smuggled sender/scope fields are ignored: the ref resolves in the
 			// ATTACKER's scope, where "loot" does not exist.
 			await expect(
@@ -559,6 +571,7 @@ describe("store access", () => {
 				provenance: prov("agent_env_p2"),
 				explicit: true,
 			});
+			const child = new ChannelStoreAccess(await connectAgent("agent_env_c2", "agent_env_p2"));
 			await parent.registerEnvGrant("agent_env_c2", "notes", "notes");
 			// A different authenticated handle claims with a smuggled recipient:
 			// the recipient is the CONNECTION's scope, where no grant is pending.
@@ -572,8 +585,61 @@ describe("store access", () => {
 				}),
 			).rejects.toThrow(/no matching env grant/);
 			// The rightful recipient still claims fine.
-			const child = new ChannelStoreAccess(await connectAgent("agent_env_c2", "agent_env_p2"));
 			expect((await child.claimEnvGrant("notes", meta.ulid)).ulid).toBe(meta.ulid);
+		});
+
+		it("rejects a sibling-to-sibling env grant and journals nothing", async () => {
+			const a = new ChannelStoreAccess(await connectAgent("agent_sib_a", "agent_sib_owner"));
+			await connectAgent("agent_sib_b", "agent_sib_owner");
+			await a.bind({
+				name: "gift",
+				content: "g",
+				type: "text",
+				provenance: prov("agent_sib_a"),
+				explicit: true,
+			});
+			await expect(a.registerEnvGrant("agent_sib_b", "gift", "gift")).rejects.toThrow(
+				/you may only grant env to handles you own or to your owner/,
+			);
+			expect((await journal.replay()).filter((r) => r.kind === "env_grant")).toHaveLength(0);
+		});
+
+		it("a child may grant env to its own registered owner (the caller reply path)", async () => {
+			const child = new ChannelStoreAccess(await connectAgent("agent_up_child", "agent_up_owner"));
+			const owner = new ChannelStoreAccess(await connectAgent("agent_up_owner"));
+			await child.bind({
+				name: "reply",
+				content: "r",
+				type: "text",
+				provenance: prov("agent_up_child"),
+				explicit: true,
+			});
+			const granted = await child.registerEnvGrant("agent_up_owner", "reply", "reply");
+			expect((await owner.claimEnvGrant("reply", granted.ulid)).name).toBe("reply");
+		});
+
+		it("rejects an env grant to an observer recipient", async () => {
+			const parent = new ChannelStoreAccess(await connectAgent("agent_obs_parent"));
+			await connectAgent("agent_obs_kid", "agent_obs_parent", { observer: true });
+			await parent.bind({
+				name: "peek_this",
+				content: "p",
+				type: "text",
+				provenance: prov("agent_obs_parent"),
+				explicit: true,
+			});
+			await expect(
+				parent.registerEnvGrant("agent_obs_kid", "peek_this", "peek_this"),
+			).rejects.toThrow(/cannot grant env to an observer/);
+		});
+
+		it("rejects an observer's env claim — observers never bind", async () => {
+			const observer = new ChannelStoreAccess(
+				await connectAgent("agent_obs_claimer", "root", { observer: true }),
+			);
+			await expect(
+				observer.claimEnvGrant("anything", "01ARZ3NDEKTSV4RRFFQ69G5FAV"),
+			).rejects.toThrow(/observers never bind/);
 		});
 
 		it("rejects an observer-role sender's env grant registration", async () => {

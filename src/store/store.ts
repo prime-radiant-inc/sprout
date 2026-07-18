@@ -238,14 +238,12 @@ export class SapStore {
 				if (scope === undefined) {
 					throw new Error(`journal grant references unknown scope: ${record.recipient}`);
 				}
-				// A grant matching a pending env grant is an env claim: the alias
-				// is model-named (explicit) and the pending is consumed. Anything
-				// else is a manifest alias. Neither is a real bind — valueCount
-				// stays untouched.
-				const pendingKey = envGrantKey(record.recipient, record.name);
-				const pending = store.pendingEnvGrants.get(pendingKey);
-				if (pending !== undefined && pending.ulid === record.ulid) {
-					store.pendingEnvGrants.delete(pendingKey);
+				// The record says how the alias arrived (via): an env claim is
+				// model-named (explicit) and consumes its pending env grant; a
+				// manifest alias keeps its publisher for version updates. Neither
+				// is a real bind — valueCount stays untouched.
+				if (record.via === "env") {
+					store.pendingEnvGrants.delete(envGrantKey(record.recipient, record.name));
 					scope.names.set(record.name, {
 						explicit: true,
 						agentHandleId: record.granter,
@@ -485,6 +483,7 @@ export class SapStore {
 							recipient: args.recipientScopeId,
 							name: alias,
 							ulid: valueUlid,
+							via: "manifest",
 						};
 						aliases[stagedAt] = { name: alias, ulid: valueUlid };
 						continue;
@@ -514,6 +513,7 @@ export class SapStore {
 						recipient: args.recipientScopeId,
 						name: alias,
 						ulid: valueUlid,
+						via: "manifest",
 					});
 					aliases.push({ name: alias, ulid: valueUlid });
 				}
@@ -576,6 +576,16 @@ export class SapStore {
 					`alias already bound in the recipient's scope: "${args.alias}" — choose another alias`,
 				);
 			}
+			// A different in-flight grant must never be silently overwritten; a
+			// re-registration of the SAME value is idempotent-ok.
+			const pendingKey = envGrantKey(args.recipientHandle, args.alias);
+			const pending = this.pendingEnvGrants.get(pendingKey);
+			if (pending !== undefined) {
+				if (pending.ulid === entry.metadata.ulid) return entry.metadata;
+				throw new Error(
+					`an env grant for this alias is already pending with a different value: "${args.alias}"`,
+				);
+			}
 			const record = {
 				kind: "env_grant" as const,
 				sender: args.senderScopeId,
@@ -629,6 +639,7 @@ export class SapStore {
 				recipient: args.recipientScopeId,
 				name: args.alias,
 				ulid: args.ulid,
+				via: "env",
 			};
 			await this.journal.append(record);
 			await this.chargeJournalBytes([record]);

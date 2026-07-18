@@ -85,6 +85,7 @@ describe("env grants (registerEnvGrant / claimEnvGrant)", () => {
 			recipient: CHILD,
 			name: "api_schema",
 			ulid,
+			via: "env",
 		});
 	});
 
@@ -176,7 +177,8 @@ describe("env grants (registerEnvGrant / claimEnvGrant)", () => {
 			store.claimEnvGrant({
 				recipientScopeId: CHILD,
 				alias: "api_schema",
-				ulid: `${ulid.slice(0, -1)}X`,
+				// Flip the last char so the forged ulid ALWAYS differs.
+				ulid: `${ulid.slice(0, -1)}${ulid.endsWith("X") ? "Y" : "X"}`,
 			}),
 		).rejects.toThrow(/no matching env grant/);
 	});
@@ -257,6 +259,103 @@ describe("env grants (registerEnvGrant / claimEnvGrant)", () => {
 			ulid: meta.ulid,
 		});
 		expect(claimed.name).toBe("api_schema");
+	});
+
+	it("rejects a pending overwrite with a different value for the same alias", async () => {
+		const ulid = await bindParent("schema");
+		await store.registerEnvGrant({
+			senderScopeId: PARENT,
+			recipientHandle: CHILD,
+			alias: "api_schema",
+			ref: "schema",
+		});
+		await bindParent("schema_v2", "a different body");
+		await expect(
+			store.registerEnvGrant({
+				senderScopeId: PARENT,
+				recipientHandle: CHILD,
+				alias: "api_schema",
+				ref: "schema_v2",
+			}),
+		).rejects.toThrow(/already pending with a different value/);
+		// The original grant is untouched and still claims.
+		await store.createScope({ scopeId: CHILD, ownerHandleId: CHILD, parentScopeId: ROOT });
+		const claimed = await store.claimEnvGrant({
+			recipientScopeId: CHILD,
+			alias: "api_schema",
+			ulid,
+		});
+		expect(claimed.ulid).toBe(ulid);
+	});
+
+	it("re-registering the same value under the same alias is idempotent-ok", async () => {
+		const ulid = await bindParent("schema");
+		await store.registerEnvGrant({
+			senderScopeId: PARENT,
+			recipientHandle: CHILD,
+			alias: "api_schema",
+			ref: "schema",
+		});
+		const again = await store.registerEnvGrant({
+			senderScopeId: PARENT,
+			recipientHandle: CHILD,
+			alias: "api_schema",
+			ref: "schema",
+		});
+		expect(again.ulid).toBe(ulid);
+		// Still exactly one pending: the claim consumes it once.
+		await store.createScope({ scopeId: CHILD, ownerHandleId: CHILD, parentScopeId: ROOT });
+		await store.claimEnvGrant({ recipientScopeId: CHILD, alias: "api_schema", ulid });
+		await expect(
+			store.claimEnvGrant({ recipientScopeId: CHILD, alias: "api_schema", ulid }),
+		).rejects.toThrow(/no matching env grant/);
+	});
+
+	it("resume keeps a manifest alias manifest-origin even when an env grant for the same value and name is pending", async () => {
+		// The sender both env-grants "impl" AND publishes it to the same
+		// recipient: the manifest delivery lands first, the claim collides
+		// loudly, and the pending env grant survives — live and resumed alike.
+		const ulid = await bindParent("impl");
+		await store.registerEnvGrant({
+			senderScopeId: PARENT,
+			recipientHandle: CHILD,
+			alias: "impl",
+			ref: "impl",
+		});
+		await store.createScope({ scopeId: CHILD, ownerHandleId: CHILD, parentScopeId: ROOT });
+		await store.publish(PARENT, ulid);
+		const delta = await store.deliverManifest({
+			publisherHandle: PARENT,
+			recipientScopeId: CHILD,
+		});
+		expect(delta.delivered.map((d) => d.name)).toEqual(["impl"]);
+		// Live: the claim collides loudly and leaves the pending in place.
+		await expect(
+			store.claimEnvGrant({ recipientScopeId: CHILD, alias: "impl", ulid }),
+		).rejects.toThrow(/alias collided before claim/);
+
+		const resumed = await SapStore.resume({ journal, cas, rootScopeId: ROOT });
+		// Manifest-origin alias: a same-publisher republish version-updates in
+		// place — no suffix, the alias moves to the new version.
+		const v2 = await resumed.bind({
+			scopeId: PARENT,
+			name: "impl",
+			content: "impl v2",
+			type: "text",
+			provenance: prov(PARENT),
+			explicit: true,
+		});
+		await resumed.publish(PARENT, v2.ulid);
+		const resumedDelta = await resumed.deliverManifest({
+			publisherHandle: PARENT,
+			recipientScopeId: CHILD,
+		});
+		expect(resumedDelta.delivered.map((d) => d.name)).toEqual(["impl"]);
+		// The pending env grant is STILL pending: the claim finds it and
+		// collides — it was never misread as already claimed.
+		await expect(
+			resumed.claimEnvGrant({ recipientScopeId: CHILD, alias: "impl", ulid }),
+		).rejects.toThrow(/alias collided before claim/);
 	});
 
 	it("resume rebuilds pending grants: an unclaimed grant is claimable after restart", async () => {

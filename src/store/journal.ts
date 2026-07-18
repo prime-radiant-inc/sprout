@@ -65,6 +65,13 @@ export interface GrantRecord {
 	recipient: string;
 	name: string;
 	ulid: string;
+	/**
+	 * How the alias entered the recipient's scope: a manifest delivery or an
+	 * env-grant claim. Resume dispatches on this exactly — a manifest alias
+	 * version-updates on republish, an env alias is explicit and consumes its
+	 * pending env grant.
+	 */
+	via: "env" | "manifest";
 }
 
 /**
@@ -197,14 +204,20 @@ export function parseJournalRecord(value: unknown): JournalRecord {
 				recipient: str(fields.recipient, "recipient"),
 				throughPublishSeq: num(fields, "throughPublishSeq"),
 			};
-		case "grant":
+		case "grant": {
+			const via = str(fields.via, "via");
+			if (via !== "env" && via !== "manifest") {
+				throw new Error(`grant via must be env or manifest, got ${JSON.stringify(via)}`);
+			}
 			return {
 				kind: "grant",
 				granter: str(fields.granter, "granter"),
 				recipient: str(fields.recipient, "recipient"),
 				name: str(fields.name, "name"),
 				ulid: str(fields.ulid, "ulid"),
+				via,
 			};
+		}
 		case "env_grant":
 			return {
 				kind: "env_grant",

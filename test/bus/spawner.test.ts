@@ -888,8 +888,7 @@ describe("AgentSpawner", () => {
 				"You wrote: start coding too early.",
 				addr("metacognitive", 1),
 				false,
-				undefined,
-				addr("root", 0),
+				{ callerTarget: addr("root", 0) },
 			);
 
 			expect(result).toBeUndefined();
@@ -922,8 +921,7 @@ describe("AgentSpawner", () => {
 					"You wrote: start coding too early.",
 					addr("metacognitive", 1),
 					false,
-					undefined,
-					addr("root", 0),
+					{ callerTarget: addr("root", 0) },
 				),
 			).rejects.toThrow("could not be delivered");
 
@@ -951,8 +949,7 @@ describe("AgentSpawner", () => {
 					"You wrote: start coding too early.",
 					addr("metacognitive", 1),
 					false,
-					undefined,
-					addr("root", 0),
+					{ callerTarget: addr("root", 0) },
 				),
 			).rejects.toThrow("could not be delivered");
 
@@ -1018,7 +1015,7 @@ describe("AgentSpawner", () => {
 				"Search memory only",
 				addr("root", 0),
 				true,
-				"Search memory only; do not mutate anything",
+				{ trustedUserInstruction: "Search memory only; do not mutate anything" },
 			);
 
 			expect(continueResult!.output).toBe("Continued.");
@@ -1147,7 +1144,7 @@ describe("AgentSpawner", () => {
 				"Search memory only",
 				addr("root", 0),
 				false,
-				"Search memory only; do not mutate anything",
+				{ trustedUserInstruction: "Search memory only; do not mutate anything" },
 			);
 			expect(messageResult).toBeUndefined();
 			await delay(25);
@@ -2411,17 +2408,9 @@ describe("AgentSpawner", () => {
 			await watcher.subscribe(agentInbox(SESSION_ID, handleId), (payload) => {
 				inbox.push(payload);
 			});
-			await spawner.messageAgent(
-				handleId,
-				"Continue with this",
-				addr("root", 0),
-				false,
-				undefined,
-				undefined,
-				{
-					follow_up: "notes",
-				},
-			);
+			await spawner.messageAgent(handleId, "Continue with this", addr("root", 0), false, {
+				envGrants: { follow_up: "notes" },
+			});
 			expect(grantCalls).toEqual([{ recipientHandle: handleId, alias: "follow_up", ref: "notes" }]);
 			await waitFor(() =>
 				inbox.some((p) => (JSON.parse(p) as { kind: string }).kind === "continue"),

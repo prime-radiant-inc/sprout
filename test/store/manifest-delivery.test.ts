@@ -80,6 +80,7 @@ describe("manifest delivery (deliverManifest)", () => {
 			recipient: PARENT,
 			name: "impl",
 			ulid: implUlid,
+			via: "manifest",
 		});
 		expect(tail[2]).toEqual({
 			kind: "manifest_delivery",

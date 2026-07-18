@@ -813,10 +813,16 @@ export class AgentSpawner {
 		message: string,
 		caller: AgentAddress,
 		blocking: boolean,
-		trustedUserInstruction?: string,
-		callerTarget?: AgentAddress,
-		envGrants?: Record<string, string>,
+		options: {
+			/** Original user instruction, trusted for deterministic policy gates. */
+			trustedUserInstruction?: string;
+			/** Runtime caller address, required for the "caller" alias. */
+			callerTarget?: AgentAddress;
+			/** Env grants: alias → a value name or ulid in the CALLER's scope. */
+			envGrants?: Record<string, string>;
+		} = {},
 	): Promise<ResultMessage | undefined> {
+		const { trustedUserInstruction, callerTarget, envGrants } = options;
 		if (handleId === "root") {
 			if (caller.handleId !== "root") {
 				throw new Error('raw message_agent to root is only valid from root; use handle "caller"');

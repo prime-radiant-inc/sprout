@@ -36,9 +36,10 @@ export interface RegisterStoreHandlersOptions {
 	 */
 	handleOwner: (handleId: string) => string | undefined;
 	/**
-	 * Whether a handle registered with an observer remit. Observer-role senders
-	 * cannot attach env (spec §3): with whole-remit read, an observer grant
-	 * would be a cross-scope grant. Absent means no observer checking (tests).
+	 * Whether a handle registered with an observer remit. Observers never touch
+	 * env (spec §3): they cannot attach it (with whole-remit read, an observer
+	 * grant would be a cross-scope grant), cannot receive it, and never bind a
+	 * claim. Absent means no observer checking (tests).
 	 */
 	isObserver?: (handleId: string) => boolean;
 }
@@ -168,6 +169,20 @@ export function registerStoreHandlers(
 		if (typeof fields.ref !== "string") {
 			throw new Error(`${STORE_ENV_GRANT_REQUEST}: ref must be a string`);
 		}
+		if (options.isObserver?.(fields.recipientHandle)) {
+			throw new Error(`${STORE_ENV_GRANT_REQUEST}: cannot grant env to an observer`);
+		}
+		// Relationship-gated (spec §3): a sender may only grant into scopes it
+		// has a registered relationship with — a child it owns (delegation and
+		// message-to-own-child) or its own registered owner (the "caller" reply
+		// path). Anything else is a cross-scope write and rejects.
+		const senderOwnsRecipient = options.handleOwner(fields.recipientHandle) === ctx.handleId;
+		const recipientIsSendersOwner = options.handleOwner(ctx.handleId) === fields.recipientHandle;
+		if (!senderOwnsRecipient && !recipientIsSendersOwner) {
+			throw new Error(
+				`${STORE_ENV_GRANT_REQUEST}: you may only grant env to handles you own or to your owner`,
+			);
+		}
 		// The sender scope is the connection's verified identity — any sender or
 		// scope field a crafted payload smuggles in is ignored.
 		return storeClient.registerEnvGrant(
@@ -179,6 +194,9 @@ export function registerStoreHandlers(
 	});
 
 	authServer.onRequest(STORE_ENV_CLAIM_REQUEST, async (ctx, payload) => {
+		if (options.isObserver?.(ctx.handleId)) {
+			throw new Error(`${STORE_ENV_CLAIM_REQUEST}: observers never bind`);
+		}
 		const fields = parseObjectPayload(payload, STORE_ENV_CLAIM_REQUEST);
 		if (typeof fields.alias !== "string") {
 			throw new Error(`${STORE_ENV_CLAIM_REQUEST}: alias must be a string`);

@@ -297,6 +297,13 @@ export class Agent {
 	private lastGenomeGeneration = 0;
 	private lastDelegateNames: Set<string> = new Set();
 	private readonly usedMnemonicNames = new Set<string>();
+	/**
+	 * Accumulated manifest rename maps per child handle (sourceName → bound-as).
+	 * A child keeps using its own names in later summaries, so rewrites must
+	 * persist across deliveries; a re-rename of the same sourceName updates the
+	 * entry (latest wins).
+	 */
+	private readonly manifestRenames = new Map<string, Map<string, string>>();
 
 	constructor(options: AgentOptions) {
 		this.spec = options.spec;
@@ -1670,11 +1677,16 @@ export class Agent {
 	): Promise<{ lines: string; rewrites: Map<string, string> }> {
 		const store = this.spawner?.storeAccess;
 		if (!store) return { lines: "", rewrites: new Map() };
+		// The child's accumulated rename map: later summaries from the same
+		// child still use its own names, so earlier deliveries' renames keep
+		// rewriting even when the current delta renames nothing.
+		const rewrites = this.manifestRenames.get(childHandleId) ?? new Map<string, string>();
+		this.manifestRenames.set(childHandleId, rewrites);
 		let attempt = 0;
 		for (;;) {
 			try {
 				const delta = await store.manifestDelta(childHandleId);
-				if (delta.delivered.length === 0) return { lines: "", rewrites: new Map() };
+				if (delta.delivered.length === 0) return { lines: "", rewrites };
 				const lines = delta.delivered.map(
 					(value) => `published: ⟦${value.name}⟧ (${value.preview.split("\n", 1)[0]})`,
 				);
@@ -1682,8 +1694,8 @@ export class Agent {
 				// suffixed, the child's ⟦sourceName⟧ references in its delivered
 				// summary text rewrite to the bound-as name, and the rename is
 				// announced so the recipient can resolve in-content references
-				// the rewrite cannot reach (spec §3 stated residual).
-				const rewrites = new Map<string, string>();
+				// the rewrite cannot reach (spec §3 stated residual). Only the
+				// CURRENT delta's renames announce; accumulated ones just rewrite.
 				for (const value of delta.delivered) {
 					if (value.name !== value.sourceName) {
 						rewrites.set(value.sourceName, value.name);
@@ -1699,7 +1711,7 @@ export class Agent {
 					continue;
 				}
 				const reason = err instanceof Error ? err.message : String(err);
-				return { lines: `\n[manifest unavailable: ${reason}]`, rewrites: new Map() };
+				return { lines: `\n[manifest unavailable: ${reason}]`, rewrites };
 			}
 		}
 	}
@@ -2021,15 +2033,11 @@ export class Agent {
 			// message_agent
 			const blocking = cmd.blocking !== false; // default true
 			const messageCall = () =>
-				spawner.messageAgent(
-					cmd.handle,
-					cmd.message,
-					caller,
-					blocking,
-					this.trustedUserInstruction,
-					this.callerAddress,
-					cmd.env,
-				);
+				spawner.messageAgent(cmd.handle, cmd.message, caller, blocking, {
+					trustedUserInstruction: this.trustedUserInstruction,
+					callerTarget: this.callerAddress,
+					envGrants: cmd.env,
+				});
 			// Blocking message_agent waits for the target's next result.
 			const result = blocking
 				? await this.withInactivitySuspendedFor(cmd.handle, messageCall)

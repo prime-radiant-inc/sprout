@@ -4346,9 +4346,15 @@ describe("Agent", () => {
 				message: string,
 				caller: AgentAddress,
 				blocking: boolean,
-				trustedUserInstruction?: string,
+				options?: { trustedUserInstruction?: string },
 			): Promise<ResultMessage | undefined> => {
-				messageCalls.push({ handleId, message, caller, blocking, trustedUserInstruction });
+				messageCalls.push({
+					handleId,
+					message,
+					caller,
+					blocking,
+					trustedUserInstruction: options?.trustedUserInstruction,
+				});
 				if (blocking) {
 					return cannedResult;
 				}
@@ -4608,11 +4614,9 @@ describe("Agent", () => {
 				_message: string,
 				_caller: AgentAddress,
 				_blocking: boolean,
-				_trusted?: string,
-				_callerTarget?: AgentAddress,
-				envMap?: Record<string, string>,
+				options?: { envGrants?: Record<string, string> },
 			) => {
-				messageEnvCalls.push(envMap);
+				messageEnvCalls.push(options?.envGrants);
 				return undefined;
 			},
 		} as unknown as AgentSpawner;
@@ -5893,6 +5897,106 @@ describe("Agent", () => {
 		);
 		const content = toolResultText(events, "wait_agent");
 		expect(content).toContain("see ⟦other⟧ and ⟦impl_notes_2⟧");
+	});
+
+	test("renames persist across deliveries: a later delta without renames still rewrites", async () => {
+		let callCount = 0;
+		const client = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				const msg: Message =
+					callCount <= 2
+						? {
+								role: "assistant",
+								content: [
+									{
+										kind: ContentKind.TOOL_CALL,
+										tool_call: {
+											id: `call-persist-${callCount}`,
+											name: "wait_agent",
+											arguments: JSON.stringify({ handle: "handle-abc" }),
+										},
+									},
+								],
+							}
+						: { role: "assistant", content: [{ kind: ContentKind.TEXT, text: "Done." }] };
+				return {
+					id: `mock-persist-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: msg,
+					finish_reason: { reason: callCount <= 2 ? "tool_calls" : "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		let waitCount = 0;
+		let deltaCount = 0;
+		const base = createMockSpawner().spawner as unknown as Record<string, unknown>;
+		const spawner = {
+			...base,
+			waitAgent: async (...args: unknown[]) => {
+				waitCount++;
+				const result = await (base.waitAgent as (...a: unknown[]) => Promise<unknown>)(...args);
+				return {
+					...(result as Record<string, unknown>),
+					// The second summary still uses the child's OWN name.
+					output: waitCount === 1 ? "first pass done" : "see ⟦impl_notes⟧ for details",
+				};
+			},
+			storeAccess: {
+				manifestDelta: async () => {
+					deltaCount++;
+					// First delivery renames impl_notes → impl_notes_2; the second
+					// delta renames nothing.
+					return deltaCount === 1
+						? await suffixedDelta()
+						: {
+								delivered: [
+									{
+										name: "other",
+										sourceName: "other",
+										ulid: "u2",
+										size: 1,
+										preview: "text · 1 bytes",
+									},
+								],
+								throughSeq: 2,
+							};
+				},
+			},
+		} as unknown as AgentSpawner;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const agent = new Agent({
+			spec: rootSpec,
+			env,
+			client,
+			primitiveRegistry: createPrimitiveRegistry(env),
+			availableAgents: [rootSpec, leafSpec],
+			depth: 0,
+			events,
+			spawner,
+		});
+		await agent.run("manifest rename persistence test");
+
+		const actEnds = events
+			.collected()
+			.filter((e) => e.kind === "act_end" && (e.data.agent_name as string) === "wait_agent");
+		expect(actEnds).toHaveLength(2);
+		const second = actEnds[1]!.data.tool_result_message as Message;
+		const part = (second.content as { kind: ContentKind; tool_result: { content: string } }[]).find(
+			(c) => c.kind === ContentKind.TOOL_RESULT,
+		);
+		const content = String(part!.tool_result.content);
+		// The earlier delivery's rename still rewrites this summary...
+		expect(content).toContain("see ⟦impl_notes_2⟧ for details");
+		// ...but the rename note only rides deltas that renamed something.
+		expect(content).not.toContain("renamed on delivery");
 	});
 
 	test("an empty delta appends nothing", async () => {
