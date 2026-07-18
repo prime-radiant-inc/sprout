@@ -82,6 +82,24 @@ describe("registerHandle", () => {
 		expect(registry.authenticate("h-root", token).ok).toBe(true);
 	});
 
+	test("refuses to register a handle that claims the trusted registrar id", () => {
+		// No handle may take the trust-authority identity: otherwise a caller could register a
+		// handle named after it, authenticate as it, and have every registration it then makes
+		// treated as trusted — a privilege escalation. Reserved even for the trusted registrar.
+		const registry = new HandleRegistry({ trustedRegistrarId: "host" });
+
+		const result = registry.registerHandle({
+			handleId: "host",
+			tokenHash: hashToken(mintToken()),
+			registrarId: "host",
+			ownerId: "host",
+			depth: 0,
+		});
+
+		expect(result).toEqual({ ok: false, reason: "reserved" });
+		expect(registry.get("host")).toBeUndefined();
+	});
+
 	test("rejects registration of an existing handle by a different owner", () => {
 		const registry = new HandleRegistry();
 		registerOwned(registry, "h-child", "h-parent", mintToken());

@@ -42,7 +42,7 @@ export interface HandleIdentity {
 
 export type RegisterHandleResult =
 	| { ok: true }
-	| { ok: false; reason: "not_parent" | "duplicate" | "live_connection" };
+	| { ok: false; reason: "not_parent" | "duplicate" | "live_connection" | "reserved" };
 
 export type AuthenticateResult =
 	| { ok: true; identity: HandleIdentity }
@@ -102,6 +102,12 @@ export class HandleRegistry {
 	 * hash; a live handle can be re-registered by no one.
 	 */
 	registerHandle(input: RegisterHandleInput): RegisterHandleResult {
+		// The trust-authority identity is reserved: no handle may be registered with it. Were it
+		// registerable, a caller could take a token for it, authenticate as it, and have every
+		// registration it then made treated as trusted — a privilege escalation.
+		if (this.trustedRegistrarId !== undefined && input.handleId === this.trustedRegistrarId) {
+			return { ok: false, reason: "reserved" };
+		}
 		const trusted =
 			this.trustedRegistrarId !== undefined && input.registrarId === this.trustedRegistrarId;
 		if (!trusted && input.registrarId !== input.ownerId) {
