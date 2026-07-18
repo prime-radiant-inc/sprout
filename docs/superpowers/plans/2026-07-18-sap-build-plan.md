@@ -40,6 +40,9 @@ later (an unresolved-value state), but build nothing for it now.
   editing one file. Foundational kernel edits are done in-line, coherently.
 - **Architectural sub-decisions go to Jesse** before building (sandbox mechanism, store-worker
   transport, cell-worker engine). Routine implementation does not.
+- **Each phase gets an adversarial Fable review before it's marked done** and before the next
+  phase builds on it — a fresh-context reviewer (not a fork) on the strongest model, checking
+  correctness/security/simplicity against the spec. Findings are addressed before proceeding.
 
 ## Phases
 
