@@ -53,9 +53,14 @@ Fable review in fresh context → fix findings → commit → update this plan. 
   numeric version stays authoritative for cell_end linkage (semver major derives it, string
   preserved + re-emitted); lexical scan unchanged at validate+load; round-trip byte-stable; no
   sap-native regression. Full suite 3979 pass.
-- [ ] **Phase 4 — N-run pinned-snapshot eval harness.** The linchpin. Runs a candidate genome N×
-  in eval mode against a pinned task set; feeds `ArmResult` to the A/B; supplies the real
-  `CanaryHarness` adapter. No live-genome/journal mutation.
+- [x] **Phase 4 — N-run pinned-snapshot eval harness.** DONE + Fable-reviewed (HIGH + 3 MED found
+  and fixed). Pure engine (imports only multi-run-ab + fs) with an injected TaskExecutor; live
+  executor via runHeadlessMode; two labeled tiers (sap gates, general headline); real CanaryHarness
+  adapter; genome/journal isolation via snapshot. Review caught a HIGH: streamed turns bypassed the
+  capture middleware → keystone could false-pass; fixed with a RequestObserver firing on both
+  complete() and stream() (proven live: canary now CATCHES a real streamed leak). Also fixed the
+  gate-tier leak tasks (sentinel-in-goal made them always-leak; now random secret + per-run
+  materialization, canary-style). Live path proven against real haiku. Full suite 3997 pass.
 - [ ] **Phase 5 — Live integrity wiring + the capability number.** Swap `evaluateImprovement` to
   the N-run A/B gate; wire quartermaster fabrication/repair/curation through A/B + canary gates;
   wire canary rollback; run the multi-task/multi-model eval and record the real number vs baseline.
