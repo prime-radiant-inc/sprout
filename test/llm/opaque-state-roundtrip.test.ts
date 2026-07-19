@@ -163,6 +163,62 @@ describe("OpenAI Responses encrypted-reasoning opaque state", () => {
 		expect(reasoningIdx).toBeLessThan(callIdx);
 	});
 
+	test("interleaved reasoning/call pairs replay in original output order", () => {
+		const REASONING_1 = {
+			id: "rs_1",
+			type: "reasoning" as const,
+			summary: [],
+			encrypted_content: "gAAAAAB-reasoning-one==",
+			status: "completed" as const,
+		};
+		const REASONING_2 = {
+			id: "rs_2",
+			type: "reasoning" as const,
+			summary: [],
+			encrypted_content: "gAAAAAB-reasoning-two==",
+			status: "completed" as const,
+		};
+		const raw: any = {
+			id: "resp-2",
+			model: "gpt-5",
+			status: "completed",
+			output: [
+				REASONING_1,
+				{
+					type: "function_call",
+					id: "fc_1",
+					call_id: "call_1",
+					name: "get_weather",
+					arguments: '{"location":"SF"}',
+				},
+				REASONING_2,
+				{
+					type: "function_call",
+					id: "fc_2",
+					call_id: "call_2",
+					name: "get_time",
+					arguments: '{"zone":"PT"}',
+				},
+			],
+			usage: { input_tokens: 10, output_tokens: 4 },
+		};
+		const assistant = throughJournal(parseResponsesResponse(raw, "openai").message);
+
+		const request: Request = {
+			model: "gpt-5",
+			messages: [
+				{ role: "user", content: [{ kind: ContentKind.TEXT, text: "weather and time?" }] },
+				assistant,
+			],
+		};
+
+		const input = buildResponsesInput(request);
+		const kinds = input
+			.filter((i: any) => i.type === "reasoning" || i.type === "function_call")
+			.map((i: any) => (i.type === "reasoning" ? `reasoning:${i.id}` : `call:${i.call_id}`));
+		expect(kinds).toEqual(["reasoning:rs_1", "call:call_1", "reasoning:rs_2", "call:call_2"]);
+	});
+
 	test("streamed reasoning item with encrypted_content survives on the final response", async () => {
 		const rawResponse = {
 			id: "resp-stream",
@@ -279,6 +335,69 @@ describe("Gemini thought-signature opaque state", () => {
 		const modelContent = capturedContents.find((c: any) => c.role === "model");
 		const fnPart = modelContent.parts.find((p: any) => p.functionCall);
 		expect(fnPart.thoughtSignature).toBe(SIGNATURE);
+	});
+
+	test("thought signature on a streamed text part round-trips into the next request", async () => {
+		const adapter = new GeminiAdapter("test-key");
+		let capturedContents: any;
+		async function* firstStream() {
+			yield {
+				candidates: [
+					{
+						content: { parts: [{ text: "Hello " }] },
+					},
+				],
+			};
+			yield {
+				candidates: [
+					{
+						content: { parts: [{ text: "world", thoughtSignature: SIGNATURE }] },
+						finishReason: "STOP",
+					},
+				],
+				usageMetadata: { promptTokenCount: 5, candidatesTokenCount: 3, totalTokenCount: 8 },
+			};
+		}
+		(adapter as any).client = {
+			models: {
+				generateContentStream: async (_params: any) => {
+					return firstStream();
+				},
+				generateContent: async (params: any) => {
+					capturedContents = params.contents;
+					return {
+						candidates: [{ content: { parts: [{ text: "next" }] }, finishReason: "STOP" }],
+						usageMetadata: { promptTokenCount: 6, candidatesTokenCount: 2, totalTokenCount: 8 },
+					};
+				},
+			},
+		};
+
+		let finalMessage: Message | undefined;
+		for await (const event of adapter.stream({
+			model: "gemini-2.5-flash",
+			messages: [{ role: "user", content: [{ kind: ContentKind.TEXT, text: "hi" }] }],
+		})) {
+			if (event.type === "finish") finalMessage = event.response!.message;
+		}
+
+		const textPart = finalMessage!.content.find((p) => p.kind === ContentKind.TEXT);
+		expect(textPart?.text).toBe("Hello world");
+		expect(textPart?.thought_signature).toBe(SIGNATURE);
+
+		const resumed = throughJournal(finalMessage!);
+		await adapter.complete({
+			model: "gemini-2.5-flash",
+			messages: [
+				{ role: "user", content: [{ kind: ContentKind.TEXT, text: "hi" }] },
+				resumed,
+				{ role: "user", content: [{ kind: ContentKind.TEXT, text: "again" }] },
+			],
+		});
+
+		const modelContent = capturedContents.find((c: any) => c.role === "model");
+		const textOut = modelContent.parts.find((p: any) => p.text);
+		expect(textOut.thoughtSignature).toBe(SIGNATURE);
 	});
 });
 

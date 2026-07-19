@@ -106,6 +106,7 @@ export class GeminiAdapter implements ProviderAdapter {
 		yield { type: "stream_start" };
 
 		let accumulatedText = "";
+		let textThoughtSignature: string | undefined;
 		const toolCalls: import("./types.ts").ContentPart[] = [];
 		let usage: Usage | undefined;
 
@@ -115,6 +116,9 @@ export class GeminiAdapter implements ProviderAdapter {
 					if (part.text) {
 						yield { type: "text_delta", delta: part.text };
 						accumulatedText += part.text;
+						if (typeof part.thoughtSignature === "string") {
+							textThoughtSignature = part.thoughtSignature;
+						}
 					}
 					if (part.functionCall) {
 						const callId = this.nextCallId();
@@ -163,7 +167,14 @@ export class GeminiAdapter implements ProviderAdapter {
 		// Build final response
 		const contentParts: import("./types.ts").ContentPart[] = [];
 		if (accumulatedText) {
-			contentParts.push({ kind: ContentKind.TEXT, text: accumulatedText });
+			const textPart: import("./types.ts").ContentPart = {
+				kind: ContentKind.TEXT,
+				text: accumulatedText,
+			};
+			if (textThoughtSignature !== undefined) {
+				textPart.thought_signature = textThoughtSignature;
+			}
+			contentParts.push(textPart);
 		}
 		contentParts.push(...toolCalls);
 

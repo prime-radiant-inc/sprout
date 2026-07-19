@@ -31,9 +31,15 @@ Fable review in fresh context → fix findings → commit → update this plan. 
 
 ## Phases
 
-- [ ] **Phase 1 — Opaque provider-state persistence.** Byte-exact journal/resume of Anthropic
-  thinking/compaction blocks, OpenAI encrypted reasoning items, Gemini thought signatures.
-  Redaction excludes opaque state. Round-trip byte-identical; resumed multi-turn continues.
+- [x] **Phase 1 — Opaque provider-state persistence.** DONE + Fable-reviewed. Map showed
+  assistant turns ride the event log (plan_end.assistant_message, ContentPart[]) → fix is purely
+  at adapter parse/replay boundaries, no journal change. Anthropic already byte-exact (verified,
+  not rebuilt); OpenAI Responses reasoning items (incl. encrypted_content, arrives on
+  response.completed) and Gemini thought signatures were dropped — now captured as
+  ContentKind.PROVIDER_STATE / thought_signature and replayed verbatim. Review found no HIGH (all
+  SDK shapes verified real in node_modules); two MEDs fixed: Gemini *streaming* text-part
+  signature drop, and OpenAI replay reorder of interleaved reasoning/tool items (now replays in
+  true captured order). Redaction excludes opaque state structurally. Full suite 3968 pass.
 - [ ] **Phase 2 — Futures + `$ref` promise pipelining.** First-class future on the existing wait
   graph; `$ref` to a future pipelines; settles to a normal immutable value; budget-bounded.
 - [ ] **Phase 3 — Agent-Skills-compatible program metadata.** Superset frontmatter; same lexical

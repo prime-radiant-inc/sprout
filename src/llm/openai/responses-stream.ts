@@ -150,19 +150,40 @@ export async function* streamResponsesEvents({
 
 	const completeToolCalls = toolCallOrder.filter(isCompleteToolCall);
 	const contentParts: ContentPart[] = [];
+	// Reassemble parts in the terminal response's true output order so reasoning
+	// items stay adjacent to the call they precede and replay byte-exact.
 	// Encrypted reasoning items only carry their bytes on the terminal response's
-	// output array; hoist them ahead of text/tool parts (their output order) so
-	// they persist and replay byte-exact.
+	// output array; streamed text/tool calls are matched back by call_id.
+	const completeCallsByCallId = new Map(completeToolCalls.map((call) => [call.callId, call]));
+	const emittedToolCalls = new Set<ToolCallAccumulator>();
+	let emittedText = false;
 	for (const item of completedResponse?.output ?? []) {
-		if ((item as { type?: string }).type === "reasoning") {
+		const type = (item as { type?: string }).type;
+		if (type === "reasoning") {
 			contentParts.push(reasoningStatePart(item, provider));
+		} else if (type === "message") {
+			if (accumulatedText && !emittedText) {
+				contentParts.push({ kind: ContentKind.TEXT, text: accumulatedText });
+				emittedText = true;
+			}
+		} else if (type === "function_call") {
+			const call = completeCallsByCallId.get((item as { call_id?: string }).call_id ?? "");
+			if (call && !emittedToolCalls.has(call)) {
+				contentParts.push({
+					kind: ContentKind.TOOL_CALL,
+					tool_call: toolCallFromAccumulator(call),
+				});
+				emittedToolCalls.add(call);
+			}
 		}
 	}
-	if (accumulatedText) {
+	if (accumulatedText && !emittedText) {
 		contentParts.push({ kind: ContentKind.TEXT, text: accumulatedText });
 	}
 	for (const call of completeToolCalls) {
-		contentParts.push({ kind: ContentKind.TOOL_CALL, tool_call: toolCallFromAccumulator(call) });
+		if (!emittedToolCalls.has(call)) {
+			contentParts.push({ kind: ContentKind.TOOL_CALL, tool_call: toolCallFromAccumulator(call) });
+		}
 	}
 
 	const terminalStatus = completedResponse?.status ?? "completed";
