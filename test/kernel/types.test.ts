@@ -14,7 +14,49 @@ import type {
 	SessionEvent,
 	VerifyResult,
 } from "../../src/kernel/types.ts";
-import { DEFAULT_CONSTRAINTS } from "../../src/kernel/types.ts";
+import { DEFAULT_CONSTRAINTS, isFeatherweightEligible } from "../../src/kernel/types.ts";
+
+describe("isFeatherweightEligible", () => {
+	const base: AgentSpec = {
+		name: "llm-call",
+		description: "Pure completion",
+		system_prompt: "Complete the request.",
+		model: "fast",
+		tools: [],
+		agents: [],
+		constraints: { max_turns: 1, timeout_ms: 60_000, can_spawn: false, can_learn: false },
+		tags: [],
+		version: 1,
+	};
+
+	test("a single-turn no-tool no-spawn leaf is eligible", () => {
+		expect(isFeatherweightEligible(base)).toBe(true);
+	});
+
+	test("a spec requesting subcortical recall is NOT eligible", () => {
+		// The in-process executor runs without the genome, so recall would
+		// silently vanish — such specs must take the subprocess path (spec §5).
+		expect(isFeatherweightEligible({ ...base, subcortical_recall: true })).toBe(false);
+		expect(
+			isFeatherweightEligible({ ...base, subcortical_recall: { max_memories: 5 } as never }),
+		).toBe(false);
+	});
+
+	test("recall explicitly off stays eligible", () => {
+		expect(isFeatherweightEligible({ ...base, subcortical_recall: false })).toBe(true);
+	});
+
+	test("tools, agents, spawn, or multi-turn make it ineligible", () => {
+		expect(isFeatherweightEligible({ ...base, tools: ["read_file"] })).toBe(false);
+		expect(isFeatherweightEligible({ ...base, agents: ["leaf"] })).toBe(false);
+		expect(
+			isFeatherweightEligible({ ...base, constraints: { ...base.constraints, can_spawn: true } }),
+		).toBe(false);
+		expect(
+			isFeatherweightEligible({ ...base, constraints: { ...base.constraints, max_turns: 2 } }),
+		).toBe(false);
+	});
+});
 
 describe("kernel types", () => {
 	test("AgentSpec can be constructed with required fields", () => {

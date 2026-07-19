@@ -324,14 +324,28 @@ export function canRunWithoutTools(spec: AgentSpec): boolean {
  * subprocess (spec §5 featherweight placement). Restricted to single-turn,
  * no-tool, no-spawn leaves — exactly the utility/llm-call shape — so a fan-out
  * of many such calls avoids paying a subprocess + bus handshake per call.
+ * A spec wanting subcortical recall is ineligible: the in-process executor runs
+ * without the genome, so recall would silently vanish — breaking §5's
+ * identical-semantics guarantee. Such specs take the subprocess path.
  */
 export function isFeatherweightEligible(spec: AgentSpec): boolean {
 	return (
 		spec.tools.length === 0 &&
 		spec.agents.length === 0 &&
 		spec.constraints.can_spawn === false &&
-		spec.constraints.max_turns === 1
+		spec.constraints.max_turns === 1 &&
+		!isSubcorticalRecallEnabled(spec.subcortical_recall)
 	);
+}
+
+/** True when a spec's subcortical_recall config requests any recall. */
+function isSubcorticalRecallEnabled(
+	config: boolean | AgentSubcorticalRecallConfig | undefined,
+): boolean {
+	if (config === undefined || config === false) return false;
+	if (config === true) return true;
+	// A config object present means recall is configured on (its fields tune it).
+	return true;
 }
 
 /** Input collected during the Perceive phase */
