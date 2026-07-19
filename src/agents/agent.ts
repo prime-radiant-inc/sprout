@@ -452,7 +452,15 @@ export class Agent {
 					waitHandle: (id) => this.serviceCellHandleWait(id),
 					messageHandle: (id, text, opts) => this.serviceCellHandleMessage(id, text, opts),
 				});
-			this.cellPrimitive = buildCellPrimitive(cellHost);
+			// The typed surface (spec §6): the cell tool description carries a
+			// `.d.ts` block for the ambient API + this agent's spawnable agents, so
+			// cells reference a real SpawnableAgent union. Honest by construction —
+			// generated from the same allowlist cells actually spawn against.
+			const spawnableAgents = this.getDelegatableAgents().map((a) => ({
+				name: a.name,
+				description: a.description,
+			}));
+			this.cellPrimitive = buildCellPrimitive(cellHost, spawnableAgents);
 			this.primitiveRegistry.register(this.cellPrimitive);
 		}
 		this.logger = (options.logger ?? new NullLogger()).child({

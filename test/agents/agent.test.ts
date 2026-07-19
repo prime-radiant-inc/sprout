@@ -15,6 +15,7 @@ import type {
 import type { AgentAddress, EventMessage, ResultMessage } from "../../src/bus/types.ts";
 import type { DelegationOutcome } from "../../src/cell/cell-host.ts";
 import { Genome } from "../../src/genome/genome.ts";
+import type { CellRunner } from "../../src/kernel/cell-primitive.ts";
 import { LocalExecutionEnvironment } from "../../src/kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../../src/kernel/primitives.ts";
 import { type AgentSpec, DEFAULT_CONSTRAINTS } from "../../src/kernel/types.ts";
@@ -7121,6 +7122,39 @@ describe("Agent", () => {
 		const delegateTool = tools.find((t) => t.name === "delegate");
 		const desc = (delegateTool!.parameters as any).properties.agent_name.description;
 		expect(desc).toContain("leaf");
+	});
+
+	test("code-mode agent's cell tool description carries the SpawnableAgent union for its allowlist", () => {
+		const codeSpec: AgentSpec = {
+			name: "coder",
+			description: "code-mode agent",
+			system_prompt: "You write cells.",
+			model: "fast",
+			act: "code",
+			tools: [],
+			agents: ["leaf"],
+			constraints: { ...DEFAULT_CONSTRAINTS, can_spawn: true, max_turns: 5 },
+			tags: [],
+			version: 1,
+		};
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const client = Client.fromEnv();
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: codeSpec,
+			env,
+			client,
+			primitiveRegistry: registry,
+			availableAgents: [codeSpec, leafSpec],
+			spawner: { storeAccess: { names: async () => [] } } as unknown as AgentSpawner,
+			cellHost: { runCell: async () => ({}) } as unknown as CellRunner,
+		});
+		const cellTool = agent.resolvedTools().find((t) => t.name === "cell");
+		expect(cellTool).toBeDefined();
+		expect(cellTool!.description).toContain("type SpawnableAgent =");
+		expect(cellTool!.description).toContain('| "leaf"');
+		expect(cellTool!.description).toContain(`/** ${leafSpec.description} */`);
+		expect(cellTool!.description).toContain("declare function spawn(");
 	});
 
 	test("getDelegatableAgents non-tree path uses spec.agents", () => {

@@ -5,6 +5,7 @@
  */
 
 import type { CellResult } from "../cell/cell-host.ts";
+import { renderCellApiTypes, type SpawnableAgentInfo } from "./cell-api-types.ts";
 import type { Primitive } from "./primitives.ts";
 import type { PrimitiveResult } from "./types.ts";
 
@@ -36,10 +37,22 @@ Spawning (when delegation is available to you):
 
 No import/require (rejected before execution), no fs/fetch/process/Bun — pure JS plus the API above. Cells have a 5s compute budget; time awaiting the ambient API (including spawns) does not count.`;
 
-export function buildCellPrimitive(cellRunner: CellRunner): Primitive {
+/**
+ * Compose the cell tool description: the prose contract plus the typed
+ * declaration block for THIS agent's spawnable agents (spec §6). Stable per
+ * allowlist so the tool description only changes when the allowlist does.
+ */
+function cellDescription(spawnableAgents: SpawnableAgentInfo[]): string {
+	return `${CELL_DESCRIPTION}\n\nTyped surface (declaration only — the ambient API and the agents you can spawn):\n\n${renderCellApiTypes(spawnableAgents)}`;
+}
+
+export function buildCellPrimitive(
+	cellRunner: CellRunner,
+	spawnableAgents: SpawnableAgentInfo[] = [],
+): Primitive {
 	return {
 		name: "cell",
-		description: CELL_DESCRIPTION,
+		description: cellDescription(spawnableAgents),
 		parameters: {
 			type: "object",
 			properties: {
