@@ -538,6 +538,98 @@ describe("Client", () => {
 		expect(events.some((e) => e.type === "finish")).toBe(true);
 	});
 
+	test("request observer captures the streamed request bytes", async () => {
+		// A request observer must see the request on the STREAM path — the main
+		// agent loop streams, so a capture that only fires on complete() would
+		// never see the turns where a spliced secret would ride.
+		const adapter: ProviderAdapter = {
+			name: "stream-only",
+			providerId: "stream-only",
+			kind: "openai",
+			async complete() {
+				throw new Error("not implemented");
+			},
+			async *stream(request: Request): AsyncIterable<StreamEvent> {
+				yield { type: "stream_start" };
+				yield {
+					type: "finish",
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+					response: {
+						id: "s",
+						model: request.model,
+						provider: "stream-only",
+						message: { role: "assistant", content: [] },
+						finish_reason: { reason: "stop" },
+						usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+					},
+				};
+			},
+			async listModels() {
+				return [];
+			},
+			async checkConnection() {
+				return { ok: true as const };
+			},
+		};
+		const client = new Client({ providers: { "stream-only": adapter } });
+		const observed: Request[] = [];
+		client.onRequest((req) => observed.push(req));
+
+		const events: StreamEvent[] = [];
+		for await (const event of client.stream({
+			model: "streamed-model",
+			messages: [{ role: "user", content: [{ kind: ContentKind.TEXT, text: "secret-in-turn" }] }],
+			provider: "stream-only",
+		})) {
+			events.push(event);
+		}
+
+		expect(observed.length).toBe(1);
+		expect(observed[0]?.model).toBe("streamed-model");
+		expect(messageText(observed[0]?.messages[0] as never)).toContain("secret-in-turn");
+		expect(events.some((e) => e.type === "finish")).toBe(true);
+	});
+
+	test("request observer captures the completed request bytes", async () => {
+		const adapter: ProviderAdapter = {
+			name: "complete-only",
+			providerId: "complete-only",
+			kind: "openai",
+			async complete(request: Request): Promise<LLMResponse> {
+				return {
+					id: "c",
+					model: request.model,
+					provider: "complete-only",
+					message: { role: "assistant", content: [] },
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+				};
+			},
+			stream(): AsyncIterable<StreamEvent> {
+				throw new Error("not implemented");
+			},
+			async listModels() {
+				return [];
+			},
+			async checkConnection() {
+				return { ok: true as const };
+			},
+		};
+		const client = new Client({ providers: { "complete-only": adapter } });
+		const observed: Request[] = [];
+		client.onRequest((req) => observed.push(req));
+
+		await client.complete({
+			model: "completed-model",
+			messages: [{ role: "user", content: [{ kind: ContentKind.TEXT, text: "hi" }] }],
+			provider: "complete-only",
+		});
+
+		expect(observed.length).toBe(1);
+		expect(observed[0]?.model).toBe("completed-model");
+	});
+
 	test("middleware can transform requests for streaming", async () => {
 		let transformedMaxTokens = 0;
 

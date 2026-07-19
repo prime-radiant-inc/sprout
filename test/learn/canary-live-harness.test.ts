@@ -91,6 +91,37 @@ describe("createLiveCanaryHarness", () => {
 		}
 	});
 
+	test("names the materialized source file in the concrete goal so the model can capture it", async () => {
+		const workDir = await mkdtemp(join(tmpdir(), "sprout-canary-live-"));
+		try {
+			let seenGoal = "";
+			const goalCapturingExecutor: TaskExecutor = {
+				async run(task: EvalTask): Promise<ExecOutcome> {
+					seenGoal = task.goal;
+					return {
+						output: "done",
+						errored: false,
+						stumbles: 0,
+						providerPayloads: [],
+						didExec: false,
+						success: true,
+					};
+				},
+			};
+			const harness = createLiveCanaryHarness({
+				executor: goalCapturingExecutor,
+				snapshot,
+				workDir,
+			});
+			await capturedContentNeverInPayloadCanary.run(harness);
+			// The materialized file must be named so a live model has something real to
+			// read + splice — otherwise the keystone canary passes vacuously.
+			expect(seenGoal).toContain("capture-source.txt");
+		} finally {
+			await rm(workDir, { recursive: true, force: true });
+		}
+	});
+
 	test("code-mode-cannot-exec fails from a real didExec=true outcome", async () => {
 		const workDir = await mkdtemp(join(tmpdir(), "sprout-canary-live-"));
 		try {

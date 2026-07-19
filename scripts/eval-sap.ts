@@ -27,7 +27,7 @@
  */
 
 import { config as loadDotenv } from "dotenv";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -37,15 +37,14 @@ import {
 } from "../src/learn/canary-suite.ts";
 import { createLiveCanaryHarness } from "../src/learn/canary-live-harness.ts";
 import { compareGenomes, createEvalSnapshot, type EvalTier, runEvalArm } from "../src/learn/eval-harness.ts";
-import { generalTasks, pinnedEvalTasks } from "../src/learn/eval-tasks.ts";
+import { pinnedEvalTasks, SAP_CAPTURE_SENTINEL, sapTasks } from "../src/learn/eval-tasks.ts";
 
-const smokeTasks = generalTasks;
+const smokeTasks = sapTasks;
 import { LiveTaskExecutor, type LiveTaskExecutorConfig } from "../src/learn/live-task-executor.ts";
 import { defaultGenomePathFromEnv } from "../src/host/cli-parse.ts";
-import { resolveProjectDir, resolveStartupCwd, startBusInfrastructure } from "../src/host/cli-shared.ts";
+import { resolveStartupCwd, startBusInfrastructure } from "../src/host/cli-shared.ts";
 import { resolveRuntimeRootDir } from "../src/host/embedded-root.ts";
 import type { Tier } from "../src/shared/provider-settings.ts";
-import { projectDataDir as computeProjectDataDir } from "../src/util/project-id.ts";
 
 interface Args {
 	smoke: boolean;
@@ -98,9 +97,6 @@ async function main(): Promise<void> {
 	const rootDir = await resolveRuntimeRootDir({
 		sourceRootDir: join(import.meta.dir, "../root"),
 	});
-	const projectDir = await resolveProjectDir(envCwd);
-	const projectDataDir = computeProjectDataDir(genomePath, projectDir);
-
 	// Eval mode runs in an ISOLATED temp work dir (not the user's repo): tasks and
 	// the canary adapter materialize source files there, and the model operates
 	// there, so nothing pollutes the caller's working tree.
@@ -114,7 +110,6 @@ async function main(): Promise<void> {
 	log(`Eval snapshot: ${snapshot.genomePath} (live genome is isolated)`);
 
 	const executorConfig: LiveTaskExecutorConfig = {
-		projectDataDir,
 		rootDir,
 		workDir,
 		startBusInfrastructure,
@@ -137,10 +132,17 @@ async function runSmoke(
 	executorConfig: LiveTaskExecutorConfig,
 	snapshot: Awaited<ReturnType<typeof createEvalSnapshot>>,
 ): Promise<void> {
-	log("\n=== SMOKE: one cheap task, real model ===");
+	log("\n=== SMOKE: one cheap sap task, real model ===");
 	const executor = new LiveTaskExecutor(executorConfig);
-	const task = smokeTasks[0]; // gen-string-reverse: single-turn, no spawning
+	const task = smokeTasks[0]; // sap-capture-splice: exercises the keystone capture+splice path
 	if (!task) throw new Error("no smoke task");
+	// The sap capture task reads ./capture-source.txt; materialize it in the work
+	// dir (isolated) so the model has a real source to capture and splice.
+	const workDir = executorConfig.workDir ?? process.cwd();
+	await writeFile(
+		join(workDir, "capture-source.txt"),
+		`${SAP_CAPTURE_SENTINEL}\nThis is confidential source material captured for splicing.\n`,
+	);
 	const outcome = await executor.run(task, snapshot);
 	const verdict = task.verify(outcome);
 	log(`task:            ${task.id}`);

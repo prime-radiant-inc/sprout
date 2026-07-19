@@ -5,7 +5,8 @@
  * `controller.runGoal`, capturing:
  *   - the run's stumble count + success (from the SessionRunResult), and
  *   - the RAW provider request payloads (the serialized bytes each LLM call
- *     would send), via a capture middleware injected into the runtime client, and
+ *     would send), via a request observer on the runtime client that fires on
+ *     BOTH the complete() and stream() dispatch paths, and
  *   - whether the run executed shell (`didExec`), from the event stream.
  *
  * The captured payloads and exec flag are exactly what the hidden canary suite
@@ -21,7 +22,7 @@ import { bootstrapSessionRuntime } from "../host/cli-bootstrap.ts";
 import { type HeadlessInfrastructure, runHeadlessMode } from "../host/cli-headless.ts";
 import type { SessionLogger } from "../host/logger.ts";
 import type { SessionEvent } from "../kernel/types.ts";
-import { Client, type Middleware } from "../llm/client.ts";
+import { Client } from "../llm/client.ts";
 import { loggingMiddleware } from "../llm/logging-middleware.ts";
 import type { Request } from "../llm/types.ts";
 import type { SessionSelectionRequest } from "../shared/session-selection.ts";
@@ -38,6 +39,19 @@ function serializeRequestPayload(request: Request): string {
 	});
 }
 
+/**
+ * Where an eval-mode run writes its session logs/tasks.json. NEVER the live
+ * project data dir: the isolated work dir (falling back to the snapshot dir,
+ * itself a throwaway copy of the genome) keeps every write off the caller's real
+ * project data dir.
+ */
+export function resolveEvalDataDir(
+	workDir: string | undefined,
+	snapshotGenomePath: string,
+): string {
+	return workDir ?? snapshotGenomePath;
+}
+
 /** True when an event indicates a shell/exec primitive ran. */
 function eventIsExec(event: SessionEvent): boolean {
 	return (
@@ -47,7 +61,6 @@ function eventIsExec(event: SessionEvent): boolean {
 }
 
 export interface LiveTaskExecutorConfig {
-	projectDataDir: string;
 	rootDir: string;
 	workDir?: string;
 	startBusInfrastructure: (options: {
@@ -75,16 +88,15 @@ export class LiveTaskExecutor implements TaskExecutor {
 		const providerPayloads: string[] = [];
 		let didExec = false;
 
-		const capture: Middleware = async (request, next) => {
-			providerPayloads.push(serializeRequestPayload(request));
-			return next(request);
-		};
-
 		const result = await runHeadlessMode(
 			{
 				goal: task.goal,
 				genomePath,
-				projectDataDir: this.config.projectDataDir,
+				// Eval mode must not write session logs/tasks.json into the LIVE
+				// project data dir. Route them to the isolated work dir (falling back
+				// to the snapshot dir, itself a throwaway copy) so nothing lands in the
+				// caller's real project data dir.
+				projectDataDir: resolveEvalDataDir(this.config.workDir, genomePath),
 				rootDir: this.config.rootDir,
 				workDir: this.config.workDir,
 				evalMode: true,
@@ -94,10 +106,18 @@ export class LiveTaskExecutor implements TaskExecutor {
 			{
 				bootstrapRuntime: async (options) => {
 					const runtime = await bootstrapSessionRuntime(options, {
-						createClient: async ({ logger, providers }) =>
-							Client.fromProviders(providers, {
-								middleware: [capture, loggingMiddleware(logger as SessionLogger)],
-							}),
+						createClient: async ({ logger, providers }) => {
+							const client = Client.fromProviders(providers, {
+								middleware: [loggingMiddleware(logger as SessionLogger)],
+							});
+							// Observe the request on EVERY dispatch — complete() AND stream().
+							// The main agent loop streams, so capturing only complete() would
+							// miss the turns where a spliced secret would ride.
+							client.onRequest((request) => {
+								providerPayloads.push(serializeRequestPayload(request));
+							});
+							return client;
+						},
 					});
 					const bus = runtime.bus as {
 						onEvent(listener: (event: SessionEvent) => void): () => void;
