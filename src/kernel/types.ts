@@ -295,6 +295,38 @@ export interface AgentSpec {
 	_extra?: Record<string, unknown>;
 }
 
+/**
+ * Whether an agent spec is allowed to run with zero tools. Ordinary tool-less
+ * agents hallucinate tool calls, so the run loop rejects them — except two shapes:
+ *
+ * - Observer watchers: a tagged observer whose only job is to watch a frame and
+ *   optionally comment (no tools, no delegatable agents).
+ * - Pure single-turn completion agents: `tools: []` with `max_turns: 1`. One turn
+ *   with no tools cannot hallucinate a tool call into anything — it simply
+ *   completes with its reply (the utility/llm-call shape, spec §5).
+ */
+export function canRunWithoutTools(spec: AgentSpec): boolean {
+	const observerWatcher =
+		spec.tags.includes("observer") && spec.tools.length === 0 && spec.agents.length === 0;
+	const singleTurnCompletion = spec.tools.length === 0 && spec.constraints.max_turns === 1;
+	return observerWatcher || singleTurnCompletion;
+}
+
+/**
+ * Whether an agent spec may run in the owning agent's process instead of a
+ * subprocess (spec §5 featherweight placement). Restricted to single-turn,
+ * no-tool, no-spawn leaves — exactly the utility/llm-call shape — so a fan-out
+ * of many such calls avoids paying a subprocess + bus handshake per call.
+ */
+export function isFeatherweightEligible(spec: AgentSpec): boolean {
+	return (
+		spec.tools.length === 0 &&
+		spec.agents.length === 0 &&
+		spec.constraints.can_spawn === false &&
+		spec.constraints.max_turns === 1
+	);
+}
+
 /** Input collected during the Perceive phase */
 export interface Perception {
 	inputs: PerceptionInput[];
@@ -330,6 +362,8 @@ export interface Delegation {
 	blocking?: boolean;
 	/** If true, the agent stays alive after completion and can receive follow-up messages. Default: false */
 	shared?: boolean;
+	/** Per-spawn model override (spec §5): a tier or "provider:model" selection string. */
+	model?: string;
 	/** Env grants for the child: alias → a value name or ulid in the caller's scope. */
 	env?: Record<string, string>;
 }

@@ -1,6 +1,10 @@
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { AgentSpawner } from "../bus/spawner.ts";
+import type {
+	AgentSpawner,
+	FeatherweightExecInput,
+	FeatherweightExecResult,
+} from "../bus/spawner.ts";
 import type { AgentAddress, ResultMessage } from "../bus/types.ts";
 import {
 	CellHost,
@@ -41,8 +45,10 @@ import {
 	type AgentCommand,
 	type AgentDelegateObserverConfig,
 	type AgentSpec,
+	canRunWithoutTools,
 	type Delegation,
 	type EventKind,
+	isFeatherweightEligible,
 	MAX_AGENT_DEPTH,
 	type Memory,
 	type ModelRef,
@@ -98,6 +104,7 @@ import {
 	parsePlanResponse,
 	primitivesForAgent,
 	renderAgentsForPrompt,
+	renderCallerIdentity,
 	renderToolBoundaries,
 	renderWorkspaceTools,
 } from "./plan.ts";
@@ -287,6 +294,7 @@ export class Agent {
 	private readonly llmRetryOptions?: Omit<RetryOptions, "signal" | "onRetry">;
 	private readonly logger: Logger;
 	private readonly resolverSettings: ResolverSettings;
+	private readonly modelsByProvider: Map<string, ProviderModel[]>;
 	private readonly planningModelMaxOutputTokens?: number;
 	private readonly subcorticalMemoryModel?: ResolvedModel;
 	private readonly delegateObserverConfigs: DelegateObserverRuntimeConfig[] = [];
@@ -447,6 +455,7 @@ export class Agent {
 				modelMap.set(providerId, []);
 			}
 		}
+		this.modelsByProvider = modelMap;
 		const resolverSettings =
 			options.resolverSettings ??
 			createResolverSettings(
@@ -523,6 +532,58 @@ export class Agent {
 					`agent refs resolve (path-style refs like "utility/reader" require the agent tree).`,
 			);
 		}
+
+		// Featherweight placement (spec §5): give the spawner an in-process executor
+		// for single-turn no-tool leaves. The spawner holds no LLM client; this
+		// Agent does, so it wires the callback. Eligibility is gated per-spawn.
+		if (typeof this.spawner?.setFeatherweightExecutor === "function") {
+			this.spawner.setFeatherweightExecutor((input) => this.runFeatherweightChild(input));
+		}
+	}
+
+	/**
+	 * Run a featherweight-eligible child in this process (spec §5). Builds a
+	 * minimal single-turn Agent over this process's LLM client and no genome (so
+	 * no recall pass), runs one turn, and returns the outcome. The spawner
+	 * synthesizes the equivalent handle, session events, and log.
+	 */
+	private async runFeatherweightChild(
+		input: FeatherweightExecInput,
+	): Promise<FeatherweightExecResult> {
+		const childSpec = this.genome?.getAgent(input.agentName);
+		if (!childSpec) {
+			throw new Error(`Featherweight agent '${input.agentName}' not found in genome`);
+		}
+		const child = new Agent({
+			spec: {
+				...childSpec,
+				system_prompt: childSpec.system_prompt + renderCallerIdentity(input.caller),
+			},
+			env: this.env,
+			client: this.client,
+			primitiveRegistry: this.primitiveRegistry,
+			availableAgents: [],
+			sessionId: this.sessionId,
+			depth: input.self.depth,
+			agentId: input.self.agentId,
+			self: input.self,
+			caller: input.caller,
+			evalMode: input.evalMode,
+			...(input.model !== undefined ? { modelOverride: input.model } : {}),
+			providerIdOverride: input.providerIdOverride,
+			resolverSettings: input.resolverSettings ?? this.resolverSettings,
+			modelsByProvider: this.modelsByProvider,
+			...(input.history !== undefined ? { initialHistory: input.history } : {}),
+			logger: this.logger,
+		});
+		const result = await child.run(input.goal, this.signal);
+		return {
+			output: result.output,
+			success: result.success,
+			stumbles: result.stumbles,
+			turns: result.turns,
+			timed_out: result.timed_out,
+		};
 	}
 
 	/** Returns the resolved model and provider for this agent. */
@@ -531,11 +592,7 @@ export class Agent {
 	}
 
 	private canRunWithoutTools(): boolean {
-		return (
-			this.spec.tags.includes("observer") &&
-			this.spec.tools.length === 0 &&
-			this.spec.agents.length === 0
-		);
+		return canRunWithoutTools(this.spec);
 	}
 
 	private canCompleteWithEmptyOutput(): boolean {
@@ -2079,8 +2136,10 @@ export class Agent {
 					rootDir: this.rootDir,
 					mnemonicName: mnemonicName ?? undefined,
 					evalMode: this.evalMode,
+					...(effectiveDelegation.model !== undefined ? { model: effectiveDelegation.model } : {}),
 					providerIdOverride: this.resolved.provider,
 					resolverSettings: this.resolverSettings,
+					featherweight: isFeatherweightEligible(target.spec!),
 					trustedUserInstruction: this.trustedUserInstruction,
 					surfacedMemoryBlock: this.childSurfacedMemoryBlock(targetSpecName),
 					env: effectiveDelegation.env,
@@ -2204,13 +2263,6 @@ export class Agent {
 	 * spawn infrastructure by definition.
 	 */
 	private async serviceCellSpawn(req: CellSpawnRequest): Promise<DelegationOutcome> {
-		if (req.model !== undefined) {
-			return {
-				kind: "infrastructure_error",
-				reason:
-					"spawn opts.model is not supported yet — child models come from the genome and model settings",
-			};
-		}
 		const delegation: Delegation = {
 			call_id: `cell-spawn-${ulid()}`,
 			agent_name: req.agent,
@@ -2218,6 +2270,7 @@ export class Agent {
 			...(req.hints !== undefined ? { hints: req.hints } : {}),
 			...(req.blocking !== undefined ? { blocking: req.blocking } : {}),
 			...(req.shared !== undefined ? { shared: req.shared } : {}),
+			...(req.model !== undefined ? { model: req.model } : {}),
 			...(req.env !== undefined ? { env: req.env } : {}),
 		};
 		try {

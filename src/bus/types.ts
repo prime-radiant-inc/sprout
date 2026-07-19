@@ -32,6 +32,12 @@ export interface StartMessage {
 	payload?: Record<string, unknown>;
 	shared: boolean;
 	eval_mode?: boolean;
+	/**
+	 * Per-spawn model override (spec §5): a tier ("fast") or a "provider:model"
+	 * selection string. Resolved through the model resolver as the child's
+	 * modelOverride, taking precedence over the genome spec's model.
+	 */
+	model?: string;
 	/** Selected provider context inherited from the caller. */
 	provider_id?: string;
 	/** Provider tier defaults and enabled-provider state inherited from the caller. */
@@ -144,6 +150,7 @@ export function parseBusMessage(raw: string): BusMessage {
 			]);
 			validateAgentAddress(obj, "self");
 			validateAgentAddress(obj, "caller");
+			validateOptionalString(obj, "model");
 			validateOptionalString(obj, "trusted_user_instruction");
 			validateOptionalString(obj, "surfaced_memory_block");
 			validateOptionalPlainObject(obj, "payload");

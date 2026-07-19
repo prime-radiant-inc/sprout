@@ -321,6 +321,92 @@ describe("AgentSpawner", () => {
 			}
 		});
 
+		test("per-spawn model override travels on the StartMessage", async () => {
+			const handleId = "01SPAWNERMODELOVERRIDE0000";
+			const childBus = new BusClient(server.url);
+			const observerBus = new BusClient(server.url);
+			await childBus.connect();
+			await observerBus.connect();
+			let readyTimer: ReturnType<typeof setInterval> | undefined;
+			let resolveExit: ((code: number) => void) | undefined;
+			try {
+				spawner = new AgentSpawner(bus, server.url, SESSION_ID, () => {
+					readyTimer = setInterval(() => {
+						void childBus.publish(agentReady(SESSION_ID, handleId), JSON.stringify({ ok: true }));
+					}, 10);
+					return {
+						kill: () => {
+							if (readyTimer) clearInterval(readyTimer);
+							resolveExit?.(0);
+						},
+						exited: new Promise<number>((resolve) => {
+							resolveExit = resolve;
+						}),
+					};
+				});
+
+				const inboxPromise = observerBus.waitForMessage(agentInbox(SESSION_ID, handleId), 5_000);
+				const spawnPromise = spawner.spawnAgent({
+					agentName: "test-leaf",
+					genomePath: genomeDir,
+					caller: addr("root", 0),
+					goal: "Use fast tier",
+					blocking: false,
+					shared: false,
+					workDir: tempDir,
+					handleId,
+					model: "fast",
+					providerIdOverride: TEST_PROVIDER_ID,
+					resolverSettings: TEST_RESOLVER_SETTINGS,
+				});
+				await expect(spawnPromise).resolves.toBe(handleId);
+
+				const startMessage = JSON.parse(await inboxPromise);
+				if (readyTimer) clearInterval(readyTimer);
+				expect(startMessage.model).toBe("fast");
+				expect(spawner.getHandle(handleId)?.model).toBe("fast");
+			} finally {
+				if (readyTimer) clearInterval(readyTimer);
+				await observerBus.disconnect();
+				await childBus.disconnect();
+			}
+		});
+
+		test("respawn re-applies the recorded model override", async () => {
+			const mockClient = createMockClient("Respawn result.");
+			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));
+			const handleId = "01SPAWNERMODELRESPAWN00000";
+
+			await spawnWithResolver({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: addr("root", 0),
+				goal: "First run",
+				blocking: true,
+				shared: false,
+				workDir: tempDir,
+				handleId,
+				model: "fast",
+			});
+
+			// Force the handle to the "exited/completed" state so message_agent respawns.
+			const handle = spawner.getHandle(handleId)!;
+			await handle.process.exited;
+			await waitFor(() => spawner.getHandle(handleId)?.status === "completed");
+
+			const observerBus = new BusClient(server.url);
+			await observerBus.connect();
+			try {
+				const inboxPromise = observerBus.waitForMessage(agentInbox(SESSION_ID, handleId), 5_000);
+				await spawner.messageAgent(handleId, "Second run", addr("root", 0), false);
+				const startMessage = JSON.parse(await inboxPromise);
+				expect(startMessage.kind).toBe("start");
+				expect(startMessage.model).toBe("fast");
+			} finally {
+				await observerBus.disconnect();
+			}
+		}, 15_000);
+
 		test("generates unique handle IDs for each spawn", async () => {
 			const mockClient = createMockClient("Done.");
 			spawner = new AgentSpawner(bus, server.url, SESSION_ID, createInProcessSpawnFn(mockClient));

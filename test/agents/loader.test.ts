@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { findRootToolsDir, loadRootAgents } from "../../src/agents/loader.ts";
+import { findRootToolsDir, loadRootAgents, scanAgentTree } from "../../src/agents/loader.ts";
+import { createAgentFixture } from "./fixtures.ts";
 
 describe("findRootToolsDir", () => {
 	test("returns nested path for agent in tree", async () => {
@@ -49,6 +50,22 @@ describe("loadRootAgents", () => {
 		expect(names).toContain("debugger");
 		expect(names).toContain("task-manager");
 		expect(names).toContain("the-balcony");
+	});
+
+	test("loads the utility/llm-call completion leaf and it runs without tools", async () => {
+		const rootDir = join(import.meta.dir, "../../root");
+		const tree = await scanAgentTree(rootDir);
+		const entry = tree.get("utility/llm-call");
+		expect(entry).toBeDefined();
+		const spec = entry!.spec;
+		expect(spec.model).toBe("fast");
+		expect(spec.tools).toEqual([]);
+		expect(spec.agents).toEqual([]);
+		expect(spec.constraints.max_turns).toBe(1);
+		expect(spec.constraints.can_spawn).toBe(false);
+		expect(spec.subcortical_recall).toBe(false);
+		// The zero-tool exemption (spec §5) lets this construct without throwing.
+		expect(() => createAgentFixture({ spec, availableAgents: [spec] })).not.toThrow();
 	});
 
 	test("all agents have valid constraints and system prompts", async () => {

@@ -1275,6 +1275,33 @@ describe("Agent", () => {
 		expect(result.turns).toBe(1);
 	});
 
+	test("single-turn zero-tool completion agent runs and returns its reply", async () => {
+		const completionSpec: AgentSpec = {
+			...leafSpec,
+			name: "utility/llm-call",
+			system_prompt: "Complete the request in your reply. No preamble.",
+			tools: [],
+			agents: [],
+			constraints: { ...leafSpec.constraints, can_spawn: false, max_turns: 1 },
+			tags: [],
+		};
+		const mockClient = makeMockClient({
+			id: "mock-completion",
+			model: "claude-haiku-4-5-20251001",
+			provider: "anthropic",
+			message: Msg.assistant("Paris."),
+			finish_reason: { reason: "stop" },
+			usage: { input_tokens: 10, output_tokens: 3, total_tokens: 13 },
+		});
+		const { agent } = createAgentFixture({ spec: completionSpec, client: mockClient });
+
+		const result = await agent.run("What is the capital of France?");
+
+		expect(result.success).toBe(true);
+		expect(result.output).toBe("Paris.");
+		expect(result.turns).toBe(1);
+	});
+
 	test("tool-less observer may complete silently with an empty response", async () => {
 		const observerSpec: AgentSpec = {
 			...leafSpec,
@@ -4504,6 +4531,78 @@ describe("Agent", () => {
 		expect(spawnCalls[0]!.agentName).toBe("leaf");
 		expect(spawnCalls[0]!.goal).toBe("do the thing");
 		expect(spawnCalls[0]!.blocking).toBe(true);
+		// A tool-bearing leaf is not featherweight-eligible.
+		expect(spawnCalls[0]!.featherweight).toBe(false);
+	});
+
+	test("delegating to a single-turn no-tool leaf flags the spawn featherweight", async () => {
+		const llmCallSpec: AgentSpec = {
+			name: "llm-call",
+			description: "Pure completion leaf",
+			system_prompt: "Complete the request in your reply.",
+			model: "fast",
+			tools: [],
+			agents: [],
+			constraints: { max_turns: 1, timeout_ms: 60_000, can_spawn: false, can_learn: false },
+			tags: [],
+			version: 1,
+		};
+		const root: AgentSpec = { ...rootSpec, agents: ["llm-call"] };
+		const delegateMsg: Message = {
+			role: "assistant",
+			content: [
+				{
+					kind: ContentKind.TOOL_CALL,
+					tool_call: {
+						id: "call-fw-1",
+						name: "delegate",
+						arguments: JSON.stringify({
+							agent_name: "llm-call",
+							goal: "answer briefly",
+							blocking: true,
+						}),
+					},
+				},
+			],
+		};
+		const rootDoneMsg: Message = {
+			role: "assistant",
+			content: [{ kind: ContentKind.TEXT, text: "Done." }],
+		};
+		let callCount = 0;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				return {
+					id: `mock-fw-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: callCount === 1 ? delegateMsg : rootDoneMsg,
+					finish_reason: { reason: callCount === 1 ? "tool_calls" : "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const { spawner, spawnCalls } = createMockSpawner();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const agent = new Agent({
+			spec: root,
+			env,
+			client: mockClient,
+			primitiveRegistry: createPrimitiveRegistry(env),
+			availableAgents: [root, llmCallSpec],
+			depth: 0,
+			events: new AgentEventEmitter(),
+			spawner,
+		});
+
+		await agent.run("delegate to llm-call");
+		expect(spawnCalls).toHaveLength(1);
+		expect(spawnCalls[0]!.agentName).toBe("llm-call");
+		expect(spawnCalls[0]!.featherweight).toBe(true);
 	});
 
 	test("delegate with env threads the map into spawner.spawnAgent options", async () => {

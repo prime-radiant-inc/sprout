@@ -1,14 +1,16 @@
-import { stat } from "node:fs/promises";
+import { appendFile, mkdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { ResolverSettings } from "../agents/model-resolver.ts";
 import type { HandleRegistrar } from "../host/handle-registrar.ts";
 import { hashToken, mintToken, type ObserverRemit } from "../host/handle-registry.ts";
+import type { SessionEvent } from "../kernel/types.ts";
+import { type Message, Msg } from "../llm/types.ts";
 import type { LivenessProbe } from "../shared/liveness.ts";
 import type { StoreAccess } from "../store/store-access.ts";
 import { buildInternalSproutCommand } from "../util/self-command.ts";
 import { ulid } from "../util/ulid.ts";
 import type { BusClient } from "./client.ts";
-import { readHandleResult } from "./resume.ts";
+import { readHandleResult, replayHandleLog } from "./resume.ts";
 import { agentInbox, agentMessageAck, agentReady, agentResult, sessionEvents } from "./topics.ts";
 import type {
 	AgentAddress,
@@ -48,10 +50,22 @@ export interface SpawnAgentOptions {
 	/** Mnemonic codename for this agent (historical figure surname). */
 	mnemonicName?: string;
 	evalMode?: boolean;
+	/**
+	 * Per-spawn model override (spec §5): a tier ("fast") or a "provider:model"
+	 * selection string. Travels on the StartMessage and resolves as the child's
+	 * modelOverride; recorded on the handle so respawn re-applies it.
+	 */
+	model?: string;
 	/** Selected provider context inherited from the caller. */
 	providerIdOverride?: string;
 	/** Provider tier defaults and enabled-provider state inherited from the caller. */
 	resolverSettings?: ResolverSettings;
+	/**
+	 * Run this spawn in the owner's process instead of a subprocess (spec §5
+	 * featherweight placement). The caller sets it only for featherweight-eligible
+	 * specs; honored only when the spawner holds a featherweight executor.
+	 */
+	featherweight?: boolean;
 	/** Original user instruction, trusted for deterministic runtime policy gates. */
 	trustedUserInstruction?: string;
 	/** Precomputed memory context inherited from the root session. Empty string suppresses it. */
@@ -138,11 +152,15 @@ export interface AgentHandle {
 	/** Mnemonic codename assigned at delegation time. */
 	mnemonicName?: string;
 	evalMode?: boolean;
+	/** Per-spawn model override, re-applied on the respawn StartMessage. */
+	model?: string;
 	providerIdOverride?: string;
 	resolverSettings?: ResolverSettings;
 	trustedUserInstruction?: string;
 	surfacedMemoryBlock?: string;
 	resultRecoveryLogOffset?: number | null;
+	/** This handle ran in-process (spec §5 featherweight); respawn re-runs in-process. */
+	featherweight?: boolean;
 }
 
 /**
@@ -153,6 +171,45 @@ export type SpawnFn = (
 	handleId: string,
 	env: Record<string, string>,
 ) => { kill: (signal?: "SIGTERM" | "SIGKILL") => void; exited: Promise<number> };
+
+/**
+ * Input to a featherweight in-process execution (spec §5). Mirrors the subset
+ * of a StartMessage a single-turn no-tool leaf needs, plus any prior history for
+ * a follow-up message_agent re-run (respawn-with-history equivalent).
+ */
+export interface FeatherweightExecInput {
+	agentName: string;
+	genomePath: string;
+	goal: string;
+	handleId: string;
+	self: AgentAddress;
+	caller: AgentAddress;
+	workDir: string;
+	rootDir?: string;
+	projectDataDir?: string;
+	evalMode?: boolean;
+	model?: string;
+	providerIdOverride?: string;
+	resolverSettings?: ResolverSettings;
+	/** Prior conversation replayed from the handle log for a re-run. */
+	history?: Message[];
+}
+
+/** Result of a featherweight execution — the run outcome the owner synthesizes into events/log. */
+export interface FeatherweightExecResult {
+	output: string;
+	success: boolean;
+	stumbles: number;
+	turns: number;
+	timed_out: boolean;
+}
+
+/**
+ * Runs a featherweight-eligible agent in the owner's process (spec §5). Injected
+ * by the owning Agent, which holds the LLM client. When absent, featherweight
+ * spawns fall back to the ordinary subprocess path.
+ */
+export type FeatherweightFn = (input: FeatherweightExecInput) => Promise<FeatherweightExecResult>;
 
 /** Default spawn function using Bun.spawn() */
 function defaultSpawnFn(
@@ -225,6 +282,21 @@ async function forceKillAfterGrace(
 	);
 }
 
+/** Build a SessionEvent record with the standard envelope. */
+function logEvent(
+	kind: SessionEvent["kind"],
+	agentId: string,
+	depth: number,
+	data: Record<string, unknown>,
+): SessionEvent {
+	return { kind, timestamp: Date.now(), agent_id: agentId, depth, data };
+}
+
+/** Stable event identity for a handle (agentId, falling back to the handle id). */
+function agentIdOf(handle: AgentHandle): string {
+	return handle.agentId ?? handle.handleId;
+}
+
 function isFileNotFound(error: unknown): boolean {
 	return (
 		typeof error === "object" &&
@@ -245,6 +317,7 @@ export class AgentSpawner {
 	private readonly busUrl: string;
 	private sessionId: string;
 	private readonly spawnFn: SpawnFn;
+	private featherweightFn?: FeatherweightFn;
 	private readonly waitTimeoutMs: number;
 	private readonly agentMessageAckTimeoutMs: number;
 	private readonly authChannel?: SpawnerAuthChannel;
@@ -393,15 +466,26 @@ export class AgentSpawner {
 		waitTimeoutMs?: number,
 		agentMessageAckTimeoutMs?: number,
 		authChannel?: SpawnerAuthChannel,
+		featherweightFn?: FeatherweightFn,
 	) {
 		this.bus = bus;
 		this.busUrl = busUrl;
 		this.sessionId = sessionId;
 		this.spawnFn = spawnFn ?? defaultSpawnFn;
+		this.featherweightFn = featherweightFn;
 		this.authChannel = authChannel;
 		this.waitTimeoutMs = waitTimeoutMs ?? 900_000;
 		this.agentMessageAckTimeoutMs =
 			agentMessageAckTimeoutMs ?? DEFAULT_AGENT_MESSAGE_ACK_TIMEOUT_MS;
+	}
+
+	/**
+	 * Wire the featherweight in-process executor (spec §5). The owning Agent calls
+	 * this after construction, since it holds the LLM client the executor needs.
+	 * Without it, featherweight-flagged spawns fall back to the subprocess path.
+	 */
+	setFeatherweightExecutor(fn: FeatherweightFn): void {
+		this.featherweightFn = fn;
 	}
 
 	/**
@@ -642,6 +726,13 @@ export class AgentSpawner {
 			...(opts.isObserver ? { role: "observer" as const } : {}),
 		};
 
+		// Featherweight placement (spec §5): a single-turn no-tool no-spawn leaf runs
+		// in this process, producing a synthetic handle, session events, and log so
+		// wait_agent/message_agent/resume behave identically to a subprocess child.
+		if (opts.featherweight && this.featherweightFn) {
+			return this.spawnFeatherweight(opts, handleId, agentId, self, visibility, keepAlive);
+		}
+
 		const env: Record<string, string> = {
 			SPROUT_BUS_URL: this.busUrl,
 			SPROUT_HANDLE_ID: handleId,
@@ -690,6 +781,7 @@ export class AgentSpawner {
 			projectDataDir: opts.projectDataDir,
 			mnemonicName: opts.mnemonicName,
 			evalMode: opts.evalMode,
+			model: opts.model,
 			providerIdOverride: opts.providerIdOverride,
 			resolverSettings: opts.resolverSettings,
 			trustedUserInstruction: opts.trustedUserInstruction,
@@ -719,6 +811,7 @@ export class AgentSpawner {
 			payload: opts.payload,
 			shared: keepAlive,
 			eval_mode: opts.evalMode,
+			model: opts.model,
 			provider_id: opts.providerIdOverride,
 			resolver_settings: opts.resolverSettings,
 			trusted_user_instruction: opts.trustedUserInstruction,
@@ -732,6 +825,146 @@ export class AgentSpawner {
 		}
 
 		return handleId;
+	}
+
+	/**
+	 * Run a featherweight-eligible spawn in this process (spec §5). Registers a
+	 * synthetic completed handle, publishes session_start/session_end on the
+	 * session-wide topic, and writes a perceive/plan_end/session_end per-handle
+	 * log — the minimal records resume registration and respawn-with-history need.
+	 */
+	private async spawnFeatherweight(
+		opts: SpawnAgentOptions,
+		handleId: string,
+		agentId: string,
+		self: AgentAddress,
+		visibility: HandleVisibility,
+		keepAlive: boolean,
+	): Promise<ResultMessage | string> {
+		const handle: AgentHandle = {
+			handleId,
+			agentId,
+			address: self,
+			process: { kill: () => {}, exited: Promise.resolve(0) },
+			status: "running",
+			keepAlive,
+			visibility,
+			isObserver: false,
+			pendingWaiters: [],
+			owner: opts.caller,
+			agentName: opts.agentName,
+			genomePath: opts.genomePath,
+			caller: opts.caller,
+			workDir: opts.workDir,
+			rootDir: opts.rootDir,
+			projectDataDir: opts.projectDataDir,
+			mnemonicName: opts.mnemonicName,
+			evalMode: opts.evalMode,
+			model: opts.model,
+			providerIdOverride: opts.providerIdOverride,
+			resolverSettings: opts.resolverSettings,
+			trustedUserInstruction: opts.trustedUserInstruction,
+			surfacedMemoryBlock: opts.surfacedMemoryBlock,
+			featherweight: true,
+		};
+		this.handles.set(handleId, handle);
+
+		const result = await this.runFeatherweight(handle, opts.goal);
+		this.settleHandleResult(handle, result, keepAlive ? "idle" : "completed");
+
+		if (opts.blocking) {
+			return result;
+		}
+		return handleId;
+	}
+
+	/**
+	 * Execute one featherweight turn and produce the equivalent observable state
+	 * (spec §5): the run outcome via the injected executor, session events on the
+	 * session-wide topic, and the three-record per-handle log. Re-runs (a
+	 * follow-up message_agent) replay the prior log so history is present.
+	 */
+	private async runFeatherweight(handle: AgentHandle, goal: string): Promise<ResultMessage> {
+		const dataDir = handle.projectDataDir ?? handle.genomePath;
+		const handleLogDir = join(dataDir, "logs", this.sessionId);
+		const logPath = join(handleLogDir, `${handle.handleId}.jsonl`);
+		const priorHistory = await replayHandleLog(logPath);
+
+		const exec = await this.featherweightFn!({
+			agentName: handle.agentName,
+			genomePath: handle.genomePath,
+			goal,
+			handleId: handle.handleId,
+			self: handle.address,
+			caller: handle.caller,
+			workDir: handle.workDir,
+			rootDir: handle.rootDir,
+			projectDataDir: handle.projectDataDir,
+			evalMode: handle.evalMode,
+			model: handle.model,
+			providerIdOverride: handle.providerIdOverride,
+			resolverSettings: handle.resolverSettings,
+			history: priorHistory.length > 0 ? priorHistory : undefined,
+		});
+
+		const depth = handle.address.depth;
+		const startData = {
+			goal,
+			session_id: this.sessionId,
+			...(handle.model ? { model: handle.model } : {}),
+		};
+		const endData = {
+			session_id: this.sessionId,
+			success: exec.success,
+			stumbles: exec.stumbles,
+			turns: exec.turns,
+			timed_out: exec.timed_out,
+			output: exec.output,
+		};
+
+		// Session-wide topic: a subprocess child publishes session_start/session_end
+		// itself; the owner synthesizes them so featherweight fan-out stays visible.
+		this.publishSessionEvent(handle.handleId, "session_start", agentIdOf(handle), depth, startData);
+
+		// Per-handle log: perceive + plan_end rebuild history on a follow-up
+		// message_agent; session_end registers the completed handle on resume.
+		await mkdir(handleLogDir, { recursive: true });
+		const records: SessionEvent[] = [
+			logEvent("perceive", agentIdOf(handle), depth, { goal }),
+			logEvent("plan_end", agentIdOf(handle), depth, {
+				assistant_message: Msg.assistant(exec.output),
+			}),
+			logEvent("session_end", agentIdOf(handle), depth, endData),
+		];
+		await appendFile(logPath, records.map((r) => `${JSON.stringify(r)}\n`).join(""));
+
+		this.publishSessionEvent(handle.handleId, "session_end", agentIdOf(handle), depth, endData);
+
+		return {
+			kind: "result",
+			handle_id: handle.handleId,
+			output: exec.output,
+			success: exec.success,
+			stumbles: exec.stumbles,
+			turns: exec.turns,
+			timed_out: exec.timed_out,
+		};
+	}
+
+	private publishSessionEvent(
+		handleId: string,
+		kind: SessionEvent["kind"],
+		agentId: string,
+		depth: number,
+		data: Record<string, unknown>,
+	): void {
+		if (!this.bus.connected) return;
+		const eventMsg: EventMessage = {
+			kind: "event",
+			handle_id: handleId,
+			event: logEvent(kind, agentId, depth, data),
+		};
+		void this.bus.publish(sessionEvents(this.sessionId), JSON.stringify(eventMsg));
 	}
 
 	private waitForBlockingSpawn(handleId: string): Promise<ResultMessage> {
@@ -891,6 +1124,17 @@ export class AgentSpawner {
 			);
 		}
 
+		// A completed/idle featherweight handle re-runs in-process with its prior
+		// history replayed (spec §5 respawn-with-history equivalent).
+		if (handle.featherweight && this.featherweightFn && handle.status !== "running") {
+			handle.trustedUserInstruction = trustedUserInstruction;
+			handle.result = undefined;
+			handle.status = "running";
+			const result = await this.runFeatherweight(handle, message);
+			this.settleHandleResult(handle, result, handle.keepAlive ? "idle" : "completed");
+			return blocking ? result : undefined;
+		}
+
 		const inboxTopic = agentInbox(this.sessionId, handleId);
 
 		if (handle.status === "running") {
@@ -982,6 +1226,7 @@ export class AgentSpawner {
 			goal: message,
 			shared: handle.keepAlive,
 			eval_mode: handle.evalMode,
+			model: handle.model,
 			provider_id: handle.providerIdOverride,
 			resolver_settings: handle.resolverSettings,
 			trusted_user_instruction: handle.trustedUserInstruction,
@@ -1083,10 +1328,12 @@ export class AgentSpawner {
 			evalMode?: boolean;
 			rootDir?: string;
 			projectDataDir?: string;
+			model?: string;
 			providerIdOverride?: string;
 			resolverSettings?: ResolverSettings;
 			trustedUserInstruction?: string;
 			surfacedMemoryBlock?: string;
+			featherweight?: boolean;
 		},
 	): void {
 		// Skip if the handle already exists (e.g. re-spawned since the
@@ -1130,10 +1377,12 @@ export class AgentSpawner {
 			rootDir: spawnInfo?.rootDir,
 			projectDataDir: spawnInfo?.projectDataDir,
 			evalMode: spawnInfo?.evalMode,
+			model: spawnInfo?.model,
 			providerIdOverride: spawnInfo?.providerIdOverride,
 			resolverSettings: spawnInfo?.resolverSettings,
 			trustedUserInstruction: spawnInfo?.trustedUserInstruction,
 			surfacedMemoryBlock: spawnInfo?.surfacedMemoryBlock,
+			featherweight: spawnInfo?.featherweight,
 		};
 		this.handles.set(handleId, handle);
 	}

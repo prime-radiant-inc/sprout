@@ -1,7 +1,7 @@
 // biome-ignore-all lint/suspicious/noTemplateCurlyInString: embedded root files contain literal source text.
 export const embeddedRootBundle = {
-	version: "ba70d4bc7ee2c21d059c8971034543f3b3ccd3f30955d6ae1dd2e374715dd33b",
-	hash: "ba70d4bc7ee2c21d059c8971034543f3b3ccd3f30955d6ae1dd2e374715dd33b",
+	version: "7e86b6901ec177ab317b13d439ddd3c45d97a4a7e4869c40166f77072451f87b",
+	hash: "7e86b6901ec177ab317b13d439ddd3c45d97a4a7e4869c40166f77072451f87b",
 	files: [
 		{
 			path: "agents/architect.md",
@@ -222,6 +222,11 @@ export const embeddedRootBundle = {
 			path: "agents/utility/agents/web-reader.md",
 			content:
 				'---\nname: web-reader\ndescription: "Ask to fetch web pages, call REST APIs, or download data from URLs — parses responses and extracts relevant content"\nmodel: fast\ntools:\n  - fetch\nagents: []\nconstraints:\n  max_turns: 15\n  timeout_ms: 60000\n  can_spawn: false\n  can_learn: false\n  requires_tool_use: true\ntags:\n  - core\n  - web\nversion: 1\n---\nYou fetch and read content from the web.\n\nUse the fetch tool to make HTTP requests to URLs. You can GET web pages,\ncall APIs, download data, and more.\n\nWhen fetching web content:\n1. Make the request with appropriate method and headers\n2. Parse and interpret the response\n3. Extract and return the relevant information clearly\n\nFor HTML pages, focus on extracting meaningful text content rather than\nreturning raw HTML. Summarize or structure the content as appropriate\nfor the goal you were given.\n',
+		},
+		{
+			path: "agents/utility/llm-call.md",
+			content:
+				'---\nname: llm-call\ndescription: "The primitive RLM sub-LM call — completes a request in a single reply with no tools. Base for specialized descendants (summarizer, extractor, judge)"\nmodel: fast\ntools: []\nagents: []\nconstraints:\n  max_turns: 1\n  timeout_ms: 60000\n  can_spawn: false\n  can_learn: false\nsubcortical_recall: false\ntags:\n  - utility\nversion: 1\n---\nComplete the request in your reply. No preamble.\n',
 		},
 		{
 			path: "agents/verifier.md",
