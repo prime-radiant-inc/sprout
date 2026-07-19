@@ -14,12 +14,20 @@
  *   worker → parent: { id, op: "result", ok, output, returnValue?, error? }
  */
 
+import vm from "node:vm";
+
 export type CellWorkerRequest = { id: string; op: "cell"; code: string };
 
-/** Parent's answer to one ambient request, correlated by the worker's id. */
+/**
+ * Parent's answer to one ambient request, correlated by the worker's id. An
+ * `infrastructure` rejection (worker death, StoreUnavailable, spawn transport)
+ * carries the flag so the worker can track its OBJECT identity — the cell's
+ * stumble accounting keys on identity, never on the message string a cell could
+ * forge.
+ */
 export type CellAmbientResponse =
 	| { id: string; ok: true; result: unknown }
-	| { id: string; ok: false; error: string };
+	| { id: string; ok: false; error: string; infrastructure?: boolean };
 
 export type CellWorkerMessage =
 	| { id: string; op: "ambient"; method: string; args: unknown[] }
@@ -30,30 +38,9 @@ export type CellWorkerMessage =
 			output: string;
 			returnValue?: string;
 			error?: string;
+			/** True only when the terminal error IS a host infrastructure error. */
+			infrastructure?: boolean;
 	  };
-
-/**
- * Runtime globals shadowed to undefined inside the realm. Everything that
- * grants fs/exec/network in a Bun-hosted process (spec §4: cells hold no exec
- * grant); setTimeout/setInterval stay available — plain JS timing is
- * legitimate and the budget clock bounds it.
- */
-const SHADOWED_GLOBALS = [
-	"Bun",
-	"process",
-	"require",
-	"module",
-	"exports",
-	"global",
-	"globalThis",
-	"fetch",
-	"XMLHttpRequest",
-	"WebSocket",
-	"Worker",
-	"Deno",
-	"__dirname",
-	"__filename",
-] as const;
 
 /** Ambient API methods proxied to the parent (value ops; spawn is Slice B). */
 export const AMBIENT_METHODS = [
@@ -67,6 +54,129 @@ export const AMBIENT_METHODS = [
 	"size",
 	"get",
 ] as const;
+
+/**
+ * The cell realm (spec §4). Cell code runs inside a fresh V8 context created by
+ * `node:vm` — its `globalThis`, `Function`, `eval`, and constructor chain all
+ * resolve to THAT context, so `Function("return process")()`,
+ * `eval("Bun")`, and `({}).constructor.constructor("return globalThis")()` all
+ * evaluate against the sandbox global, which has no Bun/process/require/fetch.
+ * Shadowing globals as parameters (the old `new Function` realm) was cosmetic —
+ * those escapes reached the host scope. A vm context is the real boundary.
+ *
+ * The sandbox exposes ONLY the ambient API, console, timers, and a
+ * context-native structuredClone. The standard JS intrinsics (Object, Array,
+ * JSON, Math, Promise, Map, Set, Date, RegExp, Error, ...) already exist in the
+ * fresh context's global — we do NOT copy host ones in (that would re-introduce
+ * the host constructor chain, the whole bug). Bun's fresh context omits
+ * structuredClone, TextEncoder/Decoder, and timers, so those we add: timers as
+ * sealed wrappers over the host's (see below), structuredClone as pure
+ * context-source JS. TextEncoder/Decoder are NOT provided — no cell path needs
+ * raw byte encoding (get() yields strings), and a sealed reimplementation would
+ * be dead weight.
+ *
+ * The bootstrap runs BEFORE cell code and installs everything from source
+ * (inside the context) over three host bridges passed via the sandbox:
+ * __hostCall__ (proxy an ambient op), __hostLog__ (append console output), and
+ * __hostTimers__ (schedule/cancel). All three are captured in a bootstrap
+ * closure and then deleted from the context global, so cell code cannot reach
+ * the raw host functions to walk their constructor chain. Ambient results are
+ * JSON-severed inside the context (host promises/objects never leak their
+ * prototype to the cell), and timer ids are opaque context integers mapping to
+ * host timer handles held in the closure.
+ */
+function buildCellBootstrap(): string {
+	const ambientList = JSON.stringify([...AMBIENT_METHODS]);
+	return `
+"use strict";
+(function (hostCall, hostLog, hostTimers) {
+	const AMBIENT = ${ambientList};
+	const sever = (r) => (r === undefined ? undefined : JSON.parse(JSON.stringify(r)));
+	const callAmbient = async (method, args) => sever(await hostCall(method, args));
+	for (const method of AMBIENT) {
+		globalThis[method] = (...args) => callAmbient(method, args);
+	}
+	const mkLog = () => (...args) => { hostLog(args); };
+	globalThis.console = { log: mkLog(), warn: mkLog(), error: mkLog() };
+
+	function wrapOutcome(wire) {
+		const handle = makeHandle(wire.handleId);
+		if (wire.kind === "started") return { handle };
+		return { ok: wire.ok, summary: wire.summary, bindings: wire.bindings, handle };
+	}
+	function makeHandle(hid) {
+		return {
+			id: hid,
+			wait: async () => wrapOutcome(await callAmbient("handle_wait", [hid])),
+			message: async (text, opts) => wrapOutcome(await callAmbient("handle_message", [hid, text, opts])),
+		};
+	}
+	globalThis.spawn = async (agent, goal, opts) => wrapOutcome(await callAmbient("spawn", [agent, goal, opts]));
+	globalThis.handle = (hid) => {
+		if (typeof hid !== "string") throw new Error("handle(id): id must be a string");
+		return makeHandle(hid);
+	};
+
+	let timerSeq = 0;
+	const liveTimers = new Map();
+	globalThis.setTimeout = (fn, ms, ...a) => {
+		const key = ++timerSeq;
+		const t = hostTimers.setTimeout(() => { liveTimers.delete(key); fn(...a); }, ms);
+		liveTimers.set(key, t);
+		return key;
+	};
+	globalThis.setInterval = (fn, ms, ...a) => {
+		const key = ++timerSeq;
+		const t = hostTimers.setInterval(() => fn(...a), ms);
+		liveTimers.set(key, t);
+		return key;
+	};
+	globalThis.clearTimeout = (key) => {
+		const t = liveTimers.get(key);
+		if (t !== undefined) { hostTimers.clearTimeout(t); liveTimers.delete(key); }
+	};
+	globalThis.clearInterval = (key) => {
+		const t = liveTimers.get(key);
+		if (t !== undefined) { hostTimers.clearInterval(t); liveTimers.delete(key); }
+	};
+
+	globalThis.structuredClone = function structuredClone(value, seen) {
+		if (value === null || typeof value !== "object") return value;
+		seen = seen || new WeakMap();
+		if (seen.has(value)) return seen.get(value);
+		if (value instanceof Date) return new Date(value.getTime());
+		if (value instanceof RegExp) return new RegExp(value.source, value.flags);
+		if (Array.isArray(value)) {
+			const out = [];
+			seen.set(value, out);
+			for (let i = 0; i < value.length; i++) out[i] = structuredClone(value[i], seen);
+			return out;
+		}
+		if (value instanceof Map) {
+			const out = new Map();
+			seen.set(value, out);
+			for (const [k, v] of value) out.set(structuredClone(k, seen), structuredClone(v, seen));
+			return out;
+		}
+		if (value instanceof Set) {
+			const out = new Set();
+			seen.set(value, out);
+			for (const v of value) out.add(structuredClone(v, seen));
+			return out;
+		}
+		const out = {};
+		seen.set(value, out);
+		for (const k of Object.keys(value)) out[k] = structuredClone(value[k], seen);
+		return out;
+	};
+})(__hostCall__, __hostLog__, __hostTimers__);
+delete globalThis.__hostCall__;
+delete globalThis.__hostLog__;
+delete globalThis.__hostTimers__;
+`;
+}
+
+const CELL_BOOTSTRAP = buildCellBootstrap();
 
 /**
  * Lexical gate (spec §4, frozen): any `import` or `require` token occurrence
@@ -156,6 +266,10 @@ export async function runCellWorker(input: RunCellWorkerInput): Promise<void> {
 		string,
 		{ resolve: (result: unknown) => void; reject: (err: Error) => void }
 	>();
+	// Errors the host tagged as infrastructure, held by OBJECT identity: a cell
+	// that catches and rethrows a NEW error (however it words the message) does
+	// not leak into this set, so its failure is a stumble, not infrastructure.
+	const infraErrors = new WeakSet<object>();
 	let ambientSeq = 0;
 	let cellRunning = false;
 
@@ -174,57 +288,29 @@ export async function runCellWorker(input: RunCellWorkerInput): Promise<void> {
 			input.write(JSON.stringify({ id, op: "result", ok: false, output: "", error: rejection }));
 			return;
 		}
-		const cellConsole = {
-			log: (...args: unknown[]) => consoleBuffer.append(args),
-			warn: (...args: unknown[]) => consoleBuffer.append(args),
-			error: (...args: unknown[]) => consoleBuffer.append(args),
-		};
-		const ambient: Record<string, unknown> = { console: cellConsole };
-		for (const method of AMBIENT_METHODS) {
-			ambient[method] = (...args: unknown[]) => callAmbient(method, args);
-		}
-		// The spawn surface (spec §4): handles are worker-side wrappers around
-		// plain handle IDs; every operation proxies to the parent, which maps
-		// outcomes per the spawn contract (infrastructure errors arrive as
-		// ambient rejections and throw in-cell).
-		type SpawnWire = {
-			kind: "completed" | "started";
-			ok?: boolean;
-			summary?: string;
-			bindings?: unknown[];
-			handleId: string;
-		};
-		const makeHandle = (id: string): Record<string, unknown> => ({
-			id,
-			wait: async () => wrapOutcome((await callAmbient("handle_wait", [id])) as SpawnWire),
-			message: async (text: string, opts?: unknown) =>
-				wrapOutcome((await callAmbient("handle_message", [id, text, opts])) as SpawnWire),
-		});
-		const wrapOutcome = (wire: SpawnWire): Record<string, unknown> => {
-			const handle = makeHandle(wire.handleId);
-			if (wire.kind === "started") return { handle };
-			return { ok: wire.ok, summary: wire.summary, bindings: wire.bindings, handle };
-		};
-		ambient.spawn = async (agent: unknown, goal: unknown, opts?: unknown) =>
-			wrapOutcome((await callAmbient("spawn", [agent, goal, opts])) as SpawnWire);
-		ambient.handle = (id: unknown) => {
-			if (typeof id !== "string") throw new Error("handle(id): id must be a string");
-			return makeHandle(id);
-		};
 		try {
-			// The realm: shadowed globals become undefined parameters, the
-			// ambient API becomes named parameters, and the body runs inside an
-			// async IIFE so top-level await works. The cell's value is its
-			// `return` statement — a documented simplification (a true
-			// completion-value REPL needs eval, which the realm bans).
-			const realmFn = new Function(
-				...SHADOWED_GLOBALS,
-				...Object.keys(ambient),
-				`"use strict"; return (async () => {\n${code}\n})();`,
-			);
-			const value: unknown = await realmFn(
-				...SHADOWED_GLOBALS.map(() => undefined),
-				...Object.values(ambient),
+			// The realm: a fresh V8 context (node:vm). The bootstrap installs the
+			// ambient API, console, timers, and structuredClone from source INSIDE
+			// the context over host bridges that are deleted after capture; cell
+			// code then runs in an async IIFE (so top-level await works) whose
+			// Function/eval/constructor chain all resolve context-locally. The
+			// cell's value is its `return` statement — a documented simplification
+			// (a true completion-value REPL needs eval, which the realm bans).
+			const sandbox: Record<string, unknown> = {
+				__hostCall__: (method: string, args: unknown[]) => callAmbient(method, args),
+				__hostLog__: (args: unknown[]) => consoleBuffer.append(args),
+				__hostTimers__: {
+					setTimeout: (fn: () => void, ms?: number) => setTimeout(fn, ms),
+					setInterval: (fn: () => void, ms?: number) => setInterval(fn, ms),
+					clearTimeout: (t: ReturnType<typeof setTimeout>) => clearTimeout(t),
+					clearInterval: (t: ReturnType<typeof setInterval>) => clearInterval(t),
+				},
+			};
+			const context = vm.createContext(sandbox);
+			vm.runInContext(CELL_BOOTSTRAP, context);
+			const value: unknown = await vm.runInContext(
+				`"use strict";\n(async () => {\n${code}\n})();`,
+				context,
 			);
 			const message: CellWorkerMessage = {
 				id,
@@ -236,6 +322,7 @@ export async function runCellWorker(input: RunCellWorkerInput): Promise<void> {
 			if (returnValue !== undefined) message.returnValue = returnValue;
 			input.write(JSON.stringify(message));
 		} catch (err) {
+			const infrastructure = typeof err === "object" && err !== null && infraErrors.has(err);
 			input.write(
 				JSON.stringify({
 					id,
@@ -243,6 +330,7 @@ export async function runCellWorker(input: RunCellWorkerInput): Promise<void> {
 					ok: false,
 					output: consoleBuffer.contents(),
 					error: err instanceof Error ? err.message : String(err),
+					...(infrastructure ? { infrastructure: true } : {}),
 				}),
 			);
 		}
@@ -297,7 +385,13 @@ export async function runCellWorker(input: RunCellWorkerInput): Promise<void> {
 			if (pending === undefined) return;
 			pendingAmbient.delete(message.id);
 			if (message.ok) pending.resolve((message as { result?: unknown }).result);
-			else pending.reject(new Error(String((message as { error?: unknown }).error)));
+			else {
+				const err = new Error(String((message as { error?: unknown }).error));
+				if ((message as { infrastructure?: unknown }).infrastructure === true) {
+					infraErrors.add(err);
+				}
+				pending.reject(err);
+			}
 		}
 	}
 

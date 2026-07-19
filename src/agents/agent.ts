@@ -2256,10 +2256,14 @@ export class Agent {
 			const result = await this.spawner.waitAgent(id, undefined, { untimed: true });
 			return await this.completedOutcomeFor(result, id, "handle.wait");
 		} catch (err) {
-			return {
-				kind: "infrastructure_error",
-				reason: err instanceof Error ? err.message : String(err),
-			};
+			const message = err instanceof Error ? err.message : String(err);
+			// A lookup miss on a cell handle-wait most often means the handle
+			// belongs to another process's spawner — cross-process / shared-handle
+			// waits are a Phase 5 deferral, so say so instead of a bare miss.
+			const reason = message.startsWith("Unknown handle")
+				? `${message} — waiting on a handle owned by another process (shared/cross-process handles) is not supported yet`
+				: message;
+			return { kind: "infrastructure_error", reason };
 		}
 	}
 

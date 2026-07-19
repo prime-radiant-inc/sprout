@@ -42,6 +42,15 @@ const RSS_POLL_INTERVAL_MS = 250;
 /** Max spawns per cell (spec §4). Parent-enforced; past it, spawn() throws. */
 export const CELL_SPAWN_CAP = 64;
 
+/**
+ * Max ambient calls a cell may have outstanding at once. A cell that fires
+ * ambient ops without awaiting keeps them parked (parked time never accrues on
+ * the budget clock), so an unbounded flood would leak the pending map; past the
+ * cap the ambient request rejects in-cell. The RSS watchdog is the ultimate net
+ * for any pathological flood that slips under this cap.
+ */
+export const CELL_MAX_OUTSTANDING_AMBIENT = 256;
+
 /** One cell-originated spawn request, decoded from the ambient spawn() call. */
 export interface CellSpawnRequest {
 	agent: string;
@@ -158,8 +167,6 @@ export class CellHost {
 	private cellSpawnCount = 0;
 	/** Handles whose child failure already counted toward stumbleCount. */
 	private failedChildHandles = new Set<string>();
-	/** Infrastructure rejection messages surfaced to the running cell. */
-	private infrastructureReasons: string[] = [];
 	/** Promise-chain mutex: cells are serialized per host (spec §4). */
 	private tail: Promise<unknown> = Promise.resolve();
 	private closed = false;
@@ -198,7 +205,6 @@ export class CellHost {
 		this.outstandingAmbient = 0;
 		this.cellSpawnCount = 0;
 		this.failedChildHandles = new Set();
-		this.infrastructureReasons = [];
 
 		const worker = this.ensureWorker();
 		const startedAt = Date.now();
@@ -209,7 +215,10 @@ export class CellHost {
 			this.running = { id, resolve };
 			// The authoritative budget clock: accrue only while nothing ambient
 			// is outstanding. The tick interval bounds accrual resolution; a
-			// wedged sync loop keeps outstandingAmbient at 0 and dies here.
+			// wedged sync loop keeps outstandingAmbient at 0 and dies here. A
+			// cell that floods un-awaited ambient calls parks the clock instead;
+			// CELL_MAX_OUTSTANDING_AMBIENT caps that, and the RSS watchdog below
+			// is the ultimate net for any pathological flood that slips under it.
 			const budgetTimer = setInterval(() => {
 				const now = Date.now();
 				if (this.outstandingAmbient === 0) computeMs += now - lastTick;
@@ -243,13 +252,14 @@ export class CellHost {
 		const metrics = { computeTimeMs: computeMs, totalMs };
 		const newBindings = this.newBindings;
 		const output = await this.gateForTranscript(raw.output, `cell_${cellNumber}_output`);
-		// A cell failure is infrastructure when it is the worker dying or an
-		// infrastructure spawn rejection the code left uncaught — those count
-		// zero stumbles (spec §4); anything else the cell authored counts one.
-		const infrastructure =
-			!raw.ok &&
-			(raw.error === "cell worker exited unexpectedly" ||
-				this.infrastructureReasons.some((reason) => raw.error?.includes(reason)));
+		// A cell failure is infrastructure only when the HOST raised it: worker
+		// death, a budget/RSS kill, or an infra ambient rejection (spawn
+		// transport, StoreUnavailable) the code left uncaught. Each of those
+		// tags `raw.infrastructure` at its raise site (the worker tracks the
+		// uncaught-rejection case by object identity), so a cell that throws an
+		// error whose message merely LOOKS like infrastructure counts as a
+		// stumble. Those host-raised failures count zero stumbles (spec §4).
+		const infrastructure = !raw.ok && raw.infrastructure === true;
 		const stumbleCount = this.failedChildHandles.size + (!raw.ok && !infrastructure ? 1 : 0);
 		const result: CellResult = { ok: raw.ok, output, newBindings, stumbleCount, metrics };
 		if (raw.returnValue !== undefined) {
@@ -305,7 +315,14 @@ export class CellHost {
 		this.generation++;
 		this.worker?.kill();
 		this.worker = undefined;
-		running.resolve({ id: running.id, op: "result", ok: false, output: "", error: reason });
+		running.resolve({
+			id: running.id,
+			op: "result",
+			ok: false,
+			output: "",
+			error: reason,
+			infrastructure: true,
+		});
 	}
 
 	private ensureWorker(): CellWorkerProcessHandle {
@@ -324,6 +341,7 @@ export class CellHost {
 				ok: false,
 				output: "",
 				error: "cell worker exited unexpectedly",
+				infrastructure: true,
 			});
 		});
 		return worker;
@@ -337,6 +355,15 @@ export class CellHost {
 			return;
 		}
 		if (message.op === "ambient") {
+			if (this.outstandingAmbient >= CELL_MAX_OUTSTANDING_AMBIENT) {
+				this.respondAmbient(message.id, {
+					ok: false,
+					error:
+						`too many concurrent ambient operations (cap ${CELL_MAX_OUTSTANDING_AMBIENT}); ` +
+						"await your ambient calls before issuing more",
+				});
+				return;
+			}
 			this.outstandingAmbient++;
 			void this.serviceAmbient(message.method, message.args)
 				.then((result) => this.respondAmbient(message.id, { ok: true, result }))
@@ -344,6 +371,7 @@ export class CellHost {
 					this.respondAmbient(message.id, {
 						ok: false,
 						error: err instanceof Error ? err.message : String(err),
+						...(isInfrastructureError(err) ? { infrastructure: true } : {}),
 					}),
 				)
 				.finally(() => {
@@ -358,7 +386,9 @@ export class CellHost {
 
 	private respondAmbient(
 		id: string,
-		response: { ok: true; result: unknown } | { ok: false; error: string },
+		response:
+			| { ok: true; result: unknown }
+			| { ok: false; error: string; infrastructure?: boolean },
 	): void {
 		this.worker?.send(`${JSON.stringify({ id, ...response })}\n`);
 	}
@@ -475,8 +505,7 @@ export class CellHost {
 	 */
 	private consumeOutcome(outcome: DelegationOutcome): unknown {
 		if (outcome.kind === "infrastructure_error") {
-			this.infrastructureReasons.push(outcome.reason);
-			throw new Error(outcome.reason);
+			throw infrastructureError(outcome.reason);
 		}
 		if (outcome.kind === "started") {
 			return { kind: "started", handleId: outcome.handleId };
@@ -508,6 +537,18 @@ export class CellHost {
 			throw err;
 		}
 	}
+}
+
+/** An error the host raised as infrastructure (spawn transport, worker death). */
+function infrastructureError(reason: string): Error {
+	const err = new Error(reason);
+	(err as { infrastructure?: boolean }).infrastructure = true;
+	return err;
+}
+
+/** True for host infrastructure errors: our tagged errors and StoreUnavailable. */
+function isInfrastructureError(err: unknown): boolean {
+	return err instanceof Error && (err as { infrastructure?: unknown }).infrastructure === true;
 }
 
 function refArg(args: unknown[], method: string): string {

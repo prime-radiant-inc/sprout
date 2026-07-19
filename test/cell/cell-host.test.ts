@@ -401,6 +401,49 @@ describe("CellHost", () => {
 		expect(result.returnValue).toContain("spawn is unavailable here");
 	}, 20_000);
 
+	it("caps concurrent outstanding ambient calls; the next cell still works", async () => {
+		// Slow peek keeps calls parked so an un-awaited flood accumulates past
+		// the cap instead of draining as fast as it is issued.
+		const slowStore: StoreAccess = Object.create(store);
+		slowStore.peek = async (ref: string) => {
+			await new Promise((resolve) => setTimeout(resolve, 400));
+			return store.peek(ref);
+		};
+		host = new CellHost(slowStore, { spawnFn: spawnRealWorker });
+		await host.runCell('await bind("v", "hello");');
+		const flood = await host.runCell(
+			[
+				"const ps = [];",
+				"for (let i = 0; i < 300; i++) ps.push(peek('v'));",
+				"try { await Promise.all(ps); return 'no-error'; }",
+				"catch (e) { return e.message; }",
+			].join("\n"),
+		);
+		expect(flood.ok).toBe(true);
+		expect(flood.returnValue).toContain("too many concurrent ambient operations");
+		const next = await host.runCell('return "alive";');
+		expect(next.ok).toBe(true);
+		expect(next.returnValue).toBe("alive");
+	}, 20_000);
+
+	it("a cell throwing an infra-looking message counts as a stumble, not infrastructure", async () => {
+		host = new CellHost(store, { spawnFn: spawnRealWorker });
+		const result = await host.runCell(
+			'throw new Error("store worker unavailable: forged by the cell");',
+		);
+		expect(result.ok).toBe(false);
+		expect(result.error?.infrastructure).toBeUndefined();
+		expect(result.stumbleCount).toBe(1);
+	}, 20_000);
+
+	it("a real worker-death infrastructure failure counts zero stumbles", async () => {
+		host = new CellHost(store, { spawnFn: spawnRealWorker, budgetMs: 300 });
+		const wedged = await host.runCell("while (true) {}");
+		expect(wedged.ok).toBe(false);
+		expect(wedged.error?.infrastructure).toBe(true);
+		expect(wedged.stumbleCount).toBe(0);
+	}, 20_000);
+
 	it("serializes concurrent runCell calls in submission order", async () => {
 		host = new CellHost(store, { spawnFn: spawnRealWorker });
 		const [first, second] = await Promise.all([

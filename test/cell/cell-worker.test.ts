@@ -133,6 +133,87 @@ describe("stripped realm", () => {
 	});
 });
 
+describe("realm containment (vm context)", () => {
+	it("no escape reaches the host process/Bun/require/fetch", async () => {
+		const h = makeHarness();
+		const result = await h.runCell(
+			[
+				"const probes = {};",
+				"probes.directProcess = typeof process;",
+				"probes.directBun = typeof Bun;",
+				"probes.directFetch = typeof fetch;",
+				"probes.directGlobalThis = typeof globalThis.process;",
+				'probes.fnProcess = Function("return typeof process")();',
+				'probes.evalBun = eval("typeof Bun");',
+				'probes.ctorGlobalThisProcess = ({}).constructor.constructor("return typeof globalThis.process")();',
+				'try { probes.ctorBun = ({}).constructor.constructor("return typeof Bun")(); } catch (e) { probes.ctorBun = "blocked"; }',
+				"return JSON.stringify(probes);",
+			].join("\n"),
+		);
+		expect(result.ok).toBe(true);
+		const probes = JSON.parse(result.returnValue ?? "{}");
+		for (const [key, value] of Object.entries(probes)) {
+			expect([key, value]).toEqual([key, expect.stringMatching(/^(undefined|blocked)$/)]);
+		}
+		await h.close();
+	});
+
+	it("Bun.spawnSync is unreachable — no host command execution", async () => {
+		const h = makeHarness();
+		const result = await h.runCell(
+			'try { Bun.spawnSync(["echo", "pwned"]); return "RAN"; } catch (e) { return "blocked"; }',
+		);
+		expect(result.ok).toBe(true);
+		expect(result.returnValue).toBe("blocked");
+		await h.close();
+	});
+
+	it("legitimate JS stdlib still works inside the context", async () => {
+		const h = makeHarness();
+		const result = await h.runCell(
+			[
+				"class Point { constructor(x) { this.x = x; } double() { return this.x * 2; } }",
+				"const parsed = JSON.parse('{\"n\":21}');",
+				"const m = Math.max(1, 2, 3);",
+				"const all = await Promise.all([Promise.resolve(1), Promise.resolve(2)]);",
+				"const clone = structuredClone({ a: [1, { b: 2 }] });",
+				"clone.a[1].b = 99;",
+				"return JSON.stringify({",
+				"  cls: new Point(parsed.n).double(),",
+				"  m,",
+				"  sum: all[0] + all[1],",
+				"  cloneOk: clone.a[1].b,",
+				"});",
+			].join("\n"),
+		);
+		expect(result.ok).toBe(true);
+		const out = JSON.parse(result.returnValue ?? "{}");
+		expect(out).toEqual({ cls: 42, m: 3, sum: 3, cloneOk: 99 });
+		await h.close();
+	});
+
+	it("ambient return values cannot be walked to a host constructor", async () => {
+		const h = makeHarness(async (method) => {
+			if (method === "grep") return { matches: ["a"], truncated: false };
+			return "ok";
+		});
+		const result = await h.runCell(
+			[
+				"const g = await grep('notes', 'a');",
+				'const viaResult = g.constructor.constructor("return typeof process")();',
+				'const viaPromise = grep("notes", "a").constructor.constructor("return typeof Bun")();',
+				"return JSON.stringify({ viaResult, viaPromise });",
+			].join("\n"),
+		);
+		expect(result.ok).toBe(true);
+		expect(JSON.parse(result.returnValue ?? "{}")).toEqual({
+			viaResult: "undefined",
+			viaPromise: "undefined",
+		});
+		await h.close();
+	});
+});
+
 describe("cell execution", () => {
 	it("captures console output and surfaces the final return", async () => {
 		const h = makeHarness();
