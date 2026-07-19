@@ -480,17 +480,79 @@ Seatbelt/bubblewrap — fails closed) rather than the spec's stripped-realm + le
 open, bypassable). Discuss before building. Add per-session sub-call/token budget (variance
 cap). RSS watchdog worded as best-effort liveness, not a hard cap.
 
-### Phase 6 — Code-first
+### Phase 6 — Code-first  ← current
 `act` spec field + flag semantics + flag-off-empty genome validation,
-cell-implies-value-reads, scoped observer store access, TUI/web rendering. **Review add:**
-typed (`.d.ts`-style) surface for the ambient API and spawnable agents — Cloudflare's evidence
-says types, not bare functions, are what make model-written cells reliable.
+cell-implies-value-reads, scoped observer store access, TUI/web rendering. Typed surface for
+the ambient API and spawnable agents.
 
-### Phase 7 — Programs
-Genome artifact type + sync/export plumbing, quartermaster fabrication (from stumbles **and**
-observed dataflow topology — review §2.3, the flywheel), eval-mode gating, metrics dashboards.
-**Review adds (self-improvement integrity):** multi-run A/B with significance; the hidden
-canary suite; a curator pass for library rot (consolidation/retirement).
+Design decisions (fixed):
+- **§5 first (utility/llm-call foundation).** Zero-tool completion exemption already partly
+  there (observer-tag path); extend to `tools:[] && max_turns:1` specs at both run-loop gates
+  (agent.ts ~411/~1939). Per-spawn `model` override: SpawnAgentOptions.model +
+  StartMessage.model (additive optional) + handle records it for respawn; resolved through the
+  existing model-resolver; the cell `spawn(..,{model})` that currently rejects now threads it.
+  `root/agents/utility/llm-call.md` genome spec (tools:[], can_spawn:false, max_turns:1,
+  subcortical_recall:false). Featherweight in-process placement: single-turn no-tool no-spawn
+  agents run IN the owner's process (no subprocess/bus handshake) with a synthetic completed
+  handle in the owner's spawner, synthetic session_start/session_end on the session topic, and
+  a 3-record per-handle log (perceive, plan_end, session_end) so resume + respawn-with-history
+  work. Gated behind a spawner option; wait_agent/message_agent resolve the synthetic handle.
+- **§6 act mode.** `act: "code"|"tools"` spec field (default tools, untouched). Code-mode Plan
+  emits ONE `cell` call per act (the cell IS the plan); one stable tool per provider
+  (cache-preserving). Code-mode tool surface = exactly `cell` + implicit value_* — genome
+  validation REJECTS a code-mode spec granting any primitive or `delegate` (turns §4's
+  no-exec premise into a validated invariant). Grant rule: `cell` implies value_* reads.
+- **Data-plane session flag** (defined off-semantics): off = no store/capture/publish/splice/
+  auto-bind/scope-announce/cells. The authenticated channel + control-plane services
+  (tokens, registration, pings, timer suspension) are FLAG-INDEPENDENT — run every session.
+  Off: value_*/cell filter out of the registry; act:code degrades to tools; data-plane FIELDS
+  in an off-session (bind:/publish: args, env on delegate/message, whole-arg ⟦name⟧) are
+  REJECTED with a clear tool error naming the flag — never silently stripped. Threaded as a
+  session-level boolean from the runtime into the primitive registry + agent + splice/capture
+  gates. Default ON for the branch (v1 is the data plane); the flag exists for A/B + off-arm.
+- **Flag-off-empty genome validation.** Reject any spec whose functional tool set is empty
+  after flag-off filtering (remove cell + value_*): must keep can_spawn:true or ≥1 real tool
+  or the max_turns:1 completion exemption. Covers eval-only and value_*-only shapes. Runs at
+  creation + mutation (markdown-loader + genome gates).
+- **Typed surface (review add).** The cell tool description / code-mode system prompt carries
+  a `.d.ts`-style declaration of the ambient API AND the spawnable agents' (name, goal-shape)
+  — types make model-written cells reliable (Cloudflare evidence). Generated from the genome
+  allowlist so it stays honest.
+- Deferred (coherent, recorded): scoped observer store reads (needs the observation surface);
+  shared-handle host registry + wait-graph (Phase 5 pairing).
+
+Slices: 6A §5 (llm-call + featherweight + model override), 6B §6 (act mode + flag +
+validation + cell-implies-reads), 6C typed surface + TUI/web cell rendering, 6D Fable review.
+
+### Phase 7 — Programs & metrics
+Design decisions (fixed):
+- **programs/ genome artifact.** frontmatter (name, description, typed params, `spawns:`,
+  version, provenance) + JS body run in the cell realm. Body passes the SAME lexical
+  import/require scan as cells — at genome validation AND at load (git-editable outside
+  mutation). Injected into code-mode namespaces as `programs.<name>(...)`, listed in a
+  `<programs>` system-prompt block (declared `spawns` shown; runtime enforcement stays the
+  caller's delegation allowlist). Genome dir list + bootstrap manifest + syncRoot +
+  exportLearnings extend with a programs/ entry (staged-review promotion to root).
+- **Immutability line:** store/capture/splice/publish/scope/cell semantics + ambient API +
+  $ref allowlist are KERNEL (Learn can't touch). Programs are genome — fully evolvable.
+- **Metrics (§10):** tokens per delegated byte moved; stumble rate by act mode; fan-out
+  wall-clock; store hit sizes; prompt-cache hit rate by arm. Emitted as events + a metrics
+  store, consumed by the eval harness.
+- **Multi-run A/B with significance (non-negotiable).** Single-run stumble rate is noise
+  (RLM variance scores identical inputs 0/6→6/6). Genome-fitness comparisons run N times per
+  arm (pinned eval-mode snapshots, same genome both arms) with a significance test; the
+  quartermaster's accept/reject gates on significance, not a single delta.
+- **Hidden canary suite (non-negotiable).** An outcome-anchored eval set the quartermaster
+  CANNOT see (not in the genome, not in any prompt) — DGM proved a self-modifier games a
+  visible fitness check. Canaries run post-mutation; a regression rolls back regardless of
+  visible fitness.
+- **Curator pass** for library rot: consolidation/retirement of redundant agents/memories/
+  programs, gated like any mutation.
+- **Quartermaster program fabrication** from recurring cell patterns + repair from cell
+  stumbles (cell_end carries code + program name/version so the artifact is resolvable).
+
+Slices: 7A programs artifact + plumbing, 7B metrics + multi-run A/B + canary suite, 7C
+curator + program fabrication, 7D Fable review.
 
 ## Roadmap (post-v1)
 Futures + `$ref` promise pipelining (rides the existing wait graph); QuickJS-WASM cell engine
