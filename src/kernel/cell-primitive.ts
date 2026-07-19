@@ -30,7 +30,11 @@ Ambient API (all async — await them):
 - size(name): content size in bytes.
 - console.log/warn/error: captured into the cell's output.
 
-No import/require (rejected before execution), no fs/fetch/process/Bun — pure JS plus the API above. Cells have a 5s compute budget; time awaiting the ambient API does not count.`;
+Spawning (when delegation is available to you):
+- spawn(agent, goal, {env, hints, blocking, shared}): blocking (default) resolves {ok, summary, bindings, handle} on child completion REGARDLESS of child success — check r.ok; it rejects (throws) only on spawn-infrastructure failure (unknown agent, denial, depth, transport). blocking: false resolves immediately to {handle}. At most 64 spawns per cell; fan out with Promise.all.
+- handle(id): re-acquire a handle in a later cell. handle.id; await handle.wait() (no timeout cap); await handle.message(text, {env}).
+
+No import/require (rejected before execution), no fs/fetch/process/Bun — pure JS plus the API above. Cells have a 5s compute budget; time awaiting the ambient API (including spawns) does not count.`;
 
 export function buildCellPrimitive(cellRunner: CellRunner): Primitive {
 	return {
@@ -68,7 +72,9 @@ export function buildCellPrimitive(cellRunner: CellRunner): Primitive {
 				output: parts.join("\n"),
 				success: result.ok,
 				metrics: result.metrics,
+				stumbleCount: result.stumbleCount,
 			};
+			if (result.error?.infrastructure === true) rendered.infrastructure = true;
 			if (result.newBindings.length > 0) {
 				rendered.boundValues = result.newBindings.map(({ name, ulid, size }) => ({
 					name,

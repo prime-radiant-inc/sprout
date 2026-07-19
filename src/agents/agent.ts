@@ -2,7 +2,12 @@ import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { AgentSpawner } from "../bus/spawner.ts";
 import type { AgentAddress, ResultMessage } from "../bus/types.ts";
-import { CellHost } from "../cell/cell-host.ts";
+import {
+	CellHost,
+	type CellSpawnRequest,
+	type CellWorkerProcessHandle,
+	type DelegationOutcome,
+} from "../cell/cell-host.ts";
 import { compactHistory } from "../core/compaction.ts";
 import type { Logger } from "../core/logger.ts";
 import { NullLogger } from "../core/logger.ts";
@@ -41,6 +46,7 @@ import {
 	MAX_AGENT_DEPTH,
 	type Memory,
 	type ModelRef,
+	type PrimitiveResult,
 	type RoutingRule,
 	type SessionEvent,
 } from "../kernel/types.ts";
@@ -181,6 +187,8 @@ export interface AgentOptions {
 	 * access and can_spawn builds a real CellHost over its own StoreAccess.
 	 */
 	cellHost?: CellRunner;
+	/** Cell-worker process override for the internally-built CellHost (tests). */
+	cellWorkerSpawnFn?: () => CellWorkerProcessHandle;
 }
 
 /** Retries for an infrastructure-tagged manifest fetch before degrading. */
@@ -314,6 +322,19 @@ export class Agent {
 	 * entry (latest wins).
 	 */
 	private readonly manifestRenames = new Map<string, Map<string, string>>();
+	/** Cell-spawn state (spec §4): the running cell's id (learn-signal tag), a
+	 * per-cell counter for deterministic child names, and the per-spawn
+	 * summaries batched into ONE observer frame at cell end (deviation #2). */
+	private cellOrdinal = 0;
+	private currentCellId?: string;
+	private cellSpawnIndex = 0;
+	private cellSpawnDigest: Array<{
+		agentName: string;
+		goal: string;
+		handleId: string;
+		ok: boolean;
+		summary: string;
+	}> = [];
 
 	constructor(options: AgentOptions) {
 		this.spec = options.spec;
@@ -389,7 +410,16 @@ export class Agent {
 		// The cell evaluator (sap spec §4): granted with can_spawn, backed by a
 		// per-agent-process cell worker over this agent's own StoreAccess.
 		if (options.spawner?.storeAccess && this.spec.constraints.can_spawn) {
-			const cellHost = options.cellHost ?? new CellHost(options.spawner.storeAccess);
+			// The spawn callbacks (spec §4): plain functions into the cell layer,
+			// keeping the delegation core and spawner access on the agents side.
+			const cellHost =
+				options.cellHost ??
+				new CellHost(options.spawner.storeAccess, {
+					...(options.cellWorkerSpawnFn ? { spawnFn: options.cellWorkerSpawnFn } : {}),
+					delegate: (req) => this.serviceCellSpawn(req),
+					waitHandle: (id) => this.serviceCellHandleWait(id),
+					messageHandle: (id, text, opts) => this.serviceCellHandleMessage(id, text, opts),
+				});
 			this.cellPrimitive = buildCellPrimitive(cellHost);
 			this.primitiveRegistry.register(this.cellPrimitive);
 		}
@@ -1480,6 +1510,17 @@ export class Agent {
 		context: DelegateObserverContext,
 		events: SessionEvent[],
 	): Promise<void> {
+		await this.deliverObserverFrameMessage(
+			runtime,
+			this.buildDelegateObserverFrameMessage(runtime, context, events),
+		);
+	}
+
+	/** Deliver one already-built frame message to an observer runtime. */
+	private async deliverObserverFrameMessage(
+		runtime: DelegateObserverRuntimeConfig,
+		message: string,
+	): Promise<void> {
 		if (!this.spawner) return;
 
 		if (!this.startedDelegateObserverHandles.has(runtime.handleId)) {
@@ -1496,7 +1537,6 @@ export class Agent {
 			this.startedDelegateObserverHandles.add(runtime.handleId);
 		}
 
-		const message = this.buildDelegateObserverFrameMessage(runtime, context, events);
 		const delivery = this.spawner.deliverObserverFrame({
 			agentName: runtime.agentName,
 			genomePath: this.genomePath ?? "",
@@ -1678,6 +1718,79 @@ export class Agent {
 	}
 
 	/**
+	 * Run one cell tool call with the per-cell spawn state framed around it
+	 * (spec §4): the cell id tags learn signals, the deterministic-name counter
+	 * resets, and the spawn summaries collected during the cell deliver as ONE
+	 * observer frame at cell end (deviation #2).
+	 */
+	private async runCellCall(
+		executeCall: () => Promise<PrimitiveResult>,
+		agentId: string,
+	): Promise<PrimitiveResult> {
+		this.currentCellId = `cell-${++this.cellOrdinal}`;
+		this.cellSpawnIndex = 0;
+		this.cellSpawnDigest = [];
+		try {
+			// A pending cell is a blocking wait on the cell worker: the
+			// inactivity timer suspends for its duration. The parent's budget
+			// clock + RSS watchdog are the net for a wedged cell — tighter than
+			// liveness pings, so no probe watches this suspension.
+			return await this.withTimerSuspended(executeCall);
+		} finally {
+			const cellId = this.currentCellId;
+			const digest = this.cellSpawnDigest;
+			this.currentCellId = undefined;
+			this.cellSpawnDigest = [];
+			if (digest.length > 0) await this.deliverCellSpawnObserverFrame(cellId, digest, agentId);
+		}
+	}
+
+	/** One observer frame summarizing ALL of a cell's spawns (deviation #2). */
+	private async deliverCellSpawnObserverFrame(
+		cellId: string,
+		digest: Array<{
+			agentName: string;
+			goal: string;
+			handleId: string;
+			ok: boolean;
+			summary: string;
+		}>,
+		_agentId: string,
+	): Promise<void> {
+		if (!this.spawner || this.delegateObserverConfigs.length === 0) return;
+		const lines = [
+			"<sprout:cell-spawn-observer-frame>",
+			"<instructions>",
+			'Observe this batch of completed cell-originated delegations. If a short concrete nudge is likely to improve the caller\'s next turn, use message_agent with handle "caller" and blocking false.',
+			"If no intervention is warranted, produce no text at all.",
+			"</instructions>",
+			"<caller>",
+			`Agent: ${escapeXml(this.spec.name)}`,
+			`Handle: ${escapeXml(this.selfAddress.handleId)}`,
+			`Agent ID: ${escapeXml(this.selfAddress.agentId)}`,
+			`Cell: ${escapeXml(cellId)}`,
+			"</caller>",
+			"<cell-spawns>",
+			...digest.map(
+				(entry) =>
+					`- ${escapeXml(entry.agentName)} (${escapeXml(entry.handleId)}) ${
+						entry.ok ? "ok" : "FAILED"
+					}: ${escapeXml(truncateForObserver(entry.goal, 200))} — ${escapeXml(
+						truncateForObserver(entry.summary, 400),
+					)}`,
+			),
+			"</cell-spawns>",
+			"</sprout:cell-spawn-observer-frame>",
+		];
+		const message = lines.join("\n");
+		await Promise.all(
+			this.delegateObserverConfigs.map((runtime) =>
+				this.deliverObserverFrameMessage(runtime, message),
+			),
+		);
+	}
+
+	/**
 	 * Resolve $ref arguments against this agent's store scope (sap spec §2).
 	 * Without a store, or with no ref-shaped argument, this is a cheap no-op
 	 * returning the original arguments. Store failures surface as loud tool
@@ -1720,11 +1833,13 @@ export class Agent {
 	 * and for any other failure immediately — the result degrades to an honest
 	 * `[manifest unavailable: ...]` note. Never a hang, never a silent drop.
 	 */
-	private async fetchManifestLines(
-		childHandleId: string,
-	): Promise<{ lines: string; rewrites: Map<string, string> }> {
+	private async fetchManifestLines(childHandleId: string): Promise<{
+		lines: string;
+		rewrites: Map<string, string>;
+		values: Array<{ name: string; ulid: string; size: number; preview: string }>;
+	}> {
 		const store = this.spawner?.storeAccess;
-		if (!store) return { lines: "", rewrites: new Map() };
+		if (!store) return { lines: "", rewrites: new Map(), values: [] };
 		// The child's accumulated rename map: later summaries from the same
 		// child still use its own names, so earlier deliveries' renames keep
 		// rewriting even when the current delta renames nothing.
@@ -1734,7 +1849,13 @@ export class Agent {
 		for (;;) {
 			try {
 				const delta = await store.manifestDelta(childHandleId);
-				if (delta.delivered.length === 0) return { lines: "", rewrites };
+				const values = delta.delivered.map(({ name, ulid, size, preview }) => ({
+					name,
+					ulid,
+					size,
+					preview,
+				}));
+				if (delta.delivered.length === 0) return { lines: "", rewrites, values };
 				const lines = delta.delivered.map(
 					(value) => `published: ⟦${value.name}⟧ (${value.preview.split("\n", 1)[0]})`,
 				);
@@ -1750,7 +1871,7 @@ export class Agent {
 						lines.push(`renamed on delivery: ⟦${value.sourceName}⟧ → ⟦${value.name}⟧`);
 					}
 				}
-				return { lines: `\n${lines.join("\n")}`, rewrites };
+				return { lines: `\n${lines.join("\n")}`, rewrites, values };
 			} catch (err) {
 				const infrastructure = (err as { infrastructure?: boolean }).infrastructure === true;
 				if (infrastructure && attempt < MANIFEST_FETCH_RETRIES) {
@@ -1759,7 +1880,7 @@ export class Agent {
 					continue;
 				}
 				const reason = err instanceof Error ? err.message : String(err);
-				return { lines: `\n[manifest unavailable: ${reason}]`, rewrites };
+				return { lines: `\n[manifest unavailable: ${reason}]`, rewrites, values: [] };
 			}
 		}
 	}
@@ -1784,40 +1905,121 @@ export class Agent {
 	/**
 	 * Execute a delegation via the bus-based spawner. Returns the tool result message and stumble count.
 	 *
-	 * For blocking spawns, calls verifyActResult() and pushes learn signals
-	 * (parity with the in-process executeDelegation() path).
+	 * Thin renderer over runSpawnerDelegation (the typed-outcome core, sap spec
+	 * §4 deviation #5): the tool path renders the outcome into a tool-result
+	 * exactly as before; the cell path consumes the outcome directly.
 	 */
 	private async executeSpawnerDelegation(
 		delegation: Delegation,
 		agentId: string,
 	): Promise<{ toolResultMsg: Message; stumbles: number; output?: string }> {
+		const outcome = await this.runSpawnerDelegation(delegation, agentId);
+		return this.renderDelegationOutcome(delegation, outcome);
+	}
+
+	/** Render a delegation outcome into the tool path's result shape. Pure. */
+	private renderDelegationOutcome(
+		delegation: Delegation,
+		outcome: DelegationOutcome,
+	): { toolResultMsg: Message; stumbles: number; output?: string } {
+		switch (outcome.kind) {
+			case "infrastructure_error":
+				return {
+					toolResultMsg: Msg.toolResult(delegation.call_id, outcome.reason, true),
+					stumbles: 1,
+				};
+			case "started":
+				return {
+					toolResultMsg: Msg.toolResult(
+						delegation.call_id,
+						`Agent started. Handle: ${outcome.handleId}`,
+					),
+					stumbles: 0,
+					output: outcome.handleId,
+				};
+			case "completed":
+				return {
+					toolResultMsg: Msg.toolResult(
+						delegation.call_id,
+						`${outcome.summary}\n\nHandle: ${outcome.handleId}`,
+					),
+					stumbles: outcome.stumbles,
+					...(outcome.rawOutput !== undefined ? { output: outcome.rawOutput } : {}),
+				};
+		}
+	}
+
+	/**
+	 * The delegation core (sap spec §4): resolve, verify, spawn, wait, and fold
+	 * the result into a typed outcome envelope. Never rejects for child failure
+	 * — a failed child is `completed` with ok: false; infrastructure problems
+	 * (unknown agent, allowlist denial, depth, payload rejection, spawn or
+	 * transport failure) are `infrastructure_error`. Cell spawns (deviations
+	 * #1–#4) skip the mnemonic LLM call in favor of deterministic names, skip
+	 * per-spawn observer frames (batched at cell end), mark their act events
+	 * `cell_spawn: true` (replay exclusion), and tag learn signals with the
+	 * owning cell id.
+	 */
+	private async runSpawnerDelegation(
+		delegation: Delegation,
+		agentId: string,
+		opts: { cellSpawn?: boolean } = {},
+	): Promise<DelegationOutcome> {
+		const cellSpawn = opts.cellSpawn === true;
 		const handleId = ulid();
 		const childId = ulid();
 		const descData = delegation.description ? { description: delegation.description } : {};
 		const caller = this.callerIdentity();
 		const blocking = delegation.blocking !== false; // default true
 		const shared = delegation.shared === true; // default false
-		const captureDelegateEvents = blocking
-			? await this.beginDelegateObserverCapture(childId)
-			: false;
+		const captureDelegateEvents =
+			blocking && !cellSpawn ? await this.beginDelegateObserverCapture(childId) : false;
 		const target = this.resolveDelegationTarget(delegation.agent_name);
 		const effectiveDelegation = this.effectiveDelegationForExecution(delegation, target.spec);
 		const normalizedPayload = this.normalizeDelegationPayload(effectiveDelegation);
 		const payloadData = normalizedPayload ? { task_payload: normalizedPayload.metadata } : {};
 
-		const mnemonicName = await generateMnemonicName(
-			this.client,
-			this.resolved.model,
-			this.resolved.provider,
-			{
-				agentName: delegation.agent_name,
-				goal: effectiveDelegation.goal,
-				description: delegation.description,
-				usedNames: [...this.usedMnemonicNames],
-			},
-			this.signal,
-		);
+		// Deviation #1: no mnemonic LLM call for cell spawns — a fan-out would
+		// mean ~N owner-model completions plus a name-collision race.
+		const mnemonicName = cellSpawn
+			? this.nextCellSpawnName(effectiveDelegation.goal)
+			: await generateMnemonicName(
+					this.client,
+					this.resolved.model,
+					this.resolved.provider,
+					{
+						agentName: delegation.agent_name,
+						goal: effectiveDelegation.goal,
+						description: delegation.description,
+						usedNames: [...this.usedMnemonicNames],
+					},
+					this.signal,
+				);
 		if (mnemonicName) this.usedMnemonicNames.add(mnemonicName);
+
+		const cellSpawnData = cellSpawn ? { cell_spawn: true } : {};
+		const finishAct = (
+			outcome: DelegationOutcome,
+			extra: Record<string, unknown>,
+		): DelegationOutcome => {
+			const actEndData = {
+				agent_name: delegation.agent_name,
+				...extra,
+				child_id: childId,
+				...descData,
+				...payloadData,
+				...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
+				...cellSpawnData,
+				...(cellSpawn
+					? {}
+					: {
+							tool_result_message: this.renderDelegationOutcome(delegation, outcome).toolResultMsg,
+						}),
+			};
+			this.captureDelegateObserverOwnerEvent(childId, "act_end", agentId, this.depth, actEndData);
+			this.emitAndLog("act_end", agentId, this.depth, actEndData);
+			return outcome;
+		};
 
 		const actStartData = {
 			agent_name: delegation.agent_name,
@@ -1827,6 +2029,7 @@ export class Agent {
 			handle_id: handleId,
 			child_id: childId,
 			...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
+			...cellSpawnData,
 		};
 		this.captureDelegateObserverOwnerEvent(childId, "act_start", agentId, this.depth, actStartData);
 		this.emitAndLog("act_start", agentId, this.depth, actStartData);
@@ -1836,56 +2039,26 @@ export class Agent {
 					delegation.agent_name,
 					target.allowedNames,
 				);
-				const toolResultMsg = Msg.toolResult(delegation.call_id, errorMsg, true);
-				const actEndData = {
-					agent_name: delegation.agent_name,
-					success: false,
-					error: errorMsg,
-					child_id: childId,
-					...descData,
-					...payloadData,
-					...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
-					tool_result_message: toolResultMsg,
-				};
-				this.captureDelegateObserverOwnerEvent(childId, "act_end", agentId, this.depth, actEndData);
-				this.emitAndLog("act_end", agentId, this.depth, actEndData);
-				return { toolResultMsg, stumbles: 1 };
+				return finishAct(
+					{ kind: "infrastructure_error", reason: errorMsg },
+					{ success: false, error: errorMsg },
+				);
 			}
 
 			if (normalizedPayload && target.spec.task_payload !== true) {
 				const errorMsg = this.buildTaskPayloadNotAcceptedError(delegation);
-				const toolResultMsg = Msg.toolResult(delegation.call_id, errorMsg, true);
-				const actEndData = {
-					agent_name: delegation.agent_name,
-					success: false,
-					error: errorMsg,
-					child_id: childId,
-					...descData,
-					...payloadData,
-					...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
-					tool_result_message: toolResultMsg,
-				};
-				this.captureDelegateObserverOwnerEvent(childId, "act_end", agentId, this.depth, actEndData);
-				this.emitAndLog("act_end", agentId, this.depth, actEndData);
-				return { toolResultMsg, stumbles: 1 };
+				return finishAct(
+					{ kind: "infrastructure_error", reason: errorMsg },
+					{ success: false, error: errorMsg },
+				);
 			}
 
 			if (this.depth + 1 > MAX_AGENT_DEPTH) {
 				const errorMsg = this.buildDepthLimitError(delegation.agent_name);
-				const toolResultMsg = Msg.toolResult(delegation.call_id, errorMsg, true);
-				const actEndData = {
-					agent_name: delegation.agent_name,
-					success: false,
-					error: errorMsg,
-					child_id: childId,
-					...descData,
-					...payloadData,
-					...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
-					tool_result_message: toolResultMsg,
-				};
-				this.captureDelegateObserverOwnerEvent(childId, "act_end", agentId, this.depth, actEndData);
-				this.emitAndLog("act_end", agentId, this.depth, actEndData);
-				return { toolResultMsg, stumbles: 1 };
+				return finishAct(
+					{ kind: "infrastructure_error", reason: errorMsg },
+					{ success: false, error: errorMsg },
+				);
 			}
 
 			const targetSpecName = target.spec.name;
@@ -1918,23 +2091,10 @@ export class Agent {
 				: await spawnCall();
 
 			if (typeof result === "string") {
-				const toolResultMsg = Msg.toolResult(
-					delegation.call_id,
-					`Agent started. Handle: ${result}`,
+				return finishAct(
+					{ kind: "started", handleId: result },
+					{ success: true, handle_id: result },
 				);
-				const actEndData = {
-					agent_name: delegation.agent_name,
-					success: true,
-					handle_id: result,
-					child_id: childId,
-					...descData,
-					...payloadData,
-					...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
-					tool_result_message: toolResultMsg,
-				};
-				this.captureDelegateObserverOwnerEvent(childId, "act_end", agentId, this.depth, actEndData);
-				this.emitAndLog("act_end", agentId, this.depth, actEndData);
-				return { toolResultMsg, stumbles: 0, output: result };
 			}
 
 			// Blocking: result is a ResultMessage
@@ -1960,6 +2120,9 @@ export class Agent {
 			});
 
 			if (learnSignal) {
+				// Deviation #4: tag cell-originated signals with the owning cell
+				// so cell-level verify never re-signals the same child failure.
+				if (cellSpawn && this.currentCellId) learnSignal.cell_id = this.currentCellId;
 				this.emitAndLog("learn_signal", agentId, this.depth, {
 					signal: learnSignal,
 				});
@@ -1974,60 +2137,181 @@ export class Agent {
 
 			const truncated = truncateToolOutput(resultMsg.output, delegation.agent_name);
 			const manifest = await this.fetchManifestLines(resultMsg.handle_id);
-			const summary = Agent.rewriteManifestNames(truncated, manifest.rewrites);
-			const content = `${summary}${manifest.lines}\n\nHandle: ${resultMsg.handle_id}`;
-			const toolResultMsg = Msg.toolResult(delegation.call_id, content);
-
-			const actEndData = {
-				agent_name: delegation.agent_name,
+			const summary = Agent.rewriteManifestNames(truncated, manifest.rewrites) + manifest.lines;
+			const outcome: DelegationOutcome = {
+				kind: "completed",
+				ok: resultMsg.success,
+				summary,
+				bindings: manifest.values,
+				handleId: resultMsg.handle_id,
+				stumbles: verify.stumbled ? 1 : 0,
+				rawOutput: resultMsg.output,
+			};
+			finishAct(outcome, {
 				success: resultMsg.success,
 				handle_id: resultMsg.handle_id,
 				turns: resultMsg.turns,
 				timed_out: resultMsg.timed_out,
-				child_id: childId,
-				...descData,
-				...payloadData,
-				...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
-				tool_result_message: toolResultMsg,
-			};
-			this.captureDelegateObserverOwnerEvent(childId, "act_end", agentId, this.depth, actEndData);
-			this.emitAndLog("act_end", agentId, this.depth, actEndData);
-
-			await this.deliverDelegateObserverFrames({
-				delegation: effectiveDelegation,
-				childId,
-				childHandleId: resultMsg.handle_id,
-				childAgentName: target.spec.name,
-				result: resultMsg,
-				description: delegation.description,
 			});
 
-			return {
-				toolResultMsg,
-				stumbles: verify.stumbled ? 1 : 0,
-				output: resultMsg.output,
-			};
+			// Deviation #2: per-spawn observer frames only on the tool path; cell
+			// spawns batch into one frame at cell end.
+			if (!cellSpawn) {
+				await this.deliverDelegateObserverFrames({
+					delegation: effectiveDelegation,
+					childId,
+					childHandleId: resultMsg.handle_id,
+					childAgentName: target.spec.name,
+					result: resultMsg,
+					description: delegation.description,
+				});
+			}
+
+			return outcome;
 		} catch (err) {
 			const errorMsg = `Spawner delegation to '${delegation.agent_name}' failed: ${String(err)}`;
-			const toolResultMsg = Msg.toolResult(delegation.call_id, errorMsg, true);
-			const actEndData = {
-				agent_name: delegation.agent_name,
-				success: false,
-				error: errorMsg,
-				child_id: childId,
-				...descData,
-				...payloadData,
-				...(mnemonicName ? { mnemonic_name: mnemonicName } : {}),
-				tool_result_message: toolResultMsg,
-			};
-			this.captureDelegateObserverOwnerEvent(childId, "act_end", agentId, this.depth, actEndData);
-			this.emitAndLog("act_end", agentId, this.depth, actEndData);
-			return { toolResultMsg, stumbles: 1 };
+			return finishAct(
+				{ kind: "infrastructure_error", reason: errorMsg },
+				{ success: false, error: errorMsg },
+			);
 		} finally {
 			if (captureDelegateEvents) {
 				this.delegateObserverEventsByChildId.delete(childId);
 			}
 		}
+	}
+
+	/**
+	 * Deterministic child name for a cell spawn (deviation #1): goal slug plus
+	 * a per-cell index. The counter resets at cell start.
+	 */
+	private nextCellSpawnName(goal: string): string {
+		const slug =
+			goal
+				.toLowerCase()
+				.replace(/[^a-z0-9]+/g, "-")
+				.replace(/^-+|-+$/g, "")
+				.slice(0, 32)
+				.replace(/-+$/, "") || "spawn";
+		return `${slug}_${++this.cellSpawnIndex}`;
+	}
+
+	/**
+	 * Service an ambient spawn() from this agent's cell (spec §4): the request
+	 * runs through the delegation core with the cell deviations, and its
+	 * completed summaries collect into the per-cell observer digest. A throw
+	 * from the core's preamble (target resolution, payload normalization) is
+	 * spawn infrastructure by definition.
+	 */
+	private async serviceCellSpawn(req: CellSpawnRequest): Promise<DelegationOutcome> {
+		if (req.model !== undefined) {
+			return {
+				kind: "infrastructure_error",
+				reason:
+					"spawn opts.model is not supported yet — child models come from the genome and model settings",
+			};
+		}
+		const delegation: Delegation = {
+			call_id: `cell-spawn-${ulid()}`,
+			agent_name: req.agent,
+			goal: req.goal,
+			...(req.hints !== undefined ? { hints: req.hints } : {}),
+			...(req.blocking !== undefined ? { blocking: req.blocking } : {}),
+			...(req.shared !== undefined ? { shared: req.shared } : {}),
+			...(req.env !== undefined ? { env: req.env } : {}),
+		};
+		try {
+			const outcome = await this.runSpawnerDelegation(delegation, this.agentId ?? this.spec.name, {
+				cellSpawn: true,
+			});
+			if (outcome.kind === "completed") {
+				this.cellSpawnDigest.push({
+					agentName: req.agent,
+					goal: req.goal,
+					handleId: outcome.handleId,
+					ok: outcome.ok,
+					summary: outcome.summary,
+				});
+			}
+			return outcome;
+		} catch (err) {
+			return {
+				kind: "infrastructure_error",
+				reason: err instanceof Error ? err.message : String(err),
+			};
+		}
+	}
+
+	/**
+	 * Service an ambient handle.wait() (spec §4): the TIMER-LESS blocking wait
+	 * — not the wait_agent tool's 900 s cap, which would spuriously fail the
+	 * long-running survivors this path exists for. No caller: cell handles are
+	 * the owner's own, and the owner's spawner state scopes what is reachable.
+	 */
+	private async serviceCellHandleWait(id: string): Promise<DelegationOutcome> {
+		if (!this.spawner) {
+			return { kind: "infrastructure_error", reason: "handle.wait requires the spawner runtime" };
+		}
+		try {
+			const result = await this.spawner.waitAgent(id, undefined, { untimed: true });
+			return await this.completedOutcomeFor(result, id, "handle.wait");
+		} catch (err) {
+			return {
+				kind: "infrastructure_error",
+				reason: err instanceof Error ? err.message : String(err),
+			};
+		}
+	}
+
+	/** Service an ambient handle.message() (spec §4). Blocking by default,
+	 * matching message_agent; non-blocking resolves as a started ack. */
+	private async serviceCellHandleMessage(
+		id: string,
+		text: string,
+		opts?: { env?: Record<string, string>; blocking?: boolean },
+	): Promise<DelegationOutcome> {
+		if (!this.spawner) {
+			return {
+				kind: "infrastructure_error",
+				reason: "handle.message requires the spawner runtime",
+			};
+		}
+		try {
+			const blocking = opts?.blocking !== false;
+			const result = await this.spawner.messageAgent(id, text, this.callerIdentity(), blocking, {
+				trustedUserInstruction: this.trustedUserInstruction,
+				callerTarget: this.callerAddress,
+				envGrants: opts?.env,
+			});
+			if (!blocking || !result) return { kind: "started", handleId: id };
+			return await this.completedOutcomeFor(result, id, "handle.message");
+		} catch (err) {
+			return {
+				kind: "infrastructure_error",
+				reason: err instanceof Error ? err.message : String(err),
+			};
+		}
+	}
+
+	/** Fold a child ResultMessage plus its manifest delta into a completed outcome. */
+	private async completedOutcomeFor(
+		result: ResultMessage,
+		handleId: string,
+		label: string,
+	): Promise<DelegationOutcome> {
+		const manifest = await this.fetchManifestLines(handleId);
+		const summary =
+			Agent.rewriteManifestNames(truncateToolOutput(result.output, label), manifest.rewrites) +
+			manifest.lines;
+		return {
+			kind: "completed",
+			ok: result.success,
+			summary,
+			bindings: manifest.values,
+			handleId,
+			stumbles: result.success ? 0 : 1,
+			rawOutput: result.output,
+		};
 	}
 
 	/** Execute an agent command (wait_agent, message_agent). Returns the tool result message. */
@@ -2587,15 +2871,18 @@ export class Agent {
 			const executeCall = () =>
 				this.primitiveRegistry.execute(call.name, spliced.args, this.signal);
 			const result =
-				call.name === "cell" ? await this.withTimerSuspended(executeCall) : await executeCall();
+				call.name === "cell" ? await this.runCellCall(executeCall, agentId) : await executeCall();
 
-			// Verify primitive result
-			const { stumbled, learnSignal: primSignal } = verifyPrimitiveResult(
+			// Verify primitive result. Infrastructure-tagged failures (spec §4)
+			// are not model error: no stumble, no learn signal, a warning event.
+			const infrastructure = result.infrastructure === true;
+			const { stumbled: rawStumbled, learnSignal: primSignal } = verifyPrimitiveResult(
 				result,
 				call.name,
 				goal,
 				this.sessionId,
 			);
+			const stumbled = infrastructure ? false : rawStumbled;
 
 			const content = result.error ? `Error: ${result.error}\n${result.output}` : result.output;
 			const toolResultMsg = Msg.toolResult(call.id, content, !result.success);
@@ -2622,11 +2909,21 @@ export class Agent {
 				});
 			}
 
-			if (stumbled) {
+			if (infrastructure) {
+				this.emitAndLog("warning", agentId, this.depth, {
+					message: `infrastructure failure in ${call.name} (not counted as a stumble): ${
+						result.error ?? "unknown"
+					}`,
+				});
+			} else if (result.stumbleCount !== undefined) {
+				// Cell accounting (spec §4): failed children + own error, counted,
+				// replacing the at-most-1 boolean.
+				stumbles += result.stumbleCount;
+			} else if (stumbled) {
 				stumbles++;
 			}
 
-			if (primSignal) {
+			if (primSignal && !infrastructure) {
 				this.emitAndLog("learn_signal", agentId, this.depth, {
 					signal: primSignal,
 				});

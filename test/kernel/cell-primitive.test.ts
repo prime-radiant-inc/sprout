@@ -18,6 +18,7 @@ const okResult = (overrides: Partial<CellResult> = {}): CellResult => ({
 	ok: true,
 	output: "",
 	newBindings: [],
+	stumbleCount: 0,
 	metrics: { computeTimeMs: 12, totalMs: 40 },
 	...overrides,
 });

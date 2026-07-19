@@ -381,6 +381,9 @@ export interface LearnSignal {
 	details: ActResult;
 	session_id: string;
 	timestamp: number;
+	/** Set for cell-originated spawns (sap spec §4 deviation #4): tags the
+	 * signal with the owning cell so cell-level verify never re-signals it. */
+	cell_id?: string;
 }
 
 export type LearnSignalKind = "error" | "retry" | "inefficiency" | "timeout" | "failure";
@@ -510,6 +513,16 @@ export interface PrimitiveResult {
 	 * Never rendered into the transcript.
 	 */
 	metrics?: Record<string, number>;
+	/**
+	 * Cell accounting (sap spec §4): failed-child count + own-error count.
+	 * When present, it replaces the at-most-1 boolean stumble in run counters.
+	 */
+	stumbleCount?: number;
+	/**
+	 * The failure was infrastructure (store restart, worker death, spawn
+	 * transport), not model error: zero stumbles, a warning event instead.
+	 */
+	infrastructure?: boolean;
 }
 
 export const EVENT_KINDS = [

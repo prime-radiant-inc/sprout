@@ -510,6 +510,50 @@ describe("AgentSpawner", () => {
 			await spawner.getHandle(handleId)!.process.exited;
 		}, 15_000);
 
+		test("untimed waitAgent (ambient handle.wait path) survives past waitTimeoutMs", async () => {
+			let releaseChild: (() => void) | undefined;
+			const mockClient = buildMockClient(async (_request: Request): Promise<Response> => {
+				await new Promise<void>((resolve) => {
+					releaseChild = resolve;
+				});
+				return {
+					id: "mock-untimed-wait-1",
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant("Untimed wait result."),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+				};
+			});
+
+			spawner = new AgentSpawner(
+				bus,
+				server.url,
+				SESSION_ID,
+				createInProcessSpawnFn(mockClient),
+				50,
+			);
+
+			const handleId = (await spawnWithResolver({
+				agentName: "test-leaf",
+				genomePath: genomeDir,
+				caller: addr("root", 0),
+				goal: "Slow background task",
+				blocking: false,
+				shared: false,
+				workDir: tempDir,
+			})) as string;
+
+			const waitPromise = spawner.waitAgent(handleId, undefined, { untimed: true });
+			while (!releaseChild) await delay(10);
+			await delay(120);
+			releaseChild();
+
+			const result = await waitPromise;
+			expect(result.output).toBe("Untimed wait result.");
+			expect(result.success).toBe(true);
+		}, 15_000);
+
 		test("blocking spawn waits past waitTimeoutMs for the child result", async () => {
 			let releaseChild: (() => void) | undefined;
 			const mockClient = buildMockClient(async (_request: Request): Promise<Response> => {

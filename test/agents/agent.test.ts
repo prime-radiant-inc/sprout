@@ -13,6 +13,7 @@ import type {
 	SpawnAgentOptions,
 } from "../../src/bus/spawner.ts";
 import type { AgentAddress, EventMessage, ResultMessage } from "../../src/bus/types.ts";
+import type { DelegationOutcome } from "../../src/cell/cell-host.ts";
 import { Genome } from "../../src/genome/genome.ts";
 import { LocalExecutionEnvironment } from "../../src/kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../../src/kernel/primitives.ts";
@@ -8469,6 +8470,7 @@ describe("cell primitive seam", () => {
 					output: "computed\n",
 					returnValue: "3",
 					newBindings: [{ name: "summary", ulid: "u-cell-1", size: 7, preview: "p" }],
+					stumbleCount: 0,
 					metrics: { computeTimeMs: 42, totalMs: 500 },
 				};
 			},
@@ -8546,4 +8548,401 @@ describe("cell primitive seam", () => {
 		});
 		expect(agent.resolvedTools().map((t) => t.name)).not.toContain("cell");
 	}, 15_000);
+});
+
+describe("spawner delegation outcome envelope (Slice B)", () => {
+	interface EnvelopeHarness {
+		agent: RawAgent;
+		spawnCalls: SpawnAgentOptions[];
+		completions: () => number;
+		events: AgentEventEmitter;
+	}
+
+	type RunSpawnerDelegation = (
+		delegation: Record<string, unknown>,
+		agentId: string,
+		opts?: { cellSpawn?: boolean },
+	) => Promise<DelegationOutcome>;
+
+	function runCore(harness: EnvelopeHarness): RunSpawnerDelegation {
+		return (
+			harness.agent as unknown as { runSpawnerDelegation: RunSpawnerDelegation }
+		).runSpawnerDelegation.bind(harness.agent);
+	}
+
+	function envelopeHarness(
+		overrides: { spawnAgent?: (opts: SpawnAgentOptions) => Promise<ResultMessage | string> } = {},
+	): EnvelopeHarness {
+		const spawnCalls: SpawnAgentOptions[] = [];
+		let completions = 0;
+		const cannedResult: ResultMessage = {
+			kind: "result",
+			handle_id: "handle-env",
+			output: "child output",
+			success: true,
+			stumbles: 0,
+			turns: 1,
+			timed_out: false,
+		};
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				completions++;
+				return {
+					id: `mnemonic-${completions}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant("Curie"),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+		const spawner = {
+			spawnAgent: async (opts: SpawnAgentOptions): Promise<ResultMessage | string> => {
+				spawnCalls.push(opts);
+				if (overrides.spawnAgent) return overrides.spawnAgent(opts);
+				return opts.blocking ? cannedResult : "handle-env";
+			},
+			getHandle: () => undefined,
+			getHandles: () => [],
+		} as unknown as AgentSpawner;
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const agent = new Agent({
+			spec: rootSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: createPrimitiveRegistry(env),
+			availableAgents: [rootSpec, leafSpec],
+			depth: 0,
+			events,
+			spawner,
+		});
+		return { agent, spawnCalls, completions: () => completions, events };
+	}
+
+	test("unknown agent resolves to infrastructure_error", async () => {
+		const harness = envelopeHarness();
+		const outcome = await runCore(harness)(
+			{ call_id: "c1", agent_name: "nope", goal: "x" },
+			"root",
+			{ cellSpawn: true },
+		);
+		expect(outcome.kind).toBe("infrastructure_error");
+		if (outcome.kind !== "infrastructure_error") throw new Error("unreachable");
+		expect(outcome.reason).toContain("nope");
+	});
+
+	test("a thrown spawn maps to infrastructure_error", async () => {
+		const harness = envelopeHarness({
+			spawnAgent: async () => {
+				throw new Error("transport down");
+			},
+		});
+		const outcome = await runCore(harness)(
+			{ call_id: "c2", agent_name: "leaf", goal: "x" },
+			"root",
+			{ cellSpawn: true },
+		);
+		expect(outcome.kind).toBe("infrastructure_error");
+		if (outcome.kind !== "infrastructure_error") throw new Error("unreachable");
+		expect(outcome.reason).toContain("transport down");
+	});
+
+	test("a failed child RESOLVES as completed with ok false", async () => {
+		const harness = envelopeHarness({
+			spawnAgent: async () => ({
+				kind: "result",
+				handle_id: "handle-f",
+				output: "it broke",
+				success: false,
+				stumbles: 1,
+				turns: 2,
+				timed_out: false,
+			}),
+		});
+		const outcome = await runCore(harness)(
+			{ call_id: "c3", agent_name: "leaf", goal: "x" },
+			"root",
+			{ cellSpawn: true },
+		);
+		expect(outcome.kind).toBe("completed");
+		if (outcome.kind !== "completed") throw new Error("unreachable");
+		expect(outcome.ok).toBe(false);
+		expect(outcome.summary).toContain("it broke");
+		expect(outcome.handleId).toBe("handle-f");
+	});
+
+	test("non-blocking resolves to started", async () => {
+		const harness = envelopeHarness();
+		const outcome = await runCore(harness)(
+			{ call_id: "c4", agent_name: "leaf", goal: "x", blocking: false },
+			"root",
+			{ cellSpawn: true },
+		);
+		expect(outcome).toEqual({ kind: "started", handleId: "handle-env" });
+	});
+
+	test("cell spawns use deterministic names and skip the mnemonic LLM call", async () => {
+		const harness = envelopeHarness();
+		const run = runCore(harness);
+		await run({ call_id: "c5", agent_name: "leaf", goal: "Summarize the Logs!" }, "root", {
+			cellSpawn: true,
+		});
+		await run({ call_id: "c6", agent_name: "leaf", goal: "Summarize the Logs!" }, "root", {
+			cellSpawn: true,
+		});
+		expect(harness.completions()).toBe(0);
+		expect(harness.spawnCalls.map((c) => c.mnemonicName)).toEqual([
+			"summarize-the-logs_1",
+			"summarize-the-logs_2",
+		]);
+	});
+
+	test("tool-path delegation still generates a mnemonic", async () => {
+		const harness = envelopeHarness();
+		await runCore(harness)({ call_id: "c7", agent_name: "leaf", goal: "x" }, "root");
+		expect(harness.completions()).toBe(1);
+		expect(harness.spawnCalls[0]!.mnemonicName).toBe("Curie");
+	});
+
+	test("cell-spawn act events carry cell_spawn: true and no tool_result_message", async () => {
+		const harness = envelopeHarness();
+		await runCore(harness)({ call_id: "c8", agent_name: "leaf", goal: "x" }, "root", {
+			cellSpawn: true,
+		});
+		const actStart = harness.events.collected().find((e) => e.kind === "act_start");
+		const actEnd = harness.events.collected().find((e) => e.kind === "act_end");
+		expect(actStart?.data.cell_spawn).toBe(true);
+		expect(actEnd?.data.cell_spawn).toBe(true);
+		expect(actEnd?.data.tool_result_message).toBeUndefined();
+	});
+
+	test("tool-path act events carry tool_result_message and no cell_spawn marker", async () => {
+		const harness = envelopeHarness();
+		await runCore(harness)({ call_id: "c9", agent_name: "leaf", goal: "x" }, "root");
+		const actEnd = harness.events.collected().find((e) => e.kind === "act_end");
+		expect(actEnd?.data.cell_spawn).toBeUndefined();
+		expect(actEnd?.data.tool_result_message).toBeDefined();
+	});
+});
+
+describe("cell stumble accounting (Slice B)", () => {
+	function cellClient(code: string): Client {
+		let callCount = 0;
+		return {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => {
+				callCount++;
+				if (callCount === 1) {
+					return {
+						id: "mock-acct-1",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: {
+							role: "assistant",
+							content: [
+								{
+									kind: ContentKind.TOOL_CALL,
+									tool_call: {
+										id: "call-acct-1",
+										name: "cell",
+										arguments: JSON.stringify({ code }),
+									},
+								},
+							],
+						},
+						finish_reason: { reason: "tool_calls" },
+						usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+					};
+				}
+				return {
+					id: `mock-acct-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: Msg.assistant("Done."),
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+	}
+
+	const CELL_SPEC: AgentSpec = {
+		name: "cell-acct",
+		description: "cell accounting",
+		system_prompt: "You are a test agent.",
+		model: "anthropic:claude-haiku-4-5-20251001",
+		tools: [],
+		agents: ["leaf"],
+		constraints: { ...DEFAULT_CONSTRAINTS, can_spawn: true, max_turns: 5 },
+		tags: [],
+		version: 1,
+	};
+
+	function accountingAgent(cellResult: Record<string, unknown>) {
+		const cellHost = {
+			async runCell() {
+				return cellResult as unknown as import("../../src/cell/cell-host.ts").CellResult;
+			},
+		};
+		const spawner = {
+			storeAccess: {
+				async names() {
+					return [];
+				},
+			},
+			getHandle: () => undefined,
+		} as unknown as AgentSpawner;
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const agent = new Agent({
+			spec: CELL_SPEC,
+			env,
+			client: cellClient("await spawn('leaf', 'x');"),
+			primitiveRegistry: createPrimitiveRegistry(env),
+			availableAgents: [CELL_SPEC, leafSpec],
+			depth: 0,
+			events,
+			spawner,
+			cellHost,
+		});
+		return { agent, events };
+	}
+
+	test("two failed children in one cell add two stumbles", async () => {
+		const { agent } = accountingAgent({
+			ok: true,
+			output: "",
+			newBindings: [],
+			stumbleCount: 2,
+			metrics: { computeTimeMs: 1, totalMs: 1 },
+		});
+		const result = await agent.run("fan out");
+		expect(result.stumbles).toBe(2);
+	});
+
+	test("an infrastructure cell failure counts zero stumbles and warns", async () => {
+		const { agent, events } = accountingAgent({
+			ok: false,
+			output: "",
+			newBindings: [],
+			stumbleCount: 0,
+			error: { message: "store worker restarting", scopeNames: [], infrastructure: true },
+			metrics: { computeTimeMs: 1, totalMs: 1 },
+		});
+		const result = await agent.run("fragile");
+		expect(result.stumbles).toBe(0);
+		const warning = events
+			.collected()
+			.find((e) => e.kind === "warning" && String(e.data.message).includes("infrastructure"));
+		expect(warning).toBeDefined();
+		const learn = events.collected().find((e) => e.kind === "learn_signal");
+		expect(learn).toBeUndefined();
+	});
+});
+
+describe("cell-spawn observer batching (Slice B)", () => {
+	test("multiple cell spawns deliver ONE observer frame at cell end", async () => {
+		const observer: AgentSpec = {
+			...leafSpec,
+			name: "metacognitive",
+			description: "Observes delegate results",
+			system_prompt: "Observe.",
+			model: "balanced",
+			tools: ["message_agent"],
+			agents: [],
+			constraints: { ...DEFAULT_CONSTRAINTS, can_spawn: false, can_learn: false, max_turns: 2 },
+			tags: ["observer"],
+		};
+		const root: AgentSpec = {
+			...rootSpec,
+			observe_delegates: [
+				{
+					agent: "metacognitive",
+					trigger: "on_delegate_final",
+					events: ["plan_end", "act_end"],
+					delivery: { max_events: 12, max_chars: 3000 },
+				},
+			],
+		};
+		const resolverSettings = createResolverSettings(
+			[{ id: "anthropic", enabled: true }],
+			{
+				best: { providerId: "anthropic", modelId: "claude-opus-4-6" },
+				balanced: { providerId: "anthropic", modelId: "claude-sonnet-4-6" },
+				fast: { providerId: "anthropic", modelId: "claude-haiku-4-5-20251001" },
+			},
+			{},
+			{
+				metacognitive: {
+					kind: "model",
+					model: { providerId: "anthropic", modelId: "claude-haiku-4-5-20251001" },
+				},
+			},
+		);
+		const observerDeliveries: Array<{ message: string }> = [];
+		let spawnSeq = 0;
+		const spawner = {
+			spawnAgent: async (): Promise<ResultMessage> => ({
+				kind: "result",
+				handle_id: `handle-batch-${++spawnSeq}`,
+				output: `child ${spawnSeq} output`,
+				success: spawnSeq !== 2,
+				stumbles: 0,
+				turns: 1,
+				timed_out: false,
+			}),
+			subscribeSessionEvents: async () => () => {},
+			deliverObserverFrame: async (opts: { message: string }) => {
+				observerDeliveries.push(opts);
+			},
+			getHandle: () => undefined,
+			getHandles: () => [],
+		} as unknown as AgentSpawner;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => ({
+				id: "mock-batch",
+				model: "claude-haiku-4-5-20251001",
+				provider: "anthropic",
+				message: Msg.assistant("Done."),
+				finish_reason: { reason: "stop" },
+				usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+			}),
+			stream: async function* () {},
+		} as unknown as Client;
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const agent = new Agent({
+			spec: root,
+			env,
+			client: mockClient,
+			primitiveRegistry: createPrimitiveRegistry(env),
+			availableAgents: [root, leafSpec, observer],
+			depth: 0,
+			spawner,
+			resolverSettings,
+		});
+		const internals = agent as unknown as {
+			runCellCall: (fn: () => Promise<unknown>, agentId: string) => Promise<unknown>;
+			serviceCellSpawn: (req: { agent: string; goal: string }) => Promise<DelegationOutcome>;
+		};
+		await internals.runCellCall(async () => {
+			await internals.serviceCellSpawn({ agent: "leaf", goal: "first task" });
+			await internals.serviceCellSpawn({ agent: "leaf", goal: "second task" });
+			return { output: "", success: true };
+		}, "root");
+
+		expect(observerDeliveries).toHaveLength(1);
+		const message = observerDeliveries[0]!.message;
+		expect(message).toContain("cell-spawn-observer-frame");
+		expect(message).toContain("handle-batch-1");
+		expect(message).toContain("handle-batch-2");
+		expect(message).toContain("FAILED");
+		expect(message).toContain("first task");
+		expect(message).toContain("second task");
+	});
 });

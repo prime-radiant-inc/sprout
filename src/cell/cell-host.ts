@@ -39,6 +39,43 @@ export const CELL_AUTO_BIND_THRESHOLD = 2_000;
 const BUDGET_POLL_INTERVAL_MS = 100;
 const RSS_POLL_INTERVAL_MS = 250;
 
+/** Max spawns per cell (spec §4). Parent-enforced; past it, spawn() throws. */
+export const CELL_SPAWN_CAP = 64;
+
+/** One cell-originated spawn request, decoded from the ambient spawn() call. */
+export interface CellSpawnRequest {
+	agent: string;
+	goal: string;
+	env?: Record<string, string>;
+	hints?: string[];
+	blocking?: boolean;
+	shared?: boolean;
+	model?: string;
+}
+
+/**
+ * The typed outcome envelope (spec §4 deviation #5). The delegation core in
+ * the owning agent returns exactly one of these; the cell maps
+ * infrastructure_error to an in-cell rejection, and completed/started resolve
+ * with the spawn contract's value regardless of child success.
+ */
+export type DelegationOutcome =
+	| { kind: "infrastructure_error"; reason: string }
+	| {
+			kind: "completed";
+			/** Child success — never a rejection channel (spawn contract). */
+			ok: boolean;
+			/** Manifest-rewritten child output, published/renamed lines included. */
+			summary: string;
+			/** The manifest delta's delivered values. */
+			bindings: CellBindingSummary[];
+			handleId: string;
+			stumbles: number;
+			/** Tool-path renderer aid: the child's untruncated raw output. */
+			rawOutput?: string;
+	  }
+	| { kind: "started"; handleId: string };
+
 /** Minimal worker process surface — real Bun.spawn or an in-process test fake. */
 export interface CellWorkerProcessHandle {
 	pid?: number;
@@ -52,6 +89,18 @@ export interface CellHostOptions {
 	budgetMs?: number;
 	memoryBudgetBytes?: number;
 	spawnFn?: () => CellWorkerProcessHandle;
+	/**
+	 * Cell spawn servicing (spec §4): the owning agent wires these to its
+	 * delegation core / spawner. Hosts without them (store-only hosts, tests)
+	 * give cells a clean "spawn is unavailable here" error.
+	 */
+	delegate?: (req: CellSpawnRequest) => Promise<DelegationOutcome>;
+	waitHandle?: (id: string) => Promise<DelegationOutcome>;
+	messageHandle?: (
+		id: string,
+		text: string,
+		opts?: { env?: Record<string, string>; blocking?: boolean },
+	) => Promise<DelegationOutcome>;
 }
 
 export interface CellBindingSummary {
@@ -69,7 +118,13 @@ export interface CellResult {
 	returnValue?: string;
 	/** Values bind() created during this cell, in call order. */
 	newBindings: CellBindingSummary[];
-	error?: { message: string; scopeNames: string[] };
+	error?: { message: string; scopeNames: string[]; infrastructure?: boolean };
+	/**
+	 * Stumble accounting (spec §4): failed-child count + 1 if the cell itself
+	 * errored for a non-child, non-infrastructure reason. Infrastructure
+	 * failures (spawn transport, worker death) count zero.
+	 */
+	stumbleCount: number;
 	metrics: { computeTimeMs: number; totalMs: number };
 }
 
@@ -92,6 +147,19 @@ export class CellHost {
 	private running: RunningCell | undefined;
 	private outstandingAmbient = 0;
 	private newBindings: CellBindingSummary[] = [];
+	private readonly delegate?: (req: CellSpawnRequest) => Promise<DelegationOutcome>;
+	private readonly waitHandle?: (id: string) => Promise<DelegationOutcome>;
+	private readonly messageHandle?: (
+		id: string,
+		text: string,
+		opts?: { env?: Record<string, string>; blocking?: boolean },
+	) => Promise<DelegationOutcome>;
+	/** Spawns issued by the running cell, against CELL_SPAWN_CAP. */
+	private cellSpawnCount = 0;
+	/** Handles whose child failure already counted toward stumbleCount. */
+	private failedChildHandles = new Set<string>();
+	/** Infrastructure rejection messages surfaced to the running cell. */
+	private infrastructureReasons: string[] = [];
 	/** Promise-chain mutex: cells are serialized per host (spec §4). */
 	private tail: Promise<unknown> = Promise.resolve();
 	private closed = false;
@@ -101,6 +169,9 @@ export class CellHost {
 		this.budgetMs = options.budgetMs ?? DEFAULT_CELL_BUDGET_MS;
 		this.memoryBudgetBytes = options.memoryBudgetBytes ?? DEFAULT_CELL_MEMORY_BUDGET_BYTES;
 		this.spawnFn = options.spawnFn ?? (() => spawnCellWorkerProcess());
+		this.delegate = options.delegate;
+		this.waitHandle = options.waitHandle;
+		this.messageHandle = options.messageHandle;
 	}
 
 	runCell(code: string): Promise<CellResult> {
@@ -125,6 +196,9 @@ export class CellHost {
 		const id = `cell-${cellNumber}`;
 		this.newBindings = [];
 		this.outstandingAmbient = 0;
+		this.cellSpawnCount = 0;
+		this.failedChildHandles = new Set();
+		this.infrastructureReasons = [];
 
 		const worker = this.ensureWorker();
 		const startedAt = Date.now();
@@ -169,7 +243,15 @@ export class CellHost {
 		const metrics = { computeTimeMs: computeMs, totalMs };
 		const newBindings = this.newBindings;
 		const output = await this.gateForTranscript(raw.output, `cell_${cellNumber}_output`);
-		const result: CellResult = { ok: raw.ok, output, newBindings, metrics };
+		// A cell failure is infrastructure when it is the worker dying or an
+		// infrastructure spawn rejection the code left uncaught — those count
+		// zero stumbles (spec §4); anything else the cell authored counts one.
+		const infrastructure =
+			!raw.ok &&
+			(raw.error === "cell worker exited unexpectedly" ||
+				this.infrastructureReasons.some((reason) => raw.error?.includes(reason)));
+		const stumbleCount = this.failedChildHandles.size + (!raw.ok && !infrastructure ? 1 : 0);
+		const result: CellResult = { ok: raw.ok, output, newBindings, stumbleCount, metrics };
 		if (raw.returnValue !== undefined) {
 			result.returnValue = await this.gateForTranscript(
 				raw.returnValue,
@@ -180,6 +262,7 @@ export class CellHost {
 			result.error = {
 				message: redactSensitiveTranscriptContent(raw.error ?? "cell failed"),
 				scopeNames: await this.store.names().catch(() => [] as string[]),
+				...(infrastructure ? { infrastructure: true } : {}),
 			};
 		}
 		// The journal record (spec §4): redacted AT WRITE in the engine.
@@ -330,6 +413,46 @@ export class CellHost {
 					...(typeof opts.maxResults === "number" ? { maxResults: opts.maxResults } : {}),
 				});
 			}
+			case "spawn": {
+				if (!this.delegate) throw new Error("spawn is unavailable here (no delegation runtime)");
+				const agent = args[0];
+				const goal = args[1];
+				if (typeof agent !== "string" || typeof goal !== "string") {
+					throw new Error("spawn(agent, goal, opts?): agent and goal must be strings");
+				}
+				if (++this.cellSpawnCount > CELL_SPAWN_CAP) {
+					throw new Error(
+						`cell spawn cap exceeded: at most ${CELL_SPAWN_CAP} spawns per cell. ` +
+							"Batch the work into fewer children or split across cells.",
+					);
+				}
+				const opts = (args[2] ?? {}) as CellSpawnRequest;
+				const request: CellSpawnRequest = {
+					agent,
+					goal,
+					...(opts.env !== undefined ? { env: opts.env } : {}),
+					...(opts.hints !== undefined ? { hints: opts.hints } : {}),
+					...(opts.blocking !== undefined ? { blocking: opts.blocking } : {}),
+					...(opts.shared !== undefined ? { shared: opts.shared } : {}),
+					...(opts.model !== undefined ? { model: opts.model } : {}),
+				};
+				return this.consumeOutcome(await this.delegate(request));
+			}
+			case "handle_wait": {
+				if (!this.waitHandle)
+					throw new Error("handle.wait() is unavailable here (no delegation runtime)");
+				return this.consumeOutcome(await this.waitHandle(refArg(args, "handle_wait")));
+			}
+			case "handle_message": {
+				if (!this.messageHandle)
+					throw new Error("handle.message() is unavailable here (no delegation runtime)");
+				const id = refArg(args, "handle_message");
+				const text = args[1];
+				if (typeof text !== "string")
+					throw new Error("handle.message(text, opts?): text must be a string");
+				const opts = (args[2] ?? {}) as { env?: Record<string, string>; blocking?: boolean };
+				return this.consumeOutcome(await this.messageHandle(id, text, opts));
+			}
 			case "get":
 				return new TextDecoder().decode(await this.materialize(refArg(args, "get"), "get"));
 			case "parse": {
@@ -341,6 +464,33 @@ export class CellHost {
 			default:
 				throw new Error(`unknown ambient method: ${method}`);
 		}
+	}
+
+	/**
+	 * Apply the spawn contract to a delegation outcome (spec §4): an
+	 * infrastructure error becomes an in-cell rejection (its reason recorded so
+	 * an uncaught one is recognized at cell end and counts zero stumbles); a
+	 * completed child counts toward stumbleCount when it failed (once per
+	 * handle); the wire shape for the worker carries plain data only.
+	 */
+	private consumeOutcome(outcome: DelegationOutcome): unknown {
+		if (outcome.kind === "infrastructure_error") {
+			this.infrastructureReasons.push(outcome.reason);
+			throw new Error(outcome.reason);
+		}
+		if (outcome.kind === "started") {
+			return { kind: "started", handleId: outcome.handleId };
+		}
+		if (!outcome.ok && !this.failedChildHandles.has(outcome.handleId)) {
+			this.failedChildHandles.add(outcome.handleId);
+		}
+		return {
+			kind: "completed",
+			ok: outcome.ok,
+			summary: outcome.summary,
+			bindings: outcome.bindings,
+			handleId: outcome.handleId,
+		};
 	}
 
 	/** get()/parse() share the 1 MB materialization budget, with guidance. */

@@ -761,8 +761,15 @@ export class AgentSpawner {
 	 * When caller is provided, access control is enforced:
 	 * non-shared handles reject callers other than the owner.
 	 * Internal calls (e.g. the blocking path in spawnAgent) omit caller to skip the check.
+	 *
+	 * `untimed` drops the waiter cap (sap spec §4): the ambient handle.wait()
+	 * path uses the timer-less blocking wait; the wait_agent TOOL keeps its cap.
 	 */
-	waitAgent(handleId: string, caller?: AgentAddress): Promise<ResultMessage> {
+	waitAgent(
+		handleId: string,
+		caller?: AgentAddress,
+		opts: { untimed?: boolean } = {},
+	): Promise<ResultMessage> {
 		const handle = this.handles.get(handleId);
 		if (!handle) {
 			throw new Error(`Unknown handle: ${handleId}`);
@@ -789,11 +796,15 @@ export class AgentSpawner {
 			const waiter: PendingWaiter = {
 				resolve: (result) => resolve(result as ResultMessage),
 				reject,
-				timer: setTimeout(() => {
-					const idx = handle.pendingWaiters.indexOf(waiter);
-					if (idx !== -1) handle.pendingWaiters.splice(idx, 1);
-					reject(new Error(`waitAgent timed out for handle ${handleId}`));
-				}, this.waitTimeoutMs),
+				...(opts.untimed
+					? {}
+					: {
+							timer: setTimeout(() => {
+								const idx = handle.pendingWaiters.indexOf(waiter);
+								if (idx !== -1) handle.pendingWaiters.splice(idx, 1);
+								reject(new Error(`waitAgent timed out for handle ${handleId}`));
+							}, this.waitTimeoutMs),
+						}),
 			};
 			handle.pendingWaiters.push(waiter);
 		});

@@ -183,6 +183,34 @@ export async function runCellWorker(input: RunCellWorkerInput): Promise<void> {
 		for (const method of AMBIENT_METHODS) {
 			ambient[method] = (...args: unknown[]) => callAmbient(method, args);
 		}
+		// The spawn surface (spec §4): handles are worker-side wrappers around
+		// plain handle IDs; every operation proxies to the parent, which maps
+		// outcomes per the spawn contract (infrastructure errors arrive as
+		// ambient rejections and throw in-cell).
+		type SpawnWire = {
+			kind: "completed" | "started";
+			ok?: boolean;
+			summary?: string;
+			bindings?: unknown[];
+			handleId: string;
+		};
+		const makeHandle = (id: string): Record<string, unknown> => ({
+			id,
+			wait: async () => wrapOutcome((await callAmbient("handle_wait", [id])) as SpawnWire),
+			message: async (text: string, opts?: unknown) =>
+				wrapOutcome((await callAmbient("handle_message", [id, text, opts])) as SpawnWire),
+		});
+		const wrapOutcome = (wire: SpawnWire): Record<string, unknown> => {
+			const handle = makeHandle(wire.handleId);
+			if (wire.kind === "started") return { handle };
+			return { ok: wire.ok, summary: wire.summary, bindings: wire.bindings, handle };
+		};
+		ambient.spawn = async (agent: unknown, goal: unknown, opts?: unknown) =>
+			wrapOutcome((await callAmbient("spawn", [agent, goal, opts])) as SpawnWire);
+		ambient.handle = (id: unknown) => {
+			if (typeof id !== "string") throw new Error("handle(id): id must be a string");
+			return makeHandle(id);
+		};
 		try {
 			// The realm: shadowed globals become undefined parameters, the
 			// ambient API becomes named parameters, and the body runs inside an

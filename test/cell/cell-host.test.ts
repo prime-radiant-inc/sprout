@@ -2,7 +2,13 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CellHost, spawnCellWorkerProcess } from "../../src/cell/cell-host";
+import {
+	CELL_SPAWN_CAP,
+	CellHost,
+	type CellSpawnRequest,
+	type DelegationOutcome,
+	spawnCellWorkerProcess,
+} from "../../src/cell/cell-host";
 import { ContentStore } from "../../src/store/cas";
 import { SessionJournal } from "../../src/store/journal";
 import { SapStore } from "../../src/store/store";
@@ -202,6 +208,197 @@ describe("CellHost", () => {
 		expect(cell.code).not.toContain("hunter2secret");
 		expect(cell.bindings.map((b) => b.name)).toEqual(["out"]);
 		expect(cell.computeTimeMs).toBeGreaterThanOrEqual(0);
+	}, 20_000);
+
+	// -------------------------------------------------------------------
+	// Ambient spawn API (Slice B): spawn()/handle() through host callbacks
+	// -------------------------------------------------------------------
+
+	function completedOutcome(
+		overrides: Partial<Extract<DelegationOutcome, { kind: "completed" }>> = {},
+	): DelegationOutcome {
+		return {
+			kind: "completed",
+			ok: true,
+			summary: "child summary",
+			bindings: [{ name: "report", ulid: "01ULID", size: 12, preview: "child data" }],
+			handleId: "h-1",
+			stumbles: 0,
+			...overrides,
+		};
+	}
+
+	it("a blocking spawn threads the completed outcome into the cell", async () => {
+		const requests: CellSpawnRequest[] = [];
+		host = new CellHost(store, {
+			spawnFn: spawnRealWorker,
+			delegate: async (req) => {
+				requests.push(req);
+				return completedOutcome();
+			},
+		});
+		const result = await host.runCell(
+			'const r = await spawn("leaf", "do it"); await bind("s", r.summary); return r.ok;',
+		);
+		expect(result.ok).toBe(true);
+		expect(result.returnValue).toBe("true");
+		expect(result.newBindings.map((b) => b.name)).toEqual(["s"]);
+		expect(new TextDecoder().decode(await store.get("s", { maxBytes: 1000 }))).toBe(
+			"child summary",
+		);
+		expect(requests).toEqual([{ agent: "leaf", goal: "do it" }]);
+		expect(result.stumbleCount).toBe(0);
+	}, 20_000);
+
+	it("the spawn result exposes bindings and a handle with an id", async () => {
+		host = new CellHost(store, {
+			spawnFn: spawnRealWorker,
+			delegate: async () => completedOutcome(),
+		});
+		const result = await host.runCell(
+			'const r = await spawn("leaf", "go");\nreturn JSON.stringify({ b: r.bindings, id: r.handle.id });',
+		);
+		expect(result.ok).toBe(true);
+		const parsed = JSON.parse(result.returnValue ?? "{}");
+		expect(parsed.b).toEqual([{ name: "report", ulid: "01ULID", size: 12, preview: "child data" }]);
+		expect(parsed.id).toBe("h-1");
+	}, 20_000);
+
+	it("an infrastructure error rejects in-cell and is catchable", async () => {
+		host = new CellHost(store, {
+			spawnFn: spawnRealWorker,
+			delegate: async () => ({
+				kind: "infrastructure_error",
+				reason: "Unknown agent 'nope'",
+			}),
+		});
+		const result = await host.runCell(
+			'try { await spawn("nope", "x"); return "no-throw"; } catch (e) { return e.message; }',
+		);
+		expect(result.ok).toBe(true);
+		expect(result.returnValue).toContain("Unknown agent 'nope'");
+	}, 20_000);
+
+	it("an uncaught infrastructure rejection fails the cell but counts zero stumbles", async () => {
+		host = new CellHost(store, {
+			spawnFn: spawnRealWorker,
+			delegate: async () => ({ kind: "infrastructure_error", reason: "transport failure" }),
+		});
+		const result = await host.runCell('await spawn("leaf", "x");');
+		expect(result.ok).toBe(false);
+		expect(result.error?.message).toContain("transport failure");
+		expect(result.error?.infrastructure).toBe(true);
+		expect(result.stumbleCount).toBe(0);
+	}, 20_000);
+
+	it("fan-out: Promise.all of 3 spawns all resolve, order-independent", async () => {
+		let seq = 0;
+		host = new CellHost(store, {
+			spawnFn: spawnRealWorker,
+			delegate: async (req) => {
+				const n = ++seq;
+				// Reverse-order completion: first request resolves last.
+				await new Promise((resolve) => setTimeout(resolve, (4 - n) * 50));
+				return completedOutcome({ summary: `done ${req.goal}`, handleId: `h-${n}`, bindings: [] });
+			},
+		});
+		const result = await host.runCell(
+			[
+				'const rs = await Promise.all([spawn("leaf", "a"), spawn("leaf", "b"), spawn("leaf", "c")]);',
+				'return rs.map((r) => r.summary).join(",");',
+			].join("\n"),
+		);
+		expect(result.ok).toBe(true);
+		expect(result.returnValue).toBe("done a,done b,done c");
+	}, 20_000);
+
+	it("the spawn cap fails the spawn past the limit with a loud error", async () => {
+		host = new CellHost(store, {
+			spawnFn: spawnRealWorker,
+			delegate: async () => completedOutcome({ bindings: [] }),
+		});
+		const result = await host.runCell(
+			[
+				`for (let i = 0; i < ${CELL_SPAWN_CAP}; i++) await spawn("leaf", "n" + i);`,
+				'try { await spawn("leaf", "over"); return "no-throw"; } catch (e) { return e.message; }',
+			].join("\n"),
+		);
+		expect(result.ok).toBe(true);
+		expect(result.returnValue).toContain("spawn cap");
+		expect(result.returnValue).toContain(String(CELL_SPAWN_CAP));
+	}, 30_000);
+
+	it("a slow spawn parks the budget clock", async () => {
+		host = new CellHost(store, {
+			spawnFn: spawnRealWorker,
+			budgetMs: 300,
+			delegate: async () => {
+				await new Promise((resolve) => setTimeout(resolve, 600));
+				return completedOutcome({ bindings: [] });
+			},
+		});
+		const result = await host.runCell('const r = await spawn("leaf", "slow"); return r.ok;');
+		expect(result.ok).toBe(true);
+		expect(result.metrics.computeTimeMs).toBeLessThan(300);
+		expect(result.metrics.totalMs).toBeGreaterThanOrEqual(600);
+	}, 20_000);
+
+	it("handle(id).wait() and .message() route through the host callbacks", async () => {
+		const waits: string[] = [];
+		const messages: Array<{ id: string; text: string; env?: Record<string, string> }> = [];
+		host = new CellHost(store, {
+			spawnFn: spawnRealWorker,
+			delegate: async () => ({ kind: "started", handleId: "h-detached" }),
+			waitHandle: async (id) => {
+				waits.push(id);
+				return completedOutcome({ summary: "waited", handleId: id, bindings: [] });
+			},
+			messageHandle: async (id, text, opts) => {
+				messages.push({ id, text, ...(opts?.env ? { env: opts.env } : {}) });
+				return completedOutcome({ summary: "replied", handleId: id, bindings: [] });
+			},
+		});
+		const result = await host.runCell(
+			[
+				'const s = await spawn("leaf", "bg", { blocking: false });',
+				"const w = await s.handle.wait();",
+				"const h = handle(s.handle.id);",
+				'const m = await h.message("hi", { env: { notes: "notes" } });',
+				"return JSON.stringify({ id: s.handle.id, w: w.summary, m: m.summary });",
+			].join("\n"),
+		);
+		expect(result.ok).toBe(true);
+		const parsed = JSON.parse(result.returnValue ?? "{}");
+		expect(parsed).toEqual({ id: "h-detached", w: "waited", m: "replied" });
+		expect(waits).toEqual(["h-detached"]);
+		expect(messages).toEqual([{ id: "h-detached", text: "hi", env: { notes: "notes" } }]);
+	}, 20_000);
+
+	it("failed children count into stumbleCount; an own error adds one", async () => {
+		let n = 0;
+		host = new CellHost(store, {
+			spawnFn: spawnRealWorker,
+			delegate: async () =>
+				completedOutcome({ ok: ++n > 2, summary: `s${n}`, handleId: `h-${n}`, bindings: [] }),
+		});
+		const twoFailed = await host.runCell(
+			'await spawn("leaf", "a"); await spawn("leaf", "b"); await spawn("leaf", "c"); return "done";',
+		);
+		expect(twoFailed.ok).toBe(true);
+		expect(twoFailed.stumbleCount).toBe(2);
+
+		const ownError = await host.runCell('throw new Error("cell-authored bug");');
+		expect(ownError.ok).toBe(false);
+		expect(ownError.stumbleCount).toBe(1);
+	}, 20_000);
+
+	it("spawn without a delegate callback errors cleanly in-cell", async () => {
+		host = new CellHost(store, { spawnFn: spawnRealWorker });
+		const result = await host.runCell(
+			'try { await spawn("leaf", "x"); return "no-throw"; } catch (e) { return e.message; }',
+		);
+		expect(result.ok).toBe(true);
+		expect(result.returnValue).toContain("spawn is unavailable here");
 	}, 20_000);
 
 	it("serializes concurrent runCell calls in submission order", async () => {
