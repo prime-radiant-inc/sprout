@@ -40,8 +40,14 @@ Fable review in fresh context → fix findings → commit → update this plan. 
   SDK shapes verified real in node_modules); two MEDs fixed: Gemini *streaming* text-part
   signature drop, and OpenAI replay reorder of interleaved reasoning/tool items (now replays in
   true captured order). Redaction excludes opaque state structurally. Full suite 3968 pass.
-- [ ] **Phase 2 — Futures + `$ref` promise pipelining.** First-class future on the existing wait
-  graph; `$ref` to a future pipelines; settles to a normal immutable value; budget-bounded.
+- [x] **Phase 2 — Futures + `$ref` promise pipelining.** DONE + Fable-reviewed. New ambient
+  `handle.future(name)` binds a started child's eventual outcome without awaiting; value ops on
+  that name pipeline on the existing waitHandle mechanism, then settle to a NORMAL immutable value
+  (ULID stable post-settlement). Per-cell generation guard reclaims abandoned futures; no new
+  deadlock surface. Strictly additive. Review found no HIGH; the flagged settlement-orphan window
+  is already guarded (verified falsifiable), with one narrow residual (cell ends during the bind
+  round-trip) documented honestly rather than closed (full closure would cross the immutability
+  line). Full suite 3975 pass.
 - [ ] **Phase 3 — Agent-Skills-compatible program metadata.** Superset frontmatter; same lexical
   scan at validate+load; round-trip byte-stable; `<programs>` block shows the new fields.
 - [ ] **Phase 4 — N-run pinned-snapshot eval harness.** The linchpin. Runs a candidate genome N×
