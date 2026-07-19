@@ -160,6 +160,37 @@ describe("replayHandleLog", () => {
 		expect(history[2]!.tool_call_id).toBe("call-5");
 	});
 
+	test("closes a log ending mid-delegation with a truthful synthesized error", async () => {
+		const logPath = join(tempDir, "mid-delegation.jsonl");
+		await writeEventLog(logPath, [
+			event("perceive", { goal: "Delegate work" }),
+			event("plan_end", {
+				assistant_message: {
+					role: "assistant",
+					content: [
+						{ kind: "text", text: "Delegating." },
+						{
+							kind: "tool_call",
+							tool_call: { id: "d1", name: "delegate", arguments: { agent_name: "worker" } },
+						},
+					],
+				},
+			}),
+			event("act_start", { handle_id: "h-42", agent_name: "worker", child_id: "child-1" }),
+			// process died here: no act_end, no tool result, no session_end
+		]);
+
+		const history = await replayHandleLog(logPath);
+
+		const last = history[history.length - 1]!;
+		expect(last.role).toBe("tool");
+		expect(last.tool_call_id).toBe("d1");
+		const part = last.content[0]!;
+		expect(part.tool_result?.is_error).toBe(true);
+		expect(String(part.tool_result?.content)).toContain("died while this delegation was running");
+		expect(String(part.tool_result?.content)).toContain("died_with_owner: h-42");
+	});
+
 	test("uses first event's depth as the filter depth", async () => {
 		// Agent at depth 0 — should still work (not hardcoded to non-zero)
 		const logPath = join(tempDir, "depth-zero.jsonl");

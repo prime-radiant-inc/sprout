@@ -2725,6 +2725,117 @@ describe("runAgentProcess", () => {
 		expect(allContent).toContain("Follow-up task");
 	}, 30_000);
 
+	test("resume from a log ending mid-delegation gets a synthesized truthful error result", async () => {
+		// Pre-seed a handle log for an owner that died mid-delegation:
+		// plan_end with a dangling delegate tool_use, act_start, no act_end.
+		const logDir = join(genomeDir, "logs", SESSION_ID);
+		await mkdir(logDir, { recursive: true });
+		const priorEvents = [
+			{
+				kind: "perceive",
+				timestamp: Date.now(),
+				agent_id: "test-leaf",
+				depth: 1,
+				data: { goal: "Delegate to test-leaf" },
+			},
+			{
+				kind: "plan_end",
+				timestamp: Date.now(),
+				agent_id: "test-leaf",
+				depth: 1,
+				data: {
+					assistant_message: {
+						role: "assistant",
+						content: [
+							{ kind: "text", text: "Delegating." },
+							{
+								kind: "tool_call",
+								tool_call: { id: "d1", name: "delegate", arguments: { agent_name: "test-leaf" } },
+							},
+						],
+					},
+				},
+			},
+			{
+				kind: "act_start",
+				timestamp: Date.now(),
+				agent_id: "test-leaf",
+				depth: 1,
+				data: { handle_id: "h-dead-child", agent_name: "test-leaf", child_id: "child-1" },
+			},
+		];
+		await writeFile(
+			join(logDir, `${HANDLE_ID}.jsonl`),
+			`${priorEvents.map((e) => JSON.stringify(e)).join("\n")}\n`,
+			"utf-8",
+		);
+
+		const capturedRequests: Request[] = [];
+		const mockClient = buildMockClient(async (request: Request): Promise<Response> => {
+			capturedRequests.push(request);
+			return {
+				id: "mock-resume-1",
+				model: "claude-haiku-4-5-20251001",
+				provider: "anthropic",
+				message: Msg.assistant("Resumed."),
+				finish_reason: { reason: "stop" },
+				usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 },
+			};
+		});
+
+		const resultTopic = agentResult(SESSION_ID, HANDLE_ID);
+		const resultPromise = parentClient.waitForMessage(resultTopic, 10_000);
+		const processPromise = runAgentProcess({
+			busUrl: server.url,
+			handleId: HANDLE_ID,
+			sessionId: SESSION_ID,
+			genomePath: genomeDir,
+			client: mockClient,
+			workDir: tempDir,
+		});
+
+		await waitForAgentReady();
+		const inboxTopic = agentInbox(SESSION_ID, HANDLE_ID);
+		await parentClient.publish(
+			inboxTopic,
+			JSON.stringify(
+				withResolverContext({
+					kind: "start",
+					handle_id: HANDLE_ID,
+					self: addr("test-leaf", 1, undefined, HANDLE_ID),
+					genome_path: genomeDir,
+					session_id: SESSION_ID,
+					caller: addr("root", 0),
+					goal: "Pick up where you left off",
+					shared: false,
+				} satisfies StartMessage),
+			),
+		);
+		await resultPromise;
+		await processPromise;
+
+		// The replayed initialHistory must close the dangling delegate call:
+		// a tool result for d1 marked is_error with the died_with_owner truth.
+		expect(capturedRequests.length).toBeGreaterThan(0);
+		const messages = capturedRequests[0]!.messages;
+		const danglingResult = messages
+			.flatMap((m) => m.content)
+			.find((p) => p.kind === ContentKind.TOOL_RESULT && p.tool_result?.tool_call_id === "d1");
+		expect(danglingResult).toBeDefined();
+		expect(danglingResult!.tool_result!.is_error).toBe(true);
+		expect(String(danglingResult!.tool_result!.content)).toContain("died_with_owner: h-dead-child");
+		// Provider-validity: every tool_use id has exactly one matching result.
+		const callIds = messages
+			.flatMap((m) => m.content)
+			.filter((p) => p.kind === ContentKind.TOOL_CALL && p.tool_call)
+			.map((p) => p.tool_call!.id);
+		const resultIds = messages
+			.flatMap((m) => m.content)
+			.filter((p) => p.kind === ContentKind.TOOL_RESULT && p.tool_result)
+			.map((p) => p.tool_result!.tool_call_id);
+		expect(resultIds.toSorted()).toEqual(callIds.toSorted());
+	}, 30_000);
+
 	test("logger receives agent-level log entries when passed to config", async () => {
 		const mockClient = createMockClient("Logged agent run.");
 
