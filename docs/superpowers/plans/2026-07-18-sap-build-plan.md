@@ -18,6 +18,21 @@ frozen invariants (the "one rule", the `$ref` allowlist, scope isolation, kernel
 line). Where the spec hardens against a threat that isn't live yet, we defer that hardening
 to the phase where it becomes load-bearing rather than landing it as dead code.
 
+## v1 eval results (2026-07-19, live)
+
+Measured against real `claude-haiku-4-5` with recorded provider request bytes (not
+mechanical estimates):
+- **`$ref` write path: 29.5× input-token reduction** — 784 tokens (data plane) vs 23,096
+  (baseline, same task, content inline). Fully real on both sides.
+- **Keystone assertion PASSED:** a deep interior marker in the ~48 KB captured value was
+  ABSENT from the data-plane provider payload and PRESENT in the baseline — the content
+  never crossed the LLM line, verified in the recorded request bytes. Spliced file was
+  byte-identical to the store body.
+- Mechanical measurements earlier corroborated: `$ref` >99.9%, child boundary 66-86%,
+  capture makes dropped output reachable rather than shrinking first-render.
+- The ≥80% token-economics acceptance criterion (§10) holds on the flagship path with real
+  usage.
+
 Two standing rules from the review that are *not* optional, because they protect the
 self-improvement loop itself:
 - **Multi-run A/B** for genome fitness (single-run stumble rate is noise — RLM-class variance
