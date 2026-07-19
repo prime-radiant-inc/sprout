@@ -235,7 +235,20 @@ export class LearnProcess {
 		await this.savePendingEvaluations();
 	}
 
-	/** Evaluate whether an improvement helped by comparing stumble rates before and after. */
+	/**
+	 * Evaluate whether an improvement helped by comparing stumble rates before and after.
+	 *
+	 * INTEGRATION POINT (sap spec §10, non-negotiable multi-run A/B): this
+	 * single before/after delta is exactly the noise the multi-run A/B gate
+	 * replaces — one sample per period cannot separate a real genome
+	 * improvement from RLM variance. When the eval harness can run each arm N
+	 * times (pinned eval-mode snapshots, same genome both arms), collect the
+	 * per-run stumble rates into two `ArmResult`s and gate acceptance on
+	 * `shouldAcceptMutation(treatment, baseline)` from ./multi-run-ab.ts instead
+	 * of the `delta` threshold below. Wiring it here requires the N-run harness
+	 * (Phase 7 eval), which does not yet exist, so this stays a single-delta
+	 * heuristic and the significance gate lives as a tested standalone module.
+	 */
 	async evaluateImprovement(
 		agentName: string,
 		improvementTimestamp: number,

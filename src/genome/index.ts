@@ -3,3 +3,10 @@ export { Genome, git } from "./genome.ts";
 export { incorporateExtractedMemories } from "./memory-incorporation.ts";
 export { MemoryStore } from "./memory-store.ts";
 export { recall, renderMemories, renderRoutingHints } from "./recall.ts";
+export {
+	aggregateSapMetrics,
+	type CacheStats,
+	type FanOutStats,
+	type ModeStumbleStats,
+	type SapMetrics,
+} from "./sap-metrics.ts";
