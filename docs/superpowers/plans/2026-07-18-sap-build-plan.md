@@ -3,7 +3,7 @@
 **Date started:** 2026-07-18
 **Spec:** `../specs/2026-07-16-sap-data-plane-and-repl-design.md`
 **Review:** `../specs/2026-07-18-sap-state-of-the-art-review.md`
-**Status:** in progress — Phases 0–4 complete (built + Fable-reviewed). **At the v1 release line**: the token win ships without the evaluator. Decision pending: ship/measure v1 vs continue to Phase 5 (evaluator/cells).
+**Status:** in progress — Phases 0–5 complete (built + Fable-reviewed). v1 eval measurements captured (see below). Phases 6–7 (code-first act mode; genome programs + metrics) remain.
 
 This is the working tracker for building sap. It records *what we're building, in what
 order, and where we deliberately simplified away from the maximal spec*. Update it as
@@ -407,7 +407,7 @@ Design decisions (fixed):
   observation surface that consumes it; shared-handle host resolution stays Phase 5;
   task_payload untouched (superseded, no migration).
 
-### Phase 5 — Evaluator  ← current
+### Phase 5 — Evaluator  ✅ landed 2026-07-19
 Design decisions (fixed; deviations from spec topology recorded):
 - **Cell workers are owned by the agent process, not the host.** Each agent process
   lazily spawns ONE cell-worker subprocess (root's is owned by the host process — same
@@ -451,7 +451,22 @@ Slices:
 - [x] B: spawn()/handle() ambient API + typed outcome envelope refactor + the five
   cell-spawn deviations + stumble/learn accounting.
 - [x] C: dangling-call replay synthesis (both act modes).
-- [ ] Phase 5 Fable review.
+- [x] **Phase 5 Fable review — done; findings fixed** (`85dc2ec`). One HIGH: the
+  stripped realm was cosmetic (new-Function param shadowing; Function/eval/constructor
+  chains reached real Bun → arbitrary exec, falsifying the no-exec-grant invariant).
+  Fixed with a real `node:vm` context — Bun implements node:vm with genuine realm
+  isolation, verified empirically under Bun/JSC (constructor-chain escape resolves to
+  the context's own global, no host reach). Only 3 host bridges enter; ambient surface
+  installed from in-context source then bridges deleted; return values JSON-severed;
+  lexical import gate retained. Two LOWs: outstanding-ambient cap (256, RSS watchdog is
+  the ultimate net); infra-vs-stumble classification now by thrown-object identity
+  (WeakSet), not forgeable message substring. Verified solid: redaction, stumble/learn
+  dedup, replay truthfulness, the deferred deadlock↔shared-handle pairing (cross-process
+  shared waits still error as unsupported — structurally cycle-free).
+  - *Realm honesty:* node:vm is the confused-deputy bar (model-authored code can't reach
+    host capabilities), NOT a hard sandbox vs a determined same-UID attacker exploiting a
+    JSC realm bug — matches the spec non-goal. The SOA review's OS-capability-sandbox
+    remains the path if the trust model ever hardens.
 
 #### Phase 5 (spec text, for reference)
 Per-agent cell workers, `cell` tool over the authenticated channel, ambient API (incl.
