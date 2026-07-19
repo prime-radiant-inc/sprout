@@ -69,6 +69,7 @@ describe("Dynamic delegation list refresh", () => {
 		// Create initial child agent
 		const childSpec = makeSpec("child-agent", {
 			description: "A child worker agent",
+			tools: ["read_file"],
 		});
 		await writeFile(join(genomeDir, "agents", "child-agent.md"), serializeAgentMarkdown(childSpec));
 

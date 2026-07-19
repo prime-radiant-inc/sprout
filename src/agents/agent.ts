@@ -444,6 +444,10 @@ export class Agent {
 		if (this.dataPlaneEnabled && options.spawner?.storeAccess && this.spec.constraints.can_spawn) {
 			// The spawn callbacks (spec §4): plain functions into the cell layer,
 			// keeping the delegation core and spawner access on the agents side.
+			// Genome programs (spec §7): the fourth artifact, injected into the cell
+			// realm as `programs.<name>` and listed in the tool's <programs> block.
+			// Loaded + validated at genome load; passed here for exposure.
+			const genomePrograms = this.genome?.allPrograms() ?? [];
 			const cellHost =
 				options.cellHost ??
 				new CellHost(options.spawner.storeAccess, {
@@ -451,6 +455,9 @@ export class Agent {
 					delegate: (req) => this.serviceCellSpawn(req),
 					waitHandle: (id) => this.serviceCellHandleWait(id),
 					messageHandle: (id, text, opts) => this.serviceCellHandleMessage(id, text, opts),
+					...(genomePrograms.length > 0
+						? { programs: genomePrograms.map((p) => ({ name: p.name, body: p.body })) }
+						: {}),
 				});
 			// The typed surface (spec §6): the cell tool description carries a
 			// `.d.ts` block for the ambient API + this agent's spawnable agents, so
@@ -460,7 +467,13 @@ export class Agent {
 				name: a.name,
 				description: a.description,
 			}));
-			this.cellPrimitive = buildCellPrimitive(cellHost, spawnableAgents);
+			const programInfos = genomePrograms.map((p) => ({
+				name: p.name,
+				description: p.description,
+				params: p.params,
+				spawns: p.spawns,
+			}));
+			this.cellPrimitive = buildCellPrimitive(cellHost, spawnableAgents, programInfos);
 			this.primitiveRegistry.register(this.cellPrimitive);
 		}
 		this.logger = (options.logger ?? new NullLogger()).child({

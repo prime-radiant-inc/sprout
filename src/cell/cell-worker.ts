@@ -16,7 +16,20 @@
 
 import vm from "node:vm";
 
-export type CellWorkerRequest = { id: string; op: "cell"; code: string };
+/**
+ * A genome program made available to the cell realm (spec §7): its name and JS
+ * body. The worker builds `programs.<name>(args)` from these in the realm
+ * bootstrap — the body runs in the SAME vm context with the SAME ambient API as
+ * cell code, no host constructor leak.
+ */
+export type WorkerProgram = { name: string; body: string };
+
+export type CellWorkerRequest = {
+	id: string;
+	op: "cell";
+	code: string;
+	programs?: WorkerProgram[];
+};
 
 /**
  * Parent's answer to one ambient request, correlated by the worker's id. An
@@ -179,6 +192,32 @@ delete globalThis.__hostTimers__;
 const CELL_BOOTSTRAP = buildCellBootstrap();
 
 /**
+ * Build the `programs` namespace bootstrap (spec §7). Runs in-context AFTER the
+ * ambient bootstrap: each program becomes `programs.<name> = async (args) =>
+ * { <body> }`, so the body reads its typed params off `args` and reaches the
+ * value/spawn API through the same context globals cell code uses. Program
+ * names are validated [a-z0-9_] at the genome gate, so the key interpolation is
+ * a real identifier-charset string; the body is model-written genome code that
+ * already passed the lexical import/require scan, and runs at the same privilege
+ * as the cell that invokes it (fresh context per cell).
+ */
+function buildProgramsBootstrap(programs: WorkerProgram[]): string {
+	const assignments = programs
+		.map(
+			(program) =>
+				`\tprograms[${JSON.stringify(program.name)}] = async (args = {}) => {\n${program.body}\n\t};`,
+		)
+		.join("\n");
+	return `"use strict";
+(function () {
+	const programs = {};
+${assignments}
+	globalThis.programs = programs;
+})();
+`;
+}
+
+/**
  * Lexical gate (spec §4, frozen): any `import` or `require` token occurrence
  * rejects the cell BEFORE execution — dynamic `import()` is syntax, not a
  * deletable property, so global stripping alone cannot deliver "no import".
@@ -281,7 +320,7 @@ export async function runCellWorker(input: RunCellWorkerInput): Promise<void> {
 		});
 	}
 
-	async function executeCell(id: string, code: string): Promise<void> {
+	async function executeCell(id: string, code: string, programs?: WorkerProgram[]): Promise<void> {
 		const consoleBuffer = new ConsoleBuffer();
 		const rejection = rejectImportRequire(code);
 		if (rejection !== undefined) {
@@ -308,6 +347,9 @@ export async function runCellWorker(input: RunCellWorkerInput): Promise<void> {
 			};
 			const context = vm.createContext(sandbox);
 			vm.runInContext(CELL_BOOTSTRAP, context);
+			if (programs !== undefined && programs.length > 0) {
+				vm.runInContext(buildProgramsBootstrap(programs), context);
+			}
 			const value: unknown = await vm.runInContext(
 				`"use strict";\n(async () => {\n${code}\n})();`,
 				context,
@@ -373,9 +415,14 @@ export async function runCellWorker(input: RunCellWorkerInput): Promise<void> {
 				);
 				return;
 			}
+			const programs = (message as { programs?: unknown }).programs;
 			cellRunning = true;
 			// Detached on purpose: the loop must keep reading ambient responses.
-			void executeCell(message.id, code).finally(() => {
+			void executeCell(
+				message.id,
+				code,
+				Array.isArray(programs) ? (programs as WorkerProgram[]) : undefined,
+			).finally(() => {
 				cellRunning = false;
 			});
 			return;

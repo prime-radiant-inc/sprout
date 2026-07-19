@@ -74,4 +74,29 @@ describe("cell primitive", () => {
 		expect(result.success).toBe(false);
 		expect(result.error).toContain("store worker unavailable");
 	});
+
+	it("lists genome programs with their params and spawns in a <programs> block", () => {
+		const prim = buildCellPrimitive(
+			runner(okResult()),
+			[{ name: "reader", description: "reads" }],
+			[
+				{
+					name: "summarize",
+					description: "Summarize a log",
+					params: [{ name: "log", type: "string", description: "the log value name" }],
+					spawns: ["reader"],
+				},
+			],
+		);
+		expect(prim.description).toContain("<programs>");
+		expect(prim.description).toContain("summarize");
+		expect(prim.description).toContain("Summarize a log");
+		expect(prim.description).toContain("log");
+		expect(prim.description).toContain("reader");
+	});
+
+	it("omits the <programs> block when there are no programs", () => {
+		const prim = buildCellPrimitive(runner(okResult()));
+		expect(prim.description).not.toContain("<programs>");
+	});
 });

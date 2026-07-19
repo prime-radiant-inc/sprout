@@ -61,14 +61,17 @@ function makeHarness(ambient?: (method: string, args: unknown[]) => Promise<unkn
 	let seq = 0;
 	return {
 		ambientCalls,
-		async runCell(code: string): Promise<CellWorkerMessage & { op: "result" }> {
+		async runCell(
+			code: string,
+			programs?: { name: string; body: string }[],
+		): Promise<CellWorkerMessage & { op: "result" }> {
 			const id = `cell-${++seq}`;
 			const result = new Promise<CellWorkerMessage & { op: "result" }>((resolve) => {
 				const early = results.get(id);
 				if (early) resolve(early);
 				else waiters.set(id, resolve);
 			});
-			push(`${JSON.stringify({ id, op: "cell", code })}\n`);
+			push(`${JSON.stringify({ id, op: "cell", code, ...(programs ? { programs } : {}) })}\n`);
 			return result;
 		},
 		async close() {
@@ -300,6 +303,43 @@ describe("ambient API", () => {
 		);
 		expect(result.ok).toBe(true);
 		expect(result.returnValue).toBe(Array(9).fill("function").join(","));
+		await h.close();
+	});
+});
+
+describe("programs namespace", () => {
+	it("runs a program body against the ambient API with its args", async () => {
+		const binds: { name: string; value: unknown }[] = [];
+		const h = makeHarness(async (method, args) => {
+			if (method === "bind") {
+				binds.push({ name: args[0] as string, value: args[1] });
+				return { name: args[0], ulid: "u1", size: 3, preview: "p" };
+			}
+			return "ok";
+		});
+		const result = await h.runCell("return await programs.stash({ x: 'hi' });", [
+			{ name: "stash", body: 'return await bind("out", args.x);' },
+		]);
+		expect(result.ok).toBe(true);
+		expect(binds).toEqual([{ name: "out", value: "hi" }]);
+		await h.close();
+	});
+
+	it("only exposes programs present in the request", async () => {
+		const h = makeHarness(async () => "ok");
+		const result = await h.runCell("return typeof programs.absent;", [
+			{ name: "present", body: "return 1;" },
+		]);
+		expect(result.ok).toBe(true);
+		expect(result.returnValue).toBe("undefined");
+		await h.close();
+	});
+
+	it("has no programs namespace when none are supplied", async () => {
+		const h = makeHarness(async () => "ok");
+		const result = await h.runCell("return typeof programs;");
+		expect(result.ok).toBe(true);
+		expect(result.returnValue).toBe("undefined");
 		await h.close();
 	});
 });

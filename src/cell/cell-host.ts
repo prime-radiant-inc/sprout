@@ -19,7 +19,7 @@ import { readFile } from "node:fs/promises";
 import { redactSensitiveTranscriptContent } from "../kernel/redaction.ts";
 import type { StoreAccess } from "../store/store-access.ts";
 import { buildInternalSproutCommand } from "../util/self-command.ts";
-import type { CellWorkerMessage } from "./cell-worker.ts";
+import type { CellWorkerMessage, WorkerProgram } from "./cell-worker.ts";
 
 /** Default cell wall-time budget (non-parked; spec §4). */
 export const DEFAULT_CELL_BUDGET_MS = 5_000;
@@ -110,6 +110,12 @@ export interface CellHostOptions {
 		text: string,
 		opts?: { env?: Record<string, string>; blocking?: boolean },
 	) => Promise<DelegationOutcome>;
+	/**
+	 * Genome programs (spec §7) exposed to the cell realm as `programs.<name>`.
+	 * Sent with every cell request so the worker builds the namespace from
+	 * in-context source. Fixed per agent (its genome's validated programs).
+	 */
+	programs?: WorkerProgram[];
 }
 
 export interface CellBindingSummary {
@@ -170,6 +176,7 @@ export class CellHost {
 	/** Promise-chain mutex: cells are serialized per host (spec §4). */
 	private tail: Promise<unknown> = Promise.resolve();
 	private closed = false;
+	private readonly programs?: WorkerProgram[];
 
 	constructor(store: StoreAccess, options: CellHostOptions = {}) {
 		this.store = store;
@@ -179,6 +186,9 @@ export class CellHost {
 		this.delegate = options.delegate;
 		this.waitHandle = options.waitHandle;
 		this.messageHandle = options.messageHandle;
+		if (options.programs !== undefined && options.programs.length > 0) {
+			this.programs = options.programs;
+		}
 	}
 
 	runCell(code: string): Promise<CellResult> {
@@ -245,7 +255,14 @@ export class CellHost {
 				this.running = undefined;
 				settle(msg);
 			};
-			worker.send(`${JSON.stringify({ id, op: "cell", code })}\n`);
+			worker.send(
+				`${JSON.stringify({
+					id,
+					op: "cell",
+					code,
+					...(this.programs ? { programs: this.programs } : {}),
+				})}\n`,
+			);
 		});
 
 		const totalMs = Date.now() - startedAt;

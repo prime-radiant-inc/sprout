@@ -2,6 +2,7 @@ import { access, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { serializeAgentMarkdown } from "../agents/markdown-loader.ts";
 import { Genome } from "./genome.ts";
+import { type Program, serializeProgramMarkdown } from "./program.ts";
 
 export interface EvolvedAgent {
 	name: string;
@@ -22,6 +23,10 @@ export interface ExportResult {
 	genomeOnly: GenomeOnlyAgent[];
 	/** Pre-serialized markdown for each agent to export, keyed by name. */
 	agentContent: Map<string, string>;
+	/** Genome programs (spec §7), promotable to root through staged review. */
+	programs: Program[];
+	/** Pre-serialized markdown for each program to export, keyed by name. */
+	programContent: Map<string, string>;
 }
 
 export async function exportLearnings(genomePath: string, rootDir: string): Promise<ExportResult> {
@@ -67,7 +72,15 @@ export async function exportLearnings(genomePath: string, rootDir: string): Prom
 		}
 	}
 
-	return { evolved, genomeOnly, agentContent };
+	// Programs (spec §7) are genome content; every loaded program is a learning
+	// promotable to root, mirroring genome-only agents.
+	const programs = genome.allPrograms();
+	const programContent = new Map<string, string>();
+	for (const program of programs) {
+		programContent.set(program.name, serializeProgramMarkdown(program));
+	}
+
+	return { evolved, genomeOnly, agentContent, programs, programContent };
 }
 
 /**
@@ -83,6 +96,16 @@ export async function stageLearnings(result: ExportResult, stagingDir: string): 
 		const filePath = join(stagingDir, `${name}.md`);
 		await writeFile(filePath, result.agentContent.get(name)!, "utf-8");
 		written.push(filePath);
+	}
+
+	if (result.programContent.size > 0) {
+		const programsDir = join(stagingDir, "programs");
+		await mkdir(programsDir, { recursive: true });
+		for (const name of result.programContent.keys()) {
+			const filePath = join(programsDir, `${name}.md`);
+			await writeFile(filePath, result.programContent.get(name)!, "utf-8");
+			written.push(filePath);
+		}
 	}
 
 	return written;

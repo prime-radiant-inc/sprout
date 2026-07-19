@@ -166,7 +166,11 @@ export async function runGenomeCommand(command: GenomeCommand): Promise<void> {
 		return;
 	}
 
-	if (result.evolved.length === 0 && result.genomeOnly.length === 0) {
+	if (
+		result.evolved.length === 0 &&
+		result.genomeOnly.length === 0 &&
+		result.programs.length === 0
+	) {
 		console.log("No learnings to export. Genome matches root specs.");
 		return;
 	}
@@ -185,8 +189,15 @@ export async function runGenomeCommand(command: GenomeCommand): Promise<void> {
 		}
 	}
 
+	if (result.programs.length > 0) {
+		console.log("\nGenome programs (spec §7):");
+		for (const program of result.programs) {
+			console.log(`  ${program.name} (v${program.version}) — ${program.description}`);
+		}
+	}
+
 	const stagingDir = await mkdtemp(join(tmpdir(), "sprout-export-"));
 	const written = await stageLearnings(result, stagingDir);
-	console.log(`\nWrote ${written.length} agent spec files to: ${stagingDir}/`);
+	console.log(`\nWrote ${written.length} spec files to: ${stagingDir}/`);
 	console.log("Copy desired files to root/ to incorporate learnings.");
 }

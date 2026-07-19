@@ -15,6 +15,15 @@ export interface SpawnableAgentInfo {
 	description: string;
 }
 
+/** A genome program surfaced to a code-mode caller (spec §7). */
+export interface ProgramInfo {
+	name: string;
+	description: string;
+	params: { name: string; type: string; description: string }[];
+	/** Agent names the body delegates to — shown so callers see compatibility. */
+	spawns: string[];
+}
+
 /** Fixed declaration of the ambient value + spawn API (worker-exact). */
 const AMBIENT_DECLARATIONS = `interface BoundValue { name: string; ulid: string; size: number; preview: string; type: "text" | "json" | "bytes" }
 interface GrepMatch { line: number; text: string }
@@ -65,6 +74,39 @@ function renderSpawnableAgentUnion(agents: SpawnableAgentInfo[]): string {
 		.map((agent) => `\t${docComment(agent.description)}\n\t| ${JSON.stringify(agent.name)}`)
 		.join("\n");
 	return `type SpawnableAgent =\n${members};`;
+}
+
+/**
+ * Render the `<programs>` block (spec §7): the genome programs this caller can
+ * invoke as `programs.<name>(args)`, each with its typed params and declared
+ * `spawns`. The spawns render so the caller sees compatibility; runtime
+ * enforcement stays the caller's delegation allowlist, NOT the declared spawns.
+ * Returns "" when the caller has no programs (block omitted entirely).
+ */
+export function renderProgramsBlock(programs: ProgramInfo[]): string {
+	if (programs.length === 0) return "";
+	const members = programs
+		.map((program) => {
+			const args = program.params
+				.map((param) => `${param.name}: ${param.type} /* ${param.description} */`)
+				.join("; ");
+			const spawns = program.spawns.length > 0 ? ` — spawns: ${program.spawns.join(", ")}` : "";
+			return [
+				`\t${docComment(`${program.description}${spawns}`)}`,
+				`\t${program.name}(args: { ${args} }): Promise<unknown>;`,
+			].join("\n");
+		})
+		.join("\n");
+	return [
+		"<programs>",
+		"Genome programs available as `programs.<name>(args)` — the same ambient API runs their bodies.",
+		"```ts",
+		"declare const programs: {",
+		members,
+		"};",
+		"```",
+		"</programs>",
+	].join("\n");
 }
 
 /**

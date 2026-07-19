@@ -36,6 +36,7 @@ import { MemoryIndex } from "./memory-index.ts";
 import { isActiveMemoryForRecall } from "./memory-lifecycle.ts";
 import { memoryShortId } from "./memory-schema.ts";
 import { MemoryStore } from "./memory-store.ts";
+import { type Program, parseProgramMarkdown, validateProgram } from "./program.ts";
 import { type DetectedProject, ProjectActivityStore } from "./projects.ts";
 import {
 	loadMemoryExtractionPrompts,
@@ -132,6 +133,7 @@ const DIRS = [
 	"logs",
 	"postscripts",
 	"prompts",
+	"programs",
 	".cache",
 ] as const;
 
@@ -141,6 +143,7 @@ export class Genome {
 	private embeddingProvider?: EmbeddingProvider;
 	private readonly agents = new Map<string, AgentSpec>();
 	private readonly rootAgents = new Map<string, AgentSpec>();
+	private readonly programs = new Map<string, Program>();
 	readonly memories: MemoryStore;
 	readonly segments: SegmentStore;
 	readonly projects: ProjectActivityStore;
@@ -231,6 +234,18 @@ export class Genome {
 	/** Look up an agent in root only (ignoring overlay). */
 	getRootAgent(name: string): AgentSpec | undefined {
 		return this.rootAgents.get(name);
+	}
+
+	// --- Programs (sap spec §7) ---
+
+	/** Look up a loaded, validated program by name. */
+	getProgram(name: string): Program | undefined {
+		return this.programs.get(name);
+	}
+
+	/** Return a copy of all loaded, validated programs. */
+	allPrograms(): Program[] {
+		return [...this.programs.values()];
 	}
 
 	/** Returns true if the agent exists in the genome's overlay (modified or genome-created). */
@@ -1075,10 +1090,55 @@ export class Genome {
 		for (const file of mdFiles) {
 			const filePath = join(agentsDir, file);
 			const content = await readFile(filePath, "utf-8");
-			const spec = parseAgentMarkdown(content, filePath);
-			this.agents.set(spec.name, spec);
+			// Validate at LOAD too (F2): agents/ is git-editable outside mutation
+			// paths, so a hand-committed hybrid code-mode spec granting exec must be
+			// caught here. Non-fatal per spec — log + skip the offending spec rather
+			// than failing the whole genome load (matching existing tolerance).
+			try {
+				const spec = parseAgentMarkdown(content, filePath);
+				validateAgentSpec(spec);
+				this.agents.set(spec.name, spec);
+			} catch (err) {
+				console.warn(
+					`genome: skipping invalid agent spec ${filePath}: ${
+						err instanceof Error ? err.message : String(err)
+					}`,
+				);
+			}
 		}
 		this._knownAgentFiles = new Set(mdFiles);
+
+		// Load programs (sap spec §7). Each is parsed and passed the SAME lexical
+		// import/require scan as cell source — at LOAD, because programs/ is
+		// git-editable outside mutation paths and exempting them from the scan
+		// would void the code-mode no-exec invariant. A program failing parse or
+		// the scan is rejected loudly (log + skip) so it never loads as runnable.
+		this.programs.clear();
+		const programsDir = join(this.rootPath, "programs");
+		let programFiles: string[];
+		try {
+			programFiles = (await readdir(programsDir)).filter((f) => f.endsWith(".md"));
+		} catch {
+			programFiles = [];
+		}
+		for (const file of programFiles) {
+			const filePath = join(programsDir, file);
+			const content = await readFile(filePath, "utf-8");
+			try {
+				const program = parseProgramMarkdown(content, filePath);
+				const check = validateProgram(program);
+				if (!check.ok) {
+					throw new Error(check.reason);
+				}
+				this.programs.set(program.name, program);
+			} catch (err) {
+				console.warn(
+					`genome: skipping invalid program ${filePath}: ${
+						err instanceof Error ? err.message : String(err)
+					}`,
+				);
+			}
+		}
 
 		// Load memories
 		await this.memories.load();
