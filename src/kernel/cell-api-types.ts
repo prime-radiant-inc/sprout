@@ -48,10 +48,15 @@ declare const console: {
 /** Fixed declaration of the spawn/handle surface (references SpawnableAgent). */
 const SPAWN_DECLARATIONS = `interface SpawnOptions { env?: Record<string, string>; hints?: string[]; blocking?: boolean; shared?: boolean; model?: string }
 interface SpawnResult { ok: boolean; summary: string; bindings: BoundValue[]; handle: Handle }
+// A future binds a started child's not-yet-settled result to \`name\`; a $ref to
+// that name pipelines (waits for settlement, no busy-await), then reads it as a
+// normal value.
+interface FutureValue { name: string; pending: true }
 interface Handle {
 	id: string;
 	wait(): Promise<SpawnResult>;
 	message(text: string, opts?: { env?: Record<string, string>; blocking?: boolean }): Promise<SpawnResult>;
+	future(name: string): Promise<FutureValue>;
 }
 declare function spawn(agent: SpawnableAgent, goal: string, opts?: SpawnOptions): Promise<SpawnResult>;
 declare function handle(id: string): Handle;`;

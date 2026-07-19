@@ -122,6 +122,7 @@ function buildCellBootstrap(): string {
 			id: hid,
 			wait: async () => wrapOutcome(await callAmbient("handle_wait", [hid])),
 			message: async (text, opts) => wrapOutcome(await callAmbient("handle_message", [hid, text, opts])),
+			future: async (name) => callAmbient("handle_future", [hid, name]),
 		};
 	}
 	globalThis.spawn = async (agent, goal, opts) => wrapOutcome(await callAmbient("spawn", [agent, goal, opts]));

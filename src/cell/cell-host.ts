@@ -150,6 +150,29 @@ interface RunningCell {
 	killReason?: string;
 }
 
+/** One registered future: settles when its wait resolves; reject reclaims it. */
+interface PendingFuture {
+	/** Resolves after the settled value is bound; rejects on wait failure/reclaim. */
+	settled: Promise<void>;
+	reject: (err: unknown) => void;
+}
+
+/**
+ * Ambient value ops that take a value name/ulid as args[0] — a pending future
+ * bound to that name pipelines here (the consumer awaits settlement first).
+ * bind (a NEW name), spawn, and handle_wait/message (a handle id) are excluded.
+ */
+const FUTURE_REF_CONSUMING: ReadonlySet<string> = new Set([
+	"publish",
+	"peek",
+	"size",
+	"slice",
+	"lines",
+	"grep",
+	"get",
+	"parse",
+]);
+
 export class CellHost {
 	private readonly store: StoreAccess;
 	private readonly budgetMs: number;
@@ -173,6 +196,17 @@ export class CellHost {
 	private cellSpawnCount = 0;
 	/** Handles whose child failure already counted toward stumbleCount. */
 	private failedChildHandles = new Set<string>();
+	/**
+	 * Futures registered by the running cell (spec §2): a started child's
+	 * eventual outcome, bound to a NAME without the cell awaiting it. A consumer
+	 * of that name pipelines on `settled` (registers as a dependent on the wait)
+	 * instead of erroring on an unbound name. Reset per cell; a settlement whose
+	 * cell has ended is dropped by generation guard, and killRunning/cell-end
+	 * reclaim any still-pending entries.
+	 */
+	private pendingFutures = new Map<string, PendingFuture>();
+	/** Bumped per cell so a stale future settlement cannot mutate a fresh cell. */
+	private cellGen = 0;
 	/** Promise-chain mutex: cells are serialized per host (spec §4). */
 	private tail: Promise<unknown> = Promise.resolve();
 	private closed = false;
@@ -215,6 +249,7 @@ export class CellHost {
 		this.outstandingAmbient = 0;
 		this.cellSpawnCount = 0;
 		this.failedChildHandles = new Set();
+		this.reclaimFutures("future superseded by a new cell");
 
 		const worker = this.ensureWorker();
 		const startedAt = Date.now();
@@ -265,6 +300,10 @@ export class CellHost {
 			);
 		});
 
+		// Any future the cell registered but never let settle is abandoned at
+		// cell end and reclaimed (spec §2). A settlement already in flight is
+		// dropped by the generation guard in registerFuture.
+		this.reclaimFutures("future abandoned at cell end");
 		const totalMs = Date.now() - startedAt;
 		const metrics = { computeTimeMs: computeMs, totalMs };
 		const newBindings = this.newBindings;
@@ -329,6 +368,7 @@ export class CellHost {
 		const running = this.running;
 		if (running === undefined || running.killReason !== undefined) return;
 		running.killReason = reason;
+		this.reclaimFutures(reason);
 		this.generation++;
 		this.worker?.kill();
 		this.worker = undefined;
@@ -416,6 +456,14 @@ export class CellHost {
 	 * code runs below the line.
 	 */
 	private async serviceAmbient(method: string, args: unknown[]): Promise<unknown> {
+		// $ref pipelining (spec §2): a value op naming a not-yet-settled future
+		// registers as a dependent on its wait and resumes when it settles — no
+		// busy-await in the cell. After settlement the value is a normal store
+		// value and the op below resolves it exactly as any settled ref.
+		if (FUTURE_REF_CONSUMING.has(method) && typeof args[0] === "string") {
+			const future = this.pendingFutures.get(args[0]);
+			if (future !== undefined) await future.settled;
+		}
 		switch (method) {
 			case "bind": {
 				const [name, value] = args;
@@ -500,6 +548,14 @@ export class CellHost {
 				const opts = (args[2] ?? {}) as { env?: Record<string, string>; blocking?: boolean };
 				return this.consumeOutcome(await this.messageHandle(id, text, opts));
 			}
+			case "handle_future": {
+				if (!this.waitHandle)
+					throw new Error("handle.future() is unavailable here (no delegation runtime)");
+				const id = refArg(args, "handle_future");
+				const name = args[1];
+				if (typeof name !== "string") throw new Error("handle.future(name): name must be a string");
+				return this.registerFuture(id, name);
+			}
 			case "get":
 				return new TextDecoder().decode(await this.materialize(refArg(args, "get"), "get"));
 			case "parse": {
@@ -537,6 +593,83 @@ export class CellHost {
 			bindings: outcome.bindings,
 			handleId: outcome.handleId,
 		};
+	}
+
+	/**
+	 * Register a future (spec §2): bind a started child's eventual outcome to
+	 * `name` without awaiting it. The wait rides the existing mechanism
+	 * (waitHandle); on settlement the child's summary binds as a NORMAL immutable
+	 * value (provenance origin `delegation`, truthfully naming the wait), and any
+	 * consumer parked on this future resumes. The settled value's ULID is minted
+	 * at bind and stable forever after. A settlement whose cell has already ended
+	 * is dropped by the generation guard — the value is not bound and no stale
+	 * cell state is touched.
+	 */
+	private registerFuture(handleId: string, name: string): { name: string; pending: true } {
+		if (this.pendingFutures.has(name)) {
+			throw new Error(`a future is already bound to "${name}" in this cell`);
+		}
+		const waitHandle = this.waitHandle;
+		if (!waitHandle) {
+			throw new Error("handle.future() is unavailable here (no delegation runtime)");
+		}
+		const myGen = this.cellGen;
+		let resolveSettled!: () => void;
+		let rejectSettled!: (err: unknown) => void;
+		const settled = new Promise<void>((resolve, reject) => {
+			resolveSettled = resolve;
+			rejectSettled = reject;
+		});
+		// A future with no consumer must not surface an unhandled rejection when
+		// it is reclaimed; consumers attach their own await/catch.
+		settled.catch(() => {});
+		this.pendingFutures.set(name, { settled, reject: rejectSettled });
+		void (async () => {
+			try {
+				const outcome = await waitHandle(handleId);
+				if (this.cellGen !== myGen) {
+					rejectSettled(new Error("future abandoned: cell ended before settlement"));
+					return;
+				}
+				// consumeOutcome throws an infrastructure error for an infra outcome
+				// and records a failed child's stumble, matching an in-cell wait.
+				const wire = this.consumeOutcome(outcome) as { summary?: string };
+				const metadata = await this.store.bind({
+					name,
+					content: wire.summary ?? "",
+					type: "text",
+					provenance: { agentHandleId: "", origin: { kind: "delegation" } },
+					explicit: true,
+				});
+				if (this.cellGen === myGen) {
+					this.newBindings.push({
+						name: metadata.name,
+						ulid: metadata.ulid,
+						size: metadata.size,
+						preview: metadata.preview,
+					});
+				}
+				resolveSettled();
+			} catch (err) {
+				rejectSettled(err);
+			} finally {
+				if (this.cellGen === myGen) this.pendingFutures.delete(name);
+			}
+		})();
+		return { name, pending: true };
+	}
+
+	/**
+	 * Reclaim every still-pending future: bump the generation so any in-flight
+	 * settlement is dropped, reject the parked consumers with `reason`, and clear
+	 * the map. Called at cell start, cell end, and on a guard kill.
+	 */
+	private reclaimFutures(reason: string): void {
+		this.cellGen++;
+		for (const future of this.pendingFutures.values()) {
+			future.reject(new Error(reason));
+		}
+		this.pendingFutures.clear();
 	}
 
 	/** get()/parse() share the 1 MB materialization budget, with guidance. */

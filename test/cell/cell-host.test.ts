@@ -374,6 +374,95 @@ describe("CellHost", () => {
 		expect(messages).toEqual([{ id: "h-detached", text: "hi", env: { notes: "notes" } }]);
 	}, 20_000);
 
+	// -------------------------------------------------------------------
+	// Futures + $ref pipelining (Phase 2): a started child's outcome is bound
+	// to a name without awaiting; a consumer of that name pipelines on the
+	// wait and resolves to the byte-identical settled value.
+	// -------------------------------------------------------------------
+
+	it("pipelines a consumer on a not-yet-settled future to the byte-identical settled value", async () => {
+		host = new CellHost(store, {
+			spawnFn: spawnRealWorker,
+			delegate: async () => ({ kind: "started", handleId: "h-fut" }),
+			waitHandle: async (id) => {
+				// Settle later so the consumer registers as a dependent while pending.
+				await new Promise((r) => setTimeout(r, 100));
+				return completedOutcome({ summary: "settled body", handleId: id, bindings: [] });
+			},
+		});
+		const result = await host.runCell(
+			[
+				'const s = await spawn("leaf", "bg", { blocking: false });',
+				'await s.handle.future("fut_result");', // bound to a name, NOT awaited
+				'await publish("fut_result");', // pipelines: waits for settlement
+				'return await get("fut_result");', // byte-identical settled value
+			].join("\n"),
+		);
+		expect(result.ok).toBe(true);
+		expect(result.returnValue).toBe("settled body");
+		expect(result.newBindings.map((b) => b.name)).toEqual(["fut_result"]);
+		// A settled future is a normal immutable store value: readable, with a
+		// stable ULID, its provenance truthfully naming the delegation wait.
+		const meta = await store.metadata("fut_result");
+		expect(meta.provenance.origin.kind).toBe("delegation");
+		expect(new TextDecoder().decode(await store.get(meta.ulid, { maxBytes: 1000 }))).toBe(
+			"settled body",
+		);
+	}, 20_000);
+
+	it("reclaims an abandoned never-settling future when the cell is budget-killed", async () => {
+		host = new CellHost(store, {
+			spawnFn: spawnRealWorker,
+			budgetMs: 300,
+			delegate: async () => ({ kind: "started", handleId: "h-stuck" }),
+			waitHandle: () => new Promise(() => {}), // never settles
+		});
+		const killed = await host.runCell(
+			[
+				'const s = await spawn("leaf", "bg", { blocking: false });',
+				'await s.handle.future("stuck");',
+				"while (true) {}",
+			].join("\n"),
+		);
+		expect(killed.ok).toBe(false);
+		expect(killed.error?.message).toMatch(/budget/i);
+		// The dangling future must not wedge the host: the next cell runs clean.
+		const next = await host.runCell('return "alive";');
+		expect(next.returnValue).toBe("alive");
+	}, 20_000);
+
+	it("a future whose wait fails with an infrastructure error rejects its consumer", async () => {
+		host = new CellHost(store, {
+			spawnFn: spawnRealWorker,
+			delegate: async () => ({ kind: "started", handleId: "h-bad" }),
+			waitHandle: async () => {
+				await new Promise((r) => setTimeout(r, 100));
+				return { kind: "infrastructure_error", reason: "child transport failure" };
+			},
+		});
+		const result = await host.runCell(
+			[
+				'const s = await spawn("leaf", "bg", { blocking: false });',
+				'await s.handle.future("bad");',
+				'try { return await get("bad"); } catch (e) { return "caught: " + e.message; }',
+			].join("\n"),
+		);
+		expect(result.ok).toBe(true);
+		expect(result.returnValue).toContain("child transport failure");
+	}, 20_000);
+
+	it("handle.future() without a delegation runtime errors cleanly in-cell", async () => {
+		host = new CellHost(store, { spawnFn: spawnRealWorker });
+		const result = await host.runCell(
+			[
+				'const h = handle("h-manual");',
+				'try { await h.future("x"); return "no-throw"; } catch (e) { return e.message; }',
+			].join("\n"),
+		);
+		expect(result.ok).toBe(true);
+		expect(result.returnValue).toContain("handle.future() is unavailable here");
+	}, 20_000);
+
 	it("failed children count into stumbleCount; an own error adds one", async () => {
 		let n = 0;
 		host = new CellHost(store, {
