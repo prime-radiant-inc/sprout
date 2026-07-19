@@ -36,7 +36,12 @@ import { MemoryIndex } from "./memory-index.ts";
 import { isActiveMemoryForRecall } from "./memory-lifecycle.ts";
 import { memoryShortId } from "./memory-schema.ts";
 import { MemoryStore } from "./memory-store.ts";
-import { type Program, parseProgramMarkdown, validateProgram } from "./program.ts";
+import {
+	type Program,
+	parseProgramMarkdown,
+	serializeProgramMarkdown,
+	validateProgram,
+} from "./program.ts";
 import { type DetectedProject, ProjectActivityStore } from "./projects.ts";
 import {
 	loadMemoryExtractionPrompts,
@@ -246,6 +251,41 @@ export class Genome {
 	/** Return a copy of all loaded, validated programs. */
 	allPrograms(): Program[] {
 		return [...this.programs.values()];
+	}
+
+	/**
+	 * Add a fabricated/repaired program to the genome: run the SAME lexical
+	 * import/require scan programs face at load (so a body carrying an import
+	 * never becomes runnable), then write markdown to programs/, commit, and
+	 * load it into the live library. This is a genome (evolvable) write — it is
+	 * reachable only through the gated Learn adoption path (mutation-gate.ts).
+	 */
+	async addProgram(program: Program): Promise<void> {
+		const check = validateProgram(program);
+		if (!check.ok) {
+			throw new Error(`Cannot add program '${program.name}': ${check.reason}`);
+		}
+		const programsDir = join(this.rootPath, "programs");
+		await mkdir(programsDir, { recursive: true });
+		const mdPath = join(programsDir, `${program.name}.md`);
+		await writeFile(mdPath, serializeProgramMarkdown(program));
+		await git(this.rootPath, "add", mdPath);
+		await git(this.rootPath, "commit", "-m", `genome: add program '${program.name}'`);
+		this.programs.set(program.name, program);
+		this._generation++;
+	}
+
+	/** Remove a program: delete its markdown file, commit, and drop it from the library. */
+	async removeProgram(name: string): Promise<void> {
+		if (!this.programs.has(name)) {
+			throw new Error(`Cannot remove program '${name}': not found`);
+		}
+		const mdPath = join(this.rootPath, "programs", `${name}.md`);
+		await rm(mdPath);
+		await git(this.rootPath, "add", mdPath);
+		await git(this.rootPath, "commit", "-m", `genome: remove program '${name}'`);
+		this.programs.delete(name);
+		this._generation++;
 	}
 
 	/** Returns true if the agent exists in the genome's overlay (modified or genome-created). */

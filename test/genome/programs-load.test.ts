@@ -91,6 +91,56 @@ describe("Genome programs", () => {
 		expect(genome.allPrograms().map((p) => p.name)).not.toContain("evil");
 	});
 
+	test("addProgram writes, commits, and loads the program into the library", async () => {
+		const genome = new Genome(dir);
+		await genome.loadFromDisk();
+		await genome.addProgram({
+			name: "greet",
+			description: "greet",
+			params: [],
+			spawns: [],
+			version: 1,
+			body: 'return bind("out", "hi");',
+		});
+		expect(genome.getProgram("greet")?.name).toBe("greet");
+		// Persisted: a fresh genome loads it from disk.
+		const reloaded = new Genome(dir);
+		await reloaded.loadFromDisk();
+		expect(reloaded.getProgram("greet")?.name).toBe("greet");
+		const log = Bun.spawnSync(["git", "log", "--oneline"], { cwd: dir });
+		expect(log.stdout.toString()).toContain("add program 'greet'");
+	});
+
+	test("addProgram rejects a program whose body carries an import", async () => {
+		const genome = new Genome(dir);
+		await genome.loadFromDisk();
+		await expect(
+			genome.addProgram({
+				name: "evil",
+				description: "sneaky",
+				params: [],
+				spawns: [],
+				version: 1,
+				body: 'await import("node:child_process");',
+			}),
+		).rejects.toThrow();
+		expect(genome.getProgram("evil")).toBeUndefined();
+	});
+
+	test("removeProgram deletes the program file and drops it from the library", async () => {
+		await writeFile(join(dir, "programs", "summarize.md"), VALID_PROGRAM);
+		Bun.spawnSync(["git", "add", "."], { cwd: dir });
+		Bun.spawnSync(["git", "commit", "-m", "add summarize"], { cwd: dir });
+		const genome = new Genome(dir);
+		await genome.loadFromDisk();
+		expect(genome.getProgram("summarize")).toBeDefined();
+		await genome.removeProgram("summarize");
+		expect(genome.getProgram("summarize")).toBeUndefined();
+		const reloaded = new Genome(dir);
+		await reloaded.loadFromDisk();
+		expect(reloaded.getProgram("summarize")).toBeUndefined();
+	});
+
 	test("catches an on-disk code-mode agent spec granting exec at load", async () => {
 		// A hand-committed hybrid: act: code but with a real primitive tool grant.
 		await writeFile(

@@ -81,4 +81,24 @@ Fable review in fresh context → fix findings → commit → update this plan. 
 
 ## Deviations log
 
-_(recorded as they occur)_
+- **2026-07-19 (Phase 5, wiring half):** Built the single adoption chokepoint
+  `src/learn/mutation-gate.ts` (`evaluateMutationForAdoption`) composing the frozen
+  multi-run A/B (`compareGenomes` on the `sap` gate tier) and the hidden canary suite
+  (`runCanarySuite` + fail-closed `mutationRegressesCanaries`); a canary regression
+  rejects regardless of the A/B. Wired it into `learn-process.ts` as the SOLE gated
+  adoption path: injected `MutationGate` + `adoptMutation()` (gate-before-apply) now
+  fronts every mutation; `runQuartermaster()` derives `CellObservation[]` from `cell_end`
+  events and routes fabrication/repair/curation proposals through the same chokepoint.
+  New `create_program`/`retire_program` mutation variants + `genome.addProgram`/
+  `removeProgram`.
+  **Design decision (flagged for review):** inline live gating is impractical (N live
+  evals per stumble), so the chokepoint is the sole *correctness* path but production
+  wiring of a LIVE gate is deferred to the measurement step. Today, absent an injected
+  gate, agent mutations keep the legacy single-delta apply-then-rollback (existing tests
+  green); the quartermaster is inert without a gate (fabrication/repair/curation NEVER
+  adopt ungated). Invariant held: **when a gate is wired, no mutation reaches the genome
+  without passing both frozen gates.** Follow-up: inject a `MutationGate` at the
+  `factory.ts` construction site (backed by the LiveTaskExecutor + createLiveCanaryHarness
+  over eval-mode snapshots) to enforce the invariant in the live loop — this is the
+  live-measurement step, out of scope for the offline wiring. The capability number
+  (multi-task/multi-model eval vs baseline) is likewise still pending.
