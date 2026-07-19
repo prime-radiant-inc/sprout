@@ -22,6 +22,8 @@ export interface ProgramInfo {
 	params: { name: string; type: string; description: string }[];
 	/** Agent names the body delegates to — shown so callers see compatibility. */
 	spawns: string[];
+	/** Anthropic Agent Skills `allowed-tools` — surfaced so callers see the tool contract. */
+	allowedTools?: string[];
 }
 
 /** Fixed declaration of the ambient value + spawn API (worker-exact). */
@@ -96,8 +98,12 @@ export function renderProgramsBlock(programs: ProgramInfo[]): string {
 				.map((param) => `${param.name}: ${param.type} /* ${param.description} */`)
 				.join("; ");
 			const spawns = program.spawns.length > 0 ? ` — spawns: ${program.spawns.join(", ")}` : "";
+			const allowedTools =
+				program.allowedTools && program.allowedTools.length > 0
+					? ` — allowed-tools: ${program.allowedTools.join(", ")}`
+					: "";
 			return [
-				`\t${docComment(`${program.description}${spawns}`)}`,
+				`\t${docComment(`${program.description}${spawns}${allowedTools}`)}`,
 				`\t${program.name}(args: { ${args} }): Promise<unknown>;`,
 			].join("\n");
 		})

@@ -24,9 +24,25 @@ export interface Program {
 	params: ProgramParam[];
 	/** Agent names the body delegates to via spawn() — rendered for callers. */
 	spawns: string[];
+	/**
+	 * Load-bearing NUMERIC version (cell_end linkage `programs:[{name, version}]`,
+	 * fabrication). When a program is authored with an Agent-Skills semver string,
+	 * this stays numeric (derived from the semver major) so linkage never breaks;
+	 * the full string is preserved in `semver`.
+	 */
 	version: number;
 	/** Optional origin note (e.g. fabricated-from-pattern, repaired-from-stumble). */
 	provenance?: string;
+	/** Agent-Skills semver `version` string (e.g. "1.2.0") when authored that way. */
+	semver?: string;
+	/** Agent-Skills `platforms` (e.g. ["linux", "macos"]). */
+	platforms?: string[];
+	/** Agent-Skills nested `metadata` object (e.g. metadata.<vendor>.tags). */
+	metadata?: Record<string, unknown>;
+	/** Agent-Skills SPDX `license` string. */
+	license?: string;
+	/** Anthropic Agent Skills `allowed-tools` field (camelCased). */
+	allowedTools?: string[];
 	/** JS body run against the cell ambient API. */
 	body: string;
 }
@@ -80,18 +96,54 @@ export function parseProgramMarkdown(source: string, filename: string): Program 
 		normalizeParam(entry, filename, index),
 	);
 
+	const { version, semver } = resolveVersion(raw.version);
+
 	const program: Program = {
 		name: raw.name,
 		description: raw.description,
 		params,
 		spawns: raw.spawns ?? [],
-		version: raw.version ?? 1,
+		version,
 		body,
 	};
+	if (semver !== undefined) {
+		program.semver = semver;
+	}
+	if (Array.isArray(raw.platforms)) {
+		program.platforms = raw.platforms.map(String);
+	}
+	if (raw.metadata != null && typeof raw.metadata === "object" && !Array.isArray(raw.metadata)) {
+		program.metadata = raw.metadata as Record<string, unknown>;
+	}
+	if (typeof raw.license === "string") {
+		program.license = raw.license;
+	}
+	const allowedTools = raw["allowed-tools"];
+	if (Array.isArray(allowedTools)) {
+		program.allowedTools = allowedTools.map(String);
+	}
 	if (raw.provenance !== undefined) {
 		program.provenance = String(raw.provenance);
 	}
 	return program;
+}
+
+/**
+ * Resolve the frontmatter `version` into sap's authoritative numeric version and
+ * (when authored Agent-Skills-style) the preserved semver string. A number is
+ * used directly. A semver string like "1.2.0" keeps the numeric version working
+ * by deriving it from the leading integer (major), so cell_end linkage and
+ * fabrication never see a non-numeric version.
+ */
+function resolveVersion(raw: unknown): { version: number; semver?: string } {
+	if (typeof raw === "number") {
+		return { version: raw };
+	}
+	if (typeof raw === "string") {
+		const major = Number.parseInt(raw, 10);
+		return { version: Number.isNaN(major) ? 1 : major, semver: raw };
+	}
+	return { version: 1 };
 }
 
 function normalizeParam(raw: unknown, filename: string, index: number): ProgramParam {
@@ -168,8 +220,22 @@ export function serializeProgramMarkdown(program: Program): string {
 		description: program.description,
 		params: program.params,
 		spawns: program.spawns,
-		version: program.version,
+		// Emit the Agent-Skills semver string when present; the numeric version
+		// stays authoritative internally and is re-derived on parse.
+		version: program.semver ?? program.version,
 	};
+	if (program.platforms !== undefined) {
+		fm.platforms = program.platforms;
+	}
+	if (program.license !== undefined) {
+		fm.license = program.license;
+	}
+	if (program.allowedTools !== undefined) {
+		fm["allowed-tools"] = program.allowedTools;
+	}
+	if (program.metadata !== undefined) {
+		fm.metadata = program.metadata;
+	}
 	if (program.provenance !== undefined) {
 		fm.provenance = program.provenance;
 	}

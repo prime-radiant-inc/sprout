@@ -473,6 +473,7 @@ export class Agent {
 				description: p.description,
 				params: p.params,
 				spawns: p.spawns,
+				...(p.allowedTools ? { allowedTools: p.allowedTools } : {}),
 			}));
 			this.cellPrimitive = buildCellPrimitive(cellHost, spawnableAgents, programInfos);
 			this.primitiveRegistry.register(this.cellPrimitive);
