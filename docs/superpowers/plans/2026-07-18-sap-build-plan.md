@@ -521,8 +521,9 @@ Design decisions (fixed):
 - Deferred (coherent, recorded): scoped observer store reads (needs the observation surface);
   shared-handle host registry + wait-graph (Phase 5 pairing).
 
-Slices: 6A §5 (llm-call + featherweight + model override), 6B §6 (act mode + flag +
-validation + cell-implies-reads), 6C typed surface + TUI/web cell rendering, 6D Fable review.
+Slices: [x] 6A §5 (llm-call + featherweight + model override), [x] 6B §6 (act mode + flag +
+validation + cell-implies-reads), [x] 6C typed surface, [ ] 6D Fable review. (TUI/web cell
+rendering folded — cell_end renders-as-null; deeper cell UI is post-v1.)
 
 ### Phase 7 — Programs & metrics
 Design decisions (fixed):
