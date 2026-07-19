@@ -445,12 +445,12 @@ Design decisions (fixed; deviations from spec topology recorded):
   died_with_owner).
 
 Slices:
-- [ ] A: cell worker subprocess + stripped realm + lexical gate + ambient VALUE API
+- [x] A: cell worker subprocess + stripped realm + lexical gate + ambient VALUE API
   (no spawn) + budget clock + RSS watchdog + `cell` kernel tool + journaling +
   redaction gate + primitive_end/cell_end.
-- [ ] B: spawn()/handle() ambient API + typed outcome envelope refactor + the five
+- [x] B: spawn()/handle() ambient API + typed outcome envelope refactor + the five
   cell-spawn deviations + stumble/learn accounting.
-- [ ] C: dangling-call replay synthesis (both act modes).
+- [x] C: dangling-call replay synthesis (both act modes).
 - [ ] Phase 5 Fable review.
 
 #### Phase 5 (spec text, for reference)
