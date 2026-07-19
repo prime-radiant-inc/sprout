@@ -25,4 +25,17 @@ export {
 	compareArms,
 	shouldAcceptMutation,
 } from "./multi-run-ab.ts";
+export {
+	type CellObservation,
+	type CurationProposal,
+	curatePrograms,
+	type DetectPatternsOptions,
+	detectRecurringPatterns,
+	detectRepairCandidates,
+	type FabricationCandidate,
+	normalizeCellCode,
+	proposeProgramFromCandidate,
+	type RepairCandidate,
+	type RepairOptions,
+} from "./quartermaster.ts";
 export { shouldLearn } from "./should-learn.ts";

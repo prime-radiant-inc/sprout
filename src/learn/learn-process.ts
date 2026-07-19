@@ -386,6 +386,25 @@ export class LearnProcess {
 		}
 	}
 
+	/**
+	 * TODO(quartermaster wiring, Phase 7): the quartermaster's fabrication and
+	 * curation proposals feed the mutation path HERE. A future variant of
+	 * reasonAboutImprovement (or a sibling proposer) should:
+	 *   - derive CellObservation[] from the recorded cell_end events
+	 *     (events.collected() filtered to kind === "cell_end", mapping
+	 *     data.code/data.programs/data.success into { code, program, stumbled }),
+	 *   - call detectRecurringPatterns + proposeProgramFromCandidate to fabricate
+	 *     programs, detectRepairCandidates to flag stumbling programs, and
+	 *     curatePrograms(this.genome.allPrograms(), observations) for rot,
+	 *   - turn each proposal into a LearnMutation (a new "create_program" /
+	 *     "retire_program" / "consolidate_programs" mutation variant on applyMutation),
+	 *   - and gate EVERY such proposal through shouldAcceptMutation (N-run A/B)
+	 *     plus the canary suite BEFORE calling applyMutation — fabrication and
+	 *     curation are ordinary mutations, not a bypass.
+	 * Not wired into the live loop yet: needs the N-run eval harness (Phase 7
+	 * eval) that evaluateImprovement's own TODO also waits on.
+	 */
+
 	/** Ask the LLM to reason about what mutation to make given a stumble signal. */
 	private async reasonAboutImprovement(signal: LearnSignal): Promise<ReasonedLearnMutation | null> {
 		if (!this.client || !this.reasonerModel) return null;

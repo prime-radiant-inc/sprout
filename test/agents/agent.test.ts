@@ -8651,6 +8651,70 @@ describe("cell primitive seam", () => {
 		const cellEnd = events.collected().find((e) => e.kind === "cell_end");
 		expect(cellEnd?.data.code).toContain("bind(");
 		expect(cellEnd?.data.metrics).toEqual({ computeTimeMs: 42, totalMs: 500 });
+		// No genome program was referenced — no program linkage on cell_end.
+		expect(cellEnd?.data.programs).toBeUndefined();
+	}, 15_000);
+
+	test("cell_end carries program name+version when the cell invokes a genome program", async () => {
+		const cellHost = {
+			async runCell() {
+				return {
+					ok: true,
+					output: "",
+					returnValue: "1",
+					newBindings: [],
+					stumbleCount: 0,
+					metrics: { computeTimeMs: 1, totalMs: 1 },
+				};
+			},
+		};
+		const spawner = {
+			storeAccess: {
+				async names() {
+					return [];
+				},
+			},
+			getHandle: () => undefined,
+		} as unknown as AgentSpawner;
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const agent = new Agent({
+			spec: CELL_SPEC,
+			env,
+			client: cellCallClient("return programs.distill({});"),
+			primitiveRegistry: createPrimitiveRegistry(env),
+			availableAgents: [CELL_SPEC, leafSpec],
+			depth: 0,
+			events,
+			spawner,
+			cellHost,
+			genome: {
+				allAgents: () => [],
+				agentDir: () => tmpdir(),
+				searchMemories: async () => [],
+				matchRoutingRules: () => [],
+				markMemoriesUsed: async () => {},
+				refreshIfDiskChanged: async () => false,
+				loadAgentTools: async () => [],
+				allPrograms: () => [
+					{
+						name: "distill",
+						description: "d",
+						params: [],
+						spawns: [],
+						version: 3,
+						body: "return 1;",
+					},
+				],
+			} as unknown as Genome,
+		});
+
+		const result = await agent.run("run a cell that calls a program");
+		expect(result.success).toBe(true);
+
+		const cellEnd = events.collected().find((e) => e.kind === "cell_end");
+		expect(cellEnd?.data.code).toContain("programs.distill");
+		expect(cellEnd?.data.programs).toEqual([{ name: "distill", version: 3 }]);
 	}, 15_000);
 
 	test("without can_spawn the cell tool is not offered", async () => {

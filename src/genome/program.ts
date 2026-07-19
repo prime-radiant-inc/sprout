@@ -138,6 +138,29 @@ export function validateProgram(program: Program): ValidateProgramResult {
 	return { ok: true };
 }
 
+/**
+ * Which of the given programs a cell's code invokes, resolved to name+version.
+ * A lexical scan for `programs.<name>` occurrences (the invocation shape §7),
+ * mirroring the import/require gate: hits inside comments and strings over-match
+ * (a cell that merely mentions `programs.foo` in a string is counted). This is a
+ * heuristic linkage, not execution tracing — it is honest for the fabrication/
+ * repair use (linking a cell run back to the program it ran) and over-matching
+ * is the safe direction there. Returns each matched program's name and version.
+ */
+export function programsReferencedInCode(
+	code: string,
+	programs: Program[],
+): Array<{ name: string; version: number }> {
+	const referenced: Array<{ name: string; version: number }> = [];
+	for (const program of programs) {
+		const pattern = new RegExp(`\\bprograms\\.${program.name}\\b`);
+		if (pattern.test(code)) {
+			referenced.push({ name: program.name, version: program.version });
+		}
+	}
+	return referenced;
+}
+
 /** Serialize a Program back to YAML-fronted Markdown for staging/sync. */
 export function serializeProgramMarkdown(program: Program): string {
 	const fm: Record<string, unknown> = {

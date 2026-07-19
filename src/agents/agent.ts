@@ -20,6 +20,7 @@ import {
 	deriveTrustedMemoryWriteAuthorization,
 	type MemoryWriteAuthorization,
 } from "../genome/memory-write-authorization.ts";
+import { programsReferencedInCode } from "../genome/program.ts";
 import { type RecallOptions, recall } from "../genome/recall.ts";
 import { extractMemoryReferences } from "../genome/render-memory-block.ts";
 import { CAPTURE_PRIMITIVE_NAMES, withCapture } from "../kernel/capture.ts";
@@ -3098,10 +3099,19 @@ export class Agent {
 			// run's metrics, NOT the tool result — primitive_end above is the
 			// replay-safe carrier of the transcript result.
 			if (call.name === "cell") {
+				const cellCode = String(spliced.args.code ?? "");
+				// Program linkage (spec §7 / Phase 7): when the cell invoked a genome
+				// program, carry the resolved name+version so a fabricated/repaired
+				// program artifact is resolvable back to the cell runs that motivated
+				// it. Lexical scan (over-matches, documented in program.ts).
+				const referencedPrograms = this.genome
+					? programsReferencedInCode(cellCode, this.genome.allPrograms())
+					: [];
 				this.emitAndLog("cell_end", agentId, this.depth, {
-					code: redactSensitiveTranscriptContent(String(spliced.args.code ?? "")),
+					code: redactSensitiveTranscriptContent(cellCode),
 					success: result.success,
 					...(result.metrics ? { metrics: result.metrics } : {}),
+					...(referencedPrograms.length > 0 ? { programs: referencedPrograms } : {}),
 				});
 			}
 

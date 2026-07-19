@@ -1,6 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import {
+	type Program,
 	parseProgramMarkdown,
+	programsReferencedInCode,
 	serializeProgramMarkdown,
 	validateProgram,
 } from "../../src/genome/program";
@@ -95,5 +97,39 @@ describe("validateProgram", () => {
 			"bad.md",
 		);
 		expect(validateProgram(program).ok).toBe(false);
+	});
+});
+
+describe("programsReferencedInCode", () => {
+	const prog = (name: string, version: number): Program => ({
+		name,
+		description: name,
+		params: [],
+		spawns: [],
+		version,
+		body: "return 1;",
+	});
+	const library = [prog("distill", 2), prog("tally", 5)];
+
+	it("resolves an invoked program to its name+version", () => {
+		expect(programsReferencedInCode("return programs.distill({ log });", library)).toEqual([
+			{ name: "distill", version: 2 },
+		]);
+	});
+
+	it("resolves multiple distinct program invocations", () => {
+		const code = "const a = await programs.distill({});\nreturn programs.tally({ a });";
+		expect(programsReferencedInCode(code, library)).toEqual([
+			{ name: "distill", version: 2 },
+			{ name: "tally", version: 5 },
+		]);
+	});
+
+	it("returns nothing when no program is referenced", () => {
+		expect(programsReferencedInCode("return get('x');", library)).toEqual([]);
+	});
+
+	it("does not match a program name that is only a substring", () => {
+		expect(programsReferencedInCode("return programs.distillery({});", library)).toEqual([]);
 	});
 });
