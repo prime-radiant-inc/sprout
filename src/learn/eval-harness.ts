@@ -64,15 +64,39 @@ export interface VerifyResult {
 	detail?: string;
 }
 
+/** Where a task's per-run `setup` hook materializes its input files. */
+export interface TaskSetupContext {
+	/** The run's isolated work dir — the same dir the executor runs the model in. */
+	workDir: string;
+}
+
+/**
+ * Opaque per-run context a task's `setup` produces and its `verify` consumes.
+ * Carries per-run inputs that must NOT appear in the task's goal text (e.g. a
+ * random secret written to a materialized source file), so `verify` can anchor
+ * on the exact bytes that were materialized rather than a string baked into the
+ * goal (which the model always sees).
+ */
+export interface TaskRunContext {
+	/** A per-run secret materialized into a source file, for leak verification. */
+	secret?: string;
+}
+
 /**
  * A pinned eval task. Outcome-anchored: `verify` derives a verifiable pass/fail
  * and a fitness sample from the run's outcome, never from self-reported success.
+ *
+ * `setup` (optional) runs once per run BEFORE the executor, materializing any
+ * per-run input files into the run's work dir and returning the context `verify`
+ * needs (e.g. the random secret it wrote). This keeps leak sentinels OUT of the
+ * goal text.
  */
 export interface EvalTask {
 	id: string;
 	tier: EvalTier;
 	goal: string;
-	verify: (outcome: ExecOutcome) => VerifyResult;
+	setup?: (ctx: TaskSetupContext) => Promise<TaskRunContext>;
+	verify: (outcome: ExecOutcome, context?: TaskRunContext) => VerifyResult;
 }
 
 /** An isolated, opaque handle to a genome the executor runs against. */
@@ -96,6 +120,13 @@ export interface EvalArm {
 	tasks: EvalTask[];
 	executor: TaskExecutor;
 	snapshot?: GenomeSnapshot;
+	/**
+	 * Work dir where a task's `setup` hook materializes per-run input files. MUST
+	 * match the executor's work dir so the model reads what setup wrote. Falls
+	 * back to the snapshot's genome path when omitted; a task with a `setup` hook
+	 * and neither available is an error.
+	 */
+	workDir?: string;
 }
 
 export interface RunArmOptions {
@@ -150,8 +181,18 @@ export async function runEvalArm(arm: EvalArm, opts: RunArmOptions): Promise<Eva
 	for (const task of arm.tasks) {
 		perTaskFitness[task.id] ??= [];
 		for (let run = 0; run < runs; run++) {
+			let context: TaskRunContext | undefined;
+			if (task.setup) {
+				const workDir = arm.workDir ?? arm.snapshot?.genomePath;
+				if (!workDir) {
+					throw new Error(
+						`task ${task.id} has a setup hook but the arm has no workDir or snapshot to materialize into`,
+					);
+				}
+				context = await task.setup({ workDir });
+			}
 			const outcome = await arm.executor.run(task, arm.snapshot);
-			const verdict = task.verify(outcome);
+			const verdict = task.verify(outcome, context);
 			perTier[task.tier].runs.push(verdict.stumbles);
 			perTaskFitness[task.id]?.push(verdict.stumbles);
 			totalCounts[task.tier] += 1;

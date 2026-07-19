@@ -27,7 +27,7 @@
  */
 
 import { config as loadDotenv } from "dotenv";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -37,7 +37,7 @@ import {
 } from "../src/learn/canary-suite.ts";
 import { createLiveCanaryHarness } from "../src/learn/canary-live-harness.ts";
 import { compareGenomes, createEvalSnapshot, type EvalTier, runEvalArm } from "../src/learn/eval-harness.ts";
-import { pinnedEvalTasks, SAP_CAPTURE_SENTINEL, sapTasks } from "../src/learn/eval-tasks.ts";
+import { pinnedEvalTasks, sapTasks } from "../src/learn/eval-tasks.ts";
 
 const smokeTasks = sapTasks;
 import { LiveTaskExecutor, type LiveTaskExecutorConfig } from "../src/learn/live-task-executor.ts";
@@ -136,15 +136,13 @@ async function runSmoke(
 	const executor = new LiveTaskExecutor(executorConfig);
 	const task = smokeTasks[0]; // sap-capture-splice: exercises the keystone capture+splice path
 	if (!task) throw new Error("no smoke task");
-	// The sap capture task reads ./capture-source.txt; materialize it in the work
-	// dir (isolated) so the model has a real source to capture and splice.
+	// The sap capture task's setup hook materializes ./capture-source.txt with a
+	// per-run random secret in the work dir (isolated) so the model has a real
+	// source to capture and splice, and verify anchors on that exact secret.
 	const workDir = executorConfig.workDir ?? process.cwd();
-	await writeFile(
-		join(workDir, "capture-source.txt"),
-		`${SAP_CAPTURE_SENTINEL}\nThis is confidential source material captured for splicing.\n`,
-	);
+	const context = task.setup ? await task.setup({ workDir }) : undefined;
 	const outcome = await executor.run(task, snapshot);
-	const verdict = task.verify(outcome);
+	const verdict = task.verify(outcome, context);
 	log(`task:            ${task.id}`);
 	log(`model ran:       ${outcome.providerPayloads.length} provider payload(s) captured`);
 	log(`output:          ${JSON.stringify(outcome.output.slice(0, 200))}`);
@@ -172,7 +170,11 @@ async function runFull(
 	log(`\n=== FULL: ${pinnedEvalTasks.length} pinned tasks x ${runs} runs ===`);
 	const executor = new LiveTaskExecutor(executorConfig);
 
-	const report = await runEvalArm({ tasks: pinnedEvalTasks, executor, snapshot }, { runs });
+	const workDir = executorConfig.workDir ?? process.cwd();
+	const report = await runEvalArm(
+		{ tasks: pinnedEvalTasks, executor, snapshot, workDir },
+		{ runs },
+	);
 	for (const tier of ["sap", "general"] as EvalTier[]) {
 		const label = tier === "sap" ? "sap (A/B GATE)" : "general (HEADLINE)";
 		const arm = report.perTier[tier];
@@ -185,8 +187,8 @@ async function runFull(
 	// Identical-arm A/B sanity: same snapshot both arms must NOT be significant.
 	log("\n=== A/B (candidate vs itself — must be NOT significant) ===");
 	const cmp = await compareGenomes(
-		{ tasks: pinnedEvalTasks, executor, snapshot },
-		{ tasks: pinnedEvalTasks, executor, snapshot },
+		{ tasks: pinnedEvalTasks, executor, snapshot, workDir },
+		{ tasks: pinnedEvalTasks, executor, snapshot, workDir },
 		{ runs },
 	);
 	for (const tier of ["sap", "general"] as EvalTier[]) {

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,6 +11,13 @@ import {
 	runEvalArm,
 	type TaskExecutor,
 } from "../../src/learn/eval-harness.ts";
+import { sapTasks } from "../../src/learn/eval-tasks.ts";
+
+function sapTask(id: string): EvalTask {
+	const task = sapTasks.find((t) => t.id === id);
+	if (!task) throw new Error(`no sap task ${id}`);
+	return task;
+}
 
 /**
  * Deterministic injected executor: returns controlled per-run stumble samples
@@ -129,6 +137,113 @@ describe("compareGenomes", () => {
 		// 2 tasks x 2 runs = 4 samples per sap arm, below the default minRuns of 5.
 		expect(cmp.perTier.sap.underpowered).toBe(true);
 		expect(cmp.accepted).toBe(false);
+	});
+});
+
+describe("sap leak task (materialized secret, never in the goal)", () => {
+	/**
+	 * Executor that reads the materialized source file and echoes its body into a
+	 * provider payload — a candidate that transcribes the captured secret instead
+	 * of routing it through the store via $ref. The leak is anchored on the REAL
+	 * materialized secret, not a hard-coded string.
+	 */
+	function transcribingExecutor(workDir: string): TaskExecutor {
+		return {
+			async run(task, snapshot): Promise<ExecOutcome> {
+				void snapshot;
+				const source = await readFile(join(workDir, "capture-source.txt"), "utf8");
+				return {
+					output: "done",
+					errored: false,
+					stumbles: 0,
+					providerPayloads: [`goal: ${task.goal}\ncaptured body: ${source}`],
+					didExec: false,
+					success: true,
+				};
+			},
+		};
+	}
+
+	/** Executor that routes the source through the store — its body never enters a payload. */
+	function storeRoutingExecutor(): TaskExecutor {
+		return {
+			async run(task): Promise<ExecOutcome> {
+				return {
+					output: "done",
+					errored: false,
+					stumbles: 0,
+					providerPayloads: [`goal: ${task.goal}\ncaptured body: $ref:cap-1`],
+					didExec: false,
+					success: true,
+				};
+			},
+		};
+	}
+
+	test("passes when content is routed through the store (secret absent from payloads)", async () => {
+		const workDir = await mkdtemp(join(tmpdir(), "sprout-eval-leak-pass-"));
+		try {
+			const report = await runEvalArm(
+				{ tasks: [sapTask("sap-capture-splice")], executor: storeRoutingExecutor(), workDir },
+				{ runs: 1 },
+			);
+			expect(report.passRateByTier.sap).toBe(1);
+			expect(report.samples.every((s) => s.passed)).toBe(true);
+		} finally {
+			await rm(workDir, { recursive: true, force: true });
+		}
+	});
+
+	test("fails when the executor echoes the materialized source into a payload", async () => {
+		const workDir = await mkdtemp(join(tmpdir(), "sprout-eval-leak-fail-"));
+		try {
+			const report = await runEvalArm(
+				{
+					tasks: [sapTask("sap-capture-splice")],
+					executor: transcribingExecutor(workDir),
+					workDir,
+				},
+				{ runs: 1 },
+			);
+			expect(report.passRateByTier.sap).toBe(0);
+			expect(report.samples[0]?.detail).toBe("captured secret leaked into a provider payload");
+		} finally {
+			await rm(workDir, { recursive: true, force: true });
+		}
+	});
+
+	test("the leak secret is never present in the goal text", () => {
+		// The goal must not carry the sentinel: it is sent to the model, so anything
+		// baked into it would always appear in a payload and the leak check could
+		// never pass.
+		expect(sapTask("sap-capture-splice").goal).not.toMatch(/SAP-EVAL-SECRET-/);
+	});
+
+	test("runEvalArm materializes the capture source file before the executor runs", async () => {
+		const workDir = await mkdtemp(join(tmpdir(), "sprout-eval-materialize-"));
+		try {
+			let existedDuringRun = false;
+			const probe: TaskExecutor = {
+				async run(task): Promise<ExecOutcome> {
+					existedDuringRun = existsSync(join(workDir, "capture-source.txt"));
+					return {
+						output: "done",
+						errored: false,
+						stumbles: 0,
+						providerPayloads: [`goal: ${task.goal}`],
+						didExec: false,
+						success: true,
+					};
+				},
+			};
+			await runEvalArm(
+				{ tasks: [sapTask("sap-capture-splice")], executor: probe, workDir },
+				{ runs: 1 },
+			);
+			expect(existedDuringRun).toBe(true);
+		} finally {
+			await rm(workDir, { recursive: true, force: true });
+		}
 	});
 });
 
