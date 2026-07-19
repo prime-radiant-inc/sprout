@@ -48,8 +48,11 @@ Fable review in fresh context → fix findings → commit → update this plan. 
   is already guarded (verified falsifiable), with one narrow residual (cell ends during the bind
   round-trip) documented honestly rather than closed (full closure would cross the immutability
   line). Full suite 3975 pass.
-- [ ] **Phase 3 — Agent-Skills-compatible program metadata.** Superset frontmatter; same lexical
-  scan at validate+load; round-trip byte-stable; `<programs>` block shows the new fields.
+- [x] **Phase 3 — Agent-Skills-compatible program metadata.** DONE + Fable-reviewed (SOUND, no
+  findings). Superset frontmatter (semver/platforms/metadata/license/allowed-tools) added; sap
+  numeric version stays authoritative for cell_end linkage (semver major derives it, string
+  preserved + re-emitted); lexical scan unchanged at validate+load; round-trip byte-stable; no
+  sap-native regression. Full suite 3979 pass.
 - [ ] **Phase 4 — N-run pinned-snapshot eval harness.** The linchpin. Runs a candidate genome N×
   in eval mode against a pinned task set; feeds `ArmResult` to the A/B; supplies the real
   `CanaryHarness` adapter. No live-genome/journal mutation.
