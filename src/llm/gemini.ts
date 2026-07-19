@@ -119,14 +119,19 @@ export class GeminiAdapter implements ProviderAdapter {
 					if (part.functionCall) {
 						const callId = this.nextCallId();
 						this.callIdToName.set(callId, part.functionCall.name!);
-						toolCalls.push({
-							kind: ContentKind.TOOL_CALL,
-							tool_call: {
-								id: callId,
-								name: part.functionCall.name!,
-								arguments: (part.functionCall.args as Record<string, unknown>) ?? {},
-							},
-						});
+						toolCalls.push(
+							withThoughtSignature(
+								{
+									kind: ContentKind.TOOL_CALL,
+									tool_call: {
+										id: callId,
+										name: part.functionCall.name!,
+										arguments: (part.functionCall.args as Record<string, unknown>) ?? {},
+									},
+								},
+								part,
+							),
+						);
 						yield {
 							type: "tool_call_start",
 							tool_call: {
@@ -374,7 +379,7 @@ function convertToParts(msg: Message, callIdToName: Map<string, string>): Part[]
 
 	for (const part of msg.content) {
 		if (part.kind === ContentKind.TEXT && part.text) {
-			parts.push({ text: part.text });
+			parts.push(attachThoughtSignature({ text: part.text }, part.thought_signature));
 		} else if (part.kind === ContentKind.IMAGE && part.image) {
 			if (part.image.data) {
 				parts.push({
@@ -385,19 +390,46 @@ function convertToParts(msg: Message, callIdToName: Map<string, string>): Part[]
 				});
 			}
 		} else if (part.kind === ContentKind.TOOL_CALL && part.tool_call) {
-			parts.push({
-				functionCall: {
-					name: part.tool_call.name,
-					args:
-						typeof part.tool_call.arguments === "string"
-							? JSON.parse(part.tool_call.arguments)
-							: part.tool_call.arguments,
-				} as FunctionCall,
-			});
+			parts.push(
+				attachThoughtSignature(
+					{
+						functionCall: {
+							name: part.tool_call.name,
+							args:
+								typeof part.tool_call.arguments === "string"
+									? JSON.parse(part.tool_call.arguments)
+									: part.tool_call.arguments,
+						} as FunctionCall,
+					},
+					part.thought_signature,
+				),
+			);
 		}
 	}
 
 	return parts;
+}
+
+/**
+ * Carry a Gemini part's opaque `thoughtSignature` onto the content part so it
+ * persists and can be replayed on the same part in the next request.
+ */
+function withThoughtSignature(
+	contentPart: import("./types.ts").ContentPart,
+	part: Part,
+): import("./types.ts").ContentPart {
+	if (typeof part.thoughtSignature === "string") {
+		contentPart.thought_signature = part.thoughtSignature;
+	}
+	return contentPart;
+}
+
+/** Re-attach a persisted thought signature to an outgoing Gemini part. */
+function attachThoughtSignature(part: Part, signature: string | undefined): Part {
+	if (signature !== undefined) {
+		part.thoughtSignature = signature;
+	}
+	return part;
 }
 
 // ---------------------------------------------------------------------------
@@ -418,20 +450,25 @@ function parseGeminiResponse(
 	if (candidate?.content?.parts) {
 		for (const part of candidate.content.parts) {
 			if (part.text) {
-				contentParts.push({ kind: ContentKind.TEXT, text: part.text });
+				contentParts.push(withThoughtSignature({ kind: ContentKind.TEXT, text: part.text }, part));
 			}
 			if (part.functionCall) {
 				hasToolCalls = true;
 				const callId = nextCallId();
 				callIdToName.set(callId, part.functionCall.name);
-				contentParts.push({
-					kind: ContentKind.TOOL_CALL,
-					tool_call: {
-						id: callId,
-						name: part.functionCall.name,
-						arguments: (part.functionCall.args as Record<string, unknown>) ?? {},
-					},
-				});
+				contentParts.push(
+					withThoughtSignature(
+						{
+							kind: ContentKind.TOOL_CALL,
+							tool_call: {
+								id: callId,
+								name: part.functionCall.name,
+								arguments: (part.functionCall.args as Record<string, unknown>) ?? {},
+							},
+						},
+						part,
+					),
+				);
 			}
 		}
 	}

@@ -40,7 +40,17 @@ export function buildResponsesInput(request: Request): ResponsesInput {
 				content: [...textParts, ...imageParts] as any,
 			});
 		} else if (msg.role === "assistant") {
-			// Assistant messages: text and tool calls
+			// Assistant messages: opaque reasoning items, text, and tool calls.
+			// Reasoning items must precede the text/tool output they reason about,
+			// and are replayed verbatim (encrypted_content and all).
+			for (const part of msg.content) {
+				if (
+					part.kind === ContentKind.PROVIDER_STATE &&
+					part.provider_state?.block_type === "reasoning"
+				) {
+					input.push(part.provider_state.data as unknown as OpenAI.Responses.ResponseInputItem);
+				}
+			}
 			const textParts = msg.content.filter((p) => p.kind === ContentKind.TEXT && p.text);
 			const toolCallParts = msg.content.filter(
 				(p) => p.kind === ContentKind.TOOL_CALL && p.tool_call,

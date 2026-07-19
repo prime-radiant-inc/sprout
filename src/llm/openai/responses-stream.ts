@@ -10,7 +10,12 @@ import {
 	type ToolCall,
 	type Usage,
 } from "../types.ts";
-import { mapOpenAIFinishReason, parseResponsesUsage, safeParseJSON } from "./responses-parse.ts";
+import {
+	mapOpenAIFinishReason,
+	parseResponsesUsage,
+	reasoningStatePart,
+	safeParseJSON,
+} from "./responses-parse.ts";
 
 interface StreamResponsesOptions {
 	stream: AsyncIterable<unknown>;
@@ -145,6 +150,14 @@ export async function* streamResponsesEvents({
 
 	const completeToolCalls = toolCallOrder.filter(isCompleteToolCall);
 	const contentParts: ContentPart[] = [];
+	// Encrypted reasoning items only carry their bytes on the terminal response's
+	// output array; hoist them ahead of text/tool parts (their output order) so
+	// they persist and replay byte-exact.
+	for (const item of completedResponse?.output ?? []) {
+		if ((item as { type?: string }).type === "reasoning") {
+			contentParts.push(reasoningStatePart(item, provider));
+		}
+	}
 	if (accumulatedText) {
 		contentParts.push({ kind: ContentKind.TEXT, text: accumulatedText });
 	}

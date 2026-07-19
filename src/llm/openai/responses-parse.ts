@@ -1,6 +1,27 @@
 import type OpenAI from "openai";
 import type { ProviderKind } from "../../shared/provider-settings.ts";
-import { ContentKind, type FinishReason, type Response, type Usage } from "../types.ts";
+import {
+	ContentKind,
+	type ContentPart,
+	type FinishReason,
+	type Response,
+	type Usage,
+} from "../types.ts";
+
+/**
+ * Wrap an OpenAI Responses reasoning item (encrypted_content and all) as an
+ * opaque provider-state part, stored verbatim for byte-exact replay.
+ */
+export function reasoningStatePart(item: unknown, provider: ProviderKind): ContentPart {
+	return {
+		kind: ContentKind.PROVIDER_STATE,
+		provider_state: {
+			provider,
+			block_type: "reasoning",
+			data: item as Record<string, unknown>,
+		},
+	};
+}
 
 export function parseResponsesResponse(
 	raw: OpenAI.Responses.Response,
@@ -10,7 +31,9 @@ export function parseResponsesResponse(
 	let hasToolCalls = false;
 
 	for (const item of raw.output) {
-		if (item.type === "message") {
+		if (item.type === "reasoning") {
+			contentParts.push(reasoningStatePart(item, provider));
+		} else if (item.type === "message") {
 			for (const content of item.content) {
 				if (content.type === "output_text") {
 					contentParts.push({ kind: ContentKind.TEXT, text: content.text });
