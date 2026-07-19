@@ -7,7 +7,11 @@ import {
 	readRootDir,
 	resolveRootToolsDir,
 } from "../agents/loader.ts";
-import { parseAgentMarkdown, serializeAgentMarkdown } from "../agents/markdown-loader.ts";
+import {
+	parseAgentMarkdown,
+	serializeAgentMarkdown,
+	validateAgentSpec,
+} from "../agents/markdown-loader.ts";
 import type { AgentSpec, Memory, RoutingRule } from "../kernel/types.ts";
 import type { EmbeddingProvider } from "../llm/embeddings.ts";
 import { getToolDisplayName } from "../shared/tool-display.ts";
@@ -242,6 +246,7 @@ export class Genome {
 	/** Add a new agent spec, writing markdown to disk and committing.
 	 *  If an agent with the same name exists in root or overlay, bumps version above the highest. */
 	async addAgent(spec: AgentSpec): Promise<void> {
+		validateAgentSpec(spec);
 		const rootVersion = this.rootAgents.get(spec.name)?.version ?? 0;
 		const overlayVersion = this.agents.get(spec.name)?.version ?? 0;
 		const baseVersion = Math.max(rootVersion, overlayVersion);
@@ -256,6 +261,7 @@ export class Genome {
 
 	/** Update an existing agent, bumping its version. Promotes root agents to overlay on first mutation. */
 	async updateAgent(spec: AgentSpec): Promise<void> {
+		validateAgentSpec(spec);
 		const existing = this.agents.get(spec.name) ?? this.rootAgents.get(spec.name);
 		if (!existing) {
 			throw new Error(`Cannot update agent '${spec.name}': not found`);

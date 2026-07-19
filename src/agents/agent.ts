@@ -157,6 +157,16 @@ export interface AgentOptions {
 	projectDataDir?: string;
 	/** Disable learning and genome mutation for evaluation runs. */
 	evalMode?: boolean;
+	/**
+	 * Data-plane session flag (sap spec §6). Default true — v1 is the data plane;
+	 * the flag exists for A/B and the off arm. When false the store values,
+	 * capture, cells, splicing, and env grants are unavailable: the value reads
+	 * and cell filter out of the offered tools, `act: "code"` degrades to
+	 * `"tools"`, and data-plane fields (bind/publish args, env, whole-arg refs)
+	 * are rejected with a loud tool error naming the flag. The auth channel and its
+	 * control-plane services are flag-independent.
+	 */
+	dataPlaneEnabled?: boolean;
 	/** Override the agent_id used for event emission (used by parent to assign unique child IDs). */
 	agentId?: string;
 	/** Trusted runtime address for this agent handle. */
@@ -279,6 +289,14 @@ export class Agent {
 	private readonly genomePath?: string;
 	private readonly projectDataDir?: string;
 	private readonly evalMode: boolean;
+	/** Data-plane session flag (spec §6); default true. */
+	private readonly dataPlaneEnabled: boolean;
+	/**
+	 * Whether this agent Acts in code mode: `act: "code"` AND the data plane is
+	 * enabled. Under flag-off, code mode degrades to a plain delegating tool-mode
+	 * agent, so this is false and the delegate tool returns.
+	 */
+	private readonly codeMode: boolean;
 	private readonly agentId?: string;
 	private readonly selfAddress: AgentAddress;
 	private readonly callerAddress: AgentAddress;
@@ -368,6 +386,8 @@ export class Agent {
 		this.genomePath = options.genomePath;
 		this.projectDataDir = options.projectDataDir;
 		this.evalMode = options.evalMode === true;
+		this.dataPlaneEnabled = options.dataPlaneEnabled !== false;
+		this.codeMode = this.dataPlaneEnabled && this.spec.act === "code";
 		this.agentId = options.agentId;
 		this.selfAddress =
 			options.self ??
@@ -397,17 +417,20 @@ export class Agent {
 			options.primitiveRegistry,
 		);
 		// Value-read primitives over the sap store (spec §1): available exactly
-		// when this process has caller-scoped store access via its spawner.
-		this.valuePrimitives = options.spawner?.storeAccess
-			? buildValuePrimitives(options.spawner.storeAccess)
-			: [];
+		// when this process has caller-scoped store access via its spawner AND the
+		// data plane is enabled (spec §6 — value_* filter out under flag-off).
+		this.valuePrimitives =
+			this.dataPlaneEnabled && options.spawner?.storeAccess
+				? buildValuePrimitives(options.spawner.storeAccess)
+				: [];
 		for (const prim of this.valuePrimitives) {
 			this.primitiveRegistry.register(prim);
 		}
 		// Capture (sap spec §2): wrap the capture-capable primitives with
 		// bind/publish handling over the same store, and enable auto-capture of
-		// lossily-truncated output in the registry.
-		if (options.spawner?.storeAccess) {
+		// lossily-truncated output in the registry. Off under flag-off (spec §6);
+		// bind:/publish: fields are then rejected loudly at dispatch, not stripped.
+		if (this.dataPlaneEnabled && options.spawner?.storeAccess) {
 			const storeAccess = options.spawner.storeAccess;
 			for (const name of CAPTURE_PRIMITIVE_NAMES) {
 				const prim = this.primitiveRegistry.get(name);
@@ -416,8 +439,9 @@ export class Agent {
 			this.primitiveRegistry.setCaptureStore?.(storeAccess);
 		}
 		// The cell evaluator (sap spec §4): granted with can_spawn, backed by a
-		// per-agent-process cell worker over this agent's own StoreAccess.
-		if (options.spawner?.storeAccess && this.spec.constraints.can_spawn) {
+		// per-agent-process cell worker over this agent's own StoreAccess. Off
+		// under flag-off (spec §6 — cell filters out of the registry).
+		if (this.dataPlaneEnabled && options.spawner?.storeAccess && this.spec.constraints.can_spawn) {
 			// The spawn callbacks (spec §4): plain functions into the cell layer,
 			// keeping the delegation core and spawner access on the agents side.
 			const cellHost =
@@ -492,7 +516,10 @@ export class Agent {
 		// Build delegate tool (single tool for all agent delegations)
 		this.agentTools = [];
 
-		if (this.spec.constraints.can_spawn) {
+		// Code mode's tool surface is exactly `cell` (spec §6): no delegate, no
+		// wait/message tools. Cells delegate via the ambient spawn() against the
+		// same `agents` allowlist, so can_spawn stays true — only the tools hide.
+		if (this.spec.constraints.can_spawn && !this.codeMode) {
 			const delegatableAgents = this.getDelegatableAgents();
 
 			if (delegatableAgents.length > 0) {
@@ -505,7 +532,9 @@ export class Agent {
 
 			this.lastDelegateNames = new Set(delegatableAgents.map((a) => a.name));
 		}
-		this.addExplicitMessageAgentTool();
+		if (!this.codeMode) {
+			this.addExplicitMessageAgentTool();
+		}
 
 		if (this.genome) {
 			this.lastGenomeGeneration = this.genome.generation;
@@ -575,6 +604,7 @@ export class Agent {
 			modelsByProvider: this.modelsByProvider,
 			...(input.history !== undefined ? { initialHistory: input.history } : {}),
 			logger: this.logger,
+			dataPlaneEnabled: this.dataPlaneEnabled,
 		});
 		const result = await child.run(input.goal, this.signal);
 		return {
@@ -645,6 +675,13 @@ export class Agent {
 					},
 				]
 			: [];
+		// Code mode = the single `cell` tool (spec §6): value_* reads are implicit
+		// through the cell's ambient API, and no primitives or workspace tools are
+		// offered. One stable tool per provider preserves the cache decision.
+		if (this.codeMode) {
+			this.primitiveTools = uniqueToolDefinitions([...cellTools]);
+			return;
+		}
 		this.primitiveTools = uniqueToolDefinitions([
 			...this.specPrimitiveTools(),
 			...cellTools,
@@ -1007,7 +1044,9 @@ export class Agent {
 		name: string;
 		description: string;
 	}> | null> {
-		if (!this.genome || !this.spec.constraints.can_spawn) return null;
+		// Code mode offers no delegate tool (spec §6), so a genome change never
+		// rebuilds one; cells pick up new delegates through the shared tree.
+		if (!this.genome || !this.spec.constraints.can_spawn || this.codeMode) return null;
 		await this.genome.refreshIfDiskChanged();
 		if (this.genome.generation === this.lastGenomeGeneration) return null;
 		this.lastGenomeGeneration = this.genome.generation;
@@ -1145,6 +1184,15 @@ export class Agent {
 		}
 
 		return { spec: match, allowedNames: [...allowedNames].sort() };
+	}
+
+	/**
+	 * Uniform loud error for a data-plane field emitted in a flag-off session
+	 * (spec §6). Never silently stripped — a stripped bind:/env/⟦name⟧ would fail
+	 * the task downstream in undiagnosable ways.
+	 */
+	private dataPlaneDisabledError(field: string): string {
+		return `the data plane is disabled for this session; ${field} is unavailable`;
 	}
 
 	private buildDelegationDeniedError(agentName: string, allowedNames: string[]): string {
@@ -1376,6 +1424,7 @@ export class Agent {
 				enableStreaming: this.enableStreaming,
 				surfacedMemoryBlock: this.childSurfacedMemoryBlock(subagentSpec.name),
 				trustedUserInstruction: this.trustedUserInstruction,
+				dataPlaneEnabled: this.dataPlaneEnabled,
 			});
 
 			const subResult = await subagent.run(subGoal, this.signal);
@@ -1605,6 +1654,7 @@ export class Agent {
 			workDir: this.env.working_directory(),
 			rootDir: this.rootDir,
 			evalMode: this.evalMode,
+			dataPlaneEnabled: this.dataPlaneEnabled,
 			resolverSettings: this.resolverSettings,
 			surfacedMemoryBlock: "",
 		});
@@ -1857,6 +1907,17 @@ export class Agent {
 		primitiveName: string,
 		args: Record<string, unknown>,
 	): Promise<SpliceResult> {
+		// Flag-off (spec §6): a whole-arg ⟦name⟧ is a data-plane field — reject it
+		// loudly naming the flag rather than splicing or passing it as a literal.
+		if (!this.dataPlaneEnabled) {
+			if (argsMightContainRef(args)) {
+				return {
+					ok: false,
+					error: this.dataPlaneDisabledError("value reference splicing (⟦name⟧)"),
+				};
+			}
+			return { ok: true, args, splicedNames: [] };
+		}
 		const store = this.spawner?.storeAccess;
 		if (!store || !argsMightContainRef(args)) {
 			return { ok: true, args, splicedNames: [] };
@@ -2136,6 +2197,7 @@ export class Agent {
 					rootDir: this.rootDir,
 					mnemonicName: mnemonicName ?? undefined,
 					evalMode: this.evalMode,
+					dataPlaneEnabled: this.dataPlaneEnabled,
 					...(effectiveDelegation.model !== undefined ? { model: effectiveDelegation.model } : {}),
 					providerIdOverride: this.resolved.provider,
 					resolverSettings: this.resolverSettings,
@@ -2812,10 +2874,27 @@ export class Agent {
 			stumbles++;
 		}
 
-		// Launch all delegations concurrently (spawner or in-process fallback)
-		const executeDelegationFn = this.spawner
-			? (d: Delegation) => this.executeSpawnerDelegation(d, agentId)
-			: (d: Delegation) => this.executeDelegation(d, agentId);
+		// Launch all delegations concurrently (spawner or in-process fallback).
+		// Flag-off (spec §6): env grants on delegate are a data-plane field —
+		// reject loudly naming the flag before the delegation runs.
+		const executeDelegationFn = (
+			d: Delegation,
+		): Promise<{ toolResultMsg: Message; stumbles: number; output?: string }> => {
+			if (!this.dataPlaneEnabled && d.env !== undefined) {
+				const errorMsg = this.dataPlaneDisabledError("env grants on delegate");
+				const toolResultMsg = Msg.toolResult(d.call_id, `Error: ${errorMsg}`, true);
+				this.emitAndLog("act_end", agentId, this.depth, {
+					agent_name: d.agent_name,
+					success: false,
+					error: errorMsg,
+					tool_result_message: toolResultMsg,
+				});
+				return Promise.resolve({ toolResultMsg, stumbles: 1 });
+			}
+			return this.spawner
+				? this.executeSpawnerDelegation(d, agentId)
+				: this.executeDelegation(d, agentId);
+		};
 
 		const delegationPromises = delegations.map((delegation) =>
 			executeDelegationFn(delegation).then((dr) => {
@@ -2828,6 +2907,21 @@ export class Agent {
 
 		// Handle agent commands (wait_agent, message_agent)
 		for (const cmd of agentCommands) {
+			// Flag-off (spec §6): env grants on message_agent are a data-plane
+			// field — reject loudly naming the flag.
+			if (!this.dataPlaneEnabled && cmd.kind === "message_agent" && cmd.env !== undefined) {
+				const errorMsg = this.dataPlaneDisabledError("env grants on message_agent");
+				const toolResultMsg = Msg.toolResult(cmd.call_id, `Error: ${errorMsg}`, true);
+				resultByCallId.set(cmd.call_id, toolResultMsg);
+				this.emitAndLog("act_end", agentId, this.depth, {
+					agent_name: cmd.kind,
+					success: false,
+					error: errorMsg,
+					tool_result_message: toolResultMsg,
+				});
+				stumbles++;
+				continue;
+			}
 			const result = await this.executeAgentCommand(cmd, agentId);
 			resultByCallId.set(cmd.call_id, result.toolResultMsg);
 			if (result.stumbles > 0) stumbles += result.stumbles;
@@ -2851,6 +2945,30 @@ export class Agent {
 				display_name: displayName,
 				args: call.arguments,
 			});
+
+			// Flag-off (spec §6): capture fields (bind:/publish:) are data-plane
+			// fields — reject loudly naming the flag rather than passing them as
+			// unknown args to the raw primitive (which would silently ignore them).
+			if (!this.dataPlaneEnabled) {
+				const dataPlaneField =
+					"bind" in call.arguments ? "bind:" : "publish" in call.arguments ? "publish:" : undefined;
+				if (dataPlaneField) {
+					const errorMsg = this.dataPlaneDisabledError(dataPlaneField);
+					const toolResultMsg = Msg.toolResult(call.id, `Error: ${errorMsg}`, true);
+					resultByCallId.set(call.id, toolResultMsg);
+					this.emitAndLog("primitive_end", agentId, this.depth, {
+						name: call.name,
+						display_name: displayName,
+						success: false,
+						stumbled: true,
+						output: "",
+						error: errorMsg,
+						tool_result_message: toolResultMsg,
+					});
+					stumbles++;
+					continue;
+				}
+			}
 
 			// Enforce write path constraints before execution
 			const pathDenied = checkPathConstraint(

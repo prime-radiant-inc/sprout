@@ -50,6 +50,8 @@ export interface SpawnAgentOptions {
 	/** Mnemonic codename for this agent (historical figure surname). */
 	mnemonicName?: string;
 	evalMode?: boolean;
+	/** Data-plane session flag (spec §6): inherited by the child. Default true. */
+	dataPlaneEnabled?: boolean;
 	/**
 	 * Per-spawn model override (spec §5): a tier ("fast") or a "provider:model"
 	 * selection string. Travels on the StartMessage and resolves as the child's
@@ -111,6 +113,7 @@ export interface DeliverObserverFrameOptions {
 	workDir: string;
 	rootDir?: string;
 	evalMode?: boolean;
+	dataPlaneEnabled?: boolean;
 	resolverSettings?: ResolverSettings;
 	surfacedMemoryBlock?: string;
 }
@@ -152,6 +155,8 @@ export interface AgentHandle {
 	/** Mnemonic codename assigned at delegation time. */
 	mnemonicName?: string;
 	evalMode?: boolean;
+	/** Data-plane session flag (spec §6): re-applied on the respawn StartMessage. */
+	dataPlaneEnabled?: boolean;
 	/** Per-spawn model override, re-applied on the respawn StartMessage. */
 	model?: string;
 	providerIdOverride?: string;
@@ -781,6 +786,7 @@ export class AgentSpawner {
 			projectDataDir: opts.projectDataDir,
 			mnemonicName: opts.mnemonicName,
 			evalMode: opts.evalMode,
+			dataPlaneEnabled: opts.dataPlaneEnabled,
 			model: opts.model,
 			providerIdOverride: opts.providerIdOverride,
 			resolverSettings: opts.resolverSettings,
@@ -811,6 +817,7 @@ export class AgentSpawner {
 			payload: opts.payload,
 			shared: keepAlive,
 			eval_mode: opts.evalMode,
+			data_plane_enabled: opts.dataPlaneEnabled,
 			model: opts.model,
 			provider_id: opts.providerIdOverride,
 			resolver_settings: opts.resolverSettings,
@@ -860,6 +867,7 @@ export class AgentSpawner {
 			projectDataDir: opts.projectDataDir,
 			mnemonicName: opts.mnemonicName,
 			evalMode: opts.evalMode,
+			dataPlaneEnabled: opts.dataPlaneEnabled,
 			model: opts.model,
 			providerIdOverride: opts.providerIdOverride,
 			resolverSettings: opts.resolverSettings,
@@ -1226,6 +1234,7 @@ export class AgentSpawner {
 			goal: message,
 			shared: handle.keepAlive,
 			eval_mode: handle.evalMode,
+			data_plane_enabled: handle.dataPlaneEnabled,
 			model: handle.model,
 			provider_id: handle.providerIdOverride,
 			resolver_settings: handle.resolverSettings,
@@ -1277,6 +1286,7 @@ export class AgentSpawner {
 				agentId: opts.agentId,
 				rootDir: opts.rootDir,
 				evalMode: opts.evalMode,
+				dataPlaneEnabled: opts.dataPlaneEnabled,
 				resolverSettings: opts.resolverSettings,
 				surfacedMemoryBlock: opts.surfacedMemoryBlock,
 			});
@@ -1326,6 +1336,7 @@ export class AgentSpawner {
 			workDir: string;
 			agentId?: string;
 			evalMode?: boolean;
+			dataPlaneEnabled?: boolean;
 			rootDir?: string;
 			projectDataDir?: string;
 			model?: string;
@@ -1377,6 +1388,7 @@ export class AgentSpawner {
 			rootDir: spawnInfo?.rootDir,
 			projectDataDir: spawnInfo?.projectDataDir,
 			evalMode: spawnInfo?.evalMode,
+			dataPlaneEnabled: spawnInfo?.dataPlaneEnabled,
 			model: spawnInfo?.model,
 			providerIdOverride: spawnInfo?.providerIdOverride,
 			resolverSettings: spawnInfo?.resolverSettings,

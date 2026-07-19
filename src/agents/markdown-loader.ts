@@ -1,9 +1,11 @@
 import { parse, stringify } from "yaml";
 import {
+	type AgentActMode,
 	type AgentDelegateObserverConfig,
 	type AgentObserverConfig,
 	type AgentSpec,
 	type AgentSubcorticalRecallConfig,
+	canRunWithoutTools,
 	EVENT_KINDS,
 	type EventKind,
 	normalizeAgentConstraints,
@@ -73,6 +75,9 @@ export function parseAgentMarkdown(content: string, source: string): AgentSpec {
 		tags: raw.tags ?? [],
 		version: raw.version ?? 1,
 	};
+	if (raw.act !== undefined) {
+		spec.act = normalizeActMode(raw.act, source);
+	}
 	if (raw.thinking !== undefined) {
 		spec.thinking = normalizeAgentThinkingConfig(raw.thinking, source);
 	}
@@ -109,6 +114,67 @@ export function parseAgentMarkdown(content: string, source: string): AgentSpec {
 	}
 
 	return spec;
+}
+
+function normalizeActMode(raw: unknown, source: string): AgentActMode {
+	if (raw !== "tools" && raw !== "code") {
+		throw new Error(`Invalid agent markdown at ${source}: 'act' must be 'tools' or 'code'`);
+	}
+	return raw;
+}
+
+/** Data-plane read grants (spec §6): the `cell` tool and every value_* read
+ * primitive. These are the grants that filter out under data-plane-off. */
+function isDataPlaneReadGrant(tool: string): boolean {
+	return tool === "cell" || tool.startsWith("value_");
+}
+
+/**
+ * Validate an agent spec against the sap §6 code-mode and data-plane-off
+ * invariants. Run at the genome creation and mutation gates — turning the
+ * code-mode no-exec premise and the no-zero-tool-under-flag-off rule from
+ * convention into enforced invariants the genome cannot mutate around.
+ */
+export function validateAgentSpec(spec: AgentSpec): void {
+	// Real tools = everything that is not a data-plane read grant (cell/value_*).
+	const realTools = spec.tools.filter((tool) => !isDataPlaneReadGrant(tool));
+
+	if (spec.act === "code") {
+		// Code mode reaches the world only through spawn() inside cells; a
+		// primitive or delegate grant beside the cell would make the stripped
+		// realm security theater. `agents` (the delegation allowlist cells spawn
+		// against) is allowed — it is not a delegate tool grant.
+		if (realTools.length > 0) {
+			throw new Error(
+				`Invalid code-mode agent '${spec.name}': code mode grants no primitive tools ` +
+					`(got: ${realTools.join(", ")}). Its tool surface is exactly 'cell' plus implicit ` +
+					`value_* reads; the world is reached through spawn() inside cells.`,
+			);
+		}
+		if (!spec.constraints.can_spawn) {
+			throw new Error(
+				`Invalid code-mode agent '${spec.name}': code mode requires can_spawn: true — ` +
+					`spawn() inside cells is how cells touch the world.`,
+			);
+		}
+	}
+
+	// No zero-tool path under flag-off filtering (spec §6): after removing cell +
+	// value_* grants, the spec must retain delegation, a real tool, or the
+	// max_turns:1 completion exemption. Otherwise it hard-throws the zero-tool
+	// error in every data-plane-off session and pollutes the §10 baseline.
+	const survivesFlagOff =
+		spec.constraints.can_spawn ||
+		realTools.length > 0 ||
+		canRunWithoutTools({ ...spec, tools: realTools });
+	if (!survivesFlagOff) {
+		throw new Error(
+			`Invalid agent '${spec.name}': its functional tool set is empty under data-plane-off ` +
+				`filtering. After removing 'cell' and value_* grants it has no primitives, cannot ` +
+				`delegate (can_spawn: false), and does not qualify for the max_turns:1 completion ` +
+				`exemption. It would hard-throw the zero-tool error in every data-plane-off session.`,
+		);
+	}
 }
 
 function normalizeSubcorticalRecallConfig(
@@ -315,6 +381,7 @@ const KNOWN_FIELDS = new Set([
 	"name",
 	"description",
 	"model",
+	"act",
 	"tools",
 	"agents",
 	"constraints",
@@ -341,6 +408,7 @@ export function serializeAgentMarkdown(spec: AgentSpec): string {
 		name: spec.name,
 		description: spec.description,
 		model: spec.model,
+		...(spec.act !== undefined ? { act: spec.act } : {}),
 		tools: spec.tools,
 		agents: spec.agents,
 		constraints: spec.constraints,

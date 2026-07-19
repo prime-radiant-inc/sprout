@@ -282,6 +282,9 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 
 		const startMsg = parseBusMessage(startPayload) as StartMessage;
 		const evalMode = startMsg.eval_mode === true;
+		// Data-plane session flag (spec §6): default true; off only when the
+		// caller explicitly sent false, so a flag-off session stays off tree-wide.
+		const dataPlaneEnabled = startMsg.data_plane_enabled !== false;
 
 		// Load genome and find agent spec
 		const genome = new Genome(genomePath, config.rootDir);
@@ -383,6 +386,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 				workDir,
 				agentId,
 				evalMode,
+				dataPlaneEnabled,
 				rootDir: config.rootDir,
 				projectDataDir: config.projectDataDir,
 				providerIdOverride: startMsg.provider_id,
@@ -436,6 +440,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 			initialHistory: initialHistory.length > 0 ? initialHistory : undefined,
 			agentId: startMsg.self.agentId,
 			evalMode,
+			dataPlaneEnabled,
 			...(startMsg.model !== undefined ? { modelOverride: startMsg.model } : {}),
 			providerIdOverride: startMsg.provider_id,
 			resolverSettings: startMsg.resolver_settings,

@@ -32,6 +32,9 @@ export interface StartMessage {
 	payload?: Record<string, unknown>;
 	shared: boolean;
 	eval_mode?: boolean;
+	/** Data-plane session flag (spec §6): inherited by subprocess children so a
+	 * flag-off session stays flag-off across the whole tree. Default true. */
+	data_plane_enabled?: boolean;
 	/**
 	 * Per-spawn model override (spec §5): a tier ("fast") or a "provider:model"
 	 * selection string. Resolved through the model resolver as the child's

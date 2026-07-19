@@ -262,12 +262,19 @@ export function normalizeAgentConstraints(
 	return { ...DEFAULT_CONSTRAINTS, ...constraints } as AgentConstraints;
 }
 
+/** How an agent Acts: `tools` emits delegate/primitive tool calls (default,
+ * today's behavior); `code` emits one `cell` tool call per Act — the cell is
+ * the plan, and it reaches the world only through spawn() inside cells. */
+export type AgentActMode = "tools" | "code";
+
 /** Complete specification for an agent in the genome */
 export interface AgentSpec {
 	name: string;
 	description: string;
 	system_prompt: string;
 	model: string;
+	/** Act mode (sap spec §6). Absent means `tools` (today's behavior). */
+	act?: AgentActMode;
 	constraints: AgentConstraints;
 	tags: string[];
 	version: number;

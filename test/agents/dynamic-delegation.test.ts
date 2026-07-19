@@ -170,7 +170,10 @@ describe("Dynamic delegation list refresh", () => {
 
 		// Now add a new agent to the genome (simulating fabricator creating an agent)
 		await genome.addAgent(
-			makeSpec("new-dynamic-agent", { description: "A dynamically created agent" }),
+			makeSpec("new-dynamic-agent", {
+				description: "A dynamically created agent",
+				tools: ["read_file"],
+			}),
 		);
 
 		// Continue — the refresh should detect the new agent
@@ -239,7 +242,9 @@ describe("Dynamic delegation list refresh", () => {
 		expect(delegateToolBefore).toBeDefined();
 
 		// Add new agent to genome
-		await genome.addAgent(makeSpec("tools-test-agent", { description: "Tools test agent" }));
+		await genome.addAgent(
+			makeSpec("tools-test-agent", { description: "Tools test agent", tools: ["read_file"] }),
+		);
 
 		// Continue — should trigger tool rebuild
 		await agent.continue("keep going", undefined);

@@ -1367,7 +1367,7 @@ OPENAI_API_KEY=sk-${"a".repeat(32)}`,
 				description: "A safe agent name",
 				system_prompt: "You are a specialist.",
 				model: "fast",
-				tools: [],
+				tools: ["read_file"],
 				agents: [],
 				tags: [],
 			});

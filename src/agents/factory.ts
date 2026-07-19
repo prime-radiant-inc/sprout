@@ -54,6 +54,8 @@ export interface CreateAgentOptions {
 	genome?: Genome;
 	/** Disable learning and genome mutation for evaluation runs. */
 	evalMode?: boolean;
+	/** Data-plane session flag (spec §6); default true. Off = the A/B off arm. */
+	dataPlaneEnabled?: boolean;
 	/** Headless/non-interactive root session. */
 	nonInteractive?: boolean;
 	/** Structured logger for LLM call logging and diagnostics. */
@@ -250,6 +252,7 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 		caller: rootAddress,
 		logger: options.logger,
 		evalMode: options.evalMode,
+		dataPlaneEnabled: options.dataPlaneEnabled,
 		rootDir: options.rootDir,
 		agentTree,
 		agentTreeChildren,

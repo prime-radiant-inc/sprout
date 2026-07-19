@@ -19,7 +19,7 @@ function makeSpec(name: string, overrides?: Partial<{ description: string; versi
 		},
 		tags: [],
 		version: overrides?.version ?? 1,
-		tools: [],
+		tools: ["read_file"],
 		agents: [],
 	};
 }
