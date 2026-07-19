@@ -301,8 +301,9 @@ export class CellHost {
 		});
 
 		// Any future the cell registered but never let settle is abandoned at
-		// cell end and reclaimed (spec §2). A settlement already in flight is
-		// dropped by the generation guard in registerFuture.
+		// cell end and reclaimed (spec §2). A settlement whose wait resolves from
+		// here on is dropped by the pre-bind generation guard in registerFuture
+		// (see that method for the one residual bind-round-trip window).
 		this.reclaimFutures("future abandoned at cell end");
 		const totalMs = Date.now() - startedAt;
 		const metrics = { computeTimeMs: computeMs, totalMs };
@@ -601,9 +602,20 @@ export class CellHost {
 	 * (waitHandle); on settlement the child's summary binds as a NORMAL immutable
 	 * value (provenance origin `delegation`, truthfully naming the wait), and any
 	 * consumer parked on this future resumes. The settled value's ULID is minted
-	 * at bind and stable forever after. A settlement whose cell has already ended
-	 * is dropped by the generation guard — the value is not bound and no stale
-	 * cell state is touched.
+	 * at bind and stable forever after.
+	 *
+	 * Cell-end and the generation guard: a settlement whose cell has already
+	 * ended when its wait resolves is dropped by the pre-bind generation check —
+	 * the value is not bound and no stale cell state is touched. One residual
+	 * micro-window remains: if the cell ends DURING the store.bind round-trip
+	 * (after the pre-bind check passed), the value has already been written to
+	 * the store under `name`, and because names are latest-wins per scope a
+	 * delegation-origin orphan can become visible to the next cell. It is never
+	 * pushed to newBindings (that guard still fires), so it does not appear in
+	 * the ending cell's result; the exposure is bounded to that one bind
+	 * round-trip and is not a security issue. Fully closing it would require
+	 * threading the cell generation into the store worker (crossing the
+	 * immutability line), which is disproportionate to the risk.
 	 */
 	private registerFuture(handleId: string, name: string): { name: string; pending: true } {
 		if (this.pendingFutures.has(name)) {

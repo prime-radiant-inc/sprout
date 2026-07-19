@@ -463,6 +463,66 @@ describe("CellHost", () => {
 		expect(result.returnValue).toContain("handle.future() is unavailable here");
 	}, 20_000);
 
+	it("drops a future whose wait resolves after its cell has ended (no orphan visible to the next cell)", async () => {
+		let releaseWait!: () => void;
+		const waitGate = new Promise<void>((r) => {
+			releaseWait = r;
+		});
+		host = new CellHost(store, {
+			spawnFn: spawnRealWorker,
+			delegate: async () => ({ kind: "started", handleId: "h-orphan" }),
+			waitHandle: async (id) => {
+				// Settle only once the cell that registered the future has ended.
+				await waitGate;
+				return completedOutcome({ summary: "orphan value", handleId: id, bindings: [] });
+			},
+		});
+		const first = await host.runCell(
+			[
+				'const s = await spawn("leaf", "bg", { blocking: false });',
+				'await s.handle.future("orphan");', // registered, never awaited
+				'return "one";',
+			].join("\n"),
+		);
+		expect(first.ok).toBe(true);
+		// Cell 1 has fully ended with the future still pending; NOW let the wait
+		// resolve. The pre-bind generation guard must drop the settlement.
+		releaseWait();
+		await new Promise((r) => setTimeout(r, 100));
+		// The next cell reuses the host; the orphan name must not be observable.
+		const second = await host.runCell(
+			'try { return "present:" + (await get("orphan")); } catch { return "absent"; }',
+		);
+		expect(second.ok).toBe(true);
+		expect(second.returnValue).toBe("absent");
+		expect(await store.names()).not.toContain("orphan");
+	}, 20_000);
+
+	it("two consumers parked on the same pending future resolve to the byte-identical settled value", async () => {
+		host = new CellHost(store, {
+			spawnFn: spawnRealWorker,
+			delegate: async () => ({ kind: "started", handleId: "h-shared" }),
+			waitHandle: async (id) => {
+				// Settle later so both consumers register as dependents while pending.
+				await new Promise((r) => setTimeout(r, 100));
+				return completedOutcome({ summary: "shared body", handleId: id, bindings: [] });
+			},
+		});
+		const result = await host.runCell(
+			[
+				'const s = await spawn("leaf", "bg", { blocking: false });',
+				'await s.handle.future("shared");',
+				'const [a, b] = await Promise.all([get("shared"), get("shared")]);',
+				"return JSON.stringify({ a, b, same: a === b });",
+			].join("\n"),
+		);
+		expect(result.ok).toBe(true);
+		const parsed = JSON.parse(result.returnValue ?? "{}");
+		expect(parsed.a).toBe("shared body");
+		expect(parsed.b).toBe("shared body");
+		expect(parsed.same).toBe(true);
+	}, 20_000);
+
 	it("failed children count into stumbleCount; an own error adds one", async () => {
 		let n = 0;
 		host = new CellHost(store, {
