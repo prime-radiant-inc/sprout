@@ -64,9 +64,26 @@ describe("canariesPassed", () => {
 		).toBe(false);
 		expect(canariesPassed([])).toBe(true);
 	});
+
+	test("with an expected set, an incomplete result set fails closed", () => {
+		// The DGM hole: a mutation that makes a canary silently vanish must not
+		// pass by omission. An empty or partial result against a known set fails.
+		expect(canariesPassed([], ["a", "b"])).toBe(false);
+		expect(canariesPassed([{ id: "a", passed: true }], ["a", "b"])).toBe(false);
+		expect(
+			canariesPassed(
+				[
+					{ id: "a", passed: true },
+					{ id: "b", passed: true },
+				],
+				["a", "b"],
+			),
+		).toBe(true);
+	});
 });
 
 describe("mutationRegressesCanaries", () => {
+	const expectedIds = ["pass-then-fail", "already-failing", "stays-passing"];
 	const before: CanaryResult[] = [
 		{ id: "pass-then-fail", passed: true },
 		{ id: "already-failing", passed: false },
@@ -79,7 +96,7 @@ describe("mutationRegressesCanaries", () => {
 			{ id: "already-failing", passed: false },
 			{ id: "stays-passing", passed: true },
 		];
-		expect(mutationRegressesCanaries(before, after)).toBe(true);
+		expect(mutationRegressesCanaries(before, after, expectedIds)).toBe(true);
 	});
 
 	test("ignores fail -> fail and improvements", () => {
@@ -88,7 +105,29 @@ describe("mutationRegressesCanaries", () => {
 			{ id: "already-failing", passed: true },
 			{ id: "stays-passing", passed: true },
 		];
-		expect(mutationRegressesCanaries(before, after)).toBe(false);
+		expect(mutationRegressesCanaries(before, after, expectedIds)).toBe(false);
+	});
+
+	test("an expected canary vanishing post-mutation is a regression", () => {
+		// A candidate that drops a canary from the run cannot be assumed to still
+		// pass it — treat the absence as a regression, never a clear.
+		const after: CanaryResult[] = [
+			{ id: "pass-then-fail", passed: true },
+			{ id: "already-failing", passed: false },
+		];
+		expect(mutationRegressesCanaries(before, after, expectedIds)).toBe(true);
+	});
+
+	test("an incomplete baseline cannot clear a mutation", () => {
+		// If the before-state never established a canary, the gate must not treat
+		// a subsequent pass as safe — an empty/partial baseline fails closed.
+		const partialBefore: CanaryResult[] = [{ id: "pass-then-fail", passed: true }];
+		const after: CanaryResult[] = [
+			{ id: "pass-then-fail", passed: true },
+			{ id: "already-failing", passed: true },
+			{ id: "stays-passing", passed: true },
+		];
+		expect(mutationRegressesCanaries(partialBefore, after, expectedIds)).toBe(true);
 	});
 });
 

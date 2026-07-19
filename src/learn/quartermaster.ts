@@ -156,6 +156,11 @@ export function detectRecurringPatterns(
  * The returned Program is a genome MUTATION PROPOSAL. The caller MUST run it
  * through shouldAcceptMutation (N-run A/B) AND the canary suite before adopting
  * it into the genome — fabrication does NOT bypass the 7B gates.
+ *
+ * NOTE: the candidate body comes from cell_end `code`, which is redaction-
+ * scrubbed for sensitive transcript content. A fabricated body may therefore
+ * carry redaction placeholders and be semantically broken; the A/B gate is what
+ * keeps such a body from ever being adopted (it shows no significant win).
  */
 export function proposeProgramFromCandidate(candidate: FabricationCandidate): Program {
 	const program: Program = {

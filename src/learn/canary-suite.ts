@@ -80,19 +80,42 @@ export async function runCanarySuite(
 	return results;
 }
 
-/** True only when every canary passed. */
-export function canariesPassed(results: CanaryResult[]): boolean {
+/**
+ * True only when every canary passed. Pass `expectedIds` — the full set of
+ * canaries that MUST have run — to fail closed on omission: an empty or partial
+ * result set against a known set is a fail, never a vacuous pass. This is the
+ * DGM guard: a mutation that makes a canary silently vanish must not clear by
+ * absence.
+ */
+export function canariesPassed(results: CanaryResult[], expectedIds?: readonly string[]): boolean {
+	if (expectedIds) {
+		const passedById = new Map(results.map((r) => [r.id, r.passed]));
+		return expectedIds.every((id) => passedById.get(id) === true);
+	}
 	return results.every((r) => r.passed);
 }
 
 /**
- * Post-mutation gate: TRUE when any canary that passed before the mutation now
- * fails — a regression that forces rollback regardless of visible fitness. A
- * canary that was already failing (fail→fail) or that improved (fail→pass) is
+ * Post-mutation gate: TRUE when the mutation must roll back regardless of
+ * visible fitness. That covers a pass→fail regression AND — because the gate
+ * must be un-gameable — any incompleteness: an expected canary missing from the
+ * baseline (never established, so a later pass proves nothing) or missing from
+ * the after-state (vanished post-mutation, cannot be assumed to still pass).
+ * A canary that was already failing (fail→fail) or that improved (fail→pass) is
  * not a regression.
  */
-export function mutationRegressesCanaries(before: CanaryResult[], after: CanaryResult[]): boolean {
+export function mutationRegressesCanaries(
+	before: CanaryResult[],
+	after: CanaryResult[],
+	expectedIds: readonly string[],
+): boolean {
+	const beforeById = new Map(before.map((r) => [r.id, r]));
 	const afterById = new Map(after.map((r) => [r.id, r]));
+	// The full expected set must be present and evaluated on both sides — a gap
+	// on either side fails closed.
+	for (const id of expectedIds) {
+		if (!beforeById.has(id) || !afterById.has(id)) return true;
+	}
 	for (const prior of before) {
 		if (!prior.passed) continue;
 		const now = afterById.get(prior.id);

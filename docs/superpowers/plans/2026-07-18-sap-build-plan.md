@@ -3,7 +3,7 @@
 **Date started:** 2026-07-18
 **Spec:** `../specs/2026-07-16-sap-data-plane-and-repl-design.md`
 **Review:** `../specs/2026-07-18-sap-state-of-the-art-review.md`
-**Status:** in progress — Phases 0–6 complete (built + Fable-reviewed). v1 eval measurements captured (see below), including a live 29.5× real-token result. Phase 7 (genome programs + metrics) is the last.
+**Status:** COMPLETE — Phases 0–7 all built + Fable-reviewed, full suite green. v1 eval measurements captured (see below), including a live 29.5× real-token result. Phase 7 (genome programs + metrics + the two frozen self-improvement-integrity non-negotiables) landed across slices 7A–7D; the 7D review found no HIGH issues, and its one MED (canary-gate vacuous-pass) was closed on the spot. The learn-loop adoption of programs (fabrication/curation gated by multi-run A/B + canary suite) is TODO-marked, inert, and waits on the N-run pinned-snapshot eval harness — a post-v1 item, not a gap in Phase 7.
 
 This is the working tracker for building sap. It records *what we're building, in what
 order, and where we deliberately simplified away from the maximal spec*. Update it as

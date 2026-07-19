@@ -201,6 +201,13 @@ const CELL_BOOTSTRAP = buildCellBootstrap();
  * already passed the lexical import/require scan, and runs at the same privilege
  * as the cell that invokes it (fresh context per cell).
  */
+/**
+ * Program bodies are injected verbatim, trusting the lexical import/require scan
+ * already run at genome validation AND load (validateProgram). The `programs`
+ * field is parent/CellHost-supplied, never model-supplied, so there is no
+ * model-reachable path to inject an unscanned body here. Bodies run in the same
+ * confined realm as the cell, at exactly cell privilege.
+ */
 function buildProgramsBootstrap(programs: WorkerProgram[]): string {
 	const assignments = programs
 		.map(
