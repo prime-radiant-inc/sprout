@@ -12,8 +12,10 @@
  *
  * Coverage notes (honest limits):
  * - Featherweight spawns (in-process single-turn leaves) skip handle
- *   registration and are not counted as sub-calls; they cannot recurse and
- *   their token usage still counts via the session token feed.
+ *   registration and are not counted as sub-calls; they cannot recurse. Their
+ *   llm_end forwards to the PARENT's emitter, so a subprocess parent's
+ *   featherweight token usage reaches the feed via the session topic; the root
+ *   agent's own featherweights are uncounted, like root's own turns.
  * - The token feed counts subprocess agents' llm_end usage (the session-wide
  *   events topic). The root agent's own turns are bounded by its max_turns.
  * - Like the handle registry, the budget spans the host process's lifetime;

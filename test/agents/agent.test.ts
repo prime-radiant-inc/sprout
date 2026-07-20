@@ -2808,6 +2808,100 @@ describe("Agent", () => {
 		expect(result.success).toBe(true);
 	});
 
+	test("post-compaction turn still sees the scope's bound values via the summary manifest", async () => {
+		const priorHistory: Message[] = [
+			Msg.user("step 1"),
+			Msg.assistant("did step 1"),
+			Msg.user("step 2"),
+			Msg.assistant("did step 2"),
+			Msg.user("step 3"),
+			Msg.assistant("did step 3"),
+		];
+
+		let callCount = 0;
+		let postCompactionRequest: Request | undefined;
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (req: Request): Promise<Response> => {
+				callCount++;
+				if (callCount === 1) {
+					// High token usage triggers compaction after this turn
+					return {
+						id: "mock-manifest-1",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: {
+							role: "assistant",
+							content: [
+								{
+									kind: ContentKind.TOOL_CALL,
+									tool_call: {
+										id: "call-manifest-1",
+										name: "read_file",
+										arguments: JSON.stringify({ path: "/tmp/test.txt" }),
+									},
+								},
+							],
+						},
+						finish_reason: { reason: "tool_calls" },
+						usage: { input_tokens: 170000, output_tokens: 500, total_tokens: 170500 },
+					};
+				}
+				if (callCount === 2) {
+					// Compaction summarization call
+					return {
+						id: "mock-manifest-summary",
+						model: "claude-haiku-4-5-20251001",
+						provider: "anthropic",
+						message: Msg.assistant("Summary of prior work."),
+						finish_reason: { reason: "stop" },
+						usage: { input_tokens: 100, output_tokens: 50, total_tokens: 150 },
+					};
+				}
+				postCompactionRequest = req;
+				return {
+					id: `mock-manifest-${callCount}`,
+					model: "claude-haiku-4-5-20251001",
+					provider: "anthropic",
+					message: {
+						role: "assistant",
+						content: [{ kind: ContentKind.TEXT, text: "Done after compaction." }],
+					},
+					finish_reason: { reason: "stop" },
+					usage: { input_tokens: 5000, output_tokens: 100, total_tokens: 5100 },
+				};
+			},
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const events = new AgentEventEmitter();
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const registry = createPrimitiveRegistry(env);
+		const agent = new Agent({
+			spec: leafSpec,
+			env,
+			client: mockClient,
+			primitiveRegistry: registry,
+			availableAgents: [],
+			depth: 0,
+			events,
+			initialHistory: priorHistory,
+			spawner: {
+				storeAccess: { names: async () => ["big_report", "test_log"] },
+			} as unknown as AgentSpawner,
+		});
+
+		const result = await agent.run("do something big");
+		expect(result.success).toBe(true);
+
+		// The post-compaction request's history must carry the scope manifest
+		expect(postCompactionRequest).toBeDefined();
+		const historyText = postCompactionRequest!.messages.map((m) => messageText(m)).join("\n");
+		expect(historyText).toContain("Values still bound in your store scope");
+		expect(historyText).toContain("⟦big_report⟧");
+		expect(historyText).toContain("⟦test_log⟧");
+	});
+
 	test("delegated agents reuse the root surfaced memory block", async () => {
 		let callCount = 0;
 		let memorySearches = 0;
@@ -9162,5 +9256,81 @@ describe("cell-spawn observer batching (Slice B)", () => {
 		expect(message).toContain("FAILED");
 		expect(message).toContain("first task");
 		expect(message).toContain("second task");
+	});
+});
+
+describe("featherweight token accounting (Phase 7 review)", () => {
+	test("a featherweight child's llm_end reaches the PARENT's events emitter", async () => {
+		// The session token-budget feed counts llm_end events published to the
+		// session topic via the parent's emitter. A featherweight child runs
+		// in-process; if its llm_end dies on a private emitter, its token usage
+		// is invisible to the budget — the hole the Phase 7 review flagged.
+		const fwSpec: AgentSpec = {
+			name: "llm-call",
+			description: "Pure completion leaf",
+			system_prompt: "Complete the request in your reply.",
+			model: "fast",
+			tools: [],
+			agents: [],
+			constraints: { max_turns: 1, timeout_ms: 60_000, can_spawn: false, can_learn: false },
+			tags: [],
+			version: 1,
+		};
+		const mockClient = {
+			providers: () => ["anthropic"],
+			complete: async (): Promise<Response> => ({
+				id: "fw-1",
+				model: "claude-haiku-4-5-20251001",
+				provider: "anthropic",
+				message: { role: "assistant", content: [{ kind: ContentKind.TEXT, text: "done" }] },
+				finish_reason: { reason: "stop" },
+				usage: { input_tokens: 42, output_tokens: 7, total_tokens: 49 },
+			}),
+			stream: async function* () {},
+		} as unknown as Client;
+
+		const env = new LocalExecutionEnvironment(tmpdir());
+		const events = new AgentEventEmitter();
+		const llmEnds: Record<string, unknown>[] = [];
+		events.on((event) => {
+			if (event.kind === "llm_end") llmEnds.push(event.data);
+		});
+		const parent = new Agent({
+			spec: { ...fwSpec, name: "root-parent" },
+			env,
+			client: mockClient,
+			primitiveRegistry: createPrimitiveRegistry(env),
+			availableAgents: [],
+			events,
+			genome: { getAgent: (name: string) => (name === "llm-call" ? fwSpec : undefined) } as never,
+		});
+
+		const internals = parent as unknown as {
+			runFeatherweightChild(input: {
+				agentName: string;
+				genomePath: string;
+				goal: string;
+				handleId: string;
+				self: AgentAddress;
+				caller: AgentAddress;
+				workDir: string;
+			}): Promise<{ success: boolean }>;
+		};
+		const result = await internals.runFeatherweightChild({
+			agentName: "llm-call",
+			genomePath: "/tmp/unused",
+			goal: "answer briefly",
+			handleId: "fw-handle-1",
+			self: { agentName: "llm-call", agentId: "fw-child-1", handleId: "fw-handle-1", depth: 1 },
+			caller: { agentName: "root-parent", agentId: "root", handleId: "root-handle", depth: 0 },
+			workDir: tmpdir(),
+		});
+
+		expect(result.success).toBe(true);
+		// The child's usage must be visible on the parent's emitter for the
+		// session budget feed to meter it (the feed reads flat token fields).
+		expect(llmEnds.length).toBeGreaterThan(0);
+		expect(llmEnds[0]!.input_tokens).toBe(42);
+		expect(llmEnds[0]!.output_tokens).toBe(7);
 	});
 });

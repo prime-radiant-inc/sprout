@@ -606,6 +606,17 @@ export class Agent {
 		if (!childSpec) {
 			throw new Error(`Featherweight agent '${input.agentName}' not found in genome`);
 		}
+		// Bridge the child's llm_end onto the PARENT's emitter so the session
+		// token-budget feed meters featherweight usage: a subprocess parent's
+		// events publish to the session topic, so the forwarded llm_end reaches
+		// the host-side counter. Only usage events forward — the spawner already
+		// synthesizes the child's session/handle records.
+		const childEvents = new AgentEventEmitter();
+		childEvents.on((event) => {
+			if (event.kind === "llm_end") {
+				this.emitAndLog("llm_end", event.agent_id, event.depth, event.data);
+			}
+		});
 		const child = new Agent({
 			spec: {
 				...childSpec,
@@ -628,6 +639,7 @@ export class Agent {
 			...(input.history !== undefined ? { initialHistory: input.history } : {}),
 			logger: this.logger,
 			dataPlaneEnabled: this.dataPlaneEnabled,
+			events: childEvents,
 		});
 		const result = await child.run(input.goal, this.signal);
 		return {
@@ -3413,12 +3425,20 @@ export class Agent {
 				this.compactionRequested = compactionDecision.compactionRequested;
 				if (compactionDecision.shouldCompact) {
 					try {
+						// Older turns carry the delivered store manifests; re-state the
+						// scope's bound names in the summary so a post-compaction turn
+						// can still ⟦name⟧-reference its values. Store unavailability
+						// degrades to no manifest line, never a failed compaction.
+						const scopeNames = this.dataPlaneEnabled
+							? await this.spawner?.storeAccess?.names().catch(() => undefined)
+							: undefined;
 						const compactResult = await compactHistory({
 							history: this.history,
 							client: this.client,
 							model: this.resolved.model,
 							provider: this.resolved.provider,
 							logPath: this.logBasePath ? `${this.logBasePath}.jsonl` : "",
+							...(scopeNames ? { scopeNames } : {}),
 						});
 						this.emitAndLog("compaction", agentId, this.depth, {
 							summary: compactResult.summary,

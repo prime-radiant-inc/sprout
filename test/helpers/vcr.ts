@@ -279,21 +279,31 @@ function createClientRecorder(
 					throw new Error("VCR record mode: realClient does not support stream()");
 				}
 				const events: StreamEvent[] = [];
+				let streamErrored = false;
 				try {
 					for await (const event of realClient.stream(request)) {
 						events.push(event);
 						yield event;
 					}
+				} catch (err) {
+					// A mid-stream provider error must NOT be enshrined as a
+					// truncated-but-successful recording — replay would serve the
+					// partial stream as truth. Drop the entry and rethrow so the
+					// record run fails loudly.
+					streamErrored = true;
+					throw err;
 				} finally {
 					// Consumers may stop iterating at the finish event without
 					// draining the generator; push in finally so the recording is
 					// captured on early return too (otherwise the cassette records
 					// zero entries and replay exhausts immediately).
-					entries.push({
-						type: "stream",
-						request: substituteForRecording(request, subs) as Request,
-						events: substituteForRecording(events, subs) as StreamEvent[],
-					});
+					if (!streamErrored) {
+						entries.push({
+							type: "stream",
+							request: substituteForRecording(request, subs) as Request,
+							events: substituteForRecording(events, subs) as StreamEvent[],
+						});
+					}
 				}
 			},
 			providers: () => realClient.providers(),
