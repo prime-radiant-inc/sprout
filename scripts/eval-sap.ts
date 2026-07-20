@@ -44,6 +44,7 @@ import { LiveTaskExecutor, type LiveTaskExecutorConfig } from "../src/learn/live
 import { defaultGenomePathFromEnv } from "../src/host/cli-parse.ts";
 import { resolveStartupCwd, startBusInfrastructure } from "../src/host/cli-shared.ts";
 import { resolveRuntimeRootDir } from "../src/host/embedded-root.ts";
+import { installSproutSelfInvocationEnv } from "../src/util/self-command.ts";
 import type { Tier } from "../src/shared/provider-settings.ts";
 
 interface Args {
@@ -99,6 +100,17 @@ async function main(): Promise<void> {
 
 	const envCwd = await resolveStartupCwd(args.cwd);
 	loadDotenv({ path: join(envCwd, ".env"), quiet: true });
+
+	// Subprocesses (cell worker, store worker, delegated agent processes) spawn
+	// by self-invocation via buildInternalSproutCommand, which needs
+	// SPROUT_SELF_EXECUTABLE/ENTRYPOINT. Without this the eval can spawn nothing
+	// — the model can't run cells or delegate, so code-mode-cannot-exec passes
+	// trivially (cells never ran) and any cell-touching task fails. Point the
+	// entrypoint at the real CLI (which routes --internal-* subcommands), not
+	// this script.
+	installSproutSelfInvocationEnv({
+		argv: [process.argv[0] ?? "bun", join(import.meta.dir, "../src/host/cli.ts")],
+	});
 
 	const genomePath = args.genome ?? defaultGenomePathFromEnv();
 	const rootDir = await resolveRuntimeRootDir({
