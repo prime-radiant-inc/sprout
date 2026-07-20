@@ -574,4 +574,82 @@ describe("quickjs hard caps (P2)", () => {
 		expect(result.error).toContain("budget");
 		await h.close();
 	});
+
+	it("a hot loop INSIDE a timer callback is stopped at the deadline, worker alive (HIGH-1)", async () => {
+		const h = makeHarness(new QuickJSCellEngine());
+		const result = await h.runCell(
+			"setTimeout(() => { while (true) {} }, 0); await new Promise(() => {});",
+			undefined,
+			{ budgetMs: 150 },
+		);
+		expect(result.ok).toBe(false);
+		expect(result.error).toContain("budget");
+		expect(result.infrastructure).toBe(true);
+		const next = await h.runCell("return 'alive';");
+		expect(next.ok).toBe(true);
+		expect(next.returnValue).toBe("alive");
+		await h.close();
+	});
+
+	it("an ordinary throw INSIDE a timer callback fails the cell as a stumble, worker alive (HIGH-1)", async () => {
+		const h = makeHarness(new QuickJSCellEngine());
+		const result = await h.runCell(
+			"setTimeout(() => { throw new Error('timer boom'); }, 0); await new Promise(() => {});",
+		);
+		expect(result.ok).toBe(false);
+		expect(result.error).toContain("timer boom");
+		expect(result.infrastructure).toBeUndefined();
+		const next = await h.runCell("return 'alive';");
+		expect(next.ok).toBe(true);
+		await h.close();
+	});
+
+	it("marshalling a large ambient result into a near-cap heap fails typed, worker alive (HIGH-2)", async () => {
+		const h = makeHarness(new QuickJSCellEngine(), async () => "y".repeat(900 * 1024));
+		const result = await h.runCell(
+			[
+				"const c = [];",
+				"try { for (let i = 0; i < 1e6; i++) c.push('x'.repeat(65536)); } catch (e) {}",
+				"return await get('big');",
+			].join("\n"),
+			undefined,
+			{ memoryBytes: 8 * 1024 * 1024 },
+		);
+		expect(result.ok).toBe(false);
+		expect(result.error).toContain("memory");
+		expect(result.infrastructure).toBeUndefined();
+		const next = await h.runCell("return 'alive';", undefined, { memoryBytes: 8 * 1024 * 1024 });
+		expect(next.ok).toBe(true);
+		expect(next.returnValue).toBe("alive");
+		await h.close();
+	});
+
+	it("a long timer sleep is cut off at the deadline, not at the timer's fire time (MED-3)", async () => {
+		const h = makeHarness(new QuickJSCellEngine());
+		const start = Date.now();
+		const result = await h.runCell(
+			"await new Promise((r) => setTimeout(r, 5000)); return 'slept';",
+			undefined,
+			{
+				budgetMs: 150,
+			},
+		);
+		const elapsed = Date.now() - start;
+		expect(result.ok).toBe(false);
+		expect(result.error).toContain("budget");
+		expect(result.infrastructure).toBe(true);
+		expect(elapsed).toBeLessThan(2000); // stopped at ~150ms, nowhere near the 5s timer
+		await h.close();
+	});
+
+	it("a memory budget above the wasm page ceiling fails clearly without bricking the subsystem (MED-4)", async () => {
+		const h = makeHarness(new QuickJSCellEngine());
+		const result = await h.runCell("return 'huge';", undefined, {
+			memoryBytes: 8 * 1024 * 1024 * 1024, // 8 GiB — over the 4 GiB wasm ceiling
+		});
+		// Clamped to the ceiling and runs, rather than throwing an uncaught RangeError.
+		expect(result.ok).toBe(true);
+		expect(result.returnValue).toBe("huge");
+		await h.close();
+	});
 });

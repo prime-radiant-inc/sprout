@@ -43,19 +43,22 @@ import type { CellEngine, CellEngineRequest, CellEngineResult } from "./cell-eng
 /** The slice of the wasm module the engine uses (lets tests inject a wrapper). */
 export type QuickJSModuleLike = Pick<QuickJSWASMModule, "newRuntime">;
 
-// The singlefile release module (wasm embedded as base64) is loaded once per
-// process and shared by every UNCAPPED engine instance; each cell still gets
-// its own runtime + context. Memory-capped engines build their own module
-// (the cap is a property of the wasm instance).
-let sharedReleaseModule: Promise<QuickJSModuleLike> | undefined;
 function loadReleaseModule(): Promise<QuickJSModuleLike> {
-	sharedReleaseModule ??= newQuickJSWASMModuleFromVariant(releaseVariant);
-	return sharedReleaseModule;
+	return newQuickJSWASMModuleFromVariant(releaseVariant);
 }
 
 const WASM_PAGE_BYTES = 64 * 1024;
 /** Must match the variant's emscripten INITIAL_MEMORY (256 pages = 16 MB). */
 const WASM_INITIAL_PAGES = 256;
+/**
+ * The variant's own declared maximum memory (MAXIMUM_MEMORY = 2 GiB = 32768
+ * pages for @jitl/quickjs-singlefile-mjs-release-sync 0.32.0, measured by
+ * binary search). Importing a `WebAssembly.Memory` whose `maximum` exceeds the
+ * module's declared maximum is a LinkError that aborts module instantiation —
+ * hence the clamp: a memory budget above ~2 GiB pins the cap at 2 GiB rather
+ * than bricking the cell subsystem.
+ */
+const WASM_MAX_PAGES = 32768;
 
 /**
  * THE real memory cap (P2): a wasm linear memory whose `maximum` the allocator
@@ -63,19 +66,24 @@ const WASM_INITIAL_PAGES = 256;
  * `InternalError: out of memory`, the cell errors typed, and the module stays
  * healthy for the next cell (verified: fresh runtimes reuse freed pages).
  *
- * This is the wasm-level cap because the in-runtime one is half-broken
- * upstream (quickjs-emscripten 0.32): `setMemoryLimit` rejects a SINGLE
- * allocation larger than the limit but does not enforce cumulative growth —
- * empirically a runtime sits at 19 MB used with an 8 MB malloc_limit and no
+ * This is the wasm-level cap because the in-runtime one is broken upstream
+ * (quickjs-emscripten 0.32): `setMemoryLimit` rejects a SINGLE allocation
+ * larger than the limit but does not track cumulative growth — empirically
+ * 20,000 live 1 KB strings (21 MB) sail past an 8 MB malloc_limit with no
  * error. We still set it (it catches the single-shot case early), but the
  * linear-memory maximum is what makes the cap real.
  *
  * Granularity is honest, not byte-exact: the cell also gets whatever slack
- * remains in the initial heap (< 16 MB) beyond the engine's own baseline. The
- * parent RSS watchdog stays as the outer net above this.
+ * remains in the initial heap (< 16 MB) beyond the engine's own baseline, and
+ * the maximum is clamped to the wasm page ceiling (a >~4 GiB budget yields a
+ * ~4 GiB cap, not a RangeError). The parent RSS watchdog stays as the outer
+ * net above this.
  */
 function loadCappedReleaseModule(memoryBytes: number): Promise<QuickJSModuleLike> {
-	const maximum = WASM_INITIAL_PAGES + Math.ceil(memoryBytes / WASM_PAGE_BYTES);
+	const maximum = Math.min(
+		WASM_MAX_PAGES,
+		WASM_INITIAL_PAGES + Math.ceil(memoryBytes / WASM_PAGE_BYTES),
+	);
 	const variant = newVariant(releaseVariant, {
 		wasmMemory: new WebAssembly.Memory({ initial: WASM_INITIAL_PAGES, maximum }),
 	});
@@ -111,26 +119,42 @@ const MARSHAL_DISPLAY = `((stringify, toStr) => (v) => {
 export class QuickJSCellEngine implements CellEngine {
 	private readonly loadModule?: () => Promise<QuickJSModuleLike>;
 	private modulePromise?: Promise<QuickJSModuleLike>;
+	// The memory cap is a property of the wasm INSTANCE, so the module is built
+	// for a specific cap. Rebuild when the cell's cap changes (the shared uncapped
+	// module has no wasm ceiling and must not silently serve a later capped cell).
+	private moduleMemoryBytes?: number;
 
 	constructor(options: { loadModule?: () => Promise<QuickJSModuleLike> } = {}) {
 		this.loadModule = options.loadModule;
 	}
 
 	async runCell(request: CellEngineRequest): Promise<CellEngineResult> {
-		// The wasm memory cap is per-module, so the module is sized by the
-		// FIRST capped cell this engine sees (one engine per worker; the host
-		// sends the same config every cell). An injected loader wins — tests
-		// own their module.
-		this.modulePromise ??=
-			this.loadModule !== undefined
-				? this.loadModule()
-				: request.limits?.memoryBytes !== undefined
-					? loadCappedReleaseModule(request.limits.memoryBytes)
-					: loadReleaseModule();
-		const module = await this.modulePromise;
+		const module = await this.moduleFor(request.limits?.memoryBytes);
 		const runtime = module.newRuntime();
 		const context = runtime.newContext();
-		return await new CellRun(runtime, context, request).run();
+		const run = new CellRun(runtime, context, request);
+		const result = await run.run();
+		// A wasm OOB trap while marshalling into a near-cap heap poisons the
+		// module — even disposal traps — so CellRun leaves it undisposed and
+		// signals here; drop it so the next cell rebuilds a clean instance.
+		if (run.modulePoisoned && this.loadModule === undefined) {
+			this.modulePromise = undefined;
+			this.moduleMemoryBytes = undefined;
+		}
+		return result;
+	}
+
+	private moduleFor(memoryBytes: number | undefined): Promise<QuickJSModuleLike> {
+		if (this.loadModule !== undefined) {
+			this.modulePromise ??= this.loadModule();
+			return this.modulePromise;
+		}
+		if (this.modulePromise === undefined || this.moduleMemoryBytes !== memoryBytes) {
+			this.moduleMemoryBytes = memoryBytes;
+			this.modulePromise =
+				memoryBytes !== undefined ? loadCappedReleaseModule(memoryBytes) : loadReleaseModule();
+		}
+		return this.modulePromise;
 	}
 }
 
@@ -155,6 +179,14 @@ class CellRun {
 	private deadlineHit = false;
 	private accruedActiveMs = 0;
 	private activeSince?: number;
+	// Host-side wall-clock deadline covering the one thing the interpreter-step
+	// interrupt cannot see: a cell idling on a long timer sleep runs no bytecode,
+	// so nothing checks the deadline until the timer fires. Armed while active,
+	// disarmed while parked on ambient I/O (which doesn't accrue).
+	private deadlineTimer?: ReturnType<typeof setTimeout>;
+	// Set when a wasm OOB trap has poisoned the module: teardown must NOT touch
+	// the interpreter (disposal itself traps); the engine discards the module.
+	modulePoisoned = false;
 	private readonly timers = new Map<number, TimerEntry>();
 	private readonly deferreds: QuickJSDeferredPromise[] = [];
 	private readonly infraHandles: QuickJSHandle[] = [];
@@ -181,7 +213,7 @@ class CellRun {
 				if (programs.error) return this.failFromHandle(programs.error);
 				programs.value.dispose();
 			}
-			this.activeSince = Date.now();
+			this.setActive();
 			const cell = this.context.evalCode(wrapCellCode(this.request.code));
 			if (this.deadlineHit) {
 				if (cell.error) cell.error.dispose();
@@ -206,8 +238,9 @@ class CellRun {
 			// Secondary guard only: catches a single over-limit allocation
 			// early. The real cumulative cap is the wasm linear-memory maximum
 			// (see loadCappedReleaseModule — upstream setMemoryLimit does not
-			// enforce cumulative growth).
-			this.runtime.setMemoryLimit(limits.memoryBytes);
+			// enforce cumulative growth). Clamp to the wasm cap: the underlying
+			// FFI takes a 32-bit size and a value past ~2 GiB traps.
+			this.runtime.setMemoryLimit(Math.min(limits.memoryBytes, WASM_MAX_PAGES * WASM_PAGE_BYTES));
 		}
 		if (limits?.budgetMs !== undefined) {
 			const budgetMs = limits.budgetMs;
@@ -226,6 +259,35 @@ class CellRun {
 		return (
 			this.accruedActiveMs + (this.activeSince !== undefined ? Date.now() - this.activeSince : 0)
 		);
+	}
+
+	/** Enter an active (deadline-accruing) span and arm the wall-clock deadline. */
+	private setActive(): void {
+		if (this.activeSince !== undefined) return;
+		this.activeSince = Date.now();
+		const budgetMs = this.request.limits?.budgetMs;
+		if (budgetMs === undefined) return;
+		const remaining = Math.max(0, budgetMs - this.computeMsNow());
+		this.deadlineTimer = setTimeout(() => {
+			this.deadlineHit = true;
+			this.finish(this.budgetExceededResult());
+		}, remaining);
+	}
+
+	/** Park the deadline clock: waiting on the parent never accrues. */
+	private setParked(): void {
+		if (this.activeSince !== undefined) {
+			this.accruedActiveMs += Date.now() - this.activeSince;
+			this.activeSince = undefined;
+		}
+		this.clearDeadlineTimer();
+	}
+
+	private clearDeadlineTimer(): void {
+		if (this.deadlineTimer !== undefined) {
+			clearTimeout(this.deadlineTimer);
+			this.deadlineTimer = undefined;
+		}
 	}
 
 	private overDeadline(): boolean {
@@ -286,24 +348,19 @@ class CellRun {
 		const deferred = this.context.newPromise();
 		this.deferreds.push(deferred);
 		this.outstandingAmbient++;
-		if (this.outstandingAmbient === 1 && this.activeSince !== undefined) {
-			// Park the deadline clock: time spent waiting on the parent never
-			// accrues (the parent budget clock's exact rule).
-			this.accruedActiveMs += Date.now() - this.activeSince;
-			this.activeSince = undefined;
-		}
+		if (this.outstandingAmbient === 1) this.setParked();
 		this.request.callAmbient(method, args).then(
 			(result) => {
 				if (!this.live) return;
 				this.outstandingAmbient--;
-				if (this.outstandingAmbient === 0) this.activeSince = Date.now();
+				if (this.outstandingAmbient === 0) this.setActive();
 				this.resolveAmbient(deferred, result);
 				this.pump();
 			},
 			(err: unknown) => {
 				if (!this.live) return;
 				this.outstandingAmbient--;
-				if (this.outstandingAmbient === 0) this.activeSince = Date.now();
+				if (this.outstandingAmbient === 0) this.setActive();
 				this.rejectAmbient(deferred, err);
 				this.pump();
 			},
@@ -321,7 +378,26 @@ class CellRun {
 			deferred.resolve();
 			return;
 		}
-		const text = this.context.newString(json);
+		// newString allocates the marshal buffer through emscripten glue _malloc,
+		// which does NOT fail gracefully at the wasm cap — it returns 0 and the
+		// glue writes out of bounds, an UNCATCHABLE-cleanly wasm trap that even
+		// poisons disposal. So a cell that fills its heap then pulls a large
+		// ambient result would crash the worker. Guard the glue allocation: on a
+		// trap, finish the cell as a typed OOM stumble and mark the module
+		// poisoned so the engine discards it (teardown must not touch it).
+		let text: QuickJSHandle;
+		try {
+			text = this.context.newString(json);
+		} catch {
+			this.modulePoisoned = true;
+			this.finish({
+				ok: false,
+				error:
+					"out of memory: the cell exhausted its memory budget and could not receive the ambient result",
+				infrastructure: false,
+			});
+			return;
+		}
 		const parsed = this.context.callFunction(this.jsonParse, this.context.undefined, text);
 		text.dispose();
 		if (parsed.error) {
@@ -415,7 +491,7 @@ class CellRun {
 	}
 
 	private fireTimer(token: number): void {
-		if (!this.live) return;
+		if (!this.live || this.done) return;
 		const entry = this.timers.get(token);
 		if (entry === undefined) return;
 		// A sleeping cell (timer pending, nothing parked) accrues compute time;
@@ -430,12 +506,22 @@ class CellRun {
 		const result = this.context.callFunction(entry.fn, this.context.undefined);
 		if (entry.kind === "timeout") entry.fn.dispose();
 		if (result.error) {
-			// Parity with the vm engine, where a throwing timer callback
-			// propagates out of the host timer and kills the worker (the parent
-			// respawns it). Extract the message first, then let it fly.
 			const message = this.errorMessage(result.error);
 			result.error.dispose();
-			throw new Error(`cell timer callback threw: ${message}`);
+			// A deadline interrupt fired mid-callback (callFunction reports
+			// "interrupted") — end the cell typed, not as the callback's throw.
+			if (this.overDeadline()) {
+				this.finish(this.budgetExceededResult());
+				return;
+			}
+			// Any other error — a genuine cell throw or an in-context OOM — fails
+			// the CELL as a stumble. Unlike the vm engine (whose detached host
+			// timer would crash the worker), QuickJS holds the error value, so
+			// the worker survives and the failure is correctly the cell's. Timers
+			// are torn down at cell end, so this only ever fires within the
+			// offending cell's own run.
+			this.finish({ ok: false, error: message, infrastructure: false });
+			return;
 		}
 		result.value.dispose();
 		this.pump();
@@ -511,6 +597,7 @@ class CellRun {
 	private finish(result: CellEngineResult): void {
 		if (this.done) return;
 		this.done = true;
+		this.clearDeadlineTimer();
 		this.settle?.(result);
 	}
 
@@ -525,13 +612,22 @@ class CellRun {
 	 */
 	private errorMessage(errorHandle: QuickJSHandle): string {
 		const ctx = this.context;
-		if (ctx.typeof(errorHandle) === "object") {
+		const kind = ctx.typeof(errorHandle);
+		if (kind === "object") {
 			const messageH = ctx.getProp(errorHandle, "message");
 			const message = ctx.typeof(messageH) === "string" ? ctx.getString(messageH) : undefined;
 			messageH.dispose();
-			if (message !== undefined) return message;
+			if (message !== undefined && message.length > 0) return message;
 		}
-		return ctx.getString(errorHandle);
+		// String coercion throws for a thrown symbol and yields "" for some
+		// exotics — fall back to the type so the failure is never a blank line.
+		try {
+			const coerced = ctx.getString(errorHandle);
+			if (coerced.length > 0) return coerced;
+		} catch {
+			// fall through to the type label
+		}
+		return `cell threw a non-error ${kind}`;
 	}
 
 	private failFromHandle(errorHandle: QuickJSHandle): CellEngineResult {
@@ -543,11 +639,21 @@ class CellRun {
 	private teardown(): void {
 		this.live = false;
 		this.done = true;
+		this.clearDeadlineTimer();
+		// Host-side timer handles are always safe to clear (they live in this
+		// process, not the wasm heap).
 		for (const entry of this.timers.values()) {
 			if (entry.kind === "timeout") clearTimeout(entry.timer);
 			else clearInterval(entry.timer);
-			entry.fn.dispose();
 		}
+		// A poisoned module's wasm heap is corrupt: touching ANY interpreter
+		// handle (dispose included) traps. Leave everything to be reclaimed when
+		// the engine drops the module and the GC collects it.
+		if (this.modulePoisoned) {
+			this.timers.clear();
+			return;
+		}
+		for (const entry of this.timers.values()) entry.fn.dispose();
 		this.timers.clear();
 		for (const handle of this.infraHandles) handle.dispose();
 		this.infraHandles.length = 0;

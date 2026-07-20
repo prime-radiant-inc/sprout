@@ -49,6 +49,15 @@ export const DEFAULT_CELL_MEMORY_BUDGET_BYTES = 512 * 1024 * 1024;
  */
 export const WORKER_RSS_HEADROOM_BYTES = 256 * 1024 * 1024;
 
+/**
+ * The parent decides the threshold from ITS env, while the worker picks its
+ * engine from the worker process's env. These agree only because
+ * `spawnCellWorkerProcess` inherits the full parent environment (no `env`
+ * override on `Bun.spawn`) — the migration-window invariant that keeps the
+ * headroom matched to the engine actually running. A future change that spawns
+ * the worker with a different SPROUT_CELL_ENGINE must recompute this
+ * threshold, or a quickjs worker would be RSS-killed at the vm threshold.
+ */
 export function resolveWorkerRssKillBytes(
 	memoryBudgetBytes: number,
 	env: Record<string, string | undefined> = process.env,
