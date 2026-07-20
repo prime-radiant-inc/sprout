@@ -3,7 +3,11 @@
 **Date started:** 2026-07-19
 **Spec:** `../specs/2026-07-19-sap-completion-and-roadmap-design.md`
 **Predecessor:** `2026-07-18-sap-build-plan.md` (sap Phases 0–7, COMPLETE)
-**Status:** in progress — Phase 1 starting.
+**Status:** COMPLETE (2026-07-20) — all eight phases built, Fable-reviewed, findings fixed, full
+suite green. Live measurement recorded (gate calibration passed on real variance; keystone canary
+caught a real narration leak). Known open threads, none blocking: the order-dependent tui
+model-picker test flake; the learn/ host-free convention is not enforced by the architecture
+test; QuickJS-WASM port is issue #1; five Phase-8 deferrals re-deferred with recorded triggers.
 
 Working tracker for finishing everything deferred/TODO/roadmapped during the sap build. Records
 what we build, in what order, and where we deliberately simplify. Update as phases land.
