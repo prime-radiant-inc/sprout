@@ -152,6 +152,40 @@ describe("createSnapshotMutationGate", () => {
 		expect(await git(liveGenomePath, "rev-parse", "HEAD")).toBe(headBefore);
 	});
 
+	test("gated update_agent on a ROOT-defined agent evaluates instead of erroring", async () => {
+		// Root agents live only in rootDir (overlay), not in the genome's own
+		// agents/ dir — the candidate genome must be constructed WITH rootDir or
+		// the most common mutation class (updating a built-in agent) throws
+		// 'not found' inside evaluate() instead of being evaluated.
+		const liveGenomePath = await freshLiveGenome("live-root-update");
+		const headBefore = await git(liveGenomePath, "rev-parse", "HEAD");
+		const { buildExecutor, buildCanaryHarness } = makeBuilders({
+			candidateStumbles: 0,
+			harness: { candidateLeaks: false },
+		});
+		const gate = createSnapshotMutationGate({
+			liveGenomePath,
+			rootDir: ROOT_DIR,
+			buildExecutor,
+			buildCanaryHarness,
+			tasks: gateTasks,
+			canaries: exampleCanaries,
+			runs: 6,
+		});
+
+		const decision = await gate.evaluate({
+			type: "update_agent",
+			agent_name: "architect",
+			system_prompt: "You are the architect. Updated by a gated mutation for testing.",
+		});
+
+		// The decision itself (adopt or reject) is the arms' business — what this
+		// test pins is that the gate EVALUATES a root-agent update rather than
+		// throwing, and the live genome stays untouched either way.
+		expect(typeof decision.adopt).toBe("boolean");
+		expect(await git(liveGenomePath, "rev-parse", "HEAD")).toBe(headBefore);
+	});
+
 	test("adopts when the candidate arm significantly improves and canaries stay clean", async () => {
 		const liveGenomePath = await freshLiveGenome("live-adopt");
 		const { buildExecutor, buildCanaryHarness } = makeBuilders({

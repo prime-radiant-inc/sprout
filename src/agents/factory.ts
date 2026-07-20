@@ -137,6 +137,7 @@ function resolveMutationGate(options: CreateAgentOptions): MutationGate | undefi
 	}
 	return createSnapshotMutationGate({
 		liveGenomePath: options.genomePath,
+		rootDir: options.rootDir,
 		buildExecutor: options.mutationGateBuilders.buildExecutor,
 		buildCanaryHarness: options.mutationGateBuilders.buildCanaryHarness,
 		tasks: pinnedEvalTasks,

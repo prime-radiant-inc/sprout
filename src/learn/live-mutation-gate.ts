@@ -43,6 +43,13 @@ export interface SnapshotMutationGateBuilders {
 export interface SnapshotMutationGateOptions extends SnapshotMutationGateBuilders {
 	/** The live genome directory. Only ever READ (snapshot-copied), never written. */
 	liveGenomePath: string;
+	/**
+	 * The root/ overlay dir the live genome was constructed with. Root-defined
+	 * agents live ONLY here (overlay, not the genome's agents/ dir), so the
+	 * candidate genome must see it or an update_agent on a built-in agent throws
+	 * 'not found' instead of being evaluated. Read-only, like the live genome.
+	 */
+	rootDir?: string;
 	/** The pinned eval task set both arms run. */
 	tasks: EvalTask[];
 	/** The hidden canary set (kernel-resident; never surfaced to a model). */
@@ -90,7 +97,7 @@ export function createSnapshotMutationGate(opts: SnapshotMutationGateOptions): M
 				// Apply the proposed mutation to the CANDIDATE SNAPSHOT ONLY, via the
 				// same genome operations the live adoption path uses. The baseline
 				// copy and the live genome stay untouched.
-				const candidateGenome = new Genome(candidate.snapshot.genomePath);
+				const candidateGenome = new Genome(candidate.snapshot.genomePath, opts.rootDir);
 				await candidateGenome.loadFromDisk();
 				await applyMutationToGenome(candidateGenome, mutation);
 
