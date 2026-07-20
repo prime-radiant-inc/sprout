@@ -49,6 +49,7 @@ import type { Tier } from "../src/shared/provider-settings.ts";
 
 interface Args {
 	smoke: boolean;
+	canaryOnly: boolean;
 	runs: number;
 	tier: Tier;
 	genome?: string;
@@ -58,10 +59,18 @@ interface Args {
 }
 
 function parseArgs(argv: string[]): Args {
-	const args: Args = { smoke: false, runs: 5, tier: "fast", help: false, armOnly: false };
+	const args: Args = {
+		smoke: false,
+		canaryOnly: false,
+		runs: 5,
+		tier: "fast",
+		help: false,
+		armOnly: false,
+	};
 	for (let i = 0; i < argv.length; i++) {
 		const a = argv[i];
 		if (a === "--smoke") args.smoke = true;
+		else if (a === "--canary-only") args.canaryOnly = true;
 		else if (a === "--arm-only") args.armOnly = true;
 		else if (a === "--runs") args.runs = Number(argv[++i]);
 		else if (a === "--tier") args.tier = argv[++i] as Tier;
@@ -77,9 +86,12 @@ const HELP = `eval-sap.ts — live N-run pinned-snapshot eval harness
   bun run scripts/eval-sap.ts [--smoke] [--runs N] [--tier fast|balanced|best]
                               [--genome PATH] [--cwd PATH]
 
-  --smoke   one cheap sap task + keystone canary (proves the live path)
-  --runs N  runs per task for the full A/B (default 5)
-  --tier    model tier to force (default fast)
+  --smoke        one cheap sap task + keystone canary (proves the live path)
+  --canary-only  BOTH canaries (keystone + code-mode-cannot-exec) live, skipping
+                 the A/B eval; code-mode-cannot-exec runs a real cell (exercises
+                 the cell engine)
+  --runs N       runs per task for the full A/B (default 5)
+  --tier         model tier to force (default fast)
 
   Related: SPROUT_MUTATION_GATE=1 enables LIVE gating of Learn mutations in
   normal sessions (snapshot + N-run A/B + canaries per proposed mutation;
@@ -140,6 +152,10 @@ async function main(): Promise<void> {
 			await runSmoke(executorConfig, snapshot);
 			return;
 		}
+		if (args.canaryOnly) {
+			await runCanaryOnly(executorConfig, snapshot);
+			return;
+		}
 		await runFull(executorConfig, snapshot, args.runs, args.armOnly);
 	} finally {
 		await snapshot.cleanup();
@@ -179,6 +195,32 @@ async function runSmoke(
 	for (const r of results) {
 		log(`canary ${r.id}: ${r.passed ? "PASS" : "FAIL"}${r.detail ? ` (${r.detail})` : ""}`);
 	}
+}
+
+/**
+ * Both canaries (keystone + code-mode-cannot-exec) live, without the expensive
+ * A/B eval. code-mode-cannot-exec runs a real code-mode cell that attempts to
+ * exec, so this is the one live path that actually exercises the cell engine —
+ * a real didExec:false under the configured SPROUT_CELL_ENGINE.
+ */
+async function runCanaryOnly(
+	executorConfig: LiveTaskExecutorConfig,
+	snapshot: Awaited<ReturnType<typeof createEvalSnapshot>>,
+): Promise<void> {
+	log("\n=== Canary suite only (real payload bytes; no A/B) ===");
+	const executor = new LiveTaskExecutor(executorConfig);
+	const harness = createLiveCanaryHarness({
+		executor,
+		snapshot,
+		workDir: executorConfig.workDir ?? process.cwd(),
+	});
+	const canaryResults = await runCanarySuite(exampleCanaries, harness);
+	let failed = 0;
+	for (const r of canaryResults) {
+		if (!r.passed) failed++;
+		log(`  ${r.id}: ${r.passed ? "PASS" : "FAIL"}${r.detail ? ` (${r.detail})` : ""}`);
+	}
+	if (failed > 0) process.exitCode = 1;
 }
 
 async function runFull(
