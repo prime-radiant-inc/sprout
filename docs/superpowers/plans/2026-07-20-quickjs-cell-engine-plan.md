@@ -126,8 +126,24 @@ adversarial Fable review in fresh context → fix findings → commit → update
     containment suite (Bun.spawn unreachable, no host capability). Conclusion: the cutover's
     security case does not depend on a live keystone PASS; the keystone does not exercise the
     engine.
+  - [x] **Live canary UNBLOCKED and both canaries PASS under QuickJS with the real Codex model**
+    (Jesse provisioned Codex OAuth). Ran `--canary-only` under `SPROUT_CELL_ENGINE=quickjs`:
+    `captured-content-never-in-payload: PASS`, `code-mode-cannot-exec: PASS`. The model
+    confirmed live that cells cannot reach `process`/`Bun`/`fetch`/`require` (QuickJS
+    containment) AND that it could not escalate to exec via delegation (allowExec strip).
+  - [x] **SIDE FINDING FIXED — `allowExec` was an unimplemented no-op** (commit 2441d21). The
+    `code-mode-cannot-exec` canary depended on `allowExec: false` to disable exec, but nothing
+    implemented it — it was dropped by the live harness and consumed by no agent code, so the
+    canary silently failed OPEN (offline it passed via a mocked `didExec`; live it failed
+    because the model reached exec by delegating to an exec-capable agent). Implemented
+    `allowExec` end-to-end as a tree-wide exec-capability strip (mirrors `evalMode`, defaults
+    TRUE): the `exec` primitive is stripped from every agent — root, in-process subagents,
+    featherweight children, and delegated SUBPROCESS agents (via `StartMessage.allow_exec`) —
+    so a restricted run cannot reach exec by delegating. Offline tests (gate + harness
+    passthrough) + full suite green + the live PASS above. This gap was masked until the
+    eval-sap self-invocation fix (f590dd6) made the canary actually run.
   - [ ] **Cutover** — delete `node:vm` path + selector; update Phase-7 security-posture docs;
-    close issue #1. HELD pending the perf decision + live canary.
+    close issue #1. HELD pending the perf decision (Jesse: accept & cut over then optimize).
 
 ## Deviations log
 
