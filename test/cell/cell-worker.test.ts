@@ -283,6 +283,30 @@ for (const [engineName, makeEngine] of ENGINES) {
 				await h.close();
 			});
 
+			it("top-level Date/Error/circular returns serialize like nested ones (JSON semantics)", async () => {
+				const h = makeHarness(makeEngine());
+				const date = await h.runCell("return new Date(0);");
+				expect(date.ok).toBe(true);
+				expect(date.returnValue).toBe('"1970-01-01T00:00:00.000Z"');
+				const error = await h.runCell("return new Error('boom');");
+				expect(error.ok).toBe(true);
+				expect(error.returnValue).toBe("{}");
+				const circular = await h.runCell("const o = {}; o.self = o; return o;");
+				expect(circular.ok).toBe(true);
+				expect(circular.returnValue).toBe("[object Object]");
+				await h.close();
+			});
+
+			it("console output for Date and Error follows the same JSON display semantics", async () => {
+				const h = makeHarness(makeEngine());
+				const result = await h.runCell(
+					"console.log(new Date(0)); console.log(new Error('x')); return 'ok';",
+				);
+				expect(result.ok).toBe(true);
+				expect(result.output).toBe('"1970-01-01T00:00:00.000Z"\n{}\n');
+				await h.close();
+			});
+
 			it("plain JS locals die across cells", async () => {
 				const h = makeHarness(makeEngine());
 				const first = await h.runCell("const secret = 7; return secret;");

@@ -55,6 +55,22 @@ const DEADLOCK_ERROR =
 	"cell deadlocked: the cell is awaiting a promise that nothing can resolve " +
 	"(no ambient call or timer outstanding)";
 
+/**
+ * In-context display marshal, mirroring the worker's serializeReturnValue /
+ * formatConsoleArg algorithm exactly (string verbatim → JSON → String
+ * fallback) so top-level values leave the realm with the same display
+ * semantics the vm engine produced via host-side JSON.stringify. Captures
+ * pristine JSON.stringify and String before any cell code runs — reassigned
+ * globals cannot forge it. Also keeps QuickJS internals (e.g. Error stack
+ * frames from dump()) out of the transcript.
+ */
+const MARSHAL_DISPLAY = `((stringify, toStr) => (v) => {
+	if (v === undefined) return ["absent"];
+	if (typeof v === "string") return ["string", v];
+	try { const j = stringify(v); if (j !== undefined) return ["json", j]; } catch (e) {}
+	return ["string", toStr(v)];
+})(JSON.stringify, String)`;
+
 export class QuickJSCellEngine implements CellEngine {
 	private readonly loadModule: () => Promise<QuickJSModuleLike>;
 	private modulePromise?: Promise<QuickJSModuleLike>;
@@ -88,6 +104,7 @@ class CellRun {
 	private readonly deferreds: QuickJSDeferredPromise[] = [];
 	private readonly infraHandles: QuickJSHandle[] = [];
 	private jsonParse?: QuickJSHandle;
+	private marshalDisplay?: QuickJSHandle;
 	private topPromise?: QuickJSHandle;
 	private settle?: (result: CellEngineResult) => void;
 
@@ -125,6 +142,7 @@ class CellRun {
 	private installBridges(): void {
 		const ctx = this.context;
 		this.jsonParse = ctx.unwrapResult(ctx.evalCode("JSON.parse"));
+		this.marshalDisplay = ctx.unwrapResult(ctx.evalCode(MARSHAL_DISPLAY));
 
 		const hostCall = ctx.newFunction("__hostCall__", (methodH, argsH) => {
 			const method = ctx.getString(methodH);
@@ -135,7 +153,7 @@ class CellRun {
 		hostCall.dispose();
 
 		const hostLog = ctx.newFunction("__hostLog__", (argsH) => {
-			this.request.log(this.dumpLogArgs(argsH));
+			this.request.log(this.marshalLogArgs(argsH));
 		});
 		ctx.setProp(ctx.global, "__hostLog__", hostLog);
 		hostLog.dispose();
@@ -211,7 +229,41 @@ class CellRun {
 		errorHandle.dispose();
 	}
 
-	private dumpLogArgs(argsH: QuickJSHandle | undefined): unknown[] {
+	/**
+	 * Marshal one realm value out via the pristine in-context helper. The
+	 * tuple's KIND survives the boundary: "string" means the value WAS a
+	 * string (verbatim display), "json" carries the exact serialized bytes the
+	 * realm produced, "absent" is undefined. Collapsing kinds here is the bug
+	 * this exists to prevent — a Date must leave as its quoted JSON form, not
+	 * as a bare string.
+	 */
+	private marshalOut(valueHandle: QuickJSHandle): ["absent"] | ["string" | "json", string] {
+		if (this.marshalDisplay === undefined) return ["absent"];
+		const result = this.context.callFunction(
+			this.marshalDisplay,
+			this.context.undefined,
+			valueHandle,
+		);
+		if (result.error) {
+			// A tampered toString/toJSON threw even past the String fallback —
+			// surface it honestly rather than crash.
+			const message = this.errorMessage(result.error);
+			result.error.dispose();
+			return ["string", `[unserializable: ${message}]`];
+		}
+		const tuple = this.context.dump(result.value) as ["absent"] | ["string" | "json", string];
+		result.value.dispose();
+		return tuple;
+	}
+
+	/** The serialized return value: absent stays absent; both other kinds are
+	 * already the final bytes (verbatim string or the realm's JSON). */
+	private serializeFulfilled(valueHandle: QuickJSHandle): string | undefined {
+		const tuple = this.marshalOut(valueHandle);
+		return tuple[0] === "absent" ? undefined : tuple[1];
+	}
+
+	private marshalLogArgs(argsH: QuickJSHandle | undefined): unknown[] {
 		if (argsH === undefined) return [];
 		const ctx = this.context;
 		const lengthH = ctx.getProp(argsH, "length");
@@ -220,12 +272,11 @@ class CellRun {
 		const args: unknown[] = [];
 		for (let i = 0; i < length; i++) {
 			const el = ctx.getProp(argsH, String(i));
-			try {
-				args.push(ctx.dump(el));
-			} catch {
-				// Circular or otherwise undumpable — coerce in-context.
-				args.push(ctx.getString(el));
-			}
+			// Each arg becomes its final display text (the worker passes
+			// strings through verbatim): undefined prints as "undefined",
+			// matching String(undefined) in the vm path.
+			const tuple = this.marshalOut(el);
+			args.push(tuple[0] === "absent" ? "undefined" : tuple[1]);
 			el.dispose();
 		}
 		return args;
@@ -285,9 +336,26 @@ class CellRun {
 	 * Run pending jobs to quiescence, then read the top-level promise: settled
 	 * → finish; pending with nothing outstanding → deadlock (no future event
 	 * exists that could resolve it).
+	 *
+	 * Pump runs from detached ambient/timer callbacks, so a throw here would
+	 * neither settle the cell nor reach the worker's engine guard — it must be
+	 * converted to a typed infrastructure result, never allowed to escape.
 	 */
 	private pump(): void {
 		if (this.done || this.topPromise === undefined) return;
+		try {
+			this.pumpInner();
+		} catch (err) {
+			this.finish({
+				ok: false,
+				error: `cell engine internal failure: ${err instanceof Error ? err.message : String(err)}`,
+				infrastructure: true,
+			});
+		}
+	}
+
+	private pumpInner(): void {
+		if (this.topPromise === undefined) return;
 		const jobs = this.runtime.executePendingJobs();
 		if (jobs.error) {
 			const message = this.errorMessage(jobs.error);
@@ -298,14 +366,9 @@ class CellRun {
 		jobs.dispose();
 		const state = this.context.getPromiseState(this.topPromise);
 		if (state.type === "fulfilled") {
-			let value: unknown;
-			try {
-				value = this.context.dump(state.value);
-			} catch {
-				value = this.context.getString(state.value);
-			}
+			const returnValue = this.serializeFulfilled(state.value);
 			state.value.dispose();
-			this.finish({ ok: true, value });
+			this.finish({ ok: true, returnValue });
 		} else if (state.type === "rejected") {
 			const infrastructure = this.infraHandles.some((h) => this.context.eq(h, state.error));
 			const message = this.errorMessage(state.error);
@@ -324,7 +387,13 @@ class CellRun {
 
 	// --- errors and teardown ------------------------------------------------
 
-	/** Mirror the vm engine's `err instanceof Error ? err.message : String(err)`. */
+	/**
+	 * Human-facing message: `.message` off any error-like object, else
+	 * in-context String coercion. Deliberately NOT byte-identical to the vm
+	 * engine (whose host-side `instanceof Error` is false for realm errors,
+	 * yielding "Error: boom" where this yields "boom") — the spec pins error
+	 * SHAPES, not engine strings, and the bare message is the useful half.
+	 */
 	private errorMessage(errorHandle: QuickJSHandle): string {
 		const ctx = this.context;
 		if (ctx.typeof(errorHandle) === "object") {
@@ -359,6 +428,8 @@ class CellRun {
 		this.topPromise = undefined;
 		this.jsonParse?.dispose();
 		this.jsonParse = undefined;
+		this.marshalDisplay?.dispose();
+		this.marshalDisplay = undefined;
 		this.context.dispose();
 		this.runtime.dispose();
 	}

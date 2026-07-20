@@ -13,8 +13,33 @@
 import type { WorkerProgram } from "./cell-bootstrap.ts";
 
 export type CellEngineResult =
-	| { ok: true; value: unknown }
+	| { ok: true; returnValue: string | undefined }
 	| { ok: false; error: string; infrastructure: boolean };
+
+/**
+ * Serialize a cell's final value for the result line. Strings pass verbatim;
+ * everything else goes through JSON (String() as the honest fallback);
+ * undefined stays absent — "no return statement" and "return undefined" look
+ * the same, which the tool description documents.
+ *
+ * Serialization is the ENGINE's job (not the worker's): only the engine can
+ * see the live realm value with its type intact — once a Date has crossed the
+ * wasm boundary it is already a string, and re-serializing host-side would
+ * quote it differently than the vm realm did. The vm engine applies this
+ * function to the live value; the QuickJS engine runs the same algorithm
+ * in-context (MARSHAL_DISPLAY) and ships the resulting bytes.
+ */
+export function serializeReturnValue(value: unknown): string | undefined {
+	if (value === undefined) return undefined;
+	if (typeof value === "string") return value;
+	try {
+		const json = JSON.stringify(value);
+		if (json !== undefined) return json;
+	} catch {
+		// fall through
+	}
+	return String(value);
+}
 
 export interface CellEngineRequest {
 	/** Cell source, already past the lexical import/require gate. */

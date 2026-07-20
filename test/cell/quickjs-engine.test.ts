@@ -39,7 +39,7 @@ async function runLeakChecked(code: string, overrides: Partial<CellEngineRequest
 describe("QuickJSCellEngine handle discipline (debug build)", () => {
 	it("a plain cell leaks nothing", async () => {
 		const { result, assertNoLeaks } = await runLeakChecked("return { a: [1, 2, { b: 3 }] };");
-		expect(result).toEqual({ ok: true, value: { a: [1, 2, { b: 3 }] } });
+		expect(result).toEqual({ ok: true, returnValue: '{"a":[1,2,{"b":3}]}' });
 		assertNoLeaks();
 	});
 
@@ -48,7 +48,7 @@ describe("QuickJSCellEngine handle discipline (debug build)", () => {
 			"console.log('plain', { x: 1 }); const o = {}; o.self = o; console.log(o); return 'ok';",
 		);
 		expect(result.ok).toBe(true);
-		expect(logs[0]).toEqual(["plain", { x: 1 }]);
+		expect(logs[0]).toEqual(["plain", '{"x":1}']);
 		assertNoLeaks();
 	});
 
@@ -85,7 +85,7 @@ describe("QuickJSCellEngine handle discipline (debug build)", () => {
 				"return 'timers';",
 			].join("\n"),
 		);
-		expect(result).toEqual({ ok: true, value: "timers" });
+		expect(result).toEqual({ ok: true, returnValue: "timers" });
 		assertNoLeaks();
 	});
 
@@ -94,7 +94,7 @@ describe("QuickJSCellEngine handle discipline (debug build)", () => {
 			"return await programs.echo({ v: 7 });",
 			{ programs: [{ name: "echo", body: "return args.v * 6;" }] },
 		);
-		expect(result).toEqual({ ok: true, value: 42 });
+		expect(result).toEqual({ ok: true, returnValue: "42" });
 		assertNoLeaks();
 	});
 
@@ -121,7 +121,7 @@ describe("QuickJSCellEngine handle discipline (debug build)", () => {
 				return "late";
 			},
 		});
-		expect(result).toEqual({ ok: true, value: "early" });
+		expect(result).toEqual({ ok: true, returnValue: "early" });
 		await new Promise((r) => setTimeout(r, 40));
 		assertNoLeaks();
 	});

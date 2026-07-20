@@ -23,7 +23,12 @@
 
 import vm from "node:vm";
 import { buildProgramsBootstrap, CELL_BOOTSTRAP, wrapCellCode } from "./cell-bootstrap.ts";
-import type { CellEngine, CellEngineRequest, CellEngineResult } from "./cell-engine.ts";
+import {
+	type CellEngine,
+	type CellEngineRequest,
+	type CellEngineResult,
+	serializeReturnValue,
+} from "./cell-engine.ts";
 
 export class VmCellEngine implements CellEngine {
 	async runCell(request: CellEngineRequest): Promise<CellEngineResult> {
@@ -44,7 +49,7 @@ export class VmCellEngine implements CellEngine {
 				vm.runInContext(buildProgramsBootstrap(request.programs), context);
 			}
 			const value: unknown = await vm.runInContext(wrapCellCode(request.code), context);
-			return { ok: true, value };
+			return { ok: true, returnValue: serializeReturnValue(value) };
 		} catch (err) {
 			return {
 				ok: false,

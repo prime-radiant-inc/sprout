@@ -106,24 +106,6 @@ class ConsoleBuffer {
 	}
 }
 
-/**
- * Serialize a cell's final value for the result line. Strings pass verbatim;
- * everything else goes through JSON (String() as the honest fallback);
- * undefined stays absent — "no return statement" and "return undefined" look
- * the same, which the tool description documents.
- */
-function serializeReturnValue(value: unknown): string | undefined {
-	if (value === undefined) return undefined;
-	if (typeof value === "string") return value;
-	try {
-		const json = JSON.stringify(value);
-		if (json !== undefined) return json;
-	} catch {
-		// fall through
-	}
-	return String(value);
-}
-
 export interface RunCellWorkerInput {
 	/** Raw stdin chunks (or pre-split lines); split on \n internally. */
 	lines: AsyncIterable<string | Uint8Array>;
@@ -191,8 +173,7 @@ export async function runCellWorker(input: RunCellWorkerInput): Promise<void> {
 				ok: true,
 				output: consoleBuffer.contents(),
 			};
-			const returnValue = serializeReturnValue(result.value);
-			if (returnValue !== undefined) message.returnValue = returnValue;
+			if (result.returnValue !== undefined) message.returnValue = result.returnValue;
 			input.write(JSON.stringify(message));
 		} else {
 			input.write(
