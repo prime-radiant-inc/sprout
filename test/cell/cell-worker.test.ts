@@ -85,6 +85,7 @@ function makeHarness(engine: CellEngine, ambient?: AmbientHandler) {
 		async runCell(
 			code: string,
 			programs?: { name: string; body: string }[],
+			limits?: { memoryBytes?: number; budgetMs?: number },
 		): Promise<CellWorkerMessage & { op: "result" }> {
 			const id = `cell-${++seq}`;
 			const result = new Promise<CellWorkerMessage & { op: "result" }>((resolve) => {
@@ -92,7 +93,15 @@ function makeHarness(engine: CellEngine, ambient?: AmbientHandler) {
 				if (early) resolve(early);
 				else waiters.set(id, resolve);
 			});
-			push(`${JSON.stringify({ id, op: "cell", code, ...(programs ? { programs } : {}) })}\n`);
+			push(
+				`${JSON.stringify({
+					id,
+					op: "cell",
+					code,
+					...(programs ? { programs } : {}),
+					...(limits ? { limits } : {}),
+				})}\n`,
+			);
 			return result;
 		},
 		async close() {
@@ -316,6 +325,21 @@ for (const [engineName, makeEngine] of ENGINES) {
 				expect(second.error).toContain("secret");
 				await h.close();
 			});
+
+			it("runaway recursion fails the cell and the worker keeps serving", async () => {
+				const h = makeHarness(makeEngine());
+				// `return f() + 1` — the addition defeats JSC's strict-mode proper
+				// tail calls, which would otherwise turn self-recursion into an
+				// unkillable 100%-CPU loop under the vm engine instead of a
+				// stack overflow.
+				const result = await h.runCell("function f() { return f() + 1; } f(); return 'no';");
+				expect(result.ok).toBe(false);
+				expect(result.infrastructure).toBeUndefined();
+				const next = await h.runCell("return 'alive';");
+				expect(next.ok).toBe(true);
+				expect(next.returnValue).toBe("alive");
+				await h.close();
+			});
 		});
 
 		describe("ambient API", () => {
@@ -475,6 +499,79 @@ describe("quickjs-only semantics", () => {
 		const second = await h.runCell("return 'alive';");
 		expect(second.ok).toBe(true);
 		expect(second.returnValue).toBe("alive");
+		await h.close();
+	});
+});
+
+describe("quickjs hard caps (P2)", () => {
+	it("allocation past the memory cap fails typed as the CELL's error (stumble), worker alive", async () => {
+		const h = makeHarness(new QuickJSCellEngine());
+		const result = await h.runCell(
+			"const chunks = []; for (let i = 0; i < 1e6; i++) chunks.push('x'.repeat(65536)); return 'no';",
+			undefined,
+			{ memoryBytes: 8 * 1024 * 1024 },
+		);
+		expect(result.ok).toBe(false);
+		expect(result.error).toContain("out of memory");
+		expect(result.infrastructure).toBeUndefined();
+		const next = await h.runCell("return 'alive';");
+		expect(next.ok).toBe(true);
+		expect(next.returnValue).toBe("alive");
+		await h.close();
+	});
+
+	it("a hot loop is stopped at the deadline with a typed infrastructure error, no kill", async () => {
+		const h = makeHarness(new QuickJSCellEngine());
+		const result = await h.runCell("while (true) {}", undefined, { budgetMs: 120 });
+		expect(result.ok).toBe(false);
+		expect(result.error).toContain("budget");
+		expect(result.infrastructure).toBe(true);
+		const next = await h.runCell("return 'alive';");
+		expect(next.ok).toBe(true);
+		await h.close();
+	});
+
+	it("a cell cannot swallow the deadline interrupt with try/catch", async () => {
+		const h = makeHarness(new QuickJSCellEngine());
+		const result = await h.runCell(
+			"try { while (true) {} } catch (e) { return 'swallowed'; }",
+			undefined,
+			{ budgetMs: 120 },
+		);
+		expect(result.ok).toBe(false);
+		expect(result.error).toContain("budget");
+		await h.close();
+	});
+
+	it("parked ambient time does not accrue against the deadline", async () => {
+		const h = makeHarness(new QuickJSCellEngine(), async () => {
+			await new Promise((r) => setTimeout(r, 300));
+			return "slow";
+		});
+		const result = await h.runCell("return await get('x');", undefined, { budgetMs: 150 });
+		expect(result.ok).toBe(true);
+		expect(result.returnValue).toBe("slow");
+		await h.close();
+	});
+
+	it("compute time accrues ACROSS parked gaps", async () => {
+		const h = makeHarness(new QuickJSCellEngine(), async () => {
+			await new Promise((r) => setTimeout(r, 50));
+			return "ok";
+		});
+		const result = await h.runCell(
+			[
+				"const spin = (ms) => { const end = Date.now() + ms; while (Date.now() < end) {} };",
+				"spin(100);",
+				"await get('x');",
+				"spin(200);",
+				"return 'no';",
+			].join("\n"),
+			undefined,
+			{ budgetMs: 150 },
+		);
+		expect(result.ok).toBe(false);
+		expect(result.error).toContain("budget");
 		await h.close();
 	});
 });

@@ -30,6 +30,7 @@
 import releaseVariant from "@jitl/quickjs-singlefile-mjs-release-sync";
 import {
 	newQuickJSWASMModuleFromVariant,
+	newVariant,
 	type QuickJSContext,
 	type QuickJSDeferredPromise,
 	type QuickJSHandle,
@@ -43,17 +44,53 @@ import type { CellEngine, CellEngineRequest, CellEngineResult } from "./cell-eng
 export type QuickJSModuleLike = Pick<QuickJSWASMModule, "newRuntime">;
 
 // The singlefile release module (wasm embedded as base64) is loaded once per
-// process and shared by every engine instance; each cell still gets its own
-// runtime + context.
+// process and shared by every UNCAPPED engine instance; each cell still gets
+// its own runtime + context. Memory-capped engines build their own module
+// (the cap is a property of the wasm instance).
 let sharedReleaseModule: Promise<QuickJSModuleLike> | undefined;
 function loadReleaseModule(): Promise<QuickJSModuleLike> {
 	sharedReleaseModule ??= newQuickJSWASMModuleFromVariant(releaseVariant);
 	return sharedReleaseModule;
 }
 
+const WASM_PAGE_BYTES = 64 * 1024;
+/** Must match the variant's emscripten INITIAL_MEMORY (256 pages = 16 MB). */
+const WASM_INITIAL_PAGES = 256;
+
+/**
+ * THE real memory cap (P2): a wasm linear memory whose `maximum` the allocator
+ * cannot grow past — malloc fails, QuickJS throws an in-context
+ * `InternalError: out of memory`, the cell errors typed, and the module stays
+ * healthy for the next cell (verified: fresh runtimes reuse freed pages).
+ *
+ * This is the wasm-level cap because the in-runtime one is half-broken
+ * upstream (quickjs-emscripten 0.32): `setMemoryLimit` rejects a SINGLE
+ * allocation larger than the limit but does not enforce cumulative growth —
+ * empirically a runtime sits at 19 MB used with an 8 MB malloc_limit and no
+ * error. We still set it (it catches the single-shot case early), but the
+ * linear-memory maximum is what makes the cap real.
+ *
+ * Granularity is honest, not byte-exact: the cell also gets whatever slack
+ * remains in the initial heap (< 16 MB) beyond the engine's own baseline. The
+ * parent RSS watchdog stays as the outer net above this.
+ */
+function loadCappedReleaseModule(memoryBytes: number): Promise<QuickJSModuleLike> {
+	const maximum = WASM_INITIAL_PAGES + Math.ceil(memoryBytes / WASM_PAGE_BYTES);
+	const variant = newVariant(releaseVariant, {
+		wasmMemory: new WebAssembly.Memory({ initial: WASM_INITIAL_PAGES, maximum }),
+	});
+	return newQuickJSWASMModuleFromVariant(variant);
+}
+
 const DEADLOCK_ERROR =
 	"cell deadlocked: the cell is awaiting a promise that nothing can resolve " +
 	"(no ambient call or timer outstanding)";
+
+/**
+ * Explicit interpreter stack cap (P2). QuickJS ships its own default; pinning
+ * it makes the guarantee ours, not the toolchain default's.
+ */
+export const CELL_MAX_STACK_BYTES = 1024 * 1024;
 
 /**
  * In-context display marshal, mirroring the worker's serializeReturnValue /
@@ -72,15 +109,24 @@ const MARSHAL_DISPLAY = `((stringify, toStr) => (v) => {
 })(JSON.stringify, String)`;
 
 export class QuickJSCellEngine implements CellEngine {
-	private readonly loadModule: () => Promise<QuickJSModuleLike>;
+	private readonly loadModule?: () => Promise<QuickJSModuleLike>;
 	private modulePromise?: Promise<QuickJSModuleLike>;
 
 	constructor(options: { loadModule?: () => Promise<QuickJSModuleLike> } = {}) {
-		this.loadModule = options.loadModule ?? loadReleaseModule;
+		this.loadModule = options.loadModule;
 	}
 
 	async runCell(request: CellEngineRequest): Promise<CellEngineResult> {
-		this.modulePromise ??= this.loadModule();
+		// The wasm memory cap is per-module, so the module is sized by the
+		// FIRST capped cell this engine sees (one engine per worker; the host
+		// sends the same config every cell). An injected loader wins — tests
+		// own their module.
+		this.modulePromise ??=
+			this.loadModule !== undefined
+				? this.loadModule()
+				: request.limits?.memoryBytes !== undefined
+					? loadCappedReleaseModule(request.limits.memoryBytes)
+					: loadReleaseModule();
 		const module = await this.modulePromise;
 		const runtime = module.newRuntime();
 		const context = runtime.newContext();
@@ -100,6 +146,15 @@ class CellRun {
 	private done = false;
 	private outstandingAmbient = 0;
 	private timerSeq = 0;
+	// Deadline accounting (P2): wall time accrues only while NO ambient call is
+	// outstanding — the parent budget clock's exact rule. `activeSince` is set
+	// whenever the cell is unparked; transitions happen at the 0↔1 boundary of
+	// outstandingAmbient. `deadlineHit` is host-owned state the cell cannot
+	// forge: once set, the cell's outcome is overridden with the typed budget
+	// error no matter what its code caught, returned, or threw.
+	private deadlineHit = false;
+	private accruedActiveMs = 0;
+	private activeSince?: number;
 	private readonly timers = new Map<number, TimerEntry>();
 	private readonly deferreds: QuickJSDeferredPromise[] = [];
 	private readonly infraHandles: QuickJSHandle[] = [];
@@ -116,6 +171,7 @@ class CellRun {
 
 	async run(): Promise<CellEngineResult> {
 		try {
+			this.applyLimits();
 			this.installBridges();
 			const boot = this.context.evalCode(CELL_BOOTSTRAP);
 			if (boot.error) return this.failFromHandle(boot.error);
@@ -125,7 +181,13 @@ class CellRun {
 				if (programs.error) return this.failFromHandle(programs.error);
 				programs.value.dispose();
 			}
+			this.activeSince = Date.now();
 			const cell = this.context.evalCode(wrapCellCode(this.request.code));
+			if (this.deadlineHit) {
+				if (cell.error) cell.error.dispose();
+				else cell.value.dispose();
+				return this.budgetExceededResult();
+			}
 			if (cell.error) return this.failFromHandle(cell.error);
 			this.topPromise = cell.value;
 			return await new Promise<CellEngineResult>((resolve) => {
@@ -135,6 +197,50 @@ class CellRun {
 		} finally {
 			this.teardown();
 		}
+	}
+
+	private applyLimits(): void {
+		this.runtime.setMaxStackSize(CELL_MAX_STACK_BYTES);
+		const limits = this.request.limits;
+		if (limits?.memoryBytes !== undefined) {
+			// Secondary guard only: catches a single over-limit allocation
+			// early. The real cumulative cap is the wasm linear-memory maximum
+			// (see loadCappedReleaseModule — upstream setMemoryLimit does not
+			// enforce cumulative growth).
+			this.runtime.setMemoryLimit(limits.memoryBytes);
+		}
+		if (limits?.budgetMs !== undefined) {
+			const budgetMs = limits.budgetMs;
+			this.runtime.setInterruptHandler(() => {
+				if (this.computeMsNow() > budgetMs) {
+					this.deadlineHit = true;
+					return true;
+				}
+				return false;
+			});
+		}
+	}
+
+	/** Compute time so far: accrued active slices plus the open one. */
+	private computeMsNow(): number {
+		return (
+			this.accruedActiveMs + (this.activeSince !== undefined ? Date.now() - this.activeSince : 0)
+		);
+	}
+
+	private overDeadline(): boolean {
+		const budgetMs = this.request.limits?.budgetMs;
+		return this.deadlineHit || (budgetMs !== undefined && this.computeMsNow() > budgetMs);
+	}
+
+	private budgetExceededResult(): CellEngineResult {
+		// Mirrors the parent budget clock's kill, including its infrastructure
+		// classification — a deadline is host-imposed, never a code stumble.
+		return {
+			ok: false,
+			error: `cell budget exceeded (${this.request.limits?.budgetMs} ms of compute time)`,
+			infrastructure: true,
+		};
 	}
 
 	// --- host bridges -------------------------------------------------------
@@ -180,16 +286,24 @@ class CellRun {
 		const deferred = this.context.newPromise();
 		this.deferreds.push(deferred);
 		this.outstandingAmbient++;
+		if (this.outstandingAmbient === 1 && this.activeSince !== undefined) {
+			// Park the deadline clock: time spent waiting on the parent never
+			// accrues (the parent budget clock's exact rule).
+			this.accruedActiveMs += Date.now() - this.activeSince;
+			this.activeSince = undefined;
+		}
 		this.request.callAmbient(method, args).then(
 			(result) => {
 				if (!this.live) return;
 				this.outstandingAmbient--;
+				if (this.outstandingAmbient === 0) this.activeSince = Date.now();
 				this.resolveAmbient(deferred, result);
 				this.pump();
 			},
 			(err: unknown) => {
 				if (!this.live) return;
 				this.outstandingAmbient--;
+				if (this.outstandingAmbient === 0) this.activeSince = Date.now();
 				this.rejectAmbient(deferred, err);
 				this.pump();
 			},
@@ -304,6 +418,12 @@ class CellRun {
 		if (!this.live) return;
 		const entry = this.timers.get(token);
 		if (entry === undefined) return;
+		// A sleeping cell (timer pending, nothing parked) accrues compute time;
+		// past the deadline its callback never runs — the cell ends typed.
+		if (this.overDeadline()) {
+			this.finish(this.budgetExceededResult());
+			return;
+		}
 		if (entry.kind === "timeout") {
 			this.timers.delete(token);
 		}
@@ -357,6 +477,15 @@ class CellRun {
 	private pumpInner(): void {
 		if (this.topPromise === undefined) return;
 		const jobs = this.runtime.executePendingJobs();
+		// Deadline checks bracket the jobs run: the interrupt may have fired
+		// mid-continuation (deadlineHit), and a cell that caught or outran the
+		// interrupt must still be overridden BEFORE its settlement is honored —
+		// the outcome of a past-deadline cell is always the typed budget error.
+		if (this.overDeadline()) {
+			jobs.dispose();
+			this.finish(this.budgetExceededResult());
+			return;
+		}
 		if (jobs.error) {
 			const message = this.errorMessage(jobs.error);
 			jobs.dispose();

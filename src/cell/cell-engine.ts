@@ -41,11 +41,26 @@ export function serializeReturnValue(value: unknown): string | undefined {
 	return String(value);
 }
 
+/**
+ * Hard caps a cell runs under (P2). Enforced in-realm by the QuickJS engine
+ * (allocation-fail memory cap, interrupt-driven deadline); the vm engine
+ * cannot enforce them and relies on the parent's kill paths, which remain the
+ * outer net either way.
+ */
+export type CellLimits = {
+	/** Byte-precise allocation cap for the realm. */
+	memoryBytes?: number;
+	/** Compute-time deadline; parked ambient time never accrues. */
+	budgetMs?: number;
+};
+
 export interface CellEngineRequest {
 	/** Cell source, already past the lexical import/require gate. */
 	code: string;
 	/** Genome programs to install as `programs.<name>` in the realm. */
 	programs?: WorkerProgram[];
+	/** Hard caps; absent means uncapped (tests, trusted callers). */
+	limits?: CellLimits;
 	/** Proxy one ambient op to the parent; rejects with the worker's Error. */
 	callAmbient(method: string, args: unknown[]): Promise<unknown>;
 	/** True when the given rejection IS a host infrastructure error (identity). */

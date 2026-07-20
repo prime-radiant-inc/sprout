@@ -28,6 +28,7 @@ import { readFile } from "node:fs/promises";
 import { redactSensitiveTranscriptContent } from "../kernel/redaction.ts";
 import type { StoreAccess } from "../store/store-access.ts";
 import { buildInternalSproutCommand } from "../util/self-command.ts";
+import { resolveCellEngineName } from "./cell-engine.ts";
 import type { CellWorkerMessage, WorkerProgram } from "./cell-worker.ts";
 
 /** Default cell wall-time budget (non-parked; spec §4). */
@@ -35,6 +36,27 @@ export const DEFAULT_CELL_BUDGET_MS = 5_000;
 
 /** Default worker RSS budget before the watchdog kills it. */
 export const DEFAULT_CELL_MEMORY_BUDGET_BYTES = 512 * 1024 * 1024;
+
+/**
+ * Worker-baseline headroom the RSS watchdog grants ABOVE the memory budget
+ * when the QuickJS engine enforces the budget in-realm (P2). Process RSS is a
+ * strict superset of the realm heap — bun runtime plus the wasm engine
+ * measured at ~81 MB baseline (2026-07-20) — and wasm linear memory is
+ * high-water-mark, never returned to the OS. With the same number for both,
+ * the outer net would fire BEFORE the byte-precise inner cap ever engaged.
+ * Under the vm engine the watchdog stays AT the budget: there it is the only
+ * memory guard, so it must not loosen during the migration window.
+ */
+export const WORKER_RSS_HEADROOM_BYTES = 256 * 1024 * 1024;
+
+export function resolveWorkerRssKillBytes(
+	memoryBudgetBytes: number,
+	env: Record<string, string | undefined> = process.env,
+): number {
+	return resolveCellEngineName(env) === "quickjs"
+		? memoryBudgetBytes + WORKER_RSS_HEADROOM_BYTES
+		: memoryBudgetBytes;
+}
 
 /** Ambient get()/parse() materialization budget (spec §4: default 1 MB). */
 export const CELL_GET_BUDGET_BYTES = 1024 * 1024;
@@ -186,6 +208,7 @@ export class CellHost {
 	private readonly store: StoreAccess;
 	private readonly budgetMs: number;
 	private readonly memoryBudgetBytes: number;
+	private readonly rssKillBytes: number;
 	private readonly spawnFn: () => CellWorkerProcessHandle;
 	private worker: CellWorkerProcessHandle | undefined;
 	/** Bumped per spawn so a stale worker's exit cannot fail a fresh cell. */
@@ -225,6 +248,7 @@ export class CellHost {
 		this.store = store;
 		this.budgetMs = options.budgetMs ?? DEFAULT_CELL_BUDGET_MS;
 		this.memoryBudgetBytes = options.memoryBudgetBytes ?? DEFAULT_CELL_MEMORY_BUDGET_BYTES;
+		this.rssKillBytes = resolveWorkerRssKillBytes(this.memoryBudgetBytes);
 		this.spawnFn = options.spawnFn ?? (() => spawnCellWorkerProcess());
 		this.delegate = options.delegate;
 		this.waitHandle = options.waitHandle;
@@ -285,9 +309,9 @@ export class CellHost {
 				const pid = this.worker?.pid;
 				if (pid === undefined) return;
 				void readRssBytes(pid).then((rss) => {
-					if (rss !== undefined && rss > this.memoryBudgetBytes) {
+					if (rss !== undefined && rss > this.rssKillBytes) {
 						this.killRunning(
-							`cell memory budget exceeded (rss ${rss} > ${this.memoryBudgetBytes} bytes)`,
+							`cell memory budget exceeded (rss ${rss} > ${this.rssKillBytes} bytes)`,
 						);
 					}
 				});
@@ -305,6 +329,7 @@ export class CellHost {
 					op: "cell",
 					code,
 					...(this.programs ? { programs: this.programs } : {}),
+					limits: { memoryBytes: this.memoryBudgetBytes, budgetMs: this.budgetMs },
 				})}\n`,
 			);
 		});

@@ -20,7 +20,12 @@
  */
 
 import type { WorkerProgram } from "./cell-bootstrap.ts";
-import { type CellEngine, createCellEngine, resolveCellEngineName } from "./cell-engine.ts";
+import {
+	type CellEngine,
+	type CellLimits,
+	createCellEngine,
+	resolveCellEngineName,
+} from "./cell-engine.ts";
 
 export { AMBIENT_METHODS, type WorkerProgram } from "./cell-bootstrap.ts";
 
@@ -29,6 +34,7 @@ export type CellWorkerRequest = {
 	op: "cell";
 	code: string;
 	programs?: WorkerProgram[];
+	limits?: CellLimits;
 };
 
 /**
@@ -75,6 +81,18 @@ export function rejectImportRequire(code: string): string | undefined {
 
 /** Console buffer cap; past it output truncates with a note. */
 export const CONSOLE_BUFFER_CAP = 64 * 1024;
+
+/** Keep only well-formed positive numeric limits off the wire. */
+function sanitizeLimits(raw: Record<string, unknown>): CellLimits | undefined {
+	const limits: CellLimits = {};
+	if (typeof raw.memoryBytes === "number" && raw.memoryBytes > 0) {
+		limits.memoryBytes = raw.memoryBytes;
+	}
+	if (typeof raw.budgetMs === "number" && raw.budgetMs > 0) {
+		limits.budgetMs = raw.budgetMs;
+	}
+	return limits.memoryBytes !== undefined || limits.budgetMs !== undefined ? limits : undefined;
+}
 
 /** util.format-ish console capture: strings verbatim, the rest as JSON. */
 function formatConsoleArg(arg: unknown): string {
@@ -143,7 +161,12 @@ export async function runCellWorker(input: RunCellWorkerInput): Promise<void> {
 		});
 	}
 
-	async function executeCell(id: string, code: string, programs?: WorkerProgram[]): Promise<void> {
+	async function executeCell(
+		id: string,
+		code: string,
+		programs?: WorkerProgram[],
+		limits?: CellLimits,
+	): Promise<void> {
 		const consoleBuffer = new ConsoleBuffer();
 		const rejection = rejectImportRequire(code);
 		if (rejection !== undefined) {
@@ -157,6 +180,7 @@ export async function runCellWorker(input: RunCellWorkerInput): Promise<void> {
 			.runCell({
 				code,
 				programs,
+				limits,
 				callAmbient,
 				isInfraError: (err) => typeof err === "object" && err !== null && infraErrors.has(err),
 				log: (args) => consoleBuffer.append(args),
@@ -227,12 +251,18 @@ export async function runCellWorker(input: RunCellWorkerInput): Promise<void> {
 				return;
 			}
 			const programs = (message as { programs?: unknown }).programs;
+			const rawLimits = (message as { limits?: unknown }).limits;
+			const limits =
+				typeof rawLimits === "object" && rawLimits !== null
+					? sanitizeLimits(rawLimits as Record<string, unknown>)
+					: undefined;
 			cellRunning = true;
 			// Detached on purpose: the loop must keep reading ambient responses.
 			void executeCell(
 				message.id,
 				code,
 				Array.isArray(programs) ? (programs as WorkerProgram[]) : undefined,
+				limits,
 			).finally(() => {
 				cellRunning = false;
 			});

@@ -7,7 +7,9 @@ import {
 	CellHost,
 	type CellSpawnRequest,
 	type DelegationOutcome,
+	resolveWorkerRssKillBytes,
 	spawnCellWorkerProcess,
+	WORKER_RSS_HEADROOM_BYTES,
 } from "../../src/cell/cell-host";
 import { ContentStore } from "../../src/store/cas";
 import { SessionJournal } from "../../src/store/journal";
@@ -603,4 +605,44 @@ describe("CellHost", () => {
 		expect(second.ok).toBe(true);
 		expect(second.returnValue).toBe("two");
 	}, 20_000);
+
+	it("sends the hard-cap limits with every cell request (P2)", async () => {
+		const sent: string[] = [];
+		let lineHandler: (line: string) => void = () => {};
+		host = new CellHost(store, {
+			budgetMs: 1234,
+			memoryBudgetBytes: 55 * 1024 * 1024,
+			spawnFn: () => ({
+				send(line: string) {
+					sent.push(line);
+					const msg = JSON.parse(line) as { id: string };
+					setTimeout(
+						() => lineHandler(JSON.stringify({ id: msg.id, op: "result", ok: true, output: "" })),
+						0,
+					);
+				},
+				kill() {},
+				onLine(cb: (line: string) => void) {
+					lineHandler = cb;
+				},
+				onExit() {},
+			}),
+		});
+		const result = await host.runCell("return 1;");
+		expect(result.ok).toBe(true);
+		const request = JSON.parse(sent[0] ?? "{}") as { limits?: unknown };
+		expect(request.limits).toEqual({ memoryBytes: 55 * 1024 * 1024, budgetMs: 1234 });
+	});
+});
+
+describe("resolveWorkerRssKillBytes (P2)", () => {
+	it("stays AT the budget for the vm engine — its only memory guard must not loosen", () => {
+		expect(resolveWorkerRssKillBytes(512 * 1024 * 1024, {})).toBe(512 * 1024 * 1024);
+	});
+
+	it("sits headroom ABOVE the inner cap for the quickjs engine", () => {
+		expect(resolveWorkerRssKillBytes(512 * 1024 * 1024, { SPROUT_CELL_ENGINE: "quickjs" })).toBe(
+			512 * 1024 * 1024 + WORKER_RSS_HEADROOM_BYTES,
+		);
+	});
 });

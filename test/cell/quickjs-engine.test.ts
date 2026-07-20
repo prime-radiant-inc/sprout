@@ -114,6 +114,28 @@ describe("QuickJSCellEngine handle discipline (debug build)", () => {
 		assertNoLeaks();
 	});
 
+	it("a memory-capped OOM cell is torn down leak-free", async () => {
+		// Single over-limit allocation: exercises the in-runtime limit's OOM
+		// teardown without ballooning the debug build's LeakSanitizer (the
+		// cumulative wasm-cap path is covered at the worker level on release).
+		const { result, assertNoLeaks } = await runLeakChecked(
+			"const s = 'x'.repeat(32 * 1024 * 1024); return s.length;",
+			{ limits: { memoryBytes: 8 * 1024 * 1024 } },
+		);
+		expect(result.ok).toBe(false);
+		if (!result.ok) expect(result.error).toContain("out of memory");
+		assertNoLeaks();
+	});
+
+	it("a deadline-interrupted cell is torn down leak-free", async () => {
+		const { result, assertNoLeaks } = await runLeakChecked("while (true) {}", {
+			limits: { budgetMs: 100 },
+		});
+		expect(result.ok).toBe(false);
+		if (!result.ok) expect(result.error).toContain("budget");
+		assertNoLeaks();
+	});
+
 	it("a late ambient response against a finished cell leaks nothing and does not crash", async () => {
 		const { result, assertNoLeaks } = await runLeakChecked("get('x'); return 'early';", {
 			callAmbient: async () => {
