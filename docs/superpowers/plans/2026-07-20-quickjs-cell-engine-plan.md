@@ -2,7 +2,7 @@
 
 **Date started:** 2026-07-20
 **Spec:** `../specs/2026-07-20-quickjs-wasm-cell-engine-design.md`
-**Status:** in progress — P1
+**Status:** in progress — P1 complete (Fable-reviewed, findings fixed); P2 next
 **Branch:** built on `sap-completion-roadmap`, merges together with the completion work
 (Jesse, 2026-07-20: "build and merge together").
 
@@ -62,7 +62,11 @@ adversarial Fable review in fresh context → fix findings → commit → update
 
 ## Phases
 
-- [ ] **P1 — Engine bring-up.**
+- [x] **P1 — Engine bring-up.** DONE (commits b95c587 seam refactor, 6be183b engine,
+  2bb9af8 review fixes). Full worker suite parameterized over both engines (93 cell tests),
+  full suite 4119 green. Fable review verdict: pump model, handle discipline, infra
+  non-forgeability, and marshal-in sever all sound and empirically probed (~12 adversarial
+  probes); findings were a display-parity cluster, fixed — see Deviations.
   - Extract the realm behind a `CellEngine` interface (vm engine = current logic MOVED, not
     rewritten; behavior-preserving refactor under the existing suite).
   - `SPROUT_CELL_ENGINE=quickjs|vm` selector, overridable per `runCellWorker` call so the
@@ -89,4 +93,24 @@ adversarial Fable review in fresh context → fix findings → commit → update
 
 ## Deviations log
 
-(none yet)
+- **Return-value serialization moved to the engine seam** (P1 review fix). The spec listed
+  `serializeReturnValue` as staying in the worker; only the engine sees the live realm value
+  with its type intact (a Date that crosses the wasm boundary is already a string), so the
+  algorithm — byte-identical — now lives in cell-engine.ts, applied by the vm engine on the
+  live value and reproduced in-context by the QuickJS engine's pristine MARSHAL_DISPLAY
+  helper. Display bytes match the vm engine exactly; pinned by parameterized tests
+  (top-level Date/Error/circular, console args).
+- **Accepted divergence — ambient-arg getters.** Under vm, a throwing getter/Proxy trap in an
+  ambient argument fires during host-side JSON.stringify and rejects the call; under QuickJS,
+  `dump()` neutralizes it host-side (coerced plain data, no cell code runs on the host).
+  Strictly safer; kept.
+- **Error message text** diverges deliberately (QuickJS reports `boom`, vm's cross-realm
+  `String(err)` reports `Error: boom`); spec pins shapes, not engine strings.
+- **Upstream bug** (quickjs-emscripten 0.32): `module.newRuntime` drops `ownedLifetimes`, so
+  `TestQuickJSWASMModule.assertNoMemoryAllocated` false-positives "runtimes leaked". Leak
+  tests assert runtime disposal + the wasm-level sanitizer directly; a leaked handle still
+  aborts loudly at dispose under the debug build (verified deliberately, by us and by the
+  reviewer independently).
+- **Worker guards engine throws** as `infrastructure: true` results (new failure mode the vm
+  engine could not produce: wasm-load failure, engine bug). Same classification inside
+  `pump()`, which runs from detached callbacks the worker guard cannot see.
