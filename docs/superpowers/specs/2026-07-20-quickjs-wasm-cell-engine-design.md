@@ -73,10 +73,16 @@ not change.
 
 One wasm module instance per worker process (amortizes instantiation); a **fresh QuickJS
 runtime + context per cell** (today's fresh-`createContext`-per-cell isolation, preserved).
-Prior art: `quickjs-emscripten` (mature, maintained). Exact binding APIs are confirmed at
-bring-up, not assumed here; the load-bearing capabilities — a per-runtime memory limit, an
-interrupt callback, a max stack size, and support for async host functions — are established
-features of that toolchain.
+Prior art: `quickjs-emscripten` (mature, maintained). The load-bearing capabilities were
+**confirmed by a pre-flight spike under Bun against `quickjs-emscripten@0.32.0`
+(2026-07-20)**: per-runtime memory limit (allocation fails in-context with a catchable
+`InternalError: out of memory`), interrupt callback (hot loop stopped), max stack size, and
+the full (b) async model (`newPromise` deferred → host fn returns the handle → pending
+top-level promise → resolve + `executePendingJobs` → `await` resumes; settlement observed via
+`getPromiseState`, which is also the pump loop's exit check). The context exposes a native
+`eq` for the infra-tagging identity compare (captured-`===` fallback also verified). One
+sharp edge confirmed: the release build disposes contexts with leaked handles **silently** —
+the P1 leak assertions must run against the debug variant to have teeth.
 
 ### Realm construction
 
