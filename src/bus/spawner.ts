@@ -50,6 +50,8 @@ export interface SpawnAgentOptions {
 	/** Mnemonic codename for this agent (historical figure surname). */
 	mnemonicName?: string;
 	evalMode?: boolean;
+	/** When false, exec is stripped in the child subprocess (and its descendants). Default true. */
+	allowExec?: boolean;
 	/** Data-plane session flag (spec §6): inherited by the child. Default true. */
 	dataPlaneEnabled?: boolean;
 	/**
@@ -113,6 +115,7 @@ export interface DeliverObserverFrameOptions {
 	workDir: string;
 	rootDir?: string;
 	evalMode?: boolean;
+	allowExec?: boolean;
 	dataPlaneEnabled?: boolean;
 	resolverSettings?: ResolverSettings;
 	surfacedMemoryBlock?: string;
@@ -155,6 +158,8 @@ export interface AgentHandle {
 	/** Mnemonic codename assigned at delegation time. */
 	mnemonicName?: string;
 	evalMode?: boolean;
+	/** When false, exec is stripped on the respawn StartMessage too. Default true. */
+	allowExec?: boolean;
 	/** Data-plane session flag (spec §6): re-applied on the respawn StartMessage. */
 	dataPlaneEnabled?: boolean;
 	/** Per-spawn model override, re-applied on the respawn StartMessage. */
@@ -193,6 +198,7 @@ export interface FeatherweightExecInput {
 	rootDir?: string;
 	projectDataDir?: string;
 	evalMode?: boolean;
+	allowExec?: boolean;
 	model?: string;
 	providerIdOverride?: string;
 	resolverSettings?: ResolverSettings;
@@ -786,6 +792,7 @@ export class AgentSpawner {
 			projectDataDir: opts.projectDataDir,
 			mnemonicName: opts.mnemonicName,
 			evalMode: opts.evalMode,
+			allowExec: opts.allowExec,
 			dataPlaneEnabled: opts.dataPlaneEnabled,
 			model: opts.model,
 			providerIdOverride: opts.providerIdOverride,
@@ -817,6 +824,7 @@ export class AgentSpawner {
 			payload: opts.payload,
 			shared: keepAlive,
 			eval_mode: opts.evalMode,
+			allow_exec: opts.allowExec,
 			data_plane_enabled: opts.dataPlaneEnabled,
 			model: opts.model,
 			provider_id: opts.providerIdOverride,
@@ -867,6 +875,7 @@ export class AgentSpawner {
 			projectDataDir: opts.projectDataDir,
 			mnemonicName: opts.mnemonicName,
 			evalMode: opts.evalMode,
+			allowExec: opts.allowExec,
 			dataPlaneEnabled: opts.dataPlaneEnabled,
 			model: opts.model,
 			providerIdOverride: opts.providerIdOverride,
@@ -909,6 +918,7 @@ export class AgentSpawner {
 			rootDir: handle.rootDir,
 			projectDataDir: handle.projectDataDir,
 			evalMode: handle.evalMode,
+			allowExec: handle.allowExec,
 			model: handle.model,
 			providerIdOverride: handle.providerIdOverride,
 			resolverSettings: handle.resolverSettings,
@@ -1234,6 +1244,7 @@ export class AgentSpawner {
 			goal: message,
 			shared: handle.keepAlive,
 			eval_mode: handle.evalMode,
+			allow_exec: handle.allowExec,
 			data_plane_enabled: handle.dataPlaneEnabled,
 			model: handle.model,
 			provider_id: handle.providerIdOverride,
@@ -1286,6 +1297,7 @@ export class AgentSpawner {
 				agentId: opts.agentId,
 				rootDir: opts.rootDir,
 				evalMode: opts.evalMode,
+				allowExec: opts.allowExec,
 				dataPlaneEnabled: opts.dataPlaneEnabled,
 				resolverSettings: opts.resolverSettings,
 				surfacedMemoryBlock: opts.surfacedMemoryBlock,
@@ -1336,6 +1348,7 @@ export class AgentSpawner {
 			workDir: string;
 			agentId?: string;
 			evalMode?: boolean;
+			allowExec?: boolean;
 			dataPlaneEnabled?: boolean;
 			rootDir?: string;
 			projectDataDir?: string;
@@ -1388,6 +1401,7 @@ export class AgentSpawner {
 			rootDir: spawnInfo?.rootDir,
 			projectDataDir: spawnInfo?.projectDataDir,
 			evalMode: spawnInfo?.evalMode,
+			allowExec: spawnInfo?.allowExec,
 			dataPlaneEnabled: spawnInfo?.dataPlaneEnabled,
 			model: spawnInfo?.model,
 			providerIdOverride: spawnInfo?.providerIdOverride,

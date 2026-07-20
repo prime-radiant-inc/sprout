@@ -46,6 +46,23 @@ describe("primitives", () => {
 		}
 	});
 
+	describe("allowExec gate", () => {
+		test("exec is present by default", () => {
+			expect(createPrimitiveRegistry(env).names()).toContain("exec");
+			expect(createPrimitiveRegistry(env, undefined, { allowExec: true }).names()).toContain(
+				"exec",
+			);
+		});
+
+		test("allowExec:false strips the exec primitive; a call to it fails closed", () => {
+			const gated = createPrimitiveRegistry(env, undefined, { allowExec: false });
+			expect(gated.names()).not.toContain("exec");
+			// The other primitives are untouched.
+			expect(gated.names()).toContain("read_file");
+			expect(gated.names()).toContain("grep");
+		});
+	});
+
 	// -- read_file --
 
 	describe("read_file", () => {

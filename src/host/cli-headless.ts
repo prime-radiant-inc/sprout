@@ -27,6 +27,8 @@ export interface RunHeadlessOptions {
 	workDir?: string;
 	atifPath?: string;
 	evalMode?: boolean;
+	/** When false, the exec primitive is stripped tree-wide (root + delegates). Defaults true. */
+	allowExec?: boolean;
 	initialHistory?: Message[];
 	initialMemorySurface?: SessionMemorySurfaceSnapshot;
 	initialSelectionRequest?: SessionSelectionRequest;
@@ -131,6 +133,7 @@ export async function runHeadlessMode(
 			workDir: opts.workDir,
 			atifPath: opts.atifPath,
 			evalMode: opts.evalMode,
+			allowExec: opts.allowExec,
 			nonInteractive: true,
 			initialHistory: opts.initialHistory,
 			initialMemorySurface: opts.initialMemorySurface,

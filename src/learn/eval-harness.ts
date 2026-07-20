@@ -95,6 +95,8 @@ export interface EvalTask {
 	id: string;
 	tier: EvalTier;
 	goal: string;
+	/** When false, the run executes with exec stripped tree-wide. Defaults true. */
+	allowExec?: boolean;
 	setup?: (ctx: TaskSetupContext) => Promise<TaskRunContext>;
 	verify: (outcome: ExecOutcome, context?: TaskRunContext) => VerifyResult;
 }

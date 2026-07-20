@@ -46,6 +46,14 @@ export interface PrimitiveRegistry {
 
 export interface PrimitiveRegistryOptions {
 	evalMode?: boolean;
+	/**
+	 * When false, the `exec` primitive is NOT provisioned — the agent has no
+	 * shell/exec capability at all. A tree-wide capability strip: threaded to
+	 * every agent in a session (root + delegated subprocesses) so a restricted
+	 * run cannot reach exec by delegating to an exec-capable agent. Defaults to
+	 * true (exec available). Enforced by the code-mode-cannot-exec canary.
+	 */
+	allowExec?: boolean;
 }
 
 export function createPrimitiveRegistry(
@@ -56,7 +64,7 @@ export function createPrimitiveRegistry(
 	const primitives = new Map<string, Primitive>();
 	let captureStore: StoreAccess | undefined;
 
-	for (const prim of buildPrimitives(env)) {
+	for (const prim of buildPrimitives(env, options?.allowExec !== false)) {
 		primitives.set(prim.name, prim);
 	}
 
@@ -163,13 +171,13 @@ export function createPrimitiveRegistry(
 	};
 }
 
-function buildPrimitives(_env: ExecutionEnvironment): Primitive[] {
+function buildPrimitives(_env: ExecutionEnvironment, allowExec = true): Primitive[] {
 	return [
 		readFilePrimitive(),
 		writeFilePrimitive(),
 		editFilePrimitive(),
 		applyPatchPrimitive(),
-		execPrimitive(),
+		...(allowExec ? [execPrimitive()] : []),
 		grepPrimitive(),
 		globPrimitive(),
 		fetchPrimitive(),

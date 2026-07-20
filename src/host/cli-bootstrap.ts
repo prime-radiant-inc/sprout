@@ -62,6 +62,8 @@ export interface SessionBootstrapOptions {
 	workDir?: string;
 	atifPath?: string;
 	evalMode?: boolean;
+	/** When false, the exec primitive is stripped tree-wide (root + delegates). Defaults true. */
+	allowExec?: boolean;
 	nonInteractive?: boolean;
 	initialHistory?: Message[];
 	initialMemorySurface?: SessionMemorySurfaceSnapshot;
@@ -147,6 +149,7 @@ interface InteractiveBootstrapDeps {
 		sessionId: string;
 		workDir?: string;
 		evalMode?: boolean;
+		allowExec?: boolean;
 		nonInteractive?: boolean;
 		initialHistory?: Message[];
 		initialMemorySurface?: SessionMemorySurfaceSnapshot;
@@ -253,6 +256,7 @@ export async function bootstrapSessionRuntime(
 					workDir: controllerOpts.workDir,
 					sessionId: controllerOpts.sessionId,
 					evalMode: controllerOpts.evalMode,
+					allowExec: controllerOpts.allowExec,
 					nonInteractive: controllerOpts.nonInteractive,
 					initialHistory: controllerOpts.initialHistory,
 					initialMemorySurface: controllerOpts.initialMemorySurface,
@@ -420,6 +424,7 @@ export async function bootstrapSessionRuntime(
 		sessionId: opts.sessionId,
 		workDir: opts.workDir,
 		evalMode: opts.evalMode,
+		allowExec: opts.allowExec,
 		nonInteractive: opts.nonInteractive,
 		initialHistory: opts.initialHistory,
 		initialMemorySurface: opts.initialMemorySurface,

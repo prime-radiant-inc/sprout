@@ -151,6 +151,8 @@ export interface AgentFactoryOptions {
 	/** Pre-loaded Genome instance. If provided, skips loading from disk. */
 	genome?: import("../genome/genome.ts").Genome;
 	evalMode?: boolean;
+	/** When false, the exec primitive is stripped tree-wide (root + delegates). Defaults true. */
+	allowExec?: boolean;
 	/** Data-plane session flag (spec §6); default true. Off = the A/B off arm. */
 	dataPlaneEnabled?: boolean;
 	nonInteractive?: boolean;
@@ -217,6 +219,8 @@ export interface SessionControllerOptions {
 	/** Pre-loaded Genome instance to forward to the agent factory. */
 	genome?: import("../genome/genome.ts").Genome;
 	evalMode?: boolean;
+	/** When false, the exec primitive is stripped tree-wide (root + delegates). Defaults true. */
+	allowExec?: boolean;
 	/** Data-plane session flag (spec §6); default true. Off = the A/B off arm. */
 	dataPlaneEnabled?: boolean;
 	nonInteractive?: boolean;
@@ -289,6 +293,7 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 					workDir: options.workDir,
 					agentId,
 					evalMode: options.evalMode,
+					allowExec: options.allowExec,
 					dataPlaneEnabled: options.dataPlaneEnabled,
 					rootDir: options.rootDir,
 					projectDataDir: options.projectDataDir,
@@ -315,6 +320,7 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 		spawner: options.spawner,
 		genome: options.genome,
 		evalMode: options.evalMode,
+		allowExec: options.allowExec,
 		dataPlaneEnabled: options.dataPlaneEnabled,
 		nonInteractive: options.nonInteractive,
 		logger: options.logger,
@@ -462,6 +468,7 @@ export class SessionController {
 	private readonly spawner?: AgentSpawner;
 	private readonly genome?: import("../genome/genome.ts").Genome;
 	private readonly evalMode: boolean;
+	private readonly allowExec: boolean;
 	private readonly dataPlaneEnabled: boolean;
 	private readonly nonInteractive: boolean;
 	private readonly completedHandles?: SessionControllerOptions["completedHandles"];
@@ -506,6 +513,7 @@ export class SessionController {
 		this.spawner = options.spawner;
 		this.genome = options.genome;
 		this.evalMode = options.evalMode === true;
+		this.allowExec = options.allowExec !== false;
 		this.dataPlaneEnabled = options.dataPlaneEnabled !== false;
 		this.nonInteractive = options.nonInteractive === true;
 		this.completedHandles = options.completedHandles;
@@ -838,6 +846,7 @@ export class SessionController {
 				spawner: this.spawner,
 				genome: this.genome,
 				evalMode: this.evalMode,
+				allowExec: this.allowExec,
 				dataPlaneEnabled: this.dataPlaneEnabled,
 				nonInteractive: this.nonInteractive,
 				completedHandles: this.completedHandles,

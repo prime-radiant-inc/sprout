@@ -142,6 +142,34 @@ describe("createLiveCanaryHarness", () => {
 		}
 	});
 
+	test("passes the canary's allowExec through to the executor (was silently dropped)", async () => {
+		const workDir = await mkdtemp(join(tmpdir(), "sprout-canary-live-"));
+		try {
+			let received: boolean | undefined = "unset" as unknown as boolean | undefined;
+			const capturingExecutor: TaskExecutor = {
+				async run(task: EvalTask): Promise<ExecOutcome> {
+					received = task.allowExec;
+					return {
+						output: "done",
+						errored: false,
+						stumbles: 0,
+						providerPayloads: [],
+						didExec: false,
+						success: true,
+					};
+				},
+			};
+			const harness = createLiveCanaryHarness({ executor: capturingExecutor, snapshot, workDir });
+			// The code-mode-cannot-exec canary sets allowExec:false; the harness must
+			// carry it to the executor, not drop it (the exec-strip control depends
+			// on the executor receiving it).
+			await codeModeCannotExecCanary.run(harness);
+			expect(received).toBe(false);
+		} finally {
+			await rm(workDir, { recursive: true, force: true });
+		}
+	});
+
 	test("full example suite runs against the live adapter and reports per canary", async () => {
 		const workDir = await mkdtemp(join(tmpdir(), "sprout-canary-live-"));
 		try {

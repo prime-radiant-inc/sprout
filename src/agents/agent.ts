@@ -158,6 +158,8 @@ export interface AgentOptions {
 	projectDataDir?: string;
 	/** Disable learning and genome mutation for evaluation runs. */
 	evalMode?: boolean;
+	/** When false, the exec primitive is stripped for this agent (tree-wide when threaded). Defaults true. */
+	allowExec?: boolean;
 	/**
 	 * Data-plane session flag (sap spec §6). Default true — v1 is the data plane;
 	 * the flag exists for A/B and the off arm. When false the store values,
@@ -290,6 +292,7 @@ export class Agent {
 	private readonly genomePath?: string;
 	private readonly projectDataDir?: string;
 	private readonly evalMode: boolean;
+	private readonly allowExec: boolean;
 	/** Data-plane session flag (spec §6); default true. */
 	private readonly dataPlaneEnabled: boolean;
 	/**
@@ -387,6 +390,7 @@ export class Agent {
 		this.genomePath = options.genomePath;
 		this.projectDataDir = options.projectDataDir;
 		this.evalMode = options.evalMode === true;
+		this.allowExec = options.allowExec !== false;
 		this.dataPlaneEnabled = options.dataPlaneEnabled !== false;
 		this.codeMode = this.dataPlaneEnabled && this.spec.act === "code";
 		this.agentId = options.agentId;
@@ -632,6 +636,7 @@ export class Agent {
 			self: input.self,
 			caller: input.caller,
 			evalMode: input.evalMode,
+			allowExec: this.allowExec,
 			...(input.model !== undefined ? { modelOverride: input.model } : {}),
 			providerIdOverride: input.providerIdOverride,
 			resolverSettings: input.resolverSettings ?? this.resolverSettings,
@@ -753,7 +758,7 @@ export class Agent {
 				agentName: this.spec.name,
 				sessionId: this.sessionId,
 			},
-			{ evalMode: this.evalMode },
+			{ evalMode: this.evalMode, allowExec: this.allowExec },
 		).names();
 		const writeAuthorizedNames = createPrimitiveRegistry(
 			this.env,
@@ -775,7 +780,7 @@ export class Agent {
 					allowedOperations: ["annotate", "archive", "consolidate", "link", "supersede"],
 				},
 			},
-			{ evalMode: this.evalMode },
+			{ evalMode: this.evalMode, allowExec: this.allowExec },
 		).names();
 		return [...new Set([...readOnlyNames, ...writeAuthorizedNames])];
 	}
@@ -798,7 +803,7 @@ export class Agent {
 				sessionId: this.sessionId,
 				...(writeAuthorization ? { writeAuthorization } : {}),
 			},
-			{ evalMode: this.evalMode },
+			{ evalMode: this.evalMode, allowExec: this.allowExec },
 		);
 		for (const prim of this.callerPrimitivePrimitives) {
 			this.primitiveRegistry.register(prim);
@@ -1442,6 +1447,7 @@ export class Agent {
 				providerIdOverride: this.resolved.provider,
 				resolverSettings: this.resolverSettings,
 				evalMode: this.evalMode,
+				allowExec: this.allowExec,
 				agentId: childId,
 				self: buildAgentAddress({
 					agentName: subagentSpec.name,
@@ -1549,7 +1555,7 @@ export class Agent {
 				sessionId: this.sessionId,
 				...(writeAuthorization ? { writeAuthorization } : {}),
 			},
-			{ evalMode: this.evalMode },
+			{ evalMode: this.evalMode, allowExec: this.allowExec },
 		);
 		for (const prim of this.callerPrimitivePrimitives) {
 			registry.register(prim);
@@ -1689,6 +1695,7 @@ export class Agent {
 			workDir: this.env.working_directory(),
 			rootDir: this.rootDir,
 			evalMode: this.evalMode,
+			allowExec: this.allowExec,
 			dataPlaneEnabled: this.dataPlaneEnabled,
 			resolverSettings: this.resolverSettings,
 			surfacedMemoryBlock: "",
@@ -2232,6 +2239,7 @@ export class Agent {
 					rootDir: this.rootDir,
 					mnemonicName: mnemonicName ?? undefined,
 					evalMode: this.evalMode,
+					allowExec: this.allowExec,
 					dataPlaneEnabled: this.dataPlaneEnabled,
 					...(effectiveDelegation.model !== undefined ? { model: effectiveDelegation.model } : {}),
 					providerIdOverride: this.resolved.provider,

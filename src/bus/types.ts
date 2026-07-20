@@ -32,6 +32,10 @@ export interface StartMessage {
 	payload?: Record<string, unknown>;
 	shared: boolean;
 	eval_mode?: boolean;
+	/** When false, the exec primitive is stripped in the spawned subprocess (and
+	 * its own descendants), so an exec-restricted session stays exec-restricted
+	 * across the whole tree. Default true. */
+	allow_exec?: boolean;
 	/** Data-plane session flag (spec §6): inherited by subprocess children so a
 	 * flag-off session stays flag-off across the whole tree. Default true. */
 	data_plane_enabled?: boolean;

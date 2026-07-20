@@ -100,6 +100,7 @@ export class LiveTaskExecutor implements TaskExecutor {
 				rootDir: this.config.rootDir,
 				workDir: this.config.workDir,
 				evalMode: true,
+				allowExec: task.allowExec,
 				initialSelectionRequest: this.config.selectionRequest,
 				startBusInfrastructure: this.config.startBusInfrastructure,
 			},

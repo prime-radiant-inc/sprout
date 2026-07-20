@@ -60,6 +60,8 @@ export interface CreateAgentOptions {
 	genome?: Genome;
 	/** Disable learning and genome mutation for evaluation runs. */
 	evalMode?: boolean;
+	/** When false, the exec primitive is stripped tree-wide (root + delegates). Defaults true. */
+	allowExec?: boolean;
 	/** Data-plane session flag (spec §6); default true. Off = the A/B off arm. */
 	dataPlaneEnabled?: boolean;
 	/** Headless/non-interactive root session. */
@@ -231,7 +233,7 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 	const registry = createPrimitiveRegistry(
 		env,
 		{ genome: runtimeGenome, agentName: rootName, sessionId },
-		{ evalMode: options.evalMode },
+		{ evalMode: options.evalMode, allowExec: options.allowExec },
 	);
 	const preambles = options.rootDir ? await loadPreambles(options.rootDir) : undefined;
 	const projectDocs = await loadProjectDocs({ cwd: workDir });
@@ -301,6 +303,7 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 		caller: rootAddress,
 		logger: options.logger,
 		evalMode: options.evalMode,
+		allowExec: options.allowExec,
 		dataPlaneEnabled: options.dataPlaneEnabled,
 		rootDir: options.rootDir,
 		agentTree,

@@ -84,6 +84,10 @@ export function createLiveCanaryHarness(config: LiveCanaryHarnessConfig): Canary
 				id: "canary-run",
 				tier: "sap",
 				goal: concreteGoal(task.goal, materialized),
+				// Carry the canary's exec restriction through to the executor — the
+				// code-mode-cannot-exec canary sets allowExec:false, which strips
+				// exec tree-wide so a delegated agent can't reach it either.
+				allowExec: task.allowExec,
 				verify: () => ({ passed: true, stumbles: 0 }),
 			};
 			try {

@@ -282,6 +282,10 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 
 		const startMsg = parseBusMessage(startPayload) as StartMessage;
 		const evalMode = startMsg.eval_mode === true;
+		// Exec-strip flag: default true; exec is disabled tree-wide only when the
+		// caller explicitly sent allow_exec:false, so an exec-restricted session
+		// stays restricted across every delegated subprocess.
+		const allowExec = startMsg.allow_exec !== false;
 		// Data-plane session flag (spec §6): default true; off only when the
 		// caller explicitly sent false, so a flag-off session stays off tree-wide.
 		const dataPlaneEnabled = startMsg.data_plane_enabled !== false;
@@ -330,7 +334,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 				sessionId,
 				...(writeAuthorization ? { writeAuthorization } : {}),
 			},
-			{ evalMode },
+			{ evalMode, allowExec },
 		);
 		const events = new AgentEventEmitter();
 		const preambles = config.rootDir ? await loadPreambles(config.rootDir) : undefined;
@@ -386,6 +390,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 				workDir,
 				agentId,
 				evalMode,
+				allowExec,
 				dataPlaneEnabled,
 				rootDir: config.rootDir,
 				projectDataDir: config.projectDataDir,
@@ -440,6 +445,7 @@ export async function runAgentProcess(config: AgentProcessConfig): Promise<void>
 			initialHistory: initialHistory.length > 0 ? initialHistory : undefined,
 			agentId: startMsg.self.agentId,
 			evalMode,
+			allowExec,
 			dataPlaneEnabled,
 			...(startMsg.model !== undefined ? { modelOverride: startMsg.model } : {}),
 			providerIdOverride: startMsg.provider_id,
