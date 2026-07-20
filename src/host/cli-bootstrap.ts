@@ -64,6 +64,8 @@ export interface SessionBootstrapOptions {
 	evalMode?: boolean;
 	/** When false, the exec primitive is stripped tree-wide (root + delegates). Defaults true. */
 	allowExec?: boolean;
+	/** When false, the sap data plane (cell/code-mode) is OFF — traditional agent. Defaults true. */
+	dataPlaneEnabled?: boolean;
 	nonInteractive?: boolean;
 	initialHistory?: Message[];
 	initialMemorySurface?: SessionMemorySurfaceSnapshot;
@@ -150,6 +152,7 @@ interface InteractiveBootstrapDeps {
 		workDir?: string;
 		evalMode?: boolean;
 		allowExec?: boolean;
+		dataPlaneEnabled?: boolean;
 		nonInteractive?: boolean;
 		initialHistory?: Message[];
 		initialMemorySurface?: SessionMemorySurfaceSnapshot;
@@ -257,6 +260,7 @@ export async function bootstrapSessionRuntime(
 					sessionId: controllerOpts.sessionId,
 					evalMode: controllerOpts.evalMode,
 					allowExec: controllerOpts.allowExec,
+					dataPlaneEnabled: controllerOpts.dataPlaneEnabled,
 					nonInteractive: controllerOpts.nonInteractive,
 					initialHistory: controllerOpts.initialHistory,
 					initialMemorySurface: controllerOpts.initialMemorySurface,
@@ -425,6 +429,7 @@ export async function bootstrapSessionRuntime(
 		workDir: opts.workDir,
 		evalMode: opts.evalMode,
 		allowExec: opts.allowExec,
+		dataPlaneEnabled: opts.dataPlaneEnabled,
 		nonInteractive: opts.nonInteractive,
 		initialHistory: opts.initialHistory,
 		initialMemorySurface: opts.initialMemorySurface,

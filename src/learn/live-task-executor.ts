@@ -70,6 +70,9 @@ export interface LiveTaskExecutorConfig {
 	}) => Promise<HeadlessInfrastructure>;
 	/** Model tier/selection to force (e.g. the cheap `fast` tier for smoke runs). */
 	selectionRequest?: SessionSelectionRequest;
+	/** When false, run the pre-code-mode traditional agent (data plane OFF) — for
+	 * A/B comparison of code-mode vs traditional tool-use. Defaults true. */
+	dataPlaneEnabled?: boolean;
 }
 
 /**
@@ -101,6 +104,7 @@ export class LiveTaskExecutor implements TaskExecutor {
 				workDir: this.config.workDir,
 				evalMode: true,
 				allowExec: task.allowExec,
+				dataPlaneEnabled: this.config.dataPlaneEnabled,
 				initialSelectionRequest: this.config.selectionRequest,
 				startBusInfrastructure: this.config.startBusInfrastructure,
 			},

@@ -56,6 +56,8 @@ interface Args {
 	cwd?: string;
 	help: boolean;
 	armOnly: boolean;
+	/** When true, run the pre-code-mode TRADITIONAL agent (sap data plane OFF). */
+	noDataPlane: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -66,12 +68,14 @@ function parseArgs(argv: string[]): Args {
 		tier: "fast",
 		help: false,
 		armOnly: false,
+		noDataPlane: false,
 	};
 	for (let i = 0; i < argv.length; i++) {
 		const a = argv[i];
 		if (a === "--smoke") args.smoke = true;
 		else if (a === "--canary-only") args.canaryOnly = true;
 		else if (a === "--arm-only") args.armOnly = true;
+		else if (a === "--no-data-plane") args.noDataPlane = true;
 		else if (a === "--runs") args.runs = Number(argv[++i]);
 		else if (a === "--tier") args.tier = argv[++i] as Tier;
 		else if (a === "--genome") args.genome = argv[++i];
@@ -90,6 +94,8 @@ const HELP = `eval-sap.ts — live N-run pinned-snapshot eval harness
   --canary-only  BOTH canaries (keystone + code-mode-cannot-exec) live, skipping
                  the A/B eval; code-mode-cannot-exec runs a real cell (exercises
                  the cell engine)
+  --no-data-plane  run the pre-code-mode TRADITIONAL agent (no cell/code-mode,
+                   no capture/splice) — for A/B against the code-mode/sap version
   --runs N       runs per task for the full A/B (default 5)
   --tier         model tier to force (default fast)
 
@@ -145,7 +151,11 @@ async function main(): Promise<void> {
 		workDir,
 		startBusInfrastructure,
 		selectionRequest: { kind: "tier", tier: args.tier },
+		// --no-data-plane runs the pre-code-mode traditional agent (data plane
+		// OFF: no cell/code-mode, no capture/splice) for A/B against code-mode.
+		dataPlaneEnabled: args.noDataPlane ? false : undefined,
 	};
+	if (args.noDataPlane) log("MODE: data plane OFF (traditional, pre-code-mode agent)");
 
 	try {
 		if (args.smoke) {
