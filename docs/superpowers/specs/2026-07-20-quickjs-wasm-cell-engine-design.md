@@ -125,15 +125,41 @@ requires a synchronous host call (none is known). Switch recorded in the plan if
 outstanding, and the top-level promise unsettled is a genuine hang. It must surface as a typed
 cell error via a pump-loop deadlock detector, never a wedge. P1 test, not a design blocker.
 
+### Infra-error tagging across the boundary
+
+Today the worker tracks host infrastructure errors by OBJECT identity (`infraErrors.has(err)`,
+cell-worker.ts:388): host and vm context share one heap, so the error the host rejected with
+IS the value that surfaces from the cell's top-level rejection — unless the cell caught it and
+threw its own, which is exactly the distinction stumble accounting needs (uncaught infra →
+`infrastructure: true`; cell-authored failure → stumble). Identity does NOT survive the wasm
+boundary: a marshaled-out rejection is a fresh host object, so the Set lookup would always
+miss and every infra failure would be misclassified as a stumble — and any string- or
+marker-property replacement is FORGEABLE by the cell, letting evolved code launder its
+stumbles as infrastructure.
+
+The boundary-safe mechanism preserves both properties: when the host rejects an ambient
+deferred for an infra failure, it constructs the error object in-context itself and RETAINS
+the handle for the cell's lifetime; at top-level rejection it compares the rejected value
+against retained handles using in-context identity (a `===` captured before cell code runs,
+or the binding's native equality API if one exists — confirmed at bring-up). Cells cannot
+forge object identity, so non-forgeability carries over. P1 lands this with an explicit
+catch-and-rethrow test (must be a stumble) beside the uncaught-infra test (must be
+`infrastructure: true`).
+
 ### Hard caps (the payoff)
 
 - **Memory:** per-runtime allocation limit set from the existing
   `DEFAULT_CELL_MEMORY_BUDGET_BYTES` config (operator-tunable as today). At the cap the
   *allocation fails* inside the interpreter → the cell errors with the typed envelope — no
-  kill-race. The **RSS watchdog is retained** as the outer net at the process level: the wasm
-  instance, bindings, and worker JS itself live outside the QuickJS limit, and the watchdog is
-  what catches a runaway *there*. Its doc changes from "the only memory guard (best-effort)" to
-  "outer net behind a byte-precise inner cap."
+  kill-race; if materializing that error itself fails at the cap, the worker synthesizes the
+  envelope host-side. The **RSS watchdog is retained** as the outer net at the process level:
+  the wasm instance, bindings, and worker JS itself live outside the QuickJS limit, and the
+  watchdog is what catches a runaway *there*. Because process RSS is a strict superset of the
+  QuickJS heap — and wasm linear memory is high-water-mark, never returned to the OS — the
+  watchdog threshold must sit ABOVE the inner cap (inner cap + worker-baseline headroom,
+  measured and set at P2); with today's shared number the outer net fires first and defeats
+  the byte-precise cap. Its doc changes from "the only memory guard (best-effort)" to "outer
+  net behind a byte-precise inner cap."
 - **CPU:** the interrupt callback checks the cell's deadline at interpreter-step granularity —
   the parent-owned budget clock semantics (accrue only while not parked on ambient I/O) are
   preserved by suspending the deadline while a host call is outstanding, exactly mirroring
@@ -145,7 +171,8 @@ cell error via a pump-loop deadlock detector, never a wedge. P1 test, not a desi
 
 Worker protocol and message types; `AMBIENT_METHODS`; the lexical `rejectImportRequire` scan
 (validate + load + in-worker trust note); `serializeReturnValue` and the JSON-sever rule;
-identity-based infra-error tagging; `CELL_SPAWN_CAP` / `CELL_MAX_OUTSTANDING_AMBIENT` /
+infra-error tagging *semantics* (mechanism changes — see above);
+`CELL_SPAWN_CAP` / `CELL_MAX_OUTSTANDING_AMBIENT` /
 `CELL_GET_BUDGET_BYTES` / `DEFAULT_CELL_BUDGET_MS`; `cell-api-types.ts` (the rendered `.d.ts`
 is engine-agnostic); `CellHost` in full; futures; program injection; the keystone security
 property.
@@ -173,9 +200,10 @@ that ships.
 
 **P1 — Engine bring-up.** Wasm module + per-cell runtime lifecycle in cell-worker; host-fn
 bridges; bootstrap + programs bootstrap running as in-context source; async model (b) wired,
-including the pump-loop deadlock detector;
-full cell suite (`test/cell`, cell-related `test/agents` slices) green under
-`SPROUT_CELL_ENGINE=quickjs`. Fable review.
+including the pump-loop deadlock detector; boundary-identity infra-error tagging (with the
+catch-and-rethrow test); handle-lifetime discipline (scoped disposal, leak-asserted in tests
+via the toolchain's debug build); full cell suite (`test/cell`, cell-related `test/agents`
+slices) green under `SPROUT_CELL_ENGINE=quickjs`. Fable review.
 
 **P2 — Hard caps.** Memory limit (allocation-fail typed error + test that a fast allocator is
 *stopped*, not raced), interrupt-driven deadline honoring the parked-time rule, max stack;
@@ -192,8 +220,9 @@ on real payload bytes** under QuickJS; perf benchmark (below); then delete the `
 1. Full suite green with QuickJS as the only engine (today's bar: 4078 tests).
 2. The adversarial containment suite passes; no cell can reach a host capability, including
    under deliberate escape probes added in P3.
-3. **Memory:** a cell allocating past the cap gets a typed in-envelope error before the
-   watchdog would have fired (test races the old guard deliberately).
+3. **Memory:** a cell allocating past the cap gets a typed in-envelope error and the worker
+   stays alive (no watchdog kill) — asserted in absolute terms so the test outlives the P3
+   cutover.
 4. **CPU:** a hot loop is stopped at the deadline by the interrupt path (no SIGKILL), and
    parked ambient time still does not accrue.
 5. **Live proof:** keystone canary and code-mode-cannot-exec PASS from real provider bytes
@@ -212,7 +241,8 @@ on real payload bytes** under QuickJS; perf benchmark (below); then delete the `
 - **JS-surface deltas** (intrinsics/edge semantics between JSC and QuickJS) — the suite and
   the bootstrap's from-source installs (structuredClone, timers) minimize exposure; residual
   deltas are found by the suite, fixed honestly, and recorded.
-- **Wasm-side memory lives outside the QuickJS cap** — covered by the retained RSS watchdog.
+- **Wasm-side memory lives outside the QuickJS cap** — covered by the retained RSS watchdog,
+  whose threshold must sit above the inner cap (see Hard caps).
 - **Toolchain dependency** (`quickjs-emscripten` maintenance) — pinned version, and the engine
   seam in cell-worker stays narrow enough that a future engine swap repeats this spec, not a
   rewrite.
