@@ -85,10 +85,39 @@ Fable review in fresh context → fix findings → commit → update this plan. 
   save_tool, every workspace script tool — executed by bare name), and code-mode agents no longer
   load/register workspace script tools at all. `node:vm` ceiling documented in cell-worker.ts
   (realm doc), cell-host.ts (guard doc), and the spec's Phase 7 "Security posture" subsection.
-- [ ] **Phase 8 — Recorded cross-phase deferrals.** Host-side deadlock detection; scoped observer
-  store reads; shared-handle wait-graph pairing; scope announcements + post-compaction manifest
-  event; `value_lines`/`value_publish`; manifest-pull relaxation. Each ships with a test or is
-  explicitly re-deferred with a reason.
+- [x] **Phase 8 — Recorded cross-phase deferrals.** Disposition pass over the six recorded
+  deferrals (2026-07-20). One built, five re-deferred with reasons:
+  - **BUILT — post-compaction manifest re-emit.** Real correctness gap confirmed: older turns
+    carry the delivered store manifests (⟦name⟧ lines) and `compactHistory` replaces them with an
+    LLM summary, so a post-compaction turn lost its handles on still-bound values.
+    `compactHistory` now takes `scopeNames` and appends a "Values still bound in your store
+    scope: ⟦…⟧" line to the summary; the agent feeds it from
+    `spawner.storeAccess.names()` (data-plane-gated; store failure degrades to no line, never a
+    failed compaction). Tests: compactHistory unit tests (manifest appended / omitted when
+    empty) + agent-level test proving the post-compaction request history carries the manifest.
+    The **scope-announcement half is already served**: env-claim announcements land in the
+    goal/steer text at claim time (agent-process.ts `claimEnv`); no consumer needs a separate
+    announcement event — build one only if a consumer (TUI/web scope view, observer) wants a
+    push event.
+  - **RE-DEFERRED — host-side deadlock detection (sap spec §4).** Cross-process/shared-handle
+    waits still error as unsupported (agent.ts wait path: "waiting on a handle owned by another
+    process … is not supported yet"). A child holds no handle on its parent and private handles
+    are process-local, so wait cycles remain structurally impossible — detection has nothing to
+    detect. Build when shared-handle cross-process wait resolution ships.
+  - **RE-DEFERRED — shared-handle host registry + wait-graph pairing.** The load-bearing pairing
+    with deadlock detection (recorded in the sap build's Phase 5). Same trigger: build both
+    together when cross-process shared waits become supported.
+  - **RE-DEFERRED — scoped observer store reads.** The observer surface (src/agents/observers.ts)
+    is still pure event-frame formatting; no observation surface consumes value reads. Build
+    when an observer role gains a surface that reads the observed agent's values (YAGNI now).
+  - **RE-DEFERRED — `value_lines`/`value_publish` as separate primitives.** No consumer appeared;
+    capture's `publish:` plus the existing value-read primitives cover every current flow (the
+    names appear only in spec prose, nowhere in src/). Build when a genome/program needs
+    line-window reads or standalone publish outside capture.
+  - **RE-DEFERRED — manifest-pull relaxation.** `STORE_MANIFEST_REQUEST` stays owner-gated
+    (store-channel.ts): no cross-owner consumer exists — observers don't pull manifests and
+    publish/pull deltas flow owner→child only. Relax when a real cross-owner consumer lands,
+    with its own authorization rule.
 
 ## Phase 5 live measurement results (2026-07-20, real models, real payload bytes)
 

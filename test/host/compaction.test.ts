@@ -357,4 +357,39 @@ describe("compactHistory", () => {
 		expect(result.afterCount).toBe(8);
 		expect(history).toEqual(original);
 	});
+
+	test("appends the scope manifest to the summary so a post-compaction turn still sees its bound values", async () => {
+		const history = makeHistory(10);
+		const client = makeFakeClient("Compacted summary");
+
+		await compactHistory({
+			history,
+			client,
+			model: "test-model",
+			provider: "test",
+			logPath: "/tmp/test.log",
+			scopeNames: ["test_log", "big_report"],
+		});
+
+		const summaryMsg = messageText(history[0]!);
+		expect(summaryMsg).toContain("Values still bound in your store scope");
+		expect(summaryMsg).toContain("⟦test_log⟧");
+		expect(summaryMsg).toContain("⟦big_report⟧");
+	});
+
+	test("omits the scope manifest when no values are bound", async () => {
+		const history = makeHistory(10);
+		const client = makeFakeClient("Compacted summary");
+
+		await compactHistory({
+			history,
+			client,
+			model: "test-model",
+			provider: "test",
+			logPath: "/tmp/test.log",
+			scopeNames: [],
+		});
+
+		expect(messageText(history[0]!)).not.toContain("store scope");
+	});
 });
