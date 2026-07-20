@@ -91,11 +91,26 @@ adversarial Fable review in fresh context → fix findings → commit → update
   Fable review: found HIGH-1 (timer-callback deadline/OOM crashed the worker), HIGH-2
   (marshal-in glue-malloc trap crashed the worker), MED-3 (timer-sleep escaped the deadline),
   MED-4 (>2 GiB budget bricked the subsystem) — all fixed in 1192160.
-- [ ] **P3 — Adversarial containment + cutover.** Escape-probe suite for the new boundary
-  (constructor-chain, intrinsic tampering, marshaling edges, allocation/interrupt bypass);
-  live keystone canary + code-mode-cannot-exec on real payload bytes under QuickJS; perf
-  benchmark (<25% p50 on I/O-bound shapes; compute measured + reported); DELETE the `node:vm`
-  path + selector; update Phase-7 security-posture docs; close issue #1. Fable review.
+- [ ] **P3 — Adversarial containment + cutover.** IN PROGRESS.
+  - [x] **Adversarial containment suite** (commit 6aff4ee): `test/cell/quickjs-containment.test.ts`,
+    14 probes, all green. Host globals unreachable (incl. via Function/Async/Generator/ctor-chain
+    constructors, which evaluate in-realm); bridges deleted post-bootstrap; marshal-in sever is
+    engine-side/pristine (a cell tampering its own JSON.parse corrupts only its own view);
+    getter/Proxy ambient args don't run host-side; interrupt cap unbypassable; bigint bombs
+    refused; caught-OOM keeps binding; prototype pollution + globals die at the cell boundary.
+    Cross-context isolation within one runtime verified (informs any future runtime reuse).
+  - [x] **Perf benchmark** (commit 1f30e3e): `scripts/bench-cell-engine.ts`. MARGINAL on the gate:
+    QuickJS adds a fixed **~0.7ms/cell** (3KB bootstrap parse+exec + fresh context + marshalling);
+    on the ~3.4ms flagship shape that is **~20–30% p50, straddling the 25% gate** with run-to-run
+    noise (real-store runs: 11% / 24% / 30%). Compute is ~15× slower (informational). Runtime
+    reuse doesn't help (creation ~0.01ms); bytecode compile is context-bound in quickjs-emscripten
+    0.32. **DECISION NEEDED (Jesse):** how to treat the marginal gate before deleting the vm
+    fallback — the 0.7ms absolute is negligible against a real agent turn, but the literal
+    <25% cell-wall-time gate is not cleanly met.
+  - [ ] **Live keystone canary + code-mode-cannot-exec under QuickJS** — `SPROUT_CELL_ENGINE=quickjs
+    bun run scripts/eval-sap.ts --smoke`. BILLED (real provider keys). Held for Jesse's go.
+  - [ ] **Cutover** — delete `node:vm` path + selector; update Phase-7 security-posture docs;
+    close issue #1. HELD pending the perf decision + live canary.
 
 ## Deviations log
 
