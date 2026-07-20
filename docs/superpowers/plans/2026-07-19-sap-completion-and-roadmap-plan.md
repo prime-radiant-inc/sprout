@@ -73,6 +73,27 @@ Fable review in fresh context → fix findings → commit → update this plan. 
   event; `value_lines`/`value_publish`; manifest-pull relaxation. Each ships with a test or is
   explicitly re-deferred with a reason.
 
+## Phase 5 live measurement results (2026-07-20, real models, real payload bytes)
+
+- **Haiku (claude-haiku-4-5, full N=10 × 5 tasks × 2 arms, ~152 live sessions).** Self-A/B
+  calibration (same genome both arms): sap tier p=0.4854 treat=5.167 base=6.233, general p=1.0 —
+  **gate verdict accepted=false. Correct**: identical noisy arms must not produce a false accept;
+  the permutation gate refused real RLM variance. This is the non-negotiable's calibration check
+  passing live.
+- **Canary suite on real bytes (haiku): keystone FAILED** — captured-content-never-in-payload
+  caught secret bytes in a provider payload (the model narrated the secret file's content into a
+  message even though it also performed the $ref splice correctly); code-mode-cannot-exec PASSED
+  (cell rejected require/child_process). The DGM guard works on live bytes AND surfaced a real
+  genome finding: haiku-tier capture discipline leaks by narration. Actionable: the genome's
+  capture guidance should forbid transcribing source content while narrating.
+- **Sonnet-5 (arm-only, N=10, trimmed for cost/latency ~5min/session).** sap tier: 30/30 pass,
+  0 stumbles (capture-splice, code-mode fan-out, keystone-no-leak all clean). general tier:
+  fizzbuzz 10/10 pass (7× one stumble), string-reverse 9/10.
+- **Honest scope note:** this run measured gate calibration (self-A/B) + per-tier live profiles —
+  NOT a data-plane-on-vs-off capability delta (the token-economics delta was measured in the v1
+  eval: 29.5× live). A true on/off capability A/B needs a baseline arm with the data plane
+  disabled; the harness supports it (arms are parameterized) — run when wanted.
+
 ## Decisions log
 
 - **2026-07-19:** Spec written. Sandbox fork resolved — keep `node:vm`, QuickJS port → issue #1.
