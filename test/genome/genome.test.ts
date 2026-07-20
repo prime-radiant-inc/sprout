@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { parse } from "yaml";
 import { loadRootAgents } from "../../src/agents/loader.ts";
 import { parseAgentMarkdown, serializeAgentMarkdown } from "../../src/agents/markdown-loader.ts";
-import { Genome, git, sanitizeGitEnv } from "../../src/genome/genome.ts";
+import { Genome, git, sanitizeGitEnv, stableStringify } from "../../src/genome/genome.ts";
 import { memoryIndexPath } from "../../src/genome/index-builder.ts";
 import { MemoryIndex } from "../../src/genome/memory-index.ts";
 import { loadManifest } from "../../src/genome/root-manifest.ts";
@@ -1550,6 +1550,69 @@ describe("Genome", () => {
 			const result = await genome.syncRoot();
 			expect(result.programConflicts).toEqual([]);
 			expect(genome.getProgram("drifting")!.body).toBe("return get('new');");
+		});
+
+		test("stableStringify distinguishes nested values, not just top-level keys", () => {
+			expect(stableStringify({ a: { hash: "x" } })).not.toBe(stableStringify({ a: { hash: "y" } }));
+			// Key order still doesn't matter, at any depth.
+			expect(stableStringify({ a: { h: 1, v: 2 }, b: 3 })).toBe(
+				stableStringify({ b: 3, a: { v: 2, h: 1 } }),
+			);
+		});
+
+		test("a program conflict is reported once, then the manifest quiets it", async () => {
+			const rootDir = join(tempDir, "sync-programs-conflict-once-bs");
+			await mkdir(rootDir, { recursive: true });
+			await writeRootMd(rootDir, "alpha");
+			await writeRootProgramMd(rootDir, "noisy_prog", "return get('v1');");
+
+			const root = join(tempDir, "sync-programs-conflict-once");
+			const genome = await createInitializedGenome(root, rootDir);
+			await genome.loadRoot();
+			await genome.syncRoot();
+
+			await genome.addProgram({
+				name: "noisy_prog",
+				description: "genome evolved",
+				params: [],
+				spawns: [],
+				version: 2,
+				body: "return get('evolved');",
+			});
+			await writeRootProgramMd(rootDir, "noisy_prog", "return get('v2');");
+
+			const first = await genome.syncRoot();
+			expect(first.programConflicts).toEqual(["noisy_prog"]);
+
+			// The manifest was persisted, so the same unchanged root does not
+			// re-report the conflict forever.
+			const second = await genome.syncRoot();
+			expect(second.programConflicts).toEqual([]);
+			expect(await git(root, "status", "--porcelain")).toBe("");
+		});
+
+		test("an agent conflict is reported once, then the manifest quiets it", async () => {
+			const rootDir = join(tempDir, "sync-agents-conflict-once-bs");
+			await mkdir(rootDir, { recursive: true });
+			await writeRootMd(rootDir, "noisy", { description: "Bootstrap original" });
+
+			const root = join(tempDir, "sync-agents-conflict-once");
+			const genome = await createInitializedGenome(root, rootDir);
+			await genome.loadRoot();
+			await genome.syncRoot();
+
+			await genome.updateAgent(makeSpec({ name: "noisy", description: "Genome evolved" }));
+			await writeRootMd(rootDir, "noisy", { description: "Bootstrap also changed" });
+
+			const first = await genome.syncRoot();
+			expect(first.conflicts).toEqual(["noisy"]);
+
+			const second = await genome.syncRoot();
+			expect(second.conflicts).toEqual([]);
+			expect(await git(root, "status", "--porcelain")).toBe("");
+
+			// Overlay still wins throughout.
+			expect(genome.getAgent("noisy")!.description).toBe("Genome evolved");
 		});
 
 		test("removeProgram refuses to remove a root-only program", async () => {

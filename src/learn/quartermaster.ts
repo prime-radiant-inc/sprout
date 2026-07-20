@@ -140,6 +140,10 @@ const IDENT_CHAR = /[A-Za-z0-9_$]/;
  *   - bare `true`/`false` become boolean slots;
  *   - a template literal (backtick) or unterminated string BAILS (undefined) —
  *     that code keeps exact-match grouping and never gets inferred params.
+ * Comments are copied VERBATIM into the surrounding segment (never lexed for
+ * literals), so the masker can run over ORIGINAL, un-normalized cell text
+ * without a quote or digit inside a comment derailing it — and a body rebuilt
+ * from the segments preserves the original bytes outside the slots.
  * Documented limits: regex literals and exotic numeric forms (hex, exponent
  * suffixes) are not modeled — a hex literal masks as `0` + identifier `x2A` and
  * simply under-groups, which is the safe direction.
@@ -152,6 +156,20 @@ function maskLiterals(code: string): MaskedCode | undefined {
 	while (i < code.length) {
 		const ch = code[i]!;
 		if (ch === "`") return undefined;
+		if (ch === "/" && code[i + 1] === "/") {
+			let j = i;
+			while (j < code.length && code[j] !== "\n") j++;
+			current += code.slice(i, j);
+			i = j;
+			continue;
+		}
+		if (ch === "/" && code[i + 1] === "*") {
+			const end = code.indexOf("*/", i + 2);
+			if (end === -1) return undefined; // unterminated block comment
+			current += code.slice(i, end + 2);
+			i = end + 2;
+			continue;
+		}
 		if (ch === "'" || ch === '"') {
 			let j = i + 1;
 			while (j < code.length && code[j] !== ch) {
@@ -268,9 +286,14 @@ const MAX_INFERRED_PARAMS = 3;
  * caller then emits `params: []` with the verbatim representative body, exactly
  * the pre-parameterization behavior.
  *
- * The rewritten body substitutes each varying literal with `args.arg<N>` and
- * re-inserts constant literals verbatim, so it is semantically equivalent to
- * every observed occurrence when called with that occurrence's literal values.
+ * The rewritten body substitutes each varying literal with `args.arg<N>` in the
+ * ORIGINAL text of the representative sample (never the whitespace-collapsed
+ * grouping form — collapsing newlines would break semicolon-less multiline
+ * bodies and silently change ASI semantics like `return\n1`). Outside the
+ * substituted slots the body is byte-identical to the representative, so it is
+ * semantically equivalent to every observed occurrence when called with that
+ * occurrence's literal values. A varying string slot followed by `:` (an
+ * object-key position, where `args.argN` would be a syntax error) bails.
  * Param names (`arg1`, `arg2`, …) are valid identifiers and cannot collide
  * with the cell ambient API (bind/get/spawn/…).
  */
@@ -280,6 +303,8 @@ function inferParams(
 	const samples = candidate.codeSamples ?? [];
 	if (samples.length < 2) return undefined;
 
+	// Grouping-tolerant comparison runs over the NORMALIZED masking (same key,
+	// slot count, and slot types across all samples)…
 	const masked: MaskedCode[] = [];
 	for (const sample of samples) {
 		const m = maskLiterals(normalizeCellCode(sample));
@@ -292,12 +317,29 @@ function inferParams(
 		if (m.slots.some((slot, i) => slot.type !== first.slots[i]!.type)) return undefined;
 	}
 
+	// …but the emitted body is rebuilt from the ORIGINAL representative text.
+	const original = maskLiterals(samples[0]!);
+	if (original === undefined) return undefined;
+	if (original.slots.length !== first.slots.length) return undefined;
+	if (original.slots.some((slot, i) => slot.type !== first.slots[i]!.type)) return undefined;
+
 	const varying: number[] = [];
 	for (let i = 0; i < first.slots.length; i++) {
 		const values = new Set(masked.map((m) => m.slots[i]!.raw));
 		if (values.size > 1) varying.push(i);
 	}
 	if (varying.length === 0 || varying.length > MAX_INFERRED_PARAMS) return undefined;
+
+	// A varying string in object-KEY position ({'alpha': 1}) cannot become a
+	// dotted expression — conservative bail to the verbatim zero-param fallback.
+	for (const slotIndex of varying) {
+		if (
+			first.slots[slotIndex]!.type === "string" &&
+			/^\s*:/.test(original.segments[slotIndex + 1]!)
+		) {
+			return undefined;
+		}
+	}
 
 	const paramNameBySlot = new Map<number, string>();
 	const params: ProgramParam[] = varying.map((slotIndex, order) => {
@@ -311,11 +353,11 @@ function inferParams(
 	});
 
 	let body = "";
-	for (let i = 0; i < first.slots.length; i++) {
+	for (let i = 0; i < original.slots.length; i++) {
 		const paramName = paramNameBySlot.get(i);
-		body += first.segments[i]! + (paramName ? `args.${paramName}` : first.slots[i]!.raw);
+		body += original.segments[i]! + (paramName ? `args.${paramName}` : original.slots[i]!.raw);
 	}
-	body += first.segments[first.segments.length - 1]!;
+	body += original.segments[original.segments.length - 1]!;
 	return { params, body };
 }
 

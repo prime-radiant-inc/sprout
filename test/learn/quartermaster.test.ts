@@ -359,6 +359,69 @@ describe("program parameterization (fabrication)", () => {
 		expect(detectRecurringPatterns(observations)).toHaveLength(0);
 	});
 
+	test("multiline semicolon-less occurrences keep their newlines in the inferred body", () => {
+		const observations: CellObservation[] = [
+			{ code: "let a = 1\nlet b = a + 5\nreturn b", stumbled: false },
+			{ code: "let a = 1\nlet b = a + 9\nreturn b", stumbled: false },
+			{ code: "let a = 1\nlet b = a + 12\nreturn b", stumbled: false },
+		];
+		const candidates = detectRecurringPatterns(observations);
+		expect(candidates).toHaveLength(1);
+		const prog = proposeProgramFromCandidate(candidates[0]!);
+		expect(prog.params).toHaveLength(1);
+		expect(prog.body).toContain("\n");
+		expect(prog.body).toContain(`args.${prog.params[0]!.name}`);
+		// The body must be valid when wrapped the way the cell worker wraps program
+		// bodies (a function body receiving `args`).
+		const fn = new Function("args", prog.body);
+		expect(fn({ [prog.params[0]!.name]: 5 })).toBe(6);
+	});
+
+	test("ASI-sensitive bodies keep the newline after a bare return", () => {
+		const observations: CellObservation[] = [
+			{ code: "const t = 'x'\nfunction f(){\nreturn\n1\n}\nreturn f()", stumbled: false },
+			{ code: "const t = 'y'\nfunction f(){\nreturn\n1\n}\nreturn f()", stumbled: false },
+			{ code: "const t = 'z'\nfunction f(){\nreturn\n1\n}\nreturn f()", stumbled: false },
+		];
+		const candidates = detectRecurringPatterns(observations);
+		expect(candidates).toHaveLength(1);
+		const prog = proposeProgramFromCandidate(candidates[0]!);
+		expect(prog.params).toHaveLength(1);
+		// ASI: `return\n1` must stay two lines — collapsing it to `return 1`
+		// silently changes the value the body produces.
+		expect(prog.body).toContain("return\n1");
+		const fn = new Function("args", prog.body);
+		expect(fn({ [prog.params[0]!.name]: "x" })).toBeUndefined();
+	});
+
+	test("a varying string literal in object-key position bails to no params", () => {
+		const observations: CellObservation[] = [
+			{ code: "return bind('out', {'alpha': 1});", stumbled: false },
+			{ code: "return bind('out', {'beta': 1});", stumbled: false },
+			{ code: "return bind('out', {'gamma': 1});", stumbled: false },
+		];
+		const candidates = detectRecurringPatterns(observations);
+		expect(candidates).toHaveLength(1);
+		const prog = proposeProgramFromCandidate(candidates[0]!);
+		// `{args.arg1: 1}` would be a syntax error — conservative fallback wins.
+		expect(prog.params).toEqual([]);
+		expect(prog.body).toBe("return bind('out', {'alpha': 1});");
+	});
+
+	test("a template-literal-bearing group bails to no params with the verbatim body", () => {
+		const code = "const k = `v-` + 1\nreturn bind('k', k);";
+		const observations: CellObservation[] = [
+			{ code, stumbled: false },
+			{ code, stumbled: false },
+			{ code, stumbled: false },
+		];
+		const candidates = detectRecurringPatterns(observations);
+		expect(candidates).toHaveLength(1);
+		const prog = proposeProgramFromCandidate(candidates[0]!);
+		expect(prog.params).toEqual([]);
+		expect(prog.body).toBe(code);
+	});
+
 	test("inferred param names are valid identifiers and avoid ambient API names", () => {
 		const observations: CellObservation[] = [
 			{ code: "return grep(get('x'), 'one');", stumbled: false },

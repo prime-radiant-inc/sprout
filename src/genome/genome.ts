@@ -1848,9 +1848,21 @@ function rootProgramEntries(
 	}));
 }
 
-/** JSON.stringify with sorted keys for deterministic comparison regardless of key insertion order. */
-function stableStringify(obj: unknown): string {
-	return JSON.stringify(obj, Object.keys(obj as Record<string, unknown>).sort());
+/**
+ * Deterministic JSON for comparison: object keys are sorted recursively at
+ * EVERY depth. (A replacer ARRAY would filter keys at every depth instead —
+ * nested manifest entries would serialize as `{}` and hash-only changes would
+ * compare equal.)
+ */
+export function stableStringify(obj: unknown): string {
+	if (obj === null || typeof obj !== "object") return JSON.stringify(obj) ?? "null";
+	if (Array.isArray(obj)) return `[${obj.map((v) => stableStringify(v)).join(",")}]`;
+	const record = obj as Record<string, unknown>;
+	const entries = Object.keys(record)
+		.sort()
+		.filter((key) => record[key] !== undefined)
+		.map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`);
+	return `{${entries.join(",")}}`;
 }
 
 function arraysEqual(a: string[], b: string[]): boolean {
