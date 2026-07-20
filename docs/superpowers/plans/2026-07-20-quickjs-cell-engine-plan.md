@@ -107,8 +107,25 @@ adversarial Fable review in fresh context → fix findings → commit → update
     0.32. **DECISION NEEDED (Jesse):** how to treat the marginal gate before deleting the vm
     fallback — the 0.7ms absolute is negligible against a real agent turn, but the literal
     <25% cell-wall-time gate is not cleanly met.
-  - [ ] **Live keystone canary + code-mode-cannot-exec under QuickJS** — `SPROUT_CELL_ENGINE=quickjs
-    bun run scripts/eval-sap.ts --smoke`. BILLED (real provider keys). Held for Jesse's go.
+  - [~] **Live keystone canary under QuickJS** — INVESTIGATED (Jesse: "help me unblock"). Ran
+    the live path under QuickJS against real Anthropic payloads (5–13 captured per run),
+    `didExec: false` every time. Unblocking required, in this environment: a fresh
+    `XDG_CONFIG_HOME` (so settings are "missing" → `.env` keys import into the registry, since
+    the live genome's settings point subcortical at `openai-codex` OAuth we can't provision);
+    `SPROUT_DEFAULT_{FAST,BALANCED,BEST}_MODEL=anthropic:…` (fresh settings have no tier→model
+    defaults); `SPROUT_SECRET_BACKEND=memory` (no `secret-tool`/libsecret here); and a REAL FIX
+    — **eval-sap never set up self-invocation** (commit f590dd6), so it could spawn no cell/store/
+    agent subprocess at all, meaning code-mode-cannot-exec passed trivially (cells never ran).
+    **Finding:** the keystone canary (`captured-content-never-in-payload`) is ENGINE-INDEPENDENT
+    — it tests whether the model uses `$ref` splice so captured bytes never enter a provider
+    payload (data plane), not how cells execute. Its result is model/genome-behavior dependent;
+    substitute models (haiku, sonnet) mishandle the splice and "leak", which is not a QuickJS
+    finding (vm would behave identically — same payload assembly). A representative keystone
+    result needs the live genome's real model (`openai-codex`), unavailable here. **code-mode-
+    cannot-exec** — the engine-relevant property — is proven with certainty OFFLINE by the
+    containment suite (Bun.spawn unreachable, no host capability). Conclusion: the cutover's
+    security case does not depend on a live keystone PASS; the keystone does not exercise the
+    engine.
   - [ ] **Cutover** — delete `node:vm` path + selector; update Phase-7 security-posture docs;
     close issue #1. HELD pending the perf decision + live canary.
 
