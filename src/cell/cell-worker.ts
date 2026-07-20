@@ -168,13 +168,22 @@ export async function runCellWorker(input: RunCellWorkerInput): Promise<void> {
 			input.write(JSON.stringify({ id, op: "result", ok: false, output: "", error: rejection }));
 			return;
 		}
-		const result = await engine.runCell({
-			code,
-			programs,
-			callAmbient,
-			isInfraError: (err) => typeof err === "object" && err !== null && infraErrors.has(err),
-			log: (args) => consoleBuffer.append(args),
-		});
+		// An engine THROW (as opposed to an error result) is an engine bug or a
+		// wasm-load failure — host infrastructure, never the cell's fault. The
+		// worker must survive it and say so.
+		const result = await engine
+			.runCell({
+				code,
+				programs,
+				callAmbient,
+				isInfraError: (err) => typeof err === "object" && err !== null && infraErrors.has(err),
+				log: (args) => consoleBuffer.append(args),
+			})
+			.catch((err: unknown) => ({
+				ok: false as const,
+				error: `cell engine failure: ${err instanceof Error ? err.message : String(err)}`,
+				infrastructure: true,
+			}));
 		if (result.ok) {
 			const message: CellWorkerMessage = {
 				id,
