@@ -45,8 +45,8 @@ byte-for-byte. What changes is the floor under it.
 3. All kernel invariants preserved: lexical import/require scan, `$ref` allowlist, JSON-sever
    of ambient results, identity-based infrastructure-error tagging, the typed outcome envelope,
    cap constants (`CELL_SPAWN_CAP`, `CELL_MAX_OUTSTANDING_AMBIENT`, `CELL_GET_BUDGET_BYTES`).
-4. Single engine at the end: the `node:vm` path is **deleted at cutover** (no dual-engine
-   maintenance, per the no-backward-compat rule — flagged below for Jesse's approval).
+4. Single engine at the end: the `node:vm` path is **deleted at cutover** — no dual-engine
+   maintenance, no soak, no compatibility flag (decided; see Rollout).
 5. The security-posture docs flip from "fails open, documented" to "fails closed, tested."
 
 ## Non-goals
@@ -92,22 +92,38 @@ scan upstream at validate + load.
 
 Cell code still executes as today's wrapper: `"use strict"; (async () => { <code> })()`.
 
-### Async model (the one real design fork)
+### Async model (decided)
 
-The ambient API is async — every call round-trips to the parent. QuickJS is a synchronous
-interpreter with a promise job queue, so host-async needs one of two shapes:
+The ambient API is async — every call round-trips to the parent — and, decisively, it is
+**uniformly `await`-based**: cell code always `await`s an ambient call; there is no synchronous
+(blocking, non-awaited) host call anywhere in the contract. Two shapes were considered:
 
-- **(a) Asyncified host calls** (the toolchain's async-context build): a host function can
-  suspend the interpreter until the parent responds. Semantically identical to today's awaited
-  bridge; known interpreter-throughput overhead.
-- **(b) Job-pump suspension**: run until the microtask queue drains to a pending ambient call,
-  park the runtime, resume with the settled result, re-pump.
+- **(a) Asyncified host calls** (the toolchain's Asyncify-instrumented async build): a host
+  function suspends the whole interpreter stack until the parent responds. Necessary only for
+  *synchronous* blocking host calls — which our contract does not have.
+- **(b) Native-promise + job-pump** (plain sync variant): the ambient host function creates a
+  QuickJS deferred (`context.newPromise()`), stashes its resolver keyed by request-id, sends
+  the stdio request, and returns the promise handle **synchronously**. The cell's `await`
+  suspends via QuickJS's own async/await; when the parent responds we resolve the deferred and
+  `runtime.executePendingJobs()` to run continuations; we pump until the top-level
+  `(async()=>{…})()` promise settles. Timers and multiple-outstanding-ambient (already capped
+  by `CELL_MAX_OUTSTANDING_AMBIENT`) each get their own deferred and pump identically.
 
-**Decision: (a) is primary** — it is the smallest semantic delta and cells are I/O-bound glue
-(spawn/bind/splice orchestration), so asyncify overhead lands on the cheap side of the ledger.
-Bring-up measures it (see Acceptance); if the overhead is unacceptable on the benchmark, (b) is
-the fallback and the plan records the switch. Either way the in-cell semantics (await an
-ambient call, timers fire, promises interleave) are pinned by the existing cell suite.
+**Decision: (b) is primary.** Because the ambient surface is already async/await, (b) maps onto
+it 1:1 using QuickJS's native promise machinery (exposed directly by `quickjs-emscripten` in the
+sync variant) with **zero Asyncify instrumentation** — no ~2× wasm-size penalty, no
+instrumented-call tax, and a boundary the P3 security review can audit as "host fn returns a
+deferred; parent resolves it" rather than stack-unwinding. The suspension mechanism's per-call
+overhead is noise next to the stdio round-trip it wraps, so (a) would pay Asyncify's cost to
+synthesize blocking we never use. The parent-owned budget-clock rule (accrue only while not
+parked on ambient I/O) falls out for free: parked time is not executing.
+
+**Fallback:** (a) Asyncify, adopted *only* if bring-up surfaces a cell semantic that genuinely
+requires a synchronous host call (none is known). Switch recorded in the plan if it ever fires.
+
+**The one real risk of (b)** — pump correctness: pumping with nothing ready, no ambient
+outstanding, and the top-level promise unsettled is a genuine hang. It must surface as a typed
+cell error via a pump-loop deadlock detector, never a wedge. P1 test, not a design blocker.
 
 ### Hard caps (the payoff)
 
@@ -134,12 +150,13 @@ identity-based infra-error tagging; `CELL_SPAWN_CAP` / `CELL_MAX_OUTSTANDING_AMB
 is engine-agnostic); `CellHost` in full; futures; program injection; the keystone security
 property.
 
-### Rollout (flagged decision for Jesse)
+### Rollout (decided: no back-compat, no soak)
 
-Bring-up runs behind a temporary env selector (`SPROUT_CELL_ENGINE=quickjs|vm`, default `vm`)
-**within the build only** — a migration scaffold, not a compatibility feature. At cutover the
-selector and the `node:vm` path are **deleted in the same build**; we do not ship dual engines.
-If Jesse prefers a soak period with the flag shipped, that is an explicit exception to approve.
+Bring-up uses a temporary `SPROUT_CELL_ENGINE=quickjs|vm` selector **local to the build** — a
+migration scaffold to keep the suite runnable against both engines while P1–P2 land. At the P3
+cutover the selector **and** the `node:vm` path are deleted in the same build. No dual-engine
+ship, no soak period, no compatibility flag (Jesse, 2026-07-20). QuickJS is the only cell engine
+that ships.
 
 ## Invariants
 
