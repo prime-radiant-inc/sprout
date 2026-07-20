@@ -1,8 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { Program } from "../../src/genome/program.ts";
 import { validateProgram } from "../../src/genome/program.ts";
+import type { Memory } from "../../src/kernel/types.ts";
 import {
 	type CellObservation,
+	type CuratedAgent,
+	curateAgents,
+	curateMemories,
 	curatePrograms,
 	detectRecurringPatterns,
 	detectRepairCandidates,
@@ -158,5 +162,213 @@ describe("curatePrograms", () => {
 
 		// used_unique is invoked and unique — no proposal touches it.
 		expect(proposals.some((p) => p.targets.includes("used_unique"))).toBe(false);
+	});
+});
+
+function agent(name: string, systemPrompt: string, description = `${name} agent`): CuratedAgent {
+	return { name, description, system_prompt: systemPrompt };
+}
+
+describe("curateAgents", () => {
+	test("retires never-delegated agents, consolidates near-duplicates, leaves healthy ones alone", () => {
+		const agents: CuratedAgent[] = [
+			agent("busy", "You review code."),
+			agent("idle", "You write docs."),
+			agent("dup_a", "You summarize   logs.", "Summarizer"),
+			agent("dup_b", "You summarize logs.", "Summarizer"),
+		];
+		const proposals = curateAgents(agents, {
+			delegatedAgentNames: new Set(["busy", "dup_a", "dup_b"]),
+		});
+
+		const retire = proposals.filter((p) => p.action === "retire");
+		expect(retire).toHaveLength(1);
+		expect(retire[0]!.targets).toEqual(["idle"]);
+
+		const consolidate = proposals.filter((p) => p.action === "consolidate");
+		expect(consolidate).toHaveLength(1);
+		expect(consolidate[0]!.targets.sort()).toEqual(["dup_a", "dup_b"]);
+
+		expect(proposals.some((p) => p.targets.includes("busy"))).toBe(false);
+	});
+
+	test("never proposes retiring the root agent even when it is never a delegation target", () => {
+		const proposals = curateAgents([agent("root", "You are the root orchestrator.")], {
+			delegatedAgentNames: new Set(),
+		});
+		expect(proposals).toHaveLength(0);
+	});
+});
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function memory(id: string, overrides: Partial<Memory> = {}): Memory {
+	const now = Date.now();
+	return {
+		id,
+		content: `memory ${id}`,
+		tags: [],
+		source: "test",
+		created: now,
+		last_used: now,
+		use_count: 0,
+		confidence: 0.8,
+		...overrides,
+	};
+}
+
+describe("curateMemories", () => {
+	test("retires stale, low-confidence, never-used memories only", () => {
+		const now = Date.now();
+		const memories: Memory[] = [
+			// stale + low confidence + never used → retire
+			memory("stale_low", { created: now - 60 * DAY_MS, confidence: 0.2 }),
+			// used → keep
+			memory("used", { created: now - 60 * DAY_MS, confidence: 0.2, use_count: 3 }),
+			// high confidence → keep
+			memory("confident", { created: now - 60 * DAY_MS, confidence: 0.9 }),
+			// too young → keep
+			memory("young", { confidence: 0.1 }),
+			// already archived → left alone
+			memory("archived", { created: now - 60 * DAY_MS, confidence: 0.1, archived_at: now }),
+		];
+		const proposals = curateMemories(memories, { now });
+		const retire = proposals.filter((p) => p.action === "retire");
+		expect(retire).toHaveLength(1);
+		expect(retire[0]!.targets).toEqual(["stale_low"]);
+	});
+
+	test("consolidates near-duplicate memory content by normalized key", () => {
+		const memories: Memory[] = [
+			memory("m1", { content: "Use tabs for  indentation." }),
+			memory("m2", { content: "use tabs for indentation." }),
+			memory("m3", { content: "Prefer bun over npm." }),
+		];
+		const proposals = curateMemories(memories);
+		const consolidate = proposals.filter((p) => p.action === "consolidate");
+		expect(consolidate).toHaveLength(1);
+		expect(consolidate[0]!.targets.sort()).toEqual(["m1", "m2"]);
+	});
+});
+
+describe("program parameterization (fabrication)", () => {
+	const AMBIENT_NAMES = [
+		"bind",
+		"publish",
+		"peek",
+		"slice",
+		"lines",
+		"grep",
+		"parse",
+		"size",
+		"get",
+		"spawn",
+		"args",
+		"programs",
+	];
+
+	test("occurrences differing only in one string literal group into one candidate with a typed string param", () => {
+		const observations: CellObservation[] = [
+			{ code: "const v = await get('logs');\nreturn grep(v, 'alpha');", stumbled: false },
+			{ code: "const v = await get('logs');\nreturn grep(v, 'beta');", stumbled: false },
+			{ code: "const v = await get('logs');\nreturn grep(v, 'gamma');", stumbled: false },
+		];
+		const candidates = detectRecurringPatterns(observations);
+		expect(candidates).toHaveLength(1);
+		expect(candidates[0]!.occurrences).toBe(3);
+
+		const prog = proposeProgramFromCandidate(candidates[0]!);
+		expect(validateProgram(prog).ok).toBe(true);
+		expect(prog.params).toHaveLength(1);
+		expect(prog.params[0]!.type).toBe("string");
+		// The varying literal is lifted; the constant one stays.
+		expect(prog.body).toContain(`args.${prog.params[0]!.name}`);
+		expect(prog.body).toContain("'logs'");
+		expect(prog.body).not.toContain("'alpha'");
+	});
+
+	test("occurrences differing only in a number literal produce a typed number param", () => {
+		const observations: CellObservation[] = [
+			{ code: "return slice(x, 0, 5);", stumbled: false },
+			{ code: "return slice(x, 0, 9);", stumbled: false },
+			{ code: "return slice(x, 0, 12);", stumbled: false },
+		];
+		const candidates = detectRecurringPatterns(observations);
+		expect(candidates).toHaveLength(1);
+		const prog = proposeProgramFromCandidate(candidates[0]!);
+		expect(prog.params).toHaveLength(1);
+		expect(prog.params[0]!.type).toBe("number");
+		expect(prog.body).toContain("slice(x, 0, args.");
+	});
+
+	test("boolean literal variance produces a typed boolean param", () => {
+		const observations: CellObservation[] = [
+			{ code: "return parse(x, true);", stumbled: false },
+			{ code: "return parse(x, false);", stumbled: false },
+			{ code: "return parse(x, true);", stumbled: false },
+		];
+		const candidates = detectRecurringPatterns(observations);
+		expect(candidates).toHaveLength(1);
+		const prog = proposeProgramFromCandidate(candidates[0]!);
+		expect(prog.params).toHaveLength(1);
+		expect(prog.params[0]!.type).toBe("boolean");
+	});
+
+	test("structurally different occurrences do NOT group (fallback: no candidate)", () => {
+		const observations: CellObservation[] = [
+			{ code: "return grep(x, 'a');", stumbled: false },
+			{ code: "return lines(grep(x, 'a'));", stumbled: false },
+			{ code: "return grep(y, 'a');", stumbled: false },
+		];
+		expect(detectRecurringPatterns(observations)).toHaveLength(0);
+	});
+
+	test("identical occurrences keep today's exact behavior: no params, raw body", () => {
+		const code = "const s = await get('summary');\nreturn lines(s).length;";
+		const observations: CellObservation[] = [
+			{ code, stumbled: false },
+			{ code, stumbled: false },
+			{ code, stumbled: false },
+		];
+		const candidates = detectRecurringPatterns(observations);
+		expect(candidates).toHaveLength(1);
+		const prog = proposeProgramFromCandidate(candidates[0]!);
+		expect(prog.params).toEqual([]);
+		expect(prog.body).toBe(code);
+	});
+
+	test("too many varying literals falls back to no params", () => {
+		const observations: CellObservation[] = [
+			{ code: "return bind('a', slice(x, 1, 2, 3, 4));", stumbled: false },
+			{ code: "return bind('b', slice(x, 5, 6, 7, 8));", stumbled: false },
+			{ code: "return bind('c', slice(x, 9, 10, 11, 12));", stumbled: false },
+		];
+		const candidates = detectRecurringPatterns(observations);
+		expect(candidates).toHaveLength(1);
+		const prog = proposeProgramFromCandidate(candidates[0]!);
+		expect(prog.params).toEqual([]);
+		expect(prog.body).toBe("return bind('a', slice(x, 1, 2, 3, 4));");
+	});
+
+	test("template literals are never masked: variance inside backticks does not group", () => {
+		const observations: CellObservation[] = [
+			{ code: "return bind('k', `v-` + a);", stumbled: false },
+			{ code: "return bind('k', `w-` + a);", stumbled: false },
+			{ code: "return bind('k', `x-` + a);", stumbled: false },
+		];
+		expect(detectRecurringPatterns(observations)).toHaveLength(0);
+	});
+
+	test("inferred param names are valid identifiers and avoid ambient API names", () => {
+		const observations: CellObservation[] = [
+			{ code: "return grep(get('x'), 'one');", stumbled: false },
+			{ code: "return grep(get('x'), 'two');", stumbled: false },
+			{ code: "return grep(get('x'), 'three');", stumbled: false },
+		];
+		const prog = proposeProgramFromCandidate(detectRecurringPatterns(observations)[0]!);
+		for (const param of prog.params) {
+			expect(param.name).toMatch(/^[a-zA-Z_$][a-zA-Z0-9_$]*$/);
+			expect(AMBIENT_NAMES).not.toContain(param.name);
+		}
 	});
 });

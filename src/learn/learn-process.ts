@@ -25,6 +25,8 @@ import {
 import type { MetricsStore } from "./metrics-store.ts";
 import {
 	type CellObservation,
+	curateAgents,
+	curateMemories,
 	curatePrograms,
 	detectRecurringPatterns,
 	detectRepairCandidates,
@@ -55,7 +57,9 @@ export type LearnMutation =
 	  }
 	| { type: "create_routing_rule"; condition: string; preference: string; strength: number }
 	| { type: "create_program"; program: Program }
-	| { type: "retire_program"; program_name: string };
+	| { type: "retire_program"; program_name: string }
+	| { type: "retire_agent"; agent_name: string }
+	| { type: "retire_memory"; memory_id: string };
 
 type ReasonedLearnMutation = LearnMutation;
 
@@ -138,6 +142,14 @@ export async function applyMutationToGenome(
 		}
 		case "retire_program": {
 			await genome.removeProgram(mutation.program_name);
+			break;
+		}
+		case "retire_agent": {
+			await genome.removeAgent(mutation.agent_name);
+			break;
+		}
+		case "retire_memory": {
+			await genome.retireMemory(mutation.memory_id, "curator-retired");
 			break;
 		}
 	}
@@ -592,7 +604,47 @@ export class LearnProcess {
 			}
 		}
 
+		// 4. Agent curation: never-delegated overlay agents + near-duplicates →
+		// retire. Scoped to the OVERLAY: root agents are immutable (removeAgent
+		// rejects them) and only genome-evolved agents can rot. The usage signal
+		// is the collected act_end delegation targets — the genome keeps no
+		// per-agent use counter, so the event window is the honest signal.
+		const delegated = this.delegatedAgentNames();
+		for (const proposal of curateAgents(this.genome.overlayAgents(), {
+			delegatedAgentNames: delegated,
+		})) {
+			const targets =
+				proposal.action === "consolidate" ? proposal.targets.slice(1) : proposal.targets;
+			for (const name of targets) {
+				if (!this.genome.isOverlay(name)) continue;
+				if (await this.adoptMutation({ type: "retire_agent", agent_name: name })) adopted = true;
+			}
+		}
+
+		// 5. Memory curation: stale never-used low-confidence memories + content
+		// near-duplicates → retire (archived, not deleted — the memory lifecycle's
+		// retirement idiom, keeping the audit trail until log compaction).
+		for (const proposal of curateMemories(this.genome.memories.all())) {
+			const targets =
+				proposal.action === "consolidate" ? proposal.targets.slice(1) : proposal.targets;
+			for (const id of targets) {
+				const memory = this.genome.memories.getById(id);
+				if (!memory || memory.archived_at !== undefined) continue;
+				if (await this.adoptMutation({ type: "retire_memory", memory_id: id })) adopted = true;
+			}
+		}
+
 		return adopted;
+	}
+
+	/** Agent names seen as delegation targets in the collected act_end events. */
+	private delegatedAgentNames(): Set<string> {
+		const names = new Set<string>();
+		for (const event of this.events.collected()) {
+			if (event.kind !== "act_end") continue;
+			if (typeof event.data.agent_name === "string") names.add(event.data.agent_name);
+		}
+		return names;
 	}
 
 	/** Ask the LLM to reason about what mutation to make given a stumble signal. */
@@ -736,6 +788,11 @@ Choose the most appropriate non-memory improvement. Use skip for factual learnin
 		} else if (mutation.type === "retire_program") {
 			agentName = mutation.program_name;
 			description = `Retired program ${mutation.program_name}`;
+		} else if (mutation.type === "retire_agent") {
+			agentName = mutation.agent_name;
+			description = `Retired agent ${mutation.agent_name}`;
+		} else if (mutation.type === "retire_memory") {
+			description = `Retired memory ${mutation.memory_id}`;
 		}
 
 		this._pendingEvaluations.push({

@@ -15,11 +15,13 @@
  * ./canary-suite.ts) before adoption. The quartermaster never deletes or edits
  * the genome unilaterally.
  *
- * This module imports only genome types (Program) — NO host/, NO runtime. It is
- * a decision layer the live learn loop consumes, not a mutator.
+ * This module imports only genome types (Program) and kernel types (Memory) —
+ * NO host/, NO runtime. It is a decision layer the live learn loop consumes,
+ * not a mutator.
  */
 
-import { type Program, validateProgram } from "../genome/program.ts";
+import { type Program, type ProgramParam, validateProgram } from "../genome/program.ts";
+import type { Memory } from "../kernel/types.ts";
 
 /**
  * One recorded cell run, derived from a cell_end event (spec §8). `program` is
@@ -40,6 +42,12 @@ export interface FabricationCandidate {
 	occurrences: number;
 	/** A valid `programs.<name>` name proposed for the fabricated program. */
 	proposedName: string;
+	/**
+	 * The raw code of each grouped occurrence (capped), retained so fabrication
+	 * can infer typed params from literals that vary across occurrences. Absent
+	 * (or a single sample) means no variance was observed — no params inferred.
+	 */
+	codeSamples?: string[];
 }
 
 export interface RepairCandidate {
@@ -98,6 +106,101 @@ export function normalizeCellCode(code: string): string {
 		.trim();
 }
 
+/** One literal token found in cell code, with its full raw text (quotes included). */
+interface LiteralSlot {
+	type: "string" | "number" | "boolean";
+	raw: string;
+}
+
+/**
+ * Cell code with its string/number/boolean literals lifted out: `segments` is
+ * the literal-free text split at each slot (segments.length === slots.length+1),
+ * and `key` is the literal-masked grouping key. Rebuilding the code is
+ * segments[0] + slot0 + segments[1] + ...
+ */
+interface MaskedCode {
+	segments: string[];
+	slots: LiteralSlot[];
+	key: string;
+}
+
+const MASK_PLACEHOLDER: Record<LiteralSlot["type"], string> = {
+	string: "\u0000s\u0000",
+	number: "\u0000n\u0000",
+	boolean: "\u0000b\u0000",
+};
+
+const IDENT_CHAR = /[A-Za-z0-9_$]/;
+
+/**
+ * Lift string/number/boolean literals out of (already-normalized) cell code.
+ * A lexical single pass, deliberately conservative:
+ *   - '…' and "…" strings (with backslash escapes) become string slots;
+ *   - digit-led number tokens not attached to an identifier become number slots;
+ *   - bare `true`/`false` become boolean slots;
+ *   - a template literal (backtick) or unterminated string BAILS (undefined) —
+ *     that code keeps exact-match grouping and never gets inferred params.
+ * Documented limits: regex literals and exotic numeric forms (hex, exponent
+ * suffixes) are not modeled — a hex literal masks as `0` + identifier `x2A` and
+ * simply under-groups, which is the safe direction.
+ */
+function maskLiterals(code: string): MaskedCode | undefined {
+	const segments: string[] = [];
+	const slots: LiteralSlot[] = [];
+	let current = "";
+	let i = 0;
+	while (i < code.length) {
+		const ch = code[i]!;
+		if (ch === "`") return undefined;
+		if (ch === "'" || ch === '"') {
+			let j = i + 1;
+			while (j < code.length && code[j] !== ch) {
+				if (code[j] === "\\") j++;
+				j++;
+			}
+			if (j >= code.length) return undefined; // unterminated string
+			segments.push(current);
+			current = "";
+			slots.push({ type: "string", raw: code.slice(i, j + 1) });
+			i = j + 1;
+			continue;
+		}
+		const prev = i > 0 ? code[i - 1]! : "";
+		if (/\d/.test(ch) && !IDENT_CHAR.test(prev) && prev !== ".") {
+			let j = i;
+			while (j < code.length && /[\d.]/.test(code[j]!)) j++;
+			segments.push(current);
+			current = "";
+			slots.push({ type: "number", raw: code.slice(i, j) });
+			i = j;
+			continue;
+		}
+		if (IDENT_CHAR.test(ch) && !IDENT_CHAR.test(prev)) {
+			let j = i;
+			while (j < code.length && IDENT_CHAR.test(code[j]!)) j++;
+			const word = code.slice(i, j);
+			if ((word === "true" || word === "false") && prev !== ".") {
+				segments.push(current);
+				current = "";
+				slots.push({ type: "boolean", raw: word });
+			} else {
+				current += word;
+			}
+			i = j;
+			continue;
+		}
+		current += ch;
+		i++;
+	}
+	segments.push(current);
+	let key = "";
+	for (let s = 0; s < slots.length; s++) {
+		key += segments[s]! + MASK_PLACEHOLDER[slots[s]!.type];
+	}
+	key += segments[segments.length - 1]!;
+	return { segments, slots, key };
+}
+
 /** Short, stable, name-charset digest of a normalization key. */
 function keyDigest(key: string): string {
 	let hash = 2166136261;
@@ -120,17 +223,22 @@ export function detectRecurringPatterns(
 	opts: DetectPatternsOptions = {},
 ): FabricationCandidate[] {
 	const minOccurrences = opts.minOccurrences ?? DEFAULT_MIN_OCCURRENCES;
-	const groups = new Map<string, { code: string; count: number }>();
+	const groups = new Map<string, { code: string; count: number; samples: string[] }>();
 
 	for (const obs of observations) {
 		if (obs.program !== undefined) continue;
-		const key = normalizeCellCode(obs.code);
-		if (key.length === 0) continue;
+		const normalized = normalizeCellCode(obs.code);
+		if (normalized.length === 0) continue;
+		// Group by the literal-masked key so occurrences differing only in a
+		// string/number/boolean literal share a group (the raw material for param
+		// inference). Code the masker bails on keeps exact-match grouping.
+		const key = maskLiterals(normalized)?.key ?? normalized;
 		const existing = groups.get(key);
 		if (existing) {
 			existing.count++;
+			if (existing.samples.length < MAX_CODE_SAMPLES) existing.samples.push(obs.code);
 		} else {
-			groups.set(key, { code: obs.code, count: 1 });
+			groups.set(key, { code: obs.code, count: 1, samples: [obs.code] });
 		}
 	}
 
@@ -141,15 +249,81 @@ export function detectRecurringPatterns(
 			code: group.code,
 			occurrences: group.count,
 			proposedName: `fabricated_${keyDigest(key)}`,
+			codeSamples: group.samples,
 		});
 	}
 	return candidates;
 }
 
+const MAX_CODE_SAMPLES = 20;
+const MAX_INFERRED_PARAMS = 3;
+
 /**
- * Turn a fabrication candidate into a valid Program. The body is the recurring
- * code verbatim; params are inferred conservatively as empty (a v1 fabricated
- * program takes no typed args — parameterization is a later refinement). Runs
+ * Infer typed params from the literals that VARY across a candidate's grouped
+ * occurrences. Conservative by construction: every sample must mask to the
+ * SAME literal-masked shape (same slot count and types — guaranteed for
+ * masked-key groups, re-verified here); only slots whose literal value actually
+ * differs across samples are lifted; more than MAX_INFERRED_PARAMS varying
+ * slots, any masking bail, or zero variance falls back to `undefined` — the
+ * caller then emits `params: []` with the verbatim representative body, exactly
+ * the pre-parameterization behavior.
+ *
+ * The rewritten body substitutes each varying literal with `args.arg<N>` and
+ * re-inserts constant literals verbatim, so it is semantically equivalent to
+ * every observed occurrence when called with that occurrence's literal values.
+ * Param names (`arg1`, `arg2`, …) are valid identifiers and cannot collide
+ * with the cell ambient API (bind/get/spawn/…).
+ */
+function inferParams(
+	candidate: FabricationCandidate,
+): { params: ProgramParam[]; body: string } | undefined {
+	const samples = candidate.codeSamples ?? [];
+	if (samples.length < 2) return undefined;
+
+	const masked: MaskedCode[] = [];
+	for (const sample of samples) {
+		const m = maskLiterals(normalizeCellCode(sample));
+		if (m === undefined) return undefined;
+		masked.push(m);
+	}
+	const first = masked[0]!;
+	for (const m of masked) {
+		if (m.key !== first.key || m.slots.length !== first.slots.length) return undefined;
+		if (m.slots.some((slot, i) => slot.type !== first.slots[i]!.type)) return undefined;
+	}
+
+	const varying: number[] = [];
+	for (let i = 0; i < first.slots.length; i++) {
+		const values = new Set(masked.map((m) => m.slots[i]!.raw));
+		if (values.size > 1) varying.push(i);
+	}
+	if (varying.length === 0 || varying.length > MAX_INFERRED_PARAMS) return undefined;
+
+	const paramNameBySlot = new Map<number, string>();
+	const params: ProgramParam[] = varying.map((slotIndex, order) => {
+		const name = `arg${order + 1}`;
+		paramNameBySlot.set(slotIndex, name);
+		return {
+			name,
+			type: first.slots[slotIndex]!.type,
+			description: `Inferred ${first.slots[slotIndex]!.type} literal that varies across the observed occurrences.`,
+		};
+	});
+
+	let body = "";
+	for (let i = 0; i < first.slots.length; i++) {
+		const paramName = paramNameBySlot.get(i);
+		body += first.segments[i]! + (paramName ? `args.${paramName}` : first.slots[i]!.raw);
+	}
+	body += first.segments[first.segments.length - 1]!;
+	return { params, body };
+}
+
+/**
+ * Turn a fabrication candidate into a valid Program. Params are inferred
+ * conservatively from literals varying across the candidate's occurrence
+ * samples (see inferParams); when inference is ambiguous or there is no
+ * variance, the body is the recurring code verbatim with `params: []`. Runs
  * validateProgram and throws if the result is invalid (e.g. the recurring code
  * contained an import/require token).
  *
@@ -163,14 +337,15 @@ export function detectRecurringPatterns(
  * keeps such a body from ever being adopted (it shows no significant win).
  */
 export function proposeProgramFromCandidate(candidate: FabricationCandidate): Program {
+	const inferred = inferParams(candidate);
 	const program: Program = {
 		name: candidate.proposedName,
 		description: `Fabricated from a cell pattern recurring across ${candidate.occurrences} runs.`,
-		params: [],
+		params: inferred?.params ?? [],
 		spawns: [],
 		version: 1,
 		provenance: "fabricated-from-pattern",
-		body: candidate.code,
+		body: inferred?.body ?? candidate.code,
 	};
 	const result = validateProgram(program);
 	if (!result.ok) {
@@ -233,10 +408,8 @@ export function detectRepairCandidates(
  * proposal is a genome MUTATION and is gated exactly like any other mutation
  * (N-run A/B + canary suite); the curator NEVER deletes or merges unilaterally.
  *
- * TODO(agents/memories): the same rot analysis generalizes to agents and
- * memories, but there is no clean library-view API over those here yet. When a
- * genome-view exposes agents/memories with usage counts, extend curation to
- * cover them; for now it is scoped to programs.
+ * The same rot analysis generalizes to agents (curateAgents) and memories
+ * (curateMemories) below.
  */
 export function curatePrograms(
 	programs: Program[],
@@ -272,6 +445,145 @@ export function curatePrograms(
 			action: "consolidate",
 			targets: names,
 			rationale: `Programs ${names.map((n) => `'${n}'`).join(", ")} share a normalized body (near-duplicates).`,
+		});
+	}
+
+	return proposals;
+}
+
+/** The slice of an agent spec the curator reasons over (AgentSpec satisfies it). */
+export interface CuratedAgent {
+	name: string;
+	description: string;
+	system_prompt: string;
+}
+
+export interface AgentUsage {
+	/**
+	 * Agent names seen as DELEGATION TARGETS over the observation window — the
+	 * `agent_name` carried by collected `act_end` events. This is the only usage
+	 * signal the genome records for agents (there is no per-agent use counter);
+	 * the caller derives it from the same event stream the quartermaster's cell
+	 * observations come from.
+	 */
+	delegatedAgentNames: ReadonlySet<string>;
+}
+
+/**
+ * Normalize prose (prompts, descriptions, memory content) to a duplicate-
+ * detection key: lowercase, all whitespace runs collapsed. Same honest-heuristic
+ * stance as normalizeCellCode — it UNDER-groups paraphrases and can in principle
+ * OVER-group distinct texts that coincide after collapsing; both are acceptable
+ * because every proposal is gated before it touches the genome.
+ */
+function normalizeProseKey(text: string): string {
+	return text.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Curator pass over the agent library. Proposes:
+ *   - RETIREMENT of agents never delegated-to over the observation window
+ *     (their name never appears as an act_end delegation target), and
+ *   - CONSOLIDATION of near-duplicate agents — those whose description +
+ *     system_prompt share a normalized prose key.
+ *
+ * The `root` agent is never proposed for retirement: it is the session entry
+ * point and by design never a delegation target, so "never delegated" is not
+ * evidence of rot for it. Every proposal is a genome MUTATION gated exactly
+ * like any other (N-run A/B + canary); the curator never deletes unilaterally.
+ */
+export function curateAgents(agents: CuratedAgent[], usage: AgentUsage): CurationProposal[] {
+	const proposals: CurationProposal[] = [];
+
+	for (const agent of agents) {
+		if (agent.name === "root") continue;
+		if (!usage.delegatedAgentNames.has(agent.name)) {
+			proposals.push({
+				action: "retire",
+				targets: [agent.name],
+				rationale: `Agent '${agent.name}' was never delegated to over the observation window.`,
+			});
+		}
+	}
+
+	const byPrompt = new Map<string, string[]>();
+	for (const agent of agents) {
+		const key = normalizeProseKey(`${agent.description}\n${agent.system_prompt}`);
+		const names = byPrompt.get(key) ?? [];
+		names.push(agent.name);
+		byPrompt.set(key, names);
+	}
+	for (const names of byPrompt.values()) {
+		if (names.length < 2) continue;
+		proposals.push({
+			action: "consolidate",
+			targets: names,
+			rationale: `Agents ${names.map((n) => `'${n}'`).join(", ")} share a normalized description+prompt (near-duplicates).`,
+		});
+	}
+
+	return proposals;
+}
+
+export interface MemoryCurationOptions {
+	/** Clock for staleness checks. Default Date.now(). */
+	now?: number;
+	/** Minimum age before a never-used memory may be retired. Default 30 days. */
+	minAgeMs?: number;
+	/** Confidence at/below which a stale never-used memory may be retired. Default 0.3. */
+	maxConfidence?: number;
+}
+
+const DEFAULT_MEMORY_MIN_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+const DEFAULT_MEMORY_MAX_CONFIDENCE = 0.3;
+
+/**
+ * Curator pass over the memory store. Memories carry their own usage metadata
+ * (use_count / last_used / confidence), so no event window is needed. Proposes:
+ *   - RETIREMENT of memories that were NEVER used (use_count 0), are LOW
+ *     confidence (≤ maxConfidence), and are STALE (older than minAgeMs) — all
+ *     three must hold, deliberately conservative so a young or trusted memory
+ *     is never touched, and
+ *   - CONSOLIDATION of near-duplicate memories sharing a normalized content key.
+ *
+ * Already-archived memories are left alone (their lifecycle is done). Targets
+ * are memory IDs. Every proposal is gated like any other genome mutation.
+ */
+export function curateMemories(
+	memories: Memory[],
+	opts: MemoryCurationOptions = {},
+): CurationProposal[] {
+	const now = opts.now ?? Date.now();
+	const minAgeMs = opts.minAgeMs ?? DEFAULT_MEMORY_MIN_AGE_MS;
+	const maxConfidence = opts.maxConfidence ?? DEFAULT_MEMORY_MAX_CONFIDENCE;
+
+	const active = memories.filter((memory) => memory.archived_at === undefined);
+	const proposals: CurationProposal[] = [];
+
+	for (const memory of active) {
+		if (memory.use_count > 0) continue;
+		if (memory.confidence > maxConfidence) continue;
+		if (now - memory.created < minAgeMs) continue;
+		proposals.push({
+			action: "retire",
+			targets: [memory.id],
+			rationale: `Memory '${memory.id}' is stale (>${Math.round(minAgeMs / 86400000)}d old), never used, and low confidence.`,
+		});
+	}
+
+	const byContent = new Map<string, string[]>();
+	for (const memory of active) {
+		const key = normalizeProseKey(memory.content);
+		const ids = byContent.get(key) ?? [];
+		ids.push(memory.id);
+		byContent.set(key, ids);
+	}
+	for (const ids of byContent.values()) {
+		if (ids.length < 2) continue;
+		proposals.push({
+			action: "consolidate",
+			targets: ids,
+			rationale: `Memories ${ids.map((id) => `'${id}'`).join(", ")} share normalized content (near-duplicates).`,
 		});
 	}
 

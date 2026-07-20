@@ -245,6 +245,117 @@ describe("LearnProcess adoption chokepoint wiring", () => {
 		expect(genome.allPrograms().some((p) => p.provenance === "fabricated-from-pattern")).toBe(true);
 	});
 
+	test("a never-delegated overlay agent routes a retire_agent proposal through the chokepoint", async () => {
+		const { genome, learn, events } = await setup(
+			"agent-retire",
+			realGate((m) => m.type === "retire_agent"),
+		);
+		await genome.addAgent({
+			name: "deadwood",
+			description: "Never delegated to",
+			system_prompt: "You are unused.",
+			model: "test-provider:test-model",
+			constraints: { max_turns: 10, timeout_ms: 0, can_spawn: false, can_learn: false },
+			tags: [],
+			version: 1,
+			tools: ["read_file"],
+			agents: [],
+		});
+		expect(genome.isOverlay("deadwood")).toBe(true);
+
+		const adopted = await learn.runQuartermaster();
+		expect(adopted).toBe(true);
+		expect(genome.getAgent("deadwood")).toBeUndefined();
+
+		const gateEvents = events
+			.collected()
+			.filter((e) => e.kind === "learn_mutation" && e.data.mutation_type === "adoption_gate");
+		expect(gateEvents.some((e) => e.data.proposed === "retire_agent")).toBe(true);
+	});
+
+	test("a retire_agent proposal the gate rejects leaves the agent in the genome", async () => {
+		const { genome, learn } = await setup("agent-retire-reject", realGate(false));
+		await genome.addAgent({
+			name: "spared",
+			description: "Never delegated to",
+			system_prompt: "You are unused but the gate says keep.",
+			model: "test-provider:test-model",
+			constraints: { max_turns: 10, timeout_ms: 0, can_spawn: false, can_learn: false },
+			tags: [],
+			version: 1,
+			tools: ["read_file"],
+			agents: [],
+		});
+		const adopted = await learn.runQuartermaster();
+		expect(adopted).toBe(false);
+		expect(genome.getAgent("spared")).toBeDefined();
+	});
+
+	test("a delegated-to overlay agent is never proposed for retirement", async () => {
+		const { genome, learn, events } = await setup("agent-keep-delegated", realGate(true));
+		await genome.addAgent({
+			name: "workhorse",
+			description: "Delegated to this session",
+			system_prompt: "You do work.",
+			model: "test-provider:test-model",
+			constraints: { max_turns: 10, timeout_ms: 0, can_spawn: false, can_learn: false },
+			tags: [],
+			version: 1,
+			tools: ["read_file"],
+			agents: [],
+		});
+		events.emit("act_end", "root", 0, { agent_name: "workhorse", success: true });
+
+		await learn.runQuartermaster();
+		expect(genome.getAgent("workhorse")).toBeDefined();
+	});
+
+	test("a stale never-used low-confidence memory routes a retire_memory proposal through the chokepoint", async () => {
+		const { genome, learn, events } = await setup(
+			"memory-retire",
+			realGate((m) => m.type === "retire_memory"),
+		);
+		const staleCreated = Date.now() - 60 * 24 * 60 * 60 * 1000;
+		await genome.addMemory({
+			id: "stale-memory-1",
+			content: "A stale, never-used, low-confidence memory.",
+			tags: [],
+			source: "test",
+			created: staleCreated,
+			last_used: staleCreated,
+			use_count: 0,
+			confidence: 0.2,
+		});
+
+		const adopted = await learn.runQuartermaster();
+		expect(adopted).toBe(true);
+		const retired = genome.memories.getById("stale-memory-1");
+		expect(retired?.archived_at).toBeDefined();
+
+		const gateEvents = events
+			.collected()
+			.filter((e) => e.kind === "learn_mutation" && e.data.mutation_type === "adoption_gate");
+		expect(gateEvents.some((e) => e.data.proposed === "retire_memory")).toBe(true);
+	});
+
+	test("a retire_memory proposal the gate rejects leaves the memory active", async () => {
+		const { genome, learn } = await setup("memory-retire-reject", realGate(false));
+		const staleCreated = Date.now() - 60 * 24 * 60 * 60 * 1000;
+		await genome.addMemory({
+			id: "stale-memory-2",
+			content: "Stale but the gate says keep.",
+			tags: [],
+			source: "test",
+			created: staleCreated,
+			last_used: staleCreated,
+			use_count: 0,
+			confidence: 0.2,
+		});
+		const adopted = await learn.runQuartermaster();
+		expect(adopted).toBe(false);
+		expect(genome.memories.getById("stale-memory-2")?.archived_at).toBeUndefined();
+	});
+
 	test("runQuartermaster is inert without a gate (fabrication never bypasses the gate)", async () => {
 		const genomeDir = join(tempDir, "no-gate");
 		await cp(templateDir, genomeDir, { recursive: true });

@@ -61,6 +61,10 @@ import { attachReadySegmentEmbedding, type MemorySegment, SegmentStore } from ".
 export interface SyncRootResult {
 	added: string[];
 	conflicts: string[];
+	/** Root-shipped programs new since the last sync. */
+	addedPrograms: string[];
+	/** Programs where root changed AND the genome has an overlay (overlay wins). */
+	programConflicts: string[];
 }
 
 export interface GenomeOptions {
@@ -149,6 +153,7 @@ export class Genome {
 	private readonly agents = new Map<string, AgentSpec>();
 	private readonly rootAgents = new Map<string, AgentSpec>();
 	private readonly programs = new Map<string, Program>();
+	private readonly rootPrograms = new Map<string, Program>();
 	readonly memories: MemoryStore;
 	readonly segments: SegmentStore;
 	readonly projects: ProjectActivityStore;
@@ -201,13 +206,18 @@ export class Genome {
 		}
 	}
 
-	/** Load root agents from the rootDir. No-op if rootDir was not set. */
+	/** Load root agents and root programs from the rootDir. No-op if rootDir was not set. */
 	async loadRoot(): Promise<void> {
 		if (!this.rootDir) return;
 		const specs = await loadRootAgents(this.rootDir);
 		this.rootAgents.clear();
 		for (const spec of specs) {
 			this.rootAgents.set(spec.name, spec);
+		}
+		const { programs } = await readRootProgramsDir(this.rootDir);
+		this.rootPrograms.clear();
+		for (const program of programs) {
+			this.rootPrograms.set(program.name, program);
 		}
 	}
 
@@ -243,14 +253,18 @@ export class Genome {
 
 	// --- Programs (sap spec §7) ---
 
-	/** Look up a loaded, validated program by name. */
+	/** Look up a loaded, validated program by name. Checks overlay first, then root. */
 	getProgram(name: string): Program | undefined {
-		return this.programs.get(name);
+		return this.programs.get(name) ?? this.rootPrograms.get(name);
 	}
 
-	/** Return a copy of all loaded, validated programs. */
+	/** Return a copy of all loaded, validated programs (root + overlay merged, overlay wins). */
 	allPrograms(): Program[] {
-		return [...this.programs.values()];
+		const merged = new Map<string, Program>(this.rootPrograms);
+		for (const [name, program] of this.programs) {
+			merged.set(name, program);
+		}
+		return [...merged.values()];
 	}
 
 	/**
@@ -275,9 +289,17 @@ export class Genome {
 		this._generation++;
 	}
 
-	/** Remove a program: delete its markdown file, commit, and drop it from the library. */
+	/**
+	 * Remove an overlay program: delete its markdown file, commit, and drop it
+	 * from the library. Only overlay programs can be removed — root-only programs
+	 * are immutable (mirroring removeAgent). If the overlay shadowed a root
+	 * program, the root version re-appears.
+	 */
 	async removeProgram(name: string): Promise<void> {
 		if (!this.programs.has(name)) {
+			if (this.rootPrograms.has(name)) {
+				throw new Error(`Cannot remove program '${name}': it is a root program (not in overlay)`);
+			}
 			throw new Error(`Cannot remove program '${name}': not found`);
 		}
 		const mdPath = join(this.rootPath, "programs", `${name}.md`);
@@ -933,6 +955,43 @@ export class Genome {
 		});
 	}
 
+	/**
+	 * Retire a memory: archive it (the memory lifecycle's retirement idiom —
+	 * physical removal happens later via compactMemoryLog) and commit. This is a
+	 * genome (evolvable) write reachable only through the gated Learn adoption
+	 * path (retire_memory in learn-process.ts).
+	 */
+	async retireMemory(id: string, reason: string): Promise<void> {
+		const memoriesPath = join(this.rootPath, "memories", "memories.jsonl");
+		await this.withMemoryWriteLock(async () => {
+			await this.memories.load();
+			const memory = this.memories.getById(id);
+			if (!memory) {
+				throw new Error(`Cannot retire memory '${id}': not found`);
+			}
+			if (memory.archived_at !== undefined) return;
+			const now = Date.now();
+			memory.archived_at = now;
+			memory.archived_reason = reason;
+			memory.updated_at = now;
+			const snapshots = await snapshotTextFiles([memoriesPath]);
+			let committed = false;
+			try {
+				await this.memories.save();
+				await git(this.rootPath, "add", memoriesPath);
+				await rebuildMemoryIndexFromJsonl(this.rootPath, { assumeMemoryWriteLock: true });
+				await git(this.rootPath, "commit", "-m", `genome: retire memory '${id}'`);
+				committed = true;
+			} catch (error) {
+				if (!committed) {
+					await restoreUncommittedMemoryMutation(this.rootPath, snapshots, [memoriesPath]);
+					await this.memories.load();
+				}
+				throw error;
+			}
+		});
+	}
+
 	private async withMemoryWriteLock<T>(fn: () => Promise<T>): Promise<T> {
 		const lockDir = join(this.rootPath, ".cache", "memory-write.lock");
 		await mkdir(join(this.rootPath, ".cache"), { recursive: true });
@@ -1209,14 +1268,24 @@ export class Genome {
 			throw new Error("Cannot initFromRoot: root agents already loaded");
 		}
 		const { specs, rawContentByName } = await readRootDir(this.rootDir);
+		const rootProgramRead = await readRootProgramsDir(this.rootDir);
 
 		// Populate rootAgents so getAgent/allAgents resolve from root
 		for (const spec of specs) {
 			this.rootAgents.set(spec.name, spec);
 		}
+		// Populate rootPrograms so getProgram/allPrograms resolve from root
+		this.rootPrograms.clear();
+		for (const program of rootProgramRead.programs) {
+			this.rootPrograms.set(program.name, program);
+		}
 
 		// Build and save manifest (tracks root state for future syncRoot)
-		const manifest = buildManifestFromSpecs(specs, rawContentByName);
+		const manifest = buildManifestFromSpecs(
+			specs,
+			rawContentByName,
+			rootProgramEntries(rootProgramRead),
+		);
 		const manifestPath = join(this.rootPath, "bootstrap-manifest.json");
 		await saveManifest(manifestPath, manifest);
 
@@ -1238,16 +1307,41 @@ export class Genome {
 		const manifestPath = join(this.rootPath, "bootstrap-manifest.json");
 		const oldManifest = await loadManifest(manifestPath);
 		const { specs, rawContentByName } = await readRootDir(this.rootDir);
-		const newManifest = buildManifestFromSpecs(specs, rawContentByName);
+		const rootProgramRead = await readRootProgramsDir(this.rootDir);
+		const newManifest = buildManifestFromSpecs(
+			specs,
+			rawContentByName,
+			rootProgramEntries(rootProgramRead),
+		);
 
 		// Refresh rootAgents from the already-read specs (avoids re-reading root dir)
 		this.rootAgents.clear();
 		for (const spec of specs) {
 			this.rootAgents.set(spec.name, spec);
 		}
+		// Refresh rootPrograms the same way (unmodified programs auto-resolve from root)
+		this.rootPrograms.clear();
+		for (const program of rootProgramRead.programs) {
+			this.rootPrograms.set(program.name, program);
+		}
 
 		const added: string[] = [];
 		const conflicts: string[] = [];
+		const addedPrograms: string[] = [];
+		const programConflicts: string[] = [];
+
+		for (const program of rootProgramRead.programs) {
+			const oldEntry = oldManifest.programs?.[program.name];
+			const newEntry = newManifest.programs?.[program.name];
+			if (!newEntry) continue;
+			if (!oldEntry) {
+				addedPrograms.push(program.name);
+			} else if (newEntry.hash !== oldEntry.hash && this.programs.has(program.name)) {
+				// Root changed AND genome has an overlay program — conflict (overlay wins)
+				programConflicts.push(program.name);
+			}
+			// All other cases: root auto-reflects (no overlay), or root unchanged.
+		}
 
 		for (const spec of specs) {
 			const overlayAgent = this.agents.get(spec.name);
@@ -1278,6 +1372,7 @@ export class Genome {
 		// Use sorted keys for agents object since readdir order isn't deterministic.
 		const manifestChanged =
 			stableStringify(oldManifest.agents) !== stableStringify(newManifest.agents) ||
+			stableStringify(oldManifest.programs ?? {}) !== stableStringify(newManifest.programs ?? {}) ||
 			JSON.stringify(oldManifest.rootTools) !== JSON.stringify(newManifest.rootTools) ||
 			JSON.stringify(oldManifest.rootAgents) !== JSON.stringify(newManifest.rootAgents);
 
@@ -1295,8 +1390,11 @@ export class Genome {
 
 		const parts: string[] = [];
 		if (added.length > 0) parts.push(`added: ${added.join(", ")}`);
+		if (addedPrograms.length > 0) parts.push(`added programs: ${addedPrograms.join(", ")}`);
 		if (toolsAgentsMerged) parts.push("tools/agents merged");
 		if (conflicts.length > 0) parts.push(`conflicts: ${conflicts.join(", ")}`);
+		if (programConflicts.length > 0)
+			parts.push(`program conflicts: ${programConflicts.join(", ")}`);
 
 		if (filesToStage.length > 0) {
 			await git(this.rootPath, "add", ...filesToStage);
@@ -1305,7 +1403,7 @@ export class Genome {
 			await git(this.rootPath, "commit", "-m", commitMsg);
 		}
 
-		return { added, conflicts };
+		return { added, conflicts, addedPrograms, programConflicts };
 	}
 
 	/**
@@ -1691,6 +1789,63 @@ async function readTextFileSnapshot(path: string): Promise<TextFileSnapshot> {
 		}
 		throw err;
 	}
+}
+
+interface RootProgramsRead {
+	programs: Program[];
+	rawContentByName: Map<string, string>;
+}
+
+/**
+ * Read root-shipped starter programs from <rootDir>/programs/*.md. Every
+ * program passes the SAME parse + validateProgram (incl. the lexical
+ * import/require scan) as genome-loaded programs — root shipping is not an
+ * exemption from the code-mode no-exec invariant. An invalid program is
+ * rejected loudly (warn + skip, matching agent-load tolerance) and excluded
+ * from both the live library and the manifest.
+ */
+async function readRootProgramsDir(rootDir: string): Promise<RootProgramsRead> {
+	const programsDir = join(rootDir, "programs");
+	let files: string[];
+	try {
+		files = (await readdir(programsDir)).filter((f) => f.endsWith(".md"));
+	} catch {
+		return { programs: [], rawContentByName: new Map() };
+	}
+
+	const programs: Program[] = [];
+	const rawContentByName = new Map<string, string>();
+	for (const file of files) {
+		const filePath = join(programsDir, file);
+		const content = await readFile(filePath, "utf-8");
+		try {
+			const program = parseProgramMarkdown(content, filePath);
+			const check = validateProgram(program);
+			if (!check.ok) {
+				throw new Error(check.reason);
+			}
+			programs.push(program);
+			rawContentByName.set(program.name, content);
+		} catch (err) {
+			console.warn(
+				`genome: skipping invalid root program ${filePath}: ${
+					err instanceof Error ? err.message : String(err)
+				}`,
+			);
+		}
+	}
+	return { programs, rawContentByName };
+}
+
+/** Shape root program reads for buildManifestFromSpecs' program hash tracking. */
+function rootProgramEntries(
+	read: RootProgramsRead,
+): Array<{ name: string; version: number; content: string }> {
+	return read.programs.map((program) => ({
+		name: program.name,
+		version: program.version,
+		content: read.rawContentByName.get(program.name) ?? "",
+	}));
 }
 
 /** JSON.stringify with sorted keys for deterministic comparison regardless of key insertion order. */

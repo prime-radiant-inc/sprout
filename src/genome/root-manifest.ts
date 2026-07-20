@@ -10,6 +10,8 @@ export interface RootManifestEntry {
 export interface RootManifest {
 	synced_at: string;
 	agents: Record<string, RootManifestEntry>;
+	/** Root-shipped starter programs at last sync (same hash tracking as agents). */
+	programs?: Record<string, RootManifestEntry>;
 	/** Tools from the root agent at last sync. */
 	rootTools?: string[];
 	/** Agents (delegation refs) from the root agent at last sync. */
@@ -56,6 +58,7 @@ export async function saveManifest(path: string, manifest: RootManifest): Promis
 export function buildManifestFromSpecs(
 	specs: ReadonlyArray<{ name: string; version: number; tools?: string[]; agents?: string[] }>,
 	rawContentByName: ReadonlyMap<string, string>,
+	programEntries?: ReadonlyArray<{ name: string; version: number; content: string }>,
 ): RootManifest {
 	const agents: Record<string, RootManifestEntry> = {};
 	let rootTools: string[] | undefined;
@@ -73,12 +76,24 @@ export function buildManifestFromSpecs(
 		}
 	}
 
+	let programs: Record<string, RootManifestEntry> | undefined;
+	if (programEntries !== undefined) {
+		programs = {};
+		for (const entry of programEntries) {
+			programs[entry.name] = {
+				hash: hashFileContent(entry.content),
+				version: entry.version,
+			};
+		}
+	}
+
 	return {
 		// Timestamp records when this manifest was built, not when it was saved.
 		// syncRoot only persists the manifest when actual changes occur,
 		// so this doesn't cause needless git commits on no-op syncs.
 		synced_at: new Date().toISOString(),
 		agents,
+		...(programs !== undefined ? { programs } : {}),
 		rootTools,
 		rootAgents,
 	};

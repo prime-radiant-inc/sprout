@@ -61,9 +61,17 @@ Fable review in fresh context → fix findings → commit → update this plan. 
   complete() and stream() (proven live: canary now CATCHES a real streamed leak). Also fixed the
   gate-tier leak tasks (sentinel-in-goal made them always-leak; now random secret + per-run
   materialization, canary-style). Live path proven against real haiku. Full suite 3997 pass.
-- [ ] **Phase 5 — Live integrity wiring + the capability number.** Swap `evaluateImprovement` to
-  the N-run A/B gate; wire quartermaster fabrication/repair/curation through A/B + canary gates;
-  wire canary rollback; run the multi-task/multi-model eval and record the real number vs baseline.
+- [x] **Phase 5 — Live integrity wiring + measurement.** DONE + Fable-reviewed twice (wiring: no
+  HIGH, gates are the sole adoption path, quartermaster fails closed; live gate: sound, its one
+  MEDIUM — candidate genome missing rootDir made gated root-agent updates error — fixed + tested).
+  Chokepoint `evaluateMutationForAdoption` (canary regression rejects before the A/B is consulted);
+  `adoptMutation` gate-before-apply in learn-process; opt-in production gate
+  `createSnapshotMutationGate` behind SPROUT_MUTATION_GATE=1 (default off; snapshots the live
+  genome twice, mutates the candidate copy only, live genome proven untouched). Live measurement
+  recorded above (gate calibration passed on real variance; keystone canary caught a real
+  narration leak; sonnet-5 sap tier 30/30). Known non-blocker notes from review: tui
+  model-picker test is order-dependent (flake, pre-existing); learn/ host-free-ness is convention
+  not enforced by the architecture test; a snapshot tempdir can leak on a mid-setup error.
 - [ ] **Phase 6 — Curator generalization + parameterization + root sync.** Curate agents/memories;
   infer typed params in fabrication; `programs/` in bootstrap manifest + `syncRoot`.
 - [ ] **Phase 7 — Security hardening.** Per-session sub-call/token budget; script-tool

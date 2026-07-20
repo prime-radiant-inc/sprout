@@ -511,6 +511,28 @@ describe("Genome", () => {
 			}
 		});
 
+		test("retireMemory archives the memory with a reason and commits", async () => {
+			const root = join(tempDir, "mem-retire");
+			const genome = await createInitializedGenome(root);
+			await genome.addMemory(makeMemory({ id: "retire-me", content: "obsolete fact" }));
+
+			await genome.retireMemory("retire-me", "curator-retired");
+
+			const retired = genome.memories.getById("retire-me");
+			expect(retired?.archived_at).toBeDefined();
+			expect(retired?.archived_reason).toBe("curator-retired");
+
+			const log = await git(root, "log", "--oneline");
+			expect(log).toContain("genome: retire memory 'retire-me'");
+			expect(await git(root, "status", "--porcelain")).toBe("");
+		});
+
+		test("retireMemory throws for a missing memory", async () => {
+			const root = join(tempDir, "mem-retire-missing");
+			const genome = await createInitializedGenome(root);
+			await expect(genome.retireMemory("no-such", "curator-retired")).rejects.toThrow("not found");
+		});
+
 		test("addMemories rolls back in-memory state when batch validation fails", async () => {
 			const root = join(tempDir, "mem-add-batch-rollback");
 			const genome = await createInitializedGenome(root);
@@ -1407,6 +1429,141 @@ describe("Genome", () => {
 			// Genome overlay is preserved (not overwritten)
 			expect(genome.getAgent("contested")!.description).toBe("Genome evolved");
 			expect(genome.getAgent("contested")!.version).toBe(2);
+		});
+
+		async function writeRootProgramMd(dir: string, name: string, body: string): Promise<void> {
+			const programsDir = join(dir, "programs");
+			await mkdir(programsDir, { recursive: true });
+			await writeFile(
+				join(programsDir, `${name}.md`),
+				`---\nname: ${name}\ndescription: ${name} program\nversion: 1\n---\n${body}\n`,
+			);
+		}
+
+		test("a root-shipped program syncs into a fresh genome and loads as programs.<name>", async () => {
+			const rootDir = join(tempDir, "sync-programs-add-bs");
+			await mkdir(rootDir, { recursive: true });
+			await writeRootMd(rootDir, "alpha");
+			await writeRootProgramMd(rootDir, "starter", 'return bind("out", args);');
+
+			const root = join(tempDir, "sync-programs-add");
+			const genome = await createInitializedGenome(root, rootDir);
+			await genome.loadRoot();
+
+			const result = await genome.syncRoot();
+			expect(result.addedPrograms).toEqual(["starter"]);
+			expect(result.programConflicts).toEqual([]);
+
+			expect(genome.getProgram("starter")).toBeDefined();
+			expect(genome.allPrograms().some((p) => p.name === "starter")).toBe(true);
+
+			const manifest = await loadManifest(join(root, "bootstrap-manifest.json"));
+			expect(manifest.programs?.starter).toBeDefined();
+		});
+
+		test("an import-bearing root program is rejected loudly and never loads", async () => {
+			const rootDir = join(tempDir, "sync-programs-evil-bs");
+			await mkdir(rootDir, { recursive: true });
+			await writeRootMd(rootDir, "alpha");
+			await writeRootProgramMd(rootDir, "evil", 'await import("node:child_process");');
+
+			const root = join(tempDir, "sync-programs-evil");
+			const genome = await createInitializedGenome(root, rootDir);
+			const warnings: string[] = [];
+			const originalWarn = console.warn;
+			console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
+			try {
+				await genome.loadRoot();
+				await genome.syncRoot();
+			} finally {
+				console.warn = originalWarn;
+			}
+
+			expect(genome.getProgram("evil")).toBeUndefined();
+			expect(warnings.some((w) => w.includes("evil"))).toBe(true);
+		});
+
+		test("re-sync with unchanged root programs is a no-op with a clean tree", async () => {
+			const rootDir = join(tempDir, "sync-programs-noop-bs");
+			await mkdir(rootDir, { recursive: true });
+			await writeRootMd(rootDir, "alpha");
+			await writeRootProgramMd(rootDir, "stable_prog", "return size('x');");
+
+			const root = join(tempDir, "sync-programs-noop");
+			const genome = await createInitializedGenome(root, rootDir);
+			await genome.loadRoot();
+
+			const first = await genome.syncRoot();
+			expect(first.addedPrograms).toEqual(["stable_prog"]);
+
+			const second = await genome.syncRoot();
+			expect(second.addedPrograms).toEqual([]);
+			expect(second.programConflicts).toEqual([]);
+			expect(await git(root, "status", "--porcelain")).toBe("");
+		});
+
+		test("root program change conflicts with a genome overlay program; overlay wins", async () => {
+			const rootDir = join(tempDir, "sync-programs-conflict-bs");
+			await mkdir(rootDir, { recursive: true });
+			await writeRootMd(rootDir, "alpha");
+			await writeRootProgramMd(rootDir, "contested_prog", "return get('v1');");
+
+			const root = join(tempDir, "sync-programs-conflict");
+			const genome = await createInitializedGenome(root, rootDir);
+			await genome.loadRoot();
+			await genome.syncRoot();
+
+			// Genome evolves its own version (overlay).
+			await genome.addProgram({
+				name: "contested_prog",
+				description: "genome evolved",
+				params: [],
+				spawns: [],
+				version: 2,
+				body: "return get('evolved');",
+			});
+
+			// Root also changes.
+			await writeRootProgramMd(rootDir, "contested_prog", "return get('v2');");
+
+			const result = await genome.syncRoot();
+			expect(result.programConflicts).toEqual(["contested_prog"]);
+			expect(result.addedPrograms).toEqual([]);
+
+			// Overlay is preserved (overlay wins over root, same as agents).
+			expect(genome.getProgram("contested_prog")!.body).toBe("return get('evolved');");
+		});
+
+		test("root change auto-reflects for a program with no overlay", async () => {
+			const rootDir = join(tempDir, "sync-programs-autoreflect-bs");
+			await mkdir(rootDir, { recursive: true });
+			await writeRootMd(rootDir, "alpha");
+			await writeRootProgramMd(rootDir, "drifting", "return get('old');");
+
+			const root = join(tempDir, "sync-programs-autoreflect");
+			const genome = await createInitializedGenome(root, rootDir);
+			await genome.loadRoot();
+			await genome.syncRoot();
+			expect(genome.getProgram("drifting")!.body).toBe("return get('old');");
+
+			await writeRootProgramMd(rootDir, "drifting", "return get('new');");
+			const result = await genome.syncRoot();
+			expect(result.programConflicts).toEqual([]);
+			expect(genome.getProgram("drifting")!.body).toBe("return get('new');");
+		});
+
+		test("removeProgram refuses to remove a root-only program", async () => {
+			const rootDir = join(tempDir, "sync-programs-remove-bs");
+			await mkdir(rootDir, { recursive: true });
+			await writeRootMd(rootDir, "alpha");
+			await writeRootProgramMd(rootDir, "immovable", "return size('x');");
+
+			const root = join(tempDir, "sync-programs-remove");
+			const genome = await createInitializedGenome(root, rootDir);
+			await genome.loadRoot();
+			await genome.syncRoot();
+
+			await expect(genome.removeProgram("immovable")).rejects.toThrow("root program");
 		});
 
 		test("preserves genome evolution when root unchanged", async () => {
