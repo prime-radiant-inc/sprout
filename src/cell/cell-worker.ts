@@ -6,6 +6,11 @@
  * lease: when the owner dies the pipe closes, the line loop ends, and the
  * worker exits.
  *
+ * The realm itself lives behind the CellEngine seam (cell-engine.ts): node:vm
+ * today, QuickJS-WASM at P3 cutover. This module owns everything
+ * engine-agnostic — the line protocol, ambient correlation, infra-error
+ * identity bookkeeping, console buffering, and return serialization.
+ *
  * Protocol (stdio JSONL, mirroring the store worker, plus worker-initiated
  * ambient requests):
  *   parent → worker: { id, op: "cell", code }
@@ -14,15 +19,10 @@
  *   worker → parent: { id, op: "result", ok, output, returnValue?, error? }
  */
 
-import vm from "node:vm";
+import type { WorkerProgram } from "./cell-bootstrap.ts";
+import { type CellEngine, createCellEngine, resolveCellEngineName } from "./cell-engine.ts";
 
-/**
- * A genome program made available to the cell realm (spec §7): its name and JS
- * body. The worker builds `programs.<name>(args)` from these in the realm
- * bootstrap — the body runs in the SAME vm context with the SAME ambient API as
- * cell code, no host constructor leak.
- */
-export type WorkerProgram = { name: string; body: string };
+export { AMBIENT_METHODS, type WorkerProgram } from "./cell-bootstrap.ts";
 
 export type CellWorkerRequest = {
 	id: string;
@@ -54,189 +54,6 @@ export type CellWorkerMessage =
 			/** True only when the terminal error IS a host infrastructure error. */
 			infrastructure?: boolean;
 	  };
-
-/** Ambient API methods proxied to the parent (value ops; spawn is Slice B). */
-export const AMBIENT_METHODS = [
-	"bind",
-	"publish",
-	"peek",
-	"slice",
-	"lines",
-	"grep",
-	"parse",
-	"size",
-	"get",
-] as const;
-
-/**
- * The cell realm (spec §4). Cell code runs inside a fresh V8 context created by
- * `node:vm` — its `globalThis`, `Function`, `eval`, and constructor chain all
- * resolve to THAT context, so `Function("return process")()`,
- * `eval("Bun")`, and `({}).constructor.constructor("return globalThis")()` all
- * evaluate against the sandbox global, which has no Bun/process/require/fetch.
- * Shadowing globals as parameters (the old `new Function` realm) was cosmetic —
- * those escapes reached the host scope. A vm context is the real boundary.
- *
- * The sandbox exposes ONLY the ambient API, console, timers, and a
- * context-native structuredClone. The standard JS intrinsics (Object, Array,
- * JSON, Math, Promise, Map, Set, Date, RegExp, Error, ...) already exist in the
- * fresh context's global — we do NOT copy host ones in (that would re-introduce
- * the host constructor chain, the whole bug). Bun's fresh context omits
- * structuredClone, TextEncoder/Decoder, and timers, so those we add: timers as
- * sealed wrappers over the host's (see below), structuredClone as pure
- * context-source JS. TextEncoder/Decoder are NOT provided — no cell path needs
- * raw byte encoding (get() yields strings), and a sealed reimplementation would
- * be dead weight.
- *
- * The bootstrap runs BEFORE cell code and installs everything from source
- * (inside the context) over three host bridges passed via the sandbox:
- * __hostCall__ (proxy an ambient op), __hostLog__ (append console output), and
- * __hostTimers__ (schedule/cancel). All three are captured in a bootstrap
- * closure and then deleted from the context global, so cell code cannot reach
- * the raw host functions to walk their constructor chain. Ambient results are
- * JSON-severed inside the context (host promises/objects never leak their
- * prototype to the cell), and timer ids are opaque context integers mapping to
- * host timer handles held in the closure.
- *
- * SECURITY POSTURE — THE node:vm CEILING (Phase 7, for operators and
- * reviewers): this realm is a confused-deputy bar, NOT a hard sandbox. What it
- * guarantees is that correctly-executing JS in the cell cannot reach host
- * capabilities: no Bun/process/require/fetch, no store credentials, no channel
- * token — every effect flows through the parent-mediated ambient API at cell
- * privilege. What it does NOT guarantee is containment of a determined
- * attacker who brings a V8/JSC engine exploit: the worker is a same-UID
- * process sharing the engine with its own host-side JS, and node:vm is
- * documented as not a security mechanism against hostile code with an engine
- * escape. In that scenario this boundary fails OPEN. The fails-closed design
- * is the QuickJS-WASM port (interpreter compiled to WASM, engine bugs land
- * inside the WASM heap), tracked as GitHub issue prime-radiant-inc/sprout#1.
- */
-function buildCellBootstrap(): string {
-	const ambientList = JSON.stringify([...AMBIENT_METHODS]);
-	return `
-"use strict";
-(function (hostCall, hostLog, hostTimers) {
-	const AMBIENT = ${ambientList};
-	const sever = (r) => (r === undefined ? undefined : JSON.parse(JSON.stringify(r)));
-	const callAmbient = async (method, args) => sever(await hostCall(method, args));
-	for (const method of AMBIENT) {
-		globalThis[method] = (...args) => callAmbient(method, args);
-	}
-	const mkLog = () => (...args) => { hostLog(args); };
-	globalThis.console = { log: mkLog(), warn: mkLog(), error: mkLog() };
-
-	function wrapOutcome(wire) {
-		const handle = makeHandle(wire.handleId);
-		if (wire.kind === "started") return { handle };
-		return { ok: wire.ok, summary: wire.summary, bindings: wire.bindings, handle };
-	}
-	function makeHandle(hid) {
-		return {
-			id: hid,
-			wait: async () => wrapOutcome(await callAmbient("handle_wait", [hid])),
-			message: async (text, opts) => wrapOutcome(await callAmbient("handle_message", [hid, text, opts])),
-			future: async (name) => callAmbient("handle_future", [hid, name]),
-		};
-	}
-	globalThis.spawn = async (agent, goal, opts) => wrapOutcome(await callAmbient("spawn", [agent, goal, opts]));
-	globalThis.handle = (hid) => {
-		if (typeof hid !== "string") throw new Error("handle(id): id must be a string");
-		return makeHandle(hid);
-	};
-
-	let timerSeq = 0;
-	const liveTimers = new Map();
-	globalThis.setTimeout = (fn, ms, ...a) => {
-		const key = ++timerSeq;
-		const t = hostTimers.setTimeout(() => { liveTimers.delete(key); fn(...a); }, ms);
-		liveTimers.set(key, t);
-		return key;
-	};
-	globalThis.setInterval = (fn, ms, ...a) => {
-		const key = ++timerSeq;
-		const t = hostTimers.setInterval(() => fn(...a), ms);
-		liveTimers.set(key, t);
-		return key;
-	};
-	globalThis.clearTimeout = (key) => {
-		const t = liveTimers.get(key);
-		if (t !== undefined) { hostTimers.clearTimeout(t); liveTimers.delete(key); }
-	};
-	globalThis.clearInterval = (key) => {
-		const t = liveTimers.get(key);
-		if (t !== undefined) { hostTimers.clearInterval(t); liveTimers.delete(key); }
-	};
-
-	globalThis.structuredClone = function structuredClone(value, seen) {
-		if (value === null || typeof value !== "object") return value;
-		seen = seen || new WeakMap();
-		if (seen.has(value)) return seen.get(value);
-		if (value instanceof Date) return new Date(value.getTime());
-		if (value instanceof RegExp) return new RegExp(value.source, value.flags);
-		if (Array.isArray(value)) {
-			const out = [];
-			seen.set(value, out);
-			for (let i = 0; i < value.length; i++) out[i] = structuredClone(value[i], seen);
-			return out;
-		}
-		if (value instanceof Map) {
-			const out = new Map();
-			seen.set(value, out);
-			for (const [k, v] of value) out.set(structuredClone(k, seen), structuredClone(v, seen));
-			return out;
-		}
-		if (value instanceof Set) {
-			const out = new Set();
-			seen.set(value, out);
-			for (const v of value) out.add(structuredClone(v, seen));
-			return out;
-		}
-		const out = {};
-		seen.set(value, out);
-		for (const k of Object.keys(value)) out[k] = structuredClone(value[k], seen);
-		return out;
-	};
-})(__hostCall__, __hostLog__, __hostTimers__);
-delete globalThis.__hostCall__;
-delete globalThis.__hostLog__;
-delete globalThis.__hostTimers__;
-`;
-}
-
-const CELL_BOOTSTRAP = buildCellBootstrap();
-
-/**
- * Build the `programs` namespace bootstrap (spec §7). Runs in-context AFTER the
- * ambient bootstrap: each program becomes `programs.<name> = async (args) =>
- * { <body> }`, so the body reads its typed params off `args` and reaches the
- * value/spawn API through the same context globals cell code uses. Program
- * names are validated [a-z0-9_] at the genome gate, so the key interpolation is
- * a real identifier-charset string; the body is model-written genome code that
- * already passed the lexical import/require scan, and runs at the same privilege
- * as the cell that invokes it (fresh context per cell).
- */
-/**
- * Program bodies are injected verbatim, trusting the lexical import/require scan
- * already run at genome validation AND load (validateProgram). The `programs`
- * field is parent/CellHost-supplied, never model-supplied, so there is no
- * model-reachable path to inject an unscanned body here. Bodies run in the same
- * confined realm as the cell, at exactly cell privilege.
- */
-function buildProgramsBootstrap(programs: WorkerProgram[]): string {
-	const assignments = programs
-		.map(
-			(program) =>
-				`\tprograms[${JSON.stringify(program.name)}] = async (args = {}) => {\n${program.body}\n\t};`,
-		)
-		.join("\n");
-	return `"use strict";
-(function () {
-	const programs = {};
-${assignments}
-	globalThis.programs = programs;
-})();
-`;
-}
 
 /**
  * Lexical gate (spec §4, frozen): any `import` or `require` token occurrence
@@ -312,6 +129,8 @@ export interface RunCellWorkerInput {
 	lines: AsyncIterable<string | Uint8Array>;
 	/** Emit one message line (newline handled by the caller's transport). */
 	write: (line: string) => void;
+	/** Engine override for tests; defaults to SPROUT_CELL_ENGINE (vm). */
+	engine?: CellEngine;
 }
 
 /**
@@ -322,6 +141,7 @@ export interface RunCellWorkerInput {
  * second cell arriving while one runs is refused loudly rather than queued.
  */
 export async function runCellWorker(input: RunCellWorkerInput): Promise<void> {
+	const engine = input.engine ?? (await createCellEngine(resolveCellEngineName()));
 	const pendingAmbient = new Map<
 		string,
 		{ resolve: (result: unknown) => void; reject: (err: Error) => void }
@@ -348,52 +168,32 @@ export async function runCellWorker(input: RunCellWorkerInput): Promise<void> {
 			input.write(JSON.stringify({ id, op: "result", ok: false, output: "", error: rejection }));
 			return;
 		}
-		try {
-			// The realm: a fresh V8 context (node:vm). The bootstrap installs the
-			// ambient API, console, timers, and structuredClone from source INSIDE
-			// the context over host bridges that are deleted after capture; cell
-			// code then runs in an async IIFE (so top-level await works) whose
-			// Function/eval/constructor chain all resolve context-locally. The
-			// cell's value is its `return` statement — a documented simplification
-			// (a true completion-value REPL needs eval, which the realm bans).
-			const sandbox: Record<string, unknown> = {
-				__hostCall__: (method: string, args: unknown[]) => callAmbient(method, args),
-				__hostLog__: (args: unknown[]) => consoleBuffer.append(args),
-				__hostTimers__: {
-					setTimeout: (fn: () => void, ms?: number) => setTimeout(fn, ms),
-					setInterval: (fn: () => void, ms?: number) => setInterval(fn, ms),
-					clearTimeout: (t: ReturnType<typeof setTimeout>) => clearTimeout(t),
-					clearInterval: (t: ReturnType<typeof setInterval>) => clearInterval(t),
-				},
-			};
-			const context = vm.createContext(sandbox);
-			vm.runInContext(CELL_BOOTSTRAP, context);
-			if (programs !== undefined && programs.length > 0) {
-				vm.runInContext(buildProgramsBootstrap(programs), context);
-			}
-			const value: unknown = await vm.runInContext(
-				`"use strict";\n(async () => {\n${code}\n})();`,
-				context,
-			);
+		const result = await engine.runCell({
+			code,
+			programs,
+			callAmbient,
+			isInfraError: (err) => typeof err === "object" && err !== null && infraErrors.has(err),
+			log: (args) => consoleBuffer.append(args),
+		});
+		if (result.ok) {
 			const message: CellWorkerMessage = {
 				id,
 				op: "result",
 				ok: true,
 				output: consoleBuffer.contents(),
 			};
-			const returnValue = serializeReturnValue(value);
+			const returnValue = serializeReturnValue(result.value);
 			if (returnValue !== undefined) message.returnValue = returnValue;
 			input.write(JSON.stringify(message));
-		} catch (err) {
-			const infrastructure = typeof err === "object" && err !== null && infraErrors.has(err);
+		} else {
 			input.write(
 				JSON.stringify({
 					id,
 					op: "result",
 					ok: false,
 					output: consoleBuffer.contents(),
-					error: err instanceof Error ? err.message : String(err),
-					...(infrastructure ? { infrastructure: true } : {}),
+					error: result.error,
+					...(result.infrastructure ? { infrastructure: true } : {}),
 				}),
 			);
 		}

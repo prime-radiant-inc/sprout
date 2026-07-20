@@ -1,0 +1,64 @@
+/**
+ * The engine seam (QuickJS spec, 2026-07-20): a cell engine owns ONE thing —
+ * executing already-gated cell code inside an isolated realm wired to the
+ * worker's ambient bridges. Everything else in the worker (line protocol,
+ * ambient correlation, infra-error bookkeeping, console formatting, return
+ * serialization, the lexical gate) is engine-agnostic and lives outside.
+ *
+ * TEMPORARY SCAFFOLD: the vm/quickjs selector exists only for the P1–P2
+ * dual-engine build window. At P3 cutover the selector and the node:vm engine
+ * are deleted together (spec: no dual-engine ship, no compatibility flag).
+ */
+
+import type { WorkerProgram } from "./cell-bootstrap.ts";
+
+export type CellEngineResult =
+	| { ok: true; value: unknown }
+	| { ok: false; error: string; infrastructure: boolean };
+
+export interface CellEngineRequest {
+	/** Cell source, already past the lexical import/require gate. */
+	code: string;
+	/** Genome programs to install as `programs.<name>` in the realm. */
+	programs?: WorkerProgram[];
+	/** Proxy one ambient op to the parent; rejects with the worker's Error. */
+	callAmbient(method: string, args: unknown[]): Promise<unknown>;
+	/** True when the given rejection IS a host infrastructure error (identity). */
+	isInfraError(err: unknown): boolean;
+	/** Append one console call's args to the cell's output buffer. */
+	log(args: unknown[]): void;
+}
+
+export interface CellEngine {
+	runCell(request: CellEngineRequest): Promise<CellEngineResult>;
+}
+
+/** Env knob selecting the engine during the migration window. */
+export const CELL_ENGINE_ENV = "SPROUT_CELL_ENGINE";
+
+export type CellEngineName = "vm" | "quickjs";
+
+export function resolveCellEngineName(
+	env: Record<string, string | undefined> = process.env,
+): CellEngineName {
+	const name = env[CELL_ENGINE_ENV] ?? "vm";
+	if (name !== "vm" && name !== "quickjs") {
+		throw new Error(`${CELL_ENGINE_ENV} must be "vm" or "quickjs", got "${name}"`);
+	}
+	return name;
+}
+
+/**
+ * Instantiate an engine by name. Dynamic imports on both arms: the QuickJS
+ * singlefile module embeds the wasm as base64 (~3 MB of JS) and must not load
+ * into vm-engine workers; keeping both arms dynamic also keeps this module
+ * import-cycle-free.
+ */
+export async function createCellEngine(name: CellEngineName): Promise<CellEngine> {
+	if (name === "quickjs") {
+		const { QuickJSCellEngine } = await import("./quickjs-engine.ts");
+		return new QuickJSCellEngine();
+	}
+	const { VmCellEngine } = await import("./vm-engine.ts");
+	return new VmCellEngine();
+}
