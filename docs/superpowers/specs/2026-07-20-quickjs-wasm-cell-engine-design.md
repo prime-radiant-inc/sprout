@@ -172,7 +172,8 @@ that ships.
 ## Phases
 
 **P1 — Engine bring-up.** Wasm module + per-cell runtime lifecycle in cell-worker; host-fn
-bridges; bootstrap + programs bootstrap running as in-context source; async model (a) wired;
+bridges; bootstrap + programs bootstrap running as in-context source; async model (b) wired,
+including the pump-loop deadlock detector;
 full cell suite (`test/cell`, cell-related `test/agents` slices) green under
 `SPROUT_CELL_ENGINE=quickjs`. Fable review.
 
@@ -206,7 +207,8 @@ on real payload bytes** under QuickJS; perf benchmark (below); then delete the `
 
 ## Risks (honest)
 
-- **Asyncify overhead** on ambient-heavy cells — measured at P1; fallback (b) designed.
+- **Pump-loop correctness** (the (b) hang case) — covered by the P1 deadlock detector; the
+  Asyncify fallback (a) exists only if a synchronous host call ever proves necessary.
 - **JS-surface deltas** (intrinsics/edge semantics between JSC and QuickJS) — the suite and
   the bootstrap's from-source installs (structuredClone, timers) minimize exposure; residual
   deltas are found by the suite, fixed honestly, and recorded.
