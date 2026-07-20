@@ -244,7 +244,9 @@ export function buildAnthropicRequest(
 }
 
 function acceptsAnthropicTemperature(model: string): boolean {
-	return model !== "claude-opus-4-7" && !model.startsWith("claude-opus-4-7-");
+	if (model === "claude-opus-4-7" || model.startsWith("claude-opus-4-7-")) return false;
+	if (model === "claude-sonnet-5" || model.startsWith("claude-sonnet-5-")) return false;
+	return true;
 }
 
 interface AnthropicCacheSettings {
