@@ -2,7 +2,7 @@
 
 **Date started:** 2026-07-20
 **Spec:** `../specs/2026-07-20-quickjs-wasm-cell-engine-design.md`
-**Status:** in progress — P1 complete (Fable-reviewed, findings fixed); P2 next
+**Status:** in progress — P1 and P2 complete (both Fable-reviewed, findings fixed); P3 next
 **Branch:** built on `sap-completion-roadmap`, merges together with the completion work
 (Jesse, 2026-07-20: "build and merge together").
 
@@ -80,11 +80,17 @@ adversarial Fable review in fresh context → fix findings → commit → update
     stumble, uncaught-infra test must be `infrastructure: true`); scoped disposal everywhere;
     debug-variant leak test; generation guard; timer teardown.
   - Full cell suite green under both engines. Fable review.
-- [ ] **P2 — Hard caps.** Memory limit from `DEFAULT_CELL_MEMORY_BUDGET_BYTES` (allocation-fail
-  typed error; test asserts worker stays alive — absolute terms, survives P3); interrupt-driven
-  deadline honoring the parked-time rule (`outstandingAmbient === 0` accrual parity); max
-  stack; watchdog threshold raised above the inner cap (cap + measured worker-baseline
-  headroom); budget-clock parity tests. Fable review.
+- [x] **P2 — Hard caps.** DONE (commits bfc412c caps, 1192160 review fixes). Memory cap is the
+  wasm linear-memory MAXIMUM (upstream `setMemoryLimit` doesn't enforce cumulative growth —
+  see Deviations); OOM is a cell STUMBLE, not infrastructure (a deliberate reclassification —
+  see Deviations). Interrupt-driven deadline honors the parked-time rule, with a host-side
+  wall-clock deadline timer covering timer-sleep (the interrupt only sees running bytecode);
+  `deadlineHit` override is non-forgeable/unswallowable (infrastructure, mirroring the parent
+  kill). Explicit 1 MB max stack. RSS watchdog kills at cap + 256 MB measured headroom under
+  quickjs, unchanged under vm. 10 hard-cap tests + parity tests; full suite 4136 green.
+  Fable review: found HIGH-1 (timer-callback deadline/OOM crashed the worker), HIGH-2
+  (marshal-in glue-malloc trap crashed the worker), MED-3 (timer-sleep escaped the deadline),
+  MED-4 (>2 GiB budget bricked the subsystem) — all fixed in 1192160.
 - [ ] **P3 — Adversarial containment + cutover.** Escape-probe suite for the new boundary
   (constructor-chain, intrinsic tampering, marshaling edges, allocation/interrupt bypass);
   live keystone canary + code-mode-cannot-exec on real payload bytes under QuickJS; perf
@@ -114,3 +120,36 @@ adversarial Fable review in fresh context → fix findings → commit → update
 - **Worker guards engine throws** as `infrastructure: true` results (new failure mode the vm
   engine could not produce: wasm-load failure, engine bug). Same classification inside
   `pump()`, which runs from detached callbacks the worker guard cannot see.
+
+### P2 deviations
+
+- **Memory cap is the wasm linear-memory MAXIMUM, not `setMemoryLimit`.** The spec assumed a
+  byte-precise per-runtime allocation limit; upstream (quickjs-emscripten 0.32) `setMemoryLimit`
+  only rejects a SINGLE allocation larger than the limit and does NOT track cumulative growth
+  (verified twice: 20k live 1 KB strings = 21 MB sail past an 8 MB limit). The real cap is a
+  `WebAssembly.Memory` whose `maximum` the allocator cannot grow past. `setMemoryLimit` is
+  retained as the single-shot fast path. Granularity is honest-not-byte-exact: the cell also
+  gets the < 16 MB initial-heap slack. Cap clamped to the variant's declared max (2 GiB =
+  32768 pages) so an over-large budget pins at 2 GiB instead of a LinkError.
+- **OOM is a cell STUMBLE, not infrastructure** (reclassification). Under vm, OOM surfaced as
+  the RSS-watchdog SIGKILL → infrastructure → zero stumbles; that was an accident of the
+  guard's position. A cell exhausting its memory budget is genome behavior the learn loop
+  should see. Preserving the old classification would require message-based infra tagging,
+  which is FORGEABLE (QuickJS exposes `InternalError`/`out of memory` to cell code). The
+  DEADLINE stays infrastructure (host-owned `deadlineHit`, non-forgeable).
+- **Timer-callback errors fail the CELL, not the worker** (better-than-vm). vm's detached host
+  timer crashes the worker on a throw (death + respawn; also a stumble-laundering vector).
+  QuickJS holds the callback's error value, so a throw/OOM in a timer fails the cell as a
+  stumble and a deadline ends it typed — worker survives. Safe because teardown cancels timers
+  at cell end, so a timer only ever fires within its own cell.
+- **Host-side wall-clock deadline timer** added alongside the interpreter-step interrupt: the
+  interrupt only fires during running bytecode, so a cell idling on a long timer sleep would
+  otherwise escape the deadline until the timer fired (bounded only by the parent SIGKILL).
+- **Marshal-in trap → module discard.** A wasm OOB trap in the emscripten glue `_malloc`
+  (marshalling a large ambient result into a near-cap heap) poisons the module so thoroughly
+  that even disposal traps. The engine catches it, finishes the cell as a typed OOM stumble,
+  and discards the module (teardown skips all interpreter disposal); the next cell rebuilds a
+  clean instance. Verified a fresh module works after the trap.
+- **No global module sharing.** Each engine instance owns its module (rebuilt when the cell's
+  memory cap changes) — the cap is a property of the wasm instance, and an uncapped first cell
+  must not silently disable a later cell's cap.
