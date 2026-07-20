@@ -8,7 +8,13 @@ import { createReadOnlyGenome } from "../genome/read-only-genome.ts";
 import { LocalExecutionEnvironment } from "../kernel/execution-env.ts";
 import { createPrimitiveRegistry } from "../kernel/primitives.ts";
 import type { AgentSpec, ModelRef } from "../kernel/types.ts";
-import { LearnProcess } from "../learn/learn-process.ts";
+import { exampleCanaries } from "../learn/canary-suite.ts";
+import { pinnedEvalTasks } from "../learn/eval-tasks.ts";
+import { LearnProcess, type MutationGate } from "../learn/learn-process.ts";
+import {
+	createSnapshotMutationGate,
+	type SnapshotMutationGateBuilders,
+} from "../learn/live-mutation-gate.ts";
 import { MetricsStore } from "../learn/metrics-store.ts";
 import { Client } from "../llm/client.ts";
 import type { Message } from "../llm/types.ts";
@@ -62,6 +68,15 @@ export interface CreateAgentOptions {
 	logger?: import("../core/logger.ts").Logger;
 	/** Per-project data directory (sessions, logs, memory). Defaults to genomePath. */
 	projectDataDir?: string;
+	/**
+	 * Host-composed builders for the live mutation gate (LiveTaskExecutor needs
+	 * host infrastructure this layer must not import). Builders alone do NOT
+	 * enable gating: the gate is constructed only when `SPROUT_MUTATION_GATE=1`
+	 * (opt-in — live gating costs N real model runs per proposed mutation;
+	 * `SPROUT_MUTATION_GATE_RUNS` overrides N, default 10). With the flag unset,
+	 * behavior is identical to the ungated legacy path.
+	 */
+	mutationGateBuilders?: SnapshotMutationGateBuilders;
 }
 
 export interface CreateAgentResult {
@@ -97,6 +112,37 @@ When delegating:
 - Treat "ask the user to run this" as failure unless there is a real missing capability or permission boundary.
 `,
 	};
+}
+
+/** Default runs per arm for the live mutation gate (`SPROUT_MUTATION_GATE_RUNS`). */
+const DEFAULT_MUTATION_GATE_RUNS = 10;
+
+/**
+ * Construct the live adoption chokepoint when explicitly enabled. Opt-in via
+ * `SPROUT_MUTATION_GATE=1` AND host-supplied builders; otherwise undefined and
+ * LearnProcess takes the legacy ungated path (quartermaster inert).
+ */
+function resolveMutationGate(options: CreateAgentOptions): MutationGate | undefined {
+	if (process.env.SPROUT_MUTATION_GATE !== "1") return undefined;
+	if (!options.mutationGateBuilders) {
+		console.error(
+			"SPROUT_MUTATION_GATE=1 but no mutation-gate builders were supplied; mutations stay ungated",
+		);
+		return undefined;
+	}
+	const rawRuns = process.env.SPROUT_MUTATION_GATE_RUNS;
+	const runs = rawRuns ? Number(rawRuns) : DEFAULT_MUTATION_GATE_RUNS;
+	if (!Number.isInteger(runs) || runs < 1) {
+		throw new Error(`SPROUT_MUTATION_GATE_RUNS must be a positive integer, got '${rawRuns}'`);
+	}
+	return createSnapshotMutationGate({
+		liveGenomePath: options.genomePath,
+		buildExecutor: options.mutationGateBuilders.buildExecutor,
+		buildCanaryHarness: options.mutationGateBuilders.buildCanaryHarness,
+		tasks: pinnedEvalTasks,
+		canaries: exampleCanaries,
+		runs,
+	});
 }
 
 async function hasGenomeRepo(genomePath: string): Promise<boolean> {
@@ -198,9 +244,11 @@ export async function createAgent(options: CreateAgentOptions): Promise<CreateAg
 	const metrics = new MetricsStore(join(options.genomePath, "metrics", "metrics.jsonl"));
 	await metrics.load();
 	const pendingEvaluationsPath = join(options.genomePath, "metrics", "pending-evaluations.json");
+	const mutationGate = resolveMutationGate(options);
 	const learnProcess = options.evalMode
 		? null
 		: new LearnProcess({
+				mutationGate,
 				genome,
 				metrics,
 				events,

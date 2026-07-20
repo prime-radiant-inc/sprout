@@ -53,13 +53,15 @@ interface Args {
 	genome?: string;
 	cwd?: string;
 	help: boolean;
+	armOnly: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
-	const args: Args = { smoke: false, runs: 5, tier: "fast", help: false };
+	const args: Args = { smoke: false, runs: 5, tier: "fast", help: false, armOnly: false };
 	for (let i = 0; i < argv.length; i++) {
 		const a = argv[i];
 		if (a === "--smoke") args.smoke = true;
+		else if (a === "--arm-only") args.armOnly = true;
 		else if (a === "--runs") args.runs = Number(argv[++i]);
 		else if (a === "--tier") args.tier = argv[++i] as Tier;
 		else if (a === "--genome") args.genome = argv[++i];
@@ -77,6 +79,11 @@ const HELP = `eval-sap.ts — live N-run pinned-snapshot eval harness
   --smoke   one cheap sap task + keystone canary (proves the live path)
   --runs N  runs per task for the full A/B (default 5)
   --tier    model tier to force (default fast)
+
+  Related: SPROUT_MUTATION_GATE=1 enables LIVE gating of Learn mutations in
+  normal sessions (snapshot + N-run A/B + canaries per proposed mutation;
+  SPROUT_MUTATION_GATE_RUNS sets N, default 10). Off by default — it costs
+  real model runs.
 `;
 
 function log(line = ""): void {
@@ -121,7 +128,7 @@ async function main(): Promise<void> {
 			await runSmoke(executorConfig, snapshot);
 			return;
 		}
-		await runFull(executorConfig, snapshot, args.runs);
+		await runFull(executorConfig, snapshot, args.runs, args.armOnly);
 	} finally {
 		await snapshot.cleanup();
 		await rm(workDir, { recursive: true, force: true });
@@ -166,6 +173,7 @@ async function runFull(
 	executorConfig: LiveTaskExecutorConfig,
 	snapshot: Awaited<ReturnType<typeof createEvalSnapshot>>,
 	runs: number,
+	armOnly = false,
 ): Promise<void> {
 	log(`\n=== FULL: ${pinnedEvalTasks.length} pinned tasks x ${runs} runs ===`);
 	const executor = new LiveTaskExecutor(executorConfig);
@@ -182,6 +190,14 @@ async function runFull(
 		log(
 			`  ${label}: samples=${arm.runs.length} meanStumbles=${mean.toFixed(3)} passRate=${report.passRateByTier[tier].toFixed(3)}`,
 		);
+	}
+	for (const s of report.samples) {
+		log(`  sample ${s.tier}/${s.taskId}#${s.run}: passed=${s.passed} stumbles=${s.stumbles}${s.detail ? ` (${s.detail})` : ""}`);
+	}
+
+	if (armOnly) {
+		log("\n=== arm-only: skipping self-A/B and canary suite (cost reduction) ===");
+		return;
 	}
 
 	// Identical-arm A/B sanity: same snapshot both arms must NOT be significant.

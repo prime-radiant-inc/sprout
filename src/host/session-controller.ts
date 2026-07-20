@@ -15,10 +15,14 @@ import { collapseSessionToMemory } from "../core/session-collapse.ts";
 import type { Genome } from "../genome/genome.ts";
 import { detectProjectFromCwd } from "../genome/projects.ts";
 import type { Command, EventKind, ModelRef, SessionEvent } from "../kernel/types.ts";
+import { createLiveCanaryHarness } from "../learn/canary-live-harness.ts";
+import type { SnapshotMutationGateBuilders } from "../learn/live-mutation-gate.ts";
+import { LiveTaskExecutor } from "../learn/live-task-executor.ts";
 import type { Client } from "../llm/client.ts";
 import type { Message, ProviderModel } from "../llm/types.ts";
 import type { SessionSelectionRequest } from "../shared/session-selection.ts";
 import { ulid } from "../util/ulid.ts";
+import { startBusInfrastructure } from "./cli-shared.ts";
 import { compactHistory } from "./compaction.ts";
 import type { SessionBus } from "./event-bus.ts";
 import { ObserverRegistry } from "./observer-registry.ts";
@@ -246,6 +250,21 @@ export interface SessionRunResult {
  * Default factory that delegates to createAgent from the agents module.
  * Relays events from the agent's AgentEventEmitter to the SessionBus.
  */
+/**
+ * Compose the host-side builders the live mutation gate needs — the factory
+ * (agents layer) constructs the gate itself when `SPROUT_MUTATION_GATE=1`, but
+ * the LiveTaskExecutor requires host bus infrastructure the agents layer must
+ * not import, so the builders are composed here and injected.
+ */
+function createLiveMutationGateBuilders(rootDir: string): SnapshotMutationGateBuilders {
+	return {
+		buildExecutor: (_snapshotPath, workDir) =>
+			new LiveTaskExecutor({ rootDir, workDir, startBusInfrastructure }),
+		buildCanaryHarness: (executor, snapshot, workDir) =>
+			createLiveCanaryHarness({ executor, snapshot, workDir }),
+	};
+}
+
 async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactoryResult> {
 	const agentEvents = new AgentEventEmitter();
 
@@ -300,6 +319,10 @@ async function defaultFactory(options: AgentFactoryOptions): Promise<AgentFactor
 		nonInteractive: options.nonInteractive,
 		logger: options.logger,
 		client: options.client,
+		mutationGateBuilders:
+			process.env.SPROUT_MUTATION_GATE === "1" && options.rootDir
+				? createLiveMutationGateBuilders(options.rootDir)
+				: undefined,
 	});
 	const collapseModels =
 		options.evalMode || isVcrReplayClient(result.client)

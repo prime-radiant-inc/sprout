@@ -85,6 +85,64 @@ export interface MutationGate {
 
 const MEMORY_EXTRACTION_MUTATION_TYPE = "memory_extraction";
 
+/**
+ * Apply a structured mutation's genome operations to the given genome. Shared
+ * between the live adoption path (LearnProcess.applyMutation, which adds
+ * bookkeeping) and the snapshot mutation gate (live-mutation-gate.ts, which
+ * applies the candidate mutation to an isolated snapshot copy).
+ */
+export async function applyMutationToGenome(
+	genome: Genome,
+	mutation: LearnMutation,
+): Promise<void> {
+	switch (mutation.type) {
+		case "update_agent": {
+			const existing = genome.getAgent(mutation.agent_name);
+			if (!existing) {
+				throw new Error(`Cannot update agent '${mutation.agent_name}': not found`);
+			}
+			await genome.updateAgent({
+				...existing,
+				system_prompt: mutation.system_prompt,
+			});
+			break;
+		}
+		case "create_agent": {
+			validateAgentName(mutation.name);
+			await genome.addAgent({
+				name: mutation.name,
+				description: mutation.description,
+				system_prompt: mutation.system_prompt,
+				model: mutation.model,
+				tools: mutation.tools,
+				agents: mutation.agents,
+				constraints: { ...DEFAULT_CONSTRAINTS, can_spawn: false },
+				tags: mutation.tags,
+				version: 1,
+			});
+			break;
+		}
+		case "create_routing_rule": {
+			await genome.addRoutingRule({
+				id: `learn-rule-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+				condition: mutation.condition,
+				preference: mutation.preference,
+				strength: mutation.strength,
+				source: "learn",
+			});
+			break;
+		}
+		case "create_program": {
+			await genome.addProgram(mutation.program);
+			break;
+		}
+		case "retire_program": {
+			await genome.removeProgram(mutation.program_name);
+			break;
+		}
+	}
+}
+
 export interface PendingEvaluation {
 	agentName: string;
 	mutationType: string;
@@ -205,6 +263,11 @@ export class LearnProcess {
 				error: String(err),
 			});
 		});
+	}
+
+	/** Whether the frozen adoption chokepoint is wired (gated adoption active). */
+	hasMutationGate(): boolean {
+		return this.mutationGate !== undefined;
 	}
 
 	/** Return a copy of all pending evaluations. */
@@ -651,54 +714,8 @@ Choose the most appropriate non-memory improvement. Use skip for factual learnin
 	/** Apply a structured mutation to the genome. */
 	async applyMutation(mutation: LearnMutation): Promise<void> {
 		const now = Date.now();
-		const random = Math.random().toString(36).slice(2, 8);
 
-		switch (mutation.type) {
-			case "update_agent": {
-				const existing = this.genome.getAgent(mutation.agent_name);
-				if (!existing) {
-					throw new Error(`Cannot update agent '${mutation.agent_name}': not found`);
-				}
-				await this.genome.updateAgent({
-					...existing,
-					system_prompt: mutation.system_prompt,
-				});
-				break;
-			}
-			case "create_agent": {
-				validateAgentName(mutation.name);
-				await this.genome.addAgent({
-					name: mutation.name,
-					description: mutation.description,
-					system_prompt: mutation.system_prompt,
-					model: mutation.model,
-					tools: mutation.tools,
-					agents: mutation.agents,
-					constraints: { ...DEFAULT_CONSTRAINTS, can_spawn: false },
-					tags: mutation.tags,
-					version: 1,
-				});
-				break;
-			}
-			case "create_routing_rule": {
-				await this.genome.addRoutingRule({
-					id: `learn-rule-${now}-${random}`,
-					condition: mutation.condition,
-					preference: mutation.preference,
-					strength: mutation.strength,
-					source: "learn",
-				});
-				break;
-			}
-			case "create_program": {
-				await this.genome.addProgram(mutation.program);
-				break;
-			}
-			case "retire_program": {
-				await this.genome.removeProgram(mutation.program_name);
-				break;
-			}
-		}
+		await applyMutationToGenome(this.genome, mutation);
 
 		const commitHash = await this.genome.lastCommitHash();
 
